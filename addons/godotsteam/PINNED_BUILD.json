@@ -1,0 +1,65 @@
+{
+  "engine": "4.7.2.stable.official.ed1daf0bf",
+  "godotsteam": "4.22.1",
+  "steamworks": "1.65",
+  "compatibility_minimum": "4.4",
+  "release": "https://codeberg.org/godotsteam/godotsteam/releases/tag/v4.22.1-gde",
+  "archive": "https://codeberg.org/godotsteam/godotsteam/releases/download/v4.22.1-gde/godotsteam-4.22.1-gdextension-plugin-4.4.zip",
+  "archive_sha256": "2b12b3499434c50da16104a0d22b725aee15cc5cd41223c1cea825bae59bfa8f",
+  "platforms": [
+    "macOS universal",
+    "Windows x86_64",
+    "Linux x86_64",
+    "Linux arm64"
+  ],
+  "files": {
+    "linux64/libgodotsteam.linux.template_debug.x86_64.so": {
+      "sha256": "7d2d5e574390d66b4178b830a256031f9948ba37b1f00051ca8d28c359d39760",
+      "bytes": 4955864
+    },
+    "linux64/libgodotsteam.linux.template_release.x86_64.so": {
+      "sha256": "7aaa02843e5bdb8bfec52cf43dab949663ff38255116956db51f438ec6a95cbe",
+      "bytes": 4594136
+    },
+    "linux64/libsteam_api.so": {
+      "sha256": "659127fd3c36788162149006efb607ae24c08b7264259c7af52c806fa40c2b4f",
+      "bytes": 385840
+    },
+    "linuxarm64/libgodotsteam.linux.template_debug.arm64.so": {
+      "sha256": "66b05b79aa4583cc1e8982f4ba3ef72954cfa865e35148ebeb2f5813b892d141",
+      "bytes": 4865776
+    },
+    "linuxarm64/libgodotsteam.linux.template_release.arm64.so": {
+      "sha256": "a8e8ac5af95df2f3b2a46459aeedc44343828f66871fbce809b40bf444e01b2e",
+      "bytes": 4536768
+    },
+    "linuxarm64/libsteam_api.so": {
+      "sha256": "eae3df623fd1e614c995d06a123ef7e961fb1fa5087392f8ea628bff9e7f56ad",
+      "bytes": 390376
+    },
+    "osx/libgodotsteam.macos.template_debug.universal.dylib": {
+      "sha256": "c477a149875324dc3bfbe17579c6064a49b5386c3afd86e0a26d4c89de3132e0",
+      "bytes": 6682929
+    },
+    "osx/libgodotsteam.macos.template_release.universal.dylib": {
+      "sha256": "9392658049a230969ae0ea05199abf098f7b00d434e0b3f9dafa62446e5d13ad",
+      "bytes": 5973265
+    },
+    "osx/libsteam_api.dylib": {
+      "sha256": "ac6aca01a62b9ddfb8240fcc4ebdefab3d6b97da1ba3bbc87ff89b03369cc870",
+      "bytes": 428960
+    },
+    "win64/libgodotsteam.windows.template_debug.x86_64.dll": {
+      "sha256": "da20924a9d29085c2256988b67de47003835910316712302e208e31c00f24b96",
+      "bytes": 4304384
+    },
+    "win64/libgodotsteam.windows.template_release.x86_64.dll": {
+      "sha256": "b7a6316bb866691d01d311e181b76b0fe0c38602913725d1589083bee1db7f26",
+      "bytes": 3961344
+    },
+    "win64/steam_api64.dll": {
+      "sha256": "8de54d32508e216c9135b8bf025749243d44e404c1c22a8e5fe35acecabe7a9c",
+      "bytes": 319128
+    }
+  }
+}

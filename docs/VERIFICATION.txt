@@ -1,0 +1,11 @@
+Command: python3 tools/run_checks.py
+
+Engine: 4.7.2.stable.official.ed1daf0bf
+Combat/content: 987 assertions, 0 failures
+Run authority: 154 checks, 0 failures
+Services: 55 assertions, 0 failures
+Network authority: 23 checks, 0 failures
+UI integration: 32 checks, 0 failures
+Real autosave regression: postcombat die purchase, swap, shape reduction, reload and restore checked.
+Starting-loadout smoke: 12 completed samples, 1266 commands, 0 errors
+All Godot scenario suites passed.

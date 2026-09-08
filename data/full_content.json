@@ -1,0 +1,810 @@
+{
+	"content_version": "1.0.0",
+	"dice": {
+		"D10": {
+			"faces": [
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10
+			],
+			"name": "D10",
+			"price": 10,
+			"shape": "D10"
+		},
+		"D12": {
+			"faces": [
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12
+			],
+			"name": "D12",
+			"price": 12,
+			"shape": "D12"
+		},
+		"D20": {
+			"faces": [
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20
+			],
+			"name": "D20",
+			"price": 16,
+			"shape": "D20"
+		},
+		"D4": {
+			"faces": [
+				1,
+				2,
+				3,
+				4
+			],
+			"name": "D4",
+			"price": 4,
+			"shape": "D4"
+		},
+		"D6": {
+			"faces": [
+				1,
+				2,
+				3,
+				4,
+				5,
+				6
+			],
+			"name": "D6",
+			"price": 6,
+			"shape": "D6"
+		},
+		"D8": {
+			"faces": [
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8
+			],
+			"name": "D8",
+			"price": 8,
+			"shape": "D8"
+		},
+		"EVEN_D6": {
+			"faces": [
+				1,
+				2,
+				4,
+				4,
+				4,
+				6
+			],
+			"name": "Even Die",
+			"price": 8,
+			"shape": "D6"
+		},
+		"ODD_D6": {
+			"faces": [
+				1,
+				1,
+				3,
+				5,
+				5,
+				6
+			],
+			"name": "Odd Die",
+			"price": 8,
+			"shape": "D6"
+		},
+		"PAIRED_D6": {
+			"faces": [
+				1,
+				1,
+				2,
+				5,
+				6,
+				6
+			],
+			"name": "Paired Die",
+			"price": 8,
+			"shape": "D6"
+		},
+		"SEVEN_D8": {
+			"faces": [
+				1,
+				2,
+				3,
+				4,
+				5,
+				7,
+				7,
+				7
+			],
+			"name": "Seven Die",
+			"price": 14,
+			"shape": "D8"
+		},
+		"SPLIT_D12": {
+			"faces": [
+				1,
+				1,
+				2,
+				3,
+				4,
+				5,
+				8,
+				9,
+				10,
+				11,
+				12,
+				12
+			],
+			"name": "Split Die",
+			"price": 16,
+			"shape": "D12"
+		},
+		"SPLIT_D20": {
+			"faces": [
+				1,
+				2,
+				3,
+				4,
+				5,
+				5,
+				6,
+				6,
+				7,
+				7,
+				14,
+				14,
+				15,
+				15,
+				16,
+				16,
+				17,
+				18,
+				19,
+				20
+			],
+			"name": "Rift Die",
+			"price": 22,
+			"shape": "D20"
+		}
+	},
+	"enemies": {
+		"DARTLING": {
+			"block": 0,
+			"description": "Barbed Dart adds 2 Poison if its hand has a pair.",
+			"dice": [
+				"D4",
+				"D4",
+				"D4"
+			],
+			"max_hp": 16,
+			"name": "Dartling",
+			"threat": 1
+		},
+		"GEM_CULTIST": {
+			"block": 0,
+			"description": "Restores the ally missing most HP when at least 5 HP is missing; otherwise attacks.",
+			"dice": [
+				"D8",
+				"D8"
+			],
+			"max_hp": 22,
+			"name": "Gem Cultist",
+			"threat": 1
+		},
+		"IRON_WARDEN": {
+			"block": 12,
+			"description": "Alternates Fortify (self and group block) and Hammer.",
+			"dice": [
+				"D6",
+				"D8",
+				"D10"
+			],
+			"max_hp": 48,
+			"name": "Iron Warden",
+			"threat": 2
+		},
+		"MIRROR_REGENT": {
+			"block": 8,
+			"boss": true,
+			"description": "Refraction → Shatter → Mending Glass. Below half HP: Refraction → Shatter. Resolve protects two slots after a stun skip.",
+			"dice": [],
+			"max_hp": 75,
+			"name": "Mirror Regent"
+		},
+		"MIRROR_WISP": {
+			"block": 0,
+			"description": "Reflection deals +4 if the target keeps its marked value.",
+			"dice": [
+				"D6",
+				"D6"
+			],
+			"max_hp": 18,
+			"name": "Mirror Wisp",
+			"threat": 1
+		},
+		"RED_SLIME": {
+			"block": 10,
+			"description": "Stronger Strike, then Heal every turn.",
+			"dice": [
+				"D10",
+				"D10",
+				"D10"
+			],
+			"max_hp": 30,
+			"name": "Red Slime",
+			"threat": 2
+		},
+		"RIFT_HOUND": {
+			"block": 0,
+			"description": "Alternates Track and Pounce, targeting the hero with least block.",
+			"dice": [
+				"D4",
+				"D8",
+				"D12"
+			],
+			"max_hp": 28,
+			"name": "Rift Hound",
+			"threat": 1
+		},
+		"RIFT_SOVEREIGN": {
+			"block": 0,
+			"boss": true,
+			"description": "High Tide → Low Tide → Eclipse. At 40% HP: High Tide and Low Tide each turn; safe total 19–23. Has Resolve.",
+			"dice": [],
+			"max_hp": 100,
+			"name": "Rift Sovereign"
+		},
+		"SLIME": {
+			"block": 0,
+			"description": "Strike, then Heal every turn.",
+			"dice": [
+				"D10",
+				"D10"
+			],
+			"max_hp": 20,
+			"name": "Slime",
+			"threat": 1
+		},
+		"SLIME_KING": {
+			"block": 0,
+			"boss": true,
+			"description": "Slam → Fortify → Absorb. Resolve: after a stun skip, immune to external stun for two slots.",
+			"dice": [],
+			"max_hp": 60,
+			"name": "Slime King"
+		},
+		"STONE_CRAB": {
+			"block": 6,
+			"description": "Alternates Shell Up (block) and Claw (attack).",
+			"dice": [
+				"D6",
+				"D6"
+			],
+			"max_hp": 26,
+			"name": "Stone Crab",
+			"threat": 1
+		}
+	},
+	"events": {
+		"ABANDONED_CACHE": {
+			"description": "Take 6 gold, or lose 8 HP for the displayed gem with +2 Carat. Requires more than 8 HP.",
+			"name": "Abandoned Cache"
+		},
+		"ECHO_SHRINE": {
+			"description": "Take 5 gold, or replace one D6's faces with Paired, Odd, or Even faces.",
+			"name": "Echo Shrine"
+		},
+		"FIELD_MEDIC": {
+			"description": "Take 4 gold, or pay 8 gold to recover 20% maximum HP (rounded up).",
+			"name": "Field Medic"
+		},
+		"JEWEL_BROKER": {
+			"description": "Take 4 gold, or exchange one reserve gem for one of three displayed gems.",
+			"name": "Jewel Broker"
+		}
+	},
+	"heroes": {
+		"ARDOR": {
+			"color": "ec9d62",
+			"description": "Gain 2 block at the start of your turn when your final hand contains a pair.",
+			"dice": [
+				"D6",
+				"D6",
+				"D6",
+				"D8",
+				"D8"
+			],
+			"max_hp": 100,
+			"name": "Ardor",
+			"starting_gems": [
+				[
+					"STRIKE",
+					1
+				],
+				[
+					"BLOCK",
+					2
+				],
+				[
+					"INTERPOSE",
+					1
+				]
+			],
+			"trait": "STAND_FIRM",
+			"trait_name": "Stand Firm"
+		},
+		"KAIT": {
+			"color": "9fd08b",
+			"description": "Gain 3 block when a die finishes at least 4 higher than its initial value this turn.",
+			"dice": [
+				"D4",
+				"D4",
+				"D4",
+				"D4",
+				"D20"
+			],
+			"max_hp": 70,
+			"name": "Kait",
+			"starting_gems": [
+				[
+					"STRIKE",
+					2
+				],
+				[
+					"BLOCK",
+					1
+				],
+				[
+					"SUNDER",
+					1
+				]
+			],
+			"trait": "CALCULATED_RISK",
+			"trait_name": "Calculated Risk"
+		},
+		"MAX": {
+			"color": "9dabed",
+			"description": "Once per encounter, reroll one die without spending your normal reroll.",
+			"dice": [
+				"D4",
+				"D6",
+				"D6",
+				"D8",
+				"D12"
+			],
+			"max_hp": 80,
+			"name": "Max",
+			"starting_gems": [
+				[
+					"STRIKE",
+					1
+				],
+				[
+					"BLOCK",
+					1
+				],
+				[
+					"ARC_BURST",
+					1
+				]
+			],
+			"trait": "SECOND_THOUGHT",
+			"trait_name": "Second Thought"
+		}
+	},
+	"pack_id": "full",
+	"profiles": {
+		"expedition_18": {
+			"acts": 3,
+			"boss_ids": [
+				"SLIME_KING",
+				"MIRROR_REGENT",
+				"RIFT_SOVEREIGN"
+			],
+			"combat_gold_cap": [
+				8,
+				12,
+				16
+			],
+			"loot_generator": "act_tier_v1",
+			"relic_ids": [
+				"MATCHBOX",
+				"STEADY_HAND",
+				"FIELD_DRESSING",
+				"MINERS_LANTERN",
+				"FOCUSING_PRISM",
+				"MERCHANT_SEAL",
+				"TINKERS_BELT",
+				"LASTING_AEGIS"
+			],
+			"rooms": 18,
+			"skill_ids": [
+				"ARC_BURST",
+				"BLESSING",
+				"BLOCK",
+				"BULWARK",
+				"DRAINSTRIKE",
+				"EVEN_TEMPO",
+				"HEAL",
+				"HEAVYSTRIKE",
+				"INTERPOSE",
+				"LIFELINE",
+				"LUCKYSTRIKE",
+				"MEND",
+				"MULTISTRIKE",
+				"PRECISION",
+				"SHIELDBASH",
+				"STRIKE",
+				"STUN",
+				"SUNDER",
+				"VENOM"
+			]
+		},
+		"short_9": {
+			"acts": 1,
+			"boss_ids": [
+				"SLIME_KING"
+			],
+			"combat_gold_cap": [
+				8
+			],
+			"loot_generator": "depth_luck_v1",
+			"relic_ids": [
+				"MATCHBOX",
+				"STEADY_HAND",
+				"FIELD_DRESSING",
+				"MINERS_LANTERN"
+			],
+			"rooms": 9,
+			"skill_ids": [
+				"ARC_BURST",
+				"BLESSING",
+				"BLOCK",
+				"BULWARK",
+				"DRAINSTRIKE",
+				"HEAL",
+				"HEAVYSTRIKE",
+				"INTERPOSE",
+				"LUCKYSTRIKE",
+				"MEND",
+				"MULTISTRIKE",
+				"SHIELDBASH",
+				"STRIKE",
+				"STUN",
+				"SUNDER"
+			]
+		}
+	},
+	"relics": {
+		"FIELD_DRESSING": {
+			"description": "Your first positive ordinary heal to an injured recipient each turn gains +2 healing.",
+			"name": "Field Dressing"
+		},
+		"FOCUSING_PRISM": {
+			"description": "Straight skills use +1 effective Clarity, up to 5.",
+			"name": "Focusing Prism"
+		},
+		"LASTING_AEGIS": {
+			"description": "Carry up to 6 remaining block from a won battle into the next. Unequipping discards stored block.",
+			"name": "Lasting Aegis"
+		},
+		"MATCHBOX": {
+			"description": "Your Block gem grants +2 block once per actor turn.",
+			"name": "Matchbox"
+		},
+		"MERCHANT_SEAL": {
+			"description": "Gain +3 gold from each normal or elite battle reward.",
+			"name": "Merchant's Seal"
+		},
+		"MINERS_LANTERN": {
+			"description": "Gain 2 extra mining energy while alive.",
+			"name": "Miner's Lantern"
+		},
+		"STEADY_HAND": {
+			"description": "Strike deals +2 raw damage when no die was rerolled this turn.",
+			"name": "Steady Hand"
+		},
+		"TINKERS_BELT": {
+			"description": "Your first Workshop service each act is free. One service per visit.",
+			"name": "Tinker's Belt"
+		}
+	},
+	"schema_version": 1,
+	"skills": {
+		"ARC_BURST": {
+			"evaluator_id": "ARC_BURST",
+			"formula": "Damage (highest value of chosen straight + C) × M(L) to up to K+1 distinct enemies. Extra targets do not add hits on a single boss.",
+			"name": "Arc Burst",
+			"rarity": 2,
+			"tags": [
+				"straight",
+				"attack",
+				"group"
+			],
+			"target": "enemies",
+			"trigger": "Straight of 3"
+		},
+		"BLESSING": {
+			"evaluator_id": "BLESSING",
+			"formula": "Gain C gold, then self heal K × M(L).",
+			"name": "Blessing",
+			"rarity": 3,
+			"tags": [
+				"straight",
+				"heal",
+				"gold"
+			],
+			"target": "self",
+			"trigger": "Straight of 3"
+		},
+		"BLOCK": {
+			"evaluator_id": "BLOCK",
+			"formula": "Self block (highest pair value × K + C) × M(L).",
+			"name": "Block",
+			"rarity": 1,
+			"tags": [
+				"pair",
+				"block"
+			],
+			"target": "self",
+			"trigger": "Any pair"
+		},
+		"BULWARK": {
+			"evaluator_id": "BULWARK",
+			"formula": "Carat grants 10–300 block; self-stun at Cut 1–5: 3/2/2/1/0.",
+			"name": "Bulwark",
+			"rarity": 3,
+			"tags": [
+				"low",
+				"block"
+			],
+			"target": "self",
+			"trigger": "Total ≤ 18+2L (20/22/24/26/28)"
+		},
+		"DRAINSTRIKE": {
+			"evaluator_id": "DRAINSTRIKE",
+			"formula": "Damage H × K, then self heal C.",
+			"name": "Drain Strike",
+			"rarity": 4,
+			"tags": [
+				"high",
+				"attack",
+				"heal"
+			],
+			"target": "enemy",
+			"trigger": "Total ≥ 45−5L"
+		},
+		"EVEN_TEMPO": {
+			"evaluator_id": "EVEN_TEMPO",
+			"formula": "Self block (even result count × K + C) × M(L); damage C+K.",
+			"name": "Even Tempo",
+			"rarity": 2,
+			"tags": [
+				"even",
+				"attack",
+				"block"
+			],
+			"target": "enemy",
+			"trigger": "At least three even results"
+		},
+		"HEAL": {
+			"evaluator_id": "HEAL",
+			"formula": "Self heal (lowest K dice + C) × M(L).",
+			"name": "Heal",
+			"rarity": 2,
+			"tags": [
+				"heal"
+			],
+			"target": "self",
+			"trigger": "Always"
+		},
+		"HEAVYSTRIKE": {
+			"evaluator_id": "HEAVYSTRIKE",
+			"formula": "Damage (highest triple value × K + C) × M(L).",
+			"name": "Heavy Strike",
+			"rarity": 1,
+			"tags": [
+				"triple",
+				"attack"
+			],
+			"target": "enemy",
+			"trigger": "At least three matching values"
+		},
+		"INTERPOSE": {
+			"evaluator_id": "INTERPOSE",
+			"formula": "Ally block (highest pair value + C + K−1) × M(L).",
+			"name": "Interpose",
+			"rarity": 1,
+			"tags": [
+				"pair",
+				"support",
+				"block"
+			],
+			"target": "ally",
+			"trigger": "Any pair"
+		},
+		"LIFELINE": {
+			"evaluator_id": "LIFELINE",
+			"formula": "Once per encounter revive a downed ally for C+3K HP; otherwise heal a living ally C+K. Revived allies act next turn.",
+			"name": "Lifeline",
+			"rarity": 4,
+			"tags": [
+				"straight",
+				"support",
+				"heal",
+				"revive"
+			],
+			"target": "revive",
+			"trigger": "Straight: 5 at L1–2; 4 at L3–4; 3 at L5"
+		},
+		"LUCKYSTRIKE": {
+			"evaluator_id": "LUCKYSTRIKE",
+			"formula": "Each 7: 7 × M(K) × J damage, then C × J gold. Three or more sevens: J=L+1 (7 at L5); otherwise J=1.",
+			"name": "Lucky Strike",
+			"rarity": 3,
+			"tags": [
+				"seven",
+				"attack",
+				"gold"
+			],
+			"target": "enemy",
+			"trigger": "At least one 7"
+		},
+		"MEND": {
+			"evaluator_id": "MEND",
+			"formula": "Ally heal (lowest odd + C + 2(K−1)) × M(L).",
+			"name": "Mend",
+			"rarity": 1,
+			"tags": [
+				"odd",
+				"support",
+				"heal"
+			],
+			"target": "ally",
+			"trigger": "At least three odd results"
+		},
+		"MULTISTRIKE": {
+			"evaluator_id": "MULTISTRIKE",
+			"formula": "K hits of C damage. Target stays fixed for this skill.",
+			"name": "Multistrike",
+			"rarity": 2,
+			"tags": [
+				"straight",
+				"attack"
+			],
+			"target": "enemy",
+			"trigger": "Straight: 5 at L1–2; 4 at L3–4; 3 at L5"
+		},
+		"PRECISION": {
+			"evaluator_id": "PRECISION",
+			"formula": "Damage (lowest two dice + C + 2K) × M(L).",
+			"name": "Precision",
+			"rarity": 3,
+			"tags": [
+				"distinct",
+				"attack"
+			],
+			"target": "enemy",
+			"trigger": "Five distinct results"
+		},
+		"SHIELDBASH": {
+			"evaluator_id": "SHIELDBASH",
+			"formula": "Gain C block, then damage floor(current block × (K+1)/2). At L5, apply 1 stun.",
+			"name": "Shield Bash",
+			"rarity": 2,
+			"tags": [
+				"full_house",
+				"attack",
+				"block"
+			],
+			"target": "enemy",
+			"trigger": "Three of one value and two of another"
+		},
+		"STRIKE": {
+			"evaluator_id": "STRIKE",
+			"formula": "Damage (highest K dice + C) × M(L).",
+			"name": "Strike",
+			"rarity": 1,
+			"tags": [
+				"attack"
+			],
+			"target": "enemy",
+			"trigger": "Always"
+		},
+		"STUN": {
+			"evaluator_id": "STUN",
+			"formula": "Damage H+C, then 1 stun (2 at K5). K2–4 do not improve duration.",
+			"name": "Stun",
+			"rarity": 4,
+			"tags": [
+				"high",
+				"attack",
+				"stun"
+			],
+			"target": "enemy",
+			"trigger": "Highest die ≥ 21−L"
+		},
+		"SUNDER": {
+			"evaluator_id": "SUNDER",
+			"formula": "Remove up to C+2K block; damage (highest pair value + C) × M(L).",
+			"name": "Sunder",
+			"rarity": 2,
+			"tags": [
+				"two_pairs",
+				"attack"
+			],
+			"target": "enemy",
+			"trigger": "Two distinct pairs"
+		},
+		"VENOM": {
+			"evaluator_id": "VENOM",
+			"formula": "Damage floor((H+C)/2); apply K+ceil(C/4) Poison (12 stack cap).",
+			"name": "Venom",
+			"rarity": 2,
+			"tags": [
+				"high",
+				"attack",
+				"poison"
+			],
+			"target": "enemy",
+			"trigger": "Highest die ≥ 13−L"
+		}
+	},
+	"statuses": {
+		"poison": {
+			"cap": 12,
+			"description": "End-slot damage bypasses block, including a stunned slot. Lose one stack after ticking.",
+			"hook": "end_slot",
+			"name": "Poison"
+		},
+		"resolve": {
+			"cap": 2,
+			"description": "Bosses reject external stun for two slots after a stun skip.",
+			"hook": "end_slot",
+			"name": "Resolve"
+		},
+		"stun": {
+			"cap": -1,
+			"description": "Skip the next actor slot; ticks before the skill batch. Self-stun affects future slots.",
+			"hook": "start_slot",
+			"name": "Stun"
+		}
+	}
+}
