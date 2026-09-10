@@ -8,31 +8,45 @@ static var _content_pack: Resource = null
 const STANDARD_DICE: Array = ["D4", "D6", "D8", "D10", "D12", "D20"]
 const BULWARK_BLOCK: Array = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,230,250,300]
 const BULWARK_STUN: Array = [3,2,2,1,0]
+## The four C's. Color is a fixed property of the skill definition; Carat, Cut and Clarity
+## are rolled per gem instance. Color names the category of a gem's effects and is never
+## generated, upgraded or sold; it exists so a build can be read at a glance.
+const GEM_COLORS: Dictionary = {
+	"RED": {"name":"Red", "hex":"e2564a", "role":"Damage"},
+	"BLUE": {"name":"Blue", "hex":"5a8fd8", "role":"Block"},
+	"GREEN": {"name":"Green", "hex":"6fbf73", "role":"Healing and revival"},
+	"VIOLET": {"name":"Violet", "hex":"a97fe0", "role":"Control: stun and poison"},
+	"GOLD": {"name":"Gold", "hex":"e0b64a", "role":"Gold and fortune"}
+}
+const CUT_NAMES: Array = ["Poor","Fair","Good","Great","Perfect"]
+const CLARITY_NAMES: Array = ["Fractured","Flawed","Clean","Pristine","Flawless"]
 const HEROES: Dictionary = {
 	"ARDOR": {"name":"Ardor", "max_hp":100, "dice":["D6","D6","D6","D8","D8"], "trait":"STAND_FIRM", "trait_name":"Stand Firm", "description":"Gain 2 block at the start of your turn when your final hand contains a pair.", "starting_gems":[["STRIKE",1],["BLOCK",2],["INTERPOSE",1]], "color":"ec9d62"},
 	"KAIT": {"name":"Kait", "max_hp":70, "dice":["D4","D4","D4","D4","D20"], "trait":"CALCULATED_RISK", "trait_name":"Calculated Risk", "description":"Gain 3 block when a die finishes at least 4 higher than its initial value this turn.", "starting_gems":[["STRIKE",2],["BLOCK",1],["SUNDER",1]], "color":"9fd08b"},
 	"MAX": {"name":"Max", "max_hp":80, "dice":["D4","D6","D6","D8","D12"], "trait":"SECOND_THOUGHT", "trait_name":"Second Thought", "description":"Once per encounter, reroll one die without spending your normal reroll.", "starting_gems":[["STRIKE",1],["BLOCK",1],["ARC_BURST",1]], "color":"9dabed"}
 }
+## Formula text uses M(C) = (C+7)/8 as the Carat multiplier and F(L) = 2L as the flat
+## Clarity bonus. Cut multiplies whatever the dice contribute. Every amount floors once.
 const SKILLS: Dictionary = {
-	"STRIKE": {"name":"Strike", "rarity":1, "tags":["attack"], "trigger":"Always", "formula":"Damage (highest K dice + C) × M(L).", "target":"enemy"},
-	"BLOCK": {"name":"Block", "rarity":1, "tags":["pair","block"], "trigger":"Any pair", "formula":"Self block (highest pair value × K + C) × M(L).", "target":"self"},
-	"HEAL": {"name":"Heal", "rarity":2, "tags":["heal"], "trigger":"Always", "formula":"Self heal (lowest K dice + C) × M(L).", "target":"self"},
-	"MULTISTRIKE": {"name":"Multistrike", "rarity":2, "tags":["straight","attack"], "trigger":"Straight: 5 at L1–2; 4 at L3–4; 3 at L5", "formula":"K hits of C damage. Target stays fixed for this skill.", "target":"enemy"},
-	"LUCKYSTRIKE": {"name":"Lucky Strike", "rarity":3, "tags":["seven","attack","gold"], "trigger":"At least one 7", "formula":"Each 7: 7 × M(K) × J damage, then C × J gold. Three or more sevens: J=L+1 (7 at L5); otherwise J=1.", "target":"enemy"},
-	"HEAVYSTRIKE": {"name":"Heavy Strike", "rarity":1, "tags":["triple","attack"], "trigger":"At least three matching values", "formula":"Damage (highest triple value × K + C) × M(L).", "target":"enemy"},
-	"BLESSING": {"name":"Blessing", "rarity":3, "tags":["straight","heal","gold"], "trigger":"Straight of 3", "formula":"Gain C gold, then self heal K × M(L).", "target":"self"},
-	"SHIELDBASH": {"name":"Shield Bash", "rarity":2, "tags":["full_house","attack","block"], "trigger":"Three of one value and two of another", "formula":"Gain C block, then damage floor(current block × (K+1)/2). At L5, apply 1 stun.", "target":"enemy"},
-	"STUN": {"name":"Stun", "rarity":4, "tags":["high","attack","stun"], "trigger":"Highest die ≥ 21−L", "formula":"Damage H+C, then 1 stun (2 at K5). K2–4 do not improve duration.", "target":"enemy"},
-	"BULWARK": {"name":"Bulwark", "rarity":3, "tags":["low","block"], "trigger":"Total ≤ 18+2L (20/22/24/26/28)", "formula":"Carat grants 10–300 block; self-stun at Cut 1–5: 3/2/2/1/0.", "target":"self"},
-	"DRAINSTRIKE": {"name":"Drain Strike", "rarity":4, "tags":["high","attack","heal"], "trigger":"Total ≥ 45−5L", "formula":"Damage H × K, then self heal C.", "target":"enemy"},
-	"INTERPOSE": {"name":"Interpose", "rarity":1, "tags":["pair","support","block"], "trigger":"Any pair", "formula":"Ally block (highest pair value + C + K−1) × M(L).", "target":"ally"},
-	"MEND": {"name":"Mend", "rarity":1, "tags":["odd","support","heal"], "trigger":"At least three odd results", "formula":"Ally heal (lowest odd + C + 2(K−1)) × M(L).", "target":"ally"},
-	"SUNDER": {"name":"Sunder", "rarity":2, "tags":["two_pairs","attack"], "trigger":"Two distinct pairs", "formula":"Remove up to C+2K block; damage (highest pair value + C) × M(L).", "target":"enemy"},
-	"ARC_BURST": {"name":"Arc Burst", "rarity":2, "tags":["straight","attack","group"], "trigger":"Straight of 3", "formula":"Damage (highest value of chosen straight + C) × M(L) to up to K+1 distinct enemies. Extra targets do not add hits on a single boss.", "target":"enemies"},
-	"VENOM": {"name":"Venom", "rarity":2, "tags":["high","attack","poison"], "trigger":"Highest die ≥ 13−L", "formula":"Damage floor((H+C)/2); apply K+ceil(C/4) Poison (12 stack cap).", "target":"enemy"},
-	"EVEN_TEMPO": {"name":"Even Tempo", "rarity":2, "tags":["even","attack","block"], "trigger":"At least three even results", "formula":"Self block (even result count × K + C) × M(L); damage C+K.", "target":"enemy"},
-	"PRECISION": {"name":"Precision", "rarity":3, "tags":["distinct","attack"], "trigger":"Five distinct results", "formula":"Damage (lowest two dice + C + 2K) × M(L).", "target":"enemy"},
-	"LIFELINE": {"name":"Lifeline", "rarity":4, "tags":["straight","support","heal","revive"], "trigger":"Straight: 5 at L1–2; 4 at L3–4; 3 at L5", "formula":"Once per encounter revive a downed ally for C+3K HP; otherwise heal a living ally C+K. Revived allies act next turn.", "target":"revive"}
+	"STRIKE": {"name":"Strike", "rarity":1, "color":"RED", "tags":["attack"], "trigger":"Always", "formula":"Damage (highest K dice + F(L)) × M(C).", "target":"enemy"},
+	"BLOCK": {"name":"Block", "rarity":1, "color":"BLUE", "tags":["pair","block"], "trigger":"Any pair", "formula":"Self block (highest pair value × K + F(L)) × M(C).", "target":"self"},
+	"HEAL": {"name":"Heal", "rarity":2, "color":"GREEN", "tags":["heal"], "trigger":"Always", "formula":"Self heal (lowest K dice + F(L)) × M(C).", "target":"self"},
+	"MULTISTRIKE": {"name":"Multistrike", "rarity":2, "color":"RED", "tags":["straight","attack"], "trigger":"Straight: 5 at L1–2; 4 at L3–4; 3 at L5", "formula":"K hits of 4 × M(C) damage. Clarity shortens the straight instead of adding F(L). Target stays fixed for this skill.", "target":"enemy"},
+	"LUCKYSTRIKE": {"name":"Lucky Strike", "rarity":3, "color":"GOLD", "tags":["seven","attack","gold"], "trigger":"At least one 7", "formula":"Each 7: 7 × M(K) × M(C) damage, then C × J gold. Three or more sevens: J=L+1 (7 at L5); otherwise J=1. The jackpot multiplies gold only.", "target":"enemy"},
+	"HEAVYSTRIKE": {"name":"Heavy Strike", "rarity":1, "color":"RED", "tags":["triple","attack"], "trigger":"At least three matching values", "formula":"Damage (highest triple value × K + F(L)) × M(C).", "target":"enemy"},
+	"BLESSING": {"name":"Blessing", "rarity":3, "color":"GOLD", "tags":["straight","heal","gold"], "trigger":"Straight of 3", "formula":"Gain 3 × M(C) gold, then self heal (K + F(L)) × M(C).", "target":"self"},
+	"SHIELDBASH": {"name":"Shield Bash", "rarity":2, "color":"BLUE", "tags":["full_house","attack","block"], "trigger":"Three of one value and two of another", "formula":"Gain F(L) × M(C) block, then damage floor(current block × (K+1)/2). At L5, apply 1 stun.", "target":"enemy"},
+	"STUN": {"name":"Stun", "rarity":4, "color":"VIOLET", "tags":["high","attack","stun"], "trigger":"Highest die ≥ 21−L", "formula":"Damage (H + F(L)) × M(C), then 1 stun (2 at K5). K2–4 do not improve duration.", "target":"enemy"},
+	"BULWARK": {"name":"Bulwark", "rarity":3, "color":"BLUE", "tags":["low","block"], "trigger":"Total ≤ 18+2L (20/22/24/26/28)", "formula":"Carat reads a fixed 10–300 block table instead of M(C); self-stun at Cut 1–5: 3/2/2/1/0. Clarity only eases the trigger.", "target":"self"},
+	"DRAINSTRIKE": {"name":"Drain Strike", "rarity":4, "color":"RED", "tags":["high","attack","heal"], "trigger":"Total ≥ 45−5L", "formula":"Damage (floor(H × (K+1)/2) + F(L)) × M(C), then self heal F(L) × M(C).", "target":"enemy"},
+	"INTERPOSE": {"name":"Interpose", "rarity":1, "color":"BLUE", "tags":["pair","support","block"], "trigger":"Any pair", "formula":"Party block (highest pair value + K−1 + F(L)) × M(C) to every living hero.", "target":"ally"},
+	"MEND": {"name":"Mend", "rarity":1, "color":"GREEN", "tags":["odd","support","heal"], "trigger":"At least three odd results", "formula":"Party heal (lowest odd + 2(K−1) + F(L)) × M(C) to every living hero.", "target":"ally"},
+	"SUNDER": {"name":"Sunder", "rarity":2, "color":"RED", "tags":["two_pairs","attack"], "trigger":"Two distinct pairs", "formula":"Remove up to (2K + F(L)) × M(C) block; damage (highest pair value + F(L)) × M(C).", "target":"enemy"},
+	"ARC_BURST": {"name":"Arc Burst", "rarity":2, "color":"RED", "tags":["straight","attack","group"], "trigger":"Straight of 3", "formula":"Damage (highest value of chosen straight + F(L)) × M(C) to up to K+1 distinct enemies. Extra targets do not add hits on a single boss.", "target":"enemies"},
+	"VENOM": {"name":"Venom", "rarity":2, "color":"VIOLET", "tags":["high","attack","poison"], "trigger":"Highest die ≥ 13−L", "formula":"Damage (floor(H/2) + F(L)) × M(C); apply K+ceil(C/4) Poison (12 stack cap).", "target":"enemy"},
+	"EVEN_TEMPO": {"name":"Even Tempo", "rarity":2, "color":"BLUE", "tags":["even","attack","block"], "trigger":"At least three even results", "formula":"Self block (even result count × K + F(L)) × M(C); damage (K + F(L)) × M(C).", "target":"enemy"},
+	"PRECISION": {"name":"Precision", "rarity":3, "color":"RED", "tags":["distinct","attack"], "trigger":"Five distinct results", "formula":"Damage (lowest two dice + 2K + F(L)) × M(C).", "target":"enemy"},
+	"LIFELINE": {"name":"Lifeline", "rarity":4, "color":"GREEN", "tags":["straight","support","heal","revive"], "trigger":"Straight: 5 at L1–2; 4 at L3–4; 3 at L5", "formula":"Once per encounter revive a downed ally for (3K + F(L)) × M(C) HP; otherwise heal every living hero (K + F(L)) × M(C). Revived allies act next turn.", "target":"revive"}
 }
 const DICE: Dictionary = {
 	"D4":{"name":"D4", "shape":"D4", "faces":[1,2,3,4], "price":4},
@@ -107,7 +121,7 @@ static func hero(key: String, id: String, seat: int = 0) -> Dictionary:
 		return {}
 	var definition: Dictionary = definitions("heroes")[key]
 	var unit: Dictionary = _unit(key,id,"hero",definition.max_hp,0)
-	unit.merge({"seat":seat, "trait":definition.trait, "trait_charges":1 if key == "MAX" else 0, "gold":0, "rerolls":1, "max_rerolls":1, "reserve_dice":[], "relics":[], "combat_gold":0, "preferred_target":"", "friendly_target":id, "connected":true})
+	unit.merge({"seat":seat, "trait":definition.trait, "trait_charges":1 if key == "MAX" else 0, "gold":0, "rerolls":1, "max_rerolls":1, "reserve_dice":[], "relics":[], "combat_gold":0, "preferred_target":"", "connected":true})
 	for index in range(definition.dice.size()):
 		unit.dice.append(die(definition.dice[index],id+"-d"+str(index)))
 	for index in range(definition.starting_gems.size()):
@@ -171,6 +185,20 @@ static func gem_value(item: Dictionary) -> int:
 	if not SKILLS.has(key):
 		return 0
 	return int(definitions("skills")[key].rarity) * (int(item.get("carat",1))+2*(int(item.get("cut",1))-1)+2*(int(item.get("clarity",1))-1))
+
+static func gem_color(key: String) -> String:
+	## Color is read from the skill definition, never from the gem instance.
+	key = canonical_key(key)
+	return str(definitions("skills").get(key,{}).get("color","RED"))
+
+static func color_definition(key: String) -> Dictionary:
+	return GEM_COLORS.get(gem_color(key),GEM_COLORS.RED)
+
+static func cut_name(rank: int) -> String:
+	return CUT_NAMES[clampi(rank,1,5)-1]
+
+static func clarity_name(rank: int) -> String:
+	return CLARITY_NAMES[clampi(rank,1,5)-1]
 
 static func die_value(item: Dictionary) -> int:
 	return int(item.get("price",DICE.get(item.get("key","D6"),DICE.D6).price))

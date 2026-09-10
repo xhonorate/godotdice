@@ -109,21 +109,21 @@ func _test_catalog() -> void:
 	check(RandomSource.weighted_index(rng,[0,0,1]) == 2,"Weighted bucket index preserved")
 
 func _test_skill_formulas() -> void:
-	check(skill("STRIKE",[2,2,4,6,8]).effects[0].amount == 9,"Shared hand Strike is 9")
+	check(skill("STRIKE",[2,2,4,6,8]).effects[0].amount == 10,"Shared hand Strike is 10")
 	check(skill("BLOCK",[2,2,4,6,8],2).effects[0].amount == 4,"Shared hand Block is 4")
-	check(skill("HEAL",[2,2,4,6,8],2,2,3).effects[0].amount == 9,"Corrected Heal scales whole sum")
+	check(skill("HEAL",[2,2,4,6,8],2,2,3).effects[0].amount == 11,"Heal multiplies the whole sum by Carat")
 	check(skill("MULTISTRIKE",[1,2,2,3,4],3,2,3).effects.size() == 2,"Straight ignores duplicate and creates K hits")
-	check(skill("HEAVYSTRIKE",[2,2,2,6,6,6],1).effects[0].amount == 7,"Highest triple selected in larger hand")
-	check(skill("BLOCK",[2,2,2,6,6],1).effects[0].amount == 7,"Highest pair selected; triple is usable pair")
-	check(skill("BLOCK",[4,4,4,4,5],1).effects[0].amount == 5,"Quad contains pair")
+	check(skill("HEAVYSTRIKE",[2,2,2,6,6,6],1).effects[0].amount == 8,"Highest triple selected in larger hand")
+	check(skill("BLOCK",[2,2,2,6,6],1).effects[0].amount == 8,"Highest pair selected; triple is usable pair")
+	check(skill("BLOCK",[4,4,4,4,5],1).effects[0].amount == 6,"Quad contains pair")
 	check(skill("SHIELDBASH",[2,2,3,3,3],2,2).active,"Full house triggers Shield Bash")
 	check(not skill("SHIELDBASH",[2,2,2,2,3]).active,"Quad and singleton not full house")
-	check(skill("ARC_BURST",[1,2,2,3,4]).effects[0].amount == 5,"Highest qualifying three-value straight selected")
+	check(skill("ARC_BURST",[1,2,2,3,4]).effects[0].amount == 6,"Highest qualifying three-value straight selected")
 	check(skill("ARC_BURST",[1,2,2,3,4]).contributing_dice == ["d1","d3","d4"],"Straight highlights stable representative IDs")
 	check(skill("MEND",[1,3,3,5,12],2,2).effects[0].amount == 5,"Mend odd formula")
-	check(skill("VENOM",[1,3,3,5,12],2,2).effects[0].amount == 7,"Venom damage formula")
+	check(skill("VENOM",[1,3,3,5,12],2,2).effects[0].amount == 9,"Venom damage formula")
 	check(skill("VENOM",[1,3,3,5,12],2,2).effects[1].amount == 3,"Venom Poison formula")
-	check(skill("EVEN_TEMPO",[2,4,6,7,9],2,2,3).effects[0].amount == 12,"Even Tempo parity block")
+	check(skill("EVEN_TEMPO",[2,4,6,7,9],2,2,3).effects[0].amount == 13,"Even Tempo parity block")
 	check(skill("PRECISION",[1,3,5,7,9],2,2,3).effects[0].amount == 15,"Precision distinct formula")
 	check(not skill("PRECISION",[1,1,5,7,9]).active,"Precision rejects a duplicate")
 	check(skill("SUNDER",[2,2,3,3,3]).active,"Full house contains two pairs")
@@ -149,14 +149,50 @@ func _test_skill_formulas() -> void:
 		check(action.active == (sevens > 0),"Lucky activation for "+str(sevens)+" sevens")
 		check(action.effects.size() == sevens*2,"Lucky hit and gold effect count")
 		if sevens > 0:
-			check(action.effects[0].amount == (21 if sevens >= 3 else 7),"Lucky jackpot scaling")
-	check(skill("LUCKYSTRIKE",[7,7,7,7,7],1,1,5).effects[0].amount == 49,"L5 jackpot multiplier is seven")
+			check(action.effects[0].amount == 7,"Lucky damage ignores the jackpot")
+			check(action.effects[1].amount == (6 if sevens >= 3 else 2),"Lucky jackpot scales gold only")
+	check(skill("LUCKYSTRIKE",[7,7,7,7,7],1,1,5).effects[0].amount == 7,"L5 jackpot leaves damage on Cut and Carat")
+	check(skill("LUCKYSTRIKE",[7,7,7,7,7],1,1,5).effects[1].amount == 7,"L5 jackpot multiplier is seven for gold")
 	check(not Combat.preview(hero(),Catalog.gem("STRIKE","x"),[]).valid,"Empty hand rejected")
 	check(not Combat.preview(hero(),{"key":"STRIKE","carat":0},hand([1,2,3,4,5])).valid,"Zero Carat rejected")
 	check(not Combat.preview(hero(),{"key":"STRIKE","carat":1.5},hand([1,2,3,4,5])).valid,"Fractional property rejected")
 	check(not Combat.preview(hero(),{"key":"STRIKE","cut":6},hand([1,2,3,4,5])).valid,"Out of bounds rank rejected")
 	check(not skill("STRIKE",[0,1,2,3,4]).valid,"Invalid die value rejected")
 	check(not Combat.preview(hero(),{"key":"STRIKE","carat":[]},hand([1,2,3,4,5])).valid,"Malformed property container rejected without conversion crash")
+	_test_four_cs()
+
+func _test_four_cs() -> void:
+	## Carat is the only property that multiplies a finished effect, and it is strictly
+	## increasing across its whole 1-24 range.
+	check(is_equal_approx(Combat.carat_multiplier(1),1.0),"M(1) leaves a base untouched")
+	check(is_equal_approx(Combat.carat_multiplier(24),3.875),"M(24) is the strongest multiplier")
+	check(Combat.carat_multiplier(0) == Combat.carat_multiplier(1) and Combat.carat_multiplier(99) == Combat.carat_multiplier(24),"Carat multiplier clamps to legal ranks")
+	var previous: int = 0
+	for c in range(1,25):
+		var amount: int = skill("STRIKE",[2,2,4,6,8],c).effects[0].amount
+		check(amount > previous,"Carat "+str(c)+" strictly increases Strike damage")
+		previous = amount
+	check(skill("STRIKE",[2,2,4,6,8],24).effects[0].amount == 38,"Carat 24 Strike is base 10 times 3.875")
+	## Clarity is flat: it adds F(L) = 2L to the base before the Carat multiplier, so the
+	## gap between two Clarity ranks scales with Carat but never with the roll.
+	for l in range(1,6):
+		check(Combat.clarity_bonus(l) == 2*l,"F("+str(l)+") is flat 2L")
+	check(skill("STRIKE",[2,2,4,6,8],1,1,5).effects[0].amount-skill("STRIKE",[2,2,4,6,8],1,1,1).effects[0].amount == 8,"Clarity 1 to 5 adds a flat 8 at Carat 1")
+	check(skill("STRIKE",[2,2,4,6,8],1,1,3).effects[0].amount == skill("STRIKE",[20,20,20,20,20],1,1,3).effects[0].amount-12,"Clarity contributes the same flat amount on a much larger roll")
+	## Cut multiplies only what the dice contributed, so it is worth more to an attack that
+	## reads many dice than to a defensive gem that reads a fixed pair.
+	var cut_gain: int = skill("STRIKE",[8,8,8,8,8],1,5).effects[0].amount-skill("STRIKE",[8,8,8,8,8],1,1).effects[0].amount
+	var block_gain: int = skill("INTERPOSE",[8,8,8,8,8],1,5).effects[0].amount-skill("INTERPOSE",[8,8,8,8,8],1,1).effects[0].amount
+	check(cut_gain > block_gain,"Cut is worth more on a dice-reading attack than on flat support block")
+	## Color is a fixed property of the skill, never of the instance.
+	for key in Catalog.SKILLS:
+		check(Catalog.GEM_COLORS.has(Catalog.gem_color(key)),"Skill "+key+" declares a known color")
+	check(Catalog.gem_color("STRIKE") == "RED" and Catalog.gem_color("BLOCK") == "BLUE" and Catalog.gem_color("HEAL") == "GREEN","Damage, block and healing gems carry their category color")
+	check(Catalog.gem_color("STUN") == "VIOLET" and Catalog.gem_color("LUCKYSTRIKE") == "GOLD","Control and fortune gems carry their category color")
+	check(Catalog.gem_color("BULLWARK") == Catalog.gem_color("BULWARK"),"Legacy aliases resolve to the same color")
+	check(str(skill("STRIKE",[2,2,4,6,8]).get("color","")) == "RED","Preview reports the gem color for presentation")
+	check(Catalog.cut_name(1) == "Poor" and Catalog.cut_name(5) == "Perfect","Cut ranks are named Poor to Perfect")
+	check(Catalog.clarity_name(1) == "Fractured" and Catalog.clarity_name(5) == "Flawless","Clarity ranks are named Fractured to Flawless")
 
 func _test_resolution() -> void:
 	var unit: Dictionary = hero()
@@ -195,7 +231,7 @@ func _test_resolution() -> void:
 	cast(unit,Catalog.gem("MULTISTRIKE","multi",3,3),state)
 	check(state.enemies[1].hp == hp_before,"Multistrike remaining hits fizzle on dead fixed target")
 	cast(unit,Catalog.gem("STRIKE","strike"),state)
-	check(state.enemies[1].hp == hp_before-6,"Next skill retargets first living enemy")
+	check(state.enemies[1].hp == hp_before-7,"Next skill retargets first living enemy")
 	var lucky: Dictionary = hero()
 	lucky.hand = hand([7,7,7,1,2])
 	equip(lucky,"LUCKYSTRIKE",2,1,2)
@@ -217,12 +253,12 @@ func _test_resolution() -> void:
 	var rescue_state: Dictionary = state_for(rescue)
 	rescue_state.heroes.append(downed)
 	Combat.resolve_turn(rescue_state,RandomNumberGenerator.new())
-	check(downed.hp == 8 and downed.block == 0 and downed.statuses.stun == 0 and downed.statuses.poison == 0,"Lifeline revival clears block/statuses and restores exact HP")
+	check(downed.hp == 9 and downed.block == 0 and downed.statuses.stun == 0 and downed.statuses.poison == 0,"Lifeline revival clears block/statuses and restores exact HP")
 	check(downed.action_eligible_from_turn == 2 and rescue_state.enemies[0].hp == 1000,"Later-seat revived hero cannot act this turn")
 	check(life.revive_charges == 0,"Lifeline charge consumed by revival")
 	var fresh: Dictionary = Catalog.gem("LIFELINE","fresh",2,2,1)
 	cast(rescue,fresh,rescue_state)
-	check(fresh.revive_charges == 1 and downed.hp == 12,"Lifeline ordinary heal keeps revival charge")
+	check(fresh.revive_charges == 1 and downed.hp == 13,"Lifeline ordinary heal keeps revival charge")
 
 func _test_status_timing() -> void:
 	var unit: Dictionary = hero()
@@ -238,9 +274,9 @@ func _test_status_timing() -> void:
 	equip(unit,"STRIKE",1,1,1)
 	state = state_for(unit)
 	Combat.resolve_turn(state,RandomNumberGenerator.new())
-	check(state.enemies[0].hp == 998 and unit.statuses.stun == 3,"Self-stun does not cancel remaining current skills")
+	check(state.enemies[0].hp == 997 and unit.statuses.stun == 3,"Self-stun does not cancel remaining current skills")
 	Combat.resolve_turn(state,RandomNumberGenerator.new())
-	check(state.enemies[0].hp == 998 and unit.statuses.stun == 2,"Self-stun skips future actor slot")
+	check(state.enemies[0].hp == 997 and unit.statuses.stun == 2,"Self-stun skips future actor slot")
 	unit = hero()
 	state = state_for(unit)
 	unit.block = 50
@@ -262,7 +298,7 @@ func _test_status_timing() -> void:
 	for remaining in [1,0]:
 		var hp_before: int = boss.hp
 		cast(unit,Catalog.gem("STUN","stun",1,5),state)
-		check(boss.statuses.stun == 0 and boss.hp == hp_before-21,"Resolve rejects stun but permits damage")
+		check(boss.statuses.stun == 0 and boss.hp == hp_before-22,"Resolve rejects stun but permits damage")
 		# Keep boss alive across both checks.
 		boss.hp = 60
 		Combat.resolve_turn(state,RandomNumberGenerator.new())
@@ -284,7 +320,7 @@ func _test_traits_relics() -> void:
 	var state: Dictionary = state_for(unit)
 	var events: Array = Combat.resolve_turn(state,RandomNumberGenerator.new())
 	check(events.filter(func(event: Dictionary) -> bool: return event.skill == "STAND_FIRM" if event.has("skill") else false).size() == 1,"Ardor trait once for two pairs and several matching gems")
-	check(unit.block == 10,"Ardor adds exactly two trait block")
+	check(unit.block == 12,"Ardor adds exactly two trait block")
 	unit = hero("KAIT")
 	unit.trait = "CALCULATED_RISK"
 	unit.initial_hand = hand([2,1,2,3,4])
@@ -300,18 +336,18 @@ func _test_traits_relics() -> void:
 	state = state_for(unit)
 	cast(unit,Catalog.gem("BLOCK","block"),state)
 	cast(unit,Catalog.gem("INTERPOSE","interpose"),state)
-	check(unit.block == 8,"Matchbox +2 applies only to Block")
+	check(unit.block == 10,"Matchbox +2 applies only to Block")
 	cast(unit,Catalog.gem("BLOCK","block-again"),state)
-	check(unit.block == 11,"Matchbox trigger bounded once per turn")
+	check(unit.block == 14,"Matchbox trigger bounded once per turn")
 	relic(unit,"STEADY_HAND")
 	var before: int = state.enemies[0].hp
 	cast(unit,Catalog.gem("STRIKE","strike"),state)
-	check(state.enemies[0].hp == before-11,"Steady Hand adds two raw damage")
+	check(state.enemies[0].hp == before-12,"Steady Hand adds two raw damage")
 	unit.relic_flags = {}
 	unit.rerolled = true
 	before = state.enemies[0].hp
 	cast(unit,Catalog.gem("STRIKE","strike"),state)
-	check(state.enemies[0].hp == before-9,"Any reroll, including Second Thought, disables Steady Hand")
+	check(state.enemies[0].hp == before-10,"Any reroll, including Second Thought, disables Steady Hand")
 	relic(unit,"FIELD_DRESSING")
 	unit.hp = unit.max_hp
 	cast(unit,Catalog.gem("HEAL","heal"),state)

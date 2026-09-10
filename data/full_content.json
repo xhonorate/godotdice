@@ -549,8 +549,9 @@
 	"schema_version": 1,
 	"skills": {
 		"ARC_BURST": {
+			"color": "RED",
 			"evaluator_id": "ARC_BURST",
-			"formula": "Damage (highest value of chosen straight + C) × M(L) to up to K+1 distinct enemies. Extra targets do not add hits on a single boss.",
+			"formula": "Damage (highest value of chosen straight + F(L)) × M(C) to up to K+1 distinct enemies. Extra targets do not add hits on a single boss.",
 			"name": "Arc Burst",
 			"rarity": 2,
 			"tags": [
@@ -562,8 +563,9 @@
 			"trigger": "Straight of 3"
 		},
 		"BLESSING": {
+			"color": "GOLD",
 			"evaluator_id": "BLESSING",
-			"formula": "Gain C gold, then self heal K × M(L).",
+			"formula": "Gain 3 × M(C) gold, then self heal (K + F(L)) × M(C).",
 			"name": "Blessing",
 			"rarity": 3,
 			"tags": [
@@ -575,8 +577,9 @@
 			"trigger": "Straight of 3"
 		},
 		"BLOCK": {
+			"color": "BLUE",
 			"evaluator_id": "BLOCK",
-			"formula": "Self block (highest pair value × K + C) × M(L).",
+			"formula": "Self block (highest pair value × K + F(L)) × M(C).",
 			"name": "Block",
 			"rarity": 1,
 			"tags": [
@@ -587,8 +590,9 @@
 			"trigger": "Any pair"
 		},
 		"BULWARK": {
+			"color": "BLUE",
 			"evaluator_id": "BULWARK",
-			"formula": "Carat grants 10–300 block; self-stun at Cut 1–5: 3/2/2/1/0.",
+			"formula": "Carat reads a fixed 10–300 block table instead of M(C); self-stun at Cut 1–5: 3/2/2/1/0. Clarity only eases the trigger.",
 			"name": "Bulwark",
 			"rarity": 3,
 			"tags": [
@@ -599,8 +603,9 @@
 			"trigger": "Total ≤ 18+2L (20/22/24/26/28)"
 		},
 		"DRAINSTRIKE": {
+			"color": "RED",
 			"evaluator_id": "DRAINSTRIKE",
-			"formula": "Damage H × K, then self heal C.",
+			"formula": "Damage (floor(H × (K+1)/2) + F(L)) × M(C), then self heal F(L) × M(C).",
 			"name": "Drain Strike",
 			"rarity": 4,
 			"tags": [
@@ -612,8 +617,9 @@
 			"trigger": "Total ≥ 45−5L"
 		},
 		"EVEN_TEMPO": {
+			"color": "BLUE",
 			"evaluator_id": "EVEN_TEMPO",
-			"formula": "Self block (even result count × K + C) × M(L); damage C+K.",
+			"formula": "Self block (even result count × K + F(L)) × M(C); damage (K + F(L)) × M(C).",
 			"name": "Even Tempo",
 			"rarity": 2,
 			"tags": [
@@ -625,8 +631,9 @@
 			"trigger": "At least three even results"
 		},
 		"HEAL": {
+			"color": "GREEN",
 			"evaluator_id": "HEAL",
-			"formula": "Self heal (lowest K dice + C) × M(L).",
+			"formula": "Self heal (lowest K dice + F(L)) × M(C).",
 			"name": "Heal",
 			"rarity": 2,
 			"tags": [
@@ -636,8 +643,9 @@
 			"trigger": "Always"
 		},
 		"HEAVYSTRIKE": {
+			"color": "RED",
 			"evaluator_id": "HEAVYSTRIKE",
-			"formula": "Damage (highest triple value × K + C) × M(L).",
+			"formula": "Damage (highest triple value × K + F(L)) × M(C).",
 			"name": "Heavy Strike",
 			"rarity": 1,
 			"tags": [
@@ -648,8 +656,9 @@
 			"trigger": "At least three matching values"
 		},
 		"INTERPOSE": {
+			"color": "BLUE",
 			"evaluator_id": "INTERPOSE",
-			"formula": "Ally block (highest pair value + C + K−1) × M(L).",
+			"formula": "Party block (highest pair value + K−1 + F(L)) × M(C) to every living hero.",
 			"name": "Interpose",
 			"rarity": 1,
 			"tags": [
@@ -661,8 +670,9 @@
 			"trigger": "Any pair"
 		},
 		"LIFELINE": {
+			"color": "GREEN",
 			"evaluator_id": "LIFELINE",
-			"formula": "Once per encounter revive a downed ally for C+3K HP; otherwise heal a living ally C+K. Revived allies act next turn.",
+			"formula": "Once per encounter revive a downed ally for (3K + F(L)) × M(C) HP; otherwise heal every living hero (K + F(L)) × M(C). Revived allies act next turn.",
 			"name": "Lifeline",
 			"rarity": 4,
 			"tags": [
@@ -675,8 +685,9 @@
 			"trigger": "Straight: 5 at L1–2; 4 at L3–4; 3 at L5"
 		},
 		"LUCKYSTRIKE": {
+			"color": "GOLD",
 			"evaluator_id": "LUCKYSTRIKE",
-			"formula": "Each 7: 7 × M(K) × J damage, then C × J gold. Three or more sevens: J=L+1 (7 at L5); otherwise J=1.",
+			"formula": "Each 7: 7 × M(K) × M(C) damage, then C × J gold. Three or more sevens: J=L+1 (7 at L5); otherwise J=1. The jackpot multiplies gold only.",
 			"name": "Lucky Strike",
 			"rarity": 3,
 			"tags": [
@@ -688,8 +699,9 @@
 			"trigger": "At least one 7"
 		},
 		"MEND": {
+			"color": "GREEN",
 			"evaluator_id": "MEND",
-			"formula": "Ally heal (lowest odd + C + 2(K−1)) × M(L).",
+			"formula": "Party heal (lowest odd + 2(K−1) + F(L)) × M(C) to every living hero.",
 			"name": "Mend",
 			"rarity": 1,
 			"tags": [
@@ -701,8 +713,9 @@
 			"trigger": "At least three odd results"
 		},
 		"MULTISTRIKE": {
+			"color": "RED",
 			"evaluator_id": "MULTISTRIKE",
-			"formula": "K hits of C damage. Target stays fixed for this skill.",
+			"formula": "K hits of 4 × M(C) damage. Clarity shortens the straight instead of adding F(L). Target stays fixed for this skill.",
 			"name": "Multistrike",
 			"rarity": 2,
 			"tags": [
@@ -713,8 +726,9 @@
 			"trigger": "Straight: 5 at L1–2; 4 at L3–4; 3 at L5"
 		},
 		"PRECISION": {
+			"color": "RED",
 			"evaluator_id": "PRECISION",
-			"formula": "Damage (lowest two dice + C + 2K) × M(L).",
+			"formula": "Damage (lowest two dice + 2K + F(L)) × M(C).",
 			"name": "Precision",
 			"rarity": 3,
 			"tags": [
@@ -725,8 +739,9 @@
 			"trigger": "Five distinct results"
 		},
 		"SHIELDBASH": {
+			"color": "BLUE",
 			"evaluator_id": "SHIELDBASH",
-			"formula": "Gain C block, then damage floor(current block × (K+1)/2). At L5, apply 1 stun.",
+			"formula": "Gain F(L) × M(C) block, then damage floor(current block × (K+1)/2). At L5, apply 1 stun.",
 			"name": "Shield Bash",
 			"rarity": 2,
 			"tags": [
@@ -738,8 +753,9 @@
 			"trigger": "Three of one value and two of another"
 		},
 		"STRIKE": {
+			"color": "RED",
 			"evaluator_id": "STRIKE",
-			"formula": "Damage (highest K dice + C) × M(L).",
+			"formula": "Damage (highest K dice + F(L)) × M(C).",
 			"name": "Strike",
 			"rarity": 1,
 			"tags": [
@@ -749,8 +765,9 @@
 			"trigger": "Always"
 		},
 		"STUN": {
+			"color": "VIOLET",
 			"evaluator_id": "STUN",
-			"formula": "Damage H+C, then 1 stun (2 at K5). K2–4 do not improve duration.",
+			"formula": "Damage (H + F(L)) × M(C), then 1 stun (2 at K5). K2–4 do not improve duration.",
 			"name": "Stun",
 			"rarity": 4,
 			"tags": [
@@ -762,8 +779,9 @@
 			"trigger": "Highest die ≥ 21−L"
 		},
 		"SUNDER": {
+			"color": "RED",
 			"evaluator_id": "SUNDER",
-			"formula": "Remove up to C+2K block; damage (highest pair value + C) × M(L).",
+			"formula": "Remove up to (2K + F(L)) × M(C) block; damage (highest pair value + F(L)) × M(C).",
 			"name": "Sunder",
 			"rarity": 2,
 			"tags": [
@@ -774,8 +792,9 @@
 			"trigger": "Two distinct pairs"
 		},
 		"VENOM": {
+			"color": "VIOLET",
 			"evaluator_id": "VENOM",
-			"formula": "Damage floor((H+C)/2); apply K+ceil(C/4) Poison (12 stack cap).",
+			"formula": "Damage (floor(H/2) + F(L)) × M(C); apply K+ceil(C/4) Poison (12 stack cap).",
 			"name": "Venom",
 			"rarity": 2,
 			"tags": [

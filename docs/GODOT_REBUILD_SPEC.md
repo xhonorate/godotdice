@@ -21,7 +21,7 @@ Preserve these design pillars:
 1. **One hand powers several skills.** Dice are not assigned to individual skills, spent, or removed when a skill activates. A pair can enable Block while one of the same dice also contributes to Strike.
 2. **Selective rerolling is the main combat decision.** Keeping a low pair may be better than chasing the highest total. Acquired gems change what counts as a good hand.
 3. **Dice composition matters.** Smaller dice improve repeated-value combinations; larger dice enable high-roll thresholds and totals. Replacing a D4 with a D20 is a strategic trade, not an unconditional upgrade.
-4. **Gems have three independent properties.** Carat, Cut, and Clarity affect a skill differently. A low-rarity skill with favorable properties can be useful throughout a run.
+4. **Gems have four C's.** Color, Carat, Cut, and Clarity affect a skill differently, and only three of them are rolled. A low-rarity skill with favorable properties can be useful throughout a run. See section 9.2 for the authoritative model.
 5. **Runs alternate combat with build decisions.** Shops, healing, dice modification, gem improvement, and mining should compete for limited room visits and currency.
 6. **Players plan together and resolve in a legible sequence.** Show why skills activate and what they do. The cooperative experience should support discussion without requiring fast reactions.
 
@@ -76,7 +76,7 @@ Sources: [initialization and run transitions](../src/game/ServerFunctions.ts), [
 
 ### 3.1 Starting heroes
 
-All starting gems have Cut 1 and Clarity 1. Carat differences are shown below.
+All starting gems have Cut 1 (Poor) and Clarity 1 (Fractured), so every starting hero is separated only by Carat and by which Colors they open with. Carat differences are shown below.
 
 | Hero | HP | Five starting dice | Starting gems | Mechanical identity in the source |
 |---|---:|---|---|---|
@@ -142,7 +142,7 @@ Healing increases HP. Ordinary effects skip targets whose HP is already zero, so
 
 Existing healing incorrectly caps the recipient against the **caster's** maximum HP. This is masked by the current self-healing skill set but matters for future ally heals.
 
-Damage and healing can be fractional because Clarity multipliers use quarter increments and most effects are not rounded. Shield Bash explicitly floors its block-derived damage.
+In the original implementation damage and healing could be fractional, because the Clarity multiplier used quarter increments and most effects were not rounded. Shield Bash explicitly floored its block-derived damage. The rebuild floors every completed amount exactly once, inside the Carat multiplier.
 
 ### 4.3 Targeting
 
@@ -175,10 +175,14 @@ Source: [effect and target helpers](../src/game/helpers.tsx), [action generation
 
 A saved gem contains `key`, `carat`, optional `cut`, and optional `clarity`. Cut and Clarity default to 1 in skill functions. Generated Carat ranges from 1–24; generated Cut and Clarity range from 1–5. Rarity belongs to the skill definition, not the gem's property rolls.
 
-For the formulas below:
+Section 5.2 records what the original implementation did, where the single multiplier `M(L)` was
+attached to Clarity. **Section 9.2 supersedes it**: Carat is the multiplier, and Clarity is flat.
+
+For the legacy formulas in this section only:
 
 - `C` = Carat, `K` = Cut, `L` = Clarity.
-- `M(x) = 1 + (x - 1) / 4`, producing 1, 1.25, 1.5, 1.75, 2 for ranks 1–5.
+- `M(x) = 1 + (x - 1) / 4`, producing 1, 1.25, 1.5, 1.75, 2 for ranks 1–5. The legacy tables below
+  apply it as `M(L)`; the corrected rules apply the Carat multiplier `M(C)` instead.
 - `H` = highest die value; `T` = sum of all dice.
 - `High(K)` and `Low(K)` sum the highest or lowest K dice, or all available dice if K exceeds hand size.
 - `p` = value shown by the highest matching pair, **not the sum of both dice**.
@@ -225,6 +229,7 @@ Source for every row: [Skills](../src/game/constants/Skills.ts). Supporting patt
 | Stun duration | Cut gives 1–5 skipped turns | Description gives one turn at K1–4 and two at K5 |
 | Bullwark threshold | 19/17/15/13/11 | Description says 20/18/16/14/12; both versions make higher Clarity harder to activate |
 | Heal scaling | `Low(K) + C × M(L)` | Other basic skills multiply the entire sum; use explicit parentheses in the new rule text |
+| Which property multiplies | Clarity is the only multiplier, and Carat is a flat addend inside it | Invert it: Carat is the pure multiplier `M(C)` and Clarity contributes the flat term `F(L)`. See section 9.2 |
 | “Total roll” at Cut 5 | Strike and Heal actually select five dice | Identical with five active dice; different if larger hands are introduced |
 
 ### 5.4 Worked existing examples
@@ -232,6 +237,8 @@ Source for every row: [Skills](../src/game/constants/Skills.ts). Supporting patt
 For `[2,2,4,6,8]`, Strike C1/K1/L1 deals 9 and Block C2/K1/L1 grants 4. Both activate using overlapping dice. No reroll or gem consumption is involved.
 
 For that same hand, Heal C2/K2/L3 heals `2 + 2 + 2 × 1.5 = 7` in the existing code. Multiplying the complete sum would instead heal 9; this illustrates why the rebuild needs a declared formula.
+
+Under the corrected section 9.2 rules the same hand gives Strike C1/K1/L1 `floor((8 + 2) × 1.000) = 10`, Block C2/K1/L1 `floor((2 × 1 + 2) × 1.125) = 4`, and Heal C2/K2/L3 `floor((2 + 2 + 6) × 1.125) = 11`. Low-rank gems land within a point or two of the legacy numbers; the two models diverge as Carat climbs, which is the intent.
 
 For `[1,2,3,4,5]`, Multistrike C3/K2/L1 makes two hits of 3. Blessing can activate from the same roll and award gold plus healing.
 
@@ -413,19 +420,150 @@ Use the original hero HP and dice as the initial balance baseline, then add the 
 
 Six gem slots, protected Strike, target choice, and intent previews are new design choices. They limit runaway stacking and add cooperative decisions while retaining automatic multi-skill activation. For an initial mechanics comparison, a debug ruleset can enable unlimited active gems.
 
-Support gems use a separate preferred friendly target, defaulting to self; living allies are legal targets unless the skill explicitly permits revival. Resolve friendly-target fallback at skill start, then keep the target for that skill. Revival sets block to zero, clears encounter statuses, and permits the hero to act starting next combat turn, regardless of seat order. Newly revived heroes can be targeted immediately. Rally happens only after combat has ended and applies the same HP/block/status reset.
+Support gems have no chosen recipient: they apply to every living hero on the actor's side. Lifeline revives the first downed hero when a charge remains, and otherwise heals the living party. Revival sets block to zero, clears encounter statuses, and permits the hero to act starting next combat turn, regardless of seat order. Newly revived heroes can be targeted immediately. Rally happens only after combat has ended and applies the same HP/block/status reset.
 
-### 9.2 Canonical skills after correction
+### 9.2 The four C's
+
+Every gem is described by four properties. Only three of them are rolled; Color belongs to the skill.
+
+| Property | Range | What it does | Rolled per gem? |
+|---|---|---|---|
+| **Color** | Red, Blue, Green, Violet, Gold | The category of the gem's effects: Red damage, Blue block, Green healing and revival, Violet control (stun and poison), Gold gold and fortune | No — fixed by the skill definition |
+| **Carat** `C` | 1–24 | The gem's overall strength. `M(C) = (C + 7) / 8` multiplies the finished base of almost every effect | Yes |
+| **Cut** `K` | 1–5, Poor / Fair / Good / Great / Perfect | Multiplies what the **dice** contributed — how many dice are read, or the die value itself. Worth most on attacks, least on gems whose base is a fixed pair | Yes |
+| **Clarity** `L` | 1–5, Fractured / Flawed / Clean / Pristine / Flawless | Contributes the **flat** term `F(L) = 2L` to the base, eases activation thresholds, and unlocks bonus effects at the top ranks | Yes |
+
+```text
+M(C) = (C + 7) / 8   →   1.000, 1.125, 1.250 … 2.375 at C12 … 3.875 at C24
+F(L) = 2L            →   2, 4, 6, 8, 10
+M(K) = (K + 3) / 4   →   1.00, 1.25, 1.50, 1.75, 2.00   (only where Cut scales a dice term directly)
+```
+
+The canonical shape of a scaling skill is therefore:
+
+```text
+amount = floor( (dice term scaled by Cut + F(L)) × M(C) )
+```
+
+Read that as three separate jobs. **Carat** is the one property that scales an entire effect, which
+is why it is the most important stat and why it alone spans 24 ranks. **Cut** never touches the flat
+part, so a Perfect Cut is transformative on Strike and marginal on Interpose. **Clarity** never
+touches the roll, so its flat contribution is proportionally largest on gems with a small dice base,
+and its real value at high ranks is often the eased trigger rather than the numbers.
+
+Floor each completed damage, block, or heal amount exactly once, inside `M(C)`, before mitigation
+or caps. Colors carry no mechanical rule of their own: nothing reads a gem's Color to decide an
+outcome. It exists so a build reads at a glance and so presentation can group and tint gems.
+
+#### How a gem is shown
+
+A player never sees `C`, `K` or `L`. Each property has a mark, and a gem is named by its ranks
+followed by its skill — "Good ✦ Flawless ✧ 12 ⚖ Multistrike" — so the two ranks a player says out
+loud lead, and the number that matters most sits beside the name.
+
+| Property | Mark | Tint |
+|---|---|---|
+| Carat | A balance scale | Gold |
+| Cut | A pierced four-point throwing star | Steel blue |
+| Clarity | A six-point sparkle | Pale violet |
+
+The rule itself is shown as a chain, not an equation: the terms that add up, then the single Carat
+multiplier, then the word for what it does in that effect's Color. Each term carries the mark of the
+property behind it and wears that property's tint, and the parts of the hand a term reads have marks
+of their own — a die with an arrow for the highest or lowest dice, two dice for a pair, a shield for
+your current block. Every mark and every term answers the mouse with the sentence that explains it,
+so no pictograph has to be learned before it can be used.
+
+#### How a gem is drawn
+
+The picture of a gem is a function of its four properties, painted at runtime rather than served
+from one sprite per skill. Two gems alike in every rank but one must not look alike, so each
+property owns a visual channel of its own and nothing else touches it:
+
+| Property | What it changes | Range |
+|---|---|---|
+| **Color** | The cut's outline and the body hue. Red is a trilliant (triangle), Blue a princess (square), Green a heart, Violet a marquise, Gold a round brilliant | One outline per Color, never shared |
+| **Carat** | The size of the stone, on a `pow(t, 0.62)` curve so the small end stays visible | 0.46 of the frame at Carat 1 to 1.0 at Carat 24 — a 2.2× span |
+| **Cut** | How intricate the faceting is: vertices inserted along each edge, bands of facets between girdle and table, and how small the table ends up | 12 facets at Poor to 108 at Perfect, on the same outline |
+| **Clarity** | Brilliance: facet contrast, how far the hue sits from grey, highlight strength, a star flare from Pristine up, and inclusions at the bottom | 5 visible flaws at Fractured, none at Pristine or Flawless |
+
+Cut inserts vertices along the existing edges rather than resampling the outline, so a better cut
+adds facets to the same stone instead of rounding it into a different shape. That matters: shape is
+how Color is read, and a Perfect Cut must never be mistaken for a different category.
+
+The skill's emblem is etched into the face, not laid over it. Light falls from the upper left, so
+the incision is drawn as a shadowed near wall, a lit far wall and a floor a shade under the body,
+and every pass only recolours pixels the stone already covers — an etch can darken a gem but can
+never widen its silhouette. Each of the nineteen skills has its own emblem, and no two Colors share
+one: Strike wears a sword, Bulwark a rampart, Venom a skull, Lifeline a heart crossed by a pulse.
+
+**Why this is 2D.** 3D gem models were considered and rejected. Gems appear as interface icons at
+four sizes and often six at once; a painted texture drops straight into the existing icon path,
+whereas 3D would need a viewport, camera and light rig per distinct stone before it became a texture
+the interface could place. The rest of the art in this project is procedural 2D for the same reason,
+and faceting reads perfectly well as flat shaded polygons. Nothing about the property-to-channel
+mapping above depends on the choice, so a later move to meshes could keep it intact.
+
+Because a gem's look depends on the instance and not the skill, gems are not part of the baked
+sprite atlas. `tools/bake_sprites.gd` no longer emits them and `sprite_forge.gd` no longer paints
+them; anything left in `assets/sprites/gems` is unused.
+
+Two rules keep the line short, and both follow from resolving the rule against the gem in hand
+rather than printing the general formula:
+
+- **A term worth nothing is not shown.** A Cut of 1 contributes zero to Interpose, so Interpose at
+  Cut 1 reads `pair value + 2`, not `pair value + 0 + 2`.
+- **A multiplier of one is not shown.** Carat 1 multiplies by 1.000, so a Carat 1 gem has no
+  multiplier on its line at all.
+
+The same resolution applies to the numbers themselves: Clarity is printed as the flat amount it
+actually adds at this rank, never as `2L`. Where a skill's Clarity payoff is a shorter trigger rather
+than a flat term — Multistrike and Lifeline — the line says so instead of showing a term.
+
+#### Canonical skills after correction
 
 Retain the section 5 catalog and rarity levels, with these explicit changes:
 
-- **Heal:** use `floor((Low(K) + C) × M(L))` to make basic gem scaling consistent.
+| Key / name | Color | Rarity | Activation | Effects, in order |
+|---|---|---:|---|---|
+| `STRIKE` / Strike | Red | 1 | Always | Damage `floor((High(K) + F(L)) × M(C))` |
+| `BLOCK` / Block | Blue | 1 | Any pair | Self block `floor((p × K + F(L)) × M(C))` |
+| `HEAL` / Heal | Green | 2 | Always | Self heal `floor((Low(K) + F(L)) × M(C))` |
+| `MULTISTRIKE` / Multistrike | Red | 2 | Straight of 5 at L1–2, 4 at L3–4, 3 at L5 | `K` hits of `floor(4 × M(C))` damage against one fixed target |
+| `LUCKYSTRIKE` / Lucky Strike | Gold | 3 | At least one 7 | Per 7: damage `floor(floor(7 × M(K)) × M(C))`, then `C × J` gold. `J = L + 1` (7 at L5) with three or more sevens, otherwise 1 |
+| `HEAVYSTRIKE` / Heavy Strike | Red | 1 | Three or more matching values | Damage `floor((v × K + F(L)) × M(C))` on the highest such value |
+| `BLESSING` / Blessing | Gold | 3 | Straight of 3 | Gain `floor(3 × M(C))` gold, then self heal `floor((K + F(L)) × M(C))` |
+| `SHIELDBASH` / Shield Bash | Blue | 2 | Full house | Gain `floor(F(L) × M(C))` block, then damage `floor(current block × [1, 1.5, 2, 2.5, 3][K-1])`; at L5 also apply 1 stun |
+| `STUN` / Stun | Violet | 4 | `H ≥ 21 - L` | Damage `floor((H + F(L)) × M(C))`, then 1 stun, or 2 at K5 |
+| `BULWARK` / Bulwark | Blue | 3 | `T ≤ 18 + 2L`, i.e. 20/22/24/26/28 | Block from the Carat table below; self-stun 3/2/2/1/0 at K1–5 |
+| `DRAINSTRIKE` / Drain Strike | Red | 4 | `T ≥ 45 - 5L` | Damage `floor((floor(H × (K+1)/2) + F(L)) × M(C))`, then self heal `floor(F(L) × M(C))` |
+| `INTERPOSE` / Interpose | Blue | 1 | Any pair | Party block `floor((p + K - 1 + F(L)) × M(C))` |
+| `MEND` / Mend | Green | 1 | Three or more odd results | Party heal `floor((lowest odd + 2(K-1) + F(L)) × M(C))` |
+| `SUNDER` / Sunder | Red | 2 | Two distinct pairs | Remove up to `floor((2K + F(L)) × M(C))` block, then damage `floor((p + F(L)) × M(C))` |
+| `ARC_BURST` / Arc Burst | Red | 2 | Straight of 3 | Damage `floor((highest value of the run + F(L)) × M(C))` to up to `K + 1` distinct enemies |
+| `VENOM` / Venom | Violet | 2 | `H ≥ 13 - L` | Damage `floor((floor(H/2) + F(L)) × M(C))`, then `K + ceil(C/4)` Poison |
+| `EVEN_TEMPO` / Even Tempo | Blue | 2 | Three or more even results | Self block `floor((even count × K + F(L)) × M(C))`, then damage `floor((K + F(L)) × M(C))` |
+| `PRECISION` / Precision | Red | 3 | Five distinct results | Damage `floor((lowest two + 2K + F(L)) × M(C))` |
+| `LIFELINE` / Lifeline | Green | 4 | Straight of 5 at L1–2, 4 at L3–4, 3 at L5 | Revive a downed hero for `floor((3K + F(L)) × M(C))` HP once per encounter, otherwise heal every living hero `floor((K + F(L)) × M(C))` |
+
+Behavioural corrections carried over from section 5.3, unchanged by the four C's rework:
+
 - **Heavy Strike:** use the highest value with at least three matches; highlight three representative dice.
 - **Straight skills:** ignore duplicate values. When several qualify, use the highest-valued run of the required length and stable die IDs to choose representative dice. Additional dice are neither consumed nor penalized.
-- **Shield Bash:** require at least three of one value and two of a distinct value. Grant C block, then deal `floor(block × [1,1.5,2,2.5,3][K-1])`; at L5 apply one stun. Block is measured after its own block grant and prior skills have resolved.
-- **Stun:** adopt the description's duration: one skipped actor turn at K1–4, two at K5. Threshold and damage remain unchanged. Intermediate Cut ranks are an upgrade path but do not change this skill's duration; show that clearly before purchase.
-- **Bullwark:** display the name as **Bulwark**, retain `BULLWARK` as a legacy import alias, and change the low-total threshold to **20/22/24/26/28** at L1–5. Higher Clarity now improves activation. Preserve the Carat block table and Cut self-stun table.
+- **Shield Bash:** require at least three of one value and two of a distinct value. Block is measured after its own block grant and prior skills have resolved, so its damage tracks a defensive build's real block total.
+- **Stun:** one skipped actor turn at K1–4, two at K5. Intermediate Cut ranks are an upgrade path but do not change this skill's duration; show that clearly before purchase.
+- **Bulwark:** display the name as **Bulwark**, retain `BULLWARK` as a legacy import alias, and use the low-total threshold **20/22/24/26/28** at L1–5. Higher Clarity improves activation.
 - Apply the common integer rounding rule to all other fractional damage, block, and healing formulas.
+
+Three skills deliberately step outside the canonical shape. State the exception on the gem, do not
+hide it in a tooltip:
+
+- **Bulwark** reads the fixed Carat block table instead of `M(C)`, because that table is already a
+  Carat curve. Cut buys down its self-stun and Clarity only eases the trigger.
+- **Multistrike** spends Clarity on the straight length rather than on `F(L)`. Going from a
+  five-value to a three-value straight is worth far more than a flat addend.
+- **Lucky Strike** applies its jackpot `J` to gold only. Letting `J` multiply damage as well stacked
+  three multipliers on one hit and produced a rarity-3 gem that ended act 3 in a single activation.
 
 Derive tooltip numbers and effect calculations from the same definition. Do not maintain a separate freeform description parser as a second rules engine.
 
@@ -488,7 +626,7 @@ The [content catalog](CONTENT_CATALOG.md#8-run-profiles-and-reward-pacing) names
 | Shop | Three personal offers, generated once on entry. Buy by offer-instance ID; sell by gem-instance ID. Buy price is the original value formula; sell price is `floor(value / 2)`. One owner per item and atomic currency changes |
 | Rest | Preserve free `floor(maxHP / 3)` healing for each hero, including revival. Show the actual recovery before committing the route choice |
 | Workshop | Each hero may buy one service per visit for 5 gold: replace one die with an adjacent standard shape in D4→D6→D8→D10→D12→D20 order, in either direction; or change one face to an integer from 1 through that die's side count |
-| Lapidary | Each hero may increase either Cut or Clarity of one owned gem by one, up to 5. Cost is `5 × new rank` gold. Carat remains a find-dependent property in the first version |
+| Lapidary | Each hero may increase either Cut or Clarity of one owned gem by one, up to 5. Cost is `5 × new rank` gold. Cut buys roll scaling and Clarity buys the flat term plus easier triggers, so the preview must show both against the last real hand. Carat, the overall multiplier, stays a find-dependent property in the first version, and Color never changes |
 | Mine | Generate `6 × starting party size` rocks once using luck `min(room number,15)`; preserve ten energy per living hero and the automatic hit simulation. Commit gold and a pending gem-draft pool before playback; show results even if no rocks break |
 
 Workshop shape replacement produces a fresh standard face list and previews the loss of any face edits. Repeated face values from engraving are allowed. Replacing a die keeps its inventory slot but records a new or updated instance definition. The initial service limit prevents one visit from completely remaking a build.
@@ -562,7 +700,7 @@ Use stable string IDs for content and unique instance IDs for mutable items. Nev
 | `DieInstance` | Instance ID, owner ID, shape, current face list, future modifier IDs |
 | `RollResult` | Die instance ID, face index/ID, numeric value, roll sequence |
 | `SkillDefinition` | Skill ID, rarity, trigger evaluator ID/parameters, ordered effect definitions, description metadata |
-| `GemInstance` | Instance ID, owner ID, skill ID, Carat/Cut/Clarity, equipped slot or reserve |
+| `GemInstance` | Instance ID, owner ID, skill ID, Carat/Cut/Clarity, equipped slot or reserve. Color is not stored here: it is read from the skill definition, so it cannot drift per instance or be upgraded |
 | `UnitState` | Unit ID, side, HP/max HP, block, statuses, ordered skills and dice |
 | `PlayerRunState` | Player ID, hero ID, unit state, gold, inventories, seat, rerolls, readiness, preferred target |
 | `BattleState` | Encounter ID, turn ID, phase ID, enemies, rolls, intents, committed action order |
@@ -676,7 +814,6 @@ The authenticated transport sender determines the player. The host validates pha
 | `ChooseHero`, `SetLobbyReady` | Lobby open; sender controls that seat |
 | `RerollDice(die_ids)` | Planning phase; hero alive; not ready; positive reroll budget; nonempty unique subset of owned active dice |
 | `SetPreferredTarget(unit_id)` | Planning phase; valid living enemy or explicit no-target state |
-| `SetFriendlyTarget(unit_id)` | Planning phase; sender not ready; target in party; downed target allowed only for equipped revival content |
 | `UseHeroTrait(die_id)` | Correct hero; planning phase; not ready; remaining encounter charge; owned active die |
 | `SetReady(boolean)` | Correct room/phase; player's required interactions complete |
 | `VoteRoom(offer_id)` | Current offer set; eligible player; not already committed |
@@ -759,7 +896,7 @@ Use table-driven cases with explicit hands, gem properties, actor states, and ex
 | Dead actor with queued skills | No effects; no readiness wait |
 | Empty/invalid hand or property values | Validation rejects invalid state safely; no crash |
 
-Cover Carat 1 and 24 and every Cut/Clarity boundary. Test empty eligible loot pools, exhausted room types, duplicate skill IDs, full inventory slots, unaffordable services, capped upgrades, zero mining rewards, and all heroes downed.
+Cover Carat 1 and 24 and every Cut/Clarity boundary. Assert the four C's separately: that Carat is strictly increasing across all 24 ranks, that a Clarity step adds the same flat amount regardless of the roll, that Cut is worth more to a dice-reading attack than to a fixed-base support gem, and that every skill declares a known Color. Cover the presentation layer too: every skill describes itself at several rank spreads, every mark it asks for has artwork and hover text, a term worth zero is absent, and a Carat 1 multiplier is hidden. Assert the painted stone on each axis separately — a higher Carat covers more of the frame, a higher Cut cuts more facets without changing the outline, a higher Clarity is brighter and throws more light, no two Colors share a cut, and changing any single rank changes the pixels. Test empty eligible loot pools, exhausted room types, duplicate skill IDs, full inventory slots, unaffordable services, capped upgrades, zero mining rewards, and all heroes downed.
 
 ### 13.2 State and network invariants
 
@@ -785,6 +922,7 @@ Specifically investigate:
 - Kait's large initial Strike advantage versus her lower HP.
 - Whether the catalog's Max trait and starting Arc Burst close his baseline identity gap without making precision builds automatically superior.
 - The very high payoff of top-Carat Bulwark and jackpot Lucky Strike.
+- The top of the Carat curve generally. `M(24) = 3.875` multiplies a Cut-scaled dice term, so a Carat 20+ Strike, Drain Strike, or Heavy Strike is run-defining by design. Full-profile drops top out at Carat 12 (`M = 2.375`) for exactly this reason; confirm that reserving 13–24 for challenge content is enough, and watch Drain Strike in particular, whose base is a high die multiplied by Cut before the Carat multiplier applies.
 - Whether six equipped slots produce real tradeoffs without making most loot unusable.
 - The frequency of impossible triggers under a player's deck. Shop and upgrade previews should expose activation odds, not conceal them.
 - Enrage's effect on healing/gold farming and on defensive builds that legitimately need more turns.

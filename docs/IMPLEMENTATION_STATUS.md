@@ -18,7 +18,7 @@ The final combined run passed **1,251 checks** across the five assertion suites,
 
 | Suite | What it verifies |
 | --- | --- |
-| `test_combat.gd` | All gem/property boundaries, status and relic hooks, hero traits, stable targets, boss phases, independent previews, loot and content validation |
+| `test_combat.gd` | All gem/property boundaries, the four C's separately (Carat strictly increasing over 1–24, Clarity flat across roll sizes, Cut worth more on dice-reading attacks, every skill declaring a known Color), status and relic hooks, hero traits, stable targets, boss phases, independent previews, loot and content validation |
 | `test_run.gd` | Commands, duplicate/rejected transactions, economy, all room families, schedules, save/resume, disconnect recovery, determinism, and both campaigns with 1–4 heroes |
 | `test_services.gd` | Atomic backup recovery, packet validation, four ENet peers, four separate processes, reconnect/host loss, and large snapshot reassembly |
 | `test_network_run.gd` | Actual four-hero authority through network route votes, rerolls, lock-in and resolved combat, snapshot convergence, and pings |

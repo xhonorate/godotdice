@@ -14,6 +14,8 @@ extends Resource
 @export var profiles: Dictionary = {}
 @export var statuses: Dictionary = {}
 const SECTIONS: Array = ["heroes","skills","dice","relics","enemies","events","profiles","statuses"]
+## Color is the fourth C: the category a skill's effects belong to. It is authored, not rolled.
+const COLORS: Array = ["RED","BLUE","GREEN","VIOLET","GOLD"]
 const TARGETS: Array = ["self","enemy","enemies","ally","revive"]
 const TAGS: Array = ["attack","pair","block","heal","straight","seven","gold","triple","full_house","high","stun","low","support","odd","two_pairs","group","poison","even","distinct","revive"]
 
@@ -70,6 +72,8 @@ func validate(registry: Dictionary) -> Array:
 			errors.append("Invalid rarity or target policy: "+key)
 		if entry.get("evaluator_id",key) != key or not registry.skills.has(key):
 			errors.append("Unknown formula evaluator: "+key)
+		if not str(entry.get("color","")) in COLORS:
+			errors.append("Unknown gem color "+str(entry.get("color",""))+" on "+key)
 		if not entry.get("tags",[]) is Array:
 			errors.append("Tags must be an array: "+key)
 		else:

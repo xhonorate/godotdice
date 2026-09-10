@@ -102,8 +102,39 @@ static func _straight(groups: Dictionary, length: int) -> Array:
 			chosen = candidate
 	return chosen
 
-static func _scaled(value: int, rank: int) -> int:
-	return floori(float(value*(rank+3))/4.0)
+## The four C's.
+## Color   - the category of a gem's effects. Fixed by the skill; see Catalog.GEM_COLORS.
+## Carat   - 1-24. The gem's overall strength. M(C) = (C+7)/8 multiplies a finished base.
+## Cut     - 1-5.  M(K) = (K+3)/4, or a per-skill dice term. Only scales what the dice gave.
+## Clarity - 1-5.  F(L) = 2L, a flat addend to the base, plus trigger easing and L5 bonuses.
+const CARAT_OFFSET: int = 7
+const CARAT_DIVISOR: int = 8
+const MULTISTRIKE_HIT: int = 4
+const BLESSING_GOLD: int = 3
+
+static func carat_multiplier(carat: int) -> float:
+	## 1.000x at C1, 1.875x at C8, 2.375x at C12, 3.875x at C24.
+	return float(clampi(carat,1,24)+CARAT_OFFSET)/float(CARAT_DIVISOR)
+
+static func clarity_bonus(clarity: int) -> int:
+	## 2/4/6/8/10. Flat, so it matters most to skills with a small dice base, and it gives
+	## every gem a floor that does not depend on the roll.
+	return 2*clampi(clarity,1,5)
+
+static func cut_multiplier(cut: int) -> float:
+	## 1.00x/1.25x/1.50x/1.75x/2.00x, used where Cut multiplies a dice term directly.
+	return float(clampi(cut,1,5)+3)/4.0
+
+static func _by_carat(value: int, carat: int) -> int:
+	## Every completed damage, block or heal amount floors exactly once, here.
+	return floori(float(value)*carat_multiplier(carat))
+
+static func _by_cut(value: int, cut: int) -> int:
+	return floori(float(value)*cut_multiplier(cut))
+
+static func _lowered(text: String) -> String:
+	## Drops only the leading capital, so rank labels such as "L1-2" survive the join.
+	return text.substr(0, 1).to_lower()+text.substr(1) if not text.is_empty() else text
 
 static func effect(kind: String, amount: int, target: String = "self") -> Dictionary:
 	return {"kind":kind, "amount":maxi(0,amount), "target":target}
@@ -132,7 +163,7 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 	if normalized.is_empty():
 		return output
 	var l: int = mini(5,stored_l+1) if Catalog.has_relic(actor,"FOCUSING_PRISM") and "straight" in definition.tags else stored_l
-	output.merge({"valid":true,"carat":c,"cut":k,"clarity":stored_l,"effective_clarity":l},true)
+	output.merge({"valid":true,"color":Catalog.gem_color(key),"carat":c,"cut":k,"clarity":stored_l,"effective_clarity":l,"carat_multiplier":carat_multiplier(c),"clarity_bonus":clarity_bonus(l)},true)
 	var groups: Dictionary = {}
 	var total: int = 0
 	var odd: Array = []
@@ -154,24 +185,25 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 	var effects: Array = []
 	var active: bool = true
 	var straight_length: int = 5-int((l-1)/2)
+	var f: int = clarity_bonus(l)
 	match key:
 		"STRIKE":
 			var high_sum: int = 0
 			for roll in normalized.slice(maxi(0,normalized.size()-k)):
 				high_sum += roll.value
 				selected.append(roll.die_id)
-			effects.append(effect("damage",_scaled(high_sum+c,l),"enemy"))
+			effects.append(effect("damage",_by_carat(high_sum+f,c),"enemy"))
 		"BLOCK", "INTERPOSE":
 			active = not pairs.is_empty()
 			if active:
 				selected = groups[p].slice(0,2)
-				effects.append(effect("block",_scaled(p*k+c,l) if key == "BLOCK" else _scaled(p+c+k-1,l),"self" if key == "BLOCK" else "ally"))
+				effects.append(effect("block",_by_carat(p*k+f,c) if key == "BLOCK" else _by_carat(p+k-1+f,c),"self" if key == "BLOCK" else "ally"))
 		"HEAL":
 			var low_sum: int = 0
 			for roll in normalized.slice(0,mini(k,normalized.size())):
 				low_sum += roll.value
 				selected.append(roll.die_id)
-			effects.append(effect("heal",_scaled(low_sum+c,l)))
+			effects.append(effect("heal",_by_carat(low_sum+f,c)))
 		"MULTISTRIKE", "BLESSING", "ARC_BURST", "LIFELINE":
 			var run: Array = _straight(groups,straight_length if key in ["MULTISTRIKE","LIFELINE"] else 3)
 			active = not run.is_empty()
@@ -181,16 +213,16 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 				match key:
 					"MULTISTRIKE":
 						for _hit in range(k):
-							effects.append(effect("damage",c,"enemy"))
+							effects.append(effect("damage",_by_carat(MULTISTRIKE_HIT,c),"enemy"))
 					"BLESSING":
-						effects = [effect("gold",c),effect("heal",_scaled(k,l))]
+						effects = [effect("gold",_by_carat(BLESSING_GOLD,c)),effect("heal",_by_carat(k+f,c))]
 					"ARC_BURST":
-						var arc: Dictionary = effect("damage",_scaled(run.back()+c,l),"enemies")
+						var arc: Dictionary = effect("damage",_by_carat(run.back()+f,c),"enemies")
 						arc.target_limit = k+1
 						effects.append(arc)
 					"LIFELINE":
-						var life: Dictionary = effect("lifeline",c+3*k,"revive")
-						life.heal_amount = c+k
+						var life: Dictionary = effect("lifeline",_by_carat(3*k+f,c),"revive")
+						life.heal_amount = _by_carat(k+f,c)
 						life.charges = int(item.get("revive_charges",1))
 						effects.append(life)
 		"LUCKYSTRIKE":
@@ -199,14 +231,14 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 			var jackpot: int = (7 if l == 5 else l+1) if sevens.size() >= 3 else 1
 			selected = sevens.duplicate()
 			for _seven in sevens:
-				effects.append(effect("damage",_scaled(7*jackpot,k),"enemy"))
+				effects.append(effect("damage",_by_carat(_by_cut(7,k),c),"enemy"))
 				effects.append(effect("gold",c*jackpot))
 		"HEAVYSTRIKE":
 			active = not triples.is_empty()
 			if active:
 				var triple: int = triples.back()
 				selected = groups[triple].slice(0,3)
-				effects.append(effect("damage",_scaled(triple*k+c,l),"enemy"))
+				effects.append(effect("damage",_by_carat(triple*k+f,c),"enemy"))
 		"SHIELDBASH":
 			active = false
 			for triple in triples:
@@ -215,27 +247,28 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 						active = true
 						selected = groups[triple].slice(0,3)+groups[pair].slice(0,2)
 			if active:
-				var bash: Dictionary = effect("damage",floori(float((int(actor.get("block",0))+c)*(k+1))/2.0),"enemy")
+				var gained: int = _by_carat(f,c)
+				var bash: Dictionary = effect("damage",floori(float((int(actor.get("block",0))+gained)*(k+1))/2.0),"enemy")
 				bash.dynamic = "shield_bash"
 				bash.numerator = k+1
 				bash.denominator = 2
-				effects = [effect("block",c),bash]
+				effects = [effect("block",gained),bash]
 				if l == 5:
 					effects.append(effect("stun",1,"enemy"))
 		"STUN":
 			active = high >= 21-l
 			selected = [normalized.back().die_id]
-			effects = [effect("damage",high+c,"enemy"),effect("stun",2 if k == 5 else 1,"enemy")]
+			effects = [effect("damage",_by_carat(high+f,c),"enemy"),effect("stun",2 if k == 5 else 1,"enemy")]
 		"BULWARK":
 			active = total <= 18+2*l
 			effects = [effect("block",Catalog.BULWARK_BLOCK[c-1]),effect("stun",Catalog.BULWARK_STUN[k-1])]
 		"DRAINSTRIKE":
 			active = total >= 45-5*l
-			effects = [effect("damage",high*k,"enemy"),effect("heal",c)]
+			effects = [effect("damage",_by_carat(floori(float(high*(k+1))/2.0)+f,c),"enemy"),effect("heal",_by_carat(f,c))]
 		"MEND":
 			active = odd.size() >= 3
 			if active:
-				effects.append(effect("heal",_scaled(odd[0].value+c+2*(k-1),l),"ally"))
+				effects.append(effect("heal",_by_carat(odd[0].value+2*(k-1)+f,c),"ally"))
 				for roll in odd:
 					selected.append(roll.die_id)
 		"SUNDER":
@@ -243,27 +276,27 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 			if active:
 				for pair in pairs.slice(pairs.size()-2):
 					selected.append_array(groups[pair].slice(0,2))
-				effects = [effect("remove_block",c+2*k,"enemy"),effect("damage",_scaled(p+c,l),"enemy")]
+				effects = [effect("remove_block",_by_carat(2*k+f,c),"enemy"),effect("damage",_by_carat(p+f,c),"enemy")]
 		"VENOM":
 			active = high >= 13-l
 			selected = [normalized.back().die_id]
-			effects = [effect("damage",floori(float(high+c)/2.0),"enemy"),effect("poison",k+ceili(float(c)/4.0),"enemy")]
+			effects = [effect("damage",_by_carat(floori(float(high)/2.0)+f,c),"enemy"),effect("poison",k+ceili(float(c)/4.0),"enemy")]
 		"EVEN_TEMPO":
 			active = even.size() >= 3
 			for roll in even:
 				selected.append(roll.die_id)
-			effects = [effect("block",_scaled(even.size()*k+c,l)),effect("damage",c+k,"enemy")]
+			effects = [effect("block",_by_carat(even.size()*k+f,c)),effect("damage",_by_carat(k+f,c),"enemy")]
 		"PRECISION":
 			active = normalized.size() == 5 and groups.size() == 5
 			if active:
-				effects.append(effect("damage",_scaled(normalized[0].value+normalized[1].value+c+2*k,l),"enemy"))
+				effects.append(effect("damage",_by_carat(normalized[0].value+normalized[1].value+2*k+f,c),"enemy"))
 	if selected.is_empty() and active:
 		for roll in normalized:
 			selected.append(roll.die_id)
 	output.active = active
 	output.effects = effects if active else []
 	output.contributing_dice = selected if active else []
-	output.reason = "Ready" if active else "Needs "+str(definition.trigger).to_lower()
+	output.reason = "Ready" if active else "Needs "+_lowered(str(definition.trigger))
 	output.summary = effects_summary(output.effects,actor,state,key) if active else output.reason
 	return output
 
@@ -554,18 +587,19 @@ static func resolve_skill(actor: Dictionary, action: Dictionary, state: Dictiona
 			"enemies":
 				recipients = enemies.slice(0,mini(enemies.size(),int(action_effect.get("target_limit",enemies.size()))))
 			"ally":
-				recipients = [friendly]
+				# Friendly support has no chosen recipient: it reaches the whole living
+				# side. An enemy intent that names its own recipient keeps that choice.
+				recipients = [friendly] if not str(action.get("friendly_target_id","")).is_empty() else allies
 			"allies":
 				recipients = allies
 			"other_allies":
 				recipients = allies.filter(func(unit: Dictionary) -> bool: return unit.id != actor.id)
 			"revive":
 				var downed: Array = sides[0].filter(func(unit: Dictionary) -> bool: return unit.hp <= 0)
-				var preferred_downed: Dictionary = _find(downed,str(actor.get("friendly_target","")))
 				if not downed.is_empty() and int(item.get("revive_charges",action_effect.get("charges",1))) > 0:
-					recipients = [preferred_downed if not preferred_downed.is_empty() else downed[0]]
+					recipients = [downed[0]]
 				else:
-					recipients = [friendly]
+					recipients = allies
 			_:
 				recipients = [actor]
 		for recipient in recipients:

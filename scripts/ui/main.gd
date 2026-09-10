@@ -4,18 +4,50 @@ const EngineScript = preload("res://scripts/core/run_engine.gd")
 const Catalog = preload("res://scripts/core/catalog.gd")
 const Combat = preload("res://scripts/core/combat.gd")
 const SessionScript = preload("res://scripts/services/session.gd")
-const Art = preload("res://scripts/ui/rune_art.gd")
+const UiKit = preload("res://scripts/ui/ui_kit.gd")
+const Forge = preload("res://scripts/ui/sprite_forge.gd")
+const BackdropScript = preload("res://scripts/ui/backdrop.gd")
+const SpriteActor = preload("res://scripts/ui/sprite_actor.gd")
+const DiceView = preload("res://scripts/ui/dice_view.gd")
+const DiceIcons = preload("res://scripts/ui/dice_icons.gd")
+const GemIcons = preload("res://scripts/ui/gem_icons.gd")
+const GemText = preload("res://scripts/ui/gem_text.gd")
+const GemRender = preload("res://scripts/ui/gem_render.gd")
+const BattleStage = preload("res://scripts/ui/battle_stage.gd")
 const PlaceholderAudio = preload("res://scripts/ui/placeholder_audio.gd")
-const INK := Color("10171f")
-const PANEL := Color("19232d")
-const LINE := Color("36434b")
-const GOLD := Color("d6ac67")
-const PAPER := Color("e7e4dc")
-const MUTED := Color("a3b1b8")
-const GREEN := Color("83c7ad")
-const RED := Color("e29389")
-const BLUE := Color("91b4dc")
+const INK := Color("0c111c")
+const PANEL := Color("161e2e")
+const PANEL_HI := Color("1f2a3d")
+const PANEL_LOW := Color("101725")
+const LINE := Color("2f3d55")
+const GOLD := Color("e8b661")
+const GOLD_DIM := Color("8a6d3c")
+const PAPER := Color("eef1f7")
+const MUTED := Color("8f9fb5")
+const GREEN := Color("6fe3b0")
+const RED := Color("ff7a6b")
+const BLUE := Color("76b6ff")
+const VIOLET := Color("b98bff")
+const AMBER := Color("ffcf7a")
+const HP_LIVE := Color("2f9e75")
+const HP_FOE := Color("b8413c")
+const HP_LOST := Color("6b3b3b")
 const HERO_KEYS := ["ardor", "kait", "max"]
+const GEM_SLOTS := 6
+const GEM_SLOT_WIDTH := 132
+## One tint per rolled property. Gold is value, steel is the blade, violet is the light:
+## a term keeps its property's colour wherever it appears, name line or formula.
+const PROPERTY_TINTS := {"carat": Color("e8b661"), "cut": Color("9fd8ff"), "clarity": Color("d8c2ff")}
+## What each planned effect looks like above a hero: icon, tint, and what it means.
+const FORECAST_MARKS := {
+	"damage": ["sword", "ff7a6b", "Damage this hero's gems will deal"],
+	"block": ["shield", "76b6ff", "Block this hero will gain"],
+	"heal": ["heart", "6fe3b0", "Healing this hero will give"],
+	"lifeline": ["heart", "ffcf7a", "Hit points a revival will restore"],
+	"poison": ["skull", "9bdc3c", "Poison this hero will apply"],
+	"stun": ["bolt", "ffcf7a", "Stun this hero will apply"],
+	"remove_block": ["shieldbreak", "b98bff", "Enemy block this hero will strip"],
+	"gold": ["gold", "e8b661", "Gold this hero will earn"]}
 const ACTION_DEFAULTS := {"rd_reroll": KEY_R, "rd_ready": KEY_SPACE, "rd_inspect": KEY_I, "rd_target": KEY_TAB, "rd_back": KEY_ESCAPE, "rd_toggle_die": KEY_T, "rd_skip": KEY_F}
 
 var engine: RefCounted
@@ -27,8 +59,8 @@ var overlay: PanelContainer
 var toast: Label
 var controlled_id := ""
 var selected_dice: Array[String] = []
-var menu_heroes: Array[String] = ["ardor"]
-var menu_names: Array[String] = ["Player 1", "Player 2", "Player 3", "Player 4"]
+var menu_hero := "ardor"
+var menu_name := "Player 1"
 var profile := "short_9"
 var seed_text := ""
 var player_name := "Adventurer"
@@ -45,7 +77,6 @@ var selected_reserve_gem := ""
 var offline_hotseat := false
 var command_counter := 0
 var observed_revision := -1
-var playback_label: Label
 var playback_paused := false
 var playback_events: Array = []
 var playback_index := 0
@@ -62,12 +93,26 @@ var mine_playback_timer := 0.0
 var mine_playback_room := ""
 var provisional: Dictionary = {}
 var provisional_commands: Dictionary = {}
+var backdrop: Control
+var dice_views: Dictionary = {}
+var actor_views: Dictionary = {}
+var tracked_hp: Dictionary = {}
+var stage_view: Control
+## The hand on screen. A fresh roll waits here until the fight has finished playing.
+var shown_hands: Dictionary = {}
+var shown_turn := -1
+var shown_signature := ""
+## The die solid on the open inspect sheet, so hover and drag can be driven and tested.
+var inspect_view: DiceView
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_load_settings()
 	_install_input()
 	_apply_theme()
+	backdrop = BackdropScript.new()
+	backdrop.reduced_motion = bool(settings.reduced_motion)
+	add_child(backdrop)
 	sound_player = AudioStreamPlayer.new()
 	add_child(sound_player)
 	click_sound = PlaceholderAudio.tone(680, 0.055, 0.12)
@@ -94,46 +139,10 @@ func _ready() -> void:
 	_render()
 
 func _apply_theme() -> void:
-	var t := Theme.new()
-	t.default_font_size = int(16 * float(settings.text_scale))
-	t.set_color("font_color", "Label", PAPER)
-	t.set_color("font_color", "Button", PAPER)
-	t.set_color("font_hover_color", "Button", Color.WHITE)
-	t.set_color("font_pressed_color", "Button", GOLD)
-	t.set_color("font_disabled_color", "Button", Color("77838c"))
-	t.set_color("font_color", "LineEdit", PAPER)
-	t.set_color("font_placeholder_color", "LineEdit", MUTED)
-	t.set_color("font_color", "RichTextLabel", PAPER)
-	t.set_stylebox("normal", "Button", _style(Color("26333d"), LINE, 7, 12))
-	t.set_stylebox("hover", "Button", _style(Color("354450"), GOLD, 7, 12))
-	t.set_stylebox("pressed", "Button", _style(Color("3e4137"), GOLD, 7, 12))
-	t.set_stylebox("disabled", "Button", _style(Color("172129"), Color("293640"), 7, 12))
-	t.set_stylebox("focus", "Button", _style(Color(0, 0, 0, 0), GOLD, 7, 0, 2))
-	t.set_stylebox("normal", "LineEdit", _style(Color("101820"), LINE, 6, 10))
-	t.set_stylebox("focus", "LineEdit", _style(Color("101820"), GOLD, 6, 10))
-	t.set_stylebox("panel", "PopupMenu", _style(PANEL, LINE, 6, 12))
-	t.set_color("font_color", "PopupMenu", PAPER)
-	t.set_stylebox("background", "ProgressBar", _style(Color("0e151b"), Color("29353c"), 4, 0))
-	t.set_stylebox("fill", "ProgressBar", _style(GREEN, GREEN, 4, 0))
-	t.set_constant("separation", "VBoxContainer", 10)
-	t.set_constant("separation", "HBoxContainer", 10)
-	t.set_constant("h_separation", "GridContainer", 10)
-	t.set_constant("v_separation", "GridContainer", 10)
-	t.set_stylebox("panel", "TooltipPanel", _style(Color("222e38"), GOLD, 7, 14))
-	t.set_color("font_color", "TooltipLabel", PAPER)
-	theme = t
+	theme = UiKit.build_theme(float(settings.text_scale))
 
 func _style(bg: Color, border: Color, radius: int = 8, padding: int = 16, width: int = 1) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = bg
-	s.border_color = border
-	s.set_border_width_all(width)
-	s.set_corner_radius_all(radius)
-	s.content_margin_left = padding
-	s.content_margin_right = padding
-	s.content_margin_top = padding
-	s.content_margin_bottom = padding
-	return s
+	return UiKit.flat(bg, border, radius, padding, width)
 
 func _queue_render() -> void:
 	if pending_render:
@@ -147,27 +156,24 @@ func _render() -> void:
 	var focused := get_viewport().gui_get_focus_owner()
 	if is_instance_valid(focused):
 		focus_tag = str(focused.get_meta("focus_tag", ""))
+	_detach_persistent()
 	if is_instance_valid(page):
 		remove_child(page)
 		page.queue_free()
 	page = Control.new()
 	page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(page)
-	move_child(page, 0)
-	var bg := ColorRect.new()
-	bg.color = INK
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	page.add_child(bg)
-	var texture := Art.new()
-	texture.kind = "background"
-	texture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	page.add_child(texture)
+	move_child(page, 1 if is_instance_valid(backdrop) else 0)
+	_dress_backdrop()
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for edge in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + edge, 22 if edge != "bottom" else 12)
+	margin.add_theme_constant_override("margin_left", 26)
+	margin.add_theme_constant_override("margin_right", 26)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 12)
 	page.add_child(margin)
-	root_box = _vbox(margin, 14)
+	root_box = _vbox(margin, 12)
 	_header()
 	if snapshot.is_empty():
 		if menu_page == "lobby":
@@ -180,6 +186,197 @@ func _render() -> void:
 	if not focus_tag.is_empty():
 		_restore_focus(page, focus_tag)
 
+func _dress_backdrop() -> void:
+	if not is_instance_valid(backdrop):
+		return
+	backdrop.reduced_motion = bool(settings.reduced_motion)
+	var kind := "menu"
+	if not snapshot.is_empty():
+		var room_kind := str(snapshot.get("room", {}).get("kind", ""))
+		match str(snapshot.get("phase", "")):
+			"planning", "resolution", "combat":
+				kind = room_kind if room_kind in ["elite", "boss"] else "battle"
+			"route", "reward": kind = "route"
+			"support": kind = room_kind
+			"mine_vote", "mine_draft": kind = "mine"
+			"summary": kind = "summary"
+	backdrop.apply_theme(kind)
+
+func _exit_tree() -> void:
+	## Detached sprites and dice are owned by this screen, not by the scene tree.
+	for store in [dice_views, actor_views]:
+		for id in store.keys():
+			var node = store[id]
+			if is_instance_valid(node) and node.get_parent() == null:
+				node.free()
+		store.clear()
+	if is_instance_valid(stage_view) and stage_view.get_parent() == null:
+		stage_view.free()
+	UiKit.release()
+	GemIcons.release()
+	GemRender.release()
+	Forge.clear_cache()
+	SpriteActor.release()
+	BackdropScript.release()
+
+func _detach_persistent() -> void:
+	## Sprites and dice outlive a re-render so their animation is continuous.
+	if is_instance_valid(stage_view) and stage_view.get_parent() != null:
+		stage_view.get_parent().remove_child(stage_view)
+	for store in [dice_views, actor_views]:
+		for id in store.keys():
+			var node = store[id]
+			if not is_instance_valid(node):
+				store.erase(id)
+			elif node.get_parent() != null:
+				node.get_parent().remove_child(node)
+
+func _prune_persistent() -> void:
+	var live: Dictionary = {}
+	for hero in snapshot.get("heroes", []):
+		live[str(hero.get("id", ""))] = true
+		for die in hero.get("dice", []) + hero.get("reserve_dice", []):
+			live[str(die.get("id", ""))] = true
+	for enemy in snapshot.get("enemies", []):
+		live[str(enemy.get("id", ""))] = true
+	for store in [dice_views, actor_views]:
+		for id in store.keys():
+			if live.has(id) or str(id).begins_with("preview:"):
+				continue
+			var node = store[id]
+			store.erase(id)
+			if is_instance_valid(node):
+				if node.get_parent() != null:
+					node.get_parent().remove_child(node)
+				node.queue_free()
+
+func _die_view(die_id: String) -> DiceView:
+	var view = dice_views.get(die_id, null)
+	if not is_instance_valid(view):
+		view = DiceView.new()
+		view.live = not bool(settings.reduced_motion)
+		dice_views[die_id] = view
+	view.live = not bool(settings.reduced_motion)
+	return view
+
+func _battle_stage() -> Control:
+	if not is_instance_valid(stage_view):
+		stage_view = BattleStage.new()
+	stage_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_view.custom_minimum_size.y = 230
+	return stage_view
+
+func _plate_hand(hero: Dictionary) -> Array:
+	## The rolled hand as it is drawn under a combatant: each face keeps the shape and
+	## colour of the die it came from, so the plate matches the tray and the solid.
+	var solids: Dictionary = {}
+	for die in hero.get("dice", []):
+		solids[str(die.get("id", ""))] = [str(die.get("shape", "D6")), str(die.get("key", die.get("shape", "D6")))]
+	var faces: Array = []
+	for roll in _hand_for(hero):
+		var solid: Array = solids.get(str(roll.get("die_id", "")), ["D6", "D6"])
+		faces.append({"value": int(roll.get("value", 0)), "shape": str(solid[0]), "key": str(solid[1])})
+	return faces
+
+func _stage_units() -> Array:
+	## Presentation-only description of the battlefield, read from the snapshot.
+	var units: Array = []
+	var me: Dictionary = _hero()
+	var locked: bool = bool(me.get("ready", false))
+	for enemy in snapshot.get("enemies", []):
+		var lines: Array = []
+		if int(enemy.get("statuses", {}).get("stun", 0)) > 0:
+			lines.append("STUNNED · SLOT SKIPPED")
+		units.append({
+			"id": str(enemy.get("id", "")), "key": str(enemy.get("key", "ENEMY")), "side": 1,
+			"name": str(enemy.get("name", "Enemy")), "hp": int(enemy.get("hp", 0)), "max_hp": int(enemy.get("max_hp", 1)),
+			"block": int(enemy.get("block", 0)), "downed": int(enemy.get("hp", 0)) <= 0,
+			"targeted": str(me.get("preferred_target", "")) == str(enemy.get("id", "")),
+			"hint": "Left-click to target. Right-click to inspect.",
+			"boss": bool(enemy.get("boss", false)), "mine": false,
+			"tint": _unit_tint(str(enemy.get("key", ""))), "bar": HP_FOE,
+			"intents": lines, "forecast": _intent_rows(enemy), "badges": _status_badges(enemy),
+			"pick_disabled": int(enemy.get("hp", 0)) <= 0 or locked})
+	for hero in snapshot.get("heroes", []):
+		var down: bool = int(hero.get("hp", 0)) <= 0
+		units.append({
+			"id": str(hero.get("id", "")), "key": str(hero.get("key", "ARDOR")), "side": -1,
+			"name": str(hero.get("player_name", hero.get("name", "Hero"))), "hp": int(hero.get("hp", 0)),
+			"max_hp": int(hero.get("max_hp", 1)), "block": int(hero.get("block", 0)), "downed": down,
+			"targeted": false, "hint": "Right-click to inspect. Friendly effects reach the whole party.",
+			"boss": false, "mine": str(hero.get("id", "")) == controlled_id,
+			"tint": _unit_tint(str(hero.get("key", ""))), "bar": HP_LIVE,
+			"intents": [], "forecast": _forecast_rows(hero),
+			"badges": _status_badges(hero), "pick_disabled": true,
+			"hand": _plate_hand(hero)})
+	return units
+
+func _status_badges(unit: Dictionary) -> Array:
+	var badges: Array = []
+	var statuses: Dictionary = unit.get("statuses", {})
+	for key in ["stun", "poison", "resolve"]:
+		var stacks := int(statuses.get(key, 0))
+		if stacks > 0:
+			badges.append(["%s %d" % [key.to_upper().substr(0, 3), stacks],
+				AMBER if key == "stun" else (Color("9bdc3c") if key == "poison" else VIOLET)])
+	if unit.get("ready", false):
+		badges.append(["READY", GREEN])
+	return badges
+
+func _pick_unit(unit_id: String) -> void:
+	## Only hostile targets are chosen. Support skills always reach the whole party.
+	if _hero().get("ready", false):
+		return
+	for enemy in snapshot.get("enemies", []):
+		if str(enemy.get("id", "")) == unit_id and int(enemy.get("hp", 0)) > 0:
+			_command("SetPreferredTarget", {"unit_id": unit_id})
+			return
+
+func _inspect_by_id(unit_id: String) -> void:
+	for unit in snapshot.get("enemies", []) + snapshot.get("heroes", []):
+		if str(unit.get("id", "")) == unit_id:
+			_inspect_unit(unit)
+			return
+
+func _die_chip(parent: Node, view_id: String, die: Dictionary, edge: int, rolled: Dictionary = {}) -> Control:
+	## A still 3D die for lists: inventory, shops, the workshop and the journal.
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(edge, edge)
+	holder.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(holder)
+	var view := _die_view(view_id)
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.add_child(view)
+	view.live = false
+	view.configure(die, rolled, false, false, BLUE)
+	holder.tooltip_text = "%s\nFaces: %s\nRight-click to inspect." % [_die_name(die), _faces_text(die)]
+	holder.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			_inspect_die(die))
+	return holder
+
+func _actor_for(unit_id: String, art_key: String, facing: float) -> SpriteActor:
+	var actor = actor_views.get(unit_id, null)
+	if not is_instance_valid(actor):
+		actor = SpriteActor.new()
+		actor_views[unit_id] = actor
+	actor.facing = facing
+	actor.setup(Forge.unit(art_key), _unit_tint(art_key), bool(settings.reduced_motion))
+	return actor
+
+func _unit_tint(art_key: String) -> Color:
+	match art_key.to_upper():
+		"ARDOR": return Color("ffb069")
+		"KAIT": return GREEN
+		"MAX": return BLUE
+		"SLIME", "SLIME_KING": return GREEN
+		"MIRROR_WISP", "MIRROR_REGENT": return Color("bfe9ff")
+		"RIFT_HOUND", "RIFT_SOVEREIGN": return VIOLET
+		"IRON_WARDEN", "STONE_CRAB": return Color("b9c6d6")
+		"GEM_CULTIST": return Color("ff7ad9")
+		"DARTLING": return Color("d8cf6a")
+	return RED
+
 func _restore_focus(node: Node, tag: String) -> bool:
 	if node is Control and str(node.get_meta("focus_tag", "")) == tag:
 		node.grab_focus()
@@ -190,85 +387,115 @@ func _restore_focus(node: Node, tag: String) -> bool:
 	return false
 
 func _header() -> void:
-	var row := _hbox(root_box)
-	var logo := Art.new()
-	logo.custom_minimum_size = Vector2(45, 45)
-	row.add_child(logo)
-	var title_col := _vbox(row, 0)
-	_label(title_col, "ROGUE DICE", 24, GOLD)
-	_label(title_col, "A SHARED HAND.  A DIFFERENT FATE.", 10, MUTED)
-	_spacer(row)
-	if not snapshot.is_empty():
-		var depth := int(snapshot.get("room_index", 1))
-		_label(row, "%s  /  %02d OF %02d" % ["THE EXPEDITION" if snapshot.get("profile") == "expedition_18" else "THE QUARRY", depth, 18 if snapshot.get("profile") == "expedition_18" else 9], 13, GOLD)
-		_button(row, "Inventory  [I]", _show_inventory)
-	_button(row, "Journal", _show_journal)
-	_button(row, "Settings", _show_settings)
-	if not snapshot.is_empty():
-		_button(row, "Save & menu", _return_menu)
+	## In a run the top of the screen carries the journey and nothing else. Everything
+	## that used to sit up here — inventory, journal, settings, saving — is behind Escape.
+	if snapshot.is_empty():
+		return
+	var bar := _hbox(root_box, 12)
+	var fighting: bool = str(snapshot.get("phase", "")) in ["planning", "resolution", "combat"]
+	if fighting:
+		UiKit.icon(bar, Forge.room(str(snapshot.get("room", {}).get("kind", "battle"))), 26).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_label(bar, str(snapshot.get("room", {}).get("name", "Battle")), 17, GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var turn := int(snapshot.get("turn", 1))
+		UiKit.chip(bar, "TURN %02d" % turn, PAPER, 10).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if turn >= 7:
+			var enrage := UiKit.chip(bar, "ENRAGE +%d" % (2 * (turn - 6)), RED, 10)
+			enrage.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			enrage.tooltip_text = "Every enemy hit takes %d extra raw damage this turn." % (2 * (turn - 6))
+	else:
+		_label(bar, str(snapshot.get("phase", "")).to_upper().replace("_", " "), 15, _phase_color()).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var total := 18 if snapshot.get("profile") == "expedition_18" else 9
+	_label(bar, "ACT %d  ·  ROOM %02d / %02d" % [int(snapshot.get("act", 1)), int(snapshot.get("room_index", 1)), total], 10, GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_progress_track(bar)
+	# Reachable by key or by click: it is the only way in to everything the bar shed.
+	var escape := _button(bar, "Menu  [%s]" % _binding_name("rd_back"), _show_menu)
+	escape.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	escape.tooltip_text = "Equipment, journal, settings and saving all live here."
+
+func _phase_color() -> Color:
+	match str(snapshot.get("phase", "")):
+		"planning", "resolution", "combat": return RED
+		"route": return BLUE
+		"reward": return GOLD
+		"summary": return VIOLET
+		"mine_vote", "mine_draft": return GREEN
+	return AMBER
 
 func _footer() -> void:
+	UiKit.rule(root_box, Color("22304a"))
 	var row := _hbox(root_box)
-	_label(row, "MOUSE  ·  KEYBOARD  ·  CONTROLLER", 10, MUTED)
 	_spacer(row)
 	if snapshot.is_empty():
-		_label(row, "GODOT REBUILD  /  PLACEHOLDER ART EDITION", 10, MUTED)
+		_label(row, "GENERATED SPRITES  ·  REAL POLYHEDRAL DICE", 10, MUTED)
 	else:
 		_label(row, "SEED  %s   ·   %s   ·   SEAT %d" % [str(snapshot.get("seed", "")), str(snapshot.get("phase", "")).to_upper().replace("_", " "), _seat() + 1], 10, MUTED)
 
 func _menu() -> void:
 	var scroll := _scroll(root_box)
 	var content := _vbox(scroll, 18)
-	var mast := _panel(content, Color("18242c"), Color("4b4a3c"))
-	var mast_row := _hbox(mast)
-	var art := Art.new()
-	art.kind = "die"
-	art.custom_minimum_size = Vector2(160, 150)
-	mast_row.add_child(art)
+	var mast := _panel(content, Color("1d2b46"), Color("50557a"), 20)
+	var mast_row := _hbox(mast, 18)
+	var showcase := _hbox(mast_row, 6)
+	showcase.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var shapes := ["D20", "D12", "D6"]
+	for i in shapes.size():
+		var display := Control.new()
+		display.custom_minimum_size = Vector2(96 if i == 0 else 74, 96 if i == 0 else 74)
+		showcase.add_child(display)
+		var showcase_die := _die_view("preview:menu:" + shapes[i])
+		showcase_die.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		display.add_child(showcase_die)
+		showcase_die.configure(Catalog.die(shapes[i], "menu-" + shapes[i]), {}, false, false, GOLD)
 	var intro := _vbox(mast_row, 6)
 	intro.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	intro.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_label(intro, "Fortune favors a well-kept pair.", 30, PAPER)
 	_label(intro, "Roll five dice. Keep what matters. Every equipped gem draws power from the same hand.", 16, MUTED, true)
 	_label(intro, "A cooperative expedition for 1–4 heroes • Local play and online parties", 13, GREEN)
+	var roster := _hbox(mast_row, 4)
+	roster.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for key in HERO_KEYS:
+		var face := _actor_for("preview:hero:" + key, key.to_upper(), 1.0)
+		face.custom_minimum_size = Vector2(72, 92)
+		face.bob = 0.85
+		roster.add_child(face)
+	var quick := _hbox(mast, 8)
+	_spacer(quick)
+	_button(quick, "Journal", _show_journal)
+	_button(quick, "Settings", _show_settings)
 	var row := _hbox(content)
 	var setup := _panel(row)
 	setup.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	setup.size_flags_stretch_ratio = 1.7
-	_label(setup, "01   ASSEMBLE YOUR PARTY", 12, GOLD)
-	var count_row := _hbox(setup)
-	_label(count_row, "Local heroes", 14, MUTED)
-	for count in range(1, 5):
-		var b := _button(count_row, str(count), func():
-			while menu_heroes.size() < count:
-				menu_heroes.append(HERO_KEYS[menu_heroes.size() % 3])
-			menu_heroes.resize(count)
-			_queue_render())
-		b.toggle_mode = true
-		b.button_pressed = menu_heroes.size() == count
-	for seat in range(menu_heroes.size()):
-		var seat_row := _hbox(setup)
-		_label(seat_row, "%02d" % (seat + 1), 16, GOLD)
-		var names := LineEdit.new()
-		names.text = menu_names[seat]
-		names.placeholder_text = "Hero name"
-		names.max_length = 24
-		names.custom_minimum_size.x = 140
-		names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		names.text_changed.connect(func(value: String): menu_names[seat] = value)
-		seat_row.add_child(names)
-		var choices := OptionButton.new()
-		choices.custom_minimum_size.x = 150
-		for key in HERO_KEYS:
-			choices.add_item(key.capitalize())
-		choices.selected = HERO_KEYS.find(menu_heroes[seat])
-		choices.item_selected.connect(func(index: int): menu_heroes[seat] = HERO_KEYS[index]; _queue_render())
-		seat_row.add_child(choices)
-		var hero: Dictionary = Catalog.HEROES.get(menu_heroes[seat], Catalog.HEROES.get(menu_heroes[seat].to_upper(), {}))
-		_label(setup, "%s  ·  %s HP  ·  %s" % [str(hero.get("trait_name", "")), hero.get("max_hp", 100), _join_values(hero.get("dice", []))], 13, GREEN, true)
-		_label(setup, str(hero.get("description", "")), 12, MUTED, true)
-		var starter_names: Array = []
-		for starter in hero.get("starting_gems", []): starter_names.append(str(Catalog.SKILLS.get(starter[0], {}).get("name", starter[0])))
-		_label(setup, "Starting gems: " + " · ".join(starter_names), 12, GOLD, true)
+	_label(setup, "01   CHOOSE YOUR HERO", 12, GOLD)
+	var seat_row := _hbox(setup, 9)
+	var seat_face := _actor_for("preview:seat:0", menu_hero.to_upper(), 1.0)
+	seat_face.custom_minimum_size = Vector2(52, 62)
+	seat_face.bob = 0.8
+	seat_face.show_ground = false
+	seat_row.add_child(seat_face)
+	var names := LineEdit.new()
+	names.text = menu_name
+	names.placeholder_text = "Hero name"
+	names.max_length = 24
+	names.custom_minimum_size.x = 140
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.text_changed.connect(func(value: String): menu_name = value)
+	seat_row.add_child(names)
+	var choices := OptionButton.new()
+	choices.custom_minimum_size.x = 150
+	for key in HERO_KEYS:
+		choices.add_item(key.capitalize())
+	choices.selected = HERO_KEYS.find(menu_hero)
+	choices.item_selected.connect(func(index: int): menu_hero = HERO_KEYS[index]; _queue_render())
+	seat_row.add_child(choices)
+	var hero: Dictionary = Catalog.HEROES.get(menu_hero, Catalog.HEROES.get(menu_hero.to_upper(), {}))
+	_label(setup, "%s  ·  %s HP  ·  %s" % [str(hero.get("trait_name", "")), hero.get("max_hp", 100), _join_values(hero.get("dice", []))], 13, GREEN, true)
+	_label(setup, str(hero.get("description", "")), 12, MUTED, true)
+	var starter_names: Array = []
+	for starter in hero.get("starting_gems", []): starter_names.append(str(Catalog.SKILLS.get(starter[0], {}).get("name", starter[0])))
+	_label(setup, "Starting gems: " + " · ".join(starter_names), 12, GOLD, true)
+	_label(setup, "You take one hero into the quarry. A larger party gathers online — host or join below.", 12, MUTED, true)
 	var expedition := _panel(row)
 	expedition.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_label(expedition, "02   CHOOSE YOUR JOURNEY", 12, GOLD)
@@ -353,12 +580,10 @@ func _begin_local() -> void:
 	if not seed_text.is_empty() and not seed_text.is_valid_int():
 		_notify("Enter a whole-number seed, or leave it blank for a new expedition.")
 		return
-	session.start_offline(menu_names[0], menu_heroes[0])
+	session.start_offline(menu_name, menu_hero)
 	offline_hotseat = true
-	var party: Array = []
-	for i in range(menu_heroes.size()):
-		party.append({"id": str(session.local_player_id) if i == 0 else "local_%d" % (i + 1), "hero_id": menu_heroes[i], "name": menu_names[i]})
-	controlled_id = str(party[0].id)
+	controlled_id = str(session.local_player_id)
+	var party: Array = [{"id": controlled_id, "hero_id": menu_hero, "name": menu_name}]
 	var result: Dictionary = engine.new_run({"heroes": party, "profile": profile, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": controlled_id, "session_id": session.session_id})
 	if result.has("error") and not result.get("ok", true):
 		_notify(str(result.error))
@@ -408,6 +633,9 @@ func _resume() -> void:
 
 func _state_changed(state: Dictionary) -> void:
 	if snapshot.get("run_id", "") != state.get("run_id", ""):
+		shown_hands.clear()
+		shown_turn = -1
+		shown_signature = ""
 		last_hands.clear()
 		provisional.clear()
 		provisional_commands.clear()
@@ -432,9 +660,64 @@ func _state_changed(state: Dictionary) -> void:
 		playback_index = 0
 		playback_timer = 0.0
 	observed_revision = revision
+	_refresh_hands()
+	_prune_persistent()
+	_react_to_events()
 	_queue_render()
 	if is_instance_valid(session) and session.is_host and not offline_hotseat:
 		session.broadcast_snapshot(snapshot)
+
+func _stage_on_screen() -> bool:
+	return is_instance_valid(stage_view) and stage_view.is_inside_tree()
+
+func _hand_for(unit: Dictionary) -> Array:
+	## The hand as it is being shown, which lags the snapshot while a fight plays out.
+	return shown_hands.get(str(unit.get("id", "")), unit.get("hand", []))
+
+func _holding_hand() -> bool:
+	## Only a hand that is actually on the table can be held. The opening deal of a
+	## battle has nothing to wait for, so it lands as soon as it arrives.
+	if shown_hands.is_empty() or int(snapshot.get("turn", 0)) == shown_turn:
+		return false
+	for id in shown_hands:
+		if not shown_hands[id].is_empty():
+			return true
+	return false
+
+func _hand_signature() -> String:
+	var parts: Array = []
+	for hero in snapshot.get("heroes", []):
+		for entry in hero.get("hand", []):
+			parts.append("%s#%s#%s" % [str(entry.get("die_id", "")), str(entry.get("roll_count", 0)), str(entry.get("face_index", 0))])
+	return "%d|%s" % [int(snapshot.get("turn", 0)), ",".join(parts)]
+
+func _refresh_hands() -> bool:
+	## New faces are held back until the round they belong to has finished animating,
+	## so the dice on the table never reroll underneath the fight that is still playing.
+	var signature := _hand_signature()
+	if signature == shown_signature:
+		return false
+	if _holding_hand() and playback_index < playback_events.size() and _stage_on_screen():
+		return false
+	shown_hands.clear()
+	for hero in snapshot.get("heroes", []):
+		shown_hands[str(hero.get("id", ""))] = hero.get("hand", []).duplicate(true)
+	shown_turn = int(snapshot.get("turn", 0))
+	shown_signature = signature
+	return true
+
+func _react_to_events() -> void:
+	## Purely cosmetic reactions driven by the authoritative snapshot.
+	for unit in snapshot.get("heroes", []) + snapshot.get("enemies", []):
+		var id := str(unit.get("id", ""))
+		var hp := int(unit.get("hp", 0))
+		var actor: SpriteActor = actor_views.get(id, null)
+		if tracked_hp.has(id) and is_instance_valid(actor):
+			if hp < int(tracked_hp[id]):
+				actor.flinch()
+			elif hp > int(tracked_hp[id]):
+				actor.channel()
+		tracked_hp[id] = hp
 
 func _receive_snapshot(state: Dictionary) -> void:
 	offline_hotseat = false
@@ -469,22 +752,25 @@ func _seat() -> int:
 	return int(_hero().get("seat", 0))
 
 func _run_screen() -> void:
+	var phase: String = str(snapshot.get("phase", "route"))
 	var body := _hbox(root_box, 16)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var side_scroll := _scroll(body)
-	side_scroll.custom_minimum_size.x = 240
-	side_scroll.size_flags_horizontal = 0
-	var side := _vbox(side_scroll, 10)
-	_label(side, "PARTY ORDER", 11, GOLD)
-	for hero in snapshot.get("heroes", []):
-		_party_card(side, hero)
-	_label(side, "ACT %d   ·   ROOM %d" % [int(snapshot.get("act", 1)), int(snapshot.get("room_index", 1))], 12, GOLD)
-	_progress_track(side)
-	var central_scroll := _scroll(body)
-	central_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var center := _vbox(central_scroll, 14)
+	# During a fight the battlefield already shows every combatant, so the roster
+	# column would only repeat it. Outside combat it is the party's home screen.
+	if not phase in ["planning", "resolution", "combat"]:
+		var side_scroll := _scroll(body)
+		side_scroll.custom_minimum_size.x = 240
+		side_scroll.size_flags_horizontal = 0
+		var side := _vbox(side_scroll, 10)
+		_label(side, "PARTY ORDER", 11, GOLD)
+		for hero in snapshot.get("heroes", []):
+			_party_card(side, hero)
+	# A fight is laid out to fit the window exactly, so it is never given a scroll bar.
+	var fighting: bool = phase in ["planning", "resolution", "combat"]
+	var center := _vbox(body if fighting else _scroll(body), 10 if fighting else 14)
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var phase: String = str(snapshot.get("phase", "route"))
+	if fighting:
+		center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	match phase:
 		"planning", "resolution", "combat": _battle(center)
 		"route": _route(center)
@@ -497,36 +783,47 @@ func _run_screen() -> void:
 
 func _party_card(parent: Node, hero: Dictionary) -> void:
 	var mine := str(hero.get("id")) == controlled_id
-	var card := _panel(parent, Color("23323c") if mine else PANEL, GOLD if mine else LINE, 12)
-	var row := _hbox(card, 6)
-	_label(row, "%02d" % (int(hero.get("seat", 0)) + 1), 12, GOLD)
-	_label(row, str(hero.get("player_name", hero.get("name", hero.get("key", "Hero")))), 17)
-	_spacer(row)
-	_label(row, "●" if hero.get("ready", false) else "○", 16, GREEN if hero.get("ready", false) else MUTED)
-	_label(card, str(hero.get("key", "")).capitalize() + ("  ·  YOUR HAND" if mine else ""), 11, BLUE)
-	var bar := ProgressBar.new()
-	bar.max_value = int(hero.get("max_hp", 1))
-	bar.value = int(hero.get("hp", 0))
-	bar.show_percentage = false
-	bar.custom_minimum_size.y = 7
-	card.add_child(bar)
-	_label(card, "%d / %d HP   ·   %d BLOCK" % [int(hero.get("hp", 0)), int(hero.get("max_hp", 1)), int(hero.get("block", 0))], 12, PAPER)
-	_label(card, "%d GOLD   ·   %s" % [int(hero.get("gold", 0)), "DOWNED" if int(hero.get("hp", 0)) <= 0 else ("READY" if hero.get("ready", false) else "PLANNING")], 11, GOLD)
+	var downed := int(hero.get("hp", 0)) <= 0
+	var is_ready: bool = hero.get("ready", false)
+	var card := _panel(parent, Color("223150") if mine else PANEL, GOLD if mine else LINE, 11)
+	var row := _hbox(card, 9)
+	var portrait := _actor_for(str(hero.get("id", "")), str(hero.get("key", "")).to_upper(), 1.0)
+	portrait.custom_minimum_size = Vector2(54, 64)
+	portrait.bob = 0.7
+	portrait.downed = downed
+	portrait.targeted = false
+	portrait.show_ground = false
+	row.add_child(portrait)
+	var head := _vbox(row, 3)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var name_row := _hbox(head, 6)
+	_label(name_row, str(hero.get("player_name", hero.get("name", hero.get("key", "Hero")))), 16)
+	_spacer(name_row)
+	_label(name_row, "●" if is_ready else "○", 15, GREEN if is_ready else MUTED)
+	_label(head, "%02d  ·  %s%s" % [int(hero.get("seat", 0)) + 1, str(hero.get("key", "")).capitalize(), "  ·  YOU" if mine else ""], 10, BLUE)
+	UiKit.meter(head, float(hero.get("hp", 0)), float(hero.get("max_hp", 1)), HP_LOST if downed else HP_LIVE, 16, "%d / %d" % [int(hero.get("hp", 0)), int(hero.get("max_hp", 1))])
+	var chips := HFlowContainer.new()
+	chips.add_theme_constant_override("h_separation", 5)
+	chips.add_theme_constant_override("v_separation", 4)
+	card.add_child(chips)
+	if int(hero.get("block", 0)) > 0:
+		UiKit.chip(chips, "BLOCK %d" % int(hero.get("block", 0)), BLUE)
+	UiKit.chip(chips, "%d GOLD" % int(hero.get("gold", 0)), GOLD)
+	UiKit.chip(chips, "DOWNED" if downed else ("READY" if is_ready else "PLANNING"), RED if downed else (GREEN if is_ready else MUTED))
 	var statuses := _status_text(hero)
 	if not statuses.is_empty():
 		_label(card, statuses, 12, RED, true)
 	if snapshot.get("phase") == "planning":
 		_label(card, "Enemy → " + _unit_name(str(hero.get("preferred_target", ""))), 11, MUTED, true)
-		_label(card, "Ally → " + _unit_name(str(hero.get("friendly_target", hero.get("id", "")))), 11, MUTED, true)
 		var mini_hand: Array = []
-		for die in hero.get("hand", []):
+		for die in _hand_for(hero):
 			mini_hand.append(str(die.get("value", "?")))
 		_label(card, "  ·  ".join(mini_hand), 18, GREEN)
 		if not mine:
 			var active_names: Array = []
 			for gem in hero.get("gems", []):
 				if gem.get("equipped", false):
-					var preview: Dictionary = Combat.preview(hero, gem, hero.get("hand", []), snapshot)
+					var preview: Dictionary = Combat.preview(hero, gem, _hand_for(hero), snapshot)
 					if preview.get("active", false): active_names.append(str(preview.get("name", gem.get("key", ""))))
 			_label(card, "Ready gems: " + ", ".join(active_names), 11, GREEN, true)
 	if offline_hotseat and not mine:
@@ -537,140 +834,219 @@ func _party_card(parent: Node, hero: Dictionary) -> void:
 			_button(card, "Recovery options", func(): _show_fallback(str(hero.id)))
 
 func _progress_track(parent: Node) -> void:
-	var row := HFlowContainer.new()
-	row.add_theme_constant_override("h_separation", 4)
-	row.add_theme_constant_override("v_separation", 5)
-	parent.add_child(row)
 	var total := 18 if snapshot.get("profile") == "expedition_18" else 9
+	var track := UiKit.Track.new()
+	track.total = total
+	track.here = int(snapshot.get("room_index", 1))
 	for i in range(1, total + 1):
-		var completed := i < int(snapshot.get("room_index", 1))
-		var is_boss := (i % 6 == 0) if total == 18 else (i == 9)
-		var label := _label(row, "◆" if is_boss else ("■" if completed else "□"), 17, GOLD if i == int(snapshot.get("room_index", 1)) else (GREEN if completed else LINE))
-		label.tooltip_text = "Room %d%s" % [i, " · Boss" if is_boss else ""]
+		if (i % 6 == 0) if total == 18 else (i == 9):
+			track.bosses.append(i)
+	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track.tooltip_text = "Room %d of %d. Diamonds mark boss rooms." % [track.here, total]
+	parent.add_child(track)
 
 func _battle(parent: Node) -> void:
 	die_buttons.clear()
-	var heading := _hbox(parent)
-	_label(heading, str(snapshot.get("room", {}).get("name", "Battle")), 27, GOLD)
-	_spacer(heading)
-	var turn := int(snapshot.get("turn", 1))
-	_label(heading, "TURN %02d" % turn, 14, PAPER)
-	_button(heading, "Preview this turn", _show_forecast)
-	if turn >= 7:
-		_label(parent, "ENRAGE  +%d raw damage to each enemy hit" % (2 * (turn - 6)), 13, RED)
-	var enemies := HFlowContainer.new()
-	enemies.add_theme_constant_override("h_separation", 10)
-	enemies.add_theme_constant_override("v_separation", 10)
-	parent.add_child(enemies)
-	for enemy in snapshot.get("enemies", []):
-		_enemy_card(enemies, enemy)
-	var hand_panel := _panel(parent)
-	var hand_heading := _hbox(hand_panel)
-	_label(hand_heading, "YOUR SHARED HAND", 12, GOLD)
-	_spacer(hand_heading)
-	_label(hand_heading, "%d REROLL LEFT" % int(_hero().get("rerolls", 0)), 12, GREEN)
-	_label(hand_panel, "Selected dice reroll. Unselected dice stay. Every active gem uses the complete final hand.", 13, MUTED, true)
-	var dice_row := _hbox(hand_panel, 12)
-	var hero := _hero()
-	for i in range(hero.get("dice", []).size()):
-		_die_button(dice_row, hero.dice[i], i)
-	var action_row := _hbox(hand_panel)
-	var reroll := _button(action_row, "Reroll selected  [%s]" % _binding_name("rd_reroll"), _reroll, true)
-	reroll.disabled = selected_dice.is_empty() or int(hero.get("rerolls", 0)) <= 0 or hero.get("ready", false) or int(hero.get("hp", 0)) <= 0
+	var hero: Dictionary = _hero()
+	var room_kind := str(snapshot.get("room", {}).get("kind", "battle"))
+	# Gems ride above the battlefield and dice below it, so the fight keeps the middle.
+	_gem_deck(parent, hero)
+	var field := PanelContainer.new()
+	field.add_theme_stylebox_override("panel", UiKit.panel_box(Color("1a2233"), Color("0a0e18"), Color("32405e"), 12, 6, 1.4, 0.12))
+	field.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(field)
+	var stage := _battle_stage()
+	field.add_child(stage)
+	stage.sync(_stage_units(), bool(settings.reduced_motion), _room_color(room_kind), _pick_unit, _inspect_by_id)
+	_hand_deck(parent, hero)
+
+func _gem_deck(parent: Node, hero: Dictionary) -> void:
+	## Six sockets, centred, sprite first. Every word lives on the tooltip and the sheet.
+	var row := _hbox(parent, 10)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var equipped: Array = []
+	for gem in hero.get("gems", []):
+		if gem.get("equipped", false): equipped.append(gem)
+	var ordered_previews: Array = [] if _holding_hand() else Combat.preview_loadout(hero, snapshot)
+	for slot in range(maxi(GEM_SLOTS, equipped.size())):
+		if slot >= equipped.size():
+			_empty_gem(row)
+			continue
+		var gem: Dictionary = equipped[slot]
+		_gem_slot(row, gem, ordered_previews[slot] if slot < ordered_previews.size() else Combat.preview(hero, gem, _hand_for(hero), snapshot))
+
+func _gem_slot(row: Node, gem: Dictionary, preview: Dictionary) -> void:
+	var active: bool = preview.get("active", false)
+	var card := _panel(row, Color("18302c") if active else PANEL, GREEN if active else LINE, 8)
+	var frame: Control = card.get_parent()
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	frame.custom_minimum_size.x = GEM_SLOT_WIDTH
+	var badge := _gem_portrait(card, gem, 76)
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	badge.modulate = Color.WHITE if active else Color(0.55, 0.60, 0.70, 0.75)
+	var title := _label(card, _gem_name(gem), 12, _gem_color(gem) if active else MUTED)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.clip_text = true
+	_gem_marks_row(card, gem, 13).modulate = Color(1, 1, 1, 1.0 if active else 0.6)
+	var need := _hbox(card, 6)
+	need.alignment = BoxContainer.ALIGNMENT_CENTER
+	need.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_requirement_icons(need, gem, preview, 16)
+	card.tooltip_text = _preview_text(gem)
+	card.mouse_entered.connect(func(): _highlight_dice(preview.get("contributing_dice", [])))
+	card.mouse_exited.connect(func(): _highlight_dice([]))
+	card.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			_inspect_gem(gem))
+
+func _empty_gem(row: Node) -> void:
+	## An open socket is shown, not hidden: the party can see the room it still has.
+	var card := _panel(row, PANEL_LOW, Color(LINE, 0.5), 8)
+	var frame: Control = card.get_parent()
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	frame.custom_minimum_size.x = GEM_SLOT_WIDTH
+	frame.modulate = Color(1, 1, 1, 0.55)
+	frame.tooltip_text = "An empty gem socket. Equip a gem from your reserve between rooms."
+	var hollow := Control.new()
+	hollow.custom_minimum_size = Vector2(76, 76)
+	hollow.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.add_child(hollow)
+	var caption := _label(card, "EMPTY", 12, MUTED)
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pad := Control.new()
+	pad.custom_minimum_size.y = 16
+	card.add_child(pad)
+
+func _hand_deck(parent: Node, hero: Dictionary) -> void:
+	## The hand is centred at the foot of the screen with its two actions flanking it,
+	## so the dice take the width and the battlefield keeps the height.
+	var row := _hbox(parent, 16)
+	var locked: bool = hero.get("ready", false) or int(hero.get("hp", 0)) <= 0
+	var rerolls := int(hero.get("rerolls", 0))
+	var left := _vbox(row, 6)
+	left.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var reroll_chip := _hbox(left, 6)
+	reroll_chip.alignment = BoxContainer.ALIGNMENT_END
+	UiKit.chip(reroll_chip, "%d REROLL" % rerolls, GREEN if rerolls > 0 else MUTED)
+	var reroll_row := _hbox(left, 6)
+	reroll_row.alignment = BoxContainer.ALIGNMENT_END
+	var reroll := _button(reroll_row, "Reroll  [%s]" % _binding_name("rd_reroll"), _reroll, true)
+	reroll.disabled = selected_dice.is_empty() or rerolls <= 0 or locked
 	if str(hero.get("key", "")).to_lower() == "max":
-		var extra := _button(action_row, "Second Thought  ·  %d charge" % int(hero.get("trait_charges", 0)), func():
+		var extra := _button(reroll_row, "Second Thought · %d" % int(hero.get("trait_charges", 0)), func():
 			if selected_dice.size() == 1:
 				_command("UseHeroTrait", {"die_id": selected_dice[0]})
 				selected_dice.clear())
+		extra.tooltip_text = "Reroll a single selected die without spending the shared reroll."
 		extra.disabled = selected_dice.size() != 1 or int(hero.get("trait_charges", 0)) <= 0 or hero.get("ready", false)
-	_spacer(action_row)
-	_ready_button(action_row)
-	var targets := _hbox(hand_panel)
-	_label(targets, "Friendly target", 12, MUTED)
-	for ally in snapshot.get("heroes", []):
-		var b := _button(targets, str(ally.get("player_name", ally.get("name", "Hero"))), func(): _command("SetFriendlyTarget", {"unit_id": ally.id}))
-		b.toggle_mode = true
-		b.button_pressed = str(hero.get("friendly_target", hero.get("id"))) == str(ally.id)
-		b.disabled = hero.get("ready", false)
+	var dice_row := _hbox(row, 10)
+	dice_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	for i in range(hero.get("dice", []).size()):
+		_die_button(dice_row, hero.dice[i], i)
+	var right := _vbox(row, 6)
+	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var allowance := 8 + 4 * (int(snapshot.get("act", 1)) - 1)
-	_label(hand_panel, "Combat gold allowance: %d / %d remaining. Room rewards are separate." % [maxi(0, allowance - int(hero.get("combat_gold", 0))), allowance], 11, MUTED)
-	var gem_header := _hbox(parent)
-	_label(gem_header, "GEMS  /  EXECUTE IN THIS ORDER", 12, GOLD)
-	_spacer(gem_header)
-	_label(gem_header, "Hover or inspect for trigger, effects, targets, and dice.", 11, MUTED)
-	var grid := GridContainer.new()
-	grid.columns = 3
-	parent.add_child(grid)
-	var ordinal := 0
-	var ordered_previews: Array = Combat.preview_loadout(hero, snapshot)
-	for gem in hero.get("gems", []):
-		if not gem.get("equipped", false): continue
-		ordinal += 1
-		var preview: Dictionary = ordered_previews[ordinal - 1] if ordinal <= ordered_previews.size() else Combat.preview(hero, gem, hero.get("hand", []), snapshot)
-		var active: bool = preview.get("active", false)
-		var card := _panel(grid, Color("1e302e") if active else PANEL, GREEN if active else LINE, 12)
-		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var top := _hbox(card)
-		_label(top, "%02d   %s" % [ordinal, _gem_name(gem)], 16, PAPER)
-		_spacer(top)
-		_label(top, "ACTIVE" if active else "DORMANT", 10, GREEN if active else MUTED)
-		_label(card, _gem_stats(gem), 11, GOLD)
-		_label(card, str(preview.get("summary", "")) if active else str(preview.get("reason", preview.get("trigger", ""))), 13, GREEN if active else MUTED, true)
-		_button(card, "Inspect gem", func(): _inspect_gem(gem))
-		card.tooltip_text = _preview_text(gem)
-		card.mouse_entered.connect(func(): _highlight_dice(preview.get("contributing_dice", [])))
-		card.mouse_exited.connect(func(): _highlight_dice([]))
-	_log_preview(parent)
+	var purse := maxi(0, allowance - int(hero.get("combat_gold", 0)))
+	var gold_row := _hbox(right, 6)
+	UiKit.chip(gold_row, "%d GOLD" % purse, GOLD).tooltip_text = "Combat gold allowance: %d of %d remaining. Room rewards are separate." % [purse, allowance]
+	_ready_button(_hbox(right, 6))
 
-func _enemy_card(parent: Node, enemy: Dictionary) -> void:
-	var living := int(enemy.get("hp", 0)) > 0
-	var targeted := str(_hero().get("preferred_target", "")) == str(enemy.get("id"))
-	var card := _panel(parent, Color("2b2729") if targeted else PANEL, GOLD if targeted else LINE, 10)
-	card.get_parent().size_flags_horizontal = 0
-	card.custom_minimum_size.x = 260
-	card.add_theme_constant_override("separation", 5)
-	var head := _hbox(card, 6)
-	var art := Art.new()
-	art.kind = str(enemy.get("key", "enemy"))
-	art.tint = GREEN if art.kind.to_lower().contains("slime") else RED
-	art.custom_minimum_size = Vector2(48, 48)
-	head.add_child(art)
-	var info := _vbox(head, 4)
-	_label(info, str(enemy.get("name", "Enemy")), 15, PAPER)
-	_label(info, "%d / %d HP" % [int(enemy.get("hp", 0)), int(enemy.get("max_hp", 1))], 12, RED if living else MUTED)
-	_label(info, "%d BLOCK" % int(enemy.get("block", 0)), 11, BLUE)
-	var status := _status_text(enemy)
-	if not status.is_empty(): _label(card, status, 11, RED, true)
-	if bool(enemy.get("boss", false)):
-		_label(card, "Resolve: after 1 stun skip, immune for 2 slots.", 10, GOLD, true)
-	_label(card, "INTENT" + (" · WILL BE SKIPPED" if int(enemy.get("statuses", {}).get("stun", 0)) > 0 else ""), 10, GOLD)
+func _effect_marks(effects: Array) -> Array:
+	## Totals a batch of planned effects into icon-and-number marks, biggest idea first.
+	var totals: Dictionary = {}
+	for item in effects:
+		var kind := str(item.get("kind", ""))
+		if not FORECAST_MARKS.has(kind):
+			continue
+		totals[kind] = int(totals.get(kind, 0)) + int(item.get("amount", 0))
+	var marks: Array = []
+	for kind in ["damage", "block", "heal", "lifeline", "poison", "stun", "remove_block", "gold"]:
+		var amount := int(totals.get(kind, 0))
+		if amount <= 0:
+			continue
+		var mark: Array = FORECAST_MARKS[kind]
+		marks.append([str(mark[0]), amount, Color(str(mark[1])), str(mark[2])])
+	return marks
+
+func _forecast_rows(hero: Dictionary) -> Array:
+	## What this hero's gems will do if the hand locks as it stands. It replaces the old
+	## forecast panel, so the answer sits on the hero it belongs to.
+	if str(snapshot.get("phase", "")) != "planning" or int(hero.get("hp", 0)) <= 0 or _holding_hand():
+		return []
+	var effects: Array = []
+	for preview in Combat.preview_loadout(hero, snapshot):
+		if not preview.get("active", false) or preview.get("will_be_skipped", false):
+			continue
+		effects.append_array(preview.get("effects", []))
+	var marks: Array = _effect_marks(effects)
+	if marks.is_empty():
+		return []
+	return [{"marks": marks, "target": "", "name": "This turn’s plan"}]
+
+func _intent_rows(enemy: Dictionary) -> Array:
+	## The same language for the other side: what each published intent comes to, and
+	## who receives it. The skill's name stays on the tooltip.
+	var rows: Array = []
 	for intent in enemy.get("intents", []):
-		_label(card, str(intent.get("name", intent.get("key", ""))) + "  →  " + _intent_target(enemy, intent), 12, PAPER, true)
-		_label(card, str(intent.get("summary", "")), 11, MUTED, true)
-	var enemy_buttons := _hbox(card, 6)
-	var b := _button(enemy_buttons, "◎ Targeted" if targeted else "Target", func(): _command("SetPreferredTarget", {"unit_id": enemy.id}))
-	b.disabled = not living or _hero().get("ready", false)
-	_button(enemy_buttons, "Inspect / ping", func(): _inspect_unit(enemy))
+		if rows.size() >= 2:
+			break
+		rows.append({
+			"marks": _effect_marks(intent.get("effects", [])),
+			"target": _intent_target(enemy, intent),
+			"name": str(intent.get("name", intent.get("key", "")))})
+	return rows
+
+func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge: float) -> Control:
+	## The activation condition drawn as the dice that would meet it, worded on hover.
+	var key := str(gem.get("key", ""))
+	var clarity := int(preview.get("effective_clarity", gem.get("clarity", 1)))
+	return DiceIcons.build(parent, DiceIcons.requirement(key, clarity), edge, DiceIcons.detail(key, clarity))
 
 func _die_button(parent: Node, die: Dictionary, index: int) -> void:
-	var value := "—"
-	for roll in _hero().get("hand", []):
-		if str(roll.get("die_id")) == str(die.get("id")):
-			value = str(roll.get("value", "?"))
+	var rolled: Dictionary = {}
+	for entry in _hand_for(_hero()):
+		if str(entry.get("die_id")) == str(die.get("id")):
+			rolled = entry
 	var selected := selected_dice.has(str(die.id))
-	var button := _button(parent, "%s\n%s  ·  %d\n%s" % [value, str(die.get("shape", "D6")), index + 1, "REROLL" if selected else "KEEP"], func(): _toggle_die(str(die.id)))
-	button.custom_minimum_size = Vector2(100, 106)
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.add_theme_font_size_override("font_size", 19)
+	var locked := bool(_hero().get("ready", false)) or int(_hero().get("hp", 0)) <= 0
+	var slot := _vbox(parent, 3)
+	slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	slot.custom_minimum_size.x = 104
+	var tray := PanelContainer.new()
+	tray.add_theme_stylebox_override("panel", UiKit.panel_box(
+		Color("3d3521") if selected else Color("1a2338"),
+		Color("15120b") if selected else Color("0c121e"),
+		GOLD if selected else Color("2a3752"), 10, 4, 2.0 if selected else 1.2, 0.28))
+	slot.add_child(tray)
+	var stack := Control.new()
+	stack.custom_minimum_size = Vector2(94, 94)
+	tray.add_child(stack)
+	var view := _die_view(str(die.id))
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	stack.add_child(view)
+	view.configure(die, rolled, selected, false, GOLD if selected else BLUE)
+	var button := Button.new()
+	button.flat = true
 	button.toggle_mode = true
 	button.button_pressed = selected
+	button.disabled = locked
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button.set_meta("focus_tag", "die_" + str(index))
+	button.pressed.connect(func(): _play_sound(click_sound); _toggle_die(str(die.id)))
+	button.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			_inspect_die(die, rolled))
+	button.tooltip_text = "%s\nFaces: %s\nEvery physical face has equal probability.\nPress %d to select for reroll. Right-click to inspect." % [_die_name(die), _faces_text(die), index + 1]
+	stack.add_child(button)
 	die_buttons[str(die.id)] = button
-	button.tooltip_text = "%s\nFaces: %s\nEvery physical face has equal probability.\nSelected means reroll. Press %d to toggle." % [_die_name(die), _faces_text(die), index + 1]
-	button.disabled = bool(_hero().get("ready", false)) or int(_hero().get("hp", 0)) <= 0
-	if selected:
-		button.add_theme_stylebox_override("normal", _style(Color("494133"), GOLD, 8, 10, 2))
-		button.add_theme_stylebox_override("pressed", _style(Color("494133"), GOLD, 8, 10, 2))
+	var caption := _hbox(slot, 5)
+	_label(caption, "%d" % (index + 1), 10, MUTED)
+	_label(caption, str(die.get("shape", "D6")), 10, BLUE)
+	_spacer(caption)
+	_label(caption, "REROLL" if selected else "KEEP", 10, GOLD if selected else MUTED)
 
 func _toggle_die(id: String) -> void:
 	if _hero().get("ready", false): return
@@ -689,15 +1065,20 @@ func _route(parent: Node) -> void:
 	_label(parent, "The party votes together. Ties follow the host’s vote. Change equipment before committing.", 14, MUTED, true)
 	var offers: Array = snapshot.get("offers", [])
 	for offer in offers:
-		var panel := _panel(parent)
-		var row := _hbox(panel)
-		var art := Art.new()
-		art.kind = "die" if str(offer.get("kind", "")) in ["battle", "elite", "boss"] else "gem"
-		art.custom_minimum_size = Vector2(70, 70)
-		row.add_child(art)
+		var kind := str(offer.get("kind", ""))
+		var accent := _room_color(kind)
+		var panel := _panel(parent, PANEL, Color(accent, 0.55))
+		var row := _hbox(panel, 14)
+		var badge := PanelContainer.new()
+		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		badge.add_theme_stylebox_override("panel", UiKit.panel_box(Color(accent, 0.22), Color(accent, 0.06), Color(accent, 0.5), 12, 7, 1.4, 0.2))
+		row.add_child(badge)
+		UiKit.icon(badge, Forge.room(kind), 60)
 		var text := _vbox(row, 5)
 		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(text, str(offer.get("name", "Room")), 22, PAPER)
+		var heading := _hbox(text, 8)
+		_label(heading, str(offer.get("name", "Room")), 22, PAPER)
+		UiKit.chip(heading, kind.to_upper(), accent).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		_label(text, str(offer.get("description", "")), 14, MUTED, true)
 		if offer.get("kind") == "rest":
 			_label(text, "Your recovery: +%d HP (downed heroes revive)." % mini(int(_hero().get("max_hp", 0)) / 3, int(_hero().get("max_hp", 0)) - int(_hero().get("hp", 0))), 13, GREEN)
@@ -737,7 +1118,8 @@ func _shop(parent: Node) -> void:
 	for offer in stock.get("dice", []):
 		var die: Dictionary = offer.get("die", {})
 		var panel := _panel(parent)
-		var row := _hbox(panel)
+		var row := _hbox(panel, 12)
+		_die_chip(row, "preview:stock:" + str(offer.get("id", die.get("id", ""))), die, 76)
 		var info := _vbox(row)
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_label(info, _die_name(die), 18, BLUE)
@@ -754,7 +1136,12 @@ func _workshop(parent: Node) -> void:
 	var shapes := ["D4", "D6", "D8", "D10", "D12", "D20"]
 	for die in _hero().get("dice", []) + _hero().get("reserve_dice", []):
 		var panel := _panel(parent)
-		_label(panel, _die_name(die) + "  ·  " + _faces_text(die), 17, BLUE, true)
+		var top := _hbox(panel, 12)
+		_die_chip(top, "preview:bench:" + str(die.id), die, 76)
+		var facts := _vbox(top, 4)
+		facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_label(facts, _die_name(die), 18, BLUE)
+		_label(facts, "Faces: " + _faces_text(die), 14, MUTED, true)
 		var row := _hbox(panel)
 		var shape_i := shapes.find(str(die.get("shape", "D6")))
 		for offset in [-1, 1]:
@@ -795,7 +1182,7 @@ func _engrave(die: Dictionary) -> void:
 		_command("ModifyDie", {"die_id": die.id, "service": "face", "face_index": selected, "value": new_value}), true)
 
 func _lapidary(parent: Node) -> void:
-	_label(parent, "Improve one gem per visit. Cut and Clarity cost 5 × the new rank; Carat is found on your travels.", 14, MUTED, true)
+	_label(parent, "Improve one gem per visit. Cut and Clarity cost 5 × the new rank. Carat, the strength multiplier, is found on your travels; Color never changes.", 14, MUTED, true)
 	for gem in _hero().get("gems", []):
 		var panel := _panel(parent)
 		_gem_details(panel, gem)
@@ -809,10 +1196,15 @@ func _upgrade_preview(gem: Dictionary, property: String) -> void:
 	var box := _modal("Improve " + _gem_name(gem))
 	var improved := gem.duplicate(true)
 	improved[property] = int(gem.get(property, 1)) + 1
-	_label(box, "BEFORE  ·  " + _gem_stats(gem), 13, GOLD)
-	_label(box, _preview_text(gem), 14, MUTED, true)
-	_label(box, "AFTER  ·  " + _gem_stats(improved), 13, GREEN)
-	_label(box, _preview_text(improved), 14, PAPER, true)
+	_label(box, "BEFORE", 11, GOLD)
+	_gem_title_row(box, gem, 14, MUTED)
+	_formula_rows(box, gem, -1, 13)
+	_label(box, str(Combat.preview(_hero(), gem, _preview_hand(), snapshot).get("summary", "")), 13, MUTED, true)
+	UiKit.rule(box)
+	_label(box, "AFTER", 11, GREEN)
+	_gem_title_row(box, improved, 14, GREEN)
+	_formula_rows(box, improved, -1, 13)
+	_label(box, str(Combat.preview(_hero(), improved, _preview_hand(), snapshot).get("summary", "")), 13, PAPER, true)
 	_label(box, "Using your last combat hand: %s. This compares gem properties, not a prediction of future rolls. Changes to dice will change future probabilities." % _hand_values(_preview_hand()), 12, MUTED, true)
 	var cost := int(improved[property]) * 5
 	_button(box, "Improve %s · %d gold" % [property.capitalize(), cost], func(): _close_overlay(); _command("UpgradeGem", {"gem_id": gem.id, "property": property}), true).disabled = int(_hero().get("gold", 0)) < cost
@@ -915,8 +1307,12 @@ func _rewards(parent: Node) -> void:
 			var relic: Dictionary = offer.get("relic", offer)
 			var definition: Dictionary = Catalog.RELICS.get(relic.get("key", ""), {})
 			var panel := _panel(parent)
-			_label(panel, str(definition.get("name", relic.get("key", "Relic"))), 20, GOLD)
-			_label(panel, str(definition.get("description", "")), 14, MUTED, true)
+			var relic_row := _hbox(panel, 12)
+			UiKit.icon(relic_row, Forge.relic(str(relic.get("key", ""))), 56).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var relic_text := _vbox(relic_row, 4)
+			relic_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_label(relic_text, str(definition.get("name", relic.get("key", "Relic"))), 20, GOLD)
+			_label(relic_text, str(definition.get("description", "")), 14, MUTED, true)
 			_button(panel, "Take relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": offer.get("id", relic.get("id", ""))}), true)
 		_button(parent, "Decline relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": ""}))
 	if reward.get("gem_done", true) and reward.get("relic_done", true):
@@ -949,6 +1345,8 @@ func _ready_button(parent: Node) -> Button:
 	return b
 
 func _process(delta: float) -> void:
+	if _holding_hand() and _refresh_hands():
+		_queue_render()
 	if is_instance_valid(mine_playback_label):
 		var hits: Array = snapshot.get("mine", {}).get("events", [])
 		if not hits.is_empty():
@@ -960,15 +1358,16 @@ func _process(delta: float) -> void:
 			var step := clampi(mine_playback_index, 1, hits.size())
 			var hit: Dictionary = hits[step - 1]
 			mine_playback_label.text = "Hit %d/%d · %s · Rock %d/%d%s" % [step, hits.size(), _unit_name(str(hit.get("actor_id", ""))), int(hit.get("progress", 0)), int(hit.get("hits", 1)), " · BROKEN" if hit.get("broken", false) else ""]
-	if not is_instance_valid(playback_label) or playback_events.is_empty(): return
+	# The battlefield is the only audience for the event log now, so it paces playback.
+	if playback_events.is_empty() or not _stage_on_screen(): return
 	if settings.reduced_motion or float(settings.playback_speed) >= 100.0:
 		playback_index = playback_events.size()
 	playback_timer += delta * float(settings.playback_speed)
 	if playback_timer >= 0.55 and playback_index < playback_events.size():
 		playback_index += 1
 		playback_timer = 0.0
-	var shown := clampi(playback_index, 1, playback_events.size())
-	playback_label.text = "[%d / %d] %s" % [shown, playback_events.size(), _log_text(playback_events[shown - 1])]
+		if playback_events[playback_index - 1] is Dictionary:
+			stage_view.perform(playback_events[playback_index - 1])
 
 func _intent_target(actor: Dictionary, intent: Dictionary) -> String:
 	var labels: Array = []
@@ -979,7 +1378,7 @@ func _intent_target(actor: Dictionary, intent: Dictionary) -> String:
 			"self": caption = str(actor.get("name", "Self"))
 			"allies": caption = "All allies"
 			"enemies": caption = "All heroes"
-			"ally": caption = _unit_name(str(intent.get("friendly_target_id", actor.get("id", ""))))
+			"ally": caption = _unit_name(str(intent.friendly_target_id)) if intent.has("friendly_target_id") else "All allies"
 			_: caption = _unit_name(str(intent.get("target_id", "")))
 		if not labels.has(caption): labels.append(caption)
 	return ", ".join(labels)
@@ -994,21 +1393,6 @@ func _grace_remaining(hero: Dictionary) -> int:
 		if str(member.get("player_id", "")) == str(hero.get("id", "")):
 			return int(member.get("grace_remaining", 0))
 	return maxi(0, 60 - int(Time.get_unix_time_from_system() - float(hero.get("disconnect_time", Time.get_unix_time_from_system()))))
-
-func _log_preview(parent: Node) -> void:
-	var box := _panel(parent, Color("121c24"), LINE, 12)
-	var row := _hbox(box)
-	_label(row, "BATTLE RECORD", 11, GOLD)
-	_spacer(row)
-	_button(row, "Full log", _show_log)
-	_button(row, "Skip playback [F]", _skip_playback)
-	playback_label = _label(box, "", 13, GREEN, true)
-	var entries: Array = snapshot.get("log", [])
-	if entries.is_empty():
-		_label(box, "Enemy intentions are published. Set targets, select rerolls, then lock in.", 12, MUTED, true)
-	else:
-		for entry in entries.slice(maxi(0, entries.size() - 3)):
-			_label(box, _log_text(entry), 12, MUTED, true)
 
 func _show_inventory() -> void:
 	if snapshot.is_empty(): return
@@ -1042,9 +1426,16 @@ func _show_inventory() -> void:
 		var row := _hbox(card)
 		_label(row, "%02d" % (i + 1), 16, GOLD)
 		_gem_details(row, gem)
-		var controls := _vbox(row, 5)
-		_button(controls, "↑ Earlier", func(): _reorder(equipped, i, -1)).disabled = locked or i == 0
-		_button(controls, "↓ Later", func(): _reorder(equipped, i, 1)).disabled = locked or i == equipped.size() - 1
+		var controls := _hbox(row, 6)
+		controls.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var earlier := _button(controls, "↑", func(): _reorder(equipped, i, -1))
+		earlier.custom_minimum_size.x = 46
+		earlier.tooltip_text = "Execute this gem earlier"
+		earlier.disabled = locked or i == 0
+		var later := _button(controls, "↓", func(): _reorder(equipped, i, 1))
+		later.custom_minimum_size.x = 46
+		later.tooltip_text = "Execute this gem later"
+		later.disabled = locked or i == equipped.size() - 1
 		_button(controls, "Unequip", func(): _inventory_command("EquipGem", {"gem_id": gem.id})).disabled = locked or gem.get("key") == "STRIKE"
 	_label(box, "RESERVE GEMS", 12, GOLD)
 	var reserves := 0
@@ -1067,10 +1458,14 @@ func _show_inventory() -> void:
 	if reserves == 0: _label(box, "Your reserve is empty. Battle rewards and merchants offer new gems.", 13, MUTED, true)
 	_label(box, "DICE / SELECT AN ACTIVE SLOT, THEN A RESERVE DIE TO SWAP", 12, GOLD)
 	for die in inventory_hero.get("dice", []):
-		var b := _button(box, ("SELECTED  ·  " if selected_active_die == str(die.id) else "") + _die_name(die) + "  |  " + _faces_text(die), func(): selected_active_die = str(die.id); _show_inventory())
+		var active_row := _hbox(box, 10)
+		_die_chip(active_row, "preview:inv:" + str(die.id), die, 64)
+		var b := _button(active_row, ("SELECTED  ·  " if selected_active_die == str(die.id) else "") + _die_name(die) + "  |  " + _faces_text(die), func(): selected_active_die = str(die.id); _show_inventory())
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.tooltip_text = "One physical face is sampled uniformly. Repeated values increase their probability."
 	for die in inventory_hero.get("reserve_dice", []):
-		var row := _hbox(box)
+		var row := _hbox(box, 10)
+		_die_chip(row, "preview:inv:" + str(die.id), die, 64)
 		_label(row, _die_name(die) + "  |  " + _faces_text(die), 14, BLUE, true)
 		_button(row, "Swap into selected slot", func(): _inventory_command("SwapDie", {"active_id": selected_active_die, "reserve_id": die.id})).disabled = locked or selected_active_die.is_empty()
 		if snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support":
@@ -1084,8 +1479,14 @@ func _show_inventory() -> void:
 	for relic in inventory_hero.get("relics", []):
 		var def: Dictionary = Catalog.RELICS.get(relic.get("key", ""), {})
 		var card := _panel(box)
-		_label(card, str(def.get("name", relic.get("key", ""))) + ("  ·  EQUIPPED" if relic.get("equipped", false) else "  ·  RESERVE"), 17, GOLD)
-		_label(card, str(def.get("description", "")), 13, MUTED, true)
+		var relic_head := _hbox(card, 11)
+		var relic_icon := UiKit.icon(relic_head, Forge.relic(str(relic.get("key", ""))), 48)
+		relic_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		relic_icon.modulate = Color.WHITE if relic.get("equipped", false) else Color(0.68, 0.72, 0.80, 0.9)
+		var relic_body := _vbox(relic_head, 4)
+		relic_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_label(relic_body, str(def.get("name", relic.get("key", ""))) + ("  ·  EQUIPPED" if relic.get("equipped", false) else "  ·  RESERVE"), 17, GOLD)
+		_label(relic_body, str(def.get("description", "")), 13, MUTED, true)
 		_button(card, "Unequip relic" if relic.get("equipped", false) else "Equip relic", func(): _inventory_command("EquipRelic", {"relic_id": relic.id})).disabled = locked or (not relic.get("equipped", false) and equipped_relics.size() >= 3)
 		if not relic.get("equipped", false) and equipped_relics.size() >= 3:
 			for active in equipped_relics:
@@ -1106,33 +1507,176 @@ func _inventory_command(kind: String, payload: Dictionary) -> void:
 		_command(kind, payload)
 	_show_inventory.call_deferred()
 
+func _sheet(box: Node, art: Control, art_size: Vector2, accent: Color) -> VBoxContainer:
+	## Every inspect screen is one shape: a large picture on the left, the sheet beside it.
+	var head := _hbox(box, 22)
+	var frame := PanelContainer.new()
+	frame.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	frame.add_theme_stylebox_override("panel", UiKit.panel_box(Color("18213a"), Color("0a0f1c"), Color(accent, 0.55), 14, 14, 1.6, 0.22))
+	head.add_child(frame)
+	art.custom_minimum_size = art_size
+	frame.add_child(art)
+	var body := _vbox(head, 8)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return body
+
+func _target_text(target: String) -> String:
+	match target:
+		"self": return "Yourself"
+		"ally", "allies": return "Every living hero"
+		"enemy":
+			var chosen := str(_hero().get("preferred_target", ""))
+			return ("Your preferred enemy — " + _unit_name(chosen)) if not chosen.is_empty() else "The first living enemy, until you pick one on the battlefield"
+		"enemies": return "Several enemies, beginning with your preferred target"
+		"revive": return "The first downed hero, otherwise every living hero"
+	return target.capitalize()
+
 func _inspect_gem(gem: Dictionary) -> void:
-	var box := _modal(_gem_name(gem))
-	_label(box, _gem_stats(gem), 16, GOLD)
-	_label(box, _preview_text(gem), 16, PAPER, true)
 	var preview: Dictionary = Combat.preview(_hero(), gem, _preview_hand(), snapshot)
+	var definition: Dictionary = Catalog.SKILLS.get(gem.get("key", ""), {})
+	var box := _modal(_gem_name(gem))
+	var portrait := Control.new()
+	var icon := _gem_portrait(portrait, gem, 200)
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var body := _sheet(box, portrait, Vector2(200, 200), GOLD)
+	_label(body, _gem_name(gem), 26, _gem_color(gem))
+	_gem_title_row(body, gem, 16, PAPER, false)
+	_label(body, "%s gem — %s." % [str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "Red")), str(Catalog.color_definition(str(gem.get("key", ""))).get("role", "Damage"))], 13, MUTED, true)
+	_label(body, "REQUIRES", 11, GOLD)
+	var need := _hbox(body, 10)
+	_requirement_icons(need, gem, preview, 30)
+	_label(body, str(definition.get("trigger", "")), 15, GREEN, true)
+	_label(body, "DOES", 11, GOLD)
+	_formula_rows(body, gem, int(preview.get("effective_clarity", gem.get("clarity", 1))), 15)
+	UiKit.rule(body)
+	_label(body, "TARGETS", 11, GOLD)
+	_label(body, _target_text(str(definition.get("target", "self"))), 15, BLUE, true)
+	UiKit.rule(body)
+	_label(body, "THIS HAND", 11, GOLD)
+	var active: bool = preview.get("active", false)
+	_label(body, str(preview.get("summary", "")) if active else str(preview.get("reason", "Dormant")), 17, GREEN if active else MUTED, true)
+	if int(preview.get("effective_clarity", gem.get("clarity", 1))) != int(gem.get("clarity", 1)):
+		_label(body, "Effective Clarity %d — a Focusing Prism is shortening the run." % int(preview.effective_clarity), 14, VIOLET, true)
 	var contributors: Array = preview.get("contributing_dice", [])
-	var indices: Array = []
-	for i in range(_hero().get("dice", []).size()):
-		if str(_hero().dice[i].id) in contributors: indices.append(str(i + 1))
-	if not indices.is_empty(): _label(box, "Contributing die slots: " + ", ".join(indices), 14, GREEN)
-	_label(box, "Target: " + str(Catalog.SKILLS.get(gem.get("key", ""), {}).get("target", "self")) + "\nPreferred enemy: " + _unit_name(str(_hero().get("preferred_target", ""))) + "\nPreferred ally: " + _unit_name(str(_hero().get("friendly_target", _hero().get("id", "")))), 14, BLUE, true)
-	_label(box, "Dice are never consumed. Each equipped gem evaluates independently in visible order. Amounts are floored once; healing uses the recipient’s maximum HP.", 13, MUTED, true)
+	if not contributors.is_empty():
+		_label(body, "CONTRIBUTING DICE", 11, GOLD)
+		var row := _hbox(body, 10)
+		for i in range(_hero().get("dice", []).size()):
+			var die: Dictionary = _hero().dice[i]
+			if not str(die.id) in contributors: continue
+			var held: Dictionary = {}
+			for entry in _hand_for(_hero()):
+				if str(entry.get("die_id")) == str(die.id): held = entry
+			var column := _vbox(row, 3)
+			column.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			_die_chip(column, "preview:contrib:" + str(die.id), die, 64, held)
+			_label(column, "SLOT %d%s" % [i + 1, "  ·  %d" % int(held.value) if held.has("value") else ""], 10, GREEN)
+	_label(box, "Dice are never consumed. Each equipped gem evaluates independently in the order shown, amounts are floored once, and healing uses the recipient’s own maximum HP.", 13, MUTED, true)
 	_button(box, "Ping this gem", func(): _ping("gem", str(gem.get("id", "")), _gem_name(gem)))
 
 func _inspect_unit(unit: Dictionary) -> void:
-	var box := _modal(str(unit.get("name", "Unit")))
-	_label(box, "%d / %d HP · %d block · %s" % [int(unit.get("hp", 0)), int(unit.get("max_hp", 0)), int(unit.get("block", 0)), _status_text(unit)], 15, GOLD, true)
-	var def: Dictionary = Catalog.ENEMIES.get(unit.get("key", ""), {})
-	_label(box, str(def.get("description", "")), 16, PAPER, true)
-	for intent in unit.get("intents", []):
-		_label(box, str(intent.get("name", "")) + " → " + _intent_target(unit, intent), 17, RED, true)
-		_label(box, str(intent.get("summary", "")), 15, MUTED, true)
-	for die in unit.get("dice", []):
-		_label(box, _die_name(die) + ": " + _faces_text(die), 13, BLUE, true)
+	var id := str(unit.get("id", ""))
+	var hostile := false
+	for candidate in snapshot.get("enemies", []):
+		if str(candidate.get("id", "")) == id: hostile = true
+	var key := str(unit.get("key", "ENEMY")).to_upper()
+	var downed := int(unit.get("hp", 0)) <= 0
+	var box := _modal(str(unit.get("player_name", unit.get("name", "Unit"))))
+	var actor := _actor_for("preview:inspect:" + id, key, -1.0 if hostile else 1.0)
+	actor.show_ground = true
+	actor.downed = downed
+	actor.targeted = false
+	actor.bob = 1.0
+	var body := _sheet(box, actor, Vector2(240, 250), _unit_tint(key))
+	_label(body, str(unit.get("name", "Unit")) + ("  ·  BOSS" if unit.get("boss", false) else ""), 26, GOLD)
+	UiKit.meter(body, float(unit.get("hp", 0)), float(unit.get("max_hp", 1)),
+		HP_LOST if downed else (HP_FOE if hostile else HP_LIVE), 22,
+		"%d / %d HP" % [int(unit.get("hp", 0)), int(unit.get("max_hp", 1))])
+	var chips := HFlowContainer.new()
+	chips.add_theme_constant_override("h_separation", 5)
+	chips.add_theme_constant_override("v_separation", 4)
+	body.add_child(chips)
+	UiKit.chip(chips, "DOWNED" if downed else ("ENEMY" if hostile else "HERO"), RED if downed else (HP_FOE if hostile else GREEN))
+	if int(unit.get("block", 0)) > 0:
+		UiKit.chip(chips, "BLOCK %d" % int(unit.get("block", 0)), BLUE)
+	for badge in _status_badges(unit):
+		UiKit.chip(chips, str(badge[0]), Color(badge[1]))
+	var definition: Dictionary = Catalog.ENEMIES.get(unit.get("key", ""), Catalog.HEROES.get(unit.get("key", ""), {}))
+	var description := str(definition.get("description", ""))
+	if not description.is_empty():
+		_label(body, description, 15, PAPER, true)
+	var hand: Array = Combat.values(_hand_for(unit)) if not hostile else Combat.values(unit.get("hand", []))
+	if not hand.is_empty():
+		_label(body, "This turn’s hand: " + _join_values(hand), 15, GREEN, true)
+	var intents: Array = unit.get("intents", [])
+	if not intents.is_empty():
+		_label(box, "INTENTS", 11, GOLD)
+		for intent in intents:
+			var card := _panel(box, PANEL, Color(RED, 0.5), 11)
+			_label(card, str(intent.get("name", intent.get("key", ""))) + "  →  " + _intent_target(unit, intent), 17, RED, true)
+			_label(card, str(intent.get("summary", "")), 14, MUTED, true)
+	var dice: Array = unit.get("dice", [])
+	if not dice.is_empty():
+		_label(box, "DICE  ·  RIGHT-CLICK ONE TO TURN IT", 11, GOLD)
+		var row := _hbox(box, 12)
+		for die in dice:
+			var turned: Dictionary = {}
+			for entry in unit.get("hand", []):
+				if str(entry.get("die_id")) == str(die.get("id", "")): turned = entry
+			var column := _vbox(row, 3)
+			column.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			_die_chip(column, "preview:sheet:" + str(die.get("id", "")), die, 68, turned)
+			_label(column, str(die.get("shape", "D6")) + ("  ·  %d" % int(turned.value) if turned.has("value") else ""), 10, BLUE)
 	if unit.get("boss", false):
 		_label(box, "Boss Resolve: external stun queues at most one skipped slot. After that skip, the next two slots reject external stun. Damage still applies. Poison ticks once at each living actor’s slot end.", 14, GOLD, true)
-	_button(box, "Ping this enemy", func(): _ping("enemy", str(unit.get("id", "")), str(unit.get("name", "Enemy"))))
+	_button(box, "Ping this " + ("enemy" if hostile else "hero"), func(): _ping("enemy" if hostile else "hero", id, str(unit.get("name", "Unit"))))
+
+func _inspect_die(die: Dictionary, rolled: Dictionary = {}) -> void:
+	var faces: Array = die.get("faces", [])
+	var box := _modal(_die_name(die))
+	# A fresh view, not one of the persistent hand dice: this one answers to the reader.
+	var view := DiceView.new()
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var holder := Control.new()
+	holder.add_child(view)
+	var body := _sheet(box, holder, Vector2(320, 320), BLUE)
+	view.enable_interaction()
+	view.configure(die, rolled, false, false, GOLD)
+	inspect_view = view
+	_label(body, _die_name(die), 26, GOLD)
+	_label(body, "%s  ·  %d physical faces" % [str(die.get("shape", "D6")).to_upper(), faces.size()], 15, BLUE)
+	if rolled.has("value"):
+		_label(body, "This roll turned up %d." % int(rolled.get("value", 0)), 16, GREEN, true)
+	_label(body, "Drag the solid to turn it. Hover a face to bring that face to the front.", 14, MUTED, true)
+	var counts: Dictionary = {}
+	for face in faces:
+		var value: int = int(face.get("value", 0)) if face is Dictionary else int(face)
+		counts[value] = int(counts.get(value, 0)) + 1
+	var repeated: Array = []
+	var distinct: Array = counts.keys()
+	distinct.sort()
+	for value in distinct:
+		if int(counts[value]) > 1:
+			repeated.append("%d on %d faces" % [int(value), int(counts[value])])
+	_label(body, ("Weighted: " + ", ".join(repeated) + ". Every physical face is still equally likely.") if not repeated.is_empty() else "Every physical face is equally likely.", 14, AMBER if not repeated.is_empty() else MUTED, true)
+	UiKit.rule(body)
+	_label(body, "FACES  ·  HOVER TO TURN", 11, GOLD)
+	var grid := GridContainer.new()
+	grid.columns = 5 if faces.size() > 12 else (4 if faces.size() > 6 else 3)
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	body.add_child(grid)
+	for index in range(faces.size()):
+		var face: Variant = faces[index]
+		var value: int = int(face.get("value", index + 1)) if face is Dictionary else int(face)
+		var rolled_here: bool = int(rolled.get("face_index", -1)) == index
+		var b := _button(grid, str(value), func(): view.focus_face(index))
+		b.custom_minimum_size = Vector2(66, 42)
+		b.tooltip_text = "Physical face %d shows %d." % [index + 1, value]
+		b.mouse_entered.connect(func(): view.focus_face(index))
+		if rolled_here:
+			b.add_theme_color_override("font_color", GOLD)
+			b.tooltip_text += " This is the face the roll turned up."
 
 func _ping(_kind: String, id: String, title: String) -> void:
 	if session.has_method("send_ping") and not offline_hotseat:
@@ -1141,7 +1685,7 @@ func _ping(_kind: String, id: String, title: String) -> void:
 
 func _preview_text(gem: Dictionary) -> String:
 	var def: Dictionary = Catalog.SKILLS.get(gem.get("key", ""), {})
-	var result := "Trigger: " + str(def.get("trigger", "")) + "\n" + str(def.get("formula", ""))
+	var result := _gem_stats(gem) + "\nTrigger: " + str(def.get("trigger", "")) + "\n" + GemText.sentence(gem)
 	if not snapshot.is_empty():
 		var preview: Dictionary = Combat.preview(_hero(), gem, _preview_hand(), snapshot)
 		result += "\n\nThis hand: " + (str(preview.get("summary", "")) if preview.get("active", false) else str(preview.get("reason", "Dormant")))
@@ -1150,20 +1694,189 @@ func _preview_text(gem: Dictionary) -> String:
 	return result
 
 func _gem_details(parent: Node, gem: Dictionary) -> void:
-	var box := _vbox(parent, 5)
+	var row := _hbox(parent, 11)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_gem_portrait(row, gem, 56).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var box := _vbox(row, 4)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(box, _gem_name(gem), 18, PAPER)
-	_label(box, _gem_stats(gem), 12, GOLD)
+	_gem_title_row(box, gem, 16, _gem_color(gem))
 	var def: Dictionary = Catalog.SKILLS.get(gem.get("key", ""), {})
 	_label(box, str(def.get("trigger", "")), 13, GREEN, true)
-	_label(box, str(def.get("formula", "")), 12, MUTED, true)
-	box.tooltip_text = _preview_text(gem)
+	_formula_rows(box, gem, -1, 13)
+	row.tooltip_text = _preview_text(gem)
+
+func _gem_texture(gem: Dictionary, edge: int) -> Texture2D:
+	## Painted from this gem's own four properties at the size it will be shown, so two
+	## stones that differ in one rank are told apart by the picture, not only the label.
+	return GemRender.texture(gem, edge)
+
+func _gem_portrait(parent: Node, gem: Dictionary, edge: int) -> TextureRect:
+	var picture := UiKit.icon(parent, _gem_texture(gem, edge), edge)
+	picture.mouse_filter = Control.MOUSE_FILTER_PASS
+	picture.tooltip_text = GemRender.describe(gem)
+	return picture
+
+func _room_color(kind: String) -> Color:
+	match kind:
+		"battle", "combat": return RED
+		"elite": return Color("ff9d5c")
+		"boss": return VIOLET
+		"shop": return GOLD
+		"rest", "camp": return Color("ffb066")
+		"event": return Color("d0b0ff")
+		"mine": return GREEN
+		"workshop": return Color("b9c6d6")
+		"lapidary": return Color("63d8d0")
+	return BLUE
+
+func _tone(name: String) -> Color:
+	match name:
+		"RED": return RED
+		"BLUE": return BLUE
+		"GREEN": return GREEN
+		"GOLD": return GOLD
+		"VIOLET": return VIOLET
+		"AMBER": return AMBER
+	return PAPER
+
+func _flow(parent: Node, separation: int = 6) -> HFlowContainer:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", separation)
+	row.add_theme_constant_override("v_separation", 4)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(row)
+	return row
+
+func _word(parent: Node, text: String, size_px: int, color: Color, tooltip: String = "") -> Label:
+	## A word inside a flowing row. It answers the mouse only when it has something to say.
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", size_px)
+	label.add_theme_color_override("font_color", color)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_PASS if not tooltip.is_empty() else Control.MOUSE_FILTER_IGNORE
+	label.tooltip_text = tooltip
+	parent.add_child(label)
+	return label
+
+func _property_tint(glyph: String, fallback: Color) -> Color:
+	return PROPERTY_TINTS.get(glyph, fallback)
+
+func _marked(parent: Node, part: Dictionary, size_px: int, color: Color) -> HBoxContainer:
+	## One term: its number or phrase, then the mark saying which property produced it.
+	## The pair hovers as a unit, so the explanation is available from anywhere on it.
+	var cell := HBoxContainer.new()
+	cell.add_theme_constant_override("separation", 3)
+	cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	cell.mouse_filter = Control.MOUSE_FILTER_PASS
+	cell.tooltip_text = str(part.get("tip", ""))
+	parent.add_child(cell)
+	_word(cell, str(part.get("text", "")), size_px, color)
+	var glyph := str(part.get("glyph", ""))
+	if not glyph.is_empty():
+		GemIcons.glyph(cell, glyph, float(size_px) * 1.2, Color(color, 0.9), cell.tooltip_text)
+	return cell
+
+func _gem_title_row(parent: Node, gem: Dictionary, size_px: int, name_color: Color, show_name := true) -> HFlowContainer:
+	## "Good ✂ Flawless ✦ 12 ⚖ Multistrike" — the ranks a player says out loud, each
+	## followed by its mark, with the gem's own name last and in its Color.
+	var row := _flow(parent, 8)
+	var parts: Array = GemText.title_parts(gem)
+	for index in range(parts.size()):
+		var part: Dictionary = parts[index]
+		var last: bool = index == parts.size() - 1
+		if last and not show_name:
+			continue
+		_marked(row, part, size_px if last else maxi(10, size_px - 2),
+			name_color if last else _property_tint(str(part.glyph), GOLD))
+	return row
+
+func _gem_marks_row(parent: Node, gem: Dictionary, edge: float) -> HBoxContainer:
+	## The same three ranks as bare numbers, for a card too narrow to spell them out.
+	var row := _hbox(parent, 7)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var marks: Dictionary = {}
+	for part in GemText.title_parts(gem):
+		if PROPERTY_TINTS.has(str(part.glyph)):
+			marks[str(part.glyph)] = part
+	for glyph in ["carat", "cut", "clarity"]:
+		var part: Dictionary = marks.get(glyph, {})
+		if part.is_empty():
+			continue
+		var tint: Color = PROPERTY_TINTS[glyph]
+		var cell := _hbox(row, 2)
+		cell.mouse_filter = Control.MOUSE_FILTER_PASS
+		cell.tooltip_text = str(part.tip)
+		GemIcons.glyph(cell, glyph, edge, Color(tint, 0.9), cell.tooltip_text)
+		_word(cell, str(int(gem.get(glyph, 1))), int(edge) - 2, tint)
+	return row
+
+func _term_chip(parent: Node, part: Dictionary, size_px: int) -> PanelContainer:
+	## A term of the sum, boxed so the eye can count terms without reading them.
+	var holder := PanelContainer.new()
+	holder.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	holder.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	holder.mouse_filter = Control.MOUSE_FILTER_PASS
+	holder.tooltip_text = str(part.get("tip", ""))
+	holder.add_theme_stylebox_override("panel", UiKit.flat(Color(PANEL_HI, 0.85), Color(LINE, 0.9), 7, 5, 1))
+	var cell := HBoxContainer.new()
+	cell.add_theme_constant_override("separation", 4)
+	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(cell)
+	parent.add_child(holder)
+	var glyph := str(part.get("glyph", ""))
+	var tint: Color = _property_tint(glyph, PAPER)
+	if not glyph.is_empty():
+		GemIcons.glyph(cell, glyph, float(size_px) * 1.25, Color(tint, 0.9), holder.tooltip_text)
+	_word(cell, str(part.get("text", "")), size_px, tint)
+	var factor: Dictionary = part.get("factor", {})
+	if not factor.is_empty():
+		var factor_glyph := str(factor.get("glyph", ""))
+		var factor_tint: Color = _property_tint(factor_glyph, AMBER)
+		_word(cell, str(factor.get("text", "")), size_px, factor_tint)
+		GemIcons.glyph(cell, factor_glyph, float(size_px) * 1.15, Color(factor_tint, 0.9), str(factor.get("tip", "")))
+	return holder
+
+func _formula_rows(parent: Node, gem: Dictionary, effective_clarity: int = -1, size_px: int = 14) -> void:
+	## The rule as a short chain instead of an equation: terms added, then multiplied
+	## once by Carat, then named by what they do. Nothing that contributes zero appears.
+	var blocks: Array = GemText.blocks(gem, effective_clarity)
+	if blocks.is_empty():
+		_label(parent, str(Catalog.SKILLS.get(gem.get("key", ""), {}).get("formula", "")), size_px, MUTED, true)
+		return
+	for block in blocks:
+		var row := _flow(parent, 6)
+		var tone: Color = _tone(str(block.tone))
+		_word(row, str(block.verb), size_px, MUTED)
+		var parts: Array = block.parts
+		for index in range(parts.size()):
+			if index > 0:
+				_word(row, "+", size_px, Color(MUTED, 0.8))
+			_term_chip(row, parts[index], size_px)
+		var mult: Dictionary = block.mult
+		if not mult.is_empty():
+			_marked(row, mult, size_px, PROPERTY_TINTS.carat)
+		if not str(block.label).is_empty():
+			_word(row, str(block.label), size_px + 1, tone)
+		if not str(block.suffix).is_empty():
+			_word(row, str(block.suffix), size_px - 1, MUTED)
+		var repeat: Dictionary = block.repeat
+		if not repeat.is_empty():
+			_marked(row, repeat, size_px, AMBER)
+		if not str(block.note).is_empty():
+			_label(parent, str(block.note), maxi(11, size_px - 3), Color(MUTED, 0.9), true)
 
 func _gem_name(gem: Dictionary) -> String:
 	return str(Catalog.SKILLS.get(gem.get("key", ""), {}).get("name", gem.get("key", "Gem")))
 
 func _gem_stats(gem: Dictionary) -> String:
-	return "CARAT %d  ·  CUT %d  ·  CLARITY %d" % [int(gem.get("carat", 1)), int(gem.get("cut", 1)), int(gem.get("clarity", 1))]
+	## The same line the icon row shows, in words, for tooltips and narration.
+	return "%s  ·  %s gem" % [GemText.title(gem), str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "Red"))]
+
+func _gem_color(gem: Dictionary) -> Color:
+	return Color(str(Catalog.color_definition(str(gem.get("key", ""))).get("hex", "e2564a")))
 
 func _die_name(die: Dictionary) -> String:
 	return str(Catalog.DICE.get(die.get("key", die.get("shape", "D6")), {}).get("name", die.get("shape", "Die")))
@@ -1190,10 +1903,11 @@ func _log_text(entry: Variant) -> String:
 	if entry is String: return entry
 	if not entry is Dictionary: return str(entry)
 	var result := str(entry.get("message", entry.get("text", "")))
-	if result.is_empty():
-		result = "%s · %s → %s" % [_unit_name(str(entry.get("actor_id", ""))), str(entry.get("skill", entry.get("kind", entry.get("type", "event")))), _unit_name(str(entry.get("target_id", "")))]
+	if not result.is_empty():
+		return result
+	result = "%s · %s → %s" % [_unit_name(str(entry.get("actor", entry.get("actor_id", "")))), str(entry.get("skill", entry.get("kind", entry.get("type", "event")))), _unit_name(str(entry.get("target", entry.get("target_id", ""))))]
 	var details: Array = []
-	for key in ["raw", "absorbed", "hp_loss", "healing", "applied", "removed"]:
+	for key in ["raw_damage", "block_absorbed", "hp_loss", "amount", "applied", "removed"]:
 		if entry.has(key): details.append("%s %s" % [key.replace("_", " "), str(entry[key])])
 	if not details.is_empty(): result += "  [" + "; ".join(details) + "]"
 	return result
@@ -1215,9 +1929,12 @@ func _show_journal() -> void:
 		"guide":
 			var entries := [
 				["ONE HAND, MANY SKILLS", "Roll five active dice. Select dice you want to reroll; the others stay. You normally have one reroll. Lock in when you are satisfied. There is no automatic lock-in timer."],
-				["A PAIR CAN DO MORE", "With [2, 2, 4, 6, 8], Strike C1/K1/L1 deals 9 damage and Block C2/K1/L1 grants 4 block. Both use the same hand; dice are neither assigned nor spent."],
-				["YOUR BUILD", "Equip six unique skill gems including Strike. Carat (C), Cut (K), and Clarity (L) vary independently. M(L) is 1 / 1.25 / 1.5 / 1.75 / 2. Equip, replace, and reorder between rooms before ready. Skills resolve in their visible order."],
-				["TARGETS AND TURN ORDER", "Choose a preferred enemy and friendly target. A skill fixes its target as it begins; later hostile hits fizzle if that target dies. The next skill can retarget. Heroes act in party seat order, then enemies. Enemy intents are public before planning."],
+				["A PAIR CAN DO MORE", "With [2, 2, 4, 6, 8], Strike C1/K1/L1 deals 8 damage and Block C2/K1/L1 grants 2 block. Both use the same hand; dice are neither assigned nor spent."],
+				["THE FOUR C'S", "Color is the gem's effect category: Red damage, Blue block, Green healing, Violet control, Gold fortune. Carat 1–24, marked with a balance scale, is the overall strength multiplier, from ×1 at Carat 1 to ×3.875 at Carat 24. Cut 1–5, Poor to Perfect and marked with a throwing star, multiplies whatever the dice contribute, so it matters most on attacks. Clarity 1–5, Fractured to Flawless and marked with a sparkle, adds a flat bonus that does not depend on your roll, eases triggers, and unlocks extra effects at the top ranks."],
+				["READING THE STONE", "A gem is drawn from its own four properties, so two gems that differ in one rank look different. Color sets the outline and hue — Red is a triangle cut, Blue a square, Green a heart, Violet a marquise, Gold a round brilliant. Carat sets the size, from a chip at 1 to nearly three times that at 24. Cut sets how intricate the faceting is. Clarity sets the brilliance: a Fractured stone is cloudy and carries visible flaws, a Flawless one is saturated and throws a star. The skill\'s emblem is etched into the face."],
+				["READING A GEM", "A gem is named by its ranks: Good, Flawless, 12, Multistrike. Under that, its rule is a short chain — the terms it adds up, then one Carat multiplier, then what it does. Each term wears the mark of the property behind it and its own colour, and hovering any mark or term explains it. A term worth nothing is never shown, so a Carat 1 gem carries no multiplier on its line and a Cut that adds nothing is simply absent."],
+				["YOUR BUILD", "Equip six unique skill gems including Strike. Carat, Cut, and Clarity vary independently; Color is fixed by the skill. Equip, replace, and reorder between rooms before ready. Skills resolve in their visible order."],
+				["TARGETS AND TURN ORDER", "Choose a preferred enemy by clicking it on the battlefield. Friendly effects need no choice: support skills reach every living hero. A skill fixes its target as it begins; later hostile hits fizzle if that target dies. The next skill can retarget. Heroes act in party seat order, then enemies. Enemy intents are public before planning."],
 				["BLOCK, STUN, POISON", "Block persists through turns, then clears after combat. Stun skips an actor’s next slot. Poison bypasses block at the end of a living actor’s slot, then loses one stack; it still ticks when stunned. Boss Resolve prevents repeated stun locking."],
 				["FALLING AND RECOVERY", "Downed heroes do not roll or act. Victory rallies them to 10% HP; a party wipe ends the run. Lifeline can revive during a fight, but the revived hero acts next turn. Rest heals one third of maximum HP."],
 				["THE LONG FIGHT", "Enrage starts on turn 7: enemies add +2 raw damage per hit, then +2 more each turn. Combat skill/relic gold is capped at 8 / 12 / 16 per hero in acts 1 / 2 / 3. Room rewards are separate."],
@@ -1230,34 +1947,88 @@ func _show_journal() -> void:
 		"heroes":
 			for key in Catalog.HEROES:
 				var def: Dictionary = Catalog.HEROES[key]
-				_label(box, "%s · %d HP · %s" % [def.name, def.max_hp, _join_values(def.dice)], 20, GOLD)
-				_label(box, str(def.trait_name) + ": " + str(def.description), 15, PAPER, true)
+				var entry := _panel(box, PANEL, LINE, 12)
+				var entry_row := _hbox(entry, 12)
+				UiKit.icon(entry_row, Forge.unit(key), 96).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				var facts := _vbox(entry_row, 3)
+				facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				_label(facts, "%s · %d HP · %s" % [def.name, def.max_hp, _join_values(def.dice)], 20, GOLD)
+				_label(facts, str(def.trait_name) + ": " + str(def.description), 15, PAPER, true)
 		"gems":
 			for key in Catalog.SKILLS:
 				var def: Dictionary = Catalog.SKILLS[key]
-				_label(box, "%s · Rarity %d" % [def.name, def.rarity], 19, GOLD)
-				_label(box, str(def.trigger) + "\n" + str(def.formula), 15, PAPER, true)
+				var entry := _panel(box, PANEL, LINE, 12)
+				var entry_row := _hbox(entry, 12)
+				# The journal describes a skill, not an instance, so it shows a mid-rank stone
+				# purely to teach the outline and emblem this skill always wears.
+				var sample: Dictionary = Catalog.gem(str(key), "journal-" + str(key), 12, 3, 4)
+				_gem_portrait(entry_row, sample, 52).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				var gem_facts := _vbox(entry_row, 3)
+				gem_facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				_label(gem_facts, "%s · Rarity %d" % [def.name, def.rarity], 19, GOLD)
+				_label(gem_facts, str(def.trigger) + "\n" + str(def.formula), 15, PAPER, true)
 		"dice":
+			_label(box, "Every physical face is equally likely. Repeated values simply appear on more faces.", 13, MUTED, true)
+			var dice_grid := GridContainer.new()
+			dice_grid.columns = 3
+			box.add_child(dice_grid)
 			for key in Catalog.DICE:
 				var def: Dictionary = Catalog.DICE[key]
-				_label(box, "%s · %d gold" % [def.name, def.price], 18, BLUE)
-				_label(box, "Faces: " + _join_values(def.faces), 15, PAPER, true)
+				var entry := _panel(dice_grid, PANEL, LINE, 12)
+				entry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				var entry_row := _hbox(entry, 10)
+				var display := Control.new()
+				display.custom_minimum_size = Vector2(86, 86)
+				entry_row.add_child(display)
+				var preview_die := _die_view("preview:journal:" + key)
+				preview_die.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+				display.add_child(preview_die)
+				preview_die.live = false
+				preview_die.configure(Catalog.die(key, "journal-" + key), {}, false, false, BLUE)
+				var facts := _vbox(entry_row, 3)
+				facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				_label(facts, str(def.name), 18, BLUE)
+				_label(facts, "%s · %d gold" % [str(def.shape), int(def.price)], 12, GOLD)
+				_label(facts, "Faces: " + _join_values(def.faces), 13, PAPER, true)
 		"relics":
 			for key in Catalog.RELICS:
 				var def: Dictionary = Catalog.RELICS[key]
-				_label(box, str(def.name), 19, GOLD)
-				_label(box, str(def.description), 15, PAPER, true)
+				var entry := _panel(box, PANEL, LINE, 12)
+				var entry_row := _hbox(entry, 12)
+				UiKit.icon(entry_row, Forge.relic(key), 52).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				var facts := _vbox(entry_row, 3)
+				facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				_label(facts, str(def.name), 19, GOLD)
+				_label(facts, str(def.description), 15, PAPER, true)
 		"enemies":
 			for key in Catalog.ENEMIES:
 				var def: Dictionary = Catalog.ENEMIES[key]
-				_label(box, str(def.name), 19, RED)
-				_label(box, str(def.get("description", "")), 15, PAPER, true)
+				var boss: bool = def.get("boss", false)
+				var entry := _panel(box, PANEL, VIOLET if boss else LINE, 12)
+				var entry_row := _hbox(entry, 12)
+				UiKit.icon(entry_row, Forge.unit(key), 88).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				var facts := _vbox(entry_row, 3)
+				facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				_label(facts, str(def.name) + ("  ·  BOSS" if boss else ""), 19, AMBER if boss else RED)
+				_label(facts, "%d HP  ·  %d starting block" % [int(def.get("max_hp", 0)), int(def.get("block", 0))], 12, GOLD)
+				_label(facts, str(def.get("description", "")), 15, PAPER, true)
 		"history":
 			var records: Array = engine.save_store.load_history()
 			if records.is_empty(): _label(box, "Completed expeditions will be recorded here.", 16, MUTED)
 			for record in records:
 				_label(box, "%s · %s · seed %s" % [str(record.get("outcome", "Expedition")), str(record.get("profile", "")), str(record.get("seed", ""))], 17, GOLD)
 				_label(box, str(record.get("completed_at", record.get("saved_at", ""))), 13, MUTED)
+
+func _show_menu() -> void:
+	## Everything the old top bar held. Escape reaches it from any screen.
+	var box := _modal("Menu")
+	if not snapshot.is_empty():
+		_button(box, "Equipment  [%s]" % _binding_name("rd_inspect"), _show_inventory, true)
+	_button(box, "Journal", _show_journal)
+	_button(box, "Settings & accessibility", _show_settings)
+	if not snapshot.is_empty():
+		_button(box, "Save and return to the table", _return_menu)
+	_button(box, "Resume  [%s]" % _binding_name("rd_back"), _close_overlay)
 
 func _show_settings() -> void:
 	var pending_binding := rebind_action
@@ -1354,7 +2125,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("rd_back"):
 		if is_instance_valid(overlay): _close_overlay()
-		else: _show_settings()
+		else: _show_menu()
 		get_viewport().set_input_as_handled()
 		return
 	if is_instance_valid(overlay) or snapshot.is_empty(): return
@@ -1485,15 +2256,20 @@ func _modal(title: String) -> VBoxContainer:
 	_close_overlay()
 	overlay = PanelContainer.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.add_theme_stylebox_override("panel", _style(Color(0.025, 0.04, 0.055, 0.96), Color(0, 0, 0, 0), 0, 24))
+	overlay.add_theme_stylebox_override("panel", _style(Color(0.016, 0.024, 0.043, 0.965), Color(0, 0, 0, 0), 0, 24))
 	add_child(overlay)
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 55)
-	margin.add_theme_constant_override("margin_right", 55)
+	margin.add_theme_constant_override("margin_left", 60)
+	margin.add_theme_constant_override("margin_right", 60)
+	margin.add_theme_constant_override("margin_top", 10)
 	overlay.add_child(margin)
-	var outer := _vbox(margin, 14)
-	var top := _hbox(outer)
-	_label(top, title, 28, GOLD)
+	var outer := _vbox(margin, 12)
+	var banner := PanelContainer.new()
+	banner.add_theme_stylebox_override("panel", UiKit.panel_box(Color("22304d"), Color("141d30"), Color("3a4a6b"), 12, 13, 1.4, 0.35))
+	outer.add_child(banner)
+	var top := _hbox(banner, 10)
+	UiKit.icon(top, Forge.prop("sigil"), 30).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_label(top, title, 26, GOLD)
 	_spacer(top)
 	_button(top, "Close  [Esc]", _close_overlay)
 	var scroll := _scroll(outer)
@@ -1504,9 +2280,20 @@ func _modal(title: String) -> VBoxContainer:
 func _close_overlay() -> void:
 	rebind_action = ""
 	if is_instance_valid(overlay):
+		_rescue_persistent(overlay)
 		remove_child(overlay)
 		overlay.queue_free()
 		overlay = null
+
+func _rescue_persistent(branch: Node) -> void:
+	## Pull reusable sprites and dice out of a branch before it is freed.
+	for store in [dice_views, actor_views]:
+		for id in store.keys():
+			var node = store[id]
+			if not is_instance_valid(node):
+				store.erase(id)
+			elif node.get_parent() != null and branch.is_ancestor_of(node):
+				node.get_parent().remove_child(node)
 
 func _notify(message: String) -> void:
 	if not is_inside_tree(): return
@@ -1516,7 +2303,9 @@ func _notify(message: String) -> void:
 	toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	toast.add_theme_color_override("font_color", GOLD)
-	toast.add_theme_stylebox_override("normal", _style(Color("26333e"), GOLD, 8, 14))
+	toast.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	toast.add_theme_constant_override("outline_size", 4)
+	toast.add_theme_stylebox_override("normal", UiKit.panel_box(Color("2a3a58"), Color("141d30"), GOLD, 10, 14, 1.6, 0.3))
 	toast.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	toast.offset_left = 90
 	toast.offset_right = -90
@@ -1530,11 +2319,10 @@ func _notify(message: String) -> void:
 
 func _panel(parent: Node, color: Color = PANEL, border: Color = LINE, padding: int = 16) -> VBoxContainer:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _style(color, border, 9, padding))
+	panel.add_theme_stylebox_override("panel", UiKit.panel_box(color.lightened(0.07), color.darkened(0.32), border, 11, padding, 1.4, 0.22))
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(panel)
-	var box := _vbox(panel, 9)
-	return box
+	return _vbox(panel, 9)
 
 func _vbox(parent: Node, separation: int = 10) -> VBoxContainer:
 	var box := VBoxContainer.new()
@@ -1567,8 +2355,10 @@ func _button(parent: Node, text: String, callback: Callable, primary: bool = fal
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.pressed.connect(func(): _play_sound(click_sound); callback.call())
 	if primary:
-		button.add_theme_stylebox_override("normal", _style(Color("494135"), Color("967b50"), 7, 12))
-		button.add_theme_color_override("font_color", Color("f1d3a1"))
+		button.add_theme_stylebox_override("normal", UiKit.panel_box(Color("6d5527"), Color("3c2f14"), GOLD, 8, 13, 1.6, 0.5))
+		button.add_theme_stylebox_override("hover", UiKit.panel_box(Color("8e6f32"), Color("52411d"), Color("ffd79a"), 8, 13, 1.8, 0.7))
+		button.add_theme_stylebox_override("pressed", UiKit.panel_box(Color("3c2f14"), Color("6d5527"), GOLD, 8, 13, 1.8, 0.0))
+		button.add_theme_color_override("font_color", Color("ffe9c2"))
 	parent.add_child(button)
 	return button
 
@@ -1607,12 +2397,10 @@ func _play_sound(stream: AudioStreamWAV) -> void:
 	sound_player.play()
 
 func _highlight_dice(ids: Array) -> void:
-	for id in die_buttons:
-		var button: Button = die_buttons[id]
-		if not is_instance_valid(button): continue
-		button.modulate = Color("fff0b9") if id in ids else Color.WHITE
-		if id in ids: button.add_theme_stylebox_override("normal", _style(Color("393c32"), GOLD, 8, 10, 2))
-		elif not id in selected_dice: button.remove_theme_stylebox_override("normal")
+	for id in dice_views:
+		var view: DiceView = dice_views[id]
+		if is_instance_valid(view):
+			view.set_highlight(ids.has(id))
 
 func _plan_equipment(kind: String, payload: Dictionary) -> void:
 	var hero: Dictionary = provisional.get(controlled_id, {})
@@ -1659,13 +2447,3 @@ func _commit_provisional() -> void:
 	provisional.erase(controlled_id)
 	provisional_commands.erase(controlled_id)
 	_show_inventory.call_deferred()
-
-func _show_forecast() -> void:
-	if snapshot.get("phase") != "planning": return
-	var forecast: Dictionary = Combat.forecast_turn(snapshot)
-	var box := _modal("If everyone locks these hands")
-	_label(box, "A forecast using the current targets, gem order, and published enemy intents. Teammates may still change their plans. This preview does not roll dice or change the run.", 14, MUTED, true)
-	for hero in forecast.get("state", {}).get("heroes", []):
-		_label(box, "%s → %d HP · %d block · %s" % [str(hero.get("player_name", hero.get("name", "Hero"))), int(hero.get("hp", 0)), int(hero.get("block", 0)), _status_text(hero)], 16, GREEN, true)
-	for entry in forecast.get("events", []):
-		_label(box, _log_text(entry), 13, PAPER, true)

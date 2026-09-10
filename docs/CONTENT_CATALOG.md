@@ -42,24 +42,33 @@ The roles are deliberately modest. Kait already has the strongest starting Strik
 
 ### 3.1 Shared notation and targeting
 
-Use the main specification's `C` = Carat, `K` = Cut, `L` = Clarity, and `M(L) = 1 + (L-1)/4`. Floor each completed damage, block, or heal amount once before mitigation or caps. `H` is the highest die value, `p` the highest pair value, and `T` the total. All skills use the same five-die hand without consuming dice.
+Use the four C's from section 9.2 of the main specification: `C` = Carat with the multiplier
+`M(C) = (C+7)/8`, `K` = Cut, `L` = Clarity with the flat term `F(L) = 2L`, and Color as the skill's
+effect category. Carat multiplies the finished base; Cut scales only what the dice contributed;
+Clarity is flat and also eases triggers. Floor each completed damage, block, or heal amount once,
+inside `M(C)`, before mitigation or caps. `H` is the highest die value, `p` the highest pair value,
+and `T` the total. All skills use the same five-die hand without consuming dice.
 
-Players have separate preferred hostile and friendly targets. A friendly target may be self. Ordinary support skills require a living recipient and fall back to self if the preferred ally is downed when the skill starts. Lifeline explicitly permits a downed recipient. The simulation freezes a skill's targets at skill start, and subsequent hostile effects against a killed target fizzle.
+The gems below are the additions to the main catalog. Each one names a Color so a player can read a
+build's shape without opening every gem: Red damage, Blue block, Green healing and revival, Violet
+control, Gold fortune. Color is authored on the skill and never rolled, upgraded, or sold.
+
+Players choose a preferred hostile target only. Friendly effects have no chosen recipient: ordinary support skills reach every living hero. Lifeline revives the first downed hero, and otherwise heals every living hero. The simulation freezes a skill's targets at skill start, and subsequent hostile effects against a killed target fizzle.
 
 “Two pairs” means two distinct values each appearing at least twice. A full house qualifies; four of a kind plus a singleton does not. For a straight, duplicate values are ignored and the highest qualifying run of the required length is used.
 
 ### 3.2 Skill definitions
 
-| ID / name | Rarity | Activation | Ordered effects | Design purpose |
-|---|---:|---|---|---|
-| `INTERPOSE` / Interpose | 1 | Any pair | Give the preferred living ally `floor((p + C + K - 1) × M(L))` block | Turns a personal pair into cooperative protection; works on self in solo |
-| `MEND` / Mend | 1 | At least three odd results | Heal the preferred living ally `floor((lowest odd value + C + 2(K-1)) × M(L))` | Makes odd faces and support builds useful without requiring a dedicated healer |
-| `SUNDER` / Sunder | 2 | Two pairs | Remove up to `C + 2K` target block; then deal `floor((p + C) × M(L))` damage | Rewards sets against defensive enemies; removal itself causes no HP damage |
-| `ARC_BURST` / Arc Burst | 2 | Straight of length 3 | Deal `floor((highest value in the chosen straight + C) × M(L))` damage to up to `K + 1` distinct living enemies | Gives straight builds an explicit group attack |
-| `VENOM` / Venom | 2 | `H ≥ 13 - L`, i.e. 12/11/10/9/8 | Deal `floor((H + C)/2)` damage, then apply `K + ceil(C/4)` Poison | Gives high rolls a slower answer to heavy block |
-| `EVEN_TEMPO` / Even Tempo | 2 | At least three even results | Gain `floor((number of even results × K + C) × M(L))` self block, then deal `C + K` damage | A defensive parity build with a small offensive payoff |
-| `PRECISION` / Precision | 3 | All five results are distinct | Deal `floor((sum of the lowest two results + C + 2K) × M(L))` damage | Rewards keeping diversity instead of a pair |
-| `LIFELINE` / Lifeline | 4 | Straight length 5 at L1–2, 4 at L3–4, 3 at L5 | If a downed ally is available and the gem's revive charge remains, revive them with `min(maxHP, C + 3K)` HP; otherwise heal a living preferred ally for `C + K` | Allows a difficult pattern to recover a teammate during a fight |
+| ID / name | Color | Rarity | Activation | Ordered effects | Design purpose |
+|---|---|---:|---|---|---|
+| `INTERPOSE` / Interpose | Blue | 1 | Any pair | Give every living hero `floor((p + K - 1 + F(L)) × M(C))` block | Turns a personal pair into cooperative protection; works on self in solo. Its base is a fixed pair, so Cut is the weakest of the three rolls here and Clarity the strongest |
+| `MEND` / Mend | Green | 1 | At least three odd results | Heal every living hero `floor((lowest odd value + 2(K-1) + F(L)) × M(C))` | Makes odd faces and support builds useful without requiring a dedicated healer |
+| `SUNDER` / Sunder | Red | 2 | Two pairs | Remove up to `floor((2K + F(L)) × M(C))` target block; then deal `floor((p + F(L)) × M(C))` damage | Rewards sets against defensive enemies; removal itself causes no HP damage |
+| `ARC_BURST` / Arc Burst | Red | 2 | Straight of length 3 | Deal `floor((highest value in the chosen straight + F(L)) × M(C))` damage to up to `K + 1` distinct living enemies | Gives straight builds an explicit group attack. Cut buys targets rather than damage, the one place it does not scale the roll |
+| `VENOM` / Venom | Violet | 2 | `H ≥ 13 - L`, i.e. 12/11/10/9/8 | Deal `floor((floor(H/2) + F(L)) × M(C))` damage, then apply `K + ceil(C/4)` Poison | Gives high rolls a slower answer to heavy block. Clarity does double duty: a flat damage term and a lower threshold |
+| `EVEN_TEMPO` / Even Tempo | Blue | 2 | At least three even results | Gain `floor((even result count × K + F(L)) × M(C))` self block, then deal `floor((K + F(L)) × M(C))` damage | A defensive parity build with a small offensive payoff |
+| `PRECISION` / Precision | Red | 3 | All five results are distinct | Deal `floor((sum of the lowest two results + 2K + F(L)) × M(C))` damage | Rewards keeping diversity instead of a pair |
+| `LIFELINE` / Lifeline | Green | 4 | Straight length 5 at L1–2, 4 at L3–4, 3 at L5 | If a downed ally is available and the gem's revive charge remains, revive them with `min(maxHP, floor((3K + F(L)) × M(C)))` HP; otherwise heal every living hero `floor((K + F(L)) × M(C))` | Allows a difficult pattern to recover a teammate during a fight |
 
 Arc Burst targets the preferred enemy first, then remaining living enemies in stable encounter order until the target limit is reached. It does not hit one enemy repeatedly when fewer targets exist. The target list is fixed for that skill. Cut can therefore be situational against a single boss; the upgrade preview must say so.
 
@@ -87,9 +96,11 @@ The new `remove_block` effect simply subtracts `min(current_block, requested_amo
 
 For `[2,2,3,3,3]`, Block, Interpose, Heavy Strike, Sunder, and Shield Bash can all activate if equipped. A player can order Block before Shield Bash, while Interpose protects another hero. Sunder creates an opening by removing enemy block. Six slots and the required Strike prevent equipping every matching-set payoff indefinitely.
 
-For `[1,2,2,3,4]`, Arc Burst uses the highest three-value run `[2,3,4]`. At C1/K1/L1 it deals 5 to each of up to two enemies. Multistrike at L3 can use the four-value run `[1,2,3,4]` from the same hand. The duplicate 2 can also activate Block.
+For `[1,2,2,3,4]`, Arc Burst uses the highest three-value run `[2,3,4]`. At C1/K1/L1 it deals `floor((4 + 2) × 1.000) = 6` to each of up to two enemies. Multistrike at L3 can use the four-value run `[1,2,3,4]` from the same hand. The duplicate 2 can also activate Block.
 
-For `[1,3,3,5,12]`, Mend activates and a base-Clarity Venom activates from the 12. A C2/K2/L1 Mend heals `1 + 2 + 2 = 5`; C2/K2/L1 Venom deals 7 and applies 3 Poison. If the target had no Poison, its next end-slot tick deals 3 and leaves 2 stacks.
+For `[1,3,3,5,12]`, Mend activates and a base-Clarity Venom activates from the 12. A C2/K2/L1 Mend heals `floor((1 + 2 + 2) × 1.125) = 5`; C2/K2/L1 Venom deals `floor((6 + 2) × 1.125) = 9` and applies 3 Poison. If the target had no Poison, its next end-slot tick deals 3 and leaves 2 stacks.
+
+Raising that Mend to C12 alone takes it to `floor(5 × 2.375) = 11`, while raising it to L5 alone takes it to `floor((1 + 2 + 10) × 1.125) = 14`. That is the intended read on the two upgrade paths: Clarity is the bigger single step on a small-base support gem, and Carat overtakes it on anything whose base already scales with the roll.
 
 These examples demonstrate overlap without inventing consumable dice, manual skill selection, or combo meters.
 
@@ -129,7 +140,7 @@ Heroes start without relics. Allow three equipped relics and an unlimited reserv
 | `TINKERS_BELT` / Tinker's Belt | One Workshop service per act costs zero while the relic is equipped | Applies to the first service while its act charge is available; consumes the visit allowance and act charge |
 | `LASTING_AEGIS` / Lasting Aegis | After a victorious battle, store up to 6 of the owner's remaining block; grant that amount on entry to their next battle | Capture before block cleanup; consume the stored amount once; downed owners store zero |
 
-For Focusing Prism, `straight` tags apply to Multistrike, Blessing, Arc Burst, and Lifeline. Each uses its normal formula at effective Clarity; this can improve either output or trigger requirements. If a particular rank changes neither, the preview shows no change. Cut/Clarity upgrade costs always use the stored rank.
+For Focusing Prism, `straight` tags apply to Multistrike, Blessing, Arc Burst, and Lifeline. Each uses its normal formula at effective Clarity, so the relic can raise `F(L)`, ease the trigger, or both. If a particular rank changes neither, the preview shows no change. Cut/Clarity upgrade costs always use the stored rank.
 
 Relics do not recursively react to their own bonus events. Each bonus records its source relic and originating action. Equipment is frozen during an encounter. Lasting Aegis's stored block belongs to its owner's relic instance; transferring or selling relics is not supported in the first content set, and equipping it later cannot capture block from an already settled fight. Unequipping it discards stored block. Tinker's Belt tracks its act charge even while unequipped.
 
@@ -280,9 +291,9 @@ Rewards are settled by room-instance ID and claim ID. Players may inspect offers
 | 2 | 35 / 40 / 20 / 5 | 4–8 | 35 / 45 / 20 / 0 / 0 |
 | 3 | 20 / 40 / 30 / 10 | 7–12 | 10 / 25 / 45 / 20 / 0 |
 
-For each offer, choose rarity from nonempty eligible buckets after renormalization, select a skill ID uniformly within that bucket, then roll its properties. Avoid duplicate skill IDs within a player's offer set, allow improved copies of owned skills, and respect contextual exclusions such as solo Lifeline. An elite gem gains +1 to either Cut or Clarity, chosen with equal probability and capped at 5. Ordinary shop stock uses the ordinary act table.
+For each offer, choose rarity from nonempty eligible buckets after renormalization, select a skill ID uniformly within that bucket, then roll its three rolled properties. Color is not rolled: it arrives with the skill ID. Avoid duplicate skill IDs within a player's offer set, allow improved copies of owned skills, and respect contextual exclusions such as solo Lifeline. An elite gem gains +1 to either Cut or Clarity, chosen with equal probability and capped at 5. Ordinary shop stock uses the ordinary act table.
 
-This keeps early gems understandable and gives upgrades room to matter. Carat still has a technical maximum of 24, but normal full-profile drops top out at 12; reserve the upper range for later challenge content instead of flooding a short run with near-maximal items.
+This keeps early gems understandable and gives upgrades room to matter. Carat still has a technical maximum of 24, but normal full-profile drops top out at 12; reserve the upper range for later challenge content instead of flooding a short run with near-maximal items. Because Carat is the pure multiplier, that cap is a hard balance lever: an act-3 drop reaches `M(12) = 2.375`, while the unreachable `M(24) = 3.875` is roughly a 63% further increase on top of it.
 
 Retain the common gem buy-value formula and half-value shop sales. Workshop and Lapidary costs remain as specified in the main document. All equipment choices show their actual trigger, effective properties, price, and before/after output. No paid refresh is needed initially: repeated stock rerolls obscure whether the base offer distribution is good.
 
@@ -326,7 +337,7 @@ An empty result is still a completed visit with a visible result screen and Done
 
 ### 9.3 Communication and avoiding downtime
 
-- Show each hero's intended enemy and friendly target, likely skill activations, and readiness. Let players ping a gem, enemy, or room option; pings carry no simulation authority.
+- Show each hero's intended enemy target, likely skill activations, and readiness. Let players ping a gem, enemy, or room option; pings carry no simulation authority.
 - Keep party seat order visible. Support can happen before or after a teammate's turn, so order must be predictable. Reordering gems is sufficient for the initial version; do not add a whole-party initiative negotiation every turn.
 - When downed, a player may inspect the fight, ping, and prepare a provisional next-room loadout. Commit that loadout only in the normal between-room window. They cannot execute combat commands.
 - Rally returns the player to participation after the battle. Lifeline offers an earlier return during longer fights. Neither restores spent encounter charges.
@@ -376,7 +387,7 @@ Store the following runtime counters explicitly: normal rerolls, hero-trait char
 }
 ```
 
-`interpose_block_v1` is a registered evaluator implementing the published formula. It must be shared by the resolver, previews, and tooltip parameters. Do not evaluate arbitrary expression strings from downloaded content. An imported gem instance references `INTERPOSE` and stores its own Carat/Cut/Clarity and owner ID.
+`interpose_block_v1` is a registered evaluator implementing the published formula. It must be shared by the resolver, previews, and tooltip parameters. Do not evaluate arbitrary expression strings from downloaded content. An imported gem instance references `INTERPOSE` and stores its own Carat/Cut/Clarity and owner ID; its Color comes from the referenced skill definition, and a pack declaring an unknown Color is rejected at validation.
 
 ### 10.3 Example die definition
 

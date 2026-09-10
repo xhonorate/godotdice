@@ -201,7 +201,7 @@ func _dispatch(player: Dictionary, kind: String, payload: Dictionary) -> String:
 		"RerollDice":
 			if not payload.get("die_ids", null) is Array: return "Die IDs must be a list."
 		"UseHeroTrait": strings = ["die_id"]
-		"SetPreferredTarget", "SetFriendlyTarget": strings = ["unit_id"]
+		"SetPreferredTarget": strings = ["unit_id"]
 		"VoteRoom", "BuyGem", "BuyDie": strings = ["offer_id"]
 		"VoteVein": strings = ["vein"]
 		"SellGem", "EquipGem": strings = ["gem_id"]
@@ -218,7 +218,7 @@ func _dispatch(player: Dictionary, kind: String, payload: Dictionary) -> String:
 		if not payload.get(key, null) is String or payload[key].length() > 256: return "Invalid command field: " + key
 	match kind:
 		"RerollDice", "UseHeroTrait": return _reroll(player, payload, kind == "UseHeroTrait")
-		"SetPreferredTarget", "SetFriendlyTarget": return _target(player, payload, kind == "SetFriendlyTarget")
+		"SetPreferredTarget": return _target(player, payload)
 		"SetReady": return _ready(player, bool(payload.get("ready", true)))
 		"VoteRoom": return _vote_room(player, str(payload.get("offer_id", "")))
 		"VoteVein": return _vote_vein(player, str(payload.get("vein", "")))
@@ -265,19 +265,20 @@ func _reroll(player: Dictionary, payload: Dictionary, use_trait: bool) -> String
 	_record("reroll", "%s rerolled %s %s." % [player.name, unique.size(), "die with Second Thought" if use_trait else "dice"], {"actor_id":player.id, "die_ids":unique})
 	return ""
 
-func _target(player: Dictionary, payload: Dictionary, friendly: bool) -> String:
+func _target(player: Dictionary, payload: Dictionary) -> String:
+	## Only the hostile target is chosen. Friendly effects reach the whole party.
 	if state.phase != "planning" or player.hp <= 0 or player.ready:
 		return "Targets may be changed while your living hero is unlocked."
 	var id: String = str(payload.get("unit_id", ""))
-	if not friendly and id.is_empty():
+	if id.is_empty():
 		player.preferred_target = ""
 		return ""
-	var target: Dictionary = _find(state.heroes if friendly else state.enemies, id)
+	var target: Dictionary = _find(state.enemies, id)
 	if target.is_empty():
 		return "That target is not in this encounter."
-	if target.hp <= 0 and (not friendly or not _equipped_skill(player, "LIFELINE")):
-		return "A downed target requires an equipped Lifeline."
-	player["friendly_target" if friendly else "preferred_target"] = id
+	if target.hp <= 0:
+		return "That target is already defeated."
+	player.preferred_target = id
 	return ""
 
 func _ready(player: Dictionary, value: bool) -> String:
@@ -457,7 +458,7 @@ func _room_description(kind: String) -> String:
 				recovery.append("%s +%s HP" % [hero.name, mini(int(hero.max_hp)-int(hero.hp), floori(float(hero.max_hp)/3.0))])
 			return "Free recovery: " + ", ".join(recovery) + ". Manage your equipment."
 		"workshop": return "One service per hero: adjacent die shape or one engraved face. 5 gold."
-		"lapidary": return "One Cut or Clarity increase per hero. Cost: 5 × the new rank."
+		"lapidary": return "One Cut or Clarity increase per hero. Cut scales your rolls; Clarity is flat and eases triggers. Cost: 5 × the new rank."
 		"mine": return "Choose a vein. 10 energy per living hero; pooled gold and a shared gem draft."
 		"event": return "A personal choice of supplies, a trade, or a free exit."
 	return ""
