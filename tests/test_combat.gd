@@ -15,6 +15,7 @@ func _init() -> void:
 	_test_intents()
 	_test_determinism()
 	_test_authoring_and_forecasts()
+	_test_white_gems()
 	print("Combat/content: %d assertions, %d failures" % [checks,failures.size()])
 	for failure in failures:
 		printerr("FAIL: "+str(failure))
@@ -71,7 +72,7 @@ func relic(unit: Dictionary, key: String) -> Dictionary:
 
 func _test_catalog() -> void:
 	check(Catalog.validate_content().is_empty(),"All content IDs, face definitions and references validate")
-	check(Catalog.SKILLS.size() == 19,"Nineteen skills")
+	check(Catalog.SKILLS.size() == 24,"Twenty-four skills")
 	check(Catalog.ENEMIES.size() == 11,"Eight ordinary/elite enemy types and three bosses")
 	check(Catalog.gem("BULLWARK","b").key == "BULWARK","Legacy Bullwark import alias")
 	check(Catalog.gem_value(Catalog.gem("HEAL","g",5,2,3)) == 22,"Gem buy value")
@@ -466,3 +467,114 @@ func _test_authoring_and_forecasts() -> void:
 	unit.hand = hand([1,2,4,5,6])
 	forecast = Combat.forecast_turn(state)
 	check(forecast.state.heroes[0].hp == 95,"Changing hand updates conditional enemy damage without changing published intent")
+
+func _test_white_gems() -> void:
+	## White reaches past the effect it resolves — into the reroll allowance, the hand, the
+	## gem before it in the loadout, and the gems themselves. Each of those is a place the
+	## other five colours never touch, so each one is checked where it lands.
+	## The lifts change the hand rather than a combatant.
+	var glimmer: Dictionary = skill("GLIMMER",[2,3,4,6,8],1,1,1)
+	check(glimmer.active and glimmer.effects.size() == 1,"Glimmer always fires and lifts once")
+	check(glimmer.effects[0].kind == "amplify" and glimmer.effects[0].get("which","") == "low","Glimmer raises the lowest die")
+	check(glimmer.effects[0].amount == 3,"Glimmer at C1 K1 L1 adds K + F(L) = 3 pips")
+	check(glimmer.contributing_dice.size() == 1,"A lift marks the one die it raises")
+	var refract: Dictionary = skill("REFRACT",[2,3,4,6,8],1,1,1)
+	check(refract.effects[0].get("which","") == "high" and refract.effects[0].amount == 10,
+		"Refract adds H + 2(K-1) + F(L) = 10 to a highest die of 8, which more than doubles it")
+	check(skill("REFRACT",[2,3,4,6,8],8,1,1).effects[0].amount > refract.effects[0].amount,"Carat multiplies the lift")
+	var lifted: Dictionary = hero()
+	lifted.hand = hand([2,3,4,6,8])
+	var lift_events: Array = []
+	Combat.resolve_skill(lifted,Combat.preview(lifted,Catalog.gem("REFRACT","g",1,1,1),lifted.hand,state_for(lifted)),state_for(lifted),lift_events,Catalog.gem("REFRACT","g"))
+	check(Combat.values(lifted.hand).max() == 18,"A resolved lift raises the die in the hand itself")
+	var raised: Dictionary = {}
+	for roll in lifted.hand:
+		if int(roll.value) == 18:
+			raised = roll
+	check(int(raised.get("lift",0)) == 10,"A raised roll records how far it left its physical face")
+	var capped: Dictionary = hero()
+	capped.hand = hand([2,3,4,6,19])
+	Combat.resolve_skill(capped,Combat.preview(capped,Catalog.gem("REFRACT","g",24,5,5),capped.hand,state_for(capped)),state_for(capped),[],Catalog.gem("REFRACT","g"))
+	check(Combat.values(capped.hand).max() == Combat.HAND_VALUE_CAP,"A lift stops at the 20 every other rule reads")
+	## A lift is only worth anything to the gems resolved after it, which is what makes
+	## loadout order matter. Resolving the whole batch is the only way to see that.
+	var ordered: Dictionary = hero()
+	ordered.hand = hand([2,3,4,6,8])
+	var before_strike: Dictionary = Combat.preview(ordered,Catalog.gem("STRIKE","s",1,1,1),ordered.hand,state_for(ordered))
+	ordered.gems = []
+	equip(ordered,"REFRACT")
+	equip(ordered,"STRIKE")
+	var batch: Array = Combat.preview_loadout(ordered,state_for(ordered))
+	check(batch.size() == 2 and batch[1].effects[0].amount > before_strike.effects[0].amount,
+		"A Strike equipped after a Refract reads the raised hand")
+	check(Combat.values(ordered.hand).max() == 8,"A forecast leaves the real hand where it found it")
+	## Rerolls: an allowance for the battle, set rather than added, and dropped at the next.
+	check(Combat.reroll_allowance(1,1) == 2 and Combat.reroll_allowance(24,1) == 4
+		and Combat.reroll_allowance(1,5) == 3,"Carat sets the allowance and a Perfect Cut adds one")
+	check(Combat.reroll_allowance(24,5) == Combat.MAX_REROLLS-1,"The allowance stops below the engine ceiling")
+	var seer: Dictionary = hero()
+	var seer_state: Dictionary = state_for(seer)
+	equip(seer,"SECOND_SIGHT",16,1,1)
+	Combat.resolve_turn(seer_state,RandomNumberGenerator.new())
+	check(int(seer.max_rerolls) == 4,"Second Sight raises the allowance where it resolves")
+	Combat.begin_turn(seer_state,RandomNumberGenerator.new())
+	check(int(seer.rerolls) == 4,"The raised allowance is in hand for the next roll")
+	Combat.resolve_turn(seer_state,RandomNumberGenerator.new())
+	check(int(seer.max_rerolls) == 4,"Casting it twice in a battle is worth no more than once")
+	Combat.begin_battle(seer_state,RandomNumberGenerator.new())
+	check(int(seer.max_rerolls) == 1 and int(seer.rerolls) == 1,"The next battle starts from the hero's own allowance")
+	## Echo repeats the gem before it, at a share, and never itself.
+	var mimic: Dictionary = hero()
+	mimic.hand = hand([5,5,4,6,8])
+	var mimic_state: Dictionary = state_for(mimic)
+	equip(mimic,"STRIKE",1,1,1)
+	equip(mimic,"ECHO",1,1,1)
+	var struck: int = int(Combat.preview(mimic,mimic.gems[0],mimic.hand,mimic_state).effects[0].amount)
+	var enemy_hp: int = int(mimic_state.enemies[0].hp)
+	Combat.resolve_turn(mimic_state,RandomNumberGenerator.new())
+	check(enemy_hp-int(mimic_state.enemies[0].hp) == struck+floori(float(struck)*0.27),
+		"Echo repeats the Strike before it at 27% and the pair is what lets it")
+	var silent: Dictionary = hero()
+	silent.hand = hand([5,5,4,6,8])
+	var silent_state: Dictionary = state_for(silent)
+	equip(silent,"ECHO",1,1,1)
+	var silent_events: Array = Combat.resolve_turn(silent_state,RandomNumberGenerator.new())
+	var fizzled: bool = false
+	for event in silent_events:
+		if event.kind == "fizzle":
+			fizzled = true
+	check(fizzled,"An Echo with nothing before it says so rather than repeating itself")
+	check(not skill("ECHO",[1,2,3,4,5],1,1,1).active,"Echo needs a pair")
+	## Facet is the one effect that outlives the encounter, so it is charged and ceilinged.
+	check(not skill("FACET",[1,1,3,4,5],1,1,1).active,"Facet needs five distinct results at low Clarity")
+	check(skill("FACET",[1,1,3,4,5],1,1,5).active,"Flawless Clarity eases it to three")
+	var cutter: Dictionary = hero()
+	cutter.hand = hand([1,2,3,4,5])
+	var cutter_state: Dictionary = state_for(cutter)
+	var small: Dictionary = equip(cutter,"STRIKE",1,1,1)
+	var facet: Dictionary = equip(cutter,"FACET",6,5,1)
+	Combat.resolve_turn(cutter_state,RandomNumberGenerator.new())
+	check(int(small.carat) == 4,"Facet cuts the lowest-Carat other gem up by ceil(K/2) = 3")
+	check(int(facet.upgrade_charges) == 0,"It spends its one charge for the battle")
+	Combat.begin_turn(cutter_state,RandomNumberGenerator.new())
+	cutter.hand = hand([1,2,3,4,5])
+	Combat.resolve_turn(cutter_state,RandomNumberGenerator.new())
+	check(int(small.carat) == 4,"A spent charge does not recut the same stone next turn")
+	Combat.begin_battle(cutter_state,RandomNumberGenerator.new())
+	cutter.hand = hand([1,2,3,4,5])
+	Combat.resolve_turn(cutter_state,RandomNumberGenerator.new())
+	check(int(small.carat) == 6 and int(facet.carat) == 6,
+		"A new battle restores the charge, and a gem is never lifted past the cutter's own Carat")
+	Combat.begin_battle(cutter_state,RandomNumberGenerator.new())
+	cutter.hand = hand([1,2,3,4,5])
+	var stuck: Array = Combat.resolve_turn(cutter_state,RandomNumberGenerator.new())
+	var refused: bool = false
+	for event in stuck:
+		if event.kind == "fizzle":
+			refused = true
+	check(refused and int(small.carat) == 6,"With nothing left below its own Carat it cuts nothing")
+	## Colour, shape and words, which is how a player tells White from the rest.
+	for key in ["GLIMMER","REFRACT","SECOND_SIGHT","ECHO","FACET"]:
+		check(Catalog.gem_color(key) == "WHITE","%s is a White gem" % key)
+		check(not Combat.effects_summary(skill(key,[2,2,4,6,8],4,3,3).effects).is_empty(),
+			"%s says what it does in words" % key)

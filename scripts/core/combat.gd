@@ -2,6 +2,7 @@ class_name RogueCombat
 extends RefCounted
 ## Deterministic rules. Presentation never executes or repeats an effect.
 const Catalog = preload("res://scripts/core/catalog.gd")
+const GemRules = preload("res://scripts/core/gem_rules.gd")
 
 static func roll_die(die: Dictionary, rng: RandomNumberGenerator, roll_count: int = 0) -> Dictionary:
 	var faces: Array = die.get("faces",[])
@@ -21,8 +22,14 @@ static func begin_battle(state: Dictionary, rng: RandomNumberGenerator) -> Array
 		actor.combat_gold = 0
 		actor.trait_charges = 1 if actor.get("trait","") == "SECOND_THOUGHT" else 0
 		actor.action_eligible_from_turn = 1
+		## A reroll allowance raised by a White gem lasts the battle and no longer, so every
+		## encounter starts from the hero's own standing allowance rather than the last
+		## one it was pushed to.
+		actor.base_rerolls = clampi(int(actor.get("base_rerolls",1)),1,MAX_REROLLS)
+		actor.max_rerolls = actor.base_rerolls
 		for item in actor.get("gems",[]):
 			item.revive_charges = 1
+			item.upgrade_charges = 1
 		for item in actor.get("relics",[]):
 			if item.key == "LASTING_AEGIS" and item.get("equipped",false):
 				var amount: int = int(item.get("stored_block",0))
@@ -45,6 +52,9 @@ static func begin_turn(state: Dictionary, rng: RandomNumberGenerator) -> Array:
 		actor.ready = false
 		actor.rerolled = false
 		actor.relic_flags = {}
+		## What an Echo would repeat is only ever a gem resolved this turn, so the memory
+		## starts every turn empty rather than carrying yesterday's hand into today's.
+		actor.echo_source = {}
 		actor.rerolls = int(actor.get("max_rerolls",1)) if actor.hp > 0 else 0
 		if actor.hp > 0:
 			for die in actor.get("dice",[]):
@@ -111,6 +121,20 @@ const CARAT_OFFSET: int = 7
 const CARAT_DIVISOR: int = 8
 const MULTISTRIKE_HIT: int = 4
 const BLESSING_GOLD: int = 3
+## White is the fourth kind of thing a gem can do: not damage, defence or fortune but the
+## roll itself. Its effects reach past the hand they were rolled for, so each one is bounded
+## here rather than left to a formula.
+## A reroll allowance a battle can be pushed to. Four is the highest any shipped gem asks
+## for; the fifth is headroom for authored content and the wall it stops at.
+const MAX_REROLLS: int = 5
+## The ceiling a raised die stops at. It is the same 1-20 window `_normalized_hand` accepts,
+## so a lifted die is still a die every other rule can read.
+const HAND_VALUE_CAP: int = 20
+## The most of a repeated gem an Echo can give back. Past this it stops being an echo.
+const ECHO_CAP: int = 200
+## What an Echo is willing to repeat: the amounts that land on a combatant. Repeating a
+## reroll, a lift or an upgrade is either meaningless or unbounded, so it repeats neither.
+const ECHOABLE: Array = ["damage","block","heal","gold","poison","stun","remove_block"]
 
 static func carat_multiplier(carat: int) -> float:
 	## 1.000x at C1, 1.875x at C8, 2.375x at C12, 3.875x at C24.
@@ -132,6 +156,12 @@ static func _by_carat(value: int, carat: int) -> int:
 static func _by_cut(value: int, cut: int) -> int:
 	return floori(float(value)*cut_multiplier(cut))
 
+static func reroll_allowance(carat: int, cut: int) -> int:
+	## What Second Sight pushes a hero's per-turn reroll allowance up to. It sets the
+	## allowance rather than adding to it, so casting it every turn of a long fight is
+	## worth exactly as much as casting it once.
+	return mini(MAX_REROLLS-1,2+floori(float(clampi(carat,1,24))/8.0)+(1 if clampi(cut,1,5) == 5 else 0))
+
 static func _lowered(text: String) -> String:
 	## Drops only the leading capital, so rank labels such as "L1-2" survive the join.
 	return text.substr(0, 1).to_lower()+text.substr(1) if not text.is_empty() else text
@@ -139,12 +169,21 @@ static func _lowered(text: String) -> String:
 static func effect(kind: String, amount: int, target: String = "self") -> Dictionary:
 	return {"kind":kind, "amount":maxi(0,amount), "target":target}
 
+static func rule_of(key: String) -> String:
+	## The registered rule a skill resolves through. A skill the build ships is its own
+	## rule; an authored one names the rule it borrows in `evaluator_id`, so its stats, name
+	## and art are data while its behaviour is code that already exists.
+	key = Catalog.canonical_key(key)
+	return Catalog.canonical_key(str(Catalog.definitions("skills").get(key,{}).get("evaluator_id",key)))
+
 static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dictionary = {}) -> Dictionary:
 	var key: String = Catalog.canonical_key(str(item.get("key","")))
 	var output: Dictionary = {"valid":false, "active":false, "key":key, "name":key, "trigger":"", "reason":"Invalid skill or hand", "contributing_dice":[], "effects":[], "summary":"Invalid skill or hand"}
 	if not Catalog.definitions("skills").has(key):
 		return output
 	var definition: Dictionary = Catalog.definitions("skills")[key]
+	var rule: String = rule_of(key)
+	output.rule = rule
 	output.name = definition.name
 	output.trigger = definition.trigger
 	output.formula = definition.formula
@@ -186,7 +225,22 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 	var active: bool = true
 	var straight_length: int = 5-int((l-1)/2)
 	var f: int = clarity_bonus(l)
-	match key:
+	if GemRules.has_rule(definition):
+		## A rule written as data. The interpreter is handed what this function has already
+		## worked out about the hand and hands back the same shape the branches below do,
+		## so nothing downstream can tell the two apart.
+		var authored: Dictionary = GemRules.evaluate(definition.rule,
+			{"hand":normalized, "groups":groups, "total":total, "high":high,
+			"carat":c, "cut":k, "clarity":l, "straight_length":straight_length,
+			"block":int(actor.get("block",0)), "selected":[], "run":[]})
+		output.active = authored.active
+		output.contributing_dice = authored.selected
+		output.effects = authored.effects
+		output.summary = effects_summary(output.effects,actor,state,key) if authored.active else str(definition.get("trigger","Its trigger was not met."))
+		if not authored.active:
+			output.reason = str(definition.get("trigger","Its trigger was not met."))
+		return output
+	match rule:
 		"STRIKE":
 			var high_sum: int = 0
 			for roll in normalized.slice(maxi(0,normalized.size()-k)):
@@ -197,7 +251,7 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 			active = not pairs.is_empty()
 			if active:
 				selected = groups[p].slice(0,2)
-				effects.append(effect("block",_by_carat(p*k+f,c) if key == "BLOCK" else _by_carat(p+k-1+f,c),"self" if key == "BLOCK" else "ally"))
+				effects.append(effect("block",_by_carat(p*k+f,c) if rule == "BLOCK" else _by_carat(p+k-1+f,c),"self" if rule == "BLOCK" else "ally"))
 		"HEAL":
 			var low_sum: int = 0
 			for roll in normalized.slice(0,mini(k,normalized.size())):
@@ -205,12 +259,12 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 				selected.append(roll.die_id)
 			effects.append(effect("heal",_by_carat(low_sum+f,c)))
 		"MULTISTRIKE", "BLESSING", "ARC_BURST", "LIFELINE":
-			var run: Array = _straight(groups,straight_length if key in ["MULTISTRIKE","LIFELINE"] else 3)
+			var run: Array = _straight(groups,straight_length if rule in ["MULTISTRIKE","LIFELINE"] else 3)
 			active = not run.is_empty()
 			if active:
 				for value in run:
 					selected.append(groups[value][0])
-				match key:
+				match rule:
 					"MULTISTRIKE":
 						for _hit in range(k):
 							effects.append(effect("damage",_by_carat(MULTISTRIKE_HIT,c),"enemy"))
@@ -290,6 +344,36 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 			active = normalized.size() == 5 and groups.size() == 5
 			if active:
 				effects.append(effect("damage",_by_carat(normalized[0].value+normalized[1].value+2*k+f,c),"enemy"))
+		"GLIMMER", "REFRACT":
+			## The two lifts. They change the hand itself rather than a combatant, so every
+			## gem resolved after them in the loadout reads the die they raised — which is
+			## the whole point, and why the order gems are equipped in matters here.
+			var low: bool = rule == "GLIMMER"
+			var raised: Dictionary = normalized[0] if low else normalized.back()
+			selected = [raised.die_id]
+			var pips: int = _by_carat((k+f) if low else (high+2*(k-1)+f),c)
+			var lift: Dictionary = effect("amplify",pips)
+			lift.which = "low" if low else "high"
+			effects.append(lift)
+		"SECOND_SIGHT":
+			effects = [effect("reroll",reroll_allowance(c,k)),effect("block",_by_carat(f,c))]
+		"ECHO":
+			active = not pairs.is_empty()
+			if active:
+				selected = groups[p].slice(0,2)
+				effects.append(effect("echo",mini(ECHO_CAP,_by_carat(25+5*(k-1)+f,c))))
+		"FACET":
+			## The one skill that reaches outside the encounter: it cuts a second stone and
+			## the second stone stays cut. Clarity eases the hand it wants, Cut decides how
+			## much it gives, and Carat is the size it can lift another gem to — a small
+			## stone cannot make a bigger one.
+			active = groups.size() >= 5-int((l-1)/2)
+			if active:
+				for value in groups:
+					selected.append(groups[value][0])
+				var facet: Dictionary = effect("upgrade",ceili(float(k)/2.0))
+				facet.merge({"property":"carat","ceiling":c,"charges":int(item.get("upgrade_charges",1))})
+				effects.append(facet)
 	if selected.is_empty() and active:
 		for roll in normalized:
 			selected.append(roll.die_id)
@@ -343,24 +427,35 @@ static func forecast_turn(state: Dictionary) -> Dictionary:
 	return {"state":copied,"events":events,"outcome":copied.get("battle_outcome","")}
 
 static func effects_summary(effects: Array, actor: Dictionary = {}, state: Dictionary = {}, key: String = "") -> String:
+	var rule: String = rule_of(key)
 	var parts: PackedStringArray = []
 	for action_effect in effects:
 		var amount: int = int(action_effect.amount)
 		var suffix: String = ""
 		if action_effect.get("target","") == "enemies":
-			suffix = " to up to "+str(action_effect.get("target_limit","all"))+" enemies"
+			## A group effect with no limit reaches every enemy, which is a sentence rather
+			## than a count: only a limited one is worth phrasing as "up to".
+			suffix = " to up to "+str(action_effect.target_limit)+" enemies" if action_effect.has("target_limit") else " to all enemies"
 		elif action_effect.get("target","") == "ally":
 			suffix = " to ally"
 		elif action_effect.get("target","") == "self":
 			suffix = " to self"
-		if action_effect.kind == "damage" and key == "STRIKE" and Catalog.has_relic(actor,"STEADY_HAND") and not actor.get("rerolled",false):
+		if action_effect.kind == "damage" and rule == "STRIKE" and Catalog.has_relic(actor,"STEADY_HAND") and not actor.get("rerolled",false):
 			amount += 2
-		if action_effect.kind == "block" and key == "BLOCK" and Catalog.has_relic(actor,"MATCHBOX"):
+		if action_effect.kind == "block" and rule == "BLOCK" and Catalog.has_relic(actor,"MATCHBOX"):
 			amount += 2
 		if action_effect.kind == "gold" and not state.is_empty():
 			suffix += " ("+str(maxi(0,8+4*(int(state.get("act",1))-1)-int(actor.get("combat_gold",0))))+" battle allowance left)"
 		if action_effect.kind == "lifeline":
 			parts.append("Revive "+str(amount)+" HP ("+str(action_effect.get("charges",1))+" charge), otherwise heal "+str(action_effect.heal_amount))
+		elif action_effect.kind == "reroll":
+			parts.append("Rerolls per turn raised to "+str(amount)+" for this battle")
+		elif action_effect.kind == "amplify":
+			parts.append("Raise your "+("lowest" if str(action_effect.get("which","high")) == "low" else "highest")+" die by "+str(amount)+" (max "+str(HAND_VALUE_CAP)+")")
+		elif action_effect.kind == "echo":
+			parts.append("Repeat the last gem that landed an amount, at "+str(amount)+"%")
+		elif action_effect.kind == "upgrade":
+			parts.append("+"+str(amount)+" "+str(action_effect.get("property","carat")).capitalize()+" to another gem, up to "+str(action_effect.get("ceiling",24))+" ("+str(action_effect.get("charges",1))+" charge)")
 		else:
 			parts.append(str(amount)+" "+str(action_effect.kind).replace("_"," ")+suffix)
 		if action_effect.has("condition"):
@@ -395,7 +490,7 @@ static func enemy_intents(actor: Dictionary, state: Dictionary, rng: RandomNumbe
 	if heroes.is_empty():
 		return intents
 	var target: Dictionary = heroes[rng.randi_range(0,heroes.size()-1)]
-	if actor.key == "RIFT_HOUND":
+	if str(actor.get("ai",actor.key)) == "RIFT_HOUND":
 		for candidate in heroes:
 			if candidate.block < target.block:
 				target = candidate
@@ -409,7 +504,8 @@ static func enemy_intents(actor: Dictionary, state: Dictionary, rng: RandomNumbe
 	var low: int = int(rolled.min()) if not rolled.is_empty() else 0
 	var first: bool = int(state.get("turn",1)) % 2 == 1
 	var p: int = int(actor.get("party_size",state.get("party_size",1)))
-	match str(actor.key):
+	## An authored enemy names the registered routine it borrows through `ai`.
+	match str(actor.get("ai",actor.key)):
 		"SLIME", "RED_SLIME":
 			for item in actor.gems:
 				intents.append(preview(actor,item,actor.hand,state))
@@ -579,7 +675,18 @@ static func resolve_skill(actor: Dictionary, action: Dictionary, state: Dictiona
 	if not preferred.is_empty() and not target.is_empty() and preferred != str(target.id):
 		events.append(_event("retarget",actor,target,key,0,actor.name+" retargets "+str(action.name)+" to "+str(target.name)+"."))
 	events.append(_event("skill",actor,target if not target.is_empty() else actor,key,0,actor.name+" uses "+str(action.name)+"."))
+	## What an Echo would repeat, remembered before this skill's effects land so a gem never
+	## echoes itself. Only a skill that landed an amount is worth remembering, so an Echo —
+	## and a gem that did nothing but change the dice — leaves the memory where it was
+	## rather than wiping it on the way past.
+	if not action.get("echoed",false):
+		var memory: Dictionary = _echoable(action)
+		if not memory.is_empty():
+			actor.echo_source = memory
 	for action_effect in action.effects:
+		if str(action_effect.get("kind","")) == "echo":
+			_echo(actor,action,action_effect,state,events,item)
+			continue
 		var recipients: Array = []
 		match str(action_effect.get("target","self")):
 			"enemy":
@@ -608,7 +715,43 @@ static func resolve_skill(actor: Dictionary, action: Dictionary, state: Dictiona
 				continue
 			_apply_effect(actor,recipient,action_effect,key,state,events,item)
 
+static func _echoable(action: Dictionary) -> Dictionary:
+	## A skill reduced to the part an Echo can give back: its name, and the amounts that
+	## landed on somebody. Everything conditional or charge-bearing is dropped, so what is
+	## repeated is a plain list of amounts and the sides they go to.
+	var kept: Array = []
+	for action_effect in action.get("effects",[]):
+		if not action_effect is Dictionary or not str(action_effect.get("kind","")) in ECHOABLE:
+			continue
+		var copied: Dictionary = {"kind":str(action_effect.kind), "amount":int(action_effect.get("amount",0)),
+			"target":str(action_effect.get("target","self"))}
+		if action_effect.has("target_limit"):
+			copied.target_limit = int(action_effect.target_limit)
+		kept.append(copied)
+	if kept.is_empty():
+		return {}
+	return {"key":str(action.get("key","")), "name":str(action.get("name","")), "effects":kept}
+
+static func _echo(actor: Dictionary, action: Dictionary, action_effect: Dictionary, state: Dictionary, events: Array, item: Dictionary) -> void:
+	## Repeats the last gem this actor resolved, at a share of its amounts. It goes back
+	## through `resolve_skill`, so the repeat routes and reports exactly like the original
+	## did — against the target chosen now, not the one the original hit.
+	var source: Dictionary = actor.get("echo_source",{})
+	var percent: int = clampi(int(action_effect.get("amount",0)),0,ECHO_CAP)
+	if source.is_empty() or percent <= 0:
+		events.append(_event("fizzle",actor,actor,str(action.key),0,str(action.name)+" finds nothing to repeat."))
+		return
+	var repeated: Array = []
+	for stored in source.effects:
+		var scaled: Dictionary = stored.duplicate()
+		scaled.amount = maxi(0,floori(float(int(stored.amount))*float(percent)/100.0))
+		repeated.append(scaled)
+	resolve_skill(actor,{"key":str(source.key), "name":str(source.name)+" (echoed at "+str(percent)+"%)",
+		"effects":repeated, "echoed":true, "target_id":str(action.get("target_id","")),
+		"friendly_target_id":str(action.get("friendly_target_id",""))},state,events,item)
+
 static func _apply_effect(actor: Dictionary, target: Dictionary, action_effect: Dictionary, key: String, state: Dictionary, events: Array, item: Dictionary) -> void:
+	var rule: String = rule_of(key)
 	var kind: String = str(action_effect.kind)
 	var amount: int = int(action_effect.get("amount",0))
 	var sources: Array = []
@@ -626,7 +769,7 @@ static func _apply_effect(actor: Dictionary, target: Dictionary, action_effect: 
 			if triggered:
 				amount += int(action_effect.get("bonus",0))
 				sources.append({"source":"intent_condition","amount":int(action_effect.get("bonus",0))})
-		if key == "STRIKE" and Catalog.has_relic(actor,"STEADY_HAND") and not actor.get("rerolled",false) and not flags.get("steady_hand",false):
+		if rule == "STRIKE" and Catalog.has_relic(actor,"STEADY_HAND") and not actor.get("rerolled",false) and not flags.get("steady_hand",false):
 			amount += 2
 			flags.steady_hand = true
 			sources.append({"source":"STEADY_HAND","amount":2})
@@ -640,7 +783,7 @@ static func _apply_effect(actor: Dictionary, target: Dictionary, action_effect: 
 		hit.merge({"raw_damage":amount,"block_absorbed":absorbed,"hp_loss":loss,"sources":sources,"enrage_bonus":int(action_effect.get("enrage_bonus",0))})
 		events.append(hit)
 	elif kind == "block":
-		if key == "BLOCK" and Catalog.has_relic(actor,"MATCHBOX") and not flags.get("matchbox",false):
+		if rule == "BLOCK" and Catalog.has_relic(actor,"MATCHBOX") and not flags.get("matchbox",false):
 			amount += 2
 			flags.matchbox = true
 			sources.append({"source":"MATCHBOX","amount":2})
@@ -683,6 +826,35 @@ static func _apply_effect(actor: Dictionary, target: Dictionary, action_effect: 
 		var removal: Dictionary = _event("remove_block",actor,target,key,removed,target.name+" loses "+str(removed)+" block.")
 		removal.requested = amount
 		events.append(removal)
+	elif kind == "reroll":
+		var wanted: int = clampi(amount,1,MAX_REROLLS)
+		var standing: int = int(target.get("max_rerolls",1))
+		if wanted <= standing:
+			events.append(_event("reroll_allowance",actor,target,key,standing,str(target.name)+" already rerolls "+str(standing)+" times a turn."))
+		else:
+			target.max_rerolls = wanted
+			# The allowance is raised now, so the turn this resolves on ends with the
+			# spare rerolls already in hand for the roll that follows it.
+			target.rerolls = int(target.get("rerolls",0))+(wanted-standing)
+			events.append(_event("reroll_allowance",actor,target,key,wanted,str(target.name)+" rerolls "+str(wanted)+" times a turn for the rest of this battle."))
+	elif kind == "amplify":
+		var raised: int = _lift_index(target.get("hand",[]),str(action_effect.get("which","high")) == "low")
+		if raised < 0 or amount <= 0:
+			events.append(_event("fizzle",actor,target,key,0,str(target.name)+" has no die to raise."))
+		else:
+			var roll: Dictionary = target.hand[raised]
+			var before_value: int = int(roll.value)
+			var after: int = clampi(before_value+amount,1,HAND_VALUE_CAP)
+			roll.value = after
+			# The roll no longer matches the face the die physically turned up, so it says
+			# by how much. Without this the save validator reads it as a tampered hand.
+			roll.lift = int(roll.get("lift",0))+(after-before_value)
+			var lifted: Dictionary = _event("amplify",actor,target,key,after-before_value,
+				str(target.name)+" raises a "+str(before_value)+" to "+str(after)+(" (capped)" if before_value+amount > HAND_VALUE_CAP else "")+".")
+			lifted.merge({"die_id":str(roll.die_id),"before":before_value,"after":after,"requested":amount})
+			events.append(lifted)
+	elif kind == "upgrade":
+		_upgrade(actor,target,action_effect,key,amount,events,item)
 	elif kind in ["stun","poison"]:
 		var statuses: Dictionary = target.get("statuses",{})
 		var before: int = int(statuses.get(kind,0))
@@ -701,6 +873,58 @@ static func _apply_effect(actor: Dictionary, target: Dictionary, action_effect: 
 		var status_event: Dictionary = _event("status",actor,target,key,applied,target.name+(" resists stun with Resolve." if rejected else " gains "+str(applied)+" "+kind+" ("+str(before+applied)+" total)."))
 		status_event.merge({"status":kind,"requested":amount,"applied":applied,"remaining":before+applied,"rejected":rejected})
 		events.append(status_event)
+
+const RANK_LIMITS: Dictionary = {"carat":24, "cut":5, "clarity":5}
+
+static func _lift_index(hand: Array, lowest: bool) -> int:
+	## Which die a lift raises. Ties go to the lowest die ID, which is the same tie-break
+	## `_normalized_hand` sorts by, so the die the preview pointed at is the one that moves.
+	var chosen: int = -1
+	for index in range(hand.size()):
+		if not hand[index] is Dictionary:
+			continue
+		if chosen < 0:
+			chosen = index
+			continue
+		var value: int = int(hand[index].get("value",0))
+		var best: int = int(hand[chosen].get("value",0))
+		if value == best:
+			if str(hand[index].get("die_id","")) < str(hand[chosen].get("die_id","")):
+				chosen = index
+		elif (value < best) == lowest:
+			chosen = index
+	return chosen
+
+static func _upgrade(actor: Dictionary, target: Dictionary, action_effect: Dictionary, key: String, amount: int, events: Array, item: Dictionary) -> void:
+	## Cuts one of the recipient's other equipped gems a rank higher, for good. It takes the
+	## stone that has the furthest to go, never itself, and never past the ceiling the effect
+	## names — which for a Facet is its own Carat, so a gem can only lift what it outweighs.
+	var property_name: String = str(action_effect.get("property","carat"))
+	var limit: int = mini(int(RANK_LIMITS.get(property_name,24)),clampi(int(action_effect.get("ceiling",24)),1,24))
+	if int(item.get("upgrade_charges",1)) <= 0:
+		events.append(_event("fizzle",actor,target,key,0,str(target.name)+"'s stone has already cut another this battle."))
+		return
+	var chosen: Dictionary = {}
+	for candidate in target.get("gems",[]):
+		if not candidate is Dictionary or not candidate.get("equipped",false) or str(candidate.get("id","")) == str(item.get("id","")):
+			continue
+		var rank: int = int(candidate.get(property_name,1))
+		if rank >= limit:
+			continue
+		if chosen.is_empty() or rank < int(chosen.get(property_name,1)) \
+				or (rank == int(chosen.get(property_name,1)) and str(candidate.get("id","")) < str(chosen.get("id",""))):
+			chosen = candidate
+	if chosen.is_empty():
+		events.append(_event("fizzle",actor,target,key,0,str(target.name)+" carries no other gem this could cut higher."))
+		return
+	var before_rank: int = int(chosen.get(property_name,1))
+	var after_rank: int = mini(limit,before_rank+maxi(0,amount))
+	chosen[property_name] = after_rank
+	item.upgrade_charges = maxi(0,int(item.get("upgrade_charges",1))-1)
+	var cut_event: Dictionary = _event("upgrade",actor,target,key,after_rank-before_rank,
+		str(target.name)+"'s "+str(Catalog.definitions("skills").get(str(chosen.get("key","")),{}).get("name",str(chosen.get("key",""))))+" is recut to "+property_name.capitalize()+" "+str(after_rank)+", for good.")
+	cut_event.merge({"gem_id":str(chosen.get("id","")),"property":property_name,"before":before_rank,"after":after_rank})
+	events.append(cut_event)
 
 static func _event(kind: String, actor: Dictionary, target: Dictionary, skill: String, amount: int, message: String) -> Dictionary:
 	return {"kind":kind,"actor":str(actor.get("id","")),"target":str(target.get("id","")),"skill":skill,"amount":amount,"text":message}

@@ -7,6 +7,8 @@ extends RefCounted
 ## The exact wording stays on the tooltip; the icons only make it readable at a glance.
 
 const Catalog = preload("res://scripts/core/catalog.gd")
+const Combat = preload("res://scripts/core/combat.gd")
+const GemRules = preload("res://scripts/core/gem_rules.gd")
 
 const MATCH_TONE := Color("ffcf7a")
 const OTHER_TONE := Color("76b6ff")
@@ -109,12 +111,16 @@ class Face extends Control:
 		draw_string(font, Vector2((size.x - measured.x) * 0.5, baseline), text,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _ink)
 
-static func requirement(key: String, clarity: int = 1) -> Dictionary:
+static func requirement(key: String, clarity: int = 1, cut: int = 1, carat: int = 1) -> Dictionary:
 	## The dice that would switch this skill on, given its effective Clarity.
 	## `faces` are [value, tone]; `lead` is the comparison drawn ahead of them.
 	var l: int = clampi(clarity, 1, 5)
 	var run: int = 5 - (l - 1) / 2
-	match Catalog.canonical_key(key):
+	var definition: Dictionary = Catalog.definitions("skills").get(Catalog.canonical_key(key), {})
+	if GemRules.has_rule(definition):
+		return _from_trigger(definition.rule.get("trigger", {}), l, cut, carat)
+	## A gem that borrows a rule shows the rule's requirement, not its own name's.
+	match Combat.rule_of(key):
 		"BLOCK", "INTERPOSE":
 			return _spec(_same(2, 4), "", "Any two dice sharing a value.")
 		"HEAVYSTRIKE":
@@ -140,6 +146,12 @@ static func requirement(key: String, clarity: int = 1) -> Dictionary:
 		"PRECISION":
 			return _spec([[3, PLAIN_TONE], [1, PLAIN_TONE], [6, PLAIN_TONE], [2, PLAIN_TONE], [5, PLAIN_TONE]],
 				"≠", "All five dice showing different values.")
+		"ECHO":
+			return _spec(_same(2, 4), "", "Any two dice sharing a value.")
+		"FACET":
+			## The same easing a straight gets, counted in distinct values rather than a run.
+			return _spec([[3, PLAIN_TONE], [1, PLAIN_TONE], [6, PLAIN_TONE], [2, PLAIN_TONE], [5, PLAIN_TONE]].slice(0, run),
+				"≠", "At least %d dice with no two of them alike." % run)
 		"STUN":
 			return _spec([[21 - l, MATCH_TONE]], "≥", "The highest die is at least %d." % (21 - l))
 		"VENOM":
@@ -171,9 +183,53 @@ static func build(parent: Node, spec: Dictionary, edge: float, tooltip: String) 
 		row.add_child(face(edge, int(entry[0]), Color(entry[1])))
 	return row
 
+static func _from_trigger(trigger: Dictionary, l: int, cut: int, carat: int) -> Dictionary:
+	## The same strip for a rule written as data, read off its trigger.
+	var count: Callable = func(expression: Variant, fallback: int) -> int:
+		return GemRules.threshold(expression, carat, cut, l) if expression is Dictionary else fallback
+	match str(trigger.get("kind", "always")):
+		"pair":
+			return _spec(_same(2, 4), "", "Any two dice sharing a value.")
+		"two_pairs":
+			return _spec(_same(2, 2) + _same(2, 5, OTHER_TONE), "", "Two pairs of different values.")
+		"triple":
+			return _spec(_same(3, 5), "", "Any three dice sharing a value.")
+		"full_house":
+			return _spec(_same(3, 5) + _same(2, 2, OTHER_TONE), "", "Three dice of one value and two of another.")
+		"straight":
+			var length: int = l if false else (5 - (l - 1) / 2 if trigger.get("length", null) is String else count.call(trigger.get("length", null), 3))
+			length = clampi(length, 1, 5)
+			return _spec(_run(length), "", "A run of %d consecutive values, in any order." % length)
+		"parity":
+			var odd: bool = str(trigger.get("parity", "even")) == "odd"
+			var wanted: int = clampi(count.call(trigger.get("at_least", null), 3), 1, 5)
+			var faces: Array = []
+			for index in range(wanted):
+				faces.append([(1 if odd else 2) + index * 2, RUN_TONE])
+			return _spec(faces, "", "At least %d %s results." % [wanted, "odd" if odd else "even"])
+		"distinct":
+			var wanted_distinct: int = clampi(count.call(trigger.get("at_least", null), 5), 1, 5)
+			var distinct_faces: Array = []
+			for index in range(wanted_distinct):
+				distinct_faces.append([[3, 1, 6, 2, 5][index % 5], PLAIN_TONE])
+			return _spec(distinct_faces, "≠", "At least %d dice showing different values." % wanted_distinct)
+		"value":
+			var wanted_value: int = int(trigger.get("value", 7))
+			return _spec([[wanted_value, MATCH_TONE]], "", "At least one die showing %d." % wanted_value)
+		"total_at_least":
+			var floor_total: int = count.call(trigger.get("amount", null), 0)
+			return _spec([], "Σ ≥ %d" % floor_total, "The whole hand totals %d or more." % floor_total)
+		"total_at_most":
+			var ceiling: int = count.call(trigger.get("amount", null), 0)
+			return _spec([], "Σ ≤ %d" % ceiling, "The whole hand totals %d or less." % ceiling)
+		"high_at_least":
+			var least: int = count.call(trigger.get("amount", null), 0)
+			return _spec([[least, MATCH_TONE]], "≥", "The highest die is at least %d." % least)
+	return _spec([], "ANY HAND", "No condition: this skill fires on every hand.")
+
 static func detail(key: String, clarity: int = 1) -> String:
 	## The tooltip text: the catalogued trigger, then what it means in dice.
-	var definition: Dictionary = Catalog.SKILLS.get(Catalog.canonical_key(key), {})
+	var definition: Dictionary = Catalog.definitions("skills").get(Catalog.canonical_key(key), {})
 	var spec: Dictionary = requirement(key, clarity)
 	var trigger := str(definition.get("trigger", ""))
 	var note := str(spec.get("note", ""))

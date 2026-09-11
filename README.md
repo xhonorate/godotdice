@@ -1,6 +1,6 @@
 # RogueDice
 
-A cooperative dice-and-gem roguelike for one to four heroes, rebuilt in **Godot 4.7.2 stable** with typed GDScript and the Compatibility renderer. Every equipped gem evaluates the same five-die hand. Keeping a pair, completing a straight, or chasing a high roll changes several skills at once.
+A cooperative dice-and-gem roguelike for one to four heroes, rebuilt in **Godot 4.7.2 stable** with typed GDScript and the Forward+ renderer. Every equipped gem evaluates the same five-die hand. Keeping a pair, completing a straight, or chasing a high roll changes several skills at once.
 
 Open [project.godot](project.godot) in Godot 4.7.2 and press **F6 on `scenes/main.tscn` or F5**. No art downloads, Firebase service, Node installation, or asset setup are required.
 
@@ -36,13 +36,17 @@ Controls can be rebound in Settings. Keyboard/gamepad focus offers alternatives 
 - Three heroes with their specified HP, starting dice, three starting gems, and distinct encounter traits.
 - Nineteen skill gems, including all eleven corrected originals, support, Poison, revival, parity, and distinct-value skills.
 - The four C's on every gem: **Color** is the effect category (Red damage, Blue block, Green healing, Violet control, Gold fortune); **Carat** 1–24 is the overall strength multiplier `M(C) = (C+7)/8`; **Cut** 1–5 (Poor to Perfect) scales what the dice contributed, so it matters most on attacks; **Clarity** 1–5 (Fractured to Flawless) adds the flat term `F(L) = 2L`, eases triggers, and unlocks bonuses at the top ranks. Color comes from the skill; the other three are rolled. In play a gem is named by its ranks — "Good Flawless 12 Multistrike" — each rank marked with its own icon, and its rule is drawn as a chain of marked terms rather than an equation, with hover text on every mark.
-- Gems are **painted at runtime from their own four properties**, so two stones alike but for one rank look different: Color sets the cut outline and hue, Carat the size, Cut the faceting, Clarity the brilliance and the flaws. The skill's emblem is etched into the face.
+- Gems are **real 3D stones cut at runtime from their own four properties**, so two gems alike but for one rank look different: Color sets the cut outline and hue, Carat the size, Cut the faceting, Clarity how see-through and how polished it is, down to the inclusions frozen inside. The stones are translucent and drawn in two passes, so you look through a gem's crown at its own pavilion. The skill's emblem is etched into the table. Inspect a gem to turn it in your hand.
+- A **gem lab** for tuning the stones: `godot --path . scenes/gem_lab.tscn` gives a live 3D gem with the skill and all three ranks on dials, plus the rule chain the game would show. Arrow keys change the skill and Carat, `[` `]` the Cut, `;` `'` the Clarity, `R` randomises, `S` spins.
 - Eight relics; six standard dice and six alternative face distributions; active/reserve equipment and engraving.
 - Eight ordinary/elite enemies and three scripted bosses: Slime King, Mirror Regent, and Rift Sovereign.
 - Both `short_9` and `expedition_18`, authored encounters, weighted route offers, votes, camps, elite rewards, boss rewards, victory, and defeat.
 - Personal shops, die purchases/sales/swaps, Workshop, Lapidary, four events, two mine veins, automatic mining, pooled gold, and rotating drafts.
 - Integer effects, stable skill targets, persistent combat block, stun timing, Poison ticks, boss Resolve, Enrage, gold caps, Lifeline charges, and postbattle rally.
 - Host authority, versioned commands, bounded idempotency history, separate saved RNG streams, revisioned snapshots, atomic checkpoint and backup saves, run history, and connection recovery.
+
+- **Gem rules can be written as data.** A gem may carry a `rule` — a trigger and a list of effects whose amounts are arithmetic over the hand — interpreted by `scripts/core/gem_rules.gd` from a small fixed vocabulary with no way to reach past the hand it is given. Block, Strike, Venom, Arc Burst and Multistrike are all expressible in it, so a new gem can be invented, balanced and shipped without touching GDScript; the studio builds one with dropdowns and runs it on a hand as you write. Anything the language cannot say — Bulwark's block table, Lifeline's revival — stays a compiled rule for an authored gem to borrow.
+- A **content studio** for authoring all of it: `python tools/content_studio/server.py` opens a web panel over `data/full_content.json` with a visual editor and a live preview for every hero, gem, die, relic, enemy, event, run profile and status. The gem preview cuts the same stone the game does, a hero shows what its five dice actually roll, and the engine's validator runs as you type. Saving rewrites the pack and the `.tres` the game loads. New content is data: a gem, enemy or hero the rules build has never heard of runs by naming the registered rule it borrows — an evaluator, an intent routine, a trait — while keeping its own name, stats, colour and art. [Studio guide](tools/content_studio/README.md).
 
 The original documents remain the design references: [rebuild specification](docs/GODOT_REBUILD_SPEC.md) and [content catalog](docs/CONTENT_CATALOG.md). The journal and preview calculations use the installed rules, including corrections to Heal, Shield Bash, Heavy Strike, straights, Stun, and Bulwark.
 
@@ -61,11 +65,13 @@ Live Steam acceptance requires a running Steam client and separate accounts on s
 | Location | Responsibility |
 | --- | --- |
 | `scripts/core/catalog.gd`, `content/` | Versioned definitions, factories, validated content pack |
+| `scripts/core/gem_rules.gd` | The data-written gem rule: its vocabulary, its validator and its interpreter |
 | `scripts/core/combat.gd` | Pure triggers, previews, intent programs, effects and turn resolution |
 | `scripts/core/run_engine.gd` | Validated transactions, campaigns, rooms, inventory, economy and saves |
 | `scripts/services/` | ENet/Steam sessions, bounded packet codec, atomic saves and settings |
 | `scripts/ui/`, `scenes/main.tscn` | Snapshot presentation, generated sprites, polyhedral dice, battlefield, desktop input |
-| `tests/` | Combat, campaign, save, networking, presentation and interface scenarios |
+| `tests/` | Combat, campaign, save, networking, presentation, authored-content and interface scenarios |
+| `tools/content_studio/` | The web panel that authors `data/full_content.json` and the pack the game loads |
 
 The art in `assets/sprites/` is ordinary PNGs and is what the game loads. Edit one in place to change it. Those files were generated once by `scripts/ui/sprite_forge.gd` and baked with `tools/bake_sprites.gd`, so they are an editable starting point, not a runtime effect; the painter remains only as the fallback for a key whose file is missing. A file at `user://sprites/<category>/<key>.png` overrides the shipped one at runtime with no reimport. [The sprite guide](assets/sprites/README.md) lists every category, key and size, and how to regenerate without overwriting hand-painted art. Animation needs no extra frames — `scripts/ui/sprite_actor.gd` breathes, sways, lunges, flashes on damage and drains the colour of a downed unit by deforming and recolouring the still image.
 
@@ -77,6 +83,6 @@ Host checkpoints are written under Godot's `user://saves/` in the `RogueDice` ap
 
 ## Validation and exports
 
-`tools/run_checks.py` runs the real Godot headless scenario scripts and fails on script errors even if the engine exits with status zero. The campaign tests verify complete one-to-four-hero transitions using explicit strong fixtures; those tests do not establish game balance. Ordinary-seed balance runs remain playtesting data, not a guarantee of equal win rates.
+`tools/run_checks.py` runs the real Godot headless scenario scripts and fails on script errors even if the engine exits with status zero. `tests/test_authored_content.gd` covers the other direction: a pack carrying a hero, gem, die and enemy that no GDScript mentions loads, plays through its borrowed rules, and is still rejected when it borrows a rule the build does not have. The campaign tests verify complete one-to-four-hero transitions using explicit strong fixtures; those tests do not establish game balance. Ordinary-seed balance runs remain playtesting data, not a guarantee of equal win rates.
 
 Desktop presets are supplied in [export_presets.cfg](export_presets.cfg), and development builds are available under `build/windows`, `build/linux`, and `build/macos`. The macOS ZIP contains a universal application. Regenerate them with `python3 tools/install_export_templates.py` followed by `tools/export_desktop.sh all`. Release builds need the real Steam App ID, application configuration, and platform-specific signing where applicable. See [implementation and verification](docs/IMPLEMENTATION_STATUS.md) for the tested scope and external platform checks. Steam achievements, Cloud, Workshop integration, host migration, cosmetics, and permanent stat progression are intentionally outside the requested ruleset.

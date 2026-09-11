@@ -1,0 +1,728 @@
+{
+	"hands": [
+		[
+			1,
+			3,
+			5,
+			6,
+			9
+		],
+		[
+			2,
+			2,
+			4,
+			6,
+			8
+		],
+		[
+			3,
+			4,
+			5,
+			6,
+			7
+		],
+		[
+			1,
+			1,
+			1,
+			4,
+			4
+		],
+		[
+			2,
+			4,
+			6,
+			8,
+			14
+		],
+		[
+			7,
+			7,
+			7,
+			2,
+			3
+		],
+		[
+			1,
+			2,
+			3,
+			4,
+			5
+		],
+		[
+			5,
+			5,
+			5,
+			5,
+			5
+		],
+		[
+			1,
+			1,
+			2,
+			2,
+			3
+		],
+		[
+			12,
+			14,
+			16,
+			18,
+			20
+		],
+		[
+			1,
+			1,
+			1,
+			1,
+			2
+		],
+		[
+			4,
+			4,
+			7,
+			9,
+			11
+		]
+	],
+	"ranks": [
+		[
+			1,
+			1,
+			1
+		],
+		[
+			8,
+			3,
+			3
+		],
+		[
+			24,
+			5,
+			5
+		],
+		[
+			12,
+			2,
+			4
+		],
+		[
+			4,
+			4,
+			2
+		]
+	],
+	"block": 11,
+	"recipes": {
+		"STRIKE": {
+			"trigger": {
+				"kind": "always"
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "highest_sum",
+								"count": {
+									"rank": "cut"
+								}
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"BLOCK": {
+			"trigger": {
+				"kind": "pair"
+			},
+			"effects": [
+				{
+					"kind": "block",
+					"target": "self",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"op": "*",
+								"args": [
+									{
+										"term": "pair_value"
+									},
+									{
+										"rank": "cut"
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"HEAL": {
+			"trigger": {
+				"kind": "always"
+			},
+			"effects": [
+				{
+					"kind": "heal",
+					"target": "self",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "lowest_sum",
+								"count": {
+									"rank": "cut"
+								}
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"HEAVYSTRIKE": {
+			"trigger": {
+				"kind": "triple"
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"op": "*",
+								"args": [
+									{
+										"term": "triple_value"
+									},
+									{
+										"rank": "cut"
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"INTERPOSE": {
+			"trigger": {
+				"kind": "pair"
+			},
+			"effects": [
+				{
+					"kind": "block",
+					"target": "ally",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "pair_value"
+							},
+							{
+								"rank": "cut"
+							},
+							{
+								"const": -1
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"MEND": {
+			"trigger": {
+				"kind": "parity",
+				"parity": "odd",
+				"at_least": {
+					"const": 3
+				}
+			},
+			"effects": [
+				{
+					"kind": "heal",
+					"target": "ally",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "lowest_odd"
+							},
+							{
+								"op": "*",
+								"args": [
+									{
+										"const": 2
+									},
+									{
+										"op": "-",
+										"args": [
+											{
+												"rank": "cut"
+											},
+											{
+												"const": 1
+											}
+										]
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"SUNDER": {
+			"trigger": {
+				"kind": "two_pairs"
+			},
+			"effects": [
+				{
+					"kind": "remove_block",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"op": "*",
+								"args": [
+									{
+										"const": 2
+									},
+									{
+										"rank": "cut"
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				},
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "pair_value"
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"ARC_BURST": {
+			"trigger": {
+				"kind": "straight",
+				"length": {
+					"const": 3
+				}
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemies",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "run_high"
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					},
+					"target_limit": {
+						"op": "+",
+						"args": [
+							{
+								"rank": "cut"
+							},
+							{
+								"const": 1
+							}
+						]
+					}
+				}
+			]
+		},
+		"MULTISTRIKE": {
+			"trigger": {
+				"kind": "straight",
+				"length": "by_clarity"
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"const": 4
+					},
+					"repeat": {
+						"rank": "cut"
+					}
+				}
+			]
+		},
+		"BLESSING": {
+			"trigger": {
+				"kind": "straight",
+				"length": {
+					"const": 3
+				}
+			},
+			"effects": [
+				{
+					"kind": "gold",
+					"target": "self",
+					"amount": {
+						"const": 3
+					}
+				},
+				{
+					"kind": "heal",
+					"target": "self",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"rank": "cut"
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"EVEN_TEMPO": {
+			"trigger": {
+				"kind": "parity",
+				"parity": "even",
+				"at_least": {
+					"const": 3
+				}
+			},
+			"effects": [
+				{
+					"kind": "block",
+					"target": "self",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"op": "*",
+								"args": [
+									{
+										"term": "count_even"
+									},
+									{
+										"rank": "cut"
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				},
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"rank": "cut"
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"PRECISION": {
+			"trigger": {
+				"kind": "distinct",
+				"at_least": {
+					"const": 5
+				}
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "lowest_sum",
+								"count": {
+									"const": 2
+								}
+							},
+							{
+								"op": "*",
+								"args": [
+									{
+										"const": 2
+									},
+									{
+										"rank": "cut"
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		},
+		"VENOM": {
+			"trigger": {
+				"kind": "high_at_least",
+				"amount": {
+					"op": "-",
+					"args": [
+						{
+							"const": 13
+						},
+						{
+							"rank": "clarity"
+						}
+					]
+				}
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"op": "floor_div",
+								"args": [
+									{
+										"term": "high"
+									},
+									{
+										"const": 2
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				},
+				{
+					"kind": "poison",
+					"target": "enemy",
+					"scale": "none",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"rank": "cut"
+							},
+							{
+								"op": "floor_div",
+								"args": [
+									{
+										"op": "+",
+										"args": [
+											{
+												"rank": "carat"
+											},
+											{
+												"const": 3
+											}
+										]
+									},
+									{
+										"const": 4
+									}
+								]
+							}
+						]
+					}
+				}
+			]
+		},
+		"DRAINSTRIKE": {
+			"trigger": {
+				"kind": "total_at_least",
+				"amount": {
+					"op": "-",
+					"args": [
+						{
+							"const": 45
+						},
+						{
+							"op": "*",
+							"args": [
+								{
+									"const": 5
+								},
+								{
+									"rank": "clarity"
+								}
+							]
+						}
+					]
+				}
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"op": "floor_div",
+								"args": [
+									{
+										"op": "*",
+										"args": [
+											{
+												"term": "high"
+											},
+											{
+												"op": "+",
+												"args": [
+													{
+														"rank": "cut"
+													},
+													{
+														"const": 1
+													}
+												]
+											}
+										]
+									},
+									{
+										"const": 2
+									}
+								]
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				},
+				{
+					"kind": "heal",
+					"target": "self",
+					"amount": {
+						"rank": "clarity_bonus"
+					}
+				}
+			]
+		},
+		"STUN": {
+			"trigger": {
+				"kind": "high_at_least",
+				"amount": {
+					"op": "-",
+					"args": [
+						{
+							"const": 21
+						},
+						{
+							"rank": "clarity"
+						}
+					]
+				}
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "high"
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				},
+				{
+					"kind": "stun",
+					"target": "enemy",
+					"scale": "none",
+					"amount": {
+						"const": 1
+					}
+				}
+			]
+		},
+		"BLANK": {
+			"trigger": {
+				"kind": "always"
+			},
+			"effects": [
+				{
+					"kind": "damage",
+					"target": "enemy",
+					"amount": {
+						"op": "+",
+						"args": [
+							{
+								"term": "high"
+							},
+							{
+								"rank": "clarity_bonus"
+							}
+						]
+					}
+				}
+			]
+		}
+	}
+}

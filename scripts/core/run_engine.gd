@@ -242,7 +242,7 @@ func _reroll(player: Dictionary, payload: Dictionary, use_trait: bool) -> String
 	var die_ids = [payload.get("die_id", "")] if use_trait else payload.get("die_ids", [])
 	if not die_ids is Array or die_ids.is_empty() or die_ids.size() > 5:
 		return "Select at least one of your five dice."
-	if use_trait and (player.key != "MAX" or int(player.get("trait_charges", 0)) < 1):
+	if use_trait and (str(player.get("trait", "")) != "SECOND_THOUGHT" or int(player.get("trait_charges", 0)) < 1):
 		return "Second Thought is unavailable."
 	if not use_trait and int(player.rerolls) < 1:
 		return "No normal rerolls remain this turn."
@@ -986,6 +986,9 @@ static func validate_state(snapshot: Dictionary) -> String:
 		if not whole.call(hero.get("max_hp"), 1) or not whole.call(hero.get("hp"), 0, int(hero.max_hp)) or not whole.call(hero.get("gold")) or not whole.call(hero.get("block")): return "Invalid saved hero statistics."
 		for field in ["rerolls", "max_rerolls", "trait_charges", "combat_gold", "action_eligible_from_turn"]:
 			if not whole.call(hero.get(field)): return "Invalid saved hero counter: " + field
+		# A White gem raises the allowance for one battle; `base_rerolls` is what it drops
+		# back to at the start of the next one, so the pair is bounded rather than the one.
+		if not whole.call(hero.get("base_rerolls", 1), 1, Combat.MAX_REROLLS) or not whole.call(hero.max_rerolls, 1, Combat.MAX_REROLLS): return "Invalid saved reroll allowance."
 		if not whole.call(hero.trait_charges, 0, 1) or int(hero.rerolls) > int(hero.max_rerolls): return "Invalid saved encounter allowance."
 		if not hero.get("rerolled") is bool or not hero.get("relic_flags") is Dictionary or not hero.get("tinker_used_acts") is Array: return "Invalid saved trait or relic bookkeeping."
 		for used_act in hero.tinker_used_acts:
@@ -1006,7 +1009,7 @@ static func validate_state(snapshot: Dictionary) -> String:
 			if not item is Dictionary or not Catalog.SKILLS.has(item.get("key", "")): return "Unknown saved gem."
 			if not whole.call(item.get("carat"), 1, 24) or not whole.call(item.get("cut"), 1, 5) or not whole.call(item.get("clarity"), 1, 5): return "Invalid saved gem properties."
 			if not item.get("equipped") is bool: return "Invalid saved gem equipment flag."
-			if not whole.call(item.get("revive_charges", 1), 0, 1): return "Invalid saved revival charge."
+			if not whole.call(item.get("revive_charges", 1), 0, 1) or not whole.call(item.get("upgrade_charges", 1), 0, 1): return "Invalid saved gem charge."
 			if item.equipped:
 				if equipped_gems.has(item.key): return "Duplicate equipped skill."
 				equipped_gems[item.key] = true
@@ -1039,9 +1042,12 @@ static func validate_state(snapshot: Dictionary) -> String:
 			for roll in hero[hand_field]:
 				if not roll is Dictionary or not active_dice.has(roll.get("die_id", "")) or rolled_ids.has(roll.die_id): return "Invalid saved hand ownership."
 				var die: Dictionary = active_dice[roll.die_id]
-				if not whole.call(roll.get("face_index"), 0, die.faces.size() - 1) or not whole.call(roll.get("value"), 1, die.faces.size()): return "Invalid saved roll result."
+				# A White gem can raise a die above the face it turned up, so a roll carries
+				# how far it was lifted and still has to add back to a real physical face.
+				if not whole.call(roll.get("face_index"), 0, die.faces.size() - 1) or not whole.call(roll.get("value"), 1, Combat.HAND_VALUE_CAP): return "Invalid saved roll result."
+				if not whole.call(roll.get("lift", 0), 0, Combat.HAND_VALUE_CAP): return "Invalid saved die lift."
 				var face: Dictionary = die.faces[int(roll.face_index)]
-				if roll.get("face_id", "") != face.id or int(roll.value) != int(face.value) or not whole.call(roll.get("roll_count")): return "Saved roll does not match its physical die face."
+				if roll.get("face_id", "") != face.id or int(roll.value) != int(face.value) + int(roll.get("lift", 0)) or not whole.call(roll.get("roll_count")): return "Saved roll does not match its physical die face."
 				rolled_ids[roll.die_id] = true
 	if not hero_ids.has(snapshot.host_id): return "The host has no reserved party seat."
 	for player_id in snapshot.get("accepted_sequences", {}):

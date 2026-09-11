@@ -30,7 +30,8 @@ const HINTS := {
 	"hit": "Separate hits against one fixed target.",
 	"target": "Distinct living enemies this can reach.",
 	"count": "How many dice in your hand qualify.",
-	"run": "The highest value in the run of consecutive dice this used."
+	"run": "The highest value in the run of consecutive dice this used.",
+	"reroll": "How many times you may reroll in one turn. A White gem raises the allowance for the rest of the battle; it never adds to itself."
 }
 
 # --- shape vocabulary ---------------------------------------------------------
@@ -165,6 +166,13 @@ static func _shapes(glyph: String) -> Array:
 			return [{"op": "add", "poly": _rect(0.075, 0.615, 0.285, 0.925)},
 				{"op": "add", "poly": _rect(0.395, 0.375, 0.605, 0.925)},
 				{"op": "add", "poly": _rect(0.715, 0.135, 0.925, 0.925)}]
+		"reroll":
+			# A ring broken at the top with an arrowhead on the open end: the mark for
+			# "again". The gap is cut before the head is added, so the head survives it.
+			return [{"op": "add", "circle": [0.5, 0.54, 0.44]},
+				{"op": "sub", "circle": [0.5, 0.54, 0.26]},
+				{"op": "sub", "poly": _rect(0.44, -0.05, 1.05, 0.34)},
+				{"op": "add", "poly": _poly([[0.30, 0.00], [0.76, 0.17], [0.30, 0.34]])}]
 	return _emblem_shapes(glyph)
 
 ## The emblem etched into a gem's face, one per skill. These are read at the size of a
@@ -175,7 +183,9 @@ const SKILL_EMBLEMS := {
 	"SHIELDBASH": "shield_burst", "STUN": "bolt", "BULWARK": "rampart",
 	"DRAINSTRIKE": "drain", "INTERPOSE": "two_shields", "MEND": "cross",
 	"SUNDER": "split_shield", "ARC_BURST": "arcs", "VENOM": "skull",
-	"EVEN_TEMPO": "hourglass", "PRECISION": "crosshair", "LIFELINE": "pulse"}
+	"EVEN_TEMPO": "hourglass", "PRECISION": "crosshair", "LIFELINE": "pulse",
+	"GLIMMER": "spark", "REFRACT": "prism", "SECOND_SIGHT": "eye", "ECHO": "copy",
+	"FACET": "rose"}
 
 static func emblem(skill_key: String) -> String:
 	return str(SKILL_EMBLEMS.get(skill_key.to_upper(), "sword"))
@@ -273,6 +283,61 @@ static func _emblem_shapes(glyph: String) -> Array:
 		"pulse":
 			return [{"op": "add", "poly": _heart(Vector2(0.5, 0.48), 0.48)}] \
 				+ _line([[0.00, 0.52], [0.28, 0.52], [0.37, 0.33], [0.50, 0.72], [0.60, 0.47], [1.00, 0.47]], 0.105, "sub")
+		"spark":
+			# One bright point and two lesser ones: light coming off a stone that was
+			# only polished, not recut.
+			return [{"op": "add", "poly": _star(4, 0.42, 0.105, Vector2(0.44, 0.48))},
+				{"op": "add", "poly": _star(4, 0.17, 0.042, Vector2(0.86, 0.15))},
+				{"op": "add", "circle": [0.84, 0.80, 0.085]}]
+		"prism":
+			# A triangle throwing three rays out of one face — white light going in and
+			# coming out spread, which is exactly what the skill does to a die.
+			var rays: Array = [{"op": "add", "poly": _poly([[0.32, 0.05], [0.61, 0.85], [0.03, 0.85]])},
+				{"op": "sub", "poly": _poly([[0.32, 0.31], [0.49, 0.74], [0.15, 0.74]])}]
+			for index in 3:
+				var height := 0.36 + 0.15 * float(index)
+				rays.append({"op": "add", "poly": _bar(Vector2(0.50, height),
+					Vector2(0.99, height - 0.16), 0.085)})
+			return rays
+		"eye":
+			# Two arcs meeting at the corners, with a ring and a pupil cut through them.
+			var lens := PackedVector2Array()
+			for index in range(13):
+				var t := float(index) / 12.0
+				lens.append(Vector2(lerpf(0.03, 0.97, t), 0.5 - 0.34 * sin(PI * t)))
+			for index in range(13):
+				var t := 1.0 - float(index) / 12.0
+				lens.append(Vector2(lerpf(0.03, 0.97, t), 0.5 + 0.34 * sin(PI * t)))
+			return [{"op": "add", "poly": lens},
+				{"op": "sub", "circle": [0.5, 0.5, 0.215]},
+				{"op": "add", "circle": [0.5, 0.5, 0.105]}]
+		"copy":
+			# One square behind another: the mark every interface uses for "again".
+			return _ring(0.30, 0.04, 0.96, 0.70, 0.10) \
+				+ [{"op": "sub", "poly": _rect(0.04, 0.30, 0.70, 0.96)}] \
+				+ _ring(0.04, 0.30, 0.70, 0.96, 0.10)
+		"rose":
+			# A rose-cut stone from directly above: a hexagonal girdle divided into the six
+			# crown facets that rise to its point. The facet lines are cut out of the solid,
+			# so the mark survives being tinted one colour and shrunk to a thumbnail.
+			var outer := PackedVector2Array()
+			var centre := Vector2(0.5, 0.5)
+			for index in 6:
+				var angle := -PI * 0.5 + TAU * float(index) / 6.0
+				outer.append(centre + Vector2(cos(angle), sin(angle)) * 0.47)
+			var girdle := PackedVector2Array()
+			var table := PackedVector2Array()
+			for point in outer:
+				girdle.append(centre.lerp(point, 0.64))
+				table.append(centre.lerp(point, 0.50))
+			var built: Array = [{"op": "add", "poly": outer}]
+			# Six spokes and one girdle line, and no more: the twelve-ray version of this
+			# read as a snowflake at thumbnail size rather than as a stone.
+			for index in 6:
+				built.append({"op": "sub", "poly": _bar(centre, outer[index], 0.055)})
+			built.append({"op": "sub", "poly": girdle})
+			built.append({"op": "add", "poly": table})
+			return built
 	return []
 
 # --- rasterising --------------------------------------------------------------

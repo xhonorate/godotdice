@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS := {
 	"master_volume": 0.8, "music_volume": 0.65, "sfx_volume": 0.85,
 	"fullscreen": false, "animation_speed": 1.0, "reduced_motion": false,
 	"text_scale": 1.0, "player_name": "Adventurer", "last_address": "127.0.0.1",
-	"colorblind_symbols": true,
+	"colorblind_symbols": true, "idle_motion": true,
 }
 
 var directory: String

@@ -356,14 +356,20 @@
 			"starting_gems": [
 				[
 					"STRIKE",
+					1,
+					1,
 					1
 				],
 				[
 					"BLOCK",
-					2
+					1,
+					1,
+					1
 				],
 				[
-					"INTERPOSE",
+					"PRECISION",
+					1,
+					1,
 					1
 				]
 			],
@@ -461,7 +467,10 @@
 				"BLOCK",
 				"BULWARK",
 				"DRAINSTRIKE",
+				"ECHO",
 				"EVEN_TEMPO",
+				"FACET",
+				"GLIMMER",
 				"HEAL",
 				"HEAVYSTRIKE",
 				"INTERPOSE",
@@ -470,6 +479,8 @@
 				"MEND",
 				"MULTISTRIKE",
 				"PRECISION",
+				"REFRACT",
+				"SECOND_SIGHT",
 				"SHIELDBASH",
 				"STRIKE",
 				"STUN",
@@ -499,12 +510,17 @@
 				"BLOCK",
 				"BULWARK",
 				"DRAINSTRIKE",
+				"ECHO",
+				"FACET",
+				"GLIMMER",
 				"HEAL",
 				"HEAVYSTRIKE",
 				"INTERPOSE",
 				"LUCKYSTRIKE",
 				"MEND",
 				"MULTISTRIKE",
+				"REFRACT",
+				"SECOND_SIGHT",
 				"SHIELDBASH",
 				"STRIKE",
 				"STUN",
@@ -616,6 +632,20 @@
 			"target": "enemy",
 			"trigger": "Total ≥ 45−5L"
 		},
+		"ECHO": {
+			"color": "WHITE",
+			"evaluator_id": "ECHO",
+			"formula": "Repeat the last gem before this one that landed an amount, at (25 + 5(K−1) + F(L)) × M(C) percent of it, up to 200%. It repeats damage, block, healing, gold and statuses only.",
+			"name": "Echo",
+			"rarity": 3,
+			"tags": [
+				"pair",
+				"support",
+				"group"
+			],
+			"target": "self",
+			"trigger": "Any pair"
+		},
 		"EVEN_TEMPO": {
 			"color": "BLUE",
 			"evaluator_id": "EVEN_TEMPO",
@@ -629,6 +659,32 @@
 			],
 			"target": "enemy",
 			"trigger": "At least three even results"
+		},
+		"FACET": {
+			"color": "WHITE",
+			"evaluator_id": "FACET",
+			"formula": "Once per encounter, permanently raise the Carat of your lowest-Carat other equipped gem by ceil(K/2), never past this gem's own Carat of C.",
+			"name": "Facet",
+			"rarity": 4,
+			"tags": [
+				"distinct",
+				"support"
+			],
+			"target": "self",
+			"trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)"
+		},
+		"GLIMMER": {
+			"color": "WHITE",
+			"evaluator_id": "GLIMMER",
+			"formula": "Raise your lowest die by (K + F(L)) × M(C), to a maximum of 20. Every gem equipped after this one reads the raised hand.",
+			"name": "Glimmer",
+			"rarity": 1,
+			"tags": [
+				"low",
+				"support"
+			],
+			"target": "self",
+			"trigger": "Always"
 		},
 		"HEAL": {
 			"color": "GREEN",
@@ -737,6 +793,32 @@
 			],
 			"target": "enemy",
 			"trigger": "Five distinct results"
+		},
+		"REFRACT": {
+			"color": "WHITE",
+			"evaluator_id": "REFRACT",
+			"formula": "Raise your highest die by (H + 2(K−1) + F(L)) × M(C), to a maximum of 20 — enough to at least double it. Every gem equipped after this one reads the raised hand.",
+			"name": "Refract",
+			"rarity": 3,
+			"tags": [
+				"high",
+				"support"
+			],
+			"target": "self",
+			"trigger": "Always"
+		},
+		"SECOND_SIGHT": {
+			"color": "WHITE",
+			"evaluator_id": "SECOND_SIGHT",
+			"formula": "Raise your rerolls per turn to 2 + floor(C/8) for the rest of this battle, +1 at K5, up to 4. It sets the allowance rather than adding to it. Then gain F(L) × M(C) block.",
+			"name": "Second Sight",
+			"rarity": 2,
+			"tags": [
+				"support",
+				"block"
+			],
+			"target": "self",
+			"trigger": "Always"
 		},
 		"SHIELDBASH": {
 			"color": "BLUE",

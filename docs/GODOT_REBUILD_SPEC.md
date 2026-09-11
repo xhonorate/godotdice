@@ -428,7 +428,7 @@ Every gem is described by four properties. Only three of them are rolled; Color 
 
 | Property | Range | What it does | Rolled per gem? |
 |---|---|---|---|
-| **Color** | Red, Blue, Green, Violet, Gold | The category of the gem's effects: Red damage, Blue block, Green healing and revival, Violet control (stun and poison), Gold gold and fortune | No — fixed by the skill definition |
+| **Color** | Red, Blue, Green, Violet, Gold, White | The category of the gem's effects: Red damage, Blue block, Green healing and revival, Violet control (stun and poison), Gold gold and fortune, White mastery (rerolls, the dice themselves, and the gems themselves) | No — fixed by the skill definition |
 | **Carat** `C` | 1–24 | The gem's overall strength. `M(C) = (C + 7) / 8` multiplies the finished base of almost every effect | Yes |
 | **Cut** `K` | 1–5, Poor / Fair / Good / Great / Perfect | Multiplies what the **dice** contributed — how many dice are read, or the die value itself. Worth most on attacks, least on gems whose base is a fixed pair | Yes |
 | **Clarity** `L` | 1–5, Fractured / Flawed / Clean / Pristine / Flawless | Contributes the **flat** term `F(L) = 2L` to the base, eases activation thresholds, and unlocks bonus effects at the top ranks | Yes |
@@ -476,33 +476,162 @@ so no pictograph has to be learned before it can be used.
 
 #### How a gem is drawn
 
-The picture of a gem is a function of its four properties, painted at runtime rather than served
-from one sprite per skill. Two gems alike in every rank but one must not look alike, so each
-property owns a visual channel of its own and nothing else touches it:
+A gem is real 3D geometry, cut at runtime from its four properties, in its own `SubViewport` — the
+same pipeline the dice already use. Two gems alike in every rank but one must not look alike, so
+each property owns a channel of its own and nothing else touches it:
 
 | Property | What it changes | Range |
 |---|---|---|
-| **Color** | The cut's outline and the body hue. Red is a trilliant (triangle), Blue a princess (square), Green a heart, Violet a marquise, Gold a round brilliant | One outline per Color, never shared |
-| **Carat** | The size of the stone, on a `pow(t, 0.62)` curve so the small end stays visible | 0.46 of the frame at Carat 1 to 1.0 at Carat 24 — a 2.2× span |
-| **Cut** | How intricate the faceting is: vertices inserted along each edge, bands of facets between girdle and table, and how small the table ends up | 12 facets at Poor to 108 at Perfect, on the same outline |
-| **Clarity** | Brilliance: facet contrast, how far the hue sits from grey, highlight strength, a star flare from Pristine up, and inclusions at the bottom | 5 visible flaws at Fractured, none at Pristine or Flawless |
+| **Color** | The girdle outline and the body hue. Red is a trilliant (triangle), Blue a princess (square), Green a heart, Violet a pear, Gold a half Dutch rose (hexagon), White a round brilliant | One outline per Color, never shared |
+| **Carat** | The scale the solid is drawn at, on a `pow(t, 0.62)` curve so the small end stays visible | 0.69 of the frame at Carat 1 to 1.0 at Carat 24 — a 1.45× span, set by what reads in a list row rather than by the maths |
+| **Cut** | How intricate the faceting is: vertices along each edge of the outline, bands of facets above and below the girdle, and how small the table ends up | 42 facets at Poor to 270 at Perfect on a trilliant, 56 to 360 on a princess, always on the same outline |
+| **Clarity** | The material: how see-through the stone is, how far the hue sits from grey, roughness, specular, rim, clearcoat, inner emission, and the inclusions frozen in it | Nearly solid at Fractured, glass at Flawless; 5 flaws at the bottom, none at the top two |
+
+The solid is a cut stone, not a disc: a flat table on top, a crown of facets falling away to the
+girdle at the widest point, and a pavilion below narrowing to a culet. Alternate bands are staggered
+half a step so facets meet point to edge, which is what makes a brilliant sparkle rather than look
+like a stack of rings. Each facet carries its own flat normal, so the stone catches light facet by
+facet. The pavilion carries more bands than the crown, because it is what you are looking *through*
+the table at.
+
+**The stone is glass, in two passes.** The far half is drawn first with front-face culling, then the
+near half over it with back-face culling, so what you see through a gem is its own pavilion — which
+is what a real gem shows you, and what no amount of shading on a single opaque hull achieves. The
+near half writes depth so its facets occlude each other and stay crisp; the far half does not, so it
+reads as one soft mass behind them. With depth writing off on both, two hundred facets composited in
+arbitrary order and averaged into a flat blob, which is exactly what the first attempt looked like.
+The etched emblem sits above both at a higher render priority, or the near half draws over it.
+
+Four directional lights sit at four quarters, so a turning stone always has facets catching one and
+facets turned away. A `ProceduralSkyMaterial` supplies ambient and reflections while the background
+stays transparent: flat ambient colour gives facets nothing to mirror, and a gem that reflects
+nothing reads as coloured plastic however well it is lit. Ambient energy is deliberately low —
+flooding it fills in the dark facets and flattens the stone.
+
+**The project runs `forward_plus` for this.** It began on `gl_compatibility`, which was fine for a
+mostly 2D game with a 3D dice viewport but has no screen-space refraction and no working glow through
+a `SubViewport` — gems on it read as coloured plastic however carefully they were lit. Forward+ buys
+four things the stones actually use:
+
+- **Refraction.** The near half of the stone bends what is behind it. Clarity sets how far; a
+  Fractured stone does not bend at all. There is a catch worth knowing, because it decides the
+  shape of the whole view: Godot's refraction branch composites the screen behind the surface
+  itself and then writes `ALPHA = 1.0`. It can only show what is inside the same viewport, and it
+  makes the stone opaque to everything outside it. See **standing the stone on a ground** below.
+- **Glow.** Only genuinely blown highlights bloom (`glow_hdr_threshold` above 1.0), which is the
+  sparkle a cut stone throws. Opening it wider bleaches the body colour and swallows the etched
+  emblem, which is what the first pass at it did.
+- **A sky to reflect.** The facets mirror a real procedural sky rather than a flat ambient
+  colour, which is most of the difference between a cut stone and coloured plastic.
+  Screen-space reflections are *not* available: Godot switches SSR off in any viewport with a
+  transparent background, and a gem has to be transparent to sit on a panel.
+- **ACES tonemapping**, which rolls highlights off instead of clipping them flat.
+
+Exposure sits below 1.0 and ambient energy is low on purpose. Under ACES four lights add up to far
+more than they did before it, and flooding either one fills in the dark facets and flattens the
+stone — contrast between facets is most of what makes a gem look cut.
+
+The cost is a higher hardware floor: Forward+ needs Vulkan 1.0 or D3D12, so the oldest integrated
+GPUs are out. That is a live consideration if this ever ships beyond desktop, and the mobile renderer
+is configured as the fallback for platforms that ask for it.
+
+**Carat is allowed out of its box.** `carat_span()` is how big a stone is against the slot it is
+set in: 0.65 at Carat 1, rising gently through the middle of the range and then hard at the top, so
+that past about Carat 19 it is wider than its own slot. A stone that overflows is not cropped at the
+slot edge — `GemView` grows the viewport it draws into around the same centre and scales the solid
+down inside it to match, so the picture reaches past the setting while the space the gem takes up in
+a row of gems is unchanged. A clipped gem reads as a bug; one hanging over the edge reads as a
+boulder that will not fit. `set_slot()` measures the stone against a box other than the control's
+own, which is how the gem lab keeps a large drawing area and still shows the overflow against a
+marked setting.
+
+**Gems drift at rest.** A gem sways a few degrees either side of where it sits, on two swings whose
+rates do not divide into each other, the same way the dice breathe on the table. The cost is real
+and worth stating: a drifting view needs a live camera, so a screen of nineteen gems is nineteen
+live viewports rather than nineteen one-off renders. Setting `drift_turn` to zero puts that back,
+and `GemView.set_drift(false)` does it for one view — which is what the capture tool does before
+taking a comparison sheet, since a drifting stone puts every tile at a different angle.
+
+**Fire.** A real cut stone throws rainbows out of white light because its refractive index is not
+the same for every wavelength, so each facet returns a slightly different colour and those colours
+sweep as the stone turns. Godot 4.7 has no iridescence or dispersion on `StandardMaterial3D`, and
+screen-space refraction is the wrong tool — it bends the background rather than splitting light — so
+this is a small additive spatial shader (`GemMesh.FIRE_SHADER`) hung on the near half as
+`material_overlay`. It works entirely in view space, which is what makes it correct under an
+orthogonal camera: `VIEW` is constant there, so every facet's own normal drives both which part of
+the spectrum it returns and how strongly, and rotating the stone is what moves the colours.
+
+Clarity scales it, so a Fractured stone throws none and a Flawless one throws the most — one more
+place a rank shows without a number. Six knobs shape it (strength, colour cycles, spread, reach,
+falloff, body tint), plus `facet_hue`, which splits the body colour slightly differently on each
+facet at build time: that is the half of the prism that stays put when the stone does. The shipped
+strength is deliberately low. Past about 0.7 a ruby stops reading as red and becomes a pastel
+scatter, which the `gem_lab_fire.png` sweep in `tools/lab_shot.gd` exists to show.
+
+**Standing the stone on a ground.** A `GemView` can be given a background with `set_ground()`, and
+that choice decides what kind of picture it is:
+
+- **Ungrounded** (the default, and what the game still uses): the `SubViewport` is transparent and
+  the stone is composited over whatever 2D sits behind it. The 3D scene cannot see that 2D, so
+  refraction has nothing real to bend and writes the stone opaque, and Godot switches screen-space
+  reflections off entirely in a transparent viewport. Alpha only ever shows the stone's own far half.
+- **Grounded**: the background moves inside the viewport as `BG_COLOR` plus, for a patterned ground,
+  an unshaded quad behind the stone. The stone now blends against it in 3D, so refraction bends real
+  content, SSR returns, and both alpha values finally mean what they say. The halo moves inside too,
+  as an additive quad the stone can itself refract. The cost is that the view is an opaque rectangle
+  and its ground has to match what surrounds it.
+
+The gem lab is always grounded, and its seven backdrops set the ground rather than painting behind
+the viewport, which is what makes the checkerboard an honest test.
+
+One caveat before this is used in the game: the ground is rendered, so it goes through ACES and the
+exposure setting and does not come back out the colour it went in. Measured at the shipped settings:
+`#161e2e → #050c1b`, `#848c96 → #929ba6`, `#f2f3f5 → #e2e3e4`. Wiring a gem view onto a game panel
+therefore needs either a compensated ground colour or an inverse-tonemap step; `main.gd` has not been
+switched over for that reason, and `_panel()` draws a vertical gradient rather than a flat colour,
+which a single ground colour cannot match exactly either.
+
+**Every one of these numbers is adjustable at runtime.** `scripts/ui/gem_tuning.gd` holds one table
+of thirty knobs — both halves' alpha, refraction, roughness, metallic, rim, lacquer, inner light,
+cloudiness, facet variation, the four etch settings, and the whole room: exposure, ambient, sky, key
+lights, glow, glow threshold, contact shade and halo. `gem_mesh.gd` and `gem_view.gd` read them
+instead of holding literals, and untouched the table returns exactly the shipped values, so the game
+and the test suites see no difference.
+
+The gem lab (`scenes/gem_lab.tscn`, `godot --path . scenes/gem_lab.tscn`) puts all of them on
+sliders beside a live stone, over seven swappable grounds including a checkerboard — the only honest
+way to judge an alpha. A moved knob names itself in gold; **Copy values** puts the changed ones on the
+clipboard as the table entries to paste back, which is how a session at the bench becomes the shipped
+look. `test_art.gd` sweeps every knob that reaches a material and fails if one of them reaches
+nothing, so a slider that does not move the stone cannot survive a refactor.
 
 Cut inserts vertices along the existing edges rather than resampling the outline, so a better cut
 adds facets to the same stone instead of rounding it into a different shape. That matters: shape is
-how Color is read, and a Perfect Cut must never be mistaken for a different category.
+how Color is read, and a Perfect Cut must never be mistaken for a different category. Carat only
+scales the solid — the mesh itself is identical at Carat 1 and Carat 24.
 
-The skill's emblem is etched into the face, not laid over it. Light falls from the upper left, so
-the incision is drawn as a shadowed near wall, a lit far wall and a floor a shade under the body,
-and every pass only recolours pixels the stone already covers — an etch can darken a gem but can
-never widen its silhouette. Each of the nineteen skills has its own emblem, and no two Colors share
-one: Strike wears a sword, Bulwark a rampart, Venom a skull, Lifeline a heart crossed by a pulse.
+Every facet's winding is derived from the outline's, so `silhouette()` forces one orientation for
+all five cuts. An outline authored the other way round lights the stone from the inside and renders
+as a black cut-out, which is exactly what the heart did until the convention was made explicit.
 
-**Why this is 2D.** 3D gem models were considered and rejected. Gems appear as interface icons at
-four sizes and often six at once; a painted texture drops straight into the existing icon path,
-whereas 3D would need a viewport, camera and light rig per distinct stone before it became a texture
-the interface could place. The rest of the art in this project is procedural 2D for the same reason,
-and faceting reads perfectly well as flat shaded polygons. Nothing about the property-to-channel
-mapping above depends on the choice, so a later move to meshes could keep it intact.
+The skill's emblem is etched into the face as a separate panel sitting a hair above the table,
+carrying the emblem's alpha as its shape, a normal map derived from a blurred copy of it as its
+bevel, and a heavily darkened body tone as its floor. Because the panel faces the key light square
+on while the stone around it is all angled facets, its floor tone starts far darker than the body;
+even so, the groove reads lighter or darker depending on how brightly that part of the stone is lit.
+Making it uniform would mean an unshaded material, at the cost of the etch no longer responding when
+the stone is turned. Each of the nineteen skills has its own emblem: Strike wears a sword, Bulwark a
+rampart, Venom a skull, Lifeline a heart crossed by a pulse.
+
+**Cost.** A static view renders one frame and stops (`UPDATE_ONCE`), so a screen showing nineteen
+gems costs nineteen one-off renders rather than nineteen live cameras. Only the inspect sheet turns
+its view on permanently, and it does so to hand the stone to the reader to drag — the same treatment
+the die inspector gets.
+
+`gem_mesh.gd` builds the geometry, materials and etch textures and touches no scene tree, so all of
+it is asserted headless. `gem_view.gd` is the part that needs a display, and it degrades to nothing
+when there is none, so callers never branch on it. The contact-sheet tool `tools/gem_sheet.gd` does
+need a window and says so if run headless.
 
 Because a gem's look depends on the instance and not the skill, gems are not part of the baked
 sprite atlas. `tools/bake_sprites.gd` no longer emits them and `sprite_forge.gd` no longer paints
@@ -545,6 +674,32 @@ Retain the section 5 catalog and rarity levels, with these explicit changes:
 | `EVEN_TEMPO` / Even Tempo | Blue | 2 | Three or more even results | Self block `floor((even count × K + F(L)) × M(C))`, then damage `floor((K + F(L)) × M(C))` |
 | `PRECISION` / Precision | Red | 3 | Five distinct results | Damage `floor((lowest two + 2K + F(L)) × M(C))` |
 | `LIFELINE` / Lifeline | Green | 4 | Straight of 5 at L1–2, 4 at L3–4, 3 at L5 | Revive a downed hero for `floor((3K + F(L)) × M(C))` HP once per encounter, otherwise heal every living hero `floor((K + F(L)) × M(C))` |
+| `GLIMMER` / Glimmer | White | 1 | Always | Raise the lowest die by `floor((K + F(L)) × M(C))`, capped at 20 |
+| `SECOND_SIGHT` / Second Sight | White | 2 | Always | Raise the reroll allowance to `min(4, 2 + floor(C/8) + [K = 5])` for the rest of the battle, then self block `floor(F(L) × M(C))` |
+| `REFRACT` / Refract | White | 3 | Always | Raise the highest die by `floor((H + 2(K-1) + F(L)) × M(C))`, capped at 20 — at least doubling it |
+| `ECHO` / Echo | White | 3 | Any pair | Repeat the last gem that landed an amount, at `min(200, floor((25 + 5(K-1) + F(L)) × M(C)))` per cent |
+| `FACET` / Facet | White | 4 | Five distinct results, 4 at L3–4, 3 at L5 | Once per encounter, permanently add `ceil(K/2)` Carat to the lowest-Carat other equipped gem, never above `C` |
+
+**White gems reach past the effect they resolve.** The other five colours act on a combatant and stop
+there; White acts on the run itself, so each of its reaches is bounded explicitly rather than left to
+a formula:
+
+- **Rerolls** are an allowance, not a pool. `SECOND_SIGHT` *sets* the per-turn allowance for the rest
+  of the battle rather than adding to it, so casting it every turn is worth exactly what casting it
+  once is. A hero's `base_rerolls` is what `begin_battle` drops the allowance back to, so a raised
+  allowance never leaks into the next encounter. Hard ceiling: `Combat.MAX_REROLLS`.
+- **Lifts** (`GLIMMER`, `REFRACT`) change the hand itself, so every gem resolved *after* them in the
+  loadout reads the raised die — which makes loadout order matter for the first time. A lifted roll
+  records how far it was lifted in `lift`, because it no longer matches the face the die physically
+  turned up and the save validator checks `value == face.value + lift`. The cap is
+  `Combat.HAND_VALUE_CAP` = 20, the same window `_normalized_hand` accepts.
+- **Echo** repeats only the amounts that land on a combatant (`Combat.ECHOABLE`): damage, block,
+  heal, gold, poison, stun, remove block. It re-routes through `resolve_skill`, so the repeat hits
+  the target chosen now. An echo never becomes its own source, so two Echoes both repeat the same
+  gem, and nothing recurses.
+- **Upgrades** (`FACET`) are the one effect that outlives the encounter. Gated by a per-battle charge
+  (`upgrade_charges`, reset in `begin_battle` beside `revive_charges`), it takes the lowest-ranked
+  *other* equipped gem, ties broken by gem ID, and never lifts it past the casting gem's own Carat.
 
 Behavioural corrections carried over from section 5.3, unchanged by the four C's rework:
 
@@ -654,7 +809,7 @@ Provide mouse and keyboard controls plus focus-based gamepad controls. Every dra
 
 ### 10.1 Engine and integration choice
 
-Use a pinned stable Godot 4.x release with typed GDScript unless the team has a specific reason to use C#. Pin the GodotSteam build and Steamworks native libraries against that engine version; do not assume an arbitrary extension binary is compatible. Use Godot's Compatibility renderer initially for a mostly 2D game, with an optional 3D dice viewport after the rules are stable.
+Use a pinned stable Godot 4.x release with typed GDScript unless the team has a specific reason to use C#. Pin the GodotSteam build and Steamworks native libraries against that engine version; do not assume an arbitrary extension binary is compatible. Godot's Compatibility renderer is the sensible start for a mostly 2D game with a 3D dice viewport. This project has since moved to Forward+, because gems are cut solids whose look depends on refraction and glow; see section 9.2. Treat that as a decision to revisit if the hardware floor ever matters more than the stones do.
 
 Prefer **GodotSteam's GDExtension distribution plus explicit Steam Networking Messages packets** for the initial small, turn-based game. This makes the command/state boundary explicit without needing scene replication. Steam Networking Messages supports reliable messages and uses Steam's underlying networking infrastructure; a connection-oriented Sockets implementation is a valid alternative if more detailed connection control is needed.
 
@@ -896,7 +1051,7 @@ Use table-driven cases with explicit hands, gem properties, actor states, and ex
 | Dead actor with queued skills | No effects; no readiness wait |
 | Empty/invalid hand or property values | Validation rejects invalid state safely; no crash |
 
-Cover Carat 1 and 24 and every Cut/Clarity boundary. Assert the four C's separately: that Carat is strictly increasing across all 24 ranks, that a Clarity step adds the same flat amount regardless of the roll, that Cut is worth more to a dice-reading attack than to a fixed-base support gem, and that every skill declares a known Color. Cover the presentation layer too: every skill describes itself at several rank spreads, every mark it asks for has artwork and hover text, a term worth zero is absent, and a Carat 1 multiplier is hidden. Assert the painted stone on each axis separately — a higher Carat covers more of the frame, a higher Cut cuts more facets without changing the outline, a higher Clarity is brighter and throws more light, no two Colors share a cut, and changing any single rank changes the pixels. Test empty eligible loot pools, exhausted room types, duplicate skill IDs, full inventory slots, unaffordable services, capped upgrades, zero mining rewards, and all heroes downed.
+Cover Carat 1 and 24 and every Cut/Clarity boundary. Assert the four C's separately: that Carat is strictly increasing across all 24 ranks, that a Clarity step adds the same flat amount regardless of the roll, that Cut is worth more to a dice-reading attack than to a fixed-base support gem, and that every skill declares a known Color. Cover the presentation layer too: every skill describes itself at several rank spreads, every mark it asks for has artwork and hover text, a term worth zero is absent, and a Carat 1 multiplier is hidden. Assert the cut stone on each axis separately — a higher Carat scales the solid without recutting it, a higher Cut cuts more facets without changing the outline, a higher Clarity is better polished and less grey, no two Colors share a cut, and changing any single rank changes the mesh, the size or the material. Test empty eligible loot pools, exhausted room types, duplicate skill IDs, full inventory slots, unaffordable services, capped upgrades, zero mining rewards, and all heroes downed.
 
 ### 13.2 State and network invariants
 

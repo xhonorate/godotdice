@@ -18,6 +18,9 @@ const RED := Color("ff7a6b")
 const BLUE := Color("76b6ff")
 const VIOLET := Color("b98bff")
 const AMBER := Color("ffcf7a")
+## White is the diamond category: a cold near-white that still reads as a colour beside
+## PAPER, which is the plain text tone and must not be mistaken for a gem.
+const WHITE := Color("cfe4ff")
 
 static var _boxes: Dictionary = {}
 
@@ -108,7 +111,9 @@ static func build_theme(text_scale: float) -> Theme:
 	built.set_stylebox("panel", "TooltipPanel", panel_box(Color("233046"), Color("18212f"), GOLD_DIM, 8, 13, 1.4, 0.2))
 	built.set_color("font_color", "TooltipLabel", PAPER)
 	built.set_stylebox("grabber", "HSlider", flat(GOLD, GOLD, 7, 0))
-	built.set_stylebox("slider", "HSlider", flat(Color("101825"), LINE, 4, 0))
+	# The track needs content margin or it draws with no height at all, which is why every
+	# slider in the game was a bare grabber floating on the panel.
+	built.set_stylebox("slider", "HSlider", flat(Color("101825"), LINE, 4, 4))
 	built.set_constant("separation", "VBoxContainer", 10)
 	built.set_constant("separation", "HBoxContainer", 10)
 	built.set_constant("h_separation", "GridContainer", 12)

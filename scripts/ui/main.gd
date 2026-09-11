@@ -12,7 +12,9 @@ const DiceView = preload("res://scripts/ui/dice_view.gd")
 const DiceIcons = preload("res://scripts/ui/dice_icons.gd")
 const GemIcons = preload("res://scripts/ui/gem_icons.gd")
 const GemText = preload("res://scripts/ui/gem_text.gd")
-const GemRender = preload("res://scripts/ui/gem_render.gd")
+const GemMesh = preload("res://scripts/ui/gem_mesh.gd")
+const GemView = preload("res://scripts/ui/gem_view.gd")
+const GemPanel = preload("res://scripts/ui/gem_panel.gd")
 const BattleStage = preload("res://scripts/ui/battle_stage.gd")
 const PlaceholderAudio = preload("res://scripts/ui/placeholder_audio.gd")
 const INK := Color("0c111c")
@@ -35,9 +37,6 @@ const HP_LOST := Color("6b3b3b")
 const HERO_KEYS := ["ardor", "kait", "max"]
 const GEM_SLOTS := 6
 const GEM_SLOT_WIDTH := 132
-## One tint per rolled property. Gold is value, steel is the blade, violet is the light:
-## a term keeps its property's colour wherever it appears, name line or formula.
-const PROPERTY_TINTS := {"carat": Color("e8b661"), "cut": Color("9fd8ff"), "clarity": Color("d8c2ff")}
 ## What each planned effect looks like above a hero: icon, tint, and what it means.
 const FORECAST_MARKS := {
 	"damage": ["sword", "ff7a6b", "Damage this hero's gems will deal"],
@@ -67,7 +66,7 @@ var player_name := "Adventurer"
 var server_address := "127.0.0.1"
 var steam_lobby_text := ""
 var menu_page := "home"
-var settings := {"text_scale": 1.0, "reduced_motion": false, "playback_speed": 1.0, "fullscreen": false, "bindings": {}, "sound_volume": 0.6}
+var settings := {"text_scale": 1.0, "reduced_motion": false, "idle_motion": true, "playback_speed": 1.0, "fullscreen": false, "bindings": {}, "sound_volume": 0.6}
 var pending_render := false
 var rebind_action := ""
 var last_phase := ""
@@ -214,7 +213,7 @@ func _exit_tree() -> void:
 		stage_view.free()
 	UiKit.release()
 	GemIcons.release()
-	GemRender.release()
+	GemMesh.release()
 	Forge.clear_cache()
 	SpriteActor.release()
 	BackdropScript.release()
@@ -250,13 +249,29 @@ func _prune_persistent() -> void:
 					node.get_parent().remove_child(node)
 				node.queue_free()
 
+func _idle_motion() -> bool:
+	## Whether anything turns while nothing is happening. Every die and gem that drifts needs
+	## its own live camera, so this is the cheapest frame to buy back on a busy screen — and
+	## the first thing someone who cannot watch drifting objects will reach for. Reduced
+	## motion overrides it, because that setting means all of this and more.
+	return bool(settings.idle_motion) and not bool(settings.reduced_motion)
+
+func _apply_motion() -> void:
+	## Pushes the choice onto everything already on screen rather than waiting for the next
+	## thing that happens to rebuild it.
+	for view in dice_views.values():
+		if is_instance_valid(view):
+			view.live = _idle_motion()
+	if is_instance_valid(backdrop):
+		backdrop.reduced_motion = bool(settings.reduced_motion)
+	_queue_render()
+
 func _die_view(die_id: String) -> DiceView:
 	var view = dice_views.get(die_id, null)
 	if not is_instance_valid(view):
 		view = DiceView.new()
-		view.live = not bool(settings.reduced_motion)
 		dice_views[die_id] = view
-	view.live = not bool(settings.reduced_motion)
+	view.live = _idle_motion()
 	return view
 
 func _battle_stage() -> Control:
@@ -1002,7 +1017,9 @@ func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge
 	## The activation condition drawn as the dice that would meet it, worded on hover.
 	var key := str(gem.get("key", ""))
 	var clarity := int(preview.get("effective_clarity", gem.get("clarity", 1)))
-	return DiceIcons.build(parent, DiceIcons.requirement(key, clarity), edge, DiceIcons.detail(key, clarity))
+	## A rule written as data can set its cut-off from any rank, so the strip is told them all.
+	var spec: Dictionary = DiceIcons.requirement(key, clarity, int(gem.get("cut", 1)), int(gem.get("carat", 1)))
+	return DiceIcons.build(parent, spec, edge, DiceIcons.detail(key, clarity))
 
 func _die_button(parent: Node, die: Dictionary, index: int) -> void:
 	var rolled: Dictionary = {}
@@ -1538,6 +1555,7 @@ func _inspect_gem(gem: Dictionary) -> void:
 	var portrait := Control.new()
 	var icon := _gem_portrait(portrait, gem, 200)
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	(icon as GemView).enable_interaction()
 	var body := _sheet(box, portrait, Vector2(200, 200), GOLD)
 	_label(body, _gem_name(gem), 26, _gem_color(gem))
 	_gem_title_row(body, gem, 16, PAPER, false)
@@ -1705,16 +1723,18 @@ func _gem_details(parent: Node, gem: Dictionary) -> void:
 	_formula_rows(box, gem, -1, 13)
 	row.tooltip_text = _preview_text(gem)
 
-func _gem_texture(gem: Dictionary, edge: int) -> Texture2D:
-	## Painted from this gem's own four properties at the size it will be shown, so two
-	## stones that differ in one rank are told apart by the picture, not only the label.
-	return GemRender.texture(gem, edge)
-
-func _gem_portrait(parent: Node, gem: Dictionary, edge: int) -> TextureRect:
-	var picture := UiKit.icon(parent, _gem_texture(gem, edge), edge)
-	picture.mouse_filter = Control.MOUSE_FILTER_PASS
-	picture.tooltip_text = GemRender.describe(gem)
-	return picture
+func _gem_portrait(parent: Node, gem: Dictionary, edge: int) -> Control:
+	## The stone as real geometry, cut from its own four properties, so two gems that
+	## differ in one rank are told apart by the solid and not only by the label. A static
+	## view renders one frame and stops, so a screen full of gems stays cheap.
+	var view := GemView.new()
+	view.custom_minimum_size = Vector2(edge, edge)
+	view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	view.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	view.set_drift(_idle_motion())
+	parent.add_child(view)
+	view.configure(gem)
+	return view
 
 func _room_color(kind: String) -> Color:
 	match kind:
@@ -1729,144 +1749,23 @@ func _room_color(kind: String) -> Color:
 		"lapidary": return Color("63d8d0")
 	return BLUE
 
-func _tone(name: String) -> Color:
-	match name:
-		"RED": return RED
-		"BLUE": return BLUE
-		"GREEN": return GREEN
-		"GOLD": return GOLD
-		"VIOLET": return VIOLET
-		"AMBER": return AMBER
-	return PAPER
+## The gem widgets live in `gem_panel.gd` so the gem lab draws them the same way. These
+## forward to it rather than wrapping it, so there is one implementation to change.
 
 func _flow(parent: Node, separation: int = 6) -> HFlowContainer:
-	var row := HFlowContainer.new()
-	row.add_theme_constant_override("h_separation", separation)
-	row.add_theme_constant_override("v_separation", 4)
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(row)
-	return row
+	return GemPanel.flow(parent, separation)
 
 func _word(parent: Node, text: String, size_px: int, color: Color, tooltip: String = "") -> Label:
-	## A word inside a flowing row. It answers the mouse only when it has something to say.
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", size_px)
-	label.add_theme_color_override("font_color", color)
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	label.mouse_filter = Control.MOUSE_FILTER_PASS if not tooltip.is_empty() else Control.MOUSE_FILTER_IGNORE
-	label.tooltip_text = tooltip
-	parent.add_child(label)
-	return label
-
-func _property_tint(glyph: String, fallback: Color) -> Color:
-	return PROPERTY_TINTS.get(glyph, fallback)
-
-func _marked(parent: Node, part: Dictionary, size_px: int, color: Color) -> HBoxContainer:
-	## One term: its number or phrase, then the mark saying which property produced it.
-	## The pair hovers as a unit, so the explanation is available from anywhere on it.
-	var cell := HBoxContainer.new()
-	cell.add_theme_constant_override("separation", 3)
-	cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	cell.mouse_filter = Control.MOUSE_FILTER_PASS
-	cell.tooltip_text = str(part.get("tip", ""))
-	parent.add_child(cell)
-	_word(cell, str(part.get("text", "")), size_px, color)
-	var glyph := str(part.get("glyph", ""))
-	if not glyph.is_empty():
-		GemIcons.glyph(cell, glyph, float(size_px) * 1.2, Color(color, 0.9), cell.tooltip_text)
-	return cell
+	return GemPanel.word(parent, text, size_px, color, tooltip)
 
 func _gem_title_row(parent: Node, gem: Dictionary, size_px: int, name_color: Color, show_name := true) -> HFlowContainer:
-	## "Good ✂ Flawless ✦ 12 ⚖ Multistrike" — the ranks a player says out loud, each
-	## followed by its mark, with the gem's own name last and in its Color.
-	var row := _flow(parent, 8)
-	var parts: Array = GemText.title_parts(gem)
-	for index in range(parts.size()):
-		var part: Dictionary = parts[index]
-		var last: bool = index == parts.size() - 1
-		if last and not show_name:
-			continue
-		_marked(row, part, size_px if last else maxi(10, size_px - 2),
-			name_color if last else _property_tint(str(part.glyph), GOLD))
-	return row
+	return GemPanel.title_row(parent, gem, size_px, name_color, show_name)
 
 func _gem_marks_row(parent: Node, gem: Dictionary, edge: float) -> HBoxContainer:
-	## The same three ranks as bare numbers, for a card too narrow to spell them out.
-	var row := _hbox(parent, 7)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var marks: Dictionary = {}
-	for part in GemText.title_parts(gem):
-		if PROPERTY_TINTS.has(str(part.glyph)):
-			marks[str(part.glyph)] = part
-	for glyph in ["carat", "cut", "clarity"]:
-		var part: Dictionary = marks.get(glyph, {})
-		if part.is_empty():
-			continue
-		var tint: Color = PROPERTY_TINTS[glyph]
-		var cell := _hbox(row, 2)
-		cell.mouse_filter = Control.MOUSE_FILTER_PASS
-		cell.tooltip_text = str(part.tip)
-		GemIcons.glyph(cell, glyph, edge, Color(tint, 0.9), cell.tooltip_text)
-		_word(cell, str(int(gem.get(glyph, 1))), int(edge) - 2, tint)
-	return row
-
-func _term_chip(parent: Node, part: Dictionary, size_px: int) -> PanelContainer:
-	## A term of the sum, boxed so the eye can count terms without reading them.
-	var holder := PanelContainer.new()
-	holder.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	holder.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	holder.mouse_filter = Control.MOUSE_FILTER_PASS
-	holder.tooltip_text = str(part.get("tip", ""))
-	holder.add_theme_stylebox_override("panel", UiKit.flat(Color(PANEL_HI, 0.85), Color(LINE, 0.9), 7, 5, 1))
-	var cell := HBoxContainer.new()
-	cell.add_theme_constant_override("separation", 4)
-	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_child(cell)
-	parent.add_child(holder)
-	var glyph := str(part.get("glyph", ""))
-	var tint: Color = _property_tint(glyph, PAPER)
-	if not glyph.is_empty():
-		GemIcons.glyph(cell, glyph, float(size_px) * 1.25, Color(tint, 0.9), holder.tooltip_text)
-	_word(cell, str(part.get("text", "")), size_px, tint)
-	var factor: Dictionary = part.get("factor", {})
-	if not factor.is_empty():
-		var factor_glyph := str(factor.get("glyph", ""))
-		var factor_tint: Color = _property_tint(factor_glyph, AMBER)
-		_word(cell, str(factor.get("text", "")), size_px, factor_tint)
-		GemIcons.glyph(cell, factor_glyph, float(size_px) * 1.15, Color(factor_tint, 0.9), str(factor.get("tip", "")))
-	return holder
+	return GemPanel.marks_row(parent, gem, edge)
 
 func _formula_rows(parent: Node, gem: Dictionary, effective_clarity: int = -1, size_px: int = 14) -> void:
-	## The rule as a short chain instead of an equation: terms added, then multiplied
-	## once by Carat, then named by what they do. Nothing that contributes zero appears.
-	var blocks: Array = GemText.blocks(gem, effective_clarity)
-	if blocks.is_empty():
-		_label(parent, str(Catalog.SKILLS.get(gem.get("key", ""), {}).get("formula", "")), size_px, MUTED, true)
-		return
-	for block in blocks:
-		var row := _flow(parent, 6)
-		var tone: Color = _tone(str(block.tone))
-		_word(row, str(block.verb), size_px, MUTED)
-		var parts: Array = block.parts
-		for index in range(parts.size()):
-			if index > 0:
-				_word(row, "+", size_px, Color(MUTED, 0.8))
-			_term_chip(row, parts[index], size_px)
-		var mult: Dictionary = block.mult
-		if not mult.is_empty():
-			_marked(row, mult, size_px, PROPERTY_TINTS.carat)
-		if not str(block.label).is_empty():
-			_word(row, str(block.label), size_px + 1, tone)
-		if not str(block.suffix).is_empty():
-			_word(row, str(block.suffix), size_px - 1, MUTED)
-		var repeat: Dictionary = block.repeat
-		if not repeat.is_empty():
-			_marked(row, repeat, size_px, AMBER)
-		if not str(block.note).is_empty():
-			_label(parent, str(block.note), maxi(11, size_px - 3), Color(MUTED, 0.9), true)
+	GemPanel.formula_rows(parent, gem, effective_clarity, size_px)
 
 func _gem_name(gem: Dictionary) -> String:
 	return str(Catalog.SKILLS.get(gem.get("key", ""), {}).get("name", gem.get("key", "Gem")))
@@ -2045,9 +1944,17 @@ func _show_settings() -> void:
 	scale_row.add_child(scale)
 	var motion := CheckButton.new()
 	motion.text = "Reduced motion"
+	motion.tooltip_text = "Stops the background, the battle animations and every idle turn."
 	motion.button_pressed = settings.reduced_motion
-	motion.toggled.connect(func(value: bool): settings.reduced_motion = value; _save_settings())
+	motion.toggled.connect(func(value: bool): settings.reduced_motion = value; _save_settings(); _apply_motion(); _show_settings.call_deferred())
 	box.add_child(motion)
+	var drift := CheckButton.new()
+	drift.text = "Idle motion on dice and gems"
+	drift.tooltip_text = "Dice and gems turn slowly when nothing is happening. Each one that moves needs its own live camera, so switching this off is the cheapest way to buy frames back on a crowded screen. Reduced motion turns it off regardless."
+	drift.button_pressed = settings.idle_motion
+	drift.disabled = bool(settings.reduced_motion)
+	drift.toggled.connect(func(value: bool): settings.idle_motion = value; _save_settings(); _apply_motion())
+	box.add_child(drift)
 	var fullscreen := CheckButton.new()
 	fullscreen.text = "Full screen"
 	fullscreen.button_pressed = settings.fullscreen

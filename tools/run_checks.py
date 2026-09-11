@@ -25,7 +25,7 @@ if not version.startswith("4.7.2.stable"):
     sys.exit("This project's deterministic replay contract is pinned to Godot 4.7.2 stable.")
 
 failed = []
-for suite in ["test_combat.gd", "test_run.gd", "test_services.gd", "test_network_run.gd", "test_art.gd", "test_ui.gd", "balance_smoke.gd"]:
+for suite in ["test_combat.gd", "test_run.gd", "test_authored_content.gd", "test_services.gd", "test_network_run.gd", "test_art.gd", "test_ui.gd", "balance_smoke.gd"]:
     path = ROOT / "tests" / suite
     if not path.exists():
         failed.append(suite + " (missing)")

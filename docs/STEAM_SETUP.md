@@ -4,7 +4,7 @@ RogueDice uses one host authority for offline, LAN, and Steam sessions. Steam lo
 
 ## Pinned integration
 
-- Godot **4.7.2 stable**, official build `ed1daf0bf`, Compatibility renderer.
+- Godot **4.7.2 stable**, official build `ed1daf0bf`, Forward+ renderer (Vulkan 1.0 or D3D12 required).
 - GodotSteam **GDExtension 4.22.1**, Steamworks **1.65**, upstream Godot compatibility minimum 4.4.
 - Included native libraries: Windows x64; Linux x64 and ARM64; macOS universal. Debug/release libraries and their Steam API dependencies are included.
 - Source, upstream ZIP SHA-256, and per-library SHA-256 values: [`addons/godotsteam/PINNED_BUILD.json`](../addons/godotsteam/PINNED_BUILD.json). Upstream license: [`addons/godotsteam/license.md`](../addons/godotsteam/license.md).

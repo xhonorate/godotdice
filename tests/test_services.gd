@@ -80,7 +80,8 @@ func _test_persistence() -> void:
 	state.heroes[0].key = "ARDOR"
 	state.heroes.append(state.heroes[0].duplicate(true))
 	check(not saves.save_checkpoint(state).ok, "Duplicate seat IDs rejected")
-	check(saves.save_settings({"master_volume": 0.4, "reduced_motion": true}).ok, "Settings saved separately")
+	check(saves.save_settings({"master_volume": 0.4, "reduced_motion": true, "idle_motion": false}).ok, "Settings saved separately")
+	check(saves.load_settings().idle_motion == false, "Idle motion is remembered between sessions")
 	check(saves.load_settings().reduced_motion and is_equal_approx(saves.load_settings().master_volume, 0.4), "Settings roundtrip")
 	check(saves.record_summary({"run_id": "test-run", "outcome": "victory"}).ok, "Summary persisted separately")
 	check(saves.record_summary({"run_id": "test-run", "outcome": "victory"}).get("duplicate", false), "Completed summary cannot duplicate")

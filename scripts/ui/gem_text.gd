@@ -17,11 +17,13 @@ extends RefCounted
 const Catalog = preload("res://scripts/core/catalog.gd")
 const Combat = preload("res://scripts/core/combat.gd")
 const GemIcons = preload("res://scripts/ui/gem_icons.gd")
+const GemRules = preload("res://scripts/core/gem_rules.gd")
 
 ## What each effect is tinted with, so a build reads by colour before it reads by word.
 const TONES := {
 	"damage": "RED", "block": "BLUE", "heal": "GREEN", "gold": "GOLD",
-	"poison": "VIOLET", "stun": "VIOLET", "strip": "AMBER", "revive": "GREEN"}
+	"poison": "VIOLET", "stun": "VIOLET", "strip": "AMBER", "revive": "GREEN",
+	"reroll": "WHITE", "amplify": "WHITE", "echo": "WHITE", "upgrade": "WHITE"}
 ## The property a bare number came from, named for the tooltip and the spoken sentence.
 const SOURCES := {"carat": "Carat", "cut": "Cut", "clarity": "Clarity"}
 
@@ -92,7 +94,8 @@ static func _fixed(verb: String, kind: String, label: String, text: String, tip:
 static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 	## One entry per effect the gem produces, in the order `combat.gd` resolves them.
 	var key: String = Catalog.canonical_key(str(gem.get("key", "")))
-	if not Catalog.SKILLS.has(key):
+	var definition: Dictionary = Catalog.definitions("skills").get(key, {})
+	if definition.is_empty():
 		return []
 	var c: int = clampi(int(gem.get("carat", 1)), 1, 24)
 	var k: int = clampi(int(gem.get("cut", 1)), 1, 5)
@@ -101,7 +104,9 @@ static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 	var flat: Dictionary = _clarity(stored, l)
 	var cut_name: String = Catalog.cut_name(k)
 	var built: Array = []
-	match key:
+	if GemRules.has_rule(definition):
+		return _authored(definition.rule, c, k, stored, l)
+	match Combat.rule_of(key):
 		"STRIKE":
 			built.append(_block("Deal", "damage", "damage", [
 				_part("high", "highest die" if k == 1 else "highest %d dice" % k,
@@ -213,7 +218,120 @@ static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 				_cut_flat(k, 3 * k, "triples into the health a revival restores"), flat], c, "once per battle"))
 			built.append(_block("Otherwise heal every living hero for", "heal", "health", [
 				_cut_flat(k, k, "adds its rank straight into this heal"), flat], c))
+		"GLIMMER":
+			var polish: Dictionary = _block("Raise your lowest die by", "amplify", "pips", [
+				_cut_flat(k, k, "adds its rank straight into the lift"), flat], c, "to a maximum of 20")
+			polish.note = "The hand itself changes, so every gem equipped after this one reads the raised die."
+			built.append(polish)
+		"REFRACT":
+			var lift: Dictionary = _block("Raise your highest die by", "amplify", "pips", [
+				_part("high", "highest die", GemIcons.hint("high")),
+				_cut_flat(k, 2 * (k - 1), "doubles into the lift"), flat], c, "to a maximum of 20")
+			lift.note = "Adding the die to itself is what doubles it. Every gem equipped after this one reads the raised hand."
+			built.append(lift)
+		"SECOND_SIGHT":
+			var allowance: int = Combat.reroll_allowance(c, k)
+			var sight: Dictionary = _fixed("Reroll up to", "reroll", "times a turn", str(allowance),
+				"Carat %d sets the allowance%s." % [c, ", and a Perfect Cut adds one" if k == 5 else ""],
+				"reroll", "for the rest of this battle")
+			sight.note = "It sets the allowance rather than adding to it, so casting it twice in one battle is no better than once."
+			built.append(sight)
+			built.append(_block("Gain", "block", "block", [flat], c))
+		"ECHO":
+			var repeat: Dictionary = _block("Repeat the last gem that landed an amount at", "echo", "per cent of it", [
+				_part("", "25", "A quarter of it before your ranks are counted."),
+				_cut_flat(k, 5 * (k - 1), "adds five points of repeat a rank"), flat], c, "up to 200%")
+			repeat.note = "It repeats damage, block, healing, gold and statuses. A gem that only changed your dice is skipped over rather than repeated."
+			built.append(repeat)
+		"FACET":
+			var recut: Dictionary = _fixed("Permanently add", "upgrade", "Carat to another gem",
+				str(ceili(float(k) / 2.0)),
+				"Cut %d (%s) sets how many ranks this cuts into the other stone." % [k, cut_name],
+				"cut", "once per battle")
+			recut.note = "It takes your lowest-Carat other equipped gem, and never lifts it past Carat %d — this gem's own size." % c
+			built.append(recut)
 	return built
+
+## A rule written as data, drawn as the same chain of marked parts a compiled one gets.
+## The amount is split at its top-level additions, because that is what the chain is: the
+## things that add up, then the one Carat multiplier over all of them.
+static func _authored(rule: Dictionary, carat: int, cut: int, clarity: int, effective: int) -> Array:
+	var built: Array = []
+	for effect in rule.get("effects", []):
+		if not effect is Dictionary:
+			continue
+		var kind: String = str(effect.get("kind", "damage"))
+		var scaled: bool = str(effect.get("scale", "carat")) == "carat"
+		var parts: Array = []
+		for addend in _addends(effect.get("amount", {})):
+			var drawn: Dictionary = _authored_part(addend, cut, clarity, effective)
+			if not drawn.is_empty():
+				parts.append(drawn)
+		var suffix: String = str(GemRules.WHERE.get(str(effect.get("target", "self")), "self"))
+		suffix = "" if suffix == "self" else "to " + suffix
+		if effect.has("target_limit"):
+			suffix += " (up to %s of them)" % GemRules._say(effect.target_limit)
+		var entry: Dictionary = _block(str(GemRules.VERBS.get(kind, "Apply")), _tone_kind(kind),
+			_label_for(kind), parts, carat if scaled else 1, suffix)
+		if effect.has("repeat"):
+			entry.repeat = _part("hit", "×" + GemRules._say(effect.repeat), "Separate hits against one fixed target.")
+		built.append(entry)
+	return built
+
+static func _tone_kind(kind: String) -> String:
+	return "strip" if kind == "remove_block" else kind
+
+static func _label_for(kind: String) -> String:
+	match kind:
+		"damage": return "damage"
+		"block", "remove_block": return "block"
+		"heal": return "health"
+		"gold": return "gold"
+		"poison": return "Poison"
+		"stun": return "stun"
+	return kind
+
+static func _addends(expression: Variant) -> Array:
+	if expression is Dictionary and str(expression.get("op", "")) == "+":
+		var flattened: Array = []
+		for argument in expression.get("args", []):
+			flattened.append_array(_addends(argument))
+		return flattened
+	return [expression]
+
+## Which pictograph a term deserves. `gem_icons.gd` owns the drawings and the hover text.
+const RULE_GLYPHS := {"high": "high", "highest_sum": "high", "low": "low", "lowest_sum": "low",
+	"lowest_odd": "low", "total": "sum", "pair_value": "pair", "triple_value": "triple",
+	"run_high": "run", "count_even": "count", "count_odd": "count", "count_distinct": "count",
+	"count_value": "count", "block": "shield"}
+
+static func _authored_part(expression: Variant, cut: int, clarity: int, effective: int) -> Dictionary:
+	if not expression is Dictionary:
+		return {}
+	if expression.has("rank"):
+		match str(expression.rank):
+			"clarity_bonus": return _clarity(clarity, effective)
+			"cut": return _cut_flat(cut, cut, "adds its rank straight into this")
+			"clarity": return _part("clarity", str(effective), "Clarity %d (%s)." % [effective, Catalog.clarity_name(effective)])
+			"carat": return _part("carat", str(""), "Carat.")
+	if expression.has("const"):
+		var value: int = int(expression["const"])
+		return {} if value == 0 else _part("", str(value), "A flat %d, whatever you roll." % value)
+	if expression.has("term"):
+		var term: String = str(expression.term)
+		return _part(str(RULE_GLYPHS.get(term, "")), GemRules._say(expression), GemIcons.hint(str(RULE_GLYPHS.get(term, ""))))
+	if expression.has("op"):
+		## A product of a term and the Cut is the shape the shipped gems use, so it is drawn
+		## the way they are: the term, with the Cut hanging off it as a multiplier.
+		var args: Array = expression.get("args", [])
+		if str(expression.op) == "*" and args.size() == 2:
+			for order in [[0, 1], [1, 0]]:
+				if args[order[1]] is Dictionary and str(args[order[1]].get("rank", "")) == "cut" and args[order[0]] is Dictionary and args[order[0]].has("term"):
+					var term_part: Dictionary = _authored_part(args[order[0]], cut, clarity, effective)
+					term_part.factor = _cut_factor(cut)
+					return term_part
+		return _part("", GemRules._say(expression), "This part of the rule, worked out from your hand.")
+	return {}
 
 # --- the name line ------------------------------------------------------------
 
