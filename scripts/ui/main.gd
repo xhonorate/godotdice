@@ -2945,6 +2945,9 @@ func _return_menu() -> void:
 	## Back to the shop. A party stays together: the host reopens the lobby and every guest
 	## lands in the shop with it, ready flags cleared for the next descent.
 	_close_overlay()
+	# A finished expedition has nothing left to resume, so its checkpoint goes with it.
+	if str(snapshot.get("phase", "")) == "summary" and (offline_hotseat or session.is_host):
+		engine.save_store.clear_checkpoint()
 	if _in_party() and not offline_hotseat:
 		if session.is_host: session.return_to_lobby()
 	else:
