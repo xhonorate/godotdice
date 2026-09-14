@@ -52,7 +52,17 @@ const SKILLS: Dictionary = {
 	"REFRACT": {"name": "Refract", "rarity": 3, "color": "WHITE", "tags": ["high", "support"], "trigger": "Always", "formula": "Raise your highest die by (H + 2(K−1) + F(L)) × M(C), to a maximum of 20 — enough to at least double it. Every gem equipped after this one reads the raised hand.", "target": "self"},
 	"SECOND_SIGHT": {"name": "Second Sight", "rarity": 2, "color": "WHITE", "tags": ["support", "block"], "trigger": "Always", "formula": "Raise your rerolls per turn to 2 + floor(C/8) for the rest of this battle, +1 at K5, up to 4. It sets the allowance rather than adding to it. Then gain F(L) × M(C) block.", "target": "self"},
 	"ECHO": {"name": "Echo", "rarity": 3, "color": "WHITE", "tags": ["pair", "support", "group"], "trigger": "Any pair", "formula": "Repeat the last gem before this one that landed an amount, at (25 + 5(K−1) + F(L)) × M(C) percent of it, up to 200%. It repeats damage, block, healing, gold and statuses only.", "target": "self"},
-	"FACET": {"name": "Facet", "rarity": 4, "color": "WHITE", "tags": ["distinct", "support"], "trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)", "formula": "Once per encounter, permanently raise the Carat of your lowest-Carat other equipped gem by ceil(K/2), never past this gem's own Carat of C.", "target": "self"}
+	"FACET": {"name": "Facet", "rarity": 4, "color": "WHITE", "tags": ["distinct", "support"], "trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)", "formula": "Once per encounter, permanently raise the Carat of your lowest-Carat other equipped gem by ceil(K/2), never past this gem's own Carat of C.", "target": "self"},
+	"QUARTET": {"name": "Quartet", "rarity": 3, "color": "RED", "tags": ["triple", "attack"], "trigger": "At least four matching values (three at L5)", "formula": "Damage (matched value × 2K + F(L)) × M(C). Clarity buys the trigger down to a triple instead of adding its flat bonus at L5.", "target": "enemy"},
+	"BASTION": {"name": "Bastion", "rarity": 3, "color": "BLUE", "tags": ["low", "block", "support", "stun"], "trigger": "Total ≤ 18+2L (20/22/24/26/28)", "formula": "Party block (3K + F(L)) × M(C) to every living hero, then clear 1 stun (2 at L5) from every living hero.", "target": "ally"},
+	"PURGE": {"name": "Purge", "rarity": 2, "color": "GREEN", "tags": ["even", "heal", "support", "poison"], "trigger": "At least three even results", "formula": "Clear K + ceil(C/8) Poison from every living hero, then party heal F(L) × M(C).", "target": "ally"},
+	"GRAFT": {"name": "Graft", "rarity": 3, "color": "GREEN", "tags": ["two_pairs", "heal"], "trigger": "Two distinct pairs", "formula": "Self heal (both pair values + 2(K−1) + F(L)) × M(C).", "target": "self"},
+	"HEXBOLT": {"name": "Hex Bolt", "rarity": 2, "color": "VIOLET", "tags": ["odd", "attack", "stun"], "trigger": "At least three odd results", "formula": "Damage (odd result count × K + F(L)) × M(C). At L5, apply 1 stun.", "target": "enemy"},
+	"MIASMA": {"name": "Miasma", "rarity": 3, "color": "VIOLET", "tags": ["even", "poison", "group"], "trigger": "At least three even results", "formula": "Apply K+ceil(C/6) Poison to up to K+1 distinct enemies, then damage F(L) × M(C) to the same enemies (12 stack cap).", "target": "enemies"},
+	"ENERVATE": {"name": "Enervate", "rarity": 4, "color": "VIOLET", "tags": ["triple", "poison", "attack"], "trigger": "At least three matching values", "formula": "Remove up to (2K + F(L)) × M(C) block, then apply floor(matched value / 2) + K Poison (12 stack cap).", "target": "enemy"},
+	"TITHE": {"name": "Tithe", "rarity": 1, "color": "GOLD", "tags": ["pair", "gold"], "trigger": "Any pair", "formula": "Gain (K + F(L)) × M(C) gold.", "target": "self"},
+	"MINT": {"name": "Mint", "rarity": 2, "color": "GOLD", "tags": ["distinct", "gold", "block"], "trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)", "formula": "Gain (2K + F(L)) × M(C) gold, then self block (K + F(L)) × M(C).", "target": "self"},
+	"WAGER": {"name": "Wager", "rarity": 4, "color": "GOLD", "tags": ["low", "gold", "attack"], "trigger": "Total ≤ 18+2L (20/22/24/26/28)", "formula": "Gain 3 × M(C) gold, then damage (24 − total + 2K + F(L)) × M(C). The less the hand gave you, the harder this lands.", "target": "enemy"}
 }
 const DICE: Dictionary = {
 	"D4": {"name": "D4", "shape": "D4", "faces": [1, 2, 3, 4], "price": 4},
@@ -362,7 +372,7 @@ static func validate_content() -> Array:
 	var errors: Array = []
 	if _content_pack == null:
 		errors.append_array(load_content_pack())
-	if SKILLS.size() != 24 or RELICS.size() != 8 or HEROES.size() != 3:
+	if SKILLS.size() != 34 or RELICS.size() != 8 or HEROES.size() != 3:
 		errors.append("Incomplete content catalog")
 	for key in DICE:
 		var definition: Dictionary = DICE[key]

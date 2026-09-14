@@ -23,6 +23,7 @@ const tables = {
 	bulwark_stun: [3, 2, 2, 1, 0],
 	multistrike_hit: 4,
 	blessing_gold: 3,
+	wager_ceiling: 24,
 };
 const RANKS = [[1, 1, 1], [8, 3, 3], [24, 5, 5], [12, 2, 4], [4, 4, 2]];
 

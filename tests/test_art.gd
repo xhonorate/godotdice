@@ -91,7 +91,7 @@ func run() -> void:
 		check(Forge.unit(key).get_width() > 0, "enemy sprite " + key)
 	for key in Catalog.RELICS:
 		check(Forge.relic(key).get_width() > 0, "relic sprite " + key)
-	for kind in ["battle", "elite", "boss", "shop", "rest", "event", "mine", "workshop", "lapidary"]:
+	for kind in ["battle", "elite", "boss", "shop", "rest", "event", "mine", "workshop", "lapidary", "wager", "crucible"]:
 		check(Forge.room(kind).get_width() > 0, "room icon " + kind)
 	for prop_name in ["sigil", "gold", "heart", "shield", "skull", "sword", "bolt", "shieldbreak"]:
 		check(Forge.prop(prop_name).get_width() > 0, "prop icon " + prop_name)

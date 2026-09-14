@@ -2,8 +2,9 @@ extends SceneTree
 ## Development helper: drives the real interface and writes PNGs of each screen.
 ## Run with a windowed editor build, for example:
 ##   godot --path . --script tools/screenshot.gd -- --out user://shots
-## Screens are written as menu.png, battle.png, route.png, inventory.png, journal.png
-## and one shot of each inspect sheet: inspect_gem.png, inspect_enemy.png, inspect_die.png.
+## Screens are written as menu.png, battle.png, route.png, inventory.png, journal.png,
+## one shot of each inspect sheet: inspect_gem.png, inspect_enemy.png, inspect_die.png,
+## and the service rooms that are played rather than read: wager_*.png and crucible_*.png.
 
 var ui: Control
 var out_dir := "user://shots"
@@ -96,6 +97,54 @@ func run() -> void:
 	ui._show_journal()
 	await settle(70)
 	await shoot("journal_dice")
+	ui.journal_tab = "rooms"
+	ui._show_journal()
+	await settle(20)
+	await shoot("journal_rooms")
+	ui._close_overlay()
+	await settle(10)
+
+	# A route card carrying the two rooms that are played rather than read.
+	ui.engine.state.room = {}
+	ui.engine.state.offers = [
+		{"id": "shot-wager", "kind": "wager", "name": "The Wager Hall",
+			"description": ui.engine._room_description("wager"), "required": false},
+		{"id": "shot-crucible", "kind": "crucible", "name": "The Crucible",
+			"description": ui.engine._room_description("crucible"), "required": false},
+		{"id": "shot-battle", "kind": "battle", "name": "Battle",
+			"description": ui.engine._room_description("battle"), "required": false}]
+	ui.engine.state.votes = {"shot_two": "shot-crucible"}
+	ui.engine.state.phase = "route"
+	ui._state_changed(ui.engine.state)
+	await settle(20)
+	await shoot("route_services")
+
+	# The Wager Hall at each of its three states.
+	ui.engine._enter_room("wager")
+	ui.engine.state.heroes[0].gold = 40
+	ui._state_changed(ui.engine.state)
+	await settle(20)
+	await shoot("wager_stake")
+	ui._command("PlaceWager", {"stake": 8})
+	await settle(30)
+	var seat: Dictionary = ui.snapshot.room.wager[ui.controlled_id]
+	ui._toggle_die(str(seat.hand[0].die_id))
+	ui._toggle_die(str(seat.hand[3].die_id))
+	await settle(30)
+	await shoot("wager_hand")
+	ui._command("SettleWager", {})
+	await settle(30)
+	await shoot("wager_settled")
+
+	# The Crucible, and the before/after it shows before any HP is spent.
+	ui.engine._enter_room("crucible")
+	ui.engine.state.heroes[0].gems[0].carat = 9
+	ui._state_changed(ui.engine.state)
+	await settle(30)
+	await shoot("crucible")
+	ui._crucible_preview(ui._hero().gems[0], "temper", {})
+	await settle(30)
+	await shoot("crucible_preview")
 	ui._close_overlay()
 	await settle(6)
 	print("screenshots written to ", ProjectSettings.globalize_path(out_dir))

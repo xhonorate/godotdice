@@ -121,14 +121,14 @@ static func requirement(key: String, clarity: int = 1, cut: int = 1, carat: int 
 		return _from_trigger(definition.rule.get("trigger", {}), l, cut, carat)
 	## A gem that borrows a rule shows the rule's requirement, not its own name's.
 	match Combat.rule_of(key):
-		"BLOCK", "INTERPOSE":
+		"BLOCK", "INTERPOSE", "TITHE":
 			return _spec(_same(2, 4), "", "Any two dice sharing a value.")
-		"HEAVYSTRIKE":
+		"HEAVYSTRIKE", "ENERVATE":
 			return _spec(_same(3, 5), "", "Any three dice sharing a value.")
 		"SHIELDBASH":
 			return _spec(_same(3, 5) + _same(2, 2, OTHER_TONE), "",
 				"Three dice of one value and two of another.")
-		"SUNDER":
+		"SUNDER", "GRAFT":
 			return _spec(_same(2, 2) + _same(2, 5, OTHER_TONE), "",
 				"Two pairs of different values.")
 		"MULTISTRIKE", "LIFELINE":
@@ -137,10 +137,10 @@ static func requirement(key: String, clarity: int = 1, cut: int = 1, carat: int 
 			return _spec(_run(3), "", "A run of three consecutive values, in any order.")
 		"LUCKYSTRIKE":
 			return _spec([[7, MATCH_TONE]], "", "At least one die showing 7.")
-		"MEND":
+		"MEND", "HEXBOLT":
 			return _spec([[1, RUN_TONE], [3, RUN_TONE], [5, RUN_TONE]], "",
 				"At least three odd results.")
-		"EVEN_TEMPO":
+		"EVEN_TEMPO", "PURGE", "MIASMA":
 			return _spec([[2, RUN_TONE], [4, RUN_TONE], [6, RUN_TONE]], "",
 				"At least three even results.")
 		"PRECISION":
@@ -148,7 +148,10 @@ static func requirement(key: String, clarity: int = 1, cut: int = 1, carat: int 
 				"≠", "All five dice showing different values.")
 		"ECHO":
 			return _spec(_same(2, 4), "", "Any two dice sharing a value.")
-		"FACET":
+		"QUARTET":
+			var alike: int = 3 if l == 5 else 4
+			return _spec(_same(alike, 4), "", "Any %d dice sharing a value." % alike)
+		"FACET", "MINT":
 			## The same easing a straight gets, counted in distinct values rather than a run.
 			return _spec([[3, PLAIN_TONE], [1, PLAIN_TONE], [6, PLAIN_TONE], [2, PLAIN_TONE], [5, PLAIN_TONE]].slice(0, run),
 				"≠", "At least %d dice with no two of them alike." % run)
@@ -156,7 +159,7 @@ static func requirement(key: String, clarity: int = 1, cut: int = 1, carat: int 
 			return _spec([[21 - l, MATCH_TONE]], "≥", "The highest die is at least %d." % (21 - l))
 		"VENOM":
 			return _spec([[13 - l, MATCH_TONE]], "≥", "The highest die is at least %d." % (13 - l))
-		"BULWARK":
+		"BULWARK", "BASTION", "WAGER":
 			return _spec([], "Σ ≤ %d" % (18 + 2 * l), "The whole hand totals %d or less." % (18 + 2 * l))
 		"DRAINSTRIKE":
 			return _spec([], "Σ ≥ %d" % (45 - 5 * l), "The whole hand totals %d or more." % (45 - 5 * l))

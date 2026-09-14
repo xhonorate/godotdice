@@ -37,16 +37,6 @@ const HP_LOST := Color("6b3b3b")
 const HERO_KEYS := ["ardor", "kait", "max"]
 const GEM_SLOTS := 6
 const GEM_SLOT_WIDTH := 132
-## What each planned effect looks like above a hero: icon, tint, and what it means.
-const FORECAST_MARKS := {
-	"damage": ["sword", "ff7a6b", "Damage this hero's gems will deal"],
-	"block": ["shield", "76b6ff", "Block this hero will gain"],
-	"heal": ["heart", "6fe3b0", "Healing this hero will give"],
-	"lifeline": ["heart", "ffcf7a", "Hit points a revival will restore"],
-	"poison": ["skull", "9bdc3c", "Poison this hero will apply"],
-	"stun": ["bolt", "ffcf7a", "Stun this hero will apply"],
-	"remove_block": ["shieldbreak", "b98bff", "Enemy block this hero will strip"],
-	"gold": ["gold", "e8b661", "Gold this hero will earn"]}
 const ACTION_DEFAULTS := {"rd_reroll": KEY_R, "rd_ready": KEY_SPACE, "rd_inspect": KEY_I, "rd_target": KEY_TAB, "rd_back": KEY_ESCAPE, "rd_toggle_die": KEY_T, "rd_skip": KEY_F}
 
 var engine: RefCounted
@@ -80,6 +70,22 @@ var playback_paused := false
 var playback_events: Array = []
 var playback_index := 0
 var playback_timer := 0.0
+## The fight as it stood before the log now playing was resolved, and how long the entry
+## on screen has asked to keep the floor. Together they let a decided battle be watched
+## to its end instead of cutting to the next room the instant the authority settles it.
+var playback_base: Dictionary = {}
+var playback_dwell := 0.0
+var playback_side := 0
+var playback_held := false
+var loadout_cache: Dictionary = {}
+## The socket in your own deck that is resolving, so the stone on the tray lights with the
+## one over your hero's head rather than sitting inert while its numbers are counted out.
+var gem_slot_cards: Dictionary = {}
+var casting_gem := ""
+var casting_age := 0.0
+var casting_span := 0.0
+## The pause the field takes when the initiative changes hands.
+const SIDE_CHANGE_BEAT := 0.85
 var history: Array = []
 var last_hands: Dictionary = {}
 var die_buttons: Dictionary = {}
@@ -123,7 +129,7 @@ func _ready() -> void:
 	session.command_received.connect(_receive_command)
 	session.snapshot_received.connect(_receive_snapshot)
 	session.lobby_changed.connect(func(_lobby: Dictionary): _queue_render())
-	session.connection_changed.connect(func(status: String): _notify(status); _queue_render())
+	session.connection_changed.connect(func(status: String): _queue_render())
 	session.error_received.connect(_notify)
 	session.command_result.connect(func(result: Dictionary):
 		if not result.get("ok", false): _notify(str(result.get("error", "Command rejected"))))
@@ -281,50 +287,105 @@ func _battle_stage() -> Control:
 	stage_view.custom_minimum_size.y = 230
 	return stage_view
 
-func _plate_hand(hero: Dictionary) -> Array:
+func _plate_hand(unit: Dictionary, roster: Array) -> Array:
 	## The rolled hand as it is drawn under a combatant: each face keeps the shape and
-	## colour of the die it came from, so the plate matches the tray and the solid.
+	## colour of the die it came from, so the plate matches the tray and the solid. The
+	## die's own id rides along, so an activation can trace its motes back to the faces
+	## that fed it.
 	var solids: Dictionary = {}
-	for die in hero.get("dice", []):
-		solids[str(die.get("id", ""))] = [str(die.get("shape", "D6")), str(die.get("key", die.get("shape", "D6")))]
+	for die in unit.get("dice", []):
+		solids[str(die.get("id", ""))] = die
 	var faces: Array = []
-	for roll in _hand_for(hero):
-		var solid: Array = solids.get(str(roll.get("die_id", "")), ["D6", "D6"])
-		faces.append({"value": int(roll.get("value", 0)), "shape": str(solid[0]), "key": str(solid[1])})
+	for roll in roster:
+		var die: Dictionary = solids.get(str(roll.get("die_id", "")), {})
+		faces.append({"value": int(roll.get("value", 0)),
+			"shape": str(die.get("shape", "D6")), "key": str(die.get("key", die.get("shape", "D6"))),
+			"die_id": str(roll.get("die_id", "")), "die": die, "roll": roll})
 	return faces
 
-func _stage_units() -> Array:
-	## Presentation-only description of the battlefield, read from the snapshot.
+func _stage_units(state: Dictionary) -> Array:
+	## Presentation-only description of the battlefield, read from the given state. While a
+	## fight plays out that state is the one the log started from, advanced only as far as
+	## the events already shown, so nobody leaves the field before their last blow is drawn.
 	var units: Array = []
 	var me: Dictionary = _hero()
-	var locked: bool = bool(me.get("ready", false))
-	for enemy in snapshot.get("enemies", []):
+	var locked: bool = bool(me.get("ready", false)) or _playing_out()
+	var standing: Dictionary = _projected_standing()
+	var thrown: Dictionary = _projected_rolls()
+	for enemy in state.get("enemies", []):
+		var id := str(enemy.get("id", ""))
+		var hp: int = int(standing.get(id, {}).get("hp", enemy.get("hp", 0)))
 		var lines: Array = []
 		if int(enemy.get("statuses", {}).get("stun", 0)) > 0:
 			lines.append("STUNNED · SLOT SKIPPED")
 		units.append({
-			"id": str(enemy.get("id", "")), "key": str(enemy.get("key", "ENEMY")), "side": 1,
-			"name": str(enemy.get("name", "Enemy")), "hp": int(enemy.get("hp", 0)), "max_hp": int(enemy.get("max_hp", 1)),
-			"block": int(enemy.get("block", 0)), "downed": int(enemy.get("hp", 0)) <= 0,
-			"targeted": str(me.get("preferred_target", "")) == str(enemy.get("id", "")),
+			"id": id, "key": str(enemy.get("key", "ENEMY")), "side": 1,
+			"name": str(enemy.get("name", "Enemy")), "hp": hp, "max_hp": int(enemy.get("max_hp", 1)),
+			"block": int(standing.get(id, {}).get("block", enemy.get("block", 0))), "downed": hp <= 0,
+			"targeted": str(me.get("preferred_target", "")) == id,
 			"hint": "Left-click to target. Right-click to inspect.",
 			"boss": bool(enemy.get("boss", false)), "mine": false,
 			"tint": _unit_tint(str(enemy.get("key", ""))), "bar": HP_FOE,
-			"intents": lines, "forecast": _intent_rows(enemy), "badges": _status_badges(enemy),
-			"pick_disabled": int(enemy.get("hp", 0)) <= 0 or locked})
-	for hero in snapshot.get("heroes", []):
-		var down: bool = int(hero.get("hp", 0)) <= 0
+			"intents": lines, "badges": _status_badges(enemy),
+			"pick_disabled": hp <= 0 or locked,
+			"loadout": _enemy_loadout(enemy),
+			# The other side's dice are its only tray, so they are drawn as real solids and
+			# tumble where they stand when its slot comes up.
+			"solid": true,
+			"hand": _plate_hand(enemy, thrown.get(id, {}).get("hand", enemy.get("hand", [])))})
+	for hero in state.get("heroes", []):
+		var id := str(hero.get("id", ""))
+		var hp: int = int(standing.get(id, {}).get("hp", hero.get("hp", 0)))
 		units.append({
-			"id": str(hero.get("id", "")), "key": str(hero.get("key", "ARDOR")), "side": -1,
-			"name": str(hero.get("player_name", hero.get("name", "Hero"))), "hp": int(hero.get("hp", 0)),
-			"max_hp": int(hero.get("max_hp", 1)), "block": int(hero.get("block", 0)), "downed": down,
+			"id": id, "key": str(hero.get("key", "ARDOR")), "side": - 1,
+			"name": str(hero.get("player_name", hero.get("name", "Hero"))), "hp": hp,
+			"max_hp": int(hero.get("max_hp", 1)),
+			"block": int(standing.get(id, {}).get("block", hero.get("block", 0))), "downed": hp <= 0,
 			"targeted": false, "hint": "Right-click to inspect. Friendly effects reach the whole party.",
-			"boss": false, "mine": str(hero.get("id", "")) == controlled_id,
+			"boss": false, "mine": id == controlled_id,
 			"tint": _unit_tint(str(hero.get("key", ""))), "bar": HP_LIVE,
-			"intents": [], "forecast": _forecast_rows(hero),
+			"intents": [],
 			"badges": _status_badges(hero), "pick_disabled": true,
-			"hand": _plate_hand(hero)})
+			"loadout": _stage_loadout(hero, state),
+			"hand": _plate_hand(hero, _hand_for(hero))})
 	return units
+
+func _enemy_loadout(enemy: Dictionary) -> Array:
+	## The other side's roster, read the same way the party reads its own gems: every action
+	## the routine can reach, dimmed until its dice are up and the roll says which it opened.
+	var rolled: Dictionary = _projected_rolls().get(str(enemy.get("id", "")), {})
+	var opened: Array = rolled.get("opened", [])
+	var lit: bool = not rolled.is_empty()
+	var carried: Array = []
+	for action in Combat.enemy_skills(enemy):
+		var key := str(action.key)
+		var open: bool = key in opened
+		carried.append({
+			"id": key, "glyph": GemIcons.emblem(key), "tint": AMBER,
+			"dim": not lit or not open,
+			"tip": "%s\n%s" % [str(action.name), "Its dice have not come up yet." if not lit else
+				("This roll opened it." if open else "This roll did not open it.")]})
+	return carried
+
+func _stage_loadout(hero: Dictionary, state: Dictionary) -> Array:
+	## The stones an ally is carrying, small enough to ride over the head the way their
+	## roll rides under their feet. It is the anchor an activation lights up, so a party
+	## member's turn is followed on the party member rather than on a panel of their own.
+	var id := str(hero.get("id", ""))
+	if loadout_cache.has(id):
+		return loadout_cache[id]
+	var carried: Array = []
+	for gem in hero.get("gems", []):
+		if not gem.get("equipped", false):
+			continue
+		var key := str(gem.get("key", ""))
+		var active: bool = Combat.preview(hero, gem, _hand_for(hero), state).get("active", false)
+		carried.append({
+			"id": str(gem.get("id", "")), "glyph": GemIcons.emblem(key),
+			"tint": _gem_color(gem), "dim": not active,
+			"tip": "%s\n%s" % [_gem_name(gem), _gem_stats(gem)]})
+	loadout_cache[id] = carried
+	return carried
 
 func _status_badges(unit: Dictionary) -> Array:
 	var badges: Array = []
@@ -407,11 +468,11 @@ func _header() -> void:
 	if snapshot.is_empty():
 		return
 	var bar := _hbox(root_box, 12)
-	var fighting: bool = str(snapshot.get("phase", "")) in ["planning", "resolution", "combat"]
+	var fighting: bool = _shown_phase() in BATTLE_PHASES
 	if fighting:
 		UiKit.icon(bar, Forge.room(str(snapshot.get("room", {}).get("kind", "battle"))), 26).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		_label(bar, str(snapshot.get("room", {}).get("name", "Battle")), 17, GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var turn := int(snapshot.get("turn", 1))
+		var turn := int(_battle_state().get("turn", 1))
 		UiKit.chip(bar, "TURN %02d" % turn, PAPER, 10).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		if turn >= 7:
 			var enrage := UiKit.chip(bar, "ENRAGE +%d" % (2 * (turn - 6)), RED, 10)
@@ -598,7 +659,7 @@ func _begin_local() -> void:
 	session.start_offline(menu_name, menu_hero)
 	offline_hotseat = true
 	controlled_id = str(session.local_player_id)
-	var party: Array = [{"id": controlled_id, "hero_id": menu_hero, "name": menu_name}]
+	var party: Array = [ {"id": controlled_id, "hero_id": menu_hero, "name": menu_name}]
 	var result: Dictionary = engine.new_run({"heroes": party, "profile": profile, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": controlled_id, "session_id": session.session_id})
 	if result.has("error") and not result.get("ok", true):
 		_notify(str(result.error))
@@ -642,11 +703,12 @@ func _resume() -> void:
 		_notify("No saved expedition was found.")
 		return
 	offline_hotseat = true
-	controlled_id = str(engine.state.get("heroes", [{}])[0].get("id", ""))
+	controlled_id = str(engine.state.get("heroes", [ {}])[0].get("id", ""))
 	session.start_offline(player_name)
 	_state_changed(engine.state)
 
 func _state_changed(state: Dictionary) -> void:
+	var previous: Dictionary = snapshot
 	if snapshot.get("run_id", "") != state.get("run_id", ""):
 		shown_hands.clear()
 		shown_turn = -1
@@ -658,6 +720,7 @@ func _state_changed(state: Dictionary) -> void:
 	for hero in state.get("heroes", []):
 		if not hero.get("hand", []).is_empty(): last_hands[hero.id] = hero.hand.duplicate(true)
 	snapshot = state.duplicate(true)
+	loadout_cache.clear()
 	if not snapshot.get("mine", {}).get("events", []).is_empty() and mine_playback_room != str(snapshot.get("room", {}).get("id", "")):
 		mine_playback_room = str(snapshot.room.id)
 		mine_playback_index = 0
@@ -674,6 +737,9 @@ func _state_changed(state: Dictionary) -> void:
 		playback_events = snapshot.get("last_events", []).duplicate(true)
 		playback_index = 0
 		playback_timer = 0.0
+		playback_dwell = 0.0
+		playback_side = 0
+		playback_base = previous if str(previous.get("run_id", "")) == str(snapshot.get("run_id", "")) else snapshot
 	observed_revision = revision
 	_refresh_hands()
 	_prune_persistent()
@@ -684,6 +750,61 @@ func _state_changed(state: Dictionary) -> void:
 
 func _stage_on_screen() -> bool:
 	return is_instance_valid(stage_view) and stage_view.is_inside_tree()
+
+const BATTLE_PHASES := ["planning", "resolution", "combat"]
+
+func _playing_out() -> bool:
+	## A fight that has already been decided still has to be watched. While the log has
+	## entries left, the battlefield keeps the screen and the room that follows waits its
+	## turn, so a killing blow is drawn before the spoils are offered.
+	if playback_index >= playback_events.size() or playback_base.is_empty():
+		return false
+	if str(snapshot.get("phase", "")) in BATTLE_PHASES:
+		return false
+	return str(playback_base.get("phase", "")) in BATTLE_PHASES \
+		and str(playback_base.get("room", {}).get("id", "")) == str(snapshot.get("room", {}).get("id", ""))
+
+func _shown_phase() -> String:
+	var phase := str(snapshot.get("phase", "route"))
+	return "planning" if _playing_out() else phase
+
+func _battle_state() -> Dictionary:
+	return playback_base if _playing_out() else snapshot
+
+func _projected_rolls() -> Dictionary:
+	## Which enemies have taken their dice up at the point in the log now on screen, and what
+	## those dice opened. Before an enemy's own slot arrives it has no hand and no lit action,
+	## which is the whole point: the party plans against the board, not against a forecast.
+	var rolls: Dictionary = {}
+	if playback_events.is_empty():
+		return rolls
+	for index in mini(playback_index, playback_events.size()):
+		var event: Variant = playback_events[index]
+		if event is Dictionary and str(event.get("kind", "")) == "roll":
+			rolls[str(event.get("actor", ""))] = {
+				"hand": event.get("hand", []), "opened": event.get("opened", [])}
+	return rolls
+
+func _projected_standing() -> Dictionary:
+	## Where each combatant stands at the point in the log currently on screen. Every event
+	## carries the standing it produced, so this reads those back rather than re-deriving a
+	## rule: without it a fight would empty its field the instant the authority settled it.
+	var standing: Dictionary = {}
+	if playback_base.is_empty() or playback_index >= playback_events.size():
+		return standing
+	for unit in playback_base.get("heroes", []) + playback_base.get("enemies", []):
+		standing[str(unit.get("id", ""))] = {"hp": int(unit.get("hp", 0)), "block": int(unit.get("block", 0))}
+	for index in mini(playback_index, playback_events.size()):
+		var event: Variant = playback_events[index]
+		if not event is Dictionary or not event.has("target_hp"):
+			continue
+		var actor_id := str(event.get("actor", ""))
+		var target_id := str(event.get("target", ""))
+		if standing.has(actor_id):
+			standing[actor_id] = {"hp": int(event.get("actor_hp", 0)), "block": int(event.get("actor_block", 0))}
+		if standing.has(target_id):
+			standing[target_id] = {"hp": int(event.get("target_hp", 0)), "block": int(event.get("target_block", 0))}
+	return standing
 
 func _hand_for(unit: Dictionary) -> Array:
 	## The hand as it is being shown, which lags the snapshot while a fight plays out.
@@ -711,6 +832,10 @@ func _refresh_hands() -> bool:
 	## so the dice on the table never reroll underneath the fight that is still playing.
 	var signature := _hand_signature()
 	if signature == shown_signature:
+		return false
+	# A decided fight clears every hand the moment the authority settles it. The dice on
+	# the plates are still feeding an activation, so they stay until the log runs out.
+	if _playing_out():
 		return false
 	if _holding_hand() and playback_index < playback_events.size() and _stage_on_screen():
 		return false
@@ -758,16 +883,19 @@ func _command(kind: String, payload: Dictionary = {}) -> void:
 		session.send_command(envelope)
 
 func _hero() -> Dictionary:
-	for hero in snapshot.get("heroes", []):
+	return _hero_in(snapshot)
+
+func _hero_in(state: Dictionary) -> Dictionary:
+	for hero in state.get("heroes", []):
 		if str(hero.get("id")) == controlled_id:
 			return hero
-	return snapshot.get("heroes", [{}])[0] if not snapshot.get("heroes", []).is_empty() else {}
+	return state.get("heroes", [ {}])[0] if not state.get("heroes", []).is_empty() else {}
 
 func _seat() -> int:
 	return int(_hero().get("seat", 0))
 
 func _run_screen() -> void:
-	var phase: String = str(snapshot.get("phase", "route"))
+	var phase: String = _shown_phase()
 	var body := _hbox(root_box, 16)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	# During a fight the battlefield already shows every combatant, so the roster
@@ -862,33 +990,42 @@ func _progress_track(parent: Node) -> void:
 
 func _battle(parent: Node) -> void:
 	die_buttons.clear()
-	var hero: Dictionary = _hero()
+	gem_slot_cards.clear()
+	var state: Dictionary = _battle_state()
+	var hero: Dictionary = _hero_in(state)
 	var room_kind := str(snapshot.get("room", {}).get("kind", "battle"))
 	# Gems ride above the battlefield and dice below it, so the fight keeps the middle.
-	_gem_deck(parent, hero)
+	_gem_deck(parent, hero, state)
 	var field := PanelContainer.new()
 	field.add_theme_stylebox_override("panel", UiKit.panel_box(Color("1a2233"), Color("0a0e18"), Color("32405e"), 12, 6, 1.4, 0.12))
 	field.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(field)
 	var stage := _battle_stage()
 	field.add_child(stage)
-	stage.sync(_stage_units(), bool(settings.reduced_motion), _room_color(room_kind), _pick_unit, _inspect_by_id)
+	stage.sync(_stage_units(state), bool(settings.reduced_motion), _room_color(room_kind), _pick_unit, _inspect_by_id)
+	if _playing_out():
+		# The fight is already settled; the tray would offer choices that no longer exist.
+		var closing := _hbox(parent, 12)
+		closing.alignment = BoxContainer.ALIGNMENT_CENTER
+		_label(closing, "The last blows are landing.", 15, AMBER)
+		_button(closing, "Skip playback  [%s]" % _binding_name("rd_skip"), _skip_playback)
+		return
 	_hand_deck(parent, hero)
 
-func _gem_deck(parent: Node, hero: Dictionary) -> void:
+func _gem_deck(parent: Node, hero: Dictionary, state: Dictionary) -> void:
 	## Six sockets, centred, sprite first. Every word lives on the tooltip and the sheet.
 	var row := _hbox(parent, 10)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var equipped: Array = []
 	for gem in hero.get("gems", []):
 		if gem.get("equipped", false): equipped.append(gem)
-	var ordered_previews: Array = [] if _holding_hand() else Combat.preview_loadout(hero, snapshot)
+	var ordered_previews: Array = [] if _holding_hand() else Combat.preview_loadout(hero, state)
 	for slot in range(maxi(GEM_SLOTS, equipped.size())):
 		if slot >= equipped.size():
 			_empty_gem(row)
 			continue
 		var gem: Dictionary = equipped[slot]
-		_gem_slot(row, gem, ordered_previews[slot] if slot < ordered_previews.size() else Combat.preview(hero, gem, _hand_for(hero), snapshot))
+		_gem_slot(row, gem, ordered_previews[slot] if slot < ordered_previews.size() else Combat.preview(hero, gem, _hand_for(hero), state))
 
 func _gem_slot(row: Node, gem: Dictionary, preview: Dictionary) -> void:
 	var active: bool = preview.get("active", false)
@@ -896,6 +1033,7 @@ func _gem_slot(row: Node, gem: Dictionary, preview: Dictionary) -> void:
 	var frame: Control = card.get_parent()
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	frame.custom_minimum_size.x = GEM_SLOT_WIDTH
+	gem_slot_cards[str(gem.get("id", ""))] = frame
 	var badge := _gem_portrait(card, gem, 76)
 	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	badge.modulate = Color.WHITE if active else Color(0.55, 0.60, 0.70, 0.75)
@@ -968,51 +1106,6 @@ func _hand_deck(parent: Node, hero: Dictionary) -> void:
 	UiKit.chip(gold_row, "%d GOLD" % purse, GOLD).tooltip_text = "Combat gold allowance: %d of %d remaining. Room rewards are separate." % [purse, allowance]
 	_ready_button(_hbox(right, 6))
 
-func _effect_marks(effects: Array) -> Array:
-	## Totals a batch of planned effects into icon-and-number marks, biggest idea first.
-	var totals: Dictionary = {}
-	for item in effects:
-		var kind := str(item.get("kind", ""))
-		if not FORECAST_MARKS.has(kind):
-			continue
-		totals[kind] = int(totals.get(kind, 0)) + int(item.get("amount", 0))
-	var marks: Array = []
-	for kind in ["damage", "block", "heal", "lifeline", "poison", "stun", "remove_block", "gold"]:
-		var amount := int(totals.get(kind, 0))
-		if amount <= 0:
-			continue
-		var mark: Array = FORECAST_MARKS[kind]
-		marks.append([str(mark[0]), amount, Color(str(mark[1])), str(mark[2])])
-	return marks
-
-func _forecast_rows(hero: Dictionary) -> Array:
-	## What this hero's gems will do if the hand locks as it stands. It replaces the old
-	## forecast panel, so the answer sits on the hero it belongs to.
-	if str(snapshot.get("phase", "")) != "planning" or int(hero.get("hp", 0)) <= 0 or _holding_hand():
-		return []
-	var effects: Array = []
-	for preview in Combat.preview_loadout(hero, snapshot):
-		if not preview.get("active", false) or preview.get("will_be_skipped", false):
-			continue
-		effects.append_array(preview.get("effects", []))
-	var marks: Array = _effect_marks(effects)
-	if marks.is_empty():
-		return []
-	return [{"marks": marks, "target": "", "name": "This turn’s plan"}]
-
-func _intent_rows(enemy: Dictionary) -> Array:
-	## The same language for the other side: what each published intent comes to, and
-	## who receives it. The skill's name stays on the tooltip.
-	var rows: Array = []
-	for intent in enemy.get("intents", []):
-		if rows.size() >= 2:
-			break
-		rows.append({
-			"marks": _effect_marks(intent.get("effects", [])),
-			"target": _intent_target(enemy, intent),
-			"name": str(intent.get("name", intent.get("key", "")))})
-	return rows
-
 func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge: float) -> Control:
 	## The activation condition drawn as the dice that would meet it, worded on hover.
 	var key := str(gem.get("key", ""))
@@ -1077,14 +1170,29 @@ func _reroll() -> void:
 	_command("RerollDice", {"die_ids": selected_dice.duplicate()})
 	selected_dice.clear()
 
+func _party_choice() -> bool:
+	## Whether a choice is actually put to other heroes. One hero decides alone, so calling
+	## that a vote is a lie about how the room works — and a tie-break rule nobody needs.
+	return snapshot.get("heroes", []).size() > 1
+
+func _can_ping() -> bool:
+	## A ping is addressed to another person at another machine. Solo has nobody to tell,
+	## and around one keyboard `_ping` already sends nothing, so the button would be a
+	## button that does nothing.
+	return _party_choice() and not offline_hotseat
+
 func _route(parent: Node) -> void:
 	_label(parent, "Choose the next room.", 30, GOLD)
-	_label(parent, "The party votes together. Ties follow the host’s vote. Change equipment before committing.", 14, MUTED, true)
+	_label(parent, "The party votes together. Ties follow the host’s vote. Change equipment before committing." if _party_choice() else "Change your equipment first if you mean to. The room you pick is the room you enter.", 14, MUTED, true)
 	var offers: Array = snapshot.get("offers", [])
-	for offer in offers:
+	var voted: Dictionary = snapshot.get("votes", {})
+	var mine := str(voted.get(controlled_id, ""))
+	for index in range(offers.size()):
+		var offer: Dictionary = offers[index]
 		var kind := str(offer.get("kind", ""))
 		var accent := _room_color(kind)
-		var panel := _panel(parent, PANEL, Color(accent, 0.55))
+		var chosen := mine == str(offer.id)
+		var panel := _panel(parent, PANEL_HI if chosen else PANEL, accent if chosen else Color(accent, 0.55))
 		var row := _hbox(panel, 14)
 		var badge := PanelContainer.new()
 		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1096,22 +1204,82 @@ func _route(parent: Node) -> void:
 		var heading := _hbox(text, 8)
 		_label(heading, str(offer.get("name", "Room")), 22, PAPER)
 		UiKit.chip(heading, kind.to_upper(), accent).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# The number is the shortcut: the same key votes for this room.
+		if index < 9: UiKit.chip(heading, "KEY %d" % (index + 1), MUTED).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		_label(text, str(offer.get("description", "")), 14, MUTED, true)
-		if offer.get("kind") == "rest":
-			_label(text, "Your recovery: +%d HP (downed heroes revive)." % mini(int(_hero().get("max_hp", 0)) / 3, int(_hero().get("max_hp", 0)) - int(_hero().get("hp", 0))), 13, GREEN)
-		_button(row, "Vote to enter  →", func(): _command("VoteRoom", {"offer_id": offer.id}), true)
-		_button(row, "Ping", func(): _ping("room", str(offer.id), str(offer.get("name", "Room"))))
-		var votes: Array = []
-		for hero in snapshot.get("heroes", []):
-			if str(snapshot.get("votes", {}).get(hero.get("id", ""), "")) == str(offer.id): votes.append(str(hero.get("player_name", hero.get("name", "Hero"))))
-		if not votes.is_empty(): _label(panel, "Votes: " + ", ".join(votes), 12, GREEN)
+		var note: Dictionary = _route_note(kind)
+		if not str(note.get("text", "")).is_empty(): _label(text, str(note.text), 13, note.get("tone", BLUE), true)
+		var caption := ("Voted  ✓" if chosen else "Vote to enter  →") if _party_choice() else "Enter  →"
+		var vote := _button(row, caption, func(): _command("VoteRoom", {"offer_id": offer.id}), not chosen)
+		vote.disabled = not mine.is_empty()
+		vote.tooltip_text = "You have already voted this round." if not mine.is_empty() else "Press %d, or click here." % (index + 1)
+		if _can_ping(): _button(row, "Ping", func(): _ping("room", str(offer.id), str(offer.get("name", "Room"))))
+		if _party_choice():
+			var votes: Array = []
+			for hero in snapshot.get("heroes", []):
+				if str(voted.get(hero.get("id", ""), "")) == str(offer.id): votes.append(str(hero.get("player_name", hero.get("name", "Hero"))))
+			if not votes.is_empty(): _label(panel, "Votes: " + ", ".join(votes), 12, GREEN)
+	# With a party, the screen says what it is waiting for rather than simply sitting there.
+	var heroes: Array = snapshot.get("heroes", [])
+	if heroes.size() > 1:
+		var pending: Array = []
+		for hero in heroes:
+			if not voted.has(str(hero.get("id", ""))): pending.append(str(hero.get("player_name", hero.get("name", "Hero"))))
+		_label(parent, "All votes are in." if pending.is_empty() else "Waiting on %d of %d: %s" % [pending.size(), heroes.size(), ", ".join(pending)], 13, GREEN if pending.is_empty() else AMBER, true)
 	_label(parent, "Milestones: elite 4 · camp 8 · boss 9" if snapshot.get("profile") == "short_9" else "Each act: battle · route · elite · route · camp · boss", 13, BLUE)
 	_button(parent, "Review equipment", _show_inventory)
 
+func _route_note(kind: String) -> Dictionary:
+	## What this room is worth to the hero reading it, in the currencies rooms actually
+	## charge. Deliberately about you, not the party: the description above covers that.
+	## The tone is carried with the text so a plain fact never reads as a warning.
+	var hero: Dictionary = _hero()
+	var gold := int(hero.get("gold", 0))
+	var hp := int(hero.get("hp", 0))
+	var top := int(hero.get("max_hp", 1))
+	match kind:
+		"rest":
+			var fallen := 0
+			for other in snapshot.get("heroes", []):
+				if int(other.get("hp", 0)) <= 0: fallen += 1
+			var gain := mini(top / 3, top - hp)
+			if fallen > 0: return _note("+%d HP for you, and %d fallen hero%s returns to their feet." % [gain, fallen, "" if fallen == 1 else "es"], GREEN)
+			if gain <= 0: return _note("You are already at full HP.", BLUE)
+			return _note("+%d HP for you." % gain, GREEN)
+		"shop", "lapidary": return _note("You carry %d gold." % gold, BLUE if gold > 0 else AMBER)
+		"workshop":
+			for relic in hero.get("relics", []):
+				if relic.get("key") == "TINKERS_BELT" and relic.get("equipped", false):
+					return _note("Tinker’s Belt may cover this act’s service.", GREEN)
+			return _note("You carry %d gold; a service costs 5." % gold, BLUE if gold >= 5 else AMBER)
+		"wager":
+			var tiers: Array = []
+			for amount in EngineScript.WAGER_STAKES:
+				if gold >= int(amount): tiers.append(str(amount))
+			if tiers.is_empty(): return _note("You carry %d gold: no stake is within reach." % gold, AMBER)
+			return _note("You can cover stakes of %s gold." % ", ".join(tiers), BLUE)
+		"crucible":
+			var spare := 0
+			for gem in hero.get("gems", []):
+				if not gem.get("equipped", false): spare += 1
+			return _note("%d HP and %d reserve gem%s to spend." % [hp, spare, "" if spare == 1 else "s"], BLUE)
+		"mine": return _note("Mining is free; it pays gold and gems.", GREEN)
+	return _note("", MUTED)
+
+func _note(text: String, tone: Color) -> Dictionary:
+	return {"text": text, "tone": tone}
+
+func _gem_summary(gem: Dictionary) -> String:
+	## Before the first battle there is no hand to read a gem against, and the evaluator's
+	## "invalid hand" is an engine word, not an answer to the player's question.
+	if _preview_hand().is_empty(): return "Roll a hand in a battle to see this gem’s numbers."
+	return str(Combat.preview(_hero(), gem, _preview_hand(), snapshot).get("summary", ""))
+
 func _support(parent: Node) -> void:
 	var room: Dictionary = snapshot.get("room", {})
-	_label(parent, str(room.get("name", "A quiet moment")), 30, GOLD)
-	match str(room.get("kind", "")):
+	var kind := str(room.get("kind", ""))
+	_room_banner(parent, kind, str(room.get("name", "A quiet moment")))
+	match kind:
 		"shop": _shop(parent)
 		"workshop": _workshop(parent)
 		"lapidary": _lapidary(parent)
@@ -1121,7 +1289,204 @@ func _support(parent: Node) -> void:
 			_button(parent, "Manage equipment", _show_inventory)
 		"event": _event(parent)
 		"mine": _mine_draft(parent)
+		"wager": _wager(parent)
+		"crucible": _crucible(parent)
 	_ready_button(parent)
+
+func _room_banner(parent: Node, kind: String, name: String) -> void:
+	## Every service room opens the same way: what this place is, and what you are carrying
+	## into it. Gold and HP are what these rooms actually charge, so reading them stops
+	## being a detour through the party column.
+	var accent := _room_color(kind)
+	var row := _hbox(parent, 12)
+	UiKit.icon(row, Forge.room(kind), 44).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var text := _vbox(row, 2)
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(text, name, 30, GOLD)
+	var hero: Dictionary = _hero()
+	var purse := _hbox(text, 6)
+	UiKit.chip(purse, "%d GOLD" % int(hero.get("gold", 0)), GOLD)
+	UiKit.chip(purse, "%d / %d HP" % [int(hero.get("hp", 0)), int(hero.get("max_hp", 1))], GREEN if int(hero.get("hp", 0)) * 2 > int(hero.get("max_hp", 1)) else RED)
+	if kind in ["workshop", "lapidary", "event", "wager", "crucible"]:
+		var used: bool = snapshot.get("room", {}).get("services", {}).get(controlled_id, false)
+		UiKit.chip(purse, "SERVICE USED" if used else "ONE SERVICE AVAILABLE", MUTED if used else accent)
+	_spacer(purse)
+
+## --- The Wager Hall -----------------------------------------------------------
+
+func _wager(parent: Node) -> void:
+	var seat: Dictionary = snapshot.get("room", {}).get("wager", {}).get(controlled_id, {})
+	var stake := int(seat.get("stake", 0))
+	var hand: Array = seat.get("hand", [])
+	var settled: bool = seat.get("settled", false)
+	_label(parent, "Stake gold on the house’s five dice. One reroll, then the table pays the pattern you show.", 15, MUTED, true)
+	if settled:
+		var won := int(seat.get("payout", 0))
+		var entry: Dictionary = EngineScript.wager_entry(str(seat.get("pattern", "nothing")))
+		var box := _panel(parent, PANEL_HI, GOLD if won > stake else LINE)
+		_label(box, str(entry.get("name", "No pattern")), 26, GOLD if won > stake else MUTED)
+		_label(box, "Staked %d  ·  paid %d  ·  %s %d gold" % [stake, won, "up" if won > stake else "down", absi(won - stake)], 17, GREEN if won > stake else RED)
+		_wager_hand(box, seat.get("dice", []), hand, false)
+		_label(parent, "The table takes one hand per visit. Mark Done when your equipment is ready.", 14, MUTED, true)
+		_wager_table(parent, str(seat.get("pattern", "")))
+		return
+	if stake <= 0:
+		_label(parent, "CHOOSE YOUR STAKE", 12, GOLD)
+		var row := _hbox(parent, 10)
+		for amount in EngineScript.WAGER_STAKES:
+			var value := int(amount)
+			var b := _button(row, "Stake %d gold" % value, func(): selected_dice.clear(); _command("PlaceWager", {"stake": value}), true)
+			var short := value - int(_hero().get("gold", 0))
+			b.disabled = short > 0 or _hero().get("ready", false)
+			b.tooltip_text = "You need %d more gold." % short if short > 0 else "A %d gold stake pays up to %d on five of a kind." % [value, value * int(EngineScript.WAGER_TABLE[0].multiplier)]
+		_label(parent, "The house deals five matched %s, so the table is the same wager whatever your own dice have become." % EngineScript.WAGER_DIE, 13, BLUE, true)
+		_wager_table(parent, "")
+		_button(parent, "Walk past the tables", func(): _command("SetReady", {"ready": true}))
+		return
+	var values: Array = []
+	for roll in hand: values.append(int(roll.get("value", 0)))
+	var pattern := str(EngineScript.wager_pattern(values))
+	var showing: Dictionary = EngineScript.wager_entry(pattern)
+	var payout := stake * int(showing.get("multiplier", 0))
+	_label(parent, "Staked %d gold.  Showing %s  ·  %d gold." % [stake, str(showing.get("name", "")).to_lower(), payout], 20, GOLD if payout > stake else MUTED)
+	_wager_hand(parent, seat.get("dice", []), hand, not seat.get("rerolled", false))
+	var actions := _hbox(parent, 10)
+	if not seat.get("rerolled", false):
+		var reroll := _button(actions, "Reroll %d selected" % selected_dice.size(), func():
+			_play_sound(dice_sound)
+			_command("WagerReroll", {"die_ids": selected_dice.duplicate()})
+			selected_dice.clear())
+		reroll.disabled = selected_dice.is_empty() or _hero().get("ready", false)
+		reroll.tooltip_text = "Click a die to mark it for the single reroll this stake allows."
+	else:
+		_label(actions, "Your one reroll is spent.", 14, MUTED)
+	_button(actions, "Settle  ·  take %d gold" % payout, func(): selected_dice.clear(); _command("SettleWager", {}), true).disabled = _hero().get("ready", false)
+	_wager_table(parent, pattern)
+
+func _wager_hand(parent: Node, dice: Array, hand: Array, selectable: bool) -> void:
+	var row := _hbox(parent, 8)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	for index in range(hand.size()):
+		var roll: Dictionary = hand[index]
+		var die: Dictionary = {}
+		for dealt in dice:
+			if str(dealt.get("id", "")) == str(roll.get("die_id", "")): die = dealt
+		if die.is_empty(): continue
+		var id := str(die.id)
+		var selected := selectable and selected_dice.has(id)
+		var slot := _vbox(row, 3)
+		slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var tray := PanelContainer.new()
+		tray.add_theme_stylebox_override("panel", UiKit.panel_box(
+			Color("3d3521") if selected else Color("1a2338"),
+			Color("15120b") if selected else Color("0c121e"),
+			GOLD if selected else Color("2a3752"), 10, 4, 2.0 if selected else 1.2, 0.28))
+		slot.add_child(tray)
+		var stack := Control.new()
+		stack.custom_minimum_size = Vector2(84, 84)
+		tray.add_child(stack)
+		var view := _die_view("wager:" + id)
+		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		stack.add_child(view)
+		view.configure(die, roll, selected, false, GOLD if selected else BLUE)
+		if selectable:
+			var button := Button.new()
+			button.flat = true
+			button.toggle_mode = true
+			button.button_pressed = selected
+			button.disabled = _hero().get("ready", false)
+			button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			button.set_meta("focus_tag", "wager_" + str(index))
+			button.pressed.connect(func(): _play_sound(click_sound); _toggle_die(id))
+			button.tooltip_text = "%s · rolled %d\nClick to mark it for the reroll." % [_die_name(die), int(roll.get("value", 0))]
+			stack.add_child(button)
+		var caption := _label(slot, "REROLL" if selected else "KEEP", 10, GOLD if selected else MUTED)
+		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+func _wager_table(parent: Node, showing: String) -> void:
+	## The paytable is the room's whole teaching job: it names the same patterns the gems
+	## read, so an evening at the tables is practice for the next fight.
+	var box := _panel(parent, PANEL_LOW, LINE, 12)
+	_label(box, "THE TABLE PAYS", 11, GOLD)
+	for entry in EngineScript.WAGER_TABLE:
+		var here: bool = str(entry.key) == showing
+		var row := _hbox(box, 8)
+		_label(row, "▸" if here else " ", 13, GOLD)
+		_label(row, str(entry.name), 13, PAPER if here else MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_label(row, "%d×" % int(entry.multiplier), 13, GOLD if int(entry.multiplier) > 1 else MUTED)
+	_label(box, "A multiplier includes your stake: 1× returns it, 0× loses it.", 12, MUTED, true)
+
+## --- The Crucible -------------------------------------------------------------
+
+func _crucible(parent: Node) -> void:
+	var used: bool = snapshot.get("room", {}).get("services", {}).get(controlled_id, false)
+	_label(parent, "Carat multiplies everything a gem does, and this is the only place it moves. Cut and Clarity belong to the Lapidary.", 15, MUTED, true)
+	if used:
+		_label(parent, "The fire is spent. Mark Done when your equipment is ready.", 16, GREEN, true)
+		_button(parent, "Manage equipment", _show_inventory)
+		return
+	_label(parent, "Temper pays in HP. Fuse pays in a reserve gem, and a richer gem feeds more.", 14, GOLD, true)
+	var hero: Dictionary = _hero()
+	var spare := 0
+	for gem in hero.get("gems", []):
+		if not gem.get("equipped", false): spare += 1
+	for gem in hero.get("gems", []):
+		var carat := int(gem.get("carat", 1))
+		var panel := _panel(parent)
+		_gem_details(panel, gem)
+		if carat >= 24:
+			_label(panel, "Already at the highest Carat.", 13, MUTED)
+			continue
+		var cost := 4 + int(floor(float(carat) / 2.0))
+		var row := _hbox(panel, 10)
+		_label(row, "Carat %d → %d" % [carat, mini(24, carat + int(EngineScript.CRUCIBLE_CARAT_GAIN))], 15, GREEN)
+		var temper := _button(row, "Temper  ·  %d HP" % cost, func(): _crucible_preview(gem, "temper", {}))
+		temper.disabled = int(hero.get("hp", 0)) <= cost or hero.get("ready", false)
+		temper.tooltip_text = "Costs %d HP and rises with the gem's Carat. You must survive it." % cost
+		var usable := spare - (1 if not gem.get("equipped", false) else 0)
+		var fuse := _button(row, "Fuse a reserve gem…", func(): _crucible_fuel(gem))
+		fuse.disabled = usable <= 0 or hero.get("ready", false)
+		if usable <= 0: fuse.tooltip_text = "You hold no other unequipped gem to consume."
+
+func _crucible_fuel(target: Dictionary) -> void:
+	var box := _modal("Feed the fire for " + _gem_name(target))
+	_label(box, "The consumed gem is destroyed. It gives %d Carat, plus one for every %d Carat of its own." % [int(EngineScript.CRUCIBLE_CARAT_GAIN), int(EngineScript.CRUCIBLE_FUSE_DIVISOR)], 14, MUTED, true)
+	var any := false
+	for gem in _hero().get("gems", []):
+		if gem.get("equipped", false) or str(gem.id) == str(target.id): continue
+		any = true
+		var gain: int = int(EngineScript.CRUCIBLE_CARAT_GAIN) + int(floor(float(int(gem.get("carat", 1))) / float(int(EngineScript.CRUCIBLE_FUSE_DIVISOR))))
+		var panel := _panel(box)
+		_gem_details(panel, gem)
+		_button(panel, "Consume this  ·  +%d Carat" % gain, func(): _close_overlay(); _crucible_preview(target, "fuse", gem))
+	if not any:
+		_label(box, "Every other gem you own is equipped. Unequip one first.", 15, RED, true)
+
+func _crucible_preview(target: Dictionary, method: String, fuel: Dictionary) -> void:
+	var carat := int(target.get("carat", 1))
+	var gain: int = int(EngineScript.CRUCIBLE_CARAT_GAIN)
+	if method == "fuse": gain += int(floor(float(int(fuel.get("carat", 1))) / float(int(EngineScript.CRUCIBLE_FUSE_DIVISOR))))
+	var improved := target.duplicate(true)
+	improved.carat = mini(24, carat + gain)
+	var box := _modal(("Temper " if method == "temper" else "Fuse ") + _gem_name(target))
+	_label(box, "BEFORE", 11, GOLD)
+	_gem_title_row(box, target, 14, MUTED)
+	_formula_rows(box, target, -1, 13)
+	_label(box, _gem_summary(target), 13, MUTED, true)
+	UiKit.rule(box)
+	_label(box, "AFTER", 11, GREEN)
+	_gem_title_row(box, improved, 14, GREEN)
+	_formula_rows(box, improved, -1, 13)
+	_label(box, _gem_summary(improved), 13, PAPER, true)
+	_label(box, _preview_basis() + " This compares gem properties, not a prediction of future rolls.", 12, MUTED, true)
+	if method == "temper":
+		var cost := 4 + int(floor(float(carat) / 2.0))
+		_label(box, "Cost: %d HP, leaving you at %d." % [cost, int(_hero().get("hp", 0)) - cost], 14, RED, true)
+		_button(box, "Temper  ·  %d HP" % cost, func(): _close_overlay(); _command("TemperGem", {"gem_id": target.id, "method": "temper"}), true)
+	else:
+		_label(box, "Cost: %s is destroyed." % _gem_name(fuel), 14, RED, true)
+		_button(box, "Fuse  ·  destroy " + _gem_name(fuel), func(): _close_overlay(); _command("TemperGem", {"gem_id": target.id, "method": "fuse", "fuel_id": fuel.id}), true)
 
 func _shop(parent: Node) -> void:
 	_label(parent, "Personal stock • One purchase per offer • Sell reserve gear from inventory", 14, MUTED, true)
@@ -1131,7 +1496,10 @@ func _shop(parent: Node) -> void:
 		var panel := _panel(parent)
 		var row := _hbox(panel)
 		_gem_details(row, gem)
-		_button(row, "Sold" if offer.get("claimed", false) else "Buy  ·  %d gold" % int(offer.get("price", 0)), func(): _command("BuyGem", {"offer_id": offer.id}), true).disabled = offer.get("claimed", false) or _hero().get("ready", false) or int(_hero().get("gold", 0)) < int(offer.get("price", 0))
+		var short := int(offer.get("price", 0)) - int(_hero().get("gold", 0))
+		var buy := _button(row, "Sold" if offer.get("claimed", false) else ("Need %d more gold" % short if short > 0 else "Buy  ·  %d gold" % int(offer.get("price", 0))), func(): _command("BuyGem", {"offer_id": offer.id}), true)
+		buy.disabled = offer.get("claimed", false) or _hero().get("ready", false) or short > 0
+		if short > 0: buy.tooltip_text = "This gem costs %d gold and you carry %d. Sell a reserve item from your inventory to close the gap." % [int(offer.get("price", 0)), int(_hero().get("gold", 0))]
 	for offer in stock.get("dice", []):
 		var die: Dictionary = offer.get("die", {})
 		var panel := _panel(parent)
@@ -1141,7 +1509,13 @@ func _shop(parent: Node) -> void:
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_label(info, _die_name(die), 18, BLUE)
 		_label(info, "Faces: " + _faces_text(die), 13, MUTED, true)
-		_button(row, "Sold" if offer.get("claimed", false) else "Buy die  ·  %d gold" % int(offer.get("price", 0)), func(): _command("BuyDie", {"offer_id": offer.id}), true).disabled = offer.get("claimed", false) or _hero().get("ready", false) or int(_hero().get("gold", 0)) < int(offer.get("price", 0))
+		var die_short := int(offer.get("price", 0)) - int(_hero().get("gold", 0))
+		var full: bool = _hero().get("reserve_dice", []).size() >= 5
+		var caption := "Sold" if offer.get("claimed", false) else ("Reserve full" if full else ("Need %d more gold" % die_short if die_short > 0 else "Buy die  ·  %d gold" % int(offer.get("price", 0))))
+		var die_buy := _button(row, caption, func(): _command("BuyDie", {"offer_id": offer.id}), true)
+		die_buy.disabled = offer.get("claimed", false) or _hero().get("ready", false) or die_short > 0 or full
+		if full: die_buy.tooltip_text = "Your five reserve die slots are full. Sell one from your inventory first."
+		elif die_short > 0: die_buy.tooltip_text = "This die costs %d gold and you carry %d." % [int(offer.get("price", 0)), int(_hero().get("gold", 0))]
 	_button(parent, "Inventory / sell items", _show_inventory)
 
 func _workshop(parent: Node) -> void:
@@ -1216,13 +1590,13 @@ func _upgrade_preview(gem: Dictionary, property: String) -> void:
 	_label(box, "BEFORE", 11, GOLD)
 	_gem_title_row(box, gem, 14, MUTED)
 	_formula_rows(box, gem, -1, 13)
-	_label(box, str(Combat.preview(_hero(), gem, _preview_hand(), snapshot).get("summary", "")), 13, MUTED, true)
+	_label(box, _gem_summary(gem), 13, MUTED, true)
 	UiKit.rule(box)
 	_label(box, "AFTER", 11, GREEN)
 	_gem_title_row(box, improved, 14, GREEN)
 	_formula_rows(box, improved, -1, 13)
-	_label(box, str(Combat.preview(_hero(), improved, _preview_hand(), snapshot).get("summary", "")), 13, PAPER, true)
-	_label(box, "Using your last combat hand: %s. This compares gem properties, not a prediction of future rolls. Changes to dice will change future probabilities." % _hand_values(_preview_hand()), 12, MUTED, true)
+	_label(box, _gem_summary(improved), 13, PAPER, true)
+	_label(box, _preview_basis() + " This compares gem properties, not a prediction of future rolls. Changes to dice will change future probabilities.", 12, MUTED, true)
 	var cost := int(improved[property]) * 5
 	_button(box, "Improve %s · %d gold" % [property.capitalize(), cost], func(): _close_overlay(); _command("UpgradeGem", {"gem_id": gem.id, "property": property}), true).disabled = int(_hero().get("gold", 0)) < cost
 
@@ -1264,7 +1638,7 @@ func _event(parent: Node) -> void:
 
 func _mine_vote(parent: Node) -> void:
 	_label(parent, "Choose a vein.", 30, GOLD)
-	_label(parent, "The party chooses together. Mining is automatic: fixed energy, round-robin hits, shared gold, and a personal gem draft.", 15, MUTED, true)
+	_label(parent, "The party chooses together. Mining is automatic: fixed energy, round-robin hits, shared gold, and a personal gem draft." if _party_choice() else "Mining is automatic once you choose: fixed energy, round-robin hits, and a gem draft.", 15, MUTED, true)
 	var row := _hbox(parent)
 	for key in ["coin", "crystal"]:
 		var box := _panel(row)
@@ -1273,7 +1647,7 @@ func _mine_vote(parent: Node) -> void:
 		_label(box, "More short rocks and direct currency." if key == "coin" else "More work per rock, with more gem-bearing rocks.", 14, MUTED, true)
 		_label(box, "Small / Medium / Large / Gold / Shiny\n4 / 4 / 2 / 2 / 0" if key == "coin" else "Small / Medium / Large / Gold / Shiny\n1 / 3 / 4 / 0 / 2", 13, PAPER, true)
 		_label(box, "These are rock weights, not a guaranteed yield.", 12, MUTED, true)
-		_button(box, "Vote for " + key.capitalize(), func(): _command("VoteVein", {"vein": key}), true)
+		_button(box, ("Vote for " if _party_choice() else "Work the ") + key.capitalize(), func(): _command("VoteVein", {"vein": key}), true)
 	for hero in snapshot.get("heroes", []):
 		var energy := 10
 		for relic in hero.get("relics", []):
@@ -1359,9 +1733,26 @@ func _ready_button(parent: Node) -> Button:
 	var b := _button(parent, text + "  [%s]" % _binding_name("rd_ready"), func(): _command("SetReady", {"ready": not ready}), not ready)
 	b.set_meta("focus_tag", "ready")
 	if combat and int(_hero().get("hp", 0)) <= 0: b.disabled = true
+	_waiting_line(parent)
 	return b
 
+func _waiting_line(parent: Node) -> void:
+	## A locked-in player should never have to guess whether the game is stuck or simply
+	## waiting for someone. Solo play has nobody to wait for, so it says nothing.
+	var heroes: Array = snapshot.get("heroes", [])
+	if heroes.size() < 2: return
+	var pending: Array = []
+	for hero in heroes:
+		if not bool(hero.get("connected", true)): continue
+		if str(snapshot.get("phase", "")) == "planning" and int(hero.get("hp", 0)) <= 0: continue
+		if not hero.get("ready", false): pending.append(str(hero.get("player_name", hero.get("name", "Hero"))))
+	if pending.is_empty():
+		_label(parent, "Everyone is ready.", 13, GREEN)
+	else:
+		_label(parent, "Waiting on %d of %d: %s" % [pending.size(), heroes.size(), ", ".join(pending)], 13, AMBER, true)
+
 func _process(delta: float) -> void:
+	_light_casting_socket(delta)
 	if _holding_hand() and _refresh_hands():
 		_queue_render()
 	if is_instance_valid(mine_playback_label):
@@ -1376,29 +1767,79 @@ func _process(delta: float) -> void:
 			var hit: Dictionary = hits[step - 1]
 			mine_playback_label.text = "Hit %d/%d · %s · Rock %d/%d%s" % [step, hits.size(), _unit_name(str(hit.get("actor_id", ""))), int(hit.get("progress", 0)), int(hit.get("hits", 1)), " · BROKEN" if hit.get("broken", false) else ""]
 	# The battlefield is the only audience for the event log now, so it paces playback.
-	if playback_events.is_empty() or not _stage_on_screen(): return
+	if playback_events.is_empty() or not _stage_on_screen():
+		return
 	if settings.reduced_motion or float(settings.playback_speed) >= 100.0:
 		playback_index = playback_events.size()
+	stage_view.speed = float(settings.playback_speed)
+	if playback_index >= playback_events.size():
+		if playback_held:
+			# The last blow has been drawn, so the room that was waiting may have the screen.
+			playback_held = false
+			_queue_render()
+		return
+	playback_held = _playing_out()
 	playback_timer += delta * float(settings.playback_speed)
-	if playback_timer >= 0.55 and playback_index < playback_events.size():
-		playback_index += 1
+	if playback_timer < playback_dwell:
+		return
+	var upcoming: Variant = playback_events[playback_index]
+	var side: int = _unit_side(str(upcoming.get("actor", ""))) if upcoming is Dictionary else 0
+	if side != 0 and playback_side != 0 and side != playback_side:
+		# The initiative has changed hands. The side about to act is named and the field
+		# is given a beat to itself, so the two halves of a turn never run together.
+		playback_side = side
 		playback_timer = 0.0
-		if playback_events[playback_index - 1] is Dictionary:
-			stage_view.perform(playback_events[playback_index - 1])
+		playback_dwell = SIDE_CHANGE_BEAT
+		stage_view.announce("THE PARTY ACTS" if side < 0 else "THE ENEMY ACTS", GOLD if side < 0 else RED)
+		return
+	if side != 0:
+		playback_side = side
+	playback_index += 1
+	playback_timer = 0.0
+	playback_dwell = float(stage_view.perform(upcoming)) if upcoming is Dictionary else 0.0
+	if upcoming is Dictionary and str(upcoming.get("kind", "")) == "skill" \
+			and str(upcoming.get("actor", "")) == controlled_id:
+		casting_gem = str(upcoming.get("gem_id", ""))
+		casting_age = 0.0
+		casting_span = playback_dwell + 0.44
+	if upcoming is Dictionary and upcoming.has("target_hp"):
+		# Somebody's standing moved, or an enemy took its dice up, so the field is redrawn
+		# at the point the log has reached rather than at the outcome the authority has
+		# already written. A roll lands here too: it is what puts the dice on the plate and
+		# lights the roster entries the throw opened.
+		stage_view.sync(_stage_units(_battle_state()), bool(settings.reduced_motion),
+			_room_color(str(snapshot.get("room", {}).get("kind", "battle"))), _pick_unit, _inspect_by_id)
 
-func _intent_target(actor: Dictionary, intent: Dictionary) -> String:
-	var labels: Array = []
-	for effect in intent.get("effects", []):
-		var target: String = str(effect.get("target", "enemy"))
-		var caption := ""
-		match target:
-			"self": caption = str(actor.get("name", "Self"))
-			"allies": caption = "All allies"
-			"enemies": caption = "All heroes"
-			"ally": caption = _unit_name(str(intent.friendly_target_id)) if intent.has("friendly_target_id") else "All allies"
-			_: caption = _unit_name(str(intent.get("target_id", "")))
-		if not labels.has(caption): labels.append(caption)
-	return ", ".join(labels)
+func _light_casting_socket(delta: float) -> void:
+	if casting_gem.is_empty():
+		return
+	var card: Variant = gem_slot_cards.get(casting_gem, null)
+	if card == null or not is_instance_valid(card):
+		casting_gem = ""
+		return
+	casting_age += delta * float(settings.playback_speed)
+	var frame: Control = card
+	if casting_age >= casting_span or bool(settings.reduced_motion):
+		frame.scale = Vector2.ONE
+		frame.modulate = Color.WHITE
+		casting_gem = ""
+		return
+	var lift := clampf(minf(casting_age / 0.16, (casting_span - casting_age) / 0.34), 0.0, 1.0)
+	frame.pivot_offset = frame.size * 0.5
+	frame.scale = Vector2.ONE * (1.0 + 0.13 * lift)
+	frame.modulate = Color.WHITE.lerp(Color(1.55, 1.45, 1.2, 1.0), lift)
+
+func _unit_side(unit_id: String) -> int:
+	if unit_id.is_empty():
+		return 0
+	var state: Dictionary = _battle_state()
+	for hero in state.get("heroes", []):
+		if str(hero.get("id", "")) == unit_id:
+			return -1
+	for enemy in state.get("enemies", []):
+		if str(enemy.get("id", "")) == unit_id:
+			return 1
+	return 0
 
 func _find_hero(id: String) -> Dictionary:
 	for hero in snapshot.get("heroes", []):
@@ -1570,9 +2011,12 @@ func _inspect_gem(gem: Dictionary) -> void:
 	_label(body, "TARGETS", 11, GOLD)
 	_label(body, _target_text(str(definition.get("target", "self"))), 15, BLUE, true)
 	UiKit.rule(body)
-	_label(body, "THIS HAND", 11, GOLD)
-	var active: bool = preview.get("active", false)
-	_label(body, str(preview.get("summary", "")) if active else str(preview.get("reason", "Dormant")), 17, GREEN if active else MUTED, true)
+	var rolled: bool = not _preview_hand().is_empty()
+	_label(body, "THIS HAND" if rolled else "NO HAND YET", 11, GOLD)
+	var active: bool = preview.get("active", false) and rolled
+	var verdict := "Roll a hand in a battle to see what this gem would do."
+	if rolled: verdict = str(preview.get("summary", "")) if active else str(preview.get("reason", "Dormant"))
+	_label(body, verdict, 17, GREEN if active else MUTED, true)
 	if int(preview.get("effective_clarity", gem.get("clarity", 1))) != int(gem.get("clarity", 1)):
 		_label(body, "Effective Clarity %d — a Focusing Prism is shortening the run." % int(preview.effective_clarity), 14, VIOLET, true)
 	var contributors: Array = preview.get("contributing_dice", [])
@@ -1590,7 +2034,7 @@ func _inspect_gem(gem: Dictionary) -> void:
 			_die_chip(column, "preview:contrib:" + str(die.id), die, 64, held)
 			_label(column, "SLOT %d%s" % [i + 1, "  ·  %d" % int(held.value) if held.has("value") else ""], 10, GREEN)
 	_label(box, "Dice are never consumed. Each equipped gem evaluates independently in the order shown, amounts are floored once, and healing uses the recipient’s own maximum HP.", 13, MUTED, true)
-	_button(box, "Ping this gem", func(): _ping("gem", str(gem.get("id", "")), _gem_name(gem)))
+	if _can_ping(): _button(box, "Ping this gem", func(): _ping("gem", str(gem.get("id", "")), _gem_name(gem)))
 
 func _inspect_unit(unit: Dictionary) -> void:
 	var id := str(unit.get("id", ""))
@@ -1626,13 +2070,23 @@ func _inspect_unit(unit: Dictionary) -> void:
 	var hand: Array = Combat.values(_hand_for(unit)) if not hostile else Combat.values(unit.get("hand", []))
 	if not hand.is_empty():
 		_label(body, "This turn’s hand: " + _join_values(hand), 15, GREEN, true)
-	var intents: Array = unit.get("intents", [])
-	if not intents.is_empty():
-		_label(box, "INTENTS", 11, GOLD)
-		for intent in intents:
-			var card := _panel(box, PANEL, Color(RED, 0.5), 11)
-			_label(card, str(intent.get("name", intent.get("key", ""))) + "  →  " + _intent_target(unit, intent), 17, RED, true)
-			_label(card, str(intent.get("summary", "")), 14, MUTED, true)
+	if hostile:
+		# What it can reach, not what it will do: the other side does not take its dice up
+		# until the party has finished spending theirs.
+		var opened: Array = _projected_rolls().get(id, {}).get("opened", [])
+		var roster: Array = Combat.enemy_skills(unit)
+		if not roster.is_empty():
+			_label(box, "CAN USE", 11, GOLD)
+			var row := _hbox(box, 10)
+			row.alignment = BoxContainer.ALIGNMENT_CENTER
+			for action in roster:
+				var open: bool = str(action.key) in opened
+				var cell := _vbox(row, 3)
+				cell.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+				GemIcons.glyph(cell, GemIcons.emblem(str(action.key)), 26,
+					AMBER if open else Color(AMBER, 0.4), str(action.name))
+				_label(cell, str(action.name), 11, AMBER if open else MUTED).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_label(box, "It rolls after the party acts; whichever of these its dice open is what lands.", 13, MUTED, true)
 	var dice: Array = unit.get("dice", [])
 	if not dice.is_empty():
 		_label(box, "DICE  ·  RIGHT-CLICK ONE TO TURN IT", 11, GOLD)
@@ -1647,7 +2101,7 @@ func _inspect_unit(unit: Dictionary) -> void:
 			_label(column, str(die.get("shape", "D6")) + ("  ·  %d" % int(turned.value) if turned.has("value") else ""), 10, BLUE)
 	if unit.get("boss", false):
 		_label(box, "Boss Resolve: external stun queues at most one skipped slot. After that skip, the next two slots reject external stun. Damage still applies. Poison ticks once at each living actor’s slot end.", 14, GOLD, true)
-	_button(box, "Ping this " + ("enemy" if hostile else "hero"), func(): _ping("enemy" if hostile else "hero", id, str(unit.get("name", "Unit"))))
+	if _can_ping(): _button(box, "Ping this " + ("enemy" if hostile else "hero"), func(): _ping("enemy" if hostile else "hero", id, str(unit.get("name", "Unit"))))
 
 func _inspect_die(die: Dictionary, rolled: Dictionary = {}) -> void:
 	var faces: Array = die.get("faces", [])
@@ -1736,6 +2190,23 @@ func _gem_portrait(parent: Node, gem: Dictionary, edge: int) -> Control:
 	view.configure(gem)
 	return view
 
+func _room_guide(kind: String) -> String:
+	## The journal describes a room in general, so unlike the route card it names no prices
+	## in your purse and no act-specific boss.
+	match kind:
+		"battle": return "An authored encounter. Pays gold and a personal choice of three gems."
+		"elite": return "A harder encounter. Double gold, an improved gem, and a choice of relic."
+		"boss": return "The act’s named enemy. Bosses carry Resolve, so they cannot be stun locked."
+		"shop": return "Personal stock: three gems and one featured die. You may also sell reserve gear here."
+		"rest": return "Recovers one third of maximum HP and returns downed heroes to their feet. Free."
+		"workshop": return "One die service per hero: change to an adjacent shape, or engrave one physical face. 5 gold, or a free service each act with Tinker’s Belt."
+		"lapidary": return "One Cut or Clarity increase per hero, costing 5 gold times the new rank. Cut scales what the dice gave; Clarity is a flat term that also eases triggers."
+		"mine": return "Choose a vein, then mining runs itself: fixed energy per living hero, pooled gold split by seat, and a rotating draft for the gems the rocks held."
+		"event": return "One transaction per hero — supplies, a trade, or a free exit."
+		"wager": return "Stake gold on the house’s five matched dice — the same wager for every hero, whatever your own dice have become. One reroll, then the table pays the pattern you show. Only a four-die straight or better pays, so the reroll is the whole game: played carelessly the table is a losing bet, played well it is close to a fair one. A stake left on the table is paid out when you leave, never forfeited."
+		"crucible": return "The only place Carat moves. Temper a gem to raise its Carat, paid in HP that rises with the gem, or fuse a reserve gem into it and pay in Carat instead. One offering per hero per visit."
+	return ""
+
 func _room_color(kind: String) -> Color:
 	match kind:
 		"battle", "combat": return RED
@@ -1747,6 +2218,8 @@ func _room_color(kind: String) -> Color:
 		"mine": return GREEN
 		"workshop": return Color("b9c6d6")
 		"lapidary": return Color("63d8d0")
+		"wager": return Color("ffd166")
+		"crucible": return Color("ff8fa3")
 	return BLUE
 
 ## The gem widgets live in `gem_panel.gd` so the gem lab draws them the same way. These
@@ -1820,7 +2293,7 @@ func _show_log() -> void:
 func _show_journal() -> void:
 	var box := _modal("The expedition journal")
 	var tabs := _hbox(box)
-	for tab in ["guide", "heroes", "gems", "dice", "relics", "enemies", "history"]:
+	for tab in ["guide", "rooms", "heroes", "gems", "dice", "relics", "enemies", "history"]:
 		var b := _button(tabs, tab.capitalize(), func(): journal_tab = tab; _show_journal())
 		b.toggle_mode = true
 		b.button_pressed = journal_tab == tab
@@ -1837,12 +2310,25 @@ func _show_journal() -> void:
 				["BLOCK, STUN, POISON", "Block persists through turns, then clears after combat. Stun skips an actor’s next slot. Poison bypasses block at the end of a living actor’s slot, then loses one stack; it still ticks when stunned. Boss Resolve prevents repeated stun locking."],
 				["FALLING AND RECOVERY", "Downed heroes do not roll or act. Victory rallies them to 10% HP; a party wipe ends the run. Lifeline can revive during a fight, but the revived hero acts next turn. Rest heals one third of maximum HP."],
 				["THE LONG FIGHT", "Enrage starts on turn 7: enemies add +2 raw damage per hit, then +2 more each turn. Combat skill/relic gold is capped at 8 / 12 / 16 per hero in acts 1 / 2 / 3. Room rewards are separate."],
-				["ROOMS AND LOOT", "Routes use party votes; ties follow the host. Shops have personal stock. Workshop modifies one die; Lapidary improves one gem. Mining uses fixed energy and shared gold, then a rotating gem draft. Choose one event transaction or leave."],
-				["CONTROLS", "Click dice or press 1–5. R rerolls, Space readies, Tab cycles enemy targets, I inspects equipment, Escape closes a panel. Controller focus uses the directional pad, accept, and back. Remap actions in Settings."]
+				["ROOMS AND LOOT", "Routes use party votes; ties follow the host. Most service rooms allow one service per hero per visit. The Rooms tab of this journal lists every room you can be offered and what it charges."],
+				["THE THREE UPGRADE PATHS", "A gem’s ranks move in three different places. The Lapidary sells Cut and Clarity for gold. The Crucible raises Carat — the multiplier over the whole gem — for HP, or for a reserve gem fed to the fire. Nothing else moves Carat once a gem is found."],
+				["CONTROLS", "Click dice or press 1–5. R rerolls, Space readies, Tab cycles enemy targets, I inspects equipment, Escape closes a panel. On the route screen, 1–9 vote for the matching room. At the Wager Hall the staked hand uses the same 1–5 and R. Controller focus uses the directional pad, accept, and back. Remap actions in Settings."]
 			]
 			for entry in entries:
 				_label(box, entry[0], 14, GOLD)
 				_label(box, entry[1], 15, PAPER, true)
+		"rooms":
+			_label(box, "Every room the route can offer. A run never shows them all.", 14, MUTED, true)
+			for kind in EngineScript.ROOM_NAMES:
+				var room_key := str(kind)
+				var accent := _room_color(room_key)
+				var entry := _panel(box, PANEL, Color(accent, 0.5), 12)
+				var room_row := _hbox(entry, 12)
+				UiKit.icon(room_row, Forge.room(room_key), 56).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				var room_facts := _vbox(room_row, 3)
+				room_facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				_label(room_facts, str(EngineScript.ROOM_NAMES[kind]), 20, GOLD)
+				_label(room_facts, _room_guide(room_key), 14, PAPER, true)
 		"heroes":
 			for key in Catalog.HEROES:
 				var def: Dictionary = Catalog.HEROES[key]
@@ -2054,6 +2540,29 @@ func _input(event: InputEvent) -> void:
 				var index := int(str(focused.get_meta("focus_tag")).trim_prefix("die_"))
 				_toggle_die(str(_hero().dice[index].id))
 		else: return
+	elif snapshot.get("phase") == "route":
+		# The route list is numbered on screen, so the same digits vote for it.
+		var offers: Array = snapshot.get("offers", [])
+		if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode >= KEY_1 and event.physical_keycode <= KEY_9:
+			var choice := int(event.physical_keycode - KEY_1)
+			if choice >= offers.size() or snapshot.get("votes", {}).has(controlled_id): return
+			_command("VoteRoom", {"offer_id": offers[choice].id})
+		else: return
+	elif str(snapshot.get("room", {}).get("kind", "")) == "wager" and snapshot.get("phase") == "support":
+		# A staked hand is read and rerolled with the same keys as a combat hand.
+		var seat: Dictionary = snapshot.get("room", {}).get("wager", {}).get(controlled_id, {})
+		if int(seat.get("stake", 0)) <= 0 or seat.get("settled", false) or seat.get("rerolled", false): return
+		var hand: Array = seat.get("hand", [])
+		if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode >= KEY_1 and event.physical_keycode <= KEY_5:
+			var slot := int(event.physical_keycode - KEY_1)
+			if slot >= hand.size(): return
+			_toggle_die(str(hand[slot].get("die_id", "")))
+		elif event.is_action_pressed("rd_reroll"):
+			if selected_dice.is_empty(): return
+			_play_sound(dice_sound)
+			_command("WagerReroll", {"die_ids": selected_dice.duplicate()})
+			selected_dice.clear()
+		else: return
 	else: return
 	get_viewport().set_input_as_handled()
 
@@ -2078,6 +2587,8 @@ func _save_settings() -> void:
 
 func _skip_playback() -> void:
 	playback_index = playback_events.size()
+	playback_dwell = 0.0
+	casting_gem = ""
 	mine_playback_index = snapshot.get("mine", {}).get("events", []).size()
 	_notify("Playback skipped. The authoritative outcome is unchanged.")
 
@@ -2291,6 +2802,10 @@ func _join_values(values: Array) -> String:
 func _preview_hand() -> Array:
 	var current: Array = _hero().get("hand", [])
 	return current if not current.is_empty() else last_hands.get(controlled_id, [])
+
+func _preview_basis() -> String:
+	var hand: Array = _preview_hand()
+	return "No hand has been rolled yet, so only the gem’s own ranks are compared." if hand.is_empty() else "Using your last combat hand: %s." % _hand_values(hand)
 
 func _hand_values(hand: Array) -> String:
 	var values: Array = []

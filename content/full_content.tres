@@ -50,6 +50,16 @@ skills = {
 "target": "enemies",
 "trigger": "Straight of 3"
 },
+"BASTION": {
+"color": "BLUE",
+"evaluator_id": "BASTION",
+"formula": "Party block (3K + F(L)) × M(C) to every living hero, then clear 1 stun (2 at L5) from every living hero.",
+"name": "Bastion",
+"rarity": 3,
+"tags": ["low", "block", "support", "stun"],
+"target": "ally",
+"trigger": "Total ≤ 18+2L (20/22/24/26/28)"
+},
 "BLESSING": {
 "color": "GOLD",
 "evaluator_id": "BLESSING",
@@ -100,6 +110,16 @@ skills = {
 "target": "self",
 "trigger": "Any pair"
 },
+"ENERVATE": {
+"color": "VIOLET",
+"evaluator_id": "ENERVATE",
+"formula": "Remove up to (2K + F(L)) × M(C) block, then apply floor(matched value / 2) + K Poison (12 stack cap).",
+"name": "Enervate",
+"rarity": 4,
+"tags": ["triple", "poison", "attack"],
+"target": "enemy",
+"trigger": "At least three matching values"
+},
 "EVEN_TEMPO": {
 "color": "BLUE",
 "evaluator_id": "EVEN_TEMPO",
@@ -130,6 +150,16 @@ skills = {
 "target": "self",
 "trigger": "Always"
 },
+"GRAFT": {
+"color": "GREEN",
+"evaluator_id": "GRAFT",
+"formula": "Self heal (both pair values + 2(K−1) + F(L)) × M(C).",
+"name": "Graft",
+"rarity": 3,
+"tags": ["two_pairs", "heal"],
+"target": "self",
+"trigger": "Two distinct pairs"
+},
 "HEAL": {
 "color": "GREEN",
 "evaluator_id": "HEAL",
@@ -149,6 +179,16 @@ skills = {
 "tags": ["triple", "attack"],
 "target": "enemy",
 "trigger": "At least three matching values"
+},
+"HEXBOLT": {
+"color": "VIOLET",
+"evaluator_id": "HEXBOLT",
+"formula": "Damage (odd result count × K + F(L)) × M(C). At L5, apply 1 stun.",
+"name": "Hex Bolt",
+"rarity": 2,
+"tags": ["odd", "attack", "stun"],
+"target": "enemy",
+"trigger": "At least three odd results"
 },
 "INTERPOSE": {
 "color": "BLUE",
@@ -190,6 +230,26 @@ skills = {
 "target": "ally",
 "trigger": "At least three odd results"
 },
+"MIASMA": {
+"color": "VIOLET",
+"evaluator_id": "MIASMA",
+"formula": "Apply K+ceil(C/6) Poison to up to K+1 distinct enemies, then damage F(L) × M(C) to the same enemies (12 stack cap).",
+"name": "Miasma",
+"rarity": 3,
+"tags": ["even", "poison", "group"],
+"target": "enemies",
+"trigger": "At least three even results"
+},
+"MINT": {
+"color": "GOLD",
+"evaluator_id": "MINT",
+"formula": "Gain (2K + F(L)) × M(C) gold, then self block (K + F(L)) × M(C).",
+"name": "Mint",
+"rarity": 2,
+"tags": ["distinct", "gold", "block"],
+"target": "self",
+"trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)"
+},
 "MULTISTRIKE": {
 "color": "RED",
 "evaluator_id": "MULTISTRIKE",
@@ -209,6 +269,26 @@ skills = {
 "tags": ["distinct", "attack"],
 "target": "enemy",
 "trigger": "Five distinct results"
+},
+"PURGE": {
+"color": "GREEN",
+"evaluator_id": "PURGE",
+"formula": "Clear K + ceil(C/8) Poison from every living hero, then party heal F(L) × M(C).",
+"name": "Purge",
+"rarity": 2,
+"tags": ["even", "heal", "support", "poison"],
+"target": "ally",
+"trigger": "At least three even results"
+},
+"QUARTET": {
+"color": "RED",
+"evaluator_id": "QUARTET",
+"formula": "Damage (matched value × 2K + F(L)) × M(C). Clarity buys the trigger down to a triple instead of adding its flat bonus at L5.",
+"name": "Quartet",
+"rarity": 3,
+"tags": ["triple", "attack"],
+"target": "enemy",
+"trigger": "At least four matching values (three at L5)"
 },
 "REFRACT": {
 "color": "WHITE",
@@ -270,6 +350,16 @@ skills = {
 "target": "enemy",
 "trigger": "Two distinct pairs"
 },
+"TITHE": {
+"color": "GOLD",
+"evaluator_id": "TITHE",
+"formula": "Gain (K + F(L)) × M(C) gold.",
+"name": "Tithe",
+"rarity": 1,
+"tags": ["pair", "gold"],
+"target": "self",
+"trigger": "Any pair"
+},
 "VENOM": {
 "color": "VIOLET",
 "evaluator_id": "VENOM",
@@ -279,6 +369,16 @@ skills = {
 "tags": ["high", "attack", "poison"],
 "target": "enemy",
 "trigger": "Highest die ≥ 13−L"
+},
+"WAGER": {
+"color": "GOLD",
+"evaluator_id": "WAGER",
+"formula": "Gain 3 × M(C) gold, then damage (24 − total + 2K + F(L)) × M(C). The less the hand gave you, the harder this lands.",
+"name": "Wager",
+"rarity": 4,
+"tags": ["low", "gold", "attack"],
+"target": "enemy",
+"trigger": "Total ≤ 18+2L (20/22/24/26/28)"
 }
 }
 dice = {
@@ -505,7 +605,7 @@ profiles = {
 "loot_generator": "act_tier_v1",
 "relic_ids": ["MATCHBOX", "STEADY_HAND", "FIELD_DRESSING", "MINERS_LANTERN", "FOCUSING_PRISM", "MERCHANT_SEAL", "TINKERS_BELT", "LASTING_AEGIS"],
 "rooms": 18,
-"skill_ids": ["ARC_BURST", "BLESSING", "BLOCK", "BULWARK", "DRAINSTRIKE", "ECHO", "EVEN_TEMPO", "FACET", "GLIMMER", "HEAL", "HEAVYSTRIKE", "INTERPOSE", "LIFELINE", "LUCKYSTRIKE", "MEND", "MULTISTRIKE", "PRECISION", "REFRACT", "SECOND_SIGHT", "SHIELDBASH", "STRIKE", "STUN", "SUNDER", "VENOM"]
+"skill_ids": ["ARC_BURST", "BASTION", "BLESSING", "BLOCK", "BULWARK", "DRAINSTRIKE", "ECHO", "ENERVATE", "EVEN_TEMPO", "FACET", "GLIMMER", "GRAFT", "HEAL", "HEAVYSTRIKE", "HEXBOLT", "INTERPOSE", "LIFELINE", "LUCKYSTRIKE", "MEND", "MIASMA", "MINT", "MULTISTRIKE", "PRECISION", "PURGE", "QUARTET", "REFRACT", "SECOND_SIGHT", "SHIELDBASH", "STRIKE", "STUN", "SUNDER", "TITHE", "VENOM", "WAGER"]
 },
 "short_9": {
 "acts": 1,
@@ -514,7 +614,7 @@ profiles = {
 "loot_generator": "depth_luck_v1",
 "relic_ids": ["MATCHBOX", "STEADY_HAND", "FIELD_DRESSING", "MINERS_LANTERN"],
 "rooms": 9,
-"skill_ids": ["ARC_BURST", "BLESSING", "BLOCK", "BULWARK", "DRAINSTRIKE", "ECHO", "FACET", "GLIMMER", "HEAL", "HEAVYSTRIKE", "INTERPOSE", "LUCKYSTRIKE", "MEND", "MULTISTRIKE", "REFRACT", "SECOND_SIGHT", "SHIELDBASH", "STRIKE", "STUN", "SUNDER"]
+"skill_ids": ["ARC_BURST", "BASTION", "BLESSING", "BLOCK", "BULWARK", "DRAINSTRIKE", "ECHO", "ENERVATE", "FACET", "GLIMMER", "GRAFT", "HEAL", "HEAVYSTRIKE", "HEXBOLT", "INTERPOSE", "LUCKYSTRIKE", "MEND", "MIASMA", "MINT", "MULTISTRIKE", "PURGE", "QUARTET", "REFRACT", "SECOND_SIGHT", "SHIELDBASH", "STRIKE", "STUN", "SUNDER", "TITHE", "WAGER"]
 }
 }
 statuses = {

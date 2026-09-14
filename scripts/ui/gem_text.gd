@@ -23,7 +23,8 @@ const GemRules = preload("res://scripts/core/gem_rules.gd")
 const TONES := {
 	"damage": "RED", "block": "BLUE", "heal": "GREEN", "gold": "GOLD",
 	"poison": "VIOLET", "stun": "VIOLET", "strip": "AMBER", "revive": "GREEN",
-	"reroll": "WHITE", "amplify": "WHITE", "echo": "WHITE", "upgrade": "WHITE"}
+	"reroll": "WHITE", "amplify": "WHITE", "echo": "WHITE", "upgrade": "WHITE",
+	"cleanse": "GREEN"}
 ## The property a bare number came from, named for the tooltip and the spoken sentence.
 const SOURCES := {"carat": "Carat", "cut": "Cut", "clarity": "Clarity"}
 
@@ -218,6 +219,65 @@ static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 				_cut_flat(k, 3 * k, "triples into the health a revival restores"), flat], c, "once per battle"))
 			built.append(_block("Otherwise heal every living hero for", "heal", "health", [
 				_cut_flat(k, k, "adds its rank straight into this heal"), flat], c))
+		"QUARTET":
+			var wanted: int = 3 if l == 5 else 4
+			var quad: Dictionary = _block("Deal", "damage", "damage", [
+				_part("triple", "match value", "The value shown by your %d matching dice." % wanted,
+					_cut_ratio(k, float(2 * k), "doubles into the matched value")), flat], c, "to your target")
+			quad.note = "Clarity buys this trigger down to a triple at Flawless instead of adding more to the hit."
+			built.append(quad)
+		"BASTION":
+			built.append(_block("Give every living hero", "block", "block", [
+				_cut_flat(k, 3 * k, "triples into the wall this raises"), flat], c))
+			built.append(_fixed("Then clear", "cleanse", "stun from every living hero", "2" if l == 5 else "1",
+				"Only Flawless Clarity clears a second slot of stun." if l < 5 else "Flawless Clarity clears both slots of a doubled stun.",
+				"clarity"))
+		"PURGE":
+			built.append(_fixed("Clear", "cleanse", "Poison from every living hero",
+				str(k + ceili(float(c) / 8.0)),
+				"Cut %d (%s) plus an eighth of Carat %d. Poison is the one status that bypasses block." % [k, cut_name, c], "cut"))
+			built.append(_block("Then heal every living hero for", "heal", "health", [flat], c))
+		"GRAFT":
+			built.append(_block("Heal yourself for", "heal", "health", [
+				_part("pair", "both pair values", "Your two highest pairs, added together — the values, not the four dice."),
+				_cut_flat(k, 2 * (k - 1), "adds a flat bonus here"), flat], c))
+		"HEXBOLT":
+			built.append(_block("Deal", "damage", "damage", [
+				_part("count", "odd dice", "How many of your five dice came up odd.", _cut_factor(k)),
+				flat], c, "to your target"))
+			if l == 5:
+				built.append(_fixed("Apply", "stun", "stun", "1",
+					"Flawless Clarity adds a stun this gem does not otherwise have.", "clarity"))
+		"MIASMA":
+			var fumes: Dictionary = _fixed("Apply", "poison", "Poison", str(k + ceili(float(c) / 6.0)),
+				"Cut %d (%s) plus a sixth of Carat %d. Poison bypasses block and caps at 12 stacks." % [k, cut_name, c], "cut")
+			fumes.repeat = {"glyph": "target", "text": "to %s" % _count(k + 1, "enemy", "enemies"),
+				"tip": "Cut %d (%s) buys reach here as well as stacks." % [k, cut_name]}
+			built.append(fumes)
+			built.append(_block("Then deal", "damage", "damage", [flat], c, "to the same enemies"))
+		"ENERVATE":
+			built.append(_block("Strip", "strip", "block", [
+				_cut_flat(k, 2 * k, "doubles into the block you tear off"), flat], c, "from your target"))
+			built.append(_fixed("Then apply", "poison", "Poison",
+				str(k), "Cut %d (%s), plus half the matched value your triple showed. Caps at 12 stacks." % [k, cut_name], "cut",
+				"plus half the match value"))
+		"TITHE":
+			built.append(_block("Gain", "gold", "gold", [
+				_cut_flat(k, k, "adds its rank straight into the take"), flat], c))
+		"MINT":
+			built.append(_block("Gain", "gold", "gold", [
+				_cut_flat(k, 2 * k, "doubles into the take"), flat], c))
+			built.append(_block("Then gain", "block", "block", [
+				_cut_flat(k, k, "adds its rank straight into this block"), flat], c))
+		"WAGER":
+			built.append(_block("Gain", "gold", "gold", [
+				_part("", str(Combat.BLESSING_GOLD), "A fixed %d before Carat." % Combat.BLESSING_GOLD)], c))
+			var bet: Dictionary = _block("Then deal", "damage", "damage", [
+				_part("sum", "%d − your total" % Combat.WAGER_CEILING,
+					"What the hand did not give you: %d less the five dice added up." % Combat.WAGER_CEILING),
+				_cut_flat(k, 2 * k, "doubles into this hit"), flat], c, "to your target")
+			bet.note = "Clarity widens the low total this needs as well as adding its flat bonus, so a Flawless Wager fires on quiet hands a Fractured one would miss."
+			built.append(bet)
 		"GLIMMER":
 			var polish: Dictionary = _block("Raise your lowest die by", "amplify", "pips", [
 				_cut_flat(k, k, "adds its rank straight into the lift"), flat], c, "to a maximum of 20")
@@ -332,6 +392,75 @@ static func _authored_part(expression: Variant, cut: int, clarity: int, effectiv
 					return term_part
 		return _part("", GemRules._say(expression), "This part of the rule, worked out from your hand.")
 	return {}
+
+# --- the refinement chain -----------------------------------------------------
+
+static func _literal(text: String) -> Variant:
+	## A part worth a plain number, as opposed to one worth whatever the hand gave.
+	if text.is_empty():
+		return null
+	var body := text.substr(1) if text.begins_with("×") else text
+	return float(body) if body.is_valid_float() else null
+
+static func chain(gem: Dictionary, kind: String, amount: int, effective_clarity: int = -1) -> Dictionary:
+	## The refinement one amount went through, for the battlefield to count out: where the
+	## dice term landed, and every rank that moved it, in the order the rule applies them.
+	##
+	## The steps come from the same authored decomposition the gem sheet prints, so the
+	## field never shows a multiplication the rule does not perform — Strike's Cut chooses
+	## how many dice are read and so contributes no factor, while Block's multiplies the
+	## pair it found and so does. The dice term itself is recovered by running that chain
+	## backwards from the amount the log recorded and checking it forwards again. When the
+	## two do not agree the chain is returned inexact, and the caller states no intermediate
+	## value it cannot stand behind.
+	for block in blocks(gem, effective_clarity):
+		if str(block.get("kind", "")) != kind:
+			continue
+		var multiplier: float = 1.0
+		var carat_text := str(block.get("mult", {}).get("text", ""))
+		if not carat_text.is_empty():
+			multiplier = float(_literal(carat_text)) if _literal(carat_text) != null else 1.0
+		var known := 0.0
+		var dice_factor := 1.0
+		var addends: Array = []
+		var found_term := false
+		for part in block.get("parts", []):
+			var factor_value: Variant = _literal(str(part.get("factor", {}).get("text", "")))
+			var scale: float = float(factor_value) if factor_value != null else 1.0
+			var literal: Variant = _literal(str(part.get("text", "")))
+			if literal == null:
+				if found_term:
+					return {}
+				found_term = true
+				dice_factor = scale
+				continue
+			known += float(literal) * scale
+			addends.append({"glyph": str(part.get("glyph", "")), "value": float(literal) * scale,
+				"text": "+%s" % number(float(literal) * scale)})
+		if not found_term or multiplier <= 0.0 or dice_factor <= 0.0:
+			return {}
+		var term: int = int(round((float(amount) / multiplier - known) / dice_factor))
+		if term < 0 or floori((float(term) * dice_factor + known) * multiplier) != amount:
+			return {}
+		var steps: Array = []
+		var running := float(term)
+		if not is_equal_approx(dice_factor, 1.0):
+			running *= dice_factor
+			steps.append({"glyph": "cut", "text": _factor_text(block, dice_factor), "value": running})
+		for addend in addends:
+			running += float(addend.value)
+			steps.append({"glyph": str(addend.glyph), "text": str(addend.text), "value": running})
+		if not is_equal_approx(multiplier, 1.0):
+			steps.append({"glyph": "carat", "text": "×%s" % number(multiplier), "value": float(amount)})
+		return {"base": term, "steps": steps}
+	return {}
+
+static func _factor_text(block: Dictionary, scale: float) -> String:
+	for part in block.get("parts", []):
+		var factor: Dictionary = part.get("factor", {})
+		if not factor.is_empty() and is_equal_approx(float(_literal(str(factor.text))), scale):
+			return str(factor.text)
+	return "×%s" % number(scale)
 
 # --- the name line ------------------------------------------------------------
 

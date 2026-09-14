@@ -645,6 +645,34 @@ static func _paint_room(kind: String) -> Image:
 			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.16), Vector2(u * 0.80, u * 0.44), Vector2(u * 0.50, u * 0.84), Vector2(u * 0.20, u * 0.44)]), Color("6fe3b0"))
 			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.16), Vector2(u * 0.66, u * 0.44), Vector2(u * 0.50, u * 0.60), Vector2(u * 0.34, u * 0.44)]), Color("c8ffe6"))
 			_stroke(image, Vector2(u * 0.78, u * 0.86), Vector2(u * 0.96, u * 0.62), u * 0.07, steel)
+		"wager":
+			# Two dice over a stack of coins: what the room takes and what it pays.
+			_poly(image, PackedVector2Array([Vector2(u * 0.10, u * 0.34), Vector2(u * 0.34, u * 0.20), Vector2(u * 0.50, u * 0.32), Vector2(u * 0.26, u * 0.48)]), Color("eef1f7"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.10, u * 0.34), Vector2(u * 0.26, u * 0.48), Vector2(u * 0.26, u * 0.70), Vector2(u * 0.10, u * 0.56)]), Color("b6c1d2"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.26, u * 0.48), Vector2(u * 0.50, u * 0.32), Vector2(u * 0.50, u * 0.54), Vector2(u * 0.26, u * 0.70)]), Color("8e9bad"))
+			_ellipse(image, u * 0.30, u * 0.34, u * 0.035, u * 0.030, Color("2a3346"))
+			_ellipse(image, u * 0.18, u * 0.58, u * 0.030, u * 0.035, Color("2a3346"))
+			_ellipse(image, u * 0.38, u * 0.50, u * 0.030, u * 0.035, Color("2a3346"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.22), Vector2(u * 0.70, u * 0.12), Vector2(u * 0.86, u * 0.22), Vector2(u * 0.66, u * 0.33)]), Color("ffe6a8"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.22), Vector2(u * 0.66, u * 0.33), Vector2(u * 0.66, u * 0.50), Vector2(u * 0.50, u * 0.39)]), gold)
+			_poly(image, PackedVector2Array([Vector2(u * 0.66, u * 0.33), Vector2(u * 0.86, u * 0.22), Vector2(u * 0.86, u * 0.39), Vector2(u * 0.66, u * 0.50)]), gold.darkened(0.28))
+			_ellipse(image, u * 0.68, u * 0.24, u * 0.032, u * 0.026, Color("5d4526"))
+			_ellipse(image, u * 0.58, u * 0.44, u * 0.026, u * 0.030, Color("5d4526"))
+			for stack in 3:
+				var y: float = u * (0.84 - 0.075 * float(stack))
+				_ellipse(image, u * 0.50, y + u * 0.020, u * 0.24, u * 0.075, gold.darkened(0.35))
+				_ellipse(image, u * 0.50, y, u * 0.24, u * 0.075, gold)
+				_ellipse(image, u * 0.50, y, u * 0.12, u * 0.036, Color("c9963f"))
+		"crucible":
+			# A gem held in the fire of a stone bowl: Carat bought with what feeds the flame.
+			_poly(image, PackedVector2Array([Vector2(u * 0.16, u * 0.62), Vector2(u * 0.84, u * 0.62), Vector2(u * 0.70, u * 0.88), Vector2(u * 0.30, u * 0.88)]), Color("58657a"))
+			_ellipse(image, u * 0.50, u * 0.62, u * 0.34, u * 0.085, Color("7d8a9e"))
+			_ellipse(image, u * 0.50, u * 0.62, u * 0.26, u * 0.060, Color("2a1a14"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.34, u * 0.62), Vector2(u * 0.50, u * 0.26), Vector2(u * 0.66, u * 0.62)]), Color("ff9d5c"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.41, u * 0.62), Vector2(u * 0.50, u * 0.38), Vector2(u * 0.59, u * 0.62)]), Color("ffdf9a"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.08), Vector2(u * 0.66, u * 0.26), Vector2(u * 0.50, u * 0.46), Vector2(u * 0.34, u * 0.26)]), Color("b98bff"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.08), Vector2(u * 0.58, u * 0.26), Vector2(u * 0.50, u * 0.34), Vector2(u * 0.42, u * 0.26)]), Color("e0d0ff"))
+			_stroke(image, Vector2(u * 0.22, u * 0.90), Vector2(u * 0.78, u * 0.90), u * 0.05, Color("3a4658"))
 		_:
 			_ellipse(image, u * 0.50, u * 0.50, u * 0.30, u * 0.30, gold, 0.5)
 			_ellipse(image, u * 0.50, u * 0.50, u * 0.16, u * 0.16, gold)

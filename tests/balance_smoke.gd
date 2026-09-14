@@ -55,7 +55,7 @@ func _step_bot(engine: RefCounted) -> bool:
 			var best: Dictionary = state.offers[0]
 			var best_score: float = -INF
 			for offer in state.offers:
-				var score: float = {"battle":25.0,"elite":8.0,"shop":12.0+float(unit.gold),"rest":float(unit.max_hp-unit.hp)*2.0,"workshop":15.0 if unit.gold >= 5 else 0.0,"lapidary":32.0 if unit.gold >= 10 else 0.0,"mine":35.0,"event":30.0,"boss":1.0}[offer.kind]
+				var score: float = {"battle":25.0,"elite":8.0,"shop":12.0+float(unit.gold),"rest":float(unit.max_hp-unit.hp)*2.0,"workshop":15.0 if unit.gold >= 5 else 0.0,"lapidary":32.0 if unit.gold >= 10 else 0.0,"mine":35.0,"event":30.0,"boss":1.0,"wager":18.0 if unit.gold >= 4 else 0.0,"crucible":34.0 if unit.hp > unit.max_hp / 2 else 4.0}.get(offer.kind,10.0)
 				if score > best_score:
 					best_score = score
 					best = offer
@@ -109,6 +109,47 @@ func _step_bot(engine: RefCounted) -> bool:
 								break
 				"event":
 					if not _command(engine,"EventChoice",{"option":"a"}): return false
+				"wager":
+					# Stake what it can cover, throw everything outside the largest group, settle.
+					var seat: Dictionary = state.room.wager.get("bot",{})
+					var stake: int = 0
+					for tier in engine.WAGER_STAKES:
+						if unit.gold >= int(tier): stake = int(tier)
+					if int(seat.get("stake",0)) <= 0 and stake > 0:
+						if not _command(engine,"PlaceWager",{"stake":stake}): return false
+					seat = state.room.wager.get("bot",{})
+					if int(seat.get("stake",0)) > 0 and not seat.get("rerolled",false):
+						var counts: Dictionary = {}
+						for roll in seat.hand: counts[int(roll.value)] = int(counts.get(int(roll.value),0))+1
+						var keep: int = 0
+						for value in counts:
+							if int(counts[value]) > int(counts.get(keep,0)): keep = int(value)
+						var throw: Array = []
+						for roll in seat.hand:
+							if int(roll.value) != keep: throw.append(str(roll.die_id))
+						if not throw.is_empty() and not _command(engine,"WagerReroll",{"die_ids":throw}): return false
+					if int(state.room.wager.get("bot",{}).get("stake",0)) > 0 and not state.room.wager.bot.settled:
+						if not _command(engine,"SettleWager",{}): return false
+				"crucible":
+					# Prefer feeding a spare gem to the best equipped one; temper only when healthy.
+					var target: Dictionary = {}
+					var best: float = -INF
+					for item in unit.gems:
+						if not item.equipped or int(item.carat) >= 24: continue
+						var rating: float = _gem_score(unit,item)
+						if rating > best:
+							best = rating
+							target = item
+					if not target.is_empty():
+						var fuel: Dictionary = {}
+						for item in unit.gems:
+							if item.equipped or str(item.id) == str(target.id): continue
+							if item.key == "STRIKE": continue
+							if fuel.is_empty() or int(item.carat) > int(fuel.carat): fuel = item
+						if not fuel.is_empty():
+							if not _command(engine,"TemperGem",{"gem_id":target.id,"method":"fuse","fuel_id":fuel.id}): return false
+						elif unit.hp > unit.max_hp / 2 + 4 + int(target.carat) / 2:
+							if not _command(engine,"TemperGem",{"gem_id":target.id,"method":"temper"}): return false
 			if not _manage_build(engine): return false
 			return _command(engine,"SetReady",{"ready":true})
 		"mine_vote":

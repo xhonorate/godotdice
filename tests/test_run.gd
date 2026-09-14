@@ -65,10 +65,181 @@ func run() -> void:
 	test_events_and_mining()
 	test_rewards_and_save()
 	test_recovery_and_disconnect()
+	test_wager_hall()
+	test_crucible()
+	test_route_offers_new_rooms()
 	test_schedules()
 	test_campaigns()
 	print("Run authority: %s checks, %s failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)
+
+func test_wager_hall() -> void:
+	## The table is pure arithmetic over a hand, so the pattern reader is checked directly
+	## before any gold moves, then the room is played through its guards.
+	var cases: Array = [
+		[[3,3,3,3,3],"five"], [[1,2,3,4,5],"straight5"], [[6,5,4,3,2],"straight5"],
+		[[2,2,2,2,6],"four"], [[4,4,4,1,1],"full_house"], [[1,2,3,4,6],"straight4"],
+		[[5,5,5,1,2],"three"], [[2,2,3,3,6],"two_pair"], [[6,6,1,2,4],"pair"], [[1,3,5,2,6],"nothing"]]
+	for case in cases:
+		check(EngineCore.wager_pattern(case[0]) == case[1], "wager reads %s as %s" % [case[0], case[1]])
+	check(EngineCore.wager_entry("five").multiplier > EngineCore.wager_entry("pair").multiplier, "rarer patterns pay more")
+	check(EngineCore.wager_entry("nonsense").key == "nothing", "an unknown pattern falls to the losing row")
+
+	var engine = fresh(2)
+	enter(engine,"wager")
+	check(engine.state.phase == "support" and engine.state.room.wager.size() == 2, "every hero gets a private table")
+	engine.state.heroes[0].gold = 40
+	check(not command(engine,"p1","PlaceWager",{"stake":7}).ok, "the table refuses a stake it does not offer")
+	check(not command(engine,"p1","WagerReroll",{"die_ids":["x"]}).ok, "no reroll before a stake")
+	check(not command(engine,"p1","SettleWager",{}).ok, "no settlement before a stake")
+	var gold: int = engine.state.heroes[0].gold
+	check(command(engine,"p1","PlaceWager",{"stake":8}).ok, "a covered stake is accepted")
+	var seat: Dictionary = engine.state.room.wager["p1"]
+	check(engine.state.heroes[0].gold == gold-8, "the stake leaves the purse when it is placed")
+	check(seat.hand.size() == EngineCore.WAGER_DICE_COUNT and seat.dice.size() == EngineCore.WAGER_DICE_COUNT, "the stake deals the house's five dice")
+	var owned: Array = []
+	for die in engine.state.heroes[0].dice: owned.append(str(die.id))
+	var staked: Array = []
+	for roll in seat.hand: staked.append(str(roll.die_id))
+	var house_shapes: Array = []
+	for die in seat.dice: house_shapes.append(str(die.shape))
+	check(house_shapes == [EngineCore.WAGER_DIE, EngineCore.WAGER_DIE, EngineCore.WAGER_DIE, EngineCore.WAGER_DIE, EngineCore.WAGER_DIE], "every house die is the same shape")
+	for id in staked:
+		check(not owned.has(id), "a house die is never one the hero owns")
+	## The table must pay the same whatever the party upgraded its own dice into.
+	var upgraded = fresh(1)
+	upgraded._enter_room("wager")
+	upgraded.state.heroes[0].gold = 40
+	for i in upgraded.state.heroes[0].dice.size():
+		upgraded.state.heroes[0].dice[i] = Catalog.die("D20", "big-%s" % i)
+	check(command(upgraded,"p1","PlaceWager",{"stake":4}).ok, "a hero with upgraded dice may still stake")
+	for die in upgraded.state.room.wager["p1"].dice:
+		check(str(die.shape) == EngineCore.WAGER_DIE, "the house deals its own dice regardless of the hero's")
+	check(not command(engine,"p1","PlaceWager",{"stake":4}).ok, "one stake per visit")
+	check(not command(engine,"p1","WagerReroll",{"die_ids":[staked[0],staked[0]]}).ok, "a die cannot be rerolled twice in one throw")
+	check(command(engine,"p1","WagerReroll",{"die_ids":[staked[0]]}).ok, "the single reroll is accepted")
+	check(not command(engine,"p1","WagerReroll",{"die_ids":[staked[1]]}).ok, "only one reroll per stake")
+	gold = engine.state.heroes[0].gold
+	check(command(engine,"p1","SettleWager",{}).ok, "a staked hand settles")
+	seat = engine.state.room.wager["p1"]
+	var entry: Dictionary = EngineCore.wager_entry(str(seat.pattern))
+	check(seat.settled and seat.payout == 8*int(entry.multiplier), "the payout is the stake times the pattern it showed")
+	check(engine.state.heroes[0].gold == gold+seat.payout, "the payout reaches the purse")
+	check(not command(engine,"p1","PlaceWager",{"stake":4}).ok, "the table takes one hand per visit")
+	check(EngineCore.validate_state(engine.state).is_empty(), "a settled table is a valid saved state")
+	## A live table has to survive the disk, not merely the validator: the staked hand is a
+	## new shape in the snapshot and JSON is where a new shape breaks first.
+	var store = Store.new("user://tests/wager-save")
+	check(store.save_checkpoint(engine.state,engine.command_history).ok, "a wager room checkpoints")
+	var loaded: Dictionary = store.load_checkpoint()
+	check(loaded.ok and EngineCore.validate_state(loaded.state).is_empty(), "a reloaded wager room validates")
+	check(loaded.state.room.wager["p1"].hand.size() == 5 and int(loaded.state.room.wager["p1"].stake) == 8, "the staked hand survives the round trip")
+	check(loaded.state.room.wager["p1"].dice.size() == 5, "the dealt dice survive the round trip")
+	store.clear_checkpoint()
+	## And a table the validator should refuse is refused.
+	var broken: Dictionary = engine.state.duplicate(true)
+	broken.room.wager["p1"].stake = 9999
+	check(not EngineCore.validate_state(broken).is_empty(), "a stake beyond the table is rejected")
+	broken = engine.state.duplicate(true)
+	broken.room.wager["p1"].hand = "not a hand"
+	check(not EngineCore.validate_state(broken).is_empty(), "a wager seat without a hand is rejected")
+	broken = engine.state.duplicate(true)
+	broken.room.wager["p1"].dice = 5
+	check(not EngineCore.validate_state(broken).is_empty(), "a wager seat without its dealt dice is rejected")
+
+	## A stake is never forfeited by leaving: readying settles whatever is showing.
+	engine.state.heroes[1].gold = 20
+	check(command(engine,"p2","PlaceWager",{"stake":4}).ok, "the second hero stakes too")
+	gold = engine.state.heroes[1].gold
+	check(command(engine,"p2","SetReady",{"ready":true}).ok, "readying with a live stake is allowed")
+	var left: Dictionary = engine.state.room.wager["p2"]
+	check(left.settled and engine.state.heroes[1].gold == gold+int(left.payout), "walking away still pays the hand out")
+
+func test_crucible() -> void:
+	## A rejected command restores a deep copy of the state, so every gem is looked up by
+	## id after each call rather than held across one.
+	var engine = fresh(2)
+	enter(engine,"crucible")
+	check(engine.state.phase == "support", "the crucible is a service room")
+	var target_id: String = str(engine.state.heroes[0].gems[0].id)
+	gem_of(engine,0,target_id).carat = 6
+	var hp: int = int(engine.state.heroes[0].hp)
+	check(not command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"melt"}).ok, "the fire knows only Temper and Fuse")
+	check(not command(engine,"p1","TemperGem",{"gem_id":"nothing","method":"temper"}).ok, "an unowned gem cannot be tempered")
+	check(int(gem_of(engine,0,target_id).carat) == 6 and int(engine.state.heroes[0].hp) == hp, "a refused offering costs nothing")
+	check(command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"temper"}).ok, "tempering is accepted")
+	check(int(gem_of(engine,0,target_id).carat) == 6+EngineCore.CRUCIBLE_CARAT_GAIN, "tempering raises Carat by the fixed gain")
+	check(int(engine.state.heroes[0].hp) == hp-7, "tempering is paid in HP that rises with the gem")
+	check(not command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"temper"}).ok, "one offering per visit")
+
+	## Fusing: a reserve gem is destroyed and its Carat feeds the gem that survives.
+	enter(engine,"crucible")
+	var fuel_id: String = ""
+	for gem in engine.state.heroes[0].gems:
+		if not gem.equipped and gem.key != "STRIKE": fuel_id = str(gem.id)
+	if fuel_id.is_empty():
+		var extra: Dictionary = engine.state.heroes[0].gems[0].duplicate(true)
+		extra.id = "crucible-fuel"
+		extra.equipped = false
+		engine.state.heroes[0].gems.append(extra)
+		fuel_id = "crucible-fuel"
+	gem_of(engine,0,fuel_id).carat = 12
+	var equipped_id: String = ""
+	for gem in engine.state.heroes[0].gems:
+		if gem.equipped and str(gem.id) != target_id: equipped_id = str(gem.id)
+	var before: int = int(gem_of(engine,0,target_id).carat)
+	var owned: int = engine.state.heroes[0].gems.size()
+	hp = int(engine.state.heroes[0].hp)
+	check(not command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"fuse","fuel_id":target_id}).ok, "a gem cannot consume itself")
+	if not equipped_id.is_empty():
+		check(not command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"fuse","fuel_id":equipped_id}).ok, "an equipped gem cannot be consumed")
+	check(command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"fuse","fuel_id":fuel_id}).ok, "fusing is accepted")
+	check(int(gem_of(engine,0,target_id).carat) == before+EngineCore.CRUCIBLE_CARAT_GAIN+3, "a richer gem feeds more Carat")
+	check(engine.state.heroes[0].gems.size() == owned-1 and gem_of(engine,0,fuel_id).is_empty(), "fusing destroys the consumed gem")
+	check(int(engine.state.heroes[0].hp) == hp, "fusing costs no HP")
+
+	## The ceiling holds, and a part gain is clamped rather than refused.
+	enter(engine,"crucible")
+	gem_of(engine,0,target_id).carat = 24
+	check(not command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"temper"}).ok, "Carat stops at its ceiling")
+	gem_of(engine,0,target_id).carat = 23
+	check(command(engine,"p1","TemperGem",{"gem_id":target_id,"method":"temper"}).ok, "a gem one short of the ceiling still tempers")
+	check(int(gem_of(engine,0,target_id).carat) == 24, "a part gain is clamped, not refused")
+
+	## Tempering must never be a way to die.
+	enter(engine,"crucible")
+	var low_id: String = str(engine.state.heroes[1].gems[0].id)
+	gem_of(engine,1,low_id).carat = 6
+	engine.state.heroes[1].hp = 7
+	check(not command(engine,"p2","TemperGem",{"gem_id":low_id,"method":"temper"}).ok, "tempering never costs a hero its life")
+	engine.state.heroes[1].hp = 8
+	check(command(engine,"p2","TemperGem",{"gem_id":low_id,"method":"temper"}).ok and int(engine.state.heroes[1].hp) == 1, "a hero may spend down to its last point")
+	check(EngineCore.validate_state(engine.state).is_empty(), "the crucible leaves a valid saved state")
+
+func gem_of(engine: RefCounted, seat: int, id: String) -> Dictionary:
+	for gem in engine.state.heroes[seat].gems:
+		if str(gem.id) == id: return gem
+	return {}
+
+func test_route_offers_new_rooms() -> void:
+	## Both new rooms must be reachable by the router, or they are dead content.
+	var seen: Dictionary = {}
+	for seed_value in range(80):
+		var engine = fresh(1,"short_9",seed_value)
+		for step in 6:
+			engine.state.last_room_kind = "battle"
+			engine.state.room_index = 2+step
+			engine._route_offers()
+			for offer in engine.state.offers: seen[str(offer.kind)] = true
+	check(seen.has("wager"), "the router offers the Wager Hall")
+	check(seen.has("crucible"), "the router offers the Crucible")
+	for kind in EngineCore.ROOM_NAMES:
+		check(not str(engine_description(kind)).is_empty(), "every room kind describes itself: " + str(kind))
+
+func engine_description(kind: String) -> String:
+	var engine = fresh(1)
+	engine.state.act = 1
+	return engine._room_description(kind)
 
 func test_shop_and_services() -> void:
 	var engine = fresh(2)

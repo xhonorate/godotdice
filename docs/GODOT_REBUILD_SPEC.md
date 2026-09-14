@@ -674,11 +674,29 @@ Retain the section 5 catalog and rarity levels, with these explicit changes:
 | `EVEN_TEMPO` / Even Tempo | Blue | 2 | Three or more even results | Self block `floor((even count × K + F(L)) × M(C))`, then damage `floor((K + F(L)) × M(C))` |
 | `PRECISION` / Precision | Red | 3 | Five distinct results | Damage `floor((lowest two + 2K + F(L)) × M(C))` |
 | `LIFELINE` / Lifeline | Green | 4 | Straight of 5 at L1–2, 4 at L3–4, 3 at L5 | Revive a downed hero for `floor((3K + F(L)) × M(C))` HP once per encounter, otherwise heal every living hero `floor((K + F(L)) × M(C))` |
+| `QUARTET` / Quartet | Red | 3 | Four matching values, three at L5 | Damage `floor((v × 2K + F(L)) × M(C))` on the highest such value |
+| `BASTION` / Bastion | Blue | 3 | `T ≤ 18 + 2L` | Party block `floor((3K + F(L)) × M(C))`, then clear 1 stun (2 at L5) from every living hero |
+| `PURGE` / Purge | Green | 2 | Three or more even results | Clear `K + ceil(C/8)` Poison from every living hero, then party heal `floor(F(L) × M(C))` |
+| `GRAFT` / Graft | Green | 3 | Two distinct pairs | Self heal `floor((both pair values + 2(K-1) + F(L)) × M(C))` |
+| `HEXBOLT` / Hex Bolt | Violet | 2 | Three or more odd results | Damage `floor((odd count × K + F(L)) × M(C))`; at L5 also apply 1 stun |
+| `MIASMA` / Miasma | Violet | 3 | Three or more even results | `K + ceil(C/6)` Poison to up to `K + 1` distinct enemies, then `floor(F(L) × M(C))` damage to the same enemies |
+| `ENERVATE` / Enervate | Violet | 4 | Three or more matching values | Remove up to `floor((2K + F(L)) × M(C))` block, then apply `floor(v/2) + K` Poison |
+| `TITHE` / Tithe | Gold | 1 | Any pair | Gain `floor((K + F(L)) × M(C))` gold |
+| `MINT` / Mint | Gold | 2 | Five distinct results, 4 at L3–4, 3 at L5 | Gain `floor((2K + F(L)) × M(C))` gold, then self block `floor((K + F(L)) × M(C))` |
+| `WAGER` / Wager | Gold | 4 | `T ≤ 18 + 2L` | Gain `floor(3 × M(C))` gold, then damage `floor((24 - T + 2K + F(L)) × M(C))` |
 | `GLIMMER` / Glimmer | White | 1 | Always | Raise the lowest die by `floor((K + F(L)) × M(C))`, capped at 20 |
 | `SECOND_SIGHT` / Second Sight | White | 2 | Always | Raise the reroll allowance to `min(4, 2 + floor(C/8) + [K = 5])` for the rest of the battle, then self block `floor(F(L) × M(C))` |
 | `REFRACT` / Refract | White | 3 | Always | Raise the highest die by `floor((H + 2(K-1) + F(L)) × M(C))`, capped at 20 — at least doubling it |
 | `ECHO` / Echo | White | 3 | Any pair | Repeat the last gem that landed an amount, at `min(200, floor((25 + 5(K-1) + F(L)) × M(C)))` per cent |
 | `FACET` / Facet | White | 4 | Five distinct results, 4 at L3–4, 3 at L5 | Once per encounter, permanently add `ceil(K/2)` Carat to the lowest-Carat other equipped gem, never above `C` |
+
+**Statuses can now be taken off as well as put on.** `cleanse` is the mirror of `stun` and
+`poison`: an amount of stacks removed from the recipient, carrying a `status` field naming
+which. Before Purge and Bastion there was no counterplay to either status at all — a stunned
+hero could not cast their way out, because a stunned slot never resolves its gems, so the
+only version that works is one ally clearing another's. Green clears Poison, Blue clears
+stun; `resolve` is a boss protection and is deliberately not clearable. Authored rules keep
+the original seven effect kinds: `cleanse` and the four White kinds are engine-side only.
 
 **White gems reach past the effect they resolve.** The other five colours act on a combatant and stop
 there; White acts on the run itself, so each of its reaches is bounded explicitly rather than left to
@@ -838,7 +856,7 @@ res://
   content/{heroes,dice,skills,enemies,encounters,rooms,loot}/
   core/{state,commands,events,rules,rng,serialization}/
   session/{run_authority,steam_session,transports}/
-  scenes/{menu,lobby,route,battle,shop,workshop,lapidary,mine,summary}/
+  scenes/{menu,lobby,route,battle,shop,workshop,lapidary,wager,crucible,mine,summary}/
   presentation/{dice,units,gems,event_playback}/
   persistence/
   tests/{rules,scenarios,network}/

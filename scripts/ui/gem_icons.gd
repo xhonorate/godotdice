@@ -185,10 +185,24 @@ const SKILL_EMBLEMS := {
 	"SUNDER": "split_shield", "ARC_BURST": "arcs", "VENOM": "skull",
 	"EVEN_TEMPO": "hourglass", "PRECISION": "crosshair", "LIFELINE": "pulse",
 	"GLIMMER": "spark", "REFRACT": "prism", "SECOND_SIGHT": "eye", "ECHO": "copy",
-	"FACET": "rose"}
+	"FACET": "rose", "QUARTET": "quad", "BASTION": "broken_chain", "PURGE": "clean_drop",
+	"GRAFT": "knot", "HEXBOLT": "thorn", "MIASMA": "cloud", "ENERVATE": "wilt",
+	"TITHE": "coin", "MINT": "coins", "WAGER": "coin_fall"}
+
+## The same marks for the other side's actions. An enemy carries no stone, but its routine
+## reaches a fixed set of named moves, and the party reads that roster the way it reads a
+## loadout — so each one needs a silhouette of its own.
+const ENEMY_EMBLEMS := {
+	"SHELL_UP": "rampart", "CLAW": "slashes", "SHARD": "spark", "RESTORE": "cross",
+	"BARBED_DART": "thorn", "FORTIFY": "rampart", "HAMMER": "hammer",
+	"REFLECTION": "prism", "TRACK": "crosshair", "POUNCE": "slashes",
+	"SLAM": "hammer", "ABSORB": "drain", "REFRACTION": "prism",
+	"SHATTER": "split_shield", "MENDING_GLASS": "cross", "HIGH_TIDE": "arcs",
+	"LOW_TIDE": "arcs", "ECLIPSE": "sun"}
 
 static func emblem(skill_key: String) -> String:
-	return str(SKILL_EMBLEMS.get(skill_key.to_upper(), "sword"))
+	var key := skill_key.to_upper()
+	return str(SKILL_EMBLEMS.get(key, ENEMY_EMBLEMS.get(key, "sword")))
 
 static func _emblem_shapes(glyph: String) -> Array:
 	match glyph:
@@ -338,6 +352,81 @@ static func _emblem_shapes(glyph: String) -> Array:
 			built.append({"op": "sub", "poly": girdle})
 			built.append({"op": "add", "poly": table})
 			return built
+		"quad":
+			# Four alike, as four of the same square. Nothing else in the set is a grid.
+			var squares: Array = []
+			for index in 4:
+				var column := 0.07 + 0.50 * float(index % 2)
+				var row := 0.07 + 0.50 * float(index / 2)
+				squares.append({"op": "add", "poly": _rect(column, row, column + 0.36, row + 0.36)})
+			return squares
+		"broken_chain":
+			# Two links pulling apart from the one that snapped between them: what a stun
+			# looks like once it is cleared. Round links, because square ones read as boxes.
+			# The gap on the centre line has to stay open, so the snapped ends flare away
+			# from it at different heights rather than meeting in it.
+			return [{"op": "add", "circle": [0.20, 0.50, 0.235]}, {"op": "sub", "circle": [0.20, 0.50, 0.125]},
+				{"op": "add", "circle": [0.80, 0.50, 0.235]}, {"op": "sub", "circle": [0.80, 0.50, 0.125]},
+				{"op": "add", "poly": _bar(Vector2(0.38, 0.38), Vector2(0.50, 0.25), 0.09)},
+				{"op": "add", "poly": _bar(Vector2(0.62, 0.62), Vector2(0.50, 0.75), 0.09)}]
+		"clean_drop":
+			# A droplet struck through: the mark for poison taken back out.
+			return [{"op": "add", "poly": _poly([[0.44, 0.06], [0.76, 0.52], [0.70, 0.76], [0.18, 0.76], [0.12, 0.52]])},
+				{"op": "add", "circle": [0.44, 0.62, 0.30]},
+				{"op": "sub", "poly": _bar(Vector2(0.06, 0.94), Vector2(0.94, 0.06), 0.15)},
+				{"op": "add", "poly": _bar(Vector2(0.10, 0.90), Vector2(0.90, 0.10), 0.095)}]
+		"knot":
+			# Two stocks joined into one shoot, with the binding across the join. Crossing
+			# them instead read as a scribbled X, which says nothing about grafting.
+			return _line([[0.10, 0.95], [0.50, 0.58]], 0.13) \
+				+ _line([[0.90, 0.95], [0.50, 0.58]], 0.13) \
+				+ [{"op": "add", "poly": _bar(Vector2(0.50, 0.62), Vector2(0.50, 0.06), 0.13)},
+					{"op": "sub", "poly": _rect(0.06, 0.44, 0.94, 0.52)},
+					{"op": "add", "poly": _rect(0.18, 0.40, 0.82, 0.50)}]
+		"thorn":
+			# A barb, hooked and backswept, so it reads as a hex rather than a plain spike.
+			return [{"op": "add", "poly": _poly([[0.86, 0.05], [0.58, 0.62], [0.20, 0.95],
+				[0.34, 0.52], [0.60, 0.30]])},
+				{"op": "add", "poly": _bar(Vector2(0.62, 0.28), Vector2(0.94, 0.44), 0.11)},
+				{"op": "add", "circle": [0.20, 0.95, 0.075]}]
+		"cloud":
+			# A lumpy cloud with three drops falling out of it.
+			return [{"op": "add", "circle": [0.30, 0.36, 0.22]},
+				{"op": "add", "circle": [0.54, 0.28, 0.27]},
+				{"op": "add", "circle": [0.78, 0.40, 0.19]},
+				{"op": "add", "poly": _rect(0.10, 0.36, 0.94, 0.56)},
+				{"op": "add", "circle": [0.24, 0.74, 0.085]},
+				{"op": "add", "circle": [0.52, 0.82, 0.085]},
+				{"op": "add", "circle": [0.78, 0.72, 0.085]}]
+		"wilt":
+			# Three chevrons pointing down: strength going out of something.
+			var chevrons: Array = []
+			for index in 3:
+				var top := 0.06 + 0.30 * float(index)
+				chevrons.append_array(_line([[0.14, top], [0.50, top + 0.24], [0.86, top]], 0.135))
+			return chevrons
+		"coin":
+			# A milled rim and one struck bar. Crossing two bars made a plus sign, which is
+			# already Mend's mark and says medicine rather than money.
+			return [{"op": "add", "circle": [0.5, 0.5, 0.47]},
+				{"op": "sub", "circle": [0.5, 0.5, 0.355]},
+				{"op": "add", "circle": [0.5, 0.5, 0.275]},
+				{"op": "sub", "poly": _rect(0.20, 0.44, 0.80, 0.56)},
+				{"op": "add", "poly": _rect(0.26, 0.465, 0.74, 0.535)}]
+		"coins":
+			# A stack seen from the side, which no single coin can be mistaken for.
+			var stack: Array = []
+			for index in 3:
+				var middle := 0.78 - 0.28 * float(index)
+				stack.append({"op": "add", "circle": [0.5, middle, 0.40]})
+				stack.append({"op": "sub", "circle": [0.5, middle - 0.09, 0.40]})
+			return stack
+		"coin_fall":
+			# A coin with the arrow of a falling total through it: the lower the better.
+			return [{"op": "add", "circle": [0.5, 0.5, 0.47]},
+				{"op": "sub", "circle": [0.5, 0.5, 0.35]},
+				{"op": "add", "poly": _rect(0.42, 0.16, 0.58, 0.62)},
+				{"op": "add", "poly": _poly([[0.50, 0.88], [0.24, 0.52], [0.76, 0.52]])}]
 	return []
 
 # --- rasterising --------------------------------------------------------------

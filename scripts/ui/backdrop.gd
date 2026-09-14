@@ -43,6 +43,8 @@ const THEMES := {
 	"mine": {"top": "10251f", "bottom": "050d0a", "accent": "6fe3b0"},
 	"workshop": {"top": "1b2029", "bottom": "070a0e", "accent": "b9c6d6"},
 	"lapidary": {"top": "0f2530", "bottom": "050e12", "accent": "63d8d0"},
+	"wager": {"top": "25200e", "bottom": "0b0904", "accent": "ffd166"},
+	"crucible": {"top": "2a1418", "bottom": "0f0507", "accent": "ff8fa3"},
 	"summary": {"top": "151c2c", "bottom": "070a12", "accent": "e8b661"}
 }
 

@@ -140,6 +140,7 @@ def read_registry() -> dict:
         "clarity_names": _const_array(catalog, "CLARITY_NAMES"),
         "multistrike_hit": (_const_numbers(combat, "MULTISTRIKE_HIT") or [4])[0],
         "blessing_gold": (_const_numbers(combat, "BLESSING_GOLD") or [3])[0],
+        "wager_ceiling": (_const_numbers(combat, "WAGER_CEILING") or [24])[0],
     }
 
 

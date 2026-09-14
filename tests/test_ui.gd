@@ -30,6 +30,29 @@ func run() -> void:
 	ui.engine.new_run({"heroes":[{"id":"ui_test","hero_id":"MAX","name":"UI Test"}],"profile":"short_9","seed":12345,"autosave":false})
 	await frames()
 	check(ui.snapshot.phase == "route", "route renders")
+	## A lone hero is not a committee: the route is a choice, not a vote, and there is
+	## nobody to ping it to.
+	var solo: Array = button_texts(ui.page, [])
+	check(not has_word(solo, "Vote"), "a lone hero is never asked to vote")
+	check(not has_word(solo, "Ping"), "a lone hero is offered no ping")
+	check(has_word(solo, "Enter"), "a lone hero simply enters the chosen room")
+	check(not ui._party_choice() and not ui._can_ping(), "solo is neither a party choice nor a ping audience")
+	## Two heroes at one keyboard really do vote, but still have nobody to ping.
+	var shared: Dictionary = ui.engine.state.duplicate(true)
+	var second: Dictionary = shared.heroes[0].duplicate(true)
+	second.id = "ui_test_2"
+	second.seat = 1
+	shared.heroes.append(second)
+	ui._state_changed(shared)
+	await frames()
+	var party: Array = button_texts(ui.page, [])
+	check(has_word(party, "Vote"), "a party is asked to vote on the route")
+	check(not has_word(party, "Ping"), "heroes sharing one screen are offered no ping")
+	ui.offline_hotseat = false
+	check(ui._can_ping(), "a party on separate machines may ping")
+	ui.offline_hotseat = true
+	ui._state_changed(ui.engine.state)
+	await frames()
 	var invited_run_id: String = ui.snapshot.run_id
 	ui.session.invite_received.emit("123456789")
 	await frames()
@@ -83,7 +106,7 @@ func run() -> void:
 	check(is_instance_valid(ui.overlay), "inventory opens")
 	ui._show_settings()
 	await frames()
-	for tab in ["guide","heroes","gems","dice","relics","enemies","history"]:
+	for tab in ["guide","rooms","heroes","gems","dice","relics","enemies","history"]:
 		ui.journal_tab = tab
 		ui._show_journal()
 		await frames()
@@ -105,11 +128,61 @@ func run() -> void:
 	ui._close_overlay()
 	state.heroes[0].hp = state.heroes[0].max_hp
 	state.phase = "support"
-	for kind in ["shop","workshop","lapidary","rest","event"]:
+	for kind in ["shop","workshop","lapidary","rest","event","wager","crucible"]:
 		state.room.kind = kind
 		ui._state_changed(state)
 		await frames()
 		check(is_instance_valid(ui.page), "support " + kind)
+	## The two rooms that are played rather than read: drive them through the real UI.
+	state.room.kind = "wager"
+	ui._state_changed(state)
+	await frames()
+	check(ui._room_guide("wager").length() > 0 and ui._room_guide("crucible").length() > 0, "new rooms describe themselves in the journal")
+	ui.engine._enter_room("wager")
+	ui.engine.state.heroes[0].gold = 40
+	ui._state_changed(ui.engine.state)
+	await frames()
+	check(is_instance_valid(ui.page), "the wager stake screen renders")
+	ui._command("PlaceWager", {"stake": 8})
+	await frames()
+	var seat: Dictionary = ui.snapshot.room.wager[ui.controlled_id]
+	check(int(seat.stake) == 8 and seat.hand.size() == 5, "staking rolls the hand through the authority")
+	check(is_instance_valid(ui.page), "the staked hand renders")
+	ui._toggle_die(str(seat.hand[0].die_id))
+	await frames()
+	check(ui.selected_dice.has(str(seat.hand[0].die_id)), "a staked die can be marked for the reroll")
+	ui._command("WagerReroll", {"die_ids": [str(seat.hand[0].die_id)]})
+	await frames()
+	check(ui.snapshot.room.wager[ui.controlled_id].rerolled, "the wager reroll reaches the authority")
+	var purse: int = int(ui._hero().gold)
+	ui._command("SettleWager", {})
+	await frames()
+	var done: Dictionary = ui.snapshot.room.wager[ui.controlled_id]
+	check(done.settled and int(ui._hero().gold) == purse + int(done.payout), "settling pays the displayed hand")
+	check(is_instance_valid(ui.page), "the settled table renders")
+	ui.engine._enter_room("crucible")
+	ui._state_changed(ui.engine.state)
+	await frames()
+	check(is_instance_valid(ui.page), "the crucible renders")
+	var gem: Dictionary = ui._hero().gems[0]
+	ui._crucible_preview(gem, "temper", {})
+	await frames()
+	check(is_instance_valid(ui.overlay), "the crucible previews a temper before it is paid for")
+	ui._close_overlay()
+	await frames()
+	ui._crucible_fuel(gem)
+	await frames()
+	check(is_instance_valid(ui.overlay), "the crucible offers a choice of fuel")
+	ui._close_overlay()
+	await frames()
+	var carat: int = int(gem.carat)
+	var life: int = int(ui._hero().hp)
+	ui._command("TemperGem", {"gem_id": gem.id, "method": "temper"})
+	await frames()
+	check(int(ui._hero().gems[0].carat) > carat and int(ui._hero().hp) < life, "tempering through the UI raises Carat and costs HP")
+	check(is_instance_valid(ui.page), "the spent crucible renders")
+	state = ui.engine.state.duplicate(true)
+	state.phase = "support"
 	for phase in ["mine_vote","mine_draft","reward","summary"]:
 		state.phase = phase
 		ui._state_changed(state)
@@ -133,6 +206,16 @@ func run() -> void:
 	for failure in failures: push_error(failure)
 	print("UI integration: %d checks, %d failures" % [checked, failures.size()])
 	quit(0 if failures.is_empty() else 1)
+
+func button_texts(node: Node, found: Array) -> Array:
+	if node is Button: found.append(str(node.text))
+	for child in node.get_children(): button_texts(child, found)
+	return found
+
+func has_word(texts: Array, word: String) -> bool:
+	for text in texts:
+		if str(text).contains(word): return true
+	return false
 
 func frames() -> void:
 	await process_frame

@@ -38,7 +38,7 @@ godot --headless --path . --import                                # regenerate .
 | `enemies` | `slime`, `red_slime`, `stone_crab`, `gem_cultist`, `dartling`, `iron_warden`, `mirror_wisp`, `rift_hound`, `slime_king`, `mirror_regent`, `rift_sovereign` | 128 × 128 |
 | `gems` | one per skill: `strike`, `block`, `heal`, `multistrike`, … | 72 × 72 |
 | `relics` | `matchbox`, `steady_hand`, `field_dressing`, `miners_lantern`, `focusing_prism`, `merchant_seal`, `tinkers_belt`, `lasting_aegis` | 72 × 72 |
-| `rooms` | `battle`, `elite`, `boss`, `shop`, `rest`, `event`, `mine`, `workshop`, `lapidary` | 72 × 72 |
+| `rooms` | `battle`, `elite`, `boss`, `shop`, `rest`, `event`, `mine`, `workshop`, `lapidary`, `wager`, `crucible` | 72 × 72 |
 | `props` | `sigil`, `gold`, `heart`, `shield`, `skull` | 72 × 72 |
 
 Transparent background. Any size works — sprites are drawn with

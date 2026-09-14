@@ -16,7 +16,7 @@ extends SceneTree
 const Forge = preload("res://scripts/ui/sprite_forge.gd")
 const Catalog = preload("res://scripts/core/catalog.gd")
 
-const ROOMS := ["battle", "elite", "boss", "shop", "rest", "event", "mine", "workshop", "lapidary"]
+const ROOMS := ["battle", "elite", "boss", "shop", "rest", "event", "mine", "workshop", "lapidary", "wager", "crucible"]
 const PROPS := ["sigil", "gold", "heart", "shield", "skull", "sword", "bolt", "shieldbreak"]
 
 var keep_existing := false

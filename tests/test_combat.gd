@@ -16,6 +16,7 @@ func _init() -> void:
 	_test_determinism()
 	_test_authoring_and_forecasts()
 	_test_white_gems()
+	_test_colour_gems()
 	print("Combat/content: %d assertions, %d failures" % [checks,failures.size()])
 	for failure in failures:
 		printerr("FAIL: "+str(failure))
@@ -72,7 +73,7 @@ func relic(unit: Dictionary, key: String) -> Dictionary:
 
 func _test_catalog() -> void:
 	check(Catalog.validate_content().is_empty(),"All content IDs, face definitions and references validate")
-	check(Catalog.SKILLS.size() == 24,"Twenty-four skills")
+	check(Catalog.SKILLS.size() == 34,"Thirty-four skills")
 	check(Catalog.ENEMIES.size() == 11,"Eight ordinary/elite enemy types and three bosses")
 	check(Catalog.gem("BULLWARK","b").key == "BULWARK","Legacy Bullwark import alias")
 	check(Catalog.gem_value(Catalog.gem("HEAL","g",5,2,3)) == 22,"Gem buy value")
@@ -407,11 +408,24 @@ func _test_intents() -> void:
 	check(sovereign.intents.size() == 2 and unit.hp == 80,"Convergence publishes both tide actions and safe band takes 20 damage")
 	check(sovereign.hp == 37 and sovereign.statuses.poison == 2,"Convergence Poison ticks only once")
 	check(events.filter(func(event: Dictionary) -> bool: return event.kind == "skill").size() == 2,"Convergence two distinct named actions")
+	## The other side takes its dice up at its own slot, so nothing is revealed while the
+	## party is still planning. What the party is shown instead is the roster: every action
+	## the routine can reach. Whatever the roll then opens must come from that roster, or
+	## the loadout drawn over the enemy's head would be describing a different creature.
 	for key in Catalog.ENEMIES:
 		var enemy: Dictionary = Catalog.enemy(key,"test",3,4)
 		state = state_for(hero(),enemy)
 		Combat.begin_battle(state,rng)
-		check(not enemy.intents.is_empty(),"Every enemy publishes an executable intent: "+key)
+		check(enemy.intents.is_empty(),"Nothing is revealed before the party has acted: "+key)
+		var roster: Array = Combat.enemy_skills(enemy)
+		check(not roster.is_empty(),"Every enemy carries a readable roster: "+key)
+		var offered: PackedStringArray = []
+		for action in roster:
+			offered.append(str(action.key))
+		Combat.resolve_turn(state,rng)
+		check(not enemy.intents.is_empty(),"Taking its slot publishes an executable intent: "+key)
+		for intent in enemy.intents:
+			check(str(intent.key) in offered,"…named by the roster the party was shown: "+key+" → "+str(intent.key))
 
 func _test_determinism() -> void:
 	var rng_a: RandomNumberGenerator = RandomNumberGenerator.new()
@@ -578,3 +592,97 @@ func _test_white_gems() -> void:
 		check(Catalog.gem_color(key) == "WHITE","%s is a White gem" % key)
 		check(not Combat.effects_summary(skill(key,[2,2,4,6,8],4,3,3).effects).is_empty(),
 			"%s says what it does in words" % key)
+
+func _test_colour_gems() -> void:
+	## The ten that round the other five colours out. Each is checked on the shape of its
+	## trigger, the arithmetic of its amounts, and the one thing it does that its colour
+	## could not do before it existed.
+	## Red: the only skill that reads four alike, and the only trigger Clarity buys outright.
+	check(not skill("QUARTET",[4,4,4,2,3],1,1,1).active,"Quartet needs four matching values")
+	check(skill("QUARTET",[4,4,4,4,3],1,1,1).active,"Four alike switches it on")
+	check(skill("QUARTET",[4,4,4,2,3],1,1,5).active,"Flawless Clarity buys it down to a triple")
+	check(skill("QUARTET",[4,4,4,4,3],1,1,1).effects[0].amount == 10,"Quartet is v × 2K + F(L) at C1 K1 L1")
+	check(skill("QUARTET",[4,4,4,4,3],1,3,1).effects[0].amount == 26,"Cut doubles into the matched value")
+	check(skill("QUARTET",[4,4,4,4,3],1,1,1).contributing_dice.size() == 4,"It marks the four dice it read")
+	check(skill("QUARTET",[2,2,2,2,6],1,1,1).effects[0].amount < skill("QUARTET",[6,6,6,6,2],1,1,1).effects[0].amount,
+		"A higher matched value hits harder")
+	## Blue and Green: stacks coming off, which nothing could do before.
+	var stunned: Dictionary = hero()
+	stunned.statuses = {"stun":2,"poison":7,"resolve":0}
+	var stunned_state: Dictionary = state_for(stunned)
+	stunned.hand = hand([1,2,3,4,5])
+	var bastion: Dictionary = Combat.preview(stunned,Catalog.gem("BASTION","g",1,2,1),stunned.hand,stunned_state)
+	check(bastion.active and bastion.effects.size() == 2,"Bastion fires on a low total and does two things")
+	check(bastion.effects[0].kind == "block" and bastion.effects[0].target == "ally","It walls the whole party")
+	check(bastion.effects[1].kind == "cleanse" and bastion.effects[1].get("status","") == "stun"
+		and bastion.effects[1].amount == 1,"and clears one slot of stun")
+	check(Combat.preview(stunned,Catalog.gem("BASTION","g",1,2,5),stunned.hand,stunned_state).effects[1].amount == 2,
+		"Flawless Clarity clears two")
+	Combat.resolve_skill(stunned,bastion,stunned_state,[],Catalog.gem("BASTION","g",1,2,1))
+	check(int(stunned.statuses.stun) == 1,"A resolved cleanse actually takes the stack off")
+	var healer: Dictionary = hero()
+	healer.hand = hand([2,4,6,1,3])
+	healer.statuses = {"stun":0,"poison":7,"resolve":0}
+	var healer_state: Dictionary = state_for(healer)
+	var purge: Dictionary = Combat.preview(healer,Catalog.gem("PURGE","g",8,2,1),healer.hand,healer_state)
+	check(purge.active and purge.effects[0].get("status","") == "poison" and purge.effects[0].amount == 3,
+		"Purge clears K + ceil(C/8) Poison")
+	Combat.resolve_skill(healer,purge,healer_state,[],Catalog.gem("PURGE","g",8,2,1))
+	check(int(healer.statuses.poison) == 4,"and the stacks are gone from the hero")
+	var clean: Dictionary = hero()
+	clean.hand = hand([2,4,6,1,3])
+	var clean_state: Dictionary = state_for(clean)
+	var quiet: Array = []
+	Combat.resolve_skill(clean,Combat.preview(clean,Catalog.gem("PURGE","g",8,2,1),clean.hand,clean_state),clean_state,quiet,{})
+	check(int(clean.statuses.poison) == 0,"Clearing a status nobody has takes it no lower than zero")
+	check(skill("GRAFT",[3,3,6,6,2],1,1,1).effects[0].amount == 11,"Graft heals both pair values plus F(L)")
+	check(skill("GRAFT",[3,3,6,6,2],1,3,1).effects[0].amount == 15,"Cut adds a flat bonus to it")
+	check(not skill("GRAFT",[3,3,3,3,2],1,1,1).active,"A quad is not two distinct pairs")
+	## Violet: a counting attack, a group poison and a strip.
+	check(skill("HEXBOLT",[1,3,5,2,4],1,2,1).effects[0].amount == 8,"Hex Bolt is odd count × K + F(L)")
+	check(skill("HEXBOLT",[1,3,5,2,4],1,2,4).effects.size() == 1,"It has no stun below Flawless")
+	check(skill("HEXBOLT",[1,3,5,2,4],1,2,5).effects[1].kind == "stun","and gains one at Flawless")
+	check(not skill("HEXBOLT",[1,3,2,2,4],1,1,1).active,"It needs three odd results")
+	var miasma: Dictionary = skill("MIASMA",[2,4,6,1,3],12,2,1)
+	check(miasma.active and miasma.effects.size() == 2,"Miasma poisons and then burns")
+	check(miasma.effects[0].kind == "poison" and miasma.effects[0].amount == 4,"Poison is K + ceil(C/6)")
+	check(miasma.effects[0].target == "enemies" and int(miasma.effects[0].target_limit) == 3,
+		"and it reaches K+1 enemies, which no other Poison skill does")
+	check(int(miasma.effects[1].target_limit) == int(miasma.effects[0].target_limit),
+		"The damage follows the same enemies the poison went to")
+	var enervate: Dictionary = skill("ENERVATE",[6,6,6,1,2],1,2,1)
+	check(enervate.effects[0].kind == "remove_block" and enervate.effects[0].amount == 6,"Enervate strips 2K + F(L)")
+	check(enervate.effects[1].kind == "poison" and enervate.effects[1].amount == 5,
+		"then applies half the matched value plus K")
+	## Gold: three ways to be paid, all of them still inside the battle allowance.
+	check(skill("TITHE",[4,4,1,2,3],1,3,2).effects[0].kind == "gold","Tithe pays gold on any pair")
+	check(skill("TITHE",[4,4,1,2,3],1,3,2).effects[0].amount == 7,"at K + F(L)")
+	check(not skill("TITHE",[1,2,3,4,5],1,1,1).active,"and needs the pair")
+	var mint: Dictionary = skill("MINT",[1,2,3,4,5],1,2,1)
+	check(mint.active and mint.effects[0].kind == "gold" and mint.effects[1].kind == "block","Mint pays and then walls")
+	check(mint.effects[0].amount == 6 and mint.effects[1].amount == 4,"at 2K + F(L) and K + F(L)")
+	check(not skill("MINT",[1,1,3,4,5],1,1,1).active and skill("MINT",[1,1,3,4,5],1,1,3).active,
+		"Clarity eases it to four distinct at L3")
+	var low: Dictionary = skill("WAGER",[1,1,2,3,4],1,1,1)
+	var higher: Dictionary = skill("WAGER",[4,4,4,4,4],1,1,1)
+	check(low.active and higher.active,"Wager fires anywhere under its ceiling")
+	check(low.effects[1].amount > higher.effects[1].amount,
+		"and the quieter the hand, the harder it lands — the only skill paid by what you did not roll")
+	check(low.effects[1].amount == Combat.WAGER_CEILING-11+2+2,"Wager is (24 − total + 2K + F(L)) × M(C)")
+	check(low.effects[0].kind == "gold" and low.effects[0].amount == Combat.BLESSING_GOLD,"It pays before it hits")
+	check(not skill("WAGER",[6,6,6,6,6],1,1,1).active,"A loud hand pays nothing")
+	## Every colour now has a build in it, and every gem says what it does.
+	var tally: Dictionary = {}
+	for key in Catalog.SKILLS:
+		var colour: String = Catalog.gem_color(str(key))
+		tally[colour] = int(tally.get(colour,0))+1
+	for colour in Catalog.GEM_COLORS:
+		check(int(tally.get(colour,0)) >= 5,"Colour %s carries at least five skills" % colour)
+	for key in ["QUARTET","BASTION","PURGE","GRAFT","HEXBOLT","MIASMA","ENERVATE","TITHE","MINT","WAGER"]:
+		var hands: Array = [[4,4,4,4,3],[1,2,3,4,5],[2,4,6,1,3],[3,3,6,6,2]]
+		var said: bool = false
+		for numbers in hands:
+			var action: Dictionary = skill(key,numbers,4,3,3)
+			if action.active:
+				said = said or not Combat.effects_summary(action.effects).is_empty()
+		check(said,"%s fires on one of its own hands and says what it did" % key)

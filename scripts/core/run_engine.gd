@@ -10,8 +10,39 @@ const RULES_VERSION = "1.0.0"
 const CONTENT_VERSION = "1.0.0"
 const PROTOCOL_VERSION = 1
 const SHAPES = ["D4", "D6", "D8", "D10", "D12", "D20"]
-const ROOM_NAMES = {"battle":"Battle", "elite":"Elite Battle", "boss":"Boss", "shop":"Gem Merchant", "rest":"Camp", "workshop":"Workshop", "lapidary":"Lapidary", "mine":"The Mine", "event":"A Chance Encounter"}
-const ROOM_WEIGHTS = {"battle":3, "elite":1, "shop":2, "rest":1, "workshop":1, "lapidary":1, "mine":1, "event":1}
+const ROOM_NAMES = {"battle":"Battle", "elite":"Elite Battle", "boss":"Boss", "shop":"Gem Merchant", "rest":"Camp", "workshop":"Workshop", "lapidary":"Lapidary", "mine":"The Mine", "event":"A Chance Encounter", "wager":"The Wager Hall", "crucible":"The Crucible"}
+const ROOM_WEIGHTS = {"battle":3, "elite":1, "shop":2, "rest":1, "workshop":1, "lapidary":1, "mine":1, "event":1, "wager":1, "crucible":1}
+## The Wager Hall teaches the one skill the whole run rests on — reading five dice — and
+## charges gold for the lesson. Stakes are fixed tiers rather than free entry, so the most
+## a visit can move is bounded by the table and not by the hero's purse.
+const WAGER_STAKES = [4, 8, 12]
+## The house deals its own five matched dice rather than the hero's. A pattern is far
+## rarer on a d10 than on a d6, so betting a hero's own dice would quietly tax every
+## party that had upgraded them, and the Workshop exists to upgrade them. House dice make
+## one table that is the same wager for everyone, and let the paytable below be tuned.
+const WAGER_DIE = "D6"
+const WAGER_DICE_COUNT = 5
+## Best pattern first: the hand is tested top to bottom and paid for the first that fits.
+## Multipliers are of the stake and include it, so 1 is the stake returned and 0 is a loss.
+## Measured over the house dice, a player who never rerolls returns about 0.39 per gold
+## staked, one who keeps the largest group about 0.74, and one who also chases a straight
+## about 0.99. The room is therefore a losing bet played badly and a fair one played well,
+## which is the point: the skill it rewards is the skill the fights ask for.
+const WAGER_TABLE = [
+	{"key":"five", "name":"Five of a kind", "multiplier":10},
+	{"key":"straight5", "name":"Five-die straight", "multiplier":4},
+	{"key":"four", "name":"Four of a kind", "multiplier":3},
+	{"key":"full_house", "name":"Full house", "multiplier":2},
+	{"key":"straight4", "name":"Four-die straight", "multiplier":1},
+	{"key":"three", "name":"Three of a kind", "multiplier":0},
+	{"key":"two_pair", "name":"Two pair", "multiplier":0},
+	{"key":"pair", "name":"One pair", "multiplier":0},
+	{"key":"nothing", "name":"No pattern", "multiplier":0}]
+## The Crucible is the only place Carat moves. Cut and Clarity have the Lapidary; Carat,
+## the overall multiplier, was otherwise fixed at the moment a gem was found.
+const CRUCIBLE_CARAT_GAIN = 2
+## What a consumed gem gives the gem that survives it, on top of the base gain.
+const CRUCIBLE_FUSE_DIVISOR = 4
 
 signal changed(snapshot: Dictionary)
 var state: Dictionary = {}
@@ -213,6 +244,9 @@ func _dispatch(player: Dictionary, kind: String, payload: Dictionary) -> String:
 		"ChooseReward": strings = ["kind", "offer_id"]
 		"DraftGem": strings = ["claim_id"]
 		"EventChoice": strings = ["option"]
+		"WagerReroll":
+			if not payload.get("die_ids", null) is Array: return "Die IDs must be a list."
+		"TemperGem": strings = ["gem_id", "method"]
 		"ResumeDisconnected": strings = ["player_id"]
 	for key in strings:
 		if not payload.get(key, null) is String or payload[key].length() > 256: return "Invalid command field: " + key
@@ -233,6 +267,10 @@ func _dispatch(player: Dictionary, kind: String, payload: Dictionary) -> String:
 		"ChooseReward": return _choose_reward(player, payload)
 		"DraftGem": return _draft(player, str(payload.get("claim_id", "")))
 		"EventChoice": return _event_choice(player, payload)
+		"PlaceWager": return _place_wager(player, payload)
+		"WagerReroll": return _wager_reroll(player, payload)
+		"SettleWager": return _settle_wager(player)
+		"TemperGem": return _temper_gem(player, payload)
 		"ResumeDisconnected": return _resume_disconnected(player, str(payload.get("player_id", "")))
 		_: return "Unknown command: " + kind
 
@@ -290,6 +328,11 @@ func _ready(player: Dictionary, value: bool) -> String:
 		var rewards: Dictionary = state.reward_offers.get(player.id, {})
 		if not rewards.get("gem_done", true) or not rewards.get("relic_done", true):
 			return "Choose or decline your outstanding rewards first."
+	# A stake left on the table is paid out rather than forfeited, so leaving the room can
+	# never be worse than settling. The house takes no rake on a player who walks away.
+	if value and state.room.get("kind", "") == "wager":
+		var seat: Dictionary = _wager_seat(player)
+		if not seat.is_empty() and int(seat.stake) > 0 and not seat.settled: _settle_wager(player)
 	player.ready = value
 	_check_ready()
 	return ""
@@ -425,7 +468,7 @@ func _route_offers() -> void:
 	if not required.is_empty():
 		choices.append(required)
 	else:
-		var pool: Array = ["battle", "elite", "shop", "rest", "workshop", "lapidary", "mine"] if state.profile == "short_9" else ["battle", "shop", "rest", "workshop", "lapidary", "mine", "event"]
+		var pool: Array = ["battle", "elite", "shop", "rest", "workshop", "lapidary", "mine", "wager", "crucible"] if state.profile == "short_9" else ["battle", "shop", "rest", "workshop", "lapidary", "mine", "event", "wager", "crucible"]
 		if state.last_room_kind not in ["battle", "elite", "boss"]:
 			pool.erase(state.last_room_kind)
 		choices.append(_weighted(["battle", "elite"], [3, 1], streams.rooms) if state.profile == "short_9" else "battle")
@@ -453,14 +496,19 @@ func _room_description(kind: String) -> String:
 		"boss": return ["Face the Slime King: Slam, Fortify, Absorb.", "Face the Mirror Regent: Refraction and Shatter.", "Face the Rift Sovereign: High Tide and Low Tide."][mini(2, int(state.act)-1)]
 		"shop": return "Three personal gems and a featured die. Buy or sell with gold."
 		"rest":
+			# Only heroes with something to gain are listed: "+0 HP" is not an offer.
 			var recovery: PackedStringArray = []
 			for hero in state.heroes:
-				recovery.append("%s +%s HP" % [hero.name, mini(int(hero.max_hp)-int(hero.hp), floori(float(hero.max_hp)/3.0))])
+				var amount: int = mini(int(hero.max_hp)-int(hero.hp), floori(float(hero.max_hp)/3.0))
+				if amount > 0: recovery.append("%s +%s HP" % [hero.name, amount])
+			if recovery.is_empty(): return "Nobody is hurt. The fire is still a quiet place to change your equipment."
 			return "Free recovery: " + ", ".join(recovery) + ". Manage your equipment."
 		"workshop": return "One service per hero: adjacent die shape or one engraved face. 5 gold."
 		"lapidary": return "One Cut or Clarity increase per hero. Cut scales your rolls; Clarity is flat and eases triggers. Cost: 5 × the new rank."
 		"mine": return "Choose a vein. 10 energy per living hero; pooled gold and a shared gem draft."
 		"event": return "A personal choice of supplies, a trade, or a free exit."
+		"wager": return "Stake gold on the house's five dice. One reroll, then the table pays the pattern. Best hand: %s at %d×." % [WAGER_TABLE[0].name.to_lower(), int(WAGER_TABLE[0].multiplier)]
+		"crucible": return "Raise one gem's Carat by %d. Pay in HP, or consume a reserve gem to pay in Carat." % CRUCIBLE_CARAT_GAIN
 	return ""
 
 func _vote_room(player: Dictionary, offer_id: String) -> String:
@@ -545,6 +593,15 @@ func _enter_room(kind: String) -> void:
 				if state.event.key == "ABANDONED_CACHE":
 					for gem in gems: gem.carat = mini(24, int(gem.carat) + 2)
 				state.event.offers[hero.id] = gems
+			_phase("support")
+		"wager":
+			# Each hero has a private table. Nothing is rolled until a stake is placed, so a
+			# hero who walks past the tables spends nothing and reveals nothing.
+			state.room.wager = {}
+			for hero in state.heroes:
+				state.room.wager[hero.id] = {"stake":0, "dice":[], "hand":[], "rerolled":false, "settled":false, "payout":0, "pattern":""}
+			_phase("support")
+		"crucible":
 			_phase("support")
 		_:
 			_phase("support")
@@ -745,6 +802,145 @@ func _event_choice(player: Dictionary, payload: Dictionary) -> String:
 				player.gems.append(acquired)
 	state.room.services[player.id] = true
 	_record("event", "%s chooses %s at %s." % [player.name, option, key.to_lower().replace("_", " ")])
+	return ""
+
+## --- The Wager Hall -----------------------------------------------------------
+## The room reads a hand the way every gem does, so the skill it charges for is the skill
+## the rest of the run already asks for: keep what pays, throw what does not.
+
+static func wager_pattern(values: Array) -> String:
+	## Names the best pattern in a set of die values. Pure, so the table, the preview and
+	## the settlement all read the same hand the same way.
+	var groups: Dictionary = {}
+	for value in values:
+		groups[int(value)] = int(groups.get(int(value), 0)) + 1
+	var sizes: Array = groups.values()
+	sizes.sort()
+	sizes.reverse()
+	var largest: int = int(sizes[0]) if not sizes.is_empty() else 0
+	var pairs: int = 0
+	for size in sizes:
+		if int(size) >= 2: pairs += 1
+	var distinct: Array = groups.keys()
+	distinct.sort()
+	var run: int = 1
+	var longest: int = 1 if not distinct.is_empty() else 0
+	for i in range(1, distinct.size()):
+		run = run + 1 if int(distinct[i]) == int(distinct[i - 1]) + 1 else 1
+		longest = maxi(longest, run)
+	if largest >= 5: return "five"
+	if longest >= 5: return "straight5"
+	if largest == 4: return "four"
+	if largest == 3 and pairs >= 2: return "full_house"
+	if longest >= 4: return "straight4"
+	if largest == 3: return "three"
+	if pairs >= 2: return "two_pair"
+	if largest == 2: return "pair"
+	return "nothing"
+
+static func wager_entry(pattern: String) -> Dictionary:
+	for row in WAGER_TABLE:
+		if row.key == pattern: return row
+	return WAGER_TABLE[-1]
+
+func _wager_seat(player: Dictionary) -> Dictionary:
+	return state.room.get("wager", {}).get(player.id, {})
+
+func _place_wager(player: Dictionary, payload: Dictionary) -> String:
+	var guard: String = _service_guard(player, "wager", true)
+	if not guard.is_empty(): return guard
+	var seat: Dictionary = _wager_seat(player)
+	if seat.is_empty(): return "You have no seat at this table."
+	if int(seat.stake) > 0: return "Your stake for this visit is already on the table."
+	var stake: int = _integer(payload, "stake", 1, WAGER_STAKES[-1])
+	if stake not in WAGER_STAKES: return "The table takes stakes of %s gold." % ", ".join(PackedStringArray(WAGER_STAKES.map(func(value: int) -> String: return str(value))))
+	if int(player.gold) < stake: return "You cannot cover that stake."
+	_spend(player, stake)
+	seat.stake = stake
+	seat.dice = []
+	seat.hand = []
+	for i in WAGER_DICE_COUNT:
+		var die: Dictionary = Catalog.die(WAGER_DIE, _id("house"))
+		die.owner_id = player.id
+		seat.dice.append(die)
+		seat.hand.append(Combat.roll_die(die, streams.dice))
+	_record("wager", "%s stakes %s gold and rolls %s." % [player.name, stake, ", ".join(PackedStringArray(Combat.values(seat.hand).map(func(value: int) -> String: return str(value))))], {"actor_id":player.id, "amount":stake})
+	return ""
+
+func _wager_reroll(player: Dictionary, payload: Dictionary) -> String:
+	var guard: String = _service_guard(player, "wager", true)
+	if not guard.is_empty(): return guard
+	var seat: Dictionary = _wager_seat(player)
+	if seat.is_empty() or int(seat.stake) <= 0: return "Place a stake before rolling."
+	if seat.rerolled: return "The table allows one reroll per stake."
+	var die_ids = payload.get("die_ids", [])
+	if not die_ids is Array or die_ids.is_empty() or die_ids.size() > seat.hand.size():
+		return "Select at least one of your staked dice."
+	var seen: Array = []
+	for id in die_ids:
+		if not id is String or id in seen: return "Select each die at most once."
+		seen.append(id)
+	for index in range(seat.hand.size()):
+		var roll: Dictionary = seat.hand[index]
+		if str(roll.get("die_id", "")) not in seen: continue
+		var die: Dictionary = _find(seat.dice, str(roll.get("die_id", "")))
+		if die.is_empty(): return "That die is not on the table."
+		seat.hand[index] = Combat.roll_die(die, streams.dice)
+	seat.rerolled = true
+	_record("wager", "%s rerolls %s dice." % [player.name, seen.size()], {"actor_id":player.id})
+	return ""
+
+func _settle_wager(player: Dictionary) -> String:
+	var guard: String = _service_guard(player, "wager", true)
+	if not guard.is_empty(): return guard
+	var seat: Dictionary = _wager_seat(player)
+	if seat.is_empty() or int(seat.stake) <= 0: return "Place a stake before settling."
+	var pattern: String = wager_pattern(Combat.values(seat.hand))
+	var entry: Dictionary = wager_entry(pattern)
+	var payout: int = int(seat.stake) * int(entry.multiplier)
+	seat.pattern = pattern
+	seat.payout = payout
+	seat.settled = true
+	if payout > 0: _grant_gold(player, payout, "wager")
+	state.room.services[player.id] = true
+	_record("wager", "%s shows %s and takes %s gold." % [player.name, str(entry.name).to_lower(), payout], {"actor_id":player.id, "amount":payout})
+	return ""
+
+## --- The Crucible -------------------------------------------------------------
+## Cut and Clarity are bought at the Lapidary. Carat, the multiplier over the whole gem,
+## had no path at all once a gem was found; this is it, and it is paid for in the two
+## things a party cannot simply earn more of on the spot: its health and its other gems.
+
+func _crucible_hp_cost(gem: Dictionary) -> int:
+	## Dearer the stronger the gem already is, so the room does not simply favour the best.
+	return 4 + floori(float(int(gem.get("carat", 1))) / 2.0)
+
+func _temper_gem(player: Dictionary, payload: Dictionary) -> String:
+	var guard: String = _service_guard(player, "crucible", true)
+	if not guard.is_empty(): return guard
+	var gem: Dictionary = _find(player.gems, str(payload.get("gem_id", "")))
+	var method: String = str(payload.get("method", ""))
+	if gem.is_empty() or method not in ["temper", "fuse"]: return "Select an owned gem and either Temper or Fuse."
+	if int(gem.get("carat", 1)) >= 24: return "That gem is already at the highest Carat."
+	var gain: int = CRUCIBLE_CARAT_GAIN
+	if method == "temper":
+		var cost: int = _crucible_hp_cost(gem)
+		if int(player.hp) <= cost: return "Tempering this gem costs %s HP, and you must survive it." % cost
+		player.hp -= cost
+		_stat("hp_lost", cost)
+		_record("crucible", "%s tempers %s for %s HP." % [player.name, _item_name(gem, "gem"), cost], {"actor_id":player.id, "amount":cost})
+	else:
+		var fuel: Dictionary = _find(player.gems, str(payload.get("fuel_id", "")))
+		if fuel.is_empty() or fuel.id == gem.id: return "Choose a second owned gem to consume."
+		if fuel.get("equipped", false): return "Only a reserve gem can be consumed. Unequip it first."
+		if fuel.key == "STRIKE" and _count_key(player.gems, "STRIKE") <= 1: return "Your last Strike cannot be consumed."
+		gain += floori(float(int(fuel.get("carat", 1))) / float(CRUCIBLE_FUSE_DIVISOR))
+		player.gems.erase(fuel)
+		_record("crucible", "%s consumes %s to feed %s." % [player.name, _item_name(fuel, "gem"), _item_name(gem, "gem")], {"actor_id":player.id})
+	var before: int = int(gem.get("carat", 1))
+	gem.carat = mini(24, before + gain)
+	state.room.services[player.id] = true
+	_record("crucible", "%s rises from Carat %s to %s." % [_item_name(gem, "gem"), before, int(gem.carat)], {"actor_id":player.id, "item_id":gem.id})
 	return ""
 
 func _vote_vein(player: Dictionary, vein: String) -> String:
@@ -1075,6 +1271,11 @@ static func validate_state(snapshot: Dictionary) -> String:
 	for offer in snapshot.offers:
 		if not offer is Dictionary or not offer.get("id") is String or not ROOM_NAMES.has(offer.get("kind", "")): return "Unknown saved route offer."
 	if not snapshot.room.is_empty() and (not ROOM_NAMES.has(snapshot.room.get("kind", "")) or not snapshot.room.get("services") is Dictionary): return "Invalid saved room."
+	if snapshot.room.get("kind", "") == "wager":
+		if not snapshot.room.get("wager") is Dictionary: return "Invalid saved wager table."
+		for seat in snapshot.room.wager.values():
+			if not seat is Dictionary or not seat.get("hand") is Array or not seat.get("dice") is Array: return "Invalid saved wager seat."
+			if not whole.call(seat.get("stake"), 0, WAGER_STAKES[-1]) or not whole.call(seat.get("payout"), 0): return "Invalid saved wager stake."
 	if not snapshot.event.is_empty() and (not Catalog.EVENTS.has(snapshot.event.get("key", "")) or not snapshot.event.get("offers") is Dictionary): return "Unknown saved event."
 	if snapshot.phase == "mine_draft" and (not snapshot.mine.get("pool") is Array or snapshot.mine.pool.is_empty() or not hero_ids.has(snapshot.mine.get("picker_id", ""))): return "Invalid saved mine draft."
 	for key in ["rooms", "encounters", "dice", "loot"]:

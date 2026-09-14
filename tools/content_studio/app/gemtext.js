@@ -44,7 +44,7 @@ const caratMark = (c) => (c <= 1 ? null : {
 });
 
 const TONES = { damage: "RED", block: "BLUE", heal: "GREEN", gold: "GOLD", poison: "VIOLET", stun: "VIOLET", strip: "AMBER", revive: "GREEN",
-	reroll: "WHITE", amplify: "WHITE", echo: "WHITE", upgrade: "WHITE" };
+	reroll: "WHITE", amplify: "WHITE", echo: "WHITE", upgrade: "WHITE", cleanse: "GREEN" };
 
 const block = (verb, kind, label, parts, carat, suffix = "") => ({
 	verb, kind, label, tone: TONES[kind] || "PAPER",
@@ -73,6 +73,7 @@ export function blocks(key, definition, { carat = 1, cut = 1, clarity = 1, effec
 	const cutName = CUT_NAMES[k - 1];
 	const hit = tables.multistrike_hit ?? 4;
 	const blessing = tables.blessing_gold ?? 3;
+	const wagerCeiling = tables.wager_ceiling ?? 24;
 	const built = [];
 	if (Rules.hasRule(definition)) return authored(definition.rule, c, k, stored, l);
 
@@ -202,6 +203,77 @@ export function blocks(key, definition, { carat = 1, cut = 1, clarity = 1, effec
 			built.push(block("Otherwise heal every living hero for", "heal", "health", [
 				cutFlat(k, k, "adds its rank straight into this heal"), flat], c));
 			break;
+		case "QUARTET": {
+			const wanted = l === 5 ? 3 : 4;
+			const quad = block("Deal", "damage", "damage", [
+				part("triple", "match value", `The value shown by your ${wanted} matching dice.`,
+					cutRatio(k, 2 * k, "doubles into the matched value")), flat], c, "to your target");
+			quad.note = "Clarity buys this trigger down to a triple at Flawless instead of adding more to the hit.";
+			built.push(quad);
+			break;
+		}
+		case "BASTION":
+			built.push(block("Give every living hero", "block", "block", [
+				cutFlat(k, 3 * k, "triples into the wall this raises"), flat], c));
+			built.push(fixed("Then clear", "cleanse", "stun from every living hero", l === 5 ? "2" : "1",
+				l < 5 ? "Only Flawless Clarity clears a second slot of stun."
+					: "Flawless Clarity clears both slots of a doubled stun.", "clarity"));
+			break;
+		case "PURGE":
+			built.push(fixed("Clear", "cleanse", "Poison from every living hero",
+				String(k + Math.ceil(c / 8)),
+				`Cut ${k} (${cutName}) plus an eighth of Carat ${c}. Poison is the one status that bypasses block.`, "cut"));
+			built.push(block("Then heal every living hero for", "heal", "health", [flat], c));
+			break;
+		case "GRAFT":
+			built.push(block("Heal yourself for", "heal", "health", [
+				part("pair", "both pair values", "Your two highest pairs, added together — the values, not the four dice."),
+				cutFlat(k, 2 * (k - 1), "adds a flat bonus here"), flat], c));
+			break;
+		case "HEXBOLT":
+			built.push(block("Deal", "damage", "damage", [
+				part("count", "odd dice", "How many of your five dice came up odd.", cutFactor(k)),
+				flat], c, "to your target"));
+			if (l === 5) built.push(fixed("Apply", "stun", "stun", "1",
+				"Flawless Clarity adds a stun this gem does not otherwise have.", "clarity"));
+			break;
+		case "MIASMA": {
+			const fumes = fixed("Apply", "poison", "Poison", String(k + Math.ceil(c / 6)),
+				`Cut ${k} (${cutName}) plus a sixth of Carat ${c}. Poison bypasses block and caps at 12 stacks.`, "cut");
+			fumes.repeat = { glyph: "target", text: `to ${count(k + 1, "enemy", "enemies")}`,
+				tip: `Cut ${k} (${cutName}) buys reach here as well as stacks.` };
+			built.push(fumes);
+			built.push(block("Then deal", "damage", "damage", [flat], c, "to the same enemies"));
+			break;
+		}
+		case "ENERVATE":
+			built.push(block("Strip", "strip", "block", [
+				cutFlat(k, 2 * k, "doubles into the block you tear off"), flat], c, "from your target"));
+			built.push(fixed("Then apply", "poison", "Poison", String(k),
+				`Cut ${k} (${cutName}), plus half the matched value your triple showed. Caps at 12 stacks.`,
+				"cut", "plus half the match value"));
+			break;
+		case "TITHE":
+			built.push(block("Gain", "gold", "gold", [
+				cutFlat(k, k, "adds its rank straight into the take"), flat], c));
+			break;
+		case "MINT":
+			built.push(block("Gain", "gold", "gold", [
+				cutFlat(k, 2 * k, "doubles into the take"), flat], c));
+			built.push(block("Then gain", "block", "block", [
+				cutFlat(k, k, "adds its rank straight into this block"), flat], c));
+			break;
+		case "WAGER": {
+			built.push(block("Gain", "gold", "gold", [
+				part("", String(blessing), `A fixed ${blessing} before Carat.`)], c));
+			const bet = block("Then deal", "damage", "damage", [
+				part("sum", `${wagerCeiling} − your total`,
+					`What the hand did not give you: ${wagerCeiling} less the five dice added up.`),
+				cutFlat(k, 2 * k, "doubles into this hit"), flat], c, "to your target");
+			bet.note = "Clarity widens the low total this needs as well as adding its flat bonus, so a Flawless Wager fires on quiet hands a Fractured one would miss.";
+			built.push(bet);
+			break;
+		}
 		case "GLIMMER": {
 			const polish = block("Raise your lowest die by", "amplify", "pips", [
 				cutFlat(k, k, "adds its rank straight into the lift"), flat], c, "to a maximum of 20");
@@ -346,24 +418,28 @@ export function requirement(key, definition, { clarity = 1, cut = 1, carat = 1 }
 	const length = 5 - Math.trunc((l - 1) / 2);
 	if (Rules.hasRule(definition)) return fromTrigger(definition.rule.trigger || {}, l, cut, carat);
 	switch (ruleOf(key, definition)) {
-		case "BLOCK": case "INTERPOSE": return spec(same(2, 4), "", "Any two dice sharing a value.");
-		case "HEAVYSTRIKE": return spec(same(3, 5), "", "Any three dice sharing a value.");
+		case "BLOCK": case "INTERPOSE": case "TITHE": return spec(same(2, 4), "", "Any two dice sharing a value.");
+		case "HEAVYSTRIKE": case "ENERVATE": return spec(same(3, 5), "", "Any three dice sharing a value.");
 		case "SHIELDBASH": return spec([...same(3, 5), ...same(2, 2, OTHER_TONE)], "", "Three dice of one value and two of another.");
-		case "SUNDER": return spec([...same(2, 2), ...same(2, 5, OTHER_TONE)], "", "Two pairs of different values.");
+		case "SUNDER": case "GRAFT": return spec([...same(2, 2), ...same(2, 5, OTHER_TONE)], "", "Two pairs of different values.");
 		case "MULTISTRIKE": case "LIFELINE": return spec(run(length), "", `A run of ${length} consecutive values, in any order.`);
 		case "BLESSING": case "ARC_BURST": return spec(run(3), "", "A run of three consecutive values, in any order.");
 		case "LUCKYSTRIKE": return spec([[7, MATCH_TONE]], "", "At least one die showing 7.");
-		case "MEND": return spec([[1, RUN_TONE], [3, RUN_TONE], [5, RUN_TONE]], "", "At least three odd results.");
-		case "EVEN_TEMPO": return spec([[2, RUN_TONE], [4, RUN_TONE], [6, RUN_TONE]], "", "At least three even results.");
+		case "MEND": case "HEXBOLT": return spec([[1, RUN_TONE], [3, RUN_TONE], [5, RUN_TONE]], "", "At least three odd results.");
+		case "EVEN_TEMPO": case "PURGE": case "MIASMA": return spec([[2, RUN_TONE], [4, RUN_TONE], [6, RUN_TONE]], "", "At least three even results.");
 		case "PRECISION": return spec([[3, PLAIN_TONE], [1, PLAIN_TONE], [6, PLAIN_TONE], [2, PLAIN_TONE], [5, PLAIN_TONE]], "≠",
 			"All five dice showing different values.");
 		case "ECHO": return spec(same(2, 4), "", "Any two dice sharing a value.");
+		case "QUARTET": {
+			const alike = l === 5 ? 3 : 4;
+			return spec(same(alike, 4), "", `Any ${alike} dice sharing a value.`);
+		}
 		// The same easing a straight gets, counted in distinct values rather than a run.
-		case "FACET": return spec([[3, PLAIN_TONE], [1, PLAIN_TONE], [6, PLAIN_TONE], [2, PLAIN_TONE], [5, PLAIN_TONE]].slice(0, length), "≠",
+		case "FACET": case "MINT": return spec([[3, PLAIN_TONE], [1, PLAIN_TONE], [6, PLAIN_TONE], [2, PLAIN_TONE], [5, PLAIN_TONE]].slice(0, length), "≠",
 			`At least ${length} dice with no two of them alike.`);
 		case "STUN": return spec([[21 - l, MATCH_TONE]], "≥", `The highest die is at least ${21 - l}.`);
 		case "VENOM": return spec([[13 - l, MATCH_TONE]], "≥", `The highest die is at least ${13 - l}.`);
-		case "BULWARK": return spec([], `Σ ≤ ${18 + 2 * l}`, `The whole hand totals ${18 + 2 * l} or less.`);
+		case "BULWARK": case "BASTION": case "WAGER": return spec([], `Σ ≤ ${18 + 2 * l}`, `The whole hand totals ${18 + 2 * l} or less.`);
 		case "DRAINSTRIKE": return spec([], `Σ ≥ ${45 - 5 * l}`, `The whole hand totals ${45 - 5 * l} or more.`);
 	}
 	return spec([], "ANY HAND", "No condition: this skill fires on every hand.");

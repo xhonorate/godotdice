@@ -61,15 +61,14 @@ static func begin_turn(state: Dictionary, rng: RandomNumberGenerator) -> Array:
 				actor.hand.append(roll_die(die,rng))
 		actor.initial_hand = actor.hand.duplicate(true)
 	for enemy in state.get("enemies",[]):
+		## The other side takes its dice up at its own slot rather than here. The party
+		## spends its hand against the board in front of it, and what the enemies make of
+		## their own roll is answered once the party has finished.
 		enemy.hand = []
 		enemy.relic_flags = {}
-		if enemy.hp > 0:
-			for die in enemy.get("dice",[]):
-				enemy.hand.append(roll_die(die,rng))
-			enemy.intents = enemy_intents(enemy,state,rng)
-		else:
-			enemy.intents = []
-	return [{"kind":"turn", "turn":state.turn, "text":"Turn "+str(state.turn)+(": Enrage +"+str(enrage(state))+" damage per enemy hit." if enrage(state) > 0 else ". Enemy intents are revealed.")}]
+		enemy.intents = []
+		enemy.pending_roll = true
+	return [{"kind":"turn", "turn":state.turn, "text":"Turn "+str(state.turn)+(": Enrage +"+str(enrage(state))+" damage per enemy hit." if enrage(state) > 0 else ". The party rolls first.")}]
 
 static func enrage(state: Dictionary) -> int:
 	return maxi(0,(int(state.get("turn",1))-6)*2)
@@ -121,6 +120,9 @@ const CARAT_OFFSET: int = 7
 const CARAT_DIVISOR: int = 8
 const MULTISTRIKE_HIT: int = 4
 const BLESSING_GOLD: int = 3
+## What a Wager counts down from. Above the highest total its own trigger will let through,
+## so a qualifying hand always pays something, and the quietest hands pay most.
+const WAGER_CEILING: int = 24
 ## White is the fourth kind of thing a gem can do: not damage, defence or fortune but the
 ## roll itself. Its effects reach past the hand they were rolled for, so each one is bounded
 ## here rather than left to a formula.
@@ -168,6 +170,13 @@ static func _lowered(text: String) -> String:
 
 static func effect(kind: String, amount: int, target: String = "self") -> Dictionary:
 	return {"kind":kind, "amount":maxi(0,amount), "target":target}
+
+static func cleanse(status: String, amount: int, target: String = "self") -> Dictionary:
+	## The other direction of `stun` and `poison`: stacks taken off rather than put on.
+	## Until Green and Blue could do this there was no answer to either status at all.
+	var built: Dictionary = effect("cleanse",amount,target)
+	built.status = status
+	return built
 
 static func rule_of(key: String) -> String:
 	## The registered rule a skill resolves through. A skill the build ships is its own
@@ -362,6 +371,75 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 			if active:
 				selected = groups[p].slice(0,2)
 				effects.append(effect("echo",mini(ECHO_CAP,_by_carat(25+5*(k-1)+f,c))))
+		"QUARTET":
+			## The one poker shape nothing else reads. Four alike is rare enough that Clarity
+			## spends its whole budget buying the trigger down instead of adding F(L).
+			var wanted: int = 3 if l == 5 else 4
+			var quads: Array = _matching(groups,wanted)
+			active = not quads.is_empty()
+			if active:
+				var matched: int = quads.back()
+				selected = groups[matched].slice(0,wanted)
+				effects.append(effect("damage",_by_carat(matched*2*k+f,c),"enemy"))
+		"BASTION":
+			active = total <= 18+2*l
+			if active:
+				effects = [effect("block",_by_carat(3*k+f,c),"ally"),cleanse("stun",2 if l == 5 else 1,"ally")]
+		"PURGE":
+			active = even.size() >= 3
+			if active:
+				for roll in even:
+					selected.append(roll.die_id)
+				effects = [cleanse("poison",k+ceili(float(c)/8.0),"ally"),effect("heal",_by_carat(f,c),"ally")]
+		"GRAFT":
+			active = pairs.size() >= 2
+			if active:
+				var both: int = 0
+				for pair in pairs.slice(pairs.size()-2):
+					both += int(pair)
+					selected.append_array(groups[pair].slice(0,2))
+				effects.append(effect("heal",_by_carat(both+2*(k-1)+f,c)))
+		"HEXBOLT":
+			active = odd.size() >= 3
+			if active:
+				for roll in odd:
+					selected.append(roll.die_id)
+				effects.append(effect("damage",_by_carat(odd.size()*k+f,c),"enemy"))
+				if l == 5:
+					effects.append(effect("stun",1,"enemy"))
+		"MIASMA":
+			active = even.size() >= 3
+			if active:
+				for roll in even:
+					selected.append(roll.die_id)
+				for built in [effect("poison",k+ceili(float(c)/6.0),"enemies"),effect("damage",_by_carat(f,c),"enemies")]:
+					built.target_limit = k+1
+					effects.append(built)
+		"ENERVATE":
+			active = not triples.is_empty()
+			if active:
+				var matched: int = triples.back()
+				selected = groups[matched].slice(0,3)
+				effects = [effect("remove_block",_by_carat(2*k+f,c),"enemy"),
+					effect("poison",floori(float(matched)/2.0)+k,"enemy")]
+		"TITHE":
+			active = not pairs.is_empty()
+			if active:
+				selected = groups[p].slice(0,2)
+				effects.append(effect("gold",_by_carat(k+f,c)))
+		"MINT":
+			active = groups.size() >= 5-int((l-1)/2)
+			if active:
+				for value in groups:
+					selected.append(groups[value][0])
+				effects = [effect("gold",_by_carat(2*k+f,c)),effect("block",_by_carat(k+f,c))]
+		"WAGER":
+			## The only skill paid for by what the hand did not give you: the further under
+			## the ceiling the roll lands, the harder the hit.
+			active = total <= 18+2*l
+			if active:
+				effects = [effect("gold",_by_carat(BLESSING_GOLD,c)),
+					effect("damage",_by_carat(WAGER_CEILING-total+2*k+f,c),"enemy")]
 		"FACET":
 			## The one skill that reaches outside the encounter: it cuts a second stone and
 			## the second stone stays cut. Clarity eases the hand it wants, Cut decides how
@@ -448,6 +526,8 @@ static func effects_summary(effects: Array, actor: Dictionary = {}, state: Dicti
 			suffix += " ("+str(maxi(0,8+4*(int(state.get("act",1))-1)-int(actor.get("combat_gold",0))))+" battle allowance left)"
 		if action_effect.kind == "lifeline":
 			parts.append("Revive "+str(amount)+" HP ("+str(action_effect.get("charges",1))+" charge), otherwise heal "+str(action_effect.heal_amount))
+		elif action_effect.kind == "cleanse":
+			parts.append("Clear "+str(amount)+" "+str(action_effect.get("status","poison"))+suffix)
 		elif action_effect.kind == "reroll":
 			parts.append("Rerolls per turn raised to "+str(amount)+" for this battle")
 		elif action_effect.kind == "amplify":
@@ -588,7 +668,64 @@ static func enemy_intents(actor: Dictionary, state: Dictionary, rng: RandomNumbe
 static func _intent(key: String, name: String, effects: Array) -> Dictionary:
 	return {"key":key,"name":name,"active":true,"valid":true,"effects":effects}
 
-static func resolve_turn(state: Dictionary, _rng: RandomNumberGenerator) -> Array:
+static func enemy_skills(actor: Dictionary) -> Array:
+	## Every action this enemy's routine can reach, in the order the routine names them.
+	## It is the other side's loadout: the party reads it the same way it reads its own
+	## gems, and an activation lights the entry the roll actually opened. Each branch
+	## mirrors `enemy_intents`; if the two ever disagree, that function is right.
+	var carried: Array = []
+	match str(actor.get("ai",actor.get("key",""))):
+		"SLIME", "RED_SLIME":
+			for item in actor.get("gems",[]):
+				var key: String = Catalog.canonical_key(str(item.get("key","")))
+				carried.append({"key":key, "name":str(Catalog.definitions("skills").get(key,{}).get("name",key))})
+		"STONE_CRAB":
+			carried = [{"key":"SHELL_UP","name":"Shell Up"}, {"key":"CLAW","name":"Claw"}]
+		"GEM_CULTIST":
+			carried = [{"key":"SHARD","name":"Shard"}, {"key":"RESTORE","name":"Restore"}]
+		"DARTLING":
+			carried = [{"key":"BARBED_DART","name":"Barbed Dart"}]
+		"IRON_WARDEN":
+			carried = [{"key":"FORTIFY","name":"Fortify"}, {"key":"HAMMER","name":"Hammer"}]
+		"MIRROR_WISP":
+			carried = [{"key":"REFLECTION","name":"Reflection"}]
+		"RIFT_HOUND":
+			carried = [{"key":"TRACK","name":"Track"}, {"key":"POUNCE","name":"Pounce"}]
+		"SLIME_KING":
+			carried = [{"key":"SLAM","name":"Slam"}, {"key":"FORTIFY","name":"Fortify"}, {"key":"ABSORB","name":"Absorb"}]
+		"MIRROR_REGENT":
+			carried = [{"key":"REFRACTION","name":"Refraction"}, {"key":"SHATTER","name":"Shatter"},
+				{"key":"MENDING_GLASS","name":"Mending Glass"}]
+		"RIFT_SOVEREIGN":
+			carried = [{"key":"HIGH_TIDE","name":"High Tide"}, {"key":"LOW_TIDE","name":"Low Tide"},
+				{"key":"ECLIPSE","name":"Eclipse"}]
+	return carried
+
+static func _take_slot(actor: Dictionary, state: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	## One enemy takes its dice up and settles what they opened. The roll and the actions
+	## it reached are decided together, so presentation can show the throw and then light
+	## exactly the entries that came out of it.
+	actor.hand = []
+	for die in actor.get("dice",[]):
+		actor.hand.append(roll_die(die,rng))
+	actor.intents = enemy_intents(actor,state,rng)
+	## A plain Array, not a packed one: this rides in the snapshot and has to survive the
+	## wire as the same type the authority hashed, or clients never agree the fight matched.
+	var opened: Array = []
+	for intent in actor.intents:
+		opened.append(str(intent.get("key","")))
+	var thrown: Array = values(actor.hand)
+	var wording: String = str(actor.name)+" takes its slot."
+	if not thrown.is_empty():
+		var faces: PackedStringArray = []
+		for value in thrown:
+			faces.append(str(value))
+		wording = str(actor.name)+" rolls "+", ".join(faces)+"."
+	var event: Dictionary = _event("roll",actor,actor,"ROLL",0,wording)
+	event.merge({"hand":actor.hand.duplicate(true), "opened":opened})
+	return event
+
+static func resolve_turn(state: Dictionary, rng: RandomNumberGenerator) -> Array:
 	var events: Array = []
 	if not str(state.get("battle_outcome","")).is_empty():
 		return events
@@ -620,6 +757,12 @@ static func resolve_turn(state: Dictionary, _rng: RandomNumberGenerator) -> Arra
 					if _outcome(state,events):
 						return events
 			else:
+				## The turn schedules the throw and the slot performs it, so an enemy handed a
+				## published action directly — by a fixture, a forecast or a restored state —
+				## acts on exactly what it was given and rolls for nothing.
+				if bool(actor.get("pending_roll",false)):
+					actor.pending_roll = false
+					events.append(_take_slot(actor,state,rng))
 				for action in actor.get("intents",[]):
 					if action.get("active",true):
 						resolve_skill(actor,action,state,events)
@@ -674,7 +817,9 @@ static func resolve_skill(actor: Dictionary, action: Dictionary, state: Dictiona
 	var preferred: String = str(action.get("target_id",actor.get("preferred_target","")))
 	if not preferred.is_empty() and not target.is_empty() and preferred != str(target.id):
 		events.append(_event("retarget",actor,target,key,0,actor.name+" retargets "+str(action.name)+" to "+str(target.name)+"."))
-	events.append(_event("skill",actor,target if not target.is_empty() else actor,key,0,actor.name+" uses "+str(action.name)+"."))
+	var opening: Dictionary = _event("skill",actor,target if not target.is_empty() else actor,key,0,actor.name+" uses "+str(action.name)+".")
+	opening.merge(_cast_payload(actor,action,item))
+	events.append(opening)
 	## What an Echo would repeat, remembered before this skill's effects land so a gem never
 	## echoes itself. Only a skill that landed an amount is worth remembering, so an Echo —
 	## and a gem that did nothing but change the dice — leaves the memory where it was
@@ -714,6 +859,33 @@ static func resolve_skill(actor: Dictionary, action: Dictionary, state: Dictiona
 				events.append(_event("fizzle",actor,recipient,key,0,str(action.name)+" has no effect on downed "+str(recipient.name)+"."))
 				continue
 			_apply_effect(actor,recipient,action_effect,key,state,events,item)
+
+static func _cast_payload(actor: Dictionary, action: Dictionary, item: Dictionary) -> Dictionary:
+	## What the battlefield needs to draw an activation: the dice that fed it, the ranks that
+	## refined them, and the amounts that came out. Presentation only — no rule reads it back.
+	## An enemy intent carries no stone, so its ranks come through as zero and the drawing
+	## falls back to the roll alone.
+	var by_id: Dictionary = {}
+	for roll in actor.get("hand",[]):
+		if roll is Dictionary:
+			by_id[str(roll.get("die_id",""))] = int(roll.get("value",0))
+	var chosen: Array = action.get("contributing_dice",[])
+	if chosen.is_empty():
+		chosen = by_id.keys()
+	var dice: Array = []
+	for die_id in chosen:
+		if by_id.has(str(die_id)):
+			dice.append({"die_id":str(die_id), "value":int(by_id[str(die_id)])})
+	var amounts: Array = []
+	for action_effect in action.get("effects",[]):
+		if action_effect is Dictionary and int(action_effect.get("amount",0)) > 0:
+			amounts.append({"kind":str(action_effect.get("kind","")), "amount":int(action_effect.get("amount",0))})
+	return {"skill_name":str(action.get("name",action.get("key",""))),
+		"gem_id":str(item.get("id","")),
+		"dice":dice, "amounts":amounts,
+		"carat":int(item.get("carat",0)),
+		"cut":int(item.get("cut",0)),
+		"clarity":int(action.get("effective_clarity",item.get("clarity",0)))}
 
 static func _echoable(action: Dictionary) -> Dictionary:
 	## A skill reduced to the part an Echo can give back: its name, and the amounts that
@@ -855,6 +1027,17 @@ static func _apply_effect(actor: Dictionary, target: Dictionary, action_effect: 
 			events.append(lifted)
 	elif kind == "upgrade":
 		_upgrade(actor,target,action_effect,key,amount,events,item)
+	elif kind == "cleanse":
+		var statuses: Dictionary = target.get("statuses",{})
+		var status: String = str(action_effect.get("status","poison"))
+		var held: int = int(statuses.get(status,0))
+		var cleared: int = mini(held,amount)
+		statuses[status] = held-cleared
+		target.statuses = statuses
+		var relief: Dictionary = _event("cleanse",actor,target,key,cleared,
+			str(target.name)+(" has no "+status+" to clear." if cleared == 0 else " sheds "+str(cleared)+" "+status+" ("+str(held-cleared)+" left)."))
+		relief.merge({"status":status,"requested":amount,"applied":cleared,"remaining":held-cleared})
+		events.append(relief)
 	elif kind in ["stun","poison"]:
 		var statuses: Dictionary = target.get("statuses",{})
 		var before: int = int(statuses.get(kind,0))
@@ -927,7 +1110,13 @@ static func _upgrade(actor: Dictionary, target: Dictionary, action_effect: Dicti
 	events.append(cut_event)
 
 static func _event(kind: String, actor: Dictionary, target: Dictionary, skill: String, amount: int, message: String) -> Dictionary:
-	return {"kind":kind,"actor":str(actor.get("id","")),"target":str(target.get("id","")),"skill":skill,"amount":amount,"text":message}
+	## Every event carries where both parties stand the instant after it landed. Presentation
+	## replays the log one entry at a time and reads those standings back, so a fight can be
+	## watched to its end without the interface re-deriving a single rule — and without a
+	## killing blow emptying the field before the blow itself has been drawn.
+	return {"kind":kind,"actor":str(actor.get("id","")),"target":str(target.get("id","")),"skill":skill,"amount":amount,"text":message,
+		"actor_hp":int(actor.get("hp",0)),"actor_block":int(actor.get("block",0)),
+		"target_hp":int(target.get("hp",0)),"target_block":int(target.get("block",0))}
 
 static func _outcome(state: Dictionary, events: Array) -> bool:
 	var result: String = ""
