@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="290" viewBox="0 0 300 290">
+  <defs>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7a4f2c"/>
+      <stop offset="1" stop-color="#3f2715"/>
+    </linearGradient>
+    <linearGradient id="cork" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b98652"/>
+      <stop offset="1" stop-color="#8a5f37"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="12" width="280" height="250" rx="8" fill="#000" opacity="0.35"/>
+  <rect x="8" y="8" width="280" height="250" rx="8" fill="url(#frame)"/>
+  <rect x="24" y="24" width="248" height="218" rx="3" fill="url(#cork)"/>
+  <g fill="#6f4b2a" opacity="0.5">
+    <circle cx="48" cy="60" r="2"/><circle cx="90" cy="210" r="2.5"/><circle cx="160" cy="44" r="1.8"/>
+    <circle cx="230" cy="120" r="2.2"/><circle cx="200" cy="226" r="1.6"/><circle cx="120" cy="140" r="2"/>
+    <circle cx="256" cy="60" r="1.7"/><circle cx="60" cy="170" r="2.1"/>
+  </g>
+  <!-- a heading plaque -->
+  <rect x="84" y="0" width="128" height="34" rx="6" fill="#2a1a10"/>
+  <rect x="90" y="5" width="116" height="24" rx="4" fill="#e8b661"/>
+  <!-- quill over a sealed scroll -->
+  <rect x="112" y="12" width="46" height="12" rx="6" fill="#f2e6c8" stroke="#2a1a10" stroke-width="2"/>
+  <circle cx="160" cy="18" r="5" fill="#e2564a" stroke="#2a1a10" stroke-width="1.5"/>
+  <path d="M170 26 Q186 10 194 4 Q188 16 176 26 Z" fill="#2a1a10"/>
+  <!-- notes -->
+  <g transform="rotate(-5 80 90)">
+    <rect x="38" y="50" width="96" height="84" fill="#f2e6c8"/>
+    <rect x="38" y="50" width="96" height="14" fill="#e8d6aa"/>
+    <g stroke="#7a6a4a" stroke-width="3" stroke-linecap="round">
+      <line x1="50" y1="80" x2="120" y2="80"/><line x1="50" y1="94" x2="110" y2="94"/><line x1="50" y1="108" x2="116" y2="108"/>
+    </g>
+    <polygon points="112,114 120,104 128,114 120,124" fill="#e2564a"/>
+  </g>
+  <circle cx="84" cy="52" r="6" fill="#e2564a"/><circle cx="82" cy="50" r="2" fill="#ffc7bd"/>
+  <g transform="rotate(4 210 90)">
+    <rect x="158" y="44" width="100" height="92" fill="#eef1f7"/>
+    <g stroke="#6a7488" stroke-width="3" stroke-linecap="round">
+      <line x1="170" y1="68" x2="244" y2="68"/><line x1="170" y1="82" x2="236" y2="82"/><line x1="170" y1="96" x2="240" y2="96"/>
+    </g>
+    <polygon points="232,108 244,108 248,120 238,128 228,120" fill="#5a8fd8"/>
+  </g>
+  <circle cx="208" cy="46" r="6" fill="#5a8fd8"/><circle cx="206" cy="44" r="2" fill="#d6ecff"/>
+  <g transform="rotate(-2 150 190)">
+    <rect x="70" y="150" width="150" height="80" fill="#f6e9b8"/>
+    <rect x="70" y="150" width="150" height="80" fill="none" stroke="#c9963f" stroke-width="3" stroke-dasharray="6 4"/>
+    <polygon points="145,158 150,169 162,170 153,178 156,190 145,184 134,190 137,178 128,170 140,169" fill="#e2564a"/>
+    <g stroke="#7a6a4a" stroke-width="3" stroke-linecap="round">
+      <line x1="86" y1="194" x2="204" y2="194"/><line x1="86" y1="208" x2="186" y2="208"/>
+    </g>
+  </g>
+  <circle cx="145" cy="152" r="6" fill="#e8b661"/><circle cx="143" cy="150" r="2" fill="#fff1c2"/>
+  <!-- a hanging string of the pinned-up reward -->
+  <path d="M238 150 Q250 190 244 224" fill="none" stroke="#7a6a4a" stroke-width="2"/>
+  <polygon points="236,224 252,224 256,236 244,250 232,236" fill="#a97fe0"/>
+  <polygon points="240,226 248,226 250,234 244,242 238,234" fill="#e0d0ff" opacity="0.7"/>
+</svg>

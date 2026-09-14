@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="76" viewBox="0 0 120 76">
+  <ellipse cx="60" cy="66" rx="54" ry="8" fill="#000" opacity="0.35"/>
+  <!-- an open journal with a ribbon -->
+  <path d="M8 22 Q34 12 60 22 L60 64 Q34 54 8 64 Z" fill="#6b1f24"/>
+  <path d="M112 22 Q86 12 60 22 L60 64 Q86 54 112 64 Z" fill="#6b1f24"/>
+  <path d="M14 20 Q36 12 58 20 L58 58 Q36 50 14 58 Z" fill="#f2e6c8"/>
+  <path d="M106 20 Q84 12 62 20 L62 58 Q84 50 106 58 Z" fill="#eadcb8"/>
+  <g stroke="#8a7a5a" stroke-width="2" stroke-linecap="round">
+    <line x1="22" y1="28" x2="50" y2="25"/><line x1="22" y1="36" x2="50" y2="33"/><line x1="22" y1="44" x2="44" y2="42"/>
+    <line x1="70" y1="25" x2="98" y2="28"/><line x1="70" y1="33" x2="98" y2="36"/>
+  </g>
+  <circle cx="84" cy="46" r="6" fill="none" stroke="#5a8fd8" stroke-width="2"/>
+  <path d="M84 40 L84 52 M78 46 L90 46" stroke="#5a8fd8" stroke-width="1.5"/>
+  <path d="M58 20 L58 72 L62 68 L66 72 L62 20 Z" fill="#e8b661"/>
+  <!-- the quill in its pot beside it -->
+  <rect x="100" y="10" width="14" height="14" rx="3" fill="#2a3346"/>
+  <path d="M108 12 Q114 -6 118 -12 Q116 4 110 14 Z" fill="#eef1f7" transform="translate(0 6)"/>
+</svg>

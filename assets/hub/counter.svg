@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="270" viewBox="0 0 640 270">
+  <defs>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b4526"/>
+      <stop offset="1" stop-color="#2e1d11"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a0703f"/>
+      <stop offset="1" stop-color="#6b4526"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bfe0ff" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#bfe0ff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#bfe0ff" stop-opacity="0.18"/>
+    </linearGradient>
+    <linearGradient id="velvet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a1a3a"/>
+      <stop offset="1" stop-color="#1e0c20"/>
+    </linearGradient>
+  </defs>
+  <rect x="14" y="60" width="620" height="206" rx="6" fill="#000" opacity="0.4"/>
+  <!-- the glass case on top -->
+  <path d="M40 60 L600 60 L612 84 L28 84 Z" fill="url(#velvet)"/>
+  <g>
+    <polygon points="92,70 100,62 108,70 100,80" fill="#e2564a"/><polygon points="96,70 100,66 104,70 100,74" fill="#ffc7bd"/>
+    <rect x="150" y="63" width="14" height="14" fill="#5a8fd8" transform="rotate(12 157 70)"/>
+    <path d="M214 64 Q210 60 206 64 Q202 70 214 78 Q226 70 222 64 Q218 60 214 64 Z" fill="#6fbf73"/>
+    <ellipse cx="270" cy="70" rx="7" ry="10" fill="#a97fe0"/>
+    <circle cx="330" cy="70" r="9" fill="#e0b64a"/><circle cx="330" cy="70" r="4" fill="#fff1c2"/>
+    <circle cx="392" cy="70" r="9" fill="#c6d4e8"/><circle cx="389" cy="67" r="3" fill="#fff"/>
+    <polygon points="450,78 458,62 466,78" fill="#e2564a"/>
+    <rect x="512" y="63" width="13" height="13" fill="#5a8fd8" transform="rotate(-10 518 70)"/>
+    <path d="M570 64 Q566 60 562 64 Q558 70 570 78 Q582 70 578 64 Q574 60 570 64 Z" fill="#6fbf73"/>
+  </g>
+  <path d="M40 60 L600 60 L612 84 L28 84 Z" fill="url(#glass)"/>
+  <path d="M40 8 L600 8 L600 60 L40 60 Z" fill="url(#glass)"/>
+  <path d="M40 8 L600 8 L600 60 L40 60 Z" fill="none" stroke="#c9963f" stroke-width="3"/>
+  <line x1="320" y1="8" x2="320" y2="60" stroke="#c9963f" stroke-width="2"/>
+  <path d="M60 14 L110 14 L70 54 L40 54 Z" fill="#ffffff" opacity="0.10"/>
+  <path d="M360 14 L400 14 L370 54 L344 54 Z" fill="#ffffff" opacity="0.08"/>
+  <!-- counter top and front -->
+  <rect x="14" y="84" width="612" height="24" rx="4" fill="url(#top)"/>
+  <rect x="14" y="104" width="612" height="6" fill="#2a1a10"/>
+  <rect x="28" y="110" width="584" height="156" fill="url(#front)"/>
+  <g fill="none" stroke="#24160c" stroke-width="4">
+    <rect x="52" y="132" width="160" height="112" rx="6"/>
+    <rect x="240" y="132" width="160" height="112" rx="6"/>
+    <rect x="428" y="132" width="160" height="112" rx="6"/>
+  </g>
+  <g fill="#e8b661" opacity="0.8">
+    <circle cx="132" cy="188" r="10"/><circle cx="320" cy="188" r="10"/><circle cx="508" cy="188" r="10"/>
+  </g>
+  <g fill="#3f2715">
+    <circle cx="132" cy="188" r="5"/><circle cx="320" cy="188" r="5"/><circle cx="508" cy="188" r="5"/>
+  </g>
+  <rect x="28" y="254" width="584" height="12" fill="#1a100a"/>
+</svg>

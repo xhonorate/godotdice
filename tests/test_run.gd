@@ -162,7 +162,8 @@ func test_loadouts() -> void:
 	check(hero.gems.size() == 2 and int(hero.gems[0].carat) == 12 and hero.gems[1].key == "VENOM", "a profile loadout replaces the starting gems")
 	check(hero.gems.all(func(gem: Dictionary) -> bool: return gem.loadout and gem.equipped and gem.owner_id == "p1"), "loadout gems arrive equipped and marked")
 	check(EngineCore.validate_state(engine.state).is_empty(), "a loadout expedition is a valid saved state")
-	for broken in [[{"key":"VENOM", "carat":5}], [{"key":"STRIKE", "carat":30}], [{"key":"STRIKE"}, {"key":"STRIKE"}], []]:
+	check(fresh(1, "QUARRY", 3, {"heroes":[{"id":"p1", "hero_id":"MAX", "loadout":[]}]}).state.heroes[0].gems.size() == Catalog.definitions("heroes").MAX.starting_gems.size(), "an empty loadout falls back to the hero's starting gems")
+	for broken in [[{"key":"VENOM", "carat":5}], [{"key":"STRIKE", "carat":30}], [{"key":"STRIKE"}, {"key":"STRIKE"}], "not a list"]:
 		check(fresh(1, "QUARRY", 3, {"heroes":[{"id":"p1", "hero_id":"MAX", "loadout":broken}]}).state.is_empty(), "an invalid loadout is refused: %s" % str(broken))
 
 func test_shop_and_services() -> void:

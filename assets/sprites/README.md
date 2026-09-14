@@ -52,6 +52,16 @@ No extra frames are required. [`scripts/ui/sprite_actor.gd`](../../scripts/ui/sp
 breathes, sways, lunges at a target, flashes on damage and drains the colour of a downed unit
 by deforming and recolouring the still image.
 
+## The shop
+
+The main menu is a room of separate pictures under [`assets/hub/`](../hub/): `background` and one
+file per clickable object (`commission_board`, `wall_map`, `door`, `clock`, `shopkeeper`, `counter`,
+`ledger`, `jewel_bag`, `armor_stand`, `mine_cart`). They are hand-written SVGs imported at twice
+their size. A PNG with the same name replaces an SVG — keep its transparent margin, because an
+object is only clickable where it is opaque and its hover outline is drawn into that margin.
+Positions and names live in `LAYOUT` in [`scripts/ui/hub.gd`](../../scripts/ui/hub.gd), on a
+1600 × 900 stage.
+
 ## Dice are not sprites
 
 They are real polyhedra built by

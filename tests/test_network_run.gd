@@ -35,6 +35,13 @@ func run() -> void:
   peers.append(client)
   client.join_enet("127.0.0.1", "Hero %d" % index, port)
  check(await until(func(): return host.lobby.members.size() == 4 and peers.all(func(peer): return peer.status == "lobby")), "Party authenticates before run")
+ peers[1].set_loadout([{"key":"STRIKE","carat":9,"cut":2,"clarity":2},{"key":"BLOCK","carat":3,"cut":1,"clarity":1}])
+ peers[2].set_loadout([{"key":"BLOCK","carat":1,"cut":1,"clarity":1}])
+ peers[1].choose_mine("MIRROR_GROTTO")
+ host.choose_mine("RIFT_HOLLOW", "contract-1", "swift_tremors")
+ check(await until(func(): return peers.all(func(peer): return peer.lobby.get("mine_id") == "RIFT_HOLLOW" and peer.lobby.get("modifier") == "swift_tremors")), "The host's destination reaches every member; a guest cannot change it")
+ check(await until(func(): return host._find_member(peers[1].local_player_id).get("loadout", []).size() == 2), "A member's loadout reaches the host")
+ check(host._find_member(peers[2].local_player_id).get("loadout", []).is_empty(), "A loadout without Strike is refused at the lobby")
  for index in peers.size():
   peers[index].choose_hero(["ARDOR", "KAIT", "MAX", "ARDOR"][index])
   peers[index].set_lobby_ready(true)
@@ -48,8 +55,10 @@ func run() -> void:
  host.controller_connection_changed.connect(func(player_id: String, connected: bool):
   if not engine.state.is_empty(): engine.set_controller_connected(player_id, connected))
  var seats: Array = host.start_run()
- var state: Dictionary = engine.new_run({"heroes":seats,"seed":87261,"session_id":host.session_id,"host_id":host.host_player_id,"autosave":false})
+ var state: Dictionary = engine.new_run({"heroes":seats,"mine_id":host.lobby.mine_id,"special":{"id":host.lobby.special_id,"modifier":host.lobby.modifier},"seed":87261,"session_id":host.session_id,"host_id":host.host_player_id,"autosave":false})
  check(not state.is_empty() and state.get("phase") == "route", "Authority initializes from authenticated seats")
+ check(state.mine_id == "RIFT_HOLLOW" and state.special.modifier == "swift_tremors", "The run digs the lobby's mine under its contract")
+ check(int(engine._hero(peers[1].local_player_id).gems[0].carat) == 9, "A member's home loadout is the gems they carry down")
  check(await until(func(): return peers.all(func(peer): return peer.last_snapshot.get("phase") == "route")), "Initial complete run snapshot reaches every peer")
  var route_id: String = engine.state.offers[0].id
  for offer in engine.state.offers:
@@ -93,6 +102,8 @@ func run() -> void:
  peers[1].send_ping("example", "Inspect this gem")
  check(await until(func(): return ping_records.size() == 1), "Authenticated party ping reaches another client")
  check(ping_records[0][0] == peers[1].local_player_id and engine.state.revision == before_ping, "Ping identifies transport sender without changing game state")
+ host.return_to_lobby()
+ check(await until(func(): return peers.all(func(peer): return peer.lobby.get("state") == "lobby" and peer.lobby.members.all(func(member): return not member.ready))), "The host brings the party back to the shop with nobody ready")
  for peer in peers:
   peer.leave()
   peer.queue_free()

@@ -206,7 +206,7 @@ All art is generated as editable starting points. Hub art is authored as SVG so 
 
 ## 11. Build order
 
-Each phase ends with passing checks and something playable. Status as of September 14, 2026: phases 1 and 2 are done, and phase 3 is partly done (seam map, tremor meter, lift, salvage and unappraised stones are in; an interim appraisal list stands in for the phase 4 table).
+Each phase ends with passing checks and something playable. Status as of September 14, 2026: all six phases have a first complete pass. The known tuning problem in §6.2 is still open, and the hub art is generated placeholder SVG under `assets/hub/`.
 
 | Phase | Deliverable | Rough size |
 |---|---|---|

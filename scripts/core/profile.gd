@@ -451,7 +451,7 @@ static func ensure_commissions(profile: Dictionary, date: String) -> void:
 	## chance a day for a new special mission.
 	var commissions: Dictionary = profile.commissions
 	while commissions.board.size() < COMMISSION_SLOTS:
-		var note: Dictionary = _roll_commission(profile)
+		var note: Dictionary = _roll_commission(profile, commissions.board.map(func(existing: Dictionary) -> String: return str(existing.get("kind", ""))))
 		if note.is_empty():
 			break
 		commissions.board.append(note)
@@ -534,7 +534,7 @@ static func _progress_commissions(profile: Dictionary, result: Dictionary) -> Ar
 				completed.append(str(note.id))
 	return completed
 
-static func _roll_commission(profile: Dictionary) -> Dictionary:
+static func _roll_commission(profile: Dictionary, avoid: Array = []) -> Dictionary:
 	var id: String = _commission_id(profile)
 	var rng: RandomNumberGenerator = _rng("%s|commission|%s" % [profile.profile_id, id])
 	var mines: Array = unlocked_mines(profile)
@@ -543,7 +543,15 @@ static func _roll_commission(profile: Dictionary) -> Dictionary:
 	var hardest: int = 1
 	for mine_id in mines:
 		hardest = maxi(hardest, int(Catalog.mine_definition(mine_id).get("difficulty", 1)))
-	var kind: String = COMMISSION_KINDS[RandomSource.weighted_index(rng, [3, 2, 2, 3, 1])]
+	## A board of three different asks reads better than three versions of one, so kinds
+	## already pinned up are skipped while any other kind is left.
+	var weights: Array = [3, 2, 2, 3, 1]
+	for index in range(COMMISSION_KINDS.size()):
+		if COMMISSION_KINDS[index] in avoid:
+			weights[index] = 0
+	if weights.all(func(weight: int) -> bool: return weight == 0):
+		weights = [3, 2, 2, 3, 1]
+	var kind: String = COMMISSION_KINDS[RandomSource.weighted_index(rng, weights)]
 	var note: Dictionary = {"id": id, "kind": kind, "status": "open", "reward": {}}
 	var mine_id: String = mines[rng.randi_range(0, mines.size() - 1)]
 	var difficulty: int = int(Catalog.mine_definition(mine_id).get("difficulty", 1))

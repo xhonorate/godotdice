@@ -7,6 +7,7 @@ extends SceneTree
 ## and the service rooms that are played rather than read: wager_*.png and crucible_*.png.
 
 const Seam = preload("res://scripts/core/seam.gd")
+const Profile = preload("res://scripts/core/profile.gd")
 var ui: Control
 var out_dir := "user://shots"
 
@@ -24,6 +25,24 @@ func run() -> void:
 	root.add_child(ui)
 	await settle(24)
 	await shoot("menu")
+	# The shop and what its objects open.
+	ui.hub_view._hover("mine_cart")
+	await settle(20)
+	await shoot("hub_hover")
+	ui.profile_store.transact(func(profile: Dictionary) -> String:
+		profile.gold = 4200
+		Profile.mark_seen(profile, ["HEAL", "MEND", "VENOM", "STUN", "TITHE", "ECHO", "MULTISTRIKE", "BULWARK"])
+		profile.mines.MIRROR_GROTTO.unlocked = true
+		profile.encountered.bosses = ["SLIME_KING"]
+		profile.mines.QUARRY.boss_defeated = true
+		profile.mines.QUARRY.deepest = 17
+		return "")
+	for screen in ["jewel_bag", "shopkeeper", "commission_board", "armor_stand", "wall_map", "mine_cart", "door"]:
+		ui.screens.open(screen)
+		await settle(40)
+		await shoot("hub_" + screen)
+		ui._close_overlay()
+	await settle(6)
 	ui.offline_hotseat = true
 	ui.controlled_id = "shot_hero"
 	ui.engine.new_run({"heroes": [

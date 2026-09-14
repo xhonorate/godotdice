@@ -128,8 +128,9 @@ func new_run(config: Dictionary = {}) -> Dictionary:
 			return {"ok":false, "error":"Invalid hero or duplicate player identity."}
 		ids.append(id)
 		var hero: Dictionary = Catalog.hero(hero_key, id, i)
-		if seat.has("loadout"):
-			var loadout_error: String = _loadout_error(seat.loadout)
+		## No loadout, or an empty one, means the hero's own starting gems.
+		if seat.get("loadout", []) is Array and not seat.get("loadout", []).is_empty() or (seat.has("loadout") and not seat.loadout is Array):
+			var loadout_error: String = loadout_error(seat.loadout)
 			if not loadout_error.is_empty():
 				state = {}
 				return {"ok":false, "error":loadout_error}
@@ -165,7 +166,7 @@ func new_run(config: Dictionary = {}) -> Dictionary:
 	changed.emit(state)
 	return state
 
-static func _loadout_error(loadout: Variant) -> String:
+static func loadout_error(loadout: Variant) -> String:
 	## A loadout comes from a player's own profile, so the host checks its shape rather than
 	## trusting it: whole ranks in range, one gem per skill, Strike present, six at most.
 	if not loadout is Array or loadout.is_empty() or loadout.size() > 6:

@@ -2,6 +2,8 @@ class_name GameSession
 extends Node
 
 const Codec = preload("res://scripts/services/packet_codec.gd")
+const Catalog = preload("res://scripts/core/catalog.gd")
+const Seam = preload("res://scripts/core/seam.gd")
 const Enet = preload("res://scripts/services/enet_transport.gd")
 const SteamTransport = preload("res://scripts/services/steam_transport.gd")
 const RECONNECT_GRACE_SECONDS := 60
@@ -184,12 +186,13 @@ func _open_lobby(hero_id: String = "ardor") -> void:
 	host_epoch = 1
 	lobby = {"session_id": session_id, "host_player_id": host_player_id, "state": "lobby", "transport": transport_kind,
 		"members": [_member(local_player_id, display_name, hero_id, 0)], "max_players": 4,
+		"mine_id": "", "special_id": "", "modifier": "",
 		"protocol_version": Codec.PROTOCOL_VERSION, "build_version": Codec.BUILD_VERSION, "content_version": Codec.CONTENT_VERSION}
 	_set_status("lobby")
 	_publish_lobby()
 
 func _member(id: String, player_name: String, hero_id: String, seat: int) -> Dictionary:
-	return {"id": id, "player_id": id, "name": player_name, "hero_id": hero_id.to_upper(), "seat": seat,
+	return {"id": id, "player_id": id, "name": player_name, "hero_id": hero_id.to_upper(), "seat": seat, "loadout": [],
 		"ready": false, "connected": true, "fallback": false, "disconnected_at": 0, "grace_remaining": 0}
 
 func choose_hero(hero_id: String) -> void:
@@ -197,6 +200,25 @@ func choose_hero(hero_id: String) -> void:
 
 func set_lobby_ready(ready: bool) -> void:
 	_lobby_command("SetLobbyReady", {"ready": ready})
+
+func set_loadout(loadout: Array) -> void:
+	## The gems this player socketed at home, so the host can start the run with them.
+	_lobby_command("SetLoadout", {"loadout": loadout})
+
+func choose_mine(mine_id: String, special_id: String = "", modifier: String = "") -> void:
+	_lobby_command("ChooseMine", {"mine_id": mine_id, "special_id": special_id, "modifier": modifier})
+
+func return_to_lobby() -> void:
+	## The host brings a finished expedition's party back to the shop. Nobody is ready yet:
+	## everyone has a haul to sort before the next descent.
+	if not is_host:
+		return
+	lobby.state = "lobby"
+	for member in lobby.get("members", []):
+		member.ready = false
+	_set_status("lobby")
+	_update_steam_metadata()
+	_publish_lobby()
 
 func _lobby_command(type: String, payload: Dictionary) -> void:
 	if is_host:
@@ -210,9 +232,21 @@ func _apply_lobby_command(player_id: String, type: String, payload: Dictionary) 
 	var member := _find_member(player_id)
 	if member.is_empty():
 		return
-	if type == "ChooseHero" and str(payload.get("hero_id", "")).to_upper() in ["ARDOR", "KAIT", "MAX"]:
+	if type == "ChooseHero" and Catalog.definitions("heroes").has(str(payload.get("hero_id", "")).to_upper()):
 		member.hero_id = str(payload.hero_id).to_upper()
 		member.ready = false
+	elif type == "SetLoadout" and payload.get("loadout") is Array:
+		# The host checks the shape here and again when the run starts; a bad loadout is ignored.
+		if (load("res://scripts/core/run_engine.gd") as GDScript).loadout_error(payload.loadout).is_empty():
+			member.loadout = payload.loadout.duplicate(true)
+			member.ready = false
+	elif type == "ChooseMine" and player_id == host_player_id and not Catalog.mine_definition(str(payload.get("mine_id", ""))).is_empty() and str(payload.get("modifier", "")) in [""] + Seam.MODIFIERS:
+		lobby.mine_id = str(payload.mine_id)
+		lobby.special_id = str(payload.get("special_id", "")).left(64)
+		lobby.modifier = str(payload.get("modifier", ""))
+		# The party agreed to a different mine; everyone confirms again.
+		for other in lobby.get("members", []):
+			other.ready = false
 	elif type == "SetLobbyReady" and payload.get("ready") is bool:
 		member.ready = payload.ready
 	_publish_lobby()

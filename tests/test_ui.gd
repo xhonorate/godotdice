@@ -1,4 +1,5 @@
 extends SceneTree
+const Profile = preload("res://scripts/core/profile.gd")
 ## Integration smoke: render actual snapshots, route a reroll through the authority,
 ## and open every screen without assets, Steam, a display, or writing a run save.
 var ui: Control
@@ -8,6 +9,9 @@ var failures: Array[String] = []
 class InvitationProbe extends Node:
 	var joined_id := ""
 	var is_host := false
+	var transport_kind := "steam"
+	var local_player_id := "probe"
+	var host_player_id := "probe"
 	var lobby: Dictionary = {}
 	var status := "idle"
 	func leave() -> void:
@@ -28,6 +32,49 @@ func run() -> void:
 	check(not ui.snapshot.size(), "menu opens without an active run")
 	check(not ui._profile().is_empty() and ui._profile().collection.has("STRIKE"), "the menu opens a fresh profile")
 	check(ui._loadout("max").size() == ui._profile().heroes.MAX.loadout.size(), "a hero's loadout comes from the profile")
+	## The shop is the menu: every object opens its screen.
+	check(is_instance_valid(ui.hub_view), "the shop is drawn when no expedition is running")
+	for id in ["jewel_bag", "shopkeeper", "commission_board", "armor_stand", "wall_map", "mine_cart", "door", "ledger", "clock"]:
+		check(ui.hub_view.spot(id) != null or id == "counter", "the shop has a %s to click" % id)
+		ui.screens.open(id)
+		await frames()
+		check(is_instance_valid(ui.overlay), "clicking the %s opens its screen" % id)
+		ui._close_overlay()
+	ui.hub_view.activated.emit("jewel_bag")
+	await frames()
+	check(is_instance_valid(ui.overlay), "the hub's click signal reaches the screens")
+	ui._close_overlay()
+	## Buy from the jeweller once there is something seen to sell and gold to pay for it.
+	ui.profile_store.transact(func(profile: Dictionary) -> String:
+		profile.gold = 100000
+		Profile.mark_seen(profile, ["HEAL", "MEND", "VENOM", "STUN", "TITHE", "ECHO", "LIFELINE"])
+		profile.shop = {"date": "", "stock": [], "refreshes": 0}
+		return "")
+	ui.screens.shop()
+	await frames()
+	var stock: Array = ui._profile().shop.stock
+	check(not stock.is_empty() and ui._profile().shop.date == ui.screens.today(), "opening the shop stocks today's case")
+	var bought: Dictionary = ui.profile_store.transact(func(profile: Dictionary) -> Dictionary: return Profile.buy_offer(profile, str(stock[0].id), ui.screens.today()))
+	check(bought.ok and ui._profile().collection.has(stock[0].gem.key), "a bought gem joins the collection")
+	ui._close_overlay()
+	## Socket it at the armor stand.
+	ui.screens.viewing_hero = "MAX"
+	var key: String = str(stock[0].gem.key)
+	var next_loadout: Array = ui._profile().heroes.MAX.loadout.duplicate()
+	if not key in next_loadout: next_loadout.append(key)
+	ui.screens._set_loadout(next_loadout)
+	await frames()
+	check(key in ui._profile().heroes.MAX.loadout and ui._loadout("max").any(func(gem: Dictionary) -> bool: return gem.key == key), "a gem socketed at the armor stand rides into the next expedition")
+	ui._close_overlay()
+	ui._choose_hero("KAIT")
+	check(ui.menu_hero == "kait" and ui._profile().selected_hero == "KAIT", "choosing a hero at the stand is remembered")
+	ui._choose_hero("MAX")
+	ui.screens.commissions()
+	await frames()
+	check(ui._profile().commissions.board.size() == Profile.COMMISSION_SLOTS, "the commission board fills when read")
+	ui._close_overlay()
+	ui._choose_mine("QUARRY")
+	check(ui._destination() == "QUARRY" and ui._choosing_destination(), "a solo player sets the cart's destination")
 	ui.offline_hotseat = true
 	ui.controlled_id = "ui_test"
 	ui.engine.new_run({"heroes":[{"id":"ui_test","hero_id":"MAX","name":"UI Test","loadout":ui._loadout("max")}],"mine_id":"QUARRY","seed":12345,"autosave":false})
@@ -269,7 +316,7 @@ func run() -> void:
 	ui._accept_steam_invite("987654321")
 	await frames()
 	check(invitation_probe.joined_id == "987654321", "accepted menu invitation joins the exact Steam lobby")
-	check(ui.menu_page == "lobby", "menu invitation displays connection and lobby state")
+	check(ui.snapshot.is_empty() and invitation_probe.status == "connecting", "menu invitation joins from the shop")
 	ui.queue_free()
 	await process_frame
 	for failure in failures: push_error(failure)

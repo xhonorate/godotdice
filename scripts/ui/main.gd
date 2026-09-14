@@ -23,6 +23,8 @@ const Seam = preload("res://scripts/core/seam.gd")
 const SeamMap = preload("res://scripts/ui/seam_map.gd")
 const TremorMeter = preload("res://scripts/ui/tremor_meter.gd")
 const AppraisalTable = preload("res://scripts/ui/appraisal_table.gd")
+const HubScene = preload("res://scripts/ui/hub.gd")
+const HubScreens = preload("res://scripts/ui/hub_screens.gd")
 const INK := Color("0c111c")
 const PANEL := Color("161e2e")
 const PANEL_HI := Color("1f2a3d")
@@ -55,8 +57,12 @@ var toast: Label
 var controlled_id := ""
 var selected_dice: Array[String] = []
 var menu_hero := "ardor"
-var menu_name := "Player 1"
 var mine_choice := ""
+## A special contract taken at the commission board: {id, modifier, mine_id}, or empty.
+var special_choice: Dictionary = {}
+var atlas_focus := ""
+var screens: RefCounted
+var hub_view: Control
 var profile_store: RefCounted
 ## The result this client last carried home, so re-rendering the summary never applies it twice.
 var applied_result := ""
@@ -71,7 +77,6 @@ var seed_text := ""
 var player_name := "Adventurer"
 var server_address := "127.0.0.1"
 var steam_lobby_text := ""
-var menu_page := "home"
 var settings := {"text_scale": 1.0, "reduced_motion": false, "idle_motion": true, "playback_speed": 1.0, "fullscreen": false, "bindings": {}, "sound_volume": 0.6}
 var pending_render := false
 var rebind_action := ""
@@ -144,6 +149,9 @@ func _ready() -> void:
 	var opened: Dictionary = profile_store.load_or_create()
 	if not opened.get("ok", false): _notify(str(opened.get("error", "Your profile could not be opened.")))
 	elif opened.has("notice"): _notify(str(opened.notice))
+	screens = HubScreens.new(self)
+	var selected := str(_profile().get("selected_hero", ""))
+	if not selected.is_empty(): menu_hero = selected.to_lower()
 	session = SessionScript.new()
 	add_child(session)
 	session.command_received.connect(_receive_command)
@@ -201,10 +209,7 @@ func _render() -> void:
 	root_box = _vbox(margin, 12)
 	_header()
 	if snapshot.is_empty():
-		if menu_page == "lobby":
-			_lobby()
-		else:
-			_menu()
+		_hub()
 	else:
 		_run_screen()
 	_footer()
@@ -535,169 +540,96 @@ func _footer() -> void:
 	else:
 		_label(row, "SEED  %s   ·   %s   ·   SEAT %d" % [str(snapshot.get("seed", "")), str(snapshot.get("phase", "")).to_upper().replace("_", " "), _seat() + 1], 10, MUTED)
 
-func _menu() -> void:
-	var scroll := _scroll(root_box)
-	var content := _vbox(scroll, 18)
-	var mast := _panel(content, Color("1d2b46"), Color("50557a"), 20)
-	var mast_row := _hbox(mast, 18)
-	var showcase := _hbox(mast_row, 6)
-	showcase.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var shapes := ["D20", "D12", "D6"]
-	for i in shapes.size():
-		var display := Control.new()
-		display.custom_minimum_size = Vector2(96 if i == 0 else 74, 96 if i == 0 else 74)
-		showcase.add_child(display)
-		var showcase_die := _die_view("preview:menu:" + shapes[i])
-		showcase_die.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		display.add_child(showcase_die)
-		showcase_die.configure(Catalog.die(shapes[i], "menu-" + shapes[i]), {}, false, false, GOLD)
-	var intro := _vbox(mast_row, 6)
-	intro.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	intro.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_label(intro, "Fortune favors a well-kept pair.", 30, PAPER)
-	_label(intro, "Roll five dice. Keep what matters. Every equipped gem draws power from the same hand.", 16, MUTED, true)
-	_label(intro, "A cooperative expedition for 1–4 heroes • Local play and online parties", 13, GREEN)
-	var roster := _hbox(mast_row, 4)
-	roster.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	for key in HERO_KEYS:
-		var face := _actor_for("preview:hero:" + key, key.to_upper(), 1.0)
-		face.custom_minimum_size = Vector2(72, 92)
-		face.bob = 0.85
-		roster.add_child(face)
-	var quick := _hbox(mast, 8)
-	_spacer(quick)
-	_button(quick, "Journal", _show_journal)
-	_button(quick, "Settings", _show_settings)
-	var row := _hbox(content)
-	var setup := _panel(row)
-	setup.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	setup.size_flags_stretch_ratio = 1.7
-	_label(setup, "01   CHOOSE YOUR HERO", 12, GOLD)
-	var seat_row := _hbox(setup, 9)
-	var seat_face := _actor_for("preview:seat:0", menu_hero.to_upper(), 1.0)
-	seat_face.custom_minimum_size = Vector2(52, 62)
-	seat_face.bob = 0.8
-	seat_face.show_ground = false
-	seat_row.add_child(seat_face)
-	var names := LineEdit.new()
-	names.text = menu_name
-	names.placeholder_text = "Hero name"
-	names.max_length = 24
-	names.custom_minimum_size.x = 140
-	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	names.text_changed.connect(func(value: String): menu_name = value)
-	seat_row.add_child(names)
-	var choices := OptionButton.new()
-	choices.custom_minimum_size.x = 150
-	var unlocked_heroes: Array = HERO_KEYS.filter(func(key: String) -> bool: return bool(_profile().get("heroes", {}).get(key.to_upper(), {}).get("unlocked", true)))
-	for key in unlocked_heroes:
-		choices.add_item(key.capitalize())
-	choices.selected = unlocked_heroes.find(menu_hero)
-	choices.item_selected.connect(func(index: int): menu_hero = unlocked_heroes[index]; _queue_render())
-	seat_row.add_child(choices)
-	var hero: Dictionary = Catalog.HEROES.get(menu_hero, Catalog.HEROES.get(menu_hero.to_upper(), {}))
-	_label(setup, "%s  ·  %s HP  ·  %s" % [str(hero.get("trait_name", "")), hero.get("max_hp", 100), _join_values(hero.get("dice", []))], 13, GREEN, true)
-	_label(setup, str(hero.get("description", "")), 12, MUTED, true)
-	var loadout_names: Array = []
-	for key in _profile().get("heroes", {}).get(menu_hero.to_upper(), {}).get("loadout", []):
-		var owned: Dictionary = _profile().get("collection", {}).get(key, {})
-		loadout_names.append("%s C%d" % [str(Catalog.SKILLS.get(key, {}).get("name", key)), int(owned.get("carat", 1))])
-	_label(setup, "Loadout: " + " · ".join(loadout_names), 12, GOLD, true)
-	_label(setup, "%d gold  ·  %d of %d gems owned  ·  %d seen" % [int(_profile().get("gold", 0)), _profile().get("collection", {}).size(), Catalog.SKILLS.size(), _profile().get("seen_gems", []).size()], 12, GREEN, true)
-	var expedition := _panel(row)
-	expedition.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(expedition, "02   CHOOSE A MINE", 12, GOLD)
-	var mines: Array = Profile.unlocked_mines(_profile()) if not _profile().is_empty() else Catalog.starter_mines()
-	if not mine_choice in mines: mine_choice = mines[0] if not mines.is_empty() else ""
-	var mine_list := OptionButton.new()
-	for mine_id in mines:
-		var mine: Dictionary = Catalog.mine_definition(mine_id)
-		mine_list.add_item("%s  ·  %s" % [str(mine.get("name", mine_id)), "◆".repeat(int(mine.get("difficulty", 1)))])
-	mine_list.selected = mines.find(mine_choice)
-	mine_list.item_selected.connect(func(index: int): mine_choice = mines[index]; _queue_render())
-	expedition.add_child(mine_list)
-	var chosen_mine: Dictionary = Catalog.mine_definition(mine_choice)
-	_label(expedition, str(chosen_mine.get("description", "")), 14, MUTED, true)
-	_label(expedition, "Boss: %s. Dig as deep as you dare and ride a lift home before the tremors wake it." % str(Catalog.definitions("enemies").get(chosen_mine.get("boss_id", ""), {}).get("name", "?")), 13, AMBER, true)
-	_label(expedition, "Optional numeric seed", 12, GOLD)
-	var seed_edit := LineEdit.new()
-	seed_edit.text = seed_text
-	seed_edit.placeholder_text = "Leave blank for a new expedition"
-	seed_edit.text_changed.connect(func(value: String): seed_text = value)
-	expedition.add_child(seed_edit)
-	_button(expedition, "Begin expedition  →", _begin_local, true)
-	_button(expedition, "Continue saved run", _resume)
-	var online := _panel(content)
-	var network_row := _hbox(online)
-	_label(network_row, "GATHER ONLINE", 12, GOLD)
-	var name_edit := LineEdit.new()
-	name_edit.text = player_name
-	name_edit.placeholder_text = "Display name"
-	name_edit.custom_minimum_size.x = 170
-	name_edit.text_changed.connect(func(value: String): player_name = value)
-	network_row.add_child(name_edit)
-	_button(network_row, "Host LAN / direct", func(): menu_page = "lobby"; session.host_enet(player_name); _queue_render())
-	var addr := LineEdit.new()
-	addr.text = server_address
-	addr.placeholder_text = "Host IP address"
-	addr.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	addr.text_changed.connect(func(value: String): server_address = value)
-	network_row.add_child(addr)
-	_button(network_row, "Join", func(): menu_page = "lobby"; session.join_enet(server_address, player_name); _queue_render())
-	var steam_row := _hbox(online)
-	_label(steam_row, "STEAM", 12, BLUE)
-	_button(steam_row, "Host Steam lobby", func(): menu_page = "lobby"; session.host_steam(player_name); _queue_render())
-	var steam_edit := LineEdit.new()
-	steam_edit.text = steam_lobby_text
-	steam_edit.placeholder_text = "Steam lobby ID / invitation"
-	steam_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	steam_edit.text_changed.connect(func(value: String): steam_lobby_text = value)
-	steam_row.add_child(steam_edit)
-	_button(steam_row, "Join Steam", func(): menu_page = "lobby"; session.join_steam(steam_lobby_text, player_name); _queue_render())
-	_label(online, "LAN uses port 24567. Steam lobbies require the compatible GodotSteam extension and the Steam client.", 12, MUTED, true)
+func _hub() -> void:
+	var bar := _hbox(root_box, 10)
+	_label(bar, "ROGUEDICE  ·  THE JEWELLER'S", 13, GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	UiKit.chip(bar, "%d GOLD" % int(_profile().get("gold", 0)), GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	UiKit.chip(bar, "%d / %d GEMS" % [_profile().get("collection", {}).size(), Catalog.SKILLS.size()], VIOLET).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_spacer(bar)
+	var destination: Dictionary = Catalog.mine_definition(_destination())
+	_label(bar, "%s  →  %s" % [str(Catalog.definitions("heroes").get(menu_hero.to_upper(), {}).get("name", menu_hero)), str(destination.get("name", ""))], 14, PAPER).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if _in_party():
+		var members: Array = session.lobby.get("members", [])
+		var ready := members.filter(func(member: Dictionary) -> bool: return member.get("ready", false)).size()
+		UiKit.chip(bar, "PARTY %d  ·  %d READY" % [members.size(), ready], GREEN).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hub_view = HubScene.new()
+	hub_view.reduced_motion = bool(settings.reduced_motion)
+	hub_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	hub_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root_box.add_child(hub_view)
+	hub_view.activated.connect(func(id: String): _play_sound(click_sound); screens.open(id))
+	var claimable := 0
+	for field in ["board", "special"]:
+		for note in _profile().get("commissions", {}).get(field, []):
+			if note.get("status", "") == "complete": claimable += 1
+	var badges: Dictionary = {}
+	if claimable > 0: badges["commission_board"] = str(claimable)
+	if _in_party(): badges["door"] = str(session.lobby.get("members", []).size())
+	hub_view.set_badges(badges)
 
-func _lobby() -> void:
-	var panel := _panel(_scroll(root_box))
-	_label(panel, "THE PARTY TABLE", 28, GOLD)
-	_label(panel, "Choose your hero, then mark ready. The host begins when every hero is ready.", 15, MUTED, true)
-	var lobby: Dictionary = session.lobby
-	_label(panel, "Transport: %s  ·  %s" % [str(lobby.get("transport", "offline")).to_upper(), str(session.status)], 13, GREEN)
-	if lobby.has("lobby_id"):
-		_label(panel, "Steam lobby ID: %s" % lobby.lobby_id, 14, GOLD)
-	for member in lobby.get("members", []):
-		var row := _hbox(panel)
-		_label(row, "%02d   %s" % [int(member.get("seat", 0)) + 1, str(member.get("name", "Hero"))], 18)
-		_label(row, "HOST" if member.get("player_id") == session.host_player_id else "GUEST", 11, GOLD)
-		_spacer(row)
-		_label(row, str(member.get("hero_id", "ardor")).capitalize(), 15, BLUE)
-		_label(row, "READY" if member.get("ready", false) else "PLANNING", 12, GREEN if member.get("ready", false) else MUTED)
-	var controls := _hbox(panel)
-	var choices := OptionButton.new()
-	for key in HERO_KEYS:
-		choices.add_item(key.capitalize())
-	choices.item_selected.connect(func(index: int): session.choose_hero(HERO_KEYS[index]))
-	controls.add_child(choices)
-	_button(controls, "Ready / unready", func():
-		var ready := false
-		for member in session.lobby.get("members", []):
-			if str(member.get("player_id")) == str(session.local_player_id):
-				ready = bool(member.get("ready", false))
-		session.set_lobby_ready(not ready))
-	if session.is_host:
-		_button(controls, "Begin expedition", _begin_network, true).disabled = not session.can_start()
-		_button(controls, "Reopen saved party", _resume_network)
-		if session.transport_kind == "steam": _button(controls, "Invite friends", func(): session.invite_friends())
-	_button(controls, "Leave lobby", func(): session.leave(); menu_page = "home"; _queue_render())
+func _in_party() -> bool:
+	return is_instance_valid(session) and str(session.transport_kind) != "offline" and not session.lobby.is_empty() and str(session.status) not in ["idle", "failed", "disconnected"]
+
+func _local_lobby_member() -> Dictionary:
+	for member in session.lobby.get("members", []):
+		if str(member.get("player_id", "")) == str(session.local_player_id): return member
+	return {}
+
+func _choosing_destination() -> bool:
+	## Solo players choose their own mine; in a party only the host does.
+	return not _in_party() or session.is_host
+
+func _destination() -> String:
+	var mines: Array = Profile.unlocked_mines(_profile())
+	if _in_party() and not session.is_host and not str(session.lobby.get("mine_id", "")).is_empty():
+		return str(session.lobby.mine_id)
+	if not mine_choice in mines: mine_choice = mines[0] if not mines.is_empty() else ""
+	return mine_choice
+
+func _destination_special() -> Dictionary:
+	if _in_party() and not session.is_host:
+		return {"id": str(session.lobby.get("special_id", "")), "modifier": str(session.lobby.get("modifier", ""))}
+	return special_choice if str(special_choice.get("mine_id", "")) == _destination() else {}
+
+func _choose_mine(mine_id: String) -> void:
+	mine_choice = mine_id
+	atlas_focus = mine_id
+	if str(special_choice.get("mine_id", "")) != mine_id: special_choice = {}
+	if _in_party() and session.is_host:
+		var special := _destination_special()
+		session.choose_mine(mine_id, str(special.get("id", "")), str(special.get("modifier", "")))
+	_queue_render()
+
+func _choose_hero(hero_key: String) -> void:
+	menu_hero = hero_key.to_lower()
+	profile_store.transact(func(profile: Dictionary) -> String: return Profile.select_hero(profile, hero_key.to_upper()))
+	_sync_lobby_identity()
+	_queue_render()
+
+func _sync_lobby_identity() -> void:
+	## Tells the party which hero this player brings and what they socketed.
+	if not _in_party(): return
+	session.choose_hero(menu_hero)
+	session.set_loadout(_loadout(menu_hero))
+
+func _open_party(connect_action: Callable) -> void:
+	var result: Variant = connect_action.call()
+	if result is Dictionary and not result.get("ok", false):
+		_notify(str(result.get("error", "The party could not be reached.")))
+	_close_overlay()
+	_sync_lobby_identity.call_deferred()
+	if session.is_host: _choose_mine.call_deferred(_destination())
+	_queue_render()
 
 func _begin_local() -> void:
 	if not seed_text.is_empty() and not seed_text.is_valid_int():
 		_notify("Enter a whole-number seed, or leave it blank for a new expedition.")
 		return
-	session.start_offline(menu_name, menu_hero)
+	session.start_offline(player_name, menu_hero)
 	offline_hotseat = true
 	controlled_id = str(session.local_player_id)
-	var party: Array = [ {"id": controlled_id, "hero_id": menu_hero, "name": menu_name, "loadout": _loadout(menu_hero)}]
-	var result: Dictionary = engine.new_run({"heroes": party, "mine_id": mine_choice, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": controlled_id, "session_id": session.session_id})
+	var party: Array = [ {"id": controlled_id, "hero_id": menu_hero, "name": player_name, "loadout": _loadout(menu_hero)}]
+	var result: Dictionary = engine.new_run({"heroes": party, "mine_id": _destination(), "special": _destination_special(), "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": controlled_id, "session_id": session.session_id})
 	if result.has("error") and not result.get("ok", true):
 		_notify(str(result.error))
 	else:
@@ -714,9 +646,16 @@ func _begin_network() -> void:
 	offline_hotseat = false
 	var party: Array = []
 	for member in members:
-		party.append({"id": member.get("player_id", member.get("id", "")), "name": member.get("name", "Hero"), "hero_id": member.get("hero_id", "ardor")})
+		var seat: Dictionary = {"id": member.get("player_id", member.get("id", "")), "name": member.get("name", "Hero"), "hero_id": member.get("hero_id", "ardor")}
+		if not member.get("loadout", []).is_empty(): seat["loadout"] = member.loadout
+		party.append(seat)
 	controlled_id = str(session.local_player_id)
-	engine.new_run({"heroes": party, "mine_id": mine_choice, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": str(session.host_player_id), "session_id": session.session_id})
+	var started: Dictionary = engine.new_run({"heroes": party, "mine_id": _destination(), "special": _destination_special(), "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": str(session.host_player_id), "session_id": session.session_id})
+	if started.has("error") and not started.get("ok", true):
+		_notify(str(started.error))
+		session.return_to_lobby()
+		return
+	_close_overlay()
 	_state_changed(engine.state)
 	session.broadcast_snapshot(snapshot)
 
@@ -3003,12 +2942,16 @@ func _skip_playback() -> void:
 	_notify("Playback skipped. The authoritative outcome is unchanged.")
 
 func _return_menu() -> void:
+	## Back to the shop. A party stays together: the host reopens the lobby and every guest
+	## lands in the shop with it, ready flags cleared for the next descent.
 	_close_overlay()
-	session.leave()
+	if _in_party() and not offline_hotseat:
+		if session.is_host: session.return_to_lobby()
+	else:
+		session.leave()
 	snapshot = {}
 	controlled_id = ""
 	selected_dice.clear()
-	menu_page = "home"
 	_queue_render()
 
 func _show_recovery(_state: Dictionary) -> void:
@@ -3043,7 +2986,6 @@ func _join_invited_lobby(lobby_id: String) -> void:
 	selected_dice.clear()
 	offline_hotseat = false
 	steam_lobby_text = lobby_id
-	menu_page = "lobby"
 	var result: Dictionary = session.join_steam(lobby_id, player_name)
 	if not result.get("ok", false):
 		_notify(str(result.get("error", "The Steam lobby could not be joined.")))
