@@ -1,7 +1,7 @@
 # Content Studio
 
 A local web panel for authoring every piece of content in the game — heroes, gems, dice,
-relics, enemies, events, run profiles and statuses — with a live preview of each one and
+relics, enemies, events, mines and statuses — with a live preview of each one and
 the engine's own validator running as you type.
 
 ```
@@ -19,7 +19,7 @@ opening a tab.
 ## What the panel gives you
 
 - **Every section, one list.** Search, create, duplicate, rename and delete. A rename
-  repoints every reference — a hero's dice, a profile's pool, an encounter table, another
+  repoints every reference — a hero's dice, a mine's gem pool, boss or depth bands, another
   entry that borrows this one's rule — so nothing is left pointing at a name that is gone.
 - **Live previews built from the game's own code.** The gem preview is a port of
   `scripts/ui/gem_mesh.gd`: the same outline per Colour, the same miscut per Cut, the same
@@ -59,8 +59,8 @@ reading `catalog.gd` and `combat.gd` themselves:
 A gem that borrows Strike keeps its own name, colour, cut, rarity, tags, trigger text and
 drop pool, and resolves Strike's formula. An enemy that borrows Stone Crab keeps its own
 health, block, dice and art, and alternates Shell Up and Claw. To make an authored enemy
-actually appear, give its run profile an **encounter table** — without one the profile uses
-the shipped encounter list, which only names shipped enemies.
+actually appear, name it in a mine's **depth bands**: each band is a depth it starts at and
+weights for the ordinary and elite enemies that fill a fight from there down.
 
 `tests/test_authored_content.gd` is the proof: it writes a pack carrying a hero, a gem, a
 die and an enemy that no GDScript mentions, loads it the way the game does, and checks the

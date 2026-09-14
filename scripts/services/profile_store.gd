@@ -19,7 +19,13 @@ var profile: Dictionary = {}
 func _init(directory: String = "") -> void:
 	store = SaveStore.new(directory if not directory.is_empty() else default_directory())
 
+## Tests point this somewhere disposable before the main scene opens its store, so a test run
+## never touches the player's real profile.
+static var directory_override := ""
+
 static func default_directory() -> String:
+	if not directory_override.is_empty():
+		return directory_override
 	var instance := "default"
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--instance="):

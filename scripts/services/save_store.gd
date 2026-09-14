@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The authority must persist each accepted transaction before publishing it.
 const SCHEMA_VERSION := 1
-const RULES_VERSION := "1.0.0"
+const RULES_VERSION := "2.0.0"
 const CONTENT_VERSION := "1.0.0"
 const MAX_SAVE_BYTES := 8 * 1024 * 1024
 const DEFAULT_SETTINGS := {
@@ -86,11 +86,11 @@ func validate_state(state: Dictionary) -> Dictionary:
 		ids[hero.id] = true
 		if not str(hero.get("hero_id", hero.get("key", ""))).to_upper() in ["ARDOR", "KAIT", "MAX"]:
 			return {"ok": false, "error": "The checkpoint references an unknown hero."}
-		for field in ["hp", "max_hp", "block", "gold"]:
+		for field in ["hp", "max_hp", "block", "ore"]:
 			var amount: Variant = hero.get(field)
 			if not (amount is int or amount is float) or not is_finite(float(amount)) or float(amount) != floor(float(amount)):
 				return {"ok": false, "error": "The checkpoint contains a malformed hero resource."}
-		if float(hero.get("hp", 0)) < 0 or float(hero.get("hp", 0)) > float(hero.get("max_hp", 0)) or float(hero.get("gold", 0)) < 0 or float(hero.get("block", 0)) < 0:
+		if float(hero.get("hp", 0)) < 0 or float(hero.get("hp", 0)) > float(hero.get("max_hp", 0)) or float(hero.get("ore", 0)) < 0 or float(hero.get("block", 0)) < 0:
 			return {"ok": false, "error": "The checkpoint contains invalid hero resources."}
 	if content_validator.is_valid():
 		var checked: Variant = content_validator.call(state)

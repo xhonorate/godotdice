@@ -2,18 +2,37 @@ class_name RunEngine
 extends RefCounted
 ## The one authoritative command boundary, shared by offline and network play.
 ## All random generation and settlement happen here, before presentation sees a snapshot.
+##
+## An expedition digs down a seam of chambers until the party rides a lift home, falls, or
+## kills the boss that the tremor meter wakes. Everything the party carries belongs to the
+## expedition. Only the result record each hero takes home at the end — the gems they found
+## and what they saw — crosses back into a player's profile, and the profile applies it.
 
 const Catalog = preload("res://scripts/core/catalog.gd")
 const Combat = preload("res://scripts/core/combat.gd")
+const Seam = preload("res://scripts/core/seam.gd")
 const SaveStore = preload("res://scripts/services/save_store.gd")
-const RULES_VERSION = "1.0.0"
+const RULES_VERSION = "2.0.0"
 const CONTENT_VERSION = "1.0.0"
-const PROTOCOL_VERSION = 1
+const PROTOCOL_VERSION = 2
 const SHAPES = ["D4", "D6", "D8", "D10", "D12", "D20"]
-const ROOM_NAMES = {"battle":"Battle", "elite":"Elite Battle", "boss":"Boss", "shop":"Gem Merchant", "rest":"Camp", "workshop":"Workshop", "lapidary":"Lapidary", "mine":"The Mine", "event":"A Chance Encounter", "wager":"The Wager Hall", "crucible":"The Crucible"}
-const ROOM_WEIGHTS = {"battle":3, "elite":1, "shop":2, "rest":1, "workshop":1, "lapidary":1, "mine":1, "event":1, "wager":1, "crucible":1}
+const ROOM_NAMES = {"battle":"Battle", "elite":"Elite Battle", "boss":"Boss Lair", "shop":"Gem Merchant", "rest":"Camp", "workshop":"Workshop", "lapidary":"Lapidary", "mine":"Rock Vein", "event":"A Chance Encounter", "wager":"The Wager Hall", "crucible":"The Crucible", "lift":"Lift", "treasure":"Treasure Cache"}
+const PHASES = ["route", "planning", "support", "reward", "mine_vote", "mine_draft", "lift", "salvage", "summary"]
+const OUTCOMES = ["extracted", "fallen", "conquered"]
+## The die a fallen hero rolls for each gem in their haul, by rarity. Only its highest face
+## brings the gem home, so a Common survives one time in six and a Legendary one in twenty.
+const SALVAGE_DICE = {1:6, 2:8, 3:12, 4:20}
+const ORE_PER_BATTLE = 6
+const FOUND_GEM_PERCENT = 40
+const LOUPE_PRICE = 6
+const APPRAISE_PRICE = 5
+## How much better a boss chest, a treasure cache and a merchant's stones are than a rock's.
+const BOSS_CHEST_QUALITY = 10
+const TREASURE_QUALITY = 3
+const MERCHANT_QUALITY = 2
+const STILL_POOL_CALM = 120
 ## The Wager Hall teaches the one skill the whole run rests on — reading five dice — and
-## charges gold for the lesson. Stakes are fixed tiers rather than free entry, so the most
+## charges ore for the lesson. Stakes are fixed tiers rather than free entry, so the most
 ## a visit can move is bounded by the table and not by the hero's purse.
 const WAGER_STAKES = [4, 8, 12]
 ## The house deals its own five matched dice rather than the hero's. A pattern is far
@@ -24,7 +43,7 @@ const WAGER_DIE = "D6"
 const WAGER_DICE_COUNT = 5
 ## Best pattern first: the hand is tested top to bottom and paid for the first that fits.
 ## Multipliers are of the stake and include it, so 1 is the stake returned and 0 is a loss.
-## Measured over the house dice, a player who never rerolls returns about 0.39 per gold
+## Measured over the house dice, a player who never rerolls returns about 0.39 per ore
 ## staked, one who keeps the largest group about 0.74, and one who also chases a straight
 ## about 0.99. The room is therefore a losing bet played badly and a fair one played well,
 ## which is the point: the skill it rewards is the skill the fights ask for.
@@ -43,6 +62,7 @@ const WAGER_TABLE = [
 const CRUCIBLE_CARAT_GAIN = 2
 ## What a consumed gem gives the gem that survives it, on top of the base gain.
 const CRUCIBLE_FUSE_DIVISOR = 4
+const HERO_STATISTICS = ["damage_dealt", "block_gained", "healing", "final_blows", "hp_lost", "ore_earned", "gems_found", "rooms"]
 
 signal changed(snapshot: Dictionary)
 var state: Dictionary = {}
@@ -65,9 +85,15 @@ func new_run(config: Dictionary = {}) -> Dictionary:
 	var seats: Array = config.get("heroes", config.get("players", [{"id":"p1", "hero_id":"ARDOR", "name":"Adventurer"}]))
 	if seats.is_empty() or seats.size() > 4:
 		return {"ok":false, "error":"A party needs one to four heroes."}
-	var profile: String = str(config.get("profile", "short_9"))
-	if profile not in ["short_9", "expedition_18"]:
-		return {"ok":false, "error":"Unknown run profile."}
+	var mine_id: String = str(config.get("mine_id", ""))
+	if mine_id.is_empty():
+		var starters: Array = Catalog.starter_mines()
+		mine_id = starters[0] if not starters.is_empty() else ""
+	if Catalog.mine_definition(mine_id).is_empty():
+		return {"ok":false, "error":"Unknown mine."}
+	var special: Variant = config.get("special", {})
+	if not special is Dictionary or not str(special.get("modifier", "")) in [""] + Seam.MODIFIERS:
+		return {"ok":false, "error":"Unknown special mission conditions."}
 	var seed_input: String = str(config.get("seed", "")).strip_edges()
 	var seed_value: int = int(seed_input) if seed_input.is_valid_int() else int(seed_input.hash())
 	if seed_input.is_empty(): seed_value = int(Time.get_unix_time_from_system())
@@ -82,13 +108,16 @@ func new_run(config: Dictionary = {}) -> Dictionary:
 	state = {"schema_version":1, "rules_version":RULES_VERSION, "content_version":CONTENT_VERSION,
 		"protocol_version":PROTOCOL_VERSION, "run_id":str(config.get("run_id", "run-%s-%s" % [seed_value, Time.get_ticks_usec()])),
 		"session_id":str(config.get("session_id", "offline-%s" % seed_value)), "host_epoch":int(config.get("host_epoch", 1)),
-		"host_id":str(config.get("host_id", seats[0].get("id", "p1"))), "profile":profile, "seed":str(seed_value),
-		"revision":0, "phase_id":0, "phase":"route", "room_index":1, "act":1, "turn":0, "accepted_sequences":{},
+		"host_id":str(config.get("host_id", seats[0].get("id", "p1"))), "mine_id":mine_id,
+		"special":{"id":str(special.get("id", "")), "modifier":str(special.get("modifier", ""))}, "seed":str(seed_value),
+		"revision":0, "phase_id":0, "phase":"route", "depth":0, "deepest":0, "position":Seam.SURFACE,
+		"seam":{"layers":{}, "deepest":0}, "tremor":0, "sight":Seam.SIGHT, "turn":0, "accepted_sequences":{},
 		"party_size":seats.size(), "heroes":[], "enemies":[], "room":{}, "offers":[], "votes":{},
 		"reward_offers":{}, "shop":{}, "mine":{}, "event":{}, "log":[], "last_events":[], "history":[],
 		"settled_rooms":[], "claimed_rewards":[], "mine_visits":0, "coin_rotation":0, "next_id":0,
-		"last_room_kind":"", "shops_seen":[], "outcome":"", "battle_outcome":"", "paused":false,
-		"statistics":{"turns":0, "battles":0, "rerolls":0, "gold_earned":0, "gold_spent":0, "rooms":0, "activations":{}, "gem_checks":{}, "hp_lost":0, "healing":0, "damage_dealt":0, "offered_rooms":{}, "chosen_rooms":{}}}
+		"encountered":{"enemies":[], "bosses":[]}, "seen_gems":{}, "salvage":{}, "results":{},
+		"outcome":"", "battle_outcome":"", "paused":false,
+		"statistics":{"turns":0, "battles":0, "rerolls":0, "ore_earned":0, "ore_spent":0, "rooms":0, "activations":{}, "gem_checks":{}, "hp_lost":0, "healing":0, "damage_dealt":0, "block_gained":0, "gems_found":0, "offered_rooms":{}, "chosen_rooms":{}, "heroes":{}}}
 	var ids: Array = []
 	for i in seats.size():
 		var seat: Dictionary = seats[i]
@@ -99,23 +128,60 @@ func new_run(config: Dictionary = {}) -> Dictionary:
 			return {"ok":false, "error":"Invalid hero or duplicate player identity."}
 		ids.append(id)
 		var hero: Dictionary = Catalog.hero(hero_key, id, i)
+		if seat.has("loadout"):
+			var loadout_error: String = _loadout_error(seat.loadout)
+			if not loadout_error.is_empty():
+				state = {}
+				return {"ok":false, "error":loadout_error}
+			hero.gems = []
+			for gem in seat.loadout:
+				var item: Dictionary = Catalog.gem(str(gem.key), "%s-g%d" % [id, hero.gems.size()], int(gem.get("carat", 1)), int(gem.get("cut", 1)), int(gem.get("clarity", 1)))
+				item.equipped = true
+				hero.gems.append(item)
+		for gem in hero.gems:
+			gem["loadout"] = true
+			gem["owner_id"] = id
 		hero["player_name"] = str(seat.get("name", hero.get("name", hero_key))).left(32)
 		hero["connected"] = true
 		hero["fallback"] = false
 		hero["reserve_dice"] = []
-		hero["tinker_used_acts"] = []
+		hero["haul"] = []
+		hero["loupes"] = 0
+		hero["tinker_used"] = false
 		state.heroes.append(hero)
+		state.seen_gems[id] = []
+		state.statistics.heroes[id] = {}
+		for field in HERO_STATISTICS:
+			state.statistics.heroes[id][field] = 0
 	if state.host_id not in ids:
 		state.host_id = ids[0]
 	_events = []
 	_route_offers()
-	_record("run_started", "The expedition begins. One hand powers every equipped gem.")
+	_record("run_started", "The expedition enters %s. One hand powers every equipped gem." % str(_mine_def().name))
 	_finish_events()
 	var saved: Dictionary = _checkpoint()
 	if not saved.get("ok", false):
 		return saved
 	changed.emit(state)
 	return state
+
+static func _loadout_error(loadout: Variant) -> String:
+	## A loadout comes from a player's own profile, so the host checks its shape rather than
+	## trusting it: whole ranks in range, one gem per skill, Strike present, six at most.
+	if not loadout is Array or loadout.is_empty() or loadout.size() > 6:
+		return "A loadout holds one to six gems."
+	var keys: Array = []
+	for gem in loadout:
+		if not gem is Dictionary or not Catalog.definitions("skills").has(str(gem.get("key", ""))) or str(gem.key) in keys:
+			return "A loadout names an unknown or repeated gem."
+		for field in [["carat", 24], ["cut", 5], ["clarity", 5]]:
+			var value: Variant = gem.get(field[0], 1)
+			if not (value is int or value is float) or float(value) != floor(float(value)) or int(value) < 1 or int(value) > field[1]:
+				return "A loadout gem has an invalid rank."
+		keys.append(str(gem.key))
+	if not "STRIKE" in keys:
+		return "Every loadout needs Strike."
+	return ""
 
 func make_envelope(player_id: String, command_type: String, payload: Dictionary = {}) -> Dictionary:
 	_sequences[player_id] = maxi(int(_sequences.get(player_id, 0)), int(state.get("accepted_sequences", {}).get(player_id, 0))) + 1
@@ -235,7 +301,9 @@ func _dispatch(player: Dictionary, kind: String, payload: Dictionary) -> String:
 		"SetPreferredTarget": strings = ["unit_id"]
 		"VoteRoom", "BuyGem", "BuyDie": strings = ["offer_id"]
 		"VoteVein": strings = ["vein"]
-		"SellGem", "EquipGem": strings = ["gem_id"]
+		"VoteLift": strings = ["choice"]
+		"SellGem", "EquipGem", "RevealSalvage": strings = ["gem_id"]
+		"AppraiseGem": strings = ["gem_id", "method"]
 		"SellDie": strings = ["die_id"]
 		"SwapDie": strings = ["active_id", "reserve_id"]
 		"EquipRelic": strings = ["relic_id"]
@@ -256,8 +324,12 @@ func _dispatch(player: Dictionary, kind: String, payload: Dictionary) -> String:
 		"SetReady": return _ready(player, bool(payload.get("ready", true)))
 		"VoteRoom": return _vote_room(player, str(payload.get("offer_id", "")))
 		"VoteVein": return _vote_vein(player, str(payload.get("vein", "")))
+		"VoteLift": return _vote_lift(player, str(payload.get("choice", "")))
 		"BuyGem", "BuyDie": return _buy(player, str(payload.get("offer_id", "")), kind == "BuyDie")
+		"BuyLoupe": return _buy_loupe(player)
 		"SellGem", "SellDie": return _sell(player, payload, kind == "SellDie")
+		"AppraiseGem": return _appraise(player, payload)
+		"RevealSalvage": return _reveal_salvage(player, str(payload.get("gem_id", "")))
 		"EquipGem": return _equip_gem(player, payload)
 		"ReorderGems": return _reorder(player, payload.get("gem_ids", []))
 		"SwapDie": return _swap_die(player, payload)
@@ -320,7 +392,7 @@ func _target(player: Dictionary, payload: Dictionary) -> String:
 	return ""
 
 func _ready(player: Dictionary, value: bool) -> String:
-	if state.phase not in ["planning", "support", "reward"]:
+	if state.phase not in ["planning", "support", "reward", "salvage"]:
 		return "This phase uses a choice instead of Ready."
 	if state.phase == "planning" and player.hp <= 0:
 		return "Downed heroes do not need to lock in."
@@ -333,6 +405,9 @@ func _ready(player: Dictionary, value: bool) -> String:
 	if value and state.room.get("kind", "") == "wager":
 		var seat: Dictionary = _wager_seat(player)
 		if not seat.is_empty() and int(seat.stake) > 0 and not seat.settled: _settle_wager(player)
+	if value and state.phase == "salvage":
+		for entry in state.salvage.get(player.id, []):
+			entry.revealed = true
 	player.ready = value
 	_check_ready()
 	return ""
@@ -345,10 +420,10 @@ func _check_ready() -> void:
 			continue
 		if not hero.ready:
 			return
-	if state.phase == "planning":
-		_resolve_battle()
-	elif state.phase in ["support", "reward"]:
-		_advance_room()
+	match state.phase:
+		"planning": _resolve_battle()
+		"support", "reward": _advance_room()
+		"salvage": _finish_salvage()
 
 func _resolve_battle() -> void:
 	state.statistics.turns += 1
@@ -364,12 +439,28 @@ func _resolve_battle() -> void:
 			_stat_bucket("gem_checks", key)
 			if event_kind == "skill": _stat_bucket("activations", key)
 		elif event_kind in ["damage", "poison_tick"]:
-			if not target.is_empty(): _stat("hp_lost", int(event.get("hp_loss", 0)))
-			elif not actor.is_empty(): _stat("damage_dealt", int(event.get("hp_loss", 0)))
-		elif event_kind == "heal" and not target.is_empty(): _stat("healing", int(event.get("amount", 0)))
-		elif event_kind == "gold" and event.get("source", "") == "combat_skill": _stat("gold_earned", int(event.get("amount", 0)))
+			var loss: int = int(event.get("hp_loss", 0))
+			if not target.is_empty():
+				_stat("hp_lost", loss)
+				_hero_stat(target, "hp_lost", loss)
+			elif not actor.is_empty():
+				_stat("damage_dealt", loss)
+				_hero_stat(actor, "damage_dealt", loss)
+				if loss > 0 and int(event.get("target_hp", 1)) <= 0: _hero_stat(actor, "final_blows", 1)
+		elif event_kind == "heal" and not actor.is_empty():
+			_stat("healing", int(event.get("amount", 0)))
+			_hero_stat(actor, "healing", int(event.get("amount", 0)))
+		elif event_kind == "block" and not actor.is_empty():
+			_stat("block_gained", int(event.get("amount", 0)))
+			_hero_stat(actor, "block_gained", int(event.get("amount", 0)))
+		elif event_kind == "gold" and event.get("source", "") == "combat_skill" and not actor.is_empty():
+			_stat("ore_earned", int(event.get("amount", 0)))
+			_hero_stat(actor, "ore_earned", int(event.get("amount", 0)))
+	## Every blow echoes down the tunnels. A long fight gives the boss time as surely as a
+	## long walk does.
+	_add_tremor(Seam.tremor_for_turn(_mine_def(), maxi(1, int(state.depth)), _modifier()))
 	match state.get("battle_outcome", ""):
-		"defeat": _end_run("defeat")
+		"defeat": _start_salvage()
 		"victory": _battle_rewards()
 		_:
 			_events.append_array(Combat.begin_turn(state, streams.dice))
@@ -381,14 +472,13 @@ func _battle_rewards() -> void:
 	state.settled_rooms.append(state.room.id)
 	state.statistics.battles += 1
 	var kind: String = state.room.kind
-	var final_boss: bool = kind == "boss" and (state.profile == "short_9" or state.act == 3)
-	var gold: int = 10 + (int(state.act) - 1) * 5
-	if kind == "elite": gold *= 2
-	if kind == "boss": gold = (50 if state.act == 3 else 20 + int(state.act) * 10)
+	var ore: int = ORE_PER_BATTLE + int(state.depth)
+	if kind == "elite": ore *= 2
 	state.reward_offers = {}
 	for hero in state.heroes:
-		var bonus: int = 3 if kind in ["battle", "elite"] and _has_relic(hero, "MERCHANT_SEAL") else 0
-		_grant_gold(hero, gold + bonus, "room_reward")
+		if kind != "boss":
+			var bonus: int = 3 if _has_relic(hero, "MERCHANT_SEAL") else 0
+			_grant_ore(hero, ore + bonus, "room_reward")
 		for relic in hero.relics:
 			if relic.key == "LASTING_AEGIS" and relic.get("equipped", false):
 				relic.stored_block = mini(6, int(hero.block)) if hero.hp > 0 else 0
@@ -401,29 +491,30 @@ func _battle_rewards() -> void:
 		hero.initial_hand = []
 		hero.rerolled = false
 		hero.ready = false
-		var reward: Dictionary = {"gems":[], "relics":[], "gem_done":true, "relic_done":true}
-		if kind in ["battle", "elite"]:
-			reward.gems = _generate_gems(3, kind == "elite")
-			reward.gem_done = reward.gems.is_empty()
-		if kind == "elite" or (kind == "boss" and not final_boss):
-			var owned: Array = []
-			for relic in hero.relics: owned.append(relic.key)
-			var eligible: Array = []
-			for key in Catalog.eligible_relics(state.profile):
-				if key not in owned: eligible.append(key)
-			eligible.sort()
-			for i in mini(2 if kind == "elite" else 3, eligible.size()):
-				var index: int = streams.loot.randi_range(0, eligible.size() - 1)
-				var relic_key: String = eligible.pop_at(index)
-				reward.relics.append({"id":_id("relic"), "key":relic_key, "equipped":false, "stored_block":0})
-			reward.relic_done = reward.relics.is_empty()
-			if eligible.is_empty() and reward.relics.is_empty(): _grant_gold(hero, 5, "room_reward")
+		var reward: Dictionary = {"gems":[], "relics":[], "found":[], "gem_done":true, "relic_done":true}
+		match kind:
+			"battle":
+				if streams.loot.randi_range(1, 100) <= FOUND_GEM_PERCENT:
+					reward.found = _find_gems(hero, 1, 0)
+			"elite":
+				reward.found = _find_gems(hero, 1 + (1 if streams.loot.randi_range(1, 100) <= 50 else 0), 4)
+				var owned: Array = []
+				for relic in hero.relics: owned.append(relic.key)
+				var eligible: Array = Catalog.mine_relics(state.mine_id).filter(func(key: String) -> bool: return not key in owned)
+				for i in mini(2, eligible.size()):
+					var relic_key: String = eligible.pop_at(streams.loot.randi_range(0, eligible.size() - 1))
+					reward.relics.append({"id":_id("relic"), "key":relic_key, "equipped":false, "stored_block":0})
+				reward.relic_done = reward.relics.is_empty()
+				if reward.relics.is_empty(): _grant_ore(hero, 5, "room_reward")
+			"boss":
+				## The boss chest: three appraised stones from the mine's pool, well above what a
+				## rock gives up. One is taken home; the others stay in the dark.
+				reward.gems = _roll_gems(3, BOSS_CHEST_QUALITY, true)
+				_mark_seen(hero, reward.gems)
+				reward.gem_done = reward.gems.is_empty()
 		state.reward_offers[hero.id] = reward
-	_record("battle_victory", "Victory! Each hero receives %s gold and keeps their recovered spoils." % gold)
-	if final_boss:
-		_end_run("victory")
-	else:
-		_phase("reward")
+	_record("battle_victory", "The boss falls. Each hero may open the chest it guarded." if kind == "boss" else "Victory! Each hero receives %s ore." % ore)
+	_phase("reward")
 
 func _choose_reward(player: Dictionary, payload: Dictionary) -> String:
 	if state.phase != "reward" or player.ready:
@@ -434,7 +525,7 @@ func _choose_reward(player: Dictionary, payload: Dictionary) -> String:
 		return "That reward is already settled."
 	var offer_id: String = str(payload.get("offer_id", ""))
 	if offer_id.is_empty():
-		if kind == "gem": _grant_gold(player, 3, "room_reward")
+		if kind == "gem": _grant_ore(player, 3, "room_reward")
 	else:
 		var item: Dictionary = _find(reward.gems if kind == "gem" else reward.relics, offer_id)
 		if item.is_empty() or offer_id in state.claimed_rewards:
@@ -449,52 +540,29 @@ func _choose_reward(player: Dictionary, payload: Dictionary) -> String:
 	reward[kind + "_done"] = true
 	return ""
 
+# --- the seam -------------------------------------------------------------------
+
 func _route_offers() -> void:
-	var room_number: int = int(state.room_index)
-	state.act = 1 if state.profile == "short_9" else floori(float(room_number - 1) / 6.0) + 1
-	var local_room: int = (room_number - 1) % 6 + 1
-	var required: String = ""
-	if state.profile == "short_9":
-		if room_number == 1: required = "battle"
-		elif room_number == 4: required = "elite"
-		elif room_number == 8: required = "rest"
-		elif room_number == 9: required = "boss"
-	else:
-		if local_room == 1: required = "battle"
-		elif local_room == 3: required = "elite"
-		elif local_room == 5: required = "rest"
-		elif local_room == 6: required = "boss"
-	var choices: Array = []
-	if not required.is_empty():
-		choices.append(required)
-	else:
-		var pool: Array = ["battle", "elite", "shop", "rest", "workshop", "lapidary", "mine", "wager", "crucible"] if state.profile == "short_9" else ["battle", "shop", "rest", "workshop", "lapidary", "mine", "event", "wager", "crucible"]
-		if state.last_room_kind not in ["battle", "elite", "boss"]:
-			pool.erase(state.last_room_kind)
-		choices.append(_weighted(["battle", "elite"], [3, 1], streams.rooms) if state.profile == "short_9" else "battle")
-		pool.erase(choices[0])
-		if state.profile == "expedition_18" and local_room == 4 and state.act not in state.shops_seen:
-			choices.append("shop")
-			pool.erase("shop")
-		while choices.size() < 3 and not pool.is_empty():
-			var weights: Array = []
-			for key in pool: weights.append(ROOM_WEIGHTS[key])
-			var chosen: String = _weighted(pool, weights, streams.rooms)
-			choices.append(chosen)
-			pool.erase(chosen)
+	Seam.ensure_layers(state.seam, state.seed, state.mine_id, _modifier(), int(state.depth) + Seam.LOOKAHEAD)
+	var lantern: bool = false
+	for hero in state.heroes:
+		if _has_relic(hero, "MINERS_LANTERN"): lantern = true
+	state.sight = Seam.sight(_modifier(), lantern)
 	state.offers = []
-	for kind in choices:
-		_stat_bucket("offered_rooms", kind)
-		state.offers.append({"id":_id("route"), "kind":kind, "name":ROOM_NAMES[kind], "description":_room_description(kind), "required":not required.is_empty()})
+	for node in Seam.next_nodes(state.seam, state.position):
+		_stat_bucket("offered_rooms", node.kind)
+		var noise: int = Seam.tremor_for_move(_mine_def(), int(node.depth), _modifier()) + int(Seam.ROOM_TREMOR.get(node.kind, 0))
+		state.offers.append({"id":node.id, "kind":node.kind, "name":ROOM_NAMES[node.kind], "description":_room_description(node.kind),
+			"depth":node.depth, "column":node.column, "wakes_boss":int(state.tremor) + noise >= Seam.TREMOR_FULL})
 	state.votes = {}
 	_phase("route")
 
 func _room_description(kind: String) -> String:
 	match kind:
-		"battle": return "An authored encounter. Gold and a personal choice of three gems."
-		"elite": return "A tougher encounter. Double gold, an improved gem, and a relic choice."
-		"boss": return ["Face the Slime King: Slam, Fortify, Absorb.", "Face the Mirror Regent: Refraction and Shatter.", "Face the Rift Sovereign: High Tide and Low Tide."][mini(2, int(state.act)-1)]
-		"shop": return "Three personal gems and a featured die. Buy or sell with gold."
+		"battle": return "Ore, and a chance one of the fallen was carrying a stone."
+		"elite": return "A harder fight. Double ore, a relic choice, and one or two better stones."
+		"boss": return "%s waits here. Kill it and open the chest it guards." % str(Catalog.definitions("enemies").get(_mine_def().get("boss_id", ""), {}).get("name", "The boss"))
+		"shop": return "Appraised gems, a die and a loupe for ore. Found gems can be sold."
 		"rest":
 			# Only heroes with something to gain are listed: "+0 HP" is not an offer.
 			var recovery: PackedStringArray = []
@@ -502,23 +570,25 @@ func _room_description(kind: String) -> String:
 				var amount: int = mini(int(hero.max_hp)-int(hero.hp), floori(float(hero.max_hp)/3.0))
 				if amount > 0: recovery.append("%s +%s HP" % [hero.name, amount])
 			if recovery.is_empty(): return "Nobody is hurt. The fire is still a quiet place to change your equipment."
-			return "Free recovery: " + ", ".join(recovery) + ". Manage your equipment."
-		"workshop": return "One service per hero: adjacent die shape or one engraved face. 5 gold."
-		"lapidary": return "One Cut or Clarity increase per hero. Cut scales your rolls; Clarity is flat and eases triggers. Cost: 5 × the new rank."
-		"mine": return "Choose a vein. 10 energy per living hero; pooled gold and a shared gem draft."
-		"event": return "A personal choice of supplies, a trade, or a free exit."
-		"wager": return "Stake gold on the house's five dice. One reroll, then the table pays the pattern. Best hand: %s at %d×." % [WAGER_TABLE[0].name.to_lower(), int(WAGER_TABLE[0].multiplier)]
-		"crucible": return "Raise one gem's Carat by %d. Pay in HP, or consume a reserve gem to pay in Carat." % CRUCIBLE_CARAT_GAIN
+			return "Free recovery: " + ", ".join(recovery) + ". Manage your equipment. The rest stirs the tremors a little."
+		"workshop": return "One service per hero: adjacent die shape or one engraved face. 5 ore."
+		"lapidary": return "Appraise found stones for %d ore each, and one Cut or Clarity increase per hero at 5 × the new rank." % APPRAISE_PRICE
+		"mine": return "Choose a vein. 10 energy per living hero; pooled ore and a shared draft of unappraised stones. Noisy work."
+		"event": return "Something waits in the dark. A personal choice, or a free exit."
+		"wager": return "Stake ore on the house's five dice. One reroll, then the table pays the pattern. Best hand: %s at %d×." % [WAGER_TABLE[0].name.to_lower(), int(WAGER_TABLE[0].multiplier)]
+		"crucible": return "Raise one gem's Carat by %d. Pay in HP, or consume a found gem to pay in Carat." % CRUCIBLE_CARAT_GAIN
+		"treasure": return "An unguarded cache: an appraised gem and a little ore for every hero."
+		"lift": return "Ride up and bring everything home, or keep digging."
 	return ""
 
 func _vote_room(player: Dictionary, offer_id: String) -> String:
 	if state.phase != "route" or state.votes.has(player.id):
 		return "Each hero may vote once on the current route."
 	if _find(state.offers, offer_id).is_empty():
-		return "That route is no longer offered."
+		return "That tunnel is not open from here."
 	state.votes[player.id] = offer_id
 	var choice: String = _vote_result()
-	if not choice.is_empty(): _enter_room(_find(state.offers, choice).kind)
+	if not choice.is_empty(): _enter_node(choice)
 	return ""
 
 func _vote_result() -> String:
@@ -538,6 +608,30 @@ func _vote_result() -> String:
 		if int(counts.get(vote, 0)) == highest: return vote
 	return ""
 
+func _enter_node(node_id: String) -> void:
+	var node: Dictionary = Seam.find_node(state.seam, node_id)
+	state.position = node_id
+	state.depth = int(node.depth)
+	state.deepest = maxi(int(state.deepest), int(state.depth))
+	var kind: String = str(node.kind)
+	_add_tremor(Seam.tremor_for_move(_mine_def(), int(state.depth), _modifier()) + int(Seam.ROOM_TREMOR.get(kind, 0)))
+	## A full meter turns whatever chamber the party walks into next into the boss's lair.
+	if int(state.tremor) >= Seam.TREMOR_FULL:
+		node["was"] = kind
+		node.kind = "boss"
+		kind = "boss"
+		_record("boss_wakes", "The rock splits open. %s has found you." % str(Catalog.definitions("enemies").get(_mine_def().get("boss_id", ""), {}).get("name", "The boss")))
+	for hero in state.heroes:
+		_hero_stat(hero, "rooms", 1)
+	_enter_room(kind)
+
+func _add_tremor(amount: int) -> void:
+	var before: int = int(state.tremor)
+	state.tremor = clampi(before + amount, 0, Seam.TREMOR_FULL)
+	for threshold in [500, 750, 900]:
+		if before < threshold and int(state.tremor) >= threshold:
+			_record("tremor", ["The walls shiver. Something below is waking.", "Dust falls from the roof. It is getting closer.", "The whole seam is shaking. It is almost here."][[500, 750, 900].find(threshold)], {"tremor":state.tremor})
+
 func _enter_room(kind: String) -> void:
 	_stat_bucket("chosen_rooms", kind)
 	state.room = {"id":_id("room"), "kind":kind, "name":ROOM_NAMES[kind], "services":{}, "recovery":{}}
@@ -551,10 +645,13 @@ func _enter_room(kind: String) -> void:
 	for hero in state.heroes:
 		hero.ready = false
 		state.room.services[hero.id] = false
-	_record("room_entered", "Room %s · %s" % [state.room_index, ROOM_NAMES[kind]])
+	_record("room_entered", "Depth %s · %s" % [state.depth, ROOM_NAMES[kind]])
 	match kind:
 		"battle", "elite", "boss":
-			state.enemies = Catalog.encounter(kind, state.act, state.party_size, state.room_index, state.profile)
+			state.enemies = Catalog.mine_encounter(state.mine_id, kind, maxi(1, int(state.depth)), state.party_size, streams.encounters, state.room.id)
+			for enemy in state.enemies:
+				var bucket: String = "bosses" if enemy.get("boss", false) else "enemies"
+				if not enemy.key in state.encountered[bucket]: state.encountered[bucket].append(enemy.key)
 			state.turn = 0
 			state.battle_outcome = ""
 			_events.append_array(Combat.begin_battle(state, streams.dice))
@@ -567,31 +664,33 @@ func _enter_room(kind: String) -> void:
 				_record("rest", "%s recovers %s HP." % [hero.name, amount], {"actor_id":hero.id, "amount":amount})
 			_phase("support")
 		"shop":
-			if state.act not in state.shops_seen: state.shops_seen.append(state.act)
 			for hero in state.heroes:
-				var stock: Dictionary = {"gems":[], "dice":[]}
-				for gem in _generate_gems(3):
+				var stock: Dictionary = {"gems":[], "dice":[], "loupe":{"price":LOUPE_PRICE, "claimed":false}}
+				var gems: Array = _roll_gems(3, MERCHANT_QUALITY, true)
+				_mark_seen(hero, gems)
+				for gem in gems:
 					stock.gems.append({"id":_id("offer"), "gem":gem, "price":Catalog.gem_value(gem), "claimed":false})
-				var die_keys: Array = ["PAIRED_D6", "ODD_D6", "EVEN_D6"]
-				if state.act >= 2: die_keys.append_array(["SEVEN_D8", "SPLIT_D12"])
-				elif state.profile == "short_9" and state.room_index > 4: die_keys.append("SEVEN_D8")
-				if state.act == 3: die_keys.append("SPLIT_D20")
-				var key: String = die_keys[streams.loot.randi_range(0, die_keys.size() - 1)]
-				var die: Dictionary = Catalog.die(key, _id("die"))
-				stock.dice.append({"id":_id("offer"), "die":die, "price":_die_value(die), "claimed":false})
+				var die_keys: Array = Catalog.merchant_dice(int(state.depth))
+				if not die_keys.is_empty():
+					var die: Dictionary = Catalog.die(die_keys[streams.loot.randi_range(0, die_keys.size() - 1)], _id("die"))
+					stock.dice.append({"id":_id("offer"), "die":die, "price":_die_value(die), "claimed":false})
 				state.shop[hero.id] = stock
 			_phase("support")
 		"mine":
-			state.mine = {"vein":"", "rocks":[], "events":[], "pool":[], "gold":0, "picker_id":"", "draft_index":0, "energy":{}}
+			state.mine = {"vein":"", "rocks":[], "events":[], "pool":[], "ore":0, "picker_id":"", "draft_index":0, "energy":{}}
 			for hero in state.heroes: state.mine.energy[hero.id] = 0 if hero.hp <= 0 else 10 + (2 if _has_relic(hero, "MINERS_LANTERN") else 0)
 			_phase("mine_vote")
 		"event":
-			var keys: Array = ["ABANDONED_CACHE", "FIELD_MEDIC", "ECHO_SHRINE", "JEWEL_BROKER"]
-			state.event = {"key":keys[streams.rooms.randi_range(0, keys.size()-1)], "offers":{}}
+			var keys: Array = Catalog.definitions("events").keys().filter(func(key: String) -> bool: return Catalog.EVENTS.has(key))
+			keys.sort()
+			state.event = {"key":keys[streams.rooms.randi_range(0, keys.size()-1)], "offers":{}, "calmed":false}
 			for hero in state.heroes:
-				var gems: Array = _generate_gems(3 if state.event.key == "JEWEL_BROKER" else 1)
-				if state.event.key == "ABANDONED_CACHE":
-					for gem in gems: gem.carat = mini(24, int(gem.carat) + 2)
+				var gems: Array = []
+				if state.event.key in ["JEWEL_BROKER", "ABANDONED_CACHE"]:
+					gems = _roll_gems(3 if state.event.key == "JEWEL_BROKER" else 1, 0, true)
+					if state.event.key == "ABANDONED_CACHE":
+						for gem in gems: gem.carat = mini(24, int(gem.carat) + 2)
+					_mark_seen(hero, gems)
 				state.event.offers[hero.id] = gems
 			_phase("support")
 		"wager":
@@ -601,10 +700,97 @@ func _enter_room(kind: String) -> void:
 			for hero in state.heroes:
 				state.room.wager[hero.id] = {"stake":0, "dice":[], "hand":[], "rerolled":false, "settled":false, "payout":0, "pattern":""}
 			_phase("support")
-		"crucible":
+		"treasure":
+			state.room.treasure = {}
+			for hero in state.heroes:
+				var found: Array = _roll_gems(1, TREASURE_QUALITY, true)
+				var amount: int = 5 + int(state.depth)
+				_grant_ore(hero, amount, "treasure")
+				for gem in found:
+					gem.owner_id = hero.id
+					hero.gems.append(gem)
+					_hero_stat(hero, "gems_found", 1)
+					state.statistics.gems_found += 1
+				_mark_seen(hero, found)
+				state.room.treasure[hero.id] = {"gems":found.duplicate(true), "ore":amount}
 			_phase("support")
+		"lift":
+			_phase("lift")
 		_:
 			_phase("support")
+
+func _vote_lift(player: Dictionary, choice: String) -> String:
+	if state.phase != "lift" or choice not in ["ride", "dig"] or state.votes.has(player.id):
+		return "Each hero votes once: ride the lift up, or keep digging."
+	state.votes[player.id] = choice
+	var result: String = _vote_result()
+	if result == "ride": _end_run("extracted")
+	elif result == "dig": _advance_room()
+	return ""
+
+# --- found gems and appraisal ------------------------------------------------------
+
+func _roll_gems(count: int, bonus: int, appraised: bool) -> Array:
+	## Stones from the mine's pool at this depth. Quality is the mine's bonus, half the depth
+	## and whatever the source adds, so every other layer down is worth a little more.
+	var mine: Dictionary = _mine_def()
+	var quality: int = clampi(int(mine.get("quality_bonus", 0)) + floori(int(state.depth) / 2.0) + bonus, 0, Catalog.MAX_QUALITY)
+	var pool: Array = Catalog.mine_skills(state.mine_id, state.party_size)
+	var prefix: String = _id("loot")
+	var gems: Array = []
+	for index in range(count):
+		var gem: Dictionary = Catalog.roll_gem(streams.loot, pool, quality, "%s-%d" % [prefix, index], mine.get("color_weights", {}))
+		if gem.is_empty():
+			break
+		gem["found"] = true
+		gem["appraised"] = appraised
+		gems.append(gem)
+	return gems
+
+func _find_gems(hero: Dictionary, count: int, bonus: int) -> Array:
+	## Unappraised stones straight into a hero's haul. The copy handed back is for the
+	## reward screen, which shows the stone and nothing it has not earned the right to say.
+	var gems: Array = _roll_gems(count, bonus, false)
+	for gem in gems:
+		gem.owner_id = hero.id
+		hero.haul.append(gem)
+		_hero_stat(hero, "gems_found", 1)
+		state.statistics.gems_found += 1
+	return gems.duplicate(true)
+
+func _appraise(player: Dictionary, payload: Dictionary) -> String:
+	var method: String = str(payload.get("method", ""))
+	var gem: Dictionary = _find(player.haul, str(payload.get("gem_id", "")))
+	if gem.is_empty():
+		return "Only an unappraised stone in your haul can be appraised."
+	match method:
+		"loupe":
+			var guard: String = _build_guard(player)
+			if not guard.is_empty(): return guard
+			if int(player.loupes) < 1: return "You have no loupe."
+			player.loupes -= 1
+		"lapidary":
+			var guard: String = _service_guard(player, "lapidary")
+			if not guard.is_empty(): return guard
+			if int(player.ore) < APPRAISE_PRICE: return "Appraisal costs %d ore." % APPRAISE_PRICE
+			_spend(player, APPRAISE_PRICE)
+		_:
+			return "Appraise with a loupe or at a Lapidary."
+	player.haul.erase(gem)
+	gem.appraised = true
+	gem.equipped = false
+	player.gems.append(gem)
+	_mark_seen(player, [gem])
+	_record("appraisal", "%s appraises a stone: %s." % [player.name, _item_name(gem, "gem")], {"actor_id":player.id, "item_id":gem.id})
+	return ""
+
+func _mark_seen(hero: Dictionary, gems: Array) -> void:
+	var seen: Array = state.seen_gems.get(hero.id, [])
+	for gem in gems:
+		if not str(gem.key) in seen: seen.append(str(gem.key))
+	state.seen_gems[hero.id] = seen
+
+# --- services -------------------------------------------------------------------
 
 func _buy(player: Dictionary, id: String, is_die: bool) -> String:
 	var guard: String = _service_guard(player, "shop")
@@ -612,7 +798,7 @@ func _buy(player: Dictionary, id: String, is_die: bool) -> String:
 	var stock: Dictionary = state.shop.get(player.id, {})
 	var offer: Dictionary = _find(stock.get("dice" if is_die else "gems", []), id)
 	if offer.is_empty() or offer.get("claimed", true): return "This offer has already been claimed or belongs to another player."
-	if player.gold < offer.price: return "Not enough gold."
+	if player.ore < offer.price: return "Not enough ore."
 	if is_die and player.reserve_dice.size() >= 5: return "Your five reserve die slots are full. Sell one first."
 	_spend(player, offer.price)
 	offer.claimed = true
@@ -622,7 +808,19 @@ func _buy(player: Dictionary, id: String, is_die: bool) -> String:
 	else:
 		item.equipped = false
 		player.gems.append(item)
-	_record("purchase", "%s buys %s for %s gold." % [player.name, _item_name(item, "die" if is_die else "gem"), offer.price])
+	_record("purchase", "%s buys %s for %s ore." % [player.name, _item_name(item, "die" if is_die else "gem"), offer.price])
+	return ""
+
+func _buy_loupe(player: Dictionary) -> String:
+	var guard: String = _service_guard(player, "shop")
+	if not guard.is_empty(): return guard
+	var loupe: Dictionary = state.shop.get(player.id, {}).get("loupe", {})
+	if loupe.is_empty() or loupe.get("claimed", true): return "The merchant has no more loupes for you."
+	if int(player.ore) < int(loupe.price): return "A loupe costs %d ore." % int(loupe.price)
+	_spend(player, int(loupe.price))
+	loupe.claimed = true
+	player.loupes += 1
+	_record("purchase", "%s buys a loupe." % player.name, {"actor_id":player.id})
 	return ""
 
 func _sell(player: Dictionary, payload: Dictionary, is_die: bool) -> String:
@@ -631,16 +829,17 @@ func _sell(player: Dictionary, payload: Dictionary, is_die: bool) -> String:
 	var items: Array = player.reserve_dice if is_die else player.gems
 	var item: Dictionary = _find(items, str(payload.get("die_id" if is_die else "gem_id", "")))
 	if item.is_empty(): return "You can only sell an owned gem or reserve die."
-	if not is_die and item.key == "STRIKE":
-		if _count_key(player.gems, "STRIKE") <= 1 or item.get("equipped", false): return "Keep an equipped Strike and your last owned Strike. Equip its replacement first."
+	## Loadout gems go home whatever happens, so selling one would mint ore from nothing.
+	if not is_die and (item.get("loadout", false) or item.get("equipped", false)):
+		return "Only an unequipped gem you found down here can be sold."
 	var value: int = floori(float(_die_value(item) if is_die else Catalog.gem_value(item)) / 2.0)
 	items.erase(item)
-	_grant_gold(player, value, "sale")
-	_record("sale", "%s sells %s for %s gold." % [player.name, _item_name(item, "die" if is_die else "gem"), value])
+	_grant_ore(player, value, "sale")
+	_record("sale", "%s sells %s for %s ore." % [player.name, _item_name(item, "die" if is_die else "gem"), value])
 	return ""
 
 func _build_guard(player: Dictionary) -> String:
-	if state.phase not in ["route", "support", "reward", "mine_vote", "mine_draft"]: return "Equipment is frozen during combat."
+	if state.phase not in ["route", "support", "reward", "mine_vote", "mine_draft", "lift"]: return "Equipment is frozen during combat."
 	if player.ready: return "Unready before changing your equipment."
 	return ""
 
@@ -724,8 +923,8 @@ func _modify_die(player: Dictionary, payload: Dictionary) -> String:
 	if not guard.is_empty(): return guard
 	var die: Dictionary = _find(player.dice + player.reserve_dice, str(payload.get("die_id", "")))
 	if die.is_empty(): return "You do not own that die."
-	var free: bool = _has_relic(player, "TINKERS_BELT") and state.act not in player.tinker_used_acts
-	if not free and player.gold < 5: return "A Workshop service costs 5 gold."
+	var free: bool = _has_relic(player, "TINKERS_BELT") and not player.get("tinker_used", false)
+	if not free and player.ore < 5: return "A Workshop service costs 5 ore."
 	var service: String = str(payload.get("service", "shape"))
 	if service == "shape":
 		var shape: String = str(payload.get("shape", ""))
@@ -741,10 +940,10 @@ func _modify_die(player: Dictionary, payload: Dictionary) -> String:
 		die.faces[face_index].value = value
 		die["engraved"] = true
 	else: return "Unknown Workshop service."
-	if free: player.tinker_used_acts.append(state.act)
+	if free: player.tinker_used = true
 	else: _spend(player, 5)
 	state.room.services[player.id] = true
-	_record("workshop", "%s modifies a die%s." % [player.name, " with Tinker's Belt" if free else " for 5 gold"])
+	_record("workshop", "%s modifies a die%s." % [player.name, " with Tinker's Belt" if free else " for 5 ore"])
 	return ""
 
 func _upgrade_gem(player: Dictionary, payload: Dictionary) -> String:
@@ -756,7 +955,7 @@ func _upgrade_gem(player: Dictionary, payload: Dictionary) -> String:
 	var rank: int = int(gem.get(property, 1))
 	if rank >= 5: return "That property is already rank 5."
 	var cost: int = (rank + 1) * 5
-	if player.gold < cost: return "This upgrade costs %s gold." % cost
+	if player.ore < cost: return "This upgrade costs %s ore." % cost
 	_spend(player, cost)
 	gem[property] = rank + 1
 	state.room.services[player.id] = true
@@ -770,7 +969,7 @@ func _event_choice(player: Dictionary, payload: Dictionary) -> String:
 	if option not in ["a", "b", "leave"]: return "Choose one of the displayed event options."
 	var key: String = state.event.key
 	if option == "a":
-		_grant_gold(player, {"ABANDONED_CACHE":6, "FIELD_MEDIC":4, "ECHO_SHRINE":5, "JEWEL_BROKER":4}[key], "event")
+		_grant_ore(player, {"ABANDONED_CACHE":6, "FIELD_MEDIC":4, "ECHO_SHRINE":5, "JEWEL_BROKER":4, "STILL_POOL":4}[key], "event")
 	elif option == "b":
 		match key:
 			"ABANDONED_CACHE":
@@ -780,8 +979,9 @@ func _event_choice(player: Dictionary, payload: Dictionary) -> String:
 				gem.equipped = false
 				gem.owner_id = player.id
 				player.gems.append(gem)
+				_hero_stat(player, "gems_found", 1)
 			"FIELD_MEDIC":
-				if player.gold < 8: return "The medic's supplies cost 8 gold."
+				if player.ore < 8: return "The medic's supplies cost 8 ore."
 				_spend(player, 8)
 				player.hp = mini(player.max_hp, player.hp + ceili(float(player.max_hp) / 5.0))
 			"ECHO_SHRINE":
@@ -791,15 +991,24 @@ func _event_choice(player: Dictionary, payload: Dictionary) -> String:
 				die.merge(Catalog.die(variant, die.id), true)
 				die.erase("engraved")
 			"JEWEL_BROKER":
-				var gem: Dictionary = _find(player.gems, str(payload.get("gem_id", "")))
+				## The broker takes a found stone, appraised or not, and never a loadout gem.
+				var offered_id: String = str(payload.get("gem_id", ""))
+				var traded: Dictionary = _find(player.haul, offered_id)
+				var from_haul: bool = not traded.is_empty()
+				if not from_haul: traded = _find(player.gems, offered_id)
 				var offer: Dictionary = _find(state.event.offers[player.id], str(payload.get("offer_id", "")))
-				if gem.is_empty() or gem.get("equipped", false) or offer.is_empty(): return "Choose a reserve gem to exchange and a displayed offer."
-				if gem.key == "STRIKE" and _count_key(player.gems, "STRIKE") <= 1: return "Your last Strike cannot be traded."
-				player.gems.erase(gem)
+				if traded.is_empty() or traded.get("loadout", false) or traded.get("equipped", false) or offer.is_empty(): return "Choose an unequipped found gem to trade and a displayed offer."
+				if from_haul: player.haul.erase(traded)
+				else: player.gems.erase(traded)
 				var acquired: Dictionary = offer.duplicate(true)
 				acquired.equipped = false
 				acquired.owner_id = player.id
 				player.gems.append(acquired)
+			"STILL_POOL":
+				if state.event.get("calmed", false): return "The water has already settled as far as it will."
+				state.event.calmed = true
+				_add_tremor(-STILL_POOL_CALM)
+				_record("tremor", "%s sits by the still water. The tremors ease." % player.name, {"tremor":state.tremor})
 	state.room.services[player.id] = true
 	_record("event", "%s chooses %s at %s." % [player.name, option, key.to_lower().replace("_", " ")])
 	return ""
@@ -853,8 +1062,8 @@ func _place_wager(player: Dictionary, payload: Dictionary) -> String:
 	if seat.is_empty(): return "You have no seat at this table."
 	if int(seat.stake) > 0: return "Your stake for this visit is already on the table."
 	var stake: int = _integer(payload, "stake", 1, WAGER_STAKES[-1])
-	if stake not in WAGER_STAKES: return "The table takes stakes of %s gold." % ", ".join(PackedStringArray(WAGER_STAKES.map(func(value: int) -> String: return str(value))))
-	if int(player.gold) < stake: return "You cannot cover that stake."
+	if stake not in WAGER_STAKES: return "The table takes stakes of %s ore." % ", ".join(PackedStringArray(WAGER_STAKES.map(func(value: int) -> String: return str(value))))
+	if int(player.ore) < stake: return "You cannot cover that stake."
 	_spend(player, stake)
 	seat.stake = stake
 	seat.dice = []
@@ -864,7 +1073,7 @@ func _place_wager(player: Dictionary, payload: Dictionary) -> String:
 		die.owner_id = player.id
 		seat.dice.append(die)
 		seat.hand.append(Combat.roll_die(die, streams.dice))
-	_record("wager", "%s stakes %s gold and rolls %s." % [player.name, stake, ", ".join(PackedStringArray(Combat.values(seat.hand).map(func(value: int) -> String: return str(value))))], {"actor_id":player.id, "amount":stake})
+	_record("wager", "%s stakes %s ore and rolls %s." % [player.name, stake, ", ".join(PackedStringArray(Combat.values(seat.hand).map(func(value: int) -> String: return str(value))))], {"actor_id":player.id, "amount":stake})
 	return ""
 
 func _wager_reroll(player: Dictionary, payload: Dictionary) -> String:
@@ -901,9 +1110,9 @@ func _settle_wager(player: Dictionary) -> String:
 	seat.pattern = pattern
 	seat.payout = payout
 	seat.settled = true
-	if payout > 0: _grant_gold(player, payout, "wager")
+	if payout > 0: _grant_ore(player, payout, "wager")
 	state.room.services[player.id] = true
-	_record("wager", "%s shows %s and takes %s gold." % [player.name, str(entry.name).to_lower(), payout], {"actor_id":player.id, "amount":payout})
+	_record("wager", "%s shows %s and takes %s ore." % [player.name, str(entry.name).to_lower(), payout], {"actor_id":player.id, "amount":payout})
 	return ""
 
 ## --- The Crucible -------------------------------------------------------------
@@ -928,12 +1137,14 @@ func _temper_gem(player: Dictionary, payload: Dictionary) -> String:
 		if int(player.hp) <= cost: return "Tempering this gem costs %s HP, and you must survive it." % cost
 		player.hp -= cost
 		_stat("hp_lost", cost)
+		_hero_stat(player, "hp_lost", cost)
 		_record("crucible", "%s tempers %s for %s HP." % [player.name, _item_name(gem, "gem"), cost], {"actor_id":player.id, "amount":cost})
 	else:
 		var fuel: Dictionary = _find(player.gems, str(payload.get("fuel_id", "")))
 		if fuel.is_empty() or fuel.id == gem.id: return "Choose a second owned gem to consume."
 		if fuel.get("equipped", false): return "Only a reserve gem can be consumed. Unequip it first."
-		if fuel.key == "STRIKE" and _count_key(player.gems, "STRIKE") <= 1: return "Your last Strike cannot be consumed."
+		## A loadout gem goes home regardless, so burning it here would be Carat for nothing.
+		if fuel.get("loadout", false): return "Only a gem you found down here can be consumed."
 		gain += floori(float(int(fuel.get("carat", 1))) / float(CRUCIBLE_FUSE_DIVISOR))
 		player.gems.erase(fuel)
 		_record("crucible", "%s consumes %s to feed %s." % [player.name, _item_name(fuel, "gem"), _item_name(gem, "gem")], {"actor_id":player.id})
@@ -943,31 +1154,33 @@ func _temper_gem(player: Dictionary, payload: Dictionary) -> String:
 	_record("crucible", "%s rises from Carat %s to %s." % [_item_name(gem, "gem"), before, int(gem.carat)], {"actor_id":player.id, "item_id":gem.id})
 	return ""
 
+# --- the rock vein ----------------------------------------------------------------
+
 func _vote_vein(player: Dictionary, vein: String) -> String:
 	if state.phase != "mine_vote" or vein not in ["coin", "crystal"] or state.votes.has(player.id): return "Choose one mine vein before it is committed."
 	state.votes[player.id] = vein
 	var chosen: String = _vote_result()
-	if not chosen.is_empty(): _mine(chosen)
+	if not chosen.is_empty(): _dig(chosen)
 	return ""
 
-func _mine(vein: String) -> void:
+func _dig(vein: String) -> void:
 	state.mine.vein = vein
 	state.mine_visits += 1
 	var rock_keys: Array = ["Small", "Medium", "Large", "Gold", "Shiny"]
 	var weights: Array = [4,4,2,2,0] if vein == "coin" else [1,3,4,0,2]
 	var hit_ranges: Array = [[1,2], [2,4], [3,5], [1,4], [1,5]]
-	var gold_values: Array = [[0,5], [0,5,10], [0,5,10], [10,15,20,25,50], [0,20]]
-	var gold_powers: Array = [10,20,15,10,10]
+	var ore_values: Array = [[0,5], [0,5,10], [0,5,10], [10,15,20,25,50], [0,20]]
+	var ore_powers: Array = [10,20,15,10,10]
 	var gem_values: Array = [[0,1], [0,1], [0,1], [0], [1,2,2,3]]
 	var gem_powers: Array = [20,5,3,1,3]
 	for i in 6 * int(state.party_size):
 		var key: String = _weighted(rock_keys, weights, streams.loot)
 		var index: int = rock_keys.find(key)
 		var rock: Dictionary = {"id":_id("rock"), "kind":key, "hits":streams.loot.randi_range(hit_ranges[index][0], hit_ranges[index][1]), "progress":0, "broken":false,
-			"gold":_power_pick(gold_values[index], gold_powers[index]), "gems":[]}
+			"ore":_power_pick(ore_values[index], ore_powers[index]), "gems":[]}
 		var count: int = _power_pick(gem_values[index], gem_powers[index])
 		if count > 0:
-			rock.gems = _generate_gems(count, state.profile == "expedition_18" and key == "Shiny", mini(15, int(state.room_index)) + (5 if key == "Shiny" and state.profile == "short_9" else 0))
+			rock.gems = _roll_gems(count, 3 if key == "Shiny" else 0, false)
 		state.mine.rocks.append(rock)
 	var energy: Dictionary = state.mine.energy.duplicate(true)
 	var rock_index: int = 0
@@ -986,22 +1199,22 @@ func _mine(vein: String) -> void:
 		var event: Dictionary = {"kind":"mine_hit", "actor_id":hero.id, "rock_id":rock.id, "progress":rock.progress, "hits":rock.hits}
 		if rock.progress >= rock.hits:
 			rock.broken = true
-			state.mine.gold += rock.gold
+			state.mine.ore += rock.ore
 			for gem in rock.gems: state.mine.pool.append({"claim_id":_id("claim"), "gem":gem})
 			event["broken"] = true
 			rock_index += 1
 		state.mine.events.append(event)
 	state.mine["remaining_energy"] = energy
-	var gold: int = int(state.mine.gold)
-	var share: int = floori(float(gold) / float(state.party_size))
-	var remainder: int = gold % int(state.party_size)
+	var ore: int = int(state.mine.ore)
+	var share: int = floori(float(ore) / float(state.party_size))
+	var remainder: int = ore % int(state.party_size)
 	for i in state.heroes.size():
 		var hero: Dictionary = state.heroes[i]
 		var extra: int = 1 if (i - int(state.coin_rotation) + int(state.party_size)) % int(state.party_size) < remainder else 0
-		_grant_gold(hero, share + extra, "mine")
+		_grant_ore(hero, share + extra, "mine")
 	state.coin_rotation = (int(state.coin_rotation) + remainder) % int(state.party_size)
 	state.mine.draft_index = (int(state.mine_visits) - 1) % int(state.party_size)
-	_record("mine_result", "%s rocks broken. %s gold shared; %s gems found." % [rock_index, gold, state.mine.pool.size()])
+	_record("mine_result", "%s rocks broken. %s ore shared; %s stones found." % [rock_index, ore, state.mine.pool.size()])
 	if state.mine.pool.is_empty():
 		_phase("support")
 	else:
@@ -1009,6 +1222,8 @@ func _mine(vein: String) -> void:
 		_phase("mine_draft")
 
 func _draft(player: Dictionary, claim_id: String) -> String:
+	## Picking by eye: the stones in the draft are unappraised, so a hero chooses by cut,
+	## colour, size and clarity, which is all the rock gave up.
 	if state.phase != "mine_draft" or state.mine.picker_id != player.id: return "Wait for your turn in the mine draft."
 	var claim: Dictionary = {}
 	for candidate in state.mine.pool:
@@ -1018,9 +1233,11 @@ func _draft(player: Dictionary, claim_id: String) -> String:
 	var gem: Dictionary = claim.gem.duplicate(true)
 	gem.equipped = false
 	gem.owner_id = player.id
-	player.gems.append(gem)
+	player.haul.append(gem)
+	_hero_stat(player, "gems_found", 1)
+	state.statistics.gems_found += 1
 	state.mine.pool.erase(claim)
-	_record("mine_claim", "%s drafts %s." % [player.name, _item_name(gem, "gem")])
+	_record("mine_claim", "%s takes a stone from the vein." % player.name)
 	if state.mine.pool.is_empty():
 		state.mine.picker_id = ""
 		_phase("support")
@@ -1031,20 +1248,75 @@ func _draft(player: Dictionary, claim_id: String) -> String:
 
 func _advance_room() -> void:
 	state.statistics.rooms += 1
-	state.history.append({"room_index":state.room_index, "act":state.act, "kind":state.room.kind, "room_id":state.room.id})
-	state.last_room_kind = state.room.kind
-	state.room_index += 1
+	state.history.append({"depth":state.depth, "kind":state.room.kind, "node_id":state.position, "room_id":state.room.id})
+	if state.room.get("kind", "") == "boss":
+		_end_run("conquered")
+		return
 	state.room = {}
 	state.enemies = []
 	state.turn = 0
 	_route_offers()
 
+# --- endings --------------------------------------------------------------------
+
+func _start_salvage() -> void:
+	## A wiped party rolls for its haul. Every roll is made now, from the loot stream, so
+	## revealing them one by one on screen is theatre over a settled result.
+	state.salvage = {}
+	var anything: bool = false
+	for hero in state.heroes:
+		var entries: Array = []
+		for gem in hero.haul + hero.gems.filter(func(item: Dictionary) -> bool: return item.get("found", false)):
+			var rarity: int = clampi(int(Catalog.definitions("skills").get(gem.key, {}).get("rarity", 1)), 1, 4)
+			var sides: int = SALVAGE_DICE[rarity]
+			var roll: int = streams.loot.randi_range(1, sides)
+			entries.append({"gem_id":gem.id, "sides":sides, "roll":roll, "kept":roll == sides, "revealed":false})
+		state.salvage[hero.id] = entries
+		anything = anything or not entries.is_empty()
+	_record("party_fallen", "The party has fallen. What they carried may yet be dragged back up.")
+	if anything:
+		_phase("salvage")
+	else:
+		_end_run("fallen")
+
+func _reveal_salvage(player: Dictionary, gem_id: String) -> String:
+	if state.phase != "salvage": return "There is nothing to salvage."
+	var found: bool = false
+	for entry in state.salvage.get(player.id, []):
+		if gem_id.is_empty() or entry.gem_id == gem_id:
+			entry.revealed = true
+			found = true
+	return "" if found else "That stone is not in your haul."
+
+func _finish_salvage() -> void:
+	for hero in state.heroes:
+		for entry in state.salvage.get(hero.id, []):
+			if entry.kept: continue
+			var gem: Dictionary = _find(hero.haul, entry.gem_id)
+			if not gem.is_empty(): hero.haul.erase(gem)
+			gem = _find(hero.gems, entry.gem_id)
+			if not gem.is_empty(): hero.gems.erase(gem)
+	_end_run("fallen")
+
 func _end_run(outcome: String) -> void:
+	## Writes each hero's result record: the stones that actually came home, what they saw,
+	## and how deep the party got. A profile applies it; nothing here touches one.
 	state.outcome = outcome
+	state.results = {}
+	for hero in state.heroes:
+		var haul: Array = []
+		for gem in hero.haul + hero.gems.filter(func(item: Dictionary) -> bool: return item.get("found", false)):
+			haul.append({"id":str(gem.id), "key":str(gem.key), "carat":int(gem.carat), "cut":int(gem.cut), "clarity":int(gem.clarity), "appraised":bool(gem.get("appraised", false))})
+		state.results[hero.id] = {"result_id":"%s:%s" % [state.run_id, hero.id], "player_id":hero.id, "mine_id":state.mine_id,
+			"outcome":outcome, "depth":int(state.deepest), "haul":haul, "seen_gems":state.seen_gems.get(hero.id, []).duplicate(),
+			"encountered":state.encountered.duplicate(true), "special_id":str(state.special.id), "statistics":state.statistics.heroes.get(hero.id, {}).duplicate()}
 	_phase("summary")
-	state["summary"] = {"run_id":state.run_id, "outcome":outcome, "profile":state.profile, "seed":state.seed, "room_index":state.room_index,
+	state["summary"] = {"run_id":state.run_id, "outcome":outcome, "mine_id":state.mine_id, "seed":state.seed, "depth":state.deepest,
 		"heroes":state.heroes.duplicate(true), "statistics":state.statistics.duplicate(true), "completed_at":Time.get_datetime_string_from_system(true)}
-	_record("run_ended", "The party is victorious!" if outcome == "victory" else "The party has fallen. Your expedition is recorded.")
+	var lines: Dictionary = {"extracted":"The lift groans upward into daylight. Everything you carried comes home.",
+		"fallen":"The expedition is over. What survived the fall is hauled back to the surface.",
+		"conquered":"The boss is dead and the mine is quiet. The party climbs out with its prize."}
+	_record("run_ended", lines[outcome])
 
 func set_controller_connected(player_id: String, connected: bool) -> Dictionary:
 	var player: Dictionary = _hero(player_id)
@@ -1108,12 +1380,16 @@ func _fallback_step() -> void:
 		var picker: Dictionary = _hero(state.mine.picker_id)
 		if not picker.get("fallback", false): break
 		_draft(picker, state.mine.pool[0].claim_id)
-	if state.phase in ["route", "mine_vote"]:
+	if state.phase in ["route", "mine_vote", "lift"]:
 		var choice: String = _vote_result()
 		if not choice.is_empty():
-			if state.phase == "route": _enter_room(_find(state.offers, choice).kind)
-			else: _mine(choice)
-	if state.phase in ["planning", "support", "reward"]:
+			match state.phase:
+				"route": _enter_node(choice)
+				"mine_vote": _dig(choice)
+				"lift":
+					if choice == "ride": _end_run("extracted")
+					else: _advance_room()
+	if state.phase in ["planning", "support", "reward", "salvage"]:
 		_check_ready()
 
 func resume_run(new_session_id: String = "") -> Dictionary:
@@ -1155,21 +1431,25 @@ static func validate_state(snapshot: Dictionary) -> String:
 		return (value is int or value is float) and is_finite(float(value)) and float(value) == floor(float(value)) and float(value) >= minimum and float(value) <= maximum
 	if snapshot.get("schema_version", 0) != 1 or snapshot.get("rules_version", "") != RULES_VERSION or snapshot.get("content_version", "") != CONTENT_VERSION:
 		return "This checkpoint uses incompatible rules or content."
-	for field in ["run_id", "session_id", "host_id"]:
+	for field in ["run_id", "session_id", "host_id", "seed"]:
 		if not snapshot.get(field) is String or snapshot[field].is_empty() or snapshot[field].length() > 256:
 			return "The checkpoint has an invalid " + field + "."
-	if snapshot.get("profile", "") not in ["short_9", "expedition_18"]: return "Unknown saved run profile."
-	if snapshot.get("phase", "") not in ["route", "planning", "support", "reward", "mine_vote", "mine_draft", "summary"]: return "Unknown saved run phase."
-	for field in ["revision", "phase_id", "host_epoch", "turn", "room_index", "act", "party_size", "next_id", "mine_visits", "coin_rotation"]:
+	if not snapshot.get("mine_id") is String or Catalog.mine_definition(snapshot.mine_id).is_empty(): return "Unknown saved mine."
+	if not snapshot.get("special") is Dictionary or not snapshot.special.get("id") is String or not str(snapshot.special.get("modifier", "")) in [""] + Seam.MODIFIERS: return "Invalid saved special mission."
+	if snapshot.get("phase", "") not in PHASES: return "Unknown saved run phase."
+	if not str(snapshot.get("outcome", "")) in [""] + OUTCOMES: return "Unknown saved ending."
+	for field in ["revision", "phase_id", "host_epoch", "turn", "depth", "deepest", "tremor", "sight", "party_size", "next_id", "mine_visits", "coin_rotation"]:
 		if not whole.call(snapshot.get(field)): return "Invalid saved counter: " + field
-	if not whole.call(snapshot.act, 1, 3) or not whole.call(snapshot.room_index, 1, 19) or not whole.call(snapshot.host_epoch, 1): return "Invalid saved progression."
-	for field in ["heroes", "enemies", "offers", "log", "last_events", "history", "settled_rooms", "claimed_rewards", "shops_seen"]:
+	if not whole.call(snapshot.host_epoch, 1) or not whole.call(snapshot.tremor, 0, Seam.TREMOR_FULL) or int(snapshot.deepest) < int(snapshot.depth): return "Invalid saved progression."
+	for field in ["heroes", "enemies", "offers", "log", "last_events", "history", "settled_rooms", "claimed_rewards"]:
 		if not snapshot.get(field) is Array: return "Invalid saved list: " + field
-	for field in ["room", "votes", "reward_offers", "shop", "mine", "event", "statistics", "rng_states"]:
+	for field in ["room", "votes", "reward_offers", "shop", "mine", "event", "statistics", "rng_states", "seam", "encountered", "seen_gems", "salvage", "results"]:
 		if not snapshot.get(field) is Dictionary: return "Invalid saved record: " + field
 	if not snapshot.get("accepted_sequences", {}) is Dictionary: return "Invalid command sequence history."
 	if not snapshot.get("paused") is bool: return "Invalid saved pause state."
 	if snapshot.heroes.is_empty() or snapshot.heroes.size() > 4 or int(snapshot.party_size) != snapshot.heroes.size(): return "The checkpoint has an invalid party."
+	var seam_error: String = _seam_error(snapshot, whole)
+	if not seam_error.is_empty(): return seam_error
 	var owned_ids: Dictionary = {}
 	var hero_ids: Dictionary = {}
 	var seats: Dictionary = {}
@@ -1179,20 +1459,18 @@ static func validate_state(snapshot: Dictionary) -> String:
 		hero_ids[hero.id] = true
 		if not whole.call(hero.get("seat"), 0, snapshot.heroes.size() - 1) or seats.has(int(hero.seat)): return "Invalid or duplicate party seat."
 		seats[int(hero.seat)] = true
-		if not whole.call(hero.get("max_hp"), 1) or not whole.call(hero.get("hp"), 0, int(hero.max_hp)) or not whole.call(hero.get("gold")) or not whole.call(hero.get("block")): return "Invalid saved hero statistics."
-		for field in ["rerolls", "max_rerolls", "trait_charges", "combat_gold", "action_eligible_from_turn"]:
+		if not whole.call(hero.get("max_hp"), 1) or not whole.call(hero.get("hp"), 0, int(hero.max_hp)) or not whole.call(hero.get("ore")) or not whole.call(hero.get("block")) or not whole.call(hero.get("loupes")): return "Invalid saved hero statistics."
+		for field in ["rerolls", "max_rerolls", "trait_charges", "combat_ore", "action_eligible_from_turn"]:
 			if not whole.call(hero.get(field)): return "Invalid saved hero counter: " + field
 		# A White gem raises the allowance for one battle; `base_rerolls` is what it drops
 		# back to at the start of the next one, so the pair is bounded rather than the one.
 		if not whole.call(hero.get("base_rerolls", 1), 1, Combat.MAX_REROLLS) or not whole.call(hero.max_rerolls, 1, Combat.MAX_REROLLS): return "Invalid saved reroll allowance."
 		if not whole.call(hero.trait_charges, 0, 1) or int(hero.rerolls) > int(hero.max_rerolls): return "Invalid saved encounter allowance."
-		if not hero.get("rerolled") is bool or not hero.get("relic_flags") is Dictionary or not hero.get("tinker_used_acts") is Array: return "Invalid saved trait or relic bookkeeping."
-		for used_act in hero.tinker_used_acts:
-			if not whole.call(used_act, 1, 3): return "Invalid saved relic act charge."
+		if not hero.get("rerolled") is bool or not hero.get("relic_flags") is Dictionary or not hero.get("tinker_used") is bool: return "Invalid saved trait or relic bookkeeping."
 		for field in ["ready", "connected"]:
 			if not hero.get(field) is bool: return "Invalid hero controller or readiness state."
 		if not hero.get("fallback", false) is bool: return "Invalid fallback controller state."
-		for field in ["dice", "reserve_dice", "gems", "relics", "hand", "initial_hand"]:
+		for field in ["dice", "reserve_dice", "gems", "relics", "hand", "initial_hand", "haul"]:
 			if not hero.get(field) is Array: return "Invalid hero inventory: " + field
 		if hero.dice.size() != 5 or hero.reserve_dice.size() > 5: return "Invalid saved dice capacity."
 		if not hero.get("statuses") is Dictionary: return "Invalid saved status effects."
@@ -1201,14 +1479,18 @@ static func validate_state(snapshot: Dictionary) -> String:
 		if not whole.call(hero.statuses.get("poison", 0), 0, 12): return "Saved Poison exceeds its cap."
 		var equipped_gems: Dictionary = {}
 		var equipped_relics: Dictionary = {}
-		for item in hero.gems:
+		for item in hero.gems + hero.haul:
 			if not item is Dictionary or not Catalog.SKILLS.has(item.get("key", "")): return "Unknown saved gem."
 			if not whole.call(item.get("carat"), 1, 24) or not whole.call(item.get("cut"), 1, 5) or not whole.call(item.get("clarity"), 1, 5): return "Invalid saved gem properties."
 			if not item.get("equipped") is bool: return "Invalid saved gem equipment flag."
 			if not whole.call(item.get("revive_charges", 1), 0, 1) or not whole.call(item.get("upgrade_charges", 1), 0, 1): return "Invalid saved gem charge."
+			for flag in ["loadout", "found", "appraised"]:
+				if not item.get(flag, false) is bool: return "Invalid saved gem origin."
 			if item.equipped:
 				if equipped_gems.has(item.key): return "Duplicate equipped skill."
 				equipped_gems[item.key] = true
+		for item in hero.haul:
+			if item.equipped or item.get("appraised", false) or not item.get("found", false): return "A hauled stone must be found, unappraised and unequipped."
 		if equipped_gems.size() > 6 or not equipped_gems.has("STRIKE"): return "Saved loadout must include Strike within six gem slots."
 		for item in hero.relics:
 			if not item is Dictionary or not Catalog.RELICS.has(item.get("key", "")): return "Unknown saved relic."
@@ -1229,7 +1511,7 @@ static func validate_state(snapshot: Dictionary) -> String:
 				if not face.get("id") is String or face.id.is_empty() or face_ids.has(face.id): return "Invalid or duplicate die face ID."
 				face_ids[face.id] = true
 			if die in hero.dice: active_dice[str(die.get("id", ""))] = die
-		for item in [hero] + hero.gems + hero.relics + hero.dice + hero.reserve_dice:
+		for item in [hero] + hero.gems + hero.haul + hero.relics + hero.dice + hero.reserve_dice:
 			if not item.get("id") is String or item.id.is_empty() or owned_ids.has(item.id): return "Duplicate saved inventory instance."
 			owned_ids[item.id] = true
 			if item.has("owner_id") and item.owner_id != hero.id: return "Saved item belongs to another hero."
@@ -1245,6 +1527,7 @@ static func validate_state(snapshot: Dictionary) -> String:
 				var face: Dictionary = die.faces[int(roll.face_index)]
 				if roll.get("face_id", "") != face.id or int(roll.value) != int(face.value) + int(roll.get("lift", 0)) or not whole.call(roll.get("roll_count")): return "Saved roll does not match its physical die face."
 				rolled_ids[roll.die_id] = true
+		if not snapshot.seen_gems.get(hero.id, []) is Array: return "Invalid saved discoveries."
 	if not hero_ids.has(snapshot.host_id): return "The host has no reserved party seat."
 	for player_id in snapshot.get("accepted_sequences", {}):
 		if not hero_ids.has(player_id) or not whole.call(snapshot.accepted_sequences[player_id]): return "Invalid saved command sequence."
@@ -1258,7 +1541,7 @@ static func validate_state(snapshot: Dictionary) -> String:
 		if not enemy.get("statuses") is Dictionary: return "Invalid enemy statuses."
 		for status_key in ["stun", "poison", "resolve"]:
 			if not whole.call(enemy.statuses.get(status_key, 0), 0, 12 if status_key == "poison" else 2147483647): return "Invalid saved enemy status counter."
-		if not whole.call(enemy.get("action_eligible_from_turn"), 1) or not whole.call(enemy.get("phase_turn"), 0) or not whole.call(enemy.get("act"), 1, 3): return "Invalid saved enemy turn counter."
+		if not whole.call(enemy.get("action_eligible_from_turn"), 1) or not whole.call(enemy.get("phase_turn"), 0) or not whole.call(enemy.get("depth"), 1) or not whole.call(enemy.get("damage_bonus", 0)) or not whole.call(enemy.get("support_scale", 100), 1): return "Invalid saved enemy turn counter."
 		if not enemy.get("intents") is Array: return "Invalid saved enemy intentions."
 		for intent in enemy.intents:
 			if not intent is Dictionary or not intent.get("key") is String or not intent.get("name") is String or not intent.get("effects") is Array: return "Malformed saved enemy intent."
@@ -1278,6 +1561,11 @@ static func validate_state(snapshot: Dictionary) -> String:
 			if not whole.call(seat.get("stake"), 0, WAGER_STAKES[-1]) or not whole.call(seat.get("payout"), 0): return "Invalid saved wager stake."
 	if not snapshot.event.is_empty() and (not Catalog.EVENTS.has(snapshot.event.get("key", "")) or not snapshot.event.get("offers") is Dictionary): return "Unknown saved event."
 	if snapshot.phase == "mine_draft" and (not snapshot.mine.get("pool") is Array or snapshot.mine.pool.is_empty() or not hero_ids.has(snapshot.mine.get("picker_id", ""))): return "Invalid saved mine draft."
+	for player_id in snapshot.salvage:
+		if not hero_ids.has(player_id) or not snapshot.salvage[player_id] is Array: return "Invalid saved salvage."
+		for entry in snapshot.salvage[player_id]:
+			if not entry is Dictionary or not entry.get("gem_id") is String or not int(entry.get("sides", 0)) in SALVAGE_DICE.values() or not whole.call(entry.get("roll"), 1, int(entry.get("sides", 1))) or not entry.get("kept") is bool or not entry.get("revealed") is bool: return "Invalid saved salvage roll."
+			if entry.kept != (int(entry.roll) == int(entry.sides)): return "A saved salvage roll disagrees with its die."
 	for key in ["rooms", "encounters", "dice", "loot"]:
 		if not snapshot.rng_states.get(key) is String or not snapshot.rng_states[key].is_valid_int(): return "Invalid saved random state."
 	# Validate definitions in generated offers and encounter inventories as well.
@@ -1287,7 +1575,7 @@ static func validate_state(snapshot: Dictionary) -> String:
 	while not pending.is_empty():
 		var value: Variant = pending.pop_back()
 		visited += 1
-		if visited > 200000: return "Saved state exceeds the supported structural size."
+		if visited > 400000: return "Saved state exceeds the supported structural size."
 		if value is Dictionary:
 			if value.has("carat") and value.has("key"):
 				if not Catalog.SKILLS.has(value.key) or not whole.call(value.get("carat"), 1, 24) or not whole.call(value.get("cut"), 1, 5) or not whole.call(value.get("clarity"), 1, 5): return "Invalid generated gem content."
@@ -1302,6 +1590,24 @@ static func validate_state(snapshot: Dictionary) -> String:
 		elif value is float and not is_finite(value): return "Non-finite number in saved state."
 		elif not (value == null or value is String or value is StringName or value is bool or value is int or value is float): return "Unsupported saved value."
 	return ""
+
+static func _seam_error(snapshot: Dictionary, whole: Callable) -> String:
+	var seam: Dictionary = snapshot.seam
+	if not seam.get("layers") is Dictionary or not whole.call(seam.get("deepest"), 0): return "Invalid saved seam."
+	if seam.layers.size() != int(seam.deepest) or int(seam.deepest) < int(snapshot.depth): return "The saved seam does not reach the party."
+	for depth_key in seam.layers:
+		if not str(depth_key).is_valid_int() or not whole.call(int(str(depth_key)), 1, int(seam.deepest)) or not seam.layers[depth_key] is Array or seam.layers[depth_key].is_empty(): return "Invalid saved seam layer."
+		for node in seam.layers[depth_key]:
+			if not node is Dictionary or not node.get("id") is String or not ROOM_NAMES.has(node.get("kind", "")) or not node.get("links") is Array: return "Invalid saved chamber."
+			if not whole.call(node.get("depth"), 1) or int(node.depth) != int(str(depth_key)) or not whole.call(node.get("column"), 0, Seam.COLUMNS - 1) or node.id != Seam.node_id(int(node.depth), int(node.column)): return "Invalid saved chamber position."
+			for link in node.links:
+				if not link is String or Seam.find_node(seam, link).is_empty() or int(Seam.find_node(seam, link).depth) != int(node.depth) + 1: return "A saved tunnel leads nowhere."
+	if not snapshot.get("position") is String: return "The saved party is not standing in a chamber."
+	if snapshot.position != Seam.SURFACE:
+		if Seam.find_node(seam, snapshot.position).is_empty() or int(Seam.find_node(seam, snapshot.position).depth) != int(snapshot.depth): return "The saved party is not standing in a chamber."
+	elif int(snapshot.depth) != 0: return "The saved party is not standing in a chamber."
+	return ""
+
 func _checkpoint() -> Dictionary:
 	state["rng_states"] = _rng_snapshot()
 	if not autosave: return {"ok":true}
@@ -1326,30 +1632,38 @@ func _phase(phase: String) -> void:
 	state.phase_id += 1
 	for hero in state.heroes: hero.ready = false
 
-func _generate_gems(count: int, elite: bool = false, luck: int = -1) -> Array:
-	var prefix: String = _id("loot")
-	return Catalog.generate_gems(streams.loot, count, state.profile, state.act, mini(15, int(state.room_index) - 1) if luck < 0 else luck, prefix, state.party_size, elite)
+func _mine_def() -> Dictionary:
+	return Catalog.mine_definition(str(state.get("mine_id", "")))
+
+func _modifier() -> String:
+	return str(state.get("special", {}).get("modifier", ""))
 
 func _id(prefix: String) -> String:
 	state.next_id += 1
 	return "%s-%s-%s" % [state.run_id, prefix, state.next_id]
 
-func _grant_gold(player: Dictionary, amount: int, source: String) -> void:
-	player.gold += maxi(0, amount)
-	state.statistics.gold_earned += maxi(0, amount)
-	_record("gold", "%s gains %s gold." % [player.name, amount], {"actor_id":player.id, "amount":amount, "source":source})
+func _grant_ore(player: Dictionary, amount: int, source: String) -> void:
+	player.ore += maxi(0, amount)
+	state.statistics.ore_earned += maxi(0, amount)
+	_hero_stat(player, "ore_earned", maxi(0, amount))
+	_record("ore", "%s gains %s ore." % [player.name, amount], {"actor_id":player.id, "amount":amount, "source":source})
 
 func _spend(player: Dictionary, amount: int) -> void:
-	player.gold -= amount
-	state.statistics.gold_spent += amount
+	player.ore -= amount
+	state.statistics.ore_spent += amount
 
 func _record(kind: String, message: String, detail: Dictionary = {}) -> void:
-	var event: Dictionary = {"kind":kind, "type":kind, "message":message, "run_id":state.get("run_id", ""), "phase_id":state.get("phase_id", 0), "turn":state.get("turn", 0), "room_index":state.get("room_index", 0)}
+	var event: Dictionary = {"kind":kind, "type":kind, "message":message, "run_id":state.get("run_id", ""), "phase_id":state.get("phase_id", 0), "turn":state.get("turn", 0), "depth":state.get("depth", 0)}
 	event.merge(detail, true)
 	_events.append(event)
 
 func _stat(key: String, amount: int) -> void:
 	state.statistics[key] = int(state.statistics.get(key, 0)) + amount
+
+func _hero_stat(hero: Dictionary, key: String, amount: int) -> void:
+	var bucket: Dictionary = state.statistics.heroes.get(hero.id, {})
+	bucket[key] = int(bucket.get(key, 0)) + amount
+	state.statistics.heroes[hero.id] = bucket
 
 func _stat_bucket(key: String, entry: String) -> void:
 	if not state.statistics.has(key): state.statistics[key] = {}

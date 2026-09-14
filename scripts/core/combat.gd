@@ -19,7 +19,7 @@ static func begin_battle(state: Dictionary, rng: RandomNumberGenerator) -> Array
 	for actor in state.get("heroes",[]):
 		actor.block = 0
 		actor.statuses = {"stun":0,"poison":0,"resolve":0}
-		actor.combat_gold = 0
+		actor.combat_ore = 0
 		actor.trait_charges = 1 if actor.get("trait","") == "SECOND_THOUGHT" else 0
 		actor.action_eligible_from_turn = 1
 		## A reroll allowance raised by a White gem lasts the battle and no longer, so every
@@ -69,6 +69,11 @@ static func begin_turn(state: Dictionary, rng: RandomNumberGenerator) -> Array:
 		enemy.intents = []
 		enemy.pending_roll = true
 	return [{"kind":"turn", "turn":state.turn, "text":"Turn "+str(state.turn)+(": Enrage +"+str(enrage(state))+" damage per enemy hit." if enrage(state) > 0 else ". The party rolls first.")}]
+
+static func ore_allowance(state: Dictionary, actor: Dictionary) -> int:
+	## Ore a hero's gems may still mint this battle. It grows two every three layers, so a
+	## long fight is never a way to farm the purse and a deep one still pays a little more.
+	return maxi(0, 8 + 2 * floori(maxi(0, int(state.get("depth", 1)) - 1) / 3.0) - int(actor.get("combat_ore", 0)))
 
 static func enrage(state: Dictionary) -> int:
 	return maxi(0,(int(state.get("turn",1))-6)*2)
@@ -523,7 +528,7 @@ static func effects_summary(effects: Array, actor: Dictionary = {}, state: Dicti
 		if action_effect.kind == "block" and rule == "BLOCK" and Catalog.has_relic(actor,"MATCHBOX"):
 			amount += 2
 		if action_effect.kind == "gold" and not state.is_empty():
-			suffix += " ("+str(maxi(0,8+4*(int(state.get("act",1))-1)-int(actor.get("combat_gold",0))))+" battle allowance left)"
+			suffix += " ("+str(ore_allowance(state,actor))+" battle allowance left)"
 		if action_effect.kind == "lifeline":
 			parts.append("Revive "+str(amount)+" HP ("+str(action_effect.get("charges",1))+" charge), otherwise heal "+str(action_effect.heal_amount))
 		elif action_effect.kind == "cleanse":
@@ -653,11 +658,11 @@ static func enemy_intents(actor: Dictionary, state: Dictionary, rng: RandomNumbe
 		for action_effect in intent.effects:
 			var amount: int = int(action_effect.amount)
 			if not actor.get("boss",false):
-				var tier: int = clampi(int(actor.get("act",1)),1,3)-1
+				## Depth, set when the enemy was made, hardens its hits and its support alike.
 				if action_effect.kind == "damage":
-					amount += tier*2
+					amount += int(actor.get("damage_bonus",0))
 				elif action_effect.kind in ["block","heal"]:
-					amount = floori(float(amount)*[1.0,1.2,1.4][tier])
+					amount = floori(float(amount)*int(actor.get("support_scale",100))/100.0)
 			if action_effect.kind == "damage":
 				action_effect.enrage_bonus = enrage(state)
 				amount += enrage(state)
@@ -984,11 +989,12 @@ static func _apply_effect(actor: Dictionary, target: Dictionary, action_effect: 
 		item.revive_charges = maxi(0,int(item.get("revive_charges",1))-1)
 		events.append(_event("revive",actor,target,key,int(target.hp),target.name+" returns with "+str(target.hp)+" HP and can act next turn."))
 	elif kind == "gold":
-		var allowance: int = maxi(0,8+4*(int(state.get("act",1))-1)-int(actor.get("combat_gold",0)))
+		## The effect is still called gold in the rule language; what it mints in the mine is ore.
+		var allowance: int = ore_allowance(state,actor)
 		var granted: int = mini(allowance,amount)
-		actor.gold = int(actor.get("gold",0))+granted
-		actor.combat_gold = int(actor.get("combat_gold",0))+granted
-		var gold_event: Dictionary = _event("gold",actor,actor,key,granted,actor.name+" gains "+str(granted)+" gold ("+str(amount)+" requested; "+str(allowance-granted)+" combat allowance remains).")
+		actor.ore = int(actor.get("ore",0))+granted
+		actor.combat_ore = int(actor.get("combat_ore",0))+granted
+		var gold_event: Dictionary = _event("gold",actor,actor,key,granted,actor.name+" gains "+str(granted)+" ore ("+str(amount)+" requested; "+str(allowance-granted)+" combat allowance remains).")
 		gold_event.requested = amount
 		gold_event.source = "combat_skill"
 		events.append(gold_event)

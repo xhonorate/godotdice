@@ -47,7 +47,7 @@ func state_for(unit: Dictionary, enemy: Dictionary = {}) -> Dictionary:
 		enemy.hp = 1000
 		enemy.max_hp = 1000
 		enemy.intents = []
-	return {"heroes":[unit],"enemies":[enemy],"turn":1,"act":1,"party_size":1,"battle_outcome":""}
+	return {"heroes":[unit],"enemies":[enemy],"turn":1,"depth":1,"party_size":1,"battle_outcome":""}
 
 func skill(key: String, numbers: Array, c: int = 1, k: int = 1, l: int = 1) -> Dictionary:
 	return Combat.preview(hero(),Catalog.gem(key,"gem",c,k,l),hand(numbers),{})
@@ -89,24 +89,29 @@ func _test_catalog() -> void:
 	a.dice[0].faces[0].value = 6
 	a.gems[0].carat = 24
 	check(b.dice[0].faces[0].value == 1 and b.gems[0].carat == 1,"Instances do not mutate shared templates")
-	check(not "LIFELINE" in Catalog.eligible_skills("expedition_18",1),"Lifeline excluded from solo loot")
-	check("LIFELINE" in Catalog.eligible_skills("expedition_18",2),"Lifeline available in full co-op")
-	for party_size in range(1,5):
-		for act in range(1,4):
-			for kind in ["battle","elite","boss"]:
-				var encounter: Array = Catalog.encounter(kind,act,party_size,2,"expedition_18")
-				check(encounter.size() <= 4 and encounter.size() > 0,"Bounded authored encounter "+str([party_size,act,kind]))
+	check(not "LIFELINE" in Catalog.mine_skills("MIRROR_GROTTO",1),"Lifeline excluded from solo loot")
+	check("LIFELINE" in Catalog.mine_skills("MIRROR_GROTTO",2),"Lifeline available in full co-op")
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 735
-	for profile in ["short_9","expedition_18"]:
-		for act in range(1,4):
-			for luck in [0,9,15,20]:
-				var gems: Array = Catalog.generate_gems(rng,50,profile,act,luck,"test",2,true)
-				var found: Dictionary = {}
-				for item in gems:
-					check(not found.has(item.key),"Unique skill keys per offer set")
-					found[item.key] = true
-					check(item.carat >= 1 and item.carat <= 24 and item.cut >= 1 and item.cut <= 5 and item.clarity >= 1 and item.clarity <= 5,"Generated properties valid")
+	for mine_id in Catalog.mine_ids():
+		for party_size in range(1,5):
+			for depth in [1,4,9,20,40]:
+				for kind in ["battle","elite","boss"]:
+					var encounter: Array = Catalog.mine_encounter(mine_id,kind,depth,party_size,rng,"e")
+					check(encounter.size() <= Catalog.MAX_ENEMIES and encounter.size() > 0,"Bounded mine encounter "+str([mine_id,party_size,depth,kind]))
+					check(encounter.all(func(unit: Dictionary) -> bool: return unit.boss == (kind == "boss")),"Only the lair holds the boss "+str([mine_id,kind]))
+					if kind == "elite":
+						check(Catalog.depth_band(mine_id,depth).elite.has(encounter[0].key),"An elite fight leads with a band elite "+str([mine_id,depth]))
+		for quality in [0,9,15,30]:
+			for index in range(50):
+				var item: Dictionary = Catalog.roll_gem(rng,Catalog.mine_skills(mine_id,2),quality,"test",Catalog.mine_definition(mine_id).color_weights)
+				check(item.key in Catalog.mine_definition(mine_id).skill_ids,"Rolled gems come from the mine's pool")
+				check(item.carat >= 1 and item.carat <= 24 and item.cut >= 1 and item.cut <= 5 and item.clarity >= 1 and item.clarity <= 5,"Generated properties valid")
+	var shallow: Dictionary = Catalog.enemy("STONE_CRAB","c",1,1)
+	var deep: Dictionary = Catalog.enemy("STONE_CRAB","c",11,1)
+	check(shallow.max_hp == 26 and deep.max_hp == ceili(26*1.6) and deep.damage_bonus == 2 and deep.support_scale == 130,"Enemies scale with depth")
+	check(Catalog.enemy("SLIME_KING","k",40,2).max_hp == ceili(60*2*1.6),"A boss's depth bonus is capped")
+	check(Catalog.merchant_dice(1) == ["PAIRED_D6","ODD_D6","EVEN_D6"] and "SPLIT_D20" in Catalog.merchant_dice(12) and not "SEVEN_D8" in Catalog.merchant_dice(4),"Merchants stock dice by depth")
 	check(RandomSource.weighted_index(rng,[0,0,0]) == -1,"Empty eligible weighted pool safe")
 	check(RandomSource.weighted_index(rng,[0,0,1]) == 2,"Weighted bucket index preserved")
 
@@ -237,11 +242,11 @@ func _test_resolution() -> void:
 	var lucky: Dictionary = hero()
 	lucky.hand = hand([7,7,7,1,2])
 	equip(lucky,"LUCKYSTRIKE",2,1,2)
-	lucky.combat_gold = 7
+	lucky.combat_ore = 7
 	var lucky_state: Dictionary = state_for(lucky,Catalog.enemy("SLIME","last"))
 	lucky_state.enemies[0].hp = 1
 	Combat.resolve_turn(lucky_state,RandomNumberGenerator.new())
-	check(lucky_state.battle_outcome == "victory" and lucky.gold == 1 and lucky.combat_gold == 8,"Killing Lucky Strike finishes self gold effects, respects allowance, settles once")
+	check(lucky_state.battle_outcome == "victory" and lucky.ore == 1 and lucky.combat_ore == 8,"Killing Lucky Strike finishes self ore effects, respects allowance, settles once")
 	check(Combat.resolve_turn(lucky_state,RandomNumberGenerator.new()).is_empty(),"Completed combat cannot resolve again")
 	var rescue: Dictionary = hero("MAX","rescue")
 	rescue.hand = hand([1,2,3,4,5])
@@ -372,14 +377,14 @@ func _test_intents() -> void:
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 221
 	var unit: Dictionary = hero()
-	var crab: Dictionary = Catalog.enemy("STONE_CRAB","crab",2)
+	var crab: Dictionary = Catalog.enemy("STONE_CRAB","crab",8)
 	crab.hand = hand([2,5])
 	var state: Dictionary = state_for(unit,crab)
 	var intents: Array = Combat.enemy_intents(crab,state,rng)
-	check(intents[0].key == "SHELL_UP" and intents[0].effects[0].amount == 6,"Act 2 Crab scaled block floor(5×1.2)")
+	check(intents[0].key == "SHELL_UP" and intents[0].effects[0].amount == 6,"Depth 8 Crab scaled block floor(5×1.21)")
 	state.turn = 8
 	intents = Combat.enemy_intents(crab,state,rng)
-	check(intents[0].key == "CLAW" and intents[0].effects[0].amount == 14,"Act 2 Claw +2 act damage and +4 Enrage")
+	check(intents[0].key == "CLAW" and intents[0].effects[0].amount == 14,"Depth 8 Claw +2 depth damage and +4 Enrage")
 	var cultist: Dictionary = Catalog.enemy("GEM_CULTIST","cultist")
 	cultist.hand = hand([2,8])
 	state = state_for(unit,cultist)
@@ -413,7 +418,7 @@ func _test_intents() -> void:
 	## the routine can reach. Whatever the roll then opens must come from that roster, or
 	## the loadout drawn over the enemy's head would be describing a different creature.
 	for key in Catalog.ENEMIES:
-		var enemy: Dictionary = Catalog.enemy(key,"test",3,4)
+		var enemy: Dictionary = Catalog.enemy(key,"test",12,4)
 		state = state_for(hero(),enemy)
 		Combat.begin_battle(state,rng)
 		check(enemy.intents.is_empty(),"Nothing is revealed before the party has acted: "+key)
@@ -432,7 +437,9 @@ func _test_determinism() -> void:
 	var rng_b: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng_a.seed = 672120
 	rng_b.seed = 672120
-	var a: Dictionary = {"heroes":[Catalog.hero("MAX","h")],"enemies":Catalog.encounter("battle",1,1,1,"short_9"),"turn":0,"act":1,"party_size":1}
+	var encounter_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	encounter_rng.seed = 1
+	var a: Dictionary = {"heroes":[Catalog.hero("MAX","h")],"enemies":Catalog.mine_encounter("QUARRY","battle",1,1,encounter_rng,"e"),"turn":0,"depth":1,"party_size":1}
 	var b: Dictionary = a.duplicate(true)
 	Combat.begin_battle(a,rng_a)
 	Combat.begin_battle(b,rng_b)

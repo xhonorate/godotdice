@@ -210,15 +210,24 @@ func _ready() -> void:
 func configure(new_gem: Dictionary) -> void:
 	## Safe to call before this node is in the tree: the stone is cut on `_ready` instead.
 	gem = new_gem
-	var signature := "%s|%d|%d|%d" % [Catalog.canonical_key(str(gem.get("key", ""))),
-		int(gem.get("carat", 1)), int(gem.get("cut", 1)), int(gem.get("clarity", 1))]
+	var signature := "%s|%d|%d|%d|%s" % [Catalog.canonical_key(str(gem.get("key", ""))),
+		int(gem.get("carat", 1)), int(gem.get("cut", 1)), int(gem.get("clarity", 1)), str(sealed())]
 	if signature == _signature:
 		return
 	_signature = signature
-	tooltip_text = GemMesh.describe(gem) if interactive else GemMesh.describe(gem).trim_suffix(" Drag to turn it.")
+	var described: String = UNAPPRAISED_TEXT if sealed() else GemMesh.describe(gem)
+	tooltip_text = described if interactive else described.trim_suffix(" Drag to turn it.")
 	if is_instance_valid(_glow):
 		_glow.queue_redraw()
 	_apply()
+
+## A stone found in the mine and not yet appraised shows everything the eye can judge —
+## outline and hue, size, faceting, how clear it is — and nothing it cannot: the skill's
+## emblem stays out of the crown until someone has looked at it properly.
+const UNAPPRAISED_TEXT := "An unappraised stone. Its colour, size, cut and clarity are all there to judge; what it does is not."
+
+func sealed() -> bool:
+	return gem.has("appraised") and not bool(gem.appraised)
 
 func set_ground(color: Color, texture: Texture2D = null) -> void:
 	## Stands the stone on something. See the note at the top of this file: this is the
@@ -359,6 +368,7 @@ func _apply() -> void:
 	_shape_halo()
 	_etch.mesh = GemMesh.etch_plate(gem)
 	_etch.material_override = GemMesh.etch_material(gem)
+	_etch.visible = not sealed()
 	# Carat is the one property that changes nothing about the geometry, only its size.
 	# Carat is the one property that changes nothing about the geometry, only its size, and
 	# `_fit_frame` is what decides that — it has to weigh the slot against the drawing area.

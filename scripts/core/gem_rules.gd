@@ -393,7 +393,7 @@ static func _straight(groups: Dictionary, length: int) -> Array:
 
 const VERBS: Dictionary = {"damage": "Damage", "block": "Block", "heal": "Heal", "gold": "Gain",
 	"poison": "Apply", "stun": "Apply", "remove_block": "Remove"}
-const NOUNS: Dictionary = {"gold": " gold", "poison": " Poison", "stun": " stun", "remove_block": " block"}
+const NOUNS: Dictionary = {"gold": " ore", "poison": " Poison", "stun": " stun", "remove_block": " block"}
 const WHERE: Dictionary = {"self": "self", "enemy": "target", "enemies": "all enemies",
 	"ally": "every living hero", "other_allies": "your allies"}
 

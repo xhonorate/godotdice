@@ -145,16 +145,16 @@ static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 					_cut_ratio(k, Combat.cut_multiplier(k), "multiplies each seven"))],
 				c, "for every 7 you rolled"))
 			var jackpot: int = 7 if l == 5 else l + 1
-			var gold: Dictionary = _fixed("Gain", "gold", "gold", str(c),
-				"Carat %d sets the gold each 7 pays." % c, "carat", "for every 7 you rolled")
-			gold.note = "Three or more sevens multiply the gold by %d at Clarity %d (%s). The damage is unaffected." % [
+			var gold: Dictionary = _fixed("Gain", "gold", "ore", str(c),
+				"Carat %d sets the ore each 7 pays." % c, "carat", "for every 7 you rolled")
+			gold.note = "Three or more sevens multiply the ore by %d at Clarity %d (%s). The damage is unaffected." % [
 				jackpot, l, Catalog.clarity_name(l)]
 			built.append(gold)
 		"HEAVYSTRIKE":
 			built.append(_block("Deal", "damage", "damage", [
 				_part("triple", "match value", GemIcons.hint("triple"), _cut_factor(k)), flat], c, "to your target"))
 		"BLESSING":
-			built.append(_block("Gain", "gold", "gold", [
+			built.append(_block("Gain", "gold", "ore", [
 				_part("", str(Combat.BLESSING_GOLD), "A fixed %d before Carat." % Combat.BLESSING_GOLD)], c))
 			built.append(_block("Heal yourself for", "heal", "health", [
 				_cut_flat(k, k, "adds its rank straight into this heal"), flat], c))
@@ -262,15 +262,15 @@ static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 				str(k), "Cut %d (%s), plus half the matched value your triple showed. Caps at 12 stacks." % [k, cut_name], "cut",
 				"plus half the match value"))
 		"TITHE":
-			built.append(_block("Gain", "gold", "gold", [
+			built.append(_block("Gain", "gold", "ore", [
 				_cut_flat(k, k, "adds its rank straight into the take"), flat], c))
 		"MINT":
-			built.append(_block("Gain", "gold", "gold", [
+			built.append(_block("Gain", "gold", "ore", [
 				_cut_flat(k, 2 * k, "doubles into the take"), flat], c))
 			built.append(_block("Then gain", "block", "block", [
 				_cut_flat(k, k, "adds its rank straight into this block"), flat], c))
 		"WAGER":
-			built.append(_block("Gain", "gold", "gold", [
+			built.append(_block("Gain", "gold", "ore", [
 				_part("", str(Combat.BLESSING_GOLD), "A fixed %d before Carat." % Combat.BLESSING_GOLD)], c))
 			var bet: Dictionary = _block("Then deal", "damage", "damage", [
 				_part("sum", "%d − your total" % Combat.WAGER_CEILING,
@@ -301,7 +301,7 @@ static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 			var repeat: Dictionary = _block("Repeat the last gem that landed an amount at", "echo", "per cent of it", [
 				_part("", "25", "A quarter of it before your ranks are counted."),
 				_cut_flat(k, 5 * (k - 1), "adds five points of repeat a rank"), flat], c, "up to 200%")
-			repeat.note = "It repeats damage, block, healing, gold and statuses. A gem that only changed your dice is skipped over rather than repeated."
+			repeat.note = "It repeats damage, block, healing, ore and statuses. A gem that only changed your dice is skipped over rather than repeated."
 			built.append(repeat)
 		"FACET":
 			var recut: Dictionary = _fixed("Permanently add", "upgrade", "Carat to another gem",
@@ -346,7 +346,7 @@ static func _label_for(kind: String) -> String:
 		"damage": return "damage"
 		"block", "remove_block": return "block"
 		"heal": return "health"
-		"gold": return "gold"
+		"gold": return "ore"
 		"poison": return "Poison"
 		"stun": return "stun"
 	return kind

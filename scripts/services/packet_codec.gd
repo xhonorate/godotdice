@@ -2,8 +2,8 @@ class_name PacketCodec
 extends RefCounted
 
 ## All gameplay uses bounded UTF-8 JSON. No object deserialization is allowed.
-const PROTOCOL_VERSION := 1
-const BUILD_VERSION := "1.0.0"
+const PROTOCOL_VERSION := 2
+const BUILD_VERSION := "2.0.0"
 const CONTENT_VERSION := "1.0.0"
 const MAX_PACKET_BYTES := 1024 * 1024
 const MAX_COMMAND_BYTES := 16 * 1024

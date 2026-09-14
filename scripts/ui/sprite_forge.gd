@@ -673,6 +673,30 @@ static func _paint_room(kind: String) -> Image:
 			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.08), Vector2(u * 0.66, u * 0.26), Vector2(u * 0.50, u * 0.46), Vector2(u * 0.34, u * 0.26)]), Color("b98bff"))
 			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.08), Vector2(u * 0.58, u * 0.26), Vector2(u * 0.50, u * 0.34), Vector2(u * 0.42, u * 0.26)]), Color("e0d0ff"))
 			_stroke(image, Vector2(u * 0.22, u * 0.90), Vector2(u * 0.78, u * 0.90), u * 0.05, Color("3a4658"))
+		"lift":
+			# A cage on a rope under a pulley: the way home, and the only one.
+			_stroke(image, Vector2(u * 0.12, u * 0.14), Vector2(u * 0.88, u * 0.14), u * 0.06, Color("6b4c22"))
+			_ellipse(image, u * 0.50, u * 0.14, u * 0.10, u * 0.10, steel)
+			_ellipse(image, u * 0.50, u * 0.14, u * 0.04, u * 0.04, Color("3a4658"))
+			_stroke(image, Vector2(u * 0.42, u * 0.18), Vector2(u * 0.42, u * 0.36), u * 0.03, Color("d8c7a4"))
+			_stroke(image, Vector2(u * 0.58, u * 0.18), Vector2(u * 0.58, u * 0.36), u * 0.03, Color("d8c7a4"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.24, u * 0.36), Vector2(u * 0.76, u * 0.36), Vector2(u * 0.76, u * 0.88), Vector2(u * 0.24, u * 0.88)]), Color("2a3346"))
+			for bar in 4:
+				var x: float = u * (0.30 + 0.133 * float(bar))
+				_stroke(image, Vector2(x, u * 0.38), Vector2(x, u * 0.86), u * 0.035, steel)
+			_stroke(image, Vector2(u * 0.22, u * 0.37), Vector2(u * 0.78, u * 0.37), u * 0.06, gold)
+			_stroke(image, Vector2(u * 0.22, u * 0.87), Vector2(u * 0.78, u * 0.87), u * 0.06, gold)
+			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.48), Vector2(u * 0.62, u * 0.62), Vector2(u * 0.54, u * 0.62), Vector2(u * 0.54, u * 0.76), Vector2(u * 0.46, u * 0.76), Vector2(u * 0.46, u * 0.62), Vector2(u * 0.38, u * 0.62)]), Color("6fe3b0"))
+		"treasure":
+			# An open chest with a stone catching the light.
+			_poly(image, PackedVector2Array([Vector2(u * 0.14, u * 0.52), Vector2(u * 0.86, u * 0.52), Vector2(u * 0.82, u * 0.88), Vector2(u * 0.18, u * 0.88)]), Color("8a5a2e"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.18, u * 0.52), Vector2(u * 0.82, u * 0.52), Vector2(u * 0.90, u * 0.22), Vector2(u * 0.10, u * 0.22)]), Color("6b4122"))
+			_stroke(image, Vector2(u * 0.14, u * 0.54), Vector2(u * 0.86, u * 0.54), u * 0.06, gold)
+			_stroke(image, Vector2(u * 0.50, u * 0.56), Vector2(u * 0.50, u * 0.86), u * 0.06, gold.darkened(0.2))
+			_ellipse(image, u * 0.34, u * 0.50, u * 0.10, u * 0.06, gold)
+			_ellipse(image, u * 0.66, u * 0.50, u * 0.10, u * 0.06, gold)
+			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.26), Vector2(u * 0.62, u * 0.40), Vector2(u * 0.50, u * 0.54), Vector2(u * 0.38, u * 0.40)]), Color("76b6ff"))
+			_poly(image, PackedVector2Array([Vector2(u * 0.50, u * 0.26), Vector2(u * 0.56, u * 0.40), Vector2(u * 0.50, u * 0.46), Vector2(u * 0.44, u * 0.40)]), Color("d6ecff"))
 		_:
 			_ellipse(image, u * 0.50, u * 0.50, u * 0.30, u * 0.30, gold, 0.5)
 			_ellipse(image, u * 0.50, u * 0.50, u * 0.16, u * 0.16, gold)
@@ -717,6 +741,21 @@ static func _paint_prop(name: String) -> Image:
 		"bolt":
 			_poly(image, PackedVector2Array([Vector2(u * 0.60, u * 0.06), Vector2(u * 0.30, u * 0.54), Vector2(u * 0.48, u * 0.54), Vector2(u * 0.38, u * 0.94), Vector2(u * 0.72, u * 0.42), Vector2(u * 0.52, u * 0.42), Vector2(u * 0.66, u * 0.06)]), Color("ffcf7a"))
 			_poly(image, PackedVector2Array([Vector2(u * 0.58, u * 0.14), Vector2(u * 0.40, u * 0.48), Vector2(u * 0.50, u * 0.48), Vector2(u * 0.46, u * 0.72)]), Color("fff1c2"))
+		"ore":
+			# Three lumps of rock with a seam of colour running through them.
+			_ellipse(image, u * 0.34, u * 0.64, u * 0.22, u * 0.18, Color("5a5f6e"))
+			_ellipse(image, u * 0.66, u * 0.60, u * 0.20, u * 0.20, Color("6d7384"))
+			_ellipse(image, u * 0.50, u * 0.40, u * 0.20, u * 0.17, Color("7d8394"))
+			_stroke(image, Vector2(u * 0.36, u * 0.36), Vector2(u * 0.62, u * 0.46), u * 0.05, Color("63d8d0"))
+			_stroke(image, Vector2(u * 0.22, u * 0.66), Vector2(u * 0.44, u * 0.60), u * 0.04, Color("e8b661"))
+			_stroke(image, Vector2(u * 0.58, u * 0.64), Vector2(u * 0.78, u * 0.56), u * 0.04, Color("63d8d0"))
+		"loupe":
+			# A jeweller's loupe: the lens that tells a stone what it is.
+			_stroke(image, Vector2(u * 0.58, u * 0.58), Vector2(u * 0.88, u * 0.88), u * 0.12, Color("6b4c22"))
+			_ellipse(image, u * 0.40, u * 0.40, u * 0.30, u * 0.30, Color("c9963f"))
+			_ellipse(image, u * 0.40, u * 0.40, u * 0.23, u * 0.23, Color("2d5687"))
+			_ellipse(image, u * 0.40, u * 0.40, u * 0.20, u * 0.20, Color("76b6ff"), 0.55)
+			_ellipse(image, u * 0.32, u * 0.32, u * 0.07, u * 0.05, Color("ffffff"), 0.8)
 		"skull":
 			_ellipse(image, u * 0.50, u * 0.44, u * 0.30, u * 0.32, Color("e7ecf4"))
 			_poly(image, PackedVector2Array([Vector2(u * 0.34, u * 0.66), Vector2(u * 0.66, u * 0.66), Vector2(u * 0.60, u * 0.88), Vector2(u * 0.40, u * 0.88)]), Color("e7ecf4"))

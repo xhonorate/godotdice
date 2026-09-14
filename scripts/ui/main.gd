@@ -17,6 +17,11 @@ const GemView = preload("res://scripts/ui/gem_view.gd")
 const GemPanel = preload("res://scripts/ui/gem_panel.gd")
 const BattleStage = preload("res://scripts/ui/battle_stage.gd")
 const PlaceholderAudio = preload("res://scripts/ui/placeholder_audio.gd")
+const Profile = preload("res://scripts/core/profile.gd")
+const ProfileStoreScript = preload("res://scripts/services/profile_store.gd")
+const Seam = preload("res://scripts/core/seam.gd")
+const SeamMap = preload("res://scripts/ui/seam_map.gd")
+const TremorMeter = preload("res://scripts/ui/tremor_meter.gd")
 const INK := Color("0c111c")
 const PANEL := Color("161e2e")
 const PANEL_HI := Color("1f2a3d")
@@ -50,7 +55,11 @@ var controlled_id := ""
 var selected_dice: Array[String] = []
 var menu_hero := "ardor"
 var menu_name := "Player 1"
-var profile := "short_9"
+var mine_choice := ""
+var profile_store: RefCounted
+## The result this client last carried home, so re-rendering the summary never applies it twice.
+var applied_result := ""
+var last_unlocked: Array = []
 var seed_text := ""
 var player_name := "Adventurer"
 var server_address := "127.0.0.1"
@@ -124,6 +133,10 @@ func _ready() -> void:
 	dice_sound = PlaceholderAudio.tone(170, 0.16, 0.24)
 	engine = EngineScript.new()
 	engine.changed.connect(_state_changed)
+	profile_store = ProfileStoreScript.new()
+	var opened: Dictionary = profile_store.load_or_create()
+	if not opened.get("ok", false): _notify(str(opened.get("error", "Your profile could not be opened.")))
+	elif opened.has("notice"): _notify(str(opened.notice))
 	session = SessionScript.new()
 	add_child(session)
 	session.command_received.connect(_receive_command)
@@ -201,10 +214,10 @@ func _dress_backdrop() -> void:
 		match str(snapshot.get("phase", "")):
 			"planning", "resolution", "combat":
 				kind = room_kind if room_kind in ["elite", "boss"] else "battle"
-			"route", "reward": kind = "route"
+			"route", "reward", "lift": kind = "route"
 			"support": kind = room_kind
 			"mine_vote", "mine_draft": kind = "mine"
-			"summary": kind = "summary"
+			"summary", "salvage": kind = "summary"
 	backdrop.apply_theme(kind)
 
 func _exit_tree() -> void:
@@ -480,9 +493,14 @@ func _header() -> void:
 			enrage.tooltip_text = "Every enemy hit takes %d extra raw damage this turn." % (2 * (turn - 6))
 	else:
 		_label(bar, str(snapshot.get("phase", "")).to_upper().replace("_", " "), 15, _phase_color()).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var total := 18 if snapshot.get("profile") == "expedition_18" else 9
-	_label(bar, "ACT %d  ·  ROOM %02d / %02d" % [int(snapshot.get("act", 1)), int(snapshot.get("room_index", 1)), total], 10, GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_progress_track(bar)
+	var mine: Dictionary = Catalog.mine_definition(str(snapshot.get("mine_id", "")))
+	_label(bar, "%s  ·  DEPTH %d" % [str(mine.get("name", "The mine")).to_upper(), int(snapshot.get("depth", 0))], 10, GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var meter := TremorMeter.new()
+	meter.reduced_motion = bool(settings.reduced_motion)
+	meter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_child(meter)
+	meter.set_tremor(int(snapshot.get("tremor", 0)), str(Catalog.definitions("enemies").get(mine.get("boss_id", ""), {}).get("name", "The boss")))
 	# Reachable by key or by click: it is the only way in to everything the bar shed.
 	var escape := _button(bar, "Menu  [%s]" % _binding_name("rd_back"), _show_menu)
 	escape.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -491,9 +509,9 @@ func _header() -> void:
 func _phase_color() -> Color:
 	match str(snapshot.get("phase", "")):
 		"planning", "resolution", "combat": return RED
-		"route": return BLUE
+		"route", "lift": return BLUE
 		"reward": return GOLD
-		"summary": return VIOLET
+		"summary", "salvage": return VIOLET
 		"mine_vote", "mine_draft": return GREEN
 	return AMBER
 
@@ -560,28 +578,36 @@ func _menu() -> void:
 	seat_row.add_child(names)
 	var choices := OptionButton.new()
 	choices.custom_minimum_size.x = 150
-	for key in HERO_KEYS:
+	var unlocked_heroes: Array = HERO_KEYS.filter(func(key: String) -> bool: return bool(_profile().get("heroes", {}).get(key.to_upper(), {}).get("unlocked", true)))
+	for key in unlocked_heroes:
 		choices.add_item(key.capitalize())
-	choices.selected = HERO_KEYS.find(menu_hero)
-	choices.item_selected.connect(func(index: int): menu_hero = HERO_KEYS[index]; _queue_render())
+	choices.selected = unlocked_heroes.find(menu_hero)
+	choices.item_selected.connect(func(index: int): menu_hero = unlocked_heroes[index]; _queue_render())
 	seat_row.add_child(choices)
 	var hero: Dictionary = Catalog.HEROES.get(menu_hero, Catalog.HEROES.get(menu_hero.to_upper(), {}))
 	_label(setup, "%s  ·  %s HP  ·  %s" % [str(hero.get("trait_name", "")), hero.get("max_hp", 100), _join_values(hero.get("dice", []))], 13, GREEN, true)
 	_label(setup, str(hero.get("description", "")), 12, MUTED, true)
-	var starter_names: Array = []
-	for starter in hero.get("starting_gems", []): starter_names.append(str(Catalog.SKILLS.get(starter[0], {}).get("name", starter[0])))
-	_label(setup, "Starting gems: " + " · ".join(starter_names), 12, GOLD, true)
-	_label(setup, "You take one hero into the quarry. A larger party gathers online — host or join below.", 12, MUTED, true)
+	var loadout_names: Array = []
+	for key in _profile().get("heroes", {}).get(menu_hero.to_upper(), {}).get("loadout", []):
+		var owned: Dictionary = _profile().get("collection", {}).get(key, {})
+		loadout_names.append("%s C%d" % [str(Catalog.SKILLS.get(key, {}).get("name", key)), int(owned.get("carat", 1))])
+	_label(setup, "Loadout: " + " · ".join(loadout_names), 12, GOLD, true)
+	_label(setup, "%d gold  ·  %d of %d gems owned  ·  %d seen" % [int(_profile().get("gold", 0)), _profile().get("collection", {}).size(), Catalog.SKILLS.size(), _profile().get("seen_gems", []).size()], 12, GREEN, true)
 	var expedition := _panel(row)
 	expedition.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(expedition, "02   CHOOSE YOUR JOURNEY", 12, GOLD)
-	var prof := OptionButton.new()
-	prof.add_item("The Quarry · 9 rooms")
-	prof.add_item("The Expedition · 18 rooms")
-	prof.selected = 1 if profile == "expedition_18" else 0
-	prof.item_selected.connect(func(index: int): profile = "short_9" if index == 0 else "expedition_18"; _queue_render())
-	expedition.add_child(prof)
-	_label(expedition, "One act. An elite at room 4, a camp at room 8, and the Slime King at room 9." if profile == "short_9" else "Three acts. The Quarry, Mirror Sanctum, and Rift. Each act ends with a distinct boss.", 14, MUTED, true)
+	_label(expedition, "02   CHOOSE A MINE", 12, GOLD)
+	var mines: Array = Profile.unlocked_mines(_profile()) if not _profile().is_empty() else Catalog.starter_mines()
+	if not mine_choice in mines: mine_choice = mines[0] if not mines.is_empty() else ""
+	var mine_list := OptionButton.new()
+	for mine_id in mines:
+		var mine: Dictionary = Catalog.mine_definition(mine_id)
+		mine_list.add_item("%s  ·  %s" % [str(mine.get("name", mine_id)), "◆".repeat(int(mine.get("difficulty", 1)))])
+	mine_list.selected = mines.find(mine_choice)
+	mine_list.item_selected.connect(func(index: int): mine_choice = mines[index]; _queue_render())
+	expedition.add_child(mine_list)
+	var chosen_mine: Dictionary = Catalog.mine_definition(mine_choice)
+	_label(expedition, str(chosen_mine.get("description", "")), 14, MUTED, true)
+	_label(expedition, "Boss: %s. Dig as deep as you dare and ride a lift home before the tremors wake it." % str(Catalog.definitions("enemies").get(chosen_mine.get("boss_id", ""), {}).get("name", "?")), 13, AMBER, true)
 	_label(expedition, "Optional numeric seed", 12, GOLD)
 	var seed_edit := LineEdit.new()
 	seed_edit.text = seed_text
@@ -659,8 +685,8 @@ func _begin_local() -> void:
 	session.start_offline(menu_name, menu_hero)
 	offline_hotseat = true
 	controlled_id = str(session.local_player_id)
-	var party: Array = [ {"id": controlled_id, "hero_id": menu_hero, "name": menu_name}]
-	var result: Dictionary = engine.new_run({"heroes": party, "profile": profile, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": controlled_id, "session_id": session.session_id})
+	var party: Array = [ {"id": controlled_id, "hero_id": menu_hero, "name": menu_name, "loadout": _loadout(menu_hero)}]
+	var result: Dictionary = engine.new_run({"heroes": party, "mine_id": mine_choice, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": controlled_id, "session_id": session.session_id})
 	if result.has("error") and not result.get("ok", true):
 		_notify(str(result.error))
 	else:
@@ -679,9 +705,19 @@ func _begin_network() -> void:
 	for member in members:
 		party.append({"id": member.get("player_id", member.get("id", "")), "name": member.get("name", "Hero"), "hero_id": member.get("hero_id", "ardor")})
 	controlled_id = str(session.local_player_id)
-	engine.new_run({"heroes": party, "profile": profile, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": str(session.host_player_id), "session_id": session.session_id})
+	engine.new_run({"heroes": party, "mine_id": mine_choice, "seed": seed_text if not seed_text.is_empty() else str(Time.get_unix_time_from_system()), "host_id": str(session.host_player_id), "session_id": session.session_id})
 	_state_changed(engine.state)
 	session.broadcast_snapshot(snapshot)
+
+func _profile() -> Dictionary:
+	return profile_store.profile if profile_store != null else {}
+
+func _loadout(hero_key: String) -> Array:
+	## The profile's loadout for a hero, as the plain records a run is started with.
+	var gems: Array = []
+	for gem in Profile.loadout_gems(_profile(), hero_key.to_upper(), "menu"):
+		gems.append(Profile.gem_record(gem))
+	return gems
 
 func _resume() -> void:
 	var loaded: Dictionary = engine.save_store.load_checkpoint()
@@ -921,6 +957,8 @@ func _run_screen() -> void:
 		"mine_vote": _mine_vote(center)
 		"mine_draft": _mine_draft(center)
 		"reward": _rewards(center)
+		"lift": _lift(center)
+		"salvage": _salvage(center)
 		"summary": _summary(center)
 		_: _label(center, phase.capitalize(), 30, GOLD); _ready_button(center)
 
@@ -951,7 +989,11 @@ func _party_card(parent: Node, hero: Dictionary) -> void:
 	card.add_child(chips)
 	if int(hero.get("block", 0)) > 0:
 		UiKit.chip(chips, "BLOCK %d" % int(hero.get("block", 0)), BLUE)
-	UiKit.chip(chips, "%d GOLD" % int(hero.get("gold", 0)), GOLD)
+	UiKit.chip(chips, "%d ORE" % int(hero.get("ore", 0)), GOLD)
+	if not hero.get("haul", []).is_empty():
+		UiKit.chip(chips, "%d STONE%s" % [hero.haul.size(), "" if hero.haul.size() == 1 else "S"], VIOLET)
+	if int(hero.get("loupes", 0)) > 0:
+		UiKit.chip(chips, "%d LOUPE%s" % [int(hero.loupes), "" if int(hero.loupes) == 1 else "S"], BLUE)
 	UiKit.chip(chips, "DOWNED" if downed else ("READY" if is_ready else "PLANNING"), RED if downed else (GREEN if is_ready else MUTED))
 	var statuses := _status_text(hero)
 	if not statuses.is_empty():
@@ -975,18 +1017,6 @@ func _party_card(parent: Node, hero: Dictionary) -> void:
 		_label(card, "DISCONNECTED · %ds grace remaining" % _grace_remaining(hero), 11, RED, true)
 		if session.is_host:
 			_button(card, "Recovery options", func(): _show_fallback(str(hero.id)))
-
-func _progress_track(parent: Node) -> void:
-	var total := 18 if snapshot.get("profile") == "expedition_18" else 9
-	var track := UiKit.Track.new()
-	track.total = total
-	track.here = int(snapshot.get("room_index", 1))
-	for i in range(1, total + 1):
-		if (i % 6 == 0) if total == 18 else (i == 9):
-			track.bosses.append(i)
-	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	track.tooltip_text = "Room %d of %d. Diamonds mark boss rooms." % [track.here, total]
-	parent.add_child(track)
 
 func _battle(parent: Node) -> void:
 	die_buttons.clear()
@@ -1100,10 +1130,9 @@ func _hand_deck(parent: Node, hero: Dictionary) -> void:
 		_die_button(dice_row, hero.dice[i], i)
 	var right := _vbox(row, 6)
 	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var allowance := 8 + 4 * (int(snapshot.get("act", 1)) - 1)
-	var purse := maxi(0, allowance - int(hero.get("combat_gold", 0)))
-	var gold_row := _hbox(right, 6)
-	UiKit.chip(gold_row, "%d GOLD" % purse, GOLD).tooltip_text = "Combat gold allowance: %d of %d remaining. Room rewards are separate." % [purse, allowance]
+	var purse := Combat.ore_allowance(snapshot, hero)
+	var ore_row := _hbox(right, 6)
+	UiKit.chip(ore_row, "%d ORE" % purse, GOLD).tooltip_text = "Ore your gems may still mint this battle: %d. Room rewards are separate." % purse
 	_ready_button(_hbox(right, 6))
 
 func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge: float) -> Control:
@@ -1182,59 +1211,127 @@ func _can_ping() -> bool:
 	return _party_choice() and not offline_hotseat
 
 func _route(parent: Node) -> void:
-	_label(parent, "Choose the next room.", 30, GOLD)
-	_label(parent, "The party votes together. Ties follow the host’s vote. Change equipment before committing." if _party_choice() else "Change your equipment first if you mean to. The room you pick is the room you enter.", 14, MUTED, true)
+	var head := _hbox(parent, 10)
+	_label(head, "Choose a tunnel.", 30, GOLD)
+	_spacer(head)
+	UiKit.chip(head, "DEPTH %d" % int(snapshot.get("depth", 0)), GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	UiKit.chip(head, "LANTERN %d LAYER%s" % [int(snapshot.get("sight", Seam.SIGHT)), "" if int(snapshot.get("sight", Seam.SIGHT)) == 1 else "S"], BLUE).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_label(parent, ("The party votes together; ties follow the host. " if _party_choice() else "") + "Your lantern shows the next %d layers. Beyond that you see only shapes in the dark — and the beacons of lifts, the only way home." % int(snapshot.get("sight", Seam.SIGHT)), 14, MUTED, true)
+	var map := SeamMap.new()
+	map.reduced_motion = bool(settings.reduced_motion)
+	map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(map)
+	map.configure(snapshot, controlled_id, _vote_tunnel)
 	var offers: Array = snapshot.get("offers", [])
 	var voted: Dictionary = snapshot.get("votes", {})
 	var mine := str(voted.get(controlled_id, ""))
+	var list := HFlowContainer.new()
+	list.add_theme_constant_override("h_separation", 10)
+	list.add_theme_constant_override("v_separation", 10)
+	parent.add_child(list)
 	for index in range(offers.size()):
 		var offer: Dictionary = offers[index]
 		var kind := str(offer.get("kind", ""))
-		var accent := _room_color(kind)
+		var accent := RED if offer.get("wakes_boss", false) else _room_color(kind)
 		var chosen := mine == str(offer.id)
-		var panel := _panel(parent, PANEL_HI if chosen else PANEL, accent if chosen else Color(accent, 0.55))
-		var row := _hbox(panel, 14)
-		var badge := PanelContainer.new()
-		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		badge.add_theme_stylebox_override("panel", UiKit.panel_box(Color(accent, 0.22), Color(accent, 0.06), Color(accent, 0.5), 12, 7, 1.4, 0.2))
-		row.add_child(badge)
-		UiKit.icon(badge, Forge.room(kind), 60)
-		var text := _vbox(row, 5)
+		var card := _panel(list, PANEL_HI if chosen else PANEL, accent if chosen else Color(accent, 0.55), 10)
+		card.custom_minimum_size.x = 250
+		var row := _hbox(card, 10)
+		UiKit.icon(row, Forge.room(kind), 40).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var text := _vbox(row, 2)
 		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var heading := _hbox(text, 8)
-		_label(heading, str(offer.get("name", "Room")), 22, PAPER)
-		UiKit.chip(heading, kind.to_upper(), accent).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		# The number is the shortcut: the same key votes for this room.
-		if index < 9: UiKit.chip(heading, "KEY %d" % (index + 1), MUTED).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_label(text, str(offer.get("description", "")), 14, MUTED, true)
+		_label(text, str(offer.get("name", "Room")), 17, PAPER)
+		if index < 9: _label(text, "KEY %d" % (index + 1), 10, MUTED)
+		if offer.get("wakes_boss", false):
+			_label(card, "The tremors will wake the boss here.", 12, RED, true)
 		var note: Dictionary = _route_note(kind)
-		if not str(note.get("text", "")).is_empty(): _label(text, str(note.text), 13, note.get("tone", BLUE), true)
-		var caption := ("Voted  ✓" if chosen else "Vote to enter  →") if _party_choice() else "Enter  →"
-		var vote := _button(row, caption, func(): _command("VoteRoom", {"offer_id": offer.id}), not chosen)
+		if not str(note.get("text", "")).is_empty(): _label(card, str(note.text), 12, note.get("tone", BLUE), true)
+		var caption := ("Voted  ✓" if chosen else "Vote  →") if _party_choice() else "Enter  →"
+		var vote := _button(card, caption, func(): _vote_tunnel(str(offer.id)), not chosen)
 		vote.disabled = not mine.is_empty()
-		vote.tooltip_text = "You have already voted this round." if not mine.is_empty() else "Press %d, or click here." % (index + 1)
-		if _can_ping(): _button(row, "Ping", func(): _ping("room", str(offer.id), str(offer.get("name", "Room"))))
+		vote.tooltip_text = str(offer.get("description", ""))
+		if _can_ping(): _button(card, "Ping", func(): _ping("room", str(offer.id), str(offer.get("name", "Room"))))
 		if _party_choice():
 			var votes: Array = []
 			for hero in snapshot.get("heroes", []):
 				if str(voted.get(hero.get("id", ""), "")) == str(offer.id): votes.append(str(hero.get("player_name", hero.get("name", "Hero"))))
-			if not votes.is_empty(): _label(panel, "Votes: " + ", ".join(votes), 12, GREEN)
-	# With a party, the screen says what it is waiting for rather than simply sitting there.
+			if not votes.is_empty(): _label(card, "Votes: " + ", ".join(votes), 12, GREEN)
 	var heroes: Array = snapshot.get("heroes", [])
 	if heroes.size() > 1:
 		var pending: Array = []
 		for hero in heroes:
 			if not voted.has(str(hero.get("id", ""))): pending.append(str(hero.get("player_name", hero.get("name", "Hero"))))
 		_label(parent, "All votes are in." if pending.is_empty() else "Waiting on %d of %d: %s" % [pending.size(), heroes.size(), ", ".join(pending)], 13, GREEN if pending.is_empty() else AMBER, true)
-	_label(parent, "Milestones: elite 4 · camp 8 · boss 9" if snapshot.get("profile") == "short_9" else "Each act: battle · route · elite · route · camp · boss", 13, BLUE)
 	_button(parent, "Review equipment", _show_inventory)
+
+func _vote_tunnel(offer_id: String) -> void:
+	if snapshot.get("votes", {}).has(controlled_id):
+		_notify("You have already voted on this tunnel.")
+		return
+	_command("VoteRoom", {"offer_id": offer_id})
+
+func _lift(parent: Node) -> void:
+	_room_banner(parent, "lift", "The Lift")
+	_label(parent, "The cage creaks on its rope. Ride up and everything you carry comes home. Keep digging and the next lift may be a long way down.", 16, MUTED, true)
+	var hero: Dictionary = _hero()
+	var found := 0
+	for gem in hero.get("gems", []):
+		if gem.get("found", false): found += 1
+	_label(parent, "You carry %d unappraised stone%s and %d appraised find%s." % [hero.get("haul", []).size(), "" if hero.get("haul", []).size() == 1 else "s", found, "" if found == 1 else "s"], 15, GOLD, true)
+	var voted := str(snapshot.get("votes", {}).get(controlled_id, ""))
+	var row := _hbox(parent, 12)
+	var ride := _button(row, "Ride up  ·  end the expedition", func(): _command("VoteLift", {"choice": "ride"}), voted.is_empty())
+	ride.disabled = not voted.is_empty()
+	var dig := _button(row, "Keep digging", func(): _command("VoteLift", {"choice": "dig"}))
+	dig.disabled = not voted.is_empty()
+	if _party_choice():
+		for other in snapshot.get("heroes", []):
+			var vote := str(snapshot.get("votes", {}).get(str(other.get("id", "")), ""))
+			_label(parent, "%s · %s" % [str(other.get("player_name", other.get("name", "Hero"))), {"ride": "rides up", "dig": "digs on"}.get(vote, "deciding")], 13, GREEN if not vote.is_empty() else AMBER)
+	_button(parent, "Review equipment", _show_inventory)
+
+func _salvage(parent: Node) -> void:
+	_label(parent, "The party has fallen.", 30, RED)
+	_label(parent, "Each stone you carried is rolled on a die by its rarity — a d6 for Common up to a d20 for Legendary. Only the top face drags it back to the surface. Your loadout is never at risk.", 15, MUTED, true)
+	var entries: Array = snapshot.get("salvage", {}).get(controlled_id, [])
+	if entries.is_empty():
+		_label(parent, "You carried nothing to salvage.", 16, MUTED, true)
+	var hero: Dictionary = _hero()
+	for entry in entries:
+		var gem: Dictionary = {}
+		for item in hero.get("haul", []) + hero.get("gems", []):
+			if str(item.get("id", "")) == str(entry.get("gem_id", "")): gem = item
+		var panel := _panel(parent, PANEL, GOLD if entry.get("revealed", false) and entry.get("kept", false) else LINE, 12)
+		var row := _hbox(panel, 14)
+		var holder := Control.new()
+		holder.custom_minimum_size = Vector2(76, 76)
+		row.add_child(holder)
+		var sides := int(entry.get("sides", 6))
+		var die: Dictionary = Catalog.die("D%d" % sides, "salvage-" + str(entry.get("gem_id", "")))
+		var view := _die_view("preview:salvage:" + str(entry.get("gem_id", "")))
+		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		holder.add_child(view)
+		var shown: Dictionary = {}
+		if entry.get("revealed", false):
+			shown = {"die_id": die.id, "face_index": int(entry.roll) - 1, "face_id": "%s-f%d" % [die.id, int(entry.roll) - 1], "value": int(entry.roll), "roll_count": 1}
+		view.configure(die, shown, false, entry.get("revealed", false) and entry.get("kept", false), GOLD)
+		var info := _vbox(row, 4)
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if not gem.is_empty(): _gem_details(info, gem)
+		if entry.get("revealed", false):
+			_label(info, ("Rolled %d of %d — it comes home." if entry.get("kept", false) else "Rolled %d of %d — the stone shatters.") % [int(entry.roll), sides], 16, GREEN if entry.get("kept", false) else RED)
+		else:
+			_button(info, "Roll the d%d" % sides, func(): _play_sound(dice_sound); _command("RevealSalvage", {"gem_id": str(entry.gem_id)}), true).disabled = hero.get("ready", false)
+	if entries.any(func(entry: Dictionary) -> bool: return not entry.get("revealed", false)):
+		_button(parent, "Roll them all", func(): _play_sound(dice_sound); _command("RevealSalvage", {"gem_id": ""}))
+	_ready_button(parent)
 
 func _route_note(kind: String) -> Dictionary:
 	## What this room is worth to the hero reading it, in the currencies rooms actually
 	## charge. Deliberately about you, not the party: the description above covers that.
 	## The tone is carried with the text so a plain fact never reads as a warning.
 	var hero: Dictionary = _hero()
-	var gold := int(hero.get("gold", 0))
+	var gold := int(hero.get("ore", 0))
 	var hp := int(hero.get("hp", 0))
 	var top := int(hero.get("max_hp", 1))
 	match kind:
@@ -1246,24 +1343,26 @@ func _route_note(kind: String) -> Dictionary:
 			if fallen > 0: return _note("+%d HP for you, and %d fallen hero%s returns to their feet." % [gain, fallen, "" if fallen == 1 else "es"], GREEN)
 			if gain <= 0: return _note("You are already at full HP.", BLUE)
 			return _note("+%d HP for you." % gain, GREEN)
-		"shop", "lapidary": return _note("You carry %d gold." % gold, BLUE if gold > 0 else AMBER)
+		"shop", "lapidary": return _note("You carry %d ore." % gold, BLUE if gold > 0 else AMBER)
+		"lift": return _note("A way home.", GREEN)
+		"treasure": return _note("Unguarded, as far as anyone can tell.", GREEN)
 		"workshop":
 			for relic in hero.get("relics", []):
 				if relic.get("key") == "TINKERS_BELT" and relic.get("equipped", false):
-					return _note("Tinker’s Belt may cover this act’s service.", GREEN)
-			return _note("You carry %d gold; a service costs 5." % gold, BLUE if gold >= 5 else AMBER)
+					return _note("Tinker’s Belt may cover this service.", GREEN)
+			return _note("You carry %d ore; a service costs 5." % gold, BLUE if gold >= 5 else AMBER)
 		"wager":
 			var tiers: Array = []
 			for amount in EngineScript.WAGER_STAKES:
 				if gold >= int(amount): tiers.append(str(amount))
-			if tiers.is_empty(): return _note("You carry %d gold: no stake is within reach." % gold, AMBER)
-			return _note("You can cover stakes of %s gold." % ", ".join(tiers), BLUE)
+			if tiers.is_empty(): return _note("You carry %d ore: no stake is within reach." % gold, AMBER)
+			return _note("You can cover stakes of %s ore." % ", ".join(tiers), BLUE)
 		"crucible":
 			var spare := 0
 			for gem in hero.get("gems", []):
-				if not gem.get("equipped", false): spare += 1
-			return _note("%d HP and %d reserve gem%s to spend." % [hp, spare, "" if spare == 1 else "s"], BLUE)
-		"mine": return _note("Mining is free; it pays gold and gems.", GREEN)
+				if not gem.get("equipped", false) and gem.get("found", false): spare += 1
+			return _note("%d HP and %d spare found gem%s to spend." % [hp, spare, "" if spare == 1 else "s"], BLUE)
+		"mine": return _note("Free, but noisy: ore and unappraised stones.", GREEN)
 	return _note("", MUTED)
 
 func _note(text: String, tone: Color) -> Dictionary:
@@ -1291,7 +1390,17 @@ func _support(parent: Node) -> void:
 		"mine": _mine_draft(parent)
 		"wager": _wager(parent)
 		"crucible": _crucible(parent)
+		"treasure": _treasure(parent)
 	_ready_button(parent)
+
+func _treasure(parent: Node) -> void:
+	var cache: Dictionary = snapshot.get("room", {}).get("treasure", {}).get(controlled_id, {})
+	_label(parent, "Nobody has touched this in years. It is yours: %d ore, and a stone already known for what it is." % int(cache.get("ore", 0)), 16, MUTED, true)
+	for gem in cache.get("gems", []):
+		var panel := _panel(parent)
+		_gem_details(panel, gem)
+	_label(parent, "Appraised finds go straight into your gem bag and can be equipped now. They are still at risk if the party falls.", 13, GOLD, true)
+	_button(parent, "Manage equipment", _show_inventory)
 
 func _room_banner(parent: Node, kind: String, name: String) -> void:
 	## Every service room opens the same way: what this place is, and what you are carrying
@@ -1305,7 +1414,7 @@ func _room_banner(parent: Node, kind: String, name: String) -> void:
 	_label(text, name, 30, GOLD)
 	var hero: Dictionary = _hero()
 	var purse := _hbox(text, 6)
-	UiKit.chip(purse, "%d GOLD" % int(hero.get("gold", 0)), GOLD)
+	UiKit.chip(purse, "%d ORE" % int(hero.get("ore", 0)), GOLD)
 	UiKit.chip(purse, "%d / %d HP" % [int(hero.get("hp", 0)), int(hero.get("max_hp", 1))], GREEN if int(hero.get("hp", 0)) * 2 > int(hero.get("max_hp", 1)) else RED)
 	if kind in ["workshop", "lapidary", "event", "wager", "crucible"]:
 		var used: bool = snapshot.get("room", {}).get("services", {}).get(controlled_id, false)
@@ -1319,13 +1428,13 @@ func _wager(parent: Node) -> void:
 	var stake := int(seat.get("stake", 0))
 	var hand: Array = seat.get("hand", [])
 	var settled: bool = seat.get("settled", false)
-	_label(parent, "Stake gold on the house’s five dice. One reroll, then the table pays the pattern you show.", 15, MUTED, true)
+	_label(parent, "Stake ore on the house’s five dice. One reroll, then the table pays the pattern you show.", 15, MUTED, true)
 	if settled:
 		var won := int(seat.get("payout", 0))
 		var entry: Dictionary = EngineScript.wager_entry(str(seat.get("pattern", "nothing")))
 		var box := _panel(parent, PANEL_HI, GOLD if won > stake else LINE)
 		_label(box, str(entry.get("name", "No pattern")), 26, GOLD if won > stake else MUTED)
-		_label(box, "Staked %d  ·  paid %d  ·  %s %d gold" % [stake, won, "up" if won > stake else "down", absi(won - stake)], 17, GREEN if won > stake else RED)
+		_label(box, "Staked %d  ·  paid %d  ·  %s %d ore" % [stake, won, "up" if won > stake else "down", absi(won - stake)], 17, GREEN if won > stake else RED)
 		_wager_hand(box, seat.get("dice", []), hand, false)
 		_label(parent, "The table takes one hand per visit. Mark Done when your equipment is ready.", 14, MUTED, true)
 		_wager_table(parent, str(seat.get("pattern", "")))
@@ -1335,10 +1444,10 @@ func _wager(parent: Node) -> void:
 		var row := _hbox(parent, 10)
 		for amount in EngineScript.WAGER_STAKES:
 			var value := int(amount)
-			var b := _button(row, "Stake %d gold" % value, func(): selected_dice.clear(); _command("PlaceWager", {"stake": value}), true)
-			var short := value - int(_hero().get("gold", 0))
+			var b := _button(row, "Stake %d ore" % value, func(): selected_dice.clear(); _command("PlaceWager", {"stake": value}), true)
+			var short := value - int(_hero().get("ore", 0))
 			b.disabled = short > 0 or _hero().get("ready", false)
-			b.tooltip_text = "You need %d more gold." % short if short > 0 else "A %d gold stake pays up to %d on five of a kind." % [value, value * int(EngineScript.WAGER_TABLE[0].multiplier)]
+			b.tooltip_text = "You need %d more ore." % short if short > 0 else "A %d ore stake pays up to %d on five of a kind." % [value, value * int(EngineScript.WAGER_TABLE[0].multiplier)]
 		_label(parent, "The house deals five matched %s, so the table is the same wager whatever your own dice have become." % EngineScript.WAGER_DIE, 13, BLUE, true)
 		_wager_table(parent, "")
 		_button(parent, "Walk past the tables", func(): _command("SetReady", {"ready": true}))
@@ -1348,7 +1457,7 @@ func _wager(parent: Node) -> void:
 	var pattern := str(EngineScript.wager_pattern(values))
 	var showing: Dictionary = EngineScript.wager_entry(pattern)
 	var payout := stake * int(showing.get("multiplier", 0))
-	_label(parent, "Staked %d gold.  Showing %s  ·  %d gold." % [stake, str(showing.get("name", "")).to_lower(), payout], 20, GOLD if payout > stake else MUTED)
+	_label(parent, "Staked %d ore.  Showing %s  ·  %d ore." % [stake, str(showing.get("name", "")).to_lower(), payout], 20, GOLD if payout > stake else MUTED)
 	_wager_hand(parent, seat.get("dice", []), hand, not seat.get("rerolled", false))
 	var actions := _hbox(parent, 10)
 	if not seat.get("rerolled", false):
@@ -1360,7 +1469,7 @@ func _wager(parent: Node) -> void:
 		reroll.tooltip_text = "Click a die to mark it for the single reroll this stake allows."
 	else:
 		_label(actions, "Your one reroll is spent.", 14, MUTED)
-	_button(actions, "Settle  ·  take %d gold" % payout, func(): selected_dice.clear(); _command("SettleWager", {}), true).disabled = _hero().get("ready", false)
+	_button(actions, "Settle  ·  take %d ore" % payout, func(): selected_dice.clear(); _command("SettleWager", {}), true).disabled = _hero().get("ready", false)
 	_wager_table(parent, pattern)
 
 func _wager_hand(parent: Node, dice: Array, hand: Array, selectable: bool) -> void:
@@ -1426,11 +1535,11 @@ func _crucible(parent: Node) -> void:
 		_label(parent, "The fire is spent. Mark Done when your equipment is ready.", 16, GREEN, true)
 		_button(parent, "Manage equipment", _show_inventory)
 		return
-	_label(parent, "Temper pays in HP. Fuse pays in a reserve gem, and a richer gem feeds more.", 14, GOLD, true)
+	_label(parent, "Temper pays in HP. Fuse pays in an unequipped gem you found down here, and a richer gem feeds more.", 14, GOLD, true)
 	var hero: Dictionary = _hero()
 	var spare := 0
 	for gem in hero.get("gems", []):
-		if not gem.get("equipped", false): spare += 1
+		if not gem.get("equipped", false) and gem.get("found", false): spare += 1
 	for gem in hero.get("gems", []):
 		var carat := int(gem.get("carat", 1))
 		var panel := _panel(parent)
@@ -1444,24 +1553,24 @@ func _crucible(parent: Node) -> void:
 		var temper := _button(row, "Temper  ·  %d HP" % cost, func(): _crucible_preview(gem, "temper", {}))
 		temper.disabled = int(hero.get("hp", 0)) <= cost or hero.get("ready", false)
 		temper.tooltip_text = "Costs %d HP and rises with the gem's Carat. You must survive it." % cost
-		var usable := spare - (1 if not gem.get("equipped", false) else 0)
-		var fuse := _button(row, "Fuse a reserve gem…", func(): _crucible_fuel(gem))
+		var usable := spare - (1 if not gem.get("equipped", false) and gem.get("found", false) else 0)
+		var fuse := _button(row, "Fuse a found gem…", func(): _crucible_fuel(gem))
 		fuse.disabled = usable <= 0 or hero.get("ready", false)
-		if usable <= 0: fuse.tooltip_text = "You hold no other unequipped gem to consume."
+		if usable <= 0: fuse.tooltip_text = "You hold no other unequipped found gem to consume. Loadout gems go home regardless, so they cannot feed the fire."
 
 func _crucible_fuel(target: Dictionary) -> void:
 	var box := _modal("Feed the fire for " + _gem_name(target))
 	_label(box, "The consumed gem is destroyed. It gives %d Carat, plus one for every %d Carat of its own." % [int(EngineScript.CRUCIBLE_CARAT_GAIN), int(EngineScript.CRUCIBLE_FUSE_DIVISOR)], 14, MUTED, true)
 	var any := false
 	for gem in _hero().get("gems", []):
-		if gem.get("equipped", false) or str(gem.id) == str(target.id): continue
+		if gem.get("equipped", false) or not gem.get("found", false) or str(gem.id) == str(target.id): continue
 		any = true
 		var gain: int = int(EngineScript.CRUCIBLE_CARAT_GAIN) + int(floor(float(int(gem.get("carat", 1))) / float(int(EngineScript.CRUCIBLE_FUSE_DIVISOR))))
 		var panel := _panel(box)
 		_gem_details(panel, gem)
 		_button(panel, "Consume this  ·  +%d Carat" % gain, func(): _close_overlay(); _crucible_preview(target, "fuse", gem))
 	if not any:
-		_label(box, "Every other gem you own is equipped. Unequip one first.", 15, RED, true)
+		_label(box, "You hold no unequipped gem found on this expedition.", 15, RED, true)
 
 func _crucible_preview(target: Dictionary, method: String, fuel: Dictionary) -> void:
 	var carat := int(target.get("carat", 1))
@@ -1489,17 +1598,29 @@ func _crucible_preview(target: Dictionary, method: String, fuel: Dictionary) -> 
 		_button(box, "Fuse  ·  destroy " + _gem_name(fuel), func(): _close_overlay(); _command("TemperGem", {"gem_id": target.id, "method": "fuse", "fuel_id": fuel.id}), true)
 
 func _shop(parent: Node) -> void:
-	_label(parent, "Personal stock • One purchase per offer • Sell reserve gear from inventory", 14, MUTED, true)
+	_label(parent, "Personal stock • Paid in ore • Sell found gems and reserve dice from your equipment", 14, MUTED, true)
 	var stock: Dictionary = snapshot.get("shop", {}).get(controlled_id, {})
+	var loupe: Dictionary = stock.get("loupe", {})
+	if not loupe.is_empty():
+		var loupe_panel := _panel(parent)
+		var loupe_row := _hbox(loupe_panel, 12)
+		UiKit.icon(loupe_row, Forge.prop("loupe"), 48).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var loupe_text := _vbox(loupe_row, 3)
+		loupe_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_label(loupe_text, "A jeweller’s loupe", 18, BLUE)
+		_label(loupe_text, "Appraise one stone from your haul, anywhere outside a fight. An appraised find can be equipped.", 13, MUTED, true)
+		var loupe_short := int(loupe.get("price", 0)) - int(_hero().get("ore", 0))
+		var buy_loupe := _button(loupe_row, "Sold" if loupe.get("claimed", false) else ("Need %d more ore" % loupe_short if loupe_short > 0 else "Buy  ·  %d ore" % int(loupe.get("price", 0))), func(): _command("BuyLoupe", {}), true)
+		buy_loupe.disabled = loupe.get("claimed", false) or _hero().get("ready", false) or loupe_short > 0
 	for offer in stock.get("gems", []):
 		var gem: Dictionary = offer.get("gem", {})
 		var panel := _panel(parent)
 		var row := _hbox(panel)
 		_gem_details(row, gem)
-		var short := int(offer.get("price", 0)) - int(_hero().get("gold", 0))
-		var buy := _button(row, "Sold" if offer.get("claimed", false) else ("Need %d more gold" % short if short > 0 else "Buy  ·  %d gold" % int(offer.get("price", 0))), func(): _command("BuyGem", {"offer_id": offer.id}), true)
+		var short := int(offer.get("price", 0)) - int(_hero().get("ore", 0))
+		var buy := _button(row, "Sold" if offer.get("claimed", false) else ("Need %d more ore" % short if short > 0 else "Buy  ·  %d ore" % int(offer.get("price", 0))), func(): _command("BuyGem", {"offer_id": offer.id}), true)
 		buy.disabled = offer.get("claimed", false) or _hero().get("ready", false) or short > 0
-		if short > 0: buy.tooltip_text = "This gem costs %d gold and you carry %d. Sell a reserve item from your inventory to close the gap." % [int(offer.get("price", 0)), int(_hero().get("gold", 0))]
+		if short > 0: buy.tooltip_text = "This gem costs %d ore and you carry %d. Sell a found gem from your equipment to close the gap." % [int(offer.get("price", 0)), int(_hero().get("ore", 0))]
 	for offer in stock.get("dice", []):
 		var die: Dictionary = offer.get("die", {})
 		var panel := _panel(parent)
@@ -1509,17 +1630,17 @@ func _shop(parent: Node) -> void:
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_label(info, _die_name(die), 18, BLUE)
 		_label(info, "Faces: " + _faces_text(die), 13, MUTED, true)
-		var die_short := int(offer.get("price", 0)) - int(_hero().get("gold", 0))
+		var die_short := int(offer.get("price", 0)) - int(_hero().get("ore", 0))
 		var full: bool = _hero().get("reserve_dice", []).size() >= 5
-		var caption := "Sold" if offer.get("claimed", false) else ("Reserve full" if full else ("Need %d more gold" % die_short if die_short > 0 else "Buy die  ·  %d gold" % int(offer.get("price", 0))))
+		var caption := "Sold" if offer.get("claimed", false) else ("Reserve full" if full else ("Need %d more ore" % die_short if die_short > 0 else "Buy die  ·  %d ore" % int(offer.get("price", 0))))
 		var die_buy := _button(row, caption, func(): _command("BuyDie", {"offer_id": offer.id}), true)
 		die_buy.disabled = offer.get("claimed", false) or _hero().get("ready", false) or die_short > 0 or full
 		if full: die_buy.tooltip_text = "Your five reserve die slots are full. Sell one from your inventory first."
-		elif die_short > 0: die_buy.tooltip_text = "This die costs %d gold and you carry %d." % [int(offer.get("price", 0)), int(_hero().get("gold", 0))]
+		elif die_short > 0: die_buy.tooltip_text = "This die costs %d ore and you carry %d." % [int(offer.get("price", 0)), int(_hero().get("ore", 0))]
 	_button(parent, "Inventory / sell items", _show_inventory)
 
 func _workshop(parent: Node) -> void:
-	_label(parent, "One service per hero per visit · 5 gold · Tinker’s Belt may cover the first service this act", 14, MUTED, true)
+	_label(parent, "One service per hero per visit · 5 ore · Tinker’s Belt covers the first service of the expedition", 14, MUTED, true)
 	_label(parent, "Changing shape restores standard faces and removes all engravings. Engraving changes one physical face.", 13, GOLD, true)
 	if snapshot.get("room", {}).get("services", {}).get(controlled_id, false):
 		_label(parent, "Your workshop service is complete.", 16, GREEN)
@@ -1547,7 +1668,7 @@ func _confirm_shape(die: Dictionary, shape: String) -> void:
 	var faces: Array = []
 	for n in range(1, int(shape.trim_prefix("D")) + 1): faces.append(str(n))
 	_label(box, "After: " + ", ".join(faces), 15, GREEN, true)
-	_label(box, "All previous face engravings are removed. Price: 5 gold, or the available Tinker’s Belt service.", 14, GOLD, true)
+	_label(box, "All previous face engravings are removed. Price: 5 ore, or the available Tinker’s Belt service.", 14, GOLD, true)
 	_button(box, "Confirm replacement", func(): _close_overlay(); _command("ModifyDie", {"die_id": die.id, "service": "shape", "shape": shape}), true)
 
 func _engrave(die: Dictionary) -> void:
@@ -1565,7 +1686,7 @@ func _engrave(die: Dictionary) -> void:
 	value.step = 1
 	value.value = 1
 	box.add_child(value)
-	_label(box, "Price: 5 gold, or an available Tinker’s Belt service. One service per visit.", 13, GOLD, true)
+	_label(box, "Price: 5 ore, or an available Tinker’s Belt service. One service per visit.", 13, GOLD, true)
 	_button(box, "Confirm engraving", func():
 		var selected := face_choice.selected
 		var new_value := int(value.value)
@@ -1573,14 +1694,24 @@ func _engrave(die: Dictionary) -> void:
 		_command("ModifyDie", {"die_id": die.id, "service": "face", "face_index": selected, "value": new_value}), true)
 
 func _lapidary(parent: Node) -> void:
-	_label(parent, "Improve one gem per visit. Cut and Clarity cost 5 × the new rank. Carat, the strength multiplier, is found on your travels; Color never changes.", 14, MUTED, true)
+	var haul: Array = _hero().get("haul", [])
+	if not haul.is_empty():
+		_label(parent, "APPRAISE YOUR STONES  ·  %d ORE EACH" % int(EngineScript.APPRAISE_PRICE), 12, GOLD)
+		for stone in haul:
+			var stone_panel := _panel(parent)
+			var stone_row := _hbox(stone_panel)
+			_gem_details(stone_row, stone)
+			var appraise := _button(stone_row, "Appraise  ·  %d ore" % int(EngineScript.APPRAISE_PRICE), func(): _command("AppraiseGem", {"gem_id": stone.id, "method": "lapidary"}), true)
+			appraise.disabled = int(_hero().get("ore", 0)) < int(EngineScript.APPRAISE_PRICE) or _hero().get("ready", false)
+		UiKit.rule(parent)
+	_label(parent, "Improve one gem per visit. Cut and Clarity cost 5 × the new rank in ore. Upgrades to your loadout last only for this expedition; upgrades to a gem you found stay with it when it comes home.", 14, MUTED, true)
 	for gem in _hero().get("gems", []):
 		var panel := _panel(parent)
 		_gem_details(panel, gem)
 		var row := _hbox(panel)
 		for property in ["cut", "clarity"]:
 			var rank := int(gem.get(property, 1))
-			var b := _button(row, "%s %d → %d · %d gold" % [property.capitalize(), rank, mini(5, rank + 1), 5 * (rank + 1)], func(): _upgrade_preview(gem, property))
+			var b := _button(row, "%s %d → %d · %d ore" % [property.capitalize(), rank, mini(5, rank + 1), 5 * (rank + 1)], func(): _upgrade_preview(gem, property))
 			b.disabled = rank >= 5 or _hero().get("ready", false) or snapshot.get("room", {}).get("services", {}).get(controlled_id, false)
 
 func _upgrade_preview(gem: Dictionary, property: String) -> void:
@@ -1598,7 +1729,7 @@ func _upgrade_preview(gem: Dictionary, property: String) -> void:
 	_label(box, _gem_summary(improved), 13, PAPER, true)
 	_label(box, _preview_basis() + " This compares gem properties, not a prediction of future rolls. Changes to dice will change future probabilities.", 12, MUTED, true)
 	var cost := int(improved[property]) * 5
-	_button(box, "Improve %s · %d gold" % [property.capitalize(), cost], func(): _close_overlay(); _command("UpgradeGem", {"gem_id": gem.id, "property": property}), true).disabled = int(_hero().get("gold", 0)) < cost
+	_button(box, "Improve %s · %d ore" % [property.capitalize(), cost], func(): _close_overlay(); _command("UpgradeGem", {"gem_id": gem.id, "property": property}), true).disabled = int(_hero().get("ore", 0)) < cost
 
 func _event(parent: Node) -> void:
 	if snapshot.get("room", {}).get("services", {}).get(controlled_id, false):
@@ -1607,13 +1738,14 @@ func _event(parent: Node) -> void:
 	var event: Dictionary = snapshot.get("event", {})
 	var key := str(event.get("key", "ABANDONED_CACHE"))
 	var options: Array = {
-		"ABANDONED_CACHE": ["Take 6 gold", "Lose 8 HP for the shown gem (+2 Carat). You must have more than 8 HP."],
-		"FIELD_MEDIC": ["Take 4 gold", "Pay 8 gold to heal %d HP" % int(ceil(float(_hero().get("max_hp", 0)) * 0.2))],
-		"ECHO_SHRINE": ["Take 5 gold", "Replace an owned D6 with a Paired, Odd, or Even D6. Current engravings are lost."],
-		"JEWEL_BROKER": ["Take 4 gold", "Exchange one reserve gem for one of the offers below."]
-	}.get(key, ["Take gold", "Choose the offered trade"])
+		"ABANDONED_CACHE": ["Take 6 ore", "Lose 8 HP for the shown gem (+2 Carat). You must have more than 8 HP."],
+		"FIELD_MEDIC": ["Take 4 ore", "Pay 8 ore to heal %d HP" % int(ceil(float(_hero().get("max_hp", 0)) * 0.2))],
+		"ECHO_SHRINE": ["Take 5 ore", "Replace an owned D6 with a Paired, Odd, or Even D6. Current engravings are lost."],
+		"JEWEL_BROKER": ["Take 4 ore", "Trade one gem you found down here — appraised or not — for one of the offers below."],
+		"STILL_POOL": ["Take 4 ore", "Sit by the water a while. The tremors settle by %d%%." % int(EngineScript.STILL_POOL_CALM / 10)]
+	}.get(key, ["Take ore", "Choose the offered trade"])
 	_label(parent, str(options[0]), 18, GOLD, true)
-	_button(parent, "Accept gold", func(): _command("EventChoice", {"option": "a"}))
+	_button(parent, "Accept ore", func(): _command("EventChoice", {"option": "a"}))
 	_label(parent, str(options[1]), 16, MUTED, true)
 	var offers: Array = event.get("offers", {}).get(controlled_id, [])
 	for offer in offers:
@@ -1621,8 +1753,8 @@ func _event(parent: Node) -> void:
 		var panel := _panel(parent)
 		_gem_details(panel, gem)
 		if key == "JEWEL_BROKER":
-			for owned in _hero().get("gems", []):
-				if not owned.get("equipped", false):
+			for owned in _hero().get("gems", []) + _hero().get("haul", []):
+				if not owned.get("equipped", false) and owned.get("found", false):
 					_button(panel, "Trade " + _gem_name(owned) + " for this", func(): _command("EventChoice", {"option": "b", "gem_id": owned.id, "offer_id": offer.get("id", gem.get("id", ""))}))
 	if key == "ECHO_SHRINE":
 		for die in _hero().get("dice", []) + _hero().get("reserve_dice", []):
@@ -1638,13 +1770,13 @@ func _event(parent: Node) -> void:
 
 func _mine_vote(parent: Node) -> void:
 	_label(parent, "Choose a vein.", 30, GOLD)
-	_label(parent, "The party chooses together. Mining is automatic: fixed energy, round-robin hits, shared gold, and a personal gem draft." if _party_choice() else "Mining is automatic once you choose: fixed energy, round-robin hits, and a gem draft.", 15, MUTED, true)
+	_label(parent, "The party chooses together. Mining is automatic: fixed energy, round-robin hits, shared ore, and a draft of unappraised stones." if _party_choice() else "Mining is automatic once you choose: fixed energy, round-robin hits, and a pick of unappraised stones.", 15, MUTED, true)
 	var row := _hbox(parent)
 	for key in ["coin", "crystal"]:
 		var box := _panel(row)
 		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_label(box, "Coin Vein" if key == "coin" else "Crystal Vein", 24, GOLD if key == "coin" else BLUE)
-		_label(box, "More short rocks and direct currency." if key == "coin" else "More work per rock, with more gem-bearing rocks.", 14, MUTED, true)
+		_label(box, "More short rocks and more ore." if key == "coin" else "More work per rock, with more stone-bearing rocks.", 14, MUTED, true)
 		_label(box, "Small / Medium / Large / Gold / Shiny\n4 / 4 / 2 / 2 / 0" if key == "coin" else "Small / Medium / Large / Gold / Shiny\n1 / 3 / 4 / 0 / 2", 13, PAPER, true)
 		_label(box, "These are rock weights, not a guaranteed yield.", 12, MUTED, true)
 		_button(box, ("Vote for " if _party_choice() else "Work the ") + key.capitalize(), func(): _command("VoteVein", {"vein": key}), true)
@@ -1658,7 +1790,7 @@ func _mine_vote(parent: Node) -> void:
 func _mine_draft(parent: Node) -> void:
 	var mine: Dictionary = snapshot.get("mine", {})
 	_label(parent, "The mine’s yield", 28, GOLD)
-	_label(parent, "Gold found: %s · Divided among every hero. Extra coins rotate by party seat." % str(mine.get("gold", 0)), 15, GREEN, true)
+	_label(parent, "Ore found: %s · Divided among every hero. The remainder rotates by party seat." % str(mine.get("ore", 0)), 15, GREEN, true)
 	var rocks: Array = mine.get("rocks", [])
 	if not rocks.is_empty():
 		var row := HFlowContainer.new()
@@ -1669,7 +1801,7 @@ func _mine_draft(parent: Node) -> void:
 	_button(parent, "Skip playback  [F]", _skip_playback)
 	var pool: Array = mine.get("pool", [])
 	if pool.is_empty():
-		_label(parent, "No unclaimed gems remain. Even an empty result completes the visit.", 16, MUTED, true)
+		_label(parent, "No stones remain. Even an empty result completes the visit.", 16, MUTED, true)
 		_ready_button(parent)
 		return
 	var picker := str(mine.get("picker_id", ""))
@@ -1677,21 +1809,30 @@ func _mine_draft(parent: Node) -> void:
 	for claim in pool:
 		var panel := _panel(parent)
 		_gem_details(panel, claim.get("gem", {}))
-		_button(panel, "Claim this gem", func(): _command("DraftGem", {"claim_id": claim.claim_id}), true).disabled = picker != controlled_id
+		_button(panel, "Take this stone", func(): _command("DraftGem", {"claim_id": claim.claim_id}), true).disabled = picker != controlled_id
 
 func _rewards(parent: Node) -> void:
-	_label(parent, "The spoils are yours.", 30, GOLD)
-	_label(parent, "Every hero has personal offers. New items go to reserve; equip them before the next battle.", 14, MUTED, true)
+	var boss: bool = str(snapshot.get("room", {}).get("kind", "")) == "boss"
+	_label(parent, "The boss is dead." if boss else "The spoils are yours.", 30, GOLD)
 	var reward: Dictionary = snapshot.get("reward_offers", {}).get(controlled_id, {})
+	var found: Array = reward.get("found", [])
+	if not found.is_empty():
+		_label(parent, "STONES FOUND  ·  UNAPPRAISED, IN YOUR HAUL", 12, VIOLET)
+		for stone in found:
+			var stone_panel := _panel(parent)
+			_gem_details(stone_panel, stone)
+		_label(parent, "Judge them by eye, or appraise them with a loupe or at a Lapidary. They come home with you unless the party falls.", 13, MUTED, true)
+	elif not boss:
+		_label(parent, "Nothing glittering this time.", 14, MUTED, true)
 	if not reward.get("gem_done", true):
-		_label(parent, "CHOOSE ONE GEM", 12, GOLD)
+		_label(parent, "THE BOSS CHEST  ·  TAKE ONE", 12, GOLD)
 		for offer in reward.get("gems", []):
 			var gem: Dictionary = offer.get("gem", offer)
 			var panel := _panel(parent)
 			var row := _hbox(panel)
 			_gem_details(row, gem)
 			_button(row, "Take gem", func(): _command("ChooseReward", {"kind": "gem", "offer_id": offer.get("id", gem.get("id", ""))}), true)
-		_button(parent, "Decline gems · gain 3 gold", func(): _command("ChooseReward", {"kind": "gem", "offer_id": ""}))
+		_button(parent, "Leave the chest shut", func(): _command("ChooseReward", {"kind": "gem", "offer_id": ""}))
 	if not reward.get("relic_done", true):
 		_label(parent, "CHOOSE ONE RELIC", 12, GOLD)
 		for offer in reward.get("relics", []):
@@ -1707,24 +1848,76 @@ func _rewards(parent: Node) -> void:
 			_button(panel, "Take relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": offer.get("id", relic.get("id", ""))}), true)
 		_button(parent, "Decline relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": ""}))
 	if reward.get("gem_done", true) and reward.get("relic_done", true):
-		_label(parent, "Your rewards are settled.", 18, GREEN)
+		_label(parent, "Your rewards are settled." if not boss else "Mark Done to climb out with your prize.", 18, GREEN)
 		_button(parent, "Prepare your equipment", _show_inventory)
 		_ready_button(parent)
 
 func _summary(parent: Node) -> void:
-	var victory := str(snapshot.get("outcome", snapshot.get("result", ""))) in ["victory", "won"]
-	_label(parent, "THE PARTY PREVAILS" if victory else "THE EXPEDITION ENDS", 34, GOLD)
-	_label(parent, "Every kept pair, every shared shield, every final roll brought you here." if victory else "The dice rest. A different hand awaits the next expedition.", 17, MUTED, true)
-	_label(parent, "Profile: %s   ·   Seed: %s   ·   Room %d" % [str(snapshot.get("profile", "")), str(snapshot.get("seed", "")), int(snapshot.get("room_index", 1))], 14, BLUE, true)
+	var outcome := str(snapshot.get("outcome", ""))
+	var mine: Dictionary = Catalog.mine_definition(str(snapshot.get("mine_id", "")))
+	_label(parent, {"extracted": "BACK IN DAYLIGHT", "fallen": "THE EXPEDITION FALLS", "conquered": "THE MINE IS QUIET"}.get(outcome, "THE EXPEDITION ENDS"), 34, GOLD)
+	_label(parent, {"extracted": "The lift groans upward. Everything you carried comes home.", "fallen": "What survived the fall is hauled back to the surface.", "conquered": "The boss is dead. The party climbs out with its prize."}.get(outcome, ""), 17, MUTED, true)
+	_label(parent, "%s  ·  deepest layer %d  ·  seed %s" % [str(mine.get("name", "The mine")), int(snapshot.get("deepest", 0)), str(snapshot.get("seed", ""))], 14, BLUE, true)
+	_apply_expedition_result()
+	for mine_id in last_unlocked:
+		_label(parent, "New mine unlocked: %s" % str(Catalog.mine_definition(mine_id).get("name", mine_id)), 18, GREEN, true)
+	var result: Dictionary = snapshot.get("results", {}).get(_local_player(), {})
+	var pending: Dictionary = _profile().get("pending_return", {})
+	if not result.is_empty() and str(pending.get("result_id", "")) == str(result.get("result_id", "")):
+		_label(parent, "THE APPRAISAL TABLE", 12, GOLD)
+		if pending.get("gems", []).is_empty():
+			_label(parent, "You came home empty-handed.", 15, MUTED, true)
+		for entry in pending.get("gems", []):
+			var panel := _panel(parent)
+			var row := _hbox(panel, 12)
+			_gem_details(row, entry)
+			var side := _vbox(row, 4)
+			side.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var owned: Dictionary = _profile().get("collection", {}).get(str(entry.key), {})
+			if not owned.is_empty():
+				var diff: Dictionary = Profile.compare(entry, owned)
+				_label(side, "You own C%d K%d L%d  ·  %s%d gold" % [int(owned.carat), int(owned.cut), int(owned.clarity), "+" if int(diff.value) >= 0 else "", int(diff.value)], 12, GREEN if int(diff.value) > 0 else AMBER)
+			var decision := str(entry.get("decision", ""))
+			if decision.is_empty():
+				_button(side, "Keep" if owned.is_empty() else "Keep  ·  sells yours", func(): _decide_return(str(entry.id), true), true)
+				_button(side, "Sell  ·  %d gold" % Profile.sell_value(entry), func(): _decide_return(str(entry.id), false))
+			else:
+				_label(side, "Kept" if decision == "kept" else "Sold", 16, GREEN if decision == "kept" else GOLD)
+	_label(parent, "YOUR PURSE: %d GOLD" % int(_profile().get("gold", 0)), 14, GOLD)
+	var stats: Dictionary = snapshot.get("statistics", {}).get("heroes", {})
 	for hero in snapshot.get("heroes", []):
-		var box := _panel(parent)
-		_label(box, "%s  ·  %d gold  ·  %d / %d HP" % [str(hero.get("player_name", hero.get("name", "Hero"))), int(hero.get("gold", 0)), int(hero.get("hp", 0)), int(hero.get("max_hp", 1))], 18, GOLD)
-		var names: Array = []
-		for gem in hero.get("gems", []):
-			if gem.get("equipped", false): names.append(_gem_name(gem))
-		_label(box, "Equipped: " + ", ".join(names), 13, MUTED, true)
+		var line: Dictionary = stats.get(str(hero.get("id", "")), {})
+		_label(parent, "%s  ·  %d damage  ·  %d block  ·  %d healing  ·  %d final blows  ·  %d stones found" % [str(hero.get("player_name", hero.get("name", "Hero"))), int(line.get("damage_dealt", 0)), int(line.get("block_gained", 0)), int(line.get("healing", 0)), int(line.get("final_blows", 0)), int(line.get("gems_found", 0))], 13, PAPER, true)
 	_button(parent, "Read the combat record", _show_log)
-	_button(parent, "Return to the table", _return_menu, true)
+	_button(parent, "Back to the shop", func():
+		profile_store.transact(func(profile: Dictionary) -> Dictionary: return Profile.finish_return(profile))
+		_return_menu(), true)
+
+func _local_player() -> String:
+	## The seat this machine's player sits in. Hot-seat play may be steering another hero,
+	## but only this player's profile is on this machine to bring a haul home to.
+	var local := str(session.local_player_id) if is_instance_valid(session) else ""
+	for hero in snapshot.get("heroes", []):
+		if str(hero.get("id", "")) == local: return local
+	return controlled_id
+
+func _apply_expedition_result() -> void:
+	## Carries this player's result into their own profile, once. The profile refuses a
+	## result it has already applied, so a reconnect or a re-render can never pay twice.
+	var result: Dictionary = snapshot.get("results", {}).get(_local_player(), {})
+	if result.is_empty() or applied_result == str(result.get("result_id", "")):
+		return
+	applied_result = str(result.get("result_id", ""))
+	var outcome: Dictionary = profile_store.transact(func(profile: Dictionary) -> Dictionary: return Profile.apply_result(profile, result))
+	if not outcome.get("ok", false):
+		_notify(str(outcome.get("error", "The haul could not be brought home.")))
+		return
+	last_unlocked = outcome.get("unlocked", [])
+
+func _decide_return(gem_id: String, keep: bool) -> void:
+	var outcome: Dictionary = profile_store.transact(func(profile: Dictionary) -> Dictionary: return Profile.decide_return_gem(profile, gem_id, keep))
+	if not outcome.get("ok", false): _notify(str(outcome.get("error", "")))
+	_queue_render()
 
 func _ready_button(parent: Node) -> Button:
 	var ready: bool = _hero().get("ready", false)
@@ -1911,9 +2104,17 @@ func _show_inventory() -> void:
 			for active in equipped:
 				if active.get("key") != "STRIKE":
 					_button(row, "Replace " + _gem_name(active), func(): _inventory_command("EquipGem", {"gem_id": gem.id, "replace_id": active.id})).disabled = locked
-		if snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support":
-			_button(row, "Sell · %d gold" % (Catalog.gem_value(gem) / 2), func(): _inventory_command("SellGem", {"gem_id": gem.id})).disabled = locked
-	if reserves == 0: _label(box, "Your reserve is empty. Battle rewards and merchants offer new gems.", 13, MUTED, true)
+		if snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support" and gem.get("found", false):
+			_button(row, "Sell · %d ore" % (Catalog.gem_value(gem) / 2), func(): _inventory_command("SellGem", {"gem_id": gem.id})).disabled = locked
+	if reserves == 0: _label(box, "Your reserve is empty. Stones you appraise, treasure and merchants add gems here.", 13, MUTED, true)
+	var haul: Array = inventory_hero.get("haul", [])
+	_label(box, "HAUL  ·  UNAPPRAISED STONES  ·  %d LOUPE%s" % [int(inventory_hero.get("loupes", 0)), "" if int(inventory_hero.get("loupes", 0)) == 1 else "S"], 12, VIOLET)
+	if haul.is_empty(): _label(box, "No unappraised stones. Rocks and fallen enemies give them up.", 13, MUTED, true)
+	for stone in haul:
+		var stone_card := _panel(box)
+		_gem_details(stone_card, stone)
+		var appraise := _button(stone_card, "Appraise with a loupe", func(): _inventory_command("AppraiseGem", {"gem_id": stone.id, "method": "loupe"}))
+		appraise.disabled = locked or int(inventory_hero.get("loupes", 0)) < 1
 	_label(box, "DICE / SELECT AN ACTIVE SLOT, THEN A RESERVE DIE TO SWAP", 12, GOLD)
 	for die in inventory_hero.get("dice", []):
 		var active_row := _hbox(box, 10)
@@ -1928,7 +2129,7 @@ func _show_inventory() -> void:
 		_button(row, "Swap into selected slot", func(): _inventory_command("SwapDie", {"active_id": selected_active_die, "reserve_id": die.id})).disabled = locked or selected_active_die.is_empty()
 		if snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support":
 			var price := int(Catalog.DICE.get(die.get("key", die.get("shape", "D6")), {}).get("price", 6)) / 2
-			_button(row, "Sell · %d gold" % price, func(): _inventory_command("SellDie", {"die_id": die.id})).disabled = locked
+			_button(row, "Sell · %d ore" % price, func(): _inventory_command("SellDie", {"die_id": die.id})).disabled = locked
 	_label(box, "RELICS", 12, GOLD)
 	if inventory_hero.get("relics", []).is_empty(): _label(box, "Elite and boss victories offer personal relic choices.", 13, MUTED)
 	var equipped_relics: Array = []
@@ -1990,6 +2191,18 @@ func _target_text(target: String) -> String:
 	return target.capitalize()
 
 func _inspect_gem(gem: Dictionary) -> void:
+	if _sealed(gem):
+		var sealed_box := _modal("An unappraised stone")
+		var holder := Control.new()
+		var stone := _gem_portrait(holder, gem, 220)
+		stone.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		(stone as GemView).enable_interaction()
+		var facts := _sheet(sealed_box, holder, Vector2(220, 220), _gem_color(gem))
+		_label(facts, "Unappraised %s stone" % str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "")).to_lower(), 24, _gem_color(gem))
+		_label(facts, _stone_words(gem), 16, PAPER, true)
+		_label(facts, "%s stones carry %s." % [str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "")), str(Catalog.color_definition(str(gem.get("key", ""))).get("role", "")).to_lower()], 14, MUTED, true)
+		_label(facts, "Turn it in the light and judge it. A loupe or a Lapidary will tell you what it really is.", 14, GOLD, true)
+		return
 	var preview: Dictionary = Combat.preview(_hero(), gem, _preview_hand(), snapshot)
 	var definition: Dictionary = Catalog.SKILLS.get(gem.get("key", ""), {})
 	var box := _modal(_gem_name(gem))
@@ -2165,7 +2378,30 @@ func _preview_text(gem: Dictionary) -> String:
 			result += "\nEffective Clarity: %d (includes Focusing Prism)" % int(preview.effective_clarity)
 	return result
 
+func _sealed(gem: Dictionary) -> bool:
+	return gem.has("appraised") and not bool(gem.appraised)
+
+func _stone_words(gem: Dictionary) -> String:
+	## What the eye can tell about a stone, in words rather than ranks, so a reader without
+	## the 3D view judges it from the same evidence as everyone else.
+	var carat := int(gem.get("carat", 1))
+	var size_word: String = "a chip of a" if carat <= 3 else ("a small" if carat <= 7 else ("a sizeable" if carat <= 12 else ("a large" if carat <= 18 else "an enormous")))
+	var cut_word: String = ["rough", "plainly cut", "neatly cut", "finely cut", "exquisitely cut"][clampi(int(gem.get("cut", 1)), 1, 5) - 1]
+	var clarity_word: String = ["cloudy", "hazy", "clear", "bright", "flawless-looking"][clampi(int(gem.get("clarity", 1)), 1, 5) - 1]
+	var text := "%s %s, %s stone." % [size_word, cut_word, clarity_word]
+	return text.left(1).to_upper() + text.substr(1)
+
 func _gem_details(parent: Node, gem: Dictionary) -> void:
+	if _sealed(gem):
+		var stone_row := _hbox(parent, 11)
+		stone_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_gem_portrait(stone_row, gem, 56).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var stone_box := _vbox(stone_row, 4)
+		stone_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_label(stone_box, "Unappraised %s stone" % str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "")).to_lower(), 16, _gem_color(gem))
+		_label(stone_box, _stone_words(gem), 13, MUTED, true)
+		stone_row.tooltip_text = GemView.UNAPPRAISED_TEXT
+		return
 	var row := _hbox(parent, 11)
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_gem_portrait(row, gem, 56).size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2194,17 +2430,19 @@ func _room_guide(kind: String) -> String:
 	## The journal describes a room in general, so unlike the route card it names no prices
 	## in your purse and no act-specific boss.
 	match kind:
-		"battle": return "An authored encounter. Pays gold and a personal choice of three gems."
-		"elite": return "A harder encounter. Double gold, an improved gem, and a choice of relic."
-		"boss": return "The act’s named enemy. Bosses carry Resolve, so they cannot be stun locked."
-		"shop": return "Personal stock: three gems and one featured die. You may also sell reserve gear here."
+		"battle": return "A fight drawn from the mine's depth band. Pays ore, and sometimes an unappraised stone."
+		"elite": return "A harder fight. Double ore, one or two better stones, and a choice of relic."
+		"boss": return "The mine's own boss, waiting wherever the tremor meter filled. Bosses carry Resolve, so they cannot be stun locked. Killing one opens its chest and unlocks the mines beyond."
+		"shop": return "Personal stock paid in ore: three appraised gems, a die and a loupe. You may also sell found gems and reserve dice here."
+		"lift": return "The only way home. The party votes to ride up with everything it carries, or to keep digging."
+		"treasure": return "An unguarded cache: an appraised gem and a little ore for every hero."
 		"rest": return "Recovers one third of maximum HP and returns downed heroes to their feet. Free."
-		"workshop": return "One die service per hero: change to an adjacent shape, or engrave one physical face. 5 gold, or a free service each act with Tinker’s Belt."
-		"lapidary": return "One Cut or Clarity increase per hero, costing 5 gold times the new rank. Cut scales what the dice gave; Clarity is a flat term that also eases triggers."
-		"mine": return "Choose a vein, then mining runs itself: fixed energy per living hero, pooled gold split by seat, and a rotating draft for the gems the rocks held."
+		"workshop": return "One die service per hero: change to an adjacent shape, or engrave one physical face. 5 ore, or free once per expedition with Tinker’s Belt."
+		"lapidary": return "Appraises stones for ore, and sells one Cut or Clarity increase per hero at 5 ore times the new rank. Cut scales what the dice gave; Clarity is a flat term that also eases triggers."
+		"mine": return "Choose a vein, then mining runs itself: fixed energy per living hero, pooled ore split by seat, and a rotating draft of the unappraised stones the rocks held. Noisy: it stirs the tremors."
 		"event": return "One transaction per hero — supplies, a trade, or a free exit."
-		"wager": return "Stake gold on the house’s five matched dice — the same wager for every hero, whatever your own dice have become. One reroll, then the table pays the pattern you show. Only a four-die straight or better pays, so the reroll is the whole game: played carelessly the table is a losing bet, played well it is close to a fair one. A stake left on the table is paid out when you leave, never forfeited."
-		"crucible": return "The only place Carat moves. Temper a gem to raise its Carat, paid in HP that rises with the gem, or fuse a reserve gem into it and pay in Carat instead. One offering per hero per visit."
+		"wager": return "Stake ore on the house’s five matched dice — the same wager for every hero, whatever your own dice have become. One reroll, then the table pays the pattern you show. Only a four-die straight or better pays, so the reroll is the whole game: played carelessly the table is a losing bet, played well it is close to a fair one. A stake left on the table is paid out when you leave, never forfeited."
+		"crucible": return "The only place Carat moves. Temper a gem to raise its Carat, paid in HP that rises with the gem, or fuse a found gem into it and pay in Carat instead. One offering per hero per visit."
 	return ""
 
 func _room_color(kind: String) -> Color:
@@ -2220,6 +2458,8 @@ func _room_color(kind: String) -> Color:
 		"lapidary": return Color("63d8d0")
 		"wager": return Color("ffd166")
 		"crucible": return Color("ff8fa3")
+		"lift": return GREEN
+		"treasure": return BLUE
 	return BLUE
 
 ## The gem widgets live in `gem_panel.gd` so the gem lab draws them the same way. These
@@ -2241,6 +2481,7 @@ func _formula_rows(parent: Node, gem: Dictionary, effective_clarity: int = -1, s
 	GemPanel.formula_rows(parent, gem, effective_clarity, size_px)
 
 func _gem_name(gem: Dictionary) -> String:
+	if _sealed(gem): return "an unappraised stone"
 	return str(Catalog.SKILLS.get(gem.get("key", ""), {}).get("name", gem.get("key", "Gem")))
 
 func _gem_stats(gem: Dictionary) -> String:
@@ -2308,17 +2549,20 @@ func _show_journal() -> void:
 				["YOUR BUILD", "Equip six unique skill gems including Strike. Carat, Cut, and Clarity vary independently; Color is fixed by the skill. Equip, replace, and reorder between rooms before ready. Skills resolve in their visible order."],
 				["TARGETS AND TURN ORDER", "Choose a preferred enemy by clicking it on the battlefield. Friendly effects need no choice: support skills reach every living hero. A skill fixes its target as it begins; later hostile hits fizzle if that target dies. The next skill can retarget. Heroes act in party seat order, then enemies. Enemy intents are public before planning."],
 				["BLOCK, STUN, POISON", "Block persists through turns, then clears after combat. Stun skips an actor’s next slot. Poison bypasses block at the end of a living actor’s slot, then loses one stack; it still ticks when stunned. Boss Resolve prevents repeated stun locking."],
-				["FALLING AND RECOVERY", "Downed heroes do not roll or act. Victory rallies them to 10% HP; a party wipe ends the run. Lifeline can revive during a fight, but the revived hero acts next turn. Rest heals one third of maximum HP."],
-				["THE LONG FIGHT", "Enrage starts on turn 7: enemies add +2 raw damage per hit, then +2 more each turn. Combat skill/relic gold is capped at 8 / 12 / 16 per hero in acts 1 / 2 / 3. Room rewards are separate."],
-				["ROOMS AND LOOT", "Routes use party votes; ties follow the host. Most service rooms allow one service per hero per visit. The Rooms tab of this journal lists every room you can be offered and what it charges."],
-				["THE THREE UPGRADE PATHS", "A gem’s ranks move in three different places. The Lapidary sells Cut and Clarity for gold. The Crucible raises Carat — the multiplier over the whole gem — for HP, or for a reserve gem fed to the fire. Nothing else moves Carat once a gem is found."],
-				["CONTROLS", "Click dice or press 1–5. R rerolls, Space readies, Tab cycles enemy targets, I inspects equipment, Escape closes a panel. On the route screen, 1–9 vote for the matching room. At the Wager Hall the staked hand uses the same 1–5 and R. Controller focus uses the directional pad, accept, and back. Remap actions in Settings."]
+				["FALLING AND RECOVERY", "Downed heroes do not roll or act. Victory rallies them to 10% HP. If the whole party falls, every stone it carried is rolled on a die by rarity — d6 to d20 — and only the top face brings it home. Your loadout is never at risk."],
+				["THE SEAM", "A mine is dug one layer at a time and has no bottom. Your lantern shows the rooms two layers ahead; past that you see only shapes, and the beacons of lifts. Deeper layers hold harder fights and better stones."],
+				["THE TREMORS", "Every step down, every turn of every fight and every noisy room fills the tremor meter, faster the deeper you are. When it fills, the mine's boss breaks through into the next chamber you enter. Ride a lift home before then — or be ready."],
+				["STONES AND APPRAISAL", "Stones come out of the rock unappraised: you can see their colour, size, cut and clarity, but not what they do, and they cannot be equipped. A loupe or a Lapidary appraises one. At home every stone is appraised on the table, then kept or sold for gold."],
+				["THE LONG FIGHT", "Enrage starts on turn 7: enemies add +2 raw damage per hit, then +2 more each turn. The ore your gems can mint in a battle is capped, rising slowly with depth. Room rewards are separate."],
+				["ORE AND GOLD", "Ore is the mine's currency: it pays for merchants, Lapidaries, Workshops and the Wager Hall, and it stays behind when you leave. Gold is what you earn at home by selling stones."],
+				["THE THREE UPGRADE PATHS", "A gem’s ranks move in three different places. The Lapidary sells Cut and Clarity for ore. The Crucible raises Carat — the multiplier over the whole gem — for HP, or for a found gem fed to the fire. Upgrades to your loadout last one expedition; upgrades to a find come home with it."],
+				["CONTROLS", "Click dice or press 1–5. R rerolls, Space readies, Tab cycles enemy targets, I inspects equipment, Escape closes a panel. On the seam, click a ringed chamber or press 1–9 for the matching tunnel. At the Wager Hall the staked hand uses the same 1–5 and R. Controller focus uses the directional pad, accept, and back. Remap actions in Settings."]
 			]
 			for entry in entries:
 				_label(box, entry[0], 14, GOLD)
 				_label(box, entry[1], 15, PAPER, true)
 		"rooms":
-			_label(box, "Every room the route can offer. A run never shows them all.", 14, MUTED, true)
+			_label(box, "Every room a seam can hold. A single expedition rarely meets them all.", 14, MUTED, true)
 			for kind in EngineScript.ROOM_NAMES:
 				var room_key := str(kind)
 				var accent := _room_color(room_key)
@@ -2373,7 +2617,7 @@ func _show_journal() -> void:
 				var facts := _vbox(entry_row, 3)
 				facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				_label(facts, str(def.name), 18, BLUE)
-				_label(facts, "%s · %d gold" % [str(def.shape), int(def.price)], 12, GOLD)
+				_label(facts, "%s · %d ore" % [str(def.shape), int(def.price)], 12, GOLD)
 				_label(facts, "Faces: " + _join_values(def.faces), 13, PAPER, true)
 		"relics":
 			for key in Catalog.RELICS:
@@ -2401,7 +2645,7 @@ func _show_journal() -> void:
 			var records: Array = engine.save_store.load_history()
 			if records.is_empty(): _label(box, "Completed expeditions will be recorded here.", 16, MUTED)
 			for record in records:
-				_label(box, "%s · %s · seed %s" % [str(record.get("outcome", "Expedition")), str(record.get("profile", "")), str(record.get("seed", ""))], 17, GOLD)
+				_label(box, "%s · %s · depth %s · seed %s" % [str(record.get("outcome", "Expedition")).capitalize(), str(Catalog.mine_definition(str(record.get("mine_id", ""))).get("name", "")), str(record.get("depth", 0)), str(record.get("seed", ""))], 17, GOLD)
 				_label(box, str(record.get("completed_at", record.get("saved_at", ""))), 13, MUTED)
 
 func _show_menu() -> void:

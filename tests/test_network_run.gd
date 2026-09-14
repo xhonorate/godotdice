@@ -52,6 +52,8 @@ func run() -> void:
  check(not state.is_empty() and state.get("phase") == "route", "Authority initializes from authenticated seats")
  check(await until(func(): return peers.all(func(peer): return peer.last_snapshot.get("phase") == "route")), "Initial complete run snapshot reaches every peer")
  var route_id: String = engine.state.offers[0].id
+ for offer in engine.state.offers:
+  if offer.kind == "battle": route_id = offer.id
  for peer in peers:
   peer.send_command({"command_type":"VoteRoom","payload":{"offer_id":route_id}})
  check(await until(func(): return engine.state.phase == "planning" and peers.all(func(peer): return peer.last_snapshot.get("phase") == "planning")), "Transport votes enter actual combat and publish intents")
@@ -69,7 +71,7 @@ func run() -> void:
  bad.heroes[0].gems[0].equipped = false
  check(not Authority.validate_state(bad).is_empty(), "Attackless loadout rejected on restore")
  bad = engine.state.duplicate(true)
- bad.heroes[0].gold = 1.5
+ bad.heroes[0].ore = 1.5
  check(not Authority.validate_state(bad).is_empty(), "Fractional resource rejected on restore")
  var before_rng: Dictionary = engine._rng_snapshot()
  peers[1].send_command({"command_type":"RerollDice","payload":{"die_ids":[engine.state.heroes[0].dice[0].id]}})

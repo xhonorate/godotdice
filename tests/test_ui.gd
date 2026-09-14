@@ -21,15 +21,21 @@ func _initialize() -> void:
 	call_deferred("run")
 
 func run() -> void:
+	load("res://scripts/services/profile_store.gd").directory_override = "user://tests/ui-profile-%d" % Time.get_ticks_usec()
 	ui = load("res://scenes/main.tscn").instantiate()
 	root.add_child(ui)
 	await frames()
 	check(not ui.snapshot.size(), "menu opens without an active run")
+	check(not ui._profile().is_empty() and ui._profile().collection.has("STRIKE"), "the menu opens a fresh profile")
+	check(ui._loadout("max").size() == ui._profile().heroes.MAX.loadout.size(), "a hero's loadout comes from the profile")
 	ui.offline_hotseat = true
 	ui.controlled_id = "ui_test"
-	ui.engine.new_run({"heroes":[{"id":"ui_test","hero_id":"MAX","name":"UI Test"}],"profile":"short_9","seed":12345,"autosave":false})
+	ui.engine.new_run({"heroes":[{"id":"ui_test","hero_id":"MAX","name":"UI Test","loadout":ui._loadout("max")}],"mine_id":"QUARRY","seed":12345,"autosave":false})
 	await frames()
 	check(ui.snapshot.phase == "route", "route renders")
+	var map: Control = find_seam(ui.page)
+	check(map != null and map.custom_minimum_size.y > 0.0, "the seam map is drawn on the route screen")
+	check(ui.page.find_children("*", "", true, false).any(func(node: Node) -> bool: return node.get_script() == ui.TremorMeter), "the tremor meter sits in the header")
 	## A lone hero is not a committee: the route is a choice, not a vote, and there is
 	## nobody to ping it to.
 	var solo: Array = button_texts(ui.page, [])
@@ -60,9 +66,19 @@ func run() -> void:
 	check(ui.snapshot.run_id == invited_run_id, "invitation preserves the current run until accepted")
 	ui._close_overlay()
 	check(ui.snapshot.run_id == invited_run_id, "declining an invitation keeps the current run")
-	ui._command("VoteRoom", {"offer_id": ui.snapshot.offers[0].id})
+	var battle_id: String = ""
+	for offer in ui.snapshot.offers:
+		if offer.kind == "battle" and battle_id.is_empty(): battle_id = offer.id
+	if battle_id.is_empty():
+		ui.engine.state.seam.layers["1"][0].kind = "battle"
+		ui.engine._route_offers()
+		ui._state_changed(ui.engine.state)
+		await frames()
+		battle_id = ui.snapshot.offers[0].id
+	map = find_seam(ui.page)
+	map.on_choose.call(battle_id)
 	await frames()
-	check(ui.snapshot.phase == "planning", "route command enters battle")
+	check(ui.snapshot.phase == "planning", "clicking a chamber on the seam enters battle")
 	var die: Dictionary = ui._hero().dice[0]
 	ui._toggle_die(die.id)
 	check(ui.selected_dice.has(die.id), "selected means reroll")
@@ -128,7 +144,11 @@ func run() -> void:
 	ui._close_overlay()
 	state.heroes[0].hp = state.heroes[0].max_hp
 	state.phase = "support"
-	for kind in ["shop","workshop","lapidary","rest","event","wager","crucible"]:
+	state.room.treasure = {"ui_test": {"gems": ui.engine._roll_gems(1, 0, true), "ore": 5}}
+	var stone: Dictionary = ui.engine._roll_gems(1, 0, false)[0]
+	stone.owner_id = "ui_test"
+	state.heroes[0].haul.append(stone)
+	for kind in ["shop","workshop","lapidary","rest","event","wager","crucible","treasure"]:
 		state.room.kind = kind
 		ui._state_changed(state)
 		await frames()
@@ -139,7 +159,7 @@ func run() -> void:
 	await frames()
 	check(ui._room_guide("wager").length() > 0 and ui._room_guide("crucible").length() > 0, "new rooms describe themselves in the journal")
 	ui.engine._enter_room("wager")
-	ui.engine.state.heroes[0].gold = 40
+	ui.engine.state.heroes[0].ore = 40
 	ui._state_changed(ui.engine.state)
 	await frames()
 	check(is_instance_valid(ui.page), "the wager stake screen renders")
@@ -154,11 +174,11 @@ func run() -> void:
 	ui._command("WagerReroll", {"die_ids": [str(seat.hand[0].die_id)]})
 	await frames()
 	check(ui.snapshot.room.wager[ui.controlled_id].rerolled, "the wager reroll reaches the authority")
-	var purse: int = int(ui._hero().gold)
+	var purse: int = int(ui._hero().ore)
 	ui._command("SettleWager", {})
 	await frames()
 	var done: Dictionary = ui.snapshot.room.wager[ui.controlled_id]
-	check(done.settled and int(ui._hero().gold) == purse + int(done.payout), "settling pays the displayed hand")
+	check(done.settled and int(ui._hero().ore) == purse + int(done.payout), "settling pays the displayed hand")
 	check(is_instance_valid(ui.page), "the settled table renders")
 	ui.engine._enter_room("crucible")
 	ui._state_changed(ui.engine.state)
@@ -183,11 +203,36 @@ func run() -> void:
 	check(is_instance_valid(ui.page), "the spent crucible renders")
 	state = ui.engine.state.duplicate(true)
 	state.phase = "support"
-	for phase in ["mine_vote","mine_draft","reward","summary"]:
+	state.reward_offers = {"ui_test": {"gems": [], "relics": [], "found": [stone], "gem_done": true, "relic_done": true}}
+	for phase in ["mine_vote","mine_draft","reward","lift","salvage","summary"]:
 		state.phase = phase
 		ui._state_changed(state)
 		await frames()
 		check(is_instance_valid(ui.page), "screen " + phase)
+	ui._inspect_gem(stone)
+	await frames()
+	check(is_instance_valid(ui.overlay), "an unappraised stone opens its own sheet")
+	check(ui._gem_name(stone) == "an unappraised stone", "an unappraised stone is never named")
+	ui._close_overlay()
+	## Ride a lift home and carry the haul into the profile, then keep and sell on the table.
+	ui.engine._events = []
+	ui.engine.state.heroes[0].haul.append(stone)
+	ui.engine._enter_room("lift")
+	ui._state_changed(ui.engine.state)
+	await frames()
+	ui._command("VoteLift", {"choice": "ride"})
+	await frames()
+	check(ui.snapshot.phase == "summary" and ui.snapshot.outcome == "extracted", "riding the lift ends the expedition")
+	var pending: Dictionary = ui._profile().get("pending_return", {})
+	check(pending.get("gems", []).size() == 1, "the haul lands on the appraisal table in the profile")
+	var gold_before: int = int(ui._profile().gold)
+	ui._decide_return(str(pending.gems[0].id), false)
+	await frames()
+	check(int(ui._profile().gold) > gold_before, "selling a hauled stone pays gold into the profile")
+	var applied: String = ui.applied_result
+	ui._state_changed(ui.engine.state)
+	await frames()
+	check(ui.applied_result == applied and ui._profile().lifetime.runs == 1, "re-rendering the summary never applies the result twice")
 	ui._show_recovery(state)
 	await frames()
 	check(is_instance_valid(ui.overlay), "host loss stops at recovery view")
@@ -206,6 +251,11 @@ func run() -> void:
 	for failure in failures: push_error(failure)
 	print("UI integration: %d checks, %d failures" % [checked, failures.size()])
 	quit(0 if failures.is_empty() else 1)
+
+func find_seam(node: Node) -> Control:
+	for child in node.find_children("*", "Control", true, false):
+		if child.get_script() == ui.SeamMap: return child
+	return null
 
 func button_texts(node: Node, found: Array) -> Array:
 	if node is Button: found.append(str(node.text))

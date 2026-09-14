@@ -54,19 +54,21 @@ func _authored_pack(mutate: Callable = Callable()) -> Dictionary:
 		"tags":["attack"], "trigger":"Always", "formula":"Damage (highest K dice + F(L)) × M(C).",
 		"target":"enemy", "evaluator_id":"STRIKE"}
 	## A die is pure data: no borrowed rule at all.
-	data.dice["EMBER_D6"] = {"name":"Ember Die", "shape":"D6", "faces":[2,2,4,4,6,6], "price":9, "unlock_act":1}
+	data.dice["EMBER_D6"] = {"name":"Ember Die", "shape":"D6", "faces":[2,2,4,4,6,6], "price":9, "unlock_depth":1}
 	data.heroes["EMBER"] = {"name":"Ember", "max_hp":75, "color":"d08b9f",
 		"dice":["EMBER_D6","EMBER_D6","D6","D8","D8"], "trait":"SECOND_THOUGHT",
 		"trait_name":"Second Wind", "description":"Once per encounter, reroll one die for free.",
 		"starting_gems":[["STRIKE",3,2,2],["EMBER_LANCE",8,3,3]]}
 	data.enemies["EMBER_CRAB"] = {"name":"Ember Crab", "max_hp":30, "block":4,
 		"dice":["D6","D6"], "threat":1, "description":"Alternates a shell and a claw.", "ai":"STONE_CRAB"}
-	var profile: Dictionary = data.profiles["short_9"]
-	profile.skill_ids = (profile.skill_ids + ["EMBER_LANCE"])
-	profile.skill_ids.sort()
-	profile.encounters = {"first_room":["EMBER_CRAB"],
-		"normal":{"1":[["EMBER_CRAB"],["EMBER_CRAB","SLIME"],["EMBER_CRAB","SLIME","SLIME"],["EMBER_CRAB","EMBER_CRAB","SLIME","SLIME"]]},
-		"elite":[["EMBER_CRAB"],["EMBER_CRAB","RED_SLIME"],["EMBER_CRAB","EMBER_CRAB","RED_SLIME"],["EMBER_CRAB","EMBER_CRAB","RED_SLIME","RED_SLIME"]]}
+	## A mine the build has never heard of, spawning the authored crab and dropping the
+	## authored gem, reached by an unlock from the Quarry.
+	data.mines["EMBER_DEEP"] = {"name":"Ember Deep", "difficulty":2, "boss_id":"SLIME_KING", "links":[],
+		"atlas_x":80, "atlas_y":70, "color":"d08b9f", "tremor_rate":100, "lift_rate":100, "quality_bonus":2,
+		"rooms":{"battle":5, "elite":1, "mine":2}, "skill_ids":["EMBER_LANCE","STRIKE"], "color_weights":{}, "relic_ids":[],
+		"bands":[{"from_depth":1, "normal":{"EMBER_CRAB":1}, "elite":{"EMBER_CRAB":1}},
+			{"from_depth":5, "normal":{"EMBER_CRAB":1, "SLIME":1}, "elite":{"RED_SLIME":1}}]}
+	data.mines.QUARRY.links = data.mines.QUARRY.links + ["EMBER_DEEP"]
 	## Gems whose rule is written as data rather than borrowed from the build. Each one is
 	## a shipped skill rewritten in the little language, so the interpreter can be held to
 	## the compiled rule's own numbers.
@@ -95,9 +97,7 @@ func _authored_pack(mutate: Callable = Callable()) -> Dictionary:
 		"trigger":"Straight by clarity", "formula":"", "target":"enemy",
 		"rule":{"trigger":{"kind":"straight", "length":"by_clarity"}, "effects":[{"kind":"damage", "target":"enemy",
 			"amount":{"const":4}, "repeat":{"rank":"cut"}}]}}
-	var written_profile: Dictionary = data.profiles["short_9"]
-	written_profile.skill_ids = written_profile.skill_ids + ["WRIT_STRIKE","WRIT_BLOCK","WRIT_ARC","WRIT_VENOM","WRIT_MULTI"]
-	written_profile.skill_ids.sort()
+	data.mines.EMBER_DEEP.skill_ids = data.mines.EMBER_DEEP.skill_ids + ["WRIT_STRIKE","WRIT_BLOCK","WRIT_ARC","WRIT_VENOM","WRIT_MULTI"]
 	if mutate.is_valid():
 		mutate.call(data)
 	return data
@@ -199,7 +199,7 @@ func _test_borrowed_enemy() -> void:
 	unit.hand = hand([3,5])
 	var hero_unit: Dictionary = Catalog.hero("EMBER","h")
 	hero_unit.hand = hand([1,2,3,4,5])
-	var state: Dictionary = {"heroes":[hero_unit], "enemies":[unit], "turn":1, "act":1, "party_size":1, "battle_outcome":""}
+	var state: Dictionary = {"heroes":[hero_unit], "enemies":[unit], "turn":1, "depth":1, "party_size":1, "battle_outcome":""}
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 7
 	var intents: Array = Combat.enemy_intents(unit,state,rng)
@@ -208,21 +208,26 @@ func _test_borrowed_enemy() -> void:
 	check(str(Combat.enemy_intents(unit,state,rng)[0].key) == "CLAW", "…and its second")
 
 func _test_reach_the_table() -> void:
-	check("EMBER_LANCE" in Catalog.eligible_skills("short_9",1), "An authored gem is in the profile's drop pool")
-	check("EMBER_D6" in Catalog.eligible_dice("short_9",1,1), "An authored die reaches the shop on the act it names")
-	check(Catalog.eligible_dice("short_9",1,1).slice(0,3) == ["PAIRED_D6","ODD_D6","EVEN_D6"],
+	check("EMBER_LANCE" in Catalog.mine_skills("EMBER_DEEP",1), "An authored gem is in the authored mine's pool")
+	check("EMBER_D6" in Catalog.merchant_dice(1), "An authored die reaches merchants at the depth it names")
+	check(Catalog.merchant_dice(1).slice(0,3) == ["PAIRED_D6","ODD_D6","EVEN_D6"],
 		"…without disturbing the order the shipped dice were offered in")
-	check(not "SEVEN_D8" in Catalog.eligible_dice("short_9",1,4) and "SEVEN_D8" in Catalog.eligible_dice("short_9",1,5),
-		"A die held back to room 5 of a one-act run still is")
-	var first_room: Array = Catalog.encounter("normal",1,2,1,"short_9")
-	check(first_room.size() == 2 and str(first_room[0].key) == "EMBER_CRAB", "An authored encounter table decides room one")
-	var later: Array = Catalog.encounter("normal",1,2,3,"short_9")
-	check(later.size() == 2 and str(later[0].key) == "EMBER_CRAB" and str(later[1].key) == "SLIME",
-		"…and the rooms after it, per party size")
-	var elite: Array = Catalog.encounter("elite",1,1,5,"short_9")
-	check(elite.size() == 1 and str(elite[0].key) == "EMBER_CRAB", "…and its elites")
-	var boss: Array = Catalog.encounter("boss",1,1,9,"short_9")
-	check(boss.size() == 1 and str(boss[0].key) == "SLIME_KING", "A table that names no boss leaves the profile's boss alone")
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = 11
+	var first: Array = Catalog.mine_encounter("EMBER_DEEP","battle",1,2,rng,"e")
+	check(first.size() == 2 and first.all(func(unit: Dictionary) -> bool: return str(unit.key) == "EMBER_CRAB"), "An authored band decides the shallow fights")
+	var deeper: Array = Catalog.mine_encounter("EMBER_DEEP","elite",6,1,rng,"e")
+	check(str(deeper[0].key) == "RED_SLIME", "…and a deeper band takes over")
+	var boss: Array = Catalog.mine_encounter("EMBER_DEEP","boss",3,1,rng,"e")
+	check(boss.size() == 1 and str(boss[0].key) == "SLIME_KING", "The mine's boss waits in its lair")
+	var found: Dictionary = {}
+	for index in range(200):
+		found[Catalog.roll_gem(rng, Catalog.mine_skills("EMBER_DEEP",1), 10, "g").key] = true
+	check(found.has("EMBER_LANCE") and found.has("WRIT_STRIKE"), "Authored and written gems drop in the authored mine")
+	var Seam = load("res://scripts/core/seam.gd")
+	var seam: Dictionary = {}
+	Seam.ensure_layers(seam, "ember", "EMBER_DEEP", "", 6)
+	check(seam.layers["4"].all(func(node: Dictionary) -> bool: return node.kind in ["battle","elite","mine","lift"]), "The authored mine's seam uses only its own room weights")
 
 # --- what a pack still may not do ---------------------------------------------
 
@@ -235,7 +240,8 @@ func _test_rejections() -> void:
 		["a relic the build never registered", func(data: Dictionary) -> void: data.relics["EMBER_CHARM"] = {"name":"Ember Charm", "description":"Nothing runs this."}],
 		["a starting gem cut outside its range", func(data: Dictionary) -> void: data.heroes["EMBER"].starting_gems[1] = ["EMBER_LANCE",8,9,3]],
 		["a die whose faces do not fit its shape", func(data: Dictionary) -> void: data.dice["EMBER_D6"].faces = [1,2,3]],
-		["an encounter table naming an enemy that is not there", func(data: Dictionary) -> void: data.profiles["short_9"].encounters.elite = [["WYVERN"]]],
+		["a depth band naming an enemy that is not there", func(data: Dictionary) -> void: data.mines["EMBER_DEEP"].bands[0].elite = {"WYVERN":1}],
+		["a mine no unlock reaches", func(data: Dictionary) -> void: data.mines.QUARRY.links = ["MIRROR_GROTTO","RIFT_HOLLOW"]],
 		["a written rule with an unknown term", func(data: Dictionary) -> void: data.skills["WRIT_STRIKE"].rule.effects[0].amount = {"term":"lunar_phase"}],
 		["a written rule with an unknown operator", func(data: Dictionary) -> void: data.skills["WRIT_STRIKE"].rule.effects[0].amount = {"op":"exec", "args":[{"const":1}]}],
 		["a written rule with an unknown trigger", func(data: Dictionary) -> void: data.skills["WRIT_STRIKE"].rule.trigger = {"kind":"whenever"}],

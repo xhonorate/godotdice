@@ -50,9 +50,9 @@ func _test_codec() -> void:
 	check(not Codec.versions_match({"protocol_version": 999, "build_version": "1.0.0", "content_version": "1.0.0"}), "Incompatible protocol rejected")
 
 func _fixture() -> Dictionary:
-	return {"schema_version": 1, "rules_version": "1.0.0", "content_version": "1.0.0", "run_id": "test-run",
+	return {"schema_version": 1, "rules_version": "2.0.0", "content_version": "1.0.0", "run_id": "test-run",
 		"revision": 1, "phase_id": 2, "phase": "planning", "session_id": "session", "host_epoch": 1,
-		"heroes": [{"id": "lan-host", "key": "ARDOR", "hp": 88, "max_hp": 100, "block": 7, "gold": 15}],
+		"heroes": [{"id": "lan-host", "key": "ARDOR", "hp": 88, "max_hp": 100, "block": 7, "ore": 15}],
 		"rng_states": {"dice": "9223372036854775806", "loot": "76561198012345678"}}
 
 func _test_persistence() -> void:
@@ -61,10 +61,10 @@ func _test_persistence() -> void:
 	var state := _fixture()
 	check(saves.save_checkpoint(state, {"purchase-1": {"ok": true, "revision": 1}}).ok, "Initial checkpoint written")
 	state.revision = 2
-	state.heroes[0].gold = 5
+	state.heroes[0].ore = 5
 	check(saves.save_checkpoint(state, {"purchase-1": {"ok": true, "revision": 2}}).ok, "Next checkpoint atomically replaces initial")
 	var loaded := saves.load_checkpoint()
-	check(loaded.ok and loaded.state.heroes[0].gold == 5 and loaded.state.revision == 2, "Purchase resources and revision survive reload")
+	check(loaded.ok and loaded.state.heroes[0].ore == 5 and loaded.state.revision == 2, "Purchase resources and revision survive reload")
 	check(loaded.command_history.has("purchase-1"), "Command result history survives reload")
 	check(loaded.state.rng_states == state.rng_states, "RNG state retains exact 64-bit strings")
 	var file := FileAccess.open(directory.path_join("active_run.json"), FileAccess.WRITE)
@@ -129,7 +129,7 @@ func _test_enet() -> void:
 	state.session_id = host.session_id
 	state.heroes = []
 	for member in party:
-		state.heroes.append({"id": member.id, "key": member.hero_id, "hp": 100, "max_hp": 100, "gold": 20, "block": 0})
+		state.heroes.append({"id": member.id, "key": member.hero_id, "hp": 100, "max_hp": 100, "ore": 20, "block": 0})
 	host.broadcast_snapshot(state)
 	check(await _wait_for(func(): return clients.all(func(client): return client.last_snapshot.get("revision") == 1)), "Full authoritative snapshot reaches all three clients")
 	host.command_received.connect(func(player_id: String, command: Dictionary):

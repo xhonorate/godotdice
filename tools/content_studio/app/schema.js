@@ -47,14 +47,13 @@ export const SECTIONS = [
 	{
 		id: "dice", label: "Dice", singular: "Die", glyph: "▦", idExample: "NEW_D6",
 		blurb: "A die shape and the faces printed on it. Faces may repeat and may skip values.",
-		defaults: () => ({ name: "New Die", shape: "D6", faces: [1, 2, 3, 4, 5, 6], price: 8, unlock_act: 1 }),
+		defaults: () => ({ name: "New Die", shape: "D6", faces: [1, 2, 3, 4, 5, 6], price: 8, unlock_depth: 1 }),
 		fields: [
 			{ key: "name", label: "Display name", type: "text" },
 			{ key: "shape", label: "Shape", type: "select", from: "shapes", hint: "Decides the face count: a D8 has eight faces, whatever is printed on them." },
 			{ key: "faces", label: "Faces", type: "faces" },
 			{ key: "price", label: "Shop price", type: "slider", min: 1, max: 60, step: 1 },
-			{ key: "unlock_act", label: "Reaches the shop in act", type: "slider", min: 0, max: 3, step: 1, names: ["Never sold", "Act 1", "Act 2", "Act 3"] },
-			{ key: "unlock_room", label: "…or from room", type: "slider", min: 0, max: 18, step: 1, hint: "Single-act profiles only, where there is no later act to wait for. 0 disables it." },
+			{ key: "unlock_depth", label: "Merchants stock it from depth", type: "slider", min: 0, max: 40, step: 1, hint: "0 means no merchant ever sells it." },
 		],
 	},
 	{
@@ -75,7 +74,7 @@ export const SECTIONS = [
 			{ key: "name", label: "Display name", type: "text" },
 			{ key: "description", label: "Intent summary", type: "textarea", hint: "What the player is told to expect from its turns." },
 			{ key: "ai", label: "Routine it runs", type: "select", from: "enemy_ai", hint: "Which registered enemy's intent pattern this one uses." },
-			{ key: "max_hp", label: "Base HP", type: "slider", min: 4, max: 200, step: 1, hint: "Act 2 and 3 scale this; a boss multiplies it by the party size instead." },
+			{ key: "max_hp", label: "Base HP", type: "slider", min: 4, max: 200, step: 1, hint: "Grows 6% per layer of depth; a boss multiplies it by the party size and grows at most 60%." },
 			{ key: "block", label: "Starting block", type: "slider", min: 0, max: 40, step: 1 },
 			{ key: "threat", label: "Threat", type: "slider", min: 0, max: 3, step: 1, hint: "How the encounter builder weighs it. Bosses leave this out." },
 			{ key: "boss", label: "Boss", type: "checkbox", hint: "Bosses scale with party size, keep Resolve, and roll no dice of their own." },
@@ -90,25 +89,6 @@ export const SECTIONS = [
 		fields: [
 			{ key: "name", label: "Display name", type: "text" },
 			{ key: "description", label: "Choice text", type: "textarea" },
-		],
-	},
-	{
-		id: "profiles", label: "Run profiles", singular: "Profile", glyph: "▤", idExample: "new_run",
-		blurb: "A campaign: how long it runs, what drops in it, and what it sends at the party.",
-		lowercaseIds: true,
-		defaults: () => ({
-			rooms: 9, acts: 1, loot_generator: "depth_luck_v1", combat_gold_cap: [8],
-			skill_ids: ["STRIKE", "BLOCK", "HEAL"], relic_ids: ["MATCHBOX"], boss_ids: ["SLIME_KING"],
-		}),
-		fields: [
-			{ key: "rooms", label: "Rooms", type: "slider", min: 3, max: 40, step: 1 },
-			{ key: "acts", label: "Acts", type: "slider", min: 1, max: 3, step: 1 },
-			{ key: "loot_generator", label: "Loot generator", type: "select", from: "loot_generators", hint: "depth_luck_v1 rolls against luck; act_tier_v1 uses fixed per-act tables." },
-			{ key: "combat_gold_cap", label: "Battle gold allowance", type: "numbers", perAct: true, hint: "One per act: how much gold a single battle can pay out." },
-			{ key: "boss_ids", label: "Act bosses", type: "idlist", section: "enemies", perAct: true },
-			{ key: "skill_ids", label: "Gem pool", type: "idset", section: "skills" },
-			{ key: "relic_ids", label: "Relic pool", type: "idset", section: "relics" },
-			{ key: "encounters", label: "Encounter table", type: "encounters", hint: "Optional. Without one, this profile uses the shipped encounter list." },
 		],
 	},
 	{
@@ -169,8 +149,10 @@ export const cutMultiplier = (cut) => (Math.min(5, Math.max(1, cut)) + 3) / 4;
 /** `Catalog.gem_value()`: what a gem sells and trades for. */
 export const gemValue = (rarity, carat, cut, clarity) =>
 	rarity * (carat + 2 * (cut - 1) + 2 * (clarity - 1));
-/** `Catalog.enemy()`: how an enemy's printed health reaches the table. */
-export const enemyHp = (maxHp, act, partySize, boss) =>
-	boss ? maxHp * partySize : Math.ceil(maxHp * [1.0, 1.35, 1.75][Math.min(3, Math.max(1, act)) - 1]);
-export const enemyBlock = (block, act, partySize, boss) =>
-	boss ? block * partySize : Math.trunc(block * [1.0, 1.2, 1.4][Math.min(3, Math.max(1, act)) - 1]);
+/** `Catalog.enemy()`: how an enemy's printed health reaches the table at a depth. */
+export const enemyHp = (maxHp, depth, partySize, boss) => {
+	const level = Math.max(1, depth);
+	return boss ? Math.ceil(maxHp * partySize * (1 + Math.min(0.6, 0.03 * (level - 1)))) : Math.ceil(maxHp * (1 + 0.06 * (level - 1)));
+};
+export const enemyBlock = (block, depth, partySize, boss) =>
+	boss ? block * partySize : Math.floor((block * (100 + 3 * (Math.max(1, depth) - 1))) / 100);

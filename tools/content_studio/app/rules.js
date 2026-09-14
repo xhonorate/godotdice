@@ -62,7 +62,7 @@ export const HINTS = {
 	damage: "Damage, mitigated by the target's block.",
 	block_effect: "Block for the recipient.",
 	heal: "Health, capped at the recipient's maximum.",
-	gold: "Gold, within the battle allowance.",
+	gold: "Ore, within the battle allowance. (The rule language still calls this effect gold.)",
 	poison: "Poison stacks, capped at 12.",
 	stun: "Stun. Bosses resist it through Resolve.",
 	remove_block: "Strips block without dealing damage.",
@@ -359,7 +359,7 @@ function term(expression, context, depth) {
 // --- saying it in words -------------------------------------------------------
 
 export const VERBS = { damage: "Damage", block: "Block", heal: "Heal", gold: "Gain", poison: "Apply", stun: "Apply", remove_block: "Remove" };
-const NOUNS = { gold: " gold", poison: " Poison", stun: " stun", remove_block: " block" };
+const NOUNS = { gold: " ore", poison: " Poison", stun: " stun", remove_block: " block" };
 export const WHERE = { self: "self", enemy: "target", enemies: "all enemies", ally: "every living hero", other_allies: "your allies" };
 const TERM_WORDS = {
 	high: "H", low: "the lowest die", total: "the total", pair_value: "the pair value",

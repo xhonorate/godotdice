@@ -2,10 +2,11 @@ extends SceneTree
 ## Development helper: drives the real interface and writes PNGs of each screen.
 ## Run with a windowed editor build, for example:
 ##   godot --path . --script tools/screenshot.gd -- --out user://shots
-## Screens are written as menu.png, battle.png, route.png, inventory.png, journal.png,
+## Screens are written as menu.png, battle.png, route.png (the seam), inventory.png, journal.png,
 ## one shot of each inspect sheet: inspect_gem.png, inspect_enemy.png, inspect_die.png,
 ## and the service rooms that are played rather than read: wager_*.png and crucible_*.png.
 
+const Seam = preload("res://scripts/core/seam.gd")
 var ui: Control
 var out_dir := "user://shots"
 
@@ -18,6 +19,7 @@ func _initialize() -> void:
 func run() -> void:
 	DisplayServer.window_set_size(Vector2i(1600, 1000))
 	DirAccess.make_dir_recursive_absolute(out_dir)
+	load("res://scripts/services/profile_store.gd").directory_override = out_dir.path_join("profile")
 	ui = load("res://scenes/main.tscn").instantiate()
 	root.add_child(ui)
 	await settle(24)
@@ -28,10 +30,13 @@ func run() -> void:
 			{"id": "shot_hero", "hero_id": "ARDOR", "name": "Ardor"},
 			{"id": "shot_two", "hero_id": "KAIT", "name": "Kait"},
 			{"id": "shot_three", "hero_id": "MAX", "name": "Max"}],
-		"profile": "expedition_18", "seed": 20260909, "autosave": false})
+		"mine_id": "QUARRY", "seed": 20260909, "autosave": false})
 	await settle(12)
 	await shoot("route")
-	party(func(): ui._command("VoteRoom", {"offer_id": ui.snapshot.offers[0].id}))
+	var battle_id: String = ui.snapshot.offers[0].id
+	for offer in ui.snapshot.offers:
+		if offer.kind == "battle": battle_id = offer.id
+	party(func(): ui._command("VoteRoom", {"offer_id": battle_id}))
 	await settle(70)
 	await shoot("battle")
 	ui._toggle_die(str(ui._hero().dice[0].id))
@@ -104,24 +109,23 @@ func run() -> void:
 	ui._close_overlay()
 	await settle(10)
 
-	# A route card carrying the two rooms that are played rather than read.
+	# Deeper in the seam, with the meter running high and a teammate's vote cast.
 	ui.engine.state.room = {}
-	ui.engine.state.offers = [
-		{"id": "shot-wager", "kind": "wager", "name": "The Wager Hall",
-			"description": ui.engine._room_description("wager"), "required": false},
-		{"id": "shot-crucible", "kind": "crucible", "name": "The Crucible",
-			"description": ui.engine._room_description("crucible"), "required": false},
-		{"id": "shot-battle", "kind": "battle", "name": "Battle",
-			"description": ui.engine._room_description("battle"), "required": false}]
-	ui.engine.state.votes = {"shot_two": "shot-crucible"}
-	ui.engine.state.phase = "route"
+	ui.engine.state.enemies = []
+	Seam.ensure_layers(ui.engine.state.seam, ui.engine.state.seed, ui.engine.state.mine_id, "", 14)
+	ui.engine.state.depth = 6
+	ui.engine.state.deepest = 6
+	ui.engine.state.position = ui.engine.state.seam.layers["6"][0].id
+	ui.engine.state.tremor = 820
+	ui.engine._route_offers()
+	ui.engine.state.votes = {"shot_two": ui.engine.state.offers[0].id}
 	ui._state_changed(ui.engine.state)
 	await settle(20)
-	await shoot("route_services")
+	await shoot("route_deep")
 
 	# The Wager Hall at each of its three states.
 	ui.engine._enter_room("wager")
-	ui.engine.state.heroes[0].gold = 40
+	ui.engine.state.heroes[0].ore = 40
 	ui._state_changed(ui.engine.state)
 	await settle(20)
 	await shoot("wager_stake")

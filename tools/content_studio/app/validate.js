@@ -83,10 +83,8 @@ export function validatePack(content, registry) {
 				add("error", "dice", id, "faces", `Every face has to be a whole number from 1 to ${sides}.`);
 				break;
 			}
-		if (entry.unlock_act !== undefined && (!isInteger(entry.unlock_act) || entry.unlock_act < 0 || entry.unlock_act > 3))
-			add("error", "dice", id, "unlock_act", "Shop unlock act is 0 (never sold) to 3.");
-		if (entry.unlock_room !== undefined && (!isInteger(entry.unlock_room) || entry.unlock_room < 0))
-			add("error", "dice", id, "unlock_room", "Shop unlock room cannot be negative.");
+		if (entry.unlock_depth !== undefined && (!isInteger(entry.unlock_depth) || entry.unlock_depth < 0 || entry.unlock_depth > 999))
+			add("error", "dice", id, "unlock_depth", "Merchant depth is 0 (never sold) to 999.");
 	}
 
 	for (const [id, entry] of Object.entries(content.heroes || {})) {
@@ -128,35 +126,11 @@ export function validatePack(content, registry) {
 			add("warn", "enemies", id, "dice", "No dice: this enemy rolls nothing, so a routine that reads its hand has nothing to read.");
 	}
 
-	for (const [id, entry] of Object.entries(content.profiles || {})) {
-		if (typeof entry !== "object" || !Array.isArray(entry.skill_ids)) {
-			add("error", "profiles", id, "skill_ids", "A profile needs a gem pool.");
-			continue;
-		}
-		for (const skill of entry.skill_ids)
-			if (!(content.skills || {})[skill]) add("error", "profiles", id, "skill_ids", `No such gem: ${skill}.`);
-		for (const relic of entry.relic_ids || [])
-			if (!(content.relics || {})[relic]) add("error", "profiles", id, "relic_ids", `No such relic: ${relic}.`);
-		for (const boss of entry.boss_ids || [])
-			if (!(content.enemies || {})[boss]) add("error", "profiles", id, "boss_ids", `No such enemy: ${boss}.`);
-		if (!(registry.loot_generators || []).includes(entry.loot_generator))
-			add("error", "profiles", id, "loot_generator", `Unregistered loot generator ${entry.loot_generator}.`);
-		const acts = Number(entry.acts || 1);
-		if ((entry.boss_ids || []).length < acts) add("error", "profiles", id, "boss_ids", `${acts} acts need ${acts} bosses.`);
-		if ((entry.combat_gold_cap || []).length < acts) add("error", "profiles", id, "combat_gold_cap", `${acts} acts need ${acts} gold allowances.`);
-		if (!entry.skill_ids.includes("STRIKE")) add("warn", "profiles", id, "skill_ids", "Strike is missing from the pool, so no drop can ever replace a lost one.");
-		issues.push(...encounterIssues(id, entry.encounters, content));
-	}
-
 	issues.push(...mineIssues(content, registry));
 
 	for (const id of Object.keys(content.statuses || {}))
 		if (!(registry.statuses || []).includes(id))
 			add("error", "statuses", id, "", `Only ${(registry.statuses || []).join(", ")} are tracked by the rules build.`);
-
-	for (const profileId of ["short_9", "expedition_18"])
-		if (content.pack_id === "full" && !(content.profiles || {})[profileId])
-			add("error", "profiles", profileId, "", `A pack called "full" has to carry the ${profileId} profile.`);
 
 	return issues.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1));
 }
@@ -167,7 +141,7 @@ function registryFor(section) {
 
 /** Whether this entry has a rule to run, and what it is missing if not. */
 export function ruleProblem(section, id, entry, registry) {
-	if (section === "dice" || section === "profiles" || section === "mines") return null;
+	if (section === "dice" || section === "mines") return null;
 	if ((registry[section] || []).includes(id)) return null;
 	switch (section) {
 		case "skills":
@@ -249,38 +223,6 @@ function mineIssues(content, registry) {
 	return issues;
 }
 
-function encounterIssues(profileId, table, content) {
-	const issues = [];
-	const add = (field, message, severity = "error") => issues.push({ severity, section: "profiles", id: profileId, field, message });
-	if (!table || typeof table !== "object" || !Object.keys(table).length) return issues;
-	for (const group of Object.keys(table))
-		if (!["first_room", "normal", "elite", "boss"].includes(group))
-			add("encounters", `Unknown encounter group “${group}”.`);
-	const known = (key) => Boolean((content.enemies || {})[key]);
-	for (const field of ["first_room", "boss"])
-		if (table[field] !== undefined) {
-			if (!Array.isArray(table[field])) add("encounters", `${field} must be a list of enemy IDs.`);
-			else for (const key of table[field]) if (!known(key)) add("encounters", `${field}: no such enemy ${key}.`);
-		}
-	const groups = (list, label) => {
-		if (!Array.isArray(list)) return add("encounters", `${label} must be a list of groups, one per party size.`);
-		list.forEach((group, index) => {
-			if (!Array.isArray(group)) return add("encounters", `${label}: entry ${index + 1} must be a list of enemy IDs.`);
-			for (const key of group) if (!known(key)) add("encounters", `${label}: no such enemy ${key}.`);
-		});
-		if (list.length < 4) add("encounters", `${label} covers ${list.length} of 4 party sizes; the largest listed group is reused above that.`, "warn");
-	};
-	if (table.elite !== undefined) groups(table.elite, "elite");
-	if (table.normal !== undefined) {
-		if (typeof table.normal !== "object" || Array.isArray(table.normal)) add("encounters", "normal must be an object keyed by act.");
-		else for (const [act, list] of Object.entries(table.normal)) {
-			if (!["1", "2", "3"].includes(String(act))) add("encounters", `normal: act ${act} is outside 1-3.`);
-			else groups(list, `normal/act ${act}`);
-		}
-	}
-	return issues;
-}
-
 /** Everything that would break if this entry disappeared. */
 export function referencesTo(content, section, id) {
 	const found = [];
@@ -292,16 +234,12 @@ export function referencesTo(content, section, id) {
 	if (section === "skills") {
 		for (const [key, entry] of Object.entries(content.heroes || {}))
 			if ((entry.starting_gems || []).some((starter) => starter[0] === id)) found.push({ section: "heroes", id: key, why: "starts with this gem" });
-		for (const [key, entry] of Object.entries(content.profiles || {}))
-			if ((entry.skill_ids || []).includes(id)) found.push({ section: "profiles", id: key, why: "has it in the gem pool" });
 		for (const [key, entry] of Object.entries(content.skills || {}))
 			if (key !== id && entry.evaluator_id === id) found.push({ section: "skills", id: key, why: "borrows its rule" });
 		for (const [key, entry] of Object.entries(content.mines || {}))
 			if ((entry.skill_ids || []).includes(id)) found.push({ section: "mines", id: key, why: "has it in the gem pool" });
 	}
 	if (section === "relics") {
-		for (const [key, entry] of Object.entries(content.profiles || {}))
-			if ((entry.relic_ids || []).includes(id)) found.push({ section: "profiles", id: key, why: "has it in the relic pool" });
 		for (const [key, entry] of Object.entries(content.mines || {}))
 			if ((entry.relic_ids || []).includes(id)) found.push({ section: "mines", id: key, why: "has it in the relic pool" });
 	}
@@ -312,10 +250,6 @@ export function referencesTo(content, section, id) {
 		for (const [key, entry] of Object.entries(content.mines || {})) {
 			if (entry.boss_id === id) found.push({ section: "mines", id: key, why: "uses it as the boss" });
 			if (JSON.stringify(entry.bands || []).includes(`"${id}"`)) found.push({ section: "mines", id: key, why: "spawns it in a depth band" });
-		}
-		for (const [key, entry] of Object.entries(content.profiles || {})) {
-			if ((entry.boss_ids || []).includes(id)) found.push({ section: "profiles", id: key, why: "uses it as an act boss" });
-			if (JSON.stringify(entry.encounters || {}).includes(`"${id}"`)) found.push({ section: "profiles", id: key, why: "spawns it in an encounter" });
 		}
 		for (const [key, entry] of Object.entries(content.enemies || {}))
 			if (key !== id && entry.ai === id) found.push({ section: "enemies", id: key, why: "borrows its routine" });

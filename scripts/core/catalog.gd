@@ -16,7 +16,7 @@ const GEM_COLORS: Dictionary = {
 	"BLUE": {"name": "Blue", "hex": "5a8fd8", "role": "Block"},
 	"GREEN": {"name": "Green", "hex": "6fbf73", "role": "Healing and revival"},
 	"VIOLET": {"name": "Violet", "hex": "a97fe0", "role": "Control: stun and poison"},
-	"GOLD": {"name": "Gold", "hex": "e0b64a", "role": "Gold and fortune"},
+	"GOLD": {"name": "Gold", "hex": "e0b64a", "role": "Fortune: ore and luck"},
 	"WHITE": {"name": "White", "hex": "c6d4e8", "role": "Mastery: rerolls, dice and gems"}
 }
 const CUT_NAMES: Array = ["Poor", "Fair", "Good", "Great", "Perfect"]
@@ -33,9 +33,9 @@ const SKILLS: Dictionary = {
 	"BLOCK": {"name": "Block", "rarity": 1, "color": "BLUE", "tags": ["pair", "block"], "trigger": "Any pair", "formula": "Self block (highest pair value × K + F(L)) × M(C).", "target": "self"},
 	"HEAL": {"name": "Heal", "rarity": 2, "color": "GREEN", "tags": ["heal"], "trigger": "Always", "formula": "Self heal (lowest K dice + F(L)) × M(C).", "target": "self"},
 	"MULTISTRIKE": {"name": "Multistrike", "rarity": 2, "color": "RED", "tags": ["straight", "attack"], "trigger": "Straight: 5 at L1–2; 4 at L3–4; 3 at L5", "formula": "K hits of 4 × M(C) damage. Clarity shortens the straight instead of adding F(L). Target stays fixed for this skill.", "target": "enemy"},
-	"LUCKYSTRIKE": {"name": "Lucky Strike", "rarity": 3, "color": "GOLD", "tags": ["seven", "attack", "gold"], "trigger": "At least one 7", "formula": "Each 7: 7 × M(K) × M(C) damage, then C × J gold. Three or more sevens: J=L+1 (7 at L5); otherwise J=1. The jackpot multiplies gold only.", "target": "enemy"},
+	"LUCKYSTRIKE": {"name": "Lucky Strike", "rarity": 3, "color": "GOLD", "tags": ["seven", "attack", "gold"], "trigger": "At least one 7", "formula": "Each 7: 7 × M(K) × M(C) damage, then C × J ore. Three or more sevens: J=L+1 (7 at L5); otherwise J=1. The jackpot multiplies ore only.", "target": "enemy"},
 	"HEAVYSTRIKE": {"name": "Heavy Strike", "rarity": 1, "color": "RED", "tags": ["triple", "attack"], "trigger": "At least three matching values", "formula": "Damage (highest triple value × K + F(L)) × M(C).", "target": "enemy"},
-	"BLESSING": {"name": "Blessing", "rarity": 3, "color": "GOLD", "tags": ["straight", "heal", "gold"], "trigger": "Straight of 3", "formula": "Gain 3 × M(C) gold, then self heal (K + F(L)) × M(C).", "target": "self"},
+	"BLESSING": {"name": "Blessing", "rarity": 3, "color": "GOLD", "tags": ["straight", "heal", "gold"], "trigger": "Straight of 3", "formula": "Gain 3 × M(C) ore, then self heal (K + F(L)) × M(C).", "target": "self"},
 	"SHIELDBASH": {"name": "Shield Bash", "rarity": 2, "color": "BLUE", "tags": ["full_house", "attack", "block"], "trigger": "Three of one value and two of another", "formula": "Gain F(L) × M(C) block, then damage floor(current block × (K+1)/2). At L5, apply 1 stun.", "target": "enemy"},
 	"STUN": {"name": "Stun", "rarity": 4, "color": "VIOLET", "tags": ["high", "attack", "stun"], "trigger": "Highest die ≥ 21−L", "formula": "Damage (H + F(L)) × M(C), then 1 stun (2 at K5). K2–4 do not improve duration.", "target": "enemy"},
 	"BULWARK": {"name": "Bulwark", "rarity": 3, "color": "BLUE", "tags": ["low", "block"], "trigger": "Total ≤ 18+2L (20/22/24/26/28)", "formula": "Carat reads a fixed 10–300 block table instead of M(C); self-stun at Cut 1–5: 3/2/2/1/0. Clarity only eases the trigger.", "target": "self"},
@@ -51,7 +51,7 @@ const SKILLS: Dictionary = {
 	"GLIMMER": {"name": "Glimmer", "rarity": 1, "color": "WHITE", "tags": ["low", "support"], "trigger": "Always", "formula": "Raise your lowest die by (K + F(L)) × M(C), to a maximum of 20. Every gem equipped after this one reads the raised hand.", "target": "self"},
 	"REFRACT": {"name": "Refract", "rarity": 3, "color": "WHITE", "tags": ["high", "support"], "trigger": "Always", "formula": "Raise your highest die by (H + 2(K−1) + F(L)) × M(C), to a maximum of 20 — enough to at least double it. Every gem equipped after this one reads the raised hand.", "target": "self"},
 	"SECOND_SIGHT": {"name": "Second Sight", "rarity": 2, "color": "WHITE", "tags": ["support", "block"], "trigger": "Always", "formula": "Raise your rerolls per turn to 2 + floor(C/8) for the rest of this battle, +1 at K5, up to 4. It sets the allowance rather than adding to it. Then gain F(L) × M(C) block.", "target": "self"},
-	"ECHO": {"name": "Echo", "rarity": 3, "color": "WHITE", "tags": ["pair", "support", "group"], "trigger": "Any pair", "formula": "Repeat the last gem before this one that landed an amount, at (25 + 5(K−1) + F(L)) × M(C) percent of it, up to 200%. It repeats damage, block, healing, gold and statuses only.", "target": "self"},
+	"ECHO": {"name": "Echo", "rarity": 3, "color": "WHITE", "tags": ["pair", "support", "group"], "trigger": "Any pair", "formula": "Repeat the last gem before this one that landed an amount, at (25 + 5(K−1) + F(L)) × M(C) percent of it, up to 200%. It repeats damage, block, healing, ore and statuses only.", "target": "self"},
 	"FACET": {"name": "Facet", "rarity": 4, "color": "WHITE", "tags": ["distinct", "support"], "trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)", "formula": "Once per encounter, permanently raise the Carat of your lowest-Carat other equipped gem by ceil(K/2), never past this gem's own Carat of C.", "target": "self"},
 	"QUARTET": {"name": "Quartet", "rarity": 3, "color": "RED", "tags": ["triple", "attack"], "trigger": "At least four matching values (three at L5)", "formula": "Damage (matched value × 2K + F(L)) × M(C). Clarity buys the trigger down to a triple instead of adding its flat bonus at L5.", "target": "enemy"},
 	"BASTION": {"name": "Bastion", "rarity": 3, "color": "BLUE", "tags": ["low", "block", "support", "stun"], "trigger": "Total ≤ 18+2L (20/22/24/26/28)", "formula": "Party block (3K + F(L)) × M(C) to every living hero, then clear 1 stun (2 at L5) from every living hero.", "target": "ally"},
@@ -60,9 +60,9 @@ const SKILLS: Dictionary = {
 	"HEXBOLT": {"name": "Hex Bolt", "rarity": 2, "color": "VIOLET", "tags": ["odd", "attack", "stun"], "trigger": "At least three odd results", "formula": "Damage (odd result count × K + F(L)) × M(C). At L5, apply 1 stun.", "target": "enemy"},
 	"MIASMA": {"name": "Miasma", "rarity": 3, "color": "VIOLET", "tags": ["even", "poison", "group"], "trigger": "At least three even results", "formula": "Apply K+ceil(C/6) Poison to up to K+1 distinct enemies, then damage F(L) × M(C) to the same enemies (12 stack cap).", "target": "enemies"},
 	"ENERVATE": {"name": "Enervate", "rarity": 4, "color": "VIOLET", "tags": ["triple", "poison", "attack"], "trigger": "At least three matching values", "formula": "Remove up to (2K + F(L)) × M(C) block, then apply floor(matched value / 2) + K Poison (12 stack cap).", "target": "enemy"},
-	"TITHE": {"name": "Tithe", "rarity": 1, "color": "GOLD", "tags": ["pair", "gold"], "trigger": "Any pair", "formula": "Gain (K + F(L)) × M(C) gold.", "target": "self"},
-	"MINT": {"name": "Mint", "rarity": 2, "color": "GOLD", "tags": ["distinct", "gold", "block"], "trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)", "formula": "Gain (2K + F(L)) × M(C) gold, then self block (K + F(L)) × M(C).", "target": "self"},
-	"WAGER": {"name": "Wager", "rarity": 4, "color": "GOLD", "tags": ["low", "gold", "attack"], "trigger": "Total ≤ 18+2L (20/22/24/26/28)", "formula": "Gain 3 × M(C) gold, then damage (24 − total + 2K + F(L)) × M(C). The less the hand gave you, the harder this lands.", "target": "enemy"}
+	"TITHE": {"name": "Tithe", "rarity": 1, "color": "GOLD", "tags": ["pair", "gold"], "trigger": "Any pair", "formula": "Gain (K + F(L)) × M(C) ore.", "target": "self"},
+	"MINT": {"name": "Mint", "rarity": 2, "color": "GOLD", "tags": ["distinct", "gold", "block"], "trigger": "At least 5 distinct results (4 at L3–4; 3 at L5)", "formula": "Gain (2K + F(L)) × M(C) ore, then self block (K + F(L)) × M(C).", "target": "self"},
+	"WAGER": {"name": "Wager", "rarity": 4, "color": "GOLD", "tags": ["low", "gold", "attack"], "trigger": "Total ≤ 18+2L (20/22/24/26/28)", "formula": "Gain 3 × M(C) ore, then damage (24 − total + 2K + F(L)) × M(C). The less the hand gave you, the harder this lands.", "target": "enemy"}
 }
 const DICE: Dictionary = {
 	"D4": {"name": "D4", "shape": "D4", "faces": [1, 2, 3, 4], "price": 4},
@@ -71,21 +71,21 @@ const DICE: Dictionary = {
 	"D10": {"name": "D10", "shape": "D10", "faces": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "price": 10},
 	"D12": {"name": "D12", "shape": "D12", "faces": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], "price": 12},
 	"D20": {"name": "D20", "shape": "D20", "faces": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], "price": 16},
-	"PAIRED_D6": {"name": "Paired Die", "shape": "D6", "faces": [1, 1, 2, 5, 6, 6], "price": 8},
-	"ODD_D6": {"name": "Odd Die", "shape": "D6", "faces": [1, 1, 3, 5, 5, 6], "price": 8},
-	"EVEN_D6": {"name": "Even Die", "shape": "D6", "faces": [1, 2, 4, 4, 4, 6], "price": 8},
-	"SEVEN_D8": {"name": "Seven Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 7, 7, 7], "price": 14},
-	"SPLIT_D12": {"name": "Split Die", "shape": "D12", "faces": [1, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 12], "price": 16},
-	"SPLIT_D20": {"name": "Rift Die", "shape": "D20", "faces": [1, 2, 3, 4, 5, 5, 6, 6, 7, 7, 14, 14, 15, 15, 16, 16, 17, 18, 19, 20], "price": 22}
+	"PAIRED_D6": {"name": "Paired Die", "shape": "D6", "faces": [1, 1, 2, 5, 6, 6], "price": 8, "unlock_depth": 1},
+	"ODD_D6": {"name": "Odd Die", "shape": "D6", "faces": [1, 1, 3, 5, 5, 6], "price": 8, "unlock_depth": 1},
+	"EVEN_D6": {"name": "Even Die", "shape": "D6", "faces": [1, 2, 4, 4, 4, 6], "price": 8, "unlock_depth": 1},
+	"SEVEN_D8": {"name": "Seven Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 7, 7, 7], "price": 14, "unlock_depth": 5},
+	"SPLIT_D12": {"name": "Split Die", "shape": "D12", "faces": [1, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 12], "price": 16, "unlock_depth": 6},
+	"SPLIT_D20": {"name": "Rift Die", "shape": "D20", "faces": [1, 2, 3, 4, 5, 5, 6, 6, 7, 7, 14, 14, 15, 15, 16, 16, 17, 18, 19, 20], "price": 22, "unlock_depth": 12}
 }
 const RELICS: Dictionary = {
 	"MATCHBOX": {"name": "Matchbox", "description": "Your Block gem grants +2 block once per actor turn."},
 	"STEADY_HAND": {"name": "Steady Hand", "description": "Strike deals +2 raw damage when no die was rerolled this turn."},
 	"FIELD_DRESSING": {"name": "Field Dressing", "description": "Your first positive ordinary heal to an injured recipient each turn gains +2 healing."},
-	"MINERS_LANTERN": {"name": "Miner's Lantern", "description": "Gain 2 extra mining energy while alive."},
+	"MINERS_LANTERN": {"name": "Miner's Lantern", "description": "Gain 2 extra mining energy while alive, and see exact rooms one layer further down the seam."},
 	"FOCUSING_PRISM": {"name": "Focusing Prism", "description": "Straight skills use +1 effective Clarity, up to 5."},
-	"MERCHANT_SEAL": {"name": "Merchant's Seal", "description": "Gain +3 gold from each normal or elite battle reward."},
-	"TINKERS_BELT": {"name": "Tinker's Belt", "description": "Your first Workshop service each act is free. One service per visit."},
+	"MERCHANT_SEAL": {"name": "Merchant's Seal", "description": "Gain +3 ore from each normal or elite battle."},
+	"TINKERS_BELT": {"name": "Tinker's Belt", "description": "Your first Workshop service each expedition is free. One service per visit."},
 	"LASTING_AEGIS": {"name": "Lasting Aegis", "description": "Carry up to 6 remaining block from a won battle into the next. Unequipping discards stored block."}
 }
 const ENEMIES: Dictionary = {
@@ -102,10 +102,11 @@ const ENEMIES: Dictionary = {
 	"RIFT_SOVEREIGN": {"name": "Rift Sovereign", "max_hp": 100, "block": 0, "dice": [], "boss": true, "description": "High Tide → Low Tide → Eclipse. At 40% HP: High Tide and Low Tide each turn; safe total 19–23. Has Resolve."}
 }
 const EVENTS: Dictionary = {
-	"ABANDONED_CACHE": {"name": "Abandoned Cache", "description": "Take 6 gold, or lose 8 HP for the displayed gem with +2 Carat. Requires more than 8 HP."},
-	"FIELD_MEDIC": {"name": "Field Medic", "description": "Take 4 gold, or pay 8 gold to recover 20% maximum HP (rounded up)."},
-	"ECHO_SHRINE": {"name": "Echo Shrine", "description": "Take 5 gold, or replace one D6's faces with Paired, Odd, or Even faces."},
-	"JEWEL_BROKER": {"name": "Jewel Broker", "description": "Take 4 gold, or exchange one reserve gem for one of three displayed gems."}
+	"ABANDONED_CACHE": {"name": "Abandoned Cache", "description": "Take 6 ore, or lose 8 HP for the displayed gem with +2 Carat. Requires more than 8 HP."},
+	"FIELD_MEDIC": {"name": "Field Medic", "description": "Take 4 ore, or pay 8 ore to recover 20% maximum HP (rounded up)."},
+	"ECHO_SHRINE": {"name": "Echo Shrine", "description": "Take 5 ore, or replace one D6's faces with Paired, Odd, or Even faces."},
+	"JEWEL_BROKER": {"name": "Jewel Broker", "description": "Take 4 ore, or trade one found gem for one of three appraised gems."},
+	"STILL_POOL": {"name": "Still Pool", "description": "Take 4 ore, or sit by the water a while: the tremor meter settles by 12%. The water only calms once."}
 }
 ## The mine atlas. Each mine is a whole expedition: its boss arrives when the tremor meter
 ## fills, its bands decide what spawns as the party digs deeper, and its gem pool and colour
@@ -116,7 +117,7 @@ const MINES: Dictionary = {
 		"description": "Old galleries under the town. Slimes and stone crabs, lifts every few layers, and a Slime King that wakes slowly.",
 		"links": ["MIRROR_GROTTO", "RIFT_HOLLOW"], "atlas_x": 50, "atlas_y": 58, "color": "c9a26b",
 		"tremor_rate": 100, "lift_rate": 100, "quality_bonus": 0,
-		"rooms": {"battle": 6, "elite": 1, "mine": 3, "rest": 2, "treasure": 1, "shop": 1, "lapidary": 1, "crucible": 1, "workshop": 1, "wager": 1, "event": 2},
+		"rooms": {"battle": 8, "elite": 1, "mine": 2, "rest": 2, "treasure": 1, "shop": 1, "lapidary": 1, "crucible": 1, "workshop": 1, "wager": 1, "event": 2},
 		"bands": [
 			{"from_depth": 1, "normal": {"SLIME": 4, "STONE_CRAB": 1}, "elite": {"RED_SLIME": 1}},
 			{"from_depth": 4, "normal": {"SLIME": 2, "STONE_CRAB": 3, "GEM_CULTIST": 1}, "elite": {"RED_SLIME": 1, "IRON_WARDEN": 1}},
@@ -128,7 +129,7 @@ const MINES: Dictionary = {
 		"description": "Crystal caverns where the walls look back. Mirror Wisps and cultists, more strange encounters, and White and Blue stones running thick.",
 		"links": [], "atlas_x": 26, "atlas_y": 30, "color": "9fd3f0",
 		"tremor_rate": 115, "lift_rate": 85, "quality_bonus": 4,
-		"rooms": {"battle": 5, "elite": 2, "mine": 2, "rest": 1, "treasure": 1, "shop": 1, "lapidary": 2, "crucible": 1, "workshop": 1, "wager": 1, "event": 3},
+		"rooms": {"battle": 7, "elite": 2, "mine": 1, "rest": 1, "treasure": 1, "shop": 1, "lapidary": 2, "crucible": 1, "workshop": 1, "wager": 1, "event": 3},
 		"bands": [
 			{"from_depth": 1, "normal": {"MIRROR_WISP": 3, "SLIME": 2, "GEM_CULTIST": 1}, "elite": {"RED_SLIME": 1}},
 			{"from_depth": 4, "normal": {"MIRROR_WISP": 3, "DARTLING": 2, "GEM_CULTIST": 2}, "elite": {"RED_SLIME": 1, "IRON_WARDEN": 1}},
@@ -140,7 +141,7 @@ const MINES: Dictionary = {
 		"description": "A split in the deep rock that is still opening. Rift Hounds hunt in packs, lifts are few, and the Rift Sovereign stirs fast. Red and Violet stones.",
 		"links": [], "atlas_x": 76, "atlas_y": 32, "color": "b07cf0",
 		"tremor_rate": 135, "lift_rate": 65, "quality_bonus": 8,
-		"rooms": {"battle": 6, "elite": 3, "mine": 3, "rest": 1, "treasure": 2, "shop": 1, "lapidary": 1, "crucible": 2, "workshop": 1, "wager": 1, "event": 2},
+		"rooms": {"battle": 8, "elite": 3, "mine": 2, "rest": 1, "treasure": 1, "shop": 1, "lapidary": 1, "crucible": 2, "workshop": 1, "wager": 1, "event": 2},
 		"bands": [
 			{"from_depth": 1, "normal": {"RIFT_HOUND": 3, "DARTLING": 2, "STONE_CRAB": 1}, "elite": {"IRON_WARDEN": 1, "RED_SLIME": 1}},
 			{"from_depth": 4, "normal": {"RIFT_HOUND": 3, "MIRROR_WISP": 2, "DARTLING": 2}, "elite": {"IRON_WARDEN": 2}},
@@ -179,7 +180,7 @@ static func hero(key: String, id: String, seat: int = 0) -> Dictionary:
 		return {}
 	var definition: Dictionary = definitions("heroes")[key]
 	var unit: Dictionary = _unit(key, id, "hero", definition.max_hp, 0)
-	unit.merge({"seat": seat, "trait": definition.trait , "trait_charges": 1 if str(definition.get("trait", "")) == "SECOND_THOUGHT" else 0, "gold": 0, "rerolls": 1, "max_rerolls": 1, "base_rerolls": 1, "reserve_dice": [], "relics": [], "combat_gold": 0, "preferred_target": "", "connected": true})
+	unit.merge({"seat": seat, "trait": definition.trait , "trait_charges": 1 if str(definition.get("trait", "")) == "SECOND_THOUGHT" else 0, "ore": 0, "rerolls": 1, "max_rerolls": 1, "base_rerolls": 1, "reserve_dice": [], "relics": [], "combat_ore": 0, "preferred_target": "", "connected": true})
 	for index in range(definition.dice.size()):
 		unit.dice.append(die(definition.dice[index], id + "-d" + str(index)))
 	for index in range(definition.starting_gems.size()):
@@ -193,17 +194,23 @@ static func _unit(key: String, id: String, side: String, hp: int, block: int) ->
 	var definition: Dictionary = definitions("heroes")[key] if side == "hero" else definitions("enemies")[key]
 	return {"id": id, "key": key, "name": definition.name, "side": side, "hp": hp, "max_hp": hp, "block": block, "statuses": {"stun": 0, "poison": 0, "resolve": 0}, "dice": [], "hand": [], "initial_hand": [], "gems": [], "ready": false, "action_eligible_from_turn": 1, "rerolled": false, "relic_flags": {}}
 
-static func enemy(key: String, id: String, act: int = 1, party_size: int = 1) -> Dictionary:
+static func enemy(key: String, id: String, depth: int = 1, party_size: int = 1) -> Dictionary:
+	## Enemies grow with depth rather than by act: more health and harder hits the further
+	## down the seam they are met. A boss scales with the party instead, and gains only a
+	## capped share of the depth bonus so a meter that fills early is not a death sentence.
 	if not definitions("enemies").has(key):
 		return {}
 	var definition: Dictionary = definitions("enemies")[key]
 	var boss: bool = definition.get("boss", false)
-	var tier: int = clampi(act, 1, 3) - 1
-	var hp: int = int(definition.max_hp) * party_size if boss else int(ceil(float(definition.max_hp) * [1.0, 1.35, 1.75][tier]))
-	var block: int = int(definition.block) * party_size if boss else int(float(definition.block) * [1.0, 1.2, 1.4][tier])
+	var level: int = maxi(1, depth)
+	var hp: int = ceili(float(definition.max_hp) * party_size * (1.0 + minf(BOSS_DEPTH_CAP, BOSS_DEPTH_STEP * (level - 1)))) if boss else ceili(float(definition.max_hp) * (1.0 + HP_DEPTH_STEP * (level - 1)))
+	var support_scale: int = 100 + SUPPORT_DEPTH_PERCENT * (level - 1)
+	var block: int = int(definition.block) * party_size if boss else floori(float(definition.block) * support_scale / 100.0)
 	var unit: Dictionary = _unit(key, id, "enemy", hp, block)
 	## An authored enemy names a registered routine through `ai`; shipped ones are their own.
-	unit.merge({"ai": str(definition.get("ai", key)), "boss": boss, "act": clampi(act, 1, 3), "party_size": party_size, "intents": [], "boss_phase": "normal", "phase_turn": 0, "description": definition.description})
+	unit.merge({"ai": str(definition.get("ai", key)), "boss": boss, "depth": level, "party_size": party_size,
+		"damage_bonus": 0 if boss else floori(level / float(DAMAGE_DEPTH_STEP)), "support_scale": 100 if boss else support_scale,
+		"intents": [], "boss_phase": "normal", "phase_turn": 0, "description": definition.description})
 	for index in range(definition.dice.size()):
 		unit.dice.append(die(definition.dice[index], id + "-d" + str(index)))
 	var ai: String = str(unit.ai)
@@ -214,75 +221,66 @@ static func enemy(key: String, id: String, act: int = 1, party_size: int = 1) ->
 			item.equipped = true
 	return unit
 
-static func encounter(kind: String, act: int, party_size: int, room: int, profile: String) -> Array:
-	var count: int = clampi(party_size, 1, 4)
+## Depth scaling for ordinary enemies: +6% health per layer, +1 damage per hit every four
+## layers, +3% block and healing per layer. Bosses take 3% health per layer up to +60%.
+const HP_DEPTH_STEP: float = 0.06
+const DAMAGE_DEPTH_STEP: int = 4
+const SUPPORT_DEPTH_PERCENT: int = 3
+const BOSS_DEPTH_STEP: float = 0.03
+const BOSS_DEPTH_CAP: float = 0.6
+const MAX_ENEMIES: int = 4
+
+static func depth_band(mine_id: String, depth: int) -> Dictionary:
+	var found: Dictionary = {}
+	for band in mine_definition(mine_id).get("bands", []):
+		if band is Dictionary and int(band.get("from_depth", 1)) <= depth:
+			found = band
+	return found
+
+static func mine_encounter(mine_id: String, kind: String, depth: int, party_size: int, rng: RandomNumberGenerator, prefix: String) -> Array:
+	## Fills a threat budget from the depth band: one point per hero for a fight, two for an
+	## elite, and a little more as the party digs. An elite always leads with one of the band's
+	## elites. Weights are read in sorted order so the draw depends on the band, not its layout.
+	var mine: Dictionary = mine_definition(mine_id)
+	var count: int = clampi(party_size, 1, MAX_ENEMIES)
+	if kind == "boss":
+		return [enemy(str(mine.get("boss_id", "SLIME_KING")), prefix + "-boss", depth, count)]
+	var band: Dictionary = depth_band(mine_id, depth)
 	var keys: Array = []
-	var normalized: String = kind.to_lower()
-	var authored: Array = _authored_encounter(profile, normalized, act, count, room)
-	if not authored.is_empty():
-		keys = authored
-	elif normalized in ["boss", "boss_battle"]:
-		var bosses: Variant = profile_definition(profile).get("boss_ids", [])
-		if bosses is Array and bosses.size() >= clampi(act, 1, 3):
-			keys = [bosses[clampi(act, 1, 3) - 1]]
-		else:
-			keys = [["SLIME_KING"], ["MIRROR_REGENT"], ["RIFT_SOVEREIGN"]][clampi(act, 1, 3) - 1]
-	elif normalized in ["elite", "elite_battle"]:
-		keys = [["IRON_WARDEN"], ["IRON_WARDEN", "RED_SLIME"], ["IRON_WARDEN", "IRON_WARDEN", "RED_SLIME"], ["IRON_WARDEN", "IRON_WARDEN", "RED_SLIME", "RED_SLIME"]][count - 1]
-	elif room == 1:
-		for _index in range(count):
-			keys.append("SLIME")
-	elif act == 1:
-		keys = [["STONE_CRAB"], ["STONE_CRAB", "DARTLING"], ["STONE_CRAB", "DARTLING", "GEM_CULTIST"], ["STONE_CRAB", "STONE_CRAB", "DARTLING", "GEM_CULTIST"]][count - 1].duplicate()
-		if profile == "short_9":
-			for index in range(keys.size()):
-				if keys[index] == "DARTLING":
-					keys[index] = "SLIME"
-	elif act == 2:
-		keys = [["MIRROR_WISP"], ["MIRROR_WISP", "DARTLING"], ["MIRROR_WISP", "DARTLING", "GEM_CULTIST"], ["MIRROR_WISP", "MIRROR_WISP", "DARTLING", "GEM_CULTIST"]][count - 1]
-	else:
-		keys = [["RIFT_HOUND"], ["MIRROR_WISP", "RIFT_HOUND"], ["MIRROR_WISP", "RIFT_HOUND", "RIFT_HOUND"], ["MIRROR_WISP", "RIFT_HOUND", "RIFT_HOUND", "GEM_CULTIST"]][count - 1]
+	var budget: int = count + floori((depth - 1) / 6.0)
+	if kind == "elite":
+		budget = 2 * count + floori(depth / 8.0)
+		var elite: String = _weighted_key(rng, band.get("elite", {}), 999)
+		if not elite.is_empty():
+			keys.append(elite)
+			budget -= threat(elite)
+	while keys.size() < MAX_ENEMIES and budget > 0:
+		var picked: String = _weighted_key(rng, band.get("normal", {}), budget)
+		if picked.is_empty():
+			break
+		keys.append(picked)
+		budget -= threat(picked)
+	if keys.is_empty():
+		var fallback: String = _weighted_key(rng, band.get("normal", {}), 999)
+		keys.append(fallback if not fallback.is_empty() else "SLIME")
 	var units: Array = []
 	for index in range(keys.size()):
-		units.append(enemy(keys[index], "room" + str(room) + "-enemy" + str(index), act, count))
+		units.append(enemy(keys[index], "%s-enemy%d" % [prefix, index], depth, count))
 	return units
 
-static func _authored_encounter(profile: String, kind: String, act: int, count: int, room: int) -> Array:
-	## `encounters` in a run profile: {"first_room": [id], "normal": {"1": [[ids] per party
-	## size]}, "elite": [[ids] per party size], "boss": [id per act]}. Anything the table
-	## leaves out falls through to the shipped encounter list.
-	var table: Variant = profile_definition(profile).get("encounters", {})
-	if not table is Dictionary or table.is_empty():
-		return []
-	var bucket: Variant = null
-	if kind in ["boss", "boss_battle"]:
-		bucket = table.get("boss", null)
-		if bucket is Array and bucket.size() >= clampi(act, 1, 3) and definitions("enemies").has(bucket[clampi(act, 1, 3) - 1]):
-			return [bucket[clampi(act, 1, 3) - 1]]
-		return []
-	if kind in ["elite", "elite_battle"]:
-		bucket = table.get("elite", null)
-	elif room == 1 and table.has("first_room"):
-		bucket = table.get("first_room", null)
-		if bucket is Array and not bucket.is_empty() and bucket[0] is String:
-			var repeated: Array = []
-			for _index in range(count):
-				repeated.append(bucket[0])
-			return repeated
-	else:
-		var normal: Variant = table.get("normal", {})
-		if normal is Dictionary:
-			bucket = normal.get(str(clampi(act, 1, 3)), null)
-	if not bucket is Array or bucket.is_empty():
-		return []
-	var chosen: Variant = bucket[clampi(count, 1, bucket.size()) - 1]
-	if not chosen is Array:
-		return []
-	var keys: Array = []
-	for key in chosen:
-		if definitions("enemies").has(key):
-			keys.append(key)
-	return keys
+static func threat(key: String) -> int:
+	return maxi(1, int(definitions("enemies").get(key, {}).get("threat", 1)))
+
+static func _weighted_key(rng: RandomNumberGenerator, weights: Variant, budget: int) -> String:
+	if not weights is Dictionary:
+		return ""
+	var keys: Array = weights.keys().filter(func(key: Variant) -> bool:
+		return definitions("enemies").has(str(key)) and int(weights[key]) > 0 and threat(str(key)) <= budget)
+	keys.sort()
+	if keys.is_empty():
+		return ""
+	var index: int = RandomSource.weighted_index(rng, keys.map(func(key: Variant) -> int: return int(weights[key])))
+	return str(keys[maxi(0, index)])
 
 static func gem_value(item: Dictionary) -> int:
 	var key: String = canonical_key(str(item.get("key", "")))
@@ -313,102 +311,40 @@ static func has_relic(unit: Dictionary, key: String) -> bool:
 			return true
 	return false
 
-static func eligible_skills(profile: String, party_size: int = 1) -> Array:
-	## A profile that lists its own pool wins; otherwise the shipped pool minus the skills
-	## the short campaign holds back. Either way the result is sorted, so the loot stream
-	## depends on the set and never on the order it was authored in.
-	var authored: Variant = profile_definition(profile).get("skill_ids", [])
+static func mine_skills(mine_id: String, party_size: int = 1) -> Array:
+	## The mine's gem pool, sorted so the loot stream depends on the set and never on the order
+	## it was authored in. Lifeline revives an ally, so a solo expedition never finds one.
 	var keys: Array = []
-	if authored is Array and not authored.is_empty():
-		for key in authored:
-			if definitions("skills").has(key) and not key in keys:
-				keys.append(key)
-	else:
-		keys = definitions("skills").keys()
-		if profile in ["short_9", "starter"]:
-			for key in ["VENOM", "EVEN_TEMPO", "PRECISION", "LIFELINE"]:
-				keys.erase(key)
+	for key in mine_definition(mine_id).get("skill_ids", []):
+		if definitions("skills").has(str(key)) and not str(key) in keys:
+			keys.append(str(key))
 	if party_size <= 1:
 		keys.erase("LIFELINE")
 	keys.sort()
 	return keys
 
-static func eligible_relics(profile: String) -> Array:
-	var authored: Variant = profile_definition(profile).get("relic_ids", [])
-	if authored is Array and not authored.is_empty():
-		var keys: Array = []
-		for key in authored:
-			if definitions("relics").has(key) and not key in keys:
-				keys.append(key)
-		return keys
-	return ["MATCHBOX", "STEADY_HAND", "FIELD_DRESSING", "MINERS_LANTERN"] if profile in ["short_9", "starter"] else definitions("relics").keys()
+static func mine_relics(mine_id: String) -> Array:
+	var keys: Array = []
+	for key in mine_definition(mine_id).get("relic_ids", []):
+		if definitions("relics").has(str(key)) and not str(key) in keys:
+			keys.append(str(key))
+	keys.sort()
+	return keys
 
-## When a die does not say when it reaches the shop, these are the acts the shipped ones
-## always used. `unlock_room` only applies to single-act profiles, where there is no later
-## act for a die to wait for.
-const DIE_UNLOCK: Dictionary = {"PAIRED_D6": {"act": 1}, "ODD_D6": {"act": 1}, "EVEN_D6": {"act": 1},
-	"SEVEN_D8": {"act": 2, "room": 5}, "SPLIT_D12": {"act": 2}, "SPLIT_D20": {"act": 3}}
-
-static func eligible_dice(profile: String, act: int = 1, room: int = 1) -> Array:
-	## A die reaches the shop on the act it names. Order is the shipped order first and
-	## authored dice after, within each act, so adding one never reshuffles the old stream.
-	var acts: int = int(profile_definition(profile).get("acts", 1 if profile in ["short_9", "starter"] else 3))
+static func merchant_dice(depth: int) -> Array:
+	## Dice a merchant may stock at this depth: every die whose `unlock_depth` has been
+	## reached. Zero means never sold. Shipped dice come first in their shipped order, then
+	## authored ones by name, so adding a die never reshuffles the old stream.
 	var shipped: Array = DICE.keys()
 	var ranked: Array = []
 	for key in definitions("dice"):
-		var definition: Dictionary = definitions("dice")[key]
-		var fallback: Dictionary = DIE_UNLOCK.get(key, {})
-		var unlock_act: int = int(definition.get("unlock_act", fallback.get("act", 0)))
-		if unlock_act <= 0:
-			continue
-		var unlock_room: int = int(definition.get("unlock_room", fallback.get("room", 0)))
-		if act < unlock_act and not (acts <= 1 and unlock_room > 0 and room >= unlock_room):
+		var unlock: int = int(definitions("dice")[key].get("unlock_depth", 0))
+		if unlock <= 0 or unlock > depth:
 			continue
 		var order: int = shipped.find(key)
-		ranked.append([unlock_act, 99 if order < 0 else order, str(key)])
+		ranked.append([99 if order < 0 else order, str(key)])
 	ranked.sort()
-	var keys: Array = []
-	for entry in ranked:
-		keys.append(entry[2])
-	return keys
-
-static func generate_gems(rng: RandomNumberGenerator, count: int, profile: String, act: int, luck: int, prefix: String, party_size: int = 1, elite: bool = false) -> Array:
-	var available: Array = eligible_skills(profile, party_size)
-	var result: Array = []
-	var tier: int = clampi(act, 1, 3) - 1
-	var rarity_weights: Array = [[55, 35, 10, 0], [35, 40, 20, 5], [20, 40, 30, 10]][tier] if profile == "expedition_18" else RandomSource.luck_weights(luck)
-	while result.size() < count and not available.is_empty():
-		var buckets: Array = [[], [], [], [], []]
-		for key in available:
-			buckets[int(definitions("skills")[key].rarity) - 1].append(key)
-		var weights: Array = []
-		for index in range(rarity_weights.size()):
-			weights.append(0 if buckets[index].is_empty() else rarity_weights[index])
-		var bucket_index: int = RandomSource.weighted_index(rng, weights)
-		if bucket_index < 0:
-			break
-		var bucket: Array = buckets[bucket_index]
-		var key: String = bucket[rng.randi_range(0, bucket.size() - 1)]
-		available.erase(key)
-		var c: int
-		var k: int
-		var l: int
-		if profile == "expedition_18":
-			c = rng.randi_range([1, 4, 7][tier], [4, 8, 12][tier])
-			var ranks: Array = [[75, 25, 0, 0, 0], [35, 45, 20, 0, 0], [10, 25, 45, 20, 0]][tier]
-			k = RandomSource.weighted_index(rng, ranks) + 1
-			l = RandomSource.weighted_index(rng, ranks) + 1
-		else:
-			c = mini((RandomSource.rarity(rng, luck) - 1) * 5 + rng.randi_range(1, 5), 24)
-			k = RandomSource.rarity(rng, luck)
-			l = RandomSource.rarity(rng, luck)
-		if elite:
-			if rng.randi_range(0, 1) == 0:
-				k = mini(k + 1, 5)
-			else:
-				l = mini(l + 1, 5)
-		result.append(gem(key, prefix + "-" + str(result.size()), c, k, l))
-	return result
+	return ranked.map(func(entry: Array) -> String: return entry[1])
 
 static func validate_content() -> Array:
 	var errors: Array = []
@@ -435,6 +371,12 @@ static func validate_content() -> Array:
 				errors.append(key + ": missing gem " + entry[0])
 	return errors
 
+static func ensure_loaded() -> void:
+	## Anything that reads content before a run has started — a profile being created on the
+	## title screen, say — has to see the authored pack, not the compiled fallbacks.
+	if _content_pack == null:
+		load_content_pack()
+
 static func definitions(section: String) -> Dictionary:
 	if _content_pack != null:
 		var data: Variant = _content_pack.get(section)
@@ -449,11 +391,6 @@ static func definitions(section: String) -> Dictionary:
 		"events": return EVENTS
 		"mines": return MINES
 	return {}
-
-static func profile_definition(profile: String) -> Dictionary:
-	## The authored run profile, or an empty dictionary when the pack does not carry one.
-	var entry: Variant = definitions("profiles").get(profile, {})
-	return entry if entry is Dictionary else {}
 
 static func mine_definition(mine_id: String) -> Dictionary:
 	var entry: Variant = definitions("mines").get(mine_id, {})
@@ -522,10 +459,6 @@ static func default_content_pack() -> Resource:
 	pack.events = EVENTS.duplicate(true)
 	for key in pack.skills:
 		pack.skills[key]["evaluator_id"] = key
-	pack.profiles = {
-		"short_9": {"rooms": 9, "acts": 1, "skill_ids": eligible_skills("short_9", 4), "relic_ids": eligible_relics("short_9"), "boss_ids": ["SLIME_KING"], "loot_generator": "depth_luck_v1", "combat_gold_cap": [8]},
-		"expedition_18": {"rooms": 18, "acts": 3, "skill_ids": eligible_skills("expedition_18", 4), "relic_ids": eligible_relics("expedition_18"), "boss_ids": ["SLIME_KING", "MIRROR_REGENT", "RIFT_SOVEREIGN"], "loot_generator": "act_tier_v1", "combat_gold_cap": [8, 12, 16]}
-	}
 	pack.mines = MINES.duplicate(true)
 	pack.statuses = {
 		"stun": {"name": "Stun", "description": "Skip the next actor slot; ticks before the skill batch. Self-stun affects future slots.", "hook": "start_slot", "cap": - 1},

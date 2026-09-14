@@ -300,7 +300,7 @@ async function renderBackupList() {
 function listRow(section, id) {
 	const definition = entries(section.id)[id];
 	const errors = issuesFor(section.id, id).filter((issue) => issue.severity === "error").length;
-	const borrowed = !(state.registry[section.id] || []).includes(id) && section.id !== "dice" && section.id !== "profiles" && section.id !== "mines";
+	const borrowed = !(state.registry[section.id] || []).includes(id) && section.id !== "dice" && section.id !== "mines";
 	return el("button", {
 		class: `row ${state.selected === id ? "on" : ""}`,
 		onclick: () => {
@@ -377,7 +377,7 @@ function renderEditor() {
 				el("button", { class: "ghost small danger", onclick: deleteEntry }, "Delete"),
 			]),
 		]),
-		borrowed && !section.codeOnly && !["dice", "profiles", "mines"].includes(section.id)
+		borrowed && !section.codeOnly && !["dice", "mines"].includes(section.id)
 			? el("p", { class: `banner ${rule ? "bad" : "info"}` },
 				rule ? rule.message : `Authored here. The build has no ${state.selected} of its own, so it runs the rule named below.`)
 			: null,
@@ -457,21 +457,16 @@ function retarget(sectionId, from, to) {
 	if (sectionId === "skills") {
 		for (const definition of Object.values(state.content.heroes || {}))
 			definition.starting_gems = (definition.starting_gems || []).map((starter) => (starter[0] === from ? [to, ...starter.slice(1)] : starter));
-		for (const definition of Object.values(state.content.profiles || {})) definition.skill_ids = swap(definition.skill_ids);
 		for (const definition of Object.values(state.content.mines || {})) definition.skill_ids = swap(definition.skill_ids);
 		for (const definition of Object.values(state.content.skills || {}))
 			if (definition.evaluator_id === from) definition.evaluator_id = to;
 	}
 	if (sectionId === "relics")
-		for (const definition of [...Object.values(state.content.profiles || {}), ...Object.values(state.content.mines || {})]) definition.relic_ids = swap(definition.relic_ids);
+		for (const definition of Object.values(state.content.mines || {})) definition.relic_ids = swap(definition.relic_ids);
 	if (sectionId === "mines")
 		for (const definition of Object.values(state.content.mines || {})) definition.links = swap(definition.links);
 	if (sectionId === "enemies") {
 		for (const definition of Object.values(state.content.enemies || {})) if (definition.ai === from) definition.ai = to;
-		for (const definition of Object.values(state.content.profiles || {})) {
-			definition.boss_ids = swap(definition.boss_ids);
-			if (definition.encounters) definition.encounters = JSON.parse(JSON.stringify(definition.encounters).split(`"${from}"`).join(`"${to}"`));
-		}
 		for (const definition of Object.values(state.content.mines || {})) {
 			if (definition.boss_id === from) definition.boss_id = to;
 			if (definition.bands) definition.bands = JSON.parse(JSON.stringify(definition.bands).split(`"${from}"`).join(`"${to}"`));
@@ -590,10 +585,6 @@ function buildControl(section, field, definition) {
 			return idListControl(definition, field);
 		case "idset":
 			return idSetControl(definition, field);
-		case "numbers":
-			return numbersControl(definition, field);
-		case "encounters":
-			return encountersControl(definition);
 		case "weights":
 			return weightsControl(definition, field);
 		case "bands":
@@ -620,14 +611,10 @@ function labelFor(field, option) {
 		const named = home ? entries(home)[option]?.name : null;
 		return named ? `${titleCase(option)} — ${named}'s rule` : titleCase(option);
 	}
-	return field.from === "targets" || field.from === "loot_generators" ? option : titleCase(option);
+	return field.from === "targets" ? option : titleCase(option);
 }
 
-function inheritedValue(section, field) {
-	if (section.id !== "dice") return undefined;
-	const fallback = (state.registry.die_unlock || {})[state.selected] || {};
-	if (field.key === "unlock_act") return fallback.act ?? 0;
-	if (field.key === "unlock_room") return fallback.room ?? 0;
+function inheritedValue() {
 	return undefined;
 }
 
@@ -743,32 +730,6 @@ function rankSpin(label, value, low, high, commit, names = null) {
 	]);
 }
 
-function idListControl(definition, field) {
-	const list = Array.isArray(definition[field.key]) ? definition[field.key] : [];
-	const options = Object.keys(entries(field.section)).sort();
-	const length = field.perAct ? Number(definition.acts || 1) : list.length;
-	const rows = [];
-	for (let index = 0; index < length; index++) {
-		rows.push(el("div", { class: "row-inline" }, [
-			el("span", { class: "act-tag", text: field.perAct ? `Act ${index + 1}` : `${index + 1}` }),
-			el("select", {
-				onchange: (event) => {
-					const next = list.slice();
-					next[index] = event.target.value;
-					commitLength(next);
-				},
-			}, options.map((option) => el("option", { value: option, selected: option === list[index] }, entries(field.section)[option].name))),
-		]));
-	}
-	const commitLength = (next) => set(definition, field.key, field.perAct ? next.slice(0, length) : next);
-	if (list.length !== length && field.perAct)
-		rows.push(el("button", {
-			class: "ghost small",
-			onclick: () => commitLength(Array.from({ length }, (_unused, index) => list[index] || options[0])),
-		}, `Fit to ${length} act${length === 1 ? "" : "s"}`));
-	return el("div", { class: "stack" }, rows);
-}
-
 function idSetControl(definition, field) {
 	const chosen = Array.isArray(definition[field.key]) ? definition[field.key] : [];
 	const options = Object.keys(entries(field.section)).filter((id) => field.section !== state.section || id !== state.selected).sort();
@@ -788,26 +749,6 @@ function idSetControl(definition, field) {
 			]);
 		})),
 	]);
-}
-
-function numbersControl(definition, field) {
-	const list = Array.isArray(definition[field.key]) ? definition[field.key] : [];
-	const length = field.perAct ? Number(definition.acts || 1) : list.length;
-	const commit = (next) => set(definition, field.key, next.slice(0, length).map((value) => Number(value) || 0));
-	const rows = [];
-	for (let index = 0; index < length; index++)
-		rows.push(el("label", { class: "rank" }, [
-			el("span", { text: field.perAct ? `Act ${index + 1}` : `#${index + 1}` }),
-			el("input", {
-				type: "number", min: 0, value: list[index] ?? 0,
-				onchange: (event) => {
-					const next = Array.from({ length }, (_unused, position) => list[position] ?? 0);
-					next[index] = Number(event.target.value);
-					commit(next);
-				},
-			}),
-		]));
-	return el("div", { class: "row-inline wrap" }, rows);
 }
 
 function ruleControl(definition) {
@@ -835,96 +776,6 @@ function ruleControl(definition) {
 			definition.formula = text.formula;
 		}
 	}));
-}
-
-// --- the encounter table ------------------------------------------------------
-
-function encountersControl(definition) {
-	const table = definition.encounters && Object.keys(definition.encounters).length ? definition.encounters : null;
-	if (!table)
-		return el("div", {}, [
-			el("p", { class: "muted small", text: "This profile uses the shipped encounter list. Give it its own table to decide what spawns — the only way an authored enemy reaches a room." }),
-			el("button", {
-				class: "ghost small",
-				onclick: () => set(definition, "encounters", starterEncounters(definition)),
-			}, "Add an encounter table"),
-		]);
-	const acts = Number(definition.acts || 1);
-	const blocks = [
-		el("div", { class: "row-inline" }, [
-			el("span", { class: "act-tag", text: "Room 1" }),
-			enemyPicker(table.first_room?.[0], (value) => changeTable(definition, (next) => {
-				next.first_room = [value];
-			})),
-			el("span", { class: "muted small", text: "one per hero, as the opening fight" }),
-		]),
-	];
-	for (let act = 1; act <= acts; act++)
-		blocks.push(el("div", { class: "enc-act" }, [
-			el("h4", { text: `Act ${act} · normal rooms` }),
-			...[1, 2, 3, 4].map((party) => enemyGroupRow(`${party} hero${party === 1 ? "" : "es"}`, (table.normal || {})[String(act)]?.[party - 1] || [],
-				(group) => changeTable(definition, (next) => {
-					next.normal = next.normal || {};
-					const list = (next.normal[String(act)] || []).slice();
-					while (list.length < 4) list.push([]);
-					list[party - 1] = group;
-					next.normal[String(act)] = list;
-				}))),
-		]));
-	blocks.push(el("div", { class: "enc-act" }, [
-		el("h4", { text: "Elite rooms" }),
-		...[1, 2, 3, 4].map((party) => enemyGroupRow(`${party} hero${party === 1 ? "" : "es"}`, (table.elite || [])[party - 1] || [],
-			(group) => changeTable(definition, (next) => {
-				const list = (next.elite || []).slice();
-				while (list.length < 4) list.push([]);
-				list[party - 1] = group;
-				next.elite = list;
-			}))),
-	]));
-	blocks.push(el("p", { class: "muted small", text: "Bosses come from the act bosses above. Anything left empty falls back to the shipped list." }));
-	blocks.push(el("button", { class: "ghost small danger", onclick: () => set(definition, "encounters", {}) }, "Remove the table"));
-	return el("div", { class: "stack" }, blocks);
-}
-
-function changeTable(definition, mutate) {
-	change(() => {
-		const next = JSON.parse(JSON.stringify(definition.encounters || {}));
-		mutate(next);
-		definition.encounters = next;
-	});
-}
-
-function starterEncounters(definition) {
-	const weakest = Object.entries(entries("enemies"))
-		.filter(([, enemy]) => !enemy.boss)
-		.sort((a, b) => (a[1].max_hp || 0) - (b[1].max_hp || 0))[0]?.[0] || "SLIME";
-	const table = { first_room: [weakest], elite: [[weakest], [weakest], [weakest, weakest], [weakest, weakest]], normal: {} };
-	for (let act = 1; act <= Number(definition.acts || 1); act++)
-		table.normal[String(act)] = [[weakest], [weakest, weakest], [weakest, weakest, weakest], [weakest, weakest, weakest, weakest]];
-	return table;
-}
-
-function enemyPicker(value, commit) {
-	const options = Object.keys(entries("enemies")).sort();
-	return el("select", { onchange: (event) => commit(event.target.value) },
-		options.map((option) => el("option", { value: option, selected: option === value }, entries("enemies")[option].name)));
-}
-
-function enemyGroupRow(label, group, commit) {
-	const options = Object.keys(entries("enemies")).sort();
-	return el("div", { class: "row-inline wrap tight" }, [
-		el("span", { class: "act-tag", text: label }),
-		...group.map((id, index) => el("span", { class: "enemy-chip" }, [
-			el("span", { text: entries("enemies")[id]?.name || id }),
-			el("button", { class: "x", onclick: () => commit(group.filter((_unused, position) => position !== index)) }, "×"),
-		])),
-		el("select", {
-			value: "",
-			onchange: (event) => {
-				if (event.target.value) commit([...group, event.target.value]);
-			},
-		}, [el("option", { value: "" }, "+ add"), ...options.map((option) => el("option", { value: option }, entries("enemies")[option].name))]),
-	]);
 }
 
 // --- mine weights and depth bands ----------------------------------------------
@@ -1026,7 +877,7 @@ function renderPreview() {
 	if (!definition) return pane.replaceChildren();
 	const builders = {
 		skills: skillPreview, dice: diePreview, heroes: heroPreview,
-		enemies: enemyPreview, profiles: profilePreview, mines: minePreview,
+		enemies: enemyPreview, mines: minePreview,
 	};
 	pane.replaceChildren((builders[state.section] || textPreview)(definition));
 }
@@ -1130,13 +981,8 @@ function diePreview(definition) {
 				["Range", `${stats.min}–${stats.max}`],
 				["Distinct faces", `${stats.distinct} of ${sides}`],
 				["Spread", stats.spread.toFixed(2)],
-				["Price", `${definition.price} gold`],
-				["Sold from", (() => {
-				const fallback = (state.registry.die_unlock || {})[state.selected] || {};
-				const act = definition.unlock_act ?? fallback.act ?? 0;
-				const room = definition.unlock_room ?? fallback.room ?? 0;
-				return act ? `Act ${act}${room ? ` (or room ${room} in a one-act run)` : ""}` : "Never sold";
-			})()],
+				["Price", `${definition.price} ore`],
+				["Sold from", definition.unlock_depth ? `Depth ${definition.unlock_depth}` : "Never sold"],
 			]),
 		]),
 		previewCard("Face distribution", histogram),
@@ -1144,7 +990,7 @@ function diePreview(definition) {
 			["Shows a 7", percent(Dice.faceChance(definition.faces, [7]))],
 			["Shows even", percent(Dice.faceChance(definition.faces, (definition.faces || []).filter((face) => face % 2 === 0)))],
 			["Shows its best", percent(Dice.faceChance(definition.faces, [stats.max]))],
-			["Value per gold", (stats.mean / Math.max(1, definition.price || 1)).toFixed(2)],
+			["Value per ore", (stats.mean / Math.max(1, definition.price || 1)).toFixed(2)],
 		])),
 	]);
 }
@@ -1198,11 +1044,11 @@ function heroPreview(definition) {
 
 function enemyPreview(definition) {
 	const rows = [];
-	for (const act of [1, 2, 3])
-		for (const party of definition.boss ? [1, 2, 3, 4] : [1]) {
+	for (const depth of [1, 5, 10, 20])
+		for (const party of definition.boss ? [1, 2, 4] : [1]) {
 			rows.push([
-				definition.boss ? `Act ${act} · ${party} hero${party === 1 ? "" : "es"}` : `Act ${act}`,
-				`${enemyHp(definition.max_hp || 0, act, party, definition.boss)} HP · ${enemyBlock(definition.block || 0, act, party, definition.boss)} block`,
+				definition.boss ? `Depth ${depth} · ${party} hero${party === 1 ? "" : "es"}` : `Depth ${depth}`,
+				`${enemyHp(definition.max_hp || 0, depth, party, definition.boss)} HP · ${enemyBlock(definition.block || 0, depth, party, definition.boss)} block`,
 			]);
 		}
 	const stats = (definition.dice || []).length ? handStatsFor(definition.dice) : null;
@@ -1228,31 +1074,6 @@ function enemyPreview(definition) {
 				["Pair chance", percent(stats.rate("pair"))],
 			]) : null,
 		]) : null,
-	]);
-}
-
-function profilePreview(definition) {
-	const pool = (definition.skill_ids || []).map((id) => entries("skills")[id]).filter(Boolean);
-	const byRarity = [1, 2, 3, 4].map((rarity) => pool.filter((skill) => skill.rarity === rarity).length);
-	const byColor = Object.keys(state.registry.gem_colors || {}).map((color) => [color, pool.filter((skill) => skill.color === color).length]);
-	const bars = (rows, total) => rows.map(([label, count, tint]) => el("div", { class: "bar-row" }, [
-		el("span", { class: "bar-label", text: label }),
-		el("span", { class: "bar" }, [el("span", { class: "bar-fill", style: `width:${total ? (count / total) * 100 : 0}%${tint ? `;background:#${tint}` : ""}` })]),
-		el("span", { class: "bar-value", text: String(count) }),
-	]));
-	return el("div", {}, [
-		previewCard(state.selected, statGrid([
-			["Rooms", String(definition.rooms)],
-			["Acts", String(definition.acts)],
-			["Rooms per act", (Number(definition.rooms || 0) / Math.max(1, Number(definition.acts || 1))).toFixed(1)],
-			["Loot", definition.loot_generator || "—"],
-			["Gem pool", `${pool.length} gems`],
-			["Relic pool", `${(definition.relic_ids || []).length} relics`],
-		])),
-		previewCard("Pool by rarity", bars(byRarity.map((count, index) => [RARITY_NAMES[index + 1], count]), pool.length)),
-		previewCard("Pool by colour", bars(byColor.map(([color, count]) => [(state.registry.gem_colors[color] || {}).name || color, count, (state.registry.gem_colors[color] || {}).hex]), pool.length)),
-		previewCard("Act bosses", el("div", { class: "stack" }, (definition.boss_ids || []).map((id, index) =>
-			el("p", { class: "small", text: `Act ${index + 1} — ${entries("enemies")[id]?.name || id} (${entries("enemies")[id]?.max_hp || "?"} HP base)` })))),
 	]);
 }
 
@@ -1329,7 +1150,7 @@ function minePreview(definition) {
 function packPreview() {
 	const authored = [];
 	for (const section of SECTIONS) {
-		if (["dice", "profiles", "mines"].includes(section.id)) continue;
+		if (["dice", "mines"].includes(section.id)) continue;
 		for (const id of Object.keys(entries(section.id)))
 			if (!(state.registry[section.id] || []).includes(id)) authored.push([section.singular, id]);
 	}

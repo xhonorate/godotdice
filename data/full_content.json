@@ -16,7 +16,8 @@
 			],
 			"name": "D10",
 			"price": 10,
-			"shape": "D10"
+			"shape": "D10",
+			"unlock_depth": 0
 		},
 		"D12": {
 			"faces": [
@@ -35,7 +36,8 @@
 			],
 			"name": "D12",
 			"price": 12,
-			"shape": "D12"
+			"shape": "D12",
+			"unlock_depth": 0
 		},
 		"D20": {
 			"faces": [
@@ -62,7 +64,8 @@
 			],
 			"name": "D20",
 			"price": 16,
-			"shape": "D20"
+			"shape": "D20",
+			"unlock_depth": 0
 		},
 		"D4": {
 			"faces": [
@@ -73,7 +76,8 @@
 			],
 			"name": "D4",
 			"price": 4,
-			"shape": "D4"
+			"shape": "D4",
+			"unlock_depth": 0
 		},
 		"D6": {
 			"faces": [
@@ -86,7 +90,8 @@
 			],
 			"name": "D6",
 			"price": 6,
-			"shape": "D6"
+			"shape": "D6",
+			"unlock_depth": 0
 		},
 		"D8": {
 			"faces": [
@@ -101,7 +106,8 @@
 			],
 			"name": "D8",
 			"price": 8,
-			"shape": "D8"
+			"shape": "D8",
+			"unlock_depth": 0
 		},
 		"EVEN_D6": {
 			"faces": [
@@ -114,7 +120,8 @@
 			],
 			"name": "Even Die",
 			"price": 8,
-			"shape": "D6"
+			"shape": "D6",
+			"unlock_depth": 1
 		},
 		"ODD_D6": {
 			"faces": [
@@ -127,7 +134,8 @@
 			],
 			"name": "Odd Die",
 			"price": 8,
-			"shape": "D6"
+			"shape": "D6",
+			"unlock_depth": 1
 		},
 		"PAIRED_D6": {
 			"faces": [
@@ -140,7 +148,8 @@
 			],
 			"name": "Paired Die",
 			"price": 8,
-			"shape": "D6"
+			"shape": "D6",
+			"unlock_depth": 1
 		},
 		"SEVEN_D8": {
 			"faces": [
@@ -155,7 +164,8 @@
 			],
 			"name": "Seven Die",
 			"price": 14,
-			"shape": "D8"
+			"shape": "D8",
+			"unlock_depth": 5
 		},
 		"SPLIT_D12": {
 			"faces": [
@@ -174,7 +184,8 @@
 			],
 			"name": "Split Die",
 			"price": 16,
-			"shape": "D12"
+			"shape": "D12",
+			"unlock_depth": 6
 		},
 		"SPLIT_D20": {
 			"faces": [
@@ -201,7 +212,8 @@
 			],
 			"name": "Rift Die",
 			"price": 22,
-			"shape": "D20"
+			"shape": "D20",
+			"unlock_depth": 12
 		}
 	},
 	"enemies": {
@@ -324,20 +336,24 @@
 	},
 	"events": {
 		"ABANDONED_CACHE": {
-			"description": "Take 6 gold, or lose 8 HP for the displayed gem with +2 Carat. Requires more than 8 HP.",
+			"description": "Take 6 ore, or lose 8 HP for the displayed gem with +2 Carat. Requires more than 8 HP.",
 			"name": "Abandoned Cache"
 		},
 		"ECHO_SHRINE": {
-			"description": "Take 5 gold, or replace one D6's faces with Paired, Odd, or Even faces.",
+			"description": "Take 5 ore, or replace one D6's faces with Paired, Odd, or Even faces.",
 			"name": "Echo Shrine"
 		},
 		"FIELD_MEDIC": {
-			"description": "Take 4 gold, or pay 8 gold to recover 20% maximum HP (rounded up).",
+			"description": "Take 4 ore, or pay 8 ore to recover 20% maximum HP (rounded up).",
 			"name": "Field Medic"
 		},
 		"JEWEL_BROKER": {
-			"description": "Take 4 gold, or exchange one reserve gem for one of three displayed gems.",
+			"description": "Take 4 ore, or trade one found gem for one of three appraised gems.",
 			"name": "Jewel Broker"
+		},
+		"STILL_POOL": {
+			"description": "Take 4 ore, or sit by the water a while: the tremor meter settles by 12%. The water only calms once.",
+			"name": "Still Pool"
 		}
 	},
 	"heroes": {
@@ -501,12 +517,12 @@
 				"TINKERS_BELT"
 			],
 			"rooms": {
-				"battle": 5,
+				"battle": 7,
 				"crucible": 1,
 				"elite": 2,
 				"event": 3,
 				"lapidary": 2,
-				"mine": 2,
+				"mine": 1,
 				"rest": 1,
 				"shop": 1,
 				"treasure": 1,
@@ -605,12 +621,12 @@
 				"STEADY_HAND"
 			],
 			"rooms": {
-				"battle": 6,
+				"battle": 8,
 				"crucible": 1,
 				"elite": 1,
 				"event": 2,
 				"lapidary": 1,
-				"mine": 3,
+				"mine": 2,
 				"rest": 2,
 				"shop": 1,
 				"treasure": 1,
@@ -709,15 +725,15 @@
 				"TINKERS_BELT"
 			],
 			"rooms": {
-				"battle": 6,
+				"battle": 8,
 				"crucible": 2,
 				"elite": 3,
 				"event": 2,
 				"lapidary": 1,
-				"mine": 3,
+				"mine": 2,
 				"rest": 1,
 				"shop": 1,
-				"treasure": 2,
+				"treasure": 1,
 				"wager": 1,
 				"workshop": 1
 			},
@@ -747,118 +763,6 @@
 		}
 	},
 	"pack_id": "full",
-	"profiles": {
-		"expedition_18": {
-			"acts": 3,
-			"boss_ids": [
-				"SLIME_KING",
-				"MIRROR_REGENT",
-				"RIFT_SOVEREIGN"
-			],
-			"combat_gold_cap": [
-				8,
-				12,
-				16
-			],
-			"loot_generator": "act_tier_v1",
-			"relic_ids": [
-				"MATCHBOX",
-				"STEADY_HAND",
-				"FIELD_DRESSING",
-				"MINERS_LANTERN",
-				"FOCUSING_PRISM",
-				"MERCHANT_SEAL",
-				"TINKERS_BELT",
-				"LASTING_AEGIS"
-			],
-			"rooms": 18,
-			"skill_ids": [
-				"ARC_BURST",
-				"BASTION",
-				"BLESSING",
-				"BLOCK",
-				"BULWARK",
-				"DRAINSTRIKE",
-				"ECHO",
-				"ENERVATE",
-				"EVEN_TEMPO",
-				"FACET",
-				"GLIMMER",
-				"GRAFT",
-				"HEAL",
-				"HEAVYSTRIKE",
-				"HEXBOLT",
-				"INTERPOSE",
-				"LIFELINE",
-				"LUCKYSTRIKE",
-				"MEND",
-				"MIASMA",
-				"MINT",
-				"MULTISTRIKE",
-				"PRECISION",
-				"PURGE",
-				"QUARTET",
-				"REFRACT",
-				"SECOND_SIGHT",
-				"SHIELDBASH",
-				"STRIKE",
-				"STUN",
-				"SUNDER",
-				"TITHE",
-				"VENOM",
-				"WAGER"
-			]
-		},
-		"short_9": {
-			"acts": 1,
-			"boss_ids": [
-				"SLIME_KING"
-			],
-			"combat_gold_cap": [
-				8
-			],
-			"loot_generator": "depth_luck_v1",
-			"relic_ids": [
-				"MATCHBOX",
-				"STEADY_HAND",
-				"FIELD_DRESSING",
-				"MINERS_LANTERN"
-			],
-			"rooms": 9,
-			"skill_ids": [
-				"ARC_BURST",
-				"BASTION",
-				"BLESSING",
-				"BLOCK",
-				"BULWARK",
-				"DRAINSTRIKE",
-				"ECHO",
-				"ENERVATE",
-				"FACET",
-				"GLIMMER",
-				"GRAFT",
-				"HEAL",
-				"HEAVYSTRIKE",
-				"HEXBOLT",
-				"INTERPOSE",
-				"LUCKYSTRIKE",
-				"MEND",
-				"MIASMA",
-				"MINT",
-				"MULTISTRIKE",
-				"PURGE",
-				"QUARTET",
-				"REFRACT",
-				"SECOND_SIGHT",
-				"SHIELDBASH",
-				"STRIKE",
-				"STUN",
-				"SUNDER",
-				"TITHE",
-				"WAGER"
-			]
-		}
-	},
 	"relics": {
 		"FIELD_DRESSING": {
 			"description": "Your first positive ordinary heal to an injured recipient each turn gains +2 healing.",
@@ -877,11 +781,11 @@
 			"name": "Matchbox"
 		},
 		"MERCHANT_SEAL": {
-			"description": "Gain +3 gold from each normal or elite battle reward.",
+			"description": "Gain +3 ore from each normal or elite battle.",
 			"name": "Merchant's Seal"
 		},
 		"MINERS_LANTERN": {
-			"description": "Gain 2 extra mining energy while alive.",
+			"description": "Gain 2 extra mining energy while alive, and see exact rooms one layer further down the seam.",
 			"name": "Miner's Lantern"
 		},
 		"STEADY_HAND": {
@@ -889,7 +793,7 @@
 			"name": "Steady Hand"
 		},
 		"TINKERS_BELT": {
-			"description": "Your first Workshop service each act is free. One service per visit.",
+			"description": "Your first Workshop service each expedition is free. One service per visit.",
 			"name": "Tinker's Belt"
 		}
 	},
@@ -927,7 +831,7 @@
 		"BLESSING": {
 			"color": "GOLD",
 			"evaluator_id": "BLESSING",
-			"formula": "Gain 3 × M(C) gold, then self heal (K + F(L)) × M(C).",
+			"formula": "Gain 3 × M(C) ore, then self heal (K + F(L)) × M(C).",
 			"name": "Blessing",
 			"rarity": 3,
 			"tags": [
@@ -981,7 +885,7 @@
 		"ECHO": {
 			"color": "WHITE",
 			"evaluator_id": "ECHO",
-			"formula": "Repeat the last gem before this one that landed an amount, at (25 + 5(K−1) + F(L)) × M(C) percent of it, up to 200%. It repeats damage, block, healing, gold and statuses only.",
+			"formula": "Repeat the last gem before this one that landed an amount, at (25 + 5(K−1) + F(L)) × M(C) percent of it, up to 200%. It repeats damage, block, healing, ore and statuses only.",
 			"name": "Echo",
 			"rarity": 3,
 			"tags": [
@@ -1130,7 +1034,7 @@
 		"LUCKYSTRIKE": {
 			"color": "GOLD",
 			"evaluator_id": "LUCKYSTRIKE",
-			"formula": "Each 7: 7 × M(K) × M(C) damage, then C × J gold. Three or more sevens: J=L+1 (7 at L5); otherwise J=1. The jackpot multiplies gold only.",
+			"formula": "Each 7: 7 × M(K) × M(C) damage, then C × J ore. Three or more sevens: J=L+1 (7 at L5); otherwise J=1. The jackpot multiplies ore only.",
 			"name": "Lucky Strike",
 			"rarity": 3,
 			"tags": [
@@ -1172,7 +1076,7 @@
 		"MINT": {
 			"color": "GOLD",
 			"evaluator_id": "MINT",
-			"formula": "Gain (2K + F(L)) × M(C) gold, then self block (K + F(L)) × M(C).",
+			"formula": "Gain (2K + F(L)) × M(C) ore, then self block (K + F(L)) × M(C).",
 			"name": "Mint",
 			"rarity": 2,
 			"tags": [
@@ -1319,7 +1223,7 @@
 		"TITHE": {
 			"color": "GOLD",
 			"evaluator_id": "TITHE",
-			"formula": "Gain (K + F(L)) × M(C) gold.",
+			"formula": "Gain (K + F(L)) × M(C) ore.",
 			"name": "Tithe",
 			"rarity": 1,
 			"tags": [
@@ -1346,7 +1250,7 @@
 		"WAGER": {
 			"color": "GOLD",
 			"evaluator_id": "WAGER",
-			"formula": "Gain 3 × M(C) gold, then damage (24 − total + 2K + F(L)) × M(C). The less the hand gave you, the harder this lands.",
+			"formula": "Gain 3 × M(C) ore, then damage (24 − total + 2K + F(L)) × M(C). The less the hand gave you, the harder this lands.",
 			"name": "Wager",
 			"rarity": 4,
 			"tags": [

@@ -124,7 +124,7 @@ MINE: id, name, atlas_position, links: [MINE_ID], difficulty, boss_id,
 |---|---|---|
 | Battle | Encounter from the mine pool at this depth. Ore, chance of an unappraised gem | Gem choice replaced by drops |
 | Elite | Tougher encounter. More ore, a relic choice, 1–2 unappraised gems at +1 quality | Relic kept |
-| Rock vein | The existing automatic mining. Rocks yield ore and unappraised gems. Gem-rich rock odds rise with depth | Gold → ore; the draft becomes personal drops **⚑ default** |
+| Rock vein | The existing automatic mining. Rocks yield ore and unappraised gems. Gem-rich rock odds rise with depth | Gold → ore; the shared draft stays, now picking unappraised stones by eye |
 | Camp | Heal a third. Free equipment changes | Unchanged |
 | Lift | Vote: ride up (end the run, extracted) or keep digging | New |
 | Treasure | An appraised gem or a relic, usable immediately | New |
@@ -134,7 +134,8 @@ MINE: id, name, atlas_position, links: [MINE_ID], difficulty, boss_id,
 | Event (?) | One of the events, or a disguised room of another kind | Rewards in ore |
 
 - In-mine upgrades to a **loadout** gem last only for this expedition. Upgrades to a **found** gem stay on it when it comes home **⚑ default**. This keeps ore from buying permanent power for gems that were never at risk.
-- **Depth scaling** replaces act tiers: enemy HP × `1 + 0.06·(depth−1)`, attack damage + `floor(depth/4)`, block and heals × `1 + 0.03·(depth−1)`. Gem quality uses `mine.difficulty + depth/5` in place of act/luck tables. All of these are constants to tune.
+- **Depth scaling** replaces act tiers: enemy HP × `1 + 0.06·(depth−1)`, attack damage + `floor(depth/4)`, block and heals × `1 + 0.03·(depth−1)`. Gem quality is `mine.quality_bonus + depth/2` plus a source bonus (merchant +2, treasure +3, elite +4, boss chest +10). All of these are constants to tune.
+- **Known tuning problem:** a layer holds three to five chambers, so a party can usually find a tunnel that avoids a fight. The smoke bot reached depth 9 of Mirror Grotto without one. Candidates: guard deep service rooms with a fight, raise battle weights further, or make some tunnels hostile.
 
 ### 6.3 Unappraised gems
 
@@ -205,7 +206,7 @@ All art is generated as editable starting points. Hub art is authored as SVG so 
 
 ## 11. Build order
 
-Each phase ends with passing checks and something playable.
+Each phase ends with passing checks and something playable. Status as of September 14, 2026: phases 1 and 2 are done, and phase 3 is partly done (seam map, tremor meter, lift, salvage and unappraised stones are in; an interim appraisal list stands in for the phase 4 table).
 
 | Phase | Deliverable | Rough size |
 |---|---|---|

@@ -130,10 +130,8 @@ def read_registry() -> dict:
         "tags": _const_array(pack, "TAGS"),
         "shapes": ["D4", "D6", "D8", "D10", "D12", "D20"],
         "statuses": ["stun", "poison", "resolve"],
-        "loot_generators": ["depth_luck_v1", "act_tier_v1"],
         "mine_rooms": _const_array(pack, "MINE_ROOMS"),
         "gem_colors": _gem_colors(catalog),
-        "die_unlock": _die_unlock(catalog),
         # The numbers the gem panel spells out, read from the rules build rather than copied.
         "bulwark_block": _const_numbers(catalog, "BULWARK_BLOCK"),
         "bulwark_stun": _const_numbers(catalog, "BULWARK_STUN"),
@@ -148,19 +146,6 @@ def read_registry() -> dict:
 def _const_numbers(text: str, name: str) -> list[int]:
     match = re.search(r"^const\s+%s(?::\s*\w+\s*)?=\s*(\[[^\]]*\]|-?\d+)" % name, text, re.MULTILINE)
     return [int(value) for value in re.findall(r"-?\d+", match.group(1))] if match else []
-
-
-def _die_unlock(catalog: str) -> dict:
-    """When a die does not say when it reaches the shop, the act the build falls back to."""
-    match = re.search(r"const DIE_UNLOCK: Dictionary = \{(.*?)\}\}", catalog, re.DOTALL)
-    if not match:
-        return {}
-    found: dict = {}
-    for key, body in re.findall(r'"([A-Z_0-9]+)":\s*\{([^}]*)\}', match.group(1) + "}"):
-        entry = {name: int(value) for name, value in re.findall(r'"(act|room)":\s*(\d+)', body)}
-        if entry:
-            found[key] = entry
-    return found
 
 
 def _gem_colors(catalog: str) -> dict:
@@ -205,7 +190,7 @@ def gd_literal(value) -> str:
 
 def write_tres(content: dict) -> None:
     """The .tres the game loads at startup, written from the same data as the JSON."""
-    sections = ["heroes", "skills", "dice", "relics", "enemies", "events", "profiles", "statuses", "mines"]
+    sections = ["heroes", "skills", "dice", "relics", "enemies", "events", "statuses", "mines"]
     existing = TRES_PATH.read_text(encoding="utf-8") if TRES_PATH.exists() else ""
     script_id = re.search(r'id="([^"]+)"', existing).group(1) if 'ext_resource' in existing else "1_k7jmp"
     out = ['[gd_resource type="Resource" script_class="RogueContentPack" format=3]', "",

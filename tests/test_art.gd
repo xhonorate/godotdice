@@ -91,9 +91,9 @@ func run() -> void:
 		check(Forge.unit(key).get_width() > 0, "enemy sprite " + key)
 	for key in Catalog.RELICS:
 		check(Forge.relic(key).get_width() > 0, "relic sprite " + key)
-	for kind in ["battle", "elite", "boss", "shop", "rest", "event", "mine", "workshop", "lapidary", "wager", "crucible"]:
+	for kind in ["battle", "elite", "boss", "shop", "rest", "event", "mine", "workshop", "lapidary", "wager", "crucible", "lift", "treasure"]:
 		check(Forge.room(kind).get_width() > 0, "room icon " + kind)
-	for prop_name in ["sigil", "gold", "heart", "shield", "skull", "sword", "bolt", "shieldbreak"]:
+	for prop_name in ["sigil", "gold", "heart", "shield", "skull", "sword", "bolt", "shieldbreak", "ore", "loupe"]:
 		check(Forge.prop(prop_name).get_width() > 0, "prop icon " + prop_name)
 	check(Forge.unit("ARDOR") == Forge.unit("ARDOR"), "sprites are cached, not rebuilt on every lookup")
 	# Baked art is the shipped default; the painter is the fallback when a file is absent.

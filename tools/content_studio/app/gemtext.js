@@ -120,8 +120,8 @@ export function blocks(key, definition, { carat = 1, cut = 1, clarity = 1, effec
 				part("", "7", "Every 7 in your hand strikes separately.", cutRatio(k, cutMultiplier(k), "multiplies each seven"))],
 				c, "for every 7 you rolled"));
 			const jackpot = l === 5 ? 7 : l + 1;
-			const gold = fixed("Gain", "gold", "gold", String(c), `Carat ${c} sets the gold each 7 pays.`, "carat", "for every 7 you rolled");
-			gold.note = `Three or more sevens multiply the gold by ${jackpot} at Clarity ${l} (${CLARITY_NAMES[l - 1]}). The damage is unaffected.`;
+			const gold = fixed("Gain", "gold", "ore", String(c), `Carat ${c} sets the ore each 7 pays.`, "carat", "for every 7 you rolled");
+			gold.note = `Three or more sevens multiply the ore by ${jackpot} at Clarity ${l} (${CLARITY_NAMES[l - 1]}). The damage is unaffected.`;
 			built.push(gold);
 			break;
 		}
@@ -130,7 +130,7 @@ export function blocks(key, definition, { carat = 1, cut = 1, clarity = 1, effec
 				part("triple", "match value", hint("triple"), cutFactor(k)), flat], c, "to your target"));
 			break;
 		case "BLESSING":
-			built.push(block("Gain", "gold", "gold", [
+			built.push(block("Gain", "gold", "ore", [
 				part("", String(blessing), `A fixed ${blessing} before Carat.`)], c));
 			built.push(block("Heal yourself for", "heal", "health", [
 				cutFlat(k, k, "adds its rank straight into this heal"), flat], c));
@@ -254,17 +254,17 @@ export function blocks(key, definition, { carat = 1, cut = 1, clarity = 1, effec
 				"cut", "plus half the match value"));
 			break;
 		case "TITHE":
-			built.push(block("Gain", "gold", "gold", [
+			built.push(block("Gain", "gold", "ore", [
 				cutFlat(k, k, "adds its rank straight into the take"), flat], c));
 			break;
 		case "MINT":
-			built.push(block("Gain", "gold", "gold", [
+			built.push(block("Gain", "gold", "ore", [
 				cutFlat(k, 2 * k, "doubles into the take"), flat], c));
 			built.push(block("Then gain", "block", "block", [
 				cutFlat(k, k, "adds its rank straight into this block"), flat], c));
 			break;
 		case "WAGER": {
-			built.push(block("Gain", "gold", "gold", [
+			built.push(block("Gain", "gold", "ore", [
 				part("", String(blessing), `A fixed ${blessing} before Carat.`)], c));
 			const bet = block("Then deal", "damage", "damage", [
 				part("sum", `${wagerCeiling} − your total`,
@@ -303,7 +303,7 @@ export function blocks(key, definition, { carat = 1, cut = 1, clarity = 1, effec
 			const repeat = block("Repeat the last gem that landed an amount at", "echo", "per cent of it", [
 				part("", "25", "A quarter of it before your ranks are counted."),
 				cutFlat(k, 5 * (k - 1), "adds five points of repeat a rank"), flat], c, "up to 200%");
-			repeat.note = "It repeats damage, block, healing, gold and statuses. A gem that only changed your dice is skipped over rather than repeated.";
+			repeat.note = "It repeats damage, block, healing, ore and statuses. A gem that only changed your dice is skipped over rather than repeated.";
 			built.push(repeat);
 			break;
 		}
@@ -327,7 +327,7 @@ const RULE_GLYPHS = {
 	total: "sum", pair_value: "pair", triple_value: "triple", run_high: "run",
 	count_even: "count", count_odd: "count", count_distinct: "count", count_value: "count", block: "shield",
 };
-const LABELS = { damage: "damage", block: "block", remove_block: "block", heal: "health", gold: "gold", poison: "Poison", stun: "stun" };
+const LABELS = { damage: "damage", block: "block", remove_block: "block", heal: "health", gold: "ore", poison: "Poison", stun: "stun" };
 
 function authored(rule, c, k, stored, l) {
 	const built = [];

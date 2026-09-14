@@ -11,7 +11,9 @@ python3 tools/run_checks.py --godot /path/to/godot
 
 ## Playing
 
-Choose one to four local heroes for solo or shared-screen play. Duplicate heroes are allowed. Pick a seed to reproduce a run, or leave it empty. The nine-room Quarry uses the starter content pool; the eighteen-room Expedition unlocks the full content pool across three acts.
+Your profile keeps a gem collection, each hero's loadout of up to six gems, gold, and the mines you have opened. Pick a hero and an unlocked mine, then set out. A mine is a seam of chambers dug one layer at a time with no bottom: your lantern shows the rooms two layers ahead, anything further is a silhouette, and lift beacons show however deep they are. Every step, every combat turn and every noisy room fills the **tremor meter**, faster the deeper you are; when it fills, the mine's boss breaks into the next chamber you enter. An expedition ends when the party rides a lift home, falls, or kills the boss — which also unlocks the mines beyond it.
+
+Stones come out of the rock **unappraised**: you see their colour, size, cut and clarity but not what they do, and they cannot be equipped until a loupe or a Lapidary appraises them. Ore is the mine's own currency and stays behind. At the surface every stone is appraised on the table and kept (replacing any copy you own) or sold for gold. If the whole party falls, each carried stone is rolled on a die by rarity, d6 to d20, and only the top face brings it home; loadout gems are never at risk. See the [expedition loop design](docs/EXPEDITION_LOOP_DESIGN.md) for the whole plan, including the shop hub still to come.
 
 Battles are fought on a JRPG-style field: your party holds the left flank, the enemy the right, both on a receding diagonal. Click a combatant to target it and right-click anyone to read their sheet. When the turn resolves, each attacker crosses the field, lands its blow and returns to its mark, with the authority's numbers floating over whoever was hit. Rolling spins each die and settles it with the rolled physical face turned toward you.
 
@@ -22,7 +24,7 @@ Between rooms, open Inventory to equip up to six unique gems, reorder them, swap
 | Input | Default |
 | --- | --- |
 | Select dice | Mouse or 1–5 |
-| Vote for a room | 1–9 on the route screen |
+| Vote for a tunnel | Click a ringed chamber on the seam, or 1–9 |
 | Reroll selected dice | R / gamepad X |
 | Ready or unready | Space / gamepad Y |
 | Cycle hostile target | Tab / right shoulder |
@@ -41,8 +43,10 @@ Controls can be rebound in Settings. Keyboard/gamepad focus offers alternatives 
 - A **gem lab** for tuning the stones: `godot --path . scenes/gem_lab.tscn` gives a live 3D gem with the skill and all three ranks on dials, plus the rule chain the game would show. Arrow keys change the skill and Carat, `[` `]` the Cut, `;` `'` the Clarity, `R` randomises, `S` spins.
 - Eight relics; six standard dice and six alternative face distributions; active/reserve equipment and engraving.
 - Eight ordinary/elite enemies and three scripted bosses: Slime King, Mirror Regent, and Rift Sovereign.
-- Both `short_9` and `expedition_18`, authored encounters, weighted route offers, votes, camps, elite rewards, boss rewards, victory, and defeat.
-- Personal shops, die purchases/sales/swaps, Workshop, Lapidary, Wager Hall, Crucible, four events, two mine veins, automatic mining, pooled gold, and rotating drafts.
+- Three mines — the Quarry, Mirror Grotto and Rift Hollow — each with its own boss, depth bands, room weights, gem pool, colour leaning, tremor and lift rates, linked on an unlock web.
+- A generated seam per expedition: planar tunnels between layers, a lantern that hides rooms past its reach, lift beacons, a tremor meter that summons the boss, depth-scaled enemies and loot, boss chests, and salvage rolls for a fallen party.
+- A persistent profile: one gem per skill in the collection, per-hero loadouts, a daily gem shop with a climbing refresh price, commissions and special missions, and an appraisal table that keeps or sells every stone brought home.
+- Personal merchants, loupes, die purchases/sales/swaps, Workshop, Lapidary appraisal and upgrades, Wager Hall, Crucible, treasure caches, five events, two rock veins, automatic mining, pooled ore, and rotating drafts of unappraised stones.
 - Two of the eleven rooms are played rather than read. **The Wager Hall** stakes gold on five matched house dice — the house deals its own so a party that upgraded its dice is not quietly taxed for it — and allows the same single reroll a combat turn does before paying the pattern you show, on a paytable that names the very patterns the gems read. Only a four-die straight or better pays, so the reroll is the whole game: never rerolling returns about 0.39 per gold staked, keeping the largest group about 0.74, and also chasing a straight about 0.99. A stake left on the table is paid out when you leave, never forfeited. **The Crucible** is the only place Carat moves: temper a gem and pay in HP that rises with the gem, or fuse a reserve gem into it and pay in Carat instead, one offering per hero per visit.
 - Integer effects, stable skill targets, persistent combat block, stun timing, Poison ticks, boss Resolve, Enrage, gold caps, Lifeline charges, and postbattle rally.
 - Host authority, versioned commands, bounded idempotency history, separate saved RNG streams, revisioned snapshots, atomic checkpoint and backup saves, run history, and connection recovery.
@@ -69,7 +73,9 @@ Live Steam acceptance requires a running Steam client and separate accounts on s
 | `scripts/core/catalog.gd`, `content/` | Versioned definitions, factories, validated content pack |
 | `scripts/core/gem_rules.gd` | The data-written gem rule: its vocabulary, its validator and its interpreter |
 | `scripts/core/combat.gd` | Pure triggers, previews, intent programs, effects and turn resolution |
-| `scripts/core/run_engine.gd` | Validated transactions, campaigns, rooms, inventory, economy and saves |
+| `scripts/core/run_engine.gd` | Validated transactions, expeditions, rooms, inventory, economy and saves |
+| `scripts/core/seam.gd` | The generated mine: layers, tunnels, lifts, sight and tremor steps |
+| `scripts/core/profile.gd`, `scripts/services/profile_store.gd` | The persistent profile's rules and its transactional save |
 | `scripts/services/` | ENet/Steam sessions, bounded packet codec, atomic saves and settings |
 | `scripts/ui/`, `scenes/main.tscn` | Snapshot presentation, generated sprites, polyhedral dice, battlefield, desktop input |
 | `tests/` | Combat, campaign, save, networking, presentation, authored-content and interface scenarios |

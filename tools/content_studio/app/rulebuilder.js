@@ -17,7 +17,7 @@ const TRIGGER_LABELS = {
 	total_at_most: "Total at most", high_at_least: "Highest die at least",
 };
 const EFFECT_LABELS = {
-	damage: "Deal damage", block: "Give block", heal: "Heal", gold: "Give gold",
+	damage: "Deal damage", block: "Give block", heal: "Heal", gold: "Give ore",
 	poison: "Apply poison", stun: "Apply stun", remove_block: "Strip block",
 };
 const TARGET_LABELS = {

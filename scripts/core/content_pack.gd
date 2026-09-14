@@ -11,10 +11,9 @@ extends Resource
 @export var relics: Dictionary = {}
 @export var enemies: Dictionary = {}
 @export var events: Dictionary = {}
-@export var profiles: Dictionary = {}
 @export var statuses: Dictionary = {}
 @export var mines: Dictionary = {}
-const SECTIONS: Array = ["heroes","skills","dice","relics","enemies","events","profiles","statuses","mines"]
+const SECTIONS: Array = ["heroes","skills","dice","relics","enemies","events","statuses","mines"]
 ## The rooms a mine may weight. Lifts and the boss lair are placed by the seam itself, never
 ## drawn from a mine's weights, so they are not in this list.
 const MINE_ROOMS: Array = ["battle","elite","mine","rest","treasure","shop","lapidary","crucible","workshop","wager","event"]
@@ -107,12 +106,8 @@ func validate(registry: Dictionary) -> Array:
 		for face in faces:
 			if not (face is int or face is float) or float(face) != floor(float(face)) or int(face) < 1 or int(face) > sides:
 				errors.append("Invalid face value: "+key)
-		var unlock_act: Variant = entry.get("unlock_act",0)
-		if not (unlock_act is int or unlock_act is float) or int(unlock_act) < 0 or int(unlock_act) > 3:
-			errors.append("Invalid shop unlock act (0 is never sold, 1-3 an act): "+key)
-		var unlock_room: Variant = entry.get("unlock_room",0)
-		if not (unlock_room is int or unlock_room is float) or int(unlock_room) < 0:
-			errors.append("Invalid shop unlock room: "+key)
+		if not _integer_in(entry.get("unlock_depth",0),0,999):
+			errors.append("Invalid merchant unlock depth (0 is never sold): "+key)
 	for key in heroes:
 		var entry: Dictionary = heroes[key]
 		if not _positive_integer(entry.get("max_hp",0)) or not entry.get("dice",[]) is Array or entry.get("dice",[]).size() != 5:
@@ -154,31 +149,10 @@ func validate(registry: Dictionary) -> Array:
 				errors.append("Missing enemy die: "+str(die_id))
 		if not registry.get("enemies",{}).has(str(entry.get("ai",key))):
 			errors.append("Unknown enemy routine: "+str(entry.get("ai",key))+" on "+key)
-	for key in profiles:
-		var entry: Variant = profiles[key]
-		if not entry is Dictionary or not entry.get("skill_ids",[]) is Array:
-			errors.append("Invalid profile: "+key)
-			continue
-		for skill_id in entry.get("skill_ids",[]):
-			if not skills.has(skill_id):
-				errors.append("Unknown profile skill: "+str(skill_id))
-		for relic_id in entry.get("relic_ids",[]):
-			if not relics.has(relic_id):
-				errors.append("Unknown profile relic: "+str(relic_id))
-		for boss_id in entry.get("boss_ids",[]):
-			if not enemies.has(boss_id):
-				errors.append("Unknown profile boss: "+str(boss_id))
-		if not entry.get("loot_generator","") in ["depth_luck_v1","act_tier_v1"]:
-			errors.append("Unregistered loot generator: "+key)
-		errors.append_array(_encounter_errors(key,entry.get("encounters",{})))
 	for key in statuses:
 		if not key in ["stun","poison","resolve"]:
 			errors.append("Unregistered status rule: "+key)
 	errors.append_array(_mine_errors())
-	if pack_id == "full":
-		for profile_id in ["short_9","expedition_18"]:
-			if not profiles.has(profile_id):
-				errors.append("Missing run profile: "+profile_id)
 	return errors
 
 static func _rules() -> GDScript:
@@ -206,57 +180,6 @@ static func _rule_hint(section: String) -> String:
 		"enemies": return "new enemies need `ai` set to a registered enemy whose routine they run"
 		"heroes": return "new heroes need `trait` set to a registered trait"
 	return "ID has no registered rule; this section is behaviour, so the build has to ship it first"
-
-func _encounter_errors(profile_key: String, table: Variant) -> Array:
-	## Optional. {"first_room": [id], "normal": {"1": [[ids] per party size]},
-	## "elite": [[ids] per party size], "boss": [id per act]}. Every ID named has to be an
-	## enemy this pack carries, or the room it fills would come out empty at the table.
-	if table == null or (table is Dictionary and table.is_empty()):
-		return []
-	if not table is Dictionary:
-		return [profile_key+": encounters must be an object"]
-	var found: Array = []
-	for field in table:
-		if not str(field) in ["first_room","normal","elite","boss"]:
-			found.append(profile_key+": unknown encounter group "+str(field))
-	for key in _encounter_ids(table):
-		if not enemies.has(key):
-			found.append(profile_key+": encounter names an enemy this pack does not carry: "+str(key))
-	for field in ["first_room","boss"]:
-		if table.has(field) and not table[field] is Array:
-			found.append(profile_key+"/"+field+": must be a list of enemy IDs")
-	if table.has("elite") and not table.elite is Array:
-		found.append(profile_key+"/elite: must be a list of enemy groups, one per party size")
-	if table.has("normal"):
-		if not table.normal is Dictionary:
-			found.append(profile_key+"/normal: must be an object keyed by act")
-		else:
-			for act in table.normal:
-				if not str(act) in ["1","2","3"]:
-					found.append(profile_key+"/normal: act "+str(act)+" is outside 1-3")
-				elif not table.normal[act] is Array:
-					found.append(profile_key+"/normal/"+str(act)+": must be a list of enemy groups, one per party size")
-	return found
-
-static func _encounter_ids(table: Dictionary) -> Array:
-	## Every enemy ID an encounter table names, whichever group it sits in.
-	var found: Array = []
-	for field in ["first_room","boss"]:
-		for key in table.get(field,[]) if table.get(field,[]) is Array else []:
-			if key is String:
-				found.append(key)
-	var buckets: Array = table.get("elite",[]) if table.get("elite",[]) is Array else []
-	var normal: Variant = table.get("normal",{})
-	if normal is Dictionary:
-		for act in normal:
-			if normal[act] is Array:
-				buckets = buckets + normal[act]
-	for group in buckets:
-		if group is Array:
-			for key in group:
-				if key is String:
-					found.append(key)
-	return found
 
 func _mine_errors() -> Array:
 	## A mine is pure data: which boss waits at the bottom of the meter, what spawns at each

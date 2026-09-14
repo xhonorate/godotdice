@@ -52,6 +52,7 @@ static func normalize(source: Variant) -> Dictionary:
 	## Checks a loaded profile's shape and fills in whatever this build knows about that the
 	## file does not: a hero or mine added to the content since the profile was saved. A new
 	## hero arrives unlocked with its starting gems, so an update never locks anyone out.
+	Catalog.ensure_loaded()
 	if not source is Dictionary:
 		return {"ok": false, "error": "The profile is not an object.", "profile": {}}
 	var profile: Dictionary = source.duplicate(true)
