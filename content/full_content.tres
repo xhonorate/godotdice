@@ -637,3 +637,213 @@ statuses = {
 "name": "Stun"
 }
 }
+mines = {
+"MIRROR_GROTTO": {
+"atlas_x": 26,
+"atlas_y": 30,
+"bands": [{
+"elite": {
+"RED_SLIME": 1
+},
+"from_depth": 1,
+"normal": {
+"GEM_CULTIST": 1,
+"MIRROR_WISP": 3,
+"SLIME": 2
+}
+}, {
+"elite": {
+"IRON_WARDEN": 1,
+"RED_SLIME": 1
+},
+"from_depth": 4,
+"normal": {
+"DARTLING": 2,
+"GEM_CULTIST": 2,
+"MIRROR_WISP": 3
+}
+}, {
+"elite": {
+"IRON_WARDEN": 2
+},
+"from_depth": 9,
+"normal": {
+"DARTLING": 2,
+"GEM_CULTIST": 2,
+"MIRROR_WISP": 3,
+"STONE_CRAB": 1
+}
+}],
+"boss_id": "MIRROR_REGENT",
+"color": "9fd3f0",
+"color_weights": {
+"BLUE": 140,
+"GOLD": 120,
+"GREEN": 80,
+"RED": 80,
+"VIOLET": 80,
+"WHITE": 160
+},
+"description": "Crystal caverns where the walls look back. Mirror Wisps and cultists, more strange encounters, and White and Blue stones running thick.",
+"difficulty": 2,
+"lift_rate": 85,
+"links": [],
+"name": "Mirror Grotto",
+"quality_bonus": 4,
+"relic_ids": ["FOCUSING_PRISM", "LASTING_AEGIS", "MATCHBOX", "MERCHANT_SEAL", "MINERS_LANTERN", "TINKERS_BELT"],
+"rooms": {
+"battle": 5,
+"crucible": 1,
+"elite": 2,
+"event": 3,
+"lapidary": 2,
+"mine": 2,
+"rest": 1,
+"shop": 1,
+"treasure": 1,
+"wager": 1,
+"workshop": 1
+},
+"skill_ids": ["BASTION", "BLESSING", "BLOCK", "BULWARK", "ECHO", "EVEN_TEMPO", "FACET", "GLIMMER", "HEAL", "INTERPOSE", "LIFELINE", "LUCKYSTRIKE", "MEND", "MINT", "MULTISTRIKE", "PRECISION", "REFRACT", "SECOND_SIGHT", "SHIELDBASH", "STRIKE", "TITHE", "WAGER"],
+"tremor_rate": 115
+},
+"QUARRY": {
+"atlas_x": 50,
+"atlas_y": 58,
+"bands": [{
+"elite": {
+"RED_SLIME": 1
+},
+"from_depth": 1,
+"normal": {
+"SLIME": 4,
+"STONE_CRAB": 1
+}
+}, {
+"elite": {
+"IRON_WARDEN": 1,
+"RED_SLIME": 1
+},
+"from_depth": 4,
+"normal": {
+"GEM_CULTIST": 1,
+"SLIME": 2,
+"STONE_CRAB": 3
+}
+}, {
+"elite": {
+"IRON_WARDEN": 2,
+"RED_SLIME": 1
+},
+"from_depth": 9,
+"normal": {
+"DARTLING": 2,
+"GEM_CULTIST": 2,
+"SLIME": 1,
+"STONE_CRAB": 3
+}
+}],
+"boss_id": "SLIME_KING",
+"color": "c9a26b",
+"color_weights": {
+"BLUE": 100,
+"GOLD": 100,
+"GREEN": 100,
+"RED": 100,
+"VIOLET": 100,
+"WHITE": 100
+},
+"description": "Old galleries under the town. Slimes and stone crabs, lifts every few layers, and a Slime King that wakes slowly.",
+"difficulty": 1,
+"lift_rate": 100,
+"links": ["MIRROR_GROTTO", "RIFT_HOLLOW"],
+"name": "The Quarry",
+"quality_bonus": 0,
+"relic_ids": ["FIELD_DRESSING", "MATCHBOX", "MINERS_LANTERN", "STEADY_HAND"],
+"rooms": {
+"battle": 6,
+"crucible": 1,
+"elite": 1,
+"event": 2,
+"lapidary": 1,
+"mine": 3,
+"rest": 2,
+"shop": 1,
+"treasure": 1,
+"wager": 1,
+"workshop": 1
+},
+"skill_ids": ["ARC_BURST", "BLOCK", "BULWARK", "GLIMMER", "GRAFT", "HEAL", "HEAVYSTRIKE", "HEXBOLT", "INTERPOSE", "MEND", "MINT", "MULTISTRIKE", "PRECISION", "PURGE", "QUARTET", "SHIELDBASH", "STRIKE", "STUN", "SUNDER", "TITHE"],
+"starter": true,
+"tremor_rate": 100
+},
+"RIFT_HOLLOW": {
+"atlas_x": 76,
+"atlas_y": 32,
+"bands": [{
+"elite": {
+"IRON_WARDEN": 1,
+"RED_SLIME": 1
+},
+"from_depth": 1,
+"normal": {
+"DARTLING": 2,
+"RIFT_HOUND": 3,
+"STONE_CRAB": 1
+}
+}, {
+"elite": {
+"IRON_WARDEN": 2
+},
+"from_depth": 4,
+"normal": {
+"DARTLING": 2,
+"MIRROR_WISP": 2,
+"RIFT_HOUND": 3
+}
+}, {
+"elite": {
+"IRON_WARDEN": 1
+},
+"from_depth": 9,
+"normal": {
+"DARTLING": 1,
+"GEM_CULTIST": 1,
+"MIRROR_WISP": 2,
+"RIFT_HOUND": 4
+}
+}],
+"boss_id": "RIFT_SOVEREIGN",
+"color": "b07cf0",
+"color_weights": {
+"BLUE": 70,
+"GOLD": 70,
+"GREEN": 100,
+"RED": 150,
+"VIOLET": 150,
+"WHITE": 70
+},
+"description": "A split in the deep rock that is still opening. Rift Hounds hunt in packs, lifts are few, and the Rift Sovereign stirs fast. Red and Violet stones.",
+"difficulty": 3,
+"lift_rate": 65,
+"links": [],
+"name": "Rift Hollow",
+"quality_bonus": 8,
+"relic_ids": ["FIELD_DRESSING", "FOCUSING_PRISM", "LASTING_AEGIS", "MATCHBOX", "MERCHANT_SEAL", "MINERS_LANTERN", "STEADY_HAND", "TINKERS_BELT"],
+"rooms": {
+"battle": 6,
+"crucible": 2,
+"elite": 3,
+"event": 2,
+"lapidary": 1,
+"mine": 3,
+"rest": 1,
+"shop": 1,
+"treasure": 2,
+"wager": 1,
+"workshop": 1
+},
+"skill_ids": ["ARC_BURST", "DRAINSTRIKE", "ENERVATE", "GRAFT", "HEAL", "HEAVYSTRIKE", "HEXBOLT", "LIFELINE", "LUCKYSTRIKE", "MIASMA", "MULTISTRIKE", "PRECISION", "PURGE", "QUARTET", "REFRACT", "STRIKE", "STUN", "SUNDER", "VENOM", "WAGER"],
+"tremor_rate": 135
+}
+}

@@ -300,7 +300,7 @@ async function renderBackupList() {
 function listRow(section, id) {
 	const definition = entries(section.id)[id];
 	const errors = issuesFor(section.id, id).filter((issue) => issue.severity === "error").length;
-	const borrowed = !(state.registry[section.id] || []).includes(id) && section.id !== "dice" && section.id !== "profiles";
+	const borrowed = !(state.registry[section.id] || []).includes(id) && section.id !== "dice" && section.id !== "profiles" && section.id !== "mines";
 	return el("button", {
 		class: `row ${state.selected === id ? "on" : ""}`,
 		onclick: () => {
@@ -329,6 +329,7 @@ function thumbnail(sectionId, id, definition) {
 	if (sectionId === "dice") return Dice.dieCanvas({ shape: definition.shape, value: null, tint: "#8f9fb5" }, 30);
 	if (sectionId === "heroes") return el("span", { class: "seat", style: `background:#${definition.color || "9fd08b"}` });
 	if (sectionId === "enemies") return el("span", { class: `seat enemy ${definition.boss ? "boss" : ""}`, text: definition.boss ? "♛" : "☠" });
+	if (sectionId === "mines") return el("span", { class: "seat", style: `background:#${definition.color || "c9a26b"}`, text: definition.starter ? "★" : "⛏" });
 	return el("span", { class: "seat plain", text: SECTION_BY_ID[sectionId].glyph });
 }
 
@@ -376,7 +377,7 @@ function renderEditor() {
 				el("button", { class: "ghost small danger", onclick: deleteEntry }, "Delete"),
 			]),
 		]),
-		borrowed && !section.codeOnly && !["dice", "profiles"].includes(section.id)
+		borrowed && !section.codeOnly && !["dice", "profiles", "mines"].includes(section.id)
 			? el("p", { class: `banner ${rule ? "bad" : "info"}` },
 				rule ? rule.message : `Authored here. The build has no ${state.selected} of its own, so it runs the rule named below.`)
 			: null,
@@ -457,16 +458,23 @@ function retarget(sectionId, from, to) {
 		for (const definition of Object.values(state.content.heroes || {}))
 			definition.starting_gems = (definition.starting_gems || []).map((starter) => (starter[0] === from ? [to, ...starter.slice(1)] : starter));
 		for (const definition of Object.values(state.content.profiles || {})) definition.skill_ids = swap(definition.skill_ids);
+		for (const definition of Object.values(state.content.mines || {})) definition.skill_ids = swap(definition.skill_ids);
 		for (const definition of Object.values(state.content.skills || {}))
 			if (definition.evaluator_id === from) definition.evaluator_id = to;
 	}
 	if (sectionId === "relics")
-		for (const definition of Object.values(state.content.profiles || {})) definition.relic_ids = swap(definition.relic_ids);
+		for (const definition of [...Object.values(state.content.profiles || {}), ...Object.values(state.content.mines || {})]) definition.relic_ids = swap(definition.relic_ids);
+	if (sectionId === "mines")
+		for (const definition of Object.values(state.content.mines || {})) definition.links = swap(definition.links);
 	if (sectionId === "enemies") {
 		for (const definition of Object.values(state.content.enemies || {})) if (definition.ai === from) definition.ai = to;
 		for (const definition of Object.values(state.content.profiles || {})) {
 			definition.boss_ids = swap(definition.boss_ids);
 			if (definition.encounters) definition.encounters = JSON.parse(JSON.stringify(definition.encounters).split(`"${from}"`).join(`"${to}"`));
+		}
+		for (const definition of Object.values(state.content.mines || {})) {
+			if (definition.boss_id === from) definition.boss_id = to;
+			if (definition.bands) definition.bands = JSON.parse(JSON.stringify(definition.bands).split(`"${from}"`).join(`"${to}"`));
 		}
 	}
 }
@@ -586,6 +594,15 @@ function buildControl(section, field, definition) {
 			return numbersControl(definition, field);
 		case "encounters":
 			return encountersControl(definition);
+		case "weights":
+			return weightsControl(definition, field);
+		case "bands":
+			return bandsControl(definition);
+		case "bossselect": {
+			const bosses = Object.keys(entries("enemies")).filter((id) => entries("enemies")[id].boss).sort();
+			return el("select", { onchange: (event) => set(definition, field.key, event.target.value) },
+				bosses.map((option) => el("option", { value: option, selected: option === value }, entries("enemies")[option].name)));
+		}
 		case "rule":
 			return ruleControl(definition);
 		default:
@@ -754,7 +771,7 @@ function idListControl(definition, field) {
 
 function idSetControl(definition, field) {
 	const chosen = Array.isArray(definition[field.key]) ? definition[field.key] : [];
-	const options = Object.keys(entries(field.section)).sort();
+	const options = Object.keys(entries(field.section)).filter((id) => field.section !== state.section || id !== state.selected).sort();
 	const toggle = (id) => set(definition, field.key,
 		(chosen.includes(id) ? chosen.filter((item) => item !== id) : [...chosen, id]).sort());
 	return el("div", {}, [
@@ -910,6 +927,96 @@ function enemyGroupRow(label, group, commit) {
 	]);
 }
 
+// --- mine weights and depth bands ----------------------------------------------
+
+function weightsControl(definition, field) {
+	const value = definition[field.key] && typeof definition[field.key] === "object" ? definition[field.key] : {};
+	const keys = state.registry[field.from] || [];
+	const fallback = field.fallback ?? 0;
+	const total = keys.reduce((sum, key) => sum + Number(value[key] ?? fallback), 0);
+	return el("div", { class: "stack" }, keys.map((key) => {
+		const weight = Number(value[key] ?? fallback);
+		const tint = field.from === "colors" ? (state.registry.gem_colors[key] || {}).hex : null;
+		return el("div", { class: "bar-row" }, [
+			el("span", { class: "bar-label", text: field.from === "colors" ? (state.registry.gem_colors[key] || {}).name || key : roomLabel(key) }),
+			el("span", { class: "bar" }, [el("span", { class: "bar-fill", style: `width:${total ? (weight / total) * 100 : 0}%${tint ? `;background:#${tint}` : ""}` })]),
+			el("input", {
+				type: "number", class: "spin", min: 0, max: 1000, value: weight,
+				onchange: (event) => change(() => {
+					const next = { ...value };
+					const number = clamp(Math.round(Number(event.target.value) || 0), 0, 1000);
+					if (field.fallback !== undefined && number === fallback) delete next[key];
+					else if (field.fallback === undefined && number === 0) delete next[key];
+					else next[key] = number;
+					definition[field.key] = next;
+				}),
+			}),
+		]);
+	}));
+}
+
+const ROOM_LABELS = { mine: "Rock vein", rest: "Camp", shop: "Merchant", event: "Event (?)" };
+const roomLabel = (key) => ROOM_LABELS[key] || titleCase(key);
+
+function bandsControl(definition) {
+	const bands = Array.isArray(definition.bands) ? definition.bands : [];
+	const commit = (mutate) => change(() => {
+		const next = JSON.parse(JSON.stringify(bands));
+		mutate(next);
+		definition.bands = next;
+	});
+	const ordinary = Object.keys(entries("enemies")).filter((id) => !entries("enemies")[id].boss).sort();
+	const group = (index, name) => {
+		const pool = bands[index]?.[name] || {};
+		return el("div", { class: "row-inline wrap tight" }, [
+			el("span", { class: "act-tag", text: name === "normal" ? "Fights" : "Elites" }),
+			...Object.entries(pool).map(([id, weight]) => el("span", { class: "enemy-chip" }, [
+				el("span", { text: entries("enemies")[id]?.name || id }),
+				el("input", {
+					type: "number", class: "spin", min: 1, max: 1000, value: weight, title: "Weight",
+					onchange: (event) => commit((next) => {
+						next[index][name][id] = clamp(Math.round(Number(event.target.value) || 1), 1, 1000);
+					}),
+				}),
+				el("button", { class: "x", onclick: () => commit((next) => delete next[index][name][id]) }, "×"),
+			])),
+			el("select", {
+				onchange: (event) => {
+					if (event.target.value) commit((next) => {
+						next[index][name] = { ...(next[index][name] || {}), [event.target.value]: 1 };
+					});
+				},
+			}, [el("option", { value: "" }, "+ add"), ...ordinary.filter((id) => !(id in pool)).map((id) => el("option", { value: id }, entries("enemies")[id].name))]),
+		]);
+	};
+	return el("div", { class: "stack" }, [
+		...bands.map((band, index) => el("div", { class: "enc-act" }, [
+			el("div", { class: "row-inline" }, [
+				el("h4", { text: index + 1 < bands.length ? `Depth ${band.from_depth}–${bands[index + 1].from_depth - 1}` : `Depth ${band.from_depth}+` }),
+				index > 0 ? el("label", { class: "rank" }, [
+					el("span", { text: "From depth" }),
+					el("input", {
+						type: "number", min: 2, max: 999, value: band.from_depth,
+						onchange: (event) => commit((next) => {
+							next[index].from_depth = clamp(Math.round(Number(event.target.value) || 2), 2, 999);
+						}),
+					}),
+				]) : null,
+				index > 0 ? el("button", { class: "x", title: "Remove band", onclick: () => commit((next) => next.splice(index, 1)) }, "×") : null,
+			]),
+			group(index, "normal"),
+			group(index, "elite"),
+		])),
+		el("button", {
+			class: "ghost small",
+			onclick: () => commit((next) => {
+				const last = next[next.length - 1] || { from_depth: -3, normal: { SLIME: 1 }, elite: { RED_SLIME: 1 } };
+				next.push({ from_depth: last.from_depth + 4, normal: { ...last.normal }, elite: { ...last.elite } });
+			}),
+		}, "+ Add a deeper band"),
+	]);
+}
+
 // --- previews -----------------------------------------------------------------
 
 function renderPreview() {
@@ -919,7 +1026,7 @@ function renderPreview() {
 	if (!definition) return pane.replaceChildren();
 	const builders = {
 		skills: skillPreview, dice: diePreview, heroes: heroPreview,
-		enemies: enemyPreview, profiles: profilePreview,
+		enemies: enemyPreview, profiles: profilePreview, mines: minePreview,
 	};
 	pane.replaceChildren((builders[state.section] || textPreview)(definition));
 }
@@ -1149,10 +1256,80 @@ function profilePreview(definition) {
 	]);
 }
 
+function minePreview(definition) {
+	const mines = entries("mines");
+	const boss = entries("enemies")[definition.boss_id] || {};
+	const pool = (definition.skill_ids || []).map((id) => entries("skills")[id]).filter(Boolean);
+	const colorWeight = (color) => Number((definition.color_weights || {})[color] ?? 100);
+	const byColor = Object.keys(state.registry.gem_colors || {}).map((color) => [color,
+		pool.filter((skill) => skill.color === color).length * colorWeight(color)]);
+	const colorTotal = byColor.reduce((sum, [, weight]) => sum + weight, 0);
+	const rooms = Object.entries(definition.rooms || {}).filter(([, weight]) => weight > 0);
+	const roomTotal = rooms.reduce((sum, [, weight]) => sum + weight, 0);
+	const bars = (rows, total) => rows.map(([label, count, tint, text]) => el("div", { class: "bar-row" }, [
+		el("span", { class: "bar-label", text: label }),
+		el("span", { class: "bar" }, [el("span", { class: "bar-fill", style: `width:${total ? (count / total) * 100 : 0}%${tint ? `;background:#${tint}` : ""}` })]),
+		el("span", { class: "bar-value", text: text ?? String(count) }),
+	]));
+	// The atlas as the wall map draws it: every mine, every unlock line, this one ringed.
+	const canvas = el("canvas", { width: 320, height: 200, class: "atlas" });
+	const context = canvas.getContext("2d");
+	context.fillStyle = "#1a1510";
+	context.fillRect(0, 0, 320, 200);
+	const at = (mine) => [12 + (Number(mine.atlas_x) || 0) * 2.96, 12 + (Number(mine.atlas_y) || 0) * 1.76];
+	context.strokeStyle = "#6b5a44";
+	context.lineWidth = 2;
+	for (const mine of Object.values(mines))
+		for (const link of mine.links || []) if (mines[link]) {
+			context.beginPath();
+			context.moveTo(...at(mine));
+			context.lineTo(...at(mines[link]));
+			context.stroke();
+		}
+	for (const [id, mine] of Object.entries(mines)) {
+		const [x, y] = at(mine);
+		context.fillStyle = `#${mine.color || "c9a26b"}`;
+		context.beginPath();
+		context.arc(x, y, id === state.selected ? 9 : 6, 0, Math.PI * 2);
+		context.fill();
+		if (id === state.selected) {
+			context.strokeStyle = "#f4e6c8";
+			context.stroke();
+			context.strokeStyle = "#6b5a44";
+		}
+		context.fillStyle = "#e8dcc4";
+		context.font = "11px sans-serif";
+		context.fillText(mine.name || id, x + 11, y + 4);
+	}
+	const band = (depth) => [...(definition.bands || [])].reverse().find((entry) => depth >= entry.from_depth);
+	const names = (group) => Object.entries(group || {}).map(([id, weight]) => `${entries("enemies")[id]?.name || id} ×${weight}`).join(", ") || "—";
+	const difficulty = Math.min(5, Math.max(1, Number(definition.difficulty) || 1));
+	return el("div", {}, [
+		previewCard(definition.name || state.selected, [
+			el("p", { class: "muted", text: definition.description || "" }),
+			statGrid([
+				["Difficulty", `${"◆".repeat(difficulty)}${"◇".repeat(5 - difficulty)}`],
+				["Boss", `${boss.name || definition.boss_id} · ${boss.max_hp || "?"} HP per hero`],
+				["Tremors", `${definition.tremor_rate}% speed`],
+				["Lifts", `${definition.lift_rate}% as common`],
+				["Loot quality", `+${definition.quality_bonus}`],
+				["Unlocks", (definition.links || []).map((id) => mines[id]?.name || id).join(", ") || "nothing yet"],
+			]),
+		]),
+		previewCard("On the atlas", canvas),
+		previewCard("Rooms", bars(rooms.map(([key, weight]) => [roomLabel(key), weight, null, `${Math.round((weight / roomTotal) * 100)}%`]), roomTotal)),
+		previewCard("Enemies by depth", el("div", { class: "stack" }, [1, 5, 10, 20].map((depth) => {
+			const entry = band(depth);
+			return el("p", { class: "small", text: `Depth ${depth}: ${entry ? names(entry.normal) : "—"} · elites ${entry ? names(entry.elite) : "—"}` });
+		}))),
+		previewCard("Gem odds by colour", bars(byColor.map(([color, weight]) => [(state.registry.gem_colors[color] || {}).name || color, weight, (state.registry.gem_colors[color] || {}).hex, `${colorTotal ? Math.round((weight / colorTotal) * 100) : 0}%`]), colorTotal)),
+	]);
+}
+
 function packPreview() {
 	const authored = [];
 	for (const section of SECTIONS) {
-		if (["dice", "profiles"].includes(section.id)) continue;
+		if (["dice", "profiles", "mines"].includes(section.id)) continue;
 		for (const id of Object.keys(entries(section.id)))
 			if (!(state.registry[section.id] || []).includes(id)) authored.push([section.singular, id]);
 	}

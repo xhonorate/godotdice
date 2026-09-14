@@ -138,6 +138,14 @@ func record_summary(summary: Dictionary) -> Dictionary:
 		history.resize(100)
 	return _atomic_write("history.json", {"schema_version": SCHEMA_VERSION, "runs": history})
 
+## Any other record kept beside the checkpoint, such as a player profile, uses the same
+## size limit and the same write-then-rename with a preserved `.bak`.
+func read_record(file_name: String) -> Dictionary:
+	return _read(file_name)
+
+func write_record(file_name: String, record: Dictionary) -> Dictionary:
+	return _atomic_write(file_name, record)
+
 func _read(file_name: String) -> Dictionary:
 	var path := directory.path_join(file_name)
 	if not FileAccess.file_exists(path):

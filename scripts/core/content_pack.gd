@@ -13,7 +13,11 @@ extends Resource
 @export var events: Dictionary = {}
 @export var profiles: Dictionary = {}
 @export var statuses: Dictionary = {}
-const SECTIONS: Array = ["heroes","skills","dice","relics","enemies","events","profiles","statuses"]
+@export var mines: Dictionary = {}
+const SECTIONS: Array = ["heroes","skills","dice","relics","enemies","events","profiles","statuses","mines"]
+## The rooms a mine may weight. Lifts and the boss lair are placed by the seam itself, never
+## drawn from a mine's weights, so they are not in this list.
+const MINE_ROOMS: Array = ["battle","elite","mine","rest","treasure","shop","lapidary","crucible","workshop","wager","event"]
 ## Color is the fourth C: the category a skill's effects belong to. It is authored, not rolled.
 const COLORS: Array = ["RED","BLUE","GREEN","VIOLET","GOLD","WHITE"]
 const TARGETS: Array = ["self","enemy","enemies","ally","revive"]
@@ -170,6 +174,7 @@ func validate(registry: Dictionary) -> Array:
 	for key in statuses:
 		if not key in ["stun","poison","resolve"]:
 			errors.append("Unregistered status rule: "+key)
+	errors.append_array(_mine_errors())
 	if pack_id == "full":
 		for profile_id in ["short_9","expedition_18"]:
 			if not profiles.has(profile_id):
@@ -252,6 +257,112 @@ static func _encounter_ids(table: Dictionary) -> Array:
 				if key is String:
 					found.append(key)
 	return found
+
+func _mine_errors() -> Array:
+	## A mine is pure data: which boss waits at the bottom of the meter, what spawns at each
+	## depth, what drops, and where it sits on the atlas. Every ID it names has to be in this
+	## pack, and every mine has to be reachable from a starter, or it could never be unlocked.
+	var found: Array = []
+	if mines.is_empty():
+		return ["Content section mines is empty"] if pack_id == "full" else []
+	var starters: Array = []
+	for key in mines:
+		var entry: Variant = mines[key]
+		if not entry is Dictionary:
+			found.append("mines/"+str(key)+": definition must be an object")
+			continue
+		if not entry.get("name",null) is String or str(entry.get("name","")).is_empty():
+			found.append("mines/"+key+": definition needs a display name")
+		if entry.get("starter",false) == true:
+			starters.append(key)
+		if not _integer_in(entry.get("difficulty",0),1,5):
+			found.append("mines/"+key+": difficulty must be 1-5")
+		var boss: String = str(entry.get("boss_id",""))
+		if not enemies.has(boss) or not enemies[boss].get("boss",false):
+			found.append("mines/"+key+": boss_id must name a boss enemy: "+boss)
+		for field in ["atlas_x","atlas_y"]:
+			if not _integer_in(entry.get(field,-1),0,100):
+				found.append("mines/"+key+": "+field+" must be 0-100")
+		for field in ["tremor_rate","lift_rate"]:
+			if not _integer_in(entry.get(field,0),10,500):
+				found.append("mines/"+key+": "+field+" must be a percentage from 10 to 500")
+		if not _integer_in(entry.get("quality_bonus",-1),0,30):
+			found.append("mines/"+key+": quality_bonus must be 0-30")
+		var links: Variant = entry.get("links",[])
+		if not links is Array:
+			found.append("mines/"+key+": links must be a list of mine IDs")
+		else:
+			for link in links:
+				if not mines.has(str(link)) or str(link) == key:
+					found.append("mines/"+key+": links to an unknown mine: "+str(link))
+		found.append_array(_weight_errors("mines/"+key+"/rooms",entry.get("rooms",{}),MINE_ROOMS,true))
+		if entry.get("rooms",{}) is Dictionary and int(entry.get("rooms",{}).get("battle",0)) <= 0:
+			found.append("mines/"+key+"/rooms: battle needs a positive weight")
+		found.append_array(_weight_errors("mines/"+key+"/color_weights",entry.get("color_weights",{}),COLORS,false))
+		for list_field in [["skill_ids",skills],["relic_ids",relics]]:
+			var ids: Variant = entry.get(list_field[0],[])
+			if not ids is Array or (list_field[0] == "skill_ids" and ids.is_empty()):
+				found.append("mines/"+key+": "+list_field[0]+" must be a non-empty list")
+				continue
+			for id in ids:
+				if not list_field[1].has(str(id)):
+					found.append("mines/"+key+": "+list_field[0]+" names an unknown ID: "+str(id))
+		var bands: Variant = entry.get("bands",[])
+		if not bands is Array or bands.is_empty():
+			found.append("mines/"+key+": bands must list at least one depth band")
+			continue
+		var previous: int = 0
+		for index in range(bands.size()):
+			var band: Variant = bands[index]
+			var label: String = "mines/"+key+"/bands/"+str(index)
+			if not band is Dictionary:
+				found.append(label+": must be an object")
+				continue
+			var from_depth: Variant = band.get("from_depth",0)
+			if not _integer_in(from_depth,1,999) or (index == 0 and int(from_depth) != 1) or (index > 0 and int(from_depth) <= previous):
+				found.append(label+": from_depth must start at 1 and rise band by band")
+			previous = int(from_depth) if _integer_in(from_depth,1,999) else previous
+			var ordinary: Array = []
+			for enemy_id in enemies:
+				if not enemies[enemy_id].get("boss",false):
+					ordinary.append(enemy_id)
+			for group in ["normal","elite"]:
+				found.append_array(_weight_errors(label+"/"+group,band.get(group,{}),ordinary,true))
+	if pack_id == "full" and starters.is_empty():
+		found.append("mines: at least one mine must be a starter")
+	## Everything must be reachable by following links out from the starters.
+	var reached: Array = starters.duplicate()
+	var frontier: Array = starters.duplicate()
+	while not frontier.is_empty():
+		var current: Variant = mines.get(frontier.pop_back(),{})
+		for link in current.get("links",[]) if current is Dictionary and current.get("links",[]) is Array else []:
+			if mines.has(str(link)) and not str(link) in reached:
+				reached.append(str(link))
+				frontier.append(str(link))
+	if not starters.is_empty():
+		for key in mines:
+			if not key in reached:
+				found.append("mines/"+key+": no chain of links from a starter mine reaches it")
+	return found
+
+static func _weight_errors(label: String, weights: Variant, allowed: Array, need_one: bool) -> Array:
+	if not weights is Dictionary:
+		return [label+": must be an object of weights"]
+	var found: Array = []
+	var total: int = 0
+	for key in weights:
+		if not str(key) in allowed:
+			found.append(label+": unknown key "+str(key))
+		elif not _integer_in(weights[key],0,1000):
+			found.append(label+": weight for "+str(key)+" must be a whole number 0-1000")
+		else:
+			total += int(weights[key])
+	if need_one and total <= 0:
+		found.append(label+": needs at least one positive weight")
+	return found
+
+static func _integer_in(value: Variant, low: int, high: int) -> bool:
+	return (value is int or value is float) and float(value) == floor(float(value)) and int(value) >= low and int(value) <= high
 
 static func _positive_integer(value: Variant) -> bool:
 	return (value is int or value is float) and float(value) == floor(float(value)) and int(value) > 0

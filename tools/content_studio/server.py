@@ -131,6 +131,7 @@ def read_registry() -> dict:
         "shapes": ["D4", "D6", "D8", "D10", "D12", "D20"],
         "statuses": ["stun", "poison", "resolve"],
         "loot_generators": ["depth_luck_v1", "act_tier_v1"],
+        "mine_rooms": _const_array(pack, "MINE_ROOMS"),
         "gem_colors": _gem_colors(catalog),
         "die_unlock": _die_unlock(catalog),
         # The numbers the gem panel spells out, read from the rules build rather than copied.
@@ -204,7 +205,7 @@ def gd_literal(value) -> str:
 
 def write_tres(content: dict) -> None:
     """The .tres the game loads at startup, written from the same data as the JSON."""
-    sections = ["heroes", "skills", "dice", "relics", "enemies", "events", "profiles", "statuses"]
+    sections = ["heroes", "skills", "dice", "relics", "enemies", "events", "profiles", "statuses", "mines"]
     existing = TRES_PATH.read_text(encoding="utf-8") if TRES_PATH.exists() else ""
     script_id = re.search(r'id="([^"]+)"', existing).group(1) if 'ext_resource' in existing else "1_k7jmp"
     out = ['[gd_resource type="Resource" script_class="RogueContentPack" format=3]', "",

@@ -107,6 +107,48 @@ const EVENTS: Dictionary = {
 	"ECHO_SHRINE": {"name": "Echo Shrine", "description": "Take 5 gold, or replace one D6's faces with Paired, Odd, or Even faces."},
 	"JEWEL_BROKER": {"name": "Jewel Broker", "description": "Take 4 gold, or exchange one reserve gem for one of three displayed gems."}
 }
+## The mine atlas. Each mine is a whole expedition: its boss arrives when the tremor meter
+## fills, its bands decide what spawns as the party digs deeper, and its gem pool and colour
+## weights decide what the rocks give up. Links are one-way unlocks, opened by killing the
+## mine's boss. Rates are whole percentages so the pack never has to carry a float.
+const MINES: Dictionary = {
+	"QUARRY": {"name": "The Quarry", "starter": true, "difficulty": 1, "boss_id": "SLIME_KING",
+		"description": "Old galleries under the town. Slimes and stone crabs, lifts every few layers, and a Slime King that wakes slowly.",
+		"links": ["MIRROR_GROTTO", "RIFT_HOLLOW"], "atlas_x": 50, "atlas_y": 58, "color": "c9a26b",
+		"tremor_rate": 100, "lift_rate": 100, "quality_bonus": 0,
+		"rooms": {"battle": 6, "elite": 1, "mine": 3, "rest": 2, "treasure": 1, "shop": 1, "lapidary": 1, "crucible": 1, "workshop": 1, "wager": 1, "event": 2},
+		"bands": [
+			{"from_depth": 1, "normal": {"SLIME": 4, "STONE_CRAB": 1}, "elite": {"RED_SLIME": 1}},
+			{"from_depth": 4, "normal": {"SLIME": 2, "STONE_CRAB": 3, "GEM_CULTIST": 1}, "elite": {"RED_SLIME": 1, "IRON_WARDEN": 1}},
+			{"from_depth": 9, "normal": {"SLIME": 1, "STONE_CRAB": 3, "GEM_CULTIST": 2, "DARTLING": 2}, "elite": {"RED_SLIME": 1, "IRON_WARDEN": 2}}],
+		"skill_ids": ["ARC_BURST", "BLOCK", "BULWARK", "GLIMMER", "GRAFT", "HEAL", "HEAVYSTRIKE", "HEXBOLT", "INTERPOSE", "MEND", "MINT", "MULTISTRIKE", "PRECISION", "PURGE", "QUARTET", "SHIELDBASH", "STRIKE", "STUN", "SUNDER", "TITHE"],
+		"color_weights": {"RED": 100, "BLUE": 100, "GREEN": 100, "VIOLET": 100, "GOLD": 100, "WHITE": 100},
+		"relic_ids": ["FIELD_DRESSING", "MATCHBOX", "MINERS_LANTERN", "STEADY_HAND"]},
+	"MIRROR_GROTTO": {"name": "Mirror Grotto", "difficulty": 2, "boss_id": "MIRROR_REGENT",
+		"description": "Crystal caverns where the walls look back. Mirror Wisps and cultists, more strange encounters, and White and Blue stones running thick.",
+		"links": [], "atlas_x": 26, "atlas_y": 30, "color": "9fd3f0",
+		"tremor_rate": 115, "lift_rate": 85, "quality_bonus": 4,
+		"rooms": {"battle": 5, "elite": 2, "mine": 2, "rest": 1, "treasure": 1, "shop": 1, "lapidary": 2, "crucible": 1, "workshop": 1, "wager": 1, "event": 3},
+		"bands": [
+			{"from_depth": 1, "normal": {"MIRROR_WISP": 3, "SLIME": 2, "GEM_CULTIST": 1}, "elite": {"RED_SLIME": 1}},
+			{"from_depth": 4, "normal": {"MIRROR_WISP": 3, "DARTLING": 2, "GEM_CULTIST": 2}, "elite": {"RED_SLIME": 1, "IRON_WARDEN": 1}},
+			{"from_depth": 9, "normal": {"MIRROR_WISP": 3, "DARTLING": 2, "GEM_CULTIST": 2, "STONE_CRAB": 1}, "elite": {"IRON_WARDEN": 2}}],
+		"skill_ids": ["BASTION", "BLESSING", "BLOCK", "BULWARK", "ECHO", "EVEN_TEMPO", "FACET", "GLIMMER", "HEAL", "INTERPOSE", "LIFELINE", "LUCKYSTRIKE", "MEND", "MINT", "MULTISTRIKE", "PRECISION", "REFRACT", "SECOND_SIGHT", "SHIELDBASH", "STRIKE", "TITHE", "WAGER"],
+		"color_weights": {"RED": 80, "BLUE": 140, "GREEN": 80, "VIOLET": 80, "GOLD": 120, "WHITE": 160},
+		"relic_ids": ["FOCUSING_PRISM", "LASTING_AEGIS", "MATCHBOX", "MERCHANT_SEAL", "MINERS_LANTERN", "TINKERS_BELT"]},
+	"RIFT_HOLLOW": {"name": "Rift Hollow", "difficulty": 3, "boss_id": "RIFT_SOVEREIGN",
+		"description": "A split in the deep rock that is still opening. Rift Hounds hunt in packs, lifts are few, and the Rift Sovereign stirs fast. Red and Violet stones.",
+		"links": [], "atlas_x": 76, "atlas_y": 32, "color": "b07cf0",
+		"tremor_rate": 135, "lift_rate": 65, "quality_bonus": 8,
+		"rooms": {"battle": 6, "elite": 3, "mine": 3, "rest": 1, "treasure": 2, "shop": 1, "lapidary": 1, "crucible": 2, "workshop": 1, "wager": 1, "event": 2},
+		"bands": [
+			{"from_depth": 1, "normal": {"RIFT_HOUND": 3, "DARTLING": 2, "STONE_CRAB": 1}, "elite": {"IRON_WARDEN": 1, "RED_SLIME": 1}},
+			{"from_depth": 4, "normal": {"RIFT_HOUND": 3, "MIRROR_WISP": 2, "DARTLING": 2}, "elite": {"IRON_WARDEN": 2}},
+			{"from_depth": 9, "normal": {"RIFT_HOUND": 4, "MIRROR_WISP": 2, "GEM_CULTIST": 1, "DARTLING": 1}, "elite": {"IRON_WARDEN": 1}}],
+		"skill_ids": ["ARC_BURST", "DRAINSTRIKE", "ENERVATE", "GRAFT", "HEAL", "HEAVYSTRIKE", "HEXBOLT", "LIFELINE", "LUCKYSTRIKE", "MIASMA", "MULTISTRIKE", "PRECISION", "PURGE", "QUARTET", "REFRACT", "STRIKE", "STUN", "SUNDER", "VENOM", "WAGER"],
+		"color_weights": {"RED": 150, "BLUE": 70, "GREEN": 100, "VIOLET": 150, "GOLD": 70, "WHITE": 70},
+		"relic_ids": ["FIELD_DRESSING", "FOCUSING_PRISM", "LASTING_AEGIS", "MATCHBOX", "MERCHANT_SEAL", "MINERS_LANTERN", "STEADY_HAND", "TINKERS_BELT"]}
+}
 
 static func canonical_key(key: String) -> String:
 	return "BULWARK" if key == "BULLWARK" else key
@@ -405,12 +447,69 @@ static func definitions(section: String) -> Dictionary:
 		"relics": return RELICS
 		"enemies": return ENEMIES
 		"events": return EVENTS
+		"mines": return MINES
 	return {}
 
 static func profile_definition(profile: String) -> Dictionary:
 	## The authored run profile, or an empty dictionary when the pack does not carry one.
 	var entry: Variant = definitions("profiles").get(profile, {})
 	return entry if entry is Dictionary else {}
+
+static func mine_definition(mine_id: String) -> Dictionary:
+	var entry: Variant = definitions("mines").get(mine_id, {})
+	return entry if entry is Dictionary else {}
+
+static func mine_ids() -> Array:
+	var keys: Array = definitions("mines").keys()
+	keys.sort()
+	return keys
+
+static func starter_mines() -> Array:
+	return mine_ids().filter(func(key: String) -> bool: return bool(mine_definition(key).get("starter", false)))
+
+## --- Quality-rolled gems ---------------------------------------------------------
+## One number, 0-30, stands for how good a find should be: the mine's bonus plus how deep
+## the party dug, or the best mine a shopkeeper can buy from. It moves rarity, Carat and
+## both ranks together, so a deep find is better across the board without any one table.
+
+const MAX_QUALITY: int = 30
+
+static func quality_rarity_weights(quality: int) -> Array:
+	var q: int = clampi(quality, 0, MAX_QUALITY)
+	return [maxi(8, 60 - 2 * q), 30 + floori(q / 3.0), 8 + q, maxi(0, floori(q * 2 / 3.0) - 1)]
+
+static func roll_gem_ranks(rng: RandomNumberGenerator, quality: int) -> Array:
+	## [carat, cut, clarity]. Carat spans 1-4 at quality 0 and 11-24 at 30; the ranks centre
+	## on 1 at quality 0 and walk up to 5 at 30.
+	var q: int = clampi(quality, 0, MAX_QUALITY)
+	var carat: int = clampi(rng.randi_range(1 + floori(q / 3.0), 4 + floori(q * 2 / 3.0)), 1, 24)
+	var center: float = 1.0 + float(q) / 7.5
+	var weights: Array = []
+	for rank in range(1, 6):
+		weights.append(maxf(0.0, 10.0 - absf(float(rank) - center) * 4.0))
+	return [carat, RandomSource.weighted_index(rng, weights) + 1, RandomSource.weighted_index(rng, weights) + 1]
+
+static func roll_gem(rng: RandomNumberGenerator, keys: Array, quality: int, id: String, color_weights: Dictionary = {}) -> Dictionary:
+	## One gem from `keys`: a rarity bucket by quality, then a skill in that bucket weighted by
+	## its colour. Keys are sorted first so the draw depends on the set, never the order.
+	var pool: Array = keys.filter(func(key: Variant) -> bool: return definitions("skills").has(str(key)))
+	pool.sort()
+	if pool.is_empty():
+		return {}
+	var buckets: Array = [[], [], [], []]
+	for key in pool:
+		buckets[clampi(int(definitions("skills")[key].rarity), 1, 4) - 1].append(key)
+	var rarity_weights: Array = quality_rarity_weights(quality)
+	for index in range(4):
+		if buckets[index].is_empty():
+			rarity_weights[index] = 0
+	var bucket: Array = buckets[maxi(0, RandomSource.weighted_index(rng, rarity_weights))]
+	var skill_weights: Array = []
+	for key in bucket:
+		skill_weights.append(int(color_weights.get(gem_color(key), 100)))
+	var chosen: String = bucket[maxi(0, RandomSource.weighted_index(rng, skill_weights))]
+	var ranks: Array = roll_gem_ranks(rng, quality)
+	return gem(chosen, id, ranks[0], ranks[1], ranks[2])
 
 static func default_content_pack() -> Resource:
 	var pack: Resource = ContentPack.new()
@@ -427,6 +526,7 @@ static func default_content_pack() -> Resource:
 		"short_9": {"rooms": 9, "acts": 1, "skill_ids": eligible_skills("short_9", 4), "relic_ids": eligible_relics("short_9"), "boss_ids": ["SLIME_KING"], "loot_generator": "depth_luck_v1", "combat_gold_cap": [8]},
 		"expedition_18": {"rooms": 18, "acts": 3, "skill_ids": eligible_skills("expedition_18", 4), "relic_ids": eligible_relics("expedition_18"), "boss_ids": ["SLIME_KING", "MIRROR_REGENT", "RIFT_SOVEREIGN"], "loot_generator": "act_tier_v1", "combat_gold_cap": [8, 12, 16]}
 	}
+	pack.mines = MINES.duplicate(true)
 	pack.statuses = {
 		"stun": {"name": "Stun", "description": "Skip the next actor slot; ticks before the skill batch. Self-stun affects future slots.", "hook": "start_slot", "cap": - 1},
 		"poison": {"name": "Poison", "description": "End-slot damage bypasses block, including a stunned slot. Lose one stack after ticking.", "hook": "end_slot", "cap": 12},

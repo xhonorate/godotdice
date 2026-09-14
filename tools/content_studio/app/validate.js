@@ -148,6 +148,8 @@ export function validatePack(content, registry) {
 		issues.push(...encounterIssues(id, entry.encounters, content));
 	}
 
+	issues.push(...mineIssues(content, registry));
+
 	for (const id of Object.keys(content.statuses || {}))
 		if (!(registry.statuses || []).includes(id))
 			add("error", "statuses", id, "", `Only ${(registry.statuses || []).join(", ")} are tracked by the rules build.`);
@@ -165,7 +167,7 @@ function registryFor(section) {
 
 /** Whether this entry has a rule to run, and what it is missing if not. */
 export function ruleProblem(section, id, entry, registry) {
-	if (section === "dice" || section === "profiles") return null;
+	if (section === "dice" || section === "profiles" || section === "mines") return null;
 	if ((registry[section] || []).includes(id)) return null;
 	switch (section) {
 		case "skills":
@@ -181,6 +183,70 @@ export function ruleProblem(section, id, entry, registry) {
 		default:
 			return { field: "", message: `${section} are behaviour with no data hook, so this ID has to be registered in the rules build before the pack can carry it.` };
 	}
+}
+
+/** `ContentPack._mine_errors()`, field by field. */
+function mineIssues(content, registry) {
+	const issues = [];
+	const mines = content.mines || {};
+	const add = (id, field, message, severity = "error") => issues.push({ severity, section: "mines", id, field, message });
+	const inRange = (value, low, high) => isInteger(value) && value >= low && value <= high;
+	const weights = (id, field, value, allowed, needOne) => {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return add(id, field, "Must be a set of weights.");
+		let total = 0;
+		for (const [key, weight] of Object.entries(value)) {
+			if (!allowed.includes(key)) add(id, field, `Unknown key ${key}.`);
+			else if (!inRange(weight, 0, 1000)) add(id, field, `The weight for ${key} has to be a whole number 0-1000.`);
+			else total += weight;
+		}
+		if (needOne && total <= 0) add(id, field, "Needs at least one positive weight.");
+	};
+	if (!Object.keys(mines).length) {
+		if (content.pack_id === "full") add("", "", "Section mines is empty.");
+		return issues;
+	}
+	const ordinary = Object.keys(content.enemies || {}).filter((key) => !(content.enemies[key] || {}).boss);
+	const starters = [];
+	for (const [id, entry] of Object.entries(mines)) {
+		if (entry.starter === true) starters.push(id);
+		if (!inRange(entry.difficulty, 1, 5)) add(id, "difficulty", "Difficulty is 1 to 5.");
+		if (!(content.enemies || {})[entry.boss_id]?.boss) add(id, "boss_id", `The boss has to be an enemy marked Boss; ${entry.boss_id || "(none)"} is not.`);
+		for (const field of ["atlas_x", "atlas_y"]) if (!inRange(entry[field], 0, 100)) add(id, field, "Atlas position is 0 to 100.");
+		for (const field of ["tremor_rate", "lift_rate"]) if (!inRange(entry[field], 10, 500)) add(id, field, "A whole percentage from 10 to 500.");
+		if (!inRange(entry.quality_bonus, 0, 30)) add(id, "quality_bonus", "Quality bonus is 0 to 30.");
+		if (!Array.isArray(entry.links)) add(id, "links", "Links must be a list.");
+		else for (const link of entry.links) if (!mines[link] || link === id) add(id, "links", `Cannot link to ${link}.`);
+		weights(id, "rooms", entry.rooms, registry.mine_rooms || [], true);
+		if (!((entry.rooms || {}).battle > 0)) add(id, "rooms", "Battle needs a positive weight.");
+		weights(id, "color_weights", entry.color_weights || {}, registry.colors || [], false);
+		if (!Array.isArray(entry.skill_ids) || !entry.skill_ids.length) add(id, "skill_ids", "A mine needs a gem pool.");
+		else for (const skill of entry.skill_ids) if (!(content.skills || {})[skill]) add(id, "skill_ids", `No such gem: ${skill}.`);
+		for (const relic of entry.relic_ids || []) if (!(content.relics || {})[relic]) add(id, "relic_ids", `No such relic: ${relic}.`);
+		if (!Array.isArray(entry.bands) || !entry.bands.length) {
+			add(id, "bands", "At least one depth band.");
+			continue;
+		}
+		let previous = 0;
+		entry.bands.forEach((band, index) => {
+			const from = band?.from_depth;
+			if (!inRange(from, 1, 999) || (index === 0 && from !== 1) || (index > 0 && from <= previous))
+				add(id, "bands", `Band ${index + 1}: depths start at 1 and rise band by band.`);
+			if (inRange(from, 1, 999)) previous = from;
+			for (const group of ["normal", "elite"]) weights(id, "bands", band?.[group], ordinary, true);
+		});
+	}
+	if (content.pack_id === "full" && !starters.length) add("", "starter", "At least one mine has to be a starter.");
+	const reached = new Set(starters);
+	const frontier = [...starters];
+	while (frontier.length)
+		for (const link of (mines[frontier.pop()] || {}).links || [])
+			if (mines[link] && !reached.has(link)) {
+				reached.add(link);
+				frontier.push(link);
+			}
+	if (starters.length)
+		for (const id of Object.keys(mines)) if (!reached.has(id)) add(id, "links", "No chain of unlocks from a starter mine reaches this one, so it can never be opened.");
+	return issues;
 }
 
 function encounterIssues(profileId, table, content) {
@@ -230,11 +296,23 @@ export function referencesTo(content, section, id) {
 			if ((entry.skill_ids || []).includes(id)) found.push({ section: "profiles", id: key, why: "has it in the gem pool" });
 		for (const [key, entry] of Object.entries(content.skills || {}))
 			if (key !== id && entry.evaluator_id === id) found.push({ section: "skills", id: key, why: "borrows its rule" });
+		for (const [key, entry] of Object.entries(content.mines || {}))
+			if ((entry.skill_ids || []).includes(id)) found.push({ section: "mines", id: key, why: "has it in the gem pool" });
 	}
-	if (section === "relics")
+	if (section === "relics") {
 		for (const [key, entry] of Object.entries(content.profiles || {}))
 			if ((entry.relic_ids || []).includes(id)) found.push({ section: "profiles", id: key, why: "has it in the relic pool" });
+		for (const [key, entry] of Object.entries(content.mines || {}))
+			if ((entry.relic_ids || []).includes(id)) found.push({ section: "mines", id: key, why: "has it in the relic pool" });
+	}
+	if (section === "mines")
+		for (const [key, entry] of Object.entries(content.mines || {}))
+			if (key !== id && (entry.links || []).includes(id)) found.push({ section: "mines", id: key, why: "unlocks it" });
 	if (section === "enemies") {
+		for (const [key, entry] of Object.entries(content.mines || {})) {
+			if (entry.boss_id === id) found.push({ section: "mines", id: key, why: "uses it as the boss" });
+			if (JSON.stringify(entry.bands || []).includes(`"${id}"`)) found.push({ section: "mines", id: key, why: "spawns it in a depth band" });
+		}
 		for (const [key, entry] of Object.entries(content.profiles || {})) {
 			if ((entry.boss_ids || []).includes(id)) found.push({ section: "profiles", id: key, why: "uses it as an act boss" });
 			if (JSON.stringify(entry.encounters || {}).includes(`"${id}"`)) found.push({ section: "profiles", id: key, why: "spawns it in an encounter" });
