@@ -29,6 +29,7 @@ const Reveal = preload("res://scripts/ui/reveal.gd")
 const Fanfare = preload("res://scripts/ui/fanfare.gd")
 const GemBadge = preload("res://scripts/ui/gem_badge.gd")
 const ItemBoard = preload("res://scripts/ui/item_board.gd")
+const RoomScreens = preload("res://scripts/ui/room_screens.gd")
 const INK := Color("0c111c")
 const PANEL := Color("161e2e")
 const PANEL_HI := Color("1f2a3d")
@@ -66,6 +67,8 @@ var mine_choice := ""
 var special_choice: Dictionary = {}
 var atlas_focus := ""
 var screens: RefCounted
+## Every room that is not a fight.
+var rooms: RefCounted
 var hub_view: Control
 var profile_store: RefCounted
 ## The result this client last carried home, so re-rendering the summary never applies it twice.
@@ -126,7 +129,6 @@ var reveal: RefCounted
 ## A find held up to the light over everything else: an appraisal made mid-run.
 var spotlight: Control
 var spotlight_queue: Array = []
-var mine_playback_label: Label
 var mine_playback_index := 0
 var mine_playback_timer := 0.0
 var mine_playback_room := ""
@@ -171,6 +173,7 @@ func _ready() -> void:
 	if not opened.get("ok", false): _notify(str(opened.get("error", "Your profile could not be opened.")))
 	elif opened.has("notice"): _notify(str(opened.notice))
 	screens = HubScreens.new(self)
+	rooms = RoomScreens.new(self)
 	var selected := str(_profile().get("selected_hero", ""))
 	if not selected.is_empty(): menu_hero = selected.to_lower()
 	session = SessionScript.new()
@@ -799,6 +802,7 @@ const BATTLE_PHASES := ["planning", "resolution", "combat"]
 ## Phases played out on the battlefield. The spoils and the salvage both belong to the fight
 ## that produced them, so they are laid over it rather than cutting away to another screen.
 const BATTLE_SCENE := ["planning", "resolution", "combat", "reward", "salvage"]
+const ROOM_PHASES := ["support", "mine_vote", "mine_draft", "lift"]
 
 func _playing_out() -> bool:
 	## A fight that has already been decided still has to be watched. While the log has
@@ -958,7 +962,8 @@ func _run_screen() -> void:
 		for hero in snapshot.get("heroes", []):
 			_party_card(side, hero)
 	# A fight is laid out to fit the window exactly, so it is never given a scroll bar.
-	var fighting: bool = phase in BATTLE_SCENE or at_table
+	# Rooms lay themselves out to the window too: a banner, a scrolling middle, a pinned foot.
+	var fighting: bool = phase in BATTLE_SCENE or at_table or phase in ROOM_PHASES
 	var center := _vbox(body if fighting else _scroll(body), 10 if fighting else 14)
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if fighting:
@@ -966,10 +971,7 @@ func _run_screen() -> void:
 	match phase:
 		"planning", "resolution", "combat", "reward", "salvage": _battle(center)
 		"route": _route(center)
-		"support": _support(center)
-		"mine_vote": _mine_vote(center)
-		"mine_draft": _mine_draft(center)
-		"lift": _lift(center)
+		"support", "mine_vote", "mine_draft", "lift": rooms.build(center, phase)
 		"summary": _summary(center)
 		_: _label(center, phase.capitalize(), 30, GOLD); _ready_button(center)
 
@@ -1290,26 +1292,6 @@ func _vote_tunnel(offer_id: String) -> void:
 		_notify("You have already voted on this tunnel.")
 		return
 	_command("VoteRoom", {"offer_id": offer_id})
-
-func _lift(parent: Node) -> void:
-	_room_banner(parent, "lift", "The Lift")
-	_label(parent, "The cage creaks on its rope. Ride up and everything you carry comes home. Keep digging and the next lift may be a long way down.", 16, MUTED, true)
-	var hero: Dictionary = _hero()
-	var found := 0
-	for gem in hero.get("gems", []):
-		if gem.get("found", false): found += 1
-	_label(parent, "You carry %d unappraised stone%s and %d appraised find%s." % [hero.get("haul", []).size(), "" if hero.get("haul", []).size() == 1 else "s", found, "" if found == 1 else "s"], 15, GOLD, true)
-	var voted := str(snapshot.get("votes", {}).get(controlled_id, ""))
-	var row := _hbox(parent, 12)
-	var ride := _button(row, "Ride up  ·  end the expedition", func(): _command("VoteLift", {"choice": "ride"}), voted.is_empty())
-	ride.disabled = not voted.is_empty()
-	var dig := _button(row, "Keep digging", func(): _command("VoteLift", {"choice": "dig"}))
-	dig.disabled = not voted.is_empty()
-	if _party_choice():
-		for other in snapshot.get("heroes", []):
-			var vote := str(snapshot.get("votes", {}).get(str(other.get("id", "")), ""))
-			_label(parent, "%s · %s" % [str(other.get("player_name", other.get("name", "Hero"))), {"ride": "rides up", "dig": "digs on"}.get(vote, "deciding")], 13, GREEN if not vote.is_empty() else AMBER)
-	_button(parent, "Review equipment", _show_inventory)
 
 func _aftermath(field: Control, phase: String, room_kind: String) -> void:
 	## The end of a fight, played over the field it was fought on: the title lands, then the
@@ -1662,207 +1644,6 @@ func _gem_summary(gem: Dictionary) -> String:
 	if _preview_hand().is_empty(): return "Roll a hand in a battle to see this gem’s numbers."
 	return str(Combat.preview(_hero(), gem, _preview_hand(), snapshot).get("summary", ""))
 
-func _support(parent: Node) -> void:
-	var room: Dictionary = snapshot.get("room", {})
-	var kind := str(room.get("kind", ""))
-	_room_banner(parent, kind, str(room.get("name", "A quiet moment")))
-	match kind:
-		"shop": _shop(parent)
-		"workshop": _workshop(parent)
-		"lapidary": _lapidary(parent)
-		"rest":
-			_label(parent, "The fire burns low. Your party has recovered one third of maximum HP; fallen heroes return to their feet.", 16, MUTED, true)
-			_label(parent, "Prepare your dice and gems before the road continues.", 14, GREEN)
-			_button(parent, "Manage equipment", _show_inventory)
-		"event": _event(parent)
-		"mine": _mine_draft(parent)
-		"wager": _wager(parent)
-		"crucible": _crucible(parent)
-		"treasure": _treasure(parent)
-	_ready_button(parent)
-
-func _treasure(parent: Node) -> void:
-	var cache: Dictionary = snapshot.get("room", {}).get("treasure", {}).get(controlled_id, {})
-	var key := "treasure:" + str(snapshot.get("room", {}).get("id", ""))
-	_label(parent, "Nobody has touched this in years, and it is yours: ore, and a stone already known for what it is.", 16, MUTED, true)
-	var purse := _hbox(parent, 10)
-	UiKit.icon(purse, Forge.prop("gold"), 34).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	reveal.count(_label(purse, "+%d ORE" % int(cache.get("ore", 0)), 24, GOLD), key, 0.35, int(cache.get("ore", 0)), "+%d ORE")
-	reveal.show(purse, key, 0.2, "pop")
-	reveal.cue(key, 0.35, _sound("coins"))
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 10)
-	parent.add_child(flow)
-	var gems: Array = cache.get("gems", [])
-	for index in range(gems.size()):
-		var gem: Dictionary = gems[index]
-		var at := 0.8 + 0.6 * index
-		var front := _reveal_card(flow, key, at, _gem_color(gem), 420)
-		_gem_details(front, gem)
-		for owned in _hero().get("gems", []):
-			if str(owned.get("id", "")) == str(gem.get("id", "")):
-				if owned.get("equipped", false): _socket_note(front, str(owned.id))
-				else: UiKit.chip(front, "IN RESERVE  ·  YOUR SOCKETS ARE FULL", AMBER)
-		reveal.cue(key, at + 0.25, _sound("flourish" if int(Catalog.SKILLS.get(str(gem.get("key", "")), {}).get("rarity", 1)) >= 3 else "sparkle"))
-	reveal.show(_label(parent, "An appraised find takes an open socket by itself. It is still at risk if the party falls.", 13, GOLD, true), key, 0.8 + 0.6 * gems.size(), "fade")
-	_button(parent, "Equipment  [%s]" % _binding_name("rd_inspect"), _show_inventory)
-
-func _room_banner(parent: Node, kind: String, name: String) -> void:
-	## Every service room opens the same way: what this place is, and what you are carrying
-	## into it. Gold and HP are what these rooms actually charge, so reading them stops
-	## being a detour through the party column.
-	var accent := _room_color(kind)
-	var row := _hbox(parent, 12)
-	UiKit.icon(row, Forge.room(kind), 44).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var text := _vbox(row, 2)
-	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_label(text, name, 30, GOLD)
-	var hero: Dictionary = _hero()
-	var purse := _hbox(text, 6)
-	UiKit.chip(purse, "%d ORE" % int(hero.get("ore", 0)), GOLD)
-	UiKit.chip(purse, "%d / %d HP" % [int(hero.get("hp", 0)), int(hero.get("max_hp", 1))], GREEN if int(hero.get("hp", 0)) * 2 > int(hero.get("max_hp", 1)) else RED)
-	if kind in ["workshop", "lapidary", "event", "wager", "crucible"]:
-		var used: bool = snapshot.get("room", {}).get("services", {}).get(controlled_id, false)
-		UiKit.chip(purse, "SERVICE USED" if used else "ONE SERVICE AVAILABLE", MUTED if used else accent)
-	_spacer(purse)
-
-## --- The Wager Hall -----------------------------------------------------------
-
-func _wager(parent: Node) -> void:
-	var seat: Dictionary = snapshot.get("room", {}).get("wager", {}).get(controlled_id, {})
-	var stake := int(seat.get("stake", 0))
-	var hand: Array = seat.get("hand", [])
-	var settled: bool = seat.get("settled", false)
-	_label(parent, "Stake ore on the house’s five dice. One reroll, then the table pays the pattern you show.", 15, MUTED, true)
-	if settled:
-		var won := int(seat.get("payout", 0))
-		var entry: Dictionary = EngineScript.wager_entry(str(seat.get("pattern", "nothing")))
-		var box := _panel(parent, PANEL_HI, GOLD if won > stake else LINE)
-		_label(box, str(entry.get("name", "No pattern")), 26, GOLD if won > stake else MUTED)
-		_label(box, "Staked %d  ·  paid %d  ·  %s %d ore" % [stake, won, "up" if won > stake else "down", absi(won - stake)], 17, GREEN if won > stake else RED)
-		_wager_hand(box, seat.get("dice", []), hand, false)
-		_label(parent, "The table takes one hand per visit. Mark Done when your equipment is ready.", 14, MUTED, true)
-		_wager_table(parent, str(seat.get("pattern", "")))
-		return
-	if stake <= 0:
-		_label(parent, "CHOOSE YOUR STAKE", 12, GOLD)
-		var row := _hbox(parent, 10)
-		for amount in EngineScript.WAGER_STAKES:
-			var value := int(amount)
-			var b := _button(row, "Stake %d ore" % value, func(): selected_dice.clear(); _command("PlaceWager", {"stake": value}), true)
-			var short := value - int(_hero().get("ore", 0))
-			b.disabled = short > 0 or _hero().get("ready", false)
-			b.tooltip_text = "You need %d more ore." % short if short > 0 else "A %d ore stake pays up to %d on five of a kind." % [value, value * int(EngineScript.WAGER_TABLE[0].multiplier)]
-		_label(parent, "The house deals five matched %s, so the table is the same wager whatever your own dice have become." % EngineScript.WAGER_DIE, 13, BLUE, true)
-		_wager_table(parent, "")
-		_button(parent, "Walk past the tables", func(): _command("SetReady", {"ready": true}))
-		return
-	var values: Array = []
-	for roll in hand: values.append(int(roll.get("value", 0)))
-	var pattern := str(EngineScript.wager_pattern(values))
-	var showing: Dictionary = EngineScript.wager_entry(pattern)
-	var payout := stake * int(showing.get("multiplier", 0))
-	_label(parent, "Staked %d ore.  Showing %s  ·  %d ore." % [stake, str(showing.get("name", "")).to_lower(), payout], 20, GOLD if payout > stake else MUTED)
-	_wager_hand(parent, seat.get("dice", []), hand, not seat.get("rerolled", false))
-	var actions := _hbox(parent, 10)
-	if not seat.get("rerolled", false):
-		var reroll := _button(actions, "Reroll %d selected" % selected_dice.size(), func():
-			_play_sound(dice_sound)
-			_command("WagerReroll", {"die_ids": selected_dice.duplicate()})
-			selected_dice.clear())
-		reroll.disabled = selected_dice.is_empty() or _hero().get("ready", false)
-		reroll.tooltip_text = "Click a die to mark it for the single reroll this stake allows."
-	else:
-		_label(actions, "Your one reroll is spent.", 14, MUTED)
-	_button(actions, "Settle  ·  take %d ore" % payout, func(): selected_dice.clear(); _command("SettleWager", {}), true).disabled = _hero().get("ready", false)
-	_wager_table(parent, pattern)
-
-func _wager_hand(parent: Node, dice: Array, hand: Array, selectable: bool) -> void:
-	var row := _hbox(parent, 8)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	for index in range(hand.size()):
-		var roll: Dictionary = hand[index]
-		var die: Dictionary = {}
-		for dealt in dice:
-			if str(dealt.get("id", "")) == str(roll.get("die_id", "")): die = dealt
-		if die.is_empty(): continue
-		var id := str(die.id)
-		var selected := selectable and selected_dice.has(id)
-		var slot := _vbox(row, 3)
-		slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		var tray := PanelContainer.new()
-		tray.add_theme_stylebox_override("panel", UiKit.panel_box(
-			Color("3d3521") if selected else Color("1a2338"),
-			Color("15120b") if selected else Color("0c121e"),
-			GOLD if selected else Color("2a3752"), 10, 4, 2.0 if selected else 1.2, 0.28))
-		slot.add_child(tray)
-		var stack := Control.new()
-		stack.custom_minimum_size = Vector2(84, 84)
-		tray.add_child(stack)
-		var view := _die_view("wager:" + id)
-		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		stack.add_child(view)
-		view.configure(die, roll, selected, false, GOLD if selected else BLUE)
-		if selectable:
-			var button := Button.new()
-			button.flat = true
-			button.toggle_mode = true
-			button.button_pressed = selected
-			button.disabled = _hero().get("ready", false)
-			button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			button.set_meta("focus_tag", "wager_" + str(index))
-			button.pressed.connect(func(): _play_sound(click_sound); _toggle_die(id))
-			button.tooltip_text = "%s · rolled %d\nClick to mark it for the reroll." % [_die_name(die), int(roll.get("value", 0))]
-			stack.add_child(button)
-		var caption := _label(slot, "REROLL" if selected else "KEEP", 10, GOLD if selected else MUTED)
-		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-
-func _wager_table(parent: Node, showing: String) -> void:
-	## The paytable is the room's whole teaching job: it names the same patterns the gems
-	## read, so an evening at the tables is practice for the next fight.
-	var box := _panel(parent, PANEL_LOW, LINE, 12)
-	_label(box, "THE TABLE PAYS", 11, GOLD)
-	for entry in EngineScript.WAGER_TABLE:
-		var here: bool = str(entry.key) == showing
-		var row := _hbox(box, 8)
-		_label(row, "▸" if here else " ", 13, GOLD)
-		_label(row, str(entry.name), 13, PAPER if here else MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(row, "%d×" % int(entry.multiplier), 13, GOLD if int(entry.multiplier) > 1 else MUTED)
-	_label(box, "A multiplier includes your stake: 1× returns it, 0× loses it.", 12, MUTED, true)
-
-## --- The Crucible -------------------------------------------------------------
-
-func _crucible(parent: Node) -> void:
-	var used: bool = snapshot.get("room", {}).get("services", {}).get(controlled_id, false)
-	_label(parent, "Carat multiplies everything a gem does, and this is the only place it moves. Cut and Clarity belong to the Lapidary.", 15, MUTED, true)
-	if used:
-		_label(parent, "The fire is spent. Mark Done when your equipment is ready.", 16, GREEN, true)
-		_button(parent, "Manage equipment", _show_inventory)
-		return
-	_label(parent, "Temper pays in HP. Fuse pays in an unequipped gem you found down here, and a richer gem feeds more.", 14, GOLD, true)
-	var hero: Dictionary = _hero()
-	var spare := 0
-	for gem in hero.get("gems", []):
-		if not gem.get("equipped", false) and gem.get("found", false): spare += 1
-	for gem in hero.get("gems", []):
-		var carat := int(gem.get("carat", 1))
-		var panel := _panel(parent)
-		_gem_details(panel, gem)
-		if carat >= 24:
-			_label(panel, "Already at the highest Carat.", 13, MUTED)
-			continue
-		var cost := 4 + int(floor(float(carat) / 2.0))
-		var row := _hbox(panel, 10)
-		_label(row, "Carat %d → %d" % [carat, mini(24, carat + int(EngineScript.CRUCIBLE_CARAT_GAIN))], 15, GREEN)
-		var temper := _button(row, "Temper  ·  %d HP" % cost, func(): _crucible_preview(gem, "temper", {}))
-		temper.disabled = int(hero.get("hp", 0)) <= cost or hero.get("ready", false)
-		temper.tooltip_text = "Costs %d HP and rises with the gem's Carat. You must survive it." % cost
-		var usable := spare - (1 if not gem.get("equipped", false) and gem.get("found", false) else 0)
-		var fuse := _button(row, "Fuse a found gem…", func(): _crucible_fuel(gem))
-		fuse.disabled = usable <= 0 or hero.get("ready", false)
-		if usable <= 0: fuse.tooltip_text = "You hold no other unequipped found gem to consume. Loadout gems go home regardless, so they cannot feed the fire."
-
 func _crucible_fuel(target: Dictionary) -> void:
 	var box := _modal("Feed the fire for " + _gem_name(target))
 	_label(box, "The consumed gem is destroyed. It gives %d Carat, plus one for every %d Carat of its own." % [int(EngineScript.CRUCIBLE_CARAT_GAIN), int(EngineScript.CRUCIBLE_FUSE_DIVISOR)], 14, MUTED, true)
@@ -1902,71 +1683,6 @@ func _crucible_preview(target: Dictionary, method: String, fuel: Dictionary) -> 
 		_label(box, "Cost: %s is destroyed." % _gem_name(fuel), 14, RED, true)
 		_button(box, "Fuse  ·  destroy " + _gem_name(fuel), func(): _close_overlay(); _command("TemperGem", {"gem_id": target.id, "method": "fuse", "fuel_id": fuel.id}), true)
 
-func _shop(parent: Node) -> void:
-	_label(parent, "Personal stock • Paid in ore • Sell found gems and reserve dice from your equipment", 14, MUTED, true)
-	var stock: Dictionary = snapshot.get("shop", {}).get(controlled_id, {})
-	var loupe: Dictionary = stock.get("loupe", {})
-	if not loupe.is_empty():
-		var loupe_panel := _panel(parent)
-		var loupe_row := _hbox(loupe_panel, 12)
-		UiKit.icon(loupe_row, Forge.prop("loupe"), 48).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var loupe_text := _vbox(loupe_row, 3)
-		loupe_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(loupe_text, "A jeweller’s loupe", 18, BLUE)
-		_label(loupe_text, "Appraise one stone from your haul, anywhere outside a fight. An appraised find can be equipped.", 13, MUTED, true)
-		var loupe_short := int(loupe.get("price", 0)) - int(_hero().get("ore", 0))
-		var buy_loupe := _button(loupe_row, "Sold" if loupe.get("claimed", false) else ("Need %d more ore" % loupe_short if loupe_short > 0 else "Buy  ·  %d ore" % int(loupe.get("price", 0))), func(): _command("BuyLoupe", {}), true)
-		buy_loupe.disabled = loupe.get("claimed", false) or _hero().get("ready", false) or loupe_short > 0
-	for offer in stock.get("gems", []):
-		var gem: Dictionary = offer.get("gem", {})
-		var panel := _panel(parent)
-		var row := _hbox(panel)
-		_gem_details(row, gem)
-		var short := int(offer.get("price", 0)) - int(_hero().get("ore", 0))
-		var buy := _button(row, "Sold" if offer.get("claimed", false) else ("Need %d more ore" % short if short > 0 else "Buy  ·  %d ore" % int(offer.get("price", 0))), func(): _command("BuyGem", {"offer_id": offer.id}), true)
-		buy.disabled = offer.get("claimed", false) or _hero().get("ready", false) or short > 0
-		if short > 0: buy.tooltip_text = "This gem costs %d ore and you carry %d. Sell a found gem from your equipment to close the gap." % [int(offer.get("price", 0)), int(_hero().get("ore", 0))]
-	for offer in stock.get("dice", []):
-		var die: Dictionary = offer.get("die", {})
-		var panel := _panel(parent)
-		var row := _hbox(panel, 12)
-		_die_chip(row, "preview:stock:" + str(offer.get("id", die.get("id", ""))), die, 76)
-		var info := _vbox(row)
-		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(info, _die_name(die), 18, BLUE)
-		_label(info, "Faces: " + _faces_text(die), 13, MUTED, true)
-		var die_short := int(offer.get("price", 0)) - int(_hero().get("ore", 0))
-		var full: bool = _hero().get("reserve_dice", []).size() >= 5
-		var caption := "Sold" if offer.get("claimed", false) else ("Reserve full" if full else ("Need %d more ore" % die_short if die_short > 0 else "Buy die  ·  %d ore" % int(offer.get("price", 0))))
-		var die_buy := _button(row, caption, func(): _command("BuyDie", {"offer_id": offer.id}), true)
-		die_buy.disabled = offer.get("claimed", false) or _hero().get("ready", false) or die_short > 0 or full
-		if full: die_buy.tooltip_text = "Your five reserve die slots are full. Sell one from your inventory first."
-		elif die_short > 0: die_buy.tooltip_text = "This die costs %d ore and you carry %d." % [int(offer.get("price", 0)), int(_hero().get("ore", 0))]
-	_button(parent, "Inventory / sell items", _show_inventory)
-
-func _workshop(parent: Node) -> void:
-	_label(parent, "One service per hero per visit · 5 ore · Tinker’s Belt covers the first service of the expedition", 14, MUTED, true)
-	_label(parent, "Changing shape restores standard faces and removes all engravings. Engraving changes one physical face.", 13, GOLD, true)
-	if snapshot.get("room", {}).get("services", {}).get(controlled_id, false):
-		_label(parent, "Your workshop service is complete.", 16, GREEN)
-		return
-	var shapes := ["D4", "D6", "D8", "D10", "D12", "D20"]
-	for die in _hero().get("dice", []) + _hero().get("reserve_dice", []):
-		var panel := _panel(parent)
-		var top := _hbox(panel, 12)
-		_die_chip(top, "preview:bench:" + str(die.id), die, 76)
-		var facts := _vbox(top, 4)
-		facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(facts, _die_name(die), 18, BLUE)
-		_label(facts, "Faces: " + _faces_text(die), 14, MUTED, true)
-		var row := _hbox(panel)
-		var shape_i := shapes.find(str(die.get("shape", "D6")))
-		for offset in [-1, 1]:
-			var next: int = shape_i + int(offset)
-			if next >= 0 and next < shapes.size():
-				_button(row, "Replace with " + shapes[next], func(): _confirm_shape(die, shapes[next]))
-		_button(row, "Engrave a face…", func(): _engrave(die))
-
 func _confirm_shape(die: Dictionary, shape: String) -> void:
 	var box := _modal("Replace " + str(die.get("shape", "die")) + " with " + shape)
 	_label(box, "Before: " + _faces_text(die), 15, MUTED, true)
@@ -1975,49 +1691,6 @@ func _confirm_shape(die: Dictionary, shape: String) -> void:
 	_label(box, "After: " + ", ".join(faces), 15, GREEN, true)
 	_label(box, "All previous face engravings are removed. Price: 5 ore, or the available Tinker’s Belt service.", 14, GOLD, true)
 	_button(box, "Confirm replacement", func(): _close_overlay(); _command("ModifyDie", {"die_id": die.id, "service": "shape", "shape": shape}), true)
-
-func _engrave(die: Dictionary) -> void:
-	var box := _modal("Engrave " + _die_name(die))
-	_label(box, "Select one face and its new value. Every physical face remains equally likely.", 15, MUTED, true)
-	var face_choice := OptionButton.new()
-	var faces: Array = die.get("faces", [])
-	for i in range(faces.size()):
-		var face = faces[i]
-		face_choice.add_item("Face %d · currently %s" % [i + 1, str(face.get("value", 0) if face is Dictionary else face)])
-	box.add_child(face_choice)
-	var value := SpinBox.new()
-	value.min_value = 1
-	value.max_value = int(str(die.get("shape", "D6")).trim_prefix("D"))
-	value.step = 1
-	value.value = 1
-	box.add_child(value)
-	_label(box, "Price: 5 ore, or an available Tinker’s Belt service. One service per visit.", 13, GOLD, true)
-	_button(box, "Confirm engraving", func():
-		var selected := face_choice.selected
-		var new_value := int(value.value)
-		_close_overlay()
-		_command("ModifyDie", {"die_id": die.id, "service": "face", "face_index": selected, "value": new_value}), true)
-
-func _lapidary(parent: Node) -> void:
-	var haul: Array = _hero().get("haul", [])
-	if not haul.is_empty():
-		_label(parent, "APPRAISE YOUR STONES  ·  %d ORE EACH" % int(EngineScript.APPRAISE_PRICE), 12, GOLD)
-		for stone in haul:
-			var stone_panel := _panel(parent)
-			var stone_row := _hbox(stone_panel)
-			_gem_details(stone_row, stone)
-			var appraise := _button(stone_row, "Appraise  ·  %d ore" % int(EngineScript.APPRAISE_PRICE), func(): _command("AppraiseGem", {"gem_id": stone.id, "method": "lapidary"}), true)
-			appraise.disabled = int(_hero().get("ore", 0)) < int(EngineScript.APPRAISE_PRICE) or _hero().get("ready", false)
-		UiKit.rule(parent)
-	_label(parent, "Improve one gem per visit. Cut and Clarity cost 5 × the new rank in ore. Upgrades to your loadout last only for this expedition; upgrades to a gem you found stay with it when it comes home.", 14, MUTED, true)
-	for gem in _hero().get("gems", []):
-		var panel := _panel(parent)
-		_gem_details(panel, gem)
-		var row := _hbox(panel)
-		for property in ["cut", "clarity"]:
-			var rank := int(gem.get(property, 1))
-			var b := _button(row, "%s %d → %d · %d ore" % [property.capitalize(), rank, mini(5, rank + 1), 5 * (rank + 1)], func(): _upgrade_preview(gem, property))
-			b.disabled = rank >= 5 or _hero().get("ready", false) or snapshot.get("room", {}).get("services", {}).get(controlled_id, false)
 
 func _upgrade_preview(gem: Dictionary, property: String) -> void:
 	var box := _modal("Improve " + _gem_name(gem))
@@ -2035,88 +1708,6 @@ func _upgrade_preview(gem: Dictionary, property: String) -> void:
 	_label(box, _preview_basis() + " This compares gem properties, not a prediction of future rolls. Changes to dice will change future probabilities.", 12, MUTED, true)
 	var cost := int(improved[property]) * 5
 	_button(box, "Improve %s · %d ore" % [property.capitalize(), cost], func(): _close_overlay(); _command("UpgradeGem", {"gem_id": gem.id, "property": property}), true).disabled = int(_hero().get("ore", 0)) < cost
-
-func _event(parent: Node) -> void:
-	if snapshot.get("room", {}).get("services", {}).get(controlled_id, false):
-		_label(parent, "Your event choice is settled. Mark Done when your equipment is ready.", 16, GREEN, true)
-		return
-	var event: Dictionary = snapshot.get("event", {})
-	var key := str(event.get("key", "ABANDONED_CACHE"))
-	var options: Array = {
-		"ABANDONED_CACHE": ["Take 6 ore", "Lose 8 HP for the shown gem (+2 Carat). You must have more than 8 HP."],
-		"FIELD_MEDIC": ["Take 4 ore", "Pay 8 ore to heal %d HP" % int(ceil(float(_hero().get("max_hp", 0)) * 0.2))],
-		"ECHO_SHRINE": ["Take 5 ore", "Replace an owned D6 with a Paired, Odd, or Even D6. Current engravings are lost."],
-		"JEWEL_BROKER": ["Take 4 ore", "Trade one gem you found down here — appraised or not — for one of the offers below."],
-		"STILL_POOL": ["Take 4 ore", "Sit by the water a while. The tremors settle by %d%%." % int(EngineScript.STILL_POOL_CALM / 10)]
-	}.get(key, ["Take ore", "Choose the offered trade"])
-	_label(parent, str(options[0]), 18, GOLD, true)
-	_button(parent, "Accept ore", func(): _command("EventChoice", {"option": "a"}))
-	_label(parent, str(options[1]), 16, MUTED, true)
-	var offers: Array = event.get("offers", {}).get(controlled_id, [])
-	for offer in offers:
-		var gem: Dictionary = offer.get("gem", offer)
-		var panel := _panel(parent)
-		_gem_details(panel, gem)
-		if key == "JEWEL_BROKER":
-			for owned in _hero().get("gems", []) + _hero().get("haul", []):
-				if not owned.get("equipped", false) and owned.get("found", false):
-					_button(panel, "Trade " + _gem_name(owned) + " for this", func(): _command("EventChoice", {"option": "b", "gem_id": owned.id, "offer_id": offer.get("id", gem.get("id", ""))}))
-	if key == "ECHO_SHRINE":
-		for die in _hero().get("dice", []) + _hero().get("reserve_dice", []):
-			if die.get("shape") != "D6": continue
-			var row := _hbox(parent)
-			_label(row, _die_name(die) + " (" + _faces_text(die) + ")", 13, BLUE, true)
-			for variant in ["PAIRED_D6", "ODD_D6", "EVEN_D6"]:
-				var b := _button(row, variant.trim_suffix("_D6").capitalize(), func(): _command("EventChoice", {"option": "b", "die_id": die.id, "variant": variant}))
-				b.tooltip_text = "New faces: " + _join_values(Catalog.DICE.get(variant, {}).get("faces", [])) + "\nPrevious engraving is lost."
-	elif key != "JEWEL_BROKER":
-		_button(parent, "Accept the trade", func(): _command("EventChoice", {"option": "b"}), true)
-	_button(parent, "Leave without a transaction", func(): _command("EventChoice", {"option": "leave"}))
-
-func _mine_vote(parent: Node) -> void:
-	_label(parent, "Choose a vein.", 30, GOLD)
-	_label(parent, "The party chooses together. Mining is automatic: fixed energy, round-robin hits, shared ore, and a draft of unappraised stones." if _party_choice() else "Mining is automatic once you choose: fixed energy, round-robin hits, and a pick of unappraised stones.", 15, MUTED, true)
-	var row := _hbox(parent)
-	for key in ["coin", "crystal"]:
-		var box := _panel(row)
-		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(box, "Coin Vein" if key == "coin" else "Crystal Vein", 24, GOLD if key == "coin" else BLUE)
-		_label(box, "More short rocks and more ore." if key == "coin" else "More work per rock, with more stone-bearing rocks.", 14, MUTED, true)
-		_label(box, "Small / Medium / Large / Gold / Shiny\n4 / 4 / 2 / 2 / 0" if key == "coin" else "Small / Medium / Large / Gold / Shiny\n1 / 3 / 4 / 0 / 2", 13, PAPER, true)
-		_label(box, "These are rock weights, not a guaranteed yield.", 12, MUTED, true)
-		_button(box, ("Vote for " if _party_choice() else "Work the ") + key.capitalize(), func(): _command("VoteVein", {"vein": key}), true)
-	for hero in snapshot.get("heroes", []):
-		var energy := 10
-		for relic in hero.get("relics", []):
-			if relic.get("key") == "MINERS_LANTERN" and relic.get("equipped", false): energy += 2
-		if int(hero.get("hp", 0)) <= 0: energy = 0
-		_label(parent, "%s · %d energy" % [str(hero.get("player_name", hero.get("name", "Hero"))), energy], 14, GREEN)
-
-func _mine_draft(parent: Node) -> void:
-	var mine: Dictionary = snapshot.get("mine", {})
-	_label(parent, "The mine’s yield", 28, GOLD)
-	_label(parent, "Ore found: %s · Divided among every hero. The remainder rotates by party seat." % str(mine.get("ore", 0)), 15, GREEN, true)
-	var rocks: Array = mine.get("rocks", [])
-	if not rocks.is_empty():
-		var row := HFlowContainer.new()
-		parent.add_child(row)
-		for rock in rocks:
-			_label(row, "%s  %s   " % [str(rock.get("name", rock.get("kind", rock.get("key", "Rock")))), "✓" if rock.get("broken", false) else "◇"], 12, GREEN if rock.get("broken", false) else MUTED)
-	mine_playback_label = _label(parent, "", 14, BLUE, true)
-	_button(parent, "Skip playback  [F]", _skip_playback)
-	var pool: Array = mine.get("pool", [])
-	if pool.is_empty():
-		_label(parent, "No stones remain. Even an empty result completes the visit.", 16, MUTED, true)
-		_ready_button(parent)
-		return
-	var picker := str(mine.get("picker_id", ""))
-	_label(parent, "Next pick: " + _unit_name(picker), 18, GOLD)
-	for index in range(pool.size()):
-		var claim: Dictionary = pool[index]
-		var panel := _panel(parent)
-		reveal.show(panel.get_parent(), "draft:%s:%s" % [str(snapshot.get("room", {}).get("id", "")), str(claim.get("claim_id", ""))], 0.15 * index, "pop")
-		_gem_details(panel, claim.get("gem", {}))
-		_button(panel, "Take this stone", func(): _command("DraftGem", {"claim_id": claim.claim_id}), true).disabled = picker != controlled_id
 
 func _summary(parent: Node) -> void:
 	_apply_expedition_result()
@@ -2408,17 +1999,16 @@ func _process(delta: float) -> void:
 	_light_casting_socket(delta)
 	if _holding_hand() and _refresh_hands():
 		_queue_render()
-	if is_instance_valid(mine_playback_label):
-		var hits: Array = snapshot.get("mine", {}).get("events", [])
-		if not hits.is_empty():
-			mine_playback_timer += delta * float(settings.playback_speed)
-			if settings.reduced_motion or float(settings.playback_speed) >= 100.0: mine_playback_index = hits.size()
-			elif mine_playback_timer >= 0.25:
-				mine_playback_index = mini(hits.size(), mine_playback_index + 1)
-				mine_playback_timer = 0.0
-			var step := clampi(mine_playback_index, 1, hits.size())
-			var hit: Dictionary = hits[step - 1]
-			mine_playback_label.text = "Hit %d/%d · %s · Rock %d/%d%s" % [step, hits.size(), _unit_name(str(hit.get("actor_id", ""))), int(hit.get("progress", 0)), int(hit.get("hits", 1)), " · BROKEN" if hit.get("broken", false) else ""]
+	# The vein is worked through one swing at a time while its screen is up; the page is
+	# rebuilt once the last swing lands, so the draft appears when the digging is done.
+	var hits: Array = snapshot.get("mine", {}).get("events", [])
+	if not hits.is_empty() and mine_playback_index < hits.size() and str(snapshot.get("phase", "")) in ROOM_PHASES:
+		mine_playback_timer += delta * float(settings.playback_speed)
+		if settings.reduced_motion or float(settings.playback_speed) >= 100.0: mine_playback_index = hits.size()
+		elif mine_playback_timer >= 0.18:
+			mine_playback_index = mini(hits.size(), mine_playback_index + 1)
+			mine_playback_timer = 0.0
+		if mine_playback_index >= hits.size(): _queue_render()
 	# The battlefield is the only audience for the event log now, so it paces playback.
 	if playback_events.is_empty() or not _stage_on_screen():
 		return
@@ -3383,7 +2973,9 @@ func _skip_playback() -> void:
 	playback_index = playback_events.size()
 	playback_dwell = 0.0
 	casting_gem = ""
-	mine_playback_index = snapshot.get("mine", {}).get("events", []).size()
+	if mine_playback_index < snapshot.get("mine", {}).get("events", []).size():
+		mine_playback_index = snapshot.get("mine", {}).get("events", []).size()
+		_queue_render()
 
 func _return_menu() -> void:
 	## Back to the shop. A party stays together: the host reopens the lobby and every guest

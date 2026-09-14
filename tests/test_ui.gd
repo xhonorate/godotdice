@@ -1,5 +1,6 @@
 extends SceneTree
 const Profile = preload("res://scripts/core/profile.gd")
+const RoomScene = preload("res://scripts/ui/room_scene.gd")
 ## Integration smoke: render actual snapshots, route a reroll through the authority,
 ## and open every screen without assets, Steam, a display, or writing a run save.
 var ui: Control
@@ -219,6 +220,7 @@ func run() -> void:
 		ui._state_changed(state)
 		await frames()
 		check(is_instance_valid(ui.page), "support " + kind)
+		check(ui.page.find_children("*", "", true, false).any(func(node: Node) -> bool: return node.get_script() == RoomScene), "the %s opens with its lit scene" % kind)
 	## The two rooms that are played rather than read: drive them through the real UI.
 	state.room.kind = "wager"
 	ui._state_changed(state)

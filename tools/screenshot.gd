@@ -32,6 +32,10 @@ func run() -> void:
 		await reveals()
 		quit(0)
 		return
+	if only == "rooms":
+		await rooms()
+		quit(0)
+		return
 	await shoot("menu")
 	# The shop and what its objects open.
 	ui.hub_view._hover("mine_cart")
@@ -207,6 +211,59 @@ func run() -> void:
 	await reveals()
 	print("screenshots written to ", ProjectSettings.globalize_path(out_dir))
 	quit(0)
+
+func rooms() -> void:
+	## Every room that is not a fight, in each of the states worth seeing.
+	ui.offline_hotseat = true
+	ui.controlled_id = "shot_hero"
+	ui.engine.new_run({"heroes": [
+			{"id": "shot_hero", "hero_id": "ARDOR", "name": "Ardor"},
+			{"id": "shot_two", "hero_id": "KAIT", "name": "Kait"}],
+		"mine_id": "QUARRY", "seed": 515151, "autosave": false})
+	await settle(10)
+	ui.engine.state.depth = 5
+	for hero in ui.engine.state.heroes:
+		hero.ore = 34
+		hero.hp = int(hero.max_hp * 0.6)
+		for stone in ui.engine._roll_gems(2, 6, false):
+			stone.owner_id = hero.id
+			hero.haul.append(stone)
+		for found in ui.engine._roll_gems(1, 6, true):
+			found.owner_id = hero.id
+			hero.gems.append(found)
+	var room := func(kind: String, tag: String) -> void:
+		ui.engine._events = []
+		ui.engine._enter_room(kind)
+		ui._state_changed(ui.engine.state)
+		await wait(2.5)
+		await shoot("room_" + tag)
+	for kind in ["shop", "workshop", "lapidary", "rest", "crucible", "treasure", "lift"]:
+		await room.call(kind, kind)
+	for key in ["ABANDONED_CACHE", "FIELD_MEDIC", "ECHO_SHRINE", "JEWEL_BROKER", "STILL_POOL"]:
+		ui.engine._events = []
+		ui.engine._enter_room("event")
+		ui.engine.state.event.key = key
+		for hero in ui.engine.state.heroes:
+			var gems: Array = []
+			if key in ["JEWEL_BROKER", "ABANDONED_CACHE"]:
+				gems = ui.engine._roll_gems(3 if key == "JEWEL_BROKER" else 1, 0, true)
+			ui.engine.state.event.offers[hero.id] = gems
+		ui._state_changed(ui.engine.state)
+		await wait(2.0)
+		await shoot("room_event_" + key.to_lower())
+	await room.call("wager", "wager_stake")
+	ui._command("PlaceWager", {"stake": 8})
+	await wait(1.5)
+	await shoot("room_wager_hand")
+	ui._command("SettleWager", {})
+	await wait(1.5)
+	await shoot("room_wager_settled")
+	await room.call("mine", "mine_vote")
+	party(func(): ui._command("VoteVein", {"vein": "crystal"}))
+	await wait(1.2)
+	await shoot("room_mine_digging")
+	await wait(6.0)
+	await shoot("room_mine_draft")
 
 func reveals() -> void:
 	## The moments that are revealed rather than shown: the end of a fight, the loot turned

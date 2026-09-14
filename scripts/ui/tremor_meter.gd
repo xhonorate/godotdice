@@ -20,7 +20,7 @@ func set_tremor(value: int, boss: String) -> void:
 		_shake = 0.35
 	tremor = clampi(value, 0, Seam.TREMOR_FULL)
 	boss_name = boss
-	tooltip_text = "Tremors %d%%. %s breaks through when this fills, wherever the party is.\nEvery step down fills it; deeper steps and long fights fill it faster." % [roundi(fraction() * 100.0), boss_name]
+	tooltip_text = "Tremors %d%%. %s breaks through when this fills, wherever the party is.\nEvery step down and every noisy room fills it, faster the deeper you are. Fights never do." % [roundi(fraction() * 100.0), boss_name]
 	queue_redraw()
 
 func fraction() -> float:
