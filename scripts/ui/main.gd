@@ -25,6 +25,10 @@ const TremorMeter = preload("res://scripts/ui/tremor_meter.gd")
 const AppraisalTable = preload("res://scripts/ui/appraisal_table.gd")
 const HubScene = preload("res://scripts/ui/hub.gd")
 const HubScreens = preload("res://scripts/ui/hub_screens.gd")
+const Reveal = preload("res://scripts/ui/reveal.gd")
+const Fanfare = preload("res://scripts/ui/fanfare.gd")
+const GemBadge = preload("res://scripts/ui/gem_badge.gd")
+const ItemBoard = preload("res://scripts/ui/item_board.gd")
 const INK := Color("0c111c")
 const PANEL := Color("161e2e")
 const PANEL_HI := Color("1f2a3d")
@@ -82,7 +86,6 @@ var pending_render := false
 var rebind_action := ""
 var last_phase := ""
 var journal_tab := "guide"
-var selected_active_die := ""
 var selected_reserve_gem := ""
 var offline_hotseat := false
 var command_counter := 0
@@ -107,12 +110,22 @@ var casting_age := 0.0
 var casting_span := 0.0
 ## The pause the field takes when the initiative changes hands.
 const SIDE_CHANGE_BEAT := 0.85
+## How long a stone is turned under the loupe before its name is read out.
+const APPRAISE_BEAT := 1.2
 var history: Array = []
 var last_hands: Dictionary = {}
 var die_buttons: Dictionary = {}
 var sound_player: AudioStreamPlayer
+## A few voices, so a card turning over does not cut off the fanfare behind it.
+var sound_players: Array = []
 var click_sound: AudioStreamWAV
 var dice_sound: AudioStreamWAV
+var sounds: Dictionary = {}
+## Every reveal on screen runs on this clock, so rebuilding the page never replays one.
+var reveal: RefCounted
+## A find held up to the light over everything else: an appraisal made mid-run.
+var spotlight: Control
+var spotlight_queue: Array = []
 var mine_playback_label: Label
 var mine_playback_index := 0
 var mine_playback_timer := 0.0
@@ -139,10 +152,18 @@ func _ready() -> void:
 	backdrop = BackdropScript.new()
 	backdrop.reduced_motion = bool(settings.reduced_motion)
 	add_child(backdrop)
-	sound_player = AudioStreamPlayer.new()
-	add_child(sound_player)
+	for voice in range(4):
+		var player := AudioStreamPlayer.new()
+		add_child(player)
+		sound_players.append(player)
+	sound_player = sound_players[0]
 	click_sound = PlaceholderAudio.tone(680, 0.055, 0.12)
 	dice_sound = PlaceholderAudio.tone(170, 0.16, 0.24)
+	sounds = {"fanfare": PlaceholderAudio.fanfare(), "dirge": PlaceholderAudio.dirge(), "sparkle": PlaceholderAudio.sparkle(),
+		"coins": PlaceholderAudio.coins(), "thud": PlaceholderAudio.thud(), "shatter": PlaceholderAudio.shatter(), "flourish": PlaceholderAudio.flourish()}
+	reveal = Reveal.new()
+	reveal.reduced = bool(settings.reduced_motion)
+	reveal.wake.connect(_queue_render)
 	engine = EngineScript.new()
 	engine.changed.connect(_state_changed)
 	profile_store = ProfileStoreScript.new()
@@ -226,14 +247,20 @@ func _dress_backdrop() -> void:
 		match str(snapshot.get("phase", "")):
 			"planning", "resolution", "combat":
 				kind = room_kind if room_kind in ["elite", "boss"] else "battle"
-			"route", "reward", "lift": kind = "route"
+			"reward", "salvage":
+				kind = room_kind if room_kind in ["elite", "boss"] else "battle"
+			"route", "lift": kind = "route"
 			"support": kind = room_kind
 			"mine_vote", "mine_draft": kind = "mine"
-			"summary", "salvage": kind = "summary"
+			"summary": kind = "summary"
 	backdrop.apply_theme(kind)
 
 func _exit_tree() -> void:
 	## Detached sprites and dice are owned by this screen, not by the scene tree.
+	for voice in sound_players:
+		if is_instance_valid(voice):
+			voice.stop()
+			voice.stream = null
 	for store in [dice_views, actor_views]:
 		for id in store.keys():
 			var node = store[id]
@@ -312,6 +339,7 @@ func _die_view(die_id: String) -> DiceView:
 func _battle_stage() -> Control:
 	if not is_instance_valid(stage_view):
 		stage_view = BattleStage.new()
+		stage_view.inspect_skill = _inspect_stage_skill
 	stage_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stage_view.custom_minimum_size.y = 230
 	return stage_view
@@ -392,7 +420,7 @@ func _enemy_loadout(enemy: Dictionary) -> Array:
 		carried.append({
 			"id": key, "glyph": GemIcons.emblem(key), "tint": AMBER,
 			"dim": not lit or not open,
-			"tip": "%s\n%s" % [str(action.name), "Its dice have not come up yet." if not lit else
+			"tip": "%s\n%s\nRight-click for when it fires and what it does." % [str(action.name), "Its dice have not come up yet." if not lit else
 				("This roll opened it." if open else "This roll did not open it.")]})
 	return carried
 
@@ -412,7 +440,7 @@ func _stage_loadout(hero: Dictionary, state: Dictionary) -> Array:
 		carried.append({
 			"id": str(gem.get("id", "")), "glyph": GemIcons.emblem(key),
 			"tint": _gem_color(gem), "dim": not active,
-			"tip": "%s\n%s" % [_gem_name(gem), _gem_stats(gem)]})
+			"tip": "%s\n%s\nRight-click to inspect." % [_gem_name(gem), _gem_stats(gem)]})
 	loadout_cache[id] = carried
 	return carried
 
@@ -497,7 +525,7 @@ func _header() -> void:
 	if snapshot.is_empty():
 		return
 	var bar := _hbox(root_box, 12)
-	var fighting: bool = _shown_phase() in BATTLE_PHASES
+	var fighting: bool = _shown_phase() in BATTLE_SCENE
 	if fighting:
 		UiKit.icon(bar, Forge.room(str(snapshot.get("room", {}).get("kind", "battle"))), 26).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		_label(bar, str(snapshot.get("room", {}).get("name", "Battle")), 17, GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -695,7 +723,10 @@ func _resume() -> void:
 
 func _state_changed(state: Dictionary) -> void:
 	var previous: Dictionary = snapshot
+	var finds: Array = _appraised_since(previous, state)
 	if snapshot.get("run_id", "") != state.get("run_id", ""):
+		reveal.reset()
+		spotlight_queue.clear()
 		return_stage = "table"
 		return_gold = 0
 		appraising = ""
@@ -715,8 +746,9 @@ func _state_changed(state: Dictionary) -> void:
 		if not hero.get("hand", []).is_empty(): last_hands[hero.id] = hero.hand.duplicate(true)
 	snapshot = state.duplicate(true)
 	loadout_cache.clear()
-	if not snapshot.get("mine", {}).get("events", []).is_empty() and mine_playback_room != str(snapshot.get("room", {}).get("id", "")):
-		mine_playback_room = str(snapshot.room.id)
+	var mine_room := str(snapshot.get("room", {}).get("id", ""))
+	if not snapshot.get("mine", {}).get("events", []).is_empty() and mine_playback_room != mine_room:
+		mine_playback_room = mine_room
 		mine_playback_index = 0
 		mine_playback_timer = 0.0
 	if controlled_id.is_empty() and not snapshot.get("heroes", []).is_empty():
@@ -739,13 +771,34 @@ func _state_changed(state: Dictionary) -> void:
 	_prune_persistent()
 	_react_to_events()
 	_queue_render()
+	for gem in finds:
+		spotlight_queue.append(gem)
+	if not finds.is_empty():
+		_show_spotlight.call_deferred()
 	if is_instance_valid(session) and session.is_host and not offline_hotseat:
 		session.broadcast_snapshot(snapshot)
+
+func _appraised_since(previous: Dictionary, state: Dictionary) -> Array:
+	## Stones that were sealed in your haul a moment ago and are gems now: the appraisals a
+	## loupe or a Lapidary just made, which are worth stopping the screen for.
+	if previous.is_empty() or str(previous.get("run_id", "")) != str(state.get("run_id", "")):
+		return []
+	var sealed: Dictionary = {}
+	for stone in _hero_in(previous).get("haul", []):
+		sealed[str(stone.get("id", ""))] = true
+	var found: Array = []
+	for gem in _hero_in(state).get("gems", []):
+		if sealed.has(str(gem.get("id", ""))):
+			found.append(gem.duplicate(true))
+	return found
 
 func _stage_on_screen() -> bool:
 	return is_instance_valid(stage_view) and stage_view.is_inside_tree()
 
 const BATTLE_PHASES := ["planning", "resolution", "combat"]
+## Phases played out on the battlefield. The spoils and the salvage both belong to the fight
+## that produced them, so they are laid over it rather than cutting away to another screen.
+const BATTLE_SCENE := ["planning", "resolution", "combat", "reward", "salvage"]
 
 func _playing_out() -> bool:
 	## A fight that has already been decided still has to be watched. While the log has
@@ -896,7 +949,7 @@ func _run_screen() -> void:
 	# column would only repeat it. Outside combat it is the party's home screen.
 	if phase == "summary": _apply_expedition_result()
 	var at_table := phase == "summary" and _appraisal_pending()
-	if not phase in ["planning", "resolution", "combat"] and not at_table:
+	if not phase in BATTLE_SCENE and not at_table:
 		var side_scroll := _scroll(body)
 		side_scroll.custom_minimum_size.x = 240
 		side_scroll.size_flags_horizontal = 0
@@ -905,20 +958,18 @@ func _run_screen() -> void:
 		for hero in snapshot.get("heroes", []):
 			_party_card(side, hero)
 	# A fight is laid out to fit the window exactly, so it is never given a scroll bar.
-	var fighting: bool = phase in ["planning", "resolution", "combat"] or at_table
+	var fighting: bool = phase in BATTLE_SCENE or at_table
 	var center := _vbox(body if fighting else _scroll(body), 10 if fighting else 14)
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if fighting:
 		center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	match phase:
-		"planning", "resolution", "combat": _battle(center)
+		"planning", "resolution", "combat", "reward", "salvage": _battle(center)
 		"route": _route(center)
 		"support": _support(center)
 		"mine_vote": _mine_vote(center)
 		"mine_draft": _mine_draft(center)
-		"reward": _rewards(center)
 		"lift": _lift(center)
-		"salvage": _salvage(center)
 		"summary": _summary(center)
 		_: _label(center, phase.capitalize(), 30, GOLD); _ready_button(center)
 
@@ -984,6 +1035,7 @@ func _battle(parent: Node) -> void:
 	var state: Dictionary = _battle_state()
 	var hero: Dictionary = _hero_in(state)
 	var room_kind := str(snapshot.get("room", {}).get("kind", "battle"))
+	var phase := _shown_phase()
 	# Gems ride above the battlefield and dice below it, so the fight keeps the middle.
 	_gem_deck(parent, hero, state)
 	var field := PanelContainer.new()
@@ -993,14 +1045,16 @@ func _battle(parent: Node) -> void:
 	var stage := _battle_stage()
 	field.add_child(stage)
 	stage.sync(_stage_units(state), bool(settings.reduced_motion), _room_color(room_kind), _pick_unit, _inspect_by_id)
-	if _playing_out():
-		# The fight is already settled; the tray would offer choices that no longer exist.
-		var closing := _hbox(parent, 12)
-		closing.alignment = BoxContainer.ALIGNMENT_CENTER
-		_label(closing, "The last blows are landing.", 15, AMBER)
-		_button(closing, "Skip playback  [%s]" % _binding_name("rd_skip"), _skip_playback)
+	if phase in ["reward", "salvage"]:
+		_aftermath(field, phase, room_kind)
 		return
-	_hand_deck(parent, hero)
+	# While a decided turn is still being drawn the tray is locked and offers a skip. It looks
+	# exactly the same whether the fight goes on or has just been lost, so nothing on it
+	# gives away the ending before the last blow lands.
+	_hand_deck(parent, hero, _resolving())
+
+func _resolving() -> bool:
+	return _playing_out() or (_holding_hand() and playback_index < playback_events.size())
 
 func _gem_deck(parent: Node, hero: Dictionary, state: Dictionary) -> void:
 	## Six sockets, centred, sprite first. Every word lives on the tooltip and the sheet.
@@ -1024,6 +1078,7 @@ func _gem_slot(row: Node, gem: Dictionary, preview: Dictionary) -> void:
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	frame.custom_minimum_size.x = GEM_SLOT_WIDTH
 	gem_slot_cards[str(gem.get("id", ""))] = frame
+	reveal.show(frame, "socketed:" + str(gem.get("id", "")), 0.0, "pop", 0.5)
 	var badge := _gem_portrait(card, gem, 76)
 	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	badge.modulate = Color.WHITE if active else Color(0.55, 0.60, 0.70, 0.75)
@@ -1062,11 +1117,11 @@ func _empty_gem(row: Node) -> void:
 	pad.custom_minimum_size.y = 16
 	card.add_child(pad)
 
-func _hand_deck(parent: Node, hero: Dictionary) -> void:
+func _hand_deck(parent: Node, hero: Dictionary, resolving := false) -> void:
 	## The hand is centred at the foot of the screen with its two actions flanking it,
 	## so the dice take the width and the battlefield keeps the height.
 	var row := _hbox(parent, 16)
-	var locked: bool = hero.get("ready", false) or int(hero.get("hp", 0)) <= 0
+	var locked: bool = resolving or hero.get("ready", false) or int(hero.get("hp", 0)) <= 0
 	var rerolls := int(hero.get("rerolls", 0))
 	var left := _vbox(row, 6)
 	left.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1083,17 +1138,23 @@ func _hand_deck(parent: Node, hero: Dictionary) -> void:
 				_command("UseHeroTrait", {"die_id": selected_dice[0]})
 				selected_dice.clear())
 		extra.tooltip_text = "Reroll a single selected die without spending the shared reroll."
-		extra.disabled = selected_dice.size() != 1 or int(hero.get("trait_charges", 0)) <= 0 or hero.get("ready", false)
+		extra.disabled = selected_dice.size() != 1 or int(hero.get("trait_charges", 0)) <= 0 or locked
 	var dice_row := _hbox(row, 10)
 	dice_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	for i in range(hero.get("dice", []).size()):
-		_die_button(dice_row, hero.dice[i], i)
+		_die_button(dice_row, hero.dice[i], i, locked)
 	var right := _vbox(row, 6)
 	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var purse := Combat.ore_allowance(snapshot, hero)
 	var ore_row := _hbox(right, 6)
 	UiKit.chip(ore_row, "%d ORE" % purse, GOLD).tooltip_text = "Ore your gems may still mint this battle: %d. Room rewards are separate." % purse
-	_ready_button(_hbox(right, 6))
+	if resolving:
+		var skip := _button(_hbox(right, 6), "Skip  [%s]" % _binding_name("rd_skip"), _skip_playback)
+		skip.set_meta("focus_tag", "skip")
+		skip.tooltip_text = "Show the rest of this turn at once."
+		_label(right, "The turn is playing out.", 12, MUTED)
+	else:
+		_ready_button(_hbox(right, 6))
 
 func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge: float) -> Control:
 	## The activation condition drawn as the dice that would meet it, worded on hover.
@@ -1103,13 +1164,12 @@ func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge
 	var spec: Dictionary = DiceIcons.requirement(key, clarity, int(gem.get("cut", 1)), int(gem.get("carat", 1)))
 	return DiceIcons.build(parent, spec, edge, DiceIcons.detail(key, clarity))
 
-func _die_button(parent: Node, die: Dictionary, index: int) -> void:
+func _die_button(parent: Node, die: Dictionary, index: int, locked: bool) -> void:
 	var rolled: Dictionary = {}
 	for entry in _hand_for(_hero()):
 		if str(entry.get("die_id")) == str(die.get("id")):
 			rolled = entry
-	var selected := selected_dice.has(str(die.id))
-	var locked := bool(_hero().get("ready", false)) or int(_hero().get("hp", 0)) <= 0
+	var selected := selected_dice.has(str(die.id)) and not locked
 	var slot := _vbox(parent, 3)
 	slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	slot.custom_minimum_size.x = 104
@@ -1196,6 +1256,7 @@ func _route(parent: Node) -> void:
 		var chosen := mine == str(offer.id)
 		var card := _panel(list, PANEL_HI if chosen else PANEL, accent if chosen else Color(accent, 0.55), 10)
 		card.custom_minimum_size.x = 250
+		reveal.show(card.get_parent(), "route:%s" % str(snapshot.get("phase_id", "")), 0.08 * index, "pop")
 		var row := _hbox(card, 10)
 		UiKit.icon(row, Forge.room(kind), 40).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var text := _vbox(row, 2)
@@ -1250,21 +1311,102 @@ func _lift(parent: Node) -> void:
 			_label(parent, "%s · %s" % [str(other.get("player_name", other.get("name", "Hero"))), {"ride": "rides up", "dig": "digs on"}.get(vote, "deciding")], 13, GREEN if not vote.is_empty() else AMBER)
 	_button(parent, "Review equipment", _show_inventory)
 
-func _salvage(parent: Node) -> void:
-	_label(parent, "The party has fallen.", 30, RED)
-	_label(parent, "Each stone you carried is rolled on a die by its rarity — a d6 for Common up to a d20 for Legendary. Only the top face drags it back to the surface. Your loadout is never at risk.", 15, MUTED, true)
+func _aftermath(field: Control, phase: String, room_kind: String) -> void:
+	## The end of a fight, played over the field it was fought on: the title lands, then the
+	## spoils — or what the fall leaves to chance — are turned over one at a time. The party
+	## only leaves this field once every hero has settled their share.
+	var key := "%s:%s" % [phase, str(snapshot.get("room", {}).get("id", snapshot.get("run_id", "")))]
+	var lost := phase == "salvage"
+	var layer := Control.new()
+	layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	# The light and sparks stay on the battlefield rather than spilling over the gem tray.
+	layer.clip_contents = true
+	field.add_child(layer)
+	layer.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			reveal.hurry())
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.02, 0.04, 0.72) if lost else Color(0.02, 0.03, 0.06, 0.6)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(dim)
+	reveal.show(dim, key, 0.0, "fade", 0.7)
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 18)
+	layer.add_child(margin)
+	var column := _vbox(margin, 6)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var banner := Fanfare.new()
+	banner.kind = Fanfare.Kind.DEFEAT if lost else (Fanfare.Kind.BOSS if room_kind == "boss" else Fanfare.Kind.VICTORY)
+	banner.title = "DEFEATED" if lost else ("THE BOSS FALLS" if room_kind == "boss" else "VICTORY")
+	banner.subtitle = "What the party carried is left to the dice." if lost else ({"elite": "A hard fight, and worth it.", "boss": "The mine is quiet. Its chest is yours."}.get(room_kind, "The spoils are yours."))
+	banner.started = reveal.begin(key)
+	banner.clock = reveal.now
+	banner.reduced = bool(settings.reduced_motion)
+	banner.custom_minimum_size.y = 132
+	banner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_child(banner)
+	reveal.cue(key, 0.0, _sound("dirge" if lost else "fanfare"))
+	var middle := _hbox(column, 0)
+	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	middle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_spacer(middle)
+	# The card hugs what it holds, up to the height of the field; past that its body scrolls
+	# and the buttons that move the party on stay pinned along its foot.
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UiKit.panel_box(Color("1c2233"), Color("0d111c"), RED if lost else GOLD, 14, 18, 1.8, 0.25))
+	card.custom_minimum_size.x = 900
+	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	middle.add_child(card)
+	_spacer(middle)
+	reveal.show(card, key, 0.85, "pop", 0.5)
+	var inside := _vbox(card, 10)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	inside.add_child(scroll)
+	var box := _vbox(scroll, 12)
+	UiKit.rule(inside)
+	var footer := _hbox(inside, 10)
+	# Measured against the layer, which the field sizes, not against the column the card sits
+	# in: that column grows with whatever it is given, so it cannot say how much room there is.
+	var fit := func():
+		if not is_instance_valid(scroll) or not is_instance_valid(layer): return
+		var room: float = layer.size.y - 36.0 - banner.custom_minimum_size.y - 6.0 - footer.get_combined_minimum_size().y - 36.0 - 24.0
+		scroll.custom_minimum_size.y = clampf(box.get_combined_minimum_size().y, 80.0, maxf(80.0, room))
+	box.minimum_size_changed.connect(fit)
+	layer.resized.connect(fit)
+	fit.call_deferred()
+	if lost:
+		_salvage_card(box, footer, key)
+	else:
+		_reward_card(box, footer, key, room_kind)
+
+func _salvage_card(box: VBoxContainer, footer: HBoxContainer, key: String) -> void:
+	_label(box, "Each stone you carried is rolled on a die by its rarity — a d6 for Common up to a d20 for Legendary. Only the top face drags it back to the surface. Your loadout is never at risk.", 14, MUTED, true)
 	var entries: Array = snapshot.get("salvage", {}).get(controlled_id, [])
-	if entries.is_empty():
-		_label(parent, "You carried nothing to salvage.", 16, MUTED, true)
 	var hero: Dictionary = _hero()
-	for entry in entries:
+	if entries.is_empty():
+		_label(box, "You carried nothing to salvage.", 16, MUTED, true)
+	var settle := 1.0
+	for index in range(entries.size()):
+		var entry: Dictionary = entries[index]
 		var gem: Dictionary = {}
 		for item in hero.get("haul", []) + hero.get("gems", []):
 			if str(item.get("id", "")) == str(entry.get("gem_id", "")): gem = item
-		var panel := _panel(parent, PANEL, GOLD if entry.get("revealed", false) and entry.get("kept", false) else LINE, 12)
+		var revealed: bool = entry.get("revealed", false)
+		var kept: bool = entry.get("kept", false)
+		var roll_key := "salvage-roll:" + str(entry.get("gem_id", ""))
+		# The die lands, then the verdict: the roll key starts the first time this stone is seen rolled.
+		var landed: bool = revealed and reveal.reached(roll_key, 0.9)
+		var panel := _panel(box, PANEL, (GREEN if kept else RED) if landed else LINE, 10)
+		reveal.show(panel.get_parent(), key, 1.1 + 0.12 * index, "rise")
 		var row := _hbox(panel, 14)
 		var holder := Control.new()
-		holder.custom_minimum_size = Vector2(76, 76)
+		holder.custom_minimum_size = Vector2(72, 72)
 		row.add_child(holder)
 		var sides := int(entry.get("sides", 6))
 		var die: Dictionary = Catalog.die("D%d" % sides, "salvage-" + str(entry.get("gem_id", "")))
@@ -1272,19 +1414,205 @@ func _salvage(parent: Node) -> void:
 		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		holder.add_child(view)
 		var shown: Dictionary = {}
-		if entry.get("revealed", false):
+		if revealed:
 			shown = {"die_id": die.id, "face_index": int(entry.roll) - 1, "face_id": "%s-f%d" % [die.id, int(entry.roll) - 1], "value": int(entry.roll), "roll_count": 1}
-		view.configure(die, shown, false, entry.get("revealed", false) and entry.get("kept", false), GOLD)
+		view.configure(die, shown, false, landed and kept, GOLD)
 		var info := _vbox(row, 4)
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if not gem.is_empty(): _gem_details(info, gem)
-		if entry.get("revealed", false):
-			_label(info, ("Rolled %d of %d — it comes home." if entry.get("kept", false) else "Rolled %d of %d — the stone shatters.") % [int(entry.roll), sides], 16, GREEN if entry.get("kept", false) else RED)
+		var verdict := _vbox(row, 2)
+		verdict.custom_minimum_size.x = 170
+		verdict.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if not revealed:
+			_button(verdict, "Roll the d%d" % sides, func(): _play_sound(dice_sound); _command("RevealSalvage", {"gem_id": str(entry.gem_id)}), true).disabled = hero.get("ready", false)
+		elif not landed:
+			_label(verdict, "Rolling…", 18, AMBER)
 		else:
-			_button(info, "Roll the d%d" % sides, func(): _play_sound(dice_sound); _command("RevealSalvage", {"gem_id": str(entry.gem_id)}), true).disabled = hero.get("ready", false)
-	if entries.any(func(entry: Dictionary) -> bool: return not entry.get("revealed", false)):
-		_button(parent, "Roll them all", func(): _play_sound(dice_sound); _command("RevealSalvage", {"gem_id": ""}))
-	_ready_button(parent)
+			reveal.cue(roll_key, 0.9, _sound("thud" if kept else "shatter"))
+			var stamp := _label(verdict, "SAVED" if kept else "SHATTERED", 26, GREEN if kept else RED)
+			stamp.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			reveal.show(stamp, roll_key, 0.9, "stamp")
+			_label(verdict, "Rolled %d of %d" % [int(entry.roll), sides], 12, MUTED).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		if revealed:
+			reveal.begin(roll_key)
+		settle = maxf(settle, 1.1 + 0.12 * index)
+	var pending: bool = entries.any(func(entry: Dictionary) -> bool: return not entry.get("revealed", false))
+	var landing: bool = entries.any(func(entry: Dictionary) -> bool: return entry.get("revealed", false) and not reveal.reached("salvage-roll:" + str(entry.get("gem_id", "")), 0.9))
+	_party_status(footer)
+	_spacer(footer)
+	var actions := footer
+	if pending:
+		_button(actions, "Roll them all", func(): _play_sound(dice_sound); _command("RevealSalvage", {"gem_id": ""}), true).disabled = hero.get("ready", false)
+	var leave := _ready_button(actions, false)
+	leave.text = ("Stay a moment" if hero.get("ready", false) else "Leave the mine") + "  [%s]" % _binding_name("rd_ready")
+	leave.disabled = pending or landing
+	if pending: leave.tooltip_text = "Roll every stone first."
+
+func _reward_card(box: VBoxContainer, footer: HBoxContainer, key: String, room_kind: String) -> void:
+	var reward: Dictionary = snapshot.get("reward_offers", {}).get(controlled_id, {})
+	var hero: Dictionary = _hero()
+	var beat := 1.0
+	var ore := int(reward.get("ore", 0))
+	if ore > 0:
+		var purse := _hbox(box, 10)
+		UiKit.icon(purse, Forge.prop("gold"), 34).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var amount := _label(purse, "+%d ORE" % ore, 26, GOLD)
+		reveal.count(amount, key, beat + 0.1, ore, "+%d ORE")
+		_label(purse, "You now carry %d." % int(hero.get("ore", 0)), 13, MUTED).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		reveal.show(purse, key, beat, "pop")
+		reveal.cue(key, beat + 0.1, _sound("coins"))
+		beat += 0.55
+	var found: Array = reward.get("found", [])
+	if not found.is_empty():
+		reveal.show(_label(box, "STONES PRIED LOOSE  ·  UNAPPRAISED, INTO YOUR HAUL", 11, VIOLET), key, beat, "fade")
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 10)
+		flow.add_theme_constant_override("v_separation", 10)
+		box.add_child(flow)
+		for index in range(found.size()):
+			var stone: Dictionary = found[index]
+			var at := beat + 0.3 + 0.6 * index
+			var front := _reveal_card(flow, key, at, _gem_color(stone), 390)
+			_gem_details(front, stone)
+			reveal.cue(key, at + 0.25, _sound("sparkle"))
+		beat += 0.3 + 0.6 * found.size()
+		reveal.show(_label(box, "Judge them by eye, or appraise them with a loupe or at a Lapidary. They come home with you unless the party falls.", 12, MUTED, true), key, beat, "fade")
+	elif room_kind == "battle":
+		reveal.show(_label(box, "Nothing glittering this time.", 14, MUTED, true), key, beat, "fade")
+	var chest: Array = reward.get("gems", [])
+	if not chest.is_empty():
+		reveal.show(_label(box, "THE BOSS CHEST  ·  TAKE ONE", 12, GOLD), key, beat, "fade")
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 10)
+		flow.add_theme_constant_override("v_separation", 10)
+		box.add_child(flow)
+		var opened := beat + 0.3 + 0.65 * chest.size()
+		var ready_to_pick: bool = reveal.reached(key, opened)
+		var taken_id := ""
+		for offer in chest:
+			var gem: Dictionary = offer.get("gem", offer)
+			for owned in hero.get("gems", []):
+				if str(owned.get("id", "")) == str(offer.get("id", gem.get("id", ""))): taken_id = str(owned.id)
+		for index in range(chest.size()):
+			var offer: Dictionary = chest[index]
+			var gem: Dictionary = offer.get("gem", offer)
+			var offer_id := str(offer.get("id", gem.get("id", "")))
+			var at := beat + 0.3 + 0.65 * index
+			var front := _reveal_card(flow, key, at, _gem_color(gem), 272)
+			_gem_card_face(front, gem)
+			reveal.cue(key, at + 0.25, _sound("flourish" if int(Catalog.SKILLS.get(str(gem.get("key", "")), {}).get("rarity", 1)) >= 3 else "sparkle"))
+			if not reward.get("gem_done", true):
+				var take := _button(front, "Take this gem", func(): _command("ChooseReward", {"kind": "gem", "offer_id": offer_id}), true)
+				take.disabled = not ready_to_pick or hero.get("ready", false)
+			elif offer_id == taken_id:
+				_socket_note(front, taken_id)
+			else:
+				front.modulate = Color(0.6, 0.6, 0.66, 0.7)
+				_label(front, "Left in the dark.", 12, MUTED)
+		if not reward.get("gem_done", true):
+			_button(box, "Leave the chest shut  ·  +3 ore", func(): _command("ChooseReward", {"kind": "gem", "offer_id": ""})).disabled = not ready_to_pick or hero.get("ready", false)
+		beat = opened
+	var relics: Array = reward.get("relics", [])
+	if not relics.is_empty():
+		reveal.show(_label(box, "A RELIC FROM THE FALLEN  ·  TAKE ONE", 12, GOLD), key, beat, "fade")
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 10)
+		flow.add_theme_constant_override("v_separation", 10)
+		box.add_child(flow)
+		var opened := beat + 0.3 + 0.6 * relics.size()
+		var ready_to_pick: bool = reveal.reached(key, opened)
+		for index in range(relics.size()):
+			var offer: Dictionary = relics[index]
+			var relic: Dictionary = offer.get("relic", offer)
+			var offer_id := str(offer.get("id", relic.get("id", "")))
+			var definition: Dictionary = Catalog.RELICS.get(relic.get("key", ""), {})
+			var at := beat + 0.3 + 0.6 * index
+			var front := _reveal_card(flow, key, at, GOLD, 390)
+			var relic_row := _hbox(front, 12)
+			UiKit.icon(relic_row, Forge.relic(str(relic.get("key", ""))), 56).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var relic_text := _vbox(relic_row, 4)
+			relic_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_label(relic_text, str(definition.get("name", relic.get("key", "Relic"))), 19, GOLD)
+			_label(relic_text, str(definition.get("description", "")), 13, MUTED, true)
+			reveal.cue(key, at + 0.25, _sound("sparkle"))
+			var taken: bool = hero.get("relics", []).any(func(owned: Dictionary) -> bool: return str(owned.get("id", "")) == offer_id)
+			if not reward.get("relic_done", true):
+				_button(front, "Take this relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": offer_id}), true).disabled = not ready_to_pick or hero.get("ready", false)
+			elif taken:
+				UiKit.chip(front, "TAKEN  ·  EQUIP IT FROM YOUR EQUIPMENT", GREEN)
+			else:
+				front.modulate = Color(0.6, 0.6, 0.66, 0.7)
+		if not reward.get("relic_done", true):
+			_button(box, "Decline the relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": ""})).disabled = not ready_to_pick or hero.get("ready", false)
+		beat = opened
+	var settled: bool = reward.get("gem_done", true) and reward.get("relic_done", true)
+	var actions := footer
+	var gear := _button(actions, "Equipment  [%s]" % _binding_name("rd_inspect"), _show_inventory)
+	_party_status(actions)
+	gear.tooltip_text = "Sockets, dice and relics can all be changed before the party moves on."
+	_spacer(actions)
+	if not settled:
+		_label(actions, "Choose your reward to continue.", 13, AMBER).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var onward := _ready_button(actions, false)
+	var ready: bool = hero.get("ready", false)
+	onward.text = ("Wait — not yet" if ready else ("Climb out with the prize" if room_kind == "boss" else "Continue down the seam")) + "  [%s]" % _binding_name("rd_ready")
+	onward.disabled = not settled or not reveal.reached(key, beat)
+
+func _reveal_card(parent: Node, key: String, delay: float, accent: Color, width: float) -> VBoxContainer:
+	## A card dealt face down that turns over at its moment. The back covers the face until
+	## half way through the turn, so nothing on it can be read — or clicked — early.
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UiKit.panel_box(PANEL.lightened(0.07), PANEL.darkened(0.32), Color(accent, 0.75), 11, 12, 1.6, 0.22))
+	card.custom_minimum_size.x = width
+	parent.add_child(card)
+	var front := _vbox(card, 8)
+	var back := PanelContainer.new()
+	back.add_theme_stylebox_override("panel", UiKit.panel_box(Color("3a2c1c"), Color("1a120b"), Color(accent, 0.6), 11, 0, 1.8, 0.4))
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(back)
+	var mark := CenterContainer.new()
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	back.add_child(mark)
+	var sigil := UiKit.icon(mark, Forge.prop("sigil"), 54, Color(accent.lightened(0.2), 0.85))
+	sigil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reveal.flip(card, back, key, delay, -1.0, front)
+	return front
+
+func _gem_card_face(front: VBoxContainer, gem: Dictionary) -> void:
+	var portrait := _gem_portrait(front, gem, 92)
+	portrait.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var rarity := int(Catalog.SKILLS.get(str(gem.get("key", "")), {}).get("rarity", 1))
+	var name := _label(front, _gem_name(gem), 20, _gem_color(gem))
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var chip := UiKit.chip(front, ["", "COMMON", "UNCOMMON", "RARE", "LEGENDARY"][clampi(rarity, 1, 4)], [MUTED, MUTED, GREEN, BLUE, AMBER][clampi(rarity, 1, 4)])
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_gem_title_row(front, gem, 13, PAPER, false)
+	_label(front, str(Catalog.SKILLS.get(str(gem.get("key", "")), {}).get("trigger", "")), 13, GREEN, true)
+	_formula_rows(front, gem, -1, 12)
+	front.tooltip_text = _preview_text(gem)
+
+func _socket_note(parent: Node, gem_id: String) -> void:
+	## Where a gem just taken went: an open socket, or the reserve because the sockets are full.
+	var equipped: Array = _hero().get("gems", []).filter(func(gem: Dictionary) -> bool: return gem.get("equipped", false))
+	for index in range(equipped.size()):
+		if str(equipped[index].get("id", "")) == gem_id:
+			reveal.show(UiKit.chip(parent, "TAKEN  ·  SET IN SOCKET %d" % (index + 1), GREEN), "socketed:" + gem_id, 0.0, "stamp")
+			return
+	reveal.show(UiKit.chip(parent, "TAKEN  ·  IN RESERVE, YOUR SOCKETS ARE FULL", AMBER), "socketed:" + gem_id, 0.0, "stamp")
+
+func _party_status(parent: Node) -> void:
+	## Who the party is still waiting on, as faces rather than a list of names.
+	var heroes: Array = snapshot.get("heroes", [])
+	if heroes.size() < 2: return
+	var row := _hbox(parent, 12)
+	_label(row, "THE PARTY", 11, MUTED).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for hero in heroes:
+		var ready: bool = hero.get("ready", false)
+		var chip := _hbox(row, 4)
+		var face := UiKit.icon(chip, Forge.unit(str(hero.get("key", ""))), 30)
+		face.modulate = Color.WHITE if ready else Color(0.7, 0.72, 0.8, 0.8)
+		_label(chip, str(hero.get("player_name", hero.get("name", "Hero"))), 13, PAPER).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_label(chip, "✓" if ready else "…", 15, GREEN if ready else AMBER).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 func _route_note(kind: String) -> Dictionary:
 	## What this room is worth to the hero reading it, in the currencies rooms actually
@@ -1355,12 +1683,29 @@ func _support(parent: Node) -> void:
 
 func _treasure(parent: Node) -> void:
 	var cache: Dictionary = snapshot.get("room", {}).get("treasure", {}).get(controlled_id, {})
-	_label(parent, "Nobody has touched this in years. It is yours: %d ore, and a stone already known for what it is." % int(cache.get("ore", 0)), 16, MUTED, true)
-	for gem in cache.get("gems", []):
-		var panel := _panel(parent)
-		_gem_details(panel, gem)
-	_label(parent, "Appraised finds go straight into your gem bag and can be equipped now. They are still at risk if the party falls.", 13, GOLD, true)
-	_button(parent, "Manage equipment", _show_inventory)
+	var key := "treasure:" + str(snapshot.get("room", {}).get("id", ""))
+	_label(parent, "Nobody has touched this in years, and it is yours: ore, and a stone already known for what it is.", 16, MUTED, true)
+	var purse := _hbox(parent, 10)
+	UiKit.icon(purse, Forge.prop("gold"), 34).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	reveal.count(_label(purse, "+%d ORE" % int(cache.get("ore", 0)), 24, GOLD), key, 0.35, int(cache.get("ore", 0)), "+%d ORE")
+	reveal.show(purse, key, 0.2, "pop")
+	reveal.cue(key, 0.35, _sound("coins"))
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 10)
+	parent.add_child(flow)
+	var gems: Array = cache.get("gems", [])
+	for index in range(gems.size()):
+		var gem: Dictionary = gems[index]
+		var at := 0.8 + 0.6 * index
+		var front := _reveal_card(flow, key, at, _gem_color(gem), 420)
+		_gem_details(front, gem)
+		for owned in _hero().get("gems", []):
+			if str(owned.get("id", "")) == str(gem.get("id", "")):
+				if owned.get("equipped", false): _socket_note(front, str(owned.id))
+				else: UiKit.chip(front, "IN RESERVE  ·  YOUR SOCKETS ARE FULL", AMBER)
+		reveal.cue(key, at + 0.25, _sound("flourish" if int(Catalog.SKILLS.get(str(gem.get("key", "")), {}).get("rarity", 1)) >= 3 else "sparkle"))
+	reveal.show(_label(parent, "An appraised find takes an open socket by itself. It is still at risk if the party falls.", 13, GOLD, true), key, 0.8 + 0.6 * gems.size(), "fade")
+	_button(parent, "Equipment  [%s]" % _binding_name("rd_inspect"), _show_inventory)
 
 func _room_banner(parent: Node, kind: String, name: String) -> void:
 	## Every service room opens the same way: what this place is, and what you are carrying
@@ -1766,51 +2111,12 @@ func _mine_draft(parent: Node) -> void:
 		return
 	var picker := str(mine.get("picker_id", ""))
 	_label(parent, "Next pick: " + _unit_name(picker), 18, GOLD)
-	for claim in pool:
+	for index in range(pool.size()):
+		var claim: Dictionary = pool[index]
 		var panel := _panel(parent)
+		reveal.show(panel.get_parent(), "draft:%s:%s" % [str(snapshot.get("room", {}).get("id", "")), str(claim.get("claim_id", ""))], 0.15 * index, "pop")
 		_gem_details(panel, claim.get("gem", {}))
 		_button(panel, "Take this stone", func(): _command("DraftGem", {"claim_id": claim.claim_id}), true).disabled = picker != controlled_id
-
-func _rewards(parent: Node) -> void:
-	var boss: bool = str(snapshot.get("room", {}).get("kind", "")) == "boss"
-	_label(parent, "The boss is dead." if boss else "The spoils are yours.", 30, GOLD)
-	var reward: Dictionary = snapshot.get("reward_offers", {}).get(controlled_id, {})
-	var found: Array = reward.get("found", [])
-	if not found.is_empty():
-		_label(parent, "STONES FOUND  ·  UNAPPRAISED, IN YOUR HAUL", 12, VIOLET)
-		for stone in found:
-			var stone_panel := _panel(parent)
-			_gem_details(stone_panel, stone)
-		_label(parent, "Judge them by eye, or appraise them with a loupe or at a Lapidary. They come home with you unless the party falls.", 13, MUTED, true)
-	elif not boss:
-		_label(parent, "Nothing glittering this time.", 14, MUTED, true)
-	if not reward.get("gem_done", true):
-		_label(parent, "THE BOSS CHEST  ·  TAKE ONE", 12, GOLD)
-		for offer in reward.get("gems", []):
-			var gem: Dictionary = offer.get("gem", offer)
-			var panel := _panel(parent)
-			var row := _hbox(panel)
-			_gem_details(row, gem)
-			_button(row, "Take gem", func(): _command("ChooseReward", {"kind": "gem", "offer_id": offer.get("id", gem.get("id", ""))}), true)
-		_button(parent, "Leave the chest shut", func(): _command("ChooseReward", {"kind": "gem", "offer_id": ""}))
-	if not reward.get("relic_done", true):
-		_label(parent, "CHOOSE ONE RELIC", 12, GOLD)
-		for offer in reward.get("relics", []):
-			var relic: Dictionary = offer.get("relic", offer)
-			var definition: Dictionary = Catalog.RELICS.get(relic.get("key", ""), {})
-			var panel := _panel(parent)
-			var relic_row := _hbox(panel, 12)
-			UiKit.icon(relic_row, Forge.relic(str(relic.get("key", ""))), 56).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			var relic_text := _vbox(relic_row, 4)
-			relic_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			_label(relic_text, str(definition.get("name", relic.get("key", "Relic"))), 20, GOLD)
-			_label(relic_text, str(definition.get("description", "")), 14, MUTED, true)
-			_button(panel, "Take relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": offer.get("id", relic.get("id", ""))}), true)
-		_button(parent, "Decline relic", func(): _command("ChooseReward", {"kind": "relic", "offer_id": ""}))
-	if reward.get("gem_done", true) and reward.get("relic_done", true):
-		_label(parent, "Your rewards are settled." if not boss else "Mark Done to climb out with your prize.", 18, GREEN)
-		_button(parent, "Prepare your equipment", _show_inventory)
-		_ready_button(parent)
 
 func _summary(parent: Node) -> void:
 	_apply_expedition_result()
@@ -1852,7 +2158,7 @@ func _appraisal_screen(parent: Node) -> void:
 	frame.add_child(table)
 	if appraising.is_empty() or not undecided.any(func(entry: Dictionary) -> bool: return str(entry.id) == appraising):
 		appraising = str(undecided[0].id) if not undecided.is_empty() else ""
-	table.select(appraising)
+	table.select(appraising, reveal.begin("appraise:" + appraising) if not appraising.is_empty() else 0.0)
 	var side_scroll := _scroll(body)
 	side_scroll.custom_minimum_size.x = 400
 	side_scroll.size_flags_horizontal = 0
@@ -1874,7 +2180,13 @@ func _appraisal_screen(parent: Node) -> void:
 func _appraisal_table() -> Control:
 	if not is_instance_valid(appraisal_view):
 		appraisal_view = AppraisalTable.new()
-		appraisal_view.gem_selected.connect(func(id: String): appraising = id; _queue_render())
+		# Clicking the stone already under the loupe hurries the reading along.
+		appraisal_view.gem_selected.connect(func(id: String):
+			if id == appraising: reveal.hurry()
+			appraising = id
+			_queue_render())
+		appraisal_view.clock = reveal.now
+		appraisal_view.beat = APPRAISE_BEAT
 	appraisal_view.reduced_motion = bool(settings.reduced_motion)
 	var areas: Array = []
 	var decisions: Dictionary = {}
@@ -1892,20 +2204,36 @@ func _appraisal_table() -> Control:
 	return appraisal_view
 
 func _appraisal_sheet(parent: Node, entry: Dictionary) -> void:
+	## Picking a stone up does not tell you what it is. It is turned under the loupe for a
+	## moment — only what the eye can see — and then its name lands, its rarity with it, and
+	## the rest of the sheet follows line by line. The verdict buttons wait for the reading.
+	var key := "appraise:" + str(entry.get("id", ""))
 	var definition: Dictionary = Catalog.SKILLS.get(str(entry.get("key", "")), {})
 	var rarity := int(definition.get("rarity", 1))
-	_label(parent, _gem_name(entry), 28, _gem_color(entry))
+	var named: bool = reveal.reached(key, APPRAISE_BEAT)
+	reveal.cue(key, APPRAISE_BEAT, _sound("flourish" if rarity >= 3 else "sparkle"))
+	if not named:
+		_label(parent, "Under the loupe…", 28, MUTED)
+		_label(parent, "Unappraised %s stone" % str(Catalog.color_definition(str(entry.get("key", ""))).get("name", "")).to_lower(), 16, _gem_color(entry))
+		_label(parent, _stone_words(_sealed_copy(entry)), 15, PAPER, true)
+		_label(parent, "Click anywhere to hurry the jeweller along.", 12, MUTED, true)
+		return
+	reveal.show(_label(parent, _gem_name(entry), 28, _gem_color(entry)), key, APPRAISE_BEAT, "stamp")
 	var chips := _hbox(parent, 6)
 	UiKit.chip(chips, ["", "COMMON", "UNCOMMON", "RARE", "LEGENDARY"][clampi(rarity, 1, 4)], [MUTED, MUTED, GREEN, BLUE, AMBER][clampi(rarity, 1, 4)])
 	UiKit.chip(chips, str(Catalog.color_definition(str(entry.get("key", ""))).get("name", "")).to_upper(), _gem_color(entry))
-	_gem_title_row(parent, entry, 16, PAPER, false)
-	_label(parent, str(definition.get("trigger", "")), 14, GREEN, true)
-	_formula_rows(parent, entry, -1, 14)
+	reveal.show(chips, key, APPRAISE_BEAT + 0.2, "pop")
+	reveal.show(_gem_title_row(parent, entry, 16, PAPER, false), key, APPRAISE_BEAT + 0.35, "fade")
+	reveal.show(_label(parent, str(definition.get("trigger", "")), 14, GREEN, true), key, APPRAISE_BEAT + 0.45, "fade")
+	var formula := _vbox(parent, 6)
+	_formula_rows(formula, entry, -1, 14)
+	reveal.show(formula, key, APPRAISE_BEAT + 0.55, "fade")
 	UiKit.rule(parent)
 	var value := Profile.sell_value(entry)
 	var owned: Dictionary = _profile().get("collection", {}).get(str(entry.get("key", "")), {})
+	var verdict_at := APPRAISE_BEAT + 0.75
 	if owned.is_empty():
-		_label(parent, "You do not own a %s. Keeping it adds it to your collection." % str(definition.get("name", "gem")), 14, BLUE, true)
+		reveal.show(_label(parent, "New to your collection! Keeping it adds it, and it takes an open socket if your hero has one.", 14, BLUE, true), key, verdict_at, "stamp")
 	else:
 		_label(parent, "YOU ALREADY OWN ONE", 11, GOLD)
 		var grid := GridContainer.new()
@@ -1914,19 +2242,31 @@ func _appraisal_sheet(parent: Node, entry: Dictionary) -> void:
 		parent.add_child(grid)
 		for header in ["", "Yours", "This", ""]:
 			_label(grid, header, 11, MUTED)
-		for property in ["carat", "cut", "clarity"]:
+		var properties := ["carat", "cut", "clarity"]
+		for index in range(properties.size()):
+			var property: String = properties[index]
 			var mine := int(owned.get(property, 1))
 			var theirs := int(entry.get(property, 1))
-			_label(grid, property.capitalize(), 14, PAPER)
-			_label(grid, str(mine), 14, MUTED)
-			_label(grid, str(theirs), 14, PAPER)
-			_label(grid, ("▲ %d" % (theirs - mine)) if theirs > mine else (("▼ %d" % (mine - theirs)) if theirs < mine else "="), 14, GREEN if theirs > mine else (RED if theirs < mine else MUTED))
+			var at := verdict_at + 0.12 * index
+			reveal.show(_label(grid, property.capitalize(), 14, PAPER), key, at, "fade")
+			reveal.show(_label(grid, str(mine), 14, MUTED), key, at, "fade")
+			reveal.show(_label(grid, str(theirs), 14, PAPER), key, at, "fade")
+			reveal.show(_label(grid, ("▲ %d" % (theirs - mine)) if theirs > mine else (("▼ %d" % (mine - theirs)) if theirs < mine else "="), 14, GREEN if theirs > mine else (RED if theirs < mine else MUTED)), key, at + 0.06, "stamp")
 		var difference := value - Profile.sell_value(owned)
-		_label(parent, "Worth %s%d gold %s yours." % ["" if difference < 0 else "+", difference, "against"], 14, GREEN if difference > 0 else AMBER, true)
-	_label(parent, "Sells for %d gold." % value, 16, GOLD)
+		reveal.show(_label(parent, "Worth %s%d gold against yours." % ["" if difference < 0 else "+", difference], 14, GREEN if difference > 0 else AMBER, true), key, verdict_at + 0.4, "fade")
+	var price := _label(parent, "Sells for %d gold." % value, 16, GOLD)
+	reveal.count(price, key, verdict_at + 0.3, value, "Sells for %d gold.")
 	var row := _hbox(parent, 10)
-	_button(row, "Keep" if owned.is_empty() else "Keep  ·  sell yours for %d" % Profile.sell_value(owned), func(): _decide_return(str(entry.id), true), true)
-	_button(row, "Sell  ·  %d gold" % value, func(): _decide_return(str(entry.id), false))
+	var decided_at := verdict_at + 0.6
+	var ready: bool = reveal.reached(key, decided_at)
+	_button(row, "Keep" if owned.is_empty() else "Keep  ·  sell yours for %d" % Profile.sell_value(owned), func(): _decide_return(str(entry.id), true), true).disabled = not ready
+	_button(row, "Sell  ·  %d gold" % value, func(): _decide_return(str(entry.id), false)).disabled = not ready
+	reveal.show(row, key, decided_at, "pop")
+
+func _sealed_copy(gem: Dictionary) -> Dictionary:
+	var copy := gem.duplicate()
+	copy["appraised"] = false
+	return copy
 
 func _confirm_sell_rest() -> void:
 	var box := _modal("Sell every stone left on the table?")
@@ -1946,10 +2286,11 @@ func _leave_table() -> void:
 func _statistics_screen(parent: Node) -> void:
 	var outcome := str(snapshot.get("outcome", ""))
 	var mine: Dictionary = Catalog.mine_definition(str(snapshot.get("mine_id", "")))
-	_label(parent, {"extracted": "BACK IN DAYLIGHT", "fallen": "THE EXPEDITION FALLS", "conquered": "THE MINE IS QUIET"}.get(outcome, "THE EXPEDITION ENDS"), 34, GOLD)
+	reveal.show(_label(parent, {"extracted": "BACK IN DAYLIGHT", "fallen": "THE EXPEDITION FALLS", "conquered": "THE MINE IS QUIET"}.get(outcome, "THE EXPEDITION ENDS"), 34, GOLD), "stats:" + str(snapshot.get("run_id", "")), 0.0, "stamp")
 	_label(parent, "%s  ·  deepest layer %d  ·  tremors %d%%  ·  seed %s" % [str(mine.get("name", "The mine")), int(snapshot.get("deepest", 0)), roundi(float(snapshot.get("tremor", 0)) / 10.0), str(snapshot.get("seed", ""))], 14, BLUE, true)
 	for mine_id in last_unlocked:
-		_label(parent, "New mine unlocked: %s" % str(Catalog.mine_definition(mine_id).get("name", mine_id)), 18, GREEN, true)
+		reveal.show(_label(parent, "New mine unlocked: %s" % str(Catalog.mine_definition(mine_id).get("name", mine_id)), 20, GREEN, true), "stats:" + str(snapshot.get("run_id", "")), 2.0, "stamp")
+		reveal.cue("stats:" + str(snapshot.get("run_id", "")), 2.0, _sound("fanfare"))
 	if not last_completed.is_empty():
 		_label(parent, "%d commission%s complete — claim %s at the board." % [last_completed.size(), "" if last_completed.size() == 1 else "s", "it" if last_completed.size() == 1 else "them"], 16, GREEN, true)
 	if return_gold > 0:
@@ -1979,13 +2320,21 @@ func _statistics_screen(parent: Node) -> void:
 		var name_cell := _vbox(grid, 2)
 		UiKit.icon(name_cell, Forge.unit(str(hero.get("key", ""))), 56).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_label(name_cell, str(hero.get("player_name", hero.get("name", "Hero"))), 15, GOLD).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	for row in rows:
-		_label(grid, str(row[0]), 14, MUTED)
+	var stats_key := "stats:" + str(snapshot.get("run_id", ""))
+	for row_index in range(rows.size()):
+		var row: Array = rows[row_index]
+		var at := 0.3 + 0.14 * row_index
+		reveal.show(_label(grid, str(row[0]), 14, MUTED), stats_key, at, "fade")
 		var values: Array = heroes.map(func(hero: Dictionary) -> int: return row[1].call(str(hero.get("id", ""))))
 		var best: int = values.max() if not values.is_empty() else 0
 		for value in values:
 			var leading: bool = heroes.size() > 1 and int(value) == best and best > 0 and str(row[0]) != "HP lost"
-			_label(grid, ("★ %d" if leading else "%d") % int(value), 15, GOLD if leading else PAPER).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			var cell := _label(grid, ("★ %d" if leading else "%d") % int(value), 15, GOLD if leading else PAPER)
+			cell.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			if leading:
+				reveal.show(cell, stats_key, at + 0.1, "stamp")
+			else:
+				reveal.count(cell, stats_key, at, int(value))
 	var buttons := _hbox(parent, 10)
 	_button(buttons, "Read the combat record", _show_log)
 	_button(buttons, "Back to the shop", func():
@@ -2021,17 +2370,20 @@ func _decide_return(gem_id: String, keep: bool) -> void:
 	else:
 		return_gold += int(outcome.get("gold", 0))
 		if appraising == gem_id: appraising = ""
-		_play_sound(click_sound)
+		_play_sound(sounds.get("coins") if not keep else sounds.get("thud"))
+		var socketed := str(outcome.get("socketed", ""))
+		if keep and not socketed.is_empty():
+			_notify("Kept, and set in an open socket of %s's loadout." % str(Catalog.definitions("heroes").get(socketed, {}).get("name", socketed.capitalize())))
 	_queue_render()
 
-func _ready_button(parent: Node) -> Button:
+func _ready_button(parent: Node, waiting := true) -> Button:
 	var ready: bool = _hero().get("ready", false)
 	var combat := str(snapshot.get("phase", "")) == "planning"
 	var text := "Unlock hand" if ready else ("Lock in hand" if combat else "Done / ready")
 	var b := _button(parent, text + "  [%s]" % _binding_name("rd_ready"), func(): _command("SetReady", {"ready": not ready}), not ready)
 	b.set_meta("focus_tag", "ready")
 	if combat and int(_hero().get("hp", 0)) <= 0: b.disabled = true
-	_waiting_line(parent)
+	if waiting: _waiting_line(parent)
 	return b
 
 func _waiting_line(parent: Node) -> void:
@@ -2050,6 +2402,9 @@ func _waiting_line(parent: Node) -> void:
 		_label(parent, "Waiting on %d of %d: %s" % [pending.size(), heroes.size(), ", ".join(pending)], 13, AMBER, true)
 
 func _process(delta: float) -> void:
+	if reveal != null:
+		reveal.reduced = bool(settings.reduced_motion)
+		reveal.process()
 	_light_casting_socket(delta)
 	if _holding_hand() and _refresh_hands():
 		_queue_render()
@@ -2161,8 +2516,15 @@ func _show_inventory() -> void:
 			provisional_commands[controlled_id] = []
 		inventory_hero = provisional[controlled_id]
 	var box := _modal("%s’s equipment" % str(inventory_hero.get("player_name", inventory_hero.get("name", "Hero"))))
-	var locked := (planning and not can_plan) or bool(inventory_hero.get("ready", false))
-	_label(box, "Six gem slots · One of each skill · Strike stays equipped · Three relic slots · Five active dice", 13, GOLD, true)
+	var locked := (planning and not can_plan) or bool(inventory_hero.get("ready", false)) or _resolving()
+	var equipped: Array = inventory_hero.get("gems", []).filter(func(gem: Dictionary) -> bool: return gem.get("equipped", false))
+	var reserve: Array = inventory_hero.get("gems", []).filter(func(gem: Dictionary) -> bool: return not gem.get("equipped", false))
+	var at_shop: bool = snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support"
+	var chips := _hbox(box, 8)
+	UiKit.chip(chips, "%d / %d SOCKETS FILLED" % [equipped.size(), GEM_SLOTS], GOLD if equipped.size() == GEM_SLOTS else AMBER)
+	UiKit.chip(chips, "%d ORE" % int(inventory_hero.get("ore", 0)), GOLD)
+	UiKit.chip(chips, "%d LOUPE%s" % [int(inventory_hero.get("loupes", 0)), "" if int(inventory_hero.get("loupes", 0)) == 1 else "S"], BLUE)
+	UiKit.chip(chips, "%d UNAPPRAISED" % inventory_hero.get("haul", []).size(), VIOLET)
 	if can_plan:
 		_label(box, "PROVISIONAL PLAN · You are downed. These edits stay local and do not change combat. Apply the plan between rooms after rally.", 14, GREEN, true)
 	elif provisional_commands.get(controlled_id, []).size() > 0:
@@ -2171,97 +2533,119 @@ func _show_inventory() -> void:
 		_button(plan_row, "Apply planned changes", _commit_provisional, true).disabled = locked
 		_button(plan_row, "Discard plan", func(): provisional.erase(controlled_id); provisional_commands.erase(controlled_id); _show_inventory())
 	if locked:
-		_label(box, "Equipment is frozen while fighting or ready. You can inspect every item.", 14, MUTED, true)
-	_label(box, "EQUIPPED GEMS / EXECUTION ORDER", 12, GOLD)
-	var equipped: Array = []
-	for gem in inventory_hero.get("gems", []):
-		if gem.get("equipped", false): equipped.append(gem)
-	for i in range(equipped.size()):
-		var gem: Dictionary = equipped[i]
-		var card := _panel(box)
-		var row := _hbox(card)
-		_label(row, "%02d" % (i + 1), 16, GOLD)
-		_gem_details(row, gem)
-		var controls := _hbox(row, 6)
-		controls.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var earlier := _button(controls, "↑", func(): _reorder(equipped, i, -1))
-		earlier.custom_minimum_size.x = 46
-		earlier.tooltip_text = "Execute this gem earlier"
-		earlier.disabled = locked or i == 0
-		var later := _button(controls, "↓", func(): _reorder(equipped, i, 1))
-		later.custom_minimum_size.x = 46
-		later.tooltip_text = "Execute this gem later"
-		later.disabled = locked or i == equipped.size() - 1
-		_button(controls, "Unequip", func(): _inventory_command("EquipGem", {"gem_id": gem.id})).disabled = locked or gem.get("key") == "STRIKE"
-	_label(box, "RESERVE GEMS", 12, GOLD)
-	var reserves := 0
-	for gem in inventory_hero.get("gems", []):
-		if gem.get("equipped", false): continue
-		reserves += 1
-		var card := _panel(box)
-		_gem_details(card, gem)
-		var row := _hbox(card)
-		var replacement := ""
-		for active in equipped:
-			if active.get("key") == gem.get("key"): replacement = str(active.id)
-		_button(row, "Replace equipped copy" if not replacement.is_empty() else "Equip gem", func(): _inventory_command("EquipGem", {"gem_id": gem.id, "replace_id": replacement})).disabled = locked or (equipped.size() >= 6 and replacement.is_empty())
-		if equipped.size() >= 6 and replacement.is_empty():
-			for active in equipped:
-				if active.get("key") != "STRIKE":
-					_button(row, "Replace " + _gem_name(active), func(): _inventory_command("EquipGem", {"gem_id": gem.id, "replace_id": active.id})).disabled = locked
-		if snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support" and gem.get("found", false):
-			_button(row, "Sell · %d ore" % (Catalog.gem_value(gem) / 2), func(): _inventory_command("SellGem", {"gem_id": gem.id})).disabled = locked
-	if reserves == 0: _label(box, "Your reserve is empty. Stones you appraise, treasure and merchants add gems here.", 13, MUTED, true)
+		_label(box, "Equipment is frozen while fighting or ready. Everything can still be inspected.", 14, MUTED, true)
+	ItemBoard.build(self, box, {
+		"kind": "gem", "title": "GEM SOCKETS", "slots": GEM_SLOTS, "socketed": equipped, "reserve": reserve, "locked": locked, "edge": 62,
+		"hint": "Left to right is the order they resolve. Drag to rearrange, drag between sockets and reserve to equip, double-click to set or take off.",
+		"reserve_title": "RESERVE GEMS", "empty_reserve": "No spare gems. Appraised finds, treasure and merchants add gems here — and fill an open socket by themselves.",
+		"art": func(gem: Dictionary, holder: Control, edge: float): _badge_into(holder, gem, edge),
+		"caption": func(gem: Dictionary) -> String: return _gem_name(gem),
+		"tint": func(gem: Dictionary) -> Color: return _gem_color(gem),
+		"tip": func(gem: Dictionary) -> String: return _preview_text(gem),
+		"pinned": func(gem: Dictionary) -> String: return "Strike always stays socketed." if str(gem.get("key", "")) == "STRIKE" else "",
+		"place": func(gem: Dictionary, index: int, occupant: Dictionary): _place_gem(equipped, gem, index, occupant),
+		"move": func(from: int, to: int): _move_gem(equipped, from, to),
+		"remove": func(gem: Dictionary): _inventory_command("EquipGem", {"gem_id": gem.id}),
+		"inspect": func(gem: Dictionary): _inspect_gem(gem),
+		"extra": func(gem: Dictionary, tile_box: VBoxContainer):
+			if at_shop and gem.get("found", false) and not gem.get("loadout", false):
+				var sell := _button(tile_box, "Sell · %d" % (Catalog.gem_value(gem) / 2), func(): _inventory_command("SellGem", {"gem_id": gem.id}))
+				sell.custom_minimum_size.y = 28
+				sell.disabled = locked})
 	var haul: Array = inventory_hero.get("haul", [])
-	_label(box, "HAUL  ·  UNAPPRAISED STONES  ·  %d LOUPE%s" % [int(inventory_hero.get("loupes", 0)), "" if int(inventory_hero.get("loupes", 0)) == 1 else "S"], 12, VIOLET)
+	_label(box, "HAUL  ·  UNAPPRAISED STONES", 12, VIOLET)
 	if haul.is_empty(): _label(box, "No unappraised stones. Rocks and fallen enemies give them up.", 13, MUTED, true)
+	var stones := HFlowContainer.new()
+	stones.add_theme_constant_override("h_separation", 10)
+	stones.add_theme_constant_override("v_separation", 10)
+	box.add_child(stones)
 	for stone in haul:
-		var stone_card := _panel(box)
+		var stone_card := _panel(stones)
+		stone_card.get_parent().custom_minimum_size.x = 380
+		stone_card.get_parent().size_flags_horizontal = Control.SIZE_FILL
 		_gem_details(stone_card, stone)
-		var appraise := _button(stone_card, "Appraise with a loupe", func(): _inventory_command("AppraiseGem", {"gem_id": stone.id, "method": "loupe"}))
+		var appraise := _button(stone_card, "Appraise with a loupe" if int(inventory_hero.get("loupes", 0)) > 0 else "Needs a loupe", func(): _inventory_command("AppraiseGem", {"gem_id": stone.id, "method": "loupe"}))
 		appraise.disabled = locked or int(inventory_hero.get("loupes", 0)) < 1
-	_label(box, "DICE / SELECT AN ACTIVE SLOT, THEN A RESERVE DIE TO SWAP", 12, GOLD)
-	for die in inventory_hero.get("dice", []):
-		var active_row := _hbox(box, 10)
-		_die_chip(active_row, "preview:inv:" + str(die.id), die, 64)
-		var b := _button(active_row, ("SELECTED  ·  " if selected_active_die == str(die.id) else "") + _die_name(die) + "  |  " + _faces_text(die), func(): selected_active_die = str(die.id); _show_inventory())
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.tooltip_text = "One physical face is sampled uniformly. Repeated values increase their probability."
-	for die in inventory_hero.get("reserve_dice", []):
-		var row := _hbox(box, 10)
-		_die_chip(row, "preview:inv:" + str(die.id), die, 64)
-		_label(row, _die_name(die) + "  |  " + _faces_text(die), 14, BLUE, true)
-		_button(row, "Swap into selected slot", func(): _inventory_command("SwapDie", {"active_id": selected_active_die, "reserve_id": die.id})).disabled = locked or selected_active_die.is_empty()
-		if snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support":
-			var price := int(Catalog.DICE.get(die.get("key", die.get("shape", "D6")), {}).get("price", 6)) / 2
-			_button(row, "Sell · %d ore" % price, func(): _inventory_command("SellDie", {"die_id": die.id})).disabled = locked
-	_label(box, "RELICS", 12, GOLD)
-	if inventory_hero.get("relics", []).is_empty(): _label(box, "Elite and boss victories offer personal relic choices.", 13, MUTED)
-	var equipped_relics: Array = []
-	for relic in inventory_hero.get("relics", []):
-		if relic.get("equipped", false): equipped_relics.append(relic)
-	for relic in inventory_hero.get("relics", []):
-		var def: Dictionary = Catalog.RELICS.get(relic.get("key", ""), {})
-		var card := _panel(box)
-		var relic_head := _hbox(card, 11)
-		var relic_icon := UiKit.icon(relic_head, Forge.relic(str(relic.get("key", ""))), 48)
-		relic_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		relic_icon.modulate = Color.WHITE if relic.get("equipped", false) else Color(0.68, 0.72, 0.80, 0.9)
-		var relic_body := _vbox(relic_head, 4)
-		relic_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_label(relic_body, str(def.get("name", relic.get("key", ""))) + ("  ·  EQUIPPED" if relic.get("equipped", false) else "  ·  RESERVE"), 17, GOLD)
-		_label(relic_body, str(def.get("description", "")), 13, MUTED, true)
-		_button(card, "Unequip relic" if relic.get("equipped", false) else "Equip relic", func(): _inventory_command("EquipRelic", {"relic_id": relic.id})).disabled = locked or (not relic.get("equipped", false) and equipped_relics.size() >= 3)
-		if not relic.get("equipped", false) and equipped_relics.size() >= 3:
-			for active in equipped_relics:
-				_button(card, "Replace " + str(Catalog.RELICS.get(active.get("key"), {}).get("name", active.get("key"))), func(): _inventory_command("EquipRelic", {"relic_id": relic.id, "replace_id": active.id})).disabled = locked
+		if int(inventory_hero.get("loupes", 0)) < 1: appraise.tooltip_text = "Merchants sell loupes. A Lapidary appraises for ore."
+	var active_dice: Array = inventory_hero.get("dice", [])
+	var spare_dice: Array = inventory_hero.get("reserve_dice", [])
+	ItemBoard.build(self, box, {
+		"kind": "die", "title": "ACTIVE DICE", "slots": active_dice.size(), "socketed": active_dice, "reserve": spare_dice, "locked": locked, "edge": 58,
+		"hint": "All five roll every turn. Drop a reserve die onto an active one to swap them.",
+		"reserve_title": "RESERVE DICE  ·  %d / 5" % spare_dice.size(), "empty_reserve": "No reserve dice. Merchants sell them.",
+		"art": func(die: Dictionary, holder: Control, edge: float): _die_into(holder, die, edge),
+		"caption": func(die: Dictionary) -> String: return _die_name(die),
+		"tint": func(_die: Dictionary) -> Color: return BLUE,
+		"tip": func(die: Dictionary) -> String: return "%s\nFaces: %s" % [_die_name(die), _faces_text(die)],
+		"pinned": func(_die: Dictionary) -> String: return "Five dice are always active. Drop a reserve die onto this one to swap them.",
+		"place": func(die: Dictionary, _index: int, occupant: Dictionary):
+			if occupant.is_empty():
+				_notify("Drop a reserve die onto the active die it should replace.")
+			else:
+				_inventory_command("SwapDie", {"active_id": occupant.id, "reserve_id": die.id}),
+		"inspect": func(die: Dictionary): _inspect_die(die),
+		"extra": func(die: Dictionary, tile_box: VBoxContainer):
+			if at_shop:
+				var price := int(Catalog.DICE.get(die.get("key", die.get("shape", "D6")), {}).get("price", 6)) / 2
+				var sell := _button(tile_box, "Sell · %d" % price, func(): _inventory_command("SellDie", {"die_id": die.id}))
+				sell.custom_minimum_size.y = 28
+				sell.disabled = locked})
+	var worn: Array = inventory_hero.get("relics", []).filter(func(relic: Dictionary) -> bool: return relic.get("equipped", false))
+	var carried: Array = inventory_hero.get("relics", []).filter(func(relic: Dictionary) -> bool: return not relic.get("equipped", false))
+	ItemBoard.build(self, box, {
+		"kind": "relic", "title": "RELICS", "slots": 3, "socketed": worn, "reserve": carried, "locked": locked, "edge": 52,
+		"hint": "Three can be worn at once.",
+		"reserve_title": "CARRIED RELICS", "empty_reserve": "Elite and boss victories offer relics.",
+		"art": func(relic: Dictionary, holder: Control, edge: float):
+			UiKit.icon(holder, Forge.relic(str(relic.get("key", ""))), edge).set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT),
+		"caption": func(relic: Dictionary) -> String: return str(Catalog.RELICS.get(relic.get("key", ""), {}).get("name", relic.get("key", ""))),
+		"tint": func(_relic: Dictionary) -> Color: return GOLD,
+		"tip": func(relic: Dictionary) -> String: return "%s\n%s" % [str(Catalog.RELICS.get(relic.get("key", ""), {}).get("name", "")), str(Catalog.RELICS.get(relic.get("key", ""), {}).get("description", ""))],
+		"place": func(relic: Dictionary, _index: int, occupant: Dictionary):
+			if occupant.is_empty() and worn.size() >= 3:
+				_notify("All three relic slots are worn. Drop it onto the relic it should replace.")
+			else:
+				_inventory_command("EquipRelic", {"relic_id": relic.id, "replace_id": str(occupant.get("id", ""))}),
+		"remove": func(relic: Dictionary): _inventory_command("EquipRelic", {"relic_id": relic.id})})
 
-func _reorder(gems: Array, index: int, direction: int) -> void:
-	var ids: Array = []
-	for gem in gems: ids.append(gem.id)
-	var swap = ids[index]
-	ids[index] = ids[index + direction]
-	ids[index + direction] = swap
+func _badge_into(holder: Control, gem: Dictionary, edge: float) -> void:
+	var badge := GemBadge.make(gem, edge)
+	badge.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.add_child(badge)
+
+func _die_into(holder: Control, die: Dictionary, edge: float) -> void:
+	## A real solid in the tray; a flat face on the drag preview, which is not in the tree yet.
+	if not holder.is_inside_tree():
+		var faces: Array = die.get("faces", [])
+		var top := 0
+		for face in faces: top = maxi(top, int(face.get("value", 0)) if face is Dictionary else int(face))
+		var flat: Control = DiceIcons.face(edge, top, DiceIcons.palette(str(die.get("key", "D6"))).body, str(die.get("shape", "D6")), true)
+		holder.add_child(flat)
+		return
+	var view := _die_view("preview:inv:" + str(die.get("id", "")))
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.add_child(view)
+	view.live = false
+	view.configure(die, {}, false, false, BLUE)
+
+func _place_gem(equipped: Array, gem: Dictionary, index: int, occupant: Dictionary) -> void:
+	if not occupant.is_empty():
+		_inventory_command("EquipGem", {"gem_id": gem.id, "replace_id": occupant.id})
+		return
+	var twin: bool = equipped.any(func(other: Dictionary) -> bool: return str(other.get("key", "")) == str(gem.get("key", "")))
+	if (index < 0 or equipped.size() >= GEM_SLOTS) and not twin:
+		_notify("All six sockets are full. Drop it onto the gem it should replace.")
+		return
+	_inventory_command("EquipGem", {"gem_id": gem.id})
+
+func _move_gem(equipped: Array, from: int, to: int) -> void:
+	## Two sockets trade stones. Order is the order they resolve in, so this is the whole of
+	## rearranging a loadout.
+	if from < 0 or to < 0 or from >= equipped.size() or to >= equipped.size() or from == to: return
+	var ids: Array = equipped.map(func(gem: Dictionary) -> String: return str(gem.id))
+	var held = ids[from]
+	ids[from] = ids[to]
+	ids[to] = held
 	_inventory_command("ReorderGems", {"gem_ids": ids})
 
 func _inventory_command(kind: String, payload: Dictionary) -> void:
@@ -2420,6 +2804,61 @@ func _inspect_unit(unit: Dictionary) -> void:
 	if unit.get("boss", false):
 		_label(box, "Boss Resolve: external stun queues at most one skipped slot. After that skip, the next two slots reject external stun. Damage still applies. Poison ticks once at each living actor’s slot end.", 14, GOLD, true)
 	if _can_ping(): _button(box, "Ping this " + ("enemy" if hostile else "hero"), func(): _ping("enemy" if hostile else "hero", id, str(unit.get("name", "Unit"))))
+
+func _inspect_stage_skill(unit_id: String, entry_id: String) -> void:
+	## A right-click on something carried over a combatant's head: a hero's gem opens its
+	## sheet, an enemy's move says when it fires and what it does.
+	var state: Dictionary = _battle_state()
+	for hero in state.get("heroes", []):
+		if str(hero.get("id", "")) != unit_id: continue
+		for gem in hero.get("gems", []):
+			if str(gem.get("id", "")) == entry_id:
+				_inspect_gem(gem)
+				return
+	for enemy in state.get("enemies", []):
+		if str(enemy.get("id", "")) == unit_id:
+			_inspect_enemy_skill(enemy, entry_id)
+			return
+
+func _inspect_enemy_skill(enemy: Dictionary, key: String) -> void:
+	var action_name := key.capitalize()
+	for action in Combat.enemy_skills(enemy):
+		if str(action.key) == key: action_name = str(action.name)
+	var box := _modal("%s  ·  %s" % [str(enemy.get("name", "Enemy")), action_name])
+	var art := TextureRect.new()
+	art.texture = GemIcons.texture(GemIcons.emblem(key), 128)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.modulate = AMBER
+	var body := _sheet(box, art, Vector2(150, 150), AMBER)
+	_label(body, action_name, 26, AMBER)
+	_label(body, "One of the moves %s's routine can reach." % str(enemy.get("name", "this enemy")), 14, MUTED, true)
+	var when := ""
+	var does := ""
+	for gem in enemy.get("gems", []):
+		if Catalog.canonical_key(str(gem.get("key", ""))) == key:
+			when = str(Catalog.SKILLS.get(key, {}).get("trigger", ""))
+			does = GemText.sentence(gem)
+			_label(body, "REQUIRES", 11, GOLD)
+			_requirement_icons(_hbox(body, 10), gem, Combat.preview(enemy, gem, enemy.get("hand", []), snapshot), 28)
+	if when.is_empty():
+		var text: Dictionary = Combat.enemy_skill_text(enemy, key)
+		when = str(text.get("when", ""))
+		does = str(text.get("does", ""))
+	_label(body, "WHEN", 11, GOLD)
+	_label(body, when if not when.is_empty() else "Whenever its routine calls for it.", 16, GREEN, true)
+	_label(body, "DOES", 11, GOLD)
+	_label(body, does if not does.is_empty() else "Nothing is recorded about this move.", 16, PAPER, true)
+	var rolled: Dictionary = _projected_rolls().get(str(enemy.get("id", "")), {})
+	UiKit.rule(body)
+	if rolled.is_empty():
+		_label(body, "It has not taken its dice up this turn. Enemies roll after the party acts.", 14, MUTED, true)
+	else:
+		var open: bool = key in rolled.get("opened", [])
+		_label(body, "This turn's roll opened it." if open else "This turn's roll did not open it.", 15, AMBER if open else MUTED, true)
+	var turn := int(_battle_state().get("turn", 1))
+	if turn >= 7:
+		_label(body, "Enrage: every hit this turn deals %d more." % (2 * (turn - 6)), 14, RED, true)
 
 func _inspect_die(die: Dictionary, rolled: Dictionary = {}) -> void:
 	var faces: Array = die.get("faces", [])
@@ -2656,7 +3095,7 @@ func _show_journal() -> void:
 				["BLOCK, STUN, POISON", "Block persists through turns, then clears after combat. Stun skips an actor’s next slot. Poison bypasses block at the end of a living actor’s slot, then loses one stack; it still ticks when stunned. Boss Resolve prevents repeated stun locking."],
 				["FALLING AND RECOVERY", "Downed heroes do not roll or act. Victory rallies them to 10% HP. If the whole party falls, every stone it carried is rolled on a die by rarity — d6 to d20 — and only the top face brings it home. Your loadout is never at risk."],
 				["THE SEAM", "A mine is dug one layer at a time and has no bottom. Your lantern shows the rooms two layers ahead; past that you see only shapes, and the beacons of lifts. Deeper layers hold harder fights and better stones."],
-				["THE TREMORS", "Every step down, every turn of every fight and every noisy room fills the tremor meter, faster the deeper you are. When it fills, the mine's boss breaks through into the next chamber you enter. Ride a lift home before then — or be ready."],
+				["THE TREMORS", "Every step down and every noisy room fills the tremor meter, faster the deeper you are; fights hold it still. When it fills, the mine's boss breaks through into the next chamber you enter. Ride a lift home before then — or be ready."],
 				["STONES AND APPRAISAL", "Stones come out of the rock unappraised: you can see their colour, size, cut and clarity, but not what they do, and they cannot be equipped. A loupe or a Lapidary appraises one. At home every stone is appraised on the table, then kept or sold for gold."],
 				["THE LONG FIGHT", "Enrage starts on turn 7: enemies add +2 raw damage per hit, then +2 more each turn. The ore your gems can mint in a battle is capped, rising slowly with depth. Room rewards are separate."],
 				["ORE AND GOLD", "Ore is the mine's currency: it pays for merchants, Lapidaries, Workshops and the Wager Hall, and it stays behind when you leave. Gold is what you earn at home by selling stones."],
@@ -2866,15 +3305,21 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("rd_back"):
-		if is_instance_valid(overlay): _close_overlay()
+		if is_instance_valid(spotlight): _close_spotlight()
+		elif is_instance_valid(overlay): _close_overlay()
 		else: _show_menu()
 		get_viewport().set_input_as_handled()
 		return
 	if is_instance_valid(overlay) or snapshot.is_empty(): return
-	if event.is_action_pressed("rd_inspect"):
-		_show_inventory()
-	elif event.is_action_pressed("rd_skip"):
+	if event.is_action_pressed("rd_skip"):
 		_skip_playback()
+		reveal.hurry()
+	elif _resolving() and not event.is_action_pressed("rd_inspect"):
+		# A turn still being drawn cannot be acted on: the hand on the table is not the one
+		# the next command would read.
+		return
+	elif event.is_action_pressed("rd_inspect"):
+		_show_inventory()
 	elif event.is_action_pressed("rd_ready"):
 		_command("SetReady", {"ready": not _hero().get("ready", false)})
 	elif snapshot.get("phase") == "planning":
@@ -2939,7 +3384,6 @@ func _skip_playback() -> void:
 	playback_dwell = 0.0
 	casting_gem = ""
 	mine_playback_index = snapshot.get("mine", {}).get("events", []).size()
-	_notify("Playback skipped. The authoritative outcome is unchanged.")
 
 func _return_menu() -> void:
 	## Back to the shop. A party stays together: the host reopens the lobby and every guest
@@ -3026,6 +3470,12 @@ func _show_fallback(id: String) -> void:
 	_button(box, "Keep waiting", _close_overlay)
 
 func _modal(title: String) -> VBoxContainer:
+	# A screen that rebuilds itself after a change — an equip, a purchase — reopens where the
+	# reader was rather than at the top.
+	var keep := 0
+	if is_instance_valid(overlay) and str(overlay.get_meta("title", "")) == title and overlay.has_meta("scroll"):
+		var previous: ScrollContainer = overlay.get_meta("scroll")
+		if is_instance_valid(previous): keep = previous.scroll_vertical
 	_close_overlay()
 	overlay = PanelContainer.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -3048,7 +3498,95 @@ func _modal(title: String) -> VBoxContainer:
 	var scroll := _scroll(outer)
 	var box := _vbox(scroll, 12)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	overlay.set_meta("title", title)
+	overlay.set_meta("scroll", scroll)
+	if keep > 0:
+		get_tree().process_frame.connect(func():
+			if is_instance_valid(scroll): scroll.scroll_vertical = keep, CONNECT_ONE_SHOT)
 	return box
+
+## --- The spotlight ---------------------------------------------------------------
+## An appraisal made down the mine is held up over everything else, because it is the one
+## moment a stone stops being a guess.
+
+func _show_spotlight() -> void:
+	if is_instance_valid(spotlight) or spotlight_queue.is_empty() or not is_inside_tree(): return
+	var gem: Dictionary = spotlight_queue.pop_front()
+	var key := "spotlight:" + str(gem.get("id", ""))
+	var definition: Dictionary = Catalog.SKILLS.get(str(gem.get("key", "")), {})
+	var rarity := int(definition.get("rarity", 1))
+	spotlight = Control.new()
+	spotlight.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	spotlight.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(spotlight)
+	var dim := ColorRect.new()
+	dim.color = Color(0.01, 0.015, 0.03, 0.82)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spotlight.add_child(dim)
+	reveal.show(dim, key, 0.0, "fade", 0.35)
+	var centre := CenterContainer.new()
+	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spotlight.add_child(centre)
+	var card := PanelContainer.new()
+	card.custom_minimum_size.x = 560
+	card.add_theme_stylebox_override("panel", UiKit.panel_box(Color("1f2940"), Color("0e131f"), _gem_color(gem), 16, 22, 2.0, 0.3))
+	centre.add_child(card)
+	reveal.show(card, key, 0.05, "pop")
+	var box := _vbox(card, 10)
+	var heading := _label(box, "APPRAISED", 13, GOLD)
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var stage := PanelContainer.new()
+	stage.custom_minimum_size = Vector2(240, 240)
+	stage.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	stage.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	box.add_child(stage)
+	var sealed_view := GemView.new()
+	stage.add_child(sealed_view)
+	sealed_view.configure(_sealed_copy(gem))
+	sealed_view.set_spin(2.2)
+	var known_view := GemView.new()
+	stage.add_child(known_view)
+	known_view.configure(gem)
+	known_view.set_spin(0.6)
+	reveal.show(sealed_view, key, 1.05, "vanish", 0.18)
+	reveal.show(known_view, key, 1.05, "stamp", 0.4)
+	reveal.show(stage, key, 1.05, "glow", 0.9)
+	reveal.cue(key, 1.05, _sound("flourish" if rarity >= 3 else "sparkle"))
+	var title := _label(box, _gem_name(gem), 30, _gem_color(gem))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	reveal.show(title, key, 1.2, "stamp")
+	var chips := _hbox(box, 6)
+	chips.alignment = BoxContainer.ALIGNMENT_CENTER
+	UiKit.chip(chips, ["", "COMMON", "UNCOMMON", "RARE", "LEGENDARY"][clampi(rarity, 1, 4)], [MUTED, MUTED, GREEN, BLUE, AMBER][clampi(rarity, 1, 4)])
+	UiKit.chip(chips, str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "")).to_upper(), _gem_color(gem))
+	reveal.show(chips, key, 1.35, "pop")
+	var rows := _vbox(box, 6)
+	_gem_title_row(rows, gem, 15, PAPER, false)
+	_label(rows, str(definition.get("trigger", "")), 14, GREEN, true)
+	_formula_rows(rows, gem, -1, 14)
+	reveal.show(rows, key, 1.5, "fade")
+	var equipped: Array = _hero().get("gems", []).filter(func(item: Dictionary) -> bool: return item.get("equipped", false))
+	var socket := -1
+	for index in range(equipped.size()):
+		if str(equipped[index].get("id", "")) == str(gem.get("id", "")): socket = index
+	var note := UiKit.chip(box, ("SET IN OPEN SOCKET %d" % (socket + 1)) if socket >= 0 else "IN RESERVE  ·  DRAG IT INTO A SOCKET FROM YOUR EQUIPMENT", GREEN if socket >= 0 else AMBER)
+	note.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	reveal.show(note, key, 1.7, "stamp")
+	var go := _button(box, "Continue  [%s]" % _binding_name("rd_back"), func():
+		if reveal.reached(key, 1.7): _close_spotlight()
+		else: reveal.hurry(), true)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	spotlight.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			reveal.hurry())
+
+func _close_spotlight() -> void:
+	if is_instance_valid(spotlight):
+		spotlight.queue_free()
+	spotlight = null
+	_show_spotlight.call_deferred()
 
 func _close_overlay() -> void:
 	rebind_action = ""
@@ -3168,10 +3706,22 @@ func _hand_values(hand: Array) -> String:
 	return "[" + ", ".join(values) + "]" if not values.is_empty() else "No combat hand yet"
 
 func _play_sound(stream: AudioStreamWAV) -> void:
-	if not is_instance_valid(sound_player) or stream == null or float(settings.sound_volume) <= 0.0: return
-	sound_player.stream = stream
-	sound_player.volume_db = linear_to_db(float(settings.sound_volume))
-	sound_player.play()
+	if stream == null or float(settings.sound_volume) <= 0.0: return
+	var voice: AudioStreamPlayer = null
+	for candidate in sound_players:
+		if is_instance_valid(candidate) and not candidate.playing:
+			voice = candidate
+			break
+	if voice == null:
+		voice = sound_player
+	if not is_instance_valid(voice): return
+	voice.stream = stream
+	voice.volume_db = linear_to_db(float(settings.sound_volume))
+	voice.play()
+
+func _sound(name: String) -> Callable:
+	## A sound as something a reveal can cue.
+	return func(): _play_sound(sounds.get(name, null))
 
 func _highlight_dice(ids: Array) -> void:
 	for id in dice_views:

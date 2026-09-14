@@ -43,6 +43,8 @@ func run() -> void:
 	ui.hub_view.activated.emit("jewel_bag")
 	await frames()
 	check(is_instance_valid(ui.overlay), "the hub's click signal reaches the screens")
+	var sack: Array = ui.overlay.find_children("*", "", true, false)
+	check(sack.any(func(node: Node) -> bool: return node.get_script() == ui.GemBadge) and not sack.any(func(node: Node) -> bool: return node.get_script() == ui.GemView), "the gem sack draws flat badges, not a live 3D camera per gem")
 	ui._close_overlay()
 	## Buy from the jeweller once there is something seen to sell and gold to pay for it.
 	ui.profile_store.transact(func(profile: Dictionary) -> String:
@@ -136,6 +138,9 @@ func run() -> void:
 	ui._command("SetReady", {"ready":true})
 	await frames()
 	check(ui.snapshot.get("turn", 0) >= 2 or ui.snapshot.phase != "planning", "lock resolves the turn")
+	if ui._resolving():
+		var drawing: Array = button_texts(ui.page, [])
+		check(has_word(drawing, "Skip") and not has_word(drawing, "Lock in") and not has_word(drawing, "Done"), "a turn being drawn offers a skip in place of lock-in, the same whether the fight goes on or not")
 	if ui.snapshot.phase == "planning" and ui.playback_index < ui.playback_events.size():
 		check(ui._hand_for(ui._hero()) == held, "the next roll waits while the round is still playing")
 		check(ui._hand_for(ui._hero()) != ui._hero().hand, "the authority has already rolled behind the held hand")
@@ -145,6 +150,19 @@ func run() -> void:
 	ui._inspect_gem(ui._hero().gems[0])
 	await frames()
 	check(is_instance_valid(ui.overlay), "a gem sheet opens")
+	ui._close_overlay()
+	## Right-click on what a combatant carries overhead.
+	if not ui.snapshot.get("enemies", []).is_empty():
+		var foe: Dictionary = ui.snapshot.enemies[0]
+		var moves: Array = ui.Combat.enemy_skills(foe)
+		if not moves.is_empty():
+			ui._inspect_stage_skill(str(foe.id), str(moves[0].key))
+			await frames()
+			check(is_instance_valid(ui.overlay), "right-clicking an enemy's move says when it fires and what it does")
+			ui._close_overlay()
+	ui._inspect_stage_skill(str(ui._hero().id), str(ui._hero().gems[0].id))
+	await frames()
+	check(is_instance_valid(ui.overlay), "right-clicking a hero's stone overhead opens its sheet")
 	ui._close_overlay()
 	ui._inspect_die(ui._hero().dice[0], ui._hand_for(ui._hero())[0])
 	await frames()
@@ -167,6 +185,7 @@ func run() -> void:
 	ui._show_inventory()
 	await frames()
 	check(is_instance_valid(ui.overlay), "inventory opens")
+	check(ui.overlay.find_children("*", "", true, false).any(func(node: Node) -> bool: return str(node.get_meta("focus_tag", "")) == "gem_socket_0"), "equipment lays the gems out as sockets to drag between")
 	ui._show_settings()
 	await frames()
 	for tab in ["guide","rooms","heroes","gems","dice","relics","enemies","history"]:
@@ -261,6 +280,62 @@ func run() -> void:
 	check(is_instance_valid(ui.overlay), "an unappraised stone opens its own sheet")
 	check(ui._gem_name(stone) == "an unappraised stone", "an unappraised stone is never named")
 	ui._close_overlay()
+	## Win a fight: the spoils are dealt over the battlefield, and the seam waits for them.
+	ui.engine._events = []
+	ui.engine.state.heroes[0].ready = false
+	ui.engine._enter_room("battle")
+	ui._state_changed(ui.engine.state)
+	await frames()
+	for enemy in ui.engine.state.enemies: enemy.hp = 0
+	ui.engine.state.battle_outcome = "victory"
+	ui.engine._battle_rewards()
+	ui._state_changed(ui.engine.state)
+	ui._skip_playback()
+	await frames()
+	check(ui.snapshot.phase == "reward" and ui._stage_on_screen(), "the spoils are laid over the battlefield rather than a separate screen")
+	check(ui.page.find_children("*", "", true, false).any(func(node: Node) -> bool: return node.get_script() == ui.Fanfare), "the victory is announced on the field")
+	var onward: Button = find_button(ui.page, "Continue")
+	check(onward != null and onward.disabled, "moving on waits for the spoils to be turned over")
+	ui.reveal.hurry()
+	await frames()
+	onward = find_button(ui.page, "Continue")
+	check(onward != null and not onward.disabled, "once everything has been revealed the party may move on")
+	if onward != null: onward.pressed.emit()
+	await frames()
+	check(ui.snapshot.phase == "route", "the seam returns once every hero has settled their spoils")
+	## Move one socket onto another the way a drag does, then by the click route.
+	var sockets: Array = ui._hero().gems.filter(func(gem: Dictionary) -> bool: return gem.equipped)
+	if sockets.size() >= 2:
+		ui._move_gem(sockets, 0, 1)
+		await frames()
+		var moved: Array = ui._hero().gems.filter(func(gem: Dictionary) -> bool: return gem.equipped)
+		check(moved[0].id == sockets[1].id and moved[1].id == sockets[0].id, "dropping a socket onto another swaps their order")
+		ui._show_inventory()
+		await frames()
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = true
+		tagged(ui.overlay, "gem_socket_0").gui_input.emit(click)
+		tagged(ui.overlay, "gem_socket_1").gui_input.emit(click)
+		await frames()
+		var clicked: Array = ui._hero().gems.filter(func(gem: Dictionary) -> bool: return gem.equipped)
+		check(clicked[0].id == sockets[0].id and clicked[1].id == sockets[1].id, "clicking a socket and then another swaps them without a drag")
+	ui._close_overlay()
+	## An appraisal made down the mine is held up in the spotlight.
+	var sealed_stone: Dictionary = ui.engine._roll_gems(1, 0, false)[0]
+	sealed_stone.owner_id = "ui_test"
+	ui.engine.state.heroes[0].haul.append(sealed_stone)
+	ui.engine.state.heroes[0].loupes = 1
+	ui._state_changed(ui.engine.state)
+	await frames()
+	ui._command("AppraiseGem", {"gem_id": sealed_stone.id, "method": "loupe"})
+	await frames()
+	check(is_instance_valid(ui.spotlight), "an appraisal made down the mine is held up in the spotlight")
+	ui._close_spotlight()
+	await frames()
+	check(not is_instance_valid(ui.spotlight), "the spotlight closes")
+	ui.engine.state.heroes[0].haul.clear()
+	ui.engine.state.heroes[0].gems = ui.engine.state.heroes[0].gems.filter(func(gem: Dictionary) -> bool: return not gem.get("found", false))
 	## Ride a lift home and carry the haul into the profile, then keep and sell on the table.
 	ui.engine._events = []
 	ui.engine.state.heroes[0].haul.append(stone)
@@ -293,10 +368,14 @@ func run() -> void:
 	await frames()
 	check(ui._appraisal_pending() and is_instance_valid(ui.appraisal_view), "the haul is laid out on the appraisal table")
 	check(ui.appraisal_view.stone_ids().size() == 2, "every hauled stone is on the table")
+	check(find_button(ui.page, "Keep") == null, "a stone is turned under the loupe before it can be kept or sold")
 	var first_stone: String = str(ui._profile().pending_return.gems[0].id)
 	ui.appraisal_view.gem_selected.emit(first_stone)
 	await frames()
 	check(ui.appraising == first_stone, "picking a stone up on the table opens its appraisal")
+	ui.reveal.hurry()
+	await frames()
+	check(find_button(ui.page, "Keep") != null and not find_button(ui.page, "Keep").disabled, "once named, the stone can be kept")
 	ui._decide_return(first_stone, true)
 	await frames()
 	check(ui._profile().collection.values().any(func(gem: Dictionary) -> bool: return true) and ui.appraising != first_stone, "a kept stone leaves the sheet for the next one")
@@ -326,6 +405,16 @@ func run() -> void:
 func find_seam(node: Node) -> Control:
 	for child in node.find_children("*", "Control", true, false):
 		if child.get_script() == ui.SeamMap: return child
+	return null
+
+func tagged(node: Node, tag: String) -> Control:
+	for child in node.find_children("*", "Control", true, false):
+		if str(child.get_meta("focus_tag", "")) == tag: return child
+	return null
+
+func find_button(node: Node, word: String) -> Button:
+	for child in node.find_children("*", "Button", true, false):
+		if str(child.text).contains(word): return child
 	return null
 
 func button_texts(node: Node, found: Array) -> Array:

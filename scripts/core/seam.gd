@@ -176,9 +176,6 @@ static func sight(modifier: String, lantern: bool) -> int:
 static func tremor_for_move(mine: Dictionary, depth: int, modifier: String) -> int:
 	return _scaled(25.0 + 2.0 * depth, mine, modifier)
 
-static func tremor_for_turn(mine: Dictionary, depth: int, modifier: String) -> int:
-	return _scaled(6.0 + depth / 2.0, mine, modifier)
-
 static func _scaled(amount: float, mine: Dictionary, modifier: String) -> int:
 	var rate: float = float(clampi(int(mine.get("tremor_rate", 100)), 10, 500)) / 100.0
 	return roundi(amount * rate * (1.5 if modifier == "swift_tremors" else 1.0))

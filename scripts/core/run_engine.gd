@@ -457,9 +457,8 @@ func _resolve_battle() -> void:
 		elif event_kind == "gold" and event.get("source", "") == "combat_skill" and not actor.is_empty():
 			_stat("ore_earned", int(event.get("amount", 0)))
 			_hero_stat(actor, "ore_earned", int(event.get("amount", 0)))
-	## Every blow echoes down the tunnels. A long fight gives the boss time as surely as a
-	## long walk does.
-	_add_tremor(Seam.tremor_for_turn(_mine_def(), maxi(1, int(state.depth)), _modifier()))
+	## A fight holds the meter still: the tremors come from digging and walking, never from
+	## the length of a battle, so a hard fight is not also a race against the boss.
 	match state.get("battle_outcome", ""):
 		"defeat": _start_salvage()
 		"victory": _battle_rewards()
@@ -476,10 +475,13 @@ func _battle_rewards() -> void:
 	var ore: int = ORE_PER_BATTLE + int(state.depth)
 	if kind == "elite": ore *= 2
 	state.reward_offers = {}
+	## What each hero was paid, kept on the offer so the victory screen can count it out.
+	var paid: Dictionary = {}
 	for hero in state.heroes:
 		if kind != "boss":
 			var bonus: int = 3 if _has_relic(hero, "MERCHANT_SEAL") else 0
 			_grant_ore(hero, ore + bonus, "room_reward")
+			paid[hero.id] = ore + bonus
 		for relic in hero.relics:
 			if relic.key == "LASTING_AEGIS" and relic.get("equipped", false):
 				relic.stored_block = mini(6, int(hero.block)) if hero.hp > 0 else 0
@@ -492,7 +494,7 @@ func _battle_rewards() -> void:
 		hero.initial_hand = []
 		hero.rerolled = false
 		hero.ready = false
-		var reward: Dictionary = {"gems":[], "relics":[], "found":[], "gem_done":true, "relic_done":true}
+		var reward: Dictionary = {"gems":[], "relics":[], "found":[], "gem_done":true, "relic_done":true, "ore":0}
 		match kind:
 			"battle":
 				if streams.loot.randi_range(1, 100) <= FOUND_GEM_PERCENT:
@@ -506,13 +508,16 @@ func _battle_rewards() -> void:
 					var relic_key: String = eligible.pop_at(streams.loot.randi_range(0, eligible.size() - 1))
 					reward.relics.append({"id":_id("relic"), "key":relic_key, "equipped":false, "stored_block":0})
 				reward.relic_done = reward.relics.is_empty()
-				if reward.relics.is_empty(): _grant_ore(hero, 5, "room_reward")
+				if reward.relics.is_empty():
+					_grant_ore(hero, 5, "room_reward")
+					paid[hero.id] = int(paid.get(hero.id, 0)) + 5
 			"boss":
 				## The boss chest: three appraised stones from the mine's pool, well above what a
 				## rock gives up. One is taken home; the others stay in the dark.
 				reward.gems = _roll_gems(3, BOSS_CHEST_QUALITY, true)
 				_mark_seen(hero, reward.gems)
 				reward.gem_done = reward.gems.is_empty()
+		reward.ore = int(paid.get(hero.id, 0))
 		state.reward_offers[hero.id] = reward
 	_record("battle_victory", "The boss falls. Each hero may open the chest it guarded." if kind == "boss" else "Victory! Each hero receives %s ore." % ore)
 	_phase("reward")
@@ -535,7 +540,9 @@ func _choose_reward(player: Dictionary, payload: Dictionary) -> String:
 		item = item.duplicate(true)
 		item["equipped"] = false
 		item["owner_id"] = player.id
-		if kind == "gem": player.gems.append(item)
+		if kind == "gem":
+			player.gems.append(item)
+			_auto_equip(player, item)
 		else: player.relics.append(item)
 		_record("reward", "%s claims %s." % [player.name, _item_name(item, kind)], {"actor_id":player.id, "item_id":item.id})
 	reward[kind + "_done"] = true
@@ -710,6 +717,7 @@ func _enter_room(kind: String) -> void:
 				for gem in found:
 					gem.owner_id = hero.id
 					hero.gems.append(gem)
+					_auto_equip(hero, gem)
 					_hero_stat(hero, "gems_found", 1)
 					state.statistics.gems_found += 1
 				_mark_seen(hero, found)
@@ -781,6 +789,7 @@ func _appraise(player: Dictionary, payload: Dictionary) -> String:
 	gem.appraised = true
 	gem.equipped = false
 	player.gems.append(gem)
+	_auto_equip(player, gem)
 	_mark_seen(player, [gem])
 	_record("appraisal", "%s appraises a stone: %s." % [player.name, _item_name(gem, "gem")], {"actor_id":player.id, "item_id":gem.id})
 	return ""
@@ -809,6 +818,7 @@ func _buy(player: Dictionary, id: String, is_die: bool) -> String:
 	else:
 		item.equipped = false
 		player.gems.append(item)
+		_auto_equip(player, item)
 	_record("purchase", "%s buys %s for %s ore." % [player.name, _item_name(item, "die" if is_die else "gem"), offer.price])
 	return ""
 
@@ -831,8 +841,8 @@ func _sell(player: Dictionary, payload: Dictionary, is_die: bool) -> String:
 	var item: Dictionary = _find(items, str(payload.get("die_id" if is_die else "gem_id", "")))
 	if item.is_empty(): return "You can only sell an owned gem or reserve die."
 	## Loadout gems go home whatever happens, so selling one would mint ore from nothing.
-	if not is_die and (item.get("loadout", false) or item.get("equipped", false)):
-		return "Only an unequipped gem you found down here can be sold."
+	if not is_die and item.get("loadout", false):
+		return "Only a gem you found down here can be sold. Your loadout always comes home."
 	var value: int = floori(float(_die_value(item) if is_die else Catalog.gem_value(item)) / 2.0)
 	items.erase(item)
 	_grant_ore(player, value, "sale")
@@ -843,6 +853,15 @@ func _build_guard(player: Dictionary) -> String:
 	if state.phase not in ["route", "support", "reward", "mine_vote", "mine_draft", "lift"]: return "Equipment is frozen during combat."
 	if player.ready: return "Unready before changing your equipment."
 	return ""
+
+func _auto_equip(player: Dictionary, gem: Dictionary) -> void:
+	## A newly held gem takes an open socket by itself, so a find is in play the moment it is
+	## known. A full loadout, or one already running this skill, is left as the player set it.
+	if gem.get("equipped", false) or not bool(gem.get("appraised", true)):
+		return
+	if _equipped_count(player.gems) >= 6 or _equipped_skill(player, str(gem.key)):
+		return
+	gem.equipped = true
 
 func _equip_gem(player: Dictionary, payload: Dictionary) -> String:
 	var guard: String = _build_guard(player)
@@ -980,6 +999,7 @@ func _event_choice(player: Dictionary, payload: Dictionary) -> String:
 				gem.equipped = false
 				gem.owner_id = player.id
 				player.gems.append(gem)
+				_auto_equip(player, gem)
 				_hero_stat(player, "gems_found", 1)
 			"FIELD_MEDIC":
 				if player.ore < 8: return "The medic's supplies cost 8 ore."
@@ -1005,6 +1025,7 @@ func _event_choice(player: Dictionary, payload: Dictionary) -> String:
 				acquired.equipped = false
 				acquired.owner_id = player.id
 				player.gems.append(acquired)
+				_auto_equip(player, acquired)
 			"STILL_POOL":
 				if state.event.get("calmed", false): return "The water has already settled as far as it will."
 				state.event.calmed = true

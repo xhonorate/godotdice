@@ -147,6 +147,7 @@ MINE: id, name, atlas_position, links: [MINE_ID], difficulty, boss_id,
 ### 6.4 The tremor meter
 
 - 0–100. Each move adds `base + depth × rate` using the mine's `tremor_rate`. Elites add a little extra; some events calm it.
+- Combat never moves the meter. Only walking and noisy rooms (elites, veins, camps) fill it, so a long fight is not also a race against the boss.
 - Warnings at 50, 75, and 90. When it reaches 100, the next node the party enters becomes the boss lair, whatever it was going to be.
 - The boss scales with depth on the same curve as other enemies, capped at `+60%` HP **⚑ default**.
 

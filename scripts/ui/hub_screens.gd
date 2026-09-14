@@ -13,12 +13,13 @@ const UiKit = preload("res://scripts/ui/ui_kit.gd")
 const Forge = preload("res://scripts/ui/sprite_forge.gd")
 const AtlasMap = preload("res://scripts/ui/atlas_map.gd")
 const GemView = preload("res://scripts/ui/gem_view.gd")
+const GemBadge = preload("res://scripts/ui/gem_badge.gd")
+const ItemBoard = preload("res://scripts/ui/item_board.gd")
 const RARITY_NAMES := ["", "Common", "Uncommon", "Rare", "Legendary"]
 
 var ui: Control
 var sort_mode := "rarity"
 var filter_mode := "all"
-var picking_slot := -1
 var viewing_hero := ""
 
 func _init(owner: Control) -> void:
@@ -80,18 +81,11 @@ func _collection_card(parent: Node, row: Dictionary) -> void:
 	var card: VBoxContainer = ui._panel(parent, ui.PANEL if state != "unseen" else ui.PANEL_LOW, Color(accent, 0.6) if state == "owned" else ui.LINE, 10)
 	card.custom_minimum_size = Vector2(170, 196)
 	var sample: Dictionary = row.gem if state == "owned" else Catalog.gem(str(row.key), "sack-" + str(row.key), 8, 3, 3)
-	if state == "unseen":
-		sample["appraised"] = false
-	var holder := Control.new()
-	holder.custom_minimum_size = Vector2(96, 96)
-	holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	card.add_child(holder)
-	var view: Control = ui._gem_portrait(holder, sample, 96)
-	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	if state == "seen":
-		view.modulate = Color(0.55, 0.55, 0.6, 0.55)
-	elif state == "unseen":
-		view.modulate = Color(0, 0, 0, 0.9)
+	# Flat badges, not solids: a sack of thirty-odd live 3D cameras was the slowest screen in
+	# the shop. "Look closer" still opens the stone in 3D.
+	var badge := GemBadge.make(sample, 96, state)
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.add_child(badge)
 	var name_label: Label = ui._label(card, str(row.name) if state != "unseen" else "???", 15, accent if state == "owned" else ui.MUTED)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var detail := ""
@@ -250,7 +244,7 @@ func heroes() -> void:
 		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		if locked: icon.modulate = Color(0, 0, 0, 0.85)
 		ui._label(tile, "???" if locked else str(Catalog.definitions("heroes")[key].name), 14, ui.MUTED if locked else ui.PAPER).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		var choose: Button = ui._button(tile, "Locked" if locked else ("Viewing" if key == viewing_hero else "View"), func(): viewing_hero = key; picking_slot = -1; heroes())
+		var choose: Button = ui._button(tile, "Locked" if locked else ("Viewing" if key == viewing_hero else "View"), func(): viewing_hero = key; heroes())
 		choose.disabled = locked
 	var definition: Dictionary = Catalog.definitions("heroes").get(viewing_hero, {})
 	var record: Dictionary = profile.get("heroes", {}).get(viewing_hero, {})
@@ -267,65 +261,63 @@ func heroes() -> void:
 		heroes(), not chosen).disabled = chosen
 	var sockets: VBoxContainer = ui._vbox(main, 8)
 	sockets.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui._label(sockets, "LOADOUT  ·  SIX SOCKETS  ·  RESOLVED TOP TO BOTTOM", 12, ui.GOLD)
 	var loadout: Array = record.get("loadout", [])
-	for slot in range(Profile.LOADOUT_SLOTS):
-		var panel: VBoxContainer = ui._panel(sockets, ui.PANEL_HI if slot == picking_slot else ui.PANEL, ui.GOLD if slot == picking_slot else ui.LINE, 10)
-		var row: HBoxContainer = ui._hbox(panel, 10)
-		ui._label(row, "%d" % (slot + 1), 18, ui.GOLD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		if slot < loadout.size():
-			var gem: Dictionary = profile.collection.get(loadout[slot], {})
-			ui._gem_details(row, gem)
-			var controls: HBoxContainer = ui._hbox(row, 4)
-			controls.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			ui._button(controls, "↑", func(): _move_socket(loadout, slot, -1)).disabled = slot == 0
-			ui._button(controls, "↓", func(): _move_socket(loadout, slot, 1)).disabled = slot == loadout.size() - 1
-			ui._button(controls, "Swap", func(): picking_slot = slot; heroes())
-			var remove: Button = ui._button(controls, "Remove", func():
-				var next := loadout.duplicate()
-				next.remove_at(slot)
-				_set_loadout(next))
-			remove.disabled = loadout[slot] == "STRIKE"
-			if loadout[slot] == "STRIKE": remove.tooltip_text = "Strike stays in every loadout."
-		else:
-			ui._label(row, "Empty socket", 15, ui.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			ui._button(row, "Set a gem", func(): picking_slot = slot; heroes())
-	if picking_slot >= 0:
-		ui._label(box, "CHOOSE A GEM FOR SOCKET %d" % (picking_slot + 1), 12, ui.GOLD)
-		var grid := GridContainer.new()
-		grid.columns = 3
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 10)
-		box.add_child(grid)
-		var any := false
-		for key in profile.collection:
-			if key in loadout:
-				continue
-			any = true
-			var card: VBoxContainer = ui._panel(grid, ui.PANEL, ui.LINE, 10)
-			card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			ui._gem_details(card, profile.collection[key])
-			ui._button(card, "Socket it", func():
-				var next := loadout.duplicate()
-				if picking_slot < next.size():
-					if next[picking_slot] == "STRIKE" and key != "STRIKE":
-						ui._notify("Strike stays in every loadout. Socket this one somewhere else.")
-						return
-					next[picking_slot] = key
-				else:
-					next.append(key)
-				picking_slot = -1
-				_set_loadout(next), true)
-		if not any:
-			ui._label(box, "Every gem you own is already socketed. Bring more home, or buy from the jeweller.", 14, ui.MUTED, true)
-		ui._button(box, "Cancel", func(): picking_slot = -1; heroes())
+	var socketed: Array = []
+	for key in loadout:
+		if profile.collection.has(key):
+			socketed.append(_owned(profile, key))
+	var reserve: Array = []
+	var owned_keys: Array = profile.collection.keys()
+	owned_keys.sort_custom(func(a: String, b: String) -> bool:
+		var ra := int(Catalog.SKILLS.get(a, {}).get("rarity", 1))
+		var rb := int(Catalog.SKILLS.get(b, {}).get("rarity", 1))
+		return ra > rb if ra != rb else a < b)
+	for key in owned_keys:
+		if not key in loadout:
+			reserve.append(_owned(profile, key))
+	ItemBoard.build(ui, sockets, {
+		"kind": "loadout", "title": "LOADOUT  ·  SIX SOCKETS", "slots": Profile.LOADOUT_SLOTS, "socketed": socketed, "reserve": reserve, "edge": 64,
+		"hint": "Left to right is the order they resolve. Drag gems in, out and between sockets; double-click to set or take one off.",
+		"reserve_title": "YOUR COLLECTION  ·  %d GEMS" % profile.collection.size(),
+		"empty_reserve": "Every gem you own is socketed. Bring more home, or buy from the jeweller.",
+		"art": func(gem: Dictionary, holder: Control, edge: float):
+			var badge := GemBadge.make(gem, edge)
+			badge.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			holder.add_child(badge),
+		"caption": func(gem: Dictionary) -> String: return str(Catalog.SKILLS.get(gem.key, {}).get("name", gem.key)),
+		"tint": func(gem: Dictionary) -> Color: return ui._gem_color(gem),
+		"tip": func(gem: Dictionary) -> String: return "%s\nC%d  ·  %s  ·  %s\n%s" % [str(Catalog.SKILLS.get(gem.key, {}).get("name", gem.key)), int(gem.carat), Catalog.cut_name(int(gem.cut)), Catalog.clarity_name(int(gem.clarity)), str(Catalog.SKILLS.get(gem.key, {}).get("trigger", ""))],
+		"pinned": func(gem: Dictionary) -> String: return "Strike stays in every loadout." if gem.key == "STRIKE" else "",
+		"place": func(gem: Dictionary, index: int, occupant: Dictionary):
+			var next := loadout.duplicate()
+			if not occupant.is_empty():
+				if occupant.key == "STRIKE":
+					ui._notify("Strike stays in every loadout. Drop this one on another socket.")
+					return
+				next[next.find(occupant.key)] = gem.key
+			elif next.size() >= Profile.LOADOUT_SLOTS:
+				ui._notify("All six sockets are full. Drop it onto the gem it should replace.")
+				return
+			else:
+				next.append(gem.key)
+			_set_loadout(next),
+		"move": func(from: int, to: int):
+			var next := loadout.duplicate()
+			var held = next[from]
+			next[from] = next[to]
+			next[to] = held
+			_set_loadout(next),
+		"remove": func(gem: Dictionary):
+			var next := loadout.duplicate()
+			next.erase(gem.key)
+			_set_loadout(next),
+		"inspect": func(gem: Dictionary): _gem_sheet(gem, heroes)})
 
-func _move_socket(loadout: Array, slot: int, direction: int) -> void:
-	var next := loadout.duplicate()
-	var held = next[slot]
-	next[slot] = next[slot + direction]
-	next[slot + direction] = held
-	_set_loadout(next)
+func _owned(profile: Dictionary, key: String) -> Dictionary:
+	## A collection record as a board item: the key doubles as its id.
+	var gem: Dictionary = profile.collection[key].duplicate()
+	gem["id"] = key
+	return gem
 
 func _set_loadout(keys: Array) -> void:
 	_transact(func(profile: Dictionary) -> String: return Profile.set_loadout(profile, viewing_hero, keys))
@@ -387,16 +379,13 @@ func _mine_preview(parent: VBoxContainer, mine_id: String) -> void:
 	pool.add_theme_constant_override("h_separation", 4)
 	parent.add_child(pool)
 	for key in mine.get("skill_ids", []):
-		var holder := Control.new()
-		holder.custom_minimum_size = Vector2(40, 40)
-		pool.add_child(holder)
 		var seen: bool = key in profile.get("seen_gems", [])
-		var sample: Dictionary = Catalog.gem(key, "atlas-" + key, 6, 3, 3)
-		if not seen: sample["appraised"] = false
-		var view: Control = ui._gem_portrait(holder, sample, 40)
-		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		if not seen: view.modulate = Color(0, 0, 0, 0.8)
-		holder.tooltip_text = str(Catalog.SKILLS.get(key, {}).get("name", key)) if seen else "A gem you have not seen yet"
+		var owned: bool = profile.get("collection", {}).has(key)
+		var badge := GemBadge.make(profile.collection[key] if owned else Catalog.gem(key, "atlas-" + key, 6, 3, 3), 40, "owned" if owned else ("seen" if seen else "unseen"))
+		badge.sized = false
+		badge.mouse_filter = Control.MOUSE_FILTER_PASS
+		badge.tooltip_text = (str(Catalog.SKILLS.get(key, {}).get("name", key)) + ("  ·  owned" if owned else "  ·  seen, not owned")) if seen else "A gem you have not seen yet"
+		pool.add_child(badge)
 	var chosen: bool = ui.mine_choice == mine_id
 	var choose: Button = ui._button(parent, "The cart is set for this mine" if chosen else "Set the cart for this mine", func():
 		ui._choose_mine(mine_id)

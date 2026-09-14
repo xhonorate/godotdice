@@ -207,7 +207,22 @@ static func _add_to_collection(profile: Dictionary, gem: Dictionary) -> Dictiona
 		_earn(profile, gold)
 	profile.collection[record.key] = record
 	mark_seen(profile, [record.key])
-	return {"replaced": old, "gold": gold}
+	return {"replaced": old, "gold": gold, "socketed": _auto_socket(profile, record.key)}
+
+static func _auto_socket(profile: Dictionary, key: String) -> String:
+	## A gem new to the collection drops into an open socket of the hero being played, so a
+	## loadout with room never has to be visited just to put a fresh find to work. Answers the
+	## hero it went to, or nothing when that loadout is full or already carries the skill.
+	var hero_key: String = str(profile.get("selected_hero", ""))
+	var record: Dictionary = profile.get("heroes", {}).get(hero_key, {})
+	if record.is_empty() or not record.get("unlocked", false):
+		return ""
+	var loadout: Array = record.get("loadout", [])
+	if key in loadout or loadout.size() >= LOADOUT_SLOTS:
+		return ""
+	loadout.append(key)
+	record.loadout = loadout
+	return hero_key
 
 static func mark_seen(profile: Dictionary, keys: Array) -> void:
 	for key in keys:
@@ -311,7 +326,7 @@ static func buy_offer(profile: Dictionary, offer_id: String, date: String) -> Di
 	_spend(profile, int(offer.price))
 	offer.sold = true
 	var added: Dictionary = _add_to_collection(profile, offer.gem)
-	return {"ok": true, "error": "", "replaced": added.replaced, "gold": added.gold}
+	return {"ok": true, "error": "", "replaced": added.replaced, "gold": added.gold, "socketed": added.socketed}
 
 static func _roll_stock(profile: Dictionary, date: String, refresh: int) -> Array:
 	## Only gems the player has seen, and never one they already own at equal or better
@@ -391,10 +406,12 @@ static func decide_return_gem(profile: Dictionary, gem_id: String, keep: bool) -
 		return {"ok": false, "error": "That gem has already been kept or sold."}
 	var gold: int = 0
 	var replaced: Dictionary = {}
+	var socketed := ""
 	if keep:
 		var added: Dictionary = _add_to_collection(profile, entry)
 		gold = added.gold
 		replaced = added.replaced
+		socketed = added.socketed
 		entry.decision = "kept"
 		profile.lifetime.gems_kept += 1
 	else:
@@ -402,7 +419,7 @@ static func decide_return_gem(profile: Dictionary, gem_id: String, keep: bool) -
 		_earn(profile, gold)
 		entry.decision = "sold"
 		profile.lifetime.gems_sold += 1
-	return {"ok": true, "error": "", "gold": gold, "replaced": replaced}
+	return {"ok": true, "error": "", "gold": gold, "replaced": replaced, "socketed": socketed}
 
 static func finish_return(profile: Dictionary) -> Dictionary:
 	## Leaves the table. Anything still undecided is sold rather than lost.
@@ -483,13 +500,15 @@ static func claim_commission(profile: Dictionary, commission_id: String) -> Dict
 			_earn(profile, gold)
 			var gem: Dictionary = note.get("reward", {}).get("gem", {})
 			var replaced: Dictionary = {}
+			var socketed := ""
 			if not gem.is_empty():
 				var added: Dictionary = _add_to_collection(profile, gem)
 				gold += int(added.gold)
 				replaced = added.replaced
+				socketed = added.socketed
 			notes.erase(note)
 			profile.lifetime.commissions += 1
-			return {"ok": true, "error": "", "gold": gold, "gem": gem, "replaced": replaced}
+			return {"ok": true, "error": "", "gold": gold, "gem": gem, "replaced": replaced, "socketed": socketed}
 	return {"ok": false, "error": "That commission is not on the board."}
 
 static func describe_commission(note: Dictionary) -> String:

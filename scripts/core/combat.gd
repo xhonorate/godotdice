@@ -706,6 +706,38 @@ static func enemy_skills(actor: Dictionary) -> Array:
 				{"key":"ECLIPSE","name":"Eclipse"}]
 	return carried
 
+static func enemy_skill_text(actor: Dictionary, key: String) -> Dictionary:
+	## One roster entry in words: when the routine reaches for it, and what it does when it
+	## lands. Mirrors `enemy_intents`; amounts include the depth this enemy was made at, but
+	## not enrage, which belongs to the turn rather than the enemy.
+	var p: int = maxi(1, int(actor.get("party_size", 1)))
+	var boss: bool = bool(actor.get("boss", false))
+	var hit: int = 0 if boss else int(actor.get("damage_bonus", 0))
+	var support: Callable = func(amount: int) -> int:
+		return amount if boss else floori(float(amount) * int(actor.get("support_scale", 100)) / 100.0)
+	match key:
+		"SHELL_UP": return {"when": "Odd turns: the first turn, the third, and so on.", "does": "Gains block equal to its lowest die + %d." % support.call(3)}
+		"CLAW": return {"when": "Even turns.", "does": "Hits one hero for its highest die + %d." % (3 + hit)}
+		"SHARD": return {"when": "When no ally is missing more than 4 HP.", "does": "Hits one hero for its highest die + %d." % (1 + hit)}
+		"RESTORE": return {"when": "When an ally is missing more than 4 HP.", "does": "Heals the most wounded ally for its lowest die + %d." % support.call(2)}
+		"BARBED_DART": return {"when": "Every turn.", "does": "Hits one hero for its highest die + %d. If its dice show a pair, also applies 2 Poison." % (1 + hit)}
+		"FORTIFY":
+			if boss: return {"when": "Every third slot, after Slam.", "does": "Gains %d block." % (8 * p)}
+			return {"when": "Odd turns.", "does": "Gains block equal to its lowest die + %d, and every other enemy gains %d." % [support.call(4), support.call(4)]}
+		"HAMMER": return {"when": "Even turns.", "does": "Hits one hero for its highest die + %d." % (5 + hit)}
+		"REFLECTION": return {"when": "Every turn. It marks a number from 1 to 6 as it rolls.", "does": "Hits one hero for its highest die + %d, and +4 more if that hero's own hand shows the marked number." % (1 + hit)}
+		"TRACK": return {"when": "Odd turns. Always hunts the hero with the least block.", "does": "Hits for its highest die + %d." % (1 + hit)}
+		"POUNCE": return {"when": "Even turns. Always hunts the hero with the least block.", "does": "Hits for its highest die + %d." % (4 + hit)}
+		"SLAM": return {"when": "Opens its three-slot cycle: Slam, Fortify, Absorb.", "does": "Hits every hero for 10."}
+		"ABSORB": return {"when": "Closes its three-slot cycle.", "does": "Heals %d HP." % (6 * p)}
+		"REFRACTION": return {"when": "Opens its cycle, and every other slot once it is below half HP.", "does": "Hits every hero for 8, and +6 more on each hero whose hand shows the marked number (1–6)."}
+		"SHATTER": return {"when": "Follows Refraction.", "does": "Strips 5 block from every hero, then hits every hero for 6."}
+		"MENDING_GLASS": return {"when": "Closes its cycle while above half HP.", "does": "Heals %d HP and gains %d block." % [5 * p, 5 * p]}
+		"HIGH_TIDE": return {"when": "Opens its cycle; at 40% HP it alternates with Low Tide.", "does": "Hits every hero for 10, and +6 more on each hero whose dice total 24 or more."}
+		"LOW_TIDE": return {"when": "Follows High Tide.", "does": "Hits every hero for 10, and +6 more on each hero whose dice total 18 or less."}
+		"ECLIPSE": return {"when": "Closes its cycle until it falls to 40% HP.", "does": "Strips 3 block from every hero, hits every hero for 6, and gains %d block." % (6 * p)}
+	return {"when": "", "does": ""}
+
 static func _take_slot(actor: Dictionary, state: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	## One enemy takes its dice up and settles what they opened. The roll and the actions
 	## it reached are decided together, so presentation can show the throw and then light

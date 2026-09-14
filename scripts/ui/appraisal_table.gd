@@ -20,6 +20,12 @@ const HOVER_RADIUS := 46.0
 const EASE := 6.0
 
 var reduced_motion := false
+## The reveal clock and the moment into a reading when the stone gives its name. The held
+## stone flares at that moment, in step with the sheet beside the table.
+var clock: Callable
+var beat := 1.2
+var _selected_since := 0.0
+var _flare: OmniLight3D
 var _areas: Array = []
 var _decisions: Dictionary = {}
 var _slots: Dictionary = {}
@@ -69,8 +75,9 @@ func configure(areas: Array, decisions: Dictionary) -> void:
 func selected() -> String:
 	return _selected
 
-func select(gem_id: String) -> void:
+func select(gem_id: String, since: float = 0.0) -> void:
 	_selected = gem_id if _slots.has(gem_id) and not _decisions.has(gem_id) else ""
+	_selected_since = since
 
 func stone_ids() -> Array:
 	return _slots.keys()
@@ -106,6 +113,11 @@ func _build_room() -> void:
 	_world.add_child(_camera)
 	_camera.look_at(Vector3(0.0, 0.0, 0.25), Vector3.UP)
 	# A lamp over the reader's shoulder, so a stone held up to the camera is lit from the front.
+	_flare = OmniLight3D.new()
+	_flare.light_color = Color("fff1c2")
+	_flare.omni_range = 3.0
+	_flare.light_energy = 0.0
+	_world.add_child(_flare)
 	var loupe_light := OmniLight3D.new()
 	loupe_light.position = Vector3(1.2, 0.9, -0.6)
 	loupe_light.light_color = Color("fff4de")
@@ -226,6 +238,12 @@ func _process(delta: float) -> void:
 	_clock += delta
 	var ease: float = 1.0 if reduced_motion else clampf(delta * EASE, 0.0, 1.0)
 	var focus: Vector3 = _camera.global_position - _camera.global_basis.z * LIFT_DISTANCE - _camera.global_basis.x * 0.35 + _camera.global_basis.y * 0.25
+	# The flare as the stone is named: a swell of light and size that falls away again.
+	var reading: float = (float(clock.call()) - _selected_since) if clock.is_valid() and not _selected.is_empty() else 99.0
+	var flare := 0.0 if reduced_motion else clampf(1.0 - absf(reading - beat) / 0.35, 0.0, 1.0)
+	if is_instance_valid(_flare):
+		_flare.light_energy = 9.0 * flare
+		_flare.global_position = focus + _camera.global_basis.z * 0.9
 	for id in _slots:
 		var slot: Dictionary = _slots[id]
 		var holder: Node3D = slot.node
@@ -234,7 +252,7 @@ func _process(delta: float) -> void:
 		var decision: String = str(_decisions.get(id, ""))
 		if id == _selected:
 			target = focus
-			scale_goal = STONE_SIZE * 1.7
+			scale_goal = STONE_SIZE * 1.7 * (1.0 + 0.28 * flare)
 		elif decision == "kept":
 			target = slot.corner + Vector3(0, 0.02, 0)
 			scale_goal = STONE_SIZE * 0.55

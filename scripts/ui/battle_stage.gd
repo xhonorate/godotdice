@@ -63,6 +63,8 @@ const EFFECT_TONES := {
 	"remove_block": Color("b98bff"), "gold": Color("e8b661"), "echo": Color("b98bff")}
 
 var reduced_motion := false
+## Right-click on something carried over a combatant's head: (unit id, entry id).
+var inspect_skill: Callable
 ## Playback speed, mirrored from the interface setting so choreography keeps pace with
 ## the log rather than drifting behind a player who has sped the fight up.
 var speed := 1.0
@@ -221,6 +223,9 @@ func _dress(slot: Dictionary) -> void:
 		if is_instance_valid(kept) and kept.get_parent() != null:
 			kept.get_parent().remove_child(kept)
 	for child in slot.loadout.get_children():
+		# Out of the row now, not at the end of the frame: a row still holding the old stones
+		# measures twice as wide and would be placed for a loadout that is not there.
+		slot.loadout.remove_child(child)
 		child.queue_free()
 	for child in slot.intents.get_children():
 		child.queue_free()
@@ -232,7 +237,7 @@ func _dress(slot: Dictionary) -> void:
 	# under the feet: the party's stones, and the other side's roster of named moves. It is
 	# the anchor an activation lights up, so every turn is followed on whoever is taking it.
 	for entry in unit.get("loadout", []):
-		var cell := _loadout_cell(slot.loadout, entry)
+		var cell := _loadout_cell(slot.loadout, entry, str(unit.id))
 		slot.loadout_cells[str(entry.get("id", ""))] = cell
 	for intent in unit.get("intents", []):
 		slot.intents.add_child(_caption(str(intent), UiKit.AMBER, 11))
@@ -291,7 +296,7 @@ func _solid(slot: Dictionary, die_id: String) -> Control:
 		slot.solids[die_id] = view
 	return view
 
-func _loadout_cell(parent: Node, entry: Dictionary) -> Control:
+func _loadout_cell(parent: Node, entry: Dictionary, unit_id: String) -> Control:
 	## One carried stone, drawn as its own emblem in its own colour. A dormant one is
 	## dimmed rather than hidden: an ally's loadout should read the same from turn to turn.
 	var holder := Control.new()
@@ -299,6 +304,11 @@ func _loadout_cell(parent: Node, entry: Dictionary) -> Control:
 	holder.mouse_filter = Control.MOUSE_FILTER_PASS
 	holder.tooltip_text = str(entry.get("tip", ""))
 	holder.set_meta("loadout_entry", entry)
+	holder.mouse_default_cursor_shape = Control.CURSOR_HELP
+	holder.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and inspect_skill.is_valid():
+			holder.accept_event()
+			inspect_skill.call(unit_id, str(entry.get("id", ""))))
 	parent.add_child(holder)
 	var image := TextureRect.new()
 	image.texture = GemIcons.texture(str(entry.get("glyph", "sword")), 20)
@@ -359,8 +369,11 @@ func _place(slot: Dictionary) -> void:
 	var root: Control = slot.root
 	root.size = Vector2(SLOT_WIDTH, loadout_height + intent_height + sprite_height + PLATE_GAP + PLATE_HEIGHT)
 	root.position = Vector2(feet.x - SLOT_WIDTH * 0.5, feet.y - loadout_height - intent_height - sprite_height)
-	slot.loadout.position = Vector2.ZERO
-	slot.loadout.size = Vector2(SLOT_WIDTH, loadout_height)
+	# A long loadout is wider than the slot. It grows out from the middle of the head rather
+	# than from the slot's left edge, so six stones sit as centred as three do.
+	var loadout_width: float = maxf(SLOT_WIDTH, slot.loadout.get_combined_minimum_size().x)
+	slot.loadout.size = Vector2(loadout_width, loadout_height)
+	slot.loadout.position = Vector2((SLOT_WIDTH - loadout_width) * 0.5, 0.0)
 	slot.intents.position = Vector2(0, loadout_height)
 	slot.intents.size = Vector2(SLOT_WIDTH, intent_height)
 	slot.actor.position = Vector2(0, loadout_height + intent_height)

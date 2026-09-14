@@ -10,11 +10,15 @@ const Seam = preload("res://scripts/core/seam.gd")
 const Profile = preload("res://scripts/core/profile.gd")
 var ui: Control
 var out_dir := "user://shots"
+## `--only=reveals` skips straight to the end-of-fight, appraisal and equipment shots.
+var only := ""
 
 func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--out="):
 			out_dir = argument.trim_prefix("--out=")
+		if argument.begins_with("--only="):
+			only = argument.trim_prefix("--only=")
 	call_deferred("run")
 
 func run() -> void:
@@ -24,6 +28,10 @@ func run() -> void:
 	ui = load("res://scenes/main.tscn").instantiate()
 	root.add_child(ui)
 	await settle(24)
+	if only == "reveals":
+		await reveals()
+		quit(0)
+		return
 	await shoot("menu")
 	# The shop and what its objects open.
 	ui.hub_view._hover("mine_cart")
@@ -196,8 +204,134 @@ func run() -> void:
 	ui._leave_table()
 	await settle(20)
 	await shoot("statistics")
+	await reveals()
 	print("screenshots written to ", ProjectSettings.globalize_path(out_dir))
 	quit(0)
+
+func reveals() -> void:
+	## The moments that are revealed rather than shown: the end of a fight, the loot turned
+	## over, a stone named under the loupe, and the sockets they are dragged into.
+	ui.profile_store.transact(func(profile: Dictionary) -> String:
+		profile.gold = 4200
+		Profile.mark_seen(profile, ["HEAL", "MEND", "VENOM", "STUN", "TITHE", "ECHO", "MULTISTRIKE", "BULWARK"])
+		return "")
+	for screen in ["armor_stand", "jewel_bag", "wall_map"]:
+		ui.screens.open(screen)
+		await settle(30)
+		await shoot("ux_hub_" + screen)
+		ui._close_overlay()
+	ui.offline_hotseat = true
+	ui.controlled_id = "shot_hero"
+	ui.engine.new_run({"heroes": [
+			{"id": "shot_hero", "hero_id": "ARDOR", "name": "Ardor"},
+			{"id": "shot_two", "hero_id": "KAIT", "name": "Kait"}],
+		"mine_id": "QUARRY", "seed": 424242, "autosave": false})
+	await settle(10)
+	ui.engine._events = []
+	ui.engine.state.depth = 4
+	ui.engine._enter_room("elite")
+	ui._state_changed(ui.engine.state)
+	await settle(60)
+	await shoot("ux_battle")
+	party(func(): ui._command("SetReady", {"ready": true}))
+	await settle(40)
+	await shoot("ux_resolving")
+	ui._skip_playback()
+	await settle(10)
+	var enemy_moves: Array = ui.Combat.enemy_skills(ui.snapshot.enemies[0]) if not ui.snapshot.enemies.is_empty() else []
+	if not enemy_moves.is_empty():
+		ui._inspect_stage_skill(str(ui.snapshot.enemies[0].id), str(enemy_moves[0].key))
+		await settle(20)
+		await shoot("ux_enemy_move")
+		ui._close_overlay()
+	# Win it outright so the spoils have something to turn over.
+	if ui.engine.state.phase == "planning":
+		for enemy in ui.engine.state.enemies: enemy.hp = 0
+		ui.engine.state.battle_outcome = "victory"
+		ui.engine._battle_rewards()
+		ui._state_changed(ui.engine.state)
+	await wait(0.35)
+	await shoot("ux_reward_fanfare")
+	await wait(1.4)
+	await shoot("ux_reward_turning")
+	await wait(3.0)
+	await shoot("ux_reward_settled")
+	var offer: Dictionary = ui.snapshot.reward_offers.get("shot_hero", {})
+	if not offer.get("relics", []).is_empty():
+		ui._command("ChooseReward", {"kind": "relic", "offer_id": offer.relics[0].id})
+		await wait(0.6)
+		await shoot("ux_reward_taken")
+	# The boss chest.
+	ui.engine._events = []
+	ui.engine._enter_room("boss")
+	for enemy in ui.engine.state.enemies: enemy.hp = 0
+	ui.engine.state.battle_outcome = "victory"
+	ui.engine.state.heroes[0].ready = false
+	ui.engine._battle_rewards()
+	ui._state_changed(ui.engine.state)
+	await wait(4.0)
+	await shoot("ux_boss_chest")
+	var chest: Array = ui.snapshot.reward_offers.get("shot_hero", {}).get("gems", [])
+	if not chest.is_empty():
+		ui._command("ChooseReward", {"kind": "gem", "offer_id": chest[1].id})
+		await wait(0.8)
+		await shoot("ux_boss_chest_taken")
+	# The equipment board, with a spare gem in reserve.
+	ui.engine.state.phase = "route"
+	for stone in ui.engine._roll_gems(2, 8, true):
+		stone.owner_id = "shot_hero"
+		ui.engine.state.heroes[0].gems.append(stone)
+	ui._state_changed(ui.engine.state)
+	await settle(10)
+	ui._show_inventory()
+	await settle(40)
+	await shoot("ux_inventory")
+	ui._close_overlay()
+	# A loupe held to a stone mid-run.
+	var stone: Dictionary = ui.engine._roll_gems(1, 12, false)[0]
+	stone.owner_id = "shot_hero"
+	ui.engine.state.heroes[0].haul.append(stone)
+	ui.engine.state.heroes[0].loupes = 1
+	ui._state_changed(ui.engine.state)
+	await settle(6)
+	ui._command("AppraiseGem", {"gem_id": stone.id, "method": "loupe"})
+	await wait(0.5)
+	await shoot("ux_spotlight_sealed")
+	await wait(2.2)
+	await shoot("ux_spotlight_named")
+	ui._close_spotlight()
+	# A lost fight.
+	ui.engine._events = []
+	ui.engine._enter_room("battle")
+	for hero in ui.engine.state.heroes:
+		for found in ui.engine._roll_gems(2, 4, false):
+			found.owner_id = hero.id
+			hero.haul.append(found)
+		hero.hp = 0
+	ui.engine._start_salvage()
+	ui._state_changed(ui.engine.state)
+	await wait(2.0)
+	await shoot("ux_defeat")
+	ui._command("RevealSalvage", {"gem_id": ""})
+	await wait(0.4)
+	await shoot("ux_salvage_rolling")
+	await wait(1.6)
+	await shoot("ux_salvage_landed")
+	# Home again: a stone turned under the loupe, then named.
+	ui.engine.state.phase = "route"
+	for hero in ui.engine.state.heroes:
+		hero.hp = hero.max_hp
+		for found in ui.engine._roll_gems(3, 10, false):
+			found.owner_id = hero.id
+			hero.haul.append(found)
+	ui.engine._enter_room("lift")
+	ui._state_changed(ui.engine.state)
+	await settle(10)
+	party(func(): ui._command("VoteLift", {"choice": "ride"}))
+	await wait(0.6)
+	await shoot("ux_appraisal_reading")
+	await wait(2.4)
+	await shoot("ux_appraisal_named")
 
 func party(action: Callable) -> void:
 	## Issues the same command for every seat so the party actually advances.
@@ -206,6 +340,10 @@ func party(action: Callable) -> void:
 		ui.controlled_id = str(hero.id)
 		action.call()
 	ui.controlled_id = seat
+
+func wait(seconds: float) -> void:
+	## Reveals run on the clock, not on frames, so their shots are timed the same way.
+	await create_timer(seconds).timeout
 
 func settle(frames: int) -> void:
 	for i in frames:

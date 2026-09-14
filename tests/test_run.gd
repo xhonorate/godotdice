@@ -188,6 +188,7 @@ func test_shop_and_services() -> void:
 	check(not command(engine,"p1","BuyLoupe",{}).ok, "one loupe per visit")
 	check(not command(engine,"p1","SellGem",{"gem_id":"p1-g1"}).ok, "a loadout gem cannot be sold")
 	var bought_id: String = str(engine.state.heroes[0].gems[3].id)
+	check(engine.state.heroes[0].gems[3].equipped, "a bought gem drops into an open socket by itself")
 	ore = engine.state.heroes[0].ore
 	check(command(engine,"p1","SellGem",{"gem_id":bought_id}).ok and engine.state.heroes[0].ore > ore, "a found gem sells for ore")
 	check(command(engine,"p1","BuyDie",{"offer_id":offers.p1.dice[0].id}).ok, "featured die purchases into reserve")
@@ -222,7 +223,7 @@ func test_appraisal() -> void:
 	var hero: Dictionary = engine.state.heroes[0]
 	check(hero.haul.is_empty() and hero.loupes == 0 and gem_of(engine, 0, "stone-1").appraised, "the stone moves from the haul to the gem bag, appraised")
 	check("VENOM" in engine.state.seen_gems.p1, "an appraised stone is seen")
-	check(command(engine,"p1","EquipGem",{"gem_id":"stone-1"}).ok, "an appraised find can be equipped at once")
+	check(gem_of(engine, 0, "stone-1").equipped, "an appraised find takes an open socket at once")
 	enter(engine, "lapidary")
 	found_gem(engine, 0, "HEAL", "stone-2", false)
 	engine.state.heroes[0].ore = 4
@@ -333,6 +334,20 @@ func test_rewards_and_save() -> void:
 
 func test_tremor_and_boss() -> void:
 	var engine = fresh(2)
+	at_depth(engine, 3)
+	enter(engine, "battle")
+	engine.state.tremor = 400
+	for step in range(3):
+		if engine.state.phase != "planning": break
+		command(engine, "p1", "SetReady", {"ready":true})
+		command(engine, "p2", "SetReady", {"ready":true})
+	check(int(engine.state.tremor) == 400, "fighting never moves the tremor meter")
+	for enemy in engine.state.enemies: enemy.hp = 0
+	engine.state.battle_outcome = "victory"
+	engine.state.settled_rooms.erase(engine.state.room.id)
+	engine._battle_rewards()
+	check(int(engine.state.reward_offers.p1.ore) == EngineCore.ORE_PER_BATTLE + 3, "the victory offer records the ore it paid")
+	engine = fresh(2)
 	engine.state.tremor = Seam.TREMOR_FULL - 1
 	engine._route_offers()
 	check(engine.state.offers.all(func(offer: Dictionary) -> bool: return offer.wakes_boss), "the route warns when the next step wakes the boss")
