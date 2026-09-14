@@ -22,6 +22,7 @@ const ProfileStoreScript = preload("res://scripts/services/profile_store.gd")
 const Seam = preload("res://scripts/core/seam.gd")
 const SeamMap = preload("res://scripts/ui/seam_map.gd")
 const TremorMeter = preload("res://scripts/ui/tremor_meter.gd")
+const AppraisalTable = preload("res://scripts/ui/appraisal_table.gd")
 const INK := Color("0c111c")
 const PANEL := Color("161e2e")
 const PANEL_HI := Color("1f2a3d")
@@ -60,6 +61,12 @@ var profile_store: RefCounted
 ## The result this client last carried home, so re-rendering the summary never applies it twice.
 var applied_result := ""
 var last_unlocked: Array = []
+var last_completed: Array = []
+## Where the end of an expedition is: laying the haul out on the table, then the numbers.
+var return_stage := "table"
+var return_gold := 0
+var appraisal_view: Control
+var appraising := ""
 var seed_text := ""
 var player_name := "Adventurer"
 var server_address := "127.0.0.1"
@@ -230,6 +237,8 @@ func _exit_tree() -> void:
 		store.clear()
 	if is_instance_valid(stage_view) and stage_view.get_parent() == null:
 		stage_view.free()
+	if is_instance_valid(appraisal_view) and appraisal_view.get_parent() == null:
+		appraisal_view.free()
 	UiKit.release()
 	GemIcons.release()
 	GemMesh.release()
@@ -241,6 +250,8 @@ func _detach_persistent() -> void:
 	## Sprites and dice outlive a re-render so their animation is continuous.
 	if is_instance_valid(stage_view) and stage_view.get_parent() != null:
 		stage_view.get_parent().remove_child(stage_view)
+	if is_instance_valid(appraisal_view) and appraisal_view.get_parent() != null:
+		appraisal_view.get_parent().remove_child(appraisal_view)
 	for store in [dice_views, actor_views]:
 		for id in store.keys():
 			var node = store[id]
@@ -746,6 +757,14 @@ func _resume() -> void:
 func _state_changed(state: Dictionary) -> void:
 	var previous: Dictionary = snapshot
 	if snapshot.get("run_id", "") != state.get("run_id", ""):
+		return_stage = "table"
+		return_gold = 0
+		appraising = ""
+		last_unlocked = []
+		last_completed = []
+		if is_instance_valid(appraisal_view):
+			appraisal_view.queue_free()
+		appraisal_view = null
 		shown_hands.clear()
 		shown_turn = -1
 		shown_signature = ""
@@ -936,7 +955,9 @@ func _run_screen() -> void:
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	# During a fight the battlefield already shows every combatant, so the roster
 	# column would only repeat it. Outside combat it is the party's home screen.
-	if not phase in ["planning", "resolution", "combat"]:
+	if phase == "summary": _apply_expedition_result()
+	var at_table := phase == "summary" and _appraisal_pending()
+	if not phase in ["planning", "resolution", "combat"] and not at_table:
 		var side_scroll := _scroll(body)
 		side_scroll.custom_minimum_size.x = 240
 		side_scroll.size_flags_horizontal = 0
@@ -945,7 +966,7 @@ func _run_screen() -> void:
 		for hero in snapshot.get("heroes", []):
 			_party_card(side, hero)
 	# A fight is laid out to fit the window exactly, so it is never given a scroll bar.
-	var fighting: bool = phase in ["planning", "resolution", "combat"]
+	var fighting: bool = phase in ["planning", "resolution", "combat"] or at_table
 	var center := _vbox(body if fighting else _scroll(body), 10 if fighting else 14)
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if fighting:
@@ -1853,43 +1874,182 @@ func _rewards(parent: Node) -> void:
 		_ready_button(parent)
 
 func _summary(parent: Node) -> void:
+	_apply_expedition_result()
+	if _appraisal_pending():
+		_appraisal_screen(parent)
+	else:
+		_statistics_screen(parent)
+
+func _appraisal_pending() -> bool:
+	## True while this player's haul is still on the table, unless they have moved on from it.
+	var result: Dictionary = snapshot.get("results", {}).get(_local_player(), {})
+	var pending: Dictionary = _profile().get("pending_return", {})
+	return return_stage == "table" and not result.is_empty() and str(pending.get("result_id", "")) == str(result.get("result_id", "")) and not pending.get("gems", []).is_empty()
+
+func _appraisal_screen(parent: Node) -> void:
+	var outcome := str(snapshot.get("outcome", ""))
+	var pending: Dictionary = _profile().get("pending_return", {})
+	var gems: Array = pending.get("gems", [])
+	var undecided: Array = gems.filter(func(entry: Dictionary) -> bool: return str(entry.get("decision", "")).is_empty())
+	var head := _hbox(parent, 12)
+	var titles := _vbox(head, 2)
+	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label(titles, {"extracted": "Back in daylight.", "fallen": "What survived the fall.", "conquered": "The mine is quiet."}.get(outcome, "The appraisal table."), 30, GOLD)
+	_label(titles, "Every stone is appraised on the table. Click one of yours to hold it up to the light, then keep it or sell it. Keeping a gem you already own sells the old one.", 14, MUTED, true)
+	var purse := _vbox(head, 4)
+	purse.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	UiKit.chip(purse, "%d GOLD" % int(_profile().get("gold", 0)), GOLD)
+	UiKit.chip(purse, "%d OF %d TO JUDGE" % [undecided.size(), gems.size()], VIOLET if not undecided.is_empty() else GREEN)
+	var body := _hbox(parent, 14)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var table := _appraisal_table()
+	table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	table.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", UiKit.panel_box(Color("1a130c"), Color("0a0705"), Color("5a4026"), 12, 4, 1.4, 0.1))
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(frame)
+	frame.add_child(table)
+	if appraising.is_empty() or not undecided.any(func(entry: Dictionary) -> bool: return str(entry.id) == appraising):
+		appraising = str(undecided[0].id) if not undecided.is_empty() else ""
+	table.select(appraising)
+	var side_scroll := _scroll(body)
+	side_scroll.custom_minimum_size.x = 400
+	side_scroll.size_flags_horizontal = 0
+	var side := _vbox(side_scroll, 10)
+	var entry: Dictionary = {}
+	for gem in gems:
+		if str(gem.id) == appraising: entry = gem
+	if entry.is_empty():
+		_label(side, "Every stone has been judged.", 20, GREEN, true)
+		_label(side, "You earned %d gold at the table." % return_gold, 15, GOLD, true)
+	else:
+		_appraisal_sheet(side, entry)
+	UiKit.rule(side)
+	var actions := _hbox(side, 8)
+	if not undecided.is_empty():
+		_button(actions, "Sell the rest  ·  %d gold" % undecided.reduce(func(total: int, gem: Dictionary) -> int: return total + Profile.sell_value(gem), 0), _confirm_sell_rest)
+	_button(actions, "Done  →" if undecided.is_empty() else "Skip to the numbers", _leave_table, undecided.is_empty())
+
+func _appraisal_table() -> Control:
+	if not is_instance_valid(appraisal_view):
+		appraisal_view = AppraisalTable.new()
+		appraisal_view.gem_selected.connect(func(id: String): appraising = id; _queue_render())
+	appraisal_view.reduced_motion = bool(settings.reduced_motion)
+	var areas: Array = []
+	var decisions: Dictionary = {}
+	var pending: Dictionary = _profile().get("pending_return", {})
+	for hero in snapshot.get("heroes", []):
+		var id := str(hero.get("id", ""))
+		var local := id == _local_player()
+		var gems: Array = pending.get("gems", []) if local else snapshot.get("results", {}).get(id, {}).get("haul", [])
+		if local:
+			for gem in gems:
+				if not str(gem.get("decision", "")).is_empty(): decisions[str(gem.id)] = str(gem.decision)
+		areas.append({"player_id": id, "name": str(hero.get("player_name", hero.get("name", "Hero"))), "local": local,
+			"color": Color(str(Catalog.HEROES.get(str(hero.get("key", "")), {}).get("color", "76b6ff"))), "gems": gems})
+	appraisal_view.configure(areas, decisions)
+	return appraisal_view
+
+func _appraisal_sheet(parent: Node, entry: Dictionary) -> void:
+	var definition: Dictionary = Catalog.SKILLS.get(str(entry.get("key", "")), {})
+	var rarity := int(definition.get("rarity", 1))
+	_label(parent, _gem_name(entry), 28, _gem_color(entry))
+	var chips := _hbox(parent, 6)
+	UiKit.chip(chips, ["", "COMMON", "UNCOMMON", "RARE", "LEGENDARY"][clampi(rarity, 1, 4)], [MUTED, MUTED, GREEN, BLUE, AMBER][clampi(rarity, 1, 4)])
+	UiKit.chip(chips, str(Catalog.color_definition(str(entry.get("key", ""))).get("name", "")).to_upper(), _gem_color(entry))
+	_gem_title_row(parent, entry, 16, PAPER, false)
+	_label(parent, str(definition.get("trigger", "")), 14, GREEN, true)
+	_formula_rows(parent, entry, -1, 14)
+	UiKit.rule(parent)
+	var value := Profile.sell_value(entry)
+	var owned: Dictionary = _profile().get("collection", {}).get(str(entry.get("key", "")), {})
+	if owned.is_empty():
+		_label(parent, "You do not own a %s. Keeping it adds it to your collection." % str(definition.get("name", "gem")), 14, BLUE, true)
+	else:
+		_label(parent, "YOU ALREADY OWN ONE", 11, GOLD)
+		var grid := GridContainer.new()
+		grid.columns = 4
+		grid.add_theme_constant_override("h_separation", 14)
+		parent.add_child(grid)
+		for header in ["", "Yours", "This", ""]:
+			_label(grid, header, 11, MUTED)
+		for property in ["carat", "cut", "clarity"]:
+			var mine := int(owned.get(property, 1))
+			var theirs := int(entry.get(property, 1))
+			_label(grid, property.capitalize(), 14, PAPER)
+			_label(grid, str(mine), 14, MUTED)
+			_label(grid, str(theirs), 14, PAPER)
+			_label(grid, ("▲ %d" % (theirs - mine)) if theirs > mine else (("▼ %d" % (mine - theirs)) if theirs < mine else "="), 14, GREEN if theirs > mine else (RED if theirs < mine else MUTED))
+		var difference := value - Profile.sell_value(owned)
+		_label(parent, "Worth %s%d gold %s yours." % ["" if difference < 0 else "+", difference, "against"], 14, GREEN if difference > 0 else AMBER, true)
+	_label(parent, "Sells for %d gold." % value, 16, GOLD)
+	var row := _hbox(parent, 10)
+	_button(row, "Keep" if owned.is_empty() else "Keep  ·  sell yours for %d" % Profile.sell_value(owned), func(): _decide_return(str(entry.id), true), true)
+	_button(row, "Sell  ·  %d gold" % value, func(): _decide_return(str(entry.id), false))
+
+func _confirm_sell_rest() -> void:
+	var box := _modal("Sell every stone left on the table?")
+	var undecided: Array = _profile().get("pending_return", {}).get("gems", []).filter(func(entry: Dictionary) -> bool: return str(entry.get("decision", "")).is_empty())
+	for entry in undecided:
+		_label(box, "%s  ·  C%d K%d L%d  ·  %d gold" % [_gem_name(entry), int(entry.carat), int(entry.cut), int(entry.clarity), Profile.sell_value(entry)], 14, PAPER, true)
+	_button(box, "Sell them all", func(): _close_overlay(); _leave_table(), true)
+	_button(box, "Keep looking", _close_overlay)
+
+func _leave_table() -> void:
+	var outcome: Dictionary = profile_store.transact(func(profile: Dictionary) -> Dictionary: return Profile.finish_return(profile))
+	return_gold += int(outcome.get("gold", 0))
+	return_stage = "stats"
+	appraising = ""
+	_queue_render()
+
+func _statistics_screen(parent: Node) -> void:
 	var outcome := str(snapshot.get("outcome", ""))
 	var mine: Dictionary = Catalog.mine_definition(str(snapshot.get("mine_id", "")))
 	_label(parent, {"extracted": "BACK IN DAYLIGHT", "fallen": "THE EXPEDITION FALLS", "conquered": "THE MINE IS QUIET"}.get(outcome, "THE EXPEDITION ENDS"), 34, GOLD)
-	_label(parent, {"extracted": "The lift groans upward. Everything you carried comes home.", "fallen": "What survived the fall is hauled back to the surface.", "conquered": "The boss is dead. The party climbs out with its prize."}.get(outcome, ""), 17, MUTED, true)
-	_label(parent, "%s  ·  deepest layer %d  ·  seed %s" % [str(mine.get("name", "The mine")), int(snapshot.get("deepest", 0)), str(snapshot.get("seed", ""))], 14, BLUE, true)
-	_apply_expedition_result()
+	_label(parent, "%s  ·  deepest layer %d  ·  tremors %d%%  ·  seed %s" % [str(mine.get("name", "The mine")), int(snapshot.get("deepest", 0)), roundi(float(snapshot.get("tremor", 0)) / 10.0), str(snapshot.get("seed", ""))], 14, BLUE, true)
 	for mine_id in last_unlocked:
 		_label(parent, "New mine unlocked: %s" % str(Catalog.mine_definition(mine_id).get("name", mine_id)), 18, GREEN, true)
-	var result: Dictionary = snapshot.get("results", {}).get(_local_player(), {})
-	var pending: Dictionary = _profile().get("pending_return", {})
-	if not result.is_empty() and str(pending.get("result_id", "")) == str(result.get("result_id", "")):
-		_label(parent, "THE APPRAISAL TABLE", 12, GOLD)
-		if pending.get("gems", []).is_empty():
-			_label(parent, "You came home empty-handed.", 15, MUTED, true)
-		for entry in pending.get("gems", []):
-			var panel := _panel(parent)
-			var row := _hbox(panel, 12)
-			_gem_details(row, entry)
-			var side := _vbox(row, 4)
-			side.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			var owned: Dictionary = _profile().get("collection", {}).get(str(entry.key), {})
-			if not owned.is_empty():
-				var diff: Dictionary = Profile.compare(entry, owned)
-				_label(side, "You own C%d K%d L%d  ·  %s%d gold" % [int(owned.carat), int(owned.cut), int(owned.clarity), "+" if int(diff.value) >= 0 else "", int(diff.value)], 12, GREEN if int(diff.value) > 0 else AMBER)
-			var decision := str(entry.get("decision", ""))
-			if decision.is_empty():
-				_button(side, "Keep" if owned.is_empty() else "Keep  ·  sells yours", func(): _decide_return(str(entry.id), true), true)
-				_button(side, "Sell  ·  %d gold" % Profile.sell_value(entry), func(): _decide_return(str(entry.id), false))
-			else:
-				_label(side, "Kept" if decision == "kept" else "Sold", 16, GREEN if decision == "kept" else GOLD)
-	_label(parent, "YOUR PURSE: %d GOLD" % int(_profile().get("gold", 0)), 14, GOLD)
+	if not last_completed.is_empty():
+		_label(parent, "%d commission%s complete — claim %s at the board." % [last_completed.size(), "" if last_completed.size() == 1 else "s", "it" if last_completed.size() == 1 else "them"], 16, GREEN, true)
+	if return_gold > 0:
+		_label(parent, "The table paid you %d gold. Your purse holds %d." % [return_gold, int(_profile().get("gold", 0))], 16, GOLD, true)
+	var heroes: Array = snapshot.get("heroes", [])
 	var stats: Dictionary = snapshot.get("statistics", {}).get("heroes", {})
-	for hero in snapshot.get("heroes", []):
-		var line: Dictionary = stats.get(str(hero.get("id", "")), {})
-		_label(parent, "%s  ·  %d damage  ·  %d block  ·  %d healing  ·  %d final blows  ·  %d stones found" % [str(hero.get("player_name", hero.get("name", "Hero"))), int(line.get("damage_dealt", 0)), int(line.get("block_gained", 0)), int(line.get("healing", 0)), int(line.get("final_blows", 0)), int(line.get("gems_found", 0))], 13, PAPER, true)
-	_button(parent, "Read the combat record", _show_log)
-	_button(parent, "Back to the shop", func():
+	var results: Dictionary = snapshot.get("results", {})
+	var rows: Array = [
+		["Damage dealt", func(id: String) -> int: return int(stats.get(id, {}).get("damage_dealt", 0))],
+		["Final blows", func(id: String) -> int: return int(stats.get(id, {}).get("final_blows", 0))],
+		["Block gained", func(id: String) -> int: return int(stats.get(id, {}).get("block_gained", 0))],
+		["Healing", func(id: String) -> int: return int(stats.get(id, {}).get("healing", 0))],
+		["HP lost", func(id: String) -> int: return int(stats.get(id, {}).get("hp_lost", 0))],
+		["Ore earned", func(id: String) -> int: return int(stats.get(id, {}).get("ore_earned", 0))],
+		["Stones found", func(id: String) -> int: return int(stats.get(id, {}).get("gems_found", 0))],
+		["Brought home", func(id: String) -> int: return results.get(id, {}).get("haul", []).size()],
+		["Haul value (gold)", func(id: String) -> int: return results.get(id, {}).get("haul", []).reduce(func(total: int, gem: Dictionary) -> int: return total + Profile.sell_value(gem), 0)],
+		["Best find (gold)", func(id: String) -> int: return results.get(id, {}).get("haul", []).reduce(func(best: int, gem: Dictionary) -> int: return maxi(best, Profile.sell_value(gem)), 0)]]
+	var board := _panel(parent, PANEL, LINE, 16)
+	var grid := GridContainer.new()
+	grid.columns = heroes.size() + 1
+	grid.add_theme_constant_override("h_separation", 28)
+	grid.add_theme_constant_override("v_separation", 8)
+	board.add_child(grid)
+	_label(grid, "", 12, MUTED)
+	for hero in heroes:
+		var name_cell := _vbox(grid, 2)
+		UiKit.icon(name_cell, Forge.unit(str(hero.get("key", ""))), 56).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		_label(name_cell, str(hero.get("player_name", hero.get("name", "Hero"))), 15, GOLD).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	for row in rows:
+		_label(grid, str(row[0]), 14, MUTED)
+		var values: Array = heroes.map(func(hero: Dictionary) -> int: return row[1].call(str(hero.get("id", ""))))
+		var best: int = values.max() if not values.is_empty() else 0
+		for value in values:
+			var leading: bool = heroes.size() > 1 and int(value) == best and best > 0 and str(row[0]) != "HP lost"
+			_label(grid, ("★ %d" if leading else "%d") % int(value), 15, GOLD if leading else PAPER).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var buttons := _hbox(parent, 10)
+	_button(buttons, "Read the combat record", _show_log)
+	_button(buttons, "Back to the shop", func():
 		profile_store.transact(func(profile: Dictionary) -> Dictionary: return Profile.finish_return(profile))
 		_return_menu(), true)
 
@@ -1913,10 +2073,16 @@ func _apply_expedition_result() -> void:
 		_notify(str(outcome.get("error", "The haul could not be brought home.")))
 		return
 	last_unlocked = outcome.get("unlocked", [])
+	last_completed = outcome.get("completed", [])
 
 func _decide_return(gem_id: String, keep: bool) -> void:
 	var outcome: Dictionary = profile_store.transact(func(profile: Dictionary) -> Dictionary: return Profile.decide_return_gem(profile, gem_id, keep))
-	if not outcome.get("ok", false): _notify(str(outcome.get("error", "")))
+	if not outcome.get("ok", false):
+		_notify(str(outcome.get("error", "")))
+	else:
+		return_gold += int(outcome.get("gold", 0))
+		if appraising == gem_id: appraising = ""
+		_play_sound(click_sound)
 	_queue_render()
 
 func _ready_button(parent: Node) -> Button:

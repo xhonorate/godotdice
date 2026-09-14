@@ -151,6 +151,32 @@ func run() -> void:
 	await shoot("crucible_preview")
 	ui._close_overlay()
 	await settle(6)
+
+	# The end of an expedition: every hero rides up with a haul, then the table and the numbers.
+	ui.engine.state.depth = 6
+	for hero in ui.engine.state.heroes:
+		for stone in ui.engine._roll_gems(4, 6, false):
+			stone.owner_id = hero.id
+			hero.haul.append(stone)
+	ui.engine._enter_room("lift")
+	ui._state_changed(ui.engine.state)
+	await settle(10)
+	await shoot("lift")
+	party(func(): ui._command("VoteLift", {"choice": "ride"}))
+	await settle(90)
+	await shoot("appraisal_table")
+	var pending: Dictionary = ui._profile().pending_return
+	ui.appraising = str(pending.gems[2].id)
+	ui._queue_render()
+	await settle(90)
+	await shoot("appraisal_selected")
+	ui._decide_return(str(pending.gems[0].id), true)
+	ui._decide_return(str(pending.gems[1].id), false)
+	await settle(90)
+	await shoot("appraisal_decided")
+	ui._leave_table()
+	await settle(20)
+	await shoot("statistics")
 	print("screenshots written to ", ProjectSettings.globalize_path(out_dir))
 	quit(0)
 
