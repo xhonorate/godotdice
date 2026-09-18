@@ -25,7 +25,12 @@ if not version.startswith("4.7.2.stable"):
     sys.exit("This project's deterministic replay contract is pinned to Godot 4.7.2 stable.")
 
 failed = []
-for suite in ["test_combat.gd", "test_profile.gd", "test_run.gd", "test_authored_content.gd", "test_services.gd", "test_network_run.gd", "test_art.gd", "test_ui.gd", "balance_smoke.gd"]:
+# The class cache is what lets one script name another by class_name; a fresh checkout has
+# none, so the project is scanned once before the suites run.
+subprocess.run([godot, "--headless", "--path", str(ROOT), "--import"], cwd=ROOT, text=True,
+               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
+
+for suite in ["test_dice.gd", "test_stones.gd", "test_battle.gd", "test_descent.gd", "test_net.gd", "test_view.gd", "test_screens.gd"]:
     path = ROOT / "tests" / suite
     if not path.exists():
         failed.append(suite + " (missing)")

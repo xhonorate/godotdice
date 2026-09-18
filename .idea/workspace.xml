@@ -1,0 +1,491 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="44a58bb2-5d16-49ea-aabc-1cb549aa1a28" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/armor_stand.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/armor_stand.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/background.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/background.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/clock.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/clock.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/commission_board.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/commission_board.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/counter.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/counter.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/door.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/door.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/jewel_bag.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/jewel_bag.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/ledger.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/ledger.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/mine_cart.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/mine_cart.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/shopkeeper.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/shopkeeper.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/wall_map.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/hub/wall_map.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/dartling.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/dartling.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/gem_cultist.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/gem_cultist.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/iron_warden.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/iron_warden.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/mirror_regent.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/mirror_regent.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/mirror_wisp.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/mirror_wisp.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/red_slime.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/red_slime.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/rift_hound.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/rift_hound.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/rift_sovereign.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/rift_sovereign.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/slime.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/slime.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/slime_king.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/slime_king.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/stone_crab.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/enemies/stone_crab.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/arc_burst.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/arc_burst.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/blessing.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/blessing.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/block.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/block.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/bulwark.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/bulwark.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/drainstrike.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/drainstrike.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/even_tempo.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/even_tempo.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/heal.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/heal.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/heavystrike.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/heavystrike.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/interpose.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/interpose.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/lifeline.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/lifeline.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/luckystrike.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/luckystrike.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/mend.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/mend.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/multistrike.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/multistrike.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/precision.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/precision.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/shieldbash.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/shieldbash.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/strike.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/strike.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/stun.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/stun.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/sunder.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/sunder.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/venom.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/gems/venom.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/heroes/ardor.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/heroes/ardor.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/heroes/kait.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/heroes/kait.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/heroes/max.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/heroes/max.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/bolt.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/bolt.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/gold.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/gold.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/heart.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/heart.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/loupe.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/loupe.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/ore.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/ore.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/shield.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/shield.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/shieldbreak.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/shieldbreak.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/sigil.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/sigil.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/skull.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/skull.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/sword.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/props/sword.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/field_dressing.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/field_dressing.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/focusing_prism.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/focusing_prism.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/lasting_aegis.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/lasting_aegis.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/matchbox.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/matchbox.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/merchant_seal.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/merchant_seal.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/miners_lantern.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/miners_lantern.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/steady_hand.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/steady_hand.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/tinkers_belt.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/relics/tinkers_belt.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/battle.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/battle.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/boss.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/boss.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/crucible.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/crucible.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/elite.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/elite.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/event.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/event.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/lapidary.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/lapidary.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/lift.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/lift.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/mine.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/mine.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/rest.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/rest.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/shop.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/shop.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/treasure.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/treasure.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/wager.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/wager.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/workshop.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/sprites/rooms/workshop.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/ui/sigil.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/ui/sigil.svg.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/content/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/content/full_content.tres" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/export_content.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/export_content.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/full_content.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/CONTENT_CATALOG.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/EXPEDITION_LOOP_DESIGN.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/GODOT_REBUILD_SPEC.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/IMPLEMENTATION_STATUS.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/VERIFICATION.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/screenshots/battle.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/screenshots/battle.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/screenshots/menu.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/screenshots/menu.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/project.godot" beforeDir="false" afterPath="$PROJECT_DIR$/project.godot" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scenes/gem_lab.tscn" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scenes/main.tscn" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/catalog.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/catalog.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/combat.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/combat.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/content_pack.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/content_pack.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/gem_rules.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/gem_rules.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/profile.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/profile.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/random_source.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/random_source.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/requirements.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/requirements.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/run_engine.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/run_engine.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/seam.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/core/seam.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/enet_transport.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/enet_transport.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/packet_codec.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/packet_codec.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/profile_store.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/profile_store.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/save_store.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/save_store.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/session.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/session.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/steam_transport.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/services/steam_transport.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/appraisal_table.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/appraisal_table.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/atlas_map.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/atlas_map.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/backdrop.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/backdrop.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/battle_stage.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/battle_stage.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/dice_geometry.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/dice_geometry.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/dice_icons.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/dice_icons.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/dice_view.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/dice_view.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/fanfare.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/fanfare.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_badge.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_badge.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_icons.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_icons.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_lab.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_lab.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_mesh.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_mesh.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_panel.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_panel.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_text.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_text.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_tuning.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_tuning.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_view.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/gem_view.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/hub.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/hub.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/hub_screens.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/hub_screens.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/item_board.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/item_board.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/main.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/main.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/mine_view.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/mine_view.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/placeholder_audio.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/placeholder_audio.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/reveal.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/reveal.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/room_scene.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/room_scene.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/room_screens.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/room_screens.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/seam_map.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/seam_map.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/sprite_actor.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/sprite_actor.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/sprite_forge.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/sprite_forge.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/stone_node.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/stone_node.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/tremor_meter.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/tremor_meter.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/ui_kit.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/ui/ui_kit.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/balance_smoke.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/balance_smoke.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_art.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_art.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_authored_content.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_authored_content.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_combat.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_combat.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_network_run.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_network_run.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_profile.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_profile.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_run.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_run.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_services.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_services.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_ui.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_ui.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/bake_sprites.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/bake_sprites.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/app.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/dice.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/dom.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/gem.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/gemcard.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/gemtext.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/carat.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/carat.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/clarity.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/clarity.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/count.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/count.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/cut.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/cut.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/high.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/high.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/hints.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/hit.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/hit.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/low.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/low.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/pair.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/pair.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/reroll.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/reroll.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/run.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/run.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/shield.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/shield.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/sum.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/sum.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/target.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/target.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/triple.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/glyphs/triple.png.import" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/index.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/rulebuilder.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/rules.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/schema.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/styles.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/app/validate.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/bake_glyphs.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/bake_glyphs.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/panel_probe.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/panel_probe.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/panel_probe.mjs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/rule_probe.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/rule_probe.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/rule_probe.mjs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/rule_probe_cases.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/server.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/smoke.mjs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/validate_pack.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/content_studio/validate_pack.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/gem_sheet.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/gem_sheet.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/glyph_sheet.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/glyph_sheet.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/lab_shot.gd" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/lab_shot.gd.uid" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/run_checks.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/run_checks.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/screenshot.gd" beforeDir="false" afterPath="$PROJECT_DIR$/tools/screenshot.gd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/screenshot.gd.uid" beforeDir="false" afterPath="$PROJECT_DIR$/tools/screenshot.gd.uid" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="624" />
+    <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.8434091650274702" />
+      <entry key="MS500" value="5.871582523426043" />
+      <entry key="S2" value="15.019489182751869" />
+      <entry key="S5" value="25.456233133337584" />
+      <entry key="S10" value="36.159870139473334" />
+      <entry key="S30" value="74.08905571717604" />
+      <entry key="S60" value="105.36908073495212" />
+      <entry key="M2" value="146.14035406504894" />
+      <entry key="M5" value="349.81277406592216" />
+      <entry key="M10" value="652.0371647416166" />
+      <entry key="M15" value="834.6581690916614" />
+      <entry key="M30" value="1086.856654363498" />
+      <entry key="H1" value="1247.491538348808" />
+      <entry key="H2" value="1338.3176664485543" />
+      <entry key="H4" value="1386.6337514071154" />
+      <entry key="D1" value="1428.4594389555766" />
+      <entry key="W1" value="1435.7762889356616" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.7842708719852718" />
+      <entry key="MS500" value="5.834899112227598" />
+      <entry key="S2" value="14.995510792440415" />
+      <entry key="S5" value="25.43867873195155" />
+      <entry key="S10" value="36.14368945647023" />
+      <entry key="S30" value="74.0672121123731" />
+      <entry key="S60" value="105.34885346872248" />
+      <entry key="M2" value="146.12522754798331" />
+      <entry key="M5" value="349.8030901582156" />
+      <entry key="M10" value="652.0303351025918" />
+      <entry key="M15" value="834.652846061069" />
+      <entry key="M30" value="1086.8534650488127" />
+      <entry key="H1" value="1247.4897757493538" />
+      <entry key="H2" value="1338.3167376256533" />
+      <entry key="H4" value="1386.6332743454225" />
+      <entry key="D1" value="1428.4593576190703" />
+      <entry key="W1" value="1435.7762772705073" />
+    </decayedShown>
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4,
+  &quot;fromUser&quot;: false
+}</component>
+  <component name="ProjectId" id="3JVMFiD6bBqdWc83tDkAJPlDSWu" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "main",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "/Users/benthomas/Desktop/godotdice",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "vcs.Git"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-30f59d01ecdd-34e2839f716b-intellij.indexing.shared.core-IU-262.9437.185" />
+        <option value="bundled-js-predefined-d6986cc7102b-4abd2a77f808-JavaScript-IU-262.9437.185" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="44a58bb2-5d16-49ea-aabc-1cb549aa1a28" name="Changes" comment="" />
+      <created>1789741680391</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1789741680391</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>
