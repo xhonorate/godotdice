@@ -61,13 +61,23 @@ func run() -> void:
 	check(bought.ok and ui._profile().collection.has(stock[0].gem.key), "a bought gem joins the collection")
 	ui._close_overlay()
 	## Socket it at the armor stand.
+	## Max's carried sockets read Red, Blue, Red, so a Red gem goes in the third.
 	ui.screens.viewing_hero = "MAX"
-	var key: String = str(stock[0].gem.key)
+	var key := "HEAVYSTRIKE"
+	ui.profile_store.transact(func(profile: Dictionary) -> String:
+		profile.collection[key] = {"key": key, "carat": 4, "cut": 2, "clarity": 2}
+		return "")
 	var next_loadout: Array = ui._profile().heroes.MAX.loadout.duplicate()
-	if not key in next_loadout: next_loadout.append(key)
+	next_loadout[2] = key
 	ui.screens._set_loadout(next_loadout)
 	await frames()
-	check(key in ui._profile().heroes.MAX.loadout and ui._loadout("max").any(func(gem: Dictionary) -> bool: return gem.key == key), "a gem socketed at the armor stand rides into the next expedition")
+	check(ui._profile().heroes.MAX.loadout[2] == key and ui._loadout("max").any(func(gem: Dictionary) -> bool: return gem.key == key and int(gem.socket) == 2), "a gem socketed at the armor stand rides into the next expedition in its socket")
+	var refused: Array = ui._profile().heroes.MAX.loadout.duplicate()
+	refused[1] = key
+	ui.screens._set_loadout(refused)
+	await frames()
+	check(ui._profile().heroes.MAX.loadout[1] != key, "a Red gem is refused by a Blue socket at the armor stand")
+	check(ui.overlay.find_children("*", "", true, false).any(func(node: Node) -> bool: return str(node.get_meta("focus_tag", "")) == "loadout_socket_5"), "the armor stand shows all six sockets, the uncarried ones locked")
 	ui._close_overlay()
 	ui._choose_hero("KAIT")
 	check(ui.menu_hero == "kait" and ui._profile().selected_hero == "KAIT", "choosing a hero at the stand is remembered")
@@ -202,9 +212,7 @@ func run() -> void:
 	state.phase = "planning"
 	ui._state_changed(state)
 	ui._show_inventory()
-	var planned := original_order.duplicate()
-	planned.reverse()
-	ui._inventory_command("ReorderGems", {"gem_ids":planned})
+	ui._inventory_command("EquipGem", {"gem_id":original_order[0], "socket":2})
 	await frames()
 	check(ui.provisional_commands.get("ui_test", []).size() == 1, "downed hero can prepare a local plan")
 	check(ui.engine.state.heroes[0].gems[0].id == original_order[0], "provisional plan does not mutate authority")
@@ -306,22 +314,27 @@ func run() -> void:
 	await frames()
 	check(ui.snapshot.phase == "route", "the seam returns once every hero has settled their spoils")
 	## Move one socket onto another the way a drag does, then by the click route.
-	var sockets: Array = ui._hero().gems.filter(func(gem: Dictionary) -> bool: return gem.equipped)
-	if sockets.size() >= 2:
-		ui._move_gem(sockets, 0, 1)
+	## Max's first and third sockets are both Red, so their stones can trade places.
+	var by_socket: Array = [{}, {}, {}, {}, {}, {}]
+	for carried in ui._hero().gems:
+		if carried.equipped: by_socket[int(carried.socket)] = carried
+	if not by_socket[0].is_empty() and not by_socket[2].is_empty():
+		ui._move_gem(by_socket, 0, 2)
 		await frames()
-		var moved: Array = ui._hero().gems.filter(func(gem: Dictionary) -> bool: return gem.equipped)
-		check(moved[0].id == sockets[1].id and moved[1].id == sockets[0].id, "dropping a socket onto another swaps their order")
+		check(_socket_of(ui._hero(), str(by_socket[0].id)) == 2 and _socket_of(ui._hero(), str(by_socket[2].id)) == 0, "dropping a socket onto another of the same Color swaps their stones")
 		ui._show_inventory()
 		await frames()
 		var click := InputEventMouseButton.new()
 		click.button_index = MOUSE_BUTTON_LEFT
 		click.pressed = true
 		tagged(ui.overlay, "gem_socket_0").gui_input.emit(click)
-		tagged(ui.overlay, "gem_socket_1").gui_input.emit(click)
+		tagged(ui.overlay, "gem_socket_2").gui_input.emit(click)
 		await frames()
-		var clicked: Array = ui._hero().gems.filter(func(gem: Dictionary) -> bool: return gem.equipped)
-		check(clicked[0].id == sockets[0].id and clicked[1].id == sockets[1].id, "clicking a socket and then another swaps them without a drag")
+		check(_socket_of(ui._hero(), str(by_socket[0].id)) == 0 and _socket_of(ui._hero(), str(by_socket[2].id)) == 2, "clicking a socket and then another swaps them without a drag")
+		tagged(ui.overlay, "gem_socket_1").gui_input.emit(click)
+		tagged(ui.overlay, "gem_socket_0").gui_input.emit(click)
+		await frames()
+		check(_socket_of(ui._hero(), str(by_socket[0].id)) == 0, "a Blue stone cannot be carried into a Red socket")
 	ui._close_overlay()
 	## An appraisal made down the mine is held up in the spotlight.
 	var sealed_stone: Dictionary = ui.engine._roll_gems(1, 0, false)[0]
@@ -436,3 +449,8 @@ func frames() -> void:
 func check(condition: bool, description: String) -> void:
 	checked += 1
 	if not condition: failures.append(description)
+
+func _socket_of(hero: Dictionary, gem_id: String) -> int:
+	for gem in hero.get("gems", []):
+		if str(gem.id) == gem_id and gem.equipped: return int(gem.socket)
+	return -1

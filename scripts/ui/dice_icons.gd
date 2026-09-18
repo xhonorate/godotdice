@@ -1,14 +1,22 @@
 extends RefCounted
-## Draws a skill's activation trigger as the dice that would satisfy it.
+## Draws what a hand has to show — a gem's trigger, a hero's passive or signature — as the
+## pictograph of that requirement, with the number it needs beside it.
 ##
-## A pair becomes two faces sharing a value, a straight becomes a run, a threshold
-## becomes one face behind a comparison. Nothing here evaluates anything: the shapes
-## mirror the trigger branches in `combat.gd` so the picture and the rule agree.
-## The exact wording stays on the tooltip; the icons only make it readable at a glance.
+## Every requirement kind in `requirements.gd` has a mark of its own: a pair is two matching
+## dice, a straight a stair of dice as long as the run, a total the sum sign over an arrow.
+## An always-firing gem is drawn as the thing it grows with, so Strike reads "highest die".
+## The sentence stays on the tooltip; the mark only makes it readable at a glance.
+##
+## `strip()` is the older drawing of the same triggers as literal die faces. The content
+## studio still draws that one, and its cross-check reads it from here.
 
 const Catalog = preload("res://scripts/core/catalog.gd")
 const Combat = preload("res://scripts/core/combat.gd")
 const GemRules = preload("res://scripts/core/gem_rules.gd")
+const GemIcons = preload("res://scripts/ui/gem_icons.gd")
+const Requirements = preload("res://scripts/core/requirements.gd")
+
+const NEED_TONE := Color("e6e9f0")
 
 const MATCH_TONE := Color("ffcf7a")
 const OTHER_TONE := Color("76b6ff")
@@ -112,6 +120,51 @@ class Face extends Control:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _ink)
 
 static func requirement(key: String, clarity: int = 1, cut: int = 1, carat: int = 1) -> Dictionary:
+	## What would switch this skill on, at the ranks it resolves with.
+	return Requirements.skill(key, clarity, cut, carat)
+
+static func glyph_for(requirement: Dictionary) -> String:
+	## The pictograph a requirement is drawn with. Each kind has its own; an always-firing
+	## effect borrows the mark of the term it grows with.
+	match str(requirement.get("kind", "")):
+		"scale":
+			var scale := str(requirement.get("scale", "carat"))
+			return scale if GemIcons.known(scale) else "carat"
+		"straight": return "straight%d" % clampi(int(requirement.get("amount", 3)), 3, 5)
+		"value": return "face"
+		"total_at_least": return "total_high"
+		"total_at_most": return "total_low"
+		"high_at_least": return "peak"
+		"pair", "two_pairs", "triple", "quad", "full_house", "odd", "even", "distinct", "climb", "once":
+			return str(requirement.kind)
+	return "carat"
+
+static func build(parent: Node, requirement: Dictionary, edge: float, tooltip: String = "", tint: Color = NEED_TONE) -> HBoxContainer:
+	## The mark and its label as one hoverable row. PASS keeps the card's own clicks working.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", maxi(2, int(edge * 0.2)))
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.tooltip_text = tooltip if not tooltip.is_empty() else str(requirement.get("words", ""))
+	parent.add_child(row)
+	var glyph := GemIcons.glyph(row, glyph_for(requirement), edge, tint, row.tooltip_text)
+	glyph.mouse_filter = Control.MOUSE_FILTER_PASS
+	var label := str(requirement.get("label", ""))
+	if not label.is_empty():
+		var words := Label.new()
+		words.text = label
+		words.add_theme_font_size_override("font_size", maxi(9, int(edge * 0.62)))
+		words.add_theme_color_override("font_color", tint)
+		words.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(words)
+	return row
+
+static func detail(key: String, clarity: int = 1, cut: int = 1, carat: int = 1) -> String:
+	## The tooltip text for a gem's requirement.
+	return str(Requirements.skill(key, clarity, cut, carat).get("words", ""))
+
+static func strip(key: String, clarity: int = 1, cut: int = 1, carat: int = 1) -> Dictionary:
 	## The dice that would switch this skill on, given its effective Clarity.
 	## `faces` are [value, tone]; `lead` is the comparison drawn ahead of them.
 	var l: int = clampi(clarity, 1, 5)
@@ -165,8 +218,8 @@ static func requirement(key: String, clarity: int = 1, cut: int = 1, carat: int 
 			return _spec([], "Σ ≥ %d" % (45 - 5 * l), "The whole hand totals %d or more." % (45 - 5 * l))
 	return _spec([], "ANY HAND", "No condition: this skill fires on every hand.")
 
-static func build(parent: Node, spec: Dictionary, edge: float, tooltip: String) -> Control:
-	## Lays the spec out as a hoverable row. PASS keeps the card's own clicks working.
+static func build_strip(parent: Node, spec: Dictionary, edge: float, tooltip: String) -> Control:
+	## Lays a face strip out as a hoverable row.
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", maxi(2, int(edge * 0.16)))
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -229,16 +282,6 @@ static func _from_trigger(trigger: Dictionary, l: int, cut: int, carat: int) -> 
 			var least: int = count.call(trigger.get("amount", null), 0)
 			return _spec([[least, MATCH_TONE]], "≥", "The highest die is at least %d." % least)
 	return _spec([], "ANY HAND", "No condition: this skill fires on every hand.")
-
-static func detail(key: String, clarity: int = 1) -> String:
-	## The tooltip text: the catalogued trigger, then what it means in dice.
-	var definition: Dictionary = Catalog.definitions("skills").get(Catalog.canonical_key(key), {})
-	var spec: Dictionary = requirement(key, clarity)
-	var trigger := str(definition.get("trigger", ""))
-	var note := str(spec.get("note", ""))
-	if trigger.is_empty():
-		return note
-	return "Trigger: %s\n%s" % [trigger, note]
 
 static func _spec(faces: Array, lead: String, note: String) -> Dictionary:
 	return {"faces": faces, "lead": lead, "note": note}

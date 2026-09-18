@@ -268,17 +268,19 @@ func _manage_build(engine: RefCounted) -> bool:
 		if not _command(engine,"AppraiseGem",{"gem_id":unit.haul[0].id,"method":"loupe"}): return false
 	for item in unit.gems.duplicate():
 		if item.equipped or _upgrade_value(unit,item) <= 0.1: continue
+		## A gem can only go where its Color fits: its twin's socket, an open socket of its
+		## Color, or the weakest stone already sitting in a socket that would take it.
 		var same: Dictionary = {}
 		var worst: Dictionary = {}
-		var count: int = 0
 		for owned in unit.gems:
 			if not owned.equipped: continue
-			count += 1
 			if owned.key == item.key: same = owned
-			if owned.key != "STRIKE" and (worst.is_empty() or _gem_score(unit,owned) < _gem_score(unit,worst)): worst = owned
+			if owned.key != "STRIKE" and Catalog.socket_fits(str(unit.sockets[int(owned.socket)]),str(item.key)) and (worst.is_empty() or _gem_score(unit,owned) < _gem_score(unit,worst)): worst = owned
 		var payload: Dictionary = {"gem_id":item.id}
 		if not same.is_empty(): payload.replace_id = same.id
-		elif count >= 6: payload.replace_id = worst.id
+		elif Catalog.open_socket(unit.sockets,unit.gems,str(item.key)) < 0:
+			if worst.is_empty() or _gem_score(unit,item) <= _gem_score(unit,worst): continue
+			payload.replace_id = worst.id
 		if not _command(engine,"EquipGem",payload): return false
 	var relic_count: int = 0
 	for item in unit.relics:
@@ -287,12 +289,8 @@ func _manage_build(engine: RefCounted) -> bool:
 		if not item.equipped and relic_count < 3:
 			if not _command(engine,"EquipRelic",{"relic_id":item.id}): return false
 			relic_count += 1
-	var ordered: Array = unit.gems.filter(func(item: Dictionary) -> bool: return item.equipped)
-	var priorities: Dictionary = {"HEAL":0,"MEND":1,"BULWARK":2,"BLOCK":3,"INTERPOSE":4,"SUNDER":5,"STRIKE":6,"SHIELDBASH":7}
-	ordered.sort_custom(func(a: Dictionary,b: Dictionary) -> bool: return int(priorities.get(a.key,8)) < int(priorities.get(b.key,8)))
-	var ids: Array = []
-	for item in ordered: ids.append(item.id)
-	return _command(engine,"ReorderGems",{"gem_ids":ids})
+	## Sockets fix the order gems resolve in, so there is nothing left to rearrange.
+	return true
 
 func _autosave_regression() -> void:
 	var engine: RefCounted = _fresh("MAX",101,true)

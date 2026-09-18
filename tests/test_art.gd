@@ -17,6 +17,7 @@ const GemTuning = preload("res://scripts/ui/gem_tuning.gd")
 const GemViewScript = preload("res://scripts/ui/gem_view.gd")
 const Combat = preload("res://scripts/core/combat.gd")
 const Catalog = preload("res://scripts/core/catalog.gd")
+const Requirements = preload("res://scripts/core/requirements.gd")
 
 const EXPECTED := {"D4": [4, 3], "D6": [6, 4], "D8": [8, 3], "D10": [10, 4], "D12": [12, 5], "D20": [20, 3]}
 
@@ -68,22 +69,35 @@ func run() -> void:
 				aimed = false
 	check(aimed, "every rolled physical face turns toward the camera")
 
-	# Every trigger must be drawable: a reader counts dice instead of parsing prose.
+	# Every requirement is drawn as a mark of its own, never as dice showing numbers.
 	var every_trigger_drawn := true
 	for key in Catalog.SKILLS:
-		var spec: Dictionary = DiceIcons.requirement(key, 1)
-		if spec.faces.is_empty() and str(spec.lead).is_empty():
-			every_trigger_drawn = false
-		if DiceIcons.detail(key, 1).is_empty():
-			every_trigger_drawn = false
-	check(every_trigger_drawn, "every skill trigger renders as a dice requirement")
-	check(DiceIcons.requirement("BLOCK", 1).faces.size() == 2, "a pair draws two dice")
-	check(DiceIcons.requirement("HEAVYSTRIKE", 1).faces.size() == 3, "a triple draws three dice")
-	check(DiceIcons.requirement("SHIELDBASH", 1).faces.size() == 5, "a full house draws three and two")
-	check(DiceIcons.requirement("MULTISTRIKE", 1).faces.size() == 5, "a straight draws five dice at Clarity 1")
-	check(DiceIcons.requirement("MULTISTRIKE", 5).faces.size() == 3, "the same straight draws three dice at Clarity 5")
-	check(str(DiceIcons.requirement("BULWARK", 1).lead) == "\u03a3 \u2264 20", "a hand total draws its comparison")
-	check(int(DiceIcons.requirement("STUN", 1).faces[0][0]) == 20, "a high-die threshold draws the value it needs")
+		for clarity in range(1, 6):
+			var requirement: Dictionary = DiceIcons.requirement(key, clarity)
+			if not GemIcons.known(DiceIcons.glyph_for(requirement)) or str(requirement.words).is_empty():
+				every_trigger_drawn = false
+	check(every_trigger_drawn, "every skill trigger renders as a requirement mark with words")
+	var marks: Dictionary = {}
+	for kind in Requirements.KINDS:
+		if kind == "scale" or kind == "straight":
+			continue
+		marks[DiceIcons.glyph_for(Requirements.make(kind, 3))] = kind
+	for length in [3, 4, 5]:
+		marks[DiceIcons.glyph_for(Requirements.make("straight", length))] = "straight"
+	check(marks.size() == Requirements.KINDS.size() - 2 + 3, "every requirement kind, and every straight length, has a mark of its own")
+	var drawn_marks := true
+	for glyph in marks:
+		if not GemIcons.known(glyph) or GemIcons.hint(glyph).is_empty():
+			drawn_marks = false
+	check(drawn_marks, "every requirement mark is drawn and explained on hover")
+	check(DiceIcons.glyph_for(DiceIcons.requirement("BLOCK", 1)) == "pair", "a pair draws the pair mark")
+	check(DiceIcons.glyph_for(DiceIcons.requirement("HEAVYSTRIKE", 1)) == "triple", "a triple draws the triple mark")
+	check(DiceIcons.glyph_for(DiceIcons.requirement("SHIELDBASH", 1)) == "full_house", "a full house draws its own mark")
+	check(DiceIcons.glyph_for(DiceIcons.requirement("MULTISTRIKE", 1)) == "straight5", "a straight draws a five-step stair at Clarity 1")
+	check(DiceIcons.glyph_for(DiceIcons.requirement("MULTISTRIKE", 5)) == "straight3", "the same straight draws a three-step stair at Clarity 5")
+	check(str(DiceIcons.requirement("BULWARK", 1).label) == "\u226420", "a hand total labels its line")
+	check(str(DiceIcons.requirement("STUN", 1).label) == "\u226520", "a high-die threshold labels the value it needs")
+	check(str(DiceIcons.requirement("STRIKE", 1).label) == "highest die" and DiceIcons.glyph_for(DiceIcons.requirement("STRIKE", 1)) == "high", "an always-firing gem says what it grows with")
 
 	for key in Catalog.HEROES:
 		check(Forge.unit(key).get_width() > 0, "hero sprite " + key)

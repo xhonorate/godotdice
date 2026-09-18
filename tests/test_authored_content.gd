@@ -151,15 +151,15 @@ func _test_written_rules() -> void:
 		"…with its parts and its single Carat multiplier")
 	## The requirement strip is drawn before any roll, so it has to come from the trigger.
 	var pair_strip: Dictionary = DiceIcons.requirement("WRIT_BLOCK",3,3,8)
-	check(pair_strip.faces.size() == 2 and int(pair_strip.faces[0][0]) == int(pair_strip.faces[1][0]),
-		"A written pair trigger is drawn as two matching dice")
+	check(str(pair_strip.kind) == "pair" and DiceIcons.glyph_for(pair_strip) == "pair",
+		"A written pair trigger is drawn as the pair mark")
 	var venom_strip: Dictionary = DiceIcons.requirement("WRIT_VENOM",3,3,8)
-	check(str(venom_strip.lead) == "≥" and int(venom_strip.faces[0][0]) == 10,
+	check(str(venom_strip.kind) == "high_at_least" and int(venom_strip.amount) == 10 and str(venom_strip.label) == "≥10",
 		"A written threshold is worked out from the gem's own ranks")
 	var run_strip: Dictionary = DiceIcons.requirement("WRIT_MULTI",5,3,8)
-	check(run_strip.faces.size() == 3, "A straight shortened by Clarity is drawn at its real length")
+	check(int(run_strip.amount) == 3 and DiceIcons.glyph_for(run_strip) == "straight3", "A straight shortened by Clarity is drawn at its real length")
 	var always_strip: Dictionary = DiceIcons.requirement("WRIT_STRIKE",3,3,8)
-	check(str(always_strip.lead) == "ANY HAND", "A rule with no condition says so")
+	check(str(always_strip.kind) == "scale" and not str(always_strip.label).is_empty(), "A rule with no condition says what it grows with")
 
 # --- what the borrowed rules do -----------------------------------------------
 
@@ -180,7 +180,7 @@ func _test_borrowed_gem() -> void:
 	var lender_blocks: Array = GemText.blocks(Catalog.gem("STRIKE","g",8,3,3))
 	check(not borrowed_blocks.is_empty() and str(borrowed_blocks) == str(lender_blocks),
 		"The gem panel draws a borrowed rule as the rule it borrowed")
-	check(DiceIcons.requirement("EMBER_LANCE",3,3,8).lead == DiceIcons.requirement("STRIKE",3,3,8).lead,
+	check(DiceIcons.requirement("EMBER_LANCE",3,3,8) == DiceIcons.requirement("STRIKE",3,3,8),
 		"…and so does its requirement strip")
 
 func _test_borrowed_hero() -> void:

@@ -15,7 +15,10 @@ const Catalog = preload("res://scripts/core/catalog.gd")
 const RandomSource = preload("res://scripts/core/random_source.gd")
 
 const SCHEMA_VERSION: int = 1
-const LOADOUT_SLOTS: int = 6
+## A loadout is the gems a hero takes down the mine: one per socket the hero may fill at home,
+## indexed by socket, with an empty string for a socket left open. The rest of a hero's sockets
+## open once the expedition begins.
+const LOADOUT_SLOTS: int = Catalog.LOADOUT_CARRY
 ## A found gem sells for ten times its trade value and the shop charges thirty. The trade
 ## value is the in-run `Catalog.gem_value`, so the two economies read one number.
 const SELL_MULTIPLIER: int = 10
@@ -90,15 +93,7 @@ static func normalize(source: Variant) -> Dictionary:
 				profile.heroes[hero_key].loadout.append(gem.key)
 		var record: Dictionary = profile.heroes[hero_key]
 		record.unlocked = bool(record.get("unlocked", true))
-		var loadout: Array = []
-		for key in record.get("loadout", []) if record.get("loadout", []) is Array else []:
-			if profile.collection.has(str(key)) and not str(key) in loadout and loadout.size() < LOADOUT_SLOTS:
-				loadout.append(str(key))
-		if not "STRIKE" in loadout and profile.collection.has("STRIKE"):
-			if loadout.size() >= LOADOUT_SLOTS:
-				loadout.pop_back()
-			loadout.push_front("STRIKE")
-		record.loadout = loadout
+		record.loadout = _socketed_loadout(profile, hero_key, record.get("loadout", []) if record.get("loadout", []) is Array else [])
 	if not profile.get("selected_hero") is String or not heroes.has(profile.selected_hero) or not profile.heroes[profile.selected_hero].unlocked:
 		profile.selected_hero = ""
 		var keys: Array = heroes.keys()
@@ -212,17 +207,59 @@ static func _add_to_collection(profile: Dictionary, gem: Dictionary) -> Dictiona
 static func _auto_socket(profile: Dictionary, key: String) -> String:
 	## A gem new to the collection drops into an open socket of the hero being played, so a
 	## loadout with room never has to be visited just to put a fresh find to work. Answers the
-	## hero it went to, or nothing when that loadout is full or already carries the skill.
+	## hero it went to, or nothing when no open socket takes its Color or it is already carried.
 	var hero_key: String = str(profile.get("selected_hero", ""))
 	var record: Dictionary = profile.get("heroes", {}).get(hero_key, {})
 	if record.is_empty() or not record.get("unlocked", false):
 		return ""
-	var loadout: Array = record.get("loadout", [])
-	if key in loadout or loadout.size() >= LOADOUT_SLOTS:
+	var loadout: Array = _socketed_loadout(profile, hero_key, record.get("loadout", []))
+	if key in loadout:
 		return ""
-	loadout.append(key)
+	var index: int = _open_index(Catalog.hero_sockets(hero_key), loadout, key)
+	if index < 0:
+		return ""
+	loadout[index] = key
 	record.loadout = loadout
 	return hero_key
+
+static func _open_index(sockets: Array, loadout: Array, key: String) -> int:
+	## The first empty carried socket this gem fits, its own Color before a prismatic one.
+	var fallback: int = -1
+	for index in range(LOADOUT_SLOTS):
+		if not str(loadout[index]).is_empty() or not Catalog.socket_fits(str(sockets[index]), key):
+			continue
+		if str(sockets[index]) != Catalog.SOCKET_ANY:
+			return index
+		if fallback < 0:
+			fallback = index
+	return fallback
+
+static func _socketed_loadout(profile: Dictionary, hero_key: String, source: Array) -> Array:
+	## Any saved loadout as one entry per carried socket. A gem already in a socket that takes
+	## it stays there; anything else, such as an older profile's plain list or a gem whose
+	## socket no longer suits it, is set in the first open socket it fits, and dropped when
+	## none does. Strike is never left behind.
+	var sockets: Array = Catalog.hero_sockets(hero_key)
+	var loadout: Array = []
+	loadout.resize(LOADOUT_SLOTS)
+	loadout.fill("")
+	var waiting: Array = []
+	for index in range(source.size()):
+		var key: String = str(source[index])
+		if key.is_empty() or not profile.collection.has(key) or key in loadout or key in waiting:
+			continue
+		if index < LOADOUT_SLOTS and Catalog.socket_fits(str(sockets[index]), key):
+			loadout[index] = key
+		else:
+			waiting.append(key)
+	for key in waiting:
+		var index: int = _open_index(sockets, loadout, key)
+		if index >= 0:
+			loadout[index] = key
+	if not "STRIKE" in loadout and profile.collection.has("STRIKE"):
+		var index: int = _open_index(sockets, loadout, "STRIKE")
+		loadout[index if index >= 0 else 0] = "STRIKE"
+	return loadout
 
 static func mark_seen(profile: Dictionary, keys: Array) -> void:
 	for key in keys:
@@ -232,21 +269,32 @@ static func mark_seen(profile: Dictionary, keys: Array) -> void:
 # --- heroes and loadouts -----------------------------------------------------------
 
 static func set_loadout(profile: Dictionary, hero_key: String, keys: Variant) -> String:
+	## `keys` names the gem in each carried socket, left to right; an empty string leaves that
+	## socket open. A gem has to suit its socket's Color.
 	var record: Dictionary = profile.heroes.get(hero_key, {})
 	if record.is_empty() or not record.get("unlocked", false):
 		return "That hero is not unlocked."
-	if not keys is Array or keys.is_empty() or keys.size() > LOADOUT_SLOTS:
-		return "A loadout holds one to %d gems." % LOADOUT_SLOTS
-	var seen: Array = []
-	for key in keys:
-		if not key is String or key in seen:
+	if not keys is Array or keys.size() > LOADOUT_SLOTS:
+		return "Only %d gems can be carried into the mine; the other sockets open down there." % LOADOUT_SLOTS
+	var sockets: Array = Catalog.hero_sockets(hero_key)
+	var loadout: Array = []
+	for index in range(LOADOUT_SLOTS):
+		var key: Variant = keys[index] if index < keys.size() else ""
+		if not key is String:
+			return "Each socket holds a gem or nothing."
+		if key.is_empty():
+			loadout.append("")
+			continue
+		if key in loadout:
 			return "Each gem may appear once in a loadout."
 		if not profile.collection.has(key):
 			return "You do not own %s." % key
-		seen.append(key)
-	if not "STRIKE" in seen:
+		if not Catalog.socket_fits(str(sockets[index]), key):
+			return "%s does not fit a %s socket." % [str(Catalog.definitions("skills").get(key, {}).get("name", key)), Catalog.socket_name(str(sockets[index]))]
+		loadout.append(key)
+	if not "STRIKE" in loadout:
 		return "Strike must stay in every loadout."
-	record.loadout = seen
+	record.loadout = loadout
 	return ""
 
 static func select_hero(profile: Dictionary, hero_key: String) -> String:
@@ -259,12 +307,14 @@ static func loadout_gems(profile: Dictionary, hero_key: String, id_prefix: Strin
 	## The loadout as expedition gem instances, equipped in order and marked as loadout gems
 	## so the expedition knows never to put them at risk.
 	var gems: Array = []
-	for key in profile.heroes.get(hero_key, {}).get("loadout", []):
-		var owned: Dictionary = profile.collection.get(key, {})
+	var loadout: Array = profile.heroes.get(hero_key, {}).get("loadout", [])
+	for index in range(mini(loadout.size(), LOADOUT_SLOTS)):
+		var owned: Dictionary = profile.collection.get(str(loadout[index]), {})
 		if owned.is_empty():
 			continue
-		var gem: Dictionary = Catalog.gem(key, "%s-g%d" % [id_prefix, gems.size()], owned.carat, owned.cut, owned.clarity)
+		var gem: Dictionary = Catalog.gem(str(loadout[index]), "%s-g%d" % [id_prefix, gems.size()], owned.carat, owned.cut, owned.clarity)
 		gem.equipped = true
+		gem["socket"] = index
 		gem["loadout"] = true
 		gems.append(gem)
 	return gems

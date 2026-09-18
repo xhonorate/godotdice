@@ -23,7 +23,7 @@ func _init() -> void:
 			var l: int = int(ranks[2])
 			var label: String = "%s C%dK%dL%d" % [key, c, k, l]
 			var gem: Dictionary = Catalog.gem(str(key), "probe", c, k, l)
-			var strip: Dictionary = DiceIcons.requirement(str(key), l, k, c)
+			var strip: Dictionary = DiceIcons.strip(str(key), l, k, c)
 			var faces: PackedStringArray = []
 			for entry in strip.faces:
 				faces.append(str(int(entry[0])))

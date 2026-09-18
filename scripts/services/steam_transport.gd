@@ -9,7 +9,6 @@ signal connected
 signal failed(message: String)
 signal lobby_created(lobby_id: String)
 signal lobby_entered(lobby_id: String, host_id: String)
-signal invite_received(lobby_id: String)
 
 const CHANNEL := 0
 const SEND_RELIABLE := 8
@@ -28,11 +27,15 @@ func initialize() -> Dictionary:
 	if not Engine.has_singleton("Steam"):
 		return {"ok": false, "error": "Steam integration is unavailable. Offline and LAN play are available."}
 	steam = Engine.get_singleton("Steam")
-	for method in ["steamInitEx", "sendMessageToUser", "receiveMessagesOnChannel", "createLobby", "run_callbacks"]:
+	for method in ["steamInitEx", "get_steam_init_result", "sendMessageToUser", "receiveMessagesOnChannel", "createLobby", "run_callbacks"]:
 		if not steam.has_method(method):
 			return {"ok": false, "error": "The installed Steam extension is incompatible. This build requires GodotSteam 4.22.1."}
-	var app_id := int(ProjectSettings.get_setting(APP_ID_SETTING, 480))
-	var initialized: Dictionary = steam.call("steamInitEx", app_id, false)
+	# Steam normally starts before the renderer (initialize_on_startup) so the overlay can hook it.
+	# Initializing here only happens when Steam was not running at launch; the overlay stays unavailable.
+	var initialized: Dictionary = steam.call("get_steam_init_result")
+	if int(initialized.get("status", -1)) != 0:
+		var app_id := int(ProjectSettings.get_setting(APP_ID_SETTING, 480))
+		initialized = steam.call("steamInitEx", app_id, false)
 	if int(initialized.get("status", -1)) != 0:
 		return {"ok": false, "error": "Steam could not initialize: %s. Start the Steam client, or choose offline/LAN play." % initialized.get("verbal", "unknown error")}
 	local_id = str(steam.call("getSteamID"))
@@ -42,7 +45,6 @@ func initialize() -> Dictionary:
 	_connect("lobby_chat_update", _on_lobby_chat_update)
 	_connect("network_messages_session_request", _on_session_request)
 	_connect("network_messages_session_failed", _on_session_failed)
-	_connect("join_requested", _on_join_requested)
 	return {"ok": true, "player_id": local_id}
 
 func _connect(signal_name: String, callback: Callable) -> void:
@@ -76,9 +78,11 @@ func set_joinable(value: bool) -> void:
 	if available and not lobby_id.is_empty():
 		steam.call("setLobbyJoinable", int(lobby_id), value)
 
-func invite_friends() -> void:
-	if available and not lobby_id.is_empty():
-		steam.call("activateGameOverlayInviteDialog", int(lobby_id))
+func invite_friends() -> bool:
+	if not available or lobby_id.is_empty() or not bool(steam.call("isOverlayEnabled")):
+		return false
+	steam.call("activateGameOverlayInviteDialog", int(lobby_id))
+	return true
 
 func _process(_delta: float) -> void:
 	if not available:
@@ -135,9 +139,6 @@ func _on_session_request(remote_id: int) -> void:
 
 func _on_session_failed(_reason: int, remote_id: int, _connection_state: int, _debug_message: String) -> void:
 	peer_disconnected.emit(str(remote_id))
-
-func _on_join_requested(id: int, _friend_id: int) -> void:
-	invite_received.emit(str(id))
 
 func disconnect_peer(peer_id: String) -> void:
 	if available and peer_id.is_valid_int():

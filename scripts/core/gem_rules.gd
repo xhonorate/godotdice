@@ -443,9 +443,31 @@ const TERM_WORDS: Dictionary = {"high": "H", "low": "the lowest die", "total": "
 	"lowest_odd": "the lowest odd die", "count_even": "the even count", "count_odd": "the odd count",
 	"count_distinct": "the distinct count", "block": "current block"}
 
-static func _say(expression: Variant) -> String:
+static func _say(expression: Variant, ranks: Dictionary = {}) -> String:
+	## Given a gem's `ranks` ({carat, cut, clarity}), every part of the expression that reads
+	## no dice is worked out to its number, so the game never shows a rank as a letter. With
+	## none, it is the formula notation the content studio prints.
 	if not expression is Dictionary:
 		return "0"
+	if not ranks.is_empty():
+		if not _reads_hand(expression):
+			return str(threshold(expression, int(ranks.get("carat", 1)), int(ranks.get("cut", 1)), int(ranks.get("clarity", 1))))
+		if expression.has("term"):
+			var named: String = str(expression.term)
+			if named in ["highest_sum", "lowest_sum"]:
+				return "the %s %s dice" % ["highest" if named == "highest_sum" else "lowest", _say(expression.get("count", {"const": 1}), ranks)]
+		if expression.has("op"):
+			var spoken: PackedStringArray = []
+			for argument in expression.get("args", []):
+				spoken.append(("(" + _say(argument, ranks) + ")") if _compound(argument) and _reads_hand(argument) and str(expression.op) != "+" else _say(argument, ranks))
+			match str(expression.op):
+				"+": return " + ".join(spoken)
+				"-": return " − ".join(spoken)
+				"*": return " × ".join(spoken)
+				"floor_div": return "floor(%s / %s)" % [spoken[0], spoken[1]] if spoken.size() > 1 else spoken[0]
+				"min": return "the lower of " + " and ".join(spoken)
+				"max": return "the higher of " + " and ".join(spoken)
+				"by_cut": return "%s × %s" % [spoken[0], str(snappedf(float(clampi(int(ranks.get("cut", 1)), 1, 5) + 3) / 4.0, 0.01))]
 	if expression.has("const"):
 		return str(int(expression["const"]))
 	if expression.has("rank"):
@@ -474,6 +496,16 @@ static func _say(expression: Variant) -> String:
 			"max": return "the higher of " + " and ".join(parts)
 			"by_cut": return parts[0] + " × M(K)"
 	return "0"
+
+static func _reads_hand(expression: Variant) -> bool:
+	if not expression is Dictionary:
+		return false
+	if expression.has("term"):
+		return true
+	for argument in expression.get("args", []):
+		if _reads_hand(argument):
+			return true
+	return false
 
 static func _compound(expression: Variant) -> bool:
 	return expression is Dictionary and expression.has("op") and expression.get("args", []).size() > 1

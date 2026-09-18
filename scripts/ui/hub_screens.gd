@@ -15,6 +15,9 @@ const AtlasMap = preload("res://scripts/ui/atlas_map.gd")
 const GemView = preload("res://scripts/ui/gem_view.gd")
 const GemBadge = preload("res://scripts/ui/gem_badge.gd")
 const ItemBoard = preload("res://scripts/ui/item_board.gd")
+const GemPanel = preload("res://scripts/ui/gem_panel.gd")
+const GemText = preload("res://scripts/ui/gem_text.gd")
+const Requirements = preload("res://scripts/core/requirements.gd")
 const RARITY_NAMES := ["", "Common", "Uncommon", "Rare", "Legendary"]
 
 var ui: Control
@@ -90,11 +93,13 @@ func _collection_card(parent: Node, row: Dictionary) -> void:
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var detail := ""
 	match state:
-		"owned": detail = "C%d  ·  %s  ·  %s" % [int(row.gem.carat), Catalog.cut_name(int(row.gem.cut)), Catalog.clarity_name(int(row.gem.clarity))]
 		"seen": detail = "%s  ·  not owned" % RARITY_NAMES[clampi(int(row.rarity), 1, 4)]
 		_: detail = "Not yet found"
-	var detail_label: Label = ui._label(card, detail, 11, ui.PAPER if state == "owned" else ui.MUTED)
-	detail_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if state == "owned":
+		ui._gem_marks_row(card, row.gem, 13)
+	else:
+		var detail_label: Label = ui._label(card, detail, 11, ui.MUTED)
+		detail_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if state == "owned":
 		ui._button(card, "Look closer", func(): _gem_sheet(row.gem, collection))
 	elif state == "seen":
@@ -112,12 +117,13 @@ func _gem_sheet(gem: Dictionary, back: Callable, owned := true) -> void:
 	if owned:
 		ui._gem_title_row(body, gem, 16, ui.PAPER, false)
 	ui._label(body, "%s  ·  %s gem — %s." % [RARITY_NAMES[clampi(int(definition.get("rarity", 1)), 1, 4)], str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "")), str(Catalog.color_definition(str(gem.get("key", ""))).get("role", "")).to_lower()], 14, ui.MUTED, true)
-	ui._label(body, str(definition.get("trigger", "")), 15, ui.GREEN, true)
 	if owned:
+		GemPanel.gem_requirement(body, gem, 15)
 		ui._formula_rows(body, gem, -1, 15)
 		ui._label(body, "Worth %d gold." % Profile.sell_value(gem), 14, ui.GOLD)
 	else:
-		ui._label(body, str(definition.get("formula", "")), 14, ui.PAPER, true)
+		GemPanel.requirement_row(body, Requirements.skill(str(gem.get("key", ""))), 15)
+		GemPanel.rich_rule(body, str(definition.get("formula", "")), 14, ui.PAPER)
 		ui._label(body, "You have seen one of these but do not own it. The jeweller may stock it.", 14, ui.MUTED, true)
 	ui._button(box, "Back", back)
 
@@ -150,7 +156,10 @@ func shop() -> void:
 		ui._gem_details(card, gem)
 		var owned_copy: Dictionary = profile.collection.get(gem.key, {})
 		if not owned_copy.is_empty():
-			ui._label(card, "Yours: C%d K%d L%d — this one is worth %d gold more." % [int(owned_copy.carat), int(owned_copy.cut), int(owned_copy.clarity), Profile.sell_value(gem) - Profile.sell_value(owned_copy)], 12, ui.GREEN, true)
+			var yours: HBoxContainer = ui._hbox(card, 8)
+			ui._label(yours, "Yours:", 12, ui.GREEN)
+			ui._gem_marks_row(yours, owned_copy, 12).size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+			ui._label(yours, "— this one is worth %d gold more." % (Profile.sell_value(gem) - Profile.sell_value(owned_copy)), 12, ui.GREEN, true)
 		var short: int = int(offer.price) - int(profile.gold)
 		var caption := "Sold" if offer.sold else ("Need %d more gold" % short if short > 0 else "Buy  ·  %d gold" % int(offer.price))
 		var buy: Button = ui._button(card, caption, func():
@@ -253,8 +262,8 @@ func heroes() -> void:
 	UiKit.icon(figure, Forge.unit(viewing_hero), 180).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	ui._label(figure, str(definition.get("name", "")), 26, ui.GOLD)
 	ui._label(figure, "%d HP  ·  %s" % [int(definition.get("max_hp", 0)), ui._join_values(definition.get("dice", []))], 14, ui.GREEN)
-	ui._label(figure, "%s: %s" % [str(definition.get("trait_name", "")), str(definition.get("description", ""))], 13, ui.MUTED, true)
-	figure.custom_minimum_size.x = 300
+	ui._hero_abilities(figure, viewing_hero, 13)
+	figure.custom_minimum_size.x = 320
 	var chosen: bool = ui.menu_hero.to_upper() == viewing_hero
 	ui._button(figure, "This hero goes down the mine" if chosen else "Take this hero on the next expedition", func():
 		ui._choose_hero(viewing_hero)
@@ -262,10 +271,11 @@ func heroes() -> void:
 	var sockets: VBoxContainer = ui._vbox(main, 8)
 	sockets.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var loadout: Array = record.get("loadout", [])
+	var hero_sockets: Array = Catalog.hero_sockets(viewing_hero)
 	var socketed: Array = []
-	for key in loadout:
-		if profile.collection.has(key):
-			socketed.append(_owned(profile, key))
+	for index in range(hero_sockets.size()):
+		var key: String = str(loadout[index]) if index < loadout.size() else ""
+		socketed.append(_owned(profile, key) if profile.collection.has(key) else {})
 	var reserve: Array = []
 	var owned_keys: Array = profile.collection.keys()
 	owned_keys.sort_custom(func(a: String, b: String) -> bool:
@@ -276,8 +286,8 @@ func heroes() -> void:
 		if not key in loadout:
 			reserve.append(_owned(profile, key))
 	ItemBoard.build(ui, sockets, {
-		"kind": "loadout", "title": "LOADOUT  ·  SIX SOCKETS", "slots": Profile.LOADOUT_SLOTS, "socketed": socketed, "reserve": reserve, "edge": 64,
-		"hint": "Left to right is the order they resolve. Drag gems in, out and between sockets; double-click to set or take one off.",
+		"kind": "loadout", "title": "LOADOUT  ·  CARRY %d OF %d" % [Profile.LOADOUT_SLOTS, hero_sockets.size()], "slots": hero_sockets.size(), "socketed": socketed, "reserve": reserve, "edge": 64, "fixed": true,
+		"hint": "Each socket takes only its own Color; a prismatic one takes any. Three gems go down the mine — the other sockets open underground, for what you find there.",
 		"reserve_title": "YOUR COLLECTION  ·  %d GEMS" % profile.collection.size(),
 		"empty_reserve": "Every gem you own is socketed. Bring more home, or buy from the jeweller.",
 		"art": func(gem: Dictionary, holder: Control, edge: float):
@@ -286,32 +296,63 @@ func heroes() -> void:
 			holder.add_child(badge),
 		"caption": func(gem: Dictionary) -> String: return str(Catalog.SKILLS.get(gem.key, {}).get("name", gem.key)),
 		"tint": func(gem: Dictionary) -> Color: return ui._gem_color(gem),
-		"tip": func(gem: Dictionary) -> String: return "%s\nC%d  ·  %s  ·  %s\n%s" % [str(Catalog.SKILLS.get(gem.key, {}).get("name", gem.key)), int(gem.carat), Catalog.cut_name(int(gem.cut)), Catalog.clarity_name(int(gem.clarity)), str(Catalog.SKILLS.get(gem.key, {}).get("trigger", ""))],
+		"tip": func(gem: Dictionary) -> String: return "%s\n%s\nRequires: %s" % [ui._gem_name(gem), GemText.title(gem), str(Requirements.skill(str(gem.key), int(gem.clarity), int(gem.cut), int(gem.carat)).words)],
 		"pinned": func(gem: Dictionary) -> String: return "Strike stays in every loadout." if gem.key == "STRIKE" else "",
+		"socket_color": func(index: int) -> String: return str(hero_sockets[index]),
+		"socket_locked": func(index: int) -> String: return "" if index < Profile.LOADOUT_SLOTS else "Opens once the expedition begins. Only %d gems can be carried into the mine." % Profile.LOADOUT_SLOTS,
+		"fits": func(gem: Dictionary, index: int) -> String: return ui._socket_refusal(gem, str(hero_sockets[index])),
 		"place": func(gem: Dictionary, index: int, occupant: Dictionary):
-			var next := loadout.duplicate()
-			if not occupant.is_empty():
-				if occupant.key == "STRIKE":
-					ui._notify("Strike stays in every loadout. Drop this one on another socket.")
+			var next := _carried(loadout)
+			if index < 0:
+				index = _open_carried(hero_sockets, next, str(gem.key))
+				if index < 0:
+					ui._notify("No open carried socket takes a %s gem. Drop it onto a socket to replace what is there." % Catalog.socket_name(Catalog.gem_color(str(gem.key))))
 					return
-				next[next.find(occupant.key)] = gem.key
-			elif next.size() >= Profile.LOADOUT_SLOTS:
-				ui._notify("All six sockets are full. Drop it onto the gem it should replace.")
+			if index >= Profile.LOADOUT_SLOTS:
+				ui._notify("That socket opens once the expedition begins.")
 				return
-			else:
-				next.append(gem.key)
+			if not occupant.is_empty() and occupant.key == "STRIKE" and gem.key != "STRIKE":
+				ui._notify("Strike stays in every loadout. Drop this one on another socket.")
+				return
+			if next.has(gem.key):
+				next[next.find(gem.key)] = ""
+			next[index] = gem.key
 			_set_loadout(next),
 		"move": func(from: int, to: int):
-			var next := loadout.duplicate()
-			var held = next[from]
-			next[from] = next[to]
-			next[to] = held
+			var next := _carried(loadout)
+			if to >= Profile.LOADOUT_SLOTS or from >= Profile.LOADOUT_SLOTS:
+				return
+			var moving: String = next[from]
+			var staying: String = next[to]
+			next[to] = moving
+			next[from] = staying if staying.is_empty() or Catalog.socket_fits(str(hero_sockets[from]), staying) else ""
+			if staying == "STRIKE" and next[from] != "STRIKE":
+				ui._notify("Strike stays in every loadout, and it does not fit the socket this came from.")
+				return
 			_set_loadout(next),
 		"remove": func(gem: Dictionary):
-			var next := loadout.duplicate()
-			next.erase(gem.key)
+			var next := _carried(loadout)
+			if next.has(gem.key):
+				next[next.find(gem.key)] = ""
 			_set_loadout(next),
 		"inspect": func(gem: Dictionary): _gem_sheet(gem, heroes)})
+
+func _carried(loadout: Array) -> Array:
+	var next: Array = []
+	for index in range(Profile.LOADOUT_SLOTS):
+		next.append(str(loadout[index]) if index < loadout.size() else "")
+	return next
+
+func _open_carried(hero_sockets: Array, next: Array, key: String) -> int:
+	var fallback := -1
+	for index in range(Profile.LOADOUT_SLOTS):
+		if not str(next[index]).is_empty() or not Catalog.socket_fits(str(hero_sockets[index]), key):
+			continue
+		if str(hero_sockets[index]) != Catalog.SOCKET_ANY:
+			return index
+		if fallback < 0:
+			fallback = index
+	return fallback
 
 func _owned(profile: Dictionary, key: String) -> Dictionary:
 	## A collection record as a board item: the key doubles as its id.
@@ -410,6 +451,7 @@ func set_out() -> void:
 	ui._label(hero_text, str(Catalog.definitions("heroes").get(hero_key, {}).get("name", hero_key)), 22, ui.PAPER)
 	var names: Array = []
 	for key in profile.get("heroes", {}).get(hero_key, {}).get("loadout", []):
+		if str(key).is_empty(): continue
 		names.append(str(Catalog.SKILLS.get(key, {}).get("name", key)))
 	ui._label(hero_text, " · ".join(names), 13, ui.GOLD, true)
 	ui._button(hero_panel, "Change at the armor stand", heroes)

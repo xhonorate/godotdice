@@ -13,6 +13,7 @@ export const SECTIONS = [
 			name: "New Hero", max_hp: 80, dice: ["D6", "D6", "D6", "D8", "D8"],
 			trait: "STAND_FIRM", trait_name: "Stand Firm", description: "",
 			starting_gems: [["STRIKE", 1, 1, 1], ["BLOCK", 1, 1, 1]], color: "9fd08b",
+			sockets: ["RED", "BLUE", "ANY", "ANY", "BLUE", "GREEN"], signature: "UNBREAKABLE_VOW",
 		}),
 		fields: [
 			{ key: "name", label: "Display name", type: "text" },

@@ -94,8 +94,8 @@ export function validatePack(content, registry) {
 		else for (const die of entry.dice)
 			if (!(content.dice || {})[die]) add("error", "heroes", id, "dice", `No such die: ${die}.`);
 		const starters = entry.starting_gems;
-		if (!Array.isArray(starters) || !starters.length || starters.length > 6) {
-			add("error", "heroes", id, "starting_gems", "Between one and six starting gems.");
+		if (!Array.isArray(starters) || !starters.length || starters.length > 3) {
+			add("error", "heroes", id, "starting_gems", "Between one and three starting gems: only three sockets can be filled before an expedition.");
 		} else {
 			const seen = [];
 			for (const starter of starters) {

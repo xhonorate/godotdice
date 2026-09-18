@@ -3,6 +3,7 @@ const Catalog = preload("res://scripts/core/catalog.gd")
 const Combat = preload("res://scripts/core/combat.gd")
 const RandomSource = preload("res://scripts/core/random_source.gd")
 const ContentPack = preload("res://scripts/core/content_pack.gd")
+const Requirements = preload("res://scripts/core/requirements.gd")
 var checks: int = 0
 var failures: Array = []
 
@@ -17,6 +18,8 @@ func _init() -> void:
 	_test_authoring_and_forecasts()
 	_test_white_gems()
 	_test_colour_gems()
+	_test_signatures()
+	_test_requirements()
 	print("Combat/content: %d assertions, %d failures" % [checks,failures.size()])
 	for failure in failures:
 		printerr("FAIL: "+str(failure))
@@ -39,6 +42,9 @@ func hero(key: String = "ARDOR", id: String = "h") -> Dictionary:
 	unit.initial_hand = unit.hand.duplicate(true)
 	unit.gems = []
 	unit.trait = ""
+	## Fixtures build hands for one gem at a time; a signature they happen to open would add
+	## its own effects to every count. Signatures have their own tests.
+	unit.signature = ""
 	return unit
 
 func state_for(unit: Dictionary, enemy: Dictionary = {}) -> Dictionary:
@@ -693,3 +699,82 @@ func _test_colour_gems() -> void:
 			if action.active:
 				said = said or not Combat.effects_summary(action.effects).is_empty()
 		check(said,"%s fires on one of its own hands and says what it did" % key)
+
+func _test_signatures() -> void:
+	## Every hero has a signature: one very hard hand that does something enormous, resolved
+	## at the head of the slot so every gem after it builds on it.
+	for key in Catalog.HEROES:
+		var definition: Dictionary = Catalog.HEROES[key]
+		check(Catalog.SIGNATURES.has(str(definition.get("signature", ""))), "%s has a registered signature" % key)
+		check(definition.sockets.size() == 6 and definition.sockets[0] == "RED" and definition.sockets[1] == "BLUE", "%s opens with a Red then a Blue socket" % key)
+		var prismatic: int = definition.sockets.count("ANY")
+		check(prismatic >= 1 and prismatic <= 2, "%s has one or two prismatic sockets" % key)
+		check(not Requirements.signature(str(definition.signature)).is_empty(), "%s's signature has a requirement to draw" % key)
+	var ardor: Dictionary = Catalog.hero("ARDOR", "vow")
+	ardor.gems = []
+	ardor.trait = ""
+	ardor.hand = hand([6, 6, 6, 3, 6])
+	var ally: Dictionary = Catalog.hero("KAIT", "ally")
+	ally.gems = []
+	ally.hand = hand([1, 1, 1, 1, 2])
+	var state: Dictionary = state_for(ardor)
+	state.heroes.append(ally)
+	var second: Dictionary = Catalog.enemy("SLIME", "e2")
+	second.hp = 1000
+	second.max_hp = 1000
+	state.enemies.append(second)
+	var vow: Dictionary = Combat.signature_preview(ardor, state)
+	check(vow.active and vow.contributing_dice.size() == 4, "Four of a kind opens Unbreakable Vow on the four matching dice")
+	var events: Array = []
+	Combat.resolve_skill(ardor, vow, state, events, {"id": Combat.SIGNATURE_CELL})
+	check(ardor.block == 20 and ally.block == 20, "Unbreakable Vow gives every living hero 20 block")
+	check(state.enemies[0].hp == 1000 - 24 and second.hp == 1000 - 24, "Unbreakable Vow hits every enemy for 12 + twice the matched value")
+	check(events.any(func(event: Dictionary) -> bool: return event.kind == "skill" and str(event.get("gem_id", "")) == Combat.SIGNATURE_CELL), "A signature activation names its card, not a socket")
+	ardor.hand = hand([6, 6, 6, 3, 3])
+	check(not Combat.signature_preview(ardor, state).active, "A full house is not four of a kind")
+	check(str(Combat.signature_preview(ardor, state).reason) == "Needs four of a kind", "A dormant signature says what it needs in words")
+	var kait: Dictionary = Catalog.hero("KAIT", "odds")
+	kait.gems = []
+	kait.trait = ""
+	kait.hand = hand([4, 4, 3, 3, 19])
+	var odds_state: Dictionary = state_for(kait)
+	check(Combat.signature_preview(kait, odds_state).active, "A total of 33 opens Long Odds")
+	Combat.resolve_turn(odds_state, RandomNumberGenerator.new())
+	check(odds_state.enemies[0].hp == 1000 - 66 and odds_state.enemies[0].statuses.stun == 0, "Long Odds hits the target for the total twice, and its stun lands before the enemy's slot spends it")
+	kait.hand = hand([4, 4, 3, 3, 18])
+	check(not Combat.signature_preview(kait, odds_state).active, "A total of 32 does not")
+	var max_hero: Dictionary = Catalog.hero("MAX", "plan")
+	max_hero.gems = []
+	max_hero.trait = ""
+	max_hero.hand = hand([2, 3, 4, 5, 6])
+	var plan_state: Dictionary = state_for(max_hero)
+	var plan: Dictionary = Combat.signature_preview(max_hero, plan_state)
+	check(plan.active and plan.effects.size() == 2 and int(plan.effects[0].amount) == 16, "A straight of five opens Master Plan for 10 + the top of the run")
+	max_hero.hand = hand([2, 3, 4, 5, 5])
+	check(not Combat.signature_preview(max_hero, plan_state).active, "A straight of four does not open Master Plan")
+	## A signature never becomes the thing an Echo repeats.
+	max_hero.hand = hand([2, 3, 4, 5, 6])
+	max_hero.echo_source = {}
+	Combat.resolve_skill(max_hero, Combat.signature_preview(max_hero, plan_state), plan_state, [], {"id": Combat.SIGNATURE_CELL})
+	check(max_hero.get("echo_source", {}).is_empty(), "Echo does not remember a signature")
+
+func _test_requirements() -> void:
+	## Requirements are drawn as marks and said in words that never name a rank by its letter.
+	var kinds: Dictionary = {}
+	var letters := RegEx.new()
+	letters.compile("(^|[^A-Za-z])[CKL]([^A-Za-z]|$)|M[(]|F[(]")
+	for key in Catalog.SKILLS:
+		for clarity in range(1, 6):
+			var requirement: Dictionary = Requirements.skill(key, clarity, 3, 8)
+			check(str(requirement.kind) in Requirements.KINDS, "%s at Clarity %d reads as a known requirement kind" % [key, clarity])
+			check(letters.search(str(requirement.words) + " " + str(requirement.label) + " " + str(requirement.need)) == null, "%s's requirement never names a rank by a letter" % key)
+			kinds[str(requirement.kind)] = true
+			var hero_unit: Dictionary = hero()
+			var preview: Dictionary = Combat.preview(hero_unit, Catalog.gem(key, "req", 8, 3, clarity), hand([1, 1, 2, 3, 20]), state_for(hero_unit))
+			check(letters.search(str(preview.reason)) == null, "%s's dormant reason never names a rank by a letter" % key)
+	check(Requirements.skill("STRIKE").label == "highest die" and Requirements.skill("STRIKE", 1, 2).label == "highest 2 dice", "Strike's requirement says what it scales with")
+	check(Requirements.skill("MULTISTRIKE", 1).amount == 5 and Requirements.skill("MULTISTRIKE", 5).amount == 3, "A straight's length follows Clarity")
+	check(Requirements.skill("QUARTET", 1).kind == "quad" and Requirements.skill("QUARTET", 5).kind == "triple", "Quartet reads four of a kind until Flawless")
+	for kind in ["scale", "pair", "two_pairs", "triple", "quad", "full_house", "straight", "odd", "even", "distinct", "value", "total_at_least", "total_at_most", "high_at_least"]:
+		check(kinds.has(kind), "some shipped gem uses the %s requirement" % kind)
+	check(Requirements.passive("CALCULATED_RISK").kind == "climb" and Requirements.passive("SECOND_THOUGHT").kind == "once", "Passives have requirements of their own")

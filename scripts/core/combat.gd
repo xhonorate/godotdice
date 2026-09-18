@@ -3,6 +3,7 @@ extends RefCounted
 ## Deterministic rules. Presentation never executes or repeats an effect.
 const Catalog = preload("res://scripts/core/catalog.gd")
 const GemRules = preload("res://scripts/core/gem_rules.gd")
+const Requirements = preload("res://scripts/core/requirements.gd")
 
 static func roll_die(die: Dictionary, rng: RandomNumberGenerator, roll_count: int = 0) -> Dictionary:
 	var faces: Array = die.get("faces",[])
@@ -169,10 +170,6 @@ static func reroll_allowance(carat: int, cut: int) -> int:
 	## worth exactly as much as casting it once.
 	return mini(MAX_REROLLS-1,2+floori(float(clampi(carat,1,24))/8.0)+(1 if clampi(cut,1,5) == 5 else 0))
 
-static func _lowered(text: String) -> String:
-	## Drops only the leading capital, so rank labels such as "L1-2" survive the join.
-	return text.substr(0, 1).to_lower()+text.substr(1) if not text.is_empty() else text
-
 static func effect(kind: String, amount: int, target: String = "self") -> Dictionary:
 	return {"kind":kind, "amount":maxi(0,amount), "target":target}
 
@@ -250,9 +247,10 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 		output.active = authored.active
 		output.contributing_dice = authored.selected
 		output.effects = authored.effects
-		output.summary = effects_summary(output.effects,actor,state,key) if authored.active else str(definition.get("trigger","Its trigger was not met."))
+		var authored_need: String = "Needs "+str(Requirements.skill(key,l,k,c).need)
+		output.summary = effects_summary(output.effects,actor,state,key) if authored.active else authored_need
 		if not authored.active:
-			output.reason = str(definition.get("trigger","Its trigger was not met."))
+			output.reason = authored_need
 		return output
 	match rule:
 		"STRIKE":
@@ -463,9 +461,89 @@ static func preview(actor: Dictionary, item: Dictionary, hand: Array, state: Dic
 	output.active = active
 	output.effects = effects if active else []
 	output.contributing_dice = selected if active else []
-	output.reason = "Ready" if active else "Needs "+_lowered(str(definition.trigger))
+	output.reason = "Ready" if active else "Needs "+str(Requirements.skill(key,l,k,c).need)
 	output.summary = effects_summary(output.effects,actor,state,key) if active else output.reason
 	return output
+
+## The id a signature activation carries where a gem would carry its own, so the interface
+## lights the signature's card rather than a socket.
+const SIGNATURE_CELL: String = "signature"
+const PASSIVE_CELL: String = "passive"
+
+static func signature_preview(actor: Dictionary, state: Dictionary = {}) -> Dictionary:
+	## A hero's signature against the hand in front of it: whether the hand opened it, the dice
+	## that did, and the effects it would land. Signatures are fixed amounts that grow with the
+	## hand that made them, never with a gem's ranks.
+	var signature_id: String = str(actor.get("signature",""))
+	var definition: Dictionary = Catalog.SIGNATURES.get(signature_id,{})
+	var output: Dictionary = {"valid":not definition.is_empty(), "active":false, "signature":true, "key":signature_id,
+		"name":str(definition.get("name",signature_id)), "effects":[], "contributing_dice":[], "reason":"", "summary":""}
+	if definition.is_empty() or int(actor.get("hp",0)) <= 0:
+		return output
+	var normalized: Array = _normalized_hand(actor.get("hand",[]))
+	if normalized.is_empty():
+		return output
+	var groups: Dictionary = {}
+	var total: int = 0
+	for roll in normalized:
+		if not groups.has(roll.value):
+			groups[roll.value] = []
+		groups[roll.value].append(roll.die_id)
+		total += roll.value
+	var selected: Array = []
+	var effects: Array = []
+	match signature_id:
+		"UNBREAKABLE_VOW":
+			var quads: Array = _matching(groups,4)
+			if not quads.is_empty():
+				var matched: int = quads.back()
+				selected = groups[matched].slice(0,4)
+				effects = [effect("block",SIGNATURE_VOW_BLOCK,"ally"),effect("damage",SIGNATURE_VOW_DAMAGE+2*matched,"enemies")]
+		"LONG_ODDS":
+			if total >= SIGNATURE_ODDS_TOTAL:
+				for roll in normalized:
+					selected.append(roll.die_id)
+				effects = [effect("damage",total,"enemy"),effect("damage",total,"enemy"),effect("stun",1,"enemy")]
+		"MASTER_PLAN":
+			var run: Array = _straight(groups,5)
+			if not run.is_empty():
+				for value in run:
+					selected.append(groups[value][0])
+				effects = [effect("damage",SIGNATURE_PLAN_DAMAGE+int(run.back()),"enemies"),effect("stun",1,"enemies")]
+	output.active = not effects.is_empty()
+	output.effects = effects
+	output.contributing_dice = selected
+	output.reason = "Ready" if output.active else "Needs "+str(Requirements.signature(signature_id).need)
+	output.summary = effects_summary(effects,actor,state) if output.active else output.reason
+	return output
+
+const SIGNATURE_VOW_BLOCK: int = 20
+const SIGNATURE_VOW_DAMAGE: int = 12
+const SIGNATURE_ODDS_TOTAL: int = 33
+const SIGNATURE_PLAN_DAMAGE: int = 10
+
+static func passive_state(actor: Dictionary, state: Dictionary = {}) -> Dictionary:
+	## Whether a hero's passive is working on the hand in front of it, for the interface. The
+	## rule itself lives in `_start_trait` and the Second Thought reroll.
+	var trait_id: String = str(actor.get("trait",""))
+	var active: bool = false
+	var dice: Array = []
+	match trait_id:
+		"STAND_FIRM":
+			var pair: Dictionary = preview(actor,Catalog.gem("BLOCK","trait"),actor.get("hand",[]),state)
+			active = pair.get("active",false)
+			dice = pair.get("contributing_dice",[])
+		"CALCULATED_RISK":
+			var initial: Dictionary = {}
+			for roll in actor.get("initial_hand",[]):
+				initial[str(roll.die_id)] = int(roll.value)
+			for roll in actor.get("hand",[]):
+				if initial.has(str(roll.die_id)) and int(roll.value)-int(initial[str(roll.die_id)]) >= 4:
+					active = true
+					dice.append(str(roll.die_id))
+		"SECOND_THOUGHT":
+			active = int(actor.get("trait_charges",0)) > 0
+	return {"key":trait_id, "active":active, "contributing_dice":dice}
 
 static func preview_loadout(actor: Dictionary, state: Dictionary) -> Array:
 	## Preview one actor's ordered batch against the current board. Earlier gems,
@@ -482,6 +560,10 @@ static func preview_loadout(actor: Dictionary, state: Dictionary) -> Array:
 	var encounter_finished: bool = false
 	if not skipped:
 		_start_trait(simulated,copied,[])
+		var signature: Dictionary = signature_preview(simulated,copied)
+		if signature.get("active",false):
+			resolve_skill(simulated,signature,copied,[],{"id":SIGNATURE_CELL})
+			encounter_finished = _living(copied.get("heroes",[])).is_empty() or _living(copied.get("enemies",[])).is_empty()
 	for item in simulated.get("gems",[]):
 		if not item.get("equipped",false):
 			continue
@@ -520,7 +602,7 @@ static func effects_summary(effects: Array, actor: Dictionary = {}, state: Dicti
 			## than a count: only a limited one is worth phrasing as "up to".
 			suffix = " to up to "+str(action_effect.target_limit)+" enemies" if action_effect.has("target_limit") else " to all enemies"
 		elif action_effect.get("target","") == "ally":
-			suffix = " to ally"
+			suffix = " to every living hero"
 		elif action_effect.get("target","") == "self":
 			suffix = " to self"
 		if action_effect.kind == "damage" and rule == "STRIKE" and Catalog.has_relic(actor,"STEADY_HAND") and not actor.get("rerolled",false):
@@ -783,6 +865,13 @@ static func resolve_turn(state: Dictionary, rng: RandomNumberGenerator) -> Array
 		elif eligible:
 			_start_trait(actor,state,events)
 			if actor.get("side","hero") == "hero":
+				## The signature goes first, as it sits first on the board: the hardest hand to
+				## make is the one every gem after it gets to build on.
+				var signature: Dictionary = signature_preview(actor,state)
+				if signature.get("active",false):
+					resolve_skill(actor,signature,state,events,{"id":SIGNATURE_CELL})
+					if _outcome(state,events):
+						return events
 				for item in actor.get("gems",[]):
 					if not item.get("equipped",false):
 						continue
@@ -861,7 +950,7 @@ static func resolve_skill(actor: Dictionary, action: Dictionary, state: Dictiona
 	## echoes itself. Only a skill that landed an amount is worth remembering, so an Echo —
 	## and a gem that did nothing but change the dice — leaves the memory where it was
 	## rather than wiping it on the way past.
-	if not action.get("echoed",false):
+	if not action.get("echoed",false) and not action.get("signature",false):
 		var memory: Dictionary = _echoable(action)
 		if not memory.is_empty():
 			actor.echo_source = memory

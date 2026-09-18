@@ -525,9 +525,9 @@ func _refresh() -> void:
 			"Front alpha %.2f over back %.2f · %.0f%% opaque%s" % [
 				GemMesh.transparency(clarity), _back_alpha(), _opacity() * 100.0,
 				"  (refraction overrides both)" if Tuning.value("refraction") > 0.001 and not _grounded() else ""],
-			_flaw_line().left(1).to_upper() + _flaw_line().substr(1),
-			"Trigger: " + str(Catalog.SKILLS[key].trigger)]:
+			_flaw_line().left(1).to_upper() + _flaw_line().substr(1)]:
 		GemPanel.note(_facts, line, 13, UiKit.MUTED)
+	GemPanel.gem_requirement(_facts, gem, 13)
 
 func _back_alpha() -> float:
 	return lerpf(Tuning.value("far_alpha_dull"), Tuning.value("far_alpha_clear"), GemMesh.brilliance(clarity))

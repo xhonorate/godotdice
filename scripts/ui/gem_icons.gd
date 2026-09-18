@@ -31,7 +31,23 @@ const HINTS := {
 	"target": "Distinct living enemies this can reach.",
 	"count": "How many dice in your hand qualify.",
 	"run": "The highest value in the run of consecutive dice this used.",
-	"reroll": "How many times you may reroll in one turn. A White gem raises the allowance for the rest of the battle; it never adds to itself."
+	"reroll": "How many times you may reroll in one turn. A White gem raises the allowance for the rest of the battle; it never adds to itself.",
+	"quad": "Four of a kind: four dice showing the same value.",
+	"two_pairs": "Two pairs: two dice of one value and two of another.",
+	"full_house": "Full house: three dice of one value and two of another.",
+	"straight3": "Straight of 3: three consecutive values, in any order.",
+	"straight4": "Straight of 4: four consecutive values, in any order.",
+	"straight5": "Straight of 5: five consecutive values, in any order.",
+	"odd": "Odd dice: results of 1, 3, 5 and so on.",
+	"even": "Even dice: results of 2, 4, 6 and so on.",
+	"distinct": "Different values: no two of the counted dice alike.",
+	"face": "A die showing one exact value.",
+	"total_high": "Your five dice added together, at or above a line.",
+	"total_low": "Your five dice added together, at or below a line.",
+	"peak": "Your highest die, at or above a line.",
+	"climb": "A die you rerolled that came back higher than it started.",
+	"once": "Once per battle.",
+	"lock": "Locked until the expedition begins."
 }
 
 # --- shape vocabulary ---------------------------------------------------------
@@ -106,6 +122,53 @@ static func _shield(centre: Vector2, half_width: float, half_height: float) -> P
 		centre + Vector2(-half_width, half_height * 0.10),
 		centre + Vector2(-half_width, -half_height * 0.62)])
 
+static func _dice(origins: Array, edge: float, thickness: float, pips: Array, pip_radius: float = -1.0) -> Array:
+	## Square dice seen face on, each at a top-left origin. A die with a thickness is an outline
+	## with its pips painted in; one without is solid with its pips punched through, so a
+	## second group reads apart from the first even tinted one colour.
+	var built: Array = []
+	var radius: float = pip_radius if pip_radius > 0.0 else edge * 0.17
+	for origin in origins:
+		var x0: float = float(origin[0])
+		var y0: float = float(origin[1])
+		if thickness > 0.0:
+			built.append_array(_ring(x0, y0, x0 + edge, y0 + edge, thickness))
+		else:
+			built.append({"op": "add", "poly": _rect(x0, y0, x0 + edge, y0 + edge)})
+		for pip in pips:
+			var at := Vector2(x0 + edge * float(pip[0]), y0 + edge * float(pip[1]))
+			built.append({"op": "add" if thickness > 0.0 else "sub", "circle": [at.x, at.y, radius]})
+	return built
+
+static func _stair(steps: int) -> Array:
+	## A straight: a stair of dice, one step per value it needs, each step a column with a die
+	## face punched into its top. Columns rather than floating squares, so a five-step stair
+	## still reads as a stair at the size of a line of text.
+	var gap := 0.035
+	var width: float = (0.98 - gap * float(steps - 1)) / float(steps)
+	var built: Array = []
+	for index in steps:
+		var x0: float = 0.01 + float(index) * (width + gap)
+		var top: float = 0.62 - 0.56 * float(index) / float(maxi(1, steps - 1))
+		built.append({"op": "add", "poly": _rect(x0, top, x0 + width, 0.96)})
+		var hole: float = width * 0.46
+		built.append({"op": "sub", "poly": _rect(x0 + (width - hole) * 0.5, top + width * 0.22, x0 + (width + hole) * 0.5, top + width * 0.22 + hole)})
+	return built
+
+static func _moved(shapes: Array, offset: Vector2, scale: float) -> Array:
+	## Another glyph shrunk and shifted, so a mark can lend its drawing to a compound one.
+	var moved: Array = []
+	for shape in shapes:
+		if shape.has("circle"):
+			var circle: Array = shape.circle
+			moved.append({"op": shape.op, "circle": [float(circle[0]) * scale + offset.x, float(circle[1]) * scale + offset.y, float(circle[2]) * scale]})
+		else:
+			var poly := PackedVector2Array()
+			for point in shape.poly:
+				poly.append(point * scale + offset)
+			moved.append({"op": shape.op, "poly": poly})
+	return moved
+
 static func _shapes(glyph: String) -> Array:
 	match glyph:
 		"carat":
@@ -137,11 +200,59 @@ static func _shapes(glyph: String) -> Array:
 			var shaft: PackedVector2Array = _rect(0.790, 0.380, 0.900, 0.930) if up else _rect(0.790, 0.070, 0.900, 0.620)
 			return _ring(0.030, 0.170, 0.630, 0.830, 0.105) + \
 				[{"op": "add", "poly": _poly(head)}, {"op": "add", "poly": shaft}]
+		# The hand shapes a requirement is drawn with. Every one is built from dice seen face on,
+		# the way Dice Throne draws its combinations: matching dice each wear one pip, a second
+		# group is drawn solid so two groups never read as one, a straight is dice climbing a
+		# stair, and a parity die shows a real odd or even face. No two share a silhouette.
 		"pair":
-			return _ring(0.020, 0.235, 0.470, 0.690, 0.095) + _ring(0.520, 0.320, 0.970, 0.775, 0.095)
+			return _dice([[0.03, 0.28]], 0.44, 0.085, [[0.5, 0.5]]) + _dice([[0.53, 0.28]], 0.44, 0.085, [[0.5, 0.5]])
 		"triple":
-			return _ring(0.010, 0.320, 0.350, 0.660, 0.082) + _ring(0.330, 0.365, 0.670, 0.705, 0.082) \
-				+ _ring(0.650, 0.410, 0.990, 0.750, 0.082)
+			return _dice([[0.01, 0.345], [0.345, 0.345], [0.68, 0.345]], 0.31, 0.07, [[0.5, 0.5]])
+		"quad":
+			return _dice([[0.03, 0.03], [0.53, 0.03], [0.03, 0.53], [0.53, 0.53]], 0.44, 0.08, [[0.5, 0.5]])
+		"two_pairs":
+			return _dice([[0.03, 0.03], [0.53, 0.03]], 0.44, 0.08, [[0.5, 0.5]]) \
+				+ _dice([[0.03, 0.53], [0.53, 0.53]], 0.44, 0.0, [[0.5, 0.5]])
+		"full_house":
+			return _dice([[0.02, 0.07], [0.35, 0.07], [0.68, 0.07]], 0.30, 0.065, [[0.5, 0.5]]) \
+				+ _dice([[0.185, 0.60], [0.515, 0.60]], 0.30, 0.0, [[0.5, 0.5]])
+		"straight3", "straight4", "straight5":
+			return _stair(int(glyph.substr(8)))
+		"odd":
+			return _dice([[0.06, 0.06]], 0.88, 0.09, [[0.28, 0.28], [0.5, 0.5], [0.72, 0.72]], 0.085)
+		"even":
+			return _dice([[0.06, 0.06]], 0.88, 0.09, [[0.29, 0.29], [0.71, 0.29], [0.29, 0.71], [0.71, 0.71]], 0.085)
+		"distinct":
+			return _dice([[0.01, 0.30]], 0.40, 0.075, [[0.5, 0.5]]) \
+				+ _dice([[0.59, 0.30]], 0.40, 0.075, [[0.28, 0.28], [0.72, 0.72]]) \
+				+ [{"op": "add", "poly": _bar(Vector2(0.43, 0.86), Vector2(0.57, 0.14), 0.07)}]
+		"face":
+			return _dice([[0.08, 0.08]], 0.84, 0.09, []) \
+				+ [{"op": "add", "poly": _poly([[0.5, 0.26], [0.74, 0.5], [0.5, 0.74], [0.26, 0.5]])},
+					{"op": "sub", "poly": _poly([[0.5, 0.38], [0.62, 0.5], [0.5, 0.62], [0.38, 0.5]])}]
+		"total_high", "total_low":
+			var up := glyph == "total_high"
+			return _moved(_shapes("sum"), Vector2(-0.02, 0.06), 0.66) + [{"op": "add", "poly": _poly(
+				[[0.82, 0.18], [1.0, 0.48], [0.64, 0.48]] if up else [[0.82, 0.82], [1.0, 0.52], [0.64, 0.52]])}]
+		"peak":
+			return _dice([[0.04, 0.40]], 0.52, 0.085, [[0.5, 0.5]]) \
+				+ [{"op": "add", "poly": _rect(0.0, 0.22, 0.60, 0.30)},
+					{"op": "add", "poly": _poly([[0.82, 0.10], [1.0, 0.42], [0.64, 0.42]])},
+					{"op": "add", "poly": _rect(0.77, 0.40, 0.87, 0.92)}]
+		"climb":
+			return _moved(_shapes("reroll"), Vector2(-0.04, 0.12), 0.72) + [
+				{"op": "add", "poly": _poly([[0.84, 0.08], [1.0, 0.36], [0.68, 0.36]])},
+				{"op": "add", "poly": _rect(0.79, 0.34, 0.89, 0.88)}]
+		"once":
+			return [{"op": "add", "circle": [0.5, 0.5, 0.47]}, {"op": "sub", "circle": [0.5, 0.5, 0.36]},
+				{"op": "add", "poly": _rect(0.44, 0.24, 0.57, 0.76)},
+				{"op": "add", "poly": _poly([[0.44, 0.24], [0.57, 0.24], [0.34, 0.38], [0.34, 0.30]])}]
+		"lock":
+			return [{"op": "add", "circle": [0.5, 0.36, 0.25]}, {"op": "sub", "circle": [0.5, 0.36, 0.15]},
+				{"op": "sub", "poly": _rect(0.2, 0.36, 0.8, 0.5)},
+				{"op": "add", "poly": _rect(0.18, 0.44, 0.82, 0.94)},
+				{"op": "sub", "circle": [0.5, 0.63, 0.07]},
+				{"op": "sub", "poly": _rect(0.465, 0.63, 0.535, 0.82)}]
 		"sum":
 			return [{"op": "add", "poly": _poly([
 				[0.140, 0.080], [0.860, 0.080], [0.860, 0.245], [0.425, 0.245], [0.640, 0.500],
@@ -200,9 +311,14 @@ const ENEMY_EMBLEMS := {
 	"SHATTER": "split_shield", "MENDING_GLASS": "cross", "HIGH_TIDE": "arcs",
 	"LOW_TIDE": "arcs", "ECLIPSE": "sun"}
 
+## A hero's passive and signature wear marks too, so they sit on the board like stones.
+const HERO_EMBLEMS := {
+	"STAND_FIRM": "rampart", "CALCULATED_RISK": "prism", "SECOND_THOUGHT": "eye",
+	"UNBREAKABLE_VOW": "shield_burst", "LONG_ODDS": "seven", "MASTER_PLAN": "crosshair"}
+
 static func emblem(skill_key: String) -> String:
 	var key := skill_key.to_upper()
-	return str(SKILL_EMBLEMS.get(key, ENEMY_EMBLEMS.get(key, "sword")))
+	return str(SKILL_EMBLEMS.get(key, ENEMY_EMBLEMS.get(key, HERO_EMBLEMS.get(key, "sword"))))
 
 static func _emblem_shapes(glyph: String) -> Array:
 	match glyph:

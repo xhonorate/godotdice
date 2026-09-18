@@ -216,6 +216,20 @@ func _centred(control: Control) -> Control:
 	control.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	return control
 
+func _carat_mark(parent: Node, carat: int, size_px: int, tone: Color) -> HBoxContainer:
+	## A Carat is written as its mark and its number, never as a letter. The marks are reached
+	## through the main screen: preloading the gem panel here loads a second copy of the room
+	## scene script, and the page stops recognising its own scene.
+	var cell := HBoxContainer.new()
+	cell.add_theme_constant_override("separation", 3)
+	cell.alignment = BoxContainer.ALIGNMENT_CENTER
+	cell.mouse_filter = Control.MOUSE_FILTER_PASS
+	cell.tooltip_text = "Carat %d. %s" % [carat, ui.GemIcons.hint("carat")]
+	parent.add_child(cell)
+	ui.GemIcons.glyph(cell, "carat", float(size_px) * 1.2, Color(ui.GemPanel.PROPERTY_TINTS.carat, 0.9), cell.tooltip_text)
+	_title(cell, str(carat), size_px, tone)
+	return cell
+
 func _title(parent: Node, text: String, size_px: int, tone: Color) -> Label:
 	var label: Label = ui._label(parent, text, size_px, tone)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -800,7 +814,7 @@ func _crucible(body: VBoxContainer, footer: HBoxContainer) -> void:
 		var chosen := str(gem.get("id", "")) == crucible_target
 		var tile := _card(tiles, ui._gem_color(gem), 100, chosen)
 		tile.add_child(_centred(GemBadge.make(gem, 44)))
-		_title(tile, "C%d" % int(gem.get("carat", 1)), 12, UiKit.GOLD if chosen else UiKit.MUTED)
+		_carat_mark(tile, int(gem.get("carat", 1)), 12, UiKit.GOLD if chosen else UiKit.MUTED)
 		var holder: Control = tile.get_parent()
 		holder.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		holder.tooltip_text = "%s\nCarat %d" % [ui._gem_name(gem), int(gem.get("carat", 1))]
@@ -856,9 +870,10 @@ func _crucible(body: VBoxContainer, footer: HBoxContainer) -> void:
 		var badge := GemBadge.make(fuel, 40)
 		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(badge)
-		var label: Label = ui._label(row, "%s  ·  C%d" % [ui._gem_name(fuel), int(fuel.get("carat", 1))], 13, ui._gem_color(fuel))
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var label: Label = ui._label(row, ui._gem_name(fuel), 13, ui._gem_color(fuel))
 		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var weight := _carat_mark(row, int(fuel.get("carat", 1)), 13, ui.GemPanel.PROPERTY_TINTS.carat)
+		weight.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ui._button(row, "Fuse  ·  +%d Carat" % bonus, func(): ui._crucible_preview(target, "fuse", fuel)).disabled = _ready_locked()
 	_footer(footer, "Leave the crucible")
 

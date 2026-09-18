@@ -19,8 +19,13 @@ extends RefCounted
 ##   art(item, holder: Control, edge)                  puts the picture in the holder
 ##   caption(item) -> String, tint(item) -> Color, tip(item) -> String
 ##   pinned(item) -> String                            why it may not leave its socket
-##   place(item, index: int, occupant: Dictionary)     index -1: no open socket
+##   place(item, index: int, occupant: Dictionary)     index -1: no open socket (or, fixed, "you choose")
 ##   move(from: int, to: int)                          optional
+##   fixed: bool                                       socketed is positional: one entry per socket,
+##                                                     {} for an empty one, and indices are real
+##   socket_color(index) -> String                     optional: a Colour key or "ANY", drawn as the setting
+##   socket_locked(index) -> String                    optional: why this socket cannot be filled yet
+##   fits(item, index) -> String                       optional: why this item cannot go in this socket
 ##   remove(item)                                      optional
 ##   inspect(item)                                     optional
 ##   extra(item, box: VBoxContainer)                   optional, under a tray item
@@ -29,6 +34,8 @@ extends RefCounted
 ## tray item or the tray it should go to. Clicking it again puts it down.
 
 const UiKit = preload("res://scripts/ui/ui_kit.gd")
+const GemPanel = preload("res://scripts/ui/gem_panel.gd")
+const Catalog = preload("res://scripts/core/catalog.gd")
 
 const TILE_PAD := 12.0
 
@@ -51,6 +58,8 @@ static func build(ui: Control, parent: Node, spec: Dictionary) -> VBoxContainer:
 	for index in range(slots):
 		var item: Dictionary = socketed[index] if index < socketed.size() else {}
 		_socket(ui, row, spec, board_id, index, item, locked)
+	if bool(spec.get("fixed", false)):
+		socketed = socketed.filter(func(entry: Dictionary) -> bool: return not entry.is_empty())
 	var tray := PanelContainer.new()
 	tray.add_theme_stylebox_override("panel", UiKit.panel_box(Color("111827"), Color("0b101b"), Color(UiKit.LINE, 0.8), 10, 10, 1.2, 0.0))
 	tray.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -85,8 +94,11 @@ static func _tray_takes(spec: Dictionary, data: Dictionary) -> bool:
 
 static func _socket(ui: Control, row: Node, spec: Dictionary, board_id: String, index: int, item: Dictionary, locked: bool) -> void:
 	var filled := not item.is_empty()
-	var accent: Color = Color(spec.tint.call(item)) if filled and spec.has("tint") else UiKit.LINE
-	var tile := _tile(ui, row, spec, item, accent, filled, true)
+	var fixed: bool = bool(spec.get("fixed", false))
+	var colour: String = str(spec.socket_color.call(index)) if spec.has("socket_color") else ""
+	var shut: String = str(spec.socket_locked.call(index)) if spec.has("socket_locked") else ""
+	var accent: Color = Color(spec.tint.call(item)) if filled and spec.has("tint") else (GemPanel.socket_tint(colour) if not colour.is_empty() else UiKit.LINE)
+	var tile := _tile(ui, row, spec, item, accent, filled, true, colour, not shut.is_empty())
 	var number := Label.new()
 	number.text = str(index + 1)
 	number.add_theme_font_size_override("font_size", 11)
@@ -96,7 +108,11 @@ static func _socket(ui: Control, row: Node, spec: Dictionary, board_id: String, 
 	tile.add_child(number)
 	tile.set_meta("focus_tag", "%s_socket_%d" % [str(spec.get("kind", "item")), index])
 	var tip := str(spec.tip.call(item)) if filled and spec.has("tip") else "An open socket."
-	if not locked:
+	if not filled and not colour.is_empty():
+		tip = "A prismatic socket: it takes a gem of any Color." if colour == Catalog.SOCKET_ANY else "A %s socket: it takes only %s gems." % [Catalog.socket_name(colour), Catalog.socket_name(colour)]
+	if not shut.is_empty():
+		tip += "\n" + shut
+	elif not locked:
 		tip += "\n\nDrag it, or click it and then click where it should go." if filled else "\n\nDrag a reserve item here, or click one and then click here."
 		if filled and spec.has("remove") and _pinned(spec, item).is_empty():
 			tip += " Double-click to take it out."
@@ -108,10 +124,16 @@ static func _socket(ui: Control, row: Node, spec: Dictionary, board_id: String, 
 	var socket_count: int = spec.get("socketed", []).size()
 	var data := {"board": board_id, "from": "socket", "index": index, "item": item}
 	var takes := func(incoming: Dictionary) -> bool:
+		if not shut.is_empty():
+			return false
+		if spec.has("fits") and not str(spec.fits.call(incoming.get("item", {}), index)).is_empty():
+			return false
 		return str(incoming.get("from", "")) == "reserve" or (str(incoming.get("from", "")) == "socket" and int(incoming.get("index", -1)) != index and spec.has("move"))
 	var land := func(incoming: Dictionary) -> void:
 		if str(incoming.get("from", "")) == "reserve":
-			spec.place.call(incoming.get("item", {}), index if filled else socket_count, item)
+			spec.place.call(incoming.get("item", {}), index if filled or fixed else socket_count, item)
+		elif fixed:
+			spec.move.call(int(incoming.get("index", -1)), index)
 		else:
 			spec.move.call(int(incoming.get("index", -1)), mini(index, socket_count - 1))
 	tile.set_drag_forwarding(
@@ -147,6 +169,10 @@ static func _socket(ui: Control, row: Node, spec: Dictionary, board_id: String, 
 					if filled: _hold(board_id, tile, data)
 				elif takes.call(carried):
 					land.call(carried)
+				elif not shut.is_empty():
+					ui._notify(shut)
+				elif spec.has("fits") and not str(spec.fits.call(carried.get("item", {}), index)).is_empty():
+					ui._notify(str(spec.fits.call(carried.get("item", {}), index)))
 		elif event.is_action_pressed("ui_accept") and filled and not locked and spec.has("remove") and _pinned(spec, item).is_empty():
 			tile.accept_event()
 			spec.remove.call(item))
@@ -161,7 +187,7 @@ static func _reserve_tile(ui: Control, flow: Node, spec: Dictionary, board_id: S
 	if spec.has("inspect"):
 		tip += "\nRight-click to inspect."
 	tile.tooltip_text = tip.strip_edges()
-	var open_index: int = socketed.size() if socketed.size() < slots else -1
+	var open_index: int = -1 if bool(spec.get("fixed", false)) else (socketed.size() if socketed.size() < slots else -1)
 	var data := {"board": board_id, "from": "reserve", "index": index, "item": item}
 	# A socketed item brought to a tray item trades places with it.
 	var land := func(incoming: Dictionary) -> void:
@@ -221,7 +247,7 @@ static func _drop_held(board_id: String) -> Dictionary:
 		(tile as Control).self_modulate = Color.WHITE
 	return held.data
 
-static func _tile(ui: Control, parent: Node, spec: Dictionary, item: Dictionary, accent: Color, filled: bool, socket: bool) -> PanelContainer:
+static func _tile(ui: Control, parent: Node, spec: Dictionary, item: Dictionary, accent: Color, filled: bool, socket: bool, colour := "", shut := false) -> PanelContainer:
 	var edge: float = float(spec.get("edge", 64))
 	var tile := PanelContainer.new()
 	tile.focus_mode = Control.FOCUS_ALL
@@ -236,7 +262,11 @@ static func _tile(ui: Control, parent: Node, spec: Dictionary, item: Dictionary,
 	holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(holder)
-	if socket:
+	if socket and not colour.is_empty():
+		# A setting cut to the stone it takes, drawn under whatever sits in it.
+		holder.draw.connect(func():
+			GemPanel.draw_socket(holder, holder.size * 0.5, minf(holder.size.x, holder.size.y) * 0.46, colour, filled, shut))
+	elif socket:
 		# The setting itself, drawn under whatever sits in it so an empty one still reads as a place.
 		holder.draw.connect(func():
 			var centre := holder.size * 0.5
@@ -253,7 +283,10 @@ static func _tile(ui: Control, parent: Node, spec: Dictionary, item: Dictionary,
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.add_child(art)
 		spec.art.call(item, art, edge)
-	var caption: Label = ui._label(box, str(spec.caption.call(item)) if filled and spec.has("caption") else "Open", 11, UiKit.PAPER if filled else UiKit.MUTED)
+	var empty_caption := "Open"
+	if socket and not colour.is_empty():
+		empty_caption = "Locked" if shut else ("Any Color" if colour == Catalog.SOCKET_ANY else Catalog.socket_name(colour))
+	var caption: Label = ui._label(box, str(spec.caption.call(item)) if filled and spec.has("caption") else empty_caption, 11, UiKit.PAPER if filled else (Color(accent, 0.9) if socket and not colour.is_empty() and not shut else UiKit.MUTED))
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	caption.clip_text = true
 	caption.custom_minimum_size.x = edge + TILE_PAD

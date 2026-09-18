@@ -54,14 +54,15 @@ var _host_peer := "1"
 var _last_address := "127.0.0.1"
 var _last_port := 24567
 var _last_steam_lobby := ""
-var _steam_available_once := false
-var _shutting_down := false
+var _steam: Object
+var _steam_ready := false
 
 func _init() -> void:
 	_base64_pattern.compile("^[A-Za-z0-9+/]*={0,2}$")
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	_watch_steam_invitations()
 	_check_steam_launch.call_deferred()
 
 func _check_steam_launch() -> void:
@@ -72,13 +73,22 @@ func _check_steam_launch() -> void:
 			if id.is_valid_int() and int(id) > 0:
 				invite_received.emit(id)
 				return
-	_ensure_steam_presence()
 
-func _ensure_steam_presence() -> void:
-	if _shutting_down or not is_inside_tree() or transport != null:
+## Invitations accepted in Steam (overlay or friends list) must reach the shop before any
+## Steam lobby is opened, and during offline or LAN play, so they bypass the transport.
+func _watch_steam_invitations() -> void:
+	if not Engine.has_singleton("Steam"):
 		return
-	if _steam_available_once or OS.has_environment("SteamAppId") or OS.has_environment("SteamGameId"):
-		_create_steam_transport()
+	_steam = Engine.get_singleton("Steam")
+	if not _steam.has_method("get_steam_init_result") or not _steam.has_signal("join_requested"):
+		_steam = null
+		return
+	_steam_ready = int(_steam.call("get_steam_init_result").get("status", -1)) == 0
+	if not _steam.is_connected("join_requested", _on_steam_join_requested):
+		_steam.connect("join_requested", _on_steam_join_requested)
+
+func _on_steam_join_requested(lobby_id: int, _friend_id: int) -> void:
+	invite_received.emit(str(lobby_id))
 
 func start_offline(player_name: String = "Adventurer", hero_id: String = "ardor") -> void:
 	leave()
@@ -159,7 +169,7 @@ func _create_steam_transport() -> Dictionary:
 	var initialized: Dictionary = transport.initialize()
 	if not initialized.ok:
 		return _failure(initialized.error)
-	_steam_available_once = true
+	_steam_ready = _steam != null
 	transport.lobby_created.connect(func(id: String):
 		_last_steam_lobby = id
 		_open_lobby()
@@ -170,7 +180,6 @@ func _create_steam_transport() -> Dictionary:
 		_last_steam_lobby = id
 		_host_peer = host_id
 		host_player_id = host_id)
-	transport.invite_received.connect(func(id: String): invite_received.emit(id))
 	return initialized
 
 func _bind_transport() -> void:
@@ -237,7 +246,7 @@ func _apply_lobby_command(player_id: String, type: String, payload: Dictionary) 
 		member.ready = false
 	elif type == "SetLoadout" and payload.get("loadout") is Array:
 		# The host checks the shape here and again when the run starts; a bad loadout is ignored.
-		if (load("res://scripts/core/run_engine.gd") as GDScript).loadout_error(payload.loadout).is_empty():
+		if (load("res://scripts/core/run_engine.gd") as GDScript).loadout_error(payload.loadout, str(member.get("hero_id", ""))).is_empty():
 			member.loadout = payload.loadout.duplicate(true)
 			member.ready = false
 	elif type == "ChooseMine" and player_id == host_player_id and not Catalog.mine_definition(str(payload.get("mine_id", ""))).is_empty() and str(payload.get("modifier", "")) in [""] + Seam.MODIFIERS:
@@ -639,6 +648,8 @@ func _host_lost() -> void:
 	recovery_required.emit(last_snapshot.duplicate(true))
 
 func _process(delta: float) -> void:
+	if _steam_ready and not (transport is SteamTransport):
+		_steam.call("run_callbacks") # a Steam transport pumps callbacks itself
 	if transport == null or status in ["idle", "error", "recovery"]:
 		return
 	_heartbeat_elapsed += delta
@@ -668,8 +679,8 @@ func _process(delta: float) -> void:
 			_publish_lobby()
 
 func invite_friends() -> void:
-	if transport_kind == "steam" and transport != null:
-		transport.invite_friends()
+	if transport_kind == "steam" and transport != null and not transport.invite_friends():
+		error_received.emit("The Steam overlay is unavailable, so the invite dialog cannot open. Invite from your Steam friends list (right-click a friend, Invite to Lobby), or restart the game while Steam is running.")
 
 func _publish_lobby() -> void:
 	lobby_changed.emit(lobby.duplicate(true))
@@ -780,8 +791,8 @@ func leave() -> void:
 	is_host = false
 	_sequence = 0
 	_set_status("idle")
-	_ensure_steam_presence.call_deferred()
 
 func _exit_tree() -> void:
-	_shutting_down = true
 	leave()
+	if _steam != null and _steam.is_connected("join_requested", _on_steam_join_requested):
+		_steam.disconnect("join_requested", _on_steam_join_requested)

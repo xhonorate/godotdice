@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The authority must persist each accepted transaction before publishing it.
 const SCHEMA_VERSION := 1
-const RULES_VERSION := "2.0.0"
+const RULES_VERSION := "2.1.0"
 const CONTENT_VERSION := "1.0.0"
 const MAX_SAVE_BYTES := 8 * 1024 * 1024
 const DEFAULT_SETTINGS := {

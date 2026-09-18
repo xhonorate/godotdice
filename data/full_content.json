@@ -369,6 +369,15 @@
 			],
 			"max_hp": 100,
 			"name": "Ardor",
+			"signature": "UNBREAKABLE_VOW",
+			"sockets": [
+				"RED",
+				"BLUE",
+				"ANY",
+				"BLUE",
+				"GREEN",
+				"ANY"
+			],
 			"starting_gems": [
 				[
 					"STRIKE",
@@ -404,6 +413,15 @@
 			],
 			"max_hp": 70,
 			"name": "Kait",
+			"signature": "LONG_ODDS",
+			"sockets": [
+				"RED",
+				"BLUE",
+				"RED",
+				"VIOLET",
+				"GOLD",
+				"ANY"
+			],
 			"starting_gems": [
 				[
 					"STRIKE",
@@ -433,6 +451,15 @@
 			],
 			"max_hp": 80,
 			"name": "Max",
+			"signature": "MASTER_PLAN",
+			"sockets": [
+				"RED",
+				"BLUE",
+				"RED",
+				"WHITE",
+				"ANY",
+				"GREEN"
+			],
 			"starting_gems": [
 				[
 					"STRIKE",

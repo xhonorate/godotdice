@@ -317,6 +317,7 @@ static func blocks(gem: Dictionary, effective_clarity: int = -1) -> Array:
 ## things that add up, then the one Carat multiplier over all of them.
 static func _authored(rule: Dictionary, carat: int, cut: int, clarity: int, effective: int) -> Array:
 	var built: Array = []
+	var ranks: Dictionary = {"carat": carat, "cut": cut, "clarity": effective}
 	for effect in rule.get("effects", []):
 		if not effect is Dictionary:
 			continue
@@ -324,17 +325,17 @@ static func _authored(rule: Dictionary, carat: int, cut: int, clarity: int, effe
 		var scaled: bool = str(effect.get("scale", "carat")) == "carat"
 		var parts: Array = []
 		for addend in _addends(effect.get("amount", {})):
-			var drawn: Dictionary = _authored_part(addend, cut, clarity, effective)
+			var drawn: Dictionary = _authored_part(addend, carat, cut, clarity, effective)
 			if not drawn.is_empty():
 				parts.append(drawn)
 		var suffix: String = str(GemRules.WHERE.get(str(effect.get("target", "self")), "self"))
 		suffix = "" if suffix == "self" else "to " + suffix
 		if effect.has("target_limit"):
-			suffix += " (up to %s of them)" % GemRules._say(effect.target_limit)
+			suffix += " (up to %s of them)" % GemRules._say(effect.target_limit, ranks)
 		var entry: Dictionary = _block(str(GemRules.VERBS.get(kind, "Apply")), _tone_kind(kind),
 			_label_for(kind), parts, carat if scaled else 1, suffix)
 		if effect.has("repeat"):
-			entry.repeat = _part("hit", "×" + GemRules._say(effect.repeat), "Separate hits against one fixed target.")
+			entry.repeat = _part("hit", "×" + GemRules._say(effect.repeat, ranks), "Separate hits against one fixed target.")
 		built.append(entry)
 	return built
 
@@ -365,7 +366,8 @@ const RULE_GLYPHS := {"high": "high", "highest_sum": "high", "low": "low", "lowe
 	"run_high": "run", "count_even": "count", "count_odd": "count", "count_distinct": "count",
 	"count_value": "count", "block": "shield"}
 
-static func _authored_part(expression: Variant, cut: int, clarity: int, effective: int) -> Dictionary:
+static func _authored_part(expression: Variant, carat: int, cut: int, clarity: int, effective: int) -> Dictionary:
+	var ranks: Dictionary = {"carat": carat, "cut": cut, "clarity": effective}
 	if not expression is Dictionary:
 		return {}
 	if expression.has("rank"):
@@ -373,13 +375,13 @@ static func _authored_part(expression: Variant, cut: int, clarity: int, effectiv
 			"clarity_bonus": return _clarity(clarity, effective)
 			"cut": return _cut_flat(cut, cut, "adds its rank straight into this")
 			"clarity": return _part("clarity", str(effective), "Clarity %d (%s)." % [effective, Catalog.clarity_name(effective)])
-			"carat": return _part("carat", str(""), "Carat.")
+			"carat": return _part("carat", str(carat), "Carat %d." % carat)
 	if expression.has("const"):
 		var value: int = int(expression["const"])
 		return {} if value == 0 else _part("", str(value), "A flat %d, whatever you roll." % value)
 	if expression.has("term"):
 		var term: String = str(expression.term)
-		return _part(str(RULE_GLYPHS.get(term, "")), GemRules._say(expression), GemIcons.hint(str(RULE_GLYPHS.get(term, ""))))
+		return _part(str(RULE_GLYPHS.get(term, "")), GemRules._say(expression, ranks), GemIcons.hint(str(RULE_GLYPHS.get(term, ""))))
 	if expression.has("op"):
 		## A product of a term and the Cut is the shape the shipped gems use, so it is drawn
 		## the way they are: the term, with the Cut hanging off it as a multiplier.
@@ -387,10 +389,10 @@ static func _authored_part(expression: Variant, cut: int, clarity: int, effectiv
 		if str(expression.op) == "*" and args.size() == 2:
 			for order in [[0, 1], [1, 0]]:
 				if args[order[1]] is Dictionary and str(args[order[1]].get("rank", "")) == "cut" and args[order[0]] is Dictionary and args[order[0]].has("term"):
-					var term_part: Dictionary = _authored_part(args[order[0]], cut, clarity, effective)
+					var term_part: Dictionary = _authored_part(args[order[0]], carat, cut, clarity, effective)
 					term_part.factor = _cut_factor(cut)
 					return term_part
-		return _part("", GemRules._say(expression), "This part of the rule, worked out from your hand.")
+		return _part("", GemRules._say(expression, ranks), "This part of the rule, worked out from your hand.")
 	return {}
 
 # --- the refinement chain -----------------------------------------------------

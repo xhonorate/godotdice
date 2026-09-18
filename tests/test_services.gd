@@ -50,7 +50,7 @@ func _test_codec() -> void:
 	check(not Codec.versions_match({"protocol_version": 999, "build_version": "1.0.0", "content_version": "1.0.0"}), "Incompatible protocol rejected")
 
 func _fixture() -> Dictionary:
-	return {"schema_version": 1, "rules_version": "2.0.0", "content_version": "1.0.0", "run_id": "test-run",
+	return {"schema_version": 1, "rules_version": "2.1.0", "content_version": "1.0.0", "run_id": "test-run",
 		"revision": 1, "phase_id": 2, "phase": "planning", "session_id": "session", "host_epoch": 1,
 		"heroes": [{"id": "lan-host", "key": "ARDOR", "hp": 88, "max_hp": 100, "block": 7, "ore": 15}],
 		"rng_states": {"dice": "9223372036854775806", "loot": "76561198012345678"}}

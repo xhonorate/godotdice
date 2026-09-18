@@ -157,14 +157,61 @@ func test_seam() -> void:
 
 func test_loadouts() -> void:
 	var loadout: Array = [{"key":"STRIKE", "carat":12, "cut":4, "clarity":3}, {"key":"VENOM", "carat":5, "cut":2, "clarity":2}]
-	var engine = fresh(1, "QUARRY", 3, {"heroes":[{"id":"p1", "hero_id":"MAX", "loadout":loadout}]})
+	var engine = fresh(1, "QUARRY", 3, {"heroes":[{"id":"p1", "hero_id":"ARDOR", "loadout":loadout}]})
 	var hero: Dictionary = engine.state.heroes[0]
 	check(hero.gems.size() == 2 and int(hero.gems[0].carat) == 12 and hero.gems[1].key == "VENOM", "a profile loadout replaces the starting gems")
 	check(hero.gems.all(func(gem: Dictionary) -> bool: return gem.loadout and gem.equipped and gem.owner_id == "p1"), "loadout gems arrive equipped and marked")
+	check(int(hero.gems[0].socket) == 0 and int(hero.gems[1].socket) == 2, "a loadout gem with no socket named takes the first one its Color fits")
 	check(EngineCore.validate_state(engine.state).is_empty(), "a loadout expedition is a valid saved state")
 	check(fresh(1, "QUARRY", 3, {"heroes":[{"id":"p1", "hero_id":"MAX", "loadout":[]}]}).state.heroes[0].gems.size() == Catalog.definitions("heroes").MAX.starting_gems.size(), "an empty loadout falls back to the hero's starting gems")
-	for broken in [[{"key":"VENOM", "carat":5}], [{"key":"STRIKE", "carat":30}], [{"key":"STRIKE"}, {"key":"STRIKE"}], "not a list"]:
+	for broken in [[{"key":"VENOM", "carat":5}], [{"key":"STRIKE", "carat":30}], [{"key":"STRIKE"}, {"key":"STRIKE"}], "not a list",
+			[{"key":"STRIKE"}, {"key":"VENOM"}],
+			[{"key":"STRIKE", "socket":1}],
+			[{"key":"STRIKE", "socket":4}],
+			[{"key":"STRIKE"}, {"key":"BLOCK"}, {"key":"HEAL"}, {"key":"SUNDER"}]]:
 		check(fresh(1, "QUARRY", 3, {"heroes":[{"id":"p1", "hero_id":"MAX", "loadout":broken}]}).state.is_empty(), "an invalid loadout is refused: %s" % str(broken))
+	test_sockets()
+
+func test_sockets() -> void:
+	## Kait's sockets read Red, Blue, Red, Violet, Gold, prismatic.
+	var engine = fresh(1, "QUARRY", 3, {"heroes":[{"id":"p1", "hero_id":"KAIT"}]})
+	var hero: Dictionary = engine.state.heroes[0]
+	check(hero.sockets == Catalog.definitions("heroes").KAIT.sockets, "a hero carries its own socket Colors into the mine")
+	check(hero.gems.map(func(gem: Dictionary) -> int: return int(gem.socket)) == [0, 1, 2], "starting gems fill the three carried sockets")
+	var venom: Dictionary = Catalog.gem("VENOM", "found-venom", 4)
+	venom.merge({"found":true, "appraised":true, "owner_id":"p1"})
+	hero.gems.append(venom)
+	engine._auto_equip(hero, venom)
+	check(venom.equipped and int(venom.socket) == 3, "a Violet find takes the Violet socket before the prismatic one")
+	var heal: Dictionary = Catalog.gem("HEAL", "found-heal", 4)
+	heal.merge({"found":true, "appraised":true, "owner_id":"p1"})
+	hero.gems.append(heal)
+	engine._auto_equip(hero, heal)
+	check(heal.equipped and int(heal.socket) == 5, "a Green find with no Green socket takes the prismatic one")
+	var mend: Dictionary = Catalog.gem("MEND", "found-mend", 4)
+	mend.merge({"found":true, "appraised":true, "owner_id":"p1"})
+	hero.gems.append(mend)
+	engine._auto_equip(hero, mend)
+	check(not mend.equipped, "a find no open socket takes stays in reserve")
+	check(hero.gems.filter(func(gem: Dictionary) -> bool: return gem.equipped).map(func(gem: Dictionary) -> int: return int(gem.socket)) == [0, 1, 2, 3, 5], "equipped gems resolve in socket order")
+	engine.state.phase = "route"
+	check(not command(engine, "p1", "EquipGem", {"gem_id":"found-mend", "socket":4}).ok, "a Green gem cannot be set in a Gold socket")
+	check(not command(engine, "p1", "EquipGem", {"gem_id":"found-mend", "socket":0}).ok, "a Green gem cannot take Strike's Red socket")
+	check(command(engine, "p1", "EquipGem", {"gem_id":"found-mend", "socket":5}).ok, "a Green gem can replace what sits in the prismatic socket")
+	hero = engine.state.heroes[0]
+	check(_gem(hero, "found-mend").equipped and not _gem(hero, "found-heal").equipped, "the replaced gem goes to the reserve")
+	check(command(engine, "p1", "EquipGem", {"gem_id":"p1-g2", "socket":5}).ok, "a socketed gem can move into another socket that takes it")
+	hero = engine.state.heroes[0]
+	check(int(_gem(hero, "p1-g2").socket) == 5 and not _gem(hero, "found-mend").equipped, "a displaced gem that does not fit the vacated socket goes to the reserve")
+	check(EngineCore.validate_state(engine.state).is_empty(), "a rearranged loadout is a valid saved state")
+	var broken: Dictionary = engine.state.duplicate(true)
+	_gem(broken.heroes[0], "found-venom").socket = 1
+	check(not EngineCore.validate_state(broken).is_empty(), "a saved gem in a socket of the wrong Color is refused")
+
+func _gem(hero: Dictionary, id: String) -> Dictionary:
+	for gem in hero.gems:
+		if str(gem.id) == id: return gem
+	return {}
 
 func test_shop_and_services() -> void:
 	var engine = fresh(2)

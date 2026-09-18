@@ -20,6 +20,8 @@ const MINE_ROOMS: Array = ["battle","elite","mine","rest","treasure","shop","lap
 ## Color is the fourth C: the category a skill's effects belong to. It is authored, not rolled.
 const COLORS: Array = ["RED","BLUE","GREEN","VIOLET","GOLD","WHITE"]
 const TARGETS: Array = ["self","enemy","enemies","ally","revive"]
+## The registered signature rules a hero may name. `combat.gd` resolves each one.
+const SIGNATURES: Array = ["UNBREAKABLE_VOW","LONG_ODDS","MASTER_PLAN"]
 const TAGS: Array = ["attack","pair","block","heal","straight","seven","gold","triple","full_house","high","stun","low","support","odd","two_pairs","group","poison","even","distinct","revive"]
 
 func as_dictionary() -> Dictionary:
@@ -116,10 +118,42 @@ func validate(registry: Dictionary) -> Array:
 		for die_id in entry.dice:
 			if not dice.has(die_id):
 				errors.append("Missing starting die: "+str(die_id))
+		var sockets: Variant = entry.get("sockets",null)
+		if sockets != null:
+			## Six socket Colors, the first Red and the second Blue, with one or two prismatic.
+			if not sockets is Array or sockets.size() != 6:
+				errors.append("A hero needs exactly six sockets: "+key)
+				continue
+			var prismatic: int = 0
+			for socket in sockets:
+				if str(socket) == "ANY":
+					prismatic += 1
+				elif not str(socket) in COLORS:
+					errors.append("Unknown socket colour "+str(socket)+" on "+key)
+			if str(sockets[0]) != "RED" or str(sockets[1]) != "BLUE":
+				errors.append("A hero's first socket must be Red and its second Blue: "+key)
+			if prismatic < 1 or prismatic > 2:
+				errors.append("A hero needs one or two prismatic sockets: "+key)
+		if entry.has("signature") and not str(entry.get("signature","")) in SIGNATURES:
+			errors.append("Unknown hero signature: "+str(entry.get("signature",""))+" on "+key)
 		var starters: Variant = entry.get("starting_gems",[])
-		if not starters is Array or starters.is_empty() or starters.size() > 6:
-			errors.append("Missing starting gems: "+key)
+		if not starters is Array or starters.is_empty() or starters.size() > 3:
+			errors.append("A hero starts with one to three gems: "+key)
 			continue
+		if sockets is Array and sockets.size() == 6:
+			## Each starting gem must fit one of the three sockets a hero may fill at home.
+			var open: Array = sockets.slice(0,3)
+			for starter in starters:
+				if not starter is Array or starter.is_empty() or not skills.has(str(starter[0])):
+					continue
+				var colour: String = str(skills[str(starter[0])].get("color",""))
+				var fit: int = open.find(colour)
+				if fit < 0:
+					fit = open.find("ANY")
+				if fit < 0:
+					errors.append("Starting gem "+str(starter[0])+" fits none of the first three sockets on "+key)
+				else:
+					open[fit] = ""
 		var starting_keys: Array = []
 		for starter in starters:
 			## [skill, carat] or [skill, carat, cut, clarity] — the same shape `Catalog.hero()`

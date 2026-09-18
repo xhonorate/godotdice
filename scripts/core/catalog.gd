@@ -21,10 +21,30 @@ const GEM_COLORS: Dictionary = {
 }
 const CUT_NAMES: Array = ["Poor", "Fair", "Good", "Great", "Perfect"]
 const CLARITY_NAMES: Array = ["Fractured", "Flawed", "Clean", "Pristine", "Flawless"]
+## Every hero is built around six gem sockets, and each socket takes one Color of gem — or,
+## for a prismatic socket, any Color at all. The first is always Red and the second always
+## Blue, so every hero can carry an attack and a defence; the rest are the hero's own. Only
+## the first `LOADOUT_CARRY` sockets can be filled at home: the others open once the party is
+## underground, for the stones it finds there.
+const SOCKET_ANY: String = "ANY"
+const SOCKET_COUNT: int = 6
+const LOADOUT_CARRY: int = 3
+const DEFAULT_SOCKETS: Array = ["RED", "BLUE", "ANY", "ANY", "BLUE", "GREEN"]
+## A hero has a passive trait, always working, and a signature: one very hard hand that does
+## something enormous. Both are registered rules, so an authored hero borrows them by ID.
+const TRAITS: Array = ["STAND_FIRM", "CALCULATED_RISK", "SECOND_THOUGHT"]
+const SIGNATURES: Dictionary = {
+	"UNBREAKABLE_VOW": {"name": "Unbreakable Vow", "description": "Every living hero gains 20 block. Then deal 12 + twice the matched value damage to every enemy."},
+	"LONG_ODDS": {"name": "Long Odds", "description": "Deal damage equal to your total to your target twice, then stun it."},
+	"MASTER_PLAN": {"name": "Master Plan", "description": "Deal 10 + the top of your run damage to every enemy and stun each of them."}
+}
 const HEROES: Dictionary = {
-	"ARDOR": {"name": "Ardor", "max_hp": 100, "dice": ["D6", "D6", "D6", "D8", "D8"], "trait": "STAND_FIRM", "trait_name": "Stand Firm", "description": "Gain 2 block at the start of your turn when your final hand contains a pair.", "starting_gems": [["STRIKE", 1], ["BLOCK", 2], ["INTERPOSE", 1]], "color": "ec9d62"},
-	"KAIT": {"name": "Kait", "max_hp": 70, "dice": ["D4", "D4", "D4", "D4", "D20"], "trait": "CALCULATED_RISK", "trait_name": "Calculated Risk", "description": "Gain 3 block when a die finishes at least 4 higher than its initial value this turn.", "starting_gems": [["STRIKE", 2], ["BLOCK", 1], ["SUNDER", 1]], "color": "9fd08b"},
-	"MAX": {"name": "Max", "max_hp": 80, "dice": ["D4", "D6", "D6", "D8", "D12"], "trait": "SECOND_THOUGHT", "trait_name": "Second Thought", "description": "Once per encounter, reroll one die without spending your normal reroll.", "starting_gems": [["STRIKE", 1], ["BLOCK", 1], ["ARC_BURST", 1]], "color": "9dabed"}
+	"ARDOR": {"name": "Ardor", "max_hp": 100, "dice": ["D6", "D6", "D6", "D8", "D8"], "trait": "STAND_FIRM", "trait_name": "Stand Firm", "description": "Gain 2 block at the start of your turn when your final hand contains a pair.", "starting_gems": [["STRIKE", 1], ["BLOCK", 2], ["INTERPOSE", 1]], "color": "ec9d62",
+		"sockets": ["RED", "BLUE", "ANY", "BLUE", "GREEN", "ANY"], "signature": "UNBREAKABLE_VOW"},
+	"KAIT": {"name": "Kait", "max_hp": 70, "dice": ["D4", "D4", "D4", "D4", "D20"], "trait": "CALCULATED_RISK", "trait_name": "Calculated Risk", "description": "Gain 3 block when a die finishes at least 4 higher than its initial value this turn.", "starting_gems": [["STRIKE", 2], ["BLOCK", 1], ["SUNDER", 1]], "color": "9fd08b",
+		"sockets": ["RED", "BLUE", "RED", "VIOLET", "GOLD", "ANY"], "signature": "LONG_ODDS"},
+	"MAX": {"name": "Max", "max_hp": 80, "dice": ["D4", "D6", "D6", "D8", "D12"], "trait": "SECOND_THOUGHT", "trait_name": "Second Thought", "description": "Once per encounter, reroll one die without spending your normal reroll.", "starting_gems": [["STRIKE", 1], ["BLOCK", 1], ["ARC_BURST", 1]], "color": "9dabed",
+		"sockets": ["RED", "BLUE", "RED", "WHITE", "ANY", "GREEN"], "signature": "MASTER_PLAN"}
 }
 ## Formula text uses M(C) = (C+7)/8 as the Carat multiplier and F(L) = 2L as the flat
 ## Clarity bonus. Cut multiplies whatever the dice contribute. Every amount floors once.
@@ -180,15 +200,73 @@ static func hero(key: String, id: String, seat: int = 0) -> Dictionary:
 		return {}
 	var definition: Dictionary = definitions("heroes")[key]
 	var unit: Dictionary = _unit(key, id, "hero", definition.max_hp, 0)
-	unit.merge({"seat": seat, "trait": definition.trait , "trait_charges": 1 if str(definition.get("trait", "")) == "SECOND_THOUGHT" else 0, "ore": 0, "rerolls": 1, "max_rerolls": 1, "base_rerolls": 1, "reserve_dice": [], "relics": [], "combat_ore": 0, "preferred_target": "", "connected": true})
+	unit.merge({"seat": seat, "trait": definition.trait , "trait_charges": 1 if str(definition.get("trait", "")) == "SECOND_THOUGHT" else 0, "ore": 0, "rerolls": 1, "max_rerolls": 1, "base_rerolls": 1, "reserve_dice": [], "relics": [], "combat_ore": 0, "preferred_target": "", "connected": true,
+		"sockets": hero_sockets(key), "signature": str(definition.get("signature", ""))})
 	for index in range(definition.dice.size()):
 		unit.dice.append(die(definition.dice[index], id + "-d" + str(index)))
 	for index in range(definition.starting_gems.size()):
 		var starting: Array = definition.starting_gems[index]
 		var item: Dictionary = gem(starting[0], id + "-g" + str(index), starting[1], starting[2] if starting.size() > 2 else 1, starting[3] if starting.size() > 3 else 1)
+		var socket: int = open_socket(unit.sockets, unit.gems, str(item.key), LOADOUT_CARRY)
+		if socket < 0:
+			continue
 		item.equipped = true
+		item.socket = socket
 		unit.gems.append(item)
+	sort_sockets(unit)
 	return unit
+
+# --- sockets ------------------------------------------------------------------------
+
+static func hero_sockets(key: String) -> Array:
+	## The six socket Colors of a hero, left to right. A pack that names none, or names them
+	## badly, gets the default layout rather than a hero who can socket nothing.
+	var named: Variant = definitions("heroes").get(key.to_upper(), {}).get("sockets", null)
+	if not named is Array or named.size() != SOCKET_COUNT:
+		return DEFAULT_SOCKETS.duplicate()
+	var sockets: Array = []
+	for entry in named:
+		sockets.append(str(entry) if str(entry) == SOCKET_ANY or GEM_COLORS.has(str(entry)) else SOCKET_ANY)
+	return sockets
+
+static func socket_fits(socket_color: String, gem_key: String) -> bool:
+	return socket_color == SOCKET_ANY or socket_color == gem_color(gem_key)
+
+static func socket_name(socket_color: String) -> String:
+	if socket_color == SOCKET_ANY:
+		return "Prismatic"
+	return str(GEM_COLORS.get(socket_color, {}).get("name", socket_color))
+
+static func open_socket(sockets: Array, gems: Array, gem_key: String, limit: int = SOCKET_COUNT) -> int:
+	## The first empty socket this gem's Color fits, among the first `limit`. A socket of the
+	## gem's own Color is preferred over a prismatic one, so a find never takes the one socket
+	## that could hold anything while a socket made for it stands open.
+	var taken: Dictionary = {}
+	for item in gems:
+		if item is Dictionary and item.get("equipped", false):
+			taken[int(item.get("socket", -1))] = true
+	var fallback: int = -1
+	for index in range(mini(limit, sockets.size())):
+		if taken.has(index) or not socket_fits(str(sockets[index]), gem_key):
+			continue
+		if str(sockets[index]) != SOCKET_ANY:
+			return index
+		if fallback < 0:
+			fallback = index
+	return fallback
+
+static func sort_sockets(unit: Dictionary) -> void:
+	## Equipped gems resolve left to right, so the array every rule walks is kept in socket
+	## order with the reserve after it. Nothing else has to know sockets exist.
+	var equipped: Array = []
+	var reserve: Array = []
+	for item in unit.get("gems", []):
+		if item is Dictionary and item.get("equipped", false):
+			equipped.append(item)
+		else:
+			reserve.append(item)
+	equipped.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.get("socket", 0)) < int(b.get("socket", 0)))
+	unit.gems = equipped + reserve
 
 static func _unit(key: String, id: String, side: String, hp: int, block: int) -> Dictionary:
 	var definition: Dictionary = definitions("heroes")[key] if side == "hero" else definitions("enemies")[key]

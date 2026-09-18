@@ -30,6 +30,7 @@ const Fanfare = preload("res://scripts/ui/fanfare.gd")
 const GemBadge = preload("res://scripts/ui/gem_badge.gd")
 const ItemBoard = preload("res://scripts/ui/item_board.gd")
 const RoomScreens = preload("res://scripts/ui/room_screens.gd")
+const Requirements = preload("res://scripts/core/requirements.gd")
 const INK := Color("0c111c")
 const PANEL := Color("161e2e")
 const PANEL_HI := Color("1f2a3d")
@@ -435,6 +436,14 @@ func _stage_loadout(hero: Dictionary, state: Dictionary) -> Array:
 	if loadout_cache.has(id):
 		return loadout_cache[id]
 	var carried: Array = []
+	for kind in ["passive", "signature"]:
+		var ability := _ability(hero, state, kind)
+		if ability.is_empty():
+			continue
+		carried.append({
+			"id": kind, "glyph": GemIcons.emblem(str(ability.key)),
+			"tint": AMBER if kind == "signature" else _unit_tint(str(hero.get("key", ""))), "dim": not ability.active,
+			"tip": "%s  ·  %s\n%s\nRight-click for details." % [kind.capitalize(), str(ability.name), str(ability.requirement.words)]})
 	for gem in hero.get("gems", []):
 		if not gem.get("equipped", false):
 			continue
@@ -697,7 +706,9 @@ func _loadout(hero_key: String) -> Array:
 	## The profile's loadout for a hero, as the plain records a run is started with.
 	var gems: Array = []
 	for gem in Profile.loadout_gems(_profile(), hero_key.to_upper(), "menu"):
-		gems.append(Profile.gem_record(gem))
+		var record: Dictionary = Profile.gem_record(gem)
+		record["socket"] = int(gem.socket)
+		gems.append(record)
 	return gems
 
 func _resume() -> void:
@@ -1059,21 +1070,128 @@ func _resolving() -> bool:
 	return _playing_out() or (_holding_hand() and playback_index < playback_events.size())
 
 func _gem_deck(parent: Node, hero: Dictionary, state: Dictionary) -> void:
-	## Six sockets, centred, sprite first. Every word lives on the tooltip and the sheet.
+	## The hero's board, left to right in the order it resolves: the passive, the signature,
+	## then six sockets. Every word lives on the tooltip and the sheet.
 	var row := _hbox(parent, 10)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var by_socket: Dictionary = {}
 	var equipped: Array = []
 	for gem in hero.get("gems", []):
-		if gem.get("equipped", false): equipped.append(gem)
+		if gem.get("equipped", false):
+			equipped.append(gem)
+			by_socket[int(gem.get("socket", equipped.size() - 1))] = gem
 	var ordered_previews: Array = [] if _holding_hand() else Combat.preview_loadout(hero, state)
-	for slot in range(maxi(GEM_SLOTS, equipped.size())):
-		if slot >= equipped.size():
-			_empty_gem(row)
+	_ability_card(row, hero, state, "passive")
+	_ability_card(row, hero, state, "signature")
+	var divider := VSeparator.new()
+	divider.add_theme_constant_override("separation", 6)
+	row.add_child(divider)
+	var sockets: Array = hero.get("sockets", Catalog.hero_sockets(str(hero.get("key", ""))))
+	for slot in range(maxi(GEM_SLOTS, sockets.size())):
+		if not by_socket.has(slot):
+			_empty_gem(row, str(sockets[slot]) if slot < sockets.size() else Catalog.SOCKET_ANY)
 			continue
-		var gem: Dictionary = equipped[slot]
-		_gem_slot(row, gem, ordered_previews[slot] if slot < ordered_previews.size() else Combat.preview(hero, gem, _hand_for(hero), state))
+		var gem: Dictionary = by_socket[slot]
+		var order: int = equipped.find(gem)
+		_gem_slot(row, gem, ordered_previews[order] if order < ordered_previews.size() else Combat.preview(hero, gem, _hand_for(hero), state))
+
+func _ability_card(row: Node, hero: Dictionary, state: Dictionary, kind: String) -> void:
+	## The passive and the signature sit on the board like two more stones: a mark, a name,
+	## and what the hand has to show. They light when the hand opens them.
+	var ability := _ability(hero, state, kind)
+	if ability.is_empty():
+		return
+	var active: bool = ability.active
+	var signature := kind == "signature"
+	var tone: Color = AMBER if signature else _unit_tint(str(hero.get("key", "")))
+	var card := _panel(row, (Color("3a2c14") if signature else Color("18302c")) if active else PANEL, (AMBER if signature else GREEN) if active else Color(tone, 0.45), 8)
+	var frame: Control = card.get_parent()
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	frame.custom_minimum_size.x = GEM_SLOT_WIDTH
+	gem_slot_cards[kind] = frame
+	var tag := _label(card, "SIGNATURE" if signature else "PASSIVE", 10, tone if active else MUTED)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var emblem := TextureRect.new()
+	emblem.texture = GemIcons.texture(GemIcons.emblem(str(ability.key)), 128)
+	emblem.custom_minimum_size = Vector2(58, 58)
+	emblem.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	emblem.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	emblem.modulate = tone if active else Color(tone, 0.4)
+	card.add_child(emblem)
+	var title := _label(card, str(ability.name), 12, tone if active else MUTED)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.clip_text = true
+	var need := _hbox(card, 6)
+	need.alignment = BoxContainer.ALIGNMENT_CENTER
+	need.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DiceIcons.build(need, ability.requirement, 22, str(ability.requirement.words), GREEN if active else DiceIcons.NEED_TONE)
+	card.tooltip_text = "%s  ·  %s\n%s\n%s\nRight-click for details." % ["Signature" if signature else "Passive", str(ability.name), str(ability.requirement.words), str(ability.description)]
+	card.mouse_entered.connect(func(): _highlight_dice(ability.get("contributing_dice", [])))
+	card.mouse_exited.connect(func(): _highlight_dice([]))
+	card.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			_inspect_ability(hero, kind))
+
+func _ability(hero: Dictionary, state: Dictionary, kind: String) -> Dictionary:
+	## A hero's passive or signature as the board draws it: its rule's name and words, what the
+	## hand has to show, and whether the hand in front of it does.
+	var definition: Dictionary = Catalog.definitions("heroes").get(str(hero.get("key", "")).to_upper(), {})
+	if kind == "signature":
+		var signature_id := str(hero.get("signature", definition.get("signature", "")))
+		if not Catalog.SIGNATURES.has(signature_id):
+			return {}
+		var preview: Dictionary = Combat.signature_preview(hero, state) if not hero.get("hand", []).is_empty() else {}
+		return {"key": signature_id, "name": str(Catalog.SIGNATURES[signature_id].name),
+			"description": str(Catalog.SIGNATURES[signature_id].description), "requirement": Requirements.signature(signature_id),
+			"active": bool(preview.get("active", false)), "contributing_dice": preview.get("contributing_dice", []), "preview": preview}
+	var trait_id := str(hero.get("trait", definition.get("trait", "")))
+	if trait_id.is_empty():
+		return {}
+	var standing: Dictionary = Combat.passive_state(hero, state)
+	return {"key": trait_id, "name": str(definition.get("trait_name", trait_id.capitalize())),
+		"description": str(definition.get("description", "")), "requirement": Requirements.passive(trait_id),
+		"active": bool(standing.get("active", false)) and not hero.get("hand", []).is_empty(), "contributing_dice": standing.get("contributing_dice", []), "preview": {}}
+
+func _inspect_ability(hero: Dictionary, kind: String) -> void:
+	var state: Dictionary = _battle_state() if not snapshot.is_empty() else {}
+	var ability := _ability(hero, state, kind)
+	if ability.is_empty():
+		return
+	var signature := kind == "signature"
+	var tone: Color = AMBER if signature else _unit_tint(str(hero.get("key", "")))
+	var box := _modal("%s  ·  %s" % [str(hero.get("name", "Hero")), str(ability.name)])
+	var art := TextureRect.new()
+	art.texture = GemIcons.texture(GemIcons.emblem(str(ability.key)), 128)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.modulate = tone
+	var body := _sheet(box, art, Vector2(150, 150), tone)
+	_label(body, str(ability.name), 26, tone)
+	UiKit.chip(body, "SIGNATURE" if signature else "PASSIVE", tone).size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_label(body, "The hardest hand %s can make, and the biggest thing it does. It resolves before any gem, every turn the hand shows it." % str(hero.get("name", "this hero")) if signature
+		else "Always working. It needs no socket and costs nothing.", 13, MUTED, true)
+	_label(body, "REQUIRES", 11, GOLD)
+	GemPanel.requirement_row(body, ability.requirement, 15)
+	_label(body, "DOES", 11, GOLD)
+	_label(body, str(ability.description), 16, PAPER, true)
+	if hero.get("hand", []).is_empty():
+		return
+	UiKit.rule(body)
+	_label(body, "THIS HAND", 11, GOLD)
+	var verdict := "Its requirement is met." if ability.active else "Not this hand."
+	if signature:
+		verdict = str(ability.preview.get("summary", verdict))
+	elif str(ability.key) == "SECOND_THOUGHT":
+		verdict = "One reroll of a single die is still available this battle." if ability.active else "Already used this battle."
+	_label(body, verdict, 16, GREEN if ability.active else MUTED, true)
 
 func _gem_slot(row: Node, gem: Dictionary, preview: Dictionary) -> void:
+	## A socketed stone in a fight shows only what matters mid-turn: the stone, its name, and
+	## what the hand has to show. Its ranks are on the sheet a right-click opens.
 	var active: bool = preview.get("active", false)
 	var card := _panel(row, Color("18302c") if active else PANEL, GREEN if active else LINE, 8)
 	var frame: Control = card.get_parent()
@@ -1088,11 +1206,10 @@ func _gem_slot(row: Node, gem: Dictionary, preview: Dictionary) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.clip_text = true
-	_gem_marks_row(card, gem, 13).modulate = Color(1, 1, 1, 1.0 if active else 0.6)
 	var need := _hbox(card, 6)
 	need.alignment = BoxContainer.ALIGNMENT_CENTER
 	need.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_requirement_icons(need, gem, preview, 16)
+	_requirement_icons(need, gem, preview, 22, GREEN if active else DiceIcons.NEED_TONE)
 	card.tooltip_text = _preview_text(gem)
 	card.mouse_entered.connect(func(): _highlight_dice(preview.get("contributing_dice", [])))
 	card.mouse_exited.connect(func(): _highlight_dice([]))
@@ -1100,19 +1217,23 @@ func _gem_slot(row: Node, gem: Dictionary, preview: Dictionary) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 			_inspect_gem(gem))
 
-func _empty_gem(row: Node) -> void:
-	## An open socket is shown, not hidden: the party can see the room it still has.
-	var card := _panel(row, PANEL_LOW, Color(LINE, 0.5), 8)
+func _empty_gem(row: Node, socket_color: String = Catalog.SOCKET_ANY) -> void:
+	## An open socket is shown, not hidden: the party can see the room it still has, and the
+	## Colour of stone it would take.
+	var card := _panel(row, PANEL_LOW, Color(GemPanel.socket_tint(socket_color), 0.35), 8)
 	var frame: Control = card.get_parent()
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	frame.custom_minimum_size.x = GEM_SLOT_WIDTH
-	frame.modulate = Color(1, 1, 1, 0.55)
-	frame.tooltip_text = "An empty gem socket. Equip a gem from your reserve between rooms."
+	frame.modulate = Color(1, 1, 1, 0.7)
+	var named := "any Color" if socket_color == Catalog.SOCKET_ANY else Catalog.socket_name(socket_color)
+	frame.tooltip_text = "An empty %s socket. Set a %s gem in it from your reserve between rooms." % ["prismatic" if socket_color == Catalog.SOCKET_ANY else Catalog.socket_name(socket_color), named]
 	var hollow := Control.new()
 	hollow.custom_minimum_size = Vector2(76, 76)
 	hollow.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	hollow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hollow.draw.connect(func(): GemPanel.draw_socket(hollow, hollow.size * 0.5, 30.0, socket_color, false, false))
 	card.add_child(hollow)
-	var caption := _label(card, "EMPTY", 12, MUTED)
+	var caption := _label(card, "ANY COLOR" if socket_color == Catalog.SOCKET_ANY else Catalog.socket_name(socket_color).to_upper(), 11, Color(GemPanel.socket_tint(socket_color), 0.8))
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var pad := Control.new()
@@ -1158,13 +1279,13 @@ func _hand_deck(parent: Node, hero: Dictionary, resolving := false) -> void:
 	else:
 		_ready_button(_hbox(right, 6))
 
-func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge: float) -> Control:
-	## The activation condition drawn as the dice that would meet it, worded on hover.
+func _requirement_icons(parent: Node, gem: Dictionary, preview: Dictionary, edge: float, tint: Color = DiceIcons.NEED_TONE) -> Control:
+	## The activation condition drawn as its own mark, worded on hover.
 	var key := str(gem.get("key", ""))
 	var clarity := int(preview.get("effective_clarity", gem.get("clarity", 1)))
-	## A rule written as data can set its cut-off from any rank, so the strip is told them all.
-	var spec: Dictionary = DiceIcons.requirement(key, clarity, int(gem.get("cut", 1)), int(gem.get("carat", 1)))
-	return DiceIcons.build(parent, spec, edge, DiceIcons.detail(key, clarity))
+	## A rule written as data can set its cut-off from any rank, so the mark is told them all.
+	var requirement: Dictionary = DiceIcons.requirement(key, clarity, int(gem.get("cut", 1)), int(gem.get("carat", 1)))
+	return DiceIcons.build(parent, requirement, edge, str(requirement.words), tint)
 
 func _die_button(parent: Node, die: Dictionary, index: int, locked: bool) -> void:
 	var rolled: Dictionary = {}
@@ -1569,18 +1690,17 @@ func _gem_card_face(front: VBoxContainer, gem: Dictionary) -> void:
 	var chip := UiKit.chip(front, ["", "COMMON", "UNCOMMON", "RARE", "LEGENDARY"][clampi(rarity, 1, 4)], [MUTED, MUTED, GREEN, BLUE, AMBER][clampi(rarity, 1, 4)])
 	chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_gem_title_row(front, gem, 13, PAPER, false)
-	_label(front, str(Catalog.SKILLS.get(str(gem.get("key", "")), {}).get("trigger", "")), 13, GREEN, true)
+	GemPanel.gem_requirement(front, gem, 13)
 	_formula_rows(front, gem, -1, 12)
 	front.tooltip_text = _preview_text(gem)
 
 func _socket_note(parent: Node, gem_id: String) -> void:
 	## Where a gem just taken went: an open socket, or the reserve because the sockets are full.
-	var equipped: Array = _hero().get("gems", []).filter(func(gem: Dictionary) -> bool: return gem.get("equipped", false))
-	for index in range(equipped.size()):
-		if str(equipped[index].get("id", "")) == gem_id:
-			reveal.show(UiKit.chip(parent, "TAKEN  ·  SET IN SOCKET %d" % (index + 1), GREEN), "socketed:" + gem_id, 0.0, "stamp")
+	for gem in _hero().get("gems", []):
+		if str(gem.get("id", "")) == gem_id and gem.get("equipped", false):
+			reveal.show(UiKit.chip(parent, "TAKEN  ·  SET IN SOCKET %d" % (int(gem.get("socket", 0)) + 1), GREEN), "socketed:" + gem_id, 0.0, "stamp")
 			return
-	reveal.show(UiKit.chip(parent, "TAKEN  ·  IN RESERVE, YOUR SOCKETS ARE FULL", AMBER), "socketed:" + gem_id, 0.0, "stamp")
+	reveal.show(UiKit.chip(parent, "TAKEN  ·  IN RESERVE, NO OPEN SOCKET OF ITS COLOR", AMBER), "socketed:" + gem_id, 0.0, "stamp")
 
 func _party_status(parent: Node) -> void:
 	## Who the party is still waiting on, as faces rather than a list of names.
@@ -1815,7 +1935,7 @@ func _appraisal_sheet(parent: Node, entry: Dictionary) -> void:
 	UiKit.chip(chips, str(Catalog.color_definition(str(entry.get("key", ""))).get("name", "")).to_upper(), _gem_color(entry))
 	reveal.show(chips, key, APPRAISE_BEAT + 0.2, "pop")
 	reveal.show(_gem_title_row(parent, entry, 16, PAPER, false), key, APPRAISE_BEAT + 0.35, "fade")
-	reveal.show(_label(parent, str(definition.get("trigger", "")), 14, GREEN, true), key, APPRAISE_BEAT + 0.45, "fade")
+	reveal.show(GemPanel.gem_requirement(parent, entry, 14), key, APPRAISE_BEAT + 0.45, "fade")
 	var formula := _vbox(parent, 6)
 	_formula_rows(formula, entry, -1, 14)
 	reveal.show(formula, key, APPRAISE_BEAT + 0.55, "fade")
@@ -1863,7 +1983,10 @@ func _confirm_sell_rest() -> void:
 	var box := _modal("Sell every stone left on the table?")
 	var undecided: Array = _profile().get("pending_return", {}).get("gems", []).filter(func(entry: Dictionary) -> bool: return str(entry.get("decision", "")).is_empty())
 	for entry in undecided:
-		_label(box, "%s  ·  C%d K%d L%d  ·  %d gold" % [_gem_name(entry), int(entry.carat), int(entry.cut), int(entry.clarity), Profile.sell_value(entry)], 14, PAPER, true)
+		var line := _hbox(box, 10)
+		_label(line, _gem_name(entry), 14, _gem_color(entry))
+		_gem_marks_row(line, entry, 14).size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		_label(line, "%d gold" % Profile.sell_value(entry), 14, GOLD)
 	_button(box, "Sell them all", func(): _close_overlay(); _leave_table(), true)
 	_button(box, "Keep looking", _close_overlay)
 
@@ -2045,6 +2168,12 @@ func _process(delta: float) -> void:
 		casting_gem = str(upcoming.get("gem_id", ""))
 		casting_age = 0.0
 		casting_span = playback_dwell + 0.44
+	elif upcoming is Dictionary and str(upcoming.get("kind", "")) == "block" and str(upcoming.get("actor", "")) == controlled_id \
+			and str(upcoming.get("skill", "")) == str(_hero().get("trait", "~")):
+		# A passive lands as a plain block event; its card lights all the same.
+		casting_gem = "passive"
+		casting_age = 0.0
+		casting_span = playback_dwell + 0.44
 	if upcoming is Dictionary and upcoming.has("target_hp"):
 		# Somebody's standing moved, or an enemy took its dice up, so the field is redrawn
 		# at the point the log has reached rather than at the outcome the authority has
@@ -2109,6 +2238,13 @@ func _show_inventory() -> void:
 	var locked := (planning and not can_plan) or bool(inventory_hero.get("ready", false)) or _resolving()
 	var equipped: Array = inventory_hero.get("gems", []).filter(func(gem: Dictionary) -> bool: return gem.get("equipped", false))
 	var reserve: Array = inventory_hero.get("gems", []).filter(func(gem: Dictionary) -> bool: return not gem.get("equipped", false))
+	var sockets: Array = inventory_hero.get("sockets", Catalog.hero_sockets(str(inventory_hero.get("key", ""))))
+	var by_socket: Array = []
+	by_socket.resize(sockets.size())
+	by_socket.fill({})
+	for gem in equipped:
+		var socket := int(gem.get("socket", -1))
+		if socket >= 0 and socket < by_socket.size(): by_socket[socket] = gem
 	var at_shop: bool = snapshot.get("room", {}).get("kind") == "shop" and snapshot.get("phase") == "support"
 	var chips := _hbox(box, 8)
 	UiKit.chip(chips, "%d / %d SOCKETS FILLED" % [equipped.size(), GEM_SLOTS], GOLD if equipped.size() == GEM_SLOTS else AMBER)
@@ -2125,16 +2261,18 @@ func _show_inventory() -> void:
 	if locked:
 		_label(box, "Equipment is frozen while fighting or ready. Everything can still be inspected.", 14, MUTED, true)
 	ItemBoard.build(self, box, {
-		"kind": "gem", "title": "GEM SOCKETS", "slots": GEM_SLOTS, "socketed": equipped, "reserve": reserve, "locked": locked, "edge": 62,
-		"hint": "Left to right is the order they resolve. Drag to rearrange, drag between sockets and reserve to equip, double-click to set or take off.",
-		"reserve_title": "RESERVE GEMS", "empty_reserve": "No spare gems. Appraised finds, treasure and merchants add gems here — and fill an open socket by themselves.",
+		"kind": "gem", "title": "GEM SOCKETS", "slots": sockets.size(), "socketed": by_socket, "reserve": reserve, "locked": locked, "edge": 62, "fixed": true,
+		"hint": "Left to right is the order they resolve. Each socket takes only its own Color; a prismatic one takes any. Drag between sockets and reserve, double-click to set or take off.",
+		"reserve_title": "RESERVE GEMS", "empty_reserve": "No spare gems. Appraised finds, treasure and merchants add gems here — and fill an open socket of their Color by themselves.",
 		"art": func(gem: Dictionary, holder: Control, edge: float): _badge_into(holder, gem, edge),
 		"caption": func(gem: Dictionary) -> String: return _gem_name(gem),
 		"tint": func(gem: Dictionary) -> Color: return _gem_color(gem),
 		"tip": func(gem: Dictionary) -> String: return _preview_text(gem),
 		"pinned": func(gem: Dictionary) -> String: return "Strike always stays socketed." if str(gem.get("key", "")) == "STRIKE" else "",
+		"socket_color": func(index: int) -> String: return str(sockets[index]),
+		"fits": func(gem: Dictionary, index: int) -> String: return _socket_refusal(gem, str(sockets[index])),
 		"place": func(gem: Dictionary, index: int, occupant: Dictionary): _place_gem(equipped, gem, index, occupant),
-		"move": func(from: int, to: int): _move_gem(equipped, from, to),
+		"move": func(from: int, to: int): _move_gem(by_socket, from, to),
 		"remove": func(gem: Dictionary): _inventory_command("EquipGem", {"gem_id": gem.id}),
 		"inspect": func(gem: Dictionary): _inspect_gem(gem),
 		"extra": func(gem: Dictionary, tile_box: VBoxContainer):
@@ -2218,25 +2356,31 @@ func _die_into(holder: Control, die: Dictionary, edge: float) -> void:
 	view.live = false
 	view.configure(die, {}, false, false, BLUE)
 
+func _socket_refusal(gem: Dictionary, socket_color: String) -> String:
+	## Why a stone cannot sit in a socket, or nothing when it can.
+	if gem.is_empty() or Catalog.socket_fits(socket_color, str(gem.get("key", ""))):
+		return ""
+	return "%s is a %s gem; this socket takes only %s gems." % [_gem_name(gem), Catalog.socket_name(Catalog.gem_color(str(gem.get("key", "")))), Catalog.socket_name(socket_color)]
+
 func _place_gem(equipped: Array, gem: Dictionary, index: int, occupant: Dictionary) -> void:
-	if not occupant.is_empty():
-		_inventory_command("EquipGem", {"gem_id": gem.id, "replace_id": occupant.id})
+	## Index -1 means "wherever it fits"; the authority picks the first open socket of its Color.
+	if index >= 0:
+		_inventory_command("EquipGem", {"gem_id": gem.id, "socket": index})
 		return
 	var twin: bool = equipped.any(func(other: Dictionary) -> bool: return str(other.get("key", "")) == str(gem.get("key", "")))
-	if (index < 0 or equipped.size() >= GEM_SLOTS) and not twin:
-		_notify("All six sockets are full. Drop it onto the gem it should replace.")
+	var hero := _hero()
+	if not twin and Catalog.open_socket(hero.get("sockets", Catalog.hero_sockets(str(hero.get("key", "")))), hero.get("gems", []), str(gem.get("key", ""))) < 0:
+		_notify("No open socket takes a %s gem. Drop it onto a socket to replace what is there." % Catalog.socket_name(Catalog.gem_color(str(gem.get("key", "")))))
 		return
 	_inventory_command("EquipGem", {"gem_id": gem.id})
 
-func _move_gem(equipped: Array, from: int, to: int) -> void:
-	## Two sockets trade stones. Order is the order they resolve in, so this is the whole of
-	## rearranging a loadout.
-	if from < 0 or to < 0 or from >= equipped.size() or to >= equipped.size() or from == to: return
-	var ids: Array = equipped.map(func(gem: Dictionary) -> String: return str(gem.id))
-	var held = ids[from]
-	ids[from] = ids[to]
-	ids[to] = held
-	_inventory_command("ReorderGems", {"gem_ids": ids})
+func _move_gem(by_socket: Array, from: int, to: int) -> void:
+	## A stone carried from one socket to another. Whatever sat there trades back if its Color
+	## suits the socket just left, and drops to the reserve if it does not.
+	if from < 0 or to < 0 or from >= by_socket.size() or to >= by_socket.size() or from == to: return
+	var moving: Dictionary = by_socket[from]
+	if moving.is_empty(): return
+	_inventory_command("EquipGem", {"gem_id": moving.id, "socket": to})
 
 func _inventory_command(kind: String, payload: Dictionary) -> void:
 	if str(snapshot.get("phase", "")) == "planning" and int(_hero().get("hp", 0)) <= 0:
@@ -2294,9 +2438,7 @@ func _inspect_gem(gem: Dictionary) -> void:
 	_gem_title_row(body, gem, 16, PAPER, false)
 	_label(body, "%s gem — %s." % [str(Catalog.color_definition(str(gem.get("key", ""))).get("name", "Red")), str(Catalog.color_definition(str(gem.get("key", ""))).get("role", "Damage"))], 13, MUTED, true)
 	_label(body, "REQUIRES", 11, GOLD)
-	var need := _hbox(body, 10)
-	_requirement_icons(need, gem, preview, 30)
-	_label(body, str(definition.get("trigger", "")), 15, GREEN, true)
+	GemPanel.gem_requirement(body, gem, 15, int(preview.get("effective_clarity", gem.get("clarity", 1))))
 	_label(body, "DOES", 11, GOLD)
 	_formula_rows(body, gem, int(preview.get("effective_clarity", gem.get("clarity", 1))), 15)
 	UiKit.rule(body)
@@ -2357,7 +2499,9 @@ func _inspect_unit(unit: Dictionary) -> void:
 		UiKit.chip(chips, str(badge[0]), Color(badge[1]))
 	var definition: Dictionary = Catalog.ENEMIES.get(unit.get("key", ""), Catalog.HEROES.get(unit.get("key", ""), {}))
 	var description := str(definition.get("description", ""))
-	if not description.is_empty():
+	if not hostile:
+		_hero_abilities(body, key, 14)
+	elif not description.is_empty():
 		_label(body, description, 15, PAPER, true)
 	var hand: Array = Combat.values(_hand_for(unit)) if not hostile else Combat.values(unit.get("hand", []))
 	if not hand.is_empty():
@@ -2401,6 +2545,9 @@ func _inspect_stage_skill(unit_id: String, entry_id: String) -> void:
 	var state: Dictionary = _battle_state()
 	for hero in state.get("heroes", []):
 		if str(hero.get("id", "")) != unit_id: continue
+		if entry_id in ["passive", "signature"]:
+			_inspect_ability(hero, entry_id)
+			return
 		for gem in hero.get("gems", []):
 			if str(gem.get("id", "")) == entry_id:
 				_inspect_gem(gem)
@@ -2427,7 +2574,7 @@ func _inspect_enemy_skill(enemy: Dictionary, key: String) -> void:
 	var does := ""
 	for gem in enemy.get("gems", []):
 		if Catalog.canonical_key(str(gem.get("key", ""))) == key:
-			when = str(Catalog.SKILLS.get(key, {}).get("trigger", ""))
+			when = str(DiceIcons.requirement(key, int(gem.get("clarity", 1)), int(gem.get("cut", 1)), int(gem.get("carat", 1))).words)
 			does = GemText.sentence(gem)
 			_label(body, "REQUIRES", 11, GOLD)
 			_requirement_icons(_hbox(body, 10), gem, Combat.preview(enemy, gem, enemy.get("hand", []), snapshot), 28)
@@ -2504,12 +2651,13 @@ func _ping(_kind: String, id: String, title: String) -> void:
 
 func _preview_text(gem: Dictionary) -> String:
 	var def: Dictionary = Catalog.SKILLS.get(gem.get("key", ""), {})
-	var result := _gem_stats(gem) + "\nTrigger: " + str(def.get("trigger", "")) + "\n" + GemText.sentence(gem)
+	var requirement: Dictionary = DiceIcons.requirement(str(gem.get("key", "")), int(gem.get("clarity", 1)), int(gem.get("cut", 1)), int(gem.get("carat", 1)))
+	var result := _gem_stats(gem) + "\nRequires: " + str(requirement.words) + "\n" + GemText.sentence(gem)
 	if not snapshot.is_empty():
 		var preview: Dictionary = Combat.preview(_hero(), gem, _preview_hand(), snapshot)
 		result += "\n\nThis hand: " + (str(preview.get("summary", "")) if preview.get("active", false) else str(preview.get("reason", "Dormant")))
 		if int(preview.get("effective_clarity", gem.get("clarity", 1))) != int(gem.get("clarity", 1)):
-			result += "\nEffective Clarity: %d (includes Focusing Prism)" % int(preview.effective_clarity)
+			result += "\nA Focusing Prism raises its Clarity to %d." % int(preview.effective_clarity)
 	return result
 
 func _sealed(gem: Dictionary) -> bool:
@@ -2542,8 +2690,7 @@ func _gem_details(parent: Node, gem: Dictionary) -> void:
 	var box := _vbox(row, 4)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_gem_title_row(box, gem, 16, _gem_color(gem))
-	var def: Dictionary = Catalog.SKILLS.get(gem.get("key", ""), {})
-	_label(box, str(def.get("trigger", "")), 13, GREEN, true)
+	GemPanel.gem_requirement(box, gem, 13)
 	_formula_rows(box, gem, -1, 13)
 	row.tooltip_text = _preview_text(gem)
 
@@ -2614,6 +2761,24 @@ func _gem_marks_row(parent: Node, gem: Dictionary, edge: float) -> HBoxContainer
 func _formula_rows(parent: Node, gem: Dictionary, effective_clarity: int = -1, size_px: int = 14) -> void:
 	GemPanel.formula_rows(parent, gem, effective_clarity, size_px)
 
+func _hero_abilities(parent: Node, hero_key: String, size_px: int) -> void:
+	## A hero's passive and signature, each with its mark, what it needs and what it does.
+	var definition: Dictionary = Catalog.definitions("heroes").get(hero_key.to_upper(), {})
+	var passive := str(definition.get("trait", ""))
+	if not passive.is_empty():
+		var row := _hbox(parent, 8)
+		GemIcons.glyph(row, GemIcons.emblem(passive), size_px * 1.6, _unit_tint(hero_key), "Passive")
+		_label(row, "PASSIVE  ·  " + str(definition.get("trait_name", passive)), size_px, _unit_tint(hero_key)).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		GemPanel.requirement_row(parent, Requirements.passive(passive), size_px - 1, GREEN)
+		_label(parent, str(definition.get("description", "")), size_px, PAPER, true)
+	var signature := str(definition.get("signature", ""))
+	if Catalog.SIGNATURES.has(signature):
+		var row := _hbox(parent, 8)
+		GemIcons.glyph(row, GemIcons.emblem(signature), size_px * 1.6, AMBER, "Signature")
+		_label(row, "SIGNATURE  ·  " + str(Catalog.SIGNATURES[signature].name), size_px, AMBER).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		GemPanel.requirement_row(parent, Requirements.signature(signature), size_px - 1, GREEN)
+		_label(parent, str(Catalog.SIGNATURES[signature].description), size_px, PAPER, true)
+
 func _gem_name(gem: Dictionary) -> String:
 	if _sealed(gem): return "an unappraised stone"
 	return str(Catalog.SKILLS.get(gem.get("key", ""), {}).get("name", gem.get("key", "Gem")))
@@ -2676,11 +2841,13 @@ func _show_journal() -> void:
 		"guide":
 			var entries := [
 				["ONE HAND, MANY SKILLS", "Roll five active dice. Select dice you want to reroll; the others stay. You normally have one reroll. Lock in when you are satisfied. There is no automatic lock-in timer."],
-				["A PAIR CAN DO MORE", "With [2, 2, 4, 6, 8], Strike C1/K1/L1 deals 8 damage and Block C2/K1/L1 grants 2 block. Both use the same hand; dice are neither assigned nor spent."],
+				["A PAIR CAN DO MORE", "With [2, 2, 4, 6, 8], a Poor, Fractured, Carat 1 Strike deals 10 damage and a Poor, Fractured, Carat 2 Block grants 4 block. Both use the same hand; dice are neither assigned nor spent."],
 				["THE FOUR C'S", "Color is the gem's effect category: Red damage, Blue block, Green healing, Violet control, Gold fortune. Carat 1–24, marked with a balance scale, is the overall strength multiplier, from ×1 at Carat 1 to ×3.875 at Carat 24. Cut 1–5, Poor to Perfect and marked with a throwing star, multiplies whatever the dice contribute, so it matters most on attacks. Clarity 1–5, Fractured to Flawless and marked with a sparkle, adds a flat bonus that does not depend on your roll, eases triggers, and unlocks extra effects at the top ranks."],
 				["READING THE STONE", "A gem is drawn from its own four properties, so two gems that differ in one rank look different. Color sets the outline and hue — Red is a triangle cut, Blue a square, Green a heart, Violet a marquise, Gold a round brilliant. Carat sets the size, from a chip at 1 to nearly three times that at 24. Cut sets how intricate the faceting is. Clarity sets the brilliance: a Fractured stone is cloudy and carries visible flaws, a Flawless one is saturated and throws a star. The skill\'s emblem is etched into the face."],
 				["READING A GEM", "A gem is named by its ranks: Good, Flawless, 12, Multistrike. Under that, its rule is a short chain — the terms it adds up, then one Carat multiplier, then what it does. Each term wears the mark of the property behind it and its own colour, and hovering any mark or term explains it. A term worth nothing is never shown, so a Carat 1 gem carries no multiplier on its line and a Cut that adds nothing is simply absent."],
-				["YOUR BUILD", "Equip six unique skill gems including Strike. Carat, Cut, and Clarity vary independently; Color is fixed by the skill. Equip, replace, and reorder between rooms before ready. Skills resolve in their visible order."],
+				["YOUR BUILD", "Every hero has six gem sockets, and each socket takes one Color of gem — the first always Red, the second always Blue, and one or two prismatic sockets take any Color. Only the first three can be filled before an expedition; the rest open once you are underground. Strike stays socketed, one copy of each skill at most. Gems resolve left to right."],
+				["PASSIVE AND SIGNATURE", "Beside the sockets sit two things every hero carries. The passive is always working. The signature needs the hardest hand that hero can make — four of a kind, a huge total, a straight of five — and does something enormous when it lands. It resolves before any gem."],
+				["READING A REQUIREMENT", "What a gem needs is drawn as a mark: two matching dice for a pair, a stair of dice as long as the straight, the sum sign with an arrow for a total. A gem that fires on every hand shows what it grows with instead — Strike reads your highest die. Hover a mark for the sentence."],
 				["TARGETS AND TURN ORDER", "Choose a preferred enemy by clicking it on the battlefield. Friendly effects need no choice: support skills reach every living hero. A skill fixes its target as it begins; later hostile hits fizzle if that target dies. The next skill can retarget. Heroes act in party seat order, then enemies. Enemy intents are public before planning."],
 				["BLOCK, STUN, POISON", "Block persists through turns, then clears after combat. Stun skips an actor’s next slot. Poison bypasses block at the end of a living actor’s slot, then loses one stack; it still ticks when stunned. Boss Resolve prevents repeated stun locking."],
 				["FALLING AND RECOVERY", "Downed heroes do not roll or act. Victory rallies them to 10% HP. If the whole party falls, every stone it carried is rolled on a die by rarity — d6 to d20 — and only the top face brings it home. Your loadout is never at risk."],
@@ -2716,7 +2883,7 @@ func _show_journal() -> void:
 				var facts := _vbox(entry_row, 3)
 				facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				_label(facts, "%s · %d HP · %s" % [def.name, def.max_hp, _join_values(def.dice)], 20, GOLD)
-				_label(facts, str(def.trait_name) + ": " + str(def.description), 15, PAPER, true)
+				_hero_abilities(facts, str(key), 14)
 		"gems":
 			for key in Catalog.SKILLS:
 				var def: Dictionary = Catalog.SKILLS[key]
@@ -2729,7 +2896,8 @@ func _show_journal() -> void:
 				var gem_facts := _vbox(entry_row, 3)
 				gem_facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				_label(gem_facts, "%s · Rarity %d" % [def.name, def.rarity], 19, GOLD)
-				_label(gem_facts, str(def.trigger) + "\n" + str(def.formula), 15, PAPER, true)
+				GemPanel.requirement_row(gem_facts, Requirements.skill(str(key)), 14)
+				GemPanel.rich_rule(gem_facts, str(def.formula), 15, PAPER)
 		"dice":
 			_label(box, "Every physical face is equally likely. Repeated values simply appear on more faces.", 13, MUTED, true)
 			var dice_grid := GridContainer.new()
@@ -3156,14 +3324,13 @@ func _show_spotlight() -> void:
 	reveal.show(chips, key, 1.35, "pop")
 	var rows := _vbox(box, 6)
 	_gem_title_row(rows, gem, 15, PAPER, false)
-	_label(rows, str(definition.get("trigger", "")), 14, GREEN, true)
+	GemPanel.gem_requirement(rows, gem, 14)
 	_formula_rows(rows, gem, -1, 14)
 	reveal.show(rows, key, 1.5, "fade")
-	var equipped: Array = _hero().get("gems", []).filter(func(item: Dictionary) -> bool: return item.get("equipped", false))
 	var socket := -1
-	for index in range(equipped.size()):
-		if str(equipped[index].get("id", "")) == str(gem.get("id", "")): socket = index
-	var note := UiKit.chip(box, ("SET IN OPEN SOCKET %d" % (socket + 1)) if socket >= 0 else "IN RESERVE  ·  DRAG IT INTO A SOCKET FROM YOUR EQUIPMENT", GREEN if socket >= 0 else AMBER)
+	for item in _hero().get("gems", []):
+		if str(item.get("id", "")) == str(gem.get("id", "")) and item.get("equipped", false): socket = int(item.get("socket", 0))
+	var note := UiKit.chip(box, ("SET IN OPEN SOCKET %d" % (socket + 1)) if socket >= 0 else "IN RESERVE  ·  NO OPEN %s SOCKET" % Catalog.socket_name(Catalog.gem_color(str(gem.get("key", "")))).to_upper(), GREEN if socket >= 0 else AMBER)
 	note.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	reveal.show(note, key, 1.7, "stamp")
 	var go := _button(box, "Continue  [%s]" % _binding_name("rd_back"), func():
@@ -3325,10 +3492,18 @@ func _plan_equipment(kind: String, payload: Dictionary) -> void:
 	var hero: Dictionary = provisional.get(controlled_id, {})
 	if hero.is_empty(): return
 	match kind:
-		"EquipGem", "EquipRelic":
-			var is_gem := kind == "EquipGem"
-			var items: Array = hero.get("gems" if is_gem else "relics", [])
-			var id := str(payload.get("gem_id" if is_gem else "relic_id", ""))
+		"EquipGem", "ReorderGems":
+			# The plan is held to the authority's own socket rule, so nothing planned here can
+			# be refused when it is finally sent.
+			var working: Dictionary = hero.duplicate(true)
+			var problem: String = EngineScript.equip_gem_on(working, payload) if kind == "EquipGem" else EngineScript.reorder_on(working, payload.get("gem_ids", []))
+			if not problem.is_empty():
+				_notify(problem)
+				return
+			hero.gems = working.gems
+		"EquipRelic":
+			var items: Array = hero.get("relics", [])
+			var id := str(payload.get("relic_id", ""))
 			var found: Dictionary = {}
 			for item in items:
 				if str(item.id) == id: found = item
@@ -3336,14 +3511,6 @@ func _plan_equipment(kind: String, payload: Dictionary) -> void:
 			for item in items:
 				if str(item.id) == str(payload.get("replace_id", "")): item.equipped = false
 			found.equipped = not found.get("equipped", false)
-		"ReorderGems":
-			var ordered: Array = []
-			for id in payload.get("gem_ids", []):
-				for item in hero.gems:
-					if item.id == id: ordered.append(item)
-			for item in hero.gems:
-				if not item.get("equipped", false): ordered.append(item)
-			hero.gems = ordered
 		"SwapDie":
 			var active_i := -1
 			var reserve_i := -1

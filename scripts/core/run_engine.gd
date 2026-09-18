@@ -12,7 +12,7 @@ const Catalog = preload("res://scripts/core/catalog.gd")
 const Combat = preload("res://scripts/core/combat.gd")
 const Seam = preload("res://scripts/core/seam.gd")
 const SaveStore = preload("res://scripts/services/save_store.gd")
-const RULES_VERSION = "2.0.0"
+const RULES_VERSION = "2.1.0"
 const CONTENT_VERSION = "1.0.0"
 const PROTOCOL_VERSION = 2
 const SHAPES = ["D4", "D6", "D8", "D10", "D12", "D20"]
@@ -130,15 +130,17 @@ func new_run(config: Dictionary = {}) -> Dictionary:
 		var hero: Dictionary = Catalog.hero(hero_key, id, i)
 		## No loadout, or an empty one, means the hero's own starting gems.
 		if seat.get("loadout", []) is Array and not seat.get("loadout", []).is_empty() or (seat.has("loadout") and not seat.loadout is Array):
-			var loadout_error: String = loadout_error(seat.loadout)
+			var loadout_error: String = loadout_error(seat.loadout, hero_key)
 			if not loadout_error.is_empty():
 				state = {}
 				return {"ok":false, "error":loadout_error}
 			hero.gems = []
 			for gem in seat.loadout:
 				var item: Dictionary = Catalog.gem(str(gem.key), "%s-g%d" % [id, hero.gems.size()], int(gem.get("carat", 1)), int(gem.get("cut", 1)), int(gem.get("clarity", 1)))
+				item.socket = int(gem.socket) if gem.has("socket") else Catalog.open_socket(hero.sockets, hero.gems, str(item.key), Catalog.LOADOUT_CARRY)
 				item.equipped = true
 				hero.gems.append(item)
+			Catalog.sort_sockets(hero)
 		for gem in hero.gems:
 			gem["loadout"] = true
 			gem["owner_id"] = id
@@ -166,12 +168,16 @@ func new_run(config: Dictionary = {}) -> Dictionary:
 	changed.emit(state)
 	return state
 
-static func loadout_error(loadout: Variant) -> String:
+static func loadout_error(loadout: Variant, hero_key: String = "") -> String:
 	## A loadout comes from a player's own profile, so the host checks its shape rather than
-	## trusting it: whole ranks in range, one gem per skill, Strike present, six at most.
-	if not loadout is Array or loadout.is_empty() or loadout.size() > 6:
-		return "A loadout holds one to six gems."
+	## trusting it: whole ranks in range, one gem per skill, Strike present, and no more than
+	## the sockets a hero may fill at home. Given the hero, every gem must also suit the
+	## socket it names, or find one it suits when it names none.
+	if not loadout is Array or loadout.is_empty() or loadout.size() > Catalog.LOADOUT_CARRY:
+		return "A loadout carries one to %d gems into the mine." % Catalog.LOADOUT_CARRY
 	var keys: Array = []
+	var placed: Array = []
+	var sockets: Array = Catalog.hero_sockets(hero_key) if not hero_key.is_empty() else []
 	for gem in loadout:
 		if not gem is Dictionary or not Catalog.definitions("skills").has(str(gem.get("key", ""))) or str(gem.key) in keys:
 			return "A loadout names an unknown or repeated gem."
@@ -179,7 +185,24 @@ static func loadout_error(loadout: Variant) -> String:
 			var value: Variant = gem.get(field[0], 1)
 			if not (value is int or value is float) or float(value) != floor(float(value)) or int(value) < 1 or int(value) > field[1]:
 				return "A loadout gem has an invalid rank."
+		if gem.has("socket"):
+			var socket: Variant = gem.socket
+			if not (socket is int or socket is float) or float(socket) != floor(float(socket)) or int(socket) < 0 or int(socket) >= Catalog.LOADOUT_CARRY:
+				return "A loadout gem names a socket that cannot be filled at home."
+			if int(socket) in placed.map(func(entry: Dictionary) -> int: return int(entry.socket)):
+				return "Two loadout gems name the same socket."
+			if not sockets.is_empty() and not Catalog.socket_fits(str(sockets[int(socket)]), str(gem.key)):
+				return "A loadout gem does not suit the Color of its socket."
+			placed.append({"key":str(gem.key), "socket":int(socket), "equipped":true})
 		keys.append(str(gem.key))
+	if not sockets.is_empty():
+		for gem in loadout:
+			if gem.has("socket"):
+				continue
+			var open: int = Catalog.open_socket(sockets, placed, str(gem.key), Catalog.LOADOUT_CARRY)
+			if open < 0:
+				return "A loadout gem suits none of the hero's open sockets."
+			placed.append({"key":str(gem.key), "socket":open, "equipped":true})
 	if not "STRIKE" in keys:
 		return "Every loadout needs Strike."
 	return ""
@@ -859,47 +882,105 @@ func _auto_equip(player: Dictionary, gem: Dictionary) -> void:
 	## known. A full loadout, or one already running this skill, is left as the player set it.
 	if gem.get("equipped", false) or not bool(gem.get("appraised", true)):
 		return
-	if _equipped_count(player.gems) >= 6 or _equipped_skill(player, str(gem.key)):
+	if _equipped_skill(player, str(gem.key)):
+		return
+	var socket: int = Catalog.open_socket(_sockets(player), player.gems, str(gem.key))
+	if socket < 0:
 		return
 	gem.equipped = true
+	gem.socket = socket
+	Catalog.sort_sockets(player)
+
+static func _sockets(player: Dictionary) -> Array:
+	var sockets: Variant = player.get("sockets", null)
+	return sockets if sockets is Array and sockets.size() == Catalog.SOCKET_COUNT else Catalog.hero_sockets(str(player.get("key", "")))
+
+static func _occupant(player: Dictionary, socket: int) -> Dictionary:
+	for other in player.gems:
+		if other.get("equipped", false) and int(other.get("socket", -1)) == socket:
+			return other
+	return {}
 
 func _equip_gem(player: Dictionary, payload: Dictionary) -> String:
+	## Sets a gem in a socket. With `socket`, into that socket: whatever was there moves to the
+	## socket this gem left if it suits it, and to the reserve otherwise. With `replace_id`,
+	## into the socket that gem holds. With neither, an equipped gem comes out and a reserve
+	## gem takes the first open socket its Color fits.
 	var guard: String = _build_guard(player)
 	if not guard.is_empty(): return guard
+	return equip_gem_on(player, payload)
+
+static func equip_gem_on(player: Dictionary, payload: Dictionary) -> String:
+	## The socket rule on its own, with no phase to check, so a downed hero's provisional plan
+	## is held to exactly the rule the authority will apply when it is sent.
 	var gem: Dictionary = _find(player.gems, str(payload.get("gem_id", "")))
 	if gem.is_empty(): return "You do not own that gem."
-	var replace: Dictionary = _find(player.gems, str(payload.get("replace_id", "")))
-	if gem.get("equipped", false):
+	if not bool(gem.get("appraised", true)): return "An unappraised stone cannot be socketed."
+	var sockets: Array = _sockets(player)
+	var target: int = -1
+	if payload.has("socket"):
+		var wanted: Variant = payload.socket
+		if not (wanted is int or wanted is float) or float(wanted) != floor(float(wanted)) or int(wanted) < 0 or int(wanted) >= sockets.size():
+			return "That socket does not exist."
+		target = int(wanted)
+	elif payload.has("replace_id"):
+		var replace: Dictionary = _find(player.gems, str(payload.get("replace_id", "")))
+		if replace.is_empty() or not replace.get("equipped", false): return "The replaced gem must be equipped."
+		target = int(replace.get("socket", -1))
+	elif gem.get("equipped", false):
 		if gem.key == "STRIKE": return "Strike must remain equipped. Select a reserve Strike to replace it."
 		gem.equipped = false
+		gem.socket = -1
+		Catalog.sort_sockets(player)
 		return ""
-	if not replace.is_empty() and not replace.get("equipped", false): return "The replaced gem must be equipped."
+	var from: int = int(gem.get("socket", -1)) if gem.get("equipped", false) else -1
+	if target < 0:
+		for other in player.gems:
+			if other.get("equipped", false) and other.key == gem.key: target = int(other.get("socket", -1))
+		if target < 0: target = Catalog.open_socket(sockets, player.gems, str(gem.key))
+		if target < 0: return "No open socket takes a %s gem. Drop it onto a socket to replace what is there." % Catalog.socket_name(Catalog.gem_color(str(gem.key)))
+	if target == from: return ""
+	if not Catalog.socket_fits(str(sockets[target]), str(gem.key)):
+		return "A %s gem does not fit a %s socket." % [Catalog.socket_name(Catalog.gem_color(str(gem.key))), Catalog.socket_name(str(sockets[target]))]
+	var occupant: Dictionary = _occupant(player, target)
+	if not occupant.is_empty():
+		var trades: bool = from >= 0 and Catalog.socket_fits(str(sockets[from]), str(occupant.key))
+		if occupant.key == "STRIKE" and gem.key != "STRIKE" and not trades: return "An equipped Strike is required."
+		occupant.equipped = trades
+		occupant.socket = from if trades else -1
 	for other in player.gems:
-		if other.get("equipped", false) and other.key == gem.key and replace.is_empty(): replace = other
-	if not replace.is_empty():
-		if replace.key == "STRIKE" and gem.key != "STRIKE": return "An equipped Strike is required."
-		replace.equipped = false
-	if _equipped_count(player.gems) >= 6: return "Six gem slots are full. Choose a gem to replace or unequip one."
-	if _equipped_skill(player, gem.key): return "Only one copy of each skill may be equipped."
+		if other != gem and other != occupant and other.get("equipped", false) and other.key == gem.key:
+			if other.key == "STRIKE" and gem.key != "STRIKE": return "An equipped Strike is required."
+			other.equipped = false
+			other.socket = -1
 	gem.equipped = true
-	if not replace.is_empty():
-		var old_index: int = player.gems.find(replace)
-		player.gems.erase(gem)
-		player.gems.insert(mini(old_index, player.gems.size()), gem)
+	gem.socket = target
+	Catalog.sort_sockets(player)
 	return ""
 
 func _reorder(player: Dictionary, ids: Variant) -> String:
+	## Rearranges the equipped gems among the sockets they already fill: the first ID takes the
+	## leftmost of those sockets, and so on. Every gem has to suit the socket it lands in.
 	var guard: String = _build_guard(player)
 	if not guard.is_empty(): return guard
+	return reorder_on(player, ids)
+
+static func reorder_on(player: Dictionary, ids: Variant) -> String:
 	if not ids is Array or ids.size() != _equipped_count(player.gems): return "Supply all equipped gem IDs exactly once."
 	var ordered: Array = []
 	for id in ids:
 		var gem: Dictionary = _find(player.gems, str(id))
 		if gem.is_empty() or not gem.get("equipped", false) or gem in ordered: return "Invalid or duplicate equipped gem ID."
 		ordered.append(gem)
-	for gem in player.gems:
-		if not gem.get("equipped", false): ordered.append(gem)
-	player.gems = ordered
+	var filled: Array = ordered.map(func(gem: Dictionary) -> int: return int(gem.get("socket", 0)))
+	filled.sort()
+	var sockets: Array = _sockets(player)
+	for index in range(ordered.size()):
+		if not Catalog.socket_fits(str(sockets[filled[index]]), str(ordered[index].key)):
+			return "A %s gem does not fit a %s socket." % [Catalog.socket_name(Catalog.gem_color(str(ordered[index].key))), Catalog.socket_name(str(sockets[filled[index]]))]
+	for index in range(ordered.size()):
+		ordered[index].socket = filled[index]
+	Catalog.sort_sockets(player)
 	return ""
 
 func _swap_die(player: Dictionary, payload: Dictionary) -> String:
@@ -1501,6 +1582,12 @@ static func validate_state(snapshot: Dictionary) -> String:
 		if not whole.call(hero.statuses.get("poison", 0), 0, 12): return "Saved Poison exceeds its cap."
 		var equipped_gems: Dictionary = {}
 		var equipped_relics: Dictionary = {}
+		var sockets: Variant = hero.get("sockets", null)
+		if not sockets is Array or sockets.size() != Catalog.SOCKET_COUNT: return "Invalid saved gem sockets."
+		for socket in sockets:
+			if not socket is String or (socket != Catalog.SOCKET_ANY and not Catalog.GEM_COLORS.has(socket)): return "Invalid saved socket Color."
+		if not hero.get("signature", "") is String or (not str(hero.get("signature", "")).is_empty() and not Catalog.SIGNATURES.has(str(hero.signature))): return "Invalid saved hero signature."
+		var filled: Dictionary = {}
 		for item in hero.gems + hero.haul:
 			if not item is Dictionary or not Catalog.SKILLS.has(item.get("key", "")): return "Unknown saved gem."
 			if not whole.call(item.get("carat"), 1, 24) or not whole.call(item.get("cut"), 1, 5) or not whole.call(item.get("clarity"), 1, 5): return "Invalid saved gem properties."
@@ -1511,6 +1598,9 @@ static func validate_state(snapshot: Dictionary) -> String:
 			if item.equipped:
 				if equipped_gems.has(item.key): return "Duplicate equipped skill."
 				equipped_gems[item.key] = true
+				if not whole.call(item.get("socket"), 0, Catalog.SOCKET_COUNT - 1) or filled.has(int(item.socket)): return "Invalid or shared saved gem socket."
+				filled[int(item.socket)] = true
+				if not Catalog.socket_fits(str(sockets[int(item.socket)]), str(item.key)): return "A saved gem sits in a socket of the wrong Color."
 		for item in hero.haul:
 			if item.equipped or item.get("appraised", false) or not item.get("found", false): return "A hauled stone must be found, unappraised and unequipped."
 		if equipped_gems.size() > 6 or not equipped_gems.has("STRIKE"): return "Saved loadout must include Strike within six gem slots."
