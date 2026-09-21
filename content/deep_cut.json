@@ -283,7 +283,9 @@
 		"LOCKED_D8": {"name": "Locking Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 6, 7, {"value": 8, "kind": "locked"}], "rarity": "UNCOMMON", "price": 24},
 		"MIRROR_D6": {"name": "Mirror Die", "shape": "D6", "faces": [1, 2, 3, 4, 5, {"value": 6, "kind": "mirror"}], "rarity": "RARE", "price": 40},
 		"HOLLOW_D10": {"name": "Hollow Die", "shape": "D10", "faces": [{"value": 0, "kind": "blank"}, 2, 3, 4, 5, 6, 7, 8, 9, 10], "rarity": "UNCOMMON", "price": 16},
-		"GEM_D8": {"name": "Gem Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 6, 7, {"value": 8, "kind": "gem"}], "rarity": "LEGENDARY", "price": 90}
+		"GEM_D8": {"name": "Gem Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 6, 7, {"value": 8, "kind": "gem"}], "rarity": "LEGENDARY", "price": 90},
+		"PHIAL": {"name": "The Phial", "shape": "D6", "faces": [1, 1, 1, 2, 2, 3], "top": 6, "rarity": "RARE", "price": 30, "text": "Rue's own die. It cannot roll high, so every face of it is low."},
+		"GAMBLERS_D6": {"name": "Gambler's Die", "shape": "D6", "faces": [1, 2, 3, 4, 5, 7], "rarity": "UNCOMMON", "price": 20, "text": "A six-sider whose six is a seven. Florin's dice."}
 	},
 	"engravings": {
 		"ALWAYS_HELD": {"name": "Set", "key": "always_held", "rarity": "UNCOMMON", "text": "Counts as held even when rerolled."},
@@ -291,22 +293,585 @@
 		"KEEN": {"name": "Keen", "key": "keen", "rarity": "RARE", "text": "+1 to every face."},
 		"STEADY": {"name": "Steady", "key": "steady", "rarity": "UNCOMMON", "text": "Never shows less than 2."}
 	},
-	"settings": {
-		"SIGNET": {"name": "Signet", "text": "A heavy ring with four settings. The one everyone starts with.", "hp": 80, "starter": true,
-			"sockets": ["RED", "BLUE", "ANY", "CAPSTONE"], "dice": ["D6", "D6", "D6", "D8", "D8"],
-			"passive": {"kind": "extra_reroll", "amount": 1, "text": "+1 reroll every turn."}},
-		"GAUNTLET": {"name": "Gauntlet", "text": "Five settings across the knuckles, two of them Red.", "hp": 90,
-			"sockets": ["RED", "RED", "ANY", "VIOLET", "CAPSTONE"], "dice": ["D8", "D8", "D10", "D10", "D12"],
-			"passive": {"kind": "first_gem_cut_step", "amount": 1, "text": "The first gem in the rail is judged one Cut step better."}},
-		"PENDANT": {"name": "Pendant", "text": "Hangs at the throat, close to the heart.", "hp": 70,
-			"sockets": ["GREEN", "WHITE", "ANY", "BLUE", "CAPSTONE"], "dice": ["D4", "D4", "D6", "D6", "D20"],
-			"passive": {"kind": "heal_on_fizzle", "amount": 2, "text": "Heal 2 whenever a gem fizzles."}},
-		"CIRCLET": {"name": "Circlet", "text": "Six open settings and nothing to protect the head.", "hp": 60,
-			"sockets": ["ANY", "ANY", "ANY", "ANY", "ANY", "CAPSTONE"], "dice": ["D4", "D6", "D8", "D10", "D12"],
-			"passive": {"kind": "none", "text": "No passive. Every socket is open."}},
-		"CHAIN": {"name": "Chain", "text": "Seven small settings on a chain. Nothing heavier than 8 carats fits.", "hp": 75, "carat_max": 8,
-			"sockets": ["GOLD", "GOLD", "ANY", "ANY", "ANY", "ANY", "CAPSTONE"], "dice": ["D6", "D6", "D6", "D6", "D6"],
-			"passive": {"kind": "first_fizzle_free", "amount": 1, "text": "The first fizzle each turn does not reset Resonance."}}
+	"characters": {
+		"ARDOR": {
+			"name": "Ardor",
+			"title": "the Knight",
+			"starter": true,
+			"unlock_order": 0,
+			"hp": 80,
+			"text": "The wall. Locks in early, heals for patience, and turns a lucky triple into a hammer.",
+			"sockets": [
+				"RED",
+				"BLUE",
+				"GREEN",
+				"ANY",
+				"ANY"
+			],
+			"dice": [
+				"D6",
+				"D6",
+				"D6",
+				"D8",
+				"D8"
+			],
+			"passive": {
+				"kind": "heal_per_unused_reroll",
+				"amount": 3,
+				"name": "Second Wind",
+				"text": "Heal 3 for each unused reroll when your rail begins."
+			},
+			"birthstone": {
+				"name": "Rally",
+				"emblem": "shield",
+				"style": "shield",
+				"hue": "9a2323",
+				"text": "Almandine garnet in a shield cut. Sets of matching dice rally the Knight.",
+				"face": "Jaw set, eyes narrowed, a slow nod.",
+				"tiers": [
+					{
+						"name": "Rank",
+						"trigger": {
+							"kind": "pair",
+							"amount": 1
+						},
+						"text": "A pair: gain Resonance block.",
+						"effects": [
+							{
+								"kind": "block",
+								"amount": {
+									"term": "resonance"
+								}
+							}
+						]
+					},
+					{
+						"name": "File",
+						"trigger": {
+							"kind": "triple",
+							"amount": 1
+						},
+						"text": "Three of a kind: deal three times Resonance.",
+						"effects": [
+							{
+								"kind": "damage",
+								"amount": {
+									"op": "*",
+									"args": [
+										3,
+										{
+											"term": "resonance"
+										}
+									]
+								}
+							}
+						]
+					},
+					{
+						"name": "Phalanx",
+						"trigger": {
+							"kind": "quad",
+							"amount": 1
+						},
+						"text": "Four of a kind: cleanse yourself and stun the target.",
+						"effects": [
+							{
+								"kind": "cleanse",
+								"amount": 9,
+								"target": "self"
+							},
+							{
+								"kind": "stun",
+								"amount": 1
+							}
+						]
+					},
+					{
+						"name": "Legion",
+						"trigger": {
+							"kind": "quint",
+							"amount": 1
+						},
+						"text": "Five of a kind: deal five times Resonance, five times.",
+						"effects": [
+							{
+								"kind": "damage",
+								"amount": {
+									"op": "*",
+									"args": [
+										5,
+										{
+											"term": "resonance"
+										}
+									]
+								},
+								"repeat": 5
+							}
+						]
+					}
+				]
+			}
+		},
+		"VESPER": {
+			"name": "Vesper",
+			"title": "the Rogue",
+			"unlock_order": 1,
+			"hp": 65,
+			"text": "The assassin's gamble. Four tiny knives and one enormous die.",
+			"sockets": [
+				"RED",
+				"RED",
+				"VIOLET",
+				"ANY",
+				"ANY"
+			],
+			"dice": [
+				"D4",
+				"D4",
+				"D4",
+				"D4",
+				"D20"
+			],
+			"passive": {
+				"kind": "block_per_hit",
+				"name": "Riposte",
+				"text": "Gain Resonance block for every hit one of your gems lands."
+			},
+			"birthstone": {
+				"name": "Thousand Cuts",
+				"emblem": "slashes",
+				"style": "marquise",
+				"hue": "1c1a26",
+				"text": "Black opal in a needle-thin marquise: a dark body and a thousand pinprick flashes.",
+				"face": "A thin smile, eyes on the target.",
+				"tiers": [
+					{
+						"name": "Thousand Cuts",
+						"trigger": {
+							"kind": "distinct_dominant",
+							"amount": 5
+						},
+						"text": "Five different values, the top die outrolling the other four combined: deal Resonance damage once for every point on your highest die.",
+						"effects": [
+							{
+								"kind": "damage",
+								"amount": {
+									"term": "resonance"
+								},
+								"repeat": {
+									"term": "high"
+								}
+							}
+						]
+					}
+				]
+			}
+		},
+		"CADENCE": {
+			"name": "Cadence",
+			"title": "the Wizard",
+			"unlock_order": 2,
+			"hp": 70,
+			"text": "The combo player. Runs of numbers, and the turn that plays twice.",
+			"sockets": [
+				"RED",
+				"WHITE",
+				"VIOLET",
+				"ANY",
+				"ANY"
+			],
+			"dice": [
+				"D4",
+				"D6",
+				"D8",
+				"D10",
+				"D12"
+			],
+			"passive": {
+				"kind": "extra_reroll",
+				"amount": 1,
+				"name": "Study",
+				"text": "+1 reroll every turn."
+			},
+			"birthstone": {
+				"name": "Encore",
+				"emblem": "arcs",
+				"style": "step",
+				"hue": "7a4fc4",
+				"text": "Ametrine, violet fading to gold, in a step cut: a staircase of facets.",
+				"face": "Eyes closed, one hand raised like a conductor.",
+				"tiers": [
+					{
+						"name": "Overture",
+						"trigger": {
+							"kind": "straight",
+							"amount": 4
+						},
+						"text": "A straight of four: deal four times Resonance to every creature.",
+						"effects": [
+							{
+								"kind": "damage",
+								"amount": {
+									"op": "*",
+									"args": [
+										4,
+										{
+											"term": "resonance"
+										}
+									]
+								},
+								"target": "enemies"
+							}
+						]
+					},
+					{
+						"name": "Encore",
+						"trigger": {
+							"kind": "straight",
+							"amount": 5
+						},
+						"text": "A straight of five: every gem that fired plays again, Overture included, and Resonance keeps climbing.",
+						"effects": [
+							{
+								"kind": "replay_rail",
+								"amount": 1
+							}
+						]
+					}
+				]
+			}
+		},
+		"RUE": {
+			"name": "Rue",
+			"title": "the Apothecary",
+			"unlock_order": 3,
+			"hp": 70,
+			"text": "The low roller. Wants ones. Everything the others dread, Rue drinks.",
+			"sockets": [
+				"RED",
+				"VIOLET",
+				"GREEN",
+				"ANY",
+				"ANY"
+			],
+			"dice": [
+				"D4",
+				"D4",
+				"D6",
+				"D6",
+				"PHIAL"
+			],
+			"passive": {
+				"kind": "heal_on_poison_tick",
+				"name": "Leech",
+				"text": "Heal Resonance whenever poison damages a creature."
+			},
+			"birthstone": {
+				"name": "Bitter Draught",
+				"emblem": "flask",
+				"style": "briolette",
+				"hue": "24402a",
+				"text": "Dark tourmaline briolette, a faceted teardrop, murky green-black with a trapped bubble.",
+				"face": "A wry grimace, as if tasting it.",
+				"tiers": [
+					{
+						"name": "Tincture",
+						"trigger": {
+							"kind": "low_count",
+							"amount": 4
+						},
+						"text": "Four or more low dice: poison the target for Resonance.",
+						"effects": [
+							{
+								"kind": "poison",
+								"amount": {
+									"term": "resonance"
+								}
+							}
+						]
+					},
+					{
+						"name": "Draught",
+						"trigger": {
+							"kind": "low_count",
+							"amount": 5
+						},
+						"text": "All five low: every poison on every creature ticks at once.",
+						"effects": [
+							{
+								"kind": "tick_poison",
+								"amount": 1
+							}
+						]
+					},
+					{
+						"name": "Dregs",
+						"trigger": {
+							"kind": "value",
+							"values": [
+								1
+							],
+							"amount": 5
+						},
+						"text": "All five showing 1: every poison ticks Resonance times.",
+						"effects": [
+							{
+								"kind": "tick_poison",
+								"amount": {
+									"term": "resonance"
+								}
+							}
+						]
+					}
+				]
+			}
+		},
+		"PUCK": {
+			"name": "Puck",
+			"title": "the Harlequin",
+			"unlock_order": 4,
+			"hp": 70,
+			"text": "Two faces. You choose which one the enemy sees, every turn.",
+			"sockets": [
+				"RED",
+				"BLUE",
+				"WHITE",
+				"ANY",
+				"ANY"
+			],
+			"dice": [
+				"D6",
+				"D6",
+				"D8",
+				"D8",
+				"D10"
+			],
+			"passive": {
+				"kind": "free_flip",
+				"amount": 1,
+				"name": "Sleight",
+				"text": "Once a turn, flip one die to the other side of its range for free."
+			},
+			"birthstone": {
+				"name": "Motley",
+				"emblem": "eye",
+				"style": "checkerboard",
+				"hue": "d4557a",
+				"text": "Watermelon tourmaline, pink one half and green the other, in a checkerboard cut.",
+				"face": "One eye winking, mouth half grin, half frown.",
+				"tiers": [
+					{
+						"name": "The Cruel Face",
+						"trigger": {
+							"kind": "odd",
+							"amount": 5
+						},
+						"text": "All five dice odd: deal three times Resonance.",
+						"effects": [
+							{
+								"kind": "damage",
+								"amount": {
+									"op": "*",
+									"args": [
+										3,
+										{
+											"term": "resonance"
+										}
+									]
+								}
+							}
+						]
+					},
+					{
+						"name": "The Kind Face",
+						"trigger": {
+							"kind": "even",
+							"amount": 5
+						},
+						"text": "All five dice even: gain three times Resonance block.",
+						"effects": [
+							{
+								"kind": "block",
+								"amount": {
+									"op": "*",
+									"args": [
+										3,
+										{
+											"term": "resonance"
+										}
+									]
+								}
+							}
+						]
+					},
+					{
+						"name": "Full Motley",
+						"trigger": {
+							"kind": "skip_straight",
+							"amount": 5
+						},
+						"exclusive": true,
+						"text": "All one parity and all different, like 2-4-6-8-10: both faces, doubled, and the target is stunned.",
+						"effects": [
+							{
+								"kind": "damage",
+								"amount": {
+									"op": "*",
+									"args": [
+										6,
+										{
+											"term": "resonance"
+										}
+									]
+								}
+							},
+							{
+								"kind": "block",
+								"amount": {
+									"op": "*",
+									"args": [
+										6,
+										{
+											"term": "resonance"
+										}
+									]
+								}
+							},
+							{
+								"kind": "stun",
+								"amount": 1
+							}
+						]
+					}
+				]
+			}
+		},
+		"FLORIN": {
+			"name": "Florin",
+			"title": "the Gambler",
+			"unlock_order": 5,
+			"hp": 60,
+			"text": "The six-socket high roller. Loaded dice, fool's gold, and a stone once in a hundred turns.",
+			"sockets": [
+				"RED",
+				"GOLD",
+				"GOLD",
+				"ANY",
+				"ANY",
+				"ANY"
+			],
+			"dice": [
+				"GAMBLERS_D6",
+				"GAMBLERS_D6",
+				"GAMBLERS_D6",
+				"GAMBLERS_D6",
+				"GAMBLERS_D6"
+			],
+			"passive": {
+				"kind": "free_reroll_value",
+				"amount": 1,
+				"name": "Loaded",
+				"text": "Any die that lands on a 1 is rerolled once, free."
+			},
+			"birthstone": {
+				"name": "High Roller",
+				"emblem": "coins",
+				"style": "cube",
+				"hue": "c9a13a",
+				"text": "A pyrite cube: fool's gold, which grows as a perfect die in the rock.",
+				"face": "Wide eyes, a whoop.",
+				"tiers": [
+					{
+						"name": "Ante",
+						"trigger": {
+							"kind": "crowns",
+							"amount": 1
+						},
+						"text": "Each crown, a die on its top face: Resonance damage and Resonance ore.",
+						"effects": [
+							{
+								"kind": "damage",
+								"amount": {
+									"op": "*",
+									"args": [
+										{
+											"term": "resonance"
+										},
+										{
+											"term": "crowns"
+										}
+									]
+								}
+							},
+							{
+								"kind": "gold",
+								"amount": {
+									"op": "*",
+									"args": [
+										{
+											"term": "resonance"
+										},
+										{
+											"term": "crowns"
+										}
+									]
+								}
+							}
+						]
+					},
+					{
+						"name": "Hot Streak",
+						"trigger": {
+							"kind": "crowns",
+							"amount": 3
+						},
+						"text": "Three crowns: stones found in this fight are a grade better.",
+						"effects": [
+							{
+								"kind": "quality_bonus",
+								"amount": 25
+							}
+						]
+					},
+					{
+						"name": "Royal Flush",
+						"trigger": {
+							"kind": "crowns",
+							"amount": 5
+						},
+						"text": "Five crowns: a raw stone drops on the spot, Exquisite or better.",
+						"effects": [
+							{
+								"kind": "stone_drop",
+								"amount": 1
+							}
+						]
+					},
+					{
+						"name": "Bust",
+						"trigger": {
+							"kind": "crowns_at_most",
+							"amount": 0
+						},
+						"text": "No crown showing: lose Resonance ore.",
+						"effects": [
+							{
+								"kind": "gold",
+								"amount": {
+									"op": "-",
+									"args": [
+										0,
+										{
+											"term": "resonance"
+										}
+									]
+								}
+							}
+						]
+					}
+				]
+			}
+		}
 	},
 	"creatures": {
 		"CAVE_TICK": {"name": "Cave Tick", "hp": 16, "block": 0, "threat": 2, "dice": ["D6", "D6"], "policy": "best", "gimmick": "steal_high_die",

@@ -36,7 +36,15 @@ const FALLBACK_HUES: Dictionary = {"RED": "e0473c", "BLUE": "3f7fe0", "GREEN": "
 static func skill_key(gem: Dictionary) -> String:
 	return str(gem.get("skill", gem.get("key", "")))
 
+## A Birthstone names a cut of its own. Until each has its own solid, it borrows the nearest
+## of the six outlines and is told apart by its tint and its emblem.
+const STYLE_OUTLINES: Dictionary = {"shield": "RED", "marquise": "VIOLET", "step": "BLUE", "briolette": "VIOLET",
+	"checkerboard": "WHITE", "cube": "BLUE"}
+
 static func colour_key(gem: Dictionary) -> String:
+	var style: String = str(gem.get("style", ""))
+	if STYLE_OUTLINES.has(style):
+		return str(STYLE_OUTLINES[style])
 	var explicit: String = str(gem.get("colour", ""))
 	if explicit in FALLBACK_HUES:
 		return explicit
@@ -45,6 +53,20 @@ static func colour_key(gem: Dictionary) -> String:
 
 static func hue(color_key: String) -> Color:
 	return Color(str(DeepContent.colour(color_key).get("hue", FALLBACK_HUES.get(color_key, "e0473c"))))
+
+static func tint(gem: Dictionary) -> Color:
+	## The stone's own hue: a Birthstone carries one, every other stone takes its colour's.
+	var own: String = str(gem.get("hue", ""))
+	if not own.is_empty() and own.is_valid_html_color():
+		return Color(own)
+	return hue(colour_key(gem))
+
+static func body_colour_of(gem: Dictionary, clarity: int) -> Color:
+	return _body_colour(tint(gem), clarity)
+
+static func emblem_of(gem: Dictionary) -> String:
+	var own: String = str(gem.get("emblem", ""))
+	return own if not own.is_empty() else GemIcons.emblem(skill_key(gem))
 
 static func cut_rank(gem: Dictionary) -> int:
 	## The old one-to-five Cut the geometry tables were written against: Poor is 1.
@@ -188,11 +210,13 @@ static func facet_count(cut: int, color_key: String) -> int:
 	return around * 2 * (CROWN_BANDS[k - 1] + PAVILION_BANDS[k - 1]) + around
 
 static func body_colour(color_key: String, clarity: int) -> Color:
+	return _body_colour(hue(color_key), clarity)
+
+static func _body_colour(base: Color, clarity: int) -> Color:
 	## A dull stone is not just darker: it is greyer. Clarity pulls the hue back towards
 	## stone as it falls, which is what makes a Fractured gem look cloudy.
-	var tint := hue(color_key)
 	var b := brilliance(clarity)
-	return tint.lerp(Color("6d7280"), lerpf(Tuning.value("grey_pull"), 0.0, b)).lerp(Color.BLACK, lerpf(0.18, 0.0, b))
+	return base.lerp(Color("6d7280"), lerpf(Tuning.value("grey_pull"), 0.0, b)).lerp(Color.BLACK, lerpf(0.18, 0.0, b))
 
 # --- outlines -----------------------------------------------------------------
 
@@ -364,7 +388,7 @@ static func build(gem: Dictionary) -> ArrayMesh:
 	var table_width: float = table_span(k, shape)
 	var crown_height: float = CROWN_HEIGHT * float(CUT_CROWN[k - 1]) * float(SHAPE_CROWN.get(shape, 1.0))
 	var pavilion_depth: float = PAVILION_DEPTH * float(CUT_DEPTH[k - 1]) * float(SHAPE_PAVILION.get(shape, 1.0))
-	var body := body_colour(color_key, l)
+	var body := body_colour_of(gem, l)
 	var hue_spread := Tuning.value("facet_hue")
 
 	# Which facets carry an inclusion. A Fractured stone has several, a Pristine one none.
@@ -475,10 +499,9 @@ static func transparency(clarity: int) -> float:
 	return lerpf(Tuning.value("near_alpha_dull"), Tuning.value("near_alpha_clear"), brilliance(clarity))
 
 static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial3D:
-	var color_key: String = colour_key(gem)
 	var l: int = clarity_grade(gem)
 	var b := brilliance(l)
-	var body := body_colour(color_key, l)
+	var body := body_colour_of(gem, l)
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
 	# The two passes are the whole illusion: the far side of the stone is drawn first,
@@ -514,7 +537,7 @@ static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial
 	material.clearcoat = lerpf(0.0, coat, b)
 	material.clearcoat_roughness = 0.04
 	material.emission_enabled = true
-	material.emission = hue(color_key)
+	material.emission = tint(gem)
 	material.emission_energy_multiplier = lerpf(0.0, Tuning.value("emission_clear"), b) \
 		* (Tuning.value("far_emission") if interior else 1.0)
 	if not interior:
@@ -548,9 +571,8 @@ static func fire_material(gem: Dictionary) -> ShaderMaterial:
 	if _fire == null:
 		_fire = Shader.new()
 		_fire.code = FIRE_SHADER
-	var color_key: String = colour_key(gem)
 	var b := brilliance(clarity_grade(gem))
-	var tint := hue(color_key)
+	var tint := tint(gem)
 	var material := ShaderMaterial.new()
 	material.shader = _fire
 	# A cloudy stone scatters light rather than splitting it, so Clarity owns the fire too.
@@ -565,10 +587,9 @@ static func fire_material(gem: Dictionary) -> ShaderMaterial:
 	return material
 
 static func etch_material(gem: Dictionary) -> StandardMaterial3D:
-	var color_key: String = colour_key(gem)
 	var l: int = clarity_grade(gem)
-	var body := body_colour(color_key, l)
-	var emblem := GemIcons.emblem(skill_key(gem))
+	var body := body_colour_of(gem, l)
+	var emblem := emblem_of(gem)
 	# The emblem names the skill, so it has to read at every rank — and a cloudy stone is
 	# nearly solid, letting only a fraction of what is set inside it through. Clarity is
 	# allowed to change how the emblem looks, but never whether it can be found: as the

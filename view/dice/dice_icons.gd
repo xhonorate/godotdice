@@ -139,6 +139,10 @@ static func glyph_for(described: Dictionary) -> String:
 		"held": return "lock"
 		"rerolled": return "reroll"
 		"resonance": return "carat"
+		"low_count": return "low"
+		"crowns", "crowns_at_most": return "peak"
+		"skip_straight": return "even"
+		"distinct_dominant": return "distinct"
 	return "carat"
 
 static func build(parent: Node, described: Dictionary, edge: float, tint: Color = NEED_TONE, tooltip: String = "") -> HBoxContainer:
@@ -198,6 +202,28 @@ static func strip(described: Dictionary) -> Dictionary:
 		"high_pct_at_least": return _spec([], "▲ ≥ %d%%" % need, described.words)
 		"held": return _spec([], "held ×%d" % need, described.words)
 		"rerolled": return _spec([], "rerolled ×%d" % need, described.words)
+		"low_count":
+			var faces: Array = []
+			for index in range(clampi(need, 1, 5)):
+				faces.append([[1, 2, 1, 3, 2][index], MATCH_TONE])
+			return _spec(faces, "▼", described.words)
+		"crowns":
+			var faces: Array = []
+			for index in range(clampi(need, 1, 5)):
+				faces.append([6, MATCH_TONE])
+			return _spec(faces, "▲", described.words)
+		"crowns_at_most": return _spec([], "no ▲", described.words)
+		"skip_straight":
+			var faces: Array = []
+			for index in range(clampi(need, 1, 5)):
+				faces.append([2 + index * 2, RUN_TONE])
+			return _spec(faces, "≠", described.words)
+		"distinct_dominant":
+			var faces: Array = []
+			for index in range(clampi(need, 1, 5) - 1):
+				faces.append([index + 1, PLAIN_TONE])
+			faces.append([20, MATCH_TONE])
+			return _spec(faces, "≠", described.words)
 		"resonance": return _spec([], "resonance %d" % need, described.words)
 	return _spec([], "EVERY HAND", described.words)
 

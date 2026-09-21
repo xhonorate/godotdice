@@ -8,7 +8,7 @@ Blue-sky redesign, September 18, 2026, with the owner's decisions folded in the 
 |---|---|
 | Name | **Deep Cut** (working title; "Deep Cuts", plural, is an unrelated VR game on Steam, so the singular should be checked again before release) |
 | Co-op | Built in from the ground up. Every system assumes one to four players: shared tunnels, enemies budgeted by party size, ally-targeted gems, and giving stones and dice to each other at landings. Steam first; the transport stays abstract for a possible mobile build later |
-| Heroes | Gone. Players wear **settings**. Combat is first person: the party looks at the creatures, allies appear as panels, nobody draws a hero sprite |
+| Heroes | **Revised September 21, 2026: characters.** Settings are gone; players pick a lapidary with five coloured sockets, a set of dice, a passive and a fixed **Birthstone** at the end of the rail (§5, `docs/CHARACTERS.md`). Combat stays first person: a character is a headshot and a handful of reaction faces, allies appear as panels, nobody draws a body |
 | Art | Procedural low-poly geometry in one lighting rig is the final look if it looks good enough |
 | Run length | About 30 minutes to the third Warden, then **Endless** for players who love their build |
 | Collection | One stone per skill in the vault. Bringing home a second copy shows both and the player keeps one |
@@ -247,20 +247,26 @@ Dice are the second build axis and deserve the same variance as stones. Every di
 
 Dice are found in veins, bought at merchants, and crafted at the Grinder (§7). A run's dice changes are kept if the die comes home in the haul, and the home bowl grows the way the vault does.
 
-## 5. Settings instead of heroes **[Decided]**
+## 5. Characters **[Decided September 21, 2026; replaces settings]**
 
-The heroes are gone. Players wear the thing a lapidary actually makes: **settings**, the jewellery that holds the gems. A setting is the "class".
+The jewellery settings of the first design are gone. A player picks a **character**: a lapidary with a name and a title, HP, five coloured gem sockets (one has six and pays for it), a set of starting dice, a passive, and a **Birthstone**. The full roster, its numbers and the reasoning are in `docs/CHARACTERS.md`; this section is the contract.
 
-| Setting | Sockets (colour) | Base HP | Starting dice | Passive |
+- **Sockets** are Red, Blue, Green, Violet, Gold, White or Any. Every character has at least one Red socket.
+- The **Birthstone** is the character's own stone, fixed last in the rail. It cannot be removed or swapped, has its own cut, tint and emblem outside the six colours, and reads the Resonance the rail delivered to it. It is written as **tiers** in the rule language: every tier the final hand satisfies fires, unless one marked exclusive fires and takes the others' place. Tiers do not add Resonance themselves. This replaces the Capstone socket.
+- The **passive** is one line: Ardor heals 3 per unused reroll, Vesper gains Resonance block per hit landed, Cadence has a third reroll, Rue heals Resonance when poison bites a creature, Puck flips one die a turn for free, Florin's ones are thrown again once.
+- **Block falls off at the end of every turn**, so a big Birthstone turn is a wall for that turn only.
+- Two players may pick the same character. Unlocks come from Wardens in the pack's order: Ardor starts, then Vesper, Cadence, Rue, Puck, Florin.
+
+| Character | HP | Dice | Sockets | Birthstone reads |
 |---|---|---|---|---|
-| Signet | 4: Red, Blue, Any, Capstone | 80 | d6 d6 d6 d8 d8 | +1 reroll per turn |
-| Gauntlet | 5: Red, Red, Any, Violet, Capstone | 90 | d8 d8 d10 d10 d12 | first gem each turn gets +1 Cut step |
-| Pendant | 5: Green, White, Any, Blue, Capstone | 70 | d4 d4 d6 d6 d20 | heal 2 whenever a gem fizzles |
-| Circlet | 6: Any ×5, Capstone | 60 | d4 d6 d8 d10 d12 | none (the flexible one) |
-| Chain | 7 small: Gold, Gold, Any ×4, Capstone; only Carat ≤ 8 | 75 | d6 ×5 | Resonance does not reset on the first fizzle |
-| Torc, Diadem, Brooch… | unlocked by Wardens and commissions | | | |
+| Ardor, the Knight | 80 | d6 d6 d6 d8 d8 | Red, Blue, Green, Any, Any | Rally: sets |
+| Vesper, the Rogue | 65 | d4 ×4, d20 | Red, Red, Violet, Any, Any | Thousand Cuts: five distinct, top die outrolling the rest |
+| Cadence, the Wizard | 70 | d4 d6 d8 d10 d12 | Red, White, Violet, Any, Any | Encore: straights, the large one replays the rail |
+| Rue, the Apothecary | 70 | d4 d4 d6 d6 + the Phial | Red, Violet, Green, Any, Any | Bitter Draught: low dice and ones |
+| Puck, the Harlequin | 70 | d6 d6 d8 d8 d10 | Red, Blue, White, Any, Any | Motley: parity, chosen with a flip |
+| Florin, the Gambler | 60 | five d6 with a 7 for the 6 | Red, Gold, Gold, Any ×3 | High Roller: dice on their top face |
 
-A setting's sockets are drawn as the cut shape they take, exactly as today. The Capstone is always last. Settings are unlocked, not found, so they are the progression spine. In co-op each player wears a setting, and two players may wear the same one.
+**Headshots** are the art still to do: eight states each (idle, rolling, wince, bloodied, critical, Birthstone, downed, victory), recommended as low-poly busts in the shared lighting rig so ally panels get a face for free.
 
 ## 6. Combat
 
@@ -500,6 +506,6 @@ Desktop and Steam are the target, with the transport kept abstract for a possibl
 | 3 The Descent | First pass. Tunnels with votes, fights, elites, veins, all fourteen oddities with their pickers, landings (haul, bench, merchant, lift, give), Wardens with hoards, salvage, Endless. |
 | 4 Home | First pass. Map with party and LAN, Bench, Vault (one per skill), Appraise (a plain reveal, not yet the ceremony), Ledger. Profile and checkpoints save atomically. |
 | 5 Look and sound | Look: first full pass (September 19). Seven battle biomes by depth with Warden and elite halls, fog, lights, flares, particles and a camera rig; effects for every gem and creature move; a shaft map and a mines map; icon-led screens throughout; the stone and die thumbnail cache. Sound: first full pass (September 21). 69 procedural sounds in `view/audio/`, written sample by sample and baked on a worker thread at boot; a pooled, panned mixer on its own bus; the interface, the dice, every gem colour, blows, afflictions, deaths, the mine and the reveal ceremony all speak, and a Star has a sound of its own. Master and effects volume on the settings page. |
-| 6 Content and balance | One mine with eight creatures and three Wardens; 44 skills; 31 inclusions; 17 dice; 5 settings. No balance pass yet. |
+| 6 Content and balance | One mine with eight creatures and three Wardens; 44 skills; 31 inclusions; 19 dice; 6 characters with Birthstones (September 21). No balance pass yet. |
 
-Next, in order: the full reveal ceremony (a first version plays on the Appraise tab, and its audio is in); a balance bot over the real content; the second mine; Steam lobby wiring; music and a cave ambience bed under the sound effects.
+Next, in order: character headshots with their reaction faces and real cuts for the six Birthstones (each borrows one of the six outlines for now); the full reveal ceremony (a first version plays on the Appraise tab, and its audio is in); a balance bot over the real content, the characters included; the second mine; Steam lobby wiring; music and a cave ambience bed under the sound effects.

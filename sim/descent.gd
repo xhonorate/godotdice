@@ -23,7 +23,7 @@ const LANDING_DICE: int = 2
 # --- setup -------------------------------------------------------------------------------
 
 static func new_run(config: Dictionary) -> Dictionary:
-	## config: seed (int), mine (key), run_id, players: [{id, name, setting, rail: [stones|null], dice: [die instances]}]
+	## config: seed (int), mine (key), run_id, players: [{id, name, character, rail: [stones|null], dice: [die instances]}]
 	var seed_value: int = int(config.get("seed", randi()))
 	var mine_key: String = str(config.get("mine", DeepContent.starter_mine()))
 	var state: Dictionary = {"run_id": str(config.get("run_id", "run%08x" % seed_value)), "seed": seed_value, "mine": mine_key,
@@ -33,7 +33,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 	var streams: Dictionary = DeepRng.streams(seed_value)
 	var seat: int = 0
 	for entry in config.get("players", []):
-		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", "Lapidary")), str(entry.get("setting", DeepContent.starter_setting())),
+		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", "Lapidary")), str(entry.get("character", DeepContent.starter_character())),
 			entry.get("rail", []), entry.get("dice", []))
 		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": 0, "loupes": int(DeepContent.constant("loupes_per_run", 2)), "vote": "",
 			"choice": "", "ready": false, "strikes": 0, "oddity_choice": "", "stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0}}, true)
@@ -315,6 +315,7 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 		var fighter: Dictionary = unit.duplicate(true)
 		fighter.gold = 0
 		fighter.quality_bonus = 0
+		fighter.stone_drops = 0
 		fighters.append(fighter)
 	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": int(state.depth), "elite": elite, "warden": not warden.is_empty()}, streams.dice, streams.creatures)
 	state.chamber.battle = battle
@@ -372,7 +373,8 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 		unit.sparkle = int(fighter.get("sparkle", 0))
 		unit.hand = []
 		if outcome == "victory":
-			var ore: int = int(DeepContent.constant("ore_per_fight", 6)) + int(state.depth) + int(fighter.get("gold", 0))
+			## A Gambler's Bust can leave the fight's ore in the red; the pit never charges more than it paid.
+			var ore: int = maxi(0, int(DeepContent.constant("ore_per_fight", 6)) + int(state.depth) + int(fighter.get("gold", 0)))
 			if kind == "elite":
 				ore *= 2
 			if kind == "warden":
@@ -390,6 +392,9 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 					var die: Dictionary = DeepForge.roll_die(streams.stones, mine_of(state), int(state.depth), _id(state, "die"))
 					unit.bag_dice.append(die)
 					reward.dice.append(die)
+			## A Royal Flush drops a stone of its own, Exquisite or better, warden or not.
+			for _drop in range(int(fighter.get("stone_drops", 0))):
+				reward.stones.append(_find_stone(state, unit, streams, 8, "birthstone", "EXQUISITE"))
 			settle.rewards[unit.id] = reward
 	state.rng = DeepRng.save(streams)
 	if outcome == "defeat":
@@ -407,14 +412,23 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	_offer_tunnels(state, streams_of(state))
 	return settle
 
-static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary, bonus: int, source: String) -> Dictionary:
-	## One raw stone into a player's haul. Five Sparkles buy a grade.
+static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary, bonus: int, source: String, min_tier: String = "") -> Dictionary:
+	## One raw stone into a player's haul. Five Sparkles buy a grade. `min_tier` names the
+	## lowest grade that will do: the wheel spins again, a dozen times at most, until it lands.
 	var extra: int = bonus
 	if int(unit.get("sparkle", 0)) >= 5:
 		unit.sparkle = int(unit.sparkle) - 5
 		extra += 5
-	var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), extra,
-		{"run": str(state.run_id), "source": source, "finder": str(unit.id), "seat": int(unit.get("seat", 0))}, _id(state, "st"))
+	var provenance: Dictionary = {"run": str(state.run_id), "source": source, "finder": str(unit.id), "seat": int(unit.get("seat", 0))}
+	var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), extra, provenance, _id(state, "st"))
+	if not min_tier.is_empty():
+		var wanted: int = DeepStone.TIERS.find(min_tier)
+		var tries: int = 0
+		while tries < 12 and DeepStone.TIERS.find(str(DeepStone.grade(stone).tier)) < wanted:
+			tries += 1
+			var again: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), extra + tries * 4, provenance, str(stone.id))
+			if int(DeepStone.grade(again).score) >= int(DeepStone.grade(stone).score):
+				stone = again
 	unit.haul.append(stone)
 	unit.stats.stones = int(unit.stats.get("stones", 0)) + 1
 	state.records.stones_found = int(state.records.stones_found) + 1
@@ -583,9 +597,9 @@ static func _socket(state: Dictionary, unit: Dictionary, stone_id: String, index
 		return _refuse("an unappraised stone cannot be set")
 	if not DeepStone.fits(stone, str(unit.sockets[index])):
 		return _refuse("that socket takes a different colour")
-	var carat_cap: int = int(DeepContent.setting(str(unit.setting)).get("carat_max", 0))
+	var carat_cap: int = int(DeepContent.character(str(unit.get("character", ""))).get("carat_max", 0))
 	if carat_cap > 0 and int(stone.carat) > carat_cap:
-		return _refuse("this setting takes nothing heavier than %d carats" % carat_cap)
+		return _refuse("%s takes nothing heavier than %d carats" % [str(DeepContent.character(str(unit.get("character", ""))).get("name", "this character")), carat_cap])
 	for other in unit.rail:
 		if other is Dictionary and str(other.skill) == str(stone.skill) and str(other.id) != stone_id:
 			return _refuse("one stone of each skill")
@@ -830,7 +844,7 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary) -> Di
 					state.rng = DeepRng.save(streams)
 					event.entered = entered
 			return {"ok": true, "event": event}
-		"reroll", "lock", "unlock", "target":
+		"reroll", "lock", "unlock", "target", "flip":
 			if not in_battle(state):
 				return _refuse("no fight here")
 			var streams: Dictionary = streams_of(state)

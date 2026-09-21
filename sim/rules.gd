@@ -21,6 +21,7 @@ extends RefCounted
 ##   run_high run_length set_value set_count   sum_low / sum_high with "value": n dice
 ##   block block_lost healed dealt hp max_hp hp_missing gold
 ##   resonance previous_amount carat cut clarity depth turn party
+##   crowns (dice on their top face)  low_dice (dice at or below half their top)
 ##
 ## Effects (default target in brackets; * means the amount is scaled by the stone's magnitude):
 ##   damage*(enemy) block*(self) heal*(self) gold*(self) poison*(enemy) remove_block*(enemy)
@@ -28,6 +29,8 @@ extends RefCounted
 ##   amplify_next(pct) cut_step_next raise_low raise_high set_match flip_high flip_low phantom_high
 ##   grant_reroll retrigger_previous(pct) intent_downgrade(enemy) die_steal(enemy)
 ##   quality_bonus(pct) sparkle coin_flip(win_mult, lose_mult) resonance
+##   Birthstone-only: replay_rail  tick_poison(times: every poison on every creature ticks)
+##   stone_drop(count: a raw stone, Exquisite or better, into the haul when the fight is won)
 ## Targets: self ally_low allies enemy enemies spread enemy_behind downed_ally, and for
 ## creatures hero heroes.
 
@@ -35,12 +38,12 @@ const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct"]
 const TERMS: Array = ["value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
-	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party"]
+	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
 	"phantom_high", "grant_reroll", "retrigger_previous", "intent_downgrade", "die_steal", "quality_bonus",
-	"sparkle", "coin_flip", "resonance"]
+	"sparkle", "coin_flip", "resonance", "replay_rail", "tick_poison", "stone_drop"]
 const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block"]
 const HOSTILE: Array = ["damage", "poison", "stun", "remove_block", "curse", "intent_downgrade", "die_steal"]
 const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "spread", "enemy_behind", "downed_ally", "hero", "heroes"]
@@ -53,7 +56,8 @@ const MODIFY_FIELDS: Array = ["effect", "target", "mult", "add", "repeat_add", "
 const MAX_EFFECTS: int = 6
 const MAX_DEPTH: int = 6
 const MAX_NODES: int = 60
-const MAX_REPEAT: int = 10
+## A Rogue's d20 can ask for twenty hits, so a repeat runs as high as a die face.
+const MAX_REPEAT: int = 20
 const VALUE_LIMIT: int = 9999
 
 # --- amounts -------------------------------------------------------------------------
@@ -120,7 +124,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"value": return int(trig.get("value", 0))
 		"second": return int(trig.get("second", 0))
 		"count": return int(trig.get("count", 0))
-		"high", "low", "total", "max_total", "odd", "even", "distinct", "held", "rerolled":
+		"high", "low", "total", "max_total", "odd", "even", "distinct", "held", "rerolled", "crowns", "low_dice":
 			return int(a.get(name, 0))
 		"missing": return maxi(0, int(a.get("max_total", 0)) - int(a.get("total", 0)))
 		"dice": return int(a.get("dice_count", 0))

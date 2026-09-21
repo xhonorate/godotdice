@@ -233,8 +233,9 @@ func sealed() -> bool:
 
 static func thumbnail_key(stone: Dictionary) -> String:
 	## Two stones that would render alike share one thumbnail.
-	return "%s|%d|%d|%d|%s|%s" % [GemMesh.skill_key(stone), int(stone.get("carat", 1)), int(stone.get("cut", 0)),
-		int(stone.get("clarity", 3)), str(stone.get("inclusions", [])), str(bool(stone.get("appraised", true)))]
+	return "%s|%d|%d|%d|%s|%s|%s%s" % [GemMesh.skill_key(stone), int(stone.get("carat", 1)), int(stone.get("cut", 0)),
+		int(stone.get("clarity", 3)), str(stone.get("inclusions", [])), str(bool(stone.get("appraised", true))),
+		str(stone.get("style", "")), str(stone.get("hue", ""))]
 
 func set_ground(color: Color, texture: Texture2D = null) -> void:
 	## Stands the stone on something. See the note at the top of this file: this is the

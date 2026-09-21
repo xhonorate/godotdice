@@ -1,22 +1,22 @@
 class_name DeepProfile
 extends RefCounted
 ## The player's own record: gold, the vault (one stone per skill), the bowl of dice, the
-## settings they have unlocked and how each is loaded, and what they have done.
+## characters they have unlocked and how each is loaded, and what they have done.
 ##
 ## Only stones and dice cross from a run into a profile, and only through the tray on the
 ## Appraise tab: every stone that comes home waits there until the player keeps it (into the
 ## vault, selling any stone of the same skill it replaces) or sells it.
 
-const SCHEMA: int = 1
+const SCHEMA: int = 2
 
 static func new_profile(name: String = "Lapidary") -> Dictionary:
 	var profile: Dictionary = {"schema": SCHEMA, "id": "pf%08x" % randi(), "name": name, "gold": 0, "vault": {}, "seen": [],
-		"bowl": [], "settings": {}, "current_setting": DeepContent.starter_setting(), "mines": {}, "tray": [],
+		"bowl": [], "characters": {}, "current_character": DeepContent.starter_character(), "mines": {}, "tray": [],
 		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "best": {}}, "history": [], "next_id": 1}
-	for key in DeepContent.section("settings"):
-		var setting: Dictionary = DeepContent.setting(str(key))
-		var unlocked: bool = bool(setting.get("starter", false))
-		profile.settings[str(key)] = {"unlocked": unlocked, "rail": [], "dice": []}
+	for key in DeepContent.section("characters"):
+		var character: Dictionary = DeepContent.character(str(key))
+		var unlocked: bool = bool(character.get("starter", false))
+		profile.characters[str(key)] = {"unlocked": unlocked, "rail": [], "dice": []}
 		if unlocked:
 			_fit_default(profile, str(key))
 	for key in DeepContent.section("mines"):
@@ -25,36 +25,83 @@ static func new_profile(name: String = "Lapidary") -> Dictionary:
 	keep(profile, DeepStone.make("STRIKE", 2, 1, 3, [], {"source": "starter"}, _id(profile, "st")))
 	keep(profile, DeepStone.make("GUARD", 1, 1, 3, [], {"source": "starter"}, _id(profile, "st")))
 	keep(profile, DeepStone.make("MEND", 1, 0, 3, [], {"source": "starter"}, _id(profile, "st")))
-	var starter: Dictionary = profile.settings[str(profile.current_setting)]
-	starter.rail = ["STRIKE", "GUARD", "MEND", null]
-	while starter.rail.size() < DeepContent.setting(str(profile.current_setting)).sockets.size():
+	var starter: Dictionary = profile.characters[str(profile.current_character)]
+	starter.rail = []
+	for socket in DeepContent.character(str(profile.current_character)).get("sockets", []):
 		starter.rail.append(null)
+	for skill in ["STRIKE", "GUARD", "MEND"]:
+		for index in range(starter.rail.size()):
+			if starter.rail[index] == null and set_rail(profile, str(profile.current_character), index, skill).is_empty():
+				break
+	return profile
+
+static func migrate(profile: Dictionary) -> Dictionary:
+	## An older profile wore settings. It keeps its vault, bowl and records, and its unlocks
+	## carry over by count: the starter plus one character for every setting it had earned.
+	if profile.has("characters") and not profile.has("settings"):
+		return profile
+	var earned: int = -1
+	for key in profile.get("settings", {}):
+		if bool(profile.settings[key].get("unlocked", false)):
+			earned += 1
+	profile.characters = {}
+	for key in DeepContent.section("characters"):
+		profile.characters[str(key)] = {"unlocked": bool(DeepContent.character(str(key)).get("starter", false)), "rail": [], "dice": []}
+	profile.current_character = DeepContent.starter_character()
+	_fit_default(profile, str(profile.current_character))
+	for key in DeepContent.characters_in_unlock_order():
+		if earned <= 0:
+			break
+		if unlock_character(profile, str(key)):
+			earned -= 1
+	var starter: Dictionary = profile.characters[str(profile.current_character)]
+	for skill in profile.get("vault", {}).keys():
+		for index in range(starter.rail.size()):
+			if starter.rail[index] == null and set_rail(profile, str(profile.current_character), index, str(skill)).is_empty():
+				break
+	profile.erase("settings")
+	profile.erase("current_setting")
+	profile.schema = SCHEMA
 	return profile
 
 static func _id(profile: Dictionary, prefix: String) -> String:
 	profile.next_id = int(profile.get("next_id", 1)) + 1
 	return "%s_%s%d" % [prefix, str(profile.get("id", "")).right(4), profile.next_id]
 
-static func _fit_default(profile: Dictionary, setting_key: String) -> void:
-	## A newly unlocked setting gets its own five dice added to the bowl and loaded.
-	var setting: Dictionary = DeepContent.setting(setting_key)
-	var record: Dictionary = profile.settings[setting_key]
+static func _fit_default(profile: Dictionary, character_key: String) -> void:
+	## A newly unlocked character brings their own five dice into the bowl, already loaded.
+	var character: Dictionary = DeepContent.character(character_key)
+	var record: Dictionary = profile.characters[character_key]
 	record.dice = []
-	for die_key in setting.get("dice", []):
+	for die_key in character.get("dice", []):
 		var die: Dictionary = DeepDice.make(str(die_key), DeepContent.die(str(die_key)), _id(profile, "die"))
 		profile.bowl.append(die)
 		record.dice.append(str(die.id))
 	if record.rail.is_empty():
-		for _socket in setting.get("sockets", []):
+		for _socket in character.get("sockets", []):
 			record.rail.append(null)
 
-static func unlock_setting(profile: Dictionary, setting_key: String) -> bool:
-	var record: Dictionary = profile.settings.get(setting_key, {})
+static func unlock_character(profile: Dictionary, character_key: String) -> bool:
+	var record: Dictionary = profile.characters.get(character_key, {})
 	if record.is_empty() or bool(record.get("unlocked", false)):
 		return false
 	record.unlocked = true
-	_fit_default(profile, setting_key)
+	_fit_default(profile, character_key)
 	return true
+
+static func next_locked_character(profile: Dictionary) -> String:
+	## The next character a Warden would unlock, in the pack's unlock order.
+	for key in DeepContent.characters_in_unlock_order():
+		if not bool(profile.get("characters", {}).get(str(key), {}).get("unlocked", false)):
+			return str(key)
+	return ""
+
+static func unlocked_characters(profile: Dictionary) -> Array:
+	var out: Array = []
+	for key in DeepContent.characters_in_unlock_order():
+		if bool(profile.get("characters", {}).get(str(key), {}).get("unlocked", false)):
+			out.append(str(key))
+	return out
 
 # --- the vault -----------------------------------------------------------------------------
 
@@ -104,13 +151,13 @@ static func vault_grid(profile: Dictionary) -> Array:
 
 # --- loadouts ------------------------------------------------------------------------------
 
-static func loadout(profile: Dictionary, setting_key: String) -> Dictionary:
-	## The rail and dice a setting takes down the mine: stone instances from the vault and
-	## die instances from the bowl. Missing dice fall back to the setting's defaults.
-	var setting: Dictionary = DeepContent.setting(setting_key)
-	var record: Dictionary = profile.settings.get(setting_key, {"rail": [], "dice": []})
+static func loadout(profile: Dictionary, character_key: String) -> Dictionary:
+	## The rail and dice a character takes down the mine: stone instances from the vault and
+	## die instances from the bowl. Missing dice fall back to the character's own.
+	var character: Dictionary = DeepContent.character(character_key)
+	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	var rail: Array = []
-	var sockets: Array = setting.get("sockets", [])
+	var sockets: Array = character.get("sockets", [])
 	for index in range(sockets.size()):
 		var skill: Variant = record.rail[index] if index < record.rail.size() else null
 		var stone: Dictionary = owned(profile, str(skill)) if skill is String else {}
@@ -120,7 +167,7 @@ static func loadout(profile: Dictionary, setting_key: String) -> Dictionary:
 		var die: Dictionary = bowl_die(profile, str(die_id))
 		if not die.is_empty():
 			dice.append(die.duplicate(true))
-	var defaults: Array = setting.get("dice", [])
+	var defaults: Array = character.get("dice", [])
 	var index: int = 0
 	while dice.size() < 5 and index < defaults.size():
 		dice.append(DeepDice.make(str(defaults[index]), DeepContent.die(str(defaults[index])), "fallback%d" % index))
@@ -133,13 +180,13 @@ static func bowl_die(profile: Dictionary, die_id: String) -> Dictionary:
 			return die
 	return {}
 
-static func set_rail(profile: Dictionary, setting_key: String, index: int, skill: Variant) -> String:
+static func set_rail(profile: Dictionary, character_key: String, index: int, skill: Variant) -> String:
 	## Puts an owned stone (by skill) in a socket, or clears it with null. Returns an error or "".
-	var setting: Dictionary = DeepContent.setting(setting_key)
-	var record: Dictionary = profile.settings.get(setting_key, {})
+	var character: Dictionary = DeepContent.character(character_key)
+	var record: Dictionary = profile.characters.get(character_key, {})
 	if record.is_empty() or not bool(record.get("unlocked", false)):
-		return "that setting is locked"
-	var sockets: Array = setting.get("sockets", [])
+		return "that character is locked"
+	var sockets: Array = character.get("sockets", [])
 	if index < 0 or index >= sockets.size():
 		return "no such socket"
 	while record.rail.size() < sockets.size():
@@ -152,19 +199,19 @@ static func set_rail(profile: Dictionary, setting_key: String, index: int, skill
 		return "you do not own that stone"
 	if not DeepStone.fits(stone, str(sockets[index])):
 		return "that socket takes a different colour"
-	var cap: int = int(setting.get("carat_max", 0))
+	var cap: int = int(character.get("carat_max", 0))
 	if cap > 0 and int(stone.carat) > cap:
-		return "this setting takes nothing heavier than %d carats" % cap
+		return "%s takes nothing heavier than %d carats" % [str(character.get("name", "this character")), cap]
 	for i in range(record.rail.size()):
 		if i != index and record.rail[i] == str(skill):
 			record.rail[i] = null
 	record.rail[index] = str(skill)
 	return ""
 
-static func set_die(profile: Dictionary, setting_key: String, index: int, die_id: String) -> String:
-	var record: Dictionary = profile.settings.get(setting_key, {})
+static func set_die(profile: Dictionary, character_key: String, index: int, die_id: String) -> String:
+	var record: Dictionary = profile.characters.get(character_key, {})
 	if record.is_empty():
-		return "no such setting"
+		return "no such character"
 	if index < 0 or index >= 5:
 		return "five dice"
 	if bowl_die(profile, die_id).is_empty():
@@ -194,11 +241,9 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 				if not record.is_empty() and not bool(record.get("unlocked", false)):
 					record.unlocked = true
 					unlocked.append({"mine": str(next_mine)})
-			for setting_key in DeepContent.section("settings"):
-				if not bool(profile.settings[setting_key].get("unlocked", false)):
-					if unlock_setting(profile, str(setting_key)):
-						unlocked.append({"setting": str(setting_key)})
-						break
+			var next_character: String = next_locked_character(profile)
+			if not next_character.is_empty() and unlock_character(profile, next_character):
+				unlocked.append({"character": next_character})
 	profile.mines[mine_key] = mine_record
 	profile.records.runs = int(profile.records.runs) + 1
 	match str(result.get("outcome", "")):

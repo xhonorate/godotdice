@@ -1,6 +1,6 @@
 class_name DeepContent
 extends RefCounted
-## The content pack: every skill, inclusion, die, setting, creature, mine and oddity, as data.
+## The content pack: every skill, inclusion, die, character, creature, mine and oddity, as data.
 ##
 ## The pack is one JSON file. It is loaded once and read everywhere through the accessors
 ## here, and `validate()` is the same check the studio runs as an author types. A rule the
@@ -9,11 +9,13 @@ extends RefCounted
 const PATH: String = "res://content/deep_cut.json"
 const COLOUR_KEYS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
 const SOCKET_ANY: String = "ANY"
-const SOCKET_CAPSTONE: String = "CAPSTONE"
+## The cuts a Birthstone may wear. Each is drawn as its own solid, outside the six colours.
+const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "cube"]
 const INCLUSION_CLASSES: Array = ["PINPOINT", "LENS", "FEATHER", "FRACTURE", "STAR"]
 const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY"]
 const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity"]
-const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle", "first_fizzle_free", "capstone_carat"]
+const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle", "first_fizzle_free",
+	"heal_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value"]
 const MOVE_POLICIES: Array = ["best", "all", "cycle"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",
 	"steal_gold", "gift_rerolls", "poison_immune", "bury_socket", "mirror_last_gem", "roll_for_you", "regrow"]
@@ -56,7 +58,7 @@ static func skill(key: String) -> Dictionary: return entry("skills", key)
 static func inclusion(key: String) -> Dictionary: return entry("inclusions", key)
 static func die(key: String) -> Dictionary: return entry("dice", key)
 static func engraving(key: String) -> Dictionary: return entry("engravings", key)
-static func setting(key: String) -> Dictionary: return entry("settings", key)
+static func character(key: String) -> Dictionary: return entry("characters", key)
 static func creature(key: String) -> Dictionary: return entry("creatures", key)
 static func mine(key: String) -> Dictionary: return entry("mines", key)
 static func oddity(key: String) -> Dictionary: return entry("oddities", key)
@@ -120,13 +122,31 @@ static func starter_mine() -> String:
 	keys.sort()
 	return str(keys[0]) if not keys.is_empty() else ""
 
-static func starter_setting() -> String:
-	for key in section("settings"):
-		if bool(section("settings")[key].get("starter", false)):
+static func starter_character() -> String:
+	for key in section("characters"):
+		if bool(section("characters")[key].get("starter", false)):
 			return str(key)
-	var keys: Array = section("settings").keys()
-	keys.sort()
-	return str(keys[0]) if not keys.is_empty() else ""
+	var order: Array = characters_in_unlock_order()
+	return str(order[0]) if not order.is_empty() else ""
+
+static func characters_in_unlock_order() -> Array:
+	## Every character key, the starter first, then by unlock_order, then by name.
+	var keys: Array = section("characters").keys()
+	keys.sort_custom(func(a: String, b: String) -> bool:
+		var ca: Dictionary = character(a)
+		var cb: Dictionary = character(b)
+		if bool(ca.get("starter", false)) != bool(cb.get("starter", false)):
+			return bool(ca.get("starter", false))
+		if int(ca.get("unlock_order", 99)) != int(cb.get("unlock_order", 99)):
+			return int(ca.get("unlock_order", 99)) < int(cb.get("unlock_order", 99))
+		return a < b)
+	return keys
+
+static func character_title(key: String) -> String:
+	## "Ardor, the Knight".
+	var def: Dictionary = character(key)
+	var title: String = str(def.get("title", ""))
+	return str(def.get("name", key)) + (", " + title if not title.is_empty() else "")
 
 # --- validation ------------------------------------------------------------------------
 
@@ -135,7 +155,7 @@ static func validate(p: Dictionary = {}) -> Array:
 	if p.is_empty():
 		p = pack()
 	var errors: Array = []
-	for required in ["colours", "cuts", "clarities", "rarities", "skills", "inclusions", "dice", "settings", "creatures", "mines"]:
+	for required in ["colours", "cuts", "clarities", "rarities", "skills", "inclusions", "dice", "characters", "creatures", "mines"]:
 		if not p.has(required):
 			errors.append("pack is missing its %s section" % required)
 	if not errors.is_empty():
@@ -153,8 +173,13 @@ static func validate(p: Dictionary = {}) -> Array:
 	for key in p.get("engravings", {}):
 		if not str(p.engravings[key].get("key", "")) in DeepDice.ENGRAVINGS:
 			errors.append("engraving %s: unknown key %s" % [key, str(p.engravings[key].get("key", ""))])
-	for key in p.settings:
-		errors.append_array(_validate_setting(p.settings[key], p).map(func(e: String) -> String: return "setting %s: %s" % [key, e]))
+	var starters: int = 0
+	for key in p.characters:
+		errors.append_array(_validate_character(p.characters[key], p).map(func(e: String) -> String: return "character %s: %s" % [key, e]))
+		if p.characters[key] is Dictionary and bool(p.characters[key].get("starter", false)):
+			starters += 1
+	if starters != 1:
+		errors.append("exactly one character is the starter")
 	for key in p.creatures:
 		errors.append_array(_validate_creature(p.creatures[key], p).map(func(e: String) -> String: return "creature %s: %s" % [key, e]))
 	for key in p.mines:
@@ -183,24 +208,29 @@ static func _validate_die(def: Variant) -> Array:
 				errors.append("face values run 0 to %d" % DeepDice.VALUE_CAP)
 	if def.has("engraving") and not str(def.engraving).is_empty() and not str(def.engraving) in DeepDice.ENGRAVINGS:
 		errors.append("unknown engraving " + str(def.engraving))
+	if def.has("top") and (not (def.top is int or def.top is float) or int(def.top) < 1 or int(def.top) > DeepDice.VALUE_CAP):
+		errors.append("top runs 1 to %d" % DeepDice.VALUE_CAP)
 	return errors
 
-static func _validate_setting(def: Variant, p: Dictionary) -> Array:
+static func _validate_character(def: Variant, p: Dictionary) -> Array:
 	if not def is Dictionary:
 		return ["must be an object"]
 	var errors: Array = []
+	if str(def.get("name", "")).is_empty():
+		errors.append("needs a name")
 	var sockets: Variant = def.get("sockets", null)
-	if not sockets is Array or sockets.size() < 2:
-		errors.append("needs at least two sockets")
+	if not sockets is Array or sockets.size() < 1:
+		errors.append("needs at least one socket")
 	else:
+		var reds: int = 0
 		for socket in sockets:
 			var s: String = str(socket)
-			if not (s in COLOUR_KEYS or s == SOCKET_ANY or s == SOCKET_CAPSTONE):
+			if not (s in COLOUR_KEYS or s == SOCKET_ANY):
 				errors.append("unknown socket colour " + s)
-		if str(sockets[sockets.size() - 1]) != SOCKET_CAPSTONE:
-			errors.append("the last socket must be the CAPSTONE")
-		if sockets.count(SOCKET_CAPSTONE) != 1:
-			errors.append("exactly one socket is the CAPSTONE")
+			if s == "RED":
+				reds += 1
+		if reds == 0:
+			errors.append("every character has at least one Red socket")
 	if int(def.get("hp", 0)) <= 0:
 		errors.append("needs hp")
 	var dice: Variant = def.get("dice", null)
@@ -213,6 +243,40 @@ static func _validate_setting(def: Variant, p: Dictionary) -> Array:
 	var passive: Variant = def.get("passive", {"kind": "none"})
 	if not passive is Dictionary or not str(passive.get("kind", "none")) in PASSIVE_KINDS:
 		errors.append("unknown passive")
+	errors.append_array(validate_birthstone(def.get("birthstone", null)).map(func(e: String) -> String: return "birthstone: " + e))
+	return errors
+
+static func validate_birthstone(def: Variant) -> Array:
+	## A Birthstone is a name, a look, and a ladder of tiers, each a trigger and effects in
+	## the rule language. Every satisfied tier fires unless one marked exclusive does.
+	if not def is Dictionary:
+		return ["every character needs a birthstone"]
+	var errors: Array = []
+	if str(def.get("name", "")).is_empty():
+		errors.append("needs a name")
+	if not str(def.get("style", "")) in BIRTHSTONE_STYLES:
+		errors.append("unknown style " + str(def.get("style", "")))
+	if not str(def.get("hue", "")).is_valid_html_color():
+		errors.append("needs a hue")
+	var tiers: Variant = def.get("tiers", null)
+	if not tiers is Array or tiers.is_empty():
+		errors.append("needs at least one tier")
+		return errors
+	for index in range(tiers.size()):
+		var tier: Variant = tiers[index]
+		var where: String = "tier %d" % (index + 1)
+		if not tier is Dictionary:
+			errors.append(where + ": must be an object")
+			continue
+		if str(tier.get("name", "")).is_empty():
+			errors.append(where + ": needs a name")
+		errors.append_array(DeepPatterns.validate(tier.get("trigger", null)).map(func(e: String) -> String: return where + ": " + e))
+		var effects: Variant = tier.get("effects", null)
+		if not effects is Array or effects.is_empty():
+			errors.append(where + ": needs at least one effect")
+		else:
+			for e in range(effects.size()):
+				errors.append_array(DeepRules.validate_effect(effects[e], "%s effect %d" % [where, e + 1]))
 	return errors
 
 static func _validate_creature(def: Variant, p: Dictionary) -> Array:

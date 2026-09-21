@@ -34,6 +34,10 @@ func _ready() -> void:
 	if profile.is_empty():
 		profile = DeepProfile.new_profile(str(settings.get("player_name", "Lapidary")))
 		saves.save_profile(profile)
+	elif profile.has("settings") or not profile.has("characters"):
+		## A profile from before characters: its settings become characters, its vault stays.
+		profile = DeepProfile.migrate(profile)
+		saves.save_profile(profile)
 	session = DeepSession.new()
 	session.saves = saves
 	session.speed = float(settings.get("speed", 1.0))
@@ -99,9 +103,9 @@ func _prewarm() -> void:
 		Thumbs.request(Thumbs.die_key(die, 0), "die", {"die": die, "face": 0}, func(_texture: Texture2D) -> void: pass)
 
 func member() -> Dictionary:
-	var setting_key: String = str(profile.get("current_setting", DeepContent.starter_setting()))
-	var loadout: Dictionary = DeepProfile.loadout(profile, setting_key)
-	return {"name": str(profile.get("name", "Lapidary")), "setting": setting_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", ""))}
+	var character_key: String = str(profile.get("current_character", DeepContent.starter_character()))
+	var loadout: Dictionary = DeepProfile.loadout(profile, character_key)
+	return {"name": str(profile.get("name", "Lapidary")), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", ""))}
 
 func _refresh_home() -> void:
 	if home == null:
@@ -111,12 +115,12 @@ func _refresh_home() -> void:
 func _profile_changed() -> void:
 	saves.save_profile(profile)
 	var loadout: Dictionary = member()
-	session.update_member({"setting": loadout.setting, "rail": loadout.rail, "dice": loadout.dice})
+	session.update_member({"character": loadout.character, "rail": loadout.rail, "dice": loadout.dice})
 	_refresh_home()
 
 func _depart(seed_value: int) -> void:
 	var loadout: Dictionary = member()
-	session.update_member({"setting": loadout.setting, "rail": loadout.rail, "dice": loadout.dice})
+	session.update_member({"character": loadout.character, "rail": loadout.rail, "dice": loadout.dice})
 	var result: Dictionary = session.start_run(seed_value)
 	if not bool(result.get("ok", false)):
 		toast(str(result.get("error", "")), DeepUi.BAD)
@@ -151,10 +155,12 @@ func _on_run_ended(results: Dictionary) -> void:
 	if not applied.get("unlocked", []).is_empty():
 		DeepAudio.play("unlock")
 	for unlocked in applied.get("unlocked", []):
-		if unlocked.has("setting"):
-			var setting: Dictionary = DeepContent.setting(str(unlocked.setting))
-			toast("Unlocked: the %s" % str(setting.get("name", "")), DeepUi.ACCENT, "gem")
-			Inspector.announce("A new setting", "The %s is yours to wear.\n\n%s\n%s" % [str(setting.get("name", "")), str(setting.get("text", "")), str(setting.get("passive", {}).get("text", ""))], "gem", DeepUi.ACCENT_HI)
+		if unlocked.has("character"):
+			var character: Dictionary = DeepContent.character(str(unlocked.character))
+			var title: String = DeepContent.character_title(str(unlocked.character))
+			toast("Unlocked: %s" % title, DeepUi.ACCENT, "person")
+			Inspector.announce("A new lapidary", "%s joins the workshop.\n\n%s\n\n%s: %s\nBirthstone: %s" % [title, str(character.get("text", "")),
+				str(character.get("passive", {}).get("name", "Passive")), str(character.get("passive", {}).get("text", "")), str(character.get("birthstone", {}).get("name", ""))], "person", DeepUi.ACCENT_HI)
 		if unlocked.has("mine"):
 			var mine: Dictionary = DeepContent.mine(str(unlocked.mine))
 			toast("Unlocked: %s" % str(mine.get("name", "")), DeepUi.ACCENT, "pick")

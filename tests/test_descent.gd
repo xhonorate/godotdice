@@ -27,9 +27,9 @@ func stone(skill: String, carat: int = 1, cut: int = 4, clarity: int = 3, id: St
 	s.appraised = true
 	return s
 
-func dice(setting: String, prefix: String) -> Array:
+func dice(character: String, prefix: String) -> Array:
 	var out: Array = []
-	var keys: Array = DeepContent.setting(setting).dice
+	var keys: Array = DeepContent.character(character).dice
 	for index in range(keys.size()):
 		out.append(DeepDice.make(str(keys[index]), DeepContent.die(str(keys[index])), "%s%d" % [prefix, index]))
 	return out
@@ -37,8 +37,8 @@ func dice(setting: String, prefix: String) -> Array:
 func config(seed_value: int, strong: bool) -> Dictionary:
 	var carat: int = 20 if strong else 3
 	return {"seed": seed_value, "mine": "QUARRY", "players": [
-		{"id": "a", "name": "Ada", "setting": "SIGNET", "rail": [stone("STRIKE", carat, 4, 3, "a_strike"), stone("GUARD", carat, 4, 3, "a_guard"), stone("MEND", carat, 4, 3, "a_mend")], "dice": dice("SIGNET", "a")},
-		{"id": "b", "name": "Bo", "setting": "GAUNTLET", "rail": [stone("CLEAVE", carat, 4, 3, "b_cleave"), stone("CRUSH", carat, 4, 3, "b_crush"), stone("BARRAGE", carat, 4, 3, "b_barrage")], "dice": dice("GAUNTLET", "b")}]}
+		{"id": "a", "name": "Ada", "character": "ARDOR", "rail": [stone("STRIKE", carat, 4, 3, "a_strike"), stone("GUARD", carat, 4, 3, "a_guard"), stone("MEND", carat, 4, 3, "a_mend")], "dice": dice("ARDOR", "a")},
+		{"id": "b", "name": "Bo", "character": "VESPER", "rail": [stone("CLEAVE", carat, 4, 3, "b_cleave"), stone("CRUSH", carat, 4, 3, "b_crush"), stone("BARRAGE", carat, 4, 3, "b_barrage")], "dice": dice("VESPER", "b")}]}
 
 func cmd(state: Dictionary, who: String, kind: String, fields: Dictionary = {}) -> Dictionary:
 	var c: Dictionary = {"kind": kind}
@@ -191,10 +191,12 @@ func _test_landing_commands() -> void:
 	check(appraised.ok and a.loupes == 1 and bool(raw.appraised), "a loupe appraises a stone")
 	check(not cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok, "not twice")
 	check(not cmd(state, "a", "socket", {"stone_id": "raw1", "index": 0}).ok, "a Violet stone does not fit the Red socket")
-	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 2}).ok and a.rail[2].id == "raw1" and a.haul.has(a.rail[2]) == false, "it fits the ANY socket and leaves the haul")
-	check(a.haul.filter(func(s: Dictionary) -> bool: return str(s.id) == "a_mend").size() == 1, "the Mend it displaced returns to the haul")
-	check(cmd(state, "a", "unsocket", {"index": 2}).ok and a.rail[2] == null, "and comes back out")
-	check(not cmd(state, "a", "socket", {"stone_id": "a_mend", "index": 3}).ok == false or true, "the capstone takes anything")
+	check(not cmd(state, "a", "socket", {"stone_id": "raw1", "index": 2}).ok, "nor the Green one")
+	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 3}).ok and a.rail[3].id == "raw1" and a.haul.has(a.rail[3]) == false, "it fits the ANY socket and leaves the haul")
+	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 4}).ok and a.rail[4].id == "raw1" and a.rail[3] == null, "and can move to the other Any socket")
+	check(cmd(state, "a", "unsocket", {"index": 4}).ok and a.rail[4] == null and a.haul.filter(func(s: Dictionary) -> bool: return str(s.id) == "raw1").size() == 1, "and comes back out into the haul")
+	check(cmd(state, "a", "socket", {"stone_id": "a_mend", "index": 3}).ok and a.rail[3].id == "a_mend", "a Green stone fits an Any socket")
+	check(cmd(state, "a", "socket", {"stone_id": "a_mend", "index": 2}).ok and a.rail[2].id == "a_mend" and a.rail[3] == null, "and moves back to its Green one")
 	var sold: Dictionary = cmd(state, "a", "sell", {"stone_id": "raw1"})
 	check(sold.ok and a.ore > 0, "an appraised stone sells for ore")
 	var item: Dictionary = state.landing.stock[5]
@@ -359,14 +361,15 @@ func _test_salvage() -> void:
 func _test_profile() -> void:
 	var profile: Dictionary = DeepProfile.new_profile("Ada")
 	check(profile.vault.has("STRIKE") and profile.vault.has("GUARD") and profile.vault.has("MEND"), "a new profile owns three starter stones")
-	check(profile.settings.SIGNET.unlocked and not profile.settings.CHAIN.unlocked, "only the Signet is unlocked")
-	check(profile.bowl.size() == 5, "the bowl holds the Signet's five dice")
-	var loadout: Dictionary = DeepProfile.loadout(profile, "SIGNET")
-	check(loadout.rail.size() == 4 and loadout.rail[0].skill == "STRIKE" and loadout.rail[3] == null and loadout.dice.size() == 5, "the loadout is stones and dice ready for a run")
-	check(DeepProfile.set_rail(profile, "SIGNET", 2, "STRIKE") == "" and profile.settings.SIGNET.rail[0] == null and profile.settings.SIGNET.rail[2] == "STRIKE", "moving a stone empties its old socket")
-	check(DeepProfile.set_rail(profile, "SIGNET", 1, "MEND") != "", "a Green stone does not fit the Blue socket")
-	check(DeepProfile.set_rail(profile, "SIGNET", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "SIGNET", 2, "MEND") == "", "restored")
-	check(DeepProfile.set_rail(profile, "CHAIN", 0, "STRIKE") != "", "a locked setting refuses")
+	check(profile.characters.ARDOR.unlocked and not profile.characters.FLORIN.unlocked and profile.current_character == "ARDOR", "only Ardor is unlocked, and chosen")
+	check(profile.bowl.size() == 5, "the bowl holds Ardor's five dice")
+	var loadout: Dictionary = DeepProfile.loadout(profile, "ARDOR")
+	check(loadout.rail.size() == 5 and loadout.rail[0].skill == "STRIKE" and loadout.rail[1].skill == "GUARD" and loadout.rail[2].skill == "MEND" and loadout.rail[3] == null and loadout.dice.size() == 5, "the loadout is stones and dice ready for a run")
+	check(DeepProfile.set_rail(profile, "ARDOR", 3, "STRIKE") == "" and profile.characters.ARDOR.rail[0] == null and profile.characters.ARDOR.rail[3] == "STRIKE", "moving a stone empties its old socket")
+	check(DeepProfile.set_rail(profile, "ARDOR", 1, "MEND") != "", "a Green stone does not fit the Blue socket")
+	check(DeepProfile.set_rail(profile, "ARDOR", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "ARDOR", 2, "MEND") == "", "restored")
+	check(DeepProfile.set_rail(profile, "FLORIN", 0, "STRIKE") != "", "a locked character refuses")
+	check(DeepProfile.next_locked_character(profile) == "VESPER", "Vesper is the next unlock")
 	var better: Dictionary = DeepStone.make("STRIKE", 9, 3, 4, [], {"source": "test"}, "better")
 	var kept: Dictionary = DeepProfile.keep(profile, better)
 	check(kept.replaced.carat == 2 and profile.gold == kept.paid and profile.vault.STRIKE.carat == 9, "keeping a second Strike sells the first")
@@ -377,9 +380,16 @@ func _test_profile() -> void:
 	var result: Dictionary = {"run_id": "r1", "mine": "QUARRY", "outcome": "extracted", "depth": 8, "deepest": 8, "wardens": [8],
 		"players": {"a": {"haul": [DeepStone.make("VENOM", 4, 2, 2, ["SILK"], {}, "v1"), DeepStone.make("STRIKE", 1, 0, 3, [], {}, "s1")], "dice": [DeepDice.make("D20", DeepContent.die("D20"), "d20x")], "stats": {}, "rail": []}}}
 	var applied: Dictionary = DeepProfile.apply_result(profile, result, "a")
-	check(profile.tray.size() == 2 and profile.bowl.size() == 11, "two stones wait in the tray; a die joins the bowl alongside a newly unlocked setting's five dice (%d)" % profile.bowl.size())
+	check(profile.tray.size() == 2 and profile.bowl.size() == 11, "two stones wait in the tray; a die joins the bowl alongside a newly unlocked character's five dice (%d)" % profile.bowl.size())
 	check(profile.mines.QUARRY.deepest == 8 and profile.mines.QUARRY.wardens == [8] and profile.records.runs == 1 and profile.records.extractions == 1, "records are written")
-	check(applied.unlocked.size() == 1 and applied.unlocked[0].has("setting"), "the first warden unlocks a setting: %s" % str(applied.unlocked))
+	check(applied.unlocked.size() == 1 and applied.unlocked[0].get("character", "") == "VESPER" and profile.characters.VESPER.unlocked, "the first warden unlocks Vesper: %s" % str(applied.unlocked))
+	## An old profile that wore settings comes across with its unlocks counted.
+	var old: Dictionary = {"schema": 1, "id": "pfold", "name": "Old", "gold": 5, "vault": profile.vault.duplicate(true), "seen": [], "bowl": [], "mines": {}, "tray": [],
+		"settings": {"SIGNET": {"unlocked": true, "rail": [], "dice": []}, "GAUNTLET": {"unlocked": true, "rail": [], "dice": []}, "CHAIN": {"unlocked": false}}, "current_setting": "GAUNTLET",
+		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "best": {}}, "history": [], "next_id": 1}
+	var moved: Dictionary = DeepProfile.migrate(old)
+	check(not moved.has("settings") and moved.current_character == "ARDOR" and moved.characters.ARDOR.unlocked and moved.characters.VESPER.unlocked and not moved.characters.CADENCE.unlocked, "one earned setting becomes one earned character")
+	check(moved.characters.ARDOR.rail[0] == "STRIKE" and moved.bowl.size() == 10, "the vault is set into Ardor's rail and both characters' dice fill the bowl (%d)" % moved.bowl.size())
 	var gold_before: int = profile.gold
 	var decided: Dictionary = DeepProfile.decide_tray(profile, "s1", true)
 	check(decided.ok and decided.kept and decided.replaced.id == "better" and profile.vault.STRIKE.id == "s1", "the player may keep a worse stone; the better one is sold")

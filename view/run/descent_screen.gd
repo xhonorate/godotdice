@@ -10,6 +10,7 @@ extends Control
 
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
+const HomeScreen = preload("res://view/home/home_screen.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemView = preload("res://view/gems/gem_view.gd")
@@ -1459,13 +1460,13 @@ func _landing_bench(content: VBoxContainer, unit: Dictionary) -> void:
 	var rail_card := DeepUi.card(content, DeepUi.LINE, 16)
 	var rail_box := DeepUi.vbox(rail_card, 10)
 	DeepUi.section(rail_box, "gem", "Your rail")
-	DeepUi.label(rail_box, "Set appraised stones from your haul. One stone of each skill; the last socket is the Capstone.", 13, DeepUi.MUTED)
+	DeepUi.label(rail_box, "Set appraised stones from your haul. One stone of each skill. Your Birthstone is fixed at the end of the rail.", 13, DeepUi.MUTED)
 	var rail_row := DeepUi.hbox(rail_box, 12)
 	rail_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var sockets: Array = unit.get("sockets", [])
 	for index in range(unit.get("rail", []).size()):
 		var socket_colour: String = str(sockets[index]) if index < sockets.size() else "ANY"
-		var card := DeepUi.card(rail_row, Color(DeepUi.ACCENT if socket_colour == "CAPSTONE" else (DeepUi.colour(socket_colour) if socket_colour != "ANY" else DeepUi.LINE_HI), 0.5), 10, Color(0.05, 0.06, 0.085, 0.9))
+		var card := DeepUi.card(rail_row, Color(DeepUi.colour(socket_colour) if socket_colour != "ANY" else DeepUi.LINE_HI, 0.5), 10, Color(0.05, 0.06, 0.085, 0.9))
 		card.custom_minimum_size = Vector2(150, 0)
 		var box := DeepUi.vbox(card, 6)
 		var stone: Variant = unit.rail[index]
@@ -1484,7 +1485,7 @@ func _landing_bench(content: VBoxContainer, unit: Dictionary) -> void:
 			var out := DeepUi.icon_button(box, "cross_out", "Remove", func() -> void: command.emit({"kind": "unsocket", "index": socket_index}), 12, DeepUi.MUTED)
 			out.disabled = DeepStone.is_locked(stone)
 		else:
-			DeepUi.label(box, "Capstone" if socket_colour == "CAPSTONE" else ("Any colour" if socket_colour == "ANY" else socket_colour.capitalize()), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+			DeepUi.label(box, "Any colour" if socket_colour == "ANY" else socket_colour.capitalize(), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		var fitting: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)) and DeepStone.fits(s, socket_colour))
 		if not fitting.is_empty():
 			var pick := _options(box, fitting.map(func(s: Dictionary) -> Array: return [str(s.id), str(DeepStone.skill_of(s).get("name", s.skill))]))
@@ -1492,6 +1493,7 @@ func _landing_bench(content: VBoxContainer, unit: Dictionary) -> void:
 			var socket_index: int = index
 			DeepUi.icon_button(box, "check", "Set", func() -> void: command.emit({"kind": "socket", "stone_id": str(pick.get_item_metadata(pick.selected)), "index": socket_index}), 12, DeepUi.GOOD)
 		_enter(card, 0.05 * index)
+	_enter(HomeScreen.BirthstoneCard.new(rail_row, str(unit.get("character", ""))), 0.05 * unit.get("rail", []).size())
 	var dice_card := DeepUi.card(content, DeepUi.LINE, 16)
 	var dice_box := DeepUi.vbox(dice_card, 10)
 	DeepUi.section(dice_box, "die", "Your dice")

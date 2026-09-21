@@ -47,7 +47,14 @@ func _test_pack() -> void:
 	check(DeepContent.clear_index() == 3, "Clear is the middle of the clarity ladder")
 	check(DeepContent.clarity_name(5) == "Flawless" and DeepContent.clarity_name(0) == "Riddled", "clarity names")
 	check(DeepContent.cut_name(4) == "Perfect", "cut names")
-	check(DeepContent.starter_mine() == "QUARRY" and DeepContent.starter_setting() == "SIGNET", "starters")
+	check(DeepContent.starter_mine() == "QUARRY" and DeepContent.starter_character() == "ARDOR", "starters")
+	check(DeepContent.characters_in_unlock_order() == ["ARDOR", "VESPER", "CADENCE", "RUE", "PUCK", "FLORIN"], "characters unlock in the pack's order: %s" % str(DeepContent.characters_in_unlock_order()))
+	check(DeepContent.character_title("VESPER") == "Vesper, the Rogue", "a character is named with their title")
+	for key in DeepContent.section("characters"):
+		check(DeepContent.character(str(key)).sockets.has("RED"), "%s has a Red socket" % str(key))
+	var birth: Dictionary = DeepStone.birthstone("FLORIN")
+	check(DeepStone.is_birthstone(birth) and DeepStone.name(birth) == "High Roller" and birth.tiers.size() == 4, "a Birthstone is a stone the views can draw and name")
+	check(DeepContent.validate_birthstone({"name": "x", "style": "orb", "hue": "ffffff", "tiers": []}).size() == 2, "an unknown style and an empty ladder are both errors")
 	var broken: Dictionary = DeepContent.pack().duplicate(true)
 	broken.skills.BAD = {"name": "Bad", "colour": "PINK", "rarity": "COMMON", "trigger": {"kind": "pair", "ladder": [1, 2]}, "effects": [{"kind": "explode"}]}
 	check(DeepContent.validate(broken).size() >= 3, "a bad skill is refused for each thing wrong with it")

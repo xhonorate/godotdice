@@ -128,7 +128,7 @@ func _set_status(value: String) -> void:
 # --- the lobby ------------------------------------------------------------------------------
 
 func _add_member(id: String, member: Dictionary) -> void:
-	var record: Dictionary = {"id": id, "name": str(member.get("name", "Lapidary")), "setting": str(member.get("setting", DeepContent.starter_setting())),
+	var record: Dictionary = {"id": id, "name": str(member.get("name", "Lapidary")), "character": str(member.get("character", DeepContent.starter_character())),
 		"rail": member.get("rail", []), "dice": member.get("dice", []), "ready": bool(member.get("ready", false)), "connected": true}
 	lobby.members[id] = record
 	if not lobby.order.has(id):
@@ -139,7 +139,7 @@ func local_member() -> Dictionary:
 	return lobby.members.get(local_id, {})
 
 func update_member(fields: Dictionary) -> void:
-	## Setting, loadout, name or readiness. Changing anything but readiness clears it.
+	## Character, loadout, name or readiness. Changing anything but readiness clears it.
 	if is_host:
 		_apply_member(local_id, fields)
 	else:
@@ -149,10 +149,10 @@ func _apply_member(id: String, fields: Dictionary) -> void:
 	var record: Dictionary = lobby.members.get(id, {})
 	if record.is_empty():
 		return
-	for key in ["name", "setting", "rail", "dice", "ready"]:
+	for key in ["name", "character", "rail", "dice", "ready"]:
 		if fields.has(key):
 			record[key] = fields[key]
-	if fields.has("setting") or fields.has("rail") or fields.has("dice"):
+	if fields.has("character") or fields.has("rail") or fields.has("dice"):
 		if not fields.has("ready"):
 			record.ready = false
 	_broadcast({"kind": "lobby", "lobby": lobby})
@@ -188,7 +188,7 @@ func start_run(seed_value: int = 0) -> Dictionary:
 		var member: Dictionary = lobby.members[id]
 		if not bool(member.get("connected", true)):
 			continue
-		players.append({"id": id, "name": member.name, "setting": member.setting, "rail": member.get("rail", []), "dice": member.get("dice", [])})
+		players.append({"id": id, "name": member.name, "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", [])})
 	var config: Dictionary = {"seed": seed_value if seed_value != 0 else randi(), "mine": str(lobby.get("mine", DeepContent.starter_mine())), "players": players}
 	run = DeepDescent.new_run(config)
 	revision = 1

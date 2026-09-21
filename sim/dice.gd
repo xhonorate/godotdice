@@ -39,11 +39,18 @@ static func faces_of(definition: Dictionary) -> Array:
 
 static func make(key: String, definition: Dictionary, id: String, engraving: String = "") -> Dictionary:
 	var chosen: String = engraving if not engraving.is_empty() else str(definition.get("engraving", ""))
-	return {"id": id, "key": key, "name": str(definition.get("name", key)),
+	var die: Dictionary = {"id": id, "key": key, "name": str(definition.get("name", key)),
 		"shape": str(definition.get("shape", "D6")), "faces": faces_of(definition), "engraving": chosen}
+	if int(definition.get("top", 0)) > 0:
+		## A die may be judged against a face it cannot show: the Phial is a d6 that never
+		## rolls past 3, so every face of it is low and none of them is a crown.
+		die.top = int(definition.top)
+	return die
 
 static func top(die: Dictionary) -> int:
 	## The most this die can show on one face: what totals measure themselves against.
+	if int(die.get("top", 0)) > 0:
+		return mini(VALUE_CAP, int(die.top))
 	var best: int = 0
 	for f in die.get("faces", []):
 		if str(f.get("kind", "plain")) != "blank":
@@ -128,6 +135,10 @@ static func phantom(source: Dictionary, id: String) -> Dictionary:
 
 static func held_for_patterns(roll: Dictionary) -> bool:
 	return bool(roll.get("held", false)) or str(roll.get("engraving", "")) == "always_held"
+
+static func resolve_mirrors(hand: Array) -> void:
+	## Public for the battle, which re-throws single dice (a Gambler's ones, a Harlequin's flip).
+	_resolve_mirrors(hand)
 
 static func _resolve_mirrors(hand: Array) -> void:
 	var best: int = 0

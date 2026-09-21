@@ -24,6 +24,7 @@ const LensFlare = preload("res://view/battle/lens_flare.gd")
 const ScreenFx = preload("res://view/battle/screen_fx.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
+const GemMesh = preload("res://view/gems/gem_mesh.gd")
 ## The field of view the camera prefers; it widens on its own when a tall creature and its
 ## plate would not fit under the top of the screen, and narrows back when they would.
 const BASE_FOV: float = 58.0
@@ -78,7 +79,10 @@ var _resonance_box: HBoxContainer
 var _tray_box: HBoxContainer
 var _dice_views: Dictionary = {}
 var _reroll_button: Button
+var _flip_button: Button
 var _lock_button: Button
+var _birthstone_card: VBoxContainer = null
+var _birthstone_key: String = ""
 var _hint: Label
 var _hp_bar: DeepUi.Bar
 var _hp_text: Label
@@ -392,7 +396,7 @@ func _build_hud() -> void:
 	DeepUi.spacer(rail_head)
 	_resonance_box = DeepUi.hbox(rail_head, 5)
 	_resonance_box.mouse_filter = Control.MOUSE_FILTER_PASS
-	_resonance_box.tooltip_text = "Resonance: each gem that fires adds one, a neighbour of the same colour adds two, a fizzle resets it. The Capstone turns it into carats."
+	_resonance_box.tooltip_text = "Resonance: each gem that fires adds one, a neighbour of the same colour adds two, a fizzle resets it. Your Birthstone reads it last."
 	DeepUi.icon(_resonance_box, "spark", 18, DeepUi.ACCENT)
 	_resonance_value = DeepUi.title(_resonance_box, "0", 20, DeepUi.ACCENT)
 	_rail_box = DeepUi.hbox(left, 6)
@@ -411,6 +415,9 @@ func _build_hud() -> void:
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	_reroll_button = DeepUi.icon_button(buttons, "reroll", "Reroll", _reroll, 15, DeepUi.INFO)
 	_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
+	_flip_button = DeepUi.icon_button(buttons, "eye", "Flip", _flip, 15, DeepUi.ACCENT)
+	_flip_button.tooltip_text = "Sleight: turn one chosen die to the other side of its range, free, once a turn  [F]"
+	_flip_button.visible = false
 	_lock_button = DeepUi.primary(buttons, "check", "Lock in", _toggle_lock, 16)
 	_lock_button.tooltip_text = "Lock in this hand  [Space]"
 	DeepUi.rule(columns, Color(DeepUi.LINE, 0.8)).custom_minimum_size = Vector2(1, 0)
@@ -471,7 +478,7 @@ func _sync() -> void:
 	var planning: bool = str(state.get("phase", "")) == "planning"
 	## A pick outlives its reroll; a die that came back locked drops out of it, and the whole
 	## pick is let go once there are no rerolls left to spend on it.
-	var movable: Array = DeepDice.rerollable(unit.get("hand", [])) if int(unit.get("rerolls", 0)) > 0 else []
+	var movable: Array = DeepDice.rerollable(unit.get("hand", [])) if int(unit.get("rerolls", 0)) > 0 or int(unit.get("flips", 0)) > 0 else []
 	selected = selected.filter(func(id: Variant) -> bool: return movable.has(str(id)))
 	if _headless:
 		_depth_label.text = "Depth %d" % depth
@@ -495,7 +502,7 @@ func _sync() -> void:
 		var effects: Array = EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
 		var passive: Dictionary = unit.get("passive", {})
 		if not str(passive.get("text", "")).is_empty():
-			effects.append(EffectChips.entry("passive", "gem", "", true, str(DeepContent.setting(str(unit.get("setting", ""))).get("name", "Your setting")), str(passive.text), DeepUi.ACCENT))
+			effects.append(EffectChips.entry("passive", "spark", "", true, str(passive.get("name", DeepContent.character_title(str(unit.get("character", ""))))), str(passive.text), DeepUi.ACCENT))
 		_effects.show_effects(effects)
 		_resonance_value.text = str(int(unit.get("resonance", 0))) if not planning else str(int(forecast.get("totals", {}).get("resonance", 0)))
 		_resonance_value.add_theme_color_override("font_color", _resonance_colour(int(_resonance_value.text)))
@@ -512,8 +519,12 @@ func _sync() -> void:
 	_reroll_button.text = ("Reroll  %d left" % rerolls) if planning else "Resolving"
 	_lock_button.disabled = not planning or downed
 	_lock_button.text = "Unlock" if locked else "Lock in"
+	var flips: int = int(unit.get("flips", 0))
+	_flip_button.visible = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
+	_flip_button.disabled = not planning or locked or downed or flips <= 0 or selected.size() != 1
+	_flip_button.text = "Flip" if flips > 0 or not planning else "Flipped"
 	## When there is nothing left to decide, the lock button asks to be pressed.
-	var waiting_on_me: bool = planning and not locked and not downed and (rerolls <= 0 or selected.is_empty())
+	var waiting_on_me: bool = planning and not locked and not downed and ((rerolls <= 0 and flips <= 0) or selected.is_empty())
 	if waiting_on_me and _lock_pulse == null:
 		_lock_pulse = DeepUi.breathe(_lock_button, 0.7, 1.4)
 	elif not waiting_on_me and _lock_pulse != null:
@@ -528,7 +539,9 @@ func _sync() -> void:
 		var waiting: Array = state.get("players", []).filter(func(p: Dictionary) -> bool: return not bool(p.get("locked", false)) and not bool(p.get("downed", false)))
 		_hint.text = "Waiting for %s" % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "Everyone is in."
 	else:
-		if rerolls <= 0:
+		if rerolls <= 0 and flips > 0:
+			_hint.text = "Pick one die to flip  [F], or lock in  [Space]"
+		elif rerolls <= 0:
 			_hint.text = "No rerolls left. Lock in  [Space]"
 		else:
 			_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
@@ -555,9 +568,12 @@ func _resonance_colour(value: int) -> Color:
 
 func _sync_rail(unit: Dictionary, planning: bool) -> void:
 	var rail: Array = unit.get("rail", [])
-	if _socket_cards.size() != rail.size():
+	var birth_key: String = str(unit.get("character", ""))
+	if _socket_cards.size() != rail.size() or _birthstone_key != birth_key or (_birthstone_card != null and not is_instance_valid(_birthstone_card)):
 		DeepUi.clear(_rail_box)
 		_socket_cards.clear()
+		_birthstone_card = null
+		_birthstone_key = birth_key
 		for socket in range(rail.size()):
 			var card := VBoxContainer.new()
 			card.add_theme_constant_override("separation", 2)
@@ -565,6 +581,9 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			card.mouse_filter = Control.MOUSE_FILTER_PASS
 			_rail_box.add_child(card)
 			_socket_cards.append(card)
+		if not unit.get("birthstone", {}).is_empty():
+			_birthstone_card = _build_birthstone_card(unit)
+			_rail_box.add_child(_birthstone_card)
 	var sockets: Array = unit.get("sockets", [])
 	for socket in range(rail.size()):
 		var card: VBoxContainer = _socket_cards[socket]
@@ -598,7 +617,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				name_label.custom_minimum_size.x = SOCKET_EDGE + 8
 				name_label.clip_text = true
 			else:
-				DeepUi.label(card, "Capstone" if socket_colour == "CAPSTONE" else (socket_colour.capitalize() if socket_colour != "ANY" else "Any"), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+				DeepUi.label(card, socket_colour.capitalize() if socket_colour != "ANY" else "Any", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		if stone is Dictionary:
 			var entry: Dictionary = {}
 			for candidate in forecast.get("sockets", []):
@@ -620,12 +639,79 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			var blocked: bool = unit.get("buried", []).has(socket) or unit.get("clouded", []).has(socket)
 			card.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else Color.WHITE
 			card.tooltip_text = ("Buried in rubble: this gem cannot fire this turn." if unit.get("buried", []).has(socket) else "Clouded: hit the Clouder to clear it.") if blocked else ""
+	_sync_birthstone(unit, planning)
+
+func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
+	## The character's Birthstone at the end of the rail: the stone in its own bezel, its
+	## name, and its tiers as marks that light when the hand in the tray would fire them.
+	var stone: Dictionary = DeepStone.birthstone(str(unit.get("character", "")))
+	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", 2)
+	card.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.mouse_filter = Control.MOUSE_FILTER_PASS
+	var slot := Control.new()
+	slot.name = "Slot"
+	slot.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
+	slot.mouse_filter = Control.MOUSE_FILTER_PASS
+	card.add_child(slot)
+	var ring := SocketRing.new("BIRTHSTONE", false)
+	ring.name = "Ring"
+	ring.birth_tint = tint
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	slot.add_child(ring)
+	if not stone.is_empty():
+		var picture := Thumbs.GemThumb.new(stone, SOCKET_EDGE - 12)
+		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 6)
+		picture.tooltip_text = "%s, your Birthstone\n%s" % [str(stone.get("name", "")), str(stone.get("text", ""))]
+		slot.add_child(picture)
+	var tiers := GridContainer.new()
+	tiers.name = "Tiers"
+	tiers.columns = 2
+	tiers.add_theme_constant_override("h_separation", 4)
+	tiers.add_theme_constant_override("v_separation", 1)
+	tiers.mouse_filter = Control.MOUSE_FILTER_PASS
+	card.add_child(tiers)
+	var name_label := DeepUi.label(card, str(stone.get("name", "Birthstone")), 11, tint.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
+	name_label.name = "Name"
+	name_label.custom_minimum_size.x = SOCKET_EDGE + 8
+	name_label.clip_text = true
+	return card
+
+func _sync_birthstone(unit: Dictionary, planning: bool) -> void:
+	if _birthstone_card == null or not is_instance_valid(_birthstone_card):
+		return
+	var preview: Dictionary = forecast.get("birthstone", {})
+	var ring: SocketRing = _birthstone_card.get_node_or_null("Slot/Ring")
+	if ring != null:
+		ring.set_ready(bool(preview.get("fired", false)) and planning)
+	var tiers_row: Node = _birthstone_card.get_node_or_null("Tiers")
+	if tiers_row == null:
+		return
+	var defs: Array = unit.get("birthstone", {}).get("tiers", [])
+	var previewed: Array = preview.get("tiers", [])
+	var key: String = ""
+	for index in range(defs.size()):
+		key += "1" if index < previewed.size() and bool(previewed[index].get("active", false)) and planning else "0"
+	if str(tiers_row.get_meta("key", "")) == key:
+		return
+	tiers_row.set_meta("key", key)
+	DeepUi.clear(tiers_row)
+	for index in range(defs.size()):
+		var tier: Dictionary = defs[index]
+		var active: bool = key[index] == "1"
+		var reason: String = str(previewed[index].get("reason", "")) if index < previewed.size() else ""
+		var words: String = "%s: %s" % [str(tier.get("name", "")), str(tier.get("text", ""))]
+		if not active and not reason.is_empty() and planning:
+			words += "\n" + reason
+		DiceIcons.build(tiers_row, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 11, DeepUi.GOOD if active else DeepUi.DIM, words)
 
 class SocketRing extends Control:
-	## A setting's socket: a bezel in the socket's colour, a crown for the Capstone, and a
+	## A character's socket: a bezel in the socket's colour, a crown for the Birthstone, and a
 	## glow that wakes when the hand in the tray would fire the stone set in it.
 	var colour: String = "ANY"
 	var empty: bool = false
+	var birth_tint: Color = DeepUi.ACCENT
 	var _ready_glow: float = 0.0
 	var _goal: float = 0.0
 	var _clock: float = 0.0
@@ -648,7 +734,7 @@ class SocketRing extends Control:
 		if _flash <= 0.0 and is_equal_approx(_ready_glow, _goal) and _goal <= 0.0:
 			set_process(false)
 	func _draw() -> void:
-		var tone: Color = DeepUi.ACCENT if colour == "CAPSTONE" else (DeepUi.colour(colour) if colour != "ANY" else DeepUi.MUTED)
+		var tone: Color = birth_tint.lightened(0.15) if colour == "BIRTHSTONE" else (DeepUi.colour(colour) if colour != "ANY" else DeepUi.MUTED)
 		var centre := size * 0.5
 		var radius := minf(size.x, size.y) * 0.47
 		if _ready_glow > 0.01 or _flash > 0.0:
@@ -657,15 +743,15 @@ class SocketRing extends Control:
 			draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(reach, reach) * 0.5, Vector2(reach, reach)), false, Color(tone.lerp(Color.WHITE, _flash * 0.5), 0.35 * _ready_glow * pulse + 0.8 * _flash))
 		draw_circle(centre, radius, Color(0, 0, 0, 0.45))
 		draw_circle(centre, radius * 0.9, Color(tone, 0.08 if empty else 0.12))
-		draw_arc(centre, radius, 0, TAU, 48, Color(tone, 0.95 if empty else 0.75), 3.0 if colour == "CAPSTONE" else 2.0, true)
+		draw_arc(centre, radius, 0, TAU, 48, Color(tone, 0.95 if empty else 0.75), 3.0 if colour == "BIRTHSTONE" else 2.0, true)
 		draw_arc(centre, radius * 0.82, 0, TAU, 40, Color(tone, 0.25), 1.0, true)
 		for i in range(4):
 			var angle: float = TAU * float(i) / 4.0 + PI * 0.25
 			draw_circle(centre + Vector2.from_angle(angle) * radius * 0.92, 2.2, Color(tone.lightened(0.3), 0.9))
-		if colour == "CAPSTONE":
+		if colour == "BIRTHSTONE":
 			var crown := PackedVector2Array([centre + Vector2(-9, -radius - 1), centre + Vector2(-5, -radius - 8), centre + Vector2(0, -radius - 3),
 				centre + Vector2(5, -radius - 8), centre + Vector2(9, -radius - 1)])
-			draw_colored_polygon(crown, DeepUi.ACCENT)
+			draw_colored_polygon(crown, tone.lightened(0.2))
 
 func _sync_tray(unit: Dictionary, planning: bool) -> void:
 	var hand: Array = unit.get("hand", [])
@@ -732,6 +818,10 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		var words: String = DiceIcons.face_text(int(roll.value), str(roll.get("kind", "plain")))
 		if bool(roll.get("locked", false)):
 			words += "  ⌂"
+		if bool(roll.get("flipped", false)):
+			words += "  ⇅"
+		if bool(roll.get("loaded", false)):
+			words += "  ↻"
 		value.text = words
 		value.add_theme_color_override("font_color", DeepUi.ACCENT if chosen else DeepUi.MUTED)
 
@@ -813,7 +903,8 @@ class AllyCard extends PanelContainer:
 		box.add_child(_effects)
 	func update(unit: Dictionary, planning: bool) -> void:
 		_effects.show_effects(EffectChips.for_player(unit))
-		_name.text = str(unit.name)
+		var who: String = str(DeepContent.character(str(unit.get("character", ""))).get("name", ""))
+		_name.text = str(unit.name) + ("" if who.is_empty() else " · " + who)
 		var note: String = "down" if bool(unit.get("downed", false)) else ("locked in" if bool(unit.get("locked", false)) else "choosing")
 		if not bool(unit.get("connected", true)):
 			note = "away"
@@ -1168,7 +1259,7 @@ func _ambience(delta: float) -> void:
 
 func _toggle_die(id: String) -> void:
 	var unit: Dictionary = me()
-	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)) or int(unit.get("rerolls", 0)) <= 0:
+	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)) or (int(unit.get("rerolls", 0)) <= 0 and int(unit.get("flips", 0)) <= 0):
 		return
 	if selected.has(id):
 		selected.erase(id)
@@ -1190,6 +1281,18 @@ func _reroll() -> void:
 				DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.INFO, 14, 140.0, 0.5)
 	## The picked dice stay picked, so pressing Reroll again throws the same ones.
 
+func _flip() -> void:
+	## Sleight: the one chosen die turns over.
+	if selected.size() != 1 or int(me().get("flips", 0)) <= 0 or bool(me().get("locked", false)):
+		return
+	var id: String = str(selected[0])
+	command.emit({"kind": "flip", "die": id})
+	DeepAudio.play("die_pick", {"volume": 0.9})
+	if not _headless and _dice_views.has(id):
+		var view: Control = _dice_views[id]
+		DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.ACCENT_HI, 16, 150.0, 0.5)
+	selected.clear()
+
 func _toggle_lock() -> void:
 	var locking: bool = not bool(me().get("locked", false))
 	command.emit({"kind": "lock" if locking else "unlock"})
@@ -1205,6 +1308,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	match event.keycode:
 		KEY_R: _reroll()
+		KEY_F: _flip()
 		KEY_SPACE: _toggle_lock()
 		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5:
 			var index: int = event.keycode - KEY_1
@@ -1234,10 +1338,21 @@ func perform(event: Dictionary) -> void:
 		"rail_begin":
 			if str(event.get("unit", "")) == local_id:
 				_resonance_value.text = "0"
+				if int(event.get("healed", 0)) > 0:
+					DeepAudio.play("heal", {"volume": 0.6})
+					_float_at(_hp_bar, "+%d Second Wind" % int(event.healed), DeepUi.GOOD, 20)
+			elif int(event.get("healed", 0)) > 0 and _ally_cards.has(str(event.get("unit", ""))):
+				_float_at(_ally_cards[str(event.unit)], "+%d" % int(event.healed), DeepUi.GOOD, 16)
 		"gem_fire":
 			_gem_fire(event)
 		"gem_fizzle":
 			_gem_fizzle(event)
+		"birthstone":
+			_birthstone_fire(event)
+		"flip":
+			if str(event.get("unit", "")) == local_id:
+				DeepAudio.play("die_settle", {"volume": 0.8})
+				_float_at(_tray_box, "Flipped to %d" % int(event.get("value", 0)), DeepUi.ACCENT_HI, 16)
 		"rail_end":
 			var resonance: int = int(event.get("resonance", 0))
 			if str(event.get("unit", "")) == local_id and resonance >= 3:
@@ -1249,21 +1364,7 @@ func perform(event: Dictionary) -> void:
 			_enemy_move(event)
 		"tick":
 			for tick in event.get("ticks", []):
-				var target_id: String = str(tick.get("unit", ""))
-				var colour: Color = DeepUi.POISON if str(tick.get("kind", "")) == "poison" else DeepUi.GOOD
-				if _creatures.has(target_id) and is_instance_valid(_creatures[target_id]):
-					var creature: CrystalCreature = _creatures[target_id]
-					DeepAudio.play_at(global_position + _to_screen(creature.centre()), "poison" if str(tick.kind) == "poison" else "heal", {"volume": 0.5})
-					_fx.puff(creature.centre(), colour, 10, 0.6, 1.0, 0.5, true)
-					_float_world(creature.centre(), ("−%d" if str(tick.kind) == "poison" else "+%d") % int(tick.get("amount", 0)), colour, 22)
-					if str(tick.kind) == "poison":
-						creature.hit(0.3)
-					if bool(tick.get("killed", false)):
-						_kill(creature)
-				elif target_id == local_id:
-					DeepAudio.play("poison" if str(tick.kind) == "poison" else "heal", {"volume": 0.6})
-					_float_at(_hp_bar, "−%d" % int(tick.get("amount", 0)), colour, 22)
-					_screen_fx.blink(colour, 0.1)
+				_animate_tick(tick)
 		"skip":
 			DeepAudio.play("stun", {"volume": 0.7})
 			var who: String = str(event.get("unit", ""))
@@ -1291,6 +1392,71 @@ func perform(event: Dictionary) -> void:
 				var tween := create_tween()
 				tween.tween_property(_screen_fx, "desaturate", 0.85, 1.4)
 				_screen_fx.wound(1.0)
+
+func _animate_tick(tick: Dictionary) -> void:
+	## One round of poison (or regrowth) on one unit, and whoever drank from it.
+	var target_id: String = str(tick.get("unit", ""))
+	var colour: Color = DeepUi.POISON if str(tick.get("kind", "")) == "poison" else DeepUi.GOOD
+	if _creatures.has(target_id) and is_instance_valid(_creatures[target_id]):
+		var creature: CrystalCreature = _creatures[target_id]
+		DeepAudio.play_at(global_position + _to_screen(creature.centre()), "poison" if str(tick.kind) == "poison" else "heal", {"volume": 0.5})
+		_fx.puff(creature.centre(), colour, 10, 0.6, 1.0, 0.5, true)
+		_float_world(creature.centre(), ("−%d" if str(tick.kind) == "poison" else "+%d") % int(tick.get("amount", 0)), colour, 22)
+		if str(tick.kind) == "poison":
+			creature.hit(0.3)
+		if bool(tick.get("killed", false)):
+			_kill(creature)
+	elif target_id == local_id:
+		DeepAudio.play("poison" if str(tick.kind) == "poison" else "heal", {"volume": 0.6})
+		_float_at(_hp_bar, "−%d" % int(tick.get("amount", 0)), colour, 22)
+		_screen_fx.blink(colour, 0.1)
+	for leech in tick.get("leech", []):
+		var drinker: String = str(leech.get("unit", ""))
+		if drinker == local_id:
+			DeepAudio.play("heal", {"volume": 0.55})
+			_float_at(_hp_bar, "+%d Leech" % int(leech.get("amount", 0)), DeepUi.GOOD, 18)
+		elif _ally_cards.has(drinker) and is_instance_valid(_ally_cards[drinker]):
+			_float_at(_ally_cards[drinker], "+%d" % int(leech.get("amount", 0)), DeepUi.GOOD, 15)
+
+func _birthstone_fire(event: Dictionary) -> void:
+	## The Birthstone at the end of a rail lights every tier the hand earned, then its effects
+	## leave from its bezel the way a gem's do.
+	var unit_id: String = str(event.get("unit", ""))
+	var mine: bool = unit_id == local_id
+	var unit: Dictionary = DeepBattle.player(state, unit_id)
+	var stone: Dictionary = DeepStone.birthstone(str(unit.get("character", "")))
+	var colour: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
+	var anchor: Control = null
+	if mine and _birthstone_card != null and is_instance_valid(_birthstone_card):
+		anchor = _birthstone_card
+	elif _ally_cards.has(unit_id) and is_instance_valid(_ally_cards[unit_id]):
+		anchor = _ally_cards[unit_id]
+	var origin: Vector3 = _control_world(anchor, 1.6) if anchor != null else _origin_for(unit_id, -1)
+	if not bool(event.get("fired", false)):
+		if anchor != null and mine:
+			_float_at(anchor, "dark", DeepUi.DIM, 13)
+			anchor.modulate = Color(0.6, 0.6, 0.7, 1.0)
+			var tween := create_tween()
+			tween.tween_property(anchor, "modulate", Color.WHITE, 0.6)
+		return
+	var lit: Array = event.get("tiers", []).filter(func(x: Dictionary) -> bool: return bool(x.get("active", false)))
+	if anchor != null:
+		DeepAudio.from(anchor, "resonance", {"pitch": 1.1 + 0.08 * float(mini(lit.size(), 4)), "volume": 0.9, "gap": 0.02})
+		var ring: SocketRing = anchor.get_node_or_null("Slot/Ring")
+		if ring != null:
+			ring.fire()
+		DeepUi.pulse(anchor, 1.2, 0.45)
+		DeepUi.burst(self, _center_of(anchor), colour, 24 + 8 * lit.size(), 190.0, 0.6)
+		var lift: int = 0
+		for entry in lit:
+			_float_at(anchor, str(entry.get("name", "")), colour.lightened(0.35), 17 - mini(lift, 3))
+			lift += 1
+		if bool(event.get("replay", false)):
+			_float_at(anchor, "Encore!", DeepUi.ACCENT_HI, 18)
+	else:
+		DeepAudio.play("resonance", {"volume": 0.7})
+	for entry in lit:
+		_animate_effects(entry.get("effects", []), origin, colour, mine, anchor, 1.0)
 
 func _stone_colour(unit_id: String, socket: int, skill_key: String) -> Color:
 	var unit: Dictionary = DeepBattle.player(state, unit_id)
@@ -1346,8 +1512,12 @@ func _gem_fire(event: Dictionary) -> void:
 		DeepUi.pulse(_ally_cards[unit_id], 1.05, 0.3)
 	else:
 		DeepAudio.play(voice, {"volume": carry, "gap": 0.02})
+	_animate_effects(event.get("effects", []), origin, colour, mine, _socket_cards[socket] if mine and socket >= 0 and socket < _socket_cards.size() else null, magnitude)
+
+func _animate_effects(effects: Array, origin: Vector3, colour: Color, mine: bool, anchor: Control, magnitude: float = 1.0) -> void:
+	## What a gem or a Birthstone did, animated effect by effect from where its light left.
 	var shot: int = 0
-	for effect in event.get("effects", []):
+	for effect in effects:
 		var kind: String = str(effect.get("kind", ""))
 		var target_id: String = str(effect.get("target", ""))
 		match kind:
@@ -1405,9 +1575,21 @@ func _gem_fire(event: Dictionary) -> void:
 					for id in _dice_views:
 						var view: Control = _dice_views[id]
 						DeepUi.burst(self, _center_of(view), colour, 6, 80.0, 0.4, 4.0)
+			"tick_poison":
+				for tick in effect.get("ticks", []):
+					_animate_tick(tick)
+			"replay_rail":
+				if not bool(effect.get("nothing", false)):
+					DeepAudio.play("harmony", {"volume": 0.9})
+					_announce("Encore", DeepUi.ACCENT_HI, "The rail plays again", 0.9)
+			"stone_drop":
+				DeepAudio.play("ore", {"volume": 0.9})
+				_announce("Royal Flush", DeepUi.ORE, "A stone falls from the rock", 1.1)
+				if anchor != null:
+					DeepUi.burst(self, _center_of(anchor), DeepUi.ORE, 40, 220.0, 0.9)
 			_:
-				if mine and socket >= 0 and socket < _socket_cards.size():
-					_float_at(_socket_cards[socket], kind.replace("_", " ").capitalize(), colour.lightened(0.3), 13)
+				if mine and anchor != null:
+					_float_at(anchor, kind.replace("_", " ").capitalize(), colour.lightened(0.3), 13)
 
 func _impact(who: String, hit: Dictionary, colour: Color, mine: bool) -> void:
 	var creature: CrystalCreature = _creature(who)

@@ -13,7 +13,10 @@ extends RefCounted
 ##   pairs         the groups with count >= 2
 ##   straight      {length, high, low, dice}
 ##   odd, even     counts (wilds count for both)
+##   odd_values, even_values   how many different values of each parity show (wilds count for both)
 ##   distinct      number of different values (wilds each count as a new one)
+##   low_dice, low_ids     dice at or below half their own top (a wild is never low)
+##   crowns, crown_ids     dice showing their own top face (a wild is always a crown)
 ##   wilds         die ids of wild rolls;  gem_face  true if any die shows its gem face
 ##   ids_by_value  {value: [die ids]}
 
@@ -34,6 +37,10 @@ static func analyze(hand: Array) -> Dictionary:
 	var high_pct: int = 0
 	var odd: int = 0
 	var even: int = 0
+	var low_dice: int = 0
+	var low_ids: Array = []
+	var crowns: int = 0
+	var crown_ids: Array = []
 	for roll in hand:
 		var kind: String = str(roll.get("kind", "plain"))
 		var value: int = int(roll.get("value", 0))
@@ -53,6 +60,8 @@ static func analyze(hand: Array) -> Dictionary:
 			wild_top = maxi(wild_top, top)
 			total += top
 			high_pct = 100
+			crowns += 1
+			crown_ids.append(id)
 			continue
 		if kind == "blank":
 			continue
@@ -65,6 +74,12 @@ static func analyze(hand: Array) -> Dictionary:
 			odd += 1
 		else:
 			even += 1
+		if value * 2 <= top:
+			low_dice += 1
+			low_ids.append(id)
+		if value >= top:
+			crowns += 1
+			crown_ids.append(id)
 		counts[value] = int(counts.get(value, 0)) + (2 if str(roll.get("engraving", "")) == "twin" else 1)
 		if not ids_by_value.has(value):
 			ids_by_value[value] = []
@@ -96,12 +111,21 @@ static func analyze(hand: Array) -> Dictionary:
 			return a.count > b.count
 		return a.value > b.value)
 	var pairs: Array = groups.filter(func(g: Dictionary) -> bool: return int(g.count) >= 2)
+	var odd_values: int = 0
+	var even_values: int = 0
+	for v in counts:
+		if int(v) % 2 == 1:
+			odd_values += 1
+		else:
+			even_values += 1
 	return {"values": values, "wilds": wilds, "gem_face": gem_face, "total": total, "max_total": maxi(1, max_total),
 		"high": high if high > 0 else wild_top, "low": low if low > 0 else wild_top, "high_pct": high_pct,
 		"held": held, "rerolled": rerolled, "phantoms": phantoms, "dice_count": hand.size(),
 		"groups": groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
 		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size()),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
+		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
+		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids,
 		"ids_by_value": ids_by_value}
 
 static func _straight(present_values: Array, wilds: Array, ids_by_value: Dictionary, dice_total: int) -> Dictionary:

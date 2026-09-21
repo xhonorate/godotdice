@@ -50,7 +50,7 @@ static func colours(stone: Dictionary, socket: String = "") -> Array:
 	return out
 
 static func fits(stone: Dictionary, socket: String) -> bool:
-	if socket == DeepContent.SOCKET_ANY or socket == DeepContent.SOCKET_CAPSTONE:
+	if socket == DeepContent.SOCKET_ANY:
 		return true
 	return colours(stone, socket).has(socket)
 
@@ -82,10 +82,29 @@ static func modifier_sum(mods: Array, kind: String, field: String = "amount") ->
 static func is_locked(stone: Dictionary) -> bool:
 	return has_modifier(modifiers(stone), "locked")
 
+# --- the Birthstone -------------------------------------------------------------------------
+
+static func birthstone(character_key: String) -> Dictionary:
+	## A character's Birthstone as a stone the views can draw and name: fixed ranks, its own
+	## cut, tint and emblem, no skill and no inclusions. Never socketed, never in a vault.
+	var character: Dictionary = DeepContent.character(character_key)
+	var def: Dictionary = character.get("birthstone", {})
+	if def.is_empty():
+		return {}
+	return {"id": "birthstone_" + character_key, "birthstone": true, "character": character_key, "skill": "",
+		"name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "shield")), "hue": str(def.get("hue", "ffffff")),
+		"emblem": str(def.get("emblem", "gem")), "carat": 10, "cut": 4, "clarity": 4, "inclusions": [], "appraised": true,
+		"text": str(def.get("text", "")), "tiers": def.get("tiers", []).duplicate(true)}
+
+static func is_birthstone(stone: Dictionary) -> bool:
+	return bool(stone.get("birthstone", false))
+
 # --- names and worth -------------------------------------------------------------------
 
 static func name(stone: Dictionary) -> String:
 	## "Perfect Flawless 14-carat Barrage": the way a jeweller says it.
+	if is_birthstone(stone):
+		return str(stone.get("name", "Birthstone"))
 	var skill: Dictionary = skill_of(stone)
 	return "%s %s %d-carat %s" % [DeepContent.cut_name(int(stone.get("cut", 0))), DeepContent.clarity_name(int(stone.get("clarity", 0))),
 		int(stone.get("carat", 1)), str(skill.get("name", stone.get("skill", "stone")))]

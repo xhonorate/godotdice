@@ -11,29 +11,34 @@ extends RefCounted
 ##
 ## Player units carry their rail (stones by socket), their dice and hand, and the rail
 ## context that gems pass to each other: Resonance, what the previous gem did, a pending
-## Cut step or amplifier. Enemy units carry published intents. Both sides share one damage
-## pipeline.
+## Cut step or amplifier. After the last socket the character's Birthstone resolves: a fixed
+## stone with tiers, every satisfied tier firing on the Resonance the rail built. Enemy
+## units carry published intents. Both sides share one damage pipeline.
 
 const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.9,
-	"gem_fizzle": 0.5, "rail_end": 0.3, "skip": 0.6, "enemy_move": 0.9, "tick": 0.6, "battle_over": 1.2}
+	"gem_fizzle": 0.5, "birthstone": 1.1, "rail_end": 0.3, "skip": 0.6, "enemy_move": 0.9, "tick": 0.6, "battle_over": 1.2}
 const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
 	"coin_flip", "resonance"]
+const BIRTHSTONE_KINDS: Array = ["replay_rail", "tick_poison", "stone_drop"]
 
 # --- setup -------------------------------------------------------------------------------
 
-static func make_player(id: String, name: String, setting_key: String, rail: Array, dice: Array, hp: int = -1) -> Dictionary:
+static func make_player(id: String, name: String, character_key: String, rail: Array, dice: Array, hp: int = -1) -> Dictionary:
 	## A player unit for a fight. `rail` is stones by socket (null for empty), `dice` five
-	## die instances. HP defaults to the setting's.
-	var setting: Dictionary = DeepContent.setting(setting_key)
-	var sockets: Array = setting.get("sockets", ["ANY", "CAPSTONE"]).duplicate()
+	## die instances. HP, sockets, passive and Birthstone come from the character.
+	var character: Dictionary = DeepContent.character(character_key)
+	var sockets: Array = character.get("sockets", ["ANY"]).duplicate()
 	var filled: Array = rail.duplicate(true)
 	while filled.size() < sockets.size():
 		filled.append(null)
-	var max_hp: int = int(setting.get("hp", 60))
-	return {"id": id, "name": name, "side": "player", "setting": setting_key, "sockets": sockets, "rail": filled,
+	if filled.size() > sockets.size():
+		filled = filled.slice(0, sockets.size())
+	var max_hp: int = int(character.get("hp", 60))
+	return {"id": id, "name": name, "side": "player", "character": character_key, "sockets": sockets, "rail": filled,
+		"birthstone": character.get("birthstone", {}).duplicate(true), "flips": 0, "fired_sockets": [], "replaying": false, "stone_drops": 0,
 		"hp": hp if hp >= 0 else max_hp, "max_hp": max_hp, "block": 0, "statuses": {}, "dice": dice.duplicate(true), "hand": [],
-		"rerolls": 0, "rerolls_max": 0, "locked": false, "target": "", "passive": setting.get("passive", {"kind": "none"}),
+		"rerolls": 0, "rerolls_max": 0, "locked": false, "target": "", "passive": character.get("passive", {"kind": "none"}),
 		"resonance": 0, "previous_fired": false, "previous_amount": 0, "previous_colours": [], "previous_socket": -1,
 		"amplify": 1.0, "cut_step_bonus": 0, "nullify_next": false, "block_lost": 0, "block_lost_accum": 0,
 		"healed": 0, "dealt": 0, "dealt_last_turn": 0, "gold": 0, "once": {}, "downed": false, "connected": true,
@@ -91,6 +96,7 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 				return _refuse("choose dice to reroll")
 			unit.hand = DeepDice.reroll(unit.hand, unit.dice, chosen, rng_dice)
 			unit.rerolls = int(unit.rerolls) - 1
+			var loaded: Array = _loaded(unit, chosen, rng_dice)
 			var drain: int = 0
 			for foe in living(state.enemies):
 				if str(foe.get("gimmick", "")) == "gift_rerolls":
@@ -98,7 +104,27 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			if drain > 0:
 				unit.hp = maxi(1, int(unit.hp) - drain)
 			return {"ok": true, "event": _event(state, "reroll", {"unit": player_id, "dice": chosen, "hand": unit.hand.duplicate(true),
-				"rerolls": unit.rerolls, "drain": drain})}
+				"rerolls": unit.rerolls, "drain": drain, "loaded": loaded})}
+		"flip":
+			## The Harlequin's Sleight: one die turns to the other side of its range.
+			if bool(unit.get("locked", false)):
+				return _refuse("you have locked in")
+			if int(unit.get("flips", 0)) <= 0:
+				return _refuse("no flip left this turn")
+			var wanted_id: String = str(cmd.get("die", ""))
+			for roll in unit.hand:
+				if str(roll.get("die_id", "")) != wanted_id or bool(roll.get("phantom", false)):
+					continue
+				if str(roll.get("kind", "plain")) != "plain":
+					return _refuse("only a plain face can be flipped")
+				var top: int = maxi(1, int(roll.get("top", 6)))
+				roll.value = clampi(top + 1 - int(roll.get("value", 1)), 1, DeepDice.VALUE_CAP)
+				roll.flipped = true
+				unit.flips = int(unit.flips) - 1
+				DeepDice.resolve_mirrors(unit.hand)
+				return {"ok": true, "event": _event(state, "flip", {"unit": player_id, "die": wanted_id, "value": int(roll.value),
+					"hand": unit.hand.duplicate(true), "flips": int(unit.flips)})}
+			return _refuse("no such die")
 		"lock":
 			unit.locked = true
 			return {"ok": true, "event": _event(state, "lock", {"unit": player_id})}
@@ -145,6 +171,8 @@ static func start_resolution(state: Dictionary) -> Dictionary:
 		for socket in range(unit.rail.size()):
 			if unit.rail[socket] is Dictionary:
 				queue.append({"kind": "gem", "unit": unit.id, "socket": socket})
+		if not unit.get("birthstone", {}).is_empty():
+			queue.append({"kind": "birthstone", "unit": unit.id})
 		queue.append({"kind": "rail_end", "unit": unit.id})
 	queue.append({"kind": "creatures_begin"})
 	for foe in state.enemies:
@@ -209,14 +237,27 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.nullify_next = false
 			unit.cut_step_bonus = 0
 			unit.fizzle_free = 1 if str(unit.get("passive", {}).get("kind", "")) == "first_fizzle_free" else 0
+			unit.fired_sockets = []
+			unit.replaying = false
 			if str(unit.get("passive", {}).get("kind", "")) == "first_gem_cut_step":
 				unit.cut_step_bonus = int(unit.passive.get("amount", 1))
-			return _event(state, "rail_begin", {"unit": unit.id})
+			## Second Wind: the Knight banks the rerolls he did not spend.
+			var unused: int = int(unit.get("rerolls", 0))
+			var healed: int = 0
+			if str(unit.get("passive", {}).get("kind", "")) == "heal_per_unused_reroll" and unused > 0:
+				healed = _heal(unit, int(unit.passive.get("amount", 3)) * unused)
+			return _event(state, "rail_begin", {"unit": unit.id, "unused_rerolls": unused, "healed": healed})
 		"gem":
 			var unit: Dictionary = player(state, str(s.unit))
 			if unit.is_empty() or bool(unit.get("downed", false)) or done(state):
 				return {}
-			return resolve_gem(state, unit, int(s.socket), {"retrigger": bool(s.get("retrigger", false)), "scale": int(s.get("scale", 100))}, rng_dice)
+			return resolve_gem(state, unit, int(s.socket), {"retrigger": bool(s.get("retrigger", false)), "scale": int(s.get("scale", 100)),
+				"replay": bool(s.get("replay", false))}, rng_dice)
+		"birthstone":
+			var unit: Dictionary = player(state, str(s.unit))
+			if unit.is_empty() or bool(unit.get("downed", false)) or done(state):
+				return {}
+			return resolve_birthstone(state, unit, {"replay": bool(s.get("replay", false))}, rng_dice)
 		"rail_end":
 			var unit: Dictionary = player(state, str(s.unit))
 			if unit.is_empty():
@@ -255,8 +296,8 @@ static func _drop_steps(state: Dictionary, unit_id: String) -> void:
 # --- gems --------------------------------------------------------------------------------
 
 static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts: Dictionary = {}) -> Dictionary:
-	## What the rail hands a gem at this socket: the bonuses its neighbours, the Capstone
-	## and the run give it, and what the previous gem did.
+	## What the rail hands a gem at this socket: the bonuses its neighbours and the run give
+	## it, and what the previous gem did.
 	var stone: Dictionary = unit.rail[socket]
 	var socket_colour: String = str(unit.sockets[socket]) if socket < unit.sockets.size() else "ANY"
 	var carat_bonus: int = 0
@@ -275,10 +316,6 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 						shared = true
 			if shared:
 				carat_bonus += int(m.get("amount", 1))
-	if socket_colour == DeepContent.SOCKET_CAPSTONE:
-		carat_bonus += int(unit.get("resonance", 0))
-		if str(unit.get("passive", {}).get("kind", "")) == "capstone_carat":
-			carat_bonus += int(unit.passive.get("amount", 1))
 	var shrine: String = str(unit.get("run_mods", {}).get("shrine", ""))
 	if not shrine.is_empty() and str(DeepStone.skill_of(stone).get("trigger", {}).get("kind", "")) == shrine:
 		carat_bonus += 1
@@ -364,6 +401,8 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	unit.previous_amount = DeepStone.total_amount(ev)
 	unit.previous_colours = ev.get("colours", [])
 	unit.previous_socket = socket
+	if not unit.get("fired_sockets", []).has(socket):
+		unit.fired_sockets.append(socket)
 	if not dry and not retrigger and int(ev.get("fires", 1)) > 1:
 		for _extra in range(int(ev.fires) - 1):
 			state.queue.push_front({"kind": "gem", "unit": unit.id, "socket": socket, "retrigger": true})
@@ -371,8 +410,146 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	return _event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
 		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony,
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
-		"retrigger": retrigger, "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
+		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
 		"duration": BASE_DURATION.gem_fire + 0.15 * results.size()})
+
+# --- the Birthstone ----------------------------------------------------------------------
+
+static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	## The character's own stone, last in the rail. Every tier the final hand satisfies fires
+	## on the Resonance the rail delivered, unless a tier marked exclusive fires and takes the
+	## others' place. Tiers do not add Resonance themselves. `opts.replay` is Encore's second
+	## pass, on which the tier that asked for the replay stays dark. `opts.dry` is a forecast.
+	var def: Dictionary = unit.get("birthstone", {})
+	if def.is_empty():
+		return {}
+	var dry: bool = bool(opts.get("dry", false))
+	var replay: bool = bool(opts.get("replay", false))
+	var a: Dictionary = DeepHand.analyze(unit.hand)
+	var resonance: int = int(unit.get("resonance", 0))
+	var defs: Array = def.get("tiers", [])
+	var evaluated: Array = []
+	var exclusive_hit: int = -1
+	for index in range(defs.size()):
+		var tier: Dictionary = defs[index]
+		var trig: Dictionary = DeepPatterns.evaluate(tier.get("trigger", {"kind": "always"}), 0, a, {"resonance": resonance})
+		if replay and trig.active and _has_effect(tier, "replay_rail"):
+			trig.active = false
+			trig.reason = "Once a turn."
+		if trig.active and bool(tier.get("exclusive", false)) and exclusive_hit < 0:
+			exclusive_hit = index
+		evaluated.append(trig)
+	var tiers: Array = []
+	var fired: bool = false
+	var all_dice: Array = []
+	for index in range(defs.size()):
+		var tier: Dictionary = defs[index]
+		var trig: Dictionary = evaluated[index]
+		var entry: Dictionary = {"name": str(tier.get("name", "")), "active": bool(trig.active), "dice": trig.get("dice", []),
+			"reason": str(trig.get("reason", "")), "effects": [], "trigger": DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0)}
+		if exclusive_hit >= 0 and index != exclusive_hit and entry.active:
+			entry.active = false
+			entry.eclipsed = true
+			entry.reason = "%s takes its place." % str(defs[exclusive_hit].get("name", ""))
+		if entry.active:
+			fired = true
+			for id in entry.dice:
+				if not all_dice.has(id):
+					all_dice.append(id)
+			var tc: Dictionary = {"a": a, "trig": trig, "unit": unit, "resonance": resonance, "previous_amount": int(unit.get("previous_amount", 0)),
+				"depth": int(state.get("depth", 0)), "turn": int(state.get("turn", 0)), "party": int(state.get("party", 1))}
+			var results: Array = []
+			for effect_def in tier.get("effects", []):
+				if not effect_def is Dictionary:
+					continue
+				var applied: Dictionary = DeepRules.resolve_effect(effect_def, tc, 1.0)
+				var kind: String = str(applied.kind)
+				if kind in HAND_KINDS:
+					results.append(_mutate_hand(unit, applied))
+				elif kind in SELF_KINDS:
+					results.append(_self_effect(state, unit, applied, -1, dry, rng))
+				elif kind in BIRTHSTONE_KINDS:
+					results.append(_birthstone_effect(state, unit, applied, dry, replay))
+				else:
+					results.append_array(_apply(state, unit, applied, rng))
+				if done(state):
+					break
+			entry.effects = results
+		tiers.append(entry)
+		if done(state):
+			break
+	_check_outcome(state)
+	return _event(state, "birthstone", {"unit": unit.id, "name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "")),
+		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay,
+		"duration": BASE_DURATION.birthstone + 0.2 * tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size()})
+
+static func _has_effect(tier: Dictionary, kind: String) -> bool:
+	for effect in tier.get("effects", []):
+		if effect is Dictionary and str(effect.get("kind", "")) == kind:
+			return true
+	return false
+
+static func _birthstone_effect(state: Dictionary, unit: Dictionary, effect: Dictionary, dry: bool, replay: bool) -> Dictionary:
+	var kind: String = str(effect.kind)
+	var amount: int = int(effect.amount)
+	var out: Dictionary = {"kind": kind, "amount": amount, "target": unit.id}
+	match kind:
+		"replay_rail":
+			## Encore: every gem that fired plays again, in order, then the Birthstone once more.
+			var sockets: Array = unit.get("fired_sockets", []).duplicate()
+			sockets.sort()
+			out.sockets = sockets
+			if dry or replay or bool(unit.get("replaying", false)) or sockets.is_empty():
+				out.nothing = true
+			else:
+				unit.replaying = true
+				var again: Array = []
+				for socket in sockets:
+					again.append({"kind": "gem", "unit": unit.id, "socket": int(socket), "retrigger": true, "replay": true})
+				again.append({"kind": "birthstone", "unit": unit.id, "replay": true})
+				state.queue = again + state.queue
+		"tick_poison":
+			var ticks: Array = []
+			for foe in living(state.enemies):
+				for _time in range(maxi(0, amount)):
+					if int(foe.statuses.get("poison", 0)) <= 0 or int(foe.hp) <= 0:
+						break
+					var tick: Dictionary = _poison_tick(state, foe)
+					if not tick.is_empty():
+						ticks.append(tick)
+			out.ticks = ticks
+			_check_outcome(state)
+		"stone_drop":
+			if not dry:
+				unit.stone_drops = int(unit.get("stone_drops", 0)) + amount
+			out.stone_drops = int(unit.get("stone_drops", 0))
+	return out
+
+static func _loaded(unit: Dictionary, ids: Array, rng: RandomNumberGenerator) -> Array:
+	## The Gambler's Loaded dice: any die that lands on a 1 is thrown once more, free. `ids`
+	## limits it to the dice just thrown; empty means the whole hand. Returns the dice re-thrown.
+	if str(unit.get("passive", {}).get("kind", "")) != "free_reroll_value":
+		return []
+	var unlucky: int = int(unit.passive.get("amount", 1))
+	var by_id: Dictionary = {}
+	for die in unit.dice:
+		by_id[str(die.get("id", ""))] = die
+	var thrown: Array = []
+	for index in range(unit.hand.size()):
+		var roll: Dictionary = unit.hand[index]
+		var id: String = str(roll.get("die_id", ""))
+		if bool(roll.get("phantom", false)) or (not ids.is_empty() and not ids.has(id)) or not by_id.has(id):
+			continue
+		if str(roll.get("kind", "plain")) != "plain" or int(roll.get("value", 0)) != unlucky:
+			continue
+		var again: Dictionary = DeepDice.roll_one(by_id[id], rng, int(roll.get("rerolls", 0)))
+		again.held = bool(roll.get("held", false))
+		again.loaded = true
+		unit.hand[index] = again
+		thrown.append(id)
+	if not thrown.is_empty():
+		DeepDice.resolve_mirrors(unit.hand)
+	return thrown
 
 static func _mutate_hand(unit: Dictionary, effect: Dictionary) -> Dictionary:
 	## White gems change the hand every gem after them reads.
@@ -628,6 +805,12 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			out.stolen = stolen
 	else:
 		source.dealt = int(source.get("dealt", 0)) + loss
+		if str(source.get("side", "")) == "player" and str(source.get("passive", {}).get("kind", "")) == "block_per_hit" and raw > 0:
+			## Riposte: every hit the Rogue lands raises block worth her Resonance.
+			var parry: int = int(source.get("resonance", 0))
+			if parry > 0:
+				source.block = int(source.block) + parry
+				out.riposte = parry
 		if str(target.get("gimmick", "")) == "cloud_socket" and loss > 0:
 			for unit in state.players:
 				unit.clouded = []
@@ -682,22 +865,39 @@ static func _enemy_act(state: Dictionary, foe: Dictionary, intent: Dictionary, r
 	return _event(state, "enemy_move", {"unit": foe.id, "move": str(intent.get("move", "")), "target": str(intent.get("target", "")),
 		"effects": results, "dice": foe.get("hand", []).map(func(r: Dictionary) -> int: return int(r.value))})
 
+static func _poison_tick(state: Dictionary, unit: Dictionary) -> Dictionary:
+	## One round of poison on one unit: it hurts for its stacks and loses one. When a creature
+	## is the one bleeding, every Apothecary in the party drinks Resonance from it (Leech).
+	var poison: int = int(unit.statuses.get("poison", 0))
+	if poison <= 0 or int(unit.hp) <= 0:
+		return {}
+	var loss: int = mini(int(unit.hp), poison)
+	unit.hp = int(unit.hp) - loss
+	unit.statuses.poison = poison - 1
+	var tick: Dictionary = {"unit": str(unit.id), "kind": "poison", "amount": loss, "hp_after": unit.hp, "remaining": unit.statuses.poison}
+	if int(unit.hp) <= 0:
+		if str(unit.get("side", "")) == "player":
+			unit.downed = true
+			unit.block = 0
+		tick.killed = true
+	if str(unit.get("side", "")) == "enemy" and loss > 0:
+		var leeches: Array = []
+		for drinker in living(state.players):
+			if str(drinker.get("passive", {}).get("kind", "")) == "heal_on_poison_tick" and int(drinker.get("resonance", 0)) > 0:
+				var healed: int = _heal(drinker, int(drinker.resonance))
+				if healed > 0:
+					leeches.append({"unit": str(drinker.id), "amount": healed, "hp_after": drinker.hp})
+		if not leeches.is_empty():
+			tick.leech = leeches
+	return tick
+
 static func _tick(state: Dictionary) -> Dictionary:
 	var ticks: Array = []
 	for unit in state.players + state.enemies:
 		if int(unit.hp) <= 0 or bool(unit.get("downed", false)):
 			continue
-		var poison: int = int(unit.statuses.get("poison", 0))
-		if poison > 0:
-			var loss: int = mini(int(unit.hp), poison)
-			unit.hp = int(unit.hp) - loss
-			unit.statuses.poison = poison - 1
-			var tick: Dictionary = {"unit": str(unit.id), "kind": "poison", "amount": loss, "hp_after": unit.hp, "remaining": unit.statuses.poison}
-			if int(unit.hp) <= 0:
-				if str(unit.get("side", "")) == "player":
-					unit.downed = true
-					unit.block = 0
-				tick.killed = true
+		var tick: Dictionary = _poison_tick(state, unit)
+		if not tick.is_empty():
 			ticks.append(tick)
 		if str(unit.get("gimmick", "")) == "regrow" and int(unit.hp) > 0:
 			var grown: int = _heal(unit, 3)
@@ -750,6 +950,8 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 			stolen -= 1
 		unit.stolen_dice = 0
 		unit.hand = DeepDice.roll_hand(dice, rng_dice)
+		_loaded(unit, [], rng_dice)
+		unit.flips = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "free_flip" else 0
 		var extra: int = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "extra_reroll" else 0
 		unit.rerolls_max = base_rerolls + extra + gifts + int(unit.get("granted_rerolls", 0))
 		unit.rerolls = 0 if frozen else unit.rerolls_max
@@ -826,6 +1028,8 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	unit.nullify_next = false
 	unit.cut_step_bonus = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "first_gem_cut_step" else 0
 	unit.fizzle_free = 1 if str(unit.get("passive", {}).get("kind", "")) == "first_fizzle_free" else 0
+	unit.fired_sockets = []
+	unit.replaying = false
 	var sockets: Array = []
 	var totals: Dictionary = {"damage": 0, "block": 0, "heal": 0, "gold": 0, "poison": 0, "fires": 0, "fizzles": 0}
 	for socket in range(unit.rail.size()):
@@ -856,7 +1060,22 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 			totals.fizzles += 1
 		sockets.append(entry)
 	totals.resonance = int(unit.resonance)
-	return {"sockets": sockets, "totals": totals}
+	var birthstone: Dictionary = {}
+	if not unit.get("birthstone", {}).is_empty():
+		var preview: Dictionary = resolve_birthstone(copy, unit, {"dry": true}, rng)
+		birthstone = {"name": str(preview.get("name", "")), "fired": bool(preview.get("fired", false)), "tiers": preview.get("tiers", []),
+			"resonance": int(preview.get("resonance", 0))}
+		for tier in preview.get("tiers", []):
+			if not bool(tier.get("active", false)):
+				continue
+			for effect in tier.get("effects", []):
+				var kind: String = str(effect.get("kind", ""))
+				if totals.has(kind):
+					var amount: int = int(effect.get("amount", 0))
+					if kind == "damage":
+						amount = int(effect.get("raw", amount))
+					totals[kind] += amount
+	return {"sockets": sockets, "totals": totals, "birthstone": birthstone}
 
 # --- events --------------------------------------------------------------------------------
 

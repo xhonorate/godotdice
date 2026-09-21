@@ -28,9 +28,9 @@ func _init() -> void:
 	await process_frame
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://" + out_dir))
 	var mine: String = DeepContent.starter_mine()
-	var setting: String = DeepContent.starter_setting()
+	var character: String = DeepContent.starter_character()
 	var profile: Dictionary = DeepProfile.new_profile("Lapidary")
-	var loadout: Dictionary = DeepProfile.loadout(profile, setting)
+	var loadout: Dictionary = DeepProfile.loadout(profile, character)
 	for room in rooms:
 		var parts: PackedStringArray = str(room).split(":")
 		var depth: int = int(parts[0])
@@ -42,10 +42,10 @@ func _init() -> void:
 			keys = [DeepDescent.warden_key({"mine": mine}, depth)]
 		else:
 			keys = DeepForge.encounter(rng, DeepContent.mine(mine), depth, 1, kind == "elite")
-		var fighters: Array = [DeepBattle.make_player("p0", "Lapidary", setting, loadout.rail, loadout.dice)]
+		var fighters: Array = [DeepBattle.make_player("p0", "Lapidary", character, loadout.rail, loadout.dice)]
 		## "depth:kind:party" shoots a room with a second player, to see the ally cards.
 		if parts.size() > 2 and parts[2] == "party":
-			fighters.append(DeepBattle.make_player("p1", "Ash", setting, loadout.rail, loadout.dice))
+			fighters.append(DeepBattle.make_player("p1", "Ash", character, loadout.rail, loadout.dice))
 		var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": depth, "elite": kind == "elite", "warden": kind == "warden"}, rng, rng)
 		var screen := BattleScreen.new()
 		holder.add_child(screen)

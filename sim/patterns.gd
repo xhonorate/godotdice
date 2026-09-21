@@ -21,13 +21,18 @@ extends RefCounted
 ##   high_pct_at_least   the best die against its own top, in percent
 ##   held / rerolled     at least the rung many dice held (or rerolled) this turn
 ##   resonance           the rail's Resonance is at least the rung
+##   low_count           at least the rung many dice at or below half their own top
+##   crowns              at least the rung many dice on their own top face
+##   crowns_at_most      no more than the rung many crowns (Bust reads zero)
+##   skip_straight       the rung many different values all of one parity, like 2-4-6-8-10
+##   distinct_dominant   the rung many different values and the top die outrolling the rest combined
 ##
 ## `describe` turns a trigger into the pictograph the interface draws and the sentence a
 ## tooltip says. Nothing here evaluates content by name.
 
 const KINDS: Array = ["always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
-	"high_pct_at_least", "held", "rerolled", "resonance"]
+	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant"]
 const SET_SIZES: Dictionary = {"pair": 2, "triple": 3, "quad": 4, "quint": 5}
 const STEPS: int = 5
 
@@ -164,6 +169,48 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 			if int(context.get("resonance", 0)) >= need:
 				result.active = true
 				result.value = int(context.get("resonance", 0))
+		"low_count":
+			if int(a.get("low_dice", 0)) >= need:
+				result.active = true
+				result.dice = a.get("low_ids", []).duplicate()
+				result.count = int(a.low_dice)
+				result.value = int(a.low_dice)
+		"crowns":
+			if int(a.get("crowns", 0)) >= need:
+				result.active = true
+				result.dice = a.get("crown_ids", []).duplicate()
+				result.count = int(a.crowns)
+				result.value = int(a.crowns)
+		"crowns_at_most":
+			if int(a.get("crowns", 0)) <= need:
+				result.active = true
+				result.count = int(a.get("crowns", 0))
+				result.value = int(a.get("crowns", 0))
+		"skip_straight":
+			var odd_values: int = int(a.get("odd_values", 0))
+			var even_values: int = int(a.get("even_values", 0))
+			if maxi(odd_values, even_values) >= need:
+				result.active = true
+				var want_odd: bool = odd_values >= even_values
+				var dice: Array = []
+				for v in a.get("ids_by_value", {}):
+					if (int(v) % 2 == 1) == want_odd:
+						dice.append(str(a.ids_by_value[v][0]))
+				dice.append_array(a.get("wilds", []))
+				result.dice = dice
+				result.count = maxi(odd_values, even_values)
+				result.value = int(a.get("high", 0))
+				result.odd = want_odd
+		"distinct_dominant":
+			if int(a.get("distinct", 0)) >= need and int(a.get("high", 0)) * 2 > int(a.get("total", 0)):
+				result.active = true
+				var dice: Array = []
+				for v in a.get("ids_by_value", {}):
+					dice.append(str(a.ids_by_value[v][0]))
+				dice.append_array(a.get("wilds", []))
+				result.dice = dice
+				result.count = int(a.distinct)
+				result.value = int(a.high)
 	if not result.active:
 		result.reason = words(trigger, cut_step)
 	return result
@@ -189,8 +236,10 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 			label = "%d+" % need if need > 1 else ""
 		"two_pair":
 			label = "%d+" % need if need > 1 else ""
-		"straight", "odd", "even", "distinct", "held", "rerolled", "resonance":
+		"straight", "odd", "even", "distinct", "held", "rerolled", "resonance", "low_count", "crowns", "skip_straight", "distinct_dominant":
 			label = "×%d" % need
+		"crowns_at_most":
+			label = "≤%d" % need
 		"value":
 			var wanted: Array = trigger.get("values", [7])
 			label = "/".join(wanted.map(func(v: Variant) -> String: return str(int(v))))
@@ -238,6 +287,11 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"held": return "At least %d dice you did not reroll." % need
 		"rerolled": return "At least %d dice you rerolled this turn." % need
 		"resonance": return "Resonance of %d or more when this gem is reached." % need
+		"low_count": return "At least %d dice at or below half their own top face." % need
+		"crowns": return "At least %d %s showing %s own top face." % [need, "die" if need == 1 else "dice", "its" if need == 1 else "their"]
+		"crowns_at_most": return "No die on its top face." if need == 0 else "No more than %d dice on their top face." % need
+		"skip_straight": return "%d different values, all odd or all even, like 2-4-6-8-10." % need
+		"distinct_dominant": return "%d different values, the highest die outrolling the other %d combined." % [need, need - 1]
 	return "Its trigger."
 
 static func _of_at_least(need: int) -> String:

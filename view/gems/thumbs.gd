@@ -220,7 +220,7 @@ class GemThumb extends Control:
 		if key == _key:
 			return
 		_key = key
-		_hue = GemMesh.hue(GemMesh.colour_key(stone))
+		_hue = GemMesh.tint(stone)
 		_span = GemMesh.carat_span(int(stone.get("carat", 1)))
 		_brilliance = GemMesh.brilliance(GemMesh.clarity_grade(stone))
 		_outline = GemMesh.girdle(stone)

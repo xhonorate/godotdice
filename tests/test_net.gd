@@ -40,10 +40,10 @@ func check(condition: bool, message: String) -> void:
 	if not condition:
 		failures.append(message)
 
-func member(name: String, setting: String) -> Dictionary:
+func member(name: String, character: String) -> Dictionary:
 	var profile: Dictionary = DeepProfile.new_profile(name)
-	var loadout: Dictionary = DeepProfile.loadout(profile, "SIGNET")
-	return {"name": name, "setting": setting, "rail": loadout.rail, "dice": loadout.dice}
+	var loadout: Dictionary = DeepProfile.loadout(profile, "ARDOR")
+	return {"name": name, "character": character, "rail": loadout.rail, "dice": loadout.dice}
 
 func same(a: Variant, b: Variant) -> bool:
 	## A guest's mirror has been through JSON, so its whole numbers are floats. Compare
@@ -62,7 +62,7 @@ func _test_local() -> void:
 	var started: Array = []
 	session.run_started.connect(func(state: Dictionary) -> void: started.append(state))
 	session.run_event.connect(func(event: Dictionary) -> void: events_a.append(event))
-	session.start_local(member("Ada", "SIGNET"))
+	session.start_local(member("Ada", "ARDOR"))
 	check(session.status == "local" and session.lobby.order == ["p0"], "a local session seats one player")
 	check(session.can_start(), "alone, you can always set out")
 	var result: Dictionary = session.start_run(77)
@@ -109,7 +109,7 @@ func _test_linked() -> void:
 	guest_wire.my_peer_id = "2"
 	host_wire.other = guest_wire
 	guest_wire.other = host_wire
-	host.start_local(member("Ada", "SIGNET"))
+	host.start_local(member("Ada", "ARDOR"))
 	host.attach_transport(host_wire)
 	guest.is_host = false
 	guest.attach_transport(guest_wire)
@@ -119,14 +119,14 @@ func _test_linked() -> void:
 	host.run_event.connect(func(event: Dictionary) -> void: host_events.append(event))
 	var guest_refusals: Array = []
 	guest.refused.connect(func(message: String) -> void: guest_refusals.append(message))
-	guest.hello(member("Bo", "GAUNTLET"))
+	guest.hello(member("Bo", "VESPER"))
 	check(guest.status == "joined" and guest.local_id == "p1", "the guest is welcomed into seat p1 (%s)" % guest.local_id)
 	check(host.lobby.order == ["p0", "p1"] and guest.lobby.order == ["p0", "p1"], "both sides see the same lobby")
 	check(not host.can_start(), "the host waits for the guest to be ready")
 	guest.update_member({"ready": true})
 	check(bool(host.lobby.members.p1.ready) and bool(guest.lobby.members.p1.ready), "readiness travels to the host and back")
-	guest.update_member({"setting": "PENDANT"})
-	check(not bool(host.lobby.members.p1.ready) and host.lobby.members.p1.setting == "PENDANT", "changing a setting clears readiness")
+	guest.update_member({"character": "RUE"})
+	check(not bool(host.lobby.members.p1.ready) and host.lobby.members.p1.character == "RUE", "changing character clears readiness")
 	guest.update_member({"ready": true})
 	host.choose_mine("QUARRY")
 	check(not bool(host.lobby.members.p1.ready), "choosing a mine clears everyone's readiness")
@@ -210,7 +210,7 @@ func _test_linked() -> void:
 	late.refused.connect(func(message: String) -> void: late_refusals.append(message))
 	host_wire_2.packet_received.connect(func(peer_id: String, bytes: PackedByteArray) -> void: host._on_packet(peer_id, bytes))
 	host_wire.other = null
-	late.hello(member("Cy", "SIGNET"))
+	late.hello(member("Cy", "ARDOR"))
 	check(late_refusals.size() == 0 or late_refusals[0].contains("underground") or late_refusals[0].contains("full"), "a late joiner is told the party is underground: %s" % str(late_refusals))
 	## The guest drops: the host marks the seat and the fight can still resolve.
 	host_wire.other = guest_wire
