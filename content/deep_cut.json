@@ -13,6 +13,7 @@
 		"enrage_damage": 2,
 		"loupes_per_run": 2,
 		"appraise_ore_cost": 12,
+		"lantern_ore_cost": 10,
 		"salvage_dice": {"ROUGH": 4, "FINE": 6, "PRECIOUS": 8, "EXQUISITE": 10, "PEERLESS": 12},
 		"grade_thresholds": {"FINE": 30, "PRECIOUS": 55, "EXQUISITE": 72, "PEERLESS": 85},
 		"depth_hp_scale": 0.05,

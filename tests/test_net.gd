@@ -134,8 +134,9 @@ func _test_linked() -> void:
 	check(host.can_start(), "ready again")
 	var started: Dictionary = host.start_run(4242)
 	check(started.ok and guest.in_run() and same(guest.run, host.run), "the guest receives the whole run")
-	## The guest votes; the host applies; the mirror follows.
-	var offer: Dictionary = host.run.offers[0]
+	## The guest votes; the host applies; the mirror follows. Fights are sought out, so the
+	## stream of battle steps gets exercised whatever the map looks like.
+	var offer: Dictionary = fighting(host.run.offers)
 	guest.send({"kind": "vote_tunnel", "offer": "nope"})
 	check(guest_refusals.size() == 1, "the host refuses a bad command back to the guest")
 	guest.send({"kind": "vote_tunnel", "offer": offer.id})
@@ -151,7 +152,7 @@ func _test_linked() -> void:
 			"tunnels":
 				for who in [host, guest]:
 					if str(DeepDescent.player(host.run, who.local_id).get("vote", "")).is_empty():
-						who.send({"kind": "vote_tunnel", "offer": host.run.offers[0].id})
+						who.send({"kind": "vote_tunnel", "offer": fighting(host.run.offers).id})
 						break
 			"chamber":
 				if DeepDescent.in_battle(host.run):
@@ -188,6 +189,11 @@ func _test_linked() -> void:
 	check(mismatch == 0, "the guest's mirror matched the host after every step (%d mismatches)" % mismatch)
 	check(host_events.size() == guest_events.size(), "both sides saw the same number of events (%d vs %d)" % [host_events.size(), guest_events.size()])
 	check(host_wire.bytes_total / maxi(1, host_wire.sent) < 40000, "packets stay small: %d bytes on average" % (host_wire.bytes_total / maxi(1, host_wire.sent)))
+	## Only the host can call the whole party up.
+	var refusals_before: int = guest_refusals.size()
+	var phase_before: String = str(host.run.phase)
+	guest.send({"kind": "abandon"})
+	check(guest_refusals.size() == refusals_before + 1 and str(host.run.phase) == phase_before, "a guest cannot abandon the dig")
 	## A late joiner is refused once the party is underground.
 	var late := DeepSession.new()
 	root.add_child(late)
@@ -218,3 +224,9 @@ func _test_linked() -> void:
 	for wire in [host_wire, guest_wire, late_wire, host_wire_2]:
 		if wire.get_parent() == null:
 			wire.free()
+
+func fighting(offers: Array) -> Dictionary:
+	for offer in offers:
+		if str(offer.kind) in ["fight", "elite"]:
+			return offer
+	return offers[0]

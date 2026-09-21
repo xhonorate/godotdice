@@ -50,7 +50,9 @@ static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## A view handed to the reader before it joined the tree keeps its grip: resetting this
+	## unconditionally is what made the inspector's die refuse to turn.
+	mouse_filter = Control.MOUSE_FILTER_STOP if interactive else Control.MOUSE_FILTER_IGNORE
 	clip_contents = false
 	_glow = Control.new()
 	_glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -291,6 +293,10 @@ func _start_spin() -> void:
 	if not is_instance_valid(_pivot) or interactive:
 		return
 	_spin_time = 0.0
+	## Each solid tumbles and lands on its own, a little apart from its neighbours, so five
+	## dice sound like five dice and not one.
+	DeepAudio.play("die_tumble", {"volume": 0.45, "gap": 0.0, "delay": randf() * 0.05})
+	DeepAudio.play("die_settle", {"volume": 0.55, "gap": 0.0, "delay": SPIN_SECONDS * randf_range(0.82, 0.98)})
 	_spin_from = Quaternion(Vector3(0.4, 1.0, 0.25).normalized(), randf() * TAU)
 	_spin_axis = Vector3(randf_range(-1.0, 1.0), randf_range(0.4, 1.0), randf_range(-1.0, 1.0)).normalized()
 	_spin_turns = randf_range(1.6, 2.6)

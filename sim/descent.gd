@@ -28,7 +28,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 	var mine_key: String = str(config.get("mine", DeepContent.starter_mine()))
 	var state: Dictionary = {"run_id": str(config.get("run_id", "run%08x" % seed_value)), "seed": seed_value, "mine": mine_key,
 		"depth": 0, "phase": "tunnels", "outcome": "", "players": [], "offers": [], "chamber": {}, "landing": {},
-		"hoard": {}, "salvage": {}, "aftermath": {}, "used_oddities": [], "records": {"deepest": 0, "wardens": [], "stones_found": 0, "fights": 0},
+		"hoard": {}, "salvage": {}, "aftermath": {}, "used_oddities": [], "path": [], "records": {"deepest": 0, "wardens": [], "stones_found": 0, "fights": 0},
 		"rng": {}, "seq": 0, "next_id": 1}
 	var streams: Dictionary = DeepRng.streams(seed_value)
 	var seat: int = 0
@@ -93,6 +93,18 @@ static func _id(state: Dictionary, prefix: String) -> String:
 	return "%s%d" % [prefix, state.next_id]
 
 # --- tunnels -----------------------------------------------------------------------------
+##
+## Each stretch between landings is charted when the party reaches its head: a lattice of
+## chambers, two mouths wide at the top and fanning out a mouth wider every depth, each
+## chamber leading on to the two nearest below it so the ways split and rejoin without ever
+## crossing. The tunnels offered are the ways on from where the party stands. The lantern
+## shows what lies LANTERN_REACH depths ahead; past that a chamber is only a glint (hostile,
+## glittering, strange), a dark mouth shows nothing at all, and lighting the way (a loupe,
+## or ore) shows the whole stretch down to the landing.
+
+const MAP_WIDEST: int = 4
+const LANTERN_REACH: int = 2
+const GLINTS: Dictionary = {"fight": "hostile", "elite": "hostile", "warden": "hostile", "vein": "glittering", "motherlode": "glittering", "oddity": "strange"}
 
 static func _offer_tunnels(state: Dictionary, streams: Dictionary) -> void:
 	state.phase = "tunnels"
@@ -104,25 +116,130 @@ static func _offer_tunnels(state: Dictionary, streams: Dictionary) -> void:
 	if is_landing(next_depth):
 		state.offers = [{"id": "landing", "kind": "landing", "hidden": false}]
 		return
+	var map: Dictionary = state.get("map", {})
+	if map.is_empty() or next_depth <= int(map.get("from", 0)) or next_depth >= int(map.get("to", 0)):
+		_chart(state, streams)
+		map = state.map
+	var ids: Array = []
+	var here: Dictionary = map.nodes.get(str(map.get("at", "")), {})
+	if not here.is_empty() and int(here.depth) == int(state.depth):
+		ids = here.next
+	else:
+		ids = row_of(map, next_depth)
+	var offers: Array = []
+	for id in ids:
+		var node: Dictionary = map.nodes[str(id)]
+		offers.append({"id": str(node.id), "kind": str(node.kind), "hidden": bool(node.hidden)})
+	state.offers = offers
+
+static func _chart(state: Dictionary, streams: Dictionary) -> void:
+	## Chart the stretch from here down to the next landing.
+	var from: int = int(state.depth)
+	var to: int = from + 1
+	while not is_landing(to):
+		to += 1
 	var mine: Dictionary = mine_of(state)
 	var weights: Dictionary = mine.get("chambers", {"fight": 55, "elite": 12, "vein": 18, "oddity": 15})
 	var rng: RandomNumberGenerator = streams.tunnels
-	var count: int = 2 + (1 if DeepRng.chance(rng, 50.0) else 0)
-	var offers: Array = []
-	for index in range(count):
-		var table: Dictionary = weights.duplicate()
-		if next_depth <= 2:
-			table.erase("elite")
-		for existing in offers:
-			if str(existing.kind) in ["elite", "oddity"]:
-				table.erase(str(existing.kind))
-		var kind: String = DeepRng.weighted_key(rng, table)
-		if kind.is_empty():
-			kind = "fight"
-		if kind == "vein" and DeepRng.chance(rng, float(mine.get("motherlode_pct", 3))):
-			kind = "motherlode"
-		offers.append({"id": "t%d" % index, "kind": kind, "hidden": DeepRng.chance(rng, 30.0) and next_depth > 1})
-	state.offers = offers
+	var nodes: Dictionary = {}
+	var rows: Array = []
+	var width: int = 2
+	for depth in range(from + 1, to):
+		var row: Array = []
+		var once: Array = []
+		var dark: bool = false
+		for index in range(width):
+			var table: Dictionary = weights.duplicate()
+			if depth <= 2:
+				table.erase("elite")
+			for kept in once:
+				table.erase(kept)
+			var kind: String = DeepRng.weighted_key(rng, table)
+			if kind.is_empty():
+				kind = "fight"
+			if kind == "vein" and DeepRng.chance(rng, float(mine.get("motherlode_pct", 3))):
+				kind = "motherlode"
+			if kind in ["elite", "oddity"]:
+				once.append(kind)
+			## Lanes spread evenly across the rock with a little wander, never out of order.
+			var lane: float = (float(index) + 0.5) / float(width) + rng.randf_range(-0.28, 0.28) / float(width)
+			var id: String = "n%d_%d" % [depth, index]
+			## At most one dark mouth a depth: the lantern always has something to show.
+			var hidden: bool = depth > 1 and not dark and DeepRng.chance(rng, 22.0)
+			dark = dark or hidden
+			nodes[id] = {"id": id, "depth": depth, "x": snappedf(clampf(lane, 0.06, 0.94), 0.001), "kind": kind, "hidden": hidden, "next": []}
+			row.append(id)
+		rows.append(row)
+		width = mini(width + 1, MAP_WIDEST)
+	## Each chamber leads to a window of the row below; neighbouring windows share an end,
+	## so the ways fork and rejoin but never cross.
+	for r in range(rows.size() - 1):
+		var above: Array = rows[r]
+		var below: Array = rows[r + 1]
+		var m: int = above.size()
+		var n: int = below.size()
+		var reach: int = 0
+		for i in range(m):
+			var lo: int = maxi(reach, int(floor(float(i * (n - 1)) / float(m))))
+			var hi: int = maxi(lo, int(ceil(float((i + 1) * (n - 1)) / float(m))))
+			for j in range(lo, mini(hi, n - 1) + 1):
+				nodes[str(above[i])].next.append(str(below[j]))
+			reach = hi
+	if not rows.is_empty():
+		for id in rows[rows.size() - 1]:
+			nodes[str(id)].next.append("landing")
+	nodes["landing"] = {"id": "landing", "depth": to, "x": 0.5, "kind": "landing", "hidden": false, "next": [], "warden": is_warden_depth(to)}
+	state.map = {"from": from, "to": to, "nodes": nodes, "rows": rows, "at": "", "lit": false}
+
+static func row_of(map: Dictionary, depth: int) -> Array:
+	var index: int = depth - int(map.get("from", 0)) - 1
+	var rows: Array = map.get("rows", [])
+	if index >= 0 and index < rows.size():
+		return rows[index]
+	if depth == int(map.get("to", -1)):
+		return ["landing"]
+	return []
+
+static func revealed(state: Dictionary, node: Dictionary) -> bool:
+	## Whether the party can see what a charted chamber holds.
+	if str(node.get("kind", "")) == "landing":
+		return true
+	if bool(state.get("map", {}).get("lit", false)):
+		return true
+	if bool(node.get("hidden", false)):
+		return false
+	return int(node.get("depth", 0)) <= int(state.depth) + LANTERN_REACH
+
+static func glint(node: Dictionary) -> String:
+	## What an unlit chamber gives away: "hostile", "glittering", "strange", or "dark" for a dark mouth.
+	if bool(node.get("hidden", false)):
+		return "dark"
+	return str(GLINTS.get(str(node.get("kind", "")), "strange"))
+
+static func lantern_cost() -> int:
+	return int(DeepContent.constant("lantern_ore_cost", 10))
+
+static func _light(state: Dictionary, unit: Dictionary, method: String) -> Dictionary:
+	if not str(state.phase) in ["tunnels", "landing"]:
+		return _refuse("there is no way ahead to light")
+	var map: Dictionary = state.get("map", {})
+	if map.is_empty() or int(map.get("to", 0)) <= int(state.depth):
+		return _refuse("the way ahead is not charted yet")
+	if bool(map.get("lit", false)):
+		return _refuse("the way is already lit")
+	if method.is_empty():
+		method = "loupe" if int(unit.get("loupes", 0)) > 0 else "ore"
+	if method == "loupe":
+		if int(unit.get("loupes", 0)) <= 0:
+			return _refuse("no loupes left")
+		unit.loupes = int(unit.loupes) - 1
+	else:
+		if int(unit.get("ore", 0)) < lantern_cost():
+			return _refuse("not enough ore")
+		unit.ore = int(unit.ore) - lantern_cost()
+		method = "ore"
+	map.lit = true
+	return {"ok": true, "event": _event(state, "lit", {"unit": unit.id, "method": method, "to": int(map.to)})}
 
 static func _tally(state: Dictionary) -> String:
 	## Plurality; a tie goes to the lowest seat that voted.
@@ -145,6 +262,15 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 	state.offers = []
 	state.aftermath = {}
 	var kind: String = str(offer.get("kind", "fight"))
+	## The way the party came, one entry per depth, for the shaft map.
+	if not state.has("path"):
+		state.path = []
+	var map: Dictionary = state.get("map", {})
+	var node: Dictionary = map.get("nodes", {}).get(str(offer.get("id", "")), {})
+	var lane: float = float(node.get("x", 0.5))
+	if not node.is_empty():
+		map.at = str(node.id)
+	state.path.append({"depth": int(state.depth), "kind": kind, "hidden": bool(offer.get("hidden", false)), "x": lane, "id": str(node.get("id", ""))})
 	if kind == "landing":
 		return _arrive_landing(state, streams)
 	state.phase = "chamber"
@@ -424,6 +550,8 @@ static func _arrive_landing(state: Dictionary, streams: Dictionary) -> Dictionar
 			unit.downed = false
 			unit.hp = maxi(int(unit.hp), int(ceil(float(unit.max_hp) * 0.25)))
 	state.landing = {"depth": int(state.depth), "stock": stock, "warden_next": is_warden_depth(int(state.depth)), "cleared": false}
+	## The stretch below is charted now, so the landing can show the way on.
+	_chart(state, streams)
 	return _event(state, "landing", {"depth": state.depth, "landing": state.landing.duplicate(true)})
 
 static func _appraise(state: Dictionary, unit: Dictionary, stone_id: String, method: String) -> Dictionary:
@@ -758,6 +886,17 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary) -> Di
 			return _choose_at_landing(state, unit, str(cmd.get("choice", "")))
 		"pick_hoard":
 			return _pick_hoard(state, unit, str(cmd.get("stone_id", "")))
+		"light":
+			return _light(state, unit, str(cmd.get("with", "")))
+		"abandon":
+			## Giving up the dig counts as a fall: every raw stone rolls its salvage die.
+			if phase == "salvage":
+				return _refuse("the dig is already lost")
+			_start_salvage(state)
+			state.abandoned = true
+			state.offers = []
+			state.chamber = {}
+			return {"ok": true, "event": _event(state, "abandoned", {"unit": unit.id, "depth": int(state.depth)})}
 		"ready":
 			if phase != "salvage":
 				return _refuse("nothing to acknowledge")

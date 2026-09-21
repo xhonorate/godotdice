@@ -6,6 +6,8 @@ var failures: Array = []
 
 func _init() -> void:
 	_test_open_and_tunnels()
+	_test_lantern_map()
+	_test_abandon()
 	_test_landing_commands()
 	_test_bot_runs()
 	_test_salvage()
@@ -79,6 +81,96 @@ func _test_open_and_tunnels() -> void:
 	check(DeepDescent.is_landing(4) and DeepDescent.is_landing(8) and not DeepDescent.is_landing(5), "landings every four depths")
 	check(DeepDescent.is_warden_depth(8) and DeepDescent.is_warden_depth(24) and DeepDescent.is_warden_depth(32) and not DeepDescent.is_warden_depth(12), "wardens at 8, 16, 24 and every 8 below")
 	check(DeepDescent.warden_key(state, 8) == "THE_FOREMAN" and DeepDescent.warden_key(state, 40) == "THE_DRILL", "warden keys by depth")
+
+func _test_lantern_map() -> void:
+	for seed_value in [3, 7, 19, 44, 90]:
+		var state: Dictionary = DeepDescent.new_run(config(seed_value, true))
+		var map: Dictionary = state.map
+		check(int(map.from) == 0 and int(map.to) == 4 and map.rows.size() == 3, "the first stretch is charted from the top down to the landing at 4")
+		check(map.rows[0].size() == 2 and map.rows[1].size() == 3 and map.rows[2].size() == 4, "two mouths, then three, then four")
+		var offered: Array = state.offers.map(func(o: Dictionary) -> String: return str(o.id))
+		check(offered == map.rows[0], "the first tunnels are the top row")
+		## Every chamber is reachable, every chamber leads on, and no two ways cross.
+		var reached: Dictionary = {}
+		for r in range(map.rows.size()):
+			var row: Array = map.rows[r]
+			for i in range(row.size()):
+				var node: Dictionary = map.nodes[str(row[i])]
+				check(node.next.size() >= 1, "%s leads on" % node.id)
+				if r < map.rows.size() - 1:
+					check(node.next.size() == 2, "%s forks two ways (%d)" % [node.id, node.next.size()])
+				for child in node.next:
+					reached[str(child)] = true
+				if i > 0:
+					var left: Dictionary = map.nodes[str(row[i - 1])]
+					check(float(left.x) <= float(node.x), "lanes stay in order across a row")
+					if r < map.rows.size() - 1:
+						var right_most: int = map.rows[r + 1].find(left.next[left.next.size() - 1])
+						var left_most: int = map.rows[r + 1].find(node.next[0])
+						check(left_most >= right_most, "neighbouring ways never cross")
+				if int(node.depth) <= 2:
+					check(str(node.kind) != "elite", "no elite in the first two depths")
+			check(row.filter(func(id: Variant) -> bool: return bool(map.nodes[str(id)].hidden)).size() <= 1, "at most one dark mouth a depth")
+		for r in range(1, map.rows.size()):
+			for id in map.rows[r]:
+				check(reached.has(str(id)), "%s can be reached" % id)
+		check(reached.has("landing"), "the last row opens onto the landing")
+		## The lantern shows two depths ahead; past it only glints.
+		var deep: Dictionary = map.nodes[str(map.rows[2][0])]
+		check(not DeepDescent.revealed(state, deep), "depth 3 is beyond the lantern from the top")
+		check(DeepDescent.glint(deep) in ["hostile", "glittering", "strange", "dark"], "but it glints")
+		var shallow: Dictionary = map.nodes[str(map.rows[1][0])]
+		check(DeepDescent.revealed(state, shallow) != bool(shallow.hidden), "depth 2 is lit unless it is a dark mouth")
+		## Walk the first way offered: the offers after it are exactly where it leads.
+		var first: String = str(state.offers[0].id)
+		for unit in state.players:
+			cmd(state, str(unit.id), "vote_tunnel", {"offer": first})
+		check(str(state.map.at) == first and int(state.depth) == 1, "the party stands in the chamber it chose")
+		var walked: int = 0
+		while str(state.phase) != "tunnels" and str(state.phase) != "over" and walked < 60:
+			walked += 1
+			_advance_once(state)
+		if str(state.phase) == "tunnels" and int(state.depth) == 1:
+			var ways: Array = state.offers.map(func(o: Dictionary) -> String: return str(o.id))
+			check(ways == map.nodes[first].next, "the tunnels on are the ways the chamber leads (%s)" % str(ways))
+			check(DeepDescent.revealed(state, deep) != bool(deep.hidden), "one depth down, the lantern reaches depth 3")
+	## Lighting the way: a loupe first, then ore; it shows every chamber, dark mouths too.
+	var lit: Dictionary = DeepDescent.new_run(config(11, true))
+	var a: Dictionary = DeepDescent.player(lit, "a")
+	check(cmd(lit, "a", "light").ok and int(a.loupes) == 1 and bool(lit.map.lit), "lighting the way spends a loupe")
+	check(not cmd(lit, "b", "light").ok, "and needs doing only once a stretch")
+	for id in lit.map.nodes:
+		check(DeepDescent.revealed(lit, lit.map.nodes[id]), "a lit stretch shows %s" % id)
+	var dark: Dictionary = DeepDescent.new_run(config(12, true))
+	var b: Dictionary = DeepDescent.player(dark, "b")
+	b.loupes = 0
+	b.ore = 3
+	check(not cmd(dark, "b", "light").ok, "without a loupe it costs ore, and three is not enough")
+	b.ore = 25
+	check(cmd(dark, "b", "light").ok and int(b.ore) == 25 - DeepDescent.lantern_cost(), "with ore it is paid in ore")
+	## A landing charts the stretch below before anyone chooses to descend.
+	var deeper: Dictionary = DeepDescent.new_run(config(101, true))
+	var guard: int = 0
+	while int(deeper.depth) < 4 and guard < 60 and str(deeper.phase) != "over":
+		guard += 1
+		_advance_once(deeper)
+	if str(deeper.phase) == "landing":
+		check(int(deeper.map.from) == 4 and int(deeper.map.to) == 8 and bool(deeper.map.nodes.landing.warden), "the landing charts the way to the warden at 8")
+		check(not bool(deeper.map.lit), "a new stretch starts unlit")
+
+func _test_abandon() -> void:
+	var state: Dictionary = DeepDescent.new_run(config(77, false))
+	for unit in state.players:
+		unit.haul.append(DeepForge.roll_stone(DeepRng.streams(4).stones, DeepContent.mine("QUARRY"), 3, 0, {}, "%s_raw" % unit.id))
+	var rail_before: Array = DeepDescent.player(state, "a").rail.duplicate(true)
+	var r: Dictionary = cmd(state, "a", "abandon")
+	check(r.ok and str(r.event.kind) == "abandoned" and state.phase == "salvage" and bool(state.abandoned), "abandoning the dig goes to salvage")
+	check(state.salvage.a.rolls.size() == 1 and state.salvage.b.rolls.size() == 1, "every raw stone rolls its salvage die")
+	check(DeepDescent.player(state, "a").rail == rail_before, "the rail stones are safe")
+	check(not cmd(state, "a", "abandon").ok, "not twice")
+	cmd(state, "a", "ready")
+	cmd(state, "b", "ready")
+	check(state.phase == "over" and state.outcome == "fallen", "it ends as a fall")
 
 func _test_landing_commands() -> void:
 	## Walk a strong party straight to the first landing.

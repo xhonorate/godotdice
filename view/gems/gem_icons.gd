@@ -533,6 +533,177 @@ static func _emblem_shapes(glyph: String) -> Array:
 				{"op": "sub", "circle": [0.5, 0.5, 0.35]},
 				{"op": "add", "poly": _rect(0.42, 0.16, 0.58, 0.62)},
 				{"op": "add", "poly": _poly([[0.50, 0.88], [0.24, 0.52], [0.76, 0.52]])}]
+	return _ui_shapes(glyph)
+
+## The marks the interface itself is drawn with: the things a player carries, the places a
+## run goes, and the verbs on its buttons. Same rules as the emblems: bold, no hairlines.
+static func _ui_shapes(glyph: String) -> Array:
+	match glyph:
+		"ore":
+			# A nugget: an irregular lump with two facet cuts, so it reads as rock, not coin.
+			return [{"op": "add", "poly": _poly([[0.18, 0.38], [0.40, 0.14], [0.70, 0.18], [0.92, 0.46],
+				[0.80, 0.82], [0.42, 0.90], [0.10, 0.70]])},
+				{"op": "sub", "poly": _bar(Vector2(0.40, 0.14), Vector2(0.50, 0.50), 0.06)},
+				{"op": "sub", "poly": _bar(Vector2(0.50, 0.50), Vector2(0.92, 0.46), 0.06)},
+				{"op": "sub", "poly": _bar(Vector2(0.50, 0.50), Vector2(0.42, 0.90), 0.06)}]
+		"loupe":
+			return [{"op": "add", "circle": [0.40, 0.40, 0.33]}, {"op": "sub", "circle": [0.40, 0.40, 0.23]},
+				{"op": "add", "poly": _bar(Vector2(0.62, 0.62), Vector2(0.92, 0.92), 0.17)},
+				{"op": "add", "poly": _star(4, 0.13, 0.035, Vector2(0.40, 0.40))}]
+		"gem":
+			# The stone as everyone draws it: a table, a crown and a pavilion to a point.
+			var outline := _poly([[0.26, 0.14], [0.74, 0.14], [0.96, 0.38], [0.50, 0.92], [0.04, 0.38]])
+			return [{"op": "add", "poly": outline},
+				{"op": "sub", "poly": _bar(Vector2(0.04, 0.38), Vector2(0.96, 0.38), 0.05)},
+				{"op": "sub", "poly": _bar(Vector2(0.36, 0.14), Vector2(0.30, 0.38), 0.05)},
+				{"op": "sub", "poly": _bar(Vector2(0.64, 0.14), Vector2(0.70, 0.38), 0.05)},
+				{"op": "sub", "poly": _bar(Vector2(0.30, 0.38), Vector2(0.50, 0.92), 0.05)},
+				{"op": "sub", "poly": _bar(Vector2(0.70, 0.38), Vector2(0.50, 0.92), 0.05)}]
+		"pick":
+			var head := PackedVector2Array()
+			for index in range(13):
+				var t := float(index) / 12.0
+				head.append(Vector2(lerpf(0.06, 0.94, t), 0.34 - 0.22 * sin(PI * t)))
+			for index in range(13):
+				var t := 1.0 - float(index) / 12.0
+				head.append(Vector2(lerpf(0.06, 0.94, t), 0.40 - 0.12 * sin(PI * t) + 0.02))
+			return [{"op": "add", "poly": head},
+				{"op": "add", "poly": _bar(Vector2(0.50, 0.22), Vector2(0.50, 0.96), 0.12)}]
+		"lift":
+			# A cage on its cable with an arrow pointing home.
+			return [{"op": "add", "poly": _rect(0.47, 0.02, 0.53, 0.30)}] + _ring(0.16, 0.30, 0.84, 0.96, 0.08) + [
+				{"op": "add", "poly": _poly([[0.50, 0.40], [0.72, 0.64], [0.58, 0.64], [0.58, 0.86], [0.42, 0.86], [0.42, 0.64], [0.28, 0.64]])}]
+		"descend":
+			return [{"op": "add", "poly": _poly([[0.50, 0.96], [0.14, 0.52], [0.36, 0.52], [0.36, 0.06], [0.64, 0.06], [0.64, 0.52], [0.86, 0.52]])}]
+		"bag":
+			return [{"op": "add", "circle": [0.5, 0.64, 0.33]},
+				{"op": "add", "poly": _poly([[0.34, 0.12], [0.66, 0.12], [0.58, 0.34], [0.42, 0.34]])},
+				{"op": "sub", "poly": _rect(0.30, 0.30, 0.70, 0.36)},
+				{"op": "add", "poly": _rect(0.36, 0.28, 0.64, 0.33)}]
+		"die":
+			# A cube corner-on: three faces parted by gaps, one pip on each.
+			var c := Vector2(0.5, 0.5)
+			var top := _poly([[0.50, 0.04], [0.90, 0.26], [0.50, 0.48], [0.10, 0.26]])
+			var left := _poly([[0.08, 0.31], [0.47, 0.53], [0.47, 0.96], [0.08, 0.74]])
+			var right := _poly([[0.53, 0.53], [0.92, 0.31], [0.92, 0.74], [0.53, 0.96]])
+			return [{"op": "add", "poly": top}, {"op": "add", "poly": left}, {"op": "add", "poly": right},
+				{"op": "sub", "circle": [c.x, 0.26, 0.07]},
+				{"op": "sub", "circle": [0.24, 0.52, 0.06]}, {"op": "sub", "circle": [0.33, 0.77, 0.06]},
+				{"op": "sub", "circle": [0.72, 0.64, 0.065]}]
+		"person":
+			return [{"op": "add", "circle": [0.5, 0.30, 0.20]},
+				{"op": "add", "circle": [0.5, 0.98, 0.42]},
+				{"op": "sub", "poly": _rect(0.0, 0.98, 1.0, 1.4)}]
+		"party":
+			return [{"op": "add", "circle": [0.32, 0.30, 0.16]}, {"op": "add", "circle": [0.32, 0.92, 0.32]},
+				{"op": "add", "circle": [0.70, 0.36, 0.14]}, {"op": "add", "circle": [0.70, 0.94, 0.28]},
+				{"op": "sub", "poly": _rect(0.0, 0.94, 1.0, 1.4)}]
+		"crown":
+			return [{"op": "add", "poly": _poly([[0.06, 0.24], [0.30, 0.52], [0.50, 0.14], [0.70, 0.52], [0.94, 0.24], [0.86, 0.78], [0.14, 0.78]])},
+				{"op": "add", "poly": _rect(0.14, 0.82, 0.86, 0.92)},
+				{"op": "add", "circle": [0.06, 0.22, 0.07]}, {"op": "add", "circle": [0.50, 0.12, 0.07]}, {"op": "add", "circle": [0.94, 0.22, 0.07]}]
+		"map":
+			# A folded chart with a route and its end marked.
+			return [{"op": "add", "poly": _poly([[0.04, 0.16], [0.34, 0.06], [0.66, 0.16], [0.96, 0.06], [0.96, 0.84], [0.66, 0.94], [0.34, 0.84], [0.04, 0.94]])},
+				{"op": "sub", "poly": _bar(Vector2(0.34, 0.10), Vector2(0.34, 0.86), 0.05)},
+				{"op": "sub", "poly": _bar(Vector2(0.66, 0.14), Vector2(0.66, 0.90), 0.05)}] + \
+				_line([[0.16, 0.74], [0.30, 0.52], [0.50, 0.60], [0.74, 0.34]], 0.06, "sub") + \
+				[{"op": "sub", "circle": [0.80, 0.28, 0.08]}]
+		"anvil":
+			return [{"op": "add", "poly": _poly([[0.04, 0.22], [0.78, 0.22], [0.96, 0.30], [0.80, 0.44], [0.62, 0.48], [0.62, 0.66], [0.36, 0.66], [0.36, 0.48], [0.20, 0.42], [0.04, 0.34]])},
+				{"op": "add", "poly": _poly([[0.26, 0.64], [0.72, 0.64], [0.84, 0.90], [0.14, 0.90]])}]
+		"chest":
+			return [{"op": "add", "poly": _rect(0.08, 0.42, 0.92, 0.90)},
+				{"op": "add", "circle": [0.5, 0.46, 0.42]},
+				{"op": "sub", "poly": _rect(0.0, 0.46, 1.0, 0.52)},
+				{"op": "sub", "poly": _rect(0.0, -0.1, 1.0, 0.20)},
+				{"op": "add", "poly": _rect(0.40, 0.40, 0.60, 0.62)},
+				{"op": "sub", "circle": [0.5, 0.50, 0.04]}]
+		"book":
+			return [{"op": "add", "poly": _poly([[0.04, 0.20], [0.30, 0.14], [0.47, 0.22], [0.47, 0.90], [0.30, 0.82], [0.04, 0.88]])},
+				{"op": "add", "poly": _poly([[0.53, 0.22], [0.70, 0.14], [0.96, 0.20], [0.96, 0.88], [0.70, 0.82], [0.53, 0.90]])},
+				{"op": "sub", "poly": _bar(Vector2(0.14, 0.40), Vector2(0.38, 0.36), 0.04)},
+				{"op": "sub", "poly": _bar(Vector2(0.14, 0.56), Vector2(0.38, 0.52), 0.04)},
+				{"op": "sub", "poly": _bar(Vector2(0.62, 0.36), Vector2(0.86, 0.40), 0.04)},
+				{"op": "sub", "poly": _bar(Vector2(0.62, 0.52), Vector2(0.86, 0.56), 0.04)}]
+		"arch":
+			# A tunnel mouth: a round-headed arch with the dark cut out of it.
+			var outer := PackedVector2Array([Vector2(0.06, 0.96)])
+			var inner := PackedVector2Array([Vector2(0.24, 0.96)])
+			for index in range(15):
+				var angle := PI + PI * float(index) / 14.0
+				outer.append(Vector2(0.5, 0.48) + Vector2(cos(angle), sin(angle)) * 0.44)
+				inner.append(Vector2(0.5, 0.52) + Vector2(cos(angle), sin(angle)) * 0.26)
+			outer.append(Vector2(0.94, 0.96))
+			inner.append(Vector2(0.76, 0.96))
+			return [{"op": "add", "poly": outer}, {"op": "sub", "poly": inner}]
+		"question":
+			return [{"op": "add", "circle": [0.5, 0.32, 0.26]}, {"op": "sub", "circle": [0.5, 0.32, 0.13]},
+				{"op": "sub", "poly": _rect(0.10, 0.34, 0.50, 0.62)},
+				{"op": "add", "poly": _rect(0.43, 0.50, 0.57, 0.70)},
+				{"op": "add", "poly": _poly([[0.43, 0.56], [0.62, 0.52], [0.70, 0.40], [0.57, 0.58]])},
+				{"op": "add", "circle": [0.5, 0.86, 0.085]}]
+		"star":
+			return [{"op": "add", "poly": _star(5, 0.48, 0.20, Vector2(0.5, 0.54))}]
+		"check":
+			return _line([[0.10, 0.54], [0.38, 0.80], [0.90, 0.20]], 0.16)
+		"cross_out":
+			return [{"op": "add", "poly": _bar(Vector2(0.14, 0.14), Vector2(0.86, 0.86), 0.16)},
+				{"op": "add", "poly": _bar(Vector2(0.86, 0.14), Vector2(0.14, 0.86), 0.16)}]
+		"flame":
+			return [{"op": "add", "poly": _poly([[0.50, 0.02], [0.66, 0.26], [0.82, 0.44], [0.86, 0.66], [0.72, 0.88],
+				[0.50, 0.96], [0.28, 0.88], [0.14, 0.66], [0.20, 0.42], [0.34, 0.50], [0.36, 0.28]])},
+				{"op": "sub", "poly": _poly([[0.50, 0.52], [0.62, 0.70], [0.58, 0.84], [0.42, 0.84], [0.38, 0.70]])}]
+		"stairs":
+			return [{"op": "add", "poly": _poly([[0.04, 0.14], [0.30, 0.14], [0.30, 0.38], [0.54, 0.38], [0.54, 0.62], [0.78, 0.62], [0.78, 0.86], [0.96, 0.86], [0.96, 0.96], [0.04, 0.96]])}]
+		"scales":
+			return _shapes("carat")
+		"stun":
+			return [{"op": "add", "poly": _star(5, 0.28, 0.11, Vector2(0.30, 0.34))},
+				{"op": "add", "poly": _star(5, 0.22, 0.09, Vector2(0.74, 0.30))},
+				{"op": "add", "poly": _star(5, 0.20, 0.08, Vector2(0.52, 0.76))}]
+		"drop":
+			return [{"op": "add", "poly": _poly([[0.50, 0.04], [0.78, 0.52], [0.22, 0.52]])},
+				{"op": "add", "circle": [0.5, 0.64, 0.29]}]
+		"lock_open":
+			return [{"op": "add", "circle": [0.66, 0.30, 0.22]}, {"op": "sub", "circle": [0.66, 0.30, 0.12]},
+				{"op": "sub", "poly": _rect(0.40, 0.30, 0.92, 0.50)},
+				{"op": "add", "poly": _rect(0.10, 0.44, 0.72, 0.94)},
+				{"op": "sub", "circle": [0.41, 0.63, 0.07]}]
+		"ladder":
+			return [{"op": "add", "poly": _rect(0.18, 0.02, 0.30, 0.98)}, {"op": "add", "poly": _rect(0.70, 0.02, 0.82, 0.98)},
+				{"op": "add", "poly": _rect(0.30, 0.20, 0.70, 0.28)}, {"op": "add", "poly": _rect(0.30, 0.46, 0.70, 0.54)},
+				{"op": "add", "poly": _rect(0.30, 0.72, 0.70, 0.80)}]
+		"play":
+			return [{"op": "add", "poly": _poly([[0.22, 0.08], [0.90, 0.50], [0.22, 0.92]])}]
+		"wifi":
+			return [{"op": "add", "circle": [0.5, 0.92, 0.84]}, {"op": "sub", "circle": [0.5, 0.92, 0.70]},
+				{"op": "add", "circle": [0.5, 0.92, 0.56]}, {"op": "sub", "circle": [0.5, 0.92, 0.42]},
+				{"op": "add", "circle": [0.5, 0.92, 0.18]},
+				{"op": "sub", "poly": _poly([[0.5, 0.92], [-0.6, -0.2], [-0.6, 1.2]])},
+				{"op": "sub", "poly": _poly([[0.5, 0.92], [1.6, -0.2], [1.6, 1.2]])}]
+		"lantern":
+			# A miner's lamp: a ring to hang it by, a cap, a glass with the flame in it, a foot.
+			return [{"op": "add", "circle": [0.5, 0.13, 0.11]}, {"op": "sub", "circle": [0.5, 0.13, 0.055]},
+				{"op": "add", "poly": _poly([[0.30, 0.22], [0.70, 0.22], [0.82, 0.34], [0.18, 0.34]])},
+				{"op": "add", "poly": _rect(0.24, 0.34, 0.76, 0.84)},
+				{"op": "sub", "poly": _rect(0.32, 0.41, 0.68, 0.78)},
+				{"op": "add", "poly": _poly([[0.50, 0.44], [0.61, 0.60], [0.58, 0.73], [0.42, 0.73], [0.39, 0.60]])},
+				{"op": "add", "poly": _rect(0.16, 0.84, 0.84, 0.95)}]
+		"gear":
+			var teeth: Array = [{"op": "add", "circle": [0.5, 0.5, 0.31]}]
+			for index in range(8):
+				var way := Vector2.RIGHT.rotated(TAU * float(index) / 8.0)
+				teeth.append({"op": "add", "poly": _bar(Vector2(0.5, 0.5) + way * 0.26, Vector2(0.5, 0.5) + way * 0.46, 0.15)})
+			teeth.append({"op": "sub", "circle": [0.5, 0.5, 0.13]})
+			return teeth
+		"flag":
+			return [{"op": "add", "poly": _rect(0.16, 0.06, 0.25, 0.96)},
+				{"op": "add", "poly": _poly([[0.25, 0.08], [0.90, 0.28], [0.25, 0.50]])}]
+		"door":
+			return [{"op": "add", "poly": _rect(0.18, 0.04, 0.82, 0.96)}, {"op": "sub", "poly": _rect(0.27, 0.12, 0.73, 0.96)},
+				{"op": "add", "poly": _poly([[0.27, 0.12], [0.62, 0.20], [0.62, 0.96], [0.27, 0.96]])},
+				{"op": "sub", "circle": [0.54, 0.58, 0.045]}]
 	return []
 
 # --- rasterising --------------------------------------------------------------
@@ -550,6 +721,20 @@ static func _inside(shapes: Array, point: Vector2) -> bool:
 			covered = shape.op == "add"
 	return covered
 
+## Coverage is sampled on a grid this many times finer than the glyph, then boxed down by
+## two native halvings. Scanlines fill whole runs of samples with one native call, which is
+## what took a 96-pixel glyph from a sixth of a second to a few milliseconds.
+const SUPER := 4
+## The pixel sizes glyphs are actually baked at. A request is baked at the next size up and
+## drawn down, so a screen full of slightly different sizes still shares a handful of masks.
+const BAKED_SIZES: Array = [12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128]
+
+static func baked_size(edge: float) -> int:
+	for candidate in BAKED_SIZES:
+		if float(candidate) >= edge:
+			return int(candidate)
+	return 128
+
 static func texture(glyph: String, edge: int) -> ImageTexture:
 	## White with real alpha, so one mask tints to any colour without a second bake.
 	edge = clampi(edge, 8, 128)
@@ -558,25 +743,84 @@ static func texture(glyph: String, edge: int) -> ImageTexture:
 	if cached != null:
 		return cached
 	var shapes: Array = _shapes(glyph)
-	var image := Image.create(edge, edge, false, Image.FORMAT_RGBA8)
+	var span: int = edge * SUPER
+	var image := Image.create(span, span, false, Image.FORMAT_RGBA8)
 	image.fill(Color(1, 1, 1, 0))
-	if not shapes.is_empty():
-		var step := 1.0 / float(edge)
-		for y in edge:
-			for x in edge:
-				var covered := 0
-				for sy in SAMPLES:
-					for sx in SAMPLES:
-						var point := Vector2(
-							(float(x) + (float(sx) + 0.5) / float(SAMPLES)) * step,
-							(float(y) + (float(sy) + 0.5) / float(SAMPLES)) * step)
-						if _inside(shapes, point):
-							covered += 1
-				if covered > 0:
-					image.set_pixel(x, y, Color(1, 1, 1, float(covered) / float(SAMPLES * SAMPLES)))
+	for shape in shapes:
+		var ink := Color(1, 1, 1, 1) if str(shape.op) == "add" else Color(1, 1, 1, 0)
+		if shape.has("circle"):
+			_fill_circle(image, span, shape.circle, ink)
+		else:
+			_fill_polygon(image, span, shape.poly, ink)
+	image.shrink_x2()
+	image.shrink_x2()
+	image.generate_mipmaps()
 	var built := ImageTexture.create_from_image(image)
 	_cache[tag] = built
 	return built
+
+static func _fill_circle(image: Image, span: int, circle: Array, ink: Color) -> void:
+	var cx: float = float(circle[0])
+	var cy: float = float(circle[1])
+	var r: float = float(circle[2])
+	var first: int = maxi(0, int(floor((cy - r) * span - 0.5)))
+	var last: int = mini(span - 1, int(ceil((cy + r) * span - 0.5)))
+	for y in range(first, last + 1):
+		var dy: float = (float(y) + 0.5) / float(span) - cy
+		if dy * dy > r * r:
+			continue
+		var half: float = sqrt(r * r - dy * dy)
+		var x0: int = maxi(0, int(ceil((cx - half) * span - 0.5)))
+		var x1: int = mini(span - 1, int(floor((cx + half) * span - 0.5)))
+		if x1 >= x0:
+			image.fill_rect(Rect2i(x0, y, x1 - x0 + 1, 1), ink)
+
+static func _fill_polygon(image: Image, span: int, poly: PackedVector2Array, ink: Color) -> void:
+	## Even-odd scanlines. Each edge only visits the rows it crosses, so a shape costs about
+	## twice its height rather than its height times its edge count.
+	var count: int = poly.size()
+	if count < 3:
+		return
+	var top: float = INF
+	var bottom: float = -INF
+	for point in poly:
+		top = minf(top, point.y)
+		bottom = maxf(bottom, point.y)
+	var first: int = maxi(0, int(ceil(top * span - 0.5)))
+	var last: int = mini(span - 1, int(floor(bottom * span - 0.5)))
+	if last < first:
+		return
+	var rows: Array = []
+	rows.resize(last - first + 1)
+	for index in range(rows.size()):
+		rows[index] = []
+	for index in range(count):
+		var a: Vector2 = poly[index]
+		var b: Vector2 = poly[(index + 1) % count]
+		if is_equal_approx(a.y, b.y):
+			continue
+		var low: Vector2 = a if a.y < b.y else b
+		var high: Vector2 = b if a.y < b.y else a
+		## Half-open in y, so a vertex shared by two edges is crossed exactly once.
+		var y0: int = maxi(first, int(ceil(low.y * span - 0.5)))
+		var y1: int = mini(last, int(ceil(high.y * span - 0.5)) - 1)
+		var slope: float = (high.x - low.x) / (high.y - low.y)
+		for y in range(y0, y1 + 1):
+			var py: float = (float(y) + 0.5) / float(span)
+			rows[y - first].append(low.x + (py - low.y) * slope)
+	for index in range(rows.size()):
+		var crossings: Array = rows[index]
+		if crossings.size() < 2:
+			continue
+		crossings.sort()
+		var y: int = first + index
+		var pair: int = 0
+		while pair + 1 < crossings.size():
+			var x0: int = maxi(0, int(ceil(float(crossings[pair]) * span - 0.5)))
+			var x1: int = mini(span - 1, int(floor(float(crossings[pair + 1]) * span - 0.5)))
+			if x1 >= x0:
+				image.fill_rect(Rect2i(x0, y, x1 - x0 + 1, 1), ink)
+			pair += 2
 
 static func hint(glyph: String) -> String:
 	return str(HINTS.get(glyph, ""))
@@ -588,7 +832,9 @@ static func glyph(parent: Node, name: String, edge: float, tint: Color, tooltip:
 	## Places one pictograph. It answers the mouse itself so the sentence behind the
 	## picture is always one hover away, even inside a row that is otherwise inert.
 	var image := TextureRect.new()
-	image.texture = texture(name, int(round(edge)))
+	## Baked a size up and drawn down with mipmaps, so a scaled-up window stays crisp.
+	image.texture = texture(name, baked_size(edge * 1.5))
+	image.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	image.custom_minimum_size = Vector2(edge, edge)
 	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED

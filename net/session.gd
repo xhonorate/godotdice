@@ -244,7 +244,10 @@ func send(cmd: Dictionary) -> void:
 
 func _apply_command(player_id: String, cmd: Dictionary) -> void:
 	var before: Dictionary = run.duplicate(true)
-	var result: Dictionary = DeepDescent.command(run, player_id, cmd)
+	var result: Dictionary = {"ok": false, "error": "only the host can abandon the dig"}
+	## Only whoever holds the run can call the whole party up.
+	if str(cmd.get("kind", "")) != "abandon" or player_id == local_id:
+		result = DeepDescent.command(run, player_id, cmd)
 	if not bool(result.get("ok", false)):
 		var message: String = str(result.get("error", "refused"))
 		if player_id == local_id:

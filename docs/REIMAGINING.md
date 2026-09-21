@@ -312,6 +312,7 @@ Depth scaling is a smooth curve on enemy HP, damage and count. Enrage after turn
 
 - The mine is a vertical shaft. **Depth** is the score. Each depth has one **chamber**.
 - Before each chamber the player sees **two or three tunnel mouths**, each with a glyph: fight, elite, vein, oddity, or unknown (a dark mouth). Pick one. That is the whole map: one step of lookahead, no graph.
+- **Revised (September 19, 2026): the lantern map.** One step of lookahead read as two balls floating beside the shaft. Each stretch between landings is now charted when the party reaches its head: rows of two, three, then four chambers, each leading to the two nearest below it, so the ways split and rejoin and never cross. The tunnels offered are the ways on from the chamber the party stands in. The lantern shows what waits two depths ahead; past that a chamber is a glint (hostile, glittering or strange) and a dark mouth shows nothing (at most one a depth). **Lighting the way** costs a loupe, or ore when there are none, and reveals the whole stretch to the landing, dark mouths included: the loupe now competes between appraising and scouting. A landing charts the stretch below it, so the choice to descend is made looking at it.
 - Every fourth depth is a **Landing**: a safe room with a **Lift** (extract with everything), a **Lapidary** (appraise for ore or loupes), a **Merchant** (dice, stones, loupes, charms), the **Bench** (rearrange the rail, socket stones), and **Give** (hand a stone or die to an ally). Between landings there is no way up. Four chambers is one bite of commitment.
 - **Wardens' gates** at landings 8, 16 and 24. Beating a Warden for the first time unlocks the next mine and a setting. The third Warden at depth 24 is the end of a run, about thirty minutes in. Below 24 the mine is **Endless**: Wardens every eight depths, scaling that never stops, for the player who wants to see how far the build goes.
 - The lift screen always shows the haul: how many stones, their grades as beams, and an estimated value. The player chooses to leave *looking at what they would lose*.
@@ -335,6 +336,7 @@ The tremor meter and the roaming boss are dropped. The pressure is structural: f
 
 - **Extracted**: the lift. Everything comes home.
 - **Fallen**: a wipe. Every raw stone in the haul is rolled on a **salvage die** by grade (d6 for Rough to d20 for Peerless): only the top face survives. Loadout stones are never at risk. The salvage dice are physical, one per stone, and the player rolls them one at a time. Keep this: it is a slot machine inside the loss.
+- **Abandoned** (added September 19, 2026): the host can give up the dig from the menu. It counts as a fall: salvage dice for every raw stone, set stones safe.
 - **Warden slain**: the Warden's hoard (pick one of three appraised stones at Exquisite or better), unlocks, then the lift.
 
 ## 8. Oddities: events as crafting gambles
@@ -406,7 +408,7 @@ The gems are procedural 3D and the owner likes them. Extend that into a single l
 - **Stones, dice, settings, creatures** are all real low-poly geometry with flat shading and one shared lighting rig (the four-light rig already in `gem_view.gd`). Creatures are crystal clusters, stacked-stone golems, refractive slimes, moths with mica wings. No sprites, no painted illustration, nothing that reads as AI-generated.
 - **UI** is flat, dark slate with one warm accent, a single line weight for pictographs, one display face and one text face. Panels are quiet. Only stones, dice and beams glow.
 - **Motion** is physical: dice tumble, stones rotate in the light, facets snap, fog clears. No UI bounce.
-- **Audio** carries the slot machine: escalating chimes on the reveal, a distinct sound per grade, a Star has a sound the player learns to listen for.
+- **Audio** carries the slot machine: escalating chimes on the reveal, a distinct sound per grade, a Star has a sound the player learns to listen for. Built (September 21) the same way as the stones: no files, only waveforms written in code, so the sound is as procedural as the look. See `view/audio/`.
 
 This is the cheapest direction that can look finished, and it is cohesive by construction. If the owner would rather commission illustration, the plan changes: the 3D stones and dice stay, and everything else becomes 2D art from a single artist. Either way, the current sprites go.
 
@@ -497,7 +499,7 @@ Desktop and Steam are the target, with the transport kept abstract for a possibl
 | 2 Host, client, battle screen | First pass. One session class hosts or joins (ENet now, Steam transport carried over, not yet wired to the lobby). The battle screen is first person in one World3D with procedural crystal creatures, plates with intents, the rail with live trigger marks, the dice tray and the forecast. |
 | 3 The Descent | First pass. Tunnels with votes, fights, elites, veins, all fourteen oddities with their pickers, landings (haul, bench, merchant, lift, give), Wardens with hoards, salvage, Endless. |
 | 4 Home | First pass. Map with party and LAN, Bench, Vault (one per skill), Appraise (a plain reveal, not yet the ceremony), Ledger. Profile and checkpoints save atomically. |
-| 5 Look and sound | Not started beyond the first-pass geometry. |
+| 5 Look and sound | Look: first full pass (September 19). Seven battle biomes by depth with Warden and elite halls, fog, lights, flares, particles and a camera rig; effects for every gem and creature move; a shaft map and a mines map; icon-led screens throughout; the stone and die thumbnail cache. Sound: first full pass (September 21). 69 procedural sounds in `view/audio/`, written sample by sample and baked on a worker thread at boot; a pooled, panned mixer on its own bus; the interface, the dice, every gem colour, blows, afflictions, deaths, the mine and the reveal ceremony all speak, and a Star has a sound of its own. Master and effects volume on the settings page. |
 | 6 Content and balance | One mine with eight creatures and three Wardens; 44 skills; 31 inclusions; 17 dice; 5 settings. No balance pass yet. |
 
-Next, in order: the reveal ceremony; a stone thumbnail cache; a balance bot over the real content; the second mine; Steam lobby wiring; audio; the art pass on creatures and the chamber.
+Next, in order: the full reveal ceremony (a first version plays on the Appraise tab, and its audio is in); a balance bot over the real content; the second mine; Steam lobby wiring; music and a cave ambience bed under the sound effects.
