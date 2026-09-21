@@ -10,7 +10,9 @@ extends Node
 ## transport, so a screen never learns which it is talking to.
 ##
 ## Transports are nodes with `send(peer_id, bytes)` and the signals below; ENet for
-## development, Steam for release, and whatever a mobile build needs later.
+## development, Steam for release, and whatever a mobile build needs later. A transport that
+## knows who the host is says so in `host_peer_id` (a Steam lobby's owner); otherwise the
+## host is peer "1", as ENet numbers it.
 
 signal lobby_changed(lobby: Dictionary)
 signal run_started(state: Dictionary)
@@ -19,9 +21,12 @@ signal run_ended(results: Dictionary)
 signal status_changed(status: String)
 signal refused(error: String)
 signal error(message: String)
+## A Steam invitation accepted in the overlay or the friends list: the lobby to join.
+signal invited(lobby_id: String)
 
 const Codec = preload("res://net/packet_codec.gd")
 const Enet = preload("res://net/enet_transport.gd")
+const SteamWire = preload("res://net/steam_transport.gd")
 const VERSION: String = "0.1.0"
 const DEFAULT_PORT: int = 24567
 const MAX_PLAYERS: int = 4
@@ -33,16 +38,26 @@ var status: String = "offline"
 var lobby: Dictionary = {"members": {}, "order": [], "mine": "", "host": "p0", "started": false}
 var run: Dictionary = {}
 var revision: int = 0
+## The fight speed the player chose. The app plays a resolving turn at this time scale, so
+## the host's clock (which runs on scaled time) and every animation speed up together.
 var speed: float = 1.0
 var paused: bool = false
 var transport: Node = null
 var saves: DeepSaveStore = null
+## The Steam lobby's ID while hosting over Steam: what a friend types into Join.
+var invite_code: String = ""
+## Tests hand in a stand-in for the GodotSteam singleton.
+var steam_api: Object = null
 
 var _peer_of: Dictionary = {}
 var _player_of: Dictionary = {}
 var _next_seat: int = 1
 var _wait: float = 0.0
 var _ended: bool = false
+var _host_peer: String = "1"
+
+func _ready() -> void:
+	_listen_for_invites()
 
 # --- starting out ---------------------------------------------------------------------------
 
@@ -84,12 +99,63 @@ func join_lan(address: String, member: Dictionary, port: int = DEFAULT_PORT) -> 
 	_set_status("connecting")
 	return {"ok": true}
 
+func host_steam(member: Dictionary) -> Dictionary:
+	## A friends-only Steam lobby; the session is hosting once Steam has opened it.
+	var wire: Node = SteamWire.new()
+	var started: Dictionary = wire.initialize(steam_api)
+	if not bool(started.get("ok", false)):
+		wire.free()
+		return started
+	_reset()
+	is_host = true
+	local_id = "p0"
+	lobby.host = local_id
+	_add_member(local_id, member)
+	attach_transport(wire)
+	wire.lobby_created.connect(func(id: String) -> void:
+		invite_code = id
+		_set_status("hosting"))
+	_listen_for_invites()
+	_set_status("opening")
+	wire.host()
+	return {"ok": true}
+
+func join_steam(lobby_id: String, member: Dictionary) -> Dictionary:
+	lobby_id = lobby_id.strip_edges()
+	if not lobby_id.is_valid_int() or int(lobby_id) <= 0:
+		return {"ok": false, "error": "That is not a Steam lobby ID."}
+	var wire: Node = SteamWire.new()
+	var started: Dictionary = wire.initialize(steam_api)
+	if not bool(started.get("ok", false)):
+		wire.free()
+		return started
+	_reset()
+	is_host = false
+	local_id = ""
+	attach_transport(wire)
+	_pending_hello = member.duplicate(true)
+	_listen_for_invites()
+	_set_status("connecting")
+	wire.join(lobby_id)
+	return {"ok": true}
+
+func invite_friends() -> bool:
+	## Steam's invite list, if the overlay is up.
+	return transport != null and transport.has_method("invite_friends") and bool(transport.invite_friends())
+
+func _listen_for_invites() -> void:
+	var steam: Object = steam_api if steam_api != null else SteamWire.live()
+	if steam != null and steam.has_signal("join_requested") and not steam.is_connected("join_requested", _on_steam_invite):
+		steam.connect("join_requested", _on_steam_invite)
+
+func _on_steam_invite(lobby_id: int, _friend_id: int) -> void:
+	invited.emit(str(lobby_id))
+
 var _pending_hello: Dictionary = {}
 
 func attach_transport(node: Node) -> void:
 	## Wires any transport that speaks the interface. Tests hand in a loopback.
-	if transport != null and is_instance_valid(transport):
-		transport.queue_free()
+	_drop_transport()
 	transport = node
 	if node.get_parent() == null:
 		add_child(node)
@@ -117,7 +183,15 @@ func _reset() -> void:
 	_next_seat = 1
 	_wait = 0.0
 	_ended = false
+	_host_peer = "1"
+	invite_code = ""
+	_drop_transport()
+
+func _drop_transport() -> void:
+	## Closed now, freed later: an old transport must not read the new one's packets.
 	if transport != null and is_instance_valid(transport):
+		if transport.has_method("close"):
+			transport.close()
 		transport.queue_free()
 	transport = null
 
@@ -289,7 +363,7 @@ func tick(delta: float) -> void:
 	var b: Dictionary = DeepDescent.battle(run)
 	if not DeepBattle.has_steps(b):
 		return
-	_wait -= delta * maxf(0.1, speed)
+	_wait -= delta
 	if _wait > 0.0:
 		return
 	var before: Dictionary = run.duplicate(true)
@@ -301,6 +375,7 @@ func tick(delta: float) -> void:
 	_publish(before, event)
 
 func _process(delta: float) -> void:
+	SteamWire.pump()
 	tick(delta)
 
 # --- wire ------------------------------------------------------------------------------------
@@ -323,16 +398,19 @@ func _send_peer(peer_id: String, packet: Dictionary) -> void:
 	transport.send(peer_id, bytes)
 
 func _send_host(packet: Dictionary) -> void:
-	_send_peer(str(_peer_of.get(lobby.get("host", "p0"), "1")), packet)
+	_send_peer(_host_peer, packet)
 
 func _on_connected() -> void:
 	if is_host or _pending_hello.is_empty():
 		return
-	_send_peer("1", {"kind": "hello", "member": _pending_hello})
+	var known: Variant = transport.get("host_peer_id") if transport != null else null
+	if known != null and not str(known).is_empty():
+		_host_peer = str(known)
+	_send_peer(_host_peer, {"kind": "hello", "member": _pending_hello})
 
-func _on_peer_connected(peer_id: String) -> void:
-	if not is_host:
-		_peer_of["p0"] = peer_id
+func _on_peer_connected(_peer_id: String) -> void:
+	## Nobody is seated until they say hello.
+	pass
 
 func _on_peer_disconnected(peer_id: String) -> void:
 	if is_host:
@@ -351,7 +429,8 @@ func _on_peer_disconnected(peer_id: String) -> void:
 					_publish(before, {"kind": "battle", "battle": opened, "phase": str(run.phase), "depth": int(run.depth)})
 			_broadcast({"kind": "lobby", "lobby": lobby})
 			lobby_changed.emit(lobby)
-	else:
+	elif peer_id == _host_peer and status != "lost":
+		## Another guest leaving is the host's business; only the host going is ours.
 		_set_status("lost")
 		error.emit("The host is gone. The run waits at its last landing for the host to reopen it.")
 
@@ -360,6 +439,9 @@ func _on_packet(peer_id: String, bytes: PackedByteArray) -> void:
 	if not bool(decoded.get("ok", false)):
 		return
 	var packet: Dictionary = decoded.packet
+	if not is_host and peer_id != _host_peer:
+		## A guest takes the run from the host alone, never from another guest.
+		return
 	if str(packet.get("version", "")) != VERSION:
 		_send_peer(peer_id, {"kind": "refused", "error": "Your build (%s) does not match the host's (%s)." % [str(packet.get("version", "?")), VERSION]})
 		return
@@ -408,7 +490,6 @@ func _guest_packet(packet: Dictionary) -> void:
 		"welcome":
 			local_id = str(packet.get("player_id", ""))
 			lobby = packet.get("lobby", lobby)
-			_peer_of[str(lobby.get("host", "p0"))] = "1"
 			revision = int(packet.get("revision", 0))
 			var state: Variant = packet.get("state", {})
 			_set_status("joined")

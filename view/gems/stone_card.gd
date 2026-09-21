@@ -37,7 +37,12 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 	var colour_key: String = DeepStone.colour(stone)
 	var hue: Color = DeepUi.colour(colour_key)
 	var card := DeepUi.card(parent, Color(tier_colour, 0.6) if appraised else Color(hue, 0.35), 12)
-	var row := DeepUi.hbox(card, 14)
+	## `vertical` stands the picture over the words, for a stone shown large beside its rivals.
+	var row: BoxContainer
+	if bool(opts.get("vertical", false)):
+		row = DeepUi.vbox(card, 12)
+	else:
+		row = DeepUi.hbox(card, 14)
 	var shown: Dictionary = stone.duplicate(true)
 	shown.appraised = appraised
 	if bool(opts.get("picture", true)):

@@ -13,6 +13,7 @@ const GemIcons = preload("res://view/gems/gem_icons.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const CreatureStage = preload("res://view/creatures/creature_stage.gd")
+const GemMesh = preload("res://view/gems/gem_mesh.gd")
 
 const FACE_TEXT: Dictionary = {
 	"wild": "Wild: counts as any value for patterns, and as the die's top face for totals.",
@@ -66,6 +67,11 @@ static func _begin(tone: Color, fanfare: Dictionary = {}) -> CanvasLayer:
 	return _sheet
 
 static func stone(item: Dictionary, opts: Dictionary = {}) -> void:
+	if DeepStone.is_birthstone(item):
+		var own := _begin(GemMesh.tint(item), opts.get("fanfare", {}))
+		if own != null:
+			own.call("_fill_birthstone", item)
+		return
 	var appraised: bool = bool(item.get("appraised", true))
 	var tone: Color = DeepUi.tier_colour(str(DeepStone.grade(item).tier)) if appraised else DeepUi.colour(DeepStone.colour(item))
 	var sheet := _begin(tone, opts.get("fanfare", {}))
@@ -212,7 +218,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var head := DeepUi.vbox(_details, 6)
 	if not appraised:
 		DeepUi.title(head, DeepStone.raw_name(item), 28, DeepUi.PAPER)
-		DeepUi.wrap(head, "Unappraised. Its size and colour are there for anyone to see; its skill, its cut and what is frozen inside it are not. Put it under a loupe at a landing, or at home on the Appraise tab.", 14, DeepUi.MUTED)
+		DeepUi.wrap(head, "Unappraised. Its size and colour are there for anyone to see; its skill, its cut and what is frozen inside it are not. A merchant will appraise it for ore, a landing will do one for free, or it can wait for the Appraise tab at home.", 14, DeepUi.MUTED)
 		var facts := DeepUi.hbox(head, 10)
 		DeepUi.pill(facts, "carat", "%d carats" % int(item.get("carat", 1)), DeepUi.PAPER, 14)
 		DeepUi.pill(facts, "gem", "%s: %s" % [str(DeepContent.colour(colour_key).get("name", colour_key)), str(DeepContent.colour(colour_key).get("domain", ""))], DeepUi.colour(colour_key), 14)
@@ -274,6 +280,68 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		if where.has("date"):
 			parts.append(str(where.date))
 		DeepUi.label(found, ", ".join(parts) if not parts.is_empty() else "Nobody remembers where.", 13, DeepUi.MUTED)
+
+func _fill_birthstone(item: Dictionary) -> void:
+	## A Birthstone is fixed: no grade, no price and no four C's to weigh. What matters is
+	## what each tier asks of the hand and what it does, and whose stone it is.
+	var view := GemView.new()
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 40)
+	view.set_slot(220.0)
+	view.set_drift(true)
+	view.set_spin(0.35)
+	view.configure(item)
+	view.enable_interaction()
+	_stage.add_child(view)
+	var tint: Color = GemMesh.tint(item)
+	var character_key: String = str(item.get("character", ""))
+	var character: Dictionary = DeepContent.character(character_key)
+	var head := DeepUi.vbox(_details, 6)
+	DeepUi.title(head, str(item.get("name", "")), 28, tint.lightened(0.35))
+	var tags := DeepUi.hbox(head, 8)
+	DeepUi.pill(tags, "crown", "%s's Birthstone" % str(character.get("name", character_key)), tint.lightened(0.3), 13)
+	DeepUi.pill(tags, "lock", "Always set, last in the rail", DeepUi.MUTED, 13)
+	DeepUi.wrap(head, str(item.get("text", "")), 14, DeepUi.MUTED)
+	var tiers: Array = item.get("tiers", [])
+	var how := _section("spark", "How it fires")
+	var rule: String = "After every gem has had its turn, it reads the Resonance your rail built. Every tier your final hand satisfies fires on that Resonance."
+	if tiers.any(func(t: Dictionary) -> bool: return bool(t.get("exclusive", false))):
+		rule += " An exclusive tier that fires takes the others' place."
+	DeepUi.wrap(how, rule, 13, DeepUi.PAPER)
+	## Every tier: the hand it asks for, drawn and said, and what it does.
+	var box := _section("cut", "Its tiers" if tiers.size() > 1 else "Its tier")
+	var die: String = DiceIcons.ladder_die(tiers)
+	for tier in tiers:
+		var penalty: bool = bool(tier.get("penalty", false))
+		var tone: Color = DeepUi.BAD if penalty else tint.lightened(0.3)
+		var line := DeepUi.panel(box, Color(tone, 0.07), Color(tone, 0.35), 8, 8)
+		var cells := DeepUi.hbox(line, 14)
+		var mark := DeepUi.center(cells)
+		mark.custom_minimum_size.x = 100
+		var described: Dictionary = DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0)
+		var rung: int = DiceIcons.ladder_rung(tier, die)
+		if rung > 0:
+			DiceIcons.build_ladder(mark, [tier], die, rung, 18, DeepUi.PAPER, DeepUi.DIM)
+		else:
+			DiceIcons.build(mark, described, 20, DeepUi.PAPER, str(described.get("words", "")))
+		var words := DeepUi.vbox(cells, 2)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var name_row := DeepUi.hbox(words, 8)
+		DeepUi.title(name_row, str(tier.get("name", "")), 17, DeepUi.PAPER)
+		if penalty:
+			DeepUi.chip(name_row, "Costs you", DeepUi.BAD, 11)
+		if bool(tier.get("exclusive", false)):
+			DeepUi.chip(name_row, "Exclusive", DeepUi.ACCENT, 11)
+		## Every tier's text opens with the hand it needs, so the sentence is not said twice.
+		DeepUi.wrap(words, str(tier.get("text", "")), 13, DeepUi.PAPER)
+	## The rest of what the lapidary brings down with it.
+	var passive: Dictionary = character.get("passive", {})
+	if not passive.is_empty():
+		var own := _section("person", "%s's passive" % str(character.get("name", character_key)))
+		DeepUi.title(own, str(passive.get("name", "")), 17, DeepUi.ACCENT_HI)
+		DeepUi.wrap(own, str(passive.get("text", "")), 13, DeepUi.PAPER)
+	var face: String = str(character.get("birthstone", {}).get("face", ""))
+	if not face.is_empty():
+		DeepUi.stat(_details, "eye", "When it fires: " + face, DeepUi.DIM, 12)
 
 func _clarity_words(clarity: int) -> String:
 	match clarity:

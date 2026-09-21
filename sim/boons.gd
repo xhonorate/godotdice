@@ -6,7 +6,7 @@ extends RefCounted
 ## is built from the `boons` section of the pack:
 ##
 ##   a stone stake      something for the stones in the rail or the haul
-##   a kit stake        health, ore, loupes, dice, softer rock
+##   a kit stake        health, ore, dice, softer rock
 ##   terms              one cost and one bigger reward, drawn together; costs and rewards
 ##                      list what they will not pair with
 ##   a long shot        a gamble, offered only to a veteran: someone whose last run reached
@@ -17,13 +17,14 @@ extends RefCounted
 ## rail's stones are copies of the vault's, and only the haul and the bag come home.
 ##
 ## A boon is written as effects with a small vocabulary of their own (they act on the run,
-## not on a hand), and says what it `needs` from the player: a socket in the rail, or a
-## pick from candidates rolled when the offer is made so the player sees what is on offer.
+## not on a hand), and says what it `needs`: a socket in the rail, which is drawn at random
+## from the stones set there when the stake is taken, or a pick from candidates rolled when
+## the offer is made, which the player chooses between once they have taken the stake.
 
 const GROUPS: Array = ["stone", "kit", "cost", "reward", "long_shot"]
 const NEEDS: Array = ["", "socket", "pick"]
 const EFFECT_KINDS: Array = ["cut_step", "carat", "inclusion", "raw_stone", "pick_stone", "pick_die", "die", "max_hp_pct", "hp_pct",
-	"ore", "loupes", "soft_rock", "extra_rerolls", "geode", "roll_ore", "coin_hp"]
+	"ore", "soft_rock", "extra_rerolls", "geode", "roll_ore", "coin_hp"]
 const OFFER_KINDS: Array = ["stone", "kit", "terms", "long_shot"]
 const PICK_TRIES: int = 12
 
@@ -59,7 +60,7 @@ static func validate(def: Variant, p: Dictionary) -> Array:
 			errors.append(where + ": unknown kind " + kind)
 			continue
 		match kind:
-			"cut_step", "carat", "max_hp_pct", "hp_pct", "ore", "loupes", "coin_hp":
+			"cut_step", "carat", "max_hp_pct", "hp_pct", "ore", "coin_hp":
 				if not (effect.get("amount", null) is int or effect.get("amount", null) is float):
 					errors.append(where + ": needs an amount")
 			"inclusion":
@@ -197,16 +198,24 @@ static func _appraised_stone(rng: RandomNumberGenerator, mine: Dictionary, depth
 # --- taking a stake ------------------------------------------------------------------------------
 
 static func apply(state: Dictionary, unit: Dictionary, chosen: Dictionary, payload: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
-	## Resolve one player's stake. Returns {ok, error, message, made: [stones], dice: [dice]}.
-	var out: Dictionary = {"ok": true, "error": "", "message": "", "made": [], "dice": []}
-	var socket: int = int(payload.get("socket", -1))
+	## Resolve one player's stake. A stake on a stone lands on one stone drawn from the rail,
+	## every effect of it on the same one; a pick takes the candidate the payload names.
+	## Returns {ok, error, message, made: [stones], dice: [dice], changed: [the rail stone], socket}.
+	var out: Dictionary = {"ok": true, "error": "", "message": "", "made": [], "dice": [], "changed": [], "socket": -1}
 	var pick: int = int(payload.get("pick", -1))
-	if chosen.get("needs", []).has("socket"):
-		if socket < 0 or socket >= unit.get("rail", []).size() or not unit.rail[socket] is Dictionary:
-			return _refuse("choose a socket with a stone in it")
 	if chosen.get("needs", []).has("pick"):
 		if pick < 0 or pick >= chosen.get("picks", []).size():
 			return _refuse("choose one of the three")
+	var socket: int = -1
+	if chosen.get("needs", []).has("socket"):
+		var set_sockets: Array = []
+		for index in range(unit.get("rail", []).size()):
+			if unit.rail[index] is Dictionary:
+				set_sockets.append(index)
+		if set_sockets.is_empty():
+			return _refuse("your rail is empty")
+		socket = int(DeepRng.pick(rng, set_sockets))
+		out.socket = socket
 	var lines: Array = []
 	for key in chosen.get("boons", []):
 		var def: Dictionary = DeepContent.boon(str(key))
@@ -214,6 +223,8 @@ static func apply(state: Dictionary, unit: Dictionary, chosen: Dictionary, paylo
 			var said: String = _effect(state, unit, effect, chosen, socket, pick, rng, out)
 			if not said.is_empty():
 				lines.append(said)
+	if socket >= 0:
+		out.changed.append(unit.rail[socket].duplicate(true))
 	out.message = " ".join(lines)
 	return out
 
@@ -270,10 +281,6 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 		"ore":
 			unit.ore = maxi(0, int(unit.get("ore", 0)) + amount)
 			return ("You take %d ore." % amount) if amount >= 0 else ("You give up %d ore." % -amount)
-		"loupes":
-			var before: int = int(unit.get("loupes", 0))
-			unit.loupes = maxi(0, before + amount)
-			return ("You pocket %d loupes." % amount) if amount >= 0 else ("Your %d loupes stay on the bench." % before)
 		"soft_rock":
 			if not unit.has("run_mods"):
 				unit.run_mods = {}

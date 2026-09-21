@@ -34,6 +34,10 @@ const HINTS := {
 	"reroll": "How many times you may reroll in one turn. A White gem raises the allowance for the rest of the battle; it never adds to itself.",
 	"quad": "Four of a kind: four dice showing the same value.",
 	"two_pairs": "Two pairs: two dice of one value and two of another.",
+	"die": "One die of a set of matching dice.",
+	"die_solid": "One die of a set of matching dice, counted.",
+	"crown_die": "A crown: a die showing its own top face.",
+	"crown_die_solid": "A crown in your hand: a die showing its own top face.",
 	"full_house": "Full house: three dice of one value and two of another.",
 	"straight3": "Straight of 3: three consecutive values, in any order.",
 	"straight4": "Straight of 4: four consecutive values, in any order.",
@@ -213,6 +217,15 @@ static func _shapes(glyph: String) -> Array:
 		"two_pairs":
 			return _dice([[0.03, 0.03], [0.53, 0.03]], 0.44, 0.08, [[0.5, 0.5]]) \
 				+ _dice([[0.03, 0.53], [0.53, 0.53]], 0.44, 0.0, [[0.5, 0.5]])
+		"die", "die_solid":
+			# One die of a set, drawn five abreast for a Birthstone that counts matching dice:
+			# an outline while it does not count, solid with its pip punched through once it does.
+			return _dice([[0.08, 0.08]], 0.84, 0.13 if glyph == "die" else 0.0, [[0.5, 0.5]])
+		"crown_die", "crown_die_solid":
+			# The same die on its top face, wearing a three-point crown where the pip was.
+			var solid := glyph == "crown_die_solid"
+			var crown := _poly([[0.25, 0.70], [0.25, 0.30], [0.375, 0.47], [0.5, 0.26], [0.625, 0.47], [0.75, 0.30], [0.75, 0.70]])
+			return _dice([[0.08, 0.08]], 0.84, 0.0 if solid else 0.11, []) + [{"op": "sub" if solid else "add", "poly": crown}]
 		"full_house":
 			return _dice([[0.02, 0.07], [0.35, 0.07], [0.68, 0.07]], 0.30, 0.065, [[0.5, 0.5]]) \
 				+ _dice([[0.185, 0.60], [0.515, 0.60]], 0.30, 0.0, [[0.5, 0.5]])
@@ -580,6 +593,30 @@ static func _ui_shapes(glyph: String) -> Array:
 				{"op": "add", "poly": _poly([[0.34, 0.12], [0.66, 0.12], [0.58, 0.34], [0.42, 0.34]])},
 				{"op": "sub", "poly": _rect(0.30, 0.30, 0.70, 0.36)},
 				{"op": "add", "poly": _rect(0.36, 0.28, 0.64, 0.33)}]
+		"purse":
+			# A merchant's bag of gold: a sack tied at the neck with its sign on the belly and
+			# a coin spilled at its foot, so it never reads as the plain kit bag.
+			var shapes: Array = [{"op": "add", "circle": [0.42, 0.63, 0.31]},
+				{"op": "add", "poly": _poly([[0.32, 0.34], [0.52, 0.34], [0.68, 0.50], [0.16, 0.50]])},
+				{"op": "add", "poly": _poly([[0.33, 0.31], [0.16, 0.10], [0.31, 0.15], [0.42, 0.05], [0.53, 0.15], [0.68, 0.10], [0.51, 0.31]])},
+				{"op": "sub", "poly": _rect(0.10, 0.275, 0.74, 0.305)},
+				{"op": "sub", "poly": _rect(0.10, 0.365, 0.74, 0.39)},
+				{"op": "add", "poly": _rect(0.27, 0.305, 0.57, 0.365)}]
+			## The sign: an S of two bowls, each walked round most of the way, and a bar through it.
+			var sign: Array = []
+			for index in range(10):
+				var turn: float = deg_to_rad(lerpf(25.0, 270.0, float(index) / 9.0))
+				sign.append([0.42 + cos(turn) * 0.062, 0.600 - sin(turn) * 0.062])
+			for index in range(1, 10):
+				var turn: float = deg_to_rad(lerpf(90.0, -155.0, float(index) / 9.0))
+				sign.append([0.42 + cos(turn) * 0.062, 0.724 - sin(turn) * 0.062])
+			shapes.append_array(_line(sign, 0.055, "sub"))
+			shapes.append({"op": "sub", "poly": _rect(0.395, 0.48, 0.445, 0.84)})
+			shapes.append({"op": "sub", "circle": [0.80, 0.82, 0.19]})
+			shapes.append({"op": "add", "circle": [0.80, 0.82, 0.145]})
+			shapes.append({"op": "sub", "circle": [0.80, 0.82, 0.10]})
+			shapes.append({"op": "add", "circle": [0.80, 0.82, 0.075]})
+			return shapes
 		"die":
 			# A cube corner-on: three faces parted by gaps, one pip on each.
 			var c := Vector2(0.5, 0.5)

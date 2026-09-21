@@ -11,8 +11,9 @@
 		"run_depth": 24,
 		"enrage_turn": 7,
 		"enrage_damage": 2,
-		"loupes_per_run": 2,
 		"appraise_ore_cost": 12,
+		"appraise_cost_step": 8,
+		"rest_pct": 30,
 		"lantern_ore_cost": 10,
 		"salvage_dice": {"ROUGH": 4, "FINE": 6, "PRECIOUS": 8, "EXQUISITE": 10, "PEERLESS": 12},
 		"grade_thresholds": {"FINE": 30, "PRECIOUS": 55, "EXQUISITE": 72, "PEERLESS": 85},
@@ -853,6 +854,7 @@
 							"kind": "crowns_at_most",
 							"amount": 0
 						},
+						"penalty": true,
 						"text": "No crown showing: lose Resonance ore.",
 						"effects": [
 							{
@@ -874,26 +876,24 @@
 		}
 	},
 	"boons": {
-		"RECUT": {"name": "Recut", "group": "stone", "needs": "socket", "text": "One stone in your rail is judged a Cut step better for this run.", "effects": [{"kind": "cut_step", "amount": 1}]},
-		"HEAVIER": {"name": "Heavier", "group": "stone", "needs": "socket", "text": "One stone in your rail gains 3 carats for this run.", "effects": [{"kind": "carat", "amount": 3}]},
-		"PINPOINT": {"name": "A Pinpoint", "group": "stone", "needs": "socket", "text": "One stone in your rail takes on a Pinpoint inclusion for this run.", "effects": [{"kind": "inclusion", "class": "PINPOINT"}]},
+		"RECUT": {"name": "Recut", "group": "stone", "needs": "socket", "text": "A stone drawn at random from your rail is judged a Cut step better for this run.", "effects": [{"kind": "cut_step", "amount": 1}]},
+		"HEAVIER": {"name": "Heavier", "group": "stone", "needs": "socket", "text": "A stone drawn at random from your rail gains 3 carats for this run.", "effects": [{"kind": "carat", "amount": 3}]},
+		"PINPOINT": {"name": "A Pinpoint", "group": "stone", "needs": "socket", "text": "A stone drawn at random from your rail takes on a Pinpoint inclusion for this run.", "effects": [{"kind": "inclusion", "class": "PINPOINT"}]},
 		"RAW_STONE": {"name": "A Raw Stone", "group": "stone", "text": "A raw stone from depth 4 goes into your haul, unappraised.", "effects": [{"kind": "raw_stone", "depth": 4, "bonus": 0}]},
 		"PICK_STONE": {"name": "Pick of Three", "group": "stone", "needs": "pick", "text": "Choose one of three appraised stones for your haul.", "effects": [{"kind": "pick_stone", "count": 3, "depth": 4, "bonus": 2}]},
 		"HARDY": {"name": "Hardy", "group": "kit", "tags": ["mercy"], "text": "+12% health for this run.", "effects": [{"kind": "max_hp_pct", "amount": 12}]},
 		"SOFT_ROCK": {"name": "Soft Rock", "group": "kit", "tags": ["mercy"], "text": "The creatures in your first three fights arrive at half health.", "effects": [{"kind": "soft_rock", "fights": 3}]},
-		"PROVISIONED": {"name": "Provisioned", "group": "kit", "text": "Two more loupes.", "effects": [{"kind": "loupes", "amount": 2}]},
 		"STAKED": {"name": "Staked", "group": "kit", "text": "40 ore in hand.", "effects": [{"kind": "ore", "amount": 40}]},
 		"PICK_DIE": {"name": "A Die for the Bag", "group": "kit", "needs": "pick", "text": "Choose one of three dice from the mine's pool for your bag.", "effects": [{"kind": "pick_die", "count": 3, "depth": 4}]},
 		"STEADY_HANDS": {"name": "Steady Hands", "group": "kit", "text": "+1 reroll every turn until the first landing.", "effects": [{"kind": "extra_rerolls", "amount": 1, "until_depth": 4}]},
 		"COST_HP": {"name": "Thinner Blood", "group": "cost", "not_with": ["REWARD_HP"], "text": "10% less health for this run.", "effects": [{"kind": "max_hp_pct", "amount": -10}]},
 		"COST_WOUND": {"name": "A Bad Fall", "group": "cost", "text": "You lose 30% of your health before you start.", "effects": [{"kind": "hp_pct", "amount": -30}]},
-		"COST_CHIPPED": {"name": "Chipped", "group": "cost", "needs": "socket", "not_with": ["REWARD_RECUT"], "text": "The stone you choose is judged a Cut step worse for this run.", "effects": [{"kind": "cut_step", "amount": -1}]},
-		"COST_LOUPES": {"name": "No Loupes", "group": "cost", "text": "You go down without your loupes.", "effects": [{"kind": "loupes", "amount": -99}]},
-		"REWARD_RECUT": {"name": "Truer Cut", "group": "reward", "needs": "socket", "text": "The stone you choose is judged two Cut steps better for this run.", "effects": [{"kind": "cut_step", "amount": 2}]},
-		"REWARD_CARATS": {"name": "Six Carats", "group": "reward", "needs": "socket", "text": "The stone you choose gains 6 carats for this run.", "effects": [{"kind": "carat", "amount": 6}]},
+		"COST_CHIPPED": {"name": "Chipped", "group": "cost", "needs": "socket", "not_with": ["REWARD_RECUT"], "text": "A stone drawn at random from your rail is judged a Cut step worse for this run.", "effects": [{"kind": "cut_step", "amount": -1}]},
+		"REWARD_RECUT": {"name": "Truer Cut", "group": "reward", "needs": "socket", "text": "A stone drawn at random from your rail is judged two Cut steps better for this run.", "effects": [{"kind": "cut_step", "amount": 2}]},
+		"REWARD_CARATS": {"name": "Six Carats", "group": "reward", "needs": "socket", "text": "A stone drawn at random from your rail gains 6 carats for this run.", "effects": [{"kind": "carat", "amount": 6}]},
 		"REWARD_ORE": {"name": "Well Staked", "group": "reward", "text": "90 ore in hand.", "effects": [{"kind": "ore", "amount": 90}]},
 		"REWARD_STONE": {"name": "A Precious Stone", "group": "reward", "needs": "pick", "text": "Choose one of three appraised stones, Precious or better.", "effects": [{"kind": "pick_stone", "count": 3, "depth": 8, "bonus": 6, "min_tier": "PRECIOUS"}]},
-		"REWARD_STAR": {"name": "A Star", "group": "reward", "needs": "socket", "weight": 1, "text": "The stone you choose takes on a Star inclusion for this run.", "effects": [{"kind": "inclusion", "class": "STAR"}]},
+		"REWARD_STAR": {"name": "A Star", "group": "reward", "needs": "socket", "weight": 1, "text": "A stone drawn at random from your rail takes on a Star inclusion for this run.", "effects": [{"kind": "inclusion", "class": "STAR"}]},
 		"REWARD_HP": {"name": "Iron Constitution", "group": "reward", "not_with": ["COST_HP"], "text": "+25% health for this run.", "effects": [{"kind": "max_hp_pct", "amount": 25}]},
 		"REWARD_WILD": {"name": "A Wild Die", "group": "reward", "text": "A Wild Die joins your bag.", "effects": [{"kind": "die", "key": "WILD_D6"}]},
 		"SHOT_GEODE": {"name": "Crack a Geode", "group": "long_shot", "text": "Three small stones 40%, one heavy stone 40%, dust 20%.", "effects": [{"kind": "geode", "three": 40, "one": 40}]},
@@ -971,7 +971,7 @@
 			"colour_weights": {"RED": 100, "BLUE": 100, "GREEN": 100, "VIOLET": 100, "GOLD": 100, "WHITE": 100},
 			"skills": [], "inclusions": [],
 			"dice": ["D4", "D6", "D8", "D10", "D12", "D20", "PAIRED_D6", "ODD_D6", "EVEN_D6", "SEVENS_D8", "WILD_D6", "EXPLODING_D6", "LOCKED_D8", "HOLLOW_D10"],
-			"chambers": {"fight": 52, "elite": 12, "vein": 20, "oddity": 16}, "motherlode_pct": 3,
+			"chambers": {"fight": 48, "elite": 12, "vein": 18, "oddity": 16, "merchant": 8}, "motherlode_pct": 3,
 			"bands": [
 				{"from_depth": 1, "creatures": {"CAVE_TICK": 4, "SILT_SLIME": 3, "MAGPIE": 2, "LANTERN_MOTH": 2}},
 				{"from_depth": 5, "creatures": {"CAVE_TICK": 2, "SILT_SLIME": 3, "MAGPIE": 2, "QUARTZ_GOLEM": 2, "CLOUDER": 2}},
@@ -1027,10 +1027,10 @@
 			"choices": [
 				{"id": "sell", "label": "Sell a stone", "text": "Triple its value in ore. The stone is gone.", "needs": "stone", "action": {"kind": "collector_sell", "mult": 3}},
 				{"id": "pass", "label": "Decline", "action": {"kind": "none"}}]},
-		"LOUPE_CABINET": {"name": "Loupe Cabinet", "text": "A cabinet of lenses, most of them cracked.",
+		"LOUPE_CABINET": {"name": "Loupe Cabinet", "text": "A cabinet of lenses, most of them cracked. One is not.",
 			"choices": [
-				{"id": "loupes", "label": "Take two loupes", "action": {"kind": "loupes", "amount": 2}},
-				{"id": "ore", "label": "Take 8 ore", "action": {"kind": "ore", "amount": 8}}]},
+				{"id": "look", "label": "Look through it", "text": "Appraise one raw stone from your haul, free.", "needs": "raw_stone", "action": {"kind": "appraise"}},
+				{"id": "ore", "label": "Take 8 ore", "text": "The brass fittings are worth something.", "action": {"kind": "ore", "amount": 8}}]},
 		"FIELD_MEDIC": {"name": "Field Medic", "text": "A miner with a kit and a price.",
 			"choices": [
 				{"id": "heal", "label": "Be treated", "text": "Recover a quarter of your HP.", "action": {"kind": "heal", "pct": 25}},
@@ -1038,6 +1038,25 @@
 		"VUG": {"name": "The Vug", "text": "A pocket in the rock, walls glittering. The air is bad.",
 			"choices": [
 				{"id": "enter", "label": "Squeeze in", "text": "A rich vein, but every strike costs 3 HP.", "action": {"kind": "vug"}},
+				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
+		"ANVIL": {"name": "The Anvil", "text": "A smith's anvil, still warm. Somebody was making dice down here.",
+			"choices": [
+				{"id": "hammer", "label": "Hammer a die bigger", "text": "A d4 becomes a d6, a d6 a d8, and so on up to a d20. Its faces become plain numbers; its engraving stays.", "needs": "die", "action": {"kind": "upsize"}},
+				{"id": "temper", "label": "Temper a die", "text": "Its lowest face comes up by 2, never past its highest. A blank face becomes a 2.", "needs": "die", "action": {"kind": "temper", "amount": 2}},
+				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
+		"TINKER": {"name": "The Tinker", "text": "A tinker with a tray of odd dice. He will trade, if you let him choose.",
+			"choices": [
+				{"id": "trade", "label": "Trade a die", "text": "Hand over one of your dice. He gives back the best of three drawn from deep in the mine, sight unseen.", "needs": "die", "action": {"kind": "trade_die", "draws": 3, "depth_bonus": 6}},
+				{"id": "buy", "label": "Buy a die for 15 ore", "text": "One die from his tray, whatever comes out of the bag. It goes in yours.", "action": {"kind": "buy_die", "price": 15}},
+				{"id": "pass", "label": "Keep walking", "action": {"kind": "none"}}]},
+		"TUMBLER": {"name": "The Tumbler", "text": "A drum of grit that turns and turns. What goes in comes out as something else of the same colour.",
+			"choices": [
+				{"id": "tumble", "label": "Tumble a stone", "text": "Its skill is rolled again among the skills of its colour. Carats, cut, clarity and inclusions stay.", "needs": "stone", "action": {"kind": "tumble"}},
+				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
+		"SEAM": {"name": "A Glittering Seam", "text": "Stones stud a seam too hard for a pick. Your hands will have to do.",
+			"choices": [
+				{"id": "pry", "label": "Pry out the big one", "text": "A raw stone of better quality than the rock around it. The edge cuts: lose 8 HP.", "action": {"kind": "pry", "bonus": 4, "hp": 8}},
+				{"id": "chips", "label": "Gather the chips", "text": "Two small raw stones that have already come loose.", "action": {"kind": "chips", "count": 2, "bonus": -2}},
 				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]}
 	}
 }

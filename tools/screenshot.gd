@@ -1,8 +1,9 @@
 extends SceneTree
 ## Boots the game, drives it to a screen, and saves what it looks like.
 ##   godot --path . --script tools/screenshot.gd -- <target> out.png [seed]
-## Targets: home (map) | bench | vault | appraise | ledger | grubstake | tunnels | vein | vein_done | oddity |
-##          landing | merchant | lift | landing_bench | battle | battle_fx | battle_status | spoils |
+## Targets: home (map) | bench | vault | appraise | ledger | grubstake | grubstake_pick | grubstake_dice | grubstake_result |
+##          tunnels | vein | vein_done | oddity |
+##          landing | merchant | lift | run_bench | run_bench_dice | battle | battle_fx | battle_status | spoils |
 ##          over | inspect_stone | inspect_die | inspect_creature | menu | menu_settings |
 ##          abandon | map_lit
 ## Needs a window: this is the one tool here that is not headless.
@@ -50,7 +51,6 @@ func _init() -> void:
 	app._depart(seed_value)
 	var want: Dictionary = {"menu": "vein", "menu_settings": "vein", "abandon": "vein", "map_lit": "vein", "tunnels": "vein", "vein": "vein", "vein_done": "vein", "oddity": "oddity", "battle": "fight", "battle_fx": "fight",
 		"battle_status": "fight", "spoils": "fight", "inspect_creature": "fight"}
-	var landing_tab: Dictionary = {"landing": "haul", "merchant": "merchant", "lift": "lift", "landing_bench": "bench"}
 	var guard: int = 0
 	var locked_at: int = -1
 	while guard < 600:
@@ -118,14 +118,32 @@ func _init() -> void:
 			break
 		if target == "grubstake" and phase == "grubstake":
 			break
+		if target == "grubstake_result":
+			if not app.descent._hold.is_empty():
+				break
+			if phase == "grubstake":
+				## Terms left to chance: they land on a stone drawn from the rail.
+				var terms: Dictionary = DeepBoons._make_offer(run, app.session.local_player(), "terms", ["COST_CHIPPED", "REWARD_CARATS"], DeepRng.streams(seed_value).boons)
+				terms.id = "stake_shot"
+				run.grubstake.offers[app.session.local_id].append(terms)
+				app.session.send({"kind": "stake", "offer": "stake_shot", "payload": {}})
+				await process_frame
+				continue
+		if target in ["grubstake_pick", "grubstake_dice"] and phase == "grubstake":
+			## A pick stake taken, its three on show.
+			var stones: bool = target == "grubstake_pick"
+			var picking: Dictionary = DeepBoons._make_offer(run, app.session.local_player(), "stone" if stones else "kit", ["PICK_STONE" if stones else "PICK_DIE"], DeepRng.streams(seed_value).boons)
+			picking.id = "stake_shot"
+			run.grubstake.offers[app.session.local_id].append(picking)
+			app.descent._stake_choosing = "stake_shot"
+			app.descent.show_state(run)
+			break
 		if phase == "grubstake":
 			var staker: Dictionary = app.session.local_player()
 			if str(staker.get("stake", "")).is_empty():
 				var offers: Array = run.grubstake.offers.get(app.session.local_id, [])
 				var offer: Dictionary = offers[0]
 				var payload: Dictionary = {}
-				if offer.needs.has("socket"):
-					payload.socket = 0
 				if offer.needs.has("pick"):
 					payload.pick = 0
 				app.session.send({"kind": "stake", "offer": offer.id, "payload": payload})
@@ -139,9 +157,28 @@ func _init() -> void:
 			break
 		if target == "oddity" and phase == "chamber" and str(run.chamber.get("kind", "")) == "oddity":
 			break
-		if landing_tab.has(target) and phase == "landing":
-			app.descent._landing_tab = str(landing_tab[target])
+		if target == "landing" and phase == "landing":
+			break
+		if target == "lift" and phase == "landing" and not str(app.session.local_player().get("respite", "")).is_empty():
+			break
+		if target == "merchant" and phase == "chamber" and str(run.chamber.get("kind", "")) == "merchant":
+			break
+		if target in ["run_bench", "run_bench_dice"] and phase == "tunnels" and int(run.depth) >= 2:
+			## Something to sort: a few raw and appraised stones in the haul, a die in the bag.
+			var me: Dictionary = app.session.local_player()
+			var mine: Dictionary = DeepContent.mine(DeepContent.starter_mine())
+			var rng := RandomNumberGenerator.new()
+			rng.seed = seed_value
+			for i in range(5):
+				var found: Dictionary = DeepForge.roll_stone(rng, mine, 6 + i, 3, {"run": "shot", "source": "vein"}, "shot_haul%d" % i)
+				if i % 2 == 0:
+					found.appraised = true
+					found.inclusions_revealed = true
+				me.haul.append(found)
+			me.bag_dice.append(DeepForge.roll_die(rng, mine, 6, "shot_die"))
+			app.descent._hold = {}
 			app.descent.show_state(run)
+			app.descent.open_bench("dice" if target == "run_bench_dice" else "gems")
 			break
 		if target == "over" and phase == "over":
 			break
@@ -151,6 +188,14 @@ func _init() -> void:
 				for candidate in run.offers:
 					if str(candidate.kind) == str(want.get(target, "fight")) and not bool(candidate.get("hidden", false)):
 						offer = candidate
+				if target == "merchant" and int(run.depth) >= 1 and str(offer.kind) != "landing":
+					## The shot wants a stall: the next tunnel is one, and there is ore to spend and
+					## raw stones to look at.
+					offer.kind = "merchant"
+					var me: Dictionary = app.session.local_player()
+					me.ore = int(me.get("ore", 0)) + 60
+					for i in range(2):
+						me.haul.append(DeepForge.roll_stone(DeepRng.streams(seed_value + i).stones, DeepContent.mine(DeepContent.starter_mine()), 5, 2, {}, "shot_raw%d" % i))
 				app.session.send({"kind": "vote_tunnel", "offer": offer.id})
 			"chamber":
 				if DeepDescent.in_battle(run):
@@ -169,8 +214,13 @@ func _init() -> void:
 				elif str(run.chamber.kind) == "oddity":
 					var oddity: Dictionary = DeepContent.oddity(str(run.chamber.oddity))
 					app.session.send({"kind": "oddity", "choice": oddity.choices[oddity.choices.size() - 1].id})
+				elif str(run.chamber.kind) == "merchant":
+					app.session.send({"kind": "leave"})
 			"landing":
-				app.session.send({"kind": "choose", "choice": "lift" if target == "over" else "descend"})
+				if str(app.session.local_player().get("respite", "")).is_empty():
+					app.session.send({"kind": "respite", "choice": "rest"})
+				else:
+					app.session.send({"kind": "choose", "choice": "lift" if target == "over" else "descend"})
 			"hoard":
 				var mine_hoard: Dictionary = run.hoard[app.session.local_id]
 				app.session.send({"kind": "pick_hoard", "stone_id": mine_hoard.offers[0].id})

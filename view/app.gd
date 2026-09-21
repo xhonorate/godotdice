@@ -49,12 +49,16 @@ func _ready() -> void:
 	session.run_ended.connect(_on_run_ended)
 	session.refused.connect(func(message: String) -> void: toast(message, DeepUi.BAD))
 	session.error.connect(func(message: String) -> void: toast(message, DeepUi.BAD))
+	session.invited.connect(_on_invited)
 	home = HomeScreen.new()
 	home.depart_requested.connect(_depart)
 	home.member_changed.connect(func(fields: Dictionary) -> void: session.update_member(fields))
 	home.mine_chosen.connect(func(mine: String) -> void: session.choose_mine(mine))
 	home.host_requested.connect(_host)
 	home.join_requested.connect(_join)
+	home.steam_host_requested.connect(_host_steam)
+	home.steam_join_requested.connect(_join_steam)
+	home.invite_requested.connect(_invite)
 	home.profile_changed.connect(_profile_changed)
 	home.menu_requested.connect(open_menu)
 	add_child(home)
@@ -69,6 +73,7 @@ func _ready() -> void:
 	menu.closed.connect(_menu_closed)
 	menu.abandon_requested.connect(func() -> void: session.send({"kind": "abandon"}))
 	menu.leave_requested.connect(_leave_party)
+	menu.join_requested.connect(_join_steam)
 	menu.quit_requested.connect(_quit)
 	add_child(menu)
 	_apply_settings(true)
@@ -88,6 +93,10 @@ func _ready() -> void:
 	else:
 		_refresh_home()
 	_prewarm.call_deferred()
+	## Started by Steam to answer a friend's invitation.
+	var invited_to: String = SteamMessagesTransport.launch_lobby(OS.get_cmdline_args() + OS.get_cmdline_user_args())
+	if not invited_to.is_empty():
+		_on_invited.call_deferred(invited_to)
 
 func _prewarm() -> void:
 	## The first stone or die ever photographed pays for compiling everything a stone is
@@ -115,7 +124,7 @@ func member() -> Dictionary:
 func _refresh_home() -> void:
 	if home == null:
 		return
-	home.refresh(profile, session.lobby, session.status, session.is_host, session.local_id, session.can_start(), settings)
+	home.refresh(profile, session.lobby, session.status, session.is_host, session.local_id, session.can_start(), settings, session.invite_code)
 
 func _profile_changed() -> void:
 	saves.save_profile(profile)
@@ -144,6 +153,38 @@ func _join(address: String, port: int) -> void:
 		toast(str(result.get("error", "")), DeepUi.BAD)
 	_refresh_home()
 
+func _host_steam() -> void:
+	var result: Dictionary = session.host_steam(member())
+	if not bool(result.get("ok", false)):
+		toast(str(result.get("error", "")), DeepUi.BAD)
+	_refresh_home()
+
+func _join_steam(lobby_id: String) -> void:
+	var result: Dictionary = session.join_steam(lobby_id, member())
+	if not bool(result.get("ok", false)):
+		toast(str(result.get("error", "")), DeepUi.BAD)
+		return
+	descent.visible = false
+	home.visible = true
+	home.open("map")
+	_refresh_home()
+
+func _invite() -> void:
+	## Without the overlay (a run from the editor, or Steam started after the game), the
+	## lobby ID on the clipboard is the invitation.
+	if session.invite_friends():
+		return
+	DisplayServer.clipboard_set(session.invite_code)
+	toast("No Steam overlay: the lobby ID is on your clipboard for a friend to paste into Join.", DeepUi.MUTED, "copy")
+
+func _on_invited(lobby_id: String) -> void:
+	## A Steam invitation accepted. From the workshop it simply joins; from a run it asks first.
+	if session.in_run() and descent.visible:
+		open_menu()
+		menu.ask_to_join(lobby_id)
+	else:
+		_join_steam(lobby_id)
+
 func _on_run_started(state: Dictionary) -> void:
 	descent.bind(session.local_id, session.forecast)
 	descent.show_state(state)
@@ -153,6 +194,17 @@ func _on_run_started(state: Dictionary) -> void:
 func _on_run_event(event: Dictionary) -> void:
 	descent.handle(event)
 	descent.show_state(session.run)
+
+func _process(_delta: float) -> void:
+	## A locked-in turn plays at the fight speed, bolts, numbers and all; everything else,
+	## planning included, runs at 1×.
+	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
+	var want: float = clampf(session.speed, 1.0, 8.0) if resolving and not session.paused else 1.0
+	if not is_equal_approx(Engine.time_scale, want):
+		Engine.time_scale = want
+
+func _exit_tree() -> void:
+	Engine.time_scale = 1.0
 
 func _on_run_ended(results: Dictionary) -> void:
 	var applied: Dictionary = DeepProfile.apply_result(profile, results, session.local_id)

@@ -13,7 +13,7 @@ const SOCKET_ANY: String = "ANY"
 const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "cube"]
 const INCLUSION_CLASSES: Array = ["PINPOINT", "LENS", "FEATHER", "FRACTURE", "STAR"]
 const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY"]
-const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity"]
+const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle", "first_fizzle_free",
 	"heal_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value"]
 const MOVE_POLICIES: Array = ["best", "all", "cycle"]
@@ -255,7 +255,8 @@ static func _validate_character(def: Variant, p: Dictionary) -> Array:
 
 static func validate_birthstone(def: Variant) -> Array:
 	## A Birthstone is a name, a look, and a ladder of tiers, each a trigger and effects in
-	## the rule language. Every satisfied tier fires unless one marked exclusive does.
+	## the rule language. Every satisfied tier fires unless one marked exclusive does. One
+	## marked penalty costs its owner (High Roller's Bust), and the views light it as a loss.
 	if not def is Dictionary:
 		return ["every character needs a birthstone"]
 	var errors: Array = []

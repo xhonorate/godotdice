@@ -15,8 +15,10 @@ extends RefCounted
 ## stone with tiers, every satisfied tier firing on the Resonance the rail built. Enemy
 ## units carry published intents. Both sides share one damage pipeline.
 
-const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.9,
-	"gem_fizzle": 0.5, "birthstone": 1.1, "rail_end": 0.3, "skip": 0.6, "enemy_move": 0.9, "tick": 0.6, "battle_over": 1.2}
+## How long each event holds the clock at 1×. A fizzle, or a Birthstone that stays dark, only
+## needs long enough to be seen; a gem that fires waits for its bolts to land.
+const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.65,
+	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_move": 0.9, "tick": 0.6, "battle_over": 1.2}
 const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
 	"coin_flip", "resonance"]
@@ -411,7 +413,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony,
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
-		"duration": BASE_DURATION.gem_fire + 0.15 * results.size()})
+		"duration": BASE_DURATION.gem_fire + 0.1 * results.size()})
 
 # --- the Birthstone ----------------------------------------------------------------------
 
@@ -481,7 +483,7 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	_check_outcome(state)
 	return _event(state, "birthstone", {"unit": unit.id, "name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "")),
 		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay,
-		"duration": BASE_DURATION.birthstone + 0.2 * tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size()})
+		"duration": (BASE_DURATION.birthstone + 0.2 * tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size()) if fired else BASE_DURATION.gem_fizzle})
 
 static func _has_effect(tier: Dictionary, kind: String) -> bool:
 	for effect in tier.get("effects", []):

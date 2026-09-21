@@ -27,6 +27,10 @@ const TUNED: PackedStringArray = ["unlock", "victory", "defeat", "landing", "rev
 	"grade_rough", "grade_fine", "grade_precious", "grade_exquisite", "grade_peerless",
 	"heal", "harmony", "turn_begin", "resonance"]
 const VARIATION: float = 0.035
+## The sounds of a control being pressed. A click that rebuilds a bar of buttons puts a new
+## one under the pointer, and its hover is not news: it is not played this soon after a press.
+const PRESSES: PackedStringArray = ["ui_tap", "ui_confirm", "ui_back", "ui_toggle", "ui_tab", "ui_open", "ui_close", "depart"]
+const HOVER_AFTER_PRESS: float = 0.35
 
 static var _service: DeepAudio = null
 static var _master: float = 0.8
@@ -36,6 +40,7 @@ var _flat: Array = []
 var _placed: Array = []
 var _stage: CanvasLayer
 var _recent: Dictionary = {}
+var _pressed: float = -99.0
 var _unknown: Dictionary = {}
 var _bakery: Thread = null
 var _closing: bool = false
@@ -171,12 +176,17 @@ func emit(sound: String, opts: Dictionary = {}) -> void:
 	if delay > 0.0 and is_inside_tree():
 		var held: Dictionary = opts.duplicate()
 		held.erase("delay")
-		get_tree().create_timer(delay, true, false, true).timeout.connect(emit.bind(sound, held))
+		## On scaled time, so a sound held for a blow still lands with it in a fast fight.
+		get_tree().create_timer(delay, true, false, false).timeout.connect(emit.bind(sound, held))
 		return
 	var now: float = float(Time.get_ticks_msec()) / 1000.0
 	var gap: float = float(opts.get("gap", GAP))
 	if gap > 0.0 and now - float(_recent.get(sound, -99.0)) < gap:
 		return
+	if sound == "ui_hover" and now - _pressed < HOVER_AFTER_PRESS:
+		return
+	if PRESSES.has(sound):
+		_pressed = now
 	## While the bakery is still working, a sound that has not been written yet is skipped
 	## rather than baked here: dropping one click in the first second of the game is better
 	## than spending a frame writing a chord nobody asked to wait for.

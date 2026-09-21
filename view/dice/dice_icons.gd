@@ -166,6 +166,61 @@ static func build(parent: Node, described: Dictionary, edge: float, tint: Color 
 		row.add_child(words)
 	return row
 
+# --- a Birthstone whose tiers count more of one die -------------------------------------
+
+## Tier kinds that only ask for more of one kind of die, and the die each is drawn with:
+## matching dice for a set, a die on its top face for a crown.
+const LADDER_DICE := {"pair": "die", "triple": "die", "quad": "die", "quint": "die", "crowns": "crown_die"}
+
+static func ladder_die(tiers: Array) -> String:
+	## The die a Birthstone's tiers climb with, or "" when they do not: two or more tiers
+	## must count the same die, so they read as one row of five dice instead of marks that
+	## run out of shapes. Any other tier (High Roller's Bust) keeps its own mark beside it.
+	var die: String = ""
+	var rungs: int = 0
+	for tier in tiers:
+		var mark: String = str(LADDER_DICE.get(str(tier.get("trigger", {}).get("kind", "")), ""))
+		if mark.is_empty():
+			continue
+		if not die.is_empty() and mark != die:
+			return ""
+		die = mark
+		rungs += 1
+	return die if rungs >= 2 else ""
+
+static func ladder_rung(tier: Dictionary, die: String) -> int:
+	## How many of `die` this tier needs, or 0 when it is not a rung of that ladder.
+	var trigger: Dictionary = tier.get("trigger", {})
+	var kind: String = str(trigger.get("kind", ""))
+	if die.is_empty() or str(LADDER_DICE.get(kind, "")) != die:
+		return 0
+	if DeepPatterns.SET_SIZES.has(kind):
+		return int(DeepPatterns.SET_SIZES[kind])
+	return clampi(int(DeepPatterns.describe(trigger, 0).get("need", 0)), 1, 5)
+
+static func build_ladder(parent: Node, tiers: Array, die: String, lit: int, edge: float, on: Color, off: Color, notes: Array = []) -> HBoxContainer:
+	## Five dice, the first `lit` of them solid: the dice the hand has that count, or the
+	## number a tier needs. Each die names, on hover, the smallest tier that reaches it.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	parent.add_child(row)
+	for count in range(1, 6):
+		var reached: int = -1
+		for index in range(tiers.size()):
+			var needs: int = ladder_rung(tiers[index], die)
+			if needs >= count and (reached < 0 or needs < ladder_rung(tiers[reached], die)):
+				reached = index
+		var tooltip: String = ""
+		if reached >= 0:
+			tooltip = "%s: %s" % [str(tiers[reached].get("name", "")), str(tiers[reached].get("text", ""))]
+			var note: String = str(notes[reached]) if reached < notes.size() else ""
+			if not note.is_empty():
+				tooltip += "\n" + note
+		GemIcons.glyph(row, die + "_solid" if count <= lit else die, edge, on if count <= lit else off, tooltip)
+	return row
+
 static func strip(described: Dictionary) -> Dictionary:
 	## Example faces that would satisfy the trigger: [value, tone] pairs, with a lead symbol.
 	var kind := str(described.get("kind", "always"))

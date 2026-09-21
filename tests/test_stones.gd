@@ -213,7 +213,7 @@ func _test_oddities() -> void:
 	rng.seed = 5
 	var mine: Dictionary = DeepContent.mine("QUARRY")
 	var ctx: Dictionary = {"mine": mine, "depth": 6, "run": "r1"}
-	var player: Dictionary = {"haul": [stone("STRIKE", 3, 2, 3), stone("GUARD", 4, 1, 2, ["SILK"])], "rail": [null, null], "dice": [DeepDice.make("D6", DeepContent.die("D6"), "a")], "bag_dice": [], "ore": 0, "loupes": 0, "hp": 40, "max_hp": 80}
+	var player: Dictionary = {"haul": [stone("STRIKE", 3, 2, 3), stone("GUARD", 4, 1, 2, ["SILK"])], "rail": [null, null], "dice": [DeepDice.make("D6", DeepContent.die("D6"), "a")], "bag_dice": [], "ore": 0, "hp": 40, "max_hp": 80}
 	var ups: int = 0
 	var downs: int = 0
 	var gone: int = 0
@@ -235,7 +235,7 @@ func _test_oddities() -> void:
 	check(fused.ok and player.haul.size() == 1 and int(player.haul[0].carat) == 7, "fusing sums the carats and eats the other stone")
 	var geode: Dictionary = DeepOddities.apply({"kind": "geode", "three": 100, "one": 0}, player, {}, rng, ctx)
 	check(geode.ok and geode.made.size() == 3 and player.haul.size() == 4, "a geode can give three stones")
-	check(DeepOddities.apply({"kind": "loupes", "amount": 2}, player, {}, rng, ctx).ok and player.loupes == 2, "loupes are pocketed")
+	_test_workshop_oddities(rng, ctx)
 	check(DeepOddities.apply({"kind": "heal", "pct": 25}, player, {}, rng, ctx).ok and player.hp == 60, "the medic heals a quarter")
 	var before: int = player.haul.size()
 	var sold: Dictionary = DeepOddities.apply({"kind": "collector_sell", "mult": 3}, player, {"stone_id": "strike"}, rng, ctx)
@@ -248,3 +248,40 @@ func _test_oddities() -> void:
 	check(shrine.ok and player.run_mods.shrine == "pair", "the shrine remembers a pattern")
 	check(DeepOddities.validate(DeepContent.oddity("CUTTERS_WHEEL")).is_empty(), "the wheel validates")
 	check(not DeepOddities.validate({"name": "x", "choices": [{"id": "a", "action": {"kind": "explode"}}, {"id": "b", "action": {"kind": "none"}}]}).is_empty(), "an unknown action is refused")
+
+func _test_workshop_oddities(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
+	## The oddities that change dice and stones in place: the lens, the drum, the anvil, the
+	## tinker and the seam.
+	var die_of: Callable = func(key: String, id: String) -> Dictionary: return DeepDice.make(key, DeepContent.die(key), id)
+	var raw: Dictionary = stone("VENOM", 3, 2, 3)
+	var set_guard: Dictionary = stone("GUARD", 2, 2, 3)
+	set_guard.appraised = true
+	var p: Dictionary = {"haul": [raw], "rail": [set_guard, null], "dice": [die_of.call("D4", "d4"), die_of.call("HOLLOW_D10", "hollow"), die_of.call("D20", "d20")],
+		"bag_dice": [die_of.call("PHIAL", "phial")], "ore": 20, "hp": 40, "max_hp": 80}
+	var looked: Dictionary = DeepOddities.apply({"kind": "appraise"}, p, {"stone_id": "venom"}, rng, ctx)
+	check(looked.ok and bool(raw.appraised) and looked.changed.size() == 1, "the cabinet's lens appraises a raw stone")
+	check(not DeepOddities.apply({"kind": "appraise"}, p, {"stone_id": "venom"}, rng, ctx).ok, "but not one already appraised")
+	var colour: String = DeepStone.colour(raw)
+	var tumbled: Dictionary = DeepOddities.apply({"kind": "tumble"}, p, {"stone_id": "venom"}, rng, ctx)
+	check(tumbled.ok and str(raw.skill) != "VENOM" and DeepStone.colour(raw) == colour, "the drum turns out another skill of the same colour (%s)" % str(raw.skill))
+	check(int(raw.carat) == 3 and int(raw.cut) == 2, "and keeps the stone's carats and cut")
+	var socketed: Dictionary = DeepOddities.apply({"kind": "tumble"}, p, {"stone_id": "guard"}, rng, ctx)
+	check(socketed.ok and DeepStone.colour(set_guard) == "BLUE" and str(set_guard.skill) != "GUARD", "a set stone tumbles in its socket (%s)" % str(set_guard.skill))
+	var hammered: Dictionary = DeepOddities.apply({"kind": "upsize"}, p, {"die_id": "d4"}, rng, ctx)
+	check(hammered.ok and str(p.dice[0].shape) == "D6" and str(p.dice[0].id) == "d4" and p.dice[0].faces.size() == 6, "the anvil hammers a d4 into a d6 that keeps its id")
+	check(not DeepOddities.apply({"kind": "upsize"}, p, {"die_id": "d20"}, rng, ctx).ok, "a d20 is as big as dice come")
+	var tempered: Dictionary = DeepOddities.apply({"kind": "temper", "amount": 2}, p, {"die_id": "hollow"}, rng, ctx)
+	check(tempered.ok and str(p.dice[1].faces[0].kind) == "plain" and int(p.dice[1].faces[0].value) == 2, "tempering turns a blank face into a 2")
+	var phial: Dictionary = DeepOddities.apply({"kind": "temper", "amount": 2}, p, {"die_id": "phial"}, rng, ctx)
+	check(phial.ok and int(p.bag_dice[0].faces[0].value) == 3, "and lifts the lowest face of a bagged die by two")
+	var traded: Dictionary = DeepOddities.apply({"kind": "trade_die", "draws": 3, "depth_bonus": 6}, p, {"die_id": "d20"}, rng, ctx)
+	check(traded.ok and str(p.dice[2].id) == "d20" and traded.dice.size() == 1, "the tinker's die takes the traded one's place")
+	var bought: Dictionary = DeepOddities.apply({"kind": "buy_die", "price": 15}, p, {}, rng, ctx)
+	check(bought.ok and int(p.ore) == 5 and p.bag_dice.size() == 2, "fifteen ore buys a die for the bag")
+	check(not DeepOddities.apply({"kind": "buy_die", "price": 15}, p, {}, rng, ctx).ok, "five ore does not")
+	var pried: Dictionary = DeepOddities.apply({"kind": "pry", "bonus": 4, "hp": 8}, p, {}, rng, ctx)
+	check(pried.ok and pried.made.size() == 1 and int(p.hp) == 32, "prying a stone loose costs eight health")
+	var chips: Dictionary = DeepOddities.apply({"kind": "chips", "count": 2, "bonus": -2}, p, {}, rng, ctx)
+	check(chips.ok and chips.made.size() == 2 and p.haul.size() == 4, "the chips are two small stones")
+	for key in ["ANVIL", "TINKER", "TUMBLER", "SEAM", "LOUPE_CABINET"]:
+		check(DeepOddities.validate(DeepContent.oddity(key)).is_empty(), "%s validates" % key)

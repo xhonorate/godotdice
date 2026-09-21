@@ -94,6 +94,14 @@ var _forecast_box: VBoxContainer
 var _ally_box: VBoxContainer
 var _ally_cards: Dictionary = {}
 var _lock_pulse: Tween = null
+## The forecast as the hand stood when it was locked in, and what the local rail has actually
+## done since: socket -> fired, and the Birthstone's own event.
+var _held_forecast: Dictionary = {}
+var _outcomes: Dictionary = {}
+var _birth_outcome: Dictionary = {}
+## Bumped by every change to the Resonance number, so sparks still in flight never write an
+## old value over a newer one.
+var _resonance_token: int = 0
 
 var _quality: int = 3
 ## The graphics setting: 0 lets the governor decide, 1-3 fixes low, medium or high.
@@ -382,14 +390,20 @@ func _build_hud() -> void:
 	## Left: you, and your rail.
 	var left := DeepUi.vbox(columns, 8)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## As tall as the block pill from the start, and everything in it centred, so gaining
+	## block never stretches the bar or moves the dock.
 	var me_row := DeepUi.hbox(left, 8)
-	DeepUi.icon(me_row, "heart", 22, DeepUi.HP, "Your health")
+	me_row.custom_minimum_size.y = 30
+	DeepUi.icon(me_row, "heart", 22, DeepUi.HP, "Your health").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_hp_bar = DeepUi.bar(me_row, 18.0)
 	_hp_bar.custom_minimum_size = Vector2(230, 18)
 	_hp_bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_hp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_hp_text = DeepUi.label(me_row, "", 15, DeepUi.PAPER)
 	_hp_text.add_theme_font_override("font", DeepUi.display_font())
+	_hp_text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_status_row = DeepUi.hbox(me_row, 4)
+	_status_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var rail_head := DeepUi.hbox(left, 8)
 	DeepUi.icon(rail_head, "gem", 16, DeepUi.ACCENT)
 	DeepUi.heading(rail_head, "Rail", 13)
@@ -437,7 +451,11 @@ func show_state(battle: Dictionary, at_depth: int, new_forecast: Dictionary = {}
 	modulate.a = 1.0
 	state = battle
 	depth = at_depth
-	forecast = new_forecast
+	## Once the hand is locked in, the forecast it was locked in with stays up: the rail keeps
+	## showing what would fire, and each gem corrects it as it actually fires or fizzles.
+	if str(battle.get("phase", "")) == "planning" or _held_forecast.is_empty():
+		_held_forecast = new_forecast
+	forecast = _held_forecast
 	if not new_context.is_empty():
 		context = new_context
 	## Enemy ids start again at e0 in every fight, so a new fight is recognised by who is in
@@ -452,6 +470,8 @@ func show_state(battle: Dictionary, at_depth: int, new_forecast: Dictionary = {}
 
 func _forget_fight() -> void:
 	selected.clear()
+	_outcomes.clear()
+	_birth_outcome = {}
 	for id in _plates.keys():
 		if is_instance_valid(_plates[id]):
 			_plates[id].queue_free()
@@ -504,8 +524,11 @@ func _sync() -> void:
 		if not str(passive.get("text", "")).is_empty():
 			effects.append(EffectChips.entry("passive", "spark", "", true, str(passive.get("name", DeepContent.character_title(str(unit.get("character", ""))))), str(passive.text), DeepUi.ACCENT))
 		_effects.show_effects(effects)
-		_resonance_value.text = str(int(unit.get("resonance", 0))) if not planning else str(int(forecast.get("totals", {}).get("resonance", 0)))
-		_resonance_value.add_theme_color_override("font_color", _resonance_colour(int(_resonance_value.text)))
+		## While a turn resolves the rail's own events count the Resonance up, sparks and all.
+		if planning:
+			_show_resonance(int(forecast.get("totals", {}).get("resonance", 0)))
+		elif _headless or str(state.get("phase", "")) != "resolving":
+			_show_resonance(int(unit.get("resonance", 0)))
 	_fight_effects.show_effects(EffectChips.for_battle(state))
 	_sync_rail(unit, planning)
 	_sync_tray(unit, planning)
@@ -566,7 +589,54 @@ func _resonance_colour(value: int) -> Color:
 		return DeepUi.DIM
 	return DeepUi.ACCENT.lerp(Color("ff6a3a"), clampf(float(value - 1) / 6.0, 0.0, 1.0))
 
+func _show_resonance(value: int) -> void:
+	_resonance_token += 1
+	_resonance_value.text = str(value)
+	_resonance_value.add_theme_color_override("font_color", _resonance_colour(value))
+
+func _resonance_flight(card: Control, value: int, gain: int, colour: Color, harmony: bool) -> void:
+	## A gem that fires throws sparks of its own colour up to the Resonance count, and the
+	## number only ticks over when they land, so the chain is seen building gem by gem.
+	var token: int = _resonance_token + 1
+	_resonance_token = token
+	var from: Vector2 = _center_of(card)
+	var to: Vector2 = _center_of(_resonance_box)
+	var count: int = clampi(4 + 3 * gain, 6, 16)
+	var flight: float = 0.42
+	for index in range(count):
+		var spark := DeepUi.icon(self, "spark", randf_range(12.0, 19.0), colour.lightened(randf_range(0.15, 0.55)))
+		spark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		spark.z_index = 40
+		spark.pivot_offset = spark.custom_minimum_size * 0.5
+		var start: Vector2 = from + Vector2(randf_range(-14.0, 14.0), randf_range(-14.0, 14.0))
+		## Each spark bows out to one side and up before it homes in, so they fan and gather.
+		var bend: Vector2 = (start + to) * 0.5 + Vector2(randf_range(-90.0, 90.0), randf_range(-110.0, -40.0))
+		var half: Vector2 = spark.custom_minimum_size * 0.5
+		spark.position = start - half
+		var delay: float = 0.03 * float(index)
+		var tween := spark.create_tween()
+		tween.tween_interval(delay)
+		tween.tween_method(func(t: float) -> void:
+			var eased: float = t * t * (3.0 - 2.0 * t)
+			spark.position = start.lerp(bend, eased).lerp(bend.lerp(to, eased), eased) - half
+			spark.rotation = t * 4.0
+			spark.scale = Vector2.ONE * lerpf(1.1, 0.5, t), 0.0, 1.0, flight)
+		tween.tween_callback(spark.queue_free)
+	var land := create_tween()
+	land.tween_interval(flight + 0.03 * float(count - 1) * 0.5)
+	land.tween_callback(func() -> void:
+		if token != _resonance_token:
+			return
+		_show_resonance(value)
+		DeepUi.pulse(_resonance_box, 1.3, 0.3)
+		DeepUi.burst(self, to, _resonance_colour(value), 10 + 2 * gain, 110.0, 0.4, 4.0)
+		if harmony:
+			DeepAudio.from(_resonance_box, "harmony", {"volume": 0.7})
+			_float_at(_resonance_box, "+%d harmony" % gain, DeepUi.ACCENT_HI, 15))
+
 func _sync_rail(unit: Dictionary, planning: bool) -> void:
+	## Lit while the hand is chosen and on through the resolution it was locked in for.
+	var showing: bool = planning or str(state.get("phase", "")) == "resolving"
 	var rail: Array = unit.get("rail", [])
 	var birth_key: String = str(unit.get("character", ""))
 	if _socket_cards.size() != rail.size() or _birthstone_key != birth_key or (_birthstone_card != null and not is_instance_valid(_birthstone_card)):
@@ -626,11 +696,14 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			var trigger_row: Node = card.get_node_or_null("Trigger")
 			var ring: SocketRing = card.get_node_or_null("Slot/Ring")
 			var active: bool = bool(entry.get("active", false))
+			## Once the gem has resolved, what it really did outranks what was forecast.
+			if not planning and _outcomes.has(socket):
+				active = bool(_outcomes[socket])
 			if ring != null:
-				ring.set_ready(active and planning)
+				ring.set_ready(active and showing)
 			if trigger_row != null:
 				var described: Dictionary = entry.get("trigger", DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(stone.get("cut", 0))))
-				var tone: Color = DeepUi.GOOD if active and planning else (DeepUi.PAPER if entry.is_empty() else DeepUi.DIM)
+				var tone: Color = DeepUi.GOOD if active and showing else (DeepUi.PAPER if entry.is_empty() else DeepUi.DIM)
 				var key: String = "%s|%s|%s" % [str(described.get("mark", "")), str(described.get("label", "")), str(tone)]
 				if str(trigger_row.get_meta("key", "")) != key:
 					trigger_row.set_meta("key", key)
@@ -639,7 +712,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			var blocked: bool = unit.get("buried", []).has(socket) or unit.get("clouded", []).has(socket)
 			card.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else Color.WHITE
 			card.tooltip_text = ("Buried in rubble: this gem cannot fire this turn." if unit.get("buried", []).has(socket) else "Clouded: hit the Clouder to clear it.") if blocked else ""
-	_sync_birthstone(unit, planning)
+	_sync_birthstone(unit, planning, showing)
 
 func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 	## The character's Birthstone at the end of the rail: the stone in its own bezel, its
@@ -665,11 +738,12 @@ func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 6)
 		picture.tooltip_text = "%s, your Birthstone\n%s" % [str(stone.get("name", "")), str(stone.get("text", ""))]
 		slot.add_child(picture)
-	var tiers := GridContainer.new()
+	## One row at the sockets' trigger size, so the tiers sit level with every other
+	## requirement on the rail and the name lines up with theirs.
+	var tiers := HBoxContainer.new()
 	tiers.name = "Tiers"
-	tiers.columns = 2
-	tiers.add_theme_constant_override("h_separation", 4)
-	tiers.add_theme_constant_override("v_separation", 1)
+	tiers.alignment = BoxContainer.ALIGNMENT_CENTER
+	tiers.add_theme_constant_override("separation", 3)
 	tiers.mouse_filter = Control.MOUSE_FILTER_PASS
 	card.add_child(tiers)
 	var name_label := DeepUi.label(card, str(stone.get("name", "Birthstone")), 11, tint.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
@@ -678,33 +752,55 @@ func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 	name_label.clip_text = true
 	return card
 
-func _sync_birthstone(unit: Dictionary, planning: bool) -> void:
+func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 	if _birthstone_card == null or not is_instance_valid(_birthstone_card):
 		return
-	var preview: Dictionary = forecast.get("birthstone", {})
+	## The forecast until the Birthstone has actually resolved this turn, then what it did.
+	var preview: Dictionary = _birth_outcome if not planning and not _birth_outcome.is_empty() else forecast.get("birthstone", {})
+	var defs: Array = unit.get("birthstone", {}).get("tiers", [])
+	var previewed: Array = preview.get("tiers", [])
+	## The bezel wakes for a tier worth firing; a penalty on its own (a Bust) leaves it dark.
+	var rewarded: bool = false
+	for index in range(mini(defs.size(), previewed.size())):
+		if bool(previewed[index].get("active", false)) and not bool(defs[index].get("penalty", false)):
+			rewarded = true
 	var ring: SocketRing = _birthstone_card.get_node_or_null("Slot/Ring")
 	if ring != null:
-		ring.set_ready(bool(preview.get("fired", false)) and planning)
+		ring.set_ready(rewarded and showing)
 	var tiers_row: Node = _birthstone_card.get_node_or_null("Tiers")
 	if tiers_row == null:
 		return
-	var defs: Array = unit.get("birthstone", {}).get("tiers", [])
-	var previewed: Array = preview.get("tiers", [])
+	## Tiers that count more of one die are five dice, lit for every die a firing tier
+	## counted (the whole set, every crown), never fewer than that tier needs.
+	var die: String = DiceIcons.ladder_die(defs)
+	var lit: int = 0
 	var key: String = ""
 	for index in range(defs.size()):
-		key += "1" if index < previewed.size() and bool(previewed[index].get("active", false)) and planning else "0"
+		var active: bool = index < previewed.size() and bool(previewed[index].get("active", false)) and showing
+		key += "1" if active else "0"
+		var rung: int = DiceIcons.ladder_rung(defs[index], die)
+		if active and rung > 0:
+			lit = mini(5, maxi(lit, maxi(rung, previewed[index].get("dice", []).size())))
+	key += "|%d" % lit
 	if str(tiers_row.get_meta("key", "")) == key:
 		return
 	tiers_row.set_meta("key", key)
 	DeepUi.clear(tiers_row)
+	var notes: Array = []
+	for index in range(defs.size()):
+		var reason: String = str(previewed[index].get("reason", "")) if index < previewed.size() else ""
+		notes.append(reason if key[index] == "0" and showing else "")
+	if not die.is_empty():
+		DiceIcons.build_ladder(tiers_row, defs, die, lit, 14, DeepUi.GOOD, DeepUi.DIM, notes)
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
-		var active: bool = key[index] == "1"
-		var reason: String = str(previewed[index].get("reason", "")) if index < previewed.size() else ""
+		if DiceIcons.ladder_rung(tier, die) > 0:
+			continue
 		var words: String = "%s: %s" % [str(tier.get("name", "")), str(tier.get("text", ""))]
-		if not active and not reason.is_empty() and planning:
-			words += "\n" + reason
-		DiceIcons.build(tiers_row, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 11, DeepUi.GOOD if active else DeepUi.DIM, words)
+		if not str(notes[index]).is_empty():
+			words += "\n" + str(notes[index])
+		var lit_tone: Color = DeepUi.BAD if bool(tier.get("penalty", false)) else DeepUi.GOOD
+		DiceIcons.build(tiers_row, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 15, lit_tone if key[index] == "1" else DeepUi.DIM, words)
 
 class SocketRing extends Control:
 	## A character's socket: a bezel in the socket's colour, a crown for the Birthstone, and a
@@ -1323,6 +1419,15 @@ func perform(event: Dictionary) -> void:
 	var kind: String = str(event.get("kind", ""))
 	if kind == "turn_begin":
 		selected.clear()
+	## What the local rail really did this turn, kept so its highlights follow the dice.
+	if kind in ["turn_begin", "resolution_begin"]:
+		_outcomes.clear()
+		_birth_outcome = {}
+	elif str(event.get("unit", "")) == local_id:
+		match kind:
+			"gem_fire": _outcomes[int(event.get("socket", -1))] = true
+			"gem_fizzle": _outcomes[int(event.get("socket", -1))] = false
+			"birthstone": _birth_outcome = event
 	if _headless:
 		return
 	match kind:
@@ -1337,7 +1442,7 @@ func perform(event: Dictionary) -> void:
 			_screen_fx.blink(DeepUi.ACCENT, 0.06)
 		"rail_begin":
 			if str(event.get("unit", "")) == local_id:
-				_resonance_value.text = "0"
+				_show_resonance(0)
 				if int(event.get("healed", 0)) > 0:
 					DeepAudio.play("heal", {"volume": 0.6})
 					_float_at(_hp_bar, "+%d Second Wind" % int(event.healed), DeepUi.GOOD, 20)
@@ -1440,16 +1545,20 @@ func _birthstone_fire(event: Dictionary) -> void:
 			tween.tween_property(anchor, "modulate", Color.WHITE, 0.6)
 		return
 	var lit: Array = event.get("tiers", []).filter(func(x: Dictionary) -> bool: return bool(x.get("active", false)))
+	## A penalty tier (a Bust) is a loss, so it lights red, and alone it bursts red too.
+	var penalties: Array = stone.get("tiers", []).filter(func(x: Dictionary) -> bool: return bool(x.get("penalty", false))).map(func(x: Dictionary) -> String: return str(x.get("name", "")))
+	var busted: bool = lit.all(func(x: Dictionary) -> bool: return penalties.has(str(x.get("name", ""))))
 	if anchor != null:
 		DeepAudio.from(anchor, "resonance", {"pitch": 1.1 + 0.08 * float(mini(lit.size(), 4)), "volume": 0.9, "gap": 0.02})
 		var ring: SocketRing = anchor.get_node_or_null("Slot/Ring")
 		if ring != null:
 			ring.fire()
 		DeepUi.pulse(anchor, 1.2, 0.45)
-		DeepUi.burst(self, _center_of(anchor), colour, 24 + 8 * lit.size(), 190.0, 0.6)
+		DeepUi.burst(self, _center_of(anchor), DeepUi.BAD if busted else colour, 24 + 8 * lit.size(), 190.0, 0.6)
 		var lift: int = 0
 		for entry in lit:
-			_float_at(anchor, str(entry.get("name", "")), colour.lightened(0.35), 17 - mini(lift, 3))
+			var loss: bool = penalties.has(str(entry.get("name", "")))
+			_float_at(anchor, str(entry.get("name", "")), DeepUi.BAD if loss else colour.lightened(0.35), 17 - mini(lift, 3))
 			lift += 1
 		if bool(event.get("replay", false)):
 			_float_at(anchor, "Encore!", DeepUi.ACCENT_HI, 18)
@@ -1498,13 +1607,11 @@ func _gem_fire(event: Dictionary) -> void:
 			ring.fire()
 		DeepUi.pulse(card, 1.18, 0.4)
 		DeepUi.burst(self, _center_of(card), colour, 18, 170.0, 0.55)
-		if int(event.get("gain", 0)) > 0:
-			_resonance_value.text = str(int(event.get("resonance", 0)))
-			_resonance_value.add_theme_color_override("font_color", _resonance_colour(int(event.get("resonance", 0))))
-			DeepUi.pulse(_resonance_box, 1.25, 0.35)
-			if bool(event.get("harmony", false)):
-				DeepAudio.from(_resonance_box, "harmony", {"volume": 0.7})
-				_float_at(_resonance_box, "+%d harmony" % int(event.gain), DeepUi.ACCENT_HI, 15)
+		var resonance: int = int(event.get("resonance", 0))
+		if resonance > int(_resonance_value.text) or int(event.get("gain", 0)) > 0:
+			_resonance_flight(card, resonance, maxi(1, int(event.get("gain", 0))), colour, bool(event.get("harmony", false)))
+		elif resonance != int(_resonance_value.text):
+			_show_resonance(resonance)
 		if bool(event.get("retrigger", false)):
 			_float_at(card, "Again!", DeepUi.ACCENT_HI, 15)
 	elif _ally_cards.has(unit_id) and is_instance_valid(_ally_cards[unit_id]):
@@ -1707,8 +1814,7 @@ func _gem_fizzle(event: Dictionary) -> void:
 	_float_at(card, "fizzle", DeepUi.DIM, 14)
 	if int(event.get("healed", 0)) > 0:
 		_float_at(_hp_bar, "+%d" % int(event.healed), DeepUi.GOOD, 18)
-	_resonance_value.text = str(int(event.get("resonance", 0)))
-	_resonance_value.add_theme_color_override("font_color", _resonance_colour(int(event.get("resonance", 0))))
+	_show_resonance(int(event.get("resonance", 0)))
 	DeepUi.shake(_resonance_box, 8.0, 0.25)
 
 func _enemy_move(event: Dictionary) -> void:

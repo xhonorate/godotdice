@@ -30,9 +30,9 @@ const ORE := Color("e8a94f")
 const TIER_COLOURS := {"ROUGH": Color("9aa3b2"), "FINE": Color("7fd1a8"), "PRECIOUS": Color("6fa8ff"), "EXQUISITE": Color("c58bff"), "PEERLESS": Color("ffcf5a")}
 ## The mark each chamber kind is drawn with, anywhere a chamber is shown.
 const CHAMBER_GLYPHS: Dictionary = {"fight": "sword", "elite": "skull", "vein": "pick", "oddity": "question", "motherlode": "gem",
-	"landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch"}
+	"merchant": "purse", "landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch"}
 const CHAMBER_COLOURS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff5f7a"), "vein": Color("ffc56a"), "oddity": Color("b58cff"),
-	"motherlode": Color("ffe07a"), "landing": Color("7fd1a8"), "warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6")}
+	"motherlode": Color("ffe07a"), "merchant": Color("5fd4c8"), "landing": Color("7fd1a8"), "warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6")}
 
 static var _display: Font = null
 static var _glow: GradientTexture2D = null

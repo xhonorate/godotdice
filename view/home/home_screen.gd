@@ -24,6 +24,9 @@ signal member_changed(fields: Dictionary)
 signal mine_chosen(mine: String)
 signal host_requested(port: int)
 signal join_requested(address: String, port: int)
+signal steam_host_requested
+signal steam_join_requested(lobby_id: String)
+signal invite_requested
 signal profile_changed
 signal menu_requested
 
@@ -37,6 +40,8 @@ var is_host: bool = true
 var local_id: String = "p0"
 var can_start: bool = true
 var settings: Dictionary = {}
+## The Steam lobby's ID while hosting over Steam.
+var invite_code: String = ""
 var tab: String = "map"
 var _bar: HBoxContainer
 var _body: Control
@@ -49,12 +54,16 @@ var _bench_socket: int = -1
 var _bench_die: int = -1
 var _roster_pick: String = ""
 var _address: LineEdit
+var _lobby_field: LineEdit
 var _seed: LineEdit
 var _fresh: bool = true
 var _shown_tab: String = ""
 var _headless: bool = false
 var _gold_seen: int = -1
 var _cheer: Dictionary = {}
+var _page: ScrollContainer = null
+## Set by "Edit loadout": the Lapidaries tab opens scrolled down to the rail and the dice.
+var _to_loadout: bool = false
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -82,7 +91,8 @@ func _ready() -> void:
 	_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(_body)
 
-func refresh(new_profile: Dictionary, new_lobby: Dictionary, new_status: String, host: bool, id: String, startable: bool, new_settings: Dictionary) -> void:
+func refresh(new_profile: Dictionary, new_lobby: Dictionary, new_status: String, host: bool, id: String, startable: bool, new_settings: Dictionary, code: String = "") -> void:
+	invite_code = code
 	profile = new_profile
 	lobby = new_lobby
 	status = new_status
@@ -130,11 +140,17 @@ func _render() -> void:
 	DeepUi.spacer(_bar)
 	DeepUi.stat(_bar, "person", str(profile.get("name", "")), DeepUi.MUTED, 14)
 	DeepUi.gear_button(_bar, func() -> void: menu_requested.emit())
+	## A page rebuilt in place (a socket picked, a stone set) keeps its scroll, so the vault
+	## below the rail does not jump away with every click.
+	var kept: int = _page.scroll_vertical if not _fresh and _page != null and is_instance_valid(_page) else 0
 	DeepUi.clear(_body)
 	var page := ScrollContainer.new()
 	page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	page.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_body.add_child(page)
+	_page = page
+	if kept > 0:
+		_scroll_after_layout(page, kept)
 	var margin := MarginContainer.new()
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -148,6 +164,28 @@ func _render() -> void:
 		"vault": _vault(content)
 		"appraise": _appraise(content)
 		"ledger": _ledger(content)
+
+func _scroll_after_layout(page: ScrollContainer, value: int) -> void:
+	## A new page has no height until it is laid out; it waits a frame, hidden, then scrolls.
+	page.modulate.a = 0.0
+	await get_tree().process_frame
+	if is_instance_valid(page):
+		page.scroll_vertical = value
+		page.modulate.a = 1.0
+
+func _scroll_to(page: ScrollContainer, target: Control) -> void:
+	await get_tree().process_frame
+	if is_instance_valid(page) and is_instance_valid(target):
+		var tween := page.create_tween()
+		var goal: int = int(target.global_position.y - page.global_position.y) + page.scroll_vertical - 12
+		tween.tween_property(page, "scroll_vertical", goal, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+func _edit_loadout(character_key: String) -> void:
+	_roster_pick = character_key
+	_bench_socket = -1
+	_bench_die = -1
+	_to_loadout = true
+	open("roster")
 
 func _cheer_at(control: Control, text: String, colour: Color, glyph: String) -> void:
 	## A little celebration where something landed: a burst, a swell and a word.
@@ -224,8 +262,39 @@ func _map(content: VBoxContainer) -> void:
 	DeepUi.pill(wear_pills, "spark", str(chosen_character.get("passive", {}).get("name", "Passive")), DeepUi.ACCENT, 11, str(chosen_character.get("passive", {}).get("text", "")))
 	DeepUi.pill(wear_pills, "gem", str(chosen_character.get("birthstone", {}).get("name", "Birthstone")), DeepUi.INFO, 11, str(chosen_character.get("birthstone", {}).get("text", "")))
 	DeepUi.wrap(wear_facts, str(chosen_character.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 320)
-	var change := DeepUi.icon_button(wear_facts, "person", "Change lapidary", func() -> void: open("roster"), 13, DeepUi.ACCENT)
-	change.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	## What they take down, at a glance: click any of it to change it.
+	var loadout: Dictionary = DeepProfile.loadout(profile, current)
+	var kit := DeepUi.vbox(wear_box, 6)
+	kit.mouse_filter = Control.MOUSE_FILTER_PASS
+	kit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	kit.tooltip_text = "Click to change the rail and the dice"
+	kit.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			DeepAudio.play("ui_tap")
+			_edit_loadout(current))
+	var rail_row := DeepUi.hbox(kit, 6)
+	rail_row.mouse_filter = Control.MOUSE_FILTER_PASS
+	var kit_sockets: Array = chosen_character.get("sockets", [])
+	var empty: int = 0
+	for index in range(kit_sockets.size()):
+		var set_stone: Variant = loadout.rail[index] if index < loadout.rail.size() else null
+		if not set_stone is Dictionary:
+			empty += 1
+		_kit_socket(rail_row, str(kit_sockets[index]), set_stone if set_stone is Dictionary else {})
+	var birthstone: Dictionary = DeepStone.birthstone(current)
+	if not birthstone.is_empty():
+		_kit_socket(rail_row, "BIRTHSTONE", birthstone)
+	var dice_row := DeepUi.hbox(kit, 6)
+	dice_row.mouse_filter = Control.MOUSE_FILTER_PASS
+	for die in loadout.dice:
+		var die_thumb := Thumbs.DieThumb.new(die, 32)
+		die_thumb.mouse_filter = Control.MOUSE_FILTER_PASS
+		dice_row.add_child(die_thumb)
+	if empty > 0:
+		DeepUi.stat(kit, "gem", "%s empty" % DeepUi.plural(empty, "socket"), DeepUi.ACCENT, 12)
+	var wear_buttons := DeepUi.hbox(wear_box, 8)
+	DeepUi.icon_button(wear_buttons, "gem", "Edit loadout", func() -> void: _edit_loadout(current), 13, DeepUi.ACCENT)
+	DeepUi.icon_button(wear_buttons, "person", "Change lapidary", func() -> void: open("roster"), 13, DeepUi.MUTED)
 	_enter(wear, 0.05)
 	## The party.
 	var party := DeepUi.card(side, DeepUi.LINE, 16)
@@ -248,8 +317,8 @@ func _map(content: VBoxContainer) -> void:
 		ready.disabled = status != "joined"
 	else:
 		var go := DeepUi.primary(party_box, "descend", "Descend", func() -> void:
-			DeepAudio.play("lift")
 			depart_requested.emit(int(_seed.text) if _seed != null and _seed.text.is_valid_int() else 0), 20)
+		DeepUi.voice(go, "depart")
 		go.custom_minimum_size.y = 54
 		go.disabled = not can_start or bool(lobby.get("started", false))
 		if not go.disabled:
@@ -277,8 +346,43 @@ func _map(content: VBoxContainer) -> void:
 	_address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lan.add_child(_address)
 	DeepUi.icon_button(lan, "play", "Join", func() -> void: join_requested.emit(_address.text, DeepSession.DEFAULT_PORT), 13, DeepUi.INFO)
-	DeepUi.wrap(together_box, "Steam lobbies arrive with the release transport; LAN and direct IP work now.", 11, DeepUi.DIM)
+	var steam := DeepUi.hbox(together_box, 8)
+	DeepUi.icon_button(steam, "party", "Host on Steam", func() -> void: steam_host_requested.emit(), 13, DeepUi.ACCENT)
+	_lobby_field = LineEdit.new()
+	_lobby_field.placeholder_text = "Steam lobby ID"
+	_lobby_field.custom_minimum_size = Vector2(150, 0)
+	_lobby_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_lobby_field.text_submitted.connect(func(text: String) -> void: steam_join_requested.emit(text))
+	steam.add_child(_lobby_field)
+	DeepUi.icon_button(steam, "play", "Join", func() -> void: steam_join_requested.emit(_lobby_field.text), 13, DeepUi.INFO)
+	if not invite_code.is_empty():
+		var code := DeepUi.hbox(together_box, 8)
+		DeepUi.stat(code, "party", "Lobby %s" % invite_code, DeepUi.PAPER, 12).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.icon_button(code, "person", "Invite friends", func() -> void: invite_requested.emit(), 13, DeepUi.GOOD)
+		var copy := DeepUi.icon_button(code, "copy", "Copy ID", Callable(), 13, DeepUi.MUTED)
+		copy.pressed.connect(func() -> void:
+			DisplayServer.clipboard_set(invite_code)
+			_cheer_at(copy, "Copied", DeepUi.GOOD, "copy"))
+	DeepUi.wrap(together_box, "Friends join a Steam lobby from the overlay's invite list, from Join Game in the friends list, or by pasting its ID above.", 11, DeepUi.DIM)
 	_enter(together, 0.15)
+
+func _kit_socket(parent: Node, socket_colour: String, stone: Dictionary) -> void:
+	## One socket of the loadout at a glance: its ring, and the stone in it if there is one.
+	var slot := Control.new()
+	slot.custom_minimum_size = Vector2(40, 40)
+	slot.mouse_filter = Control.MOUSE_FILTER_PASS
+	parent.add_child(slot)
+	var ring := BattleScreen.SocketRing.new(socket_colour, stone.is_empty())
+	if socket_colour == "BIRTHSTONE":
+		ring.birth_tint = GemMesh.tint(stone)
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	slot.add_child(ring)
+	if stone.is_empty():
+		slot.tooltip_text = "Empty %s socket" % ("any-colour" if socket_colour == "ANY" else socket_colour.capitalize())
+		return
+	var thumb := StoneCard.mini(slot, stone, 30, DeepStone.name(stone) if socket_colour != "BIRTHSTONE" else "%s, the Birthstone" % str(stone.get("name", "")))
+	thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 5)
+	thumb.mouse_filter = Control.MOUSE_FILTER_PASS
 
 # --- lapidaries ---------------------------------------------------------------------------------
 
@@ -397,12 +501,17 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	DeepUi.label(birth_names, "Birthstone", 11, DeepUi.DIM)
 	DeepUi.title(birth_names, str(stone.get("name", "")), 22, tint.lightened(0.35))
 	DeepUi.wrap(birth_names, str(stone.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 210)
+	## Tiers that count more of one die are drawn as five dice, filled as far as each needs.
+	var die: String = DiceIcons.ladder_die(stone.get("tiers", []))
 	for tier in stone.get("tiers", []):
 		var tier_row := DeepUi.hbox(birth_box, 10)
 		tier_row.mouse_filter = Control.MOUSE_FILTER_PASS
 		var mark := DeepUi.center(tier_row)
-		mark.custom_minimum_size.x = 56
-		DiceIcons.build(mark, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 14, DeepUi.MUTED, str(tier.get("text", "")))
+		mark.custom_minimum_size.x = 56 if die.is_empty() else 72
+		if DiceIcons.ladder_rung(tier, die) > 0:
+			DiceIcons.build_ladder(mark, [tier], die, DiceIcons.ladder_rung(tier, die), 14, DeepUi.MUTED, DeepUi.DIM)
+		else:
+			DiceIcons.build(mark, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 14, DeepUi.MUTED, str(tier.get("text", "")))
 		var words := DeepUi.vbox(tier_row, 1)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.label(words, str(tier.get("name", "")), 13, DeepUi.PAPER)
@@ -416,8 +525,10 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	if not unlocked:
 		DeepUi.stat(actions, "lock", "%s. You have beaten %s." % [Roster.unlock_hint(key), DeepUi.plural(Roster.wardens_beaten(profile), "Warden")], DeepUi.DIM, 13)
 	elif chosen:
+		DeepUi.icon_button(actions, "gem", "Edit loadout", func() -> void: _edit_loadout(key), 14, DeepUi.ACCENT)
 		DeepUi.pill(actions, "check", "Going down as %s" % str(character.get("name", key)), DeepUi.GOOD, 14)
 	else:
+		DeepUi.icon_button(actions, "gem", "Edit loadout", func() -> void: _edit_loadout(key), 14, DeepUi.ACCENT)
 		var picked_key: String = key
 		DeepUi.primary(actions, "descend", "Play as %s" % str(character.get("name", key)), func() -> void:
 			DeepAudio.play("ui_confirm", {"volume": 0.8})
@@ -434,6 +545,9 @@ func _loadout(content: VBoxContainer, character_key: String) -> void:
 	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	## The rail: click a socket, then a stone.
 	var rail_card := DeepUi.card(content, DeepUi.LINE, 18)
+	if _to_loadout:
+		_to_loadout = false
+		_scroll_to(_page, rail_card)
 	var rail_box := DeepUi.vbox(rail_card, 12)
 	var rail_head := DeepUi.hbox(rail_box, 8)
 	DeepUi.section(rail_head, "gem", "Sockets").size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -453,7 +567,7 @@ func _loadout(content: VBoxContainer, character_key: String) -> void:
 	var tray_card := DeepUi.card(content, DeepUi.LINE, 16)
 	var tray_box := DeepUi.vbox(tray_card, 10)
 	var socket_colour_now: String = str(sockets[_bench_socket]) if _bench_socket >= 0 and _bench_socket < sockets.size() else ""
-	DeepUi.section(tray_box, "chest", "From the vault" + ("" if socket_colour_now.is_empty() else ": stones that fit a %s socket" % socket_colour_now.capitalize().replace("Any", "any")))
+	DeepUi.section(tray_box, "chest", "From the vault" + ("" if socket_colour_now.is_empty() else (": any stone fits" if socket_colour_now == "ANY" else ": stones that fit a %s socket" % socket_colour_now.capitalize())))
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 10)
 	flow.add_theme_constant_override("v_separation", 10)
@@ -978,17 +1092,21 @@ func _ledger(content: VBoxContainer) -> void:
 class BirthstoneCard extends PanelContainer:
 	## A character's Birthstone at the end of a rail: the stone, its name, and every tier as
 	## a pictograph. It cannot be taken out or swapped, so there is nothing to click.
-	func _init(parent: Node, character_key: String, wide: float = 150.0) -> void:
+	## `labelled` mirrors the run bench's socket cards, which carry a heading above the ring
+	## and a second line under the name, so the tiers still sit level with their triggers.
+	func _init(parent: Node, character_key: String, wide: float = 150.0, labelled: bool = false) -> void:
 		var stone: Dictionary = DeepStone.birthstone(character_key)
 		var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
 		add_theme_stylebox_override("panel", DeepUi.raised(Color(0.07, 0.06, 0.09, 0.92), Color(tint, 0.7), 10, 10, 0.35))
 		custom_minimum_size = Vector2(wide, 0)
 		mouse_filter = Control.MOUSE_FILTER_PASS
 		parent.add_child(self)
-		var box := DeepUi.vbox(self, 6)
+		var box := DeepUi.vbox(self, 4 if labelled else 6)
 		if stone.is_empty():
 			DeepUi.label(box, "No Birthstone", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 			return
+		if labelled:
+			DeepUi.label(box, "Birthstone", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		var slot := Control.new()
 		slot.custom_minimum_size = Vector2(76, 76)
 		slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -1001,14 +1119,19 @@ class BirthstoneCard extends PanelContainer:
 		var thumb := StoneCard.mini(slot, stone, 60, str(stone.get("name", "")) + "\n" + str(stone.get("text", "")))
 		thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
 		thumb.mouse_filter = Control.MOUSE_FILTER_PASS
-		DeepUi.label(box, str(stone.get("name", "")), 14, tint.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
-		DeepUi.label(box, "Birthstone", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(box, str(stone.get("name", "")), 13 if labelled else 14, tint.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
+		if labelled:
+			DeepUi.label(box, "Always set", 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		## Every tier on one row, the size of a socket's trigger; each names itself on hover.
+		var tiers := DeepUi.hbox(box, 4)
+		tiers.alignment = BoxContainer.ALIGNMENT_CENTER
+		var die: String = DiceIcons.ladder_die(stone.get("tiers", []))
+		if not die.is_empty():
+			DiceIcons.build_ladder(tiers, stone.get("tiers", []), die, 0, 14 if labelled else 15, DeepUi.MUTED, DeepUi.MUTED)
 		for tier in stone.get("tiers", []):
-			var row := DeepUi.hbox(box, 6)
-			row.alignment = BoxContainer.ALIGNMENT_CENTER
-			row.mouse_filter = Control.MOUSE_FILTER_PASS
-			row.tooltip_text = "%s: %s" % [str(tier.get("name", "")), str(tier.get("text", ""))]
-			DiceIcons.build(row, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 13, DeepUi.MUTED, row.tooltip_text)
-			var name_label := DeepUi.label(row, str(tier.get("name", "")), 11, DeepUi.MUTED)
-			name_label.custom_minimum_size.x = 72
-			name_label.clip_text = true
+			if DiceIcons.ladder_rung(tier, die) > 0:
+				continue
+			DiceIcons.build(tiers, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 14 if labelled else 15, DeepUi.MUTED,
+				"%s: %s" % [str(tier.get("name", "")), str(tier.get("text", ""))])
+		if not labelled:
+			DeepUi.label(box, "Birthstone", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)

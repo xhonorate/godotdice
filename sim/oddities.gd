@@ -5,10 +5,13 @@ extends RefCounted
 ## An oddity is a card with two or three choices. Each choice carries an action from the
 ## fixed list below and shows its odds on the card. `apply()` resolves one player's choice
 ## against their own stones and dice; it never touches another player. Every roll comes
-## from the oddities RNG stream.
+## from the oddities RNG stream. Besides the stones it made and the ids it took, a result
+## names the stones it changed and the dice it made or changed, so a screen can show them.
 
 const ACTIONS: Array = ["none", "recut", "remove_inclusion", "reveal_inclusions", "fuse", "geode", "grind", "engrave",
-	"trade_up", "shrine", "idol", "copy_inclusion", "dice_swap", "collector_sell", "loupes", "heal", "ore", "vug"]
+	"trade_up", "shrine", "idol", "copy_inclusion", "dice_swap", "collector_sell", "heal", "ore", "vug",
+	"appraise", "tumble", "upsize", "temper", "trade_die", "buy_die", "pry", "chips"]
+const SIZES: Array = ["D4", "D6", "D8", "D10", "D12", "D20"]
 
 static func validate(def: Variant) -> Array:
 	if not def is Dictionary:
@@ -66,7 +69,7 @@ static func find_die(player: Dictionary, die_id: String) -> Dictionary:
 static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, rng: RandomNumberGenerator, ctx: Dictionary) -> Dictionary:
 	## ctx: mine (Dictionary), depth, run (id), party (int). Returns {ok, error, message, made: [stones], lost: [ids]}.
 	var kind: String = str(action.get("kind", "none"))
-	var out: Dictionary = {"ok": true, "error": "", "message": "", "made": [], "lost": []}
+	var out: Dictionary = {"ok": true, "error": "", "message": "", "made": [], "lost": [], "changed": [], "dice": []}
 	var mine: Dictionary = ctx.get("mine", {})
 	var depth: int = int(ctx.get("depth", 1))
 	match kind:
@@ -224,9 +227,113 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			remove_stone(player, str(stone.id))
 			out.lost.append(str(stone.id))
 			out.message = "The collector pays %d ore and the stone is gone." % paid
-		"loupes":
-			player.loupes = int(player.get("loupes", 0)) + int(action.get("amount", 2))
-			out.message = "You pocket %d loupes." % int(action.get("amount", 2))
+		"appraise":
+			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
+			if stone.is_empty() or bool(stone.get("appraised", false)):
+				return _refuse("choose a raw stone")
+			stone.appraised = true
+			stone.inclusions_revealed = true
+			out.changed.append(stone.duplicate(true))
+			out.message = "Through the one good lens: a %s." % DeepStone.name(stone)
+		"tumble":
+			## The drum keeps the stone's size, cut, clarity and whatever is frozen inside it,
+			## and turns out another skill of the same colour. A socketed stone never comes out
+			## as a skill already set beside it.
+			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
+			if stone.is_empty() or DeepStone.is_birthstone(stone):
+				return _refuse("choose one of your stones")
+			var colour: String = DeepStone.colour(stone)
+			var beside: Array = []
+			var socketed: bool = false
+			for other in player.get("rail", []):
+				if other is Dictionary:
+					if str(other.id) == str(stone.id):
+						socketed = true
+					else:
+						beside.append(str(other.skill))
+			var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool:
+				return str(DeepContent.skill(k).get("colour", "")) == colour and k != str(stone.skill) and not (socketed and beside.has(k)))
+			if pool.is_empty():
+				return _refuse("nothing else of that colour could come out of the drum")
+			stone.skill = DeepForge.roll_skill(rng, mine, pool)
+			out.changed.append(stone.duplicate(true))
+			if bool(stone.get("appraised", false)):
+				out.message = "The drum stops. The stone is a %s now." % str(DeepStone.skill_of(stone).get("name", stone.skill))
+			else:
+				out.message = "The drum stops. Something in the stone has changed; only an appraisal will say what."
+		"upsize":
+			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
+			if die.is_empty():
+				return _refuse("choose a die to hammer")
+			var at: int = SIZES.find(str(die.get("shape", "")))
+			if at < 0 or at >= SIZES.size() - 1:
+				return _refuse("that die is as big as dice come")
+			var key: String = str(SIZES[at + 1])
+			var bigger: Dictionary = DeepDice.make(key, DeepContent.die(key), str(die.id), str(die.get("engraving", "")))
+			die.clear()
+			die.merge(bigger)
+			out.dice.append(die.duplicate(true))
+			out.message = "The anvil rings. Your die comes away a %s." % DeepDice.describe(die)
+		"temper":
+			## The lowest face comes up, never past what the die can show; a blank face
+			## becomes a number.
+			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
+			if die.is_empty() or die.get("faces", []).is_empty():
+				return _refuse("choose a die to temper")
+			var low: int = 0
+			for index in range(die.faces.size()):
+				if _shown(die.faces[index]) < _shown(die.faces[low]):
+					low = index
+			var before: int = _shown(die.faces[low])
+			var after: int = mini(before + int(action.get("amount", 2)), maxi(DeepDice.top(die), before))
+			if after <= before:
+				return _refuse("every face of that die is already as high as it goes")
+			var kind_was: String = str(die.faces[low].get("kind", "plain"))
+			die.faces[low] = DeepDice.face(after, "plain" if kind_was == "blank" else kind_was)
+			out.dice.append(die.duplicate(true))
+			out.message = "The lowest face comes up from %d to %d." % [before, after]
+		"trade_die":
+			## The tinker draws a few dice from deep in the mine and hands back the dearest.
+			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
+			if die.is_empty():
+				return _refuse("choose a die to trade")
+			var best: Dictionary = {}
+			var best_price: int = -1
+			for _i in range(maxi(1, int(action.get("draws", 3)))):
+				var fresh: Dictionary = DeepForge.roll_die(rng, mine, depth + int(action.get("depth_bonus", 6)))
+				var price: int = int(DeepContent.die(str(fresh.key)).get("price", 0))
+				if price > best_price:
+					best = fresh
+					best_price = price
+			best.id = str(die.id)
+			die.clear()
+			die.merge(best)
+			out.dice.append(die.duplicate(true))
+			out.message = "The tinker pockets your die and hands back a %s." % DeepDice.describe(die)
+		"buy_die":
+			var price: int = int(action.get("price", 15))
+			if int(player.get("ore", 0)) < price:
+				return _refuse("not enough ore")
+			player.ore = int(player.ore) - price
+			var fresh: Dictionary = DeepForge.roll_die(rng, mine, depth)
+			if not player.has("bag_dice"):
+				player.bag_dice = []
+			player.bag_dice.append(fresh)
+			out.dice.append(fresh.duplicate(true))
+			out.message = "For %d ore the tinker sells you a %s. It is in your bag." % [price, DeepDice.describe(fresh)]
+		"pry":
+			var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", 4)), {"run": ctx.get("run", ""), "source": "seam"})
+			player.haul.append(stone)
+			out.made.append(stone)
+			var cost: int = int(action.get("hp", 8))
+			player.hp = maxi(1, int(player.get("hp", 0)) - cost)
+			out.message = "It comes loose, and the edge opens your hand: %d health." % cost
+		"chips":
+			for _i in range(maxi(1, int(action.get("count", 2)))):
+				var chip: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", -2)), {"run": ctx.get("run", ""), "source": "seam"})
+				player.haul.append(chip)
+				out.made.append(chip)
+			out.message = "You gather what the seam has already let go of."
 		"heal":
 			var gained: int = int(ceil(float(player.get("max_hp", 0)) * float(action.get("pct", 25)) / 100.0))
 			player.hp = mini(int(player.get("max_hp", 0)), int(player.get("hp", 0)) + gained)
@@ -241,5 +348,9 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			return _refuse("unknown oddity action")
 	return out
 
+static func _shown(f: Dictionary) -> int:
+	## What a face counts for when looking for the lowest: a blank shows nothing.
+	return 0 if str(f.get("kind", "plain")) == "blank" else int(f.get("value", 0))
+
 static func _refuse(error: String) -> Dictionary:
-	return {"ok": false, "error": error, "message": "", "made": [], "lost": []}
+	return {"ok": false, "error": error, "message": "", "made": [], "lost": [], "changed": [], "dice": []}

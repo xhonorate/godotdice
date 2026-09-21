@@ -7,7 +7,7 @@ extends Control
 ## vote; the lantern's pool shows what waits two depths ahead, and past its reach the rock is
 ## fogged and a chamber is only a glint: eyes for something hostile, a sparkle for something
 ## glittering, a question for something strange, nothing at all for a dark mouth. Lighting the
-## way (a loupe, or ore) clears the fog down to the landing.
+## way (paid in ore) clears the fog down to the landing.
 
 signal vote(offer_id: String)
 signal light
@@ -101,13 +101,9 @@ func _sync_lamp() -> void:
 		return
 	var unit: Dictionary = DeepDescent.player(run, local_id)
 	var cost: int = DeepDescent.lantern_cost()
-	if int(unit.get("loupes", 0)) > 0:
-		_lamp.text = "Light the way  ·  1 loupe"
-		_lamp.disabled = false
-	else:
-		_lamp.text = "Light the way  ·  %d ore" % cost
-		_lamp.disabled = int(unit.get("ore", 0)) < cost
-	_lamp.tooltip_text = "Show every chamber down to the landing at depth %d, dark mouths too.\nCosts a loupe, or %d ore when you have none." % [int(map.get("to", 0)), cost]
+	_lamp.text = "Light the way  ·  %d ore" % cost
+	_lamp.disabled = int(unit.get("ore", 0)) < cost
+	_lamp.tooltip_text = "Show every chamber down to the landing at depth %d, dark mouths too. Costs %d ore." % [int(map.get("to", 0)), cost]
 
 func _process(delta: float) -> void:
 	_clock += delta
@@ -527,6 +523,7 @@ func _kind_words(kind: String) -> String:
 		"vein": return "an ore vein to strike"
 		"motherlode": return "a motherlode: stones for everyone"
 		"oddity": return "an oddity"
+		"merchant": return "a merchant: buy, sell and appraise"
 		"hidden": return "a dark mouth: anything could be down there"
 		"landing": return "a landing"
 	return kind
@@ -581,7 +578,7 @@ func _draw_landing(map: Dictionary, at: Vector2, reachable: bool) -> void:
 	_canvas.draw_arc(at, 19.0, 0, TAU, 36, Color(tone, (0.95 if reachable else 0.5) * fade), 2.5, true)
 	_glyph("crown" if warden else "lift", at, 21.0, Color(tone.lightened(0.3), fade))
 	_canvas.draw_string(DeepUi.display_font(), at + Vector2(26, 5), "WARDEN" if warden else "LANDING", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tone, 0.85 * fade))
-	var words: String = "Depth %d: a landing with a lift, a lapidary and a merchant." % landing
+	var words: String = "Depth %d: a landing with a lift. Rest, appraise or polish, then go up or down." % landing
 	if warden:
 		words += " A Warden guards the way down."
 	var spot: Dictionary = {"at": at, "radius": 19.0, "text": words}

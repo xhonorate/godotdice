@@ -31,7 +31,7 @@ const NAMES: PackedStringArray = [
 	"gem_gold", "gem_white", "gem_fizzle", "resonance", "harmony", "hit_light", "hit_heavy",
 	"hit_crit", "block", "block_break", "heal", "poison", "stun", "curse", "enemy_windup",
 	"enemy_strike", "creature_die", "warden_die", "victory", "defeat", "cave_rumble", "ore",
-	"pick_strike", "rock_break", "stone_found", "tunnel", "landing", "lift", "lantern", "oddity",
+	"pick_strike", "rock_break", "stone_found", "tunnel", "landing", "lift", "depart", "lantern", "oddity",
 	"buy", "salvage_save", "salvage_lose", "depth_card",
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
 	"grade_peerless", "star", "keep", "sell"]
@@ -99,8 +99,10 @@ static func _bake(name: String) -> AudioStreamWAV:
 			return DeepSynth.new(0.16).clack(0.0, 0.3, 1120.0) \
 				.bell(0.006, 0.12, 1480.0, 0.16, DeepSynth.CHIME_PARTIALS, 4.0).normalise(0.5).stream()
 		"ui_tab":
-			return DeepSynth.new(0.26).clack(0.0, 0.26, 700.0) \
-				.bell(0.01, 0.2, 880.0, 0.18, DeepSynth.CHIME_PARTIALS, 3.2).normalise(0.52).stream()
+			## Turned often, so a soft wooden tock: no bright partials and no hiss to tire of.
+			return DeepSynth.new(0.14).noise(0.0, 0.01, 0.14, 2600.0, 800.0, 5.0, 0.0008) \
+				.tone(0.0, 0.09, 540.0, 430.0, 0.3, "sine", 4.4, 0.002) \
+				.tone(0.0, 0.05, 1080.0, 860.0, 0.05, "sine", 5.0, 0.002).normalise(0.34).stream()
 		"ui_open":
 			return DeepSynth.new(0.34).whoosh(0.0, 0.24, 0.24, 300.0, 1500.0) \
 				.bell(0.06, 0.26, 523.25, 0.18, DeepSynth.CHIME_PARTIALS, 3.0).normalise(0.52).stream()
@@ -287,6 +289,17 @@ static func _bake(name: String) -> AudioStreamWAV:
 			return DeepSynth.new(1.4).tone(0.0, 1.0, 124.0, 88.0, 0.3, "saw", 1.2, 0.2, 0.03, 4.0) \
 				.rumble(0.0, 1.1, 0.34).noise(0.0, 0.9, 0.14, 1200.0, 300.0, 1.4, 0.3, 200.0) \
 				.bell(0.9, 0.4, 420.0, 0.22, DeepSynth.METAL_PARTIALS, 3.2).normalise(0.78).stream()
+		"depart":
+			## Two strokes on the shaft bell, the signal to lower, and the winch paying out
+			## cable: the start of a day's work, bright rather than grim.
+			var cage := DeepSynth.new(1.6).bell(0.0, 0.6, 783.99, 0.28, DeepSynth.CHIME_PARTIALS, 2.8) \
+				.bell(0.22, 0.8, 1046.5, 0.26, DeepSynth.CHIME_PARTIALS, 2.5)
+			var when: float = 0.42
+			for i in range(9):
+				cage.clack(when, 0.07 * (1.0 - float(i) / 12.0), 520.0)
+				when += 0.075 + 0.012 * float(i)
+			return cage.chord(0.5, 1.0, C5, [0, 4, 7, 12], 0.07, DeepSynth.CHIME_PARTIALS, 0.06) \
+				.whoosh(0.4, 1.0, 0.06, 800.0, 360.0).echoes(0.17, 0.2, 2).normalise(0.3).stream()
 		"lantern":
 			return DeepSynth.new(0.7).whoosh(0.0, 0.3, 0.3, 500.0, 2400.0) \
 				.noise(0.05, 0.4, 0.16, 5000.0, 1200.0, 2.0, 0.05, 900.0) \

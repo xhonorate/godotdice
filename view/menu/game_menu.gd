@@ -9,6 +9,7 @@ signal closed
 signal settings_changed
 signal abandon_requested
 signal leave_requested
+signal join_requested(lobby_id: String)
 signal quit_requested
 
 const QUALITY: Array = [["Auto", 0], ["High", 3], ["Medium", 2], ["Low", 1]]
@@ -31,6 +32,7 @@ var _root: Control
 var _body: VBoxContainer
 var _panel: PanelContainer
 var _page: String = "main"
+var _invite: String = ""
 
 func _init() -> void:
 	layer = 55
@@ -114,6 +116,14 @@ func _show(page: String) -> void:
 			close()
 			leave_requested.emit())
 		"quit": _page_confirm("door", "Quit to the desktop?", _quit_text(), "Quit", DeepUi.BAD, func() -> void: quit_requested.emit())
+		"invite": _page_confirm("party", "Join a friend's party?", _invite_text(), "Join", DeepUi.ACCENT, func() -> void:
+			close()
+			join_requested.emit(_invite))
+
+func ask_to_join(lobby_id: String) -> void:
+	## A Steam invitation accepted in the middle of an expedition: leaving it is asked first.
+	_invite = lobby_id
+	_show("invite")
 
 func _focus(button: Button) -> void:
 	## Deferred, and the page may have moved on by then.
@@ -167,6 +177,12 @@ func _quit_text() -> String:
 		return "You will drop out of the party."
 	return "Everything in the workshop is saved."
 
+func _invite_text() -> String:
+	var text: String = "You leave this expedition for theirs. " + _quit_text()
+	if bool(context.get("host", true)) and not bool(context.get("solo", true)):
+		text += "\n\nYour party waits at the last landing until you reopen it."
+	return text
+
 func _page_confirm(glyph: String, title: String, text: String, verb: String, tone: Color, act: Callable) -> void:
 	_heading(glyph, title, tone)
 	var words := DeepUi.wrap(_body, text, 15, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER, 500)
@@ -196,7 +212,7 @@ func _page_settings() -> void:
 	_row(grid, "Screen shake", _slider("shake", 1.0))
 	_row(grid, "Fewer flashes", _toggle("reduced_motion", false), "Softens the flashes and colour smears on heavy blows.")
 	_section(grid, "Fights")
-	_row(grid, "Fight speed", _choice("speed", SPEEDS, 1.0), "How fast a locked-in turn plays out. F toggles fast fights.")
+	_row(grid, "Fight speed", _choice("speed", SPEEDS, 1.0), "How fast a locked-in turn plays out, every animation with it. F toggles 4× mid-fight.")
 	var back := DeepUi.button(_body, "Back", func() -> void: _show("main"), 15)
 	DeepUi.voice(back, "ui_back")
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

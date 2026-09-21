@@ -13,7 +13,7 @@ extends RefCounted
 ## while the workshop is being looked at, and checked headless in the suites.
 ##
 ## The inner loops are written for speed, not for looks: every envelope is a multiply, every
-## frequency glide is an increment, and nothing calls a function per sample. The bank is 69
+## frequency glide is an increment, and nothing calls a function per sample. The bank is 70
 ## sounds and it has to be ready before the player reaches the first fight.
 
 ## 12 kHz of bandwidth is more than any of these sounds needs. The mixer resamples.
