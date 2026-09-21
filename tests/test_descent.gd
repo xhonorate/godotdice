@@ -11,6 +11,7 @@ func _init() -> void:
 	_test_landing_commands()
 	_test_bot_runs()
 	_test_salvage()
+	_test_grubstake()
 	_test_profile()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -36,7 +37,7 @@ func dice(character: String, prefix: String) -> Array:
 
 func config(seed_value: int, strong: bool) -> Dictionary:
 	var carat: int = 20 if strong else 3
-	return {"seed": seed_value, "mine": "QUARRY", "players": [
+	return {"seed": seed_value, "mine": "QUARRY", "boons": false, "players": [
 		{"id": "a", "name": "Ada", "character": "ARDOR", "rail": [stone("STRIKE", carat, 4, 3, "a_strike"), stone("GUARD", carat, 4, 3, "a_guard"), stone("MEND", carat, 4, 3, "a_mend")], "dice": dice("ARDOR", "a")},
 		{"id": "b", "name": "Bo", "character": "VESPER", "rail": [stone("CLEAVE", carat, 4, 3, "b_cleave"), stone("CRUSH", carat, 4, 3, "b_crush"), stone("BARRAGE", carat, 4, 3, "b_barrage")], "dice": dice("VESPER", "b")}]}
 
@@ -397,3 +398,105 @@ func _test_profile() -> void:
 	var sold: Dictionary = DeepProfile.decide_tray(profile, "v1", false)
 	check(sold.ok and not sold.kept and profile.tray.is_empty() and profile.seen.has("VENOM") and not profile.vault.has("VENOM"), "selling a stone marks its skill seen")
 	check(not DeepProfile.decide_tray(profile, "zzz", true).ok, "an unknown tray stone is refused")
+
+
+func _test_grubstake() -> void:
+	## The shaft head: a veteran sees a long shot, a fallen lapidary is shown mercy, everyone
+	## takes exactly one stake, and the tunnels wait for the party.
+	var setup: Dictionary = config(77, false)
+	setup.boons = true
+	setup.players[0].last_depth = 9
+	setup.players[0].last_outcome = "extracted"
+	setup.players[1].last_depth = 2
+	setup.players[1].last_outcome = "fallen"
+	var state: Dictionary = DeepDescent.new_run(setup)
+	check(state.phase == "grubstake" and state.offers.is_empty(), "a run opens at the shaft head")
+	var a_offers: Array = state.grubstake.offers.a
+	var b_offers: Array = state.grubstake.offers.b
+	var kinds_a: Array = a_offers.map(func(o: Dictionary) -> String: return str(o.kind))
+	check(kinds_a == ["stone", "kit", "terms", "long_shot"], "a veteran is offered a long shot: %s" % str(kinds_a))
+	check(b_offers.size() == 3 and DeepContent.boon(str(b_offers[1].boons[0])).get("tags", []).has("mercy"), "a lapidary who fell early is shown mercy: %s" % str(b_offers[1].boons))
+	check(a_offers[2].boons.size() == 2 and DeepContent.boon(str(a_offers[2].boons[0])).group == "cost" and DeepContent.boon(str(a_offers[2].boons[1])).group == "reward", "terms are a cost and a reward")
+	check(not cmd(state, "a", "vote_tunnel", {"offer": "x"}).ok, "no tunnels before the stake is taken")
+	var socketed: Array = a_offers.filter(func(o: Dictionary) -> bool: return o.needs.has("socket"))
+	if not socketed.is_empty():
+		check(not cmd(state, "a", "stake", {"offer": socketed[0].id, "payload": {}}).ok, "a stake on a stone needs a socket")
+	var take: Callable = func(who: String, offer: Dictionary) -> Dictionary:
+		var payload: Dictionary = {}
+		if offer.needs.has("socket"):
+			payload.socket = 0
+		if offer.needs.has("pick"):
+			payload.pick = 0
+		return cmd(state, who, "stake", {"offer": offer.id, "payload": payload})
+	var taken: Dictionary = take.call("a", a_offers[1])
+	check(taken.ok and taken.event.kind == "staked" and DeepDescent.player(state, "a").stake == a_offers[1].id, "a stake is taken: %s" % str(taken.get("error", "")))
+	check(not take.call("a", a_offers[0]).ok, "only one stake each")
+	check(state.phase == "grubstake", "the party waits for everyone")
+	var taken_b: Dictionary = take.call("b", b_offers[0])
+	check(taken_b.ok and bool(taken_b.event.get("finished", false)) and state.phase == "tunnels" and not state.offers.is_empty(), "when everyone has staked the tunnels open: %s" % str(taken_b.get("error", "")))
+	## Every effect, applied directly.
+	var quiet: Dictionary = DeepDescent.new_run(config(78, false))
+	var u: Dictionary = DeepDescent.player(quiet, "a")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var offer_of: Callable = func(keys: Array, needs: Array = []) -> Dictionary: return {"id": "t", "kind": "kit", "boons": keys, "needs": needs, "picks": [], "pick_kind": ""}
+	var before_hp: int = int(u.max_hp)
+	check(DeepBoons.apply(quiet, u, offer_of.call(["HARDY"]), {}, rng).ok and int(u.max_hp) == before_hp + int(round(before_hp * 0.12)) and u.hp == u.max_hp, "Hardy raises max and current health (%d to %d)" % [before_hp, int(u.max_hp)])
+	check(DeepBoons.apply(quiet, u, offer_of.call(["STAKED"]), {}, rng).ok and int(u.ore) == 40, "Staked pays 40 ore")
+	check(DeepBoons.apply(quiet, u, offer_of.call(["PROVISIONED"]), {}, rng).ok and int(u.loupes) == 4, "Provisioned adds two loupes")
+	check(DeepBoons.apply(quiet, u, offer_of.call(["COST_LOUPES"]), {}, rng).ok and int(u.loupes) == 0, "No Loupes takes them all")
+	var cut_before: int = int(u.rail[0].cut)
+	check(DeepBoons.apply(quiet, u, offer_of.call(["RECUT"], ["socket"]), {"socket": 0}, rng).ok and int(u.rail[0].cut) == mini(cut_before + 1, 4), "Recut lifts the socketed stone a step")
+	check(DeepBoons.apply(quiet, u, offer_of.call(["HEAVIER"], ["socket"]), {"socket": 0}, rng).ok and int(u.rail[0].carat) == 6, "Heavier adds three carats (%d)" % int(u.rail[0].carat))
+	check(DeepBoons.apply(quiet, u, offer_of.call(["PINPOINT"], ["socket"]), {"socket": 1}, rng).ok and u.rail[1].inclusions.size() == 1 and str(DeepContent.inclusion(str(u.rail[1].inclusions[0])).get("class", "")) == "PINPOINT", "a Pinpoint forms in the stone")
+	check(not DeepBoons.apply(quiet, u, offer_of.call(["RECUT"], ["socket"]), {"socket": 4}, rng).ok, "an empty socket is refused")
+	var haul_before: int = u.haul.size()
+	var raw: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["RAW_STONE"]), {}, rng)
+	check(raw.ok and u.haul.size() == haul_before + 1 and not bool(u.haul[u.haul.size() - 1].appraised), "a raw stone joins the haul")
+	check(DeepBoons.apply(quiet, u, offer_of.call(["SOFT_ROCK"]), {}, rng).ok and int(u.run_mods.soft_rock) == 3, "Soft Rock is remembered for three fights")
+	check(DeepBoons.apply(quiet, u, offer_of.call(["STEADY_HANDS"]), {}, rng).ok and int(u.run_mods.extra_rerolls.until_depth) == 4, "Steady Hands is remembered until the landing")
+	var hp_before: int = int(u.hp)
+	check(DeepBoons.apply(quiet, u, offer_of.call(["COST_WOUND"]), {}, rng).ok and int(u.hp) == hp_before - int(floor(hp_before * 0.3)), "A Bad Fall costs 30%% of current health (%d to %d)" % [hp_before, int(u.hp)])
+	check(DeepBoons.apply(quiet, u, offer_of.call(["REWARD_WILD"]), {}, rng).ok and u.bag_dice.size() == 1 and str(u.bag_dice[0].key) == "WILD_D6", "a Wild Die joins the bag")
+	var rolled: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["SHOT_ROLL"]), {}, rng)
+	check(rolled.ok and rolled.has("rolled") and rolled.rolled.size() == 5, "Roll for It rolls the bowl: %s" % str(rolled.get("rolled", [])))
+	## Terms never pair what they exclude, over many seeds.
+	var bad_pairs: int = 0
+	var terms_seen: int = 0
+	for seed_value in range(40):
+		var c: Dictionary = config(200 + seed_value, false)
+		c.boons = true
+		var s: Dictionary = DeepDescent.new_run(c)
+		for pid in ["a", "b"]:
+			for o in s.grubstake.offers[pid]:
+				if str(o.kind) == "terms":
+					terms_seen += 1
+					if not DeepBoons._pairs(str(o.boons[0]), str(o.boons[1])):
+						bad_pairs += 1
+	check(terms_seen == 80 and bad_pairs == 0, "terms respect not_with over %d offers (%d bad)" % [terms_seen, bad_pairs])
+	## Soft Rock halves the first fight's creatures and Steady Hands adds a reroll at depth 1.
+	var fought: bool = false
+	for seed_value in range(79, 110):
+		var s: Dictionary = DeepDescent.new_run(config(seed_value, false))
+		var offer: Dictionary = {}
+		for candidate in s.offers:
+			if str(candidate.kind) in ["fight", "elite"] and not bool(candidate.get("hidden", false)):
+				offer = candidate
+		if offer.is_empty():
+			continue
+		var staker: Dictionary = DeepDescent.player(s, "a")
+		staker.run_mods = {"soft_rock": 3, "extra_rerolls": {"amount": 1, "until_depth": 4}}
+		cmd(s, "a", "vote_tunnel", {"offer": offer.id})
+		cmd(s, "b", "vote_tunnel", {"offer": offer.id})
+		if not DeepDescent.in_battle(s):
+			continue
+		var b: Dictionary = DeepDescent.battle(s)
+		var halved: bool = true
+		for foe in b.enemies:
+			if int(foe.hp) > int(foe.max_hp) / 2:
+				halved = false
+		check(halved and int(staker.run_mods.soft_rock) == 2, "Soft Rock opens the fight against cracked creatures and is spent by one")
+		check(int(DeepBattle.player(b, "a").rerolls) == 3, "Steady Hands gives Ardor a third reroll at depth 1 (%d)" % int(DeepBattle.player(b, "a").rerolls))
+		fought = true
+		break
+	check(fought, "a fight was found to test the run mods against")

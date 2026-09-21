@@ -62,6 +62,7 @@ static func character(key: String) -> Dictionary: return entry("characters", key
 static func creature(key: String) -> Dictionary: return entry("creatures", key)
 static func mine(key: String) -> Dictionary: return entry("mines", key)
 static func oddity(key: String) -> Dictionary: return entry("oddities", key)
+static func boon(key: String) -> Dictionary: return entry("boons", key)
 static func colour(key: String) -> Dictionary: return entry("colours", key)
 
 static func constant(name: String, fallback: Variant) -> Variant:
@@ -186,6 +187,12 @@ static func validate(p: Dictionary = {}) -> Array:
 		errors.append_array(_validate_mine(p.mines[key], p).map(func(e: String) -> String: return "mine %s: %s" % [key, e]))
 	for key in p.get("oddities", {}):
 		errors.append_array(DeepOddities.validate(p.oddities[key]).map(func(e: String) -> String: return "oddity %s: %s" % [key, e]))
+	for key in p.get("boons", {}):
+		errors.append_array(DeepBoons.validate(p.boons[key], p).map(func(e: String) -> String: return "boon %s: %s" % [key, e]))
+	if p.has("boons"):
+		for group in ["stone", "kit", "cost", "reward", "long_shot"]:
+			if p.boons.values().filter(func(b: Variant) -> bool: return b is Dictionary and str(b.get("group", "")) == group).is_empty():
+				errors.append("boons: no %s stake to offer" % group)
 	return errors
 
 static func _validate_die(def: Variant) -> Array:

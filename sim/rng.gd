@@ -7,7 +7,7 @@ extends RefCounted
 ## change what the rock gives up. Cosmetic randomness in the view uses its own RNG and is
 ## never saved.
 
-const STREAMS: Array = ["dice", "creatures", "stones", "tunnels", "oddities", "salvage"]
+const STREAMS: Array = ["dice", "creatures", "stones", "tunnels", "oddities", "salvage", "boons"]
 
 static func streams(seed_value: int, names: Array = STREAMS) -> Dictionary:
 	var out: Dictionary = {}

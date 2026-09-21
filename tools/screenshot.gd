@@ -1,13 +1,13 @@
 extends SceneTree
 ## Boots the game, drives it to a screen, and saves what it looks like.
 ##   godot --path . --script tools/screenshot.gd -- <target> out.png [seed]
-## Targets: home (map) | bench | vault | appraise | ledger | tunnels | vein | vein_done | oddity |
+## Targets: home (map) | bench | vault | appraise | ledger | grubstake | tunnels | vein | vein_done | oddity |
 ##          landing | merchant | lift | landing_bench | battle | battle_fx | battle_status | spoils |
 ##          over | inspect_stone | inspect_die | inspect_creature | menu | menu_settings |
 ##          abandon | map_lit
 ## Needs a window: this is the one tool here that is not headless.
 
-const HOME_TABS: Dictionary = {"home": "map", "map": "map", "bench": "bench", "vault": "vault", "appraise": "appraise", "ledger": "ledger"}
+const HOME_TABS: Dictionary = {"home": "map", "map": "map", "bench": "roster", "roster": "roster", "vault": "vault", "appraise": "appraise", "ledger": "ledger"}
 
 func _init() -> void:
 	var args: Array = OS.get_cmdline_user_args()
@@ -116,6 +116,20 @@ func _init() -> void:
 				"map_lit":
 					app.session.send({"kind": "light"})
 			break
+		if target == "grubstake" and phase == "grubstake":
+			break
+		if phase == "grubstake":
+			var staker: Dictionary = app.session.local_player()
+			if str(staker.get("stake", "")).is_empty():
+				var offers: Array = run.grubstake.offers.get(app.session.local_id, [])
+				var offer: Dictionary = offers[0]
+				var payload: Dictionary = {}
+				if offer.needs.has("socket"):
+					payload.socket = 0
+				if offer.needs.has("pick"):
+					payload.pick = 0
+				app.session.send({"kind": "stake", "offer": offer.id, "payload": payload})
+			continue
 		if target == "tunnels" and phase == "tunnels" and int(run.depth) >= 4:
 			## Past the first landing, so the lantern's fog shows on the last row.
 			app.descent._hold = {}

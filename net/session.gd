@@ -129,7 +129,8 @@ func _set_status(value: String) -> void:
 
 func _add_member(id: String, member: Dictionary) -> void:
 	var record: Dictionary = {"id": id, "name": str(member.get("name", "Lapidary")), "character": str(member.get("character", DeepContent.starter_character())),
-		"rail": member.get("rail", []), "dice": member.get("dice", []), "ready": bool(member.get("ready", false)), "connected": true}
+		"rail": member.get("rail", []), "dice": member.get("dice", []), "ready": bool(member.get("ready", false)), "connected": true,
+		"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", ""))}
 	lobby.members[id] = record
 	if not lobby.order.has(id):
 		lobby.order.append(id)
@@ -149,7 +150,7 @@ func _apply_member(id: String, fields: Dictionary) -> void:
 	var record: Dictionary = lobby.members.get(id, {})
 	if record.is_empty():
 		return
-	for key in ["name", "character", "rail", "dice", "ready"]:
+	for key in ["name", "character", "rail", "dice", "ready", "last_depth", "last_outcome"]:
 		if fields.has(key):
 			record[key] = fields[key]
 	if fields.has("character") or fields.has("rail") or fields.has("dice"):
@@ -188,7 +189,8 @@ func start_run(seed_value: int = 0) -> Dictionary:
 		var member: Dictionary = lobby.members[id]
 		if not bool(member.get("connected", true)):
 			continue
-		players.append({"id": id, "name": member.name, "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", [])})
+		players.append({"id": id, "name": member.name, "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", []),
+			"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", ""))})
 	var config: Dictionary = {"seed": seed_value if seed_value != 0 else randi(), "mine": str(lobby.get("mine", DeepContent.starter_mine())), "players": players}
 	run = DeepDescent.new_run(config)
 	revision = 1

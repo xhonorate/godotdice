@@ -16,19 +16,39 @@ func _init() -> void:
 	await process_frame
 	check(app.session != null and app.session.status == "local", "the app boots into a local session")
 	check(app.home.visible and not app.descent.visible, "the workshop is shown first")
-	for tab in ["map", "bench", "vault", "appraise", "ledger"]:
+	for tab in ["map", "roster", "vault", "appraise", "ledger"]:
 		app.home.open(tab)
 		check(app.home._body.get_child_count() > 0, "the %s tab renders" % tab)
+	## The roster shows a locked lapidary's dossier without letting them be chosen.
+	app.home._roster_pick = "FLORIN"
+	app.home.open("roster")
+	check(app.home._body.get_child_count() > 0 and app.profile.current_character == "ARDOR", "a locked lapidary can be looked at, not played")
+	app.home._roster_pick = ""
 	app._depart(9001)
 	await process_frame
 	check(app.descent.visible and not app.home.visible and app.session.in_run(), "departing shows the run")
 	var guard: int = 0
 	var saw_battle: bool = false
 	var saw_landing: bool = false
+	var saw_grubstake: bool = false
 	while str(app.session.run.get("phase", "")) != "over" and guard < 500:
 		guard += 1
 		var run: Dictionary = app.session.run
 		match str(run.phase):
+			"grubstake":
+				var staker: Dictionary = app.session.local_player()
+				if str(staker.get("stake", "")).is_empty():
+					var offers: Array = run.grubstake.offers.get(app.session.local_id, [])
+					if not offers.is_empty():
+						var offer: Dictionary = offers[0]
+						var payload: Dictionary = {}
+						if offer.needs.has("socket"):
+							payload.socket = 0
+						if offer.needs.has("pick"):
+							payload.pick = 0
+						app.descent.show_state(run)
+						saw_grubstake = true
+						app.session.send({"kind": "stake", "offer": offer.id, "payload": payload})
 			"tunnels":
 				var offer: Dictionary = run.offers[0]
 				for candidate in run.offers:
@@ -71,6 +91,7 @@ func _init() -> void:
 		if guard % 10 == 0:
 			await process_frame
 	check(str(app.session.run.get("phase", "")) == "over", "the run ends through the screens (guard %d, phase %s)" % [guard, str(app.session.run.get("phase", ""))])
+	check(saw_grubstake, "the grubstake was shown and a stake taken")
 	check(saw_battle, "a fight was shown")
 	check(saw_landing or str(app.session.run.get("outcome", "")) == "fallen", "a landing was shown or the party fell first")
 	check(app.profile.records.runs == 1, "the result reached the profile")

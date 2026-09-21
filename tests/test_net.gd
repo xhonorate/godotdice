@@ -66,7 +66,11 @@ func _test_local() -> void:
 	check(session.status == "local" and session.lobby.order == ["p0"], "a local session seats one player")
 	check(session.can_start(), "alone, you can always set out")
 	var result: Dictionary = session.start_run(77)
-	check(result.ok and started.size() == 1 and session.in_run() and session.run.phase == "tunnels", "the run starts at the tunnels")
+	check(result.ok and started.size() == 1 and session.in_run() and session.run.phase == "grubstake", "the run starts at the shaft head")
+	stake(session)
+	check(session.run.phase == "tunnels" and events_a.size() == 1 and events_a[0].kind == "staked" and bool(events_a[0].get("finished", false)), "alone, one stake opens the tunnels")
+	events_a.clear()
+	var revision_after_stake: int = session.revision
 	var refusals: Array = []
 	session.refused.connect(func(message: String) -> void: refusals.append(message))
 	session.send({"kind": "vote_tunnel", "offer": "nope"})
@@ -77,7 +81,7 @@ func _test_local() -> void:
 			offer = candidate
 	session.send({"kind": "vote_tunnel", "offer": offer.id})
 	check(events_a.size() == 1 and events_a[0].kind == "vote" and events_a[0].has("entered"), "the vote enters the chamber and is reported as one event")
-	check(session.revision == 2, "every published change bumps the revision")
+	check(session.revision == revision_after_stake + 1, "every published change bumps the revision")
 	if str(offer.kind) == "fight":
 		check(DeepDescent.in_battle(session.run), "a fight is on")
 		drive(session, 1.0)
@@ -134,6 +138,14 @@ func _test_linked() -> void:
 	check(host.can_start(), "ready again")
 	var started: Dictionary = host.start_run(4242)
 	check(started.ok and guest.in_run() and same(guest.run, host.run), "the guest receives the whole run")
+	## Both take a stake at the shaft head; the guest's goes through the host and comes back.
+	check(host.run.phase == "grubstake" and guest.run.grubstake.offers.has("p1"), "both sides see the shaft head")
+	stake(guest)
+	check(host.run.phase == "grubstake" and str(DeepDescent.player(host.run, "p1").stake) != "" and same(guest.run, host.run), "the guest's stake is applied by the host and mirrored")
+	stake(host)
+	check(host.run.phase == "tunnels" and same(guest.run, host.run), "the host's stake opens the tunnels on both")
+	host_events.clear()
+	guest_events.clear()
 	## The guest votes; the host applies; the mirror follows. Fights are sought out, so the
 	## stream of battle steps gets exercised whatever the map looks like.
 	var offer: Dictionary = fighting(host.run.offers)
@@ -224,6 +236,19 @@ func _test_linked() -> void:
 	for wire in [host_wire, guest_wire, late_wire, host_wire_2]:
 		if wire.get_parent() == null:
 			wire.free()
+
+func stake(session: DeepSession) -> void:
+	## Take the first stake on offer for this session's player, with whatever it needs.
+	var offers: Array = session.run.get("grubstake", {}).get("offers", {}).get(session.local_id, [])
+	if offers.is_empty():
+		return
+	var offer: Dictionary = offers[0]
+	var payload: Dictionary = {}
+	if offer.needs.has("socket"):
+		payload.socket = 0
+	if offer.needs.has("pick"):
+		payload.pick = 0
+	session.send({"kind": "stake", "offer": str(offer.id), "payload": payload})
 
 func fighting(offers: Array) -> Dictionary:
 	for offer in offers:

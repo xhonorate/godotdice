@@ -105,7 +105,12 @@ func _prewarm() -> void:
 func member() -> Dictionary:
 	var character_key: String = str(profile.get("current_character", DeepContent.starter_character()))
 	var loadout: Dictionary = DeepProfile.loadout(profile, character_key)
-	return {"name": str(profile.get("name", "Lapidary")), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", ""))}
+	## The last run's depth and ending decide the Grubstake: a veteran is offered a long shot,
+	## a lapidary who fell early is shown mercy.
+	var history: Array = profile.get("history", [])
+	var last: Dictionary = history[history.size() - 1] if not history.is_empty() else {}
+	return {"name": str(profile.get("name", "Lapidary")), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
+		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", ""))}
 
 func _refresh_home() -> void:
 	if home == null:

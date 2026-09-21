@@ -334,11 +334,26 @@ Depth scaling is a smooth curve on enemy HP, damage and count. Enrage after turn
 | Motherlode | Rare. A chamber of stones. Every run has a small hidden chance of one; its existence is the "bonus round" players talk about. |
 | Landing | See above. |
 
-### 7.4 Pressure
+### 7.4 The Grubstake **[Added September 21, 2026]**
+
+Before the first tunnels the run opens at the **shaft head**, where the workshop stakes each player for the dig. A *grubstake* is what a backer advanced a prospector before they went down, and that is the fiction: every player is shown a handful of **stakes** and takes exactly one. Whatever a stake changes is for this dig only. The rail's stones are copies of the vault's, and only the haul and the bag come home, so nothing here touches the collection.
+
+| Stake | What it draws from |
+|---|---|
+| **A stone stake** | The rail or the haul: a stone judged a Cut step better, three carats heavier, or given a Pinpoint inclusion for the run; a raw stone from depth 4; or a pick of three appraised stones |
+| **A kit stake** | Health, ore, loupes, a pick of three dice from the mine's pool, a reroll more until the first landing, or Soft Rock: the creatures of the first three fights arrive at half health |
+| **Terms** | A cost drawn with a bigger reward. Costs: less health, a wound before the start, a stone judged a step worse, going down without loupes. Rewards: two Cut steps, six carats, ninety ore, a pick of three Precious-or-better stones, a quarter more health, a Wild Die, or, rarely, a Star inclusion. Costs and rewards list what they will not pair with, so no one is offered less health beside more health |
+| **A long shot** | Offered only to a **veteran**, whose last run reached the first Warden: crack a geode, roll the bowl for ore, a raw stone from depth 8 sight unseen, or a coin for a fifth of your health either way |
+
+**Mercy.** A player whose last run fell before the first landing has their kit stake drawn from the stakes tagged for it (Hardy, Soft Rock), so a bad run is followed by a gentler start. Standing travels with the lobby member as the last run's depth and ending, so it works the same alone and over the network.
+
+Every stake is content (`boons` in the pack) with a small vocabulary of run effects and a `needs` field: a socket in the rail, or a pick from candidates rolled when the offer is made so the player sees what is on the table. The offer is rolled from its own RNG stream, so a seed replays the same stakes. In co-op each player takes their own stake and the tunnels open when everyone has.
+
+### 7.5 Pressure
 
 The tremor meter and the roaming boss are dropped. The pressure is structural: five-chamber commitments, Wardens at known depths, and depth scaling. If more pressure is wanted later, **Dark** is the candidate: below a depth, each chamber adds a Darkness stack that buffs enemies unless a lantern charm burns ore. Not in v1.
 
-### 7.5 Endings
+### 7.6 Endings
 
 - **Extracted**: the lift. Everything comes home.
 - **Fallen**: a wipe. Every raw stone in the haul is rolled on a **salvage die** by grade (d6 for Rough to d20 for Peerless): only the top face survives. Loadout stones are never at risk. The salvage dice are physical, one per stone, and the player rolls them one at a time. Keep this: it is a slot machine inside the loss.
@@ -375,7 +390,7 @@ The shop-with-hotspots becomes a **tabbed home** with a persistent header (gold,
 |---|---|
 | **Appraise** | The reveal ceremony for stones brought home (§9.1). Also the place to sell. |
 | **Vault** | One stone per skill **[Decided]**, laid out as the skill grid: unseen skills are dark silhouettes, seen-but-unowned are grey, owned show the stone you kept. Sort and filter by colour, grade and provenance. Click for the full card. Pin favourites to a **showcase shelf** rendered in 3D. When a second copy of a skill comes home, both stones are shown side by side and the player keeps one; the other is sold. |
-| **Bench** | Choose a setting, socket stones from the vault into its rail, arrange dice from the bowl. Drag and drop, with the forecast strip live against a sample hand so a build can be tested before leaving. |
+| **Lapidaries** (September 21, 2026; was the Bench) | The roster. A strip of portrait tiles in unlock order, locked ones grey with a lock and the Warden that earns them; a dossier for the one being looked at (portrait, health, dice with their faces, sockets, passive, the Birthstone with every tier and the face they pull when it fires); and, for an unlocked lapidary, their loadout beneath: socket stones from the vault into the rail, load dice from the bowl. A locked lapidary can be looked at, not played. Portraits are procedural plates (tint, silhouette, the Birthstone worn as a pendant) until the busts are drawn; the plate already carries the mood the busts will take. |
 | **Shop** | Daily stock of appraised stones, dice and loupes. Refresh costs gold. |
 | **Ledger** | Commissions (bring me X), records (deepest, best find, runs), and the run history. |
 | **Map** | Mines as nodes on a cross-section of the earth. Pick one, pick a party if co-op, **Descend**. |
@@ -503,8 +518,8 @@ Desktop and Steam are the target, with the transport kept abstract for a possibl
 | 0 Design lock | Done. |
 | 1 New sim | Done. `sim/` is pure and headless-tested: 1,661 dice/pattern assertions, 383 stone/rule/forge, 109 battle, 443 descent/profile. Whole runs replay from a seed; the forecast equals what happens; a mirror fed patches matches the host after every step. |
 | 2 Host, client, battle screen | First pass. One session class hosts or joins (ENet now, Steam transport carried over, not yet wired to the lobby). The battle screen is first person in one World3D with procedural crystal creatures, plates with intents, the rail with live trigger marks, the dice tray and the forecast. |
-| 3 The Descent | First pass. Tunnels with votes, fights, elites, veins, all fourteen oddities with their pickers, landings (haul, bench, merchant, lift, give), Wardens with hoards, salvage, Endless. |
-| 4 Home | First pass. Map with party and LAN, Bench, Vault (one per skill), Appraise (a plain reveal, not yet the ceremony), Ledger. Profile and checkpoints save atomically. |
+| 3 The Descent | First pass. Tunnels with votes, fights, elites, veins, all fourteen oddities with their pickers, landings (haul, bench, merchant, lift, give), Wardens with hoards, salvage, Endless. The Grubstake at the shaft head (September 21): 26 stakes in five groups, terms pairing, veteran long shots and mercy. |
+| 4 Home | First pass. Map with party and LAN, the Lapidaries roster with dossiers and loadouts (September 21; replaces the Bench), Vault (one per skill), Appraise (a plain reveal, not yet the ceremony), Ledger. Profile and checkpoints save atomically. |
 | 5 Look and sound | Look: first full pass (September 19). Seven battle biomes by depth with Warden and elite halls, fog, lights, flares, particles and a camera rig; effects for every gem and creature move; a shaft map and a mines map; icon-led screens throughout; the stone and die thumbnail cache. Sound: first full pass (September 21). 69 procedural sounds in `view/audio/`, written sample by sample and baked on a worker thread at boot; a pooled, panned mixer on its own bus; the interface, the dice, every gem colour, blows, afflictions, deaths, the mine and the reveal ceremony all speak, and a Star has a sound of its own. Master and effects volume on the settings page. |
 | 6 Content and balance | One mine with eight creatures and three Wardens; 44 skills; 31 inclusions; 19 dice; 6 characters with Birthstones (September 21). No balance pass yet. |
 

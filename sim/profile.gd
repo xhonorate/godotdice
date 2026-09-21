@@ -86,6 +86,7 @@ static func unlock_character(profile: Dictionary, character_key: String) -> bool
 	if record.is_empty() or bool(record.get("unlocked", false)):
 		return false
 	record.unlocked = true
+	record.fresh = true
 	_fit_default(profile, character_key)
 	return true
 

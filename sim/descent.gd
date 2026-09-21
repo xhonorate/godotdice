@@ -6,6 +6,7 @@ extends RefCounted
 ## `step()` while a fight resolves. Every change returns an event for the screens. The
 ## shape of a run:
 ##
+##   grubstake (each player takes one stake from the workshop) ─▶
 ##   tunnels ─pick─▶ chamber (fight | elite | vein | oddity | motherlode) ─▶ tunnels …
 ##   every LANDING_EVERY depths: landing (lift, lapidary, merchant, bench, give)
 ##   at warden depths the landing's gate is a warden fight; the hoard follows a win
@@ -13,7 +14,7 @@ extends RefCounted
 ##
 ## Players keep their own haul, ore and loupes. Tunnels and the lift are votes.
 
-const PHASES: Array = ["tunnels", "chamber", "landing", "hoard", "salvage", "over"]
+const PHASES: Array = ["grubstake", "tunnels", "chamber", "landing", "hoard", "salvage", "over"]
 const VEIN_SPOTS: int = 6
 const VEIN_STRIKES: int = 2
 const HOARD_OFFERS: int = 3
@@ -23,7 +24,8 @@ const LANDING_DICE: int = 2
 # --- setup -------------------------------------------------------------------------------
 
 static func new_run(config: Dictionary) -> Dictionary:
-	## config: seed (int), mine (key), run_id, players: [{id, name, character, rail: [stones|null], dice: [die instances]}]
+	## config: seed (int), mine (key), run_id, boons (bool, default true),
+	##   players: [{id, name, character, rail: [stones|null], dice: [die instances], last_depth, last_outcome}]
 	var seed_value: int = int(config.get("seed", randi()))
 	var mine_key: String = str(config.get("mine", DeepContent.starter_mine()))
 	var state: Dictionary = {"run_id": str(config.get("run_id", "run%08x" % seed_value)), "seed": seed_value, "mine": mine_key,
@@ -36,13 +38,60 @@ static func new_run(config: Dictionary) -> Dictionary:
 		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", "Lapidary")), str(entry.get("character", DeepContent.starter_character())),
 			entry.get("rail", []), entry.get("dice", []))
 		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": 0, "loupes": int(DeepContent.constant("loupes_per_run", 2)), "vote": "",
-			"choice": "", "ready": false, "strikes": 0, "oddity_choice": "", "stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0}}, true)
+			"choice": "", "ready": false, "strikes": 0, "oddity_choice": "", "stake": "", "last_depth": int(entry.get("last_depth", 0)),
+			"last_outcome": str(entry.get("last_outcome", "")), "stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0}}, true)
 		state.players.append(unit)
 		seat += 1
 	state.rng = DeepRng.save(streams)
-	_offer_tunnels(state, streams)
+	if bool(config.get("boons", true)) and not DeepContent.section("boons").is_empty():
+		_offer_grubstake(state, streams)
+	else:
+		_offer_tunnels(state, streams)
 	state.rng = DeepRng.save(streams)
 	return state
+
+# --- the grubstake -----------------------------------------------------------------------
+
+static func _offer_grubstake(state: Dictionary, streams: Dictionary) -> void:
+	## Before the first tunnels, every player is shown their stakes and takes one.
+	state.phase = "grubstake"
+	state.offers = []
+	state.grubstake = {"offers": {}, "chosen": {}}
+	for unit in state.players:
+		unit.stake = ""
+		state.grubstake.offers[str(unit.id)] = DeepBoons.offer(state, unit, streams.boons)
+
+static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, payload: Dictionary) -> Dictionary:
+	if not str(unit.get("stake", "")).is_empty():
+		return _refuse("you have taken your stake")
+	var chosen: Dictionary = {}
+	for offer in state.get("grubstake", {}).get("offers", {}).get(str(unit.id), []):
+		if str(offer.get("id", "")) == offer_id:
+			chosen = offer
+	if chosen.is_empty():
+		return _refuse("no such stake")
+	var streams: Dictionary = streams_of(state)
+	var result: Dictionary = DeepBoons.apply(state, unit, chosen, payload, streams.boons)
+	if not result.ok:
+		return _refuse(str(result.error))
+	state.rng = DeepRng.save(streams)
+	unit.stake = offer_id
+	for _made in result.get("made", []):
+		unit.stats.stones = int(unit.stats.get("stones", 0)) + 1
+		state.records.stones_found = int(state.records.stones_found) + 1
+	state.grubstake.chosen[str(unit.id)] = {"offer": offer_id, "boons": chosen.get("boons", []).duplicate(), "message": str(result.message),
+		"made": result.get("made", []).duplicate(true), "dice": result.get("dice", []).duplicate(true)}
+	var event: Dictionary = _event(state, "staked", {"unit": unit.id, "offer": offer_id, "boons": chosen.get("boons", []).duplicate(),
+		"message": str(result.message), "made": result.get("made", []).duplicate(true), "dice": result.get("dice", []).duplicate(true)})
+	var everyone: bool = true
+	for other in living(state):
+		if str(other.get("stake", "")).is_empty():
+			everyone = false
+	if everyone:
+		_offer_tunnels(state, streams_of(state))
+		state.rng = DeepRng.save(streams_of(state))
+		event.finished = true
+	return {"ok": true, "event": event}
 
 static func streams_of(state: Dictionary) -> Dictionary:
 	return DeepRng.restore(state.get("rng", {}))
@@ -318,10 +367,19 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 		fighter.stone_drops = 0
 		fighters.append(fighter)
 	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": int(state.depth), "elite": elite, "warden": not warden.is_empty()}, streams.dice, streams.creatures)
+	## Soft Rock: a staked player's first fights open against creatures already cracked.
+	var soft: bool = false
+	for unit in state.players:
+		if int(unit.get("run_mods", {}).get("soft_rock", 0)) > 0 and not bool(unit.get("downed", false)):
+			unit.run_mods.soft_rock = int(unit.run_mods.soft_rock) - 1
+			soft = true
+	if soft:
+		for foe in battle.enemies:
+			foe.hp = maxi(1, int(foe.hp) / 2)
 	state.chamber.battle = battle
 	state.chamber.kind = "warden" if not warden.is_empty() else ("elite" if elite else "fight")
 	state.records.fights = int(state.records.fights) + 1
-	return _event(state, "battle_begin", {"depth": state.depth, "creatures": keys, "elite": elite, "warden": warden})
+	return _event(state, "battle_begin", {"depth": state.depth, "creatures": keys, "elite": elite, "warden": warden, "soft_rock": soft})
 
 static func in_battle(state: Dictionary) -> bool:
 	return str(state.get("phase", "")) == "chamber" and state.get("chamber", {}).get("battle", null) is Dictionary and not bool(state.chamber.get("settled", false))
@@ -822,6 +880,10 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary) -> Di
 	if phase == "over":
 		return _refuse("the run is over")
 	match kind:
+		"stake":
+			if phase != "grubstake":
+				return _refuse("the stakes are taken at the shaft head")
+			return _take_stake(state, unit, str(cmd.get("offer", "")), cmd.get("payload", {}))
 		"vote_tunnel":
 			if phase != "tunnels":
 				return _refuse("no tunnels to choose")

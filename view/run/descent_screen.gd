@@ -183,6 +183,8 @@ func show_state(state: Dictionary) -> void:
 		key += ":" + str(run.depth) + ":" + _landing_tab
 	elif phase == "tunnels":
 		key += ":" + str(run.depth)
+	elif phase == "grubstake":
+		key += ":" + str(me().get("stake", ""))
 	if not _hold.is_empty():
 		key = "hold:%s:%s:%d" % [str(_hold.kind), str(_hold.get("stage", "")), int(_hold.get("depth", 0))]
 	_fresh = key != _view_key
@@ -220,6 +222,7 @@ func show_state(state: Dictionary) -> void:
 		_struck = -1
 		return
 	match phase:
+		"grubstake": _page_grubstake(content)
 		"tunnels": _page_tunnels(content)
 		"chamber":
 			match str(run.chamber.get("kind", "")):
@@ -338,6 +341,9 @@ func handle(event: Dictionary) -> void:
 	## One event from the host. Fights are animated; everything else gets a line of text.
 	var kind: String = str(event.get("kind", ""))
 	match kind:
+		"staked":
+			if str(event.get("unit", "")) == local_id:
+				DeepAudio.play("dice_lock", {"volume": 0.8})
 		"battle":
 			if event.has("battle"):
 				_battle.perform(event.battle)
@@ -1174,6 +1180,122 @@ class VeinFace extends Control:
 				draw_circle(at, 1.5 + twinkle, Color(1, 1, 1, twinkle * (0.9 if glint != "dull" else 0.4)))
 		if _hit > 0.0:
 			draw_texture_rect(glow, Rect2(size * 0.5 - size * 0.6, size * 1.2), false, Color(1, 0.9, 0.7, 0.5 * _hit))
+
+# --- the grubstake ---------------------------------------------------------------------------
+
+const STAKE_WORDS: Dictionary = {"stone": "A stone stake", "kit": "A kit stake", "terms": "Terms", "long_shot": "A long shot"}
+const STAKE_GLYPHS: Dictionary = {"stone": "gem", "kit": "bag", "terms": "scales", "long_shot": "die"}
+
+func _stake_tone(kind: String) -> Color:
+	match kind:
+		"stone": return DeepUi.ACCENT
+		"kit": return DeepUi.INFO
+		"terms": return Color("c58bff")
+	return DeepUi.ORE
+
+func _page_grubstake(content: VBoxContainer) -> void:
+	## The shaft head: the workshop's stakes, one to be taken before the lift goes down.
+	if _fresh:
+		DeepAudio.play("lift", {"volume": 0.5})
+	var unit: Dictionary = me()
+	var head := DeepUi.vbox(content, 8)
+	var medal := Medallion.new("bag", DeepUi.ACCENT)
+	medal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	head.add_child(medal)
+	DeepUi.title(head, "The Grubstake", 34, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.wrap(head, "Before the lift goes down, the workshop stakes you. Take one. Whatever it changes is for this dig only.", 16, DeepUi.PAPER.darkened(0.1), HORIZONTAL_ALIGNMENT_CENTER, 760).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_enter(head)
+	var stake: String = str(unit.get("stake", ""))
+	if not stake.is_empty():
+		var mine_result: Dictionary = run.get("grubstake", {}).get("chosen", {}).get(local_id, {})
+		var result_card := DeepUi.card(content, Color(DeepUi.ACCENT, 0.5), 18)
+		result_card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var box := DeepUi.vbox(result_card, 10)
+		var names: Array = mine_result.get("boons", []).map(func(k: Variant) -> String: return str(DeepContent.boon(str(k)).get("name", k)))
+		DeepUi.section(box, "check", " and ".join(names) if not names.is_empty() else "Staked", DeepUi.ACCENT)
+		DeepUi.wrap(box, str(mine_result.get("message", "You have taken your stake.")), 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_LEFT, 700)
+		for stone in mine_result.get("made", []):
+			StoneCard.build(box, stone, {"size": 72, "text_width": 520})
+		if not mine_result.get("dice", []).is_empty():
+			var dice_row := DeepUi.hbox(box, 8)
+			for die in mine_result.dice:
+				dice_row.add_child(Thumbs.DieThumb.new(die, 48))
+				DeepUi.label(dice_row, DeepDice.describe(die), 14, DeepUi.PAPER)
+		_enter(result_card, 0.1)
+		var waiting: Array = run.players.filter(func(p: Dictionary) -> bool: return str(p.get("stake", "")).is_empty() and bool(p.get("connected", true)))
+		if not waiting.is_empty():
+			DeepUi.stat(content, "hourglass", "Waiting for " + ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))), DeepUi.MUTED, 14).alignment = BoxContainer.ALIGNMENT_CENTER
+		return
+	var offers: Array = run.get("grubstake", {}).get("offers", {}).get(local_id, [])
+	var row := DeepUi.hbox(content, 16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var index: int = 0
+	for offer in offers:
+		var kind: String = str(offer.get("kind", "kit"))
+		var tone: Color = _stake_tone(kind)
+		var card := DeepUi.card(row, Color(tone, 0.45), 16)
+		card.custom_minimum_size = Vector2(270, 0)
+		var box := DeepUi.vbox(card, 8)
+		var tag := DeepUi.hbox(box, 6)
+		DeepUi.icon(tag, str(STAKE_GLYPHS.get(kind, "bag")), 18, tone)
+		DeepUi.label(tag, str(STAKE_WORDS.get(kind, "A stake")), 12, tone)
+		for key in offer.get("boons", []):
+			var def: Dictionary = DeepContent.boon(str(key))
+			var is_cost: bool = str(def.get("group", "")) == "cost"
+			var title_row := DeepUi.hbox(box, 6)
+			if kind == "terms":
+				DeepUi.icon(title_row, "cross_out" if is_cost else "check", 16, DeepUi.BAD if is_cost else DeepUi.GOOD)
+			DeepUi.title(title_row, str(def.get("name", key)), 18, DeepUi.BAD.lightened(0.2) if is_cost else DeepUi.PAPER)
+			DeepUi.wrap(box, str(def.get("text", "")), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 236)
+		var socket_pick: OptionButton = null
+		if offer.get("needs", []).has("socket"):
+			DeepUi.label(box, "Which stone", 12, DeepUi.MUTED)
+			socket_pick = _socket_options(box, unit)
+		var candidate_pick: OptionButton = null
+		if offer.get("needs", []).has("pick"):
+			DeepUi.label(box, "Your pick", 12, DeepUi.MUTED)
+			candidate_pick = _candidate_options(box, offer)
+		DeepUi.spacer(box, false)
+		var read_payload: Callable = func() -> Dictionary:
+			var payload: Dictionary = {}
+			if socket_pick != null:
+				payload.socket = int(str(socket_pick.get_item_metadata(socket_pick.selected))) if socket_pick.item_count > 0 else -1
+			if candidate_pick != null:
+				payload.pick = int(str(candidate_pick.get_item_metadata(candidate_pick.selected))) if candidate_pick.item_count > 0 else -1
+			return payload
+		var offer_id: String = str(offer.get("id", ""))
+		var button := DeepUi.primary(box, "check", "Take it", func() -> void:
+			command.emit({"kind": "stake", "offer": offer_id, "payload": read_payload.call()}), 16, tone)
+		if socket_pick != null and socket_pick.item_count == 0:
+			button.disabled = true
+			DeepUi.stat(box, "cross_out", "Your rail is empty.", DeepUi.DIM, 12)
+		_enter(card, 0.1 + 0.08 * index)
+		index += 1
+
+func _socket_options(parent: Node, unit: Dictionary) -> OptionButton:
+	## The sockets in the rail that hold a stone, by number and skill.
+	var entries: Array = []
+	var rail: Array = unit.get("rail", [])
+	for index in range(rail.size()):
+		if rail[index] is Dictionary:
+			entries.append([str(index), "Socket %d: %s" % [index + 1, str(DeepStone.skill_of(rail[index]).get("name", rail[index].skill))]])
+	return _options(parent, entries)
+
+func _candidate_options(parent: Node, offer: Dictionary) -> OptionButton:
+	## The stones or dice rolled for a pick, shown before the choice is made.
+	var picks: Array = offer.get("picks", [])
+	var strip := DeepUi.hbox(parent, 6)
+	strip.alignment = BoxContainer.ALIGNMENT_CENTER
+	var entries: Array = []
+	for index in range(picks.size()):
+		var candidate: Dictionary = picks[index]
+		if str(offer.get("pick_kind", "stone")) == "die":
+			strip.add_child(Thumbs.DieThumb.new(candidate, 44))
+			entries.append([str(index), DeepDice.describe(candidate)])
+		else:
+			StoneCard.mini(strip, candidate, 44)
+			entries.append([str(index), DeepStone.name(candidate)])
+	return _options(parent, entries)
 
 # --- oddity ----------------------------------------------------------------------------------
 

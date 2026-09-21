@@ -953,6 +953,10 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		_loaded(unit, [], rng_dice)
 		unit.flips = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "free_flip" else 0
 		var extra: int = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "extra_reroll" else 0
+		var staked: Dictionary = unit.get("run_mods", {}).get("extra_rerolls", {})
+		if staked is Dictionary and not staked.is_empty() and int(state.get("depth", 1)) <= int(staked.get("until_depth", 0)):
+			## Steady Hands from the Grubstake: a reroll more until the first landing.
+			extra += int(staked.get("amount", 1))
 		unit.rerolls_max = base_rerolls + extra + gifts + int(unit.get("granted_rerolls", 0))
 		unit.rerolls = 0 if frozen else unit.rerolls_max
 		unit.granted_rerolls = 0

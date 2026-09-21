@@ -1,7 +1,8 @@
 extends Control
 ## The workshop: five tabs in one frame. Map (the mines under the workshop, the party and
-## the way down), Bench (characters, sockets, dice), Vault (one stone per skill), Appraise
-## (what came home, under the loupe), Ledger (records and runs).
+## the way down), Lapidaries (the roster: who goes down, their dossier and their loadout),
+## Vault (one stone per skill), Appraise (what came home, under the loupe), Ledger (records
+## and runs).
 ##
 ## Tabs are rebuilt whenever the profile or the lobby changes; stones and dice are
 ## photographs, so that is cheap, and only the one stone a tab is about is live 3D. A tab
@@ -16,6 +17,7 @@ const Backdrop = preload("res://view/run/backdrop.gd")
 const MineMap = preload("res://view/home/mine_map.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const Roster = preload("res://view/home/roster.gd")
 
 signal depart_requested(seed: int)
 signal member_changed(fields: Dictionary)
@@ -25,7 +27,7 @@ signal join_requested(address: String, port: int)
 signal profile_changed
 signal menu_requested
 
-const TABS: Array = [["map", "Map", "map"], ["bench", "Bench", "anvil"], ["vault", "Vault", "chest"], ["appraise", "Appraise", "loupe"], ["ledger", "Ledger", "book"]]
+const TABS: Array = [["map", "Map", "map"], ["roster", "Lapidaries", "person"], ["vault", "Vault", "chest"], ["appraise", "Appraise", "loupe"], ["ledger", "Ledger", "book"]]
 const COLOUR_ORDER: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
 
 var profile: Dictionary = {}
@@ -45,6 +47,7 @@ var _appraise_pick: String = ""
 var _revealed: String = ""
 var _bench_socket: int = -1
 var _bench_die: int = -1
+var _roster_pick: String = ""
 var _address: LineEdit
 var _seed: LineEdit
 var _fresh: bool = true
@@ -141,7 +144,7 @@ func _render() -> void:
 	var content := DeepUi.vbox(margin, 16)
 	match tab:
 		"map": _map(content)
-		"bench": _bench(content)
+		"roster": _roster(content)
 		"vault": _vault(content)
 		"appraise": _appraise(content)
 		"ledger": _ledger(content)
@@ -205,26 +208,24 @@ func _map(content: VBoxContainer) -> void:
 	DeepUi.pill(facts, "crown", "%d of 3 Wardens" % record.get("wardens", []).size(), DeepUi.ACCENT, 12)
 	DeepUi.pill(facts, "pick", DeepUi.plural(int(record.get("runs", 0)), "run"), DeepUi.MUTED, 12)
 	_enter(trip)
-	## Who goes down: every character as a pickable card, the unlocked ones first.
+	## Who goes down, in brief. The roster tab is where they are chosen and fitted.
+	var current: String = str(profile.get("current_character", DeepContent.starter_character()))
+	var chosen_character: Dictionary = DeepContent.character(current)
 	var wear := DeepUi.card(side, DeepUi.LINE, 16)
 	var wear_box := DeepUi.vbox(wear, 10)
-	DeepUi.section(wear_box, "person", "Playing as")
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 8)
-	flow.add_theme_constant_override("v_separation", 8)
-	wear_box.add_child(flow)
-	var ordered: Array = DeepProfile.unlocked_characters(profile)
-	for key in DeepContent.characters_in_unlock_order():
-		if not ordered.has(str(key)):
-			ordered.append(str(key))
-	for key in ordered:
-		var open_to_me: bool = bool(profile.get("characters", {}).get(key, {}).get("unlocked", false))
-		var card := CharacterCard.new(key, key == str(profile.get("current_character", "")), open_to_me)
-		var character_key: String = key
-		card.picked.connect(func() -> void:
-			profile.current_character = character_key
-			profile_changed.emit())
-		flow.add_child(card)
+	DeepUi.section(wear_box, "person", "Going down as")
+	var wear_row := DeepUi.hbox(wear_box, 14)
+	wear_row.add_child(Roster.Portrait.new(current, Vector2(86, 102), false, false, true))
+	var wear_facts := DeepUi.vbox(wear_row, 5)
+	wear_facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.title(wear_facts, DeepContent.character_title(current), 20, DeepUi.PAPER)
+	var wear_pills := DeepUi.hbox(wear_facts, 6)
+	DeepUi.pill(wear_pills, "heart", "%d HP" % int(chosen_character.get("hp", 0)), DeepUi.HP, 11)
+	DeepUi.pill(wear_pills, "spark", str(chosen_character.get("passive", {}).get("name", "Passive")), DeepUi.ACCENT, 11, str(chosen_character.get("passive", {}).get("text", "")))
+	DeepUi.pill(wear_pills, "gem", str(chosen_character.get("birthstone", {}).get("name", "Birthstone")), DeepUi.INFO, 11, str(chosen_character.get("birthstone", {}).get("text", "")))
+	DeepUi.wrap(wear_facts, str(chosen_character.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 320)
+	var change := DeepUi.icon_button(wear_facts, "person", "Change lapidary", func() -> void: open("roster"), 13, DeepUi.ACCENT)
+	change.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_enter(wear, 0.05)
 	## The party.
 	var party := DeepUi.card(side, DeepUi.LINE, 16)
@@ -279,97 +280,158 @@ func _map(content: VBoxContainer) -> void:
 	DeepUi.wrap(together_box, "Steam lobbies arrive with the release transport; LAN and direct IP work now.", 11, DeepUi.DIM)
 	_enter(together, 0.15)
 
-class CharacterCard extends PanelContainer:
-	## A character as a pickable card: name and title, sockets as coloured dots with the
-	## Birthstone last, health, and the passive by name.
-	signal picked
-	func _init(key: String, chosen: bool, unlocked: bool) -> void:
-		var character: Dictionary = DeepContent.character(key)
-		var birthstone: Dictionary = character.get("birthstone", {})
-		var style := DeepUi.raised(Color(0.06, 0.07, 0.1, 0.9) if unlocked else Color(0.04, 0.045, 0.06, 0.8), DeepUi.ACCENT if chosen else DeepUi.LINE, 10, 10, 0.35)
-		if chosen:
-			style.set_border_width_all(2)
-			style.shadow_color = Color(DeepUi.ACCENT, 0.3)
-		add_theme_stylebox_override("panel", style)
-		custom_minimum_size = Vector2(150, 0)
-		mouse_filter = Control.MOUSE_FILTER_STOP
-		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if unlocked else Control.CURSOR_FORBIDDEN
-		var passive: Dictionary = character.get("passive", {})
-		tooltip_text = "%s\n\n%s: %s\n\nBirthstone %s: %s" % [str(character.get("text", "")), str(passive.get("name", "Passive")), str(passive.get("text", "")),
-			str(birthstone.get("name", "")), str(birthstone.get("text", ""))] if unlocked else "Locked: beat a Warden to earn them."
-		var box := DeepUi.vbox(self, 4)
-		DeepUi.title(box, str(character.get("name", key)), 15, DeepUi.ACCENT_HI if chosen else (DeepUi.PAPER if unlocked else DeepUi.DIM))
-		DeepUi.label(box, str(character.get("title", "")), 11, DeepUi.MUTED if unlocked else DeepUi.DIM)
-		var dots := DeepUi.hbox(box, 3)
-		for socket in character.get("sockets", []):
-			dots.add_child(SocketDot.new(str(socket), unlocked))
-		if not birthstone.is_empty():
-			dots.add_child(SocketDot.new("BIRTHSTONE", unlocked, Color(str(birthstone.get("hue", "ffffff")))))
-		if unlocked:
-			var facts := DeepUi.hbox(box, 8)
-			DeepUi.stat(facts, "heart", "%d" % int(character.get("hp", 0)), DeepUi.HP, 11)
-			DeepUi.stat(facts, "spark", str(passive.get("name", "")), DeepUi.ACCENT, 11)
-		else:
-			DeepUi.stat(box, "chest", "locked", DeepUi.DIM, 11)
-		if unlocked:
-			DeepUi.juice(self, 1.05)
-		gui_input.connect(func(event: InputEvent) -> void:
-			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-				DeepAudio.from(self, "ui_confirm" if unlocked else "ui_deny", {"volume": 0.7})
-				if unlocked:
-					picked.emit())
+# --- lapidaries ---------------------------------------------------------------------------------
 
-class SocketDot extends Control:
-	var colour: String
-	var lit: bool
-	var tint: Color
-	func _init(socket: String, unlocked: bool, birth_tint: Color = DeepUi.ACCENT) -> void:
-		colour = socket
-		lit = unlocked
-		tint = birth_tint
-		custom_minimum_size = Vector2(12, 12)
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tooltip_text = "Birthstone" if socket == "BIRTHSTONE" else ("Any colour" if socket == "ANY" else socket.capitalize() + " socket")
-	func _draw() -> void:
-		var tone: Color = tint.lightened(0.2) if colour == "BIRTHSTONE" else (DeepUi.colour(colour) if colour != "ANY" else DeepUi.MUTED)
-		if not lit:
-			tone = DeepUi.DIM
-		draw_circle(size * 0.5, 5.0, Color(tone, 0.25))
-		draw_arc(size * 0.5, 5.0, 0, TAU, 16, tone, 1.5, true)
-		if colour == "BIRTHSTONE":
-			var c := size * 0.5
-			draw_colored_polygon(PackedVector2Array([c + Vector2(0, -3.5), c + Vector2(3.5, 0), c + Vector2(0, 3.5), c + Vector2(-3.5, 0)]), tone)
-
-# --- bench -----------------------------------------------------------------------------------
-
-func _bench(content: VBoxContainer) -> void:
-	var character_key: String = str(profile.get("current_character", DeepContent.starter_character()))
-	var character: Dictionary = DeepContent.character(character_key)
-	var passive: Dictionary = character.get("passive", {})
-	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
-	var head := DeepUi.card(content, Color(DeepUi.ACCENT, 0.4), 14)
-	var head_row := DeepUi.hbox(head, 18)
-	DeepUi.icon(head_row, "person", 34, DeepUi.ACCENT)
-	var names := DeepUi.vbox(head_row, 2)
-	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var title_row := DeepUi.hbox(names, 12)
-	DeepUi.title(title_row, DeepContent.character_title(character_key), 26, DeepUi.PAPER)
-	DeepUi.pill(title_row, "heart", "%d HP" % int(character.get("hp", 0)), DeepUi.HP, 13).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	DeepUi.label(names, str(character.get("text", "")), 13, DeepUi.MUTED)
-	DeepUi.stat(names, "spark", "%s: %s" % [str(passive.get("name", "Passive")), str(passive.get("text", ""))], DeepUi.ACCENT, 12)
-	var switch := HFlowContainer.new()
-	switch.add_theme_constant_override("h_separation", 6)
-	switch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	head_row.add_child(switch)
-	for key in DeepProfile.unlocked_characters(profile):
-		var character_name: String = str(DeepContent.character(str(key)).get("name", key))
+func _roster(content: VBoxContainer) -> void:
+	## The roster strip, the dossier of the one being looked at, and their loadout.
+	var order: Array = DeepContent.characters_in_unlock_order()
+	var current: String = str(profile.get("current_character", DeepContent.starter_character()))
+	if _roster_pick.is_empty() or DeepContent.character(_roster_pick).is_empty():
+		_roster_pick = current
+	var unlocked_keys: Array = DeepProfile.unlocked_characters(profile)
+	var strip_card := DeepUi.card(content, DeepUi.LINE, 16)
+	var strip_box := DeepUi.vbox(strip_card, 10)
+	var strip_head := DeepUi.hbox(strip_box, 8)
+	DeepUi.section(strip_head, "person", "Lapidaries").size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.stat(strip_head, "chest", "%d of %d unlocked" % [unlocked_keys.size(), order.size()], DeepUi.MUTED, 13)
+	DeepUi.stat(strip_head, "crown", DeepUi.plural(Roster.wardens_beaten(profile), "Warden") + " beaten", DeepUi.MUTED, 13)
+	var strip := DeepUi.hbox(strip_box, 12)
+	strip.alignment = BoxContainer.ALIGNMENT_CENTER
+	var index: int = 0
+	for key in order:
+		var record: Dictionary = profile.get("characters", {}).get(str(key), {})
+		var unlocked: bool = bool(record.get("unlocked", false))
+		var tile := Roster.tile(strip, str(key), str(key) == _roster_pick, str(key) == current, unlocked, bool(record.get("fresh", false)))
 		var picked_key: String = str(key)
-		var button := DeepUi.tab_button(switch, "person", character_name, picked_key == character_key, func() -> void:
+		tile.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				DeepAudio.play("ui_tap")
+				_roster_pick = picked_key
+				_bench_socket = -1
+				_bench_die = -1
+				if profile.get("characters", {}).has(picked_key):
+					profile.characters[picked_key].erase("fresh")
+				_render())
+		_enter(tile, 0.03 * index)
+		index += 1
+	var looking_at_unlocked: bool = unlocked_keys.has(_roster_pick)
+	_dossier(content, _roster_pick, looking_at_unlocked, _roster_pick == current)
+	if looking_at_unlocked:
+		_loadout(content, _roster_pick)
+	else:
+		var locked := DeepUi.card(content, DeepUi.LINE, 18)
+		var locked_box := DeepUi.hbox(locked, 12)
+		DeepUi.icon(locked_box, "lock", 22, DeepUi.DIM)
+		DeepUi.label(locked_box, "%s to set %s's rail and dice." % [Roster.unlock_hint(_roster_pick), str(DeepContent.character(_roster_pick).get("name", ""))], 14, DeepUi.DIM)
+		_enter(locked, 0.15)
+
+func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool) -> void:
+	## Everything about one lapidary: portrait, health, dice, sockets, passive, Birthstone.
+	var character: Dictionary = DeepContent.character(key)
+	var passive: Dictionary = character.get("passive", {})
+	var stone: Dictionary = DeepStone.birthstone(key)
+	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
+	var card := DeepUi.card(content, Color(tint if unlocked else DeepUi.LINE, 0.5), 18)
+	var box := DeepUi.vbox(card, 14)
+	var columns := DeepUi.hbox(box, 24)
+	## The portrait and the words.
+	var left := DeepUi.vbox(columns, 8)
+	left.custom_minimum_size.x = 250
+	left.add_child(Roster.Portrait.new(key, Vector2(250, 290), not unlocked, false, chosen))
+	DeepUi.title(left, str(character.get("name", key)), 30, DeepUi.PAPER if unlocked else DeepUi.DIM)
+	DeepUi.label(left, str(character.get("title", "")), 15, DeepUi.MUTED)
+	DeepUi.wrap(left, str(character.get("text", "")), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 250)
+	## The numbers: health, dice, sockets, the passive.
+	var middle := DeepUi.vbox(columns, 12)
+	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pills := DeepUi.hbox(middle, 8)
+	DeepUi.pill(pills, "heart", "%d health" % int(character.get("hp", 0)), DeepUi.HP, 13)
+	DeepUi.pill(pills, "gem", DeepUi.plural(character.get("sockets", []).size(), "socket"), DeepUi.INFO, 13)
+	if not unlocked:
+		DeepUi.pill(pills, "lock", Roster.unlock_hint(key), DeepUi.DIM, 13)
+	DeepUi.section(middle, "die", "Their dice")
+	var dice_row := DeepUi.hbox(middle, 10)
+	var die_index: int = 0
+	for die_key in character.get("dice", []):
+		var die: Dictionary = DeepDice.make(str(die_key), DeepContent.die(str(die_key)), "roster_%s_%d" % [key, die_index])
+		var holder := DeepUi.vbox(dice_row, 3)
+		holder.alignment = BoxContainer.ALIGNMENT_CENTER
+		var thumb := Thumbs.DieThumb.new(die, 46)
+		thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		holder.add_child(thumb)
+		DeepUi.label(holder, str(die.get("name", die_key)), 11, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+		_faces_row(holder, die, 12)
+		die_index += 1
+	DeepUi.section(middle, "gem", "Their sockets")
+	var socket_row := DeepUi.hbox(middle, 10)
+	for socket in character.get("sockets", []):
+		var holder := DeepUi.vbox(socket_row, 3)
+		holder.alignment = BoxContainer.ALIGNMENT_CENTER
+		var ring := BattleScreen.SocketRing.new(str(socket), true)
+		ring.custom_minimum_size = Vector2(40, 40)
+		holder.add_child(ring)
+		DeepUi.label(holder, "Any" if str(socket) == "ANY" else str(socket).capitalize(), 10, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var birth_holder := DeepUi.vbox(socket_row, 3)
+	birth_holder.alignment = BoxContainer.ALIGNMENT_CENTER
+	var birth_ring := BattleScreen.SocketRing.new("BIRTHSTONE", false)
+	birth_ring.birth_tint = tint
+	birth_ring.custom_minimum_size = Vector2(40, 40)
+	birth_holder.add_child(birth_ring)
+	DeepUi.label(birth_holder, "Birthstone", 10, tint.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.section(middle, "spark", "Passive")
+	var passive_card := DeepUi.card(middle, Color(DeepUi.ACCENT, 0.35), 12)
+	var passive_box := DeepUi.vbox(passive_card, 3)
+	DeepUi.title(passive_box, str(passive.get("name", "Passive")), 16, DeepUi.ACCENT_HI)
+	DeepUi.wrap(passive_box, str(passive.get("text", "")), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_LEFT, 380)
+	## The Birthstone, in full.
+	var right := DeepUi.vbox(columns, 10)
+	right.custom_minimum_size.x = 330
+	var birth_card := DeepUi.card(right, Color(tint, 0.6), 14, Color(0.07, 0.06, 0.09, 0.92))
+	var birth_box := DeepUi.vbox(birth_card, 10)
+	var birth_head := DeepUi.hbox(birth_box, 12)
+	if not stone.is_empty():
+		var picture := StoneCard.mini(birth_head, stone, 84, str(stone.get("name", "")) + "\n" + str(stone.get("text", "")))
+		picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var birth_names := DeepUi.vbox(birth_head, 2)
+	birth_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.label(birth_names, "Birthstone", 11, DeepUi.DIM)
+	DeepUi.title(birth_names, str(stone.get("name", "")), 22, tint.lightened(0.35))
+	DeepUi.wrap(birth_names, str(stone.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 210)
+	for tier in stone.get("tiers", []):
+		var tier_row := DeepUi.hbox(birth_box, 10)
+		tier_row.mouse_filter = Control.MOUSE_FILTER_PASS
+		var mark := DeepUi.center(tier_row)
+		mark.custom_minimum_size.x = 56
+		DiceIcons.build(mark, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 14, DeepUi.MUTED, str(tier.get("text", "")))
+		var words := DeepUi.vbox(tier_row, 1)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.label(words, str(tier.get("name", "")), 13, DeepUi.PAPER)
+		DeepUi.wrap(words, str(tier.get("text", "")), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 230)
+	var face: String = str(character.get("birthstone", {}).get("face", ""))
+	if not face.is_empty():
+		DeepUi.stat(birth_box, "eye", face, DeepUi.DIM, 11, "The face they pull when the Birthstone fires")
+	## The decision.
+	var actions := DeepUi.hbox(box, 12)
+	actions.alignment = BoxContainer.ALIGNMENT_END
+	if not unlocked:
+		DeepUi.stat(actions, "lock", "%s. You have beaten %s." % [Roster.unlock_hint(key), DeepUi.plural(Roster.wardens_beaten(profile), "Warden")], DeepUi.DIM, 13)
+	elif chosen:
+		DeepUi.pill(actions, "check", "Going down as %s" % str(character.get("name", key)), DeepUi.GOOD, 14)
+	else:
+		var picked_key: String = key
+		DeepUi.primary(actions, "descend", "Play as %s" % str(character.get("name", key)), func() -> void:
+			DeepAudio.play("ui_confirm", {"volume": 0.8})
 			profile.current_character = picked_key
-			_bench_socket = -1
-			profile_changed.emit(), 13)
-		button.tooltip_text = "Play as " + DeepContent.character_title(picked_key)
-	_enter(head)
+			profile_changed.emit(), 16)
+	_enter(card, 0.1)
+
+# --- loadout ------------------------------------------------------------------------------------
+
+func _loadout(content: VBoxContainer, character_key: String) -> void:
+	## The rail and the dice of one unlocked lapidary: click a socket, then a stone; click a
+	## slot, then a die.
+	var character: Dictionary = DeepContent.character(character_key)
+	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	## The rail: click a socket, then a stone.
 	var rail_card := DeepUi.card(content, DeepUi.LINE, 18)
 	var rail_box := DeepUi.vbox(rail_card, 12)
