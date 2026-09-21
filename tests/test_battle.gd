@@ -205,6 +205,22 @@ func _test_creatures_and_statuses() -> void:
 		check(int(dmg[0].absorbed) + int(dmg[0].hp_loss) == int(dmg[0].raw), "damage is split between block and HP")
 		check(int(dmg[0].absorbed) > 0, "block absorbed some of it")
 	check(int(a.block_lost) == int(dmg[0].absorbed) if not dmg.is_empty() else true, "block lost is remembered for Riposte next turn")
+	check(state.turn == 2 and int(a.block) == 0, "unused block falls away when the next turn begins (%d left)" % int(a.block))
+	## A creature's block soaks one volley of gems, then falls away as it moves.
+	var r6: Dictionary = rngs(46)
+	var state6: Dictionary = DeepBattle.begin([player("a", [stone("GUARD")])], ["QUARTZ_GOLEM"], {"depth": 1}, r6.dice, r6.creatures)
+	var golem6: Dictionary = DeepBattle.enemy(state6, "e0")
+	check(int(golem6.block) >= 6, "the golem opens behind its block (%d)" % int(golem6.block))
+	DeepBattle.player(state6, "a").locked = true
+	DeepBattle.start_resolution(state6)
+	var first_move: Dictionary = {}
+	var guard6: int = 0
+	while DeepBattle.has_steps(state6) and first_move.is_empty() and guard6 < 50:
+		guard6 += 1
+		var event6: Dictionary = DeepBattle.step(state6, r6.dice, r6.creatures)
+		if str(event6.get("kind", "")) == "enemy_move":
+			first_move = event6
+	check(not first_move.is_empty() and int(golem6.block) == 0, "the golem's leftover block is gone by the time it moves (%d)" % int(golem6.block))
 	## Poison ticks and stun skips.
 	var r2: Dictionary = rngs(42)
 	var state2: Dictionary = DeepBattle.begin([player("a", [stone("VENOM", 4), stone("HEX")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)

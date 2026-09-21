@@ -469,6 +469,10 @@ func _sync() -> void:
 		return
 	var unit: Dictionary = me()
 	var planning: bool = str(state.get("phase", "")) == "planning"
+	## A pick outlives its reroll; a die that came back locked drops out of it, and the whole
+	## pick is let go once there are no rerolls left to spend on it.
+	var movable: Array = DeepDice.rerollable(unit.get("hand", [])) if int(unit.get("rerolls", 0)) > 0 else []
+	selected = selected.filter(func(id: Variant) -> bool: return movable.has(str(id)))
 	if _headless:
 		_depth_label.text = "Depth %d" % depth
 	(_turn_pill.get_child(0).get_node("Value") as Label).text = "Turn %d" % int(state.get("turn", 1))
@@ -487,7 +491,7 @@ func _sync() -> void:
 			_screen_fx.danger = clampf((0.3 - ratio) / 0.3, 0.0, 1.0) if not bool(unit.get("downed", false)) else 0.0
 		DeepUi.clear(_status_row)
 		if int(unit.block) > 0:
-			DeepUi.pill(_status_row, "shield", str(int(unit.block)), DeepUi.BLOCK, 14, "Block: soaks damage before your health. It lasts the whole fight.")
+			DeepUi.pill(_status_row, "shield", str(int(unit.block)), DeepUi.BLOCK, 14, "Block: soaks damage before your health. Whatever is left falls away at the end of the turn.")
 		var effects: Array = EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
 		var passive: Dictionary = unit.get("passive", {})
 		if not str(passive.get("text", "")).is_empty():
@@ -524,7 +528,10 @@ func _sync() -> void:
 		var waiting: Array = state.get("players", []).filter(func(p: Dictionary) -> bool: return not bool(p.get("locked", false)) and not bool(p.get("downed", false)))
 		_hint.text = "Waiting for %s" % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "Everyone is in."
 	else:
-		_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
+		if rerolls <= 0:
+			_hint.text = "No rerolls left. Lock in  [Space]"
+		else:
+			_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
 
 func _status_glyph(status: String) -> String:
 	match status:
@@ -1161,7 +1168,7 @@ func _ambience(delta: float) -> void:
 
 func _toggle_die(id: String) -> void:
 	var unit: Dictionary = me()
-	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)):
+	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)) or int(unit.get("rerolls", 0)) <= 0:
 		return
 	if selected.has(id):
 		selected.erase(id)
@@ -1181,7 +1188,7 @@ func _reroll() -> void:
 			if _dice_views.has(id):
 				var view: Control = _dice_views[id]
 				DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.INFO, 14, 140.0, 0.5)
-	selected.clear()
+	## The picked dice stay picked, so pressing Reroll again throws the same ones.
 
 func _toggle_lock() -> void:
 	var locking: bool = not bool(me().get("locked", false))

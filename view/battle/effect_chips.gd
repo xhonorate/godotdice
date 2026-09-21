@@ -37,7 +37,7 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("downed", "skull", "", false, "Down", "Out of the fight until someone revives you."))
 	var block: int = int(unit.get("block", 0))
 	if block > 0:
-		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d damage before your health does. It lasts the whole fight." % block, DeepUi.BLOCK))
+		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d damage before your health does. Whatever is left falls away at the end of the turn." % block, DeepUi.BLOCK))
 	var statuses: Dictionary = unit.get("statuses", {})
 	out.append_array(_statuses(statuses, false))
 	var buried: int = unit.get("buried", []).size()
@@ -81,7 +81,7 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	var out: Array = []
 	var block: int = int(foe.get("block", 0))
 	if block > 0:
-		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d damage before its health does." % block, DeepUi.BLOCK))
+		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d damage before its health does. Whatever is left falls away when it takes its turn." % block, DeepUi.BLOCK))
 	## For a creature the colours flip: what helps it is bad for the party.
 	for chip in _statuses(foe.get("statuses", {}), true):
 		out.append(chip)

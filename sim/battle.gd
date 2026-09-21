@@ -146,6 +146,7 @@ static func start_resolution(state: Dictionary) -> Dictionary:
 			if unit.rail[socket] is Dictionary:
 				queue.append({"kind": "gem", "unit": unit.id, "socket": socket})
 		queue.append({"kind": "rail_end", "unit": unit.id})
+	queue.append({"kind": "creatures_begin"})
 	for foe in state.enemies:
 		if int(foe.hp) <= 0:
 			continue
@@ -221,6 +222,12 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			if unit.is_empty():
 				return {}
 			return _event(state, "rail_end", {"unit": unit.id, "resonance": int(unit.get("resonance", 0))})
+		"creatures_begin":
+			## A creature's block has stood through one volley of gems; whatever is left of it
+			## falls away as the creatures take their turn.
+			for foe in state.enemies:
+				foe.block = 0
+			return {}
 		"enemy_move":
 			var foe: Dictionary = enemy(state, str(s.unit))
 			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
@@ -730,6 +737,8 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		## one turn, never for the fight.
 		unit.buried = []
 		unit.clouded = []
+		## Block only guards the turn it was raised in: what the creatures did not break falls away.
+		unit.block = 0
 		if bool(unit.get("downed", false)):
 			unit.hand = []
 			unit.locked = true
