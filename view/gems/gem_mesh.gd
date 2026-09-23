@@ -823,6 +823,9 @@ static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial
 	material.emission = Color.WHITE if two_colors else tint(gem)
 	if two_colors:
 		material.emission_texture = material.albedo_texture
+		# White is the texture's neutral multiplier. Godot defaults to adding it,
+		# which floods both shell passes with white light and makes the glass look milky.
+		material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
 	material.emission_energy_multiplier = lerpf(0.0, Tuning.value("emission_clear"), b) \
 		* (Tuning.value("far_emission") if interior else 1.0)
 	if not interior:
@@ -865,7 +868,7 @@ static func solid(gem: Dictionary) -> Node3D:
 	for m in [behind, front]:
 		m.albedo_color.a = maxf(m.albedo_color.a, 0.62)
 		m.emission_enabled = true
-		m.emission = glow
+		m.emission = Color.WHITE if m.emission_texture != null else glow
 		m.emission_energy_multiplier = maxf(m.emission_energy_multiplier, 0.75)
 	var far := MeshInstance3D.new()
 	far.mesh = mesh
