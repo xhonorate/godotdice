@@ -16,7 +16,7 @@ const GIMMICKS: Dictionary = {
 	"steal_high_die": ["die", "Latcher", "Its Latch takes one of your dice away for the next turn."],
 	"split_on_big_hit": ["copy", "Splits", "A single blow of 40% of its health or more splits it in two. Many small blows kill it."],
 	"block_from_high": ["shield", "Hardens", "Each turn its block rises to match the party's highest die."],
-	"steal_gold": ["coin_fall", "Thief", "Steals up to 3 ore with every hit, and drops all of it when it dies."],
+	"steal_gold": ["coin_fall", "Thief", "Steals up to 3 pyrite with every hit, and drops all of it when it dies."],
 	"gift_rerolls": ["reroll", "Lantern", "Its light gives you an extra reroll each turn, and every reroll you use costs 1 HP."],
 	"poison_immune": ["drop", "Unpoisonable", "Poison cannot touch it."],
 	"cloud_socket": ["cloud", "Fogger", "Fogs one of your sockets each turn. Hit it to clear the fog."],
@@ -93,7 +93,7 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("bound", "broken_chain", "−%d" % bound, true, "Bound", "It rolls %s next turn." % DeepUi.plural(bound, "die fewer", "dice fewer")))
 	var gold: int = int(foe.get("stolen_gold", 0))
 	if gold > 0:
-		out.append(entry("gold", "coin_fall", str(gold), false, "Stolen ore", "It carries %d of your ore. Kill it to get it back." % gold, DeepUi.ORE))
+		out.append(entry("gold", "coin_fall", str(gold), false, "Stolen pyrite", "It carries %d of your pyrite. Kill it to get it back." % gold, DeepUi.ORE))
 	if bool(foe.get("warden", false)) and int(foe.get("phase", 0)) > 0:
 		out.append(entry("phase", "crown", "%d" % (int(foe.phase) + 1), false, "Enraged phase", "Hurt below its threshold, it fights with a new set of moves."))
 	var gimmick: String = str(foe.get("gimmick", ""))

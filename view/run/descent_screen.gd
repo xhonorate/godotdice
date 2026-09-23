@@ -35,16 +35,19 @@ signal menu_requested
 const KIND_WORDS: Dictionary = {"fight": "A fight", "elite": "Something big", "vein": "A vein", "oddity": "Something odd",
 	"motherlode": "A glittering hollow", "merchant": "A merchant", "smithy": "A smithy", "carver": "A carver's bench", "landing": "The landing",
 	"hidden": "A dark mouth", "well": "A wishing well"}
-const KIND_TEXT: Dictionary = {"fight": "Creatures of the rock. Ore, and a fair chance of a raw stone.",
+## How many of the bag's stones the scales name at once: the chip is a panel, not a page.
+const SCALES_LISTED := 10
+
+const KIND_TEXT: Dictionary = {"fight": "Creatures of the rock. Pyrite, and a fair chance of a raw stone.",
 	"elite": "Something big and angry. A stone a grade better, guaranteed.",
-	"vein": "A wall of glinting rock. Strike it for stones and ore.",
+	"vein": "A wall of glinting rock. Strike it for stones and pyrite.",
 	"oddity": "Something strange in the dark: a gamble with your stones or dice.",
 	"motherlode": "A hollow glittering with stones. Take them.",
-	"merchant": "A stall on a ledge: stones for ore, appraisals, and a buyer for what you found.",
+	"merchant": "A stall on a ledge: stones for pyrite, appraisals, and a buyer for what you found.",
 	"smithy": "An anvil and a rack of files: make one of your dice a size bigger, or a size smaller.",
 	"carver": "Fine chisels under a lamp: raise one face of a die, or recut it to show another's number.",
 	"landing": "Solid ground and a lift: rest, appraise or back to the wheel, then up or down.",
-	"well": "A wet brick shaft going down past the lantern. Drop a stone in and it gives one back; throw ore in and it gives back something still in its rock.",
+	"well": "A wet brick shaft going down past the lantern. Drop a stone in and it gives one back; throw pyrite in and it gives back something still in its rock.",
 	"hidden": "Too dark to see. Anything could be down there."}
 ## How many things to work on stand on one line of a room's second page.
 const WORK_PAGE: int = 8
@@ -512,7 +515,7 @@ func _spoils_landed(token: int, rewards: Dictionary) -> void:
 	_sync_strip()
 	var words: Array = []
 	if int(rewards.get("ore", 0)) > 0:
-		words.append("+%d ore" % int(rewards.ore))
+		words.append("+%d pyrite" % int(rewards.ore))
 	for stone in rewards.get("stones", []):
 		words.append(DeepStone.raw_name(stone) if not bool(stone.get("appraised", false)) else DeepUi.stone_name(stone))
 	if not words.is_empty():
@@ -659,14 +662,14 @@ func handle(event: Dictionary) -> void:
 				_chip_pick = ""
 			if buyer:
 				DeepAudio.play("buy")
-				toast("Bought %s for %d ore" % [DeepUi.stone_name(item.get("stone", {})), int(item.get("price", 0))], DeepUi.ORE, "purse")
+				toast("Bought %s for %d pyrite" % [DeepUi.stone_name(item.get("stone", {})), int(item.get("price", 0))], DeepUi.ORE, "purse")
 		"sold":
 			var counter: Node3D = _stage.business()
 			if counter != null and counter.has_method("weigh"):
 				counter.weigh()
 			if str(event.get("unit", "")) == local_id:
 				DeepAudio.play("sell")
-				toast("Sold for %d ore" % int(event.get("paid", 0)), DeepUi.ORE, "scales")
+				toast("Sold for %d pyrite" % int(event.get("paid", 0)), DeepUi.ORE, "scales")
 		"respite":
 			var lift: Node3D = _stage.hall()
 			if lift != null and str(event.get("choice", "")) == "polish":
@@ -690,7 +693,7 @@ func handle(event: Dictionary) -> void:
 			toast("The landing. Breathe.", DeepUi.GOOD, "lift")
 		"lit":
 			var who: String = str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", ""))
-			var paid: String = "%d ore" % DeepDescent.lantern_cost()
+			var paid: String = "%d pyrite" % DeepDescent.lantern_cost()
 			var lighter: String = "You light" if str(event.get("unit", "")) == local_id else "%s lights" % who
 			DeepAudio.play("lantern")
 			toast("%s the way to depth %d (%s)." % [lighter, int(event.get("to", 0)), paid], DeepUi.ACCENT, "lantern")
@@ -787,7 +790,7 @@ func appraisal_actions(stone: Dictionary) -> Array:
 				break
 	out.append({"label": "Into the bag", "glyph": "bag", "tone": DeepUi.ACCENT, "caption": "Set it from the bench any time", "dismiss": true})
 	if DeepDescent.at_stall(run):
-		out.append({"label": "Sell for %d ore" % (DeepStone.value(known) / 2), "glyph": "scales", "tone": DeepUi.ORE, "caption": "Half its worth, on the scales",
+		out.append({"label": "Sell for %d pyrite" % DeepStone.sell_value(known), "glyph": "scales", "tone": DeepUi.ORE, "caption": "Half its worth, on the scales",
 			"sound": "sell", "call": func() -> void: command.emit({"kind": "sell", "stone_id": id})})
 	return out
 
@@ -929,7 +932,7 @@ func _arrived() -> void:
 ## the finds are let land before the way on opens, and then the rock sinks away.
 
 const VEIN_WORDS: Dictionary = {"bright": ["Something bright", "Likely a fine stone."], "glint": ["A glint", "A stone."],
-	"dull": ["Dull rock", "Ore, or nothing but dust."]}
+	"dull": ["Dull rock", "Pyrite, or nothing but dust."]}
 
 func _seat_color(unit_id: String) -> Color:
 	var unit: Dictionary = DeepDescent.player(run, unit_id)
@@ -983,7 +986,7 @@ func _show_vein() -> void:
 	DeepUi.stat(row, "heart", ("next swing free" if cost <= 0 else "next swing: %d HP" % cost), DeepUi.BAD if cost > 0 else DeepUi.GOOD, 12)
 	DeepUi.stat(row, "spark", "bright: a fine stone, deep in", Color("ffcf5a"), 12)
 	DeepUi.stat(row, "spark", "glint: a stone", DeepUi.INFO, 12)
-	DeepUi.stat(row, "ore", "dull: ore or dust", DeepUi.MUTED, 12)
+	DeepUi.stat(row, "ore", "dull: pyrite or dust", DeepUi.MUTED, 12)
 	if hazard:
 		DeepUi.stat(row, "skull", "bad air: %d HP on top of every swing" % DeepDescent.VUG_HP, DeepUi.BAD, 12)
 	if mining:
@@ -1037,7 +1040,7 @@ func _vein_struck(event: Dictionary) -> void:
 			var words: String = ""
 			match kind:
 				"stone": words = DeepStone.raw_name(result.get("stone", {}))
-				"ore": words = "+%d ore" % int(result.get("ore", 0))
+				"ore": words = "+%d pyrite" % int(result.get("ore", 0))
 				_: words = "nothing but dust"
 			var chip_at: Vector2 = _stage.to_screen(at) + _stage.global_position - global_position
 			DeepUi.float_text(self, chip_at, words, DeepUi.ORE if kind == "ore" else DeepUi.PAPER, 20, 60.0, 1.4)
@@ -1182,7 +1185,10 @@ func _show_stall() -> void:
 			_stage.add_pick("scales", counter.scales, Vector3(0.55, 0.55, 0.35), {
 				"hover": func(on: bool) -> void:
 					if is_instance_valid(counter):
-						counter.glow("scales", on),
+						counter.glow("scales", on)
+						## The pans name their price the moment a stone is lifted towards them.
+						var held: Dictionary = _dragged_stone() if on else {}
+						counter.set_scales_price(DeepStone.sell_value(held) if not held.is_empty() else -1),
 				"accepts": func(data: Dictionary) -> bool:
 					## Anything you carry, set or loose, read or still in its rock: the buyer
 					## pays what a size class is worth for one nobody has read.
@@ -1205,14 +1211,14 @@ func _show_stall() -> void:
 	_cross_title.text = "A merchant"
 	_cross_sub.text = "Drag a stone onto your rail or your bag to buy it. Click one for a closer look."
 	DeepUi.clear(_cross_hint)
-	DeepUi.pill(_cross_hint, "ore", "%d ore to spend" % int(unit.get("ore", 0)), DeepUi.ORE, 14)
+	DeepUi.pill(_cross_hint, "ore", "%d pyrite to spend" % int(unit.get("ore", 0)), DeepUi.ORE, 14)
 	var tools := PanelContainer.new()
 	tools.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4))
 	tools.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cross_hint.add_child(tools)
 	var row := DeepUi.hbox(tools, 14)
-	DeepUi.stat(row, "loupe", "a raw stone on the lens: appraised for %d ore" % cost, DeepUi.INFO, 12)
-	DeepUi.stat(row, "scales", "an appraised one on the scales: sold", DeepUi.ORE, 12)
+	DeepUi.stat(row, "loupe", "a raw stone on the lens: appraised for %d pyrite" % cost, DeepUi.INFO, 12)
+	DeepUi.stat(row, "scales", "any stone on the scales: sold, read or raw", DeepUi.ORE, 12)
 	if bool(unit.get("ready", false)):
 		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return not bool(p.get("ready", false)) and not bool(p.get("downed", false)) and bool(p.get("connected", true)))
 		DeepUi.stat(_cross_hint, "hourglass", "Waiting for " + ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))), DeepUi.MUTED, 13)
@@ -1229,6 +1235,36 @@ func _buy(item_id: String) -> void:
 
 func _sell(stone_id: String) -> void:
 	command.emit({"kind": "sell", "stone_id": stone_id})
+
+func _dragged_stone() -> Dictionary:
+	## The stone in hand right now, if one is being dragged across the room. The scales use it
+	## to weigh a thing before it is let go rather than after.
+	if _headless or not is_inside_tree():
+		return {}
+	var port: Viewport = get_viewport()
+	if port == null:
+		return {}
+	var data: Variant = port.gui_get_drag_data()
+	if not data is Dictionary or str(data.get("kind", "")) != "stone":
+		return {}
+	return DeepOddities.find_stone(me(), str(data.get("stone_id", "")))
+
+func _scales_line(box: VBoxContainer, stone: Dictionary, listed: bool) -> void:
+	## One stone on the pans: what it is and what the buyer counts out for it. A raw one is
+	## sold on its size class alone, which is always the worse end of what it might be worth.
+	var appraised: bool = bool(stone.get("appraised", false))
+	var paid: int = DeepStone.sell_value(stone)
+	var line := DeepUi.hbox(box, 8)
+	StoneCard.mini(line, stone, 32)
+	var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if appraised else DeepUi.color(DeepStone.color(stone))
+	var said: String = DeepUi.stone_name(stone) if appraised else DeepStone.raw_name(stone)
+	DeepUi.label(line, said, 12, tone).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if listed:
+		DeepUi.icon_button(line, "ore", "Sell · %d" % paid, _sell.bind(str(stone.id)), 12, DeepUi.ORE)
+	else:
+		DeepUi.stat(line, "ore", "%d pyrite" % paid, DeepUi.ORE, 15)
+		if not appraised:
+			DeepUi.label(box, "Still in its rock: the lens first, and it is worth more.", 11, DeepUi.DIM)
 
 func _appraise(stone_id: String) -> void:
 	DeepAudio.play("loupe_spin", {"volume": 0.6})
@@ -1259,28 +1295,36 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 				var button := DeepUi.primary(box, "ore", "Buy for %d" % int(item.price), _buy.bind(str(item.id)), 14, DeepUi.ORE)
 				button.disabled = ore < int(item.price) or not DeepDescent.at_stall(run)
 				if ore < int(item.price):
-					DeepUi.label(box, "You have %d ore." % ore, 12, DeepUi.BAD)
+					DeepUi.label(box, "You have %d pyrite." % ore, 12, DeepUi.BAD)
 			else:
-				DeepUi.stat(box, "ore", "%d ore  ·  drag it to buy, or click" % int(item.price), DeepUi.ORE if ore >= int(item.price) else DeepUi.DIM, 12)
+				DeepUi.stat(box, "ore", "%d pyrite  ·  drag it to buy, or click" % int(item.price), DeepUi.ORE if ore >= int(item.price) else DeepUi.DIM, 12)
 			return true
 		"scales":
 			DeepUi.section(box, "scales", "The scales", DeepUi.ORE)
-			DeepUi.label(box, "Half what an appraised stone is worth, in ore.", 12, DeepUi.MUTED)
-			var sellable: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)))
+			DeepUi.label(box, "Half what an appraised stone is worth; a raw one fetches what its size class is worth and no more.", 12, DeepUi.MUTED)
+			## Something held over the pans is weighed there and then: the buyer's price for
+			## that one stone, before it is let go.
+			var held: Dictionary = _dragged_stone()
+			if not held.is_empty():
+				_scales_line(box, held, false)
+				DeepUi.label(box, "Let go to sell it.", 12, DeepUi.DIM)
+				return true
+			var sellable: Array = unit.get("haul", [])
 			if not pinned:
 				DeepUi.label(box, "Drop one from your bag here, or click for a list.", 12, DeepUi.DIM)
 			elif sellable.is_empty():
-				DeepUi.label(box, "Nothing appraised in your bag to sell.", 12, DeepUi.DIM)
-			for stone in (sellable if pinned else []):
-				var line := DeepUi.hbox(box, 8)
-				StoneCard.mini(line, stone, 32)
-				DeepUi.label(line, DeepUi.stone_name(stone), 12, DeepUi.tier_color(str(DeepStone.grade(stone).tier))).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				DeepUi.icon_button(line, "ore", "Sell · %d" % (DeepStone.value(stone) / 2), _sell.bind(str(stone.id)), 12, DeepUi.ORE)
+				DeepUi.label(box, "Nothing in your bag to sell.", 12, DeepUi.DIM)
+			## The chip is one panel and never scrolls, so a full bag shows the first of them
+			## and says how many are behind; the rest are sold by dropping them on the pans.
+			for stone in (sellable.slice(0, SCALES_LISTED) if pinned else []):
+				_scales_line(box, stone, true)
+			if pinned and sellable.size() > SCALES_LISTED:
+				DeepUi.label(box, "%d more in the bag: drop one on the pans to sell it." % (sellable.size() - SCALES_LISTED), 12, DeepUi.DIM)
 			return true
 		"lens":
 			var cost: int = DeepDescent.appraise_cost(run, local_id)
 			DeepUi.section(box, "loupe", "The lens", DeepUi.INFO)
-			DeepUi.label(box, "%d ore for the next stone; dearer each time at this stall." % cost, 12, DeepUi.MUTED)
+			DeepUi.label(box, "%d pyrite for the next stone; dearer each time at this stall." % cost, 12, DeepUi.MUTED)
 			var raw: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
 			if not pinned:
 				DeepUi.label(box, "Drop a raw stone from your bag here, or click for a list.", 12, DeepUi.DIM)
@@ -1646,7 +1690,7 @@ func _show_crossroads() -> void:
 		DeepUi.icon(row, "lantern", 18, DeepUi.ACCENT)
 		DeepUi.label(row, "The way is lit to the landing." if lit else "Your lantern shows two depths ahead; past it, only glints. Point at a mouth to see where it leads.", 13, DeepUi.MUTED)
 		if not lit:
-			var button := DeepUi.icon_button(_cross_hint, "lantern", "Light the way · %d ore" % DeepDescent.lantern_cost(), func() -> void: command.emit({"kind": "light"}), 13, DeepUi.ACCENT)
+			var button := DeepUi.icon_button(_cross_hint, "lantern", "Light the way · %d pyrite" % DeepDescent.lantern_cost(), func() -> void: command.emit({"kind": "light"}), 13, DeepUi.ACCENT)
 			button.disabled = int(me().get("ore", 0)) < DeepDescent.lantern_cost()
 			button.mouse_filter = Control.MOUSE_FILTER_STOP
 	var entries: Array = crossroads_entries()
@@ -1887,7 +1931,7 @@ func _sync_strip() -> void:
 		var chart := DeepUi.icon_button(_strip, "map", "Chart", toggle_chart, 13, DeepUi.ACCENT if _chart_open else DeepUi.MUTED)
 		chart.tooltip_text = "The chart of the way down: the trail behind, the stretch to the next landing, and the lantern (M)"
 		chart.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var ore := DeepUi.pill(_strip, "ore", str(counts.ore), DeepUi.ORE, 14, "Ore: spent at merchants and on the lantern")
+		var ore := DeepUi.pill(_strip, "ore", str(counts.ore), DeepUi.ORE, 14, "Pyrite: spent at merchants and on the lantern")
 		var bag := DeepUi.pill(_strip, "bag", str(counts.haul), DeepUi.PAPER, 14, "Loose stones you carry. Click to look at them.")
 		_ore_pill = ore
 		_bag_pill = bag
@@ -2741,7 +2785,7 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 				if amount <= carried:
 					steps.append([str(amount), amount])
 			if steps.is_empty():
-				DeepUi.stat(row, "ore", "you carry %d ore: the well wants ten at least" % carried, DeepUi.DIM, 12)
+				DeepUi.stat(row, "ore", "you carry %d pyrite: the well wants ten at least" % carried, DeepUi.DIM, 12)
 				return func() -> Dictionary: return {}
 			var spend: String = _chip_row(row, _slot_key(choice_id, "ore"), steps, DeepUi.ORE, func(panel: PanelContainer, entry: Array) -> void:
 				DeepUi.stat(panel, "ore", str(entry[0]), DeepUi.ORE, 14))
@@ -2896,7 +2940,7 @@ func _page_over(content: VBoxContainer) -> void:
 	var haul: Array = unit.get("haul", [])
 	var tally: Dictionary = unit.get("stats", {})
 	for entry in [["stairs", "Depth", str(int(run.depth))], ["bag", "Stones home", str(haul.size())], ["sword", "Fights", str(int(tally.get("fights", 0)))],
-			["ore", "Ore dug", str(int(tally.get("ore", 0)))], ["shield_burst", "Damage", str(int(tally.get("damage", 0)))]]:
+			["ore", "Pyrite dug", str(int(tally.get("ore", 0)))], ["shield_burst", "Damage", str(int(tally.get("damage", 0)))]]:
 		var tile := DeepUi.card(stats, DeepUi.LINE, 10, Color(0.05, 0.06, 0.085, 0.9))
 		tile.custom_minimum_size = Vector2(118, 0)
 		var inner := DeepUi.vbox(tile, 2)

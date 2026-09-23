@@ -334,7 +334,7 @@ func _stone_lamp(box: VBoxContainer, unit: Dictionary, stone: Dictionary) -> voi
 	if not editable():
 		return
 	if not bool(stone.get("appraised", false)):
-		DeepUi.wrap(box, "Raw. A merchant will appraise it for ore, and a landing will do one for free.", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 290)
+		DeepUi.wrap(box, "Raw. A merchant will appraise it for pyrite, and a landing will do one for free.", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 290)
 	elif socket >= 0:
 		DeepUi.stat(box, "check", "Set in socket %d" % (socket + 1), DeepUi.GOOD, 13)
 		if not DeepStone.is_locked(stone):

@@ -101,9 +101,9 @@ func _sync_lamp() -> void:
 		return
 	var unit: Dictionary = DeepDescent.player(run, local_id)
 	var cost: int = DeepDescent.lantern_cost()
-	_lamp.text = "Light the way  ·  %d ore" % cost
+	_lamp.text = "Light the way  ·  %d pyrite" % cost
 	_lamp.disabled = int(unit.get("ore", 0)) < cost
-	_lamp.tooltip_text = "Show every chamber down to the landing at depth %d, dark mouths too. Costs %d ore." % [int(map.get("to", 0)), cost]
+	_lamp.tooltip_text = "Show every chamber down to the landing at depth %d, dark mouths too. Costs %d pyrite." % [int(map.get("to", 0)), cost]
 
 func _process(delta: float) -> void:
 	_clock += delta
@@ -520,7 +520,7 @@ func _kind_words(kind: String) -> String:
 	match kind:
 		"fight": return "a fight"
 		"elite": return "an elite: a harder fight, a better stone"
-		"vein": return "an ore vein to strike"
+		"vein": return "a pyrite vein to strike"
 		"motherlode": return "a motherlode: stones for everyone"
 		"oddity": return "an oddity"
 		"merchant": return "a merchant: buy stones, sell and appraise"

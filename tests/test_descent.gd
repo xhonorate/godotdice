@@ -74,7 +74,7 @@ func _test_open_and_tunnels() -> void:
 	check(state.offers.size() in [2, 3], "two or three tunnel mouths: %d" % state.offers.size())
 	for offer in state.offers:
 		check(str(offer.kind) != "elite" and str(offer.kind) != "landing", "no elite or landing on the first step")
-	check(not DeepDescent.player(state, "a").has("loupes") and DeepDescent.player(state, "a").ore == 0, "no loupes, no ore")
+	check(not DeepDescent.player(state, "a").has("loupes") and DeepDescent.player(state, "a").ore == 0, "no loupes, no pyrite")
 	check(not cmd(state, "a", "vote_tunnel", {"offer": "nope"}).ok, "an unknown tunnel is refused")
 	var first: Dictionary = cmd(state, "a", "vote_tunnel", {"offer": state.offers[0].id})
 	check(first.ok and not first.event.has("entered") and state.depth == 0, "one vote waits for the other")
@@ -162,9 +162,9 @@ func _test_lantern_map() -> void:
 	var lit: Dictionary = DeepDescent.new_run(config(11, true))
 	var a: Dictionary = DeepDescent.player(lit, "a")
 	a.ore = 3
-	check(not cmd(lit, "a", "light").ok, "three ore is not enough to light the way")
+	check(not cmd(lit, "a", "light").ok, "three pyrite is not enough to light the way")
 	a.ore = 25
-	check(cmd(lit, "a", "light").ok and int(a.ore) == 25 - DeepDescent.lantern_cost() and bool(lit.map.lit), "lighting the way is paid in ore")
+	check(cmd(lit, "a", "light").ok and int(a.ore) == 25 - DeepDescent.lantern_cost() and bool(lit.map.lit), "lighting the way is paid in pyrite")
 	DeepDescent.player(lit, "b").ore = 25
 	check(not cmd(lit, "b", "light").ok, "and needs doing only once a stretch")
 	for id in lit.map.nodes:
@@ -281,23 +281,23 @@ func _test_merchant() -> void:
 		a.haul.append(raw)
 		raws.append(raw)
 	a.ore = 0
-	check(not cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok, "no ore, no appraisal")
+	check(not cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok, "no pyrite, no appraisal")
 	## A stone nobody has read still sells, for what its size class alone is worth.
 	a.haul.append(DeepStone.make("STRIKE", 12, 3, 4, [], {}, "rough_lot"))
 	check(cmd(state, "a", "sell", {"stone_id": "rough_lot"}).ok and int(a.ore) == DeepStone.rough_value(DeepStone.make("STRIKE", 12, 3, 4)) and int(a.ore) > 0,
-		"a rough stone sells for its size class (%d ore)" % int(a.ore))
+		"a rough stone sells for its size class (%d pyrite)" % int(a.ore))
 	check(int(a.ore) < DeepStone.value(DeepStone.make("STRIKE", 12, 3, 4)) / 2, "and for less than the same stone read")
 	a.ore = 200
 	check(DeepDescent.appraise_cost(state, "a") == 12, "the first appraisal at a stall costs twelve")
-	check(cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok and bool(raws[0].appraised) and int(a.ore) == 188, "the lens appraises a raw stone for ore")
+	check(cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok and bool(raws[0].appraised) and int(a.ore) == 188, "the lens appraises a raw stone for pyrite")
 	check(DeepDescent.appraise_cost(state, "a") == 20 and DeepDescent.appraise_cost(state, "b") == 12, "each appraisal costs the asker more, and nobody else")
 	check(cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok and int(a.ore) == 168, "the second costs twenty")
 	check(not cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok, "not twice")
 	var ore_before: int = int(a.ore)
-	check(cmd(state, "a", "sell", {"stone_id": "raw1"}).ok and int(a.ore) > ore_before, "an appraised stone sells for ore")
+	check(cmd(state, "a", "sell", {"stone_id": "raw1"}).ok and int(a.ore) > ore_before, "an appraised stone sells for pyrite")
 	var item: Dictionary = state.chamber.stock[2]
 	a.ore = 0
-	check(not cmd(state, "a", "buy", {"item_id": item.id}).ok, "no ore, no stone")
+	check(not cmd(state, "a", "buy", {"item_id": item.id}).ok, "no pyrite, no stone")
 	a.ore = int(item.price) + 10
 	var haul_before: int = a.haul.size()
 	check(cmd(state, "a", "buy", {"item_id": item.id}).ok and a.haul.size() == haul_before + 1 and int(a.ore) == 10 and str(item.sold) == "a", "a stone goes to the haul for its price and is marked sold")
@@ -346,7 +346,7 @@ func _test_dice_rooms() -> void:
 		if str(offer.kind) == "oddity":
 			drawn[str(state.chamber.oddity)] = true
 		else:
-			check(state.chamber.vein.spots.all(func(s: Dictionary) -> bool: return str(s.kind) in ["stone", "ore", "nothing"]), "a vein holds stones, ore or dust (seed %d)" % seed_value)
+			check(state.chamber.vein.spots.all(func(s: Dictionary) -> bool: return str(s.kind) in ["stone", "ore", "nothing"]), "a vein holds stones, pyrite or dust (seed %d)" % seed_value)
 	check(not drawn.has("SMITHY") and not drawn.has("CARVER") and drawn.size() > 5, "chance never draws a room's card (%s)" % ", ".join(drawn.keys()))
 
 func _advance_once(state: Dictionary) -> void:
@@ -678,7 +678,7 @@ func _test_grubstake() -> void:
 	var offer_of: Callable = func(keys: Array, needs: Array = []) -> Dictionary: return {"id": "t", "kind": "kit", "boons": keys, "needs": needs, "picks": [], "pick_kind": ""}
 	var before_hp: int = int(u.max_hp)
 	check(DeepBoons.apply(quiet, u, offer_of.call(["HARDY"]), {}, rng).ok and int(u.max_hp) == before_hp + int(round(before_hp * 0.12)) and u.hp == u.max_hp, "Hardy raises max and current health (%d to %d)" % [before_hp, int(u.max_hp)])
-	check(DeepBoons.apply(quiet, u, offer_of.call(["STAKED"]), {}, rng).ok and int(u.ore) == 40, "Staked pays 40 ore")
+	check(DeepBoons.apply(quiet, u, offer_of.call(["STAKED"]), {}, rng).ok and int(u.ore) == 40, "Staked pays 40 pyrite")
 	## A stake on a stone lands on one drawn at random from the rail, never an empty socket.
 	## Recut draws a stone's Cut again rather than lifting it: nothing may make a stone truer
 	## on purpose, so all the boon promises is a fresh roll somewhere on the ladder.

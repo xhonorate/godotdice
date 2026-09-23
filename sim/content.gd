@@ -20,7 +20,7 @@ const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "ch
 const INCLUSION_CLASSES: Array = ["PINPOINT", "LENS", "FEATHER", "FRACTURE", "STAR"]
 const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC"]
 const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "well"]
-const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle", "first_fizzle_free",
+const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle",
 	"heal_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value"]
 const MOVE_POLICIES: Array = ["best", "all", "cycle"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",

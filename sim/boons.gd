@@ -303,7 +303,7 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			return "You start %d health down." % loss
 		"ore":
 			unit.ore = maxi(0, int(unit.get("ore", 0)) + amount)
-			return ("You take %d ore." % amount) if amount >= 0 else ("You give up %d ore." % -amount)
+			return ("You take %d pyrite." % amount) if amount >= 0 else ("You give up %d pyrite." % -amount)
 		"soft_rock":
 			if not unit.has("run_mods"):
 				unit.run_mods = {}
@@ -338,7 +338,7 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			var paid: int = total * int(effect.get("per_point", 3))
 			unit.ore = int(unit.get("ore", 0)) + paid
 			out.rolled = DeepDice.values(hand)
-			return "You roll %s: %d ore." % [", ".join(out.rolled.map(func(v: int) -> String: return str(v))), paid]
+			return "You roll %s: %d pyrite." % [", ".join(out.rolled.map(func(v: int) -> String: return str(v))), paid]
 		"coin_hp":
 			var heads: bool = DeepRng.chance(rng, 50.0)
 			out.heads = heads

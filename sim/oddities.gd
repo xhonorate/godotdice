@@ -260,7 +260,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			player.ore = int(player.get("ore", 0)) + paid
 			remove_stone(player, str(stone.id))
 			out.lost.append(str(stone.id))
-			out.message = "The collector pays %d ore and the stone is gone." % paid
+			out.message = "The collector pays %d pyrite and the stone is gone." % paid
 		"appraise":
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty() or bool(stone.get("appraised", false)):
@@ -374,7 +374,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			out.message = "You recover %d." % gained
 		"ore":
 			player.ore = int(player.get("ore", 0)) + int(action.get("amount", 5))
-			out.message = "You take %d ore." % int(action.get("amount", 5))
+			out.message = "You take %d pyrite." % int(action.get("amount", 5))
 		"vug":
 			out.vug = true
 			out.message = "You squeeze into the vug. The walls glitter and the air is bad."
@@ -388,7 +388,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				var least: int = int(action.get("least", 10))
 				var spent: int = clampi(int(payload.get("ore", 0)), least, most)
 				if int(player.get("ore", 0)) < spent:
-					return _refuse("you have not the ore to throw in")
+					return _refuse("you have not the pyrite to throw in")
 				player.ore = int(player.ore) - spent
 				var share: float = float(spent) / float(maxi(1, most))
 				var pool: Array = DeepForge.opal_pool() if DeepRng.chance(rng, float(action.get("opal_pct", 4)) * share) else []
@@ -396,7 +396,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 					{"run": str(ctx.get("run", "")), "source": "well"}, "", pool)
 				player.haul.append(won)
 				out.made.append(won)
-				out.message = "%d ore goes down into the dark. Something comes back up: %s, still in its rock." % [spent, DeepStone.raw_name(won).to_lower()]
+				out.message = "%d pyrite goes down into the dark. Something comes back up: %s, still in its rock." % [spent, DeepStone.raw_name(won).to_lower()]
 			else:
 				var offered: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 				if offered.is_empty():

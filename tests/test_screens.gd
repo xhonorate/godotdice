@@ -133,6 +133,17 @@ func _init() -> void:
 					var labels: Array = app.descent.appraisal_actions(lot).map(func(a: Dictionary) -> String: return str(a.label))
 					check(bool(lot.get("appraised", false)) and labels.has("Into the bag") and labels.any(func(l: String) -> bool: return l.begins_with("Set in socket")) and labels.any(func(l: String) -> bool: return l.begins_with("Sell for")),
 						"a stone read at a stall can go in the bag, a socket or on the scales: %s" % str(labels))
+					## The scales take anything: a stone still in its rock sells for its size
+					## class, so the list a click opens holds the raw as well as the read.
+					app.session.local_player().haul.append(DeepStone.make("CLEAVE", 9, 1, 3, [], {}, "screens_rough"))
+					app.descent.show_state(run)
+					app.descent._pin("scales")
+					var on_sale: int = _button_count(app.descent._chip, "Sell")
+					check(on_sale == app.session.local_player().haul.size() and on_sale >= 2,
+						"the scales list every stone in the bag, raw and read alike (%d of %d)" % [on_sale, app.session.local_player().haul.size()])
+					check(_button_count(app.descent._chip, "Sell · %d" % DeepStone.rough_value(DeepOddities.find_stone(app.session.local_player(), "screens_rough"))) == 1,
+						"a raw stone is priced on the scales at what its size class is worth")
+					app.descent._pin("")
 					app.session.send({"kind": "leave"})
 			"landing":
 				saw_landing = true
@@ -381,6 +392,13 @@ func _count_text(node: Node, text: String) -> int:
 	var count: int = 1 if node is Button and (node as Button).text == text else 0
 	for child in node.get_children():
 		count += _count_text(child, text)
+	return count
+
+func _button_count(node: Node, fragment: String) -> int:
+	## Buttons in a subtree whose label begins with this: a price is part of the words.
+	var count: int = 1 if node is Button and (node as Button).text.begins_with(fragment) else 0
+	for child in node.get_children():
+		count += _button_count(child, fragment)
 	return count
 
 func _label_count(node: Node, fragment: String) -> int:

@@ -61,7 +61,7 @@ const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "sprea
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
 	"cut_step", "cut_override", "locked", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
 	"copy_previous_inclusion", "adjacent_carat", "always_fires", "fires_twice", "carat_per_depth", "alexandrite",
-	"no_resonance_reset", "resonance_bonus"]
+	"resonance_bonus"]
 const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]
 ## The ranks a `rank_buff` may raise. Clarity is not among them: it decides how many
 ## inclusions a stone holds and whether its Flawless line reads, and neither of those can

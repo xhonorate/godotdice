@@ -211,7 +211,7 @@ func _appraisals(app: Control) -> void:
 	var home_actions: Array = app.home._tray_actions(kept, true)
 	var run_actions: Array = [ {"label": "Set in socket 6", "glyph": "gem", "caption": "Into the rail for the next fight"},
 		{"label": "Into the bag", "glyph": "bag", "caption": "Set it from the bench any time", "dismiss": true},
-		{"label": "Sell for 9999 ore", "glyph": "scales", "caption": "Half its worth, on the scales"}]
+		{"label": "Sell for 9999 pyrite", "glyph": "scales", "caption": "Half its worth, on the scales"}]
 	for found in [riddled, clear]:
 		for owned in [ {}, kept]:
 			for list in [home_actions, run_actions]:

@@ -365,7 +365,7 @@ static func _light(state: Dictionary, unit: Dictionary) -> Dictionary:
 	if bool(map.get("lit", false)):
 		return _refuse("the way is already lit")
 	if int(unit.get("ore", 0)) < lantern_cost():
-		return _refuse("not enough ore")
+		return _refuse("not enough pyrite")
 	unit.ore = int(unit.ore) - lantern_cost()
 	map.lit = true
 	return {"ok": true, "event": _event(state, "lit", {"unit": unit.id, "method": "ore", "to": int(map.to)})}
@@ -877,7 +877,7 @@ static func _appraise(state: Dictionary, unit: Dictionary, stone_id: String) -> 
 		return _refuse("it is already appraised")
 	var cost: int = appraise_cost(state, str(unit.id))
 	if int(unit.get("ore", 0)) < cost:
-		return _refuse("not enough ore")
+		return _refuse("not enough pyrite")
 	unit.ore = int(unit.ore) - cost
 	state.chamber.appraisals[str(unit.id)] = int(state.chamber.appraisals.get(str(unit.id), 0)) + 1
 	_reveal(stone)
@@ -894,7 +894,7 @@ static func _buy(state: Dictionary, unit: Dictionary, item_id: String) -> Dictio
 	if not str(item.get("sold", "")).is_empty():
 		return _refuse("already sold")
 	if int(unit.get("ore", 0)) < int(item.price):
-		return _refuse("not enough ore")
+		return _refuse("not enough pyrite")
 	unit.ore = int(unit.ore) - int(item.price)
 	item.sold = str(unit.id)
 	var stone: Dictionary = item.stone.duplicate(true)
@@ -910,7 +910,7 @@ static func _sell(state: Dictionary, unit: Dictionary, stone_id: String) -> Dict
 		return _refuse("a Knot cannot leave its socket")
 	## A stone nobody has read still sells: the buyer pays for its size class and nothing
 	## else, which is always the worse end of what it might have been worth.
-	var paid: int = DeepStone.value(stone) / 2 if bool(stone.get("appraised", false)) else DeepStone.rough_value(stone)
+	var paid: int = DeepStone.sell_value(stone)
 	DeepOddities.remove_stone(unit, stone_id)
 	unit.ore = int(unit.ore) + paid
 	return {"ok": true, "event": _event(state, "sold", {"unit": unit.id, "stone_id": stone_id, "ore": unit.ore, "paid": paid})}

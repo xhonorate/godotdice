@@ -289,7 +289,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var head := _head
 	if not appraised:
 		DeepUi.title(head, DeepStone.raw_name(item), 28, DeepUi.PAPER)
-		DeepUi.wrap(head, "Unappraised, and still half in its rock. Its color shows, and roughly how big it is; its skill, its exact weight, its cut and whatever is frozen inside it do not. A merchant will appraise it for ore, a landing will do one for free, or it can wait for the Appraise tab at home.", 14, DeepUi.MUTED)
+		DeepUi.wrap(head, "Unappraised, and still half in its rock. Its color shows, and roughly how big it is; its skill, its exact weight, its cut and whatever is frozen inside it do not. A merchant will appraise it for pyrite, a landing will do one for free, or it can wait for the Appraise tab at home.", 14, DeepUi.MUTED)
 		var facts := DeepUi.hbox(head, 10)
 		var named: Dictionary = DeepStone.size_class(int(item.get("carat", 1)))
 		DeepUi.pill(facts, "carat", "%s: %s" % [str(named.name), str(named.range)], DeepUi.PAPER, 14)

@@ -21,6 +21,7 @@ var scales: Node3D
 var lens: Node3D
 var _items: Dictionary = {}
 var _lens_label: Label3D
+var _scales_label: Label3D
 var _pans: Array = []
 var _glows: Dictionary = {}
 var _clock: float = 0.0
@@ -156,9 +157,9 @@ func _build_scales(rng: RandomNumberGenerator) -> void:
 		dish.position = Vector3(0, -0.43, 0)
 		pan.add_child(dish)
 		_pans.append(pan)
-	var label := _label("Sell", DeepUi.ORE, 36)
-	label.position = Vector3(0, 1.02, 0.1)
-	scales.add_child(label)
+	_scales_label = _label("Sell", DeepUi.ORE, 36)
+	_scales_label.position = Vector3(0, 1.02, 0.1)
+	scales.add_child(_scales_label)
 	_glows["scales"] = _glow_light(scales, DeepUi.ORE)
 
 func _build_lens() -> void:
@@ -221,9 +222,15 @@ func _glow_light(parent: Node3D, color: Color) -> OmniLight3D:
 	parent.add_child(light)
 	return light
 
+func set_scales_price(price: int) -> void:
+	## While a stone is held over the pans they say what it would fetch; the rest of the time
+	## the scales only say what they are for. A negative price is nothing on them.
+	if _scales_label != null:
+		_scales_label.text = "Sell" if price < 0 else "Sell · %d pyrite" % price
+
 func set_lens_price(cost: int) -> void:
 	if _lens_label != null:
-		_lens_label.text = "Appraise · %d ore" % cost
+		_lens_label.text = "Appraise · %d pyrite" % cost
 
 func glow(which: String, on: bool) -> void:
 	## A drop target lights while something that would go there is dragged, or pointed at.

@@ -371,7 +371,7 @@ func _build_hud() -> void:
 	_resonance_box = DeepUi.hbox(me_row, 5)
 	_resonance_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	_resonance_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_resonance_box.tooltip_text = "Resonance: each gem that fires adds one, a neighbour of the same color adds two, a fizzle resets it. Your Birthstone reads it last."
+	_resonance_box.tooltip_text = "Resonance: each gem that fires adds one, a neighbour of the same color adds two, and a gem that stays dark costs you nothing but its turn. Your Birthstone reads it last."
 	DeepUi.icon(_resonance_box, "resonance", 18, DeepUi.RESONANCE).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	DeepUi.heading(_resonance_box, "Resonance", 13, DeepUi.RESONANCE).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_resonance_value = DeepUi.title(_resonance_box, "0", 20, DeepUi.RESONANCE)
@@ -914,7 +914,7 @@ func _sync_forecast() -> void:
 		DeepUi.label(_forecast_box, "—", 14, DeepUi.DIM)
 		return
 	var rows: Array = [["sword", "damage", DeepUi.BAD, "Damage"], ["shield", "block", DeepUi.BLOCK, "Block"], ["heart", "heal", DeepUi.GOOD, "Healing"],
-		["ore", "gold", DeepUi.ORE, "Ore"], ["drop", "poison", DeepUi.POISON, "Poison"]]
+		["ore", "gold", DeepUi.ORE, "Pyrite"], ["drop", "poison", DeepUi.POISON, "Poison"]]
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 16)
@@ -1628,7 +1628,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					var pile: Vector3 = Vector3(randf_range(-1.5, 1.5), 1.2, ARC_Z + 0.5)
 					var home: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.4 + Vector3(0.8, -0.7, 0)
 					_fx.coins(pile, home, 8 + mini(12, int(effect.amount)))
-					_float_at(_forecast_box, "+%d ore" % int(effect.amount), DeepUi.ORE, 20)
+					_float_at(_forecast_box, "+%d pyrite" % int(effect.amount), DeepUi.ORE, 20)
 			"poison", "stun", "curse", "remove_block", "intent_downgrade", "die_steal", "cleanse":
 				var creature: CrystalCreature = _creature(target_id)
 				if creature != null and is_instance_valid(creature):

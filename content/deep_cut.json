@@ -1660,7 +1660,7 @@
     "pair",
     "fortune"
    ],
-   "text": "Ore equal to the pair's value.",
+   "text": "Pyrite equal to the pair's value.",
    "trigger": {
     "kind": "pair",
     "ladder": [
@@ -1698,7 +1698,7 @@
     "triple",
     "fortune"
    ],
-   "text": "Ore equal to the matched value times the dice matched. Five of a kind pays ten times.",
+   "text": "Pyrite equal to the matched value times the dice matched. Five of a kind pays ten times.",
    "trigger": {
     "kind": "triple",
     "ladder": [
@@ -1756,7 +1756,7 @@
     "fortune",
     "attack"
    ],
-   "text": "{hit} damage and {hit} ore for every seven.",
+   "text": "{hit} damage and {hit} pyrite for every seven.",
    "numbers": {
     "hit": {
      "ladder": [
@@ -1838,7 +1838,7 @@
     "fortune",
     "attack"
    ],
-   "text": "5 ore, and damage equal to everything your dice left on the table.",
+   "text": "5 pyrite, and damage equal to everything your dice left on the table.",
    "trigger": {
     "kind": "total_pct_at_most",
     "ladder": [
@@ -1864,7 +1864,7 @@
     }
    ],
    "flawless": {
-    "text": "10 ore.",
+    "text": "10 pyrite.",
     "modify": [
      {
       "effect": 0,
@@ -2793,7 +2793,7 @@
    "name": "Pinpoint of Gold",
    "class": "PINPOINT",
    "rarity": "COMMON",
-   "text": "+2 ore when this fires.",
+   "text": "+2 pyrite when this fires.",
    "modifiers": [
     {
      "kind": "rider",
@@ -2893,7 +2893,7 @@
    "name": "Glint",
    "class": "PINPOINT",
    "rarity": "UNCOMMON",
-   "text": "Ore equal to the dice matched when this fires.",
+   "text": "Pyrite equal to the dice matched when this fires.",
    "modifiers": [
     {
      "kind": "rider",
@@ -3090,10 +3090,11 @@
    "name": "Resonant Vein",
    "class": "FEATHER",
    "rarity": "RARE",
-   "text": "Fizzling does not reset Resonance.",
+   "text": "+2 Resonance when this fires.",
    "modifiers": [
     {
-     "kind": "no_resonance_reset"
+     "kind": "resonance_bonus",
+     "amount": 2
     }
    ]
   },
@@ -4074,7 +4075,7 @@
        "kind": "crowns",
        "amount": 1
       },
-      "text": "Each crown, a die on its top face: Resonance damage and Resonance ore.",
+      "text": "Each crown, a die on its top face: Resonance damage and Resonance pyrite.",
       "effects": [
        {
         "kind": "damage",
@@ -4141,7 +4142,7 @@
        "amount": 0
       },
       "penalty": true,
-      "text": "No crown showing: lose Resonance ore.",
+      "text": "No crown showing: lose Resonance pyrite.",
       "effects": [
        {
         "kind": "gold",
@@ -4255,7 +4256,7 @@
   "STAKED": {
    "name": "Staked",
    "group": "kit",
-   "text": "40 ore in hand.",
+   "text": "40 pyrite in hand.",
    "effects": [
     {
      "kind": "ore",
@@ -4354,7 +4355,7 @@
   "REWARD_ORE": {
    "name": "Well Staked",
    "group": "reward",
-   "text": "90 ore in hand.",
+   "text": "90 pyrite in hand.",
    "effects": [
     {
      "kind": "ore",
@@ -4429,7 +4430,7 @@
   "SHOT_ROLL": {
    "name": "Roll for It",
    "group": "long_shot",
-   "text": "Roll your five dice: three ore for every point.",
+   "text": "Roll your five dice: three pyrite for every point.",
    "effects": [
     {
      "kind": "roll_ore",
@@ -4627,7 +4628,7 @@
    ],
    "policy": "best",
    "gimmick": "steal_gold",
-   "text": "Steals ore when it hits and drops it all when it dies.",
+   "text": "Steals pyrite when it hits and drops it all when it dies.",
    "moves": [
     {
      "name": "Peck",
@@ -5465,7 +5466,7 @@
     {
      "id": "sell",
      "label": "Sell a stone",
-     "text": "Triple its value in ore. The stone is gone.",
+     "text": "Triple its value in pyrite. The stone is gone.",
      "needs": "stone",
      "action": {
       "kind": "collector_sell",
@@ -5496,7 +5497,7 @@
     },
     {
      "id": "ore",
-     "label": "Take 8 ore",
+     "label": "Take 8 pyrite",
      "text": "The brass fittings are worth something.",
      "action": {
       "kind": "ore",
@@ -5520,7 +5521,7 @@
     },
     {
      "id": "ore",
-     "label": "Take 6 ore",
+     "label": "Take 6 pyrite",
      "action": {
       "kind": "ore",
       "amount": 6
@@ -5718,9 +5719,9 @@
     },
     {
      "id": "ore",
-     "label": "Throw ore in",
+     "label": "Throw pyrite in",
      "needs": "ore",
-     "text": "Ten to a hundred ore. What comes back is a stone still in its rock, and the more went down the better it is likely to be. Even a hundred is only a chance at something fine, and the slimmest of chances at an opal.",
+     "text": "Ten to a hundred pyrite. What comes back is a stone still in its rock, and the more went down the better it is likely to be. Even a hundred is only a chance at something fine, and the slimmest of chances at an opal.",
      "action": {
       "kind": "wishing_well",
       "mode": "ore",

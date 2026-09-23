@@ -167,7 +167,7 @@ func _test_resonance_and_birthstone() -> void:
 	check(rally.name == "Rally" and bool(rally.fired) and int(rally.resonance) == 5, "Rally reads the Resonance the rail delivered (%d)" % int(rally.resonance))
 	check(bool(tier(rally, "Rank").active) and int(tier(rally, "Rank").effects[0].amount) == 5 and str(tier(rally, "Rank").effects[0].kind) == "block", "a pair: Rank grants Resonance block")
 	check(not bool(tier(rally, "File").active) and not bool(tier(rally, "Legion").active), "two pairs are not a triple")
-	## A fizzle in the middle resets the count.
+	## A fizzle in the middle costs that gem its turn and nothing else: the count stands.
 	var r2: Dictionary = rngs(22)
 	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE"), stone("CRUSH"), stone("STRIKE", 1, 4, 3, [], "strike2"), stone("GUARD")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
 	hand(DeepBattle.player(state2, "a"), [1, 2, 3, 4, 6])
@@ -175,15 +175,11 @@ func _test_resonance_and_birthstone() -> void:
 	var seen2: Array = kinds(events2)
 	check(seen2.count("gem_fizzle") == 2, "Crush and Guard fizzle on all-distinct: %s" % str(seen2))
 	var second_strike: Dictionary = fires(events2)[1]
-	check(int(second_strike.resonance) == 1, "the fizzle reset Resonance before the second Strike (%d)" % int(second_strike.resonance))
-	## A first-fizzle-free passive forgives one fizzle.
-	var r3: Dictionary = rngs(23)
-	var forgiving: Dictionary = player("a", [stone("STRIKE"), stone("CRUSH"), stone("STRIKE", 1, 4, 3, [], "strike2"), stone("GUARD"), stone("MEND")])
-	forgiving.passive = {"kind": "first_fizzle_free", "text": "test"}
-	var state3: Dictionary = DeepBattle.begin([forgiving], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
-	hand(DeepBattle.player(state3, "a"), [1, 2, 3, 4, 6])
-	var events3: Array = run_turn(state3, r3)
-	check(int(fires(events3)[1].resonance) == 2, "a forgiven fizzle does not reset Resonance (%d)" % int(fires(events3)[1].resonance))
+	check(int(second_strike.resonance) == 2, "the fizzle left the count alone and the second Strike climbs from it (%d)" % int(second_strike.resonance))
+	var dark: Array = events2.filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fizzle")
+	check(int(dark[0].resonance) == 1, "a dark gem reports the count it did not spend (%d)" % int(dark[0].resonance))
+	var closed: Array = events2.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_end")
+	check(not closed.is_empty() and int(closed[0].get("resonance", -1)) == 2, "the rail closes on the count the fizzles never took (%s)" % str(closed))
 
 func _test_birthstones() -> void:
 	## Ardor: every satisfied tier fires, five of a kind lights all four.
@@ -259,7 +255,7 @@ func _test_birthstones() -> void:
 	var florin: Dictionary = DeepBattle.player(state9, "a")
 	hand(florin, [7, 7, 7, 1, 2])
 	var roller: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(bool(tier(roller, "Ante").active) and int(tier(roller, "Ante").effects[0].raw) == 3 and int(tier(roller, "Ante").effects[1].amount) == 3, "three crowns at Resonance 1: 3 damage and 3 ore")
+	check(bool(tier(roller, "Ante").active) and int(tier(roller, "Ante").effects[0].raw) == 3 and int(tier(roller, "Ante").effects[1].amount) == 3, "three crowns at Resonance 1: 3 damage and 3 pyrite")
 	check(bool(tier(roller, "Hot Streak").active) and int(florin.quality_bonus) == 25 and not bool(tier(roller, "Bust").active), "Hot Streak raises stone quality")
 	var r10: Dictionary = rngs(80)
 	var state10: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "FLORIN")], ["QUARTZ_GOLEM"], {"depth": 1}, r10.dice, r10.creatures)
@@ -270,7 +266,7 @@ func _test_birthstones() -> void:
 	var state11: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "FLORIN")], ["QUARTZ_GOLEM"], {"depth": 1}, r11.dice, r11.creatures)
 	hand(DeepBattle.player(state11, "a"), [1, 2, 3, 4, 5])
 	var bust: Dictionary = birthstones(run_turn(state11, r11))[0]
-	check(bool(tier(bust, "Bust").active) and int(tier(bust, "Bust").effects[0].amount) == -1, "no crown: Bust costs Resonance ore")
+	check(bool(tier(bust, "Bust").active) and int(tier(bust, "Bust").effects[0].amount) == -1, "no crown: Bust costs Resonance pyrite")
 
 func _test_passives() -> void:
 	## Second Wind: Ardor heals for the rerolls he did not spend.

@@ -237,6 +237,12 @@ static func rough_value(stone: Dictionary) -> int:
 	var by_size: float = 6.0 + float(entry.low) * 2.2
 	return maxi(1, int(round(by_size)))
 
+static func sell_value(stone: Dictionary) -> int:
+	## What the merchant's scales pay for it: half its worth once it has been read, and only
+	## what its size class is worth while it is still in its rock. The one place that price
+	## is worked out, so the number the scales promise is the number the sale pays.
+	return value(stone) / 2 if bool(stone.get("appraised", false)) else rough_value(stone)
+
 static func inclusion_names(stone: Dictionary) -> Array:
 	var out: Array = []
 	for key in stone.get("inclusions", []):
@@ -429,7 +435,7 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 	var result: Dictionary = {"active": bool(trig.active), "reason": str(trig.get("reason", "")), "dice": trig.get("dice", []),
 		"trigger": trig, "cut_step": eff.cut_step, "carat": eff.carat, "magnitude": eff.magnitude, "analysis": a,
 		"effects": [], "fires": 1 if trig.active else 0, "hp_cost": 0, "resonance_gain": 0,
-		"next_cut_step": modifier_sum(mods, "next_cut_step"), "no_reset": has_modifier(mods, "no_resonance_reset"),
+		"next_cut_step": modifier_sum(mods, "next_cut_step"),
 		"colors": colors(stone, str(c.get("socket", ""))), "skill": str(stone.get("skill", "")), "stone_id": str(stone.get("id", ""))}
 	if not trig.active:
 		return result

@@ -46,7 +46,7 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 		"amplify": 1.0, "cut_step_bonus": 0, "nullify_next": false, "block_lost": 0, "block_lost_accum": 0,
 		"healed": 0, "dealt": 0, "dealt_last_turn": 0, "gold": 0, "once": {}, "downed": false, "connected": true,
 		"eligible_turn": 1, "buried": [], "clouded": [], "stolen_dice": 0, "granted_rerolls": 0, "sparkle": 0,
-		"quality_bonus": 0, "fizzle_free": 0, "run_mods": {}, "skipped_turn": - 1}
+		"quality_bonus": 0, "run_mods": {}, "skipped_turn": - 1}
 
 static func begin(players: Array, creature_keys: Array, context: Dictionary, rng_dice: RandomNumberGenerator, rng_creatures: RandomNumberGenerator) -> Dictionary:
 	var state: Dictionary = {"turn": 0, "phase": "planning", "outcome": "", "depth": int(context.get("depth", 1)),
@@ -251,7 +251,6 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.amplify = 1.0
 			unit.nullify_next = false
 			unit.cut_step_bonus = 0
-			unit.fizzle_free = 1 if str(unit.get("passive", {}).get("kind", "")) == "first_fizzle_free" else 0
 			unit.fired_sockets = []
 			unit.fizzled_sockets = []
 			unit.repeat_next = 0
@@ -409,10 +408,8 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		ev.active = false
 		ev.reason = "Double Down came up empty."
 	if not ev.active:
-		if int(unit.get("fizzle_free", 0)) > 0:
-			unit.fizzle_free = int(unit.fizzle_free) - 1
-		elif not bool(ev.get("no_reset", false)):
-			unit.resonance = 0
+		## A gem that stays dark costs the rail its turn, not its Resonance: the count keeps
+		## whatever the gems before it built and the gems after it carry on from there.
 		var healed: int = 0
 		if str(unit.get("passive", {}).get("kind", "")) == "heal_on_fizzle" and not bool(unit.get("downed", false)):
 			healed = _heal(unit, int(unit.passive.get("amount", 2)))
@@ -1180,7 +1177,6 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	unit.amplify = 1.0
 	unit.nullify_next = false
 	unit.cut_step_bonus = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "first_gem_cut_step" else 0
-	unit.fizzle_free = 1 if str(unit.get("passive", {}).get("kind", "")) == "first_fizzle_free" else 0
 	unit.fired_sockets = []
 	unit.fizzled_sockets = []
 	unit.repeat_next = 0
