@@ -853,44 +853,35 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		var chips := EffectChips.Row.new(18)
 		head.add_child(chips)
 		chips.show_effects(effects)
-	if not effects.is_empty() or not foe.get("intents", []).is_empty():
+	if not effects.is_empty() or not foe.get("hand", []).is_empty():
 		_page("This turn", "sword")
 	if not effects.is_empty():
 		var notes := _section("spark", "On it now")
 		for effect in effects:
 			DeepUi.stat(notes, str(effect.glyph), "%s: %s" % [str(effect.title), str(effect.text)], Color(effect.tone).lightened(0.2), 12)
-	if not foe.get("intents", []).is_empty():
-		var now := _section("sword", "This turn", DeepUi.BAD)
+	if not foe.get("hand", []).is_empty():
+		var now := _section("die", "Revealed dice", DeepUi.BAD)
 		var dice := DeepUi.hbox(now, 4)
-		DeepUi.label(dice, "It rolled", 13, DeepUi.MUTED)
-		for roll in foe.get("hand", []):
+		var shown: Array = foe.hand.slice(0, -1) if str(foe.get("beat", "")) == "roll" else foe.hand
+		for roll in shown:
 			dice.add_child(DiceIcons.face(26, int(roll.value), DiceIcons.palette(str(roll.get("key", "D6"))).body, str(roll.get("shape", "D6")), true))
-		for intent in foe.intents:
-			var line := DeepUi.hbox(now, 8)
-			DeepUi.icon(line, GemIcons.emblem(str(intent.move).to_upper()), 22, DeepUi.BAD)
-			DeepUi.title(line, str(intent.move), 17, DeepUi.PAPER)
-			var parts: Array = []
-			for effect in intent.get("effects", []):
-				parts.append(_resolved_words(effect))
-			var victim: Dictionary = DeepBattle.player(battle, str(intent.get("target", "")))
-			if not victim.is_empty():
-				parts.append("aimed at %s" % str(victim.get("name", "")))
-			DeepUi.wrap(line, ", ".join(parts), 13, DeepUi.PAPER).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## Everything it can do, and the dice it does it with.
 	_page("Its moves", "book")
 	var moves := _section("book", "Its moves")
 	var highlight: String = str(opts.get("move", ""))
-	for move in definition.get("moves", []):
+	for move in DeepCreatures.display_moves(foe, definition.get("moves", [])):
 		_move_row(moves, move, str(move.get("name", "")) == highlight)
 	for phase in definition.get("phases", []):
+		_page("Below %d%% HP" % int(phase.get("below_hp_pct", 0)), "crown")
+		moves = _section("crown", "Phase moves")
 		DeepUi.stat(moves, "crown", "Below %d%% health it fights with:" % int(phase.get("below_hp_pct", 0)), DeepUi.BAD, 13)
-		for move in phase.get("moves", []):
+		for move in DeepCreatures.display_moves(foe, phase.get("moves", [])):
 			_move_row(moves, move, str(move.get("name", "")) == highlight)
 	var rolls := _section("die", "Its dice")
 	var dice_row := DeepUi.hbox(rolls, 6)
-	for die_key in definition.get("dice", []):
-		DeepUi.pill(dice_row, "die", str(die_key), DiceIcons.palette(str(die_key)).body, 12)
-	DeepUi.label(rolls, "Policy: %s" % str(definition.get("policy", "best")).replace("_", " "), 12, DeepUi.DIM)
+	var effective: Array = DeepCreatures.effective_dice(foe) if foe.has("dice") else definition.get("dice", []).map(func(key: String) -> Dictionary: return {"shape": key})
+	for die in effective:
+		DeepUi.pill(dice_row, "die", str(die.shape), DiceIcons.palette(str(die.shape)).body, 12)
+	DeepUi.label(rolls, "Rolls in this order. Every qualifying ability fires.\nDamage and debuffs affect every player.", 12, DeepUi.DIM)
 
 static func _dice_words(keys: Array) -> String:
 	## A set of five dice said the short way: each kind once, by name, with how many of it.
@@ -914,13 +905,9 @@ func _move_row(parent: Node, move: Dictionary, highlight: bool) -> void:
 	var head := DeepUi.hbox(box, 10)
 	DeepUi.icon(head, GemIcons.emblem(str(move.get("name", "")).to_upper()), 20, DeepUi.BAD if highlight else DeepUi.MUTED)
 	DeepUi.title(head, str(move.get("name", "")), 16, DeepUi.PAPER)
-	var trigger: Dictionary = move.get("trigger", {"kind": "always"})
-	var described: Dictionary = DeepPatterns.describe(trigger, 0)
-	DiceIcons.build(head, described, 16, DeepUi.MUTED)
-	var when: String = "Its every turn." if str(trigger.get("kind", "always")) == "always" else "When its dice show: " + str(described.words).trim_suffix(".").to_lower() + "."
-	DeepUi.label(box, when , 12, DeepUi.DIM)
+	DeepUi.label(box, DeepCreatures.trigger_words(move), 12, DeepUi.DIM)
 	for effect in move.get("effects", []):
-		DeepUi.stat(box, _effect_glyph(str(effect.get("kind", ""))), _effect_words(effect), DeepUi.PAPER, 13)
+		DeepUi.stat(box, _effect_glyph(str(effect.get("kind", ""))), DeepCreatures.effect_words(effect), DeepUi.PAPER, 13)
 
 func _effect_glyph(kind: String) -> String:
 	return str({"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield", "die_steal": "die",

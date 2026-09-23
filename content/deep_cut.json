@@ -1569,7 +1569,7 @@
     "two_pair",
     "control"
    ],
-   "text": "The target loses one die next turn.",
+   "text": "Suppresses one die for the target’s next action phase, even its last die.",
    "trigger": {
     "kind": "two_pair",
     "ladder": [
@@ -1605,9 +1605,9 @@
     "straight",
     "control"
    ],
-   "text": "Weakens the target's next {moves#move} by a step.",
+   "text": "Lowers all the target’s dice by one tier for its next {turns#turn} (minimum d4).",
    "numbers": {
-    "moves": {
+    "turns": {
      "ladder": [
       1,
       1,
@@ -1629,7 +1629,7 @@
    },
    "effects": [
     {
-     "kind": "intent_downgrade",
+     "kind": "dice_dread",
      "target": "enemy",
      "amount": {
       "ladder": [
@@ -1639,11 +1639,12 @@
        2,
        3
       ]
-     }
+     },
+     "scale": "carat"
     }
    ],
    "flawless": {
-    "text": "Every creature's.",
+    "text": "Every creature’s dice.",
     "modify": [
      {
       "effect": 0,
@@ -4469,12 +4470,10 @@
    "block": 0,
    "threat": 2,
    "dice": [
-    "D6",
     "D6"
    ],
-   "policy": "best",
    "gimmick": "steal_high_die",
-   "text": "Latches onto your best die.",
+   "text": "On a 6, takes one die from every player for their next turn.",
    "moves": [
     {
      "name": "Bite",
@@ -4484,9 +4483,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "term": "high"
+        "term": "rolled"
        }
       }
      ]
@@ -4494,19 +4493,17 @@
     {
      "name": "Latch",
      "trigger": {
-      "kind": "pair",
+      "kind": "value",
+      "values": [
+       6
+      ],
       "amount": 1
      },
      "effects": [
       {
        "kind": "die_steal",
-       "target": "hero",
+       "target": "heroes",
        "amount": 1
-      },
-      {
-       "kind": "damage",
-       "target": "hero",
-       "amount": 2
       }
      ]
     }
@@ -4518,10 +4515,8 @@
    "block": 0,
    "threat": 2,
    "dice": [
-    "D8",
     "D8"
    ],
-   "policy": "best",
    "gimmick": "split_on_big_hit",
    "text": "Splits when struck hard. Dies to many small blows.",
    "moves": [
@@ -4533,9 +4528,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "term": "low"
+        "term": "rolled"
        }
       }
      ]
@@ -4543,20 +4538,13 @@
     {
      "name": "Engulf",
      "trigger": {
-      "kind": "total_pct_at_least",
-      "amount": 60
+      "kind": "at_least",
+      "amount": 7
      },
      "effects": [
       {
-       "kind": "damage",
-       "target": "hero",
-       "amount": {
-        "term": "high"
-       }
-      },
-      {
        "kind": "poison",
-       "target": "hero",
+       "target": "heroes",
        "amount": 2
       }
      ]
@@ -4569,11 +4557,8 @@
    "block": 6,
    "threat": 4,
    "dice": [
-    "D6",
-    "D8",
-    "D10"
+    "D12"
    ],
-   "policy": "best",
    "gimmick": "block_from_high",
    "text": "Gains block equal to your highest die each turn.",
    "moves": [
@@ -4585,32 +4570,24 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "op": "+",
-        "args": [
-         {
-          "term": "high"
-         },
-         2
-        ]
+        "term": "rolled"
        }
       }
      ]
     },
     {
-     "name": "Quake",
+     "name": "Harden",
      "trigger": {
-      "kind": "pair",
+      "kind": "even",
       "amount": 1
      },
      "effects": [
       {
-       "kind": "damage",
-       "target": "heroes",
-       "amount": {
-        "term": "value"
-       }
+       "kind": "block",
+       "target": "self",
+       "amount": 3
       }
      ]
     }
@@ -4626,7 +4603,6 @@
     "D4",
     "D4"
    ],
-   "policy": "best",
    "gimmick": "steal_gold",
    "text": "Steals pyrite when it hits and drops it all when it dies.",
    "moves": [
@@ -4638,9 +4614,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "term": "total"
+        "term": "rolled"
        }
       }
      ]
@@ -4654,10 +4630,16 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": 6
+      },
+      {
+       "kind": "die_steal",
+       "target": "heroes",
+       "amount": 1
       }
-     ]
+     ],
+     "dramatic": true
     }
    ]
   },
@@ -4669,9 +4651,8 @@
    "dice": [
     "D6"
    ],
-   "policy": "all",
    "gimmick": "gift_rerolls",
-   "text": "Its light gives you a reroll and drains a little life for each one you use.",
+   "text": "Its light gives everyone a reroll; each reroll drains 1 HP from every player.",
    "moves": [
     {
      "name": "Flutter",
@@ -4681,7 +4662,7 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": 2
       }
      ]
@@ -4694,10 +4675,8 @@
    "block": 0,
    "threat": 3,
    "dice": [
-    "D10",
     "D10"
    ],
-   "policy": "best",
    "gimmick": "poison_immune",
    "text": "Poison cannot touch it. Straights cut it deep.",
    "moves": [
@@ -4709,9 +4688,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "term": "high"
+        "term": "rolled"
        }
       }
      ]
@@ -4724,14 +4703,14 @@
      },
      "effects": [
       {
-       "kind": "damage",
+       "kind": "remove_block",
        "target": "heroes",
        "amount": 4
       },
       {
-       "kind": "remove_block",
-       "target": "hero",
-       "amount": 6
+       "kind": "poison",
+       "target": "heroes",
+       "amount": 1
       }
      ]
     }
@@ -4743,41 +4722,39 @@
    "block": 2,
    "threat": 3,
    "dice": [
-    "D6",
-    "D6",
     "D6"
    ],
-   "policy": "best",
    "gimmick": "cloud_socket",
    "text": "Breathes a fog into one of your sockets until you strike it.",
    "moves": [
     {
      "name": "Puff",
      "trigger": {
-      "kind": "always"
-     },
-     "effects": [
-      {
-       "kind": "damage",
-       "target": "hero",
-       "amount": {
-        "term": "low"
-       }
-      }
-     ]
-    },
-    {
-     "name": "Smother",
-     "trigger": {
-      "kind": "pair",
+      "kind": "even",
       "amount": 1
      },
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "term": "value"
+        "term": "rolled"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Gather",
+     "trigger": {
+      "kind": "odd",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "block",
+       "target": "self",
+       "amount": {
+        "term": "rolled"
        }
       }
      ]
@@ -4790,11 +4767,10 @@
    "block": 4,
    "threat": 5,
    "dice": [
-    "D8",
-    "D8",
-    "D12"
+    "D4",
+    "D6",
+    "D8"
    ],
-   "policy": "best",
    "gimmick": "reflect_zero_resonance",
    "text": "Throws back damage from gems that fire at Resonance 0.",
    "moves": [
@@ -4806,9 +4782,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "term": "high"
+        "term": "rolled"
        }
       }
      ]
@@ -4823,13 +4799,6 @@
       {
        "kind": "block",
        "target": "self",
-       "amount": {
-        "term": "value"
-       }
-      },
-      {
-       "kind": "damage",
-       "target": "hero",
        "amount": {
         "term": "value"
        }
@@ -4850,7 +4819,8 @@
         "term": "total"
        }
       }
-     ]
+     ],
+     "dramatic": true
     }
    ]
   },
@@ -4860,12 +4830,9 @@
    "block": 8,
    "threat": 20,
    "dice": [
-    "D8",
-    "D8",
-    "D10",
-    "D10"
+    "D6",
+    "D12"
    ],
-   "policy": "best",
    "gimmick": "bury_socket",
    "warden": true,
    "text": "Warden of the eighth landing. Buries one of your sockets in rubble each turn.",
@@ -4878,15 +4845,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "op": "+",
-        "args": [
-         {
-          "term": "high"
-         },
-         3
-        ]
+        "term": "rolled"
        }
       }
      ]
@@ -4905,28 +4866,28 @@
         "term": "value"
        }
       }
-     ]
+     ],
+     "dramatic": true
     },
     {
      "name": "Shore Up",
      "trigger": {
-      "kind": "total_pct_at_least",
-      "amount": 65
+      "kind": "value",
+      "values": [
+       12
+      ],
+      "amount": 1
      },
      "effects": [
       {
        "kind": "block",
        "target": "self",
-       "amount": {
-        "term": "high"
-       }
+       "amount": 4
       },
       {
-       "kind": "damage",
-       "target": "hero",
-       "amount": {
-        "term": "high"
-       }
+       "kind": "dice_upgrade",
+       "target": "self",
+       "amount": 1
       }
      ]
     }
@@ -4945,7 +4906,7 @@
          "kind": "damage",
          "target": "heroes",
          "amount": {
-          "term": "high"
+          "term": "rolled"
          }
         }
        ]
@@ -4959,20 +4920,35 @@
        "effects": [
         {
          "kind": "damage",
-         "target": "hero",
+         "target": "heroes",
          "amount": {
-          "op": "*",
+          "op": "+",
           "args": [
            {
             "term": "value"
            },
-           2
+           3
           ]
          }
         },
         {
-         "kind": "stun",
-         "target": "hero",
+         "kind": "die_steal",
+         "target": "heroes",
+         "amount": 1
+        }
+       ],
+       "dramatic": true
+      },
+      {
+       "name": "Reinforce",
+       "trigger": {
+        "kind": "crowns",
+        "amount": 1
+       },
+       "effects": [
+        {
+         "kind": "dice_upgrade",
+         "target": "self",
          "amount": 1
         }
        ]
@@ -4987,15 +4963,11 @@
    "block": 10,
    "threat": 30,
    "dice": [
-    "D10",
-    "D10",
-    "D12",
-    "D12"
+    "D20"
    ],
-   "policy": "best",
    "gimmick": "mirror_last_gem",
    "warden": true,
-   "text": "Warden of the sixteenth landing. Turns your last gem back on you.",
+   "text": "Mirrors half the party’s strongest last turn, up to 6 extra damage.",
    "moves": [
     {
      "name": "Reflect",
@@ -5005,9 +4977,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "term": "high"
+        "term": "rolled"
        }
       }
      ]
@@ -5015,23 +4987,14 @@
     {
      "name": "Refraction",
      "trigger": {
-      "kind": "pair",
-      "amount": 1
+      "kind": "at_least",
+      "amount": 16
      },
      "effects": [
       {
-       "kind": "damage",
-       "target": "heroes",
-       "amount": {
-        "term": "value"
-       }
-      },
-      {
        "kind": "remove_block",
        "target": "heroes",
-       "amount": {
-        "term": "value"
-       }
+       "amount": 4
       }
      ]
     }
@@ -5053,11 +5016,25 @@
           "op": "+",
           "args": [
            {
-            "term": "high"
+            "term": "rolled"
            },
-           4
+           2
           ]
          }
+        }
+       ]
+      },
+      {
+       "name": "Splinter",
+       "trigger": {
+        "kind": "at_least",
+        "amount": 16
+       },
+       "effects": [
+        {
+         "kind": "poison",
+         "target": "heroes",
+         "amount": 2
         }
        ]
       }
@@ -5071,12 +5048,9 @@
    "block": 12,
    "threat": 40,
    "dice": [
-    "D12",
-    "D12",
-    "D12",
+    "D6",
     "D20"
    ],
-   "policy": "best",
    "gimmick": "roll_for_you",
    "warden": true,
    "text": "Warden of the twenty-fourth landing. On odd turns it rolls your dice for you.",
@@ -5089,15 +5063,9 @@
      "effects": [
       {
        "kind": "damage",
-       "target": "hero",
+       "target": "heroes",
        "amount": {
-        "op": "+",
-        "args": [
-         {
-          "term": "high"
-         },
-         6
-        ]
+        "term": "rolled"
        }
       }
      ]
@@ -5105,20 +5073,13 @@
     {
      "name": "Grind",
      "trigger": {
-      "kind": "pair",
+      "kind": "crowns",
       "amount": 1
      },
      "effects": [
       {
-       "kind": "damage",
+       "kind": "die_steal",
        "target": "heroes",
-       "amount": {
-        "term": "value"
-       }
-      },
-      {
-       "kind": "stun",
-       "target": "hero",
        "amount": 1
       }
      ]
@@ -5126,18 +5087,17 @@
     {
      "name": "Overdrive",
      "trigger": {
-      "kind": "total_pct_at_least",
-      "amount": 70
+      "kind": "all_even",
+      "amount": 2
      },
      "effects": [
       {
        "kind": "damage",
        "target": "heroes",
-       "amount": {
-        "term": "total"
-       }
+       "amount": 6
       }
-     ]
+     ],
+     "dramatic": true
     }
    ]
   }

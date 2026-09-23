@@ -361,7 +361,7 @@ func _test_effects() -> void:
 		check(not str(chip.text).is_empty() and not str(chip.title).is_empty(), "the %s chip says what it does" % str(chip.key))
 		if str(chip.key) in ["poison", "stun", "curse", "buried", "stolen", "nullify"]:
 			check(not bool(chip.good), "%s counts against the player" % str(chip.key))
-	var foe: Dictionary = {"statuses": {"poison": 2, "resolve": 1}, "block": 3, "downgrade": 1, "stolen_dice": 1, "stolen_gold": 4, "gimmick": "steal_gold"}
+	var foe: Dictionary = {"statuses": {"poison": 2, "resolve": 1}, "block": 3, "dread_turns": 1, "stolen_dice": 1, "stolen_gold": 4, "gimmick": "steal_gold"}
 	var foe_chips: Array = EffectChips.for_enemy(foe)
 	var foe_keys: Array = foe_chips.map(func(c: Dictionary) -> String: return str(c.key))
 	for key in ["block", "poison", "resolve", "dread", "bound", "gold", "gimmick"]:

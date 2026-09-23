@@ -261,6 +261,13 @@ func lunge(toward: Vector3, seconds: float = 0.5) -> void:
 	tween.tween_property(self, "_rear", 0.0, seconds * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_glow_boost = maxf(_glow_boost, 1.5)
 
+func channel(seconds: float = 0.6) -> void:
+	## Gathers itself and releases a ward or buff, without lunging at the players.
+	var tween := create_tween()
+	tween.tween_property(self, "_rear", 0.6, seconds * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(self, "_rear", 0.0, seconds * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_glow_boost = maxf(_glow_boost, 2.0)
+
 func spawn(delay: float = 0.0) -> void:
 	## Rises out of the rock.
 	_body.position = Vector3(0, -2.5 * (anchor.y / 2.0), 0)

@@ -18,6 +18,9 @@ const TURN_PER_PIXEL := 0.011
 ## Interactive views are steered by the reader instead of by the roll: dragging
 ## turns the solid freely and focus_face() swings one face to the front.
 var interactive := false
+var spin_seconds: float = SPIN_SECONDS
+var suspense: bool = false
+var suspense_scale: float = 1.0
 
 var die: Dictionary = {}
 var roll: Dictionary = {}
@@ -142,10 +145,18 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 			_start_spin()
 		elif is_instance_valid(_pivot):
 			_pivot.quaternion = _target
-	elif _spin_time > SPIN_SECONDS and is_instance_valid(_pivot):
+	elif _spin_time > spin_seconds and is_instance_valid(_pivot):
 		_pivot.quaternion = _target
 	if is_instance_valid(_glow):
 		_glow.queue_redraw()
+
+func settle_immediately() -> void:
+	## Restored state already knows this face; do not replay a roll on reconnect.
+	_spin_time = spin_seconds + 1.0
+	if is_instance_valid(_pivot):
+		_pivot.quaternion = _target
+		_pivot.position = Vector3.ZERO
+		_pivot.scale = Vector3.ONE
 
 func enable_interaction() -> void:
 	## Hands the solid to the reader: the roll no longer drives its orientation.
@@ -296,7 +307,7 @@ func _start_spin() -> void:
 	## Each solid tumbles and lands on its own, a little apart from its neighbours, so five
 	## dice sound like five dice and not one.
 	DeepAudio.play("die_tumble", {"volume": 0.45, "gap": 0.0, "delay": randf() * 0.05})
-	DeepAudio.play("die_settle", {"volume": 0.55, "gap": 0.0, "delay": SPIN_SECONDS * randf_range(0.82, 0.98)})
+	DeepAudio.play("die_settle", {"volume": 0.55, "gap": 0.0, "delay": spin_seconds * randf_range(0.82, 0.98)})
 	_spin_from = Quaternion(Vector3(0.4, 1.0, 0.25).normalized(), randf() * TAU)
 	_spin_axis = Vector3(randf_range(-1.0, 1.0), randf_range(0.4, 1.0), randf_range(-1.0, 1.0)).normalized()
 	_spin_turns = randf_range(1.6, 2.6)
@@ -312,15 +323,15 @@ func _process(delta: float) -> void:
 		_pivot.position = Vector3.ZERO
 		_pivot.scale = Vector3.ONE
 		return
-	if _spin_time <= SPIN_SECONDS:
+	if _spin_time <= spin_seconds:
 		_spin_time += delta
-		var t := clampf(_spin_time / SPIN_SECONDS, 0.0, 1.0)
-		var eased := 1.0 - pow(1.0 - t, 3.0)
+		var t := clampf(_spin_time / spin_seconds, 0.0, 1.0)
+		var eased := smoothstep(0.55, 1.0, t) if suspense else 1.0 - pow(1.0 - t, 3.0)
 		var settled := _spin_from.slerp(_target, eased)
-		_pivot.quaternion = Quaternion(_spin_axis, _spin_turns * TAU * (1.0 - eased)) * settled
+		_pivot.quaternion = Quaternion(_spin_axis, _spin_turns * TAU * (1.0 - eased) + (TAU * 3.0 * t * (1.0 - eased) if suspense else 0.0)) * settled
 		_pivot.position = Vector3(0, sin(PI * t) * 0.34, 0)
 		var squash := 1.0 + 0.16 * sin(PI * clampf((t - 0.82) / 0.18, 0.0, 1.0))
-		_pivot.scale = Vector3(squash, 2.0 - squash, squash)
+		_pivot.scale = Vector3(squash, 2.0 - squash, squash) * (1.0 + 0.16 * suspense_scale * sin(PI * t * 0.9) if suspense else 1.0)
 		if t >= 1.0:
 			_pivot.position = Vector3.ZERO
 			_pivot.scale = Vector3.ONE

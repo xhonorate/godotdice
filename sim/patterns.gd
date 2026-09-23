@@ -31,7 +31,7 @@ extends RefCounted
 ## `describe` turns a trigger into the pictograph the interface draws and the sentence a
 ## tooltip says. Nothing here evaluates content by name.
 
-const KINDS: Array = ["always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
+const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
 	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant"]
 const SET_SIZES: Dictionary = {"pair": 2, "triple": 3, "quad": 4, "quint": 5}
@@ -121,6 +121,12 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.dice = run.get("dice", []).duplicate()
 				result.value = int(run.get("high", 0))
 				result.count = int(run.get("length", 0))
+		"all_odd", "all_even":
+			var parity: int = int(a.get("odd" if kind == "all_odd" else "even", 0))
+			result.active = int(a.get("dice_count", 0)) >= maxi(2, need) and parity == int(a.get("dice_count", 0))
+			result.dice = _all_dice(a)
+			result.value = int(a.get("total", 0))
+			result.count = parity
 		"odd", "even":
 			var wanted_odd: bool = kind == "odd"
 			var have: int = int(a.get("odd" if wanted_odd else "even", 0))
@@ -290,6 +296,8 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 			var count: int = maxi(1, need)
 			var side: String = "lowest" if read_side(trigger, cut_step) == "low" else "highest"
 			return "Fires on every hand and reads your %s die." % side if count == 1 else "Fires on every hand and reads your %s %d dice." % [side, count]
+		"all_odd": return "All dice odd (%d or more)." % maxi(2, need)
+		"all_even": return "All dice even (%d or more)." % maxi(2, need)
 		"pair": return "A pair" + _of_at_least(need) + "."
 		"triple": return "Three of a kind" + _of_at_least(need) + "."
 		"quad": return "Four of a kind" + _of_at_least(need) + "."
