@@ -14,6 +14,7 @@ extends Node
 const GemView = preload("res://view/gems/gem_view.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const GemRock = preload("res://view/gems/gem_rock.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 
 ## The size stones and dice are photographed at. Heavy stones are photographed into a larger
@@ -191,6 +192,8 @@ class GemThumb extends Control:
 	var _outline: PackedVector2Array = PackedVector2Array()
 	var _span: float = 1.0
 	var _brilliance: float = 0.5
+	## Where the rock sits on a raw stone, for the flat stand-in.
+	var _lumps: Array = []
 
 	func _init(new_stone: Dictionary = {}, edge: float = 64.0) -> void:
 		custom_minimum_size = Vector2(edge, edge)
@@ -221,15 +224,19 @@ class GemThumb extends Control:
 			return
 		_key = key
 		_hue = GemMesh.tint(stone)
-		_span = GemMesh.carat_span(int(stone.get("carat", 1)))
-		_brilliance = GemMesh.brilliance(GemMesh.clarity_grade(stone))
-		_outline = GemMesh.girdle(stone)
+		_span = GemMesh.span(stone)
 		var appraised: bool = bool(stone.get("appraised", true))
+		## A raw stone in its rock throws an ordinary stone's light, whatever it is.
+		_brilliance = GemMesh.brilliance(GemMesh.clarity_grade(stone)) if appraised else GemView.SEALED_BRILLIANCE
+		_outline = GemMesh.girdle(stone)
+		_lumps = [] if appraised else GemRock.layout(stone)
 		var tier: String = str(DeepStone.grade(stone).tier)
+		## A Star is only seen once someone has looked inside: a raw stone keeps it hidden.
 		var star: bool = false
-		for inclusion in stone.get("inclusions", []):
-			if str(DeepContent.inclusion(str(inclusion)).get("class", "")) == "STAR":
-				star = true
+		if appraised or bool(stone.get("inclusions_revealed", false)):
+			for inclusion in stone.get("inclusions", []):
+				if str(DeepContent.inclusion(str(inclusion)).get("class", "")) == "STAR":
+					star = true
 		glint = star or (appraised and tier in ["EXQUISITE", "PEERLESS"])
 		_texture = null
 		_fade = 0.0
@@ -324,7 +331,15 @@ class GemThumb extends Control:
 			var flat := Vector2(point.x, -point.y) * radius
 			points.append(centre + flat)
 			table.append(centre + flat * 0.55 + Vector2(0, -radius * 0.04))
-		var body: Color = GemMesh.body_colour(GemMesh.colour_key(stone), GemMesh.clarity_grade(stone))
+		var appraised: bool = bool(stone.get("appraised", true))
+		var body: Color = GemMesh.body_color(GemMesh.color_key(stone), GemMesh.clarity_grade(stone) if appraised else 3)
+		## A raw stone is drawn smaller, to leave room for the rock round it.
+		var chunks: Array = [] if appraised else _lumps
+		var shrink: float = 1.0 if chunks.is_empty() else GemView.ROCK_SPAN / GemRock.reach(chunks)
+		if shrink < 1.0:
+			for index in range(points.size()):
+				points[index] = centre + (points[index] - centre) * shrink
+				table[index] = centre + (table[index] - centre) * shrink
 		draw_colored_polygon(points, Color(body.darkened(0.25), alpha))
 		for index in range(points.size()):
 			var a: Vector2 = points[index]
@@ -335,6 +350,15 @@ class GemThumb extends Control:
 		var loop := points.duplicate()
 		loop.append(points[0])
 		draw_polyline(loop, Color(body.lightened(0.5), alpha * 0.8), 1.2, true)
+		## The rock, seen from the front: a lump per chunk, the bed last and on top.
+		for chunk in chunks:
+			var middle: Vector2 = centre + Vector2(chunk.position.x, -chunk.position.y) * radius * shrink
+			var lump := PackedVector2Array()
+			for corner in range(9):
+				var angle: float = TAU * float(corner) / 9.0 + float(chunk.rotation.z)
+				var wobble: float = 0.82 + 0.3 * absf(sin(float(corner) * 2.3 + float(chunk.rotation.z) * 3.0))
+				lump.append(middle + Vector2(cos(angle), sin(angle)) * float(chunk.radius) * radius * shrink * wobble)
+			draw_colored_polygon(lump, Color(GemRock.TONE.lightened(0.05 * sin(float(chunk.rotation.z))), alpha))
 
 class DieThumb extends Control:
 	## A die's picture, three-quarter on so its shape reads, showing one face.

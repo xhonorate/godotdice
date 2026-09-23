@@ -52,11 +52,11 @@ func _draw() -> void:
 		var energy: float = 1.0
 		if node is Light3D:
 			energy = clampf((node as Light3D).light_energy / 3.0, 0.2, 1.6)
-		entries.append({"point": node.global_position, "colour": source.colour, "strength": float(source.strength) * energy * 0.6, "size": float(source.get("size", 1.0)), "ghosts": false})
+		entries.append({"point": node.global_position, "color": source.color, "strength": float(source.strength) * energy * 0.6, "size": float(source.get("size", 1.0)), "ghosts": false})
 	for flare in transient:
 		var life: float = maxf(0.01, float(flare.life))
 		var fade: float = 1.0 - float(flare.age) / life
-		entries.append({"point": flare.position, "colour": flare.colour, "strength": float(flare.strength) * fade * fade, "size": float(flare.size), "ghosts": true})
+		entries.append({"point": flare.position, "color": flare.color, "strength": float(flare.strength) * fade * fade, "size": float(flare.size), "ghosts": true})
 	var unit: float = size.y / 900.0
 	## Ghosts are costly to the eye: only the brightest passing flash throws them.
 	var ghost_budget: int = 1
@@ -67,16 +67,16 @@ func _draw() -> void:
 			continue
 		var power: float = float(entry.strength) * float(seen.seen) * strength
 		var at: Vector2 = seen.at
-		var colour: Color = entry.colour
+		var color: Color = entry.color
 		var scale: float = float(entry.size) * unit
 		## The bloom itself and a hot core.
 		var bloom: float = 120.0 * scale * (0.6 + 0.4 * power)
-		draw_texture_rect(glow, Rect2(at - Vector2(bloom, bloom) * 0.5, Vector2(bloom, bloom)), false, Color(colour, 0.22 * power))
+		draw_texture_rect(glow, Rect2(at - Vector2(bloom, bloom) * 0.5, Vector2(bloom, bloom)), false, Color(color, 0.22 * power))
 		var core: float = 38.0 * scale
-		draw_texture_rect(glow, Rect2(at - Vector2(core, core) * 0.5, Vector2(core, core)), false, Color(colour.lightened(0.6), 0.55 * power))
+		draw_texture_rect(glow, Rect2(at - Vector2(core, core) * 0.5, Vector2(core, core)), false, Color(color.lightened(0.6), 0.55 * power))
 		## Anamorphic streak.
 		var streak := Vector2(520.0 * scale * power, 9.0 * scale)
-		draw_texture_rect(glow, Rect2(at - streak * 0.5, streak), false, Color(colour.lightened(0.3), 0.22 * power))
+		draw_texture_rect(glow, Rect2(at - streak * 0.5, streak), false, Color(color.lightened(0.3), 0.22 * power))
 		## Ghosts along the line through the centre of the lens.
 		if not bool(entry.ghosts) or ghost_budget <= 0 or power < 0.3:
 			continue
@@ -86,7 +86,7 @@ func _draw() -> void:
 			var place: Vector2 = at + axis * float(ghost[0]) * 2.0
 			var radius: float = size.y * float(ghost[2]) * 0.3 * (0.7 + 0.3 * float(entry.size))
 			var alpha: float = float(ghost[1]) * power * 0.5
-			var tint: Color = colour.lerp(Color(0.6, 0.8, 1.0), 0.3 * float(ghost[0]))
+			var tint: Color = color.lerp(Color(0.6, 0.8, 1.0), 0.3 * float(ghost[0]))
 			if int(float(ghost[0]) * 10.0) % 2 == 0:
 				draw_texture_rect(glow, Rect2(place - Vector2(radius, radius), Vector2(radius, radius) * 2.0), false, Color(tint, alpha))
 			else:

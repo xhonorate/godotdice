@@ -1,6 +1,6 @@
 extends RefCounted
 ## Faceted geometry for the chamber: rocks, spikes, crystals, columns, caps. Everything is
-## flat-shaded (one normal per facet) and vertex-coloured, so one material lights it all and
+## flat-shaded (one normal per facet) and vertex-colored, so one material lights it all and
 ## the facets catch the light the way the stones do. Pure mesh building; no scene tree.
 
 ## Pass corners so that (b - a) x (c - a) points out of the solid, or name the side it should
@@ -14,7 +14,7 @@ static func tri(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, tone: 
 		var swap := b
 		b = c
 		c = swap
-		normal = -normal
+		normal = - normal
 	for point in [a, c, b]:
 		surface.set_normal(normal)
 		surface.set_color(tone)
@@ -146,7 +146,7 @@ static func column(rng: RandomNumberGenerator, tone: Color, sides: int = 6, radi
 	return surface.commit()
 
 static func cap(rng: RandomNumberGenerator, tone: Color, under: Color, radius: float = 0.8, height: float = 0.45, sides: int = 8) -> ArrayMesh:
-	## A mushroom cap: a low cone with a flat, differently coloured gill face underneath.
+	## A mushroom cap: a low cone with a flat, differently colored gill face underneath.
 	var surface := begin()
 	var rim: Array = []
 	for i in range(sides):

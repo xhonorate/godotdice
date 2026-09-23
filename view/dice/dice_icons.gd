@@ -14,7 +14,7 @@ const RUN_TONE := Color("6fe3b0")
 const PLAIN_TONE := Color("d8dce6")
 const LEAD_TONE := Color("8f9fb5")
 
-## Every die's body and edge colour, keyed the way the content keys them. The 3D view
+## Every die's body and edge color, keyed the way the content keys them. The 3D view
 ## reads it too, so a solid and its icon never disagree.
 const DIE_PALETTE := {
 	"D4": ["d9a05b", "6d4a20"], "D6": ["e6e2d4", "7c7565"], "D8": ["5fc7bd", "235e5a"],
@@ -138,7 +138,7 @@ static func glyph_for(described: Dictionary) -> String:
 		"total_pct_at_most": return "total_low"
 		"held": return "lock"
 		"rerolled": return "reroll"
-		"resonance": return "carat"
+		"resonance": return "resonance"
 		"low_count": return "low"
 		"crowns", "crowns_at_most": return "peak"
 		"skip_straight": return "even"

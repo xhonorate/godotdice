@@ -1,1062 +1,5744 @@
 {
-	"pack": "deep_cut",
-	"version": 1,
-	"constants": {
-		"carat_max": 20,
-		"magnitude_per_carat": 0.25,
-		"rerolls": 2,
-		"landing_every": 4,
-		"warden_depths": [8, 16, 24],
-		"endless_warden_every": 8,
-		"run_depth": 24,
-		"enrage_turn": 7,
-		"enrage_damage": 2,
-		"appraise_ore_cost": 12,
-		"appraise_cost_step": 8,
-		"rest_pct": 30,
-		"lantern_ore_cost": 10,
-		"salvage_dice": {"ROUGH": 4, "FINE": 6, "PRECIOUS": 8, "EXQUISITE": 10, "PEERLESS": 12},
-		"grade_thresholds": {"FINE": 30, "PRECIOUS": 55, "EXQUISITE": 72, "PEERLESS": 85},
-		"depth_hp_scale": 0.05,
-		"depth_damage_every": 4,
-		"stone_drop_pct": {"fight": 55, "elite": 100, "vein": 100},
-		"ore_per_fight": 6
-	},
-	"colours": {
-		"RED": {"name": "Red", "cut": "trilliant", "hue": "e0473c", "domain": "damage"},
-		"BLUE": {"name": "Blue", "cut": "princess", "hue": "3f7fe0", "domain": "guard"},
-		"GREEN": {"name": "Green", "cut": "heart", "hue": "3fb56b", "domain": "sustain"},
-		"VIOLET": {"name": "Violet", "cut": "pear", "hue": "8b5fd6", "domain": "control"},
-		"GOLD": {"name": "Gold", "cut": "dutch_rose", "hue": "e2b23a", "domain": "fortune"},
-		"WHITE": {"name": "White", "cut": "round", "hue": "e8eef5", "domain": "the hand"}
-	},
-	"cuts": [
-		{"key": "POOR", "name": "Poor", "weight": 20},
-		{"key": "FAIR", "name": "Fair", "weight": 30},
-		{"key": "GOOD", "name": "Good", "weight": 30},
-		{"key": "FINE", "name": "Fine", "weight": 15},
-		{"key": "PERFECT", "name": "Perfect", "weight": 5}
-	],
-	"clarities": [
-		{"key": "RIDDLED", "name": "Riddled", "inclusions": 3, "weight": 2},
-		{"key": "VEINED", "name": "Veined", "inclusions": 2, "weight": 6},
-		{"key": "INCLUDED", "name": "Included", "inclusions": 1, "weight": 20},
-		{"key": "CLEAR", "name": "Clear", "inclusions": 0, "weight": 44},
-		{"key": "PRISTINE", "name": "Pristine", "inclusions": 0, "weight": 20, "cut_step": 1},
-		{"key": "FLAWLESS", "name": "Flawless", "inclusions": 0, "weight": 6, "cut_step": 1, "magnitude": 1.5, "flawless_line": true}
-	],
-	"rarities": {
-		"COMMON": {"weight": 60, "score": 0},
-		"UNCOMMON": {"weight": 28, "score": 8},
-		"RARE": {"weight": 10, "score": 16},
-		"LEGENDARY": {"weight": 2, "score": 28}
-	},
-	"skills": {
-		"STRIKE": {"name": "Strike", "colour": "RED", "rarity": "COMMON", "tags": ["attack"], "text": "Damage equal to the dice it reads.",
-			"trigger": {"kind": "always", "read": "high", "ladder": [1, 1, 2, 2, 3]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"term": "value"}}],
-			"flawless": {"text": "Also hits the creature behind the target.", "effects": [{"kind": "damage", "target": "enemy_behind", "amount": {"term": "value"}}]}},
-		"CLEAVE": {"name": "Cleave", "colour": "RED", "rarity": "COMMON", "tags": ["pair", "attack"], "text": "Damage twice the pair's value, half of it to the creatures beside the target.",
-			"trigger": {"kind": "pair", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"op": "*", "args": [{"term": "value"}, 2]}, "splash": 50}],
-			"flawless": {"text": "The neighbours take the full blow.", "modify": [{"effect": 0, "splash": 100}]}},
-		"CRUSH": {"name": "Crush", "colour": "RED", "rarity": "UNCOMMON", "tags": ["triple", "attack"], "text": "Damage three times the matched value.",
-			"trigger": {"kind": "triple", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"op": "*", "args": [{"term": "value"}, 3]}}],
-			"flawless": {"text": "The target is stunned.", "effects": [{"kind": "stun", "target": "enemy", "amount": 1}]}},
-		"BARRAGE": {"name": "Barrage", "colour": "RED", "rarity": "UNCOMMON", "tags": ["straight", "attack"], "text": "One hit of 4 for every die in the straight.",
-			"trigger": {"kind": "straight", "ladder": [5, 5, 4, 4, 3]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": 4, "repeat": {"term": "count"}}],
-			"flawless": {"text": "The hits spread across every creature.", "modify": [{"effect": 0, "target": "spread"}]}},
-		"OVERKILL": {"name": "Overkill", "colour": "RED", "rarity": "RARE", "tags": ["total", "attack"], "text": "Damage equal to your whole total.",
-			"trigger": {"kind": "total_pct_at_least", "ladder": [90, 85, 80, 75, 70]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"term": "total"}}],
-			"flawless": {"text": "Half the total again to the creature behind.", "effects": [{"kind": "damage", "target": "enemy_behind", "amount": {"op": "pct", "args": [{"term": "total"}, 50]}}]}},
-		"SPALL": {"name": "Spall", "colour": "RED", "rarity": "RARE", "tags": ["distinct", "attack"], "text": "Damage twice the sum of your two lowest dice.",
-			"trigger": {"kind": "distinct", "ladder": [5, 5, 4, 4, 3]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"op": "*", "args": [{"term": "sum_low", "value": 2}, 2]}}],
-			"flawless": {"text": "Three times instead.", "effects": [{"kind": "damage", "target": "enemy", "amount": {"term": "sum_low", "value": 2}}]}},
-		"EMBER": {"name": "Ember", "colour": "RED", "rarity": "UNCOMMON", "tags": ["low", "attack"], "text": "3 damage for every low die.",
-			"trigger": {"kind": "at_most", "ladder": [1, 1, 2, 2, 3]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": 3, "repeat": {"term": "count"}}],
-			"flawless": {"text": "Each low die also leaves a poison.", "effects": [{"kind": "poison", "target": "enemy", "amount": {"term": "count"}}]}},
-		"FURY": {"name": "Fury", "colour": "RED", "rarity": "RARE", "tags": ["reroll", "attack"], "text": "4 damage for every die you rerolled this turn.",
-			"trigger": {"kind": "rerolled", "ladder": [4, 3, 3, 2, 1]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"op": "*", "args": [{"term": "count"}, 4]}}],
-			"flawless": {"text": "And 2 more for each.", "effects": [{"kind": "damage", "target": "enemy", "amount": {"op": "*", "args": [{"term": "count"}, 2]}}]}},
-
-		"GUARD": {"name": "Guard", "colour": "BLUE", "rarity": "COMMON", "tags": ["pair", "guard"], "text": "Block equal to the pair's value.",
-			"trigger": {"kind": "pair", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "block", "target": "self", "amount": {"term": "value"}}],
-			"flawless": {"text": "Half as much again to every ally.", "effects": [{"kind": "block", "target": "allies", "amount": {"op": "pct", "args": [{"term": "value"}, 50]}}]}},
-		"BULWARK": {"name": "Bulwark", "colour": "BLUE", "rarity": "UNCOMMON", "tags": ["low", "guard"], "text": "Block equal to everything your dice left on the table.",
-			"trigger": {"kind": "total_pct_at_most", "ladder": [40, 45, 50, 55, 60]},
-			"effects": [{"kind": "block", "target": "self", "amount": {"term": "missing"}}],
-			"flawless": {"text": "The whole party stands behind it.", "modify": [{"effect": 0, "target": "allies"}]}},
-		"AEGIS": {"name": "Aegis", "colour": "BLUE", "rarity": "UNCOMMON", "tags": ["straight", "guard", "party"], "text": "Block to every ally equal to the top of the straight.",
-			"trigger": {"kind": "straight", "ladder": [5, 5, 4, 4, 3]},
-			"effects": [{"kind": "block", "target": "allies", "amount": {"term": "value"}}],
-			"flawless": {"text": "And every ally is cleansed.", "effects": [{"kind": "cleanse", "target": "allies", "amount": 1}]}},
-		"BASTION": {"name": "Bastion", "colour": "BLUE", "rarity": "RARE", "tags": ["full_house", "guard", "party"], "text": "Block to every ally equal to both values of the house.",
-			"trigger": {"kind": "full_house", "ladder": [4, 3, 2, 1, 1]},
-			"effects": [{"kind": "block", "target": "allies", "amount": {"op": "+", "args": [{"term": "value"}, {"term": "second"}]}}],
-			"flawless": {"text": "The party shrugs off two afflictions each.", "effects": [{"kind": "cleanse", "target": "allies", "amount": 2}]}},
-		"TEMPO": {"name": "Tempo", "colour": "BLUE", "rarity": "COMMON", "tags": ["even", "guard"], "text": "2 block for every even die.",
-			"trigger": {"kind": "even", "ladder": [5, 4, 4, 3, 3]},
-			"effects": [{"kind": "block", "target": "self", "amount": {"op": "*", "args": [{"term": "count"}, 2]}}],
-			"flawless": {"text": "3 for every even die.", "effects": [{"kind": "block", "target": "self", "amount": {"term": "count"}}]}},
-		"ANCHOR": {"name": "Anchor", "colour": "BLUE", "rarity": "RARE", "tags": ["held", "guard"], "text": "2 block for every die you did not reroll.",
-			"trigger": {"kind": "held", "ladder": [5, 4, 4, 3, 2]},
-			"effects": [{"kind": "block", "target": "self", "amount": {"op": "*", "args": [{"term": "count"}, 2]}}],
-			"flawless": {"text": "3 for every held die.", "effects": [{"kind": "block", "target": "self", "amount": {"term": "count"}}]}},
-		"RIPOSTE": {"name": "Riposte", "colour": "BLUE", "rarity": "RARE", "tags": ["guard", "attack"], "text": "Damage equal to the block you lost since your last turn.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"term": "block_lost"}}],
-			"flawless": {"text": "Twice over.", "modify": [{"effect": 0, "mult": 2}]}},
-
-		"MEND": {"name": "Mend", "colour": "GREEN", "rarity": "COMMON", "tags": ["sustain"], "text": "Heal equal to the dice it reads.",
-			"trigger": {"kind": "always", "read": "low", "ladder": [1, 1, 2, 2, 3]},
-			"effects": [{"kind": "heal", "target": "self", "amount": {"term": "value"}}],
-			"flawless": {"text": "Half of it again as block.", "effects": [{"kind": "block", "target": "self", "amount": {"op": "pct", "args": [{"term": "value"}, 50]}}]}},
-		"GRAFT": {"name": "Graft", "colour": "GREEN", "rarity": "UNCOMMON", "tags": ["two_pair", "sustain"], "text": "Heal equal to both pair values.",
-			"trigger": {"kind": "two_pair", "ladder": [4, 3, 2, 1, 1]},
-			"effects": [{"kind": "heal", "target": "self", "amount": {"op": "+", "args": [{"term": "value"}, {"term": "second"}]}}],
-			"flawless": {"text": "Every ally is healed.", "modify": [{"effect": 0, "target": "allies"}]}},
-		"BLOOM": {"name": "Bloom", "colour": "GREEN", "rarity": "COMMON", "tags": ["odd", "sustain", "party"], "text": "Heal every ally 1 for each odd die.",
-			"trigger": {"kind": "odd", "ladder": [5, 4, 4, 3, 3]},
-			"effects": [{"kind": "heal", "target": "allies", "amount": {"term": "count"}}],
-			"flawless": {"text": "2 for each odd die.", "modify": [{"effect": 0, "mult": 2}]}},
-		"RENEWAL": {"name": "Renewal", "colour": "GREEN", "rarity": "UNCOMMON", "tags": ["straight", "sustain"], "text": "Heal the top of the straight and cleanse one affliction.",
-			"trigger": {"kind": "straight", "ladder": [5, 5, 4, 4, 3]},
-			"effects": [{"kind": "heal", "target": "self", "amount": {"term": "value"}}, {"kind": "cleanse", "target": "self", "amount": 1}],
-			"flawless": {"text": "Cleanse everything.", "modify": [{"effect": 1, "add": 9}]}},
-		"LIFELINE": {"name": "Lifeline", "colour": "GREEN", "rarity": "LEGENDARY", "tags": ["triple", "sustain", "revive"], "text": "Once a fight, revive a fallen ally with three times the matched value. With nobody down, heal the party half of that.",
-			"trigger": {"kind": "triple", "ladder": [6, 5, 4, 3, 2]},
-			"effects": [{"kind": "revive", "target": "downed_ally", "amount": {"op": "*", "args": [{"term": "value"}, 3]}, "scale": "carat", "once": true}],
-			"flawless": {"text": "The revived ally also gains block equal to the value.", "effects": [{"kind": "block", "target": "downed_ally", "amount": {"term": "value"}}]}},
-		"THRIVE": {"name": "Thrive", "colour": "GREEN", "rarity": "RARE", "tags": ["guard", "sustain"], "text": "Heal half your current block.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "heal", "target": "self", "amount": {"op": "floor_div", "args": [{"term": "block"}, 2]}}],
-			"flawless": {"text": "Heal all of it.", "effects": [{"kind": "heal", "target": "self", "amount": {"op": "floor_div", "args": [{"term": "block"}, 2]}}]}},
-		"SAP": {"name": "Sap", "colour": "GREEN", "rarity": "RARE", "tags": ["sustain", "attack"], "text": "Damage equal to the healing you did this turn.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": {"term": "healed"}}],
-			"flawless": {"text": "And the party is healed half of it.", "effects": [{"kind": "heal", "target": "allies", "amount": {"op": "pct", "args": [{"term": "healed"}, 50]}}]}},
-
-		"HEX": {"name": "Hex", "colour": "VIOLET", "rarity": "UNCOMMON", "tags": ["high", "control"], "text": "Stun the target.",
-			"trigger": {"kind": "high_pct_at_least", "ladder": [95, 90, 85, 80, 70]},
-			"effects": [{"kind": "stun", "target": "enemy", "amount": 1}],
-			"flawless": {"text": "Stun it twice.", "modify": [{"effect": 0, "add": 1}]}},
-		"VENOM": {"name": "Venom", "colour": "VIOLET", "rarity": "COMMON", "tags": ["pair", "poison"], "text": "Poison equal to the pair's value.",
-			"trigger": {"kind": "pair", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "poison", "target": "enemy", "amount": {"term": "value"}}],
-			"flawless": {"text": "And half the value in damage.", "effects": [{"kind": "damage", "target": "enemy", "amount": {"op": "pct", "args": [{"term": "value"}, 50]}}]}},
-		"MIASMA": {"name": "Miasma", "colour": "VIOLET", "rarity": "UNCOMMON", "tags": ["even", "poison", "group"], "text": "2 poison to every creature.",
-			"trigger": {"kind": "even", "ladder": [5, 4, 4, 3, 3]},
-			"effects": [{"kind": "poison", "target": "enemies", "amount": 2}],
-			"flawless": {"text": "3 poison.", "modify": [{"effect": 0, "add": 1}]}},
-		"CURSE": {"name": "Curse", "colour": "VIOLET", "rarity": "RARE", "tags": ["control"], "text": "The target takes 25% more from every gem after this one this turn.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "curse", "target": "enemy", "amount": 25}],
-			"flawless": {"text": "50% more.", "modify": [{"effect": 0, "add": 25}]}},
-		"SHATTER": {"name": "Shatter", "colour": "VIOLET", "rarity": "UNCOMMON", "tags": ["triple", "attack"], "text": "Strip block worth three times the matched value, then damage the value.",
-			"trigger": {"kind": "triple", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "remove_block", "target": "enemy", "amount": {"op": "*", "args": [{"term": "value"}, 3]}}, {"kind": "damage", "target": "enemy", "amount": {"term": "value"}}],
-			"flawless": {"text": "Strip every point of block.", "modify": [{"effect": 0, "add": 999}]}},
-		"BIND": {"name": "Bind", "colour": "VIOLET", "rarity": "RARE", "tags": ["two_pair", "control"], "text": "The target loses one die next turn.",
-			"trigger": {"kind": "two_pair", "ladder": [4, 3, 2, 1, 1]},
-			"effects": [{"kind": "die_steal", "target": "enemy", "amount": 1}],
-			"flawless": {"text": "It loses two.", "modify": [{"effect": 0, "add": 1}]}},
-		"DREAD": {"name": "Dread", "colour": "VIOLET", "rarity": "LEGENDARY", "tags": ["straight", "control"], "text": "The target's next move is weakened a step.",
-			"trigger": {"kind": "straight", "ladder": [5, 5, 4, 4, 3]},
-			"effects": [{"kind": "intent_downgrade", "target": "enemy", "amount": 1}],
-			"flawless": {"text": "Every creature's.", "modify": [{"effect": 0, "target": "enemies"}]}},
-
-		"TITHE": {"name": "Tithe", "colour": "GOLD", "rarity": "COMMON", "tags": ["pair", "fortune"], "text": "Ore equal to the pair's value.",
-			"trigger": {"kind": "pair", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "gold", "target": "self", "amount": {"term": "value"}}],
-			"flawless": {"text": "Twice over.", "modify": [{"effect": 0, "mult": 2}]}},
-		"JACKPOT": {"name": "Jackpot", "colour": "GOLD", "rarity": "RARE", "tags": ["triple", "fortune"], "text": "Ore equal to the matched value times the dice matched. Five of a kind pays ten times.",
-			"trigger": {"kind": "triple", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "gold", "target": "self", "amount": {"op": "*", "args": [{"term": "value"}, {"term": "count"}]}}],
-			"flawless": {"text": "Pays again.", "effects": [{"kind": "gold", "target": "self", "amount": {"op": "*", "args": [{"term": "value"}, {"term": "count"}]}}]}},
-		"LUCKY_SEVEN": {"name": "Lucky Seven", "colour": "GOLD", "rarity": "UNCOMMON", "tags": ["value", "fortune", "attack"], "text": "7 damage and 7 ore for every seven.",
-			"trigger": {"kind": "value", "values": [7], "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "damage", "target": "enemy", "amount": 7, "repeat": {"term": "count"}}, {"kind": "gold", "target": "self", "amount": 7, "repeat": {"term": "count"}}],
-			"flawless": {"text": "Fourteen of each.", "modify": [{"effect": 0, "mult": 2}, {"effect": 1, "mult": 2}]}},
-		"WAGER": {"name": "Wager", "colour": "GOLD", "rarity": "RARE", "tags": ["low", "fortune", "attack"], "text": "5 ore, and damage equal to everything your dice left on the table.",
-			"trigger": {"kind": "total_pct_at_most", "ladder": [40, 45, 50, 55, 60]},
-			"effects": [{"kind": "gold", "target": "self", "amount": 5}, {"kind": "damage", "target": "enemy", "amount": {"term": "missing"}}],
-			"flawless": {"text": "10 ore.", "modify": [{"effect": 0, "mult": 2}]}},
-		"WINDFALL": {"name": "Windfall", "colour": "GOLD", "rarity": "UNCOMMON", "tags": ["straight", "fortune"], "text": "Stones found in this fight are 10% better.",
-			"trigger": {"kind": "straight", "ladder": [5, 5, 4, 4, 3]},
-			"effects": [{"kind": "quality_bonus", "target": "self", "amount": 10}],
-			"flawless": {"text": "25% better.", "modify": [{"effect": 0, "add": 15}]}},
-		"DOUBLE_DOWN": {"name": "Double Down", "colour": "GOLD", "rarity": "LEGENDARY", "tags": ["gamble"], "text": "Flip a coin: the next gem is doubled, or does nothing.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "coin_flip", "target": "self", "amount": 50, "win_mult": 2, "lose_mult": 0}],
-			"flawless": {"text": "Tripled.", "modify": [{"effect": 0, "kind": "coin_flip"}], "effects": [{"kind": "amplify_next", "target": "self", "amount": 50}]}},
-		"PROSPECT": {"name": "Prospect", "colour": "GOLD", "rarity": "UNCOMMON", "tags": ["distinct", "fortune"], "text": "Gain a Sparkle. At five Sparkles the next stone you find is a grade better.",
-			"trigger": {"kind": "distinct", "ladder": [5, 5, 4, 4, 3]},
-			"effects": [{"kind": "sparkle", "target": "self", "amount": 1}],
-			"flawless": {"text": "Two Sparkles.", "modify": [{"effect": 0, "add": 1}]}},
-
-		"GLIMMER": {"name": "Glimmer", "colour": "WHITE", "rarity": "COMMON", "tags": ["hand"], "text": "Raise your lowest die for every gem after this one.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "raise_low", "target": "self", "amount": {"ladder": [1, 2, 2, 3, 4]}}],
-			"flawless": {"text": "Raise it all the way to your highest.", "modify": [{"effect": 0, "add": 99}]}},
-		"REFRACT": {"name": "Refract", "colour": "WHITE", "rarity": "UNCOMMON", "tags": ["hand"], "text": "Add a phantom die copying your highest for every gem after this one.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "phantom_high", "target": "self", "amount": 1}],
-			"flawless": {"text": "Two phantoms.", "modify": [{"effect": 0, "add": 1}]}},
-		"POLISH": {"name": "Polish", "colour": "WHITE", "rarity": "UNCOMMON", "tags": ["hand"], "text": "Set one die to match another, making a pair, for every gem after this one.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "set_match", "target": "self", "amount": 1}],
-			"flawless": {"text": "Match two dice.", "modify": [{"effect": 0, "add": 1}]}},
-		"MIRROR": {"name": "Mirror", "colour": "WHITE", "rarity": "UNCOMMON", "tags": ["hand"], "text": "Flip your lowest die to the other side of its range for every gem after this one.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "flip_low", "target": "self", "amount": 1}],
-			"flawless": {"text": "Flip the two lowest.", "modify": [{"effect": 0, "add": 1}]}},
-		"CASCADE": {"name": "Cascade", "colour": "WHITE", "rarity": "RARE", "tags": ["pair", "hand"], "text": "An extra reroll next turn.",
-			"trigger": {"kind": "pair", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "grant_reroll", "target": "self", "amount": 1}],
-			"flawless": {"text": "Two extra rerolls.", "modify": [{"effect": 0, "add": 1}]}},
-		"FACET": {"name": "Facet", "colour": "WHITE", "rarity": "RARE", "tags": ["hand"], "text": "The next gem is judged one Cut step better.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "cut_step_next", "target": "self", "amount": 1}],
-			"flawless": {"text": "Two steps.", "modify": [{"effect": 0, "add": 1}]}},
-		"ECHO": {"name": "Echo", "colour": "WHITE", "rarity": "RARE", "tags": ["pair", "hand"], "text": "Repeat the previous gem at half strength.",
-			"trigger": {"kind": "pair", "ladder": [5, 4, 3, 2, 1]},
-			"effects": [{"kind": "retrigger_previous", "target": "self", "amount": 50}],
-			"flawless": {"text": "At full strength.", "modify": [{"effect": 0, "add": 50}]}},
-		"PRISM": {"name": "Prism", "colour": "WHITE", "rarity": "LEGENDARY", "tags": ["hand", "resonance"], "text": "Adds 2 Resonance when it fires.",
-			"trigger": {"kind": "always", "ladder": [1, 1, 1, 1, 1]},
-			"effects": [{"kind": "resonance", "target": "self", "amount": 2}],
-			"flawless": {"text": "Adds 4.", "modify": [{"effect": 0, "add": 2}]}}
-	},
-	"inclusions": {
-		"PINPOINT_GOLD": {"name": "Pinpoint of Gold", "class": "PINPOINT", "rarity": "COMMON", "text": "+2 ore when this fires.", "modifiers": [{"kind": "rider", "effects": [{"kind": "gold", "target": "self", "amount": 2, "scale": "none"}]}]},
-		"SILK": {"name": "Silk", "class": "PINPOINT", "rarity": "COMMON", "text": "+2 block when this fires.", "modifiers": [{"kind": "rider", "effects": [{"kind": "block", "target": "self", "amount": 2, "scale": "none"}]}]},
-		"NEEDLE": {"name": "Needle", "class": "PINPOINT", "rarity": "COMMON", "text": "+1 damage for every die this gem reads.", "modifiers": [{"kind": "per_die_damage", "amount": 1}]},
-		"GRAIN": {"name": "Grain", "class": "PINPOINT", "rarity": "COMMON", "text": "Heal 1 when this fires.", "modifiers": [{"kind": "rider", "effects": [{"kind": "heal", "target": "self", "amount": 1, "scale": "none"}]}]},
-		"SPARK": {"name": "Spark", "class": "PINPOINT", "rarity": "UNCOMMON", "text": "+1 Resonance when this fires.", "modifiers": [{"kind": "resonance_bonus", "amount": 1}]},
-		"EMBERLINE": {"name": "Emberline", "class": "PINPOINT", "rarity": "COMMON", "text": "1 poison to the target when this fires.", "modifiers": [{"kind": "rider", "effects": [{"kind": "poison", "target": "enemy", "amount": 1, "scale": "none"}]}]},
-		"GLINT": {"name": "Glint", "class": "PINPOINT", "rarity": "UNCOMMON", "text": "Ore equal to the dice matched when this fires.", "modifiers": [{"kind": "rider", "effects": [{"kind": "gold", "target": "self", "amount": {"term": "count"}, "scale": "none"}]}]},
-		"DUSTING": {"name": "Dusting", "class": "PINPOINT", "rarity": "UNCOMMON", "text": "Block equal to the dice matched when this fires.", "modifiers": [{"kind": "rider", "effects": [{"kind": "block", "target": "self", "amount": {"term": "count"}, "scale": "none"}]}]},
-		"VEIL": {"name": "Veil", "class": "LENS", "rarity": "UNCOMMON", "text": "This gem reads your lowest die as if it were your highest.", "modifiers": [{"kind": "lens", "mode": "low_as_high"}]},
-		"CATS_EYE": {"name": "Cat's Eye", "class": "LENS", "rarity": "RARE", "text": "This gem reads every 1 as wild.", "modifiers": [{"kind": "lens", "mode": "ones_wild"}]},
-		"GRAINING": {"name": "Graining", "class": "LENS", "rarity": "UNCOMMON", "text": "This gem counts held dice twice in sets.", "modifiers": [{"kind": "lens", "mode": "held_twice"}]},
-		"ZONING_RED": {"name": "Red Zoning", "class": "LENS", "rarity": "UNCOMMON", "text": "Counts as Red as well as its own colour.", "modifiers": [{"kind": "colour_also", "colour": "RED"}]},
-		"ZONING_BLUE": {"name": "Blue Zoning", "class": "LENS", "rarity": "UNCOMMON", "text": "Counts as Blue as well as its own colour.", "modifiers": [{"kind": "colour_also", "colour": "BLUE"}]},
-		"ZONING_GREEN": {"name": "Green Zoning", "class": "LENS", "rarity": "UNCOMMON", "text": "Counts as Green as well as its own colour.", "modifiers": [{"kind": "colour_also", "colour": "GREEN"}]},
-		"ZONING_VIOLET": {"name": "Violet Zoning", "class": "LENS", "rarity": "UNCOMMON", "text": "Counts as Violet as well as its own colour.", "modifiers": [{"kind": "colour_also", "colour": "VIOLET"}]},
-		"ZONING_GOLD": {"name": "Gold Zoning", "class": "LENS", "rarity": "UNCOMMON", "text": "Counts as Gold as well as its own colour.", "modifiers": [{"kind": "colour_also", "colour": "GOLD"}]},
-		"ZONING_WHITE": {"name": "White Zoning", "class": "LENS", "rarity": "UNCOMMON", "text": "Counts as White as well as its own colour.", "modifiers": [{"kind": "colour_also", "colour": "WHITE"}]},
-		"FEATHER": {"name": "Feather", "class": "FEATHER", "rarity": "UNCOMMON", "text": "The next gem in the rail is judged one Cut step better.", "modifiers": [{"kind": "next_cut_step", "amount": 1}]},
-		"TWINNING_WISP": {"name": "Twinning Wisp", "class": "FEATHER", "rarity": "RARE", "text": "Fires again if the gem before it fired.", "modifiers": [{"kind": "retrigger_if_previous_fired"}]},
-		"FINGERPRINT": {"name": "Fingerprint", "class": "FEATHER", "rarity": "RARE", "text": "Carries one inclusion of the gem before it.", "modifiers": [{"kind": "copy_previous_inclusion"}]},
-		"HALO": {"name": "Halo", "class": "FEATHER", "rarity": "UNCOMMON", "text": "Neighbouring gems of this colour gain a carat.", "modifiers": [{"kind": "adjacent_carat", "amount": 1, "same_colour": true}]},
-		"RESONANT_VEIN": {"name": "Resonant Vein", "class": "FEATHER", "rarity": "RARE", "text": "Fizzling does not reset Resonance.", "modifiers": [{"kind": "no_resonance_reset"}]},
-		"FRACTURE": {"name": "Fracture", "class": "FRACTURE", "rarity": "UNCOMMON", "text": "Twice the strength, but it fizzles if any die shows a 1.", "modifiers": [{"kind": "magnitude", "amount": 2.0}, {"kind": "fizzle_on_value", "value": 1}]},
-		"BRUISE": {"name": "Bruise", "class": "FRACTURE", "rarity": "UNCOMMON", "text": "Half again the strength; you lose 2 HP when it fires.", "modifiers": [{"kind": "magnitude", "amount": 1.5}, {"kind": "hp_cost", "amount": 2}]},
-		"KNOT": {"name": "Knot", "class": "FRACTURE", "rarity": "UNCOMMON", "text": "+2 carats, but it cannot leave its socket during a run.", "modifiers": [{"kind": "carat", "amount": 2}, {"kind": "locked"}]},
-		"CAVITY": {"name": "Cavity", "class": "FRACTURE", "rarity": "RARE", "text": "Its carats count double, but its cut counts as Poor.", "modifiers": [{"kind": "carat_mult", "amount": 2.0}, {"kind": "cut_override", "value": 0}]},
-		"CHIP": {"name": "Chip", "class": "FRACTURE", "rarity": "COMMON", "text": "+3 carats, one Cut step worse.", "modifiers": [{"kind": "carat", "amount": 3}, {"kind": "cut_step", "amount": -1}]},
-		"STAR": {"name": "Star", "class": "STAR", "rarity": "LEGENDARY", "text": "Fires on every hand.", "modifiers": [{"kind": "always_fires"}]},
-		"CHATOYANCE": {"name": "Chatoyance", "class": "STAR", "rarity": "LEGENDARY", "text": "Fires twice.", "modifiers": [{"kind": "fires_twice"}]},
-		"FLUORESCENCE": {"name": "Fluorescence", "class": "STAR", "rarity": "LEGENDARY", "text": "+1 carat for every depth below 10 while underground.", "modifiers": [{"kind": "carat_per_depth", "below": 10, "amount": 1}]},
-		"ALEXANDRITE": {"name": "Alexandrite", "class": "STAR", "rarity": "LEGENDARY", "text": "Takes the colour of whatever socket it sits in.", "modifiers": [{"kind": "alexandrite"}]}
-	},
-	"dice": {
-		"D4": {"name": "D4", "shape": "D4", "faces": [1, 2, 3, 4], "rarity": "COMMON", "price": 8},
-		"D6": {"name": "D6", "shape": "D6", "faces": [1, 2, 3, 4, 5, 6], "rarity": "COMMON", "price": 10},
-		"D8": {"name": "D8", "shape": "D8", "faces": [1, 2, 3, 4, 5, 6, 7, 8], "rarity": "COMMON", "price": 12},
-		"D10": {"name": "D10", "shape": "D10", "faces": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "rarity": "COMMON", "price": 14},
-		"D12": {"name": "D12", "shape": "D12", "faces": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], "rarity": "COMMON", "price": 16},
-		"D20": {"name": "D20", "shape": "D20", "faces": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], "rarity": "UNCOMMON", "price": 22},
-		"PAIRED_D6": {"name": "Paired Die", "shape": "D6", "faces": [1, 1, 3, 3, 6, 6], "rarity": "UNCOMMON", "price": 18},
-		"ODD_D6": {"name": "Odd Die", "shape": "D6", "faces": [1, 1, 3, 3, 5, 5], "rarity": "UNCOMMON", "price": 18},
-		"EVEN_D6": {"name": "Even Die", "shape": "D6", "faces": [2, 2, 4, 4, 6, 6], "rarity": "UNCOMMON", "price": 18},
-		"SEVENS_D8": {"name": "Sevens Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 7, 7, 7], "rarity": "UNCOMMON", "price": 20},
-		"SPLIT_D12": {"name": "Split Die", "shape": "D12", "faces": [1, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 12], "rarity": "UNCOMMON", "price": 22},
-		"WILD_D6": {"name": "Wild Die", "shape": "D6", "faces": [1, 2, 3, 4, 5, {"value": 6, "kind": "wild"}], "rarity": "RARE", "price": 40},
-		"EXPLODING_D6": {"name": "Exploding Die", "shape": "D6", "faces": [1, 2, 3, 4, 5, {"value": 6, "kind": "exploding"}], "rarity": "RARE", "price": 36},
-		"LOCKED_D8": {"name": "Locking Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 6, 7, {"value": 8, "kind": "locked"}], "rarity": "UNCOMMON", "price": 24},
-		"MIRROR_D6": {"name": "Mirror Die", "shape": "D6", "faces": [1, 2, 3, 4, 5, {"value": 6, "kind": "mirror"}], "rarity": "RARE", "price": 40},
-		"HOLLOW_D10": {"name": "Hollow Die", "shape": "D10", "faces": [{"value": 0, "kind": "blank"}, 2, 3, 4, 5, 6, 7, 8, 9, 10], "rarity": "UNCOMMON", "price": 16},
-		"GEM_D8": {"name": "Gem Die", "shape": "D8", "faces": [1, 2, 3, 4, 5, 6, 7, {"value": 8, "kind": "gem"}], "rarity": "LEGENDARY", "price": 90},
-		"PHIAL": {"name": "The Phial", "shape": "D6", "faces": [1, 1, 1, 2, 2, 3], "top": 6, "rarity": "RARE", "price": 30, "text": "Rue's own die. It cannot roll high, so every face of it is low."},
-		"GAMBLERS_D6": {"name": "Gambler's Die", "shape": "D6", "faces": [1, 2, 3, 4, 5, 7], "rarity": "UNCOMMON", "price": 20, "text": "A six-sider whose six is a seven. Florin's dice."}
-	},
-	"engravings": {
-		"ALWAYS_HELD": {"name": "Set", "key": "always_held", "rarity": "UNCOMMON", "text": "Counts as held even when rerolled."},
-		"TWIN": {"name": "Twin", "key": "twin", "rarity": "RARE", "text": "Counts as two dice in every set."},
-		"KEEN": {"name": "Keen", "key": "keen", "rarity": "RARE", "text": "+1 to every face."},
-		"STEADY": {"name": "Steady", "key": "steady", "rarity": "UNCOMMON", "text": "Never shows less than 2."}
-	},
-	"characters": {
-		"ARDOR": {
-			"name": "Ardor",
-			"title": "the Knight",
-			"starter": true,
-			"unlock_order": 0,
-			"hp": 80,
-			"text": "The wall. Locks in early, heals for patience, and turns a lucky triple into a hammer.",
-			"sockets": [
-				"RED",
-				"BLUE",
-				"GREEN",
-				"ANY",
-				"ANY"
-			],
-			"dice": [
-				"D6",
-				"D6",
-				"D6",
-				"D8",
-				"D8"
-			],
-			"passive": {
-				"kind": "heal_per_unused_reroll",
-				"amount": 3,
-				"name": "Second Wind",
-				"text": "Heal 3 for each unused reroll when your rail begins."
-			},
-			"birthstone": {
-				"name": "Rally",
-				"emblem": "shield",
-				"style": "shield",
-				"hue": "9a2323",
-				"text": "Almandine garnet in a shield cut. Sets of matching dice rally the Knight.",
-				"face": "Jaw set, eyes narrowed, a slow nod.",
-				"tiers": [
-					{
-						"name": "Rank",
-						"trigger": {
-							"kind": "pair",
-							"amount": 1
-						},
-						"text": "A pair: gain Resonance block.",
-						"effects": [
-							{
-								"kind": "block",
-								"amount": {
-									"term": "resonance"
-								}
-							}
-						]
-					},
-					{
-						"name": "File",
-						"trigger": {
-							"kind": "triple",
-							"amount": 1
-						},
-						"text": "Three of a kind: deal three times Resonance.",
-						"effects": [
-							{
-								"kind": "damage",
-								"amount": {
-									"op": "*",
-									"args": [
-										3,
-										{
-											"term": "resonance"
-										}
-									]
-								}
-							}
-						]
-					},
-					{
-						"name": "Phalanx",
-						"trigger": {
-							"kind": "quad",
-							"amount": 1
-						},
-						"text": "Four of a kind: cleanse yourself and stun the target.",
-						"effects": [
-							{
-								"kind": "cleanse",
-								"amount": 9,
-								"target": "self"
-							},
-							{
-								"kind": "stun",
-								"amount": 1
-							}
-						]
-					},
-					{
-						"name": "Legion",
-						"trigger": {
-							"kind": "quint",
-							"amount": 1
-						},
-						"text": "Five of a kind: deal five times Resonance, five times.",
-						"effects": [
-							{
-								"kind": "damage",
-								"amount": {
-									"op": "*",
-									"args": [
-										5,
-										{
-											"term": "resonance"
-										}
-									]
-								},
-								"repeat": 5
-							}
-						]
-					}
-				]
-			}
-		},
-		"VESPER": {
-			"name": "Vesper",
-			"title": "the Rogue",
-			"unlock_order": 1,
-			"hp": 65,
-			"text": "The assassin's gamble. Four tiny knives and one enormous die.",
-			"sockets": [
-				"RED",
-				"RED",
-				"VIOLET",
-				"ANY",
-				"ANY"
-			],
-			"dice": [
-				"D4",
-				"D4",
-				"D4",
-				"D4",
-				"D20"
-			],
-			"passive": {
-				"kind": "block_per_hit",
-				"name": "Riposte",
-				"text": "Gain Resonance block for every hit one of your gems lands."
-			},
-			"birthstone": {
-				"name": "Thousand Cuts",
-				"emblem": "slashes",
-				"style": "marquise",
-				"hue": "1c1a26",
-				"text": "Black opal in a needle-thin marquise: a dark body and a thousand pinprick flashes.",
-				"face": "A thin smile, eyes on the target.",
-				"tiers": [
-					{
-						"name": "Thousand Cuts",
-						"trigger": {
-							"kind": "distinct_dominant",
-							"amount": 5
-						},
-						"text": "Five different values, the top die outrolling the other four combined: deal Resonance damage once for every point on your highest die.",
-						"effects": [
-							{
-								"kind": "damage",
-								"amount": {
-									"term": "resonance"
-								},
-								"repeat": {
-									"term": "high"
-								}
-							}
-						]
-					}
-				]
-			}
-		},
-		"CADENCE": {
-			"name": "Cadence",
-			"title": "the Wizard",
-			"unlock_order": 2,
-			"hp": 70,
-			"text": "The combo player. Runs of numbers, and the turn that plays twice.",
-			"sockets": [
-				"RED",
-				"WHITE",
-				"VIOLET",
-				"ANY",
-				"ANY"
-			],
-			"dice": [
-				"D4",
-				"D6",
-				"D8",
-				"D10",
-				"D12"
-			],
-			"passive": {
-				"kind": "extra_reroll",
-				"amount": 1,
-				"name": "Study",
-				"text": "+1 reroll every turn."
-			},
-			"birthstone": {
-				"name": "Encore",
-				"emblem": "arcs",
-				"style": "step",
-				"hue": "7a4fc4",
-				"text": "Ametrine, violet fading to gold, in a step cut: a staircase of facets.",
-				"face": "Eyes closed, one hand raised like a conductor.",
-				"tiers": [
-					{
-						"name": "Overture",
-						"trigger": {
-							"kind": "straight",
-							"amount": 4
-						},
-						"text": "A straight of four: deal four times Resonance to every creature.",
-						"effects": [
-							{
-								"kind": "damage",
-								"amount": {
-									"op": "*",
-									"args": [
-										4,
-										{
-											"term": "resonance"
-										}
-									]
-								},
-								"target": "enemies"
-							}
-						]
-					},
-					{
-						"name": "Encore",
-						"trigger": {
-							"kind": "straight",
-							"amount": 5
-						},
-						"text": "A straight of five: every gem that fired plays again, Overture included, and Resonance keeps climbing.",
-						"effects": [
-							{
-								"kind": "replay_rail",
-								"amount": 1
-							}
-						]
-					}
-				]
-			}
-		},
-		"RUE": {
-			"name": "Rue",
-			"title": "the Apothecary",
-			"unlock_order": 3,
-			"hp": 70,
-			"text": "The low roller. Wants ones. Everything the others dread, Rue drinks.",
-			"sockets": [
-				"RED",
-				"VIOLET",
-				"GREEN",
-				"ANY",
-				"ANY"
-			],
-			"dice": [
-				"D4",
-				"D4",
-				"D6",
-				"D6",
-				"PHIAL"
-			],
-			"passive": {
-				"kind": "heal_on_poison_tick",
-				"name": "Leech",
-				"text": "Heal Resonance whenever poison damages a creature."
-			},
-			"birthstone": {
-				"name": "Bitter Draught",
-				"emblem": "flask",
-				"style": "briolette",
-				"hue": "24402a",
-				"text": "Dark tourmaline briolette, a faceted teardrop, murky green-black with a trapped bubble.",
-				"face": "A wry grimace, as if tasting it.",
-				"tiers": [
-					{
-						"name": "Tincture",
-						"trigger": {
-							"kind": "low_count",
-							"amount": 4
-						},
-						"text": "Four or more low dice: poison the target for Resonance.",
-						"effects": [
-							{
-								"kind": "poison",
-								"amount": {
-									"term": "resonance"
-								}
-							}
-						]
-					},
-					{
-						"name": "Draught",
-						"trigger": {
-							"kind": "low_count",
-							"amount": 5
-						},
-						"text": "All five low: every poison on every creature ticks at once.",
-						"effects": [
-							{
-								"kind": "tick_poison",
-								"amount": 1
-							}
-						]
-					},
-					{
-						"name": "Dregs",
-						"trigger": {
-							"kind": "value",
-							"values": [
-								1
-							],
-							"amount": 5
-						},
-						"text": "All five showing 1: every poison ticks Resonance times.",
-						"effects": [
-							{
-								"kind": "tick_poison",
-								"amount": {
-									"term": "resonance"
-								}
-							}
-						]
-					}
-				]
-			}
-		},
-		"PUCK": {
-			"name": "Puck",
-			"title": "the Harlequin",
-			"unlock_order": 4,
-			"hp": 70,
-			"text": "Two faces. You choose which one the enemy sees, every turn.",
-			"sockets": [
-				"RED",
-				"BLUE",
-				"WHITE",
-				"ANY",
-				"ANY"
-			],
-			"dice": [
-				"D6",
-				"D6",
-				"D8",
-				"D8",
-				"D10"
-			],
-			"passive": {
-				"kind": "free_flip",
-				"amount": 1,
-				"name": "Sleight",
-				"text": "Once a turn, flip one die to the other side of its range for free."
-			},
-			"birthstone": {
-				"name": "Motley",
-				"emblem": "eye",
-				"style": "checkerboard",
-				"hue": "d4557a",
-				"text": "Watermelon tourmaline, pink one half and green the other, in a checkerboard cut.",
-				"face": "One eye winking, mouth half grin, half frown.",
-				"tiers": [
-					{
-						"name": "The Cruel Face",
-						"trigger": {
-							"kind": "odd",
-							"amount": 5
-						},
-						"text": "All five dice odd: deal three times Resonance.",
-						"effects": [
-							{
-								"kind": "damage",
-								"amount": {
-									"op": "*",
-									"args": [
-										3,
-										{
-											"term": "resonance"
-										}
-									]
-								}
-							}
-						]
-					},
-					{
-						"name": "The Kind Face",
-						"trigger": {
-							"kind": "even",
-							"amount": 5
-						},
-						"text": "All five dice even: gain three times Resonance block.",
-						"effects": [
-							{
-								"kind": "block",
-								"amount": {
-									"op": "*",
-									"args": [
-										3,
-										{
-											"term": "resonance"
-										}
-									]
-								}
-							}
-						]
-					},
-					{
-						"name": "Full Motley",
-						"trigger": {
-							"kind": "skip_straight",
-							"amount": 5
-						},
-						"exclusive": true,
-						"text": "All one parity and all different, like 2-4-6-8-10: both faces, doubled, and the target is stunned.",
-						"effects": [
-							{
-								"kind": "damage",
-								"amount": {
-									"op": "*",
-									"args": [
-										6,
-										{
-											"term": "resonance"
-										}
-									]
-								}
-							},
-							{
-								"kind": "block",
-								"amount": {
-									"op": "*",
-									"args": [
-										6,
-										{
-											"term": "resonance"
-										}
-									]
-								}
-							},
-							{
-								"kind": "stun",
-								"amount": 1
-							}
-						]
-					}
-				]
-			}
-		},
-		"FLORIN": {
-			"name": "Florin",
-			"title": "the Gambler",
-			"unlock_order": 5,
-			"hp": 60,
-			"text": "The six-socket high roller. Loaded dice, fool's gold, and a stone once in a hundred turns.",
-			"sockets": [
-				"RED",
-				"GOLD",
-				"GOLD",
-				"ANY",
-				"ANY",
-				"ANY"
-			],
-			"dice": [
-				"GAMBLERS_D6",
-				"GAMBLERS_D6",
-				"GAMBLERS_D6",
-				"GAMBLERS_D6",
-				"GAMBLERS_D6"
-			],
-			"passive": {
-				"kind": "free_reroll_value",
-				"amount": 1,
-				"name": "Loaded",
-				"text": "Any die that lands on a 1 is rerolled once, free."
-			},
-			"birthstone": {
-				"name": "High Roller",
-				"emblem": "coins",
-				"style": "cube",
-				"hue": "c9a13a",
-				"text": "A pyrite cube: fool's gold, which grows as a perfect die in the rock.",
-				"face": "Wide eyes, a whoop.",
-				"tiers": [
-					{
-						"name": "Ante",
-						"trigger": {
-							"kind": "crowns",
-							"amount": 1
-						},
-						"text": "Each crown, a die on its top face: Resonance damage and Resonance ore.",
-						"effects": [
-							{
-								"kind": "damage",
-								"amount": {
-									"op": "*",
-									"args": [
-										{
-											"term": "resonance"
-										},
-										{
-											"term": "crowns"
-										}
-									]
-								}
-							},
-							{
-								"kind": "gold",
-								"amount": {
-									"op": "*",
-									"args": [
-										{
-											"term": "resonance"
-										},
-										{
-											"term": "crowns"
-										}
-									]
-								}
-							}
-						]
-					},
-					{
-						"name": "Hot Streak",
-						"trigger": {
-							"kind": "crowns",
-							"amount": 3
-						},
-						"text": "Three crowns: stones found in this fight are a grade better.",
-						"effects": [
-							{
-								"kind": "quality_bonus",
-								"amount": 25
-							}
-						]
-					},
-					{
-						"name": "Royal Flush",
-						"trigger": {
-							"kind": "crowns",
-							"amount": 5
-						},
-						"text": "Five crowns: a raw stone drops on the spot, Exquisite or better.",
-						"effects": [
-							{
-								"kind": "stone_drop",
-								"amount": 1
-							}
-						]
-					},
-					{
-						"name": "Bust",
-						"trigger": {
-							"kind": "crowns_at_most",
-							"amount": 0
-						},
-						"penalty": true,
-						"text": "No crown showing: lose Resonance ore.",
-						"effects": [
-							{
-								"kind": "gold",
-								"amount": {
-									"op": "-",
-									"args": [
-										0,
-										{
-											"term": "resonance"
-										}
-									]
-								}
-							}
-						]
-					}
-				]
-			}
-		}
-	},
-	"boons": {
-		"RECUT": {"name": "Recut", "group": "stone", "needs": "socket", "text": "A stone drawn at random from your rail is judged a Cut step better for this run.", "effects": [{"kind": "cut_step", "amount": 1}]},
-		"HEAVIER": {"name": "Heavier", "group": "stone", "needs": "socket", "text": "A stone drawn at random from your rail gains 3 carats for this run.", "effects": [{"kind": "carat", "amount": 3}]},
-		"PINPOINT": {"name": "A Pinpoint", "group": "stone", "needs": "socket", "text": "A stone drawn at random from your rail takes on a Pinpoint inclusion for this run.", "effects": [{"kind": "inclusion", "class": "PINPOINT"}]},
-		"RAW_STONE": {"name": "A Raw Stone", "group": "stone", "text": "A raw stone from depth 4 goes into your haul, unappraised.", "effects": [{"kind": "raw_stone", "depth": 4, "bonus": 0}]},
-		"PICK_STONE": {"name": "Pick of Three", "group": "stone", "needs": "pick", "text": "Choose one of three appraised stones for your haul.", "effects": [{"kind": "pick_stone", "count": 3, "depth": 4, "bonus": 2}]},
-		"HARDY": {"name": "Hardy", "group": "kit", "tags": ["mercy"], "text": "+12% health for this run.", "effects": [{"kind": "max_hp_pct", "amount": 12}]},
-		"SOFT_ROCK": {"name": "Soft Rock", "group": "kit", "tags": ["mercy"], "text": "The creatures in your first three fights arrive at half health.", "effects": [{"kind": "soft_rock", "fights": 3}]},
-		"STAKED": {"name": "Staked", "group": "kit", "text": "40 ore in hand.", "effects": [{"kind": "ore", "amount": 40}]},
-		"PICK_DIE": {"name": "A Die for the Bag", "group": "kit", "needs": "pick", "text": "Choose one of three dice from the mine's pool for your bag.", "effects": [{"kind": "pick_die", "count": 3, "depth": 4}]},
-		"STEADY_HANDS": {"name": "Steady Hands", "group": "kit", "text": "+1 reroll every turn until the first landing.", "effects": [{"kind": "extra_rerolls", "amount": 1, "until_depth": 4}]},
-		"COST_HP": {"name": "Thinner Blood", "group": "cost", "not_with": ["REWARD_HP"], "text": "10% less health for this run.", "effects": [{"kind": "max_hp_pct", "amount": -10}]},
-		"COST_WOUND": {"name": "A Bad Fall", "group": "cost", "text": "You lose 30% of your health before you start.", "effects": [{"kind": "hp_pct", "amount": -30}]},
-		"COST_CHIPPED": {"name": "Chipped", "group": "cost", "needs": "socket", "not_with": ["REWARD_RECUT"], "text": "A stone drawn at random from your rail is judged a Cut step worse for this run.", "effects": [{"kind": "cut_step", "amount": -1}]},
-		"REWARD_RECUT": {"name": "Truer Cut", "group": "reward", "needs": "socket", "text": "A stone drawn at random from your rail is judged two Cut steps better for this run.", "effects": [{"kind": "cut_step", "amount": 2}]},
-		"REWARD_CARATS": {"name": "Six Carats", "group": "reward", "needs": "socket", "text": "A stone drawn at random from your rail gains 6 carats for this run.", "effects": [{"kind": "carat", "amount": 6}]},
-		"REWARD_ORE": {"name": "Well Staked", "group": "reward", "text": "90 ore in hand.", "effects": [{"kind": "ore", "amount": 90}]},
-		"REWARD_STONE": {"name": "A Precious Stone", "group": "reward", "needs": "pick", "text": "Choose one of three appraised stones, Precious or better.", "effects": [{"kind": "pick_stone", "count": 3, "depth": 8, "bonus": 6, "min_tier": "PRECIOUS"}]},
-		"REWARD_STAR": {"name": "A Star", "group": "reward", "needs": "socket", "weight": 1, "text": "A stone drawn at random from your rail takes on a Star inclusion for this run.", "effects": [{"kind": "inclusion", "class": "STAR"}]},
-		"REWARD_HP": {"name": "Iron Constitution", "group": "reward", "not_with": ["COST_HP"], "text": "+25% health for this run.", "effects": [{"kind": "max_hp_pct", "amount": 25}]},
-		"REWARD_WILD": {"name": "A Wild Die", "group": "reward", "text": "A Wild Die joins your bag.", "effects": [{"kind": "die", "key": "WILD_D6"}]},
-		"SHOT_GEODE": {"name": "Crack a Geode", "group": "long_shot", "text": "Three small stones 40%, one heavy stone 40%, dust 20%.", "effects": [{"kind": "geode", "three": 40, "one": 40}]},
-		"SHOT_ROLL": {"name": "Roll for It", "group": "long_shot", "text": "Roll your five dice: three ore for every point.", "effects": [{"kind": "roll_ore", "per_point": 3}]},
-		"SHOT_DEEP": {"name": "Sight Unseen", "group": "long_shot", "text": "A raw stone from depth 8, unappraised. It could be anything.", "effects": [{"kind": "raw_stone", "depth": 8, "bonus": 2}]},
-		"SHOT_COIN": {"name": "Heads or Tails", "group": "long_shot", "text": "A coin: +20% health, or −20%.", "effects": [{"kind": "coin_hp", "amount": 20}]}
-	},
-	"creatures": {
-		"CAVE_TICK": {"name": "Cave Tick", "hp": 16, "block": 0, "threat": 2, "dice": ["D6", "D6"], "policy": "best", "gimmick": "steal_high_die",
-			"text": "Latches onto your best die.",
-			"moves": [
-				{"name": "Bite", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "high"}}]},
-				{"name": "Latch", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "die_steal", "target": "hero", "amount": 1}, {"kind": "damage", "target": "hero", "amount": 2}]}]},
-		"SILT_SLIME": {"name": "Silt Slime", "hp": 22, "block": 0, "threat": 2, "dice": ["D8", "D8"], "policy": "best", "gimmick": "split_on_big_hit",
-			"text": "Splits when struck hard. Dies to many small blows.",
-			"moves": [
-				{"name": "Ooze", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "low"}}]},
-				{"name": "Engulf", "trigger": {"kind": "total_pct_at_least", "amount": 60}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "high"}}, {"kind": "poison", "target": "hero", "amount": 2}]}]},
-		"QUARTZ_GOLEM": {"name": "Quartz Golem", "hp": 34, "block": 6, "threat": 4, "dice": ["D6", "D8", "D10"], "policy": "best", "gimmick": "block_from_high",
-			"text": "Gains block equal to your highest die each turn.",
-			"moves": [
-				{"name": "Pound", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"op": "+", "args": [{"term": "high"}, 2]}}]},
-				{"name": "Quake", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"term": "value"}}]}]},
-		"MAGPIE": {"name": "Magpie", "hp": 14, "block": 0, "threat": 2, "dice": ["D4", "D4", "D4"], "policy": "best", "gimmick": "steal_gold",
-			"text": "Steals ore when it hits and drops it all when it dies.",
-			"moves": [
-				{"name": "Peck", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "total"}}]},
-				{"name": "Snatch", "trigger": {"kind": "triple", "amount": 1}, "effects": [{"kind": "damage", "target": "hero", "amount": 6}]}]},
-		"LANTERN_MOTH": {"name": "Lantern Moth", "hp": 12, "block": 0, "threat": 1, "dice": ["D6"], "policy": "all", "gimmick": "gift_rerolls",
-			"text": "Its light gives you a reroll and drains a little life for each one you use.",
-			"moves": [
-				{"name": "Flutter", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": 2}]}]},
-		"VEIN_WRAITH": {"name": "Vein Wraith", "hp": 26, "block": 0, "threat": 3, "dice": ["D10", "D10"], "policy": "best", "gimmick": "poison_immune",
-			"text": "Poison cannot touch it. Straights cut it deep.",
-			"moves": [
-				{"name": "Drain", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "high"}}]},
-				{"name": "Wail", "trigger": {"kind": "at_least", "amount": 8}, "effects": [{"kind": "damage", "target": "heroes", "amount": 4}, {"kind": "remove_block", "target": "hero", "amount": 6}]}]},
-		"CLOUDER": {"name": "Clouder", "hp": 20, "block": 2, "threat": 3, "dice": ["D6", "D6", "D6"], "policy": "best", "gimmick": "cloud_socket",
-			"text": "Breathes a fog into one of your sockets until you strike it.",
-			"moves": [
-				{"name": "Puff", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "low"}}]},
-				{"name": "Smother", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "value"}}]}]},
-		"GLASS_WYRM": {"name": "Glass Wyrm", "hp": 40, "block": 4, "threat": 5, "dice": ["D8", "D8", "D12"], "policy": "best", "gimmick": "reflect_zero_resonance",
-			"text": "Throws back damage from gems that fire at Resonance 0.",
-			"moves": [
-				{"name": "Lash", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "high"}}]},
-				{"name": "Coil", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "block", "target": "self", "amount": {"term": "value"}}, {"kind": "damage", "target": "hero", "amount": {"term": "value"}}]},
-				{"name": "Shatterbreath", "trigger": {"kind": "straight", "amount": 3}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"term": "total"}}]}]},
-		"THE_FOREMAN": {"name": "The Foreman", "hp": 90, "block": 8, "threat": 20, "dice": ["D8", "D8", "D10", "D10"], "policy": "best", "gimmick": "bury_socket", "warden": true,
-			"text": "Warden of the eighth landing. Buries one of your sockets in rubble each turn.",
-			"moves": [
-				{"name": "Pick", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"op": "+", "args": [{"term": "high"}, 3]}}]},
-				{"name": "Cave-in", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"term": "value"}}]},
-				{"name": "Shore Up", "trigger": {"kind": "total_pct_at_least", "amount": 65}, "effects": [{"kind": "block", "target": "self", "amount": {"term": "high"}}, {"kind": "damage", "target": "hero", "amount": {"term": "high"}}]}],
-			"phases": [{"below_hp_pct": 50, "moves": [
-				{"name": "Blast", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"term": "high"}}]},
-				{"name": "Collapse", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "damage", "target": "hero", "amount": {"op": "*", "args": [{"term": "value"}, 2]}}, {"kind": "stun", "target": "hero", "amount": 1}]}]}]},
-		"THE_REGENT": {"name": "The Mirror Regent", "hp": 140, "block": 10, "threat": 30, "dice": ["D10", "D10", "D12", "D12"], "policy": "best", "gimmick": "mirror_last_gem", "warden": true,
-			"text": "Warden of the sixteenth landing. Turns your last gem back on you.",
-			"moves": [
-				{"name": "Reflect", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"term": "high"}}]},
-				{"name": "Refraction", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"term": "value"}}, {"kind": "remove_block", "target": "heroes", "amount": {"term": "value"}}]}],
-			"phases": [{"below_hp_pct": 40, "moves": [
-				{"name": "Shatter", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"op": "+", "args": [{"term": "high"}, 4]}}]}]}]},
-		"THE_DRILL": {"name": "The Drill", "hp": 200, "block": 12, "threat": 40, "dice": ["D12", "D12", "D12", "D20"], "policy": "best", "gimmick": "roll_for_you", "warden": true,
-			"text": "Warden of the twenty-fourth landing. On odd turns it rolls your dice for you.",
-			"moves": [
-				{"name": "Bore", "trigger": {"kind": "always"}, "effects": [{"kind": "damage", "target": "hero", "amount": {"op": "+", "args": [{"term": "high"}, 6]}}]},
-				{"name": "Grind", "trigger": {"kind": "pair", "amount": 1}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"term": "value"}}, {"kind": "stun", "target": "hero", "amount": 1}]},
-				{"name": "Overdrive", "trigger": {"kind": "total_pct_at_least", "amount": 70}, "effects": [{"kind": "damage", "target": "heroes", "amount": {"term": "total"}}]}]}
-	},
-	"mines": {
-		"QUARRY": {"name": "The Quarry", "starter": true, "quality": 0, "palette": "c9a26b", "key": "QUARRY",
-			"text": "Old galleries under the workshop. Ticks and slimes near the top, golems and wyrms below.",
-			"colour_weights": {"RED": 100, "BLUE": 100, "GREEN": 100, "VIOLET": 100, "GOLD": 100, "WHITE": 100},
-			"skills": [], "inclusions": [],
-			"dice": ["D4", "D6", "D8", "D10", "D12", "D20", "PAIRED_D6", "ODD_D6", "EVEN_D6", "SEVENS_D8", "WILD_D6", "EXPLODING_D6", "LOCKED_D8", "HOLLOW_D10"],
-			"chambers": {"fight": 48, "elite": 12, "vein": 18, "oddity": 16, "merchant": 8}, "motherlode_pct": 3,
-			"bands": [
-				{"from_depth": 1, "creatures": {"CAVE_TICK": 4, "SILT_SLIME": 3, "MAGPIE": 2, "LANTERN_MOTH": 2}},
-				{"from_depth": 5, "creatures": {"CAVE_TICK": 2, "SILT_SLIME": 3, "MAGPIE": 2, "QUARTZ_GOLEM": 2, "CLOUDER": 2}},
-				{"from_depth": 9, "creatures": {"SILT_SLIME": 2, "QUARTZ_GOLEM": 3, "CLOUDER": 2, "VEIN_WRAITH": 3, "LANTERN_MOTH": 1}},
-				{"from_depth": 17, "creatures": {"QUARTZ_GOLEM": 3, "CLOUDER": 2, "VEIN_WRAITH": 3, "GLASS_WYRM": 3}}],
-			"wardens": ["THE_FOREMAN", "THE_REGENT", "THE_DRILL"],
-			"unlocks": []}
-	},
-	"oddities": {
-		"CUTTERS_WHEEL": {"name": "The Cutter's Wheel", "text": "An old wheel, still spinning. A stone laid against it might come away truer, or in pieces.",
-			"choices": [
-				{"id": "recut", "label": "Re-cut a stone", "text": "Cut moves up one step 60%, down one step 30%, shatters 10%.", "needs": "stone", "action": {"kind": "recut", "up": 60, "down": 30, "shatter": 10}},
-				{"id": "pass", "label": "Leave it", "text": "Walk on.", "action": {"kind": "none"}}]},
-		"ACID_BATH": {"name": "Acid Bath", "text": "A pool that eats what is frozen inside a stone.",
-			"choices": [
-				{"id": "remove", "label": "Dissolve an inclusion", "text": "Choose a stone and one inclusion. It is gone.", "needs": "inclusion", "action": {"kind": "remove_inclusion"}},
-				{"id": "reveal", "label": "Bathe the haul", "text": "Every raw stone you carry shows its inclusions.", "action": {"kind": "reveal_inclusions"}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"CRUCIBLE": {"name": "The Crucible", "text": "Two stones go in. One comes out.",
-			"choices": [
-				{"id": "fuse", "label": "Fuse two stones", "text": "Keep one stone's skill. Its carats become the sum of both, up to 20. Each inclusion of either survives 50%.", "needs": "two_stones", "action": {"kind": "fuse", "survive": 50}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"GEODE": {"name": "Geode", "text": "A round grey rock, heavier than it looks.",
-			"choices": [
-				{"id": "crack", "label": "Crack it open", "text": "Three small stones 45%, one heavy stone 35%, dust 20%.", "action": {"kind": "geode", "three": 45, "one": 35}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"GRINDER": {"name": "The Grinder", "text": "A bench grinder and a set of engraving needles.",
-			"choices": [
-				{"id": "grind", "label": "Grind a face off a die", "text": "Choose a die and a face. The face is replaced by its neighbour.", "needs": "die_face", "action": {"kind": "grind"}},
-				{"id": "engrave", "label": "Engrave a die", "text": "Choose a die and an engraving. It takes 40%, cracks the die's best face 10%, or nothing.", "needs": "die_engraving", "action": {"kind": "engrave", "success": 40, "crack": 10}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"OLD_PROSPECTOR": {"name": "The Old Prospector", "text": "He wants one of your raw stones and offers one of his, a carat heavier. He will not let you look.",
-			"choices": [
-				{"id": "trade", "label": "Trade a stone", "text": "Give a raw stone. Receive a raw stone one carat heavier.", "needs": "stone", "action": {"kind": "trade_up", "carats": 1}},
-				{"id": "pass", "label": "Keep walking", "action": {"kind": "none"}}]},
-		"SHRINE": {"name": "Shrine of the Pattern", "text": "Dice are carved into the wall, all showing the same thing.",
-			"choices": [
-				{"id": "pray", "label": "Choose a pattern", "text": "For the rest of this run, gems that fire on that pattern gain a carat.", "needs": "pattern", "action": {"kind": "shrine"}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"IDOL": {"name": "The Idol", "text": "A stone the size of a fist sits in its eye. It is cracked all through.",
-			"choices": [
-				{"id": "take", "label": "Take the eye", "text": "A stone of at least 16 carats, appraised, Veined with two Fractures.", "action": {"kind": "idol", "carat_min": 16}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"ECHO_CHAMBER": {"name": "Echo Chamber", "text": "Whatever is inside one stone rings in another.",
-			"choices": [
-				{"id": "copy", "label": "Copy an inclusion", "text": "Choose an inclusion on one stone and another stone with room for it.", "needs": "copy_inclusion", "action": {"kind": "copy_inclusion"}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"DICE_BOWL": {"name": "The Dice Bowl", "text": "A bowl of dice left by whoever came before.",
-			"choices": [
-				{"id": "swap", "label": "Swap a die", "text": "Drop one of your dice in and draw another of the same shape.", "needs": "die", "action": {"kind": "dice_swap"}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"COLLECTOR": {"name": "The Collector", "text": "She pays three times what a stone is worth, and keeps it forever.",
-			"choices": [
-				{"id": "sell", "label": "Sell a stone", "text": "Triple its value in ore. The stone is gone.", "needs": "stone", "action": {"kind": "collector_sell", "mult": 3}},
-				{"id": "pass", "label": "Decline", "action": {"kind": "none"}}]},
-		"LOUPE_CABINET": {"name": "Loupe Cabinet", "text": "A cabinet of lenses, most of them cracked. One is not.",
-			"choices": [
-				{"id": "look", "label": "Look through it", "text": "Appraise one raw stone from your haul, free.", "needs": "raw_stone", "action": {"kind": "appraise"}},
-				{"id": "ore", "label": "Take 8 ore", "text": "The brass fittings are worth something.", "action": {"kind": "ore", "amount": 8}}]},
-		"FIELD_MEDIC": {"name": "Field Medic", "text": "A miner with a kit and a price.",
-			"choices": [
-				{"id": "heal", "label": "Be treated", "text": "Recover a quarter of your HP.", "action": {"kind": "heal", "pct": 25}},
-				{"id": "ore", "label": "Take 6 ore", "action": {"kind": "ore", "amount": 6}}]},
-		"VUG": {"name": "The Vug", "text": "A pocket in the rock, walls glittering. The air is bad.",
-			"choices": [
-				{"id": "enter", "label": "Squeeze in", "text": "A rich vein, but every strike costs 3 HP.", "action": {"kind": "vug"}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"ANVIL": {"name": "The Anvil", "text": "A smith's anvil, still warm. Somebody was making dice down here.",
-			"choices": [
-				{"id": "hammer", "label": "Hammer a die bigger", "text": "A d4 becomes a d6, a d6 a d8, and so on up to a d20. Its faces become plain numbers; its engraving stays.", "needs": "die", "action": {"kind": "upsize"}},
-				{"id": "temper", "label": "Temper a die", "text": "Its lowest face comes up by 2, never past its highest. A blank face becomes a 2.", "needs": "die", "action": {"kind": "temper", "amount": 2}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"TINKER": {"name": "The Tinker", "text": "A tinker with a tray of odd dice. He will trade, if you let him choose.",
-			"choices": [
-				{"id": "trade", "label": "Trade a die", "text": "Hand over one of your dice. He gives back the best of three drawn from deep in the mine, sight unseen.", "needs": "die", "action": {"kind": "trade_die", "draws": 3, "depth_bonus": 6}},
-				{"id": "buy", "label": "Buy a die for 15 ore", "text": "One die from his tray, whatever comes out of the bag. It goes in yours.", "action": {"kind": "buy_die", "price": 15}},
-				{"id": "pass", "label": "Keep walking", "action": {"kind": "none"}}]},
-		"TUMBLER": {"name": "The Tumbler", "text": "A drum of grit that turns and turns. What goes in comes out as something else of the same colour.",
-			"choices": [
-				{"id": "tumble", "label": "Tumble a stone", "text": "Its skill is rolled again among the skills of its colour. Carats, cut, clarity and inclusions stay.", "needs": "stone", "action": {"kind": "tumble"}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]},
-		"SEAM": {"name": "A Glittering Seam", "text": "Stones stud a seam too hard for a pick. Your hands will have to do.",
-			"choices": [
-				{"id": "pry", "label": "Pry out the big one", "text": "A raw stone of better quality than the rock around it. The edge cuts: lose 8 HP.", "action": {"kind": "pry", "bonus": 4, "hp": 8}},
-				{"id": "chips", "label": "Gather the chips", "text": "Two small raw stones that have already come loose.", "action": {"kind": "chips", "count": 2, "bonus": -2}},
-				{"id": "pass", "label": "Leave it", "action": {"kind": "none"}}]}
-	}
+ "pack": "deep_cut",
+ "version": 1,
+ "constants": {
+  "starting_rail_cap": 3,
+  "carat_max": 24,
+  "rerolls": 2,
+  "landing_every": 4,
+  "warden_depths": [
+   8,
+   16,
+   24
+  ],
+  "endless_warden_every": 8,
+  "run_depth": 24,
+  "enrage_turn": 7,
+  "enrage_damage": 2,
+  "appraise_ore_cost": 12,
+  "appraise_gold_min": 12,
+  "appraise_gold_mult": 2.0,
+  "appraise_cost_step": 8,
+  "rest_pct": 30,
+  "opal_hoard_pct": 100,
+  "lantern_ore_cost": 10,
+  "salvage_dice": {
+   "ROUGH": 4,
+   "FINE": 6,
+   "PRECIOUS": 8,
+   "EXQUISITE": 10,
+   "PEERLESS": 12
+  },
+  "grade_thresholds": {
+   "FINE": 30,
+   "PRECIOUS": 55,
+   "EXQUISITE": 72,
+   "PEERLESS": 85
+  },
+  "depth_hp_scale": 0.05,
+  "depth_damage_every": 4,
+  "stone_drop_pct": {
+   "fight": 55,
+   "elite": 100,
+   "vein": 100
+  },
+  "ore_per_fight": 6
+ },
+ "colors": {
+  "RED": {
+   "name": "Red",
+   "cut": "trilliant",
+   "hue": "e0473c",
+   "domain": "damage"
+  },
+  "BLUE": {
+   "name": "Blue",
+   "cut": "princess",
+   "hue": "3f7fe0",
+   "domain": "guard"
+  },
+  "GREEN": {
+   "name": "Green",
+   "cut": "heart",
+   "hue": "3fb56b",
+   "domain": "sustain"
+  },
+  "VIOLET": {
+   "name": "Violet",
+   "cut": "pear",
+   "hue": "8b5fd6",
+   "domain": "control"
+  },
+  "GOLD": {
+   "name": "Gold",
+   "cut": "dutch_rose",
+   "hue": "e2b23a",
+   "domain": "fortune"
+  },
+  "WHITE": {
+   "name": "White",
+   "cut": "round",
+   "hue": "e8eef5",
+   "domain": "the hand"
+  },
+  "OPAL": {
+   "name": "Opal",
+   "cut": "cabochon",
+   "hue": "eceaf6",
+   "domain": "every color"
+  }
+ },
+ "cuts": [
+  {
+   "key": "POOR",
+   "name": "Poor",
+   "weight": 20
+  },
+  {
+   "key": "FAIR",
+   "name": "Fair",
+   "weight": 30
+  },
+  {
+   "key": "GOOD",
+   "name": "Good",
+   "weight": 30
+  },
+  {
+   "key": "FINE",
+   "name": "Fine",
+   "weight": 15
+  },
+  {
+   "key": "PERFECT",
+   "name": "Perfect",
+   "weight": 5
+  }
+ ],
+ "clarities": [
+  {
+   "key": "INTRICATE",
+   "name": "Intricate",
+   "inclusions": 3,
+   "weight": 2
+  },
+  {
+   "key": "ETCHED",
+   "name": "Etched",
+   "inclusions": 2,
+   "weight": 6
+  },
+  {
+   "key": "INCLUDED",
+   "name": "Included",
+   "inclusions": 1,
+   "weight": 20
+  },
+  {
+   "key": "CLEAR",
+   "name": "Clear",
+   "inclusions": 0,
+   "weight": 44
+  },
+  {
+   "key": "PRISTINE",
+   "name": "Pristine",
+   "inclusions": 0,
+   "weight": 20,
+   "resonance_mult": 2
+  },
+  {
+   "key": "FLAWLESS",
+   "name": "Flawless",
+   "inclusions": 0,
+   "weight": 6,
+   "resonance_mult": 3,
+   "magnitude": 1.5,
+   "flawless_line": true
+  }
+ ],
+ "rarities": {
+  "COMMON": {
+   "weight": 60,
+   "score": 0
+  },
+  "UNCOMMON": {
+   "weight": 28,
+   "score": 8
+  },
+  "RARE": {
+   "weight": 10,
+   "score": 16
+  },
+  "LEGENDARY": {
+   "weight": 2,
+   "score": 28
+  },
+  "MYTHIC": {
+   "weight": 0,
+   "score": 28
+  }
+ },
+ "skills": {
+  "STRIKE": {
+   "name": "Strike",
+   "color": "RED",
+   "rarity": "COMMON",
+   "tags": [
+    "attack"
+   ],
+   "text": "Damage equal to the dice it reads.",
+   "trigger": {
+    "kind": "always",
+    "read": [
+     "low",
+     "low",
+     "high",
+     "high",
+     "high"
+    ],
+    "ladder": [
+     1,
+     2,
+     2,
+     3,
+     4
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "term": "value"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Also hits the creature behind the target.",
+    "effects": [
+     {
+      "kind": "damage",
+      "target": "enemy_behind",
+      "amount": {
+       "term": "value"
+      }
+     }
+    ]
+   }
+  },
+  "CLEAVE": {
+   "name": "Cleave",
+   "color": "RED",
+   "rarity": "COMMON",
+   "tags": [
+    "pair",
+    "attack"
+   ],
+   "text": "Damage twice the pair's value, half of it to the creatures beside the target.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "value"
+       },
+       2
+      ]
+     },
+     "splash": 50
+    }
+   ],
+   "flawless": {
+    "text": "The neighbours take the full blow.",
+    "modify": [
+     {
+      "effect": 0,
+      "splash": 100
+     }
+    ]
+   }
+  },
+  "CRUSH": {
+   "name": "Crush",
+   "color": "RED",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "triple",
+    "attack"
+   ],
+   "text": "Damage three times the matched value.",
+   "trigger": {
+    "kind": "triple",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "value"
+       },
+       3
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "The target is stunned.",
+    "effects": [
+     {
+      "kind": "stun",
+      "target": "enemy",
+      "amount": 1
+     }
+    ]
+   }
+  },
+  "BARRAGE": {
+   "name": "Barrage",
+   "color": "RED",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "straight",
+    "attack"
+   ],
+   "text": "One hit of {hit} for every die in the straight.",
+   "numbers": {
+    "hit": {
+     "ladder": [
+      4,
+      4,
+      5,
+      5,
+      6
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "straight",
+    "ladder": [
+     5,
+     4,
+     4,
+     3,
+     3
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "ladder": [
+       4,
+       4,
+       5,
+       5,
+       6
+      ]
+     },
+     "repeat": {
+      "term": "count"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "The hits spread across every creature.",
+    "modify": [
+     {
+      "effect": 0,
+      "target": "spread"
+     }
+    ]
+   }
+  },
+  "OVERKILL": {
+   "name": "Overkill",
+   "color": "RED",
+   "rarity": "RARE",
+   "tags": [
+    "total",
+    "attack"
+   ],
+   "text": "Damage equal to your whole total.",
+   "trigger": {
+    "kind": "total_pct_at_least",
+    "ladder": [
+     90,
+     85,
+     80,
+     75,
+     70
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "term": "total"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Half the total again to the creature behind.",
+    "effects": [
+     {
+      "kind": "damage",
+      "target": "enemy_behind",
+      "amount": {
+       "op": "pct",
+       "args": [
+        {
+         "term": "total"
+        },
+        50
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "SPALL": {
+   "name": "Spall",
+   "color": "RED",
+   "rarity": "RARE",
+   "tags": [
+    "distinct",
+    "attack"
+   ],
+   "text": "Damage twice the sum of your two lowest dice.",
+   "trigger": {
+    "kind": "distinct",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "sum_low",
+        "value": 2
+       },
+       2
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Three times instead.",
+    "effects": [
+     {
+      "kind": "damage",
+      "target": "enemy",
+      "amount": {
+       "term": "sum_low",
+       "value": 2
+      }
+     }
+    ]
+   }
+  },
+  "EMBER": {
+   "name": "Ember",
+   "color": "RED",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "low",
+    "attack"
+   ],
+   "text": "{hit} damage for every low die.",
+   "numbers": {
+    "hit": {
+     "ladder": [
+      2,
+      3,
+      3,
+      4,
+      4
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "at_most",
+    "ladder": [
+     1,
+     1,
+     2,
+     2,
+     3
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "ladder": [
+       2,
+       3,
+       3,
+       4,
+       4
+      ]
+     },
+     "repeat": {
+      "term": "count"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Each low die also leaves a poison.",
+    "effects": [
+     {
+      "kind": "poison",
+      "target": "enemy",
+      "amount": {
+       "term": "count"
+      }
+     }
+    ]
+   }
+  },
+  "FURY": {
+   "name": "Fury",
+   "color": "RED",
+   "rarity": "RARE",
+   "tags": [
+    "reroll",
+    "attack"
+   ],
+   "text": "4 damage for every die you rerolled this turn.",
+   "trigger": {
+    "kind": "rerolled",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "count"
+       },
+       4
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "And 2 more for each.",
+    "effects": [
+     {
+      "kind": "damage",
+      "target": "enemy",
+      "amount": {
+       "op": "*",
+       "args": [
+        {
+         "term": "count"
+        },
+        2
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "GUARD": {
+   "name": "Guard",
+   "color": "BLUE",
+   "rarity": "COMMON",
+   "tags": [
+    "pair",
+    "guard"
+   ],
+   "text": "Block equal to the pair's value.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "block",
+     "target": "self",
+     "amount": {
+      "term": "value"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Half as much again to every ally.",
+    "effects": [
+     {
+      "kind": "block",
+      "target": "allies",
+      "amount": {
+       "op": "pct",
+       "args": [
+        {
+         "term": "value"
+        },
+        50
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "BULWARK": {
+   "name": "Bulwark",
+   "color": "BLUE",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "low",
+    "guard"
+   ],
+   "text": "Block equal to everything your dice left on the table.",
+   "trigger": {
+    "kind": "total_pct_at_most",
+    "ladder": [
+     40,
+     45,
+     50,
+     55,
+     60
+    ]
+   },
+   "effects": [
+    {
+     "kind": "block",
+     "target": "self",
+     "amount": {
+      "term": "missing"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "The whole party stands behind it.",
+    "modify": [
+     {
+      "effect": 0,
+      "target": "allies"
+     }
+    ]
+   }
+  },
+  "AEGIS": {
+   "name": "Aegis",
+   "color": "BLUE",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "straight",
+    "guard",
+    "party"
+   ],
+   "text": "Block to every ally worth {share}% of the top of the straight.",
+   "numbers": {
+    "share": {
+     "ladder": [
+      100,
+      100,
+      150,
+      150,
+      200
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "straight",
+    "ladder": [
+     5,
+     4,
+     4,
+     3,
+     3
+    ]
+   },
+   "effects": [
+    {
+     "kind": "block",
+     "target": "allies",
+     "amount": {
+      "op": "pct",
+      "args": [
+       {
+        "term": "value"
+       },
+       {
+        "ladder": [
+         100,
+         100,
+         150,
+         150,
+         200
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "And every ally is cleansed.",
+    "effects": [
+     {
+      "kind": "cleanse",
+      "target": "allies",
+      "amount": 1
+     }
+    ]
+   }
+  },
+  "BASTION": {
+   "name": "Bastion",
+   "color": "BLUE",
+   "rarity": "RARE",
+   "tags": [
+    "full_house",
+    "guard",
+    "party"
+   ],
+   "text": "Block to every ally equal to both values of the house.",
+   "trigger": {
+    "kind": "full_house",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "block",
+     "target": "allies",
+     "amount": {
+      "op": "+",
+      "args": [
+       {
+        "term": "value"
+       },
+       {
+        "term": "second"
+       }
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "The party shrugs off two afflictions each.",
+    "effects": [
+     {
+      "kind": "cleanse",
+      "target": "allies",
+      "amount": 2
+     }
+    ]
+   }
+  },
+  "TEMPO": {
+   "name": "Tempo",
+   "color": "BLUE",
+   "rarity": "COMMON",
+   "tags": [
+    "even",
+    "guard"
+   ],
+   "text": "2 block for every even die.",
+   "trigger": {
+    "kind": "even",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "block",
+     "target": "self",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "count"
+       },
+       2
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "3 for every even die.",
+    "effects": [
+     {
+      "kind": "block",
+      "target": "self",
+      "amount": {
+       "term": "count"
+      }
+     }
+    ]
+   }
+  },
+  "ANCHOR": {
+   "name": "Anchor",
+   "color": "BLUE",
+   "rarity": "RARE",
+   "tags": [
+    "held",
+    "guard"
+   ],
+   "text": "2 block for every die you did not reroll.",
+   "trigger": {
+    "kind": "held",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "block",
+     "target": "self",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "count"
+       },
+       2
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "3 for every held die.",
+    "effects": [
+     {
+      "kind": "block",
+      "target": "self",
+      "amount": {
+       "term": "count"
+      }
+     }
+    ]
+   }
+  },
+  "RIPOSTE": {
+   "name": "Riposte",
+   "color": "BLUE",
+   "rarity": "RARE",
+   "tags": [
+    "guard",
+    "attack"
+   ],
+   "text": "Damage worth {share}% of the block you lost since your last turn.",
+   "numbers": {
+    "share": {
+     "ladder": [
+      60,
+      80,
+      100,
+      125,
+      150
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "op": "pct",
+      "args": [
+       {
+        "term": "block_lost"
+       },
+       {
+        "ladder": [
+         60,
+         80,
+         100,
+         125,
+         150
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Twice over.",
+    "modify": [
+     {
+      "effect": 0,
+      "mult": 2
+     }
+    ]
+   }
+  },
+  "MEND": {
+   "name": "Mend",
+   "color": "GREEN",
+   "rarity": "COMMON",
+   "tags": [
+    "sustain"
+   ],
+   "text": "Heal equal to the dice it reads.",
+   "trigger": {
+    "kind": "always",
+    "read": "low",
+    "ladder": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ]
+   },
+   "effects": [
+    {
+     "kind": "heal",
+     "target": "self",
+     "amount": {
+      "term": "value"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Half of it again as block.",
+    "effects": [
+     {
+      "kind": "block",
+      "target": "self",
+      "amount": {
+       "op": "pct",
+       "args": [
+        {
+         "term": "value"
+        },
+        50
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "GRAFT": {
+   "name": "Graft",
+   "color": "GREEN",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "two_pair",
+    "sustain"
+   ],
+   "text": "Heal equal to both pair values.",
+   "trigger": {
+    "kind": "two_pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "heal",
+     "target": "self",
+     "amount": {
+      "op": "+",
+      "args": [
+       {
+        "term": "value"
+       },
+       {
+        "term": "second"
+       }
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Every ally is healed.",
+    "modify": [
+     {
+      "effect": 0,
+      "target": "allies"
+     }
+    ]
+   }
+  },
+  "BLOOM": {
+   "name": "Bloom",
+   "color": "GREEN",
+   "rarity": "COMMON",
+   "tags": [
+    "odd",
+    "sustain",
+    "party"
+   ],
+   "text": "Heal every ally 1 for each odd die.",
+   "trigger": {
+    "kind": "odd",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "heal",
+     "target": "allies",
+     "amount": {
+      "term": "count"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "2 for each odd die.",
+    "modify": [
+     {
+      "effect": 0,
+      "mult": 2
+     }
+    ]
+   }
+  },
+  "RENEWAL": {
+   "name": "Renewal",
+   "color": "GREEN",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "straight",
+    "sustain"
+   ],
+   "text": "Heal the top of the straight and cleanse {cleanse#affliction}.",
+   "numbers": {
+    "cleanse": {
+     "ladder": [
+      1,
+      1,
+      2,
+      2,
+      3
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "straight",
+    "ladder": [
+     5,
+     4,
+     4,
+     3,
+     3
+    ]
+   },
+   "effects": [
+    {
+     "kind": "heal",
+     "target": "self",
+     "amount": {
+      "term": "value"
+     }
+    },
+    {
+     "kind": "cleanse",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       1,
+       1,
+       2,
+       2,
+       3
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Cleanse everything.",
+    "modify": [
+     {
+      "effect": 1,
+      "add": 9
+     }
+    ]
+   }
+  },
+  "LIFELINE": {
+   "name": "Lifeline",
+   "color": "GREEN",
+   "rarity": "LEGENDARY",
+   "tags": [
+    "triple",
+    "sustain",
+    "revive"
+   ],
+   "text": "Once a fight, revive a fallen ally with three times the matched value. With nobody down, heal the party half of that.",
+   "trigger": {
+    "kind": "triple",
+    "ladder": [
+     6,
+     5,
+     4,
+     3,
+     2
+    ]
+   },
+   "effects": [
+    {
+     "kind": "revive",
+     "target": "downed_ally",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "value"
+       },
+       3
+      ]
+     },
+     "scale": "carat",
+     "once": true
+    }
+   ],
+   "flawless": {
+    "text": "The revived ally also gains block equal to the value.",
+    "effects": [
+     {
+      "kind": "block",
+      "target": "downed_ally",
+      "amount": {
+       "term": "value"
+      }
+     }
+    ]
+   }
+  },
+  "THRIVE": {
+   "name": "Thrive",
+   "color": "GREEN",
+   "rarity": "RARE",
+   "tags": [
+    "guard",
+    "sustain"
+   ],
+   "text": "Heal {share}% of your current block.",
+   "numbers": {
+    "share": {
+     "ladder": [
+      25,
+      35,
+      50,
+      65,
+      80
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "heal",
+     "target": "self",
+     "amount": {
+      "op": "pct",
+      "args": [
+       {
+        "term": "block"
+       },
+       {
+        "ladder": [
+         25,
+         35,
+         50,
+         65,
+         80
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Twice over.",
+    "effects": [
+     {
+      "kind": "heal",
+      "target": "self",
+      "amount": {
+       "op": "pct",
+       "args": [
+        {
+         "term": "block"
+        },
+        {
+         "ladder": [
+          25,
+          35,
+          50,
+          65,
+          80
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "SAP": {
+   "name": "Sap",
+   "color": "GREEN",
+   "rarity": "RARE",
+   "tags": [
+    "sustain",
+    "attack"
+   ],
+   "text": "Damage worth {share}% of the healing you did this turn.",
+   "numbers": {
+    "share": {
+     "ladder": [
+      60,
+      80,
+      100,
+      125,
+      150
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "op": "pct",
+      "args": [
+       {
+        "term": "healed"
+       },
+       {
+        "ladder": [
+         60,
+         80,
+         100,
+         125,
+         150
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "And the party is healed half of it.",
+    "effects": [
+     {
+      "kind": "heal",
+      "target": "allies",
+      "amount": {
+       "op": "pct",
+       "args": [
+        {
+         "term": "healed"
+        },
+        50
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "HEX": {
+   "name": "Hex",
+   "color": "VIOLET",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "high",
+    "control"
+   ],
+   "text": "Stun the target.",
+   "trigger": {
+    "kind": "high_pct_at_least",
+    "ladder": [
+     95,
+     90,
+     85,
+     80,
+     70
+    ]
+   },
+   "effects": [
+    {
+     "kind": "stun",
+     "target": "enemy",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Stun it twice.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "VENOM": {
+   "name": "Venom",
+   "color": "VIOLET",
+   "rarity": "COMMON",
+   "tags": [
+    "pair",
+    "poison"
+   ],
+   "text": "Poison equal to the pair's value.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "poison",
+     "target": "enemy",
+     "amount": {
+      "term": "value"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "And half the value in damage.",
+    "effects": [
+     {
+      "kind": "damage",
+      "target": "enemy",
+      "amount": {
+       "op": "pct",
+       "args": [
+        {
+         "term": "value"
+        },
+        50
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "MIASMA": {
+   "name": "Miasma",
+   "color": "VIOLET",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "even",
+    "poison",
+    "group"
+   ],
+   "text": "2 poison to every creature.",
+   "trigger": {
+    "kind": "even",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "poison",
+     "target": "enemies",
+     "amount": 2
+    }
+   ],
+   "flawless": {
+    "text": "3 poison.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "CURSE": {
+   "name": "Curse",
+   "color": "VIOLET",
+   "rarity": "RARE",
+   "tags": [
+    "control"
+   ],
+   "text": "The target takes {bite}% more from every gem after this one this turn.",
+   "numbers": {
+    "bite": {
+     "ladder": [
+      15,
+      20,
+      25,
+      30,
+      40
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "curse",
+     "target": "enemy",
+     "amount": {
+      "ladder": [
+       15,
+       20,
+       25,
+       30,
+       40
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Twice as deep a curse.",
+    "modify": [
+     {
+      "effect": 0,
+      "mult": 2
+     }
+    ]
+   }
+  },
+  "SHATTER": {
+   "name": "Shatter",
+   "color": "VIOLET",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "triple",
+    "attack"
+   ],
+   "text": "Strip block worth three times the matched value, then damage the value.",
+   "trigger": {
+    "kind": "triple",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "remove_block",
+     "target": "enemy",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "value"
+       },
+       3
+      ]
+     }
+    },
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "term": "value"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Strip every point of block.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 999
+     }
+    ]
+   }
+  },
+  "BIND": {
+   "name": "Bind",
+   "color": "VIOLET",
+   "rarity": "RARE",
+   "tags": [
+    "two_pair",
+    "control"
+   ],
+   "text": "The target loses one die next turn.",
+   "trigger": {
+    "kind": "two_pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "die_steal",
+     "target": "enemy",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "It loses two.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "DREAD": {
+   "name": "Dread",
+   "color": "VIOLET",
+   "rarity": "LEGENDARY",
+   "tags": [
+    "straight",
+    "control"
+   ],
+   "text": "Weakens the target's next {moves#move} by a step.",
+   "numbers": {
+    "moves": {
+     "ladder": [
+      1,
+      1,
+      2,
+      2,
+      3
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "straight",
+    "ladder": [
+     5,
+     4,
+     4,
+     3,
+     3
+    ]
+   },
+   "effects": [
+    {
+     "kind": "intent_downgrade",
+     "target": "enemy",
+     "amount": {
+      "ladder": [
+       1,
+       1,
+       2,
+       2,
+       3
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Every creature's.",
+    "modify": [
+     {
+      "effect": 0,
+      "target": "enemies"
+     }
+    ]
+   }
+  },
+  "TITHE": {
+   "name": "Tithe",
+   "color": "GOLD",
+   "rarity": "COMMON",
+   "tags": [
+    "pair",
+    "fortune"
+   ],
+   "text": "Ore equal to the pair's value.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "gold",
+     "target": "self",
+     "amount": {
+      "term": "value"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Twice over.",
+    "modify": [
+     {
+      "effect": 0,
+      "mult": 2
+     }
+    ]
+   }
+  },
+  "JACKPOT": {
+   "name": "Jackpot",
+   "color": "GOLD",
+   "rarity": "RARE",
+   "tags": [
+    "triple",
+    "fortune"
+   ],
+   "text": "Ore equal to the matched value times the dice matched. Five of a kind pays ten times.",
+   "trigger": {
+    "kind": "triple",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "gold",
+     "target": "self",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "value"
+       },
+       {
+        "term": "count"
+       }
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Pays again.",
+    "effects": [
+     {
+      "kind": "gold",
+      "target": "self",
+      "amount": {
+       "op": "*",
+       "args": [
+        {
+         "term": "value"
+        },
+        {
+         "term": "count"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "LUCKY_SEVEN": {
+   "name": "Lucky Seven",
+   "color": "GOLD",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "value",
+    "fortune",
+    "attack"
+   ],
+   "text": "{hit} damage and {hit} ore for every seven.",
+   "numbers": {
+    "hit": {
+     "ladder": [
+      5,
+      6,
+      7,
+      8,
+      9
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "value",
+    "values": [
+     7
+    ],
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "ladder": [
+       5,
+       6,
+       7,
+       8,
+       9
+      ]
+     },
+     "repeat": {
+      "term": "count"
+     }
+    },
+    {
+     "kind": "gold",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       5,
+       6,
+       7,
+       8,
+       9
+      ]
+     },
+     "repeat": {
+      "term": "count"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Twice as much of each.",
+    "modify": [
+     {
+      "effect": 0,
+      "mult": 2
+     },
+     {
+      "effect": 1,
+      "mult": 2
+     }
+    ]
+   }
+  },
+  "WAGER": {
+   "name": "Wager",
+   "color": "GOLD",
+   "rarity": "RARE",
+   "tags": [
+    "low",
+    "fortune",
+    "attack"
+   ],
+   "text": "5 ore, and damage equal to everything your dice left on the table.",
+   "trigger": {
+    "kind": "total_pct_at_most",
+    "ladder": [
+     40,
+     45,
+     50,
+     55,
+     60
+    ]
+   },
+   "effects": [
+    {
+     "kind": "gold",
+     "target": "self",
+     "amount": 5
+    },
+    {
+     "kind": "damage",
+     "target": "enemy",
+     "amount": {
+      "term": "missing"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "10 ore.",
+    "modify": [
+     {
+      "effect": 0,
+      "mult": 2
+     }
+    ]
+   }
+  },
+  "WINDFALL": {
+   "name": "Windfall",
+   "color": "GOLD",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "straight",
+    "fortune"
+   ],
+   "text": "Stones found in this fight are {bonus}% better.",
+   "numbers": {
+    "bonus": {
+     "ladder": [
+      10,
+      10,
+      15,
+      15,
+      20
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "straight",
+    "ladder": [
+     5,
+     4,
+     4,
+     3,
+     3
+    ]
+   },
+   "effects": [
+    {
+     "kind": "quality_bonus",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       10,
+       10,
+       15,
+       15,
+       20
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Ten points better again.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 10
+     }
+    ]
+   }
+  },
+  "DOUBLE_DOWN": {
+   "name": "Double Down",
+   "color": "GOLD",
+   "rarity": "LEGENDARY",
+   "tags": [
+    "gamble"
+   ],
+   "text": "Flip a coin: {odds}% the next gem is doubled, else it does nothing.",
+   "numbers": {
+    "odds": {
+     "ladder": [
+      35,
+      42,
+      50,
+      58,
+      65
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "coin_flip",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       35,
+       42,
+       50,
+       58,
+       65
+      ]
+     },
+     "win_mult": 2,
+     "lose_mult": 0
+    }
+   ],
+   "flawless": {
+    "text": "Tripled.",
+    "modify": [
+     {
+      "effect": 0,
+      "kind": "coin_flip"
+     }
+    ],
+    "effects": [
+     {
+      "kind": "amplify_next",
+      "target": "self",
+      "amount": 50
+     }
+    ]
+   }
+  },
+  "PROSPECT": {
+   "name": "Prospect",
+   "color": "GOLD",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "distinct",
+    "fortune"
+   ],
+   "text": "Gain a Sparkle. At five Sparkles the next stone you find is a grade better.",
+   "trigger": {
+    "kind": "distinct",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "sparkle",
+     "target": "self",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Two Sparkles.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "GLIMMER": {
+   "name": "Glimmer",
+   "color": "WHITE",
+   "rarity": "COMMON",
+   "tags": [
+    "hand"
+   ],
+   "text": "Raise your lowest die by {lift} for every gem after this one.",
+   "numbers": {
+    "lift": {
+     "ladder": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "raise_low",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       1,
+       2,
+       3,
+       4,
+       5
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Raise it all the way to your highest.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 99
+     }
+    ]
+   }
+  },
+  "REFRACT": {
+   "name": "Refract",
+   "color": "WHITE",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "hand"
+   ],
+   "text": "Add a phantom die copying your highest for every gem after this one.",
+   "trigger": {
+    "kind": "high_pct_at_least",
+    "ladder": [
+     90,
+     75,
+     60,
+     40,
+     0
+    ]
+   },
+   "effects": [
+    {
+     "kind": "phantom_high",
+     "target": "self",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Two phantoms.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "POLISH": {
+   "name": "Polish",
+   "color": "WHITE",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "hand"
+   ],
+   "text": "Set one die to match another, making a pair, for every gem after this one.",
+   "trigger": {
+    "kind": "distinct",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "set_match",
+     "target": "self",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Match two dice.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "MIRROR": {
+   "name": "Mirror",
+   "color": "WHITE",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "hand"
+   ],
+   "text": "Flip your lowest die to the other side of its range for every gem after this one.",
+   "trigger": {
+    "kind": "low_count",
+    "ladder": [
+     4,
+     3,
+     2,
+     1,
+     0
+    ]
+   },
+   "effects": [
+    {
+     "kind": "flip_low",
+     "target": "self",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Flip the two lowest.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "CASCADE": {
+   "name": "Cascade",
+   "color": "WHITE",
+   "rarity": "RARE",
+   "tags": [
+    "pair",
+    "hand"
+   ],
+   "text": "An extra reroll next turn.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "grant_reroll",
+     "target": "self",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Two extra rerolls.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "FACET": {
+   "name": "Facet",
+   "color": "WHITE",
+   "rarity": "RARE",
+   "tags": [
+    "hand"
+   ],
+   "text": "The next gem is judged one Cut step better.",
+   "trigger": {
+    "kind": "high_pct_at_least",
+    "ladder": [
+     90,
+     75,
+     60,
+     40,
+     0
+    ]
+   },
+   "effects": [
+    {
+     "kind": "cut_step_next",
+     "target": "self",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Two steps.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "ECHO": {
+   "name": "Echo",
+   "color": "WHITE",
+   "rarity": "RARE",
+   "tags": [
+    "pair",
+    "hand"
+   ],
+   "text": "Repeat the previous gem at half strength.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "retrigger_previous",
+     "target": "self",
+     "amount": 50
+    }
+   ],
+   "flawless": {
+    "text": "At full strength.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 50
+     }
+    ]
+   }
+  },
+  "PRISM": {
+   "name": "Prism",
+   "color": "WHITE",
+   "rarity": "LEGENDARY",
+   "tags": [
+    "hand",
+    "resonance"
+   ],
+   "text": "Adds {ring} Resonance when it fires.",
+   "numbers": {
+    "ring": {
+     "ladder": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "resonance",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       1,
+       2,
+       3,
+       4,
+       5
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Two Resonance more.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 2
+     }
+    ]
+   }
+  },
+  "SEAM_RED": {
+   "name": "Red Seam",
+   "color": "OPAL",
+   "hue": "f0a7a1",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "resonance"
+   ],
+   "text": "A seam of Red through the stone: every Red gem that has already fired this turn fires again.",
+   "trigger": {
+    "kind": "resonance",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "replay_color",
+     "target": "self",
+     "color": "RED",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Each of them plays a second time.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "SEAM_BLUE": {
+   "name": "Blue Seam",
+   "color": "OPAL",
+   "hue": "a3c2f0",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "resonance"
+   ],
+   "text": "A seam of Blue through the stone: every Blue gem that has already fired this turn fires again.",
+   "trigger": {
+    "kind": "resonance",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "replay_color",
+     "target": "self",
+     "color": "BLUE",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Each of them plays a second time.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "SEAM_GREEN": {
+   "name": "Green Seam",
+   "color": "OPAL",
+   "hue": "a3dbb8",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "resonance"
+   ],
+   "text": "A seam of Green through the stone: every Green gem that has already fired this turn fires again.",
+   "trigger": {
+    "kind": "resonance",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "replay_color",
+     "target": "self",
+     "color": "GREEN",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Each of them plays a second time.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "SEAM_VIOLET": {
+   "name": "Violet Seam",
+   "color": "OPAL",
+   "hue": "c7b2eb",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "resonance"
+   ],
+   "text": "A seam of Violet through the stone: every Violet gem that has already fired this turn fires again.",
+   "trigger": {
+    "kind": "resonance",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "replay_color",
+     "target": "self",
+     "color": "VIOLET",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Each of them plays a second time.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "SEAM_GOLD": {
+   "name": "Gold Seam",
+   "color": "OPAL",
+   "hue": "f1daa0",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "resonance"
+   ],
+   "text": "A seam of Gold through the stone: every Gold gem that has already fired this turn fires again.",
+   "trigger": {
+    "kind": "resonance",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "replay_color",
+     "target": "self",
+     "color": "GOLD",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Each of them plays a second time.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "SEAM_WHITE": {
+   "name": "White Seam",
+   "color": "OPAL",
+   "hue": "f4f7fa",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "resonance"
+   ],
+   "text": "A seam of White through the stone: every White gem that has already fired this turn fires again.",
+   "trigger": {
+    "kind": "resonance",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "replay_color",
+     "target": "self",
+     "color": "WHITE",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Each of them plays a second time.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  },
+  "FIRE_OPAL": {
+   "name": "Fire Opal",
+   "color": "OPAL",
+   "hue": "f6d8b4",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "pair"
+   ],
+   "text": "Every gem in the rail gains {heat#carat} for the rest of the fight.",
+   "numbers": {
+    "heat": {
+     "ladder": [
+      1,
+      1,
+      1,
+      2,
+      2
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "rank_buff",
+     "target": "self",
+     "rank": "carat",
+     "amount": {
+      "ladder": [
+       1,
+       1,
+       1,
+       2,
+       2
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "And a Cut step with it.",
+    "effects": [
+     {
+      "kind": "rank_buff",
+      "target": "self",
+      "rank": "cut",
+      "amount": 1
+     }
+    ]
+   }
+  },
+  "DOUBLET": {
+   "name": "Doublet",
+   "color": "OPAL",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "hand"
+   ],
+   "text": "Wears the skill of the next gem up to {reach#socket} along the rail, at its own weight and cut. With nothing to wear it is a thin slice, and rings once.",
+   "numbers": {
+    "reach": {
+     "ladder": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   },
+   "wears": "next",
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "resonance",
+     "target": "self",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "It reads the other gem's Flawless line as well."
+   }
+  },
+  "MATRIX": {
+   "name": "Matrix",
+   "color": "OPAL",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "hand"
+   ],
+   "text": "The first {reach#gem} that stayed dark this turn fire anyway. Last in the rail it hears them all.",
+   "numbers": {
+    "reach": {
+     "ladder": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "replay_fizzled",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       1,
+       2,
+       3,
+       4,
+       5
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "However many of them there are.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 5
+     }
+    ]
+   }
+  },
+  "PRELUDE": {
+   "name": "Prelude",
+   "color": "OPAL",
+   "rarity": "MYTHIC",
+   "tags": [
+    "opal",
+    "distinct"
+   ],
+   "text": "The next gem fires {again#extra time}. Last in the rail, that is the Birthstone.",
+   "numbers": {
+    "again": {
+     "ladder": [
+      1,
+      1,
+      1,
+      1,
+      2
+     ]
+    }
+   },
+   "trigger": {
+    "kind": "distinct",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "repeat_next",
+     "target": "self",
+     "amount": {
+      "ladder": [
+       1,
+       1,
+       1,
+       1,
+       2
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "And once more after that.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
+     }
+    ]
+   }
+  }
+ },
+ "inclusions": {
+  "PINPOINT_GOLD": {
+   "name": "Pinpoint of Gold",
+   "class": "PINPOINT",
+   "rarity": "COMMON",
+   "text": "+2 ore when this fires.",
+   "modifiers": [
+    {
+     "kind": "rider",
+     "effects": [
+      {
+       "kind": "gold",
+       "target": "self",
+       "amount": 2,
+       "scale": "none"
+      }
+     ]
+    }
+   ]
+  },
+  "SILK": {
+   "name": "Silk",
+   "class": "PINPOINT",
+   "rarity": "COMMON",
+   "text": "+2 block when this fires.",
+   "modifiers": [
+    {
+     "kind": "rider",
+     "effects": [
+      {
+       "kind": "block",
+       "target": "self",
+       "amount": 2,
+       "scale": "none"
+      }
+     ]
+    }
+   ]
+  },
+  "NEEDLE": {
+   "name": "Needle",
+   "class": "PINPOINT",
+   "rarity": "COMMON",
+   "text": "+1 damage for every die this gem reads.",
+   "modifiers": [
+    {
+     "kind": "per_die_damage",
+     "amount": 1
+    }
+   ]
+  },
+  "GRAIN": {
+   "name": "Grain",
+   "class": "PINPOINT",
+   "rarity": "COMMON",
+   "text": "Heal 1 when this fires.",
+   "modifiers": [
+    {
+     "kind": "rider",
+     "effects": [
+      {
+       "kind": "heal",
+       "target": "self",
+       "amount": 1,
+       "scale": "none"
+      }
+     ]
+    }
+   ]
+  },
+  "SPARK": {
+   "name": "Spark",
+   "class": "PINPOINT",
+   "rarity": "UNCOMMON",
+   "text": "+1 Resonance when this fires.",
+   "modifiers": [
+    {
+     "kind": "resonance_bonus",
+     "amount": 1
+    }
+   ]
+  },
+  "EMBERLINE": {
+   "name": "Emberline",
+   "class": "PINPOINT",
+   "rarity": "COMMON",
+   "text": "1 poison to the target when this fires.",
+   "modifiers": [
+    {
+     "kind": "rider",
+     "effects": [
+      {
+       "kind": "poison",
+       "target": "enemy",
+       "amount": 1,
+       "scale": "none"
+      }
+     ]
+    }
+   ]
+  },
+  "GLINT": {
+   "name": "Glint",
+   "class": "PINPOINT",
+   "rarity": "UNCOMMON",
+   "text": "Ore equal to the dice matched when this fires.",
+   "modifiers": [
+    {
+     "kind": "rider",
+     "effects": [
+      {
+       "kind": "gold",
+       "target": "self",
+       "amount": {
+        "term": "count"
+       },
+       "scale": "none"
+      }
+     ]
+    }
+   ]
+  },
+  "DUSTING": {
+   "name": "Dusting",
+   "class": "PINPOINT",
+   "rarity": "UNCOMMON",
+   "text": "Block equal to the dice matched when this fires.",
+   "modifiers": [
+    {
+     "kind": "rider",
+     "effects": [
+      {
+       "kind": "block",
+       "target": "self",
+       "amount": {
+        "term": "count"
+       },
+       "scale": "none"
+      }
+     ]
+    }
+   ]
+  },
+  "VEIL": {
+   "name": "Veil",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "This gem reads your lowest die as if it were your highest.",
+   "modifiers": [
+    {
+     "kind": "lens",
+     "mode": "low_as_high"
+    }
+   ]
+  },
+  "CATS_EYE": {
+   "name": "Cat's Eye",
+   "class": "LENS",
+   "rarity": "RARE",
+   "text": "This gem reads every 1 as wild.",
+   "modifiers": [
+    {
+     "kind": "lens",
+     "mode": "ones_wild"
+    }
+   ]
+  },
+  "GRAINING": {
+   "name": "Graining",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "This gem counts held dice twice in sets.",
+   "modifiers": [
+    {
+     "kind": "lens",
+     "mode": "held_twice"
+    }
+   ]
+  },
+  "ZONING_RED": {
+   "name": "Red Zoning",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "Counts as Red as well as its own color.",
+   "modifiers": [
+    {
+     "kind": "color_also",
+     "color": "RED"
+    }
+   ]
+  },
+  "ZONING_BLUE": {
+   "name": "Blue Zoning",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "Counts as Blue as well as its own color.",
+   "modifiers": [
+    {
+     "kind": "color_also",
+     "color": "BLUE"
+    }
+   ]
+  },
+  "ZONING_GREEN": {
+   "name": "Green Zoning",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "Counts as Green as well as its own color.",
+   "modifiers": [
+    {
+     "kind": "color_also",
+     "color": "GREEN"
+    }
+   ]
+  },
+  "ZONING_VIOLET": {
+   "name": "Violet Zoning",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "Counts as Violet as well as its own color.",
+   "modifiers": [
+    {
+     "kind": "color_also",
+     "color": "VIOLET"
+    }
+   ]
+  },
+  "ZONING_GOLD": {
+   "name": "Gold Zoning",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "Counts as Gold as well as its own color.",
+   "modifiers": [
+    {
+     "kind": "color_also",
+     "color": "GOLD"
+    }
+   ]
+  },
+  "ZONING_WHITE": {
+   "name": "White Zoning",
+   "class": "LENS",
+   "rarity": "UNCOMMON",
+   "text": "Counts as White as well as its own color.",
+   "modifiers": [
+    {
+     "kind": "color_also",
+     "color": "WHITE"
+    }
+   ]
+  },
+  "FEATHER": {
+   "name": "Feather",
+   "class": "FEATHER",
+   "rarity": "UNCOMMON",
+   "text": "The next gem in the rail is judged one Cut step better.",
+   "modifiers": [
+    {
+     "kind": "next_cut_step",
+     "amount": 1
+    }
+   ]
+  },
+  "TWINNING_WISP": {
+   "name": "Twinning Wisp",
+   "class": "FEATHER",
+   "rarity": "RARE",
+   "text": "Fires again if the gem before it fired.",
+   "modifiers": [
+    {
+     "kind": "retrigger_if_previous_fired"
+    }
+   ]
+  },
+  "FINGERPRINT": {
+   "name": "Fingerprint",
+   "class": "FEATHER",
+   "rarity": "RARE",
+   "text": "Carries one inclusion of the gem before it.",
+   "modifiers": [
+    {
+     "kind": "copy_previous_inclusion"
+    }
+   ]
+  },
+  "HALO": {
+   "name": "Halo",
+   "class": "FEATHER",
+   "rarity": "UNCOMMON",
+   "text": "Neighbouring gems of this color gain a carat.",
+   "modifiers": [
+    {
+     "kind": "adjacent_carat",
+     "amount": 1,
+     "same_color": true
+    }
+   ]
+  },
+  "RESONANT_VEIN": {
+   "name": "Resonant Vein",
+   "class": "FEATHER",
+   "rarity": "RARE",
+   "text": "Fizzling does not reset Resonance.",
+   "modifiers": [
+    {
+     "kind": "no_resonance_reset"
+    }
+   ]
+  },
+  "FRACTURE": {
+   "name": "Fracture",
+   "class": "FRACTURE",
+   "rarity": "UNCOMMON",
+   "text": "Twice the strength, but it fizzles if any die shows a 1.",
+   "modifiers": [
+    {
+     "kind": "magnitude",
+     "amount": 2.0
+    },
+    {
+     "kind": "fizzle_on_value",
+     "value": 1
+    }
+   ]
+  },
+  "BRUISE": {
+   "name": "Bruise",
+   "class": "FRACTURE",
+   "rarity": "UNCOMMON",
+   "text": "Half again the strength; you lose 2 HP when it fires.",
+   "modifiers": [
+    {
+     "kind": "magnitude",
+     "amount": 1.5
+    },
+    {
+     "kind": "hp_cost",
+     "amount": 2
+    }
+   ]
+  },
+  "KNOT": {
+   "name": "Knot",
+   "class": "FRACTURE",
+   "rarity": "UNCOMMON",
+   "text": "+2 carats, but it cannot leave its socket during a run.",
+   "modifiers": [
+    {
+     "kind": "carat",
+     "amount": 2
+    },
+    {
+     "kind": "locked"
+    }
+   ]
+  },
+  "CAVITY": {
+   "name": "Cavity",
+   "class": "FRACTURE",
+   "rarity": "RARE",
+   "text": "Its carats count double, but its cut counts as Poor.",
+   "modifiers": [
+    {
+     "kind": "carat_mult",
+     "amount": 2.0
+    },
+    {
+     "kind": "cut_override",
+     "value": 0
+    }
+   ]
+  },
+  "CHIP": {
+   "name": "Chip",
+   "class": "FRACTURE",
+   "rarity": "COMMON",
+   "text": "+3 carats, one Cut step worse.",
+   "modifiers": [
+    {
+     "kind": "carat",
+     "amount": 3
+    },
+    {
+     "kind": "cut_step",
+     "amount": -1
+    }
+   ]
+  },
+  "STAR": {
+   "name": "Star",
+   "class": "STAR",
+   "rarity": "LEGENDARY",
+   "text": "Fires on every hand.",
+   "modifiers": [
+    {
+     "kind": "always_fires"
+    }
+   ]
+  },
+  "CHATOYANCE": {
+   "name": "Chatoyance",
+   "class": "STAR",
+   "rarity": "LEGENDARY",
+   "text": "Fires twice.",
+   "modifiers": [
+    {
+     "kind": "fires_twice"
+    }
+   ]
+  },
+  "FLUORESCENCE": {
+   "name": "Fluorescence",
+   "class": "STAR",
+   "rarity": "LEGENDARY",
+   "text": "+1 carat for every depth below 10 while underground.",
+   "modifiers": [
+    {
+     "kind": "carat_per_depth",
+     "below": 10,
+     "amount": 1
+    }
+   ]
+  },
+  "ALEXANDRITE": {
+   "name": "Alexandrite",
+   "class": "STAR",
+   "rarity": "LEGENDARY",
+   "text": "Takes the color of whatever socket it sits in.",
+   "modifiers": [
+    {
+     "kind": "alexandrite"
+    }
+   ]
+  }
+ },
+ "dice": {
+  "D4": {
+   "name": "D4",
+   "shape": "D4",
+   "faces": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "rarity": "COMMON",
+   "price": 8
+  },
+  "D6": {
+   "name": "D6",
+   "shape": "D6",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rarity": "COMMON",
+   "price": 10
+  },
+  "D8": {
+   "name": "D8",
+   "shape": "D8",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ],
+   "rarity": "COMMON",
+   "price": 12
+  },
+  "D10": {
+   "name": "D10",
+   "shape": "D10",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+   ],
+   "rarity": "COMMON",
+   "price": 14
+  },
+  "D12": {
+   "name": "D12",
+   "shape": "D12",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "rarity": "COMMON",
+   "price": 16
+  },
+  "D20": {
+   "name": "D20",
+   "shape": "D20",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+   ],
+   "rarity": "UNCOMMON",
+   "price": 22
+  },
+  "PAIRED_D6": {
+   "name": "Paired Die",
+   "shape": "D6",
+   "faces": [
+    1,
+    1,
+    3,
+    3,
+    6,
+    6
+   ],
+   "rarity": "UNCOMMON",
+   "price": 18
+  },
+  "ODD_D6": {
+   "name": "Odd Die",
+   "shape": "D6",
+   "faces": [
+    1,
+    1,
+    3,
+    3,
+    5,
+    5
+   ],
+   "rarity": "UNCOMMON",
+   "price": 18
+  },
+  "EVEN_D6": {
+   "name": "Even Die",
+   "shape": "D6",
+   "faces": [
+    2,
+    2,
+    4,
+    4,
+    6,
+    6
+   ],
+   "rarity": "UNCOMMON",
+   "price": 18
+  },
+  "SEVENS_D8": {
+   "name": "Sevens Die",
+   "shape": "D8",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    7,
+    7
+   ],
+   "rarity": "UNCOMMON",
+   "price": 20
+  },
+  "SPLIT_D12": {
+   "name": "Split Die",
+   "shape": "D12",
+   "faces": [
+    1,
+    1,
+    2,
+    3,
+    4,
+    5,
+    8,
+    9,
+    10,
+    11,
+    12,
+    12
+   ],
+   "rarity": "UNCOMMON",
+   "price": 22
+  },
+  "WILD_D6": {
+   "name": "Wild Die",
+   "shape": "D6",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    {
+     "value": 6,
+     "kind": "wild"
+    }
+   ],
+   "rarity": "RARE",
+   "price": 40
+  },
+  "EXPLODING_D6": {
+   "name": "Exploding Die",
+   "shape": "D6",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    {
+     "value": 6,
+     "kind": "exploding"
+    }
+   ],
+   "rarity": "RARE",
+   "price": 36
+  },
+  "LOCKED_D8": {
+   "name": "Locking Die",
+   "shape": "D8",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    {
+     "value": 8,
+     "kind": "locked"
+    }
+   ],
+   "rarity": "UNCOMMON",
+   "price": 24
+  },
+  "MIRROR_D6": {
+   "name": "Mirror Die",
+   "shape": "D6",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    {
+     "value": 6,
+     "kind": "mirror"
+    }
+   ],
+   "rarity": "RARE",
+   "price": 40
+  },
+  "HOLLOW_D10": {
+   "name": "Hollow Die",
+   "shape": "D10",
+   "faces": [
+    {
+     "value": 0,
+     "kind": "blank"
+    },
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+   ],
+   "rarity": "UNCOMMON",
+   "price": 16
+  },
+  "GEM_D8": {
+   "name": "Gem Die",
+   "shape": "D8",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    {
+     "value": 8,
+     "kind": "gem"
+    }
+   ],
+   "rarity": "LEGENDARY",
+   "price": 90
+  },
+  "PHIAL": {
+   "name": "The Phial",
+   "shape": "D6",
+   "faces": [
+    1,
+    1,
+    1,
+    2,
+    2,
+    3
+   ],
+   "top": 6,
+   "rarity": "RARE",
+   "price": 30,
+   "text": "Rue's own die. It cannot roll high, so every face of it is low."
+  },
+  "GAMBLERS_D6": {
+   "name": "Gambler's Die",
+   "shape": "D6",
+   "faces": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7
+   ],
+   "rarity": "UNCOMMON",
+   "price": 20,
+   "text": "A six-sider whose six is a seven. Florin's dice."
+  }
+ },
+ "engravings": {
+  "ALWAYS_HELD": {
+   "name": "Set",
+   "key": "always_held",
+   "rarity": "UNCOMMON",
+   "text": "Counts as held even when rerolled."
+  },
+  "TWIN": {
+   "name": "Twin",
+   "key": "twin",
+   "rarity": "RARE",
+   "text": "Counts as two dice in every set."
+  },
+  "KEEN": {
+   "name": "Keen",
+   "key": "keen",
+   "rarity": "RARE",
+   "text": "+1 to every face."
+  },
+  "STEADY": {
+   "name": "Steady",
+   "key": "steady",
+   "rarity": "UNCOMMON",
+   "text": "Never shows less than 2."
+  }
+ },
+ "characters": {
+  "ARDOR": {
+   "name": "Ardor",
+   "title": "the Knight",
+   "starter": true,
+   "unlock_order": 0,
+   "hp": 80,
+   "text": "The wall. Locks in early, heals for patience, and turns a lucky triple into a hammer.",
+   "sockets": [
+    "RED",
+    "BLUE",
+    "GREEN",
+    "ANY",
+    "ANY"
+   ],
+   "dice": [
+    "D6",
+    "D6",
+    "D6",
+    "D8",
+    "D8"
+   ],
+   "passive": {
+    "kind": "heal_per_unused_reroll",
+    "amount": 3,
+    "name": "Second Wind",
+    "text": "Heal 3 for each unused reroll when your rail begins."
+   },
+   "birthstone": {
+    "name": "Rally",
+    "emblem": "shield",
+    "style": "shield",
+    "hue": "9a2323",
+    "text": "Almandine garnet in a shield cut. Sets of matching dice rally the Knight.",
+    "face": "Jaw set, eyes narrowed, a slow nod.",
+    "tiers": [
+     {
+      "name": "Rank",
+      "trigger": {
+       "kind": "pair",
+       "amount": 1
+      },
+      "text": "A pair: gain Resonance block.",
+      "effects": [
+       {
+        "kind": "block",
+        "amount": {
+         "term": "resonance"
+        }
+       }
+      ]
+     },
+     {
+      "name": "File",
+      "trigger": {
+       "kind": "triple",
+       "amount": 1
+      },
+      "text": "Three of a kind: deal three times Resonance.",
+      "effects": [
+       {
+        "kind": "damage",
+        "amount": {
+         "op": "*",
+         "args": [
+          3,
+          {
+           "term": "resonance"
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "name": "Phalanx",
+      "trigger": {
+       "kind": "quad",
+       "amount": 1
+      },
+      "text": "Four of a kind: cleanse yourself and stun the target.",
+      "effects": [
+       {
+        "kind": "cleanse",
+        "amount": 9,
+        "target": "self"
+       },
+       {
+        "kind": "stun",
+        "amount": 1
+       }
+      ]
+     },
+     {
+      "name": "Legion",
+      "trigger": {
+       "kind": "quint",
+       "amount": 1
+      },
+      "text": "Five of a kind: deal five times Resonance, five times.",
+      "effects": [
+       {
+        "kind": "damage",
+        "amount": {
+         "op": "*",
+         "args": [
+          5,
+          {
+           "term": "resonance"
+          }
+         ]
+        },
+        "repeat": 5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "VESPER": {
+   "name": "Vesper",
+   "title": "the Rogue",
+   "unlock_order": 1,
+   "hp": 65,
+   "text": "The assassin's gamble. Four tiny knives and one enormous die.",
+   "sockets": [
+    "RED",
+    "RED",
+    "VIOLET",
+    "ANY",
+    "ANY"
+   ],
+   "dice": [
+    "D4",
+    "D4",
+    "D4",
+    "D4",
+    "D20"
+   ],
+   "passive": {
+    "kind": "block_per_hit",
+    "name": "Riposte",
+    "text": "Gain Resonance block for every hit one of your gems lands."
+   },
+   "birthstone": {
+    "name": "Thousand Cuts",
+    "emblem": "slashes",
+    "style": "marquise",
+    "hue": "1c1a26",
+    "text": "Black opal in a needle-thin marquise: a dark body and a thousand pinprick flashes.",
+    "face": "A thin smile, eyes on the target.",
+    "tiers": [
+     {
+      "name": "Thousand Cuts",
+      "trigger": {
+       "kind": "distinct_dominant",
+       "amount": 5
+      },
+      "text": "Five different values, the top die outrolling the other four combined: deal Resonance damage once for every point on your highest die.",
+      "effects": [
+       {
+        "kind": "damage",
+        "amount": {
+         "term": "resonance"
+        },
+        "repeat": {
+         "term": "high"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "CADENCE": {
+   "name": "Cadence",
+   "title": "the Wizard",
+   "unlock_order": 2,
+   "hp": 70,
+   "text": "The combo player. Runs of numbers, and the turn that plays twice.",
+   "sockets": [
+    "RED",
+    "WHITE",
+    "VIOLET",
+    "ANY",
+    "ANY"
+   ],
+   "dice": [
+    "D4",
+    "D6",
+    "D8",
+    "D10",
+    "D12"
+   ],
+   "passive": {
+    "kind": "extra_reroll",
+    "amount": 1,
+    "name": "Study",
+    "text": "+1 reroll every turn."
+   },
+   "birthstone": {
+    "name": "Encore",
+    "emblem": "arcs",
+    "style": "step",
+    "hue": "7a4fc4",
+    "hue2": "d9a63c",
+    "text": "Ametrine, violet fading to gold, in a step cut: a staircase of facets.",
+    "face": "Eyes closed, one hand raised like a conductor.",
+    "tiers": [
+     {
+      "name": "Overture",
+      "trigger": {
+       "kind": "straight",
+       "amount": 4
+      },
+      "text": "A straight of four: deal four times Resonance to every creature.",
+      "effects": [
+       {
+        "kind": "damage",
+        "amount": {
+         "op": "*",
+         "args": [
+          4,
+          {
+           "term": "resonance"
+          }
+         ]
+        },
+        "target": "enemies"
+       }
+      ]
+     },
+     {
+      "name": "Encore",
+      "trigger": {
+       "kind": "straight",
+       "amount": 5
+      },
+      "text": "A straight of five: every gem that fired plays again, Overture included, and Resonance keeps climbing.",
+      "effects": [
+       {
+        "kind": "replay_rail",
+        "amount": 1
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "RUE": {
+   "name": "Rue",
+   "title": "the Apothecary",
+   "unlock_order": 3,
+   "hp": 70,
+   "text": "The low roller. Wants ones. Everything the others dread, Rue drinks.",
+   "sockets": [
+    "RED",
+    "VIOLET",
+    "GREEN",
+    "ANY",
+    "ANY"
+   ],
+   "dice": [
+    "D4",
+    "D4",
+    "D6",
+    "D6",
+    "PHIAL"
+   ],
+   "passive": {
+    "kind": "heal_on_poison_tick",
+    "name": "Leech",
+    "text": "Heal Resonance whenever poison damages a creature."
+   },
+   "birthstone": {
+    "name": "Bitter Draught",
+    "emblem": "flask",
+    "style": "briolette",
+    "hue": "24402a",
+    "text": "Dark tourmaline briolette, a faceted teardrop, murky green-black with a trapped bubble.",
+    "face": "A wry grimace, as if tasting it.",
+    "tiers": [
+     {
+      "name": "Tincture",
+      "trigger": {
+       "kind": "low_count",
+       "amount": 4
+      },
+      "text": "Four or more low dice: poison the target for Resonance.",
+      "effects": [
+       {
+        "kind": "poison",
+        "amount": {
+         "term": "resonance"
+        }
+       }
+      ]
+     },
+     {
+      "name": "Draught",
+      "trigger": {
+       "kind": "low_count",
+       "amount": 5
+      },
+      "text": "All five low: every poison on every creature ticks at once.",
+      "effects": [
+       {
+        "kind": "tick_poison",
+        "amount": 1
+       }
+      ]
+     },
+     {
+      "name": "Dregs",
+      "trigger": {
+       "kind": "value",
+       "values": [
+        1
+       ],
+       "amount": 5
+      },
+      "text": "All five showing 1: every poison ticks Resonance times.",
+      "effects": [
+       {
+        "kind": "tick_poison",
+        "amount": {
+         "term": "resonance"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "PUCK": {
+   "name": "Puck",
+   "title": "the Harlequin",
+   "unlock_order": 4,
+   "hp": 70,
+   "text": "Two faces. You choose which one the enemy sees, every turn.",
+   "sockets": [
+    "RED",
+    "BLUE",
+    "WHITE",
+    "ANY",
+    "ANY"
+   ],
+   "dice": [
+    "D6",
+    "D6",
+    "D8",
+    "D8",
+    "D10"
+   ],
+   "passive": {
+    "kind": "free_flip",
+    "amount": 1,
+    "name": "Sleight",
+    "text": "Once a turn, flip one die to the other side of its range for free."
+   },
+   "birthstone": {
+    "name": "Motley",
+    "emblem": "eye",
+    "style": "checkerboard",
+    "hue": "d4557a",
+    "hue2": "4e9c5a",
+    "text": "Watermelon tourmaline, pink one half and green the other, in a checkerboard cut.",
+    "face": "One eye winking, mouth half grin, half frown.",
+    "tiers": [
+     {
+      "name": "The Cruel Face",
+      "trigger": {
+       "kind": "odd",
+       "amount": 5
+      },
+      "text": "All five dice odd: deal three times Resonance.",
+      "effects": [
+       {
+        "kind": "damage",
+        "amount": {
+         "op": "*",
+         "args": [
+          3,
+          {
+           "term": "resonance"
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "name": "The Kind Face",
+      "trigger": {
+       "kind": "even",
+       "amount": 5
+      },
+      "text": "All five dice even: gain three times Resonance block.",
+      "effects": [
+       {
+        "kind": "block",
+        "amount": {
+         "op": "*",
+         "args": [
+          3,
+          {
+           "term": "resonance"
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "name": "Full Motley",
+      "trigger": {
+       "kind": "skip_straight",
+       "amount": 5
+      },
+      "exclusive": true,
+      "text": "All one parity and all different, like 2-4-6-8-10: both faces, doubled, and the target is stunned.",
+      "effects": [
+       {
+        "kind": "damage",
+        "amount": {
+         "op": "*",
+         "args": [
+          6,
+          {
+           "term": "resonance"
+          }
+         ]
+        }
+       },
+       {
+        "kind": "block",
+        "amount": {
+         "op": "*",
+         "args": [
+          6,
+          {
+           "term": "resonance"
+          }
+         ]
+        }
+       },
+       {
+        "kind": "stun",
+        "amount": 1
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "FLORIN": {
+   "name": "Florin",
+   "title": "the Gambler",
+   "unlock_order": 5,
+   "hp": 60,
+   "text": "The six-socket high roller. Loaded dice, fool's gold, and a stone once in a hundred turns.",
+   "sockets": [
+    "RED",
+    "GOLD",
+    "GOLD",
+    "ANY",
+    "ANY",
+    "ANY"
+   ],
+   "dice": [
+    "GAMBLERS_D6",
+    "GAMBLERS_D6",
+    "GAMBLERS_D6",
+    "GAMBLERS_D6",
+    "GAMBLERS_D6"
+   ],
+   "passive": {
+    "kind": "free_reroll_value",
+    "amount": 1,
+    "name": "Loaded",
+    "text": "Any die that lands on a 1 is rerolled once, free."
+   },
+   "birthstone": {
+    "name": "High Roller",
+    "emblem": "coins",
+    "style": "heptagon",
+    "hue": "c9a13a",
+    "text": "Pyrite in a seven-sided cut: fool's gold, grown through the stone in flakes, and not one side of it even.",
+    "face": "Wide eyes, a whoop.",
+    "tiers": [
+     {
+      "name": "Ante",
+      "trigger": {
+       "kind": "crowns",
+       "amount": 1
+      },
+      "text": "Each crown, a die on its top face: Resonance damage and Resonance ore.",
+      "effects": [
+       {
+        "kind": "damage",
+        "amount": {
+         "op": "*",
+         "args": [
+          {
+           "term": "resonance"
+          },
+          {
+           "term": "crowns"
+          }
+         ]
+        }
+       },
+       {
+        "kind": "gold",
+        "amount": {
+         "op": "*",
+         "args": [
+          {
+           "term": "resonance"
+          },
+          {
+           "term": "crowns"
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "name": "Hot Streak",
+      "trigger": {
+       "kind": "crowns",
+       "amount": 3
+      },
+      "text": "Three crowns: stones found in this fight are a grade better.",
+      "effects": [
+       {
+        "kind": "quality_bonus",
+        "amount": 25
+       }
+      ]
+     },
+     {
+      "name": "Royal Flush",
+      "trigger": {
+       "kind": "crowns",
+       "amount": 5
+      },
+      "text": "Five crowns: a raw stone drops on the spot, Exquisite or better.",
+      "effects": [
+       {
+        "kind": "stone_drop",
+        "amount": 1
+       }
+      ]
+     },
+     {
+      "name": "Bust",
+      "trigger": {
+       "kind": "crowns_at_most",
+       "amount": 0
+      },
+      "penalty": true,
+      "text": "No crown showing: lose Resonance ore.",
+      "effects": [
+       {
+        "kind": "gold",
+        "amount": {
+         "op": "-",
+         "args": [
+          0,
+          {
+           "term": "resonance"
+          }
+         ]
+        }
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "boons": {
+  "RECUT": {
+   "name": "Recut",
+   "group": "stone",
+   "needs": "socket",
+   "text": "A stone drawn at random from your rail is cut again: a fresh roll of its Cut, better or worse.",
+   "effects": [
+    {
+     "kind": "reroll_cut",
+     "bonus": 0
+    }
+   ]
+  },
+  "HEAVIER": {
+   "name": "Clarified",
+   "group": "stone",
+   "needs": "socket",
+   "text": "A stone drawn at random from your rail is fired again: a fresh roll of its Clarity, and of whatever is frozen inside it.",
+   "effects": [
+    {
+     "kind": "reroll_clarity",
+     "bonus": 0
+    }
+   ]
+  },
+  "PINPOINT": {
+   "name": "A Pinpoint",
+   "group": "stone",
+   "needs": "socket",
+   "text": "A stone drawn at random from your rail takes on a Pinpoint inclusion for this run.",
+   "effects": [
+    {
+     "kind": "inclusion",
+     "class": "PINPOINT"
+    }
+   ]
+  },
+  "RAW_STONE": {
+   "name": "A Raw Stone",
+   "group": "stone",
+   "text": "A raw stone from depth 4 goes into your haul, unappraised.",
+   "effects": [
+    {
+     "kind": "raw_stone",
+     "depth": 4,
+     "bonus": 0
+    }
+   ]
+  },
+  "PICK_STONE": {
+   "name": "Pick of Three",
+   "group": "stone",
+   "needs": "pick",
+   "text": "Choose one of three appraised stones for your haul.",
+   "effects": [
+    {
+     "kind": "pick_stone",
+     "count": 3,
+     "depth": 4,
+     "bonus": 2
+    }
+   ]
+  },
+  "HARDY": {
+   "name": "Hardy",
+   "group": "kit",
+   "tags": [
+    "mercy"
+   ],
+   "text": "+12% health for this run.",
+   "effects": [
+    {
+     "kind": "max_hp_pct",
+     "amount": 12
+    }
+   ]
+  },
+  "SOFT_ROCK": {
+   "name": "Soft Rock",
+   "group": "kit",
+   "tags": [
+    "mercy"
+   ],
+   "text": "The creatures in your first three fights arrive at half health.",
+   "effects": [
+    {
+     "kind": "soft_rock",
+     "fights": 3
+    }
+   ]
+  },
+  "STAKED": {
+   "name": "Staked",
+   "group": "kit",
+   "text": "40 ore in hand.",
+   "effects": [
+    {
+     "kind": "ore",
+     "amount": 40
+    }
+   ]
+  },
+  "HAMMERED": {
+   "name": "Hammered",
+   "group": "kit",
+   "text": "One of your five dice, drawn at random, is a size bigger for this run.",
+   "effects": [
+    {
+     "kind": "resize_die",
+     "amount": 1
+    }
+   ]
+  },
+  "STEADY_HANDS": {
+   "name": "Steady Hands",
+   "group": "kit",
+   "text": "+1 reroll every turn until the first landing.",
+   "effects": [
+    {
+     "kind": "extra_rerolls",
+     "amount": 1,
+     "until_depth": 4
+    }
+   ]
+  },
+  "COST_HP": {
+   "name": "Thinner Blood",
+   "group": "cost",
+   "not_with": [
+    "REWARD_HP"
+   ],
+   "text": "10% less health for this run.",
+   "effects": [
+    {
+     "kind": "max_hp_pct",
+     "amount": -10
+    }
+   ]
+  },
+  "COST_WOUND": {
+   "name": "A Bad Fall",
+   "group": "cost",
+   "text": "You lose 30% of your health before you start.",
+   "effects": [
+    {
+     "kind": "hp_pct",
+     "amount": -30
+    }
+   ]
+  },
+  "COST_CHIPPED": {
+   "name": "Chipped",
+   "group": "cost",
+   "needs": "socket",
+   "not_with": [
+    "REWARD_RECUT"
+   ],
+   "text": "A stone drawn at random from your rail is judged a Cut step worse for this run.",
+   "effects": [
+    {
+     "kind": "cut_step",
+     "amount": -1
+    }
+   ]
+  },
+  "REWARD_RECUT": {
+   "name": "Truer Cut",
+   "group": "reward",
+   "needs": "socket",
+   "text": "A stone drawn at random from your rail is cut again by a good hand: its Cut is rolled twice and the truer one kept.",
+   "effects": [
+    {
+     "kind": "reroll_cut",
+     "bonus": 4,
+     "best_of": 2
+    }
+   ]
+  },
+  "REWARD_CARATS": {
+   "name": "Six Carats",
+   "group": "reward",
+   "needs": "socket",
+   "text": "A stone drawn at random from your rail gains 6 carats for this run.",
+   "effects": [
+    {
+     "kind": "carat",
+     "amount": 6
+    }
+   ]
+  },
+  "REWARD_ORE": {
+   "name": "Well Staked",
+   "group": "reward",
+   "text": "90 ore in hand.",
+   "effects": [
+    {
+     "kind": "ore",
+     "amount": 90
+    }
+   ]
+  },
+  "REWARD_STONE": {
+   "name": "A Precious Stone",
+   "group": "reward",
+   "needs": "pick",
+   "text": "Choose one of three appraised stones, Precious or better.",
+   "effects": [
+    {
+     "kind": "pick_stone",
+     "count": 3,
+     "depth": 8,
+     "bonus": 6,
+     "min_tier": "PRECIOUS"
+    }
+   ]
+  },
+  "REWARD_STAR": {
+   "name": "A Star",
+   "group": "reward",
+   "needs": "socket",
+   "weight": 1,
+   "text": "A stone drawn at random from your rail takes on a Star inclusion for this run.",
+   "effects": [
+    {
+     "kind": "inclusion",
+     "class": "STAR"
+    }
+   ]
+  },
+  "REWARD_HP": {
+   "name": "Iron Constitution",
+   "group": "reward",
+   "not_with": [
+    "COST_HP"
+   ],
+   "text": "+25% health for this run.",
+   "effects": [
+    {
+     "kind": "max_hp_pct",
+     "amount": 25
+    }
+   ]
+  },
+  "REWARD_WILD": {
+   "name": "A Wild Face",
+   "group": "reward",
+   "text": "One of your five dice, drawn at random, has its highest face turned wild for this run.",
+   "effects": [
+    {
+     "kind": "wild_face"
+    }
+   ]
+  },
+  "SHOT_GEODE": {
+   "name": "Crack a Geode",
+   "group": "long_shot",
+   "text": "Three small stones 40%, one heavy stone 40%, dust 20%.",
+   "effects": [
+    {
+     "kind": "geode",
+     "three": 40,
+     "one": 40
+    }
+   ]
+  },
+  "SHOT_ROLL": {
+   "name": "Roll for It",
+   "group": "long_shot",
+   "text": "Roll your five dice: three ore for every point.",
+   "effects": [
+    {
+     "kind": "roll_ore",
+     "per_point": 3
+    }
+   ]
+  },
+  "SHOT_DEEP": {
+   "name": "Sight Unseen",
+   "group": "long_shot",
+   "text": "A raw stone from depth 8, unappraised. It could be anything.",
+   "effects": [
+    {
+     "kind": "raw_stone",
+     "depth": 8,
+     "bonus": 2
+    }
+   ]
+  },
+  "SHOT_COIN": {
+   "name": "Heads or Tails",
+   "group": "long_shot",
+   "text": "A coin: +20% health, or −20%.",
+   "effects": [
+    {
+     "kind": "coin_hp",
+     "amount": 20
+    }
+   ]
+  }
+ },
+ "creatures": {
+  "CAVE_TICK": {
+   "name": "Cave Tick",
+   "hp": 16,
+   "block": 0,
+   "threat": 2,
+   "dice": [
+    "D6",
+    "D6"
+   ],
+   "policy": "best",
+   "gimmick": "steal_high_die",
+   "text": "Latches onto your best die.",
+   "moves": [
+    {
+     "name": "Bite",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "high"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Latch",
+     "trigger": {
+      "kind": "pair",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "die_steal",
+       "target": "hero",
+       "amount": 1
+      },
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": 2
+      }
+     ]
+    }
+   ]
+  },
+  "SILT_SLIME": {
+   "name": "Silt Slime",
+   "hp": 22,
+   "block": 0,
+   "threat": 2,
+   "dice": [
+    "D8",
+    "D8"
+   ],
+   "policy": "best",
+   "gimmick": "split_on_big_hit",
+   "text": "Splits when struck hard. Dies to many small blows.",
+   "moves": [
+    {
+     "name": "Ooze",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "low"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Engulf",
+     "trigger": {
+      "kind": "total_pct_at_least",
+      "amount": 60
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "high"
+       }
+      },
+      {
+       "kind": "poison",
+       "target": "hero",
+       "amount": 2
+      }
+     ]
+    }
+   ]
+  },
+  "QUARTZ_GOLEM": {
+   "name": "Quartz Golem",
+   "hp": 34,
+   "block": 6,
+   "threat": 4,
+   "dice": [
+    "D6",
+    "D8",
+    "D10"
+   ],
+   "policy": "best",
+   "gimmick": "block_from_high",
+   "text": "Gains block equal to your highest die each turn.",
+   "moves": [
+    {
+     "name": "Pound",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "op": "+",
+        "args": [
+         {
+          "term": "high"
+         },
+         2
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "name": "Quake",
+     "trigger": {
+      "kind": "pair",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "heroes",
+       "amount": {
+        "term": "value"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "MAGPIE": {
+   "name": "Magpie",
+   "hp": 14,
+   "block": 0,
+   "threat": 2,
+   "dice": [
+    "D4",
+    "D4",
+    "D4"
+   ],
+   "policy": "best",
+   "gimmick": "steal_gold",
+   "text": "Steals ore when it hits and drops it all when it dies.",
+   "moves": [
+    {
+     "name": "Peck",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "total"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Snatch",
+     "trigger": {
+      "kind": "triple",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": 6
+      }
+     ]
+    }
+   ]
+  },
+  "LANTERN_MOTH": {
+   "name": "Lantern Moth",
+   "hp": 12,
+   "block": 0,
+   "threat": 1,
+   "dice": [
+    "D6"
+   ],
+   "policy": "all",
+   "gimmick": "gift_rerolls",
+   "text": "Its light gives you a reroll and drains a little life for each one you use.",
+   "moves": [
+    {
+     "name": "Flutter",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": 2
+      }
+     ]
+    }
+   ]
+  },
+  "VEIN_WRAITH": {
+   "name": "Vein Wraith",
+   "hp": 26,
+   "block": 0,
+   "threat": 3,
+   "dice": [
+    "D10",
+    "D10"
+   ],
+   "policy": "best",
+   "gimmick": "poison_immune",
+   "text": "Poison cannot touch it. Straights cut it deep.",
+   "moves": [
+    {
+     "name": "Drain",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "high"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Wail",
+     "trigger": {
+      "kind": "at_least",
+      "amount": 8
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "heroes",
+       "amount": 4
+      },
+      {
+       "kind": "remove_block",
+       "target": "hero",
+       "amount": 6
+      }
+     ]
+    }
+   ]
+  },
+  "CLOUDER": {
+   "name": "Clouder",
+   "hp": 20,
+   "block": 2,
+   "threat": 3,
+   "dice": [
+    "D6",
+    "D6",
+    "D6"
+   ],
+   "policy": "best",
+   "gimmick": "cloud_socket",
+   "text": "Breathes a fog into one of your sockets until you strike it.",
+   "moves": [
+    {
+     "name": "Puff",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "low"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Smother",
+     "trigger": {
+      "kind": "pair",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "value"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "GLASS_WYRM": {
+   "name": "Glass Wyrm",
+   "hp": 40,
+   "block": 4,
+   "threat": 5,
+   "dice": [
+    "D8",
+    "D8",
+    "D12"
+   ],
+   "policy": "best",
+   "gimmick": "reflect_zero_resonance",
+   "text": "Throws back damage from gems that fire at Resonance 0.",
+   "moves": [
+    {
+     "name": "Lash",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "high"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Coil",
+     "trigger": {
+      "kind": "pair",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "block",
+       "target": "self",
+       "amount": {
+        "term": "value"
+       }
+      },
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "value"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Shatterbreath",
+     "trigger": {
+      "kind": "straight",
+      "amount": 3
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "heroes",
+       "amount": {
+        "term": "total"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "THE_FOREMAN": {
+   "name": "The Foreman",
+   "hp": 90,
+   "block": 8,
+   "threat": 20,
+   "dice": [
+    "D8",
+    "D8",
+    "D10",
+    "D10"
+   ],
+   "policy": "best",
+   "gimmick": "bury_socket",
+   "warden": true,
+   "text": "Warden of the eighth landing. Buries one of your sockets in rubble each turn.",
+   "moves": [
+    {
+     "name": "Pick",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "op": "+",
+        "args": [
+         {
+          "term": "high"
+         },
+         3
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "name": "Cave-in",
+     "trigger": {
+      "kind": "pair",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "heroes",
+       "amount": {
+        "term": "value"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Shore Up",
+     "trigger": {
+      "kind": "total_pct_at_least",
+      "amount": 65
+     },
+     "effects": [
+      {
+       "kind": "block",
+       "target": "self",
+       "amount": {
+        "term": "high"
+       }
+      },
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "high"
+       }
+      }
+     ]
+    }
+   ],
+   "phases": [
+    {
+     "below_hp_pct": 50,
+     "moves": [
+      {
+       "name": "Blast",
+       "trigger": {
+        "kind": "always"
+       },
+       "effects": [
+        {
+         "kind": "damage",
+         "target": "heroes",
+         "amount": {
+          "term": "high"
+         }
+        }
+       ]
+      },
+      {
+       "name": "Collapse",
+       "trigger": {
+        "kind": "pair",
+        "amount": 1
+       },
+       "effects": [
+        {
+         "kind": "damage",
+         "target": "hero",
+         "amount": {
+          "op": "*",
+          "args": [
+           {
+            "term": "value"
+           },
+           2
+          ]
+         }
+        },
+        {
+         "kind": "stun",
+         "target": "hero",
+         "amount": 1
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "THE_REGENT": {
+   "name": "The Mirror Regent",
+   "hp": 140,
+   "block": 10,
+   "threat": 30,
+   "dice": [
+    "D10",
+    "D10",
+    "D12",
+    "D12"
+   ],
+   "policy": "best",
+   "gimmick": "mirror_last_gem",
+   "warden": true,
+   "text": "Warden of the sixteenth landing. Turns your last gem back on you.",
+   "moves": [
+    {
+     "name": "Reflect",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "term": "high"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Refraction",
+     "trigger": {
+      "kind": "pair",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "heroes",
+       "amount": {
+        "term": "value"
+       }
+      },
+      {
+       "kind": "remove_block",
+       "target": "heroes",
+       "amount": {
+        "term": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "phases": [
+    {
+     "below_hp_pct": 40,
+     "moves": [
+      {
+       "name": "Shatter",
+       "trigger": {
+        "kind": "always"
+       },
+       "effects": [
+        {
+         "kind": "damage",
+         "target": "heroes",
+         "amount": {
+          "op": "+",
+          "args": [
+           {
+            "term": "high"
+           },
+           4
+          ]
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "THE_DRILL": {
+   "name": "The Drill",
+   "hp": 200,
+   "block": 12,
+   "threat": 40,
+   "dice": [
+    "D12",
+    "D12",
+    "D12",
+    "D20"
+   ],
+   "policy": "best",
+   "gimmick": "roll_for_you",
+   "warden": true,
+   "text": "Warden of the twenty-fourth landing. On odd turns it rolls your dice for you.",
+   "moves": [
+    {
+     "name": "Bore",
+     "trigger": {
+      "kind": "always"
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "hero",
+       "amount": {
+        "op": "+",
+        "args": [
+         {
+          "term": "high"
+         },
+         6
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "name": "Grind",
+     "trigger": {
+      "kind": "pair",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "heroes",
+       "amount": {
+        "term": "value"
+       }
+      },
+      {
+       "kind": "stun",
+       "target": "hero",
+       "amount": 1
+      }
+     ]
+    },
+    {
+     "name": "Overdrive",
+     "trigger": {
+      "kind": "total_pct_at_least",
+      "amount": 70
+     },
+     "effects": [
+      {
+       "kind": "damage",
+       "target": "heroes",
+       "amount": {
+        "term": "total"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "mines": {
+  "QUARRY": {
+   "name": "The Quarry",
+   "starter": true,
+   "quality": 0,
+   "palette": "c9a26b",
+   "key": "QUARRY",
+   "text": "Old galleries under the workshop. Ticks and slimes near the top, golems and wyrms below.",
+   "color_weights": {
+    "RED": 100,
+    "BLUE": 100,
+    "GREEN": 100,
+    "VIOLET": 100,
+    "GOLD": 100,
+    "WHITE": 100
+   },
+   "skills": [],
+   "inclusions": [],
+   "dice": [
+    "D4",
+    "D6",
+    "D8",
+    "D10",
+    "D12",
+    "D20",
+    "PAIRED_D6",
+    "ODD_D6",
+    "EVEN_D6",
+    "SEVENS_D8",
+    "WILD_D6",
+    "EXPLODING_D6",
+    "LOCKED_D8",
+    "HOLLOW_D10"
+   ],
+   "chambers": {
+    "fight": 48,
+    "elite": 12,
+    "vein": 18,
+    "oddity": 14,
+    "merchant": 8,
+    "smithy": 6,
+    "carver": 6,
+    "well": 5
+   },
+   "motherlode_pct": 3,
+   "bands": [
+    {
+     "from_depth": 1,
+     "creatures": {
+      "CAVE_TICK": 4,
+      "SILT_SLIME": 3,
+      "MAGPIE": 2,
+      "LANTERN_MOTH": 2
+     }
+    },
+    {
+     "from_depth": 5,
+     "creatures": {
+      "CAVE_TICK": 2,
+      "SILT_SLIME": 3,
+      "MAGPIE": 2,
+      "QUARTZ_GOLEM": 2,
+      "CLOUDER": 2
+     }
+    },
+    {
+     "from_depth": 9,
+     "creatures": {
+      "SILT_SLIME": 2,
+      "QUARTZ_GOLEM": 3,
+      "CLOUDER": 2,
+      "VEIN_WRAITH": 3,
+      "LANTERN_MOTH": 1
+     }
+    },
+    {
+     "from_depth": 17,
+     "creatures": {
+      "QUARTZ_GOLEM": 3,
+      "CLOUDER": 2,
+      "VEIN_WRAITH": 3,
+      "GLASS_WYRM": 3
+     }
+    }
+   ],
+   "wardens": [
+    "THE_FOREMAN",
+    "THE_REGENT",
+    "THE_DRILL"
+   ],
+   "unlocks": [],
+   "luck": -1
+  }
+ },
+ "oddities": {
+  "CUTTERS_WHEEL": {
+   "name": "The Cutter's Wheel",
+   "text": "An old wheel, still spinning. A stone laid against it is cut again from scratch: what comes off is whatever this depth's rock gives up, and nobody promises it is better.",
+   "choices": [
+    {
+     "id": "recut",
+     "label": "Cut a stone again",
+     "needs": "stone",
+     "text": "Its Cut is rolled again from this depth's table. It can come off worse. 8% it shatters.",
+     "action": {
+      "kind": "reroll_cut",
+      "shatter": 8
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "text": "Walk on.",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "ACID_BATH": {
+   "name": "Acid Bath",
+   "text": "A pool that eats what is frozen inside a stone.",
+   "choices": [
+    {
+     "id": "remove",
+     "label": "Dissolve an inclusion",
+     "text": "Choose a stone and one inclusion. It is gone.",
+     "needs": "inclusion",
+     "action": {
+      "kind": "remove_inclusion"
+     }
+    },
+    {
+     "id": "reveal",
+     "label": "Bathe the haul",
+     "text": "Every raw stone you carry shows its inclusions.",
+     "action": {
+      "kind": "reveal_inclusions"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "CRUCIBLE": {
+   "name": "The Crucible",
+   "text": "Two stones go in. One comes out.",
+   "choices": [
+    {
+     "id": "fuse",
+     "label": "Fuse two stones",
+     "text": "Keep one stone's skill. Its carats become the sum of both, up to 20. Each inclusion of either survives 50%.",
+     "needs": "two_stones",
+     "action": {
+      "kind": "fuse",
+      "survive": 50
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "GEODE": {
+   "name": "Geode",
+   "text": "A round grey rock, heavier than it looks.",
+   "choices": [
+    {
+     "id": "crack",
+     "label": "Crack it open",
+     "text": "Three small stones 45%, one heavy stone 35%, dust 20%.",
+     "action": {
+      "kind": "geode",
+      "three": 45,
+      "one": 35
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "GRINDER": {
+   "name": "The Grinder",
+   "text": "A bench grinder and a set of engraving needles.",
+   "choices": [
+    {
+     "id": "grind",
+     "label": "Grind a face off a die",
+     "text": "Choose a die and a face. The face is replaced by its neighbour.",
+     "needs": "die_face",
+     "action": {
+      "kind": "grind"
+     }
+    },
+    {
+     "id": "engrave",
+     "label": "Engrave a die",
+     "text": "Choose a die and an engraving. It takes 40%, cracks the die's best face 10%, or nothing.",
+     "needs": "die_engraving",
+     "action": {
+      "kind": "engrave",
+      "success": 40,
+      "crack": 10
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "OLD_PROSPECTOR": {
+   "name": "The Old Prospector",
+   "text": "He wants one of your raw stones and offers one of his, a carat heavier. He will not let you look.",
+   "choices": [
+    {
+     "id": "trade",
+     "label": "Trade a stone",
+     "text": "Give a raw stone. Receive a raw stone one carat heavier.",
+     "needs": "stone",
+     "action": {
+      "kind": "trade_up",
+      "carats": 1
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Keep walking",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "SHRINE": {
+   "name": "Shrine of the Pattern",
+   "text": "Dice are carved into the wall, all showing the same thing.",
+   "choices": [
+    {
+     "id": "pray",
+     "label": "Choose a pattern",
+     "text": "For the rest of this run, gems that fire on that pattern gain a carat.",
+     "needs": "pattern",
+     "action": {
+      "kind": "shrine"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "IDOL": {
+   "name": "The Idol",
+   "text": "A stone the size of a fist sits in its eye. It is cracked all through.",
+   "choices": [
+    {
+     "id": "take",
+     "label": "Take the eye",
+     "text": "A stone of at least 16 carats, appraised, Etched with two Fractures.",
+     "action": {
+      "kind": "idol",
+      "carat_min": 16
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "ECHO_CHAMBER": {
+   "name": "Echo Chamber",
+   "text": "Whatever is inside one stone rings in another.",
+   "choices": [
+    {
+     "id": "copy",
+     "label": "Copy an inclusion",
+     "text": "Choose an inclusion on one stone and another stone with room for it.",
+     "needs": "copy_inclusion",
+     "action": {
+      "kind": "copy_inclusion"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "COLLECTOR": {
+   "name": "The Collector",
+   "text": "She pays three times what a stone is worth, and keeps it forever.",
+   "choices": [
+    {
+     "id": "sell",
+     "label": "Sell a stone",
+     "text": "Triple its value in ore. The stone is gone.",
+     "needs": "stone",
+     "action": {
+      "kind": "collector_sell",
+      "mult": 3
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Decline",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "LOUPE_CABINET": {
+   "name": "Loupe Cabinet",
+   "text": "A cabinet of lenses, most of them cracked. One is not.",
+   "choices": [
+    {
+     "id": "look",
+     "label": "Look through it",
+     "text": "Appraise one raw stone from your haul, free.",
+     "needs": "raw_stone",
+     "action": {
+      "kind": "appraise"
+     }
+    },
+    {
+     "id": "ore",
+     "label": "Take 8 ore",
+     "text": "The brass fittings are worth something.",
+     "action": {
+      "kind": "ore",
+      "amount": 8
+     }
+    }
+   ]
+  },
+  "FIELD_MEDIC": {
+   "name": "Field Medic",
+   "text": "A miner with a kit and a price.",
+   "choices": [
+    {
+     "id": "heal",
+     "label": "Be treated",
+     "text": "Recover a quarter of your HP.",
+     "action": {
+      "kind": "heal",
+      "pct": 25
+     }
+    },
+    {
+     "id": "ore",
+     "label": "Take 6 ore",
+     "action": {
+      "kind": "ore",
+      "amount": 6
+     }
+    }
+   ]
+  },
+  "VUG": {
+   "name": "The Vug",
+   "text": "A pocket in the rock, walls glittering. The air is bad.",
+   "choices": [
+    {
+     "id": "enter",
+     "label": "Squeeze in",
+     "text": "A rich vein, but every strike costs 3 HP.",
+     "action": {
+      "kind": "vug"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "TUMBLER": {
+   "name": "The Tumbler",
+   "text": "A drum of grit that turns and turns. What goes in comes out as something else of the same color.",
+   "choices": [
+    {
+     "id": "tumble",
+     "label": "Tumble a stone",
+     "text": "Its skill is rolled again among the skills of its color. Carats, cut, clarity and inclusions stay.",
+     "needs": "stone",
+     "action": {
+      "kind": "tumble"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "SEAM": {
+   "name": "A Glittering Seam",
+   "text": "Stones stud a seam too hard for a pick. Your hands will have to do.",
+   "choices": [
+    {
+     "id": "pry",
+     "label": "Pry out the big one",
+     "text": "A raw stone of better quality than the rock around it. The edge cuts: lose 8 HP.",
+     "action": {
+      "kind": "pry",
+      "bonus": 4,
+      "hp": 8
+     }
+    },
+    {
+     "id": "chips",
+     "label": "Gather the chips",
+     "text": "Two small raw stones that have already come loose.",
+     "action": {
+      "kind": "chips",
+      "count": 2,
+      "bonus": -2
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "SMITHY": {
+   "name": "The Smithy",
+   "room": "smithy",
+   "text": "A forge still banked with coals, an anvil and a rack of files. Somebody makes dice down here.",
+   "choices": [
+    {
+     "id": "hammer",
+     "label": "Hammer a die bigger",
+     "text": "A d4 becomes a d6, a d6 a d8, and so on up to a d20. Its faces become plain numbers; its engraving stays.",
+     "needs": "die",
+     "action": {
+      "kind": "upsize"
+     }
+    },
+    {
+     "id": "file",
+     "label": "File a die smaller",
+     "text": "A d20 becomes a d12, a d12 a d10, and so on down to a d4: fewer faces, more matches. Its faces become plain numbers; its engraving stays.",
+     "needs": "die",
+     "action": {
+      "kind": "downsize"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "CARVER": {
+   "name": "The Carver's Bench",
+   "room": "carver",
+   "text": "Fine chisels laid out under a lamp. Whoever works here recuts the faces of dice.",
+   "choices": [
+    {
+     "id": "raise",
+     "label": "Raise a face",
+     "text": "Choose a die and a face. It comes up by 1, never past the die's highest face. A blank face becomes a 1.",
+     "needs": "die_face",
+     "action": {
+      "kind": "raise_face",
+      "amount": 1
+     }
+    },
+    {
+     "id": "recut",
+     "label": "Recut a face",
+     "text": "Choose a face, then another face of the same die: the first is recut to show the second's number.",
+     "needs": "die_face_pair",
+     "action": {
+      "kind": "copy_face"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "ANNEALING_OVEN": {
+   "name": "The Annealing Oven",
+   "text": "A brick oven with a slow fire in it. A stone left in overnight comes out with a different heart: clearer, cloudier, or full of things that were not there before.",
+   "choices": [
+    {
+     "id": "reroll",
+     "label": "Fire a stone",
+     "needs": "stone",
+     "text": "Its Clarity is rolled again from this depth's table, and whatever is frozen inside it is rolled with it. 8% it cracks.",
+     "action": {
+      "kind": "reroll_clarity",
+      "shatter": 8
+     }
+    },
+    {
+     "id": "reveal",
+     "label": "Warm the haul",
+     "text": "Every raw stone you carry shows its inclusions.",
+     "action": {
+      "kind": "reveal_inclusions"
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  },
+  "WISHING_WELL": {
+   "name": "The Wishing Well",
+   "room": "well",
+   "text": "A shaft within the shaft, brick-lined and wet, going down further than the lantern reaches. Miners have been throwing things into it for two hundred years. Now and then it throws something back.",
+   "choices": [
+    {
+     "id": "stone",
+     "label": "Drop a stone in",
+     "needs": "stone",
+     "text": "The stone is gone. What comes back up is drawn around it and reads a little better than it did, as often as not.",
+     "action": {
+      "kind": "wishing_well",
+      "mode": "stone",
+      "spread": 9
+     }
+    },
+    {
+     "id": "ore",
+     "label": "Throw ore in",
+     "needs": "ore",
+     "text": "Ten to a hundred ore. What comes back is a stone still in its rock, and the more went down the better it is likely to be. Even a hundred is only a chance at something fine, and the slimmest of chances at an opal.",
+     "action": {
+      "kind": "wishing_well",
+      "mode": "ore",
+      "least": 10,
+      "most": 100,
+      "reach": 8,
+      "opal_pct": 4
+     }
+    },
+    {
+     "id": "pass",
+     "label": "Leave it",
+     "text": "Walk on.",
+     "action": {
+      "kind": "none"
+     }
+    }
+   ]
+  }
+ }
 }

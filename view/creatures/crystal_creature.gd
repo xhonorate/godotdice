@@ -5,7 +5,7 @@ extends Node3D
 ## creature always looks the same and no two kinds look alike.
 ##
 ## It is never still: it breathes, its parts move on their own (wings beat, shards orbit,
-## a slime wobbles), its core glows with a heartbeat and throws its colour on the floor. It
+## a slime wobbles), its core glows with a heartbeat and throws its color on the floor. It
 ## rises out of the ground when a fight begins, rears back before it strikes, reels when
 ## hit, and bursts apart when it dies. The screen decides when; this decides how.
 

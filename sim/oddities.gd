@@ -1,16 +1,19 @@
 class_name DeepOddities
 extends RefCounted
-## Oddities: the crafting gambles a chamber can hold.
+## Oddities: the crafting gambles a chamber can hold, and the cards of the rooms where dice
+## are worked.
 ##
 ## An oddity is a card with two or three choices. Each choice carries an action from the
-## fixed list below and shows its odds on the card. `apply()` resolves one player's choice
+## fixed list below and shows its odds on the card. A card with a `room` belongs to a chamber
+## of that kind (a smithy, a carver) and is never drawn at random. Dice are only ever worked
+## here, never bought or swapped: made a size bigger or smaller, their faces raised or recut. `apply()` resolves one player's choice
 ## against their own stones and dice; it never touches another player. Every roll comes
 ## from the oddities RNG stream. Besides the stones it made and the ids it took, a result
 ## names the stones it changed and the dice it made or changed, so a screen can show them.
 
-const ACTIONS: Array = ["none", "recut", "remove_inclusion", "reveal_inclusions", "fuse", "geode", "grind", "engrave",
-	"trade_up", "shrine", "idol", "copy_inclusion", "dice_swap", "collector_sell", "heal", "ore", "vug",
-	"appraise", "tumble", "upsize", "temper", "trade_die", "buy_die", "pry", "chips"]
+const ACTIONS: Array = ["none", "reroll_cut", "reroll_clarity", "remove_inclusion", "reveal_inclusions", "fuse", "geode", "grind", "engrave",
+	"trade_up", "shrine", "idol", "copy_inclusion", "collector_sell", "heal", "ore", "vug",
+	"appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "copy_face", "pry", "chips", "wishing_well"]
 const SIZES: Array = ["D4", "D6", "D8", "D10", "D12", "D20"]
 
 static func validate(def: Variant) -> Array:
@@ -19,6 +22,8 @@ static func validate(def: Variant) -> Array:
 	var errors: Array = []
 	if str(def.get("name", "")).is_empty():
 		errors.append("needs a name")
+	if def.has("room") and not str(def.room) in DeepDescent.CARD_ROOMS:
+		errors.append("unknown room " + str(def.room))
 	var choices: Variant = def.get("choices", null)
 	if not choices is Array or choices.size() < 2 or choices.size() > 3:
 		errors.append("needs two or three choices")
@@ -66,6 +71,29 @@ static func find_die(player: Dictionary, die_id: String) -> Dictionary:
 			return die
 	return {}
 
+static func resize_refusal(die: Dictionary, steps: int) -> String:
+	## Why this die cannot be made `steps` sizes bigger (smaller when negative), or "".
+	var at: int = SIZES.find(str(die.get("shape", "")))
+	if at < 0:
+		return "that die cannot change size"
+	if at + steps >= SIZES.size():
+		return "that die is as big as dice come"
+	if at + steps < 0:
+		return "that die is as small as dice come"
+	return ""
+
+static func resize(die: Dictionary, steps: int) -> String:
+	## The die, in place, `steps` sizes bigger or smaller: it keeps its id and its engraving,
+	## and its faces become the plain numbers of its new size. Returns why not, or "".
+	var refusal: String = resize_refusal(die, steps)
+	if not refusal.is_empty():
+		return refusal
+	var key: String = str(SIZES[SIZES.find(str(die.shape)) + steps])
+	var made: Dictionary = DeepDice.make(key, DeepContent.die(key), str(die.id), str(die.get("engraving", "")))
+	die.clear()
+	die.merge(made)
+	return ""
+
 static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, rng: RandomNumberGenerator, ctx: Dictionary) -> Dictionary:
 	## ctx: mine (Dictionary), depth, run (id), party (int). Returns {ok, error, message, made: [stones], lost: [ids]}.
 	var kind: String = str(action.get("kind", "none"))
@@ -75,23 +103,42 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 	match kind:
 		"none":
 			out.message = "You leave it be."
-		"recut":
+		"reroll_cut":
+			## The wheel never makes a cut truer for the asking: it cuts the stone again, and
+			## what comes off is a fresh draw from the table this depth rolls on.
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty():
 				return _refuse("choose one of your stones")
-			var roll: float = rng.randf() * 100.0
-			var up: float = float(action.get("up", 60))
-			var down: float = float(action.get("down", 30))
-			if roll < up:
-				stone.cut = mini(int(stone.cut) + 1, DeepPatterns.STEPS - 1)
-				out.message = "The wheel finds a truer angle: the cut is now %s." % DeepContent.cut_name(int(stone.cut))
-			elif roll < up + down:
-				stone.cut = maxi(int(stone.cut) - 1, 0)
-				out.message = "The wheel bites too deep: the cut is now %s." % DeepContent.cut_name(int(stone.cut))
-			else:
+			if not bool(stone.get("appraised", false)):
+				return _refuse("a raw stone has no cut to speak of yet")
+			if DeepRng.chance(rng, float(action.get("shatter", 8))):
 				remove_stone(player, str(stone.id))
 				out.lost.append(str(stone.id))
 				out.message = "The stone shatters on the wheel."
+			else:
+				var was: int = int(stone.get("cut", 0))
+				var now: int = DeepForge.reroll_cut(rng, stone, mine, depth, int(action.get("bonus", 0)))
+				out.changed.append(stone.duplicate(true))
+				out.message = "%s off the wheel, and it comes off %s." % [DeepContent.cut_name(was), DeepContent.cut_name(now)]
+		"reroll_clarity":
+			## The same for what a stone is made of, and since clarity is what it carries
+			## frozen inside it, whatever is in there is drawn again with it.
+			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
+			if stone.is_empty():
+				return _refuse("choose one of your stones")
+			if not bool(stone.get("appraised", false)):
+				return _refuse("a raw stone has no clarity to speak of yet")
+			if DeepRng.chance(rng, float(action.get("shatter", 8))):
+				remove_stone(player, str(stone.id))
+				out.lost.append(str(stone.id))
+				out.message = "The stone cracks across in the heat."
+			else:
+				var rolled: Dictionary = DeepForge.reroll_clarity(rng, stone, mine, depth, int(action.get("bonus", 0)))
+				out.changed.append(stone.duplicate(true))
+				var named: Array = DeepStone.inclusion_names(stone)
+				out.message = "%s in, %s out." % [DeepContent.clarity_name(int(rolled.was)), DeepContent.clarity_name(int(rolled.clarity))]
+				if not named.is_empty():
+					out.message += " Inside it now: %s." % ", ".join(named)
 		"remove_inclusion":
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			var key: String = str(payload.get("inclusion", ""))
@@ -185,8 +232,8 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 		"idol":
 			var idol: Dictionary = DeepForge.roll_stone(rng, mine, depth, 0, {"run": ctx.get("run", ""), "source": "idol"})
 			idol.carat = clampi(maxi(int(idol.carat), int(action.get("carat_min", 16))), 1, DeepStone.carat_max())
-			var veined: int = DeepContent.clarity_index("VEINED")
-			idol.clarity = veined if veined >= 0 else int(idol.clarity)
+			var etched: int = DeepContent.clarity_index("ETCHED")
+			idol.clarity = etched if etched >= 0 else int(idol.clarity)
 			idol.inclusions = DeepForge.roll_inclusions(rng, 2, mine, "FRACTURE")
 			idol.appraised = true
 			idol.inclusions_revealed = true
@@ -205,19 +252,6 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return _refuse("that stone has no room inside it")
 			target.inclusions.append(key)
 			out.message = "The echo takes: both stones now carry %s." % str(DeepContent.inclusion(key).get("name", key))
-		"dice_swap":
-			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
-			if die.is_empty():
-				return _refuse("choose a die to swap")
-			var fresh: Dictionary = DeepForge.roll_die(rng, mine, depth)
-			var guard: int = 0
-			while str(fresh.shape) != str(die.shape) and guard < 12:
-				fresh = DeepForge.roll_die(rng, mine, depth)
-				guard += 1
-			fresh.id = str(die.id)
-			for field in fresh:
-				die[field] = fresh[field]
-			out.message = "You draw a %s from the bowl." % DeepDice.describe(die)
 		"collector_sell":
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty():
@@ -237,12 +271,12 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			out.message = "Through the one good lens: a %s." % DeepStone.name(stone)
 		"tumble":
 			## The drum keeps the stone's size, cut, clarity and whatever is frozen inside it,
-			## and turns out another skill of the same colour. A socketed stone never comes out
+			## and turns out another skill of the same color. A socketed stone never comes out
 			## as a skill already set beside it.
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty() or DeepStone.is_birthstone(stone):
 				return _refuse("choose one of your stones")
-			var colour: String = DeepStone.colour(stone)
+			var color: String = DeepStone.color(stone)
 			var beside: Array = []
 			var socketed: bool = false
 			for other in player.get("rail", []):
@@ -252,28 +286,24 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 					else:
 						beside.append(str(other.skill))
 			var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool:
-				return str(DeepContent.skill(k).get("colour", "")) == colour and k != str(stone.skill) and not (socketed and beside.has(k)))
+				return str(DeepContent.skill(k).get("color", "")) == color and k != str(stone.skill) and not (socketed and beside.has(k)))
 			if pool.is_empty():
-				return _refuse("nothing else of that colour could come out of the drum")
+				return _refuse("nothing else of that color could come out of the drum")
 			stone.skill = DeepForge.roll_skill(rng, mine, pool)
 			out.changed.append(stone.duplicate(true))
 			if bool(stone.get("appraised", false)):
 				out.message = "The drum stops. The stone is a %s now." % str(DeepStone.skill_of(stone).get("name", stone.skill))
 			else:
 				out.message = "The drum stops. Something in the stone has changed; only an appraisal will say what."
-		"upsize":
+		"upsize", "downsize":
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
 			if die.is_empty():
-				return _refuse("choose a die to hammer")
-			var at: int = SIZES.find(str(die.get("shape", "")))
-			if at < 0 or at >= SIZES.size() - 1:
-				return _refuse("that die is as big as dice come")
-			var key: String = str(SIZES[at + 1])
-			var bigger: Dictionary = DeepDice.make(key, DeepContent.die(key), str(die.id), str(die.get("engraving", "")))
-			die.clear()
-			die.merge(bigger)
+				return _refuse("choose a die to hammer" if kind == "upsize" else "choose a die to file down")
+			var refusal: String = resize(die, 1 if kind == "upsize" else -1)
+			if not refusal.is_empty():
+				return _refuse(refusal)
 			out.dice.append(die.duplicate(true))
-			out.message = "The anvil rings. Your die comes away a %s." % DeepDice.describe(die)
+			out.message = ("The anvil rings. Your die comes away a %s." if kind == "upsize" else "The file bites. Your die comes away a %s.") % DeepDice.describe(die)
 		"temper":
 			## The lowest face comes up, never past what the die can show; a blank face
 			## becomes a number.
@@ -292,35 +322,39 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			die.faces[low] = DeepDice.face(after, "plain" if kind_was == "blank" else kind_was)
 			out.dice.append(die.duplicate(true))
 			out.message = "The lowest face comes up from %d to %d." % [before, after]
-		"trade_die":
-			## The tinker draws a few dice from deep in the mine and hands back the dearest.
+		"raise_face":
+			## One chosen face comes up, never past the die's own highest face (or the top it
+			## is judged against); a blank face becomes a number.
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
-			if die.is_empty():
-				return _refuse("choose a die to trade")
-			var best: Dictionary = {}
-			var best_price: int = -1
-			for _i in range(maxi(1, int(action.get("draws", 3)))):
-				var fresh: Dictionary = DeepForge.roll_die(rng, mine, depth + int(action.get("depth_bonus", 6)))
-				var price: int = int(DeepContent.die(str(fresh.key)).get("price", 0))
-				if price > best_price:
-					best = fresh
-					best_price = price
-			best.id = str(die.id)
-			die.clear()
-			die.merge(best)
+			var face: int = int(payload.get("face", -1))
+			if die.is_empty() or face < 0 or face >= die.get("faces", []).size():
+				return _refuse("choose a die and a face to raise")
+			var before: int = _shown(die.faces[face])
+			var after: int = mini(before + maxi(1, int(action.get("amount", 1))), maxi(_ceiling(die), before))
+			if after <= before:
+				return _refuse("that face is already as high as the die goes")
+			var kind_was: String = str(die.faces[face].get("kind", "plain"))
+			die.faces[face] = DeepDice.face(after, "plain" if kind_was == "blank" else kind_was)
 			out.dice.append(die.duplicate(true))
-			out.message = "The tinker pockets your die and hands back a %s." % DeepDice.describe(die)
-		"buy_die":
-			var price: int = int(action.get("price", 15))
-			if int(player.get("ore", 0)) < price:
-				return _refuse("not enough ore")
-			player.ore = int(player.ore) - price
-			var fresh: Dictionary = DeepForge.roll_die(rng, mine, depth)
-			if not player.has("bag_dice"):
-				player.bag_dice = []
-			player.bag_dice.append(fresh)
-			out.dice.append(fresh.duplicate(true))
-			out.message = "For %d ore the tinker sells you a %s. It is in your bag." % [price, DeepDice.describe(fresh)]
+			out.message = "The chisel lifts a face: the %s is a %s now." % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])]
+		"copy_face":
+			## One face recut to show another face's number. Only the number is copied: a
+			## special face gives its value, never what makes it special.
+			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
+			var face: int = int(payload.get("face", -1))
+			var from: int = int(payload.get("from", -1))
+			var count: int = die.get("faces", []).size()
+			if die.is_empty() or face < 0 or from < 0 or face >= count or from >= count or face == from:
+				return _refuse("choose a die, a face to recut and a face to copy")
+			if str(die.faces[from].get("kind", "plain")) == "blank":
+				return _refuse("a blank face has no number to copy")
+			var was: Dictionary = die.faces[face].duplicate()
+			var copied: Dictionary = DeepDice.face(int(die.faces[from].get("value", 0)))
+			if str(was.get("kind", "plain")) == "plain" and int(was.get("value", 0)) == int(copied.value):
+				return _refuse("that face already shows that number")
+			die.faces[face] = copied
+			out.dice.append(die.duplicate(true))
+			out.message = "The carver recuts the %s into a %s." % [_face_words(was), _face_words(copied)]
 		"pry":
 			var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", 4)), {"run": ctx.get("run", ""), "source": "seam"})
 			player.haul.append(stone)
@@ -344,6 +378,53 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 		"vug":
 			out.vug = true
 			out.message = "You squeeze into the vug. The walls glitter and the air is bad."
+		"wishing_well":
+			## The well takes and gives. A stone dropped down it comes back as another drawn
+			## around what went in, centred a little above it; ore dropped down it comes back
+			## as a stone still in its rock, and the more ore the better the odds — though
+			## even a hundred of it is only a chance, and a slim one at an opal.
+			var most: int = int(action.get("most", 100))
+			if str(action.get("mode", "stone")) == "ore":
+				var least: int = int(action.get("least", 10))
+				var spent: int = clampi(int(payload.get("ore", 0)), least, most)
+				if int(player.get("ore", 0)) < spent:
+					return _refuse("you have not the ore to throw in")
+				player.ore = int(player.ore) - spent
+				var share: float = float(spent) / float(maxi(1, most))
+				var pool: Array = DeepForge.opal_pool() if DeepRng.chance(rng, float(action.get("opal_pct", 4)) * share) else []
+				var won: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(round(share * float(action.get("reach", 8)))),
+					{"run": str(ctx.get("run", "")), "source": "well"}, "", pool)
+				player.haul.append(won)
+				out.made.append(won)
+				out.message = "%d ore goes down into the dark. Something comes back up: %s, still in its rock." % [spent, DeepStone.raw_name(won).to_lower()]
+			else:
+				var offered: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
+				if offered.is_empty():
+					return _refuse("choose one of your stones")
+				if not bool(offered.get("appraised", false)):
+					return _refuse("the well only takes a stone you have read")
+				if DeepStone.is_locked(offered):
+					return _refuse("a Knot cannot leave its socket")
+				var score: float = float(DeepStone.grade(offered).score)
+				## What it is trying to hand back: a little better than what it was given,
+				## with plenty of room either side of that.
+				var target: float = DeepRng.normal(rng, score * 1.06 + 3.0, float(action.get("spread", 9)))
+				var bonus: int = clampi(int(round(score / 7.0)), 0, 14)
+				var best: Dictionary = {}
+				var gap: float = INF
+				for _try in range(5):
+					var candidate: Dictionary = DeepForge.roll_stone(rng, mine, depth, bonus, {"run": str(ctx.get("run", "")), "source": "well"})
+					var off: float = absf(float(DeepStone.grade(candidate).score) - target)
+					if off < gap:
+						gap = off
+						best = candidate
+				best.appraised = true
+				best.inclusions_revealed = true
+				remove_stone(player, str(offered.id))
+				out.lost.append(str(offered.id))
+				player.haul.append(best)
+				out.made.append(best)
+				out.message = "%s goes down into the water. The well gives back %s." % [DeepStone.name(offered), DeepStone.name(best)]
 		_:
 			return _refuse("unknown oddity action")
 	return out
@@ -351,6 +432,23 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 static func _shown(f: Dictionary) -> int:
 	## What a face counts for when looking for the lowest: a blank shows nothing.
 	return 0 if str(f.get("kind", "plain")) == "blank" else int(f.get("value", 0))
+
+static func _ceiling(die: Dictionary) -> int:
+	## The most a face may be raised to: the top a die is judged against when it names one,
+	## otherwise its own highest face. An engraving never lifts it.
+	if int(die.get("top", 0)) > 0:
+		return int(die.top)
+	var best: int = 0
+	for f in die.get("faces", []):
+		best = maxi(best, _shown(f))
+	return best
+
+static func _face_words(f: Dictionary) -> String:
+	## "4", "wild 6", "blank": a face the way a result names it.
+	var kind: String = str(f.get("kind", "plain"))
+	if kind == "blank":
+		return "blank"
+	return str(int(f.get("value", 0))) if kind == "plain" else "%s %d" % [kind, int(f.get("value", 0))]
 
 static func _refuse(error: String) -> Dictionary:
 	return {"ok": false, "error": error, "message": "", "made": [], "lost": [], "changed": [], "dice": []}

@@ -5,6 +5,4 @@
 *.log
 .DS_Store
 
-# Content Studio keeps a copy of the pack on every save.
-tools/content_studio/backups/
 __pycache__/

@@ -273,12 +273,19 @@ func _test_linked() -> void:
 				elif str(host.run.chamber.kind) in ["vein", "vug"]:
 					for who in [host, guest]:
 						var unit: Dictionary = DeepDescent.player(host.run, who.local_id)
-						if int(unit.strikes) > 0:
-							for spot in host.run.chamber.vein.spots:
-								if str(spot.taken).is_empty():
-									who.send({"kind": "strike", "spot": spot.index})
-									break
-							break
+						if not bool(unit.get("mining", false)):
+							continue
+						var open_spot: int = -1
+						for spot in host.run.chamber.vein.spots:
+							if str(spot.taken).is_empty():
+								open_spot = int(spot.index)
+								break
+						var can_swing: bool = int(unit.hp) > DeepDescent.strike_cost(int(unit.get("strikes", 0)), bool(host.run.chamber.vein.get("hazard", false)))
+						if open_spot >= 0 and can_swing:
+							who.send({"kind": "strike", "spot": open_spot})
+						else:
+							who.send({"kind": "stop_mining"})
+						break
 				elif str(host.run.chamber.kind) == "oddity":
 					var oddity: Dictionary = DeepContent.oddity(str(host.run.chamber.oddity))
 					for who in [host, guest]:

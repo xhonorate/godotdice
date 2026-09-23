@@ -7,7 +7,7 @@ extends RefCounted
 ## to hard-code, so the game and the test suites still see the shipped look.
 ##
 ## Two of these are baked into the mesh rather than read off a material — the facet tones
-## are vertex colours, decided when the solid is cut — so moving a knob means re-cutting the
+## are vertex colors, decided when the solid is cut — so moving a knob means re-cutting the
 ## stone, not just re-skinning it. A knob marked `"view": true` is applied by `gem_view.gd`
 ## to the scene rather than to a material, so it cannot be seen in a material at all.
 ## `GemView.restyle()` covers all three, and is what the lab calls.
@@ -79,16 +79,42 @@ const KNOBS := [
 		"low": 0.0, "high": 2.0, "step": 0.02, "value": 0.42,
 		"hint": "How much a clean stone glows from inside. Past the glow threshold this blooms."},
 
+	# --- what is frozen inside the stone ------------------------------------------
+	{"key": "flaw_size", "group": "INSIDE", "label": "Inclusion size",
+		"low": 0.1, "high": 3.0, "step": 0.02, "value": 1.00,
+		"hint": "How large each thing frozen in the stone is cut. Re-cuts the stone."},
+	{"key": "flaw_alpha", "group": "INSIDE", "label": "Inclusion strength",
+		"low": 0.0, "high": 1.0, "step": 0.01, "value": 1.00,
+		"hint": "How solidly an inclusion reads through the crystal over it. Zero empties the stone. Re-cuts the stone."},
+	{"key": "flaw_facet", "group": "INSIDE", "label": "Surface smudge",
+		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.34,
+		"hint": "How far a facet darkens where a flaw reaches it. This was once the whole of what an inclusion looked like. Re-cuts the stone."},
+	{"key": "rind_alpha", "group": "INSIDE", "label": "Second color",
+		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.88,
+		"hint": "How solidly the second half of a two-colored stone reads through the crystal over it. Zero leaves the stone one color. Re-cuts the stone."},
+	{"key": "seam_width", "group": "INSIDE", "label": "Seam width",
+		"low": 0.01, "high": 0.6, "step": 0.005, "value": 0.115,
+		"hint": "How broad each vein of an opal Seam is cut. Re-cuts the stone."},
+	{"key": "seam_fire", "group": "INSIDE", "label": "Seam fire bias",
+		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.72,
+		"hint": "How far a Seam pulls the opal play-of-color towards the color it replays. Zero is the white-light spectrum an ordinary opal returns, and washes all six Seams to one pastel."},
+	{"key": "seam_room", "group": "INSIDE", "label": "Seam room",
+		"low": 0.1, "high": 1.0, "step": 0.01, "value": 0.45,
+		"hint": "How much of an ordinary opal's play-of-color a Seam keeps. One drowns the vein under the additive pass; low leaves the stone room to show what runs through it."},
+	{"key": "seam_alpha", "group": "INSIDE", "label": "Seam strength",
+		"low": 0.0, "high": 1.0, "step": 0.01, "value": 1.00,
+		"hint": "How strongly a Seam's color shows through the milky body it runs in. Re-cuts the stone."},
+
 	# --- fire: the rainbow a cut stone throws out of white light ------------------
 	{"key": "fire", "group": "FIRE", "label": "Fire",
 		"low": 0.0, "high": 3.0, "step": 0.02, "value": 0.86,
-		"hint": "How strongly facets throw spectral colour. Scaled by Clarity, so a Fractured stone throws none."},
-	{"key": "fire_bands", "group": "FIRE", "label": "Colour cycles",
+		"hint": "How strongly facets throw spectral color. Scaled by Clarity, so a Fractured stone throws none."},
+	{"key": "fire_bands", "group": "FIRE", "label": "color cycles",
 		"low": 0.2, "high": 12.0, "step": 0.1, "value": 1.10,
 		"hint": "How many times the spectrum repeats across the stone. Low is two or three broad washes, high is a fine rainbow scatter."},
 	{"key": "fire_spread", "group": "FIRE", "label": "Spread",
 		"low": 0.2, "high": 4.0, "step": 0.02, "value": 1.56,
-		"hint": "How fast the colour changes from one facet to the next, and so how far it sweeps when the stone turns."},
+		"hint": "How fast the color changes from one facet to the next, and so how far it sweeps when the stone turns."},
 	{"key": "fire_reach", "group": "FIRE", "label": "Reach",
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.02,
 		"hint": "Zero keeps the fire at the rim, where facets are steepest. One spreads it across the whole face."},
@@ -97,10 +123,10 @@ const KNOBS := [
 		"hint": "How abruptly the fire fades from the steep facets to the flat ones."},
 	{"key": "fire_tint", "group": "FIRE", "label": "Body tint",
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.21,
-		"hint": "Zero throws a pure white-light spectrum, like a diamond. One pulls it right back into the gem's own colour."},
+		"hint": "Zero throws a pure white-light spectrum, like a diamond. One pulls it right back into the gem's own color."},
 	{"key": "facet_hue", "group": "FIRE", "label": "Facet hue spread",
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.60,
-		"hint": "Splits the body colour slightly differently on each facet, baked into the solid. This is the half of the prism that stays put when the stone does. Re-cuts the stone."},
+		"hint": "Splits the body color slightly differently on each facet, baked into the solid. This is the half of the prism that stays put when the stone does. Re-cuts the stone."},
 
 	# --- the emblem cut into the table --------------------------------------------
 	{"key": "etch_inset", "group": "ETCH", "label": "Etch inset",
@@ -133,7 +159,7 @@ const KNOBS := [
 	# --- the room the stone is standing in ----------------------------------------
 	{"key": "exposure", "group": "LIGHT", "label": "Exposure",
 		"low": 0.2, "high": 2.0, "step": 0.01, "value": 0.76,
-		"hint": "Under ACES this runs hot fast: past 1.0 the body colour bleaches out."},
+		"hint": "Under ACES this runs hot fast: past 1.0 the body color bleaches out."},
 	{"key": "ambient", "group": "LIGHT", "label": "Ambient",
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.16,
 		"hint": "Sky light filling the facets that face away. Too much flattens the cut."},

@@ -1,7 +1,7 @@
 extends Control
 ## The mines as a cross-section of the earth under the workshop.
 ##
-## Sky and the workshop on the surface; bands of strata below, coloured by the biome each
+## Sky and the workshop on the surface; bands of strata below, colored by the biome each
 ## depth is; and each mine as a shaft cut straight down from the workshop floor. A shaft is
 ## lit as far as the player has ever been, marked with its landings and its Wardens (a
 ## crown, gold once beaten), and runs on into the dark below the third Warden. Sealed mines
@@ -113,8 +113,8 @@ func _draw_earth() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
 	for i in range(40):
-		_twinkles.append({"at": Vector2(rng.randf() * size.x, rng.randf() * surface_y * 0.8), "r": rng.randf_range(0.6, 1.6), "colour": Color(1, 1, 1, 0.5), "rate": rng.randf_range(0.5, 2.0), "phase": float(i)})
-	## Strata: one band per biome, the colour of its rock.
+		_twinkles.append({"at": Vector2(rng.randf() * size.x, rng.randf() * surface_y * 0.8), "r": rng.randf_range(0.6, 1.6), "color": Color(1, 1, 1, 0.5), "rate": rng.randf_range(0.5, 2.0), "phase": float(i)})
+	## Strata: one band per biome, the color of its rock.
 	var mine_key: String = str(mines[0]) if not mines.is_empty() else DeepContent.starter_mine()
 	var d: int = 1
 	while d <= span:
@@ -135,7 +135,7 @@ func _draw_earth() -> void:
 		for i in range(10):
 			canvas.draw_circle(Vector2(rng.randf() * size.x, rng.randf_range(top + 4.0, bottom - 4.0)), rng.randf_range(1.5, 4.0), Color(biome.rock).darkened(0.1))
 		for i in range(3):
-			_twinkles.append({"at": Vector2(rng.randf() * size.x, rng.randf_range(top + 4.0, bottom - 4.0)), "r": 1.8, "colour": Color(biome.accent, 0.9), "rate": 1.5, "phase": float(i + d)})
+			_twinkles.append({"at": Vector2(rng.randf() * size.x, rng.randf_range(top + 4.0, bottom - 4.0)), "r": 1.8, "color": Color(biome.accent, 0.9), "rate": 1.5, "phase": float(i + d)})
 		canvas.draw_string(DeepUi.display_font(), Vector2(size.x - 190, (top + bottom) * 0.5 + 5), str(biome.name).to_upper(), HORIZONTAL_ALIGNMENT_RIGHT, 176, 11, Color(biome.accent, 0.55))
 		d = end + 1
 	## The ground line and the workshop on it.
@@ -198,7 +198,7 @@ func _draw() -> void:
 	## Only what moves.
 	for spot in _twinkles:
 		var pulse: float = 0.45 + 0.55 * absf(sin(_clock * float(spot.rate) + float(spot.phase)))
-		draw_circle(spot.at, float(spot.r), Color(spot.colour, Color(spot.colour).a * pulse))
+		draw_circle(spot.at, float(spot.r), Color(spot.color, Color(spot.color).a * pulse))
 	var glow: Texture2D = DeepUi.glow_texture()
 	var home := _home
 	var window_glow: float = 0.75 + 0.25 * sin(_clock * 2.7) * sin(_clock * 1.3)

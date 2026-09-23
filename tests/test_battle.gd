@@ -12,6 +12,7 @@ func _init() -> void:
 	_test_birthstones()
 	_test_passives()
 	_test_hand_mutation_and_retriggers()
+	_test_opals()
 	_test_creatures_and_statuses()
 	_test_forecast_matches()
 	_test_patch_stream()
@@ -140,7 +141,7 @@ func _test_resolution_flow() -> void:
 	check(seen.has("enemy_move") or seen.has("battle_over"), "the creature acts or the fight ends")
 	check(seen[seen.size() - 1] in ["turn_begin", "battle_over"], "a turn ends by beginning the next or ending the fight: %s" % seen[seen.size() - 1])
 	var strike: Dictionary = fires(events)[0]
-	check(strike.skill == "STRIKE" and damage_dealt(strike) == int(floor(15 * 1.75)), "Perfect Strike at carat 3 hits for 15 × 1.75 = 26 (%d)" % damage_dealt(strike))
+	check(strike.skill == "STRIKE" and damage_dealt(strike) == int(floor(18 * 1.5)), "Perfect Strike reads four dice, so carat 3 hits for 18 × 1.5 = 27 (%d)" % damage_dealt(strike))
 	check(strike.effects[0].target == "e0" and strike.effects[0].has("hp_after"), "damage names its target and the HP after")
 	var guard: Dictionary = fires(events)[1]
 	check(guard.skill == "GUARD" and guard.effects[0].kind == "block" and int(guard.effects[0].block_after) > 0, "Guard raises block")
@@ -157,7 +158,7 @@ func _test_resonance_and_birthstone() -> void:
 	var fired: Array = fires(events)
 	check(fired.size() == 4, "every gem fires on two pairs")
 	check(int(fired[0].resonance) == 1 and not bool(fired[0].harmony), "Cleave opens at 1")
-	check(int(fired[1].resonance) == 3 and bool(fired[1].harmony), "Strike after Cleave: same colour, harmony, 3 (%d)" % int(fired[1].resonance))
+	check(int(fired[1].resonance) == 3 and bool(fired[1].harmony), "Strike after Cleave: same color, harmony, 3 (%d)" % int(fired[1].resonance))
 	check(int(fired[2].resonance) == 4 and not bool(fired[2].harmony), "Tithe is Gold after Red: 4")
 	check(int(fired[3].resonance) == 5, "Guard closes the rail at 5")
 	var seen: Array = kinds(events)
@@ -313,7 +314,7 @@ func _test_hand_mutation_and_retriggers() -> void:
 	var events: Array = run_turn(state, r)
 	var fired: Array = fires(events)
 	check(fired.size() == 2, "Glimmer raises the 1 to a 2 and Cleave finds its pair: %s" % str(kinds(events)))
-	check(fired[0].effects[0].kind == "raise_low" and fired[1].trigger_value_or(2) == 2 if false else int(fired[1].effects[0].amount) == int(floor(4 * 1.25)), "Cleave reads the pair of twos: 4 × 1.25 = 5 (%d)" % int(fired[1].effects[0].amount))
+	check(fired[0].effects[0].kind == "raise_low" and fired[1].trigger_value_or(2) == 2 if false else int(fired[1].effects[0].amount) == int(floor(4 * 1.0)), "Cleave reads the pair of twos: 4 × 1 = 4 (%d)" % int(fired[1].effects[0].amount))
 	## Echo repeats the previous gem at half strength.
 	var r2: Dictionary = rngs(32)
 	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 3), stone("ECHO")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
@@ -331,13 +332,86 @@ func _test_hand_mutation_and_retriggers() -> void:
 	var fired3: Array = fires(events3)
 	check(fired3.size() == 3, "Refract, then Crush twice: %s" % str(fired3.map(func(e: Dictionary) -> String: return str(e.skill))))
 	check(fired3[0].effects[0].kind == "phantom_high" and fired3[0].effects[0].hand.size() == 6, "a phantom six joins the hand")
-	check(fired3[1].skill == "CRUSH" and int(fired3[1].effects[0].amount) == int(floor(18 * 1.25)), "the phantom makes a triple of sixes for Crush")
+	check(fired3[1].skill == "CRUSH" and int(fired3[1].effects[0].amount) == int(floor(18 * 1.0)), "the phantom makes a triple of sixes for Crush")
 	## Facet passes a Cut step, Double Down can empty the next gem.
 	var r4: Dictionary = rngs(34)
 	var state4: Dictionary = DeepBattle.begin([player("a", [stone("FACET"), stone("CLEAVE", 1, 0)])], ["QUARTZ_GOLEM"], {"depth": 1}, r4.dice, r4.creatures)
 	hand(DeepBattle.player(state4, "a"), [4, 4, 1, 2, 6])
 	var fired4: Array = fires(run_turn(state4, r4))
 	check(fired4.size() == 2 and int(fired4[1].cut_step) == 1, "Facet lifts Poor Cleave to Fair so a pair of fours fires")
+
+func at_socket(events: Array, socket: int) -> Array:
+	return events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fire" and int(e.get("socket", -1)) == socket)
+
+func _test_opals() -> void:
+	## The five opals. Each is checked for the thing only it does, and the pair of
+	## Seams at the end for the thing none of them may do: repeat another opal.
+	var r: Dictionary = rngs(9)
+
+	## A Seam plays back one color and leaves the rest of the rail alone.
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("GUARD", 4, 4, 3, [], "g1"),
+		stone("MEND", 1, 4, 3, [], "m1"), stone("SEAM_RED", 1, 4, 3, [], "h1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	var events: Array = run_turn(state, r)
+	check(at_socket(events, 0).size() == 2, "a Red Seam plays the Red gem that fired a second time")
+	check(at_socket(events, 1).size() == 1 and at_socket(events, 2).size() == 1, "and leaves the Blue and the Green where they are")
+	check(bool(at_socket(events, 0)[1].get("retrigger", false)), "the second go is marked a repeat")
+
+	## A Fire Opal grows the whole rail, and the heat outlasts the turn.
+	state = DeepBattle.begin([player("a", [stone("FIRE_OPAL", 1, 4, 3, [], "f1"), stone("STRIKE", 4, 4, 3, [], "s1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(int(state.players[0].rank_buff.carat) == 2, "a Perfect Fire Opal puts two carats on the rail")
+	check(int(at_socket(events, 1)[0].carat) == 6, "the gem after it fires as a 6-carat stone, not a 4")
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(int(state.players[0].rank_buff.carat) == 4 and int(at_socket(events, 1)[0].carat) == 8,
+		"and the heat is still on the rail next turn")
+
+	## A Doublet wears the gem after it, at its own weight.
+	state = DeepBattle.begin([player("a", [stone("DOUBLET", 10, 4, 3, [], "d1"), stone("STRIKE", 1, 4, 3, [], "s1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(str(at_socket(events, 0)[0].skill) == "STRIKE" and str(at_socket(events, 0)[0].worn) == "s1",
+		"a Doublet fires as the gem it wears")
+	check(int(at_socket(events, 0)[0].carat) == 10 and damage_dealt(at_socket(events, 0)[0]) > damage_dealt(at_socket(events, 1)[0]),
+		"and wears it at its own weight, so the heavy slice hits harder than the gem itself")
+
+	## A Matrix wakes what stayed dark.
+	state = DeepBattle.begin([player("a", [stone("CRUSH", 4, 4, 3, [], "c1"), stone("MATRIX", 1, 4, 3, [], "x1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 2, 3, 4, 6])
+	events = run_turn(state, r)
+	var dark: Array = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fizzle" and int(e.get("socket", -1)) == 0)
+	check(dark.size() == 1 and at_socket(events, 0).size() == 1, "a Crush with no triple stays dark, and a Matrix fires it anyway")
+	check(bool(at_socket(events, 0)[0].get("forced", false)), "a woken gem knows the hand never asked for it")
+
+	## A Prelude hands the next gem a second go — and in the last socket, the Birthstone.
+	state = DeepBattle.begin([player("a", [stone("PRELUDE", 1, 2, 3, [], "p1"), stone("STRIKE", 4, 4, 3, [], "s1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 2, 3, 4, 6])
+	events = run_turn(state, r)
+	check(at_socket(events, 1).size() == 2, "a Prelude gives the gem after it a second go")
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("PRELUDE", 1, 2, 3, [], "p1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [1, 2, 3, 4, 6])
+	events = run_turn(state, r)
+	check(birthstones(events, "a").size() == 2, "last in the rail, what goes again is the Birthstone")
+
+	## No opal ever repeats another one, whatever colors they answer to.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("GUARD", 4, 4, 3, [], "g1"),
+		stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("SEAM_BLUE", 1, 4, 3, [], "h2")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	var blue: Array = at_socket(events, 3)
+	check(blue.size() == 1 and str(blue[0].effects[0].sockets) == "[1]",
+		"a Blue Seam plays the Blue gem and steps over the Red Seam, which counts as every color")
+	check(at_socket(events, 0).size() == 2 and at_socket(events, 1).size() == 2 and at_socket(events, 2).size() == 1,
+		"each gem was played once more and no opal was played twice")
 
 func _test_creatures_and_statuses() -> void:
 	var r: Dictionary = rngs(41)
@@ -379,7 +453,7 @@ func _test_creatures_and_statuses() -> void:
 	check(seen2.has("skip") and not seen2.has("enemy_move"), "a stunned golem skips its move: %s" % str(seen2))
 	check(seen2.has("tick"), "poison ticked")
 	var tick: Dictionary = events2.filter(func(e: Dictionary) -> bool: return str(e.kind) == "tick")[0]
-	check(int(tick.ticks[0].amount) == int(floor(6 * 2.0)) and int(golem.statuses.poison) == int(floor(6 * 2.0)) - 1, "poison hurts for its stacks and loses one (%s)" % str(tick.ticks[0]))
+	check(int(tick.ticks[0].amount) == int(floor(6 * 1.75)) and int(golem.statuses.poison) == int(floor(6 * 1.75)) - 1, "poison hurts for its stacks and loses one (%s)" % str(tick.ticks[0]))
 	## Party wipe and victory are both endings.
 	var r3: Dictionary = rngs(43)
 	var state3: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 20)])], ["LANTERN_MOTH"], {"depth": 1}, r3.dice, r3.creatures)

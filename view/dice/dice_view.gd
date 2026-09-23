@@ -1,7 +1,7 @@
 extends Control
 ## A single physical die rendered as real 3D geometry inside its own SubViewport.
 ##
-## Face colours and numerals come from the die's face data, so engraved and
+## Face colors and numerals come from the die's face data, so engraved and
 ## alternative-distribution dice show their true faces. Rolling spins the solid and
 ## settles it with the rolled physical face turned toward the camera; the animation is
 ## presentation only and never chooses the result.

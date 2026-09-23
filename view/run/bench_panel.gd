@@ -1,10 +1,11 @@
 extends Control
 ## The bench: everything a player carries, laid out to be rearranged. Two tabs: the gems (the
-## rail on top, the haul below) and the dice (the tray on top, the bag below). Drag a stone
-## onto a socket to set it, or a set stone back into the haul to take it out; drag a die onto
-## a slot to swap it in. Or click anything to put it under the lamp on the right and use the
+## rail on top, the haul below) and the five dice. Drag a stone onto a socket to set it, or a
+## set stone back into the haul to take it out; drag a die onto another slot to change their
+## places. Or click anything to put it under the lamp on the right and use the
 ## buttons there. The bench opens from the strip at any time; while a fight is on it only
-## shows, and nothing moves.
+## shows, and nothing moves. It never scrolls: a haul too big for the tray is turned a page
+## at a time.
 
 const StoneCard = preload("res://view/gems/stone_card.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
@@ -16,6 +17,9 @@ const Inspector = preload("res://view/inspect/inspector.gd")
 signal command(cmd: Dictionary)
 signal closed
 
+## Three rows of the haul tray.
+const HAUL_PAGE: int = 24
+
 var local_id: String = ""
 var run: Dictionary = {}
 var tab: String = "gems"
@@ -25,6 +29,7 @@ var _panel: PanelContainer
 var _content: VBoxContainer
 ## Every drop target on the page, so a drag can light the ones that would take it.
 var _targets: Array = []
+var _haul_page: int = 0
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -126,8 +131,8 @@ func _render() -> void:
 	gems.tooltip_text = "Your rail and the stones in your haul"
 	var dice := DeepUi.tab_button(head, "die", "Dice", tab == "dice", func() -> void:
 		tab = "dice"
-		_render(), 15, unit.get("bag_dice", []).size())
-	dice.tooltip_text = "Your five dice and the ones in your bag"
+		_render(), 15)
+	dice.tooltip_text = "Your five dice"
 	DeepUi.spacer(head)
 	DeepUi.icon_button(head, "cross_out", "Close", close, 14, DeepUi.MUTED).tooltip_text = "Close the bench (Esc)"
 	var note: String = ""
@@ -136,15 +141,11 @@ func _render() -> void:
 	elif tab == "gems":
 		note = "Drag a stone onto a socket to set it, or drag a set stone into the haul to take it out. Click any stone to look at it."
 	else:
-		note = "Drag a die onto a slot to swap it in. Click any die to look at it."
+		note = "Drag a die onto another slot to change their places. Dice are made bigger, smaller or recut at a smithy or a carver, never swapped. Click any die to look at it."
 	DeepUi.label(_content, note, 13, DeepUi.MUTED if editable() else DeepUi.BAD.lightened(0.2))
 	DeepUi.rule(_content)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_content.add_child(scroll)
-	var columns := DeepUi.hbox(scroll, 20)
-	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var columns := DeepUi.hbox(_content, 20)
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var left := DeepUi.vbox(columns, 14)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var side := DeepUi.vbox(columns, 10)
@@ -175,8 +176,17 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 	DeepUi.section(haul_head, "bag", "Your haul (%d)" % haul.size())
 	if raw > 0:
 		DeepUi.label(haul_head, "%s raw: appraise at a merchant or a landing before setting" % DeepUi.plural(raw, "stone"), 12, DeepUi.DIM)
+	var pages: int = DeepUi.pages(haul.size(), HAUL_PAGE)
+	_haul_page = clampi(_haul_page, 0, pages - 1)
+	if pages > 1:
+		DeepUi.spacer(haul_head)
+		DeepUi.pager(haul_head, _haul_page, pages, func(to: int) -> void:
+			_haul_page = to
+			DeepAudio.play("ui_tap", {"volume": 0.6})
+			_render())
 	var tray := DeepUi.card(parent, DeepUi.LINE, 12, Color(0.03, 0.035, 0.05, 0.7))
 	tray.custom_minimum_size.y = 190
+	tray.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	tray.tooltip_text = "Drop a set stone here to take it out of its socket"
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 10)
@@ -188,15 +198,15 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 			_send({"kind": "unsocket", "index": int(data.from_socket)}, "ui_back"))
 	if haul.is_empty():
 		DeepUi.label(flow, "Nothing loose. Stones you find wait here until they are set or taken home.", 13, DeepUi.DIM)
-	for stone in haul:
+	for stone in DeepUi.page_of(haul, _haul_page, HAUL_PAGE):
 		_haul_tile(flow, stone)
 
 func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 	var sockets: Array = unit.get("sockets", [])
-	var socket_colour: String = str(sockets[index]) if index < sockets.size() else "ANY"
+	var socket_color: String = str(sockets[index]) if index < sockets.size() else "ANY"
 	var stone: Variant = unit.rail[index]
 	var set_here: bool = stone is Dictionary
-	var tone: Color = DeepUi.colour(socket_colour) if socket_colour != "ANY" else DeepUi.LINE_HI
+	var tone: Color = DeepUi.color(socket_color) if socket_color != "ANY" else DeepUi.LINE_HI
 	var picked: bool = set_here and str(stone.id) == _pick
 	var card := DeepUi.card(parent, DeepUi.ACCENT if picked else Color(tone, 0.5), 10, Color(0.05, 0.06, 0.085, 0.92))
 	card.custom_minimum_size = Vector2(132, 0)
@@ -208,7 +218,7 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 	slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(slot)
-	var ring := BattleScreen.SocketRing.new(socket_colour, not set_here)
+	var ring := BattleScreen.SocketRing.new(socket_color, not set_here)
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(ring)
 	var data: Dictionary = {}
@@ -226,7 +236,7 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 			data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": index}
 		card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	else:
-		DeepUi.label(box, "Any colour" if socket_colour == "ANY" else str(DeepContent.colour(socket_colour).get("name", socket_colour)), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(box, "Any color" if socket_color == "ANY" else str(DeepContent.color(socket_color).get("name", socket_color)), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	var socket_index: int = index
 	_wire(card, data, func() -> Control: return Thumbs.GemThumb.new(stone, 64) if set_here else Control.new(),
 		func(incoming: Dictionary) -> bool:
@@ -251,7 +261,7 @@ func _haul_tile(parent: Node, stone: Dictionary) -> void:
 	if not appraised:
 		tile.modulate = Color(1, 1, 1, 0.75)
 		tile.tooltip_text = "Raw: appraise it at a merchant or a landing before it can be set."
-	var data: Dictionary = {"kind": "stone", "stone_id": id, "from_socket": -1} if appraised and editable() else {}
+	var data: Dictionary = {"kind": "stone", "stone_id": id, "from_socket": - 1} if appraised and editable() else {}
 	_wire(tile, data, func() -> Control: return Thumbs.GemThumb.new(stone, 64), Callable(), Callable())
 	_clickable(tile, id)
 
@@ -265,18 +275,6 @@ func _dice_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 	parent.add_child(tray_row)
 	for index in range(unit.get("dice", []).size()):
 		_slot_card(tray_row, unit, index)
-	var bag: Array = unit.get("bag_dice", [])
-	DeepUi.section(parent, "bag", "Your bag (%d)" % bag.size())
-	var tray := DeepUi.card(parent, DeepUi.LINE, 12, Color(0.03, 0.035, 0.05, 0.7))
-	tray.custom_minimum_size.y = 160
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 10)
-	flow.add_theme_constant_override("v_separation", 10)
-	tray.add_child(flow)
-	if bag.is_empty():
-		DeepUi.label(flow, "No spare dice. Dice from veins, merchants and oddities wait here.", 13, DeepUi.DIM)
-	for die in bag:
-		_bag_tile(flow, die)
 
 func _slot_card(parent: Node, unit: Dictionary, index: int) -> void:
 	var die: Dictionary = unit.dice[index]
@@ -300,26 +298,6 @@ func _slot_card(parent: Node, unit: Dictionary, index: int) -> void:
 		func(incoming: Dictionary) -> void:
 			_send({"kind": "swap_die", "index": slot_index, "die_id": str(incoming.die_id)}, "die_settle"))
 	_clickable(card, id)
-
-func _bag_tile(parent: Node, die: Dictionary) -> void:
-	var id: String = str(die.get("id", ""))
-	var tile := DeepUi.card(parent, DeepUi.ACCENT if id == _pick else Color(DiceIcons.palette(str(die.get("key", "D6"))).body, 0.45), 8, Color(DeepUi.SLATE, 0.9))
-	tile.mouse_filter = Control.MOUSE_FILTER_PASS
-	tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var box := DeepUi.vbox(tile, 4)
-	var thumb := Thumbs.DieThumb.new(die, 56)
-	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(thumb)
-	var caption := DeepUi.label(box, DeepDice.describe(die), 12, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-	caption.custom_minimum_size.x = 84
-	caption.clip_text = true
-	var data: Dictionary = {"kind": "die", "die_id": id, "from_slot": -1} if editable() else {}
-	_wire(tile, data, func() -> Control: return Thumbs.DieThumb.new(die, 60),
-		func(incoming: Dictionary) -> bool:
-			return editable() and str(incoming.get("kind", "")) == "die" and int(incoming.get("from_slot", -1)) >= 0,
-		func(incoming: Dictionary) -> void:
-			_send({"kind": "swap_die", "index": int(incoming.from_slot), "die_id": id}, "die_settle"))
-	_clickable(tile, id)
 
 static func faces_row(parent: Node, die: Dictionary, edge: float) -> HBoxContainer:
 	var row := DeepUi.hbox(parent, 2)
@@ -351,7 +329,8 @@ func _stone_lamp(box: VBoxContainer, unit: Dictionary, stone: Dictionary) -> voi
 	for i in range(unit.rail.size()):
 		if unit.rail[i] is Dictionary and str(unit.rail[i].id) == id:
 			socket = i
-	StoneCard.build(box, stone, {"size": 84, "text_width": 290, "value": true})
+	## Stood up, picture over words, so the card keeps to the lamp's column.
+	StoneCard.build(box, stone, {"size": 84, "text_width": 270, "value": true, "vertical": true})
 	if not editable():
 		return
 	if not bool(stone.get("appraised", false)):
@@ -370,8 +349,8 @@ func _stone_lamp(box: VBoxContainer, unit: Dictionary, stone: Dictionary) -> voi
 			var refusal: String = DeepDescent.socket_refusal(unit, stone, index)
 			if refusal.is_empty():
 				var target: int = index
-				var colour: String = str(unit.sockets[index])
-				var tint: Color = DeepUi.colour(colour) if colour != "ANY" else DeepUi.PAPER
+				var color: String = str(unit.sockets[index])
+				var tint: Color = DeepUi.color(color) if color != "ANY" else DeepUi.PAPER
 				DeepUi.icon_button(fits, "gem", "Socket %d" % (index + 1), func() -> void: _send({"kind": "socket", "stone_id": id, "index": target}, "dice_lock"), 12, tint)
 			else:
 				reasons[refusal] = true
@@ -398,22 +377,9 @@ func _die_lamp(box: VBoxContainer, unit: Dictionary, die: Dictionary) -> void:
 				DeepUi.stat(box, "spark", "%s: %s" % [str(entry.get("name", engraving)), str(entry.get("text", ""))], DeepUi.INFO, 12)
 	if not editable():
 		return
-	var slot: int = -1
 	for i in range(unit.dice.size()):
 		if str(unit.dice[i].id) == id:
-			slot = i
-	if slot >= 0:
-		DeepUi.stat(box, "check", "Rolling in slot %d" % (slot + 1), DeepUi.GOOD, 13)
-		return
-	DeepUi.label(box, "Swap it in for", 12, DeepUi.MUTED)
-	var row := HFlowContainer.new()
-	row.add_theme_constant_override("h_separation", 6)
-	row.add_theme_constant_override("v_separation", 6)
-	box.add_child(row)
-	for i in range(unit.dice.size()):
-		var target: int = i
-		DeepUi.icon_button(row, "die", DeepDice.describe(unit.dice[i]), func() -> void: _send({"kind": "swap_die", "index": target, "die_id": id}, "die_settle"), 12, DeepUi.INFO).tooltip_text = "Slot %d goes into the bag" % (i + 1)
-	_give_buttons(box, id)
+			DeepUi.stat(box, "check", "Rolling in slot %d" % (i + 1), DeepUi.GOOD, 13)
 
 func _give_buttons(box: VBoxContainer, item_id: String) -> void:
 	for other in run.get("players", []):
@@ -444,7 +410,7 @@ func _wire(control: Control, data: Dictionary, preview: Callable, accepts: Calla
 		drag_func = func(_at: Vector2) -> Variant:
 			var shown: Control = preview.call()
 			shown.modulate = Color(1, 1, 1, 0.85)
-			control.set_drag_preview(shown)
+			control.set_drag_preview(DeepUi.held(shown))
 			DeepAudio.play("die_pick", {"gap": 0.0, "volume": 0.7})
 			return data
 	var can_func: Callable = Callable()

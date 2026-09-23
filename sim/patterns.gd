@@ -7,7 +7,8 @@ extends RefCounted
 ## totals and high dice are percentages of the hand's own maximum, so a d20 bowl and a d4
 ## bowl are judged against themselves.
 ##
-##   always              fires on every hand; the rung says how many dice it reads (read: high|low)
+##   always              fires on every hand; the rung says how many dice it reads. `read` is
+##                       high or low, or a five-entry ladder so a Poor cut reads the wrong end
 ##   pair/triple/quad/quint   a set of that size; the rung is the lowest value that counts
 ##   two_pair            two sets of two or more with distinct values at or above the rung
 ##   full_house          a set of three and a set of two, the triple at or above the rung
@@ -42,12 +43,31 @@ static func rung(trigger: Dictionary, cut_step: int) -> int:
 		return int(trigger.get("amount", 0))
 	return int(ladder[clampi(cut_step, 0, ladder.size() - 1)])
 
+static func read_side(trigger: Dictionary, cut_step: int) -> String:
+	## Which end of the hand an `always` trigger reads. A plain "high" or "low" reads the
+	## same at every Cut; a five-entry ladder lets a badly cut stone read the wrong end,
+	## so a Poor Strike squints at your worst die while a Perfect one takes your best.
+	var read: Variant = trigger.get("read", "high")
+	if read is Array and not read.is_empty():
+		return str(read[clampi(cut_step, 0, read.size() - 1)])
+	return str(read)
+
+static func unconditional(kind: String, need: int) -> bool:
+	## True when a rung is so low that the trigger asks nothing of the hand. The loosest
+	## rung of a gate is how a Perfect stone earns its "fires on every hand".
+	match kind:
+		"always": return true
+		"high_pct_at_least", "total_pct_at_least", "low_count", "held", "rerolled", "crowns", "resonance": return need <= 0
+		"distinct": return need <= 1
+		"total_pct_at_most": return need >= 100
+	return false
+
 static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context: Dictionary = {}) -> Dictionary:
 	var kind: String = str(trigger.get("kind", "always"))
 	var need: int = rung(trigger, cut_step)
 	var result: Dictionary = {"active": false, "dice": [], "kind": kind, "need": need, "value": 0, "count": 0}
 	if kind == "always":
-		var picked: Dictionary = DeepHand.read(a, maxi(1, need), str(trigger.get("read", "high")) != "low")
+		var picked: Dictionary = DeepHand.read(a, maxi(1, need), read_side(trigger, cut_step) != "low")
 		result.active = true
 		result.dice = picked.dice
 		result.value = picked.sum
@@ -228,9 +248,12 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 	var need: int = rung(trigger, cut_step)
 	var mark: String = kind
 	var label: String = ""
+	if kind != "always" and unconditional(kind, need):
+		## A rung this loose is no rung at all: the stone is drawn as one that always fires.
+		return {"mark": "read_high", "kind": kind, "need": need, "label": "", "words": words(trigger, cut_step)}
 	match kind:
 		"always":
-			mark = "read_high" if str(trigger.get("read", "high")) != "low" else "read_low"
+			mark = "read_high" if read_side(trigger, cut_step) != "low" else "read_low"
 			label = "×%d" % maxi(1, need) if need > 1 else ""
 		"pair", "triple", "quad", "quint", "full_house":
 			label = "%d+" % need if need > 1 else ""
@@ -260,10 +283,12 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 static func words(trigger: Dictionary, cut_step: int) -> String:
 	var kind: String = str(trigger.get("kind", "always"))
 	var need: int = rung(trigger, cut_step)
+	if kind != "always" and unconditional(kind, need):
+		return "Fires on every hand."
 	match kind:
 		"always":
 			var count: int = maxi(1, need)
-			var side: String = "lowest" if str(trigger.get("read", "high")) == "low" else "highest"
+			var side: String = "lowest" if read_side(trigger, cut_step) == "low" else "highest"
 			return "Fires on every hand and reads your %s die." % side if count == 1 else "Fires on every hand and reads your %s %d dice." % [side, count]
 		"pair": return "A pair" + _of_at_least(need) + "."
 		"triple": return "Three of a kind" + _of_at_least(need) + "."
@@ -272,9 +297,9 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"two_pair": return "Two pairs" + _of_at_least(need) + "."
 		"full_house": return "A full house: three of one value and two of another" + (", the three %d or higher" % need if need > 1 else "") + "."
 		"straight": return "A straight of %d: %d consecutive values in any order." % [need, need]
-		"odd": return "At least %d dice showing odd values." % need
-		"even": return "At least %d dice showing even values." % need
-		"distinct": return "At least %d dice with no two alike." % need
+		"odd": return "At least %s showing odd values." % _dice(need)
+		"even": return "At least %s showing even values." % _dice(need)
+		"distinct": return "At least %s with no two alike." % _dice(need)
 		"value":
 			var wanted: Array = trigger.get("values", [7])
 			var names: String = " or ".join(wanted.map(func(v: Variant) -> String: return str(int(v))))
@@ -284,15 +309,18 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"total_pct_at_least": return "Your total is at least %d%% of the most your dice could roll." % need
 		"total_pct_at_most": return "Your total is at most %d%% of the most your dice could roll." % need
 		"high_pct_at_least": return "One die shows at least %d%% of its own top face." % need
-		"held": return "At least %d dice you did not reroll." % need
-		"rerolled": return "At least %d dice you rerolled this turn." % need
+		"held": return "At least %s you did not reroll." % _dice(need)
+		"rerolled": return "At least %s you rerolled this turn." % _dice(need)
 		"resonance": return "Resonance of %d or more when this gem is reached." % need
-		"low_count": return "At least %d dice at or below half their own top face." % need
+		"low_count": return "At least %s at or below half its own top face." % _dice(need) if need == 1 else "At least %s at or below half their own top face." % _dice(need)
 		"crowns": return "At least %d %s showing %s own top face." % [need, "die" if need == 1 else "dice", "its" if need == 1 else "their"]
 		"crowns_at_most": return "No die on its top face." if need == 0 else "No more than %d dice on their top face." % need
 		"skip_straight": return "%d different values, all odd or all even, like 2-4-6-8-10." % need
 		"distinct_dominant": return "%d different values, the highest die outrolling the other %d combined." % [need, need - 1]
 	return "Its trigger."
+
+static func _dice(need: int) -> String:
+	return "%d %s" % [need, "die" if need == 1 else "dice"]
 
 static func _of_at_least(need: int) -> String:
 	return " of %ds or higher" % need if need > 1 else ""
@@ -319,6 +347,15 @@ static func validate(trigger: Variant) -> Array:
 		var wanted: Variant = trigger.get("values", null)
 		if not wanted is Array or wanted.is_empty():
 			errors.append("a value trigger needs a non-empty values list")
-	if trigger.has("read") and not str(trigger.read) in ["high", "low"]:
-		errors.append("trigger read must be high or low")
+	if trigger.has("read"):
+		var read: Variant = trigger.read
+		if read is Array:
+			if read.size() != STEPS:
+				errors.append("a trigger read ladder lists exactly %d sides, Poor to Perfect" % STEPS)
+			for side in read:
+				if not str(side) in ["high", "low"]:
+					errors.append("trigger read must be high or low")
+					break
+		elif not str(read) in ["high", "low"]:
+			errors.append("trigger read must be high or low")
 	return errors

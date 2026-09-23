@@ -19,6 +19,7 @@ extends Control
 ## opaque rectangle, so its ground has to match what surrounds it.
 
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const GemRock = preload("res://view/gems/gem_rock.gd")
 const Tuning = preload("res://view/gems/gem_tuning.gd")
 
 ## Face-on, tipped just enough to catch the crown and a sliver of the pavilion.
@@ -31,18 +32,24 @@ const HALO_DEPTH := -1.6
 const TURN_PER_PIXEL := 0.011
 const SETTLE := 7.0
 ## Four lights from four quarters, so a turning stone always has facets catching one and
-## facets in shadow. Two was enough for a die and far too few for a gem. Energy, colour,
+## facets in shadow. Two was enough for a die and far too few for a gem. Energy, color,
 ## and where it stands; the tuning table scales all four together and leaves the balance.
 const LIGHTS := [
 	[1.20, "fff4de", Vector3(-38, -34, 0)],
 	[0.42, "86b0ff", Vector3(26, 140, 0)],
 	[0.62, "cfe4ff", Vector3(42, -128, 0)],
 	[0.80, "ffffff", Vector3(-12, 168, 0)]]
+## How far past the slot a stone still in its rock may be drawn: the clump hangs a little
+## over the edges, and the crystal inside it is drawn smaller to make room.
+const ROCK_SPAN := 1.12
+## A raw stone throws the light of an ordinary one, whatever it is: the glow on the ground
+## would otherwise say how clear it is before anyone has looked.
+const SEALED_BRILLIANCE := 0.36
 
 var gem: Dictionary = {}
 var interactive := false
 ## Transparent alpha means no ground: the view stays a hole and is composited over the 2D
-## behind it. Any opaque colour stands the stone on that colour instead.
+## behind it. Any opaque color stands the stone on that color instead.
 ## The box the stone is measured against, in pixels. Zero means the control's own size,
 ## which is what the game wants: a gem is sized against the slot it is set in, and a heavy
 ## one is then drawn past the edges of it. A caller with room to spare — the gem lab — can
@@ -65,6 +72,15 @@ var _halo: MeshInstance3D
 var _body: MeshInstance3D
 var _shell: MeshInstance3D
 var _etch: MeshInstance3D
+var _inside: MeshInstance3D
+var _camera: Camera3D
+## The chunks of rock still on the stone, in the order they come off, and how far the clump
+## reaches from the stone's centre in girdle radii.
+var _rock: Node3D
+var _chunks: Array = []
+var _rock_reach: float = 1.0
+var _rock_material: StandardMaterial3D
+var _seam_material: StandardMaterial3D
 var _glow: Control
 var _signature := ""
 var _manual := Quaternion.IDENTITY
@@ -112,6 +128,7 @@ func _ready() -> void:
 	_frame.add_child(_viewport)
 	resized.connect(_fit_frame)
 	var camera := Camera3D.new()
+	_camera = camera
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = CAMERA_SIZE
 	camera.position = Vector3(0, 0, 5)
@@ -119,8 +136,8 @@ func _ready() -> void:
 	camera.far = 20.0
 	_environment = Environment.new()
 	# Clear background, but a real sky behind the scenes for the facets to mirror. Flat
-	# ambient colour gave them nothing to reflect, and a gem that reflects nothing reads
-	# as coloured plastic however well it is lit.
+	# ambient color gave them nothing to reflect, and a gem that reflects nothing reads
+	# as colored plastic however well it is lit.
 	_sky_material = ProceduralSkyMaterial.new()
 	_sky_material.sky_top_color = Color("8fb4ef")
 	_sky_material.sky_horizon_color = Color("dce6f4")
@@ -199,6 +216,13 @@ func _ready() -> void:
 	_pivot.add_child(_body)
 	_etch = MeshInstance3D.new()
 	_body.add_child(_etch)
+	# What is frozen in the crystal, between the far half and the near one: the stone's
+	# inclusions and, on an opal Seam, its vein of color.
+	_inside = MeshInstance3D.new()
+	_inside.material_override = GemMesh.inside_material()
+	_body.add_child(_inside)
+	_rock = Node3D.new()
+	_pivot.add_child(_rock)
 	_manual = Quaternion.from_euler(Vector3(deg_to_rad(REST.x), deg_to_rad(REST.y), 0.0))
 	_goal = _manual
 	_pivot.quaternion = _manual
@@ -223,13 +247,21 @@ func configure(new_gem: Dictionary) -> void:
 		_glow.queue_redraw()
 	_apply()
 
-## A stone found in the mine and not yet appraised shows everything the eye can judge —
-## outline and hue, size, faceting, how clear it is — and nothing it cannot: the skill's
-## emblem stays out of the crown until someone has looked at it properly.
-const UNAPPRAISED_TEXT := "An unappraised stone. Its colour, size, cut and clarity are all there to judge; what it does is not."
+## A stone found in the mine and not yet appraised is still half-buried in its rock: its
+## color shows through, and roughly how big it is, and nothing else — not its cut, not how
+## clear it is, and not the skill's emblem, which stays out of the crown until someone has
+## looked at it properly.
+const UNAPPRAISED_TEXT := "An unappraised stone, still half in its rock. Its color shows, and roughly how big it is; its cut, its clarity and what it does wait for the loupe."
 
 func sealed() -> bool:
 	return gem.has("appraised") and not bool(gem.appraised)
+
+func _carat() -> int:
+	## The carat the stone is drawn at: a raw one at its size class, never its own.
+	return DeepStone.shown_carat(gem)
+
+func _brilliance() -> float:
+	return SEALED_BRILLIANCE if sealed() else GemMesh.brilliance(GemMesh.clarity_grade(gem))
 
 static func thumbnail_key(stone: Dictionary) -> String:
 	## Two stones that would render alike share one thumbnail.
@@ -240,7 +272,7 @@ static func thumbnail_key(stone: Dictionary) -> String:
 func set_ground(color: Color, texture: Texture2D = null) -> void:
 	## Stands the stone on something. See the note at the top of this file: this is the
 	## difference between a transparent cut-out and a picture the stone is part of. Pass a
-	## fully transparent colour to go back to the cut-out.
+	## fully transparent color to go back to the cut-out.
 	ground = color
 	ground_texture = texture
 	_apply_ground()
@@ -270,7 +302,7 @@ func _apply_ground() -> void:
 	var material: StandardMaterial3D = _ground.material_override
 	material.albedo_color = Color(ground.r, ground.g, ground.b)
 	material.albedo_texture = ground_texture
-	# With no texture the background colour already fills the frame, so the quad is only
+	# With no texture the background color already fills the frame, so the quad is only
 	# needed when the ground has a pattern to show.
 	_ground.visible = standing and ground_texture != null
 	_halo.visible = standing
@@ -298,13 +330,16 @@ func _fit_frame() -> void:
 	if reach <= 1.0:
 		return
 	var box: float = slot if slot > 0.0 else reach
-	var span: float = 1.0 if gem.is_empty() else GemMesh.carat_span(int(gem.get("carat", 1)))
-	var want: float = span * box
+	var span: float = 1.0 if gem.is_empty() else GemMesh.span(gem)
+	## A stone in its rock is drawn so the whole clump fits where the stone alone would, give
+	## or take the little it is allowed to hang over.
+	var clump: float = _rock_reach
+	var want: float = span * box * (ROCK_SPAN if clump > 1.0 else 1.0)
 	var grown: float = maxf(1.0, want / reach)
 	_frame.size = size * grown
 	_frame.position = (size - _frame.size) * 0.5
 	if is_instance_valid(_pivot):
-		_pivot.scale = Vector3.ONE * (want / (reach * grown))
+		_pivot.scale = Vector3.ONE * (want / (reach * grown)) / clump
 	_fit_ground()
 
 func _fit_ground() -> void:
@@ -322,16 +357,16 @@ func _shape_halo() -> void:
 	## The light the stone throws onto its ground, as a quad rather than as 2D circles.
 	if headless() or _halo == null or gem.is_empty():
 		return
-	var hue := GemMesh.hue(GemMesh.colour_key(gem))
-	var b := GemMesh.brilliance(GemMesh.clarity_grade(gem))
-	var throw: float = 2.9 * GemMesh.carat_scale(int(gem.get("carat", 1)))
+	var hue := GemMesh.hue(GemMesh.color_key(gem))
+	var b := _brilliance()
+	var throw: float = 2.9 * GemMesh.carat_scale(_carat())
 	(_halo.mesh as QuadMesh).size = Vector2(throw, throw)
 	var material: StandardMaterial3D = _halo.material_override
 	material.albedo_color = Color(hue, (0.10 + 0.20 * b) * Tuning.value("halo"))
 
 func restyle() -> void:
 	## Re-reads the tuning table: room first, then the stone, which is re-cut rather than
-	## re-skinned because two of the knobs are baked into its facet colours. The gem lab
+	## re-skinned because two of the knobs are baked into its facet colors. The gem lab
 	## calls this when a slider moves; nothing in the game does.
 	_tune()
 	_wake()
@@ -373,14 +408,89 @@ func _apply() -> void:
 	# front of the stone over the background alone, which is the only clean read of its alpha.
 	_shell.visible = Tuning.flag("far_pass")
 	_shape_halo()
+	var buried := GemMesh.inside(gem)
+	_inside.mesh = buried
+	# A stone still in its rock has not been looked into: what it carries waits for the loupe.
+	_inside.visible = buried != null and not sealed()
 	_etch.mesh = GemMesh.etch_plate(gem)
 	_etch.material_override = GemMesh.etch_material(gem)
 	_etch.visible = not sealed()
-	# Carat is the one property that changes nothing about the geometry, only its size.
+	_apply_rock()
 	# Carat is the one property that changes nothing about the geometry, only its size, and
 	# `_fit_frame` is what decides that — it has to weigh the slot against the drawing area.
 	_fit_frame()
 	_redraw()
+
+func _apply_rock() -> void:
+	## A raw stone gets its matrix back; anything else loses whatever is left of it. Chunks
+	## already knocked loose are not in `_rock` any more and finish their fall regardless.
+	for chunk in _rock.get_children():
+		_rock.remove_child(chunk)
+		chunk.queue_free()
+	_chunks = []
+	_rock_reach = 1.0
+	if not sealed():
+		return
+	_rock_material = GemRock.material()
+	_seam_material = GemRock.seam_material(GemMesh.tint(gem))
+	var built: Array = GemRock.chunks(gem)
+	for chunk in built:
+		var piece := MeshInstance3D.new()
+		piece.mesh = chunk.mesh
+		GemRock.dress(piece, _rock_material, _seam_material)
+		piece.position = chunk.position
+		piece.rotation = chunk.rotation
+		_rock.add_child(piece)
+		_chunks.append(piece)
+	_rock_reach = GemRock.reach(built)
+
+func chunks_left() -> int:
+	return _chunks.size()
+
+func knock_chunk() -> Vector2:
+	## Breaks the next chunk of rock off the stone and throws it clear. Returns where it was,
+	## in this control's own coordinates, for whatever dust the caller raises there. The
+	## stone is not re-fitted: what is left of the clump stays put until the last comes off.
+	if headless() or _chunks.is_empty():
+		return size * 0.5
+	var piece: MeshInstance3D = _chunks.pop_front()
+	var start: Transform3D = piece.global_transform
+	var at: Vector2 = _screen_point(start.origin)
+	_rock.remove_child(piece)
+	_viewport.add_child(piece)
+	piece.global_transform = start
+	## Off the way it was facing, towards the viewer a little, then down.
+	var away := Vector3(start.origin.x, start.origin.y, 0.0)
+	away = (away.normalized() if away.length() > 0.01 else Vector3.RIGHT) + Vector3(0, 0.35, 0)
+	var spin := Vector3(randf_range(-9.0, 9.0), randf_range(-9.0, 9.0), randf_range(-6.0, 6.0))
+	var tween := create_tween()
+	tween.tween_method(func(t: float) -> void:
+		if not is_instance_valid(piece):
+			return
+		var origin: Vector3 = start.origin + away * 2.6 * t + Vector3(0, -3.4 * t * t, 0.6 * t)
+		var turned: Basis = Basis.from_euler(spin * t) * start.basis
+		piece.global_transform = Transform3D(turned.scaled(Vector3.ONE * lerpf(1.0, 0.55, t)), origin), 0.0, 1.0, 0.75).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_callback(piece.queue_free)
+	_redraw()
+	return at
+
+func glow_cracks(amount: float) -> void:
+	## The light inside the stone coming through the rock that is left, as it is worked.
+	if _seam_material != null:
+		_seam_material.emission_energy_multiplier = maxf(0.0, amount) * 3.0
+		_redraw()
+
+func centre_point() -> Vector2:
+	## Where the stone's heart is drawn, in this control's own coordinates.
+	if headless() or not is_instance_valid(_pivot):
+		return size * 0.5
+	return _screen_point(_pivot.global_position)
+
+func _screen_point(world: Vector3) -> Vector2:
+	if _camera == null or _viewport == null or _frame == null or _viewport.size.x <= 0:
+		return size * 0.5
+	var pixel: Vector2 = _camera.unproject_position(world)
+	return _frame.position + pixel * (_frame.size / Vector2(_viewport.size))
 
 func enable_interaction() -> void:
 	## Hands the stone to the reader. Only the inspect sheet does this: it is the one
@@ -390,7 +500,7 @@ func enable_interaction() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_default_cursor_shape = Control.CURSOR_MOVE
 	if not gem.is_empty():
-		tooltip_text = GemMesh.describe(gem)
+		tooltip_text = UNAPPRAISED_TEXT if sealed() else GemMesh.describe(gem)
 	_wake()
 
 func set_spin(radians_per_second: float) -> void:
@@ -489,9 +599,9 @@ func _draw_glow(target: Control) -> void:
 	## none, which is one more place Clarity shows without a number.
 	if gem.is_empty():
 		return
-	var hue := GemMesh.hue(GemMesh.colour_key(gem))
-	var b := GemMesh.brilliance(GemMesh.clarity_grade(gem))
-	var reach: float = minf(size.x, size.y) * 0.5 * GemMesh.carat_span(int(gem.get("carat", 1)))
+	var hue := GemMesh.hue(GemMesh.color_key(gem))
+	var b := _brilliance()
+	var reach: float = minf(size.x, size.y) * 0.5 * GemMesh.span(gem)
 	# Enough steps that the falloff reads as light rather than as a stack of rings.
 	var steps := 10
 	var lift := Tuning.value("halo")

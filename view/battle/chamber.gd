@@ -10,20 +10,33 @@ extends Node3D
 ## Coordinates: the camera sits near (0, 2, 5) looking down -Z; creatures stand in an arc
 ## around (0, 0, -4.5). Nothing tall is placed inside the arena, and nothing at all between
 ## the camera and the arc.
+##
+## The room is a place on the way down, not only an arena. The party comes in by a tunnel at
+## the near end (z = 9, behind the camera) and leaves by one of the mouths cut through the
+## far wall, one for each way on. A trail is worn flat from the arena to every mouth, props
+## keep off it, and each mouth already holds the first stretch of its tunnel (a stub), so it
+## shows rock rather than nothing. `exits` carries each tunnel's curve and where the room it
+## leads to will stand, so the walk can build the rest of it without anything moving.
 
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
 const BattleFx = preload("res://view/battle/battle_fx.gd")
+const Tunnel = preload("res://view/battle/tunnel.gd")
 
 const SHELL_RX := 12.5
 const SHELL_RY := 8.0
 const Z_NEAR := 9.0
-const Z_FAR := -30.0
+const Z_FAR := -24.0
 const ARENA := Vector3(0, 0, -4.5)
 
 var biome: Dictionary = {}
-## Lights the lens-flare overlay dresses: {node, colour, strength, size}.
+## Lights the lens-flare overlay dresses: {node, color, strength, size}.
 var flares: Array = []
 var quality: int = 3
+## The ways on: {index, x, points (the tunnel's floor curve, room space), origin (where the
+## next room stands), seed, drop, stub (the tunnel node built so far)}.
+var exits: Array = []
+## The party's lantern, faded as the party walks away from its mark.
+var lamp: float = 1.0
 
 var _rng := RandomNumberGenerator.new()
 var _noise := FastNoiseLite.new()
@@ -38,13 +51,23 @@ var _mist: FogVolume = null
 var _key_light: SpotLight3D = null
 var _rock: StandardMaterial3D
 var _floor_material: StandardMaterial3D
+var _seed: int = 0
+var _trails: Array = []
+var _last_ring: Array = []
 
 static var _water_shader: Shader = null
 static var _lava_shader: Shader = null
 static var _mist_shader: Shader = null
 
-func build(new_biome: Dictionary, seed_value: int) -> void:
+func build(new_biome: Dictionary, seed_value: int, exit_count: int = 0, drop: float = 2.5) -> void:
+	for step in plan(new_biome, seed_value, exit_count, drop):
+		(step as Callable).call()
+
+func plan(new_biome: Dictionary, seed_value: int, exit_count: int = 0, drop: float = 2.5) -> Array:
+	## The room as a list of steps, so the stage can build it all at once or a slice a frame
+	## while the party walks toward it. Either way it comes out the same.
 	biome = new_biome
+	_seed = seed_value
 	_rng.seed = seed_value
 	_noise.seed = seed_value
 	_noise.frequency = 0.09
@@ -56,36 +79,105 @@ func build(new_biome: Dictionary, seed_value: int) -> void:
 	_rock.roughness = 0.35 if biome.id == "seeps" else 0.9
 	_rock.metallic_specular = 0.75 if biome.id == "seeps" else 0.35
 	_floor_material = _rock.duplicate()
-	_floor()
-	_shell()
+	exits.clear()
+	var places: Array = exit_xs(exit_count)
+	for index in range(places.size()):
+		var way: Dictionary = exit_path(float(places[index]), drop, seed_value * 31 + index * 7 + 5)
+		way.index = index
+		exits.append(way)
+	_lay_trails()
+	var steps: Array = [_floor, _shell, _far_wall, _stubs]
 	for prop in biome.get("props", []):
 		match str(prop):
-			"stalactites": _stalactites(18)
-			"stalagmites": _stalagmites(14)
-			"boulders": _boulders(12)
-			"rubble": _rubble(40)
-			"timber": _timber()
-			"rails": _rails()
-			"lanterns": pass
-			"pools": _pools()
-			"moss": _moss(46)
-			"crystals": _crystals(10)
-			"shards": _shards(36)
-			"mushrooms": _mushrooms(9)
-			"roots": _roots(14)
-			"lava": _lava()
-			"basalt": _basalt(26)
-			"geode": _geode(34)
-			"gold_veins": _veins(16)
-			"floating": _floating(12)
-			"arches": _arches()
-			"void_crystals": _void_crystals(12)
-			"pillars": _pillars()
-			"braziers": _braziers()
-	_lights()
-	_particles()
-	_ground_mist()
-	_clearing()
+			"stalactites": steps.append(_stalactites.bind(18))
+			"stalagmites": steps.append(_stalagmites.bind(14))
+			"boulders": steps.append(_boulders.bind(12))
+			"rubble": steps.append(_rubble.bind(40))
+			"timber": steps.append(_timber)
+			"rails": steps.append(_rails)
+			"pools": steps.append(_pools)
+			"moss": steps.append(_moss.bind(46))
+			"crystals": steps.append(_crystals.bind(10))
+			"shards": steps.append(_shards.bind(36))
+			"mushrooms": steps.append(_mushrooms.bind(9))
+			"roots": steps.append(_roots.bind(14))
+			"lava": steps.append(_lava)
+			"basalt": steps.append(_basalt.bind(26))
+			"geode": steps.append(_geode.bind(34))
+			"gold_veins": steps.append(_veins.bind(16))
+			"floating": steps.append(_floating.bind(12))
+			"arches": steps.append(_arches)
+			"void_crystals": steps.append(_void_crystals.bind(12))
+			"pillars": steps.append(_pillars)
+			"braziers": steps.append(_braziers)
+	steps.append_array([_lights, _particles, _ground_mist, _clearing])
+	return steps
+
+# --- the ways in and out -------------------------------------------------------------------------
+
+static func exit_xs(count: int) -> Array:
+	## Where the mouths stand across the far wall.
+	match count:
+		0: return []
+		1: return [0.0]
+		2: return [-3.6, 3.6]
+	return [-4.8, 0.0, 4.8]
+
+static func exit_path(x: float, drop: float, seed_value: int) -> Dictionary:
+	## One way on: straight out of the far wall, a long lean to one side and down, straight
+	## into the next room's entrance. Side mouths lean away from the middle, so their tunnels
+	## never meet. The same seed always makes the same tunnel.
+	##
+	## One lean, not two. The first pass swung hard out and hard back inside half the
+	## tunnel's length, which hid the room behind well enough and threw the view from side to
+	## side doing it. This carries the same offset across the whole length and never comes
+	## back: the party walks a long curve, the room behind goes out of sight on the way, and
+	## the next one comes into it without the horizon ever whipping.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var side: float = signf(x) if absf(x) > 0.1 else (1.0 if rng.randf() > 0.5 else -1.0)
+	var bend: float = rng.randf_range(4.6, 5.8)
+	var land: float = x + side * bend
+	var far: float = Z_FAR - Tunnel.LENGTH
+	var long: float = Tunnel.LENGTH
+	var points: Array = [Vector3(x, 0.0, Z_FAR + 0.8), Vector3(x, 0.0, Z_FAR - 4.0),
+		Vector3(x + side * bend * 0.22, -drop * 0.18, Z_FAR - long * 0.34),
+		Vector3(x + side * bend * 0.74, -drop * 0.62, Z_FAR - long * 0.60),
+		Vector3(land, -drop, far + 5.0), Vector3(land, -drop, far - 0.8)]
+	return {"x": x, "points": points, "origin": Vector3(land, -drop, far - Z_NEAR), "seed": seed_value, "drop": drop, "stub": null}
+
+func _lay_trails() -> void:
+	## A path worn flat from the entrance to the arena and on to every mouth.
+	_trails = [[Vector2(0.0, Z_NEAR + 3.0), Vector2(0.0, 1.0)]]
+	for way in exits:
+		var x: float = float(way.x)
+		_trails.append([Vector2(x * 0.25, -5.5), Vector2(x, Z_FAR + 1.5)])
+		_trails.append([Vector2(x, Z_FAR + 1.5), Vector2(x, Z_FAR - 4.0)])
+
+func trail_distance(x: float, z: float) -> float:
+	var at := Vector2(x, z)
+	var best: float = INF
+	for trail in _trails:
+		best = minf(best, at.distance_to(Geometry2D.get_closest_point_to_segment(at, trail[0], trail[1])))
+	return best
+
+func _stubs() -> void:
+	## The first stretch of every way on, bent out of sight and capped.
+	for way in exits:
+		var stub: Node3D = Tunnel.new()
+		stub.name = "Stub%d" % int(way.index)
+		add_child(stub)
+		stub.build(biome, {}, way.points, int(way.seed), Tunnel.WALL_GAP, Tunnel.STUB, true)
+		way.stub = stub
+
+func mouth(index: int) -> Vector3:
+	## The foot of a mouth in the far wall, in room space.
+	if index < 0 or index >= exits.size():
+		return Vector3(0, 0, Z_FAR)
+	return Vector3(float(exits[index].x), 0.0, Z_FAR)
+
+func rock_material() -> StandardMaterial3D:
+	return _rock
 
 # --- ground ------------------------------------------------------------------------------------
 
@@ -93,16 +185,23 @@ func ground(x: float, z: float) -> float:
 	## Floor height: nearly level where the creatures stand, heaving up into rubble toward
 	## the walls and the far end.
 	var side: float = smoothstep(5.5, 11.5, absf(x))
-	var back: float = smoothstep(-11.0, -22.0, z)
+	## The far end heaps up with fallen rock toward the walls, and stays open in the middle
+	## where the ways on are.
+	var back: float = smoothstep(-10.0, -20.0, z) * lerpf(0.2, 1.0, smoothstep(3.0, 9.0, absf(x)))
 	var edge: float = maxf(side, back * 0.8)
 	var n: float = _noise.get_noise_2d(x * 1.3, z * 1.3)
 	var d: float = _detail.get_noise_2d(x, z)
-	return n * (0.1 + 1.6 * edge) + d * 0.05 + edge * edge * 2.4
+	var height: float = n * (0.1 + 1.6 * edge) + d * 0.05 + edge * edge * 2.4
+	## The trails: worn flat and level with the tunnels they lead into.
+	var near: float = trail_distance(x, z)
+	if near < 3.4:
+		height = lerpf(height, 0.0, 1.0 - smoothstep(1.4, 3.4, near))
+	return height
 
 func _floor() -> void:
 	var surface := Lowpoly.begin()
 	var nx := 44
-	var nz := 38
+	var nz := 35
 	var xs := [-22.0, 22.0]
 	var zs := [Z_FAR - 2.0, Z_NEAR + 2.0]
 	var points: Array = []
@@ -134,7 +233,7 @@ func _floor() -> void:
 
 func _shell_point(u: float, z: float) -> Vector3:
 	var bulge: float = 1.0 + 0.28 * exp(-pow((z - ARENA.z) / 9.0, 2.0))
-	var narrow: float = 1.0 - 0.18 * smoothstep(-16.0, -30.0, z)
+	var narrow: float = 1.0 - 0.18 * smoothstep(-12.0, Z_FAR, z)
 	var rx: float = SHELL_RX * bulge * narrow
 	var ry: float = SHELL_RY * bulge * narrow
 	var base := Vector3(cos(u) * rx, sin(u) * ry, z)
@@ -147,7 +246,7 @@ func _shell() -> void:
 	## The vault: a tunnel of faceted rock, wider where the fight is, closed at the far end.
 	var surface := Lowpoly.begin()
 	var nu := 30
-	var nz := 34
+	var nz := 30
 	var u0 := -0.28
 	var u1 := PI + 0.28
 	var rings: Array = []
@@ -174,12 +273,76 @@ func _shell() -> void:
 				tone = Lowpoly.shade(tone, _rng, 0.06)
 				var inward := Vector3(0, SHELL_RY * 0.3, centre.z) - centre
 				Lowpoly.tri(surface, triangle[0], triangle[1], triangle[2], tone, inward)
-	## The far wall.
-	var last: Array = rings[nz]
-	var hub := Vector3(0, SHELL_RY * 0.35, Z_FAR - 3.0)
-	for i in range(nu):
-		Lowpoly.tri(surface, last[i], last[i + 1], hub, Lowpoly.shade(dark, _rng, 0.05), Vector3(0, 0, 1))
+	_last_ring = rings[nz]
 	_place(surface.commit(), _rock, Transform3D.IDENTITY, false)
+
+func _far_wall() -> void:
+	## The end of the vault, with a mouth cut through it for every way on. A scatter of
+	## points is triangulated and pushed back into a shallow bowl; two rings round each mouth
+	## hold its edge to the portal's own arch (drawn a hair small, so the wall always overlaps
+	## the tunnel behind it) and give it a lip.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed + 5
+	var outer := PackedVector2Array()
+	var flat := PackedVector2Array()
+	var points: Array = []
+	for p in _last_ring:
+		outer.append(Vector2(p.x, p.y))
+		flat.append(Vector2(p.x, p.y))
+		points.append(p)
+	var holes: Array = []
+	var guards: Array = []
+	for way in exits:
+		var x: float = float(way.x)
+		var hole: PackedVector2Array = Tunnel.outline(x, 30, -0.06)
+		holes.append(hole)
+		guards.append(Tunnel.outline(x, 24, 1.3))
+		for q in hole:
+			flat.append(q)
+			points.append(Vector3(q.x, q.y, Z_FAR))
+		for q in Tunnel.outline(x, 24, 0.6):
+			flat.append(q)
+			points.append(Vector3(q.x, q.y, Z_FAR + absf(_detail.get_noise_2d(q.x * 2.0, q.y * 2.0)) * 0.3))
+	var bounds := Rect2(outer[0], Vector2.ZERO)
+	for q in outer:
+		bounds = bounds.expand(q)
+	var step: float = 1.25
+	var y: float = bounds.position.y + step * 0.5
+	while y < bounds.end.y:
+		var x: float = bounds.position.x + step * 0.5
+		while x < bounds.end.x:
+			var q := Vector2(x + rng.randf_range(-0.4, 0.4), y + rng.randf_range(-0.4, 0.4))
+			x += step
+			if not Geometry2D.is_point_in_polygon(q, outer) or _edge_gap(q, outer) < 0.6:
+				continue
+			if guards.any(func(guard: PackedVector2Array) -> bool: return Geometry2D.is_point_in_polygon(q, guard)):
+				continue
+			var across: float = clampf(q.x / maxf(1.0, bounds.size.x * 0.5), -1.0, 1.0)
+			var up: float = clampf(q.y / maxf(1.0, bounds.end.y), 0.0, 1.0)
+			var bowl: float = 1.4 * (1.0 - across * across) * (1.0 - 0.5 * up)
+			flat.append(q)
+			points.append(Vector3(q.x, q.y, Z_FAR - bowl + _noise.get_noise_2d(q.x * 1.7, q.y * 1.7) * 0.6))
+		y += step
+	var surface := Lowpoly.begin()
+	var tris: PackedInt32Array = Geometry2D.triangulate_delaunay(flat)
+	var rock: Color = biome.rock
+	var dark: Color = biome.rock_dark
+	for i in range(0, tris.size(), 3):
+		var centre: Vector2 = (flat[tris[i]] + flat[tris[i + 1]] + flat[tris[i + 2]]) / 3.0
+		if not Geometry2D.is_point_in_polygon(centre, outer):
+			continue
+		if holes.any(func(hole: PackedVector2Array) -> bool: return Geometry2D.is_point_in_polygon(centre, hole)):
+			continue
+		var height: float = clampf(centre.y / SHELL_RY, 0.0, 1.0)
+		var tone: Color = Lowpoly.shade(rock.lerp(dark, 0.45 + height * 0.45), rng, 0.06)
+		Lowpoly.tri(surface, points[tris[i]], points[tris[i + 1]], points[tris[i + 2]], tone, Vector3(0, 0, 1))
+	_place(surface.commit(), _rock, Transform3D.IDENTITY, false)
+
+static func _edge_gap(q: Vector2, poly: PackedVector2Array) -> float:
+	var best: float = INF
+	for i in range(poly.size()):
+		best = minf(best, q.distance_to(Geometry2D.get_closest_point_to_segment(q, poly[i], poly[(i + 1) % poly.size()])))
+	return best
 
 func _on_wall(u: float, z: float, inset: float = 0.3) -> Dictionary:
 	## A point on the vault and the way into the room from it.
@@ -191,8 +354,8 @@ func _free_spot(min_side: float = 5.5, min_back: float = -8.5) -> Vector2:
 	## Somewhere on the floor away from the arena and the line of sight to it.
 	for _try in range(40):
 		var x := _rng.randf_range(-12.0, 12.0)
-		var z := _rng.randf_range(-24.0, 3.0)
-		if absf(x) > min_side or z < min_back:
+		var z := _rng.randf_range(Z_FAR + 3.0, 3.0)
+		if (absf(x) > min_side or z < min_back) and trail_distance(x, z) > 2.8:
 			if absf(x) < 10.5 or z < -14.0:
 				return Vector2(x, z)
 	return Vector2(8.0, -12.0)
@@ -224,23 +387,23 @@ func _multi(mesh: Mesh, transforms: Array, material: Material, shadows: bool = f
 	add_child(node)
 	return node
 
-func _glowing(colour: Color, energy: float = 1.6, roughness: float = 0.15) -> StandardMaterial3D:
+func _glowing(color: Color, energy: float = 1.6, roughness: float = 0.15) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
-	m.albedo_color = colour.lightened(0.1)
+	m.albedo_color = color.lightened(0.1)
 	m.roughness = roughness
 	m.metallic = 0.2
 	m.metallic_specular = 0.9
 	m.emission_enabled = true
-	m.emission = colour
+	m.emission = color
 	m.emission_energy_multiplier = energy
 	m.rim_enabled = true
 	m.rim = 0.4
 	return m
 
-func _light(at: Vector3, colour: Color, energy: float, reach: float, flicker: float = 0.0, flare: float = 0.0, optional: bool = true) -> OmniLight3D:
+func _light(at: Vector3, color: Color, energy: float, reach: float, flicker: float = 0.0, flare: float = 0.0, optional: bool = true) -> OmniLight3D:
 	var light := OmniLight3D.new()
-	light.light_color = colour
+	light.light_color = color
 	light.light_energy = energy
 	light.omni_range = reach
 	light.omni_attenuation = 1.2
@@ -251,7 +414,7 @@ func _light(at: Vector3, colour: Color, energy: float, reach: float, flicker: fl
 	if flicker > 0.0:
 		_flickers.append({"light": light, "base": energy, "amount": flicker, "speed": _rng.randf_range(6.0, 11.0), "phase": _rng.randf_range(0.0, 100.0)})
 	if flare > 0.0:
-		flares.append({"node": light, "colour": colour, "strength": flare, "size": 1.0})
+		flares.append({"node": light, "color": color, "strength": flare, "size": 1.0})
 	if optional:
 		_optional_lights.append(light)
 	return light
@@ -268,7 +431,7 @@ func _stalactites(count: int) -> void:
 	var groups: Array = [[], [], [], []]
 	for _i in range(count):
 		var u := _rng.randf_range(0.3 * PI, 0.7 * PI)
-		var z := _rng.randf_range(-24.0, 4.0)
+		var z := _rng.randf_range(Z_FAR + 2.0, 4.0)
 		var spot := _on_wall(u, z, 0.2)
 		var scale := _rng.randf_range(0.6, 1.4)
 		var basis := Basis(Vector3.RIGHT, PI).scaled(Vector3.ONE * scale)
@@ -309,9 +472,9 @@ func _rubble(count: int) -> void:
 	for _i in range(count):
 		var x := _rng.randf_range(-9.0, 9.0)
 		var z := _rng.randf_range(-12.0, 3.5)
-		if absf(x) < 4.2 and z > -6.5 and z < -2.5:
-			continue
 		var scale := _rng.randf_range(0.06, 0.24)
+		if (absf(x) < 4.2 and z > -6.5 and z < -2.5) or trail_distance(x, z) < 1.1:
+			continue
 		transforms.append(Transform3D(Basis.from_euler(Vector3(_rng.randf(), _rng.randf() * TAU, _rng.randf())).scaled(Vector3.ONE * scale), Vector3(x, ground(x, z) + scale * 0.3, z)))
 	_multi(mesh, transforms, _rock)
 
@@ -327,7 +490,7 @@ func _timber() -> void:
 	var posts: Array = []
 	var beams: Array = []
 	var braces: Array = []
-	for z in [1.5, -8.5, -17.5, -25.0]:
+	for z in [1.5, -7.0, -15.0, -21.5]:
 		for side in [-1.0, 1.0]:
 			var x: float = side * 7.4
 			var tilt := Basis(Vector3(0, 0, 1), _rng.randf_range(-0.04, 0.04))
@@ -363,15 +526,15 @@ func _rails() -> void:
 	wood.albedo_color = Color("4a3020")
 	wood.roughness = 0.95
 	var rail := BoxMesh.new()
-	rail.size = Vector3(0.08, 0.1, 40.0)
+	rail.size = Vector3(0.08, 0.1, Z_NEAR - Z_FAR - 2.0)
 	var tie := BoxMesh.new()
 	tie.size = Vector3(1.4, 0.08, 0.22)
-	var x := 5.6
+	var x := 6.8
 	for offset in [-0.5, 0.5]:
-		_place(rail, steel, Transform3D(Basis.IDENTITY, Vector3(x + offset, ground(x, -5.0) + 0.1, -10.0)))
+		_place(rail, steel, Transform3D(Basis.IDENTITY, Vector3(x + offset, ground(x, -5.0) + 0.1, (Z_NEAR + Z_FAR) * 0.5 - 1.0)))
 	var ties: Array = []
 	var z := 8.0
-	while z > -28.0:
+	while z > Z_FAR + 1.0:
 		ties.append(Transform3D(Basis(Vector3.UP, _rng.randf_range(-0.06, 0.06)), Vector3(x, ground(x, z) + 0.04, z)))
 		z -= 0.8
 	_multi(tie, ties, wood)
@@ -397,6 +560,8 @@ func _pools() -> void:
 	material.set_shader_parameter("tint", Color(biome.fog).lightened(0.1))
 	material.set_shader_parameter("glow", Color(biome.accent))
 	for spot in [Vector2(-7.5, -3.0), Vector2(7.8, -9.0), Vector2(-4.0, -13.5), Vector2(3.5, 1.5)]:
+		if trail_distance(spot.x, spot.y) < 2.8:
+			continue
 		var pool := PlaneMesh.new()
 		pool.size = Vector2(_rng.randf_range(3.5, 6.0), _rng.randf_range(2.5, 4.5))
 		pool.subdivide_width = 8
@@ -427,31 +592,31 @@ func _moss(count: int) -> void:
 func _crystals(count: int) -> void:
 	var lights: Array = biome.get("lights", [biome.accent])
 	for i in range(count):
-		var colour: Color = lights[i % lights.size()]
+		var color: Color = lights[i % lights.size()]
 		var spot := _free_spot(5.2, -8.5)
 		var big: bool = i < 3
 		var scale: float = _rng.randf_range(1.6, 2.6) if big else _rng.randf_range(0.6, 1.3)
-		var mesh := Lowpoly.cluster(_rng, colour, 5 if big else 4, scale)
-		var material := _glowing(colour, 1.2 if big else 0.9)
+		var mesh := Lowpoly.cluster(_rng, color, 5 if big else 4, scale)
+		var material := _glowing(color, 1.2 if big else 0.9)
 		var at := Vector3(spot.x, ground(spot.x, spot.y) - 0.05, spot.y)
 		_place(mesh, material, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU), at), big)
 		_pulse(material, 0.4, _rng.randf_range(0.6, 1.4))
 		if big:
-			_light(at + Vector3(0, scale * 0.8, 0), colour, 2.4, 7.0, 0.05, 0.7)
+			_light(at + Vector3(0, scale * 0.8, 0), color, 2.4, 7.0, 0.05, 0.7)
 	## And a few hanging from the walls.
 	for i in range(6):
-		var colour: Color = lights[(i + 1) % lights.size()]
+		var color: Color = lights[(i + 1) % lights.size()]
 		var side: float = -1.0 if i % 2 == 0 else 1.0
 		var wall := _on_wall(PI * 0.5 - side * _rng.randf_range(0.6, 1.2), _rng.randf_range(-20.0, 0.0), 0.1)
-		var mesh := Lowpoly.cluster(_rng, colour, 4, _rng.randf_range(0.8, 1.5))
+		var mesh := Lowpoly.cluster(_rng, color, 4, _rng.randf_range(0.8, 1.5))
 		var basis := Basis(Quaternion(Vector3.UP, wall.normal))
-		_place(mesh, _glowing(colour, 1.1), Transform3D(basis, wall.point))
+		_place(mesh, _glowing(color, 1.1), Transform3D(basis, wall.point))
 
 func _shards(count: int) -> void:
 	var lights: Array = biome.get("lights", [biome.accent])
-	for colour_index in range(mini(2, lights.size())):
-		var colour: Color = lights[colour_index]
-		var mesh := Lowpoly.crystal(_rng, colour, 0.06, 0.3)
+	for color_index in range(mini(2, lights.size())):
+		var color: Color = lights[color_index]
+		var mesh := Lowpoly.crystal(_rng, color, 0.06, 0.3)
 		var transforms: Array = []
 		for _i in range(count / 2):
 			var x := _rng.randf_range(-10.0, 10.0)
@@ -459,7 +624,7 @@ func _shards(count: int) -> void:
 			if absf(x) < 4.5 and z > -7.0 and z < -2.0:
 				continue
 			transforms.append(Transform3D(Basis.from_euler(Vector3(_rng.randf_range(-0.8, 0.8), _rng.randf() * TAU, _rng.randf_range(-0.8, 0.8))).scaled(Vector3.ONE * _rng.randf_range(0.6, 1.8)), Vector3(x, ground(x, z), z)))
-		_multi(mesh, transforms, _glowing(colour, 1.4))
+		_multi(mesh, transforms, _glowing(color, 1.4))
 
 func _mushrooms(count: int) -> void:
 	var stem_tone := Color("c8c0a0")
@@ -473,13 +638,13 @@ func _mushrooms(count: int) -> void:
 		var at := Vector3(spot.x, ground(spot.x, spot.y) - 0.05, spot.y)
 		var lean := Basis.from_euler(Vector3(_rng.randf_range(-0.15, 0.15), _rng.randf() * TAU, _rng.randf_range(-0.15, 0.15)))
 		_place(Lowpoly.column(_rng, stem_tone, 7, 0.12 + height * 0.05, height), stem_material, Transform3D(lean, at), true)
-		var colour: Color = lights[i % lights.size()]
-		var cap_material := _glowing(colour, 0.9, 0.6)
-		var cap_mesh := Lowpoly.cap(_rng, colour.darkened(0.35), colour.lightened(0.3), 0.5 + height * 0.3, 0.3 + height * 0.08)
+		var color: Color = lights[i % lights.size()]
+		var cap_material := _glowing(color, 0.9, 0.6)
+		var cap_mesh := Lowpoly.cap(_rng, color.darkened(0.35), color.lightened(0.3), 0.5 + height * 0.3, 0.3 + height * 0.08)
 		_place(cap_mesh, cap_material, Transform3D(lean, at + lean * Vector3(0, height, 0)), true)
 		_pulse(cap_material, 0.5, _rng.randf_range(0.5, 1.2))
 		if height > 3.0:
-			_light(at + lean * Vector3(0, height - 0.4, 0), colour, 1.8, 6.0, 0.04, 0.5)
+			_light(at + lean * Vector3(0, height - 0.4, 0), color, 1.8, 6.0, 0.04, 0.5)
 
 func _roots(count: int) -> void:
 	var wood := Color("4a3a26")
@@ -501,6 +666,8 @@ func _lava() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = _lava_shader
 	for spot in [Vector3(-8.6, 0, -6.0), Vector3(8.8, 0, -3.0), Vector3(0.0, 0, -15.5), Vector3(-6.0, 0, -18.0), Vector3(7.0, 0, -16.0)]:
+		if trail_distance(spot.x, spot.z) < 3.2:
+			continue
 		var plane := PlaneMesh.new()
 		plane.size = Vector2(_rng.randf_range(2.8, 5.5), _rng.randf_range(2.2, 4.0))
 		var y := ground(spot.x, spot.z)
@@ -515,7 +682,7 @@ func _lava() -> void:
 	for _i in range(26):
 		var x := _rng.randf_range(-9.0, 9.0)
 		var z := _rng.randf_range(-14.0, 3.0)
-		if absf(x) < 4.0 and z > -7.0 and z < -2.0:
+		if (absf(x) < 4.0 and z > -7.0 and z < -2.0) or trail_distance(x, z) < 1.4:
 			continue
 		transforms.append(Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(1, 1, _rng.randf_range(0.4, 1.4))), Vector3(x, ground(x, z) + 0.02, z)))
 	_multi(crack, transforms, seam)
@@ -538,20 +705,20 @@ func _basalt(count: int) -> void:
 func _geode(count: int) -> void:
 	## The walls grow inward in great crystals: the inside of a stone the size of a hall.
 	var lights: Array = biome.get("lights", [biome.accent])
-	for colour_index in range(lights.size()):
-		var colour: Color = lights[colour_index]
-		var mesh := Lowpoly.crystal(_rng, colour, 0.35, 2.6)
+	for color_index in range(lights.size()):
+		var color: Color = lights[color_index]
+		var mesh := Lowpoly.crystal(_rng, color, 0.35, 2.6)
 		var transforms: Array = []
 		for _i in range(count / lights.size()):
 			var u := _rng.randf_range(-0.1, PI + 0.1)
-			var z := _rng.randf_range(-26.0, 4.0)
+			var z := _rng.randf_range(Z_FAR + 1.0, 4.0)
 			var wall := _on_wall(u, z, -0.2)
 			var tilt: Vector3 = (wall.normal + Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(-0.2, 0.3), _rng.randf_range(-0.3, 0.3))).normalized()
 			var basis := Basis(Quaternion(Vector3.UP, tilt)).scaled(Vector3.ONE * _rng.randf_range(0.5, 1.6))
 			transforms.append(Transform3D(basis, wall.point))
-		var material := _glowing(colour, 0.8, 0.1)
+		var material := _glowing(color, 0.8, 0.1)
 		_multi(mesh, transforms, material)
-		_pulse(material, 0.35, 0.7 + 0.3 * colour_index)
+		_pulse(material, 0.35, 0.7 + 0.3 * color_index)
 
 func _veins(count: int) -> void:
 	var gold := _glowing(Color("ffc84a"), 2.2, 0.3)
@@ -591,6 +758,10 @@ func _arches() -> void:
 	var stone: Color = biome.rock.lightened(0.12)
 	for spot in [Vector3(0.0, 0, -16.0), Vector3(-8.5, 0, -11.0)]:
 		var rot := Basis(Vector3.UP, 0.0 if spot.x == 0.0 else 1.1)
+		## An arch stands over a trail or clear of it, never with a column in the way.
+		var feet: Array = [spot + rot * Vector3(-2.4, 0, 0), spot + rot * Vector3(2.4, 0, 0)]
+		if feet.any(func(f: Vector3) -> bool: return trail_distance(f.x, f.z) < 2.2):
+			continue
 		var y := ground(spot.x, spot.z)
 		for side in [-1.0, 1.0]:
 			_place(Lowpoly.column(_rng, stone, 5, 0.55, 5.0), _rock, Transform3D(rot, Vector3(spot.x, y - 0.2, spot.z) + rot * Vector3(side * 2.4, 0, 0)), true)
@@ -599,9 +770,9 @@ func _arches() -> void:
 func _void_crystals(count: int) -> void:
 	for i in range(count):
 		var spot := _free_spot(5.5, -9.0)
-		var colour: Color = biome.get("lights", [biome.accent])[i % 3]
+		var color: Color = biome.get("lights", [biome.accent])[i % 3]
 		var mesh := Lowpoly.cluster(_rng, Color("1a1428"), 4, _rng.randf_range(0.8, 1.8))
-		var material := _glowing(colour, 0.7, 0.05)
+		var material := _glowing(color, 0.7, 0.05)
 		material.albedo_color = Color("2a2040")
 		material.rim = 1.0
 		material.rim_tint = 1.0
@@ -676,14 +847,14 @@ func _lights() -> void:
 	_key_light.look_at_from_position(Vector3(1.2, 4.6, 6.0), ARENA + Vector3(0, 0.6, 0), Vector3.UP)
 	_flickers.append({"light": _key_light, "base": _key_light.light_energy, "amount": float(biome.get("flicker", 0.1)) * 0.25, "speed": 5.0, "phase": 3.0})
 	## Rim lights behind the arc: they outline the creatures and glow through the fog.
-	var colours: Array = biome.get("lights", [biome.accent])
+	var colors: Array = biome.get("lights", [biome.accent])
 	var energy: float = float(biome.get("light_energy", 3.0))
 	var spots: Array = [Vector3(-5.0, 2.8, -10.5), Vector3(5.2, 3.2, -11.0), Vector3(0.0, 5.5, -14.0), Vector3(-9.0, 4.0, -3.0), Vector3(9.0, 4.0, -2.0)]
-	for i in range(mini(colours.size() + 1, spots.size())):
-		var colour: Color = colours[i % colours.size()]
+	for i in range(mini(colors.size() + 1, spots.size())):
+		var color: Color = colors[i % colors.size()]
 		## No flares on these: they stand behind the arc, and a bloom behind a creature is a
 		## creature nobody can see. Their haze in the fog is kept low for the same reason.
-		var rim := _light(spots[i], colour, energy * (1.2 if i < 2 else 0.8), 13.0, float(biome.get("flicker", 0.1)), 0.0, i >= 2)
+		var rim := _light(spots[i], color, energy * (1.2 if i < 2 else 0.8), 13.0, float(biome.get("flicker", 0.1)), 0.0, i >= 2)
 		rim.light_volumetric_fog_energy = 0.45
 	## Shafts of light from cracks in the ceiling, drawn out by the fog.
 	if biome.id in ["galleries", "geode", "crystal", "fungal"] or bool(biome.get("warden", false)):
@@ -710,7 +881,7 @@ func _clearing() -> void:
 	## Air thinned out between the party and the arc, so the volumetric fog that makes the
 	## room gives the creatures a haze at most, never a curtain.
 	var material := FogMaterial.new()
-	material.density = -(float(biome.get("vol_density", 0.03)) * 0.85 + float(biome.get("ground_mist", 0.3)) * 0.9)
+	material.density = - (float(biome.get("vol_density", 0.03)) * 0.85 + float(biome.get("ground_mist", 0.3)) * 0.9)
 	material.edge_fade = 0.45
 	var clearing := FogVolume.new()
 	clearing.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
@@ -821,7 +992,7 @@ func _process(delta: float) -> void:
 			continue
 		var t: float = _clock * float(f.speed) + float(f.phase)
 		var wobble: float = sin(t) * 0.5 + sin(t * 2.3 + 1.1) * 0.3 + sin(t * 5.7) * 0.2
-		light.light_energy = float(f.base) * (1.0 + float(f.amount) * wobble)
+		light.light_energy = float(f.base) * (1.0 + float(f.amount) * wobble) * (lamp if light == _key_light else 1.0)
 	for f in _floaters:
 		var node: Node3D = f.node
 		if not is_instance_valid(node):
@@ -832,7 +1003,14 @@ func _process(delta: float) -> void:
 		var material: StandardMaterial3D = p.material
 		material.emission_energy_multiplier = float(p.base) * (1.0 + float(p.amount) * sin(_clock * float(p.speed) + float(p.phase)))
 
-func surge(colour: Color, amount: float = 1.0) -> void:
+func rest_lights(on: bool) -> void:
+	## Once the party is well down a tunnel, a room it has left keeps only the lights a
+	## glance back could need: none of the optional ones.
+	for light in _optional_lights:
+		if is_instance_valid(light):
+			(light as Light3D).visible = on and (quality >= 2 or _optional_lights.find(light) % 2 == 0)
+
+func surge(color: Color, amount: float = 1.0) -> void:
 	## Every light in the room leaps for a moment: a heavy blow, a Warden's roar.
 	for f in _flickers:
 		var light: Light3D = f.light

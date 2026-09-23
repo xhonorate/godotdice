@@ -6,7 +6,7 @@ extends RefCounted
 ## is built from the `boons` section of the pack:
 ##
 ##   a stone stake      something for the stones in the rail or the haul
-##   a kit stake        health, ore, dice, softer rock
+##   a kit stake        health, ore, one of your dice worked, softer rock
 ##   terms              one cost and one bigger reward, drawn together; costs and rewards
 ##                      list what they will not pair with
 ##   a long shot        a gamble, offered only to a veteran: someone whose last run reached
@@ -14,7 +14,8 @@ extends RefCounted
 ##
 ## A player whose last run fell before the first landing is shown mercy: their kit stake is
 ## drawn from the stakes tagged for it. Everything a stake changes is for this run only: the
-## rail's stones are copies of the vault's, and only the haul and the bag come home.
+## rail's stones and the five dice are copies of the vault's and the bowl's, and only the
+## haul comes home. No stake hands out a die: dice are only ever worked, never added.
 ##
 ## A boon is written as effects with a small vocabulary of their own (they act on the run,
 ## not on a hand), and says what it `needs`: a socket in the rail, which is drawn at random
@@ -23,8 +24,8 @@ extends RefCounted
 
 const GROUPS: Array = ["stone", "kit", "cost", "reward", "long_shot"]
 const NEEDS: Array = ["", "socket", "pick"]
-const EFFECT_KINDS: Array = ["cut_step", "carat", "inclusion", "raw_stone", "pick_stone", "pick_die", "die", "max_hp_pct", "hp_pct",
-	"ore", "soft_rock", "extra_rerolls", "geode", "roll_ore", "coin_hp"]
+const EFFECT_KINDS: Array = ["cut_step", "carat", "reroll_cut", "reroll_clarity", "inclusion", "raw_stone", "pick_stone", "resize_die",
+	"wild_face", "max_hp_pct", "hp_pct", "ore", "soft_rock", "extra_rerolls", "geode", "roll_ore", "coin_hp"]
 const OFFER_KINDS: Array = ["stone", "kit", "terms", "long_shot"]
 const PICK_TRIES: int = 12
 
@@ -66,16 +67,16 @@ static func validate(def: Variant, p: Dictionary) -> Array:
 			"inclusion":
 				if not str(effect.get("class", "")) in DeepContent.INCLUSION_CLASSES:
 					errors.append(where + ": unknown inclusion class " + str(effect.get("class", "")))
-			"pick_stone", "pick_die":
+			"pick_stone":
 				if int(effect.get("count", 0)) < 1:
 					errors.append(where + ": needs a count")
 				if str(def.get("needs", "")) != "pick":
 					errors.append(where + ": a pick needs the player to pick")
 				if effect.has("min_tier") and not str(effect.min_tier) in DeepStone.TIERS:
 					errors.append(where + ": unknown tier " + str(effect.min_tier))
-			"die":
-				if not p.get("dice", {}).has(str(effect.get("key", ""))):
-					errors.append(where + ": unknown die " + str(effect.get("key", "")))
+			"resize_die":
+				if int(effect.get("amount", 0)) == 0:
+					errors.append(where + ": needs a non-zero amount of sizes")
 			"soft_rock":
 				if int(effect.get("fights", 0)) < 1:
 					errors.append(where + ": needs fights")
@@ -168,17 +169,6 @@ static func _make_offer(state: Dictionary, unit: Dictionary, kind: String, keys:
 					out.pick_kind = "stone"
 					for _i in range(int(effect.get("count", 3))):
 						out.picks.append(_appraised_stone(rng, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0)), str(effect.get("min_tier", "")), str(state.get("run_id", "")), "%s_%s_%d" % [str(unit.id), str(key), out.picks.size()]))
-				"pick_die":
-					out.pick_kind = "die"
-					var seen: Array = []
-					for _i in range(int(effect.get("count", 3))):
-						var die: Dictionary = DeepForge.roll_die(rng, mine, int(effect.get("depth", 4)), "%s_%s_%d" % [str(unit.id), str(key), out.picks.size()])
-						var tries: int = 0
-						while seen.has(str(die.key)) and tries < PICK_TRIES:
-							tries += 1
-							die = DeepForge.roll_die(rng, mine, int(effect.get("depth", 4)), str(die.id))
-						seen.append(str(die.key))
-						out.picks.append(die)
 	return out
 
 static func _appraised_stone(rng: RandomNumberGenerator, mine: Dictionary, depth: int, bonus: int, min_tier: String, run_id: String, id: String) -> Dictionary:
@@ -234,16 +224,35 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 	var amount: int = int(effect.get("amount", 0))
 	match kind:
 		"cut_step":
+			## Only ever downward, and only on a rail stone, which is a copy of the one in the
+			## vault: nothing here may make a stone truer for good. See `reroll_cut`.
 			var stone: Dictionary = unit.rail[socket]
-			stone.cut = clampi(int(stone.get("cut", 0)) + amount, 0, DeepPatterns.STEPS - 1)
+			stone.cut = clampi(int(stone.get("cut", 0)) + mini(amount, 0), 0, DeepPatterns.STEPS - 1)
 			return "%s is now judged %s." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), DeepContent.cut_name(int(stone.cut))]
+		"reroll_cut":
+			## A fresh draw of the stone's Cut from this mine's table, better or worse. With
+			## `best_of` the wheel is kind and the truer of that many rolls is kept.
+			var stone: Dictionary = unit.rail[socket]
+			var was: int = int(stone.get("cut", 0))
+			var best: int = -1
+			for _try in range(maxi(1, int(effect.get("best_of", 1)))):
+				best = maxi(best, DeepForge.reroll_cut(rng, stone, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0))))
+			stone.cut = best
+			return "%s comes off the wheel %s, from %s." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), DeepContent.cut_name(best), DeepContent.cut_name(was)]
+		"reroll_clarity":
+			var stone: Dictionary = unit.rail[socket]
+			var rolled: Dictionary = DeepForge.reroll_clarity(rng, stone, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0)))
+			var named: Array = DeepStone.inclusion_names(stone)
+			return "%s is fired again: %s, from %s.%s" % [str(DeepStone.skill_of(stone).get("name", stone.skill)),
+				DeepContent.clarity_name(int(rolled.clarity)), DeepContent.clarity_name(int(rolled.was)),
+				("" if named.is_empty() else " Inside it now: %s." % ", ".join(named))]
 		"carat":
 			var stone: Dictionary = unit.rail[socket]
 			stone.carat = clampi(int(stone.get("carat", 1)) + amount, 1, DeepStone.carat_max())
 			return "%s weighs %d carats now." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), int(stone.carat)]
 		"inclusion":
 			var stone: Dictionary = unit.rail[socket]
-			var rolled: Array = DeepForge.roll_inclusions(rng, 1, mine, str(effect.get("class", "PINPOINT")))
+			var rolled: Array = DeepForge.roll_inclusions(rng, 1, mine, str(effect.get("class", "PINPOINT")), DeepStone.color(stone))
 			var fresh: Array = rolled.filter(func(k: String) -> bool: return not stone.get("inclusions", []).has(k))
 			if fresh.is_empty():
 				return "%s already carries everything the rock could give it." % str(DeepStone.skill_of(stone).get("name", stone.skill))
@@ -255,23 +264,37 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 				{"run": str(state.get("run_id", "")), "source": "grubstake", "finder": str(unit.id)}, "%s_stake%08x" % [str(unit.id), rng.randi()])
 			unit.haul.append(stone)
 			out.made.append(stone)
-			return "A %s goes into your haul, unappraised." % DeepStone.raw_name(stone)
+			return "A %s goes into your haul, unappraised." % DeepStone.raw_name(stone).to_lower()
 		"pick_stone":
 			var stone: Dictionary = chosen.picks[pick].duplicate(true)
 			stone.provenance.finder = str(unit.id)
 			unit.haul.append(stone)
 			out.made.append(stone)
 			return "You take the %s." % DeepStone.name(stone)
-		"pick_die":
-			var die: Dictionary = chosen.picks[pick].duplicate(true)
-			unit.bag_dice.append(die)
-			out.dice.append(die)
-			return "A %s goes into your bag." % DeepDice.describe(die)
-		"die":
-			var die: Dictionary = DeepDice.make(str(effect.get("key", "D6")), DeepContent.die(str(effect.get("key", "D6"))), "%s_stakedie%08x" % [str(unit.id), rng.randi()])
-			unit.bag_dice.append(die)
-			out.dice.append(die)
-			return "A %s goes into your bag." % DeepDice.describe(die)
+		"resize_die":
+			## One of the five, drawn from those that can go that way.
+			var steps: int = amount if amount != 0 else 1
+			var able: Array = unit.get("dice", []).filter(func(d: Dictionary) -> bool: return DeepOddities.resize_refusal(d, steps).is_empty())
+			if able.is_empty():
+				return "None of your dice can be made any %s." % ("bigger" if steps > 0 else "smaller")
+			var die: Dictionary = DeepRng.pick(rng, able)
+			var was: String = DeepDice.describe(die)
+			DeepOddities.resize(die, steps)
+			out.dice.append(die.duplicate(true))
+			return "Your %s is a %s now." % [was, DeepDice.describe(die)]
+		"wild_face":
+			## One of the five, drawn from those with a plain face left: its highest plain face.
+			var able: Array = unit.get("dice", []).filter(func(d: Dictionary) -> bool: return d.get("faces", []).any(func(f: Dictionary) -> bool: return str(f.get("kind", "plain")) == "plain"))
+			if able.is_empty():
+				return "Every face of your dice is something special already."
+			var die: Dictionary = DeepRng.pick(rng, able)
+			var best: int = -1
+			for index in range(die.faces.size()):
+				if str(die.faces[index].get("kind", "plain")) == "plain" and (best < 0 or int(die.faces[index].value) > int(die.faces[best].value)):
+					best = index
+			die.faces[best] = DeepDice.face(int(die.faces[best].value), "wild")
+			out.dice.append(die.duplicate(true))
+			return "The %d on your %s turns wild." % [int(die.faces[best].value), DeepDice.describe(die)]
 		"max_hp_pct":
 			return _max_hp(unit, amount)
 		"hp_pct":

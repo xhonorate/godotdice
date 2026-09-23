@@ -23,7 +23,7 @@ const PLACED_VOICES: int = 10
 ## Two plays of one sound closer together than this are one play.
 const GAP: float = 0.035
 ## Sounds that carry a tune are never detuned; everything else gets a little life.
-const TUNED: PackedStringArray = ["unlock", "victory", "defeat", "landing", "reveal", "star",
+const TUNED: PackedStringArray = ["unlock", "victory", "defeat", "landing", "reveal", "star", "gleam",
 	"grade_rough", "grade_fine", "grade_precious", "grade_exquisite", "grade_peerless",
 	"heal", "harmony", "turn_begin", "resonance"]
 const VARIATION: float = 0.035

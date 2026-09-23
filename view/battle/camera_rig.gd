@@ -6,6 +6,10 @@ extends Camera3D
 ## Shake is trauma-based: every hit adds trauma, trauma decays, and the shake is its square
 ## run through smooth noise, so small knocks barely move the view and big ones rattle it.
 
+## Walking: how hard the stride shows (0 standing, 1 full) and where in it the party is.
+## The stage drives both from how far and how fast it is moving the rig.
+var bob: float = 0.0
+var stride: float = 0.0
 var home_position := Vector3(0.0, 2.1, 5.2)
 var home_look := Vector3(0.0, 1.2, -3.5)
 var home_fov: float = 58.0
@@ -73,6 +77,43 @@ func defeat() -> void:
 	tween.tween_property(self, "_roll", deg_to_rad(18.0), 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	add_trauma(0.8)
 
+func settle(seconds: float = 0.8) -> void:
+	## Back to plain sight after a fight's flourishes: no lean, no zoom, no roll.
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(self, "_offset", Vector3.ZERO, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(self, "_punch", 0.0, seconds).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(self, "_roll", 0.0, seconds).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(self, "_focus_weight", 0.0, seconds * 0.5)
+
+func lean(point: Vector3, weight: float) -> void:
+	## Looks a little toward something and stays there until told otherwise. The point it
+	## leans toward slides as well, so moving from one thing to the next is one smooth turn
+	## and letting go of the last of them eases back rather than snapping home.
+	var seconds: float = 0.45
+	var tween := create_tween().set_parallel(true)
+	if weight <= 0.001:
+		## Nothing to lean at any more: the weight alone fades, which walks the view back to
+		## where the room wants it without ever moving the point it was looking at.
+		tween.tween_property(self, "_focus_weight", 0.0, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		return
+	if _focus_weight > 0.001:
+		tween.tween_property(self, "_focus", point, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	else:
+		_focus = point
+	tween.tween_property(self, "_focus_weight", weight, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+func steady_transform() -> Transform3D:
+	## Where the view would stand with none of its idle motion in it: no breath, no stride,
+	## no shake. Everything on the HUD that is pinned to a place in the room is projected
+	## through this, so a plate or a tooltip never drifts out from under the pointer while
+	## nothing is happening. Leans and shoves are in it, because those the player asked for.
+	var eye: Vector3 = home_position + _offset
+	var look: Vector3 = home_look.lerp(_focus, _focus_weight)
+	if eye.distance_to(look) < 0.001:
+		return global_transform
+	var steady := Transform3D(Basis(), eye).looking_at(look, Vector3.UP)
+	return steady.rotated_local(Vector3(0.0, 0.0, 1.0), _roll)
+
 func reset() -> void:
 	_offset = Vector3.ZERO
 	_roll = 0.0
@@ -97,6 +138,17 @@ func _process(delta: float) -> void:
 	var breath := Vector3(sin(_clock * 0.37) * 0.08, sin(_clock * 0.53 + 1.0) * 0.05, 0.0) * _sway
 	var eye := home_position + _offset + breath + jolt * 0.28
 	var look := home_look.lerp(_focus, _focus_weight) + Vector3(sin(_clock * 0.29) * 0.1, 0, 0) * _sway + jolt * 0.35
+	## The stride: the head drops on every footfall and sways from foot to foot. It follows
+	## the shake slider like every other motion of the view.
+	var step: float = bob * lerpf(0.2, 1.0, comfort)
+	var sway_roll: float = 0.0
+	if step > 0.001:
+		var across: Vector3 = (look - eye).cross(Vector3.UP)
+		across = across.normalized() if across.length() > 0.001 else Vector3.RIGHT
+		var rise: Vector3 = Vector3.UP * (0.028 - absf(sin(stride)) * 0.055) * step + across * sin(stride * 0.5) * 0.03 * step
+		eye += rise
+		look += rise * 0.6
+		sway_roll = sin(stride * 0.5) * deg_to_rad(0.7) * step
 	look_at_from_position(eye, look, Vector3.UP)
-	rotate_object_local(Vector3(0, 0, 1), _roll + _noise.get_noise_2d(t * 0.7, 99.0) * shake * 0.06)
+	rotate_object_local(Vector3(0, 0, 1), _roll + sway_roll + _noise.get_noise_2d(t * 0.7, 99.0) * shake * 0.06)
 	fov = clampf(home_fov + _punch, 30.0, 95.0)

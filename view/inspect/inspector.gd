@@ -5,6 +5,10 @@ extends CanvasLayer
 ##
 ## One sheet at a time, above every screen. Escape, a right-click or a click outside closes
 ## it. The 3D view inside it is the only one it costs, and only while it is open.
+##
+## The sheet never scrolls. Its name and tags stay at the top; what is said about the thing
+## is split into pages (a stone's skill and its four C's; a creature's turn and its moves),
+## turned by the tabs under the name or by the arrow keys.
 
 const GemView = preload("res://view/gems/gem_view.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
@@ -36,10 +40,22 @@ static var _sheet: CanvasLayer = null
 var _dim: ColorRect
 var _panel: PanelContainer
 var _stage: Control
+## The name and tags, above the pages.
+var _head: VBoxContainer
+var _tabs: HBoxContainer
+var _book: VBoxContainer
+## The page being written to.
 var _details: VBoxContainer
+## Every page: {name, glyph, box}.
+var _pages: Array = []
 var _title: Label
 var _rays: Control
 var _close: Button
+## The grade pill's popup: how its score is worked out, animated in over the ordinary page.
+var _reveal: Control
+## Every tween the popup's timeline is running, so a second click or a close can kill them
+## before a late callback reaches into a row `_open_reveal` has already freed.
+var _reveal_tweens: Array = []
 
 # --- opening -------------------------------------------------------------------------------
 
@@ -73,7 +89,7 @@ static func stone(item: Dictionary, opts: Dictionary = {}) -> void:
 			own.call("_fill_birthstone", item)
 		return
 	var appraised: bool = bool(item.get("appraised", true))
-	var tone: Color = DeepUi.tier_colour(str(DeepStone.grade(item).tier)) if appraised else DeepUi.colour(DeepStone.colour(item))
+	var tone: Color = DeepUi.tier_color(str(DeepStone.grade(item).tier)) if appraised else DeepUi.color(DeepStone.color(item))
 	var sheet := _begin(tone, opts.get("fanfare", {}))
 	if sheet != null:
 		sheet.call("_fill_stone", item, opts)
@@ -93,6 +109,18 @@ static func announce(title: String, text: String, glyph: String, tone: Color = D
 	var sheet := _begin(tone, {"title": title, "subtitle": ""})
 	if sheet != null:
 		sheet.call("_fill_announcement", text, glyph, tone)
+
+static func lapidary(character_key: String) -> void:
+	## Someone new comes to the workshop: their plate and their Birthstone turning beside it,
+	## and everything about them read out a line at a time rather than all at once.
+	var character: Dictionary = DeepContent.character(character_key)
+	if character.is_empty():
+		return
+	var stone: Dictionary = DeepStone.birthstone(character_key)
+	var tone: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
+	var sheet := _begin(tone, {"title": "A new lapidary", "subtitle": DeepContent.character_title(character_key), "button": "Take them on"})
+	if sheet != null:
+		sheet.call("_fill_lapidary", character_key, tone)
 
 # --- the frame -----------------------------------------------------------------------------
 
@@ -147,12 +175,13 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	halo.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage.add_child(halo)
 	DeepUi.label(left, "Drag to turn it", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(600, 560)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	row.add_child(scroll)
-	_details = DeepUi.vbox(scroll, 12)
-	_details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var right := DeepUi.vbox(row, 12)
+	right.custom_minimum_size = Vector2(600, 560)
+	_head = DeepUi.vbox(right, 6)
+	_tabs = DeepUi.hbox(right, 6)
+	_tabs.visible = false
+	_book = DeepUi.vbox(right, 0)
+	_book.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var foot := DeepUi.hbox(column, 12)
 	foot.alignment = BoxContainer.ALIGNMENT_CENTER
 	if fanfare.is_empty():
@@ -189,11 +218,53 @@ func _dismiss() -> void:
 		_sheet = null
 
 func _input(event: InputEvent) -> void:
-	## While the sheet is up, the keyboard belongs to it.
+	## While the sheet is up, the keyboard belongs to it: the arrows turn its pages.
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
-			_dismiss()
+			if _reveal != null and _reveal.visible:
+				_close_reveal()
+			else:
+				_dismiss()
+		elif event.keycode in [KEY_LEFT, KEY_RIGHT, KEY_TAB]:
+			_step(-1 if event.keycode == KEY_LEFT else 1)
 		get_viewport().set_input_as_handled()
+
+# --- pages -------------------------------------------------------------------------------------
+
+func _page(name: String, glyph: String) -> VBoxContainer:
+	## Begin a page: everything written to `_details` after this goes on it. The first page
+	## is shown; with more than one, a tab for each turns between them.
+	var box := DeepUi.vbox(_book, 12)
+	box.visible = _pages.is_empty()
+	_pages.append({"name": name, "glyph": glyph, "box": box})
+	_details = box
+	_draw_tabs()
+	return box
+
+func page_names() -> Array:
+	var names: Array = _pages.map(func(page: Dictionary) -> String: return str(page.name))
+	return names if not names.is_empty() else [""]
+
+func show_page(name: String) -> void:
+	for page in _pages:
+		page.box.visible = str(page.name) == name
+	_draw_tabs()
+
+func _step(delta: int) -> void:
+	if _pages.size() < 2:
+		return
+	var at: int = _pages.find_custom(func(page: Dictionary) -> bool: return page.box.visible)
+	DeepAudio.play("ui_tab", {"volume": 0.6})
+	show_page(str(_pages[posmod(at + delta, _pages.size())].name))
+
+func _draw_tabs() -> void:
+	DeepUi.clear(_tabs)
+	_tabs.visible = _pages.size() > 1
+	if not _tabs.visible:
+		return
+	for page in _pages:
+		var name: String = str(page.name)
+		DeepUi.tab_button(_tabs, str(page.glyph), name, page.box.visible, func() -> void: show_page(name), 13)
 
 func _section(glyph: String, text: String, tone: Color = DeepUi.ACCENT) -> VBoxContainer:
 	var box := DeepUi.vbox(_details, 6)
@@ -213,38 +284,59 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	_stage.add_child(view)
 	var appraised: bool = bool(item.get("appraised", true))
 	var grade: Dictionary = DeepStone.grade(item)
-	var tier: Color = DeepUi.tier_colour(str(grade.tier))
-	var colour_key: String = DeepStone.colour(item)
-	var head := DeepUi.vbox(_details, 6)
+	var tier: Color = DeepUi.tier_color(str(grade.tier))
+	var color_key: String = DeepStone.color(item)
+	var head := _head
 	if not appraised:
 		DeepUi.title(head, DeepStone.raw_name(item), 28, DeepUi.PAPER)
-		DeepUi.wrap(head, "Unappraised. Its size and colour are there for anyone to see; its skill, its cut and what is frozen inside it are not. A merchant will appraise it for ore, a landing will do one for free, or it can wait for the Appraise tab at home.", 14, DeepUi.MUTED)
+		DeepUi.wrap(head, "Unappraised, and still half in its rock. Its color shows, and roughly how big it is; its skill, its exact weight, its cut and whatever is frozen inside it do not. A merchant will appraise it for ore, a landing will do one for free, or it can wait for the Appraise tab at home.", 14, DeepUi.MUTED)
 		var facts := DeepUi.hbox(head, 10)
-		DeepUi.pill(facts, "carat", "%d carats" % int(item.get("carat", 1)), DeepUi.PAPER, 14)
-		DeepUi.pill(facts, "gem", "%s: %s" % [str(DeepContent.colour(colour_key).get("name", colour_key)), str(DeepContent.colour(colour_key).get("domain", ""))], DeepUi.colour(colour_key), 14)
-		var slots: int = DeepStone.inclusion_slots(int(item.get("clarity", 3)))
-		if slots > 0:
-			DeepUi.pill(facts, "spark", DeepUi.plural(slots, "inclusion") + " inside", DeepUi.INFO, 14)
-		if bool(item.get("inclusions_revealed", false)):
-			_inclusions(item)
+		var named: Dictionary = DeepStone.size_class(int(item.get("carat", 1)))
+		DeepUi.pill(facts, "carat", "%s: %s" % [str(named.name), str(named.range)], DeepUi.PAPER, 14)
+		DeepUi.pill(facts, "gem", "%s: %s" % [str(DeepContent.color(color_key).get("name", color_key)), str(DeepContent.color(color_key).get("domain", ""))], DeepUi.color(color_key), 14, "", DeepUi.is_rainbow(color_key))
+		if bool(item.get("inclusions_revealed", false)) and not item.get("inclusions", []).is_empty():
+			var _page_container = _page("Inclusions", "spark")
+			_inclusions(item, _page_container)
 		return
-	DeepUi.title(head, DeepStone.name(item), 28, tier)
-	var tags := DeepUi.hbox(head, 8)
-	DeepUi.pill(tags, "star", "%s · grade %d of 100" % [str(grade.name), int(grade.score)], tier, 13)
-	DeepUi.pill(tags, "coin", "worth %d gold" % DeepStone.value(item), DeepUi.ACCENT, 13)
+	## A reference is a skill, not a stone: nobody owns it, so its grade and its worth are
+	## numbers about a thing that does not exist and are left off the page entirely.
+	var reference: bool = bool(opts.get("reference", false))
 	var skill: Dictionary = DeepStone.skill_of(item)
-	## What it does.
+	DeepUi.title(head, str(skill.get("name", item.get("skill", ""))) if reference else DeepStone.name(item), 28,
+		DeepUi.color(color_key).lightened(0.25) if reference else tier)
+	var tags := DeepUi.hbox(head, 8)
+	var rarity: String = str(skill.get("rarity", "COMMON"))
+	if not reference:
+		var grade_pill := DeepUi.pill(tags, "star", "%s · grade %d of 100" % [str(grade.name), int(grade.score)], tier, 13, "Click to see how this grade is worked out")
+		grade_pill.mouse_filter = Control.MOUSE_FILTER_STOP
+		grade_pill.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		DeepUi.juice(grade_pill, 1.06)
+		grade_pill.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				_open_reveal(item))
+	DeepUi.pill(tags, "spark", rarity.capitalize(), StoneCard._rarity_color(rarity), 13, "", StoneCard.is_mythic(rarity))
+	if reference:
+		DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13, "One of these has passed through your hands. The vault keeps the page, not the stone.")
+	else:
+		DeepUi.pill(tags, "coin", "Value · %d gold" % DeepStone.value(item), DeepUi.ACCENT, 13)
+	## Everything below the tags is one page: what it does, when it fires, its purity.
+	_page("", "")
 	var does := _section(GemIcons.emblem(str(item.get("skill", ""))), "What it does")
 	var skill_row := DeepUi.hbox(does, 8)
 	DeepUi.title(skill_row, str(skill.get("name", "")), 20, DeepUi.PAPER)
-	DeepUi.chip(skill_row, str(skill.get("rarity", "COMMON")).capitalize(), DeepUi.MUTED, 11)
-	DeepUi.chip(skill_row, "%s · %s" % [str(DeepContent.colour(colour_key).get("name", colour_key)), str(DeepContent.colour(colour_key).get("domain", ""))], DeepUi.colour(colour_key), 11)
-	DeepUi.wrap(does, str(skill.get("text", "")), 15, DeepUi.PAPER)
 	var effective: Dictionary = DeepStone.effective(item, opts.get("context", {}))
-	DeepUi.stat(does, "carat", "Every amount it deals is multiplied by %.2f." % float(effective.magnitude), DeepUi.ACCENT, 13)
-	if skill.get("flawless", null) is Dictionary:
-		var lit: bool = DeepStone.is_flawless(item)
-		DeepUi.stat(does, "star", ("Flawless: " if lit else "If it were Flawless: ") + str(skill.flawless.get("text", "")), DeepUi.tier_colour("PEERLESS") if lit else DeepUi.DIM, 13)
+	var mods: Array = DeepStone.modifiers(item)
+	_effect_line(does, item, mods)
+	StoneCard.carat_lines(does, item, opts.get("context", {}), 13)
+	if reference:
+		DeepUi.stat(does, "eye", "Written as it comes out of the rock at its plainest: one carat, a Poor cut, nothing inside. The one you find will be its own.", DeepUi.DIM, 12)
+	var carat_mult_mods: Array = mods.filter(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "carat_mult")
+	if not carat_mult_mods.is_empty():
+		var cm: Dictionary = carat_mult_mods[0]
+		var counted: int = int(round(float(int(item.get("carat", 1))) * float(cm.get("amount", 1.0))))
+		_inclusion_note(does, cm, "makes its carats count as %d for what weight buys." % counted)
+	if DeepStone.is_flawless(item) and skill.get("flawless", null) is Dictionary:
+		DeepUi.stat(does, "star", "Flawless: " + DeepStone.flawless_text(item, opts.get("context", {})), DeepUi.tier_color("PEERLESS"), 13)
 	## When it fires: the whole ladder, with the rung this stone stands on.
 	var fires := _section("cut", "When it fires")
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
@@ -259,27 +351,300 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		DiceIcons.build(cells, described, 18, DeepUi.PAPER if here else DeepUi.MUTED)
 		DeepUi.wrap(cells, str(described.words), 12, DeepUi.PAPER if here else DeepUi.DIM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if step > int(item.get("cut", 0)):
-		DeepUi.stat(fires, "spark", "Its clarity lifts it %s above its cut." % DeepUi.plural(step - int(item.get("cut", 0)), "rung"), DeepUi.INFO, 12)
-	## The four C's.
-	var cs := _section("gem", "Its four C's")
-	_c_row(cs, "carat", "Carat", "%d" % int(item.get("carat", 1)), float(int(item.get("carat", 1))) / float(DeepStone.carat_max()), "How much. One multiplier over everything it does; %d is the most a stone can weigh." % DeepStone.carat_max())
-	_c_row(cs, "cut", "Cut", DeepContent.cut_name(int(item.get("cut", 0))), float(int(item.get("cut", 0)) + 1) / 5.0, "How often. A better cut stands on a looser rung of its trigger ladder.")
+		DeepUi.stat(fires, "spark", "It is judged %s above its cut." % DeepUi.plural(step - int(item.get("cut", 0)), "rung"), DeepUi.INFO, 12)
+	var cut_override_mods: Array = mods.filter(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "cut_override")
+	if not cut_override_mods.is_empty():
+		var om: Dictionary = cut_override_mods[0]
+		_inclusion_note(fires, om, "makes its cut count as %s." % DeepContent.cut_name(int(om.get("value", 0))))
+	## Purity, and whatever is frozen inside it: the rest of the page. Its exact carat and
+	## cut, and how they weigh into the grade, live in the grade pill's own popup instead.
 	var clarity: int = int(item.get("clarity", 3))
-	_c_row(cs, "clarity", "Clarity", DeepContent.clarity_name(clarity), float(clarity + 1) / 6.0, _clarity_words(clarity))
-	_inclusions(item)
-	var where: Dictionary = item.get("provenance", {})
-	if not where.is_empty():
-		var found := _section("map", "Found")
-		var parts: Array = []
-		if not str(where.get("mine", "")).is_empty():
-			parts.append(str(DeepContent.mine(str(where.mine)).get("name", where.mine)))
-		if where.has("depth"):
-			parts.append("depth %d" % int(where.depth))
-		if where.has("source"):
-			parts.append("from %s" % str(where.source).replace("_", " "))
-		if where.has("date"):
-			parts.append(str(where.date))
-		DeepUi.label(found, ", ".join(parts) if not parts.is_empty() else "Nobody remembers where.", 13, DeepUi.MUTED)
+	var purity := _section("clarity", "Clarity")
+	var prow := DeepUi.hbox(purity, 10)
+	DeepUi.title(prow, DeepContent.clarity_name(clarity), 18, DeepUi.PAPER)
+	DeepUi.wrap(prow, _clarity_words(clarity), 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_inclusions(item, purity)
+
+func _effect_line(parent: Node, item: Dictionary, mods: Array) -> void:
+	## The effect is the reason a player opens this sheet, so it leads in bold, with the carat
+	## multiplier folded into the same paragraph instead of a line of its own. Anything an
+	## inclusion adds on top of the plain carat curve rides right after it, in that
+	## inclusion's own color and mark, so the reader sees where the extra strength comes from.
+	##
+	## A skill whose every effect is a whole number has no multiplier to show: weight buys it
+	## more goes instead, and `carat_lines` says so underneath in words. Writing "x3.4" beside
+	## a Cascade would be a number that multiplies nothing.
+	var scales: bool = DeepStone.magnitude_matters(item)
+	var carat: int = int(item.get("carat", 1))
+	var carat_mult: float = 1.0
+	for m in mods:
+		if str(m.get("kind", "")) == "carat_mult":
+			carat_mult *= float(m.get("amount", 1.0))
+	var base_mult: float = DeepStone.carat_multiplier(float(carat) * carat_mult)
+	var rtl := RichTextLabel.new()
+	rtl.fit_content = true
+	rtl.scroll_active = false
+	rtl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rtl.mouse_filter = Control.MOUSE_FILTER_PASS
+	rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rtl.push_font(DeepUi.bold_font())
+	rtl.push_font_size(17)
+	rtl.push_color(DeepUi.PAPER)
+	DeepUi.push_effect_text(rtl, DeepStone.text(item))
+	rtl.pop_all()
+	if scales and base_mult != 1.0:
+		rtl.add_text("  ")
+		rtl.push_hint("Bonus from %d carat weight." % carat)
+		rtl.push_color(DeepUi.ACCENT_HI)
+		rtl.push_font_size(15)
+		rtl.add_text("×%s " % _trim_number(base_mult))
+		rtl.add_image(GemIcons.texture("carat", GemIcons.baked_size(16.0)), 15, 15, DeepUi.ACCENT_HI)
+		rtl.pop_all()
+	for m in mods:
+		## carat_mult already rode into base_mult above (it scales the carat the curve reads,
+		## not the curve's output), so only a true post-multiplier earns its own badge here.
+		if not scales or str(m.get("kind", "")) != "magnitude":
+			continue
+		var inclusion: Dictionary = DeepContent.inclusion(str(m.get("inclusion", "")))
+		var cls: String = str(inclusion.get("class", "PINPOINT"))
+		var tone: Color = StoneCard.INCLUSION_TONES.get(cls, DeepUi.INFO)
+		var glyph: String = str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark"))
+		rtl.add_text(" ")
+		rtl.push_hint("%s: %s" % [str(inclusion.get("name", "")), str(inclusion.get("text", ""))])
+		rtl.push_color(tone)
+		rtl.push_font_size(15)
+		rtl.add_text("×%s " % _trim_number(float(m.get("amount", 1.0))))
+		rtl.add_image(GemIcons.texture(glyph, GemIcons.baked_size(16.0)), 15, 15, tone)
+		rtl.pop_all()
+	parent.add_child(rtl)
+
+func _inclusion_note(parent: Node, mod: Dictionary, text: String) -> void:
+	## What an inclusion is doing to a stat behind the scenes: its own mark and color, with
+	## the inclusion's text a hover away, wherever the stat it is bending shows up on the page.
+	var inclusion: Dictionary = DeepContent.inclusion(str(mod.get("inclusion", "")))
+	var cls: String = str(inclusion.get("class", "PINPOINT"))
+	var tone: Color = StoneCard.INCLUSION_TONES.get(cls, DeepUi.INFO)
+	var glyph: String = str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark"))
+	DeepUi.stat(parent, glyph, "%s %s" % [str(inclusion.get("name", "")), text], tone, 12, str(inclusion.get("text", "")))
+
+func _trim_number(value: float) -> String:
+	var text := "%.2f" % value
+	text = text.rstrip("0")
+	return text.rstrip(".")
+
+# --- the grade pill's popup ----------------------------------------------------------------
+
+func _open_reveal(item: Dictionary) -> void:
+	## A second click while the last run is still animating must not let a late callback
+	## reach into a row this call is about to free, so every tracked tween dies first.
+	_kill_reveal_tweens()
+	if not _pages.is_empty():
+		_pages[0].box.visible = false
+	if _reveal == null:
+		_reveal = DeepUi.center(_book)
+		_reveal.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_reveal.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		DeepUi.clear(_reveal)
+	_reveal.visible = true
+	DeepAudio.play("ui_open", {"volume": 0.5})
+	var inner := DeepUi.vbox(_reveal, 12)
+	_animate_reveal(inner, item)
+
+func _close_reveal() -> void:
+	_kill_reveal_tweens()
+	if _reveal != null:
+		_reveal.visible = false
+	if not _pages.is_empty():
+		_pages[0].box.visible = true
+	DeepAudio.play("ui_close", {"volume": 0.5})
+
+func _reveal_tween() -> Tween:
+	var t := create_tween()
+	_reveal_tweens.append(t)
+	return t
+
+func _kill_reveal_tweens() -> void:
+	for t in _reveal_tweens:
+		if t != null and t.is_valid():
+			t.kill()
+	_reveal_tweens.clear()
+
+func _animate_reveal(root: VBoxContainer, item: Dictionary) -> void:
+	## Carat, Cut and Clarity count and fill in one after another, centred as one block; then
+	## any inclusions, one at a time, each with what it adds to the grade; then what the three
+	## C's and the skill's own rarity are worth; then the total, the grade flying in large,
+	## the gold, and a way back out.
+	var grade: Dictionary = DeepStone.grade(item)
+	var breakdown: Dictionary = grade.get("breakdown", {})
+	var raw_carat: int = int(item.get("carat", 1))
+	var raw_cut: int = int(item.get("cut", 0))
+	var clarity: int = int(item.get("clarity", 3))
+	_reveal_row(root, "carat", "Carat", raw_carat, 1, float(raw_carat) / float(DeepStone.carat_max()), DeepUi.ACCENT, 0.0)
+	_reveal_row(root, "cut", "Cut", -1, 0, float(raw_cut + 1) / 5.0, DeepUi.ACCENT, 0.5, DeepContent.cut_name(raw_cut))
+	_reveal_row(root, "clarity", "Clarity", -1, 0, float(clarity + 1) / 6.0, DeepUi.ACCENT, 1.0, DeepContent.clarity_name(clarity))
+	var at: float = 1.6
+	var inclusions: Array = item.get("inclusions", [])
+	if not inclusions.is_empty():
+		var label := DeepUi.label(root, "Inclusions", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		label.modulate.a = 0.0
+		var heading_delay: float = at
+		var t0 := _reveal_tween()
+		t0.tween_interval(heading_delay)
+		t0.tween_callback(func() -> void:
+			if is_instance_valid(label):
+				DeepUi.pop_in(label, 0.0, 0.9, 0.2))
+		at += 0.25
+		for key in inclusions:
+			_inclusion_reveal_row(root, str(key), at)
+			at += 0.3
+		at += 0.2
+	## What each is worth toward the grade, staggered a little after the values above settle.
+	var contrib := DeepUi.vbox(root, 4)
+	contrib.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var lines: Array = [["Carat", float(breakdown.get("carat_pts", 0.0))], ["Cut", float(breakdown.get("cut_pts", 0.0))],
+		["Clarity", float(breakdown.get("clarity_pts", 0.0))], ["Rarity", float(breakdown.get("skill_pts", 0.0))]]
+	const CONTRIB_STEP := 0.15
+	for index in range(lines.size()):
+		var line_row := DeepUi.hbox(contrib, 8)
+		line_row.modulate.a = 0.0
+		var name_label := DeepUi.label(line_row, str(lines[index][0]), 12, DeepUi.MUTED)
+		name_label.custom_minimum_size.x = 70
+		var pts_label := DeepUi.label(line_row, "0.0 pts", 12, DeepUi.PAPER)
+		var target: float = float(lines[index][1])
+		var delay: float = at + float(index) * CONTRIB_STEP
+		var t := _reveal_tween()
+		t.tween_interval(delay)
+		t.tween_callback(func() -> void:
+			if not is_instance_valid(line_row) or not is_instance_valid(pts_label):
+				return
+			DeepUi.pop_in(line_row, 0.0, 0.92, 0.22)
+			_count_up_float(pts_label, 0.0, target, 0.4, " pts"))
+	at += float(lines.size()) * CONTRIB_STEP + 0.5
+	## The total, then the grade flying in large, then the gold, then a way back out.
+	var total_row := DeepUi.hbox(root, 10)
+	total_row.modulate.a = 0.0
+	total_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	DeepUi.label(total_row, "Total", 15, DeepUi.MUTED)
+	var total_label := DeepUi.title(total_row, "0", 26, DeepUi.PAPER)
+	var total_start: float = at
+	var t2 := _reveal_tween()
+	t2.tween_interval(total_start)
+	t2.tween_callback(func() -> void:
+		if not is_instance_valid(total_row) or not is_instance_valid(total_label):
+			return
+		DeepUi.pop_in(total_row, 0.0, 0.9, 0.25)
+		_count_up(total_label, 0, int(grade.score), 0.5))
+	var finale := DeepUi.center(root)
+	finale.modulate.a = 0.0
+	var finale_box := DeepUi.vbox(finale, 6)
+	var tier: Color = DeepUi.tier_color(str(grade.tier))
+	var grade_label := DeepUi.title(finale_box, str(grade.name), 40, tier, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(finale_box, "%d gold" % DeepStone.value(item), 18, DeepUi.ACCENT, HORIZONTAL_ALIGNMENT_CENTER)
+	var finale_start: float = total_start + 0.8
+	var t3 := _reveal_tween()
+	t3.tween_interval(finale_start)
+	t3.tween_callback(func() -> void:
+		if not is_instance_valid(finale) or not is_instance_valid(grade_label):
+			return
+		finale.modulate.a = 1.0
+		grade_label.pivot_offset = grade_label.size * 0.5
+		grade_label.scale = Vector2.ONE * 0.5
+		grade_label.modulate.a = 0.0
+		var fly := _reveal_tween()
+		fly.set_parallel(true)
+		fly.tween_property(grade_label, "scale", Vector2.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		fly.tween_property(grade_label, "modulate:a", 1.0, 0.3)
+		DeepAudio.play("ui_confirm", {"volume": 0.6}))
+	var again := DeepUi.center(root)
+	again.modulate.a = 0.0
+	var continue_label := DeepUi.label(again, "Click to continue", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	continue_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	continue_label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	continue_label.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_close_reveal())
+	var continue_start: float = finale_start + 0.7
+	var t4 := _reveal_tween()
+	t4.tween_interval(continue_start)
+	t4.tween_callback(func() -> void:
+		if not is_instance_valid(again) or not is_instance_valid(continue_label):
+			return
+		again.modulate.a = 1.0
+		DeepUi.breathe(continue_label, 0.5, 1.4))
+
+func _reveal_row(parent: Node, glyph: String, name: String, numeric_target: int, from_value: int, share: float, tone: Color, delay: float, text_value: String = "") -> void:
+	var row := DeepUi.hbox(parent, 10)
+	row.modulate.a = 0.0
+	DeepUi.icon(row, glyph, 22, tone, GemIcons.hint(glyph))
+	var label := DeepUi.label(row, name, 14, DeepUi.MUTED)
+	label.custom_minimum_size.x = 64
+	var value := DeepUi.title(row, "", 20, DeepUi.PAPER)
+	value.custom_minimum_size.x = 90
+	var meter := DeepUi.bar(row, 10.0, tone, Color(DeepUi.LINE, 0.7))
+	meter.custom_minimum_size = Vector2(160, 10)
+	meter.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	meter.set_values(0.0)
+	DeepUi.pop_in(row, delay, 0.9, 0.3)
+	var t := _reveal_tween()
+	t.tween_interval(delay + 0.1)
+	t.tween_callback(func() -> void:
+		if not is_instance_valid(meter) or not is_instance_valid(value):
+			return
+		meter.set_values(clampf(share, 0.0, 1.0))
+		if numeric_target >= 0:
+			_count_up(value, from_value, numeric_target, 0.5)
+		else:
+			value.text = text_value
+			DeepUi.pulse(value, 1.15, 0.3))
+
+func _inclusion_reveal_row(parent: Node, key: String, delay: float) -> void:
+	var inclusion: Dictionary = DeepContent.inclusion(key)
+	var cls: String = str(inclusion.get("class", "PINPOINT"))
+	var tone: Color = StoneCard.INCLUSION_TONES.get(cls, DeepUi.INFO)
+	var glyph: String = str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark"))
+	var score: float = float(DeepStone.INCLUSION_SCORE.get(str(inclusion.get("rarity", "COMMON")), 2.0))
+	var row := DeepUi.hbox(parent, 8)
+	row.modulate.a = 0.0
+	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	row.tooltip_text = str(inclusion.get("text", ""))
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	DeepUi.icon(row, glyph, 16, tone, str(inclusion.get("text", "")))
+	var name_label := DeepUi.label(row, str(inclusion.get("name", key)), 13, DeepUi.PAPER)
+	name_label.custom_minimum_size.x = 110
+	var sign: String = "+" if score >= 0.0 else ""
+	DeepUi.label(row, "%s%s pts" % [sign, _trim_number(score)], 13, tone)
+	var t := _reveal_tween()
+	t.tween_interval(delay)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(row):
+			DeepUi.pop_in(row, 0.0, 0.9, 0.25))
+
+func _count_up(label: Label, from: int, to: int, seconds: float) -> void:
+	if not is_instance_valid(label):
+		return
+	if DeepUi.headless():
+		label.text = str(to)
+		return
+	var apply := func(v: float) -> void:
+		if is_instance_valid(label):
+			label.text = str(int(round(v)))
+	var t := _reveal_tween()
+	t.tween_method(apply, float(from), float(to), seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+func _count_up_float(label: Label, from: float, to: float, seconds: float, suffix: String) -> void:
+	if not is_instance_valid(label):
+		return
+	if DeepUi.headless():
+		label.text = "%.1f%s" % [to, suffix]
+		return
+	var apply := func(v: float) -> void:
+		if is_instance_valid(label):
+			label.text = "%.1f%s" % [v, suffix]
+	var t := _reveal_tween()
+	t.tween_method(apply, from, to, seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 func _fill_birthstone(item: Dictionary) -> void:
 	## A Birthstone is fixed: no grade, no price and no four C's to weigh. What matters is
@@ -295,18 +660,19 @@ func _fill_birthstone(item: Dictionary) -> void:
 	var tint: Color = GemMesh.tint(item)
 	var character_key: String = str(item.get("character", ""))
 	var character: Dictionary = DeepContent.character(character_key)
-	var head := DeepUi.vbox(_details, 6)
+	var head := _head
 	DeepUi.title(head, str(item.get("name", "")), 28, tint.lightened(0.35))
 	var tags := DeepUi.hbox(head, 8)
 	DeepUi.pill(tags, "crown", "%s's Birthstone" % str(character.get("name", character_key)), tint.lightened(0.3), 13)
 	DeepUi.pill(tags, "lock", "Always set, last in the rail", DeepUi.MUTED, 13)
-	DeepUi.wrap(head, str(item.get("text", "")), 14, DeepUi.MUTED)
+	DeepUi.effect_text(head, str(item.get("text", "")), 14, DeepUi.MUTED)
 	var tiers: Array = item.get("tiers", [])
+	_page("Its tiers", "cut")
 	var how := _section("spark", "How it fires")
 	var rule: String = "After every gem has had its turn, it reads the Resonance your rail built. Every tier your final hand satisfies fires on that Resonance."
 	if tiers.any(func(t: Dictionary) -> bool: return bool(t.get("exclusive", false))):
 		rule += " An exclusive tier that fires takes the others' place."
-	DeepUi.wrap(how, rule, 13, DeepUi.PAPER)
+	DeepUi.effect_text(how, rule, 13, DeepUi.PAPER)
 	## Every tier: the hand it asks for, drawn and said, and what it does.
 	var box := _section("cut", "Its tiers" if tiers.size() > 1 else "Its tier")
 	var die: String = DiceIcons.ladder_die(tiers)
@@ -332,52 +698,40 @@ func _fill_birthstone(item: Dictionary) -> void:
 		if bool(tier.get("exclusive", false)):
 			DeepUi.chip(name_row, "Exclusive", DeepUi.ACCENT, 11)
 		## Every tier's text opens with the hand it needs, so the sentence is not said twice.
-		DeepUi.wrap(words, str(tier.get("text", "")), 13, DeepUi.PAPER)
+		DeepUi.effect_text(words, str(tier.get("text", "")), 13, DeepUi.PAPER)
 	## The rest of what the lapidary brings down with it.
 	var passive: Dictionary = character.get("passive", {})
 	if not passive.is_empty():
 		var own := _section("person", "%s's passive" % str(character.get("name", character_key)))
 		DeepUi.title(own, str(passive.get("name", "")), 17, DeepUi.ACCENT_HI)
-		DeepUi.wrap(own, str(passive.get("text", "")), 13, DeepUi.PAPER)
-	var face: String = str(character.get("birthstone", {}).get("face", ""))
-	if not face.is_empty():
-		DeepUi.stat(_details, "eye", "When it fires: " + face, DeepUi.DIM, 12)
+		DeepUi.effect_text(own, str(passive.get("text", "")), 13, DeepUi.PAPER)
 
 func _clarity_words(clarity: int) -> String:
 	match clarity:
-		5: return "Flawless: judged a Cut step better, hits half as hard again, and has its Flawless line."
-		4: return "Pristine: judged a Cut step better."
-		3: return "Clear: an honest stone with nothing frozen inside."
-	return "%s: carries %s, the quirks that make one stone unlike another." % [DeepContent.clarity_name(clarity), DeepUi.plural(DeepStone.inclusion_slots(clarity), "inclusion")]
+		5: return "Hits half as hard again, rings the rail for three times the Resonance, and has its Flawless line."
+		4: return "Rings the rail for twice the Resonance whenever it fires."
+		3: return "An honest stone with nothing frozen inside."
+	return "Carries %s, the quirks that make one stone unlike another." % DeepUi.plural(DeepStone.inclusion_slots(clarity), "inclusion")
 
-func _c_row(parent: Node, glyph: String, name: String, value: String, share: float, words: String) -> void:
-	var row := DeepUi.hbox(parent, 10)
-	DeepUi.icon(row, glyph, 20, DeepUi.ACCENT, GemIcons.hint(glyph))
-	var label := DeepUi.label(row, name, 14, DeepUi.MUTED)
-	label.custom_minimum_size.x = 60
-	var shown := DeepUi.title(row, value, 16, DeepUi.PAPER)
-	shown.custom_minimum_size.x = 90
-	var meter := DeepUi.bar(row, 8.0, DeepUi.ACCENT, Color(DeepUi.LINE, 0.7))
-	meter.custom_minimum_size = Vector2(120, 8)
-	meter.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	meter.set_values(clampf(share, 0.0, 1.0))
-	DeepUi.wrap(parent, words, 12, DeepUi.DIM)
-
-func _inclusions(item: Dictionary) -> void:
+func _inclusions(item: Dictionary, parent: Control) -> void:
 	if item.get("inclusions", []).is_empty():
 		return
-	var box := _section("spark", "Frozen inside", DeepUi.INFO)
+	## A grid, not a row per inclusion: the name column sizes to its widest pill, so every
+	## description lines up under the last one instead of staggering with the name's length.
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 8)
+	parent.add_child(grid)
 	for key in item.inclusions:
 		var inclusion: Dictionary = DeepContent.inclusion(str(key))
 		var cls: String = str(inclusion.get("class", "PINPOINT"))
 		var tone: Color = StoneCard.INCLUSION_TONES.get(cls, DeepUi.INFO)
-		var row := DeepUi.hbox(box, 10)
-		DeepUi.pill(row, str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark")), str(inclusion.get("name", key)), tone, 13).size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		var words := DeepUi.vbox(row, 1)
+		var badge := DeepUi.pill(grid, str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark")), str(inclusion.get("name", key)), tone, 13)
+		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var words := DeepUi.wrap(grid, str(inclusion.get("text", "")), 13, DeepUi.PAPER)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		DeepUi.wrap(words, str(inclusion.get("text", "")), 13, DeepUi.PAPER)
-		DeepUi.label(words, "%s · %s" % [cls.capitalize(), str(inclusion.get("rarity", "COMMON")).capitalize()], 11, DeepUi.DIM)
+		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 # --- dice --------------------------------------------------------------------------------------
 
@@ -390,7 +744,7 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 	view.configure(item, roll, false, false, DeepUi.ACCENT)
 	var faces: Array = item.get("faces", [])
 	var palette: Dictionary = DiceIcons.palette(str(item.get("key", "D6")))
-	var head := DeepUi.vbox(_details, 6)
+	var head := _head
 	DeepUi.title(head, DeepDice.describe(item), 28, palette.body.lightened(0.2))
 	var tags := DeepUi.hbox(head, 8)
 	var definition: Dictionary = DeepContent.die(str(item.get("key", "")))
@@ -405,6 +759,7 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 		elif int(roll.get("rerolls", 0)) > 0:
 			DeepUi.pill(tags, "reroll", "rerolled %s" % DeepUi.plural(int(roll.rerolls), "time"), DeepUi.INFO, 13)
 	## Its faces, each one clickable to turn the die to it.
+	_page("Its faces", "die")
 	var face_box := _section("die", "Its faces")
 	var grid := HFlowContainer.new()
 	grid.add_theme_constant_override("h_separation", 8)
@@ -479,7 +834,7 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 	stage.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage.add_child(stage)
 	var warden: bool = bool(foe.get("warden", false))
-	var head := DeepUi.vbox(_details, 6)
+	var head := _head
 	var title_row := DeepUi.hbox(head, 10)
 	DeepUi.title(title_row, str(foe.get("name", definition.get("name", key))), 28, Color("ffb0a0") if warden else DeepUi.PAPER)
 	if warden:
@@ -492,15 +847,18 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		bar.custom_minimum_size = Vector2(240, 16)
 		bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		bar.set_values(float(foe.hp) / float(maxi(1, int(foe.get("max_hp", 1)))), "%d / %d" % [int(foe.hp), int(foe.get("max_hp", 1))])
-		var effects: Array = EffectChips.for_enemy(foe, battle)
-		if not effects.is_empty():
-			var chips := EffectChips.Row.new(18)
-			head.add_child(chips)
-			chips.show_effects(effects)
-			var notes := DeepUi.vbox(head, 3)
-			for effect in effects:
-				DeepUi.stat(notes, str(effect.glyph), "%s: %s" % [str(effect.title), str(effect.text)], Color(effect.tone).lightened(0.2), 12)
-	## What it means to do this turn.
+	## What is on it and what it means to do: the page for this turn, when there is one.
+	var effects: Array = EffectChips.for_enemy(foe, battle) if foe.has("hp") else []
+	if not effects.is_empty():
+		var chips := EffectChips.Row.new(18)
+		head.add_child(chips)
+		chips.show_effects(effects)
+	if not effects.is_empty() or not foe.get("intents", []).is_empty():
+		_page("This turn", "sword")
+	if not effects.is_empty():
+		var notes := _section("spark", "On it now")
+		for effect in effects:
+			DeepUi.stat(notes, str(effect.glyph), "%s: %s" % [str(effect.title), str(effect.text)], Color(effect.tone).lightened(0.2), 12)
 	if not foe.get("intents", []).is_empty():
 		var now := _section("sword", "This turn", DeepUi.BAD)
 		var dice := DeepUi.hbox(now, 4)
@@ -518,7 +876,8 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 			if not victim.is_empty():
 				parts.append("aimed at %s" % str(victim.get("name", "")))
 			DeepUi.wrap(line, ", ".join(parts), 13, DeepUi.PAPER).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## Everything it can do.
+	## Everything it can do, and the dice it does it with.
+	_page("Its moves", "book")
 	var moves := _section("book", "Its moves")
 	var highlight: String = str(opts.get("move", ""))
 	for move in definition.get("moves", []):
@@ -533,6 +892,22 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		DeepUi.pill(dice_row, "die", str(die_key), DiceIcons.palette(str(die_key)).body, 12)
 	DeepUi.label(rolls, "Policy: %s" % str(definition.get("policy", "best")).replace("_", " "), 12, DeepUi.DIM)
 
+static func _dice_words(keys: Array) -> String:
+	## A set of five dice said the short way: each kind once, by name, with how many of it.
+	## Florin comes down with five of one die, and five copies of the same key spelled out
+	## would take the pill clean across the page.
+	var order: Array = []
+	var counts: Dictionary = {}
+	for key in keys:
+		var name: String = str(DeepContent.die(str(key)).get("name", key))
+		if not counts.has(name):
+			order.append(name)
+		counts[name] = int(counts.get(name, 0)) + 1
+	var parts: Array = []
+	for name in order:
+		parts.append(str(name) if int(counts[name]) <= 1 else "%s ×%d" % [str(name), int(counts[name])])
+	return ", ".join(parts)
+
 func _move_row(parent: Node, move: Dictionary, highlight: bool) -> void:
 	var panel := DeepUi.panel(parent, Color(DeepUi.BAD, 0.12) if highlight else Color(1, 1, 1, 0.03), Color(DeepUi.BAD, 0.6) if highlight else Color(0, 0, 0, 0), 8, 8)
 	var box := DeepUi.vbox(panel, 4)
@@ -543,7 +918,7 @@ func _move_row(parent: Node, move: Dictionary, highlight: bool) -> void:
 	var described: Dictionary = DeepPatterns.describe(trigger, 0)
 	DiceIcons.build(head, described, 16, DeepUi.MUTED)
 	var when: String = "Its every turn." if str(trigger.get("kind", "always")) == "always" else "When its dice show: " + str(described.words).trim_suffix(".").to_lower() + "."
-	DeepUi.label(box, when, 12, DeepUi.DIM)
+	DeepUi.label(box, when , 12, DeepUi.DIM)
 	for effect in move.get("effects", []):
 		DeepUi.stat(box, _effect_glyph(str(effect.get("kind", ""))), _effect_words(effect), DeepUi.PAPER, 13)
 
@@ -574,7 +949,7 @@ func _amount_words(expr: Variant) -> String:
 	if not expr is Dictionary:
 		return "some"
 	if expr.has("const"):
-		return str(int(expr.const))
+		return str(int(expr.const ))
 	if expr.has("term"):
 		return str(TERM_WORDS.get(str(expr.term), str(expr.term).replace("_", " ")))
 	var args: Array = []
@@ -605,11 +980,117 @@ func _resolved_words(effect: Dictionary) -> String:
 
 # --- announcements -----------------------------------------------------------------------------
 
+func _fill_lapidary(character_key: String, tone: Color) -> void:
+	## The plate fills the light, the Birthstone turns in front of it at the corner, and the
+	## page beside them is written one line at a time.
+	var character: Dictionary = DeepContent.character(character_key)
+	var stone: Dictionary = DeepStone.birthstone(character_key)
+	var portrait: Control = load("res://view/home/roster.gd").Portrait.new(character_key, Vector2(320, 380), false, false, true)
+	portrait.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_KEEP_SIZE, 16)
+	portrait.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_stage.add_child(portrait)
+	var gem_holder: Control = null
+	if not stone.is_empty():
+		## Small, in front of the plate and low to one side, the way a stone is held up to
+		## the light beside the person whose it is.
+		gem_holder = Control.new()
+		gem_holder.custom_minimum_size = Vector2(180, 180)
+		gem_holder.size = Vector2(180, 180)
+		gem_holder.mouse_filter = Control.MOUSE_FILTER_PASS
+		_stage.add_child(gem_holder)
+		gem_holder.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_KEEP_SIZE, 6)
+		gem_holder.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		gem_holder.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		var view := GemView.new()
+		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		view.set_slot(150.0)
+		view.set_drift(true)
+		view.set_spin(0.5)
+		view.configure(stone)
+		view.enable_interaction()
+		view.inspectable = false
+		gem_holder.add_child(view)
+	## The page: one section at a time, each waiting on the one before it.
+	var reveals: Array = []
+	var name_row := DeepUi.hbox(_head, 10)
+	DeepUi.title(name_row, str(character.get("name", character_key)), 40, tone.lightened(0.4))
+	var title: String = str(character.get("title", ""))
+	if not title.is_empty():
+		DeepUi.pill(name_row, "person", title, tone.lightened(0.2), 14).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DeepUi.gap(_head, 2)
+	var blurb := DeepUi.wrap(_head, str(character.get("text", "")), 15, DeepUi.PAPER)
+	blurb.custom_minimum_size.x = 560
+	reveals.append(blurb)
+	var page := _page("", "")
+	page.add_theme_constant_override("separation", 18)
+	var stats := DeepUi.hbox(page, 14)
+	DeepUi.pill(stats, "heart", "%d health" % int(character.get("hp", 0)), DeepUi.HP, 14)
+	DeepUi.pill(stats, "gem", "%s" % DeepUi.plural(character.get("sockets", []).size(), "socket"), DeepUi.ACCENT, 14)
+	DeepUi.pill(stats, "die", _dice_words(character.get("dice", [])), DeepUi.INFO, 14)
+	reveals.append(stats)
+	var passive: Dictionary = character.get("passive", {})
+	if not passive.is_empty():
+		var own := DeepUi.vbox(page, 6)
+		DeepUi.section(own, "spark", "Their gift", DeepUi.ACCENT_HI)
+		DeepUi.title(own, str(passive.get("name", "")), 20, DeepUi.ACCENT_HI)
+		DeepUi.effect_text(own, str(passive.get("text", "")), 15, DeepUi.PAPER).custom_minimum_size.x = 560
+		reveals.append(own)
+	if not stone.is_empty():
+		var birth := DeepUi.vbox(page, 6)
+		DeepUi.section(birth, "crown", "Their Birthstone", tone.lightened(0.3))
+		DeepUi.title(birth, str(stone.get("name", "")), 20, tone.lightened(0.35))
+		DeepUi.effect_text(birth, str(stone.get("text", "")), 15, DeepUi.PAPER).custom_minimum_size.x = 560
+		for tier in stone.get("tiers", []):
+			var line := DeepUi.hbox(birth, 8)
+			DeepUi.icon(line, "cut", 15, tone.lightened(0.2)).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var said := DeepUi.effect_text(line, "%s — %s" % [str(tier.get("name", "")), str(tier.get("text", ""))], 13, DeepUi.MUTED)
+			said.custom_minimum_size.x = 530
+			said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		reveals.append(birth)
+	if DeepUi.headless():
+		return
+	## The slow reveal: the plate comes up out of the dark, the stone lights beside it, and
+	## then each part of the page is written in turn.
+	portrait.modulate.a = 0.0
+	portrait.scale = Vector2(1.06, 1.06)
+	portrait.pivot_offset = portrait.size * 0.5
+	if gem_holder != null:
+		gem_holder.modulate.a = 0.0
+	for part in reveals:
+		(part as Control).modulate.a = 0.0
+	if _close != null:
+		_close.modulate.a = 0.0
+		_close.disabled = true
+	var reveal := create_tween()
+	reveal.tween_interval(0.35)
+	reveal.tween_property(portrait, "modulate:a", 1.0, 0.7).set_trans(Tween.TRANS_SINE)
+	reveal.parallel().tween_property(portrait, "scale", Vector2.ONE, 0.9).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if gem_holder != null:
+		reveal.tween_callback(func() -> void:
+			DeepAudio.play("gleam", {"volume": 0.8})
+			if _rays != null and is_instance_valid(_rays):
+				DeepUi.burst(_rays, _rays.size * 0.5 - Vector2(250, 40), tone.lightened(0.35), 50, 380.0, 1.1, 7.0))
+		reveal.tween_property(gem_holder, "modulate:a", 1.0, 0.6).set_trans(Tween.TRANS_SINE)
+	for part in reveals:
+		var shown: Control = part
+		reveal.tween_interval(0.22)
+		reveal.tween_callback(func() -> void:
+			DeepAudio.play("ui_tab", {"volume": 0.45})
+			if is_instance_valid(shown):
+				DeepUi.pop_in(shown, 0.0, 0.98, 0.3))
+		reveal.tween_property(shown, "modulate:a", 1.0, 0.3)
+	if _close != null:
+		reveal.tween_callback(func() -> void:
+			if is_instance_valid(_close):
+				_close.disabled = false
+				DeepUi.breathe(_close, 0.7, 1.5))
+		reveal.tween_property(_close, "modulate:a", 1.0, 0.35)
+
 func _fill_announcement(text: String, glyph: String, tone: Color) -> void:
 	var mark := DeepUi.center(_stage)
 	mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	DeepUi.icon(mark, glyph, 180, tone.lightened(0.25))
-	DeepUi.wrap(_details, text, 18, DeepUi.PAPER).custom_minimum_size.x = 520
+	DeepUi.wrap(_page("", ""), text, 18, DeepUi.PAPER).custom_minimum_size.x = 520
 
 # --- light -------------------------------------------------------------------------------------
 
@@ -617,8 +1098,8 @@ class Halo extends Control:
 	## The pool of light the inspected thing stands in.
 	var tone: Color
 	var _clock: float = 0.0
-	func _init(colour: Color) -> void:
-		tone = colour
+	func _init(color: Color) -> void:
+		tone = color
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 	func _process(delta: float) -> void:
 		_clock += delta
@@ -637,17 +1118,18 @@ class Halo extends Control:
 			draw_circle(Vector2(x, size.y * 0.86 - t * size.y * 0.8), 1.8, Color(tone.lightened(0.5), 0.8 * (1.0 - t)))
 
 class Rays extends Control:
-	## God rays wheeling behind a won thing.
+	## God rays wheeling behind a won thing, from where it stands: `offset` from the middle.
 	var tone: Color
+	var offset := Vector2(-250, -20)
 	var _clock: float = 0.0
-	func _init(colour: Color) -> void:
-		tone = colour
+	func _init(color: Color) -> void:
+		tone = color
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 	func _process(delta: float) -> void:
 		_clock += delta
 		queue_redraw()
 	func _draw() -> void:
-		var centre := size * 0.5 + Vector2(-250, -20)
+		var centre := size * 0.5 + offset
 		var reach: float = size.length()
 		var count := 14
 		for i in range(count):

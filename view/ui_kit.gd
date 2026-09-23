@@ -27,24 +27,56 @@ const HP_LOST := Color("5a2a2a")
 const BLOCK := Color("6fa8ff")
 const POISON := Color("9ad35a")
 const ORE := Color("e8a94f")
-const TIER_COLOURS := {"ROUGH": Color("9aa3b2"), "FINE": Color("7fd1a8"), "PRECIOUS": Color("6fa8ff"), "EXQUISITE": Color("c58bff"), "PEERLESS": Color("ffcf5a")}
+## A pale lavender: Resonance's mark and, on its own, a fallback for anywhere its word can't
+## be shown letter by letter (see EFFECT_KEYWORDS' "rainbow" flag, which is how the word itself
+## is colored — flat text this close to PAPER's near-white would simply vanish into it).
+const RESONANCE := Color("e4cdff")
+## Opal's stand-in wherever one flat color has to be picked: a border, a background, a
+## dot. The pack gives an opal a near-white body hue, which is right for the stone and
+## wrong for the interface — beside a White gem the two would be the same pale wash. This
+## is the middle of the rainbow its word and its mark are drawn with, and nobody else's.
+const OPAL_TONE := Color("8ff0dc")
+const TIER_colorS := {"ROUGH": Color("9aa3b2"), "FINE": Color("7fd1a8"), "PRECIOUS": Color("6fa8ff"), "EXQUISITE": Color("c58bff"), "PEERLESS": Color("ffcf5a")}
+## The stems an effect's own text is picked out by, wherever it is read as prose: "Damage",
+## "damages" and "damaged" all catch on "damage". Keyed lowercase; matched case-insensitively,
+## colored as the case it was found in. Poison here is violet on purpose, not POISON's sickly
+## status-bar green: that constant is a live gameplay reading, this one is just the word.
+## Resonance is nobody's one color, so instead of "color" it carries "rainbow": each of its
+## letters gets its own pale hue off the wheel, and its own mark rides right after it.
+const EFFECT_KEYWORDS: Dictionary = {"damage": {"color": Color("ff7a6b")}, "block": {"color": Color("6fa8ff")},
+	"heal": {"color": Color("3fb56b")}, "poison": {"color": Color("b58cff")}, "ore": {"color": Color("e8a94f")},
+	"resonance": {"color": RESONANCE, "icon": "resonance", "rainbow": true},
+	"opal": {"color": OPAL_TONE, "rainbow": true}}
 ## The mark each chamber kind is drawn with, anywhere a chamber is shown.
 const CHAMBER_GLYPHS: Dictionary = {"fight": "sword", "elite": "skull", "vein": "pick", "oddity": "question", "motherlode": "gem",
-	"merchant": "purse", "landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch"}
-const CHAMBER_COLOURS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff5f7a"), "vein": Color("ffc56a"), "oddity": Color("b58cff"),
-	"motherlode": Color("ffe07a"), "merchant": Color("5fd4c8"), "landing": Color("7fd1a8"), "warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6")}
+	"merchant": "purse", "smithy": "anvil", "carver": "face", "landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch",
+	"well": "drop"}
+const CHAMBER_colorS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff5f7a"), "vein": Color("ffc56a"), "oddity": Color("b58cff"),
+	"motherlode": Color("ffe07a"), "merchant": Color("5fd4c8"), "smithy": Color("8fb8ff"), "carver": Color("f2a0d0"), "landing": Color("7fd1a8"),
+	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8")}
 
 static var _display: Font = null
+static var _bold: Font = null
 static var _glow: GradientTexture2D = null
 static var _dot: GradientTexture2D = null
+static var _keyword_regex: RegEx = null
 
-static func colour(key: String) -> Color:
-	## A colour family's hue from the pack.
-	var hue: String = str(DeepContent.colour(key).get("hue", ""))
+static func color(key: String) -> Color:
+	## A color family's hue from the pack, except Opal's: see OPAL_TONE.
+	if key == DeepContent.OPAL:
+		return OPAL_TONE
+	var hue: String = str(DeepContent.color(key).get("hue", ""))
 	return Color(hue) if not hue.is_empty() else PAPER
 
-static func tier_colour(tier: String) -> Color:
-	return TIER_COLOURS.get(tier, PAPER)
+static func rainbow_at(t: float, saturation: float = 0.32) -> Color:
+	return GemIcons.rainbow_at(t, saturation)
+
+static func is_rainbow(color_key: String) -> bool:
+	## Whether a gem color has to be drawn as all of them. Only the opals.
+	return color_key == DeepContent.OPAL
+
+static func tier_color(tier: String) -> Color:
+	return TIER_colorS.get(tier, PAPER)
 
 static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
@@ -62,6 +94,17 @@ static func display_font() -> Font:
 		face.spacing_glyph = 1
 		_display = face
 	return _display
+
+static func bold_font() -> Font:
+	## A heavier weight of the system's plain face, for body text that must catch the eye
+	## before anything else on the page: an effect's text, a value the player is meant to read.
+	if _bold == null:
+		var system := SystemFont.new()
+		system.font_names = PackedStringArray(["Segoe UI", "Helvetica Neue", "Arial", "DejaVu Sans", "sans-serif"])
+		system.font_weight = 700
+		system.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+		_bold = system
+	return _bold
 
 static func glow_texture() -> GradientTexture2D:
 	## A soft radial light, shared by every halo, beam and 2D particle.
@@ -154,7 +197,6 @@ static func theme(scale: float = 1.0) -> Theme:
 	t.set_stylebox("hover", "PopupMenu", flat(ACCENT_DIM, Color(0, 0, 0, 0), 6, 4))
 	t.set_stylebox("panel", "TooltipPanel", flat(Color(INK, 0.96), LINE_HI, 6, 9))
 	t.set_color("font_color", "TooltipLabel", PAPER)
-	t.set_stylebox("panel", "ScrollContainer", flat(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 0))
 	for bar in ["VScrollBar", "HScrollBar"]:
 		t.set_stylebox("scroll", bar, flat(Color(1, 1, 1, 0.03), Color(0, 0, 0, 0), 4, 0))
 		t.set_stylebox("grabber", bar, flat(Color(LINE_HI, 0.8), Color(0, 0, 0, 0), 4, 3))
@@ -213,6 +255,10 @@ static func label(parent: Node, text: String, size: int = 15, color: Color = PAP
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	l.horizontal_alignment = align
+	## Centred down the label's own box. A label in a row is stretched to the row's height,
+	## and text drawn from the top of that box sits a few pixels above the mark beside it —
+	## which is every misaligned word on every strip and dock in the game.
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(l)
 	return l
@@ -223,6 +269,67 @@ static func wrap(parent: Node, text: String, size: int = 13, color: Color = MUTE
 	if width > 0.0:
 		l.custom_minimum_size.x = width
 	return l
+
+static func _keyword_pattern() -> RegEx:
+	if _keyword_regex == null:
+		_keyword_regex = RegEx.new()
+		_keyword_regex.compile("(?i)\\b(%s)\\w*" % "|".join(EFFECT_KEYWORDS.keys()))
+	return _keyword_regex
+
+static func push_effect_text(rtl: RichTextLabel, text: String) -> void:
+	## Writes `text` into an already-open RichTextLabel, coloring damage/block/heal/poison/
+	## ore/resonance stems (see EFFECT_KEYWORDS) as it goes — Resonance also gets its mark
+	## inline — and leaving everything else at whatever color the caller already pushed.
+	## Splits the work from `effect_text()` below so a caller that wants to keep writing to
+	## the label after (a multiplier, a badge) can.
+	var cursor: int = 0
+	for m in _keyword_pattern().search_all(text):
+		if m.get_start() > cursor:
+			rtl.add_text(text.substr(cursor, m.get_start() - cursor))
+		var word: String = m.get_string()
+		var stem: String = word.to_lower()
+		var entry: Dictionary = {}
+		for key in EFFECT_KEYWORDS:
+			if stem.begins_with(key):
+				entry = EFFECT_KEYWORDS[key]
+				break
+		var tone: Color = entry.get("color", PAPER)
+		if bool(entry.get("rainbow", false)):
+			var span: int = maxi(1, word.length() - 1)
+			for i in range(word.length()):
+				rtl.push_color(rainbow_at(float(i) / float(span)))
+				rtl.add_text(word[i])
+				rtl.pop()
+		else:
+			rtl.push_color(tone)
+			rtl.add_text(word)
+			rtl.pop()
+		var icon: String = str(entry.get("icon", ""))
+		if not icon.is_empty():
+			rtl.add_text(" ")
+			rtl.add_image(GemIcons.texture(icon, GemIcons.baked_size(14.0)), 13, 13, tone)
+		cursor = m.get_end()
+	if cursor < text.length():
+		rtl.add_text(text.substr(cursor))
+
+static func effect_text(parent: Node, text: String, size: int = 13, color: Color = PAPER, bold: bool = false, width: float = 0.0) -> RichTextLabel:
+	## A `wrap()` for a skill's own effect text, with its keywords picked out in color.
+	var rtl := RichTextLabel.new()
+	rtl.fit_content = true
+	rtl.scroll_active = false
+	rtl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rtl.mouse_filter = Control.MOUSE_FILTER_PASS
+	rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if width > 0.0:
+		rtl.custom_minimum_size.x = width
+	if bold:
+		rtl.push_font(bold_font())
+	rtl.push_font_size(size)
+	rtl.push_color(color)
+	push_effect_text(rtl, text)
+	rtl.pop_all()
+	parent.add_child(rtl)
+	return rtl
 
 static func title(parent: Node, text: String, size: int = 26, color: Color = PAPER, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	## A display-face title with a soft shadow, for the name of a place or a moment.
@@ -241,10 +348,14 @@ static func heading(parent: Node, text: String, size: int = 13, color: Color = A
 
 static func section(parent: Node, glyph: String, text: String, color: Color = ACCENT, size: int = 14) -> HBoxContainer:
 	## A section header: its mark, its name in capitals, and a rule running out to the edge.
+	## Mark, name and rule all take only the height they need and centre on the row, so the
+	## three line up on one another whatever font metrics the name's face brings with it.
 	var row := hbox(parent, 8)
 	if not glyph.is_empty():
-		icon(row, glyph, size + 4, color)
-	heading(row, text, size, color)
+		icon(row, glyph, size + 4, color).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var head := heading(row, text, size, color)
+	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	head.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var line := ColorRect.new()
 	line.color = Color(color, 0.25)
 	line.custom_minimum_size = Vector2(20, 1)
@@ -254,32 +365,60 @@ static func section(parent: Node, glyph: String, text: String, color: Color = AC
 	row.add_child(line)
 	return row
 
-static func icon(parent: Node, glyph: String, size: float = 18.0, tint: Color = PAPER, tooltip: String = "") -> TextureRect:
-	return GemIcons.glyph(parent, glyph, size, tint, tooltip)
+static func icon(parent: Node, glyph: String, size: float = 18.0, tint: Color = PAPER, tooltip: String = "", rainbow: bool = false) -> TextureRect:
+	return GemIcons.glyph(parent, glyph, size, tint, tooltip, rainbow)
 
-static func stat(parent: Node, glyph: String, text: String, color: Color = PAPER, size: int = 15, tooltip: String = "") -> HBoxContainer:
+static func rainbow_word(parent: Node, text: String, size: int = 13, saturation: float = 0.42) -> HBoxContainer:
+	## A word no single color can carry, set letter by letter off the wheel. One label a
+	## letter rather than one rich label: a RichTextLabel in a row of sized siblings needs
+	## a width told to it or it draws nothing at all, and a word this short would rather
+	## lose a little kerning than its existence.
+	var row := hbox(parent, 0)
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	var span: int = maxi(1, text.length() - 1)
+	for i in range(text.length()):
+		var letter := label(row, text[i], size, rainbow_at(float(i) / float(span), saturation))
+		letter.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return row
+
+static func stat(parent: Node, glyph: String, text: String, color: Color = PAPER, size: int = 15, tooltip: String = "", rainbow: bool = false) -> HBoxContainer:
 	## A mark and a number, read as one thing: the way every quantity is shown.
 	var row := hbox(parent, maxi(3, size / 4))
 	row.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.tooltip_text = tooltip
-	var mark := icon(row, glyph, size + 3, color, tooltip)
+	var mark := icon(row, glyph, size + 3, color, tooltip, rainbow)
 	mark.mouse_filter = Control.MOUSE_FILTER_PASS
+	if rainbow:
+		## Never named "Value": that name means a Label something rewrites in place, and a
+		## word set letter by letter is a row of them.
+		rainbow_word(row, text, size)
+		return row
+	if text.is_empty():
+		## A mark with no number beside it yet: no gap after it and nothing pushing it over,
+		## or it sits off-centre in whatever holds it. The label itself stays, empty and of
+		## no width, because a row whose number is written later looks it up by name.
+		row.add_theme_constant_override("separation", 0)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var value := label(row, text, size, color)
 	value.name = "Value"
 	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	return row
 
-static func pill(parent: Node, glyph: String, text: String, color: Color, size: int = 13, tooltip: String = "") -> PanelContainer:
+static func pill(parent: Node, glyph: String, text: String, color: Color, size: int = 13, tooltip: String = "", rainbow: bool = false) -> PanelContainer:
 	## A stat in a rounded capsule, for headers and strips.
 	var box := PanelContainer.new()
-	var style := flat(Color(color, 0.12), Color(color, 0.45), 20, 5)
-	style.content_margin_left = 9
-	style.content_margin_right = 11
+	## The outline is mixed down onto the dark rather than laid over it at less than full
+	## alpha: where a capsule's ends curve, the ring doubles back on itself inside one pixel
+	## and a see-through outline reads heavier there than it does down the sides.
+	var style := flat(Color(color, 0.12), SLATE_LOW.lerp(color, 0.45), 20, 5)
+	## A pill with nothing but a mark in it is padded evenly, so the mark sits in its middle.
+	style.content_margin_left = 9 if not text.is_empty() or rainbow else 8
+	style.content_margin_right = 11 if not text.is_empty() or rainbow else 8
 	box.add_theme_stylebox_override("panel", style)
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.tooltip_text = tooltip
 	parent.add_child(box)
-	stat(box, glyph, text, color, size, tooltip)
+	stat(box, glyph, text, color, size, tooltip, rainbow)
 	return box
 
 static func button(parent: Node, text: String, callback: Callable = Callable(), size: int = 15) -> Button:
@@ -300,14 +439,15 @@ static func voice(control: Control, sound: String) -> Control:
 	control.set_meta("sound", sound)
 	return control
 
-static func icon_button(parent: Node, glyph: String, text: String, callback: Callable = Callable(), size: int = 15, tint: Color = PAPER) -> Button:
-	## A button that says what it does with a mark as well as a word.
+static func icon_button(parent: Node, glyph: String, text: String, callback: Callable = Callable(), size: int = 15, tint: Color = PAPER, rainbow: bool = false) -> Button:
+	## A button that says what it does with a mark as well as a word. A rainbow mark
+	## carries its own color, so the tint above it has to be white or it flattens.
 	var b := button(parent, text, callback, size)
 	var edge: float = float(size) + 5.0
-	b.icon = GemIcons.texture(glyph, GemIcons.baked_size(edge * 1.5))
+	b.icon = GemIcons.texture(glyph, GemIcons.baked_size(edge * 1.5), rainbow)
 	b.add_theme_constant_override("icon_max_width", int(edge))
-	b.add_theme_color_override("icon_normal_color", tint)
-	b.add_theme_color_override("icon_hover_color", tint.lightened(0.25))
+	b.add_theme_color_override("icon_normal_color", Color.WHITE if rainbow else tint)
+	b.add_theme_color_override("icon_hover_color", Color.WHITE if rainbow else tint.lightened(0.25))
 	b.expand_icon = false
 	return b
 
@@ -341,8 +481,8 @@ static func primary(parent: Node, glyph: String, text: String, callback: Callabl
 	b.add_theme_color_override("icon_disabled_color", Color(INK, 0.6))
 	return b
 
-static func tab_button(parent: Node, glyph: String, text: String, active: bool, callback: Callable, size: int = 14, badge: int = 0) -> Button:
-	var b := icon_button(parent, glyph, text if badge <= 0 else "%s  %d" % [text, badge], callback, size, ACCENT if active else MUTED)
+static func tab_button(parent: Node, glyph: String, text: String, active: bool, callback: Callable, size: int = 14, badge: int = 0, rainbow: bool = false) -> Button:
+	var b := icon_button(parent, glyph, text if badge <= 0 else "%s  %d" % [text, badge], callback, size, ACCENT if active else MUTED, rainbow)
 	b.set_meta("sound", "ui_tab")
 	if active:
 		var on := button_style(Color(ACCENT, 0.16), ACCENT, 10)
@@ -352,6 +492,30 @@ static func tab_button(parent: Node, glyph: String, text: String, active: bool, 
 	else:
 		b.add_theme_stylebox_override("normal", button_style(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 10))
 	return b
+
+static func pager(parent: Node, page: int, pages: int, turn: Callable, size: int = 13) -> HBoxContainer:
+	## Back and forth through a list longer than its page: "<  2 of 5  >". Pages never
+	## scroll; a long list is turned like a book. `turn` is given the page to show.
+	var row := hbox(parent, 6)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var back := icon_button(row, "prev", "", func() -> void: turn.call(page - 1), size, PAPER)
+	back.disabled = page <= 0
+	back.tooltip_text = "Previous page"
+	var where := label(row, "%d of %d" % [page + 1, pages], size, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	where.custom_minimum_size.x = 60
+	var ahead := icon_button(row, "next", "", func() -> void: turn.call(page + 1), size, PAPER)
+	ahead.disabled = page >= pages - 1
+	ahead.tooltip_text = "Next page"
+	return row
+
+static func pages(count: int, per_page: int) -> int:
+	return maxi(1, ceili(float(count) / float(maxi(1, per_page))))
+
+static func page_of(items: Array, page: int, per_page: int) -> Array:
+	## The items on one page, with the page held inside the list's range.
+	var last: int = pages(items.size(), per_page) - 1
+	var at: int = clampi(page, 0, last)
+	return items.slice(at * per_page, (at + 1) * per_page)
 
 static func selected_style(button: Button, tone: Color = ACCENT) -> void:
 	var on := button_style(Color(tone, 0.22), tone, 10)
@@ -383,7 +547,7 @@ static func rule(parent: Node, color: Color = LINE) -> Control:
 	parent.add_child(line)
 	return line
 
-static func chip(parent: Node, text: String, color: Color, size: int = 12) -> PanelContainer:
+static func chip(parent: Node, text: String, color: Color, size: int = 12, rainbow: bool = false) -> PanelContainer:
 	var box := PanelContainer.new()
 	var style := flat(Color(color, 0.16), Color(color, 0.55), 6, 5)
 	style.content_margin_left = 7
@@ -391,6 +555,9 @@ static func chip(parent: Node, text: String, color: Color, size: int = 12) -> Pa
 	box.add_theme_stylebox_override("panel", style)
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	parent.add_child(box)
+	if rainbow:
+		rainbow_word(box, text, size)
+		return box
 	label(box, text, size, color)
 	return box
 
@@ -473,7 +640,7 @@ class Bar extends Control:
 	var fill: Color = DeepUi.HP
 	var back: Color = DeepUi.HP_LOST
 	var overlay: float = 0.0
-	var overlay_colour: Color = DeepUi.BLOCK
+	var overlay_color: Color = DeepUi.BLOCK
 	var text: String = ""
 	var glyph: String = ""
 	var rounded: bool = true
@@ -486,7 +653,7 @@ class Bar extends Control:
 	var _shown: float = -1.0
 	var _ghost: float = 1.0
 	var _flash: float = 0.0
-	var _flash_colour: Color = Color.WHITE
+	var _flash_color: Color = Color.WHITE
 	var _clock: float = 0.0
 	var _shown_overlay: float = 0.0
 	func _init(height: float = 10.0) -> void:
@@ -499,7 +666,7 @@ class Bar extends Control:
 			_ghost = new_ratio
 		elif not is_equal_approx(new_ratio, ratio):
 			_flash = 1.0
-			_flash_colour = Color(1, 0.35, 0.3) if new_ratio < ratio else Color(0.6, 1, 0.7)
+			_flash_color = Color(1, 0.35, 0.3) if new_ratio < ratio else Color(0.6, 1, 0.7)
 			if new_ratio > _ghost:
 				_ghost = new_ratio
 		ratio = new_ratio
@@ -547,9 +714,9 @@ class Bar extends Control:
 			_box(Rect2(Vector2(size.x * (_shown - cut), 0), Vector2(size.x * cut, size.y)), Color(1, 0.95, 0.85, pulse), 0.0)
 		if _shown_overlay > 0.0:
 			var h: float = maxf(3.0, size.y * 0.32)
-			_box(Rect2(Vector2(0, size.y - h), Vector2(size.x * _shown_overlay, h)), overlay_colour, radius * 0.5)
+			_box(Rect2(Vector2(0, size.y - h), Vector2(size.x * _shown_overlay, h)), overlay_color, radius * 0.5)
 		if _flash > 0.0:
-			_box(r, Color(_flash_colour, 0.35 * _flash), radius)
+			_box(r, Color(_flash_color, 0.35 * _flash), radius)
 		var outline := StyleBoxFlat.new()
 		outline.bg_color = Color(0, 0, 0, 0)
 		outline.border_color = Color(0, 0, 0, 0.55)
@@ -563,14 +730,14 @@ class Bar extends Control:
 			var at := Vector2((size.x - measured.x) * 0.5, size.y * 0.5 + font.get_ascent(font_size) * 0.5 - font.get_descent(font_size) * 0.5)
 			draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 3, Color(0, 0, 0, 0.7))
 			draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DeepUi.PAPER)
-	func _box(rect: Rect2, colour: Color, radius: float) -> void:
+	func _box(rect: Rect2, color: Color, radius: float) -> void:
 		if rect.size.x <= 0.5:
 			return
 		if radius <= 0.5:
-			draw_rect(rect, colour)
+			draw_rect(rect, color)
 			return
 		var box := StyleBoxFlat.new()
-		box.bg_color = colour
+		box.bg_color = color
 		box.set_corner_radius_all(int(minf(radius, rect.size.x * 0.5)))
 		box.anti_aliasing = true
 		draw_style_box(box, rect)
@@ -664,10 +831,32 @@ static func glow(parent: Control, color: Color, strength: float = 0.5, scale: fl
 		light.set_anchor_and_offset(SIDE_BOTTOM, 0.5 + scale * 0.5, 0)
 	return light
 
+static func held(shown: Control) -> Control:
+	## A drag preview hangs off the pointer by its middle. Godot pins one by its top left
+	## corner, which makes everything picked up jump down and to the right as it is lifted.
+	var holder := Control.new()
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var edge: Vector2 = shown.custom_minimum_size if shown.custom_minimum_size != Vector2.ZERO else shown.size
+	shown.position = - edge * 0.5
+	holder.add_child(shown)
+	return holder
+
 static func clear(node: Node) -> void:
 	for child in node.get_children():
 		node.remove_child(child)
 		child.queue_free()
+
+static func stone_marks(item: Dictionary) -> String:
+	## Everything about one stone or one die that a card draws, as one string. A thing worked
+	## on down the mine keeps its id, so a view that rebuilds on the id alone would go on
+	## drawing the one that was there before.
+	var out: String = "%s%s%s%s" % [str(item.get("id", "")), str(item.get("shape", "")), str(item.get("engraving", "")),
+		"a" if bool(item.get("appraised", false)) else ""]
+	for face in item.get("faces", []):
+		out += "%d%s," % [int(face.get("value", 0)), str(face.get("kind", ""))]
+	if item.has("cut"):
+		out += "/%d/%d/%d/%s" % [int(item.get("carat", 0)), int(item.get("cut", 0)), int(item.get("clarity", 0)), str(item.get("inclusions", []))]
+	return out
 
 static func stone_name(stone: Dictionary) -> String:
 	return DeepStone.name(stone) if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone)

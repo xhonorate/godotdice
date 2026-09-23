@@ -3,13 +3,13 @@ extends Node3D
 ## crossing the room, shockwaves, shields, coins and dust. Each effect builds its own nodes
 ## and frees them when it is done, so the chamber holds nothing it is not showing.
 ##
-## Effects are presentation only. They are told where and what colour, never what happened.
+## Effects are presentation only. They are told where and what color, never what happened.
 
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
 
 ## 3 is everything; 2 thins the bursts; 1 is the least that still reads.
 var quality: int = 3
-## Short-lived lights the lens-flare overlay should dress: {position, colour, strength, size, life, age}.
+## Short-lived lights the lens-flare overlay should dress: {position, color, strength, size, life, age}.
 var flares: Array = []
 
 static var _add_material: StandardMaterial3D = null
@@ -20,7 +20,7 @@ static var _stretched: QuadMesh = null
 # --- shared resources ------------------------------------------------------------------------
 
 static func glow_material() -> StandardMaterial3D:
-	## Additive camera-facing light, tinted by each particle's colour.
+	## Additive camera-facing light, tinted by each particle's color.
 	if _add_material == null:
 		var m := StandardMaterial3D.new()
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -64,22 +64,22 @@ static func quad(additive: bool = true) -> QuadMesh:
 		return soft
 	return _quad
 
-static func fade_ramp(colour: Color, peak: float = 1.0, hold: float = 0.2) -> GradientTexture1D:
+static func fade_ramp(color: Color, peak: float = 1.0, hold: float = 0.2) -> GradientTexture1D:
 	var gradient := Gradient.new()
-	gradient.set_color(0, Color(colour, 0.0))
-	gradient.set_color(1, Color(colour, 0.0))
-	gradient.add_point(hold, Color(colour, peak))
-	gradient.add_point(1.0 - hold, Color(colour, peak * 0.8))
+	gradient.set_color(0, Color(color, 0.0))
+	gradient.set_color(1, Color(color, 0.0))
+	gradient.add_point(hold, Color(color, peak))
+	gradient.add_point(1.0 - hold, Color(color, peak * 0.8))
 	var texture := GradientTexture1D.new()
 	texture.gradient = gradient
 	return texture
 
-static func burst_ramp(colour: Color) -> GradientTexture1D:
-	## White-hot at birth, the colour through its life, nothing at the end.
+static func burst_ramp(color: Color) -> GradientTexture1D:
+	## White-hot at birth, the color through its life, nothing at the end.
 	var gradient := Gradient.new()
-	gradient.set_color(0, Color(colour.lightened(0.7), 1.0))
-	gradient.set_color(1, Color(colour, 0.0))
-	gradient.add_point(0.25, Color(colour, 1.0))
+	gradient.set_color(0, Color(color.lightened(0.7), 1.0))
+	gradient.set_color(1, Color(color, 0.0))
+	gradient.add_point(0.25, Color(color, 1.0))
 	var texture := GradientTexture1D.new()
 	texture.gradient = gradient
 	return texture
@@ -275,8 +275,8 @@ func _process(delta: float) -> void:
 		if float(flare.age) >= float(flare.life):
 			flares.erase(flare)
 
-func add_flare(at: Vector3, colour: Color, strength: float = 1.0, size: float = 1.0, life: float = 0.5) -> void:
-	flares.append({"position": at, "colour": colour, "strength": strength, "size": size, "life": life, "age": 0.0})
+func add_flare(at: Vector3, color: Color, strength: float = 1.0, size: float = 1.0, life: float = 0.5) -> void:
+	flares.append({"position": at, "color": color, "strength": strength, "size": size, "life": life, "age": 0.0})
 
 func _amount(count: int) -> int:
 	return maxi(1, int(float(count) * [0.35, 0.35, 0.65, 1.0][clampi(quality, 0, 3)]))
@@ -299,7 +299,7 @@ func _burst(at: Vector3, amount: int, lifetime: float, process: ParticleProcessM
 
 # --- bursts ------------------------------------------------------------------------------------
 
-func sparks(at: Vector3, colour: Color, amount: int = 40, speed: float = 5.0, lifetime: float = 0.6, size: float = 0.06) -> void:
+func sparks(at: Vector3, color: Color, amount: int = 40, speed: float = 5.0, lifetime: float = 0.6, size: float = 0.06) -> void:
 	## A spray of hot points thrown out from a hit and pulled down.
 	var m := ParticleProcessMaterial.new()
 	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
@@ -314,10 +314,10 @@ func sparks(at: Vector3, colour: Color, amount: int = 40, speed: float = 5.0, li
 	m.scale_min = size * 0.6
 	m.scale_max = size * 1.4
 	m.scale_curve = shrink_curve()
-	m.color_ramp = burst_ramp(colour)
+	m.color_ramp = burst_ramp(color)
 	_burst(at, amount, lifetime, m, _stretched_quad() if speed > 4.0 else quad(true))
 
-func glow_burst(at: Vector3, colour: Color, size: float = 1.6, seconds: float = 0.35) -> void:
+func glow_burst(at: Vector3, color: Color, size: float = 1.6, seconds: float = 0.35) -> void:
 	## A single bloom of light where something landed.
 	var m := ParticleProcessMaterial.new()
 	m.gravity = Vector3.ZERO
@@ -326,10 +326,10 @@ func glow_burst(at: Vector3, colour: Color, size: float = 1.6, seconds: float = 
 	m.scale_min = size
 	m.scale_max = size
 	m.scale_curve = swell_curve()
-	m.color_ramp = burst_ramp(colour)
+	m.color_ramp = burst_ramp(color)
 	_burst(at, 2, seconds, m, quad(true))
 
-func puff(at: Vector3, colour: Color, amount: int = 14, size: float = 0.7, lifetime: float = 1.2, rise: float = 0.4, additive: bool = false) -> void:
+func puff(at: Vector3, color: Color, amount: int = 14, size: float = 0.7, lifetime: float = 1.2, rise: float = 0.4, additive: bool = false) -> void:
 	## A cloud: poison, dust thrown up, smoke off a spent gem.
 	var m := ParticleProcessMaterial.new()
 	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
@@ -344,10 +344,10 @@ func puff(at: Vector3, colour: Color, amount: int = 14, size: float = 0.7, lifet
 	m.scale_min = size * 0.6
 	m.scale_max = size * 1.2
 	m.scale_curve = swell_curve()
-	m.color_ramp = fade_ramp(colour, 0.7 if not additive else 0.9, 0.15)
+	m.color_ramp = fade_ramp(color, 0.7 if not additive else 0.9, 0.15)
 	_burst(at, amount, lifetime, m, quad(additive))
 
-func rise(at: Vector3, colour: Color, amount: int = 28, spread: float = 1.2, lifetime: float = 1.4) -> void:
+func rise(at: Vector3, color: Color, amount: int = 28, spread: float = 1.2, lifetime: float = 1.4) -> void:
 	## Motes of light floating upward: healing, cleansing, a gem's blessing.
 	var m := ParticleProcessMaterial.new()
 	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
@@ -362,7 +362,7 @@ func rise(at: Vector3, colour: Color, amount: int = 28, spread: float = 1.2, lif
 	m.scale_min = 0.06
 	m.scale_max = 0.16
 	m.scale_curve = shrink_curve()
-	m.color_ramp = burst_ramp(colour)
+	m.color_ramp = burst_ramp(color)
 	var p := _burst(at, amount, lifetime, m, quad(true))
 	p.explosiveness = 0.4
 
@@ -382,7 +382,7 @@ func dust_fall(amount: int = 60, width: float = 9.0) -> void:
 	var p := _burst(Vector3(0, 7.2, -4.0), amount, 1.6, m, quad(false))
 	p.explosiveness = 0.5
 
-func ring_wave(at: Vector3, colour: Color, radius: float = 3.0, seconds: float = 0.55, width: float = 0.35) -> void:
+func ring_wave(at: Vector3, color: Color, radius: float = 3.0, seconds: float = 0.55, width: float = 0.35) -> void:
 	## A shockwave rolling out across the floor.
 	var node := MeshInstance3D.new()
 	node.mesh = Lowpoly.ring(1.0, width / maxf(radius, 0.1))
@@ -390,7 +390,7 @@ func ring_wave(at: Vector3, colour: Color, radius: float = 3.0, seconds: float =
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	m.albedo_color = Color(colour.lightened(0.3), 0.9)
+	m.albedo_color = Color(color.lightened(0.3), 0.9)
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	node.material_override = m
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -402,10 +402,10 @@ func ring_wave(at: Vector3, colour: Color, radius: float = 3.0, seconds: float =
 	tween.tween_property(m, "albedo_color:a", 0.0, seconds).set_ease(Tween.EASE_IN)
 	tween.chain().tween_callback(node.queue_free)
 
-func flash(at: Vector3, colour: Color, energy: float = 6.0, reach: float = 7.0, seconds: float = 0.35, flare: float = 1.0) -> void:
+func flash(at: Vector3, color: Color, energy: float = 6.0, reach: float = 7.0, seconds: float = 0.35, flare: float = 1.0) -> void:
 	## A light that blazes and dies: the room lit for a moment by what just happened.
 	var light := OmniLight3D.new()
-	light.light_color = colour
+	light.light_color = color
 	light.light_energy = energy
 	light.omni_range = reach
 	light.omni_attenuation = 1.4
@@ -417,9 +417,9 @@ func flash(at: Vector3, colour: Color, energy: float = 6.0, reach: float = 7.0, 
 	tween.tween_property(light, "light_energy", 0.0, seconds).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	tween.tween_callback(light.queue_free)
 	if flare > 0.0:
-		add_flare(at, colour, flare, 1.0, seconds * 1.2)
+		add_flare(at, color, flare, 1.0, seconds * 1.2)
 
-func shards(at: Vector3, colour: Color, count: int = 14, speed: float = 4.0, size: float = 0.14, seconds: float = 1.1) -> void:
+func shards(at: Vector3, color: Color, count: int = 14, speed: float = 4.0, size: float = 0.14, seconds: float = 1.1) -> void:
 	## Real faceted splinters thrown in arcs, tumbling and landing. What a creature leaves.
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
@@ -429,12 +429,12 @@ func shards(at: Vector3, colour: Color, count: int = 14, speed: float = 4.0, siz
 	m.roughness = 0.2
 	m.metallic = 0.3
 	m.emission_enabled = true
-	m.emission = colour
+	m.emission = color
 	m.emission_energy_multiplier = 1.2
 	m.rim_enabled = true
 	for i in range(_amount(count)):
 		var piece := MeshInstance3D.new()
-		piece.mesh = Lowpoly.shard(rng, colour.lightened(0.2), size * rng.randf_range(0.6, 1.4))
+		piece.mesh = Lowpoly.shard(rng, color.lightened(0.2), size * rng.randf_range(0.6, 1.4))
 		piece.material_override = m
 		piece.position = at
 		piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -458,7 +458,7 @@ func shards(at: Vector3, colour: Color, count: int = 14, speed: float = 4.0, siz
 	var tween := create_tween()
 	tween.tween_property(m, "emission_energy_multiplier", 0.0, seconds)
 
-func projectile(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.28, size: float = 0.14, arrive: Callable = Callable(), arc: float = 0.8) -> void:
+func projectile(from: Vector3, to: Vector3, color: Color, seconds: float = 0.28, size: float = 0.14, arrive: Callable = Callable(), arc: float = 0.8) -> void:
 	## A bolt of the gem's own light from the setting to its target: a hot core, a halo, a
 	## light that sweeps the walls as it passes, and a trail of embers.
 	var bolt := Node3D.new()
@@ -473,7 +473,7 @@ func projectile(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.28
 	core.mesh = sphere
 	var hot := StandardMaterial3D.new()
 	hot.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	hot.albedo_color = colour.lightened(0.75)
+	hot.albedo_color = color.lightened(0.75)
 	core.material_override = hot
 	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	bolt.add_child(core)
@@ -486,14 +486,14 @@ func projectile(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.28
 	halo_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	halo_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	halo_material.albedo_texture = DeepUi.glow_texture()
-	halo_material.albedo_color = Color(colour, 0.95)
+	halo_material.albedo_color = Color(color, 0.95)
 	halo_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	halo_quad.material = halo_material
 	halo.mesh = halo_quad
 	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	bolt.add_child(halo)
 	var light := OmniLight3D.new()
-	light.light_color = colour
+	light.light_color = color
 	light.light_energy = 3.5
 	light.omni_range = 4.0
 	light.light_volumetric_fog_energy = 3.0
@@ -510,7 +510,7 @@ func projectile(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.28
 	m.scale_min = size * 0.8
 	m.scale_max = size * 1.8
 	m.scale_curve = shrink_curve()
-	m.color_ramp = burst_ramp(colour)
+	m.color_ramp = burst_ramp(color)
 	trail.process_material = m
 	trail.draw_pass_1 = quad(true)
 	trail.amount = _amount(48)
@@ -536,7 +536,7 @@ func projectile(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.28
 	tween.tween_interval(0.5)
 	tween.tween_callback(bolt.queue_free)
 
-func beam(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.4, width: float = 0.18) -> void:
+func beam(from: Vector3, to: Vector3, color: Color, seconds: float = 0.4, width: float = 0.18) -> void:
 	## A lance of light, for the heaviest blows.
 	var node := MeshInstance3D.new()
 	var box := BoxMesh.new()
@@ -547,7 +547,7 @@ func beam(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.4, width
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	m.albedo_color = Color(colour.lightened(0.4), 1.0)
+	m.albedo_color = Color(color.lightened(0.4), 1.0)
 	node.material_override = m
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
@@ -557,7 +557,7 @@ func beam(from: Vector3, to: Vector3, colour: Color, seconds: float = 0.4, width
 	tween.tween_property(m, "albedo_color:a", 0.0, seconds)
 	tween.chain().tween_callback(node.queue_free)
 
-func shield(at: Vector3, facing: Vector3, colour: Color, radius: float = 0.9, seconds: float = 0.55) -> void:
+func shield(at: Vector3, facing: Vector3, color: Color, radius: float = 0.9, seconds: float = 0.55) -> void:
 	## A hexagonal ward flaring and dissolving: block taken.
 	for i in range(3):
 		var node := MeshInstance3D.new()
@@ -567,7 +567,7 @@ func shield(at: Vector3, facing: Vector3, colour: Color, radius: float = 0.9, se
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED
-		m.albedo_color = Color(colour, 0.55 - 0.12 * float(i))
+		m.albedo_color = Color(color, 0.55 - 0.12 * float(i))
 		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		node.material_override = m
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -579,7 +579,7 @@ func shield(at: Vector3, facing: Vector3, colour: Color, radius: float = 0.9, se
 		tween.tween_property(node, "scale", Vector3.ONE * (1.15 + 0.1 * float(i)), seconds).set_delay(0.05 * float(i)).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.tween_property(m, "albedo_color:a", 0.0, seconds * 0.8).set_delay(seconds * 0.3 + 0.05 * float(i))
 		tween.chain().tween_callback(node.queue_free)
-	flash(at, colour, 3.0, 4.0, seconds, 0.6)
+	flash(at, color, 3.0, 4.0, seconds, 0.6)
 
 func coins(at: Vector3, to: Vector3, count: int = 8) -> void:
 	## Ore thrown up in glinting discs and pulled home to the party.
@@ -618,7 +618,7 @@ func coins(at: Vector3, to: Vector3, count: int = 8) -> void:
 				coin.scale = Vector3.ONE * (1.0 - 0.6 * t), 0.0, 1.0, 0.75).set_trans(Tween.TRANS_SINE)
 		tween.tween_callback(coin.queue_free)
 
-func stars(at: Vector3, colour: Color = Color("ffe27a"), seconds: float = 1.3, radius: float = 0.55) -> void:
+func stars(at: Vector3, color: Color = Color("ffe27a"), seconds: float = 1.3, radius: float = 0.55) -> void:
 	## Stun: a ring of little stars wheeling over the head.
 	var pivot := Node3D.new()
 	pivot.position = at
@@ -629,7 +629,7 @@ func stars(at: Vector3, colour: Color = Color("ffe27a"), seconds: float = 1.3, r
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.albedo_texture = DeepUi.glow_texture()
-	mat.albedo_color = colour
+	mat.albedo_color = color
 	var mesh := QuadMesh.new()
 	mesh.size = Vector2.ONE * 0.28
 	mesh.material = mat
@@ -644,7 +644,7 @@ func stars(at: Vector3, colour: Color = Color("ffe27a"), seconds: float = 1.3, r
 	tween.tween_property(mat, "albedo_color:a", 0.0, seconds * 0.4).set_delay(seconds * 0.6)
 	tween.chain().tween_callback(pivot.queue_free)
 
-func sigil(at: Vector3, colour: Color, radius: float = 1.1, seconds: float = 0.9) -> void:
+func sigil(at: Vector3, color: Color, radius: float = 1.1, seconds: float = 0.9) -> void:
 	## A mark burned into the floor under a target: curses and hexes.
 	var node := MeshInstance3D.new()
 	node.mesh = Lowpoly.ring(1.0, 0.12, 6)
@@ -653,7 +653,7 @@ func sigil(at: Vector3, colour: Color, radius: float = 1.1, seconds: float = 0.9
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	m.albedo_color = Color(colour, 0.0)
+	m.albedo_color = Color(color, 0.0)
 	node.material_override = m
 	node.position = at + Vector3(0, 0.06, 0)
 	node.scale = Vector3.ONE * radius

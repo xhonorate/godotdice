@@ -1,5 +1,5 @@
 extends RefCounted
-## Every lasting effect on a player or a creature, as a chip: a mark, a number, a colour
+## Every lasting effect on a player or a creature, as a chip: a mark, a number, a color
 ## that says whether it helps or hurts, and a sentence that says exactly what it does.
 ##
 ## The sim keeps these as loose fields (statuses, block, buried sockets, stolen dice, a
@@ -82,7 +82,7 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	var block: int = int(foe.get("block", 0))
 	if block > 0:
 		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d damage before its health does. Whatever is left falls away when it takes its turn." % block, DeepUi.BLOCK))
-	## For a creature the colours flip: what helps it is bad for the party.
+	## For a creature the colors flip: what helps it is bad for the party.
 	for chip in _statuses(foe.get("statuses", {}), true):
 		out.append(chip)
 	var downgrade: int = int(foe.get("downgrade", 0))
@@ -134,7 +134,7 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 # --- showing them ------------------------------------------------------------------------------
 
 class Chip extends PanelContainer:
-	## One effect: a mark in a ring of its colour and the number beside it. Hover for the
+	## One effect: a mark in a ring of its color and the number beside it. Hover for the
 	## sentence. It swells when the number changes, so a new poison stack is seen landing.
 	var key: String = ""
 	var _value: Label

@@ -1,17 +1,17 @@
 extends ColorRect
 ## One full-screen pass over the chamber: a vignette tinted by the biome, chromatic fringes
 ## and a radial blur that kick on heavy blows, a red rim when the party is hurt or close to
-## death, colour flashes, a grey wash when the fight is lost, and a little grain so flat
+## death, color flashes, a grey wash when the fight is lost, and a little grain so flat
 ## low-poly shading never looks like plastic. The HUD sits above this and is never touched.
 
 var vignette: float = 0.45
-var vignette_colour: Color = Color(0, 0, 0)
+var vignette_color: Color = Color(0, 0, 0)
 var aberration: float = 0.0
 var zoom_blur: float = 0.0
 var hurt: float = 0.0
 var danger: float = 0.0
 var flash: float = 0.0
-var flash_colour: Color = Color.WHITE
+var flash_color: Color = Color.WHITE
 var desaturate: float = 0.0
 var grain: float = 0.035
 ## Fewer flashes: set from the settings menu, it softens every flash and smear.
@@ -22,13 +22,13 @@ const SHADER := """
 shader_type canvas_item;
 uniform sampler2D screen : hint_screen_texture, filter_linear_mipmap;
 uniform float vignette = 0.45;
-uniform vec4 vignette_colour : source_color = vec4(0.0, 0.0, 0.0, 1.0);
+uniform vec4 vignette_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
 uniform float aberration = 0.0;
 uniform float zoom_blur = 0.0;
 uniform float hurt = 0.0;
 uniform float danger = 0.0;
 uniform float flash = 0.0;
-uniform vec4 flash_colour : source_color = vec4(1.0);
+uniform vec4 flash_color : source_color = vec4(1.0);
 uniform float desaturate = 0.0;
 uniform float grain = 0.03;
 uniform float clock = 0.0;
@@ -57,10 +57,10 @@ void fragment() {
 	float lum = dot(col, vec3(0.299, 0.587, 0.114));
 	col = mix(col, vec3(lum) * vec3(0.95, 0.97, 1.05), desaturate);
 	float v = smoothstep(0.32, 0.9, d);
-	col = mix(col, vignette_colour.rgb, v * vignette);
+	col = mix(col, vignette_color.rgb, v * vignette);
 	float pulse = 0.65 + 0.35 * sin(clock * 5.0);
 	col = mix(col, vec3(0.55, 0.02, 0.04), v * clamp(hurt + danger * pulse * 0.6, 0.0, 1.0));
-	col += flash_colour.rgb * flash;
+	col += flash_color.rgb * flash;
 	col += (hash(UV * 900.0 + fract(clock) * 37.0) - 0.5) * grain;
 	COLOR = vec4(col, 1.0);
 }
@@ -86,25 +86,25 @@ func _process(delta: float) -> void:
 	if m == null:
 		return
 	m.set_shader_parameter("vignette", vignette)
-	m.set_shader_parameter("vignette_colour", vignette_colour)
+	m.set_shader_parameter("vignette_color", vignette_color)
 	m.set_shader_parameter("aberration", aberration)
 	m.set_shader_parameter("zoom_blur", zoom_blur)
 	m.set_shader_parameter("hurt", hurt)
 	m.set_shader_parameter("danger", danger)
 	m.set_shader_parameter("flash", flash)
-	m.set_shader_parameter("flash_colour", flash_colour)
+	m.set_shader_parameter("flash_color", flash_color)
 	m.set_shader_parameter("desaturate", desaturate)
 	m.set_shader_parameter("grain", grain)
 	m.set_shader_parameter("clock", _clock)
 
 func kick(strength: float) -> void:
-	## A heavy blow: colour splits and the frame smears toward the middle.
+	## A heavy blow: color splits and the frame smears toward the middle.
 	strength *= 0.3 if calm else 1.0
 	aberration = maxf(aberration, 2.0 * strength)
 	zoom_blur = maxf(zoom_blur, 0.9 * strength)
 
-func blink(colour: Color, strength: float = 0.35) -> void:
-	flash_colour = colour
+func blink(color: Color, strength: float = 0.35) -> void:
+	flash_color = color
 	flash = maxf(flash, strength * (0.3 if calm else 1.0))
 
 func wound(strength: float = 0.6) -> void:

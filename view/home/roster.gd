@@ -2,12 +2,11 @@ extends RefCounted
 ## The lapidaries as people: a portrait frame and the roster tile built around it.
 ##
 ## No headshots are drawn yet, so the portrait is a placeholder that already behaves like
-## the real thing will: a plate lit in the character's Birthstone tint, a bust in silhouette,
-## and the Birthstone itself worn as a pendant, live in 3D when the pointer rests on it. When
-## the busts arrive they replace the silhouette and take the same `mood` the plate carries
-## (idle, rolling, wince, bloodied, critical, birthstone, downed, victory).
+## the real thing will: a plate lit in the character's Birthstone tint and a bust in
+## silhouette. The Birthstone itself sits at the end of their sockets, not on the portrait.
+## When the busts arrive they replace the silhouette and take the same `mood` the plate
+## carries (idle, rolling, wince, bloodied, critical, birthstone, downed, victory).
 
-const Thumbs = preload("res://view/gems/thumbs.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 
 const MOODS: Array = ["idle", "rolling", "wince", "bloodied", "critical", "birthstone", "downed", "victory"]
@@ -27,7 +26,7 @@ static func wardens_beaten(profile: Dictionary) -> int:
 	return count
 
 class Portrait extends Control:
-	## A character's plate: tint, silhouette, pendant. Locked plates go grey and wear a lock;
+	## A character's plate: tint and silhouette. Locked plates go grey and wear a lock;
 	## the one going down wears a crown.
 	var key: String = ""
 	var locked: bool = false
@@ -48,12 +47,6 @@ class Portrait extends Control:
 		var stone: Dictionary = DeepStone.birthstone(key)
 		if not stone.is_empty():
 			tint = GemMesh.tint(stone)
-			var pendant := Thumbs.GemThumb.new(stone, edge.x * 0.34)
-			pendant.position = Vector2(edge.x * 0.33, edge.y * 0.54)
-			pendant.live_on_hover = not locked
-			pendant.modulate = Color(0.55, 0.55, 0.62, 0.85) if locked else Color.WHITE
-			pendant.tooltip_text = "%s, the Birthstone" % str(stone.get("name", ""))
-			add_child(pendant)
 		if locked:
 			var lock := DeepUi.icon(self, "lock", edge.x * 0.22, DeepUi.DIM, "Locked")
 			lock.position = Vector2(edge.x * 0.39, edge.y * 0.30)

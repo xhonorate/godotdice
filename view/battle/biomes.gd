@@ -89,7 +89,7 @@ const BIOMES: Dictionary = {
 	},
 }
 
-const COLOUR_FIELDS: Array = ["rock", "rock_dark", "floor", "moss", "background", "fog", "vol_albedo", "vol_emission", "ambient", "key", "accent"]
+const color_FIELDS: Array = ["rock", "rock_dark", "floor", "moss", "background", "fog", "vol_albedo", "vol_emission", "ambient", "key", "accent"]
 
 ## Which biome each band of the shaft is, by the first depth it starts at.
 const DEFAULT_BANDS: Array = [[1, "galleries"], [5, "seeps"], [9, "crystal"], [13, "fungal"], [17, "magma"], [21, "geode"], [25, "rift"]]
@@ -104,7 +104,7 @@ static func band_for(mine_key: String, depth: int) -> String:
 	return chosen
 
 static func for_depth(mine_key: String, depth: int, kind: String = "fight") -> Dictionary:
-	## The biome for this depth with its colours resolved, tinted by the mine and pressed
+	## The biome for this depth with its colors resolved, tinted by the mine and pressed
 	## darker and foggier the further down the band it sits.
 	var key: String = band_for(mine_key, depth)
 	var raw: Dictionary = BIOMES[key]
@@ -112,11 +112,11 @@ static func for_depth(mine_key: String, depth: int, kind: String = "fight") -> D
 	var tint := Color(str(DeepContent.mine(mine_key).get("palette", "c9a26b")))
 	for field in raw:
 		var value: Variant = raw[field]
-		if field in COLOUR_FIELDS:
-			var colour := Color(str(value))
+		if field in color_FIELDS:
+			var color := Color(str(value))
 			if field in ["rock", "rock_dark", "floor"]:
-				colour = colour.lerp(Color(tint, 1.0) * colour.get_luminance() * 1.6, 0.12)
-			out[field] = colour
+				color = color.lerp(Color(tint, 1.0) * color.get_luminance() * 1.6, 0.12)
+			out[field] = color
 		elif field == "lights":
 			out[field] = value.map(func(c: String) -> Color: return Color(c))
 		elif value is Array:
@@ -133,7 +133,7 @@ static func for_depth(mine_key: String, depth: int, kind: String = "fight") -> D
 	out.warden = kind == "warden"
 	out.elite = kind == "elite"
 	if key == "rift" and depth > 24:
-		## The Rift never settles: its colours turn with every Warden passed.
+		## The Rift never settles: its colors turn with every Warden passed.
 		var turn: float = fmod(float(depth - 25) * 0.07, 1.0)
 		out.lights = out.lights.map(func(c: Color) -> Color: return Color.from_hsv(fmod(c.h + turn, 1.0), c.s, c.v))
 		out.accent = Color.from_hsv(fmod(Color(out.accent).h + turn, 1.0), Color(out.accent).s, Color(out.accent).v)

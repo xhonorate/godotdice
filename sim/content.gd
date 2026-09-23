@@ -7,13 +7,19 @@ extends RefCounted
 ## build does not know is a validation error, never a crash at the table.
 
 const PATH: String = "res://content/deep_cut.json"
-const COLOUR_KEYS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
+const color_KEYS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
 const SOCKET_ANY: String = "ANY"
-## The cuts a Birthstone may wear. Each is drawn as its own solid, outside the six colours.
-const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "cube"]
+## Opal is the seventh color, and the only one no socket is ever cut for. An opal skill
+## counts as every color at once, so it sits in any socket and rings in harmony with
+## whatever fired before it. Nothing in the rock offers one: they come out of a hoard.
+const OPAL: String = "OPAL"
+## The colors a skill may wear. Sockets and mine leanings still speak only of the six.
+const SKILL_COLORS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
+## The cuts a Birthstone may wear. Each is drawn as its own solid, outside the six colors.
+const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "heptagon"]
 const INCLUSION_CLASSES: Array = ["PINPOINT", "LENS", "FEATHER", "FRACTURE", "STAR"]
-const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY"]
-const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant"]
+const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC"]
+const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "well"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle", "first_fizzle_free",
 	"heal_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value"]
 const MOVE_POLICIES: Array = ["best", "all", "cycle"]
@@ -63,7 +69,7 @@ static func creature(key: String) -> Dictionary: return entry("creatures", key)
 static func mine(key: String) -> Dictionary: return entry("mines", key)
 static func oddity(key: String) -> Dictionary: return entry("oddities", key)
 static func boon(key: String) -> Dictionary: return entry("boons", key)
-static func colour(key: String) -> Dictionary: return entry("colours", key)
+static func color(key: String) -> Dictionary: return entry("colors", key)
 
 static func constant(name: String, fallback: Variant) -> Variant:
 	var constants: Variant = pack().get("constants", {})
@@ -156,7 +162,7 @@ static func validate(p: Dictionary = {}) -> Array:
 	if p.is_empty():
 		p = pack()
 	var errors: Array = []
-	for required in ["colours", "cuts", "clarities", "rarities", "skills", "inclusions", "dice", "characters", "creatures", "mines"]:
+	for required in ["colors", "cuts", "clarities", "rarities", "skills", "inclusions", "dice", "characters", "creatures", "mines"]:
 		if not p.has(required):
 			errors.append("pack is missing its %s section" % required)
 	if not errors.is_empty():
@@ -232,8 +238,8 @@ static func _validate_character(def: Variant, p: Dictionary) -> Array:
 		var reds: int = 0
 		for socket in sockets:
 			var s: String = str(socket)
-			if not (s in COLOUR_KEYS or s == SOCKET_ANY):
-				errors.append("unknown socket colour " + s)
+			if not (s in color_KEYS or s == SOCKET_ANY):
+				errors.append("unknown socket color " + s)
 			if s == "RED":
 				reds += 1
 		if reds == 0:
@@ -353,7 +359,7 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 	for key in def.get("unlocks", []):
 		if not p.mines.has(str(key)):
 			errors.append("unknown mine to unlock " + str(key))
-	for colour_key in def.get("colour_weights", {}):
-		if not str(colour_key) in COLOUR_KEYS:
-			errors.append("unknown colour " + str(colour_key))
+	for color_key in def.get("color_weights", {}):
+		if not str(color_key) in color_KEYS:
+			errors.append("unknown color " + str(color_key))
 	return errors

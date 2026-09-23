@@ -10,7 +10,9 @@ func _init() -> void:
 	_test_abandon()
 	_test_landing_commands()
 	_test_merchant()
+	_test_dice_rooms()
 	_test_bot_runs()
+	_test_hoard_opal()
 	_test_salvage()
 	_test_grubstake()
 	_test_profile()
@@ -82,14 +84,23 @@ func _test_open_and_tunnels() -> void:
 	check(not cmd(state, "a", "vote_tunnel", {"offer": "t0"}).ok, "no voting inside a chamber")
 	check(DeepDescent.is_landing(4) and DeepDescent.is_landing(8) and not DeepDescent.is_landing(5), "landings every four depths")
 	check(DeepDescent.is_warden_depth(8) and DeepDescent.is_warden_depth(24) and DeepDescent.is_warden_depth(32) and not DeepDescent.is_warden_depth(12), "wardens at 8, 16, 24 and every 8 below")
-	check(DeepDescent.warden_key(state, 8) == "THE_FOREMAN" and DeepDescent.warden_key(state, 40) == "THE_DRILL", "warden keys by depth")
+	## The written depths are only roughly where the Wardens stand: this run's own schedule
+	## says which landing each of them guards.
+	var guards: Array = state.schedule.wardens
+	check(guards.size() == 3 and int(guards[2]) == int(DeepContent.constant("run_depth", 24)), "three Wardens, the last on the bottom floor: %s" % str(guards))
+	check(guards.all(func(d: int) -> bool: return state.schedule.landings.has(d)), "and every one of them guards a landing")
+	check(DeepDescent.warden_key(state, int(guards[0])) == "THE_FOREMAN" and DeepDescent.warden_key(state, 40) == "THE_DRILL", "warden keys by which landing they guard")
 
 func _test_lantern_map() -> void:
 	for seed_value in [3, 7, 19, 44, 90]:
 		var state: Dictionary = DeepDescent.new_run(config(seed_value, true))
 		var map: Dictionary = state.map
-		check(int(map.from) == 0 and int(map.to) == 4 and map.rows.size() == 3, "the first stretch is charted from the top down to the landing at 4")
-		check(map.rows[0].size() == 2 and map.rows[1].size() == 3 and map.rows[2].size() == 4, "two mouths, then three, then four")
+		## The first lift is not always four down: it wanders a floor either way.
+		var lift_at: int = int(state.schedule.landings[0])
+		check(int(map.from) == 0 and int(map.to) == lift_at and map.rows.size() == lift_at - 1 and lift_at >= 3 and lift_at <= 5,
+			"the first stretch is charted from the top down to the first landing (at %d)" % lift_at)
+		for r in range(map.rows.size()):
+			check(map.rows[r].size() == mini(2 + r, DeepDescent.MAP_WIDEST), "row %d is %d mouths wide" % [r, map.rows[r].size()])
 		var offered: Array = state.offers.map(func(o: Dictionary) -> String: return str(o.id))
 		check(offered == map.rows[0], "the first tunnels are the top row")
 		## Every chamber is reachable, every chamber leads on, and no two ways cross.
@@ -99,7 +110,10 @@ func _test_lantern_map() -> void:
 			for i in range(row.size()):
 				var node: Dictionary = map.nodes[str(row[i])]
 				check(node.next.size() >= 1, "%s leads on" % node.id)
-				if r < map.rows.size() - 1:
+				## The shaft forks in two while it is still widening. Once it has reached its
+				## widest the rows are the same size, and the way nearest the wall runs on
+				## alone rather than crossing its neighbour.
+				if r < map.rows.size() - 1 and map.rows[r + 1].size() > row.size():
 					check(node.next.size() == 2, "%s forks two ways (%d)" % [node.id, node.next.size()])
 				for child in node.next:
 					reached[str(child)] = true
@@ -115,18 +129,22 @@ func _test_lantern_map() -> void:
 				if int(node.depth) <= 1:
 					check(str(node.kind) != "merchant", "no merchant on the first step down")
 			check(row.filter(func(id: Variant) -> bool: return bool(map.nodes[str(id)].hidden)).size() <= 1, "at most one dark mouth a depth")
+			for kind in DeepDescent.DICE_ROOMS:
+				check(row.filter(func(id: Variant) -> bool: return str(map.nodes[str(id)].kind) == kind).size() <= 1, "at most one %s a depth" % kind)
 		for r in range(1, map.rows.size()):
 			for id in map.rows[r]:
 				check(reached.has(str(id)), "%s can be reached" % id)
 		check(reached.has("landing"), "the last row opens onto the landing")
 		var stalls: Array = map.nodes.values().filter(func(n: Dictionary) -> bool: return str(n.kind) == "merchant")
 		check(stalls.size() >= 1, "every stretch has a merchant in it (seed %d)" % seed_value)
-		## The lantern shows two depths ahead; past it only glints.
-		var deep: Dictionary = map.nodes[str(map.rows[2][0])]
-		check(not DeepDescent.revealed(state, deep), "depth 3 is beyond the lantern from the top")
+		var benches: Array = map.nodes.values().filter(func(n: Dictionary) -> bool: return str(n.kind) in DeepDescent.DICE_ROOMS)
+		check(benches.size() >= 1, "every stretch has a smithy or a carver in it (seed %d)" % seed_value)
+		## The lantern shows one depth ahead; past it only glints.
+		var deep: Dictionary = map.nodes[str(map.rows[1][0])]
+		check(not DeepDescent.revealed(state, deep), "depth 2 is beyond the lantern from the top")
 		check(DeepDescent.glint(deep) in ["hostile", "glittering", "strange", "dark"], "but it glints")
-		var shallow: Dictionary = map.nodes[str(map.rows[1][0])]
-		check(DeepDescent.revealed(state, shallow) != bool(shallow.hidden), "depth 2 is lit unless it is a dark mouth")
+		var shallow: Dictionary = map.nodes[str(map.rows[0][0])]
+		check(DeepDescent.revealed(state, shallow) != bool(shallow.hidden), "depth 1 is lit unless it is a dark mouth")
 		## Walk the first way offered: the offers after it are exactly where it leads.
 		var first: String = str(state.offers[0].id)
 		for unit in state.players:
@@ -197,31 +215,45 @@ func _test_landing_commands() -> void:
 	check(not cmd(state, "a", "socket", {"stone_id": "raw1", "index": 3}).ok, "a raw stone cannot be set")
 	check(not cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok, "there is no paid lens at a landing")
 	check(not cmd(state, "a", "sell", {"stone_id": "a_strike"}).ok and not cmd(state, "a", "buy", {"item_id": "x"}).ok, "nor anyone to trade with")
-	check(not cmd(state, "a", "choose", {"choice": "lift"}).ok, "the lift waits until you have taken your respite")
-	check(not cmd(state, "a", "respite", {"choice": "nap"}).ok, "rest, appraise or polish, nothing else")
+	## The cage stands beside the fire, the bench and the wheel: any of the four may be walked
+	## up to first, and a party in a hurry may ride up without taking its respite at all.
+	check(not cmd(state, "a", "choose", {"choice": "descend"}).ok, "the way down waits on the respite")
+	check(cmd(state, "a", "choose", {"choice": "lift"}).ok and str(a.choice) == "lift", "but the cage does not: it is a fourth thing to walk up to")
+	a.choice = ""
+	check(not cmd(state, "a", "respite", {"choice": "nap"}).ok, "rest, appraise or the wheel, nothing else")
 	check(not cmd(state, "a", "respite", {"choice": "appraise", "stone_id": "a_strike"}).ok, "the landing's appraisal is for a raw stone")
 	check(cmd(state, "a", "respite", {"choice": "appraise", "stone_id": "raw1"}).ok and bool(raw.appraised) and str(a.respite) == "appraise", "the landing appraises one raw stone free")
 	check(not cmd(state, "a", "respite", {"choice": "rest"}).ok, "one respite a landing")
 	check(str(state.landing.respites.a.choice) == "appraise", "the landing remembers what each player did")
-	check(not cmd(state, "b", "respite", {"choice": "polish", "stone_id": "b_cleave"}).ok, "a Perfect stone cannot be polished further")
+	check(not cmd(state, "b", "respite", {"choice": "polish", "stone_id": "nothing"}).ok, "the wheel needs a stone you carry")
 	var rough: Dictionary = stone("GUARD", 3, 2, 3, "b_rough")
+	rough.appraised = true
 	b.haul.append(rough)
-	check(cmd(state, "b", "respite", {"choice": "polish", "stone_id": "b_rough"}).ok and int(rough.cut) == 3, "polishing moves a stone's cut a step truer")
+	## The wheel does not make a cut truer: it draws a new one, which may be worse.
+	check(cmd(state, "b", "respite", {"choice": "polish", "stone_id": "b_rough"}).ok and int(rough.cut) >= 0 and int(rough.cut) <= 4, "the wheel cuts a stone again")
 	a.respite = ""
 	a.hp = 10
 	var share: int = int(ceil(float(a.max_hp) * 0.3))
 	check(cmd(state, "a", "respite", {"choice": "rest"}).ok and int(a.hp) == 10 + share, "resting gives back 30%% of the most health (%d)" % int(a.hp))
-	## The bench still works here.
-	check(not cmd(state, "a", "socket", {"stone_id": "raw1", "index": 0}).ok, "a Violet stone does not fit the Red socket")
-	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 3}).ok and a.rail[3].id == "raw1" and a.haul.has(a.rail[3]) == false, "it fits the ANY socket and leaves the haul")
-	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 4}).ok and a.rail[4].id == "raw1" and a.rail[3] == null, "and can move to the other Any socket")
+	## The bench still works here, and a socket keeps to its colour down the mine as it does
+	## at home: a Violet stone has no business in a Red socket.
+	raw.appraised = true
+	raw.inclusions_revealed = true
+	check(not cmd(state, "a", "socket", {"stone_id": "raw1", "index": 0}).ok, "a Violet stone is refused by the Red socket, run or no run")
+	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 4}).ok and a.rail[4].id == "raw1", "and goes into the Any socket at the end")
 	check(cmd(state, "a", "unsocket", {"index": 4}).ok and a.rail[4] == null and a.haul.filter(func(s: Dictionary) -> bool: return str(s.id) == "raw1").size() == 1, "and comes back out into the haul")
 	a.bag_dice.append(DeepDice.make("D8", DeepContent.die("D8"), "spare"))
-	check(cmd(state, "a", "swap_die", {"index": 0, "die_id": "spare"}).ok and str(a.dice[0].id) == "spare" and str(a.bag_dice[0].id) == "a1", "a bagged die takes a slot and the slot's die takes its place in the bag")
-	var before: int = b.bag_dice.size()
-	check(cmd(state, "a", "give", {"to": "b", "item_id": str(a.bag_dice[0].id)}).ok and b.bag_dice.size() == before + 1, "a die can be given to an ally")
+	check(not cmd(state, "a", "swap_die", {"index": 0, "die_id": "spare"}).ok and str(a.dice[0].id) != "spare", "a die from outside the five never takes a slot")
+	check(not cmd(state, "a", "give", {"to": "b", "item_id": "spare"}).ok, "nor is a die handed to an ally")
+	a.bag_dice.clear()
 	check(not cmd(state, "a", "give", {"to": "a", "item_id": "x"}).ok, "not to yourself")
+	## Once the respite is taken the cage is behind you: the only way left is down.
+	check(not cmd(state, "a", "choose", {"choice": "lift"}).ok, "the lift is gone once a respite is taken")
+	a.respite = ""
+	b.respite = ""
 	check(cmd(state, "a", "choose", {"choice": "lift"}).ok and state.phase == "landing", "one vote for the lift waits")
+	a.respite = "rest"
+	b.respite = "rest"
 	check(cmd(state, "b", "choose", {"choice": "descend"}).ok, "the other votes to descend")
 	check(state.phase == "over" and state.outcome == "extracted" and state.depth == 4, "a tie goes to the first seat, who chose the lift: extracted at depth 4")
 	check(not cmd(state, "a", "choose", {"choice": "descend"}).ok, "nothing more once the run is over")
@@ -238,7 +270,8 @@ func _test_merchant() -> void:
 	offer.kind = "merchant"
 	for unit in state.players:
 		cmd(state, str(unit.id), "vote_tunnel", {"offer": offer.id})
-	check(state.phase == "chamber" and str(state.chamber.kind) == "merchant" and state.chamber.stock.size() == 5, "a merchant lays out three stones and two dice")
+	check(state.phase == "chamber" and str(state.chamber.kind) == "merchant" and state.chamber.stock.size() == 3, "a merchant lays out three stones")
+	check(state.chamber.stock.all(func(i: Dictionary) -> bool: return str(i.kind) == "stone"), "and no dice: dice are never for sale")
 	check(state.chamber.stock.filter(func(i: Dictionary) -> bool: return str(i.kind) == "loupe").is_empty(), "and no loupes")
 	var a: Dictionary = DeepDescent.player(state, "a")
 	var b: Dictionary = DeepDescent.player(state, "b")
@@ -249,7 +282,11 @@ func _test_merchant() -> void:
 		raws.append(raw)
 	a.ore = 0
 	check(not cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok, "no ore, no appraisal")
-	check(not cmd(state, "a", "sell", {"stone_id": "raw0"}).ok, "a raw stone cannot be sold")
+	## A stone nobody has read still sells, for what its size class alone is worth.
+	a.haul.append(DeepStone.make("STRIKE", 12, 3, 4, [], {}, "rough_lot"))
+	check(cmd(state, "a", "sell", {"stone_id": "rough_lot"}).ok and int(a.ore) == DeepStone.rough_value(DeepStone.make("STRIKE", 12, 3, 4)) and int(a.ore) > 0,
+		"a rough stone sells for its size class (%d ore)" % int(a.ore))
+	check(int(a.ore) < DeepStone.value(DeepStone.make("STRIKE", 12, 3, 4)) / 2, "and for less than the same stone read")
 	a.ore = 200
 	check(DeepDescent.appraise_cost(state, "a") == 12, "the first appraisal at a stall costs twelve")
 	check(cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok and bool(raws[0].appraised) and int(a.ore) == 188, "the lens appraises a raw stone for ore")
@@ -258,19 +295,59 @@ func _test_merchant() -> void:
 	check(not cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok, "not twice")
 	var ore_before: int = int(a.ore)
 	check(cmd(state, "a", "sell", {"stone_id": "raw1"}).ok and int(a.ore) > ore_before, "an appraised stone sells for ore")
-	var item: Dictionary = state.chamber.stock[3]
+	var item: Dictionary = state.chamber.stock[2]
 	a.ore = 0
-	check(not cmd(state, "a", "buy", {"item_id": item.id}).ok, "no ore, no die")
-	a.ore = 500
-	check(cmd(state, "a", "buy", {"item_id": item.id}).ok and a.bag_dice.size() == 1 and str(item.sold) == "a", "a die goes to the bag and is marked sold")
+	check(not cmd(state, "a", "buy", {"item_id": item.id}).ok, "no ore, no stone")
+	a.ore = int(item.price) + 10
+	var haul_before: int = a.haul.size()
+	check(cmd(state, "a", "buy", {"item_id": item.id}).ok and a.haul.size() == haul_before + 1 and int(a.ore) == 10 and str(item.sold) == "a", "a stone goes to the haul for its price and is marked sold")
+	check(a.bag_dice.is_empty(), "and nothing goes to the bag of dice")
 	check(not cmd(state, "b", "buy", {"item_id": item.id}).ok, "the other player cannot buy it again")
-	check(cmd(state, "a", "swap_die", {"index": 0, "die_id": str(a.bag_dice[0].id)}).ok, "the bench is open at the stall too")
+	check(cmd(state, "a", "swap_die", {"index": 0, "die_id": str(a.dice[1].id)}).ok, "the bench is open at the stall too")
 	var unsold: String = str(state.chamber.stock[0].id)
 	check(cmd(state, "a", "leave").ok and str(state.phase) == "chamber", "one player leaving waits for the other")
 	check(not cmd(state, "a", "leave").ok, "leaving twice is refused")
 	check(cmd(state, "b", "leave").ok and str(state.phase) == "tunnels", "when everyone has left, the tunnels open")
 	check(DeepDescent.appraise_cost(state, "a") == 12, "the next stall starts its price again")
 	check(not cmd(state, "a", "buy", {"item_id": unsold}).ok, "the stall is gone once the party walks on")
+
+func _test_dice_rooms() -> void:
+	## A smithy and a carver: one fixed card each, one piece of work a player, and never a die
+	## that comes or goes.
+	for kind in DeepDescent.DICE_ROOMS:
+		var state: Dictionary = DeepDescent.new_run(config(141, true))
+		var offer: Dictionary = state.offers[0]
+		offer.kind = kind
+		for unit in state.players:
+			cmd(state, str(unit.id), "vote_tunnel", {"offer": offer.id})
+		check(state.phase == "chamber" and str(state.chamber.kind) == kind and str(state.chamber.oddity) == DeepDescent.room_card(kind), "a %s holds its own card" % kind)
+		check(state.used_oddities.is_empty(), "and uses up no oddity")
+		var a: Dictionary = DeepDescent.player(state, "a")
+		var die: Dictionary = a.dice[0]
+		var shape: String = str(die.shape)
+		var ids: Array = a.dice.map(func(d: Dictionary) -> String: return str(d.id))
+		if kind == "smithy":
+			check(cmd(state, "a", "oddity", {"choice": "hammer", "payload": {"die_id": str(die.id)}}).ok, "the smithy hammers a die")
+			check(DeepOddities.SIZES.find(str(a.dice[0].shape)) == DeepOddities.SIZES.find(shape) + 1, "a size bigger (%s to %s)" % [shape, str(a.dice[0].shape)])
+		else:
+			var low: int = int(a.dice[0].faces[0].value)
+			check(cmd(state, "a", "oddity", {"choice": "raise", "payload": {"die_id": str(die.id), "face": 0}}).ok and int(a.dice[0].faces[0].value) == low + 1, "the carver raises a face")
+		check(not cmd(state, "a", "oddity", {"choice": "pass"}).ok, "one piece of work each")
+		check(a.dice.map(func(d: Dictionary) -> String: return str(d.id)) == ids and a.bag_dice.is_empty(), "the five are the same five")
+		check(cmd(state, "b", "oddity", {"choice": "pass"}).ok and str(state.phase) == "tunnels", "once everyone has chosen the tunnels open")
+	## A card drawn by chance is never a room's, and a vein never holds a die.
+	var drawn: Dictionary = {}
+	for seed_value in range(40):
+		var state: Dictionary = DeepDescent.new_run(config(600 + seed_value, true))
+		var offer: Dictionary = state.offers[0]
+		offer.kind = "oddity" if seed_value % 2 == 0 else "vein"
+		for unit in state.players:
+			cmd(state, str(unit.id), "vote_tunnel", {"offer": offer.id})
+		if str(offer.kind) == "oddity":
+			drawn[str(state.chamber.oddity)] = true
+		else:
+			check(state.chamber.vein.spots.all(func(s: Dictionary) -> bool: return str(s.kind) in ["stone", "ore", "nothing"]), "a vein holds stones, ore or dust (seed %d)" % seed_value)
+	check(not drawn.has("SMITHY") and not drawn.has("CARVER") and drawn.size() > 5, "chance never draws a room's card (%s)" % ", ".join(drawn.keys()))
 
 func _advance_once(state: Dictionary) -> void:
 	## One bot action toward the bottom: vote, strike, choose, lock, or step.
@@ -289,18 +366,24 @@ func _advance_once(state: Dictionary) -> void:
 			if DeepDescent.in_battle(state):
 				resolve_fight(state)
 			elif str(state.chamber.kind) in ["vein", "vug"]:
+				## The rock never runs out of swings, only the arm does: swing until the rock
+				## refuses the next blow, then put the pick down.
 				for unit in state.players:
-					if int(unit.get("strikes", 0)) > 0:
-						for spot in state.chamber.vein.spots:
-							if str(spot.taken).is_empty():
-								cmd(state, str(unit.id), "strike", {"spot": spot.index})
+					if not bool(unit.get("mining", false)):
+						continue
+					for spot in state.chamber.vein.spots:
+						if str(spot.taken).is_empty():
+							if cmd(state, str(unit.id), "strike", {"spot": spot.index}).ok:
 								return
+							break
+					cmd(state, str(unit.id), "stop_mining", {})
+					return
 			elif str(state.chamber.kind) == "merchant":
 				for unit in state.players:
 					if not bool(unit.get("ready", false)):
 						cmd(state, str(unit.id), "leave")
 						return
-			elif str(state.chamber.kind) == "oddity":
+			elif str(state.chamber.kind) in ["oddity"] + DeepDescent.CARD_ROOMS:
 				var oddity: Dictionary = DeepContent.oddity(str(state.chamber.oddity))
 				for unit in state.players:
 					if str(unit.get("oddity_choice", "")).is_empty():
@@ -362,6 +445,7 @@ func _test_bot_runs() -> void:
 	check(saw_warden and saw_hoard, "the party fought the warden and took the hoard")
 	check(state.outcome == "extracted" and state.depth == 8 and state.records.wardens == [8], "extracted from the warden's landing: %s depth %d wardens %s" % [str(state.outcome), int(state.depth), str(state.records.wardens)])
 	check(JSON.stringify(mirror) == JSON.stringify(state), "a mirror fed patches of every command matches the host")
+	check(state.players.all(func(p: Dictionary) -> bool: return p.bag_dice.is_empty() and p.dice.size() == 5), "no die was found, bought or given on the way down")
 	var results: Dictionary = DeepDescent.results(state)
 	check(results.players.has("a") and results.players.a.haul.size() >= 1, "the results carry each player's haul (%d stones)" % results.players.a.haul.size())
 	check(results.players.a.haul.filter(func(s: Dictionary) -> bool: return str(s.provenance.get("source", "")) == "hoard").size() == 1, "one hoard stone came home")
@@ -374,8 +458,9 @@ func _test_bot_runs() -> void:
 		while str(weak.phase) != "over" and steps < 900:
 			steps += 1
 			if str(weak.phase) == "landing" and weak.depth >= 12:
+				## Straight into the cage: the lift is walked up to before the respite, not
+				## after it, so a party that has had enough may leave at once.
 				for unit in weak.players:
-					cmd(weak, str(unit.id), "respite", {"choice": "rest"})
 					cmd(weak, str(unit.id), "choose", {"choice": "lift"})
 			else:
 				_advance_once(weak)
@@ -389,6 +474,35 @@ func _test_bot_runs() -> void:
 		_advance_once(one)
 		_advance_once(two)
 	check(JSON.stringify(one) == JSON.stringify(two), "two runs from one seed agree after sixty bot actions")
+
+func _test_hoard_opal() -> void:
+	## The Warden's pile: two stones read out, and one still in its rock. Taking the sealed
+	## one means giving up both known stones for a gem nothing else in the mine offers.
+	var state: Dictionary = DeepDescent.new_run(config(414, true))
+	state.depth = 8
+	DeepDescent._offer_hoard(state)
+	var offers: Array = state.hoard.a.offers
+	check(offers.size() == 3 and bool(offers[0].appraised) and bool(offers[1].appraised), "two of the three are read out where they lie")
+	var sealed: Dictionary = offers[2]
+	check(not bool(sealed.appraised) and DeepStone.is_opal(sealed), "the third is an opal, still in its rock: %s" % str(sealed.skill))
+	check(DeepStone.raw_name(sealed).contains("opal"), "the pile says it is an opal and not which one: %s" % DeepStone.raw_name(sealed))
+	check(DeepStone.fits(sealed, "RED") and DeepStone.fits(sealed, "GOLD"), "an opal answers to every color, so any socket takes it")
+	var picked: Dictionary = cmd(state, "a", "pick_hoard", {"stone_id": str(sealed.id)})
+	## Taking it is the gamble. What it turns out to be is the loupe's to say later, like
+	## any other stone that came out of the rock.
+	check(picked.ok and bool(picked.event.raw) and not bool(picked.event.stone.appraised),
+		"a sealed stone comes off the pile still sealed")
+	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return str(s.id) == str(sealed.id) and not bool(s.get("appraised", false))),
+		"and goes into the haul that way")
+	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return DeepStone.is_opal(s)), "and the opal goes in the haul")
+	## And nothing else in the mine ever hands one out.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	var wild: int = 0
+	for _roll in range(400):
+		if DeepStone.is_opal(DeepForge.roll_stone(rng, DeepContent.mine("QUARRY"), 20, 8)):
+			wild += 1
+	check(wild == 0, "no vein, drop or merchant ever cuts an opal (%d of 400)" % wild)
 
 func _test_salvage() -> void:
 	var state: Dictionary = DeepDescent.new_run(config(505, false))
@@ -424,6 +538,28 @@ func _test_salvage() -> void:
 	check(state.phase == "salvage", "both must acknowledge")
 	cmd(state, "b", "ready")
 	check(state.phase == "over" and state.outcome == "fallen", "and then the run is over: fallen")
+	## What the run taught outlives the run. Every gem read down there — the ones set in the
+	## rail and the ones the salvage die took away — is in the vault's record of what the
+	## player has laid eyes on, so a wipe still fills in the page for a gem they once held.
+	var lost: Array = []
+	for roll in rolls:
+		if not bool(roll.kept) and bool(roll.stone.get("appraised", false)):
+			lost.append(str(roll.stone.skill))
+	var railed: Array = []
+	for item in DeepDescent.player(state, "a").rail:
+		if item is Dictionary and bool(item.get("appraised", false)):
+			railed.append(str(item.skill))
+	check(not railed.is_empty(), "the fallen party went down with gems in the rail")
+	var results: Dictionary = DeepDescent.results(state)
+	var seen: Array = results.players.a.get("seen", [])
+	for skill in railed + lost:
+		check(seen.has(skill), "%s was read this run and the run says so" % skill)
+	var profile: Dictionary = DeepProfile.new_profile("Fallen")
+	profile.vault.clear()
+	profile.seen.clear()
+	DeepProfile.apply_result(profile, results, "a")
+	for skill in railed + lost:
+		check(profile.seen.has(skill) and not profile.vault.has(skill), "%s reaches the vault as seen, not as owned, after a loss" % skill)
 
 func _test_profile() -> void:
 	var profile: Dictionary = DeepProfile.new_profile("Ada")
@@ -432,9 +568,11 @@ func _test_profile() -> void:
 	check(profile.bowl.size() == 5, "the bowl holds Ardor's five dice")
 	var loadout: Dictionary = DeepProfile.loadout(profile, "ARDOR")
 	check(loadout.rail.size() == 5 and loadout.rail[0].skill == "STRIKE" and loadout.rail[1].skill == "GUARD" and loadout.rail[2].skill == "MEND" and loadout.rail[3] == null and loadout.dice.size() == 5, "the loadout is stones and dice ready for a run")
-	check(DeepProfile.set_rail(profile, "ARDOR", 3, "STRIKE") == "" and profile.characters.ARDOR.rail[0] == null and profile.characters.ARDOR.rail[3] == "STRIKE", "moving a stone empties its old socket")
+	var ardor_dice: Array = DeepContent.character("ARDOR").get("dice", [])
+	check(loadout.dice.map(func(d: Dictionary) -> String: return str(d.key)) == ardor_dice, "and the dice are Ardor's own: %s" % str(loadout.dice.map(func(d: Dictionary) -> String: return str(d.key))))
+	check(DeepProfile.set_rail(profile, "ARDOR", 3, "STRIKE") != "" and profile.characters.ARDOR.rail[0] == "STRIKE" and profile.characters.ARDOR.rail[3] == null, "the fourth socket is only filled in the mine")
 	check(DeepProfile.set_rail(profile, "ARDOR", 1, "MEND") != "", "a Green stone does not fit the Blue socket")
-	check(DeepProfile.set_rail(profile, "ARDOR", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "ARDOR", 2, "MEND") == "", "restored")
+	check(DeepProfile.set_rail(profile, "ARDOR", 2, null) == "" and DeepProfile.set_rail(profile, "ARDOR", 2, "MEND") == "", "a stone comes out and goes back in")
 	check(DeepProfile.set_rail(profile, "FLORIN", 0, "STRIKE") != "", "a locked character refuses")
 	check(DeepProfile.next_locked_character(profile) == "VESPER", "Vesper is the next unlock")
 	var better: Dictionary = DeepStone.make("STRIKE", 9, 3, 4, [], {"source": "test"}, "better")
@@ -444,12 +582,29 @@ func _test_profile() -> void:
 	var grid: Array = DeepProfile.vault_grid(profile)
 	check(grid.size() == DeepContent.section("skills").size(), "the grid lists every skill")
 	check(grid.filter(func(g: Dictionary) -> bool: return str(g.state) == "owned").size() == 3, "three owned")
+	## A loadout fills only the first few sockets; the rest are filled in the mine.
+	DeepProfile.keep(profile, DeepStone.make("CLEAVE", 4, 2, 2, [], {"source": "test"}, "cleave1"))
+	check(DeepProfile.starting_rail_cap() == 3, "a loadout fills three sockets by default")
+	check(DeepProfile.loadout_socket(2) and not DeepProfile.loadout_socket(3), "the third socket is the loadout's last")
+	check(DeepProfile.set_rail(profile, "ARDOR", 3, "CLEAVE") != "" and DeepProfile.set_rail(profile, "ARDOR", 4, "CLEAVE") != "", "a stone is refused in a socket only the mine fills")
+	check(DeepProfile.set_rail(profile, "ARDOR", 0, "CLEAVE") == "" and profile.characters.ARDOR.rail[0] == "CLEAVE", "a stone set over another replaces it")
+	check(DeepProfile.set_rail(profile, "ARDOR", 0, "STRIKE") == "", "and Strike goes back")
+	## An old save that set a stone past the third socket: it moves to an empty one it fits.
+	profile.characters.ARDOR.rail = [null, "GUARD", "MEND", "STRIKE", null]
+	check(DeepProfile.tidy(profile) and profile.characters.ARDOR.rail == ["STRIKE", "GUARD", "MEND", null, null], "a stone in a mine socket moves into the loadout: %s" % str(profile.characters.ARDOR.rail))
+	check(not DeepProfile.tidy(profile), "and a tidy rail is left as it is")
 	var result: Dictionary = {"run_id": "r1", "mine": "QUARRY", "outcome": "extracted", "depth": 8, "deepest": 8, "wardens": [8],
 		"players": {"a": {"haul": [DeepStone.make("VENOM", 4, 2, 2, ["SILK"], {}, "v1"), DeepStone.make("STRIKE", 1, 0, 3, [], {}, "s1")], "dice": [DeepDice.make("D20", DeepContent.die("D20"), "d20x")], "stats": {}, "rail": []}}}
 	var applied: Dictionary = DeepProfile.apply_result(profile, result, "a")
 	check(profile.tray.size() == 2 and profile.bowl.size() == 11, "two stones wait in the tray; a die joins the bowl alongside a newly unlocked character's five dice (%d)" % profile.bowl.size())
 	check(profile.mines.QUARRY.deepest == 8 and profile.mines.QUARRY.wardens == [8] and profile.records.runs == 1 and profile.records.extractions == 1, "records are written")
 	check(applied.unlocked.size() == 1 and applied.unlocked[0].get("character", "") == "VESPER" and profile.characters.VESPER.unlocked, "the first warden unlocks Vesper: %s" % str(applied.unlocked))
+	## Vesper's two Red sockets: a stone moves between them, and swaps with one already there.
+	check(DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "VESPER", 1, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == [null, "STRIKE"], "moving a stone empties its old socket")
+	check(DeepProfile.set_rail(profile, "VESPER", 0, "CLEAVE") == "" and DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == ["STRIKE", "CLEAVE"], "a stone moved onto another swaps them: %s" % str(profile.characters.VESPER.rail))
+	## Dice are never swapped: whatever an old save put in a slot, the loadout rolls their own.
+	profile.characters.VESPER.dice[0] = "d20x"
+	check(DeepProfile.loadout(profile, "VESPER").dice.map(func(d: Dictionary) -> String: return str(d.key)) == DeepContent.character("VESPER").get("dice", []), "a lapidary always goes down with their own dice")
 	## An old profile that wore settings comes across with its unlocks counted.
 	var old: Dictionary = {"schema": 1, "id": "pfold", "name": "Old", "gold": 5, "vault": profile.vault.duplicate(true), "seen": [], "bowl": [], "mines": {}, "tray": [],
 		"settings": {"SIGNET": {"unlocked": true, "rail": [], "dice": []}, "GAUNTLET": {"unlocked": true, "rail": [], "dice": []}, "CHAIN": {"unlocked": false}}, "current_setting": "GAUNTLET",
@@ -461,8 +616,25 @@ func _test_profile() -> void:
 	var decided: Dictionary = DeepProfile.decide_tray(profile, "s1", true)
 	check(decided.ok and decided.kept and decided.replaced.id == "better" and profile.vault.STRIKE.id == "s1", "the player may keep a worse stone; the better one is sold")
 	check(profile.gold > gold_before, "and paid for it")
-	var sold: Dictionary = DeepProfile.decide_tray(profile, "v1", false)
-	check(sold.ok and not sold.kept and profile.tray.is_empty() and profile.seen.has("VENOM") and not profile.vault.has("VENOM"), "selling a stone marks its skill seen")
+	## A stone nobody has read is nobody's first: sold rough it goes to a buyer for its size
+	## class and teaches the vault nothing, or the vault would be handing out free appraisals.
+	var rough_gold: int = int(profile.gold)
+	var unread: Dictionary = DeepProfile.decide_tray(profile, "v1", false)
+	check(unread.ok and not unread.kept and not profile.vault.has("VENOM") and not profile.seen.has("VENOM"), "an unappraised stone sells rough rather than being forced into the vault")
+	check(int(profile.gold) == rough_gold + DeepStone.rough_value(DeepStone.make("VENOM", 4, 2, 2, ["SILK"], {}, "v1")), "and a buyer pays the size class for it")
+	## The first stone of a skill, once read, is never sold: asked to sell it, the vault takes it anyway.
+	var known: Dictionary = DeepStone.make("VENOM", 4, 2, 2, ["SILK"], {}, "v1b")
+	known.appraised = true
+	profile.tray.append(known)
+	var first: Dictionary = DeepProfile.decide_tray(profile, "v1b", false)
+	check(first.ok and first.kept and bool(first.get("forced", false)) and profile.tray.is_empty() and profile.vault.has("VENOM"), "the first stone of a skill is kept whatever is asked")
+	## One whose skill is already in the vault can go to a buyer.
+	var second: Dictionary = DeepStone.make("VENOM", 1, 0, 3, [], {}, "v2")
+	second.appraised = true
+	profile.tray.append(second)
+	var gold_then: int = int(profile.gold)
+	var sold: Dictionary = DeepProfile.decide_tray(profile, "v2", false)
+	check(sold.ok and not sold.kept and profile.tray.is_empty() and int(profile.gold) > gold_then and str(profile.vault.VENOM.id) == "v1b", "a second stone of a skill may be sold")
 	check(not DeepProfile.decide_tray(profile, "zzz", true).ok, "an unknown tray stone is refused")
 
 
@@ -508,20 +680,23 @@ func _test_grubstake() -> void:
 	check(DeepBoons.apply(quiet, u, offer_of.call(["HARDY"]), {}, rng).ok and int(u.max_hp) == before_hp + int(round(before_hp * 0.12)) and u.hp == u.max_hp, "Hardy raises max and current health (%d to %d)" % [before_hp, int(u.max_hp)])
 	check(DeepBoons.apply(quiet, u, offer_of.call(["STAKED"]), {}, rng).ok and int(u.ore) == 40, "Staked pays 40 ore")
 	## A stake on a stone lands on one drawn at random from the rail, never an empty socket.
-	var cuts_before: Array = u.rail.map(func(s: Variant) -> int: return int(s.cut) if s is Dictionary else -1)
+	## Recut draws a stone's Cut again rather than lifting it: nothing may make a stone truer
+	## on purpose, so all the boon promises is a fresh roll somewhere on the ladder.
 	var recut: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["RECUT"], ["socket"]), {"socket": 4}, rng)
 	var at: int = int(recut.get("socket", -1))
-	check(recut.ok and at >= 0 and u.rail[at] is Dictionary and int(u.rail[at].cut) == mini(int(cuts_before[at]) + 1, 4) and int(recut.changed[0].cut) == int(u.rail[at].cut),
-		"Recut lifts a stone drawn from the rail a step (socket %d)" % at)
+	check(recut.ok and at >= 0 and u.rail[at] is Dictionary and int(u.rail[at].cut) >= 0 and int(u.rail[at].cut) <= 4 and int(recut.changed[0].cut) == int(u.rail[at].cut),
+		"Recut cuts a stone drawn from the rail again (socket %d)" % at)
 	var sockets_hit: Dictionary = {}
 	for _i in range(24):
 		var carats: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["HEAVIER"], ["socket"]), {}, rng)
 		sockets_hit[int(carats.socket)] = true
 	check(sockets_hit.size() > 1 and sockets_hit.keys().all(func(k: int) -> bool: return u.rail[k] is Dictionary), "the socket is drawn at random, from set stones only: %s" % str(sockets_hit.keys()))
 	var carats_before: Array = u.rail.map(func(s: Variant) -> int: return int(s.carat) if s is Dictionary else 0)
-	var heavier: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["HEAVIER"], ["socket"]), {}, rng)
-	var heavy_at: int = int(heavier.socket)
-	check(heavier.ok and int(u.rail[heavy_at].carat) == mini(int(carats_before[heavy_at]) + 3, DeepStone.carat_max()), "Heavier adds three carats (%d to %d)" % [int(carats_before[heavy_at]), int(u.rail[heavy_at].carat)])
+	var fired: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["HEAVIER"], ["socket"]), {}, rng)
+	var fired_at: int = int(fired.socket)
+	var heart: Dictionary = u.rail[fired_at]
+	check(fired.ok and int(heart.carat) == int(carats_before[fired_at]) and heart.inclusions.size() == DeepStone.inclusion_slots(int(heart.clarity)),
+		"Clarified draws a stone's Clarity again and refills what is frozen inside it, and never touches its weight (%d carats)" % int(heart.carat))
 	var pinpoint: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["PINPOINT"], ["socket"]), {}, rng)
 	var pinned: Dictionary = u.rail[int(pinpoint.socket)]
 	check(pinpoint.ok and pinned.inclusions.any(func(k: String) -> bool: return str(DeepContent.inclusion(k).get("class", "")) == "PINPOINT"), "a Pinpoint forms in the stone")
@@ -535,7 +710,15 @@ func _test_grubstake() -> void:
 	check(DeepBoons.apply(quiet, u, offer_of.call(["STEADY_HANDS"]), {}, rng).ok and int(u.run_mods.extra_rerolls.until_depth) == 4, "Steady Hands is remembered until the landing")
 	var hp_before: int = int(u.hp)
 	check(DeepBoons.apply(quiet, u, offer_of.call(["COST_WOUND"]), {}, rng).ok and int(u.hp) == hp_before - int(floor(hp_before * 0.3)), "A Bad Fall costs 30%% of current health (%d to %d)" % [hp_before, int(u.hp)])
-	check(DeepBoons.apply(quiet, u, offer_of.call(["REWARD_WILD"]), {}, rng).ok and u.bag_dice.size() == 1 and str(u.bag_dice[0].key) == "WILD_D6", "a Wild Die joins the bag")
+	var wild: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["REWARD_WILD"]), {}, rng)
+	check(wild.ok and wild.dice.size() == 1 and u.bag_dice.is_empty() and u.dice.any(func(d: Dictionary) -> bool: return d.faces.any(func(f: Dictionary) -> bool: return str(f.kind) == "wild")),
+		"a Wild Face turns a face of one of the five wild, and adds no die")
+	var shapes_before: Array = u.dice.map(func(d: Dictionary) -> String: return str(d.shape))
+	var hammered: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["HAMMERED"]), {}, rng)
+	var grown: Array = range(u.dice.size()).filter(func(i: int) -> bool: return str(u.dice[i].shape) != str(shapes_before[i]))
+	check(hammered.ok and grown.size() == 1 and u.dice.size() == 5 and u.bag_dice.is_empty(), "Hammered works one of the five and adds no die: %s" % str(hammered.get("message", "")))
+	check(not grown.is_empty() and DeepOddities.SIZES.find(str(u.dice[grown[0]].shape)) == DeepOddities.SIZES.find(str(shapes_before[grown[0]])) + 1, "a size bigger")
+	check(not DeepBoons.validate({"name": "x", "group": "kit", "effects": [ {"kind": "die", "key": "D6"}]}, DeepContent.pack()).is_empty(), "no stake hands out a die")
 	var rolled: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["SHOT_ROLL"]), {}, rng)
 	check(rolled.ok and rolled.has("rolled") and rolled.rolled.size() == 5, "Roll for It rolls the bowl: %s" % str(rolled.get("rolled", [])))
 	## Terms never pair what they exclude, over many seeds.
@@ -574,7 +757,9 @@ func _test_grubstake() -> void:
 			if int(foe.hp) > int(foe.max_hp) / 2:
 				halved = false
 		check(halved and int(staker.run_mods.soft_rock) == 2, "Soft Rock opens the fight against cracked creatures and is spent by one")
-		check(int(DeepBattle.player(b, "a").rerolls) == 3, "Steady Hands gives Ardor a third reroll at depth 1 (%d)" % int(DeepBattle.player(b, "a").rerolls))
+		## A creature that hands rerolls out adds its own on top of the stake's.
+		var gifts: int = b.enemies.filter(func(e: Dictionary) -> bool: return str(e.get("gimmick", "")) == "gift_rerolls").size()
+		check(int(DeepBattle.player(b, "a").rerolls) == 3 + gifts, "Steady Hands gives Ardor a third reroll at depth 1 (%d, %d gifted)" % [int(DeepBattle.player(b, "a").rerolls), gifts])
 		fought = true
 		break
 	check(fought, "a fight was found to test the run mods against")

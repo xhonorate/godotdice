@@ -1,5 +1,5 @@
 extends Control
-## The cave behind every page of a run: the biome's own colours, walls of faceted rock
+## The cave behind every page of a run: the biome's own colors, walls of faceted rock
 ## leaning in from both sides, a lantern's pool of light, and dust turning slowly in it.
 ## Drawn in 2D and cheap, so the pages between fights feel like the same mine the fights
 ## happen in without paying for a second 3D room.
@@ -122,7 +122,7 @@ func _carve() -> void:
 		_shade.stretch_mode = TextureRect.STRETCH_SCALE
 		_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_shade)
-	_shade.position = -size * 0.25
+	_shade.position = - size * 0.25
 	_shade.size = size * 1.5
 	move_child(_shade, get_child_count() - 1)
 	if _dust != null:

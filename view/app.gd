@@ -6,9 +6,10 @@ const DescentScreen = preload("res://view/run/descent_screen.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GameMenu = preload("res://view/menu/game_menu.gd")
-const BattleScreen = preload("res://view/battle/battle_screen.gd")
+const MineStage = preload("res://view/run/mine_stage.gd")
 const CameraRig = preload("res://view/battle/camera_rig.gd")
 const ScreenFx = preload("res://view/battle/screen_fx.gd")
+const Looks = preload("res://view/battle/looks.gd")
 
 var saves: DeepSaveStore
 var settings: Dictionary = {}
@@ -37,6 +38,8 @@ func _ready() -> void:
 	elif profile.has("settings") or not profile.has("characters"):
 		## A profile from before characters: its settings become characters, its vault stays.
 		profile = DeepProfile.migrate(profile)
+		saves.save_profile(profile)
+	if DeepProfile.tidy(profile):
 		saves.save_profile(profile)
 	session = DeepSession.new()
 	session.saves = saves
@@ -104,6 +107,7 @@ func _prewarm() -> void:
 	## first fight, whose rail shows these very stones and dice.
 	for _i in range(3):
 		await get_tree().process_frame
+	descent.warm_up()
 	var loadout: Dictionary = member()
 	for stone in loadout.rail:
 		if stone is Dictionary:
@@ -216,8 +220,7 @@ func _on_run_ended(results: Dictionary) -> void:
 			var character: Dictionary = DeepContent.character(str(unlocked.character))
 			var title: String = DeepContent.character_title(str(unlocked.character))
 			toast("Unlocked: %s" % title, DeepUi.ACCENT, "person")
-			Inspector.announce("A new lapidary", "%s joins the workshop.\n\n%s\n\n%s: %s\nBirthstone: %s" % [title, str(character.get("text", "")),
-				str(character.get("passive", {}).get("name", "Passive")), str(character.get("passive", {}).get("text", "")), str(character.get("birthstone", {}).get("name", ""))], "person", DeepUi.ACCENT_HI)
+			Inspector.lapidary(str(unlocked.character))
 		if unlocked.has("mine"):
 			var mine: Dictionary = DeepContent.mine(str(unlocked.mine))
 			toast("Unlocked: %s" % str(mine.get("name", "")), DeepUi.ACCENT, "pick")
@@ -289,9 +292,12 @@ func _apply_settings(starting: bool = false) -> void:
 	DeepAudio.levels(settings)
 	CameraRig.comfort = clampf(float(settings.get("shake", 1.0)), 0.0, 1.0)
 	ScreenFx.calm = bool(settings.get("reduced_motion", false))
-	BattleScreen.quality_pref = int(settings.get("quality", 0))
+	MineStage.quality_pref = int(settings.get("quality", 0))
+	## The ink the rock is drawn in, and the one pass a weak machine can drop.
+	Looks.pref = Looks.HOUSE if bool(settings.get("outlines", true)) else "off"
 	session.speed = maxf(1.0, float(settings.get("speed", 1.0)))
 	descent.apply_quality()
+	descent.apply_look()
 	if DisplayServer.get_name() == "headless":
 		return
 	var window: Window = get_window()

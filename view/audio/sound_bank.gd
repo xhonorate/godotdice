@@ -7,7 +7,7 @@ extends RefCounted
 ##
 ## The palette is deliberate, because the whole game sounds like it happens underground:
 ## the UI is wood and small stones, never a beep; gems ring as struck crystal, tuned by their
-## colour; rock is filtered noise; creatures shatter; metal is for the lift, the lock and a
+## color; rock is filtered noise; creatures shatter; metal is for the lift, the lock and a
 ## blow that is turned aside. Anything that matters — a Peerless grade, a Star — is a chord
 ## the player will learn to recognise before they read the word.
 
@@ -17,7 +17,7 @@ const A4: float = 440.0
 const C5: float = 523.25
 const C6: float = 1046.5
 
-## Which gem colour rings as what. The name is the sound; the hue is only how it is drawn.
+## Which gem color rings as what. The name is the sound; the hue is only how it is drawn.
 const GEM_SOUNDS: Dictionary = {"RED": "gem_red", "BLUE": "gem_blue", "GREEN": "gem_green",
 	"VIOLET": "gem_violet", "GOLD": "gem_gold", "WHITE": "gem_white"}
 const GRADE_SOUNDS: Dictionary = {"ROUGH": "grade_rough", "FINE": "grade_fine", "PRECIOUS": "grade_precious",
@@ -32,17 +32,17 @@ const NAMES: PackedStringArray = [
 	"hit_crit", "block", "block_break", "heal", "poison", "stun", "curse", "enemy_windup",
 	"enemy_strike", "creature_die", "warden_die", "victory", "defeat", "cave_rumble", "ore",
 	"pick_strike", "rock_break", "stone_found", "tunnel", "landing", "lift", "depart", "lantern", "oddity",
-	"buy", "salvage_save", "salvage_lose", "depth_card",
+	"buy", "salvage_save", "salvage_lose", "depth_card", "footstep", "rockfall", "crumble",
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
-	"grade_peerless", "star", "keep", "sell"]
+	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally"]
 
 static var _cache: Dictionary = {}
 ## The bank is baked on a worker thread while the game is played, and asked for sounds from
 ## the main one at the same time; only the shelf needs guarding, not the baking.
 static var _shelf: Mutex = Mutex.new()
 
-static func gem_sound(colour: String) -> String:
-	return str(GEM_SOUNDS.get(colour.to_upper(), "gem_white"))
+static func gem_sound(color: String) -> String:
+	return str(GEM_SOUNDS.get(color.to_upper(), "gem_white"))
 
 static func grade_sound(tier: String) -> String:
 	return str(GRADE_SOUNDS.get(tier.to_upper(), "grade_rough"))
@@ -257,8 +257,8 @@ static func _bake(name: String) -> AudioStreamWAV:
 			var coins := DeepSynth.new(0.7)
 			for i in range(9):
 				var when: float = coins.rng.randf() * 0.34
-				coins.bell(when, coins.rng.randf_range(0.14, 0.3), coins.rng.randf_range(1400.0, 3200.0), coins.rng.randf_range(0.12, 0.26), DeepSynth.METAL_PARTIALS, 3.2)
-				coins.clack(when, 0.1, coins.rng.randf_range(900.0, 2000.0))
+				coins.bell(when , coins.rng.randf_range(0.14, 0.3), coins.rng.randf_range(1400.0, 3200.0), coins.rng.randf_range(0.12, 0.26), DeepSynth.METAL_PARTIALS, 3.2)
+				coins.clack(when , 0.1, coins.rng.randf_range(900.0, 2000.0))
 			return coins.normalise(0.7).stream()
 
 		# --- the mine ---------------------------------------------------------------------------
@@ -275,6 +275,15 @@ static func _bake(name: String) -> AudioStreamWAV:
 			return DeepSynth.new(1.0).bell(0.0, 0.6, 1318.5, 0.34, DeepSynth.CHIME_PARTIALS, 2.4) \
 				.bell(0.07, 0.5, 1975.5, 0.2, DeepSynth.CHIME_PARTIALS, 2.6) \
 				.sparkle(0.05, 0.6, 0.12, 2600.0, 6400.0, 12).normalise(0.72).stream()
+		"footstep":
+			## A boot on loose rock: the weight, and the grit that shifts under it.
+			return DeepSynth.new(0.3).thump(0.0, 0.1, 118.0, 0.5, 0.35).noise(0.0, 0.13, 0.22, 2600.0, 480.0, 4.0, 0.001).clatter(0.015, 0.14, 0.07, 3, 900.0).normalise(0.42).stream()
+		"rockfall":
+			## The way on coming down: a roar overhead, the big stones landing, the small ones after.
+			return DeepSynth.new(2.4).rumble(0.0, 2.0, 0.5).thump(0.1, 0.4, 70.0, 0.7, 0.5).thump(0.42, 0.35, 60.0, 0.6, 0.5).thump(0.78, 0.3, 82.0, 0.5, 0.5).clatter(0.1, 1.4, 0.25, 22, 420.0).noise(0.05, 1.6, 0.35, 2600.0, 160.0, 1.8, 0.01).echoes(0.23, 0.3, 2).normalise(0.9).stream()
+		"crumble":
+			## A rockfall giving way: stone rolling off stone and settling into dust.
+			return DeepSynth.new(1.7).noise(0.0, 1.2, 0.3, 1800.0, 200.0, 2.0, 0.02).clatter(0.0, 1.0, 0.25, 16, 520.0).thump(0.05, 0.3, 90.0, 0.4, 0.4).echoes(0.17, 0.25, 2).normalise(0.8).stream()
 		"tunnel":
 			## Walking into the dark: air, two footfalls, and the weight overhead.
 			return DeepSynth.new(0.9).whoosh(0.0, 0.5, 0.26, 1100.0, 220.0) \
@@ -296,7 +305,7 @@ static func _bake(name: String) -> AudioStreamWAV:
 				.bell(0.22, 0.8, 1046.5, 0.26, DeepSynth.CHIME_PARTIALS, 2.5)
 			var when: float = 0.42
 			for i in range(9):
-				cage.clack(when, 0.07 * (1.0 - float(i) / 12.0), 520.0)
+				cage.clack(when , 0.07 * (1.0 - float(i) / 12.0), 520.0)
 				when += 0.075 + 0.012 * float(i)
 			return cage.chord(0.5, 1.0, C5, [0, 4, 7, 12], 0.07, DeepSynth.CHIME_PARTIALS, 0.06) \
 				.whoosh(0.4, 1.0, 0.06, 800.0, 360.0).echoes(0.17, 0.2, 2).normalise(0.3).stream()
@@ -332,6 +341,24 @@ static func _bake(name: String) -> AudioStreamWAV:
 			return DeepSynth.new(1.4).whoosh(0.0, 0.2, 0.2, 2000.0, 400.0) \
 				.chord(0.05, 0.9, C6, [0, 7], 0.3, DeepSynth.CHIME_PARTIALS, 0.04) \
 				.sparkle(0.05, 1.0, 0.16, 2400.0, 7000.0, 20).normalise(0.82).stream()
+		"chisel":
+			## The jeweller's hammer on a chisel set into the rock round a raw stone: a bright
+			## tap, the crack of the chunk giving way, and grit falling off the bench.
+			return DeepSynth.new(0.7).clack(0.0, 0.34, 1500.0) \
+				.bell(0.0, 0.12, 2350.0, 0.16, DeepSynth.METAL_PARTIALS, 5.0) \
+				.noise(0.02, 0.22, 0.34, 4200.0, 700.0, 3.0, 0.002).thump(0.02, 0.18, 120.0, 0.34, 0.45) \
+				.clatter(0.1, 0.4, 0.12, 6, 900.0).normalise(0.74).stream()
+		"gleam":
+			## The last of the rock falls away and light goes right through the stone: a
+			## glassy sweep upwards and a high ring that hangs in the air.
+			return DeepSynth.new(1.9).whoosh(0.0, 0.45, 0.12, 900.0, 5600.0) \
+				.bell(0.1, 1.5, 2093.0, 0.26, DeepSynth.CHIME_PARTIALS, 1.6) \
+				.bell(0.2, 1.3, 3136.0, 0.18, DeepSynth.CHIME_PARTIALS, 1.8) \
+				.sparkle(0.05, 1.5, 0.18, 3200.0, 8400.0, 26).echoes(0.16, 0.28, 3).normalise(0.8).stream()
+		"tally":
+			## A figure written in the jeweller's book: a pen tap and a small bright note.
+			return DeepSynth.new(0.3).clack(0.0, 0.22, 1700.0) \
+				.bell(0.0, 0.2, 1760.0, 0.18, DeepSynth.CHIME_PARTIALS, 4.0).normalise(0.5).stream()
 		"grade_rough":
 			## Nothing. A stone put back down on the bench.
 			return DeepSynth.new(0.5).thump(0.0, 0.22, 150.0, 0.45, 0.5) \
@@ -366,6 +393,6 @@ static func _bake(name: String) -> AudioStreamWAV:
 			var paid := DeepSynth.new(0.8)
 			for i in range(11):
 				var when: float = paid.rng.randf() * 0.4
-				paid.bell(when, paid.rng.randf_range(0.16, 0.34), paid.rng.randf_range(1200.0, 3000.0), paid.rng.randf_range(0.12, 0.24), DeepSynth.METAL_PARTIALS, 3.0)
+				paid.bell(when , paid.rng.randf_range(0.16, 0.34), paid.rng.randf_range(1200.0, 3000.0), paid.rng.randf_range(0.12, 0.24), DeepSynth.METAL_PARTIALS, 3.0)
 			return paid.clack(0.42, 0.24, 600.0).normalise(0.74).stream()
 	return null

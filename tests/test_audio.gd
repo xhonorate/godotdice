@@ -65,9 +65,9 @@ func _test_bank() -> void:
 	check(DeepSoundBank.baked("ui_tap"), "the bank keeps what it bakes")
 	check(DeepSoundBank.stream("ui_tap") == DeepSoundBank.stream("ui_tap"), "the same sound is handed back, not baked again")
 	check(DeepSoundBank.stream("no_such_sound") == null, "an unknown name is nothing, not a crash")
-	for colour in DeepContent.section("colours"):
-		check(DeepSoundBank.known(DeepSoundBank.gem_sound(str(colour))), "every stone colour rings: " + str(colour))
-	for tier in DeepUi.TIER_COLOURS:
+	for color in DeepContent.section("colors"):
+		check(DeepSoundBank.known(DeepSoundBank.gem_sound(str(color))), "every stone color rings: " + str(color))
+	for tier in DeepUi.TIER_colorS:
 		check(DeepSoundBank.known(DeepSoundBank.grade_sound(str(tier))), "every grade has its own sound: " + str(tier))
 
 func _test_names() -> void:

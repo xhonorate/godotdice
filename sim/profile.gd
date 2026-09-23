@@ -121,29 +121,94 @@ static func keep(profile: Dictionary, stone: Dictionary) -> Dictionary:
 	kept.appraised = true
 	kept.inclusions_revealed = true
 	profile.vault[skill] = kept
-	if not profile.seen.has(skill):
-		profile.seen.append(skill)
+	saw(profile, skill)
 	profile.records.stones_kept = int(profile.records.stones_kept) + 1
 	var grade: Dictionary = DeepStone.grade(kept)
 	if int(grade.score) > int(profile.records.best.get("score", -1)):
 		profile.records.best = {"score": grade.score, "tier": grade.tier, "stone": kept.duplicate(true)}
 	return {"replaced": replaced, "paid": paid}
 
+static func first_of_skill(profile: Dictionary, stone: Dictionary) -> bool:
+	## Whether this is the first stone of its skill to come home: the vault has none of that
+	## skill yet, so there is nothing to weigh it against and nothing to decide. It is kept,
+	## and it is never offered to a buyer.
+	if DeepStone.is_birthstone(stone) or str(stone.get("skill", "")).is_empty():
+		return false
+	## A stone nobody has read is nobody's first: its skill is not known yet, and forcing it
+	## into the vault would be a free appraisal for anyone who asked to sell it rough.
+	if not bool(stone.get("appraised", false)):
+		return false
+	return owned(profile, str(stone.get("skill", ""))).is_empty()
+
+static func auto_keep(profile: Dictionary) -> Array:
+	## Every known stone on the tray that is the first of its skill goes straight into the
+	## vault. Returns what was kept, newest first in the order it was found.
+	var kept: Array = []
+	for stone in profile.get("tray", []).duplicate():
+		if not bool(stone.get("appraised", false)) or not first_of_skill(profile, stone):
+			continue
+		decide_tray(profile, str(stone.get("id", "")), true)
+		kept.append(stone)
+	return kept
+
 static func sell(profile: Dictionary, stone: Dictionary) -> int:
-	var paid: int = DeepStone.value(stone)
+	## A buyer pays what a stone is worth once it is known, and only the size class when it
+	## is not: selling a stone rough is the cheap way off the tray, and it teaches the vault
+	## nothing, because nobody ever found out what was in it.
+	var known: bool = bool(stone.get("appraised", false))
+	var paid: int = DeepStone.value(stone) if known else DeepStone.rough_value(stone)
 	profile.gold = int(profile.gold) + paid
-	var skill: String = str(stone.get("skill", ""))
-	if not profile.seen.has(skill):
-		profile.seen.append(skill)
+	if known:
+		saw(profile, str(stone.get("skill", "")))
 	return paid
 
+static func saw(profile: Dictionary, skill: String) -> bool:
+	## Writes a skill into the vault's record of what the player has laid eyes on. True the
+	## first time. Being seen is not owning: the vault draws the emblem in grey and the page
+	## says what it does, which is the whole of what a player who lost it keeps.
+	if skill.is_empty() or not DeepContent.section("skills").has(skill):
+		return false
+	if not profile.has("seen"):
+		profile.seen = []
+	if profile.seen.has(skill):
+		return false
+	profile.seen.append(skill)
+	return true
+
+static func appraisal_fee(stone: Dictionary) -> int:
+	## What the loupe costs at the workshop. Reading a stone is work, and the bigger it is
+	## the longer it takes, so the fee rides the same size class a rough buyer pays on —
+	## always well above what that buyer offers, which is what makes it a decision.
+	return maxi(int(DeepContent.constant("appraise_gold_min", 12)),
+		int(round(float(DeepStone.rough_value(stone)) * float(DeepContent.constant("appraise_gold_mult", 2.0)))))
+
+static func appraise(profile: Dictionary, stone: Dictionary) -> bool:
+	## Puts a tray stone under the loupe for gold. False if the purse is short.
+	if bool(stone.get("appraised", false)):
+		return false
+	var fee: int = appraisal_fee(stone)
+	if int(profile.get("gold", 0)) < fee:
+		return false
+	profile.gold = int(profile.gold) - fee
+	stone.appraised = true
+	stone.inclusions_revealed = true
+	saw(profile, str(stone.get("skill", "")))
+	return true
+
+static func _color_place(color: String) -> int:
+	## Where a color sits in the vault. The six come in their own order; an opal is none of
+	## them and goes last, where the rarest things belong, rather than first, which is where
+	## a colour the list has never heard of would otherwise land.
+	var found: int = DeepStone.colorS.find(color)
+	return found if found >= 0 else DeepStone.colorS.size()
+
 static func vault_grid(profile: Dictionary) -> Array:
-	## Every skill in the pack, in colour order, as unseen, seen or owned.
+	## Every skill in the pack, in color order, as unseen, seen or owned.
 	var out: Array = []
 	var keys: Array = DeepContent.section("skills").keys()
 	keys.sort_custom(func(a: String, b: String) -> bool:
-		var ca: int = DeepStone.COLOURS.find(str(DeepContent.skill(a).colour))
-		var cb: int = DeepStone.COLOURS.find(str(DeepContent.skill(b).colour))
+		var ca: int = _color_place(str(DeepContent.skill(a).color))
+		var cb: int = _color_place(str(DeepContent.skill(b).color))
 		return ca < cb if ca != cb else a < b)
 	for key in keys:
 		var state: String = "owned" if profile.vault.has(key) else ("seen" if profile.seen.has(key) else "unseen")
@@ -153,27 +218,28 @@ static func vault_grid(profile: Dictionary) -> Array:
 # --- loadouts ------------------------------------------------------------------------------
 
 static func loadout(profile: Dictionary, character_key: String) -> Dictionary:
-	## The rail and dice a character takes down the mine: stone instances from the vault and
-	## die instances from the bowl. Missing dice fall back to the character's own.
+	## The rail and dice a character takes down the mine: stone instances from the vault in
+	## the sockets a loadout fills (the rest go down empty, to be filled in the mine), and the
+	## character's own five dice, which are never swapped.
 	var character: Dictionary = DeepContent.character(character_key)
 	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	var rail: Array = []
 	var sockets: Array = character.get("sockets", [])
 	for index in range(sockets.size()):
-		var skill: Variant = record.rail[index] if index < record.rail.size() else null
+		var skill: Variant = record.rail[index] if loadout_socket(index) and index < record.rail.size() else null
 		var stone: Dictionary = owned(profile, str(skill)) if skill is String else {}
 		rail.append(stone.duplicate(true) if not stone.is_empty() and DeepStone.fits(stone, str(sockets[index])) else null)
+	## The dice they were unlocked with, in the bowl; a save from when dice could be swapped
+	## gets a fresh one of the right kind wherever another die took a slot.
 	var dice: Array = []
-	for die_id in record.get("dice", []):
-		var die: Dictionary = bowl_die(profile, str(die_id))
-		if not die.is_empty():
-			dice.append(die.duplicate(true))
+	var own: Array = record.get("dice", [])
 	var defaults: Array = character.get("dice", [])
-	var index: int = 0
-	while dice.size() < 5 and index < defaults.size():
-		dice.append(DeepDice.make(str(defaults[index]), DeepContent.die(str(defaults[index])), "fallback%d" % index))
-		index += 1
-	return {"rail": rail, "dice": dice.slice(0, 5)}
+	for index in range(mini(defaults.size(), 5)):
+		var die: Dictionary = bowl_die(profile, str(own[index])) if index < own.size() else {}
+		if die.is_empty() or str(die.get("key", "")) != str(defaults[index]):
+			die = DeepDice.make(str(defaults[index]), DeepContent.die(str(defaults[index])), "fallback%d" % index)
+		dice.append(die.duplicate(true))
+	return {"rail": rail, "dice": dice}
 
 static func bowl_die(profile: Dictionary, die_id: String) -> Dictionary:
 	for die in profile.bowl:
@@ -181,8 +247,17 @@ static func bowl_die(profile: Dictionary, die_id: String) -> Dictionary:
 			return die
 	return {}
 
-static func set_rail(profile: Dictionary, character_key: String, index: int, skill: Variant) -> String:
-	## Puts an owned stone (by skill) in a socket, or clears it with null. Returns an error or "".
+static func starting_rail_cap() -> int:
+	## How many sockets a loadout fills: the first few on the rail.
+	return int(DeepContent.constant("starting_rail_cap", 3))
+
+static func loadout_socket(index: int) -> bool:
+	## Whether a socket is filled from the vault before a run. The rest of the rail is only
+	## ever filled in the mine, with stones found on the way down.
+	return index >= 0 and index < starting_rail_cap()
+
+static func rail_refusal(profile: Dictionary, character_key: String, index: int, skill: String) -> String:
+	## Why an owned stone (by skill) cannot go into a socket of a loadout, or "".
 	var character: Dictionary = DeepContent.character(character_key)
 	var record: Dictionary = profile.characters.get(character_key, {})
 	if record.is_empty() or not bool(record.get("unlocked", false)):
@@ -190,40 +265,66 @@ static func set_rail(profile: Dictionary, character_key: String, index: int, ski
 	var sockets: Array = character.get("sockets", [])
 	if index < 0 or index >= sockets.size():
 		return "no such socket"
-	while record.rail.size() < sockets.size():
-		record.rail.append(null)
-	if skill == null:
-		record.rail[index] = null
-		return ""
-	var stone: Dictionary = owned(profile, str(skill))
+	if not loadout_socket(index):
+		return "that socket is only filled in the mine"
+	var stone: Dictionary = owned(profile, skill)
 	if stone.is_empty():
 		return "you do not own that stone"
 	if not DeepStone.fits(stone, str(sockets[index])):
-		return "that socket takes a different colour"
+		return "that socket takes a different color"
 	var cap: int = int(character.get("carat_max", 0))
 	if cap > 0 and int(stone.carat) > cap:
 		return "%s takes nothing heavier than %d carats" % [str(character.get("name", "this character")), cap]
+	return ""
+
+static func set_rail(profile: Dictionary, character_key: String, index: int, skill: Variant) -> String:
+	## Puts an owned stone (by skill) in a socket of the loadout, or clears it with null.
+	## Returns an error or "". A stone already set elsewhere on the rail moves, and the stone
+	## it lands on takes its old socket if it fits there, or comes out.
+	var record: Dictionary = profile.characters.get(character_key, {})
+	var sockets: Array = DeepContent.character(character_key).get("sockets", [])
+	if skill == null:
+		if record.is_empty() or not bool(record.get("unlocked", false)):
+			return "that character is locked"
+		if index < 0 or index >= sockets.size():
+			return "no such socket"
+		while record.rail.size() < sockets.size():
+			record.rail.append(null)
+		record.rail[index] = null
+		return ""
+	var refusal: String = rail_refusal(profile, character_key, index, str(skill))
+	if not refusal.is_empty():
+		return refusal
+	while record.rail.size() < sockets.size():
+		record.rail.append(null)
+	var from: int = record.rail.find(str(skill))
+	var displaced: Variant = record.rail[index]
 	for i in range(record.rail.size()):
 		if i != index and record.rail[i] == str(skill):
 			record.rail[i] = null
 	record.rail[index] = str(skill)
+	if from >= 0 and from != index and displaced is String and rail_refusal(profile, character_key, from, str(displaced)).is_empty():
+		record.rail[from] = displaced
 	return ""
 
-static func set_die(profile: Dictionary, character_key: String, index: int, die_id: String) -> String:
-	var record: Dictionary = profile.characters.get(character_key, {})
-	if record.is_empty():
-		return "no such character"
-	if index < 0 or index >= 5:
-		return "five dice"
-	if bowl_die(profile, die_id).is_empty():
-		return "that die is not in your bowl"
-	while record.dice.size() < 5:
-		record.dice.append("")
-	for i in range(record.dice.size()):
-		if i != index and str(record.dice[i]) == die_id:
-			record.dice[i] = record.dice[index]
-	record.dice[index] = die_id
-	return ""
+static func tidy(profile: Dictionary) -> bool:
+	## A save from when any socket could be filled before a run: a stone sitting in a socket
+	## the loadout no longer fills moves to an empty one it fits, or comes out. True if
+	## anything moved.
+	var moved: bool = false
+	for key in profile.get("characters", {}):
+		var record: Dictionary = profile.characters[key]
+		var rail: Array = record.get("rail", [])
+		for index in range(rail.size()):
+			if loadout_socket(index) or rail[index] == null:
+				continue
+			var skill: String = str(rail[index])
+			rail[index] = null
+			moved = true
+			for slot in range(starting_rail_cap()):
+				if slot < rail.size() and rail[slot] == null and set_rail(profile, str(key), slot, skill).is_empty():
+					break
+	return moved
 
 # --- what comes home -----------------------------------------------------------------------
 
@@ -254,6 +355,10 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 			profile.records.extractions = int(profile.records.extractions) + 1
 		"fallen": profile.records.falls = int(profile.records.falls) + 1
 	var mine_result: Dictionary = result.get("players", {}).get(player_id, {})
+	## What the run taught, whatever came of the stones themselves: a gem read under a lens
+	## down there is in the vault's record even if the party never came back up with it.
+	for skill in mine_result.get("seen", []):
+		saw(profile, str(skill))
 	var brought: Array = []
 	for stone in mine_result.get("haul", []):
 		var home: Dictionary = stone.duplicate(true)
@@ -264,16 +369,20 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		profile.bowl.append(die.duplicate(true))
 	profile.history.append({"run_id": str(result.get("run_id", "")), "mine": mine_key, "outcome": str(result.get("outcome", "")),
 		"depth": int(result.get("depth", 0)), "stones": brought.size(), "date": Time.get_date_string_from_system()})
-	return {"tray": brought, "unlocked": unlocked}
+	## Anything that came home already read and is the first of its skill is kept without
+	## being asked about. What came home raw is kept the moment the loupe says what it is.
+	var claimed: Array = auto_keep(profile)
+	return {"tray": brought, "unlocked": unlocked, "kept": claimed}
 
 static func decide_tray(profile: Dictionary, stone_id: String, keep_it: bool) -> Dictionary:
 	for index in range(profile.tray.size()):
 		var stone: Dictionary = profile.tray[index]
 		if str(stone.id) != stone_id:
 			continue
+		var forced: bool = first_of_skill(profile, stone)
 		profile.tray.remove_at(index)
-		if keep_it:
+		if keep_it or forced:
 			var kept: Dictionary = keep(profile, stone)
-			return {"ok": true, "kept": true, "replaced": kept.replaced, "paid": kept.paid}
+			return {"ok": true, "kept": true, "replaced": kept.replaced, "paid": kept.paid, "forced": forced}
 		return {"ok": true, "kept": false, "paid": sell(profile, stone)}
 	return {"ok": false, "error": "no such stone in the tray"}

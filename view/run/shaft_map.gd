@@ -245,10 +245,10 @@ func _curve(a: Vector2, b: Vector2) -> PackedVector2Array:
 	return out
 
 func _stroke(points: PackedVector2Array, tint: Color, width: float) -> void:
-	var colours := PackedColorArray()
+	var colors := PackedColorArray()
 	for point in points:
-		colours.append(Color(tint, tint.a * _fade(point.y)))
-	_canvas.draw_polyline_colors(points, colours, width, true)
+		colors.append(Color(tint, tint.a * _fade(point.y)))
+	_canvas.draw_polyline_colors(points, colors, width, true)
 
 func _flow(points: PackedVector2Array, tint: Color, offset: float) -> void:
 	## Sparks running down a way the party can take.
@@ -348,7 +348,7 @@ func _draw_depths() -> void:
 			_canvas.draw_string(DeepUi.display_font(), Vector2(GUTTER, y - _step * 0.5 + 4), "ENDLESS BELOW", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(Color("b58cff"), fade))
 
 func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring: Color = Color(0, 0, 0, 0)) -> void:
-	var tone: Color = DeepUi.CHAMBER_COLOURS.get(kind, DeepUi.MUTED)
+	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED)
 	var fade: float = _fade(at.y) * strength
 	_canvas.draw_circle(at, radius, Color(tone.darkened(0.62), 0.96 * fade))
 	_canvas.draw_arc(at, radius, 0, TAU, 32, Color(ring if ring.a > 0.0 else tone, 0.95 * fade), 2.0, true)
@@ -358,7 +358,7 @@ func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring:
 func _draw_trail(positions: Dictionary) -> void:
 	## The way the party came, above the stretch it is in now.
 	var from: int = int(_map().get("from", run.get("depth", 0)))
-	var points: Array = [{"at": Vector2(_x(0.5), _y(0.0)), "kind": "workshop", "depth": 0}]
+	var points: Array = [ {"at": Vector2(_x(0.5), _y(0.0)), "kind": "workshop", "depth": 0}]
 	for entry in run.get("path", []):
 		var d: int = int(entry.get("depth", 0))
 		if d <= from:
@@ -376,7 +376,7 @@ func _draw_trail(positions: Dictionary) -> void:
 			_spots.append({"at": at, "radius": 14.0, "text": "The workshop. The lift comes back here."})
 			continue
 		var kind: String = str(point.kind)
-		if kind == "landing" and DeepDescent.is_warden_depth(int(point.depth)):
+		if kind == "landing" and DeepDescent.run_is_warden(run, int(point.depth)):
 			kind = "warden"
 		_medallion(at, 12.0, kind, 0.85)
 		var words: String = "Depth %d: %s" % [int(point.depth), "a dark mouth, and then a fight" if bool(point.get("hidden", false)) and kind == "hidden" else _kind_words(kind)]
@@ -392,7 +392,7 @@ func _draw_loose_offers() -> void:
 		var offer: Dictionary = offers[index]
 		var at := Vector2(_x((float(index) + 0.5) / float(offers.size())), _y(float(run.depth) + 1.0))
 		var kind: String = "hidden" if bool(offer.get("hidden", false)) else str(offer.get("kind", "fight"))
-		_stroke(_curve(from, at), Color(DeepUi.CHAMBER_COLOURS.get(kind, DeepUi.MUTED), 0.7), 2.5)
+		_stroke(_curve(from, at), Color(DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED), 0.7), 2.5)
 		_medallion(at, 17.0, kind, 1.0)
 		_spots.append({"at": at, "radius": 17.0, "text": "Take this tunnel", "offer": str(offer.id)})
 	_draw_party(from)
@@ -420,7 +420,7 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 			elif from_here and bool(facts.choosing):
 				var node: Dictionary = nodes.get(str(child), {})
 				var kind: String = str(node.kind) if DeepDescent.revealed(run, node) else "hidden"
-				var tone: Color = DeepUi.CHAMBER_COLOURS.get(kind, DeepUi.PAPER)
+				var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.PAPER)
 				var hot: bool = picked == str(child)
 				_stroke(line, Color(tone, 0.95 if hot else 0.7), 4.0 if hot else 3.0)
 				_flows.append({"line": line, "tone": tone.lightened(0.4), "offset": float(str(child).hash() % 97) / 97.0})
@@ -492,7 +492,7 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		if offered:
 			at.y += sin(_clock * 2.4 + float(id.hash() % 13)) * 2.0
 			var kind: String = str(node.kind) if seen else "hidden"
-			var tone: Color = DeepUi.CHAMBER_COLOURS.get(kind, DeepUi.MUTED)
+			var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED)
 			var mine: bool = str(DeepDescent.player(run, local_id).get("vote", "")) == id
 			var hot: bool = picked == id
 			var radius: float = 19.0 if hot else 17.0
@@ -523,7 +523,9 @@ func _kind_words(kind: String) -> String:
 		"vein": return "an ore vein to strike"
 		"motherlode": return "a motherlode: stones for everyone"
 		"oddity": return "an oddity"
-		"merchant": return "a merchant: buy, sell and appraise"
+		"merchant": return "a merchant: buy stones, sell and appraise"
+		"smithy": return "a smithy: a die a size bigger or smaller"
+		"carver": return "a carver: raise or recut a face of a die"
 		"hidden": return "a dark mouth: anything could be down there"
 		"landing": return "a landing"
 	return kind
@@ -558,15 +560,15 @@ func _draw_voters(id: String, at: Vector2, radius: float) -> void:
 func _draw_landing(map: Dictionary, at: Vector2, reachable: bool) -> void:
 	var fade: float = _fade(at.y)
 	var landing: int = int(map.get("to", 0))
-	var warden: bool = DeepDescent.is_warden_depth(landing)
+	var warden: bool = DeepDescent.run_is_warden(run, landing)
 	var kind: String = "warden" if warden else "landing"
-	var tone: Color = DeepUi.CHAMBER_COLOURS.get(kind, DeepUi.ACCENT)
+	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.ACCENT)
 	var every: int = DeepDescent.landing_every()
 	var below: Vector2 = Vector2(at.x, _y(float(landing + every)))
 	if _fade(below.y) > 0.0:
-		var later: bool = DeepDescent.is_warden_depth(landing + every)
+		var later: bool = DeepDescent.run_is_warden(run, landing + every)
 		_canvas.draw_circle(below, 11.0, Color(0.04, 0.05, 0.07, 0.9 * _fade(below.y)))
-		_canvas.draw_arc(below, 11.0, 0, TAU, 24, Color(DeepUi.CHAMBER_COLOURS.get("warden" if later else "landing", DeepUi.MUTED), 0.4 * _fade(below.y)), 1.5, true)
+		_canvas.draw_arc(below, 11.0, 0, TAU, 24, Color(DeepUi.CHAMBER_colorS.get("warden" if later else "landing", DeepUi.MUTED), 0.4 * _fade(below.y)), 1.5, true)
 		_glyph("crown" if later else "lift", below, 12.0, Color(DeepUi.MUTED, 0.6 * _fade(below.y)))
 		_spots.append({"at": below, "radius": 11.0, "text": "Depth %d: %s" % [landing + every, "a Warden's gate" if later else "the landing after"]})
 	if fade <= 0.0:
