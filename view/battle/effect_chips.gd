@@ -17,12 +17,12 @@ const GIMMICKS: Dictionary = {
 	"split_on_big_hit": ["copy", "Splits", "A single blow of 40% of its health or more splits it in two. Many small blows kill it."],
 	"block_from_high": ["shield", "Hardens", "Each turn its block rises to match the party's highest die."],
 	"steal_gold": ["coin_fall", "Thief", "Steals up to 3 ore with every hit, and drops all of it when it dies."],
-	"gift_rerolls": ["reroll", "Lantern", "Its light gives you an extra reroll each turn, and every reroll you use costs 1 HP."],
+	"gift_rerolls": ["reroll", "Lantern", "Its light gives you an extra reroll each turn, and every player loses 1 HP whenever anyone rerolls (cannot down a player)."],
 	"poison_immune": ["drop", "Unpoisonable", "Poison cannot touch it."],
 	"cloud_socket": ["cloud", "Fogger", "Fogs one of your sockets each turn. Hit it to clear the fog."],
-	"reflect_zero_resonance": ["prism", "Mirror-hide", "Throws back half the damage of gems that hit it at Resonance 0 or 1."],
+	"reflect_zero_resonance": ["prism", "Mirror-hide", "When hit at Resonance 0 or 1, throws half that damage back at every player."],
 	"bury_socket": ["rampart", "Buries", "Buries one of your sockets in rubble each turn: that gem cannot fire."],
-	"mirror_last_gem": ["copy", "Mirror", "Its attacks add half of what you dealt last turn."],
+	"mirror_last_gem": ["copy", "Mirror", "Adds half the party’s strongest last turn, up to 6 damage, shared across its dice."],
 	"roll_for_you": ["die", "Roller", "On odd turns it rolls your dice for you, and you get no rerolls."]}
 
 static func entry(key: String, glyph: String, value: String, good: bool, title: String, text: String, tone: Color = Color(0, 0, 0, 0)) -> Dictionary:
@@ -85,12 +85,15 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	## For a creature the colors flip: what helps it is bad for the party.
 	for chip in _statuses(foe.get("statuses", {}), true):
 		out.append(chip)
-	var downgrade: int = int(foe.get("downgrade", 0))
+	var downgrade: int = int(foe.get("dread_turns", 0))
 	if downgrade > 0:
-		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "Its next intent is weakened %s." % DeepUi.plural(downgrade, "step")))
+		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are one tier smaller for %s (minimum d4)." % DeepUi.plural(downgrade, "turn")))
 	var bound: int = int(foe.get("stolen_dice", 0))
 	if bound > 0:
-		out.append(entry("bound", "broken_chain", "−%d" % bound, true, "Bound", "It rolls %s next turn." % DeepUi.plural(bound, "die fewer", "dice fewer")))
+		out.append(entry("bound", "broken_chain", "−%d" % bound, true, "Bound", "Its next action rolls %s, even if that leaves none." % DeepUi.plural(bound, "die fewer", "dice fewer")))
+	var upgrade: int = int(foe.get("dice_upgrade", 0))
+	if upgrade > 0:
+		out.append(entry("upgrade", "die", "+%d" % upgrade, false, "Larger dice", "Dice raised %d tiers for this fight (maximum d20)." % upgrade))
 	var gold: int = int(foe.get("stolen_gold", 0))
 	if gold > 0:
 		out.append(entry("gold", "coin_fall", str(gold), false, "Stolen ore", "It carries %d of your ore. Kill it to get it back." % gold, DeepUi.ORE))
@@ -122,7 +125,7 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 		out.append(entry("poison", "drop", str(poison), on_enemy, "Poison", "Loses %d HP at the end of the turn, then one less each turn." % poison, DeepUi.POISON))
 	var stun: int = int(statuses.get("stun", 0))
 	if stun > 0:
-		out.append(entry("stun", "stun", str(stun), on_enemy, "Stunned", ("Skips its next move." if on_enemy else "Your rail does not fire next time it would.") + (" (%d)" % stun if stun > 1 else ""), Color("ffe27a")))
+		out.append(entry("stun", "stun", str(stun), on_enemy, "Stunned", ("Skips its next action phase." if on_enemy else "Your rail does not fire next time it would.") + (" (%d)" % stun if stun > 1 else ""), Color("ffe27a")))
 	var curse: int = int(statuses.get("curse", 0))
 	if curse > 0:
 		out.append(entry("curse", "eye", "+%d%%" % curse, on_enemy, "Cursed", "Takes %d%% more damage from every hit until the end of the turn." % curse, Color("c58bff")))

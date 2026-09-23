@@ -31,7 +31,7 @@ extends RefCounted
 ##   damage*(enemy) block*(self) heal*(self) gold*(self) poison*(enemy) remove_block*(enemy)
 ##   stun(enemy) cleanse(self) revive(downed_ally) curse(enemy: +pct damage taken this turn)
 ##   amplify_next(pct) cut_step_next raise_low raise_high set_match flip_high flip_low phantom_high
-##   grant_reroll retrigger_previous(pct) intent_downgrade(enemy) die_steal(enemy)
+##   grant_reroll retrigger_previous(pct) dice_dread(enemy) die_steal(enemy)
 ##   quality_bonus(pct) sparkle coin_flip(win_mult, lose_mult) resonance
 ##   Opal-only, and every one of them refuses to touch another opal, which is the whole of
 ##   why two opals can never call each other for ever:
@@ -45,18 +45,18 @@ extends RefCounted
 ## creatures hero heroes.
 
 const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct"]
-const TERMS: Array = ["value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
+const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
-	"phantom_high", "grant_reroll", "retrigger_previous", "intent_downgrade", "die_steal", "quality_bonus",
+	"phantom_high", "grant_reroll", "retrigger_previous", "dice_dread", "die_steal", "quality_bonus",
 	"sparkle", "coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next",
-	"replay_rail", "tick_poison", "stone_drop"]
+	"replay_rail", "tick_poison", "stone_drop", "dice_upgrade"]
 const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block"]
-const HOSTILE: Array = ["damage", "poison", "stun", "remove_block", "curse", "intent_downgrade", "die_steal"]
+const HOSTILE: Array = ["damage", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal"]
 const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "spread", "enemy_behind", "downed_ally", "hero", "heroes"]
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
 	"cut_step", "cut_override", "locked", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
@@ -142,6 +142,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 	var trig: Dictionary = c.get("trig", {})
 	var unit: Dictionary = c.get("unit", {})
 	match name:
+		"rolled": return int(c.get("rolled", 0))
 		"value": return int(trig.get("value", 0))
 		"second": return int(trig.get("second", 0))
 		"count": return int(trig.get("count", 0))

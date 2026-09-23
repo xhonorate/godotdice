@@ -1,8 +1,7 @@
 class_name DeepCreatures
 extends RefCounted
 ## The creatures of the rock: how one is made for a depth and a party, and how it decides
-## what it will do. Intents are published before the players roll, in the same pictograph
-## language the players' own gems use.
+## what it can do. Results are produced one die at a time during its action phase.
 
 static func make(key: String, id: String, depth: int, party: int) -> Dictionary:
 	var def: Dictionary = DeepContent.creature(key)
@@ -15,76 +14,192 @@ static func make(key: String, id: String, depth: int, party: int) -> Dictionary:
 		dice.append(DeepDice.make(str(die_key), DeepContent.die(str(die_key)), "%s_d%d" % [id, index]))
 		index += 1
 	return {"id": id, "key": key, "name": str(def.get("name", key)), "side": "enemy", "hp": hp, "max_hp": hp,
-		"block": int(def.get("block", 0)), "statuses": {}, "dice": dice, "hand": [], "intents": [],
+		"block": int(def.get("block", 0)), "statuses": {}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
+		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": -1,
 		"gimmick": str(def.get("gimmick", "")), "warden": bool(def.get("warden", false)), "phase": 0,
-		"stolen_dice": 0, "downgrade": 0, "cycle": 0, "stolen_gold": 0, "threat": int(def.get("threat", 1)),
+		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "threat": int(def.get("threat", 1)),
 		"text": str(def.get("text", ""))}
 
-static func moves_for(enemy: Dictionary) -> Array:
-	## A warden below a phase threshold fights from that phase's list instead.
-	var def: Dictionary = DeepContent.creature(str(enemy.get("key", "")))
-	var moves: Array = def.get("moves", [])
+static func phase_for(enemy: Dictionary) -> int:
+	var definition: Dictionary = DeepContent.creature(str(enemy.get("key", "")))
 	var hp_pct: int = int(float(enemy.get("hp", 0)) * 100.0 / float(maxi(1, int(enemy.get("max_hp", 1)))))
-	var phase_index: int = 0
-	var phases: Array = def.get("phases", [])
+	var selected: int = 0
+	var phases: Array = definition.get("phases", [])
 	for index in range(phases.size()):
 		if hp_pct <= int(phases[index].get("below_hp_pct", 0)):
-			moves = phases[index].get("moves", moves)
-			phase_index = index + 1
-	enemy.phase = phase_index
-	return moves
+			selected = index + 1
+	return selected
 
-static func roll(enemy: Dictionary, rng: RandomNumberGenerator) -> Array:
-	## Bind takes dice away for one turn: the last ones in the row stay in the creature's paw.
-	var dice: Array = enemy.get("dice", []).duplicate()
-	var stolen: int = int(enemy.get("stolen_dice", 0))
-	while stolen > 0 and dice.size() > 1:
-		dice.pop_back()
-		stolen -= 1
-	enemy.stolen_dice = 0
-	return DeepDice.roll_hand(dice, rng)
+static func moves_for(enemy: Dictionary) -> Array:
+	var definition: Dictionary = DeepContent.creature(str(enemy.get("key", "")))
+	var phase: int = phase_for(enemy)
+	return definition.get("phases", [])[phase - 1].get("moves", []) if phase > 0 else definition.get("moves", [])
 
-static func intents(enemy: Dictionary, state: Dictionary, rng: RandomNumberGenerator) -> Array:
-	var def: Dictionary = DeepContent.creature(str(enemy.get("key", "")))
-	enemy.hand = roll(enemy, rng)
-	var a: Dictionary = DeepHand.analyze(enemy.hand)
-	var moves: Array = moves_for(enemy)
-	if moves.is_empty():
-		return []
-	var active: Array = []
-	for index in range(moves.size()):
-		var trig: Dictionary = DeepPatterns.evaluate(moves[index].get("trigger", {"kind": "always"}), 0, a)
-		if trig.active:
-			active.append(index)
-	var chosen: Array = []
-	match str(def.get("policy", "best")):
-		"all":
-			chosen = active if not active.is_empty() else [0]
-		"cycle":
-			var index: int = int(enemy.get("cycle", 0)) % moves.size()
-			enemy.cycle = int(enemy.get("cycle", 0)) + 1
-			chosen = [index] if active.has(index) else [0]
-		_:
-			chosen = [active[active.size() - 1]] if not active.is_empty() else [0]
-	if int(enemy.get("downgrade", 0)) > 0 and not chosen.is_empty():
-		## Dread: the strongest move it meant to make is weakened by a step.
-		chosen[chosen.size() - 1] = maxi(0, int(chosen[chosen.size() - 1]) - 1)
-		enemy.downgrade = int(enemy.downgrade) - 1
-	var living: Array = state.get("players", []).filter(func(p: Dictionary) -> bool: return not bool(p.get("downed", false)))
+const TIERS: Array = ["D4", "D6", "D8", "D10", "D12", "D20"]
+const COMBINATIONS: Array = ["pair", "triple", "quad", "quint", "two_pair", "full_house", "straight", "all_odd", "all_even"]
+
+static func effective_dice(enemy: Dictionary) -> Array:
 	var out: Array = []
-	var depth: int = int(state.get("depth", 1))
-	var bonus: int = int(depth / maxi(1, int(DeepContent.constant("depth_damage_every", 4))))
-	for index in chosen:
-		var move: Dictionary = moves[index]
-		var trig: Dictionary = DeepPatterns.evaluate(move.get("trigger", {"kind": "always"}), 0, a)
-		var target: Dictionary = DeepRng.pick(rng, living) if not living.is_empty() else {}
-		var tc: Dictionary = {"a": a, "trig": trig, "unit": enemy, "depth": depth, "turn": int(state.get("turn", 1)), "party": living.size()}
-		var effects: Array = []
-		for effect_def in move.get("effects", []):
-			var effect: Dictionary = DeepRules.resolve_effect(effect_def, tc, 1.0, "hero")
-			if str(effect.kind) == "damage":
-				effect.amount += bonus
-			effects.append(effect)
-		out.append({"move": str(move.get("name", "?")), "index": index, "target": str(target.get("id", "")), "effects": effects,
-			"trigger": DeepPatterns.describe(move.get("trigger", {"kind": "always"}), 0), "dice": trig.get("dice", [])})
+	var upgrade: int = int(enemy.get("dice_upgrade", 0))
+	var dread: int = 1 if int(enemy.get("dread_turns", 0)) > 0 else 0
+	for base in enemy.get("dice", []):
+		var index: int = TIERS.find(str(base.get("shape", "D6")))
+		var tier: int = maxi(0, clampi(index + upgrade, 0, TIERS.size() - 1) - dread)
+		var key: String = str(TIERS[tier])
+		out.append(base.duplicate(true) if tier == index else DeepDice.make(key, DeepContent.die(key), str(base.id)))
 	return out
+
+static func prepare(enemy: Dictionary) -> void:
+	## Public planning information only; this never consumes random numbers.
+	enemy.phase = phase_for(enemy)
+	enemy.moves = moves_for(enemy).duplicate(true)
+	enemy.hand = []
+	enemy.rolled_die = {}
+	enemy.used_combos = []
+	enemy.move_states = []
+	enemy.next_die = 0
+	enemy.active_move = -1
+	enemy.acting = false
+	enemy.beat = ""
+	enemy.suppressed = 0
+	for move in enemy.moves:
+		enemy.move_states.append("unrevealed")
+
+static func finish(enemy: Dictionary) -> void:
+	enemy.acting = false
+	enemy.beat = "done"
+	enemy.dread_turns = maxi(0, int(enemy.get("dread_turns", 0)) - 1)
+
+static func is_combination(move: Dictionary) -> bool:
+	return str(move.get("trigger", {}).get("kind", "always")) in COMBINATIONS
+
+static func activation(move: Dictionary, history: Array, last: bool) -> Dictionary:
+	var combo: bool = is_combination(move)
+	var read: Array = history if combo else history.slice(-1)
+	var a: Dictionary = DeepHand.analyze(read)
+	var trigger: Dictionary = move.get("trigger", {"kind": "always"})
+	var result: Dictionary = DeepPatterns.evaluate(trigger, 0, a)
+	if str(trigger.get("kind", "")) in ["all_odd", "all_even"] and not last:
+		result.active = false
+	return result
+
+static func can_complete(move: Dictionary, history: Array, remaining: Array) -> bool:
+	## Look only at possible faces, never at future RNG. Current content has at most 3 dice.
+	if bool(activation(move, history, remaining.is_empty()).active):
+		return true
+	if remaining.is_empty():
+		return false
+	var die: Dictionary = remaining[0]
+	for face in die.get("faces", []):
+		var sample: Dictionary = {"die_id": str(die.id), "value": int(face.value), "kind": str(face.get("kind", "plain")), "top": DeepDice.top(die)}
+		if can_complete(move, history + [sample], remaining.slice(1)):
+			return true
+	return false
+
+static func suspense(enemy: Dictionary, remaining: Array) -> bool:
+	if remaining.size() != 1 or enemy.get("hand", []).is_empty():
+		return false
+	for index in range(enemy.moves.size()):
+		var move: Dictionary = enemy.moves[index]
+		if bool(move.get("dramatic", false)) and is_combination(move) and not enemy.used_combos.has(index):
+			if can_complete(move, enemy.hand, remaining):
+				return true
+	return false
+
+static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
+	var dice: Array = effective_dice(enemy)
+	var available: int = maxi(0, dice.size() - int(enemy.get("suppressed", 0)))
+	var remaining: Array = dice.slice(int(enemy.next_die), available)
+	var out: Array = []
+	for index in range(enemy.moves.size()):
+		var move: Dictionary = enemy.moves[index]
+		var combo: bool = is_combination(move)
+		if combo and enemy.used_combos.has(index):
+			enemy.move_states[index] = "used"
+			continue
+		var trig: Dictionary = activation(move, enemy.hand, remaining.is_empty())
+		if not trig.active:
+			enemy.move_states[index] = "pending" if combo and can_complete(move, enemy.hand, remaining) else "missed"
+			continue
+		enemy.move_states[index] = "activated"
+		if combo:
+			enemy.used_combos.append(index)
+		var a: Dictionary = DeepHand.analyze(enemy.hand if combo else enemy.hand.slice(-1))
+		var c: Dictionary = {"a": a, "trig": trig, "unit": enemy, "depth": int(state.get("depth", 1)),
+			"turn": int(state.get("turn", 1)), "party": state.get("players", []).size(), "rolled": int(enemy.hand.back().value)}
+		var effects: Array = []
+		for definition in move.get("effects", []):
+			var effect: Dictionary = DeepRules.resolve_effect(definition, c, 1.0, "heroes")
+			if str(effect.target) == "hero":
+				effect.target = "heroes"
+			if str(effect.kind) == "damage":
+				effect.amount += int(enemy.get("damage_bonus", 0))
+			effects.append(effect)
+		out.append({"move": str(move.get("name", "?")), "index": index, "effects": effects,
+			"dice": trig.get("dice", []), "combo": combo, "trigger": move.get("trigger", {}), "roll_index": int(enemy.next_die) - 1})
+	return out
+
+static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
+	var count: int = maxi(1, enemy.get("dice", []).size())
+	enemy.damage_bonus = int(int(state.get("depth", 1)) / maxi(1, int(DeepContent.constant("depth_damage_every", 4)))) / count
+	if str(enemy.get("gimmick", "")) == "mirror_last_gem":
+		var reflected: int = 0
+		for player in state.get("players", []):
+			reflected = maxi(reflected, int(player.get("dealt_last_turn", 0)) / 2)
+		enemy.damage_bonus += mini(6, reflected) / count
+	enemy.enrage_bonus = maxi(0, int(state.get("turn", 1)) - int(DeepContent.constant("enrage_turn", 7)) + 1) * int(DeepContent.constant("enrage_damage", 2))
+
+static func display_moves(enemy: Dictionary, moves: Array = []) -> Array:
+	var shown: Array = (enemy.get("moves", []) if moves.is_empty() else moves).duplicate(true)
+	var bonus: int = int(enemy.get("damage_bonus", 0)) + int(enemy.get("enrage_bonus", 0))
+	if bonus > 0:
+		for move in shown:
+			for effect in move.get("effects", []):
+				if str(effect.kind) == "damage":
+					effect.amount = {"op": "+", "args": [effect.get("amount", 0), bonus]}
+	return shown
+
+static func trigger_words(move: Dictionary) -> String:
+	var t: Dictionary = move.get("trigger", {"kind": "always"})
+	var n: int = DeepPatterns.rung(t, 0)
+	match str(t.get("kind", "always")):
+		"always": return "Every roll"
+		"odd": return "Odd roll"
+		"even": return "Even roll"
+		"at_least": return "Roll %d+" % n
+		"at_most": return "Roll ≤%d" % n
+		"value": return "Roll " + "/".join(t.get("values", []).map(func(v: Variant) -> String: return str(int(v))))
+		"crowns": return "Maximum face"
+		"pair", "triple", "quad", "quint":
+			var name: String = str({"pair": "Pair", "triple": "Three of a kind", "quad": "Four of a kind", "quint": "Five of a kind"}[str(t.kind)])
+			return name + (" (%d+)" % n if n > 1 else "") + " · once/turn"
+		"straight": return "%d-value sequence · once/turn" % n
+		"all_odd": return "All odd · %d+ dice" % n
+		"all_even": return "All even · %d+ dice" % n
+	return DeepPatterns.words(t, 0).trim_suffix(".") + " · once/turn"
+
+static func amount_words(expr: Variant) -> String:
+	if expr is int or expr is float:
+		return str(int(expr))
+	if not expr is Dictionary:
+		return "0"
+	if expr.has("term"):
+		return str({"rolled": "Rolled value", "value": "Matched value", "total": "Dice total", "high": "Highest value", "low": "Lowest value"}.get(str(expr.term), str(expr.term)))
+	if expr.has("const"):
+		return str(int(expr.const))
+	var parts: Array = expr.get("args", []).map(func(a: Variant) -> String: return amount_words(a))
+	return (" %s " % str(expr.get("op", "+"))).join(parts)
+
+static func effect_words(effect: Dictionary) -> String:
+	var n: String = amount_words(effect.get("amount", 0))
+	match str(effect.get("kind", "")):
+		"damage": return "%s damage · all players" % n
+		"block": return "Gain %s block" % n
+		"heal": return "Heal %s" % n
+		"die_steal": return "Suppress %s die · all players · next turn" % n
+		"poison": return "%s poison · all players" % n
+		"stun": return "Stun all players · %s turn" % n
+		"remove_block": return "Remove %s block · all players" % n
+		"curse": return "%s%% vulnerable · all players" % n
+		"dice_upgrade": return "Dice +%s tier · this fight" % n
+	return str(effect.get("kind", "")).capitalize() + " " + n

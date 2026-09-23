@@ -108,8 +108,8 @@ func _test_setup_and_planning() -> void:
 	check(a.target == "e0", "the first creature is targeted by default")
 	var tick: Dictionary = DeepBattle.enemy(state, "e0")
 	check(tick.max_hp == int(round(16 * (1.0 + 0.05 * 2) * 1.15)), "creature HP scales with depth and party: %d" % tick.max_hp)
-	check(tick.intents.size() >= 1 and not str(tick.intents[0].move).is_empty(), "creatures publish intents: %s" % str(tick.intents[0].move))
-	check(tick.intents[0].target in ["a", "b"], "an intent names its target")
+	check(tick.hand.is_empty() and tick.moves.size() == 2, "planning shows the moveset without rolling")
+	check(not tick.has("intents"), "no prepared moves or player targets leak into planning")
 	var before: Array = a.hand.duplicate(true)
 	var chosen: Array = [before[0].die_id, before[1].die_id]
 	var result: Dictionary = DeepBattle.command(state, "a", {"kind": "reroll", "dice": chosen}, r.dice)

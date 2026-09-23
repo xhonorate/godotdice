@@ -323,12 +323,13 @@ const SKILL_EMBLEMS := {
 	"SEAM_VIOLET": "lattice", "SEAM_GOLD": "lattice", "SEAM_WHITE": "lattice",
 	"FIRE_OPAL": "flame", "DOUBLET": "copy", "MATRIX": "geode", "PRELUDE": "reroll"}
 
-## The creatures' moves wear marks too, so an intent reads the way a stone does.
+## The creatures' abilities wear the same marks as stones.
 const MOVE_EMBLEMS := {
 	"BITE": "slashes", "LATCH": "knot", "OOZE": "cloud", "ENGULF": "drain", "POUND": "hammer", "QUAKE": "arcs",
 	"PECK": "thorn", "SNATCH": "coin_fall", "FLUTTER": "spark", "DRAIN": "drain", "WAIL": "skull", "PUFF": "cloud",
 	"SMOTHER": "cloud", "LASH": "slashes", "COIL": "rampart", "SHATTERBREATH": "arcs", "PICK": "hammer", "CAVE-IN": "rampart",
 	"SHORE UP": "shield", "BLAST": "shield_burst", "COLLAPSE": "hammer", "REFLECT": "prism", "REFRACTION": "prism",
+	"HARDEN": "shield", "GATHER": "cloud", "REINFORCE": "die", "SPLINTER": "thorn",
 	"SHATTER": "split_shield", "BORE": "hammer", "GRIND": "rose", "OVERDRIVE": "bolt"}
 
 static func emblem(skill_key: String) -> String:

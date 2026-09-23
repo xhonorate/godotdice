@@ -22,7 +22,6 @@ const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC"]
 const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "well"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle", "first_fizzle_free",
 	"heal_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value"]
-const MOVE_POLICIES: Array = ["best", "all", "cycle"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",
 	"steal_gold", "gift_rerolls", "poison_immune", "bury_socket", "mirror_last_gem", "roll_for_you", "regrow"]
 
@@ -304,8 +303,10 @@ static func _validate_creature(def: Variant, p: Dictionary) -> Array:
 	for key in def.get("dice", []):
 		if not p.dice.has(str(key)):
 			errors.append("unknown die " + str(key))
-	if not str(def.get("policy", "best")) in MOVE_POLICIES:
-		errors.append("unknown move policy " + str(def.get("policy", "")))
+	if def.has("policy"):
+		errors.append("enemy moves all fire when eligible; remove the old policy")
+	if def.get("dice", []).is_empty() or def.get("dice", []).size() > 4:
+		errors.append("needs one to four ordered dice")
 	if not str(def.get("gimmick", "")) in GIMMICKS:
 		errors.append("unknown gimmick " + str(def.get("gimmick", "")))
 	var moves: Variant = def.get("moves", null)

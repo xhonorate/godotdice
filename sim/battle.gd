@@ -13,12 +13,12 @@ extends RefCounted
 ## context that gems pass to each other: Resonance, what the previous gem did, a pending
 ## Cut step or amplifier. After the last socket the character's Birthstone resolves: a fixed
 ## stone with tiers, every satisfied tier firing on the Resonance the rail built. Enemy
-## units carry published intents. Both sides share one damage pipeline.
+## units carry visible movesets and sequential roll progress. Both sides share one damage pipeline.
 
 ## How long each event holds the clock at 1×. A fizzle, or a Birthstone that stays dark, only
 ## needs long enough to be seen; a gem that fires waits for its bolts to land.
 const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.65,
-	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_move": 0.9, "tick": 0.6, "battle_over": 1.2}
+	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 1.1, "enemy_ability": 0.7, "enemy_move": 0.5, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2}
 const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
 	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next"]
@@ -114,7 +114,8 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 				if str(foe.get("gimmick", "")) == "gift_rerolls":
 					drain += 1
 			if drain > 0:
-				unit.hp = maxi(1, int(unit.hp) - drain)
+				for victim in living(state.players):
+					victim.hp = maxi(1, int(victim.hp) - drain)
 			return {"ok": true, "event": _event(state, "reroll", {"unit": player_id, "dice": chosen, "hand": unit.hand.duplicate(true),
 				"rerolls": unit.rerolls, "drain": drain, "loaded": loaded})}
 		"flip":
@@ -193,8 +194,7 @@ static func start_resolution(state: Dictionary) -> Dictionary:
 	for foe in state.enemies:
 		if int(foe.hp) <= 0:
 			continue
-		for index in range(foe.get("intents", []).size()):
-			queue.append({"kind": "enemy_move", "unit": foe.id, "intent": index})
+		queue.append({"kind": "enemy_begin", "unit": foe.id})
 	queue.append({"kind": "tick"})
 	queue.append({"kind": "turn_end"})
 	state.queue = queue
@@ -286,21 +286,71 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			for foe in state.enemies:
 				foe.block = 0
 			return {}
+		"enemy_begin":
+			var foe: Dictionary = enemy(state, str(s.unit))
+			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
+				return {}
+			DeepCreatures.prepare(foe)
+			DeepCreatures.refresh_bonuses(foe, state)
+			foe.acting = true
+			foe.beat = "begin"
+			foe.suppressed = mini(foe.dice.size(), int(foe.get("stolen_dice", 0)))
+			foe.stolen_dice = 0
+			if int(foe.statuses.get("stun", 0)) > 0 or int(foe.suppressed) >= foe.dice.size():
+				var why: String = "bound"
+				if int(foe.statuses.get("stun", 0)) > 0:
+					why = "stun"
+					foe.statuses.stun = int(foe.statuses.stun) - 1
+					if bool(foe.get("warden", false)):
+						foe.statuses.resolve = 2
+				DeepCreatures.finish(foe)
+				return _event(state, "skip", {"unit": foe.id, "why": why})
+			state.queue.push_front({"kind": "enemy_roll", "unit": foe.id})
+			return _event(state, "enemy_begin", {"unit": foe.id})
+		"enemy_roll":
+			var foe: Dictionary = enemy(state, str(s.unit))
+			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
+				return {}
+			var dice: Array = DeepCreatures.effective_dice(foe)
+			var available: int = maxi(0, dice.size() - int(foe.suppressed))
+			var index: int = int(foe.next_die)
+			if index >= available:
+				DeepCreatures.finish(foe)
+				return _event(state, "enemy_end", {"unit": foe.id})
+			var tense: bool = DeepCreatures.suspense(foe, dice.slice(index, available))
+			var roll: Dictionary = DeepDice.roll_one(dice[index], rng_creatures)
+			roll.turn_tag = int(state.turn)
+			foe.rolled_die = dice[index].duplicate(true)
+			foe.hand.append(roll)
+			foe.next_die = index + 1
+			foe.beat = "roll"
+			foe.active_move = -1
+			var moves: Array = DeepCreatures.resolve_roll(foe, state)
+			state.queue.push_front({"kind": "enemy_roll", "unit": foe.id})
+			for move_index in range(moves.size() - 1, -1, -1):
+				state.queue.push_front({"kind": "enemy_move", "unit": foe.id, "move": moves[move_index]})
+				state.queue.push_front({"kind": "enemy_ability", "unit": foe.id, "move": moves[move_index]})
+			return _event(state, "enemy_roll", {"unit": foe.id, "die": dice[index].duplicate(true), "roll": roll.duplicate(true),
+				"roll_index": index, "states": foe.move_states.duplicate(), "suspense": tense, "duration": 2.0 if tense else 1.1})
+		"enemy_ability":
+			var foe: Dictionary = enemy(state, str(s.unit))
+			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
+				return {}
+			var move: Dictionary = s.move
+			foe.beat = "ability"
+			foe.active_move = int(move.index)
+			foe.move_states[int(move.index)] = "resolving"
+			var shown: Array = move.effects.duplicate(true)
+			for effect in shown:
+				if str(effect.kind) == "damage" and int(state.turn) >= int(DeepContent.constant("enrage_turn", 7)):
+					effect.amount += int(DeepContent.constant("enrage_damage", 2)) * (int(state.turn) - int(DeepContent.constant("enrage_turn", 7)) + 1)
+			return _event(state, "enemy_ability", {"unit": foe.id, "move": move.move, "index": move.index,
+				"dice": move.dice, "combo": move.combo, "trigger": move.trigger, "effects": shown, "duration": 1.0 if bool(move.combo) else 0.7})
 		"enemy_move":
 			var foe: Dictionary = enemy(state, str(s.unit))
 			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
 				return {}
-			if int(foe.statuses.get("stun", 0)) > 0:
-				foe.statuses.stun = int(foe.statuses.stun) - 1
-				if bool(foe.get("warden", false)):
-					foe.statuses.resolve = 2
-				_drop_steps(state, str(s.unit))
-				return _event(state, "skip", {"unit": foe.id, "why": "stun"})
-			var intents: Array = foe.get("intents", [])
-			var index: int = int(s.intent)
-			if index >= intents.size():
-				return {}
-			return _enemy_act(state, foe, intents[index], rng_dice)
+			return _enemy_act(state, foe, s.move, rng_dice)
 		"tick":
 			return _tick(state)
 		"turn_end":
@@ -835,6 +885,8 @@ static func _apply(state: Dictionary, source: Dictionary, effect: Dictionary, rn
 	var repeat: int = maxi(1, int(effect.get("repeat", 1)))
 	var results: Array = []
 	var target_kind: String = str(effect.target)
+	if str(source.get("side", "")) == "enemy" and kind in DeepRules.HOSTILE:
+		target_kind = "heroes"
 	if kind == "revive":
 		var downed: Array = _targets(state, source, "downed_ally")
 		if downed.is_empty():
@@ -920,13 +972,15 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 		"curse":
 			target.statuses.curse = int(target.statuses.get("curse", 0)) + amount
 			out.curse_after = target.statuses.curse
-		"intent_downgrade":
-			target.downgrade = int(target.get("downgrade", 0)) + amount
+		"dice_dread":
+			target.dread_turns = maxi(int(target.get("dread_turns", 0)), amount)
+		"dice_upgrade":
+			target.dice_upgrade = mini(DeepCreatures.TIERS.size() - 1, int(target.get("dice_upgrade", 0)) + amount)
 		"die_steal":
 			target.stolen_dice = int(target.get("stolen_dice", 0)) + amount
 	return out
 
-static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, amount: int, rng: RandomNumberGenerator) -> Dictionary:
+static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, amount: int, rng: RandomNumberGenerator, settle: bool = true) -> Dictionary:
 	var raw: int = maxi(0, amount)
 	var curse: int = int(target.statuses.get("curse", 0))
 	if curse > 0:
@@ -965,12 +1019,14 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			out.uncloud = true
 		if str(target.get("gimmick", "")) == "reflect_zero_resonance" and loss > 0 and int(source.get("resonance", 0)) <= 1 and str(source.get("side", "")) == "player":
 			var back: int = loss / 2
-			var absorbed_back: int = mini(int(source.block), back)
-			source.block = int(source.block) - absorbed_back
-			source.hp = maxi(0, int(source.hp) - (back - absorbed_back))
-			if int(source.hp) <= 0:
-				source.downed = true
-			out.reflected = back
+			var reflections: Array = []
+			for victim in living(state.players):
+				var hit: Dictionary = _damage(state, target, victim, back, rng, false)
+				hit.target = str(victim.id)
+				hit.kind = "damage"
+				reflections.append(hit)
+			out.reflections = reflections
+
 		if str(target.get("gimmick", "")) == "split_on_big_hit" and int(target.hp) > 0 and loss * 100 >= int(target.max_hp) * 40 and state.enemies.size() < 6:
 			var half: int = maxi(1, int(target.hp) / 2)
 			target.hp = half
@@ -978,7 +1034,9 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			twin.id = "%s_split%d" % [str(target.id), state.enemies.size()]
 			twin.hp = half
 			twin.max_hp = half
-			twin.intents = []
+			DeepCreatures.prepare(twin)
+			for index in range(twin.dice.size()):
+				twin.dice[index].id = "%s_d%d" % [str(twin.id), index]
 			twin.statuses = {}
 			state.enemies.insert(state.enemies.find(target) + 1, twin)
 			out.split = twin.id
@@ -988,7 +1046,8 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 				source.gold = int(source.get("gold", 0)) + int(target.stolen_gold)
 				out.recovered_gold = int(target.stolen_gold)
 				target.stolen_gold = 0
-	_check_outcome(state)
+	if settle:
+		_check_outcome(state)
 	return out
 
 static func _heal(target: Dictionary, amount: int) -> int:
@@ -1000,18 +1059,16 @@ static func _heal(target: Dictionary, amount: int) -> int:
 
 # --- creatures ---------------------------------------------------------------------------
 
-static func _enemy_act(state: Dictionary, foe: Dictionary, intent: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+static func _enemy_act(state: Dictionary, foe: Dictionary, move: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var results: Array = []
-	for effect in intent.get("effects", []):
-		var applied: Dictionary = effect.duplicate(true)
-		if str(foe.get("gimmick", "")) == "mirror_last_gem" and str(applied.kind) == "damage":
-			var victim: Dictionary = player(state, str(intent.get("target", "")))
-			applied.amount = int(applied.amount) + int(victim.get("dealt_last_turn", 0)) / 2
-		results.append_array(_apply(state, foe, applied, rng, str(intent.get("target", ""))))
+	for effect in move.get("effects", []):
+		results.append_array(_apply(state, foe, effect, rng))
 		if done(state):
 			break
-	return _event(state, "enemy_move", {"unit": foe.id, "move": str(intent.get("move", "")), "target": str(intent.get("target", "")),
-		"effects": results, "dice": foe.get("hand", []).map(func(r: Dictionary) -> int: return int(r.value))})
+	foe.beat = "impact"
+	foe.move_states[int(move.index)] = "used" if bool(move.get("combo", false)) else "resolved"
+	return _event(state, "enemy_move", {"unit": foe.id, "move": str(move.get("move", "")), "index": int(move.index),
+		"effects": results, "dice": move.get("dice", [])})
 
 static func _poison_tick(state: Dictionary, unit: Dictionary) -> Dictionary:
 	## One round of poison on one unit: it hurts for its stacks and loses one. When a creature
@@ -1118,23 +1175,22 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		if enemy(state, str(unit.get("target", ""))).get("hp", 0) <= 0 and not foes.is_empty():
 			unit.target = str(foes[0].id)
 		unit.firing_target = str(unit.get("target", ""))
-	## The creatures roll and say what they mean to do.
+	## Refresh public movesets without rolling any enemy dice.
 	var high: int = 0
 	for unit in living(state.players):
 		high = maxi(high, int(DeepHand.analyze(unit.hand).get("high", 0)))
 	for foe in state.enemies:
+		DeepCreatures.prepare(foe)
+		DeepCreatures.refresh_bonuses(foe, state)
 		if int(foe.hp) <= 0:
-			foe.intents = []
 			continue
-		foe.intents = DeepCreatures.intents(foe, state, rng_creatures)
 		match str(foe.get("gimmick", "")):
 			"block_from_high":
 				## The golem hardens to match the party's best die; it does not pile up.
 				foe.block = maxi(int(foe.block), high)
 			"bury_socket", "cloud_socket":
 				var victims: Array = living(state.players)
-				if not victims.is_empty():
-					var victim: Dictionary = DeepRng.pick(rng_creatures, victims)
+				for victim in victims:
 					var filled: Array = []
 					for socket in range(victim.rail.size()):
 						if victim.rail[socket] is Dictionary and not victim.clouded.has(socket) and not victim.buried.has(socket):
@@ -1147,8 +1203,7 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 						else:
 							victim.clouded.append(socket)
 	return _event(state, "turn_begin", {"turn": state.turn, "frozen": frozen,
-		"hands": state.players.map(func(u: Dictionary) -> Dictionary: return {"unit": u.id, "hand": u.hand.duplicate(true), "rerolls": u.rerolls}),
-		"intents": state.enemies.map(func(e: Dictionary) -> Dictionary: return {"unit": e.id, "intents": e.get("intents", []).duplicate(true)})})
+		"hands": state.players.map(func(u: Dictionary) -> Dictionary: return {"unit": u.id, "hand": u.hand.duplicate(true), "rerolls": u.rerolls})})
 
 static func _check_outcome(state: Dictionary) -> void:
 	if done(state):

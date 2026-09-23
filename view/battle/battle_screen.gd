@@ -13,6 +13,7 @@ extends Control
 ## it lands. Nothing here decides anything: the screen shows the state it is given, animates
 ## the events it is handed, and turns every click into a command.
 
+const EnemyPanel = preload("res://view/battle/enemy_panel.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
@@ -65,6 +66,8 @@ var _flare: Control
 var _picker: Control
 var _plates_layer: Control
 var _plates: Dictionary = {}
+var _enemy_panel: PanelContainer
+var _pinned_enemy: String = ""
 var _hud: Control
 var _depth_label: Label
 var _biome_label: Label
@@ -126,6 +129,9 @@ func _ready() -> void:
 	_screen_fx = stage.screen_fx
 	_flare = stage.flare
 	_build_hud()
+	_enemy_panel = EnemyPanel.new()
+	add_child(_enemy_panel)
+	_enemy_panel.pinned.connect(_pin_enemy)
 
 # --- the chamber ---------------------------------------------------------------------------
 
@@ -433,6 +439,9 @@ func show_state(battle: Dictionary, at_depth: int, new_forecast: Dictionary = {}
 
 func _forget_fight() -> void:
 	selected.clear()
+	_pinned_enemy = ""
+	if _enemy_panel != null:
+		_enemy_panel.reset()
 	_outcomes.clear()
 	_birth_outcome = {}
 	for id in _plates.keys():
@@ -510,6 +519,7 @@ func _sync() -> void:
 	_sync_forecast()
 	_sync_allies()
 	_sync_plates()
+	_sync_enemy_panel()
 	var locked: bool = bool(unit.get("locked", false))
 	var downed: bool = bool(unit.get("downed", false))
 	var rerolls: int = int(unit.get("rerolls", 0))
@@ -1030,6 +1040,7 @@ func _sync_plates() -> void:
 				plate.queue_free()
 			plate = Plate.new()
 			plate.gui_input.connect(_plate_input.bind(id))
+			plate.expand.connect(func() -> void: _pin_enemy(id))
 			plate.inspect.connect(func(move: String) -> void: _inspect_creature(id, move))
 			plate.mouse_entered.connect(func() -> void: _hover_creature(id))
 			plate.mouse_exited.connect(func() -> void: _hover_creature(""))
@@ -1045,17 +1056,18 @@ func _sync_plates() -> void:
 
 class Plate extends PanelContainer:
 	## A creature's nameplate: health with a ghost of what this hand would take off it,
-	## its buffs and troubles, the dice it rolled and what it means to do with them.
-	## Right-click it, or one of its intents, for everything about it.
+	## its buffs, ordered dice and compact ability icons.
+	## Hover for the moveset, pin it with Moves, or right-click for the inspector.
 	signal inspect(move: String)
+	signal expand()
 	var fading: bool = false
 	var _name: Label
 	var _target: TextureRect
 	var _bar: DeepUi.Bar
 	var _effects: EffectChips.Row
 	var _dice: HBoxContainer
-	var _intents: VBoxContainer
-	var _intent_key: String = ""
+	var _abilities: HBoxContainer
+	var _moves_key: String = ""
 	var _chip_key: String = ""
 	var _targeted: bool = false
 	func _init() -> void:
@@ -1073,7 +1085,10 @@ class Plate extends PanelContainer:
 		_bar.custom_minimum_size = Vector2(170, 15)
 		_effects = EffectChips.Row.new(14)
 		box.add_child(_effects)
-		_intents = DeepUi.vbox(box, 3)
+		var footer := DeepUi.hbox(box, 6)
+		_abilities = DeepUi.hbox(footer, 6)
+		DeepUi.spacer(footer)
+		DeepUi.button(footer, "Moves", func() -> void: expand.emit(), 11)
 		gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 				inspect.emit("")
@@ -1099,37 +1114,24 @@ class Plate extends PanelContainer:
 		_bar.preview = clampf(float(maxi(0, preview - int(foe.block))) / float(max_hp), 0.0, 1.0)
 		tooltip_text = str(foe.get("text", "")) + "\nLeft-click to target it. Right-click for everything about it."
 		_effects.show_effects(EffectChips.for_enemy(foe, battle))
-		var intent_key: String = str(foe.get("intents", [])) + str(foe.get("hand", []).map(func(r: Dictionary) -> int: return int(r.value)))
-		if intent_key == _intent_key:
+		var dice: Array = DeepCreatures.effective_dice(foe)
+		var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
+		var moves_key: String = str(dice) + str(moves) + str(foe.get("stolen_dice", 0)) + str(foe.get("suppressed", 0))
+		if moves_key == _moves_key:
 			return
-		_intent_key = intent_key
+		_moves_key = moves_key
 		DeepUi.clear(_dice)
-		for roll in foe.get("hand", []):
-			_dice.add_child(DiceIcons.face(19, int(roll.value), DiceIcons.palette(str(roll.get("key", "D6"))).body, str(roll.get("shape", "D6")), true))
-		DeepUi.clear(_intents)
-		for intent in foe.get("intents", []):
-			var line := DeepUi.hbox(_intents, 6)
-			line.mouse_filter = Control.MOUSE_FILTER_STOP
-			line.tooltip_text = "%s. Right-click to see all its moves." % str(intent.move)
-			var move_name: String = str(intent.move)
-			line.gui_input.connect(func(event: InputEvent) -> void:
-				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-					inspect.emit(move_name)
-					line.accept_event())
-			var at_me: bool = str(intent.get("target", "")) == local_id
-			GemIcons.glyph(line, GemIcons.emblem(str(intent.move).to_upper()), 16, DeepUi.BAD if at_me else DeepUi.MUTED, str(intent.move))
-			DeepUi.label(line, str(intent.move), 12, DeepUi.PAPER if at_me else DeepUi.MUTED)
-			for effect in intent.get("effects", []):
-				var kind: String = str(effect.kind)
-				var amount: int = int(effect.amount) * maxi(1, int(effect.get("repeat", 1)))
-				var glyph: String = str(MOVE_WORDS.get(kind, "spark"))
-				var tone: Color = DeepUi.BAD if kind == "damage" else (DeepUi.BLOCK if kind == "block" else (DeepUi.POISON if kind == "poison" else DeepUi.INFO))
-				var shown: String = str(amount) if kind in ["damage", "block", "poison", "remove_block", "heal"] else ""
-				DeepUi.stat(line, glyph, shown, tone, 12, kind.replace("_", " ").capitalize())
-			var victim: Dictionary = DeepBattle.player(battle, str(intent.get("target", "")))
-			if not victim.is_empty() and intent.get("effects", []).any(func(e: Dictionary) -> bool: return str(e.target) in ["hero", "heroes"]):
-				var who := DeepUi.stat(line, "person", "you" if at_me else str(victim.name), DeepUi.BAD if at_me else DeepUi.MUTED, 11, "Who it is aimed at")
-				who.modulate.a = 1.0
+		var suppressed: int = int(foe.get("suppressed", 0)) if bool(foe.get("acting", false)) else int(foe.get("stolen_dice", 0))
+		for index in range(dice.size()):
+			_dice.add_child(DiceIcons.face(16, 0, DeepUi.DIM if index >= dice.size() - suppressed else DiceIcons.palette(str(dice[index].key)).body, str(dice[index].shape), false, "×" if index >= dice.size() - suppressed else "?"))
+			DeepUi.label(_dice, str(dice[index].shape).to_lower() + ("×" if index >= dice.size() - suppressed else ""), 11, DeepUi.DIM if index >= dice.size() - suppressed else DeepUi.MUTED)
+		DeepUi.clear(_abilities)
+		for move in moves:
+			var tip: String = str(move.name) + " · " + DeepCreatures.trigger_words(move)
+			for effect in move.get("effects", []):
+				tip += "\n" + DeepCreatures.effect_words(effect)
+			var mark: String = GemIcons.emblem(str(move.name).to_upper())
+			DeepUi.icon(_abilities, mark, 17, DeepUi.BAD, tip)
 	func fade() -> void:
 		fading = true
 		var tween := create_tween()
@@ -1140,6 +1142,40 @@ class Plate extends PanelContainer:
 func _plate_input(event: InputEvent, id: String) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_target(id)
+
+func _pin_enemy(id: String) -> void:
+	_pinned_enemy = "" if _pinned_enemy == id else id
+	_sync_enemy_panel()
+
+func _sync_enemy_panel() -> void:
+	if _enemy_panel == null:
+		return
+	var id: String = _pinned_enemy if not _pinned_enemy.is_empty() else _hovered_creature
+	for foe in state.get("enemies", []):
+		if bool(foe.get("acting", false)) and int(foe.hp) > 0:
+			id = str(foe.id)
+			break
+	var foe: Dictionary = DeepBattle.enemy(state, id)
+	if foe.is_empty() or int(foe.get("hp", 0)) <= 0:
+		_enemy_panel.reset()
+		return
+	_enemy_panel.show_enemy(foe, int(state.get("turn", 0)), id == _pinned_enemy)
+	_position_enemy_panel()
+
+func _position_enemy_panel() -> void:
+	if _enemy_panel == null or not _enemy_panel.visible:
+		return
+	var living: Array = DeepBattle.living(state.get("enemies", []))
+	var index: int = 0
+	for i in range(living.size()):
+		if str(living[i].id) == _enemy_panel.enemy_id:
+			index = i
+	# Put the table opposite the acting creature; reserve the party cards on the right.
+	var right: float = size.x - 20.0
+	if not _ally_cards.is_empty():
+		right -= _ally_box.size.x + 20.0
+	var left: bool = index >= living.size() / 2
+	_enemy_panel.position = Vector2(20.0 if left else maxf(20.0, right - _enemy_panel.size.x), 82.0)
 
 func _inspect_creature(id: String, move: String) -> void:
 	var foe: Dictionary = DeepBattle.enemy(state, id)
@@ -1170,6 +1206,7 @@ func _hover_creature(id: String) -> void:
 	if _creatures.has(_hovered_creature) and is_instance_valid(_creatures[_hovered_creature]):
 		_creatures[_hovered_creature].set_hovered(false)
 	_hovered_creature = id
+	_sync_enemy_panel()
 	if _creatures.has(id) and is_instance_valid(_creatures[id]):
 		_creatures[id].set_hovered(true)
 
@@ -1223,6 +1260,7 @@ func _control_world(control: Control, distance: float = 1.8) -> Vector3:
 	return _from_screen(local, distance)
 
 func _process(delta: float) -> void:
+	_position_enemy_panel()
 	if _headless or _camera == null or not is_visible_in_tree():
 		return
 	## The plates ride above the creatures' heads. `highest` is how far the worst of them
@@ -1360,6 +1398,11 @@ func perform(event: Dictionary) -> void:
 			"gem_fire": _outcomes[int(event.get("socket", -1))] = true
 			"gem_fizzle": _outcomes[int(event.get("socket", -1))] = false
 			"birthstone": _birth_outcome = event
+	if _enemy_panel != null:
+		match kind:
+			"enemy_roll": _enemy_panel.roll_die(event)
+			"enemy_ability": _enemy_panel.power(event)
+			"enemy_move": _enemy_panel.impact(event)
 	if _headless or stage.walking():
 		return
 	match kind:
@@ -1397,6 +1440,8 @@ func perform(event: Dictionary) -> void:
 				DeepAudio.from(_resonance_box, "resonance", {"pitch": 1.0 + 0.09 * float(mini(resonance, 8)), "volume": 0.8})
 				_float_at(_resonance_box, "Resonance ×%d" % resonance, _resonance_color(resonance), 20)
 				DeepUi.burst(self, _center_of(_resonance_box), _resonance_color(resonance), 20 + resonance * 4, 180.0, 0.7)
+		"enemy_ability":
+			_enemy_windup(event)
 		"enemy_move":
 			_enemy_move(event)
 		"tick":
@@ -1408,7 +1453,7 @@ func perform(event: Dictionary) -> void:
 			if _creatures.has(who) and is_instance_valid(_creatures[who]):
 				var creature: CrystalCreature = _creatures[who]
 				_fx.stars(creature.global_position + Vector3(0, creature.anchor.y * 0.85, 0))
-				_float_world(creature.global_position + Vector3(0, creature.anchor.y, 0), "Stunned", Color("ffe27a"), 18)
+				_float_world(creature.global_position + Vector3(0, creature.anchor.y, 0), "Bound" if str(event.get("why", "")) == "bound" else "Stunned", Color("ffe27a"), 18)
 			elif who == local_id:
 				_announce("Stunned", Color("ffe27a"), "Your rail sits this turn out", 0.9)
 		"battle_over":
@@ -1629,7 +1674,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					var home: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.4 + Vector3(0.8, -0.7, 0)
 					_fx.coins(pile, home, 8 + mini(12, int(effect.amount)))
 					_float_at(_forecast_box, "+%d ore" % int(effect.amount), DeepUi.ORE, 20)
-			"poison", "stun", "curse", "remove_block", "intent_downgrade", "die_steal", "cleanse":
+			"poison", "stun", "curse", "remove_block", "dice_dread", "die_steal", "cleanse":
 				var creature: CrystalCreature = _creature(target_id)
 				if creature != null and is_instance_valid(creature):
 					var tone: Color = {"poison": DeepUi.POISON, "stun": Color("ffe27a"), "curse": Color("c58bff"), "remove_block": DeepUi.BLOCK}.get(kind, color)
@@ -1718,8 +1763,8 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
 	_float_world(at + Vector3(0, 0.6, 0), text, color.lightened(0.35) if mine else DeepUi.PAPER, size)
 	if int(hit.get("absorbed", 0)) > 0:
 		_float_world(at + Vector3(0.5, 0.2, 0), "%d blocked" % int(hit.absorbed), DeepUi.BLOCK, 14)
-	if int(hit.get("reflected", 0)) > 0:
-		_float_at(_hp_bar, "−%d reflected" % int(hit.reflected), DeepUi.BAD, 16)
+	for reflection in hit.get("reflections", []):
+		_enemy_effect(reflection, creature)
 		_screen_fx.wound(0.3)
 	if not str(hit.get("split", "")).is_empty():
 		_float_world(at + Vector3(0, 1.0, 0), "It splits!", Color("9fd8c8"), 18)
@@ -1732,7 +1777,7 @@ func _afflict(who: String, effect: Dictionary, tone: Color) -> void:
 		return
 	var kind: String = str(effect.get("kind", ""))
 	var at: Vector3 = creature.centre()
-	var spoken: String = {"poison": "poison", "stun": "stun", "curse": "curse", "intent_downgrade": "curse",
+	var spoken: String = {"poison": "poison", "stun": "stun", "curse": "curse", "dice_dread": "curse",
 		"remove_block": "block_break", "die_steal": "ui_deny", "cleanse": "heal"}.get(kind, "")
 	if not spoken.is_empty() and not bool(effect.get("immune", false)):
 		DeepAudio.play_at(global_position + _to_screen(at), spoken, {"volume": 0.65, "gap": 0.02})
@@ -1743,7 +1788,7 @@ func _afflict(who: String, effect: Dictionary, tone: Color) -> void:
 		"stun":
 			_fx.stars(creature.global_position + Vector3(0, creature.anchor.y * 0.85, 0))
 			_fx.flash(at, tone, 5.0, 5.0, 0.3)
-		"curse", "intent_downgrade":
+		"curse", "dice_dread":
 			_fx.sigil(Vector3(at.x, 0.0, at.z), tone, 1.3)
 		"remove_block":
 			_fx.shards(at, DeepUi.BLOCK, 10, 3.0, 0.1, 0.8)
@@ -1804,21 +1849,29 @@ func _gem_fizzle(event: Dictionary) -> void:
 	_show_resonance(int(event.get("resonance", 0)))
 	DeepUi.shake(_resonance_box, 8.0, 0.25)
 
-func _enemy_move(event: Dictionary) -> void:
-	var creature: CrystalCreature = _creature(str(event.get("unit", "")))
-	var windup: float = 0.26
-	if creature != null and is_instance_valid(creature):
-		DeepAudio.play_at(global_position + _to_screen(creature.centre()), "enemy_windup", {"volume": 0.7})
-		creature.lunge(_camera.global_position, 0.62)
-		_fx.flash(creature.centre(), creature.tint, 3.0, 5.0, 0.4, 0.8)
-		_float_world(creature.global_position + Vector3(0, creature.anchor.y + 0.3, 0), str(event.get("move", "")), creature.tint.lightened(0.4), 20)
-	var effects: Array = event.get("effects", [])
+func _enemy_windup(event: Dictionary) -> void:
 	var who: String = str(event.get("unit", ""))
+	var delay: float = maxf(0.0, float(event.get("duration", 0.7)) - 0.3)
 	var tween := create_tween()
-	tween.tween_interval(windup)
+	tween.tween_interval(delay)
 	tween.tween_callback(func() -> void:
-		for effect in effects:
-			_enemy_effect(effect, _creature(who)))
+		var creature: CrystalCreature = _creature(who)
+		if creature == null:
+			return
+		DeepAudio.play_at(global_position + _to_screen(creature.centre()), "enemy_windup", {"volume": 0.7})
+		var hostile: bool = event.get("effects", []).any(func(e: Dictionary) -> bool: return str(e.kind) in DeepRules.HOSTILE)
+		if hostile:
+			creature.lunge(_camera.global_position, 0.62)
+		else:
+			creature.channel(0.6)
+			_fx.rise(creature.centre(), DeepUi.BLOCK, 18, 0.5)
+		_fx.flash(creature.centre(), creature.tint, 2.0, 3.0, 0.3, 0.5)
+		_float_world(creature.global_position + Vector3(0, creature.anchor.y + 0.3, 0), str(event.get("move", "")), creature.tint.lightened(0.4), 20))
+
+func _enemy_move(event: Dictionary) -> void:
+	# The simulation applies damage at this event, after the power-up and lunge windup.
+	for effect in event.get("effects", []):
+		_enemy_effect(effect, _creature(str(event.get("unit", ""))))
 
 func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 	var kind: String = str(effect.get("kind", ""))
@@ -1860,6 +1913,10 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 				DeepAudio.play_at(global_position + _to_screen(creature.centre()), "block", {"volume": 0.5})
 				_fx.shield(creature.centre() + Vector3(0, 0, 0.8), _camera.global_position - creature.centre(), DeepUi.BLOCK, 1.0 * creature.scale.x, 0.6)
 				_float_world(creature.global_position + Vector3(0, creature.anchor.y * 0.7, 0), "+%d block" % int(effect.get("amount", 0)), DeepUi.BLOCK, 18)
+		"dice_upgrade":
+			if creature != null:
+				_fx.rise(creature.centre(), DeepUi.ACCENT, 28, 0.7)
+				_float_world(creature.centre(), "Dice tier up", DeepUi.ACCENT, 20)
 		"heal":
 			DeepAudio.play("heal", {"volume": 0.5})
 			var healed: Node3D = _creature(target_id) if _creature(target_id) != null else creature

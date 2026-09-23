@@ -27,7 +27,8 @@ signal invited(lobby_id: String)
 const Codec = preload("res://net/packet_codec.gd")
 const Enet = preload("res://net/enet_transport.gd")
 const SteamWire = preload("res://net/steam_transport.gd")
-const VERSION: String = "0.1.0"
+## Sequential enemy roll/ability/impact events require matching clients.
+const VERSION: String = "0.2.0"
 const DEFAULT_PORT: int = 24567
 const MAX_PLAYERS: int = 4
 const STEP_FLOOR: float = 0.15

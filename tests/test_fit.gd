@@ -30,6 +30,7 @@ func _init() -> void:
 	await _workshop(app)
 	await _menu(app)
 	await _inspector()
+	await _enemy_panels()
 	await _appraisals(app)
 	await _run(app)
 	print("Fit: %d assertions, %d failures" % [checks, failures.size()])
@@ -157,11 +158,26 @@ func _inspector() -> void:
 		var foe: Dictionary = DeepCreatures.make(str(key), "fit_%s" % key, 20, 4)
 		foe.statuses = {"poison": 3, "stun": 1}
 		foe.block = 9
-		## Mid-fight: its dice rolled and every move it could make meant at once.
+		## Mid-fight: revealed dice, statuses and the complete moveset.
 		foe.hand = [ {"value": 5, "key": "D6", "shape": "D6"}, {"value": 5, "key": "D6", "shape": "D6"}, {"value": 11, "key": "D12", "shape": "D12"}]
-		foe.intents = DeepCreatures.moves_for(foe).map(func(move: Dictionary) -> Dictionary:
-			return {"move": str(move.get("name", "")), "target": "", "effects": move.get("effects", []).map(func(effect: Dictionary) -> Dictionary: return {"kind": str(effect.get("kind", "")), "amount": 12, "repeat": 2})})
+		foe.moves = DeepCreatures.moves_for(foe)
 		await _look("creature", foe, "the close look at a %s" % str(key))
+
+func _enemy_panels() -> void:
+	var panel: Control = load("res://view/battle/enemy_panel.gd").new()
+	screen.add_child(panel)
+	for key in DeepContent.section("creatures"):
+		for health in [100, 20]:
+			var foe: Dictionary = DeepCreatures.make(str(key), "panel_" + str(key), 20, 4)
+			foe.hp = maxi(1, int(foe.max_hp) * health / 100)
+			DeepCreatures.prepare(foe)
+			for acting in [false, true]:
+				foe.acting = acting
+				panel.show_enemy(foe, health, true)
+				panel.position = Vector2(100, 82)
+				await _fits(panel, "%s moveset at %d%% HP (%s)" % [str(key), health, "acting" if acting else "planning"])
+				check(panel.size.y < 460 and panel.size.x < 550, "moveset leaves room for the battle and dock")
+	panel.free()
 
 func _look(kind: String, item: Dictionary, what: String) -> void:
 	## The inspector will not open without a display; the sheet is built by hand instead.
