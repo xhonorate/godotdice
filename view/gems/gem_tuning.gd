@@ -91,7 +91,7 @@ const KNOBS := [
 		"hint": "How far a facet darkens where a flaw reaches it. This was once the whole of what an inclusion looked like. Re-cuts the stone."},
 	{"key": "rind_alpha", "group": "INSIDE", "label": "Second color",
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.88,
-		"hint": "How solidly the second half of a two-colored stone reads through the crystal over it. Zero leaves the stone one color. Re-cuts the stone."},
+		"hint": "How strongly the body blends towards its second color. Zero leaves the stone one color."},
 	{"key": "seam_width", "group": "INSIDE", "label": "Seam width",
 		"low": 0.01, "high": 0.6, "step": 0.005, "value": 0.115,
 		"hint": "How broad each vein of an opal Seam is cut. Re-cuts the stone."},

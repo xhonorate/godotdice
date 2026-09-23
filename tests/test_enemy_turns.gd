@@ -132,9 +132,9 @@ func controls() -> void:
 	DeepCreatures.finish(f.foe)
 	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D8" and str(f.foe.dice[0].shape) == "D6", "Dread expiration preserves upgrades")
 	f.foe.dice_upgrade = 99
-	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D20", "tier upgrades stop at d20")
+	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D100", "tier upgrades stop at d100")
 	f.foe.dread_turns = 1
-	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D12", "Dread lowers capped upgraded dice instead of spending invisible tiers")
+	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D60", "Dread lowers capped upgraded dice instead of spending invisible tiers")
 	f = setup("MAGPIE")
 	f.foe.statuses.stun = 1
 	check(select(events(f), "enemy_roll").is_empty(), "stun skips all dice of a multi-die enemy")
@@ -149,7 +149,7 @@ func controls() -> void:
 	for face in upgraded.foe.dice[0].faces:
 		face.value = 6
 	var upgraded_rolls: Array = select(events(upgraded), "enemy_roll")
-	check(upgraded_rolls.size() == 2 and str(upgraded_rolls[0].die.shape) == "D6" and str(upgraded_rolls[1].die.shape) == "D20", "a buff changes the next unrolled die while preserving the previous roll")
+	check(upgraded_rolls.size() == 2 and str(upgraded_rolls[0].die.shape) == "D6" and str(upgraded_rolls[1].die.shape) == "D16", "a buff changes the next unrolled die while preserving the previous roll")
 
 	var durations: Array = []
 	for carat in [1, 8]:

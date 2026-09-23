@@ -19,11 +19,15 @@ extends RefCounted
 ## A roll is the record of one die's result this turn. Nothing here reads content: the
 ## definitions are handed in.
 
-const SHAPES: Dictionary = {"D4": 4, "D6": 6, "D8": 8, "D10": 10, "D12": 12, "D20": 20}
+## One shared progression for the smithy, enemy buffs and Dread. Unusual dice are
+## reached by working through the ladder; starting bowls and encounters stay modest.
+const TIERS: Array = ["D2", "D3", "D4", "D6", "D8", "D10", "D12", "D16", "D20", "D24", "D30", "D40", "D50", "D60", "D100"]
+const SHAPES: Dictionary = {"D2": 2, "D3": 3, "D4": 4, "D6": 6, "D8": 8, "D10": 10, "D12": 12,
+	"D16": 16, "D20": 20, "D24": 24, "D30": 30, "D40": 40, "D50": 50, "D60": 60, "D100": 100}
 const FACE_KINDS: Array = ["plain", "wild", "gem", "exploding", "locked", "mirror", "blank"]
 const ENGRAVINGS: Array = ["always_held", "twin", "keen", "steady"]
 const MAX_EXPLOSIONS: int = 3
-const VALUE_CAP: int = 20
+const VALUE_CAP: int = 100
 
 static func face(value: int, kind: String = "plain") -> Dictionary:
 	return {"value": value, "kind": kind}

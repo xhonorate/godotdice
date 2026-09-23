@@ -115,7 +115,7 @@ func _init() -> void:
 					check(app.descent._cross_title.text == "The Smithy" and _count_text(app.descent._page_holder, "Choose") == 2, "a smithy names itself at the top and puts its work along the bottom")
 					var smith: Dictionary = app.session.local_player()
 					var shape: String = str(smith.dice[0].shape)
-					app.session.send({"kind": "oddity", "choice": "hammer" if shape != "D20" else "file", "payload": {"die_id": str(smith.dice[0].id)}})
+					app.session.send({"kind": "oddity", "choice": "hammer" if shape != str(DeepDice.TIERS.back()) else "file", "payload": {"die_id": str(smith.dice[0].id)}})
 					check(str(app.session.local_player().dice[0].shape) != shape and app.session.local_player().dice.size() == 5, "the smithy's work reaches the run (%s to %s)" % [shape, str(app.session.local_player().dice[0].shape)])
 				elif str(run.chamber.kind) in ["oddity"] + DeepDescent.DICE_ROOMS:
 					var oddity: Dictionary = DeepContent.oddity(str(run.chamber.oddity))

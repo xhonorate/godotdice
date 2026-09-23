@@ -219,7 +219,7 @@ func _ready() -> void:
 	# What is frozen in the crystal, between the far half and the near one: the stone's
 	# inclusions and, on an opal Seam, its vein of color.
 	_inside = MeshInstance3D.new()
-	_inside.material_override = GemMesh.inside_material()
+	# Interior surfaces carry their own materials: flaws are unshaded, gold catches light.
 	_body.add_child(_inside)
 	_rock = Node3D.new()
 	_pivot.add_child(_rock)
@@ -340,6 +340,7 @@ func _fit_frame() -> void:
 	_frame.position = (size - _frame.size) * 0.5
 	if is_instance_valid(_pivot):
 		_pivot.scale = Vector3.ONE * (want / (reach * grown)) / clump
+		_pivot.position = GemMesh.display_offset(gem) * _pivot.scale.x
 	_fit_ground()
 
 func _fit_ground() -> void:

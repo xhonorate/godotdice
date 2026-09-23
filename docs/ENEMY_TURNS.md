@@ -84,8 +84,9 @@ with an explicit ability row explaining the upgrade.
 
 **Implemented defaults:**
 
-- Tier ladder: **d4 → d6 → d8 → d10 → d12 → d20**. Clamp at d4 and d20;
-  Dread cannot remove dice or invent a d2.
+- Tier ladder: **d2 → d3 → d4 → d6 → d8 → d10 → d12 → d16 → d20 → d24 → d30 → d40 → d50 → d60 → d100**. Clamp at d2 and d100;
+  Dread lowers d4 to the crystal d3, and d3 to a coin. It never removes dice.
+  Unusual sizes come through tier changes; starting encounter dice are unchanged.
 - Bind suppresses the last available dice in the displayed order for the next enemy
   action phase. Mark those slots visibly. Its existing enhanced version suppresses two.
 - Dread lowers all the target's dice by one tier for a stated number of enemy action

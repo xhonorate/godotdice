@@ -1,7 +1,7 @@
 extends RefCounted
 ## What is frozen inside a stone, drawn as real geometry set into the crystal.
 ##
-## Two things live here and nowhere else, because both are the same job: something that is
+## These all do the same job: showing something that is
 ## inside the solid rather than cut on its surface.
 ##
 ##   Inclusions  A stone's flaws used to be a count and nothing else — N facets of the
@@ -10,9 +10,6 @@ extends RefCounted
 ##               Pinpoint is a speck of light, a Lens a flat bubble, a Feather a wing of
 ##               fine fissures, a Fracture a jagged split and a Star a six-rayed asterism.
 ##               What the loupe says a stone carries is now what you can see in it.
-##   Rinds       A stone that grew in two colors at once — watermelon tourmaline, ametrine
-##               — carries the second as a solid of its own filling its side of the body,
-##               because a material can only ever paint one albedo across a whole stone.
 ##   Flakes      Metal grown into a stone rather than cut on it: pyrite in leaves through
 ##               the matrix, which is Florin's whole stone. Scattered by the shape it is
 ##               cut to rather than by Clarity, because they are not a fault.
@@ -93,7 +90,7 @@ static func _span(env: Dictionary, z: float) -> float:
 		return lerpf(1.0, float(env.get("table", 0.5)), t)
 	if z >= -girdle:
 		return 1.0
-	return lerpf(1.0, 0.16, clampf((-z - girdle) / maxf(depth - girdle, 0.0001), 0.0, 1.0))
+	return lerpf(1.0, float(env.get("back_table", 0.16)), clampf((-z - girdle) / maxf(depth - girdle, 0.0001), 0.0, 1.0))
 
 static func _reach(outline: PackedVector2Array, dir: Vector2) -> float:
 	## How far the girdle outline goes in one direction. A heart and a pear are not discs:
@@ -273,82 +270,8 @@ static func _mark(surface: SurfaceTool, env: Dictionary, outline: PackedVector2A
 		"STAR": _star(surface, at, origin, size, tone)
 		_: _pinpoint(surface, at, origin, size, tone)
 
-static func _half(shape: PackedVector2Array, cut: float, lean: float) -> PackedVector2Array:
-	## One side of an outline, clipped against a line, with the two crossings put back in so
-	## the piece closes. A stone that grew in two colors is cut through, not shaded: the
-	## chord this leaves is where one crystal stopped and the other started. `lean` tilts
-	## that chord off vertical, because dead upright it read as a rectangle pasted over the
-	## stone rather than as something the rock did.
-	var axis := Vector2(cos(lean), sin(lean))
-	var kept := PackedVector2Array()
-	var count := shape.size()
-	for index in count:
-		var here: Vector2 = shape[index]
-		var following: Vector2 = shape[(index + 1) % count]
-		var near: float = here.dot(axis)
-		var far: float = following.dot(axis)
-		if near >= cut:
-			kept.append(here)
-		if (near >= cut) != (far >= cut) and not is_equal_approx(near, far):
-			kept.append(here.lerp(following, (cut - near) / (far - near)))
-	return kept
-
-static func _rind(surface: SurfaceTool, env: Dictionary, outline: PackedVector2Array,
-		tone: Color, seed_value: int) -> void:
-	## The second crystal, as a solid set inside the first. Watermelon tourmaline grows pink
-	## at the core and green at the rind; an ametrine is violet at one end and gold at the
-	## other. Neither is a shading trick, and trying to make it one failed twice over: a
-	## material paints ONE albedo across a whole stone, and every way of dividing that back
-	## out of the facets either greyed the stone or turned its specular to frost. So the
-	## other half is simply another solid, filling its side of the body and seen through the
-	## crystal in front of it, which is what it is in the rock.
-	var crown: float = float(env.get("crown", 0.34))
-	var depth: float = float(env.get("depth", 0.74))
-	## Where the two met, and at what angle. Both hashed, so no two such stones are halved
-	## alike and none of them is halved down the middle.
-	var cut: float = lerpf(-0.18, 0.18, _hash01(seed_value + 47))
-	var lean: float = lerpf(-0.34, 0.34, _hash01(seed_value + 53))
-	var face: PackedVector2Array = _half(outline, cut, lean)
-	if face.size() < 3:
-		return
-	## Deepened before it goes in, for the same reason a Seam is: it is seen through the
-	## body in front of it and under the fire pass over that, and at its own value it came
-	## back as a pale wash of itself.
-	tone = tone.darkened(0.14)
-	var deep := Color(tone.r * 0.62, tone.g * 0.62, tone.b * 0.62, tone.a)
-	var levels: Array = []
-	var bands := 5
-	for band in bands + 1:
-		var z: float = lerpf(-depth * 0.86, crown * 0.86, float(band) / float(bands))
-		var span: float = _span(env, z) * 0.97
-		var ring := PackedVector3Array()
-		for point in face:
-			ring.append(Vector3(point.x * span, point.y * span, z))
-		levels.append(ring)
-	## The walls, which are most of what is seen: the curved side where the stone's own
-	## surface is, and the flat chord where the other color begins.
-	for band in bands:
-		var lower: PackedVector3Array = levels[band]
-		var upper: PackedVector3Array = levels[band + 1]
-		var low := deep.lerp(tone, float(band) / float(bands))
-		var high := deep.lerp(tone, float(band + 1) / float(bands))
-		for index in lower.size():
-			var next: int = (index + 1) % lower.size()
-			_tri(surface, lower[index], upper[index], upper[next], low, high, high)
-			_tri(surface, lower[index], upper[next], lower[next], low, high, low)
-	## Capped top and bottom, or the solid reads as a hollow shell from above.
-	for band: Array in [[0, deep], [bands, tone]]:
-		var ring: PackedVector3Array = levels[int(band[0])]
-		var shade: Color = band[1]
-		var middle := Vector3.ZERO
-		for point in ring:
-			middle += point
-		middle /= float(ring.size())
-		for index in ring.size():
-			_tri(surface, middle, ring[index], ring[(index + 1) % ring.size()], shade, shade, shade)
-
 static func _flake(surface: SurfaceTool, env: Dictionary, outline: PackedVector2Array,
-		seed_value: int, tone: Color) -> void:
+		seed_value: int, tone: Color, index: int, count: int) -> void:
 	## A leaf of fool's gold caught in the matrix. Not a flaw and not scattered by Clarity:
 	## pyrite grows in the rock in sheets, and a stone cut out of that carries them because
 	## they are the reason it was cut. Flat plates rather than solids, so each one catches
@@ -359,6 +282,16 @@ static func _flake(surface: SurfaceTool, env: Dictionary, outline: PackedVector2
 	var turn: float = _hash01(seed_value + 11) * TAU
 	var out: float = sqrt(_hash01(seed_value + 17)) * 0.82
 	var origin := _inside(env, outline, Vector3(cos(turn) * out, sin(turn) * out, z), 0.80)
+	if bool(env.get("even_flakes", false)):
+		# A golden-angle spiral fills the face without random clumps or empty quarters.
+		# Map to each slice's actual outline instead of clamping a disc onto its edges.
+		var phase: float = _hash01(int(env.seed) + 11)
+		turn = TAU * (phase + float(index) * 0.38196601125)
+		z = lerpf(-float(env.depth) * 0.55, float(env.crown) * 0.55,
+			fposmod(phase + float(index) * 0.754877666, 1.0))
+		var direction := Vector2(cos(turn), sin(turn))
+		out = sqrt((float(index) + 0.5) / float(count)) * 0.84 * _span(env, z) * _reach(outline, direction)
+		origin = Vector3(direction.x * out, direction.y * out, z)
 	var at := Basis.from_euler(Vector3(
 		(_hash01(seed_value + 23) - 0.5) * 2.4,
 		(_hash01(seed_value + 29) - 0.5) * 2.4,
@@ -367,8 +300,12 @@ static func _flake(surface: SurfaceTool, env: Dictionary, outline: PackedVector2
 	var dull := Color(tone.r * 0.52, tone.g * 0.40, tone.b * 0.22, tone.a * 0.85)
 	var plate := [Vector3(size, size * 0.62, 0.0), Vector3(-size * 0.74, size, 0.0),
 		Vector3(-size, -size * 0.68, 0.0), Vector3(size * 0.70, -size, 0.0)]
-	_tri(surface, origin + at * plate[0], origin + at * plate[1], origin + at * plate[2], lit, dull, lit)
-	_tri(surface, origin + at * plate[0], origin + at * plate[2], origin + at * plate[3], lit, lit, dull)
+	for corner in plate.size():
+		var point: Vector3 = origin + at * plate[corner]
+		point.z = clampf(point.z, -float(env.depth) * 0.88, float(env.crown) * 0.88)
+		plate[corner] = _inside(env, outline, point, 0.92)
+	_tri(surface, plate[0], plate[1], plate[2], lit, dull, lit)
+	_tri(surface, plate[0], plate[2], plate[3], lit, lit, dull)
 
 static func _prism(surface: SurfaceTool, from: Vector3, to: Vector3, wide: float, tall: float,
 		near: Color, far: Color) -> void:
@@ -433,23 +370,43 @@ static func build(gem: Dictionary, env: Dictionary) -> ArrayMesh:
 	var kinds: Array = classes(gem, int(env.get("flaws", 0)), seed_value)
 	var vein := seam_color(gem)
 	var flakes: int = int(env.get("flakes", 0))
-	var rind: Color = env.get("rind", Color(0, 0, 0, 0))
-	if kinds.is_empty() and vein.a <= 0.0 and flakes <= 0 and rind.a <= 0.0:
+	if kinds.is_empty() and vein.a <= 0.0 and flakes <= 0:
 		return null
-	var surface := SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	if rind.a > 0.0:
-		_rind(surface, env, outline, Color(rind.r, rind.g, rind.b, clampf(Tuning.value("rind_alpha"), 0.0, 1.0)), seed_value)
-	if vein.a > 0.0:
-		_seam(surface, env, outline, vein, seed_value)
+	var mesh := ArrayMesh.new()
+	if not kinds.is_empty() or vein.a > 0.0:
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		surface.set_material(inside_material())
+		if vein.a > 0.0:
+			_seam(surface, env, outline, vein, seed_value)
+		for index in kinds.size():
+			_mark(surface, env, outline, str(kinds[index]), seed_value + 101 + index * 911, scale)
+		surface.commit(mesh)
 	if flakes > 0:
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		surface.set_material(_gold_material() if bool(env.get("even_flakes", false)) else inside_material())
 		var metal: String = str(env.get("flake_tone", "ffd166"))
 		var gold := Color(metal) if metal.is_valid_html_color() else Color("ffd166")
 		for index in flakes:
-			_flake(surface, env, outline, seed_value + 7717 + index * 131, gold)
-	for index in kinds.size():
-		_mark(surface, env, outline, str(kinds[index]), seed_value + 101 + index * 911, scale)
-	return surface.commit()
+			_flake(surface, env, outline, seed_value + 7717 + index * 131, gold, index, flakes)
+		surface.commit(mesh)
+	return mesh
+
+static func _gold_material() -> StandardMaterial3D:
+	## Gold shares the interior compositing order, but its tilted faces reflect the lamps.
+	var material := inside_material()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	material.metallic = 0.78
+	material.metallic_specular = 1.0
+	material.roughness = 0.16
+	material.clearcoat_enabled = true
+	material.clearcoat = 0.65
+	material.clearcoat_roughness = 0.08
+	material.emission_enabled = true
+	material.emission = Color("ffd166")
+	material.emission_energy_multiplier = 0.12
+	return material
 
 static func inside_material() -> StandardMaterial3D:
 	## Unshaded on purpose. The shell is lit facet by facet because that is what a cut

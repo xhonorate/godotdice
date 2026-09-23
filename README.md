@@ -10,13 +10,14 @@ python3 tools/run_checks.py                  # every headless suite (needs Godot
 /path/to/Godot --path . --script tools/screenshot.gd -- battle build/shot.png   # a picture of a screen
 /path/to/Godot --path . --script tools/biome_gallery.gd -- build/biomes          # every battle biome, one picture each
 /path/to/Godot --path . --script tools/tunnel_gallery.gd -- build/tunnels        # every biome seam, walked
+/path/to/Godot --path . --script tools/dice_gallery.gd -- build/dice.png        # every die shape, plus a rolling benchmark
 /path/to/Godot --path . --script tools/sound_gallery.gd -- gem                   # hear the sound bank (a filter plays one group)
 ```
 
 ## How it plays
 
 - **Stones** have four C's, and every step of every one of them changes what the stone does. color is what kind of thing it does (Red damage, Blue guard, Green sustain, Violet control, Gold fortune, White the hand itself) and sets the cut shape. Carat is how much: one multiplier over everything, and for an effect that cannot be a fraction — a reroll, a phantom die, a stun — how many times over it happens, with the remainder as the chance of one more. Cut is how often: every skill has five distinct rungs, no two alike, and a better cut stands on a looser one, reads more dice, or hits for more. Clarity is how pure: a Pristine stone rings the rail for double Resonance, a Flawless one for triple, hits half as hard again, and carries the skill's Flawless line; Included, Etched and Intricate stones carry one, two or three **inclusions**, the affixes that make one stone unlike another.
-- **Dice** are items too: shapes, face sets, special faces (wild, gem, exploding, locked, mirror, blank) and engravings.
+- **Dice** are items too: shapes, face sets, special faces (wild, gem, exploding, locked, mirror, blank) and engravings. Upgrades and downgrades follow d2 → d3 → d4 → d6 → d8 → d10 → d12 → d16 → d20 → d24 → d30 → d40 → d50 → d60 → d100. Starting bowls stay modest; the unusual sizes come through working dice. See [the shapes and construction notes](docs/DICE_SHAPES.md).
 - **Veins** never run out of rock, only of arm: an outcrop is struck as often as you like, and every few swings the next one costs another point of health. What is worth having is buried deeper than what is not — dull rock comes away in one blow, a bright seam can take four — so working a vein is a running question of one more or walk on.
 - **A turn**: everyone rolls five dice, rerolls twice, locks in. Each player's rail of stones then fires gem by gem against their final hand, one step at a time on every screen. Each stone that fires adds **Resonance**; a fizzle resets it; two neighbours of one color resonate harder; the Capstone socket cashes it in as carats.
 - **Enemies** reveal their movesets and ordered dice while you plan, then roll one die at a time. Every qualifying ability fires in order; combination bonuses fire once when completed. Enemy damage and debuffs affect everyone, with each player blocking individually. Hover an enemy or use its Moves button for details; its table opens automatically while it acts. See [docs/ENEMY_TURNS.md](docs/ENEMY_TURNS.md).

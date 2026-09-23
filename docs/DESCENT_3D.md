@@ -4,6 +4,8 @@ September 21, 2026. The owner asked (Todo.md) whether the run could stay in the 
 
 **Combat follow-up (September 23, 2026):** [Enemy turns: sequential dice and revealed abilities](ENEMY_TURNS.md) records the new moveset display, one-die-at-a-time resolution, party-wide enemy damage, control effects and animation design. The enemy-turn implementation is complete; the completed stages below describe the original descent work.
 
+**Dice follow-up (September 23, 2026):** [Additional dice shapes](DICE_SHAPES.md) extends smithy and enemy tier changes from a d2 coin through d100, with d16 between d12 and d20. It records the solids, playable faces, mesh costs and validation limits.
+
 **Verdict: yes, and it is view work.** Nothing here needs a rule to change. The run state machine in `sim/descent.gd` already knows everything the 3D scene needs (which chamber the party stands in, the ways on from it, who has voted, what a fight paid) and the events the host streams are enough to drive every animation. The one place a rule _could_ change (which creature dropped which stone) is better faked in the view, see §6. The owner's answers to the questions it raised are in §14.
 
 ## 0. Two measurements

@@ -70,6 +70,7 @@ func _test_gems() -> void:
 	check(GemMesh.fire_material(perfect) != null and GemMesh.etch_material(perfect) != null, "fire and etch materials are made")
 	_test_inside()
 	_test_cuts()
+	_test_birthstone_finish()
 
 func _test_cuts() -> void:
 	## Every Birthstone is cut to a solid of its own. They used to borrow the nearest of the
@@ -100,16 +101,70 @@ func _test_cuts() -> void:
 	var drop: PackedVector2Array = GemMesh.outline("briolette")
 	var pear: PackedVector2Array = GemMesh.outline("pear")
 	check(_waist(drop) < _waist(pear), "a briolette tapers harder than a pear: %f vs %f" % [_waist(drop), _waist(pear)])
-	## A stone that grew in two colors carries the second as a solid inside the first, and
-	## one that grew in one carries nothing extra.
-	var puck: Dictionary = DeepStone.birthstone("PUCK")
-	check(GemMesh.tint2(puck).a > 0.0 and GemMesh.inside(puck) != null, "Puck shows both of its colors")
+	## Both colors belong to the shell, with no internal dividing wall to cross the icon.
+	for key in ["CADENCE", "PUCK"]:
+		var born: Dictionary = DeepStone.birthstone(key)
+		var front := GemMesh.body_material(born)
+		var back := GemMesh.interior_material(born)
+		check(GemMesh.inside(born) == null, "%s has no color wall inside its engraving" % key)
+		check(front.albedo_texture is GradientTexture2D and back.albedo_texture is GradientTexture2D,
+			"%s blends both shell faces" % key)
+		var gradient: Gradient = front.albedo_texture.gradient
+		var middle: Color = gradient.sample(0.5)
+		check(not middle.is_equal_approx(gradient.sample(0.0)) and not middle.is_equal_approx(gradient.sample(1.0)),
+			"%s has a blended middle, not a hard color split" % key)
+		check(gradient.sample(0.25).is_equal_approx(back.albedo_texture.gradient.sample(0.25)),
+			"%s keeps its color field when turned over" % key)
 	check(GemMesh.tint2(DeepStone.birthstone("ARDOR")).a <= 0.0, "a one-colored Birthstone names no second hue")
 	## Florin's fool's gold and Vesper's pinprick flashes are both metal in the body.
 	for key in ["FLORIN", "VESPER"]:
 		var born: Dictionary = DeepStone.birthstone(str(key))
 		check(int(GemMesh.envelope(born).get("flakes", 0)) > 0 and GemMesh.inside(born) != null,
 			"%s carries what its words promise" % key)
+
+func _test_birthstone_finish() -> void:
+	var reductions := {"ARDOR": 0.90, "VESPER": 1.0, "CADENCE": 0.85, "RUE": 0.95, "PUCK": 0.70, "FLORIN": 0.70}
+	for key in reductions:
+		var born := DeepStone.birthstone(key)
+		check(int(born.carat) == 24 and is_equal_approx(GemMesh.span(born) / GemMesh.carat_span(24), float(reductions[key])),
+			"%s keeps 24 carats while fitting its socket" % key)
+	# Every front vertex has its reflected partner behind the thin girdle, at every Cut.
+	for cut in 5:
+		var vesper := DeepStone.birthstone("VESPER")
+		vesper.cut = cut
+		var vertices: PackedVector3Array = GemMesh.build(vesper).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var points := {}
+		for point in vertices:
+			points[point.snapped(Vector3.ONE * 0.0001)] = true
+		var symmetric := true
+		for point in vertices:
+			var mirror := Vector3(point.x, point.y, -GemMesh.GIRDLE - point.z)
+			symmetric = symmetric and points.has(mirror.snapped(Vector3.ONE * 0.0001))
+		check(symmetric, "Vesper's back mirrors its front at Cut %d" % cut)
+	# Flakes must remain inside the actual facets after the bodies become shallower.
+	for key in ["FLORIN", "VESPER"]:
+		var born := DeepStone.birthstone(key)
+		var shell: Array = GemMesh.build(born).surface_get_arrays(0)
+		var inside := GemMesh.inside(born)
+		var contained := true
+		var quadrants := [0, 0, 0, 0]
+		var flakes: PackedVector3Array = inside.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		for point in flakes:
+			var crossings := 0
+			for face in range(0, shell[Mesh.ARRAY_VERTEX].size(), 3):
+				if Geometry3D.ray_intersects_triangle(point, Vector3(0.391, 0.573, 0.721),
+						shell[Mesh.ARRAY_VERTEX][face], shell[Mesh.ARRAY_VERTEX][face + 1], shell[Mesh.ARRAY_VERTEX][face + 2]) != null:
+					crossings += 1
+			contained = contained and crossings % 2 == 1
+		for flake in range(0, flakes.size(), 6):
+			var center := (flakes[flake] + flakes[flake + 1] + flakes[flake + 2]) / 3.0
+			quadrants[(1 if center.x > 0.0 else 0) + (2 if center.y > 0.0 else 0)] += 1
+		check(contained, "%s's flakes stay inside the cut solid" % key)
+		if key == "FLORIN":
+			check(int(quadrants.max()) - int(quadrants.min()) <= 3, "gold fills all four quarters evenly: %s" % str(quadrants))
+			var metal: StandardMaterial3D = inside.surface_get_material(0)
+			check(metal.shading_mode == BaseMaterial3D.SHADING_MODE_PER_PIXEL and metal.metallic > 0.5 and metal.roughness < 0.25,
+				"gold flakes catch specular light")
 
 func _waist(shape: PackedVector2Array) -> float:
 	## How wide an outline still is a third of the way down from its point: the number that

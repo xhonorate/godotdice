@@ -243,12 +243,12 @@ Patterns the game reads, all with pictographs: pair, two pair, triple, full hous
 
 Dice are the second build axis and deserve the same variance as stones. Every die is an item with faces, a shape, and up to one **engraving**:
 
-- **Shapes**: d4, d6, d8, d10, d12, d20. Shape decides what patterns are easy: d4s make sets, d20s make high totals, a mixed bowl makes straights.
+- **Shapes**: d2, d3, d4, d6, d8, d10, d12, d16, d20, d24, d30, d40, d50, d60, d100. Unusual sizes are reached through upgrades and downgrades, keeping starting bowls unchanged. Shape decides what patterns are easy: d4s make sets, d20s make high totals, a mixed bowl makes straights.
 - **Face sets**: weighted, paired, odd, even, split, "sevens", blanks.
 - **Special faces**: a **wild** face that counts as any value, a **gem** face that fires every gem regardless of pattern (once per turn), an **exploding** face that rolls again and adds, a **locked** face that cannot be rerolled once shown, a **mirror** face that copies its neighbour.
 - **Engravings** (one per die, rare): "always held", "rerolls are free on this die", "counts as two dice for pair triggers", "+1 to every face".
 
-**Dice are never bought or swapped in the mine, only worked. [Decided September 22, 2026]** A player goes down with five dice and comes up with the same five. A **Smithy** makes one a size bigger or smaller (d4, d6, d8, d10, d12, d20; its faces become plain numbers and its engraving stays), a **Carver** raises one face by one (never past the die's highest face) or recuts one face to show another face's number (the number only, never what makes a face special), and the Grinder oddity still shaves a face or engraves (§8). Merchants sell stones only; veins, elites and stakes never hand out a die. Dice changes last the run, like a stake; the home bowl grows as characters are unlocked.
+**Dice are never bought or swapped in the mine, only worked. [Decided September 22, 2026]** A player goes down with five dice and comes up with the same five. A **Smithy** makes one a size bigger or smaller (d2, d3, d4, d6, d8, d10, d12, d16, d20, d24, d30, d40, d50, d60, d100; its faces become plain numbers and its engraving stays), a **Carver** raises one face by one (never past the die's highest face) or recuts one face to show another face's number (the number only, never what makes a face special), and the Grinder oddity still shaves a face or engraves (§8). Merchants sell stones only; veins, elites and stakes never hand out a die. Dice changes last the run, like a stake; the home bowl grows as characters are unlocked.
 
 ## 5. Characters **[Decided September 21, 2026; replaces settings]**
 

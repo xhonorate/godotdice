@@ -243,6 +243,9 @@ func _rebuild() -> void:
 		if kind != "plain":
 			tone = tone.lerp(DiceIcons.face_kind_tint(kind), 0.55)
 		colors.append(tone)
+	# Rims and crystal tips are part of the mesh, but never carry a face value.
+	for _i in range(_frames.size(), built.faces.size()):
+		colors.append(palette.edge.lightened(0.12))
 	if headless():
 		return
 	var mesh := Geometry.mesh(shape, colors)
@@ -266,7 +269,7 @@ func _rebuild() -> void:
 		label.no_depth_test = false
 		label.alpha_cut = Label3D.ALPHA_CUT_DISCARD
 		label.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-		var digits := maxi(1, str(_value_at(index)).length())
+		var digits := maxi(1, label.text.length())
 		var span := 0.58 * float(digits) + 0.42
 		label.pixel_size = float(frame.inradius) * 1.5 / (96.0 * span)
 		label.transform = Transform3D(Basis(frame.right, frame.up, frame.normal), frame.centre + frame.normal * 0.006)

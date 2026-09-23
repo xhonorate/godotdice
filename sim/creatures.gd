@@ -35,7 +35,7 @@ static func moves_for(enemy: Dictionary) -> Array:
 	var phase: int = phase_for(enemy)
 	return definition.get("phases", [])[phase - 1].get("moves", []) if phase > 0 else definition.get("moves", [])
 
-const TIERS: Array = ["D4", "D6", "D8", "D10", "D12", "D20"]
+const TIERS: Array = DeepDice.TIERS
 const COMBINATIONS: Array = ["pair", "triple", "quad", "quint", "two_pair", "full_house", "straight", "all_odd", "all_even"]
 
 static func effective_dice(enemy: Dictionary) -> Array:

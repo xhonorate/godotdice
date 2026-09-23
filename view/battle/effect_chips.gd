@@ -87,13 +87,13 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(chip)
 	var downgrade: int = int(foe.get("dread_turns", 0))
 	if downgrade > 0:
-		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are one tier smaller for %s (minimum d4)." % DeepUi.plural(downgrade, "turn")))
+		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are one tier smaller for %s (minimum d2)." % DeepUi.plural(downgrade, "turn")))
 	var bound: int = int(foe.get("stolen_dice", 0))
 	if bound > 0:
 		out.append(entry("bound", "broken_chain", "−%d" % bound, true, "Bound", "Its next action rolls %s, even if that leaves none." % DeepUi.plural(bound, "die fewer", "dice fewer")))
 	var upgrade: int = int(foe.get("dice_upgrade", 0))
 	if upgrade > 0:
-		out.append(entry("upgrade", "die", "+%d" % upgrade, false, "Larger dice", "Dice raised %d tiers for this fight (maximum d20)." % upgrade))
+		out.append(entry("upgrade", "die", "+%d" % upgrade, false, "Larger dice", "Dice raised %d tiers for this fight (maximum d100)." % upgrade))
 	var gold: int = int(foe.get("stolen_gold", 0))
 	if gold > 0:
 		out.append(entry("gold", "coin_fall", str(gold), false, "Stolen pyrite", "It carries %d of your pyrite. Kill it to get it back." % gold, DeepUi.ORE))

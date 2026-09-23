@@ -665,7 +665,7 @@ func _fill_birthstone(item: Dictionary) -> void:
 	var tags := DeepUi.hbox(head, 8)
 	DeepUi.pill(tags, "crown", "%s's Birthstone" % str(character.get("name", character_key)), tint.lightened(0.3), 13)
 	DeepUi.pill(tags, "lock", "Always set, last in the rail", DeepUi.MUTED, 13)
-	DeepUi.effect_text(head, str(item.get("text", "")), 14, DeepUi.MUTED)
+	DeepUi.wrap(head, str(item.get("text", "")), 14, DeepUi.MUTED)
 	var tiers: Array = item.get("tiers", [])
 	_page("Its tiers", "cut")
 	var how := _section("spark", "How it fires")
@@ -759,15 +759,19 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 		elif int(roll.get("rerolls", 0)) > 0:
 			DeepUi.pill(tags, "reroll", "rerolled %s" % DeepUi.plural(int(roll.rerolls), "time"), DeepUi.INFO, 13)
 	## Its faces, each one clickable to turn the die to it.
-	_page("Its faces", "die")
-	var face_box := _section("die", "Its faces")
-	var grid := HFlowContainer.new()
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
-	face_box.add_child(grid)
+	var paged := faces.size() > 30
+	var grid: HFlowContainer
 	var values: Array = []
 	var kinds: Dictionary = {}
 	for index in range(faces.size()):
+		if index % 30 == 0:
+			var title := "%d–%d" % [index + 1, mini(index + 30, faces.size())] if paged else "Its faces"
+			_page(title, "die")
+			var face_box := _section("die", "Faces " + title if paged else title)
+			grid = HFlowContainer.new()
+			grid.add_theme_constant_override("h_separation", 8)
+			grid.add_theme_constant_override("v_separation", 8)
+			face_box.add_child(grid)
 		var face: Variant = faces[index]
 		var value: int = int(face.get("value", index + 1)) if face is Dictionary else int(face)
 		var kind: String = str(face.get("kind", "plain")) if face is Dictionary else "plain"
@@ -788,8 +792,10 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 		chip.pressed.connect(func() -> void: view.focus_face(face_index))
 		DeepUi.juice(chip, 1.12)
 		grid.add_child(chip)
+	if paged:
+		_page("About", "hourglass")
 	for kind in kinds:
-		DeepUi.stat(face_box, "spark", str(FACE_TEXT.get(kind, kind)), DiceIcons.face_kind_tint(str(kind)).lightened(0.2), 13)
+		DeepUi.stat(_details, "spark", str(FACE_TEXT.get(kind, kind)), DiceIcons.face_kind_tint(str(kind)).lightened(0.2), 13)
 	## What it tends to roll.
 	var stats := _section("hourglass", "What it rolls")
 	var total: float = 0.0
@@ -1026,7 +1032,7 @@ func _fill_lapidary(character_key: String, tone: Color) -> void:
 		var birth := DeepUi.vbox(page, 6)
 		DeepUi.section(birth, "crown", "Their Birthstone", tone.lightened(0.3))
 		DeepUi.title(birth, str(stone.get("name", "")), 20, tone.lightened(0.35))
-		DeepUi.effect_text(birth, str(stone.get("text", "")), 15, DeepUi.PAPER).custom_minimum_size.x = 560
+		DeepUi.wrap(birth, str(stone.get("text", "")), 15, DeepUi.PAPER).custom_minimum_size.x = 560
 		for tier in stone.get("tiers", []):
 			var line := DeepUi.hbox(birth, 8)
 			DeepUi.icon(line, "cut", 15, tone.lightened(0.2)).size_flags_vertical = Control.SIZE_SHRINK_CENTER

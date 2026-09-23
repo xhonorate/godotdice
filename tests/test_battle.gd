@@ -206,6 +206,15 @@ func _test_birthstones() -> void:
 	var hits: Array = effects_of(cuts, "damage")
 	check(bool(cuts.fired) and hits.size() == 15 and int(hits[0].amount) == 1, "a 15 on the d20 is fifteen hits of Resonance (%d hits)" % hits.size())
 	check(int(hits[hits.size() - 1].get("riposte", 0)) == 1, "Riposte: every hit raises block worth Resonance")
+	var large_rng: Dictionary = rngs(73100)
+	var large_state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, large_rng.dice, large_rng.creatures)
+	var large_player: Dictionary = DeepBattle.player(large_state, "a")
+	large_player.dice[4] = DeepDice.make("D100", DeepContent.die("D100"), str(large_player.dice[4].id))
+	DeepBattle.enemy(large_state, "e0").hp = 1000
+	DeepBattle.enemy(large_state, "e0").max_hp = 1000
+	hand(large_player, [1, 2, 3, 4, 100])
+	var large_cuts: Dictionary = birthstones(run_turn(large_state, large_rng))[0]
+	check(bool(large_cuts.fired) and effects_of(large_cuts, "damage").size() == 100, "Thousand Cuts honours a d100 result without capping at twenty hits")
 	## Cadence: a straight of four hits the room, a straight of five plays the rail again.
 	var r4: Dictionary = rngs(74)
 	var state4: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE"), stone("MEND")], "CADENCE")], ["QUARTZ_GOLEM", "CAVE_TICK"], {"depth": 1}, r4.dice, r4.creatures)

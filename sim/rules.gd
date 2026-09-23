@@ -71,8 +71,8 @@ const MODIFY_FIELDS: Array = ["effect", "target", "mult", "add", "repeat_add", "
 const MAX_EFFECTS: int = 6
 const MAX_DEPTH: int = 6
 const MAX_NODES: int = 60
-## A Rogue's d20 can ask for twenty hits, so a repeat runs as high as a die face.
-const MAX_REPEAT: int = 20
+## Thousand Cuts can ask for one hit per point on even the largest die.
+const MAX_REPEAT: int = DeepDice.VALUE_CAP
 const VALUE_LIMIT: int = 9999
 ## An effect whose amount cannot be a fraction — a reroll, a phantom die, a stun — grows by
 ## happening more often instead. No stone happens more than this many times.

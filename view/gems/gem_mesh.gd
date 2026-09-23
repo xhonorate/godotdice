@@ -51,6 +51,10 @@ const STYLE_SHAPES: Dictionary = {"shield": "shield", "marquise": "marquise", "s
 ## fall back on if one ever did not.
 const STYLE_KIN: Dictionary = {"shield": "RED", "marquise": "WHITE", "step": "VIOLET",
 	"briolette": "GREEN", "checkerboard": "RED", "heptagon": "GOLD"}
+## Socket fit is a visual choice, independent of the Birthstones' 24-carat weight.
+const STYLE_SCALE := {"shield": 0.90, "step": 0.85, "briolette": 0.95,
+	"checkerboard": 0.70, "heptagon": 0.70}
+const STYLE_OFFSET := {"shield": Vector3(0.0, -0.08, 0.0)}
 
 static func shape_of(gem: Dictionary) -> String:
 	## The solid this stone is cut to. A Birthstone's style names it outright; everything
@@ -74,9 +78,7 @@ static func hue(color_key: String) -> Color:
 	return Color(str(DeepContent.color(color_key).get("hue", FALLBACK_HUES.get(color_key, "e0473c"))))
 
 static func tint2(gem: Dictionary) -> Color:
-	## A second hue, for a stone that grew in two colors at once. Watermelon tourmaline is
-	## the one that does it: pink at the core and green at the rind, both in the same
-	## crystal, and a slice of it shows both at once. Transparent when the stone names none.
+	## A second hue blended through the body. Transparent when the stone names none.
 	var other: String = str(gem.get("hue2", ""))
 	return Color(other) if other.is_valid_html_color() else Color(0, 0, 0, 0)
 
@@ -153,6 +155,9 @@ const EMBLEM_SPAN := {"trilliant": 0.86, "princess": 1.10, "heart": 0.94,
 	"pear": 0.84, "dutch_rose": 1.04, "round": 1.06, "cabochon": 0.96,
 	"shield": 0.92, "marquise": 0.62, "step": 0.96, "briolette": 0.66,
 	"checkerboard": 1.04, "heptagon": 1.00}
+## Move the engraving within its slice, towards the broad part of an asymmetric face.
+const EMBLEM_OFFSET := {"shield": Vector2(0.0, 0.12), "briolette": Vector2(0.0, -0.23),
+	"pear": Vector2(0.0, -0.13)}
 ## Two of the cuts are not brilliants, and a brilliant's proportions would make them lie.
 ## A rose cut has no table worth the name: its crown is a dome of facets rising to a point,
 ## and its back is left flat, because the whole cut exists to save weight. These scale the
@@ -160,14 +165,16 @@ const EMBLEM_SPAN := {"trilliant": 0.86, "princess": 1.10, "heart": 0.94,
 ## still says how TRUE the stone was cut — it just says it about a different solid.
 ##
 ## The Birthstone cuts lean on the same three. An emerald cut is a shallow crown over a
-## broad table; a briolette is barely a table at all over a long deep drop; a checkerboard
+## broad table; a briolette keeps a long drop outline over a shallow body; a checkerboard
 ## domes its crown the way a cabochon does but keeps its facets.
 const SHAPE_TABLE := {"dutch_rose": 0.30, "cabochon": 0.0,
-	"step": 0.86, "briolette": 0.20, "checkerboard": 0.44, "shield": 0.92, "marquise": 0.80, "heptagon": 1.02}
+	"step": 0.86, "briolette": 1.12, "pear": 1.08, "checkerboard": 0.44, "shield": 0.92, "marquise": 0.80, "heptagon": 1.02}
 const SHAPE_CROWN := {"dutch_rose": 1.25, "cabochon": 1.55,
-	"step": 0.72, "briolette": 1.70, "checkerboard": 1.30, "shield": 0.88, "marquise": 0.80, "heptagon": 0.78}
+	"step": 0.72, "briolette": 0.90, "pear": 0.90, "checkerboard": 1.30, "shield": 0.88, "marquise": 0.80, "heptagon": 0.78}
 const SHAPE_PAVILION := {"dutch_rose": 0.40, "cabochon": 0.22,
-	"step": 1.02, "briolette": 1.55, "checkerboard": 0.66, "shield": 1.06, "marquise": 1.10, "heptagon": 0.74}
+	"step": 1.02, "briolette": 0.48, "pear": 0.72, "checkerboard": 0.66, "shield": 1.06, "heptagon": 0.74}
+## A marquise has the same shallow face on either side of its girdle.
+const SHAPE_SYMMETRIC := ["marquise"]
 ## How many bands of facets the crown is built from, where the shape overrules Cut. A step
 ## cut is nothing but bands — that is what the name means — and a checkerboard needs enough
 ## of them for its grid to be a grid.
@@ -181,12 +188,12 @@ const SHAPE_STEPPED := ["step", "checkerboard"]
 ## reason to cut it. See `gem_flaws.gd`, which draws them with what is frozen inside.
 ## Pyrite comes out of the rock in leaves of fool's gold; a black opal throws the pinprick
 ## flashes it is prized for. Both are specks of light caught in a body rather than cut on
-## one, so both are drawn the same way and only the count and the color differ.
-const SHAPE_FLAKES := {"heptagon": 22, "marquise": 44}
+## one. The pyrite also reflects the lamps from its smaller, evenly spaced plates.
+const SHAPE_FLAKES := {"heptagon": 36, "marquise": 44}
 const SHAPE_FLAKE_TONE := {"heptagon": "ffd166", "marquise": "cfe8ff"}
 ## How large each one is cut. A leaf of pyrite is something you can see the shape of; an
 ## opal's flash is a pinprick, and at anything near the same size it read as confetti.
-const SHAPE_FLAKE_SIZE := {"heptagon": 0.85, "marquise": 0.22}
+const SHAPE_FLAKE_SIZE := {"heptagon": 0.60, "marquise": 0.22}
 const FLAKE_TONE := "ffd166"
 ## The cabochon is the one cut in the game with no facets at all: an opal's color lives in
 ## its body rather than in the light a facet throws back, and a real cutter domes it for
@@ -261,7 +268,10 @@ static func span(gem: Dictionary) -> float:
 	## carat once somebody has.
 	if gem.has("appraised") and not bool(gem.appraised):
 		return float(CLASS_SPAN[clampi(int(DeepStone.size_class(int(gem.get("carat", 1))).index), 0, CLASS_SPAN.size() - 1)])
-	return carat_span(int(gem.get("carat", 1)))
+	return carat_span(int(gem.get("carat", 1))) * float(STYLE_SCALE.get(str(gem.get("style", "")), 1.0))
+
+static func display_offset(gem: Dictionary) -> Vector3:
+	return STYLE_OFFSET.get(str(gem.get("style", "")), Vector3.ZERO)
 
 static func frame_for(gem: Dictionary) -> float:
 	## The same for the reach the view has to draw into.
@@ -325,10 +335,8 @@ static func outline(shape: String) -> PackedVector2Array:
 		"heart":
 			return _wound(_heart())
 		"pear":
-			# Blunter at the tip than the briolette below, which is the one thing keeping
-			# the two apart: Violet is a pear and Rue is a drop, and a shared point made
-			# them the same stone.
-			return _wound(_pear(1.15))
+			# A pointed pear, still broader through the shoulders than Rue's long drop.
+			return _wound(_pear(1.55))
 		"shield":
 			# A heraldic shield: a straight top edge, shoulders that carry the width down,
 			# and two long curves closing to a point. It has to say shield at a thumbnail,
@@ -350,9 +358,7 @@ static func outline(shape: String) -> PackedVector2Array:
 			return _wound(_unit(_truncated(PackedVector2Array([
 				Vector2(0.74, 1.0), Vector2(0.74, -1.0), Vector2(-0.74, -1.0), Vector2(-0.74, 1.0)]), 0.24)))
 		"briolette":
-			# A drop, and a sharper one than the pear: a briolette is cut all round with no
-			# table worth the name, so its outline is the long taper and its facets do the
-			# rest. See `SHAPE_TABLE`, which leaves it almost none.
+			# The long taper distinguishes the drop, while a broad table carries its icon.
 			return _wound(_pear(2.8))
 		"checkerboard":
 			# A cushion: a square with its sides bowed out, which is the outline a
@@ -566,15 +572,17 @@ static func _facet(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, ton
 	for point in [a, c, b]:
 		surface.set_normal(Vector3(point.x, point.y, point.z / (dome * dome)).normalized() if dome > 0.0 and point.z > 0.0 else normal)
 		surface.set_color(tone)
+		# Object-space color coordinates stay continuous across every facet and both faces.
+		surface.set_uv(Vector2(point.x * 0.5 + 0.5, 0.5 - point.y * 0.5))
 		surface.add_vertex(point)
 
 static func build(gem: Dictionary) -> ArrayMesh:
 	## The cut solid: table, crown, girdle, pavilion, culet.
-	var color_key: String = color_key(gem)
 	var k: int = cut_rank(gem)
 	var l: int = clarity_grade(gem)
 	var seed_value: int = seed_of(gem)
-	var base := girdle(gem)
+	var env := envelope(gem)
+	var base: PackedVector2Array = env.outline
 	var count := base.size()
 	var shape: String = shape_of(gem)
 	## A cabochon is not a cut solid at all: no table, no crown facets, just a dome walked
@@ -582,13 +590,17 @@ static func build(gem: Dictionary) -> ArrayMesh:
 	var domed: bool = SHAPE_DOME.has(shape)
 	var crown: int = int(SHAPE_DOME[shape]) if domed else int(SHAPE_BANDS.get(shape, CROWN_BANDS[k - 1]))
 	var pavilion: int = PAVILION_BANDS[k - 1] + (1 if SHAPE_STEPPED.has(shape) else 0)
+	if SHAPE_SYMMETRIC.has(shape):
+		pavilion = crown
 	## A staircase of parallel tiers, or a brilliant's facets meeting point to edge. This
 	## is the whole difference between an emerald cut and everything else in the game.
 	var stepped: bool = SHAPE_STEPPED.has(shape)
 	var table_width: float = table_span(k, shape)
-	var crown_height: float = CROWN_HEIGHT * float(CUT_CROWN[k - 1]) * float(SHAPE_CROWN.get(shape, 1.0))
-	var pavilion_depth: float = PAVILION_DEPTH * float(CUT_DEPTH[k - 1]) * float(SHAPE_PAVILION.get(shape, 1.0))
-	var body := body_color_of(gem, l)
+	var crown_height: float = float(env.crown)
+	var pavilion_depth: float = float(env.depth)
+	# Two-color stones get their hue from a continuous texture, leaving vertex colors
+	# free to carry the same facet lighting and flaws as every other stone.
+	var body := Color.WHITE if tint2(gem).a > 0.0 else body_color_of(gem, l)
 	var hue_spread := Tuning.value("facet_hue")
 
 	# Where a flaw reaches the surface. A Fractured stone has several, a Pristine one none.
@@ -614,7 +626,7 @@ static func build(gem: Dictionary) -> ArrayMesh:
 	# Girdle down towards the culet.
 	for band in range(1, pavilion + 1):
 		var t := float(band) / float(pavilion)
-		rings.append(_ring(base, lerpf(1.0, 0.16, t), lerpf(-GIRDLE, -pavilion_depth, t),
+		rings.append(_ring(base, lerpf(1.0, float(env.back_table), t), lerpf(-GIRDLE, -pavilion_depth, t),
 			not stepped and band % 2 == 1 and band < pavilion))
 
 	var surface := SurfaceTool.new()
@@ -673,28 +685,28 @@ static func envelope(gem: Dictionary) -> Dictionary:
 	var k: int = cut_rank(gem)
 	var shape := shape_of(gem)
 	var domed: bool = SHAPE_DOME.has(shape)
+	var crown: float = CROWN_HEIGHT * float(CUT_CROWN[k - 1]) * float(SHAPE_CROWN.get(shape, 1.0))
+	var symmetric: bool = SHAPE_SYMMETRIC.has(shape)
 	return {
 		"outline": girdle(gem),
-		"crown": CROWN_HEIGHT * float(CUT_CROWN[k - 1]) * float(SHAPE_CROWN.get(shape, 1.0)),
-		"depth": PAVILION_DEPTH * float(CUT_DEPTH[k - 1]) * float(SHAPE_PAVILION.get(shape, 1.0)),
+		"crown": crown,
+		"depth": crown + GIRDLE if symmetric else PAVILION_DEPTH * float(CUT_DEPTH[k - 1]) * float(SHAPE_PAVILION.get(shape, 1.0)),
 		"girdle": GIRDLE,
 		"table": table_span(k, shape),
+		"back_table": table_span(k, shape) if symmetric else 0.16,
 		"domed": domed,
 		"seed": seed_of(gem),
 		"flaws": flaw_count(gem),
 		"flakes": int(SHAPE_FLAKES.get(shape, 0)),
 		"flake_tone": str(SHAPE_FLAKE_TONE.get(shape, FLAKE_TONE)),
 		"flake_size": float(SHAPE_FLAKE_SIZE.get(shape, 1.0)),
-		"rind": tint2(gem),
+		"even_flakes": shape == "heptagon",
 		"murk": 1.0 - brilliance(clarity_grade(gem))}
 
 static func inside(gem: Dictionary) -> ArrayMesh:
 	## What is frozen in the stone: its inclusions, each drawn as its own class, and an
 	## opal Seam's vein. Null when the crystal is clean, which most of them are.
 	return GemFlaws.build(gem, envelope(gem))
-
-static func inside_material() -> StandardMaterial3D:
-	return GemFlaws.inside_material()
 
 static func etch_plate(gem: Dictionary) -> ArrayMesh:
 	## A flat panel carrying the skill's emblem, suspended inside the crown rather than laid
@@ -721,6 +733,7 @@ static func etch_plate(gem: Dictionary) -> ArrayMesh:
 	var local: float = lerpf(table, 1.0, inset)
 	var span: float = minf(clampf(table * 1.05, 0.42, 0.60),
 		float(EMBLEM_SPAN.get(shape, 1.0)) * 0.5)
+	var offset: Vector2 = EMBLEM_OFFSET.get(shape, Vector2.ZERO)
 	# The plate is a slice of the stone at that height, not a square: a square one pushed its
 	# corners out through the notch wherever a Poor cut had chipped one away, and the emblem
 	# hung in the air outside the gem. Following the worn girdle means it cannot escape.
@@ -733,9 +746,10 @@ static func etch_plate(gem: Dictionary) -> ArrayMesh:
 		var following: Vector2 = outline[(index + 1) % count] * local
 		for point: Vector2 in [Vector2.ZERO, following, here]:
 			surface.set_normal(Vector3.BACK)
-			# The emblem occupies a centred square of its own; the rest of the slice reads
+			# The emblem occupies an offset square of its own; the rest of the slice reads
 			# the transparent border of the mask, so only the emblem is ever drawn.
-			surface.set_uv(Vector2(point.x / (span * 2.0) + 0.5, 0.5 - point.y / (span * 2.0)))
+			var ink_point: Vector2 = point - offset
+			surface.set_uv(Vector2(ink_point.x / (span * 2.0) + 0.5, 0.5 - ink_point.y / (span * 2.0)))
 			surface.add_vertex(Vector3(point.x, point.y, depth))
 	return surface.commit()
 
@@ -746,12 +760,33 @@ static func transparency(clarity: int) -> float:
 	## one is glass, and what you see through it is its own back facets.
 	return lerpf(Tuning.value("near_alpha_dull"), Tuning.value("near_alpha_clear"), brilliance(clarity))
 
+static func _color_gradient(gem: Dictionary) -> GradientTexture2D:
+	var clarity := clarity_grade(gem)
+	var first := body_color_of(gem, clarity)
+	var second := first.lerp(_body_color(tint2(gem), clarity), clampf(Tuning.value("rind_alpha"), 0.0, 1.0))
+	var gradient := Gradient.new()
+	gradient.set_color(0, first)
+	gradient.set_color(1, second)
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.width = 128
+	texture.height = 128
+	texture.fill_from = Vector2(0.20, 0.32)
+	texture.fill_to = Vector2(0.80, 0.68)
+	return texture
+
 static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial3D:
 	var l: int = clarity_grade(gem)
 	var b := brilliance(l)
 	var body := body_color_of(gem, l)
+	var two_colors: bool = tint2(gem).a > 0.0
+	if two_colors:
+		body = Color.WHITE
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
+	if two_colors:
+		material.albedo_texture = _color_gradient(gem)
+		material.texture_repeat = false
 	# The two passes are the whole illusion: the far side of the stone is drawn first,
 	# then the near side over it. That is what a real gem shows you — its own pavilion,
 	# seen through its crown — and no amount of shading on a single opaque hull gets there.
@@ -785,7 +820,9 @@ static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial
 	material.clearcoat = lerpf(0.0, coat, b)
 	material.clearcoat_roughness = 0.04
 	material.emission_enabled = true
-	material.emission = tint(gem)
+	material.emission = Color.WHITE if two_colors else tint(gem)
+	if two_colors:
+		material.emission_texture = material.albedo_texture
 	material.emission_energy_multiplier = lerpf(0.0, Tuning.value("emission_clear"), b) \
 		* (Tuning.value("far_emission") if interior else 1.0)
 	if not interior:

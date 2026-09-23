@@ -14,7 +14,7 @@ extends RefCounted
 const ACTIONS: Array = ["none", "reroll_cut", "reroll_clarity", "remove_inclusion", "reveal_inclusions", "fuse", "geode", "grind", "engrave",
 	"trade_up", "shrine", "idol", "copy_inclusion", "collector_sell", "heal", "ore", "vug",
 	"appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "copy_face", "pry", "chips", "wishing_well"]
-const SIZES: Array = ["D4", "D6", "D8", "D10", "D12", "D20"]
+const SIZES: Array = DeepDice.TIERS
 
 static func validate(def: Variant) -> Array:
 	if not def is Dictionary:

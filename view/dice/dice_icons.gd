@@ -17,8 +17,11 @@ const LEAD_TONE := Color("8f9fb5")
 ## Every die's body and edge color, keyed the way the content keys them. The 3D view
 ## reads it too, so a solid and its icon never disagree.
 const DIE_PALETTE := {
+	"D2": ["e0bc70", "77603b"], "D3": ["91d0de", "38566f"],
 	"D4": ["d9a05b", "6d4a20"], "D6": ["e6e2d4", "7c7565"], "D8": ["5fc7bd", "235e5a"],
 	"D10": ["6fa8ff", "27467f"], "D12": ["b98bff", "4a2f7a"], "D20": ["ff8672", "7a2b26"],
+	"D16": ["db8bc4", "70355f"], "D24": ["efb471", "86542e"], "D30": ["82d39b", "326544"],
+	"D40": ["78cce4", "305e78"], "D50": ["a4b8ef", "47577b"], "D60": ["d8a5ed", "6d437f"], "D100": ["f4d98c", "89703c"],
 	"PAIRED_D6": ["ff9cc4", "7d2f52"], "ODD_D6": ["8fd8ff", "2b5b7a"], "EVEN_D6": ["b7e06a", "4d6b22"],
 	"SEVENS_D8": ["ffd166", "806018"], "SPLIT_D12": ["ff86e0", "7a2668"], "WILD_D6": ["f3e7ff", "6d4a9a"],
 	"EXPLODING_D6": ["ff9d5c", "8a3a12"], "LOCKED_D8": ["9aa7b8", "3c4656"], "MIRROR_D6": ["dfe9f5", "5a6b80"],
@@ -31,11 +34,15 @@ const FACE_KINDS := {
 
 ## The face-on silhouette of each solid, in unit space, with where its numeral sits.
 const SILHOUETTES := {
+	"D3": {"points": [Vector2(0.50, 0.02), Vector2(0.83, 0.24), Vector2(0.83, 0.76), Vector2(0.50, 0.98), Vector2(0.17, 0.76), Vector2(0.17, 0.24)], "font": 0.50, "middle": 0.50},
 	"D4": {"points": [Vector2(0.50, 0.04), Vector2(0.97, 0.92), Vector2(0.03, 0.92)], "font": 0.40, "middle": 0.64},
 	"D6": {"points": [Vector2(0.07, 0.07), Vector2(0.93, 0.07), Vector2(0.93, 0.93), Vector2(0.07, 0.93)], "font": 0.58, "middle": 0.50},
 	"D8": {"points": [Vector2(0.50, 0.02), Vector2(0.97, 0.50), Vector2(0.50, 0.98), Vector2(0.03, 0.50)], "font": 0.46, "middle": 0.52},
 	"D10": {"points": [Vector2(0.50, 0.02), Vector2(0.96, 0.36), Vector2(0.50, 0.98), Vector2(0.04, 0.36)], "font": 0.44, "middle": 0.48},
 	"D12": {"points": [Vector2(0.50, 0.02), Vector2(0.97, 0.36), Vector2(0.79, 0.95), Vector2(0.21, 0.95), Vector2(0.03, 0.36)], "font": 0.48, "middle": 0.56},
+	"D16": {"points": [Vector2(0.50, 0.02), Vector2(0.98, 0.43), Vector2(0.50, 0.98), Vector2(0.02, 0.43)], "font": 0.44, "middle": 0.50},
+	"D24": {"points": [Vector2(0.50, 0.02), Vector2(0.96, 0.32), Vector2(0.83, 0.88), Vector2(0.25, 0.97), Vector2(0.04, 0.40)], "font": 0.48, "middle": 0.53},
+	"D30": {"points": [Vector2(0.50, 0.02), Vector2(0.97, 0.50), Vector2(0.50, 0.98), Vector2(0.03, 0.50)], "font": 0.46, "middle": 0.52},
 	"D20": {"points": [Vector2(0.50, 0.02), Vector2(0.95, 0.27), Vector2(0.95, 0.73), Vector2(0.50, 0.98), Vector2(0.05, 0.73), Vector2(0.05, 0.27)], "font": 0.50, "middle": 0.52}}
 
 static func palette(key: String) -> Dictionary:
@@ -59,6 +66,13 @@ static func face_text(value: int, kind: String = "plain") -> String:
 
 static func silhouette(shape: String) -> Dictionary:
 	var key := shape.to_upper()
+	if key in ["D2", "D40", "D50", "D60", "D100"]:
+		var points: Array = []
+		var corners := 24 if key == "D2" else 10
+		for i in corners:
+			var angle := TAU * float(i) / corners - PI * 0.5
+			points.append(Vector2(0.5, 0.5) + Vector2(cos(angle), sin(angle)) * 0.47)
+		return {"shape": key, "points": points, "font": 0.50, "middle": 0.50}
 	var outline: Dictionary = SILHOUETTES.get(key, SILHOUETTES["D6"])
 	return {"shape": key if SILHOUETTES.has(key) else "D6", "points": outline.points, "font": outline.font, "middle": outline.middle}
 
@@ -109,7 +123,7 @@ class Face extends Control:
 		if text.is_empty():
 			return
 		var font := ThemeDB.fallback_font
-		var scale: float = _font_scale * (0.70 if text.length() > 1 else 1.0)
+		var scale: float = _font_scale * minf(1.0, 1.4 / maxf(1.0, text.length()))
 		var font_size := maxi(7, int(size.y * scale))
 		var measured := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 		var baseline := size.y * _middle + (font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
