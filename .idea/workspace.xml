@@ -4,14 +4,18 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="44a58bb2-5d16-49ea-aabc-1cb549aa1a28" name="Changes" comment="" />
+    <list default="true" id="44a58bb2-5d16-49ea-aabc-1cb549aa1a28" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/run_checks.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/run_checks.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/view/creatures/crystal_creature.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/creatures/crystal_creature.gd" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="624" />
+    <option name="cachedIndexableFilesCount" value="525" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="Git.Settings">
@@ -23,23 +27,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.7100402391049392" />
-      <entry key="MS500" value="3.2786565524179125" />
-      <entry key="S2" value="11.165393560321146" />
-      <entry key="S5" value="18.91134398493379" />
-      <entry key="S10" value="23.228695092290017" />
-      <entry key="S30" value="26.882310454093773" />
-      <entry key="S60" value="27.917834547239487" />
-      <entry key="M2" value="28.84856926072427" />
-      <entry key="M5" value="38.89690932831755" />
-      <entry key="M10" value="75.08535741001394" />
-      <entry key="M15" value="131.86129922611934" />
-      <entry key="M30" value="342.509593990881" />
-      <entry key="H1" value="643.3770156631331" />
-      <entry key="H2" value="909.1686328030709" />
-      <entry key="H4" value="1088.072259035099" />
-      <entry key="D1" value="2340.9349816899144" />
-      <entry key="W1" value="6116.129385650154" />
+      <entry key="MS100" value="2.5738396397720438" />
+      <entry key="MS500" value="7.186079386439086" />
+      <entry key="S2" value="18.578741475443433" />
+      <entry key="S5" value="26.389441066373475" />
+      <entry key="S10" value="30.628683403695966" />
+      <entry key="S30" value="57.655028887590625" />
+      <entry key="S60" value="122.13648023268877" />
+      <entry key="M2" value="212.4055777196839" />
+      <entry key="M5" value="311.6694858301572" />
+      <entry key="M10" value="356.84971176391923" />
+      <entry key="M15" value="373.6124250027131" />
+      <entry key="M30" value="391.3107650901823" />
+      <entry key="H1" value="400.53479937518614" />
+      <entry key="H2" value="408.2771835824839" />
+      <entry key="H4" value="472.3969840350847" />
+      <entry key="D1" value="1904.2271091443063" />
+      <entry key="W1" value="6192.955261606919" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -61,23 +65,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.656556593297579" />
-      <entry key="MS500" value="3.259198168566883" />
-      <entry key="S2" value="11.149954876162273" />
-      <entry key="S5" value="18.900784847995904" />
-      <entry key="S10" value="23.222158124627427" />
-      <entry key="S30" value="26.879771524377166" />
-      <entry key="S60" value="27.91651250967759" />
-      <entry key="M2" value="28.847820202326588" />
-      <entry key="M5" value="38.89605033160418" />
-      <entry key="M10" value="75.08425701716843" />
-      <entry key="M15" value="131.86012084379834" />
-      <entry key="M30" value="342.5084177607942" />
-      <entry key="H1" value="643.3760584699944" />
-      <entry key="H2" value="909.167992675051" />
-      <entry key="H4" value="1088.0718838951498" />
-      <entry key="D1" value="2340.934859580938" />
-      <entry key="W1" value="6116.129341893949" />
+      <entry key="MS100" value="2.4898356646017135" />
+      <entry key="MS500" value="7.136798581312324" />
+      <entry key="S2" value="18.536303280762397" />
+      <entry key="S5" value="26.359679007915545" />
+      <entry key="S10" value="30.6099170609063" />
+      <entry key="S30" value="57.644291020805824" />
+      <entry key="S60" value="122.1263800902416" />
+      <entry key="M2" value="212.3973014642402" />
+      <entry key="M5" value="311.6647799549813" />
+      <entry key="M10" value="356.8470441399685" />
+      <entry key="M15" value="373.6105690023601" />
+      <entry key="M30" value="391.30979620098475" />
+      <entry key="H1" value="400.5343042854839" />
+      <entry key="H2" value="408.2769310336836" />
+      <entry key="H4" value="472.3968344781421" />
+      <entry key="D1" value="1904.2270072542192" />
+      <entry key="W1" value="6192.955216582727" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -89,25 +93,25 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "git-widget-placeholder": "main",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "/Users/benthomas/Desktop/godotdice",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "vcs.Git"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/benthomas/Desktop/godotdice&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.LLMConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -139,5 +143,9 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
   </component>
 </project>
