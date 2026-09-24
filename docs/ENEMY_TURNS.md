@@ -80,7 +80,8 @@ d10. Dice return to their appropriate tier when the effect ends. It replaces the
 current mechanic that downgrades a selected move.
 
 **Implemented:** the Foreman can buff its dice upward for the rest of the fight,
-with an explicit ability row explaining the upgrade.
+with its later-phase Reinforce ability. Shore Up instead replenishes 1 Ward alongside
+4 Block on a roll of 12. All Wardens begin with 1 Ward.
 
 **Implemented defaults:**
 
@@ -89,12 +90,11 @@ with an explicit ability row explaining the upgrade.
   Unusual sizes come through tier changes; starting encounter dice are unchanged.
 - Bind suppresses the last available dice in the displayed order for the next enemy
   action phase. Mark those slots visibly. Its existing enhanced version suppresses two.
-- Dread lowers all the target's dice by one tier for a stated number of enemy action
-  phases, beginning with the next one. Convert its current 1/1/2/2/3 move-count ladder
-  into 1/1/2/2/3 phases of duration. Reapplication refreshes to at least the new
-  duration, without accumulating tier penalties. Its existing enhanced version
-  affects every enemy. Carat scales the duration directly, so a heavier Dread
-  remains useful while repeated applications still refresh rather than stack tiers.
+- Dread stacks: each stack lowers all the target's dice by one tier, minimum d2.
+  The gem's 1/1/2/2/3 ladder now grants stacks; Carat scales that amount directly.
+  Reapplications add stacks. One stack expires after each enemy action phase,
+  restoring one tier once the remaining penalty no longer holds the die at d2.
+  The enhanced version affects every enemy.
 - Expire these durations after an affected enemy action phase, including one skipped
   through stun or complete suppression, so timing is predictable.
 - A permanent enemy upgrade lasts **for the rest of the fight**. Show the tier change
@@ -102,6 +102,14 @@ with an explicit ability row explaining the upgrade.
 - Compute effective tiers from the base dice, fight-long upgrades and temporary
   penalties. Remove only the expired penalty. Expiring Dread must not erase an
   upgrade gained while it was active, and neither effect changes a revealed result.
+
+September 24 status additions: Clouded disables one random ability slot for its
+remaining action phases; reapplication extends that same slot's duration. Show
+the disabled row as CLOUDED during planning and rolls. All enemies gain **Combo
+Breaker** after three consecutive stunned actions: clear Stun, then reject Stun
+through the following turn. This replaces Warden Resolve. All Wardens (including
+the Foreman) start with one Ward charge. See [Buffs.md](../Buffs.md) for the full
+stacking, expiry, retaliation, and damage rules.
 
 Absolute conditions remain absolute: "roll a 6" cannot activate on a d4. A
 "maximum face" condition instead follows the effective die's top. The ability's

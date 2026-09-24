@@ -47,6 +47,34 @@ const EFFECT_KEYWORDS: Dictionary = {"damage": {"color": Color("ff7a6b")}, "bloc
 	"heal": {"color": Color("3fb56b")}, "poison": {"color": Color("b58cff")}, "ore": {"color": Color("e8a94f")},
 	"resonance": {"color": RESONANCE, "icon": "resonance", "rainbow": true},
 	"opal": {"color": OPAL_TONE, "rainbow": true}}
+## Shared keyword definitions, shown only when hovering a highlighted word.
+const KEYWORD_HINTS: Dictionary = {
+ "resonance": "Builds when gems fire and powers the Birthstone. Starts at zero each turn unless Charged supplies a starting value. Fizzles preserve it.",
+ "ward": "Consumes one stack to block one debuff application. Maximum 99; lasts this fight.",
+ "retain": "At the next Block reset, preserves up to its stacks of remaining Block, then is consumed. Maximum 20.",
+ "charge": "Charged Battery: all stacks become starting Resonance at your next turn, then are consumed. No cap.",
+ "regeneration": "Heals its stacks at turn end after Poison, then loses one stack. Cannot revive. No cap.",
+ "spikes": "Retaliates once per attacking gem or ability, even against blocked hits. Expires at your next Block reset. No cap.",
+ "bound": "Suppresses one die per stack for the next action, even if no dice remain.",
+ "clouded": "On enemies: disables one random ability for its duration; reapplication extends the same ability. On players: disables a socket until the fogging enemy is hit.",
+ "curse": "Each stack reduces hit damage dealt by 10% and increases hit damage taken by 10%. Maximum 10; loses one stack per turn.",
+ "marked": "The next direct hit deals +25% per stack and consumes all stacks, even if Block absorbs it. No cap.",
+ "dread": "Each stack lowers every enemy die one size tier, to a minimum d2. Loses one stack after each enemy action.",
+ "dulled": "Each stack reduces effective Cut by one step, to a minimum Poor. Loses one stack per turn.",
+ "lifeline": "Before lethal damage downs you, consumes all stacks and restores that much HP, up to maximum HP. Lasts this fight.",
+ "cleanse": "Removes the stated number of debuff stacks, starting with Poison, then Stun, Curse, Marked, Dulled, Clouded and Dread.",
+ "sparkle": "Maximum 100. The next stone find consumes every stack for +1 generation luck each. Carries between fights.",
+ "block": "Absorbs hit damage before HP. Resets at your next turn; Retain preserves some. Poison bypasses Block.",
+ "poison": "Loses HP equal to its stacks at turn end, then loses one stack. Bypasses Block.",
+ "pyrite": "Currency in your bag plus combat earnings, less spending. Wager and Stake pay once per activation.",
+ "carat": "Increases gem magnitude; whole-number effects usually gain additional procs instead. Temporary bonuses last this fight.",
+ "cut": "The gem’s trigger/effect ladder: Poor, Fair, Good, Fine, Perfect. Temporary bonuses last this fight.",
+ "clarity": "Pristine doubles base Resonance gain. Flawless triples it, grants ×1.5 magnitude and activates the Flawless line. Temporary bonuses preserve inclusions.",
+ "phantom": "An extra temporary die read by later gems. It cannot receive permanent face upgrades.",
+ "amplif": "Increases the next evaluated gem’s magnitude. Consumed even if that gem fizzles.",
+ "permanent": "Lasts for the current run, including later fights. Does not alter your stored collection.",
+ "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn."
+}
 ## The mark each chamber kind is drawn with, anywhere a chamber is shown.
 const CHAMBER_GLYPHS: Dictionary = {"fight": "sword", "elite": "skull", "vein": "pick", "oddity": "question", "motherlode": "gem",
 	"merchant": "purse", "smithy": "anvil", "carver": "face", "landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch",
@@ -273,7 +301,7 @@ static func wrap(parent: Node, text: String, size: int = 13, color: Color = MUTE
 static func _keyword_pattern() -> RegEx:
 	if _keyword_regex == null:
 		_keyword_regex = RegEx.new()
-		_keyword_regex.compile("(?i)\\b(%s)\\w*" % "|".join(EFFECT_KEYWORDS.keys()))
+		_keyword_regex.compile("(?i)\\b(%s)\\w*" % "|".join(EFFECT_KEYWORDS.keys() + KEYWORD_HINTS.keys()))
 	return _keyword_regex
 
 static func push_effect_text(rtl: RichTextLabel, text: String) -> void:
@@ -293,7 +321,14 @@ static func push_effect_text(rtl: RichTextLabel, text: String) -> void:
 			if stem.begins_with(key):
 				entry = EFFECT_KEYWORDS[key]
 				break
-		var tone: Color = entry.get("color", PAPER)
+		var hint: String = ""
+		for key in KEYWORD_HINTS:
+			if stem.begins_with(key):
+				hint = str(KEYWORD_HINTS[key])
+				break
+		if not hint.is_empty():
+			rtl.push_hint(hint)
+		var tone: Color = entry.get("color", INFO if not hint.is_empty() else PAPER)
 		if bool(entry.get("rainbow", false)):
 			var span: int = maxi(1, word.length() - 1)
 			for i in range(word.length()):
@@ -308,6 +343,8 @@ static func push_effect_text(rtl: RichTextLabel, text: String) -> void:
 		if not icon.is_empty():
 			rtl.add_text(" ")
 			rtl.add_image(GemIcons.texture(icon, GemIcons.baked_size(14.0)), 13, 13, tone)
+		if not hint.is_empty():
+			rtl.pop()
 		cursor = m.get_end()
 	if cursor < text.length():
 		rtl.add_text(text.substr(cursor))

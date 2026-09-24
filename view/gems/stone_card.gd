@@ -88,10 +88,10 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 	DiceIcons.build(need_box, described, 18, DeepUi.PAPER)
 	DeepUi.effect_text(needs, DeepStone.text(stone, opts.get("context", {})), 13, DeepUi.PAPER, true)
 	carat_lines(text, stone, opts.get("context", {}))
-	if DeepStone.is_flawless(stone) and skill.get("flawless", null) is Dictionary:
+	if bool(effective.flawless) and skill.get("flawless", null) is Dictionary:
 		var flawless := DeepUi.hbox(text, 6)
 		DeepUi.icon(flawless, "star", 14, DeepUi.tier_color("PEERLESS"))
-		DeepUi.wrap(flawless, "Flawless: " + DeepStone.flawless_text(stone, opts.get("context", {})), 12, DeepUi.tier_color("PEERLESS")).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.effect_text(flawless, "Flawless: " + DeepStone.flawless_text(stone, opts.get("context", {})), 12, DeepUi.tier_color("PEERLESS")).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for key in stone.get("inclusions", []):
 		var inclusion: Dictionary = DeepContent.inclusion(str(key))
 		var line := DeepUi.hbox(text, 8)

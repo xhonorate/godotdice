@@ -170,7 +170,7 @@ Six colors, roughly six skills each, about 36 at launch, growing to 60+. Every s
 | Hex (U)     | high die ≥ [95/90/85/80/70]% of its die max | stun                                               | stun 2                |
 | Venom (C)   | pair                                        | poison = pair value                                | poison does not decay |
 | Miasma (U)  | even dice ≥ [5 … 3]                         | poison 2 to every enemy                            | 3                     |
-| Curse (R)   | always                                      | target takes +25% damage from later gems this turn | +50%                  |
+| Curse (R)   | always                                      | apply 1–5 Curse stacks by Cut; −10% dealt / +10% taken per stack, max 10; lose 1 per turn | double stacks                  |
 | Shatter (U) | triple                                      | remove block = value ×3, damage the rest           | remove all block      |
 | Bind (R)    | two pair                                    | enemy loses one die next turn                      | loses two             |
 | Dread (L)   | straight                                    | enemy's next intent is downgraded one step         | cancelled             |
@@ -185,7 +185,7 @@ Six colors, roughly six skills each, about 36 at launch, growing to 60+. Every s
 | Wager (R)       | total ≤ [40 … 60]% of max                                 | gold 5, damage = (max − total)                                    | gold 10                    |
 | Windfall (U)    | straight                                                  | +10% stone quality for the rest of this fight                     | +25%                       |
 | Double Down (L) | always                                                    | coin flip: the next gem is ×2 or ×0                               | ×3 or ×0                   |
-| Prospect (U)    | distinct                                                  | +1 Sparkle; at 5 Sparkle the next stone found is one grade higher | at 4                       |
+| Prospect (U)    | distinct                                                  | +1 Sparkle, max 100; next stone find consumes all stacks for +1 generation luck each | +2 Sparkle                       |
 
 **White: the hand itself.** White gems mutate the hand for every gem after them in the rail, which makes rail order a build.
 

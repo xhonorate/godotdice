@@ -215,14 +215,14 @@
     }
    ],
    "flawless": {
-    "text": "Also hits the creature behind the target.",
+    "text": "Also hits an adjacent enemy.",
     "effects": [
      {
       "kind": "damage",
-      "target": "enemy_behind",
       "amount": {
        "term": "value"
-      }
+      },
+      "target": "enemy_adjacent"
      }
     ]
    }
@@ -235,7 +235,7 @@
     "pair",
     "attack"
    ],
-   "text": "Damage twice the pair's value, half of it to the creatures beside the target.",
+   "text": "Damage twice the pair's value. Deals half damage to adjacent enemies.",
    "trigger": {
     "kind": "pair",
     "ladder": [
@@ -263,7 +263,7 @@
     }
    ],
    "flawless": {
-    "text": "The neighbours take the full blow.",
+    "text": "Adjacent enemies take the full damage.",
     "modify": [
      {
       "effect": 0,
@@ -325,7 +325,7 @@
     "straight",
     "attack"
    ],
-   "text": "One hit of {hit} for every die in the straight.",
+   "text": "Deal {hit} damage for every die in the straight.",
    "numbers": {
     "hit": {
      "ladder": [
@@ -366,11 +366,11 @@
     }
    ],
    "flawless": {
-    "text": "The hits spread across every creature.",
+    "text": "Add 1 hit.",
     "modify": [
      {
       "effect": 0,
-      "target": "spread"
+      "repeat_add": 1
      }
     ]
    }
@@ -383,7 +383,7 @@
     "total",
     "attack"
    ],
-   "text": "Damage equal to your whole total.",
+   "text": "Damage equal to your total dice roll.",
    "trigger": {
     "kind": "total_pct_at_least",
     "ladder": [
@@ -404,20 +404,11 @@
     }
    ],
    "flawless": {
-    "text": "Half the total again to the creature behind.",
-    "effects": [
+    "text": "On a kill, repeat against another enemy.",
+    "modify": [
      {
-      "kind": "damage",
-      "target": "enemy_behind",
-      "amount": {
-       "op": "pct",
-       "args": [
-        {
-         "term": "total"
-        },
-        50
-       ]
-      }
+      "effect": 0,
+      "chain_on_kill": true
      }
     ]
    }
@@ -425,7 +416,7 @@
   "SPALL": {
    "name": "Spall",
    "color": "RED",
-   "rarity": "RARE",
+   "rarity": "COMMON",
    "tags": [
     "distinct",
     "attack"
@@ -567,18 +558,147 @@
     }
    ],
    "flawless": {
-    "text": "And 2 more for each.",
+    "text": "Increase damage by your missing HP percentage.",
+    "modify": [
+     {
+      "effect": 0,
+      "missing_hp_bonus": true
+     }
+    ]
+   }
+  },
+  "CROSSCUT": {
+   "name": "Crosscut",
+   "color": "RED",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "odd"
+   ],
+   "text": "Deal 3 damage per odd die.",
+   "trigger": {
+    "kind": "odd",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "odd"
+       },
+       3
+      ]
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Gain 1 Block per odd die.",
     "effects": [
      {
-      "kind": "damage",
-      "target": "enemy",
+      "kind": "block",
+      "amount": {
+       "term": "odd"
+      }
+     }
+    ]
+   }
+  },
+  "DETONATE": {
+   "name": "Detonate",
+   "color": "RED",
+   "rarity": "RARE",
+   "tags": [
+    "pair"
+   ],
+   "text": "Consume all target Poison. Deal 4 damage per stack consumed.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "detonate",
+     "amount": 4,
+     "target": "enemy"
+    }
+   ],
+   "flawless": {
+    "text": "Apply half the consumed Poison to adjacent enemies.",
+    "modify": [
+     {
+      "effect": 0,
+      "poison_splash": 50
+     }
+    ]
+   }
+  },
+  "APEX": {
+   "name": "Apex",
+   "color": "RED",
+   "rarity": "RARE",
+   "tags": [
+    "at_least"
+   ],
+   "text": "Deal damage equal to your highest qualifying roll.",
+   "trigger": {
+    "kind": "at_least",
+    "ladder": [
+     20,
+     19,
+     18,
+     17,
+     16
+    ]
+   },
+   "effects": [
+    {
+     "kind": "damage",
+     "amount": {
+      "term": "high"
+     }
+    }
+   ],
+   "flawless": {
+    "text": "Double damage if that roll is exactly 20.",
+    "modify": [
+     {
+      "effect": 0,
       "amount": {
        "op": "*",
        "args": [
         {
-         "term": "count"
+         "term": "high"
         },
-        2
+        {
+         "op": "if",
+         "args": [
+          {
+           "op": "eq",
+           "args": [
+            {
+             "term": "high"
+            },
+            20
+           ]
+          },
+          2,
+          1
+         ]
+        }
        ]
       }
      }
@@ -640,7 +760,7 @@
     "low",
     "guard"
    ],
-   "text": "Block equal to everything your dice left on the table.",
+   "text": "Gain Block equal to your total dice roll.",
    "trigger": {
     "kind": "total_pct_at_most",
     "ladder": [
@@ -654,18 +774,19 @@
    "effects": [
     {
      "kind": "block",
-     "target": "self",
      "amount": {
-      "term": "missing"
+      "term": "total"
      }
     }
    ],
    "flawless": {
-    "text": "The whole party stands behind it.",
-    "modify": [
+    "text": "Also gain Retain equal to half that value.",
+    "effects": [
      {
-      "effect": 0,
-      "target": "allies"
+      "kind": "retain",
+      "amount": 50,
+      "from_result": "block",
+      "scale": "none"
      }
     ]
    }
@@ -725,12 +846,12 @@
     }
    ],
    "flawless": {
-    "text": "And every ally is cleansed.",
+    "text": "Give each ally 1 Ward.",
     "effects": [
      {
-      "kind": "cleanse",
-      "target": "allies",
-      "amount": 1
+      "kind": "ward",
+      "amount": 1,
+      "target": "allies"
      }
     ]
    }
@@ -773,12 +894,12 @@
     }
    ],
    "flawless": {
-    "text": "The party shrugs off two afflictions each.",
+    "text": "Give each ally 4 Retain.",
     "effects": [
      {
-      "kind": "cleanse",
-      "target": "allies",
-      "amount": 2
+      "kind": "retain",
+      "amount": 4,
+      "target": "allies"
      }
     ]
    }
@@ -833,7 +954,7 @@
   "ANCHOR": {
    "name": "Anchor",
    "color": "BLUE",
-   "rarity": "RARE",
+   "rarity": "COMMON",
    "tags": [
     "held",
     "guard"
@@ -865,14 +986,11 @@
     }
    ],
    "flawless": {
-    "text": "3 for every held die.",
+    "text": "Gain 2 Spikes.",
     "effects": [
      {
-      "kind": "block",
-      "target": "self",
-      "amount": {
-       "term": "count"
-      }
+      "kind": "spikes",
+      "amount": 2
      }
     ]
    }
@@ -931,13 +1049,137 @@
     }
    ],
    "flawless": {
-    "text": "Twice over.",
+    "text": "Gain Block equal to 25% of the damage dealt.",
+    "effects": [
+     {
+      "kind": "block",
+      "amount": 25,
+      "from_result": "damage",
+      "scale": "none"
+     }
+    ]
+   }
+  },
+  "SHELTER": {
+   "name": "Shelter",
+   "color": "BLUE",
+   "rarity": "COMMON",
+   "tags": [
+    "pair"
+   ],
+   "text": "Give the weakest ally Block equal to twice the pair's value.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "block",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "value"
+       },
+       2
+      ]
+     },
+     "target": "ally_low"
+    }
+   ],
+   "flawless": {
+    "text": "Also Cleanse 1 stack.",
+    "effects": [
+     {
+      "kind": "cleanse",
+      "amount": 1,
+      "target": "ally_low"
+     }
+    ]
+   }
+  },
+  "MORTAR": {
+   "name": "Mortar",
+   "color": "BLUE",
+   "rarity": "RARE",
+   "tags": [
+    "always"
+   ],
+   "text": "Gain Retain equal to {share}% of your current Block.",
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "retain",
+     "amount": {
+      "op": "pct",
+      "args": [
+       {
+        "term": "block"
+       },
+       {
+        "ladder": [
+         10,
+         15,
+         20,
+         25,
+         30
+        ]
+       }
+      ]
+     },
+     "scale": "none"
+    }
+   ],
+   "flawless": {
+    "text": "Retain 10 percentage points more.",
     "modify": [
      {
       "effect": 0,
-      "mult": 2
+      "amount": {
+       "op": "pct",
+       "args": [
+        {
+         "term": "block"
+        },
+        {
+         "ladder": [
+          20,
+          25,
+          30,
+          35,
+          40
+         ]
+        }
+       ]
+      }
      }
     ]
+   },
+   "numbers": {
+    "share": {
+     "ladder": [
+      10,
+      15,
+      20,
+      25,
+      30
+     ]
+    }
    }
   },
   "MEND": {
@@ -947,42 +1189,31 @@
    "tags": [
     "sustain"
    ],
-   "text": "Heal equal to the dice it reads.",
+   "text": "Heal equal to your lowest die roll.",
    "trigger": {
-    "kind": "always",
-    "read": "low",
+    "kind": "at_most",
     "ladder": [
-     1,
-     2,
      3,
      4,
-     5
+     5,
+     6,
+     7
     ]
    },
    "effects": [
     {
      "kind": "heal",
-     "target": "self",
      "amount": {
-      "term": "value"
+      "term": "low"
      }
     }
    ],
    "flawless": {
-    "text": "Half of it again as block.",
+    "text": "Gain 2 Regeneration.",
     "effects": [
      {
-      "kind": "block",
-      "target": "self",
-      "amount": {
-       "op": "pct",
-       "args": [
-        {
-         "term": "value"
-        },
-        50
-       ]
-      }
+      "kind": "regeneration",
+      "amount": 2
      }
     ]
    }
@@ -1063,11 +1294,14 @@
     }
    ],
    "flawless": {
-    "text": "2 for each odd die.",
-    "modify": [
+    "text": "Give each ally 1 Charged per odd die.",
+    "effects": [
      {
-      "effect": 0,
-      "mult": 2
+      "kind": "charged",
+      "amount": {
+       "term": "odd"
+      },
+      "target": "allies"
      }
     ]
    }
@@ -1080,7 +1314,7 @@
     "straight",
     "sustain"
    ],
-   "text": "Heal the top of the straight and cleanse {cleanse#affliction}.",
+   "text": "Heal the top of the straight and Cleanse {cleanse#stack}.",
    "numbers": {
     "cleanse": {
      "ladder": [
@@ -1125,11 +1359,11 @@
     }
    ],
    "flawless": {
-    "text": "Cleanse everything.",
-    "modify": [
+    "text": "Gain 1 Ward.",
+    "effects": [
      {
-      "effect": 1,
-      "add": 9
+      "kind": "ward",
+      "amount": 1
      }
     ]
    }
@@ -1143,7 +1377,7 @@
     "sustain",
     "revive"
    ],
-   "text": "Once a fight, revive a fallen ally with three times the matched value. With nobody down, heal the party half of that.",
+   "text": "Give each ally Lifeline equal to the matched value.",
    "trigger": {
     "kind": "triple",
     "ladder": [
@@ -1156,30 +1390,19 @@
    },
    "effects": [
     {
-     "kind": "revive",
-     "target": "downed_ally",
+     "kind": "lifeline",
      "amount": {
-      "op": "*",
-      "args": [
-       {
-        "term": "value"
-       },
-       3
-      ]
+      "term": "value"
      },
-     "scale": "carat",
-     "once": true
+     "target": "allies"
     }
    ],
    "flawless": {
-    "text": "The revived ally also gains block equal to the value.",
-    "effects": [
+    "text": "Lifeline also restores that much Block.",
+    "modify": [
      {
-      "kind": "block",
-      "target": "downed_ally",
-      "amount": {
-       "term": "value"
-      }
+      "effect": 0,
+      "revive_block": true
      }
     ]
    }
@@ -1205,13 +1428,13 @@
     }
    },
    "trigger": {
-    "kind": "always",
+    "kind": "at_least",
     "ladder": [
-     1,
-     1,
-     1,
-     1,
-     1
+     12,
+     11,
+     10,
+     9,
+     8
     ]
    },
    "effects": [
@@ -1238,28 +1461,12 @@
     }
    ],
    "flawless": {
-    "text": "Twice over.",
+    "text": "Permanently gain 1 max HP.",
     "effects": [
      {
-      "kind": "heal",
-      "target": "self",
-      "amount": {
-       "op": "pct",
-       "args": [
-        {
-         "term": "block"
-        },
-        {
-         "ladder": [
-          25,
-          35,
-          50,
-          65,
-          80
-         ]
-        }
-       ]
-      }
+      "kind": "max_hp",
+      "amount": 1,
+      "scale": "none"
      }
     ]
    }
@@ -1285,7 +1492,7 @@
     }
    },
    "trigger": {
-    "kind": "always",
+    "kind": "triple",
     "ladder": [
      1,
      1,
@@ -1336,6 +1543,68 @@
     ]
    }
   },
+  "SIPHON": {
+   "name": "Siphon",
+   "color": "GREEN",
+   "rarity": "RARE",
+   "tags": [
+    "always"
+   ],
+   "text": "Heal the weakest ally for {share}% of all enemy Poison.",
+   "trigger": {
+    "kind": "always",
+    "ladder": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "heal",
+     "amount": {
+      "op": "pct",
+      "args": [
+       {
+        "term": "enemy_poison"
+       },
+       {
+        "ladder": [
+         20,
+         30,
+         40,
+         50,
+         60
+        ]
+       }
+      ]
+     },
+     "target": "ally_low"
+    }
+   ],
+   "flawless": {
+    "text": "Heal every ally.",
+    "modify": [
+     {
+      "effect": 0,
+      "target": "allies"
+     }
+    ]
+   },
+   "numbers": {
+    "share": {
+     "ladder": [
+      20,
+      30,
+      40,
+      50,
+      60
+     ]
+    }
+   }
+  },
   "HEX": {
    "name": "Hex",
    "color": "VIOLET",
@@ -1344,7 +1613,7 @@
     "high",
     "control"
    ],
-   "text": "Stun the target.",
+   "text": "Apply 1 Bound.",
    "trigger": {
     "kind": "high_pct_at_least",
     "ladder": [
@@ -1357,17 +1626,18 @@
    },
    "effects": [
     {
-     "kind": "stun",
-     "target": "enemy",
-     "amount": 1
+     "kind": "die_steal",
+     "amount": 1,
+     "target": "enemy"
     }
    ],
    "flawless": {
-    "text": "Stun it twice.",
-    "modify": [
+    "text": "Also apply 1 Clouded.",
+    "effects": [
      {
-      "effect": 0,
-      "add": 1
+      "kind": "clouded",
+      "amount": 1,
+      "target": "enemy"
      }
     ]
    }
@@ -1428,7 +1698,7 @@
     "poison",
     "group"
    ],
-   "text": "2 poison to every creature.",
+   "text": "Apply 2 Poison per even die to every enemy.",
    "trigger": {
     "kind": "even",
     "ladder": [
@@ -1442,16 +1712,32 @@
    "effects": [
     {
      "kind": "poison",
-     "target": "enemies",
-     "amount": 2
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "even"
+       },
+       2
+      ]
+     },
+     "target": "enemies"
     }
    ],
    "flawless": {
-    "text": "3 poison.",
+    "text": "Apply 3 Poison per even die.",
     "modify": [
      {
       "effect": 0,
-      "add": 1
+      "amount": {
+       "op": "*",
+       "args": [
+        {
+         "term": "even"
+        },
+        3
+       ]
+      }
      }
     ]
    }
@@ -1463,49 +1749,70 @@
    "tags": [
     "control"
    ],
-   "text": "The target takes {bite}% more from every gem after this one this turn.",
+   "text": "Apply 1 Curse per rolled 1. Reduce enemy max HP by {loss} per rolled 1.",
    "numbers": {
-    "bite": {
+    "loss": {
      "ladder": [
-      15,
-      20,
-      25,
-      30,
-      40
+      0,
+      1,
+      2,
+      3,
+      4
      ]
     }
    },
    "trigger": {
-    "kind": "always",
+    "kind": "value",
     "ladder": [
      1,
      1,
      1,
      1,
      1
+    ],
+    "values": [
+     1
     ]
    },
    "effects": [
     {
      "kind": "curse",
-     "target": "enemy",
      "amount": {
-      "ladder": [
-       15,
-       20,
-       25,
-       30,
-       40
+      "term": "count"
+     },
+     "target": "enemy"
+    },
+    {
+     "kind": "max_hp_loss",
+     "amount": {
+      "op": "*",
+      "args": [
+       {
+        "term": "count"
+       },
+       {
+        "ladder": [
+         0,
+         1,
+         2,
+         3,
+         4
+        ]
+       }
       ]
-     }
+     },
+     "target": "enemy",
+     "scale": "none"
     }
    ],
    "flawless": {
-    "text": "Twice as deep a curse.",
-    "modify": [
+    "text": "Deal damage equal to the target's Curse stacks.",
+    "effects": [
      {
-      "effect": 0,
-      "mult": 2
+      "kind": "damage_curse",
+      "amount": 1,
+      "target": "enemy",
+      "scale": "none"
      }
     ]
    }
@@ -1518,7 +1825,7 @@
     "triple",
     "attack"
    ],
-   "text": "Strip block worth three times the matched value, then damage the value.",
+   "text": "Remove Block equal to three times the matched value. Deal damage equal to the Block removed.",
    "trigger": {
     "kind": "triple",
     "ladder": [
@@ -1532,7 +1839,6 @@
    "effects": [
     {
      "kind": "remove_block",
-     "target": "enemy",
      "amount": {
       "op": "*",
       "args": [
@@ -1541,22 +1847,23 @@
        },
        3
       ]
-     }
+     },
+     "target": "enemy"
     },
     {
      "kind": "damage",
+     "amount": 100,
      "target": "enemy",
-     "amount": {
-      "term": "value"
-     }
+     "from_result": "removed",
+     "scale": "none"
     }
    ],
    "flawless": {
-    "text": "Strip every point of block.",
+    "text": "Remove all Block.",
     "modify": [
      {
       "effect": 0,
-      "add": 999
+      "remove_all": true
      }
     ]
    }
@@ -1569,7 +1876,7 @@
     "two_pair",
     "control"
    ],
-   "text": "Suppresses one die for the target’s next action phase, even its last die.",
+   "text": "Apply 1 Bound.",
    "trigger": {
     "kind": "two_pair",
     "ladder": [
@@ -1588,7 +1895,7 @@
     }
    ],
    "flawless": {
-    "text": "It loses two.",
+    "text": "Apply 2 Bound.",
     "modify": [
      {
       "effect": 0,
@@ -1605,7 +1912,7 @@
     "straight",
     "control"
    ],
-   "text": "Lowers all the target’s dice by one tier for its next {turns#turn} (minimum d2).",
+   "text": "Apply {turns#Dread stack}.",
    "numbers": {
     "turns": {
      "ladder": [
@@ -1644,11 +1951,83 @@
     }
    ],
    "flawless": {
-    "text": "Every creature’s dice.",
+    "text": "Apply to all enemies.",
     "modify": [
      {
       "effect": 0,
       "target": "enemies"
+     }
+    ]
+   }
+  },
+  "MIST": {
+   "name": "Mist",
+   "color": "VIOLET",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "pair",
+    "control"
+   ],
+   "text": "Apply 1 Clouded.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "clouded",
+     "target": "enemy",
+     "amount": 1
+    }
+   ],
+   "flawless": {
+    "text": "Apply to all enemies.",
+    "modify": [
+     {
+      "effect": 0,
+      "target": "enemies"
+     }
+    ]
+   }
+  },
+  "ETCH": {
+   "name": "Etch",
+   "color": "VIOLET",
+   "rarity": "RARE",
+   "tags": [
+    "pair",
+    "control"
+   ],
+   "text": "Apply 2 Marked.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "marked",
+     "target": "enemy",
+     "amount": 2
+    }
+   ],
+   "flawless": {
+    "text": "Apply 1 more Marked.",
+    "modify": [
+     {
+      "effect": 0,
+      "add": 1
      }
     ]
    }
@@ -1682,11 +2061,14 @@
     }
    ],
    "flawless": {
-    "text": "Twice over.",
-    "modify": [
+    "text": "Deal damage equal to the Pyrite gained.",
+    "effects": [
      {
-      "effect": 0,
-      "mult": 2
+      "kind": "damage",
+      "amount": 100,
+      "target": "enemy",
+      "from_result": "gold",
+      "scale": "none"
      }
     ]
    }
@@ -1699,7 +2081,7 @@
     "triple",
     "fortune"
    ],
-   "text": "Pyrite equal to the matched value times the dice matched. Five of a kind pays ten times.",
+   "text": "Gain Pyrite equal to the matched value × matched dice count.",
    "trigger": {
     "kind": "triple",
     "ladder": [
@@ -1728,19 +2110,39 @@
     }
    ],
    "flawless": {
-    "text": "Pays again.",
-    "effects": [
+    "text": "Five of a kind pays 5×.",
+    "modify": [
      {
-      "kind": "gold",
-      "target": "self",
+      "effect": 0,
       "amount": {
        "op": "*",
        "args": [
         {
-         "term": "value"
+         "op": "*",
+         "args": [
+          {
+           "term": "value"
+          },
+          {
+           "term": "count"
+          }
+         ]
         },
         {
-         "term": "count"
+         "op": "if",
+         "args": [
+          {
+           "op": "ge",
+           "args": [
+            {
+             "term": "count"
+            },
+            5
+           ]
+          },
+          5,
+          1
+         ]
         }
        ]
       }
@@ -1757,15 +2159,15 @@
     "fortune",
     "attack"
    ],
-   "text": "{hit} damage and {hit} pyrite for every seven.",
+   "text": "Deal 7 damage and gain {pay} Pyrite per rolled 7.",
    "numbers": {
-    "hit": {
+    "pay": {
      "ladder": [
-      5,
-      6,
-      7,
-      8,
-      9
+      1,
+      2,
+      3,
+      4,
+      5
      ]
     }
    },
@@ -1784,15 +2186,14 @@
    },
    "effects": [
     {
-     "kind": "damage",
-     "target": "enemy",
+     "kind": "gold",
      "amount": {
       "ladder": [
-       5,
-       6,
-       7,
-       8,
-       9
+       1,
+       2,
+       3,
+       4,
+       5
       ]
      },
      "repeat": {
@@ -1800,32 +2201,58 @@
      }
     },
     {
-     "kind": "gold",
-     "target": "self",
-     "amount": {
-      "ladder": [
-       5,
-       6,
-       7,
-       8,
-       9
-      ]
-     },
+     "kind": "damage",
+     "amount": 7,
+     "target": "enemy",
      "repeat": {
       "term": "count"
      }
     }
    ],
    "flawless": {
-    "text": "Twice as much of each.",
+    "text": "With at least three 7s, receive the reward 7 times.",
     "modify": [
      {
       "effect": 0,
-      "mult": 2
+      "repeat": {
+       "op": "if",
+       "args": [
+        {
+         "op": "ge",
+         "args": [
+          {
+           "term": "count"
+          },
+          3
+         ]
+        },
+        7,
+        {
+         "term": "count"
+        }
+       ]
+      }
      },
      {
       "effect": 1,
-      "mult": 2
+      "repeat": {
+       "op": "if",
+       "args": [
+        {
+         "op": "ge",
+         "args": [
+          {
+           "term": "count"
+          },
+          3
+         ]
+        },
+        7,
+        {
+         "term": "count"
+        }
+       ]
+      }
      }
     ]
    }
@@ -1835,43 +2262,58 @@
    "color": "GOLD",
    "rarity": "RARE",
    "tags": [
-    "low",
     "fortune",
     "attack"
    ],
-   "text": "5 pyrite, and damage equal to everything your dice left on the table.",
+   "text": "Spend {cost} Pyrite to deal your highest roll as damage. On a kill, gain twice the Pyrite spent.",
    "trigger": {
-    "kind": "total_pct_at_most",
+    "kind": "pyrite",
     "ladder": [
-     40,
-     45,
      50,
-     55,
-     60
+     45,
+     40,
+     35,
+     30
     ]
    },
    "effects": [
     {
-     "kind": "gold",
-     "target": "self",
-     "amount": 5
-    },
-    {
-     "kind": "damage",
-     "target": "enemy",
+     "kind": "wager",
      "amount": {
-      "term": "missing"
-     }
+      "term": "high"
+     },
+     "target": "enemy",
+     "cost": {
+      "ladder": [
+       50,
+       45,
+       40,
+       35,
+       30
+      ]
+     },
+     "refund_mult": 2
     }
    ],
    "flawless": {
-    "text": "10 pyrite.",
+    "text": "On a kill, gain three times the Pyrite spent.",
     "modify": [
      {
       "effect": 0,
-      "mult": 2
+      "refund_mult": 3
      }
     ]
+   },
+   "numbers": {
+    "cost": {
+     "ladder": [
+      50,
+      45,
+      40,
+      35,
+      30
+     ]
+    }
    }
   },
   "WINDFALL": {
@@ -1949,12 +2391,15 @@
     }
    },
    "trigger": {
-    "kind": "always",
+    "kind": "value",
     "ladder": [
-     1,
-     1,
-     1,
-     1,
+     2,
+     2,
+     2,
+     2,
+     2
+    ],
+    "values": [
      1
     ]
    },
@@ -2000,7 +2445,7 @@
     "distinct",
     "fortune"
    ],
-   "text": "Gain a Sparkle. At five Sparkles the next stone you find is a grade better.",
+   "text": "Gain 1 Sparkle.",
    "trigger": {
     "kind": "distinct",
     "ladder": [
@@ -2028,25 +2473,104 @@
     ]
    }
   },
-  "GLIMMER": {
-   "name": "Glimmer",
-   "color": "WHITE",
-   "rarity": "COMMON",
+  "STAKE": {
+   "name": "Stake",
+   "color": "GOLD",
+   "rarity": "RARE",
    "tags": [
-    "hand"
+    "pyrite"
    ],
-   "text": "Raise your lowest die by {lift} for every gem after this one.",
+   "text": "Spend {cost} Pyrite. Amplify the next gem by 50%.",
+   "trigger": {
+    "kind": "pyrite",
+    "ladder": [
+     25,
+     20,
+     15,
+     10,
+     5
+    ]
+   },
+   "effects": [
+    {
+     "kind": "stake",
+     "amount": 50,
+     "cost": {
+      "ladder": [
+       25,
+       20,
+       15,
+       10,
+       5
+      ]
+     },
+     "scale": "none"
+    }
+   ],
+   "flawless": {
+    "text": "Amplify by 75% instead.",
+    "modify": [
+     {
+      "effect": 0,
+      "amount": 75
+     }
+    ]
+   },
    "numbers": {
-    "lift": {
+    "cost": {
      "ladder": [
-      1,
-      2,
-      3,
-      4,
+      25,
+      20,
+      15,
+      10,
       5
      ]
     }
+   }
+  },
+  "APPRAISE": {
+   "name": "Appraise",
+   "color": "GOLD",
+   "rarity": "RARE",
+   "tags": [
+    "pair"
+   ],
+   "text": "Appraise 1 raw stone in your bag. Deal damage equal to its value.",
+   "trigger": {
+    "kind": "pair",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
    },
+   "effects": [
+    {
+     "kind": "appraise",
+     "amount": 1,
+     "scale": "none"
+    }
+   ],
+   "flawless": {
+    "text": "Appraise up to 2 stones and deal their combined value.",
+    "modify": [
+     {
+      "effect": 0,
+      "amount": 2
+     }
+    ]
+   }
+  },
+  "GILDED_ARMOR": {
+   "name": "Gilded Armor",
+   "color": "GOLD",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "always"
+   ],
+   "text": "Gain Block equal to {share}% of your Pyrite.",
    "trigger": {
     "kind": "always",
     "ladder": [
@@ -2059,25 +2583,79 @@
    },
    "effects": [
     {
-     "kind": "raise_low",
-     "target": "self",
+     "kind": "block",
      "amount": {
-      "ladder": [
-       1,
-       2,
-       3,
-       4,
-       5
+      "op": "pct",
+      "args": [
+       {
+        "term": "pyrite"
+       },
+       {
+        "ladder": [
+         10,
+         15,
+         20,
+         25,
+         30
+        ]
+       }
       ]
      }
     }
    ],
    "flawless": {
-    "text": "Raise it all the way to your highest.",
+    "text": "Gain 1 Ward.",
+    "effects": [
+     {
+      "kind": "ward",
+      "amount": 1
+     }
+    ]
+   },
+   "numbers": {
+    "share": {
+     "ladder": [
+      10,
+      15,
+      20,
+      25,
+      30
+     ]
+    }
+   }
+  },
+  "GLIMMER": {
+   "name": "Glimmer",
+   "color": "WHITE",
+   "rarity": "COMMON",
+   "tags": [
+    "hand"
+   ],
+   "text": "Permanently raise each matched die face by 1.",
+   "numbers": {},
+   "trigger": {
+    "kind": "below",
+    "ladder": [
+     7,
+     6,
+     5,
+     4,
+     3
+    ]
+   },
+   "effects": [
+    {
+     "kind": "upgrade_faces",
+     "amount": 1,
+     "scale": "none"
+    }
+   ],
+   "flawless": {
+    "text": "Raise all faces of each matched die.",
     "modify": [
      {
       "effect": 0,
-      "add": 99
+      "all_faces": true
      }
     ]
    }
@@ -2089,15 +2667,15 @@
    "tags": [
     "hand"
    ],
-   "text": "Add a phantom die copying your highest for every gem after this one.",
+   "text": "Add 1 phantom die copying your highest roll.",
    "trigger": {
     "kind": "high_pct_at_least",
     "ladder": [
+     95,
      90,
-     75,
-     60,
-     40,
-     0
+     85,
+     80,
+     70
     ]
    },
    "effects": [
@@ -2124,7 +2702,44 @@
    "tags": [
     "hand"
    ],
-   "text": "Set one die to match another, making a pair, for every gem after this one.",
+   "text": "Adjacent gems gain 1 Clarity this fight.",
+   "trigger": {
+    "kind": "low_count",
+    "ladder": [
+     4,
+     3,
+     2,
+     1,
+     0
+    ]
+   },
+   "effects": [
+    {
+     "kind": "gem_rank",
+     "amount": 1,
+     "rank": "clarity",
+     "scope": "adjacent",
+     "scale": "none"
+    }
+   ],
+   "flawless": {
+    "text": "Apply to all gems.",
+    "modify": [
+     {
+      "effect": 0,
+      "scope": "all"
+     }
+    ]
+   }
+  },
+  "MIRROR": {
+   "name": "Mirror",
+   "color": "WHITE",
+   "rarity": "UNCOMMON",
+   "tags": [
+    "hand"
+   ],
+   "text": "Change one die to join your strongest matching set.",
    "trigger": {
     "kind": "distinct",
     "ladder": [
@@ -2144,41 +2759,6 @@
    ],
    "flawless": {
     "text": "Match two dice.",
-    "modify": [
-     {
-      "effect": 0,
-      "add": 1
-     }
-    ]
-   }
-  },
-  "MIRROR": {
-   "name": "Mirror",
-   "color": "WHITE",
-   "rarity": "UNCOMMON",
-   "tags": [
-    "hand"
-   ],
-   "text": "Flip your lowest die to the other side of its range for every gem after this one.",
-   "trigger": {
-    "kind": "low_count",
-    "ladder": [
-     4,
-     3,
-     2,
-     1,
-     0
-    ]
-   },
-   "effects": [
-    {
-     "kind": "flip_low",
-     "target": "self",
-     "amount": 1
-    }
-   ],
-   "flawless": {
-    "text": "Flip the two lowest.",
     "modify": [
      {
       "effect": 0,
@@ -2230,7 +2810,7 @@
    "tags": [
     "hand"
    ],
-   "text": "The next gem is judged one Cut step better.",
+   "text": "Adjacent gems gain 1 Cut this fight.",
    "trigger": {
     "kind": "high_pct_at_least",
     "ladder": [
@@ -2243,17 +2823,19 @@
    },
    "effects": [
     {
-     "kind": "cut_step_next",
-     "target": "self",
-     "amount": 1
+     "kind": "gem_rank",
+     "amount": 1,
+     "rank": "cut",
+     "scope": "adjacent",
+     "scale": "none"
     }
    ],
    "flawless": {
-    "text": "Two steps.",
+    "text": "Apply to all gems.",
     "modify": [
      {
       "effect": 0,
-      "add": 1
+      "scope": "all"
      }
     ]
    }
@@ -2340,11 +2922,48 @@
     }
    ],
    "flawless": {
-    "text": "Two Resonance more.",
+    "text": "Gain 2 Charged.",
+    "effects": [
+     {
+      "kind": "charged",
+      "amount": 2
+     }
+    ]
+   }
+  },
+  "ENRICH": {
+   "name": "Enrich",
+   "color": "WHITE",
+   "rarity": "RARE",
+   "tags": [
+    "distinct"
+   ],
+   "text": "All other gems gain 1 Carat this fight.",
+   "trigger": {
+    "kind": "distinct",
+    "ladder": [
+     5,
+     4,
+     3,
+     2,
+     1
+    ]
+   },
+   "effects": [
+    {
+     "kind": "gem_rank",
+     "amount": 1,
+     "rank": "carat",
+     "scope": "others",
+     "scale": "none"
+    }
+   ],
+   "flawless": {
+    "text": "Gain 2 Carats instead.",
     "modify": [
      {
       "effect": 0,
-      "add": 2
+      "amount": 2
      }
     ]
    }
@@ -4945,6 +5564,20 @@
        "amount": 2
       }
      ]
+    },
+    {
+     "name": "Reknit",
+     "trigger": {
+      "kind": "crowns",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "regeneration",
+       "target": "self",
+       "amount": 2
+      }
+     ]
     }
    ]
   },
@@ -4983,6 +5616,11 @@
      "effects": [
       {
        "kind": "block",
+       "target": "self",
+       "amount": 3
+      },
+      {
+       "kind": "retain",
        "target": "self",
        "amount": 3
       }
@@ -5110,6 +5748,20 @@
        "amount": 1
       }
      ]
+    },
+    {
+     "name": "Omen",
+     "trigger": {
+      "kind": "crowns",
+      "amount": 1
+     },
+     "effects": [
+      {
+       "kind": "marked",
+       "target": "heroes",
+       "amount": 1
+      }
+     ]
     }
    ]
   },
@@ -5153,6 +5805,20 @@
        "amount": {
         "term": "rolled"
        }
+      }
+     ]
+    },
+    {
+     "name": "Abrasive Fog",
+     "trigger": {
+      "kind": "at_least",
+      "amount": 6
+     },
+     "effects": [
+      {
+       "kind": "dulled",
+       "target": "heroes",
+       "amount": 1
       }
      ]
     }
@@ -5199,6 +5865,11 @@
        "amount": {
         "term": "value"
        }
+      },
+      {
+       "kind": "spikes",
+       "target": "self",
+       "amount": 2
       }
      ]
     },
@@ -5282,7 +5953,7 @@
        "amount": 4
       },
       {
-       "kind": "dice_upgrade",
+       "kind": "ward",
        "target": "self",
        "amount": 1
       }
@@ -5429,9 +6100,9 @@
        },
        "effects": [
         {
-         "kind": "poison",
+         "kind": "curse",
          "target": "heroes",
-         "amount": 2
+         "amount": 1
         }
        ]
       }
@@ -5475,7 +6146,7 @@
      },
      "effects": [
       {
-       "kind": "die_steal",
+       "kind": "dulled",
        "target": "heroes",
        "amount": 1
       }

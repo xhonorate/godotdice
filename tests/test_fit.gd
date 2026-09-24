@@ -361,11 +361,11 @@ func _run(app: Control) -> void:
 	if DeepDescent.in_battle(app.session.run):
 		var fight: Dictionary = DeepDescent.battle(app.session.run)
 		var unit: Dictionary = DeepBattle.player(fight, app.session.local_id)
-		unit.statuses = {"poison": 3, "curse": 25}
+		unit.statuses = {"poison": 3, "curse": 10}
 		unit.block = 6
 		unit.buried = [1]
 		unit.granted_rerolls = 1
-		unit.sparkle = 3
+		unit.sparkle = 100
 		unit.run_mods = {"shrine": "pair"}
 		for foe in fight.enemies:
 			foe.statuses = {"poison": 2, "stun": 1}

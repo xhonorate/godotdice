@@ -333,7 +333,10 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 		func(incoming: Dictionary) -> bool: return _socket_takes(unit, incoming, at),
 		func(incoming: Dictionary) -> void: _socket_drop(incoming, at), ring)
 	if set_here:
-		_inspectable(card, func() -> void: Inspector.stone(stone))
+		_inspectable(card, func() -> void:
+			var battle: Dictionary = DeepDescent.battle(run)
+			var fighter: Dictionary = DeepBattle.player(battle, local_id) if not battle.is_empty() else {}
+			Inspector.stone(stone, {"context": DeepBattle.rail_context(battle, fighter, at)} if not fighter.is_empty() else {}))
 
 func _socket_takes(unit: Dictionary, incoming: Dictionary, index: int) -> bool:
 	if not editable():

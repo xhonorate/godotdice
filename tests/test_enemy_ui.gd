@@ -12,7 +12,12 @@ func check(ok: bool, message: String) -> void:
 		failures.append(message)
 
 func _run() -> void:
+	for on_enemy in [true, false]:
+		var chips: Array = preload("res://view/battle/effect_chips.gd")._statuses({"curse": 3}, on_enemy)
+		check(chips.size() == 1 and str(chips[0].text).contains("30% less") and str(chips[0].text).contains("30% more") and str(chips[0].text).contains("Maximum 10 stacks"), "Curse tooltips show ten percent per stack and the cap on either side")
 	Engine.time_scale = 8.0
+	var sparkle_chips: Array = preload("res://view/battle/effect_chips.gd").for_run({"sparkle": 100})
+	check(sparkle_chips.size() == 1 and str(sparkle_chips[0].value) == "100/100" and str(sparkle_chips[0].text).contains("consumes all 100") and str(sparkle_chips[0].text).contains("+100 generation luck"), "Sparkle chip explains its cap and complete next-find consumption")
 	var viewport := SubViewport.new()
 	viewport.size = Vector2i(1600, 900)
 	root.add_child(viewport)
@@ -71,6 +76,10 @@ func _run() -> void:
 		DeepBattle.step(state, rng.dice, rng.creatures)
 	panel.show_enemy(foe, int(state.turn), true)
 	check(panel._revealed == 0 and panel._rows[0].numbers[0].text == "Rolled value", "next turn resets results and amount formulas")
+	DeepBattle._apply(state, state.players[0], {"kind": "clouded", "target": "enemy", "amount": 2}, rng.dice)
+	panel.show_enemy(foe, int(state.turn), true)
+	var clouded: int = int(foe.clouded_move)
+	check(panel._rows[clouded].badge.text == "CLOUDED" and float(panel._rows[clouded].panel.modulate.a) < 0.5, "the disabled enemy ability is visibly clouded during planning")
 	panel.free()
 	var battle: Control = load("res://view/battle/battle_screen.gd").new()
 	viewport.add_child(battle)
@@ -98,6 +107,24 @@ func _run() -> void:
 	party_state.enemies[0].acting = false
 	battle.show_state(party_state, 1)
 	check(battle._enemy_panel.enemy_id == "e1", "the pinned enemy returns when the action finishes")
+	# Exercise the actual count-up tween even under the headless test renderer.
+	battle._headless = false
+	battle._charge_resonance(125)
+	check(battle._resonance_value.text == "0", "Charged animation starts the counter at zero")
+	await create_timer(0.3).timeout
+	check(int(battle._resonance_value.text) > 0 and int(battle._resonance_value.text) < 125, "Charged visibly counts up before completion")
+	await battle._battery_tween.finished
+	check(battle._resonance_value.text == "125", "Charged animation lands on all consumed stacks")
+	battle._headless = true
+	party_state.phase = "planning"
+	for member in party_state.players:
+		member.sparkle = 100
+		member.statuses = {"poison": 5, "stun": 2, "curse": 3, "ward": 99, "retain": 20, "charged": 125, "marked": 10, "regeneration": 6, "spikes": 4, "dulled": 5}
+	battle.show_state(party_state, 1)
+	await process_frame
+	await process_frame
+	for chip in battle._effects.get_children():
+		check(chip.get_global_rect().end.x <= 1600 and chip.get_global_rect().position.x >= 0, "the expanded status collection fits without horizontal scrolling")
 	battle.free()
 	viewport.free()
 	Engine.time_scale = 1.0

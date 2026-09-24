@@ -450,6 +450,9 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 		fighter.gold = 0
 		fighter.quality_bonus = 0
 		fighter.stone_drops = 0
+		fighter.gem_buffs = {}
+		fighter.rank_buff = {"carat": 0, "cut": 0}
+		fighter.pyrite_delta = 0
 		fighters.append(fighter)
 	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": int(state.depth), "elite": elite, "warden": not warden.is_empty()}, streams.dice, streams.creatures)
 	## Soft Rock: a staked player's first fights open against creatures already cracked.
@@ -496,6 +499,9 @@ static func _sync_fighters(state: Dictionary) -> void:
 		if unit.is_empty():
 			continue
 		unit.hp = int(fighter.hp)
+		unit.max_hp = int(fighter.max_hp)
+		unit.dice = fighter.dice.duplicate(true)
+		unit.haul = fighter.get("haul", []).duplicate(true)
 		unit.downed = bool(fighter.get("downed", false))
 		unit.stats.damage = int(unit.stats.get("damage", 0))
 
@@ -508,13 +514,17 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	for fighter in b.players:
 		var unit: Dictionary = player(state, str(fighter.id))
 		unit.hp = int(fighter.hp)
+		unit.max_hp = int(fighter.max_hp)
+		unit.dice = fighter.dice.duplicate(true)
+		unit.haul = fighter.get("haul", []).duplicate(true)
 		unit.downed = bool(fighter.get("downed", false))
 		unit.block = 0
 		unit.statuses = {}
 		unit.stats.fights = int(unit.stats.get("fights", 0)) + 1
 		unit.stats.damage = int(unit.stats.get("damage", 0)) + int(fighter.get("dealt", 0)) + int(fighter.get("dealt_last_turn", 0))
-		unit.sparkle = int(fighter.get("sparkle", 0))
+		unit.sparkle = clampi(int(fighter.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
 		unit.hand = []
+		var spending: int = int(fighter.get("pyrite_delta", 0))
 		if outcome == "victory":
 			## A Gambler's Bust can leave the fight's ore in the red; the pit never charges more than it paid.
 			var ore: int = maxi(0, int(DeepContent.constant("ore_per_fight", 6)) + int(state.depth) + int(fighter.get("gold", 0)))
@@ -522,7 +532,9 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 				ore *= 2
 			if kind == "warden":
 				ore *= 3
-			unit.ore = int(unit.ore) + ore
+			# Prices and refunds stay exact, even in elite/warden encounters.
+			ore += spending
+			unit.ore = maxi(0, int(unit.ore) + ore)
 			unit.stats.ore = int(unit.stats.get("ore", 0)) + ore
 			var reward: Dictionary = {"ore": ore, "stones": []}
 			if kind != "warden":
@@ -535,6 +547,9 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 			for _drop in range(int(fighter.get("stone_drops", 0))):
 				reward.stones.append(_find_stone(state, unit, streams, 8, "birthstone", "EXQUISITE"))
 			settle.rewards[unit.id] = reward
+		else:
+			# Unbanked fight earnings are lost; bank-funded spending is still paid.
+			unit.ore = maxi(0, int(unit.ore) + mini(0, spending))
 	state.rng = DeepRng.save(streams)
 	if outcome == "defeat":
 		_start_salvage(state)
@@ -552,12 +567,11 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	return settle
 
 static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary, bonus: int, source: String, min_tier: String = "") -> Dictionary:
-	## One raw stone into a player's haul. Five Sparkles buy a grade. `min_tier` names the
+	## One raw stone into a player's haul. All stored Sparkle adds luck to this find.
+	## `min_tier` names the
 	## lowest grade that will do: the wheel spins again, a dozen times at most, until it lands.
-	var extra: int = bonus
-	if int(unit.get("sparkle", 0)) >= 5:
-		unit.sparkle = int(unit.sparkle) - 5
-		extra += 5
+	var extra: int = bonus + clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
+	unit.sparkle = 0
 	var provenance: Dictionary = {"run": str(state.run_id), "source": source, "finder": str(unit.id), "seat": int(unit.get("seat", 0))}
 	var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), extra, provenance, _id(state, "st"))
 	if not min_tier.is_empty():

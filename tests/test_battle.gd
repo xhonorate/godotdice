@@ -313,13 +313,13 @@ func _test_passives() -> void:
 
 func _test_hand_mutation_and_retriggers() -> void:
 	var r: Dictionary = rngs(31)
-	var state: Dictionary = DeepBattle.begin([player("a", [stone("GLIMMER", 1, 0), stone("CLEAVE")])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("GLIMMER", 1, 4), stone("CLEAVE")])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
 	var a: Dictionary = DeepBattle.player(state, "a")
-	hand(a, [1, 2, 4, 5, 6])
+	hand(a, [2, 3, 4, 5, 6])
 	var events: Array = run_turn(state, r)
 	var fired: Array = fires(events)
-	check(fired.size() == 2, "Glimmer raises the 1 to a 2 and Cleave finds its pair: %s" % str(kinds(events)))
-	check(fired[0].effects[0].kind == "raise_low" and fired[1].trigger_value_or(2) == 2 if false else int(fired[1].effects[0].amount) == int(floor(4 * 1.0)), "Cleave reads the pair of twos: 4 × 1 = 4 (%d)" % int(fired[1].effects[0].amount))
+	check(fired.size() == 2, "Glimmer raises the 2 to a 3 and Cleave finds its pair: %s" % str(kinds(events)))
+	check(fired.size() >= 2 and fired[0].effects[0].kind == "upgrade_faces" and int(fired[1].effects[0].amount) == 6, "Cleave reads the new pair of threes")
 	## Echo repeats the previous gem at half strength.
 	var r2: Dictionary = rngs(32)
 	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 3), stone("ECHO")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
@@ -484,12 +484,12 @@ func _test_creatures_and_statuses() -> void:
 
 func _test_forecast_matches() -> void:
 	var r: Dictionary = rngs(51)
-	var state: Dictionary = DeepBattle.begin([player("a", [stone("GLIMMER", 1, 0), stone("CLEAVE", 2), stone("STRIKE", 3), stone("GUARD", 5)])], ["QUARTZ_GOLEM"], {"depth": 4}, r.dice, r.creatures)
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("GLIMMER", 1, 4), stone("CLEAVE", 2), stone("STRIKE", 3), stone("GUARD", 5)])], ["QUARTZ_GOLEM"], {"depth": 4}, r.dice, r.creatures)
 	var a: Dictionary = DeepBattle.player(state, "a")
-	hand(a, [1, 2, 4, 5, 6])
+	hand(a, [2, 3, 4, 5, 6])
 	var forecast: Dictionary = DeepBattle.forecast(state, "a")
 	check(forecast.sockets.size() == 5 and forecast.sockets[1].active and forecast.sockets[3].active, "the forecast sees Cleave and Guard firing after Glimmer")
-	check(a.hand[0].value == 1 and state.phase == "planning", "the forecast leaves the real state alone")
+	check(a.hand[0].value == 2 and state.phase == "planning", "the forecast leaves the real state alone")
 	check(forecast.has("birthstone") and bool(forecast.birthstone.fired), "the forecast sees Rally firing on the pair Glimmer makes")
 	var events: Array = run_turn(state, r)
 	var fired: Array = fires(events)

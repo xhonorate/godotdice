@@ -113,6 +113,7 @@ var _birth_outcome: Dictionary = {}
 ## Bumped by every change to the Resonance number, so sparks still in flight never write an
 ## old value over a newer one.
 var _resonance_token: int = 0
+var _battery_tween: Tween
 
 var _shows: int = 0
 
@@ -502,16 +503,16 @@ func _sync() -> void:
 			_screen_fx.danger = clampf((0.3 - ratio) / 0.3, 0.0, 1.0) if not bool(unit.get("downed", false)) else 0.0
 		DeepUi.clear(_status_row)
 		if int(unit.block) > 0:
-			DeepUi.pill(_status_row, "shield", str(int(unit.block)), DeepUi.BLOCK, 14, "Block: soaks damage before your health. Whatever is left falls away at the end of the turn.")
+			DeepUi.pill(_status_row, "shield", str(int(unit.block)), DeepUi.BLOCK, 14, "Block: soaks hit damage. Retain preserves some at the next turn; the rest falls away.")
 		var effects: Array = EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
 		var passive: Dictionary = unit.get("passive", {})
 		if not str(passive.get("text", "")).is_empty():
 			effects.append(EffectChips.entry("passive", "spark", "", true, str(passive.get("name", DeepContent.character_title(str(unit.get("character", ""))))), str(passive.text), DeepUi.ACCENT))
 		_effects.show_effects(effects)
 		## While a turn resolves the rail's own events count the Resonance up, sparks and all.
-		if planning:
+		if planning and (_battery_tween == null or not _battery_tween.is_running()):
 			_show_resonance(int(forecast.get("totals", {}).get("resonance", 0)))
-		elif _headless or str(state.get("phase", "")) != "resolving":
+		elif not planning and (_headless or str(state.get("phase", "")) != "resolving"):
 			_show_resonance(int(unit.get("resonance", 0)))
 	_fight_effects.show_effects(EffectChips.for_battle(state))
 	_sync_rail(unit, planning)
@@ -578,6 +579,28 @@ func _show_resonance(value: int) -> void:
 	_resonance_token += 1
 	_resonance_value.text = str(value)
 	_resonance_value.add_theme_color_override("font_color", _resonance_color(value))
+
+func _charge_resonance(amount: int) -> void:
+	## The battery empties into the counter at turn start; never one particle per stack.
+	if _battery_tween != null and _battery_tween.is_valid():
+		_battery_tween.kill()
+	if _headless:
+		_show_resonance(amount)
+		return
+	_show_resonance(0)
+	var token: int = _resonance_token
+	DeepAudio.from(_resonance_box, "resonance", {"volume": 0.8, "pitch": 0.9})
+	_float_at(_resonance_box, "+%d Charged" % amount, DeepUi.ACCENT_HI, 20)
+	DeepUi.burst(self, _center_of(_resonance_box), DeepUi.ACCENT_HI, 20, 100.0, 0.55)
+	_battery_tween = create_tween()
+	_battery_tween.tween_method(func(value: float) -> void:
+		if token == _resonance_token:
+			_resonance_value.text = str(int(round(value)))
+			_resonance_value.add_theme_color_override("font_color", _resonance_color(int(round(value)))), 0.0, float(amount), 0.6)
+	_battery_tween.tween_callback(func() -> void:
+		if token == _resonance_token:
+			_show_resonance(amount)
+			DeepUi.pulse(_resonance_box, 1.2, 0.25))
 
 func _resonance_flight(card: Control, value: int, gain: int, color: Color, harmony: bool) -> void:
 	## A gem that fires throws sparks of its own color up to the Resonance count, and the
@@ -934,7 +957,7 @@ func _sync_forecast() -> void:
 	var any: bool = false
 	for row in rows:
 		var amount: int = int(totals.get(row[1], 0))
-		if amount <= 0:
+		if amount == 0:
 			continue
 		any = true
 		var cell := DeepUi.hbox(grid, 5)
@@ -949,6 +972,7 @@ func _sync_forecast() -> void:
 	var fizzles: int = int(totals.get("fizzles", 0))
 	DeepUi.stat(summary, "check", str(fires), DeepUi.GOOD, 13, "Gems that would fire")
 	DeepUi.stat(summary, "cross_out", str(fizzles), DeepUi.DIM if fizzles == 0 else DeepUi.BAD, 13, "Gems that would fizzle")
+	DeepUi.stat(summary, "ore", str(DeepRules.pyrite(me())), DeepUi.ORE, 13, "Available Pyrite, including combat earnings")
 	DeepUi.spacer(summary)
 	DeepUi.stat(summary, "spark", str(int(totals.get("resonance", 0))), _resonance_color(int(totals.get("resonance", 0))), 13, "Resonance this hand would build")
 
@@ -1261,6 +1285,9 @@ func _control_world(control: Control, distance: float = 1.8) -> Vector3:
 
 func _process(delta: float) -> void:
 	_position_enemy_panel()
+	var dock_top: float = _dock.position.y if _dock != null else size.y - 200.0
+	_effects_box.size.x = maxf(240.0, size.x - 300.0)
+	_effects_box.position = Vector2(22.0, dock_top - _effects_box.size.y - 8.0)
 	if _headless or _camera == null or not is_visible_in_tree():
 		return
 	## The plates ride above the creatures' heads. `highest` is how far the worst of them
@@ -1297,8 +1324,6 @@ func _process(delta: float) -> void:
 		goal.y = clampf(goal.y, ceiling, size.y - plate.size.y - 260.0)
 		plate.position = plate.position.lerp(goal, clampf(delta * 14.0, 0.0, 1.0)) if plate.position != Vector2.ZERO else goal
 	_frame_camera(highest, ceiling, delta)
-	var dock_top: float = _dock.position.y if _dock != null else size.y - 200.0
-	_effects_box.position = Vector2(22.0, dock_top - _effects_box.size.y - 8.0)
 
 func _frame_camera(highest: float, ceiling: float, delta: float) -> void:
 	## A tall Warden and its plate must fit under the top of the screen: the view widens and
@@ -1389,6 +1414,11 @@ func perform(event: Dictionary) -> void:
 	var kind: String = str(event.get("kind", ""))
 	if kind == "turn_begin":
 		selected.clear()
+		for battery in event.get("charged", []):
+			if str(battery.unit) == local_id:
+				_charge_resonance(int(battery.amount))
+			elif _ally_cards.has(str(battery.unit)):
+				_float_at(_ally_cards[str(battery.unit)], "+%d Charged" % int(battery.amount), DeepUi.ACCENT_HI, 16)
 	## What the local rail really did this turn, kept so its highlights follow the dice.
 	if kind in ["turn_begin", "resolution_begin"]:
 		_outcomes.clear()
@@ -1417,7 +1447,7 @@ func perform(event: Dictionary) -> void:
 			_screen_fx.blink(DeepUi.ACCENT, 0.06)
 		"rail_begin":
 			if str(event.get("unit", "")) == local_id:
-				_show_resonance(0)
+				_show_resonance(int(event.get("resonance", 0)))
 				if int(event.get("healed", 0)) > 0:
 					DeepAudio.play("heal", {"volume": 0.6})
 					_float_at(_hp_bar, "+%d Second Wind" % int(event.healed), DeepUi.GOOD, 20)
@@ -1454,6 +1484,9 @@ func perform(event: Dictionary) -> void:
 				var creature: CrystalCreature = _creatures[who]
 				_fx.stars(creature.global_position + Vector3(0, creature.anchor.y * 0.85, 0))
 				_float_world(creature.global_position + Vector3(0, creature.anchor.y, 0), "Bound" if str(event.get("why", "")) == "bound" else "Stunned", Color("ffe27a"), 18)
+				if bool(event.get("combo_breaker", false)):
+					_float_world(creature.centre(), "Combo Breaker", DeepUi.INFO, 22)
+					_fx.shield(creature.centre(), Vector3.FORWARD, DeepUi.INFO, 1.0, 0.5)
 			elif who == local_id:
 				_announce("Stunned", Color("ffe27a"), "Your rail sits this turn out", 0.9)
 		"battle_over":
@@ -1476,6 +1509,8 @@ func perform(event: Dictionary) -> void:
 				_screen_fx.wound(1.0)
 
 func _animate_tick(tick: Dictionary) -> void:
+	if tick.has("lifeline"):
+		_show_lifeline(str(tick.get("unit", "")), int(tick.lifeline))
 	## One round of poison (or regrowth) on one unit, and whoever drank from it.
 	var target_id: String = str(tick.get("unit", ""))
 	var color: Color = DeepUi.POISON if str(tick.get("kind", "")) == "poison" else DeepUi.GOOD
@@ -1490,8 +1525,10 @@ func _animate_tick(tick: Dictionary) -> void:
 			_kill(creature)
 	elif target_id == local_id:
 		DeepAudio.play("poison" if str(tick.kind) == "poison" else "heal", {"volume": 0.6})
-		_float_at(_hp_bar, "−%d" % int(tick.get("amount", 0)), color, 22)
+		_float_at(_hp_bar, ("−%d" if str(tick.kind) == "poison" else "+%d") % int(tick.get("amount", 0)), color, 22)
 		_screen_fx.blink(color, 0.1)
+	elif _ally_cards.has(target_id):
+		_float_at(_ally_cards[target_id], ("−%d" if str(tick.kind) == "poison" else "+%d") % int(tick.get("amount", 0)), color, 16)
 	for leech in tick.get("leech", []):
 		var drinker: String = str(leech.get("unit", ""))
 		if drinker == local_id:
@@ -1639,6 +1676,22 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 								_fx.projectile(origin, creature.centre(), color, 0.2, fat, _impact.bind(who, landing, color, mine), 0.6 + randf() * 0.5))
 					at += 0.085 * float(over)
 				at += 0.16
+				if not effect.get("poison_spread", []).is_empty():
+					_animate_effects(effect.poison_spread, origin, DeepUi.POISON, mine, anchor)
+				if mine and effect.has("spent"):
+					_float_at(_forecast_box, "−%d Pyrite%s" % [int(effect.spent), " / +%d refund" % int(effect.refund) if effect.has("refund") else ""], DeepUi.ORE, 16)
+			"appraise":
+				if mine:
+					_float_at(_forecast_box, "%d appraised · %d Pyrite value" % [effect.get("appraised", []).size(), int(effect.get("value", 0))], DeepUi.ORE, 16)
+				_animate_effects(effect.get("hits", []), origin, DeepUi.ORE, mine, anchor, magnitude)
+			"gem_rank":
+				if mine:
+					for socket in effect.get("sockets", []):
+						if int(socket) < _socket_cards.size():
+							_float_at(_socket_cards[int(socket)], "+%d %s" % [int(effect.amount), str(effect.rank).capitalize()], Color.WHITE, 15)
+			"stake":
+				if mine and effect.has("spent"):
+					_float_at(_forecast_box, "−%d Pyrite · next gem +%d%%" % [int(effect.spent), int(effect.amount)], DeepUi.ORE, 16)
 			"block":
 				var gained: int = int(effect.amount)
 				var swell: float = clampf(float(gained) / 18.0, 0.0, 1.0)
@@ -1674,7 +1727,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					var home: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.4 + Vector3(0.8, -0.7, 0)
 					_fx.coins(pile, home, 8 + mini(12, int(effect.amount)))
 					_float_at(_forecast_box, "+%d pyrite" % int(effect.amount), DeepUi.ORE, 20)
-			"poison", "stun", "curse", "remove_block", "dice_dread", "die_steal", "cleanse":
+			"poison", "stun", "curse", "remove_block", "dice_dread", "die_steal", "cleanse", "clouded", "marked", "dulled", "ward", "retain", "charged", "regeneration", "spikes", "lifeline", "max_hp", "max_hp_loss":
 				var creature: CrystalCreature = _creature(target_id)
 				if creature != null and is_instance_valid(creature):
 					var tone: Color = {"poison": DeepUi.POISON, "stun": Color("ffe27a"), "curse": Color("c58bff"), "remove_block": DeepUi.BLOCK}.get(kind, color)
@@ -1685,7 +1738,11 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					at += 0.16
 				elif target_id == local_id and kind == "cleanse":
 					_fx.rise(_camera.global_position + (-_camera.global_transform.basis.z) * 2.6 + Vector3(0, -1.4, 0), Color.WHITE, 20, 1.2)
-			"raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high":
+				elif target_id == local_id:
+					_float_at(_effects, "Ward blocked" if bool(effect.get("warded", false)) else "%s +%d" % [kind.capitalize(), int(effect.amount)], color, 16)
+				elif _ally_cards.has(target_id):
+					_float_at(_ally_cards[target_id], "Ward blocked" if bool(effect.get("warded", false)) else "%s +%d" % [kind.capitalize(), int(effect.amount)], color, 15)
+			"raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "upgrade_faces":
 				if mine:
 					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
 					for id in _dice_views:
@@ -1729,6 +1786,8 @@ func _ward(tone: Color, glyph: String, strength: float, count: int) -> void:
 		tween.tween_callback(mark.queue_free)
 
 func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
+	if hit.has("lifeline"):
+		_show_lifeline(who, int(hit.lifeline))
 	var creature: CrystalCreature = _creature(who)
 	if creature == null or not is_instance_valid(creature):
 		return
@@ -1766,6 +1825,8 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
 	for reflection in hit.get("reflections", []):
 		_enemy_effect(reflection, creature)
 		_screen_fx.wound(0.3)
+	if hit.has("spikes"):
+		_enemy_effect(hit.spikes, creature)
 	if not str(hit.get("split", "")).is_empty():
 		_float_world(at + Vector3(0, 1.0, 0), "It splits!", Color("9fd8c8"), 18)
 	if bool(hit.get("killed", false)):
@@ -1777,6 +1838,10 @@ func _afflict(who: String, effect: Dictionary, tone: Color) -> void:
 		return
 	var kind: String = str(effect.get("kind", ""))
 	var at: Vector3 = creature.centre()
+	if bool(effect.get("warded", false)) or bool(effect.get("immune", false)) or bool(effect.get("resisted", false)):
+		_fx.shield(at, Vector3.FORWARD, DeepUi.INFO, 0.8, 0.4)
+		_float_world(at, "Ward blocked" if bool(effect.get("warded", false)) else "Immune", DeepUi.INFO, 18)
+		return
 	var spoken: String = {"poison": "poison", "stun": "stun", "curse": "curse", "dice_dread": "curse",
 		"remove_block": "block_break", "die_steal": "ui_deny", "cleanse": "heal"}.get(kind, "")
 	if not spoken.is_empty() and not bool(effect.get("immune", false)):
@@ -1873,10 +1938,32 @@ func _enemy_move(event: Dictionary) -> void:
 	for effect in event.get("effects", []):
 		_enemy_effect(effect, _creature(str(event.get("unit", ""))))
 
+func _show_lifeline(who: String, hp: int) -> void:
+	var text: String = "Lifeline · %d HP" % hp
+	if who == local_id:
+		_screen_fx.blink(DeepUi.GOOD, 0.25)
+		_float_at(_hp_bar, text, DeepUi.GOOD, 24)
+	elif _ally_cards.has(who):
+		_float_at(_ally_cards[who], text, DeepUi.GOOD, 18)
+	elif _creature(who) != null:
+		_float_world(_creature(who).centre(), text, DeepUi.GOOD, 18)
+
 func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 	var kind: String = str(effect.get("kind", ""))
 	var target_id: String = str(effect.get("target", ""))
 	var source: Vector3 = creature.centre() if creature != null and is_instance_valid(creature) else Vector3(0, 1.2, ARC_Z)
+	if bool(effect.get("warded", false)) or bool(effect.get("resisted", false)) or bool(effect.get("immune", false)):
+		var label: String = "Ward blocked" if bool(effect.get("warded", false)) else "Immune"
+		if target_id == local_id:
+			_float_at(_hp_bar, label, DeepUi.INFO, 18)
+		elif _ally_cards.has(target_id):
+			_float_at(_ally_cards[target_id], label, DeepUi.INFO, 16)
+		return
+	if effect.has("lifeline"):
+		_show_lifeline(target_id, int(effect.lifeline))
+	if effect.has("spikes"):
+		var retaliation: Dictionary = effect.spikes
+		_impact(str(retaliation.target), retaliation, DeepUi.INFO, true)
 	match kind:
 		"damage":
 			var loss: int = int(effect.get("hp_loss", 0))
@@ -1922,7 +2009,11 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 			var healed: Node3D = _creature(target_id) if _creature(target_id) != null else creature
 			if healed != null and is_instance_valid(healed):
 				_fx.rise(healed.global_position + Vector3(0, 0.3, 0), DeepUi.GOOD, 24, 0.8)
-		"poison", "stun", "die_steal", "remove_block", "curse":
+		"ward", "retain", "charged", "regeneration", "spikes", "lifeline", "max_hp", "max_hp_loss":
+			var receiver: CrystalCreature = _creature(target_id)
+			if receiver != null:
+				_afflict(target_id, effect, DeepUi.GOOD)
+		"poison", "stun", "die_steal", "remove_block", "curse", "clouded", "marked", "dulled":
 			if target_id == local_id:
 				DeepAudio.play({"poison": "poison", "stun": "stun", "curse": "curse", "remove_block": "block_break"}.get(kind, "ui_deny"), {"volume": 0.7})
 				var tone: Color = {"poison": DeepUi.POISON, "stun": Color("ffe27a"), "remove_block": DeepUi.BLOCK, "curse": Color("c58bff")}.get(kind, DeepUi.INFO)

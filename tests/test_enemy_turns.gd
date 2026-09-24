@@ -125,9 +125,9 @@ func controls() -> void:
 	check(f.rng.creatures.state == before_rng and int(f.foe.dread_turns) == 1, "skipped action consumes duration without consuming RNG")
 	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D4", "Dread lowers a d6 to d4")
 	DeepBattle._apply(f.state, f.state.players[0], {"kind": "dice_dread", "target": "enemy", "amount": 3}, f.rng.dice)
-	check(int(f.foe.dread_turns) == 3 and str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D4", "Dread refreshes duration without stacking tier penalties")
+	check(int(f.foe.dread_turns) == 4 and str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D2", "Dread stacks additional tier penalties down to d2")
 	DeepBattle._apply(f.state, f.foe, {"kind": "dice_upgrade", "target": "self", "amount": 1}, f.rng.dice)
-	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D6", "upgrade and Dread combine without mutating base dice")
+	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D2", "upgrade and stacked Dread combine without mutating base dice")
 	f.foe.dread_turns = 1
 	DeepCreatures.finish(f.foe)
 	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D8" and str(f.foe.dice[0].shape) == "D6", "Dread expiration preserves upgrades")
@@ -160,7 +160,7 @@ func controls() -> void:
 			caster.hand[i].value = i + 1
 		DeepBattle.resolve_gem(casting.state, caster, 3, {}, casting.rng.dice)
 		durations.append(int(casting.foe.dread_turns))
-	check(int(durations[0]) > 0 and int(durations[1]) > int(durations[0]), "heavier Dread stones increase duration while lowering only one tier")
+	check(int(durations[0]) > 0 and int(durations[1]) > int(durations[0]), "heavier Dread stones apply more tier-reducing stacks")
 
 func party_effects() -> void:
 	var f: Dictionary = setup("CAVE_TICK", 4)

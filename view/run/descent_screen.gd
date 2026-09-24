@@ -514,8 +514,8 @@ func _spoils_landed(token: int, rewards: Dictionary) -> void:
 	_strip_hold = {}
 	_sync_strip()
 	var words: Array = []
-	if int(rewards.get("ore", 0)) > 0:
-		words.append("+%d pyrite" % int(rewards.ore))
+	if int(rewards.get("ore", 0)) != 0:
+		words.append("%+d pyrite" % int(rewards.ore))
 	for stone in rewards.get("stones", []):
 		words.append(DeepStone.raw_name(stone) if not bool(stone.get("appraised", false)) else DeepUi.stone_name(stone))
 	if not words.is_empty():
@@ -2068,6 +2068,8 @@ func _reward_row(parent: Node, rewards: Dictionary, start: float) -> HBoxContain
 	var step: float = 0.38
 	var ore: int = int(rewards.get("ore", 0))
 	var rung: int = 0
+	if ore < 0:
+		DeepUi.stat(row, "ore", "%d Pyrite after spending" % ore, DeepUi.ORE, 16)
 	if ore > 0:
 		var slot := RewardSlot.new(DeepUi.ORE, delay)
 		slot.voice = "ore"

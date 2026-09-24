@@ -325,8 +325,10 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var skill_row := DeepUi.hbox(does, 8)
 	DeepUi.title(skill_row, str(skill.get("name", "")), 20, DeepUi.PAPER)
 	var effective: Dictionary = DeepStone.effective(item, opts.get("context", {}))
+	if int(effective.carat) != int(item.carat) or int(effective.cut_step) != int(item.cut) or int(effective.clarity) != int(item.clarity):
+		DeepUi.wrap(does, "Effective: %d ct · %s Cut · %s Clarity" % [int(effective.carat), DeepContent.cut_name(int(effective.cut_step)), DeepContent.clarity_name(int(effective.clarity))], 12, DeepUi.INFO)
 	var mods: Array = DeepStone.modifiers(item)
-	_effect_line(does, item, mods)
+	_effect_line(does, item, mods, opts.get("context", {}))
 	StoneCard.carat_lines(does, item, opts.get("context", {}), 13)
 	if reference:
 		DeepUi.stat(does, "eye", "Written as it comes out of the rock at its plainest: one carat, a Poor cut, nothing inside. The one you find will be its own.", DeepUi.DIM, 12)
@@ -335,8 +337,10 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		var cm: Dictionary = carat_mult_mods[0]
 		var counted: int = int(round(float(int(item.get("carat", 1))) * float(cm.get("amount", 1.0))))
 		_inclusion_note(does, cm, "makes its carats count as %d for what weight buys." % counted)
-	if DeepStone.is_flawless(item) and skill.get("flawless", null) is Dictionary:
-		DeepUi.stat(does, "star", "Flawless: " + DeepStone.flawless_text(item, opts.get("context", {})), DeepUi.tier_color("PEERLESS"), 13)
+	if bool(effective.flawless) and skill.get("flawless", null) is Dictionary:
+		var flawless := DeepUi.hbox(does, 6)
+		DeepUi.icon(flawless, "star", 14, DeepUi.tier_color("PEERLESS"))
+		DeepUi.effect_text(flawless, "Flawless: " + DeepStone.flawless_text(item, opts.get("context", {})), 13, DeepUi.tier_color("PEERLESS"))
 	## When it fires: the whole ladder, with the rung this stone stands on.
 	var fires := _section("cut", "When it fires")
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
@@ -365,7 +369,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	DeepUi.wrap(prow, _clarity_words(clarity), 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_inclusions(item, purity)
 
-func _effect_line(parent: Node, item: Dictionary, mods: Array) -> void:
+func _effect_line(parent: Node, item: Dictionary, mods: Array, context: Dictionary = {}) -> void:
 	## The effect is the reason a player opens this sheet, so it leads in bold, with the carat
 	## multiplier folded into the same paragraph instead of a line of its own. Anything an
 	## inclusion adds on top of the plain carat curve rides right after it, in that
@@ -390,7 +394,7 @@ func _effect_line(parent: Node, item: Dictionary, mods: Array) -> void:
 	rtl.push_font(DeepUi.bold_font())
 	rtl.push_font_size(17)
 	rtl.push_color(DeepUi.PAPER)
-	DeepUi.push_effect_text(rtl, DeepStone.text(item))
+	DeepUi.push_effect_text(rtl, DeepStone.text(item, context))
 	rtl.pop_all()
 	if scales and base_mult != 1.0:
 		rtl.add_text("  ")

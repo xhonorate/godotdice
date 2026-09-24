@@ -29,7 +29,9 @@ extends RefCounted
 ## Effects (default target in brackets; * means the amount is scaled by the stone's magnitude,
 ## and everything else is a whole number that procs more often on a heavier stone instead):
 ##   damage*(enemy) block*(self) heal*(self) gold*(self) poison*(enemy) remove_block*(enemy)
-##   stun(enemy) cleanse(self) revive(downed_ally) curse(enemy: +pct damage taken this turn)
+##   stun(enemy) cleanse(self) revive(downed_ally) curse(enemy: -10% dealt/+10% taken per stack, max 10)
+##   ward(self, max 99) retain*(self) charged(self) regeneration*(self) spikes*(self)
+##   clouded(enemy: one random move disabled) marked(enemy: next hit +25% per stack) dulled(enemy)
 ##   amplify_next(pct) cut_step_next raise_low raise_high set_match flip_high flip_low phantom_high
 ##   grant_reroll retrigger_previous(pct) dice_dread(enemy) die_steal(enemy)
 ##   quality_bonus(pct) sparkle coin_flip(win_mult, lose_mult) resonance
@@ -44,30 +46,33 @@ extends RefCounted
 ## Targets: self ally_low allies enemy enemies spread enemy_behind downed_ally, and for
 ## creatures hero heroes.
 
-const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct"]
+const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct", "if", "ge", "eq"]
 const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
-	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice"]
+	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "enemy_poison"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
 	"phantom_high", "grant_reroll", "retrigger_previous", "dice_dread", "die_steal", "quality_bonus",
 	"sparkle", "coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next",
-	"replay_rail", "tick_poison", "stone_drop", "dice_upgrade"]
-const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block"]
-const HOSTILE: Array = ["damage", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal"]
-const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "spread", "enemy_behind", "downed_ally", "hero", "heroes"]
+	"replay_rail", "tick_poison", "stone_drop", "dice_upgrade", "ward", "retain", "charged", "marked",
+	"regeneration", "spikes", "dulled", "clouded", "lifeline", "max_hp", "max_hp_loss", "damage_curse", "detonate", "wager", "stake", "upgrade_faces", "gem_rank", "appraise"]
+const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block", "retain", "regeneration", "spikes", "lifeline", "wager", "detonate"]
+const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss"]
+const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss"]
+
+const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "downed_ally", "hero", "heroes"]
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
 	"cut_step", "cut_override", "locked", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
 	"copy_previous_inclusion", "adjacent_carat", "always_fires", "fires_twice", "carat_per_depth", "alexandrite",
 	"resonance_bonus"]
 const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]
-## The ranks a `rank_buff` may raise. Clarity is not among them: it decides how many
-## inclusions a stone holds and whether its Flawless line reads, and neither of those can
-## be handed out mid-fight without rewriting the stone.
+## Fire Opal’s rail-wide rank_buff raises carat/cut. Per-stone gem_rank also supports
+## temporary Clarity, without changing stored inclusion slots.
 const RANK_BUFFS: Array = ["carat", "cut"]
-const MODIFY_FIELDS: Array = ["effect", "target", "mult", "add", "repeat_add", "splash", "kind", "scale"]
+const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash"]
+const MODIFY_FIELDS: Array = EFFECT_OPTIONS + ["amount", "repeat", "effect", "target", "mult", "add", "repeat_add", "splash", "kind", "scale"]
 const MAX_EFFECTS: int = 6
 const MAX_DEPTH: int = 6
 const MAX_NODES: int = 60
@@ -80,8 +85,18 @@ const MAX_PROCS: int = 10
 ## A coin flip reads its own proc count (a heavier stone stakes more on one toss) instead of
 ## being tossed again, because a second toss could only lose what the first one won.
 const PROC_IN_PLACE: Array = ["coin_flip"]
+const CURSE_MAX_STACKS: int = 10
+const CURSE_PERCENT: int = 10
+const SPARKLE_MAX_STACKS: int = 100
 
 # --- amounts -------------------------------------------------------------------------
+
+static func pyrite(unit: Dictionary) -> int:
+	return maxi(0, int(unit.get("ore", 0)) + int(unit.get("gold", 0)) + int(unit.get("pyrite_delta", 0)))
+
+static func outgoing_damage(amount: int, statuses: Dictionary) -> int:
+	var stacks: int = clampi(int(statuses.get("curse", 0)), 0, CURSE_MAX_STACKS)
+	return maxi(0, amount) * (100 - CURSE_PERCENT * stacks) / 100
 
 static func amount(expr: Variant, c: Dictionary) -> int:
 	if expr is int or expr is float:
@@ -106,6 +121,9 @@ static func amount(expr: Variant, c: Dictionary) -> int:
 	if values.is_empty():
 		return 0
 	match op:
+		"if": return int(values[1]) if int(values[0]) != 0 else int(values[2])
+		"ge": return 1 if int(values[0]) >= int(values[1]) else 0
+		"eq": return 1 if int(values[0]) == int(values[1]) else 0
 		"+":
 			var sum: int = 0
 			for v in values:
@@ -173,6 +191,8 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"max_hp": return int(unit.get("max_hp", 0))
 		"hp_missing": return maxi(0, int(unit.get("max_hp", 0)) - int(unit.get("hp", 0)))
 		"gold": return int(unit.get("gold", 0))
+		"pyrite": return pyrite(unit)
+		"enemy_poison": return int(c.get("enemy_poison", 0))
 		"resonance": return int(c.get("resonance", 0))
 		"previous_amount": return int(c.get("previous_amount", 0))
 		"carat", "cut", "clarity", "depth", "turn", "party":
@@ -253,10 +273,16 @@ static func resolve_effect(def: Dictionary, c: Dictionary, magnitude: float, hos
 	var out: Dictionary = {"kind": kind, "target": str(def.get("target", default_target(kind, hostile_side))),
 		"amount": clampi(final, -VALUE_LIMIT, VALUE_LIMIT), "raw": raw, "repeat": repeat, "scaled": scale == "carat",
 		"procs": int(proc.procs), "proc_chance": int(proc.chance)}
-	for field in ["splash", "once", "win_mult", "lose_mult", "text", "color", "rank"]:
+	out.dice = trig_dice(c)
+	if def.has("cost"):
+		out.cost = maxi(0, amount(def.cost, c))
+	for field in EFFECT_OPTIONS + ["splash", "once", "win_mult", "lose_mult", "text", "color", "rank"]:
 		if def.has(field):
 			out[field] = def[field]
 	return out
+
+static func trig_dice(c: Dictionary) -> Array:
+	return c.get("trig", {}).get("dice", []).duplicate()
 
 # --- validation ----------------------------------------------------------------------
 
@@ -291,6 +317,8 @@ static func validate_expression(expr: Variant, where: String, depth: int = 1) ->
 	if not args is Array or args.is_empty():
 		return [where + ": op needs args"]
 	var errors: Array = []
+	if str(expr.op) in ["if", "ge", "eq"] and args.size() != (3 if str(expr.op) == "if" else 2):
+		errors.append(where + ": wrong conditional argument count")
 	for argument in args:
 		errors.append_array(validate_expression(argument, where, depth + 1))
 	return errors
@@ -300,7 +328,7 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		return [where + ": must be an object"]
 	var errors: Array = []
 	for field in effect:
-		if not str(field) in ["kind", "target", "amount", "scale", "repeat", "splash", "once", "win_mult", "lose_mult", "text", "color", "rank"]:
+		if not str(field) in EFFECT_OPTIONS + ["kind", "target", "amount", "scale", "repeat", "splash", "once", "win_mult", "lose_mult", "text", "color", "rank", "cost"]:
 			errors.append(where + ": unknown field " + str(field))
 	var kind: String = str(effect.get("kind", ""))
 	if not kind in EFFECT_KINDS:
@@ -314,6 +342,14 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": replay_color names one of the six colors")
 	if kind == "rank_buff" and not str(effect.get("rank", "")) in RANK_BUFFS:
 		errors.append(where + ": rank_buff raises " + " or ".join(RANK_BUFFS))
+	if effect.has("cost"):
+		errors.append_array(validate_expression(effect.cost, where + " cost"))
+	if kind == "gem_rank" and not str(effect.get("rank", "")) in ["carat", "cut", "clarity"]:
+		errors.append(where + ": gem_rank needs carat, cut or clarity")
+	if effect.has("scope") and not str(effect.scope) in ["adjacent", "all", "others"]:
+		errors.append(where + ": unknown gem scope")
+	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed"]:
+		errors.append(where + ": unknown previous result")
 	if effect.has("amount"):
 		errors.append_array(validate_expression(effect.amount, where + " amount"))
 	if effect.has("repeat"):
@@ -372,6 +408,9 @@ static func validate_skill(def: Variant, p: Dictionary) -> Array:
 						errors.append("flawless modify: unknown field " + str(field))
 				if effects is Array and (int(change.get("effect", 0)) < 0 or int(change.get("effect", 0)) >= effects.size()):
 					errors.append("flawless modify points past the effects list")
+				for expression in ["amount", "repeat"]:
+					if change.has(expression):
+						errors.append_array(validate_expression(change[expression], "flawless " + expression))
 				if change.has("target") and not str(change.target) in TARGETS:
 					errors.append("flawless modify: unknown target " + str(change.target))
 				if change.has("kind") and not str(change.kind) in EFFECT_KINDS:

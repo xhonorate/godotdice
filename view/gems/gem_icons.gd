@@ -310,11 +310,15 @@ static func _shapes(glyph: String) -> Array:
 ## thumbnail and through a bevel, so every one is a bold silhouette with no thin detail.
 const SKILL_EMBLEMS := {
 	"STRIKE": "sword", "CLEAVE": "slashes", "CRUSH": "hammer", "BARRAGE": "arcs", "OVERKILL": "shield_burst",
+	"CROSSCUT": "slashes", "DETONATE": "flame", "APEX": "sword",
+	"SHELTER": "two_shields", "MORTAR": "rampart", "SIPHON": "drain",
+	"STAKE": "coin_fall", "APPRAISE": "eye", "GILDED_ARMOR": "shield", "ENRICH": "gem",
 	"SPALL": "split_shield", "EMBER": "spark", "FURY": "bolt",
 	"GUARD": "shield", "BULWARK": "rampart", "AEGIS": "two_shields", "BASTION": "broken_chain", "TEMPO": "hourglass",
 	"ANCHOR": "knot", "RIPOSTE": "split_shield",
 	"MEND": "cross", "GRAFT": "knot", "BLOOM": "heart", "RENEWAL": "clean_drop", "LIFELINE": "pulse", "THRIVE": "flask", "SAP": "wilt",
 	"HEX": "bolt", "VENOM": "skull", "MIASMA": "cloud", "CURSE": "eye", "SHATTER": "split_shield", "BIND": "broken_chain", "DREAD": "thorn",
+	"MIST": "cloud", "ETCH": "crosshair",
 	"TITHE": "coin", "JACKPOT": "coins", "LUCKY_SEVEN": "seven", "WAGER": "coin_fall", "WINDFALL": "sun", "DOUBLE_DOWN": "copy", "PROSPECT": "crosshair",
 	"GLIMMER": "spark", "REFRACT": "prism", "POLISH": "rose", "MIRROR": "eye", "CASCADE": "drain", "FACET": "rose", "ECHO": "copy", "PRISM": "prism",
 	## The opals. All six Seams wear the same check of color patches, because what tells
@@ -330,6 +334,7 @@ const MOVE_EMBLEMS := {
 	"SMOTHER": "cloud", "LASH": "slashes", "COIL": "rampart", "SHATTERBREATH": "arcs", "PICK": "hammer", "CAVE-IN": "rampart",
 	"SHORE UP": "shield", "BLAST": "shield_burst", "COLLAPSE": "hammer", "REFLECT": "prism", "REFRACTION": "prism",
 	"HARDEN": "shield", "GATHER": "cloud", "REINFORCE": "die", "SPLINTER": "thorn",
+	"ABRASIVE FOG": "cloud", "REKNIT": "heart", "OMEN": "eye",
 	"SHATTER": "split_shield", "BORE": "hammer", "GRIND": "rose", "OVERDRIVE": "bolt"}
 
 static func emblem(skill_key: String) -> String:

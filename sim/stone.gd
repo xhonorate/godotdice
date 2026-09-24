@@ -256,7 +256,8 @@ static func effective(stone: Dictionary, c: Dictionary = {}) -> Dictionary:
 	## `c` may carry carat_bonus (Capstone, Halo), cut_step_bonus (Feather, passives),
 	## amplify (Double Down, amplify_next) and depth (Fluorescence).
 	var mods: Array = modifiers(stone)
-	var clarity_entry: Dictionary = DeepContent.clarity_entry(int(stone.get("clarity", 0)))
+	var clarity: int = clampi(int(stone.get("clarity", 0)) + int(c.get("clarity_bonus", 0)), 0, DeepContent.clarities().size() - 1)
+	var clarity_entry: Dictionary = DeepContent.clarity_entry(clarity)
 	var carat: int = int(stone.get("carat", 1)) + modifier_sum(mods, "carat") + int(c.get("carat_bonus", 0))
 	var depth: int = int(c.get("depth", 0))
 	var carat_mult: float = 1.0
@@ -274,8 +275,11 @@ static func effective(stone: Dictionary, c: Dictionary = {}) -> Dictionary:
 			"cut_override":
 				cut_step = int(m.get("value", 0))
 	cut_step += int(clarity_entry.get("cut_step", 0)) + modifier_sum(mods, "cut_step") + int(c.get("cut_step_bonus", 0))
+	var dulled: int = maxi(0, int(c.get("dulled", 0)))
+	if dulled > 0:
+		cut_step = maxi(0, mini(DeepPatterns.STEPS - 1, cut_step) - dulled)
 	var magnitude: float = carat_multiplier(float(carat) * carat_mult) * float(clarity_entry.get("magnitude", 1.0)) * magnitude_mult * float(c.get("amplify", 1.0))
-	return {"carat": carat, "cut_step": maxi(0, cut_step), "magnitude": magnitude, "modifiers": mods,
+	return {"clarity": clarity, "flawless": bool(clarity_entry.get("flawless_line", false)), "carat": carat, "cut_step": maxi(0, cut_step), "magnitude": magnitude, "modifiers": mods,
 		"resonance_mult": float(clarity_entry.get("resonance_mult", 1.0))}
 
 ## How a number of goes is said out loud, and what the next one after it is called.
@@ -384,6 +388,9 @@ static func apply_flawless(defs: Array, flawless: Dictionary) -> Array:
 		if index < 0 or index >= out.size():
 			continue
 		var def: Dictionary = out[index]
+		for field in DeepRules.EFFECT_OPTIONS + ["amount", "repeat"]:
+			if change.has(field):
+				def[field] = change[field]
 		if change.has("target"):
 			def.target = str(change.target)
 		if change.has("kind"):
@@ -418,7 +425,7 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 			working = apply_lens(working, str(m.get("mode", "")))
 	var a: Dictionary = DeepHand.analyze(working)
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
-	var trig: Dictionary = DeepPatterns.evaluate(trigger, eff.cut_step, a, {"resonance": int(c.get("resonance", 0))})
+	var trig: Dictionary = DeepPatterns.evaluate(trigger, eff.cut_step, a, {"resonance": int(c.get("resonance", 0)), "pyrite": DeepRules.pyrite(c.get("unit", {}))})
 	if not trig.active and (has_modifier(mods, "always_fires") or bool(c.get("force_fire", false))):
 		trig.active = true
 		trig.forced = true
@@ -441,9 +448,9 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 		return result
 	var tc: Dictionary = {"a": a, "trig": trig, "unit": c.get("unit", {}), "resonance": int(c.get("resonance", 0)),
 		"previous_amount": int(c.get("previous_amount", 0)), "carat": eff.carat, "cut": eff.cut_step,
-		"clarity": int(stone.get("clarity", 0)), "depth": int(c.get("depth", 0)), "turn": int(c.get("turn", 0)), "party": int(c.get("party", 1))}
+		"clarity": int(eff.clarity), "enemy_poison": int(c.get("enemy_poison", 0)), "depth": int(c.get("depth", 0)), "turn": int(c.get("turn", 0)), "party": int(c.get("party", 1))}
 	var defs: Array = skill.get("effects", []).duplicate(true)
-	if is_flawless(stone) and skill.get("flawless", null) is Dictionary:
+	if bool(eff.flawless) and skill.get("flawless", null) is Dictionary:
 		defs = apply_flawless(defs, skill.flawless)
 	for def in defs:
 		if def is Dictionary:

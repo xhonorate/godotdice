@@ -143,7 +143,7 @@ func _init() -> void:
 			if target == "battle_status":
 				## Everything at once, so every chip can be seen.
 				var unit: Dictionary = DeepBattle.player(b, app.session.local_id)
-				unit.statuses = {"poison": 3, "curse": 25}
+				unit.statuses = {"poison": 3, "curse": 10}
 				unit.block = 6
 				unit.buried = [1]
 				unit.granted_rerolls = 1

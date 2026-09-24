@@ -5,8 +5,9 @@ const CameraRig = preload("res://view/battle/camera_rig.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
-const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun"}
-const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED"}
+const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun",
+	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "thorn", "dulled": "cut"}
+const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED"}
 signal pinned(id: String)
 var enemy_id: String = ""
 var foe: Dictionary = {}
@@ -169,10 +170,12 @@ func _states(states: Array) -> void:
 	_shown_states = states.duplicate()
 	for index in range(_rows.size()):
 		var status: String = str(states[index]) if index < states.size() else "unrevealed"
+		if DeepCreatures.move_clouded(foe, index):
+			status = "clouded"
 		var row: Dictionary = _rows[index]
 		row.badge.text = str(STATES.get(status, ""))
 		row.badge.modulate = DeepUi.ACCENT if status in ["activated", "resolving"] else DeepUi.MUTED
-		row.panel.modulate.a = 0.4 if status == "missed" else (0.65 if status in ["used", "resolved"] else 1.0)
+		row.panel.modulate.a = 0.4 if status in ["missed", "clouded"] else (0.65 if status in ["used", "resolved"] else 1.0)
 		row.panel.add_theme_stylebox_override("panel", DeepUi.raised(Color("30221f") if status == "resolving" else Color("171c29"), DeepUi.ACCENT if status == "resolving" else Color("343443"), 6, 6, 0.0))
 
 func roll_die(event: Dictionary) -> void:

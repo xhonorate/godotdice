@@ -13,6 +13,7 @@ func _init() -> void:
 	_test_dice_rooms()
 	_test_bot_runs()
 	_test_hoard_opal()
+	_test_sparkle()
 	_test_salvage()
 	_test_grubstake()
 	_test_profile()
@@ -37,6 +38,41 @@ func dice(character: String, prefix: String) -> Array:
 	for index in range(keys.size()):
 		out.append(DeepDice.make(str(keys[index]), DeepContent.die(str(keys[index])), "%s%d" % [prefix, index]))
 	return out
+
+func _test_sparkle() -> void:
+	for stacks in [0, 1, 4, 5, 37, 100, 150]:
+		var state: Dictionary = DeepDescent.new_run(config(123, false))
+		state.depth = 5
+		var unit: Dictionary = state.players[0]
+		unit.sparkle = stacks
+		state.players[1].sparkle = 23
+		var streams: Dictionary = DeepDescent.streams_of(state)
+		var expected_rng: RandomNumberGenerator = DeepRng.restore(state.rng).stones
+		var before: Dictionary = state.duplicate(true)
+		var found: Dictionary = DeepDescent._find_stone(state, unit, streams, 3, "vein")
+		var expected: Dictionary = DeepForge.roll_stone(expected_rng, DeepDescent.mine_of(state), 5, 3 + mini(stacks, 100), found.provenance, str(found.id))
+		check(JSON.stringify(found) == JSON.stringify(expected), "%d stored Sparkle grants the full capped luck bonus on the next find" % stacks)
+		check(int(unit.sparkle) == 0 and int(state.players[1].sparkle) == 23, "a stone consumes every stack for its finder only, even below five")
+		check(JSON.stringify(DeepPatch.apply(before, DeepPatch.diff(before, state))) == JSON.stringify(state), "Sparkle consumption and its stone patch identically for guests")
+		var next: Dictionary = DeepDescent._find_stone(state, unit, streams, 3, "vein")
+		expected = DeepForge.roll_stone(expected_rng, DeepDescent.mine_of(state), 5, 3, next.provenance, str(next.id))
+		check(JSON.stringify(next) == JSON.stringify(expected), "the following stone receives no spent Sparkle bonus")
+	var state: Dictionary = DeepDescent.new_run(config(456, false))
+	state.depth = 1
+	state.phase = "chamber"
+	var streams: Dictionary = DeepDescent.streams_of(state)
+	DeepDescent._start_fight(state, streams, false, "")
+	state.rng = DeepRng.save(streams)
+	for fighter in state.chamber.battle.players:
+		fighter.quality_bonus = -1000 # Force no random drop in this scenario.
+	state.chamber.battle.players[0].sparkle = 37
+	DeepDescent._settle_fight(state, "victory")
+	check(int(state.players[0].sparkle) == 37 and state.players[0].haul.is_empty(), "a victory with no stone preserves all earned Sparkle")
+	state.phase = "chamber"
+	DeepDescent._start_fight(state, DeepDescent.streams_of(state), true, "")
+	check(int(state.chamber.battle.players[0].sparkle) == 37, "the next fight inherits stored Sparkle")
+	var rewards: Dictionary = DeepDescent._settle_fight(state, "victory")
+	check(int(state.players[0].sparkle) == 0 and rewards.rewards.a.stones.size() == 1, "the next guaranteed elite stone spends all carried Sparkle")
 
 func config(seed_value: int, strong: bool) -> Dictionary:
 	var carat: int = 20 if strong else 3

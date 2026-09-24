@@ -37,7 +37,7 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("downed", "skull", "", false, "Down", "Out of the fight until someone revives you."))
 	var block: int = int(unit.get("block", 0))
 	if block > 0:
-		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d damage before your health does. Whatever is left falls away at the end of the turn." % block, DeepUi.BLOCK))
+		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d hit damage. At turn start, Retain can preserve some; the rest falls away." % block, DeepUi.BLOCK))
 	var statuses: Dictionary = unit.get("statuses", {})
 	out.append_array(_statuses(statuses, false))
 	var buried: int = unit.get("buried", []).size()
@@ -63,15 +63,29 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	var quality: int = int(unit.get("quality_bonus", 0))
 	if quality > 0:
 		out.append(entry("quality", "star", "+%d%%" % quality, true, "Windfall", "Stones found after this fight are %d%% better." % quality, DeepUi.ACCENT))
+	var upgrades: Array = []
+	for stone in unit.get("rail", []):
+		if not stone is Dictionary:
+			continue
+		var bonus: Dictionary = unit.get("gem_buffs", {}).get(str(stone.id), {})
+		var parts: Array = []
+		for rank in ["carat", "cut", "clarity"]:
+			var amount: int = int(bonus.get(rank, 0)) + int(unit.get("rank_buff", {}).get(rank, 0))
+			if amount > 0:
+				parts.append("+%d %s" % [amount, rank.capitalize()])
+		if not parts.is_empty():
+			upgrades.append("%s: %s" % [DeepStone.name(stone), ", ".join(parts)])
+	if not upgrades.is_empty():
+		out.append(entry("gem_upgrades", "gem", str(upgrades.size()), true, "Gem upgrades — this fight", "\n".join(upgrades)))
 	out.append_array(for_run(unit))
 	return out
 
 static func for_run(unit: Dictionary) -> Array:
 	## What a player carries through the whole run, not just one fight.
 	var out: Array = []
-	var sparkle: int = int(unit.get("sparkle", 0))
+	var sparkle: int = clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
 	if sparkle > 0:
-		out.append(entry("sparkle", "spark", "%d/5" % sparkle, true, "Sparkle", "At 5 Sparkle the next stone you find is a grade better. You have %d." % sparkle, DeepUi.ACCENT))
+		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%d generation luck. Maximum 100; carries between fights." % [sparkle, sparkle], DeepUi.ACCENT))
 	var shrine: String = str(unit.get("run_mods", {}).get("shrine", ""))
 	if not shrine.is_empty():
 		out.append(entry("shrine", "star", "+1 ct", true, "Shrine blessing", "For the rest of the run, every gem that fires on %s gains 1 carat." % shrine.replace("_", " "), DeepUi.ACCENT))
@@ -81,13 +95,19 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	var out: Array = []
 	var block: int = int(foe.get("block", 0))
 	if block > 0:
-		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d damage before its health does. Whatever is left falls away when it takes its turn." % block, DeepUi.BLOCK))
+		out.append(entry("block", "shield", str(block), false, "Block", "Soaks %d hit damage. When the enemy side acts, Retain can preserve some; the rest falls away." % block, DeepUi.BLOCK))
 	## For a creature the colors flip: what helps it is bad for the party.
 	for chip in _statuses(foe.get("statuses", {}), true):
 		out.append(chip)
 	var downgrade: int = int(foe.get("dread_turns", 0))
 	if downgrade > 0:
-		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are one tier smaller for %s (minimum d2)." % DeepUi.plural(downgrade, "turn")))
+		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are %d tiers smaller (minimum d2). One stack wears off after each action phase." % downgrade))
+	var clouded: int = int(foe.get("statuses", {}).get("clouded", 0))
+	if clouded > 0:
+		var moves: Array = DeepCreatures.moves_for(foe)
+		var index: int = mini(int(foe.get("clouded_move", -1)), moves.size() - 1)
+		var skill: String = str(moves[index].get("name", "One ability")) if index >= 0 else "One ability"
+		out.append(entry("clouded", "cloud", str(clouded), true, "Clouded", "%s is disabled for %s. Reapplication extends its duration." % [skill, DeepUi.plural(clouded, "action phase")]))
 	var bound: int = int(foe.get("stolen_dice", 0))
 	if bound > 0:
 		out.append(entry("bound", "broken_chain", "−%d" % bound, true, "Bound", "Its next action rolls %s, even if that leaves none." % DeepUi.plural(bound, "die fewer", "dice fewer")))
@@ -126,12 +146,29 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 	var stun: int = int(statuses.get("stun", 0))
 	if stun > 0:
 		out.append(entry("stun", "stun", str(stun), on_enemy, "Stunned", ("Skips its next action phase." if on_enemy else "Your rail does not fire next time it would.") + (" (%d)" % stun if stun > 1 else ""), Color("ffe27a")))
-	var curse: int = int(statuses.get("curse", 0))
+	var curse: int = clampi(int(statuses.get("curse", 0)), 0, DeepRules.CURSE_MAX_STACKS)
 	if curse > 0:
-		out.append(entry("curse", "eye", "+%d%%" % curse, on_enemy, "Cursed", "Takes %d%% more damage from every hit until the end of the turn." % curse, Color("c58bff")))
-	var resolve: int = int(statuses.get("resolve", 0))
-	if resolve > 0:
-		out.append(entry("resolve", "shield_burst", str(resolve), not on_enemy, "Resolve", "Shrugs off stuns for %s." % DeepUi.plural(resolve, "more turn"), DeepUi.INFO))
+		out.append(entry("curse", "eye", str(curse), on_enemy, "Cursed", "Deals %d%% less hit damage (minimum zero) and takes %d%% more. Maximum 10 stacks; loses one at turn end." % [curse * DeepRules.CURSE_PERCENT, curse * DeepRules.CURSE_PERCENT] + (" A new enemy application lasts through your next turn." if not on_enemy else ""), Color("c58bff")))
+	var breaker: int = int(statuses.get("combo_breaker", 0))
+	if breaker > 0:
+		out.append(entry("combo_breaker", "shield_burst", "", not on_enemy, "Combo Breaker", "After three consecutive stunned turns, clears all Stun and rejects new Stun through its next turn.", DeepUi.INFO))
+	var descriptions: Dictionary = {
+		"lifeline": ["pulse", "Lifeline", "The next lethal hit or Poison tick consumes all stacks and restores %d HP, up to maximum HP. Lasts this fight.", true],
+		"ward": ["shield_burst", "Ward", "Blocks the next %d debuff applications, consuming one charge each. Maximum 99. Lasts this fight.", true],
+		"retain": ["shield", "Retain", "Preserves up to %d unspent Block at the next Block reset, then is consumed. Maximum 20.", true],
+		"charged": ["bolt", "Charged Battery", "At next turn start, consumes all stacks to start your rail at %d Resonance.", true],
+		"marked": ["eye", "Marked", "The next direct hit takes +%d%% damage, then consumes every mark. Block does not prevent consumption.", false],
+		"regeneration": ["heart", "Regeneration", "Heals %d HP at turn end after Poison, then loses one stack. Cannot revive.", true],
+		"spikes": ["thorn", "Spikes", "Retaliates for %d hit damage once per attacking gem or ability, including blocked hits. Expires at the next Block reset.", true],
+		"dulled": ["cut", "Dulled", "Gems lose %d Cut steps after bonuses (minimum Poor). Loses one stack at turn end; Birthstone is unaffected.", false]}
+	for key in descriptions:
+		var value: int = int(statuses.get(key, 0))
+		if value <= 0:
+			continue
+		var info: Array = descriptions[key]
+		var good: bool = bool(info[3]) != on_enemy
+		var timing: String = " A new enemy application lasts through your next turn." if key == "dulled" and not on_enemy else ""
+		out.append(entry(str(key), str(info[0]), str(value), good, str(info[1]), str(info[2]) % (value * 25 if key == "marked" else value) + timing))
 	return out
 
 # --- showing them ------------------------------------------------------------------------------
@@ -178,14 +215,15 @@ class Chip extends PanelContainer:
 			DeepUi.pulse(self, 1.35, 0.4)
 		_last = value
 
-class Row extends HBoxContainer:
+class Row extends HFlowContainer:
 	## A row of chips that keeps its chips between updates, adds new ones with a pop,
 	## pulses the ones whose number moved, and lets go of the ones that ended.
 	var edge: float = 16.0
 	var _chips: Dictionary = {}
 	func _init(chip_edge: float = 16.0) -> void:
 		edge = chip_edge
-		add_theme_constant_override("separation", 4)
+		add_theme_constant_override("h_separation", 4)
+		add_theme_constant_override("v_separation", 4)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 	func show_effects(effects: Array) -> void:
 		var present: Dictionary = {}

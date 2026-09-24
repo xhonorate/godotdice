@@ -405,21 +405,21 @@ func _test_look() -> void:
 
 func _test_effects() -> void:
 	## Every lasting effect a unit can carry is shown, and shown the right way round.
-	var unit: Dictionary = {"statuses": {"poison": 3, "stun": 1, "curse": 25}, "block": 5, "buried": [0], "clouded": [1, 2],
+	var unit: Dictionary = {"statuses": {"poison": 3, "stun": 1, "curse": 2, "ward": 99, "retain": 5, "charged": 120, "marked": 10, "regeneration": 6, "spikes": 4, "dulled": 5}, "block": 5, "buried": [0], "clouded": [1, 2],
 		"stolen_dice": 1, "granted_rerolls": 2, "amplify": 1.5, "nullify_next": true, "quality_bonus": 20, "sparkle": 3,
 		"run_mods": {"shrine": "pair"}}
 	var chips: Array = EffectChips.for_player(unit, {"phase": "planning"})
 	var keys: Array = chips.map(func(c: Dictionary) -> String: return str(c.key))
-	for key in ["block", "poison", "stun", "curse", "buried", "clouded", "stolen", "gifts", "amplify", "nullify", "quality", "sparkle", "shrine"]:
+	for key in ["block", "poison", "stun", "curse", "buried", "clouded", "stolen", "gifts", "amplify", "nullify", "quality", "sparkle", "shrine", "ward", "retain", "charged", "marked", "regeneration", "spikes", "dulled"]:
 		check(keys.has(key), "a player's %s is shown" % key)
 	for chip in chips:
 		check(not str(chip.text).is_empty() and not str(chip.title).is_empty(), "the %s chip says what it does" % str(chip.key))
 		if str(chip.key) in ["poison", "stun", "curse", "buried", "stolen", "nullify"]:
 			check(not bool(chip.good), "%s counts against the player" % str(chip.key))
-	var foe: Dictionary = {"statuses": {"poison": 2, "resolve": 1}, "block": 3, "dread_turns": 1, "stolen_dice": 1, "stolen_gold": 4, "gimmick": "steal_gold"}
+	var foe: Dictionary = {"statuses": {"poison": 2, "combo_breaker": 1, "ward": 1, "retain": 5, "marked": 3, "regeneration": 2, "spikes": 4}, "block": 3, "dread_turns": 1, "stolen_dice": 1, "stolen_gold": 4, "gimmick": "steal_gold"}
 	var foe_chips: Array = EffectChips.for_enemy(foe)
 	var foe_keys: Array = foe_chips.map(func(c: Dictionary) -> String: return str(c.key))
-	for key in ["block", "poison", "resolve", "dread", "bound", "gold", "gimmick"]:
+	for key in ["block", "poison", "combo_breaker", "dread", "bound", "gold", "gimmick", "ward", "retain", "marked", "regeneration", "spikes"]:
 		check(foe_keys.has(key), "a creature's %s is shown" % key)
 	for chip in foe_chips:
 		if str(chip.key) == "poison":

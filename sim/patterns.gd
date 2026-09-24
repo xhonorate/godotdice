@@ -33,7 +33,7 @@ extends RefCounted
 
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
-	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant"]
+	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "below"]
 const SET_SIZES: Dictionary = {"pair": 2, "triple": 3, "quad": 4, "quint": 5}
 const STEPS: int = 5
 
@@ -73,7 +73,7 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 		result.value = picked.sum
 		result.count = picked.dice.size()
 		return result
-	if bool(a.get("gem_face", false)):
+	if bool(a.get("gem_face", false)) and kind != "pyrite":
 		## A gem face lights the whole rail. The pattern still reports what it would have
 		## read, so amounts that depend on it have something to stand on.
 		result.active = true
@@ -153,8 +153,8 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.dice = dice
 				result.count = dice.size()
 				result.value = int(wanted[0]) if not wanted.is_empty() else 0
-		"at_most":
-			var dice: Array = DeepHand.matching(a, func(v: int) -> bool: return v <= need)
+		"at_most", "below":
+			var dice: Array = DeepHand.matching(a, func(v: int) -> bool: return v < need if kind == "below" else v <= need)
 			if dice.size() >= 1:
 				result.active = true
 				result.dice = dice
@@ -191,6 +191,9 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.active = true
 				result.count = int(a.rerolled)
 				result.value = int(a.rerolled)
+		"pyrite":
+			result.active = int(context.get("pyrite", 0)) >= need
+			result.value = int(context.get("pyrite", 0))
 		"resonance":
 			if int(context.get("resonance", 0)) >= need:
 				result.active = true
@@ -274,6 +277,10 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 			label = "/".join(wanted.map(func(v: Variant) -> String: return str(int(v))))
 			if need > 1:
 				label += " ×%d" % need
+		"pyrite":
+			label = "≥%d Pyrite" % need
+		"below":
+			label = "<%d" % need
 		"at_most":
 			label = "≤%d" % need
 		"at_least":
@@ -312,6 +319,8 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 			var wanted: Array = trigger.get("values", [7])
 			var names: String = " or ".join(wanted.map(func(v: Variant) -> String: return str(int(v))))
 			return "At least %d %s showing a %s." % [need, "die" if need == 1 else "dice", names]
+		"pyrite": return "At least %d Pyrite." % need
+		"below": return "At least one die showing less than %d." % need
 		"at_most": return "At least one die showing %d or less." % need
 		"at_least": return "Your highest die shows %d or more." % need
 		"total_pct_at_least": return "Your total is at least %d%% of the most your dice could roll." % need

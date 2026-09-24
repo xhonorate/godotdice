@@ -14,10 +14,10 @@ static func make(key: String, id: String, depth: int, party: int) -> Dictionary:
 		dice.append(DeepDice.make(str(die_key), DeepContent.die(str(die_key)), "%s_d%d" % [id, index]))
 		index += 1
 	return {"id": id, "key": key, "name": str(def.get("name", key)), "side": "enemy", "hp": hp, "max_hp": hp,
-		"block": int(def.get("block", 0)), "statuses": {}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
+		"block": int(def.get("block", 0)), "statuses": {"ward": clampi(int(def.get("ward", 1 if bool(def.get("warden", false)) else 0)), 0, 99)}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
 		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": -1,
 		"gimmick": str(def.get("gimmick", "")), "warden": bool(def.get("warden", false)), "phase": 0,
-		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "threat": int(def.get("threat", 1)),
+		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "stun_streak": 0, "clouded_move": -1, "threat": int(def.get("threat", 1)),
 		"text": str(def.get("text", ""))}
 
 static func phase_for(enemy: Dictionary) -> int:
@@ -41,7 +41,7 @@ const COMBINATIONS: Array = ["pair", "triple", "quad", "quint", "two_pair", "ful
 static func effective_dice(enemy: Dictionary) -> Array:
 	var out: Array = []
 	var upgrade: int = int(enemy.get("dice_upgrade", 0))
-	var dread: int = 1 if int(enemy.get("dread_turns", 0)) > 0 else 0
+	var dread: int = maxi(0, int(enemy.get("dread_turns", 0)))
 	for base in enemy.get("dice", []):
 		var index: int = TIERS.find(str(base.get("shape", "D6")))
 		var tier: int = maxi(0, clampi(index + upgrade, 0, TIERS.size() - 1) - dread)
@@ -62,13 +62,20 @@ static func prepare(enemy: Dictionary) -> void:
 	enemy.acting = false
 	enemy.beat = ""
 	enemy.suppressed = 0
-	for move in enemy.moves:
-		enemy.move_states.append("unrevealed")
+	for index in range(enemy.moves.size()):
+		enemy.move_states.append("clouded" if move_clouded(enemy, index) else "unrevealed")
+
+static func move_clouded(enemy: Dictionary, index: int) -> bool:
+	return int(enemy.get("statuses", {}).get("clouded", 0)) > 0 and index == mini(int(enemy.get("clouded_move", -1)), enemy.get("moves", []).size() - 1)
 
 static func finish(enemy: Dictionary) -> void:
 	enemy.acting = false
 	enemy.beat = "done"
 	enemy.dread_turns = maxi(0, int(enemy.get("dread_turns", 0)) - 1)
+	if int(enemy.statuses.get("clouded", 0)) > 0:
+		enemy.statuses.clouded = int(enemy.statuses.clouded) - 1
+		if int(enemy.statuses.clouded) == 0:
+			enemy.clouded_move = -1
 
 static func is_combination(move: Dictionary) -> bool:
 	return str(move.get("trigger", {}).get("kind", "always")) in COMBINATIONS
@@ -100,6 +107,8 @@ static func suspense(enemy: Dictionary, remaining: Array) -> bool:
 	if remaining.size() != 1 or enemy.get("hand", []).is_empty():
 		return false
 	for index in range(enemy.moves.size()):
+		if move_clouded(enemy, index):
+			continue
 		var move: Dictionary = enemy.moves[index]
 		if bool(move.get("dramatic", false)) and is_combination(move) and not enemy.used_combos.has(index):
 			if can_complete(move, enemy.hand, remaining):
@@ -112,6 +121,9 @@ static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 	var remaining: Array = dice.slice(int(enemy.next_die), available)
 	var out: Array = []
 	for index in range(enemy.moves.size()):
+		if move_clouded(enemy, index):
+			enemy.move_states[index] = "clouded"
+			continue
 		var move: Dictionary = enemy.moves[index]
 		var combo: bool = is_combination(move)
 		if combo and enemy.used_combos.has(index):
@@ -152,11 +164,14 @@ static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
 static func display_moves(enemy: Dictionary, moves: Array = []) -> Array:
 	var shown: Array = (enemy.get("moves", []) if moves.is_empty() else moves).duplicate(true)
 	var bonus: int = int(enemy.get("damage_bonus", 0)) + int(enemy.get("enrage_bonus", 0))
-	if bonus > 0:
-		for move in shown:
-			for effect in move.get("effects", []):
-				if str(effect.kind) == "damage":
+	for move in shown:
+		for effect in move.get("effects", []):
+			if str(effect.kind) == "damage":
+				if bonus > 0:
 					effect.amount = {"op": "+", "args": [effect.get("amount", 0), bonus]}
+				var pct: int = DeepRules.outgoing_damage(100, enemy.get("statuses", {}))
+				if pct != 100:
+					effect.amount = {"op": "pct", "args": [effect.get("amount", 0), pct]}
 	return shown
 
 static func trigger_words(move: Dictionary) -> String:
@@ -200,6 +215,15 @@ static func effect_words(effect: Dictionary) -> String:
 		"poison": return "%s poison · all players" % n
 		"stun": return "Stun all players · %s turn" % n
 		"remove_block": return "Remove %s block · all players" % n
-		"curse": return "%s%% vulnerable · all players" % n
+		"curse": return "%s Curse · −10%% dealt / +10%% taken per stack (max 10) · all players" % n
+		"clouded": return "Cloud a socket · all players" if str(effect.get("target", "heroes")) in ["hero", "heroes"] else "Clouded for %s actions · one random ability disabled" % n
+		"marked": return "%s Marked · next hit +25%% per stack" % n
+		"dulled": return "%s Dulled · gems lose one Cut step per stack" % n
+		"ward": return "%s Ward · blocks debuff applications (max 99)" % n
+		"retain": return "Retain up to %s block at the next reset" % n
+		"charged": return "%s Charged · starting Resonance next turn" % n
+		"regeneration": return "%s Regeneration · heal at turn end, then lose one stack" % n
+		"spikes": return "%s Spikes · retaliate once per attacking ability" % n
+		"dice_dread": return "%s Dread · dice lose one tier per stack" % n
 		"dice_upgrade": return "Dice +%s tier · this fight" % n
 	return str(effect.get("kind", "")).capitalize() + " " + n
