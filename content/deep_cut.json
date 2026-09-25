@@ -3765,6 +3765,21 @@
     }
    ]
   },
+  "VOID": {
+    "name": "Void",
+    "class": "FRACTURE",
+    "rarity": "RARE",
+    "weight": 0.25,
+    "text": "Takes no socket: it rides one beside whatever is set there and fires right after it. Fragile: cannot be sold or kept in the vault; shatters when the run ends, or when revealed at home.",
+    "modifiers": [
+      {
+        "kind": "slotless"
+      },
+      {
+        "kind": "fragile"
+      }
+    ]
+  },
   "CAVITY": {
    "name": "Cavity",
    "class": "FRACTURE",
@@ -5232,7 +5247,7 @@
    "name": "Pick of Three",
    "group": "stone",
    "needs": "pick",
-   "text": "Choose one of three appraised stones for your haul.",
+   "text": "Three raw stones from depth 4, each a different color. The one you take goes under the loupe at once, and can go straight onto your rail.",
    "effects": [
     {
      "kind": "pick_stone",
@@ -5384,7 +5399,7 @@
    "name": "A Precious Stone",
    "group": "reward",
    "needs": "pick",
-   "text": "Choose one of three appraised stones, Precious or better.",
+   "text": "Three raw stones from depth 8, each a different color and Precious or better. The one you take goes under the loupe at once.",
    "effects": [
     {
      "kind": "pick_stone",
@@ -5429,52 +5444,6 @@
    "effects": [
     {
      "kind": "wild_face"
-    }
-   ]
-  },
-  "SHOT_GEODE": {
-   "name": "Crack a Geode",
-   "group": "long_shot",
-   "text": "Three small stones 40%, one heavy stone 40%, dust 20%.",
-   "effects": [
-    {
-     "kind": "geode",
-     "three": 40,
-     "one": 40
-    }
-   ]
-  },
-  "SHOT_ROLL": {
-   "name": "Roll for It",
-   "group": "long_shot",
-   "text": "Roll your five dice: three pyrite for every point.",
-   "effects": [
-    {
-     "kind": "roll_ore",
-     "per_point": 3
-    }
-   ]
-  },
-  "SHOT_DEEP": {
-   "name": "Sight Unseen",
-   "group": "long_shot",
-   "text": "A raw stone from depth 8, unappraised. It could be anything.",
-   "effects": [
-    {
-     "kind": "raw_stone",
-     "depth": 8,
-     "bonus": 2
-    }
-   ]
-  },
-  "SHOT_COIN": {
-   "name": "Heads or Tails",
-   "group": "long_shot",
-   "text": "A coin: +20% health, or −20%.",
-   "effects": [
-    {
-     "kind": "coin_hp",
-     "amount": 20
     }
    ]
   }

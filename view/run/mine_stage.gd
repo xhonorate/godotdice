@@ -901,9 +901,12 @@ func vein(spots: Array, hazard: bool, finders: Dictionary) -> Node3D:
 	if business_key() != key:
 		var face: Node3D = VeinFace.new()
 		face.position = Chamber.ARENA + Vector3(0, 0, -0.8)
+		## Built where it will rest, before it is handed to the room: `set_business` starts it
+		## 2.6 below the floor and lifts it into place, and blocks bedded against the floor
+		## from down there came up hanging that far above it.
+		face.build(room.biome, spots, room_seed(place) + 17, hazard, func(x: float, z: float) -> float: return room.ground(x, z))
 		## The blocks lie either side of the way through, so nobody rounds them.
 		set_business(key, face, 0.0)
-		face.build(room.biome, spots, room_seed(place) + 17, hazard, func(x: float, z: float) -> float: return room.ground(x, z))
 		_lead_eye(HOME_LOOK + Vector3(0, 0.55, -1.0))
 	var face: Node3D = business()
 	for index in range(spots.size()):

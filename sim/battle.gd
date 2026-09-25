@@ -26,18 +26,15 @@ const BIRTHSTONE_KINDS: Array = ["replay_rail", "tick_poison", "stone_drop"]
 
 # --- setup -------------------------------------------------------------------------------
 
-static func make_player(id: String, name: String, character_key: String, rail: Array, dice: Array, hp: int = -1) -> Dictionary:
-	## A player unit for a fight. `rail` is stones by socket (null for empty), `dice` five
-	## die instances. HP, sockets, passive and Birthstone come from the character.
+static func make_player(id: String, name: String, character_key: String, rail: Array, dice: Array, hp: int = -1, riders: Array = []) -> Dictionary:
+	## A player unit for a fight. `rail` is stones by socket (null for empty), `riders` the
+	## Void gems riding each socket, `dice` five die instances. HP, sockets, passive and
+	## Birthstone come from the character. The rail is kept by socket here; `begin` lays it
+	## flat for the fight.
 	var character: Dictionary = DeepContent.character(character_key)
 	var sockets: Array = character.get("sockets", ["ANY"]).duplicate()
-	var filled: Array = rail.duplicate(true)
-	while filled.size() < sockets.size():
-		filled.append(null)
-	if filled.size() > sockets.size():
-		filled = filled.slice(0, sockets.size())
 	var max_hp: int = int(character.get("hp", 60))
-	return {"id": id, "name": name, "side": "player", "character": character_key, "sockets": sockets, "rail": filled,
+	var unit: Dictionary = {"id": id, "name": name, "side": "player", "character": character_key, "sockets": sockets, "rail": rail.duplicate(true), "riders": riders.duplicate(true),
 		"birthstone": character.get("birthstone", {}).duplicate(true), "flips": 0, "fired_sockets": [], "fizzled_sockets": [],
 		"rank_buff": {"carat": 0, "cut": 0}, "gem_buffs": {}, "pyrite_delta": 0, "repeat_next": 0, "replaying": false, "stone_drops": 0,
 		"hp": hp if hp >= 0 else max_hp, "max_hp": max_hp, "block": 0, "statuses": {}, "dice": dice.duplicate(true), "hand": [],
@@ -47,11 +44,16 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 		"healed": 0, "dealt": 0, "dealt_last_turn": 0, "gold": 0, "once": {}, "downed": false, "connected": true,
 		"eligible_turn": 1, "buried": [], "clouded": [], "stolen_dice": 0, "granted_rerolls": 0, "sparkle": 0,
 		"quality_bonus": 0, "run_mods": {}, "skipped_turn": - 1}
+	DeepStone.normalize_rail(unit)
+	return unit
 
 static func begin(players: Array, creature_keys: Array, context: Dictionary, rng_dice: RandomNumberGenerator, rng_creatures: RandomNumberGenerator) -> Dictionary:
 	var state: Dictionary = {"turn": 0, "phase": "planning", "outcome": "", "depth": int(context.get("depth", 1)),
 		"party": players.size(), "elite": bool(context.get("elite", false)), "warden": bool(context.get("warden", false)),
 		"players": players.duplicate(true), "enemies": [], "queue": [], "seq": 0}
+	## Each rail is laid flat for the fight: a socket's gem, then the Void gems riding it.
+	for unit in state.players:
+		DeepStone.flatten_rail(unit)
 	var index: int = 0
 	for key in creature_keys:
 		state.enemies.append(DeepCreatures.make(str(key), "e%d" % index, state.depth, players.size()))

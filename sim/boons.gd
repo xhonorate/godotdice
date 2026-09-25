@@ -2,15 +2,13 @@ class_name DeepBoons
 extends RefCounted
 ## The Grubstake: what the workshop stakes a lapidary before the lift goes down.
 ##
-## At the shaft head every player is offered a handful of stakes and takes one. The offer
-## is built from the `boons` section of the pack:
+## At the shaft head every player is offered three stakes and takes one. The offer is
+## built from the `boons` section of the pack:
 ##
 ##   a stone stake      something for the stones in the rail or the haul
 ##   a kit stake        health, ore, one of your dice worked, softer rock
 ##   terms              one cost and one bigger reward, drawn together; costs and rewards
 ##                      list what they will not pair with
-##   a long shot        a gamble, offered only to a veteran: someone whose last run reached
-##                      the first Warden
 ##
 ## A player whose last run fell before the first landing is shown mercy: their kit stake is
 ## drawn from the stakes tagged for it. Everything a stake changes is for this run only: the
@@ -20,13 +18,15 @@ extends RefCounted
 ## A boon is written as effects with a small vocabulary of their own (they act on the run,
 ## not on a hand), and says what it `needs`: a socket in the rail, which is drawn at random
 ## from the stones set there when the stake is taken, or a pick from candidates rolled when
-## the offer is made, which the player chooses between once they have taken the stake.
+## the offer is made, which the player chooses between once they have taken the stake. A
+## pick's candidates are raw stones, one of each of as many colors, so the choice is a
+## color and a size; the one taken is read under the loupe on the spot.
 
-const GROUPS: Array = ["stone", "kit", "cost", "reward", "long_shot"]
+const GROUPS: Array = ["stone", "kit", "cost", "reward"]
 const NEEDS: Array = ["", "socket", "pick"]
 const EFFECT_KINDS: Array = ["cut_step", "carat", "reroll_cut", "reroll_clarity", "inclusion", "raw_stone", "pick_stone", "resize_die",
-	"wild_face", "max_hp_pct", "hp_pct", "ore", "soft_rock", "extra_rerolls", "geode", "roll_ore", "coin_hp"]
-const OFFER_KINDS: Array = ["stone", "kit", "terms", "long_shot"]
+	"wild_face", "max_hp_pct", "hp_pct", "ore", "soft_rock", "extra_rerolls"]
+const OFFER_KINDS: Array = ["stone", "kit", "terms"]
 const PICK_TRIES: int = 12
 
 # --- validation ------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ static func validate(def: Variant, p: Dictionary) -> Array:
 			errors.append(where + ": unknown kind " + kind)
 			continue
 		match kind:
-			"cut_step", "carat", "max_hp_pct", "hp_pct", "ore", "coin_hp":
+			"cut_step", "carat", "max_hp_pct", "hp_pct", "ore":
 				if not (effect.get("amount", null) is int or effect.get("amount", null) is float):
 					errors.append(where + ": needs an amount")
 			"inclusion":
@@ -83,9 +83,6 @@ static func validate(def: Variant, p: Dictionary) -> Array:
 			"extra_rerolls":
 				if int(effect.get("amount", 0)) < 1 or int(effect.get("until_depth", 0)) < 1:
 					errors.append(where + ": needs an amount and until_depth")
-			"roll_ore":
-				if int(effect.get("per_point", 0)) < 1:
-					errors.append(where + ": needs per_point")
 		if kind in ["cut_step", "carat", "inclusion"] and str(def.get("needs", "")) != "socket":
 			errors.append(where + ": acts on a socket, so the boon needs one")
 	return errors
@@ -97,9 +94,7 @@ static func standing(unit: Dictionary) -> Dictionary:
 	## the player's config from their profile's history.
 	var last_depth: int = int(unit.get("last_depth", 0))
 	var last_outcome: String = str(unit.get("last_outcome", ""))
-	var wardens: Array = DeepContent.constant("warden_depths", [8, 16, 24])
-	var first_warden: int = int(wardens[0]) if not wardens.is_empty() else 8
-	return {"veteran": last_depth >= first_warden, "mercy": last_outcome == "fallen" and last_depth < DeepDescent.landing_every()}
+	return {"mercy": last_outcome == "fallen" and last_depth < DeepDescent.landing_every()}
 
 # --- the offer -----------------------------------------------------------------------------------
 
@@ -127,7 +122,7 @@ static func _pairs(cost: String, reward: String) -> bool:
 	return not DeepContent.boon(cost).get("not_with", []).has(reward) and not DeepContent.boon(reward).get("not_with", []).has(cost)
 
 static func offer(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerator) -> Array:
-	## The stakes one player is shown: stone, kit, terms, and a long shot for a veteran.
+	## The three stakes one player is shown: stone, kit and terms.
 	var offers: Array = []
 	var stand: Dictionary = standing(unit)
 	var stone_key: String = _draw(rng, pool("stone"))
@@ -145,10 +140,6 @@ static func offer(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerato
 		var reward: String = _draw(rng, rewards)
 		if not reward.is_empty():
 			offers.append(_make_offer(state, unit, "terms", [cost, reward], rng))
-	if bool(stand.veteran):
-		var shot: String = _draw(rng, pool("long_shot"))
-		if not shot.is_empty():
-			offers.append(_make_offer(state, unit, "long_shot", [shot], rng))
 	var index: int = 0
 	for entry in offers:
 		entry.id = "stake%d" % index
@@ -167,22 +158,44 @@ static func _make_offer(state: Dictionary, unit: Dictionary, kind: String, keys:
 			match str(effect.get("kind", "")):
 				"pick_stone":
 					out.pick_kind = "stone"
-					for _i in range(int(effect.get("count", 3))):
-						out.picks.append(_appraised_stone(rng, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0)), str(effect.get("min_tier", "")), str(state.get("run_id", "")), "%s_%s_%d" % [str(unit.id), str(key), out.picks.size()]))
+					## One raw stone of each color drawn, so the three are a choice of color
+					## and size rather than three readings of the same table.
+					var colors: Array = _pick_colors(rng, mine, int(effect.get("count", 3)))
+					for color in colors:
+						out.picks.append(_raw_pick(rng, mine, str(color), int(effect.get("depth", 4)), int(effect.get("bonus", 0)), str(effect.get("min_tier", "")), str(state.get("run_id", "")), "%s_%s_%d" % [str(unit.id), str(key), out.picks.size()]))
 	return out
 
-static func _appraised_stone(rng: RandomNumberGenerator, mine: Dictionary, depth: int, bonus: int, min_tier: String, run_id: String, id: String) -> Dictionary:
-	var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, bonus, {"run": run_id, "source": "grubstake"}, id)
+static func _pick_colors(rng: RandomNumberGenerator, mine: Dictionary, count: int) -> Array:
+	## `count` different colors the mine's rock offers, in a drawn order. Opal is never one:
+	## nothing but a Warden's hoard offers an opal.
+	var offered: Array = []
+	for key in DeepForge.skill_pool(mine):
+		var color: String = str(DeepContent.skill(str(key)).get("color", ""))
+		if not color.is_empty() and color != DeepContent.OPAL and not offered.has(color):
+			offered.append(color)
+	offered.sort()
+	var out: Array = []
+	while not offered.is_empty() and out.size() < count:
+		var drawn: String = str(DeepRng.pick(rng, offered))
+		offered.erase(drawn)
+		out.append(drawn)
+	return out
+
+static func _raw_pick(rng: RandomNumberGenerator, mine: Dictionary, color: String, depth: int, bonus: int, min_tier: String, run_id: String, id: String) -> Dictionary:
+	## A stone of one color, still in its rock: what it is stays the loupe's to say until
+	## it is taken. `min_tier` is a promise about what the loupe will find.
+	var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == color)
+	var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, bonus, {"run": run_id, "source": "grubstake"}, id, pool)
 	if not min_tier.is_empty():
 		var wanted: int = DeepStone.TIERS.find(min_tier)
 		var tries: int = 0
 		while tries < PICK_TRIES and DeepStone.TIERS.find(str(DeepStone.grade(stone).tier)) < wanted:
 			tries += 1
-			var again: Dictionary = DeepForge.roll_stone(rng, mine, depth, bonus + tries * 3, {"run": run_id, "source": "grubstake"}, id)
+			var again: Dictionary = DeepForge.roll_stone(rng, mine, depth, bonus + tries * 3, {"run": run_id, "source": "grubstake"}, id, pool)
 			if int(DeepStone.grade(again).score) >= int(DeepStone.grade(stone).score):
 				stone = again
-	stone.appraised = true
-	stone.inclusions_revealed = true
+	stone.appraised = false
+	stone.inclusions_revealed = false
 	return stone
 
 # --- taking a stake ------------------------------------------------------------------------------
@@ -266,11 +279,17 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			out.made.append(stone)
 			return "A %s goes into your haul, unappraised." % DeepStone.raw_name(stone).to_lower()
 		"pick_stone":
+			## Taken, and read on the spot: the rock comes off under the loupe and the stone
+			## goes into the haul known, ready to set.
 			var stone: Dictionary = chosen.picks[pick].duplicate(true)
+			var was: String = DeepStone.raw_name(stone)
 			stone.provenance.finder = str(unit.id)
+			stone.appraised = true
+			stone.inclusions_revealed = true
 			unit.haul.append(stone)
 			out.made.append(stone)
-			return "You take the %s." % DeepStone.name(stone)
+			out.pick = true
+			return "You take the %s. Under the loupe it is a %s." % [was.to_lower(), DeepStone.name(stone)]
 		"resize_die":
 			## One of the five, drawn from those that can go that way.
 			var steps: int = amount if amount != 0 else 1
@@ -314,35 +333,6 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 				unit.run_mods = {}
 			unit.run_mods.extra_rerolls = {"amount": int(effect.get("amount", 1)), "until_depth": int(effect.get("until_depth", 4))}
 			return "+%d reroll a turn down to depth %d." % [int(effect.get("amount", 1)), int(effect.get("until_depth", 4))]
-		"geode":
-			var roll: float = rng.randf() * 100.0
-			var three: float = float(effect.get("three", 40))
-			var one: float = float(effect.get("one", 40))
-			if roll < three:
-				for _i in range(3):
-					var small: Dictionary = DeepForge.roll_stone(rng, mine, 4, -2, {"run": str(state.get("run_id", "")), "source": "grubstake", "finder": str(unit.id)}, "%s_geode%08x" % [str(unit.id), rng.randi()])
-					unit.haul.append(small)
-					out.made.append(small)
-				return "The geode splits into three small stones."
-			if roll < three + one:
-				var big: Dictionary = DeepForge.roll_stone(rng, mine, 6, 6, {"run": str(state.get("run_id", "")), "source": "grubstake", "finder": str(unit.id)}, "%s_geode%08x" % [str(unit.id), rng.randi()])
-				unit.haul.append(big)
-				out.made.append(big)
-				return "One heavy stone rolls out of the geode."
-			return "The geode is dust inside."
-		"roll_ore":
-			var hand: Array = DeepDice.roll_hand(unit.get("dice", []), rng)
-			var total: int = 0
-			for roll in hand:
-				total += int(roll.get("value", 0))
-			var paid: int = total * int(effect.get("per_point", 3))
-			unit.ore = int(unit.get("ore", 0)) + paid
-			out.rolled = DeepDice.values(hand)
-			return "You roll %s: %d pyrite." % [", ".join(out.rolled.map(func(v: int) -> String: return str(v))), paid]
-		"coin_hp":
-			var heads: bool = DeepRng.chance(rng, 50.0)
-			out.heads = heads
-			return ("Heads. " if heads else "Tails. ") + _max_hp(unit, amount if heads else -amount)
 	return ""
 
 static func _max_hp(unit: Dictionary, pct: int) -> String:

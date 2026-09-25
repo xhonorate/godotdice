@@ -231,6 +231,7 @@ func bind(player_id: String, forecast: Callable) -> void:
 	_map.local_id = player_id
 	_map.run = {}
 	_battle.bind(player_id)
+	_battle.leave()
 	_battle.warm_up()
 	_bench.local_id = player_id
 	_bench.visible = false
@@ -366,6 +367,8 @@ func show_state(state: Dictionary) -> void:
 			"exits": int(_stage.place.get("exits", 2))})
 		return
 	_battle.visible = false
+	## No fight here and none held on screen: the last one's creatures leave the room.
+	_battle.leave()
 	_area.visible = true
 	_map_margin.visible = _chart_open
 	_map.show_run(run)
@@ -594,8 +597,9 @@ func handle(event: Dictionary) -> void:
 		"staked":
 			if str(event.get("unit", "")) == local_id:
 				## Until the party is staked the shaft head shows what this did. Once it moves
-				## on, a stake left to chance holds its result up; any other says it in a line.
-				var chance: bool = not event.get("changed", []).is_empty() or event.get("boons", []).any(func(k: Variant) -> bool: return str(DeepContent.boon(str(k)).get("group", "")) == "long_shot")
+				## on, a stake left to chance, or one that made a stone, holds its result up; any
+				## other says it in a line.
+				var chance: bool = not event.get("changed", []).is_empty() or not event.get("made", []).is_empty()
 				if bool(event.get("finished", false)) and not chance and not str(event.get("message", "")).is_empty():
 					toast(str(event.message), DeepUi.ACCENT, "bag")
 				else:
@@ -603,6 +607,10 @@ func handle(event: Dictionary) -> void:
 				if bool(event.get("finished", false)) and chance:
 					_hold_page("stake", {"result": {"boons": event.get("boons", []), "message": str(event.get("message", "")),
 						"made": event.get("made", []), "dice": event.get("dice", []), "changed": event.get("changed", [])}})
+				## A pick's stone goes under the loupe the moment it is taken: the whole reading,
+				## and at the end of it an empty socket to set it in, or the bag.
+				if str(event.get("unit", "")) == local_id and bool(event.get("pick", false)) and not event.get("made", []).is_empty():
+					_appraisal(event.made[0])
 		"battle":
 			if event.has("battle"):
 				_battle.perform(event.battle)
@@ -782,14 +790,27 @@ func appraisal_actions(stone: Dictionary) -> Array:
 	var out: Array = []
 	if DeepDescent.bench_open(run):
 		var rail: Array = unit.get("rail", [])
-		for index in range(rail.size()):
-			if rail[index] == null and DeepDescent.socket_refusal(unit, known, index).is_empty():
-				var socket: int = index
-				out.append({"label": "Set in socket %d" % (socket + 1), "glyph": "gem", "tone": DeepUi.GOOD, "caption": "Into the rail for the next fight",
+		if DeepStone.is_slotless(known):
+			## A Void gem rides a socket: the first with a gem in it, so it has something to
+			## fire after, else the first that will take it.
+			var host: int = -1
+			for filled in [true, false]:
+				for index in range(rail.size()):
+					if host < 0 and (rail[index] is Dictionary or not filled) and DeepDescent.socket_refusal(unit, known, index).is_empty():
+						host = index
+			if host >= 0:
+				var socket: int = host
+				out.append({"label": "Ride socket %d" % (socket + 1), "glyph": "gem", "tone": DeepUi.INFO, "caption": "No socket used; it fires right after that socket's gem",
 					"call": func() -> void: command.emit({"kind": "socket", "stone_id": id, "index": socket})})
-				break
+		else:
+			for index in range(rail.size()):
+				if rail[index] == null and DeepDescent.socket_refusal(unit, known, index).is_empty():
+					var socket: int = index
+					out.append({"label": "Set in socket %d" % (socket + 1), "glyph": "gem", "tone": DeepUi.GOOD, "caption": "Into the rail for the next fight",
+						"call": func() -> void: command.emit({"kind": "socket", "stone_id": id, "index": socket})})
+					break
 	out.append({"label": "Into the bag", "glyph": "bag", "tone": DeepUi.ACCENT, "caption": "Set it from the bench any time", "dismiss": true})
-	if DeepDescent.at_stall(run):
+	if DeepDescent.at_stall(run) and not DeepStone.is_fragile(known):
 		out.append({"label": "Sell for %d pyrite" % DeepStone.sell_value(known), "glyph": "scales", "tone": DeepUi.ORE, "caption": "Half its worth, on the scales",
 			"sound": "sell", "call": func() -> void: command.emit({"kind": "sell", "stone_id": id})})
 	return out
@@ -1188,11 +1209,11 @@ func _show_stall() -> void:
 						counter.glow("scales", on)
 						## The pans name their price the moment a stone is lifted towards them.
 						var held: Dictionary = _dragged_stone() if on else {}
-						counter.set_scales_price(DeepStone.sell_value(held) if not held.is_empty() else -1),
+						counter.set_scales_price(DeepStone.sell_value(held) if not held.is_empty() and not DeepStone.known_fragile(held) else -1),
 				"accepts": func(data: Dictionary) -> bool:
 					## Anything you carry, set or loose, read or still in its rock: the buyer
 					## pays what a size class is worth for one nobody has read.
-					return str(data.get("kind", "")) == "stone",
+					return str(data.get("kind", "")) == "stone" and not DeepStone.known_fragile(DeepOddities.find_stone(me(), str(data.get("stone_id", "")))),
 				"drop": func(data: Dictionary) -> void: _sell(str(data.stone_id))})
 		if not _stage.has_pick("lens"):
 			_stage.add_pick("lens", counter.lens, Vector3(0.35, 0.55, 0.35), {
@@ -1259,6 +1280,9 @@ func _scales_line(box: VBoxContainer, stone: Dictionary, listed: bool) -> void:
 	var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if appraised else DeepUi.color(DeepStone.color(stone))
 	var said: String = DeepUi.stone_name(stone) if appraised else DeepStone.raw_name(stone)
 	DeepUi.label(line, said, 12, tone).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if DeepStone.known_fragile(stone):
+		DeepUi.stat(line, "split_shield", "Fragile · cannot sell", DeepUi.BAD, 12)
+		return
 	if listed:
 		DeepUi.icon_button(line, "ore", "Sell · %d" % paid, _sell.bind(str(stone.id)), 12, DeepUi.ORE)
 	else:
@@ -1307,7 +1331,8 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 			var held: Dictionary = _dragged_stone()
 			if not held.is_empty():
 				_scales_line(box, held, false)
-				DeepUi.label(box, "Let go to sell it.", 12, DeepUi.DIM)
+				if not DeepStone.known_fragile(held):
+					DeepUi.label(box, "Let go to sell it.", 12, DeepUi.DIM)
 				return true
 			var sellable: Array = unit.get("haul", [])
 			if not pinned:
@@ -1466,9 +1491,7 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			DeepUi.label(box, "Read one raw stone under the lamp. Free." if appraise else "One stone you have read goes back on the wheel: its Cut is drawn again, better or worse.", 12, DeepUi.MUTED)
 			var stones: Array = unit.get("haul", []).duplicate()
 			if not appraise:
-				for stone in unit.get("rail", []):
-					if stone is Dictionary:
-						stones.append(stone)
+				stones.append_array(DeepStone.rail_stones(unit))
 			var fit: Array = stones.filter(func(st: Dictionary) -> bool: return (not bool(st.get("appraised", false))) if appraise else DeepDescent.can_polish(st))
 			if not pinned:
 				DeepUi.label(box, ("No raw stone to read." if appraise else "No stone you have read yet.") if fit.is_empty() else "Drop a stone here, or click for a list.", 12, DeepUi.DIM)
@@ -2175,10 +2198,11 @@ class RewardSlot extends PanelContainer:
 ##
 ## The stakes are shown as what they are, with nothing to set: a stake on a stone lands on
 ## one drawn at random from the rail, and a pick keeps its three candidates face down until
-## it is taken. Taking one turns the page to the three, large, and one of them is kept.
+## it is taken. Taking one turns the page to the three, large: raw stones of three colors,
+## and the one kept is read under the loupe at once.
 
-const STAKE_WORDS: Dictionary = {"stone": "A stone stake", "kit": "A kit stake", "terms": "Terms", "long_shot": "A long shot"}
-const STAKE_GLYPHS: Dictionary = {"stone": "gem", "kit": "bag", "terms": "scales", "long_shot": "die"}
+const STAKE_WORDS: Dictionary = {"stone": "A stone stake", "kit": "A kit stake", "terms": "Terms"}
+const STAKE_GLYPHS: Dictionary = {"stone": "gem", "kit": "bag", "terms": "scales"}
 
 func _stake_tone(kind: String) -> Color:
 	match kind:
@@ -2277,7 +2301,9 @@ func _page_stake_pick(content: VBoxContainer, offer: Dictionary) -> void:
 	medal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	head.add_child(medal)
 	DeepUi.title(head, str(named.get("name", "Your pick")), 34, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-	DeepUi.wrap(head, "Three stones, appraised. One goes into your haul.", 16, DeepUi.PAPER.darkened(0.1), HORIZONTAL_ALIGNMENT_CENTER, 760).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var picks: Array = offer.get("picks", [])
+	var all_read: bool = not picks.is_empty() and picks.all(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)))
+	DeepUi.wrap(head, "Three stones, appraised. One goes into your haul." if all_read else "Three raw stones, three colors. The one you take goes under the loupe now, and can be set on your rail before the lift goes down.", 16, DeepUi.PAPER.darkened(0.1), HORIZONTAL_ALIGNMENT_CENTER, 760).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	for def in costs:
 		var price := DeepUi.stat(head, "cross_out", "%s: %s" % [str(def.get("name", "")), str(def.get("text", ""))], DeepUi.BAD.lightened(0.2), 14)
 		price.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -2285,7 +2311,6 @@ func _page_stake_pick(content: VBoxContainer, offer: Dictionary) -> void:
 	var row := DeepUi.hbox(content, 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var offer_id: String = str(offer.get("id", ""))
-	var picks: Array = offer.get("picks", [])
 	for index in range(picks.size()):
 		var candidate: Dictionary = picks[index]
 		var column := DeepUi.vbox(row, 12)
@@ -2305,7 +2330,7 @@ func _stake_result(content: VBoxContainer, result: Dictionary) -> PanelContainer
 	var names: Array = result.get("boons", []).map(func(k: Variant) -> String: return str(DeepContent.boon(str(k)).get("name", k)))
 	DeepUi.section(box, "check", " and ".join(names) if not names.is_empty() else "Staked", DeepUi.ACCENT)
 	DeepUi.wrap(box, str(result.get("message", "You have taken your stake.")), 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_LEFT, 700)
-	## One stone across the card; more (a geode's three) two abreast, so the page stays whole.
+	## One stone across the card; more two abreast, so the page stays whole.
 	var stones: Array = result.get("changed", []) + result.get("made", [])
 	var grid := GridContainer.new()
 	grid.columns = 1 if stones.size() <= 1 else 2
@@ -2322,8 +2347,8 @@ func _stake_result(content: VBoxContainer, result: Dictionary) -> PanelContainer
 	return result_card
 
 func _page_stake_result(content: VBoxContainer) -> void:
-	## Held once the last stake is in, when this one did something by chance: the stone the
-	## rail gave up to it, or how a long shot fell. The tunnels wait behind it.
+	## Held once the last stake is in, when this one did something by chance or made a stone:
+	## the stone the rail gave up to it, or the one just read. The tunnels wait behind it.
 	var head := DeepUi.vbox(content, 8)
 	var medal := Medallion.new("bag", DeepUi.ACCENT, 110)
 	medal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -2473,11 +2498,9 @@ func _picker_empty(needs: String, unit: Dictionary) -> bool:
 	return false
 
 func _carried(unit: Dictionary) -> Array:
-	## Every stone the player has to hand: the bag and the rail alike.
+	## Every stone the player has to hand: the bag and the rail alike, riders included.
 	var out: Array = unit.get("haul", []).duplicate()
-	for stone in unit.get("rail", []):
-		if stone is Dictionary:
-			out.append(stone)
+	out.append_array(DeepStone.rail_stones(unit))
 	return out
 
 class Medallion extends Control:
@@ -2599,6 +2622,8 @@ func _work_refusal(action: Dictionary, item: Dictionary) -> String:
 				seen[int(f.get("value", 0))] = true
 			return "" if seen.size() > 1 else "every face already shows the same number"
 		"reroll_cut", "reroll_clarity", "wishing_well", "collector_sell", "trade_up", "tumble", "fuse":
+			if str(action.get("kind", "")) == "collector_sell" and DeepStone.known_fragile(item):
+				return "fragile stones cannot be sold"
 			if not bool(item.get("appraised", false)):
 				return "nobody has read it yet"
 			return "a Knot cannot leave its socket" if DeepStone.is_locked(item) else ""
@@ -2719,9 +2744,7 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 	if needs.is_empty():
 		return func() -> Dictionary: return {}
 	var stones: Array = unit.get("haul", []).duplicate()
-	for stone in unit.get("rail", []):
-		if stone is Dictionary:
-			stones.append(stone)
+	stones.append_array(DeepStone.rail_stones(unit))
 	var dice: Array = unit.get("dice", [])
 	var row := DeepUi.vbox(box, 6)
 	match needs:
@@ -2962,6 +2985,15 @@ func _page_over(content: VBoxContainer) -> void:
 			var tile := StoneCard.tile(tiles, stone, 64)
 			_enter(tile, 0.4 + 0.06 * index)
 			index += 1
+	var shattered: Array = unit.get("shattered", [])
+	if not shattered.is_empty():
+		var losses := DeepUi.hbox(box, 10)
+		var shards: Control = load("res://view/gems/shatter.gd").new(shattered[0], 64.0, 0.45, _fresh)
+		losses.add_child(shards)
+		var note := DeepUi.vbox(losses, 4)
+		DeepUi.section(note, "split_shield", "%s shattered" % DeepUi.plural(shattered.size(), "fragile gem"), DeepUi.BAD)
+		DeepUi.wrap(note, "Void gems cannot leave the mine. Nothing was kept or sold.", 13, DeepUi.MUTED)
+		losses.tooltip_text = "\n".join(shattered.map(func(s: Dictionary) -> String: return DeepUi.stone_name(s)))
 	var go := DeepUi.primary(box, "anvil", "Back to the workshop", func() -> void: home_requested.emit(), 18)
 	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_enter(card)

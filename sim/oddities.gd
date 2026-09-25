@@ -41,11 +41,12 @@ static func validate(def: Variant) -> Array:
 	return errors
 
 static func find_stone(player: Dictionary, stone_id: String) -> Dictionary:
+	## A stone anywhere the player has it: the bag, a socket, or riding one.
 	for stone in player.get("haul", []):
 		if str(stone.get("id", "")) == stone_id:
 			return stone
-	for stone in player.get("rail", []):
-		if stone is Dictionary and str(stone.get("id", "")) == stone_id:
+	for stone in DeepStone.rail_stones(player):
+		if str(stone.get("id", "")) == stone_id:
 			return stone
 	return {}
 
@@ -60,6 +61,14 @@ static func remove_stone(player: Dictionary, stone_id: String) -> bool:
 		if rail[index] is Dictionary and str(rail[index].get("id", "")) == stone_id:
 			rail[index] = null
 			return true
+	var riders: Array = player.get("riders", [])
+	for socket in range(riders.size()):
+		if not riders[socket] is Array:
+			continue
+		for at in range(riders[socket].size()):
+			if riders[socket][at] is Dictionary and str(riders[socket][at].get("id", "")) == stone_id:
+				riders[socket].remove_at(at)
+				return true
 	return false
 
 static func find_die(player: Dictionary, die_id: String) -> Dictionary:
@@ -256,6 +265,8 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty():
 				return _refuse("choose a stone to sell")
+			if DeepStone.is_fragile(stone):
+				return _refuse("fragile stones cannot be sold")
 			var paid: int = DeepStone.value(stone) * int(action.get("mult", 3))
 			player.ore = int(player.get("ore", 0)) + paid
 			remove_stone(player, str(stone.id))
@@ -279,12 +290,11 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var color: String = DeepStone.color(stone)
 			var beside: Array = []
 			var socketed: bool = false
-			for other in player.get("rail", []):
-				if other is Dictionary:
-					if str(other.id) == str(stone.id):
-						socketed = true
-					else:
-						beside.append(str(other.skill))
+			for other in DeepStone.rail_stones(player):
+				if str(other.id) == str(stone.id):
+					socketed = true
+				else:
+					beside.append(str(other.skill))
 			var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool:
 				return str(DeepContent.skill(k).get("color", "")) == color and k != str(stone.skill) and not (socketed and beside.has(k)))
 			if pool.is_empty():

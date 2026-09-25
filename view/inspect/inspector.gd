@@ -40,6 +40,7 @@ static var _sheet: CanvasLayer = null
 var _dim: ColorRect
 var _panel: PanelContainer
 var _stage: Control
+var _stage_hint: Label
 ## The name and tags, above the pages.
 var _head: VBoxContainer
 var _tabs: HBoxContainer
@@ -174,7 +175,7 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	var halo := Halo.new(tone)
 	halo.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage.add_child(halo)
-	DeepUi.label(left, "Drag to turn it", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	_stage_hint = DeepUi.label(left, "Drag to turn it", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	var right := DeepUi.vbox(row, 12)
 	right.custom_minimum_size = Vector2(600, 560)
 	_head = DeepUi.vbox(right, 6)
@@ -274,14 +275,21 @@ func _section(glyph: String, text: String, tone: Color = DeepUi.ACCENT) -> VBoxC
 # --- stones ------------------------------------------------------------------------------------
 
 func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
-	var view := GemView.new()
-	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 40)
-	view.set_slot(220.0)
-	view.set_drift(true)
-	view.set_spin(0.35)
-	view.configure(item)
-	view.enable_interaction()
-	_stage.add_child(view)
+	var reference: bool = bool(opts.get("reference", false))
+	if reference:
+		_stage_hint.hide()
+		var frame := DeepUi.center(_stage)
+		frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		DeepUi.icon(frame, GemIcons.emblem(str(item.get("skill", ""))), 160, Color(DeepUi.color(DeepStone.color(item)), 0.65))
+	else:
+		var view := GemView.new()
+		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 40)
+		view.set_slot(220.0)
+		view.set_drift(true)
+		view.set_spin(0.35)
+		view.configure(item)
+		view.enable_interaction()
+		_stage.add_child(view)
 	var appraised: bool = bool(item.get("appraised", true))
 	var grade: Dictionary = DeepStone.grade(item)
 	var tier: Color = DeepUi.tier_color(str(grade.tier))
@@ -300,7 +308,6 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		return
 	## A reference is a skill, not a stone: nobody owns it, so its grade and its worth are
 	## numbers about a thing that does not exist and are left off the page entirely.
-	var reference: bool = bool(opts.get("reference", false))
 	var skill: Dictionary = DeepStone.skill_of(item)
 	DeepUi.title(head, str(skill.get("name", item.get("skill", ""))) if reference else DeepStone.name(item), 28,
 		DeepUi.color(color_key).lightened(0.25) if reference else tier)
@@ -317,6 +324,8 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	DeepUi.pill(tags, "spark", rarity.capitalize(), StoneCard._rarity_color(rarity), 13, "", StoneCard.is_mythic(rarity))
 	if reference:
 		DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13, "One of these has passed through your hands. The vault keeps the page, not the stone.")
+	elif DeepStone.is_fragile(item):
+		DeepUi.pill(tags, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 13)
 	else:
 		DeepUi.pill(tags, "coin", "Value · %d gold" % DeepStone.value(item), DeepUi.ACCENT, 13)
 	## Everything below the tags is one page: what it does, when it fires, its purity.

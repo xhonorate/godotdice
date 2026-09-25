@@ -23,7 +23,6 @@ const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Roster = preload("res://view/home/roster.gd")
 const Appraisal = preload("res://view/gems/appraisal.gd")
-const Inspector = preload("res://view/inspect/inspector.gd")
 
 signal depart_requested(seed: int)
 signal member_changed(fields: Dictionary)
@@ -923,6 +922,9 @@ func _vault(content: VBoxContainer) -> void:
 		var tile: Control
 		if state == "owned":
 			tile = StoneCard.tile(grid, entry.stone, span)
+		else:
+			tile = _ghost_tile(grid, key, color, state == "seen", span)
+		if state in ["owned", "seen"]:
 			if key == _vault_pick:
 				var style: StyleBoxFlat = (tile as PanelContainer).get_theme_stylebox("panel").duplicate()
 				style.border_color = DeepUi.ACCENT
@@ -934,12 +936,13 @@ func _vault(content: VBoxContainer) -> void:
 				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 					_vault_pick = key
 					_render())
-		else:
-			tile = _ghost_tile(grid, key, color, state == "seen", span)
 		_enter(tile, 0.015 * index)
 		index += 1
 	## The stone under the lamp.
 	var shown: Dictionary = DeepProfile.owned(profile, _vault_pick)
+	if shown.is_empty() and profile.get("seen", []).has(_vault_pick):
+		_vault_reference(side, _vault_pick)
+		return
 	var caption: String = ""
 	if shown.is_empty() and not profile.get("records", {}).get("best", {}).is_empty():
 		shown = profile.records.best.stone
@@ -956,10 +959,32 @@ func _vault(content: VBoxContainer) -> void:
 	StoneCard.build(lamp_box, shown, {"picture": false, "provenance": true, "value": true, "text_width": 380})
 	_enter(lamp, 0.05)
 
+func _vault_reference(parent: Node, key: String) -> void:
+	## Only the skill is remembered; there is no kept stone to model or value.
+	var stone: Dictionary = DeepStone.reference_stone(key)
+	var skill: Dictionary = DeepContent.skill(key)
+	var color: String = DeepStone.color(stone)
+	var hue: Color = DeepUi.color(color)
+	var card := DeepUi.card(parent, Color(hue, 0.35), 16)
+	var column := DeepUi.vbox(card, 10)
+	var frame := DeepUi.center(column)
+	frame.custom_minimum_size.y = 220
+	DeepUi.icon(frame, GemIcons.emblem(key), 112, Color(hue, 0.65))
+	DeepUi.title(column, str(skill.get("name", key)), 22, hue.lightened(0.25))
+	var tags := DeepUi.hbox(column, 8)
+	var rarity: String = str(skill.get("rarity", "COMMON"))
+	DeepUi.pill(tags, "spark", rarity.capitalize(), StoneCard._rarity_color(rarity), 13, "", StoneCard.is_mythic(rarity))
+	DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13)
+	var described: Dictionary = DeepPatterns.describe(skill.get("trigger", {"kind": "always"}), int(stone.cut))
+	DiceIcons.build(column, described, 18, DeepUi.PAPER)
+	DeepUi.effect_text(column, DeepStone.text(stone), 13, DeepUi.PAPER, true, 380)
+	StoneCard.carat_lines(column, stone)
+	DeepUi.wrap(column, "At one carat, Poor cut and Clear clarity. The stone you find will have its own qualities.", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 380)
+	_enter(card, 0.05)
+
 func _ghost_tile(parent: Node, key: String, color: String, seen: bool, span: int = 84) -> PanelContainer:
 	## A skill not kept: its emblem in grey if it has been seen, a dark mark if not. A seen
-	## one opens: having had the gem in hand once is enough to remember what it did, and a
-	## player weighing a rail wants that page whether or not the stone survived the run.
+	## one can be selected for a summary; full inspection belongs to owned stones.
 	var box := PanelContainer.new()
 	var style := DeepUi.flat(Color(0.03, 0.035, 0.05, 0.55 if seen else 0.35), Color(DeepUi.color(color), 0.25 if seen else 0.08), 12, 8)
 	style.set_border_width_all(1)
@@ -971,18 +996,14 @@ func _ghost_tile(parent: Node, key: String, color: String, seen: bool, span: int
 	frame.custom_minimum_size = Vector2(span, span)
 	var skill: Dictionary = DeepContent.skill(key)
 	if seen:
+		var hint: String = "%s: seen, not kept.\nClick for a summary." % str(skill.get("name", key))
 		DeepUi.icon(frame, GemIcons.emblem(key), int(span * 0.52), Color(DeepUi.color(color), 0.35),
-			"%s: seen, not kept.\nClick to read what it does." % str(skill.get("name", key)))
+			hint)
 		var l := DeepUi.label(column, str(skill.get("name", key)), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		l.custom_minimum_size.x = span
 		l.clip_text = true
 		box.mouse_filter = Control.MOUSE_FILTER_STOP
-		box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		box.tooltip_text = "%s: seen, not kept.\nClick to read what it does." % str(skill.get("name", key))
-		DeepUi.juice(box, 1.06)
-		box.gui_input.connect(func(event: InputEvent) -> void:
-			if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
-				Inspector.stone(DeepStone.reference_stone(key), {"reference": true}))
+		box.tooltip_text = hint
 	else:
 		DeepUi.icon(frame, "question", 26, Color(DeepUi.color(color), 0.18), "Not yet found")
 		DeepUi.label(column, " ", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
@@ -1051,8 +1072,12 @@ func _appraise(content: VBoxContainer) -> void:
 		var afford: bool = int(profile.get("gold", 0)) >= whole_fee
 		var all_button := DeepUi.icon_button(head, "loupe", "Appraise all %d · %d gold" % [raw.size(), whole_fee], func() -> void:
 			var best: Dictionary = {}
+			var shattered: Array = []
 			for stone in raw:
 				if not DeepProfile.appraise(profile, stone):
+					continue
+				if DeepStone.is_fragile(stone):
+					shattered.append(stone)
 					continue
 				if best.is_empty() or DeepStone.value(stone) > DeepStone.value(best):
 					best = stone
@@ -1064,6 +1089,10 @@ func _appraise(content: VBoxContainer) -> void:
 			if not claimed.is_empty():
 				_appraise_pick = ""
 				_cheer = {"text": "%s straight into the vault" % DeepUi.plural(claimed.size(), "stone"), "color": DeepUi.GOOD}
+			if not shattered.is_empty():
+				_appraise_pick = ""
+				_cheer = {"text": "%s shattered: Fragile" % DeepUi.plural(shattered.size(), "stone"), "color": DeepUi.BAD}
+				Appraisal.open(shattered[0], {"shatter": true, "shattered_count": shattered.size()})
 			profile_changed.emit(), 14, DeepUi.INFO)
 		all_button.disabled = not afford
 		all_button.tooltip_text = "Every rough stone on the tray, under the loupe at once." if afford else "You have %d gold. The whole tray costs %d." % [int(profile.get("gold", 0)), whole_fee]
@@ -1166,10 +1195,14 @@ func _lens_column(parent: Node, stone: Dictionary, edge: float) -> VBoxContainer
 func _sell_rough(pick: Dictionary) -> void:
 	## Off the tray unread, for what a buyer gives on a size class. The vault learns nothing
 	## from it, because nobody ever found out what it was.
-	var paid: int = DeepStone.rough_value(pick)
-	DeepProfile.decide_tray(profile, str(pick.id), false)
+	var raw: Dictionary = pick.duplicate(true)
+	var result: Dictionary = DeepProfile.decide_tray(profile, str(pick.id), false)
 	_appraise_pick = ""
-	_cheer = {"text": "Sold rough, +%d gold" % paid, "color": DeepUi.ACCENT}
+	if bool(result.get("shattered", false)):
+		_cheer = {"text": "Shattered: Fragile", "color": DeepUi.BAD}
+		Appraisal.open(raw, {"shatter": true})
+	else:
+		_cheer = {"text": "Sold rough, +%d gold" % int(result.get("paid", 0)), "color": DeepUi.ACCENT}
 	profile_changed.emit()
 
 func _appraise_stone(pick: Dictionary) -> void:
@@ -1178,6 +1211,12 @@ func _appraise_stone(pick: Dictionary) -> void:
 	## loses what was bought.
 	var raw: Dictionary = pick.duplicate(true)
 	if not DeepProfile.appraise(profile, pick):
+		return
+	if DeepStone.is_fragile(pick):
+		_appraise_pick = ""
+		_cheer = {"text": "Shattered: Fragile", "color": DeepUi.BAD}
+		Appraisal.open(raw, {"shatter": true})
+		profile_changed.emit()
 		return
 	var owned: Dictionary = DeepProfile.owned(profile, str(pick.skill))
 	var actions: Array = _tray_actions(pick, true)
@@ -1197,6 +1236,8 @@ func _tray_actions(pick: Dictionary, deferrable: bool) -> Array:
 	## choice is which of the two to keep; otherwise it is keep or sell. At the end of an
 	## appraisal it can also be left on the tray for later.
 	var id: String = str(pick.id)
+	if DeepStone.is_fragile(pick):
+		return []
 	var owned: Dictionary = DeepProfile.owned(profile, str(pick.skill))
 	var keep := func() -> void:
 		DeepProfile.decide_tray(profile, id, true)

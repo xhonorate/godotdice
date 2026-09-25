@@ -109,7 +109,9 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 			parts.append(str(where.date))
 		if not parts.is_empty():
 			DeepUi.stat(footer, "map", ", ".join(parts), DeepUi.DIM, 11, "Where it was found")
-	if opts.has("value"):
+	if DeepStone.is_fragile(stone):
+		DeepUi.stat(footer, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 12)
+	elif opts.has("value"):
 		DeepUi.stat(footer, "coin", "%d gold" % DeepStone.value(stone), DeepUi.ACCENT, 12, "What a buyer would pay")
 	return card
 

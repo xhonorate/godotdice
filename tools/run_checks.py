@@ -30,7 +30,7 @@ failed = []
 subprocess.run([godot, "--headless", "--path", str(ROOT), "--import"], cwd=ROOT, text=True,
                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
 
-for suite in ["test_dice.gd", "test_dice_shapes.gd", "test_stones.gd", "test_gem_updates.gd", "test_battle.gd", "test_statuses.gd", "test_enemy_turns.gd", "test_enemy_ui.gd", "test_descent.gd", "test_net.gd", "test_view.gd", "test_creatures.gd", "test_audio.gd", "test_screens.gd", "test_fit.gd"]:
+for suite in ["test_dice.gd", "test_dice_shapes.gd", "test_stones.gd", "test_gem_updates.gd", "test_void.gd", "test_battle.gd", "test_statuses.gd", "test_enemy_turns.gd", "test_enemy_ui.gd", "test_descent.gd", "test_net.gd", "test_view.gd", "test_creatures.gd", "test_audio.gd", "test_screens.gd", "test_fit.gd"]:
     path = ROOT / "tests" / suite
     if not path.exists():
         failed.append(suite + " (missing)")

@@ -8,7 +8,7 @@ extends SceneTree
 ##          over | inspect_stone | inspect_die | inspect_opal | vault_opals | inspect_flaw | vault_flaws | inspect_creature | menu | menu_settings |
 ##          abandon | map_lit |
 ##          crossroads | crossroads_hover | walk | walk_in | rockfall | crumble | vein_hover | vein_strike |
-##          lift_ride | hoard | appraisal | appraisal_run
+##          lift_ride | hoard | appraisal | appraisal_run | void_rail | void_bench | void_battle | void_end | void_appraisal
 ## `appraisal` puts a raw stone from the tray under the loupe at home (weighed against a kept
 ## one of its skill) and `appraisal_run` buys an appraisal at a merchant; the 4th argument is
 ## how far into the ceremony to shoot, in seconds.
@@ -43,6 +43,9 @@ func _init() -> void:
 	root.add_child(app)
 	await process_frame
 	await process_frame
+	if target.begins_with("void_"):
+		await _void_preview(app, target, out)
+		return
 	if HOME_TABS.has(target) or target in ["inspect_stone", "inspect_die", "inspect_opal", "vault_opals", "inspect_flaw", "vault_flaws"]:
 		_enrich(app.profile, seed_value)
 		app._profile_changed()
@@ -436,6 +439,49 @@ func _enrich(profile: Dictionary, seed_value: int) -> void:
 	profile.mines[DeepContent.starter_mine()].wardens = [8]
 	for i in range(5):
 		profile.history.append({"date": "2026-09-1%d" % i, "mine": DeepContent.starter_mine(), "depth": 4 + i * 2, "outcome": "fallen" if i % 3 == 2 else "extracted", "stones": i + 1})
+
+func _void_preview(app: Control, target: String, out: String) -> void:
+	var raw: Dictionary = DeepStone.make("CLEAVE", 9, 3, 2, ["VOID"], {"source": "vein"}, "shot_void")
+	if target == "void_appraisal":
+		app.profile.gold = 1000
+		app.profile.tray.append(raw)
+		app._profile_changed()
+		app.home.open("appraise")
+		app.home._appraise_stone(raw)
+		await create_timer(0.5).timeout
+		load("res://view/gems/appraisal.gd")._open.finish()
+		await create_timer(0.35).timeout
+		_save(out)
+		return
+	app._depart(9001)
+	var run: Dictionary = app.session.run
+	var unit: Dictionary = app.session.local_player()
+	run.depth = 3
+	run.phase = "tunnels"
+	DeepDescent._offer_tunnels(run, DeepDescent.streams_of(run))
+	var keys: Array = ["CLEAVE", "FURY", "VENOM", "ECHO", "CASCADE", "REFRACT"]
+	for index in range(keys.size()):
+		var stone: Dictionary = DeepStone.make(str(keys[index]), 9, 3, 2, ["VOID"], {"source": "vein"}, "shot_" + str(keys[index]))
+		stone.appraised = true
+		stone.inclusions_revealed = true
+		## Riding the sockets: two on the first, one on the second, one on the fourth and two on the last.
+		unit.riders[[0, 0, 1, 3, 4, 4][index]].append(stone)
+	DeepStone.normalize_rail(unit)
+	unit.haul.append(raw)
+	if target == "void_battle":
+		run.phase = "chamber"
+		run.chamber = {"depth": 3, "settled": false}
+		DeepDescent._start_fight(run, DeepDescent.streams_of(run), false, "")
+	elif target == "void_end":
+		DeepDescent._finish(run, "extracted")
+		app.descent._end_shown = true
+	app.descent.show_state(run)
+	if target == "void_bench":
+		app.descent.open_bench("gems")
+		app.descent._bench._pick = "shot_CLEAVE"
+		app.descent._bench._render()
+	await create_timer(1.5).timeout
+	_save(out)
 
 func _save(out: String) -> void:
 	var image: Image = root.get_viewport().get_texture().get_image()

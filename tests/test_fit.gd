@@ -1,6 +1,6 @@
 extends SceneTree
-## Every screen fits on one page: nothing scrolls, and nothing runs off the edge of the
-## smallest canvas the game draws on (1600 × 900; a window of any other shape only adds room).
+## Every screen fits on the smallest canvas the game draws on (1600 × 900; a window of
+## any other shape only adds room). Only the vault and long gem rails may scroll.
 ## Each screen is filled as full as a player can make it (a vault of every skill, a bowl of
 ## every lapidary's dice, a long ledger, a heavy haul) and every control on it must lie
 ## inside the screen and inside anything that clips it.
@@ -33,6 +33,7 @@ func _init() -> void:
 	await _enemy_panels()
 	await _appraisals(app)
 	await _run(app)
+	await _void_views(app)
 	print("Fit: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -374,6 +375,54 @@ func _run(app: Control) -> void:
 		descent.show_state(app.session.run)
 		await _fits(screen, "a fight with every chip on show")
 
+func _void_views(app: Control) -> void:
+	## Fourteen Void gems riding five sockets, three or two to a socket: the dock, the bench
+	## and the fight must still hold the whole rail on one page, with nothing scrolling.
+	var run: Dictionary = app.session.run.duplicate(true)
+	run.phase = "chamber"
+	run.chamber = {"kind": "merchant", "stock": [], "settled": false, "appraisals": {}}
+	var unit: Dictionary = DeepDescent.player(run, app.session.local_id)
+	unit.downed = false
+	unit.haul.clear()
+	var keys: Array = DeepContent.section("skills").keys()
+	var count: int = DeepStone.socket_count(unit)
+	for index in range(14):
+		var stone: Dictionary = DeepStone.make(str(keys[index]), 6, 4, 2, ["VOID"], {}, "fit_void%d" % index)
+		stone.appraised = true
+		stone.inclusions_revealed = true
+		unit.riders[index % count].append(stone)
+	DeepStone.normalize_rail(unit)
+	check(unit.rail.size() == count and DeepStone.rider_count(unit) == 14, "fourteen riders leave the rail five sockets long")
+	var rider: Dictionary = unit.riders[0][0]
+	app.descent.show_state(run)
+	await _fits(screen, "the run dock with fourteen riders")
+	check(screen.find_children("*", "ScrollContainer", true, false).is_empty(), "the run dock has nothing that scrolls")
+	app.descent._bench.open(run, "gems")
+	app.descent._bench._pick = str(rider.id)
+	app.descent._bench._render()
+	await _fits(screen, "the bench with fourteen riders and one under the lamp")
+	check(app.descent._bench.find_children("*", "ScrollContainer", true, false).is_empty(), "the bench has nothing that scrolls")
+	app.descent._bench.close()
+	var actions: Array = app.descent.appraisal_actions(rider)
+	check(not actions.any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Sell")), "the merchant's appraisal offers no sale for a fragile gem")
+	var streams: Dictionary = DeepDescent.streams_of(run)
+	DeepDescent._start_fight(run, streams, false, "")
+	app.descent.show_state(run)
+	await _fits(screen, "battle with fourteen riders")
+	check(app.descent._battle.find_children("*", "ScrollContainer", true, false).is_empty(), "the battle dock has nothing that scrolls")
+	check(app.descent._battle._socket_cards.size() == count + 14, "every gem and rider in the fight has a card or a chip to light")
+	DeepDescent._finish(run, "extracted")
+	app.descent._end_shown = true
+	app.descent.show_state(run)
+	await _fits(screen, "the end of a run with fourteen shattered gems")
+	var sheet: CanvasLayer = load("res://view/gems/appraisal.gd").new()
+	screen.add_child(sheet)
+	sheet.call("build", rider, {"shatter": true, "actions": [{"label": "Keep it"}]})
+	sheet.call("finish")
+	await _fits(sheet, "a fragile gem shattered under the workshop loupe")
+	check(sheet._title.text == "Shattered" and not sheet._view.visible and sheet.actions.size() == 1 and sheet.actions[0].label == "Continue", "skipping a fragile appraisal ends with shards and no keep or sell action")
+	sheet.free()
+
 func _advance(app: Control) -> void:
 	## One step of a run toward its next fight, taking the first of whatever is offered.
 	var run: Dictionary = app.session.run
@@ -428,10 +477,8 @@ func _scan(node: Node, bounds: Rect2, found: Array) -> void:
 	if node is CanvasItem and not (node as CanvasItem).visible:
 		return
 	if node is ScrollContainer:
-		## One page is allowed to scroll and says so on the node itself: the vault, which
-		## holds every skill in the pack and would have to shrink its stones to a smudge to
-		## keep up with it. The scroller has to lie inside the page like anything else;
-		## what it holds does not, because being taller than its window is the point of it.
+		## Only the vault opts into scrolling, so its stones stay readable. The scroller
+		## itself must fit the page; its contents can exceed its window.
 		if not bool(node.get_meta("may_scroll", false)):
 			found.append("%s scrolls" % _name(node))
 			return

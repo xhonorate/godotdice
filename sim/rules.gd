@@ -64,7 +64,7 @@ const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison",
 
 const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "downed_ally", "hero", "heroes"]
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
-	"cut_step", "cut_override", "locked", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
+	"cut_step", "cut_override", "locked", "slotless", "fragile", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
 	"copy_previous_inclusion", "adjacent_carat", "always_fires", "fires_twice", "carat_per_depth", "alexandrite",
 	"resonance_bonus"]
 const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]

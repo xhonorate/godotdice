@@ -111,6 +111,9 @@ static func owned(profile: Dictionary, skill: String) -> Dictionary:
 
 static func keep(profile: Dictionary, stone: Dictionary) -> Dictionary:
 	## Puts a stone in the vault. Any stone of the same skill already there is sold.
+	if DeepStone.is_fragile(stone):
+		shatter(profile, stone)
+		return {"replaced": {}, "paid": 0, "shattered": true}
 	var skill: String = str(stone.get("skill", ""))
 	var replaced: Dictionary = owned(profile, skill)
 	var paid: int = 0
@@ -132,7 +135,7 @@ static func first_of_skill(profile: Dictionary, stone: Dictionary) -> bool:
 	## Whether this is the first stone of its skill to come home: the vault has none of that
 	## skill yet, so there is nothing to weigh it against and nothing to decide. It is kept,
 	## and it is never offered to a buyer.
-	if DeepStone.is_birthstone(stone) or str(stone.get("skill", "")).is_empty():
+	if DeepStone.is_birthstone(stone) or DeepStone.is_fragile(stone) or str(stone.get("skill", "")).is_empty():
 		return false
 	## A stone nobody has read is nobody's first: its skill is not known yet, and forcing it
 	## into the vault would be a free appraisal for anyone who asked to sell it rough.
@@ -145,6 +148,9 @@ static func auto_keep(profile: Dictionary) -> Array:
 	## vault. Returns what was kept, newest first in the order it was found.
 	var kept: Array = []
 	for stone in profile.get("tray", []).duplicate():
+		if DeepStone.known_fragile(stone):
+			shatter(profile, stone)
+			continue
 		if not bool(stone.get("appraised", false)) or not first_of_skill(profile, stone):
 			continue
 		decide_tray(profile, str(stone.get("id", "")), true)
@@ -155,6 +161,9 @@ static func sell(profile: Dictionary, stone: Dictionary) -> int:
 	## A buyer pays what a stone is worth once it is known, and only the size class when it
 	## is not: selling a stone rough is the cheap way off the tray, and it teaches the vault
 	## nothing, because nobody ever found out what was in it.
+	if DeepStone.is_fragile(stone):
+		shatter(profile, stone)
+		return 0
 	var known: bool = bool(stone.get("appraised", false))
 	var paid: int = DeepStone.value(stone) if known else DeepStone.rough_value(stone)
 	profile.gold = int(profile.gold) + paid
@@ -193,7 +202,18 @@ static func appraise(profile: Dictionary, stone: Dictionary) -> bool:
 	stone.appraised = true
 	stone.inclusions_revealed = true
 	saw(profile, str(stone.get("skill", "")))
+	if DeepStone.is_fragile(stone):
+		shatter(profile, stone)
 	return true
+
+static func shatter(profile: Dictionary, stone: Dictionary) -> void:
+	## Commit the loss before any animation: skipping or quitting cannot rescue the gem.
+	stone.appraised = true
+	stone.inclusions_revealed = true
+	saw(profile, str(stone.get("skill", "")))
+	for index in range(profile.get("tray", []).size() - 1, -1, -1):
+		if str(profile.tray[index].get("id", "")) == str(stone.get("id", "")):
+			profile.tray.remove_at(index)
 
 static func _color_place(color: String) -> int:
 	## Where a color sits in the vault. The six come in their own order; an opal is none of
@@ -360,7 +380,13 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	for skill in mine_result.get("seen", []):
 		saw(profile, str(skill))
 	var brought: Array = []
+	var shattered: Array = mine_result.get("shattered", []).duplicate(true)
 	for stone in mine_result.get("haul", []):
+		if DeepStone.known_fragile(stone):
+			shattered.append(stone.duplicate(true))
+			if bool(stone.get("appraised", false)):
+				saw(profile, str(stone.get("skill", "")))
+			continue
 		var home: Dictionary = stone.duplicate(true)
 		home.provenance.date = Time.get_date_string_from_system()
 		profile.tray.append(home)
@@ -372,13 +398,16 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	## Anything that came home already read and is the first of its skill is kept without
 	## being asked about. What came home raw is kept the moment the loupe says what it is.
 	var claimed: Array = auto_keep(profile)
-	return {"tray": brought, "unlocked": unlocked, "kept": claimed}
+	return {"tray": brought, "unlocked": unlocked, "kept": claimed, "shattered": shattered}
 
 static func decide_tray(profile: Dictionary, stone_id: String, keep_it: bool) -> Dictionary:
 	for index in range(profile.tray.size()):
 		var stone: Dictionary = profile.tray[index]
 		if str(stone.id) != stone_id:
 			continue
+		if DeepStone.is_fragile(stone):
+			shatter(profile, stone)
+			return {"ok": true, "kept": false, "paid": 0, "shattered": true}
 		var forced: bool = first_of_skill(profile, stone)
 		profile.tray.remove_at(index)
 		if keep_it or forced:

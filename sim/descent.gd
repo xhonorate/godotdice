@@ -98,7 +98,7 @@ static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, p
 		"made": result.get("made", []).duplicate(true), "dice": result.get("dice", []).duplicate(true), "changed": result.get("changed", []).duplicate(true)}
 	var event: Dictionary = _event(state, "staked", {"unit": unit.id, "offer": offer_id, "boons": chosen.get("boons", []).duplicate(),
 		"message": str(result.message), "made": result.get("made", []).duplicate(true), "dice": result.get("dice", []).duplicate(true),
-		"changed": result.get("changed", []).duplicate(true)})
+		"changed": result.get("changed", []).duplicate(true), "pick": bool(result.get("pick", false))})
 	var everyone: bool = true
 	for other in living(state):
 		if str(other.get("stake", "")).is_empty():
@@ -759,7 +759,10 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	##
 	## A socket is cut for a colour and it keeps to it, at home and down the mine alike. An
 	## ANY socket takes anything, an opal fits every socket, and Zoning and Alexandrite say
-	## for themselves what else a stone counts as.
+	## for themselves what else a stone counts as. A Void gem takes no socket at all: it
+	## rides one, any one of any colour, beside whatever is set there, and fires right after
+	## it; so the only things that can refuse it are its skill already on the rail, its
+	## weight, and a Knot holding it where it is.
 	var rail: Array = unit.get("rail", [])
 	if index < 0 or index >= rail.size():
 		return "no such socket"
@@ -767,30 +770,48 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 		return "no such stone"
 	if not bool(stone.get("appraised", false)):
 		return "an unappraised stone cannot be set"
+	var riding: bool = DeepStone.is_slotless(stone)
 	var sockets: Array = unit.get("sockets", [])
 	var socket_color: String = str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_ANY
-	if not DeepStone.fits(stone, socket_color):
+	if not riding and not DeepStone.fits(stone, socket_color):
 		return "that socket is cut for %s" % str(DeepContent.color(socket_color).get("name", socket_color)).to_lower()
 	var character: Dictionary = DeepContent.character(str(unit.get("character", "")))
 	var carat_cap: int = int(character.get("carat_max", 0))
 	if carat_cap > 0 and int(stone.get("carat", 1)) > carat_cap:
 		return "%s takes nothing heavier than %d carats" % [str(character.get("name", "this character")), carat_cap]
-	for other in rail:
-		if other is Dictionary and str(other.skill) == str(stone.skill) and str(other.id) != str(stone.id):
+	for other in DeepStone.rail_stones(unit):
+		if str(other.skill) == str(stone.skill) and str(other.id) != str(stone.id):
 			return "one stone of each skill"
-	var current: Variant = rail[index]
-	if current is Dictionary and str(current.id) != str(stone.id) and DeepStone.is_locked(current):
-		return "a Knot cannot leave its socket"
-	for other in rail:
-		if other is Dictionary and str(other.id) == str(stone.id) and DeepStone.is_locked(other):
+		if str(other.id) == str(stone.id) and DeepStone.is_locked(other):
 			return "a Knot cannot leave its socket"
+	var current: Variant = rail[index]
+	if not riding and current is Dictionary and str(current.id) != str(stone.id) and DeepStone.is_locked(current):
+		return "a Knot cannot leave its socket"
 	return ""
 
-static func _socket(state: Dictionary, unit: Dictionary, stone_id: String, index: int) -> Dictionary:
+static func _rail_event(state: Dictionary, unit: Dictionary) -> Dictionary:
+	return {"ok": true, "event": _event(state, "rail_changed", {"unit": unit.id, "rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true)})}
+
+static func _socket(state: Dictionary, unit: Dictionary, stone_id: String, index: int, at: int = -1) -> Dictionary:
+	## Set a stone in a socket, or, for a Void gem, ride one: into that socket's line of
+	## riders at `at`, or at the end of it when `at` is not given.
 	var stone: Dictionary = DeepOddities.find_stone(unit, stone_id)
 	var refusal: String = socket_refusal(unit, stone, index)
 	if not refusal.is_empty():
 		return _refuse(refusal)
+	if DeepStone.is_slotless(stone):
+		## Out of the bag, or off whatever it rode before; a move earlier in its own line
+		## lands before the gem it was dropped on, not after it.
+		var was: Dictionary = DeepStone.rider_place(unit, stone_id)
+		var before: int = DeepStone.riders_of(unit, index).size()
+		DeepOddities.remove_stone(unit, stone_id)
+		DeepStone.normalize_rail(unit)
+		var line: Array = unit.riders[index]
+		var to: int = line.size() if at < 0 else clampi(at, 0, before)
+		if at >= 0 and not was.is_empty() and int(was.socket) == index and int(was.at) < to:
+			to -= 1
+		line.insert(clampi(to, 0, line.size()), stone)
+		return _rail_event(state, unit)
 	var current: Variant = unit.rail[index]
 	## Take the stone out of wherever it was.
 	var from_socket: int = -1
@@ -808,16 +829,31 @@ static func _socket(state: Dictionary, unit: Dictionary, stone_id: String, index
 		if current is Dictionary:
 			unit.haul.append(current)
 	unit.rail[index] = stone
-	return {"ok": true, "event": _event(state, "rail_changed", {"unit": unit.id, "rail": unit.rail.duplicate(true)})}
+	return _rail_event(state, unit)
 
-static func _unsocket(state: Dictionary, unit: Dictionary, index: int) -> Dictionary:
+static func _unsocket(state: Dictionary, unit: Dictionary, index: int, stone_id: String = "") -> Dictionary:
+	## A stone off the rail and into the bag: the gem in socket `index`, or, by id, any
+	## stone on the rail, riding or set.
+	if not stone_id.is_empty():
+		var place: Dictionary = DeepStone.rider_place(unit, stone_id)
+		if not place.is_empty():
+			var rider: Dictionary = unit.riders[int(place.socket)][int(place.at)]
+			if DeepStone.is_locked(rider):
+				return _refuse("a Knot cannot leave its socket")
+			unit.riders[int(place.socket)].remove_at(int(place.at))
+			unit.haul.append(rider)
+			return _rail_event(state, unit)
+		index = -1
+		for i in range(unit.rail.size()):
+			if unit.rail[i] is Dictionary and str(unit.rail[i].id) == stone_id:
+				index = i
 	if index < 0 or index >= unit.rail.size() or not unit.rail[index] is Dictionary:
 		return _refuse("nothing there")
 	if DeepStone.is_locked(unit.rail[index]):
 		return _refuse("a Knot cannot leave its socket")
 	unit.haul.append(unit.rail[index])
 	unit.rail[index] = null
-	return {"ok": true, "event": _event(state, "rail_changed", {"unit": unit.id, "rail": unit.rail.duplicate(true)})}
+	return _rail_event(state, unit)
 
 static func _swap_die(state: Dictionary, unit: Dictionary, index: int, die_id: String) -> Dictionary:
 	## Two of the five change places. They are the five a player came down with: dice are
@@ -920,6 +956,8 @@ static func _sell(state: Dictionary, unit: Dictionary, stone_id: String) -> Dict
 	var stone: Dictionary = DeepOddities.find_stone(unit, stone_id)
 	if stone.is_empty():
 		return _refuse("no such stone")
+	if DeepStone.is_fragile(stone):
+		return _refuse("fragile stones cannot be sold")
 	if DeepStone.is_locked(stone):
 		return _refuse("a Knot cannot leave its socket")
 	## A stone nobody has read still sells: the buyer pays for its size class and nothing
@@ -1059,23 +1097,23 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 # --- hoard, salvage, endings ---------------------------------------------------------------
 
 static func _offer_hoard(state: Dictionary) -> void:
-	## Two stones read out on their pedestals, and, last of the three, one still in its
-	## rock: an opal, the only thing in the mine that no vein and no drop ever offers. The
-	## pile says that much and no more. Its carat, its cut and its clarity are rolled like
-	## any other stone's, so taking it means giving up two known stones for one that is as
-	## likely to be a small dull thing as it is to be the gem the run is remembered for.
+	## Three stones read out on their pedestals, and, last of the three, an opal: the only
+	## thing in the mine that no vein and no drop ever offers. Its carat, its cut and its
+	## clarity are rolled like any other stone's, and it is shown for what it is, cut and
+	## turning under its beam like the two beside it, so the choice is between three known
+	## stones and not a gamble on a lump of rock.
 	var streams: Dictionary = streams_of(state)
 	state.phase = "hoard"
 	state.hoard = {}
 	var opals: Array = DeepForge.opal_pool()
-	var sealed_pct: float = float(DeepContent.constant("opal_hoard_pct", 100))
+	var opal_pct: float = float(DeepContent.constant("opal_hoard_pct", 100))
 	for unit in state.players:
 		var offers: Array = []
 		for index in range(HOARD_OFFERS):
-			var raw: bool = index == HOARD_OFFERS - 1 and not opals.is_empty() and DeepRng.chance(streams.stones, sealed_pct)
-			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), 6, {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if raw else [])
-			stone.appraised = not raw
-			stone.inclusions_revealed = not raw
+			var opal: bool = index == HOARD_OFFERS - 1 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
+			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), 6, {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
+			stone.appraised = true
+			stone.inclusions_revealed = true
 			offers.append(stone)
 		state.hoard[unit.id] = {"offers": offers, "chosen": ""}
 	state.rng = DeepRng.save(streams)
@@ -1089,9 +1127,8 @@ static func _pick_hoard(state: Dictionary, unit: Dictionary, stone_id: String) -
 	for stone in mine_hoard.get("offers", []):
 		if str(stone.id) == stone_id:
 			mine_hoard.chosen = stone_id
-			## A sealed stone comes off the pile sealed. Taking it is the gamble; what it
-			## turns out to be is the loupe's to say, at a stall or at home, like any other
-			## stone that came out of the rock.
+			## Everything on the pile has been read; `raw` is kept on the event for a guest
+			## whose pack still seals one.
 			var raw: bool = not bool(stone.get("appraised", false))
 			unit.haul.append(stone)
 			unit.stats.stones = int(unit.stats.get("stones", 0)) + 1
@@ -1115,6 +1152,7 @@ static func _start_salvage(state: Dictionary) -> void:
 	state.phase = "salvage"
 	state.salvage = {}
 	for unit in state.players:
+		_shatter_fragile(unit)
 		var rolls: Array = []
 		var kept: Array = []
 		for stone in unit.haul:
@@ -1139,14 +1177,32 @@ static func _saw(state: Dictionary) -> void:
 	for unit in state.get("players", []):
 		if not unit.has("seen"):
 			unit.seen = []
-		for stone in unit.get("haul", []) + unit.get("rail", []):
+		for stone in unit.get("haul", []) + DeepStone.rail_stones(unit):
 			if not stone is Dictionary or not bool(stone.get("appraised", false)) or DeepStone.is_birthstone(stone):
 				continue
 			var skill: String = str(stone.get("skill", ""))
 			if not skill.is_empty() and not unit.seen.has(skill):
 				unit.seen.append(skill)
 
+static func _shatter_fragile(unit: Dictionary) -> void:
+	## Unread stones keep their secret until the workshop's loupe reveals it.
+	if not unit.has("shattered"):
+		unit.shattered = []
+	for stone in unit.get("haul", []).duplicate() + DeepStone.rail_stones(unit):
+		if stone is Dictionary and DeepStone.known_fragile(stone):
+			if bool(stone.get("appraised", false)):
+				if not unit.has("seen"):
+					unit.seen = []
+				if not unit.seen.has(str(stone.skill)):
+					unit.seen.append(str(stone.skill))
+			unit.shattered.append(stone.duplicate(true))
+			DeepOddities.remove_stone(unit, str(stone.id))
+	DeepStone.normalize_rail(unit)
+
 static func _finish(state: Dictionary, outcome: String) -> void:
+	_saw(state)
+	for unit in state.players:
+		_shatter_fragile(unit)
 	state.phase = "over"
 	state.outcome = outcome
 	state.offers = []
@@ -1158,12 +1214,19 @@ static func results(state: Dictionary) -> Dictionary:
 		"deepest": int(state.records.deepest), "wardens": state.records.wardens.duplicate(), "players": {}}
 	for unit in state.players:
 		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
-			"rail": unit.rail.duplicate(true), "seen": unit.get("seen", []).duplicate()}
+			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true)}
 	return out
 
 # --- commands ----------------------------------------------------------------------------
 
 static func command(state: Dictionary, player_id: String, cmd: Dictionary) -> Dictionary:
+	var result: Dictionary = _command(state, player_id, cmd)
+	if bool(result.get("ok", false)):
+		for unit in state.get("players", []):
+			DeepStone.normalize_rail(unit)
+	return result
+
+static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> Dictionary:
 	## Every player action. Returns {ok, error} or {ok, event}.
 	var unit: Dictionary = player(state, player_id)
 	if unit.is_empty():
@@ -1233,8 +1296,8 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary) -> Di
 			if not bench_open(state):
 				return _refuse("the bench waits until the fight is over")
 			match kind:
-				"socket": return _socket(state, unit, str(cmd.get("stone_id", "")), int(cmd.get("index", -1)))
-				"unsocket": return _unsocket(state, unit, int(cmd.get("index", -1)))
+				"socket": return _socket(state, unit, str(cmd.get("stone_id", "")), int(cmd.get("index", -1)), int(cmd.get("at", -1)))
+				"unsocket": return _unsocket(state, unit, int(cmd.get("index", -1)), str(cmd.get("stone_id", "")))
 				"swap_die": return _swap_die(state, unit, int(cmd.get("index", -1)), str(cmd.get("die_id", "")))
 			return _give(state, unit, str(cmd.get("to", "")), str(cmd.get("item_id", "")))
 		"buy", "sell", "leave":

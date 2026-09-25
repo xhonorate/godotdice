@@ -133,6 +133,12 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 	_face_index = clampi(int(roll.get("face", 0)), 0, maxi(0, _frames.size() - 1))
 	_target = _orientation(_face_index)
 	var token := "%s#%s#%s#%s" % [str(roll.get("die_id", "")), str(roll.get("rerolls", -1)), str(roll.get("face", -1)), str(roll.get("turn_tag", ""))]
+	if str(roll.get("kind", "plain")) == "mirror":
+		## A mirror die shows the number it copies, and when the rest of the hand changes
+		## under it, it is thrown again: the eye sees it turn over onto the new number rather
+		## than a number that changed by itself on a die that never moved.
+		token += "#" + str(roll.get("value", 0))
+		_relabel(_face_index, DiceIcons.face_text(int(roll.get("value", 0)), "mirror"))
 	if interactive:
 		if not _steered:
 			_manual = _target
@@ -269,12 +275,26 @@ func _rebuild() -> void:
 		label.no_depth_test = false
 		label.alpha_cut = Label3D.ALPHA_CUT_DISCARD
 		label.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-		var digits := maxi(1, label.text.length())
-		var span := 0.58 * float(digits) + 0.42
-		label.pixel_size = float(frame.inradius) * 1.5 / (96.0 * span)
+		_fit_label(label, frame)
 		label.transform = Transform3D(Basis(frame.right, frame.up, frame.normal), frame.centre + frame.normal * 0.006)
 		_pivot.add_child(label)
 		_labels.append(label)
+
+func _fit_label(label: Label3D, frame: Dictionary) -> void:
+	## Sized to its face for however many characters it shows.
+	var digits := maxi(1, label.text.length())
+	var span := 0.58 * float(digits) + 0.42
+	label.pixel_size = float(frame.inradius) * 1.5 / (96.0 * span)
+
+func _relabel(index: int, text: String) -> void:
+	## One face's text changed after the solid was built (a mirror copying a new number).
+	if index < 0 or index >= _labels.size() or index >= _frames.size():
+		return
+	var label: Label3D = _labels[index]
+	if not is_instance_valid(label) or label.text == text:
+		return
+	label.text = text
+	_fit_label(label, _frames[index])
 
 func _kind_at(index: int) -> String:
 	var faces: Array = die.get("faces", [])

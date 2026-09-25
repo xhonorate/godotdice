@@ -305,6 +305,10 @@ class GemThumb extends Control:
 		draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false,
 			Color(_hue, (0.10 + 0.22 * _brilliance) * (1.0 + _hover)))
 		var live_shown: bool = _live != null and is_instance_valid(_live) and _live.modulate.a > 0.99
+		if bool(stone.get("appraised", false)) and DeepStone.is_slotless(stone):
+			for arc in range(6):
+				var angle: float = TAU * float(arc) / 6.0
+				draw_arc(centre, edge * 0.47, angle, angle + TAU / 9.0, 12, Color(DeepUi.INFO, 0.7), 1.5, true)
 		if _fade < 1.0 and not live_shown:
 			_draw_outline(centre, edge * 0.42 * _span * lift, 1.0 - _fade)
 		if _texture != null and not live_shown:

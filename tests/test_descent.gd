@@ -512,23 +512,20 @@ func _test_bot_runs() -> void:
 	check(JSON.stringify(one) == JSON.stringify(two), "two runs from one seed agree after sixty bot actions")
 
 func _test_hoard_opal() -> void:
-	## The Warden's pile: two stones read out, and one still in its rock. Taking the sealed
-	## one means giving up both known stones for a gem nothing else in the mine offers.
+	## The Warden's pile: three stones read out where they lie, the last of them an opal,
+	## a gem nothing else in the mine offers, shown for what it is like the two beside it.
 	var state: Dictionary = DeepDescent.new_run(config(414, true))
 	state.depth = 8
 	DeepDescent._offer_hoard(state)
 	var offers: Array = state.hoard.a.offers
-	check(offers.size() == 3 and bool(offers[0].appraised) and bool(offers[1].appraised), "two of the three are read out where they lie")
-	var sealed: Dictionary = offers[2]
-	check(not bool(sealed.appraised) and DeepStone.is_opal(sealed), "the third is an opal, still in its rock: %s" % str(sealed.skill))
-	check(DeepStone.raw_name(sealed).contains("opal"), "the pile says it is an opal and not which one: %s" % DeepStone.raw_name(sealed))
-	check(DeepStone.fits(sealed, "RED") and DeepStone.fits(sealed, "GOLD"), "an opal answers to every color, so any socket takes it")
-	var picked: Dictionary = cmd(state, "a", "pick_hoard", {"stone_id": str(sealed.id)})
-	## Taking it is the gamble. What it turns out to be is the loupe's to say later, like
-	## any other stone that came out of the rock.
-	check(picked.ok and bool(picked.event.raw) and not bool(picked.event.stone.appraised),
-		"a sealed stone comes off the pile still sealed")
-	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return str(s.id) == str(sealed.id) and not bool(s.get("appraised", false))),
+	check(offers.size() == 3 and offers.all(func(s: Dictionary) -> bool: return bool(s.appraised) and bool(s.inclusions_revealed)), "all three are read out where they lie")
+	var opal: Dictionary = offers[2]
+	check(DeepStone.is_opal(opal), "the third is an opal: %s" % str(opal.skill))
+	check(DeepStone.fits(opal, "RED") and DeepStone.fits(opal, "GOLD"), "an opal answers to every color, so any socket takes it")
+	var picked: Dictionary = cmd(state, "a", "pick_hoard", {"stone_id": str(opal.id)})
+	check(picked.ok and not bool(picked.event.raw) and bool(picked.event.stone.appraised),
+		"the opal comes off the pile appraised")
+	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return str(s.id) == str(opal.id) and bool(s.get("appraised", false))),
 		"and goes into the haul that way")
 	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return DeepStone.is_opal(s)), "and the opal goes in the haul")
 	## And nothing else in the mine ever hands one out.
@@ -675,7 +672,7 @@ func _test_profile() -> void:
 
 
 func _test_grubstake() -> void:
-	## The shaft head: a veteran sees a long shot, a fallen lapidary is shown mercy, everyone
+	## The shaft head: everyone sees three stakes, a fallen lapidary is shown mercy, everyone
 	## takes exactly one stake, and the tunnels wait for the party.
 	var setup: Dictionary = config(77, false)
 	setup.boons = true
@@ -688,7 +685,31 @@ func _test_grubstake() -> void:
 	var a_offers: Array = state.grubstake.offers.a
 	var b_offers: Array = state.grubstake.offers.b
 	var kinds_a: Array = a_offers.map(func(o: Dictionary) -> String: return str(o.kind))
-	check(kinds_a == ["stone", "kit", "terms", "long_shot"], "a veteran is offered a long shot: %s" % str(kinds_a))
+	check(kinds_a == ["stone", "kit", "terms"], "three stakes and no more, a veteran or not: %s" % str(kinds_a))
+	## A pick is three raw stones of three colors, and the one taken is read on the spot.
+	var picks_seen: int = 0
+	for seed_value in range(30):
+		var c: Dictionary = config(300 + seed_value, false)
+		c.boons = true
+		var s: Dictionary = DeepDescent.new_run(c)
+		for o in s.grubstake.offers.a:
+			if not o.needs.has("pick"):
+				continue
+			picks_seen += 1
+			var colors: Array = o.picks.map(func(st: Dictionary) -> String: return DeepStone.color(st))
+			var distinct: Dictionary = {}
+			for color in colors:
+				distinct[color] = true
+			check(o.picks.size() == 3 and distinct.size() == 3 and not colors.has("OPAL"), "a pick is three raw stones of three colors: %s" % str(colors))
+			check(o.picks.all(func(st: Dictionary) -> bool: return not bool(st.appraised)), "none of them read until one is taken")
+			var who: Dictionary = DeepDescent.player(s, "a")
+			if not str(who.get("stake", "")).is_empty():
+				continue
+			var took: Dictionary = cmd(s, "a", "stake", {"offer": o.id, "payload": {"pick": 1}})
+			check(took.ok and bool(took.event.pick) and took.event.made.size() == 1 and bool(took.event.made[0].appraised) and bool(took.event.made[0].inclusions_revealed), "the one taken is appraised at once: %s" % str(took.get("error", "")))
+			check(who.haul.any(func(st: Dictionary) -> bool: return str(st.id) == str(o.picks[1].id) and bool(st.appraised)), "and goes into the haul known")
+			check(str(took.event.message).contains("Under the loupe"), "and the words say so: %s" % str(took.event.message))
+	check(picks_seen > 0, "some seed offered a pick (%d)" % picks_seen)
 	check(b_offers.size() == 3 and DeepContent.boon(str(b_offers[1].boons[0])).get("tags", []).has("mercy"), "a lapidary who fell early is shown mercy: %s" % str(b_offers[1].boons))
 	check(a_offers[2].boons.size() == 2 and DeepContent.boon(str(a_offers[2].boons[0])).group == "cost" and DeepContent.boon(str(a_offers[2].boons[1])).group == "reward", "terms are a cost and a reward")
 	check(not cmd(state, "a", "vote_tunnel", {"offer": "x"}).ok, "no tunnels before the stake is taken")
@@ -755,8 +776,7 @@ func _test_grubstake() -> void:
 	check(hammered.ok and grown.size() == 1 and u.dice.size() == 5 and u.bag_dice.is_empty(), "Hammered works one of the five and adds no die: %s" % str(hammered.get("message", "")))
 	check(not grown.is_empty() and DeepOddities.SIZES.find(str(u.dice[grown[0]].shape)) == DeepOddities.SIZES.find(str(shapes_before[grown[0]])) + 1, "a size bigger")
 	check(not DeepBoons.validate({"name": "x", "group": "kit", "effects": [ {"kind": "die", "key": "D6"}]}, DeepContent.pack()).is_empty(), "no stake hands out a die")
-	var rolled: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["SHOT_ROLL"]), {}, rng)
-	check(rolled.ok and rolled.has("rolled") and rolled.rolled.size() == 5, "Roll for It rolls the bowl: %s" % str(rolled.get("rolled", [])))
+	check(DeepContent.section("boons").keys().all(func(k: Variant) -> bool: return str(DeepContent.boon(str(k)).get("group", "")) in DeepBoons.GROUPS), "no long shots are left in the pack")
 	## Terms never pair what they exclude, over many seeds.
 	var bad_pairs: int = 0
 	var terms_seen: int = 0

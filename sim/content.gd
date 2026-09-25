@@ -195,7 +195,7 @@ static func validate(p: Dictionary = {}) -> Array:
 	for key in p.get("boons", {}):
 		errors.append_array(DeepBoons.validate(p.boons[key], p).map(func(e: String) -> String: return "boon %s: %s" % [key, e]))
 	if p.has("boons"):
-		for group in ["stone", "kit", "cost", "reward", "long_shot"]:
+		for group in ["stone", "kit", "cost", "reward"]:
 			if p.boons.values().filter(func(b: Variant) -> bool: return b is Dictionary and str(b.get("group", "")) == group).is_empty():
 				errors.append("boons: no %s stake to offer" % group)
 	return errors

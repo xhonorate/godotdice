@@ -1,10 +1,11 @@
 extends PanelContainer
-## One readable moveset, shared by hover, pinning and the acting enemy.
-const ScreenFx = preload("res://view/battle/screen_fx.gd")
-const CameraRig = preload("res://view/battle/camera_rig.gd")
-const DiceView = preload("res://view/dice/dice_view.gd")
+## One readable moveset, shared by hover, pinning and the acting enemy: its ordered dice,
+## every move with what it needs and what it does, and its trick (the passive it fights
+## with) at the foot. The die it is rolling is not here: that turns over the creature's own
+## head, in the room, so this table stays the one size whether it is acting or not.
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
+const EffectChips = preload("res://view/battle/effect_chips.gd")
 const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun",
 	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "thorn", "dulled": "cut"}
 const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED"}
@@ -15,10 +16,6 @@ var _key: String = ""
 var _title: Label
 var _hint: Label
 var _dice: HBoxContainer
-var _body: HBoxContainer
-var _stage: VBoxContainer
-var _die: Control
-var _value: Label
 var _table: VBoxContainer
 var _rows: Array = []
 var _shown_states: Array = []
@@ -40,15 +37,7 @@ func _ready() -> void:
 	_pin = DeepUi.button(head, "Pin", func() -> void: pinned.emit(enemy_id), 12)
 	_hint = DeepUi.label(box, "Damage and debuffs affect all players", 11, DeepUi.MUTED)
 	_dice = DeepUi.hbox(box, 6)
-	_body = DeepUi.hbox(box, 10)
-	_stage = DeepUi.vbox(_body, 0)
-	_stage.alignment = BoxContainer.ALIGNMENT_CENTER
-	_stage.custom_minimum_size.x = 168
-	_die = DiceView.new()
-	_die.custom_minimum_size = Vector2(168, 168)
-	_stage.add_child(_die)
-	_value = DeepUi.title(_stage, "", 25, DeepUi.ACCENT, HORIZONTAL_ALIGNMENT_CENTER)
-	_table = DeepUi.vbox(_body, 5)
+	_table = DeepUi.vbox(box, 5)
 	_table.custom_minimum_size.x = 265
 	_effects_layer = Control.new()
 	_effects_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -71,8 +60,6 @@ func reset() -> void:
 	enemy_id = ""
 	_key = ""
 	_revealed = 0
-	_die.visible = false
-	_value.text = ""
 	_shown_states = []
 	visible = false
 
@@ -83,15 +70,13 @@ func show_enemy(unit: Dictionary, turn: int, is_pinned: bool = false) -> void:
 		_turn = turn
 		enemy_id = str(unit.id)
 		_revealed = unit.get("hand", []).size()
-		_value.text = ""
 	foe = unit.duplicate(true)
 	visible = true
 	_pin.text = "Unpin" if is_pinned else "Pin"
 	_title.text = str(foe.name)
-	_stage.visible = bool(foe.get("acting", false))
 	_hint.text = "Damage and debuffs affect all players"
 	var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
-	var key: String = str(moves)
+	var key: String = str(moves) + "|" + str(foe.get("gimmick", ""))
 	if key != _key:
 		_cancel_animations()
 		_key = key
@@ -100,16 +85,7 @@ func show_enemy(unit: Dictionary, turn: int, is_pinned: bool = false) -> void:
 		_revealed = foe.get("hand", []).size()
 		_states(foe.get("move_states", []))
 	_show_dice()
-	if changed and _stage.visible and not foe.get("hand", []).is_empty():
-		var last: Dictionary = foe.hand.back()
-		var record: Dictionary = foe.get("rolled_die", {})
-		if record.is_empty():
-			record = DeepDice.make(str(last.get("key", "D6")), DeepContent.die(str(last.get("key", "D6"))), str(last.get("die_id", "")))
-		_die.visible = true
-		_die.configure(record, last, false, true, DeepUi.BAD)
-		_die.settle_immediately()
-		_value.text = str(last.value)
-	# Containers otherwise retain the width of the previous acting panel on hover.
+	# Containers otherwise retain the width of the previous panel on hover.
 	reset_size()
 
 func _build_rows(moves: Array) -> void:
@@ -144,6 +120,24 @@ func _build_rows(moves: Array) -> void:
 			numbers.append(number)
 			formulas.append(formula)
 		_rows.append({"panel": panel, "badge": badge, "numbers": numbers, "formulas": formulas})
+	_build_passive()
+
+func _build_passive() -> void:
+	## The creature's trick, the thing it does without rolling for it, read out with the
+	## moves rather than left to the chip over its head: a Latcher's latch or a Fogger's fog
+	## is as much its moveset as anything it rolls for.
+	var gimmick: String = str(foe.get("gimmick", ""))
+	if not EffectChips.GIMMICKS.has(gimmick):
+		return
+	var words: Array = EffectChips.GIMMICKS[gimmick]
+	var panel := DeepUi.panel(_table, Color(0.78, 0.66, 1.0, 0.05), Color(0.78, 0.66, 1.0, 0.16), 6, 6)
+	var box := DeepUi.vbox(panel, 1)
+	var head := DeepUi.hbox(box, 5)
+	DeepUi.icon(head, str(words[0]), 15, Color("c8a8ff"))
+	DeepUi.label(head, str(words[1]), 14, DeepUi.PAPER)
+	DeepUi.spacer(head)
+	DeepUi.label(head, "PASSIVE", 9, DeepUi.DIM)
+	DeepUi.wrap(box, str(words[2]), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 250)
 
 func _show_dice() -> void:
 	DeepUi.clear(_dice)
@@ -190,35 +184,21 @@ func roll_die(event: Dictionary) -> void:
 		var prior: String = str(_shown_states[i]) if i < _shown_states.size() else "unrevealed"
 		before.append("used" if prior == "used" else ("pending" if DeepCreatures.is_combination(foe.moves[i]) else "unrevealed"))
 	_states(before)
-	_value.text = "Rolling…"
-	_stage.visible = true
-	_die.visible = true
-	_die.spin_seconds = float(event.duration) - 0.28
-	_die.suspense = bool(event.get("suspense", false))
-	_die.suspense_scale = CameraRig.comfort
-	_die.configure(event.die, event.roll, false, true, DeepUi.BAD)
+	_hint.text = "One die away…" if bool(event.get("suspense", false)) else "Rolling…"
 	_revealed = int(event.roll_index)
 	_show_dice()
+	## The die itself tumbles over the creature's head (the battle screen's business); the
+	## table only waits for it to land before it reads the roll into its rows.
 	_tween = create_tween()
-	if bool(event.get("suspense", false)):
-		_hint.text = "One die away…"
-		# Rising clacks use scaled-time callbacks, so combat speed cannot desynchronise them.
-		for index in range(5):
-			var pitch: float = 0.8 + float(index) * 0.14
-			_tween.tween_callback(func() -> void: DeepAudio.from(_die, "die_tumble", {"pitch": pitch, "volume": 0.3 + pitch * 0.15, "gap": 0.0}))
-			_tween.tween_interval(_die.spin_seconds / 5.0)
-	else:
-		_tween.tween_interval(_die.spin_seconds)
+	_tween.tween_interval(maxf(0.1, float(event.duration) - 0.28))
 	_tween.tween_callback(func() -> void:
 		_revealed = int(event.roll_index) + 1
 		_show_dice()
-		_value.text = str(int(event.roll.value))
 		_hint.text = "Damage and debuffs affect all players"
 		_states(event.get("states", []))
-		DeepUi.pulse(_value, 1.08 if ScreenFx.calm else 1.35, 0.23)
-		if not ScreenFx.calm:
-			DeepUi.burst(_effects_layer, _die.global_position + _die.size * 0.5 - _effects_layer.global_position, DeepUi.BAD, 13, 95.0, 0.25)
-		DeepAudio.from(_die, "hit_crit", {"volume": 0.45, "pitch": 0.9 + float(event.roll.value) * 0.018}))
+		var slot: Control = _slots.get(str(event.roll.get("die_id", "")), null)
+		if slot != null and is_instance_valid(slot):
+			DeepUi.pulse(slot, 1.25, 0.23))
 
 func power(event: Dictionary) -> void:
 	var index: int = int(event.index)
@@ -235,13 +215,13 @@ func power(event: Dictionary) -> void:
 		contributors.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.value) < int(b.value))
 	for i in range(contributors.size()):
 		var roll: Dictionary = contributors[i]
-		var source: Control = _slots.get(str(roll.die_id), _die) if bool(event.get("combo", false)) else _die
+		var source: Control = _slots.get(str(roll.die_id), _dice)
 		var token := DeepUi.label(_effects_layer, str(int(roll.value)), 21, DeepUi.ACCENT)
 		token.position = source.global_position + source.size * 0.5 - _effects_layer.global_position - Vector2(8, 8)
 		var flight := token.create_tween()
 		_animations.append(flight)
 		if assemble > 0:
-			flight.tween_property(token, "position", _die.global_position - _effects_layer.global_position + Vector2(18 + i * 35, 118), assemble).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			flight.tween_property(token, "position", _dice.global_position - _effects_layer.global_position + Vector2(18 + i * 35, 34), assemble).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		flight.tween_property(token, "position", row.numbers[0].global_position - _effects_layer.global_position, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 		flight.parallel().tween_property(token, "modulate:a", 0.0, 0.2)
 		flight.tween_callback(token.queue_free)

@@ -8,8 +8,10 @@ extends Control
 ## five are the five a player came down with: dice are worked in the mine, never swapped).
 ## At a stall the stones on the counter drag straight onto a socket or the bag, which buys
 ## them (and sets them), and a stone from the bag drags onto the lens or the scales in the
-## room. Right-click anything for the close look. Nothing here decides anything: it asks, and
-## the run answers.
+## room. A Void gem takes no socket: dropped on one it rides it, in a line of chips under the
+## socket's name, and fires right after the socket's own gem; dropped on another rider it
+## goes into the line ahead of that one. Right-click anything for the close look. Nothing
+## here decides anything: it asks, and the run answers.
 
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
@@ -23,6 +25,9 @@ signal drawer_toggled(open: bool)
 signal chose(id: String)
 
 const SLOT := 58.0
+## A Void gem riding a socket, and how many of them show at this size before a count.
+const RIDER := 18.0
+const RIDERS_SHOWN := 3
 const DOCK_HEIGHT := 150.0
 const DRAWER_HEIGHT := 128.0
 ## How much taller than the dock the chooser stands: enough for a die or a stone at the size
@@ -208,6 +213,10 @@ func show_run(state: Dictionary) -> void:
 	var ids: Array = []
 	for stone in unit.get("rail", []):
 		ids.append(DeepUi.stone_marks(stone) if stone is Dictionary else "-")
+	for line in unit.get("riders", []):
+		ids.append("|")
+		for rider in line:
+			ids.append(DeepUi.stone_marks(rider))
 	for group in ["dice", "haul"]:
 		ids.append("|")
 		for item in unit.get(group, []):
@@ -295,6 +304,9 @@ func _build_dock(unit: Dictionary) -> void:
 	bag.tooltip_text = "%s in your bag (B)" % DeepUi.plural(haul, "stone")
 	_hint = DeepUi.wrap(right, "", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 226)
 	_hint.text = "Drag a stone onto a socket to set it, a die onto a die to change their places." if editable() else "Nothing moves while this lasts."
+	var void_about: bool = DeepStone.rider_count(unit) > 0 or unit.get("haul", []).any(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)) and DeepStone.is_slotless(s))
+	if editable() and void_about:
+		_hint.text = "A Void gem takes no socket: drop it on one to ride beside its gem and fire right after it."
 
 func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 	var sockets: Array = unit.get("sockets", [])
@@ -328,6 +340,9 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 	else:
 		DeepUi.label(card, "Any" if color == "ANY" else color.capitalize(), 10, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = SLOT + 6
 		card.tooltip_text = "An empty socket: drag any appraised stone onto it. color only matters when the loadout is built at home."
+	var riders: Array = DeepStone.riders_of(unit, index)
+	if not riders.is_empty():
+		_riders_row(card, unit, index, riders)
 	var at: int = index
 	_wire(card, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60) if set_here else Control.new(),
 		func(incoming: Dictionary) -> bool: return _socket_takes(unit, incoming, at),
@@ -336,13 +351,65 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 		_inspectable(card, func() -> void:
 			var battle: Dictionary = DeepDescent.battle(run)
 			var fighter: Dictionary = DeepBattle.player(battle, local_id) if not battle.is_empty() else {}
-			Inspector.stone(stone, {"context": DeepBattle.rail_context(battle, fighter, at)} if not fighter.is_empty() else {}))
+			var flat: int = DeepStone.flat_index(fighter, at) if not fighter.is_empty() else -1
+			Inspector.stone(stone, {"context": DeepBattle.rail_context(battle, fighter, flat)} if flat >= 0 else {}))
+
+func _riders_row(card: Node, unit: Dictionary, socket: int, riders: Array) -> void:
+	## The Void gems riding a socket, in a line under its name: each fires after the socket's
+	## own gem, in this order. Three show at this size; a count stands for the rest, which
+	## the bench lays out in full.
+	var row := DeepUi.hbox(card, 2)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.custom_minimum_size = Vector2(SLOT + 6, RIDER)
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	var shown: int = mini(riders.size(), RIDERS_SHOWN)
+	for at in range(shown):
+		_rider_chip(row, unit, socket, at, riders[at])
+	if riders.size() > shown:
+		var more := DeepUi.label(row, "+%d" % (riders.size() - shown), 10, DeepUi.INFO)
+		more.mouse_filter = Control.MOUSE_FILTER_STOP
+		more.tooltip_text = "\n".join(riders.slice(shown).map(func(s: Dictionary) -> String: return DeepStone.name(s))) + "\nOpen the bench (B) to see every rider."
+
+func _rider_chip(parent: Node, unit: Dictionary, socket: int, at: int, stone: Dictionary) -> void:
+	var chip := Control.new()
+	chip.custom_minimum_size = Vector2(RIDER, RIDER)
+	chip.mouse_filter = Control.MOUSE_FILTER_STOP
+	chip.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. Fragile: shatters when the run ends; cannot be sold or kept." % [DeepStone.name(stone), DeepStone.text(stone), socket + 1]
+	parent.add_child(chip)
+	var ring := BattleScreen.SocketRing.new("VOID", false)
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	chip.add_child(ring)
+	var picture := Thumbs.GemThumb.new(stone, RIDER - 4)
+	picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 2)
+	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_child(picture)
+	var data: Dictionary = {}
+	if editable() and not DeepStone.is_locked(stone):
+		data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": socket, "rider": at, "appraised": true}
+		chip.mouse_default_cursor_shape = Control.CURSOR_DRAG
+	## Another Void gem dropped on this one goes into the line ahead of it.
+	_wire(chip, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60),
+		func(incoming: Dictionary) -> bool: return _rider_takes(unit, incoming, socket, at),
+		func(incoming: Dictionary) -> void: _send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": socket, "at": at}, "dice_lock"), ring)
+	_inspectable(chip, func() -> void: Inspector.stone(stone))
+
+func _rider_takes(unit: Dictionary, incoming: Dictionary, socket: int, at: int) -> bool:
+	if not editable() or str(incoming.get("kind", "")) != "stone":
+		return false
+	var stone: Dictionary = DeepOddities.find_stone(unit, str(incoming.get("stone_id", "")))
+	if stone.is_empty() or not DeepStone.is_slotless(stone):
+		return false
+	var line: Array = DeepStone.riders_of(unit, socket)
+	if at < line.size() and str(line[at].get("id", "")) == str(stone.id):
+		return false
+	return DeepDescent.socket_refusal(unit, stone, socket).is_empty()
 
 func _socket_takes(unit: Dictionary, incoming: Dictionary, index: int) -> bool:
 	if not editable():
 		return false
 	match str(incoming.get("kind", "")):
 		"stone":
+			## Its own socket is no move: a set stone stays set, a rider stays in its line.
 			if int(incoming.get("from_socket", -1)) == index:
 				return false
 			return DeepDescent.socket_refusal(unit, DeepOddities.find_stone(unit, str(incoming.get("stone_id", ""))), index).is_empty()
@@ -438,7 +505,7 @@ func _build_drawer(unit: Dictionary) -> void:
 			if str(incoming.get("kind", "")) == "shop_item":
 				_send({"kind": "buy", "item_id": str(incoming.item_id)}, "buy")
 			else:
-				_send({"kind": "unsocket", "index": int(incoming.from_socket)}, "ui_back"))
+				_send({"kind": "unsocket", "index": int(incoming.from_socket), "stone_id": str(incoming.get("stone_id", ""))}, "ui_back"))
 	## Allies: drop a loose stone on one to hand it over.
 	var others: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return str(p.id) != local_id and bool(p.get("connected", true)))
 	if not others.is_empty():

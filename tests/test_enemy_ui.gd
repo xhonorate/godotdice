@@ -36,7 +36,7 @@ func _run() -> void:
 	panel.show_enemy(foe, 1, true)
 	await process_frame
 	check(panel.visible and panel._rows.size() == 2, "pinned planning panel shows the entire moveset")
-	check(not panel._stage.visible and panel._revealed == 0, "planning shows no roll or result")
+	check(panel._revealed == 0 and panel._hint.text == "Damage and debuffs affect all players", "planning shows no roll or result")
 	check(panel._rows[0].numbers[0].text == "Rolled value", "planning shows the formula")
 	DeepBattle.start_resolution(state)
 	var roll_event: Dictionary = {}
@@ -46,11 +46,13 @@ func _run() -> void:
 			roll_event = event
 	panel.show_enemy(foe, 1, true)
 	panel.roll_die(roll_event)
-	check(panel._stage.visible and panel._die.visible, "the acting enemy opens its die stage")
-	check(panel._revealed == 0 and panel._value.text == "Rolling…", "new result stays hidden during the roll")
+	## The die itself turns over the creature's head (the battle screen's); the table only
+	## says it is waiting on it, and stays the one size.
+	check(panel._hint.text in ["Rolling…", "One die away…"], "the acting enemy's table waits on the die over its head")
+	check(panel._revealed == 0, "new result stays hidden during the roll")
 	check(panel._rows.all(func(row: Dictionary) -> bool: return str(row.badge.text).is_empty()), "activation is not leaked before the die lands")
 	await panel._tween.finished
-	check(panel._revealed == 1 and panel._value.text == "6", "landing reveals the rolled value")
+	check(panel._revealed == 1 and panel._slots.size() == 1 and panel._hint.text == "Damage and debuffs affect all players", "landing reveals the rolled value")
 	check(panel._rows.all(func(row: Dictionary) -> bool: return str(row.badge.text) == "READY"), "six activates Bite and Latch")
 	var hp: int = int(state.players[0].hp)
 	var ability: Dictionary = DeepBattle.step(state, rng.dice, rng.creatures)
@@ -70,8 +72,8 @@ func _run() -> void:
 	await create_timer(0.9).timeout
 	check(not panel.visible and panel._animations.is_empty(), "closing during an animation cancels all callbacks")
 	panel.show_enemy(foe, 1, true)
-	check(panel._die.visible and panel._value.text == "6", "reconnecting in an ability restores the revealed die")
-	check(panel._die._spin_time > panel._die.spin_seconds, "restored results do not reroll")
+	check(panel._revealed == 1, "reconnecting in an ability restores the revealed roll")
+	check(panel._table.get_child_count() == panel._rows.size() + (1 if not str(foe.get("gimmick", "")).is_empty() else 0), "the creature's passive is read out with its moves")
 	while DeepBattle.has_steps(state):
 		DeepBattle.step(state, rng.dice, rng.creatures)
 	panel.show_enemy(foe, int(state.turn), true)
@@ -104,6 +106,15 @@ func _run() -> void:
 	battle._position_enemy_panel()
 	check(battle._enemy_panel.enemy_id == "e0", "the acting enemy takes precedence over the pinned enemy")
 	check(not battle._enemy_panel.get_global_rect().intersects(battle._ally_box.get_global_rect()), "the acting panel leaves ally cards visible")
+	## The die a creature rolls turns over its own head, and goes when its action does.
+	var width_before: float = battle._enemy_panel.size.x
+	battle._headless = false
+	battle.perform(roll_event)
+	check(battle._enemy_roll != null and battle._enemy_roll.visible and battle._enemy_roll_id == "e0", "the rolled die is shown over the acting creature, not in its table")
+	check(is_equal_approx(battle._enemy_panel.size.x, width_before), "the table does not grow while the creature acts")
+	battle.perform({"kind": "enemy_end", "unit": "e0"})
+	check(battle._enemy_roll_id == "", "the die is put away when the action ends")
+	battle._headless = true
 	party_state.enemies[0].acting = false
 	battle.show_state(party_state, 1)
 	check(battle._enemy_panel.enemy_id == "e1", "the pinned enemy returns when the action finishes")

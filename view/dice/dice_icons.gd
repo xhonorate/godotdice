@@ -62,6 +62,11 @@ static func face_text(value: int, kind: String = "plain") -> String:
 			return str(value) + (mark if kind != "plain" else "")
 		"blank":
 			return ""
+		"mirror":
+			## The mark alone on the face of the die itself; the mark and the number it is
+			## copying once it has been rolled.
+			var mark: String = str(FACE_KINDS.get(kind, {}).get("text", ""))
+			return mark if value <= 0 else mark + str(value)
 	return str(FACE_KINDS.get(kind, {}).get("text", str(value)))
 
 static func silhouette(shape: String) -> Dictionary:

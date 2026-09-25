@@ -99,6 +99,171 @@ static func modifier_sum(mods: Array, kind: String, field: String = "amount") ->
 static func is_locked(stone: Dictionary) -> bool:
 	return has_modifier(modifiers(stone), "locked")
 
+static func is_slotless(stone: Dictionary) -> bool:
+	return has_modifier(modifiers(stone), "slotless")
+
+static func is_fragile(stone: Dictionary) -> bool:
+	return has_modifier(modifiers(stone), "fragile")
+
+static func known_fragile(stone: Dictionary) -> bool:
+	return is_fragile(stone) and (bool(stone.get("appraised", false)) or bool(stone.get("inclusions_revealed", false)))
+
+static func socket_count(unit: Dictionary) -> int:
+	## How many sockets the unit's setting has. A fighter's `sockets` is laid flat with its
+	## rail (see `flatten_rail`), so the character's own list is asked first.
+	var character: Dictionary = DeepContent.character(str(unit.get("character", "")))
+	if character.has("sockets"):
+		return character.sockets.size()
+	if unit.has("sockets"):
+		return unit.sockets.size()
+	return unit.get("rail", []).size()
+
+static func riders_of(unit: Dictionary, socket: int) -> Array:
+	## The Void gems riding a socket, in the order they fire after the socket's own gem.
+	var riders: Array = unit.get("riders", [])
+	if socket < 0 or socket >= riders.size() or not riders[socket] is Array:
+		return []
+	return riders[socket]
+
+static func rider_count(unit: Dictionary) -> int:
+	var total: int = 0
+	for line in unit.get("riders", []):
+		if line is Array:
+			total += line.size()
+	return total
+
+static func rider_place(unit: Dictionary, stone_id: String) -> Dictionary:
+	## Where a Void gem rides: {socket, at}, or {} when it is not riding anything.
+	var riders: Array = unit.get("riders", [])
+	for socket in range(riders.size()):
+		if not riders[socket] is Array:
+			continue
+		for at in range(riders[socket].size()):
+			var rider: Variant = riders[socket][at]
+			if rider is Dictionary and str(rider.get("id", "")) == stone_id:
+				return {"socket": socket, "at": at}
+	return {}
+
+static func rail_stones(unit: Dictionary) -> Array:
+	## Every stone on the rail in the order it fires: each socket's own gem, then the Void
+	## gems riding it. A fighter's rail is already laid flat and holds them all.
+	var out: Array = []
+	var rail: Array = unit.get("rail", [])
+	var flat: bool = unit.has("places")
+	for index in range(rail.size()):
+		if rail[index] is Dictionary:
+			out.append(rail[index])
+		if not flat:
+			for rider in riders_of(unit, index):
+				if rider is Dictionary:
+					out.append(rider)
+	return out
+
+static func normalize_rail(unit: Dictionary) -> void:
+	## The rail is one place per socket, and `riders` one line per socket of the Void gems
+	## riding it. A Void gem never occupies a socket: if working a stone adds Void it steps
+	## off its socket and rides it instead, first in line, so it fires where it always did;
+	## if Void is worked away, a rider takes the socket it rode when that socket is empty
+	## and cut for it, and goes back to the bag otherwise. Nothing past the sockets stays.
+	if unit.has("places"):
+		return
+	var count: int = socket_count(unit)
+	var rail: Array = unit.get("rail", [])
+	var riders: Variant = unit.get("riders", [])
+	var sockets: Array = unit.get("sockets", [])
+	var lines: Array = []
+	for index in range(count):
+		lines.append(riders[index].duplicate() if riders is Array and index < riders.size() and riders[index] is Array else [])
+	var loose: Array = []
+	var main: Array = []
+	for index in range(count):
+		main.append(rail[index] if index < rail.size() else null)
+	## Anything past the sockets: a Void gem rides the last socket, anything else is loose.
+	if riders is Array:
+		for index in range(count, riders.size()):
+			if riders[index] is Array and count > 0:
+				lines[count - 1].append_array(riders[index])
+	for index in range(count, rail.size()):
+		if rail[index] is Dictionary:
+			if is_slotless(rail[index]) and count > 0:
+				lines[count - 1].append(rail[index])
+			else:
+				loose.append(rail[index])
+	for index in range(count):
+		if main[index] is Dictionary and is_slotless(main[index]):
+			lines[index].push_front(main[index])
+			main[index] = null
+	for index in range(count):
+		var kept: Array = []
+		var color: String = str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_ANY
+		for rider in lines[index]:
+			if not rider is Dictionary:
+				continue
+			if is_slotless(rider):
+				kept.append(rider)
+			elif main[index] == null and fits(rider, color):
+				main[index] = rider
+			else:
+				loose.append(rider)
+		lines[index] = kept
+	unit.rail = main
+	unit.riders = lines
+	var colors: Array = sockets.slice(0, count)
+	while colors.size() < count:
+		colors.append(DeepContent.SOCKET_ANY)
+	unit.sockets = colors
+	if not loose.is_empty():
+		if not unit.has("haul"):
+			unit.haul = []
+		unit.haul.append_array(loose)
+
+static func flatten_rail(unit: Dictionary) -> void:
+	## A fighter's rail is the order its gems fire in, laid flat: each socket's own gem and
+	## then the Void gems riding it. `places[i]` says where entry i stands, {socket, rider}
+	## with rider -1 for the socket's own gem, and `sockets[i]` the color it fires in: a
+	## rider sits in no socket, so it fires in ANY. Everything a fight does by index (the
+	## firing order, neighbours, what was buried, what fired) works on this flat rail, and
+	## the screens fold it back onto the sockets with `places`. Done once, as a fight begins.
+	if unit.has("places"):
+		return
+	normalize_rail(unit)
+	var rail: Array = unit.get("rail", [])
+	var sockets: Array = unit.get("sockets", [])
+	var flat: Array = []
+	var colors: Array = []
+	var places: Array = []
+	for index in range(rail.size()):
+		flat.append(rail[index])
+		colors.append(str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_ANY)
+		places.append({"socket": index, "rider": -1})
+		var line: Array = riders_of(unit, index)
+		for at in range(line.size()):
+			flat.append(line[at])
+			colors.append(DeepContent.SOCKET_ANY)
+			places.append({"socket": index, "rider": at})
+	unit.rail = flat
+	unit.sockets = colors
+	unit.places = places
+	unit.erase("riders")
+
+static func flat_index(unit: Dictionary, socket: int, rider: int = -1) -> int:
+	## Where a socket's own gem (rider -1), or the rider at `rider` in its line, stands in a
+	## fighter's flat rail; -1 when nothing stands there. A rail not yet laid flat is its own.
+	var places: Array = unit.get("places", [])
+	if places.is_empty():
+		return socket if rider < 0 else -1
+	for index in range(places.size()):
+		if int(places[index].get("socket", -1)) == socket and int(places[index].get("rider", -1)) == rider:
+			return index
+	return -1
+
+static func place_of(unit: Dictionary, index: int) -> Dictionary:
+	## Which socket entry `index` of a fighter's flat rail stands in, and whether it rides.
+	var places: Array = unit.get("places", [])
+	if index >= 0 and index < places.size():
+		return {"socket": int(places[index].get("socket", index)), "rider": int(places[index].get("rider", -1))}
+	return {"socket": index, "rider": -1}
+
 # --- the Birthstone -------------------------------------------------------------------------
 
 static func birthstone(character_key: String) -> Dictionary:

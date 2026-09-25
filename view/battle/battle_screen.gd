@@ -14,6 +14,8 @@ extends Control
 ## the events it is handed, and turns every click into a command.
 
 const EnemyPanel = preload("res://view/battle/enemy_panel.gd")
+const ScreenFx = preload("res://view/battle/screen_fx.gd")
+const CameraRig = preload("res://view/battle/camera_rig.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
@@ -31,6 +33,10 @@ signal command(cmd: Dictionary)
 
 const DIE_EDGE: float = 82.0
 const SOCKET_EDGE: float = 60.0
+## A Void gem riding a socket, as a chip under the socket's name, and how many of them show
+## before a count stands for the rest.
+const RIDER_EDGE: float = 20.0
+const RIDERS_SHOWN: int = 3
 const ARC_Z: float = -4.4
 const MOVE_WORDS: Dictionary = {"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield",
 	"die_steal": "die", "heal": "heart", "curse": "eye", "bury_socket": "rampart", "cloud_socket": "cloud"}
@@ -66,6 +72,9 @@ var _flare: Control
 var _picker: Control
 var _plates_layer: Control
 var _plates: Dictionary = {}
+## The die a creature is rolling, turning over its head; and whose head.
+var _enemy_roll: RollBadge = null
+var _enemy_roll_id: String = ""
 var _enemy_panel: PanelContainer
 var _pinned_enemy: String = ""
 var _hud: Control
@@ -78,7 +87,9 @@ var _banner_sub: Label
 var _banner_box: VBoxContainer
 var _dock: PanelContainer
 var _rail_box: HBoxContainer
+## One control per entry of the fighter's flat rail: a socket's card, or a rider's chip.
 var _socket_cards: Array = []
+var _rail_shape: String = ""
 var _resonance_value: Label
 var _resonance_box: HBoxContainer
 var _tray_box: HBoxContainer
@@ -384,6 +395,7 @@ func _build_hud() -> void:
 	_resonance_value = DeepUi.title(_resonance_box, "0", 20, DeepUi.RESONANCE)
 	_resonance_value.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_rail_box = DeepUi.hbox(left, 6)
+	_rail_box.custom_minimum_size.y = SOCKET_EDGE + 60
 	DeepUi.rule(columns, Color(DeepUi.LINE, 0.8)).custom_minimum_size = Vector2(1, 0)
 	## Middle: the dice.
 	var middle := DeepUi.vbox(columns, 6)
@@ -462,6 +474,32 @@ func _forget_fight() -> void:
 	if _camera != null and not stage.arrived_by_walk:
 		_camera.reset()
 		_camera.intro(1.2, bool(state.get("warden", false)))
+
+func leave() -> void:
+	## The party is somewhere with no fight in it: whatever creatures are still standing in
+	## the room go, and nothing of the last fight is kept to be recognised again. Without
+	## this the creatures a party fell to stood in every room of the next run until its
+	## first fight, because they live in the stage's world rather than under this screen.
+	if _creatures.is_empty() and _plates.is_empty() and state.is_empty():
+		return
+	for id in _creatures.keys():
+		if is_instance_valid(_creatures[id]):
+			_creatures[id].queue_free()
+	_creatures.clear()
+	_awaited.clear()
+	for id in _plates.keys():
+		if is_instance_valid(_plates[id]):
+			_plates[id].queue_free()
+	_plates.clear()
+	if _enemy_panel != null:
+		_enemy_panel.reset()
+	_hide_enemy_roll()
+	_hovered_creature = ""
+	_pinned_enemy = ""
+	_layout_wait = null
+	_battle_signature = ""
+	_stage_key = ""
+	state = {}
 
 func me() -> Dictionary:
 	return DeepBattle.player(state, local_id)
@@ -645,28 +683,75 @@ func _resonance_flight(card: Control, value: int, gain: int, color: Color, harmo
 func _sync_rail(unit: Dictionary, planning: bool) -> void:
 	## Lit while the hand is chosen and on through the resolution it was locked in for, and
 	## never while the dice that decide it are still in the air.
+	##
+	## The rail is laid flat for the fight (see `DeepStone.flatten_rail`); the cards fold it
+	## back onto the sockets: a socket's own gem large, and the Void gems riding it in a
+	## line of chips under its name, each firing in turn after it. `_socket_cards` is by flat
+	## index, so every event's socket lands on the thing to light, a card or a chip.
 	var showing: bool = (planning or str(state.get("phase", "")) == "resolving") and Time.get_ticks_msec() >= _dice_settle_at
 	var rail: Array = unit.get("rail", [])
 	var birth_key: String = str(unit.get("character", ""))
-	if _socket_cards.size() != rail.size() or _birthstone_key != birth_key or (_birthstone_card != null and not is_instance_valid(_birthstone_card)):
+	var shape: String = "%d|%s" % [rail.size(), str(unit.get("places", []))]
+	if _rail_shape != shape or _birthstone_key != birth_key or (_birthstone_card != null and not is_instance_valid(_birthstone_card)):
 		DeepUi.clear(_rail_box)
 		_socket_cards.clear()
 		_birthstone_card = null
 		_birthstone_key = birth_key
-		for socket in range(rail.size()):
+		_rail_shape = shape
+		var hosts: Array = []
+		for _socket in range(maxi(DeepStone.socket_count(unit), 1 if rail.is_empty() else 0)):
+			var host := VBoxContainer.new()
+			host.add_theme_constant_override("separation", 3)
+			host.mouse_filter = Control.MOUSE_FILTER_PASS
+			_rail_box.add_child(host)
 			var card := VBoxContainer.new()
+			card.name = "Main"
 			card.add_theme_constant_override("separation", 2)
 			card.alignment = BoxContainer.ALIGNMENT_CENTER
 			card.mouse_filter = Control.MOUSE_FILTER_PASS
-			_rail_box.add_child(card)
-			_socket_cards.append(card)
+			host.add_child(card)
+			hosts.append(host)
+		for index in range(rail.size()):
+			var place: Dictionary = DeepStone.place_of(unit, index)
+			var host: VBoxContainer = hosts[clampi(int(place.socket), 0, hosts.size() - 1)]
+			if int(place.rider) < 0:
+				_socket_cards.append(host.get_node("Main"))
+				continue
+			var row: HBoxContainer = host.get_node_or_null("Riders")
+			if row == null:
+				row = HBoxContainer.new()
+				row.name = "Riders"
+				row.alignment = BoxContainer.ALIGNMENT_CENTER
+				row.add_theme_constant_override("separation", 3)
+				row.mouse_filter = Control.MOUSE_FILTER_PASS
+				host.add_child(row)
+			if int(place.rider) < RIDERS_SHOWN:
+				var chip := Control.new()
+				chip.custom_minimum_size = Vector2(RIDER_EDGE, RIDER_EDGE)
+				chip.mouse_filter = Control.MOUSE_FILTER_PASS
+				row.add_child(chip)
+				_socket_cards.append(chip)
+			else:
+				## Past three, a count stands for the rest; what they do lights it.
+				var badge: Label = row.get_node_or_null("More")
+				if badge == null:
+					badge = DeepUi.label(row, "", 10, DeepUi.INFO)
+					badge.name = "More"
+					badge.set_meta("badge", true)
+					badge.mouse_filter = Control.MOUSE_FILTER_PASS
+				badge.text = "+%d" % (int(place.rider) - RIDERS_SHOWN + 1)
+				_socket_cards.append(badge)
 		if not unit.get("birthstone", {}).is_empty():
 			_birthstone_card = _build_birthstone_card(unit)
 			_rail_box.add_child(_birthstone_card)
 	var sockets: Array = unit.get("sockets", [])
 	for socket in range(rail.size()):
-		var card: VBoxContainer = _socket_cards[socket]
+		var card: Control = _socket_cards[socket]
+		if bool(card.get_meta("badge", false)):
+			continue
 		var stone: Variant = rail[socket]
+		var place: Dictionary = DeepStone.place_of(unit, socket)
+		var rider: bool = int(place.rider) >= 0
 		var socket_color: String = str(sockets[socket]) if socket < sockets.size() else "ANY"
 		var tag: String = "%s|%s" % [DeepUi.stone_marks(stone) if stone is Dictionary else "", socket_color]
 		if str(card.get_meta("tag", "")) != tag:
@@ -674,14 +759,22 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			DeepUi.clear(card)
 			var slot := Control.new()
 			slot.name = "Slot"
-			slot.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
 			slot.mouse_filter = Control.MOUSE_FILTER_PASS
+			if rider:
+				slot.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			else:
+				slot.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
 			card.add_child(slot)
-			var ring := SocketRing.new(socket_color, stone == null)
+			var ring := SocketRing.new("VOID" if rider else socket_color, stone == null)
 			ring.name = "Ring"
 			ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			slot.add_child(ring)
-			if stone is Dictionary:
+			if rider and stone is Dictionary:
+				var picture := Thumbs.GemThumb.new(stone, RIDER_EDGE - 4)
+				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 2)
+				picture.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. Fragile: shatters at the end of the run." % [DeepStone.name(stone), DeepStone.text(stone), int(place.socket) + 1]
+				slot.add_child(picture)
+			elif stone is Dictionary:
 				var picture := Thumbs.GemThumb.new(stone, SOCKET_EDGE - 12)
 				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 6)
 				picture.tooltip_text = DeepStone.name(stone) + "\n" + DeepStone.text(stone)
@@ -849,6 +942,13 @@ class SocketRing extends Control:
 		var tone: Color = birth_tint.lightened(0.15) if color == "BIRTHSTONE" else (DeepUi.color(color) if color != "ANY" else DeepUi.MUTED)
 		var centre := size * 0.5
 		var radius := minf(size.x, size.y) * 0.47
+		if color == "VOID":
+			tone = DeepUi.INFO
+			for arc in range(6):
+				var angle: float = TAU * float(arc) / 6.0
+				draw_arc(centre, radius, angle, angle + TAU / 9.0, 12, Color(tone, 0.5 + _ready_glow * 0.5), 2.0, true)
+			draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - size * 0.5, size), false, Color(tone, 0.12 + _flash * 0.6))
+			return
 		if _ready_glow > 0.01 or _flash > 0.0:
 			var pulse: float = 0.75 + 0.25 * sin(_clock * 5.0)
 			var reach: float = radius * (2.4 + _flash * 1.2)
@@ -1140,15 +1240,21 @@ class Plate extends PanelContainer:
 		_effects.show_effects(EffectChips.for_enemy(foe, battle))
 		var dice: Array = DeepCreatures.effective_dice(foe)
 		var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
-		var moves_key: String = str(dice) + str(moves) + str(foe.get("stolen_dice", 0)) + str(foe.get("suppressed", 0))
+		## What it has rolled so far this action rides on the plate with its dice, so the
+		## numbers read over its head and not only in its table.
+		var hand: Array = foe.get("hand", []) if bool(foe.get("acting", false)) or str(foe.get("beat", "")) == "done" else []
+		var moves_key: String = str(dice) + str(moves) + str(foe.get("stolen_dice", 0)) + str(foe.get("suppressed", 0)) + str(hand.map(func(r: Dictionary) -> int: return int(r.get("value", 0))))
 		if moves_key == _moves_key:
 			return
 		_moves_key = moves_key
 		DeepUi.clear(_dice)
 		var suppressed: int = int(foe.get("suppressed", 0)) if bool(foe.get("acting", false)) else int(foe.get("stolen_dice", 0))
 		for index in range(dice.size()):
-			_dice.add_child(DiceIcons.face(16, 0, DeepUi.DIM if index >= dice.size() - suppressed else DiceIcons.palette(str(dice[index].key)).body, str(dice[index].shape), false, "×" if index >= dice.size() - suppressed else "?"))
-			DeepUi.label(_dice, str(dice[index].shape).to_lower() + ("×" if index >= dice.size() - suppressed else ""), 11, DeepUi.DIM if index >= dice.size() - suppressed else DeepUi.MUTED)
+			var gone: bool = index >= dice.size() - suppressed
+			var rolled: bool = index < hand.size()
+			var mark: String = "×" if gone else (str(int(hand[index].get("value", 0))) if rolled else "?")
+			_dice.add_child(DiceIcons.face(16, int(hand[index].get("value", 0)) if rolled else 0, DeepUi.DIM if gone else DiceIcons.palette(str(dice[index].key)).body, str(dice[index].shape), rolled, mark))
+			DeepUi.label(_dice, str(dice[index].shape).to_lower() + ("×" if gone else ""), 11, DeepUi.DIM if gone else DeepUi.MUTED)
 		DeepUi.clear(_abilities)
 		for move in moves:
 			var tip: String = str(move.name) + " · " + DeepCreatures.trigger_words(move)
@@ -1323,7 +1429,106 @@ func _process(delta: float) -> void:
 		goal.x = clampf(goal.x, 8.0, size.x - plate.size.x - 8.0)
 		goal.y = clampf(goal.y, ceiling, size.y - plate.size.y - 260.0)
 		plate.position = plate.position.lerp(goal, clampf(delta * 14.0, 0.0, 1.0)) if plate.position != Vector2.ZERO else goal
+	_place_enemy_roll(delta)
 	_frame_camera(highest, ceiling, delta)
+
+# --- the die over a creature's head -------------------------------------------------------------
+##
+## A creature's roll used to turn inside its moves table, which made the table a different
+## size while it acted and put a big die over the room. It turns over the creature's own
+## head instead, riding just above its plate, or beside the plate when the plate is already
+## against the top of the screen; the table only reads the number once it has landed.
+
+func _show_enemy_roll(event: Dictionary) -> void:
+	if _headless or stage.walking():
+		return
+	if _enemy_roll == null or not is_instance_valid(_enemy_roll):
+		_enemy_roll = RollBadge.new()
+		_plates_layer.add_child(_enemy_roll)
+	_enemy_roll_id = str(event.get("unit", ""))
+	_enemy_roll.roll(event)
+
+func _hide_enemy_roll() -> void:
+	_enemy_roll_id = ""
+	if _enemy_roll != null and is_instance_valid(_enemy_roll):
+		_enemy_roll.put_away()
+
+func _place_enemy_roll(delta: float) -> void:
+	if _enemy_roll == null or not is_instance_valid(_enemy_roll) or not _enemy_roll.visible:
+		return
+	var plate: Variant = _plates.get(_enemy_roll_id, null)
+	if plate == null or not is_instance_valid(plate) or not (plate as Control).visible or _creature(_enemy_roll_id) == null:
+		_hide_enemy_roll()
+		return
+	var over: Control = plate
+	var goal := Vector2(over.position.x + (over.size.x - _enemy_roll.size.x) * 0.5, over.position.y - _enemy_roll.size.y - 6.0)
+	if goal.y < 8.0:
+		## The plate is already against the top of the screen: the die stands beside it,
+		## on whichever side has the room.
+		var right_side: bool = over.position.x + over.size.x + _enemy_roll.size.x + 20.0 < size.x
+		goal = Vector2(over.position.x + over.size.x + 10.0 if right_side else over.position.x - _enemy_roll.size.x - 10.0, over.position.y)
+	goal.x = clampf(goal.x, 8.0, size.x - _enemy_roll.size.x - 8.0)
+	goal.y = maxf(goal.y, 8.0)
+	_enemy_roll.position = _enemy_roll.position.lerp(goal, clampf(delta * 14.0, 0.0, 1.0)) if _enemy_roll.position != Vector2.ZERO else goal
+
+class RollBadge extends Control:
+	## One die turning in the air over a creature, and the number it lands on under it.
+	const EDGE: float = 84.0
+	var _die: DiceView
+	var _value: Label
+	var _tween: Tween
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		custom_minimum_size = Vector2(EDGE, EDGE + 26.0)
+		size = custom_minimum_size
+		_die = DiceView.new()
+		_die.position = Vector2.ZERO
+		_die.size = Vector2(EDGE, EDGE)
+		_die.custom_minimum_size = _die.size
+		_die.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_die)
+		_value = DeepUi.title(self, "", 22, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
+		_value.position = Vector2(0, EDGE - 2.0)
+		_value.size = Vector2(EDGE, 28)
+		_value.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		visible = false
+	func roll(event: Dictionary) -> void:
+		if _tween != null and _tween.is_valid():
+			_tween.kill()
+		visible = true
+		modulate.a = 1.0
+		_value.text = ""
+		var suspense: bool = bool(event.get("suspense", false))
+		_die.spin_seconds = maxf(0.3, float(event.get("duration", 1.1)) - 0.28)
+		_die.suspense = suspense
+		_die.suspense_scale = CameraRig.comfort
+		_die.configure(event.die, event.roll, false, true, DeepUi.BAD)
+		_tween = create_tween()
+		if suspense:
+			## Rising clacks on scaled time, so the fight's speed cannot pull them apart.
+			for index in range(5):
+				var pitch: float = 0.8 + float(index) * 0.14
+				_tween.tween_callback(func() -> void: DeepAudio.from(_die, "die_tumble", {"pitch": pitch, "volume": 0.3 + pitch * 0.15, "gap": 0.0}))
+				_tween.tween_interval(_die.spin_seconds / 5.0)
+		else:
+			_tween.tween_interval(_die.spin_seconds)
+		var value: int = int(event.get("roll", {}).get("value", 0))
+		_tween.tween_callback(func() -> void:
+			_value.text = str(value)
+			DeepUi.pulse(_value, 1.08 if ScreenFx.calm else 1.35, 0.23)
+			if not ScreenFx.calm:
+				DeepUi.burst(self, _die.size * 0.5, DeepUi.BAD, 13, 95.0, 0.25)
+			DeepAudio.from(_die, "hit_crit", {"volume": 0.45, "pitch": 0.9 + float(value) * 0.018}))
+	func put_away() -> void:
+		if not visible:
+			return
+		if _tween != null and _tween.is_valid():
+			_tween.kill()
+		_tween = create_tween()
+		_tween.tween_property(self, "modulate:a", 0.0, 0.25)
+		_tween.tween_callback(func() -> void:
+			visible = false
+			position = Vector2.ZERO)
 
 func _frame_camera(highest: float, ceiling: float, delta: float) -> void:
 	## A tall Warden and its plate must fit under the top of the screen: the view widens and
@@ -1433,6 +1638,9 @@ func perform(event: Dictionary) -> void:
 			"enemy_roll": _enemy_panel.roll_die(event)
 			"enemy_ability": _enemy_panel.power(event)
 			"enemy_move": _enemy_panel.impact(event)
+	match kind:
+		"enemy_roll": _show_enemy_roll(event)
+		"enemy_end", "skip", "battle_over", "turn_begin": _hide_enemy_roll()
 	if _headless or stage.walking():
 		return
 	match kind:

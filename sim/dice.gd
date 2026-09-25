@@ -138,7 +138,12 @@ static func phantom(source: Dictionary, id: String) -> Dictionary:
 	return ghost
 
 static func held_for_patterns(roll: Dictionary) -> bool:
-	return bool(roll.get("held", false)) or str(roll.get("engraving", "")) == "always_held"
+	## A die is held when it was not rerolled this turn. `held` is only set as a reroll
+	## passes a die by, so a hand locked in untouched counts every real die as held too;
+	## an Anchor that only worked once something else had been rerolled was this.
+	if bool(roll.get("held", false)) or str(roll.get("engraving", "")) == "always_held":
+		return true
+	return int(roll.get("rerolls", 0)) == 0 and not bool(roll.get("phantom", false))
 
 static func resolve_mirrors(hand: Array) -> void:
 	## Public for the battle, which re-throws single dice (a Gambler's ones, a Harlequin's flip).

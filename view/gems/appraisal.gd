@@ -57,6 +57,8 @@ var _opened: bool = false
 var _graded: bool = false
 var _done: bool = false
 var _closing: bool = false
+var _shatters: bool = false
+var _shattered_count: int = 1
 
 static func is_open() -> bool:
 	return _open != null and is_instance_valid(_open)
@@ -93,6 +95,12 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	sealed.appraised = false
 	owned = opts.get("owned", {})
 	actions = opts.get("actions", [])
+	_shatters = bool(opts.get("shatter", false))
+	_shattered_count = maxi(1, int(opts.get("shattered_count", 1)))
+	if _shatters:
+		owned = {}
+		actions = [{"label": "Continue", "glyph": "split_shield", "tone": DeepUi.MUTED, "dismiss": true,
+			"caption": "Fragile stones cannot be sold or kept"}]
 	_hue = GemMesh.tint(stone)
 	_root = Control.new()
 	_root.theme = DeepUi.theme()
@@ -278,6 +286,11 @@ func _break_open() -> void:
 
 func _read(part: String) -> void:
 	_sheet.reveal(part)
+	if _shatters and part.begins_with("inclusion:"):
+		var key: String = str(stone.inclusions[int(part.get_slice(":", 1))])
+		if DeepContent.inclusion(key).get("modifiers", []).any(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "fragile"):
+			finish()
+			return
 	match part:
 		"name":
 			DeepUi.burst(_root, _sheet.name_point(), _hue.lightened(0.3), 30, 260.0, 0.8, 6.0)
@@ -312,6 +325,22 @@ func _show_choices() -> void:
 	_done = true
 	_skip.visible = false
 	_choices.visible = true
+	if _shatters:
+		_title.text = "Shattered"
+		_title.add_theme_color_override("font_color", DeepUi.BAD)
+		_subtitle.text = "Void made it Fragile. It breaks under the loupe, leaving nothing to keep or sell."
+		if _shattered_count > 1:
+			_title.text = "%d fragile gems shattered" % _shattered_count
+			_subtitle.text = "The loupe revealed Void in all of them. None could be kept or sold."
+		_view.hide()
+		_gleam.hide()
+		_tint(DeepUi.BAD, false)
+		_halo.modulate.a = 0.3
+		_lamp.modulate.a = 0.0
+		_rays.modulate.a = 0.0
+		var shards: Control = load("res://view/gems/shatter.gd").new(stone, 250.0)
+		shards.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_stage.add_child(shards)
 	DeepUi.stagger(_choices.get_children(), 0.0, 0.08, 0.85)
 
 func finish() -> void:
@@ -327,7 +356,7 @@ func finish() -> void:
 		_opened = true
 		_graded = true
 		_view.call("configure", stone)
-		if not GemView.headless() and is_inside_tree():
+		if not _shatters and not GemView.headless() and is_inside_tree():
 			## Skipped before the rock came off: the moment still gets its light, and the
 			## whole appraisal in sound — the light, the grade and a Star if there is one.
 			DeepAudio.play("gleam")
@@ -337,7 +366,8 @@ func finish() -> void:
 		_title.add_theme_color_override("font_color", _hue.lightened(0.4))
 	if not _graded:
 		_graded = true
-		DeepAudio.play(DeepSoundBank.grade_sound(str(DeepStone.grade(stone).tier)), {"delay": 0.2})
+		if not _shatters:
+			DeepAudio.play(DeepSoundBank.grade_sound(str(DeepStone.grade(stone).tier)), {"delay": 0.2})
 	_subtitle.text = _question() if not owned.is_empty() else "Out of the rock at last. Here is what the loupe says."
 	_view.call("set_spin", 0.45)
 	_flash.color.a = 0.0
@@ -541,9 +571,10 @@ class Sheet extends VBoxContainer:
 		_row("grade", "star", "Grade", "%d", int(grade.score), -1.0,
 			"%d" % int(owned_grade.get("score", 0)), int(grade.score) - int(owned_grade.get("score", 0)), false, owned_bits,
 			{"grade": grade, "owned_grade": owned_grade})
-		var worth: int = DeepStone.value(stone)
-		var owned_worth: int = DeepStone.value(owned) if comparing else 0
-		_row("worth", "coin", "Worth", "%d gold", worth, -1.0, "%d gold" % owned_worth, worth - owned_worth, false, owned_bits)
+		if not DeepStone.is_fragile(stone):
+			var worth: int = DeepStone.value(stone)
+			var owned_worth: int = DeepStone.value(owned) if comparing else 0
+			_row("worth", "coin", "Worth", "%d gold", worth, -1.0, "%d gold" % owned_worth, worth - owned_worth, false, owned_bits)
 		if comparing:
 			var weigh := func() -> void:
 				DeepAudio.play("ui_toggle", {"volume": 0.8})
