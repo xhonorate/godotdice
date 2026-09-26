@@ -6,6 +6,8 @@ extends Node3D
 
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const GemRock = preload("res://view/gems/gem_rock.gd")
+const GemView = preload("res://view/gems/gem_view.gd")
 
 const SPREAD := 2.6
 
@@ -33,13 +35,29 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		cap.material_override = rock
 		cap.position = Vector3(0, 1.2, 0)
 		stand.add_child(cap)
-		var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier))
+		## Nothing on a Warden's pile has been read, so the beam is the stone's own colour: a
+		## grade colour over an unopened stone would say what is inside it before the lens does.
+		var read: bool = bool(stone.get("appraised", false))
+		var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if read else GemMesh.tint(stone)
 		var spinner := Node3D.new()
 		spinner.position = Vector3(0, 1.75, 0)
 		stand.add_child(spinner)
 		var gem: Node3D = GemMesh.solid(stone)
 		gem.scale = Vector3.ONE * 1.05 / float(gem.get_meta("extent", 1.0))
 		gem.rotation = Vector3(deg_to_rad(-65), 0, 0)
+		if not read:
+			var chunks: Array = GemRock.chunks(stone)
+			var rubble := GemRock.material()
+			var seams := GemRock.seam_material(GemMesh.tint(stone))
+			for chunk in chunks:
+				var piece := MeshInstance3D.new()
+				piece.mesh = chunk.mesh
+				GemRock.dress(piece, rubble, seams)
+				piece.position = chunk.position
+				piece.rotation = chunk.rotation
+				gem.add_child(piece)
+			## The whole clump stands where the stone alone would, so the pedestals stay level.
+			gem.scale *= GemView.ROCK_SPAN / GemRock.reach(chunks)
 		spinner.add_child(gem)
 		var beam := SpotLight3D.new()
 		beam.light_color = tone

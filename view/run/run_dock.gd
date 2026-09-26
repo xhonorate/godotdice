@@ -29,7 +29,9 @@ const SLOT := 58.0
 const RIDER := 18.0
 const RIDERS_SHOWN := 3
 const DOCK_HEIGHT := 150.0
-const DRAWER_HEIGHT := 128.0
+## The bag: its own padding, its heading and one row of 56px tiles, and no more. Anything
+## taller left a band of empty panel under the stones.
+const DRAWER_HEIGHT := 100.0
 ## How much taller than the dock the chooser stands: enough for a die or a stone at the size
 ## it is worth looking at, with its name under it.
 const CHOOSER_LIFT := 86.0

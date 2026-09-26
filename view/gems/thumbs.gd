@@ -180,6 +180,9 @@ class GemThumb extends Control:
 	var stone: Dictionary = {}
 	var live_on_hover: bool = true
 	var glint: bool = false
+	## What the rail is handing this stone where it stands, so the close look can read out the
+	## ranks it really has rather than the ones it was cut with.
+	var context: Dictionary = {}
 	var _texture: Texture2D = null
 	var _fade: float = 0.0
 	var _hover: float = 0.0
@@ -213,7 +216,7 @@ class GemThumb extends Control:
 	func _gui_input(event: InputEvent) -> void:
 		## Right-click anywhere a stone is shown opens the close look.
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and not stone.is_empty():
-			load("res://view/inspect/inspector.gd").stone(stone)
+			load("res://view/inspect/inspector.gd").stone(stone, {"context": context})
 			accept_event()
 
 	func configure(new_stone: Dictionary) -> void:

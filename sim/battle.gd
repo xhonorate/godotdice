@@ -19,6 +19,15 @@ extends RefCounted
 ## needs long enough to be seen; a gem that fires waits for its bolts to land.
 const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.65,
 	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 1.1, "enemy_ability": 0.7, "enemy_move": 0.5, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2}
+## The beat a run of blows is played on: one bolt every BOLT_GAP, a breath after each effect,
+## and the whole run squeezed into HIT_SPAN once there are enough of them to run past it. A
+## gem that lands twenty times over (Thousand Cuts) played every blow at a single blow's pace,
+## which outlasted the step it belonged to and left the turn moving on underneath it. The
+## battle screen paces itself by exactly these, so what is reserved here is what is drawn.
+const BOLT_GAP: float = 0.085
+const HIT_BREATH: float = 0.16
+const HIT_STEP: float = BOLT_GAP + HIT_BREATH
+const HIT_SPAN: float = 1.2
 const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
 	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "gem_rank", "upgrade_faces", "stake", "appraise"]
@@ -36,7 +45,7 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 	var max_hp: int = int(character.get("hp", 60))
 	var unit: Dictionary = {"id": id, "name": name, "side": "player", "character": character_key, "sockets": sockets, "rail": rail.duplicate(true), "riders": riders.duplicate(true),
 		"birthstone": character.get("birthstone", {}).duplicate(true), "flips": 0, "fired_sockets": [], "fizzled_sockets": [],
-		"rank_buff": {"carat": 0, "cut": 0}, "gem_buffs": {}, "pyrite_delta": 0, "repeat_next": 0, "replaying": false, "stone_drops": 0,
+		"rank_buff": {"carat": 0, "cut": 0}, "gem_buffs": {}, "buff_sources": {}, "pyrite_delta": 0, "repeat_next": 0, "replaying": false, "stone_drops": 0,
 		"hp": hp if hp >= 0 else max_hp, "max_hp": max_hp, "block": 0, "statuses": {}, "dice": dice.duplicate(true), "hand": [],
 		"rerolls": 0, "rerolls_max": 0, "locked": false, "target": "", "passive": character.get("passive", {"kind": "none"}),
 		"resonance": 0, "initial_resonance": 0, "previous_fired": false, "previous_amount": 0, "previous_colors": [], "previous_socket": - 1,
@@ -406,6 +415,11 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 		"previous_amount": int(unit.get("previous_amount", 0)), "amplify": float(unit.get("amplify", 1.0)),
 		"cut_step_bonus": int(unit.get("cut_step_bonus", 0)) + int(buff.get("cut", 0)) + int(gem_buff.get("cut", 0)), "carat_bonus": carat_bonus,
 		"clarity_bonus": int(gem_buff.get("clarity", 0)), "enemy_poison": enemy_poison,
+		## Only what was won mid-fight, apart from everything else folded into the bonuses
+		## above, so the close look can name the ranks that were raised and what raised them.
+		"fight_buffs": {"carat": int(buff.get("carat", 0)) + int(gem_buff.get("carat", 0)),
+			"cut": int(buff.get("cut", 0)) + int(gem_buff.get("cut", 0)), "clarity": int(gem_buff.get("clarity", 0))},
+		"buff_sources": unit.get("buff_sources", {}),
 		"dulled": int(unit.get("statuses", {}).get("dulled", 0)),
 		"depth": int(state.get("depth", 1)),
 		"turn": int(state.get("turn", 1)), "party": int(state.get("party", 1)), "socket": socket_color,
@@ -559,7 +573,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
 		"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
-		"duration": BASE_DURATION.gem_fire + 0.1 * results.size()})
+		"duration": BASE_DURATION.gem_fire + maxf(0.1 * float(results.size()), hits_span(results))})
 
 # --- the Birthstone ----------------------------------------------------------------------
 
@@ -637,9 +651,15 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 		for _more in range(promised):
 			state.queue.push_front({"kind": "birthstone", "unit": unit.id, "replay": true})
 	_check_outcome(state)
+	## Each tier's blows are animated on their own beat, so the longest of them is what the
+	## step has to hold: a Thousand Cuts is one tier throwing twenty bolts.
+	var longest: float = 0.0
+	for entry in tiers:
+		if bool(entry.active):
+			longest = maxf(longest, hits_span(entry.effects))
 	return _event(state, "birthstone", {"unit": unit.id, "name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "")),
 		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay, "promised": promised,
-		"duration": (BASE_DURATION.birthstone + 0.2 * tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size()) if fired else BASE_DURATION.gem_fizzle})
+		"duration": (BASE_DURATION.birthstone + 0.2 * tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size() + longest) if fired else BASE_DURATION.gem_fizzle})
 
 static func _has_effect(tier: Dictionary, kind: String) -> bool:
 	for effect in tier.get("effects", []):
@@ -768,6 +788,39 @@ static func _extreme(rolls: Array, lowest: bool) -> Dictionary:
 			found = roll
 	return found
 
+static func blows(effects: Array) -> int:
+	## How many bolts these effects throw: one a hit, one more for every repeat and every
+	## creature the blow splashes onto.
+	var count: int = 0
+	for effect in effects:
+		if str(effect.get("kind", "")) == "damage":
+			count += maxi(1, int(effect.get("repeat", 1))) * (1 + effect.get("splash", []).size())
+	return count
+
+static func hit_pace(effects: Array) -> float:
+	## How much of one blow's screen time each blow in this batch gets: all of it up to a
+	## handful, then less and less, so the run of them always fits HIT_SPAN.
+	var span: float = HIT_STEP * float(blows(effects))
+	return 1.0 if span <= HIT_SPAN else HIT_SPAN / span
+
+static func hits_span(effects: Array) -> float:
+	## How long these effects take to play, once they have closed up.
+	return minf(HIT_STEP * float(blows(effects)), HIT_SPAN)
+
+static func _credit_buff(unit: Dictionary, rank: String, socket: int) -> void:
+	## Which skill raised this rank on the rail this fight. The rail carries the numbers; this
+	## carries the reason, so the close look can say where a gem's extra weight came from
+	## rather than leaving the player to guess which of five gems did it.
+	var skill: String = "BIRTHSTONE" if socket < 0 else str(unit.rail[socket].get("skill", "")) if unit.rail[socket] is Dictionary else ""
+	if skill.is_empty():
+		return
+	var sources: Dictionary = unit.get("buff_sources", {})
+	var named: Array = sources.get(rank, [])
+	if not named.has(skill):
+		named.append(skill)
+	sources[rank] = named
+	unit.buff_sources = sources
+
 static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary, socket: int, previous_socket: int, dry: bool, rng: RandomNumberGenerator) -> Dictionary:
 	var kind: String = str(effect.kind)
 	var amount: int = int(effect.amount)
@@ -789,6 +842,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				changed.append(at)
 			out.sockets = changed
 			out.rank = rank
+			_credit_buff(unit, rank, socket)
 		"upgrade_faces":
 			var changed: Array = []
 			for roll in unit.hand:
@@ -886,6 +940,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			if not dry:
 				buff[rank] = int(buff.get(rank, 0)) + amount
 				unit.rank_buff = buff
+				_credit_buff(unit, rank, socket)
 			out.rank = rank
 			out.total = int(buff.get(rank, 0))
 		"repeat_next":

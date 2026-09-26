@@ -1513,15 +1513,27 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			for stone in haul:
 				worth += DeepStone.value(stone)
 			DeepUi.wrap(box, "You carry %s, worth about %d gold if they are what they look like. The lift takes everything home." % [DeepUi.plural(haul.size(), "stone"), worth], 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+			## The winch wants paying, and it wants more the deeper the cage has to come up from.
+			## The party pays it between them, so what matters is the pooled pyrite.
+			var fare: int = DeepDescent.lift_cost(run)
+			var pooled: int = 0
+			for other in run.get("players", []):
+				if not bool(other.get("downed", false)):
+					pooled += int(other.get("ore", 0))
+			var afford: bool = pooled >= fare
+			DeepUi.stat(box, "ore", "The winch wants %d pyrite from depth %d · the party has %d" % [fare, int(run.get("depth", 1)), pooled],
+				DeepUi.ORE if afford else DeepUi.BAD, 12)
 			if run.get("players", []).size() > 1:
-				DeepUi.label(box, "The party goes where most of it points.", 11, DeepUi.DIM)
+				DeepUi.label(box, "The party goes where most of it points, and pays the winch between them.", 11, DeepUi.DIM)
 			if pinned:
-				var ride := DeepUi.primary(box, "lift", "Ride up", func() -> void:
+				var ride := DeepUi.primary(box, "lift", "Ride up · %d" % fare, func() -> void:
 					_pin("")
 					DeepAudio.play("lift")
 					command.emit({"kind": "choose", "choice": "lift"}), 14, DeepUi.GOOD)
-				ride.disabled = str(unit.get("choice", "")) == "lift"
-				if not taken:
+				ride.disabled = str(unit.get("choice", "")) == "lift" or not afford
+				if not afford:
+					DeepUi.label(box, "Not enough pyrite between you to pay the winch. Dig on.", 11, DeepUi.BAD)
+				elif not taken:
 					DeepUi.label(box, "You have not taken your respite: the fire, the bench and the wheel are all free.", 11, DeepUi.ACCENT)
 			else:
 				DeepUi.label(box, "Click to take the lift.", 12, DeepUi.DIM)
@@ -1551,7 +1563,7 @@ func _show_hoard() -> void:
 	_crossroads.visible = true
 	_set_cross_mark("crown", DeepUi.CHAMBER_colorS.get("warden", DeepUi.BAD))
 	_cross_title.text = "The Warden's hoard"
-	_cross_sub.text = "Take one. They are appraised." if chosen.is_empty() else "Waiting for the others to choose."
+	_cross_sub.text = "Take one. All three are still in their rock: a colour and a size, and nothing else until a lens opens it." if chosen.is_empty() else "Waiting for the others to choose."
 	DeepUi.clear(_cross_hint)
 	_fill_chip()
 

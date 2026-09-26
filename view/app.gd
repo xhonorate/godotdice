@@ -41,6 +41,7 @@ func _ready() -> void:
 		saves.save_profile(profile)
 	if DeepProfile.tidy(profile):
 		saves.save_profile(profile)
+	Inspector.vault = profile.get("vault", {})
 	session = DeepSession.new()
 	session.saves = saves
 	session.speed = float(settings.get("speed", 1.0))
@@ -132,6 +133,7 @@ func _refresh_home() -> void:
 
 func _profile_changed() -> void:
 	saves.save_profile(profile)
+	Inspector.vault = profile.get("vault", {})
 	var loadout: Dictionary = member()
 	session.update_member({"character": loadout.character, "rail": loadout.rail, "dice": loadout.dice})
 	_refresh_home()
@@ -213,6 +215,7 @@ func _exit_tree() -> void:
 func _on_run_ended(results: Dictionary) -> void:
 	var applied: Dictionary = DeepProfile.apply_result(profile, results, session.local_id)
 	saves.save_profile(profile)
+	Inspector.vault = profile.get("vault", {})
 	if not applied.get("unlocked", []).is_empty():
 		DeepAudio.play("unlock")
 	for unlocked in applied.get("unlocked", []):

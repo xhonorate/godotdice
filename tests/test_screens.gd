@@ -149,8 +149,9 @@ func _init() -> void:
 				saw_landing = true
 				app.descent.show_state(run)
 				## The cage is walked up to before the respite, never after it: a run that
-				## means to leave here takes the lift first.
+				## means to leave here takes the lift first, and pays the winch to do it.
 				if run.depth >= 4:
+					run.players[0].ore = int(run.players[0].ore) + DeepDescent.lift_cost(run)
 					app.session.send({"kind": "choose", "choice": "lift"})
 				elif str(app.session.local_player().get("respite", "")).is_empty():
 					app.session.send({"kind": "respite", "choice": "rest"})

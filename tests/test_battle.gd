@@ -215,6 +215,15 @@ func _test_birthstones() -> void:
 	hand(large_player, [1, 2, 3, 4, 100])
 	var large_cuts: Dictionary = birthstones(run_turn(large_state, large_rng))[0]
 	check(bool(large_cuts.fired) and effects_of(large_cuts, "damage").size() == 100, "Thousand Cuts honours a d100 result without capping at twenty hits")
+	## The step has to hold the whole run of bolts, however many there are, or the turn moves
+	## on while the Birthstone is still throwing them.
+	for played in [cuts, large_cuts]:
+		var longest: float = 0.0
+		for tier in played.tiers:
+			if bool(tier.active):
+				longest = maxf(longest, DeepBattle.hits_span(tier.effects))
+		check(float(played.duration) >= longest, "a %d-hit Birthstone is given long enough to play it: %.2fs of %.2fs" % [effects_of(played, "damage").size(), longest, float(played.duration)])
+	check(DeepBattle.hits_span(effects_of(large_cuts, "damage")) <= DeepBattle.HIT_SPAN, "and a hundred blows still close up into one beat")
 	## Cadence: a straight of four hits the room, a straight of five plays the rail again.
 	var r4: Dictionary = rngs(74)
 	var state4: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE"), stone("MEND")], "CADENCE")], ["QUARTZ_GOLEM", "CAVE_TICK"], {"depth": 1}, r4.dice, r4.creatures)

@@ -57,8 +57,10 @@ func _rail() -> void:
 	check(unit.rail.size() == count and unit.sockets.size() == count, "riders never lengthen the rail")
 	var patched: Dictionary = DeepPatch.apply(guest, DeepPatch.diff(guest, run))
 	check(JSON.stringify(patched) == JSON.stringify(run), "riders reach co-op guests exactly")
+	## Down the mine two stones of one skill are two different stones, so both may be set.
 	unit.haul.append(gem("CLEAVE", "duplicate"))
-	check(not DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "duplicate", "index": 3}).ok, "Void preserves the one-stone-per-skill rule against a rider")
+	check(DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "duplicate", "index": 3}).ok and ids(unit.riders[3]) == ["duplicate"],
+		"a second stone of a skill already riding may ride too")
 	check(not DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "normal0", "index": 1}).ok or unit.rail[1].id == "normal0", "an ordinary gem still cannot ride: it swaps sockets")
 	unit.rail[0] = before[0]
 	unit.rail[1] = before[1]
@@ -95,7 +97,7 @@ func _rail() -> void:
 	var sale: Dictionary = DeepOddities.apply({"kind": "collector_sell"}, unit, {"stone_id": locked.id}, DeepRng.streams(1).oddities, {})
 	check(not sale.ok and unit.ore == ore, "the collector cannot turn a fragile gem into pyrite")
 	var order: Array = ids(DeepStone.rail_stones(unit))
-	check(order == ["normal0", "normal1", "void_a", "normal2", "normal3", "void_b"], "the rail's stones are read in firing order, riders after their socket's gem: %s" % str(order))
+	check(order == ["normal0", "normal1", "void_a", "normal2", "normal3", "duplicate", "void_b"], "the rail's stones are read in firing order, riders after their socket's gem: %s" % str(order))
 
 func _battle() -> void:
 	var run: Dictionary = run_state()

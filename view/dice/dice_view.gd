@@ -12,6 +12,9 @@ const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const VIEW_DIRECTION := Vector3(0.0, 0.0, 1.0)
 const SPIN_SECONDS := 0.72
 const TURN_PER_PIXEL := 0.011
+## Past this many faces a numeral cut into one of them is too small to read at tray size, so
+## the number it landed on is also written over the settled solid.
+const READOUT_SIDES := 20
 
 @export var live := true
 
@@ -33,6 +36,7 @@ var _pivot: Node3D
 var _body: MeshInstance3D
 var _shell: MeshInstance3D
 var _glow: Control
+var _readout: Label
 var _labels: Array[Label3D] = []
 var _frames: Array = []
 var _face_index := 0
@@ -62,6 +66,15 @@ func _ready() -> void:
 	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_glow.draw.connect(_draw_glow.bind(_glow))
 	add_child(_glow)
+	## Above the solid whatever order the viewport container lands in.
+	_readout = DeepUi.title(self, "", 22, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	_readout.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_readout.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_readout.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_readout.z_index = 1
+	_readout.visible = false
+	_readout.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.9))
+	_readout.add_theme_constant_override("outline_size", 8)
 	if headless():
 		return
 	var container := SubViewportContainer.new()
@@ -153,8 +166,24 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 			_pivot.quaternion = _target
 	elif _spin_time > spin_seconds and is_instance_valid(_pivot):
 		_pivot.quaternion = _target
+	_sync_readout()
 	if is_instance_valid(_glow):
 		_glow.queue_redraw()
+
+func _sync_readout() -> void:
+	## A d24 and up carries its numerals on faces too small to read, so the number it landed
+	## on is written over the solid as well. It is not shown while the solid is still turning,
+	## and never on a view the reader steers: there the face under the eye is the answer.
+	if not is_instance_valid(_readout):
+		return
+	var wanted: bool = _frames.size() > READOUT_SIDES and not interactive
+	_readout.visible = wanted
+	if not wanted:
+		return
+	var value: int = int(roll.get("value", _value_at(_face_index))) if not roll.is_empty() else _value_at(_face_index)
+	_readout.text = str(value)
+	_readout.add_theme_font_size_override("font_size", maxi(14, int(minf(size.x, size.y) * 0.42)))
+	_readout.modulate.a = 1.0 if _spin_time > spin_seconds else 0.0
 
 func settle_immediately() -> void:
 	## Restored state already knows this face; do not replay a roll on reconnect.
@@ -171,6 +200,7 @@ func enable_interaction() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_default_cursor_shape = Control.CURSOR_MOVE
 	_spin_time = 99.0
+	_sync_readout()
 
 func face_count() -> int:
 	return _frames.size()
@@ -346,6 +376,11 @@ func _process(delta: float) -> void:
 		_pivot.position = Vector3.ZERO
 		_pivot.scale = Vector3.ONE
 		return
+	if is_instance_valid(_readout) and _readout.visible:
+		## Written on only once the solid has stopped: a number over a tumbling die would give
+		## the roll away before it landed.
+		var want: float = 1.0 if _spin_time > spin_seconds else 0.0
+		_readout.modulate.a = move_toward(_readout.modulate.a, want, delta * 7.0)
 	if _spin_time <= spin_seconds:
 		_spin_time += delta
 		var t := clampf(_spin_time / spin_seconds, 0.0, 1.0)

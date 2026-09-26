@@ -253,7 +253,16 @@ func _test_landing_commands() -> void:
 	check(not cmd(state, "a", "sell", {"stone_id": "a_strike"}).ok and not cmd(state, "a", "buy", {"item_id": "x"}).ok, "nor anyone to trade with")
 	## The cage stands beside the fire, the bench and the wheel: any of the four may be walked
 	## up to first, and a party in a hurry may ride up without taking its respite at all.
+	## The winch wants paying first, and it wants more from deeper down: so much a depth for
+	## every body in the cage, out of the party's pooled pyrite.
 	check(not cmd(state, "a", "choose", {"choice": "descend"}).ok, "the way down waits on the respite")
+	var fare: int = DeepDescent.lift_cost(state)
+	check(fare == 15 * 4 * 2, "the winch wants fifteen pyrite a depth a head: %d at depth 4 for two" % fare)
+	a.ore = 0
+	b.ore = 0
+	check(not cmd(state, "a", "choose", {"choice": "lift"}).ok, "and no cage moves on empty pockets")
+	## One full pocket is enough: the fare is the party's, not each player's.
+	a.ore = fare
 	check(cmd(state, "a", "choose", {"choice": "lift"}).ok and str(a.choice) == "lift", "but the cage does not: it is a fourth thing to walk up to")
 	a.choice = ""
 	check(not cmd(state, "a", "respite", {"choice": "nap"}).ok, "rest, appraise or the wheel, nothing else")
@@ -292,6 +301,7 @@ func _test_landing_commands() -> void:
 	b.respite = "rest"
 	check(cmd(state, "b", "choose", {"choice": "descend"}).ok, "the other votes to descend")
 	check(state.phase == "over" and state.outcome == "extracted" and state.depth == 4, "a tie goes to the first seat, who chose the lift: extracted at depth 4")
+	check(int(a.ore) == 0 and int(b.ore) == 0, "and the winch took the whole fare, the empty pocket's share off the full one")
 	check(not cmd(state, "a", "choose", {"choice": "descend"}).ok, "nothing more once the run is over")
 	check(not cmd(state, "a", "unsocket", {"index": 0}).ok, "and the bench is closed")
 
@@ -324,10 +334,10 @@ func _test_merchant() -> void:
 		"a rough stone sells for its size class (%d pyrite)" % int(a.ore))
 	check(int(a.ore) < DeepStone.value(DeepStone.make("STRIKE", 12, 3, 4)) / 2, "and for less than the same stone read")
 	a.ore = 200
-	check(DeepDescent.appraise_cost(state, "a") == 12, "the first appraisal at a stall costs twelve")
-	check(cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok and bool(raws[0].appraised) and int(a.ore) == 188, "the lens appraises a raw stone for pyrite")
-	check(DeepDescent.appraise_cost(state, "a") == 20 and DeepDescent.appraise_cost(state, "b") == 12, "each appraisal costs the asker more, and nobody else")
-	check(cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok and int(a.ore) == 168, "the second costs twenty")
+	check(DeepDescent.appraise_cost(state, "a") == 50, "the first appraisal at a stall costs fifty")
+	check(cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok and bool(raws[0].appraised) and int(a.ore) == 150, "the lens appraises a raw stone for pyrite")
+	check(DeepDescent.appraise_cost(state, "a") == 100 and DeepDescent.appraise_cost(state, "b") == 50, "each appraisal costs the asker fifty more, and nobody else")
+	check(cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok and int(a.ore) == 50, "the second costs a hundred")
 	check(not cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok, "not twice")
 	var ore_before: int = int(a.ore)
 	check(cmd(state, "a", "sell", {"stone_id": "raw1"}).ok and int(a.ore) > ore_before, "an appraised stone sells for pyrite")
@@ -344,7 +354,7 @@ func _test_merchant() -> void:
 	check(cmd(state, "a", "leave").ok and str(state.phase) == "chamber", "one player leaving waits for the other")
 	check(not cmd(state, "a", "leave").ok, "leaving twice is refused")
 	check(cmd(state, "b", "leave").ok and str(state.phase) == "tunnels", "when everyone has left, the tunnels open")
-	check(DeepDescent.appraise_cost(state, "a") == 12, "the next stall starts its price again")
+	check(DeepDescent.appraise_cost(state, "a") == 50, "the next stall starts its price again")
 	check(not cmd(state, "a", "buy", {"item_id": unsold}).ok, "the stall is gone once the party walks on")
 
 func _test_dice_rooms() -> void:
@@ -465,6 +475,9 @@ func _test_bot_runs() -> void:
 		guard += 1
 		var before: Dictionary = state.duplicate(true)
 		if str(state.phase) == "landing" and state.depth == 8 and bool(state.landing.get("cleared", false)):
+			## The winch is paid out of the party's pocket; this run is about the loop, not the
+			## economy, so the fare is simply there.
+			state.players[0].ore = int(state.players[0].ore) + DeepDescent.lift_cost(state)
 			for unit in state.players:
 				cmd(state, str(unit.id), "choose", {"choice": "lift"})
 		else:
@@ -495,7 +508,9 @@ func _test_bot_runs() -> void:
 			steps += 1
 			if str(weak.phase) == "landing" and weak.depth >= 12:
 				## Straight into the cage: the lift is walked up to before the respite, not
-				## after it, so a party that has had enough may leave at once.
+				## after it, so a party that has had enough may leave at once. The winch's fare
+				## comes out of the party's pocket, so it is put there first.
+				weak.players[0].ore = int(weak.players[0].ore) + DeepDescent.lift_cost(weak)
 				for unit in weak.players:
 					cmd(weak, str(unit.id), "choose", {"choice": "lift"})
 			else:
@@ -512,21 +527,22 @@ func _test_bot_runs() -> void:
 	check(JSON.stringify(one) == JSON.stringify(two), "two runs from one seed agree after sixty bot actions")
 
 func _test_hoard_opal() -> void:
-	## The Warden's pile: three stones read out where they lie, the last of them an opal,
-	## a gem nothing else in the mine offers, shown for what it is like the two beside it.
+	## The Warden's pile: three stones still in their rock, the last of them an opal, a gem
+	## nothing else in the mine offers. Nothing on the pedestals has been read, so the choice
+	## is three gambles and the loupe settles it afterwards.
 	var state: Dictionary = DeepDescent.new_run(config(414, true))
 	state.depth = 8
 	DeepDescent._offer_hoard(state)
 	var offers: Array = state.hoard.a.offers
-	check(offers.size() == 3 and offers.all(func(s: Dictionary) -> bool: return bool(s.appraised) and bool(s.inclusions_revealed)), "all three are read out where they lie")
+	check(offers.size() == 3 and offers.all(func(s: Dictionary) -> bool: return not bool(s.appraised) and not bool(s.inclusions_revealed)), "all three lie there unread, in their rock")
 	var opal: Dictionary = offers[2]
 	check(DeepStone.is_opal(opal), "the third is an opal: %s" % str(opal.skill))
 	check(DeepStone.fits(opal, "RED") and DeepStone.fits(opal, "GOLD"), "an opal answers to every color, so any socket takes it")
 	var picked: Dictionary = cmd(state, "a", "pick_hoard", {"stone_id": str(opal.id)})
-	check(picked.ok and not bool(picked.event.raw) and bool(picked.event.stone.appraised),
-		"the opal comes off the pile appraised")
-	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return str(s.id) == str(opal.id) and bool(s.get("appraised", false))),
-		"and goes into the haul that way")
+	check(picked.ok and bool(picked.event.raw) and not bool(picked.event.stone.appraised),
+		"the opal comes off the pile raw")
+	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return str(s.id) == str(opal.id) and not bool(s.get("appraised", false))),
+		"and goes into the haul that way, for a lens to open later")
 	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return DeepStone.is_opal(s)), "and the opal goes in the haul")
 	## And nothing else in the mine ever hands one out.
 	var rng := RandomNumberGenerator.new()

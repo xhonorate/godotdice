@@ -63,20 +63,8 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	var quality: int = int(unit.get("quality_bonus", 0))
 	if quality > 0:
 		out.append(entry("quality", "star", "+%d%%" % quality, true, "Windfall", "Stones found after this fight are %d%% better." % quality, DeepUi.ACCENT))
-	var upgrades: Array = []
-	for stone in unit.get("rail", []):
-		if not stone is Dictionary:
-			continue
-		var bonus: Dictionary = unit.get("gem_buffs", {}).get(str(stone.id), {})
-		var parts: Array = []
-		for rank in ["carat", "cut", "clarity"]:
-			var amount: int = int(bonus.get(rank, 0)) + int(unit.get("rank_buff", {}).get(rank, 0))
-			if amount > 0:
-				parts.append("+%d %s" % [amount, rank.capitalize()])
-		if not parts.is_empty():
-			upgrades.append("%s: %s" % [DeepStone.name(stone), ", ".join(parts)])
-	if not upgrades.is_empty():
-		out.append(entry("gem_upgrades", "gem", str(upgrades.size()), true, "Gem upgrades — this fight", "\n".join(upgrades)))
+	## A gem raised mid-fight is not a chip here: the rail draws the raised ranks on the gem
+	## itself, where the player is already looking, and it grows to the carat it now counts as.
 	out.append_array(for_run(unit))
 	return out
 

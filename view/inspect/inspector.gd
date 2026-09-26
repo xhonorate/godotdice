@@ -26,6 +26,8 @@ const FACE_TEXT: Dictionary = {
 	"locked": "Locked: once it shows, the die cannot be rerolled for the rest of the fight.",
 	"mirror": "Mirror: copies the highest other die in your hand.",
 	"blank": "Blank: no value and no pattern at all."}
+## What the Compare page has room for inside the sheet's own right-hand column.
+const COMPARE_WIDTH := 560.0
 const TERM_WORDS: Dictionary = {"high": "its highest die", "low": "its lowest die", "total": "its total", "value": "the matched value",
 	"second": "the second matched value", "count": "the number of matching dice", "max_total": "the most its dice could roll",
 	"odd": "its odd dice", "even": "its even dice", "distinct": "its different values", "run_high": "the top of its run",
@@ -36,6 +38,10 @@ const TARGET_WORDS: Dictionary = {"hero": "one of you", "heroes": "all of you", 
 	"enemies": "every creature", "allies": "its allies", "all": "everyone"}
 
 static var _sheet: CanvasLayer = null
+## The workshop's vault, by skill, so a stone looked at anywhere — a stall's counter, a
+## Warden's hoard, the bag halfway down the mine — can say whether one of its skill is
+## already kept at home and set the two side by side. The shell keeps it current.
+static var vault: Dictionary = {}
 
 var _dim: ColorRect
 var _panel: PanelContainer
@@ -328,14 +334,21 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		DeepUi.pill(tags, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 13)
 	else:
 		DeepUi.pill(tags, "coin", "Value · %d gold" % DeepStone.value(item), DeepUi.ACCENT, 13)
+	## The stone of this skill already at home, if there is one and this is not it: the reader
+	## is almost always deciding between the two, and the sheet says so rather than leaving
+	## them to remember what is in the vault.
+	var kept: Dictionary = kept_stone(item) if not reference else {}
+	if not kept.is_empty():
+		DeepUi.pill(tags, "chest", "Already in your vault", DeepUi.INFO, 13, "You keep a %s. The Compare page sets the two line against line." % DeepStone.name(kept))
 	## Everything below the tags is one page: what it does, when it fires, its purity.
-	_page("", "")
+	_page("The stone" if not kept.is_empty() else "", "gem" if not kept.is_empty() else "")
 	var does := _section(GemIcons.emblem(str(item.get("skill", ""))), "What it does")
 	var skill_row := DeepUi.hbox(does, 8)
 	DeepUi.title(skill_row, str(skill.get("name", "")), 20, DeepUi.PAPER)
 	var effective: Dictionary = DeepStone.effective(item, opts.get("context", {}))
 	if int(effective.carat) != int(item.carat) or int(effective.cut_step) != int(item.cut) or int(effective.clarity) != int(item.clarity):
 		DeepUi.wrap(does, "Effective: %d ct · %s Cut · %s Clarity" % [int(effective.carat), DeepContent.cut_name(int(effective.cut_step)), DeepContent.clarity_name(int(effective.clarity))], 12, DeepUi.INFO)
+	_fight_buffs(does, opts.get("context", {}))
 	var mods: Array = DeepStone.modifiers(item)
 	_effect_line(does, item, mods, opts.get("context", {}))
 	StoneCard.carat_lines(does, item, opts.get("context", {}), 13)
@@ -377,6 +390,43 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	DeepUi.title(prow, DeepContent.clarity_name(clarity), 18, DeepUi.PAPER)
 	DeepUi.wrap(prow, _clarity_words(clarity), 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_inclusions(item, purity)
+	if not kept.is_empty():
+		_page("Compare", "scales")
+		_compare_page(item, kept)
+
+func _fight_buffs(parent: Node, context: Dictionary) -> void:
+	## What this gem was given mid-fight and keeps until the fight ends, rank by rank, with the
+	## skill that gave it. The rail draws the same numbers on the socket; here they are named,
+	## because a "+2" in a corner does not say who did it or how long it lasts.
+	var raised: Dictionary = context.get("fight_buffs", {})
+	var sources: Dictionary = context.get("buff_sources", {})
+	for rank in ["carat", "cut", "clarity"]:
+		var amount: int = int(raised.get(rank, 0))
+		if amount <= 0:
+			continue
+		var named: Array = []
+		for key in sources.get(rank, []):
+			named.append("your Birthstone" if str(key) == "BIRTHSTONE" else str(DeepContent.skill(str(key)).get("name", key)))
+		var from: String = "" if named.is_empty() else " from %s" % " and ".join(named)
+		DeepUi.stat(parent, rank, "+%d %s for the rest of this fight%s." % [amount, rank.capitalize(), from], DeepUi.GOOD, 12)
+
+static func kept_stone(item: Dictionary) -> Dictionary:
+	## The stone of this skill in the workshop vault, unless this is that very stone.
+	var mine: Dictionary = vault.get(str(item.get("skill", "")), {})
+	return {} if mine.is_empty() or str(mine.get("id", "")) == str(item.get("id", "")) else mine
+
+func _compare_page(item: Dictionary, kept: Dictionary) -> void:
+	## The same lines for both stones, side by side, with the higher of each pair painted and
+	## the other dimmed: the loupe's own comparison sheet, read out all at once because the
+	## reader came here to answer a question, not to watch it revealed.
+	DeepUi.wrap(_details, "You already keep a stone of this skill. Only one of the two can go in the vault when the run ends.", 13, DeepUi.MUTED)
+	## Loaded rather than preloaded: the ceremony preloads this sheet, and two preloads that
+	## name each other will not compile.
+	var appraisal = load("res://view/gems/appraisal.gd")
+	var sheet: Control = appraisal.Sheet.new(item, kept, {"width": COMPARE_WIDTH, "label_width": 88.0,
+		"found_width": 228.0, "owned_width": 228.0, "owned_picture": true})
+	_details.add_child(sheet)
+	sheet.call("show_all")
 
 func _effect_line(parent: Node, item: Dictionary, mods: Array, context: Dictionary = {}) -> void:
 	## The effect is the reason a player opens this sheet, so it leads in bold, with the carat

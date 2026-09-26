@@ -467,6 +467,11 @@ class Sheet extends VBoxContainer:
 
 	var stone: Dictionary
 	var owned: Dictionary
+	## The three column widths. The ceremony has the whole screen; a sheet shown inside another
+	## page (the close look's Compare tab) has to be told the narrower ones it has room for.
+	var _label_w: float = LABEL_W
+	var _found_w: float = FOUND_W
+	var _owned_w: float = OWNED_W
 	## Each line by name: {show: [nodes faded in], play: Callable, final: Callable}.
 	var _lines: Dictionary = {}
 	var _order: Array = []
@@ -482,18 +487,21 @@ class Sheet extends VBoxContainer:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_theme_constant_override("separation", 9)
 		custom_minimum_size.x = float(opts.get("width", WIDTH))
+		_label_w = float(opts.get("label_width", LABEL_W))
+		_found_w = float(opts.get("found_width", FOUND_W))
+		_owned_w = float(opts.get("owned_width", OWNED_W))
 		var comparing: bool = not owned.is_empty()
 		var owned_bits: Array = []
 		if comparing:
 			var head := DeepUi.hbox(self, 12)
-			DeepUi.gap(head, LABEL_W).custom_minimum_size.y = 0
+			DeepUi.gap(head, _label_w).custom_minimum_size.y = 0
 			var found_head := DeepUi.vbox(head, 2)
-			found_head.custom_minimum_size.x = FOUND_W
+			found_head.custom_minimum_size.x = _found_w
 			found_head.size_flags_vertical = Control.SIZE_SHRINK_END
 			DeepUi.heading(found_head, "Just found", 13, DeepUi.ACCENT)
 			owned_bits.append(found_head)
 			var owned_head := DeepUi.hbox(head, 8)
-			owned_head.custom_minimum_size.x = OWNED_W
+			owned_head.custom_minimum_size.x = _owned_w
 			owned_head.size_flags_vertical = Control.SIZE_SHRINK_END
 			## The kept stone's own picture only belongs here when nothing else is showing
 			## it: on the Appraise tab it stands beside the sheet at the size the found one
@@ -617,11 +625,11 @@ class Sheet extends VBoxContainer:
 		var comparing: bool = not owned.is_empty()
 		var row := DeepUi.hbox(self, 12)
 		var head := DeepUi.hbox(row, 8)
-		head.custom_minimum_size.x = LABEL_W
+		head.custom_minimum_size.x = _label_w
 		DeepUi.icon(head, glyph, 20, DeepUi.ACCENT, GemIcons.hint(glyph))
 		DeepUi.label(head, title, 15, DeepUi.MUTED)
 		var cell := DeepUi.hbox(row, 8)
-		cell.custom_minimum_size.x = FOUND_W
+		cell.custom_minimum_size.x = _found_w
 		cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var value := DeepUi.title(cell, "?", 22, DeepUi.DIM)
 		value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -646,7 +654,7 @@ class Sheet extends VBoxContainer:
 		var theirs: Label = null
 		if comparing:
 			var their_cell := DeepUi.hbox(row, 8)
-			their_cell.custom_minimum_size.x = OWNED_W
+			their_cell.custom_minimum_size.x = _owned_w
 			their_cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			theirs = DeepUi.title(their_cell, owned_text, 22, DeepUi.PAPER)
 			theirs.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

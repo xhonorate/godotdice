@@ -761,8 +761,10 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	## ANY socket takes anything, an opal fits every socket, and Zoning and Alexandrite say
 	## for themselves what else a stone counts as. A Void gem takes no socket at all: it
 	## rides one, any one of any colour, beside whatever is set there, and fires right after
-	## it; so the only things that can refuse it are its skill already on the rail, its
-	## weight, and a Knot holding it where it is.
+	## it; so the only things that can refuse it are its weight and a Knot holding it where it
+	## is. Two stones of one skill may both be set: down the mine they are two different
+	## stones, cut and weighed differently, and which of them is worth a socket is the
+	## player's question rather than the rail's.
 	var rail: Array = unit.get("rail", [])
 	if index < 0 or index >= rail.size():
 		return "no such socket"
@@ -780,8 +782,6 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	if carat_cap > 0 and int(stone.get("carat", 1)) > carat_cap:
 		return "%s takes nothing heavier than %d carats" % [str(character.get("name", "this character")), carat_cap]
 	for other in DeepStone.rail_stones(unit):
-		if str(other.skill) == str(stone.skill) and str(other.id) != str(stone.id):
-			return "one stone of each skill"
 		if str(other.id) == str(stone.id) and DeepStone.is_locked(other):
 			return "a Knot cannot leave its socket"
 	var current: Variant = rail[index]
@@ -907,7 +907,7 @@ static func at_stall(state: Dictionary) -> bool:
 static func appraise_cost(state: Dictionary, unit_id: String) -> int:
 	## What the lens costs this player at this stall: dearer every time they ask.
 	var uses: int = int(state.get("chamber", {}).get("appraisals", {}).get(unit_id, 0))
-	return int(DeepContent.constant("appraise_ore_cost", 12)) + uses * int(DeepContent.constant("appraise_cost_step", 8))
+	return int(DeepContent.constant("appraise_ore_cost", 50)) + uses * int(DeepContent.constant("appraise_cost_step", 50))
 
 static func _reveal(stone: Dictionary) -> void:
 	stone.appraised = true
@@ -1052,6 +1052,38 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 	state.landing.respites[str(unit.id)] = fields.duplicate(true)
 	return {"ok": true, "event": _event(state, "respite", fields)}
 
+static func lift_cost(state: Dictionary) -> int:
+	## What the winch wants to haul the party up from this depth: so much a depth, a share for
+	## every living body in the cage. Riding up early is cheap; riding up loaded is not.
+	return int(DeepContent.constant("lift_ore_per_depth", 15)) * maxi(1, int(state.get("depth", 1))) * maxi(1, living(state).size())
+
+static func _party_ore(state: Dictionary) -> int:
+	var total: int = 0
+	for unit in living(state):
+		total += int(unit.get("ore", 0))
+	return total
+
+static func _pay_for_lift(state: Dictionary) -> Dictionary:
+	## An even share each, and whatever a light pocket cannot cover comes off whoever still has
+	## it. The cage only has to be paid for once, not evenly.
+	var riders: Array = living(state)
+	var owed: int = lift_cost(state)
+	var paid: Dictionary = {}
+	var share: int = owed / maxi(1, riders.size())
+	for unit in riders:
+		var take: int = mini(int(unit.get("ore", 0)), mini(share, owed))
+		unit.ore = int(unit.ore) - take
+		paid[str(unit.id)] = take
+		owed -= take
+	for unit in riders:
+		if owed <= 0:
+			break
+		var take: int = mini(int(unit.get("ore", 0)), owed)
+		unit.ore = int(unit.ore) - take
+		paid[str(unit.id)] = int(paid.get(str(unit.id), 0)) + take
+		owed -= take
+	return paid
+
 static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: String) -> Dictionary:
 	## A landing asks one question at a time. The cage stands beside the fire, the bench and
 	## the wheel, and any of the four may be walked up to first; but the moment a respite is
@@ -1067,6 +1099,8 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 		return _refuse("take your respite first: the fire, the bench or the wheel")
 	if choice == "lift" and rested and not hall:
 		return _refuse("you have taken your respite: the way on is down")
+	if choice == "lift" and _party_ore(state) < lift_cost(state):
+		return _refuse("the winch wants %d pyrite to lift the party from this depth" % lift_cost(state))
 	unit.choice = choice
 	var event: Dictionary = _event(state, "landing_choice", {"unit": unit.id, "choice": choice})
 	var lifts: int = 0
@@ -1079,6 +1113,7 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 	var ride: bool = lifts > descends or (lifts == descends and str(living(state)[0].get("choice", "")) == "lift")
 	var streams: Dictionary = streams_of(state)
 	if ride:
+		event.paid = _pay_for_lift(state)
 		var conquered: bool = int(state.depth) >= int(DeepContent.constant("run_depth", 24)) and bool(state.landing.get("cleared", false))
 		_finish(state, "conquered" if conquered else "extracted")
 		event.finished = str(state.outcome)
@@ -1097,11 +1132,10 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 # --- hoard, salvage, endings ---------------------------------------------------------------
 
 static func _offer_hoard(state: Dictionary) -> void:
-	## Three stones read out on their pedestals, and, last of the three, an opal: the only
-	## thing in the mine that no vein and no drop ever offers. Its carat, its cut and its
-	## clarity are rolled like any other stone's, and it is shown for what it is, cut and
-	## turning under its beam like the two beside it, so the choice is between three known
-	## stones and not a gamble on a lump of rock.
+	## Three stones on their pedestals, and, last of the three, an opal: the only thing in the
+	## mine that no vein and no drop ever offers. Every one of them comes out of the Warden's
+	## hoard still in its rock, so a pedestal says only a colour and a size class: the choice
+	## is three gambles on what is inside, and the loupe settles it afterwards.
 	var streams: Dictionary = streams_of(state)
 	state.phase = "hoard"
 	state.hoard = {}
@@ -1112,8 +1146,8 @@ static func _offer_hoard(state: Dictionary) -> void:
 		for index in range(HOARD_OFFERS):
 			var opal: bool = index == HOARD_OFFERS - 1 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
 			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), 6, {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
-			stone.appraised = true
-			stone.inclusions_revealed = true
+			stone.appraised = false
+			stone.inclusions_revealed = false
 			offers.append(stone)
 		state.hoard[unit.id] = {"offers": offers, "chosen": ""}
 	state.rng = DeepRng.save(streams)
@@ -1127,8 +1161,8 @@ static func _pick_hoard(state: Dictionary, unit: Dictionary, stone_id: String) -
 	for stone in mine_hoard.get("offers", []):
 		if str(stone.id) == stone_id:
 			mine_hoard.chosen = stone_id
-			## Everything on the pile has been read; `raw` is kept on the event for a guest
-			## whose pack still seals one.
+			## Nothing on the pile has been read: it goes into the bag in its rock like any
+			## other find, and a stall or a landing opens it.
 			var raw: bool = not bool(stone.get("appraised", false))
 			unit.haul.append(stone)
 			unit.stats.stones = int(unit.stats.get("stones", 0)) + 1

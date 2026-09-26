@@ -771,14 +771,26 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			slot.add_child(ring)
 			if rider and stone is Dictionary:
 				var picture := Thumbs.GemThumb.new(stone, RIDER_EDGE - 4)
+				picture.name = "Gem"
 				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 2)
 				picture.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. Fragile: shatters at the end of the run." % [DeepStone.name(stone), DeepStone.text(stone), int(place.socket) + 1]
 				slot.add_child(picture)
 			elif stone is Dictionary:
 				var picture := Thumbs.GemThumb.new(stone, SOCKET_EDGE - 12)
+				picture.name = "Gem"
 				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 6)
 				picture.tooltip_text = DeepStone.name(stone) + "\n" + DeepStone.text(stone)
 				slot.add_child(picture)
+				## Stacked down the socket's top-right corner, so three of them fit without
+				## crowding the stone or widening the rail.
+				var marks := VBoxContainer.new()
+				marks.name = "Raised"
+				marks.alignment = BoxContainer.ALIGNMENT_BEGIN
+				marks.add_theme_constant_override("separation", 1)
+				marks.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, -4)
+				marks.mouse_filter = Control.MOUSE_FILTER_PASS
+				marks.z_index = 1
+				slot.add_child(marks)
 				var trigger_row := HBoxContainer.new()
 				trigger_row.alignment = BoxContainer.ALIGNMENT_CENTER
 				trigger_row.name = "Trigger"
@@ -818,10 +830,75 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 					trigger_row.set_meta("key", key)
 					DeepUi.clear(trigger_row)
 					DiceIcons.build(trigger_row, described, 15, tone, str(described.get("words", "")) + ("" if active or entry.is_empty() else "\n" + str(entry.get("reason", ""))))
+			var picture: Control = card.get_node_or_null("Slot/Gem")
+			if picture != null:
+				picture.set("context", DeepBattle.rail_context(state, unit, socket))
+			_sync_raised(unit, card, stone)
 			var blocked: bool = unit.get("buried", []).has(socket) or unit.get("clouded", []).has(socket)
 			card.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else Color.WHITE
 			card.tooltip_text = ("Buried in rubble: this gem cannot fire this turn." if unit.get("buried", []).has(socket) else "Clouded: hit the Clouder to clear it.") if blocked else ""
 	_sync_birthstone(unit, planning, showing)
+
+static func raised_ranks(unit: Dictionary, stone: Dictionary) -> Array:
+	## What a Fire Opal, or any gem that raises another's ranks, has put on this gem for the
+	## rest of the fight: [rank, amount] a rank, highest ranks first. The whole rail's buff and
+	## this gem's own are one number to the player, so they are added together here.
+	var own: Dictionary = unit.get("gem_buffs", {}).get(str(stone.get("id", "")), {})
+	var rail: Dictionary = unit.get("rank_buff", {})
+	var out: Array = []
+	for rank in ["carat", "cut", "clarity"]:
+		var amount: int = int(own.get(rank, 0)) + int(rail.get(rank, 0))
+		if amount > 0:
+			out.append([rank, amount])
+	return out
+
+func _sync_raised(unit: Dictionary, card: Control, stone: Dictionary) -> void:
+	## An upgrade won mid-fight is said on the gem it was won for, not by a chip over the hud
+	## that has to be hovered to be read: the stone grows to the carat it now counts as, and
+	## each raised rank gets its own mark and number stacked in the corner of the socket.
+	var slot: Control = card.get_node_or_null("Slot")
+	var picture: Control = slot.get_node_or_null("Gem") if slot != null else null
+	var marks: VBoxContainer = slot.get_node_or_null("Raised") if slot != null else null
+	if picture == null or marks == null:
+		return
+	var raised: Array = raised_ranks(unit, stone)
+	var key: String = str(raised)
+	if str(marks.get_meta("key", "")) != key:
+		marks.set_meta("key", key)
+		DeepUi.clear(marks)
+		for entry in raised:
+			## Its own dark plate: a grown gem reaches out under these, and a bare mark on a
+			## bright facet is unreadable.
+			var plate := PanelContainer.new()
+			plate.add_theme_stylebox_override("panel", DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.GOOD, 0.45), 5, 2))
+			plate.size_flags_horizontal = Control.SIZE_SHRINK_END
+			plate.mouse_filter = Control.MOUSE_FILTER_PASS
+			plate.tooltip_text = "+%d %s for the rest of this fight%s" % [int(entry[1]), str(entry[0]).capitalize(), _raised_by(unit, str(entry[0]))]
+			marks.add_child(plate)
+			var chip := DeepUi.hbox(plate, 2)
+			chip.mouse_filter = Control.MOUSE_FILTER_PASS
+			DeepUi.label(chip, "+%d" % int(entry[1]), 10, DeepUi.GOOD)
+			DeepUi.icon(chip, str(entry[0]), 12, DeepUi.GOOD)
+		if not raised.is_empty() and not _headless:
+			DeepUi.pulse(picture, 1.14, 0.3)
+	## Weight is the one rank the eye can see, so the stone is drawn at what it now weighs.
+	var carat: int = 0
+	for entry in raised:
+		if str(entry[0]) == "carat":
+			carat = int(entry[1])
+	if carat <= 0:
+		picture.call("configure", stone)
+		return
+	var grown: Dictionary = stone.duplicate(true)
+	grown.carat = int(stone.get("carat", 1)) + carat
+	picture.call("configure", grown)
+
+static func _raised_by(unit: Dictionary, rank: String) -> String:
+	var named: Array = unit.get("buff_sources", {}).get(rank, [])
+	var words: Array = []
+	for key in named:
+		words.append(str(DeepContent.skill(str(key)).get("name", key)) if str(key) != "BIRTHSTONE" else "your Birthstone")
+	return "" if words.is_empty() else ", from %s" % " and ".join(words)
 
 func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 	## The character's Birthstone at the end of the rail: the stone in its own bezel, its
@@ -1472,14 +1549,14 @@ func _place_enemy_roll(delta: float) -> void:
 	_enemy_roll.position = _enemy_roll.position.lerp(goal, clampf(delta * 14.0, 0.0, 1.0)) if _enemy_roll.position != Vector2.ZERO else goal
 
 class RollBadge extends Control:
-	## One die turning in the air over a creature, and the number it lands on under it.
+	## One die turning in the air over a creature. The solid itself says what it landed on, so
+	## nothing is written under it and it keeps no room for words that are not there.
 	const EDGE: float = 84.0
 	var _die: DiceView
-	var _value: Label
 	var _tween: Tween
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		custom_minimum_size = Vector2(EDGE, EDGE + 26.0)
+		custom_minimum_size = Vector2(EDGE, EDGE)
 		size = custom_minimum_size
 		_die = DiceView.new()
 		_die.position = Vector2.ZERO
@@ -1487,17 +1564,12 @@ class RollBadge extends Control:
 		_die.custom_minimum_size = _die.size
 		_die.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_die)
-		_value = DeepUi.title(self, "", 22, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
-		_value.position = Vector2(0, EDGE - 2.0)
-		_value.size = Vector2(EDGE, 28)
-		_value.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		visible = false
 	func roll(event: Dictionary) -> void:
 		if _tween != null and _tween.is_valid():
 			_tween.kill()
 		visible = true
 		modulate.a = 1.0
-		_value.text = ""
 		var suspense: bool = bool(event.get("suspense", false))
 		_die.spin_seconds = maxf(0.3, float(event.get("duration", 1.1)) - 0.28)
 		_die.suspense = suspense
@@ -1514,8 +1586,7 @@ class RollBadge extends Control:
 			_tween.tween_interval(_die.spin_seconds)
 		var value: int = int(event.get("roll", {}).get("value", 0))
 		_tween.tween_callback(func() -> void:
-			_value.text = str(value)
-			DeepUi.pulse(_value, 1.08 if ScreenFx.calm else 1.35, 0.23)
+			DeepUi.pulse(_die, 1.08 if ScreenFx.calm else 1.22, 0.23)
 			if not ScreenFx.calm:
 				DeepUi.burst(self, _die.size * 0.5, DeepUi.BAD, 13, 95.0, 0.25)
 			DeepAudio.from(_die, "hit_crit", {"volume": 0.45, "pitch": 0.9 + float(value) * 0.018}))
@@ -1857,6 +1928,9 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 	## one after another, not all at once. A skill that files a die and then throws five
 	## bolts should read as exactly that: the file, a breath, then five bolts in a row.
 	var at: float = 0.0
+	## Blows close up as they pile on, so a gem that lands twenty times over still plays inside
+	## the step the rules reserved for it. `DeepBattle` owns the beat; this only follows it.
+	var pace: float = DeepBattle.hit_pace(effects)
 	for effect in effects:
 		var kind: String = str(effect.get("kind", ""))
 		var target_id: String = str(effect.get("target", ""))
@@ -1865,7 +1939,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				var hits: Array = [effect] + effect.get("splash", [])
 				## A blow that lands several times over throws one bolt for each, in quick
 				## succession, rather than one fat bolt carrying the whole number.
-				var over: int = clampi(int(effect.get("repeat", 1)), 1, 10)
+				var over: int = maxi(1, int(effect.get("repeat", 1)))
 				for hit in hits:
 					var who: String = str(hit.get("target", target_id))
 					var creature: CrystalCreature = _creature(who)
@@ -1878,12 +1952,12 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					var weight: float = clampf(float(int(hit.get("hp_loss", 0)) + int(hit.get("absorbed", 0))) / 14.0, 0.0, 1.6)
 					var fat: float = 0.09 + 0.035 * magnitude + 0.05 * weight
 					for again in range(over):
-						var when: float = at + 0.085 * float(again)
+						var when: float = at + DeepBattle.BOLT_GAP * pace * float(again)
 						_later_do(when, func() -> void:
 							if is_instance_valid(creature):
 								_fx.projectile(origin, creature.centre(), color, 0.2, fat, _impact.bind(who, landing, color, mine), 0.6 + randf() * 0.5))
-					at += 0.085 * float(over)
-				at += 0.16
+					at += DeepBattle.BOLT_GAP * pace * float(over)
+				at += DeepBattle.HIT_BREATH * pace
 				if not effect.get("poison_spread", []).is_empty():
 					_animate_effects(effect.poison_spread, origin, DeepUi.POISON, mine, anchor)
 				if mine and effect.has("spent"):
