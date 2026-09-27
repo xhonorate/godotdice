@@ -535,37 +535,61 @@ func _roster(content: VBoxContainer) -> void:
 	_dossier(content, _roster_pick, looking_at_unlocked, _roster_pick == current)
 
 func _loadout_head(content: VBoxContainer, key: String, chosen: bool) -> void:
-	## Over a lapidary's sockets: the way back to the roster, whose they are, and the dice
+	## Over a lapidary's sockets: the way back to the roster, who they are, and the dice
 	## they always take down, which are theirs and not for swapping.
 	var character: Dictionary = DeepContent.character(key)
 	var head := DeepUi.card(content, DeepUi.LINE, 12)
 	var row := DeepUi.hbox(head, 14)
-	var back := DeepUi.icon_button(row, "prev", "Lapidaries", func() -> void: _edit_loadout(key, "dossier"), 14, DeepUi.MUTED)
+	var left_slot := DeepUi.hbox(row, 0)
+	left_slot.custom_minimum_size.x = 190
+	left_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var back := DeepUi.icon_button(left_slot, "prev", "Lapidaries", func() -> void: _edit_loadout(key, "dossier"), 14, DeepUi.MUTED)
 	DeepUi.voice(back, "ui_back")
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(Roster.Portrait.new(key, Vector2(48, 56), false, false, chosen))
-	var names := DeepUi.vbox(row, 0)
+	var center_slot := CenterContainer.new()
+	center_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(center_slot)
+	var navigation := DeepUi.hbox(center_slot, 10)
+	var owned := DeepProfile.unlocked_characters(profile)
+	var previous := DeepUi.icon_button(navigation, "prev", "", func() -> void: _step_loadout(key, -1), 14, DeepUi.MUTED)
+	previous.tooltip_text = "Previous lapidary"
+	previous.disabled = owned.size() < 2
+	previous.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	navigation.add_child(Roster.Portrait.new(key, Vector2(48, 56), false, false, chosen))
+	var names := DeepUi.vbox(navigation, 0)
 	names.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	DeepUi.title(names, DeepContent.character_title(key), 22, DeepUi.PAPER)
-	DeepUi.label(names, "Going down next" if chosen else "Not the one going down", 12, DeepUi.GOOD if chosen else DeepUi.MUTED)
-	DeepUi.spacer(row)
-	var dice := DeepUi.hbox(row, 6)
+	var dice := DeepUi.hbox(names, 6)
 	dice.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	dice.mouse_filter = Control.MOUSE_FILTER_PASS
 	dice.tooltip_text = OWN_DICE
-	DeepUi.stat(dice, "lock", "Their own dice", DeepUi.MUTED, 12, OWN_DICE)
 	for die in DeepProfile.loadout(profile, key).dice:
 		var die_thumb := Thumbs.DieThumb.new(die, 34)
 		die_thumb.mouse_filter = Control.MOUSE_FILTER_PASS
 		dice.add_child(die_thumb)
-	DeepUi.gap(row, 6)
+	var next := DeepUi.icon_button(navigation, "next", "", func() -> void: _step_loadout(key, 1), 14, DeepUi.MUTED)
+	next.tooltip_text = "Next lapidary"
+	next.disabled = owned.size() < 2
+	next.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var right_slot := DeepUi.hbox(row, 0)
+	right_slot.custom_minimum_size.x = 190
+	right_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_slot.alignment = BoxContainer.ALIGNMENT_END
 	if not chosen:
-		var play := DeepUi.primary(row, "descend", "Play as %s" % str(character.get("name", key)), func() -> void:
+		var play := DeepUi.primary(right_slot, "descend", "Play as %s" % str(character.get("name", key)), func() -> void:
 			DeepAudio.play("ui_confirm", {"volume": 0.8})
 			profile.current_character = key
 			profile_changed.emit(), 15)
 		play.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_enter(head)
+
+func _step_loadout(key: String, direction: int) -> void:
+	var owned: Array = DeepProfile.unlocked_characters(profile)
+	var index: int = owned.find(key)
+	if owned.size() < 2 or index < 0:
+		return
+	var next_index: int = posmod(index + direction, owned.size())
+	_edit_loadout(str(owned[next_index]))
 
 func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool) -> void:
 	## Everything about one lapidary: portrait, health, dice, sockets, passive, Birthstone.
@@ -742,8 +766,20 @@ func _sockets_view(content: VBoxContainer, character_key: String) -> void:
 		tile.modulate = Color(1, 1, 1, 1.0 if fits else 0.3)
 		tile.mouse_default_cursor_shape = Control.CURSOR_DRAG
 		if in_rail:
-			var mark := DeepUi.icon(tile.get_child(0), "check", 14, DeepUi.GOOD, "Already set")
-			mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			var tile_content := tile.get_child(0) as Control
+			tile.remove_child(tile_content)
+			var tile_layer := Control.new()
+			tile_layer.custom_minimum_size = tile_content.get_combined_minimum_size()
+			tile.add_child(tile_layer)
+			tile_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			tile_layer.add_child(tile_content)
+			var mark := DeepUi.icon(tile_layer, "check", 14, DeepUi.GOOD, "Already set")
+			mark.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+			mark.offset_left = -22
+			mark.offset_top = 5
+			mark.offset_right = -5
+			mark.offset_bottom = 22
+			mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_wire(tile, {"kind": "loadout_stone", "skill": chosen_key, "from_socket": - 1}, func() -> Control: return Thumbs.GemThumb.new(stone, 64), Callable(), Callable())
 		if fits and _bench_socket >= 0:
 			tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -804,7 +840,7 @@ func _socket_slot(parent: Node, index: int, socket_color: String, stone: Diction
 	if not stone.is_empty():
 		var thumb := StoneCard.mini(slot, stone, 60, DeepStone.name(stone))
 		thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
-		thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		thumb.mouse_filter = Control.MOUSE_FILTER_PASS
 		DeepUi.label(box, str(DeepStone.skill_of(stone).get("name", "")), 14, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 		var trigger_row := DeepUi.hbox(box, 0)
 		trigger_row.alignment = BoxContainer.ALIGNMENT_CENTER

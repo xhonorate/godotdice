@@ -287,6 +287,7 @@ func me() -> Dictionary:
 
 func show_state(state: Dictionary) -> void:
 	run = state
+	_map.show_run(run)
 	var phase: String = str(run.get("phase", ""))
 	## Remember the chamber and the fight as they were: when either ends the state moves on
 	## at once, and the page that shows what came of them is drawn from these.
@@ -352,13 +353,9 @@ func show_state(state: Dictionary) -> void:
 		_crossroads.visible = false
 		return
 	if DeepDescent.in_battle(run):
-		## The chart puts itself away as the rock comes down: there is nothing on it to read
-		## during a fight, and it sits over the room the fight is in.
-		if _chart_open:
-			_chart_open = false
-			_map_margin.visible = false
 		_battle.visible = true
 		_area.visible = false
+		_map_margin.visible = _chart_open
 		_scrim.visible = false
 		_crossroads.visible = false
 		DeepUi.clear(_page_holder)
@@ -371,7 +368,6 @@ func show_state(state: Dictionary) -> void:
 	_battle.leave()
 	_area.visible = true
 	_map_margin.visible = _chart_open
-	_map.show_run(run)
 	DeepUi.clear(_page_holder)
 	if phase == "tunnels" and _hold.is_empty():
 		## The way on is chosen at the mouths themselves.
@@ -1367,7 +1363,7 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 func _fit_area() -> void:
 	## Pages stop short of the dock and its drawer, and so does the chart.
 	_area.offset_bottom = - _run_dock.height() if _run_dock.visible else 0.0
-	_map_margin.offset_bottom = (- _run_dock.height() - 8.0) if _run_dock.visible else -8.0
+	_map_margin.offset_bottom = (-_run_dock.height() - 8.0) if _run_dock.visible else -8.0
 
 # --- the landing ---------------------------------------------------------------------------------
 ##
@@ -1533,8 +1529,6 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 				ride.disabled = str(unit.get("choice", "")) == "lift" or not afford
 				if not afford:
 					DeepUi.label(box, "Not enough pyrite between you to pay the winch. Dig on.", 11, DeepUi.BAD)
-				elif not taken:
-					DeepUi.label(box, "You have not taken your respite: the fire, the bench and the wheel are all free.", 11, DeepUi.ACCENT)
 			else:
 				DeepUi.label(box, "Click to take the lift.", 12, DeepUi.DIM)
 			return true
@@ -1716,15 +1710,15 @@ func _show_crossroads() -> void:
 	_cross_sub.text = sub
 	DeepUi.clear(_cross_hint)
 	if not run.get("map", {}).is_empty() and not DeepDescent.is_landing(next_depth):
-		var lit: bool = bool(run.map.get("lit", false))
+		var lit: bool = DeepDescent.lit_to(run) >= mini(next_depth, int(run.map.get("to", 0)))
 		var note := PanelContainer.new()
 		note.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4))
 		note.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_cross_hint.add_child(note)
 		var row := DeepUi.hbox(note, 8)
 		DeepUi.icon(row, "lantern", 18, DeepUi.ACCENT)
-		DeepUi.label(row, "The way is lit to the landing." if lit else "Your lantern shows two depths ahead; past it, only glints. Point at a mouth to see where it leads.", 13, DeepUi.MUTED)
-		if not lit:
+		DeepUi.label(row, "The next floor is lit. The chart shows one floor ahead." if lit else "Your lantern shows one floor ahead. Point at a mouth to see where it leads.", 13, DeepUi.MUTED)
+		if DeepDescent.needs_light(run):
 			var button := DeepUi.icon_button(_cross_hint, "lantern", "Light the way · %d pyrite" % DeepDescent.lantern_cost(), func() -> void: command.emit({"kind": "light"}), 13, DeepUi.ACCENT)
 			button.disabled = int(me().get("ore", 0)) < DeepDescent.lantern_cost()
 			button.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -1964,7 +1958,7 @@ func _sync_strip() -> void:
 		for held in _strip_hold:
 			counts[held] = _strip_hold[held]
 		var chart := DeepUi.icon_button(_strip, "map", "Chart", toggle_chart, 13, DeepUi.ACCENT if _chart_open else DeepUi.MUTED)
-		chart.tooltip_text = "The chart of the way down: the trail behind, the stretch to the next landing, and the lantern (M)"
+		chart.tooltip_text = "The chart of the trail behind and one floor ahead; light dark mouths on the next floor for pyrite (M)"
 		chart.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var ore := DeepUi.pill(_strip, "ore", str(counts.ore), DeepUi.ORE, 14, "Pyrite: spent at merchants and on the lantern")
 		var bag := DeepUi.pill(_strip, "bag", str(counts.haul), DeepUi.PAPER, 14, "Loose stones you carry. Click to look at them.")
@@ -1991,7 +1985,7 @@ func _sync_strip() -> void:
 func toggle_chart() -> void:
 	_chart_open = not _chart_open
 	DeepAudio.play("ui_open" if _chart_open else "ui_close", {"volume": 0.7})
-	_map_margin.visible = _chart_open and _area.visible
+	_map_margin.visible = _chart_open and (_area.visible or _battle.visible)
 	_sync_strip()
 
 func open_bench(which: String = "") -> void:

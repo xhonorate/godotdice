@@ -1,13 +1,10 @@
 extends Control
 ## The lantern map: the way down as the party knows it.
 ##
-## Above the party, the trail it walked, one mark per depth. Below it, the stretch down to the
-## next landing as the sim charted it: chambers in lanes, the ways between them splitting and
-## rejoining. The ways on from where the party stands are drawn live and can be clicked to
-## vote; the lantern's pool shows what waits two depths ahead, and past its reach the rock is
-## fogged and a chamber is only a glint: eyes for something hostile, a sparkle for something
-## glittering, a question for something strange, nothing at all for a dark mouth. Lighting the
-## way (paid in ore) clears the fog down to the landing.
+## Above the party, the trail it walked, one mark per depth. Below it, the current floor and
+## one floor ahead, drawn from the larger chart held by the sim. The ways from the party's
+## chamber are live and can be clicked to vote. The lantern reveals hidden mouths on the next
+## floor for ore; deeper chambers stay off the chart until the party reaches them.
 
 signal vote(offer_id: String)
 signal light
@@ -75,8 +72,8 @@ func _ready() -> void:
 func show_run(state: Dictionary) -> void:
 	var first: bool = run.is_empty()
 	run = state
-	## The map rests on the head of the stretch, so the whole way to the landing is in view.
-	var goal: float = float(int(run.get("map", {}).get("from", run.get("depth", 0))))
+	## Keep the party and the next floor in view; the older trail stays above when scrolled back.
+	var goal: float = float(run.get("depth", 0))
 	if not is_equal_approx(goal, _shown):
 		_nudge = 0.0
 	if first or DisplayServer.get_name() == "headless":
@@ -95,7 +92,8 @@ func _mark() -> void:
 func _sync_lamp() -> void:
 	var map: Dictionary = run.get("map", {})
 	var phase: String = str(run.get("phase", ""))
-	var open: bool = not map.is_empty() and phase in ["tunnels", "landing"] and int(map.get("to", 0)) > int(run.get("depth", 0)) and not bool(map.get("lit", false))
+	var target_depth: int = mini(int(run.get("depth", 0)) + 1, int(map.get("to", 0)))
+	var open: bool = not map.is_empty() and phase in ["tunnels", "landing"] and DeepDescent.needs_light(run)
 	_lamp.visible = open
 	if not open:
 		return
@@ -103,7 +101,7 @@ func _sync_lamp() -> void:
 	var cost: int = DeepDescent.lantern_cost()
 	_lamp.text = "Light the way  ·  %d pyrite" % cost
 	_lamp.disabled = int(unit.get("ore", 0)) < cost
-	_lamp.tooltip_text = "Show every chamber down to the landing at depth %d, dark mouths too. Costs %d pyrite." % [int(map.get("to", 0)), cost]
+	_lamp.tooltip_text = "Reveal every chamber on the next floor at depth %d, including dark mouths. Costs %d pyrite." % [target_depth, cost]
 
 func _process(delta: float) -> void:
 	_clock += delta
@@ -122,10 +120,8 @@ func _centre_y() -> float:
 	return TOP + 58.0
 
 func _fit_step() -> void:
-	## Spread the stretch over the panel, the landing near the foot with a little room below.
-	var map: Dictionary = _map()
-	var span: float = float(maxi(3, int(map.get("to", 4)) - int(map.get("from", 0)))) + 0.55
-	_step = clampf((_bottom() - _centre_y() - 20.0) / span, 62.0, 124.0)
+	## Fit the current floor and one below it in the chart.
+	_step = clampf((_bottom() - _centre_y() - 20.0) / 1.55, 62.0, 124.0)
 
 func _y(depth: float) -> float:
 	return _centre_y() + (depth - _shown - _nudge) * _step
@@ -320,15 +316,15 @@ func _draw_header(map: Dictionary, depth: int) -> void:
 	_canvas.draw_string(ThemeDB.fallback_font, Vector2(18, 46), mine_name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 36, 12, DeepUi.MUTED)
 	if map.is_empty():
 		return
-	var lit: bool = bool(map.get("lit", false))
-	var words: String = "lit to %d" % int(map.to) if lit else "sees to %d" % mini(depth + DeepDescent.LANTERN_REACH, int(map.to))
+	var lit: bool = DeepDescent.lit_to(run) >= mini(depth + 1, int(map.to))
+	var words: String = "lit to %d" % DeepDescent.lit_to(run) if lit else "sees to %d" % mini(depth + DeepDescent.LANTERN_REACH, int(map.to))
 	var tone: Color = DeepUi.ACCENT if lit else DeepUi.MUTED
 	var width: float = ThemeDB.fallback_font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
 	var flicker: float = 0.85 + 0.15 * sin(_clock * 9.0) * sin(_clock * 4.3)
 	_glyph("lantern", Vector2(size.x - width - 32, 40), 16.0, Color(DeepUi.ACCENT, flicker))
 	_canvas.draw_string(ThemeDB.fallback_font, Vector2(size.x - width - 18, 46), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tone)
 	_spots.append({"at": Vector2(size.x - width * 0.5 - 24, 40), "radius": 14.0,
-		"text": "The way is lit down to the landing." if lit else "Your lantern shows what waits %d depths ahead. Past that, only glints." % DeepDescent.LANTERN_REACH})
+		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows one floor ahead. Past that, the chart ends."})
 
 func _draw_depths() -> void:
 	## Depth numbers down the gutter, and a faint rule across the rock at each.
@@ -405,12 +401,19 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 	var lit_way: Dictionary = facts.lit_way
 	var picked: String = facts.picked
 	## The ways between chambers.
-	var sources: Array = ["head"]
-	sources.append_array(nodes.keys())
+	var visible_depth: int = mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1)
+	var sources: Array = ["head"] if here.is_empty() else []
+	for node_id in nodes:
+		if int(nodes[node_id].get("depth", 0)) <= visible_depth:
+			sources.append(node_id)
 	for id in sources:
 		var children: Array = DeepDescent.row_of(map, int(map.from) + 1) if id == "head" else nodes[id].next
 		var a: Vector2 = positions[id]
 		for child in children:
+			if str(child) == "landing" and int(map.get("to", 0)) > visible_depth:
+				continue
+			if str(child) != "landing" and int(nodes.get(str(child), {}).get("depth", 0)) > visible_depth:
+				continue
 			var b: Vector2 = positions.get(str(child), Vector2.ZERO)
 			var line: PackedVector2Array = _curve(a, b)
 			var from_here: bool = (id == "head" and here.is_empty()) or id == here
@@ -429,15 +432,7 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 				_stroke(line, Color(DeepUi.ACCENT, 0.7) if on_way else Color(DeepUi.LINE_HI, 0.45 if lit_way.is_empty() else 0.22), 2.4 if on_way else 1.8)
 			else:
 				_stroke(line, Color(DeepUi.LINE_HI, 0.1), 1.4)
-	## The shaft goes on below the landing, to landings no one has charted yet.
-	var landing_at: Vector2 = positions.landing
-	var below_y: float = _y(float(int(map.to) + DeepDescent.landing_every()))
-	var dash: float = landing_at.y + 22.0
-	while dash < below_y - 16.0:
-		var dash_end: float = minf(dash + 6.0, below_y - 16.0)
-		_canvas.draw_line(Vector2(landing_at.x, dash), Vector2(landing_at.x, dash_end), Color(DeepUi.LINE_HI, 0.5 * _fade(dash)), 2.0)
-		dash += 12.0
-	## Fog past the lantern's reach.
+	## Fog below the one-floor chart.
 	if not bool(map.get("lit", false)):
 		var fog_top: float = _fog_top()
 		var fog_full: float = fog_top + _step * 0.7
@@ -480,6 +475,8 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		if id == "landing":
 			continue
 		var node: Dictionary = nodes[id]
+		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1):
+			continue
 		var at: Vector2 = positions[id]
 		if _fade(at.y) <= 0.0:
 			continue
@@ -513,7 +510,8 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		if not ahead.has(id) and not visited.has(id) and id != here:
 			words += " (out of reach now)"
 		_spots.append({"at": at, "radius": 14.0, "text": words})
-	_draw_landing(map, positions.landing, ahead.has("landing") or here.is_empty())
+	if int(map.get("to", 0)) <= int(run.get("depth", 0)) + 1:
+		_draw_landing(map, positions.landing, ahead.has("landing") or here.is_empty())
 	_draw_party(here_at)
 
 func _kind_words(kind: String) -> String:
@@ -563,14 +561,6 @@ func _draw_landing(map: Dictionary, at: Vector2, reachable: bool) -> void:
 	var warden: bool = DeepDescent.run_is_warden(run, landing)
 	var kind: String = "warden" if warden else "landing"
 	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.ACCENT)
-	var every: int = DeepDescent.landing_every()
-	var below: Vector2 = Vector2(at.x, _y(float(landing + every)))
-	if _fade(below.y) > 0.0:
-		var later: bool = DeepDescent.run_is_warden(run, landing + every)
-		_canvas.draw_circle(below, 11.0, Color(0.04, 0.05, 0.07, 0.9 * _fade(below.y)))
-		_canvas.draw_arc(below, 11.0, 0, TAU, 24, Color(DeepUi.CHAMBER_colorS.get("warden" if later else "landing", DeepUi.MUTED), 0.4 * _fade(below.y)), 1.5, true)
-		_glyph("crown" if later else "lift", below, 12.0, Color(DeepUi.MUTED, 0.6 * _fade(below.y)))
-		_spots.append({"at": below, "radius": 11.0, "text": "Depth %d: %s" % [landing + every, "a Warden's gate" if later else "the landing after"]})
 	if fade <= 0.0:
 		return
 	if warden:

@@ -86,10 +86,17 @@ func _run() -> void:
 	var battle: Control = load("res://view/battle/battle_screen.gd").new()
 	viewport.add_child(battle)
 	battle.local_id = "p"
-	var ally: Dictionary = player.duplicate(true)
+	var inspection_stone: Dictionary = DeepStone.make("STRIKE", 1, 4, 3, [], {}, "inspection")
+	var inspection_player: Dictionary = DeepBattle.make_player("p", "Player", "ARDOR", [inspection_stone], dice)
+	inspection_player.birthstone = {}
+	var ally: Dictionary = inspection_player.duplicate(true)
 	ally.id = "ally"
-	var party_state: Dictionary = DeepBattle.begin([player, ally], ["CAVE_TICK", "QUARTZ_GOLEM"], {"depth": 1}, rng.dice, rng.creatures)
+	var party_state: Dictionary = DeepBattle.begin([inspection_player, ally], ["CAVE_TICK", "QUARTZ_GOLEM"], {"depth": 1}, rng.dice, rng.creatures)
 	battle.show_state(party_state, 1)
+	var gem_card: Control = battle._socket_cards[0]
+	var raised_marks: Control = gem_card.get_node("Slot/Raised")
+	check(raised_marks.mouse_filter == Control.MOUSE_FILTER_IGNORE and bool(gem_card.get_meta("gem_inspection_wired", false)),
+		"raised-stat overlay leaves socket gems right-clickable for contextual details")
 	var aim: String = str(party_state.players[0].target)
 	battle._pin_enemy("e1")
 	await process_frame

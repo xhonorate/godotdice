@@ -216,9 +216,8 @@ static func _id(state: Dictionary, prefix: String) -> String:
 ## chambers, two mouths wide at the top and fanning out a mouth wider every depth, each
 ## chamber leading on to the two nearest below it so the ways split and rejoin without ever
 ## crossing. The tunnels offered are the ways on from where the party stands. The lantern
-## shows what lies LANTERN_REACH depth ahead; past that a chamber is only a glint (hostile,
-## glittering, strange), a dark mouth shows nothing at all, and lighting the way (paid in
-## ore) shows the whole stretch down to the landing. Every stretch holds a merchant somewhere
+## shows what lies LANTERN_REACH depth ahead; the chart shows only that floor. A dark mouth
+## shows nothing until the party reaches it or pays ore to light that floor. Every stretch holds a merchant somewhere
 ## below its first depth, and a smithy or a carver on its last.
 
 const MAP_WIDEST: int = 4
@@ -326,7 +325,7 @@ static func _chart(state: Dictionary, streams: Dictionary) -> void:
 		for id in rows[rows.size() - 1]:
 			nodes[str(id)].next.append("landing")
 	nodes["landing"] = {"id": "landing", "depth": to, "x": 0.5, "kind": "landing", "hidden": false, "next": [], "warden": run_is_warden(state, to)}
-	state.map = {"from": from, "to": to, "nodes": nodes, "rows": rows, "at": "", "lit": false}
+	state.map = {"from": from, "to": to, "nodes": nodes, "rows": rows, "at": "", "lit_to": from}
 
 static func row_of(map: Dictionary, depth: int) -> Array:
 	var index: int = depth - int(map.get("from", 0)) - 1
@@ -341,11 +340,31 @@ static func revealed(state: Dictionary, node: Dictionary) -> bool:
 	## Whether the party can see what a charted chamber holds.
 	if str(node.get("kind", "")) == "landing":
 		return true
-	if bool(state.get("map", {}).get("lit", false)):
+	if int(node.get("depth", 0)) <= lit_to(state):
 		return true
 	if bool(node.get("hidden", false)):
 		return false
 	return int(node.get("depth", 0)) <= int(state.depth) + LANTERN_REACH
+
+static func lit_to(state: Dictionary) -> int:
+	var map: Dictionary = state.get("map", {})
+	var lit_to: int = int(map.get("lit_to", int(map.get("from", 0))))
+	if bool(map.get("lit", false)):
+		lit_to = maxi(lit_to, int(map.get("from", 0)) + 1)
+	return lit_to
+
+static func needs_light(state: Dictionary) -> bool:
+	var map: Dictionary = state.get("map", {})
+	if map.is_empty():
+		return false
+	var target_depth: int = mini(int(state.get("depth", 0)) + 1, int(map.get("to", 0)))
+	if target_depth <= lit_to(state):
+		return false
+	for id in row_of(map, target_depth):
+		var node: Dictionary = map.get("nodes", {}).get(str(id), {})
+		if bool(node.get("hidden", false)):
+			return true
+	return false
 
 static func glint(node: Dictionary) -> String:
 	## What an unlit chamber gives away: "hostile", "glittering", "strange", or "dark" for a dark mouth.
@@ -362,13 +381,16 @@ static func _light(state: Dictionary, unit: Dictionary) -> Dictionary:
 	var map: Dictionary = state.get("map", {})
 	if map.is_empty() or int(map.get("to", 0)) <= int(state.depth):
 		return _refuse("the way ahead is not charted yet")
-	if bool(map.get("lit", false)):
-		return _refuse("the way is already lit")
+	var target_depth: int = mini(int(state.depth) + 1, int(map.get("to", 0)))
+	if lit_to(state) >= target_depth:
+		return _refuse("the next floor is already lit")
+	if not needs_light(state):
+		return _refuse("there are no dark mouths on the next floor")
 	if int(unit.get("ore", 0)) < lantern_cost():
 		return _refuse("not enough pyrite")
 	unit.ore = int(unit.ore) - lantern_cost()
-	map.lit = true
-	return {"ok": true, "event": _event(state, "lit", {"unit": unit.id, "method": "ore", "to": int(map.to)})}
+	map.lit_to = target_depth
+	return {"ok": true, "event": _event(state, "lit", {"unit": unit.id, "method": "ore", "to": target_depth})}
 
 static func _tally(state: Dictionary) -> String:
 	## Plurality; a tie goes to the lowest seat that voted.

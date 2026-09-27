@@ -1,8 +1,7 @@
-[gd_scene format=4]
+[gd_scene format=4 uid="uid://bbikwmrb7ibgc"]
 
-[ext_resource type="Script" path="res://view/creatures/crystal_creature.gd" id="1_creature"]
-
-[ext_resource type="Script" path="res://view/creatures/creature_part.gd" id="1_5yrwt"]
+[ext_resource type="Script" uid="uid://cjdm3ytsu6osv" path="res://view/creatures/creature_part.gd" id="1_5yrwt"]
+[ext_resource type="Script" uid="uid://blblv7lyhncgb" path="res://view/creatures/crystal_creature.gd" id="1_creature"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wvksq"]
 resource_local_to_scene = true
@@ -54,8 +53,8 @@ size = Vector3(1.2, 1, 0.04)
 size = Vector3(1.2, 1, 0.04)
 
 [sub_resource type="Gradient" id="Gradient_323tl"]
-offsets = PackedFloat32Array(0, 1, 0.35)
-colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0.45)
+offsets = PackedFloat32Array(0, 0.35, 1)
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0.45, 1, 1, 1, 0)
 
 [sub_resource type="GradientTexture2D" id="GradientTexture2D_t482k"]
 gradient = SubResource("Gradient_323tl")
@@ -99,11 +98,10 @@ _surfaces = [{
 [node name="LanternMoth" type="Node3D" unique_id=1960742276]
 script = ExtResource("1_creature")
 key = "LANTERN_MOTH"
-warden = false
 style = "wings"
+sway = 4.0
 body_material = SubResource("StandardMaterial3D_wvksq")
 core_material = SubResource("StandardMaterial3D_g1j1p")
-sway = 4.0
 normal_tint = Color(0.47843137, 0.78431374, 1, 1)
 
 [node name="Body" type="Node3D" parent="." unique_id=1421649529]

@@ -194,17 +194,31 @@ func _test_lantern_map() -> void:
 			var ways: Array = state.offers.map(func(o: Dictionary) -> String: return str(o.id))
 			check(ways == map.nodes[first].next, "the tunnels on are the ways the chamber leads (%s)" % str(ways))
 			check(DeepDescent.revealed(state, deep) != bool(deep.hidden), "one depth down, the lantern reaches depth 3")
-	## Lighting the way costs ore; it shows every chamber, dark mouths too.
+	## Lighting the way costs ore; it reveals the next floor's dark mouths only.
+	var clear_floor: Dictionary = DeepDescent.new_run(config(10, true))
+	DeepDescent.player(clear_floor, "a").ore = 25
+	check(not DeepDescent.needs_light(clear_floor) and not cmd(clear_floor, "a", "light").ok,
+		"the lantern cannot charge pyrite when the next floor has no dark mouths")
 	var lit: Dictionary = DeepDescent.new_run(config(11, true))
 	var a: Dictionary = DeepDescent.player(lit, "a")
+	for id in lit.map.rows[0]:
+		lit.map.nodes[str(id)].hidden = true
+	var next_floor: Dictionary = lit.map.nodes[str(lit.map.rows[0][0])]
+	var later_floor: Dictionary = lit.map.nodes[str(lit.map.rows[1][0])]
 	a.ore = 3
 	check(not cmd(lit, "a", "light").ok, "three pyrite is not enough to light the way")
 	a.ore = 25
-	check(cmd(lit, "a", "light").ok and int(a.ore) == 25 - DeepDescent.lantern_cost() and bool(lit.map.lit), "lighting the way is paid in pyrite")
-	DeepDescent.player(lit, "b").ore = 25
-	check(not cmd(lit, "b", "light").ok, "and needs doing only once a stretch")
-	for id in lit.map.nodes:
-		check(DeepDescent.revealed(lit, lit.map.nodes[id]), "a lit stretch shows %s" % id)
+	check(cmd(lit, "a", "light").ok and int(a.ore) == 25 - DeepDescent.lantern_cost() and int(lit.map.lit_to) == 1,
+		"lighting the way is paid in pyrite and reaches only the next floor")
+	check(DeepDescent.revealed(lit, next_floor) and not DeepDescent.revealed(lit, later_floor), "lighting depth 1 does not reveal depth 2")
+	check(not cmd(lit, "b", "light").ok, "the same floor cannot be lit twice")
+	lit.depth = 1
+	lit.map.at = str(lit.map.rows[0][0])
+	for id in lit.map.rows[1]:
+		lit.map.nodes[str(id)].hidden = true
+	check(DeepDescent.needs_light(lit), "the lantern can be used again when the next floor has dark mouths")
+	check(cmd(lit, "a", "light").ok and int(lit.map.lit_to) == 2 and DeepDescent.revealed(lit, later_floor),
+		"lighting after moving down reveals the new next floor")
 	## A landing charts the stretch below before anyone chooses to descend.
 	var deeper: Dictionary = DeepDescent.new_run(config(101, true))
 	var guard: int = 0
@@ -213,7 +227,7 @@ func _test_lantern_map() -> void:
 		_advance_once(deeper)
 	if str(deeper.phase) == "landing":
 		check(int(deeper.map.from) == 4 and int(deeper.map.to) == 8 and bool(deeper.map.nodes.landing.warden), "the landing charts the way to the warden at 8")
-		check(not bool(deeper.map.lit), "a new stretch starts unlit")
+		check(DeepDescent.lit_to(deeper) == int(deeper.map.from), "a new stretch starts with no paid lighting")
 
 func _test_abandon() -> void:
 	var state: Dictionary = DeepDescent.new_run(config(77, false))

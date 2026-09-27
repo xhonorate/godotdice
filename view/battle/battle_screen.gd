@@ -411,8 +411,8 @@ func _build_hud() -> void:
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	_reroll_button = DeepUi.icon_button(buttons, "reroll", "Reroll", _reroll, 15, DeepUi.INFO)
 	_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
-	_flip_button = DeepUi.icon_button(buttons, "eye", "Flip", _flip, 15, DeepUi.ACCENT)
-	_flip_button.tooltip_text = "Sleight: turn one chosen die to the other side of its range, free, once a turn  [F]"
+	_flip_button = DeepUi.icon_button(buttons, "eye", "Shift", _flip, 15, DeepUi.ACCENT)
+	_flip_button.tooltip_text = "Sleight: shift one chosen die to the opposite parity (even to odd or odd to even), once a turn  [F]"
 	_flip_button.visible = false
 	_lock_button = DeepUi.primary(buttons, "check", "Lock in", _toggle_lock, 16)
 	_lock_button.tooltip_text = "Lock in this hand  [Space]"
@@ -517,8 +517,10 @@ func _sync() -> void:
 		_rolled_hand = rolled
 		if not _headless and is_inside_tree() and planning:
 			_dice_settle_at = Time.get_ticks_msec() + int(DiceView.SPIN_SECONDS * 1000.0) + 60
+			var settling_hand: String = rolled
 			get_tree().create_timer(DiceView.SPIN_SECONDS + 0.09).timeout.connect(func() -> void:
-				if is_instance_valid(self) and not state.is_empty():
+				if is_instance_valid(self) and not state.is_empty() and _rolled_hand == settling_hand:
+					_dice_settle_at = 0
 					_sync())
 	## A pick outlives its reroll; a die that came back locked drops out of it, and the whole
 	## pick is let go once there are no rerolls left to spend on it.
@@ -569,7 +571,7 @@ func _sync() -> void:
 	var flips: int = int(unit.get("flips", 0))
 	_flip_button.visible = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
 	_flip_button.disabled = not planning or locked or downed or flips <= 0 or selected.size() != 1
-	_flip_button.text = "Flip" if flips > 0 or not planning else "Flipped"
+	_flip_button.text = "Shift" if flips > 0 or not planning else "Shifted"
 	## When there is nothing left to decide, the lock button asks to be pressed.
 	var waiting_on_me: bool = planning and not locked and not downed and ((rerolls <= 0 and flips <= 0) or selected.is_empty())
 	if waiting_on_me and _lock_pulse == null:
@@ -587,7 +589,7 @@ func _sync() -> void:
 		_hint.text = "Waiting for %s" % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "Everyone is in."
 	else:
 		if rerolls <= 0 and flips > 0:
-			_hint.text = "Pick one die to flip  [F], or lock in  [Space]"
+			_hint.text = "Pick one die to shift parity  [F], or lock in  [Space]"
 		elif rerolls <= 0:
 			_hint.text = "No rerolls left. Lock in  [Space]"
 		else:
@@ -861,6 +863,15 @@ func _sync_raised(unit: Dictionary, card: Control, stone: Dictionary) -> void:
 	var marks: VBoxContainer = slot.get_node_or_null("Raised") if slot != null else null
 	if picture == null or marks == null:
 		return
+	marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not bool(card.get_meta("gem_inspection_wired", false)):
+		card.set_meta("gem_inspection_wired", true)
+		card.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+				var target: Control = card.get_node_or_null("Slot/Gem")
+				if target != null:
+					Inspector.stone(target.get("stone"), {"context": target.get("context")})
+					card.accept_event())
 	var raised: Array = raised_ranks(unit, stone)
 	var key: String = str(raised)
 	if str(marks.get_meta("key", "")) != key:
@@ -1649,7 +1660,7 @@ func _reroll() -> void:
 	## The picked dice stay picked, so pressing Reroll again throws the same ones.
 
 func _flip() -> void:
-	## Sleight: the one chosen die turns over.
+	## Sleight: the one chosen die shifts to the opposite parity.
 	if selected.size() != 1 or int(me().get("flips", 0)) <= 0 or bool(me().get("locked", false)):
 		return
 	var id: String = str(selected[0])
@@ -1741,7 +1752,7 @@ func perform(event: Dictionary) -> void:
 		"flip":
 			if str(event.get("unit", "")) == local_id:
 				DeepAudio.play("die_settle", {"volume": 0.8})
-				_float_at(_tray_box, "Flipped to %d" % int(event.get("value", 0)), DeepUi.ACCENT_HI, 16)
+				_float_at(_tray_box, "Shifted to %d" % int(event.get("value", 0)), DeepUi.ACCENT_HI, 16)
 		"rail_end":
 			var resonance: int = int(event.get("resonance", 0))
 			if str(event.get("unit", "")) == local_id and resonance >= 3:
@@ -1953,7 +1964,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					var fat: float = 0.09 + 0.035 * magnitude + 0.05 * weight
 					for again in range(over):
 						var when: float = at + DeepBattle.BOLT_GAP * pace * float(again)
-						_later_do(when, func() -> void:
+						_later_do(when , func() -> void:
 							if is_instance_valid(creature):
 								_fx.projectile(origin, creature.centre(), color, 0.2, fat, _impact.bind(who, landing, color, mine), 0.6 + randf() * 0.5))
 					at += DeepBattle.BOLT_GAP * pace * float(over)

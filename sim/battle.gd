@@ -130,19 +130,23 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			return {"ok": true, "event": _event(state, "reroll", {"unit": player_id, "dice": chosen, "hand": unit.hand.duplicate(true),
 				"rerolls": unit.rerolls, "drain": drain, "loaded": loaded})}
 		"flip":
-			## The Harlequin's Sleight: one die turns to the other side of its range.
+			## Sleight shifts a die to the opposite parity, using its range complement when possible.
 			if bool(unit.get("locked", false)):
 				return _refuse("you have locked in")
 			if int(unit.get("flips", 0)) <= 0:
-				return _refuse("no flip left this turn")
+				return _refuse("no parity shift left this turn")
 			var wanted_id: String = str(cmd.get("die", ""))
 			for roll in unit.hand:
 				if str(roll.get("die_id", "")) != wanted_id or bool(roll.get("phantom", false)):
 					continue
 				if str(roll.get("kind", "plain")) != "plain":
-					return _refuse("only a plain face can be flipped")
+					return _refuse("only a plain face can be shifted")
 				var top: int = maxi(1, int(roll.get("top", 6)))
-				roll.value = clampi(top + 1 - int(roll.get("value", 1)), 1, DeepDice.VALUE_CAP)
+				var previous: int = int(roll.get("value", 1))
+				var shifted: int = clampi(top + 1 - previous, 1, DeepDice.VALUE_CAP)
+				if shifted % 2 == previous % 2 and top > 1:
+					shifted = previous + 1 if previous < top else previous - 1
+				roll.value = shifted
 				roll.flipped = true
 				unit.flips = int(unit.flips) - 1
 				DeepDice.resolve_mirrors(unit.hand)

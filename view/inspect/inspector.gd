@@ -60,6 +60,8 @@ var _rays: Control
 var _close: Button
 ## The grade pill's popup: how its score is worked out, animated in over the ordinary page.
 var _reveal: Control
+var _compare_view: Control
+var _compare_return_page: Control
 ## Every tween the popup's timeline is running, so a second click or a close can kill them
 ## before a late callback reaches into a row `_open_reveal` has already freed.
 var _reveal_tweens: Array = []
@@ -230,6 +232,8 @@ func _input(event: InputEvent) -> void:
 		if event.keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
 			if _reveal != null and _reveal.visible:
 				_close_reveal()
+			elif _compare_view != null and _compare_view.visible:
+				_close_compare()
 			else:
 				_dismiss()
 		elif event.keycode in [KEY_LEFT, KEY_RIGHT, KEY_TAB]:
@@ -339,7 +343,13 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	## them to remember what is in the vault.
 	var kept: Dictionary = kept_stone(item) if not reference else {}
 	if not kept.is_empty():
-		DeepUi.pill(tags, "chest", "Already in your vault", DeepUi.INFO, 13, "You keep a %s. The Compare page sets the two line against line." % DeepStone.name(kept))
+		var kept_pill := DeepUi.pill(tags, "chest", "Already in your vault", DeepUi.INFO, 13, "Click to compare with the %s you keep." % DeepStone.name(kept))
+		kept_pill.mouse_filter = Control.MOUSE_FILTER_STOP
+		kept_pill.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		DeepUi.juice(kept_pill, 1.06)
+		kept_pill.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				_open_compare(item, kept))
 	## Everything below the tags is one page: what it does, when it fires, its purity.
 	_page("The stone" if not kept.is_empty() else "", "gem" if not kept.is_empty() else "")
 	var does := _section(GemIcons.emblem(str(item.get("skill", ""))), "What it does")
@@ -390,9 +400,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	DeepUi.title(prow, DeepContent.clarity_name(clarity), 18, DeepUi.PAPER)
 	DeepUi.wrap(prow, _clarity_words(clarity), 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_inclusions(item, purity)
-	if not kept.is_empty():
-		_page("Compare", "scales")
-		_compare_page(item, kept)
+
 
 func _fight_buffs(parent: Node, context: Dictionary) -> void:
 	## What this gem was given mid-fight and keeps until the fight ends, rank by rank, with the
@@ -415,18 +423,41 @@ static func kept_stone(item: Dictionary) -> Dictionary:
 	var mine: Dictionary = vault.get(str(item.get("skill", "")), {})
 	return {} if mine.is_empty() or str(mine.get("id", "")) == str(item.get("id", "")) else mine
 
-func _compare_page(item: Dictionary, kept: Dictionary) -> void:
-	## The same lines for both stones, side by side, with the higher of each pair painted and
-	## the other dimmed: the loupe's own comparison sheet, read out all at once because the
-	## reader came here to answer a question, not to watch it revealed.
-	DeepUi.wrap(_details, "You already keep a stone of this skill. Only one of the two can go in the vault when the run ends.", 13, DeepUi.MUTED)
+func _open_compare(item: Dictionary, kept: Dictionary) -> void:
+	## Compare in place, then return to the stone's details instead of adding another page.
+	if not _pages.is_empty():
+		_compare_return_page = _pages[0].box
+		_compare_return_page.visible = false
+	if _compare_view == null:
+		_compare_view = DeepUi.center(_book)
+		_compare_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_compare_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		DeepUi.clear(_compare_view)
+	_compare_view.visible = true
+	DeepAudio.play("ui_open", {"volume": 0.5})
+	var content := DeepUi.vbox(_compare_view, 10)
 	## Loaded rather than preloaded: the ceremony preloads this sheet, and two preloads that
 	## name each other will not compile.
 	var appraisal = load("res://view/gems/appraisal.gd")
 	var sheet: Control = appraisal.Sheet.new(item, kept, {"width": COMPARE_WIDTH, "label_width": 88.0,
 		"found_width": 228.0, "owned_width": 228.0, "owned_picture": true})
-	_details.add_child(sheet)
+	content.add_child(sheet)
 	sheet.call("show_all")
+	var back := DeepUi.label(content, "Click to continue", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	back.mouse_filter = Control.MOUSE_FILTER_STOP
+	back.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	back.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_close_compare())
+
+func _close_compare() -> void:
+	if _compare_view != null:
+		_compare_view.visible = false
+	if is_instance_valid(_compare_return_page):
+		_compare_return_page.visible = true
+	_compare_return_page = null
+	DeepAudio.play("ui_close", {"volume": 0.5})
 
 func _effect_line(parent: Node, item: Dictionary, mods: Array, context: Dictionary = {}) -> void:
 	## The effect is the reason a player opens this sheet, so it leads in bold, with the carat

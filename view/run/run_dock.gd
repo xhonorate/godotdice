@@ -29,9 +29,9 @@ const SLOT := 58.0
 const RIDER := 18.0
 const RIDERS_SHOWN := 3
 const DOCK_HEIGHT := 150.0
-## The bag: its own padding, its heading and one row of 56px tiles, and no more. Anything
-## taller left a band of empty panel under the stones.
-const DRAWER_HEIGHT := 100.0
+## The bag drawer has room for its heading, padding and first row of stones.
+const DRAWER_BASE_HEIGHT := 100.0
+const GEM_TILE_STEP := 62.0
 ## How much taller than the dock the chooser stands: enough for a die or a stone at the size
 ## it is worth looking at, with its name under it.
 const CHOOSER_LIFT := 86.0
@@ -40,6 +40,7 @@ var local_id: String = ""
 var run: Dictionary = {}
 var _dock: PanelContainer
 var _drawer: PanelContainer
+var _drawer_height: float = DRAWER_BASE_HEIGHT
 var _open: bool = false
 var _key: String = ""
 var _targets: Array = []
@@ -59,7 +60,7 @@ func _ready() -> void:
 	_drawer.offset_left = 120
 	_drawer.offset_right = -120
 	_drawer.offset_bottom = - DOCK_HEIGHT - 20
-	_drawer.offset_top = - DOCK_HEIGHT - 20 - DRAWER_HEIGHT
+	_drawer.offset_top = - DOCK_HEIGHT - 20 - _drawer_height
 	_drawer.visible = false
 	add_child(_drawer)
 	_dock = PanelContainer.new()
@@ -85,7 +86,7 @@ func height() -> float:
 	## How much of the bottom of the screen the dock and its drawer take.
 	if choosing():
 		return DOCK_HEIGHT + 28.0 + CHOOSER_LIFT
-	return DOCK_HEIGHT + 28.0 + (DRAWER_HEIGHT + 6.0 if _open else 0.0)
+	return DOCK_HEIGHT + 28.0 + (_drawer_height + 6.0 if _open else 0.0)
 
 # --- choosing one of your own ------------------------------------------------------------------
 ##
@@ -469,6 +470,11 @@ func _fit_drawer(unit: Dictionary) -> void:
 	var edge: float = (wide - want) * 0.5
 	_drawer.offset_left = edge
 	_drawer.offset_right = - edge
+	var stone_width: float = want - 28.0 - (196.0 if allies > 0 else 0.0)
+	var columns: int = maxi(1, int(floor((stone_width + 6.0) / GEM_TILE_STEP)))
+	var rows: int = maxi(1, ceili(float(stones) / float(columns)))
+	_drawer_height = DRAWER_BASE_HEIGHT + float(rows - 1) * GEM_TILE_STEP
+	_drawer.offset_top = - DOCK_HEIGHT - 20 - _drawer_height
 
 # --- the drawer --------------------------------------------------------------------------------
 

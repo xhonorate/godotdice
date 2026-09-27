@@ -292,6 +292,17 @@ func _test_dice() -> void:
 	plain._ready()
 	check(plain.mouse_filter == Control.MOUSE_FILTER_IGNORE, "a die in a tray lets clicks through")
 	plain.free()
+	var shifted_view: Control = load("res://view/dice/dice_view.gd").new()
+	shifted_view._ready()
+	var d8: Dictionary = DeepContent.die("D8")
+	var before_shift: Dictionary = {"die_id": "puck_d8", "face": 1, "value": 2, "kind": "plain", "rerolls": 0, "turn_tag": "1"}
+	shifted_view.configure(d8, before_shift, false, false, Color.WHITE)
+	var shifted_roll: Dictionary = before_shift.duplicate(true)
+	shifted_roll.value = 7
+	shifted_roll.flipped = true
+	shifted_view.configure(d8, shifted_roll, false, false, Color.WHITE)
+	check(int(shifted_view._face_index) == 6 and str(shifted_view._roll_token).contains("#shift:7"), "a parity shift animates the d8 toward the updated face")
+	shifted_view.free()
 
 func _test_pictographs() -> void:
 	for key in DeepContent.section("skills"):

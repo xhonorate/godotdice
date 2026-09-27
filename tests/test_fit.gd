@@ -288,6 +288,10 @@ func _run(app: Control) -> void:
 	descent.open_bench("gems")
 	await _fits(screen, "the bench's second page of the haul")
 	descent._bench.close()
+	descent._run_dock.set_drawer(true)
+	await _fits(screen, "the open bag with a heavy haul")
+	check(descent._run_dock._drawer.size.y >= 220.0, "the bag drawer grows to show every wrapped row")
+	descent._run_dock.set_drawer(false)
 	## Every oddity, smithy and carver: its card along the bottom of its room.
 	var room: Dictionary = run.duplicate(true)
 	room.phase = "chamber"
@@ -417,7 +421,7 @@ func _void_views(app: Control) -> void:
 	await _fits(screen, "the end of a run with fourteen shattered gems")
 	var sheet: CanvasLayer = load("res://view/gems/appraisal.gd").new()
 	screen.add_child(sheet)
-	sheet.call("build", rider, {"shatter": true, "actions": [{"label": "Keep it"}]})
+	sheet.call("build", rider, {"shatter": true, "actions": [ {"label": "Keep it"}]})
 	sheet.call("finish")
 	await _fits(sheet, "a fragile gem shattered under the workshop loupe")
 	check(sheet._title.text == "Shattered" and not sheet._view.visible and sheet.actions.size() == 1 and sheet.actions[0].label == "Continue", "skipping a fragile appraisal ends with shards and no keep or sell action")

@@ -144,8 +144,16 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 		_signature = signature
 		_rebuild()
 	_face_index = clampi(int(roll.get("face", 0)), 0, maxi(0, _frames.size() - 1))
+	if bool(roll.get("flipped", false)):
+		var shifted_value: int = int(roll.get("value", 0))
+		for index in range(_frames.size()):
+			if _value_at(index) == shifted_value and _kind_at(index) == "plain":
+				_face_index = index
+				break
 	_target = _orientation(_face_index)
 	var token := "%s#%s#%s#%s" % [str(roll.get("die_id", "")), str(roll.get("rerolls", -1)), str(roll.get("face", -1)), str(roll.get("turn_tag", ""))]
+	if bool(roll.get("flipped", false)):
+		token += "#shift:%d" % int(roll.get("value", 0))
 	if str(roll.get("kind", "plain")) == "mirror":
 		## A mirror die shows the number it copies, and when the rest of the hand changes
 		## under it, it is thrown again: the eye sees it turn over onto the new number rather

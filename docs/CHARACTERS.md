@@ -196,8 +196,9 @@ _Blasting powder in a mine. Dice that explode, damage that splashes._ (alt names
 _Two faces. You choose which one the enemy sees, every turn._ (alt names: Quip, Jinx)
 
 - **HP** 70. **Dice** d6 d6 d8 d8 d10 (21.5). **Sockets** Red, Blue, White, Any, Any.
-- **Passive: Sleight.** Once per turn, before locking in, flip one die to the other side of its range
-  (1 and 6, 2 and 5, 3 and 4) for free. On even-sided dice a flip always changes parity, so the
+- **Passive: Sleight.** Once per turn, before locking in, shift one die to the opposite parity
+  (even to odd, or odd to even) for free. On even-sided dice, this uses the value mirrored across
+  the die's range; on odd-sided dice, it moves to the nearest value of the other parity. The
   Harlequin can almost always finish a hand in one parity.
 - **Birthstone: Motley.**
   - All five dice odd (_the Cruel Face_): deal 3×Res damage to the target.
@@ -207,7 +208,7 @@ _Two faces. You choose which one the enemy sees, every turn._ (alt names: Quip, 
 - **Fire rates.** A single face is reachable 96% of chased turns, so the choice each turn is attack or
   defend, not whether. Full Motley is 6.4% when chased, and chasing it drops the safe tier to 77%.
 - **Why it is different.** Every other Birthstone is a gamble. This one is a decision, which is a
-  playstyle the roster otherwise lacks, and the flip is a small, satisfying action.
+  playstyle the roster otherwise lacks, and the shift is a small, satisfying action.
 - **Stone.** Watermelon tourmaline, pink one half and green the other, in a checkerboard cut.
   **Birthstone face:** one eye winking, mouth half grin, half frown.
 
