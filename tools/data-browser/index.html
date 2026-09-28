@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#151916">
+	<title>Deep Cut | Field Guide</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="layout.css">
+	<link rel="stylesheet" href="mobile.css">
+	<script defer src="app.js"></script>
+</head>
+<body>
+	<div class="shell">
+		<aside class="rail">
+			<a class="brand" href="#overview" aria-label="Deep Cut Field Guide home"><span class="brand-mark"><i></i><i></i><i></i></span><span><strong>DEEP CUT</strong><small>FIELD GUIDE <b>01</b></small></span></a>
+			<div class="rail-label">REFERENCE</div>
+			<nav id="navigation" aria-label="Reference sections"></nav>
+			<div class="mobile-nav"><label class="sr-only" for="mobile-section">Reference section</label><select id="mobile-section" aria-label="Reference section"></select></div>
+			<div class="rail-foot"><span class="live-dot"></span><span>CONTENT PACK</span><b id="pack-version">—</b></div>
+		</aside>
+		<main class="main">
+			<header class="topbar"><div class="crumb"><span>DEEP CUT</span><i>/</i><b id="crumb-current">OVERVIEW</b></div><div class="top-meta"><span class="status-dot"></span><span>RULES REFERENCE</span><kbd>PACK V<span id="version-short">—</span></kbd></div></header>
+			<section id="app" aria-live="polite"><div class="loading"><span class="loader"></span>Reading the rock…</div></section>
+			<footer class="footer"><span>DATA OF RECORD</span><code>content/deep_cut.json</code><span class="footer-right">RULES CROSS-CHECKED AGAINST SIM</span></footer>
+		</main>
+	</div>
+	<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

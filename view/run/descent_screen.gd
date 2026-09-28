@@ -589,6 +589,10 @@ func _paged(parent: Node, list: String, items: Array, per_page: int) -> Array:
 func handle(event: Dictionary) -> void:
 	## One event from the host. Fights are animated; everything else gets a line of text.
 	var kind: String = str(event.get("kind", ""))
+	## The vote that carries takes the party into the next chamber, and the chamber's own
+	## event (a motherlode's spoils, the landing, the fight beginning) rides inside it.
+	if event.has("entered"):
+		handle(event.entered)
 	match kind:
 		"staked":
 			if str(event.get("unit", "")) == local_id:

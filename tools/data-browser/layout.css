@@ -1,0 +1,20 @@
+.main{height:100vh;min-height:0;overflow:hidden}
+#app{overflow:hidden}
+.single-view{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
+.segmented{display:flex;gap:3px;padding:7px 10px;border-bottom:1px solid var(--line-soft)}
+.segment{min-height:28px;padding:0 11px;border:1px solid transparent;border-radius:3px;background:transparent;color:var(--muted);font-size:10px}
+.segment:hover{background:var(--panel-2);color:var(--text)}
+.segment.active{border-color:#4a5939;background:#303b2b;color:var(--lime)}
+.room-cards{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:13px}
+.room-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.room-card-top .mono{color:var(--lime);font-size:9px}
+.room-cards .mini-card p{line-height:1.35}
+.compact-table{max-height:none;overflow:visible}
+.compact-table th,.compact-table td{padding:4px 8px}
+.carat-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.carat-metrics .metric{padding:7px}
+.carat-metrics .metric-value{font-size:13px}
+.grade-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin-top:10px}
+.grade-grid .section-label{margin-top:12px}
+@media(max-width:760px){.main{height:auto;min-height:calc(100vh - 83px);overflow:visible}#app{overflow:visible}.room-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.grade-grid{grid-template-columns:1fr;gap:4px}}
+@media(max-width:440px){.room-cards{grid-template-columns:1fr 1fr}.overview-meta{flex-wrap:wrap;gap:7px 12px}.detail-top{gap:8px}.metric-row{gap:5px}.metric{padding:8px}}
