@@ -5,37 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="44a58bb2-5d16-49ea-aabc-1cb549aa1a28" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/content/deep_cut.json" beforeDir="false" afterPath="$PROJECT_DIR$/content/deep_cut.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/REIMAGINING.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/REIMAGINING.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/battle.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/battle.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/boons.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/boons.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/content.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/content.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/descent.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/descent.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/dice.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/dice.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/oddities.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/oddities.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/profile.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/profile.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/rules.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/rules.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sim/stone.gd" beforeDir="false" afterPath="$PROJECT_DIR$/sim/stone.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_descent.gd" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_descent.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_enemy_ui.gd" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_enemy_ui.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_fit.gd" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_fit.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/run_checks.py" beforeDir="false" afterPath="$PROJECT_DIR$/tools/run_checks.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tools/screenshot.gd" beforeDir="false" afterPath="$PROJECT_DIR$/tools/screenshot.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/app.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/app.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/battle/battle_screen.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/battle/battle_screen.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/battle/enemy_panel.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/battle/enemy_panel.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/dice/dice_icons.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/dice/dice_icons.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/dice/dice_view.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/dice/dice_view.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/gems/appraisal.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/gems/appraisal.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/gems/stone_card.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/gems/stone_card.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/gems/thumbs.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/gems/thumbs.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/home/home_screen.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/home/home_screen.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/inspect/inspector.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/inspect/inspector.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/run/bench_panel.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/run/bench_panel.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/run/descent_screen.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/run/descent_screen.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/run/mine_stage.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/run/mine_stage.gd" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/view/run/run_dock.gd" beforeDir="false" afterPath="$PROJECT_DIR$/view/run/run_dock.gd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/data-browser/app.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/data-browser/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/tools/data-browser/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/data-browser/layout.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/data-browser/mobile.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/data-browser/server.mjs" beforeDir="false" afterPath="$PROJECT_DIR$/tools/data-browser/server.mjs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tools/data-browser/style.css" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -55,23 +30,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.6009730944671376" />
-      <entry key="MS500" value="3.3453246913657493" />
-      <entry key="S2" value="6.540247436083717" />
-      <entry key="S5" value="12.52146116152198" />
-      <entry key="S10" value="27.753863615240345" />
-      <entry key="S30" value="97.91636424951997" />
-      <entry key="S60" value="181.9918349124727" />
-      <entry key="M2" value="279.6117300794774" />
-      <entry key="M5" value="454.06886398693" />
-      <entry key="M10" value="692.9217738582722" />
-      <entry key="M15" value="856.2559469188999" />
-      <entry key="M30" value="1107.126882820973" />
-      <entry key="H1" value="1282.6338215272879" />
-      <entry key="H2" value="1388.7207495765497" />
-      <entry key="H4" value="1515.0189395651619" />
-      <entry key="D1" value="4214.647037601677" />
-      <entry key="W1" value="10272.155594024402" />
+      <entry key="MS100" value="1.0283188945909603" />
+      <entry key="MS500" value="2.31354511608442" />
+      <entry key="S2" value="5.876964802133042" />
+      <entry key="S5" value="8.232461127459167" />
+      <entry key="S10" value="14.627326008743914" />
+      <entry key="S30" value="47.981759556605056" />
+      <entry key="S60" value="79.03767932313066" />
+      <entry key="M2" value="106.00340644375146" />
+      <entry key="M5" value="128.438726438282" />
+      <entry key="M10" value="137.30825680457178" />
+      <entry key="M15" value="140.4432527689341" />
+      <entry key="M30" value="143.6727257932925" />
+      <entry key="H1" value="145.32392499163893" />
+      <entry key="H2" value="146.15882601178723" />
+      <entry key="H4" value="146.58620723127297" />
+      <entry key="D1" value="699.977835684249" />
+      <entry key="W1" value="7845.439773681676" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -93,23 +68,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.5603725744158408" />
-      <entry key="MS500" value="3.3292190510365676" />
-      <entry key="S2" value="6.532801813550992" />
-      <entry key="S5" value="12.515675026082034" />
-      <entry key="S10" value="27.747235674481917" />
-      <entry key="S30" value="97.90828660509737" />
-      <entry key="S60" value="181.98417852270282" />
-      <entry key="M2" value="279.60575615089164" />
-      <entry key="M5" value="454.06494266161604" />
-      <entry key="M10" value="692.9187609637216" />
-      <entry key="M15" value="856.2534503847304" />
-      <entry key="M30" value="1107.1252516675072" />
-      <entry key="H1" value="1282.6328688620542" />
-      <entry key="H2" value="1388.7202310254756" />
-      <entry key="H4" value="1515.0186527521637" />
-      <entry key="D1" value="4214.646876538111" />
-      <entry key="W1" value="10272.155530329117" />
+      <entry key="MS100" value="0.17257639828984223" />
+      <entry key="MS500" value="1.7842342924099361" />
+      <entry key="S2" value="5.663712661620541" />
+      <entry key="S5" value="8.136530426918553" />
+      <entry key="S10" value="14.576004696349754" />
+      <entry key="S30" value="47.95958856595006" />
+      <entry key="S60" value="79.02235789888857" />
+      <entry key="M2" value="105.99321403863948" />
+      <entry key="M5" value="128.43364413592573" />
+      <entry key="M10" value="137.3054991327483" />
+      <entry key="M15" value="140.44136181167391" />
+      <entry key="M30" value="143.67175287524813" />
+      <entry key="H1" value="145.32343144200715" />
+      <entry key="H2" value="146.15857743469593" />
+      <entry key="H4" value="146.58608248673679" />
+      <entry key="D1" value="699.9777927366314" />
+      <entry key="W1" value="7845.439722201185" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{

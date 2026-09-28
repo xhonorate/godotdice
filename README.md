@@ -12,6 +12,8 @@ python3 tools/run_checks.py                  # every headless suite (needs Godot
 /path/to/Godot --path . --script tools/tunnel_gallery.gd -- build/tunnels        # every biome seam, walked
 /path/to/Godot --path . --script tools/dice_gallery.gd -- build/dice.png        # every die shape, plus a rolling benchmark
 /path/to/Godot --path . --script tools/sound_gallery.gd -- gem                   # hear the sound bank (a filter plays one group)
+node tools/data-browser/server.mjs                                              # the balance browser, at http://127.0.0.1:4173
+/path/to/Godot --path . --script tools/browser_assets.gd                        # photograph every stone, die and creature for it (needs a window)
 ```
 
 ## How it plays
@@ -42,6 +44,7 @@ python3 tools/run_checks.py                  # every headless suite (needs Godot
 | `view/gems/thumbs.gd`    | The thumbnail service: stones and dice are rendered once and shown as textures; only the stone a page is about is live 3D                                                          |
 | `view/gems/appraisal.gd` | The appraisal: a raw stone worked out of its rock and read out, and the sheet that sets a found stone beside the kept one                                                          |
 | `tests/`                 | Headless suites run by `tools/run_checks.py`                                                                                                                                       |
+| `tools/data-browser/`    | The balance browser: a local web page that reads `content/deep_cut.json`, ports the rules in `sim/` to JavaScript, and charts every skill's fire rate and expected effect by Cut against a chosen bowl, stone luck by depth, creature turns and encounters, chamber odds, lapidaries and inclusions. Its pictures are the game's own renders, made by `tools/browser_assets.gd` into `tools/data-browser/assets/` |
 
 ## Status
 
