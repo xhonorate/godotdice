@@ -35,7 +35,7 @@ export function bowlControls(ctx, { showRerolls = true, showSamples = false } = 
 		const p = presets.find((x) => x[0] === key);
 		if (p) ctx.setSetting('bowl', p[2].slice());
 	});
-	const dieOptions = C.keys('dice').map((k) => [k, C.die(k).name || k]);
+	const dieOptions = Dice.TIERS.filter((k) => Object.keys(C.die(k)).length).map((k) => [k, C.die(k).name || k]);
 	const dieRow = h('div', { class: 'row tight' }, s.bowl.map((key, i) => h('span', { class: 'row tight' }, dieImage(key, 26), select(dieOptions, key, (v) => { const bowl = s.bowl.slice(); bowl[i] = v; ctx.setSetting('bowl', bowl); }, { class: 'select small', style: 'width:104px' }))));
 	const items = [field('Bowl', presetSel), field('Dice', dieRow)];
 	if (showRerolls) items.push(field('Rerolls', segmented([[0, '0'], [1, '1'], [2, '2'], [3, '3']], s.rerolls, (v) => ctx.setSetting('rerolls', Number(v))), 'Rerolls are spent chasing each gem’s own trigger'));
@@ -53,7 +53,7 @@ export function depthControls(ctx, { showParty = true, showMine = true, max = 40
 }
 
 export function bowlSummary(bowl) {
-	const dice = bowl.map((k, i) => Dice.make(k, C.die(k), `d${i}`));
+	const dice = bowl.map((k, i) => Dice.dieFrom(k, `d${i}`));
 	const maxTotal = dice.reduce((s, d) => s + Dice.top(d), 0);
 	const mean = dice.reduce((s, d) => { let m = 0; for (const [v, p] of Dice.faceDistribution(d)) m += (v === 'mirror' ? Dice.top(d) * 0.7 : v) * p; return s + m; }, 0);
 	return { maxTotal, mean };
@@ -89,7 +89,15 @@ export function socketRow(sockets) {
 	return h('div', { class: 'socket-row' }, sockets.map((s) => h('span', { class: `socket${s === 'ANY' ? ' any' : ''}`, title: s === 'ANY' ? 'Any colour' : C.colorName(s), style: s === 'ANY' ? null : { borderColor: markColor(s), background: `${markColor(s)}22` } }, s === 'ANY' ? h('span', { class: 'tiny muted' }, 'any') : colorKeyMark(s, 14))));
 }
 
+// The mark every etched face wears, the same glyphs the game draws.
+export const FACE_MARKS = { wild: '★', exploding: '!', shiny: '✦', golden: '¤', tally: '↑', sticky: '▣', twin: '‖', doubled: '²', locked: '⌂', blank: '' };
+
 export function faceRow(def, die = null) {
-	const faces = Dice.facesOf(def);
-	return h('div', { class: 'face-row' }, faces.map((f) => h('span', { class: `face${f.kind !== 'plain' ? (f.kind === 'blank' ? ' blank' : ' special') : ''}`, title: f.kind !== 'plain' ? C.title(f.kind) : null }, f.kind === 'blank' ? '·' : f.kind === 'wild' ? '★' : f.kind === 'gem' ? '◆' : f.kind === 'mirror' ? '◇' : f.kind === 'exploding' ? `${f.value}!` : f.kind === 'locked' ? `${f.value}🔒` : String(f.value))));
+	const faces = die && die.faces ? die.faces : Dice.facesOf(def);
+	return h('div', { class: 'face-row' }, faces.map((f) => {
+		const kind = f.kind || 'plain';
+		const mark = FACE_MARKS[kind] || '';
+		const text = kind === 'blank' ? '·' : kind === 'wild' ? '★' : `${f.value}${mark}`;
+		return h('span', { class: `face${kind !== 'plain' ? (kind === 'blank' ? ' blank' : ' special') : ''}`, title: kind !== 'plain' ? `${Dice.etchingName(kind)}: ${C.etching(kind).text || ''}` : null }, text);
+	}));
 }

@@ -223,7 +223,7 @@ func _dice() -> void:
 	keys.sort()
 	for key in keys:
 		var def: Dictionary = DeepContent.die(str(key))
-		var die: Dictionary = DeepDice.make(str(key), def, "browser_%s" % key)
+		var die: Dictionary = DeepDice.make(str(key), "browser_%s" % key)
 		## Shown on its best face, tipped to reveal the solid.
 		var best: int = 0
 		var best_value: int = -1

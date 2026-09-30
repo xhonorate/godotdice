@@ -19,7 +19,7 @@ extends RefCounted
 ##   high low total max_total missing odd even distinct held rerolled dice
 ##   count_value / count_at_most / count_at_least  with "value": n
 ##   run_high run_length set_value set_count   sum_low / sum_high with "value": n dice
-##   block block_lost healed dealt hp max_hp hp_missing gold
+##   block block_lost healed dealt hp max_hp hp_missing gold pot
 ##   resonance previous_amount carat cut clarity depth turn party
 ##   crowns (dice on their top face)  low_dice (dice at or below half their top)
 ##
@@ -41,8 +41,17 @@ extends RefCounted
 ##     replay_fizzled(every gem that stayed dark this turn fires anyway)
 ##     rank_buff(rank: carat or cut, added to every gem in the rail for the rest of the fight)
 ##     repeat_next(the next gem to resolve, the Birthstone included, fires that many times more)
+##     void_copy(a Void copy of the last gem that fired joins the rail for the rest of the fight)
+##   Elites only, and rare: mar_die(blank or lock a face) grind_die(a face loses a point)
+##     lock_die(one die cannot be thrown again this fight) break_die(a die is destroyed and
+##     grows back next turn) downgrade_die(a size smaller, never below a d4) break_gem(a gem
+##     is destroyed and grows back next turn). Granite answers none of them.
 ##   Birthstone-only: replay_rail  tick_poison(times: every poison on every creature ticks)
 ##   stone_drop(count: a raw stone, Exquisite or better, into the haul when the fight is won)
+##     pot(pot_mode: what the Gambler has on the table. "ante" stakes the amount, "double"
+##     matches what is already there, "all" pushes the whole bank in, "lose" leaves it on the
+##     table. Everything staked leaves the bank at once and comes back only on a win, which
+##     is why the bank is the ceiling on what the pot can ever be worth.)
 ## Targets: self ally_low allies enemy enemies spread enemy_behind downed_ally, and for
 ## creatures hero heroes.
 
@@ -50,17 +59,20 @@ const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct", "if", "ge",
 const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
-	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "enemy_poison"]
+	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "pot", "enemy_poison"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
 	"phantom_high", "grant_reroll", "retrigger_previous", "dice_dread", "die_steal", "quality_bonus",
-	"sparkle", "coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next",
-	"replay_rail", "tick_poison", "stone_drop", "dice_upgrade", "ward", "retain", "charged", "marked",
-	"regeneration", "spikes", "dulled", "clouded", "lifeline", "max_hp", "max_hp_loss", "damage_curse", "detonate", "wager", "stake", "upgrade_faces", "gem_rank", "appraise"]
+	"sparkle", "coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy",
+	"replay_rail", "tick_poison", "stone_drop", "pot", "dice_upgrade", "ward", "retain", "charged", "marked",
+	"regeneration", "spikes", "dulled", "clouded", "lifeline", "max_hp", "max_hp_loss", "damage_curse", "detonate", "wager", "stake", "upgrade_faces", "gem_rank", "appraise",
+	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem"]
 const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block", "retain", "regeneration", "spikes", "lifeline", "wager", "detonate"]
-const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss"]
-const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss"]
+const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
+	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem"]
+const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
+	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem"]
 
 const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "downed_ally", "hero", "heroes"]
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
@@ -68,10 +80,13 @@ const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_o
 	"copy_previous_inclusion", "adjacent_carat", "always_fires", "fires_twice", "carat_per_depth", "alexandrite",
 	"resonance_bonus"]
 const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]
-## Fire Opal’s rail-wide rank_buff raises carat/cut. Per-stone gem_rank also supports
-## temporary Clarity, without changing stored inclusion slots.
+## A rail-wide rank_buff raises carat/cut. Per-stone gem_rank — what Fire Opal, Enrich,
+## Polish and Facet use — also supports temporary Clarity, without changing stored
+## inclusion slots.
 const RANK_BUFFS: Array = ["carat", "cut"]
-const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash"]
+const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode"]
+## How a `pot` effect moves money. Everything but "lose" takes what it stakes out of the bank.
+const POT_MODES: Array = ["ante", "double", "all", "lose"]
 const MODIFY_FIELDS: Array = EFFECT_OPTIONS + ["amount", "repeat", "effect", "target", "mult", "add", "repeat_add", "splash", "kind", "scale"]
 const MAX_EFFECTS: int = 6
 const MAX_DEPTH: int = 6
@@ -88,6 +103,9 @@ const PROC_IN_PLACE: Array = ["coin_flip"]
 const CURSE_MAX_STACKS: int = 10
 const CURSE_PERCENT: int = 10
 const SPARKLE_MAX_STACKS: int = 100
+## What one stored Sparkle is worth as generation luck when a stone is found. A full hundred
+## stacks is ten points of luck — a real nudge, not the ten-fold guarantee a point each was.
+const SPARKLE_LUCK: float = 0.1
 
 # --- amounts -------------------------------------------------------------------------
 
@@ -192,6 +210,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"hp_missing": return maxi(0, int(unit.get("max_hp", 0)) - int(unit.get("hp", 0)))
 		"gold": return int(unit.get("gold", 0))
 		"pyrite": return pyrite(unit)
+		"pot": return int(unit.get("pot", 0))
 		"enemy_poison": return int(c.get("enemy_poison", 0))
 		"resonance": return int(c.get("resonance", 0))
 		"previous_amount": return int(c.get("previous_amount", 0))
@@ -350,6 +369,8 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": unknown gem scope")
 	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed"]:
 		errors.append(where + ": unknown previous result")
+	if kind == "pot" and not str(effect.get("pot_mode", "")) in POT_MODES:
+		errors.append(where + ": a pot effect names one of " + ", ".join(POT_MODES))
 	if effect.has("amount"):
 		errors.append_array(validate_expression(effect.amount, where + " amount"))
 	if effect.has("repeat"):
@@ -364,9 +385,9 @@ static func validate_skill(def: Variant, p: Dictionary) -> Array:
 		errors.append("needs a name")
 	if not str(def.get("color", "")) in DeepContent.SKILL_COLORS:
 		errors.append("unknown color " + str(def.get("color", "")))
-	## A Doublet wears no skill of its own: it takes the next gem's. Nothing else may.
-	if not str(def.get("wears", "")) in ["", "next"]:
-		errors.append("wears must be next, or be left out")
+	## A Doublet wears no skill of its own: it takes the previous gem's. Nothing else may.
+	if not str(def.get("wears", "")) in ["", "prev"]:
+		errors.append("wears must be prev, or be left out")
 	if not str(def.get("rarity", "")) in DeepContent.RARITIES:
 		errors.append("unknown rarity " + str(def.get("rarity", "")))
 	errors.append_array(DeepPatterns.validate(def.get("trigger", null)))

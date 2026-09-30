@@ -167,6 +167,7 @@ export function effectWords(effect, cutStep = null) {
 		phantom_high: `${n} phantom of the highest die`, gem_rank: `+${n} ${effect.rank || 'rank'}`, set_match: 'join a die to the strongest set', grant_reroll: `${n} extra reroll`,
 		retrigger_previous: `repeat the previous gem at ${n}%`, resonance: `+${n} Resonance`, replay_color: `replay every ${effect.color ? effect.color.toLowerCase() : ''} gem`,
 		rank_buff: `+${n} ${effect.rank || 'rank'} to every gem`, replay_fizzled: `fire ${n} dark gem`, repeat_next: `next gem fires ${n} more`, damage_curse: 'damage = Curse stacks',
+		void_copy: `${n} Void copy of the last gem that fired`,
 		amplify_next: `amplify next gem ${n}%`, revive: 'revive an ally', max_hp: `+${n} max HP`,
 	};
 	return labels[kind] || `${kind.replace(/_/g, ' ')} ${n}`;

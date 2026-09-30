@@ -124,6 +124,9 @@ var _birth_outcome: Dictionary = {}
 ## Bumped by every change to the Resonance number, so sparks still in flight never write an
 ## old value over a newer one.
 var _resonance_token: int = 0
+## What the dice owed on the throw this turn opened with, and what grew back with them.
+var _pending_dues: Dictionary = {}
+var _pending_regrown: Dictionary = {}
 var _battery_tween: Tween
 
 var _shows: int = 0
@@ -389,7 +392,7 @@ func _build_hud() -> void:
 	_resonance_box = DeepUi.hbox(me_row, 5)
 	_resonance_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	_resonance_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_resonance_box.tooltip_text = "Resonance: each gem that fires adds one, a neighbour of the same color adds two, and a gem that stays dark costs you nothing but its turn. Your Birthstone reads it last."
+	_resonance_box.tooltip_text = "Resonance: each gem that fires adds one, a neighbour of the same color adds two, and a gem that doesn't fire costs nothing. Your Birthstone reads it last."
 	DeepUi.icon(_resonance_box, "resonance", 18, DeepUi.RESONANCE).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	DeepUi.heading(_resonance_box, "Resonance", 13, DeepUi.RESONANCE).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_resonance_value = DeepUi.title(_resonance_box, "0", 20, DeepUi.RESONANCE)
@@ -775,7 +778,9 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				var picture := Thumbs.GemThumb.new(stone, RIDER_EDGE - 4)
 				picture.name = "Gem"
 				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 2)
-				picture.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. Fragile: shatters at the end of the run." % [DeepStone.name(stone), DeepStone.text(stone), int(place.socket) + 1]
+				var fate: String = "Made by an Echo: it lasts as long as the fight does." if bool(stone.get("temporary", false)) \
+					else "Fragile: shatters at the end of the run."
+				picture.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. %s" % [DeepStone.name(stone), DeepStone.text(stone), int(place.socket) + 1, fate]
 				slot.add_child(picture)
 			elif stone is Dictionary:
 				var picture := Thumbs.GemThumb.new(stone, SOCKET_EDGE - 12)
@@ -918,7 +923,9 @@ func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
 	var card := VBoxContainer.new()
 	card.add_theme_constant_override("separation", 2)
-	card.alignment = BoxContainer.ALIGNMENT_CENTER
+	## Top-aligned like a socket's own card, which sits at the top of its column: centred
+	## in a rail made taller by riders or a trigger row, the bezel hung lower than the rest.
+	card.alignment = BoxContainer.ALIGNMENT_BEGIN
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
 	var slot := Control.new()
 	slot.name = "Slot"
@@ -978,7 +985,10 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 		var rung: int = DiceIcons.ladder_rung(defs[index], die)
 		if active and rung > 0:
 			lit = mini(5, maxi(lit, maxi(rung, previewed[index].get("dice", []).size())))
-	key += "|%d" % lit
+	## A Bust has no mark of its own: it is the dice that did not come, so it turns them red.
+	var bust: int = DiceIcons.ladder_penalty(defs, die)
+	var busted: bool = bust >= 0 and bust < previewed.size() and bool(previewed[bust].get("active", false)) and showing
+	key += "|%d|%s" % [lit, "bust" if busted else ""]
 	if str(tiers_row.get_meta("key", "")) == key:
 		return
 	tiers_row.set_meta("key", key)
@@ -988,10 +998,14 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 		var reason: String = str(previewed[index].get("reason", "")) if index < previewed.size() else ""
 		notes.append(reason if key[index] == "0" and showing else "")
 	if not die.is_empty():
-		DiceIcons.build_ladder(tiers_row, defs, die, lit, 14, DeepUi.GOOD, DeepUi.DIM, notes)
+		var dark: Color = DeepUi.BAD if busted else DeepUi.DIM
+		var tip: String = ""
+		if bust >= 0:
+			tip = "%s: %s" % [str(defs[bust].get("name", "")), str(defs[bust].get("text", ""))]
+		DiceIcons.build_ladder(tiers_row, defs, die, lit, 14, DeepUi.GOOD, dark, notes, tip)
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
-		if DiceIcons.ladder_rung(tier, die) > 0:
+		if DiceIcons.ladder_rung(tier, die) > 0 or index == bust:
 			continue
 		var words: String = "%s: %s" % [str(tier.get("name", "")), str(tier.get("text", ""))]
 		if not str(notes[index]).is_empty():
@@ -1109,7 +1123,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		tagged.turn_tag = str(state.get("turn", 0))
 		var can_select: bool = planning and not bool(unit.get("locked", false)) and not bool(roll.get("locked", false))
 		var chosen: bool = selected.has(id) and can_select
-		view.configure(by_id.get(id, {"key": roll.key, "shape": roll.shape, "faces": []}), tagged, chosen, false, DeepUi.ACCENT)
+		view.configure(by_id.get(id, {"shape": roll.shape, "material": str(roll.get("material", "")), "faces": []}), tagged, chosen, false, DeepUi.ACCENT)
 		var lift: float = -10.0 if chosen else 0.0
 		if not is_equal_approx(view.position.y, lift) and not _headless:
 			var tween := view.create_tween()
@@ -1227,7 +1241,7 @@ class AllyCard extends PanelContainer:
 			DeepUi.clear(_hand)
 			for roll in unit.get("hand", []):
 				if not bool(roll.get("phantom", false)):
-					_hand.add_child(DiceIcons.face(20, int(roll.value), DiceIcons.palette(str(roll.get("key", "D6"))).body, str(roll.get("shape", "D6")), true, DiceIcons.face_text(int(roll.value), str(roll.get("kind", "plain")))))
+					_hand.add_child(DiceIcons.face(20, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true, DiceIcons.face_text(int(roll.value), str(roll.get("kind", "plain")))))
 		modulate = Color(1, 1, 1, 0.55) if bool(unit.get("downed", false)) else Color.WHITE
 	func hurt() -> void:
 		DeepUi.shake(self, 8.0, 0.35)
@@ -1341,7 +1355,7 @@ class Plate extends PanelContainer:
 			var gone: bool = index >= dice.size() - suppressed
 			var rolled: bool = index < hand.size()
 			var mark: String = "×" if gone else (str(int(hand[index].get("value", 0))) if rolled else "?")
-			_dice.add_child(DiceIcons.face(16, int(hand[index].get("value", 0)) if rolled else 0, DeepUi.DIM if gone else DiceIcons.palette(str(dice[index].key)).body, str(dice[index].shape), rolled, mark))
+			_dice.add_child(DiceIcons.face(16, int(hand[index].get("value", 0)) if rolled else 0, DeepUi.DIM if gone else DiceIcons.die_palette(dice[index]).body, str(dice[index].shape), rolled, mark))
 			DeepUi.label(_dice, str(dice[index].shape).to_lower() + ("×" if gone else ""), 11, DeepUi.DIM if gone else DeepUi.MUTED)
 		DeepUi.clear(_abilities)
 		for move in moves:
@@ -1701,6 +1715,10 @@ func perform(event: Dictionary) -> void:
 	var kind: String = str(event.get("kind", ""))
 	if kind == "turn_begin":
 		selected.clear()
+		for entry in event.get("hands", []):
+			if str(entry.get("unit", "")) == local_id:
+				_pending_dues = entry.get("dues", {})
+				_pending_regrown = entry.get("regrown", {})
 		for battery in event.get("charged", []):
 			if str(battery.unit) == local_id:
 				_charge_resonance(int(battery.amount))
@@ -1730,6 +1748,15 @@ func perform(event: Dictionary) -> void:
 			DeepAudio.play("turn_begin", {"volume": 0.7})
 			_announce("Turn %d" % int(event.get("turn", 1)), DeepUi.PAPER, "Roll, reroll, lock in", 0.9)
 			_camera.nudge(Vector3(0, 0.08, -0.15), 0.6)
+			## The dice have already been thrown for this turn: what they paid is played over
+			## the tray a beat later, once the solids have settled where they landed.
+			var owed: Dictionary = _pending_dues
+			var back: Dictionary = _pending_regrown
+			_pending_dues = {}
+			_pending_regrown = {}
+			_later_do(0.55, func() -> void:
+				_dice_regrown(back)
+				_dice_dues(owed, _dice_views.keys()))
 		"resolution_begin":
 			DeepAudio.play("resolve", {"volume": 0.75})
 			_announce("Resolve", DeepUi.ACCENT, "", 0.5)
@@ -1738,23 +1765,28 @@ func perform(event: Dictionary) -> void:
 		"rail_begin":
 			if str(event.get("unit", "")) == local_id:
 				_show_resonance(int(event.get("resonance", 0)))
-				if int(event.get("healed", 0)) > 0:
-					DeepAudio.play("heal", {"volume": 0.6})
-					_float_at(_hp_bar, "+%d Second Wind" % int(event.healed), DeepUi.GOOD, 20)
-			elif int(event.get("healed", 0)) > 0 and _ally_cards.has(str(event.get("unit", ""))):
-				_float_at(_ally_cards[str(event.unit)], "+%d" % int(event.healed), DeepUi.GOOD, 16)
 		"gem_fire":
 			_gem_fire(event)
 		"gem_fizzle":
 			_gem_fizzle(event)
 		"birthstone":
 			_birthstone_fire(event)
+		"reroll":
+			if str(event.get("unit", "")) == local_id:
+				_later_do(0.4, func() -> void: _dice_dues(event.get("dues", {}), event.get("dice", [])))
 		"flip":
 			if str(event.get("unit", "")) == local_id:
 				DeepAudio.play("die_settle", {"volume": 0.8})
 				_float_at(_tray_box, "Shifted to %d" % int(event.get("value", 0)), DeepUi.ACCENT_HI, 16)
 		"rail_end":
 			var resonance: int = int(event.get("resonance", 0))
+			## Second Wind is paid as the rail closes, on the Resonance it built.
+			if int(event.get("healed", 0)) > 0:
+				if str(event.get("unit", "")) == local_id:
+					DeepAudio.play("heal", {"volume": 0.6})
+					_float_at(_hp_bar, "+%d Second Wind" % int(event.healed), DeepUi.GOOD, 20)
+				elif _ally_cards.has(str(event.get("unit", ""))):
+					_float_at(_ally_cards[str(event.unit)], "+%d" % int(event.healed), DeepUi.GOOD, 16)
 			if str(event.get("unit", "")) == local_id and resonance >= 3:
 				## The chain pays off a step higher for every stone in it.
 				DeepAudio.from(_resonance_box, "resonance", {"pitch": 1.0 + 0.09 * float(mini(resonance, 8)), "volume": 0.8})
@@ -1923,7 +1955,113 @@ func _gem_fire(event: Dictionary) -> void:
 		DeepUi.pulse(_ally_cards[unit_id], 1.05, 0.3)
 	else:
 		DeepAudio.play(voice, {"volume": carry, "gap": 0.02})
-	_animate_effects(event.get("effects", []), origin, color, mine, _socket_cards[socket] if mine and socket >= 0 and socket < _socket_cards.size() else null, magnitude)
+	var card_anchor: Control = _socket_cards[socket] if mine and socket >= 0 and socket < _socket_cards.size() else null
+	if mine:
+		_die_boost(card_anchor if card_anchor != null else _tray_box, event, color)
+	_animate_effects(event.get("effects", []), origin, color, mine, card_anchor, magnitude)
+
+func _die_anchor(die_id: String) -> Control:
+	## The die in the tray, or the tray itself when that die is not on screen.
+	if _dice_views.has(die_id) and is_instance_valid(_dice_views[die_id]):
+		return _dice_views[die_id]
+	return _tray_box
+
+func _purse() -> Vector3:
+	## Where pyrite ends up: the near corner of the room, under the reader's own hand.
+	return _camera.global_position + (-_camera.global_transform.basis.z) * 1.4 + Vector3(0.8, -0.7, 0)
+
+func _die_world(die_id: String) -> Vector3:
+	## A point in the room over the tray, roughly under the die: the pile a coin flies from.
+	var spread: float = 0.0
+	var ids: Array = _dice_views.keys()
+	if ids.has(die_id) and ids.size() > 1:
+		spread = (float(ids.find(die_id)) / float(ids.size() - 1) - 0.5) * 2.4
+	return _camera.global_position + (-_camera.global_transform.basis.z) * 2.4 + Vector3(spread, -1.1, 0)
+
+func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
+	## What the dice themselves paid out this throw, played where it happened. A Crystal die
+	## rings the Resonance count up, a Golden face and a Fool's Gold die send pyrite into the
+	## purse, Blood takes its price out of the health bar, a Tally face climbs, and Glass
+	## breaks. Nothing here decides anything: the fight already paid it.
+	if dues.is_empty() or _headless:
+		return
+	var anchor: Control = _die_anchor(str(die_ids[0]) if not die_ids.is_empty() else "")
+	var resonance: int = int(dues.get("resonance", 0))
+	if resonance > 0:
+		var tone: Color = DiceIcons.material_palette("crystal").get("body", DeepUi.RESONANCE)
+		## The count itself is the state's to say (a forecast is standing in it while the turn
+		## is planned); this is only the ring of the die that paid it.
+		DeepAudio.from(_resonance_box, "resonance", {"volume": 0.55, "pitch": 1.15})
+		_float_at(_resonance_box, "+%d" % resonance, tone, 18)
+		DeepUi.burst(self, _center_of(_resonance_box), tone, 10 + resonance * 4, 110.0, 0.5)
+		for id in die_ids:
+			var lit: Control = _die_anchor(str(id))
+			if lit != _tray_box:
+				DeepUi.burst(self, _center_of(lit), tone, 8, 70.0, 0.45)
+	var pyrite: int = int(dues.get("pyrite", 0))
+	if pyrite > 0:
+		_later_do(0.14, func() -> void:
+			DeepAudio.play("ore", {"volume": 0.6})
+			_fx.coins(_die_world(str(die_ids[0]) if not die_ids.is_empty() else ""), _purse(), 4 + mini(10, pyrite))
+			_float_at(anchor, "+%d pyrite" % pyrite, DeepUi.ORE, 18))
+	var blood: int = int(dues.get("hp", 0))
+	if blood > 0:
+		var gore: Color = DiceIcons.material_palette("blood").get("body", DeepUi.BAD)
+		_later_do(0.28, func() -> void:
+			DeepAudio.play("hit_light", {"volume": 0.5})
+			_float_at(_hp_bar, "-%d" % blood, gore, 20)
+			DeepUi.burst(self, _center_of(anchor), gore, 14, 90.0, 0.5))
+	var beat: float = 0.42
+	for climb in dues.get("climbed", []):
+		var grown: Control = _die_anchor(str(climb.get("die", "")))
+		var shown: int = int(climb.get("value", 0))
+		_later_do(beat, func() -> void:
+			DeepAudio.from(grown, "tally", {"volume": 0.6})
+			_float_at(grown, "↑ %d" % shown, DiceIcons.face_kind_tint("tally"), 20)
+			DeepUi.pulse(grown, 1.22, 0.35)
+			DeepUi.burst(self, _center_of(grown), DiceIcons.face_kind_tint("tally"), 12, 80.0, 0.5))
+		beat += 0.16
+	for broken in dues.get("shattered", []):
+		var lost: Control = _die_anchor(str(broken))
+		var shards: Color = DiceIcons.material_palette("glass").get("body", DeepUi.PAPER)
+		_later_do(beat, func() -> void:
+			DeepAudio.play("die_break", {"volume": 0.85})
+			_float_at(lost, "Shattered", shards, 20)
+			DeepUi.burst(self, _center_of(lost), shards, 26, 190.0, 0.7)
+			_screen_fx.blink(DeepUi.PAPER, 0.05))
+		beat += 0.18
+
+func _dice_regrown(regrown: Dictionary) -> void:
+	## A die or a gem that was broken is back, the way its hero came down with it.
+	if regrown.is_empty() or _headless:
+		return
+	for die in regrown.get("dice", []):
+		var back: Control = _die_anchor(str(die.get("id", "")))
+		DeepAudio.play("die_settle", {"volume": 0.7})
+		_float_at(back, "%s, remade" % DeepDice.describe(die), DeepUi.INFO, 16)
+	for socket in regrown.get("sockets", []):
+		var at: int = int(socket)
+		if at >= 0 and at < _socket_cards.size():
+			DeepUi.pulse(_socket_cards[at], 1.2, 0.45)
+			_float_at(_socket_cards[at], "Recut", DeepUi.INFO, 16)
+
+func _die_boost(anchor: Control, event: Dictionary, color: Color) -> void:
+	## What the dice themselves were worth to this gem: the materials that answered its
+	## colour, said on the gem that felt them.
+	var boost: float = float(event.get("die_boost", 1.0))
+	if boost <= 1.001 or anchor == null or not is_instance_valid(anchor):
+		return
+	var materials: Array = event.get("materials", [])
+	var tone: Color = DiceIcons.material_palette(str(materials[0])).get("body", color) if not materials.is_empty() else color
+	var named: Array = []
+	for material in materials:
+		var word: String = DeepDice.material_name(str(material))
+		if not named.has(word):
+			named.append(word)
+	_float_at(anchor, "×%.2f %s" % [boost, ", ".join(named)], tone, 20)
+	DeepUi.pulse(anchor, 1.26, 0.45)
+	DeepUi.burst(self, _center_of(anchor), tone, 18 + int(round(boost * 6.0)), 200.0, 0.65)
+	DeepAudio.from(anchor, "gleam", {"volume": 0.6, "pitch": 1.1})
 
 func _later_do(seconds: float, work: Callable) -> void:
 	## One beat of an effect's playback. Nothing here outlives the screen.
@@ -1982,6 +2120,13 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					for socket in effect.get("sockets", []):
 						if int(socket) < _socket_cards.size():
 							_float_at(_socket_cards[int(socket)], "+%d %s" % [int(effect.amount), str(effect.rank).capitalize()], Color.WHITE, 15)
+			"void_copy":
+				## An Echo's copies join the rail as it resolves, so the cards under them
+				## may not have been rebuilt yet; whatever is there already is what floats.
+				if mine:
+					for socket in effect.get("sockets", []):
+						if int(socket) < _socket_cards.size():
+							_float_at(_socket_cards[int(socket)], "Void copy", DeepUi.ACCENT_HI, 15)
 			"stake":
 				if mine and effect.has("spent"):
 					_float_at(_forecast_box, "−%d Pyrite · next gem +%d%%" % [int(effect.spent), int(effect.amount)], DeepUi.ORE, 16)

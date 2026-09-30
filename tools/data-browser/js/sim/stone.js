@@ -4,6 +4,7 @@ import * as C from './content.js';
 import * as Hand from './hand.js';
 import * as Patterns from './patterns.js';
 import * as Rules from './rules.js';
+import * as Dice from './dice.js';
 import { heldForPatterns } from './dice.js';
 
 export const TIERS = ['ROUGH', 'FINE', 'PRECIOUS', 'EXQUISITE', 'PEERLESS'];
@@ -163,7 +164,7 @@ export function applyLens(hand, mode) {
 			break;
 		}
 		case 'ones_wild': for (const roll of out) if ((roll.value | 0) === 1 && (roll.kind || 'plain') === 'plain') roll.kind = 'wild'; break;
-		case 'held_twice': for (const roll of out) if (heldForPatterns(roll)) roll.engraving = 'twin'; break;
+		case 'held_twice': for (const roll of out) if (heldForPatterns(roll)) roll.twinned = true; break;
 	}
 	return out;
 }
@@ -190,6 +191,18 @@ export function applyFlawless(defs, flawless) {
 
 // What this stone does to this hand. `c` is the rail context: unit, resonance, previous_fired,
 // previous_amount, amplify, cut_step_bonus, carat_bonus, depth, turn, party, force_fire.
+// The rolls behind a list of die ids, each one only once however often it was named.
+export function rollsOf(hand, ids) {
+	const seen = new Set();
+	const out = [];
+	for (const id of ids) {
+		if (seen.has(id)) continue;
+		const roll = hand.find((r) => r.die_id === id);
+		if (roll) { seen.add(id); out.push(roll); }
+	}
+	return out;
+}
+
 export function evaluate(stone, hand, c = {}) {
 	const skill = skillOf(stone);
 	if (!skill || !Object.keys(skill).length) return { active: false, reason: 'unknown skill', dice: [], effects: [], fires: 0 };
@@ -197,7 +210,10 @@ export function evaluate(stone, hand, c = {}) {
 	const mods = eff.modifiers;
 	let working = hand;
 	for (const m of mods) if (m.kind === 'lens') working = applyLens(working, String(m.mode || ''));
-	const a = Hand.analyze(working);
+	// The hand is read for this gem in particular: the dice that would do it the most good
+	// come first in everything the trigger picks from.
+	const wearing = colors(stone, String(c.socket || ''));
+	const a = Hand.analyze(working, wearing);
 	const trigger = skill.trigger || { kind: 'always' };
 	const trig = Patterns.evaluate(trigger, eff.cut_step, a, { resonance: c.resonance | 0, pyrite: Rules.pyrite(c.unit || {}) });
 	if (!trig.active && (hasModifier(mods, 'always_fires') || c.force_fire)) {
@@ -214,20 +230,28 @@ export function evaluate(stone, hand, c = {}) {
 		}
 	}
 	const result = { active: Boolean(trig.active), reason: trig.reason || '', dice: trig.dice || [], trigger: trig, cut_step: eff.cut_step, carat: eff.carat,
-		magnitude: eff.magnitude, analysis: a, effects: [], fires: trig.active ? 1 : 0, hp_cost: 0, resonance_gain: 0, skill: stone.skill };
+		magnitude: eff.magnitude, analysis: a, effects: [], fires: trig.active ? 1 : 0, hp_cost: 0, resonance_gain: 0, skill: stone.skill, colors: wearing, die_boost: 1 };
 	if (!trig.active) return result;
+	// What the dice themselves are made of. A material that answers to this gem colour is
+	// half again as strong, and they multiply.
+	const fired = rollsOf(working, trig.dice || []);
+	const boost = Dice.strength(fired, wearing);
+	const magnitude = eff.magnitude * boost;
+	result.die_boost = boost;
+	result.magnitude = magnitude;
 	const tc = { a, trig, unit: c.unit || {}, resonance: c.resonance | 0, previous_amount: c.previous_amount | 0, carat: eff.carat, cut: eff.cut_step,
 		clarity: eff.clarity, enemy_poison: c.enemy_poison | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1 };
 	let defs = (skill.effects || []).map((d) => JSON.parse(JSON.stringify(d)));
 	if (eff.flawless && skill.flawless && typeof skill.flawless === 'object') defs = applyFlawless(defs, skill.flawless);
-	for (const def of defs) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, eff.magnitude));
+	for (const def of defs) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, magnitude));
 	const perDie = modifierSum(mods, 'per_die_damage');
 	if (perDie > 0) for (const effect of result.effects) if (effect.kind === 'damage') effect.amount += perDie * (trig.dice || []).length;
 	for (const m of mods) {
-		if (m.kind === 'rider') for (const def of m.effects || []) if (def && typeof def === 'object') { const rider = Rules.resolveEffect(def, tc, eff.magnitude); rider.inclusion = m.inclusion; result.effects.push(rider); }
+		if (m.kind === 'rider') for (const def of m.effects || []) if (def && typeof def === 'object') { const rider = Rules.resolveEffect(def, tc, magnitude); rider.inclusion = m.inclusion; result.effects.push(rider); }
 	}
 	result.hp_cost = modifierSum(mods, 'hp_cost');
-	result.resonance_gain = Math.round((1 + modifierSum(mods, 'resonance_bonus')) * eff.resonance_mult);
+	// A Shiny face rings once more for every gem it helped light.
+	result.resonance_gain = Math.round((1 + modifierSum(mods, 'resonance_bonus') + Dice.shinyCount(fired)) * eff.resonance_mult);
 	if (!c.retrigger) {
 		if (hasModifier(mods, 'fires_twice')) result.fires += 1;
 		if (hasModifier(mods, 'retrigger_if_previous_fired') && c.previous_fired) result.fires += 1;

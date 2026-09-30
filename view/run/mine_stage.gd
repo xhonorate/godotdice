@@ -33,6 +33,7 @@ const GemView = preload("res://view/gems/gem_view.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const VeinFace = preload("res://view/battle/vein_face.gd")
 const Stall = preload("res://view/battle/stall.gd")
+const WishingWell = preload("res://view/battle/wishing_well.gd")
 const LiftHall = preload("res://view/battle/lift_hall.gd")
 const Hoard = preload("res://view/battle/hoard.gd")
 const DiceGeometry = preload("res://view/dice/dice_geometry.gd")
@@ -213,7 +214,7 @@ func _new_room(p: Dictionary, origin: Vector3) -> Dictionary:
 	world.add_child(made)
 	var steps: Array = made.plan(biome, room_seed(p), int(p.get("exits", 2)), float(p.get("drop", 2.5)))
 	steps.append(_dress_mouths.bind(made, bool(p.get("seal", false))))
-	if str(p.get("kind", "")) in ["landing", "head", "warden"]:
+	if str(p.get("kind", "")) in ["landing", "head"]:
 		steps.append(_build_hall.bind(made, str(p.kind), room_seed(p)))
 	return {"room": made, "steps": steps}
 
@@ -615,9 +616,10 @@ func _round_business(from: Vector3, to: Vector3) -> Array:
 
 # --- the lift hall ------------------------------------------------------------------------------
 ##
-## A landing, the shaft head and a Warden's hall have the lift in them: the cage in its shaft
-## off to one side, with (at a landing) the campfire, the workbench and the wheel. It is built
-## with the room, so it is there as the party walks in.
+## A landing and the shaft head have the lift in them: the cage in its shaft off to one side,
+## with (at a landing) the campfire, the workbench and the wheel. It is built with the room, so
+## it is there as the party walks in. A Warden's hall has none of it — no cage was ever sunk
+## that deep — so `hall()` is null there and the only way out of it is down.
 
 func _build_hall(made: Node3D, kind: String, seed_value: int) -> void:
 	var hall: Node3D = LiftHall.new()
@@ -728,6 +730,38 @@ func hoard_take(stone_id: String, bag_at: Vector2) -> void:
 	if stone != null and _laid_out():
 		fx.flash(stone.global_position, Color("ffe0a0"), 6.0, 5.0, 0.5, 1.0)
 		_fly(stone, from_screen(bag_at, 1.5), 0.3, 0.7, "stone_found", Callable())
+
+# --- the wishing well ---------------------------------------------------------------------------
+
+func well() -> Node3D:
+	## The room the wishing well has to itself: the well itself where a plinth would stand, so
+	## the thing being thrown into is the thing on screen.
+	if _headless or not has_room():
+		return null
+	var key: String = "well|%s" % str(place.get("key", ""))
+	if business_key() == key:
+		return business()
+	var made := Node3D.new()
+	## Where a plinth would stand, and as big as the room allows: the frame over it has to
+	## read as a well from the mouth of the tunnel, not as a barrel with sticks in it.
+	made.position = Chamber.ARENA + Vector3(0, 0, -1.2)
+	set_business(key, made, 1.6)
+	var built := WishingWell.new()
+	built.build(room_seed(place) + 53, DeepUi.INFO)
+	built.rest_light(1.1)
+	built.scale = Vector3.ONE * 1.7
+	made.add_child(built)
+	return made
+
+func well_swallow() -> void:
+	var here: Node3D = business()
+	if here != null and here.get_child_count() > 0 and here.get_child(0).has_method("swallow"):
+		here.get_child(0).swallow(fx)
+
+func well_answer(tier: int) -> void:
+	var here: Node3D = business()
+	if here != null and here.get_child_count() > 0 and here.get_child(0).has_method("answer"):
+		here.get_child(0).answer(fx, tier)
 
 # --- an oddity's shrine ----------------------------------------------------------------------------
 

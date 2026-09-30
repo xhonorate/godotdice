@@ -17,6 +17,7 @@ func _init() -> void:
 	_test_forecast_matches()
 	_test_patch_stream()
 	_test_whole_fights()
+	_test_rung_finishes()
 	print("Battle: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -36,7 +37,7 @@ func stone(skill: String, carat: int = 1, cut: int = 4, clarity: int = 3, inclus
 func dice(keys: Array, prefix: String) -> Array:
 	var out: Array = []
 	for index in range(keys.size()):
-		out.append(DeepDice.make(str(keys[index]), DeepContent.die(str(keys[index])), "%s%d" % [prefix, index]))
+		out.append(DeepForge.die_from(keys[index], "%s%d" % [prefix, index]))
 	return out
 
 func hand(unit: Dictionary, numbers: Array) -> void:
@@ -44,8 +45,8 @@ func hand(unit: Dictionary, numbers: Array) -> void:
 	var out: Array = []
 	for index in range(numbers.size()):
 		var die: Dictionary = unit.dice[index % unit.dice.size()]
-		out.append({"die_id": str(die.id), "key": str(die.key), "shape": str(die.shape), "value": int(numbers[index]), "face": 0, "kind": "plain",
-			"top": DeepDice.top(die), "held": false, "rerolls": 0, "locked": false, "explosions": 0, "engraving": "", "phantom": false})
+		out.append({"die_id": str(die.id), "shape": str(die.shape), "material": str(die.get("material", "")), "value": int(numbers[index]), "face": 0, "kind": "plain",
+			"top": DeepDice.top(die), "held": false, "rerolls": 0, "locked": false, "explosions": 0, "phantom": false})
 	unit.hand = out
 
 func player(id: String, rail: Array, character: String = "ARDOR") -> Dictionary:
@@ -209,7 +210,7 @@ func _test_birthstones() -> void:
 	var large_rng: Dictionary = rngs(73100)
 	var large_state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, large_rng.dice, large_rng.creatures)
 	var large_player: Dictionary = DeepBattle.player(large_state, "a")
-	large_player.dice[4] = DeepDice.make("D100", DeepContent.die("D100"), str(large_player.dice[4].id))
+	large_player.dice[4] = DeepDice.make("D100", str(large_player.dice[4].id))
 	DeepBattle.enemy(large_state, "e0").hp = 1000
 	DeepBattle.enemy(large_state, "e0").max_hp = 1000
 	hand(large_player, [1, 2, 3, 4, 100])
@@ -267,24 +268,41 @@ func _test_birthstones() -> void:
 	hand(DeepBattle.player(state8, "a"), [2, 4, 4, 6, 2])
 	var kind: Dictionary = birthstones(run_turn(state8, r8))[0]
 	check(bool(tier(kind, "The Kind Face").active) and not bool(tier(kind, "Full Motley").active), "all even with a repeat is only the Kind Face")
-	## Florin: crowns pay, three raise the fight's stones, five drop one, none is a Bust.
-	var r9: Dictionary = rngs(79)
-	var state9: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "FLORIN")], ["QUARTZ_GOLEM"], {"depth": 1}, r9.dice, r9.creatures)
-	var florin: Dictionary = DeepBattle.player(state9, "a")
-	hand(florin, [7, 7, 7, 1, 2])
-	var roller: Dictionary = birthstones(run_turn(state9, r9))[0]
-	check(bool(tier(roller, "Ante").active) and int(tier(roller, "Ante").effects[0].raw) == 3 and int(tier(roller, "Ante").effects[1].amount) == 3, "three crowns at Resonance 1: 3 damage and 3 pyrite")
-	check(bool(tier(roller, "Hot Streak").active) and int(florin.quality_bonus) == 25 and not bool(tier(roller, "Bust").active), "Hot Streak raises stone quality")
-	var r10: Dictionary = rngs(80)
-	var state10: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "FLORIN")], ["QUARTZ_GOLEM"], {"depth": 1}, r10.dice, r10.creatures)
-	hand(DeepBattle.player(state10, "a"), [7, 7, 7, 7, 7])
-	run_turn(state10, r10)
-	check(int(DeepBattle.player(state10, "a").stone_drops) == 1, "a Royal Flush books a stone for the haul")
-	var r11: Dictionary = rngs(81)
-	var state11: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "FLORIN")], ["QUARTZ_GOLEM"], {"depth": 1}, r11.dice, r11.creatures)
-	hand(DeepBattle.player(state11, "a"), [1, 2, 3, 4, 5])
-	var bust: Dictionary = birthstones(run_turn(state11, r11))[0]
-	check(bool(tier(bust, "Bust").active) and int(tier(bust, "Bust").effects[0].amount) == -1, "no crown: Bust costs Resonance pyrite")
+	## Florin: crowns stake and strike, three match the pot, five push the bank in, none is a
+	## Bust. Every coin staked leaves the bank at once, so what he owns caps what he can do.
+	## A golem stout enough to outlast the whole rail, so every tier is reached and reported.
+	var gambler := func(id: String, bank: int, seed_value: int) -> Dictionary:
+		var streams: Dictionary = rngs(seed_value)
+		var unit: Dictionary = DeepBattle.make_player(id, "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, id))
+		unit.ore = bank
+		var fight: Dictionary = DeepBattle.begin([unit], ["QUARTZ_GOLEM"], {"depth": 1}, streams.dice, streams.creatures)
+		for foe in fight.enemies:
+			foe.hp = 9000
+			foe.max_hp = 9000
+		return {"state": fight, "rng": streams}
+	var nine: Dictionary = gambler.call("a", 100, 79)
+	var florin9: Dictionary = DeepBattle.player(nine.state, "a")
+	check(int(florin9.pot) == 10, "the table opens with ten of a hundred on it")
+	hand(florin9, [7, 7, 7, 1, 2])
+	var roller: Dictionary = birthstones(run_turn(nine.state, nine.rng))[0]
+	check(bool(tier(roller, "Ante").get("active", false)) and int(tier(roller, "Ante").effects[1].amount) == 3, "three crowns at Resonance 1 deal 3")
+	check(bool(tier(roller, "Raise").get("active", false)) and not bool(tier(roller, "All In").get("active", false)) and not bool(tier(roller, "Bust").get("active", false)), "three crowns Raise and no further")
+	## House Money put up 10, Ante staked 3 more, then Raise matched the 13 on the table.
+	## 26 riding and 74 still in the bank: every coin on the table has left it.
+	check(int(florin9.pot) == 26 and DeepRules.pyrite(florin9) == 74, "Raise matches the pot out of the bank (%d on the table, %d left)" % [int(florin9.pot), DeepRules.pyrite(florin9)])
+	var ten: Dictionary = gambler.call("a", 100, 80)
+	var florin10: Dictionary = DeepBattle.player(ten.state, "a")
+	hand(florin10, [7, 7, 7, 7, 7])
+	var flush: Dictionary = birthstones(run_turn(ten.state, ten.rng))[0]
+	check(bool(tier(flush, "All In").get("active", false)) and int(florin10.pot) == 100 and DeepRules.pyrite(florin10) > 0, "All In pushes the whole bank in and is paid what it took off them")
+	var eleven: Dictionary = gambler.call("a", 100, 81)
+	var florin11: Dictionary = DeepBattle.player(eleven.state, "a")
+	var opened: int = int(florin11.pot)
+	hand(florin11, [1, 2, 3, 4, 5])
+	var bust: Dictionary = birthstones(run_turn(eleven.state, eleven.rng))[0]
+	check(bool(tier(bust, "Bust").get("active", false)) and int(florin11.pot) == 0, "no crown: the table takes the pot")
+	## Read the blow off the tier, not off his health: the creature swings in the same turn.
+	check(int(tier(bust, "Bust").effects[0].amount) == opened / 2, "and half of what was on it comes out of him (%d of %d)" % [int(tier(bust, "Bust").effects[0].amount), opened])
 
 func _test_passives() -> void:
 	## Second Wind: Ardor heals for the rerolls he did not spend.
@@ -294,8 +312,11 @@ func _test_passives() -> void:
 	a.hp = 50
 	hand(a, [6, 6, 1, 2, 3])
 	var events: Array = run_turn(state, r)
-	var begin: Dictionary = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_begin")[0]
-	check(int(begin.unused_rerolls) == 2 and int(begin.healed) == 6, "two unused rerolls heal 6 (%s)" % str(begin))
+	var closes: Dictionary = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_end")[0]
+	check(int(closes.unused_rerolls) == 2 and int(closes.healed) == 2 * int(closes.resonance) and int(closes.resonance) > 0,
+		"Second Wind pays two unused rerolls the Resonance the rail built, as it closes (%s)" % str(closes))
+	var opens: Dictionary = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_begin")[0]
+	check(int(opens.healed) == 0, "nothing is healed as the rail opens, when there is no Resonance to heal on")
 	## Sleight: Puck shifts one die to the opposite parity before locking.
 	var r2: Dictionary = rngs(92)
 	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "PUCK")], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
@@ -317,23 +338,22 @@ func _test_passives() -> void:
 	var d3_rng: Dictionary = rngs(95)
 	var d3_state: Dictionary = DeepBattle.begin([player("d", [stone("STRIKE")], "PUCK")], ["QUARTZ_GOLEM"], {"depth": 1}, d3_rng.dice, d3_rng.creatures)
 	var odd_sided: Dictionary = DeepBattle.player(d3_state, "d")
-	odd_sided.dice[0] = DeepDice.make("D3", DeepContent.die("D3"), "d_puck_d3")
+	odd_sided.dice[0] = DeepDice.make("D3", "d_puck_d3")
 	hand(odd_sided, [1, 3, 5, 2, 4])
 	var d3_id: String = str(odd_sided.hand[0].die_id)
 	var d3_shift: Dictionary = DeepBattle.command(d3_state, "d", {"kind": "flip", "die": d3_id}, d3_rng.dice)
 	check(d3_shift.ok and int(odd_sided.hand[0].value) == 2, "a 1 on a d3 shifts to the nearest value of the other parity")
-	## Loaded: Florin's ones are thrown again, once, for free.
+	## House Money: Florin sits down with a tenth of what he owns already on the table, and
+	## it has left his bank before the first die falls.
 	var r3: Dictionary = rngs(93)
-	var state3: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "FLORIN")], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
+	var rich: Dictionary = DeepBattle.make_player("a", "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, "a"))
+	rich.ore = 200
+	var state3: Dictionary = DeepBattle.begin([rich], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
 	var florin: Dictionary = DeepBattle.player(state3, "a")
-	hand(florin, [1, 1, 1, 7, 2])
-	var thrown: Array = DeepBattle._loaded(florin, [], r3.dice)
-	check(thrown.size() == 3, "three ones were thrown again (%d)" % thrown.size())
-	for roll in florin.hand:
-		if thrown.has(str(roll.die_id)):
-			check(bool(roll.get("loaded", false)), "a re-thrown die is marked loaded")
-	check(not bool(florin.hand[3].get("loaded", false)) and int(florin.hand[3].value) == 7, "a crown is left alone")
-	check(DeepBattle._loaded(DeepBattle.player(state, "a"), [], r3.dice).is_empty(), "Ardor's ones stay ones")
+	check(int(florin.pot) == 20 and DeepRules.pyrite(florin) == 180, "House Money stakes a tenth of the bank before the first roll (%d on %d)" % [int(florin.pot), DeepRules.pyrite(florin)])
+	var broke: Dictionary = DeepBattle.make_player("b", "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, "b"))
+	check(int(DeepBattle.begin([broke], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures).players[0].pot) == 0, "a Gambler with nothing stakes nothing")
+	check(int(DeepBattle.player(state, "a").pot) == 0, "nobody else sits down with a stake")
 
 func _test_hand_mutation_and_retriggers() -> void:
 	var r: Dictionary = rngs(31)
@@ -344,15 +364,22 @@ func _test_hand_mutation_and_retriggers() -> void:
 	var fired: Array = fires(events)
 	check(fired.size() == 2, "Glimmer raises the 2 to a 3 and Cleave finds its pair: %s" % str(kinds(events)))
 	check(fired.size() >= 2 and fired[0].effects[0].kind == "upgrade_faces" and int(fired[1].effects[0].amount) == 6, "Cleave reads the new pair of threes")
-	## Echo repeats the previous gem at half strength.
+	## Echo, an opal now, lays a Void copy of the last gem that fired into the rail.
 	var r2: Dictionary = rngs(32)
-	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 3), stone("ECHO")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
-	hand(DeepBattle.player(state2, "a"), [5, 5, 2, 3, 1])
-	var events2: Array = run_turn(state2, r2)
-	var fired2: Array = fires(events2)
-	check(fired2.size() == 3 and fired2[2].skill == "STRIKE" and bool(fired2[2].retrigger) and int(fired2[2].scale) == 50, "Echo re-fires Strike at 50%%: %s" % str(fired2.map(func(e: Dictionary) -> String: return str(e.skill))))
-	check(damage_dealt(fired2[2]) == int(floor(float(damage_dealt(fired2[0])) / 2.0)), "the echo does half the damage")
-	check(int(fired2[2].resonance) == 3, "a retrigger adds Resonance too (%d)" % int(fired2[2].resonance))
+	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 3), stone("ECHO", 1, 4, 3)])], ["THE_REGENT"], {"depth": 3}, r2.dice, r2.creatures)
+	var echoer: Dictionary = DeepBattle.player(state2, "a")
+	hand(echoer, [5, 5, 2, 3, 1])
+	var fired2: Array = fires(run_turn(state2, r2))
+	check(fired2.size() == 3 and str(fired2[2].skill) == "STRIKE" and int(fired2[2].socket) == 2 and not bool(fired2[2].get("retrigger", false)),
+		"Echo lays a copy of Strike in the rail and it fires on its own: %s" % str(fired2.map(func(e: Dictionary) -> String: return str(e.skill))))
+	var copy: Variant = echoer.rail[2]
+	check(copy is Dictionary and str(copy.skill) == "STRIKE" and copy.inclusions.has("VOID") and str(copy.id) != "strike",
+		"the copy is a Void gem of its own: %s" % str(copy))
+	check(int(DeepStone.place_of(echoer, 2).socket) == 1 and int(DeepStone.place_of(echoer, 2).rider) == 0,
+		"riding the Echo's socket, so the screens fold it back under it")
+	hand(echoer, [5, 5, 2, 3, 1])
+	var again2: Array = fires(run_turn(state2, r2))
+	check(again2.size() == 4 and int(again2[3].socket) == 3, "it is still there the turn after, with a second copy ahead of it: %s" % str(again2.map(func(e: Dictionary) -> int: return int(e.socket))))
 	## Chatoyance fires twice and Refract adds a phantom.
 	var r3: Dictionary = rngs(33)
 	var state3: Dictionary = DeepBattle.begin([player("a", [stone("REFRACT"), stone("CRUSH", 1, 4, 2, ["CHATOYANCE"])])], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
@@ -387,48 +414,65 @@ func _test_opals() -> void:
 	check(at_socket(events, 1).size() == 1 and at_socket(events, 2).size() == 1, "and leaves the Blue and the Green where they are")
 	check(bool(at_socket(events, 0)[1].get("retrigger", false)), "the second go is marked a repeat")
 
-	## A Fire Opal grows the whole rail, and the heat outlasts the turn.
-	state = DeepBattle.begin([player("a", [stone("FIRE_OPAL", 1, 4, 3, [], "f1"), stone("STRIKE", 4, 4, 3, [], "s1")])],
+	## Every opal answers to Resonance the rail has already built, so none of them can lead it.
+	state = DeepBattle.begin([player("a", [stone("FIRE_OPAL", 1, 4, 3, [], "f0")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(int(state.players[0].rank_buff.carat) == 2, "a Perfect Fire Opal puts two carats on the rail")
-	check(int(at_socket(events, 1)[0].carat) == 6, "the gem after it fires as a 6-carat stone, not a 4")
+	check(at_socket(events, 0).is_empty(), "an opal first in the rail has no Resonance to answer to, and stays dark")
+
+	## A Fire Opal grows every gem but itself, and the heat outlasts the turn.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s0"), stone("FIRE_OPAL", 1, 4, 3, [], "f1"), stone("STRIKE", 4, 4, 3, [], "s1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(int(state.players[0].rank_buff.carat) == 4 and int(at_socket(events, 1)[0].carat) == 8,
+	check(int(state.players[0].gem_buffs.get("s1", {}).get("carat", 0)) == 2, "a Perfect Fire Opal puts two carats on the gem beside it")
+	check(int(state.players[0].gem_buffs.get("f1", {}).get("carat", 0)) == 0, "and none at all on itself")
+	check(int(at_socket(events, 2)[0].carat) == 6, "the gem after it fires as a 6-carat stone, not a 4")
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(int(state.players[0].gem_buffs.get("s1", {}).get("carat", 0)) == 4 and int(at_socket(events, 2)[0].carat) == 8,
 		"and the heat is still on the rail next turn")
 
-	## A Doublet wears the gem after it, at its own weight.
-	state = DeepBattle.begin([player("a", [stone("DOUBLET", 10, 4, 3, [], "d1"), stone("STRIKE", 1, 4, 3, [], "s1")])],
+	## A Doublet wears the gem before it, at its own weight.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 3, [], "s1"), stone("DOUBLET", 10, 4, 3, [], "d1")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(str(at_socket(events, 0)[0].skill) == "STRIKE" and str(at_socket(events, 0)[0].worn) == "s1",
+	check(str(at_socket(events, 1)[0].skill) == "STRIKE" and str(at_socket(events, 1)[0].worn) == "s1",
 		"a Doublet fires as the gem it wears")
-	check(int(at_socket(events, 0)[0].carat) == 10 and damage_dealt(at_socket(events, 0)[0]) > damage_dealt(at_socket(events, 1)[0]),
+	check(int(at_socket(events, 1)[0].carat) == 10 and damage_dealt(at_socket(events, 1)[0]) > damage_dealt(at_socket(events, 0)[0]),
 		"and wears it at its own weight, so the heavy slice hits harder than the gem itself")
 
-	## A Matrix wakes what stayed dark.
-	state = DeepBattle.begin([player("a", [stone("CRUSH", 4, 4, 3, [], "c1"), stone("MATRIX", 1, 4, 3, [], "x1")])],
+	## A Matrix wakes what stayed dark: the first two of them, and all of them when Flawless.
+	state = DeepBattle.begin([player("a", [stone("GUARD", 4, 4, 3, [], "g1"), stone("CRUSH", 4, 4, 3, [], "c1"),
+		stone("CRUSH", 4, 4, 3, [], "c2"), stone("CRUSH", 4, 4, 3, [], "c3"), stone("MATRIX", 1, 4, 3, [], "x1")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
-	hand(state.players[0], [1, 2, 3, 4, 6])
+	hand(state.players[0], [2, 2, 3, 4, 6])
 	events = run_turn(state, r)
-	var dark: Array = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fizzle" and int(e.get("socket", -1)) == 0)
-	check(dark.size() == 1 and at_socket(events, 0).size() == 1, "a Crush with no triple stays dark, and a Matrix fires it anyway")
-	check(bool(at_socket(events, 0)[0].get("forced", false)), "a woken gem knows the hand never asked for it")
+	var dark: Array = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "gem_fizzle" and int(e.get("socket", -1)) == 1)
+	check(dark.size() == 1 and at_socket(events, 1).size() == 1 and at_socket(events, 2).size() == 1,
+		"a Crush with no triple stays dark, and a Matrix fires the first two of them anyway")
+	check(at_socket(events, 3).is_empty(), "and stops at two")
+	check(bool(at_socket(events, 1)[0].get("forced", false)), "a woken gem knows the hand never asked for it")
+	state = DeepBattle.begin([player("a", [stone("GUARD", 4, 4, 3, [], "g1"), stone("CRUSH", 4, 4, 3, [], "c1"),
+		stone("CRUSH", 4, 4, 3, [], "c2"), stone("CRUSH", 4, 4, 3, [], "c3"), stone("MATRIX", 1, 4, 5, [], "x1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [2, 2, 3, 4, 6])
+	events = run_turn(state, r)
+	check(at_socket(events, 3).size() == 1, "a Flawless Matrix wakes every gem that stayed dark")
 
 	## A Prelude hands the next gem a second go — and in the last socket, the Birthstone.
-	state = DeepBattle.begin([player("a", [stone("PRELUDE", 1, 2, 3, [], "p1"), stone("STRIKE", 4, 4, 3, [], "s1")])],
+	state = DeepBattle.begin([player("a", [stone("GUARD", 4, 4, 3, [], "g1"), stone("PRELUDE", 1, 4, 3, [], "p1"), stone("STRIKE", 4, 4, 3, [], "s1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [2, 2, 3, 4, 6])
+	events = run_turn(state, r)
+	check(at_socket(events, 2).size() == 3, "a Perfect Prelude gives the gem after it two more goes")
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("PRELUDE", 1, 4, 3, [], "p1")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [1, 2, 3, 4, 6])
 	events = run_turn(state, r)
-	check(at_socket(events, 1).size() == 2, "a Prelude gives the gem after it a second go")
-	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("PRELUDE", 1, 2, 3, [], "p1")])],
-		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
-	hand(state.players[0], [1, 2, 3, 4, 6])
-	events = run_turn(state, r)
-	check(birthstones(events, "a").size() == 2, "last in the rail, what goes again is the Birthstone")
+	check(birthstones(events, "a").size() == 3, "last in the rail, what goes again is the Birthstone")
 
 	## No opal ever repeats another one, whatever colors they answer to.
 	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("GUARD", 4, 4, 3, [], "g1"),
@@ -558,6 +602,25 @@ func _test_patch_stream() -> void:
 	check(bytes / steps < 12000, "a patch is a few kilobytes at most (%d bytes per step)" % (bytes / steps))
 	check(DeepPatch.diff({"a": 1}, {"a": 1.0}) == null, "ints and floats that agree do not patch")
 	check(DeepPatch.apply({"x": 1}, DeepPatch.diff({"x": 1}, {"y": [1, 2]})) == {"y": [1, 2]}, "keys are removed and added")
+
+func _test_rung_finishes() -> void:
+	## The gem that kills the last creature does not end the fight on the spot: the rest of
+	## that rail still fires, so a heal or a shield after the killing blow is not lost.
+	var r: Dictionary = rngs(77)
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 6), stone("GUARD"), stone("MEND")])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	for foe in state.enemies:
+		foe.hp = 1
+	var unit: Dictionary = state.players[0]
+	unit.hp = 10
+	hand(unit, [3, 3, 1, 2, 5])
+	var events: Array = run_turn(state, r)
+	var fired: Array = fires(events, "a").map(func(e: Dictionary) -> int: return int(e.socket))
+	check(fired.has(0) and fired.has(2), "the gems after the killing blow still fire: %s" % str(fired))
+	check(int(unit.hp) > 10, "and the Mend after it heals: %d" % int(unit.hp))
+	check(str(state.outcome) == "victory" and DeepBattle.done(state), "and the fight is won once the rail is done")
+	check(not kinds(events).has("enemy_begin"), "and no creature takes a turn after it")
+	var over: Array = events.filter(func(e: Dictionary) -> bool: return e.has("battle_over") or str(e.kind) == "battle_over")
+	check(not over.is_empty() and str(over[0].kind) in ["rail_end", "battle_over"], "the rail's end is what closes the fight: %s" % str(kinds(events)))
 
 func _test_whole_fights() -> void:
 	## A bot that never rerolls plays fights at three depths. Every fight ends, the same seed

@@ -2,6 +2,7 @@
 
 import * as C from '../sim/content.js';
 import * as Dice from '../sim/dice.js';
+import * as Forge from '../sim/forge.js';
 import { h, card, stat, table, fmt, fmtPct, segmented, field, toolbar, note, kv, chip, select } from '../ui.js';
 import { columns, histogram, lines, heat } from '../charts.js';
 import { dieImage } from '../gemart.js';
@@ -25,14 +26,14 @@ export default {
 function bowlPage(root, ctx) {
 	root.append(toolbar(...bowlControls(ctx, { showRerolls: false })));
 	const bowl = ctx.settings.bowl;
-	const dice = bowl.map((k, i) => Dice.make(k, C.die(k), `d${i}`));
+	const dice = bowl.map((k, i) => Dice.dieFrom(k, `d${i}`));
 	const summary = bowlSummary(bowl);
 	const totals = Dice.totalDistribution(dice);
 	const totalMean = [...totals].reduce((s, [k, p]) => s + k * p, 0);
 	root.append(h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(6, minmax(0,1fr))' } },
 		stat('Mean total', fmt(totalMean, 2), 'no rerolls', { class: 'accent' }), stat('Most it can roll', String(summary.maxTotal), 'what % triggers measure against'),
-		stat('Tops', dice.map((d) => Dice.top(d)).join(' · '), 'per die'), stat('Faces', dice.map((d) => d.faces.length).join(' · ')), stat('Special faces', String(dice.reduce((s, d) => s + d.faces.filter((f) => f.kind !== 'plain').length, 0)), 'wild, gem, exploding, locked, mirror, blank'),
-		stat('Engravings', dice.filter((d) => d.engraving).length ? dice.filter((d) => d.engraving).map((d) => d.engraving).join(', ') : 'none')));
+		stat('Tops', dice.map((d) => Dice.top(d)).join(' · '), 'per die'), stat('Faces', dice.map((d) => d.faces.length).join(' · ')), stat('Etched faces', String(dice.reduce((s, d) => s + Dice.etchings(d).length, 0)), Dice.BOON_FACES.concat(Dice.BANE_FACES).join(', ')),
+		stat('Materials', dice.filter((d) => d.material).length ? dice.filter((d) => d.material).map((d) => Dice.materialName(d.material)).join(', ') : 'none')));
 	const grid = h('div', { class: 'grid grid-2' });
 	root.append(grid);
 	grid.append(card('Total of the hand', h('div', { class: 'col' }, histogram({ bins: [...totals], width: 480, height: 190, color: '#e2b23a', mean: totalMean, xLabel: 'total', xFormat: (v) => String(v) }),
@@ -67,27 +68,33 @@ function dicePage(root, route, ctx) {
 	const gallery = h('div', { class: 'gem-grid', style: { gridTemplateColumns: 'repeat(4, 1fr)' } }, keys.map((k) => { const d = C.die(k); return h('button', { type: 'button', class: `gem-tile${k === active ? ' is-active' : ''}`, onClick: () => ctx.navigate('dice', k) }, dieImage(k, 56), h('span', { class: 'tile-name' }, d.name || k), h('span', { class: 'tile-sub' }, `${d.shape} · ${C.title(d.rarity)}`)); }));
 	grid.append(h('div', { class: 'card' }, h('div', { class: 'card-body scroll-y', style: { maxHeight: 'calc(100vh - 180px)' } }, gallery)));
 	const def = C.die(active);
-	const die = Dice.make(active, def, 'x');
+	const die = Dice.make(active, 'x');
 	const dist = Dice.faceDistribution(die);
 	const single = [...dist].filter(([k]) => k !== 'mirror').sort((a, b) => a[0] - b[0]);
 	const mean = single.reduce((s, [k, p]) => s + k * p, 0);
-	const copies = Array.from({ length: state.copies }, (_, i) => Dice.make(active, def, `c${i}`));
+	const copies = Array.from({ length: state.copies }, (_, i) => Dice.make(active, `c${i}`));
 	const totals = Dice.totalDistribution(copies);
 	const totalMean = [...totals].reduce((s, [k, p]) => s + k * p, 0);
 	const tierIndex = Dice.TIERS.indexOf(def.shape);
 	const detail = h('div', { class: 'col' });
 	detail.append(h('div', { class: 'card' }, h('div', { class: 'card-body' }, h('div', { class: 'detail-head' }, h('span', { class: 'pic hero' }, dieImage(active, 140)),
-		h('div', { class: 'detail-title' }, h('div', { class: 'row tight' }, rarityChip(def.rarity), chip(`${def.shape} solid`), def.price ? chip(`${def.price} pyrite`) : null, def.engraving ? chip(`engraved ${def.engraving}`) : null, def.top ? chip(`judged against a top of ${def.top}`) : null),
+		h('div', { class: 'detail-title' }, h('div', { class: 'row tight' }, rarityChip(def.rarity), chip(`${def.shape} solid`), def.price ? chip(`${def.price} pyrite`) : null, def.top ? chip(`judged against a top of ${def.top}`) : null),
 			h('h2', {}, def.name || active), def.text ? h('p', { class: 'lede' }, def.text) : null, h('div', { class: 'row' }, faceRow(def, die)),
 			h('p', { class: 'small muted' }, `Mean ${fmt(mean, 2)} · top ${Dice.top(die)} · ${die.faces.length} faces${die.faces.some((f) => f.kind !== 'plain') ? ` · special: ${[...new Set(die.faces.filter((f) => f.kind !== 'plain').map((f) => f.kind))].join(', ')}` : ''}`))))));
 	detail.append(h('div', { class: 'grid grid-2' },
 		card('One die', h('div', { class: 'col' }, columns({ data: single.map(([k, p]) => ({ label: String(k), value: p * 100, key: k, note: 'chance' })), width: 420, height: 160, format: (v) => `${fmt(v, 1)}%`, color: '#e9e1d2', labelEvery: Math.max(1, Math.ceil(single.length / 14)) }),
-			dist.has('mirror') ? note(`A mirror face (${fmtPct(dist.get('mirror'), 1)}) copies the highest other die in the hand and is left out above.`, 'plain') : null,
 			die.faces.some((f) => f.kind === 'exploding') ? note('An exploding face rolls again and adds the result, up to three extra times; the long tail above is those.', 'plain') : null), { meta: 'exact' }),
 		card(`${state.copies} of them · total`, h('div', { class: 'col' }, h('div', { class: 'row' }, field('Copies', segmented([[1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], state.copies, (v) => { state.copies = Number(v); ctx.rerender(); }))),
 			histogram({ bins: [...totals], width: 420, height: 150, color: '#e2b23a', mean: totalMean, xLabel: 'total', xFormat: (v) => String(v) })), { meta: 'exact' })));
 	detail.append(card('Where it sits on the tier ladder', h('div', { class: 'col' }, h('div', { class: 'shaft', style: { gridTemplateColumns: `repeat(${Dice.TIERS.length}, 1fr)` } }, Dice.TIERS.map((t, i) => h('div', { class: `shaft-cell${i === tierIndex ? ' landing' : ''}` }, h('i', { style: { background: i === tierIndex ? 'var(--accent)' : heat(i / Dice.TIERS.length * 0.6) } }), h('span', {}, t)))),
-		h('p', { class: 'small text-2' }, tierIndex >= 0 ? `A smithy hammers it to ${Dice.TIERS[tierIndex + 1] || 'nothing bigger'} or files it to ${Dice.TIERS[tierIndex - 1] || 'nothing smaller'}; resizing replaces its faces with plain numbers and keeps its engraving. Dread lowers an enemy's die a tier per stack.` : 'Not on the shared ladder.'),
-		h('div', { class: 'section-title' }, 'Engravings'), h('div', { class: 'row tight' }, C.keys('engravings').map((k) => chip(`${C.engraving(k).name}: ${C.engraving(k).text}`, { color: RARITY_COLORS[C.engraving(k).rarity] }))))));
+		h('p', { class: 'small text-2' }, tierIndex >= 0 ? `A smithy hammers it to ${Dice.TIERS[tierIndex + 1] || 'nothing bigger'} or files it to ${Dice.TIERS[tierIndex - 1] || 'nothing smaller'}; its pattern is cut again across the new faces and its etchings and material stay. Dread lowers an enemy's die a tier per stack.` : 'Not on the shared ladder.'),
+		h('div', { class: 'section-title' }, 'Patterns it can take'), h('div', { class: 'row tight' }, C.keys('patterns').filter((k) => Dice.patternAllows(String(C.pattern(k).key), def.shape)).map((k) => chip(`${C.pattern(k).name}: ${C.pattern(k).text}`, { color: RARITY_COLORS[C.pattern(k).rarity] }))),
+		h('div', { class: 'section-title' }, 'Etchings'), h('div', { class: 'row tight' }, C.keys('etchings').map((k) => chip(`${C.etching(k).name}: ${C.etching(k).text}`, { color: RARITY_COLORS[C.etching(k).rarity] }))),
+		h('div', { class: 'section-title' }, 'Materials'), h('div', { class: 'row tight' }, C.keys('materials').map((k) => chip(`${C.material(k).name}: ${C.material(k).text}`, { color: RARITY_COLORS[C.material(k).rarity] }))),
+		h('div', { class: 'section-title' }, 'What it would cost at a stall'), h('div', { class: 'row tight' },
+			chip(`plain: ${Forge.diePrice(die)} pyrite`),
+			...C.keys('patterns').filter((k) => Dice.patternAllows(String(C.pattern(k).key), def.shape)).slice(0, 3).map((k) => chip(`${C.pattern(k).name}: ${Forge.diePrice(Dice.make(def.shape, 'p', { pattern: String(C.pattern(k).key) }))}`)),
+			chip(`a material: ${Forge.diePrice(Dice.make(def.shape, 'm', { material: 'ruby' }))}`),
+			chip(`shiny: ${Forge.diePrice(Dice.make(def.shape, 's', { etches: [{ face: 0, kind: 'shiny' }] }))}`)))));
 	grid.append(detail);
 }

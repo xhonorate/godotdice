@@ -245,14 +245,14 @@ Patterns the game reads, all with pictographs: pair, two pair, triple, full hous
 
 ### 4.2 Dice as loot
 
-Dice are the second build axis and deserve the same variance as stones. Every die is an item with faces, a shape, and up to one **engraving**:
+Dice are the second build axis and deserve the same variance as stones. Every die is a shape, at most one pattern, any number of etched faces and at most one material. [docs/DICE.md](DICE.md) is the authority; this section is the shape of the idea:
 
 - **Shapes**: d2, d3, d4, d6, d8, d10, d12, d16, d20, d24, d30, d40, d50, d60, d100. Unusual sizes are reached through upgrades and downgrades, keeping starting bowls unchanged. Shape decides what patterns are easy: d4s make sets, d20s make high totals, a mixed bowl makes straights.
-- **Face sets**: weighted, paired, odd, even, split, "sevens", blanks.
-- **Special faces**: a **wild** face that counts as any value, a **gem** face that fires every gem regardless of pattern (once per turn), an **exploding** face that rolls again and adds, a **locked** face that cannot be rerolled once shown, a **mirror** face that copies its neighbour.
-- **Engravings** (one per die, rare): "always held", "rerolls are free on this die", "counts as two dice for pair triggers", "+1 to every face".
+- **Patterns** (one per die): even, odd, split, Gambler's, paired, stretched, shallow. A pattern only moves numbers, and any die big enough can take one.
+- **Etchings** (one per face, any number per die): **wild** counts as any value, **exploding** rolls again and adds, **shiny** rings a Resonance more for every gem it lights, **golden** pays pyrite, **tally** climbs by one for good each time it is landed on, **sticky** carries into the next turn, **twin** counts as two dice in a set, **doubled** is worth twice its number. **Locked** and **blank** are what an enemy leaves behind.
+- **Materials** (one per die, rare): the six gem colours are half again as strong on a gem of their own colour, Opal on any of them, Glass on any of them at one throw in ten breaking it; Crystal rings a Resonance every throw, Iron never shows less than a quarter of its top, Fool's Gold pays pyrite, Granite cannot be marked by anything down here, Blood costs health to throw again and grows every time something dies. A material is the only thing that colours a die.
 
-**Dice are never bought or swapped in the mine, only worked. [Decided September 22, 2026]** A player goes down with five dice and comes up with the same five. A **Smithy** makes one a size bigger or smaller (d2, d3, d4, d6, d8, d10, d12, d16, d20, d24, d30, d40, d50, d60, d100; its faces become plain numbers and its engraving stays), a **Carver** raises one face by one (never past the die's highest face) or recuts one face to show another face's number (the number only, never what makes a face special), and the Grinder oddity still shaves a face or engraves (§8). Merchants sell stones only; veins, elites and stakes never hand out a die. Dice changes last the run, like a stake; the home bowl grows as characters are unlocked.
+**Dice are bought at merchants and worked in three rooms. [Decided September 29, 2026, reversing the decision of September 22]** A die is a shape, at most one pattern, any number of etched faces and at most one material: see [docs/DICE.md](DICE.md), which is the authority on all of it. A merchant keeps one die for each player, in a size that player already carries, and it is swapped into the bowl for one of the same number of faces rather than added to it, so five dice go down and five come up. A **Smithy** makes a die a size bigger or smaller and stamps the pattern the anvil is set for; a **Carver** raises a face, recuts a face, and cuts the etching the needles are set for; a **Vat** changes what a die is made of, or melts it back to plain numbers. Elites and wardens can mar, grind, lock, break or downgrade a die, and a warden can destroy a gem; a broken die or gem is back at the start of the next turn as the one its hero came down with. Dice changes last the run, like a stake; the home bowl grows as characters are unlocked.
 
 ## 5. Characters **[Decided September 21, 2026; replaces settings]**
 
@@ -381,7 +381,7 @@ Events should be variance engines, and every one of them should be about the thi
 | Acid Bath             | Remove one inclusion from a stone, or reveal every hidden inclusion on all your raw stones.                                         |
 | The Crucible          | Fuse two stones: keep the skill of one, sum the Carats (cap 20), each inclusion of both survives 50%.                               |
 | Geode                 | Crack it: 3 small stones, or 1 big one, or dust. Shown odds.                                                                        |
-| The Grinder           | Shave a die: remove one face and rejoin it as its neighbour (a d6 becomes 1-2-3-4-6-6). Or add an engraving 40%, break the die 10%. |
+| The Grinder           | Shave a die: remove one face and rejoin it as its neighbour (a d6 becomes 1-2-3-4-6-6). Or cut an etching 60%, break the die's best face 10%. |
 | The Old Prospector    | Trade a raw stone for a raw stone one Carat bigger, sight unseen.                                                                   |
 | Shrine of the Pattern | Pick a pattern. For the rest of the run, every gem that fires on it gains +1 Carat.                                                 |
 | The Idol              | Take a Carat 16+ stone with a guaranteed Fracture and a guaranteed curse.                                                           |
@@ -494,7 +494,7 @@ Party interactions the rules support: voting on tunnels and the lift, giving sto
 | ----------- | ------------------------------------------------------- | --------------- |
 | Skills      | 36 (6 per color)                                        | 60+             |
 | Inclusions  | 30                                                      | 60+             |
-| Dice        | 6 shapes × 5 face sets + 6 special faces + 8 engravings | more engravings |
+| Dice        | 15 shapes × 7 patterns × 10 etchings × 13 materials     | more of each    |
 | Settings    | 5                                                       | 10              |
 | Mines       | 2 (Quarry, Grotto), each with 3 Wardens                 | 5               |
 | Creatures   | 8 per mine                                              | more            |

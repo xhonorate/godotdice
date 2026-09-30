@@ -319,13 +319,13 @@ const SKILL_EMBLEMS := {
 	"MEND": "cross", "GRAFT": "knot", "BLOOM": "heart", "RENEWAL": "clean_drop", "LIFELINE": "pulse", "THRIVE": "flask", "SAP": "wilt",
 	"HEX": "bolt", "VENOM": "skull", "MIASMA": "cloud", "CURSE": "eye", "SHATTER": "split_shield", "BIND": "broken_chain", "DREAD": "thorn",
 	"MIST": "cloud", "ETCH": "crosshair",
-	"TITHE": "coin", "JACKPOT": "coins", "LUCKY_SEVEN": "seven", "WAGER": "coin_fall", "WINDFALL": "sun", "DOUBLE_DOWN": "copy", "PROSPECT": "crosshair",
-	"GLIMMER": "spark", "REFRACT": "prism", "POLISH": "rose", "MIRROR": "eye", "CASCADE": "drain", "FACET": "rose", "ECHO": "copy", "PRISM": "prism",
+	"TITHE": "coin", "JACKPOT": "coins", "LUCKY_SEVEN": "seven", "WAGER": "coin_fall", "DOUBLE_DOWN": "copy", "PROSPECT": "crosshair",
+	"GLIMMER": "spark", "REFRACT": "refract", "POLISH": "rose", "MIRROR": "eye", "CASCADE": "drain", "FACET": "rose", "PRISM": "prism",
 	## The opals. All six Seams wear the same check of color patches, because what tells
 	## them apart is the color washed through the stone under it, not the mark cut into it.
 	"SEAM_RED": "lattice", "SEAM_BLUE": "lattice", "SEAM_GREEN": "lattice",
 	"SEAM_VIOLET": "lattice", "SEAM_GOLD": "lattice", "SEAM_WHITE": "lattice",
-	"FIRE_OPAL": "flame", "DOUBLET": "copy", "MATRIX": "geode", "PRELUDE": "reroll"}
+	"FIRE_OPAL": "flame", "DOUBLET": "copy", "ECHO": "copy", "MATRIX": "geode", "PRELUDE": "reroll"}
 
 ## The creatures' abilities wear the same marks as stones.
 const MOVE_EMBLEMS := {
@@ -450,6 +450,16 @@ static func _emblem_shapes(glyph: String) -> Array:
 				rays.append({"op": "add", "poly": _bar(Vector2(0.50, height),
 					Vector2(0.99, height - 0.16), 0.085)})
 			return rays
+		"refract":
+			# A ray bending where it crosses a face: steep going in, shallow coming out.
+			# The face is drawn either side of the crossing and stops short of it, so the
+			# two never merge into one star. Refraction itself, and nothing like the
+			# triangle Prism wears.
+			return [ {"op": "add", "poly": _bar(Vector2(0.03, 0.52), Vector2(0.28, 0.52), 0.075)},
+				{"op": "add", "poly": _bar(Vector2(0.72, 0.52), Vector2(0.97, 0.52), 0.075)},
+				{"op": "add", "poly": _bar(Vector2(0.34, 0.03), Vector2(0.50, 0.52), 0.165)},
+				{"op": "add", "poly": _bar(Vector2(0.50, 0.52), Vector2(0.95, 0.90), 0.165)},
+				{"op": "add", "circle": [0.50, 0.52, 0.0825]}]
 		"eye":
 			# Two arcs meeting at the corners, with a ring and a pupil cut through them.
 			var lens := PackedVector2Array()

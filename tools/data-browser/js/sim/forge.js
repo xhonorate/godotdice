@@ -2,11 +2,12 @@
 // exact distributions behind its rolls so the browser can chart odds without sampling.
 
 import * as C from './content.js';
+import * as Dice from './dice.js';
 import * as Stone from './stone.js';
 
 export const DEFAULT_CLASS_WEIGHTS = { PINPOINT: 10, LENS: 6, FEATHER: 4, FRACTURE: 3, STAR: 0.3 };
 export const JACKPOT_PERCENT = 2;
-export const LUCK_PER_DEPTH = 0.5;
+export const LUCK_PER_DEPTH = 0.1;
 export const LUCK_DEPTH_CAP = 10;
 
 export const mineLuck = (mine) => Number(mine.luck ?? mine.quality ?? 0);
@@ -41,7 +42,7 @@ export function caratDistribution(q) {
 		if (k === highK) p = 1 - normalCdf((k - 0.5 - mean) / deviation);
 		if (p <= 0) continue;
 		out[clamp(k)] += p * (1 - JACKPOT_PERCENT / 100);
-		for (let bonus = 3; bonus <= 8; bonus++) out[clamp(k + bonus)] += (p * (JACKPOT_PERCENT / 100)) / 6;
+		for (let bonus = 1; bonus <= 3; bonus++) out[clamp(k + bonus)] += (p * (JACKPOT_PERCENT / 100)) / 6;
 	}
 	const sum = out.reduce((a, b) => a + b, 0);
 	return out.map((p) => p / sum);
@@ -165,13 +166,108 @@ export function rollStone(rng, mine, depth, bonus = 0, pool = []) {
 	return Stone.make(skill, carat, cut, clarity, inclusions);
 }
 
-export const engravingChance = (mine, depth) => 6 + luck(mine, depth) * 0.5;
+// A die is a shape and one or two variations, never none and never all three.
+export const ONE_AXIS_PERCENT = 60;
+export const AXIS_WEIGHTS = { pattern: 45, etching: 35, material: 20 };
+export const PATTERN_MULT = 1.25;
+export const ETCH_MULT = 1.5;
+export const BANE_MULT = 0.6;
+export const MATERIAL_MULT = 2;
+export const PATTERN_PRICE = { stretched: 1.4 };
+export const MATERIAL_PRICE = { glass: 1.75, opal: 3 };
+// How much likelier a second variation gets the deeper the die is found.
+export const secondAxisChance = (mine, depth) => luck(mine, depth);
 
-export function dieTable(mine) {
-	const pool = (mine.dice || []).length ? mine.dice.map(String) : C.keys('dice');
+export function dieTable(mine, shapes = []) {
+	const narrowed = shapes.filter((k) => Dice.SHAPES[String(k)]);
+	const pool = narrowed.length ? narrowed.map(String) : shapePool(mine);
 	const table = {};
-	for (const key of pool) { const def = C.die(key); if (Object.keys(def).length) table[key] = C.rarityWeight(def.rarity || 'COMMON'); }
+	for (const key of pool) { const def = C.die(key); table[key] = Object.keys(def).length ? C.rarityWeight(def.rarity || 'COMMON') : 1; }
 	return table;
+}
+
+export function shapePool(mine) {
+	const pool = (mine.dice || []).map(String).filter((k) => Dice.SHAPES[k]);
+	return pool.length ? pool : Dice.TIERS.slice();
+}
+
+function rarityTable(section, allow = null) {
+	const table = {};
+	for (const key of C.keys(section)) {
+		const def = C.entry(section, key);
+		const written = String(def.key || '');
+		if (!written || (allow && !allow(written, def))) continue;
+		table[written] = C.rarityWeight(def.rarity || 'COMMON');
+	}
+	return table;
+}
+
+export const patternTable = (shape) => rarityTable('patterns', (key) => Dice.patternAllows(key, shape));
+export const etchingTable = (bane = false) => rarityTable('etchings', (_key, def) => Boolean(def.bane) === bane);
+export const materialTable = () => rarityTable('materials');
+
+export function rollPattern(rng, shape) {
+	const table = patternTable(shape);
+	return Object.keys(table).length ? rng.weightedKey(table) : '';
+}
+
+export function rollEtching(rng, bane = false) {
+	const table = etchingTable(bane);
+	return Object.keys(table).length ? rng.weightedKey(table) : '';
+}
+
+export function rollMaterial(rng) {
+	const table = materialTable();
+	return Object.keys(table).length ? rng.weightedKey(table) : '';
+}
+
+export function rollAxes(rng) {
+	const wanted = rng.randf() * 100 < ONE_AXIS_PERCENT ? 1 : 2;
+	const table = { ...AXIS_WEIGHTS };
+	const picked = [];
+	while (picked.length < wanted && Object.keys(table).length) {
+		const axis = rng.weightedKey(table);
+		picked.push(axis);
+		delete table[axis];
+	}
+	return picked;
+}
+
+export function vary(die, axes, rng) {
+	for (const axis of axes) {
+		if (axis === 'pattern') {
+			const pattern = rollPattern(rng, die.shape);
+			if (pattern) {
+				const made = Dice.make(die.shape, die.id, { pattern, rng, material: die.material || '', etches: Dice.etchings(die) });
+				for (const key of Object.keys(die)) delete die[key];
+				Object.assign(die, made);
+			}
+		} else if (axis === 'etching') {
+			const kind = rollEtching(rng);
+			if (kind && (die.faces || []).length) Dice.etch(die, rng.randiRange(0, die.faces.length - 1), kind);
+		} else if (axis === 'material') {
+			die.material = rollMaterial(rng);
+		}
+	}
+	return die;
+}
+
+export function rollDie(rng, mine, depth, id = 'die', shapes = []) {
+	const shape = rng.weightedKey(dieTable(mine, shapes));
+	const die = Dice.make(shape, id, { rng });
+	const axes = rollAxes(rng);
+	if (axes.length === 1 && rng.randf() * 100 < secondAxisChance(mine, depth)) {
+		for (const extra of rollAxes(rng)) if (!axes.includes(extra)) { axes.push(extra); break; }
+	}
+	return vary(die, axes, rng);
+}
+
+export function diePrice(die) {
+	let base = Number(C.die(String(die.shape || 'D6')).price ?? 10);
+	if (die.pattern) base *= Number(PATTERN_PRICE[die.pattern] ?? PATTERN_MULT);
+	for (const entry of Dice.etchings(die)) base *= Dice.BANE_FACES.includes(entry.kind) ? BANE_MULT : ETCH_MULT;
+	if (die.material) base *= Number(MATERIAL_PRICE[die.material] ?? MATERIAL_MULT);
+	return Math.max(1, Math.round(base));
 }
 
 export function bandFor(mine, depth) {

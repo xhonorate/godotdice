@@ -77,8 +77,11 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 	_grade_badge(title, grade)
 	var marks := DeepUi.hbox(text, 12)
 	DeepUi.stat(marks, "carat", "%d ct" % int(stone.get("carat", 1)), DeepUi.PAPER, 13, GemIcons.hint("carat"))
+	staked_mark(marks, stone, "carat")
 	DeepUi.stat(marks, "cut", DeepContent.cut_name(int(stone.get("cut", 0))), DeepUi.PAPER, 13, GemIcons.hint("cut"))
+	staked_mark(marks, stone, "cut")
 	DeepUi.stat(marks, "clarity", DeepContent.clarity_name(int(stone.get("clarity", 3))), DeepUi.PAPER, 13, GemIcons.hint("clarity"))
+	staked_mark(marks, stone, "clarity")
 	_color_chip(marks, color_key)
 	var needs := DeepUi.hbox(text, 10)
 	var effective: Dictionary = DeepStone.effective(stone, opts.get("context", {}))
@@ -151,6 +154,18 @@ static func carat_lines(parent: Node, stone: Dictionary, context: Dictionary = {
 	for line in DeepStone.proc_lines(stone, context):
 		DeepUi.stat(parent, "carat", str(line.text), DeepUi.GOOD if bool(line.sure) else DeepUi.ACCENT, size,
 			"Carat. An effect that cannot be a fraction happens more often instead of harder.")
+
+static func staked_mark(parent: Node, stone: Dictionary, field: String, size: int = 12) -> void:
+	## What the Grubstake did to this stone, marked beside the figure it changed the way a
+	## buff is marked in a fight. The rail is a copy of the vault for the length of a run, so
+	## every one of these is borrowed: the stone that goes home is the stone that came down.
+	var moved: int = int(stone.get("staked", {}).get(field, 0))
+	if moved == 0:
+		return
+	var tone: Color = DeepUi.GOOD if moved > 0 else DeepUi.BAD
+	var words: String = {"carat": "carat", "cut": "Cut step", "clarity": "Clarity step"}.get(field, field)
+	DeepUi.pill(parent, "rise" if moved > 0 else "fall", "%+d" % moved, tone, size,
+		"Staked at the shaft head: %+d %s for this run only. It does not come home." % [moved, words])
 
 static func size_stat(parent: Node, stone: Dictionary, size: int = 13, color: Color = DeepUi.PAPER) -> HBoxContainer:
 	## A raw stone's weight as the eye judges it through the rock: a class, not a number.

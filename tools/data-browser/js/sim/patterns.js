@@ -49,14 +49,6 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		result.count = picked.dice.length;
 		return result;
 	}
-	if (a.gem_face && kind !== 'pyrite') {
-		result.active = true;
-		result.gem_face = true;
-		result.dice = allDice(a);
-		result.value = a.best_set.value || a.high;
-		result.count = Math.max(1, a.best_set.count || 1);
-		return result;
-	}
 	switch (kind) {
 		case 'pair': case 'triple': case 'quad': case 'quint':
 			for (const group of a.groups) {

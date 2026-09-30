@@ -39,6 +39,7 @@ static func migrate(profile: Dictionary) -> Dictionary:
 	## An older profile wore settings. It keeps its vault, bowl and records, and its unlocks
 	## carry over by count: the starter plus one character for every setting it had earned.
 	if profile.has("characters") and not profile.has("settings"):
+		_renew_dice(profile)
 		return profile
 	var earned: int = -1
 	for key in profile.get("settings", {}):
@@ -62,7 +63,33 @@ static func migrate(profile: Dictionary) -> Dictionary:
 	profile.erase("settings")
 	profile.erase("current_setting")
 	profile.schema = SCHEMA
+	_renew_dice(profile)
 	return profile
+
+static func _renew_dice(profile: Dictionary) -> void:
+	## Dice from before a die carried its own pattern were written down by a stock "key"
+	## (GAMBLERS_D6, PHIAL) with the faces of that day and no pattern: a Gambler's d6 that
+	## was not Gambler's at all, and a Phial that rolled to the wrong ceiling. Each is made
+	## again as the character it belongs to would bring it now, keeping its id. The same old
+	## saves handed some ids out twice; every die after the first to carry one gets its own.
+	var refs: Dictionary = {}
+	for key in profile.get("characters", {}):
+		var own: Array = profile.characters[key].get("dice", [])
+		var defaults: Array = DeepContent.character(str(key)).get("dice", [])
+		for index in range(mini(own.size(), defaults.size())):
+			refs[str(own[index])] = defaults[index]
+	var seen: Dictionary = {}
+	for index in range(profile.get("bowl", []).size()):
+		var die: Dictionary = profile.bowl[index]
+		if die.has("key"):
+			var made: Dictionary = DeepForge.die_from(refs.get(str(die.get("id", "")), str(die.get("shape", "D6"))), str(die.get("id", "")))
+			if str(made.shape) != str(die.get("shape", "")):
+				made = DeepForge.die_from(str(die.get("shape", "D6")), str(die.get("id", "")))
+			profile.bowl[index] = made
+			die = made
+		if seen.has(str(die.id)):
+			die.id = _id(profile, "die")
+		seen[str(die.id)] = true
 
 static func _id(profile: Dictionary, prefix: String) -> String:
 	profile.next_id = int(profile.get("next_id", 1)) + 1
@@ -73,8 +100,8 @@ static func _fit_default(profile: Dictionary, character_key: String) -> void:
 	var character: Dictionary = DeepContent.character(character_key)
 	var record: Dictionary = profile.characters[character_key]
 	record.dice = []
-	for die_key in character.get("dice", []):
-		var die: Dictionary = DeepDice.make(str(die_key), DeepContent.die(str(die_key)), _id(profile, "die"))
+	for die_ref in character.get("dice", []):
+		var die: Dictionary = DeepForge.die_from(die_ref, _id(profile, "die"))
 		profile.bowl.append(die)
 		record.dice.append(str(die.id))
 	if record.rail.is_empty():
@@ -249,15 +276,17 @@ static func loadout(profile: Dictionary, character_key: String) -> Dictionary:
 		var skill: Variant = record.rail[index] if loadout_socket(index) and index < record.rail.size() else null
 		var stone: Dictionary = owned(profile, str(skill)) if skill is String else {}
 		rail.append(stone.duplicate(true) if not stone.is_empty() and DeepStone.fits(stone, str(sockets[index])) else null)
-	## The dice they were unlocked with, in the bowl; a save from when dice could be swapped
-	## gets a fresh one of the right kind wherever another die took a slot.
+	## The dice they were unlocked with, in the bowl. Every variation a die picks up is cut
+	## down the mine and stays there, so a bowl is matched on the one thing that never
+	## changes at home: the shape of each of the five.
 	var dice: Array = []
 	var own: Array = record.get("dice", [])
 	var defaults: Array = character.get("dice", [])
 	for index in range(mini(defaults.size(), 5)):
+		var wanted: Dictionary = DeepForge.die_from(defaults[index], "fallback%d" % index)
 		var die: Dictionary = bowl_die(profile, str(own[index])) if index < own.size() else {}
-		if die.is_empty() or str(die.get("key", "")) != str(defaults[index]):
-			die = DeepDice.make(str(defaults[index]), DeepContent.die(str(defaults[index])), "fallback%d" % index)
+		if die.is_empty() or str(die.get("shape", "")) != str(wanted.shape):
+			die = wanted
 		dice.append(die.duplicate(true))
 	return {"rail": rail, "dice": dice}
 
@@ -387,7 +416,7 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 			if bool(stone.get("appraised", false)):
 				saw(profile, str(stone.get("skill", "")))
 			continue
-		var home: Dictionary = stone.duplicate(true)
+		var home: Dictionary = DeepStone.unstake(stone.duplicate(true))
 		home.provenance.date = Time.get_date_string_from_system()
 		profile.tray.append(home)
 		brought.append(home)

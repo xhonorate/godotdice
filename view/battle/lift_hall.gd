@@ -1,9 +1,9 @@
 extends Node3D
 ## A landing, and the shaft head: four things to walk up to, spread across the room so that
 ## none of them stands behind another and each is turned to face where the party comes in. A
-## campfire to rest by, a workbench with a lamp and a lens to read a stone at, a grinding
-## wheel to cut one again on, and the lift in its cage, its cable running up into a warm
-## light. The cage is one of the four, not a step after them. The way down is the mouths in
+## campfire to rest by, a workbench with a lamp and a lens to read a stone at, a wishing well
+## to throw something precious down, and the lift in its cage, its cable running up into a
+## warm light. The cage is one of the four, not a step after them. The way down is the mouths in
 ## the far wall, as in any room.
 ##
 ## In room space (it sits at the room's origin). It shows what it is told: which respite is
@@ -11,15 +11,16 @@ extends Node3D
 
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
 const BattleFx = preload("res://view/battle/battle_fx.gd")
+const WishingWell = preload("res://view/battle/wishing_well.gd")
 
 ## The four things a landing offers, set out so that from where the party stands none of them
 ## is behind another: the fire away to the left, the bench deeper and a little right of the
-## lane the party walks, the wheel well right and much nearer, and the cage furthest left and
+## lane the party walks, the well right and much nearer, and the cage furthest left and
 ## deepest of all. Each is a good many degrees off its neighbours across the view.
 const CAGE := Vector3(-7.0, 0.0, -12.0)
 const CAMPFIRE := Vector3(-3.6, 0.0, -2.0)
 const BENCH := Vector3(2.4, 0.0, -5.2)
-const WHEEL := Vector3(4.8, 0.0, -1.6)
+const WELL := Vector3(3.9, 0.0, -3.2)
 const SHAFT_TOP := 9.5
 
 ## Where each thing is, to point at: name -> node.
@@ -28,7 +29,7 @@ var cage: Node3D
 var _fire_light: OmniLight3D
 var _flame: GPUParticles3D
 var _bench_lamp: OmniLight3D
-var _wheel_stone: Node3D
+var _well: Node3D
 var _sky: SpotLight3D
 var _glows: Dictionary = {}
 ## The shaft of light over each thing that can be used, so it is never just more rock.
@@ -40,7 +41,6 @@ var _taken: String = ""
 var _offered: Array = []
 var _respites: bool = true
 var _clock: float = 0.0
-var _spin: float = 0.0
 
 func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, ground: Callable) -> void:
 	_respites = respites
@@ -50,7 +50,7 @@ func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, g
 	if respites:
 		_build_campfire(rng, biome, ground)
 		_build_bench(rng, ground)
-		_build_wheel(rng, ground)
+		_build_well(rng, ground)
 
 func _material(color: Color, roughness: float, metal: float = 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -300,45 +300,24 @@ func _build_bench(rng: RandomNumberGenerator, ground: Callable) -> void:
 	_label(bench, "appraise", "Appraise", Vector3(0, 2.25, 0), DeepUi.INFO)
 	parts["appraise"] = bench
 
-func _build_wheel(rng: RandomNumberGenerator, ground: Callable) -> void:
+func _build_well(rng: RandomNumberGenerator, ground: Callable) -> void:
+	## The wishing well, the same one the shaft holds a room for: a brick ring with black
+	## water in it and a bucket nobody has wound up in a while. It replaces the grinding
+	## wheel that used to stand here, because a cut is not something a landing should sell.
 	var frame := Node3D.new()
-	frame.position = WHEEL + Vector3(0, float(ground.call(WHEEL.x, WHEEL.z)) if ground.is_valid() else 0.0, 0)
-	## The same: turned until the face of the grinding stone, not its edge, is toward the party.
-	frame.rotation.y = 0.96
+	frame.position = WELL + Vector3(0, float(ground.call(WELL.x, WELL.z)) if ground.is_valid() else 0.0, 0)
+	## Turned only a little: the frame over the well wants to be across the view, or the two
+	## posts stand one behind the other and it reads as a stick in a ring.
+	frame.rotation.y = 0.18
 	add_child(frame)
-	var wood := _material(Color("8a5c34"), 0.9)
-	wood.vertex_color_use_as_albedo = true
-	for side in [-1.0, 1.0]:
-		var leg := _slab(frame, Vector3(0.12, 1.3, 0.12), Color("7a4c2c"), Vector3(side * 0.28, 0.62, 0.22), wood, rng)
-		leg.rotation.x = 0.3
-		var back := _slab(frame, Vector3(0.12, 1.3, 0.12), Color("7a4c2c"), Vector3(side * 0.28, 0.62, -0.22), wood, rng)
-		back.rotation.x = -0.3
-	_slab(frame, Vector3(0.8, 0.3, 0.6), Color("6a5648"), Vector3(0, 0.15, 0), _material(Color("6a5648"), 0.9), rng)
-	_wheel_stone = Node3D.new()
-	_wheel_stone.position = Vector3(0, 1.12, 0)
-	frame.add_child(_wheel_stone)
-	var disc := MeshInstance3D.new()
-	var stone := CylinderMesh.new()
-	stone.top_radius = 0.55
-	stone.bottom_radius = 0.55
-	stone.height = 0.2
-	stone.radial_segments = 14
-	disc.mesh = stone
-	disc.material_override = _material(Color("c4bdae"), 0.7)
-	disc.rotation = Vector3(0, 0, PI * 0.5)
-	_wheel_stone.add_child(disc)
-	var axle := MeshInstance3D.new()
-	var rod := CylinderMesh.new()
-	rod.top_radius = 0.04
-	rod.bottom_radius = 0.04
-	rod.height = 0.8
-	axle.mesh = rod
-	axle.material_override = _material(Color("5a5c62"), 0.4, 0.8)
-	axle.rotation = Vector3(0, 0, PI * 0.5)
-	_wheel_stone.add_child(axle)
-	_glow(frame, "polish", DeepUi.ACCENT, Vector3(0, 1.4, 0.9))
-	_label(frame, "polish", "Cut again", Vector3(0, 2.2, 0), DeepUi.ACCENT)
-	parts["polish"] = frame
+	_well = WishingWell.new()
+	_well.build(int(rng.randi()), DeepUi.INFO)
+	_well.rest_light(0.4)
+	_well.scale = Vector3.ONE * 0.58
+	frame.add_child(_well)
+	_glow(frame, "wish", DeepUi.INFO, Vector3(0, 0.9, 0.7))
+	_label(frame, "wish", "The well", Vector3(0, 2.3, 0), DeepUi.INFO)
+	parts["wish"] = frame
 
 # --- what the room is told -----------------------------------------------------------------------
 
@@ -352,9 +331,15 @@ func set_taken(choice: String) -> void:
 	## The respite taken: that one stays warm; the others go quiet.
 	_taken = choice
 
-func spark_wheel(fx: Node3D) -> void:
-	if fx != null and parts.has("polish"):
-		fx.sparks(parts.polish.global_position + Vector3(0, 1.1, 0.3), Color("ffd08a"), 40, 4.0, 0.6, 0.05)
+func wish_taken(fx: Node3D) -> void:
+	## Something has gone down the well: the water takes it before it says anything.
+	if _well != null and is_instance_valid(_well):
+		_well.swallow(fx)
+
+func wish_answered(fx: Node3D, tier: int) -> void:
+	## And a moment later, how loud the answer was.
+	if _well != null and is_instance_valid(_well):
+		_well.answer(fx, tier)
 
 func _process(delta: float) -> void:
 	_clock += delta
@@ -363,9 +348,8 @@ func _process(delta: float) -> void:
 		_fire_light.light_energy = (2.2 if _taken in ["", "rest"] else 1.4) * (1.0 + 0.18 * flicker) * (1.3 if _hover == "rest" else 1.0)
 	if _bench_lamp != null:
 		_bench_lamp.light_energy = (2.4 if _hover == "appraise" else 1.6) * (1.0 if _taken in ["", "appraise"] else 0.5)
-	if _wheel_stone != null:
-		_spin = move_toward(_spin, 9.0 if _hover == "polish" else (0.6 if _taken in ["", "polish"] else 0.0), delta * 12.0)
-		_wheel_stone.rotation.x += delta * _spin
+	if _well != null and is_instance_valid(_well):
+		_well.rest_light(0.9 if _hover == "wish" else (0.4 if _taken in ["", "wish"] else 0.12))
 	for key in _glows:
 		var light: OmniLight3D = _glows[key]
 		var on: bool = key == _hover

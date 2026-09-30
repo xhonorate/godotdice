@@ -45,16 +45,14 @@ static func color(stone: Dictionary) -> String:
 	return str(skill_of(stone).get("color", "WHITE"))
 
 static func is_opal(stone: Dictionary) -> bool:
-	## An opal: the seventh color, which is no color and all six at once. Only a hoard
-	## offers one, and no socket is cut for one because every socket takes one.
+	## An opal: the seventh color, and none of the six. Only a hoard offers one, and no
+	## socket is cut for one: it goes in an ANY socket unless a Zoning says otherwise.
 	return color(stone) == DeepContent.OPAL
 
 static func colors(stone: Dictionary, socket: String = "") -> Array:
 	## Every color the stone counts as: its skill's, any color Zoning, and the socket's
-	## own color for an Alexandrite. An opal answers to all six, so it fits any socket and
-	## rings in harmony with whatever fired before it.
-	if is_opal(stone):
-		return colorS.duplicate()
+	## own color for an Alexandrite. An opal is only "OPAL" by itself: it answers to none of
+	## the six unless something frozen inside it says so.
 	var out: Array = [color(stone)]
 	for m in modifiers(stone):
 		match str(m.get("kind", "")):
@@ -102,8 +100,27 @@ static func is_locked(stone: Dictionary) -> bool:
 static func is_slotless(stone: Dictionary) -> bool:
 	return has_modifier(modifiers(stone), "slotless")
 
+static func unstake(stone: Dictionary) -> Dictionary:
+	## A stone with the Grubstake's mark on it, put back the way it went down. The rail a run
+	## is played with is a copy of the vault's stones, and a stake may lift a copy's carat,
+	## its Cut or its Clarity for the length of that run; but a stone taken out of its socket
+	## and carried up in the haul is the workshop's own stone again, so everything a stake
+	## lent it comes off at the shaft head. Nothing in the mine may make a kept stone better.
+	if not stone.has("staked"):
+		return stone
+	var was: Dictionary = stone.staked.get("was", {})
+	for field in ["carat", "cut", "clarity"]:
+		if was.has(field):
+			stone[field] = int(was[field])
+	if was.has("inclusions"):
+		stone.inclusions = (was.inclusions as Array).duplicate()
+	stone.erase("staked")
+	return stone
+
 static func is_fragile(stone: Dictionary) -> bool:
-	return has_modifier(modifiers(stone), "fragile")
+	## A stone that cannot leave the mine: one with a Void frozen in it, or one staked out
+	## at the shaft head on the understanding that it was never going to come home.
+	return bool(stone.get("fragile", false)) or has_modifier(modifiers(stone), "fragile")
 
 static func known_fragile(stone: Dictionary) -> bool:
 	return is_fragile(stone) and (bool(stone.get("appraised", false)) or bool(stone.get("inclusions_revealed", false)))
@@ -245,6 +262,27 @@ static func flatten_rail(unit: Dictionary) -> void:
 	unit.sockets = colors
 	unit.places = places
 	unit.erase("riders")
+
+static func ride_rail(unit: Dictionary, at: int, stone: Dictionary) -> void:
+	## Put a stone into a rail already laid flat, riding the socket of whatever it lands
+	## behind. Only a fight does this — an Echo's Void copy — and only on its own rail, so
+	## the sockets themselves never move: the newcomer joins the line of riders on the one
+	## it stands behind, and every line is numbered again so the screens fold it back onto
+	## the right socket.
+	var rail: Array = unit.get("rail", [])
+	if not unit.has("places") or at < 1 or at > rail.size():
+		return
+	var places: Array = unit.places
+	rail.insert(at, stone)
+	unit.sockets.insert(at, DeepContent.SOCKET_ANY)
+	places.insert(at, {"socket": int(places[at - 1].get("socket", 0)), "rider": 0})
+	var lines: Dictionary = {}
+	for place in places:
+		var host: int = int(place.get("socket", 0))
+		if int(place.get("rider", -1)) < 0:
+			continue
+		place.rider = int(lines.get(host, 0))
+		lines[host] = int(place.rider) + 1
 
 static func flat_index(unit: Dictionary, socket: int, rider: int = -1) -> int:
 	## Where a socket's own gem (rider -1), or the rider at `rider` in its line, stands in a
@@ -541,7 +579,7 @@ static func apply_lens(hand: Array, mode: String) -> Array:
 		"held_twice":
 			for roll in out:
 				if DeepDice.held_for_patterns(roll):
-					roll.engraving = "twin"
+					roll.twinned = true
 	return out
 
 static func apply_flawless(defs: Array, flawless: Dictionary) -> Array:
@@ -575,6 +613,20 @@ static func apply_flawless(defs: Array, flawless: Dictionary) -> Array:
 			out.append(extra.duplicate(true))
 	return out
 
+static func rolls_of(hand: Array, ids: Array) -> Array:
+	## The rolls behind a list of die ids, each one only once however often it was named.
+	var out: Array = []
+	var seen: Dictionary = {}
+	for id in ids:
+		if seen.has(str(id)):
+			continue
+		for roll in hand:
+			if str(roll.get("die_id", "")) == str(id):
+				seen[str(id)] = true
+				out.append(roll)
+				break
+	return out
+
 static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dictionary:
 	## What this stone does to this hand. `c` is the rail context: unit, resonance,
 	## previous_fired, previous_amount, amplify, cut_step_bonus, carat_bonus, depth, turn,
@@ -588,7 +640,10 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 	for m in mods:
 		if str(m.get("kind", "")) == "lens":
 			working = apply_lens(working, str(m.get("mode", "")))
-	var a: Dictionary = DeepHand.analyze(working)
+	## The hand is read for this gem in particular: the dice that would do it the most good
+	## come first in everything the trigger picks from.
+	var wearing: Array = colors(stone, str(c.get("socket", "")))
+	var a: Dictionary = DeepHand.analyze(working, wearing)
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
 	var trig: Dictionary = DeepPatterns.evaluate(trigger, eff.cut_step, a, {"resonance": int(c.get("resonance", 0)), "pyrite": DeepRules.pyrite(c.get("unit", {}))})
 	if not trig.active and (has_modifier(mods, "always_fires") or bool(c.get("force_fire", false))):
@@ -608,9 +663,16 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 		"trigger": trig, "cut_step": eff.cut_step, "carat": eff.carat, "magnitude": eff.magnitude, "analysis": a,
 		"effects": [], "fires": 1 if trig.active else 0, "hp_cost": 0, "resonance_gain": 0,
 		"next_cut_step": modifier_sum(mods, "next_cut_step"),
-		"colors": colors(stone, str(c.get("socket", ""))), "skill": str(stone.get("skill", "")), "stone_id": str(stone.get("id", ""))}
+		"colors": wearing, "skill": str(stone.get("skill", "")), "stone_id": str(stone.get("id", "")), "die_boost": 1.0}
 	if not trig.active:
 		return result
+	## What the dice themselves are made of. A material that answers to this gem colour is
+	## half again as strong, and they multiply: two Rubies on a red gem is 2.25x.
+	var fired: Array = rolls_of(working, trig.get("dice", []))
+	var boost: float = DeepDice.strength(fired, wearing)
+	var magnitude: float = eff.magnitude * boost
+	result.die_boost = boost
+	result.magnitude = magnitude
 	var tc: Dictionary = {"a": a, "trig": trig, "unit": c.get("unit", {}), "resonance": int(c.get("resonance", 0)),
 		"previous_amount": int(c.get("previous_amount", 0)), "carat": eff.carat, "cut": eff.cut_step,
 		"clarity": int(eff.clarity), "enemy_poison": int(c.get("enemy_poison", 0)), "depth": int(c.get("depth", 0)), "turn": int(c.get("turn", 0)), "party": int(c.get("party", 1))}
@@ -619,7 +681,7 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 		defs = apply_flawless(defs, skill.flawless)
 	for def in defs:
 		if def is Dictionary:
-			result.effects.append(DeepRules.resolve_effect(def, tc, eff.magnitude))
+			result.effects.append(DeepRules.resolve_effect(def, tc, magnitude))
 	var per_die: int = modifier_sum(mods, "per_die_damage")
 	if per_die > 0:
 		for effect in result.effects:
@@ -629,13 +691,14 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 		if str(m.get("kind", "")) == "rider":
 			for def in m.get("effects", []):
 				if def is Dictionary:
-					var rider: Dictionary = DeepRules.resolve_effect(def, tc, eff.magnitude)
+					var rider: Dictionary = DeepRules.resolve_effect(def, tc, magnitude)
 					rider.inclusion = str(m.inclusion)
 					result.effects.append(rider)
 	result.hp_cost = modifier_sum(mods, "hp_cost")
 	## Clarity is what a stone gives back to the rail: a Pristine stone rings twice as loud
 	## as it fires, a Flawless one three times.
-	result.resonance_gain = int(round(float(1 + modifier_sum(mods, "resonance_bonus")) * float(eff.resonance_mult)))
+	## A Shiny face rings once more for every gem it helped light.
+	result.resonance_gain = int(round(float(1 + modifier_sum(mods, "resonance_bonus") + DeepDice.shiny_count(fired)) * float(eff.resonance_mult)))
 	if not bool(c.get("retrigger", false)):
 		if has_modifier(mods, "fires_twice"):
 			result.fires += 1

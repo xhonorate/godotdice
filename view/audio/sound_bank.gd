@@ -34,7 +34,7 @@ const NAMES: PackedStringArray = [
 	"pick_strike", "rock_break", "stone_found", "tunnel", "landing", "lift", "depart", "lantern", "oddity",
 	"buy", "salvage_save", "salvage_lose", "depth_card", "footstep", "rockfall", "crumble",
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
-	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally"]
+	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break"]
 
 static var _cache: Dictionary = {}
 ## The bank is baked on a worker thread while the game is played, and asked for sounds from
@@ -130,6 +130,9 @@ static func _bake(name: String) -> AudioStreamWAV:
 		"die_settle":
 			return DeepSynth.new(0.16).clack(0.0, 0.3, 620.0).thump(0.0, 0.08, 130.0, 0.22, 0.0) \
 				.normalise(0.5).stream()
+		"die_break":
+			## A glass die going under: the crack, then the pieces on the tray.
+			return DeepSynth.new(0.6).clack(0.0, 0.5, 2600.0).shatter(0.01, 0.34, 2400.0, 11, 0.22) 				.thump(0.0, 0.1, 180.0, 0.25, 0.0).normalise(0.62).stream()
 		"die_pick":
 			return DeepSynth.new(0.12).clack(0.0, 0.22, 1300.0) \
 				.tone(0.0, 0.07, 700.0, 1150.0, 0.16, "triangle", 4.0, 0.002).normalise(0.42).stream()

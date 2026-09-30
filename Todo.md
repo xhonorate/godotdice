@@ -81,12 +81,11 @@ Formulas are base values before ordinary carat/inclusion scaling. **Flawless als
 | Jackpot      | Rare      | Triple valued ≥5/4/3/2/1    | Gain Pyrite equal to the matched value × matched dice count.                                             | Five of a kind pays 5×.                                |
 | Lucky Seven  | Uncommon  | At least one 7              | Deal 7 damage and gain 1/2/3/4/5 Pyrite per rolled 7.                                                    | With at least three 7s, receive the reward 7 times.    |
 | Wager        | Rare      | ≥50/45/40/35/30 Pyrite      | Spend 50/45/40/35/30 Pyrite to deal your highest roll as damage. On a kill, gain twice the Pyrite spent. | On a kill, gain three times the Pyrite spent.          |
-| Windfall     | Uncommon  | Straight of ≥5/4/4/3/3 dice | Add 10/10/15/15/20 loot-quality points for this fight; improves drop chance and generation luck.         | Ten points better again.                               |
 | Double Down  | Legendary | Pair of 1s                  | Flip a coin: 35/42/50/58/65% the next gem is doubled, else it does nothing.                              | Tripled.                                               |
-| Prospect     | Uncommon  | ≥5/4/3/2/1 distinct values  | Gain 1 Sparkle.                                                                                          | Two Sparkles.                                          |
+| Prospect     | Uncommon  | ≥5/4/3/2/1 distinct values  | Gain 1 Sparkle, worth a tenth of a generation-luck point on the next find.                                | Two Sparkles.                                          |
 | Stake        | Rare      | ≥25/20/15/10/5 Pyrite       | Spend 25/20/15/10/5 Pyrite. Amplify the next gem by 50%.                                                 | Amplify by 75% instead.                                |
 | Appraise     | Rare      | Pair valued ≥5/4/3/2/1      | Appraise 1 raw stone in your bag. Deal damage equal to its value.                                        | Appraise up to 2 stones and deal their combined value. |
-| Gilded Armor | Uncommon  | Always                      | Gain Block equal to 10/15/20/25/30% of your Pyrite.                                                      | Gain 1 Ward.                                           |
+| Gilded Armor | Uncommon  | Straight of ≥5/4/4/3/3 dice | Gain Block equal to 10/15/20/25/30% of your Pyrite.                                                      | Gain 1 Ward.                                           |
 
 ## White — 9 skills
 
@@ -128,7 +127,7 @@ These are fixed character abilities at the end of the rail, not collectible skil
 | Cadence, the Wizard | Encore         | Four-die straight: 4× Resonance damage to every creature. Five-die straight: replay the fired rail, including Overture.                                        |
 | Rue, the Apothecary | Bitter Draught | Four low dice: Resonance poison. Five low dice: tick every creature’s poison. Five ones: tick every poison Resonance times.                                    |
 | Puck, the Harlequin | Motley         | Five odd dice: 3× Resonance damage. Five even: 3× Resonance block. Five distinct values of one parity: exclusive 6× damage and block, plus stun.               |
-| Florin, the Gambler | High Roller    | Crowns grant Resonance damage and pyrite each; three add loot quality; five award a stone. No crowns loses Resonance pyrite. A crown is a die on its top face. |
+| Florin, the Gambler | High Roller    | Each crown stakes Resonance in the pot and deals it; three crowns match the pot out of the bank and deal it; five push the whole bank in, hit every creature and pay what they take. No crowns loses the pot and half of it in damage. A crown is a die on its top face. |
 
 ## Implementation notes
 
@@ -156,7 +155,6 @@ These are fixed character abilities at the end of the rail, not collectible skil
 ## Future work — not implemented
 
 - [ ] **Tailings — Gold / Uncommon:** reward earlier fizzles, once per socket per turn. Proposed 1/2/3/4/5 Pyrite per fizzle; Flawless +1 per paid fizzle. Requires tracking so replays cannot pay twice.
-- [ ] **Windfall:** revise the remaining card/tooltip percentage-quality wording to describe its actual drop chance and generation luck effects.
 - [ ] **Balance playtesting:** compare paid Gold builds, poison conversion, Lifeline stacking, and repeating fight/run upgrades with Echo, Seams, Prelude and Encore.
 
 **Not selected:** Poultice, Undertow, Silence, Level and Invert are excluded from the content pack and active implementation plan. Siphon is the selected name for Mycelium. Additional status ideas remain in [Buffs.md](Buffs.md).

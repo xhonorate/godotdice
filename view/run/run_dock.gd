@@ -441,16 +441,24 @@ func _die_slot(parent: Node, unit: Dictionary, index: int) -> void:
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	card.mouse_default_cursor_shape = Control.CURSOR_DRAG if editable() else Control.CURSOR_ARROW
 	card.tooltip_text = DeepDice.describe(die)
-	var carved: Dictionary = DeepContent.engraving(str(die.get("engraving", "")))
-	if not str(die.get("engraving", "")).is_empty():
-		card.tooltip_text += "\n%s: %s" % [str(carved.get("name", die.engraving)), str(carved.get("text", ""))]
+	var material: String = str(die.get("material", ""))
+	var pattern: String = str(die.get("pattern", ""))
+	if not material.is_empty():
+		card.tooltip_text += "\n%s: %s" % [DeepDice.material_name(material), str(DeepContent.material(material).get("text", ""))]
+	if not pattern.is_empty():
+		card.tooltip_text += "\n%s: %s" % [DeepDice.pattern_name(pattern), str(DeepContent.pattern(pattern).get("text", ""))]
+	for entry in DeepDice.etchings(die):
+		card.tooltip_text += "\n%s: %s" % [DeepDice.etching_name(str(entry.kind)), str(DeepContent.etching(str(entry.kind)).get("text", ""))]
 	parent.add_child(card)
 	var thumb := Thumbs.DieThumb.new(die, SLOT)
 	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(thumb)
-	## Only a die's engraving is written under it: its numbers are on its own faces, and the
-	## close look has the rest.
-	var words := DeepUi.label(card, str(die.get("engraving", "")).replace("_", " ").to_lower(), 10, DeepUi.ACCENT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	## Only what a die is made of, or the pattern cut into it, is written under it: its
+	## numbers are on its own faces and the close look has the rest.
+	var under: String = DeepDice.material_name(material)
+	if under.is_empty():
+		under = DeepDice.pattern_name(pattern)
+	var words := DeepUi.label(card, under.to_lower(), 10, DeepUi.ACCENT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	words.custom_minimum_size.x = SLOT + 10
 	words.clip_text = true
 	var at: int = index

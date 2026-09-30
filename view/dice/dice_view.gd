@@ -16,6 +16,24 @@ const TURN_PER_PIXEL := 0.011
 ## the number it landed on is also written over the settled solid.
 const READOUT_SIDES := 20
 
+## How a die made of something catches the light. `alpha` under 1 makes it see-through,
+## `glow` lights it from inside. A die of nothing in particular uses the first entry.
+const PLAIN_LOOK := {"alpha": 1.0, "roughness": 0.42, "metallic": 0.22, "glow": 0.0}
+const MATERIAL_LOOKS := {
+	"glass": {"alpha": 0.5, "roughness": 0.04, "metallic": 0.0, "glow": 0.05},
+	"crystal": {"alpha": 0.82, "roughness": 0.12, "metallic": 0.1, "glow": 0.5},
+	"diamond": {"alpha": 0.86, "roughness": 0.03, "metallic": 0.25, "glow": 0.18},
+	"opal": {"alpha": 0.9, "roughness": 0.18, "metallic": 0.2, "glow": 0.34},
+	"ruby": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
+	"sapphire": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
+	"emerald": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
+	"amethyst": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
+	"citrine": {"alpha": 0.96, "roughness": 0.18, "metallic": 0.55, "glow": 0.16},
+	"iron": {"alpha": 1.0, "roughness": 0.52, "metallic": 0.95, "glow": 0.0},
+	"fools_gold": {"alpha": 1.0, "roughness": 0.24, "metallic": 1.0, "glow": 0.12},
+	"granite": {"alpha": 1.0, "roughness": 0.88, "metallic": 0.04, "glow": 0.0},
+	"blood": {"alpha": 1.0, "roughness": 0.3, "metallic": 0.12, "glow": 0.2}}
+
 @export var live := true
 
 ## Interactive views are steered by the reader instead of by the roll: dragging
@@ -139,7 +157,7 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 	selected = is_selected
 	highlighted = is_highlighted
 	accent = tint
-	var signature := "%s|%s|%s|%s" % [str(die.get("key", die.get("shape", "D6"))), str(die.get("shape", "D6")), _face_values(), str(die.get("engraving", ""))]
+	var signature := "%s|%s|%s|%s" % [str(die.get("shape", "D6")), str(die.get("material", "")), _face_values(), str(die.get("pattern", ""))]
 	if signature != _signature:
 		_signature = signature
 		_rebuild()
@@ -154,12 +172,11 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 	var token := "%s#%s#%s#%s" % [str(roll.get("die_id", "")), str(roll.get("rerolls", -1)), str(roll.get("face", -1)), str(roll.get("turn_tag", ""))]
 	if bool(roll.get("flipped", false)):
 		token += "#shift:%d" % int(roll.get("value", 0))
-	if str(roll.get("kind", "plain")) == "mirror":
-		## A mirror die shows the number it copies, and when the rest of the hand changes
-		## under it, it is thrown again: the eye sees it turn over onto the new number rather
-		## than a number that changed by itself on a die that never moved.
+	if str(roll.get("kind", "plain")) == "tally":
+		## A Tally face climbs as it is landed on, so the numeral cut into it is recut and the
+		## solid turns over onto the new number rather than changing where it lies.
 		token += "#" + str(roll.get("value", 0))
-		_relabel(_face_index, DiceIcons.face_text(int(roll.get("value", 0)), "mirror"))
+		_relabel(_face_index, DiceIcons.face_text(int(roll.get("value", 0)), "tally"))
 	if interactive:
 		if not _steered:
 			_manual = _target
@@ -255,6 +272,23 @@ func set_highlight(on: bool) -> void:
 	if is_instance_valid(_glow):
 		_glow.queue_redraw()
 
+func _wear_material(palette: Dictionary) -> void:
+	## What the die is made of, on the solid itself: glass goes see-through, crystal lights up
+	## from inside, iron reads as metal, granite as stone. Colour is already the material.
+	var body_material: StandardMaterial3D = _body.material_override as StandardMaterial3D
+	if body_material == null:
+		return
+	var look: Dictionary = MATERIAL_LOOKS.get(str(die.get("material", "")), PLAIN_LOOK)
+	var alpha: float = float(look.get("alpha", 1.0))
+	body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if alpha < 0.999 else BaseMaterial3D.TRANSPARENCY_DISABLED
+	body_material.albedo_color = Color(1.0, 1.0, 1.0, alpha)
+	body_material.roughness = float(look.get("roughness", 0.42))
+	body_material.metallic = float(look.get("metallic", 0.22))
+	var glow: float = float(look.get("glow", 0.0))
+	body_material.emission_enabled = glow > 0.001
+	body_material.emission = palette.body
+	body_material.emission_energy_multiplier = glow
+
 func _face_values() -> String:
 	var values: Array = []
 	for face in die.get("faces", []):
@@ -268,7 +302,7 @@ func _shape() -> String:
 	return Geometry.shape_for_sides(die.get("faces", []).size())
 
 func _palette() -> Dictionary:
-	return DiceIcons.palette(str(die.get("key", die.get("shape", "D6"))))
+	return DiceIcons.die_palette(die)
 
 func _rebuild() -> void:
 	var shape := _shape()
@@ -292,6 +326,7 @@ func _rebuild() -> void:
 		colors.append(palette.edge.lightened(0.12))
 	if headless():
 		return
+	_wear_material(palette)
 	var mesh := Geometry.mesh(shape, colors)
 	_body.mesh = mesh
 	_shell.mesh = mesh

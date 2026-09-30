@@ -153,7 +153,7 @@ func _inspector() -> void:
 		await _fits(welcome, "%s joining the workshop" % str(key))
 		welcome.free()
 	for key in DeepContent.section("dice"):
-		var die: Dictionary = DeepDice.make(str(key), DeepContent.die(str(key)), "fit_%s" % key)
+		var die: Dictionary = DeepDice.make(str(key), "fit_%s" % key)
 		await _look("die", die, "the close look at a %s" % str(key))
 	for key in DeepContent.section("creatures"):
 		var foe: Dictionary = DeepCreatures.make(str(key), "fit_%s" % key, 20, 4)
@@ -264,7 +264,7 @@ func _run(app: Control) -> void:
 		candidate.inclusions = DeepContent.section("inclusions").keys().slice(0, 3)
 		candidate.inclusions_revealed = true
 		picks.append(candidate)
-	head_state.grubstake.offers[app.session.local_id] = [ {"id": "fit_pick", "kind": "stone", "boons": ["REWARD_STONE", "COST_WOUND"], "needs": ["pick"], "pick_kind": "stone", "picks": picks}]
+	head_state.grubstake.offers[app.session.local_id] = [ {"id": "fit_pick", "kind": "stone", "boons": ["PICK_STONE", "COST_WOUND"], "needs": ["pick"], "pick_kind": "stone", "picks": picks}]
 	descent._stake_choosing = "fit_pick"
 	descent.show_state(head_state)
 	await _fits(screen, "a pick stake's three stones")
@@ -546,7 +546,7 @@ func _fill(profile: Dictionary) -> void:
 		profile.tray.append(raw)
 	for copy in range(4):
 		for key in DeepContent.section("dice"):
-			profile.bowl.append(DeepDice.make(str(key), DeepContent.die(str(key)), "fit_bowl_%s_%d" % [key, copy]))
+			profile.bowl.append(DeepDice.make(str(key), "fit_bowl_%s_%d" % [key, copy]))
 	profile.gold = 123456
 	for i in range(40):
 		profile.history.append({"date": "2026-08-%02d" % (1 + i % 28), "mine": DeepContent.starter_mine(), "depth": 4 + i % 20, "outcome": ["extracted", "fallen", "conquered"][i % 3], "stones": i % 9})

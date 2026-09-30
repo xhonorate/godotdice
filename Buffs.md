@@ -43,14 +43,14 @@ Statuses can affect players or enemies where their mechanics apply. Charged Batt
 | **Amplified** | Multiplies the next evaluated gem's magnitude, affecting scaled amounts and whole-number effect proc counts. | Multipliers multiply. Consumed by the next eligible gem evaluation even if it fizzles; buried/clouded sockets return before consuming it. | Winning Double Down; Stake adds +50%, or +75% Flawless, after paying its Pyrite price. |
 | **Sharpened / next Cut bonus** | Judges the next evaluated gem at additional Cut steps. | Steps add; consumed on evaluation, including a fizzle. Does not permanently recut the stone. | Feather inclusion. Facet now grants fight-long Cut instead. |
 | **Extra rerolls next turn** | Adds rerolls to the next planning phase. | Grants add; transferred to the allowance and consumed at turn start. | Cascade. The Drill can still set available rerolls to zero. |
-| **Carat growth** | Raises affected gems’ effective carats for the rest of the fight. | Adds on each activation; persists across turns, ends with the fight. | Fire Opal; Enrich raises every other gem by 1 (2 Flawless). |
-| **Cut growth** | Raises every socketed gem's effective Cut for the rest of the fight. | Adds on each activation; effect ladders stop improving at their highest rung. | Fire Opal’s Flawless line; Facet raises adjacent gems by 1 (all gems Flawless). |
+| **Carat growth** | Raises affected gems’ effective carats for the rest of the fight. | Adds on each activation; persists across turns, ends with the fight. | Fire Opal raises every gem but itself; Enrich raises its neighbours by 1 (all gems Flawless). |
+| **Cut growth** | Raises affected gems' effective Cut for the rest of the fight. | Adds on each activation; effect ladders stop improving at their highest rung. | Fire Opal’s Flawless line, on every gem but itself; Facet raises adjacent gems by 1 (all gems Flawless). |
 | **Repeat next** | Grants extra firings to the next gem, or the Birthstone when Prelude is last. | Pending amounts add; consumed by the next eligible resolution. A gem still has to fire to use the extra firings. | Prelude. |
-| **Repeat previous** | Re-evaluates and fires the previous gem at 50% of its scaled effect amounts; Flawless Echo uses 100%. | Immediate queued repeat. Whole-number effects are not simply halved. | Echo. |
+| **Void copying** | Lays a Void copy of the last gem that fired into the rail, riding the copying gem's socket and firing right after it. | For the rest of the fight, and never a copy of another opal. The copy is the fight's own: nothing carries it home. | Echo (2 copies Flawless). |
 | **Color replay** | Repeats previously fired gems of a selected color in rail order. | Immediate; eligible repeats generate Resonance again. | Red, Blue, Green, Violet, Gold, and White Seam opals. |
-| **Fizzle recovery** | Forces earlier fizzled gems to try firing even when their hand trigger was unmet. | Immediate; limited by Matrix's reach. Does not remove burial, fog, or Fracture's veto. | Matrix. |
+| **Fizzle recovery** | Forces earlier fizzled gems to try firing even when their hand trigger was unmet. | Immediate; the first two that stayed dark, or all of them from a Flawless stone. Does not remove burial, fog, or Fracture's veto. | Matrix. |
 | **Whole-rail replay** | Replays gems that fired, then eligible Birthstone work, continuing to build Resonance. | Immediate; Encore cannot recursively replay itself. | Cadence's Encore. |
-| **Skill copying** | Uses the next reachable non-opal gem's skill with the copying stone's own carats, Cut, Clarity, and inclusions. | While arranged that way; reach depends on Cut. | Doublet. |
+| **Skill copying** | Uses the nearest non-opal gem *behind* it, with the copying stone's own carats, Cut, Clarity, and inclusions. | While arranged that way; it looks as far back along the rail as it must. | Doublet. |
 | **Face growth** | Raises the current face of each matched real die by 1; Flawless raises every face of those dice. Also updates the current roll. | Lasts this run; physical faces cap at 100. Phantom dice excluded. Stored collection unchanged. | Glimmer, matching dice below 7/6/5/4/3 by Cut. |
 | **Match dice** | Changes eligible dice to join the best matching set. | Current hand only. | Mirror (the former Polish matching effect). |
 | **Flip low dice** | Replaces a low value with `top + 1 − value`. | Current hand only. Useful depends on the build. | No current gem source; legacy simulation hook. |
@@ -109,8 +109,8 @@ Glimmer’s physical die-face upgrades and Thrive’s maximum HP gains persist f
 
 | Effect | Current behavior | Duration / source |
 | --- | --- | --- |
-| **Windfall / Hot Streak** | Accumulates reward quality bonus. For ordinary/elite fight drops, every point adds 0.5 percentage points to drop chance; every 10 points adds 1 generation-luck bonus. | That fight's settlement; Windfall and Florin's Hot Streak. Not a guaranteed grade increase. |
-| **Sparkle** | **All stored Sparkle is consumed on the next stone find**, adding **+1 generation luck per stack** (even below 5). Applies to the descent’s stone-find sources: battle drops, Birthstone rewards, veins/vugs, and motherlodes. Only the first stone of a multi-stone find spends the stored amount. | **Maximum 100**; applications add up to the cap and carry between fights. Prospect supplies it. Not a guaranteed grade increase; shop/hoard offers and separately generated oddity stones retain their existing generation rules. |
+| **Hot Streak** | Accumulates reward quality bonus. For ordinary/elite fight drops, every point adds 0.5 percentage points to drop chance; every 10 points adds 1 generation-luck bonus. | That fight's settlement; Florin's Hot Streak only, now that Windfall has been removed. Not a guaranteed grade increase. |
+| **Sparkle** | **All stored Sparkle is consumed on the next stone find**, adding **+0.1 generation luck per stack** (even below 5), so a full hundred stacks is worth ten points. Applies to the descent’s stone-find sources: battle drops, Birthstone rewards, veins/vugs, and motherlodes. Only the first stone of a multi-stone find spends the stored amount. | **Maximum 100**; applications add up to the cap and carry between fights. Prospect supplies it. Not a guaranteed grade increase; shop/hoard offers and separately generated oddity stones retain their existing generation rules. |
 | **Shrine blessing** | +1 effective carat to gems whose base skill trigger type matches the selected pattern. | Rest of the run; Shrine of the Pattern. Choosing another replaces the selection. |
 | **Hardy / Iron Constitution** | +12% / +25% maximum HP, with current HP adjusted by the same absolute increase. | Run; Grubstake. |
 | **Thinner Blood** | −10% maximum HP, with current HP adjusted too. | Run; Grubstake cost. |
@@ -124,20 +124,20 @@ Glimmer’s physical die-face upgrades and Thrive’s maximum HP gains persist f
 | **A Pinpoint / A Star** | Adds an inclusion from the named class to a random rail stone. | Run copy of that stone; Grubstake. “A Star” draws from the STAR inclusion class, not necessarily the specific Star inclusion. |
 | **Recut / Clarified / Truer Cut** | Rerolls a stone's Cut or Clarity; Truer Cut keeps the better of two Cut rolls with a luck bonus. | Run stone changes; Grubstake. Fresh rolls can still worsen the original stone. |
 | **A Bad Fall** | Immediately loses 30% of current HP, leaving at least 1. | Grubstake cost; damage taken, not an ongoing debuff. |
-| **Bust** | Loses Resonance pyrite when Florin's Birthstone resolves with no crowns. | Immediate combat earnings penalty. Final fight payout is floored at zero. |
+| **Bust** | Florin's Birthstone resolving with no crowns: the pot is lost and half of it is dealt to him as damage (Block soaks it). | Immediate. Staked pyrite never returns; the fight payout is still floored at zero. |
 
-Other Grubstakes—Staked, Well Staked, A Raw Stone, Pick of Three, A Precious Stone, Crack a Geode, Roll for It, and Sight Unseen—give immediate currency or items rather than an ongoing buff. Royal Flush similarly queues a bonus stone reward. Oddities and workshops also alter items through recutting, annealing, fusion, inclusions, face changes, and resizing; their lasting combat effects are covered by the item modifiers below. Mining HP costs and purchases are costs, not additional status types.
+Other Grubstakes—Staked, Well Staked, A Raw Stone, Pick of Three, A Precious Stone, Crack a Geode, Roll for It, and Sight Unseen—give immediate currency or items rather than an ongoing buff. Oddities and workshops also alter items through recutting, annealing, fusion, inclusions, face changes, and resizing; their lasting combat effects are covered by the item modifiers below. Mining HP costs and purchases are costs, not additional status types.
 
 ## Existing character passives
 
 | Character | Passive | Effect |
 | --- | --- | --- |
-| Ardor | **Second Wind** | Heals 3 per unused reroll when an active rail begins. |
+| Ardor | **Second Wind** | Heals the rail's Resonance per unused reroll as an active rail closes. |
 | Vesper | **Riposte** | Gains Block equal to current Resonance for each positive-damage hit landed, including a hit absorbed by enemy Block. |
 | Cadence | **Study** | +1 reroll every turn. |
 | Rue | **Leech** | Heals current Resonance whenever Poison damages an enemy. |
 | Puck | **Sleight** | One free flip of a plain die face per turn. |
-| Florin | **Loaded** | A plain die face landing on 1 gets one immediate free retry on its initial roll or a selected reroll; does not chain indefinitely. |
+| Florin | **House Money** | Each fight opens with a tenth of his owned pyrite already in the pot, taken out of the bank at once. |
 
 Birthstone benefits reuse the combat effects above: Block, damage, Stun, Cleanse, Poison and extra ticks, rail replay, reward bonuses, and pyrite. They are not separate generic statuses.
 
@@ -178,22 +178,25 @@ These are attached to stones. Their effects generally last while the stone has t
 
 **Clarity bonuses:** Pristine doubles base Resonance gain. Flawless triples it, multiplies magnitude by 1.5, and enables the skill's authored Flawless line. Harmony's extra point is added afterward. Included, Etched, and Intricate provide one, two, and three inclusion slots respectively; Clear has no additional modifier.
 
-### Special die faces and engravings
+### Etched faces, patterns and materials
 
 | Modifier | Effect / tradeoff |
 | --- | --- |
 | **Wild face** | Substitutes for values in supported patterns; contributes its die's top to totals. |
-| **Gem face** | Bypasses hand-trigger requirements throughout the rail. Does not erase independent socket restrictions or Fracture. |
 | **Exploding face** | Rolls an additional face and adds its value; chains for up to three additional rolls. |
+| **Shiny face** | One Resonance more for every gem it helps light. |
+| **Golden face** | Pays 2 pyrite every time it is rolled or rerolled. |
+| **Tally face** | Climbs by 1 permanently every time it is landed on, which raises the die's own top with it. |
+| **Sticky face** | Carries into the next turn instead of being thrown again, and so counts as held. |
+| **Twin face** | Counts twice in set patterns. |
+| **Doubled face** | Worth twice its number wherever a number is read, so it pairs with the doubled value and not the printed one. |
 | **Locked face** | Cannot be selected for reroll while that result remains in the current hand. New turns roll a fresh hand. |
-| **Mirror face** | Copies the highest non-mirror value; recalculates when mirror resolution runs. |
 | **Blank face** | Contributes no numerical value and is excluded from value/set analysis; the hand still records whether the die was held or rerolled. |
-| **Set engraving** | Counts as held for patterns even when rerolled. |
-| **Twin engraving** | Counts twice in set patterns. |
-| **Keen engraving** | +1 to valued faces, within the value cap. |
-| **Steady engraving** | Valued faces cannot show less than 2. Can hurt builds that want 1s. |
+| **Pattern** | Even, Odd, Split, Gambler's, Paired, Stretched or Shallow: which numbers sit on the faces, nothing else. Shallow keeps the die's own size as its top, so every face of it is low. |
+| **Coloured material** | Ruby, Sapphire, Emerald, Amethyst, Citrine, Diamond: ×1.5 magnitude on every gem of that colour the die helps fire, multiplying with each other. Opal answers to every colour; Glass does too, and breaks on one throw in ten. |
+| **Other materials** | Crystal rings a Resonance every throw; Iron never shows less than a quarter of its top; Fool's Gold pays 2 pyrite a throw; Granite is immune to every enemy die effect; Blood costs 2 health to throw again and grows by 1 whenever a creature dies. |
 
-Custom face distributions and different die sizes also change a build's odds; they are item configurations rather than separate statuses.
+Patterns, etchings, materials and die sizes all change a build's odds; they are item configurations rather than separate statuses. The full rules are in [docs/DICE.md](docs/DICE.md).
 
 ## Implemented integrations
 
@@ -264,7 +267,7 @@ These remain suggestions; none is implemented by this change.
 Remaining findings from the original inventory, plus implementation notes for the new rules:
 
 1. **Fingerprint appears unimplemented.** `copy_previous_inclusion` is declared and used by content, but no application path handles it. It should not be counted as working copying support.
-2. **Reward text still overpromises.** Windfall/Hot Streak affect drop chance and generation luck. Prospect and the Sparkle tooltip now describe the actual luck bonus, full consumption on the next find, and 100-stack cap; they no longer promise a guaranteed grade increase.
+2. **Reward text still overpromises.** Hot Streak affects drop chance and generation luck. Prospect and the Sparkle tooltip now describe the actual luck bonus (a tenth of a point per stack), full consumption on the next find, and the 100-stack cap; they no longer promise a guaranteed grade increase.
 3. **Locked faces are turn-local in practice.** The dice header says “rest of the fight,” but each new turn creates a fresh hand.
 4. **Old Resonance/Capstone prose is stale.** Current fizzles preserve Resonance, and character Birthstones replaced the old automatic Capstone carat cash-out.
 5. **Resolve has been replaced.** Combo Breaker now clears accumulated Stun after three missed actions, on all enemies. Bind still has independent suppression rules.
@@ -278,7 +281,7 @@ Remaining findings from the original inventory, plus implementation notes for th
 - [Battle simulation](sim/battle.gd): application, stacking, damage, rail order, status ticks, and cleanup.
 - [Creature simulation](sim/creatures.gd): dice tiers, Dread, phases, and damage bonuses.
 - [Stone evaluation](sim/stone.gd) and [rule vocabulary](sim/rules.gd): inclusion effects, magnitude, Clarity, and proc scaling.
-- [Dice](sim/dice.gd), [hands](sim/hand.gd), and [patterns](sim/patterns.gd): faces, engravings, and trigger behavior.
+- [Dice](sim/dice.gd), [hands](sim/hand.gd), and [patterns](sim/patterns.gd): patterns, etched faces, materials, and trigger behavior.
 - [Descent](sim/descent.gd), [Grubstakes](sim/boons.gd), [oddities](sim/oddities.gd), and [generation](sim/forge.gd): run persistence and reward behavior.
 - [Effect chips](view/battle/effect_chips.gd): current displayed names and tooltips; simulation behavior takes precedence where they differ.
 - [Gem scenarios](tests/test_gem_updates.gd): attack chains, Lifeline, spending/refunds, appraisal, temporary ranks and run persistence.

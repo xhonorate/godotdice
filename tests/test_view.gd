@@ -176,25 +176,55 @@ func _waist(shape: PackedVector2Array) -> float:
 	return widest
 
 func _test_inside() -> void:
-	## What is frozen in a stone is cut as real geometry, and each class of inclusion is cut
-	## as its own thing. Before this they were all the same darkened facet, so the test that
-	## matters is that no two classes come out alike.
+	## What is frozen in a stone is cut as real geometry, and every inclusion is cut as the
+	## thing it is named after. It was a darkened facet once, then one shape per class —
+	## which still left all eight Pinpoints as one speck and all six Fractures as one
+	## crack. Two inclusions with different words under them should not look alike, so the
+	## test that matters is that no two KEYS in the pack come out the same.
+	##
+	## The stone and the slot are held fixed, so where a mark is placed and which way it
+	## lies are identical for every key and the only thing that can differ is the drawing.
 	var shapes: Dictionary = {}
-	var seen: Dictionary = {}
+	var zoned: int = 0
 	for key in DeepContent.section("inclusions").keys():
-		var kind: String = str(DeepContent.inclusion(str(key)).get("class", ""))
-		check(GemFlaws.CLASS_SIZE.has(kind), "inclusion class is one this can draw: " + kind)
-		if seen.has(kind):
-			continue
-		seen[kind] = true
 		var stone: Dictionary = DeepStone.make("STRIKE", 8, 4, 2, [str(key)], {}, "inside")
+		# Zoning is worn on the body, and a body says nothing until somebody has looked at
+		# the stone — so the band only exists once it has been appraised.
+		stone.appraised = true
 		var mesh: ArrayMesh = GemMesh.inside(stone)
-		check(mesh != null and mesh.surface_get_array_len(0) > 0, "%s is cut into the stone" % kind)
-		var span: Vector3 = mesh.get_aabb().size
-		for other in shapes:
-			check(not span.is_equal_approx(shapes[other]), "%s is not drawn as %s" % [kind, other])
-		shapes[kind] = span
-	check(seen.size() == GemFlaws.CLASS_SIZE.size(), "every class the pack uses has a shape")
+		## Zoning is the one inclusion with no geometry: it is a band of color grown
+		## through the body, so it is a stop in the shell's gradient instead.
+		if not GemFlaws.zone_color(str(key)).is_empty():
+			zoned += 1
+			check(mesh == null, "%s is worn by the body, not set inside it" % key)
+			check(GemMesh.zone_colors(stone).size() == 1 and GemMesh.banded(stone),
+				"%s puts a band of its color through the stone" % key)
+			continue
+		check(mesh != null and mesh.surface_get_array_len(0) > 0, "%s is cut into the stone" % key)
+		var box: AABB = mesh.get_aabb()
+		var mark := "%d|%s" % [mesh.surface_get_array_len(0), str(box.size.snapped(Vector3.ONE * 0.002))]
+		check(not shapes.has(mark), "%s is not drawn as %s" % [key, str(shapes.get(mark, ""))])
+		shapes[mark] = str(key)
+		## And every last vertex of it stays in the crystal. A Lens used to be placed by
+		## its centre with a margin that knew nothing of its radius, so half of one
+		## regularly hung out through a facet; a mark now declares how far it reaches and
+		## the stone says how much of that it has room for.
+		var env: Dictionary = GemMesh.envelope(stone)
+		var girdle: PackedVector2Array = env.outline
+		var loose: Vector3 = Vector3.ZERO
+		var out: int = 0
+		for point: Vector3 in mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+			if _held(girdle, env, point):
+				continue
+			out += 1
+			loose = point
+		check(out == 0, "%s stays inside the stone (%d vertices out, worst %s)" % [key, out, str(loose)])
+	check(zoned == 6, "all six Zonings are worn rather than held")
+	check(shapes.size() == DeepContent.section("inclusions").size() - zoned,
+		"every other inclusion in the pack has a drawing of its own")
+	## And a raw stone gives nothing away: no band, whatever it turns out to carry.
+	var raw: Dictionary = DeepStone.make("STRIKE", 8, 4, 2, ["ZONING_RED"], {}, "raw")
+	check(GemMesh.zone_colors(raw).is_empty(), "an unappraised stone shows no zoning")
 	## Nothing inside a clean stone. A stone that carries no list at all — a lab preview,
 	## a card built from a skill — still has to look as included as its Clarity says, so
 	## there the classes come off the seed instead.
@@ -523,12 +553,12 @@ func _test_mine() -> void:
 	var hall: Node3D = LiftHall.new()
 	root.add_child(hall)
 	hall.build(biome, 3, true, false, Callable())
-	check(hall.cage != null and hall.parts.has("rest") and hall.parts.has("appraise") and hall.parts.has("polish") and hall.parts.has("up"), "a landing has its cage, its fire, its bench and its wheel")
+	check(hall.cage != null and hall.parts.has("rest") and hall.parts.has("appraise") and hall.parts.has("wish") and hall.parts.has("up"), "a landing has its cage, its fire, its bench and its well")
 	hall.free()
 	var hall_only: Node3D = LiftHall.new()
 	root.add_child(hall_only)
 	hall_only.build(biome, 3, false, true, Callable())
-	check(hall_only.cage != null and not hall_only.parts.has("rest"), "the shaft head and a Warden's hall have the lift and nothing else")
+	check(hall_only.cage != null and not hall_only.parts.has("rest"), "the shaft head has the lift and nothing else")
 	hall_only.free()
 	var pile: Node3D = Hoard.new()
 	root.add_child(pile)
@@ -544,3 +574,17 @@ func _test_mine() -> void:
 			if Geometry2D.is_point_in_polygon(p, hole) or not Geometry2D.is_point_in_polygon(within, hole):
 				fits = false
 	check(hole.size() == 30 and fits, "a mouth's hole follows the tunnel's arch, a hair inside it")
+
+func _held(outline: PackedVector2Array, env: Dictionary, point: Vector3) -> bool:
+	## Whether a point is inside the solid `gem_mesh.build()` lays down: within the crown
+	## above the girdle and the pavilion below it, and within the girdle outline at that
+	## height. A hair of slack, because a mark is allowed to touch a facet from inside.
+	var crown: float = float(env.crown)
+	var depth: float = float(env.depth)
+	if point.z > crown + 0.02 or point.z < -depth - 0.02:
+		return false
+	var span: float = GemFlaws._span(env, point.z)
+	var flat := Vector2(point.x, point.y)
+	if flat.length() < 0.000001:
+		return true
+	return flat.length() <= span * GemFlaws._reach(outline, flat.normalized()) + 0.02

@@ -10,8 +10,8 @@ const PATH: String = "res://content/deep_cut.json"
 const color_KEYS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
 const SOCKET_ANY: String = "ANY"
 ## Opal is the seventh color, and the only one no socket is ever cut for. An opal skill
-## counts as every color at once, so it sits in any socket and rings in harmony with
-## whatever fired before it. Nothing in the rock offers one: they come out of a hoard.
+## counts as none of the six by itself, so it sits in an ANY socket and rings in harmony
+## only with another opal. Nothing in the rock offers one: they come out of a hoard.
 const OPAL: String = "OPAL"
 ## The colors a skill may wear. Sockets and mine leanings still speak only of the six.
 const SKILL_COLORS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
@@ -19,9 +19,9 @@ const SKILL_COLORS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", 
 const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "heptagon"]
 const INCLUSION_CLASSES: Array = ["PINPOINT", "LENS", "FEATHER", "FRACTURE", "STAR"]
 const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC"]
-const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "well"]
+const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "vat", "well"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle",
-	"heal_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value"]
+	"heal_resonance_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value", "pot_share"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",
 	"steal_gold", "gift_rerolls", "poison_immune", "bury_socket", "mirror_last_gem", "roll_for_you", "regrow"]
 
@@ -62,7 +62,9 @@ static func entry(section_name: String, key: String) -> Dictionary:
 static func skill(key: String) -> Dictionary: return entry("skills", key)
 static func inclusion(key: String) -> Dictionary: return entry("inclusions", key)
 static func die(key: String) -> Dictionary: return entry("dice", key)
-static func engraving(key: String) -> Dictionary: return entry("engravings", key)
+static func pattern(key: String) -> Dictionary: return entry("patterns", key.to_upper())
+static func etching(key: String) -> Dictionary: return entry("etchings", key.to_upper())
+static func material(key: String) -> Dictionary: return entry("materials", key.to_upper())
 static func character(key: String) -> Dictionary: return entry("characters", key)
 static func creature(key: String) -> Dictionary: return entry("creatures", key)
 static func mine(key: String) -> Dictionary: return entry("mines", key)
@@ -176,9 +178,18 @@ static func validate(p: Dictionary = {}) -> Array:
 		errors.append_array(DeepRules.validate_inclusion(p.inclusions[key], p).map(func(e: String) -> String: return "inclusion %s: %s" % [key, e]))
 	for key in p.dice:
 		errors.append_array(_validate_die(p.dice[key]).map(func(e: String) -> String: return "die %s: %s" % [key, e]))
-	for key in p.get("engravings", {}):
-		if not str(p.engravings[key].get("key", "")) in DeepDice.ENGRAVINGS:
-			errors.append("engraving %s: unknown key %s" % [key, str(p.engravings[key].get("key", ""))])
+	for key in p.get("patterns", {}):
+		if not str(p.patterns[key].get("key", "")) in DeepDice.PATTERNS:
+			errors.append("pattern %s: unknown key %s" % [key, str(p.patterns[key].get("key", ""))])
+	for key in p.get("etchings", {}):
+		if not str(p.etchings[key].get("key", "")) in DeepDice.FACE_KINDS:
+			errors.append("etching %s: unknown key %s" % [key, str(p.etchings[key].get("key", ""))])
+	for key in p.get("materials", {}):
+		var material_def: Dictionary = p.materials[key]
+		if not str(material_def.get("key", "")) in DeepDice.MATERIALS:
+			errors.append("material %s: unknown key %s" % [key, str(material_def.get("key", ""))])
+		if material_def.has("color") and not str(material_def.color) in color_KEYS:
+			errors.append("material %s: unknown color %s" % [key, str(material_def.color)])
 	var starters: int = 0
 	for key in p.characters:
 		errors.append_array(_validate_character(p.characters[key], p).map(func(e: String) -> String: return "character %s: %s" % [key, e]))
@@ -218,10 +229,32 @@ static func _validate_die(def: Variant) -> Array:
 					errors.append("face values run 0 to %d" % DeepDice.VALUE_CAP)
 			elif not (f is int or f is float) or int(f) < 0 or int(f) > DeepDice.VALUE_CAP:
 				errors.append("face values run 0 to %d" % DeepDice.VALUE_CAP)
-	if def.has("engraving") and not str(def.engraving).is_empty() and not str(def.engraving) in DeepDice.ENGRAVINGS:
-		errors.append("unknown engraving " + str(def.engraving))
 	if def.has("top") and (not (def.top is int or def.top is float) or int(def.top) < 1 or int(def.top) > DeepDice.VALUE_CAP):
 		errors.append("top runs 1 to %d" % DeepDice.VALUE_CAP)
+	return errors
+
+static func validate_die_ref(ref: Variant) -> Array:
+	## How a character or a creature names a die: a shape on its own ("D6"), or an object
+	## carrying a shape and whatever variations the die was born with.
+	var errors: Array = []
+	var shape: String = str(ref) if ref is String else str(ref.get("shape", "")) if ref is Dictionary else ""
+	if not DeepDice.SHAPES.has(shape):
+		errors.append("unknown die shape " + shape)
+		return errors
+	if not ref is Dictionary:
+		return errors
+	var pattern: String = str(ref.get("pattern", ""))
+	if not pattern.is_empty():
+		if not pattern in DeepDice.PATTERNS:
+			errors.append("unknown pattern " + pattern)
+		elif not DeepDice.pattern_allows(pattern, shape):
+			errors.append("a %s cannot take the %s pattern" % [shape.to_lower(), pattern])
+	var material: String = str(ref.get("material", ""))
+	if not material.is_empty() and not material in DeepDice.MATERIALS:
+		errors.append("unknown material " + material)
+	for etch in ref.get("etches", []):
+		if not etch is Dictionary or not str(etch.get("kind", "")) in DeepDice.FACE_KINDS:
+			errors.append("each etching needs a face and a kind")
 	return errors
 
 static func _validate_character(def: Variant, p: Dictionary) -> Array:
@@ -249,9 +282,8 @@ static func _validate_character(def: Variant, p: Dictionary) -> Array:
 	if not dice is Array or dice.size() != 5:
 		errors.append("needs exactly five starting dice")
 	else:
-		for key in dice:
-			if not p.dice.has(str(key)):
-				errors.append("unknown die " + str(key))
+		for entry_def in dice:
+			errors.append_array(validate_die_ref(entry_def))
 	var passive: Variant = def.get("passive", {"kind": "none"})
 	if not passive is Dictionary or not str(passive.get("kind", "none")) in PASSIVE_KINDS:
 		errors.append("unknown passive")
@@ -300,9 +332,8 @@ static func _validate_creature(def: Variant, p: Dictionary) -> Array:
 		errors.append("needs hp")
 	if int(def.get("threat", 0)) <= 0:
 		errors.append("needs a threat cost")
-	for key in def.get("dice", []):
-		if not p.dice.has(str(key)):
-			errors.append("unknown die " + str(key))
+	for entry_def in def.get("dice", []):
+		errors.append_array(validate_die_ref(entry_def))
 	if def.has("policy"):
 		errors.append("enemy moves all fire when eligible; remove the old policy")
 	if def.get("dice", []).is_empty() or def.get("dice", []).size() > 4:
@@ -333,9 +364,8 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 	for key in def.get("inclusions", []):
 		if not p.inclusions.has(str(key)):
 			errors.append("unknown inclusion " + str(key))
-	for key in def.get("dice", []):
-		if not p.dice.has(str(key)):
-			errors.append("unknown die " + str(key))
+	for entry_def in def.get("dice", []):
+		errors.append_array(validate_die_ref(entry_def))
 	for key in def.get("wardens", []):
 		if not p.creatures.has(str(key)):
 			errors.append("unknown warden " + str(key))

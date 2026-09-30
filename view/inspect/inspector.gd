@@ -21,11 +21,15 @@ const GemMesh = preload("res://view/gems/gem_mesh.gd")
 
 const FACE_TEXT: Dictionary = {
 	"wild": "Wild: counts as any value for patterns, and as the die's top face for totals.",
-	"gem": "Gem: every gem in your rail fires this turn, whatever the hand shows.",
 	"exploding": "Exploding: rolls again and adds the result, up to three times.",
+	"shiny": "Shiny: one Resonance more for every gem it helps light.",
+	"golden": "Golden: pays pyrite every time it is rolled.",
+	"tally": "Tally: goes up by 1 permanently each time it's rolled.",
+	"sticky": "Sticky: carries into the next turn instead of being thrown again.",
+	"twin": "Twin: counts as two dice in every set.",
+	"doubled": "Doubled: counts as double its number everywhere.",
 	"locked": "Locked: once it shows, the die cannot be rerolled for the rest of the fight.",
-	"mirror": "Mirror: copies the highest other die in your hand.",
-	"blank": "Blank: no value and no pattern at all."}
+	"blank": "Blank: has no value and doesn't count toward any pattern."}
 ## What the Compare page has room for inside the sheet's own right-hand column.
 const COMPARE_WIDTH := 560.0
 const TERM_WORDS: Dictionary = {"high": "its highest die", "low": "its lowest die", "total": "its total", "value": "the matched value",
@@ -104,7 +108,7 @@ static func stone(item: Dictionary, opts: Dictionary = {}) -> void:
 		sheet.call("_fill_stone", item, opts)
 
 static func die(item: Dictionary, opts: Dictionary = {}) -> void:
-	var sheet := _begin(DiceIcons.palette(str(item.get("key", "D6"))).body, opts.get("fanfare", {}))
+	var sheet := _begin(DiceIcons.die_palette(item).body, opts.get("fanfare", {}))
 	if sheet != null:
 		sheet.call("_fill_die", item, opts)
 
@@ -332,6 +336,10 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 				_open_reveal(item))
 	DeepUi.pill(tags, "spark", rarity.capitalize(), StoneCard._rarity_color(rarity), 13, "", StoneCard.is_mythic(rarity))
+	## What the Grubstake lent this stone, marked the way a fight's buffs are marked: the
+	## rail is a copy for the length of a run, so none of it comes home.
+	for field in ["carat", "cut", "clarity"]:
+		StoneCard.staked_mark(tags, item, field, 13)
 	if reference:
 		DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13, "One of these has passed through your hands. The vault keeps the page, not the stone.")
 	elif DeepStone.is_fragile(item):
@@ -837,7 +845,7 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 	_stage.add_child(view)
 	view.configure(item, roll, false, false, DeepUi.ACCENT)
 	var faces: Array = item.get("faces", [])
-	var palette: Dictionary = DiceIcons.palette(str(item.get("key", "D6")))
+	var palette: Dictionary = DiceIcons.die_palette(item)
 	var head := _head
 	DeepUi.title(head, DeepDice.describe(item), 28, palette.body.lightened(0.2))
 	var tags := DeepUi.hbox(head, 8)
@@ -852,20 +860,20 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 			DeepUi.pill(tags, "lock_open", "locked in place", DeepUi.BAD, 13)
 		elif int(roll.get("rerolls", 0)) > 0:
 			DeepUi.pill(tags, "reroll", "rerolled %s" % DeepUi.plural(int(roll.rerolls), "time"), DeepUi.INFO, 13)
-	## Its faces, each one clickable to turn the die to it.
+	## Its faces, each one clickable to turn the die to it. A big die keeps every face on the
+	## one page and draws them smaller instead; what it rolls moves to a page of its own.
 	var paged := faces.size() > 30
-	var grid: HFlowContainer
+	var chip_edge: float = _face_chip_edge(faces.size())
+	var gap: int = 8 if chip_edge >= 52.0 else 6
+	_page("Faces" if paged else "Its faces", "die")
+	var face_box := _section("die", "All %d faces" % faces.size() if paged else "Its faces")
+	var grid := HFlowContainer.new()
+	grid.add_theme_constant_override("h_separation", gap)
+	grid.add_theme_constant_override("v_separation", gap)
+	face_box.add_child(grid)
 	var values: Array = []
 	var kinds: Dictionary = {}
 	for index in range(faces.size()):
-		if index % 30 == 0:
-			var title := "%d–%d" % [index + 1, mini(index + 30, faces.size())] if paged else "Its faces"
-			_page(title, "die")
-			var face_box := _section("die", "Faces " + title if paged else title)
-			grid = HFlowContainer.new()
-			grid.add_theme_constant_override("h_separation", 8)
-			grid.add_theme_constant_override("v_separation", 8)
-			face_box.add_child(grid)
 		var face: Variant = faces[index]
 		var value: int = int(face.get("value", index + 1)) if face is Dictionary else int(face)
 		var kind: String = str(face.get("kind", "plain")) if face is Dictionary else "plain"
@@ -874,12 +882,12 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 			kinds[kind] = true
 		var chip := Button.new()
 		chip.flat = true
-		chip.custom_minimum_size = Vector2(52, 58)
+		chip.custom_minimum_size = Vector2(chip_edge, chip_edge + 6.0)
 		chip.tooltip_text = FACE_TEXT.get(kind, "An ordinary face: %d." % value)
 		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		var here: bool = not roll.is_empty() and int(roll.get("face", -1)) == index
 		var tone: Color = palette.body if kind == "plain" else DiceIcons.face_kind_tint(kind)
-		var drawn := DiceIcons.face(40, value, tone, str(item.get("shape", "D6")), here, DiceIcons.face_text(value, kind))
+		var drawn := DiceIcons.face(chip_edge - 12.0, value, tone, str(item.get("shape", "D6")), here, DiceIcons.face_text(value, kind))
 		drawn.position = Vector2(6, 4)
 		chip.add_child(drawn)
 		var face_index: int = index
@@ -906,14 +914,27 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 	DeepUi.pill(facts, "peak", "%d to %d" % [int(values.min()) if not values.is_empty() else 0, int(values.max()) if not values.is_empty() else 0], DeepUi.PAPER, 13)
 	DeepUi.pill(facts, "odd", "%d odd, %d even" % [odd, values.size() - odd], DeepUi.PAPER, 13)
 	DeepUi.wrap(stats, _die_character(values, distinct.size()), 13, DeepUi.MUTED)
-	var engraving: String = str(item.get("engraving", ""))
-	if not engraving.is_empty():
-		var carved := _section("pick", "Engraved", DeepUi.ACCENT)
-		for key in DeepContent.section("engravings"):
-			var entry: Dictionary = DeepContent.section("engravings")[key]
-			if str(entry.get("key", "")).to_lower() == engraving.to_lower() or str(key).to_lower() == engraving.to_lower():
-				DeepUi.title(carved, str(entry.get("name", engraving)), 18, DeepUi.ACCENT_HI)
-				DeepUi.wrap(carved, str(entry.get("text", "")), 14, DeepUi.PAPER)
+	var pattern: String = str(item.get("pattern", ""))
+	if not pattern.is_empty():
+		var cut := _section("pick", "Cut to a pattern", DeepUi.ACCENT)
+		DeepUi.title(cut, DeepDice.pattern_name(pattern), 18, DeepUi.ACCENT_HI)
+		DeepUi.wrap(cut, str(DeepContent.pattern(pattern).get("text", "")), 14, DeepUi.PAPER)
+	var material: String = str(item.get("material", ""))
+	if not material.is_empty():
+		var made := _section("spark", "Made of", DiceIcons.die_palette(item).body)
+		DeepUi.title(made, DeepDice.material_name(material), 18, DeepUi.ACCENT_HI)
+		DeepUi.wrap(made, str(DeepContent.material(material).get("text", "")), 14, DeepUi.PAPER)
+
+static func _face_chip_edge(count: int) -> float:
+	## The widest face chip that still lays `count` faces out inside the page's width and
+	## height, so even a d100 shows every face on one page.
+	for edge in [52.0, 46.0, 40.0, 34.0]:
+		var gap: float = 8.0 if edge >= 52.0 else 6.0
+		var across: int = maxi(1, int(floor((600.0 + gap) / (edge + gap))))
+		var rows: int = int(ceil(float(count) / float(across)))
+		if float(rows) * (edge + 6.0 + gap) <= 420.0:
+			return edge
+	return 34.0
 
 func _die_character(values: Array, distinct: int) -> String:
 	## A line on what the die is good for, read off its faces.
@@ -964,7 +985,7 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		var dice := DeepUi.hbox(now, 4)
 		var shown: Array = foe.hand.slice(0, -1) if str(foe.get("beat", "")) == "roll" else foe.hand
 		for roll in shown:
-			dice.add_child(DiceIcons.face(26, int(roll.value), DiceIcons.palette(str(roll.get("key", "D6"))).body, str(roll.get("shape", "D6")), true))
+			dice.add_child(DiceIcons.face(26, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true))
 	_page("Its moves", "book")
 	var moves := _section("book", "Its moves")
 	var highlight: String = str(opts.get("move", ""))

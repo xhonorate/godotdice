@@ -51,9 +51,14 @@ const STYLE_SHAPES: Dictionary = {"shield": "shield", "marquise": "marquise", "s
 ## fall back on if one ever did not.
 const STYLE_KIN: Dictionary = {"shield": "RED", "marquise": "WHITE", "step": "VIOLET",
 	"briolette": "GREEN", "checkerboard": "RED", "heptagon": "GOLD"}
-## Socket fit is a visual choice, independent of the Birthstones' 24-carat weight.
+## Socket fit is a visual choice, independent of the Birthstones' 24-carat weight: how
+## large the finished stone is drawn against a stone of the six at the same carat. A style
+## listed here is sized by eye and NOT area-matched with the rest — these numbers were set
+## against the sockets they sit in, and a Birthstone is a one-off rather than one of a set
+## that has to look consistent. Every style a Birthstone can wear is listed, 1.0 included,
+## so the two ways of sizing a stone never both apply to one.
 const STYLE_SCALE := {"shield": 0.90, "step": 0.85, "briolette": 0.95,
-	"checkerboard": 0.70, "heptagon": 0.70}
+	"checkerboard": 0.70, "heptagon": 0.70, "marquise": 1.00}
 const STYLE_OFFSET := {"shield": Vector3(0.0, -0.08, 0.0)}
 
 static func shape_of(gem: Dictionary) -> String:
@@ -81,6 +86,34 @@ static func tint2(gem: Dictionary) -> Color:
 	## A second hue blended through the body. Transparent when the stone names none.
 	var other: String = str(gem.get("hue2", ""))
 	return Color(other) if other.is_valid_html_color() else Color(0, 0, 0, 0)
+
+static func zone_colors(gem: Dictionary) -> Array:
+	## The colors a stone's Zoning inclusions have grown through it, in the order it
+	## carries them.
+	##
+	## Color zoning is the one inclusion that is not a thing inside the crystal but a
+	## property of the crystal: a band where it grew as another color. So it is drawn the
+	## way a Birthstone carries two hues — as stops in the body gradient, on both shell
+	## passes at once — rather than as geometry set inside the solid. That also answers
+	## how a stone wears several: each one is another stop, so three Zonings are a
+	## four-color field and none of them has to be turned away at the door.
+	##
+	## Nothing shows until the stone has been appraised, for the same reason its emblem
+	## and its flaws do not: a raw stone has not been looked into yet.
+	if gem.has("appraised") and not bool(gem.appraised):
+		return []
+	var carried: Array = gem.get("inclusions", []) if gem.get("inclusions") is Array else []
+	var found: Array = []
+	for key in carried:
+		var named: String = GemFlaws.zone_color(str(key))
+		if named.is_empty():
+			continue
+		found.append(hue(named))
+	return found
+
+static func banded(gem: Dictionary) -> bool:
+	## Whether the body carries more than one color, from either source.
+	return tint2(gem).a > 0.0 or not zone_colors(gem).is_empty()
 
 static func tint(gem: Dictionary) -> Color:
 	## The stone's own hue: a Birthstone carries one, every other stone takes its color's —
@@ -263,12 +296,54 @@ static func carat_span(carat: int) -> float:
 ## one whose only clue is how big it looks. Across a counter Tiny has to read as tiny.
 const CLASS_SPAN: Array = [0.55, 0.78, 1.02, 1.28, 1.62]
 
+## The area every outline is cut to, in girdle units, and the whole of what makes two
+## stones of one carat the same size.
+##
+## Each outline is normalised so its LONGEST reach is 1.0, which is the only sane thing to
+## measure a solid against — but it is not what the eye sizes a stone by. Looked at face
+## on, a round brilliant at reach 1.0 covers 3.09 of those units and a trilliant covers
+## 1.19, so a Red gem read as barely half the stone a White one of the same carat was. The
+## number is the geometric mean of the six Colors' own areas, so the match moves every
+## shape a little rather than blowing the small ones up to meet the round.
+const OUTLINE_AREA := 1.973
+static var _shape_scale: Dictionary = {}
+
+static func outline_area(shape: String) -> float:
+	var points: PackedVector2Array = outline(shape)
+	var total := 0.0
+	for index in points.size():
+		var here: Vector2 = points[index]
+		var following: Vector2 = points[(index + 1) % points.size()]
+		total += here.x * following.y - following.x * here.y
+	return absf(total) * 0.5
+
+static func shape_scale(shape: String) -> float:
+	## How much larger or smaller this outline is cut so that a stone of it covers the same
+	## face as any other at the same carat. `size_match` is how far towards that to go: at
+	## zero every shape keeps its longest reach at 1.0, the way they were all cut before.
+	var match_to: float = clampf(Tuning.value("size_match"), 0.0, 1.0)
+	var tag := "%s|%.3f" % [shape, match_to]
+	if _shape_scale.has(tag):
+		return float(_shape_scale[tag])
+	var area: float = outline_area(shape)
+	var factor: float = 1.0 if area < 0.000001 else pow(OUTLINE_AREA / area, 0.5 * match_to)
+	_shape_scale[tag] = factor
+	return factor
+
+static func fit_scale(gem: Dictionary) -> float:
+	## How the stone's shape changes its drawn size: a Birthstone's hand-set socket fit, or
+	## the area match every other stone is held to.
+	var style: String = str(gem.get("style", ""))
+	if STYLE_SCALE.has(style):
+		return float(STYLE_SCALE[style])
+	return shape_scale(shape_of(gem))
+
 static func span(gem: Dictionary) -> float:
 	## How wide the stone is drawn against its slot: its class if nobody has read it, its own
 	## carat once somebody has.
 	if gem.has("appraised") and not bool(gem.appraised):
-		return float(CLASS_SPAN[clampi(int(DeepStone.size_class(int(gem.get("carat", 1))).index), 0, CLASS_SPAN.size() - 1)])
-	return carat_span(int(gem.get("carat", 1))) * float(STYLE_SCALE.get(str(gem.get("style", "")), 1.0))
+		return float(CLASS_SPAN[clampi(int(DeepStone.size_class(int(gem.get("carat", 1))).index), 0, CLASS_SPAN.size() - 1)]) 			* fit_scale(gem)
+	return carat_span(int(gem.get("carat", 1))) * fit_scale(gem)
 
 static func display_offset(gem: Dictionary) -> Vector3:
 	return STYLE_OFFSET.get(str(gem.get("style", "")), Vector3.ZERO)
@@ -309,6 +384,28 @@ static func facet_count(cut: int, color_key: String) -> int:
 	var around: int = outline(shape).size() * EDGE_STEPS[k - 1]
 	# Two triangles per segment per band, above and below, plus the pavilion's fan.
 	return around * 2 * (CROWN_BANDS[k - 1] + PAVILION_BANDS[k - 1]) + around
+
+## Past this much saturation a stone has a color, and below it the eye reads it as
+## colorless and expects a diamond: grey facets, black shadows and a spray of spectral
+## fire, rather than one even sheet of white.
+const COLORLESS_SATURATION := 0.24
+
+static func colorless(gem: Dictionary) -> float:
+	## How far this stone should be surfaced as a diamond rather than as a colored one.
+	##
+	## A White gem was the worst-looking stone in the game and this is why: its hue sits at
+	## 0.04 saturation and 0.96 value, so the grey pull barely moved it, lightening a facet
+	## could not move it at all, and every trick the material had left worked on the body
+	## COLOR — which it has none of. It came out as cloudy quartz. What makes a diamond is
+	## not its color, it is the contrast between its facets and the light it splits, and
+	## those are what this number buys.
+	##
+	## An opal is pale too and is not a diamond: its whole look is a milky body, so the
+	## cabochon is excluded outright. So is any stone carrying a second color, which has a
+	## field of its own to show and no need of this.
+	if SHAPE_DOME.has(shape_of(gem)) or banded(gem):
+		return 0.0
+	return clampf(1.0 - tint(gem).s / COLORLESS_SATURATION, 0.0, 1.0)
 
 static func body_color(color_key: String, clarity: int) -> Color:
 	return _body_color(hue(color_key), clarity)
@@ -598,10 +695,21 @@ static func build(gem: Dictionary) -> ArrayMesh:
 	var table_width: float = table_span(k, shape)
 	var crown_height: float = float(env.crown)
 	var pavilion_depth: float = float(env.depth)
-	# Two-color stones get their hue from a continuous texture, leaving vertex colors
-	# free to carry the same facet lighting and flaws as every other stone.
-	var body := Color.WHITE if tint2(gem).a > 0.0 else body_color_of(gem, l)
+	# Stones with more than one color get their hue from a continuous texture, leaving
+	# vertex colors free to carry the same facet lighting and flaws as every other stone.
+	var body := Color.WHITE if banded(gem) else body_color_of(gem, l)
 	var hue_spread := Tuning.value("facet_hue")
+	## How far this stone's facets are swung DOWN rather than either way.
+	##
+	## `lightened()` on a near-white body does nothing — there is nowhere left to go — so
+	## half of every facet's variation was being thrown away on exactly the stones that
+	## needed it most, and a White gem came out as one flat sheet of milk. The brighter the
+	## body, the further its facets swing into shadow instead, which is what a diamond
+	## actually is: a mosaic of greys with a few faces blazing.
+	var pale: float = clampf((body.v - 0.58) / 0.42, 0.0, 1.0) * clampf(Tuning.value("pale_bias"), 0.0, 1.0)
+	## A colorless stone also swings further than a colored one, because contrast between
+	## facets is the only thing it has to be interesting with.
+	var swing_scale: float = lerpf(1.0, Tuning.value("clear_swing"), colorless(gem))
 
 	# Where a flaw reaches the surface. A Fractured stone has several, a Pristine one none.
 	# This used to be the whole of what an inclusion looked like, which made every class
@@ -658,7 +766,8 @@ static func build(gem: Dictionary) -> ArrayMesh:
 				# from it. A one-sided jitter only ever brightened them. A dome has none
 				# to jitter, and jittering it anyway only banded the curve.
 				if smooth <= 0.0:
-					var swing := (_hash01(seed_value + facet) - 0.5) * Tuning.value("facet_swing")
+					var swing := (_hash01(seed_value + facet) - 0.5) * Tuning.value("facet_swing") * swing_scale
+					swing = lerpf(swing, -absf(swing) * 1.5, pale)
 					tone = tone.lightened(swing) if swing >= 0.0 else tone.darkened(-swing)
 					# The static half of the prism: no two facets return quite the same
 					# color, even before the fire pass sweeps over them.
@@ -701,6 +810,9 @@ static func envelope(gem: Dictionary) -> Dictionary:
 		"flake_tone": str(SHAPE_FLAKE_TONE.get(shape, FLAKE_TONE)),
 		"flake_size": float(SHAPE_FLAKE_SIZE.get(shape, 1.0)),
 		"even_flakes": shape == "heptagon",
+		## The color everything set inside this stone has to be seen against. A mark whose
+		## own tone is close to it needs help; one that contrasts already does not.
+		"body": body_color_of(gem, clarity_grade(gem)),
 		"murk": 1.0 - brilliance(clarity_grade(gem))}
 
 static func inside(gem: Dictionary) -> ArrayMesh:
@@ -760,13 +872,45 @@ static func transparency(clarity: int) -> float:
 	## one is glass, and what you see through it is its own back facets.
 	return lerpf(Tuning.value("near_alpha_dull"), Tuning.value("near_alpha_clear"), brilliance(clarity))
 
-static func _color_gradient(gem: Dictionary) -> GradientTexture2D:
+static func body_stops(gem: Dictionary) -> PackedColorArray:
+	## Every color the body carries, across the face: its own first, then the second hue a
+	## Birthstone names and a band for each Zoning it has grown. One entry is a plain
+	## stone; two is Cadence or Puck; four is a stone that counts as three other colors and
+	## shows all of them.
 	var clarity := clarity_grade(gem)
-	var first := body_color_of(gem, clarity)
-	var second := first.lerp(_body_color(tint2(gem), clarity), clampf(Tuning.value("rind_alpha"), 0.0, 1.0))
+	var body := body_color_of(gem, clarity)
+	var blend: float = clampf(Tuning.value("rind_alpha"), 0.0, 1.0)
+	var stops := PackedColorArray([body])
+	var second := tint2(gem)
+	if second.a > 0.0:
+		stops.append(body.lerp(_body_color(second, clarity), blend))
+	var zones: Array = zone_colors(gem)
+	for zone: Color in zones:
+		stops.append(body.lerp(_body_color(zone, clarity), blend))
+	## Zoning closes back on the stone's own color, so each one reads as a BAND grown
+	## through the crystal rather than as half the gem repainted. Without this a White
+	## Zoning turned a Blue gem white from the middle out and the socket it belongs in
+	## stopped being readable — which is the one thing a gem's color has to say.
+	if not zones.is_empty():
+		stops.append(body)
+	return stops
+
+static func _color_gradient(gem: Dictionary) -> GradientTexture2D:
+	## The color field the shell is skinned with, drawn once and used by both passes so the
+	## stone keeps its bands when it is turned over. A sweep across the face rather than a
+	## wall through the solid: zoning in a real crystal is a change of color over a
+	## distance, and a hard edge inside the stone reads as two gems glued together.
+	var stops: PackedColorArray = body_stops(gem)
 	var gradient := Gradient.new()
-	gradient.set_color(0, first)
-	gradient.set_color(1, second)
+	var offsets := PackedFloat32Array()
+	for index in stops.size():
+		offsets.append(0.0 if stops.size() < 2 else float(index) / float(stops.size() - 1))
+	if stops.size() < 2:
+		# A Gradient always holds at least two points, so a lone color is written to both.
+		offsets = PackedFloat32Array([0.0, 1.0])
+		stops = PackedColorArray([stops[0], stops[0]])
+	gradient.offsets = offsets
+	gradient.colors = stops
 	var texture := GradientTexture2D.new()
 	texture.gradient = gradient
 	texture.width = 128
@@ -779,7 +923,8 @@ static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial
 	var l: int = clarity_grade(gem)
 	var b := brilliance(l)
 	var body := body_color_of(gem, l)
-	var two_colors: bool = tint2(gem).a > 0.0
+	var two_colors: bool = banded(gem)
+	var clear: float = colorless(gem)
 	if two_colors:
 		body = Color.WHITE
 	var material := StandardMaterial3D.new()
@@ -796,15 +941,26 @@ static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial
 	# far half does not, so it shows through as one soft mass behind them. With depth off
 	# on both, two hundred facets composited in arbitrary order and averaged to a blob.
 	material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED if interior else BaseMaterial3D.DEPTH_DRAW_ALWAYS
-	# Far half, then the emblem set inside the crown, then the near half over both, then
-	# the fire on top of that. The emblem used to be last and outside the stone entirely.
-	material.render_priority = 0 if interior else 2
+	# Far half, then the emblem set inside the crown, then whatever is frozen in the
+	# crystal, then the near half over all three, then the fire on top of that. The emblem
+	# used to be last and outside the stone entirely; the inclusions used to share its
+	# priority, which let a big emblem — a Green's cross, a Gold's coin — draw over a Star
+	# sitting right behind it and swallow the flaw whole.
+	material.render_priority = 0 if interior else 3
 	var alpha := transparency(l)
 	if interior:
 		# The far facets sit deeper in the stone, so they read darker, and a cloudy gem
 		# hides them almost entirely.
 		body = body.darkened(Tuning.value("far_darken"))
 		alpha = lerpf(Tuning.value("far_alpha_dull"), Tuning.value("far_alpha_clear"), b)
+		# A diamond's pavilion is where its depth comes from: the crown is nearly clear and
+		# what you look at through it is the back of the stone, darker and full of facets.
+		body = body.darkened(Tuning.value("clear_depth") * clear)
+	else:
+		# The front of a colorless stone lets more through than a colored one does. This is
+		# what stops a White gem reading as a white sticker: there is very little body
+		# there, and what you see instead is its own back facets and the fire over them.
+		alpha *= lerpf(1.0, Tuning.value("clear_alpha"), clear)
 	material.albedo_color = Color(body.r, body.g, body.b, alpha)
 	# Clarity is the rest of the material story: a Fractured stone is rough, flat and
 	# grey; a Flawless one is polished, lacquered and lit from within.
@@ -902,16 +1058,21 @@ static func fire_material(gem: Dictionary) -> ShaderMaterial:
 		_fire.code = FIRE_SHADER
 	var b := brilliance(clarity_grade(gem))
 	var tint := tint(gem)
+	var clear: float = colorless(gem)
 	var material := ShaderMaterial.new()
 	material.shader = _fire
 	# A cloudy stone scatters light rather than splitting it, so Clarity owns the fire too.
-	material.set_shader_parameter("fire", Tuning.value("fire") * b)
-	material.set_shader_parameter("bands", Tuning.value("fire_bands"))
+	# A colorless one throws far more of it, and reaches further in from the rim: dispersion
+	# is the whole of what a diamond has to look at, and nothing in the body hides it.
+	material.set_shader_parameter("fire", Tuning.value("fire") * b * lerpf(1.0, Tuning.value("clear_fire"), clear))
+	material.set_shader_parameter("bands", Tuning.value("fire_bands") * lerpf(1.0, Tuning.value("clear_bands"), clear))
 	material.set_shader_parameter("spread", Tuning.value("fire_spread"))
-	material.set_shader_parameter("reach", Tuning.value("fire_reach"))
-	material.set_shader_parameter("sharpness", Tuning.value("fire_sharpness"))
+	material.set_shader_parameter("reach", lerpf(Tuning.value("fire_reach"), Tuning.value("clear_reach"), clear))
+	material.set_shader_parameter("sharpness", lerpf(Tuning.value("fire_sharpness"), Tuning.value("clear_sharp"), clear))
+	## And it throws white light rather than its own color, because it has none to bias the
+	## spectrum towards. A White gem tinting its fire white-on-white threw nothing at all.
 	material.set_shader_parameter("tint",
-		Vector3.ONE.lerp(Vector3(tint.r, tint.g, tint.b), Tuning.value("fire_tint")))
+		Vector3.ONE.lerp(Vector3(tint.r, tint.g, tint.b), Tuning.value("fire_tint") * (1.0 - clear)))
 	if SHAPE_DOME.has(shape_of(gem)):
 		## Play-of-color, which is the whole of what an opal is. Every other stone borrows
 		## the spectrum at its edges, where steep facets split the light hardest; an opal
@@ -941,7 +1102,7 @@ static func fire_material(gem: Dictionary) -> ShaderMaterial:
 			material.set_shader_parameter("reach", 0.26)
 		else:
 			material.set_shader_parameter("tint", Vector3.ONE)
-	material.render_priority = 3
+	material.render_priority = 4
 	return material
 
 static func etch_material(gem: Dictionary) -> StandardMaterial3D:
@@ -1093,4 +1254,5 @@ static func cut_note(cut: int) -> String:
 static func release() -> void:
 	_normals.clear()
 	_faces.clear()
+	_shape_scale.clear()
 	_fire = null

@@ -33,11 +33,11 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 
 | Character                         | HP  | Dice (mean)                 | Sockets                        | Passive                    | Birthstone reads                  |
 | --------------------------------- | --- | --------------------------- | ------------------------------ | -------------------------- | --------------------------------- |
-| **Ardor**, the Knight             | 80  | d6 d6 d6 d8 d8 (19.5)       | Red, Blue, Green, Any, Any     | Heal 3 per unused reroll   | Sets                              |
+| **Ardor**, the Knight             | 80  | d6 d6 d6 d8 d8 (19.5)       | Red, Blue, Green, Any, Any     | Heal Resonance per unused reroll | Sets                        |
 | **Vesper**, the Rogue             | 65  | d4 d4 d4 d4 d20 (20.5)      | Red, Red, Violet, Any, Any     | Block per hit dealt        | Five distinct, see options        |
 | **Cadence**, the Wizard           | 70  | d4 d6 d8 d10 d12 (22.5)     | Red, White, Violet, Any, Any   | +1 reroll                  | Straights                         |
 | **Rue**, the Apothecary           | 70  | d4 d4 d6 d6 Phial (13.7)    | Red, Violet, Green, Any, Any   | Heal Res when poison ticks | Low dice and ones                 |
-| **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Red, Gold, Gold, Any, Any, Any | Free reroll of ones        | Crowns                            |
+| **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Red, Gold, Gold, Any, Any, Any | A tenth of his bank staked | Crowns                            |
 | **Sixth**: Harrow, Blaise or Puck |     |                             |                                |                            | High total, explosions, or parity |
 
 ### Ardor, the Knight
@@ -45,7 +45,7 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 _The wall. Locks in early, heals for patience, and turns a lucky triple into a hammer._
 
 - **HP** 80. **Dice** d6 d6 d6 d8 d8. **Sockets** Red, Blue, Green, Any, Any.
-- **Passive: Second Wind.** Heal 3 HP for each unused reroll when you lock in.
+- **Passive: Second Wind.** Heal, for each unused reroll, the Resonance your rail built — paid as the rail closes, because at the start of it there is no Resonance yet to heal on. Patience is worth what the chain was worth.
 - **Birthstone: Rally.**
   - Pair (_Rank_): gain Res block.
   - Triple (_File_): deal 3×Res damage.
@@ -129,22 +129,26 @@ _The low roller. Wants ones. Everything the other five dread, Rue drinks._
 
 ### Florin, the Gambler
 
-_The six-socket high roller. Loaded dice, fool's gold, and a stone once in a hundred turns._
+_The six-socket high roller. Every coin he owns is ammunition._
 
 - **HP** 60. **Dice** five **Gambler's Dice**: d6s whose 6 is a 7 (faces 1 2 3 4 5 7, bowl mean
   18.3). The 7 is the crown, and it is the face Lucky Seven pays on. **Sockets** Red, Gold, Gold,
   Any, Any, Any (six).
-- **Passive: Loaded.** Any die that lands on a 1 is rerolled once, free, before you see the hand.
+- **The pot.** Florin fights with money on the table. Everything staked leaves his bank the moment
+  it is staked, so what he owns is the ceiling on what he can do — and it all comes back to him if
+  he wins the fight. Lose it, or Bust, and it stays on the table.
+- **Passive: House Money.** Each fight opens with a tenth of his pyrite already staked, so the
+  stakes climb with the run and a first-turn Bust is never free.
 - **Birthstone: High Roller.** A _crown_ is a die showing its top face.
-  - Each crown (_Ante_): Res damage and Res ore.
-  - Three or more crowns (_Hot Streak_): stones found in this fight are a grade better.
-  - Five crowns (_Royal Flush_): a raw stone drops on the spot, Exquisite or better.
-  - Optional fourth tier, _Bust_: no crown showing, lose Res ore. Gamblers lose sometimes; the odds are
-    shown, and Loaded keeps it at one turn in twenty-five.
-- **Fire rates** chasing crowns with Loaded: at least one 96%, three or more 46%, five 2.5% (one
-  chased turn in forty), Bust 3.9%. Without the passive: 94%, 35%, 1.3%, 6.5%.
+  - Each crown (_Ante_): stake Res, and deal Res.
+  - Three or more crowns (_Raise_): match the pot out of the bank, then deal the whole of it.
+  - Five crowns (_All In_): the whole bank goes in; the pot lands on every creature and pays him
+    what it actually takes off them, overkill excluded.
+  - Fourth tier, _Bust_: no crown showing. The table takes the pot, and half of it comes out of
+    him. Block soaks that blow. The richer the turn, the worse the fall.
+- **Fire rates** chasing crowns: at least one 94%, three or more 35%, five 1.3%, Bust 6.5%.
 - **What the sixth socket costs.** Lowest HP, a flat bowl, and a sixth chance to fizzle and reset
-  Resonance before the Birthstone. Wild faces and Twin engravings are the Gambler's shopping list.
+  Resonance before the Birthstone. Wild and Twin faces are the Gambler's shopping list.
 - **Stone.** A pyrite cube, fool's gold, which forms as a perfect cube in nature: the Birthstone is a
   metal die. **Birthstone face:** wide eyes, a whoop.
 

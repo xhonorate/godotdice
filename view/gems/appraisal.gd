@@ -282,7 +282,7 @@ func _break_open() -> void:
 	_title.text = "Appraised"
 	_title.add_theme_color_override("font_color", _hue.lightened(0.4))
 	DeepUi.pulse(_title, 1.25, 0.5)
-	_subtitle.text = "Out of the rock at last. Here is what the loupe says."
+	_subtitle.text = "Appraised. Here's what it is."
 
 func _read(part: String) -> void:
 	_sheet.reveal(part)
@@ -368,7 +368,7 @@ func finish() -> void:
 		_graded = true
 		if not _shatters:
 			DeepAudio.play(DeepSoundBank.grade_sound(str(DeepStone.grade(stone).tier)), {"delay": 0.2})
-	_subtitle.text = _question() if not owned.is_empty() else "Out of the rock at last. Here is what the loupe says."
+	_subtitle.text = _question() if not owned.is_empty() else "Appraised. Here's what it is."
 	_view.call("set_spin", 0.45)
 	_flash.color.a = 0.0
 	_lamp.modulate.a = 0.35

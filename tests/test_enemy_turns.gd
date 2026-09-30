@@ -24,7 +24,7 @@ func setup(key: String = "CAVE_TICK", players: int = 2) -> Dictionary:
 	for i in range(players):
 		var dice: Array = []
 		for j in range(5):
-			dice.append(DeepDice.make("D6", DeepContent.die("D6"), "p%d_d%d" % [i, j]))
+			dice.append(DeepDice.make("D6", "p%d_d%d" % [i, j]))
 		var player: Dictionary = DeepBattle.make_player("p%d" % i, "Player", "ARDOR", [], dice)
 		player.birthstone = {}
 		party.append(player)
@@ -35,7 +35,7 @@ func setup(key: String = "CAVE_TICK", players: int = 2) -> Dictionary:
 func fixed(foe: Dictionary, values: Array) -> void:
 	foe.dice = []
 	for i in range(values.size()):
-		foe.dice.append(DeepDice.make("D6", {"shape": "D6", "faces": [int(values[i])]}, "e0_d%d" % i))
+		foe.dice.append(DeepDice.make("D6", "e0_d%d" % i, {"faces": [DeepDice.face(int(values[i]))]}))
 
 func events(fixture: Dictionary) -> Array:
 	DeepBattle.start_resolution(fixture.state)
@@ -101,7 +101,7 @@ func combinations() -> void:
 	var suspense_foe: Dictionary = DeepCreatures.make("MAGPIE", "x", 1, 1)
 	DeepCreatures.prepare(suspense_foe)
 	suspense_foe.hand = [{"die_id": "a", "value": 3}, {"die_id": "b", "value": 3}]
-	var d4: Dictionary = DeepDice.make("D4", DeepContent.die("D4"), "last")
+	var d4: Dictionary = DeepDice.make("D4", "last")
 	check(DeepCreatures.suspense(suspense_foe, [d4]), "suspense only reads revealed dice and possible faces")
 	suspense_foe.hand[1].value = 2
 	check(not DeepCreatures.suspense(suspense_foe, [d4]), "no suspense for an impossible triple")

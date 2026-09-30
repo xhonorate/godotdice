@@ -353,7 +353,7 @@ func _slot_card(parent: Node, unit: Dictionary, index: int) -> void:
 static func faces_row(parent: Node, die: Dictionary, edge: float) -> HBoxContainer:
 	var row := DeepUi.hbox(parent, 2)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	var tone: Color = DiceIcons.palette(str(die.get("key", "D6"))).body
+	var tone: Color = DiceIcons.die_palette(die).body
 	for f in die.get("faces", []):
 		row.add_child(DiceIcons.face(edge, int(f.value), tone if str(f.kind) == "plain" else DiceIcons.face_kind_tint(str(f.kind)), str(die.get("shape", "D6")), false, DiceIcons.face_text(int(f.value), str(f.kind))))
 	return row
@@ -457,15 +457,15 @@ func _die_lamp(box: VBoxContainer, unit: Dictionary, die: Dictionary) -> void:
 	box.add_child(thumb)
 	DeepUi.title(box, DeepDice.describe(die), 20, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	faces_row(box, die, 22)
-	var definition: Dictionary = DeepContent.die(str(die.get("key", "")))
-	if not str(definition.get("text", "")).is_empty():
-		DeepUi.wrap(box, str(definition.text), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 290)
-	var engraving: String = str(die.get("engraving", ""))
-	if not engraving.is_empty():
-		for key in DeepContent.section("engravings"):
-			var entry: Dictionary = DeepContent.engraving(str(key))
-			if str(entry.get("key", "")) == engraving:
-				DeepUi.stat(box, "spark", "%s: %s" % [str(entry.get("name", engraving)), str(entry.get("text", ""))], DeepUi.INFO, 12)
+	var pattern: String = str(die.get("pattern", ""))
+	if not pattern.is_empty():
+		DeepUi.stat(box, "pick", "%s: %s" % [DeepDice.pattern_name(pattern), str(DeepContent.pattern(pattern).get("text", ""))], DeepUi.INFO, 12)
+	var material: String = str(die.get("material", ""))
+	if not material.is_empty():
+		DeepUi.stat(box, "spark", "%s: %s" % [DeepDice.material_name(material), str(DeepContent.material(material).get("text", ""))], DiceIcons.die_palette(die).body, 12)
+	for entry in DeepDice.etchings(die):
+		var kind: String = str(entry.kind)
+		DeepUi.stat(box, "spark", "%s: %s" % [DeepDice.etching_name(kind), str(DeepContent.etching(kind).get("text", ""))], DiceIcons.face_kind_tint(kind), 12)
 	if not editable():
 		return
 	for i in range(unit.dice.size()):

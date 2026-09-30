@@ -8,7 +8,7 @@ import { columns, lines, histogram, stacked, bars } from '../charts.js';
 import { rawImage, markColor, colorKeyMark, gemImage } from '../gemart.js';
 import { depthControls, cutNames, clarityNames, whenReady, CUT_COLORS, CLARITY_COLORS, GRADE_COLORS, RARITY_COLORS } from './common.js';
 
-const SOURCES = [['0', 'A fight (+0)'], ['4', 'An elite (+4)'], ['2', 'A merchant’s stall (+2)'], ['-2', 'Seam chips (−2)'], ['4b', 'Seam, pried (+4)'], ['8', 'A Royal Flush (+8)'], ['custom', 'Custom…']];
+const SOURCES = [['0', 'A fight (+0)'], ['4', 'An elite (+4)'], ['2', 'A merchant’s stall (+2)'], ['-2', 'Seam chips (−2)'], ['3', 'Seam, pried (+3)'], ['8', 'A Royal Flush (+8)'], ['custom', 'Custom…']];
 const state = { source: '0', custom: 0 };
 
 const bonusOf = () => (state.source === 'custom' ? state.custom : parseInt(state.source, 10) || 0);

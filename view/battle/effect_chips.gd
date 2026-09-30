@@ -52,6 +52,13 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	var gifts: int = int(unit.get("granted_rerolls", 0))
 	if gifts > 0:
 		out.append(entry("gifts", "reroll", "+%d" % gifts, true, "Extra rerolls", "%s more next turn." % DeepUi.plural(gifts, "reroll")))
+	## What the Gambler has riding. It has already left his bank, so the chip says both what
+	## winning gives back and what a Bust would cost him.
+	var pot: int = int(unit.get("pot", 0))
+	if pot > 0:
+		out.append(entry("pot", "coins", str(pot), true, "The pot",
+			"%d Pyrite on the table. Win the fight and it all comes back; Bust and it is gone, and half of it comes out of you (%d damage)." % [pot, pot / 2],
+			DeepUi.ACCENT))
 	var amplify: float = float(unit.get("amplify", 1.0))
 	if amplify > 1.001:
 		out.append(entry("amplify", "bolt", "×%.1f" % amplify, true, "Amplified", "The next gem to fire hits ×%.1f as hard." % amplify))
@@ -62,7 +69,7 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("nullify", "cross_out", "", false, "Came up empty", "Double Down lost: the next gem does nothing."))
 	var quality: int = int(unit.get("quality_bonus", 0))
 	if quality > 0:
-		out.append(entry("quality", "star", "+%d%%" % quality, true, "Windfall", "Stones found after this fight are %d%% better." % quality, DeepUi.ACCENT))
+		out.append(entry("quality", "star", "+%d" % quality, true, "Hot Streak", "Stones found when this fight is won roll at +%.1f generation luck, and are %d%% likelier to turn up at all." % [float(quality) / 10.0, quality / 2], DeepUi.ACCENT))
 	## A gem raised mid-fight is not a chip here: the rail draws the raised ranks on the gem
 	## itself, where the player is already looking, and it grows to the carat it now counts as.
 	out.append_array(for_run(unit))
@@ -73,7 +80,7 @@ static func for_run(unit: Dictionary) -> Array:
 	var out: Array = []
 	var sparkle: int = clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
 	if sparkle > 0:
-		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%d generation luck. Maximum 100; carries between fights." % [sparkle, sparkle], DeepUi.ACCENT))
+		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%.1f generation luck, a tenth of a point each. Maximum 100; carries between fights." % [sparkle, float(sparkle) * DeepRules.SPARKLE_LUCK], DeepUi.ACCENT))
 	var shrine: String = str(unit.get("run_mods", {}).get("shrine", ""))
 	if not shrine.is_empty():
 		out.append(entry("shrine", "star", "+1 ct", true, "Shrine blessing", "For the rest of the run, every gem that fires on %s gains 1 carat." % shrine.replace("_", " "), DeepUi.ACCENT))

@@ -10,8 +10,8 @@ static func make(key: String, id: String, depth: int, party: int) -> Dictionary:
 	var hp: int = maxi(1, int(round(float(def.get("hp", 10)) * hp_scale)))
 	var dice: Array = []
 	var index: int = 0
-	for die_key in def.get("dice", []):
-		dice.append(DeepDice.make(str(die_key), DeepContent.die(str(die_key)), "%s_d%d" % [id, index]))
+	for die_ref in def.get("dice", []):
+		dice.append(DeepForge.die_from(die_ref, "%s_d%d" % [id, index]))
 		index += 1
 	return {"id": id, "key": key, "name": str(def.get("name", key)), "side": "enemy", "hp": hp, "max_hp": hp,
 		"block": int(def.get("block", 0)), "statuses": {"ward": clampi(int(def.get("ward", 1 if bool(def.get("warden", false)) else 0)), 0, 99)}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
@@ -46,7 +46,7 @@ static func effective_dice(enemy: Dictionary) -> Array:
 		var index: int = TIERS.find(str(base.get("shape", "D6")))
 		var tier: int = maxi(0, clampi(index + upgrade, 0, TIERS.size() - 1) - dread)
 		var key: String = str(TIERS[tier])
-		out.append(base.duplicate(true) if tier == index else DeepDice.make(key, DeepContent.die(key), str(base.id)))
+		out.append(base.duplicate(true) if tier == index else DeepDice.make(key, str(base.id), {"pattern": str(base.get("pattern", "")), "material": str(base.get("material", ""))}))
 	return out
 
 static func prepare(enemy: Dictionary) -> void:

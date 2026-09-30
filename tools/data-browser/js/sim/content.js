@@ -19,7 +19,9 @@ export function keys(sectionName) { return Object.keys(section(sectionName)).sor
 export const skill = (k) => entry('skills', k);
 export const inclusion = (k) => entry('inclusions', k);
 export const die = (k) => entry('dice', k);
-export const engraving = (k) => entry('engravings', k);
+export const pattern = (k) => entry('patterns', String(k).toUpperCase());
+export const etching = (k) => entry('etchings', String(k).toUpperCase());
+export const material = (k) => entry('materials', String(k).toUpperCase());
 export const character = (k) => entry('characters', k);
 export const creature = (k) => entry('creatures', k);
 export const mine = (k) => entry('mines', k);

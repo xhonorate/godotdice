@@ -7,7 +7,16 @@ import { colorKeyMark, CUTS, SHAPE_NAMES, silhouette } from '../gemart.js';
 import { tabs, rarityChip, RARITY_COLORS } from './common.js';
 
 const state = { tab: 'oddities' };
-const NEEDS = { stone: 'a stone', two_stones: 'two stones', inclusion: 'a stone and one of its inclusions', raw_stone: 'a raw stone', die: 'a die', die_face: 'a die and a face', die_face_pair: 'two faces of one die', die_engraving: 'a die and an engraving', pattern: 'a pattern', copy_inclusion: 'an inclusion and a stone with room', ore: 'pyrite', socket: 'a socketed stone', pick: 'a choice of three' };
+const NEEDS = { stone: 'a stone', two_stones: 'two stones', inclusion: 'a stone and one of its inclusions', raw_stone: 'a raw stone', die: 'a die', die_face: 'a die and a face', die_face_pair: 'two faces of one die', pattern: 'a pattern', raw_stones: 'up to three raw stones', offer: 'what the room has laid out', ore: 'pyrite', socket: 'a socketed stone', pick: 'a choice of three' };
+
+// A card's "{ore}" is the pyrite it pays at the depth the party is on; here, the range across a run.
+function oreText(choice) {
+	const text = choice.text || '';
+	if (!text.includes('{ore}')) return text;
+	const a = choice.action || {};
+	const at = (depth) => (a.base !== undefined || a.per_depth !== undefined ? Math.max(0, (a.base | 0) + (a.per_depth ?? 1) * depth) : (a.amount ?? 5));
+	return text.replace('{ore}', `${at(1)}–${at(24)}`);
+}
 
 function actionChips(action) {
 	if (!action) return [];
@@ -25,7 +34,7 @@ export default {
 			for (const key of C.keys('oddities')) {
 				const d = C.oddity(key);
 				grid.append(card(d.name || C.title(key), h('div', { class: 'col' }, h('p', { class: 'small text-2' }, d.text || ''),
-					h('div', { class: 'effect-list' }, (d.choices || []).filter((c) => c.action && c.action.kind !== 'none').map((c) => h('div', { class: 'effect', style: { gridTemplateColumns: '1fr' } }, h('span', {}, h('span', { class: 'eff-kind' }, c.label || c.id), c.needs ? h('span', { class: 'muted small' }, ` · needs ${NEEDS[c.needs] || c.needs}`) : null, h('span', { class: 'eff-sub' }, c.text || ''), h('div', { class: 'row tight', style: { marginTop: '4px' } }, chip(String(c.action.kind).replace(/_/g, ' '), { class: 'accent' }), ...actionChips(c.action)))))))));
+					h('div', { class: 'effect-list' }, (d.choices || []).filter((c) => c.action && c.action.kind !== 'none').map((c) => h('div', { class: 'effect', style: { gridTemplateColumns: '1fr' } }, h('span', {}, h('span', { class: 'eff-kind' }, c.label || c.id), c.needs ? h('span', { class: 'muted small' }, ` · needs ${NEEDS[c.needs] || c.needs}`) : null, h('span', { class: 'eff-sub' }, oreText(c)), h('div', { class: 'row tight', style: { marginTop: '4px' } }, chip(String(c.action.kind).replace(/_/g, ' '), { class: 'accent' }), ...actionChips(c.action)))))))));
 			}
 			root.append(grid);
 			return;
@@ -57,7 +66,8 @@ export default {
 			], rows: Object.entries(pack.colors || {}).map(([key, c]) => ({ key, ...c, skills: C.keys('skills').filter((k) => C.skill(k).color === key).length })), compact: true, rowKey: (r) => r.key })),
 			card('Rarity', h('div', { class: 'col' }, columns({ data: C.RARITIES.map((r) => ({ label: C.title(r), value: C.rarityWeight(r), color: RARITY_COLORS[r], key: r, note: 'draw weight' })), width: 320, height: 150, format: (v) => String(v), valueLabels: 'all' }),
 				table({ columns: [{ key: 'name', label: 'Rarity', render: (r) => rarityChip(r.key) }, { key: 'weight', label: 'Weight', align: 'right' }, { key: 'score', label: 'Grade points', align: 'right' }, { key: 'value', label: 'Worth ×', align: 'right' }], rows: C.RARITIES.map((r) => ({ key: r, weight: C.rarityWeight(r), score: C.rarityScore(r), value: { COMMON: 1, UNCOMMON: 1.5, RARE: 2.5, LEGENDARY: 4, MYTHIC: 8 }[r] })), compact: true, rowKey: (r) => r.key }))),
-			card('Engravings', table({ columns: [{ key: 'name', label: 'Engraving', render: (r) => h('b', {}, r.name) }, { key: 'rarity', label: 'Rarity', render: (r) => rarityChip(r.rarity) }, { key: 'text', label: 'Effect' }], rows: C.keys('engravings').map((k) => ({ key: k, ...C.engraving(k) })), compact: true, rowKey: (r) => r.key }))));
+			card('Etchings', table({ columns: [{ key: 'name', label: 'Etching', render: (r) => h('b', {}, r.name) }, { key: 'rarity', label: 'Rarity', render: (r) => rarityChip(r.rarity) }, { key: 'text', label: 'Effect' }], rows: C.keys('etchings').map((k) => ({ key: k, ...C.etching(k) })), compact: true, rowKey: (r) => r.key })),
+			card('Materials', table({ columns: [{ key: 'name', label: 'Material', render: (r) => h('b', {}, r.name) }, { key: 'rarity', label: 'Rarity', render: (r) => rarityChip(r.rarity) }, { key: 'text', label: 'Effect' }], rows: C.keys('materials').map((k) => ({ key: k, ...C.material(k) })), compact: true, rowKey: (r) => r.key }))));
 		root.append(h('div', { class: 'grid grid-2' },
 			card('Cut ladder', table({ columns: [{ key: 'name', label: 'Cut' }, { key: 'weight', label: 'Base weight', align: 'right' }, { key: 'index', label: 'Step', align: 'right' }], rows: C.cuts().map((c, i) => ({ key: c.key, ...c, index: i })), compact: true, rowKey: (r) => r.key })),
 			card('Clarity ladder', table({ columns: [{ key: 'name', label: 'Clarity' }, { key: 'inclusions', label: 'Slots', align: 'right' }, { key: 'weight', label: 'Base weight', align: 'right' }, { key: 'bonus', label: 'Bonus', render: (r) => [r.resonance_mult ? `×${r.resonance_mult} Resonance` : '', r.magnitude ? `×${r.magnitude} magnitude` : '', r.flawless_line ? 'the Flawless line' : ''].filter(Boolean).join(' · ') || '—' }], rows: C.clarities().map((c) => ({ key: c.key, ...c })), compact: true, rowKey: (r) => r.key }))));

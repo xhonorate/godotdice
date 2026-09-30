@@ -20,10 +20,10 @@ const SEATS: Array = [Color("f0b44c"), Color("5fb8ff"), Color("6fdc8c"), Color("
 const GLINT_GLYPHS: Dictionary = {"hostile": "eye", "glittering": "star", "strange": "question", "dark": "question"}
 const GLINT_TONES: Dictionary = {"hostile": Color("ff5a4a"), "glittering": Color("ffd257"), "strange": Color("b58cff"), "dark": Color("6d7688")}
 const GLINT_WORDS: Dictionary = {
-	"hostile": "Something moves down there: eyes catch the light.",
+	"hostile": "Something's moving down there.",
 	"glittering": "Something glitters down there.",
 	"strange": "Something strange waits down there.",
-	"dark": "A dark mouth: nothing shows until the way is lit.",
+	"dark": "A dark tunnel. Light the way to see what's there.",
 }
 
 var run: Dictionary = {}
@@ -324,7 +324,7 @@ func _draw_header(map: Dictionary, depth: int) -> void:
 	_glyph("lantern", Vector2(size.x - width - 32, 40), 16.0, Color(DeepUi.ACCENT, flicker))
 	_canvas.draw_string(ThemeDB.fallback_font, Vector2(size.x - width - 18, 46), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tone)
 	_spots.append({"at": Vector2(size.x - width * 0.5 - 24, 40), "radius": 14.0,
-		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows one floor ahead. Past that, the chart ends."})
+		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows one floor ahead."})
 
 func _draw_depths() -> void:
 	## Depth numbers down the gutter, and a faint rule across the rock at each.
@@ -523,8 +523,9 @@ func _kind_words(kind: String) -> String:
 		"oddity": return "an oddity"
 		"merchant": return "a merchant: buy stones, sell and appraise"
 		"smithy": return "a smithy: a die a size bigger or smaller"
-		"carver": return "a carver: raise or recut a face of a die"
+		"carver": return "a carver: raise, recut or engrave a die"
 		"hidden": return "a dark mouth: anything could be down there"
+		"well": return "a wishing well: throw something precious down it"
 		"landing": return "a landing"
 	return kind
 

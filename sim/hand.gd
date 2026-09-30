@@ -3,9 +3,14 @@ extends RefCounted
 ## What a hand of rolls contains, worked out once and read by every trigger and term.
 ##
 ## Wild dice join the largest set (ties go to the higher value) and fill the gaps in the
-## longest straight. Blank dice are not there. Twin engravings count twice for sets. The
+## longest straight. Blank dice are not there. A Twin face counts twice for sets. The
 ## analysis is a plain dictionary so the rules, the forecast and the tests all read the
-## same fields:
+## same fields.
+##
+## `colors` is the gem asking. Every list of die ids here is ordered by how badly a die
+## wants to be the one that fires it — a material answering that gem colour first, then an
+## etched face, then any material at all — so three sixes and a Shiny six spend the Shiny
+## one. See `DeepDice.preference`.
 ##
 ##   values, total, max_total, high, low, high_pct, held, rerolled, phantoms, dice_count
 ##   groups        [{value, count, dice}] sorted by count then value, wilds included
@@ -17,16 +22,16 @@ extends RefCounted
 ##   distinct      number of different values (wilds each count as a new one)
 ##   low_dice, low_ids     dice at or below half their own top (a wild is never low)
 ##   crowns, crown_ids     dice showing their own top face (a wild is always a crown)
-##   wilds         die ids of wild rolls;  gem_face  true if any die shows its gem face
-##   ids_by_value  {value: [die ids]}
+##   wilds         die ids of wild rolls
+##   ids_by_value  {value: [die ids]}, each bucket in preference order
 
-static func analyze(hand: Array) -> Dictionary:
+static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var values: Array = []
 	var ids_by_value: Dictionary = {}
 	var counts: Dictionary = {}
 	var wilds: Array = []
 	var wild_top: int = 0
-	var gem_face: bool = false
+	var rank: Dictionary = {}
 	var total: int = 0
 	var max_total: int = 0
 	var held: int = 0
@@ -41,11 +46,14 @@ static func analyze(hand: Array) -> Dictionary:
 	var low_ids: Array = []
 	var crowns: int = 0
 	var crown_ids: Array = []
-	for roll in hand:
+	for index in range(hand.size()):
+		var roll: Dictionary = hand[index]
 		var kind: String = str(roll.get("kind", "plain"))
 		var value: int = int(roll.get("value", 0))
 		var top: int = maxi(1, int(roll.get("top", value)))
 		var id: String = str(roll.get("die_id", ""))
+		## Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
+		rank[id] = DeepDice.preference(roll, colors) * 1000 - index
 		max_total += top
 		if bool(roll.get("phantom", false)):
 			phantoms += 1
@@ -53,8 +61,6 @@ static func analyze(hand: Array) -> Dictionary:
 			held += 1
 		if int(roll.get("rerolls", 0)) > 0:
 			rerolled += 1
-		if kind == "gem":
-			gem_face = true
 		if kind == "wild":
 			wilds.append(id)
 			wild_top = maxi(wild_top, top)
@@ -80,10 +86,13 @@ static func analyze(hand: Array) -> Dictionary:
 		if value >= top:
 			crowns += 1
 			crown_ids.append(id)
-		counts[value] = int(counts.get(value, 0)) + (2 if str(roll.get("engraving", "")) == "twin" else 1)
+		counts[value] = int(counts.get(value, 0)) + (2 if kind == "twin" or bool(roll.get("twinned", false)) else 1)
 		if not ids_by_value.has(value):
 			ids_by_value[value] = []
 		ids_by_value[value].append(id)
+	for value in ids_by_value:
+		_prefer(ids_by_value[value], rank)
+	_prefer(wilds, rank)
 	# Sets. The wilds go to the largest group, or make one of their own.
 	var best_value: int = 0
 	var best_count: int = 0
@@ -118,7 +127,7 @@ static func analyze(hand: Array) -> Dictionary:
 			odd_values += 1
 		else:
 			even_values += 1
-	return {"values": values, "wilds": wilds, "gem_face": gem_face, "total": total, "max_total": maxi(1, max_total),
+	return {"values": values, "wilds": wilds, "rank": rank, "total": total, "max_total": maxi(1, max_total),
 		"high": high if high > 0 else wild_top, "low": low if low > 0 else wild_top, "high_pct": high_pct,
 		"held": held, "rerolled": rerolled, "phantoms": phantoms, "dice_count": hand.size(),
 		"groups": groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
@@ -127,6 +136,10 @@ static func analyze(hand: Array) -> Dictionary:
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
 		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids,
 		"ids_by_value": ids_by_value}
+
+static func _prefer(ids: Array, rank: Dictionary) -> void:
+	## The dice that most want to be spent, first.
+	ids.sort_custom(func(a: String, b: String) -> bool: return int(rank.get(a, 0)) > int(rank.get(b, 0)))
 
 static func _straight(present_values: Array, wilds: Array, ids_by_value: Dictionary, dice_total: int) -> Dictionary:
 	## The longest run of consecutive values, wilds filling gaps, preferring the highest run
@@ -166,8 +179,11 @@ static func read(analysis: Dictionary, count: int, from_high: bool) -> Dictionar
 			entries.append({"value": int(v), "id": str(id)})
 	for id in analysis.get("wilds", []):
 		entries.append({"value": int(analysis.get("high", 0)), "id": str(id)})
+	var rank: Dictionary = analysis.get("rank", {})
 	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return a.value > b.value if from_high else a.value < b.value)
+		if int(a.value) != int(b.value):
+			return a.value > b.value if from_high else a.value < b.value
+		return int(rank.get(str(a.id), 0)) > int(rank.get(str(b.id), 0)))
 	var sum: int = 0
 	var dice: Array = []
 	for index in range(mini(count, entries.size())):

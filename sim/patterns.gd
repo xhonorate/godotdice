@@ -73,15 +73,6 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 		result.value = picked.sum
 		result.count = picked.dice.size()
 		return result
-	if bool(a.get("gem_face", false)) and kind != "pyrite":
-		## A gem face lights the whole rail. The pattern still reports what it would have
-		## read, so amounts that depend on it have something to stand on.
-		result.active = true
-		result.gem_face = true
-		result.dice = _all_dice(a)
-		result.value = int(a.get("best_set", {}).get("value", a.get("high", 0)))
-		result.count = maxi(1, int(a.get("best_set", {}).get("count", 1)))
-		return result
 	match kind:
 		"pair", "triple", "quad", "quint":
 			for group in a.get("groups", []):

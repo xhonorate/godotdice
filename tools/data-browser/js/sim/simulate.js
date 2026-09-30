@@ -10,8 +10,14 @@ import * as Stone from './stone.js';
 import * as Forge from './forge.js';
 import { makeRng } from './rng.js';
 
-export function buildBowl(keys, engravings = []) {
-	return keys.map((key, i) => Dice.make(key, C.die(key), `d${i}`, engravings[i] || ''));
+// A bowl from what the browser is set to: each entry is a shape, or an object carrying the
+// variations that die was made with.
+export function buildBowl(keys, variations = []) {
+	return keys.map((key, i) => {
+		const extra = variations[i] || {};
+		if (key && typeof key === 'object') return Dice.dieFrom(key, `d${i}`);
+		return Dice.make(String(key), `d${i}`, extra);
+	});
 }
 
 // --- reroll policies -----------------------------------------------------------------------
@@ -106,8 +112,8 @@ export function headlineKind(skill) {
 
 // Fire rate and expected effect of a set of skills, per Cut, against one bowl. `stone` names
 // the carat, clarity and inclusions every skill is judged as; `context` is the rail context.
-export function skillStats({ bowl, engravings = [], rerolls = 2, samples = 4000, seed = 7, skills, stone = {}, context = {} }, report = null) {
-	const dice = buildBowl(bowl, engravings);
+export function skillStats({ bowl, variations = [], rerolls = 2, samples = 4000, seed = 7, skills, stone = {}, context = {} }, report = null) {
+	const dice = buildBowl(bowl, variations);
 	const carat = stone.carat ?? 8;
 	const clarity = stone.clarity ?? C.clearIndex();
 	const inclusions = stone.inclusions || [];
@@ -203,8 +209,8 @@ function evaluateWith(stone, hand, c, analysis) {
 
 // How often bare triggers fire against a bowl: {kind, amount|ladder, values} each, judged at
 // `cut`. Used for Birthstone tiers, creature-style patterns and the dice page.
-export function triggerOdds({ bowl, engravings = [], rerolls = 2, samples = 4000, seed = 13, triggers, cut = 0, chase = true }) {
-	const dice = buildBowl(bowl, engravings);
+export function triggerOdds({ bowl, variations = [], rerolls = 2, samples = 4000, seed = 13, triggers, cut = 0, chase = true }) {
+	const dice = buildBowl(bowl, variations);
 	const out = triggers.map(() => ({ fired: 0, valueSum: 0, countSum: 0 }));
 	const groups = new Map();
 	triggers.forEach((t, i) => { const p = chase ? policyFor(t) : 'none'; if (!groups.has(p)) groups.set(p, []); groups.get(p).push(i); });
@@ -225,8 +231,8 @@ export function triggerOdds({ bowl, engravings = [], rerolls = 2, samples = 4000
 // --- hands -----------------------------------------------------------------------------------
 
 // What a bowl tends to show: pattern odds and the shape of its totals and high dice.
-export function handStats({ bowl, engravings = [], rerolls = 0, policy = 'sets', samples = 6000, seed = 11 }) {
-	const dice = buildBowl(bowl, engravings);
+export function handStats({ bowl, variations = [], rerolls = 0, policy = 'sets', samples = 6000, seed = 11 }) {
+	const dice = buildBowl(bowl, variations);
 	const rng = makeRng(seed * 104729 + rerolls);
 	const patterns = { pair: 0, two_pair: 0, triple: 0, full_house: 0, quad: 0, quint: 0, straight3: 0, straight4: 0, straight5: 0, distinct5: 0, distinct4: 0, allOdd: 0, allEven: 0, anyCrown: 0, anyOne: 0 };
 	const totals = new Map(), highs = new Map(), lows = new Map(), distinct = new Map(), odd = new Map(), lowDice = new Map(), crowns = new Map(), highPct = new Map(), totalPct = new Map();
@@ -272,7 +278,7 @@ export function creatureMoves(def, phase = 0) {
 export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, samples = 6000, seed = 3 }) {
 	const def = C.creature(key);
 	const moves = creatureMoves(def, phase);
-	const dice = (def.dice || []).map((k, i) => Dice.make(k, C.die(k), `${key}_d${i}`));
+	const dice = (def.dice || []).map((k, i) => Dice.dieFrom(k, `${key}_d${i}`));
 	const rng = makeRng(seed * 31 + depth * 7 + party);
 	const damageBonus = Forge.creatureDamageBonus(def, depth);
 	const enrageTurn = Number(C.constant('enrage_turn', 7));
@@ -287,7 +293,6 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, s
 		for (let d = 0; d < dice.length; d++) {
 			const roll = Dice.rollOne(dice[d], rng);
 			history.push(roll);
-			Dice.resolveMirrors(history);
 			const last = d === dice.length - 1;
 			for (let m = 0; m < moves.length; m++) {
 				const move = moves[m];

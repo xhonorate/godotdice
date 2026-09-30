@@ -112,7 +112,7 @@ func _init() -> void:
 					## The smithy's card stands along the bottom of its room, and its work reaches the run.
 					saw_smithy = true
 					app.descent.show_state(run)
-					check(app.descent._cross_title.text == "The Smithy" and _count_text(app.descent._page_holder, "Choose") == 2, "a smithy names itself at the top and puts its work along the bottom")
+					check(app.descent._cross_title.text == "The Smithy" and _count_text(app.descent._page_holder, "Choose") == 3, "a smithy names itself at the top and puts its three pieces of work along the bottom")
 					var smith: Dictionary = app.session.local_player()
 					var shape: String = str(smith.dice[0].shape)
 					app.session.send({"kind": "oddity", "choice": "hammer" if shape != str(DeepDice.TIERS.back()) else "file", "payload": {"die_id": str(smith.dice[0].id)}})
@@ -139,8 +139,10 @@ func _init() -> void:
 					app.descent.show_state(run)
 					app.descent._pin("scales")
 					var on_sale: int = _button_count(app.descent._chip, "Sell")
-					check(on_sale == app.session.local_player().haul.size() and on_sale >= 2,
-						"the scales list every stone in the bag, raw and read alike (%d of %d)" % [on_sale, app.session.local_player().haul.size()])
+					## Everything but a fragile stone, which no buyer will take at any price.
+					var sellable: int = app.session.local_player().haul.filter(func(st: Dictionary) -> bool: return not DeepStone.known_fragile(st)).size()
+					check(on_sale == sellable and on_sale >= 2,
+						"the scales list every stone in the bag, raw and read alike (%d of %d)" % [on_sale, sellable])
 					check(_button_count(app.descent._chip, "Sell · %d" % DeepStone.rough_value(DeepOddities.find_stone(app.session.local_player(), "screens_rough"))) == 1,
 						"a raw stone is priced on the scales at what its size class is worth")
 					app.descent._pin("")
@@ -149,8 +151,9 @@ func _init() -> void:
 				saw_landing = true
 				app.descent.show_state(run)
 				## The cage is walked up to before the respite, never after it: a run that
-				## means to leave here takes the lift first, and pays the winch to do it.
-				if run.depth >= 4:
+				## means to leave here takes the lift first, and pays the winch to do it. A
+				## Warden's hall has no cage, so there the only way on is down.
+				if run.depth >= 4 and not bool(run.landing.get("cleared", false)):
 					run.players[0].ore = int(run.players[0].ore) + DeepDescent.lift_cost(run)
 					app.session.send({"kind": "choose", "choice": "lift"})
 				elif str(app.session.local_player().get("respite", "")).is_empty():
@@ -201,12 +204,15 @@ func _init() -> void:
 			unit.downed = false
 		app.descent.show_state(fake)
 		check(app.descent._page_holder.get_child_count() > 0, "the %s page renders" % str(key))
-	## A smithy and a carver show their own card in their own room.
+	## A smithy and a carver show their own card in their own room: every piece of work it
+	## holds, and the way out on a line of its own under them.
 	for kind in DeepDescent.DICE_ROOMS:
+		var card: Dictionary = DeepContent.oddity(DeepDescent.room_card(kind))
+		var jobs: int = card.get("choices", []).filter(func(c: Dictionary) -> bool: return str(c.get("action", {}).get("kind", "")) != "none").size()
 		fake.chamber = {"kind": kind, "oddity": DeepDescent.room_card(kind), "results": {}, "depth": 1, "settled": false}
 		app.descent.show_state(fake)
-		check(app.descent._cross_title.text == str(DeepContent.oddity(DeepDescent.room_card(kind)).name) and _count_text(app.descent._page_holder, "Choose") == 2 and _count_text(app.descent._page_holder, "Leave it") == 1,
-			"a %s shows its card: two pieces of work and the way out" % kind)
+		check(app.descent._cross_title.text == str(card.name) and _count_text(app.descent._page_holder, "Choose") == jobs and _count_text(app.descent._page_holder, "Leave it") == 1,
+			"a %s shows its card: %d pieces of work and the way out" % [kind, jobs])
 	## The well is a room of its own as well: a stone down it, or a measure of ore.
 	app.session.local_player().ore = 120
 	fake.chamber = {"kind": "well", "oddity": DeepDescent.room_card("well"), "results": {}, "depth": 1, "settled": false}

@@ -14,23 +14,31 @@ const RUN_TONE := Color("6fe3b0")
 const PLAIN_TONE := Color("d8dce6")
 const LEAD_TONE := Color("8f9fb5")
 
-## Every die's body and edge color, keyed the way the content keys them. The 3D view
-## reads it too, so a solid and its icon never disagree.
+## Every shape's body and edge color, and every material's. The 3D view reads both, so a
+## solid and its icon never disagree. Colour is the one thing a material always changes:
+## a plain die wears its size, and a die made of something wears what it is made of.
 const DIE_PALETTE := {
 	"D2": ["e0bc70", "77603b"], "D3": ["91d0de", "38566f"],
 	"D4": ["d9a05b", "6d4a20"], "D6": ["e6e2d4", "7c7565"], "D8": ["5fc7bd", "235e5a"],
 	"D10": ["6fa8ff", "27467f"], "D12": ["b98bff", "4a2f7a"], "D20": ["ff8672", "7a2b26"],
 	"D16": ["db8bc4", "70355f"], "D24": ["efb471", "86542e"], "D30": ["82d39b", "326544"],
-	"D40": ["78cce4", "305e78"], "D50": ["a4b8ef", "47577b"], "D60": ["d8a5ed", "6d437f"], "D100": ["f4d98c", "89703c"],
-	"PAIRED_D6": ["ff9cc4", "7d2f52"], "ODD_D6": ["8fd8ff", "2b5b7a"], "EVEN_D6": ["b7e06a", "4d6b22"],
-	"SEVENS_D8": ["ffd166", "806018"], "SPLIT_D12": ["ff86e0", "7a2668"], "WILD_D6": ["f3e7ff", "6d4a9a"],
-	"EXPLODING_D6": ["ff9d5c", "8a3a12"], "LOCKED_D8": ["9aa7b8", "3c4656"], "MIRROR_D6": ["dfe9f5", "5a6b80"],
-	"HOLLOW_D10": ["8c98a8", "2e3644"], "GEM_D8": ["ffe08a", "8a6a10"]}
+	"D40": ["78cce4", "305e78"], "D50": ["a4b8ef", "47577b"], "D60": ["d8a5ed", "6d437f"], "D100": ["f4d98c", "89703c"]}
+
+## What a material looks like, if the pack does not say. The pack is read first.
+const MATERIAL_PALETTE := {
+	"ruby": ["e0473c", "6b1d18"], "sapphire": ["3f7fe0", "1c3a6b"], "emerald": ["3fb56b", "1c5636"],
+	"amethyst": ["8b5fd6", "402a6b"], "citrine": ["e2b23a", "6f5313"], "diamond": ["e8eef5", "8e9bad"],
+	"opal": ["eceaf6", "9a93c4"], "glass": ["bfe6ef", "5b8c99"], "crystal": ["d6f0ff", "6f9ab5"],
+	"iron": ["9aa7b8", "3c4656"], "fools_gold": ["e6c65a", "7a5f18"], "granite": ["9a968f", "4a4742"],
+	"blood": ["a32b2b", "4d1212"]}
 
 ## What a special face is tinted toward on the solid, and the mark drawn on it.
 const FACE_KINDS := {
-	"wild": {"tint": "ffffff", "text": "★"}, "gem": {"tint": "ffe08a", "text": "◆"}, "exploding": {"tint": "ff7a3c", "text": "!"},
-	"locked": {"tint": "6f7c92", "text": "⌂"}, "mirror": {"tint": "ffffff", "text": "≡"}, "blank": {"tint": "3a4150", "text": ""}}
+	"wild": {"tint": "ffffff", "text": "★"}, "exploding": {"tint": "ff7a3c", "text": "!"},
+	"shiny": {"tint": "ffe9a8", "text": "✦"}, "golden": {"tint": "e6c65a", "text": "¤"},
+	"tally": {"tint": "9ce0b0", "text": "↑"}, "sticky": {"tint": "c8b08a", "text": "▣"},
+	"twin": {"tint": "b98bff", "text": "‖"}, "doubled": {"tint": "ff9dd2", "text": "²"},
+	"locked": {"tint": "6f7c92", "text": "⌂"}, "blank": {"tint": "3a4150", "text": ""}}
 
 ## The face-on silhouette of each solid, in unit space, with where its numeral sits.
 const SILHOUETTES := {
@@ -51,23 +59,40 @@ static func palette(key: String) -> Dictionary:
 		return {"body": Color("d8dce6"), "edge": Color("545c6b")}
 	return {"body": Color(str(entry[0])), "edge": Color(str(entry[1]))}
 
+static func material_palette(material: String) -> Dictionary:
+	## What the pack says a material looks like, or the shipped fallback.
+	var def: Dictionary = DeepContent.material(material)
+	var hue: String = str(def.get("hue", ""))
+	var edge: String = str(def.get("edge", ""))
+	if hue.is_valid_html_color() and edge.is_valid_html_color():
+		return {"body": Color(hue), "edge": Color(edge)}
+	var entry: Array = MATERIAL_PALETTE.get(material, [])
+	if entry.is_empty():
+		return {}
+	return {"body": Color(str(entry[0])), "edge": Color(str(entry[1]))}
+
+static func die_palette(die: Dictionary) -> Dictionary:
+	## A die wears its material, or the colour of its size when it is made of nothing in
+	## particular. A roll carries both, so this reads a roll as happily as a die.
+	var material: String = str(die.get("material", ""))
+	if not material.is_empty():
+		var made: Dictionary = material_palette(material)
+		if not made.is_empty():
+			return made
+	return palette(str(die.get("shape", "D6")))
+
 static func face_kind_tint(kind: String) -> Color:
 	return Color(str(FACE_KINDS.get(kind, {}).get("tint", "ffffff")))
 
 static func face_text(value: int, kind: String = "plain") -> String:
-	## What a face shows: its number, or the mark of what it does instead.
-	match kind:
-		"plain", "locked", "exploding", "gem":
-			var mark: String = str(FACE_KINDS.get(kind, {}).get("text", ""))
-			return str(value) + (mark if kind != "plain" else "")
-		"blank":
-			return ""
-		"mirror":
-			## The mark alone on the face of the die itself; the mark and the number it is
-			## copying once it has been rolled.
-			var mark: String = str(FACE_KINDS.get(kind, {}).get("text", ""))
-			return mark if value <= 0 else mark + str(value)
-	return str(FACE_KINDS.get(kind, {}).get("text", str(value)))
+	## What a face shows: its number, and the mark of whatever is etched into it. Only a
+	## blank face shows nothing at all, and only a wild shows its mark instead of a number.
+	if kind == "blank":
+		return ""
+	if kind == "wild":
+		return str(FACE_KINDS.wild.text)
+	var mark: String = str(FACE_KINDS.get(kind, {}).get("text", ""))
+	return str(value) + mark
 
 static func silhouette(shape: String) -> Dictionary:
 	var key := shape.to_upper()
@@ -218,9 +243,13 @@ static func ladder_rung(tier: Dictionary, die: String) -> int:
 		return int(DeepPatterns.SET_SIZES[kind])
 	return clampi(int(DeepPatterns.describe(trigger, 0).get("need", 0)), 1, 5)
 
-static func build_ladder(parent: Node, tiers: Array, die: String, lit: int, edge: float, on: Color, off: Color, notes: Array = []) -> HBoxContainer:
+static func build_ladder(parent: Node, tiers: Array, die: String, lit: int, edge: float, on: Color, off: Color, notes: Array = [], dark_tip: String = "") -> HBoxContainer:
 	## Five dice, the first `lit` of them solid: the dice the hand has that count, or the
 	## number a tier needs. Each die names, on hover, the smallest tier that reaches it.
+	##
+	## `dark_tip` is what the dice that stayed dark have to say for themselves — a High
+	## Roller's Bust, which is a tier about the crowns that are missing and so belongs on the
+	## dice rather than on a mark of its own beside them. Pass `off` in red to show it biting.
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 0)
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -238,8 +267,24 @@ static func build_ladder(parent: Node, tiers: Array, die: String, lit: int, edge
 			var note: String = str(notes[reached]) if reached < notes.size() else ""
 			if not note.is_empty():
 				tooltip += "\n" + note
+		if count > lit and not dark_tip.is_empty():
+			tooltip = dark_tip if tooltip.is_empty() else dark_tip + "\n" + tooltip
 		GemIcons.glyph(row, die + "_solid" if count <= lit else die, edge, on if count <= lit else off, tooltip)
 	return row
+
+static func ladder_penalty(tiers: Array, die: String) -> int:
+	## The tier a ladder speaks for without drawing a rung of its own: a penalty about the
+	## dice that did not come (High Roller's Bust, which asks for no crown at all). Returns
+	## its index, or -1. Such a tier is folded into the five dice instead of standing beside
+	## them, so the row stays five dice wide and reads as one thing.
+	for index in range(tiers.size()):
+		if die.is_empty() or not bool(tiers[index].get("penalty", false)):
+			continue
+		if ladder_rung(tiers[index], die) > 0:
+			continue
+		if str(tiers[index].get("trigger", {}).get("kind", "")) == "crowns_at_most" and die == "crown_die":
+			return index
+	return -1
 
 static func strip(described: Dictionary) -> Dictionary:
 	## Example faces that would satisfy the trigger: [value, tone] pairs, with a lead symbol.

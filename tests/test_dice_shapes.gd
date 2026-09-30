@@ -75,7 +75,7 @@ func _geometry(shape: String) -> void:
 	check(built.faces.size() == (98 if shape == "D2" else 9 if shape == "D3" else count), "%s has only the expected decorative surfaces" % shape)
 	var mesh := Geometry.mesh(shape, PackedColorArray([Color.WHITE]))
 	check(mesh.surface_get_array_index_len(0) == triangles * 3, "%s mesh includes every surface" % shape)
-	var die := DeepDice.make(shape, DeepContent.die(shape), "shape")
+	var die := DeepDice.make(shape, "shape")
 	var view := DiceView.new()
 	view.configure(die, {}, false, false, Color.WHITE)
 	check(view.face_count() == count, "%s view exposes only playable faces" % shape)
@@ -85,11 +85,11 @@ func _geometry(shape: String) -> void:
 	print("%s: %d surfaces, %d triangles, %.2f ms cold geometry" % [shape, built.faces.size(), triangles, micros / 1000.0])
 
 func _progression() -> void:
-	var die := DeepDice.make("D2", DeepContent.die("D2"), "kept", "twin")
+	var die := DeepDice.make("D2", "kept", {"etches": [{"face": 0, "kind": "twin"}]})
 	check(not DeepOddities.resize_refusal(die, -1).is_empty(), "d2 is the lower limit")
 	for shape in DeepDice.TIERS.slice(1):
 		check(DeepOddities.resize(die, 1).is_empty() and die.shape == shape, "upgrade reaches " + str(shape))
-		check(die.id == "kept" and die.engraving == "twin" and die.faces.size() == int(DeepDice.SHAPES[shape]), "resizing preserves identity and engraving, replaces faces")
+		check(die.id == "kept" and str(die.faces[0].kind) == "twin" and die.faces.size() == int(DeepDice.SHAPES[shape]), "resizing preserves identity and etchings, replaces faces")
 	check(not DeepOddities.resize_refusal(die, 1).is_empty(), "d100 is the upper limit")
 	var reverse := DeepDice.TIERS.slice(0, -1)
 	reverse.reverse()
@@ -97,7 +97,7 @@ func _progression() -> void:
 		check(DeepOddities.resize(die, -1).is_empty() and die.shape == shape, "downgrade reaches " + str(shape))
 	for i in DeepDice.TIERS.size():
 		var shape := str(DeepDice.TIERS[i])
-		var enemy := {"dice": [DeepDice.make(shape, DeepContent.die(shape), "base")], "dread_turns": 1}
+		var enemy := {"dice": [DeepDice.make(shape, "base")], "dread_turns": 1}
 		check(DeepCreatures.effective_dice(enemy)[0].shape == DeepDice.TIERS[maxi(0, i - 1)], "Dread follows the same ladder at " + shape)
 		check(enemy.dice[0].shape == shape, "Dread preserves the base die")
 
@@ -105,7 +105,7 @@ func _values() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4716
 	for shape in DeepDice.TIERS:
-		var die := DeepDice.make(str(shape), DeepContent.die(str(shape)), "roll")
+		var die := DeepDice.make(str(shape), "roll")
 		var count := int(DeepDice.SHAPES[shape])
 		var seen: Dictionary = {}
 		for _i in range(count * 40):
@@ -113,12 +113,11 @@ func _values() -> void:
 			check(int(roll.value) == int(roll.face) + 1 and int(roll.top) == count, "%s values agree with physical faces without a d20 clamp" % shape)
 			seen[int(roll.value)] = true
 		check(seen.size() == count, "all faces can roll on " + str(shape))
-	var high := DeepDice.make("D100", {"shape": "D100", "faces": [100]}, "high")
-	var mirror := DeepDice.make("MIRROR_D6", {"shape": "D6", "faces": [{"value": 0, "kind": "mirror"}]}, "mirror")
-	var rolls := DeepDice.roll_hand([high, mirror], rng)
-	check(rolls[1].value == 100, "mirrors copy results above 20")
+	var high := DeepDice.make("D100", "high", {"faces": [DeepDice.face(100)]})
+	var rolls := DeepDice.roll_hand([high], rng)
+	check(rolls[0].value == 100, "a hundred-sider reads its own top")
 	var analysis := DeepHand.analyze(rolls.slice(0, 1))
 	check(analysis.total == 100 and analysis.max_total == 100 and analysis.high_pct == 100, "large dice keep relative thresholds and totals")
-	var explode := DeepDice.make("D100", {"shape": "D100", "faces": [{"value": 100, "kind": "exploding"}]}, "explode")
+	var explode := DeepDice.make("D100", "explode", {"faces": [DeepDice.face(100, "exploding")]})
 	var result := DeepDice.roll_one(explode, rng)
 	check(result.value == 100 and result.explosions == DeepDice.MAX_EXPLOSIONS, "explosions retain finite caps")

@@ -11,7 +11,7 @@ func _run() -> void:
 	root.size = Vector2i(int(args[2]), int(args[3])) if args.size() > 3 else Vector2i(1600, 900)
 	var player_dice: Array = []
 	for i in range(5):
-		player_dice.append(DeepDice.make("D6", DeepContent.die("D6"), "p%d" % i))
+		player_dice.append(DeepDice.make("D6", "p%d" % i))
 	var player: Dictionary = DeepBattle.make_player("p", "Lapidary", "ARDOR", [], player_dice)
 	player.birthstone = {}
 	var rng: Dictionary = DeepRng.streams(1234, ["dice", "creatures"])
@@ -26,7 +26,7 @@ func _run() -> void:
 	if moment in ["suspense", "combo", "miss"]:
 		# Keep the last die fair for the real possibility check; find a matching RNG state
 		# at its roll below rather than making suspense depend on a predetermined face set.
-		foe.dice[2] = DeepDice.make("D4", DeepContent.die("D4"), str(foe.dice[2].id))
+		foe.dice[2] = DeepDice.make("D4", str(foe.dice[2].id))
 	load("res://view/run/mine_stage.gd").quality_pref = 2
 	var screen: Control = load("res://view/battle/battle_screen.gd").new()
 	root.add_child(screen)

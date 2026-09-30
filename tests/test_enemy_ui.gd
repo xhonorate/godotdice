@@ -17,7 +17,7 @@ func _run() -> void:
 		check(chips.size() == 1 and str(chips[0].text).contains("30% less") and str(chips[0].text).contains("30% more") and str(chips[0].text).contains("Maximum 10 stacks"), "Curse tooltips show ten percent per stack and the cap on either side")
 	Engine.time_scale = 8.0
 	var sparkle_chips: Array = preload("res://view/battle/effect_chips.gd").for_run({"sparkle": 100})
-	check(sparkle_chips.size() == 1 and str(sparkle_chips[0].value) == "100/100" and str(sparkle_chips[0].text).contains("consumes all 100") and str(sparkle_chips[0].text).contains("+100 generation luck"), "Sparkle chip explains its cap and complete next-find consumption")
+	check(sparkle_chips.size() == 1 and str(sparkle_chips[0].value) == "100/100" and str(sparkle_chips[0].text).contains("consumes all 100") and str(sparkle_chips[0].text).contains("+10.0 generation luck"), "Sparkle chip explains its cap and complete next-find consumption")
 	var viewport := SubViewport.new()
 	viewport.size = Vector2i(1600, 900)
 	root.add_child(viewport)
@@ -25,7 +25,7 @@ func _run() -> void:
 	viewport.add_child(panel)
 	var dice: Array = []
 	for i in range(5):
-		dice.append(DeepDice.make("D6", DeepContent.die("D6"), "p%d" % i))
+		dice.append(DeepDice.make("D6", "p%d" % i))
 	var player: Dictionary = DeepBattle.make_player("p", "Player", "ARDOR", [], dice)
 	player.birthstone = {}
 	var rng: Dictionary = DeepRng.streams(17, ["dice", "creatures"])

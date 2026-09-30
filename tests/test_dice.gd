@@ -8,6 +8,8 @@ func _init() -> void:
 	_test_rolls()
 	_test_analysis()
 	_test_wilds_and_faces()
+	_test_cut_patterns()
+	_test_materials()
 	_test_patterns()
 	_test_ladders_and_words()
 	print("Dice/hands/patterns: %d assertions, %d failures" % [checks, failures.size()])
@@ -20,11 +22,13 @@ func check(condition: bool, message: String) -> void:
 	if not condition:
 		failures.append(message)
 
-func die(key: String, faces: Array, id: String, engraving: String = "") -> Dictionary:
-	return DeepDice.make(key, {"shape": key, "faces": faces}, id, engraving)
+func die(shape: String, faces: Array, id: String, opts: Dictionary = {}) -> Dictionary:
+	var made: Dictionary = opts.duplicate()
+	made.faces = faces.map(func(f: Variant) -> Dictionary: return f if f is Dictionary else DeepDice.face(int(f)))
+	return DeepDice.make(shape, id, made)
 
-func d6(id: String, engraving: String = "") -> Dictionary:
-	return die("D6", [1, 2, 3, 4, 5, 6], id, engraving)
+func d6(id: String, opts: Dictionary = {}) -> Dictionary:
+	return DeepDice.make("D6", id, opts)
 
 func hand(numbers: Array, tops: int = 6) -> Array:
 	var out: Array = []
@@ -37,34 +41,35 @@ func hand(numbers: Array, tops: int = 6) -> Array:
 			value = tops if kind == "wild" else 0
 		else:
 			value = int(entry)
-		out.append({"die_id": "d%d" % index, "key": "D6", "shape": "D6", "value": value, "face": 0, "kind": kind,
-			"top": tops, "held": false, "rerolls": 0, "locked": false, "explosions": 0, "engraving": "", "phantom": false})
+		out.append({"die_id": "d%d" % index, "shape": "D6", "material": "", "value": value, "face": 0, "kind": kind,
+			"top": tops, "held": false, "rerolls": 0, "locked": false, "explosions": 0, "phantom": false})
 	return out
 
 func _test_rolls() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
-	var dice: Array = [d6("a"), d6("b"), die("D20", range(1, 21), "c"), d6("k", "keen"), d6("s", "steady")]
+	var dice: Array = [d6("a"), d6("b"), DeepDice.make("D20", "c"), d6("i", {"material": "iron"}),
+		die("D6", [1, 2, 3, 4, 5, DeepDice.face(6, "doubled")], "x")]
 	for _i in range(200):
 		var rolled: Array = DeepDice.roll_hand(dice, rng)
 		check(rolled.size() == 5, "five dice roll five results")
 		check(rolled[0].value >= 1 and rolled[0].value <= 6, "a d6 shows 1 to 6")
 		check(rolled[2].value >= 1 and rolled[2].value <= 20, "a d20 shows 1 to 20")
-		check(rolled[3].value >= 2 and rolled[3].value <= 7, "a keen d6 shows 2 to 7")
-		check(rolled[4].value >= 2, "a steady d6 never shows a 1")
-		check(int(rolled[2].top) == 20 and int(rolled[3].top) == 7, "top reads the die's best face, keen included")
+		check(rolled[3].value >= 2, "an iron d6 never shows less than a quarter of its top")
+		check(rolled[4].value != 6 or int(rolled[4].face) != 5, "a doubled six reads as twelve, never as six")
+		check(int(rolled[2].top) == 20 and int(rolled[4].top) == 12, "top reads the best face a die can show, doubling included")
 	var first: Array = DeepDice.roll_hand(dice, rng)
 	var again: Array = DeepDice.reroll(first, dice, ["a", "c"], rng)
 	check(again[1].held and again[3].held and not again[0].held and not again[2].held, "unselected dice are held, selected dice are not")
 	check(int(again[0].rerolls) == 1 and int(again[1].rerolls) == 0, "rerolled dice count their rerolls")
-	var exploding: Dictionary = die("D6", [1, 2, 3, 4, 5, {"value": 6, "kind": "exploding"}], "x")
+	var exploding: Dictionary = die("D6", [1, 2, 3, 4, 5, DeepDice.face(6, "exploding")], "boom")
 	var biggest: int = 0
 	for _i in range(400):
 		var roll: Dictionary = DeepDice.roll_one(exploding, rng)
 		biggest = maxi(biggest, int(roll.value))
 		check(int(roll.value) <= DeepDice.VALUE_CAP, "an exploding die is capped")
 	check(biggest > 6, "an exploding die can pass its own top")
-	var locked: Dictionary = die("D6", [{"value": 6, "kind": "locked"}, 1, 1, 1, 1, 1], "l")
+	var locked: Dictionary = die("D6", [DeepDice.face(6, "locked"), 1, 1, 1, 1, 1], "l")
 	var lock_hand: Array = [DeepDice.roll_one(locked, rng)]
 	for _i in range(40):
 		lock_hand = DeepDice.reroll(lock_hand, [locked], ["l"], rng)
@@ -73,9 +78,18 @@ func _test_rolls() -> void:
 	check(bool(lock_hand[0].locked) and int(lock_hand[0].value) == 6, "a locked face eventually shows and then locks")
 	var after: Array = DeepDice.reroll(lock_hand, [locked], ["l"], rng)
 	check(int(after[0].value) == 6 and bool(after[0].held), "a locked die refuses to reroll")
-	var mirror: Dictionary = die("D6", [{"value": 0, "kind": "mirror"}], "m")
-	var mirrored: Array = DeepDice.roll_hand([die("D6", [4], "four"), mirror], rng)
-	check(int(mirrored[1].value) == 4, "a mirror face copies the highest other die")
+	## A Tally face climbs as it is landed on, and takes the die's top up with it.
+	var tally: Dictionary = die("D6", [DeepDice.face(6, "tally")], "t")
+	var climbed: Dictionary = DeepDice.roll_one(tally, rng)
+	check(int(climbed.value) == 7 and bool(climbed.climbed) and int(tally.faces[0].value) == 7, "a Tally face climbs as it lands")
+	check(int(DeepDice.roll_one(tally, rng).value) == 8 and int(DeepDice.top(tally)) == 8, "and again, for good")
+	## A Sticky face is not thrown with the rest of the bowl next turn.
+	var sticky: Dictionary = die("D6", [DeepDice.face(4, "sticky")], "s")
+	var plain: Dictionary = d6("p")
+	var was: Array = DeepDice.roll_hand([sticky, plain], rng)
+	var now: Array = DeepDice.roll_hand([sticky, plain], rng, was)
+	check(int(now[0].value) == 4 and bool(now[0].held) and bool(now[0].carried), "a Sticky face carries into the next turn, held")
+	check(DeepDice.held_for_patterns(now[0]), "and a carried face counts as held")
 
 func _test_analysis() -> void:
 	var a: Dictionary = DeepHand.analyze(hand([3, 3, 5, 5, 5]))
@@ -93,9 +107,9 @@ func _test_analysis() -> void:
 	var read_low: Dictionary = DeepHand.read(DeepHand.analyze(hand([1, 6, 4, 2, 5])), 3, false)
 	check(read_low.sum == 7, "reading the three lowest dice sums 1, 2 and 4")
 	var twin_hand: Array = hand([4, 4, 2, 1, 6])
-	twin_hand[0].engraving = "twin"
+	twin_hand[0].kind = "twin"
 	var twin: Dictionary = DeepHand.analyze(twin_hand)
-	check(twin.best_set.value == 4 and twin.best_set.count == 3, "a twin die counts twice in its set: %s" % str(twin.best_set))
+	check(twin.best_set.value == 4 and twin.best_set.count == 3, "a Twin face counts twice in its set: %s" % str(twin.best_set))
 	check(twin.distinct == 4, "a twin die is still one value for distinct")
 	var pct: Dictionary = DeepHand.analyze(hand([6, 6, 6, 6, 6]))
 	check(pct.total == 30 and pct.high_pct == 100, "a perfect hand is 100 percent")
@@ -113,10 +127,81 @@ func _test_wilds_and_faces() -> void:
 	check(only.best_set.count == 2 and only.best_set.value == 6, "wilds alone make a set of their top")
 	var blank: Dictionary = DeepHand.analyze(hand([4, "blank", 4]))
 	check(blank.values.size() == 2 and blank.total == 8 and blank.best_set.count == 2, "a blank is not there")
-	var gem: Dictionary = DeepHand.analyze(hand([1, 2, "gem", 4, 6]))
-	check(gem.gem_face, "a gem face is noticed")
-	var fired: Dictionary = DeepPatterns.evaluate({"kind": "quint", "ladder": [1, 1, 1, 1, 1]}, 0, gem)
-	check(fired.active and fired.get("gem_face", false), "a gem face fires a trigger the hand could never meet")
+
+func _test_cut_patterns() -> void:
+	## What a pattern does to the numbers, and what it refuses to be cut into.
+	var values: Callable = func(shape: String, pattern: String) -> Array:
+		return DeepDice.pattern_faces(shape, pattern).map(func(f: Dictionary) -> int: return int(f.value))
+	check(values.call("D6", "") == [1, 2, 3, 4, 5, 6], "no pattern is the plain numbers of the size")
+	check(values.call("D6", "even") == [2, 2, 4, 4, 6, 6], "Even: each even number twice")
+	check(values.call("D6", "odd") == [1, 1, 3, 3, 5, 5], "Odd: each odd number twice")
+	check(values.call("D6", "split") == [1, 1, 2, 5, 6, 6], "Split on a d6 drops the middle two")
+	check(values.call("D12", "split") == [1, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 12], "Split on a d12 drops 6 and 7")
+	var split20: Array = values.call("D20", "split")
+	check(split20.count(1) == 3 and split20.count(20) == 3 and split20.size() == 20 and not split20.has(10), "Split on a d20 doubles twice: three 1s, three 20s")
+	var split40: Array = values.call("D40", "split")
+	check(split40.count(1) == 4 and split40.count(40) == 4 and split40.size() == 40, "and three times from a d40")
+	check(values.call("D8", "gamblers") == [1, 2, 3, 4, 5, 7, 7, 7], "Gambler's turns every 6 and 8 into a 7")
+	check(values.call("D6", "stretched") == [2, 4, 6, 8, 10, 12], "Stretched doubles every face")
+	check(values.call("D6", "shallow") == [1, 1, 2, 2, 3, 3], "Shallow squeezes the numbers into the bottom half")
+	var paired: Array = values.call("D12", "paired")
+	var seen: Dictionary = {}
+	for value in paired:
+		seen[value] = int(seen.get(value, 0)) + 1
+	check(paired.size() == 12 and seen.size() == 6 and seen.values().all(func(n: int) -> bool: return n == 2), "Paired shows half as many numbers, each of them twice")
+	var shallow: Dictionary = DeepDice.make("D6", "phial", {"pattern": "shallow"})
+	check(int(DeepDice.top(shallow)) == 6, "a Shallow die is still judged against the size it is")
+	check(DeepHand.analyze([DeepDice.roll_one(shallow, RandomNumberGenerator.new())]).low_dice == 1, "so every face of it is a low die")
+	check(not DeepDice.pattern_allows("split", "D4") and DeepDice.pattern_allows("even", "D4"), "Split wants a d6, Even does not")
+	check(not DeepDice.pattern_allows("gamblers", "D20") and DeepDice.pattern_allows("gamblers", "D12"), "Gambler's stops at a d12")
+	check(not DeepDice.pattern_allows("stretched", "D60"), "Stretched stops where the value cap does")
+	check(str(DeepDice.make("D20", "no", {"pattern": "gamblers"}).pattern).is_empty(), "a die refuses a pattern it cannot take")
+
+func _test_materials() -> void:
+	## Materials, what they are worth to a gem, and which die a gem reaches for.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99
+	var red: Array = ["RED"]
+	check(is_equal_approx(DeepDice.strength([{"material": "ruby"}], red), 1.5), "one Ruby is half again as strong on a red gem")
+	check(is_equal_approx(DeepDice.strength([{"material": "ruby"}, {"material": "ruby"}], red), 2.25), "and two multiply")
+	check(is_equal_approx(DeepDice.strength([{"material": "ruby"}], ["BLUE"]), 1.0), "a Ruby is nothing to a blue gem")
+	check(is_equal_approx(DeepDice.strength([{"material": "opal"}, {"material": "glass"}], ["GREEN"]), 2.25), "Opal and Glass answer to every colour")
+	check(is_equal_approx(DeepDice.strength([{"material": "iron"}], red), 1.0), "Iron is not a colour")
+	var plain_roll: Dictionary = {"die_id": "p", "kind": "plain", "material": ""}
+	var ruby_roll: Dictionary = {"die_id": "r", "kind": "plain", "material": "ruby"}
+	var shiny_roll: Dictionary = {"die_id": "s", "kind": "shiny", "material": ""}
+	var iron_roll: Dictionary = {"die_id": "i", "kind": "plain", "material": "iron"}
+	check(DeepDice.preference(ruby_roll, red) > DeepDice.preference(shiny_roll, red), "a gem reaches for its own colour first")
+	check(DeepDice.preference(shiny_roll, red) > DeepDice.preference(iron_roll, red), "then for an etching worth having")
+	check(DeepDice.preference(iron_roll, red) > DeepDice.preference(plain_roll, red), "then for any material at all")
+	## Three sixes and a Shiny six: the set names the Shiny one first.
+	var three: Array = hand([6, 6, 6])
+	three[2].kind = "shiny"
+	var picked: Dictionary = DeepPatterns.evaluate({"kind": "triple", "ladder": [1, 1, 1, 1, 1]}, 0, DeepHand.analyze(three, red))
+	check(str(picked.dice[0]) == "d2", "the dice a gem fires on are the ones it wants: %s" % str(picked.dice))
+	check(DeepDice.shiny_count([shiny_roll, plain_roll]) == 1, "a Shiny face is counted for the Resonance it rings")
+	## What a throw owes the table.
+	var dues: Dictionary = DeepDice.throw_dues([{"die_id": "c", "kind": "plain", "material": "crystal", "rerolls": 0},
+		{"die_id": "g", "kind": "plain", "material": "fools_gold", "rerolls": 0},
+		{"die_id": "f", "kind": "golden", "material": "", "rerolls": 0},
+		{"die_id": "b", "kind": "plain", "material": "blood", "rerolls": 1}])
+	check(int(dues.resonance) == DeepDice.CRYSTAL_RESONANCE, "Crystal rings once a throw")
+	check(int(dues.pyrite) == DeepDice.FOOLS_GOLD_PYRITE + DeepDice.GOLDEN_FACE_PYRITE, "Fool's Gold and a Golden face both pay")
+	check(int(dues.hp) == DeepDice.BLOOD_HP, "Blood takes its price for being thrown again")
+	var opening: Dictionary = DeepDice.throw_dues([{"die_id": "b", "kind": "plain", "material": "blood", "rerolls": 0}])
+	check(int(opening.hp) == 0, "but never on the opening roll")
+	## Glass breaks, and says so on the roll that broke it.
+	var glass: Dictionary = d6("glass", {"material": "glass"})
+	var broke: int = 0
+	for _i in range(2000):
+		if bool(DeepDice.roll_one(glass, rng).shattered):
+			broke += 1
+	check(broke > 120 and broke < 280, "Glass breaks about one throw in ten: %d in 2000" % broke)
+	## Iron never shows less than a quarter of what it could.
+	var iron: Dictionary = DeepDice.make("D20", "iron", {"material": "iron"})
+	for _i in range(200):
+		check(int(DeepDice.roll_one(iron, rng).value) >= 5, "an iron d20 never shows less than a 5")
+	check(DeepDice.describe(DeepDice.make("D12", "x", {"material": "ruby", "pattern": "split"})) == "Ruby Split d12", "a die says what it is")
 
 func _test_patterns() -> void:
 	var a: Dictionary = DeepHand.analyze(hand([3, 3, 5, 5, 5]))

@@ -27,6 +27,8 @@ const SHELL_RY := 8.0
 const Z_NEAR := 9.0
 const Z_FAR := -24.0
 const ARENA := Vector3(0, 0, -4.5)
+## Where the party stands to choose a way on (MineStage.CROSSROADS): props keep out of its view.
+const CROSSROADS_EYE := Vector3(0.0, 2.05, -9.0)
 
 var biome: Dictionary = {}
 ## Lights the lens-flare overlay dresses: {node, color, strength, size}.
@@ -608,7 +610,10 @@ func _crystals(count: int) -> void:
 		var color: Color = lights[(i + 1) % lights.size()]
 		var side: float = -1.0 if i % 2 == 0 else 1.0
 		var wall := _on_wall(PI * 0.5 - side * _rng.randf_range(0.6, 1.2), _rng.randf_range(-20.0, 0.0), 0.1)
-		var mesh := Lowpoly.cluster(_rng, color, 4, _rng.randf_range(0.8, 1.5))
+		var size: float = _rng.randf_range(0.8, 1.5)
+		var mesh := Lowpoly.cluster(_rng, color, 4, size)
+		if not _clear_of_crossroads(wall.point, wall.normal * 1.6 * size, 0.6 * size):
+			continue
 		var basis := Basis(Quaternion(Vector3.UP, wall.normal))
 		_place(mesh, _glowing(color, 1.1), Transform3D(basis, wall.point))
 
@@ -710,12 +715,18 @@ func _geode(count: int) -> void:
 		var mesh := Lowpoly.crystal(_rng, color, 0.35, 2.6)
 		var transforms: Array = []
 		for _i in range(count / lights.size()):
-			var u := _rng.randf_range(-0.1, PI + 0.1)
-			var z := _rng.randf_range(Z_FAR + 1.0, 4.0)
-			var wall := _on_wall(u, z, -0.2)
-			var tilt: Vector3 = (wall.normal + Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(-0.2, 0.3), _rng.randf_range(-0.3, 0.3))).normalized()
-			var basis := Basis(Quaternion(Vector3.UP, tilt)).scaled(Vector3.ONE * _rng.randf_range(0.5, 1.6))
-			transforms.append(Transform3D(basis, wall.point))
+			## A crystal that would stab across the view from the crossroads is grown
+			## somewhere else on the wall, or not at all.
+			for _try in range(8):
+				var u := _rng.randf_range(-0.1, PI + 0.1)
+				var z := _rng.randf_range(Z_FAR + 1.0, 4.0)
+				var wall := _on_wall(u, z, -0.2)
+				var tilt: Vector3 = (wall.normal + Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(-0.2, 0.3), _rng.randf_range(-0.3, 0.3))).normalized()
+				var grow: float = _rng.randf_range(0.5, 1.6)
+				if not _clear_of_crossroads(wall.point, tilt * 2.6 * grow, 0.35 * grow):
+					continue
+				transforms.append(Transform3D(Basis(Quaternion(Vector3.UP, tilt)).scaled(Vector3.ONE * grow), wall.point))
+				break
 		var material := _glowing(color, 0.8, 0.1)
 		_multi(mesh, transforms, material)
 		_pulse(material, 0.35, 0.7 + 0.3 * color_index)
@@ -738,10 +749,21 @@ func _floating(count: int) -> void:
 	for i in range(count):
 		var x := _rng.randf_range(-10.0, 10.0)
 		var z := _rng.randf_range(-22.0, -6.0)
-		if absf(x) < 5.0 and z > -9.0:
-			x = 6.0 * signf(x + 0.01)
 		var y := _rng.randf_range(2.0, 7.0)
 		var scale := _rng.randf_range(0.4, 1.4)
+		## Never between the party at the crossroads and the mouths it is choosing between:
+		## a rock drawn again until it hangs off to the side or up out of the way, and if
+		## it never does, pushed out to the wall.
+		for _try in range(16):
+			if not _blocks_crossroads(Vector3(x, y, z), scale):
+				break
+			x = _rng.randf_range(-10.0, 10.0)
+			z = _rng.randf_range(-22.0, -6.0)
+			y = _rng.randf_range(2.0, 7.0)
+		if _blocks_crossroads(Vector3(x, y, z), scale):
+			x = signf(x + 0.01) * 10.0
+		if absf(x) < 5.0 and z > -9.0:
+			x = 6.0 * signf(x + 0.01)
 		var node := _place(Lowpoly.rock(_rng, biome.rock.lightened(0.08), 0.35, Vector3(1.0, 0.8, 1.0)), _rock, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale), Vector3(x, y, z)), false)
 		_floaters.append({"node": node, "base": node.position, "phase": _rng.randf() * TAU, "speed": _rng.randf_range(0.3, 0.8), "amp": _rng.randf_range(0.15, 0.45), "spin": _rng.randf_range(-0.3, 0.3)})
 		if i % 3 == 0:
@@ -753,6 +775,33 @@ func _floating(count: int) -> void:
 			crystal.position = Vector3(0, 0.5, 0)
 			node.add_child(crystal)
 			_pulse(glow, 0.5, 1.4)
+
+static func _blocks_crossroads(at: Vector3, radius: float) -> bool:
+	## Whether something this big, here, would stand in the party's way of seeing the mouths
+	## from where it chooses between them (MineStage.CROSSROADS, looking down the room at a
+	## 58 degree field). Read on the screen: anything over the band the mouths fill, and
+	## anything near enough to be large in the middle of the view, is in the way.
+	var ahead: float = CROSSROADS_EYE.z - at.z
+	if ahead <= 0.4:
+		return false
+	if ahead >= CROSSROADS_EYE.z - Z_FAR - 0.5:
+		return false
+	var half_h: float = ahead * 0.985
+	var half_v: float = ahead * 0.554
+	var grow_h: float = radius / half_h
+	var grow_v: float = radius / half_v
+	var sx: float = absf(at.x - CROSSROADS_EYE.x) / half_h
+	var sy: float = (at.y - CROSSROADS_EYE.y) / half_v
+	if sx < 0.55 + grow_h and sy > -0.5 - grow_v and sy < 0.5 + grow_v:
+		return true
+	return ahead < 6.0 and sx < 0.8 + grow_h and absf(sy) < 0.8 + grow_v
+
+func _clear_of_crossroads(base: Vector3, axis: Vector3, radius: float) -> bool:
+	## A prop from `base` out along `axis` (its whole length) is clear of the view.
+	for t in [0.0, 0.35, 0.7, 1.0]:
+		if _blocks_crossroads(base + axis * float(t), radius):
+			return false
+	return true
 
 func _arches() -> void:
 	var stone: Color = biome.rock.lightened(0.12)

@@ -24,7 +24,7 @@ extends RefCounted
 
 const GROUPS: Array = ["stone", "kit", "cost", "reward"]
 const NEEDS: Array = ["", "socket", "pick"]
-const EFFECT_KINDS: Array = ["cut_step", "carat", "reroll_cut", "reroll_clarity", "inclusion", "raw_stone", "pick_stone", "resize_die",
+const EFFECT_KINDS: Array = ["cut_step", "carat", "reroll_cut", "reroll_clarity", "inclusion", "rail_all", "raw_stone", "pick_stone", "resize_die",
 	"wild_face", "max_hp_pct", "hp_pct", "ore", "soft_rock", "extra_rerolls"]
 const OFFER_KINDS: Array = ["stone", "kit", "terms"]
 const PICK_TRIES: int = 12
@@ -83,8 +83,13 @@ static func validate(def: Variant, p: Dictionary) -> Array:
 			"extra_rerolls":
 				if int(effect.get("amount", 0)) < 1 or int(effect.get("until_depth", 0)) < 1:
 					errors.append(where + ": needs an amount and until_depth")
+			"rail_all":
+				if int(effect.get("carat", 0)) == 0 and int(effect.get("cut", 0)) == 0 and int(effect.get("clarity", 0)) == 0:
+					errors.append(where + ": needs a carat, cut or clarity step")
 		if kind in ["cut_step", "carat", "inclusion"] and str(def.get("needs", "")) != "socket":
 			errors.append(where + ": acts on a socket, so the boon needs one")
+		if kind == "rail_all" and str(def.get("needs", "")) == "socket":
+			errors.append(where + ": acts on the whole rail, so it wants no socket")
 	return errors
 
 # --- standing ----------------------------------------------------------------------------------
@@ -237,10 +242,12 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 	var amount: int = int(effect.get("amount", 0))
 	match kind:
 		"cut_step":
-			## Only ever downward, and only on a rail stone, which is a copy of the one in the
-			## vault: nothing here may make a stone truer for good. See `reroll_cut`.
+			## Only ever on a rail stone, which is a copy of the one in the vault, and only for
+			## this run: the workshop's own stone is untouched whichever way this goes, so a
+			## stake may promise a truer cut without a stone ever becoming farmable.
 			var stone: Dictionary = unit.rail[socket]
-			stone.cut = clampi(int(stone.get("cut", 0)) + mini(amount, 0), 0, DeepPatterns.STEPS - 1)
+			stone.cut = clampi(int(stone.get("cut", 0)) + amount, 0, DeepPatterns.STEPS - 1)
+			_note(stone, "cut", amount)
 			return "%s is now judged %s." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), DeepContent.cut_name(int(stone.cut))]
 		"reroll_cut":
 			## A fresh draw of the stone's Cut from this mine's table, better or worse. With
@@ -262,22 +269,65 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 		"carat":
 			var stone: Dictionary = unit.rail[socket]
 			stone.carat = clampi(int(stone.get("carat", 1)) + amount, 1, DeepStone.carat_max())
+			_note(stone, "carat", amount)
 			return "%s weighs %d carats now." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), int(stone.carat)]
+		"rail_all":
+			## Every stone set on the rail, not one drawn from it. Carat and Cut step straight
+			## up; Clarity steps further from Clear along whichever side the stone already
+			## leans, which is the only direction "better" means on that ladder.
+			var touched: Array = []
+			for index in range(unit.get("rail", []).size()):
+				if not unit.rail[index] is Dictionary:
+					continue
+				var stone: Dictionary = unit.rail[index]
+				if int(effect.get("carat", 0)) != 0:
+					stone.carat = clampi(int(stone.get("carat", 1)) + int(effect.carat), 1, DeepStone.carat_max())
+					_note(stone, "carat", int(effect.carat))
+				if int(effect.get("cut", 0)) != 0:
+					stone.cut = clampi(int(stone.get("cut", 0)) + int(effect.cut), 0, DeepPatterns.STEPS - 1)
+					_note(stone, "cut", int(effect.cut))
+				if int(effect.get("clarity", 0)) != 0:
+					## Where it stood, and what was inside it, before the ladder moved: the
+					## mark has to be able to put both back when the run ends.
+					var was_clarity: int = int(stone.get("clarity", DeepContent.clear_index()))
+					var was_inside: Array = stone.get("inclusions", []).duplicate()
+					var stepped: Dictionary = DeepForge.step_clarity(rng, stone, mine, absi(int(effect.clarity)))
+					if bool(stepped.moved):
+						_note(stone, "clarity", int(effect.clarity))
+						stone.staked.was.clarity = was_clarity
+						stone.staked.was.inclusions = was_inside
+				out.changed.append(stone.duplicate(true))
+				touched.append(str(DeepStone.skill_of(stone).get("name", stone.skill)))
+			if touched.is_empty():
+				return "Your rail is empty, so nothing happens."
+			return "The whole rail comes up: %s." % ", ".join(touched)
 		"inclusion":
 			var stone: Dictionary = unit.rail[socket]
 			var rolled: Array = DeepForge.roll_inclusions(rng, 1, mine, str(effect.get("class", "PINPOINT")), DeepStone.color(stone))
 			var fresh: Array = rolled.filter(func(k: String) -> bool: return not stone.get("inclusions", []).has(k))
 			if fresh.is_empty():
-				return "%s already carries everything the rock could give it." % str(DeepStone.skill_of(stone).get("name", stone.skill))
+				return "%s can't take any more inclusions." % str(DeepStone.skill_of(stone).get("name", stone.skill))
 			stone.inclusions.append(str(fresh[0]))
 			stone.inclusions_revealed = true
 			return "A %s forms inside %s." % [str(DeepContent.inclusion(str(fresh[0])).get("name", fresh[0])), str(DeepStone.skill_of(stone).get("name", stone.skill))]
 		"raw_stone":
+			## `read` hands it over already under the loupe; `fragile` hands it over on the
+			## understanding that it is a loan. A fragile stake shatters when the run ends and
+			## never reaches the vault, which is what pays for its size.
 			var stone: Dictionary = DeepForge.roll_stone(rng, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0)),
 				{"run": str(state.get("run_id", "")), "source": "grubstake", "finder": str(unit.id)}, "%s_stake%08x" % [str(unit.id), rng.randi()])
+			var read: bool = bool(effect.get("read", false))
+			stone.appraised = read
+			stone.inclusions_revealed = read
+			if bool(effect.get("fragile", false)):
+				stone.fragile = true
 			unit.haul.append(stone)
 			out.made.append(stone)
-			return "A %s goes into your haul, unappraised." % DeepStone.raw_name(stone).to_lower()
+			if not read:
+				return "A %s goes into your haul, unappraised." % DeepStone.raw_name(stone).to_lower()
+			if bool(stone.get("fragile", false)):
+				return "%s goes into your haul, appraised. It's fragile and won't make it home." % DeepStone.name(stone)
+			return "%s goes into your haul, appraised and ready to set." % DeepStone.name(stone)
 		"pick_stone":
 			## Taken, and read on the spot: the rock comes off under the loupe and the stone
 			## goes into the haul known, ready to set.
@@ -305,7 +355,7 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			## One of the five, drawn from those with a plain face left: its highest plain face.
 			var able: Array = unit.get("dice", []).filter(func(d: Dictionary) -> bool: return d.get("faces", []).any(func(f: Dictionary) -> bool: return str(f.get("kind", "plain")) == "plain"))
 			if able.is_empty():
-				return "Every face of your dice is something special already."
+				return "Every face on your dice is already special."
 			var die: Dictionary = DeepRng.pick(rng, able)
 			var best: int = -1
 			for index in range(die.faces.size()):
@@ -327,13 +377,30 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			if not unit.has("run_mods"):
 				unit.run_mods = {}
 			unit.run_mods.soft_rock = int(unit.run_mods.get("soft_rock", 0)) + int(effect.get("fights", 3))
-			return "The rock is soft for your first %d fights." % int(effect.get("fights", 3))
+			return "Creatures start at half health for your first %d fights." % int(effect.get("fights", 3))
 		"extra_rerolls":
 			if not unit.has("run_mods"):
 				unit.run_mods = {}
 			unit.run_mods.extra_rerolls = {"amount": int(effect.get("amount", 1)), "until_depth": int(effect.get("until_depth", 4))}
 			return "+%d reroll a turn down to depth %d." % [int(effect.get("amount", 1)), int(effect.get("until_depth", 4))]
 	return ""
+
+static func _note(stone: Dictionary, field: String, amount: int) -> void:
+	## What a stake did to one of the rail's stones, written on the stone itself so every
+	## screen that draws it can mark the change the way a buff is marked.
+	##
+	## The mark carries the stone as it was before the stake touched it, because the rail is
+	## only a copy of the vault for as long as the run lasts: a stone taken out of its socket
+	## and carried home in the haul has to arrive as the stone that went down. `DeepStone.
+	## unstake` is what puts it back, and the vault is where that is done.
+	if not stone.has("staked"):
+		stone.staked = {}
+	if not stone.staked.has("was"):
+		stone.staked.was = {"carat": int(stone.get("carat", 1)) - (amount if field == "carat" else 0),
+			"cut": int(stone.get("cut", 0)) - (amount if field == "cut" else 0),
+			"clarity": int(stone.get("clarity", DeepContent.clear_index())),
+			"inclusions": stone.get("inclusions", []).duplicate()}
+	stone.staked[field] = int(stone.staked.get(field, 0)) + amount
 
 static func _max_hp(unit: Dictionary, pct: int) -> String:
 	var delta: int = int(round(float(unit.get("max_hp", 60)) * float(pct) / 100.0))

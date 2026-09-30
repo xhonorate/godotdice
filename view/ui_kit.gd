@@ -887,8 +887,10 @@ static func stone_marks(item: Dictionary) -> String:
 	## Everything about one stone or one die that a card draws, as one string. A thing worked
 	## on down the mine keeps its id, so a view that rebuilds on the id alone would go on
 	## drawing the one that was there before.
-	var out: String = "%s%s%s%s" % [str(item.get("id", "")), str(item.get("shape", "")), str(item.get("engraving", "")),
-		"a" if bool(item.get("appraised", false)) else ""]
+	## A die dipped in a vat or stamped at an anvil changes only its material or its pattern,
+	## so both are in it too.
+	var out: String = "%s%s%s%s|%s|%s|%s" % [str(item.get("id", "")), str(item.get("shape", "")), str(item.get("engraving", "")),
+		"a" if bool(item.get("appraised", false)) else "", str(item.get("material", "")), str(item.get("pattern", "")), str(item.get("name", ""))]
 	for face in item.get("faces", []):
 		out += "%d%s," % [int(face.get("value", 0)), str(face.get("kind", ""))]
 	if item.has("cut"):

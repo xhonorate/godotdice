@@ -30,7 +30,7 @@ func setup(key: String = "CAVE_TICK", count: int = 1) -> Dictionary:
 	for i in range(count):
 		var bowl: Array = []
 		for j in range(5):
-			bowl.append(DeepDice.make("D6", DeepContent.die("D6"), "p%d_d%d" % [i, j]))
+			bowl.append(DeepDice.make("D6", "p%d_d%d" % [i, j]))
 		var unit: Dictionary = DeepBattle.make_player("p%d" % i, "Player", "ARDOR", [], bowl)
 		unit.birthstone = {}
 		unit.passive = {}
@@ -43,7 +43,7 @@ func setup(key: String = "CAVE_TICK", count: int = 1) -> Dictionary:
 	foe.hp = 1000
 	foe.max_hp = 1000
 	foe.block = 0
-	foe.dice = [DeepDice.make("D6", {"shape": "D6", "faces": [1]}, "e0_d0")]
+	foe.dice = [DeepDice.make("D6", "e0_d0", {"faces": [DeepDice.face(1)]})]
 	return {"state": state, "rng": rng, "foe": foe, "player": state.players[0]}
 
 func apply(f: Dictionary, kind: String, amount: int, to_enemy: bool = true) -> Array:

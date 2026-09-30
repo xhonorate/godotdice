@@ -620,13 +620,13 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	var dice_row := DeepUi.hbox(middle, 10)
 	var die_index: int = 0
 	for die_key in character.get("dice", []):
-		var die: Dictionary = DeepDice.make(str(die_key), DeepContent.die(str(die_key)), "roster_%s_%d" % [key, die_index])
+		var die: Dictionary = DeepForge.die_from(die_key, "roster_%s_%d" % [key, die_index])
 		var holder := DeepUi.vbox(dice_row, 3)
 		holder.alignment = BoxContainer.ALIGNMENT_CENTER
 		var thumb := Thumbs.DieThumb.new(die, 46)
 		thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		holder.add_child(thumb)
-		DeepUi.label(holder, str(die.get("name", die_key)), 11, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(holder, DeepDice.describe(die), 11, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 		_faces_row(holder, die, 12)
 		die_index += 1
 	## The sockets as the loadout has them: the stones it sets, the ones only the mine fills,
@@ -891,7 +891,7 @@ func _wire(control: Control, data: Dictionary, preview: Callable, accepts: Calla
 func _faces_row(parent: Node, die: Dictionary, edge: float) -> HBoxContainer:
 	var row := DeepUi.hbox(parent, 2)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	var tone: Color = DiceIcons.palette(str(die.get("key", "D6"))).body
+	var tone: Color = DiceIcons.die_palette(die).body
 	for f in die.get("faces", []):
 		row.add_child(DiceIcons.face(edge, int(f.value), tone if str(f.kind) == "plain" else DiceIcons.face_kind_tint(str(f.kind)), str(die.get("shape", "D6")), false, DiceIcons.face_text(int(f.value), str(f.kind))))
 	return row
@@ -1173,7 +1173,7 @@ func _appraise(content: VBoxContainer) -> void:
 		lens.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		table_box.add_child(lens)
 		DeepUi.title(table_box, DeepStone.raw_name(pick), 24, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-		DeepUi.label(table_box, "Still half in its rock: its color shows, and roughly how big it is. The rest waits for the loupe.", 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(table_box, "Still raw. You can see its color and rough size. Appraise it to learn the rest.", 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 		var facts := DeepUi.hbox(table_box, 14)
 		facts.alignment = BoxContainer.ALIGNMENT_CENTER
 		StoneCard.size_stat(facts, pick, 14)
@@ -1183,7 +1183,7 @@ func _appraise(content: VBoxContainer) -> void:
 		var rough: int = DeepStone.rough_value(pick)
 		var purse: int = int(profile.get("gold", 0))
 		DeepUi.stat(facts, "coin", "%d gold in the purse" % purse, DeepUi.ACCENT if purse >= fee else DeepUi.BAD, 14,
-			"The loupe is paid work. Selling a stone rough is the cheap way off the tray.")
+			"Appraising costs gold. Selling a stone raw is the cheap way to clear the tray.")
 		var choices := DeepUi.hbox(table_box, 14)
 		choices.alignment = BoxContainer.ALIGNMENT_CENTER
 		var go := DeepUi.primary(choices, "loupe", "Appraise · %d gold" % fee, func() -> void: _appraise_stone(pick), 20, DeepUi.INFO)
@@ -1194,7 +1194,7 @@ func _appraise(content: VBoxContainer) -> void:
 			DeepUi.breathe(go, 0.8, 1.6)
 		var off := DeepUi.icon_button(choices, "coin", "Sell rough · +%d gold" % rough, func() -> void: _sell_rough(pick), 16, DeepUi.ACCENT)
 		off.custom_minimum_size = Vector2(220, 52)
-		off.tooltip_text = "A buyer pays for its colour and its size class and takes the rest of the risk. You never find out what it was."
+		off.tooltip_text = "Sells for what its color and size class are worth. You never find out what it was."
 	else:
 		var owned: Dictionary = DeepProfile.owned(profile, str(pick.skill))
 		var comparing: bool = not owned.is_empty()
@@ -1207,7 +1207,7 @@ func _appraise(content: VBoxContainer) -> void:
 		_lens_column(table_row, pick, 165.0 if comparing else 230.0)
 		var right := DeepUi.vbox(table_row, 14)
 		right.alignment = BoxContainer.ALIGNMENT_CENTER
-		var question: String = "Only one of each skill can be kept. Which %s goes in the vault?" % str(DeepStone.skill_of(pick).get("name", "stone")) if comparing else "The first of its skill: it is yours to keep, not to sell."
+		var question: String = "Only one of each skill can be kept. Which %s goes in the vault?" % str(DeepStone.skill_of(pick).get("name", "stone")) if comparing else "Your first stone with this skill. It's kept automatically and can't be sold."
 		DeepUi.stat(right, "chest", question, DeepUi.INFO if comparing else DeepUi.GOOD, 14)
 		var sheet := Appraisal.Sheet.new(pick, owned, {"skill_text": true, "owned_picture": not comparing})
 		right.add_child(sheet)
@@ -1264,6 +1264,13 @@ func _appraise_stone(pick: Dictionary) -> void:
 		_cheer = {"text": "Into the vault", "color": DeepUi.GOOD}
 		actions = [ {"label": "Wonderful", "glyph": "chest", "tone": DeepUi.GOOD, "primary": true, "dismiss": true,
 			"caption": "The first of its skill: kept without asking"}]
+	else:
+		## One of its skill is already in the vault, so the reading is only half the question.
+		## Rather than deciding it off a column of figures under the lamp, the ceremony hands
+		## straight over to the loupe table, where both stones stand at full size and turn.
+		owned = {}
+		actions = [ {"label": "Weigh them against each other", "glyph": "scales", "tone": DeepUi.INFO, "primary": true, "dismiss": true,
+			"caption": "You already keep one of this skill"}]
 	Appraisal.open(raw, {"owned": owned, "actions": actions})
 	profile_changed.emit()
 
@@ -1453,10 +1460,17 @@ class BirthstoneCard extends PanelContainer:
 		var tiers := DeepUi.hbox(box, 4)
 		tiers.alignment = BoxContainer.ALIGNMENT_CENTER
 		var die: String = DiceIcons.ladder_die(stone.get("tiers", []))
+		## A Bust rides the dice it is about rather than standing beside them.
+		var bust: int = DiceIcons.ladder_penalty(stone.get("tiers", []), die)
 		if not die.is_empty():
-			DiceIcons.build_ladder(tiers, stone.get("tiers", []), die, 0, 14 if labelled else 15, DeepUi.MUTED, DeepUi.MUTED)
-		for tier in stone.get("tiers", []):
-			if DiceIcons.ladder_rung(tier, die) > 0:
+			var tip: String = ""
+			if bust >= 0:
+				var penalty: Dictionary = stone.get("tiers", [])[bust]
+				tip = "%s: %s" % [str(penalty.get("name", "")), str(penalty.get("text", ""))]
+			DiceIcons.build_ladder(tiers, stone.get("tiers", []), die, 0, 14 if labelled else 15, DeepUi.MUTED, DeepUi.MUTED, [], tip)
+		for index in range(stone.get("tiers", []).size()):
+			var tier: Dictionary = stone.get("tiers", [])[index]
+			if DiceIcons.ladder_rung(tier, die) > 0 or index == bust:
 				continue
 			DiceIcons.build(tiers, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 14 if labelled else 15, DeepUi.MUTED,
 				"%s: %s" % [str(tier.get("name", "")), str(tier.get("text", ""))])

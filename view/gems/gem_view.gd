@@ -251,7 +251,7 @@ func configure(new_gem: Dictionary) -> void:
 ## color shows through, and roughly how big it is, and nothing else — not its cut, not how
 ## clear it is, and not the skill's emblem, which stays out of the crown until someone has
 ## looked at it properly.
-const UNAPPRAISED_TEXT := "An unappraised stone, still half in its rock. Its color shows, and roughly how big it is; its cut, its clarity and what it does wait for the loupe."
+const UNAPPRAISED_TEXT := "An unappraised stone. You can see its color and rough size. Appraise it to learn its cut, clarity and skill."
 
 func sealed() -> bool:
 	return gem.has("appraised") and not bool(gem.appraised)

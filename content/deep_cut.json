@@ -17,6 +17,8 @@
     "appraise_cost_step": 50,
     "rest_pct": 30,
     "opal_hoard_pct": 100,
+    "hoard_luck": 6,
+    "opal_hoard_luck": 0,
     "lantern_ore_cost": 10,
     "lift_ore_per_depth": 15,
     "salvage_dice": {
@@ -82,7 +84,7 @@
       "name": "Opal",
       "cut": "cabochon",
       "hue": "eceaf6",
-      "domain": "every color"
+      "domain": "the rail"
     }
   },
   "cuts": [
@@ -597,7 +599,7 @@
         }
       ],
       "flawless": {
-        "text": "Half as much again to every ally.",
+        "text": "Every ally also gains half as much Block.",
         "effects": [
           {
             "kind": "block",
@@ -1174,7 +1176,7 @@
         }
       ],
       "flawless": {
-        "text": "And the party is healed half of it.",
+        "text": "The party also heals for half of it.",
         "effects": [
           {
             "kind": "heal",
@@ -1282,7 +1284,7 @@
         }
       ],
       "flawless": {
-        "text": "And half the value in damage.",
+        "text": "Also deals half that value as damage.",
         "effects": [
           {
             "kind": "damage",
@@ -1775,40 +1777,6 @@
         }
       }
     },
-    "WINDFALL": {
-      "name": "Windfall",
-      "color": "GOLD",
-      "rarity": "UNCOMMON",
-      "tags": ["straight", "fortune"],
-      "text": "Stones found in this fight are {bonus}% better.",
-      "numbers": {
-        "bonus": {
-          "ladder": [10, 10, 15, 15, 20]
-        }
-      },
-      "trigger": {
-        "kind": "straight",
-        "ladder": [5, 4, 4, 3, 3]
-      },
-      "effects": [
-        {
-          "kind": "quality_bonus",
-          "target": "self",
-          "amount": {
-            "ladder": [10, 10, 15, 15, 20]
-          }
-        }
-      ],
-      "flawless": {
-        "text": "Ten points better again.",
-        "modify": [
-          {
-            "effect": 0,
-            "add": 10
-          }
-        ]
-      }
-    },
     "DOUBLE_DOWN": {
       "name": "Double Down",
       "color": "GOLD",
@@ -1946,11 +1914,11 @@
       "name": "Gilded Armor",
       "color": "GOLD",
       "rarity": "UNCOMMON",
-      "tags": ["always"],
+      "tags": ["straight"],
       "text": "Gain Block equal to {share}% of your Pyrite.",
       "trigger": {
-        "kind": "always",
-        "ladder": [1, 1, 1, 1, 1]
+        "kind": "straight",
+        "ladder": [5, 4, 4, 3, 3]
       },
       "effects": [
         {
@@ -2150,33 +2118,6 @@
         ]
       }
     },
-    "ECHO": {
-      "name": "Echo",
-      "color": "WHITE",
-      "rarity": "RARE",
-      "tags": ["pair", "hand"],
-      "text": "Repeat the previous gem at half strength.",
-      "trigger": {
-        "kind": "pair",
-        "ladder": [5, 4, 3, 2, 1]
-      },
-      "effects": [
-        {
-          "kind": "retrigger_previous",
-          "target": "self",
-          "amount": 50
-        }
-      ],
-      "flawless": {
-        "text": "At full strength.",
-        "modify": [
-          {
-            "effect": 0,
-            "add": 50
-          }
-        ]
-      }
-    },
     "PRISM": {
       "name": "Prism",
       "color": "WHITE",
@@ -2216,7 +2157,7 @@
       "color": "WHITE",
       "rarity": "RARE",
       "tags": ["distinct"],
-      "text": "All other gems gain 1 Carat this fight.",
+      "text": "Adjacent gems gain 1 Carat this fight.",
       "trigger": {
         "kind": "distinct",
         "ladder": [5, 4, 3, 2, 1]
@@ -2226,16 +2167,16 @@
           "kind": "gem_rank",
           "amount": 1,
           "rank": "carat",
-          "scope": "others",
+          "scope": "adjacent",
           "scale": "none"
         }
       ],
       "flawless": {
-        "text": "Gain 2 Carats instead.",
+        "text": "Apply to all gems.",
         "modify": [
           {
             "effect": 0,
-            "amount": 2
+            "scope": "all"
           }
         ]
       }
@@ -2246,7 +2187,7 @@
       "hue": "f0a7a1",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "A seam of Red through the stone: every Red gem that has already fired this turn fires again.",
+      "text": "Every Red gem that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -2275,7 +2216,7 @@
       "hue": "a3c2f0",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "A seam of Blue through the stone: every Blue gem that has already fired this turn fires again.",
+      "text": "Every Blue gem that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -2304,7 +2245,7 @@
       "hue": "a3dbb8",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "A seam of Green through the stone: every Green gem that has already fired this turn fires again.",
+      "text": "Every Green gem that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -2333,7 +2274,7 @@
       "hue": "c7b2eb",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "A seam of Violet through the stone: every Violet gem that has already fired this turn fires again.",
+      "text": "Every Violet gem that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -2362,7 +2303,7 @@
       "hue": "f1daa0",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "A seam of Gold through the stone: every Gold gem that has already fired this turn fires again.",
+      "text": "Every Gold gem that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -2391,7 +2332,7 @@
       "hue": "f4f7fa",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "A seam of White through the stone: every White gem that has already fired this turn fires again.",
+      "text": "Every White gem that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -2419,22 +2360,22 @@
       "color": "OPAL",
       "hue": "f6d8b4",
       "rarity": "MYTHIC",
-      "tags": ["opal", "pair"],
-      "text": "Every gem in the rail gains {heat#carat} for the rest of the fight.",
+      "tags": ["opal", "resonance"],
+      "text": "Your other gems gain {heat#carat} for the rest of the fight.",
       "numbers": {
         "heat": {
           "ladder": [1, 1, 1, 2, 2]
         }
       },
       "trigger": {
-        "kind": "pair",
+        "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
       },
       "effects": [
         {
-          "kind": "rank_buff",
-          "target": "self",
+          "kind": "gem_rank",
           "rank": "carat",
+          "scope": "others",
           "amount": {
             "ladder": [1, 1, 1, 2, 2]
           }
@@ -2444,9 +2385,9 @@
         "text": "And a Cut step with it.",
         "effects": [
           {
-            "kind": "rank_buff",
-            "target": "self",
+            "kind": "gem_rank",
             "rank": "cut",
+            "scope": "others",
             "amount": 1
           }
         ]
@@ -2456,17 +2397,12 @@
       "name": "Doublet",
       "color": "OPAL",
       "rarity": "MYTHIC",
-      "tags": ["opal", "hand"],
-      "text": "Wears the skill of the next gem up to {reach#socket} along the rail, at its own weight and cut. With nothing to wear it is a thin slice, and rings once.",
-      "numbers": {
-        "reach": {
-          "ladder": [1, 2, 3, 4, 5]
-        }
-      },
-      "wears": "next",
+      "tags": ["opal", "resonance"],
+      "text": "Copies the skill of the previous gem.",
+      "wears": "prev",
       "trigger": {
-        "kind": "always",
-        "ladder": [1, 1, 1, 1, 1]
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
       },
       "effects": [
         {
@@ -2476,39 +2412,60 @@
         }
       ],
       "flawless": {
-        "text": "It reads the other gem's Flawless line as well."
+        "text": "Also copies that gem's Flawless effect."
       }
     },
     "MATRIX": {
       "name": "Matrix",
       "color": "OPAL",
       "rarity": "MYTHIC",
-      "tags": ["opal", "hand"],
-      "text": "The first {reach#gem} that stayed dark this turn fire anyway. Last in the rail it hears them all.",
-      "numbers": {
-        "reach": {
-          "ladder": [1, 2, 3, 4, 5]
-        }
-      },
+      "tags": ["opal", "resonance"],
+      "text": "Activate the first two gems that fizzled this turn.",
       "trigger": {
-        "kind": "always",
-        "ladder": [1, 1, 1, 1, 1]
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
       },
       "effects": [
         {
           "kind": "replay_fizzled",
           "target": "self",
-          "amount": {
-            "ladder": [1, 2, 3, 4, 5]
-          }
+          "amount": 2
         }
       ],
       "flawless": {
-        "text": "However many of them there are.",
+        "text": "Activate all gems that fizzled.",
         "modify": [
           {
             "effect": 0,
-            "add": 5
+            "amount": 99
+          }
+        ]
+      }
+    },
+    "ECHO": {
+      "name": "Echo",
+      "color": "OPAL",
+      "rarity": "MYTHIC",
+      "tags": ["opal", "resonance"],
+      "text": "Create a Void copy of the last gem that fired. It lasts for the rest of the fight.",
+      "trigger": {
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "void_copy",
+          "target": "self",
+          "amount": 1,
+          "scale": "none"
+        }
+      ],
+      "flawless": {
+        "text": "Two copies.",
+        "modify": [
+          {
+            "effect": 0,
+            "add": 1
           }
         ]
       }
@@ -2517,15 +2474,15 @@
       "name": "Prelude",
       "color": "OPAL",
       "rarity": "MYTHIC",
-      "tags": ["opal", "distinct"],
-      "text": "The next gem fires {again#extra time}. Last in the rail, that is the Birthstone.",
+      "tags": ["opal", "resonance"],
+      "text": "The next gem fires {again#extra time}.",
       "numbers": {
         "again": {
           "ladder": [1, 1, 1, 1, 2]
         }
       },
       "trigger": {
-        "kind": "distinct",
+        "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
       },
       "effects": [
@@ -3132,176 +3089,88 @@
       ],
       "rarity": "RARE",
       "price": 102
-    },
-    "PAIRED_D6": {
-      "name": "Paired Die",
-      "shape": "D6",
-      "faces": [1, 1, 3, 3, 6, 6],
-      "rarity": "UNCOMMON",
-      "price": 18
-    },
-    "ODD_D6": {
-      "name": "Odd Die",
-      "shape": "D6",
-      "faces": [1, 1, 3, 3, 5, 5],
-      "rarity": "UNCOMMON",
-      "price": 18
-    },
-    "EVEN_D6": {
-      "name": "Even Die",
-      "shape": "D6",
-      "faces": [2, 2, 4, 4, 6, 6],
-      "rarity": "UNCOMMON",
-      "price": 18
-    },
-    "SEVENS_D8": {
-      "name": "Sevens Die",
-      "shape": "D8",
-      "faces": [1, 2, 3, 4, 5, 7, 7, 7],
-      "rarity": "UNCOMMON",
-      "price": 20
-    },
-    "SPLIT_D12": {
-      "name": "Split Die",
-      "shape": "D12",
-      "faces": [1, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 12],
-      "rarity": "UNCOMMON",
-      "price": 22
-    },
-    "WILD_D6": {
-      "name": "Wild Die",
-      "shape": "D6",
-      "faces": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        {
-          "value": 6,
-          "kind": "wild"
-        }
-      ],
-      "rarity": "RARE",
-      "price": 40
-    },
-    "EXPLODING_D6": {
-      "name": "Exploding Die",
-      "shape": "D6",
-      "faces": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        {
-          "value": 6,
-          "kind": "exploding"
-        }
-      ],
-      "rarity": "RARE",
-      "price": 36
-    },
-    "LOCKED_D8": {
-      "name": "Locking Die",
-      "shape": "D8",
-      "faces": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        {
-          "value": 8,
-          "kind": "locked"
-        }
-      ],
-      "rarity": "UNCOMMON",
-      "price": 24
-    },
-    "MIRROR_D6": {
-      "name": "Mirror Die",
-      "shape": "D6",
-      "faces": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        {
-          "value": 6,
-          "kind": "mirror"
-        }
-      ],
-      "rarity": "RARE",
-      "price": 40
-    },
-    "HOLLOW_D10": {
-      "name": "Hollow Die",
-      "shape": "D10",
-      "faces": [
-        {
-          "value": 0,
-          "kind": "blank"
-        },
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-      ],
-      "rarity": "UNCOMMON",
-      "price": 16
-    },
-    "GEM_D8": {
-      "name": "Gem Die",
-      "shape": "D8",
-      "faces": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        {
-          "value": 8,
-          "kind": "gem"
-        }
-      ],
-      "rarity": "LEGENDARY",
-      "price": 90
-    },
-    "PHIAL": {
-      "name": "The Phial",
-      "shape": "D6",
-      "faces": [1, 1, 1, 2, 2, 3],
-      "top": 6,
-      "rarity": "RARE",
-      "price": 30,
-      "text": "Rue's own die. It cannot roll high, so every face of it is low."
-    },
-    "GAMBLERS_D6": {
-      "name": "Gambler's Die",
-      "shape": "D6",
-      "faces": [1, 2, 3, 4, 5, 7],
-      "rarity": "UNCOMMON",
-      "price": 20,
-      "text": "A six-sider whose six is a seven. Florin's dice."
     }
   },
-  "engravings": {
-    "ALWAYS_HELD": {
-      "name": "Set",
-      "key": "always_held",
+  "patterns": {
+    "EVEN": {
+      "name": "Even",
+      "key": "even",
       "rarity": "UNCOMMON",
-      "text": "Counts as held even when rerolled."
+      "text": "Every face an even number, each one showing twice."
+    },
+    "ODD": {
+      "name": "Odd",
+      "key": "odd",
+      "rarity": "UNCOMMON",
+      "text": "Every face an odd number, each one showing twice."
+    },
+    "SPLIT": {
+      "name": "Split",
+      "key": "split",
+      "rarity": "UNCOMMON",
+      "text": "The middle numbers are removed, leaving only the highest and lowest, repeated. Bigger dice repeat them more."
+    },
+    "GAMBLERS": {
+      "name": "Gambler's",
+      "key": "gamblers",
+      "rarity": "UNCOMMON",
+      "text": "Every 6 and every 8 comes up a 7."
+    },
+    "PAIRED": {
+      "name": "Paired",
+      "key": "paired",
+      "rarity": "UNCOMMON",
+      "text": "Half as many numbers, each appearing twice. Which numbers are picked when the die is cut."
+    },
+    "STRETCHED": {
+      "name": "Stretched",
+      "key": "stretched",
+      "rarity": "RARE",
+      "text": "Every face doubled, so the die tops out at twice its size."
+    },
+    "SHALLOW": {
+      "name": "Shallow",
+      "key": "shallow",
+      "rarity": "UNCOMMON",
+      "text": "All numbers are squeezed into the bottom half. It still counts as its full size, so every face is low."
+    }
+  },
+  "etchings": {
+    "WILD": {
+      "name": "Wild",
+      "key": "wild",
+      "rarity": "RARE",
+      "text": "Counts as any value, and as the die top for totals."
+    },
+    "EXPLODING": {
+      "name": "Exploding",
+      "key": "exploding",
+      "rarity": "RARE",
+      "text": "Rolls again and adds, up to three times over."
+    },
+    "SHINY": {
+      "name": "Shiny",
+      "key": "shiny",
+      "rarity": "RARE",
+      "text": "One Resonance more for every gem it helps light."
+    },
+    "GOLDEN": {
+      "name": "Golden",
+      "key": "golden",
+      "rarity": "UNCOMMON",
+      "text": "Pays pyrite every time it is rolled."
+    },
+    "TALLY": {
+      "name": "Tally",
+      "key": "tally",
+      "rarity": "RARE",
+      "text": "Goes up by 1 permanently each time it's rolled."
+    },
+    "STICKY": {
+      "name": "Sticky",
+      "key": "sticky",
+      "rarity": "UNCOMMON",
+      "text": "Carries into the next turn instead of being thrown again."
     },
     "TWIN": {
       "name": "Twin",
@@ -3309,17 +3178,137 @@
       "rarity": "RARE",
       "text": "Counts as two dice in every set."
     },
-    "KEEN": {
-      "name": "Keen",
-      "key": "keen",
+    "DOUBLED": {
+      "name": "Doubled",
+      "key": "doubled",
       "rarity": "RARE",
-      "text": "+1 to every face."
+      "text": "Counts as double its number everywhere."
     },
-    "STEADY": {
-      "name": "Steady",
-      "key": "steady",
+    "LOCKED": {
+      "name": "Locked",
+      "key": "locked",
       "rarity": "UNCOMMON",
-      "text": "Never shows less than 2."
+      "text": "Once it shows, the die cannot be thrown again this fight.",
+      "bane": true
+    },
+    "BLANK": {
+      "name": "Blank",
+      "key": "blank",
+      "rarity": "UNCOMMON",
+      "text": "Has no value and doesn't count toward any pattern.",
+      "bane": true
+    }
+  },
+  "materials": {
+    "RUBY": {
+      "name": "Ruby",
+      "key": "ruby",
+      "rarity": "UNCOMMON",
+      "color": "RED",
+      "hue": "e0473c",
+      "edge": "6b1d18",
+      "text": "Half again as strong on every red gem it helps light."
+    },
+    "SAPPHIRE": {
+      "name": "Sapphire",
+      "key": "sapphire",
+      "rarity": "UNCOMMON",
+      "color": "BLUE",
+      "hue": "3f7fe0",
+      "edge": "1c3a6b",
+      "text": "Half again as strong on every blue gem it helps light."
+    },
+    "EMERALD": {
+      "name": "Emerald",
+      "key": "emerald",
+      "rarity": "UNCOMMON",
+      "color": "GREEN",
+      "hue": "3fb56b",
+      "edge": "1c5636",
+      "text": "Half again as strong on every green gem it helps light."
+    },
+    "AMETHYST": {
+      "name": "Amethyst",
+      "key": "amethyst",
+      "rarity": "UNCOMMON",
+      "color": "VIOLET",
+      "hue": "8b5fd6",
+      "edge": "402a6b",
+      "text": "Half again as strong on every violet gem it helps light."
+    },
+    "CITRINE": {
+      "name": "Citrine",
+      "key": "citrine",
+      "rarity": "UNCOMMON",
+      "color": "GOLD",
+      "hue": "e2b23a",
+      "edge": "6f5313",
+      "text": "Half again as strong on every gold gem it helps light."
+    },
+    "DIAMOND": {
+      "name": "Diamond",
+      "key": "diamond",
+      "rarity": "UNCOMMON",
+      "color": "WHITE",
+      "hue": "e8eef5",
+      "edge": "8e9bad",
+      "text": "Half again as strong on every white gem it helps light."
+    },
+    "OPAL": {
+      "name": "Opal",
+      "key": "opal",
+      "rarity": "LEGENDARY",
+      "hue": "eceaf6",
+      "edge": "9a93c4",
+      "text": "Half again as strong on every gem it helps light, whatever colour it is."
+    },
+    "GLASS": {
+      "name": "Glass",
+      "key": "glass",
+      "rarity": "RARE",
+      "hue": "bfe6ef",
+      "edge": "5b8c99",
+      "text": "Half again as strong on every gem it helps light. Each throw has a 10% chance to break it."
+    },
+    "CRYSTAL": {
+      "name": "Crystal",
+      "key": "crystal",
+      "rarity": "RARE",
+      "hue": "ded0ff",
+      "edge": "7a68b5",
+      "text": "+1 Resonance every time it's thrown, rerolls included."
+    },
+    "IRON": {
+      "name": "Iron",
+      "key": "iron",
+      "rarity": "UNCOMMON",
+      "hue": "9aa7b8",
+      "edge": "3c4656",
+      "text": "Never rolls below a quarter of its top face."
+    },
+    "FOOLS_GOLD": {
+      "name": "Fool's Gold",
+      "key": "fools_gold",
+      "rarity": "UNCOMMON",
+      "hue": "e6c65a",
+      "edge": "7a5f18",
+      "text": "Pays pyrite every time it is thrown."
+    },
+    "GRANITE": {
+      "name": "Granite",
+      "key": "granite",
+      "rarity": "COMMON",
+      "hue": "9a968f",
+      "edge": "4a4742",
+      "text": "Creatures can't break, blank or shrink it."
+    },
+    "BLOOD": {
+      "name": "Blood",
+      "key": "blood",
+      "rarity": "RARE",
+      "hue": "a32b2b",
+      "edge": "4d1212",
+      "text": "Rerolling it costs 2 HP. Its face goes up by 1 every time something dies."
     }
   },
   "characters": {
@@ -3329,14 +3318,13 @@
       "starter": true,
       "unlock_order": 0,
       "hp": 80,
-      "text": "The wall. Locks in early, heals for patience, and turns a lucky triple into a hammer.",
+      "text": "The tank. Locks in early, heals for unused rerolls, and hits hard with three of a kind.",
       "sockets": ["RED", "BLUE", "GREEN", "ANY", "ANY"],
       "dice": ["D6", "D6", "D6", "D8", "D8"],
       "passive": {
-        "kind": "heal_per_unused_reroll",
-        "amount": 3,
+        "kind": "heal_resonance_per_unused_reroll",
         "name": "Second Wind",
-        "text": "Heal 3 for each unused reroll when your rail begins."
+        "text": "Heal Resonance for each unused reroll when your rail closes."
       },
       "birthstone": {
         "name": "Rally",
@@ -3434,7 +3422,7 @@
       "title": "the Rogue",
       "unlock_order": 1,
       "hp": 65,
-      "text": "The assassin's gamble. Four tiny knives and one enormous die.",
+      "text": "The assassin. Four d4s and a d20, betting on one huge roll.",
       "sockets": ["RED", "RED", "VIOLET", "ANY", "ANY"],
       "dice": ["D4", "D4", "D4", "D4", "D20"],
       "passive": {
@@ -3447,7 +3435,7 @@
         "emblem": "slashes",
         "style": "marquise",
         "hue": "1c1a26",
-        "text": "Black opal in a needle-thin marquise: a dark body and a thousand pinprick flashes.",
+        "text": "Black opal in a thin marquise cut, dark with tiny flecks of color.",
         "face": "A thin smile, eyes on the target.",
         "tiers": [
           {
@@ -3477,7 +3465,7 @@
       "title": "the Wizard",
       "unlock_order": 2,
       "hp": 70,
-      "text": "The combo player. Runs of numbers, and the turn that plays twice.",
+      "text": "The combo player. Builds straights and can make a whole turn fire twice.",
       "sockets": ["RED", "WHITE", "VIOLET", "ANY", "ANY"],
       "dice": ["D4", "D6", "D8", "D10", "D12"],
       "passive": {
@@ -3492,7 +3480,7 @@
         "style": "step",
         "hue": "7a4fc4",
         "hue2": "d9a63c",
-        "text": "Ametrine, violet fading to gold, in a step cut: a staircase of facets.",
+        "text": "Ametrine in a step cut, fading from violet to gold.",
         "face": "Eyes closed, one hand raised like a conductor.",
         "tiers": [
           {
@@ -3540,9 +3528,15 @@
       "title": "the Apothecary",
       "unlock_order": 3,
       "hp": 70,
-      "text": "The low roller. Wants ones. Everything the others dread, Rue drinks.",
+      "text": "The low roller. Wants 1s and low dice, and heals off poison.",
       "sockets": ["RED", "VIOLET", "GREEN", "ANY", "ANY"],
-      "dice": ["D4", "D4", "D6", "D6", "PHIAL"],
+      "dice": [
+        "D4",
+        "D4",
+        "D6",
+        "D6",
+        { "shape": "D6", "pattern": "shallow", "name": "The Phial" }
+      ],
       "passive": {
         "kind": "heal_on_poison_tick",
         "name": "Leech",
@@ -3553,7 +3547,7 @@
         "emblem": "flask",
         "style": "briolette",
         "hue": "24402a",
-        "text": "Dark tourmaline briolette, a faceted teardrop, murky green-black with a trapped bubble.",
+        "text": "Dark tourmaline in a teardrop briolette cut, murky green-black with a bubble inside.",
         "face": "A wry grimace, as if tasting it.",
         "tiers": [
           {
@@ -3611,7 +3605,7 @@
       "title": "the Harlequin",
       "unlock_order": 4,
       "hp": 70,
-      "text": "Two faces. You choose which one the enemy sees, every turn.",
+      "text": "The trickster. Flips dice between odd and even to line up the hand.",
       "sockets": ["RED", "BLUE", "WHITE", "ANY", "ANY"],
       "dice": ["D6", "D6", "D8", "D8", "D10"],
       "passive": {
@@ -3720,27 +3714,27 @@
       "title": "the Gambler",
       "unlock_order": 5,
       "hp": 60,
-      "text": "The six-socket high roller. Loaded dice, fool's gold, and a stone once in a hundred turns.",
+      "text": "The high roller. Has six sockets and turns pyrite into damage.",
       "sockets": ["RED", "GOLD", "GOLD", "ANY", "ANY", "ANY"],
       "dice": [
-        "GAMBLERS_D6",
-        "GAMBLERS_D6",
-        "GAMBLERS_D6",
-        "GAMBLERS_D6",
-        "GAMBLERS_D6"
+        { "shape": "D6", "pattern": "gamblers" },
+        { "shape": "D6", "pattern": "gamblers" },
+        { "shape": "D6", "pattern": "gamblers" },
+        { "shape": "D6", "pattern": "gamblers" },
+        { "shape": "D6", "pattern": "gamblers" }
       ],
       "passive": {
-        "kind": "free_reroll_value",
-        "amount": 1,
-        "name": "Loaded",
-        "text": "Any die that lands on a 1 is rerolled once, free."
+        "kind": "pot_share",
+        "amount": 10,
+        "name": "House Money",
+        "text": "Each fight opens with a tenth of your pyrite on the table."
       },
       "birthstone": {
         "name": "High Roller",
         "emblem": "coins",
         "style": "heptagon",
         "hue": "c9a13a",
-        "text": "Pyrite in a seven-sided cut: fool's gold, grown through the stone in flakes, and not one side of it even.",
+        "text": "Pyrite in a lopsided seven-sided cut, flecked with fool's gold.",
         "face": "Wide eyes, a whoop.",
         "tiers": [
           {
@@ -3749,10 +3743,11 @@
               "kind": "crowns",
               "amount": 1
             },
-            "text": "Each crown, a die on its top face: Resonance damage and Resonance pyrite.",
+            "text": "Each crown: stake Resonance, and deal it.",
             "effects": [
               {
-                "kind": "damage",
+                "kind": "pot",
+                "pot_mode": "ante",
                 "amount": {
                   "op": "*",
                   "args": [
@@ -3766,7 +3761,7 @@
                 }
               },
               {
-                "kind": "gold",
+                "kind": "damage",
                 "amount": {
                   "op": "*",
                   "args": [
@@ -3782,30 +3777,52 @@
             ]
           },
           {
-            "name": "Hot Streak",
+            "name": "Raise",
             "trigger": {
               "kind": "crowns",
               "amount": 3
             },
-            "text": "Three crowns: stones found in this fight are a grade better.",
+            "text": "Three crowns: match the pot from your bank, then deal it.",
             "effects": [
               {
-                "kind": "quality_bonus",
-                "amount": 25
+                "kind": "pot",
+                "pot_mode": "double",
+                "amount": 0
+              },
+              {
+                "kind": "damage",
+                "amount": {
+                  "term": "pot"
+                }
               }
             ]
           },
           {
-            "name": "Royal Flush",
+            "name": "All In",
             "trigger": {
               "kind": "crowns",
               "amount": 5
             },
-            "text": "Five crowns: a raw stone drops on the spot, Exquisite or better.",
+            "text": "Five crowns: go all in with your bank. The pot hits every creature and pays out the damage dealt as pyrite.",
             "effects": [
               {
-                "kind": "stone_drop",
-                "amount": 1
+                "kind": "pot",
+                "pot_mode": "all",
+                "amount": 0
+              },
+              {
+                "kind": "damage",
+                "target": "enemies",
+                "amount": {
+                  "term": "pot"
+                }
+              },
+              {
+                "kind": "gold",
+                "target": "self",
+                "amount": 100,
+                "from_result": "damage",
+                "scale": "none"
               }
             ]
           },
@@ -3816,19 +3833,25 @@
               "amount": 0
             },
             "penalty": true,
-            "text": "No crown showing: lose Resonance pyrite.",
+            "text": "No crown: you lose the pot and take half of it as damage.",
             "effects": [
               {
-                "kind": "gold",
+                "kind": "damage",
+                "target": "self",
                 "amount": {
-                  "op": "-",
+                  "op": "floor_div",
                   "args": [
-                    0,
                     {
-                      "term": "resonance"
-                    }
+                      "term": "pot"
+                    },
+                    2
                   ]
                 }
+              },
+              {
+                "kind": "pot",
+                "pot_mode": "lose",
+                "amount": 0
               }
             ]
           }
@@ -3837,51 +3860,16 @@
     }
   },
   "boons": {
-    "RECUT": {
-      "name": "Recut",
-      "group": "stone",
-      "needs": "socket",
-      "text": "A stone drawn at random from your rail is cut again: a fresh roll of its Cut, better or worse.",
-      "effects": [
-        {
-          "kind": "reroll_cut",
-          "bonus": 0
-        }
-      ]
-    },
-    "HEAVIER": {
-      "name": "Clarified",
-      "group": "stone",
-      "needs": "socket",
-      "text": "A stone drawn at random from your rail is fired again: a fresh roll of its Clarity, and of whatever is frozen inside it.",
-      "effects": [
-        {
-          "kind": "reroll_clarity",
-          "bonus": 0
-        }
-      ]
-    },
-    "PINPOINT": {
-      "name": "A Pinpoint",
-      "group": "stone",
-      "needs": "socket",
-      "text": "A stone drawn at random from your rail takes on a Pinpoint inclusion for this run.",
-      "effects": [
-        {
-          "kind": "inclusion",
-          "class": "PINPOINT"
-        }
-      ]
-    },
     "RAW_STONE": {
-      "name": "A Raw Stone",
+      "name": "A Read Stone",
       "group": "stone",
-      "text": "A raw stone from depth 4 goes into your haul, unappraised.",
+      "text": "An appraised stone from depth 4, ready to set.",
       "effects": [
         {
           "kind": "raw_stone",
           "depth": 4,
-          "bonus": 0
+          "bonus": 0,
+          "read": true
         }
       ]
     },
@@ -3889,7 +3877,7 @@
       "name": "Pick of Three",
       "group": "stone",
       "needs": "pick",
-      "text": "Three raw stones from depth 4, each a different color. The one you take goes under the loupe at once, and can go straight onto your rail.",
+      "text": "Choose one of three raw stones from depth 4, each a different color. It's appraised right away and can go straight onto your rail.",
       "effects": [
         {
           "kind": "pick_stone",
@@ -3902,7 +3890,9 @@
     "HARDY": {
       "name": "Hardy",
       "group": "kit",
-      "tags": ["mercy"],
+      "tags": [
+        "mercy"
+      ],
       "text": "+12% health for this run.",
       "effects": [
         {
@@ -3914,7 +3904,9 @@
     "SOFT_ROCK": {
       "name": "Soft Rock",
       "group": "kit",
-      "tags": ["mercy"],
+      "tags": [
+        "mercy"
+      ],
       "text": "The creatures in your first three fights arrive at half health.",
       "effects": [
         {
@@ -3937,7 +3929,7 @@
     "HAMMERED": {
       "name": "Hammered",
       "group": "kit",
-      "text": "One of your five dice, drawn at random, is a size bigger for this run.",
+      "text": "A random die is one size bigger for this run.",
       "effects": [
         {
           "kind": "resize_die",
@@ -3960,7 +3952,9 @@
     "COST_HP": {
       "name": "Thinner Blood",
       "group": "cost",
-      "not_with": ["REWARD_HP"],
+      "not_with": [
+        "REWARD_HP"
+      ],
       "text": "10% less health for this run.",
       "effects": [
         {
@@ -3984,8 +3978,7 @@
       "name": "Chipped",
       "group": "cost",
       "needs": "socket",
-      "not_with": ["REWARD_RECUT"],
-      "text": "A stone drawn at random from your rail is judged a Cut step worse for this run.",
+      "text": "A random stone on your rail is one Cut step worse for this run.",
       "effects": [
         {
           "kind": "cut_step",
@@ -3993,28 +3986,15 @@
         }
       ]
     },
-    "REWARD_RECUT": {
-      "name": "Truer Cut",
-      "group": "reward",
-      "needs": "socket",
-      "text": "A stone drawn at random from your rail is cut again by a good hand: its Cut is rolled twice and the truer one kept.",
-      "effects": [
-        {
-          "kind": "reroll_cut",
-          "bonus": 4,
-          "best_of": 2
-        }
-      ]
-    },
     "REWARD_CARATS": {
-      "name": "Six Carats",
+      "name": "Four Carats",
       "group": "reward",
       "needs": "socket",
-      "text": "A stone drawn at random from your rail gains 6 carats for this run.",
+      "text": "A random stone on your rail gains 4 carats for this run.",
       "effects": [
         {
           "kind": "carat",
-          "amount": 6
+          "amount": 4
         }
       ]
     },
@@ -4029,38 +4009,12 @@
         }
       ]
     },
-    "REWARD_STONE": {
-      "name": "A Precious Stone",
-      "group": "reward",
-      "needs": "pick",
-      "text": "Three raw stones from depth 8, each a different color and Precious or better. The one you take goes under the loupe at once.",
-      "effects": [
-        {
-          "kind": "pick_stone",
-          "count": 3,
-          "depth": 8,
-          "bonus": 6,
-          "min_tier": "PRECIOUS"
-        }
-      ]
-    },
-    "REWARD_STAR": {
-      "name": "A Star",
-      "group": "reward",
-      "needs": "socket",
-      "weight": 1,
-      "text": "A stone drawn at random from your rail takes on a Star inclusion for this run.",
-      "effects": [
-        {
-          "kind": "inclusion",
-          "class": "STAR"
-        }
-      ]
-    },
     "REWARD_HP": {
       "name": "Iron Constitution",
       "group": "reward",
-      "not_with": ["COST_HP"],
+      "not_with": [
+        "COST_HP"
+      ],
       "text": "+25% health for this run.",
       "effects": [
         {
@@ -4072,10 +4026,63 @@
     "REWARD_WILD": {
       "name": "A Wild Face",
       "group": "reward",
-      "text": "One of your five dice, drawn at random, has its highest face turned wild for this run.",
+      "text": "A random die has its highest face turned wild for this run.",
       "effects": [
         {
           "kind": "wild_face"
+        }
+      ]
+    },
+    "FRAGILE_STONE": {
+      "name": "A Fragile Find",
+      "group": "stone",
+      "weight": 3,
+      "text": "A heavy, appraised stone from depth 20. It shatters when the run ends and can't be taken home.",
+      "effects": [
+        {
+          "kind": "raw_stone",
+          "depth": 20,
+          "bonus": 0,
+          "read": true,
+          "fragile": true
+        }
+      ]
+    },
+    "STAKE_CARAT": {
+      "name": "Weighed Heavier",
+      "group": "stone",
+      "needs": "socket",
+      "text": "A random stone on your rail gains 2 carats for this run.",
+      "effects": [
+        {
+          "kind": "carat",
+          "amount": 2
+        }
+      ]
+    },
+    "STAKE_CUT": {
+      "name": "A Truer Set",
+      "group": "stone",
+      "needs": "socket",
+      "text": "A random stone on your rail is one Cut step better for this run.",
+      "effects": [
+        {
+          "kind": "cut_step",
+          "amount": 1
+        }
+      ]
+    },
+    "REWARD_ALL": {
+      "name": "The Whole Rail",
+      "group": "reward",
+      "weight": 2,
+      "text": "Every stone set on your rail gains a carat, a Cut step and a Clarity step for this run.",
+      "effects": [
+        {
+          "kind": "rail_all",
+          "carat": 1,
+          "cut": 1,
+          "clarity": 1
         }
       ]
     }
@@ -4298,7 +4305,7 @@
       "threat": 3,
       "dice": ["D10"],
       "gimmick": "poison_immune",
-      "text": "Poison cannot touch it. Straights cut it deep.",
+      "text": "Immune to poison. Takes extra damage from straights.",
       "moves": [
         {
           "name": "Drain",
@@ -4757,22 +4764,7 @@
       },
       "skills": [],
       "inclusions": [],
-      "dice": [
-        "D4",
-        "D6",
-        "D8",
-        "D10",
-        "D12",
-        "D20",
-        "PAIRED_D6",
-        "ODD_D6",
-        "EVEN_D6",
-        "SEVENS_D8",
-        "WILD_D6",
-        "EXPLODING_D6",
-        "LOCKED_D8",
-        "HOLLOW_D10"
-      ],
+      "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
         "fight": 48,
         "elite": 12,
@@ -4781,6 +4773,7 @@
         "merchant": 8,
         "smithy": 6,
         "carver": 6,
+        "vat": 4,
         "well": 5
       },
       "motherlode_pct": 3,
@@ -4832,16 +4825,17 @@
   "oddities": {
     "CUTTERS_WHEEL": {
       "name": "The Cutter's Wheel",
-      "text": "An old wheel, still spinning. A stone laid against it is cut again from scratch: what comes off is whatever this depth's rock gives up, and nobody promises it is better.",
+      "text": "An old cutting wheel, still turning. Hold a stone against it to recut it from scratch. The new Cut could be better or worse.",
       "choices": [
         {
           "id": "recut",
           "label": "Cut a stone again",
           "needs": "stone",
-          "text": "Its Cut is rolled again from this depth's table. It can come off worse. 8% it shatters.",
+          "text": "Rerolls its Cut from this depth's odds, tilted slightly in your favor. It always changes, and it can get worse. 4% chance it shatters.",
           "action": {
             "kind": "reroll_cut",
-            "shatter": 8
+            "shatter": 4,
+            "bonus": 8
           }
         },
         {
@@ -4856,23 +4850,26 @@
     },
     "ACID_BATH": {
       "name": "Acid Bath",
-      "text": "A pool that eats what is frozen inside a stone.",
+      "text": "A vat of smoking acid. It dissolves rock much faster than gems. It burns skin too.",
       "choices": [
         {
           "id": "remove",
           "label": "Dissolve an inclusion",
-          "text": "Choose a stone and one inclusion. It is gone.",
+          "text": "Pick a stone and remove one of its inclusions.",
           "needs": "inclusion",
           "action": {
             "kind": "remove_inclusion"
           }
         },
         {
-          "id": "reveal",
-          "label": "Bathe the haul",
-          "text": "Every raw stone you carry shows its inclusions.",
+          "id": "dissolve",
+          "label": "Dissolve the matrix",
+          "needs": "raw_stones",
+          "text": "Dip up to three raw stones. Each one comes out appraised and costs you 6 HP.",
           "action": {
-            "kind": "reveal_inclusions"
+            "kind": "acid_appraise",
+            "most": 3,
+            "hp": 6
           }
         },
         {
@@ -4886,16 +4883,16 @@
     },
     "CRUCIBLE": {
       "name": "The Crucible",
-      "text": "Two stones go in. One comes out.",
+      "text": "Melts two stones into one. Only one comes out.",
       "choices": [
         {
           "id": "fuse",
           "label": "Fuse two stones",
-          "text": "Keep one stone's skill. Its carats become the sum of both, up to 20. Each inclusion of either survives 50%.",
           "needs": "two_stones",
+          "text": "One of the two survives, heavier for it.",
           "action": {
             "kind": "fuse",
-            "survive": 50
+            "carry": 30
           }
         },
         {
@@ -4922,36 +4919,12 @@
           }
         },
         {
-          "id": "pass",
-          "label": "Leave it",
+          "id": "sell",
+          "label": "Sell it unopened",
+          "text": "Get 25 pyrite. You never learn what was inside.",
           "action": {
-            "kind": "none"
-          }
-        }
-      ]
-    },
-    "GRINDER": {
-      "name": "The Grinder",
-      "text": "A bench grinder and a set of engraving needles.",
-      "choices": [
-        {
-          "id": "grind",
-          "label": "Grind a face off a die",
-          "text": "Choose a die and a face. The face is replaced by its neighbour.",
-          "needs": "die_face",
-          "action": {
-            "kind": "grind"
-          }
-        },
-        {
-          "id": "engrave",
-          "label": "Engrave a die",
-          "text": "Choose a die and an engraving. It takes 40%, cracks the die's best face 10%, or nothing.",
-          "needs": "die_engraving",
-          "action": {
-            "kind": "engrave",
-            "success": 40,
-            "crack": 10
+            "kind": "ore",
+            "amount": 25
           }
         },
         {
@@ -4965,16 +4938,17 @@
     },
     "OLD_PROSPECTOR": {
       "name": "The Old Prospector",
-      "text": "He wants one of your raw stones and offers one of his, a carat heavier. He will not let you look.",
+      "text": "An old prospector offers to swap one of his raw stones for one of yours. His is heavier, but he won't let you look at it first.",
       "choices": [
         {
           "id": "trade",
           "label": "Trade a stone",
-          "text": "Give a raw stone. Receive a raw stone one carat heavier.",
+          "text": "Give any stone, appraised or not. Get a raw stone up to 2 carats heavier.",
           "needs": "stone",
           "action": {
             "kind": "trade_up",
-            "carats": 1
+            "carats": 0,
+            "carats_max": 2
           }
         },
         {
@@ -4988,7 +4962,7 @@
     },
     "SHRINE": {
       "name": "Shrine of the Pattern",
-      "text": "Dice are carved into the wall, all showing the same thing.",
+      "text": "Rows of dice are carved into the wall, all showing the same pattern.",
       "choices": [
         {
           "id": "pray",
@@ -5010,15 +4984,17 @@
     },
     "IDOL": {
       "name": "The Idol",
-      "text": "A stone the size of a fist sits in its eye. It is cracked all through.",
+      "text": "A carved idol with a cracked gem for an eye. It's set in deep.",
       "choices": [
         {
           "id": "take",
-          "label": "Take the eye",
-          "text": "A stone of at least 16 carats, appraised, Etched with two Fractures.",
+          "label": "Work the eye loose",
+          "text": "Takes 1 to 5 pulls. Each pull costs more HP than the last: 3, then 5, then 7. The gem comes out appraised and Etched, with two Fractures.",
           "action": {
             "kind": "idol",
-            "carat_min": 16
+            "hp": 3,
+            "hp_step": 2,
+            "tries_max": 5
           }
         },
         {
@@ -5032,15 +5008,16 @@
     },
     "ECHO_CHAMBER": {
       "name": "Echo Chamber",
-      "text": "Whatever is inside one stone rings in another.",
+      "text": "A round room with a strong echo. Hold up a stone and the walls grow a rough copy of it.",
       "choices": [
         {
-          "id": "copy",
-          "label": "Copy an inclusion",
-          "text": "Choose an inclusion on one stone and another stone with room for it.",
-          "needs": "copy_inclusion",
+          "id": "echo",
+          "label": "Echo a stone",
+          "needs": "stone",
+          "text": "Pick any stone. You get a raw stone with the same skill. Everything else about it is rolled fresh.",
           "action": {
-            "kind": "copy_inclusion"
+            "kind": "echo_stone",
+            "bonus": 2
           }
         },
         {
@@ -5054,84 +5031,27 @@
     },
     "COLLECTOR": {
       "name": "The Collector",
-      "text": "She pays three times what a stone is worth, and keeps it forever.",
+      "text": "A collector who pays double for stones. She has one stone of her own for sale.",
       "choices": [
         {
           "id": "sell",
           "label": "Sell a stone",
-          "text": "Triple its value in pyrite. The stone is gone.",
+          "text": "Get twice its value in pyrite.",
           "needs": "stone",
           "action": {
             "kind": "collector_sell",
-            "mult": 3
+            "mult": 2
           }
         },
         {
-          "id": "pass",
-          "label": "Decline",
+          "id": "buy",
+          "label": "Buy from her case",
+          "needs": "offer",
+          "text": "Buy her appraised stone for twice its value. It rolls better than anything at a stall.",
           "action": {
-            "kind": "none"
-          }
-        }
-      ]
-    },
-    "LOUPE_CABINET": {
-      "name": "Loupe Cabinet",
-      "text": "A cabinet of lenses, most of them cracked. One is not.",
-      "choices": [
-        {
-          "id": "look",
-          "label": "Look through it",
-          "text": "Appraise one raw stone from your haul, free.",
-          "needs": "raw_stone",
-          "action": {
-            "kind": "appraise"
-          }
-        },
-        {
-          "id": "ore",
-          "label": "Take 8 pyrite",
-          "text": "The brass fittings are worth something.",
-          "action": {
-            "kind": "ore",
-            "amount": 8
-          }
-        }
-      ]
-    },
-    "FIELD_MEDIC": {
-      "name": "Field Medic",
-      "text": "A miner with a kit and a price.",
-      "choices": [
-        {
-          "id": "heal",
-          "label": "Be treated",
-          "text": "Recover a quarter of your HP.",
-          "action": {
-            "kind": "heal",
-            "pct": 25
-          }
-        },
-        {
-          "id": "ore",
-          "label": "Take 6 pyrite",
-          "action": {
-            "kind": "ore",
-            "amount": 6
-          }
-        }
-      ]
-    },
-    "VUG": {
-      "name": "The Vug",
-      "text": "A pocket in the rock, walls glittering. The air is bad.",
-      "choices": [
-        {
-          "id": "enter",
-          "label": "Squeeze in",
-          "text": "A rich vein, but every strike costs 3 HP.",
-          "action": {
-            "kind": "vug"
+            "kind": "collector_buy",
+            "bonus": 4,
+            "price_mult": 2
           }
         },
         {
@@ -5143,14 +5063,64 @@
         }
       ]
     },
+    "LOUPE_CABINET": {
+      "name": "The Dead Man's Kit",
+      "text": "A dead miner lies next to his open kit. The loupe inside still works, and the brass fittings can be sold.",
+      "choices": [
+        {
+          "id": "look",
+          "label": "Look through it",
+          "text": "Appraise one raw stone for free.",
+          "needs": "raw_stone",
+          "action": {
+            "kind": "appraise"
+          }
+        },
+        {
+          "id": "ore",
+          "label": "Strip the brass",
+          "text": "Gain {ore} pyrite.",
+          "action": {
+            "kind": "ore",
+            "base": 6,
+            "per_depth": 1
+          }
+        }
+      ]
+    },
+    "FIELD_MEDIC": {
+      "name": "Rest Stop",
+      "text": "A nook in the wall with a bench, a cold stove and a supply box someone left behind.",
+      "choices": [
+        {
+          "id": "heal",
+          "label": "Rest",
+          "text": "Recover 25% of your HP.",
+          "action": {
+            "kind": "heal",
+            "pct": 25
+          }
+        },
+        {
+          "id": "ore",
+          "label": "Resupply",
+          "action": {
+            "kind": "ore",
+            "base": 6,
+            "per_depth": 1
+          },
+          "text": "Gain {ore} pyrite."
+        }
+      ]
+    },
     "TUMBLER": {
       "name": "The Tumbler",
-      "text": "A drum of grit that turns and turns. What goes in comes out as something else of the same color.",
+      "text": "A rotating drum full of grit. A stone that goes in comes out with a different skill of the same color.",
       "choices": [
         {
           "id": "tumble",
           "label": "Tumble a stone",
-          "text": "Its skill is rolled again among the skills of its color. Carats, cut, clarity and inclusions stay.",
+          "text": "Rerolls its skill among the skills of its color. Carats, Cut, Clarity and inclusions stay the same.",
           "needs": "stone",
           "action": {
             "kind": "tumble"
@@ -5167,22 +5137,22 @@
     },
     "SEAM": {
       "name": "A Glittering Seam",
-      "text": "Stones stud a seam too hard for a pick. Your hands will have to do.",
+      "text": "A seam of stones in rock too hard for your pick. You'll have to dig them out by hand.",
       "choices": [
         {
           "id": "pry",
           "label": "Pry out the big one",
-          "text": "A raw stone of better quality than the rock around it. The edge cuts: lose 8 HP.",
+          "text": "Get a raw stone of better quality than usual for this depth. The sharp edge costs you 8 HP.",
           "action": {
             "kind": "pry",
-            "bonus": 4,
+            "bonus": 3,
             "hp": 8
           }
         },
         {
           "id": "chips",
           "label": "Gather the chips",
-          "text": "Two small raw stones that have already come loose.",
+          "text": "Pick up two small raw stones that have already come loose.",
           "action": {
             "kind": "chips",
             "count": 2,
@@ -5201,12 +5171,12 @@
     "SMITHY": {
       "name": "The Smithy",
       "room": "smithy",
-      "text": "A forge still banked with coals, an anvil and a rack of files. Somebody makes dice down here.",
+      "text": "A forge with warm coals, an anvil and a rack of files. Dice can be reworked here.",
       "choices": [
         {
           "id": "hammer",
           "label": "Hammer a die bigger",
-          "text": "Raise one tier: d2, d3, d4, d6, d8, d10, d12, d16, d20, d24, d30, d40, d50, d60, d100. Its faces become plain numbers; its engraving stays.",
+          "text": "Raise one tier: d2, d3, d4, d6, d8, d10, d12, d16, d20, d24, d30, d40, d50, d60, d100. Its pattern is reapplied to the new faces. Etchings and material are kept.",
           "needs": "die",
           "action": {
             "kind": "upsize"
@@ -5215,10 +5185,19 @@
         {
           "id": "file",
           "label": "File a die smaller",
-          "text": "Lower one tier, down to a d2: fewer faces, more matches. A d20 becomes a d16; a d4 becomes a d3, then a d2. Its faces become plain numbers; its engraving stays.",
+          "text": "Lower one tier, down to a d2. Fewer faces means more matches. A d20 becomes a d16, and a d4 becomes a d3. Keeps its material and any etchings that still fit.",
           "needs": "die",
           "action": {
             "kind": "downsize"
+          }
+        },
+        {
+          "id": "stamp",
+          "label": "Stamp the pattern",
+          "text": "The anvil is set up for one pattern. Pick a die and its faces are recut to that pattern.",
+          "needs": "die",
+          "action": {
+            "kind": "pattern"
           }
         },
         {
@@ -5233,12 +5212,12 @@
     "CARVER": {
       "name": "The Carver's Bench",
       "room": "carver",
-      "text": "Fine chisels laid out under a lamp. Whoever works here recuts the faces of dice.",
+      "text": "Chisels and etching needles laid out under a lamp. Dice faces can be recut or etched here.",
       "choices": [
         {
           "id": "raise",
           "label": "Raise a face",
-          "text": "Choose a die and a face. It comes up by 1, never past the die's highest face. A blank face becomes a 1.",
+          "text": "Pick a die face and raise it by 1. There's no cap. A blank face becomes a 1.",
           "needs": "die_face",
           "action": {
             "kind": "raise_face",
@@ -5248,10 +5227,61 @@
         {
           "id": "recut",
           "label": "Recut a face",
-          "text": "Choose a face, then another face of the same die: the first is recut to show the second's number.",
+          "text": "Pick two faces on the same die. The first is recut to show the second one's number.",
           "needs": "die_face_pair",
           "action": {
             "kind": "copy_face"
+          }
+        },
+        {
+          "id": "etch",
+          "label": "Etch a face",
+          "text": "The needles are set up for one etching. Pick a face and it takes the etching.",
+          "needs": "die_face",
+          "action": {
+            "kind": "etch"
+          }
+        },
+        {
+          "id": "pass",
+          "label": "Leave it",
+          "action": {
+            "kind": "none"
+          }
+        }
+      ]
+    },
+    "VAT": {
+      "name": "The Vat",
+      "room": "vat",
+      "text": "A sunken vat of glowing molten material. Dip a die in and it comes out made of something else.",
+      "choices": [
+        {
+          "id": "dip",
+          "label": "Dip a die",
+          "text": "The die takes on the material in the vat. Its faces don't change, but its old material is lost.",
+          "needs": "die",
+          "action": {
+            "kind": "material"
+          }
+        },
+        {
+          "id": "blind",
+          "label": "Dip it blind",
+          "text": "Pick a die and it gets a random material. It could be any of them.",
+          "needs": "die",
+          "action": {
+            "kind": "material",
+            "random": true
+          }
+        },
+        {
+          "id": "melt",
+          "label": "Melt it down",
+          "text": "Resets a die to plain faces, 1 up to its size, with no pattern or etchings. Its material is kept.",
+          "needs": "die",
+          "action": {
+            "kind": "reset"
           }
         },
         {
@@ -5265,24 +5295,28 @@
     },
     "ANNEALING_OVEN": {
       "name": "The Annealing Oven",
-      "text": "A brick oven with a slow fire in it. A stone left in overnight comes out with a different heart: clearer, cloudier, or full of things that were not there before.",
+      "text": "A brick oven on a slow burn. Heating a stone here can change its Clarity.",
       "choices": [
         {
           "id": "reroll",
           "label": "Fire a stone",
           "needs": "stone",
-          "text": "Its Clarity is rolled again from this depth's table, and whatever is frozen inside it is rolled with it. 8% it cracks.",
+          "text": "Rerolls its Clarity. The result is always different. 4% chance it cracks.",
           "action": {
             "kind": "reroll_clarity",
-            "shatter": 8
+            "shatter": 4,
+            "bonus": 8
           }
         },
         {
-          "id": "reveal",
-          "label": "Warm the haul",
-          "text": "Every raw stone you carry shows its inclusions.",
+          "id": "push",
+          "label": "Push the heat",
+          "needs": "stone",
+          "text": "Moves Clarity one step further from Clear, in whichever direction it already leans: Pristine toward Flawless, Etched toward Intricate. 4% chance it cracks.",
           "action": {
-            "kind": "reveal_inclusions"
+            "kind": "push_clarity",
+            "shatter": 4,
+            "steps": 1
           }
         },
         {
@@ -5297,31 +5331,30 @@
     "WISHING_WELL": {
       "name": "The Wishing Well",
       "room": "well",
-      "text": "A shaft within the shaft, brick-lined and wet, going down further than the lantern reaches. Miners have been throwing things into it for two hundred years. Now and then it throws something back.",
+      "text": "A narrow, wet, brick-lined well. Throw something valuable in. The more it's worth, the better the reward that comes back.",
       "choices": [
         {
           "id": "stone",
           "label": "Drop a stone in",
           "needs": "stone",
-          "text": "The stone is gone. What comes back up is drawn around it and reads a little better than it did, as often as not.",
+          "text": "Throw in any stone. A raw stone counts for half its value, and an appraised one for 1.5 times its value.",
           "action": {
             "kind": "wishing_well",
             "mode": "stone",
-            "spread": 9
+            "raw_mult": 0.5,
+            "read_mult": 1.5
           }
         },
         {
           "id": "ore",
           "label": "Throw pyrite in",
           "needs": "ore",
-          "text": "Ten to a hundred pyrite. What comes back is a stone still in its rock, and the more went down the better it is likely to be. Even a hundred is only a chance at something fine, and the slimmest of chances at an opal.",
+          "text": "Throw in anywhere from 10 to 1,000 pyrite.",
           "action": {
             "kind": "wishing_well",
             "mode": "ore",
             "least": 10,
-            "most": 100,
-            "reach": 8,
-            "opal_pct": 4
+            "most": 1000
           }
         },
         {

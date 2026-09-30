@@ -30,7 +30,7 @@ func _run() -> void:
 	var views: Array = []
 	for i in shapes.size():
 		var shape := str(shapes[i])
-		var die := DeepDice.make(shape, DeepContent.die(shape), "gallery%d" % i)
+		var die := DeepDice.make(shape, "gallery%d" % i)
 		var count := int(DeepDice.SHAPES[shape])
 		var cell := Control.new()
 		cell.position = Vector2(20 + (i % 5) * 295, 60 + (i / 5) * 295)

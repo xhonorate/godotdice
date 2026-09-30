@@ -27,7 +27,7 @@ func setup(foes: int = 3, allies: int = 2) -> Dictionary:
 	for p in range(allies):
 		var bowl: Array = []
 		for i in range(5):
-			bowl.append(DeepDice.make("D20", DeepContent.die("D20"), "p%d_d%d" % [p, i]))
+			bowl.append(DeepDice.make("D20", "p%d_d%d" % [p, i]))
 		var unit: Dictionary = DeepBattle.make_player("p%d" % p, "Player", "ARDOR", [], bowl)
 		unit.passive = {}
 		unit.birthstone = {}
@@ -87,7 +87,7 @@ func triggers() -> void:
 	check(cast(f, "DOUBLE_DOWN", [1, 2, 3, 4, 5]).kind == "gem_fizzle", "Double Down needs two ones")
 	check(cast(f, "DOUBLE_DOWN", [1, 1, 3, 4, 5]).kind == "gem_fire", "Double Down accepts two ones")
 	check(DeepContent.skill("SPALL").rarity == "COMMON" and DeepContent.skill("ANCHOR").rarity == "COMMON", "rarities updated")
-	check(DeepContent.section("skills").size() == 66, "all 66 skills are present")
+	check(DeepContent.section("skills").size() == 65, "all 65 skills are present")
 	for key in ["CROSSCUT", "DETONATE", "SHELTER", "MORTAR", "SIPHON", "STAKE", "APEX", "ENRICH", "APPRAISE", "GILDED_ARMOR"]:
 		check(DeepForge.skill_pool(DeepContent.mine("QUARRY")).has(key), key + " is in the standard pool")
 	for key in ["POULTICE", "UNDERTOW", "SILENCE", "LEVEL", "INVERT", "MYCELIUM"]:
@@ -237,8 +237,11 @@ func fortune() -> void:
 	f = setup()
 	cast(f, "STAKE", [1, 2, 3, 4, 5], true)
 	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 1.75), "Flawless Stake spends five for exactly 75% amplification")
-	cast(f, "GILDED_ARMOR")
+	cast(f, "GILDED_ARMOR", [1, 2, 3, 4, 5])
 	check(int(f.player.block) == 49, "Gilded Armor uses remaining available Pyrite and preceding amplification")
+	## Gilded Armor reads a straight now that it wears the trigger Windfall used to ask for.
+	## On its own fixture, because a gem that stays dark spends the amplification above.
+	check(cast(setup(), "GILDED_ARMOR").kind == "gem_fizzle", "Gilded Armor needs a straight")
 
 func upgrades() -> void:
 	var f: Dictionary = setup()
@@ -270,7 +273,16 @@ func upgrades() -> void:
 	check(int(f.player.gem_buffs.gem3.cut) == 1 and int(f.player.gem_buffs.gem1.cut) == 1, "Flawless Facet affects the entire rail including itself")
 	equip(f, "ENRICH", true, 4, 1)
 	DeepBattle.resolve_gem(f.state, f.player, 1, {"dry": true}, f.rng.dice)
-	check(int(f.player.gem_buffs.gem3.carat) == 2 and not f.player.gem_buffs.gem1.has("carat"), "Enrich upgrades all other gems")
+	check(int(f.player.gem_buffs.gem3.carat) == 1 and int(f.player.gem_buffs.gem1.carat) == 1, "a Flawless Enrich reaches the whole rail, itself included")
+	f = setup()
+	equip(f, "STRIKE", false, 4, 0)
+	equip(f, "ENRICH", false, 4, 1)
+	equip(f, "STRIKE", false, 4, 2)
+	equip(f, "GUARD", false, 4, 3)
+	rolls(f, [1, 2, 3, 4, 5])
+	DeepBattle.resolve_gem(f.state, f.player, 1, {"dry": true}, f.rng.dice)
+	check(int(f.player.gem_buffs.gem0.carat) == 1 and int(f.player.gem_buffs.gem2.carat) == 1
+		and not f.player.gem_buffs.has("gem1") and not f.player.gem_buffs.has("gem3"), "and an ordinary one only its neighbours")
 	f = setup()
 	f.player.haul = [DeepStone.make("STRIKE", 1, 0, 3, [], {}, "raw0"), DeepStone.make("GUARD", 1, 0, 3, [], {}, "raw1")]
 	equip(f, "APPRAISE", true)

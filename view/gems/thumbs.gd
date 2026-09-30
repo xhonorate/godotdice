@@ -58,7 +58,7 @@ static func die_key(die: Dictionary, face: int) -> String:
 	var faces: Array = []
 	for f in die.get("faces", []):
 		faces.append("%s%s" % [str(f.get("value", 0)) if f is Dictionary else str(f), str(f.get("kind", "")) if f is Dictionary else ""])
-	return "die|%s|%s|%s|%d" % [str(die.get("key", die.get("shape", "D6"))), ",".join(faces), str(die.get("engraving", "")), face]
+	return "die|%s|%s|%s|%s|%d" % [str(die.get("shape", "D6")), ",".join(faces), str(die.get("pattern", "")), str(die.get("material", "")), face]
 
 static func cached(key: String) -> Texture2D:
 	return _textures.get(key, null)
@@ -444,7 +444,7 @@ class DieThumb extends Control:
 	func _draw() -> void:
 		var edge: float = minf(size.x, size.y)
 		var centre: Vector2 = size * 0.5
-		var palette: Dictionary = DiceIcons.palette(str(die.get("key", die.get("shape", "D6"))))
+		var palette: Dictionary = DiceIcons.die_palette(die)
 		var lift: float = 1.0 + 0.08 * _hover
 		var halo: float = edge * (1.3 + 0.2 * _hover)
 		draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false, Color(palette.body, 0.10 + 0.12 * _hover))

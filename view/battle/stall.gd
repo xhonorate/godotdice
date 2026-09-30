@@ -11,6 +11,8 @@ extends Node3D
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
+const DiceGeometry = preload("res://view/dice/dice_geometry.gd")
+const DiceIcons = preload("res://view/dice/dice_icons.gd")
 
 const WIDTH := 7.2
 const TOP := 1.06
@@ -259,11 +261,24 @@ func show_stock(stock: Array) -> void:
 		var holder := Node3D.new()
 		holder.position = Vector3(x, TOP + 0.42, 0.0)
 		add_child(holder)
-		var stone: Dictionary = item.get("stone", {})
-		var shown: Node3D = GemMesh.solid(stone)
-		shown.scale = Vector3.ONE * 0.68 / float(shown.get_meta("extent", 1.0))
-		shown.rotation = Vector3(deg_to_rad(-60), 0, 0)
-		var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier))
+		var shown: Node3D
+		var tone: Color
+		if str(item.get("kind", "stone")) == "die":
+			## A merchant keeps one die beside the stones, turning on its own stand.
+			var die: Dictionary = item.get("die", {})
+			var palette: Dictionary = DiceIcons.die_palette(die)
+			var body := MeshInstance3D.new()
+			body.mesh = DiceGeometry.mesh(str(die.get("shape", "D6")), PackedColorArray([Color(palette.body)]))
+			body.material_override = _material(Color(palette.body), 0.35)
+			body.scale = Vector3.ONE * 0.42
+			shown = body
+			tone = Color(palette.body)
+		else:
+			var stone: Dictionary = item.get("stone", {})
+			shown = GemMesh.solid(stone)
+			shown.scale = Vector3.ONE * 0.68 / float(shown.get_meta("extent", 1.0))
+			shown.rotation = Vector3(deg_to_rad(-60), 0, 0)
+			tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier))
 		var spinner := Node3D.new()
 		holder.add_child(spinner)
 		spinner.add_child(shown)
