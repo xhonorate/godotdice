@@ -6,7 +6,16 @@ export const OPAL = 'OPAL';
 export const SOCKET_ANY = 'ANY';
 export const RARITIES = ['COMMON', 'UNCOMMON', 'RARE', 'LEGENDARY', 'MYTHIC'];
 export const INCLUSION_CLASSES = ['PINPOINT', 'LENS', 'FEATHER', 'FRACTURE', 'STAR'];
-export const CHAMBER_KINDS = ['fight', 'elite', 'vein', 'oddity', 'merchant', 'smithy', 'carver', 'well'];
+export const CHAMBER_KINDS = ['fight', 'elite', 'vein', 'oddity', 'merchant', 'smithy', 'carver', 'vat', 'well'];
+export const GIMMICKS = ['', 'steal_high_die', 'block_from_high', 'reflect_zero_resonance', 'cloud_socket', 'split_on_big_hit',
+	'steal_gold', 'gift_rerolls', 'poison_immune', 'bury_socket', 'mirror_last_gem', 'roll_for_you', 'regrow'];
+// What a creature is, as well as what it rolls for: the traits it carries into every fight
+// (`traits`, trait to amount or true), which a phase may add to or take away. The old single
+// `gimmick` is read as one of these.
+export const TRAITS = [...GIMMICKS, 'steadfast', 'bedrock', 'backlash', 'flee', 'rising', 'escalate', 'aura', 'spikes',
+	'regen_with_escorts', 'shielded_by_escorts', 'regrow_escorts', 'reroll_drain', 'reroll_scorch', 'punish_straight', 'drops_stone', 'adapt_aura'];
+// The traits a Rift Warden may be remembered with, one of them, picked by the seed.
+export const REMEMBERED_TRAITS = ['steadfast', 'bedrock', 'adapt'];
 
 let pack = {};
 

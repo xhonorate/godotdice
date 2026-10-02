@@ -213,7 +213,10 @@ func _place_creatures() -> void:
 		var id: String = str(foe.id)
 		if int(foe.hp) <= 0:
 			if _creatures.has(id) and is_instance_valid(_creatures[id]) and not bool(_creatures[id].get_meta("dying", false)):
-				_kill(_creatures[id])
+				if bool(foe.get("fled", false)):
+					_flee(_creatures[id], int(foe.get("stolen_gold", 0)))
+				else:
+					_kill(_creatures[id])
 				settling = true
 			continue
 		if not _intro_pending and not _headless and not _awaited.has(id) and (not _creatures.has(id) or not is_instance_valid(_creatures[id])):
@@ -248,7 +251,7 @@ func _place_creatures() -> void:
 		if not _creatures.has(id) or not is_instance_valid(_creatures[id]):
 			if _headless:
 				continue
-			var creature: CrystalCreature = CrystalCreature.make(str(foe.key), bool(foe.get("warden", false)))
+			var creature: CrystalCreature = CrystalCreature.make(str(foe.key), bool(foe.get("warden", false)), str(foe.get("echo_of", "")))
 			creature.position = target
 			creature.rest_position = target
 			_world.add_child(creature)
@@ -256,6 +259,11 @@ func _place_creatures() -> void:
 			var after: float = stage.seal_remaining() if stage.has_method("seal_remaining") else 0.0
 			creature.spawn(after + 0.25 + 0.18 * float(fresh) if _intro_pending else after)
 			_fx.puff(target + Vector3(0, 0.3, 0), Color(0.5, 0.45, 0.4), 10, 0.9, 1.4, 0.6)
+			## Something called into the fight arrives with more of a flourish than a rockfall.
+			if bool(foe.get("summoned", false)) and not _intro_pending:
+				_fx.ring_wave(Vector3(target.x, 0.0, target.z), creature.tint, 2.2, 0.5)
+				_fx.sparks(target + Vector3(0, 0.6, 0), creature.tint, 30, 4.0, 0.7, 0.06)
+				_fx.flash(target + Vector3(0, 0.8, 0), creature.tint, 4.0, 5.0, 0.4, 1.0)
 			fresh += 1
 		else:
 			var creature: CrystalCreature = _creatures[id]
@@ -263,6 +271,8 @@ func _place_creatures() -> void:
 				var tween := create_tween()
 				tween.tween_property(creature, "rest_position", target, 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		(_creatures[id] as CrystalCreature).set_targeted(str(me().get("target", "")) == id)
+		_dress(_creatures[id], foe)
+
 	if _intro_pending and fresh > 0 and _camera != null:
 		## Frame the room for its tallest creature before the camera sweeps in, so a Warden
 		## is not first seen with its head cut off.
@@ -1274,6 +1284,7 @@ func _sync_plates() -> void:
 			_plates[id] = plate
 			DeepUi.pop_in(plate, 0.4)
 		plate.update(foe, state, local_id, target_id == id, preview if target_id == id else 0)
+		_dress(_creature(id), foe)
 	for id in _plates.keys():
 		if not present.has(id):
 			if is_instance_valid(_plates[id]):
@@ -1747,6 +1758,25 @@ func perform(event: Dictionary) -> void:
 		"turn_begin":
 			DeepAudio.play("turn_begin", {"volume": 0.7})
 			_announce("Turn %d" % int(event.get("turn", 1)), DeepUi.PAPER, "Roll, reroll, lock in", 0.9)
+			## What the creatures' presence did to the party as the turn opened.
+			var said: int = 0
+			for hurt in event.get("afflicted", []):
+				if str(hurt.get("unit", "")) != local_id:
+					continue
+				var words: String = str(hurt.get("kind", "")).capitalize()
+				if str(hurt.get("kind", "")) == "corroded" and hurt.has("block_after"):
+					words = "Corroded · −%d block" % int(hurt.get("amount", 0))
+				elif str(hurt.get("kind", "")) == "die_lock":
+					words = "Straight shattered · die locked"
+				_later_do(0.7 + 0.25 * float(said), func() -> void: _float_at(_hp_bar, words, DeepUi.BAD, 16))
+				said += 1
+			for entry in event.get("hands", []):
+				if str(entry.get("unit", "")) != local_id:
+					continue
+				if not entry.get("inverted", []).is_empty():
+					_later_do(0.9, func() -> void: _float_at(_tray_box, "Inverted: %s shifted parity" % DeepUi.plural(entry.inverted.size(), "die", "dice"), Color("ffb05a"), 16))
+				if not entry.get("locked", []).is_empty():
+					_later_do(1.1, func() -> void: _float_at(_tray_box, "%s locked" % DeepUi.plural(entry.locked.size(), "die", "dice"), DeepUi.BAD, 16))
 			_camera.nudge(Vector3(0, 0.08, -0.15), 0.6)
 			## The dice have already been thrown for this turn: what they paid is played over
 			## the tray a beat later, once the solids have settled where they landed.
@@ -1767,6 +1797,13 @@ func perform(event: Dictionary) -> void:
 				_show_resonance(int(event.get("resonance", 0)))
 		"gem_fire":
 			_gem_fire(event)
+			if str(event.get("unit", "")) == local_id:
+				if int(event.get("backlash", 0)) > 0:
+					DeepAudio.play("enemy_strike", {"volume": 0.5})
+					_screen_fx.wound(0.4)
+					_float_at(_hp_bar, "−%d Backlash" % int(event.backlash), Color("ff8ad8"), 18)
+				if bool(event.get("unmade", false)):
+					_float_at(_resonance_box, "Unmade", Color("c8b8ff"), 14)
 		"gem_fizzle":
 			_gem_fizzle(event)
 		"birthstone":
@@ -1778,6 +1815,39 @@ func perform(event: Dictionary) -> void:
 			if str(event.get("unit", "")) == local_id:
 				DeepAudio.play("die_settle", {"volume": 0.8})
 				_float_at(_tray_box, "Shifted to %d" % int(event.get("value", 0)), DeepUi.ACCENT_HI, 16)
+		"enemy_begin":
+			var who: String = str(event.get("unit", ""))
+			var up: CrystalCreature = _creature(who)
+			if up != null:
+				if bool(event.get("emerged", false)):
+					DeepAudio.play_at(global_position + _to_screen(up.centre()), "rock_break", {"volume": 0.8})
+					_fx.puff(Vector3(up.global_position.x, 0.3, up.global_position.z), Color(0.5, 0.42, 0.35), 24, 1.2, 1.4, 1.0)
+					_fx.shards(Vector3(up.global_position.x, 0.2, up.global_position.z), Color(0.55, 0.5, 0.45), 12, 4.0, 0.14, 1.0)
+					_camera.add_trauma(0.35)
+					_float_world(up.global_position + Vector3(0, up.anchor.y, 0), "Erupts!", Color("ffd06a"), 20)
+				var charge: Dictionary = event.get("charge", {})
+				if bool(charge.get("broken", false)):
+					_fx.shards(up.centre(), Color("ffe27a"), 16, 4.0, 0.12, 1.0)
+					_float_world(up.centre() + Vector3(0, 0.6, 0), "Charge broken", DeepUi.GOOD, 22)
+				elif int(charge.get("turns", 0)) > 0:
+					_fx.rise(up.centre(), Color("ffe27a"), 30, 0.8)
+					_float_world(up.centre() + Vector3(0, 0.6, 0), "Charging · %d" % int(charge.turns), Color("ffe27a"), 18)
+				if int(event.get("flee_in", -1)) == 1:
+					_float_world(up.global_position + Vector3(0, up.anchor.y, 0), "Its last turn here", DeepUi.ORE, 16)
+				for grown in event.get("regrown", []):
+					var back: CrystalCreature = _creature(str(grown))
+					if back != null:
+						back.spawn(0.1)
+						_fx.rise(back.global_position, DeepUi.GOOD, 20, 0.8)
+						_float_world(back.centre(), "Grows back", DeepUi.GOOD, 18)
+		"enemy_end":
+			var who: String = str(event.get("unit", ""))
+			var down: CrystalCreature = _creature(who)
+			if down != null and bool(event.get("burrowed", false)):
+				DeepAudio.play_at(global_position + _to_screen(down.centre()), "rock_break", {"volume": 0.6})
+				_fx.puff(Vector3(down.global_position.x, 0.3, down.global_position.z), Color(0.5, 0.42, 0.35), 20, 1.1, 1.2, 0.6)
+				_float_world(down.global_position + Vector3(0, down.anchor.y, 0), "Burrows", Color("c8b8a0"), 18)
+				down.burrow(true)
 		"rail_end":
 			var resonance: int = int(event.get("resonance", 0))
 			## Second Wind is paid as the rail closes, on the Resonance it built.
@@ -1843,7 +1913,10 @@ func _animate_tick(tick: Dictionary) -> void:
 		_float_world(creature.centre(), ("−%d" if str(tick.kind) == "poison" else "+%d") % int(tick.get("amount", 0)), color, 22)
 		if str(tick.kind) == "poison":
 			creature.hit(0.3)
+		if bool(tick.get("escorts", false)):
+			_float_world(creature.centre() + Vector3(0, 0.5, 0), "fed by its tendrils", DeepUi.GOOD, 13)
 		if bool(tick.get("killed", false)):
+			_deathburst(tick, creature)
 			_kill(creature)
 	elif target_id == local_id:
 		DeepAudio.play("poison" if str(tick.kind) == "poison" else "heal", {"volume": 0.6})
@@ -2257,9 +2330,32 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
 		_fx.ring_wave(Vector3(at.x, 0.0, at.z), color, 2.5 + ratio * 3.0, 0.5)
 	var text: String = "−%d" % amount
 	var size: int = 24 + mini(28, amount)
+	if hit.has("mirrored"):
+		text = "Mirrored"
+		size = 22
 	_float_world(at + Vector3(0, 0.6, 0), text, color.lightened(0.35) if mine else DeepUi.PAPER, size)
 	if int(hit.get("absorbed", 0)) > 0:
 		_float_world(at + Vector3(0.5, 0.2, 0), "%d blocked" % int(hit.absorbed), DeepUi.BLOCK, 14)
+	if hit.has("adapted") and not hit.has("mirrored"):
+		_float_world(at + Vector3(-0.5, 0.9, 0), "Turned away", Color("c8a8ff"), 14)
+		_fx.shield(at + Vector3(0, 0, 0.5), _camera.global_position - at, Color("c8a8ff"), 0.8, 0.4)
+	if hit.has("mirrored"):
+		## The colour it mirrors throws the blow straight back at whoever threw it.
+		_fx.beam(at, _camera.global_position + Vector3(0, -0.4, -1.0) if who != "" and str(hit.mirrored.get("target", "")) == local_id else at + Vector3(0, 2.0, 2.0), color, 0.35, 0.16)
+		_enemy_effect(hit.mirrored, creature)
+	if int(hit.get("capped", 0)) > 0:
+		_float_world(at + Vector3(0.6, 1.0, 0), "Bedrock", Color("c8b8a0"), 16)
+		_fx.shield(at + Vector3(0, -0.2, 0.4), Vector3.UP, Color("c8b8a0"), 1.0, 0.4)
+	if bool(hit.get("shielded", false)):
+		_float_world(at + Vector3(-0.6, 1.0, 0), "Shielded", Color("c8a8ff"), 14)
+	if bool(hit.get("piercing", false)):
+		_float_world(at + Vector3(0.4, 0.2, 0), "pierces", DeepUi.BAD, 13)
+	for returned in hit.get("returned_gems", []):
+		if str(returned.get("unit", "")) == local_id and int(returned.get("socket", -1)) < _socket_cards.size() and int(returned.get("socket", -1)) >= 0:
+			_float_at(_socket_cards[int(returned.socket)], "Returned", DeepUi.ACCENT_HI, 15)
+	if bool(hit.get("raw_drop", false)):
+		_float_world(at + Vector3(0, 1.3, 0), "A stone!", DeepUi.ACCENT_HI, 18)
+	_deathburst(hit, creature)
 	for reflection in hit.get("reflections", []):
 		_enemy_effect(reflection, creature)
 		_screen_fx.wound(0.3)
@@ -2269,6 +2365,19 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
 		_float_world(at + Vector3(0, 1.0, 0), "It splits!", Color("9fd8c8"), 18)
 	if bool(hit.get("killed", false)):
 		_kill(creature)
+
+func _deathburst(hit: Dictionary, creature: CrystalCreature) -> void:
+	## What a dying creature leaves behind: a Puffball's spores, a Spore Slime's burst,
+	## played from where it stood a beat after the killing blow.
+	for burst in hit.get("deathburst", []):
+		var at: Vector3 = creature.centre() if creature != null and is_instance_valid(creature) else Vector3(0, 1.0, ARC_Z)
+		_later_do(0.3, func() -> void:
+			_fx.ring_wave(Vector3(at.x, 0.0, at.z), DeepUi.POISON, 3.5, 0.6)
+			_fx.puff(at, DeepUi.POISON, 40, 1.4, 1.6, 0.9, true)
+			_fx.glow_burst(at, DeepUi.POISON, 2.4, 0.4)
+			_float_world(at + Vector3(0, 1.0, 0), str(burst.get("move", "Burst")) + "!", DeepUi.POISON, 22)
+			for effect in burst.get("effects", []):
+				_enemy_effect(effect, creature))
 
 func _afflict(who: String, effect: Dictionary, tone: Color) -> void:
 	var creature: CrystalCreature = _creature(who)
@@ -2306,6 +2415,36 @@ func _afflict(who: String, effect: Dictionary, tone: Color) -> void:
 	elif amount > 0 and kind != "stun":
 		words += " %d" % amount
 	_float_world(at + Vector3(0, 0.8, 0), words, tone, 18)
+
+func _dress(creature: CrystalCreature, foe: Dictionary) -> void:
+	## What the rules say the creature is doing right now, worn on the model: under the floor,
+	## turning a colour away, winding up a blow.
+	if creature == null or not is_instance_valid(creature):
+		return
+	creature.burrow(bool(foe.get("burrowed", false)))
+	var adapt: Dictionary = foe.get("adapt", {})
+	if adapt.is_empty():
+		creature.clear_adapt()
+	else:
+		creature.set_adapt(Color("#" + str(DeepContent.color(str(adapt.get("color", ""))).get("hue", "c8a8ff"))))
+	creature.set_charging(DeepCreatures.charge_turns(foe) > 0)
+
+func _flee(creature: CrystalCreature, stolen: int = 0) -> void:
+	## Off into the dark with what it took: no shards, no spoils, only a shower of the
+	## pyrite it is carrying away.
+	if creature == null or not is_instance_valid(creature) or bool(creature.get_meta("killed", false)):
+		return
+	creature.set_meta("killed", true)
+	creature.set_meta("dying", true)
+	if _headless:
+		creature.queue_free()
+		return
+	var at: Vector3 = creature.centre()
+	DeepAudio.play_at(global_position + _to_screen(at), "ui_deny", {"gap": 0.0, "volume": 0.6})
+	_fx.puff(at, creature.tint, 14, 0.9, 1.2, 0.8)
+	_fx.sparks(at, DeepUi.ORE, 20 + mini(30, stolen), 3.0, 0.8, 0.06)
+	_float_world(at + Vector3(0, 0.8, 0), "Flees" + (" with %d pyrite" % stolen if stolen > 0 else ""), DeepUi.ORE, 20)
+	creature.flee()
 
 func _kill(creature: CrystalCreature) -> void:
 	if creature == null or not is_instance_valid(creature) or bool(creature.get_meta("killed", false)):
@@ -2451,18 +2590,141 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 			var receiver: CrystalCreature = _creature(target_id)
 			if receiver != null:
 				_afflict(target_id, effect, DeepUi.GOOD)
-		"poison", "stun", "die_steal", "remove_block", "curse", "clouded", "marked", "dulled":
+		"poison", "stun", "die_steal", "remove_block", "curse", "clouded", "marked", "dulled", "festering", "corroded", "scorched", "dice_dread", "drain_resonance", "invert_dice":
 			if target_id == local_id:
-				DeepAudio.play({"poison": "poison", "stun": "stun", "curse": "curse", "remove_block": "block_break"}.get(kind, "ui_deny"), {"volume": 0.7})
-				var tone: Color = {"poison": DeepUi.POISON, "stun": Color("ffe27a"), "remove_block": DeepUi.BLOCK, "curse": Color("c58bff")}.get(kind, DeepUi.INFO)
+				DeepAudio.play({"poison": "poison", "stun": "stun", "curse": "curse", "remove_block": "block_break", "festering": "poison", "corroded": "block_break", "scorched": "block_break", "drain_resonance": "gem_fizzle"}.get(kind, "ui_deny"), {"volume": 0.7})
+				var tone: Color = {"poison": DeepUi.POISON, "stun": Color("ffe27a"), "remove_block": DeepUi.BLOCK, "curse": Color("c58bff"), "festering": DeepUi.POISON, "corroded": DeepUi.BLOCK, "scorched": Color("ff8a3a"), "drain_resonance": Color("c8b8ff"), "invert_dice": Color("ffb05a")}.get(kind, DeepUi.INFO)
 				_screen_fx.blink(tone, 0.12)
-				_float_at(_hp_bar, kind.replace("_", " ").capitalize() + (" %d" % int(effect.get("amount", 0)) if int(effect.get("amount", 0)) > 0 and kind != "stun" else ""), tone, 18)
+				var said: String = kind.replace("_", " ").capitalize() + (" %d" % int(effect.get("amount", 0)) if int(effect.get("amount", 0)) > 0 and not kind in ["stun", "drain_resonance", "invert_dice"] else "")
+				if kind == "drain_resonance":
+					said = "Unmade · Resonance to 0"
+				elif kind == "invert_dice":
+					said = "Inverted · your highest dice flip next turn"
+				elif kind == "dice_dread":
+					said = "Dread · smaller dice next turn"
+				_float_at(_hp_bar, said, tone, 18)
 				if kind == "die_steal" and not _dice_views.is_empty():
 					var view: Control = _dice_views.values().back()
 					DeepUi.shake(view, 12.0, 0.4)
 					DeepUi.burst(self, _center_of(view), DeepUi.BAD, 12, 120.0, 0.5)
 				if kind == "stun":
 					DeepUi.shake(_dock, 4.0, 0.4)
+				if kind == "drain_resonance":
+					DeepUi.shake(_resonance_box, 10.0, 0.4)
+					DeepUi.burst(self, _center_of(_resonance_box), Color("c8b8ff"), 18, 150.0, 0.6)
+					_show_resonance(0)
+			elif target_id != "" and _creature(target_id) != null and kind == "stun":
+				## A creature that stunned itself (a Croupier Crab on a 1).
+				_afflict(target_id, effect, Color("ffe27a"))
+		"die_lock":
+			if target_id == local_id:
+				DeepAudio.play("ui_deny", {"volume": 0.7})
+				for id in effect.get("dice", []):
+					if _dice_views.has(str(id)):
+						var view: Control = _dice_views[str(id)]
+						DeepUi.shake(view, 10.0, 0.4)
+						DeepUi.burst(self, _center_of(view), DeepUi.INFO, 10, 100.0, 0.5)
+						_float_at(view, "Locked", DeepUi.INFO, 15)
+		"steal_gold", "gold":
+			if target_id == local_id:
+				var amount: int = int(effect.get("stolen", effect.get("amount", 0)))
+				if amount <= 0:
+					return
+				DeepAudio.play("ore", {"volume": 0.6})
+				if kind == "steal_gold" and creature != null and is_instance_valid(creature):
+					_fx.coins(_camera.global_position + (-_camera.global_transform.basis.z) * 1.2 + Vector3(0, -0.4, 0), creature.centre(), mini(10, 3 + amount / 5))
+					_float_at(_forecast_box, "−%d pyrite taken" % amount, DeepUi.ORE, 16)
+				else:
+					_float_at(_forecast_box, "+%d pyrite" % amount, DeepUi.ORE, 16)
+			elif _ally_cards.has(target_id) and int(effect.get("stolen", effect.get("amount", 0))) > 0:
+				_float_at(_ally_cards[target_id], ("−%d" if kind == "steal_gold" else "+%d") % int(effect.get("stolen", effect.get("amount", 0))), DeepUi.ORE, 14)
+		"hold_gem":
+			var held: Dictionary = effect.get("held", {})
+			if not held.is_empty() and str(held.get("unit", "")) == local_id:
+				var socket: int = int(held.get("socket", -1))
+				if socket >= 0 and socket < _socket_cards.size():
+					var card: Control = _socket_cards[socket]
+					DeepAudio.from(card, "gem_fizzle", {"volume": 0.8})
+					DeepUi.shake(card, 12.0, 0.4)
+					_float_at(card, "Taken!", DeepUi.BAD, 18)
+					if creature != null and is_instance_valid(creature):
+						_fx.projectile(_origin_for(local_id, socket), creature.centre(), DeepUi.ACCENT, 0.5, 0.18, Callable(), 1.2)
+			elif bool(effect.get("nothing", false)) and creature != null and is_instance_valid(creature):
+				_float_world(creature.centre(), str(effect.get("reason", "Nothing to take")), DeepUi.DIM, 14)
+		"bury_socket":
+			if target_id == local_id and effect.has("socket") and int(effect.socket) < _socket_cards.size():
+				var card: Control = _socket_cards[int(effect.socket)]
+				DeepAudio.from(card, "rock_break", {"volume": 0.7})
+				DeepUi.shake(card, 8.0, 0.4)
+				_float_at(card, "Buried", Color("c8b8a0"), 16)
+		"summon":
+			if creature != null and is_instance_valid(creature):
+				if effect.get("summoned", []).is_empty():
+					_float_world(creature.centre() + Vector3(0, 0.6, 0), str(effect.get("reason", "No room")), DeepUi.DIM, 14)
+				else:
+					DeepAudio.play_at(global_position + _to_screen(creature.centre()), "rock_break", {"volume": 0.7})
+					_fx.ring_wave(Vector3(creature.global_position.x, 0.0, creature.global_position.z), creature.tint, 3.0, 0.6)
+					_float_world(creature.centre() + Vector3(0, 0.6, 0), "Calls for help", creature.tint.lightened(0.3), 18)
+		"burrow":
+			if creature != null and is_instance_valid(creature):
+				_float_world(creature.global_position + Vector3(0, creature.anchor.y, 0), "Digs in", Color("c8b8a0"), 16)
+		"adapt":
+			if creature != null and is_instance_valid(creature):
+				if bool(effect.get("nothing", false)):
+					_float_world(creature.centre(), str(effect.get("reason", "")), DeepUi.DIM, 13)
+				else:
+					var hue := Color("#" + str(DeepContent.color(str(effect.get("color", ""))).get("hue", "c8a8ff")))
+					var name: String = str(DeepContent.color(str(effect.get("color", ""))).get("name", str(effect.get("color", "")).capitalize()))
+					_fx.ring_wave(Vector3(creature.global_position.x, 0.0, creature.global_position.z), hue, 2.4, 0.6)
+					_fx.glow_burst(creature.centre(), hue, 2.0, 0.4)
+					creature.set_adapt(hue)
+					_float_world(creature.centre() + Vector3(0, 0.6, 0), ("Mirrors %s" if bool(effect.get("reflect", false)) else "Turns %s away") % name, hue, 18)
+		"purge":
+			if creature != null and is_instance_valid(creature) and int(effect.get("purged", 0)) > 0:
+				_fx.puff(creature.centre(), DeepUi.POISON, 20, 0.8, 1.2, 0.9, true)
+				_float_world(creature.centre() + Vector3(0, 0.6, 0), "Sheds %d poison" % int(effect.purged), DeepUi.POISON, 16)
+		"empower_next":
+			if creature != null and is_instance_valid(creature):
+				_fx.rise(creature.centre(), DeepUi.BAD, 24, 0.7)
+				creature.flash(2.5)
+				_float_world(creature.centre() + Vector3(0, 0.6, 0), "Empowered +%d%%" % int(effect.get("amount", 0)), DeepUi.BAD, 18)
+		"rally":
+			for id in effect.get("rallied", []):
+				var ally: CrystalCreature = _creature(str(id))
+				if ally != null:
+					ally.flash(1.6)
+					_fx.rise(ally.centre(), DeepUi.BAD, 12, 0.5)
+					_float_world(ally.centre() + Vector3(0, 0.6, 0), "+%d" % int(effect.get("amount", 0)), DeepUi.BAD, 15)
+		"grow_die":
+			if creature != null and is_instance_valid(creature):
+				_fx.sparks(creature.centre(), creature.tint, 24, 3.0, 0.6, 0.06)
+				_float_world(creature.centre() + Vector3(0, 0.6, 0), "Another head" if not bool(effect.get("nothing", false)) else "No more heads", creature.tint.lightened(0.3), 18)
+		"swell":
+			if creature != null and is_instance_valid(creature):
+				creature.hit(0.2)
+				_fx.puff(creature.centre(), DeepUi.POISON, 8, 0.5, 0.9, 0.5, true)
+				_float_world(creature.centre() + Vector3(0, 0.6, 0), "Swells · %d" % int(effect.get("swell_after", 0)), DeepUi.POISON, 15)
+		"charge":
+			if creature != null and is_instance_valid(creature):
+				if not bool(effect.get("nothing", false)):
+					creature.set_charging(true)
+					_fx.rise(creature.centre(), Color("ffe27a"), 36, 1.0)
+					_float_world(creature.centre() + Vector3(0, 0.6, 0), "Gathers light · %d" % int(effect.get("turns", 0)), Color("ffe27a"), 18)
+		"downgrade_die", "grind_die", "break_gem", "lock_die", "mar_die", "break_die":
+			if target_id == local_id:
+				DeepAudio.play("block_break", {"volume": 0.7})
+				_screen_fx.blink(DeepUi.BAD, 0.1)
+				var said: String = {"downgrade_die": "A die shrinks", "grind_die": "A face ground down", "break_gem": "A gem melts!", "lock_die": "A die locked", "mar_die": "A face marred", "break_die": "A die breaks!"}.get(kind, kind)
+				if kind == "break_gem" and bool(effect.get("permanent", false)):
+					said = "A gem melts for the fight!"
+				_float_at(_tray_box if kind != "break_gem" else _hp_bar, said, DeepUi.BAD, 18)
+				for die in effect.get("dice", []):
+					if _dice_views.has(str(die.get("id", ""))):
+						DeepUi.shake(_dice_views[str(die.id)], 12.0, 0.5)
+				for socket in effect.get("sockets", []):
+					if int(socket) < _socket_cards.size():
+						DeepUi.shake(_socket_cards[int(socket)], 12.0, 0.5)
+						DeepUi.burst(self, _center_of(_socket_cards[int(socket)]), DeepUi.BAD, 16, 140.0, 0.6)
 
 func _slash(color: Color) -> void:
 	## Claw marks across the view: three bright strokes that rip in and fade.

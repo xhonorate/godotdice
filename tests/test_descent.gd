@@ -1076,4 +1076,6 @@ func _test_mines() -> void:
 	deep.mine = "RIFT"
 	deep.schedule = DeepDescent.plan_shaft(DeepRng.streams(33).tunnels, rift)
 	check(DeepDescent.run_is_warden(deep, 8) and DeepDescent.run_is_warden(deep, 48) and not DeepDescent.run_is_boss(deep, 48), "a Warden every eighth floor of the Rift, none of them the last")
-	check(DeepDescent.warden_key(deep, 8) == "THE_FOREMAN" and DeepDescent.warden_key(deep, 24) == "THE_DRILL" and DeepDescent.warden_key(deep, 32) == "THE_FOREMAN", "and they take their turns")
+	check(DeepDescent.warden_key(deep, 8) == "THE_DRILL" and DeepDescent.warden_key(deep, 16) == "THE_UNDERTOW" and DeepDescent.warden_key(deep, 24) == "THE_PRISMARCH"
+		and DeepDescent.warden_key(deep, 32) == "THE_HEARTROT" and DeepDescent.warden_key(deep, 48) == "THE_KILN_WYRM" and DeepDescent.warden_key(deep, 56) == "THE_DRILL", "the Rift remembers the bosses above it, in order")
+	check(DeepDescent.warden_key(deep, 40) == "THE_UNMADE" and DeepDescent.warden_key(deep, 80) == "THE_UNMADE" and DeepDescent.warden_key(deep, 88) == "THE_HEARTROT", "and every fifth Rift Warden is the Unmade")

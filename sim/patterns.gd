@@ -28,12 +28,23 @@ extends RefCounted
 ##   skip_straight       the rung many different values all of one parity, like 2-4-6-8-10
 ##   distinct_dominant   the rung many different values and the top die outrolling the rest combined
 ##
+## Creature-only kinds, read from the fight rather than the dice (the context a creature's
+## action passes in), each firing at most once an action:
+##   each_turn           on the first die of every action
+##   every_nth_turn      on the first die of the rung-th action, the 2·rung-th, and so on
+##   emerge              on the first die of the action after it burrowed
+##   on_death            never during an action: its move fires when the creature dies
+## A creature's trigger may also name `die`, the index of the one die it reads.
+##
 ## `describe` turns a trigger into the pictograph the interface draws and the sentence a
 ## tooltip says. Nothing here evaluates content by name.
 
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
-	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "below"]
+	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "below",
+	"each_turn", "every_nth_turn", "emerge", "on_death"]
+## The kinds a creature reads from the turn rather than from a die.
+const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death"]
 const SET_SIZES: Dictionary = {"pair": 2, "triple": 3, "quad": 4, "quint": 5}
 const STEPS: int = 5
 
@@ -72,6 +83,21 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 		result.dice = picked.dice
 		result.value = picked.sum
 		result.count = picked.dice.size()
+		return result
+	if kind in TURN_KINDS:
+		## The fight tells a creature which action this is; nothing on the dice does.
+		var first: bool = bool(context.get("first_roll", false))
+		var acted: int = int(context.get("turns_acted", 0))
+		match kind:
+			"each_turn": result.active = first
+			"every_nth_turn": result.active = first and need > 0 and acted % need == 0
+			"emerge": result.active = first and bool(context.get("emerging", false))
+			"on_death": result.active = bool(context.get("dying", false))
+		result.value = int(a.get("total", 0))
+		if result.active:
+			result.dice = _all_dice(a)
+		else:
+			result.reason = "Not this action." if kind != "on_death" else "Only when it dies."
 		return result
 	match kind:
 		"pair", "triple", "quad", "quint":
@@ -272,6 +298,13 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 			label = "≥%d Pyrite" % need
 		"below":
 			label = "<%d" % need
+		"each_turn", "emerge":
+			mark = "hourglass"
+		"every_nth_turn":
+			mark = "hourglass"
+			label = "÷%d" % need
+		"on_death":
+			mark = "skull"
 		"at_most":
 			label = "≤%d" % need
 		"at_least":
@@ -325,7 +358,20 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"crowns_at_most": return "No die on its top face." if need == 0 else "No more than %d dice on their top face." % need
 		"skip_straight": return "%d different values, all odd or all even, like 2-4-6-8-10." % need
 		"distinct_dominant": return "%d different values, the highest die outrolling the other %d combined." % [need, need - 1]
+		"each_turn": return "Every action, once, before its dice."
+		"every_nth_turn": return "Every %s action, once, before its dice." % _ordinal(need)
+		"emerge": return "The action after it burrowed, once, before its dice."
+		"on_death": return "When it dies."
 	return "Its trigger."
+
+static func _ordinal(n: int) -> String:
+	match n:
+		1: return "first"
+		2: return "second"
+		3: return "third"
+		4: return "fourth"
+		5: return "fifth"
+	return "%dth" % n
 
 static func _dice(need: int) -> String:
 	return "%d %s" % [need, "die" if need == 1 else "dice"]
@@ -349,8 +395,12 @@ static func validate(trigger: Variant) -> Array:
 				if not (step is int or step is float) or int(step) != float(step):
 					errors.append("trigger ladder rungs must be whole numbers")
 					break
-	elif kind != "always" and kind != "resonance" and not trigger.has("amount"):
+	elif kind != "always" and kind != "resonance" and not kind in ["each_turn", "emerge", "on_death"] and not trigger.has("amount"):
 		errors.append("trigger needs a ladder or an amount")
+	if kind == "every_nth_turn" and int(trigger.get("amount", 0)) < 2:
+		errors.append("every_nth_turn needs an amount of 2 or more")
+	if trigger.has("die") and (not (trigger.die is int or trigger.die is float) or int(trigger.die) < 0):
+		errors.append("a trigger's die is the index of the die it reads, 0 or more")
 	if kind == "value":
 		var wanted: Variant = trigger.get("values", null)
 		if not wanted is Array or wanted.is_empty():

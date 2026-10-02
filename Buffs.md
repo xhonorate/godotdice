@@ -30,6 +30,15 @@ Statuses can affect players or enemies where their mechanics apply. Charged Batt
 | **Reroll drain** | Every living player loses 1 HP per living Lantern Moth whenever any player spends a reroll. Cannot reduce HP below 1. | While the moths live; charged per reroll action, not per die rerolled. | Lantern Moth; paired with its extra-reroll benefit. |
 | **Stolen pyrite** | A Magpie steals up to 3 of the player's combat-earned pyrite when its hit causes HP loss. | Held by the enemy; a player who kills it with direct damage receives the stored amount. | Magpie. It does not directly take the run's existing ore balance. |
 | **Downed** | Cannot act or receive ordinary healing. | Until revived or the run's recovery rules intervene; a combat revive makes the player eligible to act next turn. | Reaching 0 HP. This is a unit state rather than a stackable debuff. |
+| **Festering** | Healing you receive is halved. | Counts down 1 at the tick; a fresh enemy application survives the tick that follows it. | Cap Shambler's Spore Cloud, the Spore Mother's Choke, the Heartrot's aura (every turn while it lives). |
+| **Corroded** | As your turn opens, after Retain has kept what it keeps, half of that block is lost. | Counts down 1 a turn, deferred like Festering. | Ember Crawler's Spit, the Smelter's Slag Armour, the Kiln Wyrm's aura above 60% health. |
+| **Scorched** | Block you gain is halved, rounded up. | Counts down 1 a turn, deferred like Festering. | Fire Tick's Ignite, the Kiln Wyrm's Ember, each reroll spent under a Cinder Moth. |
+| **Unmade** | Resonance goes to 0 at once, Charged is lost, and your next rail is held at 0 Resonance until it closes: gems fire, the chain counts for nothing. | One rail. | Entropy Eye's Unmake (10+), the Unmade's Unmake (whoever dealt the most last turn). |
+| **Dread (player)** | Your whole bowl is thrown a size smaller a stack next turn; the dice themselves are untouched. | Spent as that hand is rolled. | Drowned Miner's Pull Under. |
+| **Locked die** | A creature's lock: the die comes up next turn showing what it shows now and cannot be rerolled. | One turn. | Seep Eel's Shock (highest die), Mycel Weaver's Web (one die), the Prismarch against a straight. |
+| **Inverted** | Next turn, after the roll, your highest dice shift to the other parity (Sleight's rule). | One turn. | Salamander's Invert (two dice). |
+| **Backlash** | While a Riftling Swarm or the Unmade lives, every gem after the sixth to fire in one turn costs its owner 1 HP (never the last). | While the creature lives. | Riftling Swarm, the Unmade. |
+| **Gem held** | A gem is off your rail and in a creature's keeping until it dies. | Until its death, when it is returned. | Hoard Mimic's Gulp (the gem that hit it hardest), the Collector's Acquire (the finest on any rail). |
 
 **Late enemy applications:** a new player Curse or Dulled applied after the rails survives the immediate turn-end tick. It begins losing one stack at the following turn end; reapplying an existing stack does not postpone normal decay.
 
@@ -81,6 +90,27 @@ These are immediate actions, rather than buffs with a duration, but they define 
 | **Consume Poison** | Consumes all target Poison before dealing 4 base damage per stack. Flawless applies half the consumed stacks, rounded down, to each adjacent enemy. Spread is separately Ward-blockable. | Detonate. |
 | **Poison conversion** | Heals the weakest ally for 20/30/40/50/60% of all living enemy Poison without consuming it; Flawless heals all allies. | Siphon. |
 | **Accelerate Poison** | Immediately ticks existing enemy Poison, including its normal one-stack decay and Rue's healing trigger. | Rue's Draught and Dregs. |
+
+## Creature traits from the Bestiary (October 2, 2026)
+
+Traits are what a creature is rather than what it rolls for (`traits` in content, `DeepCreatures.traits_for`); a phase may add or remove them. See [docs/BESTIARY.md](docs/BESTIARY.md).
+
+| Trait | What it does | Who |
+| --- | --- | --- |
+| **Steadfast** | Stun, Bound, Clouded and Dread applications are halved (rounded up, at least 1); after an action lost to Stun the next Stun is resisted until it acts. | the Undertow, the Prismarch, the Anvil Knight, the Kiln Wyrm, a remembered Rift Warden. |
+| **Bedrock N%** | No single hit takes more than N% of its max HP off it. | Geode Golem 25%, the Hollow Crown 15% above 60%, the Unmade 10%, a remembered Rift Warden 25%. |
+| **Burrowed** | Under the floor until its next action: cannot be targeted; gems aimed at it hit another creature, gems that hit every creature miss it. | Pit Mole's Dig In, the Undertow's Dive. |
+| **Adapted / Mirroring** | Takes N% less from one colour until its next action, or mirrors that colour back at its owner. | Prism Golem 50%, Null Shade and the Unmade 75%, the Kaleidoscope (mirror), a remembered Adapt. |
+| **Flees after N** | Leaves the fight after its Nth action with everything it stole. | Gilded Magpie (4). |
+| **Rising N%** | Deals N% more than the action before, every action. | the Unmade (25). |
+| **Escalating** | +N damage per action taken in the phase. | the Drill below 60% (+1). |
+| **Aura** | Every player is kept at a status while it lives. | the Heartrot (Festering 1), the Kiln Wyrm above 60% (Corroded 1). |
+| **Shielded by escorts / Fed by escorts / Regrows escorts** | Half damage while a Prism floats; heals 10 a turn while a Tendril stands; dead Tendrils grow back two actions later unless all three died within two turns. | the Prismarch, the Heartrot. |
+| **Charging** | A blow wound up over actions and let go; losing a quarter of its health meanwhile breaks it. | the Prismarch below 33% (half the party's best turn, piercing). |
+| **Empowered** | Its next attack deals N% more. | Croupier Crab on a 20, the Hollow Crown on 15+. |
+| **Rallied** | Every creature deals N more this turn. | Slag Hound's Howl. |
+| **Swollen** | Its death burst poisons for its swelling. | Puffball. |
+| **Hoard** | Drops a raw stone when it dies. | Hoard Mimic. |
 
 ## Existing creature traits and encounter modifiers
 

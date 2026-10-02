@@ -234,6 +234,17 @@ enemy phases. Visually check hover/pinning, multiple enemies, table fit, combina
 arrangement, suspense on both success and failure, and effect timing at normal and
 accelerated combat speed.
 
+## 8a. The Bestiary (October 2, 2026)
+
+Fifty-three creatures across the seven mines and sixteen mechanics were added on these rules;
+[BESTIARY.md](BESTIARY.md) is their record. The additions to this document's model: four
+trigger kinds read from the action rather than a die (`each_turn`, `every_nth_turn`, `emerge`,
+`on_death`), each firing once an action on its first die; a move may be `once` a fight; a
+trigger may name the one `die` it reads; and a creature carries `traits` (its passive nature,
+which a phase may change) beside its moves. The table shows ON DEATH and SPENT rows, a
+countdown beside a periodic move, and the traits as pills. Coverage still holds: every face of
+every die activates an ordinary move on every creature, summon-only escorts included.
+
 ## 9. Implementation notes and verification
 
 All eleven creature definitions and their boss phases use the new rules. Most have

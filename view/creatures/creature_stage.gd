@@ -14,7 +14,10 @@ var _clock: float = 0.0
 var _key: String = ""
 var _warden: bool = false
 
-func _init(creature_key: String = "", warden: bool = false) -> void:
+var _echo_of: String = ""
+
+func _init(creature_key: String = "", warden: bool = false, echo_of: String = "") -> void:
+	_echo_of = echo_of
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_default_cursor_shape = Control.CURSOR_MOVE
 	tooltip_text = "Drag to turn it."
@@ -77,7 +80,7 @@ func show_creature(creature_key: String, warden: bool) -> void:
 		return
 	if _creature != null and is_instance_valid(_creature):
 		_creature.queue_free()
-	var made: CrystalCreature = CrystalCreature.make(creature_key, warden)
+	var made: CrystalCreature = CrystalCreature.make(creature_key, warden, _echo_of)
 	_pivot.add_child(made)
 	made.spawn(0.1)
 	_creature = made

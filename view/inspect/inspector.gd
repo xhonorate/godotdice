@@ -950,8 +950,9 @@ func _die_character(values: Array, distinct: int) -> String:
 
 func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> void:
 	var key: String = str(foe.get("key", ""))
-	var definition: Dictionary = DeepContent.creature(key)
-	var stage := CreatureStage.new(key, bool(foe.get("warden", false)))
+	## A live creature is read as it is (an echo as what it copies); a bare key as written.
+	var definition: Dictionary = DeepCreatures.definition(foe) if foe.has("hp") else DeepContent.creature(key)
+	var stage := CreatureStage.new(key, bool(foe.get("warden", false)), str(foe.get("echo_of", "")))
 	stage.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage.add_child(stage)
 	var warden: bool = bool(foe.get("warden", false))
@@ -986,17 +987,38 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		var shown: Array = foe.hand.slice(0, -1) if str(foe.get("beat", "")) == "roll" else foe.hand
 		for roll in shown:
 			dice.add_child(DiceIcons.face(26, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true))
-	_page("Its moves", "book")
-	var moves := _section("book", "Its moves")
+	## A moveset is read four moves to a page, so a boss with six never runs off the bottom.
 	var highlight: String = str(opts.get("move", ""))
-	for move in DeepCreatures.display_moves(foe, definition.get("moves", [])):
-		_move_row(moves, move, str(move.get("name", "")) == highlight)
-	for phase in definition.get("phases", []):
-		_page("Below %d%% HP" % int(phase.get("below_hp_pct", 0)), "crown")
-		moves = _section("crown", "Phase moves")
-		DeepUi.stat(moves, "crown", "Below %d%% health it fights with:" % int(phase.get("below_hp_pct", 0)), DeepUi.BAD, 13)
-		for move in DeepCreatures.display_moves(foe, phase.get("moves", [])):
+	var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else definition.get("traits", {})
+	var opening: Array = DeepCreatures.display_moves(foe, definition.get("moves", []))
+	for chunk in range(maxi(1, int(ceil(float(opening.size()) / 4.0)))):
+		_page("Its moves" if chunk == 0 else "Its moves · %d" % (chunk + 1), "book")
+		var moves := _section("book", "Its moves" if chunk == 0 else "More of its moves")
+		for move in opening.slice(chunk * 4, chunk * 4 + 4):
 			_move_row(moves, move, str(move.get("name", "")) == highlight)
+		if chunk == 0 and not traits.is_empty():
+			var born := _section("spark", "What it is")
+			var trait_keys: Array = traits.keys()
+			trait_keys.sort()
+			for trait_key in trait_keys:
+				var chip: Dictionary = EffectChips.trait_entry(str(trait_key), traits[trait_key])
+				DeepUi.stat(born, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12)
+	for phase in definition.get("phases", []):
+		var shown: Array = DeepCreatures.display_moves(foe, phase.get("moves", []))
+		for chunk in range(maxi(1, int(ceil(float(shown.size()) / 4.0)))):
+			_page("Below %d%% HP" % int(phase.get("below_hp_pct", 0)) + ("" if chunk == 0 else " · %d" % (chunk + 1)), "crown")
+			var moves := _section("crown", "Phase moves")
+			if chunk == 0:
+				DeepUi.stat(moves, "crown", "Below %d%% health it fights with:" % int(phase.get("below_hp_pct", 0)), DeepUi.BAD, 13)
+				for trait_key in phase.get("traits", {}):
+					var value: Variant = phase.traits[trait_key]
+					if (value is bool and not value) or ((value is int or value is float) and float(value) <= 0.0):
+						DeepUi.stat(moves, "cross_out", "Loses %s." % str(trait_key).capitalize(), DeepUi.DIM, 12)
+					else:
+						var chip: Dictionary = EffectChips.trait_entry(str(trait_key), value)
+						DeepUi.stat(moves, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12)
+			for move in shown.slice(chunk * 4, chunk * 4 + 4):
+				_move_row(moves, move, str(move.get("name", "")) == highlight)
 	var rolls := _section("die", "Its dice")
 	var dice_row := DeepUi.hbox(rolls, 6)
 	var effective: Array = DeepCreatures.effective_dice(foe) if foe.has("dice") else definition.get("dice", []).map(func(key: String) -> Dictionary: return {"shape": key})
@@ -1032,7 +1054,10 @@ func _move_row(parent: Node, move: Dictionary, highlight: bool) -> void:
 
 func _effect_glyph(kind: String) -> String:
 	return str({"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield", "die_steal": "die",
-		"heal": "heart", "curse": "eye"}.get(kind, "spark"))
+		"heal": "heart", "curse": "eye", "summon": "copy", "purge": "drop", "burrow": "rampart", "adapt": "prism", "festering": "drop", "corroded": "split_shield",
+		"scorched": "flame", "die_lock": "die", "invert_dice": "split", "steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "drain_resonance": "cross_out",
+		"rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart", "charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die",
+		"grind_die": "die", "break_gem": "cross_out", "dulled": "cut", "marked": "eye", "ward": "shield_burst", "retain": "shield", "spikes": "thorn", "regeneration": "heart"}.get(kind, "spark"))
 
 func _effect_words(effect: Dictionary) -> String:
 	var kind: String = str(effect.get("kind", ""))

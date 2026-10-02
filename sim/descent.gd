@@ -255,7 +255,14 @@ static func warden_key(state: Dictionary, depth: int) -> String:
 	if wardens.is_empty():
 		return str(mine.get("boss", ""))
 	if bool(mine.get("endless", false)):
-		return str(wardens[maxi(0, depth / warden_every(mine) - 1) % wardens.size()])
+		## The Rift remembers the bosses above it, in order, and every so often (the fifth
+		## Warden, the tenth) something of its own stands there instead.
+		var nth: int = maxi(1, depth / warden_every(mine))
+		var unmade_every: int = int(mine.get("unmade_every", 0))
+		if not str(mine.get("unmade", "")).is_empty() and unmade_every > 0 and nth % unmade_every == 0:
+			return str(mine.unmade)
+		var skipped: int = (nth - 1) / unmade_every if unmade_every > 0 else 0
+		return str(wardens[(nth - 1 - skipped) % wardens.size()])
 	var listed: Array = state.get("schedule", {}).get("wardens", mine.get("warden_depths", []))
 	var index: int = -1
 	for i in range(listed.size()):
@@ -556,8 +563,10 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 		fighter.rank_buff = {"carat": 0, "cut": 0}
 		fighter.pyrite_delta = 0
 		fighters.append(fighter)
+	## An endless mine's Wardens are remembered bosses: each comes back with one trait more.
+	var remembered: bool = not warden.is_empty() and bool(mine.get("endless", false)) and warden != str(mine.get("unmade", ""))
 	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": int(state.depth), "threat": threat, "scale": creature_scale(mine, int(state.depth)),
-		"elite": elite, "warden": not warden.is_empty()}, streams.dice, streams.creatures)
+		"elite": elite, "warden": not warden.is_empty(), "remembered": remembered}, streams.dice, streams.creatures)
 	## Soft Rock: a staked player's first fights open against creatures already cracked.
 	var soft: bool = false
 	for unit in state.players:
@@ -665,6 +674,9 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 			## A Royal Flush drops a stone of its own, Exquisite or better, warden or not.
 			for _drop in range(int(fighter.get("stone_drops", 0))):
 				reward.stones.append(_find_stone(state, unit, streams, 8, "birthstone", "EXQUISITE"))
+			## A Hoard Mimic's belly: a raw stone for whoever opened it.
+			for _drop in range(int(fighter.get("raw_drops", 0))):
+				reward.stones.append(_find_stone(state, unit, streams, 2, "mimic"))
 			settle.rewards[unit.id] = reward
 		else:
 			# Unbanked fight earnings are lost; bank-funded spending is still paid.

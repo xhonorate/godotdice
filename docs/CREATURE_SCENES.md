@@ -44,10 +44,41 @@ stronger light. Passing the opposite Warden flag to the factory switches the var
 without making another scene. `Normal Tint` supplies the palette for that conversion;
 update it too if you change the creature's color and use both variants.
 
-To add a type, duplicate the closest scene, edit it, set its root `Key`, and add its
-path to `CrystalCreature.SCENE_PATHS`. Define its combat stats and moves separately
-in `content/deep_cut.json`. An unregistered key uses `crystal_cluster.tscn` with a
-stable color based on the key.
+To add a type, either duplicate the closest scene, edit it, set its root `Key`, and add
+its key to `CrystalCreature.SCENE_KEYS` (the path is `scenes/<key_lower>.tscn`), or write a
+recipe and bake it (below). Define its combat stats and moves separately in
+`content/deep_cut.json`. An unregistered key uses `crystal_cluster.tscn` with a stable
+color based on the key.
+
+## Baking a scene from a recipe
+
+The deeper mines' creatures (October 2, 2026) are baked from data. A recipe in
+`tools/creature_recipes/<mine>.gd` lists the shapes a creature is made of (the low-poly
+rocks, crystals, spikes, columns, caps and slabs of `view/battle/lowpoly.gd`, and Godot's
+spheres, cylinders, cones, boxes, tori and capsules), where each sits, which material it
+wears and how it idles. `tools/creature_bake.gd` turns every recipe into a scene with the
+five top-level nodes above:
+
+```sh
+/path/to/Godot --headless --path . --script tools/creature_bake.gd                 # every recipe
+/path/to/Godot --headless --path . --script tools/creature_bake.gd -- RAIL_RAT     # one
+/path/to/Godot --path . --script tools/creature_sheet.gd -- build/sheet.png RAIL_RAT PIT_MOLE   # look at them
+```
+
+The bake tool's header documents the recipe format. A baked scene is an ordinary scene
+afterwards: edit it in Godot like any other, or edit the recipe and bake again.
+
+## Variants and the accent material
+
+A variant (a Fire Tick for the Cave Tick) is its base creature's scene in other colours:
+`CrystalCreature.VARIANTS` names the base and the tint, and `make()` recolours the instance.
+Scenes may carry a third **Accent Material** for their brightest parts (a lamp, a fire, an
+eye); it is animated with the body and core and recoloured for variants. A Void Echo spawns
+the scene of the creature it copies and is drawn as a ghost (`ghost()`).
+
+Parts gained idle motions beyond the first five: `orbit`, `spin`, `bob`, `swing`, `tread`
+and `flicker`. The presentation API gained `burrow(down)`, `flee()`, `set_adapt(color)`,
+`clear_adapt()` and `set_charging(on)`.
 
 Run `python3 tools/run_checks.py` to check scene loading, independent instance
 materials, authored transforms, Warden variants and the animation lifecycle alongside

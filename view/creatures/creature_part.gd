@@ -1,8 +1,14 @@
 class_name CrystalCreaturePart
 extends Node3D
 ## An editable pivot for one piece of a creature. Child meshes keep their own transforms.
+##
+## `motion` is how the piece idles: still, a crystal that sways, a core that pulses, a block
+## that turns a little, a wing that beats, or one of the newer kinds: a part that orbits the
+## body, one that spins on its axis, one that bobs, one that swings like a pendulum, a tread
+## that rolls and a flame that flickers. `phase` offsets its clock so no two parts move
+## together; `wing_side` mirrors a wing.
 
-@export_enum("static", "crystal", "core", "block", "wing") var motion: String = "static"
+@export_enum("static", "crystal", "core", "block", "wing", "orbit", "spin", "bob", "swing", "tread", "flicker") var motion: String = "static"
 @export var phase: float = 0.0
 @export var wing_side: float = 1.0
 
@@ -29,3 +35,19 @@ func animate(clock: float, style: String) -> void:
 				position = _rest.origin + Vector3(0, sin(clock * 2.0 - _rest.origin.x * 1.4) * 0.12, 0)
 		"block":
 			rotation = base_rotation + Vector3(0, sin(clock * 0.7 + phase) * 0.06, 0)
+		"orbit":
+			## Circles the body at its own height, keeping its distance from the axis.
+			position = _rest.origin.rotated(Vector3.UP, clock * 0.7 + phase) + Vector3(0, sin(clock * 1.9 + phase) * 0.06, 0)
+			rotation = base_rotation + Vector3(0, clock * 0.7 + phase, 0)
+		"spin":
+			rotation = base_rotation + Vector3(0, clock * 2.4 + phase, 0)
+		"bob":
+			position = _rest.origin + Vector3(0, sin(clock * 2.2 + phase) * 0.1, 0)
+		"swing":
+			rotation = base_rotation + Vector3(0, 0, sin(clock * 1.6 + phase) * 0.22)
+		"tread":
+			rotation = base_rotation + Vector3(clock * 1.8 + phase, 0, 0)
+		"flicker":
+			var lick: float = 1.0 + 0.18 * sin(clock * 9.0 + phase) * sin(clock * 5.3 + phase * 1.7)
+			scale = _rest.basis.get_scale() * Vector3(1.0, lick, 1.0)
+			rotation = base_rotation + Vector3(sin(clock * 7.0 + phase) * 0.08, 0, cos(clock * 6.0 + phase) * 0.08)

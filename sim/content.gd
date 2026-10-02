@@ -24,6 +24,13 @@ const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "hea
 	"heal_resonance_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value", "pot_share"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",
 	"steal_gold", "gift_rerolls", "poison_immune", "bury_socket", "mirror_last_gem", "roll_for_you", "regrow"]
+## What a creature is, as well as what it rolls for: the traits it carries into every fight
+## (`traits`, a dictionary of trait to amount or true), which a phase may add to or take away.
+## The old single `gimmick` is read as one of these. See docs/BESTIARY.md.
+const TRAITS: Array = GIMMICKS + ["steadfast", "bedrock", "backlash", "flee", "rising", "escalate", "aura", "spikes",
+	"regen_with_escorts", "shielded_by_escorts", "regrow_escorts", "reroll_drain", "reroll_scorch", "punish_straight", "drops_stone", "adapt_aura"]
+## The traits a Rift Warden may be remembered with, one of them, picked by the seed.
+const REMEMBERED_TRAITS: Array = ["steadfast", "bedrock", "adapt"]
 
 static var _pack: Dictionary = {}
 static var _path: String = PATH
@@ -362,6 +369,18 @@ static func _validate_creature(def: Variant, p: Dictionary) -> Array:
 		errors.append("needs one to four ordered dice")
 	if not str(def.get("gimmick", "")) in GIMMICKS:
 		errors.append("unknown gimmick " + str(def.get("gimmick", "")))
+	errors.append_array(_validate_traits(def.get("traits", {}), ""))
+	for key in def.get("escorts", []):
+		if not p.creatures.has(str(key)):
+			errors.append("unknown escort " + str(key))
+	var echo: Variant = def.get("echo", null)
+	if echo != null:
+		if not echo is Dictionary or not echo.get("mines", null) is Array or echo.mines.is_empty():
+			errors.append("an echo names the mines it copies from")
+		else:
+			for mine_key in echo.mines:
+				if not p.mines.has(str(mine_key)):
+					errors.append("echo of an unknown mine " + str(mine_key))
 	var moves: Variant = def.get("moves", null)
 	if not moves is Array or moves.is_empty():
 		errors.append("needs at least one move")
@@ -372,8 +391,28 @@ static func _validate_creature(def: Variant, p: Dictionary) -> Array:
 		if not phase is Dictionary or not phase.get("moves", null) is Array:
 			errors.append("each phase needs a moves list")
 			continue
+		errors.append_array(_validate_traits(phase.get("traits", {}), "phase "))
 		for index in range(phase.moves.size()):
 			errors.append_array(DeepRules.validate_move(phase.moves[index], p).map(func(e: String) -> String: return "phase move %d: %s" % [index + 1, e]))
+	return errors
+
+static func _validate_traits(traits: Variant, where: String) -> Array:
+	if not traits is Dictionary:
+		return [where + "traits must be an object"]
+	var errors: Array = []
+	for key in traits:
+		if not str(key) in TRAITS:
+			errors.append(where + "unknown trait " + str(key))
+		var value: Variant = traits[key]
+		if str(key) == "aura":
+			if not value is Dictionary:
+				errors.append(where + "an aura lists statuses with their amounts")
+			else:
+				for status in value:
+					if not str(status) in DeepRules.EFFECT_KINDS:
+						errors.append(where + "aura of an unknown status " + str(status))
+		elif not (value is bool or value is int or value is float):
+			errors.append(where + "trait %s needs a number or true" % str(key))
 	return errors
 
 static func _validate_mine(def: Variant, p: Dictionary) -> Array:
@@ -393,6 +432,11 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 			errors.append("unknown warden " + str(key))
 		elif not bool(p.creatures[str(key)].get("warden", false)):
 			errors.append("%s is not a warden" % str(key))
+	if not str(def.get("unmade", "")).is_empty():
+		if not p.creatures.has(str(def.unmade)):
+			errors.append("unknown unmade warden " + str(def.unmade))
+		elif not bool(p.creatures[str(def.unmade)].get("warden", false)):
+			errors.append("%s is not a warden" % str(def.unmade))
 	if def.get("wardens", []).is_empty():
 		errors.append("needs at least one warden")
 	var bands: Variant = def.get("bands", null)

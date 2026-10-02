@@ -4,7 +4,12 @@ import * as Hand from './hand.js';
 
 export const KINDS = ['all_odd', 'all_even', 'always', 'pair', 'two_pair', 'triple', 'full_house', 'quad', 'quint', 'straight',
 	'odd', 'even', 'distinct', 'value', 'at_most', 'at_least', 'total_pct_at_least', 'total_pct_at_most',
-	'high_pct_at_least', 'held', 'rerolled', 'resonance', 'low_count', 'crowns', 'crowns_at_most', 'skip_straight', 'distinct_dominant', 'pyrite', 'below'];
+	'high_pct_at_least', 'held', 'rerolled', 'resonance', 'low_count', 'crowns', 'crowns_at_most', 'skip_straight', 'distinct_dominant', 'pyrite', 'below',
+	'each_turn', 'every_nth_turn', 'emerge', 'on_death'];
+// The kinds a creature reads from the turn rather than from a die: each fires at most once an
+// action, on its first die (on_death never during an action: it fires when the creature dies).
+export const TURN_KINDS = ['each_turn', 'every_nth_turn', 'emerge', 'on_death'];
+export const isTurnKind = (kind) => TURN_KINDS.includes(kind);
 export const SET_SIZES = { pair: 2, triple: 3, quad: 4, quint: 5 };
 export const STEPS = 5;
 
@@ -32,8 +37,8 @@ export function unconditional(kind, need) {
 
 function allDice(a) {
 	const dice = [];
-	for (const ids of a.ids_by_value.values()) dice.push(...ids);
-	dice.push(...a.wilds);
+	if (a.ids_by_value) for (const ids of a.ids_by_value.values()) dice.push(...ids);
+	dice.push(...(a.wilds || []));
 	return dice;
 }
 
@@ -47,6 +52,21 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		result.dice = picked.dice;
 		result.value = picked.sum;
 		result.count = picked.dice.length;
+		return result;
+	}
+	if (TURN_KINDS.includes(kind)) {
+		// The fight tells a creature which action this is; nothing on the dice does.
+		const first = Boolean(context.first_roll);
+		const acted = context.turns_acted | 0;
+		switch (kind) {
+			case 'each_turn': result.active = first; break;
+			case 'every_nth_turn': result.active = first && need > 0 && acted % need === 0; break;
+			case 'emerge': result.active = first && Boolean(context.emerging); break;
+			case 'on_death': result.active = Boolean(context.dying); break;
+		}
+		result.value = a.total | 0;
+		if (result.active) result.dice = allDice(a);
+		else result.reason = kind !== 'on_death' ? 'Not this action.' : 'Only when it dies.';
 		return result;
 	}
 	switch (kind) {
@@ -188,12 +208,39 @@ export function label(trigger, cutStep) {
 		case 'value': { const wanted = (trigger.values || [7]).join('/'); return need > 1 ? `${wanted} ×${need}` : wanted; }
 		case 'pyrite': return `≥${need} pyrite`;
 		case 'below': return `<${need}`;
+		case 'each_turn': return 'each action';
+		case 'every_nth_turn': return `÷${need}`;
+		case 'emerge': return 'emerging';
+		case 'on_death': return 'on death';
 		case 'at_most': return `≤${need}`;
 		case 'at_least': return `≥${need}`;
 		case 'total_pct_at_least': case 'high_pct_at_least': return `≥${need}%`;
 		case 'total_pct_at_most': return `≤${need}%`;
 	}
 	return String(need);
+}
+
+// The mark the game draws for a trigger (sim/patterns.gd describe): the hourglass and skull
+// are the creature-only turn kinds.
+export function mark(trigger, cutStep) {
+	const kind = trigger.kind || 'always';
+	const need = rung(trigger, cutStep);
+	if (kind !== 'always' && unconditional(kind, need)) return 'read_high';
+	if (kind === 'always') return readSide(trigger, cutStep) !== 'low' ? 'read_high' : 'read_low';
+	if (kind === 'each_turn' || kind === 'emerge' || kind === 'every_nth_turn') return 'hourglass';
+	if (kind === 'on_death') return 'skull';
+	return kind;
+}
+
+export function ordinal(n) {
+	switch (n) {
+		case 1: return 'first';
+		case 2: return 'second';
+		case 3: return 'third';
+		case 4: return 'fourth';
+		case 5: return 'fifth';
+	}
+	return `${n}th`;
 }
 
 const dice = (n) => `${n} ${n === 1 ? 'die' : 'dice'}`;
@@ -237,6 +284,10 @@ export function words(trigger, cutStep) {
 		case 'crowns_at_most': return need === 0 ? 'No die on its top face.' : `No more than ${need} dice on their top face.`;
 		case 'skip_straight': return `${need} different values, all odd or all even, like 2-4-6-8-10.`;
 		case 'distinct_dominant': return `${need} different values, the highest die outrolling the other ${need - 1} combined.`;
+		case 'each_turn': return 'Every action, once, before its dice.';
+		case 'every_nth_turn': return `Every ${ordinal(need)} action, once, before its dice.`;
+		case 'emerge': return 'The action after it burrowed, once, before its dice.';
+		case 'on_death': return 'When it dies.';
 	}
 	return 'Its trigger.';
 }
@@ -248,4 +299,5 @@ export const KIND_NAMES = {
 	at_least: 'High die', total_pct_at_least: 'Total ≥ % of max', total_pct_at_most: 'Total ≤ % of max', high_pct_at_least: 'Die ≥ % of its top',
 	held: 'Held dice', rerolled: 'Rerolled dice', resonance: 'Resonance', low_count: 'Low dice', crowns: 'Crowns', crowns_at_most: 'Few crowns',
 	skip_straight: 'Skip straight', distinct_dominant: 'Dominant high die', pyrite: 'Pyrite in hand', all_odd: 'All odd', all_even: 'All even',
+	each_turn: 'Each action', every_nth_turn: 'Every nth action', emerge: 'When it comes up', on_death: 'When it dies',
 };

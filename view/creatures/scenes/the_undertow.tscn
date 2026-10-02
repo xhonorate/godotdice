@@ -1,0 +1,692 @@
+[gd_scene format=4]
+
+[ext_resource type="Script" path="res://view/creatures/crystal_creature.gd" id="1_joie4"]
+[ext_resource type="Script" path="res://view/creatures/creature_part.gd" id="2_bgckt"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_h6upu"]
+resource_local_to_scene = true
+vertex_color_use_as_albedo = true
+albedo_color = Color(0.3217647, 0.27426472, 0.27117646, 1)
+metallic = 0.25
+metallic_specular = 0.9
+roughness = 0.18
+emission_enabled = true
+emission = Color(0.4290196, 0.3656863, 0.36156863, 1)
+emission_energy_multiplier = 0.4
+rim_enabled = true
+rim_tint = 0.3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cfocg"]
+resource_local_to_scene = true
+vertex_color_use_as_albedo = true
+albedo_color = Color(0.17160784, 0.1462745, 0.14462744, 1)
+roughness = 0.7
+emission_enabled = true
+emission = Color(0.5432157, 0.49254906, 0.4892549, 1)
+emission_energy_multiplier = 1.4
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ffsfc"]
+resource_local_to_scene = true
+vertex_color_use_as_albedo = true
+albedo_color = Color(0.38274512, 0.8, 0.70274514, 1)
+metallic = 0.1
+roughness = 0.4
+emission_enabled = true
+emission = Color(0.47843137, 1, 0.8784314, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="SphereMesh" id="SphereMesh_ichgo"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_vah1g"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_n0tag"]
+radius = 1.0
+height = 2.0
+radial_segments = 5
+rings = 3
+
+[sub_resource type="PrismMesh" id="PrismMesh_1s4ul"]
+size = Vector3(0.08, 0.5, 0.5)
+
+[sub_resource type="SphereMesh" id="SphereMesh_4s2hf"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_rrunh"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_nkd1c"]
+radius = 1.0
+height = 2.0
+radial_segments = 5
+rings = 3
+
+[sub_resource type="PrismMesh" id="PrismMesh_selah"]
+size = Vector3(0.08, 0.5, 0.5)
+
+[sub_resource type="SphereMesh" id="SphereMesh_810pq"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_3nf2t"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_2rbsj"]
+radius = 1.0
+height = 2.0
+radial_segments = 5
+rings = 3
+
+[sub_resource type="PrismMesh" id="PrismMesh_pmeva"]
+size = Vector3(0.08, 0.5, 0.5)
+
+[sub_resource type="SphereMesh" id="SphereMesh_8gquw"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_remkn"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_muwlq"]
+radius = 1.0
+height = 2.0
+radial_segments = 5
+rings = 3
+
+[sub_resource type="PrismMesh" id="PrismMesh_dyb2e"]
+size = Vector3(0.08, 0.5, 0.5)
+
+[sub_resource type="SphereMesh" id="SphereMesh_clt2v"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_itfrg"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_pehf2"]
+radius = 1.0
+height = 2.0
+radial_segments = 5
+rings = 3
+
+[sub_resource type="PrismMesh" id="PrismMesh_8t62r"]
+size = Vector3(0.08, 0.5, 0.5)
+
+[sub_resource type="SphereMesh" id="SphereMesh_evhk5"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_kqa17"]
+radius = 1.0
+height = 2.0
+radial_segments = 8
+rings = 4
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_1f60r"]
+_surfaces = [{
+"aabb": AABB(-0.4492878, -0.10879989, -0.35859466, 0.93550324, 0.21854717, 0.7371863),
+"attribute_data": PackedByteArray("+/v7//v7+//7+/v/+/v7//v7+//7+/v/7u7u/+7u7v/u7u7/7u7u/+7u7v/u7u7/6+vr/+vr6//r6+v/6+vr/+vr6//r6+v/////////////////////////////////7e3t/+3t7f/t7e3/7e3t/+3t7f/t7e3/////////////////////////////////"),
+"format": 34359738383,
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 36,
+"vertex_data": PackedByteArray("QHXWvquNtL24mbe+DHXXPlgwnL1dJaq+9P/jPhL3qz3gKaK+QHXWvquNtL24mbe+9P/jPhL3qz3gKaK+wyjavj7qoT2hR66+DQnmvnyiYb3F1sE+ILrfvi7D4D1Berg+cJPmPtjglT1FpaM+DQnmvnyiYb3F1sE+cJPmPtjglT1FpaM+PPH4PnrS3r1ecrE+QHXWvquNtL24mbe+DQnmvnyiYb3F1sE+PPH4PnrS3r1ecrE+QHXWvquNtL24mbe+PPH4PnrS3r1ecrE+DHXXPlgwnL1dJaq+wyjavj7qoT2hR66+9P/jPhL3qz3gKaK+cJPmPtjglT1FpaM+wyjavj7qoT2hR66+cJPmPtjglT1FpaM+ILrfvi7D4D1Berg+QHXWvquNtL24mbe+wyjavj7qoT2hR66+ILrfvi7D4D1Berg+QHXWvquNtL24mbe+ILrfvi7D4D1Berg+DQnmvnyiYb3F1sE+DHXXPlgwnL1dJaq+PPH4PnrS3r1ecrE+cJPmPtjglT1FpaM+DHXXPlgwnL1dJaq+cJPmPtjglT1FpaM+9P/jPhL3qz3gKaK+bPWT/AyNO4Fs9ZP8DI07gWz1k/wMjTuBm/MB/SGO0oCb8wH9IY7SgJvzAf0hjtKAjoXZizh5aImOhdmLOHloiY6F2Ys4eWiJm4S1kOJ434ubhLWQ4njfi5uEtZDieN+Lenl6C1oGfMV6eXoLWgZ8xXp5egtaBnzF04fjASMI6L7Th+MBIwjovtOH4wEjCOi+PH8b/e0Cmb88fxv97QKZvzx/G/3tApm/volb+3AEsMS+iVv7cASwxL6JW/twBLDEDwVGeSF+gsIPBUZ5IX6Cwg8FRnkhfoLCBQgejVt647sFCB6NW3rjuwUIHo1beuO7de1Xm6aFTcl17VebpoVNyXXtV5umhU3JRe8ebp1+qLdF7x5unX6ot0XvHm6dfqi3")
+}]
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_g5rh3"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_k3g0p"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_550cl"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_qnrf0"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_ytyt6"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_mpv2a"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_coap6"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_rr6vb"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_fshmf"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_2rixs"]
+top_radius = 0.0
+bottom_radius = 1.0
+height = 1.0
+radial_segments = 4
+rings = 1
+
+[sub_resource type="SphereMesh" id="SphereMesh_4l6kp"]
+radius = 1.0
+height = 2.0
+radial_segments = 6
+rings = 3
+
+[sub_resource type="SphereMesh" id="SphereMesh_c17fd"]
+radius = 1.0
+height = 2.0
+radial_segments = 6
+rings = 3
+
+[sub_resource type="Gradient" id="Gradient_dao2e"]
+offsets = PackedFloat32Array(0, 1, 0.35)
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0.45)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_xespu"]
+gradient = SubResource("Gradient_dao2e")
+width = 128
+height = 128
+fill = 1
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(1, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_q74wu"]
+transparency = 1
+depth_draw_mode = 2
+shading_mode = 0
+albedo_color = Color(0, 0, 0, 0.75)
+albedo_texture = SubResource("GradientTexture2D_xespu")
+
+[sub_resource type="QuadMesh" id="QuadMesh_mj1tg"]
+material = SubResource("StandardMaterial3D_q74wu")
+size = Vector2(4, 2.2)
+orientation = 1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_i4hj4"]
+resource_local_to_scene = true
+transparency = 1
+blend_mode = 1
+cull_mode = 2
+shading_mode = 0
+albedo_color = Color(0.8862745, 0.69803923, 0.22745098, 0)
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_xtftf"]
+_surfaces = [{
+"aabb": AABB(-1.9, 0, -1.9, 3.8, 1e-05, 3.8),
+"attribute_data": PackedByteArray("/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA/////wAAAAAAAAAA"),
+"format": 34359738399,
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 240,
+"vertex_data": PackedByteArray("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q23OPwAAAABsXFK/BUznPwAAAABNTha/PVfcPwAAAAClLw+/PVfcPwAAAAClLw+/BUznPwAAAABNTha/sDTwPwAAAADwLZi+PVfcPwAAAAClLw+/sDTwPwAAAADwLZi+4NPkPwAAAACP+JC+4NPkPwAAAACP+JC+sDTwPwAAAADwLZi+MzPzPwAAAADvIQam4NPkPwAAAACP+JC+MzPzPwAAAADvIQamFK7nPwAAAADNjv+l/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
+}]
+
+[node name="TheUndertow" type="Node3D" unique_id=669887470]
+transform = Transform3D(1.5, 0, 0, 0, 1.5, 0, 0, 0, 1.5, 0, 0, 0)
+script = ExtResource("1_joie4")
+key = "THE_UNDERTOW"
+warden = true
+style = "long"
+sway = 0.6
+body_material = SubResource("StandardMaterial3D_h6upu")
+core_material = SubResource("StandardMaterial3D_cfocg")
+accent_material = SubResource("StandardMaterial3D_ffsfc")
+normal_tint = Color(0.12156863, 0.37254903, 0.4, 1)
+normal_accent = Color(0.47843137, 1, 0.8784314, 1)
+
+[node name="Body" type="Node3D" parent="." unique_id=1918675833]
+
+[node name="Core01" type="Node3D" parent="Body" unique_id=1971550363]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -1.9)
+script = ExtResource("2_bgckt")
+motion = "core"
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core01" unique_id=786200566]
+transform = Transform3D(0.295, 0, 0, 0, 0.295, 0, 0, 0, 0.295, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_ichgo")
+
+[node name="Core02" type="Node3D" parent="Body" unique_id=462344161]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.17633557, 0.78713226, -1.58)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 0.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core02" unique_id=747966009]
+transform = Transform3D(0.32, 0, 0, 0, 0.32, 0, 0, 0, 0.32, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_vah1g")
+
+[node name="Core03" type="Node3D" parent="Body" unique_id=699872945]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.4323356, 0.8831323, -1.58)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 0.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core03" unique_id=1405546554]
+transform = Transform3D(0.09, 0, 0, 0, 0.09, 0, 0, 0, 0.09, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("SphereMesh_n0tag")
+
+[node name="Wing01" type="Node3D" parent="Body" unique_id=318484315]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.17633557, 1.1071323, -1.58)
+script = ExtResource("2_bgckt")
+motion = "wing"
+phase = 0.4
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Wing01" unique_id=1485752520]
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("PrismMesh_1s4ul")
+
+[node name="Core04" type="Node3D" parent="Body" unique_id=509696960]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.28531694, 1.316792, -1.26)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 1.0
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core04" unique_id=1627692133]
+transform = Transform3D(0.345, 0, 0, 0, 0.345, 0, 0, 0, 0.345, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_4s2hf")
+
+[node name="Core05" type="Node3D" parent="Body" unique_id=844775411]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.28531694, 1.7371323, -0.94)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 1.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core05" unique_id=1322237365]
+transform = Transform3D(0.37, 0, 0, 0, 0.37, 0, 0, 0, 0.37, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_rrunh")
+
+[node name="Core06" type="Node3D" parent="Body" unique_id=2002062388]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.58131695, 1.8481323, -0.94)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 1.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core06" unique_id=771275651]
+transform = Transform3D(0.09, 0, 0, 0, 0.09, 0, 0, 0, 0.09, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("SphereMesh_nkd1c")
+
+[node name="Wing02" type="Node3D" parent="Body" unique_id=1737944372]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.28531694, 2.1071322, -0.94)
+script = ExtResource("2_bgckt")
+motion = "wing"
+phase = 1.2000000000000002
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Wing02" unique_id=1388060066]
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("PrismMesh_selah")
+
+[node name="Core07" type="Node3D" parent="Body" unique_id=1978802244]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.17633557, 2.0070074, -0.62)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 2.0
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core07" unique_id=1589278133]
+transform = Transform3D(0.395, 0, 0, 0, 0.395, 0, 0, 0, 0.395, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_810pq")
+
+[node name="Core08" type="Node3D" parent="Body" unique_id=1079680588]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.6739406e-17, 2.1, -0.3)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 2.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core08" unique_id=1516040749]
+transform = Transform3D(0.42, 0, 0, 0, 0.42, 0, 0, 0, 0.42, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_3nf2t")
+
+[node name="Core09" type="Node3D" parent="Body" unique_id=2111929944]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.336, 2.226, -0.3)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 2.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core09" unique_id=1609631941]
+transform = Transform3D(0.09, 0, 0, 0, 0.09, 0, 0, 0, 0.09, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("SphereMesh_2rbsj")
+
+[node name="Wing03" type="Node3D" parent="Body" unique_id=263024834]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.6739406e-17, 2.52, -0.3)
+script = ExtResource("2_bgckt")
+motion = "wing"
+phase = 2.0
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Wing03" unique_id=348094945]
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("PrismMesh_pmeva")
+
+[node name="Core10" type="Node3D" parent="Body" unique_id=164179992]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.17633557, 2.0070074, 0.02)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 3.0
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core10" unique_id=1222894687]
+transform = Transform3D(0.395, 0, 0, 0, 0.395, 0, 0, 0, 0.395, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_8gquw")
+
+[node name="Core11" type="Node3D" parent="Body" unique_id=1355803374]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28531694, 1.7371323, 0.34)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 3.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core11" unique_id=1061503703]
+transform = Transform3D(0.37, 0, 0, 0, 0.37, 0, 0, 0, 0.37, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_remkn")
+
+[node name="Core12" type="Node3D" parent="Body" unique_id=1182004653]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.010683045, 1.8481323, 0.34)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 3.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core12" unique_id=1537745051]
+transform = Transform3D(0.09, 0, 0, 0, 0.09, 0, 0, 0, 0.09, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("SphereMesh_muwlq")
+
+[node name="Wing04" type="Node3D" parent="Body" unique_id=1444241791]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28531694, 2.1071322, 0.34)
+script = ExtResource("2_bgckt")
+motion = "wing"
+phase = 2.8000000000000003
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Wing04" unique_id=1099981246]
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("PrismMesh_dyb2e")
+
+[node name="Core13" type="Node3D" parent="Body" unique_id=1502130]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28531694, 1.316792, 0.66)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 4.0
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core13" unique_id=1206980728]
+transform = Transform3D(0.345, 0, 0, 0, 0.345, 0, 0, 0, 0.345, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_clt2v")
+
+[node name="Core14" type="Node3D" parent="Body" unique_id=1790789529]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.17633557, 0.78713226, 0.98)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 4.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core14" unique_id=1319478918]
+transform = Transform3D(0.32, 0, 0, 0, 0.32, 0, 0, 0, 0.32, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_itfrg")
+
+[node name="Core15" type="Node3D" parent="Body" unique_id=1391387564]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.079664424, 0.8831323, 0.98)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 4.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core15" unique_id=473936204]
+transform = Transform3D(0.09, 0, 0, 0, 0.09, 0, 0, 0, 0.09, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("SphereMesh_pehf2")
+
+[node name="Wing05" type="Node3D" parent="Body" unique_id=1349568952]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.17633557, 1.1071323, 0.98)
+script = ExtResource("2_bgckt")
+motion = "wing"
+phase = 3.6
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Wing05" unique_id=1260240412]
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("PrismMesh_8t62r")
+
+[node name="Core16" type="Node3D" parent="Body" unique_id=728790609]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.347881e-17, 0.2, 1.3)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 5.0
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core16" unique_id=1048407595]
+transform = Transform3D(0.295, 0, 0, 0, 0.295, 0, 0, 0, 0.295, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_evhk5")
+
+[node name="Bob01" type="Node3D" parent="Body" unique_id=1666644413]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 1.75)
+script = ExtResource("2_bgckt")
+motion = "bob"
+phase = 19.8
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Bob01" unique_id=1774538874]
+transform = Transform3D(0.55, 0, 0, 0, 0.45, 0, 0, 0, 0.6, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("SphereMesh_kqa17")
+
+[node name="Swing01" type="Node3D" parent="Body" unique_id=520655202]
+transform = Transform3D(1, 0, 0, 0, 0.9396926, -0.34202012, 0, 0.34202012, 0.9396926, 0, 0.3, 2.05)
+script = ExtResource("2_bgckt")
+motion = "swing"
+phase = 20.7
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Swing01" unique_id=932430423]
+material_override = SubResource("StandardMaterial3D_h6upu")
+mesh = SubResource("ArrayMesh_1f60r")
+
+[node name="Cone01" type="Node3D" parent="Body" unique_id=1110217536]
+transform = Transform3D(1, 0, 0, 0, -1, 8.742278e-08, 0, -8.742278e-08, -1, -0.36, 0.72, 2.25)
+script = ExtResource("2_bgckt")
+phase = 21.6
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone01" unique_id=1785169350]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_g5rh3")
+
+[node name="Cone02" type="Node3D" parent="Body" unique_id=522051532]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.36, 0.36, 2.3)
+script = ExtResource("2_bgckt")
+phase = 22.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone02" unique_id=1980608656]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_k3g0p")
+
+[node name="Cone03" type="Node3D" parent="Body" unique_id=489172319]
+transform = Transform3D(1, 0, 0, 0, -1, 8.742278e-08, 0, -8.742278e-08, -1, -0.18, 0.72, 2.25)
+script = ExtResource("2_bgckt")
+phase = 23.400000000000002
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone03" unique_id=992899040]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_550cl")
+
+[node name="Cone04" type="Node3D" parent="Body" unique_id=2050464492]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.18, 0.36, 2.3)
+script = ExtResource("2_bgckt")
+phase = 24.3
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone04" unique_id=1197118516]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_qnrf0")
+
+[node name="Cone05" type="Node3D" parent="Body" unique_id=1250170694]
+transform = Transform3D(1, 0, 0, 0, -1, 8.742278e-08, 0, -8.742278e-08, -1, 0, 0.72, 2.25)
+script = ExtResource("2_bgckt")
+phase = 25.2
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone05" unique_id=1925867386]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_ytyt6")
+
+[node name="Cone06" type="Node3D" parent="Body" unique_id=1184300697]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.36, 2.3)
+script = ExtResource("2_bgckt")
+phase = 26.1
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone06" unique_id=1066779992]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_mpv2a")
+
+[node name="Cone07" type="Node3D" parent="Body" unique_id=114700719]
+transform = Transform3D(1, 0, 0, 0, -1, 8.742278e-08, 0, -8.742278e-08, -1, 0.18, 0.72, 2.25)
+script = ExtResource("2_bgckt")
+phase = 27.0
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone07" unique_id=1339610386]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_coap6")
+
+[node name="Cone08" type="Node3D" parent="Body" unique_id=1223670812]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.18, 0.36, 2.3)
+script = ExtResource("2_bgckt")
+phase = 27.900000000000002
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone08" unique_id=1466130023]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_rr6vb")
+
+[node name="Cone09" type="Node3D" parent="Body" unique_id=1644669275]
+transform = Transform3D(1, 0, 0, 0, -1, 8.742278e-08, 0, -8.742278e-08, -1, 0.36, 0.72, 2.25)
+script = ExtResource("2_bgckt")
+phase = 28.8
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone09" unique_id=1952744736]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_fshmf")
+
+[node name="Cone10" type="Node3D" parent="Body" unique_id=207685215]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.36, 0.36, 2.3)
+script = ExtResource("2_bgckt")
+phase = 29.7
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Cone10" unique_id=365227692]
+transform = Transform3D(0.05, 0, 0, 0, 0.22, 0, 0, 0, 0.05, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("CylinderMesh_2rixs")
+
+[node name="Core17" type="Node3D" parent="Body" unique_id=1050846683]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 0.85, 2)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 30.6
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core17" unique_id=1893706514]
+transform = Transform3D(0.12, 0, 0, 0, 0.12, 0, 0, 0, 0.12, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("SphereMesh_4l6kp")
+
+[node name="Core18" type="Node3D" parent="Body" unique_id=2002725535]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.3, 0.85, 2)
+script = ExtResource("2_bgckt")
+motion = "core"
+phase = 31.5
+
+[node name="Mesh" type="MeshInstance3D" parent="Body/Core18" unique_id=997348904]
+transform = Transform3D(0.12, 0, 0, 0, 0.12, 0, 0, 0, 0.12, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_ffsfc")
+mesh = SubResource("SphereMesh_c17fd")
+
+[node name="Anchor" type="Marker3D" parent="." unique_id=1860048]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.6, 0)
+
+[node name="Glow" type="OmniLight3D" parent="." unique_id=1171236536]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.17, 0.4)
+light_color = Color(0.12156863, 0.37254903, 0.4, 1)
+light_energy = 2.6
+light_volumetric_fog_energy = 1.5
+
+[node name="Shadow" type="MeshInstance3D" parent="." unique_id=1364433186]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.03, 0)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_mj1tg")
+
+[node name="TargetRing" type="MeshInstance3D" parent="." unique_id=650579078]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+material_override = SubResource("StandardMaterial3D_i4hj4")
+cast_shadow = 0
+mesh = SubResource("ArrayMesh_xtftf")

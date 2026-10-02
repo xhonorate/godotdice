@@ -16,7 +16,21 @@ Everything here is data in `content/deep_cut.json` under `mines`, read by `sim/f
 | VI | The Geode | 32 | 12, 24 | 32 | ≤ 12 | 17 | +4 | ×19 / ×3.7 | Florin |
 | ∞ | The Rift | endless | every 8 | — | ≤ 13, +1 a Warden | 17, +1 a Warden, to 24 | +5 | ×34, doubling every 8 floors / ×4.8, +15% every 8 | — |
 
-Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. The Wardens and bosses of the new mines are the Quarry's three for now, scaled by the mine: unique bosses come with the creature pass.
+Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. Every mine has its own two Wardens and its own final boss (see [the Bestiary](BESTIARY.md)); the Rift's are the bosses above it, remembered, with the Unmade every fifth.
+
+## Creatures: who lives where
+
+| Mine | Its own creatures | Bled in from above | Wardens | Final boss |
+|---|---|---|---|---|
+| Quarry | Cave Tick, Silt Slime, Magpie, Lantern Moth, Rail Rat, Quartz Golem, Clouder, Pit Mole, Vein Wraith, Glass Wyrm | — | the Foreman, the Mirror Regent | the Drill |
+| Seeps | Seep Eel, Drowned Miner, Lamprey Knot, Cave Crayfish | Cave Tick, Silt Slime, Clouder, Vein Wraith | the Lock-Keeper, the Drowned Choir | the Undertow |
+| Glass Veins | Echo Sprite, Glint Magpie, Will-o’-Wisp, Lens Beetle, Prism Golem, Refractor, Shard Wyrm | Cave Tick, Seep Eel, Drowned Miner, Clouder | the Glazier, the Kaleidoscope | the Prismarch and its Prisms |
+| Warrens | Spore Slime, Mycel Weaver, Puffball, Cap Shambler, Mycel Wraith, Root Horror | Clouder, Drowned Miner, Echo Sprite, Lens Beetle | the Gardener, the Spore Mother | the Heartrot and its Tendrils |
+| Furnace | Forge Imp, Salamander, Slag Hound, Fire Tick, Ember Crawler, Cinder Moth | Mycel Weaver, Clouder, Lens Beetle, Root Horror | the Smelter, the Anvil Knight | the Kiln Wyrm |
+| Geode | Croupier Crab, Gilded Magpie, Geode Golem, Hoard Mimic, Amethyst Wyrm, Crystal Hydra | Salamander, Slag Hound, Forge Imp, Clouder | the Assayer, the Collector | the Hollow Crown |
+| Rift | Void Echo (anything from the first four mines), Null Shade, Riftling Swarm, Entropy Eye | through the Void Echo | the Remembered: the Drill, the Undertow, the Prismarch, the Heartrot, the Kiln Wyrm, round again; every fifth the Unmade | — |
+
+A variant (a Fire Tick for the Cave Tick) never stands within one mine of the creature it is based on, or of another variant of it; `tests/test_bestiary.gd` holds the bands to that.
 
 ## Stones: the carat band
 
@@ -84,6 +98,5 @@ The workshop's map is a cross-section of the earth with one stratum per mine, sh
 
 ## Not done yet
 
-- New creatures, creature variants per mine (a Fire Tick for the Cave Tick), unique final bosses with their own models, and creature answers to endless block, healing and crowd control: anti-heal, decaying block, piercing hits, shrinking stuns.
-- A balance pass with the bot on the health and damage multipliers, the start purses and `chain_heat`.
+- A balance pass with the bot on the health and damage multipliers, the start purses, `chain_heat`, and the new creatures' health and threat (the Bestiary's numbers are the page's, untested against real loadouts).
 - Opals by mine: every hoard still draws from all of them.
