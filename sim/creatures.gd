@@ -3,10 +3,13 @@ extends RefCounted
 ## The creatures of the rock: how one is made for a depth and a party, and how it decides
 ## what it can do. Results are produced one die at a time during its action phase.
 
-static func make(key: String, id: String, depth: int, party: int) -> Dictionary:
+static func make(key: String, id: String, depth: int, party: int, scale: Dictionary = {}) -> Dictionary:
+	## `scale` is what the mine adds on top of depth and party: {hp, damage} multipliers. A
+	## mine further down breeds the same creatures far tougher.
 	var def: Dictionary = DeepContent.creature(key)
 	var hp_scale: float = 1.0 + float(DeepContent.constant("depth_hp_scale", 0.05)) * float(maxi(0, depth - 1))
 	hp_scale *= 1.0 + 0.15 * float(clampi(party, 1, 4) - 1)
+	hp_scale *= maxf(0.01, float(scale.get("hp", 1.0)))
 	var hp: int = maxi(1, int(round(float(def.get("hp", 10)) * hp_scale)))
 	var dice: Array = []
 	var index: int = 0
@@ -18,7 +21,7 @@ static func make(key: String, id: String, depth: int, party: int) -> Dictionary:
 		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": -1,
 		"gimmick": str(def.get("gimmick", "")), "warden": bool(def.get("warden", false)), "phase": 0,
 		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "stun_streak": 0, "clouded_move": -1, "threat": int(def.get("threat", 1)),
-		"text": str(def.get("text", ""))}
+		"text": str(def.get("text", "")), "damage_mult": maxf(0.01, float(scale.get("damage", 1.0)))}
 
 static func phase_for(enemy: Dictionary) -> int:
 	var definition: Dictionary = DeepContent.creature(str(enemy.get("key", "")))
@@ -145,7 +148,7 @@ static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 			if str(effect.target) == "hero":
 				effect.target = "heroes"
 			if str(effect.kind) == "damage":
-				effect.amount += int(enemy.get("damage_bonus", 0))
+				effect.amount = DeepRules.amount({"op": "pct", "args": [int(effect.amount), damage_pct(enemy)]}, {}) + int(enemy.get("damage_bonus", 0))
 			effects.append(effect)
 		out.append({"move": str(move.get("name", "?")), "index": index, "effects": effects,
 			"dice": trig.get("dice", []), "combo": combo, "trigger": move.get("trigger", {}), "roll_index": int(enemy.next_die) - 1})
@@ -153,7 +156,8 @@ static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 
 static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
 	var count: int = maxi(1, enemy.get("dice", []).size())
-	enemy.damage_bonus = int(int(state.get("depth", 1)) / maxi(1, int(DeepContent.constant("depth_damage_every", 4)))) / count
+	var threat: int = int(state.get("threat", state.get("depth", 1)))
+	enemy.damage_bonus = int(threat / maxi(1, int(DeepContent.constant("depth_damage_every", 4)))) / count
 	if str(enemy.get("gimmick", "")) == "mirror_last_gem":
 		var reflected: int = 0
 		for player in state.get("players", []):
@@ -161,12 +165,19 @@ static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
 		enemy.damage_bonus += mini(6, reflected) / count
 	enemy.enrage_bonus = maxi(0, int(state.get("turn", 1)) - int(DeepContent.constant("enrage_turn", 7)) + 1) * int(DeepContent.constant("enrage_damage", 2))
 
+static func damage_pct(enemy: Dictionary) -> int:
+	## The mine's damage multiplier as a whole percentage, so what a move says it will deal
+	## and what it deals are worked out the same way.
+	return int(round(float(enemy.get("damage_mult", 1.0)) * 100.0))
+
 static func display_moves(enemy: Dictionary, moves: Array = []) -> Array:
 	var shown: Array = (enemy.get("moves", []) if moves.is_empty() else moves).duplicate(true)
 	var bonus: int = int(enemy.get("damage_bonus", 0)) + int(enemy.get("enrage_bonus", 0))
 	for move in shown:
 		for effect in move.get("effects", []):
 			if str(effect.kind) == "damage":
+				if damage_pct(enemy) != 100:
+					effect.amount = {"op": "pct", "args": [effect.get("amount", 0), damage_pct(enemy)]}
 				if bonus > 0:
 					effect.amount = {"op": "+", "args": [effect.get("amount", 0), bonus]}
 				var pct: int = DeepRules.outgoing_damage(100, enemy.get("statuses", {}))

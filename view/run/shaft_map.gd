@@ -331,7 +331,7 @@ func _draw_depths() -> void:
 	var first: int = maxi(0, int(floor(_shown + _nudge - (_centre_y() - TOP) / _step)) - 1)
 	var last: int = int(ceil(_shown + _nudge + (_bottom() - _centre_y()) / _step)) + 1
 	var depth: int = int(run.get("depth", 0))
-	var run_depth: int = int(DeepContent.constant("run_depth", 24))
+	var bottom: int = DeepDescent.bottom_of(run)
 	for d in range(first, last + 1):
 		var y: float = _y(float(d))
 		var fade: float = _fade(y)
@@ -340,8 +340,11 @@ func _draw_depths() -> void:
 		var tone: Color = DeepUi.PAPER if d == depth else DeepUi.DIM
 		_canvas.draw_string(ThemeDB.fallback_font, Vector2(8, y + 5), str(d) if d > 0 else "", HORIZONTAL_ALIGNMENT_CENTER, 24, 12, Color(tone, fade))
 		_canvas.draw_line(Vector2(GUTTER - 4, y), Vector2(size.x - 12, y), Color(DeepUi.LINE, 0.18 * fade), 1.0)
-		if d == run_depth + 1:
-			_canvas.draw_string(DeepUi.display_font(), Vector2(GUTTER, y - _step * 0.5 + 4), "ENDLESS BELOW", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(Color("b58cff"), fade))
+		if bottom > 0 and d == bottom + 1:
+			var below: String = DeepDescent.next_mine(run)
+			var words: String = ("%s BELOW" % DeepContent.mine_name(below).to_upper()) if not below.is_empty() else "THE BOTTOM"
+			var tint: Color = Color(str(DeepContent.mine(below).get("palette", "b58cff"))) if not below.is_empty() else DeepUi.DIM
+			_canvas.draw_string(DeepUi.display_font(), Vector2(GUTTER, y - _step * 0.5 + 4), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tint, fade))
 
 func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring: Color = Color(0, 0, 0, 0)) -> void:
 	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED)
@@ -369,7 +372,11 @@ func _draw_trail(positions: Dictionary) -> void:
 			continue
 		if str(point.kind) == "workshop":
 			_glyph("anvil", at, 22.0, Color(DeepUi.ACCENT, _fade(at.y)))
-			_spots.append({"at": at, "radius": 14.0, "text": "The workshop. The lift comes back here."})
+			var above: Array = run.get("mines_done", [])
+			var said: String = "The workshop. The lift comes back here."
+			if not above.is_empty():
+				said = "The way down from %s. The lift still runs all the way up to the workshop." % DeepContent.mine_name(str(above.back().get("mine", "")))
+			_spots.append({"at": at, "radius": 14.0, "text": said})
 			continue
 		var kind: String = str(point.kind)
 		if kind == "landing" and DeepDescent.run_is_warden(run, int(point.depth)):

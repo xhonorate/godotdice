@@ -7,7 +7,13 @@ import * as Stone from './stone.js';
 
 export const DEFAULT_CLASS_WEIGHTS = { PINPOINT: 10, LENS: 6, FEATHER: 4, FRACTURE: 3, STAR: 0.3 };
 export const JACKPOT_PERCENT = 2;
-export const LUCK_PER_DEPTH = 0.1;
+export const LUCK_PER_DEPTH = 0.5;
+// A mine's carat band (sim/forge.gd): luck levels off below the usual top, each carat past it
+// holds BAND_KEEP_PERCENT of the time, and nothing comes out over the cap.
+export const BAND_SPREAD = 1.2;
+export const BAND_LUCK_SPAN = 8;
+export const BAND_KEEP_PERCENT = 35;
+export const HOME_BATCH_WEIGHT = 2;
 export const LUCK_DEPTH_CAP = 10;
 
 export const mineLuck = (mine) => Number(mine.luck ?? mine.quality ?? 0);
@@ -27,23 +33,66 @@ function normalCdf(x) {
 	return 0.5 * (1 + sign * erf);
 }
 
-// The exact chance of each carat count at luck q: a rounded normal, a 2% jackpot of +3..8,
-// clamped to 1..carat_max.
-export function caratDistribution(q) {
-	const { mean, deviation } = caratParams(q);
-	const max = Stone.caratMax();
+// {soft, cap} for a mine at a depth, or null for a mine that writes no band. An endless
+// mine's band climbs with every Warden stationed above the depth.
+export function caratBand(mine, depth) {
+	const band = mine.carat || null;
+	if (!band) return null;
+	let soft = Number(band.soft ?? Stone.caratMax());
+	let cap = Number(band.cap ?? Stone.caratMax());
+	if (mine.endless) {
+		const climbed = Math.trunc(Math.max(0, depth - 1) / Math.max(1, Number(mine.warden_every ?? 8))) * Number(mine.carat_per_warden ?? 0);
+		soft += climbed;
+		cap += climbed;
+	}
+	cap = Math.max(1, Math.min(cap, Stone.caratMax()));
+	return { soft: Math.max(1, Math.min(soft, cap)), cap };
+}
+
+function rawCarats(mean, deviation, max) {
+	// A rounded normal with a 2% jackpot of +1..2, before any clamping: [{k, p}].
 	const lowK = Math.floor(mean - 8 * deviation) - 1;
 	const highK = Math.ceil(mean + 8 * deviation) + 1;
-	const out = new Array(max + 1).fill(0);
-	const clamp = (k) => Math.max(1, Math.min(max, k));
+	const out = new Map();
+	const add = (k, p) => out.set(k, (out.get(k) || 0) + p);
 	for (let k = lowK; k <= highK; k++) {
 		let p = normalCdf((k + 0.5 - mean) / deviation) - normalCdf((k - 0.5 - mean) / deviation);
 		if (k === lowK) p = normalCdf((k + 0.5 - mean) / deviation);
 		if (k === highK) p = 1 - normalCdf((k - 0.5 - mean) / deviation);
 		if (p <= 0) continue;
-		out[clamp(k)] += p * (1 - JACKPOT_PERCENT / 100);
-		for (let bonus = 1; bonus <= 3; bonus++) out[clamp(k + bonus)] += (p * (JACKPOT_PERCENT / 100)) / 6;
+		add(k, p * (1 - JACKPOT_PERCENT / 100));
+		for (let bonus = 1; bonus <= 2; bonus++) add(k + bonus, (p * (JACKPOT_PERCENT / 100)) / 2);
 	}
+	return out;
+}
+
+// The exact chance of each carat count at luck q, inside a mine's band when it has one.
+export function caratDistribution(q, band = null) {
+	const max = Stone.caratMax();
+	if (band) {
+		const top = Math.max(1.5, band.soft - 0.5);
+		const mean = 1.5 + (top - 1.5) * (1 - Math.exp(-Math.max(q, 0) / BAND_LUCK_SPAN));
+		const out = new Array(max + 1).fill(0);
+		const keep = BAND_KEEP_PERCENT / 100;
+		for (const [k, p] of rawCarats(mean, BAND_SPREAD, max)) {
+			if (k <= band.soft) { out[Math.max(1, Math.min(band.cap, k))] += p; continue; }
+			// Each carat past the soft line holds with `keep`; the first that does not stops it.
+			let reach = band.soft;
+			let still = p;
+			while (reach < k) {
+				out[Math.min(band.cap, reach)] += still * (1 - keep);
+				still *= keep;
+				reach += 1;
+			}
+			out[Math.min(band.cap, k)] += still;
+		}
+		const sum = out.reduce((a, b) => a + b, 0);
+		return out.map((p) => p / sum);
+	}
+	const { mean, deviation } = caratParams(q);
+	const out = new Array(max + 1).fill(0);
+	const clamp = (k) => Math.max(1, Math.min(max, k));
+	for (const [k, p] of rawCarats(mean, deviation, max)) out[clamp(k)] += p;
 	const sum = out.reduce((a, b) => a + b, 0);
 	return out.map((p) => p / sum);
 }
@@ -57,9 +106,24 @@ export function clarityWeights(q) {
 }
 export const normalize = (weights) => { const s = weights.reduce((a, b) => a + b, 0) || 1; return weights.map((w) => w / s); };
 
+// What the rock here can hold: a list the mine writes in full, or else its own batch and the
+// batches of every mine above it. A skill in no batch is in every pool.
+export function batchTiers() {
+	const out = {};
+	for (const key of C.keys('mines')) {
+		const def = C.mine(key);
+		for (const skill of def.batch || []) out[skill] = Number(def.tier ?? 1);
+	}
+	return out;
+}
 export function skillPool(mine) {
 	const listed = mine.skills || [];
-	return listed.length ? listed.map(String) : C.keys('skills');
+	if (listed.length) return listed.map(String);
+	const keys = C.keys('skills');
+	const batched = batchTiers();
+	if (!Object.keys(batched).length) return keys;
+	const tier = Number(mine.tier ?? 1);
+	return keys.filter((k) => !(k in batched) || batched[k] <= tier);
 }
 export function inclusionPool(mine) {
 	const listed = mine.inclusions || [];
@@ -76,6 +140,7 @@ export function skillTable(mine, pool = []) {
 		if (!Object.keys(skill).length) continue;
 		let weight = C.rarityWeight(skill.rarity || 'COMMON');
 		weight *= Number(colorWeights[skill.color] ?? 100) / 100;
+		if ((mine.batch || []).includes(key)) weight *= HOME_BATCH_WEIGHT;
 		table[key] = weight;
 	}
 	let total = 0;
@@ -126,11 +191,23 @@ export function inclusionOdds(slots, mine, ownColor = '') {
 	return odds;
 }
 
-export function rollCarat(rng, q) {
-	const { mean, deviation } = caratParams(q);
-	let carat = Math.round(rng.randfn(mean, deviation));
-	if (rng.chance(JACKPOT_PERCENT)) carat += rng.randiRange(3, 8);
-	return Math.max(1, Math.min(carat, Stone.caratMax()));
+export function rollCarat(rng, q, band = null) {
+	if (!band) {
+		const { mean, deviation } = caratParams(q);
+		let carat = Math.round(rng.randfn(mean, deviation));
+		if (rng.chance(JACKPOT_PERCENT)) carat += rng.randiRange(1, 2);
+		return Math.max(1, Math.min(carat, Stone.caratMax()));
+	}
+	const top = Math.max(1.5, band.soft - 0.5);
+	const mean = 1.5 + (top - 1.5) * (1 - Math.exp(-Math.max(q, 0) / BAND_LUCK_SPAN));
+	let drawn = Math.round(rng.randfn(mean, BAND_SPREAD));
+	if (rng.chance(JACKPOT_PERCENT)) drawn += rng.randiRange(1, 2);
+	if (drawn > band.soft) {
+		let held = band.soft;
+		while (held < drawn && rng.chance(BAND_KEEP_PERCENT)) held += 1;
+		drawn = held;
+	}
+	return Math.max(1, Math.min(drawn, band.cap));
 }
 export const rollCut = (rng, q) => Math.max(0, rng.weightedIndex(cutWeights(q)));
 export const rollClarity = (rng, q) => Math.max(0, rng.weightedIndex(clarityWeights(q)));
@@ -159,7 +236,7 @@ export function rollInclusions(rng, count, mine, forcedClass = '', ownColor = ''
 export function rollStone(rng, mine, depth, bonus = 0, pool = []) {
 	const q = luck(mine, depth, bonus);
 	const skill = rng.weightedKey(skillTable(mine, pool));
-	const carat = rollCarat(rng, q);
+	const carat = rollCarat(rng, q, caratBand(mine, depth));
 	const cut = rollCut(rng, q);
 	const clarity = rollClarity(rng, q);
 	const inclusions = rollInclusions(rng, Stone.inclusionSlots(clarity), mine, '', String(C.skill(skill).color || ''));
@@ -302,9 +379,22 @@ export function encounter(rng, mine, depth, party, elite = false) {
 	return picked;
 }
 
-export function creatureHp(def, depth, party) {
+// How much tougher a mine breeds its creatures than the Quarry (sim/descent.gd creature_scale).
+export function creatureScale(mine, depth) {
+	let hp = Number(mine?.hp_mult ?? 1);
+	let damage = Number(mine?.damage_mult ?? 1);
+	if (mine?.endless) {
+		const spans = Math.max(0, depth - 1) / Math.max(1, Number(mine.warden_every ?? 8));
+		hp *= Math.pow(Number(mine.growth?.hp ?? 1), spans);
+		damage *= Math.pow(Number(mine.growth?.damage ?? 1), spans);
+	}
+	return { hp, damage };
+}
+
+export function creatureHp(def, depth, party, mine = null) {
 	let scale = 1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, depth - 1);
 	scale *= 1 + 0.15 * (Math.max(1, Math.min(4, party)) - 1);
+	scale *= creatureScale(mine, depth).hp;
 	return Math.max(1, Math.round(Number(def.hp ?? 10) * scale));
 }
 
@@ -333,10 +423,11 @@ export function fightOre(depth, kind = 'fight') {
 
 export const liftCost = (depth, riders) => Number(C.constant('lift_ore_per_depth', 15)) * depth * riders;
 export const isLanding = (depth) => depth > 0 && depth % Number(C.constant('landing_every', 4)) === 0;
-export function isWarden(depth) {
-	const wardens = C.constant('warden_depths', [8, 16, 24]);
-	if (wardens.includes(depth)) return true;
-	const runDepth = Number(C.constant('run_depth', 24));
-	const every = Number(C.constant('endless_warden_every', 8));
-	return depth > runDepth && (depth - runDepth) % every === 0;
+// The last floor of a mine, where its final boss waits; 0 for one with no bottom.
+export const mineBottom = (mine) => (mine?.endless ? 0 : Number(mine?.depth ?? 24));
+export function isWarden(depth, mine = null) {
+	if (depth <= 0) return false;
+	if (mine?.endless) return depth % Math.max(1, Number(mine.warden_every ?? C.constant('endless_warden_every', 8))) === 0;
+	if ((mine?.warden_depths || []).includes(depth)) return true;
+	return depth === mineBottom(mine);
 }

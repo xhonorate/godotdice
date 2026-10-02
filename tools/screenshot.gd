@@ -1,7 +1,7 @@
 extends SceneTree
 ## Boots the game, drives it to a screen, and saves what it looks like.
 ##   godot --path . --script tools/screenshot.gd -- <target> out.png [seed]
-## Targets: home (map) | map_party | bench | roster_sockets | vault | appraise | ledger |
+## Targets: home (map) | map_party | map_deep | bench | roster_sockets | vault | appraise | ledger |
 ##          grubstake | grubstake_pick | grubstake_result |
 ##          tunnels | vein | vein_done | oddity | smithy | carver | well |
 ##          landing | merchant | lift | run_bench | run_bench_dice | battle | battle_fx | battle_status | spoils |
@@ -14,7 +14,7 @@ extends SceneTree
 ## how far into the ceremony to shoot, in seconds.
 ## Needs a window: this is the one tool here that is not headless.
 
-const HOME_TABS: Dictionary = {"home": "map", "map": "map", "map_party": "map", "bench": "roster", "roster": "roster", "roster_sockets": "roster",
+const HOME_TABS: Dictionary = {"home": "map", "map": "map", "map_party": "map", "map_deep": "map", "bench": "roster", "roster": "roster", "roster_sockets": "roster",
 	"vault": "vault", "appraise": "appraise", "ledger": "ledger", "appraisal": "appraise"}
 
 func _init() -> void:
@@ -52,6 +52,16 @@ func _init() -> void:
 		## The views inside a tab: the map's party column, a lapidary's sockets.
 		match target:
 			"map_party": app.home._side = "party"
+			"map_deep":
+				## Two mines beaten and a third under way, its lapidary already met.
+				for key in ["QUARRY", "SEEPS"]:
+					app.profile.mines[key].merge({"unlocked": true, "boss": true, "deepest": DeepContent.mine_bottom(key), "runs": 5,
+						"wardens": DeepContent.mine(key).warden_depths + [DeepContent.mine_bottom(key)]}, true)
+				app.profile.mines.GLASS_VEINS.merge({"unlocked": true, "deepest": 11, "runs": 2, "wardens": [8]}, true)
+				for key in ["VESPER", "CADENCE"]:
+					DeepProfile.unlock_character(app.profile, key)
+				app._profile_changed()
+				app.session.choose_mine("GLASS_VEINS")
 			"roster_sockets": app.home._roster_view = "sockets"
 		app.home.open(str(HOME_TABS.get(target, "vault")))
 		var inspector: Script = load("res://view/inspect/inspector.gd")

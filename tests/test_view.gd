@@ -400,18 +400,28 @@ func _test_look() -> void:
 	var seen: Dictionary = {}
 	for depth in range(1, 41):
 		for kind in ["fight", "elite", "warden"]:
-			var biome: Dictionary = Biomes.for_depth(DeepContent.starter_mine(), depth, kind)
-			seen[str(biome.id)] = true
-			check(Biomes.BIOMES.has(str(biome.id)), "depth %d resolves to a biome" % depth)
+			var biome: Dictionary = Biomes.for_depth(str(DeepContent.mines_in_order()[depth % DeepContent.mines_in_order().size()]), depth, kind)
+			seen[str(biome.family)] = true
+			check(Biomes.exists(str(biome.id)), "depth %d resolves to a biome" % depth)
 			check(biome.rock is Color and biome.key is Color and biome.accent is Color and biome.lights is Array and not biome.lights.is_empty(), "biome colors resolve at depth %d" % depth)
 			check(float(biome.fog_density) > 0.0 and float(biome.vol_density) > 0.0, "a room at depth %d has air" % depth)
 			if kind == "warden":
 				check(biome.props.has("pillars"), "a Warden's hall has pillars")
-	check(seen.size() == Biomes.BIOMES.size(), "the shaft passes through every biome by depth 40 (%d of %d)" % [seen.size(), Biomes.BIOMES.size()])
+	check(seen.size() == Biomes.BIOMES.size(), "the mines between them pass through every biome (%d of %d)" % [seen.size(), Biomes.BIOMES.size()])
 	check(Biomes.for_depth("QUARRY", 3).id == Biomes.for_depth("QUARRY", 3).id, "a depth is always the same biome")
-	for key in Biomes.BIOMES:
-		for particle in Biomes.BIOMES[key].particles:
+	for key in Biomes.names():
+		for particle in Biomes.written(str(key)).particles:
 			check(particle in ["dust", "motes", "drips", "sparkles", "spores", "embers", "ash", "void"], "%s drifts known particles (%s)" % [key, particle])
+	## Every mine deepens past each of its Wardens into a stretch of its own rock.
+	for mine in DeepContent.mines_in_order():
+		var stretches: Array = DeepContent.mine(str(mine)).get("biomes", [])
+		check(stretches.size() == 3 and stretches.all(func(b: Variant) -> bool: return Biomes.exists(str(b))), "%s has three stretches of rock: %s" % [mine, str(stretches)])
+		var families: Array = stretches.map(func(b: Variant) -> String: return str(Biomes.written(str(b)).family))
+		check(families.count(families[0]) == families.size(), "%s keeps to one family of rock: %s" % [mine, str(families)])
+	check(Biomes.phase_for("QUARRY", 3) == 0 and Biomes.phase_for("QUARRY", 9) == 1 and Biomes.phase_for("QUARRY", 14) == 2 and Biomes.phase_for("QUARRY", 16) == 2, "the Quarry deepens past its Wardens at 8 and 12")
+	check(Biomes.phase_for("QUARRY", 9, [9, 12, 16]) == 0 and Biomes.phase_for("QUARRY", 10, [9, 12, 16]) == 1, "a run reads its own Wardens, wherever they stand")
+	check(Biomes.for_depth("QUARRY", 14).id == "galleries_quartz" and Biomes.for_depth("QUARRY", 14).family == "galleries", "past the second Warden, the Quarry is the Quartz Cut")
+	check(Biomes.band_for("RIFT", 9) == "rift_shattered" and Biomes.band_for("RIFT", 25) == "rift", "the Rift turns over every eight floors")
 	## Every room builds without a screen, and the same seed builds the same room.
 	for depth in [2, 6, 8, 10, 14, 18, 22, 24, 30]:
 		var biome: Dictionary = Biomes.for_depth(DeepContent.starter_mine(), depth, "warden" if depth in [8, 24] else "fight")

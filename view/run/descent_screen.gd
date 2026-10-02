@@ -554,7 +554,7 @@ func _depth_title(depth: int, kind: String) -> void:
 	heading.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
 	heading.add_theme_constant_override("outline_size", 10)
 	var words: String = str(KIND_WORDS.get(kind, kind.capitalize())) if kind != "warden" else "A Warden"
-	var biome: Dictionary = Biomes.for_depth(str(run.get("mine", "")), maxi(1, depth))
+	var biome: Dictionary = Biomes.for_depth(str(run.get("mine", "")), maxi(1, depth), "fight", Biomes.run_phase(run, maxi(1, depth)))
 	var line := DeepUi.label(column, "%s  ·  %s" % [words, str(biome.get("name", ""))], 18, tone.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
 	line.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	line.add_theme_constant_override("outline_size", 6)
@@ -725,6 +725,10 @@ func handle(event: Dictionary) -> void:
 		"landing":
 			DeepAudio.play("landing")
 			toast("The landing. Breathe.", DeepUi.GOOD, "lift")
+		"landing_choice":
+			if not str(event.get("next_mine", "")).is_empty():
+				DeepAudio.play("depth_card", {"volume": 0.9})
+				toast("On into %s. Nothing is banked until you ride up." % DeepContent.mine_name(str(run.get("mine", ""))), DeepUi.ACCENT, "descend")
 		"lit":
 			var who: String = str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", ""))
 			var paid: String = "%d pyrite" % DeepDescent.lantern_cost()
@@ -868,6 +872,8 @@ func _place_of(state: Dictionary) -> Dictionary:
 		exits = state.get("offers", []).size()
 	elif kind == "landing":
 		exits = 1 if bool(landing.get("warden_next", false)) and not cleared else 2
+	elif kind == "warden" and DeepDescent.run_is_boss(state, depth):
+		exits = 1
 	elif not kind in ["warden", "head"]:
 		var node: Dictionary = state.get("map", {}).get("nodes", {}).get(str(last.get("id", "")), {})
 		exits = node.get("next", []).size() if not node.is_empty() else 2
@@ -876,7 +882,10 @@ func _place_of(state: Dictionary) -> Dictionary:
 	var key: String = "%s|%d|%s" % [mine, depth, kind]
 	var level: bool = absi(("%s|%d" % [mine, depth]).hash()) % 6 == 0
 	var drop: float = 0.0 if (kind == "landing" and exits == 1) or level else 2.5
-	return {"key": key, "mine": mine, "depth": depth, "kind": kind, "exits": clampi(exits, 1, 3), "drop": drop, "seal": DeepDescent.in_battle(state)}
+	## The final boss's hall is the one hall with a cage sunk into it: the way home after it.
+	var cage: bool = kind == "warden" and DeepDescent.run_is_boss(state, depth)
+	return {"key": key, "mine": mine, "depth": depth, "kind": kind, "exits": clampi(exits, 1, 3), "drop": drop, "seal": DeepDescent.in_battle(state), "cage": cage,
+		"phase": Biomes.run_phase(state, maxi(1, depth))}
 
 func _sync_stage() -> void:
 	if _headless:
@@ -1418,6 +1427,7 @@ func _show_landing() -> void:
 	var landing: Dictionary = run.get("landing", {})
 	var taken: String = str(unit.get("respite", ""))
 	var cleared: bool = bool(landing.get("cleared", false)) and int(landing.get("depth", -1)) == int(run.get("depth", 0))
+	var boss_hall: bool = DeepDescent.in_boss_hall(run)
 	if _stage.business_key().begins_with("hoard|"):
 		## Back to the landing's choices after the hoard: the pedestals are done with.
 		_stage.retire_business()
@@ -1429,7 +1439,7 @@ func _show_landing() -> void:
 	var can_rest: bool = lift != null and not cleared and lift.parts.has("rest")
 	var waiting: bool = can_rest and taken.is_empty()
 	var offered: Array = []
-	if lift != null and not cleared:
+	if lift != null and (not cleared or boss_hall):
 		if waiting:
 			offered = ["rest", "appraise", "wish", "up"]
 		elif not can_rest:
@@ -1472,14 +1482,26 @@ func _show_landing() -> void:
 		## or a close look means the room has changed under the player by the time they put
 		## it away, which reads as the game having got on without them.
 		_stage.close_ways()
+	elif boss_hall:
+		## The bottom of a mine: the cage home and the way on into the next mine are both
+		## chosen from where the party stands, so both stay in view.
+		_stage.open_ways(crossroads_entries())
 	else:
 		## The respite is taken and read: the party walks up to the crossroads.
 		_stage.crossroads(crossroads_entries())
 	_crossroads.visible = true
 	_set_cross_mark("crown" if cleared else "lift", DeepUi.CHAMBER_colorS.get("warden" if cleared else "landing", DeepUi.GOOD))
-	_cross_title.text = ("The Warden's hall" if cleared else "The landing") + "  ·  depth %d" % int(run.get("depth", 0))
+	var next_key: String = DeepDescent.next_mine(run)
+	if boss_hall:
+		_cross_title.text = "The bottom of %s  ·  depth %d" % [DeepContent.mine_name(str(run.get("mine", ""))), int(run.get("depth", 0))]
+	else:
+		_cross_title.text = ("The Warden's hall" if cleared else "The landing") + "  ·  depth %d" % int(run.get("depth", 0))
 	if waiting:
 		_cross_sub.text = "Each of you gets one action: rest, appraise a stone or use the well. Or take the lift up now with what you're carrying."
+	elif boss_hall and not next_key.is_empty():
+		_cross_sub.text = "The mine is beaten. Ride the lift home with it all, or push on into %s carrying everything: nothing is banked until you ride up." % DeepContent.mine_name(next_key)
+	elif boss_hall:
+		_cross_sub.text = "The mine is beaten, and there is nowhere further down. Ride the lift home."
 	elif cleared:
 		_cross_sub.text = "There's no lift out from this deep. Take a tunnel down and carry your haul to the next one."
 	else:
@@ -1487,7 +1509,9 @@ func _show_landing() -> void:
 	DeepUi.clear(_cross_hint)
 	if bool(landing.get("warden_next", false)) and not cleared:
 		DeepUi.pill(_cross_hint, "crown", "A Warden guards the way down", DeepUi.BAD, 13)
-	if cleared:
+	if boss_hall:
+		DeepUi.pill(_cross_hint, "crown", "%s is dead" % str(DeepContent.creature(DeepDescent.warden_key(run, int(run.get("depth", 0)))).get("name", "The boss")), DeepUi.ACCENT, 13)
+	elif cleared:
 		DeepUi.pill(_cross_hint, "check", "The Warden is dead", DeepUi.GOOD, 13)
 	var rested: Dictionary = landing.get("respites", {}).get(local_id, {})
 	if not rested.is_empty():
@@ -1819,6 +1843,9 @@ func _mouth_offers() -> Array:
 	if str(run.get("phase", "")) != "landing":
 		return run.get("offers", [])
 	var landing: Dictionary = run.get("landing", {})
+	if DeepDescent.in_boss_hall(run):
+		## One way on from the bottom of a mine: into the top of the next.
+		return [] if DeepDescent.next_mine(run).is_empty() else [ {"id": "next_mine", "kind": "next_mine", "hidden": false}]
 	if bool(landing.get("warden_next", false)) and not bool(landing.get("cleared", false)):
 		return [ {"id": "warden", "kind": "warden", "hidden": false}]
 	var map: Dictionary = run.get("map", {})
@@ -1844,8 +1871,12 @@ func _entries_for(offers: Array) -> Array:
 			if chose:
 				voters.append(ShaftMap.SEATS[int(other.get("seat", 0)) % ShaftMap.SEATS.size()])
 		var color: Color = DeepUi.CHAMBER_colorS.get(look, DeepUi.MUTED)
+		var glyph: String = str(DeepUi.CHAMBER_GLYPHS.get(look, "arch")) if kind != "hidden" else "question"
+		if kind == "next_mine":
+			color = Color(str(DeepContent.mine(DeepDescent.next_mine(run)).get("palette", "b58cff")))
+			glyph = "descend"
 		out.append({"id": str(offer.id), "kind": kind, "color": color, "light": Color("ffcf8a") if kind == "landing" else color,
-			"glyph": str(DeepUi.CHAMBER_GLYPHS.get(look, "arch")) if kind != "hidden" else "question", "hidden": kind == "hidden",
+			"glyph": glyph, "hidden": kind == "hidden",
 			"voters": voters, "mine": (str(me().get("choice", "")) == "descend") if landing else mine_vote == str(offer.id)})
 	return out
 
@@ -1896,6 +1927,19 @@ func _fill_chip() -> void:
 	var title_row := DeepUi.hbox(box, 8)
 	DeepUi.icon(title_row, str(entry.glyph), 22, tone)
 	var called: String = str(KIND_WORDS.get(kind, kind.capitalize())) if str(entry.glyph) != "crown" else ("The Warden's hall" if kind == "warden" else "The landing, and its Warden")
+	if kind == "next_mine":
+		var below: Dictionary = DeepContent.mine(DeepDescent.next_mine(run))
+		DeepUi.title(title_row, "On into " + str(below.get("name", "the next mine")), 19, tone.lightened(0.25))
+		DeepUi.wrap(box, str(below.get("text", "")), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+		var band: Dictionary = DeepForge.carat_band(below, 1)
+		DeepUi.stat(box, "gem", "Stones up to %d carats, usually %d or less" % [int(band.get("cap", 0)), int(band.get("soft", 0))], DeepUi.ACCENT, 12)
+		DeepUi.stat(box, "skull", "Its creatures are far tougher, and bred deeper for a party that pushes on", DeepUi.BAD, 12)
+		DeepUi.stat(box, "lift", "Nothing is banked: a fall loses everything from both mines", DeepUi.MUTED, 12)
+		DeepUi.label(box, "Click to push on.", 12, DeepUi.DIM)
+		_chip.visible = true
+		_chip.reset_size()
+		_place_chip()
+		return
 	DeepUi.title(title_row, ("Down: " + called) if down else called, 19, tone.lightened(0.25))
 	DeepUi.wrap(box, str(KIND_TEXT.get(kind, "")), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
 	var nodes: Dictionary = run.get("map", {}).get("nodes", {})

@@ -358,7 +358,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				out.message = "It won't budge. You lose %d health." % cost
 			else:
 				var idol: Dictionary = DeepForge.roll_stone(rng, mine, depth, 0, {"run": ctx.get("run", ""), "source": "idol"})
-				idol.carat = clampi(int(round(3.0 + DeepForge.luck(mine, depth))) + rng.randi_range(0, 3), 1, DeepStone.carat_max())
+				idol.carat = clampi(int(round(3.0 + DeepForge.luck(mine, depth))) + rng.randi_range(0, 3), 1, DeepForge.carat_cap(mine, depth))
 				var etched: int = DeepContent.clarity_index("ETCHED")
 				idol.clarity = etched if etched >= 0 else int(idol.clarity)
 				idol.inclusions = DeepForge.roll_inclusions(rng, 2, mine, "FRACTURE")

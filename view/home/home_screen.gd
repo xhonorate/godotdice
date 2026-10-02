@@ -262,14 +262,13 @@ func _empty(content: Control, glyph: String, title: String, text: String) -> voi
 func _map(content: VBoxContainer) -> void:
 	var columns := DeepUi.hbox(content, 22)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var keys: Array = DeepContent.section("mines").keys()
-	keys.sort()
+	var keys: Array = DeepContent.mines_in_order()
 	var map := MineMap.new()
 	map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	map.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	map.custom_minimum_size = Vector2(560, 740)
 	columns.add_child(map)
-	map.show_mines(keys, profile.get("mines", {}), str(lobby.get("mine", "")), is_host)
+	map.show_mines(keys, profile.get("mines", {}), str(lobby.get("mine", "")), is_host, DeepProfile.unlocked_characters(profile))
 	map.chosen.connect(func(key: String) -> void:
 		DeepAudio.play("ui_confirm", {"volume": 0.7})
 		mine_chosen.emit(key))
@@ -294,20 +293,51 @@ func _map(content: VBoxContainer) -> void:
 	_go(DeepUi.vbox(go_card, 8))
 	_enter(go_card, 0.1)
 
+func _chosen_mine() -> String:
+	## The mine the party is set to go down, which decides how many sockets come down filled.
+	var key: String = str(lobby.get("mine", ""))
+	return key if not DeepContent.mine(key).is_empty() else DeepContent.starter_mine()
+
 func _expedition_view(side: VBoxContainer) -> void:
 	## The expedition: which mine, and who goes down wearing what.
 	var chosen_key: String = str(lobby.get("mine", DeepContent.starter_mine()))
 	var mine: Dictionary = DeepContent.mine(chosen_key)
 	var record: Dictionary = profile.get("mines", {}).get(chosen_key, {})
 	var trip := DeepUi.card(side, Color(DeepUi.ACCENT, 0.4), 18)
-	var trip_box := DeepUi.vbox(trip, 10)
-	DeepUi.section(trip_box, "descend", "The expedition")
+	var trip_box := DeepUi.vbox(trip, 8)
+	DeepUi.section(trip_box, "descend", "The expedition  ·  stratum %s" % MineMap.numeral(chosen_key))
 	DeepUi.title(trip_box, str(mine.get("name", chosen_key)), 28, DeepUi.PAPER)
 	DeepUi.wrap(trip_box, str(mine.get("text", "")), 13, DeepUi.MUTED)
 	var facts := DeepUi.hbox(trip_box, 8)
 	DeepUi.pill(facts, "stairs", "deepest %d" % int(record.get("deepest", 0)), DeepUi.INFO, 12)
-	DeepUi.pill(facts, "crown", "%d of 3 Wardens" % record.get("wardens", []).size(), DeepUi.ACCENT, 12)
+	if DeepContent.is_endless(chosen_key):
+		DeepUi.pill(facts, "crown", "endless", DeepUi.ACCENT, 12, "A Warden every %d floors, and no bottom." % DeepDescent.warden_every(mine))
+	else:
+		var crowns: int = mine.get("warden_depths", []).size() + 1
+		DeepUi.pill(facts, "crown", "%d of %d crowns" % [mini(record.get("wardens", []).size(), crowns), crowns], DeepUi.ACCENT, 12,
+			"%d Wardens and the final boss at depth %d" % [crowns - 1, DeepContent.mine_bottom(chosen_key)])
 	DeepUi.pill(facts, "pick", DeepUi.plural(int(record.get("runs", 0)), "run"), DeepUi.MUTED, 12)
+	## What the rock here gives up, who is met down here, and the skills first found here.
+	var band: Dictionary = DeepForge.carat_band(mine, 1)
+	if not band.is_empty():
+		DeepUi.stat(trip_box, "gem", "Stones usually up to %d carats, never over %d" % [int(band.soft), int(band.cap)], DeepUi.PAPER, 13)
+	var lapidary: String = str(mine.get("lapidary", ""))
+	if not lapidary.is_empty():
+		var met: bool = bool(profile.get("characters", {}).get(lapidary, {}).get("unlocked", false))
+		DeepUi.stat(trip_box, "person", ("%s was met here" if met else "%s waits at the first Warden") % DeepContent.character_title(lapidary), DeepUi.GOOD if met else DeepUi.MUTED, 13)
+	var batch: Array = mine.get("batch", [])
+	if not batch.is_empty():
+		var found: Array = batch.filter(func(k: Variant) -> bool: return profile.get("vault", {}).has(str(k)) or profile.get("seen", []).has(str(k)))
+		var skills := DeepUi.hbox(trip_box, 4)
+		DeepUi.label(skills, "%d skills first found here" % batch.size(), 12, DeepUi.MUTED)
+		DeepUi.gap(skills, 4)
+		for key in batch:
+			var def: Dictionary = DeepContent.skill(str(key))
+			var known: bool = found.has(key)
+			DeepUi.icon(skills, GemIcons.emblem(str(key)), 16, DeepUi.color(str(def.get("color", ""))) if known else DeepUi.DIM,
+				str(def.get("name", key)) if known else "Not found yet")
+	if chosen_key != DeepContent.starter_mine():
+		DeepUi.stat(trip_box, "purse", "Starting here: every socket filled, %d pyrite each" % int(mine.get("start_pyrite", 0)), DeepUi.ORE, 12)
 	_enter(trip)
 	## Who goes down, in brief. The roster tab is where they are chosen and fitted.
 	var current: String = str(profile.get("current_character", DeepContent.starter_character()))
@@ -326,7 +356,7 @@ func _expedition_view(side: VBoxContainer) -> void:
 	DeepUi.pill(wear_pills, "gem", str(chosen_character.get("birthstone", {}).get("name", "Birthstone")), DeepUi.INFO, 11, str(chosen_character.get("birthstone", {}).get("text", "")))
 	DeepUi.wrap(wear_facts, str(chosen_character.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 320)
 	## What they take down, at a glance: click any of it to change it.
-	var loadout: Dictionary = DeepProfile.loadout(profile, current)
+	var loadout: Dictionary = DeepProfile.loadout(profile, current, _chosen_mine())
 	var kit := DeepUi.vbox(wear_box, 6)
 	kit.mouse_filter = Control.MOUSE_FILTER_PASS
 	kit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -345,7 +375,7 @@ func _expedition_view(side: VBoxContainer) -> void:
 		die_thumb.mouse_filter = Control.MOUSE_FILTER_PASS
 		dice_row.add_child(die_thumb)
 	var empty: int = 0
-	for index in range(DeepProfile.starting_rail_cap()):
+	for index in range(DeepProfile.starting_rail_cap(_chosen_mine())):
 		if index < loadout.rail.size() and not loadout.rail[index] is Dictionary:
 			empty += 1
 	if empty > 0:
@@ -446,7 +476,7 @@ func _socket_strip(parent: Node, character_key: String, loadout: Dictionary, edg
 	for index in range(sockets.size()):
 		var socket_color: String = str(sockets[index])
 		var set_stone: Variant = loadout.rail[index] if index < loadout.rail.size() else null
-		var locked: bool = not DeepProfile.loadout_socket(index)
+		var locked: bool = not DeepProfile.loadout_socket(index, _chosen_mine())
 		if not labelled:
 			_kit_socket(parent, socket_color, set_stone if set_stone is Dictionary else {}, edge, locked)
 			continue
@@ -634,7 +664,7 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	DeepUi.section(middle, "gem", "Their sockets")
 	var socket_row := DeepUi.hbox(middle, 10)
 	socket_row.mouse_filter = Control.MOUSE_FILTER_PASS
-	_socket_strip(socket_row, key, DeepProfile.loadout(profile, key), 46.0, true)
+	_socket_strip(socket_row, key, DeepProfile.loadout(profile, key, _chosen_mine()), 46.0, true)
 	if unlocked:
 		socket_row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		socket_row.tooltip_text = "Click to change the stones they bring"
@@ -683,7 +713,9 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	var actions := DeepUi.hbox(box, 12)
 	actions.alignment = BoxContainer.ALIGNMENT_END
 	if not unlocked:
-		DeepUi.stat(actions, "lock", "%s. You have beaten %s." % [Roster.unlock_hint(key), DeepUi.plural(Roster.wardens_beaten(profile), "Warden")], DeepUi.DIM, 13)
+		var where: String = DeepProfile.lapidary_mine(key)
+		var sealed: bool = not where.is_empty() and not bool(profile.get("mines", {}).get(where, {}).get("unlocked", false))
+		DeepUi.stat(actions, "lock", "%s.%s" % [Roster.unlock_hint(key), " That mine is still sealed." if sealed else ""], DeepUi.DIM, 13)
 	elif chosen:
 		DeepUi.icon_button(actions, "gem", "Edit loadout", func() -> void: _edit_loadout(key), 14, DeepUi.ACCENT)
 		DeepUi.pill(actions, "check", "Going down as %s" % str(character.get("name", key)), DeepUi.GOOD, 14)
@@ -707,8 +739,8 @@ func _sockets_view(content: VBoxContainer, character_key: String) -> void:
 	var character: Dictionary = DeepContent.character(character_key)
 	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	var sockets: Array = character.get("sockets", [])
-	var rail_cap: int = mini(DeepProfile.starting_rail_cap(), sockets.size())
-	if not DeepProfile.loadout_socket(_bench_socket) or _bench_socket >= sockets.size():
+	var rail_cap: int = mini(DeepProfile.widest_rail_cap(profile), sockets.size())
+	if not DeepProfile.fillable_socket(profile, _bench_socket) or _bench_socket >= sockets.size():
 		_bench_socket = -1
 	var filled: int = 0
 	for index in range(rail_cap):
@@ -718,14 +750,16 @@ func _sockets_view(content: VBoxContainer, character_key: String) -> void:
 	var rail_box := DeepUi.vbox(rail_card, 12)
 	var rail_head := DeepUi.hbox(rail_box, 8)
 	DeepUi.section(rail_head, "gem", "Sockets").size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.label(rail_head, "%d of %d set; the locked sockets are filled in the mine" % [filled, rail_cap], 13, DeepUi.GOOD if filled >= rail_cap else DeepUi.MUTED)
+	var quarry_cap: int = DeepProfile.starting_rail_cap(DeepContent.starter_mine())
+	var cap_words: String = "the locked sockets are filled in the mine" if rail_cap <= quarry_cap else "sockets past %d go down only into the deeper mines" % quarry_cap
+	DeepUi.label(rail_head, "%d of %d set; %s" % [filled, rail_cap, cap_words], 13, DeepUi.GOOD if filled >= rail_cap else DeepUi.MUTED)
 	DeepUi.gap(rail_head, 10)
 	DeepUi.label(rail_head, "Drag a stone onto a socket, or click a socket, then a stone." if _bench_socket < 0 else "Choose a stone for socket %d." % (_bench_socket + 1), 13, DeepUi.MUTED if _bench_socket < 0 else DeepUi.ACCENT)
 	var rail_row := DeepUi.hbox(rail_box, 14)
 	rail_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	for index in range(sockets.size()):
 		var skill: String = _rail_skill(record, index)
-		var stone: Dictionary = DeepProfile.owned(profile, skill) if DeepProfile.loadout_socket(index) and skill != "" else {}
+		var stone: Dictionary = DeepProfile.owned(profile, skill) if DeepProfile.fillable_socket(profile, index) and skill != "" else {}
 		_enter(_socket_slot(rail_row, index, str(sockets[index]), stone, character_key), 0.05 + 0.04 * index)
 	_enter(BirthstoneCard.new(rail_row, character_key), 0.05 + 0.04 * sockets.size())
 	## The vault as a tray to set from, a page at a time; a set stone dropped on it comes out.
@@ -809,7 +843,7 @@ func _set_socket(character_key: String, index: int, skill: Variant, sound: Strin
 func _socket_slot(parent: Node, index: int, socket_color: String, stone: Dictionary, character_key: String) -> PanelContainer:
 	## One socket of the loadout, as a card to click, drag from and drop on; or, past the
 	## sockets a loadout fills, a locked one that only the mine fills.
-	var locked: bool = not DeepProfile.loadout_socket(index)
+	var locked: bool = not DeepProfile.fillable_socket(profile, index)
 	var chosen: bool = index == _bench_socket
 	var tone: Color = DeepUi.color(socket_color) if socket_color != "ANY" else DeepUi.LINE_HI
 	var border: Color = DeepUi.LINE if locked else (DeepUi.ACCENT if chosen else Color(tone, 0.45))
@@ -1386,16 +1420,26 @@ func _ledger(content: VBoxContainer) -> void:
 		StoneCard.build(best_box, best.stone, {"picture": false, "provenance": true, "value": true, "text_width": 400})
 	_enter(best_card, 0.1)
 	var mines_card := DeepUi.card(left, DeepUi.LINE, 16)
-	var mines_box := DeepUi.vbox(mines_card, 8)
+	var mines_box := DeepUi.vbox(mines_card, 6)
 	DeepUi.section(mines_box, "map", "Mines")
-	for key in profile.get("mines", {}):
-		var record: Dictionary = profile.mines[key]
-		var row := DeepUi.hbox(mines_box, 10)
-		DeepUi.icon(row, "pick" if bool(record.get("unlocked", false)) else "chest", 18, DeepUi.ACCENT if bool(record.get("unlocked", false)) else DeepUi.DIM)
-		DeepUi.label(row, str(DeepContent.mine(str(key)).get("name", key)) if bool(record.get("unlocked", false)) else "A sealed shaft", 15, DeepUi.PAPER)
-		DeepUi.spacer(row)
-		DeepUi.stat(row, "stairs", str(int(record.get("deepest", 0))), DeepUi.INFO, 13, "Deepest")
-		DeepUi.stat(row, "crown", str(record.get("wardens", []).size()), DeepUi.ACCENT, 13, "Wardens beaten")
+	## Two to a row, so every mine in the pack fits beside the best stone.
+	var mine_grid := GridContainer.new()
+	mine_grid.columns = 2
+	mine_grid.add_theme_constant_override("h_separation", 18)
+	mine_grid.add_theme_constant_override("v_separation", 2)
+	mines_box.add_child(mine_grid)
+	for key in DeepContent.mines_in_order():
+		var record: Dictionary = profile.get("mines", {}).get(str(key), {})
+		var open: bool = bool(record.get("unlocked", false))
+		var row := DeepUi.hbox(mine_grid, 6)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.icon(row, ("crown" if bool(record.get("boss", false)) else "pick") if open else "lock", 16, DeepUi.ACCENT if open else DeepUi.DIM)
+		var named := DeepUi.label(row, DeepContent.mine_name(str(key)) if open else "Sealed", 13, DeepUi.PAPER if open else DeepUi.DIM)
+		named.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		named.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if open:
+			DeepUi.stat(row, "stairs", str(int(record.get("deepest", 0))), DeepUi.INFO, 12, "Deepest")
+			DeepUi.stat(row, "crown", str(record.get("wardens", []).size()), DeepUi.ACCENT, 12, "Wardens and bosses beaten")
 	_enter(mines_card, 0.15)
 	var history_card := DeepUi.card(columns, DeepUi.LINE, 16)
 	history_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -130,6 +130,28 @@ static func starter_mine() -> String:
 	keys.sort()
 	return str(keys[0]) if not keys.is_empty() else ""
 
+static func mines_in_order() -> Array:
+	## Every mine key, shallowest first: the order they are reached in.
+	var keys: Array = section("mines").keys()
+	keys.sort_custom(func(a: String, b: String) -> bool:
+		var ta: int = int(mine(a).get("tier", 99))
+		var tb: int = int(mine(b).get("tier", 99))
+		return ta < tb if ta != tb else a < b)
+	return keys
+
+static func mine_tier(key: String) -> int:
+	return int(mine(key).get("tier", 1))
+
+static func is_endless(key: String) -> bool:
+	return bool(mine(key).get("endless", false))
+
+static func mine_bottom(key: String) -> int:
+	## The depth of a mine's last floor, where its final boss waits; 0 for one with no bottom.
+	return 0 if is_endless(key) else int(mine(key).get("depth", 24))
+
+static func mine_name(key: String) -> String:
+	return str(mine(key).get("name", key))
+
 static func starter_character() -> String:
 	for key in section("characters"):
 		if bool(section("characters")[key].get("starter", false)):
@@ -387,9 +409,23 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 	for kind in def.get("chambers", {}):
 		if not str(kind) in CHAMBER_KINDS:
 			errors.append("unknown chamber kind " + str(kind))
-	for key in def.get("unlocks", []):
-		if not p.mines.has(str(key)):
-			errors.append("unknown mine to unlock " + str(key))
+	for key in def.get("batch", []):
+		if not p.skills.has(str(key)):
+			errors.append("unknown skill in batch " + str(key))
+	if not str(def.get("boss", "")).is_empty():
+		if not p.creatures.has(str(def.boss)):
+			errors.append("unknown boss " + str(def.boss))
+		elif not bool(p.creatures[str(def.boss)].get("warden", false)):
+			errors.append("%s is not a warden" % str(def.boss))
+	if not str(def.get("next", "")).is_empty() and not p.mines.has(str(def.next)):
+		errors.append("unknown next mine " + str(def.next))
+	if not str(def.get("lapidary", "")).is_empty() and not p.characters.has(str(def.lapidary)):
+		errors.append("unknown lapidary " + str(def.lapidary))
+	if not bool(def.get("endless", false)) and int(def.get("depth", 0)) <= 0:
+		errors.append("needs a depth, or to be endless")
+	var carat: Dictionary = def.get("carat", {})
+	if not carat.is_empty() and int(carat.get("soft", 0)) > int(carat.get("cap", 0)):
+		errors.append("its usual carat is above its cap")
 	for color_key in def.get("color_weights", {}):
 		if not str(color_key) in color_KEYS:
 			errors.append("unknown color " + str(color_key))

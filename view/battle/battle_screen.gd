@@ -161,7 +161,7 @@ func _rebuild_chamber() -> void:
 	var mine: String = str(context.get("mine", DeepContent.starter_mine()))
 	var kind: String = str(context.get("kind", "warden" if bool(state.get("warden", false)) else ("elite" if bool(state.get("elite", false)) else "fight")))
 	var key: String = "%s|%d|%s" % [mine, depth, kind]
-	var built: bool = stage.show_room({"key": key, "mine": mine, "depth": depth, "kind": kind, "exits": int(context.get("exits", 2))})
+	var built: bool = stage.show_room({"key": key, "mine": mine, "depth": depth, "kind": kind, "exits": int(context.get("exits", 2)), "phase": int(context.get("phase", -1))})
 	if key == _stage_key and not built:
 		return
 	_stage_key = key

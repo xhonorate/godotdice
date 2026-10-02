@@ -19,8 +19,7 @@ static func new_profile(name: String = "Lapidary") -> Dictionary:
 		profile.characters[str(key)] = {"unlocked": unlocked, "rail": [], "dice": []}
 		if unlocked:
 			_fit_default(profile, str(key))
-	for key in DeepContent.section("mines"):
-		profile.mines[str(key)] = {"unlocked": bool(DeepContent.mine(str(key)).get("starter", false)), "deepest": 0, "wardens": [], "runs": 0}
+	ensure_mines(profile)
 	## Everyone starts with a Strike and a Guard, ordinary stones, so the first rail is never empty.
 	keep(profile, DeepStone.make("STRIKE", 2, 1, 3, [], {"source": "starter"}, _id(profile, "st")))
 	keep(profile, DeepStone.make("GUARD", 1, 1, 3, [], {"source": "starter"}, _id(profile, "st")))
@@ -35,9 +34,47 @@ static func new_profile(name: String = "Lapidary") -> Dictionary:
 				break
 	return profile
 
+static func new_mine_record(key: String) -> Dictionary:
+	return {"unlocked": bool(DeepContent.mine(key).get("starter", false)), "deepest": 0, "wardens": [], "boss": false, "runs": 0}
+
+static func ensure_mines(profile: Dictionary) -> void:
+	## Every mine in the pack has a record, sealed unless it is the starter. A profile from
+	## when the Quarry ran to depth 24 and the third Warden there was its last has beaten the
+	## Quarry if it ever killed that Warden, and the mine below is open to it.
+	if not profile.has("mines"):
+		profile.mines = {}
+	var fresh: bool = not bool(profile.get("mines_v2", false))
+	for key in DeepContent.mines_in_order():
+		if not profile.mines.has(str(key)):
+			profile.mines[str(key)] = new_mine_record(str(key))
+		var record: Dictionary = profile.mines[str(key)]
+		if not record.has("boss"):
+			record.boss = false
+		if fresh and not record.wardens.is_empty() and record.wardens.map(func(d: Variant) -> int: return int(d)).max() >= 24:
+			record.boss = true
+		if bool(record.boss):
+			_open_next(profile, str(key))
+	profile.mines_v2 = true
+
+static func _open_next(profile: Dictionary, mine_key: String) -> String:
+	## Unseals the mine below this one. Returns its key if it was sealed until now.
+	var next_key: String = str(DeepContent.mine(mine_key).get("next", ""))
+	if next_key.is_empty():
+		return ""
+	if not profile.mines.has(next_key):
+		profile.mines[next_key] = new_mine_record(next_key)
+	if bool(profile.mines[next_key].get("unlocked", false)):
+		return ""
+	profile.mines[next_key].unlocked = true
+	return next_key
+
+static func unlocked_mines(profile: Dictionary) -> Array:
+	return DeepContent.mines_in_order().filter(func(k: Variant) -> bool: return bool(profile.get("mines", {}).get(str(k), {}).get("unlocked", false)))
+
 static func migrate(profile: Dictionary) -> Dictionary:
 	## An older profile wore settings. It keeps its vault, bowl and records, and its unlocks
 	## carry over by count: the starter plus one character for every setting it had earned.
+	ensure_mines(profile)
 	if profile.has("characters") and not profile.has("settings"):
 		_renew_dice(profile)
 		return profile
@@ -118,9 +155,16 @@ static func unlock_character(profile: Dictionary, character_key: String) -> bool
 	return true
 
 static func next_locked_character(profile: Dictionary) -> String:
-	## The next character a Warden would unlock, in the pack's unlock order.
+	## The next character still to be met, in the pack's unlock order.
 	for key in DeepContent.characters_in_unlock_order():
 		if not bool(profile.get("characters", {}).get(str(key), {}).get("unlocked", false)):
+			return str(key)
+	return ""
+
+static func lapidary_mine(character_key: String) -> String:
+	## The mine a lapidary is met in, at its first Warden; "" for the starter.
+	for key in DeepContent.mines_in_order():
+		if str(DeepContent.mine(str(key)).get("lapidary", "")) == character_key:
 			return str(key)
 	return ""
 
@@ -264,16 +308,18 @@ static func vault_grid(profile: Dictionary) -> Array:
 
 # --- loadouts ------------------------------------------------------------------------------
 
-static func loadout(profile: Dictionary, character_key: String) -> Dictionary:
+static func loadout(profile: Dictionary, character_key: String, mine_key: String = "") -> Dictionary:
 	## The rail and dice a character takes down the mine: stone instances from the vault in
 	## the sockets a loadout fills (the rest go down empty, to be filled in the mine), and the
-	## character's own five dice, which are never swapped.
+	## character's own five dice, which are never swapped. Without a mine, every socket any
+	## open mine would fill is filled: the run itself empties the ones its mine does not.
 	var character: Dictionary = DeepContent.character(character_key)
 	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	var rail: Array = []
 	var sockets: Array = character.get("sockets", [])
+	var cap: int = starting_rail_cap(mine_key) if not mine_key.is_empty() else widest_rail_cap(profile)
 	for index in range(sockets.size()):
-		var skill: Variant = record.rail[index] if loadout_socket(index) and index < record.rail.size() else null
+		var skill: Variant = record.rail[index] if index < cap and index < record.rail.size() else null
 		var stone: Dictionary = owned(profile, str(skill)) if skill is String else {}
 		rail.append(stone.duplicate(true) if not stone.is_empty() and DeepStone.fits(stone, str(sockets[index])) else null)
 	## The dice they were unlocked with, in the bowl. Every variation a die picks up is cut
@@ -296,14 +342,28 @@ static func bowl_die(profile: Dictionary, die_id: String) -> Dictionary:
 			return die
 	return {}
 
-static func starting_rail_cap() -> int:
-	## How many sockets a loadout fills: the first few on the rail.
+static func starting_rail_cap(mine_key: String = "") -> int:
+	## How many sockets a loadout fills before a run in this mine: the first few on the rail,
+	## and in a mine started from rather than fought down to, all of them.
+	if not mine_key.is_empty() and not DeepContent.mine(mine_key).is_empty():
+		return int(DeepContent.mine(mine_key).get("loadout_sockets", DeepContent.constant("starting_rail_cap", 3)))
 	return int(DeepContent.constant("starting_rail_cap", 3))
 
-static func loadout_socket(index: int) -> bool:
-	## Whether a socket is filled from the vault before a run. The rest of the rail is only
-	## ever filled in the mine, with stones found on the way down.
-	return index >= 0 and index < starting_rail_cap()
+static func widest_rail_cap(profile: Dictionary) -> int:
+	## The most sockets any mine open to this profile fills from the vault.
+	var widest: int = starting_rail_cap()
+	for key in unlocked_mines(profile):
+		widest = maxi(widest, starting_rail_cap(str(key)))
+	return widest
+
+static func loadout_socket(index: int, mine_key: String = "") -> bool:
+	## Whether a socket is filled from the vault before a run in this mine. The rest of the
+	## rail is only ever filled in the mine, with stones found on the way down.
+	return index >= 0 and index < starting_rail_cap(mine_key)
+
+static func fillable_socket(profile: Dictionary, index: int) -> bool:
+	## Whether the loadout may hold a stone in this socket at all: some open mine fills it.
+	return index >= 0 and index < widest_rail_cap(profile)
 
 static func rail_refusal(profile: Dictionary, character_key: String, index: int, skill: String) -> String:
 	## Why an owned stone (by skill) cannot go into a socket of a loadout, or "".
@@ -314,7 +374,7 @@ static func rail_refusal(profile: Dictionary, character_key: String, index: int,
 	var sockets: Array = character.get("sockets", [])
 	if index < 0 or index >= sockets.size():
 		return "no such socket"
-	if not loadout_socket(index):
+	if not fillable_socket(profile, index):
 		return "that socket is only filled in the mine"
 	var stone: Dictionary = owned(profile, skill)
 	if stone.is_empty():
@@ -365,12 +425,12 @@ static func tidy(profile: Dictionary) -> bool:
 		var record: Dictionary = profile.characters[key]
 		var rail: Array = record.get("rail", [])
 		for index in range(rail.size()):
-			if loadout_socket(index) or rail[index] == null:
+			if fillable_socket(profile, index) or rail[index] == null:
 				continue
 			var skill: String = str(rail[index])
 			rail[index] = null
 			moved = true
-			for slot in range(starting_rail_cap()):
+			for slot in range(widest_rail_cap(profile)):
 				if slot < rail.size() and rail[slot] == null and set_rail(profile, str(key), slot, skill).is_empty():
 					break
 	return moved
@@ -378,24 +438,35 @@ static func tidy(profile: Dictionary) -> bool:
 # --- what comes home -----------------------------------------------------------------------
 
 static func apply_result(profile: Dictionary, result: Dictionary, player_id: String) -> Dictionary:
-	## Hauls go to the tray, dice to the bowl, records are written, unlocks granted.
+	## Hauls go to the tray, dice to the bowl, records are written, unlocks granted. A run
+	## that pushed on through several mines writes a record in each. A mine's lapidary joins
+	## at its first Warden, and its final boss opens the mine below; both hold whether or not
+	## the party lived to ride up, because the news was carried further down instead.
 	var mine_key: String = str(result.get("mine", ""))
-	var mine_record: Dictionary = profile.mines.get(mine_key, {"unlocked": true, "deepest": 0, "wardens": [], "runs": 0})
-	mine_record.runs = int(mine_record.get("runs", 0)) + 1
-	mine_record.deepest = maxi(int(mine_record.get("deepest", 0)), int(result.get("deepest", 0)))
+	var visited: Array = result.get("mines", [])
+	if visited.is_empty():
+		visited = [{"mine": mine_key, "deepest": int(result.get("deepest", 0)), "wardens": result.get("wardens", []), "boss": false}]
 	var unlocked: Array = []
-	for depth in result.get("wardens", []):
-		if not mine_record.wardens.has(int(depth)):
-			mine_record.wardens.append(int(depth))
-			for next_mine in DeepContent.mine(mine_key).get("unlocks", []):
-				var record: Dictionary = profile.mines.get(str(next_mine), {})
-				if not record.is_empty() and not bool(record.get("unlocked", false)):
-					record.unlocked = true
-					unlocked.append({"mine": str(next_mine)})
-			var next_character: String = next_locked_character(profile)
-			if not next_character.is_empty() and unlock_character(profile, next_character):
-				unlocked.append({"character": next_character})
-	profile.mines[mine_key] = mine_record
+	for entry in visited:
+		var key: String = str(entry.get("mine", ""))
+		if not profile.mines.has(key):
+			profile.mines[key] = new_mine_record(key)
+		var mine_record: Dictionary = profile.mines[key]
+		mine_record.unlocked = true
+		mine_record.runs = int(mine_record.get("runs", 0)) + 1
+		mine_record.deepest = maxi(int(mine_record.get("deepest", 0)), int(entry.get("deepest", 0)))
+		for depth in entry.get("wardens", []):
+			if not mine_record.wardens.has(int(depth)):
+				mine_record.wardens.append(int(depth))
+		if not entry.get("wardens", []).is_empty():
+			var lapidary: String = str(DeepContent.mine(key).get("lapidary", ""))
+			if not lapidary.is_empty() and unlock_character(profile, lapidary):
+				unlocked.append({"character": lapidary})
+		if bool(entry.get("boss", false)):
+			mine_record.boss = true
+			var opened: String = _open_next(profile, key)
+			if not opened.is_empty():
+				unlocked.append({"mine": opened})
 	profile.records.runs = int(profile.records.runs) + 1
 	match str(result.get("outcome", "")):
 		"extracted": profile.records.extractions = int(profile.records.extractions) + 1

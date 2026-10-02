@@ -63,7 +63,10 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 	return unit
 
 static func begin(players: Array, creature_keys: Array, context: Dictionary, rng_dice: RandomNumberGenerator, rng_creatures: RandomNumberGenerator) -> Dictionary:
+	## `threat` is the depth the creatures are bred for, which a run that has pushed on from
+	## one mine into the next finds a little deeper than the floor it stands on.
 	var state: Dictionary = {"turn": 0, "phase": "planning", "outcome": "", "depth": int(context.get("depth", 1)),
+		"threat": int(context.get("threat", context.get("depth", 1))),
 		"party": players.size(), "elite": bool(context.get("elite", false)), "warden": bool(context.get("warden", false)),
 		"players": players.duplicate(true), "enemies": [], "queue": [], "seq": 0}
 	## Each rail is laid flat for the fight: a socket's gem, then the Void gems riding it.
@@ -78,7 +81,7 @@ static func begin(players: Array, creature_keys: Array, context: Dictionary, rng
 			stake(unit, DeepRules.pyrite(unit) * int(unit.passive.get("amount", 10)) / 100)
 	var index: int = 0
 	for key in creature_keys:
-		state.enemies.append(DeepCreatures.make(str(key), "e%d" % index, state.depth, players.size()))
+		state.enemies.append(DeepCreatures.make(str(key), "e%d" % index, state.threat, players.size(), context.get("scale", {})))
 		index += 1
 	_begin_turn(state, rng_dice, rng_creatures)
 	return state

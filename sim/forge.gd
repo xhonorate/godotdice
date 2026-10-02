@@ -30,16 +30,59 @@ static func mine_luck(mine: Dictionary) -> int:
 
 static func luck(mine: Dictionary, depth: int, bonus: float = 0.0) -> float:
 	## The whole of it: where the party is, how deep, and what is handing the stone over.
-	## `bonus` is a float because Sparkle is counted in tenths of a point.
+	## `bonus` is a float because Sparkle is counted in fractions of a point.
 	return quality(depth, float(mine_luck(mine)) + bonus)
 
-static func roll_carat(rng: RandomNumberGenerator, q: float) -> int:
-	var mean: float = maxf(1.0, 1.5 + q * 0.5)
-	var deviation: float = maxf(1.0, 1.6 + q * 0.08)
-	var carat: int = int(round(DeepRng.normal(rng, mean, deviation)))
+## Each mine keeps its stones inside a band. Luck still raises the average, but the average
+## levels off below the band's usual top, however much luck is piled on: past that line each
+## further carat has only BAND_KEEP_PERCENT to hold, and nothing ever comes out over the cap.
+## That is what keeps a full stack of Sparkle on an elite at the bottom of the Quarry from
+## pulling a twelve-carat stone out of a mine that should give up nothing past seven.
+const BAND_SPREAD: float = 1.2
+const BAND_LUCK_SPAN: float = 8.0
+const BAND_KEEP_PERCENT: float = 35.0
+
+static func carat_band(mine: Dictionary, depth: int) -> Dictionary:
+	## {soft, cap} for a mine at a depth, or {} for a mine that writes no band. An endless
+	## mine's band climbs a carat with every Warden it has stationed above this depth.
+	var band: Dictionary = mine.get("carat", {})
+	if band.is_empty():
+		return {}
+	var soft: int = int(band.get("soft", DeepStone.carat_max()))
+	var cap: int = int(band.get("cap", DeepStone.carat_max()))
+	if bool(mine.get("endless", false)):
+		var every: int = maxi(1, int(mine.get("warden_every", 8)))
+		var climbed: int = maxi(0, depth - 1) / every * int(mine.get("carat_per_warden", 0))
+		soft += climbed
+		cap += climbed
+	cap = clampi(cap, 1, DeepStone.carat_max())
+	return {"soft": clampi(soft, 1, cap), "cap": cap}
+
+static func carat_cap(mine: Dictionary, depth: int) -> int:
+	## The heaviest stone this mine will ever give up at this depth.
+	return int(carat_band(mine, depth).get("cap", DeepStone.carat_max()))
+
+static func roll_carat(rng: RandomNumberGenerator, q: float, band: Dictionary = {}) -> int:
+	if band.is_empty():
+		var mean: float = maxf(1.0, 1.5 + q * 0.5)
+		var deviation: float = maxf(1.0, 1.6 + q * 0.08)
+		var carat: int = int(round(DeepRng.normal(rng, mean, deviation)))
+		if DeepRng.chance(rng, JACKPOT_PERCENT):
+			carat += rng.randi_range(1, 2)
+		return clampi(carat, 1, DeepStone.carat_max())
+	var soft: int = int(band.soft)
+	var cap: int = int(band.cap)
+	var top: float = maxf(1.5, float(soft) - 0.5)
+	var banded_mean: float = 1.5 + (top - 1.5) * (1.0 - exp(-maxf(q, 0.0) / BAND_LUCK_SPAN))
+	var drawn: int = int(round(DeepRng.normal(rng, banded_mean, BAND_SPREAD)))
 	if DeepRng.chance(rng, JACKPOT_PERCENT):
-		carat += rng.randi_range(1, 2)
-	return clampi(carat, 1, DeepStone.carat_max())
+		drawn += rng.randi_range(1, 2)
+	if drawn > soft:
+		var held: int = soft
+		while held < drawn and DeepRng.chance(rng, BAND_KEEP_PERCENT):
+			held += 1
+		drawn = held
+	return clampi(drawn, 1, cap)
 
 static func roll_cut(rng: RandomNumberGenerator, q: float, without: int = -1) -> int:
 	## Poor and Fair near the surface, Fine and Perfect further down: the ladder tilts about
@@ -111,13 +154,36 @@ static func step_clarity(rng: RandomNumberGenerator, stone: Dictionary, mine: Di
 	stone.inclusions_revealed = true
 	return {"clarity": now, "was": was, "inclusions": kept.duplicate(), "had": had, "moved": now != was}
 
+## A mine's own batch of skills comes out of its rock this many times as often as the
+## batches of the mines above it, so a new mine is where its new stones are found.
+const HOME_BATCH_WEIGHT: float = 2.0
+
 static func skill_pool(mine: Dictionary) -> Array:
+	## What the rock here can hold: a list the mine writes out in full, or else its own batch
+	## and the batches of every mine above it. A skill no mine has taken into its batch is in
+	## every pool, so nothing new is ever unfindable while it waits to be placed.
 	var listed: Array = mine.get("skills", [])
 	if not listed.is_empty():
 		return listed.map(func(k: Variant) -> String: return str(k))
 	var keys: Array = DeepContent.section("skills").keys()
 	keys.sort()
-	return keys
+	var batched: Dictionary = batch_tiers()
+	if batched.is_empty():
+		return keys
+	var tier: int = int(mine.get("tier", 1))
+	return keys.filter(func(k: Variant) -> bool: return not batched.has(str(k)) or int(batched[str(k)]) <= tier)
+
+static func batch_tiers() -> Dictionary:
+	## skill -> the tier of the mine whose batch it is in.
+	var out: Dictionary = {}
+	for key in DeepContent.section("mines"):
+		var def: Dictionary = DeepContent.mine(str(key))
+		for skill in def.get("batch", []):
+			out[str(skill)] = int(def.get("tier", 1))
+	return out
+
+static func home_batch(mine: Dictionary) -> Array:
+	return mine.get("batch", [])
 
 static func inclusion_pool(mine: Dictionary) -> Array:
 	var listed: Array = mine.get("inclusions", [])
@@ -130,6 +196,7 @@ static func inclusion_pool(mine: Dictionary) -> Array:
 static func roll_skill(rng: RandomNumberGenerator, mine: Dictionary, pool: Array = []) -> String:
 	var keys: Array = pool if not pool.is_empty() else skill_pool(mine)
 	var color_weights: Dictionary = mine.get("color_weights", {})
+	var home: Array = home_batch(mine)
 	var table: Dictionary = {}
 	for key in keys:
 		var skill: Dictionary = DeepContent.skill(str(key))
@@ -137,6 +204,8 @@ static func roll_skill(rng: RandomNumberGenerator, mine: Dictionary, pool: Array
 			continue
 		var weight: float = DeepContent.rarity_weight(str(skill.get("rarity", "COMMON")))
 		weight *= float(color_weights.get(str(skill.get("color", "")), 100)) / 100.0
+		if home.has(str(key)):
+			weight *= HOME_BATCH_WEIGHT
 		table[str(key)] = weight
 	## A pool the rock never offers is still a pool once something asks for it by name: an
 	## opal weighs nothing at all in the ordinary table, which is how it stays out of every
@@ -198,7 +267,7 @@ static func roll_stone(rng: RandomNumberGenerator, mine: Dictionary, depth: int,
 	## way it always is, which is what makes an opal from a hoard a real gamble.
 	var q: float = luck(mine, depth, bonus)
 	var skill: String = roll_skill(rng, mine, pool)
-	var carat: int = roll_carat(rng, q)
+	var carat: int = roll_carat(rng, q, carat_band(mine, depth))
 	var cut: int = roll_cut(rng, q)
 	var clarity: int = roll_clarity(rng, q)
 	var inclusions: Array = roll_inclusions(rng, DeepStone.inclusion_slots(clarity), mine, "", str(DeepContent.skill(skill).get("color", "")))

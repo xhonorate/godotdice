@@ -24,7 +24,8 @@ export default {
 		root.append(toolbar(...depthControls(ctx, { showParty: false }), field('Handed over by', select(SOURCES, state.source, (v) => { state.source = v; ctx.rerender(); })),
 			state.source === 'custom' ? field('Bonus luck', numberInput(state.custom, (v) => { state.custom = v || 0; ctx.rerender(); })) : null));
 
-		const carats = Forge.caratDistribution(q);
+		const band = Forge.caratBand(mine, depth);
+		const carats = Forge.caratDistribution(q, band);
 		const caratMean = carats.reduce((s, p, c) => s + p * c, 0);
 		const cutP = Forge.normalize(Forge.cutWeights(q));
 		const clarP = Forge.normalize(Forge.clarityWeights(q));
@@ -51,7 +52,7 @@ export default {
 			histogram({ bins: carats.map((p, c) => [c, p]).filter(([c]) => c >= 1), width: 480, height: 170, color: '#f0c95a', mean: caratMean, xLabel: 'carat', xFormat: (v) => String(v), format: (v) => `${(v * 100).toFixed(1)}%` }),
 			stacked({ segments: classShare }),
 			h('div', { class: 'row', style: { justifyContent: 'space-around', alignItems: 'flex-end' } }, Stone.SIZE_CLASSES.map((cls, i) => h('div', { class: 'col', style: { alignItems: 'center', gap: '2px' } }, rawImage(['RED', 'BLUE', 'GREEN', 'VIOLET', 'GOLD'][i], cls.key, 56), h('span', { class: 'tiny muted' }, `${cls.name} · ${Stone.sizeClass(cls.low).range}`)))),
-			note(`Carat = round(normal(mean ${fmt(Forge.caratParams(q).mean, 2)}, σ ${fmt(Forge.caratParams(q).deviation, 2)})), then ${Forge.JACKPOT_PERCENT}% of stones add 3 to 8, clamped to 1 to ${Stone.caratMax()}. A raw stone shows only its size class.`, 'plain')),
+			note(band ? `This mine keeps its stones in a band: luck lifts the average toward ${band.soft - 0.5} and no further, ${Forge.JACKPOT_PERCENT}% of stones add 1 to 2, each carat past ${band.soft} holds only ${Forge.BAND_KEEP_PERCENT}% of the time, and nothing comes out over ${band.cap}. A raw stone shows only its size class.` : `Carat = round(normal(mean ${fmt(Forge.caratParams(q).mean, 2)}, σ ${fmt(Forge.caratParams(q).deviation, 2)})), then ${Forge.JACKPOT_PERCENT}% of stones add 1 to 2, clamped to 1 to ${Stone.caratMax()}. A raw stone shows only its size class.`, 'plain')),
 			{ meta: 'exact distribution at this luck' }));
 		g1.append(card('Cut and Clarity', h('div', { class: 'col' },
 			h('div', { class: 'grid grid-2' },

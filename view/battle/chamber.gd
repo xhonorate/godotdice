@@ -59,6 +59,7 @@ var _last_ring: Array = []
 
 static var _water_shader: Shader = null
 static var _lava_shader: Shader = null
+static var _lavafall_shader: Shader = null
 static var _mist_shader: Shader = null
 
 func build(new_biome: Dictionary, seed_value: int, exit_count: int = 0, drop: float = 2.5) -> void:
@@ -78,8 +79,8 @@ func plan(new_biome: Dictionary, seed_value: int, exit_count: int = 0, drop: flo
 	_detail.frequency = 0.45
 	_rock = StandardMaterial3D.new()
 	_rock.vertex_color_use_as_albedo = true
-	_rock.roughness = 0.35 if biome.id == "seeps" else 0.9
-	_rock.metallic_specular = 0.75 if biome.id == "seeps" else 0.35
+	_rock.roughness = 0.35 if family() == "seeps" else 0.9
+	_rock.metallic_specular = 0.75 if family() == "seeps" else 0.35
 	_floor_material = _rock.duplicate()
 	exits.clear()
 	var places: Array = exit_xs(exit_count)
@@ -104,6 +105,7 @@ func plan(new_biome: Dictionary, seed_value: int, exit_count: int = 0, drop: flo
 			"mushrooms": steps.append(_mushrooms.bind(9))
 			"roots": steps.append(_roots.bind(14))
 			"lava": steps.append(_lava)
+			"lavafalls": steps.append(_lavafalls)
 			"basalt": steps.append(_basalt.bind(26))
 			"geode": steps.append(_geode.bind(34))
 			"gold_veins": steps.append(_veins.bind(16))
@@ -183,6 +185,10 @@ func rock_material() -> StandardMaterial3D:
 
 # --- ground ------------------------------------------------------------------------------------
 
+func family() -> String:
+	## The base biome this room is a stretch of: a variant builds like the rock it deepens.
+	return str(biome.get("family", biome.get("id", "")))
+
 func ground(x: float, z: float) -> float:
 	## Floor height: nearly level where the creatures stand, heaving up into rubble toward
 	## the walls and the far end.
@@ -216,7 +222,7 @@ func _floor() -> void:
 		points.append(row)
 	var floor_tone: Color = biome.floor
 	var moss: Color = biome.moss
-	var wants_moss: bool = biome.get("props", []).has("moss") or biome.id in ["fungal", "seeps"]
+	var wants_moss: bool = biome.get("props", []).has("moss") or family() in ["fungal", "seeps"]
 	for j in range(nz):
 		for i in range(nx):
 			var a: Vector3 = points[j][i]
@@ -693,6 +699,40 @@ func _lava() -> void:
 	_multi(crack, transforms, seam)
 	_pulse(seam, 0.6, 1.8)
 
+func _lavafalls() -> void:
+	## Lava pouring out of cracks high in the vault and pooling where it lands: the deepest
+	## stretch of the Furnace.
+	if _lavafall_shader == null:
+		_lavafall_shader = Shader.new()
+		_lavafall_shader.code = LAVAFALL_SHADER
+	if _lava_shader == null:
+		_lava_shader = Shader.new()
+		_lava_shader.code = LAVA_SHADER
+	var fall := ShaderMaterial.new()
+	fall.shader = _lavafall_shader
+	var pool := ShaderMaterial.new()
+	pool.shader = _lava_shader
+	var placed: int = 0
+	for i in range(12):
+		if placed >= 5:
+			break
+		var side: float = -1.0 if i % 2 == 0 else 1.0
+		var wall := _on_wall(PI * 0.5 - side * _rng.randf_range(0.7, 1.1), _rng.randf_range(-18.0, -3.0), 0.25)
+		var top: Vector3 = wall.point
+		var foot := Vector3(top.x, ground(top.x, top.z), top.z)
+		var height: float = top.y - foot.y
+		if height < 2.0 or not _clear_of_crossroads(foot, Vector3(0, height, 0), 0.7):
+			continue
+		var inward := Vector3(wall.normal.x, 0.0, wall.normal.z).normalized()
+		var sheet := QuadMesh.new()
+		sheet.size = Vector2(_rng.randf_range(0.7, 1.5), height)
+		_place(sheet, fall, Transform3D(Basis.looking_at(-inward, Vector3.UP), (top + foot) * 0.5))
+		var splash := PlaneMesh.new()
+		splash.size = Vector2(_rng.randf_range(2.0, 3.0), _rng.randf_range(1.6, 2.4))
+		_place(splash, pool, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU), foot + inward * 0.6 + Vector3(0, 0.08, 0)))
+		_light(foot + inward * 1.0 + Vector3(0, 1.4, 0), Color("ff6a1a"), 3.4, 9.0, float(biome.get("flicker", 0.3)), 0.6)
+		placed += 1
+
 func _basalt(count: int) -> void:
 	var tone: Color = biome.rock_dark.lightened(0.05)
 	var variants: Array = []
@@ -819,7 +859,8 @@ func _arches() -> void:
 func _void_crystals(count: int) -> void:
 	for i in range(count):
 		var spot := _free_spot(5.5, -9.0)
-		var color: Color = biome.get("lights", [biome.accent])[i % 3]
+		var lights: Array = biome.get("lights", [biome.accent])
+		var color: Color = lights[i % lights.size()]
 		var mesh := Lowpoly.cluster(_rng, Color("1a1428"), 4, _rng.randf_range(0.8, 1.8))
 		var material := _glowing(color, 0.7, 0.05)
 		material.albedo_color = Color("2a2040")
@@ -906,7 +947,7 @@ func _lights() -> void:
 		var rim := _light(spots[i], color, energy * (1.2 if i < 2 else 0.8), 13.0, float(biome.get("flicker", 0.1)), 0.0, i >= 2)
 		rim.light_volumetric_fog_energy = 0.45
 	## Shafts of light from cracks in the ceiling, drawn out by the fog.
-	if biome.id in ["galleries", "geode", "crystal", "fungal"] or bool(biome.get("warden", false)):
+	if family() in ["galleries", "geode", "crystal", "fungal"] or bool(biome.get("warden", false)):
 		for x in [-3.2, 3.8]:
 			var shaft := SpotLight3D.new()
 			shaft.light_color = Color(biome.key).lerp(Color(biome.accent), 0.3)
@@ -1094,6 +1135,27 @@ void fragment() {
 	EMISSION = glow.rgb * (0.05 + caustic * 0.35);
 	vec2 uv = UV - 0.5;
 	ALPHA = smoothstep(0.5, 0.36, length(uv * vec2(1.0, 1.0))) * 0.92;
+}
+"""
+
+## Lava falling: the same molten crust as a pool, drawn down the sheet over time.
+const LAVAFALL_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+void fragment() {
+	vec3 world = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vec2 p = vec2((world.x + world.z) * 1.6, world.y * 0.5 + TIME * 1.1);
+	float n = noise(p) * 0.6 + noise(p * 2.7 + vec2(0.0, TIME * 0.8)) * 0.3 + noise(p * 6.0) * 0.1;
+	float crust = smoothstep(0.58, 0.7, n);
+	vec3 hot = mix(vec3(1.0, 0.8, 0.3), vec3(1.0, 0.3, 0.04), n);
+	ALBEDO = mix(hot * 4.5, vec3(0.1, 0.03, 0.02), crust);
+	ALPHA = smoothstep(0.5, 0.22, abs(UV.x - 0.5));
 }
 """
 

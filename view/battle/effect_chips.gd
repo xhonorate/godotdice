@@ -80,7 +80,7 @@ static func for_run(unit: Dictionary) -> Array:
 	var out: Array = []
 	var sparkle: int = clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
 	if sparkle > 0:
-		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%.1f generation luck, a tenth of a point each. Maximum 100; carries between fights." % [sparkle, float(sparkle) * DeepRules.SPARKLE_LUCK], DeepUi.ACCENT))
+		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%.1f generation luck, %s of a point each. Maximum 100; carries between fights." % [sparkle, float(sparkle) * DeepRules.SPARKLE_LUCK, str(DeepRules.SPARKLE_LUCK)], DeepUi.ACCENT))
 	var shrine: String = str(unit.get("run_mods", {}).get("shrine", ""))
 	if not shrine.is_empty():
 		out.append(entry("shrine", "star", "+1 ct", true, "Shrine blessing", "For the rest of the run, every gem that fires on %s gains 1 carat." % shrine.replace("_", " "), DeepUi.ACCENT))

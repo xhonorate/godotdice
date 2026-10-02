@@ -89,7 +89,7 @@ func triggers() -> void:
 	check(DeepContent.skill("SPALL").rarity == "COMMON" and DeepContent.skill("ANCHOR").rarity == "COMMON", "rarities updated")
 	check(DeepContent.section("skills").size() == 65, "all 65 skills are present")
 	for key in ["CROSSCUT", "DETONATE", "SHELTER", "MORTAR", "SIPHON", "STAKE", "APEX", "ENRICH", "APPRAISE", "GILDED_ARMOR"]:
-		check(DeepForge.skill_pool(DeepContent.mine("QUARRY")).has(key), key + " is in the standard pool")
+		check(DeepForge.skill_pool(DeepContent.mine("RIFT")).has(key), key + " is in the deepest pool")
 	for key in ["POULTICE", "UNDERTOW", "SILENCE", "LEVEL", "INVERT", "MYCELIUM"]:
 		check(DeepContent.skill(key).is_empty(), key + " was not added")
 

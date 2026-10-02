@@ -239,9 +239,13 @@ func _test_grade_and_names() -> void:
 func _test_forge() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 99
-	var mine: Dictionary = DeepContent.mine("QUARRY")
+	## The luck curve itself, on a copy of the Quarry with its carat band taken off.
+	var mine: Dictionary = DeepContent.mine("QUARRY").duplicate(true)
+	mine.erase("carat")
 	var shallow: Dictionary = _histogram(rng, mine, 1, 4000)
 	var deep: Dictionary = _histogram(rng, mine, 24, 4000)
+	var banded: Dictionary = _histogram(rng, DeepContent.mine("QUARRY"), 16, 4000)
+	check(banded.carat_max <= 7 and banded.carat_mean > shallow.carat_mean, "the Quarry itself still grows with depth inside its band: mean %.2f, heaviest %d" % [banded.carat_mean, banded.carat_max])
 	check(shallow.clarity[3] > shallow.clarity[2] and shallow.clarity[3] > shallow.clarity[4], "Clear is the most common clarity: %s" % str(shallow.clarity))
 	check(absi(shallow.clarity[1] - shallow.clarity[5]) < 60, "Etched and Flawless are about as rare as each other: %s" % str(shallow.clarity))
 	check(shallow.clarity[0] < shallow.clarity[1], "Intricate is the rarest: %s" % str(shallow.clarity))

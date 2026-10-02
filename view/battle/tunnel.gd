@@ -337,7 +337,7 @@ func _accents(from_s: float, to_s: float) -> void:
 		var rng := _rng_at(float(s), 3)
 		var lights: Array = biome.get("lights", [biome.get("accent", Color.WHITE)])
 		var color: Color = lights[rng.randi() % lights.size()]
-		match str(biome.get("id", "")):
+		match str(biome.get("family", biome.get("id", ""))):
 			"galleries":
 				_timber_frame(float(s), rng)
 			"crystal", "geode", "rift":

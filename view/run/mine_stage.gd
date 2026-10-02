@@ -207,14 +207,14 @@ static func room_seed(p: Dictionary) -> int:
 	return str(p.get("key", "")).hash()
 
 func _new_room(p: Dictionary, origin: Vector3) -> Dictionary:
-	var biome: Dictionary = Biomes.for_depth(str(p.get("mine", DeepContent.starter_mine())), maxi(1, int(p.get("depth", 1))), biome_kind(str(p.get("kind", "fight"))))
+	var biome: Dictionary = Biomes.for_depth(str(p.get("mine", DeepContent.starter_mine())), maxi(1, int(p.get("depth", 1))), biome_kind(str(p.get("kind", "fight"))), int(p.get("phase", -1)))
 	var made: Node3D = Chamber.new()
 	made.quality = quality
 	made.position = origin
 	world.add_child(made)
 	var steps: Array = made.plan(biome, room_seed(p), int(p.get("exits", 2)), float(p.get("drop", 2.5)))
 	steps.append(_dress_mouths.bind(made, bool(p.get("seal", false))))
-	if str(p.get("kind", "")) in ["landing", "head"]:
+	if str(p.get("kind", "")) in ["landing", "head"] or bool(p.get("cage", false)):
 		steps.append(_build_hall.bind(made, str(p.kind), room_seed(p)))
 	return {"room": made, "steps": steps}
 
@@ -619,7 +619,8 @@ func _round_business(from: Vector3, to: Vector3) -> Array:
 ## A landing and the shaft head have the lift in them: the cage in its shaft off to one side,
 ## with (at a landing) the campfire, the workbench and the wheel. It is built with the room, so
 ## it is there as the party walks in. A Warden's hall has none of it — no cage was ever sunk
-## that deep — so `hall()` is null there and the only way out of it is down.
+## that deep — so `hall()` is null there and the only way out of it is down. The hall at the
+## bottom of a mine is the exception: its final boss's hall has the cage and nothing else.
 
 func _build_hall(made: Node3D, kind: String, seed_value: int) -> void:
 	var hall: Node3D = LiftHall.new()
@@ -1746,13 +1747,13 @@ func _ambience(delta: float) -> void:
 		camera.add_trauma(0.22)
 		fx.dust_fall(50)
 		room.surge(Color(biome.accent), 0.5)
-	elif str(biome.get("id", "")) == "magma":
+	elif str(biome.get("family", biome.get("id", ""))) == "magma":
 		camera.add_trauma(0.12)
 		fx.sparks(Vector3(randf_range(-7, 7), 0.2, randf_range(-14, -6)), Color("ff7a2a"), 30, 4.0, 1.2, 0.08)
-	elif str(biome.get("id", "")) == "rift":
+	elif str(biome.get("family", biome.get("id", ""))) == "rift":
 		room.surge(Color(biome.accent), 0.8)
 		screen_fx.blink(Color(biome.accent), 0.08)
-	elif str(biome.get("id", "")) == "galleries" and randf() < 0.5:
+	elif str(biome.get("family", biome.get("id", ""))) == "galleries" and randf() < 0.5:
 		fx.dust_fall(24, 4.0)
 
 # --- warming up --------------------------------------------------------------------------------

@@ -6,9 +6,7 @@
     "carat_max": 24,
     "rerolls": 2,
     "landing_every": 4,
-    "warden_depths": [8, 16, 24],
     "endless_warden_every": 8,
-    "run_depth": 24,
     "enrage_turn": 7,
     "enrage_damage": 2,
     "appraise_ore_cost": 50,
@@ -17,7 +15,7 @@
     "appraise_cost_step": 50,
     "rest_pct": 30,
     "opal_hoard_pct": 100,
-    "hoard_luck": 6,
+    "hoard_luck": 5,
     "opal_hoard_luck": 0,
     "lantern_ore_cost": 10,
     "lift_ore_per_depth": 15,
@@ -41,7 +39,9 @@
       "elite": 100,
       "vein": 100
     },
-    "ore_per_fight": 6
+    "ore_per_fight": 6,
+    "elite_stone_luck": 3,
+    "chain_heat": 2
   },
   "colors": {
     "RED": {
@@ -4750,10 +4750,26 @@
     "QUARRY": {
       "name": "The Quarry",
       "starter": true,
-      "quality": 0,
-      "palette": "c9a26b",
+      "tier": 1,
       "key": "QUARRY",
+      "palette": "c9a26b",
       "text": "Old galleries under the workshop. Ticks and slimes near the top, golems and wyrms below.",
+      "depth": 16,
+      "warden_depths": [8, 12],
+      "wardens": ["THE_FOREMAN", "THE_REGENT"],
+      "boss": "THE_DRILL",
+      "next": "SEEPS",
+      "lapidary": "",
+      "luck": -1,
+      "carat": {
+        "soft": 5,
+        "cap": 7
+      },
+      "hp_mult": 1.0,
+      "damage_mult": 1.0,
+      "loadout_sockets": 3,
+      "start_pyrite": 0,
+      "biomes": ["galleries", "galleries_deep", "galleries_quartz"],
       "color_weights": {
         "RED": 100,
         "BLUE": 100,
@@ -4763,6 +4779,30 @@
         "WHITE": 100
       },
       "skills": [],
+      "batch": [
+        "STRIKE",
+        "CLEAVE",
+        "CRUSH",
+        "SPALL",
+        "EMBER",
+        "CROSSCUT",
+        "GUARD",
+        "SHELTER",
+        "ANCHOR",
+        "TEMPO",
+        "BULWARK",
+        "MEND",
+        "GRAFT",
+        "BLOOM",
+        "VENOM",
+        "HEX",
+        "MIST",
+        "TITHE",
+        "PROSPECT",
+        "GLIMMER",
+        "MIRROR",
+        "REFRACT"
+      ],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -4808,18 +4848,475 @@
           }
         },
         {
-          "from_depth": 17,
+          "from_depth": 13,
           "creatures": {
             "QUARTZ_GOLEM": 3,
             "CLOUDER": 2,
             "VEIN_WRAITH": 3,
-            "GLASS_WYRM": 3
+            "GLASS_WYRM": 2
           }
         }
+      ]
+    },
+    "SEEPS": {
+      "name": "The Seeps",
+      "tier": 2,
+      "key": "SEEPS",
+      "palette": "4fb3a9",
+      "text": "Water finds every crack down here. Stones come up slick and dark.",
+      "depth": 20,
+      "warden_depths": [8, 16],
+      "wardens": ["THE_FOREMAN", "THE_REGENT"],
+      "boss": "THE_DRILL",
+      "next": "GLASS_VEINS",
+      "lapidary": "VESPER",
+      "luck": 0,
+      "carat": {
+        "soft": 6,
+        "cap": 9
+      },
+      "hp_mult": 1.8,
+      "damage_mult": 1.3,
+      "loadout_sockets": 6,
+      "start_pyrite": 120,
+      "biomes": ["seeps", "seeps_flooded", "seeps_sump"],
+      "color_weights": {
+        "RED": 100,
+        "BLUE": 100,
+        "GREEN": 100,
+        "VIOLET": 100,
+        "GOLD": 100,
+        "WHITE": 100
+      },
+      "skills": [],
+      "batch": ["APEX", "RIPOSTE", "ETCH", "SHATTER", "WAGER", "FACET"],
+      "inclusions": [],
+      "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
+      "chambers": {
+        "fight": 52,
+        "elite": 14,
+        "vein": 17,
+        "oddity": 13,
+        "merchant": 8,
+        "smithy": 6,
+        "carver": 6,
+        "vat": 4,
+        "well": 5
+      },
+      "motherlode_pct": 3,
+      "bands": [
+        {
+          "from_depth": 1,
+          "creatures": {
+            "SILT_SLIME": 3,
+            "MAGPIE": 2,
+            "QUARTZ_GOLEM": 2,
+            "CLOUDER": 2,
+            "CAVE_TICK": 2
+          }
+        },
+        {
+          "from_depth": 7,
+          "creatures": {
+            "QUARTZ_GOLEM": 3,
+            "CLOUDER": 2,
+            "VEIN_WRAITH": 3,
+            "SILT_SLIME": 2
+          }
+        },
+        {
+          "from_depth": 13,
+          "creatures": {
+            "QUARTZ_GOLEM": 2,
+            "VEIN_WRAITH": 3,
+            "GLASS_WYRM": 3,
+            "CLOUDER": 2
+          }
+        }
+      ]
+    },
+    "GLASS_VEINS": {
+      "name": "The Glass Veins",
+      "tier": 3,
+      "key": "GLASS_VEINS",
+      "palette": "9b8cff",
+      "text": "Whole walls of crystal. The lantern comes back at you from every side.",
+      "depth": 24,
+      "warden_depths": [8, 16],
+      "wardens": ["THE_FOREMAN", "THE_REGENT"],
+      "boss": "THE_DRILL",
+      "next": "WARRENS",
+      "lapidary": "CADENCE",
+      "luck": 1,
+      "carat": {
+        "soft": 8,
+        "cap": 11
+      },
+      "hp_mult": 3.2,
+      "damage_mult": 1.7,
+      "loadout_sockets": 6,
+      "start_pyrite": 200,
+      "biomes": ["crystal", "crystal_prism", "crystal_dark"],
+      "color_weights": {
+        "RED": 100,
+        "BLUE": 100,
+        "GREEN": 100,
+        "VIOLET": 100,
+        "GOLD": 100,
+        "WHITE": 100
+      },
+      "skills": [],
+      "batch": [
+        "BARRAGE",
+        "FURY",
+        "AEGIS",
+        "RENEWAL",
+        "DREAD",
+        "CASCADE",
+        "GILDED_ARMOR"
       ],
+      "inclusions": [],
+      "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
+      "chambers": {
+        "fight": 55,
+        "elite": 16,
+        "vein": 16,
+        "oddity": 12,
+        "merchant": 8,
+        "smithy": 6,
+        "carver": 6,
+        "vat": 4,
+        "well": 4
+      },
+      "motherlode_pct": 3,
+      "bands": [
+        {
+          "from_depth": 1,
+          "creatures": {
+            "QUARTZ_GOLEM": 3,
+            "CLOUDER": 2,
+            "VEIN_WRAITH": 2,
+            "LANTERN_MOTH": 2
+          }
+        },
+        {
+          "from_depth": 9,
+          "creatures": {
+            "QUARTZ_GOLEM": 2,
+            "VEIN_WRAITH": 3,
+            "GLASS_WYRM": 3,
+            "CLOUDER": 2
+          }
+        },
+        {
+          "from_depth": 17,
+          "creatures": {
+            "VEIN_WRAITH": 3,
+            "GLASS_WYRM": 4,
+            "QUARTZ_GOLEM": 2
+          }
+        }
+      ]
+    },
+    "WARRENS": {
+      "name": "The Warrens",
+      "tier": 4,
+      "key": "WARRENS",
+      "palette": "8fbf5a",
+      "text": "Fungus over everything, and the air is thick with spores.",
+      "depth": 24,
+      "warden_depths": [8, 16],
+      "wardens": ["THE_FOREMAN", "THE_REGENT"],
+      "boss": "THE_DRILL",
+      "next": "FURNACE",
+      "lapidary": "RUE",
+      "luck": 2,
+      "carat": {
+        "soft": 9,
+        "cap": 13
+      },
+      "hp_mult": 5.8,
+      "damage_mult": 2.2,
+      "loadout_sockets": 6,
+      "start_pyrite": 280,
+      "biomes": ["fungal", "fungal_bloom", "fungal_rot"],
+      "color_weights": {
+        "RED": 100,
+        "BLUE": 100,
+        "GREEN": 100,
+        "VIOLET": 100,
+        "GOLD": 100,
+        "WHITE": 100
+      },
+      "skills": [],
+      "batch": ["DETONATE", "SIPHON", "SAP", "MIASMA", "CURSE", "POLISH"],
+      "inclusions": [],
+      "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
+      "chambers": {
+        "fight": 58,
+        "elite": 18,
+        "vein": 15,
+        "oddity": 11,
+        "merchant": 7,
+        "smithy": 5,
+        "carver": 5,
+        "vat": 4,
+        "well": 4
+      },
+      "motherlode_pct": 3,
+      "bands": [
+        {
+          "from_depth": 1,
+          "creatures": {
+            "SILT_SLIME": 3,
+            "CLOUDER": 3,
+            "VEIN_WRAITH": 2,
+            "LANTERN_MOTH": 2
+          }
+        },
+        {
+          "from_depth": 9,
+          "creatures": {
+            "SILT_SLIME": 2,
+            "CLOUDER": 3,
+            "VEIN_WRAITH": 3,
+            "GLASS_WYRM": 2
+          }
+        },
+        {
+          "from_depth": 17,
+          "creatures": {
+            "VEIN_WRAITH": 3,
+            "GLASS_WYRM": 3,
+            "CLOUDER": 2,
+            "QUARTZ_GOLEM": 2
+          }
+        }
+      ]
+    },
+    "FURNACE": {
+      "name": "The Furnace",
+      "tier": 5,
+      "key": "FURNACE",
+      "palette": "ef7b3f",
+      "text": "The rock is warm to the touch and glows along its seams.",
+      "depth": 28,
+      "warden_depths": [12, 20],
+      "wardens": ["THE_FOREMAN", "THE_REGENT"],
+      "boss": "THE_DRILL",
+      "next": "GEODE",
+      "lapidary": "PUCK",
+      "luck": 3,
+      "carat": {
+        "soft": 11,
+        "cap": 15
+      },
+      "hp_mult": 10.5,
+      "damage_mult": 2.85,
+      "loadout_sockets": 6,
+      "start_pyrite": 360,
+      "biomes": ["magma", "magma_glow", "magma_falls"],
+      "color_weights": {
+        "RED": 100,
+        "BLUE": 100,
+        "GREEN": 100,
+        "VIOLET": 100,
+        "GOLD": 100,
+        "WHITE": 100
+      },
+      "skills": [],
+      "batch": ["BIND", "MORTAR", "THRIVE", "BASTION", "ENRICH", "LIFELINE"],
+      "inclusions": [],
+      "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
+      "chambers": {
+        "fight": 60,
+        "elite": 20,
+        "vein": 14,
+        "oddity": 10,
+        "merchant": 7,
+        "smithy": 5,
+        "carver": 5,
+        "vat": 3,
+        "well": 4
+      },
+      "motherlode_pct": 3,
+      "bands": [
+        {
+          "from_depth": 1,
+          "creatures": {
+            "QUARTZ_GOLEM": 3,
+            "GLASS_WYRM": 2,
+            "MAGPIE": 2,
+            "CAVE_TICK": 2
+          }
+        },
+        {
+          "from_depth": 13,
+          "creatures": {
+            "QUARTZ_GOLEM": 3,
+            "GLASS_WYRM": 3,
+            "VEIN_WRAITH": 2
+          }
+        },
+        {
+          "from_depth": 21,
+          "creatures": {
+            "GLASS_WYRM": 4,
+            "QUARTZ_GOLEM": 2,
+            "VEIN_WRAITH": 3
+          }
+        }
+      ]
+    },
+    "GEODE": {
+      "name": "The Geode",
+      "tier": 6,
+      "key": "GEODE",
+      "palette": "d8a6ef",
+      "text": "A hollow the size of a cathedral, lined in crystal from floor to roof.",
+      "depth": 32,
+      "warden_depths": [12, 24],
+      "wardens": ["THE_FOREMAN", "THE_REGENT"],
+      "boss": "THE_DRILL",
+      "next": "RIFT",
+      "lapidary": "FLORIN",
+      "luck": 4,
+      "carat": {
+        "soft": 12,
+        "cap": 17
+      },
+      "hp_mult": 19.0,
+      "damage_mult": 3.7,
+      "loadout_sockets": 6,
+      "start_pyrite": 450,
+      "biomes": ["geode", "geode_gold", "geode_amethyst"],
+      "color_weights": {
+        "RED": 100,
+        "BLUE": 100,
+        "GREEN": 100,
+        "VIOLET": 100,
+        "GOLD": 100,
+        "WHITE": 100
+      },
+      "skills": [],
+      "batch": [
+        "JACKPOT",
+        "LUCKY_SEVEN",
+        "DOUBLE_DOWN",
+        "STAKE",
+        "APPRAISE",
+        "OVERKILL",
+        "PRISM"
+      ],
+      "inclusions": [],
+      "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
+      "chambers": {
+        "fight": 62,
+        "elite": 22,
+        "vein": 13,
+        "oddity": 9,
+        "merchant": 7,
+        "smithy": 5,
+        "carver": 5,
+        "vat": 3,
+        "well": 3
+      },
+      "motherlode_pct": 3,
+      "bands": [
+        {
+          "from_depth": 1,
+          "creatures": {
+            "MAGPIE": 3,
+            "QUARTZ_GOLEM": 3,
+            "GLASS_WYRM": 2
+          }
+        },
+        {
+          "from_depth": 13,
+          "creatures": {
+            "MAGPIE": 2,
+            "QUARTZ_GOLEM": 2,
+            "GLASS_WYRM": 3,
+            "VEIN_WRAITH": 2
+          }
+        },
+        {
+          "from_depth": 25,
+          "creatures": {
+            "GLASS_WYRM": 4,
+            "VEIN_WRAITH": 3,
+            "QUARTZ_GOLEM": 2
+          }
+        }
+      ]
+    },
+    "RIFT": {
+      "name": "The Rift",
+      "tier": 7,
+      "key": "RIFT",
+      "palette": "8b7dff",
+      "text": "Below the Geode the rock stops making sense, and it does not end.",
+      "depth": 0,
+      "warden_depths": [],
       "wardens": ["THE_FOREMAN", "THE_REGENT", "THE_DRILL"],
-      "unlocks": [],
-      "luck": -1
+      "endless": true,
+      "warden_every": 8,
+      "carat_per_warden": 1,
+      "growth": {
+        "hp": 2.0,
+        "damage": 1.15
+      },
+      "next": "",
+      "lapidary": "",
+      "luck": 5,
+      "carat": {
+        "soft": 13,
+        "cap": 17
+      },
+      "hp_mult": 34.0,
+      "damage_mult": 4.8,
+      "loadout_sockets": 6,
+      "start_pyrite": 550,
+      "biomes": ["rift", "rift_shattered", "rift_echo"],
+      "color_weights": {
+        "RED": 100,
+        "BLUE": 100,
+        "GREEN": 100,
+        "VIOLET": 100,
+        "GOLD": 100,
+        "WHITE": 100
+      },
+      "skills": [],
+      "batch": [],
+      "inclusions": [],
+      "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
+      "chambers": {
+        "fight": 65,
+        "elite": 25,
+        "vein": 12,
+        "oddity": 9,
+        "merchant": 7,
+        "smithy": 5,
+        "carver": 4,
+        "vat": 3,
+        "well": 3
+      },
+      "motherlode_pct": 3,
+      "bands": [
+        {
+          "from_depth": 1,
+          "creatures": {
+            "VEIN_WRAITH": 3,
+            "GLASS_WYRM": 3,
+            "QUARTZ_GOLEM": 2,
+            "CLOUDER": 2,
+            "MAGPIE": 1,
+            "SILT_SLIME": 1,
+            "CAVE_TICK": 1,
+            "LANTERN_MOTH": 1
+          }
+        }
+      ]
     }
   },
   "oddities": {

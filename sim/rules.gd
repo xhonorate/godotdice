@@ -104,8 +104,9 @@ const CURSE_MAX_STACKS: int = 10
 const CURSE_PERCENT: int = 10
 const SPARKLE_MAX_STACKS: int = 100
 ## What one stored Sparkle is worth as generation luck when a stone is found. A full hundred
-## stacks is ten points of luck — a real nudge, not the ten-fold guarantee a point each was.
-const SPARKLE_LUCK: float = 0.1
+## stacks is eight points of luck — a real nudge, not the ten-fold guarantee a point each was,
+## and inside a mine's carat band it can only lean a stone toward the band's top.
+const SPARKLE_LUCK: float = 0.08
 
 # --- amounts -------------------------------------------------------------------------
 

@@ -44,21 +44,22 @@ export default {
 };
 
 function creaturesPage(root, route, ctx) {
+	const mine = C.mine(ctx.settings.mine);
 	const keys = C.keys('creatures').sort((a, b) => Number(C.creature(a).threat) - Number(C.creature(b).threat) || a.localeCompare(b));
 	const active = route.key && C.creature(route.key).name ? route.key : keys[0];
 	const def = C.creature(active);
 	const depth = ctx.settings.depth, party = ctx.settings.party;
-	root.append(toolbar(...depthControls(ctx, { showMine: false }), field('Turn', segmented([[1, '1'], [4, '4'], [7, '7'], [9, '9']], state.turn, (v) => { state.turn = Number(v); ctx.rerender(); }), `Enrage from turn ${C.constant('enrage_turn', 7)}`),
+	root.append(toolbar(...depthControls(ctx), field('Turn', segmented([[1, '1'], [4, '4'], [7, '7'], [9, '9']], state.turn, (v) => { state.turn = Number(v); ctx.rerender(); }), `Enrage from turn ${C.constant('enrage_turn', 7)}`),
 		(def.phases || []).length ? field('Phase', segmented([[0, 'Opening'], ...(def.phases || []).map((p, i) => [i + 1, `Below ${p.below_hp_pct}% HP`])], state.phase, (v) => { state.phase = Number(v); ctx.rerender(); })) : null));
 	const grid = h('div', { class: 'grid grid-side' });
 	root.append(grid);
-	const list = h('div', { class: 'list' }, keys.map((k) => { const d = C.creature(k); return h('button', { type: 'button', class: `list-item${k === active ? ' is-active' : ''}`, onClick: () => ctx.navigate('enemies', k) }, creatureImage(k, 40), h('span', {}, h('span', { class: 'li-name' }, d.name), h('span', { class: 'li-sub' }, `${d.warden ? 'Warden · ' : ''}threat ${d.threat} · ${(d.dice || []).join(' ')}`)), h('span', { class: 'li-right' }, `${Forge.creatureHp(d, depth, party)} hp`)); }));
+	const list = h('div', { class: 'list' }, keys.map((k) => { const d = C.creature(k); return h('button', { type: 'button', class: `list-item${k === active ? ' is-active' : ''}`, onClick: () => ctx.navigate('enemies', k) }, creatureImage(k, 40), h('span', {}, h('span', { class: 'li-name' }, d.name), h('span', { class: 'li-sub' }, `${d.warden ? 'Warden · ' : ''}threat ${d.threat} · ${(d.dice || []).join(' ')}`)), h('span', { class: 'li-right' }, `${Forge.creatureHp(d, depth, party, mine)} hp`)); }));
 	grid.append(h('section', { class: 'card list-panel', style: { maxHeight: 'calc(100vh - 230px)' } }, list, h('div', { class: 'list-count' }, `${keys.length} creatures · HP at depth ${depth}, party ${party}`)));
 	const phase = Math.min(state.phase, (def.phases || []).length);
 	const moves = phase > 0 ? def.phases[phase - 1].moves : def.moves;
 	const detail = h('div', { class: 'col' });
 	grid.append(detail);
-	const hp = Forge.creatureHp(def, depth, party);
+	const hp = Forge.creatureHp(def, depth, party, mine);
 	detail.append(h('div', { class: 'card' }, h('div', { class: 'card-body' }, h('div', { class: 'detail-head' }, h('span', { class: 'pic hero' }, creatureImage(active, 170)),
 		h('div', { class: 'detail-title' }, h('div', { class: 'row tight' }, def.warden ? chip('Warden', { class: 'accent' }) : chip('Creature'), chip(`threat ${def.threat}`), def.gimmick ? chip(`trick: ${C.title(def.gimmick)}`) : null, chip(`${def.ward ?? (def.warden ? 1 : 0)} Ward`)),
 			h('h2', {}, def.name), h('p', { class: 'lede' }, def.text || ''), h('div', { class: 'row tight' }, h('span', { class: 'small muted' }, 'Rolls, in order:'), ...(def.dice || []).map((k) => h('span', { class: 'row tight' }, dieImage(k, 30), h('span', { class: 'small text-2' }, k)))))))));
@@ -77,7 +78,7 @@ function creaturesPage(root, route, ctx) {
 	whenReady(ctx, histSlot, job, (r) => histogram({ bins: r.damageHist, width: 420, height: 190, color: '#e0473c', mean: r.meanDamage, xLabel: 'damage', xFormat: (v) => String(v) }));
 	const depths = Array.from({ length: 28 }, (_, i) => i + 1);
 	detail.append(h('div', { class: 'grid grid-2' },
-		card('Health by depth', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.creatureHp(def, d, p) })) })), width: 420, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `+${fmt(Number(C.constant('depth_hp_scale', 0.05)) * 100, 0)}% a depth, +15% a player` }),
+		card('Health by depth', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.creatureHp(def, d, p, mine) })) })), width: 420, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `+${fmt(Number(C.constant('depth_hp_scale', 0.05)) * 100, 0)}% a depth, +15% a player` }),
 		card('Phases and dice', h('div', { class: 'col' }, kv([['Phases', (def.phases || []).length ? def.phases.map((p) => `below ${p.below_hp_pct}% HP: ${p.moves.map((m) => m.name).join(', ')}`).join(' · ') : 'none'], ['Dice', (def.dice || []).map((k) => `${k} ${faceRowText(k)}`).join(' · ')], ['Trick', def.gimmick ? C.title(def.gimmick) : 'none']]),
 			...(def.dice || []).map((k) => h('div', { class: 'row' }, h('span', { class: 'small muted', style: { width: '40px' } }, k), faceRow(C.die(k)))),
 			note('Ordinary moves are judged against each die as it lands; combination moves against every die shown so far and fire once a turn. All-odd and all-even wait for the last die.', 'plain')))));
@@ -112,7 +113,7 @@ function bandsPage(root, ctx) {
 	const keys = C.keys('creatures').filter((k) => !C.creature(k).warden);
 	const values = keys.map((k) => depths.map((d) => { const band = Forge.bandFor(mine, d); const total = Object.values(band.creatures || {}).reduce((a, b) => a + Number(b), 0) || 1; const w = band.creatures?.[k]; return w ? (Number(w) / total) * 100 : null; }));
 	root.append(card(`Creature pool by depth · ${mine.name || ctx.settings.mine}`, h('div', { class: 'col' }, heatmap({ rows: keys.map((k) => C.creature(k).name), cols: depths.map(String), values, format: (v) => `${fmt(v, 0)}%`, rowLabelWidth: 110, cellHeight: 28, cellLabels: true }),
-		h('p', { class: 'small text-2' }, `Bands begin at depths ${(mine.bands || []).map((b) => b.from_depth).join(', ')}. Wardens ${(mine.wardens || []).map((k) => C.creature(k).name).join(', ')} guard depths ${(C.constant('warden_depths', [])).join(', ')}.`)), { meta: 'first-pick share of the band' }));
+		h('p', { class: 'small text-2' }, `Bands begin at depths ${(mine.bands || []).map((b) => b.from_depth).join(', ')}. Wardens ${(mine.wardens || []).map((k) => C.creature(k).name).join(', ')} guard depths ${(mine.warden_depths || []).join(', ')}${mine.boss ? `, and ${C.creature(mine.boss).name} the bottom at ${mine.depth}` : ''}.`)), { meta: 'first-pick share of the band' }));
 	const budgetSeries = [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.encounterBudget(d, p, false) })) }));
 	root.append(h('div', { class: 'grid grid-2' },
 		card('Threat budget by depth', lines({ series: budgetSeries, width: 480, height: 200, xFormat: (d) => String(d), format: (v) => fmt(v, 1), markers: false }), { meta: 'an elite fight has half again' }),

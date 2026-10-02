@@ -10,7 +10,13 @@ extends RefCounted
 ##   tunnels ─pick─▶ chamber (fight | elite | vein | oddity | merchant | smithy | carver | motherlode) ─▶ tunnels …
 ##   every LANDING_EVERY depths: landing (a respite each: rest, appraise or the well; then up or down)
 ##   at warden depths the landing's gate is a warden fight; the hoard follows a win
+##   the mine's last floor is its final boss: after the hoard, the lift or on into the next mine
 ##   a wipe → salvage → over (fallen);  the lift → over (extracted | conquered)
+##
+## Every mine but the last has a bottom. A party that beats a mine's final boss may push on
+## into the mine below it with everything it carries: the depth starts again from the top of
+## the new mine, but the creatures there are bred for a little deeper (`heat`), and the lift
+## fare counts every floor the party has come down since the workshop (`carried`).
 ##
 ## Players keep their own haul and ore. Tunnels and the lift are votes. The bench (setting
 ## stones, swapping dice, giving things away) is open whenever there is no fight on.
@@ -48,17 +54,24 @@ static func new_run(config: Dictionary) -> Dictionary:
 	##   players: [{id, name, character, rail: [stones|null], dice: [die instances], last_depth, last_outcome}]
 	var seed_value: int = int(config.get("seed", randi()))
 	var mine_key: String = str(config.get("mine", DeepContent.starter_mine()))
-	var state: Dictionary = {"run_id": str(config.get("run_id", "run%08x" % seed_value)), "seed": seed_value, "mine": mine_key,
+	var mine_def: Dictionary = DeepContent.mine(mine_key)
+	var state: Dictionary = {"run_id": str(config.get("run_id", "run%08x" % seed_value)), "seed": seed_value, "mine": mine_key, "from_mine": mine_key,
 		"depth": 0, "phase": "tunnels", "outcome": "", "players": [], "offers": [], "chamber": {}, "landing": {},
-		"hoard": {}, "salvage": {}, "aftermath": {}, "used_oddities": [], "path": [], "records": {"deepest": 0, "wardens": [], "stones_found": 0, "fights": 0},
-		"rng": {}, "seq": 0, "next_id": 1}
+		"hoard": {}, "salvage": {}, "aftermath": {}, "used_oddities": [], "path": [], "records": {"deepest": 0, "wardens": [], "boss": false, "stones_found": 0, "fights": 0},
+		"heat": 0, "carried": 0, "mines_done": [], "rng": {}, "seq": 0, "next_id": 1}
 	var streams: Dictionary = DeepRng.streams(seed_value)
-	state.schedule = plan_shaft(streams.tunnels)
+	state.schedule = plan_shaft(streams.tunnels, mine_def)
+	## A party that starts in a deeper mine rather than fighting down to it is given what the
+	## way down would have given it: every socket filled from the vault, and a purse.
+	var sockets: int = loadout_sockets(mine_key)
 	var seat: int = 0
 	for entry in config.get("players", []):
+		var rail: Array = entry.get("rail", []).duplicate(true)
+		for index in range(sockets, rail.size()):
+			rail[index] = null
 		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", "Lapidary")), str(entry.get("character", DeepContent.starter_character())),
-			entry.get("rail", []), entry.get("dice", []))
-		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": 0, "vote": "", "seen": [],
+			rail, entry.get("dice", []))
+		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": int(mine_def.get("start_pyrite", 0)), "vote": "", "seen": [],
 			"choice": "", "respite": "", "ready": false, "strikes": 0, "mining": false, "oddity_choice": "", "stake": "", "last_depth": int(entry.get("last_depth", 0)),
 			"last_outcome": str(entry.get("last_outcome", "")), "stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0}}, true)
 		state.players.append(unit)
@@ -119,6 +132,10 @@ static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, p
 static func streams_of(state: Dictionary) -> Dictionary:
 	return DeepRng.restore(state.get("rng", {}))
 
+static func loadout_sockets(mine_key: String) -> int:
+	## How many of a lapidary's sockets are filled from the vault before a run in this mine.
+	return int(DeepContent.mine(mine_key).get("loadout_sockets", DeepContent.constant("starting_rail_cap", 3)))
+
 static func mine_of(state: Dictionary) -> Dictionary:
 	var mine: Dictionary = DeepContent.mine(str(state.get("mine", "")))
 	if not mine.has("key"):
@@ -139,14 +156,19 @@ static func is_landing(depth: int) -> bool:
 	## Where a landing would be if nobody rolled for it. A run under way asks `run_is_landing`.
 	return depth > 0 and depth % landing_every() == 0
 
-static func plan_shaft(rng: RandomNumberGenerator) -> Dictionary:
-	## Where this run's lifts and Wardens actually stand. The written depths are only roughly
-	## where they are: every landing wanders a floor either way and its Warden goes with it,
-	## so nobody can count steps to the next one. That is the whole point — not knowing how
-	## far the next lift is makes the lantern, and the ore that lights the way, worth having.
-	## The bottom of the mine never moves: the last Warden is on the last floor.
+static func plan_shaft(rng: RandomNumberGenerator, mine: Dictionary = {}) -> Dictionary:
+	## Where this run's lifts and Wardens actually stand in a mine. The written depths are
+	## only roughly where they are: every landing wanders a floor either way and its Warden
+	## goes with it, so nobody can count steps to the next one. That is the whole point — not
+	## knowing how far the next lift is makes the lantern, and the ore that lights the way,
+	## worth having. The bottom of the mine never moves: its final boss is on the last floor.
+	## An endless mine plans nothing: a lift every fourth floor and a Warden every eighth.
+	if mine.is_empty():
+		mine = DeepContent.mine(DeepContent.starter_mine())
+	if bool(mine.get("endless", false)):
+		return {"landings": [], "wardens": [], "boss": 0}
 	var every: int = landing_every()
-	var bottom: int = int(DeepContent.constant("run_depth", 24))
+	var bottom: int = int(mine.get("depth", 24))
 	var landings: Array = []
 	var at: int = 0
 	var index: int = 0
@@ -161,11 +183,12 @@ static func plan_shaft(rng: RandomNumberGenerator) -> Dictionary:
 	## A Warden guards a landing, so the written Warden depths are read as which landing they
 	## are: the second, the fourth, the last, wherever those have ended up.
 	var wardens: Array = []
-	for written in DeepContent.constant("warden_depths", [8, 16, 24]):
+	for written in mine.get("warden_depths", []):
 		var which: int = int(round(float(written) / float(every))) - 1
-		if which >= 0 and which < landings.size() and not wardens.has(int(landings[which])):
+		if which >= 0 and which < landings.size() - 1 and not wardens.has(int(landings[which])):
 			wardens.append(int(landings[which]))
-	return {"landings": landings, "wardens": wardens}
+	wardens.append(bottom)
+	return {"landings": landings, "wardens": wardens, "boss": bottom}
 
 static func run_is_landing(state: Dictionary, depth: int) -> bool:
 	## Past the bottom of the charted shaft — the Endless — the plain every-fourth rule is
@@ -176,12 +199,27 @@ static func run_is_landing(state: Dictionary, depth: int) -> bool:
 	return listed.has(depth)
 
 static func run_is_warden(state: Dictionary, depth: int) -> bool:
+	## A Warden or the final boss stands at this landing.
+	if bool(mine_of(state).get("endless", false)):
+		return is_warden_depth(depth, str(state.get("mine", "")))
 	var listed: Array = state.get("schedule", {}).get("wardens", [])
 	if listed.is_empty():
-		return is_warden_depth(depth)
-	if listed.has(depth):
-		return true
-	return depth > int(DeepContent.constant("run_depth", 24)) and is_warden_depth(depth)
+		return is_warden_depth(depth, str(state.get("mine", "")))
+	return listed.has(depth)
+
+static func run_is_boss(state: Dictionary, depth: int) -> bool:
+	## The mine's last floor, where its final boss waits.
+	var bottom: int = bottom_of(state)
+	return bottom > 0 and depth == bottom
+
+static func bottom_of(state: Dictionary) -> int:
+	## The last floor of the mine the party is in, or 0 in a mine with no bottom. A run saved
+	## before mines had bosses keeps the bottom it was planned with: its last landing.
+	var schedule: Dictionary = state.get("schedule", {})
+	if schedule.has("boss"):
+		return int(schedule.boss)
+	var landings: Array = schedule.get("landings", [])
+	return int(landings.back()) if not landings.is_empty() else DeepContent.mine_bottom(str(state.get("mine", "")))
 
 static func next_landing(state: Dictionary, depth: int) -> int:
 	## The next lift down from here, as this run laid them out.
@@ -191,20 +229,34 @@ static func next_landing(state: Dictionary, depth: int) -> int:
 	var every: int = landing_every()
 	return (depth / every + 1) * every
 
-static func is_warden_depth(depth: int) -> bool:
-	var listed: Array = DeepContent.constant("warden_depths", [8, 16, 24])
-	for d in listed:
+static func warden_every(mine: Dictionary) -> int:
+	return maxi(1, int(mine.get("warden_every", DeepContent.constant("endless_warden_every", 8))))
+
+static func is_warden_depth(depth: int, mine_key: String = "") -> bool:
+	## Where a mine's Wardens and final boss stand as written, before any run moves them.
+	var key: String = mine_key if not mine_key.is_empty() else DeepContent.starter_mine()
+	var mine: Dictionary = DeepContent.mine(key)
+	if depth <= 0:
+		return false
+	if bool(mine.get("endless", false)):
+		return depth % warden_every(mine) == 0
+	for d in mine.get("warden_depths", []):
 		if int(d) == depth:
 			return true
-	var run_depth: int = int(DeepContent.constant("run_depth", 24))
-	var every: int = maxi(1, int(DeepContent.constant("endless_warden_every", 8)))
-	return depth > run_depth and (depth - run_depth) % every == 0
+	return depth == DeepContent.mine_bottom(key)
 
 static func warden_key(state: Dictionary, depth: int) -> String:
-	var wardens: Array = mine_of(state).get("wardens", [])
+	## Who guards this landing: the mine's Wardens in order, and at the bottom its final boss.
+	## In an endless mine the Wardens take their turns, one every eighth floor.
+	var mine: Dictionary = mine_of(state)
+	var wardens: Array = mine.get("wardens", [])
+	if run_is_boss(state, depth) and not str(mine.get("boss", "")).is_empty():
+		return str(mine.boss)
 	if wardens.is_empty():
-		return ""
-	var listed: Array = state.get("schedule", {}).get("wardens", DeepContent.constant("warden_depths", [8, 16, 24]))
+		return str(mine.get("boss", ""))
+	if bool(mine.get("endless", false)):
+		return str(wardens[maxi(0, depth / warden_every(mine) - 1) % wardens.size()])
+	var listed: Array = state.get("schedule", {}).get("wardens", mine.get("warden_depths", []))
 	var index: int = -1
 	for i in range(listed.size()):
 		if int(listed[i]) == depth:
@@ -491,7 +543,8 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, warden: String) -> Dictionary:
 	var mine: Dictionary = mine_of(state)
 	var party: Array = living(state)
-	var keys: Array = [warden] if not warden.is_empty() else DeepForge.encounter(streams.creatures, mine, int(state.depth), party.size(), elite)
+	var threat: int = int(state.depth) + int(state.get("heat", 0))
+	var keys: Array = [warden] if not warden.is_empty() else DeepForge.encounter(streams.creatures, mine, threat, party.size(), elite)
 	var fighters: Array = []
 	for unit in state.players:
 		var fighter: Dictionary = unit.duplicate(true)
@@ -503,7 +556,8 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 		fighter.rank_buff = {"carat": 0, "cut": 0}
 		fighter.pyrite_delta = 0
 		fighters.append(fighter)
-	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": int(state.depth), "elite": elite, "warden": not warden.is_empty()}, streams.dice, streams.creatures)
+	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": int(state.depth), "threat": threat, "scale": creature_scale(mine, int(state.depth)),
+		"elite": elite, "warden": not warden.is_empty()}, streams.dice, streams.creatures)
 	## Soft Rock: a staked player's first fights open against creatures already cracked.
 	var soft: bool = false
 	for unit in state.players:
@@ -517,6 +571,18 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 	state.chamber.kind = "warden" if not warden.is_empty() else ("elite" if elite else "fight")
 	state.records.fights = int(state.records.fights) + 1
 	return _event(state, "battle_begin", {"depth": state.depth, "creatures": keys, "elite": elite, "warden": warden, "soft_rock": soft})
+
+static func creature_scale(mine: Dictionary, depth: int) -> Dictionary:
+	## How much tougher a mine breeds its creatures than the Quarry does. An endless mine
+	## keeps compounding: its growth is per Warden's worth of floors, counted smoothly.
+	var hp: float = float(mine.get("hp_mult", 1.0))
+	var damage: float = float(mine.get("damage_mult", 1.0))
+	if bool(mine.get("endless", false)):
+		var growth: Dictionary = mine.get("growth", {})
+		var spans: float = float(maxi(0, depth - 1)) / float(warden_every(mine))
+		hp *= pow(float(growth.get("hp", 1.0)), spans)
+		damage *= pow(float(growth.get("damage", 1.0)), spans)
+	return {"hp": hp, "damage": damage}
 
 static func in_battle(state: Dictionary) -> bool:
 	return str(state.get("phase", "")) == "chamber" and state.get("chamber", {}).get("battle", null) is Dictionary and not bool(state.chamber.get("settled", false))
@@ -594,7 +660,7 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 				var drops: Dictionary = DeepContent.constant("stone_drop_pct", {"fight": 55, "elite": 100})
 				var chance: float = float(drops.get(kind, 55)) + float(fighter.get("quality_bonus", 0)) / 2.0
 				if DeepRng.chance(streams.stones, chance):
-					var bonus: int = (4 if kind == "elite" else 0) + int(fighter.get("quality_bonus", 0)) / 10
+					var bonus: int = (int(DeepContent.constant("elite_stone_luck", 3)) if kind == "elite" else 0) + int(fighter.get("quality_bonus", 0)) / 10
 					reward.stones.append(_find_stone(state, unit, streams, bonus, kind))
 			## A Royal Flush drops a stone of its own, Exquisite or better, warden or not.
 			for _drop in range(int(fighter.get("stone_drops", 0))):
@@ -610,6 +676,8 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 		return settle
 	if kind == "warden":
 		state.records.wardens.append(int(state.depth))
+		if run_is_boss(state, int(state.depth)):
+			state.records.boss = true
 		state.landing.cleared = true
 		state.landing.warden_next = false
 		_offer_hoard(state)
@@ -620,10 +688,10 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	return settle
 
 static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary, bonus: int, source: String, min_tier: String = "") -> Dictionary:
-	## One raw stone into a player's haul. All stored Sparkle is spent on this find, a tenth
-	## of a point of luck apiece, so a full hundred stacks is worth ten points. `min_tier`
-	## names the lowest grade that will do: the wheel spins again, a dozen times at most,
-	## until it lands.
+	## One raw stone into a player's haul. All stored Sparkle is spent on this find, at
+	## SPARKLE_LUCK a point of luck apiece, so a full hundred stacks is worth eight points.
+	## `min_tier` names the lowest grade that will do: the wheel spins again, a dozen times
+	## at most, until it lands.
 	var extra: float = float(bonus) + float(clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)) * DeepRules.SPARKLE_LUCK
 	unit.sparkle = 0
 	var provenance: Dictionary = {"run": str(state.run_id), "source": source, "finder": str(unit.id), "seat": int(unit.get("seat", 0))}
@@ -1173,17 +1241,30 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 
 static func lift_cost(state: Dictionary) -> int:
 	## What the winch wants to haul the party up from this depth: so much a depth, a share for
-	## every living body in the cage. Riding up early is cheap; riding up loaded is not.
-	return int(DeepContent.constant("lift_ore_per_depth", 15)) * maxi(1, int(state.get("depth", 1))) * maxi(1, living(state).size())
+	## every living body in the cage. Riding up early is cheap; riding up loaded is not. The
+	## rope runs all the way back to the workshop, so a party that has pushed on from one mine
+	## into the next pays for every floor of the mines above as well.
+	var floors: int = int(state.get("depth", 1)) + int(state.get("carried", 0))
+	return int(DeepContent.constant("lift_ore_per_depth", 15)) * maxi(1, floors) * maxi(1, living(state).size())
 
 static func is_conquered(state: Dictionary) -> bool:
-	## The mine is yours if its last Warden is dead and you got out with the news. The hall it
-	## died in has no lift, so the cage that carries it up is always somewhere above.
-	var bottom: int = int(DeepContent.constant("run_depth", 24))
-	for at in state.get("records", {}).get("wardens", []):
-		if int(at) >= bottom:
+	## A mine is yours if its final boss is dead and you got out with the news: this mine's,
+	## or one the party came down through on the way.
+	if bool(state.get("records", {}).get("boss", false)):
+		return true
+	for done in state.get("mines_done", []):
+		if bool(done.get("boss", false)):
 			return true
 	return false
+
+static func in_boss_hall(state: Dictionary) -> bool:
+	## The final boss is dead and the party stands in its hall: the one hall with a cage in it,
+	## and the one with a way on into the next mine.
+	var landing: Dictionary = state.get("landing", {})
+	return bool(landing.get("cleared", false)) and run_is_boss(state, int(landing.get("depth", -1))) and int(landing.get("depth", -1)) == int(state.get("depth", 0))
+
+static func next_mine(state: Dictionary) -> String:
+	return str(mine_of(state).get("next", ""))
 
 static func _party_ore(state: Dictionary) -> int:
 	var total: int = 0
@@ -1221,10 +1302,13 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 	if not choice in ["lift", "descend"]:
 		return _refuse("lift or descend")
 	var landing: Dictionary = state.get("landing", {})
-	var hall: bool = bool(landing.get("cleared", false))
+	var boss_hall: bool = in_boss_hall(state)
+	var hall: bool = bool(landing.get("cleared", false)) and not boss_hall
 	var rested: bool = not str(unit.get("respite", "")).is_empty()
 	if choice == "lift" and hall:
 		return _refuse("no cage was ever sunk into a Warden's hall: the way on is down")
+	if choice == "descend" and boss_hall and next_mine(state).is_empty():
+		return _refuse("this is the bottom of the mine: the only way is up")
 	if choice == "descend" and not rested and _has_respites(state):
 		return _refuse("take your respite first: the fire, the bench or the well")
 	if choice == "lift" and rested:
@@ -1246,6 +1330,10 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 		event.paid = _pay_for_lift(state)
 		_finish(state, "conquered" if is_conquered(state) else "extracted")
 		event.finished = str(state.outcome)
+	elif boss_hall:
+		event.next_mine = _push_on(state, streams)
+		state.rng = DeepRng.save(streams)
+		event.tunnels = true
 	elif bool(state.landing.get("warden_next", false)):
 		state.phase = "chamber"
 		state.chamber = {"kind": "warden", "depth": state.depth, "settled": false}
@@ -1257,6 +1345,36 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 		state.rng = DeepRng.save(streams)
 		event.tunnels = true
 	return {"ok": true, "event": event}
+
+static func _push_on(state: Dictionary, streams: Dictionary) -> String:
+	## Down out of a beaten mine and into the one below it. Everything carried comes along —
+	## the rail, the haul, the purse, the wounds — and nothing is banked: a fall down here
+	## loses both mines' finds. The new mine starts from its own top floor, its creatures
+	## bred a little deeper for every mine the party has pushed through. Returns the mine left.
+	var leaving: String = str(state.mine)
+	state.mines_done.append(mine_record(state))
+	state.carried = int(state.get("carried", 0)) + int(state.depth)
+	state.heat = int(state.get("heat", 0)) + int(DeepContent.constant("chain_heat", 2))
+	state.mine = next_mine(state)
+	state.depth = 0
+	state.records.deepest = 0
+	state.records.wardens = []
+	state.records.boss = false
+	state.path = []
+	state.map = {}
+	state.landing = {}
+	state.schedule = plan_shaft(streams.tunnels, mine_of(state))
+	for unit in state.players:
+		unit.choice = ""
+		unit.respite = ""
+	_offer_tunnels(state, streams)
+	return leaving
+
+static func mine_record(state: Dictionary) -> Dictionary:
+	## What the party did in the mine it is in: how deep, which Wardens, and the boss.
+	var records: Dictionary = state.get("records", {})
+	return {"mine": str(state.get("mine", "")), "deepest": int(records.get("deepest", 0)), "wardens": records.get("wardens", []).duplicate(),
+		"boss": bool(records.get("boss", false))}
 
 # --- hoard, salvage, endings ---------------------------------------------------------------
 
@@ -1272,7 +1390,7 @@ static func _offer_hoard(state: Dictionary) -> void:
 	state.hoard = {}
 	var opals: Array = DeepForge.opal_pool()
 	var opal_pct: float = float(DeepContent.constant("opal_hoard_pct", 100))
-	var luck: float = float(DeepContent.constant("hoard_luck", 6))
+	var luck: float = float(DeepContent.constant("hoard_luck", 5))
 	var opal_luck: float = float(DeepContent.constant("opal_hoard_luck", 0))
 	for unit in state.players:
 		var offers: Array = []
@@ -1377,8 +1495,10 @@ static func _finish(state: Dictionary, outcome: String) -> void:
 static func results(state: Dictionary) -> Dictionary:
 	## What each player takes home. Ore stays in the mine.
 	_saw(state)
-	var out: Dictionary = {"run_id": str(state.run_id), "mine": str(state.mine), "outcome": str(state.outcome), "depth": int(state.depth),
-		"deepest": int(state.records.deepest), "wardens": state.records.wardens.duplicate(), "players": {}}
+	var mines: Array = state.get("mines_done", []).duplicate(true)
+	mines.append(mine_record(state))
+	var out: Dictionary = {"run_id": str(state.run_id), "mine": str(state.mine), "from_mine": str(state.get("from_mine", state.mine)), "outcome": str(state.outcome),
+		"depth": int(state.depth), "deepest": int(state.records.deepest), "wardens": state.records.wardens.duplicate(), "mines": mines, "players": {}}
 	for unit in state.players:
 		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
 			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true)}

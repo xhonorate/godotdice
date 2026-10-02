@@ -18,6 +18,7 @@ func _init() -> void:
 	_test_salvage()
 	_test_grubstake()
 	_test_profile()
+	_test_mines()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -52,7 +53,7 @@ func _test_sparkle() -> void:
 		var before: Dictionary = state.duplicate(true)
 		var found: Dictionary = DeepDescent._find_stone(state, unit, streams, 3, "vein")
 		var expected: Dictionary = DeepForge.roll_stone(expected_rng, DeepDescent.mine_of(state), 5, 3.0 + float(mini(stacks, 100)) * DeepRules.SPARKLE_LUCK, found.provenance, str(found.id))
-		check(JSON.stringify(found) == JSON.stringify(expected), "%d stored Sparkle grants a tenth of a luck point each, capped, on the next find" % stacks)
+		check(JSON.stringify(found) == JSON.stringify(expected), "%d stored Sparkle grants SPARKLE_LUCK a luck point each, capped, on the next find" % stacks)
 		check(int(unit.sparkle) == 0 and int(state.players[1].sparkle) == 23, "a stone consumes every stack for its finder only, even below five")
 		check(JSON.stringify(DeepPatch.apply(before, DeepPatch.diff(before, state))) == JSON.stringify(state), "Sparkle consumption and its stone patch identically for guests")
 		var next: Dictionary = DeepDescent._find_stone(state, unit, streams, 3, "vein")
@@ -156,13 +157,18 @@ func _test_open_and_tunnels() -> void:
 	check(state.phase == "chamber", "now in a chamber of kind " + str(state.chamber.kind))
 	check(not cmd(state, "a", "vote_tunnel", {"offer": "t0"}).ok, "no voting inside a chamber")
 	check(DeepDescent.is_landing(4) and DeepDescent.is_landing(8) and not DeepDescent.is_landing(5), "landings every four depths")
-	check(DeepDescent.is_warden_depth(8) and DeepDescent.is_warden_depth(24) and DeepDescent.is_warden_depth(32) and not DeepDescent.is_warden_depth(12), "wardens at 8, 16, 24 and every 8 below")
+	check(DeepDescent.is_warden_depth(8) and DeepDescent.is_warden_depth(12) and DeepDescent.is_warden_depth(16) and not DeepDescent.is_warden_depth(4) and not DeepDescent.is_warden_depth(24),
+		"the Quarry's Wardens at 8 and 12 and its boss on the bottom floor, 16")
+	check(DeepDescent.is_warden_depth(8, "RIFT") and DeepDescent.is_warden_depth(40, "RIFT") and not DeepDescent.is_warden_depth(12, "RIFT"), "the Rift has a Warden every eighth floor")
 	## The written depths are only roughly where the Wardens stand: this run's own schedule
 	## says which landing each of them guards.
 	var guards: Array = state.schedule.wardens
-	check(guards.size() == 3 and int(guards[2]) == int(DeepContent.constant("run_depth", 24)), "three Wardens, the last on the bottom floor: %s" % str(guards))
+	var bottom: int = DeepContent.mine_bottom("QUARRY")
+	check(guards.size() == 3 and int(guards[2]) == bottom and int(state.schedule.boss) == bottom, "two Wardens and the boss on the bottom floor: %s" % str(guards))
 	check(guards.all(func(d: int) -> bool: return state.schedule.landings.has(d)), "and every one of them guards a landing")
-	check(DeepDescent.warden_key(state, int(guards[0])) == "THE_FOREMAN" and DeepDescent.warden_key(state, 40) == "THE_DRILL", "warden keys by which landing they guard")
+	check(DeepDescent.warden_key(state, int(guards[0])) == "THE_FOREMAN" and DeepDescent.warden_key(state, int(guards[1])) == "THE_REGENT" and DeepDescent.warden_key(state, bottom) == "THE_DRILL",
+		"warden keys by which landing they guard, and the boss at the bottom")
+	check(DeepDescent.run_is_boss(state, bottom) and not DeepDescent.run_is_boss(state, int(guards[0])), "only the bottom floor is the boss's")
 
 func _test_lantern_map() -> void:
 	for seed_value in [3, 7, 19, 44, 90]:
@@ -733,12 +739,25 @@ func _test_profile() -> void:
 	profile.characters.ARDOR.rail = [null, "GUARD", "MEND", "STRIKE", null]
 	check(DeepProfile.tidy(profile) and profile.characters.ARDOR.rail == ["STRIKE", "GUARD", "MEND", null, null], "a stone in a mine socket moves into the loadout: %s" % str(profile.characters.ARDOR.rail))
 	check(not DeepProfile.tidy(profile), "and a tidy rail is left as it is")
-	var result: Dictionary = {"run_id": "r1", "mine": "QUARRY", "outcome": "extracted", "depth": 8, "deepest": 8, "wardens": [8],
+	var result: Dictionary = {"run_id": "r1", "mine": "QUARRY", "outcome": "extracted", "depth": 8, "deepest": 8, "wardens": [8], "mines": [{"mine": "QUARRY", "deepest": 8, "wardens": [8], "boss": false}],
 		"players": {"a": {"haul": [DeepStone.make("VENOM", 4, 2, 2, ["SILK"], {}, "v1"), DeepStone.make("STRIKE", 1, 0, 3, [], {}, "s1")], "dice": [DeepDice.make("D20", "d20x")], "stats": {}, "rail": []}}}
 	var applied: Dictionary = DeepProfile.apply_result(profile, result, "a")
-	check(profile.tray.size() == 2 and profile.bowl.size() == 11, "two stones wait in the tray; a die joins the bowl alongside a newly unlocked character's five dice (%d)" % profile.bowl.size())
+	check(profile.tray.size() == 2 and profile.bowl.size() == 6, "two stones wait in the tray and a die joins the bowl (%d)" % profile.bowl.size())
 	check(profile.mines.QUARRY.deepest == 8 and profile.mines.QUARRY.wardens == [8] and profile.records.runs == 1 and profile.records.extractions == 1, "records are written")
-	check(applied.unlocked.size() == 1 and applied.unlocked[0].get("character", "") == "VESPER" and profile.characters.VESPER.unlocked, "the first warden unlocks Vesper: %s" % str(applied.unlocked))
+	check(applied.unlocked.is_empty() and not profile.characters.VESPER.unlocked and not profile.mines.SEEPS.unlocked, "the Quarry's Wardens unlock nobody, and its boss still stands: %s" % str(applied.unlocked))
+	## A party that beat the Quarry's boss, pushed on into the Seeps and fell past its first
+	## Warden: the Seeps opens and Vesper, who is met there, joins, though nobody rode up.
+	var pushed: Dictionary = {"run_id": "r2", "mine": "SEEPS", "from_mine": "QUARRY", "outcome": "fallen", "depth": 9, "deepest": 9, "wardens": [8],
+		"mines": [{"mine": "QUARRY", "deepest": 16, "wardens": [8, 12, 16], "boss": true}, {"mine": "SEEPS", "deepest": 9, "wardens": [8], "boss": false}],
+		"players": {"a": {"haul": [], "dice": [], "stats": {}, "rail": []}}}
+	applied = DeepProfile.apply_result(profile, pushed, "a")
+	check(applied.unlocked.size() == 2 and applied.unlocked[0].get("mine", "") == "SEEPS" and applied.unlocked[1].get("character", "") == "VESPER", "the boss opens the Seeps and its first Warden brings Vesper: %s" % str(applied.unlocked))
+	check(profile.mines.QUARRY.boss and profile.mines.QUARRY.wardens == [8, 12, 16] and profile.mines.SEEPS.unlocked and profile.mines.SEEPS.deepest == 9 and profile.characters.VESPER.unlocked,
+		"both mines are written down")
+	check(profile.bowl.size() == 11 and profile.records.runs == 2 and profile.records.falls == 1, "Vesper's five dice join the bowl (%d)" % profile.bowl.size())
+	check(not DeepProfile.unlocked_mines(profile).has("GLASS_VEINS") and DeepProfile.unlocked_mines(profile).has("SEEPS"), "the Glass Veins stay sealed")
+	check(DeepProfile.widest_rail_cap(profile) == 6 and DeepProfile.starting_rail_cap("QUARRY") == 3 and DeepProfile.loadout_socket(4, "SEEPS") and not DeepProfile.loadout_socket(4, "QUARRY"),
+		"a run started in the Seeps fills every socket from the vault; one in the Quarry fills three")
 	## Vesper's two Red sockets: a stone moves between them, and swaps with one already there.
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "VESPER", 1, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == [null, "STRIKE"], "moving a stone empties its old socket")
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "CLEAVE") == "" and DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == ["STRIKE", "CLEAVE"], "a stone moved onto another swaps them: %s" % str(profile.characters.VESPER.rail))
@@ -952,3 +971,109 @@ func _test_grubstake() -> void:
 		fought = true
 		break
 	check(fought, "a fight was found to test the run mods against")
+
+func _test_mines() -> void:
+	## The mines in order, each opening the next, and only the last without a bottom.
+	var order: Array = DeepContent.mines_in_order()
+	check(order[0] == "QUARRY" and order[order.size() - 1] == "RIFT" and order.size() == 7, "seven mines, the Quarry first and the Rift last: %s" % str(order))
+	for index in range(order.size() - 1):
+		check(str(DeepContent.mine(str(order[index])).get("next", "")) == str(order[index + 1]), "%s opens onto %s" % [order[index], order[index + 1]])
+		check(DeepContent.mine_bottom(str(order[index])) > 0 and not DeepContent.is_endless(str(order[index])), "%s has a bottom" % order[index])
+	check(DeepContent.is_endless("RIFT") and DeepContent.mine_bottom("RIFT") == 0, "the Rift has none")
+	## Every skill outside the opals is found in exactly one mine's batch.
+	var homes: Dictionary = {}
+	for key in order:
+		for skill in DeepContent.mine(str(key)).get("batch", []):
+			homes[str(skill)] = int(homes.get(str(skill), 0)) + 1
+	for skill in DeepContent.section("skills"):
+		if str(DeepContent.skill(str(skill)).get("color", "")) == DeepContent.OPAL:
+			continue
+		check(int(homes.get(str(skill), 0)) == 1, "%s belongs to exactly one mine's batch (%d)" % [skill, int(homes.get(str(skill), 0))])
+	## A mine's pool is its own batch and the batches above it.
+	var quarry_pool: Array = DeepForge.skill_pool(DeepContent.mine("QUARRY"))
+	var seeps_pool: Array = DeepForge.skill_pool(DeepContent.mine("SEEPS"))
+	check(quarry_pool.has("STRIKE") and not quarry_pool.has("APEX") and not quarry_pool.has("JACKPOT"), "the Quarry holds only its own batch")
+	check(seeps_pool.has("STRIKE") and seeps_pool.has("APEX") and not seeps_pool.has("BARRAGE"), "the Seeps adds its batch to the Quarry's")
+	check(DeepForge.skill_pool(DeepContent.mine("RIFT")).has("JACKPOT"), "the Rift holds every batch")
+	## Carat stays inside each mine's band, however much luck is piled on.
+	var rng: RandomNumberGenerator = DeepRng.streams(77).stones
+	for key in order:
+		var mine: Dictionary = DeepContent.mine(str(key))
+		var band: Dictionary = DeepForge.carat_band(mine, 1)
+		var heaviest: int = 0
+		var over_soft: int = 0
+		var rolls: int = 3000
+		for i in range(rolls):
+			var carat: int = DeepForge.roll_carat(rng, DeepForge.luck(mine, 24, 18.0), band)
+			heaviest = maxi(heaviest, carat)
+			if carat > int(band.soft):
+				over_soft += 1
+		check(heaviest <= int(band.cap), "%s never gives up a stone over %d carats (heaviest %d)" % [key, int(band.cap), heaviest])
+		check(float(over_soft) / float(rolls) < 0.12, "%s rarely gives up one over %d, even on maxed luck (%d in %d)" % [key, int(band.soft), over_soft, rolls])
+	var quarry: Dictionary = DeepContent.mine("QUARRY")
+	var ordinary_over: int = 0
+	for i in range(3000):
+		if int(DeepForge.roll_stone(rng, quarry, 14, 0.0).carat) > 5:
+			ordinary_over += 1
+	check(ordinary_over < 90, "an ordinary find deep in the Quarry is over five carats less than one time in thirty (%d in 3000)" % ordinary_over)
+	var rift: Dictionary = DeepContent.mine("RIFT")
+	check(int(DeepForge.carat_band(rift, 1).cap) == 17 and int(DeepForge.carat_band(rift, 17).cap) == 19 and int(DeepForge.carat_band(rift, 400).cap) == DeepStone.carat_max(),
+		"the Rift's cap climbs a carat a Warden, to the most a stone can weigh")
+	## Deeper mines breed tougher creatures; the Rift keeps compounding.
+	var tick_quarry: Dictionary = DeepCreatures.make("CAVE_TICK", "t", 5, 1, DeepDescent.creature_scale(quarry, 5))
+	var tick_seeps: Dictionary = DeepCreatures.make("CAVE_TICK", "t", 5, 1, DeepDescent.creature_scale(DeepContent.mine("SEEPS"), 5))
+	check(int(tick_seeps.max_hp) >= int(tick_quarry.max_hp) * 17 / 10 and float(tick_seeps.damage_mult) > 1.0, "a Seeps tick is far tougher than a Quarry one (%d vs %d)" % [int(tick_seeps.max_hp), int(tick_quarry.max_hp)])
+	check(float(DeepDescent.creature_scale(rift, 17).hp) > float(DeepDescent.creature_scale(rift, 9).hp) * 1.9, "the Rift doubles its creatures' health every eight floors")
+	## A run started in a deeper mine comes down with every socket filled and a purse.
+	var cfg: Dictionary = config(31, true)
+	for entry in cfg.players:
+		entry.rail = entry.rail + [stone("STRIKE", 3, 4, 3, "%s_fourth" % entry.id), stone("TEMPO", 3, 4, 3, "%s_fifth" % entry.id)]
+	var quarry_run: Dictionary = DeepDescent.new_run(cfg.duplicate(true))
+	check(quarry_run.players[0].rail[3] == null and int(quarry_run.players[0].ore) == 0, "a Quarry run fills three sockets and starts with no pyrite")
+	cfg.mine = "SEEPS"
+	var seeps_run: Dictionary = DeepDescent.new_run(cfg)
+	check(seeps_run.players[0].rail[3] is Dictionary and int(seeps_run.players[0].ore) == int(DeepContent.mine("SEEPS").start_pyrite), "a Seeps run fills every socket and starts with a purse")
+	check(int(seeps_run.schedule.boss) == DeepContent.mine_bottom("SEEPS") and seeps_run.schedule.wardens.size() == 3, "the Seeps plans its own shaft: %s" % str(seeps_run.schedule))
+	## The boss's hall has a cage, and a way on into the next mine.
+	var bottom: int = DeepContent.mine_bottom("QUARRY")
+	var hall: Dictionary = DeepDescent.new_run(config(32, true))
+	hall.phase = "landing"
+	hall.depth = bottom
+	hall.records.deepest = bottom
+	hall.records.wardens = hall.schedule.wardens.duplicate()
+	hall.records.boss = true
+	hall.landing = {"depth": bottom, "warden_next": true, "cleared": true, "respites": {}}
+	check(DeepDescent.in_boss_hall(hall) and DeepDescent.is_conquered(hall), "the party stands in the boss's hall, the mine conquered")
+	var ride: Dictionary = hall.duplicate(true)
+	ride.players[0].ore = DeepDescent.lift_cost(ride)
+	cmd(ride, "a", "choose", {"choice": "lift"})
+	cmd(ride, "b", "choose", {"choice": "lift"})
+	check(ride.phase == "over" and ride.outcome == "conquered", "the boss's hall has a cage, and riding it up conquers the mine")
+	var on: Dictionary = hall.duplicate(true)
+	on.players[0].ore = 40
+	on.players[0].hp = 7
+	on.players[0].haul.append(stone("APEX", 2, 2, 3, "carried_apex"))
+	check(cmd(on, "a", "choose", {"choice": "descend"}).ok, "pushing on is a choice at the boss's hall")
+	var pushed: Dictionary = cmd(on, "b", "choose", {"choice": "descend"})
+	check(pushed.ok and str(pushed.event.get("next_mine", "")) == "QUARRY" and on.mine == "SEEPS" and on.depth == 0 and on.phase == "tunnels" and not on.offers.is_empty(),
+		"both pushing on carries the party into the top of the Seeps")
+	check(int(on.carried) == bottom and int(on.heat) == int(DeepContent.constant("chain_heat", 2)) and on.mines_done.size() == 1 and bool(on.mines_done[0].boss), "the mine above is carried in the record")
+	check(int(on.players[0].ore) == 40 and int(on.players[0].hp) == 7 and on.players[0].haul.size() == 1, "and everything carried comes along: the purse, the wounds, the haul")
+	check(int(on.schedule.boss) == DeepContent.mine_bottom("SEEPS") and on.records.wardens.is_empty() and not bool(on.records.boss), "the Seeps keeps its own records")
+	on.depth = 2
+	check(DeepDescent.lift_cost(on) == int(DeepContent.constant("lift_ore_per_depth", 15)) * (bottom + 2) * 2, "the winch charges for every floor down from the workshop")
+	var summary: Dictionary = DeepDescent.results(on)
+	check(summary.mines.size() == 2 and summary.mines[0].mine == "QUARRY" and summary.mines[1].mine == "SEEPS" and summary.from_mine == "QUARRY", "the results write a record for each mine")
+	## A fight in the pushed-on Seeps is bred for its heat.
+	var streams: Dictionary = DeepDescent.streams_of(on)
+	on.phase = "chamber"
+	on.depth = 3
+	on.chamber = {"kind": "fight", "depth": 3, "settled": false}
+	DeepDescent._start_fight(on, streams, false, "")
+	check(int(on.chamber.battle.threat) == 3 + int(on.heat) and int(on.chamber.battle.depth) == 3, "its creatures are bred for depth %d" % int(on.chamber.battle.threat))
+	## The Rift's Wardens take their turns, and there is no bottom to it.
+	var deep: Dictionary = DeepDescent.new_run(config(33, true))
+	deep.mine = "RIFT"
+	deep.schedule = DeepDescent.plan_shaft(DeepRng.streams(33).tunnels, rift)
+	check(DeepDescent.run_is_warden(deep, 8) and DeepDescent.run_is_warden(deep, 48) and not DeepDescent.run_is_boss(deep, 48), "a Warden every eighth floor of the Rift, none of them the last")
+	check(DeepDescent.warden_key(deep, 8) == "THE_FOREMAN" and DeepDescent.warden_key(deep, 24) == "THE_DRILL" and DeepDescent.warden_key(deep, 32) == "THE_FOREMAN", "and they take their turns")

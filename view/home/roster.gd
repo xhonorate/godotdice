@@ -13,11 +13,11 @@ const MOODS: Array = ["idle", "rolling", "wince", "bloodied", "critical", "birth
 const ORDINALS: Array = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"]
 
 static func unlock_hint(key: String) -> String:
-	## What earns a locked lapidary: Wardens, in the pack's order.
-	var order: int = int(DeepContent.character(key).get("unlock_order", 0))
-	if order <= 0:
+	## What earns a locked lapidary: the first Warden of the mine they are met in.
+	var mine: String = DeepProfile.lapidary_mine(key)
+	if mine.is_empty():
 		return ""
-	return "Beat your %s Warden" % (ORDINALS[order - 1] if order - 1 < ORDINALS.size() else str(order) + "th")
+	return "Met in %s, at its first Warden" % DeepContent.mine_name(mine)
 
 static func wardens_beaten(profile: Dictionary) -> int:
 	var count: int = 0

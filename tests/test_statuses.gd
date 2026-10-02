@@ -339,7 +339,7 @@ func cast(f: Dictionary, key: String, flawless: bool = false, values: Array = [5
 
 func gem_integrations() -> void:
 	for key in ["MIST", "ETCH"]:
-		check(DeepForge.skill_pool(DeepContent.mine(DeepContent.starter_mine())).has(key), "%s is available in the ordinary mine pool" % key)
+		check(DeepForge.skill_pool(DeepContent.mine("RIFT")).has(key), "%s is available in the deepest pool" % key)
 		var f: Dictionary = setup()
 		cast(f, key, false, [1, 2, 3, 4, 5])
 		check(int(f.foe.statuses.get("clouded" if key == "MIST" else "marked", 0)) == 0, "%s requires a pair" % key)

@@ -19,10 +19,11 @@ const MAP_WIDEST = 4;
 
 // A port of Descent.plan_shaft (sim/descent.gd): every landing wanders a floor either way
 // (its Warden goes with it) so nobody can count steps to the next one; the last landing never
-// moves, since the last Warden always guards the last floor.
-function planShaft(rng) {
+// moves, since the final boss always waits on the last floor. An endless mine plans nothing.
+function planShaft(rng, mine) {
+	if (mine.endless) return { landings: [], wardens: [], boss: 0 };
 	const every = Number(C.constant('landing_every', 4));
-	const bottom = Number(C.constant('run_depth', 24));
+	const bottom = Forge.mineBottom(mine);
 	const landings = [];
 	let at = 0, index = 0;
 	while (at < bottom) {
@@ -33,13 +34,13 @@ function planShaft(rng) {
 		landings.push(Math.min(bottom - 2, Math.max(at + 2, jittered)));
 		at = landings[landings.length - 1];
 	}
-	const wardenDepths = C.constant('warden_depths', [8, 16, 24]);
 	const wardens = [];
-	for (const written of wardenDepths) {
+	for (const written of mine.warden_depths || []) {
 		const which = Math.round(Number(written) / every) - 1;
-		if (which >= 0 && which < landings.length && !wardens.includes(landings[which])) wardens.push(landings[which]);
+		if (which >= 0 && which < landings.length - 1 && !wardens.includes(landings[which])) wardens.push(landings[which]);
 	}
-	return { landings, wardens };
+	wardens.push(bottom);
+	return { landings, wardens, boss: bottom };
 }
 
 function runIsLanding(schedule, depth) {
@@ -48,11 +49,10 @@ function runIsLanding(schedule, depth) {
 	return listed.includes(depth);
 }
 
-function runIsWarden(schedule, depth) {
+function runIsWarden(schedule, depth, mine) {
 	const listed = schedule.wardens;
-	if (!listed.length) return Forge.isWarden(depth);
-	if (listed.includes(depth)) return true;
-	return depth > Number(C.constant('run_depth', 24)) && Forge.isWarden(depth);
+	if (!listed.length) return Forge.isWarden(depth, mine);
+	return listed.includes(depth);
 }
 
 function chartStretch(mine, from, to, rng, schedule) {
@@ -106,7 +106,7 @@ function chartStretch(mine, from, to, rng, schedule) {
 	}
 	const landingId = `landing_${to}`;
 	if (rows.length) for (const id of rows[rows.length - 1]) nodes[id].next.push(landingId);
-	nodes[landingId] = { id: landingId, depth: to, x: 0.5, kind: 'landing', hidden: false, next: [], warden: runIsWarden(schedule, to) };
+	nodes[landingId] = { id: landingId, depth: to, x: 0.5, kind: 'landing', hidden: false, next: [], warden: runIsWarden(schedule, to, mine) };
 	return { from, to, nodes, rows };
 }
 
@@ -114,7 +114,7 @@ function chartStretch(mine, from, to, rng, schedule) {
 // charts each stretch only once the party reaches its head. The landings themselves are laid
 // out first (plan_shaft), so their wander is fixed before any stretch between them is drawn.
 function buildShaft(mine, maxDepth, rng) {
-	const schedule = planShaft(rng);
+	const schedule = planShaft(rng, mine);
 	const stretches = [];
 	let from = 0;
 	while (from < maxDepth) {
@@ -186,7 +186,7 @@ export default {
 	icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M12 21l-4-4M12 21l4-4"/><path d="M5 7h14M7 12h10"/></svg>',
 	render(root, route, ctx) {
 		const mine = C.mine(ctx.settings.mine);
-		const runDepth = Number(C.constant('run_depth', 24));
+		const runDepth = Forge.mineBottom(mine) || 48;
 		if (shaftState.mine !== ctx.settings.mine) { shaftState.mine = ctx.settings.mine; shaftState.stretches = null; if (shaftState.targetDepth == null) shaftState.targetDepth = runDepth + 8; }
 		if (shaftState.targetDepth == null) shaftState.targetDepth = runDepth + 8;
 		const depths = Array.from({ length: shaftState.targetDepth }, (_, i) => i + 1);
@@ -214,13 +214,13 @@ export default {
 			}));
 		} else {
 			shaft = h('div', { class: 'shaft', style: { gridTemplateColumns: `repeat(${depths.length}, 1fr)` } }, depths.map((d) => {
-				const landing = Forge.isLanding(d), warden = Forge.isWarden(d);
+				const landing = Forge.isLanding(d), warden = Forge.isWarden(d, mine);
 				const band = Forge.bandFor(mine, d);
 				return h('div', { class: `shaft-cell${landing ? ' landing' : ''}${warden ? ' warden' : ''}${d === ctx.settings.depth ? ' is-current' : ''}`, style: { cursor: 'pointer' }, title: `${d}: ${warden ? 'Warden hall (nominal, wanders ±1)' : landing ? 'landing (nominal, wanders ±1)' : 'chambers'} · luck ${fmt(Forge.luck(mine, d), 1)} · band from ${band.from_depth ?? 1}`, onClick: () => gotoDepth(d) },
 					h('i', { style: { background: warden ? 'var(--accent)' : landing ? 'var(--surface-3)' : d > runDepth ? '#3a2a44' : `hsl(${220 - (d / runDepth) * 40} 25% ${34 - (d / runDepth) * 14}%)`, opacity: 0.85 } }), h('span', {}, String(d)));
 			}));
 		}
-		root.append(card('The shaft', h('div', { class: 'col' }, shaft, h('div', { class: 'legend' }, h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: 'var(--accent)' } }), 'Warden hall (keeps its cage; a hoard of three raw stones, the last an opal)'), h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: 'var(--surface-3)', outline: '2px solid var(--text-2)' } }), 'Landing: fire, workbench, wheel, lift'), shaftState.stretches ? Object.entries(CHAMBER_COLORS).map(([k, c]) => h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: c } }), C.title(k))) : h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: '#3a2a44' } }), `Endless, below ${runDepth}; a Warden every ${C.constant('endless_warden_every', 8)}`)),
+		root.append(card('The shaft', h('div', { class: 'col' }, shaft, h('div', { class: 'legend' }, h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: 'var(--accent)' } }), 'Warden hall (a hoard of three raw stones, the last an opal; only the final boss's hall keeps a cage)'), h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: 'var(--surface-3)', outline: '2px solid var(--text-2)' } }), 'Landing: fire, workbench, wheel, lift'), shaftState.stretches ? Object.entries(CHAMBER_COLORS).map(([k, c]) => h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: c } }), C.title(k))) : h('span', { class: 'legend-item' }, h('i', { class: 'dot', style: { background: '#3a2a44' } }), `${mine.endless ? 'Endless' : `The final boss at ${runDepth}, then the way on into ${C.mine(mine.next).name || 'the next mine'}`}; a Warden every ${C.constant('endless_warden_every', 8)}`)),
 			note(shaftState.stretches ? `An actual chart of this shaft, drawn just now: each column is a depth, each dot a chamber that depth's mouths lead to (a hatched dot is a dark mouth). Every landing (and the Warden guarding it) wandered a floor either way from its nominal spot when this shaft was planned, so the columns marked landing/warden above are this run's real placement, not the nominal one. Click a column to send the Depth field there and see its chambers below. Click "Regenerate the shaft" for another draw.` : `A stretch runs between landings: its chambers fan out two mouths wide at the top and a mouth wider each depth, every chamber leading to the two nearest below. Each stretch holds at least one merchant (the second depth trades a fight or vein for a stall if none was drawn) and a smithy or carver on its last depth. At most one dark mouth a depth (22% each). The landing/Warden columns shown below are only the nominal, unjittered spacing — every real run wanders each landing a floor either way (its Warden goes with it) and pins only the last one. Click "Simulate the shaft" to chart an actual run and see where they really land.`, 'plain')), { meta: `${mine.name || ctx.settings.mine} · landings every ${C.constant('landing_every', 4)} (±1 a run)` }));
 
 		if (shaftState.stretches) {
@@ -239,11 +239,12 @@ export default {
 		const g2 = h('div', { class: 'grid grid-3' });
 		root.append(g2);
 		g2.append(card('The winch', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `${p} riding`, color: PARTY_COLORS[i], points: depths.filter((d) => d <= runDepth).map((d) => ({ x: d, y: Forge.liftCost(d, p) })) })), width: 320, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `${C.constant('lift_ore_per_depth', 15)} ore a depth a rider, from the party's pool` }));
-		g2.append(card('Pressure on the party', lines({ series: [{ key: 'hp', label: 'enemy HP ×', color: '#e0473c', points: depths.map((d) => ({ x: d, y: 1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, d - 1) })) }, { key: 'luck', label: 'stone luck', color: '#f0c95a', shape: 'hexagon', points: depths.map((d) => ({ x: d, y: Forge.luck(mine, d) })) }, { key: 'dmg', label: 'enemy damage bonus (1 die)', color: '#8b5fd6', shape: 'drop', points: depths.map((d) => ({ x: d, y: Math.trunc(d / Number(C.constant('depth_damage_every', 4))) })) }], width: 320, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 1), markers: false }), { meta: 'health scales every depth; luck caps at 10' }));
+		g2.append(card('Pressure on the party', lines({ series: [{ key: 'hp', label: 'enemy HP ×', color: '#e0473c', points: depths.map((d) => ({ x: d, y: (1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, d - 1)) * Forge.creatureScale(mine, d).hp })) }, { key: 'luck', label: 'stone luck', color: '#f0c95a', shape: 'hexagon', points: depths.map((d) => ({ x: d, y: Forge.luck(mine, d) })) }, { key: 'dmg', label: 'enemy damage bonus (1 die)', color: '#8b5fd6', shape: 'drop', points: depths.map((d) => ({ x: d, y: Math.trunc(d / Number(C.constant('depth_damage_every', 4))) })) }], width: 320, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 1), markers: false }), { meta: `health scales every depth, ×${fmt(Number(mine.hp_mult ?? 1), 1)} in this mine; luck caps at 10` }));
 		const c = C.getPack().constants || {};
-		g2.append(card('Landings and the bench', kv([['Rest', `heals ${c.rest_pct}% of health`], ['Appraisal at a landing', 'one, free'], ['Appraisal at a stall', `${c.appraise_ore_cost} ore, +${c.appraise_cost_step} each time at the same stall`], ['Appraisal at home', `max(${c.appraise_gold_min}, worth × ${c.appraise_gold_mult}) gold`], ['Lantern', `${c.lantern_ore_cost} ore lights a floor`], ['Merchant', '3 appraised stones, scales that pay half worth'], ['Motherlode', `3 raw stones; ${mine.motherlode_pct ?? 3}% of veins`], ['Stone drops', `fight ${c.stone_drop_pct?.fight}% · elite ${c.stone_drop_pct?.elite}% (+4 luck) · vein ${c.stone_drop_pct?.vein}%`], ['Salvage dice', Object.entries(c.salvage_dice || {}).map(([k, v]) => `${C.title(k)} d${v}`).join(' · ')]])));
-		root.append(card(`${mine.name || ctx.settings.mine}`, h('div', { class: 'grid grid-3' }, kv([['Luck', String(Forge.mineLuck(mine))], ['Starter', mine.starter ? 'yes' : 'no'], ['Wardens', (mine.wardens || []).map((k) => C.creature(k).name).join(', ')], ['Bands from', (mine.bands || []).map((b) => b.from_depth).join(', ')]]),
-			kv([['Dice in the rock', (mine.dice || []).length ? mine.dice.join(', ') : 'all'], ['Skills in the rock', (mine.skills || []).length ? mine.skills.join(', ') : 'all'], ['Inclusions in the rock', (mine.inclusions || []).length ? mine.inclusions.join(', ') : 'all'], ['A second variation', `${fmt(Forge.secondAxisChance(mine, ctx.settings.depth), 1)}% at depth ${ctx.settings.depth}`]]),
+		g2.append(card('Landings and the bench', kv([['Rest', `heals ${c.rest_pct}% of health`], ['Appraisal at a landing', 'one, free'], ['Appraisal at a stall', `${c.appraise_ore_cost} ore, +${c.appraise_cost_step} each time at the same stall`], ['Appraisal at home', `max(${c.appraise_gold_min}, worth × ${c.appraise_gold_mult}) gold`], ['Lantern', `${c.lantern_ore_cost} ore lights a floor`], ['Merchant', '3 appraised stones, scales that pay half worth'], ['Motherlode', `3 raw stones; ${mine.motherlode_pct ?? 3}% of veins`], ['Stone drops', `fight ${c.stone_drop_pct?.fight}% · elite ${c.stone_drop_pct?.elite}% (+${c.elite_stone_luck ?? 3} luck) · vein ${c.stone_drop_pct?.vein}%`], ['Salvage dice', Object.entries(c.salvage_dice || {}).map(([k, v]) => `${C.title(k)} d${v}`).join(' · ')]])));
+		root.append(card(`${mine.name || ctx.settings.mine}`, h('div', { class: 'grid grid-3' }, kv([['Luck', String(Forge.mineLuck(mine))], ['Starter', mine.starter ? 'yes' : 'no'], ['Depth', mine.endless ? `endless, a Warden every ${mine.warden_every ?? 8}` : `${Forge.mineBottom(mine)}, Wardens at ${(mine.warden_depths || []).join(', ')}`], ['Wardens', (mine.wardens || []).map((k) => C.creature(k).name).join(', ')], ['Final boss', mine.boss ? C.creature(mine.boss).name : '—'], ['Bands from', (mine.bands || []).map((b) => b.from_depth).join(', ')]]),
+			kv([['Carats', mine.carat ? `usually ≤ ${mine.carat.soft}, never over ${mine.carat.cap}${mine.endless ? ` (+${mine.carat_per_warden ?? 0} a Warden)` : ''}` : 'unbanded'], ['Creatures', `health ×${fmt(Number(mine.hp_mult ?? 1), 2)} · damage ×${fmt(Number(mine.damage_mult ?? 1), 2)}`], ['Lapidary met here', mine.lapidary ? C.character(mine.lapidary).name : '—'], ['Opens onto', mine.next ? C.mine(mine.next).name : '—'], ['Started here', `${mine.loadout_sockets ?? 3} sockets filled, ${mine.start_pyrite ?? 0} pyrite each`], ['Biomes', (mine.biomes || []).join(' → ')]]),
+			kv([['Dice in the rock', (mine.dice || []).length ? mine.dice.join(', ') : 'all'], ['Skills in the rock', (mine.skills || []).length ? mine.skills.join(', ') : `${Forge.skillPool(mine).length}: this batch and those above`], ['First found here', (mine.batch || []).map((k) => C.skill(k).name).join(', ') || '—'], ['Inclusions in the rock', (mine.inclusions || []).length ? mine.inclusions.join(', ') : 'all'], ['A second variation', `${fmt(Forge.secondAxisChance(mine, ctx.settings.depth), 1)}% at depth ${ctx.settings.depth}`]]),
 			h('p', { class: 'small text-2' }, mine.text || ''))));
 	},
 };

@@ -76,7 +76,7 @@ func show_biome(mine_key: String, depth: int) -> void:
 		glow.set_color(1, Color(accent, 0.0))
 		glow.add_point(0.25, Color(accent, 0.7))
 		_embers.color_ramp = glow
-		_embers.emitting = str(biome.get("id", "")) in ["magma", "crystal", "geode", "fungal", "rift"]
+		_embers.emitting = str(biome.get("family", biome.get("id", ""))) in ["magma", "crystal", "geode", "fungal", "rift"]
 	_carve()
 
 func _carve() -> void:
