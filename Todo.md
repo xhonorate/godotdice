@@ -152,6 +152,10 @@ These are fixed character abilities at the end of the rail, not collectible skil
 - [x] Preserve Curse at 10% per stack / maximum 10 and Sparkle at maximum 100 / all consumed on next find.
 - [x] Cover new mechanics, forecasts and run persistence in [gem scenarios](tests/test_gem_updates.gd).
 
+## The Bestiary — implemented October 2, 2026
+
+Every mine's creatures, Wardens and final boss, and sixteen new mechanics, from the owner's bestiary page: see [docs/BESTIARY.md](docs/BESTIARY.md) for what was built, the readings taken where the page was open (§5), the small additions (§6) and the questions for the owner (§7). Balance numbers are the page's and need the bot.
+
 ## Future work — not implemented
 
 - [ ] **Tailings — Gold / Uncommon:** reward earlier fizzles, once per socket per turn. Proposed 1/2/3/4/5 Pyrite per fizzle; Flawless +1 per paid fizzle. Requires tracking so replays cannot pay twice.

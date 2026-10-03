@@ -4,20 +4,44 @@ extends Node3D
 ## Combat state stays in sim/; the battle and inspector both spawn through make().
 
 const Part = preload("res://view/creatures/creature_part.gd")
-const SCENE_PATHS: Dictionary = {
-	"CAVE_TICK": "res://view/creatures/scenes/cave_tick.tscn",
-	"SILT_SLIME": "res://view/creatures/scenes/silt_slime.tscn",
-	"QUARTZ_GOLEM": "res://view/creatures/scenes/quartz_golem.tscn",
-	"MAGPIE": "res://view/creatures/scenes/magpie.tscn",
-	"LANTERN_MOTH": "res://view/creatures/scenes/lantern_moth.tscn",
-	"VEIN_WRAITH": "res://view/creatures/scenes/vein_wraith.tscn",
-	"CLOUDER": "res://view/creatures/scenes/clouder.tscn",
-	"GLASS_WYRM": "res://view/creatures/scenes/glass_wyrm.tscn",
-	"THE_FOREMAN": "res://view/creatures/scenes/the_foreman.tscn",
-	"THE_REGENT": "res://view/creatures/scenes/the_regent.tscn",
-	"THE_DRILL": "res://view/creatures/scenes/the_drill.tscn",
+## Every creature with a scene of its own. The deeper mines' creatures are baked from the
+## recipes in tools/creature_recipes by tools/creature_bake.gd; the Quarry's first eight
+## were saved from the old procedural builder.
+const SCENE_DIR: String = "res://view/creatures/scenes/"
+const SCENE_KEYS: Array = ["CAVE_TICK", "SILT_SLIME", "QUARTZ_GOLEM", "MAGPIE", "LANTERN_MOTH", "VEIN_WRAITH", "CLOUDER", "GLASS_WYRM",
+	"THE_FOREMAN", "THE_REGENT", "THE_DRILL", "RAIL_RAT", "PIT_MOLE",
+	"SEEP_EEL", "DROWNED_MINER", "LAMPREY_KNOT", "CAVE_CRAYFISH", "THE_LOCKKEEPER", "THE_DROWNED_CHOIR", "THE_UNDERTOW",
+	"ECHO_SPRITE", "LENS_BEETLE", "REFRACTOR", "THE_GLAZIER", "THE_KALEIDOSCOPE", "THE_PRISMARCH", "PRISM",
+	"CAP_SHAMBLER", "MYCEL_WEAVER", "PUFFBALL", "ROOT_HORROR", "THE_GARDENER", "THE_SPORE_MOTHER", "THE_HEARTROT", "TENDRIL",
+	"SALAMANDER", "SLAG_HOUND", "FORGE_IMP", "EMBER_CRAWLER", "THE_SMELTER", "THE_ANVIL_KNIGHT", "THE_KILN_WYRM",
+	"HOARD_MIMIC", "CROUPIER_CRAB", "CRYSTAL_HYDRA", "THE_ASSAYER", "THE_COLLECTOR", "THE_HOLLOW_CROWN",
+	"VOID_ECHO", "NULL_SHADE", "RIFTLING_SWARM", "ENTROPY_EYE", "THE_UNMADE"]
+static var SCENE_PATHS: Dictionary = _scene_paths()
+static func _scene_paths() -> Dictionary:
+	var out: Dictionary = {}
+	for key in SCENE_KEYS:
+		out[key] = SCENE_DIR + str(key).to_lower() + ".tscn"
+	for key in VARIANTS:
+		out[key] = SCENE_DIR + str(VARIANTS[key].of).to_lower() + ".tscn"
+	return out
+## A variant is an earlier creature in another mine's colours: the same scene, recoloured.
+## `tint` is the body, `accent` the glowing details (where the scene has an accent material).
+const VARIANTS: Dictionary = {
+	"PRISM_GOLEM": {"of": "QUARTZ_GOLEM", "tint": "9b8cff", "accent": "e0d8ff"},
+	"SHARD_WYRM": {"of": "GLASS_WYRM", "tint": "ff8ad0", "accent": "ffd0ea"},
+	"GLINT_MAGPIE": {"of": "MAGPIE", "tint": "d8dce8", "accent": "fff2a8"},
+	"WILL_O_WISP": {"of": "LANTERN_MOTH", "tint": "8ad0ff", "accent": "e0f6ff"},
+	"SPORE_SLIME": {"of": "SILT_SLIME", "tint": "b8c84a", "accent": "e8ff8a"},
+	"MYCEL_WRAITH": {"of": "VEIN_WRAITH", "tint": "58b05a", "accent": "c8ff6a"},
+	"FIRE_TICK": {"of": "CAVE_TICK", "tint": "e8622a", "accent": "ffd06a"},
+	"CINDER_MOTH": {"of": "LANTERN_MOTH", "tint": "ff8a3a", "accent": "ffe08a"},
+	"GILDED_MAGPIE": {"of": "MAGPIE", "tint": "ffd04a", "accent": "fff6c0"},
+	"GEODE_GOLEM": {"of": "QUARTZ_GOLEM", "tint": "b070e0", "accent": "e8c8ff"},
+	"AMETHYST_WYRM": {"of": "GLASS_WYRM", "tint": "9b5ad8", "accent": "d8b0ff"},
 }
 const FALLBACK_SCENE: String = "res://view/creatures/scenes/crystal_cluster.tscn"
+## The ghostly palette a Void Echo wears over whatever it copies.
+const ECHO_TINT := Color("8b7dff")
 const TINTS: Array = ["9a7dff", "4fd6b8", "ff8a4a", "5a8cff", "ffc23a", "c860ff", "58d878", "ff5a7a", "7ac8ff", "ffd45a"]
 
 # Paths avoid a preload cycle with the scenes' root script. Keep each PackedScene loaded
@@ -30,8 +54,11 @@ static var _scenes: Dictionary = {}
 @export var sway: float = 1.0
 @export var body_material: StandardMaterial3D
 @export var core_material: StandardMaterial3D
+## An optional third material for the parts that glow hardest: a lamp, a fire, an eye.
+@export var accent_material: StandardMaterial3D
 ## The unmodified color to use when switching between normal and Warden variants.
 @export var normal_tint: Color = Color.WHITE
+@export var normal_accent: Color = Color.WHITE
 
 var tint: Color:
 	get: return body_material.emission
@@ -56,10 +83,23 @@ var _glow_boost: float = 0.0
 var _dying: bool = false
 var _base_emission: float
 var _base_core_emission: float
+var _base_accent_emission: float = 2.2
 var _base_light_energy: float
+var _halo: MeshInstance3D
+var _halo_material: StandardMaterial3D
+var _halo_want: float = 0.0
+var _charging: float = 0.0
+var _buried: float = 0.0
+var _buried_want: float = 0.0
+var _ghost: bool = false
 
-static func make(creature_key: String, is_warden: bool = false) -> CrystalCreature:
-	var path: String = str(SCENE_PATHS.get(creature_key, FALLBACK_SCENE))
+static func make(creature_key: String, is_warden: bool = false, echo_of: String = "") -> CrystalCreature:
+	## A creature by key. A variant spawns its base scene in its own colours; a Void Echo
+	## spawns the scene of whatever it copies, in the Rift's light.
+	var looks: String = echo_of if not echo_of.is_empty() else creature_key
+	var path: String = str(SCENE_PATHS.get(looks, FALLBACK_SCENE))
+	if not ResourceLoader.exists(path):
+		path = FALLBACK_SCENE
 	if not _scenes.has(path):
 		_scenes[path] = load(path) as PackedScene
 	var creature := (_scenes[path] as PackedScene).instantiate() as CrystalCreature
@@ -67,8 +107,14 @@ static func make(creature_key: String, is_warden: bool = false) -> CrystalCreatu
 	if path == FALLBACK_SCENE:
 		creature.normal_tint = Color(str(TINTS[absi(creature_key.hash()) % TINTS.size()]))
 		creature._apply_palette(creature.normal_tint)
+	elif VARIANTS.has(looks):
+		creature.normal_tint = Color(str(VARIANTS[looks].tint))
+		creature.normal_accent = Color(str(VARIANTS[looks].get("accent", VARIANTS[looks].tint)))
+		creature._apply_palette(creature.normal_tint, creature.normal_accent)
 	creature._configure_warden(is_warden)
 	creature._prepare()
+	if not echo_of.is_empty():
+		creature.ghost()
 	return creature
 
 func _ready() -> void:
@@ -87,8 +133,24 @@ func _prepare() -> void:
 	_ring_rest_scale = _ring.scale
 	_base_emission = body_material.emission_energy_multiplier
 	_base_core_emission = core_material.emission_energy_multiplier
+	if accent_material != null:
+		_base_accent_emission = accent_material.emission_energy_multiplier
 	_base_light_energy = _light.light_energy
 	_collect_parts(_body)
+	## The halo under it that says what colour it has turned away, hidden until it does.
+	_halo = MeshInstance3D.new()
+	_halo.mesh = _ring.mesh
+	_halo_material = StandardMaterial3D.new()
+	_halo_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_halo_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_halo_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_halo_material.albedo_color = Color(1, 1, 1, 0)
+	_halo_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_halo.material_override = _halo_material
+	_halo.position = Vector3(0, 0.08, 0)
+	_halo.scale = _ring_rest_scale * 1.25
+	_halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_halo)
 
 func _collect_parts(parent: Node) -> void:
 	for child in parent.get_children():
@@ -104,18 +166,65 @@ func _configure_warden(is_warden: bool) -> void:
 		return
 	scale *= 1.5 if is_warden else 1.0 / 1.5
 	warden = is_warden
-	_apply_palette(normal_tint.lerp(Color("ff5a4a"), 0.35) if warden else normal_tint)
+	_apply_palette(normal_tint.lerp(Color("ff5a4a"), 0.35) if warden else normal_tint, normal_accent)
 	body_material.emission_energy_multiplier = 0.4 if warden else 0.22
 	var glow := get_node("Glow") as OmniLight3D
 	glow.light_energy = 2.6 if warden else 1.4
 	glow.omni_range = 5.0 if warden else 3.2
 
-func _apply_palette(color: Color) -> void:
+func _apply_palette(color: Color, accent: Color = Color(0, 0, 0, 0)) -> void:
 	body_material.albedo_color = color.darkened(0.25)
 	body_material.emission = color
 	core_material.albedo_color = color.darkened(0.6)
 	core_material.emission = color.lightened(0.2)
+	if accent_material != null and accent.a > 0.0:
+		accent_material.albedo_color = accent.darkened(0.2)
+		accent_material.emission = accent
 	(get_node("Glow") as OmniLight3D).light_color = color
+
+func ghost() -> void:
+	## A Void Echo: the copied creature seen through the Rift, violet and half there.
+	_ghost = true
+	normal_tint = ECHO_TINT
+	_apply_palette(ECHO_TINT, ECHO_TINT.lightened(0.4))
+	for material in [body_material, core_material, accent_material]:
+		if material == null:
+			continue
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.albedo_color = Color(material.albedo_color, 0.55)
+		material.rim_enabled = true
+		material.rim = 1.0
+		material.rim_tint = 0.6
+	(get_node("Glow") as OmniLight3D).light_color = ECHO_TINT
+
+func set_adapt(color: Color) -> void:
+	## It has turned a colour away (or is mirroring it): a halo of that colour under it.
+	_halo_material.albedo_color = Color(color, _halo_material.albedo_color.a)
+	_halo_want = 0.9 if color.a > 0.0 else 0.0
+
+func clear_adapt() -> void:
+	_halo_want = 0.0
+
+func set_charging(on: bool) -> void:
+	## Winding up a blow: it gathers light, brighter the longer it holds.
+	_charging = 1.0 if on else 0.0
+
+func burrow(down: bool) -> void:
+	## Under the floor and out of reach, or back up out of it. The body sinks, the light
+	## dims and the shadow is all that marks the spot.
+	_buried_want = 1.0 if down else 0.0
+
+func flee(seconds: float = 0.7) -> void:
+	## Off into the dark with what it took: up and away, shrinking, then gone.
+	if _dying:
+		return
+	_dying = true
+	var tween := create_tween()
+	tween.tween_property(_body, "position", _body_rest.origin + Vector3(randf_range(-1.5, 1.5), 3.5, -2.0), seconds).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(_body, "scale", _body_rest.basis.get_scale() * 0.2, seconds).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(_light, "light_energy", 0.0, seconds)
+	tween.parallel().tween_property(_shadow, "transparency", 1.0, seconds * 0.6)
+	tween.tween_callback(queue_free)
 
 # --- what the screen asks for ------------------------------------------------------------
 
@@ -202,10 +311,23 @@ func _process(delta: float) -> void:
 	## The heartbeat of its glow, flaring on every blow.
 	_glow_boost = move_toward(_glow_boost, 0.0, delta * 5.0)
 	var heartbeat: float = pow(maxf(0.0, sin(_clock * 2.2)), 8.0) * 0.4
-	body_material.emission_energy_multiplier = _base_emission + heartbeat + _glow_boost
-	core_material.emission_energy_multiplier = _base_core_emission + heartbeat * 2.0 + _glow_boost * 0.6
+	## Charging: a swelling pulse on top of the heartbeat.
+	var charge: float = _charging * (0.8 + 0.8 * pow(maxf(0.0, sin(_clock * 4.0)), 2.0))
+	body_material.emission_energy_multiplier = _base_emission + heartbeat + _glow_boost + charge * 0.5
+	core_material.emission_energy_multiplier = _base_core_emission + heartbeat * 2.0 + _glow_boost * 0.6 + charge * 1.5
+	if accent_material != null:
+		accent_material.emission_energy_multiplier = _base_accent_emission + heartbeat * 1.5 + _glow_boost * 0.8 + charge * 2.0
+	## Burrowed: the body sinks out of sight and the light goes with it.
+	_buried = move_toward(_buried, _buried_want, delta * 2.2)
+	if not _dying:
+		_body.position = _body_rest.origin + Vector3(0, -(anchor.y / maxf(0.01, scale.y) + 0.6) * _buried, 0)
 	if _light != null and not _dying and _body.scale.x > _body_rest.basis.get_scale().x * 0.95:
-		_light.light_energy = _base_light_energy * (1.0 + heartbeat) + _glow_boost * 1.2
+		_light.light_energy = (_base_light_energy * (1.0 + heartbeat) + _glow_boost * 1.2 + charge * 1.5) * (1.0 - _buried)
+	## The adapt halo: a slow counter-turning ring in the colour it has turned away.
+	if _halo != null:
+		_halo_material.albedo_color.a = move_toward(_halo_material.albedo_color.a, _halo_want * (1.0 - _buried), delta * 3.0)
+		_halo.rotation.y -= delta * 1.1
+		_halo.scale = _ring_rest_scale * (1.25 + 0.06 * sin(_clock * 3.0))
 	## The ring under it when it is the target: turning slowly, brighter on hover.
 	var want: float = (0.85 if _targeted else 0.0) + (0.35 if _hovered else 0.0)
 	_ring_material.albedo_color.a = move_toward(_ring_material.albedo_color.a, minf(want, 1.0), delta * 4.0)

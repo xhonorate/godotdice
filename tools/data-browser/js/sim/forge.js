@@ -425,6 +425,30 @@ export const liftCost = (depth, riders) => Number(C.constant('lift_ore_per_depth
 export const isLanding = (depth) => depth > 0 && depth % Number(C.constant('landing_every', 4)) === 0;
 // The last floor of a mine, where its final boss waits; 0 for one with no bottom.
 export const mineBottom = (mine) => (mine?.endless ? 0 : Number(mine?.depth ?? 24));
+// Who guards the nth Warden hall of an endless mine (sim/descent.gd warden_key): the Wardens in
+// turn, and every `unmade_every`th one the mine's own Unmade instead, the cycle skipping that slot.
+export function endlessWarden(mine, nth) {
+	const wardens = mine?.wardens || [];
+	if (!wardens.length) return String(mine?.boss || '');
+	const every = Number(mine?.unmade_every ?? 0);
+	if (mine?.unmade && every > 0 && nth % every === 0) return String(mine.unmade);
+	const skipped = every > 0 ? Math.floor((nth - 1) / every) : 0;
+	return String(wardens[(nth - 1 - skipped) % wardens.length]);
+}
+
+// Who guards a landing at a depth as written: a mine's Wardens in order, its final boss at the
+// bottom, and in an endless mine the rotation above.
+export function wardenFor(mine, depth) {
+	const wardens = mine?.wardens || [];
+	if (!mine?.endless && mine?.boss && depth === mineBottom(mine)) return String(mine.boss);
+	if (!wardens.length) return String(mine?.boss || '');
+	if (mine.endless) return endlessWarden(mine, Math.max(1, Math.floor(depth / Math.max(1, Number(mine.warden_every ?? C.constant('endless_warden_every', 8))))));
+	const listed = mine.warden_depths || [];
+	let index = listed.indexOf(depth);
+	if (index < 0) index = wardens.length - 1;
+	return String(wardens[Math.min(index, wardens.length - 1)]);
+}
+
 export function isWarden(depth, mine = null) {
 	if (depth <= 0) return false;
 	if (mine?.endless) return depth % Math.max(1, Number(mine.warden_every ?? C.constant('endless_warden_every', 8))) === 0;

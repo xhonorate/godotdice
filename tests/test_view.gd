@@ -470,8 +470,18 @@ func _test_effects() -> void:
 	var foe: Dictionary = {"statuses": {"poison": 2, "combo_breaker": 1, "ward": 1, "retain": 5, "marked": 3, "regeneration": 2, "spikes": 4}, "block": 3, "dread_turns": 1, "stolen_dice": 1, "stolen_gold": 4, "gimmick": "steal_gold"}
 	var foe_chips: Array = EffectChips.for_enemy(foe)
 	var foe_keys: Array = foe_chips.map(func(c: Dictionary) -> String: return str(c.key))
-	for key in ["block", "poison", "combo_breaker", "dread", "bound", "gold", "gimmick", "ward", "retain", "marked", "regeneration", "spikes"]:
+	for key in ["block", "poison", "combo_breaker", "dread", "bound", "gold", "ward", "retain", "marked", "regeneration", "spikes"]:
 		check(foe_keys.has(key), "a creature's %s is shown" % key)
+	check(foe_keys.has("trait_steal_gold"), "a creature's trick is shown as a trait chip")
+	## The deeper creatures' states have chips of their own.
+	var deep: Dictionary = {"key": "THE_PRISMARCH", "statuses": {}, "block": 0, "burrowed": true, "adapt": {"color": "RED", "pct": 50, "reflect": false}, "charging": {"turns": 2, "name": "Lance", "cancel_pct": 25},
+		"empowered": 100, "rally_bonus": 2, "swell": 4, "held_gems": [{}], "turns_acted": 1, "echo_of": "CAVE_TICK", "remembered": "bedrock"}
+	var deep_keys: Array = EffectChips.for_enemy(deep).map(func(c: Dictionary) -> String: return str(c.key))
+	for key in ["burrowed", "adapt", "charging", "empowered", "rally", "swell", "held_gems", "echo", "remembered", "trait_steadfast", "trait_shielded_by_escorts"]:
+		check(deep_keys.has(key), "a deep creature's %s is shown" % key)
+	for status in ["festering", "corroded", "scorched", "unmade", "dread"]:
+		var afflicted: Array = EffectChips.for_player({"statuses": {status: 2}, "hand": [], "rail": []})
+		check(afflicted.any(func(c: Dictionary) -> bool: return str(c.key) == status and not bool(c.good)), "%s on a player is shown and counts against them" % status)
 	for chip in foe_chips:
 		if str(chip.key) == "poison":
 			check(bool(chip.good), "poison on a creature is good news for the party")
@@ -479,6 +489,14 @@ func _test_effects() -> void:
 		var gimmick: String = str(DeepContent.creature(str(key)).get("gimmick", ""))
 		if not gimmick.is_empty():
 			check(EffectChips.GIMMICKS.has(gimmick) and GemIcons.known(str(EffectChips.GIMMICKS[gimmick][0])), "the %s trick is explained with a known mark" % gimmick)
+		## Every trait a creature can carry, in any of its phases, is explained with a known mark.
+		var def: Dictionary = DeepContent.creature(str(key))
+		var carried: Dictionary = def.get("traits", {}).duplicate()
+		for phase in def.get("phases", []):
+			carried.merge(phase.get("traits", {}))
+		for trait_key in carried:
+			var chip: Dictionary = EffectChips.trait_entry(str(trait_key), carried[trait_key])
+			check(not str(chip.text).is_empty() and GemIcons.known(str(chip.glyph)), "the %s trait of %s is explained with a known mark" % [trait_key, key])
 	var enrage: int = int(DeepContent.constant("enrage_turn", 7))
 	check(EffectChips.for_battle({"turn": 1}).is_empty(), "a fresh fight has no fight-wide effects")
 	check(EffectChips.for_battle({"turn": enrage - 1}).size() == 1 and str(EffectChips.for_battle({"turn": enrage - 1})[0].key) == "enrage_soon", "enrage is warned of before it lands")

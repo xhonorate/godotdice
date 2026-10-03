@@ -268,49 +268,132 @@ export function handStats({ bowl, variations = [], rerolls = 0, policy = 'sets',
 // --- creatures -------------------------------------------------------------------------------
 
 const COMBINATIONS = ['pair', 'triple', 'quad', 'quint', 'two_pair', 'full_house', 'straight', 'all_odd', 'all_even'];
+const isCombination = (move) => COMBINATIONS.includes(((move.trigger || {}).kind) || 'always');
+const isTurnMove = (move) => Patterns.TURN_KINDS.includes(((move.trigger || {}).kind) || 'always');
 
 export function creatureMoves(def, phase = 0) {
 	const phases = def.phases || [];
 	return phase > 0 && phases[phase - 1] ? phases[phase - 1].moves || [] : def.moves || [];
 }
 
-// One creature's turn, many times over: how often each move fires and what it does to the party.
-export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, samples = 6000, seed = 3 }) {
+// Everything a creature is in a phase (sim/creatures.gd traits_for): its written traits, its
+// old-style gimmick read as one, and whatever the phase adds or takes away (0 or false removes).
+export function traitsFor(def, phase = 0) {
+	const out = { ...(def.traits || {}) };
+	const gimmick = String(def.gimmick || '');
+	if (gimmick && !(gimmick in out)) out[gimmick] = true;
+	const phases = def.phases || [];
+	if (phase > 0 && phases[phase - 1]) Object.assign(out, phases[phase - 1].traits || {});
+	for (const key of Object.keys(out)) {
+		const value = out[key];
+		if (value === false || (typeof value === 'number' && value <= 0)) delete out[key];
+	}
+	return out;
+}
+
+export function traitValue(traits, name, fallback = 0) {
+	const value = traits ? traits[name] : undefined;
+	if (value === undefined || value === null) return fallback;
+	if (typeof value === 'boolean') return value ? 1 : 0;
+	return Math.trunc(Number(value) || 0);
+}
+
+// The mine's damage multiplier as a whole percentage, grown by a Rising creature's share for
+// every action it has taken (sim/creatures.gd damage_pct).
+export function damagePct(damageMult, traits, turnsActed) {
+	let pct = Number(damageMult || 1) * 100;
+	const rising = traitValue(traits, 'rising');
+	if (rising > 0) pct *= Math.pow(1 + rising / 100, Math.max(0, turnsActed));
+	return Math.round(pct);
+}
+
+// For a move that fires every nth action: how many actions away the next one is, counting the
+// action about to come as 1 (sim/creatures.gd next_nth_in).
+export function nextNthIn(move, action) {
+	const every = Number(((move.trigger || {}).amount) || 0);
+	if (every <= 0) return 0;
+	const wait = (every - (action % every)) % every;
+	return wait + 1;
+}
+
+// One creature's action, many times over: how often each move fires and what it does to the
+// party. `action` is which of its actions this is (1 = its first), `mineKey` the mine whose
+// damage multiplier it fights with, `emerging` whether it has just come up out of the floor.
+// Damage per move follows sim/creatures.gd resolved_move: pct(raw, damage_pct) + damage_bonus
+// + rally, with the enrage the fight adds on top; `once` moves are taken as spent after action 1
+// and an Escalating creature as having spent every earlier action in this phase.
+export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, action = 1, mineKey = '', emerging = false, samples = 6000, seed = 3 }) {
 	const def = C.creature(key);
+	const mine = mineKey ? C.mine(mineKey) : null;
+	phase = Math.max(0, Math.min(phase | 0, (def.phases || []).length));
+	action = Math.max(1, action | 0);
 	const moves = creatureMoves(def, phase);
+	const traits = traitsFor(def, phase);
 	const dice = (def.dice || []).map((k, i) => Dice.dieFrom(k, `${key}_d${i}`));
-	const rng = makeRng(seed * 31 + depth * 7 + party);
-	const damageBonus = Forge.creatureDamageBonus(def, depth);
+	const rng = makeRng(seed * 31 + depth * 7 + party + action * 101);
+	const scale = Forge.creatureScale(mine, depth);
+	const turnsActed = action - 1;
+	const pct = damagePct(scale.damage, traits, turnsActed);
+	let damageBonus = Forge.creatureDamageBonus(def, depth);
+	const escalate = traitValue(traits, 'escalate');
+	if (escalate > 0) damageBonus += escalate * turnsActed;
 	const enrageTurn = Number(C.constant('enrage_turn', 7));
 	const enrage = Math.max(0, turn - enrageTurn + 1) * Number(C.constant('enrage_damage', 2));
-	const perMove = moves.map(() => ({ fired: 0, damage: 0, effects: {} }));
+	const living = Math.max(1, Math.min(4, party));
+	const perMove = moves.map(() => ({ fired: 0, damage: 0, piercing: 0, release: 0, effects: {} }));
 	const damageHist = new Map();
 	let damageSum = 0;
+	const hit = (effect, rally) => {
+		let amount = Rules.amount({ op: 'pct', args: [effect.amount, pct] }, {}) + damageBonus + rally + enrage;
+		if (effect.split_party) amount = Math.ceil(amount / living);
+		return amount * Math.max(1, effect.repeat);
+	};
 	for (let i = 0; i < samples; i++) {
 		const history = [];
-		const usedCombos = new Set();
+		const used = new Set();
+		let rally = 0;
 		let turnDamage = 0;
 		for (let d = 0; d < dice.length; d++) {
 			const roll = Dice.rollOne(dice[d], rng);
 			history.push(roll);
 			const last = d === dice.length - 1;
+			const ctx = { first_roll: d === 0, roll_index: d, turns_acted: action, emerging: Boolean(emerging), dying: false, turn, party, living_players: living, party_heaviest_carat: 0, party_best_turn: 0, depth };
 			for (let m = 0; m < moves.length; m++) {
 				const move = moves[m];
 				const trigger = move.trigger || { kind: 'always' };
-				const combo = COMBINATIONS.includes(trigger.kind);
-				if (combo && usedCombos.has(m)) continue;
+				const kind = trigger.kind || 'always';
+				if (kind === 'on_death') continue;
+				if (move.once && action !== 1) continue;
+				const combo = isCombination(move);
+				const turnMove = isTurnMove(move);
+				if ((combo || turnMove) && used.has(m)) continue;
 				const read = combo ? history : [roll];
 				const a = Hand.analyze(read);
-				const trig = Patterns.evaluate(trigger, 0, a);
-				if ((trigger.kind === 'all_odd' || trigger.kind === 'all_even') && !last) trig.active = false;
+				const trig = Patterns.evaluate(trigger, 0, a, ctx);
+				if ((kind === 'all_odd' || kind === 'all_even') && !last) trig.active = false;
+				// A move that reads one die in particular ignores the others.
+				if ('die' in trigger && !combo && !turnMove && d !== Number(trigger.die)) trig.active = false;
 				if (!trig.active) continue;
-				if (combo) usedCombos.add(m);
+				if (combo || turnMove) used.add(m);
 				perMove[m].fired += 1;
-				const c = { a, trig, unit: {}, depth, turn, party, rolled: roll.value };
+				const c = { ...ctx, a, trig, rolled: roll.value, unit: { turns_acted: turnsActed, swell: 0, held_gems: [], biggest_hit: 0 } };
 				for (const definition of move.effects || []) {
 					const effect = Rules.resolveEffect(definition, c, 1, 'heroes');
 					let amount = effect.amount * Math.max(1, effect.repeat);
-					if (effect.kind === 'damage') { amount += damageBonus + enrage; turnDamage += amount; perMove[m].damage += amount; }
+					if (effect.kind === 'damage') {
+						amount = hit(effect, rally);
+						turnDamage += amount;
+						perMove[m].damage += amount;
+						if (effect.piercing) perMove[m].piercing += amount;
+					} else if (effect.kind === 'charge') {
+						// What the charge lets go is written down now, in this action's numbers.
+						for (const sub of effect.release || []) {
+							const ready = Rules.resolveEffect(sub, c, 1, 'heroes');
+							if (ready.kind === 'damage') perMove[m].release += hit(ready, 0);
+						}
+					} else if (effect.kind === 'rally') {
+						rally += effect.amount;
+					}
 					perMove[m].effects[effect.kind] = (perMove[m].effects[effect.kind] || 0) + amount;
 				}
 			}
@@ -319,11 +402,19 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, s
 		damageHist.set(turnDamage, (damageHist.get(turnDamage) || 0) + 1);
 	}
 	return {
-		key, depth, party, phase, turn, samples, hp: Forge.creatureHp(def, depth, party), damageBonus, enrage,
+		key, depth, party, phase, turn, action, mineKey, emerging: Boolean(emerging), samples, hp: Forge.creatureHp(def, depth, party, mine),
+		damageBonus, damagePct: pct, damageMult: scale.damage, enrage, traits,
+		escorts: (def.escorts || []).slice(), echo: def.echo ? { ...def.echo } : null, summonOnly: Boolean(def.summon_only),
 		meanDamage: damageSum / samples,
 		damageHist: [...damageHist].sort((a, b) => a[0] - b[0]).map(([v, n]) => [v, n / samples]),
-		moves: moves.map((move, m) => ({ name: move.name, fireRate: perMove[m].fired / samples, meanDamage: perMove[m].damage / samples,
-			effects: Object.fromEntries(Object.entries(perMove[m].effects).map(([k, v]) => [k, v / samples])), combo: COMBINATIONS.includes((move.trigger || {}).kind), dramatic: Boolean(move.dramatic) })),
+		moves: moves.map((move, m) => {
+			const trigger = move.trigger || { kind: 'always' };
+			const kind = trigger.kind || 'always';
+			return { name: move.name, fireRate: perMove[m].fired / samples, meanDamage: perMove[m].damage / samples, meanPiercing: perMove[m].piercing / samples, meanRelease: perMove[m].release / samples,
+				effects: Object.fromEntries(Object.entries(perMove[m].effects).map(([k, v]) => [k, v / samples])),
+				combo: isCombination(move), turnMove: isTurnMove(move), onDeath: kind === 'on_death', once: Boolean(move.once), spent: Boolean(move.once) && action !== 1,
+				die: 'die' in trigger ? Number(trigger.die) : null, nextNth: kind === 'every_nth_turn' ? nextNthIn(move, action) : 0, dramatic: Boolean(move.dramatic) };
+		}),
 	};
 }
 
@@ -345,16 +436,16 @@ export function encounters({ mineKey, depth = 1, party = 1, elite = false, sampl
 		for (const key of picked) {
 			perCreature[key] = (perCreature[key] || 0) + 1;
 			const def = C.creature(key);
-			hpSum += Forge.creatureHp(def, depth, party);
+			hpSum += Forge.creatureHp(def, depth, party, mine);
 			threatSum += Number(def.threat ?? 1);
 		}
 	}
-	for (const key of Object.keys(perCreature)) damageByKey[key] = creatureTurn({ key, depth, party, samples: 1500, seed }).meanDamage;
+	for (const key of Object.keys(perCreature)) damageByKey[key] = creatureTurn({ key, depth, party, mineKey, samples: 1500, seed }).meanDamage;
 	let damageSum = 0;
-	for (const [label, n] of compositions) for (const key of label.split('+')) damageSum += damageByKey[key] * n;
+	for (const [label, n] of compositions) if (label) for (const key of label.split('+')) damageSum += damageByKey[key] * n;
 	return {
 		mineKey, depth, party, elite, samples, budget: Forge.encounterBudget(depth, party, elite),
-		band: Forge.bandFor(mine, depth),
+		band: Forge.bandFor(mine, depth), damageMult: Forge.creatureScale(mine, depth).damage,
 		compositions: [...compositions].sort((a, b) => b[1] - a[1]).map(([label, n]) => [label, n / samples]),
 		counts: [...counts].sort((a, b) => a[0] - b[0]).map(([k, n]) => [k, n / samples]),
 		perCreature: Object.fromEntries(Object.entries(perCreature).map(([k, n]) => [k, n / samples])),

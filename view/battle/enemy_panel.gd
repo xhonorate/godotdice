@@ -7,8 +7,16 @@ const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun",
-	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "thorn", "dulled": "cut"}
-const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED"}
+	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "thorn", "dulled": "cut",
+	"summon": "copy", "purge": "drop", "burrow": "rampart", "adapt": "prism", "festering": "drop", "corroded": "split_shield", "scorched": "flame", "die_lock": "die", "invert_dice": "split",
+	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "drain_resonance": "cross_out", "rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
+	"charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die", "grind_die": "die", "break_gem": "cross_out", "lock_die": "die"}
+## The noun after a move's number. Kinds not here fall back to their own name.
+const NOUNS: Dictionary = {"damage": "damage", "block": "block", "heal": "healing", "poison": "poison", "die_steal": "die suppressed", "remove_block": "block removed", "dice_upgrade": "tier up · this fight", "stun": "turn stunned",
+	"summon": "join the fight", "purge": "% of its poison shed", "burrow": "burrows", "adapt": "% turned away", "festering": "Festering", "corroded": "Corroded", "scorched": "Scorched", "die_lock": "die locked",
+	"invert_dice": "dice inverted", "steal_gold": "pyrite taken", "gold": "pyrite dropped", "empower_next": "% more next attack", "drain_resonance": "Resonance to 0", "rally": "more for every creature", "grow_die": "head grown",
+	"swell": "swelling", "hold_gem": "gem taken", "bury_socket": "socket buried", "charge": "actions to charge", "dice_dread": "Dread", "downgrade_die": "die shrunk", "grind_die": "face ground down", "break_gem": "gem melted", "lock_die": "die locked"}
+const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED", "latent": "ON DEATH", "spent": "SPENT"}
 signal pinned(id: String)
 var enemy_id: String = ""
 var foe: Dictionary = {}
@@ -76,7 +84,7 @@ func show_enemy(unit: Dictionary, turn: int, is_pinned: bool = false) -> void:
 	_title.text = str(foe.name)
 	_hint.text = "Damage and debuffs affect all players"
 	var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
-	var key: String = str(moves) + "|" + str(foe.get("gimmick", ""))
+	var key: String = str(moves) + "|" + str(DeepCreatures.traits_for(foe)) + "|" + str(int(foe.get("turns_acted", 0))) + "|" + str(foe.get("used_once", []))
 	if key != _key:
 		_cancel_animations()
 		_key = key
@@ -91,6 +99,9 @@ func show_enemy(unit: Dictionary, turn: int, is_pinned: bool = false) -> void:
 func _build_rows(moves: Array) -> void:
 	DeepUi.clear(_table)
 	_rows.clear()
+	## A boss phase with five or six moves is read densely: each move's effects share its
+	## requirement line, so the table still leaves the room and the dock in view.
+	var dense: bool = moves.size() > 4
 	for move in moves:
 		var panel := DeepUi.panel(_table, Color(1, 1, 1, 0.035), Color(1, 1, 1, 0.08), 6, 6)
 		var box := DeepUi.vbox(panel, 1)
@@ -107,14 +118,37 @@ func _build_rows(moves: Array) -> void:
 		DiceIcons.build(requirement, described, 13, DeepUi.MUTED, DeepCreatures.trigger_words(move))
 		var condition := DeepUi.label(requirement, DeepCreatures.trigger_words(move), 11, DeepUi.MUTED)
 		condition.tooltip_text = condition.text
+		## A move that fires every so many actions says how far off it is.
+		if str(move.get("trigger", {}).get("kind", "")) == "every_nth_turn":
+			var wait: int = DeepCreatures.next_nth_in(foe, move)
+			var soon := DeepUi.label(requirement, "· in %s" % DeepUi.plural(wait, "action"), 11, Color("ffb05a"))
+			soon.tooltip_text = "%s fires in %s." % [str(move.name), DeepUi.plural(wait, "action")]
 		var numbers: Array = []
 		var formulas: Array = []
 		for effect in move.get("effects", []):
-			var line := DeepUi.hbox(box, 5)
-			DeepUi.icon(line, str(GLYPHS.get(str(effect.kind), "spark")), 13, DeepUi.BAD if str(effect.kind) == "damage" else DeepUi.INFO)
+			var line: HBoxContainer = requirement if dense else DeepUi.hbox(box, 5)
+			if dense:
+				DeepUi.label(line, "·", 11, DeepUi.DIM)
+			var kind: String = str(effect.kind)
+			DeepUi.icon(line, str(GLYPHS.get(kind, "spark")), 13, DeepUi.BAD if kind == "damage" else DeepUi.INFO)
 			var formula: String = DeepCreatures.amount_words(effect.get("amount", 0))
+			if kind in ["burrow", "drain_resonance", "bury_socket", "hold_gem", "lock_die", "break_gem", "downgrade_die", "grind_die"]:
+				formula = ""
 			var number := DeepUi.label(line, formula, 12, DeepUi.PAPER)
-			var noun: String = str({"damage": "damage", "block": "block", "heal": "healing", "poison": "poison", "die_steal": "die suppressed", "remove_block": "block removed", "dice_upgrade": "tier up · this fight", "stun": "turn stunned"}.get(str(effect.kind), str(effect.kind)))
+			var noun: String = str(NOUNS.get(kind, kind.replace("_", " ")))
+			if kind == "summon":
+				noun = "%s %s" % [str(DeepContent.creature(str(effect.get("creature", ""))).get("name", "creature")), "joins" if str(formula) == "1" else "join"]
+			if kind == "damage" and bool(effect.get("piercing", false)):
+				noun += " · ignores block"
+			if kind == "damage" and bool(effect.get("split_party", false)):
+				noun += " · split across the party"
+			var who: String = str(effect.get("target", "heroes"))
+			if who in DeepRules.HERO_PICKS:
+				noun += " · " + DeepCreatures.target_words(effect) if not dense else " · one player"
+			elif who == "self" and kind in ["stun", "damage"]:
+				noun += " · itself"
+			if dense and noun.length() > 22:
+				noun = noun.substr(0, 20).strip_edges() + "…"
 			DeepUi.label(line, noun, 11, DeepUi.MUTED)
 			line.tooltip_text = DeepCreatures.effect_words(effect)
 			numbers.append(number)
@@ -123,21 +157,34 @@ func _build_rows(moves: Array) -> void:
 	_build_passive()
 
 func _build_passive() -> void:
-	## The creature's trick, the thing it does without rolling for it, read out with the
-	## moves rather than left to the chip over its head: a Latcher's latch or a Fogger's fog
-	## is as much its moveset as anything it rolls for.
-	var gimmick: String = str(foe.get("gimmick", ""))
-	if not EffectChips.GIMMICKS.has(gimmick):
+	## The creature's traits, the things it does without rolling for them, read out with the
+	## moves rather than left to the chips over its head: a Latcher's latch or a Fogger's fog
+	## is as much its moveset as anything it rolls for. They share one row of pills, each
+	## with its sentence on hover, so a Warden with four traits costs the table two lines.
+	var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else {}
+	var keys: Array = traits.keys()
+	keys.sort()
+	var pills: Array = []
+	for key in keys:
+		if str(key) == "gift_rerolls" and (traits.has("reroll_drain") or traits.has("reroll_scorch")):
+			continue
+		pills.append(EffectChips.trait_entry(str(key), traits[key]))
+	if pills.is_empty():
 		return
-	var words: Array = EffectChips.GIMMICKS[gimmick]
 	var panel := DeepUi.panel(_table, Color(0.78, 0.66, 1.0, 0.05), Color(0.78, 0.66, 1.0, 0.16), 6, 6)
-	var box := DeepUi.vbox(panel, 1)
+	var box := DeepUi.vbox(panel, 2)
 	var head := DeepUi.hbox(box, 5)
-	DeepUi.icon(head, str(words[0]), 15, Color("c8a8ff"))
-	DeepUi.label(head, str(words[1]), 14, DeepUi.PAPER)
+	DeepUi.icon(head, "spark", 13, Color("c8a8ff"))
+	DeepUi.label(head, "What it is", 12, DeepUi.PAPER)
 	DeepUi.spacer(head)
-	DeepUi.label(head, "PASSIVE", 9, DeepUi.DIM)
-	DeepUi.wrap(box, str(words[2]), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 250)
+	DeepUi.label(head, "PASSIVE · hover", 9, DeepUi.DIM)
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 4)
+	flow.add_theme_constant_override("v_separation", 3)
+	box.add_child(flow)
+	for words in pills:
+		var text: String = str(words.title) + (" " + str(words.value) if not str(words.value).is_empty() else "")
+		DeepUi.pill(flow, str(words.glyph), text, Color("c8a8ff"), 11, "%s\n%s" % [str(words.title), str(words.text)])
 
 func _show_dice() -> void:
 	DeepUi.clear(_dice)
@@ -168,8 +215,8 @@ func _states(states: Array) -> void:
 			status = "clouded"
 		var row: Dictionary = _rows[index]
 		row.badge.text = str(STATES.get(status, ""))
-		row.badge.modulate = DeepUi.ACCENT if status in ["activated", "resolving"] else DeepUi.MUTED
-		row.panel.modulate.a = 0.4 if status in ["missed", "clouded"] else (0.65 if status in ["used", "resolved"] else 1.0)
+		row.badge.modulate = DeepUi.ACCENT if status in ["activated", "resolving"] else (Color("ff8ad8") if status == "latent" else DeepUi.MUTED)
+		row.panel.modulate.a = 0.4 if status in ["missed", "clouded", "spent"] else (0.65 if status in ["used", "resolved"] else (0.8 if status == "latent" else 1.0))
 		row.panel.add_theme_stylebox_override("panel", DeepUi.raised(Color("30221f") if status == "resolving" else Color("171c29"), DeepUi.ACCENT if status == "resolving" else Color("343443"), 6, 6, 0.0))
 
 func roll_die(event: Dictionary) -> void:
@@ -182,7 +229,10 @@ func roll_die(event: Dictionary) -> void:
 	var before: Array = []
 	for i in range(_rows.size()):
 		var prior: String = str(_shown_states[i]) if i < _shown_states.size() else "unrevealed"
-		before.append("used" if prior == "used" else ("pending" if DeepCreatures.is_combination(foe.moves[i]) else "unrevealed"))
+		if prior in ["latent", "spent"]:
+			before.append(prior)
+		else:
+			before.append("used" if prior == "used" else ("pending" if DeepCreatures.is_combination(foe.moves[i]) else "unrevealed"))
 	_states(before)
 	_hint.text = "One die away…" if bool(event.get("suspense", false)) else "Rolling…"
 	_revealed = int(event.roll_index)
@@ -203,6 +253,10 @@ func roll_die(event: Dictionary) -> void:
 func power(event: Dictionary) -> void:
 	var index: int = int(event.index)
 	if index < 0 or index >= _rows.size():
+		## A blow it wound up over turns has no row of its own: the whole table lights.
+		if bool(event.get("release", false)):
+			DeepUi.pulse(self, 1.03, 0.3)
+			_hint.text = str(event.get("move", "Release")) + "!"
 		return
 	var row: Dictionary = _rows[index]
 	_states(foe.get("move_states", []))

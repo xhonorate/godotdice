@@ -26,12 +26,19 @@ func _run() -> void:
 func _test_catalog() -> void:
 	for key in DeepContent.section("creatures"):
 		check(CrystalCreature.SCENE_PATHS.has(key), "%s has its own scene" % key)
+		check(ResourceLoader.exists(str(CrystalCreature.SCENE_PATHS.get(key, ""))), "%s's scene is on disk" % key)
+		if not ResourceLoader.exists(str(CrystalCreature.SCENE_PATHS.get(key, ""))):
+			continue
 		var warden: bool = bool(DeepContent.creature(str(key)).get("warden", false))
 		var creature := CrystalCreature.make(str(key), warden)
 		var packed := load(str(CrystalCreature.SCENE_PATHS[key])) as PackedScene
 		var direct := packed.instantiate() as CrystalCreature
+		## A variant wears another creature's scene in its own colours.
+		var base_key: String = str(CrystalCreature.VARIANTS.get(key, {}).get("of", key))
 		check(creature.scene_file_path == CrystalCreature.SCENE_PATHS[key], "%s spawns from its scene" % key)
-		check(creature.key == str(key) and direct.key == str(key), "%s identifies itself when instanced directly" % key)
+		check(creature.key == str(key) and direct.key == base_key, "%s identifies itself when instanced directly" % key)
+		if CrystalCreature.VARIANTS.has(key):
+			check(creature.tint.is_equal_approx(Color(str(CrystalCreature.VARIANTS[key].tint)).lerp(Color("ff5a4a"), 0.35) if warden else Color(str(CrystalCreature.VARIANTS[key].tint))), "%s wears its own colour" % key)
 		check(direct.warden == warden and creature.warden == warden, "%s keeps its Warden variant" % key)
 		check(creature.anchor.y > 0.0 and creature.anchor.is_equal_approx(direct.anchor), "%s can be framed before entering the tree" % key)
 		var count: int = direct.get_node("Body").get_child_count()
@@ -47,7 +54,7 @@ func _test_catalog() -> void:
 		for pivot in direct.get_node("Body").get_children():
 			var mesh := pivot.get_child(0) as MeshInstance3D
 			check(mesh.mesh != null, "%s has saved geometry" % key)
-			check(mesh.material_override == direct.core_material if pivot.motion == "core" else mesh.material_override == direct.body_material,
+			check(mesh.material_override == direct.core_material or mesh.material_override == direct.body_material or (direct.accent_material != null and mesh.material_override == direct.accent_material),
 				"%s meshes use the material animated by their own instance" % key)
 		direct.free()
 		creature.free()
@@ -111,6 +118,26 @@ func _test_variants() -> void:
 	var fallback := CrystalCreature.make("UNREGISTERED_CREATURE")
 	check(fallback.key == "UNREGISTERED_CREATURE" and fallback.scene_file_path == CrystalCreature.FALLBACK_SCENE, "unregistered content has a visible fallback with its original key")
 	fallback.free()
+	## A Void Echo wears the scene of what it copies, in the Rift's light.
+	var echo := CrystalCreature.make("VOID_ECHO", false, "CAVE_TICK")
+	check(echo.key == "VOID_ECHO" and echo.scene_file_path == CrystalCreature.SCENE_PATHS.CAVE_TICK, "an echo spawns the scene of the creature it copies")
+	check(echo.tint.is_equal_approx(CrystalCreature.ECHO_TINT) and echo.body_material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA, "and is drawn as a ghost")
+	echo.free()
+	## The newer presentation calls settle without error.
+	var mole := CrystalCreature.make("PIT_MOLE")
+	root.add_child(mole)
+	mole.burrow(true)
+	for _i in range(40):
+		mole._process(0.05)
+	check(mole.get_node("Body").position.y < -0.5, "a burrowed creature sinks under the floor")
+	mole.burrow(false)
+	for _i in range(40):
+		mole._process(0.05)
+	check(absf(mole.get_node("Body").position.y) < 0.01, "and comes back up")
+	mole.set_adapt(Color.RED)
+	mole._process(0.5)
+	check(mole._halo_material.albedo_color.a > 0.0 and mole._halo_material.albedo_color.r > 0.9, "an adapted creature shows a halo in the colour it turned away")
+	mole.free()
 
 func _test_lifecycle() -> void:
 	var creature := CrystalCreature.make("SILT_SLIME")

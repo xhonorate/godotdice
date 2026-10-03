@@ -336,9 +336,11 @@ static func roll_one(die: Dictionary, rng: RandomNumberGenerator, times_rerolled
 static func roll_hand(dice: Array, rng: RandomNumberGenerator, previous: Array = []) -> Array:
 	## A fresh hand. A Sticky face that was showing at the end of the last turn is not thrown
 	## again: the die keeps it while the rest of the bowl comes up new.
+	## A die a creature locked (`lock_next`) is carried the same way, and comes up locked: it
+	## shows what it showed and refuses to be thrown again this turn.
 	var kept: Dictionary = {}
 	for roll in previous:
-		if str(roll.get("kind", "plain")) == "sticky" and not bool(roll.get("phantom", false)):
+		if (str(roll.get("kind", "plain")) == "sticky" or bool(roll.get("lock_next", false))) and not bool(roll.get("phantom", false)):
 			kept[str(roll.get("die_id", ""))] = roll
 	var hand: Array = []
 	for die in dice:
@@ -351,6 +353,10 @@ static func roll_hand(dice: Array, rng: RandomNumberGenerator, previous: Array =
 			carried.climbed = false
 			carried.shattered = false
 			carried.carried = true
+			if bool(carried.get("lock_next", false)):
+				carried.locked = true
+				carried.lock_next = false
+				carried.locked_by_foe = true
 			hand.append(carried)
 		else:
 			hand.append(roll_one(die, rng))

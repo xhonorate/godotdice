@@ -23,7 +23,62 @@ const GIMMICKS: Dictionary = {
 	"reflect_zero_resonance": ["prism", "Mirror-hide", "When hit at Resonance 0 or 1, throws half that damage back at every player."],
 	"bury_socket": ["rampart", "Buries", "Buries one of your sockets in rubble each turn: that gem cannot fire."],
 	"mirror_last_gem": ["copy", "Mirror", "Adds half the party’s strongest last turn, up to 6 damage, shared across its dice."],
-	"roll_for_you": ["die", "Roller", "On odd turns it rolls your dice for you, and you get no rerolls."]}
+	"roll_for_you": ["die", "Roller", "On odd turns it rolls your dice for you, and you get no rerolls."],
+	"regrow": ["heart", "Regrows", "Heals 3 at the end of every turn."]}
+
+## The traits the deeper mines' creatures carry (docs/BESTIARY.md), in the same words. A
+## trait with a number says it with %d; `aura` is spelled out from its statuses.
+const TRAITS: Dictionary = {
+	"steadfast": ["shield_burst", "Steadfast", "Stun, Bound and Clouded last half as long on it, and it cannot be stunned two actions in a row."],
+	"bedrock": ["rampart", "Bedrock", "No single hit takes more than %d%% of its health off it."],
+	"backlash": ["bolt", "Backlash", "While it lives, every gem after the sixth to fire in one turn costs its owner 1 health."],
+	"flee": ["hourglass", "Flees", "After its %d%s action it leaves the fight with everything it stole."],
+	"rising": ["flame", "Rising", "Deals %d%% more than the action before, every action."],
+	"escalate": ["sword", "Escalating", "Its damage goes up by %d for every action it takes in this phase."],
+	"spikes": ["thorn", "Bristling", "Has %d Spikes up every time it acts: anything that hits it is hit back."],
+	"regen_with_escorts": ["heart", "Fed", "While any of its escorts stands, it heals %d at the end of every turn."],
+	"shielded_by_escorts": ["shield", "Shielded", "While any of its escorts stands, it takes %d%% less from every hit."],
+	"regrow_escorts": ["copy", "Regrows its escorts", "A dead escort grows back %d actions later, unless all of them die within %d turns of each other."],
+	"reroll_drain": ["drop", "Costly light", "Each reroll anyone spends costs every player %d health."],
+	"reroll_scorch": ["flame", "Burning light", "Each reroll anyone spends Scorches every player %d."],
+	"punish_straight": ["die", "Shatters straights", "Anyone whose hand holds a straight has their highest die locked for the next turn."],
+	"drops_stone": ["star", "Hoard", "Drops a raw stone when it dies."],
+	"adapt_aura": ["prism", "Remembered", "Each turn it turns %d%% of the colour that hurt it most away."],
+	"aura": ["cloud", "Aura", "While it lives, every player is %s."]}
+
+static func trait_entry(key: String, value: Variant) -> Dictionary:
+	## One trait as a chip. Traits the older gimmick table already names use its words.
+	if GIMMICKS.has(key):
+		var g: Array = GIMMICKS[key]
+		return entry("trait_" + key, str(g[0]), "", false, str(g[1]), str(g[2]), Color("c8a8ff"))
+	if not TRAITS.has(key):
+		return entry("trait_" + key, "spark", "", false, key.capitalize(), "", Color("c8a8ff"))
+	var t: Array = TRAITS[key]
+	var text: String = str(t[2])
+	var shown: String = ""
+	var number: int = int(value) if (value is int or value is float) else 0
+	match key:
+		"aura":
+			var parts: Array = []
+			if value is Dictionary:
+				for status in value:
+					parts.append("%s %d" % [str(status).capitalize(), int(value[status])])
+			text = text % (", ".join(parts) if not parts.is_empty() else "afflicted")
+		"flee":
+			text = text % [number, _ordinal_suffix(number)]
+			shown = str(number)
+		"regrow_escorts":
+			text = text % [number, number]
+		_:
+			if text.contains("%d"):
+				text = text % number
+				shown = ("%d%%" % number) if text.contains("%") and key in ["bedrock", "rising", "shielded_by_escorts", "adapt_aura"] else str(number)
+	return entry("trait_" + key, str(t[0]), shown, false, str(t[1]), text, Color("c8a8ff"))
+
+static func _ordinal_suffix(n: int) -> String:
+	if n % 100 in [11, 12, 13]:
+		return "th"
+	return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
 
 static func entry(key: String, glyph: String, value: String, good: bool, title: String, text: String, tone: Color = Color(0, 0, 0, 0)) -> Dictionary:
 	return {"key": key, "glyph": glyph, "value": value, "good": good, "title": title, "text": text,
@@ -49,6 +104,21 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	var stolen: int = int(unit.get("stolen_dice", 0))
 	if stolen > 0:
 		out.append(entry("stolen", "die", "−%d" % stolen, false, "Dice taken", "You roll %s next turn." % DeepUi.plural(stolen, "die fewer", "dice fewer")))
+	var locked: Array = unit.get("hand", []).filter(func(r: Dictionary) -> bool: return bool(r.get("lock_next", false)) or bool(r.get("locked_by_foe", false)))
+	if not locked.is_empty():
+		var now: bool = locked.any(func(r: Dictionary) -> bool: return bool(r.get("locked_by_foe", false)))
+		out.append(entry("locked", "die", str(locked.size()), false, "Locked dice", ("%s came up as last turn and cannot be rerolled." if now else "%s will come up next turn exactly as it shows now, and cannot be rerolled.") % DeepUi.plural(locked.size(), "die", "dice")))
+	var inverted: int = int(unit.get("inverted", 0))
+	if inverted > 0:
+		out.append(entry("inverted", "split", str(inverted), false, "Inverted", "Next turn your %s shift between odd and even." % ("highest die" if inverted == 1 else "%d highest dice" % inverted)))
+	var dread: int = int(statuses.get("dread", 0))
+	if dread > 0:
+		out.append(entry("dread", "thorn", str(dread), false, "Dread", "Next turn your whole bowl rolls %s smaller." % DeepUi.plural(dread, "size")))
+	var fired: int = int(unit.get("fired_count", 0))
+	var backlash_after: int = int(DeepContent.constant("backlash_after", 6))
+	if not battle.is_empty() and DeepBattle.living(battle.get("enemies", [])).any(func(f: Dictionary) -> bool: return DeepCreatures.has_trait(f, "backlash")):
+		out.append(entry("backlash", "bolt", "%d/%d" % [mini(fired, backlash_after), backlash_after] if str(battle.get("phase", "")) == "resolving" else "", false, "Backlash",
+			"Every gem after the %dth to fire in one turn costs you 1 health while the swarm lives." % backlash_after, Color("ff8ad8")))
 	var gifts: int = int(unit.get("granted_rerolls", 0))
 	if gifts > 0:
 		out.append(entry("gifts", "reroll", "+%d" % gifts, true, "Extra rerolls", "%s more next turn." % DeepUi.plural(gifts, "reroll")))
@@ -94,6 +164,45 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	## For a creature the colors flip: what helps it is bad for the party.
 	for chip in _statuses(foe.get("statuses", {}), true):
 		out.append(chip)
+	if bool(foe.get("burrowed", false)):
+		out.append(entry("burrowed", "rampart", "", true, "Burrowed", "Under the floor: it cannot be targeted until its next action. Your gems hit another creature instead, or wait."))
+	var adapt: Dictionary = foe.get("adapt", {})
+	if not adapt.is_empty():
+		var colour: String = str(DeepContent.color(str(adapt.get("color", ""))).get("name", str(adapt.get("color", "")).capitalize()))
+		var tone: Color = Color("#" + str(DeepContent.color(str(adapt.get("color", ""))).get("hue", "c8a8ff")))
+		if bool(adapt.get("reflect", false)):
+			out.append(entry("adapt", "prism", colour, true, "Mirroring " + colour, "%s gems do it no damage: they hit their owner instead. The mirror turns when it next acts." % colour, tone))
+		else:
+			out.append(entry("adapt", "prism", "%s −%d%%" % [colour, int(adapt.get("pct", 0))], true, "Adapted to " + colour, "Takes %d%% less from %s gems until its next action." % [int(adapt.get("pct", 0)), colour], tone))
+	var charge: int = DeepCreatures.charge_turns(foe)
+	if charge > 0:
+		out.append(entry("charging", "bolt", str(charge), true, "Charging", "Winding up %s: it lets go in %s. Taking %d%% of its health off it meanwhile breaks the charge." % [str(foe.get("charging", {}).get("name", "a blow")), DeepUi.plural(charge, "action"), int(foe.get("charging", {}).get("cancel_pct", 25))], Color("ffe27a")))
+	var empowered: int = int(foe.get("empowered", 0))
+	if empowered > 0:
+		out.append(entry("empowered", "sword", "+%d%%" % empowered, false, "Empowered", "Its next attack deals %d%% more." % empowered))
+	var rally: int = int(foe.get("rally_bonus", 0))
+	if rally > 0:
+		out.append(entry("rally", "sword", "+%d" % rally, false, "Rallied", "Deals %d more with every blow this turn." % rally))
+	var swell: int = int(foe.get("swell", 0))
+	if swell > 0:
+		out.append(entry("swell", "drop", str(swell), false, "Swollen", "Its burst will poison every player for %d when it dies." % swell, DeepUi.POISON))
+	var held: int = foe.get("held_gems", []).size()
+	if held > 0:
+		out.append(entry("held_gems", "gem", str(held), false, "Holding gems", "%s taken off the party's rails. Kill it to get %s back." % [DeepUi.plural(held, "gem"), "it" if held == 1 else "them"], DeepUi.ACCENT))
+	var flee: int = DeepCreatures.trait_value(foe, "flee", 0)
+	if flee > 0:
+		var left: int = maxi(0, flee - int(foe.get("turns_acted", 0)))
+		out.append(entry("fleeing", "hourglass", str(left), false, "Leaving", "It flies off with everything it stole after %s." % DeepUi.plural(left, "more action"), Color("ffb05a")))
+	for move in DeepCreatures.moves_for(foe):
+		if str(move.get("trigger", {}).get("kind", "")) == "every_nth_turn":
+			var wait: int = DeepCreatures.next_nth_in(foe, move)
+			out.append(entry("nth_" + str(move.get("name", "")), "hourglass", str(wait), false, str(move.get("name", "")) + " coming", "%s fires in %s." % [str(move.get("name", "")), DeepUi.plural(wait, "action")], Color("ffb05a")))
+	if not str(foe.get("echo_of", "")).is_empty():
+		out.append(entry("echo", "copy", "", false, "Echo", "A Rift echo of %s: its health, dice and moves over again." % str(DeepContent.creature(str(foe.echo_of)).get("name", foe.echo_of)), Color("c8b8ff")))
+	if not str(foe.get("escort_of", "")).is_empty():
+		out.append(entry("escort", "copy", "", false, "Escort", "It came with the creature it stands beside.", Color("c8b8ff")))
+	if not str(foe.get("remembered", "")).is_empty():
+		out.append(entry("remembered", "crown", "", false, "Remembered", "A boss the Rift remembers, with one trait more: %s." % str(foe.remembered).capitalize(), Color("c8b8ff")))
 	var downgrade: int = int(foe.get("dread_turns", 0))
 	if downgrade > 0:
 		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are %d tiers smaller (minimum d2). One stack wears off after each action phase." % downgrade))
@@ -114,10 +223,15 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("gold", "coin_fall", str(gold), false, "Stolen pyrite", "It carries %d of your pyrite. Kill it to get it back." % gold, DeepUi.ORE))
 	if bool(foe.get("warden", false)) and int(foe.get("phase", 0)) > 0:
 		out.append(entry("phase", "crown", "%d" % (int(foe.phase) + 1), false, "Enraged phase", "Hurt below its threshold, it fights with a new set of moves."))
-	var gimmick: String = str(foe.get("gimmick", ""))
-	if GIMMICKS.has(gimmick):
-		var g: Array = GIMMICKS[gimmick]
-		out.append(entry("gimmick", str(g[0]), "", false, str(g[1]), str(g[2]), Color("c8a8ff")))
+	## Everything it is, as traits: its old-style trick and the newer kinds alike.
+	var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else ({str(foe.gimmick): true} if not str(foe.get("gimmick", "")).is_empty() else {})
+	var keys: Array = traits.keys()
+	keys.sort()
+	for key in keys:
+		if str(key) == "poison_immune" and GIMMICKS.has("poison_immune"):
+			out.append(trait_entry("poison_immune", true))
+		elif not str(key) in ["gift_rerolls"] or not (traits.has("reroll_drain") or traits.has("reroll_scorch")):
+			out.append(trait_entry(str(key), traits[key]))
 	return out
 
 static func for_battle(battle: Dictionary) -> Array:
@@ -155,14 +269,18 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 		"marked": ["eye", "Marked", "The next direct hit takes +%d%% damage, then consumes every mark. Block does not prevent consumption.", false],
 		"regeneration": ["heart", "Regeneration", "Heals %d HP at turn end after Poison, then loses one stack. Cannot revive.", true],
 		"spikes": ["thorn", "Spikes", "Retaliates for %d hit damage once per attacking gem or ability, including blocked hits. Expires at the next Block reset.", true],
-		"dulled": ["cut", "Dulled", "Gems lose %d Cut steps after bonuses (minimum Poor). Loses one stack at turn end; Birthstone is unaffected.", false]}
+		"dulled": ["cut", "Dulled", "Gems lose %d Cut steps after bonuses (minimum Poor). Loses one stack at turn end; Birthstone is unaffected.", false],
+		"festering": ["drop", "Festering", "Healing you receive is halved. Counts down 1 each turn (%d left).", false],
+		"corroded": ["split_shield", "Corroded", "At the start of your turn you lose half the block you kept, Retain included. Counts down 1 each turn (%d left).", false],
+		"scorched": ["flame", "Scorched", "Block you gain is halved. Counts down 1 each turn (%d left).", false],
+		"unmade": ["cross_out", "Unmade", "Your Resonance is held at 0 through your next rail: gems fire, but the chain counts for nothing (%d rail).", false]}
 	for key in descriptions:
 		var value: int = int(statuses.get(key, 0))
 		if value <= 0:
 			continue
 		var info: Array = descriptions[key]
 		var good: bool = bool(info[3]) != on_enemy
-		var timing: String = " A new enemy application lasts through your next turn." if key == "dulled" and not on_enemy else ""
+		var timing: String = " A new enemy application lasts through your next turn." if key in ["dulled", "festering", "corroded", "scorched"] and not on_enemy else ""
 		out.append(entry(str(key), str(info[0]), str(value), good, str(info[1]), str(info[2]) % (value * 25 if key == "marked" else value) + timing))
 	return out
 

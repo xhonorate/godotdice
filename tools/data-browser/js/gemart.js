@@ -151,12 +151,16 @@ function dieGlyph(def, size) {
 	el.append(svg('text', { x: size / 2, y: size / 2 + size * 0.14, 'text-anchor': 'middle', fill: '#1d1a17', 'font-size': size * 0.36, 'font-weight': 700, text: String(faces) }));
 	return el;
 }
+// A creature without a photograph yet: a tile in its side's colour wearing its initial, so a
+// new entry in the bestiary reads at a glance before tools/browser_assets.gd has been run.
 function creatureGlyph(def, size) {
-	const el = svg('svg', { viewBox: `0 0 ${size} ${size}`, width: size, height: size, class: 'silhouette' });
-	const hue = def.warden ? '#e2b23a' : '#7fd1c4';
-	el.append(svg('path', { d: `M${size * 0.5} ${size * 0.12} L${size * 0.72} ${size * 0.55} L${size * 0.5} ${size * 0.9} L${size * 0.28} ${size * 0.55} Z`, fill: hue, opacity: 0.85 }));
-	el.append(svg('path', { d: `M${size * 0.3} ${size * 0.4} L${size * 0.42} ${size * 0.62} L${size * 0.3} ${size * 0.82} L${size * 0.18} ${size * 0.62} Z`, fill: hue, opacity: 0.6 }));
-	el.append(svg('ellipse', { cx: size * 0.5, cy: size * 0.9, rx: size * 0.36, ry: size * 0.06, fill: '#2a2f3a' }));
+	const name = String(def.name || '?').replace(/^the\s+/i, '').trim();
+	const initial = (name[0] || '?').toUpperCase();
+	const hue = def.warden ? '#e2b23a' : def.summon_only ? '#9e83dd' : def.echo ? '#8b5fd6' : '#7fd1c4';
+	const el = svg('svg', { viewBox: `0 0 ${size} ${size}`, width: size, height: size, class: 'silhouette', role: 'img', 'aria-label': def.name || '' });
+	el.append(svg('rect', { x: size * 0.08, y: size * 0.08, width: size * 0.84, height: size * 0.84, rx: size * 0.18, fill: '#1f242c', stroke: hue, 'stroke-width': Math.max(1, size * 0.03) }));
+	el.append(svg('path', { d: `M${size * 0.5} ${size * 0.14} L${size * 0.86} ${size * 0.5} L${size * 0.5} ${size * 0.86} L${size * 0.14} ${size * 0.5} Z`, fill: hue, opacity: 0.12 }));
+	el.append(svg('text', { x: size / 2, y: size / 2 + size * 0.17, 'text-anchor': 'middle', fill: hue, 'font-size': size * 0.48, 'font-weight': 700, 'font-family': 'system-ui, sans-serif', text: initial }));
 	return el;
 }
 

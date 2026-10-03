@@ -46,6 +46,22 @@ extends RefCounted
 ##     lock_die(one die cannot be thrown again this fight) break_die(a die is destroyed and
 ##     grows back next turn) downgrade_die(a size smaller, never below a d4) break_gem(a gem
 ##     is destroyed and grows back next turn). Granite answers none of them.
+##   Creature-only, what the deeper mines fight with (see docs/BESTIARY.md):
+##     summon(creature, amount: that many join the fight, four creatures at most)
+##     purge(amount: that percent of its own poison is shed)  burrow(it cannot be targeted until its next action)
+##     adapt(amount: percent less from one colour until its next action; color names it, or
+##       "most_damage" / "most_used" / "random" picks it; reflect sends the blow back instead)
+##     festering(heals halved) corroded(half the block kept at turn start is lost)
+##     scorched(block gained halved)  die_lock(pick: high or random: that die comes up as it is
+##       now and cannot be rerolled next turn)  invert_dice(amount: that many highest dice shift
+##       parity next turn)  steal_gold(amount, or pct: taken from each player's pyrite and held)
+##     empower_next(amount: percent more on its next attack)  drain_resonance(Resonance to zero and
+##       held there through the next rail)  rally(every creature deals amount more this turn)
+##     grow_die(shape, cap: another die)  swell(amount: its burst grows)  hold_gem(pick: hardest
+##       or best: a gem is taken off a rail until it dies)  bury_socket(pick: heaviest)
+##     charge(turns, cancel_pct, release: a blow wound up over turns and let go, unless hurt enough)
+##   A damage effect may carry `piercing` (ignores block) or `split_party` (divided across the
+##   party, rounded up).
 ##   Birthstone-only: replay_rail  tick_poison(times: every poison on every creature ticks)
 ##   stone_drop(count: a raw stone, Exquisite or better, into the haul when the fight is won)
 ##     pot(pot_mode: what the Gambler has on the table. "ante" stakes the amount, "double"
@@ -53,13 +69,16 @@ extends RefCounted
 ##     table. Everything staked leaves the bank at once and comes back only on a win, which
 ##     is why the bank is the ceiling on what the pot can ever be worth.)
 ## Targets: self ally_low allies enemy enemies spread enemy_behind downed_ally, and for
-## creatures hero heroes.
+## creatures hero heroes allies_other (every other creature) and the single-player picks
+## hero_least_block hero_most_hp hero_most_gold hero_top_damage (whoever hurt it most this
+## turn) hero_top_dealt (whoever dealt the most last turn) hero_marked (every Marked player).
 
 const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct", "if", "ge", "eq"]
 const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
-	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "pot", "enemy_poison"]
+	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "pot", "enemy_poison",
+	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "turns_acted", "living_players"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
@@ -67,14 +86,26 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"sparkle", "coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy",
 	"replay_rail", "tick_poison", "stone_drop", "pot", "dice_upgrade", "ward", "retain", "charged", "marked",
 	"regeneration", "spikes", "dulled", "clouded", "lifeline", "max_hp", "max_hp_loss", "damage_curse", "detonate", "wager", "stake", "upgrade_faces", "gem_rank", "appraise",
-	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem"]
+	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
+	"summon", "purge", "burrow", "adapt", "festering", "corroded", "scorched", "die_lock", "invert_dice", "steal_gold",
+	"empower_next", "drain_resonance", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "charge"]
+## The creature-only kinds: a skill or an inclusion may not use them.
+const CREATURE_KINDS: Array = ["summon", "purge", "burrow", "adapt", "festering", "corroded", "scorched", "die_lock", "invert_dice", "steal_gold",
+	"empower_next", "drain_resonance", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "charge"]
 const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block", "retain", "regeneration", "spikes", "lifeline", "wager", "detonate"]
 const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
-	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem"]
+	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
+	"festering", "corroded", "scorched", "die_lock", "invert_dice", "drain_resonance", "hold_gem", "bury_socket"]
 const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
-	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem"]
+	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
+	"festering", "corroded", "scorched", "die_lock", "invert_dice", "steal_gold", "drain_resonance", "hold_gem", "bury_socket"]
+## What a creature's hostile effect means by "the enemy": these are turned on the party. A
+## creature that names one player, or itself, keeps its aim.
+const ENEMY_SIDE_TARGETS: Array = ["enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "hero", "heroes"]
+const HERO_PICKS: Array = ["hero_least_block", "hero_most_hp", "hero_most_gold", "hero_top_damage", "hero_top_dealt", "hero_marked"]
 
-const TARGETS: Array = ["self", "ally_low", "allies", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "downed_ally", "hero", "heroes"]
+const TARGETS: Array = ["self", "ally_low", "allies", "allies_other", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "downed_ally", "hero", "heroes",
+	"hero_least_block", "hero_most_hp", "hero_most_gold", "hero_top_damage", "hero_top_dealt", "hero_marked"]
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
 	"cut_step", "cut_override", "locked", "slotless", "fragile", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
 	"copy_previous_inclusion", "adjacent_carat", "always_fires", "fires_twice", "carat_per_depth", "alexandrite",
@@ -84,7 +115,12 @@ const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]
 ## Polish and Facet use — also supports temporary Clarity, without changing stored
 ## inclusion slots.
 const RANK_BUFFS: Array = ["carat", "cut"]
-const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode"]
+const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode",
+	"piercing", "split_party", "pick", "creature", "pct", "reflect", "permanent", "shape", "cap", "turns", "cancel_pct", "release"]
+## How an effect that works on one die or one gem chooses it.
+const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best"]
+## How an adapt effect chooses its colour when it does not name one.
+const ADAPT_PICKS: Array = ["most_damage", "most_used", "random"]
 ## How a `pot` effect moves money. Everything but "lose" takes what it stakes out of the bank.
 const POT_MODES: Array = ["ante", "double", "all", "lose"]
 const MODIFY_FIELDS: Array = EFFECT_OPTIONS + ["amount", "repeat", "effect", "target", "mult", "add", "repeat_add", "splash", "kind", "scale"]
@@ -213,6 +249,14 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"pyrite": return pyrite(unit)
 		"pot": return int(unit.get("pot", 0))
 		"enemy_poison": return int(c.get("enemy_poison", 0))
+		## What a creature reads off itself and off the fight (see creatures.gd `context`).
+		"swell": return int(unit.get("swell", 0))
+		"held_gems": return unit.get("held_gems", []).size()
+		"biggest_hit": return int(unit.get("biggest_hit", 0))
+		"turns_acted": return int(unit.get("turns_acted", 0))
+		"party_heaviest_carat": return int(c.get("party_heaviest_carat", 0))
+		"party_best_turn": return int(c.get("party_best_turn", 0))
+		"living_players": return maxi(1, int(c.get("living_players", c.get("party", 1))))
 		"resonance": return int(c.get("resonance", 0))
 		"previous_amount": return int(c.get("previous_amount", 0))
 		"carat", "cut", "clarity", "depth", "turn", "party":
@@ -368,8 +412,27 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": gem_rank needs carat, cut or clarity")
 	if effect.has("scope") and not str(effect.scope) in ["adjacent", "all", "others"]:
 		errors.append(where + ": unknown gem scope")
-	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed"]:
+	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed", "stolen"]:
 		errors.append(where + ": unknown previous result")
+	if kind in CREATURE_KINDS and hostile_side != "hero":
+		errors.append(where + ": " + kind + " is a creature's move, not a stone's")
+	if kind == "summon" and str(effect.get("creature", "")).is_empty():
+		errors.append(where + ": a summon names the creature it brings in")
+	if effect.has("pick") and not str(effect.pick) in PICKS:
+		errors.append(where + ": unknown pick " + str(effect.pick))
+	if kind == "adapt" and effect.has("color") and not (str(effect.color) in DeepContent.color_KEYS or str(effect.color) in ADAPT_PICKS):
+		errors.append(where + ": adapt names a colour or one of " + ", ".join(ADAPT_PICKS))
+	if kind == "grow_die" and not str(effect.get("shape", "D6")) in DeepDice.TIERS:
+		errors.append(where + ": grow_die needs a die shape")
+	if kind == "charge":
+		if int(effect.get("turns", 0)) < 1:
+			errors.append(where + ": a charge takes at least one turn")
+		var release: Variant = effect.get("release", null)
+		if not release is Array or release.is_empty():
+			errors.append(where + ": a charge names what it releases")
+		else:
+			for r in range(release.size()):
+				errors.append_array(validate_effect(release[r], where + " release %d" % (r + 1), hostile_side))
 	if kind == "pot" and not str(effect.get("pot_mode", "")) in POT_MODES:
 		errors.append(where + ": a pot effect names one of " + ", ".join(POT_MODES))
 	if effect.has("amount"):
