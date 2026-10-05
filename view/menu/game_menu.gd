@@ -33,6 +33,9 @@ var _body: VBoxContainer
 var _panel: PanelContainer
 var _page: String = "main"
 var _invite: String = ""
+## The Soundtrack page: the mood a piece is auditioned in, and the line saying what plays.
+var _audition: String = "explore"
+var _now_playing: Label = null
 
 func _init() -> void:
 	layer = 55
@@ -85,6 +88,7 @@ func open(app_settings: Dictionary, new_context: Dictionary) -> void:
 func close() -> void:
 	if not visible:
 		return
+	DeepMusic.end_preview()
 	visible = false
 	DeepAudio.play("ui_close")
 	closed.emit()
@@ -97,7 +101,7 @@ func _input(event: InputEvent) -> void:
 		if _page == "main":
 			close()
 		else:
-			_show("main")
+			_show("settings" if _page == "soundtrack" else "main")
 	get_viewport().set_input_as_handled()
 
 # --- pages -------------------------------------------------------------------------------------
@@ -105,9 +109,13 @@ func _input(event: InputEvent) -> void:
 func _show(page: String) -> void:
 	_page = page
 	DeepUi.clear(_body)
+	_now_playing = null
+	if page != "soundtrack":
+		DeepMusic.end_preview()
 	match page:
 		"main": _page_main()
 		"settings": _page_settings()
+		"soundtrack": _page_soundtrack()
 		"controls": _page_controls()
 		"abandon": _page_confirm("flag", "Abandon the expedition?", _abandon_text(), "Abandon", DeepUi.BAD, func() -> void:
 			close()
@@ -209,6 +217,11 @@ func _page_settings() -> void:
 	_section(grid, "Sound")
 	_row(grid, "Master volume", _slider("master_volume", 0.8))
 	_row(grid, "Effects", _slider("sfx_volume", 0.85), "Every sound the game makes is written by the game itself.")
+	_row(grid, "Music", _slider("music_volume", 0.6), "The music is written by the game too, note by note, when it is first needed.")
+	DeepUi.label(grid, "Soundtrack", 15, DeepUi.PAPER)
+	var pieces := DeepUi.icon_button(grid, "pulse", "Choose and listen", func() -> void: _show("soundtrack"), 14, DeepUi.PAPER)
+	pieces.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	pieces.tooltip_text = "Pick the music for the workshop and for each mine."
 	_section(grid, "Comfort")
 	_row(grid, "Screen shake", _slider("shake", 1.0))
 	_row(grid, "Fewer flashes", _toggle("reduced_motion", false), "Softens the flashes and color smears on heavy blows.")
@@ -217,6 +230,82 @@ func _page_settings() -> void:
 	var back := DeepUi.button(_body, "Back", func() -> void: _show("main"), 15)
 	DeepUi.voice(back, "ui_back")
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+func _page_soundtrack() -> void:
+	## A piece for each place: click one to choose it and hear it, and the moods underneath
+	## play it as it sounds on a walk, in a fight or in a Warden's hall.
+	_heading("pulse", "Soundtrack")
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 18)
+	grid.add_theme_constant_override("v_separation", 8)
+	_body.add_child(grid)
+	var picks: Dictionary = settings.get("music_picks", {}) if settings.get("music_picks", {}) is Dictionary else {}
+	var playing: Dictionary = DeepMusic.previewing()
+	for place in DeepScore.PLACES:
+		var tone: Color = DeepUi.ACCENT if place == DeepScore.HOME else Color(str(DeepContent.mine(place).get("palette", "c9a26b")))
+		var name_label := DeepUi.label(grid, DeepScore.place_name(place), 15, tone.lightened(0.25))
+		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		var row := DeepUi.hbox(grid, 6)
+		var chosen: String = DeepScore.pick(place, picks)
+		for id in DeepScore.tracks_for(place):
+			var piece_id: String = str(id)
+			var b := DeepUi.button(row, str(DeepScore.track(piece_id).get("name", piece_id)), func() -> void: _choose_piece(place, piece_id), 13)
+			b.custom_minimum_size.x = 150
+			b.tooltip_text = "Choose and play"
+			if piece_id == chosen:
+				DeepUi.selected_style(b, tone)
+			if piece_id == str(playing.get("track", "")):
+				b.add_theme_color_override("font_color", DeepUi.ACCENT_HI)
+	var moods := DeepUi.hbox(_body, 6)
+	moods.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.label(moods, "Hear it", 14, DeepUi.MUTED)
+	for entry in DeepMusic.PREVIEWS:
+		var mood: String = str(entry[1])
+		var b := DeepUi.button(moods, str(entry[0]), func() -> void:
+			_audition = mood
+			var now: Dictionary = DeepMusic.previewing()
+			if not now.is_empty():
+				DeepMusic.preview(str(now.place), str(now.track), mood)
+			_show("soundtrack"), 13)
+		b.custom_minimum_size.x = 84
+		if mood == _audition:
+			DeepUi.selected_style(b)
+	_now_playing = DeepUi.label(_body, "", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_say_playing()
+	var back := DeepUi.button(_body, "Back", func() -> void: _show("settings"), 15)
+	DeepUi.voice(back, "ui_back")
+	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+func _choose_piece(place: String, piece_id: String) -> void:
+	var picks: Dictionary = settings.get("music_picks", {}) if settings.get("music_picks", {}) is Dictionary else {}
+	picks = picks.duplicate()
+	picks[place] = piece_id
+	settings["music_picks"] = picks
+	settings_changed.emit()
+	DeepMusic.preview(place, piece_id, _audition)
+	_show("soundtrack")
+
+func _say_playing() -> void:
+	if _now_playing == null or not is_instance_valid(_now_playing):
+		return
+	var now: Dictionary = DeepMusic.previewing()
+	if now.is_empty():
+		_now_playing.text = "Click a piece to hear it."
+		return
+	var title: String = str(DeepScore.track(str(now.track)).get("name", ""))
+	var mood: String = ""
+	for entry in DeepMusic.PREVIEWS:
+		if str(entry[1]) == str(now.mood):
+			mood = str(entry[0]).to_lower()
+	if DeepMusic.ready_to_play(str(now.track)):
+		_now_playing.text = "Playing %s, %s." % [title, mood]
+	else:
+		_now_playing.text = "Writing %s… (a few seconds, the first time)" % title
+
+func _process(_delta: float) -> void:
+	if visible and _page == "soundtrack":
+		_say_playing()
 
 func _section(grid: GridContainer, text: String) -> void:
 	var head := DeepUi.heading(grid, text, 12, DeepUi.ACCENT)

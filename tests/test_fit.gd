@@ -113,7 +113,7 @@ func _workshop(app: Control) -> void:
 func _menu(app: Control) -> void:
 	for in_run in [false, true]:
 		app.menu.open(app.settings, {"in_run": in_run, "host": true, "solo": false, "phase": "tunnels", "depth": 12, "mine": "The Quarry"})
-		for page in ["main", "settings", "controls", "abandon", "leave", "quit", "invite"]:
+		for page in ["main", "settings", "soundtrack", "controls", "abandon", "leave", "quit", "invite"]:
 			app.menu._show(page)
 			await _fits(app.menu, "the menu's %s page" % page)
 		app.menu.close()

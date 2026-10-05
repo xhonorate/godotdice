@@ -160,10 +160,86 @@ func noise(at: float, seconds: float, amp: float = 0.3, cut_from: float = 6000.0
 		samples[start + i] += value * amp * envelope
 	return self
 
-func pluck(at: float, seconds: float, hz: float, amp: float = 0.4, damping: float = 0.996) -> DeepSynth:
+func voice(at: float, seconds: float, hz: float, amp: float = 0.3, shape: String = "saw",
+		attack: float = 0.05, release: float = 0.4, unison: int = 1, detune: float = 0.0,
+		cutoff: float = 0.0, bloom: float = 0.0, vibrato: float = 0.0, tremolo: float = 0.0) -> DeepSynth:
+	## A held note, where `tone` is a struck one: it rises over `attack`, holds for `seconds`
+	## and dies over `release` after them. `unison` copies spread `detune` cents apart are what
+	## make a pad wide; `cutoff` darkens it through two gentle low passes, and `bloom` opens
+	## that filter as the note swells, which is what makes a horn speak. `vibrato` bends the
+	## pitch (a fraction) once the note has settled; `tremolo` shakes its loudness, which is a
+	## bowed string played in a hurry.
+	var start: int = maxi(0, int(at * float(RATE)))
+	var hold: int = int(seconds * float(RATE))
+	var count: int = hold + int(release * float(RATE))
+	var limit: int = mini(count, samples.size() - start)
+	if hold <= 0 or limit <= 0:
+		return self
+	var wave: int = int(SHAPES.get(shape, SAW))
+	var copies: int = clampi(unison, 1, 4)
+	var phases := PackedFloat64Array()
+	var incs := PackedFloat64Array()
+	for u in range(copies):
+		var spread: float = 0.0 if copies == 1 else (float(u) / float(copies - 1) - 0.5) * 2.0
+		incs.append(hz * pow(2.0, spread * detune / 1200.0) / float(RATE))
+		phases.append(rng.randf())
+	var rise: int = clampi(int(attack * float(RATE)), 1, hold)
+	var fall: int = maxi(1, count - hold)
+	var tail: float = exp(-5.0)
+	var span: float = 1.0 / (1.0 - tail)
+	var decay_step: float = exp(-5.0 / float(fall))
+	var decay: float = 1.0
+	var vibrato_inc: float = TAU * 5.2 / float(RATE)
+	var vibrato_phase: float = 0.0
+	var tremolo_inc: float = TAU * 6.5 / float(RATE)
+	var tremolo_phase: float = 0.0
+	var closed: float = clampf(TAU * cutoff / float(RATE), 0.0, 1.0)
+	var filtered: bool = cutoff > 0.0
+	var low_a: float = 0.0
+	var low_b: float = 0.0
+	var each: float = amp / sqrt(float(copies))
+	for i in range(limit):
+		var envelope: float
+		if i < rise:
+			envelope = float(i) / float(rise)
+		elif i < hold:
+			envelope = 1.0
+		else:
+			decay *= decay_step
+			envelope = (decay - tail) * span
+		var bend: float = 1.0
+		if vibrato > 0.0 and i > rise:
+			vibrato_phase += vibrato_inc
+			bend += vibrato * sin(vibrato_phase) * minf(1.0, float(i - rise) / 6000.0)
+		var value: float = 0.0
+		for u in range(copies):
+			var p: float = phases[u] + incs[u] * bend
+			p -= floorf(p)
+			phases[u] = p
+			if wave == SINE:
+				value += sin(TAU * p)
+			elif wave == TRIANGLE:
+				value += 4.0 * absf(p - 0.5) - 1.0
+			elif wave == SAW:
+				value += 2.0 * p - 1.0
+			else:
+				value += 1.0 if p < 0.5 else -1.0
+		if filtered:
+			var a: float = minf(1.0, closed * (1.0 + bloom * envelope))
+			low_a += (value - low_a) * a
+			low_b += (low_a - low_b) * a
+			value = low_b
+		if tremolo > 0.0:
+			tremolo_phase += tremolo_inc
+			value *= 1.0 - tremolo * (0.5 + 0.5 * sin(tremolo_phase))
+		samples[start + i] += value * each * envelope
+	return self
+
+func pluck(at: float, seconds: float, hz: float, amp: float = 0.4, damping: float = 0.996, soft: float = 0.0) -> DeepSynth:
 	## A string or a crystal shard: noise trapped in a ring one wavelength long, averaged a
 	## little smoother on every pass. Karplus and Strong, 1983, and still the cheapest
-	## convincing struck string there is.
+	## convincing struck string there is. `soft` smooths the noise before it is trapped: a
+	## thumb rather than a pick, which is what a tune wants.
 	var start: int = maxi(0, int(at * float(RATE)))
 	var count: int = int(seconds * float(RATE))
 	var limit: int = mini(count, samples.size() - start)
@@ -174,6 +250,19 @@ func pluck(at: float, seconds: float, hz: float, amp: float = 0.4, damping: floa
 	ring.resize(ring_size)
 	for i in range(ring_size):
 		ring[i] = rng.randf() * 2.0 - 1.0
+	if soft > 0.0:
+		var keep: float = clampf(soft, 0.0, 0.95)
+		var last: float = 0.0
+		for _pass in range(2):
+			for i in range(ring_size):
+				last = last * keep + ring[i] * (1.0 - keep)
+				ring[i] = last
+		var loudest: float = 0.0
+		for value in ring:
+			loudest = maxf(loudest, absf(value))
+		if loudest > 0.0001:
+			for i in range(ring_size):
+				ring[i] /= loudest
 	var cursor: int = 0
 	var decay_step: float = exp(-3.6 / float(limit))
 	var decay: float = 1.0
@@ -258,6 +347,34 @@ func echoes(delay: float, feedback: float = 0.35, repeats: int = 3) -> DeepSynth
 		send *= feedback
 	return self
 
+func add(other: PackedFloat32Array, at_sample: int, scale: float = 1.0) -> DeepSynth:
+	## Lays a finished sound into this one, wrapping round past the end: in a loop, the last
+	## bar rings on into the first, so the seam is never heard. A sound longer than the whole
+	## buffer is cut at one turn.
+	var size: int = samples.size()
+	if size == 0 or other.is_empty() or scale == 0.0:
+		return self
+	var start: int = posmod(at_sample, size)
+	var first: int = mini(other.size(), size - start)
+	for i in range(first):
+		samples[start + i] += other[i] * scale
+	var rest: int = mini(other.size() - first, start)
+	for i in range(rest):
+		samples[i] += other[first + i] * scale
+	return self
+
+func echo_round(delay_samples: int, feedback: float = 0.3, repeats: int = 2) -> DeepSynth:
+	## `echoes` for a loop: what would fall off the end comes back in at the start.
+	var size: int = samples.size()
+	if delay_samples <= 0 or size == 0:
+		return self
+	var dry: PackedFloat32Array = samples.duplicate()
+	var send: float = feedback
+	for r in range(repeats):
+		add(dry, delay_samples * (r + 1), send)
+		send *= feedback
+	return self
+
 func fade(seconds: float = 0.02) -> DeepSynth:
 	## Never let a buffer end on a cliff; a cut waveform is a click.
 	var count: int = mini(samples.size(), int(seconds * float(RATE)))
@@ -287,6 +404,15 @@ func stream(loop: bool = false) -> AudioStreamWAV:
 		var loudest: float = peak()
 		if loudest > 0.0001:
 			scale = _headroom / loudest
+	return _written(scale, loop)
+
+func loop_stream(scale: float = 1.0) -> AudioStreamWAV:
+	## A buffer whose end runs straight on into its start (music, the air of a cave): no fade
+	## at the end, which in a loop would be a dip, and a level set by the caller so the strips
+	## of one piece keep their balance with each other.
+	return _written(scale, true)
+
+func _written(scale: float, loop: bool) -> AudioStreamWAV:
 	var wav := AudioStreamWAV.new()
 	wav.format = AudioStreamWAV.FORMAT_16_BITS
 	wav.mix_rate = RATE

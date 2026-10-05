@@ -35,6 +35,7 @@ func _ready() -> void:
 	saves = DeepSaveStore.new()
 	settings = saves.load_settings()
 	DeepAudio.start(self, settings)
+	DeepMusic.start(self, settings)
 	profile = saves.load_profile()
 	if profile.is_empty():
 		profile = DeepProfile.new_profile(str(settings.get("player_name", "Lapidary")))
@@ -206,6 +207,11 @@ func _on_run_event(event: Dictionary) -> void:
 	descent.show_state(session.run)
 
 func _process(_delta: float) -> void:
+	if DeepMusic.service() != null:
+		## The music follows the party: the workshop, or the mine they are in and what is
+		## happening there. The mine picked on the map is written before anyone descends.
+		var run: Dictionary = session.run if session.in_run() and descent.visible else {}
+		DeepMusic.follow(DeepMusic.where_now(run, str(session.lobby.get("mine", ""))))
 	## A locked-in turn plays at the fight speed, bolts, numbers and all; everything else,
 	## planning included, runs at 1×.
 	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
@@ -303,6 +309,7 @@ func _menu_closed() -> void:
 func _apply_settings(starting: bool = false) -> void:
 	## Take up the settings: at start, and whenever the menu changes one.
 	DeepAudio.levels(settings)
+	DeepMusic.levels(settings)
 	CameraRig.comfort = clampf(float(settings.get("shake", 1.0)), 0.0, 1.0)
 	ScreenFx.calm = bool(settings.get("reduced_motion", false))
 	MineStage.quality_pref = int(settings.get("quality", 0))

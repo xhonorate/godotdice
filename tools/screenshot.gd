@@ -5,7 +5,7 @@ extends SceneTree
 ##          grubstake | grubstake_pick | grubstake_result |
 ##          tunnels | vein | vein_done | oddity | smithy | carver | well |
 ##          landing | merchant | lift | run_bench | run_bench_dice | battle | battle_fx | battle_status | spoils |
-##          over | inspect_stone | inspect_die | inspect_opal | vault_opals | inspect_flaw | vault_flaws | inspect_creature | menu | menu_settings |
+##          over | inspect_stone | inspect_die | inspect_opal | vault_opals | inspect_flaw | vault_flaws | inspect_creature | menu | menu_settings | menu_soundtrack |
 ##          abandon | map_lit |
 ##          crossroads | crossroads_hover | walk | walk_in | rockfall | crumble | vein_hover | vein_strike |
 ##          lift_ride | hoard | appraisal | appraisal_run | void_rail | void_bench | void_battle | void_end | void_appraisal
@@ -143,7 +143,7 @@ func _init() -> void:
 		_save(out)
 		return
 	app._depart(seed_value)
-	var want: Dictionary = {"crossroads": "fight", "crossroads_hover": "fight", "walk": "fight", "walk_in": "fight", "rockfall": "fight", "crumble": "fight", "menu": "vein", "menu_settings": "vein", "abandon": "vein", "map_lit": "vein", "tunnels": "vein", "vein": "vein", "vein_done": "vein", "vein_hover": "vein", "vein_strike": "vein", "oddity": "oddity", "battle": "fight", "battle_fx": "fight",
+	var want: Dictionary = {"crossroads": "fight", "crossroads_hover": "fight", "walk": "fight", "walk_in": "fight", "rockfall": "fight", "crumble": "fight", "menu": "vein", "menu_settings": "vein", "menu_soundtrack": "vein", "abandon": "vein", "map_lit": "vein", "tunnels": "vein", "vein": "vein", "vein_done": "vein", "vein_hover": "vein", "vein_strike": "vein", "oddity": "oddity", "battle": "fight", "battle_fx": "fight",
 		"battle_status": "fight", "spoils": "fight", "inspect_creature": "fight", "hoard": "fight"}
 	var guard: int = 0
 	var locked_at: int = -1
@@ -231,14 +231,16 @@ func _init() -> void:
 					for _i in range(52):
 						await process_frame
 					break
-		if target in ["menu", "menu_settings", "abandon", "map_lit"] and phase == "tunnels" and int(run.depth) >= 1:
+		if target in ["menu", "menu_settings", "menu_soundtrack", "abandon", "map_lit"] and phase == "tunnels" and int(run.depth) >= 1:
 			app.descent._hold = {}
 			app.descent.show_state(run)
 			match target:
-				"menu", "menu_settings":
+				"menu", "menu_settings", "menu_soundtrack":
 					app.open_menu()
 					if target == "menu_settings":
 						app.menu._show("settings")
+					elif target == "menu_soundtrack":
+						app.menu._show("soundtrack")
 				"abandon":
 					app.session.local_player().haul.append(DeepForge.roll_stone(DeepRng.streams(3).stones, DeepContent.mine(DeepContent.starter_mine()), 3, 0, {}, "shot_raw"))
 					app.open_menu()
