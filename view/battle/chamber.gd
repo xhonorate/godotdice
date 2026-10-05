@@ -56,6 +56,12 @@ var _floor_material: StandardMaterial3D
 var _seed: int = 0
 var _trails: Array = []
 var _last_ring: Array = []
+## The floor and the vault are cut over several steps, a band of rows each, so a room built
+## while the party walks toward it never asks one frame for the whole of either: the floor
+## alone was eleven milliseconds. What is half made waits here between steps.
+const FLOOR_BANDS := 4
+const SHELL_BANDS := 3
+var _cut: Dictionary = {}
 
 static var _water_shader: Shader = null
 static var _lava_shader: Shader = null
@@ -89,7 +95,15 @@ func plan(new_biome: Dictionary, seed_value: int, exit_count: int = 0, drop: flo
 		way.index = index
 		exits.append(way)
 	_lay_trails()
-	var steps: Array = [_floor, _shell, _far_wall, _stubs]
+	var steps: Array = [_floor_grid]
+	for band in range(FLOOR_BANDS):
+		steps.append(_floor_band.bind(band))
+	steps.append_array([_floor_done, _shell_grid])
+	for band in range(SHELL_BANDS):
+		steps.append(_shell_band.bind(band))
+	steps.append_array([_shell_done, _far_wall])
+	for way in exits:
+		steps.append(_stub.bind(way))
 	for prop in biome.get("props", []):
 		match str(prop):
 			"stalactites": steps.append(_stalactites.bind(18))
@@ -165,14 +179,14 @@ func trail_distance(x: float, z: float) -> float:
 		best = minf(best, at.distance_to(Geometry2D.get_closest_point_to_segment(at, trail[0], trail[1])))
 	return best
 
-func _stubs() -> void:
-	## The first stretch of every way on, bent out of sight and capped.
-	for way in exits:
-		var stub: Node3D = Tunnel.new()
-		stub.name = "Stub%d" % int(way.index)
-		add_child(stub)
-		stub.build(biome, {}, way.points, int(way.seed), Tunnel.WALL_GAP, Tunnel.STUB, true)
-		way.stub = stub
+func _stub(way: Dictionary) -> void:
+	## The first stretch of a way on, bent out of sight and capped. One a step: each is a
+	## couple of milliseconds of tunnel.
+	var stub: Node3D = Tunnel.new()
+	stub.name = "Stub%d" % int(way.index)
+	add_child(stub)
+	stub.build(biome, {}, way.points, int(way.seed), Tunnel.WALL_GAP, Tunnel.STUB, true)
+	way.stub = stub
 
 func mouth(index: int) -> Vector3:
 	## The foot of a mouth in the far wall, in room space.
@@ -206,8 +220,7 @@ func ground(x: float, z: float) -> float:
 		height = lerpf(height, 0.0, 1.0 - smoothstep(1.4, 3.4, near))
 	return height
 
-func _floor() -> void:
-	var surface := Lowpoly.begin()
+func _floor_grid() -> void:
 	var nx := 44
 	var nz := 35
 	var xs := [-22.0, 22.0]
@@ -220,10 +233,18 @@ func _floor() -> void:
 			var z: float = lerpf(zs[0], zs[1], float(j) / float(nz)) + _rng.randf_range(-0.18, 0.18)
 			row.append(Vector3(x, ground(x, z), z))
 		points.append(row)
+	_cut.floor = {"surface": Lowpoly.begin(), "points": points, "nx": nx, "nz": nz}
+
+func _floor_band(band: int) -> void:
+	var cut: Dictionary = _cut.floor
+	var surface: SurfaceTool = cut.surface
+	var points: Array = cut.points
+	var nx: int = int(cut.nx)
+	var nz: int = int(cut.nz)
 	var floor_tone: Color = biome.floor
 	var moss: Color = biome.moss
 	var wants_moss: bool = biome.get("props", []).has("moss") or family() in ["fungal", "seeps"]
-	for j in range(nz):
+	for j in range(nz * band / FLOOR_BANDS, nz * (band + 1) / FLOOR_BANDS):
 		for i in range(nx):
 			var a: Vector3 = points[j][i]
 			var b: Vector3 = points[j][i + 1]
@@ -237,7 +258,11 @@ func _floor() -> void:
 				if wants_moss and patch > 0.25:
 					tone = tone.lerp(moss.darkened(0.35), clampf((patch - 0.25) * 2.0, 0.0, 0.6))
 				Lowpoly.tri(surface, triangle[0], triangle[1], triangle[2], tone, Vector3.UP)
-	_place(surface.commit(), _floor_material, Transform3D.IDENTITY, true)
+
+func _floor_done() -> void:
+	var cut: Dictionary = _cut.floor
+	_cut.erase("floor")
+	_place((cut.surface as SurfaceTool).commit(), _floor_material, Transform3D.IDENTITY, true)
 
 func _shell_point(u: float, z: float) -> Vector3:
 	var bulge: float = 1.0 + 0.28 * exp(-pow((z - ARENA.z) / 9.0, 2.0))
@@ -250,9 +275,8 @@ func _shell_point(u: float, z: float) -> Vector3:
 	var push: float = 1.0 + n * 0.22 + d * 0.05
 	return Vector3(base.x * push, base.y * push, z + d * 0.4)
 
-func _shell() -> void:
+func _shell_grid() -> void:
 	## The vault: a tunnel of faceted rock, wider where the fight is, closed at the far end.
-	var surface := Lowpoly.begin()
 	var nu := 30
 	var nz := 30
 	var u0 := -0.28
@@ -264,9 +288,18 @@ func _shell() -> void:
 		for i in range(nu + 1):
 			ring.append(_shell_point(lerpf(u0, u1, float(i) / float(nu)), z))
 		rings.append(ring)
+	_last_ring = rings[nz]
+	_cut.shell = {"surface": Lowpoly.begin(), "rings": rings, "nu": nu, "nz": nz}
+
+func _shell_band(band: int) -> void:
+	var cut: Dictionary = _cut.shell
+	var surface: SurfaceTool = cut.surface
+	var rings: Array = cut.rings
+	var nu: int = int(cut.nu)
+	var nz: int = int(cut.nz)
 	var rock: Color = biome.rock
 	var dark: Color = biome.rock_dark
-	for j in range(nz):
+	for j in range(nz * band / SHELL_BANDS, nz * (band + 1) / SHELL_BANDS):
 		for i in range(nu):
 			var a: Vector3 = rings[j][i]
 			var b: Vector3 = rings[j][i + 1]
@@ -281,8 +314,11 @@ func _shell() -> void:
 				tone = Lowpoly.shade(tone, _rng, 0.06)
 				var inward := Vector3(0, SHELL_RY * 0.3, centre.z) - centre
 				Lowpoly.tri(surface, triangle[0], triangle[1], triangle[2], tone, inward)
-	_last_ring = rings[nz]
-	_place(surface.commit(), _rock, Transform3D.IDENTITY, false)
+
+func _shell_done() -> void:
+	var cut: Dictionary = _cut.shell
+	_cut.erase("shell")
+	_place((cut.surface as SurfaceTool).commit(), _rock, Transform3D.IDENTITY, false)
 
 func _far_wall() -> void:
 	## The end of the vault, with a mouth cut through it for every way on. A scatter of
@@ -898,26 +934,11 @@ func _braziers() -> void:
 		_place(Lowpoly.column(_rng, Color("3a3430"), 6, 0.14, 1.3), iron, Transform3D(Basis.IDENTITY, at), true)
 		var bowl := Lowpoly.cap(_rng, Color("3a3430"), Color("1a1410"), 0.5, 0.3, 8)
 		_place(bowl, iron, Transform3D(Basis(Vector3.RIGHT, PI), at + Vector3(0, 1.55, 0)), true)
-		var flame := GPUParticles3D.new()
-		var m := ParticleProcessMaterial.new()
-		m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-		m.emission_sphere_radius = 0.25
-		m.direction = Vector3.UP
-		m.spread = 10.0
-		m.initial_velocity_min = 0.8
-		m.initial_velocity_max = 1.6
-		m.gravity = Vector3(0, 0.8, 0)
-		m.scale_min = 0.25
-		m.scale_max = 0.5
-		m.scale_curve = BattleFx.shrink_curve()
-		m.color_ramp = BattleFx.burst_ramp(Color("ff6a1a"))
-		flame.process_material = m
-		flame.draw_pass_1 = BattleFx.quad(true)
-		flame.amount = 40
-		flame.lifetime = 0.8
+		var flame: Node3D = BattleFx.fire(0.85, false)
 		flame.position = at + Vector3(0, 1.6, 0)
 		add_child(flame)
-		_ambient.append(flame)
+		for part in flame.get_children():
+			_ambient.append(part)
 		_light(at + Vector3(0, 2.2, 0), Color("ff7a2a"), 4.0, 9.0, 0.35, 1.0, false)
 
 # --- light and air -----------------------------------------------------------------------------

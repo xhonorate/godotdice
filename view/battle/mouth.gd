@@ -68,7 +68,11 @@ func _ready() -> void:
 	_motes_material.turbulence_noise_strength = 0.5
 	_motes_material.scale_min = 0.04
 	_motes_material.scale_max = 0.09
-	_motes.process_material = _motes_material
+	## A ramp from the start, recolored by `configure`. Handed over without one, the material
+	## was compiled as a kind of its own on the spot, a few milliseconds a mouth, and then
+	## compiled again the moment the ramp went on.
+	_motes_material.color_ramp = load("res://view/battle/battle_fx.gd").fade_ramp(Color.WHITE, 0.9)
+	_motes.process_material = load("res://view/battle/battle_fx.gd").keep("mouth_motes", _motes_material)
 	_motes.draw_pass_1 = load("res://view/battle/battle_fx.gd").quad(true)
 	_motes.amount = 18
 	_motes.lifetime = 3.2
@@ -178,8 +182,15 @@ func _process(delta: float) -> void:
 		goal = 1.0 + (0.45 if hovered else 0.0) + (0.25 if bool(entry.get("mine", false)) else 0.0)
 	_level = move_toward(_level, goal, delta * (3.0 if goal > _level else 5.0))
 	var flicker: float = 0.88 + 0.12 * sin(_clock * 6.3) * sin(_clock * 2.7 + 1.0)
-	_light.light_energy = (0.0 if hidden else 2.8) * _level * flicker
-	_haze_material.albedo_color.a = (0.05 if hidden else 0.22) * _level * flicker
+	## Walked into, the breath of colour deep in the mouth filled the whole view, and its light
+	## lit the fog round the eye into an orange wall: both give way as the eye comes up to them.
+	var eye: Camera3D = get_viewport().get_camera_3d()
+	var near: float = 1.0
+	if eye != null:
+		near = smoothstep(1.5, 7.0, eye.global_position.distance_to(_haze.global_position))
+	_light.light_energy = (0.0 if hidden else 2.8) * _level * flicker * lerpf(0.15, 1.0, near)
+	_light.light_volumetric_fog_energy = 2.2 * near
+	_haze_material.albedo_color.a = (0.05 if hidden else 0.22) * _level * flicker * near
 	_under.light_energy = 1.2 * _level
 	var color: Color = entry.get("color", Color.WHITE)
 	var lit: float = clampf(_level, 0.0, 1.5)

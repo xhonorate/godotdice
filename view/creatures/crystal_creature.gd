@@ -47,6 +47,8 @@ const TINTS: Array = ["9a7dff", "4fd6b8", "ff8a4a", "5a8cff", "ffc23a", "c860ff"
 # Paths avoid a preload cycle with the scenes' root script. Keep each PackedScene loaded
 # so repeated spawns instantiate the same template without reading it from disk again.
 static var _scenes: Dictionary = {}
+## Scenes asked for ahead of time and still being read on a worker thread.
+static var _requested: Dictionary = {}
 
 @export var key: String = ""
 @export var warden: bool = false
@@ -61,7 +63,7 @@ static var _scenes: Dictionary = {}
 @export var normal_accent: Color = Color.WHITE
 
 var tint: Color:
-	get: return body_material.emission
+	get: return _hue if _white > 0.0 else body_material.emission
 var anchor: Vector3:
 	get: return (get_node("Anchor") as Marker3D).position * scale
 var rest_position: Vector3 = Vector3.ZERO
@@ -92,17 +94,43 @@ var _charging: float = 0.0
 var _buried: float = 0.0
 var _buried_want: float = 0.0
 var _ghost: bool = false
+## A blow turns the body's light white for an instant before its own colour comes back. Its
+## own colour is kept here while it does, so `tint` never reads the flash.
+var _white: float = 0.0
+var _hue: Color = Color.WHITE
+
+static func _path_for(looks: String) -> String:
+	var path: String = str(SCENE_PATHS.get(looks, FALLBACK_SCENE))
+	return path if ResourceLoader.exists(path) else FALLBACK_SCENE
+
+static func preload_scenes(foes: Array) -> void:
+	## Starts reading these creatures' scenes on a worker thread: a fight down the tunnel the
+	## party has just taken. Parsing one cost a few milliseconds each on the frame the fight
+	## began, on top of everything else that frame has to do.
+	for foe in foes:
+		var echo_of: String = str(foe.get("echo_of", "")) if foe is Dictionary else ""
+		var key: String = str(foe.get("key", "")) if foe is Dictionary else str(foe)
+		var path: String = _path_for(echo_of if not echo_of.is_empty() else key)
+		if _scenes.has(path) or _requested.has(path):
+			continue
+		if ResourceLoader.load_threaded_request(path, "PackedScene") == OK:
+			_requested[path] = true
+
+static func _scene(path: String) -> PackedScene:
+	if not _scenes.has(path):
+		var made: PackedScene = null
+		if _requested.has(path):
+			_requested.erase(path)
+			made = ResourceLoader.load_threaded_get(path) as PackedScene
+		_scenes[path] = made if made != null else load(path) as PackedScene
+	return _scenes[path]
 
 static func make(creature_key: String, is_warden: bool = false, echo_of: String = "") -> CrystalCreature:
 	## A creature by key. A variant spawns its base scene in its own colours; a Void Echo
 	## spawns the scene of whatever it copies, in the Rift's light.
 	var looks: String = echo_of if not echo_of.is_empty() else creature_key
-	var path: String = str(SCENE_PATHS.get(looks, FALLBACK_SCENE))
-	if not ResourceLoader.exists(path):
-		path = FALLBACK_SCENE
-	if not _scenes.has(path):
-		_scenes[path] = load(path) as PackedScene
-	var creature := (_scenes[path] as PackedScene).instantiate() as CrystalCreature
+	var path: String = _path_for(looks)
+	var creature := _scene(path).instantiate() as CrystalCreature
 	creature.key = creature_key
 	if path == FALLBACK_SCENE:
 		creature.normal_tint = Color(str(TINTS[absi(creature_key.hash()) % TINTS.size()]))
@@ -237,8 +265,11 @@ func flash(strength: float = 2.4) -> void:
 	_glow_boost = maxf(_glow_boost, strength)
 
 func hit(strength: float = 1.0) -> void:
-	## Reels from a blow: knocked back, squashed, lit up.
+	## Reels from a blow: knocked back, squashed, lit up white for an instant.
 	flash(2.0 + strength * 2.0)
+	if _white <= 0.0:
+		_hue = body_material.emission
+	_white = clampf(0.55 + strength * 0.35, 0.0, 1.0)
 	_recoil = Vector3(randf_range(-0.12, 0.12), 0.0, -0.35 - 0.35 * strength)
 	_squash = 0.25 * clampf(strength, 0.3, 1.5)
 
@@ -310,6 +341,9 @@ func _process(delta: float) -> void:
 		part.animate(_clock, style)
 	## The heartbeat of its glow, flaring on every blow.
 	_glow_boost = move_toward(_glow_boost, 0.0, delta * 5.0)
+	if _white > 0.0:
+		_white = move_toward(_white, 0.0, delta * 7.0)
+		body_material.emission = _hue.lerp(Color.WHITE, _white * 0.85) if _white > 0.0 else _hue
 	var heartbeat: float = pow(maxf(0.0, sin(_clock * 2.2)), 8.0) * 0.4
 	## Charging: a swelling pulse on top of the heartbeat.
 	var charge: float = _charging * (0.8 + 0.8 * pow(maxf(0.0, sin(_clock * 4.0)), 2.0))

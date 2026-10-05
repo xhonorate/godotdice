@@ -275,8 +275,13 @@ const PAVILION_DEPTH := 0.74
 const ETCH_PIXELS := 96
 
 static var _normals: Dictionary = {}
-static var _faces: Dictionary = {}
+static var _inks: Dictionary = {}
 static var _fire: Shader = null
+## Etch maps worked out ahead of time on a worker thread, by emblem: the bytes only, since
+## textures are made on the main thread. See `warm_etches`.
+static var _baked: Dictionary = {}
+static var _bake_lock: Mutex = Mutex.new()
+static var _bake_task: int = -1
 
 # --- the four properties as numbers -------------------------------------------
 
@@ -1126,7 +1131,11 @@ static func etch_material(gem: Dictionary) -> StandardMaterial3D:
 		ink = clampf(ink + 0.14, 0.0, 1.0)
 	var material := StandardMaterial3D.new()
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_texture = _etch_albedo(emblem, body, shade, ink)
+	# The mask is white with the emblem's coverage in its alpha, so the groove's tone and
+	# opacity ride on the material rather than on a texture baked for every stone.
+	var floor_tone := body.darkened(shade)
+	material.albedo_texture = _etch_ink(emblem)
+	material.albedo_color = Color(floor_tone.r, floor_tone.g, floor_tone.b, ink)
 	material.normal_enabled = true
 	material.normal_texture = _etch_normal(emblem)
 	material.texture_repeat = false
@@ -1151,76 +1160,111 @@ static func etch_material(gem: Dictionary) -> StandardMaterial3D:
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return material
 
-static func _blurred(mask: Image) -> PackedFloat32Array:
-	## The emblem softened into a height field, so its walls slope instead of stepping.
+static func _etch_bytes(emblem: String) -> Dictionary:
+	## Everything an etch needs, as bytes: its relief as a normal map and its coverage as a
+	## white mask. Touches no shared state, so a worker thread may run it.
+	var mask: Image = GemIcons.raster(emblem, ETCH_PIXELS)
+	mask.convert(Image.FORMAT_RGBA8)
 	var span := mask.get_width()
+	var data: PackedByteArray = mask.get_data()
+	var height := _blurred(data, span)
+	var normal := PackedByteArray()
+	normal.resize(span * span * 4)
+	for y in span:
+		var up_row: int = maxi(y - 1, 0) * span
+		var down_row: int = mini(y + 1, span - 1) * span
+		var row: int = y * span
+		for x in span:
+			var left: float = height[row + maxi(x - 1, 0)]
+			var right: float = height[row + mini(x + 1, span - 1)]
+			var up: float = height[up_row + x]
+			var down: float = height[down_row + x]
+			# The emblem is cut into the face, so the surface falls where the mask rises.
+			var facing := Vector3(right - left, down - up, 0.55).normalized()
+			var at: int = (row + x) * 4
+			normal[at] = int(clampf((facing.x * 0.5 + 0.5) * 255.0, 0.0, 255.0))
+			normal[at + 1] = int(clampf((facing.y * 0.5 + 0.5) * 255.0, 0.0, 255.0))
+			normal[at + 2] = int(clampf((facing.z * 0.5 + 0.5) * 255.0, 0.0, 255.0))
+			normal[at + 3] = 255
+	var ink := PackedByteArray()
+	ink.resize(span * span * 4)
+	ink.fill(255)
+	for index in span * span:
+		ink[index * 4 + 3] = data[index * 4 + 3]
+	return {"span": span, "normal": normal, "ink": ink}
+
+static func _blurred(data: PackedByteArray, span: int) -> PackedFloat32Array:
+	## The emblem softened into a height field, so its walls slope instead of stepping.
+	## Three passes of a 3x3 box, each run as a row pass and then a column pass. Averaging
+	## only the neighbours that exist separates the same way, so the result is unchanged
+	## and the work is a third of what it was.
 	var height := PackedFloat32Array()
 	height.resize(span * span)
-	for y in span:
-		for x in span:
-			height[y * span + x] = mask.get_pixel(x, y).a
+	for index in span * span:
+		height[index] = data[index * 4 + 3] / 255.0
+	var across := PackedFloat32Array()
+	across.resize(span * span)
+	var last := span - 1
 	for _pass in 3:
-		var next := height.duplicate()
 		for y in span:
-			for x in span:
-				var total := 0.0
-				var taken := 0
-				for dy: int in [-1, 0, 1]:
-					for dx: int in [-1, 0, 1]:
-						var px: int = x + dx
-						var py: int = y + dy
-						if px < 0 or py < 0 or px >= span or py >= span:
-							continue
-						total += height[py * span + px]
-						taken += 1
-				next[y * span + x] = total / float(taken)
-		height = next
+			var row := y * span
+			across[row] = (height[row] + height[row + 1]) * 0.5
+			for x in range(1, last):
+				across[row + x] = (height[row + x - 1] + height[row + x] + height[row + x + 1]) / 3.0
+			across[row + last] = (height[row + last - 1] + height[row + last]) * 0.5
+		for x in span:
+			height[x] = (across[x] + across[span + x]) * 0.5
+			for y in range(1, last):
+				var at := y * span + x
+				height[at] = (across[at - span] + across[at] + across[at + span]) / 3.0
+			height[last * span + x] = (across[(last - 1) * span + x] + across[last * span + x]) * 0.5
 	return height
+
+static func _etch_set(emblem: String) -> Dictionary:
+	## The baked bytes if the worker got there first, otherwise worked out here and now.
+	_bake_lock.lock()
+	var baked: Dictionary = _baked.get(emblem, {})
+	_bake_lock.unlock()
+	return baked if not baked.is_empty() else _etch_bytes(emblem)
 
 static func _etch_normal(emblem: String) -> ImageTexture:
 	var cached: ImageTexture = _normals.get(emblem, null)
 	if cached != null:
 		return cached
-	var mask: Image = GemIcons.texture(emblem, ETCH_PIXELS).get_image()
-	mask.convert(Image.FORMAT_RGBA8)
-	var span := mask.get_width()
-	var height := _blurred(mask)
-	var built := Image.create(span, span, false, Image.FORMAT_RGBA8)
-	for y in span:
-		for x in span:
-			var left: float = height[y * span + maxi(x - 1, 0)]
-			var right: float = height[y * span + mini(x + 1, span - 1)]
-			var up: float = height[maxi(y - 1, 0) * span + x]
-			var down: float = height[mini(y + 1, span - 1) * span + x]
-			# The emblem is cut into the face, so the surface falls where the mask rises.
-			var normal := Vector3(right - left, down - up, 0.55).normalized()
-			built.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
-	var texture := ImageTexture.create_from_image(built)
+	var made: Dictionary = _etch_set(emblem)
+	var texture := ImageTexture.create_from_image(Image.create_from_data(int(made.span), int(made.span), false, Image.FORMAT_RGBA8, made.normal))
 	_normals[emblem] = texture
+	if not _inks.has(emblem):
+		_inks[emblem] = ImageTexture.create_from_image(Image.create_from_data(int(made.span), int(made.span), false, Image.FORMAT_RGBA8, made.ink))
 	return texture
 
-static func _etch_albedo(emblem: String, body: Color, shade: float, ink: float) -> ImageTexture:
-	# Shade and opacity are part of the key: two etches cut to different depths into two
-	# differently colored stones are two textures, and both vary with Clarity.
-	var tag := "%s|%s|%.3f|%.3f" % [emblem, body.to_html(false), shade, ink]
-	var cached: ImageTexture = _faces.get(tag, null)
-	if cached != null:
-		return cached
-	var mask: Image = GemIcons.texture(emblem, ETCH_PIXELS).get_image()
-	mask.convert(Image.FORMAT_RGBA8)
-	var span := mask.get_width()
-	# The groove faces the key light square on while the stone around it is all angled
-	# facets, so a merely darker tone lights back up to a pale tint. It has to start far
-	# darker than the body to read as a recess once the light is on it.
-	var floor_tone := body.darkened(shade)
-	var built := Image.create(span, span, false, Image.FORMAT_RGBA8)
-	for y in span:
-		for x in span:
-			var alpha := mask.get_pixel(x, y).a
-			built.set_pixel(x, y, Color(floor_tone.r, floor_tone.g, floor_tone.b, alpha * ink))
-	var texture := ImageTexture.create_from_image(built)
-	_faces[tag] = texture
-	return texture
+static func _etch_ink(emblem: String) -> ImageTexture:
+	if not _inks.has(emblem):
+		_etch_normal(emblem)
+	return _inks[emblem]
+
+static func warm_etches() -> void:
+	## Works out every skill's etch on a worker thread, so the first time a page of stones is
+	## photographed none of them stops the frame to blur its emblem. Anything asked for before
+	## the worker reaches it is simply made on the spot, as it always was.
+	if _bake_task >= 0:
+		return
+	var emblems: Array = []
+	for key in DeepContent.section("skills").keys():
+		var emblem: String = GemIcons.emblem(str(key))
+		if not emblems.has(emblem):
+			emblems.append(emblem)
+	_bake_task = WorkerThreadPool.add_group_task(func(index: int) -> void:
+		var made: Dictionary = _etch_bytes(str(emblems[index]))
+		_bake_lock.lock()
+		_baked[str(emblems[index])] = made
+		_bake_lock.unlock(), emblems.size(), 1, false, "Etch maps")
+
+static func finish_warm() -> void:
+	## Waits out the worker, which has to be done before the engine goes.
+	if _bake_task >= 0:
+		WorkerThreadPool.wait_for_group_task_completion(_bake_task)
+		_bake_task = -1
 
 # --- words --------------------------------------------------------------------
 
@@ -1252,7 +1296,11 @@ static func cut_note(cut: int) -> String:
 		"cut true, with a crisp girdle"][clampi(cut, 1, 5) - 1]
 
 static func release() -> void:
+	finish_warm()
 	_normals.clear()
-	_faces.clear()
+	_inks.clear()
+	_bake_lock.lock()
+	_baked.clear()
+	_bake_lock.unlock()
 	_shape_scale.clear()
 	_fire = null

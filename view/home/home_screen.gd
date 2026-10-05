@@ -67,6 +67,13 @@ var _bar: HBoxContainer
 var _body: Control
 var _backdrop: Control
 var _vault_pick: String = ""
+## The vault's tiles by skill and the column the lamp stands in, so picking a stone can
+## redo just those rather than the whole page.
+var _vault_tiles: Dictionary = {}
+var _vault_side: VBoxContainer = null
+## The live stone under the lamp, kept from one pick to the next: a new one is a new 3D
+## world, sky and lights, and building those was most of what a click in the vault cost.
+var _vault_stage: Showcase = null
 var _vault_filter: String = ""
 var _appraise_pick: String = ""
 var _bench_socket: int = -1
@@ -974,43 +981,90 @@ func _vault(content: VBoxContainer) -> void:
 	columns.add_child(scroller)
 	var grid := GridContainer.new()
 	grid.columns = VAULT_COLUMNS
-	var span: int = VAULT_TILE
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroller.add_child(grid)
 	var side := DeepUi.vbox(columns, 12)
 	side.custom_minimum_size = Vector2(440, 0)
-	var index: int = 0
+	_vault_side = side
+	_vault_tiles = {}
+	_vault_lamp(side)
+	var entries: Array = []
 	for entry in DeepProfile.vault_grid(profile):
-		var skill: Dictionary = DeepContent.skill(str(entry.skill))
-		var color: String = str(skill.get("color", "WHITE"))
-		if not _vault_filter.is_empty() and color != _vault_filter:
-			continue
-		var state: String = str(entry.state)
+		var color: String = str(DeepContent.skill(str(entry.skill)).get("color", "WHITE"))
+		if _vault_filter.is_empty() or color == _vault_filter:
+			entries.append(entry)
+	## Freshly opened, the tiles pop in on a stagger, which hides them arriving a couple of
+	## rows a frame; anything else gets the whole grid at once.
+	_vault_fill(grid, entries, 0, VAULT_COLUMNS * 2 if _fresh and not _headless else entries.size())
+
+func _vault_fill(grid: GridContainer, entries: Array, from: int, per_frame: int) -> void:
+	## The grid `per_frame` tiles at a time, a frame apart. All at once, sixty-odd tiles were
+	## forty milliseconds in the frame the tab opened.
+	if not is_instance_valid(grid) or not grid.is_inside_tree():
+		return
+	var upto: int = mini(entries.size(), from + maxi(1, per_frame))
+	for index in range(from, upto):
+		var entry: Dictionary = entries[index]
 		var key: String = str(entry.skill)
+		var color: String = str(DeepContent.skill(key).get("color", "WHITE"))
+		var state: String = str(entry.state)
 		var tile: Control
 		if state == "owned":
-			tile = StoneCard.tile(grid, entry.stone, span)
+			tile = StoneCard.tile(grid, entry.stone, VAULT_TILE)
 		else:
-			tile = _ghost_tile(grid, key, color, state == "seen", span)
+			tile = _ghost_tile(grid, key, color, state == "seen", VAULT_TILE)
 		if state in ["owned", "seen"]:
-			if key == _vault_pick:
-				var style: StyleBoxFlat = (tile as PanelContainer).get_theme_stylebox("panel").duplicate()
-				style.border_color = DeepUi.ACCENT
-				style.set_border_width_all(2)
-				tile.add_theme_stylebox_override("panel", style)
+			_vault_tiles[key] = tile
+			tile.set_meta("plain_style", (tile as PanelContainer).get_theme_stylebox("panel"))
+			_ring_vault_tile(tile, key == _vault_pick)
 			tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 			DeepUi.juice(tile, 1.06)
 			tile.gui_input.connect(func(event: InputEvent) -> void:
 				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-					_vault_pick = key
-					_render())
+					_pick_vault(key))
 		_enter(tile, 0.015 * index)
-		index += 1
+	if upto < entries.size():
+		get_tree().process_frame.connect(_vault_fill.bind(grid, entries, upto, per_frame), CONNECT_ONE_SHOT)
+
+func _ring_vault_tile(tile: Control, picked: bool) -> void:
+	var plain: StyleBox = tile.get_meta("plain_style")
+	if not picked:
+		tile.add_theme_stylebox_override("panel", plain)
+		return
+	var style: StyleBoxFlat = plain.duplicate()
+	style.border_color = DeepUi.ACCENT
+	style.set_border_width_all(2)
+	tile.add_theme_stylebox_override("panel", style)
+
+func _pick_vault(key: String) -> void:
+	## Picking a stone changes the lamp and which tile is ringed, and nothing else, so only
+	## those are redone. Rebuilding the page cost a stall per click and lost the grid's scroll.
+	var tile: Variant = _vault_tiles.get(key, null)
+	if not is_instance_valid(_vault_side) or not is_instance_valid(tile):
+		_vault_pick = key
+		_render()
+		return
+	var was: Variant = _vault_tiles.get(_vault_pick, null)
+	if is_instance_valid(was):
+		_ring_vault_tile(was, false)
+	_vault_pick = key
+	_ring_vault_tile(tile, true)
+	## The lit stone is lifted out before the lamp is cleared away, to be set back under it.
+	if is_instance_valid(_vault_stage) and _vault_stage.get_parent() != null:
+		_vault_stage.get_parent().remove_child(_vault_stage)
+	DeepUi.clear(_vault_side)
+	_vault_lamp(_vault_side)
+
+func _vault_lamp(side: VBoxContainer) -> void:
 	## The stone under the lamp.
+	var kept: Showcase = _vault_stage if is_instance_valid(_vault_stage) and not _vault_stage.is_queued_for_deletion() else null
+	_vault_stage = null
 	var shown: Dictionary = DeepProfile.owned(profile, _vault_pick)
 	if shown.is_empty() and profile.get("seen", []).has(_vault_pick):
+		if kept != null and kept.get_parent() == null:
+			kept.queue_free()
 		_vault_reference(side, _vault_pick)
 		return
 	var caption: String = ""
@@ -1018,14 +1072,18 @@ func _vault(content: VBoxContainer) -> void:
 		shown = profile.records.best.stone
 		caption = "Your best stone"
 	if shown.is_empty():
+		if kept != null and kept.get_parent() == null:
+			kept.queue_free()
 		_empty(side, "chest", "Nothing kept yet", "Stones you keep from the Appraise tab live here, one per skill.")
 		return
 	var lamp := DeepUi.card(side, Color(DeepUi.tier_color(str(DeepStone.grade(shown).tier)), 0.5), 16)
 	var lamp_box := DeepUi.vbox(lamp, 10)
 	if not caption.is_empty():
 		DeepUi.section(lamp_box, "star", caption)
-	var stage := Showcase.new(shown, 220)
+	var stage: Showcase = kept if kept != null and kept.get_parent() == null else Showcase.new(shown, 220)
+	stage.show_stone(shown)
 	lamp_box.add_child(stage)
+	_vault_stage = stage
 	StoneCard.build(lamp_box, shown, {"picture": false, "provenance": true, "value": true, "text_width": 380})
 	_enter(lamp, 0.05)
 
@@ -1083,11 +1141,13 @@ class Showcase extends Control:
 	## One stone, live, under a lamp on a velvet pad, turning slowly in its light.
 	var _clock: float = 0.0
 	var _tone: Color
+	var _view: Control
 	func _init(stone: Dictionary, edge: float) -> void:
 		custom_minimum_size = Vector2(edge * 1.6, edge)
 		mouse_filter = Control.MOUSE_FILTER_PASS
 		_tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if bool(stone.get("appraised", true)) else DeepUi.color(DeepStone.color(stone))
 		var view := GemView.new()
+		_view = view
 		var reach: float = edge * 0.8
 		view.anchor_left = 0.5
 		view.anchor_right = 0.5
@@ -1101,6 +1161,11 @@ class Showcase extends Control:
 		view.configure(stone)
 		view.enable_interaction()
 		add_child(view)
+	func show_stone(stone: Dictionary) -> void:
+		## Another stone under the same lamp, in the same light.
+		_tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if bool(stone.get("appraised", true)) else DeepUi.color(DeepStone.color(stone))
+		_view.call("configure", stone)
+		queue_redraw()
 	func _process(delta: float) -> void:
 		_clock += delta
 		queue_redraw()

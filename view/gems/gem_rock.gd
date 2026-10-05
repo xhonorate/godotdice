@@ -179,6 +179,28 @@ static func seam_material(glow: Color) -> StandardMaterial3D:
 	made.emission_energy_multiplier = 0.0
 	return made
 
+static func world_material() -> StandardMaterial3D:
+	## The same rock out in a room rather than under the loupe's lamps. By lantern light its
+	## tones are all but black, and a raw stone lifted out of a vein or left on a Warden's
+	## pile was a black lump with a window of colour in it. Out here it holds a little light of
+	## its own and its edges catch what light there is, so it reads as rock round a stone.
+	var made := material()
+	made.rim_enabled = true
+	made.rim = 0.6
+	made.rim_tint = 0.25
+	made.emission_enabled = true
+	made.emission = TONE.lightened(0.35)
+	made.emission_energy_multiplier = 0.45
+	return made
+
+static func world_seams(glow: Color) -> StandardMaterial3D:
+	## The seams of a raw stone out in a room carry a little of the light inside it.
+	var made := world_material()
+	made.emission_enabled = true
+	made.emission = glow
+	made.emission_energy_multiplier = 0.8
+	return made
+
 static func dress(piece: MeshInstance3D, rock: Material, seams: Material) -> void:
 	## Rock on the rock, seams on the seams.
 	piece.set_surface_override_material(0, rock)

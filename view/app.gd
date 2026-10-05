@@ -4,6 +4,7 @@ extends Control
 const HomeScreen = preload("res://view/home/home_screen.gd")
 const DescentScreen = preload("res://view/run/descent_screen.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
+const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GameMenu = preload("res://view/menu/game_menu.gd")
 const MineStage = preload("res://view/run/mine_stage.gd")
@@ -22,6 +23,9 @@ var _toasts: VBoxContainer
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	## Every stone's etch is worked out in the background before anyone opens the vault.
+	if not Thumbs.headless():
+		GemMesh.warm_etches()
 	theme = DeepUi.theme()
 	var backdrop := ColorRect.new()
 	backdrop.color = DeepUi.INK
@@ -206,11 +210,17 @@ func _process(_delta: float) -> void:
 	## planning included, runs at 1×.
 	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
 	var want: float = clampf(session.speed, 1.0, 8.0) if resolving and not session.paused else 1.0
+	## A heavy blow holds the clock for a beat; the last one of a fight runs in slow motion.
+	## Whatever speed the fight is played at, a held beat is held.
+	var warp: float = ScreenFx.time_warp()
+	if warp < 1.0:
+		want = minf(want, warp)
 	if not is_equal_approx(Engine.time_scale, want):
 		Engine.time_scale = want
 
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0
+	GemMesh.finish_warm()
 
 func _on_run_ended(results: Dictionary) -> void:
 	var applied: Dictionary = DeepProfile.apply_result(profile, results, session.local_id)

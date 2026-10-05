@@ -845,6 +845,16 @@ static func texture(glyph: String, edge: int, rainbow: bool = false) -> ImageTex
 	var cached: ImageTexture = _cache.get(tag, null)
 	if cached != null:
 		return cached
+	var image := raster(glyph, edge, rainbow)
+	image.generate_mipmaps()
+	var built := ImageTexture.create_from_image(image)
+	_cache[tag] = built
+	return built
+
+static func raster(glyph: String, edge: int, rainbow: bool = false) -> Image:
+	## The mark drawn into a bare image, without mipmaps and without touching the cache, so
+	## it is safe to call from a worker thread.
+	edge = clampi(edge, 8, 128)
 	var shapes: Array = _shapes(glyph)
 	var span: int = edge * SUPER
 	var image := Image.create(span, span, false, Image.FORMAT_RGBA8)
@@ -878,10 +888,7 @@ static func texture(glyph: String, edge: int, rainbow: bool = false) -> ImageTex
 				image.set_pixel(x, y, Color(lit.r, lit.g, lit.b, was.a))
 	image.shrink_x2()
 	image.shrink_x2()
-	image.generate_mipmaps()
-	var built := ImageTexture.create_from_image(image)
-	_cache[tag] = built
-	return built
+	return image
 
 static func _fill_circle(image: Image, span: int, circle: Array, ink: Color) -> void:
 	var cx: float = float(circle[0])

@@ -113,6 +113,9 @@ var _effects: EffectChips.Row
 var _fight_effects: EffectChips.Row
 var _effects_box: VBoxContainer
 var _forecast_box: VBoxContainer
+var _forecast_key: String = ""
+## The block the status row was last drawn with: it is only rebuilt when that changes.
+var _status_block: int = -1
 var _ally_box: VBoxContainer
 var _ally_cards: Dictionary = {}
 var _lock_pulse: Tween = null
@@ -554,9 +557,11 @@ func _sync() -> void:
 		_hp_bar.set_values(ratio, "%d / %d" % [int(unit.hp), int(unit.max_hp)], float(unit.block) / float(maxi(1, int(unit.max_hp))))
 		if _screen_fx != null:
 			_screen_fx.danger = clampf((0.3 - ratio) / 0.3, 0.0, 1.0) if not bool(unit.get("downed", false)) else 0.0
-		DeepUi.clear(_status_row)
-		if int(unit.block) > 0:
-			DeepUi.pill(_status_row, "shield", str(int(unit.block)), DeepUi.BLOCK, 14, "Block: soaks hit damage. Retain preserves some at the next turn; the rest falls away.")
+		if int(unit.block) != _status_block:
+			_status_block = int(unit.block)
+			DeepUi.clear(_status_row)
+			if int(unit.block) > 0:
+				DeepUi.pill(_status_row, "shield", str(int(unit.block)), DeepUi.BLOCK, 14, "Block: soaks hit damage. Retain preserves some at the next turn; the rest falls away.")
 		var effects: Array = EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
 		var passive: Dictionary = unit.get("passive", {})
 		if not str(passive.get("text", "")).is_empty():
@@ -1153,8 +1158,13 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		value.add_theme_color_override("font_color", DeepUi.ACCENT if chosen else DeepUi.MUTED)
 
 func _sync_forecast() -> void:
-	DeepUi.clear(_forecast_box)
+	## Held still through a whole resolving turn, so it is rebuilt only when it changes.
 	var totals: Dictionary = forecast.get("totals", {})
+	var key: String = "%s#%d" % [str(totals), DeepRules.pyrite(me())]
+	if key == _forecast_key and _forecast_box.get_child_count() > 0:
+		return
+	_forecast_key = key
+	DeepUi.clear(_forecast_box)
 	if totals.is_empty():
 		DeepUi.label(_forecast_box, "—", 14, DeepUi.DIM)
 		return
@@ -2328,12 +2338,19 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
 		_camera.focus(at, 0.2, 0.6)
 		_screen_fx.kick(0.5 + ratio)
 		_fx.ring_wave(Vector3(at.x, 0.0, at.z), color, 2.5 + ratio * 3.0, 0.5)
+		## A beat of stillness as it lands, longer the harder it was: the blow is felt rather
+		## than only seen. The kill itself holds the clock for longer; see `_kill`.
+		if not bool(hit.get("killed", false)):
+			ScreenFx.hold(0.03 + 0.05 * minf(ratio, 1.0))
 	var text: String = "−%d" % amount
 	var size: int = 24 + mini(28, amount)
 	if hit.has("mirrored"):
 		text = "Mirrored"
 		size = 22
-	_float_world(at + Vector3(0, 0.6, 0), text, color.lightened(0.35) if mine else DeepUi.PAPER, size)
+	var number: Label = _float_world(at + Vector3(0, 0.6, 0), text, color.lightened(0.35) if mine else DeepUi.PAPER, size)
+	## A heavy blow's number lands with a jolt of its own.
+	if number != null and (ratio >= 0.25 or bool(hit.get("killed", false))):
+		DeepUi.shake(number, 9.0 + 9.0 * minf(ratio, 1.0), 0.32)
 	if int(hit.get("absorbed", 0)) > 0:
 		_float_world(at + Vector3(0.5, 0.2, 0), "%d blocked" % int(hit.absorbed), DeepUi.BLOCK, 14)
 	if hit.has("adapted") and not hit.has("mirrored"):
@@ -2455,6 +2472,19 @@ func _kill(creature: CrystalCreature) -> void:
 		creature.queue_free()
 		return
 	var at: Vector3 = creature.centre()
+	## The blow that ends the fight plays in slow motion; any other kill holds the clock for a
+	## beat. Nobody who asked for fewer flashes is made to sit through the slow motion.
+	var last: bool = true
+	for id in _creatures:
+		var other: CrystalCreature = _creature(str(id))
+		if other != null and other != creature and not bool(other.get_meta("killed", false)) and not bool(other.get_meta("dying", false)):
+			last = false
+	if last and not ScreenFx.calm:
+		ScreenFx.hold(0.07, 0.04)
+		ScreenFx.hold(0.75 if creature.warden else 0.5, 0.3)
+		_camera.punch(-7.0 if creature.warden else -5.0, 0.9)
+	else:
+		ScreenFx.hold(0.08 if not creature.warden else 0.14, 0.05)
 	DeepAudio.play_at(global_position + _to_screen(at), "warden_die" if creature.warden else "creature_die", {"gap": 0.0})
 	_fx.shards(at, creature.tint, 18, 4.5, 0.16, 1.2)
 	_fx.sparks(at, creature.tint, 60, 7.0, 0.9, 0.08)
@@ -2775,10 +2805,10 @@ func _float_at(anchor: Control, text: String, color: Color, size: int = 18) -> v
 	var at: Vector2 = anchor.global_position + Vector2(anchor.size.x * 0.5, 0) - global_position
 	DeepUi.float_text(self, at, text, color, size)
 
-func _float_world(point: Vector3, text: String, color: Color, size: int = 20) -> void:
+func _float_world(point: Vector3, text: String, color: Color, size: int = 20) -> Label:
 	if _headless or _camera == null or _camera.is_position_behind(point):
-		return
-	DeepUi.float_text(self, _to_screen(point), text, color, size, 70.0, 1.1)
+		return null
+	return DeepUi.float_text(self, _to_screen(point), text, color, size, 70.0, 1.1)
 
 func _announce(text: String, color: Color, sub: String = "", hold: float = 1.1) -> void:
 	## A title across the room: it lands large and settles, holds, and fades.

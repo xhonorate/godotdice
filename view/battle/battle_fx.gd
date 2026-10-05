@@ -15,9 +15,24 @@ var flares: Array = []
 static var _add_material: StandardMaterial3D = null
 static var _soft_material: StandardMaterial3D = null
 static var _quad: QuadMesh = null
+static var _sparkle: ImageTexture = null
 static var _stretched: QuadMesh = null
+## One particle material of every kind ever made, kept for the life of the game. A particle
+## material's shader is shared by every material with the same features and is freed with
+## the last of them, so in the quiet between two blows each kind of burst was built and
+## compiled again from nothing on the frame it was next needed: several milliseconds for
+## each kind, on every hit after a pause. Holding one of each keeps them all compiled.
+static var _kept: Dictionary = {}
+## The step rate a room's air is filled at before it is first drawn. See `ambient`.
+const AMBIENT_FILL_FPS := 6
 
 # --- shared resources ------------------------------------------------------------------------
+
+static func keep(kind: String, material: ParticleProcessMaterial) -> ParticleProcessMaterial:
+	## Hands `material` back, and holds the first one of each kind for good. See `_kept`.
+	if not _kept.has(kind):
+		_kept[kind] = material
+	return material
 
 static func glow_material() -> StandardMaterial3D:
 	## Additive camera-facing light, tinted by each particle's color.
@@ -33,6 +48,7 @@ static func glow_material() -> StandardMaterial3D:
 		m.albedo_texture = DeepUi.glow_texture()
 		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		m.disable_receive_shadows = true
+		_fade_at_lens(m)
 		_add_material = m
 	return _add_material
 
@@ -49,8 +65,41 @@ static func soft_material() -> StandardMaterial3D:
 		m.albedo_texture = DeepUi.glow_texture()
 		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		m.disable_receive_shadows = true
+		_fade_at_lens(m)
 		_soft_material = m
 	return _soft_material
+
+static func sparkle_texture() -> ImageTexture:
+	## A four-pointed glint: a hot core and long thin rays, fainter ones on the diagonals, the
+	## shape light makes off a facet. A round glow read as a smudge, not as a star.
+	if _sparkle != null:
+		return _sparkle
+	var span := 64
+	var image := Image.create(span, span, false, Image.FORMAT_RGBA8)
+	var middle := float(span - 1) * 0.5
+	for y in span:
+		for x in span:
+			var dx: float = (float(x) - middle) / middle
+			var dy: float = (float(y) - middle) / middle
+			var r2: float = dx * dx + dy * dy
+			var core: float = exp(-r2 * 22.0)
+			var rays: float = exp(-absf(dx) * 4.2) * exp(-dy * dy * 700.0) + exp(-absf(dy) * 4.2) * exp(-dx * dx * 700.0)
+			var u: float = (dx + dy) * 0.7071
+			var v: float = (dx - dy) * 0.7071
+			var diagonal: float = 0.3 * (exp(-absf(u) * 8.0) * exp(-v * v * 1100.0) + exp(-absf(v) * 8.0) * exp(-u * u * 1100.0))
+			var alpha: float = clampf(core + rays + diagonal, 0.0, 1.0) * clampf(1.0 - sqrt(r2), 0.0, 1.0)
+			image.set_pixel(x, y, Color(1, 1, 1, alpha))
+	image.generate_mipmaps()
+	_sparkle = ImageTexture.create_from_image(image)
+	return _sparkle
+
+static func _fade_at_lens(m: StandardMaterial3D) -> void:
+	## A mote that drifts right up to the eye was a blur the size of a fist, and a walk passes
+	## straight through a room's air. Anything this close fades out instead. Bolts leave from
+	## further out than this, so nothing the fight throws is touched.
+	m.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_ALPHA
+	m.distance_fade_min_distance = 0.3
+	m.distance_fade_max_distance = 1.2
 
 static func quad(additive: bool = true) -> QuadMesh:
 	if _quad == null:
@@ -100,6 +149,137 @@ static func swell_curve() -> CurveTexture:
 	var texture := CurveTexture.new()
 	texture.curve = curve
 	return texture
+
+# --- fire ----------------------------------------------------------------------------------------
+
+static var _fire_ramp: GradientTexture1D = null
+static var _tongue: QuadMesh = null
+static var _flame_curve: CurveTexture = null
+static var _smoke_ramp: GradientTexture1D = null
+
+static func fire(size: float = 1.0, smoke: bool = true) -> Node3D:
+	## A fire: tongues of flame that rise, narrow and redden as they go, sparks thrown up out of
+	## it on the draught, and a little smoke over it. Each tongue carries far less light than a
+	## burst does, so where they pile up the heart of the fire is yellow and not a white blot.
+	var node := Node3D.new()
+	if _tongue == null:
+		_tongue = QuadMesh.new()
+		_tongue.size = Vector2(0.62, 1.0)
+		var tongue := glow_material().duplicate() as StandardMaterial3D
+		tongue.albedo_texture = _tongue_texture()
+		_tongue.material = tongue
+	if _fire_ramp == null:
+		## Brighter than white in the red and green, so it blooms orange: a fire drawn in plain
+		## colours either vanishes against a lit floor or, piled up, burns out to white.
+		var gradient := Gradient.new()
+		gradient.set_color(0, Color(1.7, 0.95, 0.4, 0.0))
+		gradient.set_color(1, Color(0.3, 0.05, 0.02, 0.0))
+		gradient.add_point(0.08, Color(1.9, 0.9, 0.3, 0.7))
+		gradient.add_point(0.35, Color(1.7, 0.48, 0.1, 0.55))
+		gradient.add_point(0.7, Color(0.9, 0.16, 0.04, 0.28))
+		_fire_ramp = GradientTexture1D.new()
+		_fire_ramp.use_hdr = true
+		_fire_ramp.gradient = gradient
+		var curve := Curve.new()
+		curve.add_point(Vector2(0.0, 0.55))
+		curve.add_point(Vector2(0.18, 1.0))
+		curve.add_point(Vector2(1.0, 0.1))
+		_flame_curve = CurveTexture.new()
+		_flame_curve.curve = curve
+		var haze := Gradient.new()
+		haze.set_color(0, Color(0.16, 0.13, 0.11, 0.0))
+		haze.set_color(1, Color(0.12, 0.11, 0.11, 0.0))
+		haze.add_point(0.25, Color(0.16, 0.13, 0.11, 0.22))
+		_smoke_ramp = GradientTexture1D.new()
+		_smoke_ramp.gradient = haze
+	var flame := GPUParticles3D.new()
+	var m := ParticleProcessMaterial.new()
+	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	m.emission_sphere_radius = 0.2 * size
+	m.direction = Vector3.UP
+	m.spread = 12.0
+	m.initial_velocity_min = 0.5 * size
+	m.initial_velocity_max = 1.1 * size
+	m.gravity = Vector3(0, 1.1 * size, 0)
+	m.damping_min = 0.3
+	m.damping_max = 0.7
+	m.turbulence_enabled = true
+	m.turbulence_noise_strength = 0.35
+	m.turbulence_noise_scale = 1.4
+	m.scale_min = 0.32 * size
+	m.scale_max = 0.56 * size
+	m.scale_curve = _flame_curve
+	m.color_ramp = _fire_ramp
+	flame.process_material = keep("fire", m)
+	flame.draw_pass_1 = _tongue
+	flame.amount = 46
+	flame.lifetime = 0.85
+	flame.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 5, 4) * maxf(size, 1.0))
+	node.add_child(flame)
+	var sparks := GPUParticles3D.new()
+	var e := ParticleProcessMaterial.new()
+	e.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	e.emission_sphere_radius = 0.18 * size
+	e.direction = Vector3.UP
+	e.spread = 22.0
+	e.initial_velocity_min = 0.9 * size
+	e.initial_velocity_max = 1.9 * size
+	e.gravity = Vector3(0, 0.25, 0)
+	e.damping_min = 0.6
+	e.damping_max = 1.2
+	e.turbulence_enabled = true
+	e.turbulence_noise_strength = 1.3
+	e.turbulence_noise_scale = 2.2
+	e.scale_min = 0.025 * size
+	e.scale_max = 0.05 * size
+	e.scale_curve = shrink_curve()
+	e.color_ramp = burst_ramp(Color("ff8a30"))
+	sparks.process_material = keep("fire_sparks", e)
+	sparks.draw_pass_1 = quad(true)
+	sparks.amount = 14
+	sparks.lifetime = 1.7
+	sparks.visibility_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 7, 6) * maxf(size, 1.0))
+	node.add_child(sparks)
+	if smoke:
+		var plume := GPUParticles3D.new()
+		var s := ParticleProcessMaterial.new()
+		s.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		s.emission_sphere_radius = 0.15 * size
+		s.direction = Vector3.UP
+		s.spread = 10.0
+		s.initial_velocity_min = 0.35 * size
+		s.initial_velocity_max = 0.6 * size
+		s.gravity = Vector3(0, 0.05, 0)
+		s.turbulence_enabled = true
+		s.turbulence_noise_strength = 0.5
+		s.scale_min = 0.4 * size
+		s.scale_max = 0.75 * size
+		s.scale_curve = swell_curve()
+		s.color_ramp = _smoke_ramp
+		plume.process_material = keep("fire_smoke", s)
+		plume.draw_pass_1 = quad(false)
+		plume.amount = 10
+		plume.lifetime = 2.6
+		plume.position = Vector3(0, 0.55 * size, 0)
+		plume.visibility_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 8, 6) * maxf(size, 1.0))
+		node.add_child(plume)
+	return node
+
+static func _tongue_texture() -> ImageTexture:
+	## One tongue of flame: full and round at its root, drawn out to a point, soft all over.
+	var width := 48
+	var height := 80
+	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
+	for y in height:
+		var v: float = 1.0 - float(y) / float(height - 1)
+		var reach: float = 0.92 * pow(1.0 - v, 0.6) * (0.6 + 0.4 * sin(v * PI * 0.85 + 0.35))
+		for x in width:
+			var u: float = (float(x) / float(width - 1)) * 2.0 - 1.0
+			var inside: float = clampf(1.0 - absf(u) / maxf(reach, 0.001), 0.0, 1.0)
+			var alpha: float = pow(inside, 1.4) * smoothstep(0.0, 0.16, v) * (1.0 - smoothstep(0.7, 1.0, v))
+			image.set_pixel(x, y, Color(1, 1, 1, alpha))
+	image.generate_mipmaps()
+	return ImageTexture.create_from_image(image)
 
 # --- ambient -----------------------------------------------------------------------------------
 
@@ -245,8 +425,23 @@ static func ambient(kind: String, biome: Dictionary, scale: float = 1.0) -> GPUP
 	p.amount = maxi(4, int(float(amount) * scale))
 	p.lifetime = lifetime
 	p.preprocess = lifetime
-	p.process_material = m
+	## The air is full before it is first seen because `preprocess` seconds of it are run in
+	## one frame, a pass for every tick of `fixed_fps`: twelve seconds of dust at the usual
+	## thirty a second was 360 passes and fifteen milliseconds of GPU, in the middle of a
+	## walk. The fill runs coarse, and the usual rate comes back a few frames later, once the
+	## fill has had a frame to run in.
+	p.fixed_fps = AMBIENT_FILL_FPS
+	_after_frames(3, p.set.bind("fixed_fps", 30))
+	p.process_material = keep("ambient:" + kind, m)
 	return p
+
+static func _after_frames(frames: int, work: Callable) -> void:
+	## Runs `work` once this many more frames have been drawn, if what it acts on is still there.
+	if frames <= 0:
+		if work.is_valid():
+			work.call()
+		return
+	RenderingServer.frame_post_draw.connect(func() -> void: _after_frames(frames - 1, work), CONNECT_ONE_SHOT)
 
 static func _stretched_quad() -> QuadMesh:
 	if _stretched == null:
@@ -315,7 +510,7 @@ func sparks(at: Vector3, color: Color, amount: int = 40, speed: float = 5.0, lif
 	m.scale_max = size * 1.4
 	m.scale_curve = shrink_curve()
 	m.color_ramp = burst_ramp(color)
-	_burst(at, amount, lifetime, m, _stretched_quad() if speed > 4.0 else quad(true))
+	_burst(at, amount, lifetime, keep("sparks", m), _stretched_quad() if speed > 4.0 else quad(true))
 
 func glow_burst(at: Vector3, color: Color, size: float = 1.6, seconds: float = 0.35) -> void:
 	## A single bloom of light where something landed.
@@ -327,7 +522,7 @@ func glow_burst(at: Vector3, color: Color, size: float = 1.6, seconds: float = 0
 	m.scale_max = size
 	m.scale_curve = swell_curve()
 	m.color_ramp = burst_ramp(color)
-	_burst(at, 2, seconds, m, quad(true))
+	_burst(at, 2, seconds, keep("glow", m), quad(true))
 
 func puff(at: Vector3, color: Color, amount: int = 14, size: float = 0.7, lifetime: float = 1.2, rise: float = 0.4, additive: bool = false) -> void:
 	## A cloud: poison, dust thrown up, smoke off a spent gem.
@@ -345,7 +540,7 @@ func puff(at: Vector3, color: Color, amount: int = 14, size: float = 0.7, lifeti
 	m.scale_max = size * 1.2
 	m.scale_curve = swell_curve()
 	m.color_ramp = fade_ramp(color, 0.7 if not additive else 0.9, 0.15)
-	_burst(at, amount, lifetime, m, quad(additive))
+	_burst(at, amount, lifetime, keep("puff", m), quad(additive))
 
 func rise(at: Vector3, color: Color, amount: int = 28, spread: float = 1.2, lifetime: float = 1.4) -> void:
 	## Motes of light floating upward: healing, cleansing, a gem's blessing.
@@ -363,7 +558,7 @@ func rise(at: Vector3, color: Color, amount: int = 28, spread: float = 1.2, life
 	m.scale_max = 0.16
 	m.scale_curve = shrink_curve()
 	m.color_ramp = burst_ramp(color)
-	var p := _burst(at, amount, lifetime, m, quad(true))
+	var p := _burst(at, amount, lifetime, keep("rise", m), quad(true))
 	p.explosiveness = 0.4
 
 func dust_fall(amount: int = 60, width: float = 9.0) -> void:
@@ -379,7 +574,7 @@ func dust_fall(amount: int = 60, width: float = 9.0) -> void:
 	m.scale_min = 0.03
 	m.scale_max = 0.08
 	m.color_ramp = fade_ramp(Color("8a7a66"), 0.9, 0.05)
-	var p := _burst(Vector3(0, 7.2, -4.0), amount, 1.6, m, quad(false))
+	var p := _burst(Vector3(0, 7.2, -4.0), amount, 1.6, keep("dust_fall", m), quad(false))
 	p.explosiveness = 0.5
 
 func ring_wave(at: Vector3, color: Color, radius: float = 3.0, seconds: float = 0.55, width: float = 0.35) -> void:
@@ -511,7 +706,7 @@ func projectile(from: Vector3, to: Vector3, color: Color, seconds: float = 0.28,
 	m.scale_max = size * 1.8
 	m.scale_curve = shrink_curve()
 	m.color_ramp = burst_ramp(color)
-	trail.process_material = m
+	trail.process_material = keep("trail", m)
 	trail.draw_pass_1 = quad(true)
 	trail.amount = _amount(48)
 	trail.lifetime = 0.45
@@ -628,18 +823,26 @@ func stars(at: Vector3, color: Color = Color("ffe27a"), seconds: float = 1.3, ra
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mat.albedo_texture = DeepUi.glow_texture()
-	mat.albedo_color = color
+	mat.albedo_texture = sparkle_texture()
+	mat.albedo_color = Color(color.lightened(0.25), 1.0)
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	var mesh := QuadMesh.new()
-	mesh.size = Vector2.ONE * 0.28
+	mesh.size = Vector2.ONE * 0.34
 	mesh.material = mat
+	var tween := pivot.create_tween().set_parallel(true)
 	for i in range(5):
 		var star := MeshInstance3D.new()
 		star.mesh = mesh
+		star.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var angle := TAU * float(i) / 5.0
 		star.position = Vector3(cos(angle), 0, sin(angle)) * radius
+		star.scale = Vector3.ONE * 0.2
 		pivot.add_child(star)
-	var tween := pivot.create_tween().set_parallel(true)
+		## Each one winks on in turn and pulses as it goes round.
+		var beat: float = 0.06 * float(i)
+		tween.tween_property(star, "scale", Vector3.ONE * 1.25, 0.16).set_delay(beat).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(star, "scale", Vector3.ONE * 0.8, seconds * 0.3).set_delay(beat + 0.16).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(star, "scale", Vector3.ONE * 1.1, seconds * 0.3).set_delay(beat + 0.16 + seconds * 0.3).set_trans(Tween.TRANS_SINE)
 	tween.tween_property(pivot, "rotation:y", TAU * 1.5, seconds)
 	tween.tween_property(mat, "albedo_color:a", 0.0, seconds * 0.4).set_delay(seconds * 0.6)
 	tween.chain().tween_callback(pivot.queue_free)

@@ -129,6 +129,8 @@ var _shown_depth: int = -1
 ## The pick stake taken at the shaft head whose three are on show, until one is kept.
 var _stake_choosing: String = ""
 var _counts: Dictionary = {}
+## What the strip was last built from; see `_sync_strip`.
+var _strip_key: String = ""
 ## Where the ore and bag pills were last seen on the strip, so a spoil thrown at one in the
 ## same frame the strip was rebuilt still flies to the right place. See `_pill_centre`.
 var _pill_spots: Dictionary = {}
@@ -923,6 +925,9 @@ func _sync_stage() -> void:
 		if not _stall_opened.is_empty() and _stall_opened == str(_stage.place.get("key", "")):
 			_run_dock.set_drawer(false)
 		_chip_index = -1
+		## A fight waits down this tunnel: its creatures are read off the disk on the way.
+		if DeepDescent.in_battle(run):
+			CrystalCreature.preload_scenes(DeepDescent.battle(run).get("enemies", []))
 		_stage.walk(place, index, _arrived, _depth_title.bind(int(place.depth), str(place.kind) if str(place.kind) != "head" else "fight"))
 	else:
 		_stage.show_room(place)
@@ -2025,13 +2030,8 @@ func _last_landing_before(depth: int) -> int:
 	return best
 
 func _sync_strip() -> void:
-	DeepUi.clear(_strip)
 	var unit: Dictionary = me()
 	var mine: Dictionary = DeepContent.mine(str(run.get("mine", "")))
-	var place := DeepUi.hbox(_strip, 10)
-	DeepUi.icon(place, "pick", 22, DeepUi.ACCENT)
-	var names := DeepUi.vbox(place, 0)
-	DeepUi.title(names, str(mine.get("name", "The mine")), 17, DeepUi.PAPER)
 	var depth: int = int(run.get("depth", 0))
 	## How far the next lift is, this run: nobody is told until the chart reaches it.
 	var next_landing: int = DeepDescent.next_landing(run, depth)
@@ -2040,12 +2040,30 @@ func _sync_strip() -> void:
 	var note: String = "On a landing" if here else ("Landing in %d" % (next_landing - depth) if charted else "A landing somewhere below")
 	if charted and not here and DeepDescent.run_is_warden(run, next_landing):
 		note = "Warden in %d" % (next_landing - depth)
+	var every: int = maxi(1, next_landing - _last_landing_before(depth))
+	var into: int = depth - _last_landing_before(depth)
+	var guarded: bool = charted and DeepDescent.run_is_warden(run, next_landing)
+	## Built again only when something on it has changed. A fight sends a fresh state with
+	## every step it plays, and the strip used to be torn down and put back for each one.
+	var party: Array = run.get("players", []).map(func(p: Dictionary) -> String:
+		return "%s|%s|%d|%d|%s|%s" % [str(p.get("id", "")), str(p.get("name", "")), int(p.get("hp", 0)), int(p.get("max_hp", 0)),
+			str(bool(p.get("downed", false))), str(bool(p.get("connected", true)))])
+	var key: String = "%s#%d#%s#%d#%d#%s#%s#%s#%s#%d#%d#%s#%s" % [str(mine.get("name", "")), depth, note, every, into, str(guarded), local_id,
+		",".join(party), str(unit.is_empty()), int(unit.get("ore", 0)), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open)]
+	if not unit.is_empty():
+		key += str(EffectChips.for_run(unit))
+	if key == _strip_key and _strip.get_child_count() > 0:
+		return
+	_strip_key = key
+	DeepUi.clear(_strip)
+	var place := DeepUi.hbox(_strip, 10)
+	DeepUi.icon(place, "pick", 22, DeepUi.ACCENT)
+	var names := DeepUi.vbox(place, 0)
+	DeepUi.title(names, str(mine.get("name", "The mine")), 17, DeepUi.PAPER)
 	DeepUi.label(names, "Depth %d  ·  %s" % [depth, note], 12, DeepUi.MUTED)
 	## Progress to the next landing as a row of little steps.
 	var steps := DeepUi.hbox(_strip, 3)
 	steps.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var every: int = maxi(1, next_landing - _last_landing_before(depth))
-	var into: int = depth - _last_landing_before(depth)
 	for i in range(every):
 		var lit: bool = i < into
 		var pip := ColorRect.new()
@@ -2053,7 +2071,6 @@ func _sync_strip() -> void:
 		pip.color = DeepUi.ACCENT if lit else Color(DeepUi.LINE_HI, 0.8)
 		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		steps.add_child(pip)
-	var guarded: bool = charted and DeepDescent.run_is_warden(run, next_landing)
 	DeepUi.icon(steps, "crown" if guarded else "lift", 16, DeepUi.BAD if guarded else DeepUi.GOOD)
 	DeepUi.spacer(_strip)
 	for other in run.get("players", []):

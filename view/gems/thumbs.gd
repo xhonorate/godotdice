@@ -131,18 +131,17 @@ func _process(_delta: float) -> void:
 				texture = ImageTexture.create_from_image(image)
 		_idle(job.station)
 		_store(str(job.key), texture)
-	while not _queue.is_empty():
+	## One new subject a frame. Cutting a stone is the expensive half of a photograph, and
+	## loading all three stations at once put three of them in the same frame. Staggered,
+	## each station still comes free every few frames, so a page fills just as fast.
+	if not _queue.is_empty():
 		var job: Dictionary = _queue.front()
 		var stations: Array = _gem_stations if str(job.kind) == "gem" else _die_stations
-		var free: Dictionary = {}
 		for station in stations:
 			if not bool(station.busy):
-				free = station
+				_queue.pop_front()
+				_shoot(station, job)
 				break
-		if free.is_empty():
-			break
-		_queue.pop_front()
-		_shoot(free, job)
 
 func _shoot(station: Dictionary, job: Dictionary) -> void:
 	station.busy = true
@@ -197,6 +196,14 @@ class GemThumb extends Control:
 	var _brilliance: float = 0.5
 	## Where the rock sits on a raw stone, for the flat stand-in.
 	var _lumps: Array = []
+	var _slotless: bool = false
+	## The flat stand-in, cut once into meshes in units of its own radius: the stone, and the
+	## rock drawn over its rim. Worked out from the outline on every frame of a fade, it was
+	## most of what a page of stones cost while waiting for their pictures.
+	var _sketch: ArrayMesh = null
+	var _sketch_rock: ArrayMesh = null
+	var _sketch_loop := PackedVector2Array()
+	var _sketch_line := Color.WHITE
 
 	func _init(new_stone: Dictionary = {}, edge: float = 64.0) -> void:
 		custom_minimum_size = Vector2(edge, edge)
@@ -233,6 +240,10 @@ class GemThumb extends Control:
 		_brilliance = GemMesh.brilliance(GemMesh.clarity_grade(stone)) if appraised else GemView.SEALED_BRILLIANCE
 		_outline = GemMesh.girdle(stone)
 		_lumps = [] if appraised else GemRock.layout(stone)
+		_slotless = bool(stone.get("appraised", false)) and DeepStone.is_slotless(stone)
+		_sketch = null
+		_sketch_rock = null
+		_sketch_loop = PackedVector2Array()
 		var tier: String = str(DeepStone.grade(stone).tier)
 		## A Star is only seen once someone has looked inside: a raw stone keeps it hidden.
 		var star: bool = false
@@ -308,7 +319,7 @@ class GemThumb extends Control:
 		draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false,
 			Color(_hue, (0.10 + 0.22 * _brilliance) * (1.0 + _hover)))
 		var live_shown: bool = _live != null and is_instance_valid(_live) and _live.modulate.a > 0.99
-		if bool(stone.get("appraised", false)) and DeepStone.is_slotless(stone):
+		if _slotless:
 			for arc in range(6):
 				var angle: float = TAU * float(arc) / 6.0
 				draw_arc(centre, edge * 0.47, angle, angle + TAU / 9.0, 12, Color(DeepUi.INFO, 0.7), 1.5, true)
@@ -330,42 +341,71 @@ class GemThumb extends Control:
 				draw_texture_rect(DeepUi.glow_texture(), Rect2(at - Vector2(arm, arm) * 0.5, Vector2(arm, arm)), false, Color(1, 1, 1, 0.9 * bright))
 
 	func _draw_outline(centre: Vector2, radius: float, alpha: float) -> void:
+		if _sketch_loop.is_empty():
+			_build_sketch()
+		if _sketch_loop.is_empty():
+			return
+		var place := Transform2D(0.0, Vector2(radius, radius), 0.0, centre)
+		var fade := Color(1, 1, 1, alpha)
+		if _sketch != null:
+			draw_mesh(_sketch, null, place, fade)
+		draw_polyline(place * _sketch_loop, Color(_sketch_line, _sketch_line.a * alpha), 1.2, true)
+		## The rock, seen from the front: a lump per chunk, the bed last and on top.
+		if _sketch_rock != null:
+			draw_mesh(_sketch_rock, null, place, fade)
+
+	func _build_sketch() -> void:
 		if _outline.size() < 3:
 			return
-		var points := PackedVector2Array()
-		var table := PackedVector2Array()
-		for point in _outline:
-			var flat := Vector2(point.x, -point.y) * radius
-			points.append(centre + flat)
-			table.append(centre + flat * 0.55 + Vector2(0, -radius * 0.04))
 		var appraised: bool = bool(stone.get("appraised", true))
 		var body: Color = GemMesh.body_color(GemMesh.color_key(stone), GemMesh.clarity_grade(stone) if appraised else 3)
 		## A raw stone is drawn smaller, to leave room for the rock round it.
 		var chunks: Array = [] if appraised else _lumps
 		var shrink: float = 1.0 if chunks.is_empty() else GemView.ROCK_SPAN / GemRock.reach(chunks)
-		if shrink < 1.0:
-			for index in range(points.size()):
-				points[index] = centre + (points[index] - centre) * shrink
-				table[index] = centre + (table[index] - centre) * shrink
-		draw_colored_polygon(points, Color(body.darkened(0.25), alpha))
+		var points := PackedVector2Array()
+		var table := PackedVector2Array()
+		for point in _outline:
+			var flat := Vector2(point.x, -point.y)
+			points.append(flat * shrink)
+			table.append((flat * 0.55 + Vector2(0, -0.04)) * shrink)
+		var sink: Dictionary = {"verts": [], "colors": []}
+		_fill(sink, points, Color(body.darkened(0.25), 1.0))
 		for index in range(points.size()):
-			var a: Vector2 = points[index]
-			var b: Vector2 = points[(index + 1) % points.size()]
+			var following: int = (index + 1) % points.size()
 			var shade: float = 0.5 + 0.5 * sin(float(index) * 1.7)
-			draw_colored_polygon(PackedVector2Array([a, b, table[(index + 1) % table.size()], table[index]]), Color(body.lightened(0.15 * shade), alpha * 0.9))
-		draw_colored_polygon(table, Color(body.lightened(0.28), alpha))
-		var loop := points.duplicate()
-		loop.append(points[0])
-		draw_polyline(loop, Color(body.lightened(0.5), alpha * 0.8), 1.2, true)
-		## The rock, seen from the front: a lump per chunk, the bed last and on top.
+			_fill(sink, PackedVector2Array([points[index], points[following], table[following], table[index]]), Color(body.lightened(0.15 * shade), 0.9))
+		_fill(sink, table, Color(body.lightened(0.28), 1.0))
+		_sketch = _mesh_of(sink)
+		_sketch_loop = points.duplicate()
+		_sketch_loop.append(points[0])
+		_sketch_line = Color(body.lightened(0.5), 0.8)
+		sink = {"verts": [], "colors": []}
 		for chunk in chunks:
-			var middle: Vector2 = centre + Vector2(chunk.position.x, -chunk.position.y) * radius * shrink
+			var middle: Vector2 = Vector2(chunk.position.x, -chunk.position.y) * shrink
 			var lump := PackedVector2Array()
 			for corner in range(9):
 				var angle: float = TAU * float(corner) / 9.0 + float(chunk.rotation.z)
 				var wobble: float = 0.82 + 0.3 * absf(sin(float(corner) * 2.3 + float(chunk.rotation.z) * 3.0))
-				lump.append(middle + Vector2(cos(angle), sin(angle)) * float(chunk.radius) * radius * shrink * wobble)
-			draw_colored_polygon(lump, Color(GemRock.TONE.lightened(0.05 * sin(float(chunk.rotation.z))), alpha))
+				lump.append(middle + Vector2(cos(angle), sin(angle)) * float(chunk.radius) * shrink * wobble)
+			_fill(sink, lump, Color(GemRock.TONE.lightened(0.05 * sin(float(chunk.rotation.z))), 1.0))
+		_sketch_rock = _mesh_of(sink)
+
+	static func _fill(sink: Dictionary, polygon: PackedVector2Array, tone: Color) -> void:
+		## Appends a polygon as triangles to the plain arrays in `sink`.
+		for index in Geometry2D.triangulate_polygon(polygon):
+			sink.verts.append(polygon[index])
+			sink.colors.append(tone)
+
+	static func _mesh_of(sink: Dictionary) -> ArrayMesh:
+		if sink.verts.is_empty():
+			return null
+		var arrays: Array = []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = PackedVector2Array(sink.verts)
+		arrays[Mesh.ARRAY_COLOR] = PackedColorArray(sink.colors)
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		return mesh
 
 class DieThumb extends Control:
 	## A die's picture, three-quarter on so its shape reads, showing one face.

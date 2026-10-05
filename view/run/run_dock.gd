@@ -207,6 +207,10 @@ func toggle_drawer() -> void:
 
 func show_run(state: Dictionary) -> void:
 	run = state
+	## Put away through a fight, which sends a new state with every step it plays: nothing
+	## here is drawn then, and the key below catches it up the moment it is shown again.
+	if not visible:
+		return
 	var unit: Dictionary = me()
 	## Rebuilt only when something it shows has changed, so a drag is never pulled out from
 	## under the pointer by a state that moved for some other reason.

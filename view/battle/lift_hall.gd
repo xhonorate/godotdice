@@ -214,25 +214,10 @@ func _build_campfire(rng: RandomNumberGenerator, biome: Dictionary, ground: Call
 	for i in range(3):
 		var log_node := _slab(fire, Vector3(0.12, 0.12, 0.9), Color("5a3a22"), Vector3(0, 0.12, 0), wood, rng)
 		log_node.rotation = Vector3(0.25, TAU * float(i) / 3.0, 0)
-	_flame = GPUParticles3D.new()
-	var m := ParticleProcessMaterial.new()
-	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	m.emission_sphere_radius = 0.22
-	m.direction = Vector3.UP
-	m.spread = 12.0
-	m.initial_velocity_min = 0.7
-	m.initial_velocity_max = 1.4
-	m.gravity = Vector3(0, 0.9, 0)
-	m.scale_min = 0.25
-	m.scale_max = 0.5
-	m.scale_curve = BattleFx.shrink_curve()
-	m.color_ramp = BattleFx.burst_ramp(Color("ff7a2a"))
-	_flame.process_material = m
-	_flame.draw_pass_1 = BattleFx.quad(true)
-	_flame.amount = 44
-	_flame.lifetime = 0.9
-	_flame.position = Vector3(0, 0.25, 0)
-	fire.add_child(_flame)
+	var flames: Node3D = BattleFx.fire(1.0)
+	flames.position = Vector3(0, 0.22, 0)
+	fire.add_child(flames)
+	_flame = flames.get_child(0)
 	_fire_light = OmniLight3D.new()
 	_fire_light.light_color = Color("ff9a4a")
 	_fire_light.light_energy = 2.2

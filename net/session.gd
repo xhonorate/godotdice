@@ -320,7 +320,7 @@ func send(cmd: Dictionary) -> void:
 		_send_host({"kind": "command", "cmd": cmd})
 
 func _apply_command(player_id: String, cmd: Dictionary) -> void:
-	var before: Dictionary = run.duplicate(true)
+	var before: Dictionary = run.duplicate(true) if _listening() else {}
 	var result: Dictionary = {"ok": false, "error": "only the host can abandon the dig"}
 	## Only whoever holds the run can call the whole party up.
 	if str(cmd.get("kind", "")) != "abandon" or player_id == local_id:
@@ -337,8 +337,9 @@ func _apply_command(player_id: String, cmd: Dictionary) -> void:
 
 func _publish(before: Dictionary, event: Dictionary) -> void:
 	revision += 1
-	var patch: Variant = DeepPatch.diff(before, run)
-	_broadcast({"kind": "step", "event": event, "patch": patch, "revision": revision})
+	if _listening():
+		var patch: Variant = DeepPatch.diff(before, run)
+		_broadcast({"kind": "step", "event": event, "patch": patch, "revision": revision})
 	run_event.emit(event)
 	_after_change()
 
@@ -367,7 +368,7 @@ func tick(delta: float) -> void:
 	_wait -= delta
 	if _wait > 0.0:
 		return
-	var before: Dictionary = run.duplicate(true)
+	var before: Dictionary = run.duplicate(true) if _listening() else {}
 	var event: Dictionary = DeepDescent.step(run)
 	if event.is_empty():
 		return
@@ -378,6 +379,12 @@ func tick(delta: float) -> void:
 func _process(delta: float) -> void:
 	SteamWire.pump()
 	tick(delta)
+
+func _listening() -> bool:
+	## Whether anyone is seated at the other end of the wire to be sent a change. Alone, or
+	## hosting a lobby nobody has joined yet, the copy of the run and the diff that would make
+	## a patch out of it are skipped: every step of a fight paid for both, for nobody.
+	return transport != null and not _player_of.is_empty()
 
 # --- wire ------------------------------------------------------------------------------------
 
@@ -422,7 +429,7 @@ func _on_peer_disconnected(peer_id: String) -> void:
 			if lobby.members.has(player_id):
 				lobby.members[player_id].connected = false
 			if in_run():
-				var before: Dictionary = run.duplicate(true)
+				var before: Dictionary = run.duplicate(true) if _listening() else {}
 				DeepDescent.set_connected(run, player_id, false)
 				var b: Dictionary = DeepDescent.battle(run)
 				if not b.is_empty() and str(b.phase) == "planning" and DeepBattle.ready_to_resolve(b):

@@ -53,8 +53,10 @@ const CROSSROADS_LOOK := Vector3(0.0, 2.1, Chamber.Z_FAR - 2.0)
 const EYE := 1.95
 const WALK_SECONDS := 3.9
 const BASE_FOV := 58.0
-## Slices of the room ahead built each frame of a walk.
-const SLICES := 2
+## How long each frame of a walk may spend building the room ahead, in microseconds. At
+## least one slice is always built; a fixed two a frame put the floor and the vault, the two
+## heaviest, into the same frame.
+const SLICE_USEC := 3000
 ## The rockfall that seals a fight: how far across the far wall it reaches, how high it
 ## stands, and how long from the first block falling to the last one landing.
 const SEAL_HALF := 9.6
@@ -214,6 +216,8 @@ func _new_room(p: Dictionary, origin: Vector3) -> Dictionary:
 	world.add_child(made)
 	var steps: Array = made.plan(biome, room_seed(p), int(p.get("exits", 2)), float(p.get("drop", 2.5)))
 	steps.append(_dress_mouths.bind(made, bool(p.get("seal", false))))
+	if bool(p.get("seal", false)):
+		steps.append(_cut_seal.bind(made, room_seed(p)))
 	if str(p.get("kind", "")) in ["landing", "head"] or bool(p.get("cage", false)):
 		steps.append(_build_hall.bind(made, str(p.kind), room_seed(p)))
 	return {"room": made, "steps": steps}
@@ -1089,17 +1093,28 @@ func throw_find(result: Dictionary, at: Vector3, ore_at: Vector2, bag_at: Vector
 
 # --- sealing and opening -----------------------------------------------------------------------
 
+func _cut_seal(made: Node3D, seed_value: int) -> Node3D:
+	## The rock that closes the far end of a fight's room, cut and waiting out of sight. A room
+	## walked into has it cut a slice at a time on the way, so the moment the fight begins
+	## only has to drop it.
+	var fall: Node3D = Rockfall.new()
+	fall.position = Vector3(0.0, 0.0, Chamber.Z_FAR + 0.6)
+	fall.fx = fx
+	fall.jolt = func(amount: float) -> void: camera.add_trauma(amount)
+	made.add_child(fall)
+	fall.build(Color(made.biome.rock).lightened(0.05), seed_value, SEAL_HALF, SEAL_TALL)
+	made.set_meta("seal", fall)
+	return fall
+
 func seal(animated: bool = true) -> void:
 	## The whole far end of the room comes down, not a plug in each mouth: nobody leaves
 	## until the fight is won, and the room says so with a wall.
 	if _headless or not has_room() or not _falls.is_empty():
 		return
-	var fall: Node3D = Rockfall.new()
-	fall.position = Vector3(0.0, 0.0, Chamber.Z_FAR + 0.6)
-	fall.fx = fx
-	fall.jolt = func(amount: float) -> void: camera.add_trauma(amount)
-	room.add_child(fall)
-	fall.build(Color(room.biome.rock).lightened(0.05), room_seed(place), SEAL_HALF, SEAL_TALL)
+	## Checked before it is typed: a freed node cannot even be assigned to a typed variable.
+	var kept: Variant = room.get_meta("seal", null)
+	var fall: Node3D = kept if kept != null and is_instance_valid(kept) else _cut_seal(room, room_seed(place))
+	room.remove_meta("seal")
 	if animated:
 		fall.fall()
 		_seal_until = Time.get_ticks_msec() + int(SEAL_SECONDS * 1000.0)
@@ -1291,9 +1306,11 @@ func _advance(delta: float) -> void:
 		if camera.bob > 0.2:
 			DeepAudio.play("footstep", {"volume": 0.25 + 0.3 * camera.bob, "vary": 0.18, "gap": 0.05})
 	if str(travel.kind) == "walk":
-		for _i in range(SLICES):
-			if not _pending.is_empty():
-				(_pending.pop_front() as Callable).call()
+		var began: int = Time.get_ticks_usec()
+		while not _pending.is_empty():
+			(_pending.pop_front() as Callable).call()
+			if Time.get_ticks_usec() - began >= SLICE_USEC:
+				break
 		## The air turns from this room's to the next one's inside the tunnel.
 		var through: float = clampf(inverse_lerp(float(travel.portal), float(travel.entrance), d), 0.0, 1.0)
 		var turn: float = smoothstep(0.15, 0.85, through)
@@ -1544,8 +1561,8 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 	## the loupe: its color and its size class show, and nothing else.
 	if not bool(stone.get("appraised", false)):
 		var chunks: Array = GemRock.chunks(stone)
-		var rock := GemRock.material()
-		var seams := GemRock.seam_material(GemMesh.tint(stone))
+		var rock := GemRock.world_material()
+		var seams := GemRock.world_seams(GemMesh.tint(stone))
 		for chunk in chunks:
 			var piece := MeshInstance3D.new()
 			piece.mesh = chunk.mesh
@@ -1557,7 +1574,9 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 		gem.scale *= GemView.ROCK_SPAN / GemRock.reach(chunks)
 	var tint: Color = GemMesh.tint(stone)
 	var shine := OmniLight3D.new()
-	shine.light_color = tint
+	## Half the stone's own colour, half lamplight, so the rock round a raw one still reads as
+	## rock and not as more of the stone.
+	shine.light_color = tint.lerp(Color("ffe2c4"), 0.5)
 	shine.light_energy = 0.0
 	shine.omni_range = 2.5
 	shine.position = Vector3(0, 0.3, 0.4)
@@ -1804,6 +1823,12 @@ func warm_up() -> void:
 	fx.coins(at, below + Vector3(0, 1, 2), 2)
 	fx.stars(at)
 	fx.sigil(at, DeepUi.INFO)
+	## Every kind of air a room can have, so the first room of each biome is not where its
+	## particles are compiled. `BattleFx.keep` holds them compiled from here on.
+	for kind in ["dust", "motes", "drips", "sparkles", "spores", "embers", "ash", "void"]:
+		var air: GPUParticles3D = BattleFx.ambient(kind, sample.biome, 0.1)
+		air.position = Vector3(0, 2.0, -4.0)
+		spare.add_child(air)
 	var view := SubViewport.new()
 	view.size = Vector2i(320, 180)
 	view.world_3d = viewport.world_3d

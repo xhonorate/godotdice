@@ -16,11 +16,15 @@ var desaturate: float = 0.0
 var grain: float = 0.035
 ## Fewer flashes: set from the settings menu, it softens every flash and smear.
 static var calm: bool = false
+## Moments when the clock itself is held back: a beat of stillness as a heavy blow lands, the
+## last blow of a fight in slow motion. Asked for here and read by the app, which owns the
+## clock. Each is [ends at (ms, real time), scale], so a frozen frame can never stall itself.
+static var _warps: Array = []
 var _clock: float = 0.0
 
 const SHADER := """
 shader_type canvas_item;
-uniform sampler2D screen : hint_screen_texture, filter_linear_mipmap;
+uniform sampler2D screen : hint_screen_texture, filter_linear;
 uniform float vignette = 0.45;
 uniform vec4 vignette_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
 uniform float aberration = 0.0;
@@ -96,6 +100,24 @@ func _process(delta: float) -> void:
 	m.set_shader_parameter("desaturate", desaturate)
 	m.set_shader_parameter("grain", grain)
 	m.set_shader_parameter("clock", _clock)
+
+static func hold(seconds: float, scale: float = 0.05) -> void:
+	## Holds the clock at `scale` for `seconds` of real time. Overlapping holds take the
+	## slowest of them while they last.
+	_warps.append([Time.get_ticks_msec() + int(seconds * 1000.0), scale])
+
+static func time_warp() -> float:
+	## What the clock should run at now: 1 unless something is being held.
+	if _warps.is_empty():
+		return 1.0
+	var now: int = Time.get_ticks_msec()
+	var slowest: float = 1.0
+	for warp in _warps.duplicate():
+		if now >= int(warp[0]):
+			_warps.erase(warp)
+		else:
+			slowest = minf(slowest, float(warp[1]))
+	return slowest
 
 func kick(strength: float) -> void:
 	## A heavy blow: color splits and the frame smears toward the middle.

@@ -47,8 +47,8 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		gem.rotation = Vector3(deg_to_rad(-65), 0, 0)
 		if not read:
 			var chunks: Array = GemRock.chunks(stone)
-			var rubble := GemRock.material()
-			var seams := GemRock.seam_material(GemMesh.tint(stone))
+			var rubble := GemRock.world_material()
+			var seams := GemRock.world_seams(GemMesh.tint(stone))
 			for chunk in chunks:
 				var piece := MeshInstance3D.new()
 				piece.mesh = chunk.mesh
@@ -70,7 +70,7 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		beam.rotation = Vector3(-PI * 0.5, 0, 0)
 		stand.add_child(beam)
 		var shine := OmniLight3D.new()
-		shine.light_color = tone
+		shine.light_color = tone.lerp(Color("ffe2c4"), 0.45)
 		shine.light_energy = 1.0
 		shine.omni_range = 2.0
 		shine.position = Vector3(0, 1.8, 0.6)
