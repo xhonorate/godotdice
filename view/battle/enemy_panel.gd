@@ -8,14 +8,17 @@ const GemIcons = preload("res://view/gems/gem_icons.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun",
 	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "thorn", "dulled": "cut",
-	"summon": "copy", "purge": "drop", "burrow": "rampart", "adapt": "prism", "festering": "drop", "corroded": "split_shield", "scorched": "flame", "die_lock": "die", "invert_dice": "split",
-	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "drain_resonance": "cross_out", "rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
-	"charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die", "grind_die": "die", "break_gem": "cross_out", "lock_die": "die"}
+	"summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "scorched": "flame", "burn": "flame", "strength": "sword", "die_lock": "die",
+	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
+	"charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die", "grind_die": "die", "break_gem": "cross_out", "lock_die": "die", "break_die": "cross_out", "blank_face": "die",
+	"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop"}
 ## The noun after a move's number. Kinds not here fall back to their own name.
 const NOUNS: Dictionary = {"damage": "damage", "block": "block", "heal": "healing", "poison": "poison", "die_steal": "die suppressed", "remove_block": "block removed", "dice_upgrade": "tier up · this fight", "stun": "turn stunned",
-	"summon": "join the fight", "purge": "% of its poison shed", "burrow": "burrows", "adapt": "% turned away", "festering": "Festering", "corroded": "Corroded", "scorched": "Scorched", "die_lock": "die locked",
-	"invert_dice": "dice inverted", "steal_gold": "pyrite taken", "gold": "pyrite dropped", "empower_next": "% more next attack", "drain_resonance": "Resonance to 0", "rally": "more for every creature", "grow_die": "head grown",
-	"swell": "swelling", "hold_gem": "gem taken", "bury_socket": "socket buried", "charge": "actions to charge", "dice_dread": "Dread", "downgrade_die": "die shrunk", "grind_die": "face ground down", "break_gem": "gem melted", "lock_die": "die locked"}
+	"summon": "join the fight", "purge": "% of its poison shed", "burrow": "burrows", "festering": "Festering", "scorched": "Scorched", "burn": "Burn", "strength": "Strength", "die_lock": "die locked",
+	"steal_gold": "pyrite taken", "gold": "pyrite dropped", "empower_next": "% more next attack", "rally": "more for every creature", "grow_die": "die grown",
+	"swell": "swelling", "hold_gem": "gem taken", "bury_socket": "socket buried", "charge": "actions to charge", "dice_dread": "Dread", "downgrade_die": "die shrunk", "grind_die": "face ground down", "break_gem": "gem melted", "lock_die": "die locked",
+	"break_die": "die destroyed", "blank_face": "face burned blank", "reflect": "% of each blow sent back", "mirror": "blow mirrored", "absorb_color": "colour drunk", "roll_again": "throws again",
+	"end_action": "its action ends", "exhibit": "fires every gem it holds", "max_hp": "most health", "cleanse": "afflictions shed"}
 const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED", "latent": "ON DEATH", "spent": "SPENT"}
 signal pinned(id: String)
 var enemy_id: String = ""
@@ -101,7 +104,11 @@ func _build_rows(moves: Array) -> void:
 	_rows.clear()
 	## A boss phase with five or six moves is read densely: each move's effects share its
 	## requirement line, so the table still leaves the room and the dock in view.
-	var dense: bool = moves.size() > 4
+	## So is a shorter table whose moves do two things each (the Assayer's four).
+	var lines: int = 0
+	for move in moves:
+		lines += move.get("effects", []).size()
+	var dense: bool = moves.size() > 4 or lines > 6
 	for move in moves:
 		var panel := DeepUi.panel(_table, Color(1, 1, 1, 0.035), Color(1, 1, 1, 0.08), 6, 6)
 		var box := DeepUi.vbox(panel, 1)
@@ -132,8 +139,12 @@ func _build_rows(moves: Array) -> void:
 			var kind: String = str(effect.kind)
 			DeepUi.icon(line, str(GLYPHS.get(kind, "spark")), 13, DeepUi.BAD if kind == "damage" else DeepUi.INFO)
 			var formula: String = DeepCreatures.amount_words(effect.get("amount", 0))
-			if kind in ["burrow", "drain_resonance", "bury_socket", "hold_gem", "lock_die", "break_gem", "downgrade_die", "grind_die"]:
+			if kind in ["burrow", "bury_socket", "hold_gem", "lock_die", "break_gem", "downgrade_die", "grind_die", "break_die", "blank_face", "roll_again", "end_action", "exhibit", "absorb_color", "mirror"]:
 				formula = ""
+			if kind == "remove_block" and bool(effect.get("remove_all", false)):
+				formula = "All"
+			if kind == "cleanse" and DeepCreatures.amount_words(effect.get("amount", 0)) == "99":
+				formula = "All"
 			var number := DeepUi.label(line, formula, 12, DeepUi.PAPER)
 			var noun: String = str(NOUNS.get(kind, kind.replace("_", " ")))
 			if kind == "summon":

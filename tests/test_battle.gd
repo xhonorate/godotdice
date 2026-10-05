@@ -548,7 +548,9 @@ func _test_creatures_and_statuses() -> void:
 	hand(DeepBattle.player(state5, "a"), [6, 6, 1, 3, 5])
 	var events5: Array = run_turn(state5, r5)
 	var move5: Array = events5.filter(func(e: Dictionary) -> bool: return str(e.kind) == "enemy_move")
-	check(not move5.is_empty() and int(move5[0].effects[0].raw) == 2 + 4, "on turn 8 the moth's 2 becomes 6 with enrage (%s)" % str(move5[0].effects[0] if not move5.is_empty() else {}))
+	var flutter5: Array = events5.filter(func(e: Dictionary) -> bool: return str(e.kind) == "enemy_roll")
+	var rolled5: int = int(flutter5[0].roll.value) if not flutter5.is_empty() else -1
+	check(not move5.is_empty() and int(move5[0].effects[0].raw) == rolled5 + 4, "on turn 8 the moth's roll of %d becomes %d with enrage (%s)" % [rolled5, rolled5 + 4, str(move5[0].effects[0] if not move5.is_empty() else {})])
 
 func _test_forecast_matches() -> void:
 	var r: Dictionary = rngs(51)

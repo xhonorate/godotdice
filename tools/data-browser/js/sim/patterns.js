@@ -5,10 +5,13 @@ import * as Hand from './hand.js';
 export const KINDS = ['all_odd', 'all_even', 'always', 'pair', 'two_pair', 'triple', 'full_house', 'quad', 'quint', 'straight',
 	'odd', 'even', 'distinct', 'value', 'at_most', 'at_least', 'total_pct_at_least', 'total_pct_at_most',
 	'high_pct_at_least', 'held', 'rerolled', 'resonance', 'low_count', 'crowns', 'crowns_at_most', 'skip_straight', 'distinct_dominant', 'pyrite', 'below',
-	'each_turn', 'every_nth_turn', 'emerge', 'on_death'];
+	'each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin'];
 // The kinds a creature reads from the turn rather than from a die: each fires at most once an
-// action, on its first die (on_death never during an action: it fires when the creature dies).
-export const TURN_KINDS = ['each_turn', 'every_nth_turn', 'emerge', 'on_death'];
+// action, on its first die (on_death never during an action: it fires when the creature dies;
+// hp_below the moment its health first falls that far; action_begin as its action opens).
+export const TURN_KINDS = ['each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin'];
+// The turn kinds the fight calls itself, never on a die the creature throws.
+export const CALLED_KINDS = ['on_death', 'hp_below', 'action_begin'];
 export const isTurnKind = (kind) => TURN_KINDS.includes(kind);
 export const SET_SIZES = { pair: 2, triple: 3, quad: 4, quint: 5 };
 export const STEPS = 5;
@@ -63,10 +66,12 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			case 'every_nth_turn': result.active = first && need > 0 && acted % need === 0; break;
 			case 'emerge': result.active = first && Boolean(context.emerging); break;
 			case 'on_death': result.active = Boolean(context.dying); break;
+			case 'hp_below': result.active = Boolean(context.crossing); break;
+			case 'action_begin': result.active = Boolean(context.action_begin); break;
 		}
 		result.value = a.total | 0;
 		if (result.active) result.dice = allDice(a);
-		else result.reason = kind !== 'on_death' ? 'Not this action.' : 'Only when it dies.';
+		else result.reason = { on_death: 'Only when it dies.', hp_below: 'Only as its health falls that far.', action_begin: 'Only as its action opens.' }[kind] || 'Not this action.';
 		return result;
 	}
 	switch (kind) {
@@ -212,6 +217,8 @@ export function label(trigger, cutStep) {
 		case 'every_nth_turn': return `÷${need}`;
 		case 'emerge': return 'emerging';
 		case 'on_death': return 'on death';
+		case 'hp_below': return `≤${need}% health`;
+		case 'action_begin': return 'action opens';
 		case 'at_most': return `≤${need}`;
 		case 'at_least': return `≥${need}`;
 		case 'total_pct_at_least': case 'high_pct_at_least': return `≥${need}%`;
@@ -227,8 +234,8 @@ export function mark(trigger, cutStep) {
 	const need = rung(trigger, cutStep);
 	if (kind !== 'always' && unconditional(kind, need)) return 'read_high';
 	if (kind === 'always') return readSide(trigger, cutStep) !== 'low' ? 'read_high' : 'read_low';
-	if (kind === 'each_turn' || kind === 'emerge' || kind === 'every_nth_turn') return 'hourglass';
-	if (kind === 'on_death') return 'skull';
+	if (kind === 'each_turn' || kind === 'emerge' || kind === 'every_nth_turn' || kind === 'action_begin') return 'hourglass';
+	if (kind === 'on_death' || kind === 'hp_below') return 'skull';
 	return kind;
 }
 
@@ -288,6 +295,8 @@ export function words(trigger, cutStep) {
 		case 'every_nth_turn': return `Every ${ordinal(need)} action, once, before its dice.`;
 		case 'emerge': return 'The action after it burrowed, once, before its dice.';
 		case 'on_death': return 'When it dies.';
+		case 'hp_below': return `Once, the moment its health falls to ${need}%.`;
+		case 'action_begin': return 'Every action, as it opens, before any die is thrown.';
 	}
 	return 'Its trigger.';
 }
@@ -300,4 +309,5 @@ export const KIND_NAMES = {
 	held: 'Held dice', rerolled: 'Rerolled dice', resonance: 'Resonance', low_count: 'Low dice', crowns: 'Crowns', crowns_at_most: 'Few crowns',
 	skip_straight: 'Skip straight', distinct_dominant: 'Dominant high die', pyrite: 'Pyrite in hand', all_odd: 'All odd', all_even: 'All even',
 	each_turn: 'Each action', every_nth_turn: 'Every nth action', emerge: 'When it comes up', on_death: 'When it dies',
+	hp_below: 'Health falls to', action_begin: 'Action opens',
 };

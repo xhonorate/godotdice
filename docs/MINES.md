@@ -16,7 +16,7 @@ Everything here is data in `content/deep_cut.json` under `mines`, read by `sim/f
 | VI | The Geode | 32 | 12, 24 | 32 | ≤ 12 | 17 | +4 | ×19 / ×3.7 | Florin |
 | ∞ | The Rift | endless | every 8 | — | ≤ 13, +1 a Warden | 17, +1 a Warden, to 24 | +5 | ×34, doubling every 8 floors / ×4.8, +15% every 8 | — |
 
-Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. Every mine has its own two Wardens and its own final boss (see [the Bestiary](BESTIARY.md)); the Rift's are the bosses above it, remembered, with the Unmade every fifth.
+Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. Every mine has its own two Wardens and its own final boss (see [the Bestiary](BESTIARY.md)); the Rift's are the bosses above it, remembered, with the Infinite Void every fifth.
 
 ## Creatures: who lives where
 
@@ -24,11 +24,11 @@ Landings still come every fourth floor and still wander a floor either way, Ward
 |---|---|---|---|---|
 | Quarry | Cave Tick, Silt Slime, Magpie, Lantern Moth, Rail Rat, Quartz Golem, Clouder, Pit Mole, Vein Wraith, Glass Wyrm | — | the Foreman, the Mirror Regent | the Drill |
 | Seeps | Seep Eel, Drowned Miner, Lamprey Knot, Cave Crayfish | Cave Tick, Silt Slime, Clouder, Vein Wraith | the Lock-Keeper, the Drowned Choir | the Undertow |
-| Glass Veins | Echo Sprite, Glint Magpie, Will-o’-Wisp, Lens Beetle, Prism Golem, Refractor, Shard Wyrm | Cave Tick, Seep Eel, Drowned Miner, Clouder | the Glazier, the Kaleidoscope | the Prismarch and its Prisms |
-| Warrens | Spore Slime, Mycel Weaver, Puffball, Cap Shambler, Mycel Wraith, Root Horror | Clouder, Drowned Miner, Echo Sprite, Lens Beetle | the Gardener, the Spore Mother | the Heartrot and its Tendrils |
-| Furnace | Forge Imp, Salamander, Slag Hound, Fire Tick, Ember Crawler, Cinder Moth | Mycel Weaver, Clouder, Lens Beetle, Root Horror | the Smelter, the Anvil Knight | the Kiln Wyrm |
+| Glass Veins | Echo Sprite, Glint Magpie, Will-o’-Wisp, Prism Golem, Refractor, Shard Wyrm | Cave Tick, Seep Eel, Drowned Miner, Clouder | the Glazier, the Kaleidoscope | the Prismarch and its Prisms |
+| Warrens | Spore Slime, Mycel Weaver, Puffball, Cap Shambler, Mycel Wraith, Root Horror | Clouder, Drowned Miner, Echo Sprite | the Gardener, the Spore Mother | the Heartrot and its Tendrils |
+| Furnace | Forge Imp, Salamander, Slag Hound, Fire Tick, Ember Crawler, Cinder Moth | Mycel Weaver, Clouder, Root Horror | the Smelter, the Anvil Knight | the Kiln Wyrm |
 | Geode | Croupier Crab, Gilded Magpie, Geode Golem, Hoard Mimic, Amethyst Wyrm, Crystal Hydra | Salamander, Slag Hound, Forge Imp, Clouder | the Assayer, the Collector | the Hollow Crown |
-| Rift | Void Echo (anything from the first four mines), Null Shade, Riftling Swarm, Entropy Eye | through the Void Echo | the Remembered: the Drill, the Undertow, the Prismarch, the Heartrot, the Kiln Wyrm, round again; every fifth the Unmade | — |
+| Rift | Void Echo (anything from the first four mines), Null Shade, Riftling Swarm, Entropy Eye | through the Void Echo | the Remembered: the Drill, the Undertow, the Prismarch, the Heartrot, the Kiln Wyrm, round again; every fifth the Infinite Void | — |
 
 A variant (a Fire Tick for the Cave Tick) never stands within one mine of the creature it is based on, or of another variant of it; `tests/test_bestiary.gd` holds the bands to that.
 

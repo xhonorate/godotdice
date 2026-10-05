@@ -9,7 +9,7 @@ export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'tota
 	'distinct', 'held', 'rerolled', 'dice', 'count_value', 'count_at_most', 'count_at_least', 'run_high', 'run_length',
 	'set_value', 'set_count', 'sum_low', 'sum_high', 'block', 'block_lost', 'healed', 'dealt', 'hp', 'max_hp', 'hp_missing', 'gold',
 	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'low_dice', 'pyrite', 'pot', 'enemy_poison',
-	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'turns_acted', 'living_players'];
+	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'party_richest', 'turns_acted', 'living_players', 'strength'];
 export const RANKS = ['carat', 'cut', 'clarity'];
 export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun', 'remove_block', 'cleanse', 'revive',
 	'curse', 'amplify_next', 'cut_step_next', 'raise_low', 'raise_high', 'set_match', 'flip_high', 'flip_low',
@@ -18,27 +18,30 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'replay_rail', 'tick_poison', 'stone_drop', 'pot', 'dice_upgrade', 'ward', 'retain', 'charged', 'marked',
 	'regeneration', 'spikes', 'dulled', 'clouded', 'lifeline', 'max_hp', 'max_hp_loss', 'damage_curse', 'detonate', 'wager', 'stake', 'upgrade_faces', 'gem_rank', 'appraise',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
-	'summon', 'purge', 'burrow', 'adapt', 'festering', 'corroded', 'scorched', 'die_lock', 'invert_dice', 'steal_gold',
-	'empower_next', 'drain_resonance', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'charge'];
+	'summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'strength', 'die_lock', 'steal_gold',
+	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
+	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action'];
 // The creature-only kinds: a skill or an inclusion may not use them.
-export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'adapt', 'festering', 'corroded', 'scorched', 'die_lock', 'invert_dice', 'steal_gold',
-	'empower_next', 'drain_resonance', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'charge'];
+export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'strength', 'die_lock', 'steal_gold',
+	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
+	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action'];
 export const SCALED_BY_DEFAULT = ['damage', 'block', 'heal', 'gold', 'poison', 'remove_block', 'retain', 'regeneration', 'spikes', 'lifeline', 'wager', 'detonate'];
 export const DEBUFFS = ['poison', 'stun', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
-	'festering', 'corroded', 'scorched', 'die_lock', 'invert_dice', 'drain_resonance', 'hold_gem', 'bury_socket'];
+	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'hold_gem', 'bury_socket'];
 export const HOSTILE = ['damage', 'damage_curse', 'detonate', 'wager', 'poison', 'stun', 'remove_block', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
-	'festering', 'corroded', 'scorched', 'die_lock', 'invert_dice', 'steal_gold', 'drain_resonance', 'hold_gem', 'bury_socket'];
+	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'steal_gold', 'hold_gem', 'bury_socket'];
 // What a creature's hostile effect means by "the enemy": these are turned on the party.
 export const ENEMY_SIDE_TARGETS = ['enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'hero', 'heroes'];
 export const HERO_PICKS = ['hero_least_block', 'hero_most_hp', 'hero_most_gold', 'hero_top_damage', 'hero_top_dealt', 'hero_marked'];
 export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'downed_ally', 'hero', 'heroes', ...HERO_PICKS];
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
-	'piercing', 'split_party', 'pick', 'creature', 'pct', 'reflect', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'release'];
-// How an effect that works on one die or one gem chooses it, and how an adapt picks its colour.
-export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best'];
-export const ADAPT_PICKS = ['most_damage', 'most_used', 'random'];
+	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
+	'hurt', 'add', 'flat'];
+// How an effect that works on one die or one gem chooses it, and how an absorb_color picks its colour.
+export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best', 'usable', 'showing', 'all'];
+export const ABSORB_PICKS = ['random', 'most_used'];
 export const POT_MODES = ['ante', 'double', 'all', 'lose'];
 export const FROM_RESULTS = ['damage', 'gold', 'block', 'removed', 'stolen'];
 export const MAX_REPEAT = 100;
@@ -118,6 +121,8 @@ export function term(name, node, c) {
 		case 'turns_acted': return unit.turns_acted | 0;
 		case 'party_heaviest_carat': return c.party_heaviest_carat | 0;
 		case 'party_best_turn': return c.party_best_turn | 0;
+		case 'party_richest': return c.party_richest | 0;
+		case 'strength': return (unit.statuses || {}).strength | 0;
 		case 'living_players': return Math.max(1, (c.living_players ?? c.party ?? 1) | 0);
 		case 'resonance': return c.resonance | 0;
 		case 'previous_amount': return c.previous_amount | 0;
@@ -186,7 +191,7 @@ export function amountWords(expr, cutStep = null) {
 			sum_low: `sum of lowest ${expr.value || 1}`, sum_high: `sum of highest ${expr.value || 1}`, block: 'current block', block_lost: 'block lost', healed: 'healing done',
 			enemy_poison: 'enemy poison', resonance: 'Resonance', pyrite: 'pyrite', odd: 'odd dice', even: 'even dice', distinct: 'distinct values', held: 'held dice', rerolled: 'rerolled dice',
 			swell: 'its swelling', held_gems: 'gems it holds', biggest_hit: 'hardest hit on it this turn', party_heaviest_carat: "heaviest gem's carats",
-			party_best_turn: "the party's best turn", turns_acted: 'actions taken', living_players: 'players standing', pot: 'the pot', dealt: 'damage dealt', hp: 'health', max_hp: 'max health', hp_missing: 'missing health' };
+			party_best_turn: "the party's best turn", party_richest: 'the richest purse', strength: 'its Strength', turns_acted: 'actions taken', living_players: 'players standing', pot: 'the pot', dealt: 'damage dealt', hp: 'health', max_hp: 'max health', hp_missing: 'missing health' };
 		return names[expr.term] || expr.term;
 	}
 	if ('rank' in expr) return expr.rank;
@@ -202,7 +207,8 @@ export function amountWords(expr, cutStep = null) {
 // Whom a creature's effect lands on, in words (sim/creatures.gd TARGET_WORDS).
 export const TARGET_WORDS = { heroes: 'all players', hero: 'all players', self: 'itself', allies: 'every creature', allies_other: 'every other creature',
 	hero_least_block: 'the player with the least block', hero_most_hp: 'the player with the most health', hero_most_gold: 'the player with the most pyrite',
-	hero_top_damage: 'whoever hurt it most this turn', hero_top_dealt: 'whoever dealt the most last turn', hero_marked: 'every Marked player' };
+	hero_top_damage: 'whoever hurt it most this turn', hero_top_dealt: 'whoever dealt the most last turn', hero_marked: 'every Marked player',
+	spread: 'spread round the party' };
 export function targetWords(effect, fallback = 'all players') { return TARGET_WORDS[String(effect.target || 'heroes')] || fallback; }
 // The targets worth saying out loud after a label: a creature picking one player, or its own side.
 const NAMED_TARGETS = ['allies_other', ...HERO_PICKS];
@@ -221,12 +227,15 @@ export function effectWords(effect, cutStep = null) {
 	let damage = `${n} damage${rep}`;
 	if (effect.split_party) damage = `${n} damage${rep}, split across the party (rounded up)`;
 	if (effect.piercing) damage += ' · ignores block';
-	const adaptColour = String(effect.color || 'most_damage');
-	const adaptWords = { most_damage: 'the colour that hurt it most this turn', most_used: 'the colour the party uses most', random: 'a colour' }[adaptColour] || `${adaptColour[0]}${adaptColour.slice(1).toLowerCase()} gems`;
+	if (effect.flat) damage += ' · plus its Strength, nothing more';
+	if (target === 'spread') damage += ' · spread round the party';
+	const drunk = String(effect.color || 'random') === 'most_used' ? 'the colour the party uses most' : 'a colour';
+	const showing = pick === 'showing';
 	const labels = {
-		damage, block: `${n} block${rep}`, heal: `heal ${n}${rep}`, gold: atHeroes ? `drops ${n} pyrite` : `${n} pyrite`, poison: `${n} poison${rep}`, stun: target === 'self' ? `stuns itself · ${n} turn` : `stun ${n}`, remove_block: `remove ${n} block`,
-		cleanse: `cleanse ${n}`, curse: `${n} Curse`, ward: `${n} Ward`, retain: `retain ${n} block`, charged: `${n} Charged`, regeneration: `${n} Regeneration`, spikes: `${n} Spikes`,
-		marked: `${n} Marked`, dulled: `${n} Dulled`, clouded: atHeroes || !target ? 'cloud a socket' : `Clouded for ${n} actions · one random ability disabled`, die_steal: `suppress ${n} die`, dice_dread: `${n} Dread`, dice_upgrade: `dice +${n} tier`,
+		damage, block: `${n} block${rep}`, heal: `heal ${n}${rep}`, gold: atHeroes ? `drops ${n} pyrite` : `${n} pyrite`, poison: `${n} poison${rep}`, stun: target === 'self' ? `stuns itself · ${n} turn` : `stun ${n}`, remove_block: effect.remove_all ? 'removes all your block' : `remove ${n} block`,
+		cleanse: n === '99' ? 'sheds every affliction on it' : `cleanse ${n}`, curse: `${n} Curse`, ward: `${n} Ward`, retain: `retain ${n} block`, charged: `${n} Charged`, regeneration: `${n} Regeneration`, spikes: `${n} Spikes`,
+		marked: `${n} Marked`, dulled: `${n} Dulled`, clouded: atHeroes || !target ? 'cloud a socket' : `Clouded for ${n} actions · one random ability disabled`, die_steal: `suppress ${n} die`, dice_dread: `${n} Dread`,
+		dice_upgrade: `dice +${n} tier${effect.cap ? ` (${String(effect.cap).toLowerCase()} at most)` : ''}`,
 		max_hp_loss: `−${n} max HP`, lifeline: `${n} Lifeline`, detonate: `${n} damage per poison consumed`, wager: `wager: ${n} damage`, stake: `stake: amplify next`,
 		coin_flip: `${n}% coin flip`, sparkle: `${n} Sparkle`, quality_bonus: `stones +${n}% better`, appraise: `appraise ${n} raw stone`, upgrade_faces: `raise matched faces by ${n}`,
 		phantom_high: `${n} phantom of the highest die`, gem_rank: `+${n} ${effect.rank || 'rank'}`, set_match: 'join a die to the strongest set', grant_reroll: `${n} extra reroll`,
@@ -235,27 +244,34 @@ export function effectWords(effect, cutStep = null) {
 		void_copy: `${n} Void copy of the last gem that fired`,
 		amplify_next: `amplify next gem ${n}%`, revive: 'revive an ally', max_hp: `+${n} max HP`,
 		// Elites only, and rare.
-		mar_die: 'mars a face of one of your dice (blank or locked)', grind_die: `your ${pick === 'high' ? 'highest die' : 'die'} loses 1 from its top face for the fight`,
-		lock_die: 'locks one of your dice this turn', break_die: 'breaks one of your dice · it grows back next turn',
-		downgrade_die: `your ${pick === 'high' ? 'highest die' : 'die'} shrinks a size for the fight`,
+		mar_die: 'mars a face of one of your dice (blank or locked)',
+		grind_die: showing ? `every face your dice show loses 1${effect.permanent ? ', for good' : ' for the fight'}` : `your ${pick === 'high' ? 'highest die' : 'die'} loses 1 from its top face${effect.permanent ? ' for good' : ' for the fight'}`,
+		lock_die: 'locks one of your dice this turn',
+		break_die: effect.permanent ? 'destroys one of your dice for the rest of the fight' : 'breaks one of your dice · it grows back next turn',
+		downgrade_die: pick === 'all' ? 'every one of your dice shrinks a size for the fight' : `your ${pick === 'high' ? 'highest die' : 'die'} shrinks a size for the fight`,
+		blank_face: 'the face one of your dice shows is blank for the rest of the fight',
 		break_gem: `melts one of your gems${effect.permanent ? ' for the rest of the fight' : ' until next turn'}`,
 		// Creature-only, what the deeper mines fight with (sim/creatures.gd effect_words).
 		summon: n === '1' ? `${summonedName(effect)} joins the fight` : `${n} ${summonedName(effect)}s join the fight`,
 		purge: `sheds ${n}% of its poison`,
 		burrow: 'burrows · cannot be targeted until its next action',
-		adapt: effect.reflect ? `mirrors ${adaptWords} · gems of it hit their owner instead` : `takes ${n}% less from ${adaptWords} until its next action`,
+		absorb_color: `drinks ${drunk}${effect.add ? ' as well' : ''} · those gems do it no damage, and what they would give their owner goes to it`,
+		reflect: `until its next action, ${n}% of every blow on it goes back to every player`,
+		mirror: n === '1' ? 'the next blow on it hits whoever threw it instead' : `the next ${n} blows on it hit whoever threw them instead`,
 		festering: `${n} Festering · healing halved`,
-		corroded: `${n} Corroded · half of kept block lost at turn start`,
 		scorched: `${n} Scorched · block gained halved`,
+		burn: `${n} Burn · hurts at the end of each turn, block soaks it, one less each turn`,
+		strength: `${n} Strength · ${n} more on every blow, for the fight`,
+		roll_again: 'throws this die once more',
+		end_action: 'its action ends here',
+		exhibit: 'fires every gem it holds, as its own',
 		die_lock: `locks your ${pick === 'high' ? 'highest die' : pick === 'low' ? 'lowest die' : diceWords(Number.isFinite(count) ? count : 1)} · it comes up the same and cannot be rerolled next turn`,
-		invert_dice: (Number.isFinite(count) ? count : Number(n)) === 1 ? 'your highest die shifts between odd and even next turn' : `your ${n} highest dice shift between odd and even next turn`,
-		steal_gold: effect.pct ? `takes ${n}% of each player's pyrite` : `takes ${n} pyrite from each player`,
+		steal_gold: (effect.pct ? `takes ${n}% of each player's pyrite` : `takes ${n} pyrite from each player`) + (effect.hurt ? ' · and hits each for what it took' : ''),
 		empower_next: `its next attack deals ${n}% more`,
-		drain_resonance: 'Resonance to 0, and held there through the next rail',
 		rally: `every creature deals ${n} more this turn`,
 		grow_die: `grows another head: +1 ${String(effect.shape || 'D6').toLowerCase()} (${effect.cap ?? 5} at most)`,
 		swell: `swells by ${n} · its burst grows`,
-		hold_gem: `takes ${String(effect.pick || 'hardest') === 'hardest' ? 'the gem that hit it hardest this turn' : "the party's highest-grade gem"} off a rail until it dies`,
+		hold_gem: `takes ${{ hardest: 'the gem that hit it hardest this turn', usable: 'the finest gem it can fire itself' }[String(effect.pick || 'hardest')] || "the party's highest-grade gem"} off a rail until it dies`,
 		bury_socket: 'buries the socket holding your heaviest gem',
 		charge: chargeWords(effect, cutStep),
 	};
@@ -273,6 +289,9 @@ function summonedName(effect) {
 
 function chargeWords(effect, cutStep) {
 	const turns = Number(effect.turns ?? 2);
-	const winding = (effect.release || []).map((e) => effectWords(e, cutStep)).join(' and ');
-	return `charges for ${turns} ${turns === 1 ? 'action' : 'actions'}, then: ${winding} · losing ${effect.cancel_pct ?? 25}% of its health meanwhile cancels it`;
+	const winding = effect.store ? 'all the damage it was dealt meanwhile, back at every player' : (effect.release || []).map((e) => effectWords(e, cutStep)).join(' and ');
+	let words = `charges for ${turns} ${turns === 1 ? 'action' : 'actions'}, then: ${winding}`;
+	if (Number(effect.guard_pct ?? 0) > 0) words += ` · takes ${effect.guard_pct}% less meanwhile`;
+	if (Number(effect.cancel_pct ?? 0) > 0) words += ` · losing ${effect.cancel_pct}% of its health meanwhile cancels it`;
+	return words;
 }

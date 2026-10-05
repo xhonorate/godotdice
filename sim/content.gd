@@ -27,10 +27,13 @@ const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_
 ## What a creature is, as well as what it rolls for: the traits it carries into every fight
 ## (`traits`, a dictionary of trait to amount or true), which a phase may add to or take away.
 ## The old single `gimmick` is read as one of these. See docs/BESTIARY.md.
-const TRAITS: Array = GIMMICKS + ["steadfast", "bedrock", "backlash", "flee", "rising", "escalate", "aura", "spikes",
-	"regen_with_escorts", "shielded_by_escorts", "regrow_escorts", "reroll_drain", "reroll_scorch", "punish_straight", "drops_stone", "adapt_aura"]
+const TRAITS: Array = GIMMICKS + ["steadfast", "sturdy", "backlash", "flee", "rising", "escalate", "aura", "spikes",
+	"regen_with_escorts", "shielded_by_escorts", "regrow_escorts", "reroll_drain", "reroll_scorch", "punish_straight", "drops_stone",
+	"carat_cap", "resonance_damp", "colour_strength"]
 ## The traits a Rift Warden may be remembered with, one of them, picked by the seed.
-const REMEMBERED_TRAITS: Array = ["steadfast", "bedrock", "adapt"]
+const REMEMBERED_TRAITS: Array = ["steadfast", "sturdy", "split_on_big_hit"]
+## What each of those is called where a player reads it.
+const REMEMBERED_NAMES: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits"}
 
 static var _pack: Dictionary = {}
 static var _path: String = PATH
@@ -365,8 +368,19 @@ static func _validate_creature(def: Variant, p: Dictionary) -> Array:
 		errors.append_array(validate_die_ref(entry_def))
 	if def.has("policy"):
 		errors.append("enemy moves all fire when eligible; remove the old policy")
-	if def.get("dice", []).is_empty() or def.get("dice", []).size() > 4:
+	## No dice at all is allowed only to a creature that grows its first one before it rolls
+	## (the Infinite Void's Expansion).
+	var grows_first: bool = false
+	for move in def.get("moves", []):
+		if move is Dictionary and str(move.get("trigger", {}).get("kind", "")) == "action_begin":
+			for effect in move.get("effects", []):
+				if effect is Dictionary and str(effect.get("kind", "")) == "grow_die":
+					grows_first = true
+	if (def.get("dice", []).is_empty() and not grows_first) or def.get("dice", []).size() > 4:
 		errors.append("needs one to four ordered dice")
+	for skill_key in def.get("gems", []):
+		if not p.skills.has(str(skill_key)):
+			errors.append("holds an unknown gem " + str(skill_key))
 	if not str(def.get("gimmick", "")) in GIMMICKS:
 		errors.append("unknown gimmick " + str(def.get("gimmick", "")))
 	errors.append_array(_validate_traits(def.get("traits", {}), ""))

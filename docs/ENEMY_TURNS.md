@@ -241,7 +241,12 @@ Fifty-three creatures across the seven mines and sixteen mechanics were added on
 trigger kinds read from the action rather than a die (`each_turn`, `every_nth_turn`, `emerge`,
 `on_death`), each firing once an action on its first die; a move may be `once` a fight; a
 trigger may name the one `die` it reads; and a creature carries `traits` (its passive nature,
-which a phase may change) beside its moves. The table shows ON DEATH and SPENT rows, a
+which a phase may change) beside its moves. The owner's verdicts (October 5) added two more
+the fight calls itself: `action_begin`, played as the action opens before any die (the
+Infinite Void grows a d20 that way), and `hp_below`, played once the moment its health falls
+that far, even in the middle of the party's rail. A move may also throw its die again
+(`roll_again`: the extra throw joins the row of dice for that action only) or end the action
+(`end_action`). The table shows ON DEATH and SPENT rows, a
 countdown beside a periodic move, and the traits as pills. Coverage still holds: every face of
 every die activates an ordinary move on every creature, summon-only escorts included.
 

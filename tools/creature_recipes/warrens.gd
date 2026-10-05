@@ -47,18 +47,25 @@ static func recipes() -> Dictionary:
 		var a: float = float(i) * TAU / 9.0 + 0.2
 		var reach: float = 0.9 + 0.3 * float(i % 3)
 		roots.append({"shape": "capsule", "at": [cos(a) * reach * 0.6, 0.25 + 0.15 * float(i % 2), sin(a) * reach * 0.6 - 0.2], "rot": [sin(a) * 70.0, 0, -cos(a) * 70.0], "scale": [0.09 + 0.02 * float(i % 2), reach * 0.5, 0.09], "material": "body", "motion": "swing", "phase": a, "radius": 1.0, "height": 2.0, "segments": 5})
+	## The Gardener: a great beetle with a garden growing on its back.
 	var gardener: Array = [
-		{"shape": "cone", "at": [0, 1.2, 0], "material": "body", "motion": "core", "radius": 0.7, "height": 2.4, "sides": 8},
-		{"shape": "cone", "at": [0, 2.65, 0.0], "material": "body", "motion": "bob", "radius": 0.42, "height": 0.9, "sides": 7},
-		{"shape": "sphere", "at": [0.1, 2.45, 0.3], "scale": 0.06, "material": "accent", "radius": 1.0, "segments": 5, "rings": 3},
-		{"shape": "sphere", "at": [-0.1, 2.45, 0.3], "scale": 0.06, "material": "accent", "radius": 1.0, "segments": 5, "rings": 3},
-		{"shape": "cap", "at": [0.62, 2.35, 0.0], "rot": [0, 0, -20], "material": "accent", "motion": "bob", "phase": 0.5, "radius": 0.36, "height": 0.22, "sides": 7},
-		{"shape": "cap", "at": [-0.6, 2.3, 0.05], "rot": [0, 0, 25], "material": "accent", "motion": "bob", "phase": 1.1, "radius": 0.3, "height": 0.2, "sides": 7},
-		{"shape": "cap", "at": [-0.4, 2.55, -0.2], "rot": [10, 0, 10], "material": "accent", "motion": "bob", "phase": 1.8, "radius": 0.18, "height": 0.14, "sides": 6},
-		{"shape": "cylinder", "at": [0.8, 1.6, 0.4], "rot": [0, 0, -35], "material": "body", "top": 0.09, "bottom": 0.1, "height": 1.1, "sides": 5},
-		{"shape": "cylinder", "at": [1.15, 1.1, 0.6], "material": "core", "motion": "swing", "phase": 0.4, "top": 0.26, "bottom": 0.3, "height": 0.5, "sides": 8},
-		{"shape": "cylinder", "at": [1.45, 1.3, 0.6], "rot": [0, 0, 60], "material": "core", "motion": "swing", "phase": 0.4, "top": 0.04, "bottom": 0.05, "height": 0.5, "sides": 5},
-		{"shape": "cylinder", "at": [-0.75, 1.5, 0.3], "rot": [0, 0, 30], "material": "body", "top": 0.09, "bottom": 0.1, "height": 1.0, "sides": 5}]
+		{"shape": "rock", "at": [0, 1.0, -0.1], "scale": [1.05, 0.55, 1.3], "material": "body", "motion": "core", "jitter": 0.1, "seed": 71},
+		{"shape": "rock", "at": [0, 1.42, -0.15], "scale": [0.9, 0.22, 1.1], "material": "core", "motion": "core", "phase": 0.5, "jitter": 0.08, "seed": 72},
+		{"shape": "rock", "at": [0, 0.85, 1.25], "scale": [0.45, 0.35, 0.4], "material": "body", "motion": "bob", "jitter": 0.1, "seed": 73}]
+	for side in [-1.0, 1.0]:
+		gardener.append({"shape": "spike", "at": [side * 0.18, 0.72, 1.5], "rot": [80, 0, -side * 22.0], "material": "body", "radius": 0.07, "height": 0.5, "sides": 4})
+		gardener.append({"shape": "sphere", "at": [side * 0.2, 0.98, 1.55], "scale": 0.07, "material": "accent", "radius": 1.0, "segments": 5, "rings": 3})
+		for leg in range(3):
+			var z: float = 0.55 - 0.6 * float(leg)
+			gardener.append({"shape": "cylinder", "at": [side * 1.1, 0.38, z], "rot": [0, 0, side * 34.0], "material": "body", "motion": "swing", "phase": float(leg) * 1.1 + (0.0 if side > 0 else 1.6), "top": 0.06, "bottom": 0.09, "height": 0.9, "sides": 5})
+	var beds: Array = [[0.45, 0.2, 0.36], [-0.42, -0.35, 0.32], [0.12, -0.85, 0.4], [-0.18, 0.5, 0.24], [0.55, -0.55, 0.2], [-0.55, -0.95, 0.18]]
+	for i in range(beds.size()):
+		var bed: Array = beds[i]
+		var tall: float = 0.2 + 0.35 * float(bed[2])
+		gardener.append({"shape": "cylinder", "at": [bed[0], 1.5 + tall * 0.5, bed[1]], "material": "core", "top": 0.04, "bottom": 0.07, "height": tall, "sides": 5})
+		gardener.append({"shape": "cap", "at": [bed[0], 1.5 + tall, bed[1]], "rot": [6.0 * float(i % 3 - 1), 0, 8.0 * float(i % 2 * 2 - 1)], "material": "accent", "motion": "bob", "phase": float(i) * 0.9, "radius": bed[2], "height": float(bed[2]) * 0.55, "sides": 7})
+	for i in range(4):
+		gardener.append({"shape": "crystal", "at": [-0.6 + 0.4 * float(i), 1.48, 0.3 - 0.5 * float(i)], "rot": [10, 0, 15.0 * float(i % 2 * 2 - 1)], "material": "core", "motion": "crystal", "phase": float(i) * 1.3, "radius": 0.04, "height": 0.35})
 	var mother: Array = [
 		{"shape": "sphere", "at": [0, 1.7, 0], "scale": [1.3, 1.1, 1.2], "material": "core", "motion": "core", "radius": 1.0, "segments": 10, "rings": 5},
 		{"shape": "rock", "at": [0, 2.4, -0.2], "scale": [0.8, 0.5, 0.7], "material": "body", "motion": "core", "phase": 0.7, "jitter": 0.15, "seed": 81},
@@ -93,7 +100,7 @@ static func recipes() -> Dictionary:
 		"MYCEL_WEAVER": {"style": "low", "sway": 2.6, "tint": "4a6a3a", "accent": "c8ff6a", "anchor": 1.3, "shadow": 2.2, "parts": weaver},
 		"PUFFBALL": {"style": "puff", "sway": 1.3, "tint": "e8e0a0", "accent": "a8c84a", "anchor": 1.3, "shadow": 1.6, "ring": 0.8, "parts": puffball},
 		"ROOT_HORROR": {"style": "blob", "sway": 1.0, "tint": "6a5232", "accent": "e0ff8a", "anchor": 1.6, "shadow": 2.8, "ring": 1.3, "parts": roots},
-		"THE_GARDENER": {"style": "tower", "sway": 0.7, "tint": "5a7a3a", "accent": "ffb0e0", "anchor": 3.4, "warden": true, "shadow": 3.0, "ring": 1.5, "parts": gardener},
+		"THE_GARDENER": {"style": "low", "sway": 0.8, "tint": "5a7a3a", "accent": "ffb0e0", "anchor": 2.5, "warden": true, "shadow": 3.4, "ring": 1.7, "parts": gardener},
 		"THE_SPORE_MOTHER": {"style": "blob", "sway": 0.8, "tint": "b8c84a", "accent": "ff8ae0", "anchor": 3.3, "warden": true, "shadow": 3.6, "ring": 1.7, "parts": mother},
 		"THE_HEARTROT": {"style": "blob", "sway": 1.6, "tint": "5a7a2a", "accent": "ff5ab0", "anchor": 3.2, "warden": true, "shadow": 3.6, "ring": 1.7, "parts": heart},
 		"TENDRIL": {"style": "long", "sway": 1.4, "tint": "5a7a2a", "accent": "ff5ab0", "anchor": 2.3, "shadow": 1.6, "ring": 0.8, "parts": tendril}}

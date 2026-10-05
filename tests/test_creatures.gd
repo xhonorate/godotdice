@@ -40,7 +40,8 @@ func _test_catalog() -> void:
 		if CrystalCreature.VARIANTS.has(key):
 			check(creature.tint.is_equal_approx(Color(str(CrystalCreature.VARIANTS[key].tint)).lerp(Color("ff5a4a"), 0.35) if warden else Color(str(CrystalCreature.VARIANTS[key].tint))), "%s wears its own colour" % key)
 		check(direct.warden == warden and creature.warden == warden, "%s keeps its Warden variant" % key)
-		check(creature.anchor.y > 0.0 and creature.anchor.is_equal_approx(direct.anchor), "%s can be framed before entering the tree" % key)
+		var grown: float = float(CrystalCreature.VARIANTS.get(key, {}).get("scale", 1.0))
+		check(creature.anchor.y > 0.0 and creature.anchor.is_equal_approx(direct.anchor * grown), "%s can be framed before entering the tree" % key)
 		var count: int = direct.get_node("Body").get_child_count()
 		check(count > 0, "%s contains editable parts before ready" % key)
 		root.add_child(direct)
@@ -134,9 +135,9 @@ func _test_variants() -> void:
 	for _i in range(40):
 		mole._process(0.05)
 	check(absf(mole.get_node("Body").position.y) < 0.01, "and comes back up")
-	mole.set_adapt(Color.RED)
+	mole.set_halo(Color.RED)
 	mole._process(0.5)
-	check(mole._halo_material.albedo_color.a > 0.0 and mole._halo_material.albedo_color.r > 0.9, "an adapted creature shows a halo in the colour it turned away")
+	check(mole._halo_material.albedo_color.a > 0.0 and mole._halo_material.albedo_color.r > 0.9, "a guarded creature shows a halo in its colour")
 	mole.free()
 
 func _test_lifecycle() -> void:

@@ -457,7 +457,7 @@ static func inclusion_names(stone: Dictionary) -> Array:
 static func effective(stone: Dictionary, c: Dictionary = {}) -> Dictionary:
 	## The ranks the stone really has once its inclusions and its place in the rail speak.
 	## `c` may carry carat_bonus (Capstone, Halo), cut_step_bonus (Feather, passives),
-	## amplify (Double Down, amplify_next) and depth (Fluorescence).
+	## amplify (Double Down, amplify_next), depth (Fluorescence) and carat_cap (an Assayer).
 	var mods: Array = modifiers(stone)
 	var clarity: int = clampi(int(stone.get("clarity", 0)) + int(c.get("clarity_bonus", 0)), 0, DeepContent.clarities().size() - 1)
 	var clarity_entry: Dictionary = DeepContent.clarity_entry(clarity)
@@ -481,7 +481,13 @@ static func effective(stone: Dictionary, c: Dictionary = {}) -> Dictionary:
 	var dulled: int = maxi(0, int(c.get("dulled", 0)))
 	if dulled > 0:
 		cut_step = maxi(0, mini(DeepPatterns.STEPS - 1, cut_step) - dulled)
-	var magnitude: float = carat_multiplier(float(carat) * carat_mult) * float(clarity_entry.get("magnitude", 1.0)) * magnitude_mult * float(c.get("amplify", 1.0))
+	## An Assayer in the room weighs every gem at no more than its limit, however it got there.
+	var weight: float = float(carat) * carat_mult
+	var carat_cap: int = int(c.get("carat_cap", 0))
+	if carat_cap > 0:
+		carat = mini(carat, carat_cap)
+		weight = minf(weight, float(carat_cap))
+	var magnitude: float = carat_multiplier(weight) * float(clarity_entry.get("magnitude", 1.0)) * magnitude_mult * float(c.get("amplify", 1.0))
 	return {"clarity": clarity, "flawless": bool(clarity_entry.get("flawless_line", false)), "carat": carat, "cut_step": maxi(0, cut_step), "magnitude": magnitude, "modifiers": mods,
 		"resonance_mult": float(clarity_entry.get("resonance_mult", 1.0))}
 

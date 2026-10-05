@@ -426,7 +426,7 @@ export const isLanding = (depth) => depth > 0 && depth % Number(C.constant('land
 // The last floor of a mine, where its final boss waits; 0 for one with no bottom.
 export const mineBottom = (mine) => (mine?.endless ? 0 : Number(mine?.depth ?? 24));
 // Who guards the nth Warden hall of an endless mine (sim/descent.gd warden_key): the Wardens in
-// turn, and every `unmade_every`th one the mine's own Unmade instead, the cycle skipping that slot.
+// turn, and every `unmade_every`th one the mine's own Infinite Void instead, the cycle skipping that slot.
 export function endlessWarden(mine, nth) {
 	const wardens = mine?.wardens || [];
 	if (!wardens.length) return String(mine?.boss || '');

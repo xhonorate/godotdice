@@ -12,10 +12,11 @@ export const GIMMICKS = ['', 'steal_high_die', 'block_from_high', 'reflect_zero_
 // What a creature is, as well as what it rolls for: the traits it carries into every fight
 // (`traits`, trait to amount or true), which a phase may add to or take away. The old single
 // `gimmick` is read as one of these.
-export const TRAITS = [...GIMMICKS, 'steadfast', 'bedrock', 'backlash', 'flee', 'rising', 'escalate', 'aura', 'spikes',
-	'regen_with_escorts', 'shielded_by_escorts', 'regrow_escorts', 'reroll_drain', 'reroll_scorch', 'punish_straight', 'drops_stone', 'adapt_aura'];
+export const TRAITS = [...GIMMICKS, 'steadfast', 'sturdy', 'backlash', 'flee', 'rising', 'escalate', 'aura', 'spikes',
+	'regen_with_escorts', 'shielded_by_escorts', 'regrow_escorts', 'reroll_drain', 'reroll_scorch', 'punish_straight', 'drops_stone',
+	'carat_cap', 'resonance_damp', 'colour_strength'];
 // The traits a Rift Warden may be remembered with, one of them, picked by the seed.
-export const REMEMBERED_TRAITS = ['steadfast', 'bedrock', 'adapt'];
+export const REMEMBERED_TRAITS = ['steadfast', 'sturdy', 'split_on_big_hit'];
 
 let pack = {};
 

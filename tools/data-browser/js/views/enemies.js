@@ -30,6 +30,9 @@ export function triggerWords(move) {
 		case 'at_most': return `A roll of ${n} or less${which}`;
 		case 'value': return `A roll of ${(t.values || []).join('/')}${which}`;
 		case 'crowns': return `Its top face${which}`;
+		case 'high_pct_at_least': return `${n === 51 ? 'A high roll · over half its die' : `A roll of ${n}%+ of its die`}${which}`;
+		case 'hp_below': return `Once, at ${n}% health`;
+		case 'action_begin': return 'As each action opens';
 		case 'each_turn': return `Each action${once}`;
 		case 'every_nth_turn': return `Every ${Patterns.ordinal(n)} action${once}`;
 		case 'emerge': return `When it comes up${once}`;
@@ -45,8 +48,8 @@ export function triggerWords(move) {
 // A trait in words, with its number where it has one (docs/BESTIARY.md).
 const TRAIT_WORDS = {
 	steadfast: () => ['Steadfast', 'Cannot be stunned, suppressed, clouded or dreaded'],
-	bedrock: (v) => [`Bedrock ${v}%`, `No single hit takes more than ${v}% of its health`],
-	backlash: () => ['Backlash', `Every gem after the ${Patterns.ordinal(Number(C.constant('backlash_after', 6)))} to fire in one turn costs its owner 1 health`],
+	sturdy: (v) => [`Sturdy ${v}%`, `No single hit takes more than ${v}% of its health`],
+	backlash: () => ['Backlash', 'Every gem that fires costs its owner 1 health'],
 	flee: (v) => [`Flees after ${v} turns`, 'Leaves the fight, and takes what it stole with it'],
 	rising: (v) => [`Rising +${v}%/turn`, 'Its damage multiplier grows by this share every action'],
 	escalate: (v) => [`Escalating +${v}/turn`, 'A flat point more on every blow for each action spent in this phase'],
@@ -58,7 +61,9 @@ const TRAIT_WORDS = {
 	reroll_scorch: (v) => [`Rerolls scorch ${v}`, 'Each reroll it gifts Scorches'],
 	punish_straight: () => [`Punishes straights of ${C.constant('punished_straight', 4)}+`, 'A long straight against it is answered'],
 	drops_stone: () => ['Drops a raw stone', 'Its killer takes a raw stone'],
-	adapt_aura: (v) => [`Adapt aura ${v}%`, 'Each turn it takes that much less from the colour that hurt it most'],
+	carat_cap: (v) => [`Gems count ${v} carats at most`, 'While it stands no gem counts for more'],
+	resonance_damp: (v) => [`Dampens Resonance ${v}%`, 'Your gems ring for that much less while it lives'],
+	colour_strength: () => ['Feeds on colour', 'Gains 1 Strength the first time it sees each colour of gem fire'],
 	steal_high_die: () => ['Steals your high die', ''],
 	block_from_high: () => ['Blocks from its high roll', ''],
 	reflect_zero_resonance: () => ['Reflects at zero Resonance', 'A hit from a player at Resonance 1 or less comes back'],
@@ -153,7 +158,10 @@ function creaturesPage(root, route, ctx) {
 	g.append(card('Damage in one action', histSlot, { meta: 'to its target, before block' }));
 	whenReady(ctx, movesSlot, job, (r) => h('div', { class: 'moves' }, moves.map((m, i) => {
 		const s = r.moves[i];
+		const called = (m.trigger || {}).kind;
 		const right = s.onDeath ? [h('div', { class: 'num' }, 'when it dies'), h('div', { class: 'tiny muted' }, 'fires once, as it falls')]
+			: called === 'hp_below' ? [h('div', { class: 'num' }, `at ${(m.trigger || {}).amount}% health`), h('div', { class: 'tiny muted' }, 'fires once, the moment it falls that far')]
+			: called === 'action_begin' ? [h('div', { class: 'num' }, 'every action'), h('div', { class: 'tiny muted' }, 'as it opens, before any die')]
 			: s.spent ? [h('div', { class: 'num' }, 'spent'), h('div', { class: 'tiny muted' }, 'used on its first action')]
 			: [h('div', { class: 'num' }, `${fmt(s.fireRate, 2)}× an action`), h('div', { class: 'tiny muted' }, moveNote(s))];
 		return h('div', { class: 'move' }, h('span', {}, h('b', {}, m.name), m.dramatic ? chip('dramatic', { class: 'accent' }) : null, m.once ? chip('once a fight') : null,
@@ -212,7 +220,7 @@ function encountersPage(root, ctx) {
 }
 
 // Who guards the landings, in words: a mine's Wardens at their depths and its boss at the
-// bottom, or the Rift's rotation with the Unmade every so often.
+// bottom, or the Rift's rotation with the Infinite Void every so often.
 export function wardenText(mine) {
 	const name = (k) => C.creature(k).name || k;
 	if (mine.endless) {

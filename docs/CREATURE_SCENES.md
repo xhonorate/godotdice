@@ -77,8 +77,9 @@ eye); it is animated with the body and core and recoloured for variants. A Void 
 the scene of the creature it copies and is drawn as a ghost (`ghost()`).
 
 Parts gained idle motions beyond the first five: `orbit`, `spin`, `bob`, `swing`, `tread`
-and `flicker`. The presentation API gained `burrow(down)`, `flee()`, `set_adapt(color)`,
-`clear_adapt()` and `set_charging(on)`.
+and `flicker`. The presentation API gained `burrow(down)`, `flee()`, `set_halo(color)`,
+`clear_halo()` and `set_charging(on)`. A variant may also name a `core` colour and a `scale`
+(the Geode Golem is a grey shell split open on an amethyst heart, and bigger than a Prism Golem).
 
 Run `python3 tools/run_checks.py` to check scene loading, independent instance
 materials, authored transforms, Warden variants and the animation lifecycle alongside

@@ -330,6 +330,16 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 	const moves = creatureMoves(def, phase);
 	const traits = traitsFor(def, phase);
 	const dice = (def.dice || []).map((k, i) => Dice.dieFrom(k, `${key}_d${i}`));
+	// What opens its action before any die (the Infinite Void's Expansion): a die grown every
+	// action, up to its cap, so its nth action throws n of them.
+	for (const move of moves) {
+		if (((move.trigger || {}).kind) !== 'action_begin') continue;
+		for (const effect of move.effects || []) {
+			if (effect.kind !== 'grow_die') continue;
+			const cap = Number(effect.cap ?? 5);
+			for (let grown = 0; grown < action && dice.length < cap; grown++) dice.push(Dice.dieFrom(String(effect.shape || 'D6'), `${key}_g${grown}`));
+		}
+	}
 	const rng = makeRng(seed * 31 + depth * 7 + party + action * 101);
 	const scale = Forge.creatureScale(mine, depth);
 	const turnsActed = action - 1;
@@ -344,7 +354,8 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 	const damageHist = new Map();
 	let damageSum = 0;
 	const hit = (effect, rally) => {
-		let amount = Rules.amount({ op: 'pct', args: [effect.amount, pct] }, {}) + damageBonus + rally + enrage;
+		// A flat blow is its own number and nothing more (its Strength is not simulated).
+		let amount = effect.flat ? effect.amount + enrage : Rules.amount({ op: 'pct', args: [effect.amount, pct] }, {}) + damageBonus + rally + enrage;
 		if (effect.split_party) amount = Math.ceil(amount / living);
 		return amount * Math.max(1, effect.repeat);
 	};
@@ -357,12 +368,12 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 			const roll = Dice.rollOne(dice[d], rng);
 			history.push(roll);
 			const last = d === dice.length - 1;
-			const ctx = { first_roll: d === 0, roll_index: d, turns_acted: action, emerging: Boolean(emerging), dying: false, turn, party, living_players: living, party_heaviest_carat: 0, party_best_turn: 0, depth };
+			const ctx = { first_roll: d === 0, roll_index: d, turns_acted: action, emerging: Boolean(emerging), dying: false, turn, party, living_players: living, party_heaviest_carat: 0, party_best_turn: 0, party_richest: 0, depth };
 			for (let m = 0; m < moves.length; m++) {
 				const move = moves[m];
 				const trigger = move.trigger || { kind: 'always' };
 				const kind = trigger.kind || 'always';
-				if (kind === 'on_death') continue;
+				if (Patterns.CALLED_KINDS.includes(kind)) continue;
 				if (move.once && action !== 1) continue;
 				const combo = isCombination(move);
 				const turnMove = isTurnMove(move);
@@ -412,7 +423,7 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 			const kind = trigger.kind || 'always';
 			return { name: move.name, fireRate: perMove[m].fired / samples, meanDamage: perMove[m].damage / samples, meanPiercing: perMove[m].piercing / samples, meanRelease: perMove[m].release / samples,
 				effects: Object.fromEntries(Object.entries(perMove[m].effects).map(([k, v]) => [k, v / samples])),
-				combo: isCombination(move), turnMove: isTurnMove(move), onDeath: kind === 'on_death', once: Boolean(move.once), spent: Boolean(move.once) && action !== 1,
+				combo: isCombination(move), turnMove: isTurnMove(move), onDeath: kind === 'on_death', called: Patterns.CALLED_KINDS.includes(kind), once: Boolean(move.once), spent: Boolean(move.once) && action !== 1,
 				die: 'die' in trigger ? Number(trigger.die) : null, nextNth: kind === 'every_nth_turn' ? nextNthIn(move, action) : 0, dramatic: Boolean(move.dramatic) };
 		}),
 	};

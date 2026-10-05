@@ -639,7 +639,8 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 		var unit: Dictionary = player(state, str(fighter.id))
 		unit.hp = int(fighter.hp)
 		unit.max_hp = int(fighter.max_hp)
-		unit.dice = fighter.dice.duplicate(true)
+		## What the creatures did to the bowl for the fight ends with it.
+		unit.dice = DeepBattle.dice_after_fight(fighter)
 		unit.haul = fighter.get("haul", []).duplicate(true)
 		unit.downed = bool(fighter.get("downed", false))
 		unit.block = 0

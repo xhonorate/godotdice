@@ -474,12 +474,17 @@ func _test_effects() -> void:
 		check(foe_keys.has(key), "a creature's %s is shown" % key)
 	check(foe_keys.has("trait_steal_gold"), "a creature's trick is shown as a trait chip")
 	## The deeper creatures' states have chips of their own.
-	var deep: Dictionary = {"key": "THE_PRISMARCH", "statuses": {}, "block": 0, "burrowed": true, "adapt": {"color": "RED", "pct": 50, "reflect": false}, "charging": {"turns": 2, "name": "Lance", "cancel_pct": 25},
-		"empowered": 100, "rally_bonus": 2, "swell": 4, "held_gems": [{}], "turns_acted": 1, "echo_of": "CAVE_TICK", "remembered": "bedrock"}
-	var deep_keys: Array = EffectChips.for_enemy(deep).map(func(c: Dictionary) -> String: return str(c.key))
-	for key in ["burrowed", "adapt", "charging", "empowered", "rally", "swell", "held_gems", "echo", "remembered", "trait_steadfast", "trait_shielded_by_escorts"]:
+	var deep: Dictionary = {"key": "THE_PRISMARCH", "statuses": {"strength": 3}, "block": 0, "burrowed": true, "absorb": ["RED", "BLUE"], "reflect": 50, "mirror": 1,
+		"charging": {"turns": 1, "name": "Lance", "guard_pct": 50, "store": true, "stored": 12},
+		"empowered": 100, "rally_bonus": 2, "swell": 4, "held_gems": [{}], "turns_acted": 1, "echo_of": "CAVE_TICK", "remembered": "sturdy"}
+	var deep_chips: Array = EffectChips.for_enemy(deep)
+	var deep_keys: Array = deep_chips.map(func(c: Dictionary) -> String: return str(c.key))
+	for key in ["burrowed", "absorb", "reflect", "mirror", "strength", "charging", "empowered", "rally", "swell", "held_gems", "echo", "remembered", "trait_steadfast", "trait_shielded_by_escorts"]:
 		check(deep_keys.has(key), "a deep creature's %s is shown" % key)
-	for status in ["festering", "corroded", "scorched", "unmade", "dread"]:
+	check(deep_chips.any(func(c: Dictionary) -> bool: return str(c.key) == "remembered" and str(c.text).contains("Sturdy")), "a Remembered trait is named as the player reads it")
+	var leaving: Array = EffectChips.for_enemy({"key": "GLINT_MAGPIE", "statuses": {}, "block": 0, "turns_acted": 1}).map(func(c: Dictionary) -> String: return str(c.key))
+	check(leaving.has("fleeing") and not leaving.has("trait_flee"), "a fleeing Magpie shows its countdown, once: %s" % str(leaving))
+	for status in ["festering", "scorched", "burn", "dread"]:
 		var afflicted: Array = EffectChips.for_player({"statuses": {status: 2}, "hand": [], "rail": []})
 		check(afflicted.any(func(c: Dictionary) -> bool: return str(c.key) == status and not bool(c.good)), "%s on a player is shown and counts against them" % status)
 	for chip in foe_chips:

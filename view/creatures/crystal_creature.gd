@@ -11,7 +11,7 @@ const SCENE_DIR: String = "res://view/creatures/scenes/"
 const SCENE_KEYS: Array = ["CAVE_TICK", "SILT_SLIME", "QUARTZ_GOLEM", "MAGPIE", "LANTERN_MOTH", "VEIN_WRAITH", "CLOUDER", "GLASS_WYRM",
 	"THE_FOREMAN", "THE_REGENT", "THE_DRILL", "RAIL_RAT", "PIT_MOLE",
 	"SEEP_EEL", "DROWNED_MINER", "LAMPREY_KNOT", "CAVE_CRAYFISH", "THE_LOCKKEEPER", "THE_DROWNED_CHOIR", "THE_UNDERTOW",
-	"ECHO_SPRITE", "LENS_BEETLE", "REFRACTOR", "THE_GLAZIER", "THE_KALEIDOSCOPE", "THE_PRISMARCH", "PRISM",
+	"ECHO_SPRITE", "REFRACTOR", "THE_GLAZIER", "THE_KALEIDOSCOPE", "THE_PRISMARCH", "PRISM",
 	"CAP_SHAMBLER", "MYCEL_WEAVER", "PUFFBALL", "ROOT_HORROR", "THE_GARDENER", "THE_SPORE_MOTHER", "THE_HEARTROT", "TENDRIL",
 	"SALAMANDER", "SLAG_HOUND", "FORGE_IMP", "EMBER_CRAWLER", "THE_SMELTER", "THE_ANVIL_KNIGHT", "THE_KILN_WYRM",
 	"HOARD_MIMIC", "CROUPIER_CRAB", "CRYSTAL_HYDRA", "THE_ASSAYER", "THE_COLLECTOR", "THE_HOLLOW_CROWN",
@@ -25,18 +25,19 @@ static func _scene_paths() -> Dictionary:
 		out[key] = SCENE_DIR + str(VARIANTS[key].of).to_lower() + ".tscn"
 	return out
 ## A variant is an earlier creature in another mine's colours: the same scene, recoloured.
-## `tint` is the body, `accent` the glowing details (where the scene has an accent material).
+## `tint` is the body, `accent` the glowing details (where the scene has an accent material),
+## `core` the heart of it when that should not follow the body, and `scale` its size.
 const VARIANTS: Dictionary = {
 	"PRISM_GOLEM": {"of": "QUARTZ_GOLEM", "tint": "9b8cff", "accent": "e0d8ff"},
 	"SHARD_WYRM": {"of": "GLASS_WYRM", "tint": "ff8ad0", "accent": "ffd0ea"},
 	"GLINT_MAGPIE": {"of": "MAGPIE", "tint": "d8dce8", "accent": "fff2a8"},
-	"WILL_O_WISP": {"of": "LANTERN_MOTH", "tint": "8ad0ff", "accent": "e0f6ff"},
+	"WILL_O_WISP": {"of": "LANTERN_MOTH", "tint": "d86ae8", "accent": "ffc8f4"},
 	"SPORE_SLIME": {"of": "SILT_SLIME", "tint": "b8c84a", "accent": "e8ff8a"},
 	"MYCEL_WRAITH": {"of": "VEIN_WRAITH", "tint": "58b05a", "accent": "c8ff6a"},
 	"FIRE_TICK": {"of": "CAVE_TICK", "tint": "e8622a", "accent": "ffd06a"},
 	"CINDER_MOTH": {"of": "LANTERN_MOTH", "tint": "ff8a3a", "accent": "ffe08a"},
 	"GILDED_MAGPIE": {"of": "MAGPIE", "tint": "ffd04a", "accent": "fff6c0"},
-	"GEODE_GOLEM": {"of": "QUARTZ_GOLEM", "tint": "b070e0", "accent": "e8c8ff"},
+	"GEODE_GOLEM": {"of": "QUARTZ_GOLEM", "tint": "5e5650", "accent": "c070ff", "core": "c070ff", "scale": 1.15},
 	"AMETHYST_WYRM": {"of": "GLASS_WYRM", "tint": "9b5ad8", "accent": "d8b0ff"},
 }
 const FALLBACK_SCENE: String = "res://view/creatures/scenes/crystal_cluster.tscn"
@@ -140,6 +141,13 @@ static func make(creature_key: String, is_warden: bool = false, echo_of: String 
 		creature.normal_accent = Color(str(VARIANTS[looks].get("accent", VARIANTS[looks].tint)))
 		creature._apply_palette(creature.normal_tint, creature.normal_accent)
 	creature._configure_warden(is_warden)
+	if VARIANTS.has(looks) and path != FALLBACK_SCENE:
+		## A grey shell split open on a coloured heart: a Geode Golem is not a Prism Golem.
+		if VARIANTS[looks].has("core"):
+			var heart := Color(str(VARIANTS[looks].core))
+			creature.core_material.albedo_color = heart.darkened(0.3)
+			creature.core_material.emission = heart
+		creature.scale *= float(VARIANTS[looks].get("scale", 1.0))
 	creature._prepare()
 	if not echo_of.is_empty():
 		creature.ghost()
@@ -225,12 +233,13 @@ func ghost() -> void:
 		material.rim_tint = 0.6
 	(get_node("Glow") as OmniLight3D).light_color = ECHO_TINT
 
-func set_adapt(color: Color) -> void:
-	## It has turned a colour away (or is mirroring it): a halo of that colour under it.
+func set_halo(color: Color) -> void:
+	## Something is guarding it: a colour it drinks, a refraction, a mirror held up. A halo of
+	## that colour under it.
 	_halo_material.albedo_color = Color(color, _halo_material.albedo_color.a)
 	_halo_want = 0.9 if color.a > 0.0 else 0.0
 
-func clear_adapt() -> void:
+func clear_halo() -> void:
 	_halo_want = 0.0
 
 func set_charging(on: bool) -> void:
@@ -357,7 +366,7 @@ func _process(delta: float) -> void:
 		_body.position = _body_rest.origin + Vector3(0, -(anchor.y / maxf(0.01, scale.y) + 0.6) * _buried, 0)
 	if _light != null and not _dying and _body.scale.x > _body_rest.basis.get_scale().x * 0.95:
 		_light.light_energy = (_base_light_energy * (1.0 + heartbeat) + _glow_boost * 1.2 + charge * 1.5) * (1.0 - _buried)
-	## The adapt halo: a slow counter-turning ring in the colour it has turned away.
+	## The halo: a slow counter-turning ring in the colour of whatever guards it.
 	if _halo != null:
 		_halo_material.albedo_color.a = move_toward(_halo_material.albedo_color.a, _halo_want * (1.0 - _buried), delta * 3.0)
 		_halo.rotation.y -= delta * 1.1

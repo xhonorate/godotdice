@@ -23,7 +23,6 @@
 			"HOARD_MIMIC",
 			"LAMPREY_KNOT",
 			"LANTERN_MOTH",
-			"LENS_BEETLE",
 			"MAGPIE",
 			"MYCEL_WEAVER",
 			"MYCEL_WRAITH",
@@ -69,6 +68,6 @@
 		],
 		"width": 360
 	},
-	"generated": "2026-10-02T14:33:26",
+	"generated": "2026-10-05T09:39:56",
 	"pack_version": 1.0
 }

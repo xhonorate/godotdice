@@ -1054,8 +1054,9 @@ func _move_row(parent: Node, move: Dictionary, highlight: bool) -> void:
 
 func _effect_glyph(kind: String) -> String:
 	return str({"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield", "die_steal": "die",
-		"heal": "heart", "curse": "eye", "summon": "copy", "purge": "drop", "burrow": "rampart", "adapt": "prism", "festering": "drop", "corroded": "split_shield",
-		"scorched": "flame", "die_lock": "die", "invert_dice": "split", "steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "drain_resonance": "cross_out",
+		"heal": "heart", "curse": "eye", "summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "burn": "flame", "strength": "sword",
+		"scorched": "flame", "die_lock": "die", "steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "break_die": "cross_out", "blank_face": "die",
+		"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop",
 		"rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart", "charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die",
 		"grind_die": "die", "break_gem": "cross_out", "dulled": "cut", "marked": "eye", "ward": "shield_burst", "retain": "shield", "spikes": "thorn", "regeneration": "heart"}.get(kind, "spark"))
 

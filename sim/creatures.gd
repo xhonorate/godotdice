@@ -35,6 +35,11 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 	var name: String = str(def.get("name", key))
 	if not str(extra.get("name_prefix", "")).is_empty():
 		name = str(extra.name_prefix) + name
+	## The gems a creature walks in holding (the Collector's own Strike and Bulwark): kept like
+	## the ones it takes, but nobody's to have back.
+	var held: Array = []
+	for skill_key in def.get("gems", []):
+		held.append({"unit": "", "socket": -1, "stone": DeepStone.make(str(skill_key), 1, 2, 1, [], {}, "%s_gem%d" % [id, held.size()])})
 	return {"id": id, "key": key, "name": name, "side": "enemy", "hp": hp, "max_hp": hp,
 		"block": int(def.get("block", 0)), "statuses": {"ward": clampi(int(def.get("ward", 1 if bool(def.get("warden", false)) else 0)), 0, 99)}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
 		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": -1,
@@ -45,7 +50,8 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 		## what the fight so far has done to them. Written traits are read from the definition.
 		"traits": traits, "echo_of": echo_of, "echo_def": def if not echo_of.is_empty() else {}, "scale": scale.duplicate(true), "depth": depth,
 		"turns_acted": 0, "phase_entered_turn": 0, "used_once": [], "burrowed": false, "emerging": false,
-		"adapt": {}, "held_gems": [], "swell": 0, "rally_bonus": 0, "empowered": 0, "charging": {},
+		"held_gems": held, "swell": 0, "rally_bonus": 0, "empowered": 0, "charging": {},
+		"reflect": 0, "mirror": 0, "absorb": [], "extra_dice": [], "stopped": false, "seen_colors": [],
 		"hurt_by": {}, "hurt_by_color": {}, "biggest_hit": 0, "hardest_gem": {},
 		"escorts": [], "escort_of": "", "summoned": false, "fled": false, "stun_guard": false, "death_turn": 0}
 
@@ -126,7 +132,7 @@ static func effective_dice(enemy: Dictionary) -> Array:
 	var out: Array = []
 	var upgrade: int = int(enemy.get("dice_upgrade", 0))
 	var dread: int = maxi(0, int(enemy.get("dread_turns", 0)))
-	for base in enemy.get("dice", []):
+	for base in enemy.get("dice", []) + enemy.get("extra_dice", []):
 		var index: int = TIERS.find(str(base.get("shape", "D6")))
 		var tier: int = maxi(0, clampi(index + upgrade, 0, TIERS.size() - 1) - dread)
 		var key: String = str(TIERS[tier])
@@ -154,11 +160,24 @@ static func prepare(enemy: Dictionary) -> void:
 
 static func _resting_state(enemy: Dictionary, index: int) -> String:
 	var move: Dictionary = enemy.moves[index]
-	if str(move.get("trigger", {}).get("kind", "")) == "on_death":
-		return "latent"
+	var called: String = _called_state(enemy, move, index)
+	if not called.is_empty():
+		return called
 	if bool(move.get("once", false)) and enemy.get("used_once", []).has(str(move.get("name", ""))):
 		return "spent"
 	return "clouded" if move_clouded(enemy, index) else "unrevealed"
+
+static func _called_state(enemy: Dictionary, move: Dictionary, index: int) -> String:
+	## A move the fight calls rather than a die: one waiting for its death or for its health to
+	## fall, spent once that has happened, and one that opens its action, used once it has.
+	match str(move.get("trigger", {}).get("kind", "")):
+		"on_death":
+			return "latent"
+		"hp_below":
+			return "spent" if enemy.get("used_once", []).has(str(move.get("name", ""))) else "latent"
+		"action_begin":
+			return "used" if enemy.get("used_combos", []).has(index) else "unrevealed"
+	return ""
 
 static func move_clouded(enemy: Dictionary, index: int) -> bool:
 	return int(enemy.get("statuses", {}).get("clouded", 0)) > 0 and index == mini(int(enemy.get("clouded_move", -1)), enemy.get("moves", []).size() - 1)
@@ -168,6 +187,9 @@ static func finish(enemy: Dictionary) -> void:
 	enemy.beat = "done"
 	enemy.turns_acted = int(enemy.get("turns_acted", 0)) + 1
 	enemy.emerging = false
+	## What it was told to throw again, or to stop throwing, was for this action only.
+	enemy.extra_dice = []
+	enemy.stopped = false
 	## What the party did to it this turn has been answered; the next rail writes it afresh.
 	enemy.hurt_by = {}
 	enemy.hurt_by_color = {}
@@ -238,15 +260,18 @@ static func context(enemy: Dictionary, state: Dictionary, roll_index: int = -1) 
 	var players: Array = state.get("players", [])
 	var living: int = 0
 	var heaviest: int = 0
+	var richest: int = 0
 	for player in players:
 		if int(player.get("hp", 0)) > 0 and not bool(player.get("downed", false)):
 			living += 1
+			richest = maxi(richest, DeepRules.pyrite(player))
 		for stone in player.get("rail", []):
 			if stone is Dictionary:
 				heaviest = maxi(heaviest, int(stone.get("carat", 1)))
 	return {"first_roll": roll_index == 0, "roll_index": roll_index, "turns_acted": int(enemy.get("turns_acted", 0)) + 1,
 		"emerging": bool(enemy.get("emerging", false)), "turn": int(state.get("turn", 1)), "party": players.size(),
-		"living_players": maxi(1, living), "party_heaviest_carat": heaviest, "party_best_turn": int(state.get("party_best_turn", 0))}
+		"living_players": maxi(1, living), "party_heaviest_carat": heaviest, "party_best_turn": int(state.get("party_best_turn", 0)),
+		"party_richest": richest}
 
 static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 	var dice: Array = effective_dice(enemy)
@@ -257,9 +282,9 @@ static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 	var out: Array = []
 	for index in range(enemy.moves.size()):
 		var move: Dictionary = enemy.moves[index]
-		var kind: String = str(move.get("trigger", {}).get("kind", "always"))
-		if kind == "on_death":
-			enemy.move_states[index] = "latent"
+		var called: String = _called_state(enemy, move, index)
+		if not called.is_empty():
+			enemy.move_states[index] = called
 			continue
 		if bool(move.get("once", false)) and enemy.get("used_once", []).has(str(move.get("name", ""))):
 			enemy.move_states[index] = "spent"
@@ -286,44 +311,101 @@ static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 
 static func resolved_move(enemy: Dictionary, state: Dictionary, move: Dictionary, index: int, trig: Dictionary, combo: bool, roll_index: int) -> Dictionary:
 	## One move with its numbers filled in against the dice shown so far. Damage carries the
-	## mine's multiplier, the depth bonus, a Howl's rallying and an Empowered creature's
-	## doubled blow, which is spent on the first attack it makes.
+	## mine's multiplier, the depth bonus, a Howl's rallying, its Strength and an Empowered
+	## creature's doubled blow, which is spent on the first attack it makes.
 	var a: Dictionary = DeepHand.analyze(enemy.hand if combo else enemy.hand.slice(-1))
 	var c: Dictionary = context(enemy, state, roll_index)
 	c.merge({"a": a, "trig": trig, "unit": enemy, "depth": int(state.get("depth", 1)),
 		"rolled": int(enemy.hand.back().value) if not enemy.hand.is_empty() else 0}, true)
 	var effects: Array = []
 	for definition in move.get("effects", []):
+		if str(definition.get("kind", "")) == "exhibit":
+			## Every gem it holds goes off as though it were its own move.
+			for held in enemy.get("held_gems", []):
+				effects.append_array(gem_effects(enemy, held.stone, c))
+			continue
 		var effect: Dictionary = DeepRules.resolve_effect(definition, c, 1.0, "heroes")
+		if str(effect.kind) == "roll_again":
+			effect.die = roll_index
+		effects.append(effect)
+	for effect in effects:
 		if str(effect.target) == "hero":
 			effect.target = "heroes"
-		if str(effect.kind) == "damage":
+		if str(effect.kind) == "damage" and bool(effect.get("flat", false)):
+			effect.amount = int(effect.amount) + strength(enemy)
+		elif str(effect.kind) == "damage":
 			var pct: int = damage_pct(enemy)
 			if int(enemy.get("empowered", 0)) > 0:
 				pct = pct * (100 + int(enemy.empowered)) / 100
 				effect.empowered = int(enemy.empowered)
-			effect.amount = DeepRules.amount({"op": "pct", "args": [int(effect.amount), pct]}, {}) + int(enemy.get("damage_bonus", 0)) + int(enemy.get("rally_bonus", 0))
+			effect.amount = DeepRules.amount({"op": "pct", "args": [int(effect.amount), pct]}, {}) + int(enemy.get("damage_bonus", 0)) + int(enemy.get("rally_bonus", 0)) + strength(enemy)
 		if str(effect.kind) == "charge":
 			## What the charge lets go is written down now, in this action's words, so a
-			## different phase or a smaller party later cannot change what was promised.
+			## different phase or a smaller party later cannot change what was promised. A
+			## charge that stores what it is dealt fills its blow in when it lets go.
 			var release: Array = []
 			for sub in effect.get("release", []):
 				var ready: Dictionary = DeepRules.resolve_effect(sub, c, 1.0, "heroes")
 				if str(ready.target) == "hero":
 					ready.target = "heroes"
-				if str(ready.kind) == "damage":
-					ready.amount = DeepRules.amount({"op": "pct", "args": [int(ready.amount), damage_pct(enemy)]}, {}) + int(enemy.get("damage_bonus", 0))
+				if str(ready.kind) == "damage" and not bool(effect.get("store", false)):
+					ready.amount = DeepRules.amount({"op": "pct", "args": [int(ready.amount), damage_pct(enemy)]}, {}) + int(enemy.get("damage_bonus", 0)) + strength(enemy)
 				release.append(ready)
 			effect.release = release
-		effects.append(effect)
 	if int(enemy.get("empowered", 0)) > 0 and effects.any(func(e: Dictionary) -> bool: return str(e.kind) == "damage"):
 		enemy.empowered = 0
 	return {"move": str(move.get("name", "?")), "index": index, "effects": effects,
 		"dice": trig.get("dice", []), "combo": combo, "trigger": move.get("trigger", {}), "roll_index": roll_index}
 
+## What a creature can do with a gem it holds: the effects that land on the party or help the
+## creature itself. A gem that only works the hand, the rail or the purse is a trophy to it.
+const GEM_USABLE: Array = ["damage", "block", "heal", "poison", "curse", "marked", "dulled", "stun", "remove_block",
+	"regeneration", "retain", "spikes", "ward", "dice_dread", "die_steal", "clouded"]
+
+static func gem_usable(stone: Dictionary) -> bool:
+	return DeepStone.skill_of(stone).get("effects", []).any(func(e: Variant) -> bool: return e is Dictionary and str(e.get("kind", "")) in GEM_USABLE)
+
+static func gem_effects(enemy: Dictionary, stone: Dictionary, c: Dictionary) -> Array:
+	## A held gem fired by the creature: its skill read against the creature's own dice at
+	## the gem's Cut, as one carat, whatever the hand shows. What it would do to "the enemy"
+	## lands on the party; what it would do for its owner, the creature has.
+	var skill: Dictionary = DeepStone.skill_of(stone)
+	var cut: int = int(stone.get("cut", 0))
+	var a: Dictionary = DeepHand.analyze(enemy.get("hand", []))
+	var trig: Dictionary = DeepPatterns.evaluate(skill.get("trigger", {"kind": "always"}), cut, a)
+	if not bool(trig.get("active", false)):
+		trig.active = true
+		trig.value = int(a.get("best_set", {}).get("value", a.get("high", 0)))
+		trig.count = maxi(1, int(a.get("best_set", {}).get("count", 1)))
+		trig.dice = []
+	var gc: Dictionary = c.duplicate()
+	gc.merge({"a": a, "trig": trig, "cut": cut, "carat": 1, "clarity": int(stone.get("clarity", 0)), "resonance": 0, "previous_amount": 0}, true)
+	var out: Array = []
+	for definition in skill.get("effects", []):
+		if not definition is Dictionary or not str(definition.get("kind", "")) in GEM_USABLE:
+			continue
+		var effect: Dictionary = DeepRules.resolve_effect(definition, gc, 1.0, "heroes")
+		effect.gem = str(skill.get("name", stone.get("skill", "")))
+		effect.repeat = maxi(1, int(effect.get("repeat", 1)))
+		out.append(effect)
+	return out
+
+static func strength(enemy: Dictionary) -> int:
+	## A flat point more on every blow for every stack it has gathered this fight.
+	return maxi(0, int(enemy.get("statuses", {}).get("strength", 0)))
+
 static func death_moves(enemy: Dictionary) -> Array:
 	## The moves that wait for this creature to die, in its current phase.
 	return moves_for(enemy).filter(func(m: Dictionary) -> bool: return str(m.get("trigger", {}).get("kind", "")) == "on_death")
+
+static func moves_called(enemy: Dictionary, kind: String) -> Array:
+	## The moves of its current phase that the fight calls by this kind, with their places.
+	var out: Array = []
+	var moves: Array = moves_for(enemy)
+	for index in range(moves.size()):
+		if str(moves[index].get("trigger", {}).get("kind", "")) == kind:
+			out.append({"index": index, "move": moves[index]})
+	return out
 
 static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
 	var count: int = maxi(1, enemy.get("dice", []).size())
@@ -366,7 +448,7 @@ static func next_nth_in(enemy: Dictionary, move: Dictionary) -> int:
 
 static func display_moves(enemy: Dictionary, moves: Array = []) -> Array:
 	var shown: Array = (enemy.get("moves", []) if moves.is_empty() else moves).duplicate(true)
-	var bonus: int = int(enemy.get("damage_bonus", 0)) + int(enemy.get("enrage_bonus", 0)) + int(enemy.get("rally_bonus", 0))
+	var bonus: int = int(enemy.get("damage_bonus", 0)) + int(enemy.get("enrage_bonus", 0)) + int(enemy.get("rally_bonus", 0)) + strength(enemy)
 	for move in shown:
 		for effect in move.get("effects", []):
 			if str(effect.kind) == "damage":
@@ -392,10 +474,13 @@ static func trigger_words(move: Dictionary) -> String:
 		"at_most": return "Roll ≤%d" % n + which
 		"value": return "Roll " + "/".join(t.get("values", []).map(func(v: Variant) -> String: return str(int(v)))) + which
 		"crowns": return "Maximum face" + which
+		"high_pct_at_least": return ("High roll · over half its die" if n == 51 else "Roll %d%%+ of its die" % n) + which
 		"each_turn": return "Each action" + once_only
 		"every_nth_turn": return "Every %s action" % DeepPatterns._ordinal(n) + once_only
 		"emerge": return "When it comes up" + once_only
 		"on_death": return "When it dies"
+		"hp_below": return "Once, at %d%% health" % n
+		"action_begin": return "As each action opens"
 		"pair", "triple", "quad", "quint":
 			var name: String = str({"pair": "Pair", "triple": "Three of a kind", "quad": "Four of a kind", "quint": "Five of a kind"}[str(t.kind)])
 			return name + (" (%d+)" % n if n > 1 else "") + " · once/turn"
@@ -412,7 +497,8 @@ static func amount_words(expr: Variant) -> String:
 	if expr.has("term"):
 		return str({"rolled": "Rolled value", "value": "Matched value", "total": "Dice total", "high": "Highest value", "low": "Lowest value",
 			"swell": "Its swelling", "held_gems": "Gems it holds", "biggest_hit": "Hardest hit on it this turn", "party_heaviest_carat": "Heaviest gem's carats",
-			"party_best_turn": "The party's best turn", "turns_acted": "Actions taken", "living_players": "Players standing"}.get(str(expr.term), str(expr.term)))
+			"party_best_turn": "The party's best turn", "party_richest": "Richest purse", "turns_acted": "Actions taken",
+			"living_players": "Players standing", "max_hp": "Its most health", "hp": "Its health", "strength": "Its Strength"}.get(str(expr.term), str(expr.term)))
 	if expr.has("const"):
 		return str(int(expr.const))
 	var parts: Array = expr.get("args", []).map(func(a: Variant) -> String: return amount_words(a))
@@ -420,7 +506,8 @@ static func amount_words(expr: Variant) -> String:
 
 const TARGET_WORDS: Dictionary = {"heroes": "all players", "hero": "all players", "self": "itself", "allies": "every creature", "allies_other": "every other creature",
 	"hero_least_block": "the player with the least block", "hero_most_hp": "the player with the most health", "hero_most_gold": "the player with the most pyrite",
-	"hero_top_damage": "whoever hurt it most this turn", "hero_top_dealt": "whoever dealt the most last turn", "hero_marked": "every Marked player"}
+	"hero_top_damage": "whoever hurt it most this turn", "hero_top_dealt": "whoever dealt the most last turn", "hero_marked": "every Marked player",
+	"spread": "spread round the party"}
 
 static func target_words(effect: Dictionary, fallback: String = "all players") -> String:
 	return str(TARGET_WORDS.get(str(effect.get("target", "heroes")), fallback))
@@ -435,6 +522,10 @@ static func effect_words(effect: Dictionary) -> String:
 	match str(effect.get("kind", "")):
 		"damage":
 			var words: String = "%s damage · %s" % [n, who]
+			if effect.has("repeat") and not (effect.repeat is int and int(effect.repeat) == 1):
+				words = "%s damage, %s times · %s" % [n, amount_words(effect.repeat).to_lower() if effect.repeat is Dictionary else str(effect.repeat), who]
+			if bool(effect.get("flat", false)):
+				words += " · plus its Strength, nothing more"
 			if bool(effect.get("split_party", false)):
 				words = "%s damage, split across the party (rounded up)" % n
 			if bool(effect.get("piercing", false)):
@@ -444,43 +535,60 @@ static func effect_words(effect: Dictionary) -> String:
 		"summon": return "%s joins the fight" % summoned if str(n) == "1" else "%s %ss join the fight" % [n, summoned]
 		"purge": return "Sheds %s%% of its poison" % n
 		"burrow": return "Burrows · cannot be targeted until its next action"
-		"adapt":
-			var colour: String = str(effect.get("color", "most_damage"))
-			var chosen: String = str({"most_damage": "the colour that hurt it most this turn", "most_used": "the colour the party uses most", "random": "a colour"}.get(colour,
-				str(DeepContent.color(colour).get("name", colour.capitalize()))))
-			return ("Mirrors %s · gems of it hit their owner instead" % chosen) if bool(effect.get("reflect", false)) else "Takes %s%% less from %s until its next action" % [n, chosen]
+		"absorb_color":
+			var chosen: String = "the colour the party uses most" if str(effect.get("color", "random")) == "most_used" else "a colour"
+			return ("Drinks %s as well" if bool(effect.get("add", false)) else "Drinks %s") % chosen + " · those gems do it no damage, and what they would give their owner goes to it"
+		"reflect": return "Until its next action, %s%% of every blow on it goes back to every player" % n
+		"mirror": return "The next blow on it hits whoever threw it instead" if str(n) == "1" else "The next %s blows on it hit whoever threw them instead" % n
 		"festering": return "%s Festering · healing halved · all players" % n
-		"corroded": return "%s Corroded · half of kept block lost at turn start · all players" % n
 		"scorched": return "%s Scorched · block gained halved · all players" % n
+		"burn": return "%s Burn · hurts at the end of each turn, block soaks it, one less each turn · all players" % n
+		"strength": return ("%s Strength · %s more on every blow, for the fight" % [n, n]) + ("" if str(effect.get("target", "self")) == "self" else " · " + who.replace("all players", "every creature"))
+		"blank_face": return "The face one of your dice shows is blank for the rest of the fight · all players"
+		"roll_again": return "Throws this die once more"
+		"end_action": return "Its action ends here"
+		"exhibit": return "Fires every gem it holds, as its own"
 		"die_lock":
 			var pick: String = str(effect.get("pick", "random"))
 			var what: String = "highest die" if pick == "high" else ("lowest die" if pick == "low" else _dice_words(int(effect.get("amount", 1))))
 			return "Locks your %s · it comes up the same and cannot be rerolled next turn · all players" % what
-		"invert_dice": return "Your %s highest dice shift between odd and even next turn · all players" % n if int(effect.get("amount", 1)) != 1 else "Your highest die shifts between odd and even next turn · all players"
-		"steal_gold": return ("Takes %s%% of each player's pyrite" % n) if bool(effect.get("pct", false)) else ("Takes %s pyrite from each player" % n)
+		"steal_gold":
+			var taken: String = ("Takes %s%% of each player's pyrite" % n) if bool(effect.get("pct", false)) else ("Takes %s pyrite from each player" % n)
+			return taken + (" · and hits each for what it took" if bool(effect.get("hurt", false)) else "")
 		"gold": return "Drops %s pyrite · %s" % [n, who] if str(effect.get("target", "heroes")) != "self" else "Gains %s pyrite" % n
 		"empower_next": return "Its next attack deals %s%% more" % n
-		"drain_resonance": return "Resonance to 0, and held there through the next rail · %s" % who
 		"rally": return "Every creature deals %s more this turn" % n
 		"grow_die": return "Grows another head: +1 %s (%s at most)" % [str(effect.get("shape", "D6")).to_lower(), str(effect.get("cap", 5))]
 		"swell": return "Swells by %s · its burst grows" % n
-		"hold_gem": return "Takes %s off a rail until it dies" % ("the gem that hit it hardest this turn" if str(effect.get("pick", "hardest")) == "hardest" else "the party's highest-grade gem")
+		"hold_gem": return "Takes %s off a rail until it dies" % {"hardest": "the gem that hit it hardest this turn", "usable": "the finest gem it can fire itself"}.get(str(effect.get("pick", "hardest")), "the party's highest-grade gem")
 		"bury_socket": return "Buries the socket holding your heaviest gem · all players"
 		"charge":
-			var winding: Array = effect.get("release", []).map(func(e: Dictionary) -> String: return effect_words(e))
 			var turns: int = int(effect.get("turns", 2))
-			return "Charges for %d %s, then: %s · losing %d%% of its health meanwhile cancels it" % [turns, "action" if turns == 1 else "actions", " and ".join(winding), int(effect.get("cancel_pct", 25))]
+			var words: String = "Charges for %d %s, then: " % [turns, "action" if turns == 1 else "actions"]
+			if bool(effect.get("store", false)):
+				words += "all the damage it was dealt meanwhile, back at every player"
+			else:
+				words += " and ".join(effect.get("release", []).map(func(e: Dictionary) -> String: return effect_words(e)))
+			if int(effect.get("guard_pct", 0)) > 0:
+				words += " · takes %d%% less meanwhile" % int(effect.guard_pct)
+			if int(effect.get("cancel_pct", 0)) > 0:
+				words += " · losing %d%% of its health meanwhile cancels it" % int(effect.cancel_pct)
+			return words
 		"stun": return "Stun %s · %s turn" % [who, n] if str(effect.get("target", "heroes")) != "self" else "Stuns itself · %s turn" % n
-		"downgrade_die": return "Your %s shrinks a size for the fight · all players" % ("highest die" if str(effect.get("pick", "random")) == "high" else "die")
-		"grind_die": return "Your %s loses 1 from its top face for the fight · all players" % ("highest die" if str(effect.get("pick", "random")) == "high" else "die")
+		"downgrade_die": return "%s a size for the fight · all players" % {"high": "Your highest die shrinks", "all": "Every one of your dice shrinks"}.get(str(effect.get("pick", "random")), "One of your dice shrinks")
+		"grind_die":
+			if str(effect.get("pick", "random")) == "showing":
+				return "Every face your dice show loses 1%s · all players" % (", for good" if bool(effect.get("permanent", false)) else " for the fight")
+			return "Your %s loses 1 from its top face%s · all players" % ["highest die" if str(effect.get("pick", "random")) == "high" else "die", " for good" if bool(effect.get("permanent", false)) else " for the fight"]
 		"break_gem": return "Melts one of your gems%s · all players" % (" for the rest of the fight" if bool(effect.get("permanent", false)) else " until next turn")
+		"break_die": return "Destroys one of your dice%s · all players" % (" for the rest of the fight" if bool(effect.get("permanent", false)) else " until next turn")
 		"lock_die": return "Locks one of your dice this turn · all players"
 		"block": return "Gain %s block" % n
 		"heal": return "Heal %s" % n
 		"die_steal": return "Suppress %s die · all players · next turn" % n
 		"poison": return "%s poison · all players" % n
 		"stun": return "Stun all players · %s turn" % n
-		"remove_block": return "Remove %s block · all players" % n
+		"remove_block": return "Removes all your block · all players" if bool(effect.get("remove_all", false)) else "Remove %s block · all players" % n
 		"curse": return "%s Curse · −10%% dealt / +10%% taken per stack (max 10) · all players" % n
 		"clouded": return "Cloud a socket · all players" if str(effect.get("target", "heroes")) in ["hero", "heroes"] else "Clouded for %s actions · one random ability disabled" % n
 		"marked": return "%s Marked · next hit +25%% per stack" % n
@@ -491,5 +599,7 @@ static func effect_words(effect: Dictionary) -> String:
 		"regeneration": return "%s Regeneration · heal at turn end, then lose one stack" % n
 		"spikes": return "%s Spikes · retaliate once per attacking ability" % n
 		"dice_dread": return "%s Dread · dice lose one tier per stack" % n if str(effect.get("target", "")) in ["", "enemy", "enemies", "self"] else "%s Dread · your dice roll a size smaller next turn · all players" % n
-		"dice_upgrade": return "Dice +%s tier · this fight" % n
+		"dice_upgrade": return "Dice +%s tier · this fight" % n + (" (%s at most)" % str(effect.cap).to_lower() if effect.has("cap") else "")
+		"max_hp": return "Gains %s most health, and that much health" % n
+		"cleanse": return "Sheds every affliction on it" if int(effect.get("amount", 0)) >= 99 else "Sheds %s afflictions" % n
 	return str(effect.get("kind", "")).capitalize() + " " + n

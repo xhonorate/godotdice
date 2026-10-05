@@ -44,20 +44,26 @@ static func recipes() -> Dictionary:
 	for side in [-1.0, 1.0]:
 		hydra.append({"shape": "cylinder", "at": [side * 0.45, 0.2, 0.15], "rot": [0, 0, side * 20.0], "material": "body", "top": 0.08, "bottom": 0.1, "height": 0.45, "sides": 5})
 		hydra.append({"shape": "cylinder", "at": [side * 0.45, 0.2, -0.55], "rot": [0, 0, side * 20.0], "material": "body", "top": 0.08, "bottom": 0.1, "height": 0.45, "sides": 5})
+	## The Assayer: a faceless shadow in a robe, horned, its scale held out on a long arm.
 	var assayer: Array = [
-		{"shape": "cone", "at": [0, 1.15, 0], "material": "body", "motion": "core", "radius": 0.62, "height": 2.3, "sides": 8},
-		{"shape": "sphere", "at": [0, 2.45, 0.05], "scale": 0.28, "material": "body", "motion": "bob", "radius": 1.0, "segments": 7, "rings": 4},
-		{"shape": "cone", "at": [0, 2.65, -0.05], "rot": [20, 0, 0], "material": "body", "radius": 0.36, "height": 0.6, "sides": 7},
-		{"shape": "sphere", "at": [0.1, 2.45, 0.3], "scale": 0.05, "material": "accent", "radius": 1.0, "segments": 5, "rings": 3},
-		{"shape": "sphere", "at": [-0.1, 2.45, 0.3], "scale": 0.05, "material": "accent", "radius": 1.0, "segments": 5, "rings": 3},
-		{"shape": "cylinder", "at": [0.55, 1.7, 0.5], "rot": [0, 0, -50], "material": "body", "top": 0.08, "bottom": 0.09, "height": 0.9, "sides": 5},
-		{"shape": "cylinder", "at": [0.95, 2.1, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.03, "bottom": 0.03, "height": 0.6, "sides": 4},
-		{"shape": "box", "at": [0.95, 2.4, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "size": [1.3, 0.05, 0.05]},
-		{"shape": "cylinder", "at": [0.4, 2.0, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.02, "bottom": 0.02, "height": 0.7, "sides": 3},
-		{"shape": "cylinder", "at": [1.5, 1.9, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.02, "bottom": 0.02, "height": 0.9, "sides": 3},
-		{"shape": "cylinder", "at": [0.4, 1.62, 0.75], "material": "core", "motion": "swing", "phase": 0.3, "top": 0.22, "bottom": 0.18, "height": 0.08, "sides": 8},
-		{"shape": "cylinder", "at": [1.5, 1.42, 0.75], "material": "core", "motion": "swing", "phase": 0.3, "top": 0.22, "bottom": 0.18, "height": 0.08, "sides": 8},
-		{"shape": "crystal", "at": [1.5, 1.5, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "radius": 0.06, "height": 0.25}]
+		{"shape": "cone", "at": [0, 1.25, 0], "material": "body", "motion": "core", "radius": 0.7, "height": 2.5, "sides": 7},
+		{"shape": "sphere", "at": [0, 2.5, 0.0], "scale": [0.36, 0.42, 0.36], "material": "body", "motion": "bob", "radius": 1.0, "segments": 7, "rings": 4},
+		{"shape": "cone", "at": [0, 2.85, -0.12], "rot": [-25, 0, 0], "material": "body", "motion": "bob", "radius": 0.3, "height": 0.6, "sides": 6},
+		{"shape": "sphere", "at": [0, 2.46, 0.2], "scale": [0.24, 0.3, 0.12], "material": "core", "motion": "core", "radius": 1.0, "segments": 7, "rings": 4},
+		{"shape": "spike", "at": [0.24, 2.72, 0.0], "rot": [0, 0, -38], "material": "accent", "motion": "bob", "radius": 0.07, "height": 0.62, "lean": 0.3, "sides": 4},
+		{"shape": "spike", "at": [-0.24, 2.72, 0.0], "rot": [0, 0, 38], "material": "accent", "motion": "bob", "radius": 0.07, "height": 0.62, "lean": 0.3, "sides": 4},
+		{"shape": "cylinder", "at": [0.6, 1.75, 0.5], "rot": [0, 0, -55], "material": "body", "top": 0.05, "bottom": 0.08, "height": 1.0, "sides": 5},
+		{"shape": "cylinder", "at": [-0.55, 1.5, 0.35], "rot": [20, 0, 35], "material": "body", "top": 0.05, "bottom": 0.08, "height": 0.9, "sides": 5},
+		{"shape": "cylinder", "at": [1.0, 2.2, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.03, "bottom": 0.03, "height": 0.6, "sides": 4},
+		{"shape": "box", "at": [1.0, 2.5, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "size": [1.3, 0.05, 0.05]},
+		{"shape": "cylinder", "at": [0.45, 2.1, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.02, "bottom": 0.02, "height": 0.7, "sides": 3},
+		{"shape": "cylinder", "at": [1.55, 2.0, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.02, "bottom": 0.02, "height": 0.9, "sides": 3},
+		{"shape": "cylinder", "at": [0.45, 1.72, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.22, "bottom": 0.18, "height": 0.08, "sides": 8},
+		{"shape": "cylinder", "at": [1.55, 1.52, 0.75], "material": "accent", "motion": "swing", "phase": 0.3, "top": 0.22, "bottom": 0.18, "height": 0.08, "sides": 8},
+		{"shape": "crystal", "at": [1.55, 1.6, 0.75], "material": "core", "motion": "swing", "phase": 0.3, "radius": 0.06, "height": 0.25}]
+	for i in range(7):
+		var a: float = float(i) * TAU / 7.0
+		assayer.append({"shape": "spike", "at": [cos(a) * 0.6, 0.42, sin(a) * 0.6], "rot": [180, 0, 0], "material": "body", "motion": "flicker", "phase": a, "radius": 0.13, "height": 0.42, "sides": 4})
 	var collector: Array = [
 		{"shape": "slab", "at": [0, 1.9, 0.1], "material": "body", "motion": "block", "size": [0.6, 1.3, 0.35], "jitter": 0.03},
 		{"shape": "cylinder", "at": [0.16, 0.65, 0.1], "material": "body", "top": 0.08, "bottom": 0.1, "height": 1.3, "sides": 5},
@@ -86,6 +92,6 @@ static func recipes() -> Dictionary:
 		"HOARD_MIMIC": {"style": "low", "sway": 1.4, "tint": "8a5a2a", "accent": "ffd76a", "anchor": 1.4, "shadow": 2.0, "parts": mimic},
 		"CROUPIER_CRAB": {"style": "low", "sway": 2.0, "tint": "d8a83a", "accent": "ffffff", "anchor": 1.1, "shadow": 2.4, "ring": 1.2, "parts": crab},
 		"CRYSTAL_HYDRA": {"style": "stack", "sway": 1.2, "tint": "8a5ad8", "accent": "ffd76a", "anchor": 2.2, "shadow": 2.4, "ring": 1.2, "parts": hydra},
-		"THE_ASSAYER": {"style": "tower", "sway": 0.7, "tint": "b08a3a", "accent": "fff0b0", "anchor": 3.2, "warden": true, "shadow": 3.0, "ring": 1.5, "parts": assayer},
+		"THE_ASSAYER": {"style": "tower", "sway": 0.6, "tint": "2c2238", "accent": "ffd76a", "anchor": 3.3, "warden": true, "shadow": 3.0, "ring": 1.5, "parts": assayer},
 		"THE_COLLECTOR": {"style": "tower", "sway": 0.7, "tint": "6a3a8a", "accent": "ffd76a", "anchor": 3.4, "warden": true, "shadow": 2.8, "ring": 1.4, "parts": collector},
 		"THE_HOLLOW_CROWN": {"style": "blob", "sway": 0.5, "tint": "5a3a7a", "accent": "ffd76a", "anchor": 3.9, "warden": true, "shadow": 4.0, "ring": 1.9, "parts": crown}}

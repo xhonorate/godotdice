@@ -34,6 +34,9 @@ extends RefCounted
 ##   every_nth_turn      on the first die of the rung-th action, the 2·rung-th, and so on
 ##   emerge              on the first die of the action after it burrowed
 ##   on_death            never during an action: its move fires when the creature dies
+##   hp_below            never during an action: fires once, the moment its health first falls
+##                       to the rung percent of its most
+##   action_begin        as its action opens, before any die is thrown
 ## A creature's trigger may also name `die`, the index of the one die it reads.
 ##
 ## `describe` turns a trigger into the pictograph the interface draws and the sentence a
@@ -42,9 +45,11 @@ extends RefCounted
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
 	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "below",
-	"each_turn", "every_nth_turn", "emerge", "on_death"]
+	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
 ## The kinds a creature reads from the turn rather than from a die.
-const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death"]
+const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
+## The turn kinds that never fire on a die the creature throws: the fight calls them itself.
+const CALLED_KINDS: Array = ["on_death", "hp_below", "action_begin"]
 const SET_SIZES: Dictionary = {"pair": 2, "triple": 3, "quad": 4, "quint": 5}
 const STEPS: int = 5
 
@@ -93,11 +98,13 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 			"every_nth_turn": result.active = first and need > 0 and acted % need == 0
 			"emerge": result.active = first and bool(context.get("emerging", false))
 			"on_death": result.active = bool(context.get("dying", false))
+			"hp_below": result.active = bool(context.get("crossing", false))
+			"action_begin": result.active = bool(context.get("action_begin", false))
 		result.value = int(a.get("total", 0))
 		if result.active:
 			result.dice = _all_dice(a)
 		else:
-			result.reason = "Not this action." if kind != "on_death" else "Only when it dies."
+			result.reason = {"on_death": "Only when it dies.", "hp_below": "Only as its health falls that far.", "action_begin": "Only as its action opens."}.get(kind, "Not this action.")
 		return result
 	match kind:
 		"pair", "triple", "quad", "quint":
@@ -305,6 +312,11 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 			label = "÷%d" % need
 		"on_death":
 			mark = "skull"
+		"hp_below":
+			mark = "skull"
+			label = "≤%d%%" % need
+		"action_begin":
+			mark = "hourglass"
 		"at_most":
 			label = "≤%d" % need
 		"at_least":
@@ -362,6 +374,8 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"every_nth_turn": return "Every %s action, once, before its dice." % _ordinal(need)
 		"emerge": return "The action after it burrowed, once, before its dice."
 		"on_death": return "When it dies."
+		"hp_below": return "Once, the moment its health falls to %d%%." % need
+		"action_begin": return "Every action, as it opens, before any die is thrown."
 	return "Its trigger."
 
 static func _ordinal(n: int) -> String:
@@ -395,7 +409,7 @@ static func validate(trigger: Variant) -> Array:
 				if not (step is int or step is float) or int(step) != float(step):
 					errors.append("trigger ladder rungs must be whole numbers")
 					break
-	elif kind != "always" and kind != "resonance" and not kind in ["each_turn", "emerge", "on_death"] and not trigger.has("amount"):
+	elif kind != "always" and kind != "resonance" and not kind in ["each_turn", "emerge", "on_death", "action_begin"] and not trigger.has("amount"):
 		errors.append("trigger needs a ladder or an amount")
 	if kind == "every_nth_turn" and int(trigger.get("amount", 0)) < 2:
 		errors.append("every_nth_turn needs an amount of 2 or more")
