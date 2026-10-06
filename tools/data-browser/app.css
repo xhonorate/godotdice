@@ -375,3 +375,20 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .mu-level { grid-column: 1 / -1; height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
 .mu-level span { display: block; height: 100%; border-radius: 2px; transition: width .3s; }
 @media (max-width: 1180px) { .mu-grid { grid-template-columns: 380px minmax(0, 1fr); } }
+/* soundtrack tooltips: what each control does to the music */
+.mu-help { display: inline-flex; align-items: center; gap: 5px; cursor: help; width: fit-content; }
+.mu-q { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--axis); color: var(--muted); font: 600 9px var(--sans); font-style: normal; text-transform: none; letter-spacing: 0; }
+.mu-help:hover .mu-q, .mu-help:focus-visible .mu-q { border-color: var(--accent); color: var(--accent-2); }
+.tip:has(.mu-tip) { max-width: 330px; }
+.tip:has(.mu-tip.is-wide) { max-width: 440px; }
+.mu-tip { display: grid; gap: 5px; line-height: 1.45; }
+.mu-tip-line { color: var(--text-2); }
+.mu-tip-options { display: grid; gap: 3px; margin-top: 3px; padding-top: 6px; border-top: 1px solid var(--line); }
+.mu-tip-option { display: grid; grid-template-columns: 92px 1fr; gap: 8px; color: var(--muted); }
+.mu-tip-option b { color: var(--text-2); font-weight: 600; }
+.mu-tip-option.is-current { color: var(--text-2); }
+.mu-tip-option.is-current b { color: var(--accent-2); }
+.mu-tipwrap { display: inline-flex; }
+.mu-actions .mu-tipwrap { display: flex; }
+.mu-tipwrap .btn[disabled] { pointer-events: none; }
+.mu-strip.is-off { cursor: default; }

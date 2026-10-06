@@ -8,6 +8,7 @@
 
 import * as C from '../sim/content.js';
 import { h, clear, append, card, chip, segmented, select, field } from '../ui.js';
+import * as Help from './music-help.js';
 
 // --- what the composer knows (view/audio/composer.gd, score.gd, music.gd) ----------------------
 
@@ -294,13 +295,18 @@ function topBar(ctx) {
 	const pieces = places[here].tracks.map((id) => {
 		const p = state.data.pieces[id];
 		const dot = p.draft ? (p.draft.stale ? 'var(--warn)' : 'var(--accent)') : (p.live.complete ? 'var(--good)' : 'var(--bad)');
-		return h('button', { type: 'button', class: `mu-piece${id === state.id ? ' is-active' : ''}`, title: p.draft ? 'Has a draft' : (p.live.complete ? 'Baked' : 'Not baked yet'), onClick: () => ctx.navigate('music', id) },
-			h('i', { class: 'dot', style: { background: dot, width: '7px', height: '7px' } }), state.data.score.tracks[id].name || id, places[here].tracks[0] === id ? h('span', { class: 'mu-default' }, 'default') : null);
+		const spec = effective(state.data.score.tracks[id]);
+		const now = p.draft ? (p.draft.stale ? 'Has edits not yet rendered.' : 'Has a rendered draft waiting to be adopted or discarded.') : (p.live.complete ? 'Baked; no draft.' : 'Never baked: the game writes it at runtime until it is.');
+		return Help.explain(h('button', { type: 'button', class: `mu-piece${id === state.id ? ' is-active' : ''}`, onClick: () => ctx.navigate('music', id) },
+			h('i', { class: 'dot', style: { background: dot, width: '7px', height: '7px' } }), spec.name || id, places[here].tracks[0] === id ? h('span', { class: 'mu-default' }, 'default') : null),
+		spec.name || id, [`${spec.key} ${MODE_NAMES[spec.mode] || spec.mode} · ${spec.bpm} bpm · ${spec.meter}/4 · ${seconds(lengthOf(spec))} loop`, now, ...Help.PIECE[1]]);
 	});
 	ui.queue = h('div', { class: 'mu-queue' });
 	paintQueue();
+	const placeSeg = segmented(Object.keys(places).map((p) => [p, placeName(p)]), here, (p) => ctx.navigate('music', places[p].tracks[0]), { class: 'seg small' });
+	Help.explainEach(placeSeg, Object.keys(places).map((p) => [placeName(p), [places[p].about, `${places[p].tracks.length} pieces to choose between; the player picks on the game’s Soundtrack page.`]]));
 	return h('div', { class: 'mu-top' },
-		segmented(Object.keys(places).map((p) => [p, placeName(p), places[p].about]), here, (p) => ctx.navigate('music', places[p].tracks[0]), { class: 'seg small' }),
+		placeSeg,
 		h('div', { class: 'row tight' }, pieces),
 		ui.queue);
 }
@@ -313,7 +319,7 @@ function paintQueue() {
 		!state.data.godot ? chip('Godot not found: set GODOT_BIN', { class: 'bad', title: 'Rendering needs Godot 4.7.2 (the console build on Windows)' }) : null,
 		q.running ? h('span', { class: 'mu-busy' }, h('span', { class: 'spinner' }), `Rendering ${name(q.running)}`, q.waiting.length ? h('span', { class: 'muted' }, ` · ${q.waiting.length} queued`) : null) : null,
 		!q.running && q.last && !q.last.ok ? chip(`Render of ${name(q.last.id)} failed`, { class: 'bad', title: q.last.error }) : null,
-		h('label', { class: 'checkbox', title: 'Queue a render a moment after every change' }, h('input', { type: 'checkbox', checked: state.auto ? true : null, onChange: (e) => { state.auto = e.target.checked; keep('auto', state.auto); if (state.auto) scheduleRender(); } }), 'Render as I edit')]);
+		Help.explain(h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: state.auto ? true : null, onChange: (e) => { state.auto = e.target.checked; keep('auto', state.auto); if (state.auto) scheduleRender(); } }), 'Render as I edit'), ...Help.AUTO)]);
 }
 
 // --- the spec editor --------------------------------------------------------------------------
@@ -372,32 +378,43 @@ function markDraftEdited() {
 
 function paintSpec() {
 	if (!ui.spec) return;
+	Help.hideTip();
 	const s = effective(state.edit);
 	const tabs = h('div', { class: 'tabs' }, [['harmony', 'Harmony'], ['voices', 'Voices & mix']].map(([k, label]) =>
 		h('button', { type: 'button', class: `tab${state.tab === k ? ' is-active' : ''}`, onClick: () => { state.tab = k; keep('tab', k); paintSpec(); } }, label)));
-	const nameInput = h('input', { class: 'input mu-name', value: s.name || '', onChange: (e) => change('name', e.target.value.trim() || state.editId) });
+	const nameInput = Help.explain(h('input', { class: 'input mu-name', value: s.name || '', onChange: (e) => change('name', e.target.value.trim() || state.editId) }), ...Help.NAME);
 	const body = state.tab === 'harmony' ? harmonyPanel(s) : voicesPanel(s);
 	clear(ui.spec).append(card(null, h('div', { class: 'col', style: { gap: '12px' } },
 		h('div', { class: 'row between' }, nameInput, h('span', { class: 'tiny muted mono' }, state.editId)), tabs, body), { class: 'mu-spec-card' }));
 }
 
+// A labelled control whose label explains it. `options` lists [key, label, text] to show every
+// choice in the tip with the current one marked.
+function helped(help, control, options = null) {
+	return h('div', { class: 'field' }, Help.helpLabel(help[0], help[0], help[1], options), control);
+}
+
 function harmonyPanel(s) {
 	const scale = (MODES[s.mode] || MODES.aeolian).map((i) => (PITCH[s.key] + i) % 12);
+	const metre = Help.explainEach(segmented([[3, '3/4'], [4, '4/4']], s.meter, (v) => change('meter', Number(v))), Help.METRES);
+	const modeLabel = h('span', {}, 'Mode ', h('span', { class: 'mu-hint' }, MODE_MOOD[s.mode] || ''));
+	const chordLabel = h('span', {}, 'Chords ', h('span', { class: 'mu-hint' }, 'two bars each · click to change'));
 	return h('div', { class: 'col', style: { gap: '14px' } },
-		h('div', { class: 'mu-field' }, h('span', { class: 'field-label' }, 'Key'), keyboard(s.key, scale, (k) => change('key', k))),
-		h('div', { class: 'mu-field' }, h('span', { class: 'field-label' }, 'Mode ', h('span', { class: 'mu-hint' }, MODE_MOOD[s.mode] || '')),
-			h('div', { class: 'mu-modes' }, Object.keys(MODES).map((m) => h('button', { type: 'button', class: `mu-mode${m === s.mode ? ' is-active' : ''}`, title: MODE_MOOD[m], onClick: () => change('mode', m) },
-				h('b', {}, MODE_NAMES[m]), h('span', {}, steps(MODES[m])))))),
+		h('div', { class: 'mu-field' }, Help.helpLabel('Key', ...Help.KEY), keyboard(s.key, scale, (k) => change('key', k))),
+		h('div', { class: 'mu-field' }, Help.helpLabel(modeLabel, Help.MODE[0], Help.MODE[1], { list: Object.keys(MODES).map((m) => [m, MODE_NAMES[m], Help.MODES[m]]), current: s.mode }),
+			h('div', { class: 'mu-modes' }, Object.keys(MODES).map((m) => Help.explain(
+				h('button', { type: 'button', class: `mu-mode${m === s.mode ? ' is-active' : ''}`, onClick: () => change('mode', m) }, h('b', {}, MODE_NAMES[m]), h('span', {}, steps(MODES[m]))),
+				`${MODE_NAMES[m]} · ${steps(MODES[m])}`, [Help.MODES[m], `In ${s.key}: ${MODES[m].map((i) => KEYS[(PITCH[s.key] + i) % 12]).join(' ')}`])))),
 		h('div', { class: 'row', style: { alignItems: 'flex-end', gap: '16px' } },
-			field('Tempo', h('div', { class: 'row tight' },
+			helped(Help.TEMPO, h('div', { class: 'row tight' },
 				h('input', { type: 'range', min: 50, max: 150, step: 1, value: s.bpm, class: 'mu-range', onInput: (e) => { e.target.nextSibling.value = e.target.value; }, onChange: (e) => change('bpm', Number(e.target.value)) }),
 				h('input', { class: 'input', type: 'number', min: 40, max: 200, value: s.bpm, style: { width: '62px' }, onChange: (e) => change('bpm', Math.max(40, Math.min(200, Math.round(Number(e.target.value) || 90)))) }),
 				h('span', { class: 'tiny muted' }, `bpm · ${seconds(lengthOf(s))} loop`))),
-			field('Metre', segmented([[3, '3/4'], [4, '4/4']], s.meter, (v) => change('meter', Number(v)))),
-			field('Seed', h('div', { class: 'row tight' },
+			helped(Help.METRE, metre),
+			helped(Help.SEED, h('div', { class: 'row tight' },
 				h('input', { class: 'input', type: 'number', min: 1, value: s.seed, style: { width: '70px' }, onChange: (e) => change('seed', Math.max(1, Math.round(Number(e.target.value) || 1))) }),
-				h('button', { type: 'button', class: 'btn', title: 'A new tune over the same chords', onClick: () => change('seed', 1 + Math.floor(Math.random() * 9999)) }, '⚄ New tune')), 'The tune, the drum feel and every small variation are drawn from the seed')),
-		h('div', { class: 'mu-field' }, h('span', { class: 'field-label' }, 'Chords ', h('span', { class: 'mu-hint' }, 'two bars each · click to change')),
+				Help.explain(h('button', { type: 'button', class: 'btn', onClick: () => change('seed', 1 + Math.floor(Math.random() * 9999)) }, '⚄ New tune'), 'New tune', 'Rolls a new seed: a new tune over the same key, chords and instruments.')))),
+		h('div', { class: 'mu-field' }, Help.helpLabel(chordLabel, ...Help.CHORDS),
 			chordRow('Verse', s, 'chords', 0), chordRow('Bridge', s, 'bridge', 8)));
 }
 
@@ -413,14 +430,21 @@ function keyboard(value, scale, onPick) {
 	for (const [pc, after] of Object.entries(blacks)) wrap.append(keyEl(Number(pc), 'black', after));
 	function keyEl(pc, kind, after) {
 		const isKey = PITCH[value] === pc, inScale = scale.includes(pc);
-		return h('button', { type: 'button', class: `mu-key ${kind}${isKey ? ' is-key' : ''}`, title: `${KEYS[pc]}${inScale ? ' · in the scale' : ''}`,
+		// Keys run A (lowest) up to G#: the key note sits between A2 and G#3.
+		const rank = (x) => (x - 9 + 12) % 12;
+		const move = rank(pc) - rank(PITCH[value]);
+		const lines = isKey ? ['The piece is built on this note.'] : [
+			`Make ${KEYS[pc]} the key: the whole piece moves ${move > 0 ? 'up' : 'down'} ${Math.abs(move)} semitone${Math.abs(move) === 1 ? '' : 's'}.`,
+			inScale ? 'Dotted: one of the notes the tune and chords use in this mode.' : 'Not dotted: outside this mode, so never played.'];
+		return Help.explain(h('button', { type: 'button', class: `mu-key ${kind}${isKey ? ' is-key' : ''}`,
 			style: kind === 'black' ? { left: `calc(${(after + 1) * (100 / 7)}% - 11px)` } : null, onClick: () => onPick(KEYS[pc]) },
-		inScale ? h('i', { class: 'mu-key-dot' }) : null, h('span', {}, KEYS[pc]));
+		inScale ? h('i', { class: 'mu-key-dot' }) : null, h('span', {}, KEYS[pc])), isKey ? `${KEYS[pc]}: the key` : KEYS[pc], lines);
 	}
 	return wrap;
 }
 
 let openChord = null;
+const QUALITY_WORDS = { maj: 'major', min: 'minor', dim: 'diminished', aug: 'augmented', sus: 'suspended' };
 function chordRow(label, s, part, firstSlot) {
 	const list = s[part].slice();
 	const want = part === 'chords' ? 8 : 4;
@@ -429,49 +453,77 @@ function chordRow(label, s, part, firstSlot) {
 	list.slice(0, want).forEach((degree, i) => {
 		const c = chordOf(s, degree);
 		const slot = `${part}:${i}`;
-		const tile = h('button', { type: 'button', class: `mu-chord${openChord === slot ? ' is-open' : ''}`, style: { '--q': QUALITY_COLORS[c.quality] }, title: `Bars ${(firstSlot + i) * 2 + 1}–${(firstSlot + i) * 2 + 2}`,
+		const phrase = PLAN[firstSlot + i];
+		const tile = Help.explain(h('button', { type: 'button', class: `mu-chord${openChord === slot ? ' is-open' : ''}`, style: { '--q': QUALITY_COLORS[c.quality] },
 			onClick: () => { openChord = openChord === slot ? null : slot; paintSpec(); } },
-		h('span', { class: 'mu-plan' }, PLAN[firstSlot + i]), h('b', {}, c.roman), h('span', { class: 'mu-chord-name' }, c.name));
+		h('span', { class: 'mu-plan' }, phrase), h('b', {}, c.roman), h('span', { class: 'mu-chord-name' }, c.name)),
+		`${c.roman} · ${c.name} · bars ${(firstSlot + i) * 2 + 1}–${(firstSlot + i) * 2 + 2}`,
+		[`${c.name}, ${QUALITY_WORDS[c.quality]}. ${Help.DEGREES[((degree % 7) + 7) % 7]}`, `${phrase}: ${Help.PLAN_PARTS[phrase]}`, 'Click to choose another chord.']);
 		row.append(tile);
 	});
 	if (openChord && openChord.startsWith(part + ':')) {
 		const i = Number(openChord.split(':')[1]);
 		row.append(h('div', { class: 'mu-chord-pick' }, [0, 1, 2, 3, 4, 5, 6].map((d) => {
 			const c = chordOf(s, d);
-			return h('button', { type: 'button', class: `mu-chord small${d === list[i] ? ' is-active' : ''}`, style: { '--q': QUALITY_COLORS[c.quality] },
-				onClick: () => { const next = list.slice(0, want); next[i] = d; openChord = null; change(part, next); } }, h('b', {}, c.roman), h('span', { class: 'mu-chord-name' }, c.name));
+			return Help.explain(h('button', { type: 'button', class: `mu-chord small${d === list[i] ? ' is-active' : ''}`, style: { '--q': QUALITY_COLORS[c.quality] },
+				onClick: () => { const next = list.slice(0, want); next[i] = d; openChord = null; change(part, next); } }, h('b', {}, c.roman), h('span', { class: 'mu-chord-name' }, c.name)),
+			`${c.roman} · ${c.name}, ${QUALITY_WORDS[c.quality]}`, Help.DEGREES[d]);
 		})));
 	}
 	return row;
 }
 
 function voicesPanel(s) {
-	const pick = (key, options) => select(options, s[key], (v) => change(key, v), { class: 'select', style: { width: '100%' } });
+	// A dropdown explained twice: its label says what the part is, the dropdown itself every
+	// instrument it could be, the current one marked.
+	const pick = (key, options, words, help) => {
+		const list = options.map(([k, label]) => [k, label, words[k]]);
+		const current = options.find((o) => o[0] === s[key]);
+		const control = Help.explain(select(options, s[key], (v) => change(key, v), { class: 'select', style: { width: '100%' } }),
+			`${help[0]}: ${current ? current[1] : s[key]}`, [], { list, current: s[key] });
+		return helped(help, control);
+	};
+	const bassLine = Help.explainEach(segmented([['walk', 'Walk'], ['pedal', 'Pedal'], ['syncop', 'Syncop.']], s.bass_style, (v) => change('bass_style', v), { class: 'seg small' }), Help.BASS_LINES);
+	const octave = Help.explainEach(segmented([[0, 'Low'], [1, 'High']], Number(s.lead_octave), (v) => change('lead_octave', Number(v)), { class: 'seg small' }), Help.LEAD_OCTAVES);
+	const rate = Help.explainEach(segmented([[1, '16th'], [2, '8th'], [3, 'Dot. 8th'], [4, 'Qtr']], Number(s.arp_rate), (v) => change('arp_rate', Number(v)), { class: 'seg small' }), Help.ARP_RATES);
+	const layers = Help.explainEach(segmented([[3, '3: walk only'], [5, '5: with fights']], Number(s.layers) >= 5 ? 5 : 3, (v) => change('layers', Number(v)), { class: 'seg small' }), Help.LAYER_COUNTS);
+	const toggle = (key, help) => Help.explain(h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: s[key] ? true : null, onChange: (e) => change(key, e.target.checked) }), help[0]), ...help);
 	return h('div', { class: 'col', style: { gap: '14px' } },
 		h('div', { class: 'mu-voices' },
-			field('Pad', pick('pad', VOICES.pad), 'The held chords of the bed'),
-			field('Bass', pick('bass', VOICES.bass)),
-			field('Bass line', segmented([['walk', 'Walk'], ['pedal', 'Pedal'], ['syncop', 'Syncop.']], s.bass_style, (v) => change('bass_style', v), { class: 'seg small' })),
-			field('Lead', pick('lead', VOICES.lead), 'The tune'),
-			field('Lead octave', segmented([[0, 'Low'], [1, 'High']], Number(s.lead_octave), (v) => change('lead_octave', Number(v)), { class: 'seg small' })),
-			field('Kit', pick('kit', VOICES.kit), 'Which drums play each part'),
-			field('Arpeggio', pick('arp', VOICES.lead), 'The fight layer’s running arpeggio'),
-			field('Arp rate', segmented([[1, '16th'], [2, '8th'], [3, 'Dot. 8th'], [4, 'Qtr']], Number(s.arp_rate), (v) => change('arp_rate', Number(v)), { class: 'seg small' }))),
+			pick('pad', VOICES.pad, Help.PADS, Help.PAD),
+			pick('bass', VOICES.bass, Help.BASSES, Help.BASS),
+			helped(Help.BASS_LINE, bassLine),
+			pick('lead', VOICES.lead, Help.LEADS, Help.LEAD),
+			helped(Help.LEAD_OCTAVE, octave),
+			pick('kit', VOICES.kit, Help.KITS, Help.KIT),
+			pick('arp', VOICES.lead, Help.LEADS, Help.ARP),
+			helped(Help.ARP_RATE, rate)),
 		h('div', { class: 'row', style: { alignItems: 'flex-end', gap: '16px' } },
-			field('Echo on the tune', h('div', { class: 'row tight' },
+			helped(Help.ECHO, h('div', { class: 'row tight' },
 				h('input', { type: 'range', min: 0, max: 0.6, step: 0.01, value: s.echo, class: 'mu-range', onInput: (e) => { e.target.nextSibling.textContent = Number(e.target.value).toFixed(2); }, onChange: (e) => change('echo', Number(e.target.value)) }),
 				h('span', { class: 'mono small', style: { width: '34px' } }, Number(s.echo).toFixed(2)))),
-			field('Layers', segmented([[3, '3: walk only'], [5, '5: with fights']], Number(s.layers) >= 5 ? 5 : 3, (v) => change('layers', Number(v)), { class: 'seg small' }), 'The workshop never fights, so it is written in three')),
-		h('div', { class: 'row' },
-			h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: s.drone ? true : null, onChange: (e) => change('drone', e.target.checked) }), 'Drone under the bed'),
-			h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: s.sevenths ? true : null, onChange: (e) => change('sevenths', e.target.checked) }), 'Sevenths in the pads')),
-		h('div', { class: 'mu-layer-key' }, LAYERS.map((name, i) => h('div', { class: 'row tight' }, h('i', { class: 'dot', style: { background: LAYER_COLORS[i] } }), h('b', { class: 'small' }, name), h('span', { class: 'tiny muted' }, LAYER_WORDS[i])))));
+			helped(Help.LAYERS, layers)),
+		h('div', { class: 'row' }, toggle('drone', Help.DRONE), toggle('sevenths', Help.SEVENTHS)),
+		h('div', { class: 'mu-layer-key' }, LAYERS.map((name, i) => Help.explain(h('div', { class: 'row tight' }, h('i', { class: 'dot', style: { background: LAYER_COLORS[i] } }), h('b', { class: 'small' }, name), h('span', { class: 'tiny muted' }, LAYER_WORDS[i])), ...Help.MIXER(i).slice(0, 2)))));
 }
 
 // --- versions: live, draft, and what to do with them ------------------------------------------
 
+// A button explained even while it is disabled (a disabled button gets no mouse events, so the
+// tip sits on a wrapper the pointer reaches through it).
+function tipBox(button, heading, lines) {
+	return Help.explain(h('span', { class: 'mu-tipwrap' }, button), heading, lines);
+}
+
+function shown(value) {
+	if (Array.isArray(value)) return value.join(' ');
+	if (typeof value === 'boolean') return value ? 'on' : 'off';
+	return String(value);
+}
+
 function paintVersions() {
 	if (!ui.versions) return;
+	Help.hideTip();
 	const p = piece();
 	const q = state.data.queue;
 	const live = p.live, draft = p.draft;
@@ -479,14 +531,19 @@ function paintVersions() {
 	const changed = draft ? differences(draft.spec, liveSpec()) : [];
 	const hand = live.layers.filter((l) => l.hand);
 
+	const listenTip = (which) => ['Listen', `Play the ${which} version through the mixer above. Switching between live and draft keeps your place in the loop, so the same bar can be heard both ways.`];
+	const midiLink = (version, file) => Help.explain(h('a', { class: 'btn mu-link', href: `/api/music/${state.id}/midi?v=${version}`, download: file }, 'MIDI'), ...Help.MIDI);
 	const liveTile = h('div', { class: `mu-version${player.version === 'live' ? ' is-playing' : ''}` },
-		h('div', { class: 'row between' }, h('b', {}, 'Live'), live.complete ? chip('baked', { color: 'var(--good)' }) : chip('not baked', { class: 'bad' })),
+		h('div', { class: 'row between' }, Help.explain(h('b', { tabindex: 0 }, 'Live'), ...Help.LIVE), live.complete ? chip('baked', { color: 'var(--good)' }) : chip('not baked', { class: 'bad' })),
 		h('div', { class: 'tiny muted' }, live.bakedAt ? `Baked ${ago(live.bakedAt)}` : 'Not baked yet: render a draft and adopt it'),
-		hand.length ? h('div', { class: 'tiny', style: { color: 'var(--warn)' } }, `Replaced by hand: ${hand.map((l) => l.name).join(', ')}`) : null,
-		live.baked && !live.matchesScore && !hand.length ? h('div', { class: 'tiny', style: { color: 'var(--warn)' } }, 'The score has changed since this was baked') : null,
+		hand.length ? Help.explain(h('div', { class: 'tiny', style: { color: 'var(--warn)' } }, `Replaced by hand: ${hand.map((l) => l.name).join(', ')}`), 'Replaced by hand',
+			['These layers are not what was last baked: a file was dropped over them (a DAW master, say). The game plays them as they are.', 'Adopting a draft or baking would overwrite them, so both ask first.']) : null,
+		live.baked && !live.matchesScore && !hand.length ? Help.explain(h('div', { class: 'tiny', style: { color: 'var(--warn)' } }, 'The score has changed since this was baked'), 'Out of step with the score',
+			'content/score.json was edited by hand since these files were baked, so the game plays something other than the spec says. Render a draft of live and adopt it, or bake this piece.') : null,
 		h('div', { class: 'row tight' },
-			h('button', { type: 'button', class: `btn${player.version === 'live' ? ' is-active' : ''}`, disabled: live.complete ? null : true, onClick: () => listen('live') }, '▶ Listen'),
-			live.hasNotes ? h('a', { class: 'btn mu-link', href: `/api/music/${state.id}/midi?v=live`, download: `${state.id}.mid` }, 'MIDI') : null));
+			tipBox(h('button', { type: 'button', class: `btn${player.version === 'live' ? ' is-active' : ''}`, disabled: live.complete ? null : true, onClick: () => listen('live') }, '▶ Listen'),
+				listenTip('live')[0], [listenTip('live')[1], live.complete ? null : 'Nothing baked yet to hear.']),
+			live.hasNotes ? midiLink('live', `${state.id}.mid`) : null));
 
 	let status, statusColor = 'var(--muted)';
 	if (!draft) status = 'No changes. Edit the spec to start a draft.';
@@ -497,19 +554,24 @@ function paintVersions() {
 	else { status = `Rendered ${ago(draft.renderedAt)}${draft.renderMs ? ` in ${(draft.renderMs / 1000).toFixed(1)} s` : ''}`; statusColor = 'var(--good)'; }
 
 	const draftTile = h('div', { class: `mu-version${player.version === 'draft' ? ' is-playing' : ''}${draft ? '' : ' is-empty'}` },
-		h('div', { class: 'row between' }, h('b', {}, 'Draft'), rendering || queued ? h('span', { class: 'spinner' }) : null),
+		h('div', { class: 'row between' }, Help.explain(h('b', { tabindex: 0 }, 'Draft'), ...Help.DRAFT), rendering || queued ? h('span', { class: 'spinner' }) : null),
 		h('div', { class: 'tiny', style: { color: statusColor } }, status),
-		draft && draft.error && draft.stale ? h('div', { class: 'tiny mu-error', title: draft.error }, draft.error.split('\n')[0]) : null,
-		draft ? h('div', { class: 'row tight', style: { flexWrap: 'wrap' } }, changed.length ? changed.map((k) => h('span', { class: 'mu-diff' }, FIELD_NAMES[k])) : h('span', { class: 'tiny muted' }, 'Same as live')) : null,
+		draft && draft.error && draft.stale ? Help.explain(h('div', { class: 'tiny mu-error' }, draft.error.split('\n')[0]), 'Godot said', draft.error.split('\n').slice(0, 6)) : null,
+		draft ? h('div', { class: 'row tight', style: { flexWrap: 'wrap' } }, changed.length ? changed.map((k) => Help.explain(h('span', { class: 'mu-diff' }, FIELD_NAMES[k]), `Changed: ${FIELD_NAMES[k]}`,
+			[`Live: ${shown(effective(liveSpec())[k])}`, `Draft: ${shown(effective(draft.spec)[k])}`])) : h('span', { class: 'tiny muted' }, 'Same as live')) : null,
 		h('div', { class: 'row tight' },
-			h('button', { type: 'button', class: `btn${player.version === 'draft' ? ' is-active' : ''}`, disabled: draft && draft.layers.length ? null : true, onClick: () => listen('draft') }, '▶ Listen'),
-			draft && draft.layers.length ? h('a', { class: 'btn mu-link', href: `/api/music/${state.id}/midi?v=draft`, download: `${state.id}_draft.mid` }, 'MIDI') : null));
+			tipBox(h('button', { type: 'button', class: `btn${player.version === 'draft' ? ' is-active' : ''}`, disabled: draft && draft.layers.length ? null : true, onClick: () => listen('draft') }, '▶ Listen'),
+				listenTip('draft')[0], [listenTip('draft')[1], draft && draft.layers.length ? null : 'Nothing to hear yet: render the draft first.']),
+			draft && draft.layers.length ? midiLink('draft', `${state.id}_draft.mid`) : null));
 
 	const canAdopt = draft && draft.rendered && !draft.stale && !rendering && !queued;
+	const why = !draft ? 'There is no draft: edit the spec first.' : (rendering || queued) ? 'Wait for the render to finish.' : draft.stale ? 'The draft has changed since it was rendered: render it first, so what is adopted is what was heard.' : null;
 	const actions = h('div', { class: 'mu-actions' },
-		h('button', { type: 'button', class: 'btn', disabled: rendering || queued || !state.data.godot ? true : null, onClick: () => queueRender() }, draft ? 'Render draft' : 'Render a draft of live'),
-		h('button', { type: 'button', class: 'btn mu-primary', disabled: canAdopt ? null : true, title: hand.length ? `Adopting replaces the hand-made ${hand.map((l) => l.name).join(', ')}` : 'Bake the draft over the live files and write its spec to the score', onClick: adopt }, 'Adopt draft → live'),
-		h('button', { type: 'button', class: 'btn', disabled: draft ? null : true, title: 'Throw the draft away; the live version stays', onClick: discard }, 'Discard draft'));
+		tipBox(h('button', { type: 'button', class: 'btn', disabled: rendering || queued || !state.data.godot ? true : null, onClick: () => queueRender() }, draft ? 'Render draft' : 'Render a draft of live'),
+			draft ? Help.RENDER[0] : 'Render a draft of live', [draft ? Help.RENDER[1] : 'Starts a draft identical to the live spec and renders it: the way to hear what a change to the synth code does, before baking it.', !state.data.godot ? 'Godot was not found, so nothing can render. Set GODOT_BIN.' : null]),
+		tipBox(h('button', { type: 'button', class: 'btn mu-primary', disabled: canAdopt ? null : true, onClick: adopt }, 'Adopt draft → live'),
+			Help.ADOPT[0], [Help.ADOPT[1], hand.length ? `This replaces the hand-made ${hand.map((l) => l.name).join(', ')}.` : null, canAdopt ? null : why]),
+		tipBox(h('button', { type: 'button', class: 'btn', disabled: draft ? null : true, onClick: discard }, 'Discard draft'), Help.DISCARD[0], [Help.DISCARD[1], draft ? null : 'There is no draft to discard.']));
 
 	const confirm = state.confirm ? h('div', { class: 'note warn small' }, state.confirm.text, ' ',
 		h('button', { type: 'button', class: 'btn', onClick: () => { const go = state.confirm.go; state.confirm = null; go(); } }, state.confirm.yes),
@@ -579,6 +641,7 @@ async function pointPlayer(andPlay = false) {
 
 function paintPlayer() {
 	if (!ui.player) return;
+	Help.hideTip();
 	const p = piece();
 	const version = player.version;
 	const spec = version === 'draft' && p.draft ? p.draft.spec : liveSpec();
@@ -586,19 +649,22 @@ function paintPlayer() {
 	const levels = player.levels();
 	ui.time = h('span', { class: 'mono small mu-time' }, '0:00');
 	const transport = h('div', { class: 'row', style: { gap: '12px' } },
-		h('button', { type: 'button', class: 'mu-play', 'aria-label': player.playing ? 'Pause' : 'Play', onClick: async () => { if (!player.buffers.length || player.id !== state.id) await pointPlayer(true); else player.toggle(); paintPlayer(); } },
-			player.playing ? '❚❚' : '▶'),
+		Help.explain(h('button', { type: 'button', class: 'mu-play', 'aria-label': player.playing ? 'Pause' : 'Play', onClick: async () => { if (!player.buffers.length || player.id !== state.id) await pointPlayer(true); else player.toggle(); paintPlayer(); } },
+			player.playing ? '❚❚' : '▶'), player.playing ? 'Pause' : 'Play', 'Plays the version picked under Versions, looping, all five layers started on the same sample as the game starts them.'),
 		h('div', { class: 'col', style: { gap: '0' } }, h('b', {}, `${effective(spec).name || state.id}`), h('span', { class: 'tiny muted' }, `${version === 'draft' ? 'Draft' : 'Live'} · `, ui.time)),
 		h('div', { class: 'fill' }),
-		field('Mood', segmented(MOODS.map(([k, label]) => [k, label]), player.mood, (m) => { player.mood = m; keep('mood', m); player.applyLevels(); paintPlayer(); }, { class: 'seg small' }), 'Each mood sets the layers to the levels the game uses there'),
-		h('label', { class: 'checkbox', title: 'The game plays music through a long, dark room' }, h('input', { type: 'checkbox', checked: player.room ? true : null, onChange: (e) => player.setRoom(e.target.checked) }), 'Room'));
+		helped(Help.MOOD, Help.explainEach(segmented(MOODS.map(([k, label]) => [k, label]), player.mood, (m) => { player.mood = m; keep('mood', m); player.applyLevels(); paintPlayer(); }, { class: 'seg small' }),
+			MOODS.map(([k, label, levels]) => [label, [Help.MOODS[k], LAYERS.map((name, i) => `${name} ${Math.round(levels[i] * 100)}%`).join(' · ')]]))),
+		Help.explain(h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: player.room ? true : null, onChange: (e) => player.setRoom(e.target.checked) }), 'Room'), ...Help.ROOM));
 	const mixer = h('div', { class: 'mu-mixer' }, LAYERS.map((name, i) => {
 		const off = i >= count;
 		const muted = player.muted.has(i);
-		return h('button', { type: 'button', class: `mu-strip${muted ? ' is-muted' : ''}${off ? ' is-off' : ''}`, disabled: off ? true : null, title: off ? 'This piece is written without it' : `${LAYER_WORDS[i]} · click to mute`,
-			onClick: () => { if (muted) player.muted.delete(i); else player.muted.add(i); player.applyLevels(); paintPlayer(); paintRoll(); } },
+		const [heading, what, how] = Help.MIXER(i);
+		return Help.explain(h('button', { type: 'button', class: `mu-strip${muted ? ' is-muted' : ''}${off ? ' is-off' : ''}`, 'aria-disabled': off ? 'true' : null,
+			onClick: () => { if (off) return; if (muted) player.muted.delete(i); else player.muted.add(i); player.applyLevels(); paintPlayer(); paintRoll(); } },
 		h('i', { class: 'dot', style: { background: LAYER_COLORS[i] } }), h('span', {}, name),
-		h('span', { class: 'mu-level' }, h('span', { style: { width: `${Math.round((off ? 0 : levels[i]) * 100)}%`, background: LAYER_COLORS[i] } })));
+		h('span', { class: 'mu-level' }, h('span', { style: { width: `${Math.round((off ? 0 : levels[i]) * 100)}%`, background: LAYER_COLORS[i] } }))),
+		heading, off ? [what, 'This piece is written without it (Layers: 3).'] : [what, muted ? 'Muted. Click to bring it back.' : how]);
 	}));
 	clear(ui.player).append(card(null, h('div', { class: 'col' }, transport, mixer)));
 }
@@ -634,7 +700,7 @@ async function paintRoll() {
 	const shownSpec = version === 'draft' && draftSpec ? draftSpec : liveSpec();
 	clear(ui.roll).append(card(`Notes · ${version}`, notes ? box : h('div', { class: 'empty' }, 'Nothing rendered to show yet.'), {
 		meta: notes ? `${notes.notes.length} notes · ${notes.bars} bars of ${notes.meter}/4 · ${effective(shownSpec).bpm} bpm` : '',
-		tools: h('span', { class: 'tools tiny muted' }, 'click to jump'), class: 'mu-roll-card' }));
+		tools: Help.explain(h('span', { class: 'tools tiny muted mu-help', tabindex: 0 }, 'click to jump', h('i', { class: 'mu-q' }, '?')), ...Help.ROLL), class: 'mu-roll-card' }));
 	if (!notes) return;
 	const draw = () => drawRoll(canvas, notes, shownSpec);
 	rollObserver?.disconnect();
