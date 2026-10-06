@@ -4,11 +4,14 @@
 //   node tools/data-browser/screenshot.mjs build/browser-shots 8 "#/overview" "#/skills/STRIKE?tab=rules" ...
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const [outDir, waitSeconds, ...routes] = process.argv.slice(2);
 mkdirSync(outDir, { recursive: true });
 const port = 9333;
-const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--remote-debugging-port=${port}`, '--user-data-dir=/tmp/cdp-prof', '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' });
+const browser = process.env.CHROME || (process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+const chrome = spawn(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${path.join(tmpdir(), 'cdp-prof')}`, '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let wsUrl = null;
 for (let i = 0; i < 40 && !wsUrl; i++) { await sleep(250); try { const v = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json(); wsUrl = v.webSocketDebuggerUrl; } catch {} }

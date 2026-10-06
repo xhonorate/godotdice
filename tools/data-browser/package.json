@@ -1,0 +1,15 @@
+{
+  "name": "deep-cut-data-browser",
+  "private": true,
+  "type": "module",
+  "description": "The balance browser and the soundtrack editor. node tools/data-browser/server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch-path=server.mjs --watch-path=music.mjs server.mjs",
+    "bake": "node music.mjs bake",
+    "screenshot": "node screenshot.mjs"
+  },
+  "dependencies": {
+    "wasm-media-encoders": "^0.7.0"
+  }
+}

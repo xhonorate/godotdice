@@ -13,9 +13,10 @@ import enemies from './views/enemies.js';
 import descent from './views/descent.js';
 import lapidaries from './views/lapidaries.js';
 import oddities from './views/oddities.js';
+import music from './views/music.js';
 
-const VIEWS = [overview, skills, stones, inclusions, dice, enemies, descent, lapidaries, oddities];
-const GROUPS = [['Analysis', ['overview']], ['Stones', ['skills', 'stones', 'inclusions']], ['The bowl', ['dice', 'lapidaries']], ['The mine', ['enemies', 'descent', 'oddities']]];
+const VIEWS = [overview, skills, stones, inclusions, dice, enemies, descent, lapidaries, oddities, music];
+const GROUPS = [['Analysis', ['overview']], ['Stones', ['skills', 'stones', 'inclusions']], ['The bowl', ['dice', 'lapidaries']], ['The mine', ['enemies', 'descent', 'oddities']], ['Sound', ['music']]];
 
 const SETTINGS_KEY = 'deepcut.browser.settings';
 const defaults = { bowl: ['D6', 'D6', 'D6', 'D8', 'D8'], rerolls: 2, depth: 5, party: 1, mine: 'QUARRY', samples: 4000 };
