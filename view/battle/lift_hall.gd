@@ -14,13 +14,16 @@ const BattleFx = preload("res://view/battle/battle_fx.gd")
 const WishingWell = preload("res://view/battle/wishing_well.gd")
 
 ## The four things a landing offers, set out so that from where the party stands none of them
-## is behind another: the fire away to the left, the bench deeper and a little right of the
-## lane the party walks, the well right and much nearer, and the cage furthest left and
+## is behind another: the fire near on the left and the well as near on the right, the bench
+## between them in the middle of the room and a little deeper, and the cage furthest left and
 ## deepest of all. Each is a good many degrees off its neighbours across the view.
 const CAGE := Vector3(-7.0, 0.0, -12.0)
 const CAMPFIRE := Vector3(-3.6, 0.0, -2.0)
-const BENCH := Vector3(2.4, 0.0, -5.2)
-const WELL := Vector3(3.9, 0.0, -3.2)
+const BENCH := Vector3(0.0, 0.0, -4.4)
+const WELL := Vector3(3.6, 0.0, -2.0)
+## Where the party stands to look at them (the stage's home), so a far name can be drawn
+## larger and read as easily as a near one.
+const VIEWPOINT := Vector3(0.0, 2.1, 5.2)
 const SHAFT_TOP := 9.5
 
 ## Where each thing is, to point at: name -> node.
@@ -68,12 +71,18 @@ func _slab(parent: Node3D, size: Vector3, color: Color, at: Vector3, material: M
 	return node
 
 func _label(parent: Node3D, key: String, text: String, at: Vector3, color: Color) -> void:
+	## Every name is drawn to read at about the same size from where the party stands, over
+	## whatever is in front of it, so the cage at the back is as plain as the fire at the front.
 	var label := Label3D.new()
 	label.text = text
 	label.font = DeepUi.display_font()
-	label.font_size = 44
-	label.pixel_size = 0.0045
-	label.outline_size = 10
+	label.font_size = 56
+	var reach: float = (parent.position + at).distance_to(VIEWPOINT)
+	label.pixel_size = 0.0042 * clampf(reach / 8.0, 1.0, 2.6)
+	label.outline_size = 14
+	label.no_depth_test = true
+	label.render_priority = 10
+	label.outline_render_priority = 9
 	label.outline_modulate = Color(0, 0, 0, 0.85)
 	label.modulate = Color(color, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -190,7 +199,7 @@ func _build_cage(rng: RandomNumberGenerator, daylight: bool, ground: Callable) -
 	inside.shadow_enabled = false
 	cage.add_child(inside)
 	_glow(cage, "up", Color("ffe0a0"), Vector3(1.6, 1.6, 0.6), 4.0)
-	_label(cage, "up", "Up: the lift", Vector3(0, 3.5, 0.4), Color("ffe0a0"))
+	_label(cage, "up", "Ride the lift up", Vector3(0, 3.5, 0.4), Color("ffe0a0"))
 	parts["up"] = cage
 
 # --- the respites --------------------------------------------------------------------------------
@@ -235,7 +244,7 @@ func _build_bench(rng: RandomNumberGenerator, ground: Callable) -> void:
 	bench.position = BENCH + Vector3(0, float(ground.call(BENCH.x, BENCH.z)) if ground.is_valid() else 0.0, 0)
 	## Turned to face where the party stands, so the lamp, the lens and the stone under them
 	## are all on the side the party sees.
-	bench.rotation.y = -0.23
+	bench.rotation.y = 0.0
 	add_child(bench)
 	var wood := _material(Color("7a5030"), 0.9)
 	wood.vertex_color_use_as_albedo = true
@@ -243,7 +252,9 @@ func _build_bench(rng: RandomNumberGenerator, ground: Callable) -> void:
 	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
 		_slab(bench, Vector3(0.1, 0.92, 0.1), Color("5a3a22"), Vector3(corner.x * 0.82, 0.46, corner.y * 0.36), wood, rng)
 	## A lamp on a crook, a lens on a stand, and a rough stone waiting under them.
-	var post := _slab(bench, Vector3(0.06, 1.0, 0.06), Color("3a3430"), Vector3(-0.6, 1.5, -0.3), _material(Color("3a3430"), 0.5, 0.6), rng, 0.0)
+	## Kept low: the bench stands in the lane the party walks on to the far wall, and the
+	## lamp would otherwise sweep through the view as they pass over it.
+	var post := _slab(bench, Vector3(0.06, 0.7, 0.06), Color("3a3430"), Vector3(-0.6, 1.35, -0.3), _material(Color("3a3430"), 0.5, 0.6), rng, 0.0)
 	post.rotation.z = 0.1
 	var lamp := MeshInstance3D.new()
 	var shade := CylinderMesh.new()
@@ -254,13 +265,13 @@ func _build_bench(rng: RandomNumberGenerator, ground: Callable) -> void:
 	lamp.mesh = shade
 	var brass := _material(Color("c9a26b"), 0.35, 0.8)
 	lamp.material_override = brass
-	lamp.position = Vector3(-0.35, 1.98, -0.25)
+	lamp.position = Vector3(-0.35, 1.68, -0.25)
 	bench.add_child(lamp)
 	_bench_lamp = OmniLight3D.new()
 	_bench_lamp.light_color = Color("fff0d0")
 	_bench_lamp.light_energy = 1.6
 	_bench_lamp.omni_range = 3.2
-	_bench_lamp.position = Vector3(-0.3, 1.75, -0.15)
+	_bench_lamp.position = Vector3(-0.3, 1.5, -0.15)
 	_bench_lamp.shadow_enabled = false
 	bench.add_child(_bench_lamp)
 	var ring := MeshInstance3D.new()
@@ -282,7 +293,7 @@ func _build_bench(rng: RandomNumberGenerator, ground: Callable) -> void:
 	rough.position = Vector3(0.35, 1.06, 0.05)
 	bench.add_child(rough)
 	_glow(bench, "appraise", DeepUi.INFO, Vector3(0.2, 1.6, 0.7))
-	_label(bench, "appraise", "Appraise", Vector3(0, 2.25, 0), DeepUi.INFO)
+	_label(bench, "appraise", "Appraise", Vector3(0, 2.0, 0), DeepUi.INFO)
 	parts["appraise"] = bench
 
 func _build_well(rng: RandomNumberGenerator, ground: Callable) -> void:
@@ -293,7 +304,7 @@ func _build_well(rng: RandomNumberGenerator, ground: Callable) -> void:
 	frame.position = WELL + Vector3(0, float(ground.call(WELL.x, WELL.z)) if ground.is_valid() else 0.0, 0)
 	## Turned only a little: the frame over the well wants to be across the view, or the two
 	## posts stand one behind the other and it reads as a stick in a ring.
-	frame.rotation.y = 0.18
+	frame.rotation.y = -0.18
 	add_child(frame)
 	_well = WishingWell.new()
 	_well.build(int(rng.randi()), DeepUi.INFO)
@@ -346,6 +357,6 @@ func _process(delta: float) -> void:
 		beam.light_energy = move_toward(beam.light_energy, lit * (1.0 + 0.06 * sin(_clock * 1.7 + float(key.length()))), delta * 6.0)
 	for key in _labels:
 		var label: Label3D = _labels[key]
-		var shown: float = 1.0 if key == _hover else (0.5 if _offered.has(key) else 0.0)
+		var shown: float = 1.0 if key == _hover else (0.88 if _offered.has(key) else 0.0)
 		label.modulate.a = move_toward(label.modulate.a, shown, delta * 6.0)
 		label.outline_modulate = Color(0, 0, 0, 0.85 * label.modulate.a)

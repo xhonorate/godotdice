@@ -1,2 +1,5 @@
 # Normalize EOL for all files that Git considers text files.
 * text=auto eol=lf
+
+# Batch files misbehave with LF endings (labels, goto), so they keep CRLF.
+*.cmd text eol=crlf

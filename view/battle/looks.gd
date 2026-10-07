@@ -352,7 +352,9 @@ func _process(delta: float) -> void:
 func set_look(id: String) -> void:
 	## Swap the pass. Each shader is compiled once and kept, so cycling is instant after the
 	## first look at each.
-	look = id if LOOKS.has(id) else "off"
+	## Every pass reads the normal-roughness buffer, which Forward+ alone draws: under
+	## Compatibility (the web build) the frame goes out as rendered.
+	look = id if LOOKS.has(id) and RenderingServer.get_current_rendering_method() != "gl_compatibility" else "off"
 	var entry: Dictionary = LOOKS[look]
 	amount = float(entry.amount)
 	size = float(entry.scale)

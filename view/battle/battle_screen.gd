@@ -76,7 +76,6 @@ var _plates: Dictionary = {}
 var _enemy_roll: RollBadge = null
 var _enemy_roll_id: String = ""
 var _enemy_panel: PanelContainer
-var _pinned_enemy: String = ""
 var _hud: Control
 var _depth_label: Label
 var _biome_label: Label
@@ -149,7 +148,6 @@ func _ready() -> void:
 	_build_hud()
 	_enemy_panel = EnemyPanel.new()
 	add_child(_enemy_panel)
-	_enemy_panel.pinned.connect(_pin_enemy)
 
 # --- the chamber ---------------------------------------------------------------------------
 
@@ -257,6 +255,8 @@ func _place_creatures() -> void:
 			var creature: CrystalCreature = CrystalCreature.make(str(foe.key), bool(foe.get("warden", false)), str(foe.get("echo_of", "")))
 			creature.position = target
 			creature.rest_position = target
+			if _chamber != null:
+				creature.ground = _chamber.ground
 			_world.add_child(creature)
 			_creatures[id] = creature
 			var after: float = stage.seal_remaining() if stage.has_method("seal_remaining") else 0.0
@@ -468,7 +468,6 @@ func show_state(battle: Dictionary, at_depth: int, new_forecast: Dictionary = {}
 
 func _forget_fight() -> void:
 	selected.clear()
-	_pinned_enemy = ""
 	if _enemy_panel != null:
 		_enemy_panel.reset()
 	_outcomes.clear()
@@ -511,7 +510,6 @@ func leave() -> void:
 		_enemy_panel.reset()
 	_hide_enemy_roll()
 	_hovered_creature = ""
-	_pinned_enemy = ""
 	_layout_wait = null
 	_battle_signature = ""
 	_stage_key = ""
@@ -1286,7 +1284,6 @@ func _sync_plates() -> void:
 				plate.queue_free()
 			plate = Plate.new()
 			plate.gui_input.connect(_plate_input.bind(id))
-			plate.expand.connect(func() -> void: _pin_enemy(id))
 			plate.inspect.connect(func(move: String) -> void: _inspect_creature(id, move))
 			plate.mouse_entered.connect(func() -> void: _hover_creature(id))
 			plate.mouse_exited.connect(func() -> void: _hover_creature(""))
@@ -1304,9 +1301,8 @@ func _sync_plates() -> void:
 class Plate extends PanelContainer:
 	## A creature's nameplate: health with a ghost of what this hand would take off it,
 	## its buffs, ordered dice and compact ability icons.
-	## Hover for the moveset, pin it with Moves, or right-click for the inspector.
+	## Its moveset opens in the table when it is targeted or hovered; right-click for the inspector.
 	signal inspect(move: String)
-	signal expand()
 	var fading: bool = false
 	var _name: Label
 	var _target: TextureRect
@@ -1335,7 +1331,6 @@ class Plate extends PanelContainer:
 		var footer := DeepUi.hbox(box, 6)
 		_abilities = DeepUi.hbox(footer, 6)
 		DeepUi.spacer(footer)
-		DeepUi.button(footer, "Moves", func() -> void: expand.emit(), 11)
 		gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 				inspect.emit("")
@@ -1383,7 +1378,7 @@ class Plate extends PanelContainer:
 			var tip: String = str(move.name) + " · " + DeepCreatures.trigger_words(move)
 			for effect in move.get("effects", []):
 				tip += "\n" + DeepCreatures.effect_words(effect)
-			var mark: String = GemIcons.emblem(str(move.name).to_upper())
+			var mark: String = EnemyPanel.move_glyph(move)
 			DeepUi.icon(_abilities, mark, 17, DeepUi.BAD, tip)
 	func fade() -> void:
 		fading = true
@@ -1396,40 +1391,70 @@ func _plate_input(event: InputEvent, id: String) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_target(id)
 
-func _pin_enemy(id: String) -> void:
-	_pinned_enemy = "" if _pinned_enemy == id else id
-	_sync_enemy_panel()
-
 func _sync_enemy_panel() -> void:
+	## The table is always open on someone: the creature acting, else the one under the
+	## pointer, else the player's target.
 	if _enemy_panel == null:
 		return
-	var id: String = _pinned_enemy if not _pinned_enemy.is_empty() else _hovered_creature
+	var id: String = _hovered_creature if not _hovered_creature.is_empty() else str(me().get("target", ""))
 	for foe in state.get("enemies", []):
 		if bool(foe.get("acting", false)) and int(foe.hp) > 0:
 			id = str(foe.id)
 			break
 	var foe: Dictionary = DeepBattle.enemy(state, id)
 	if foe.is_empty() or int(foe.get("hp", 0)) <= 0:
-		_enemy_panel.reset()
-		return
-	_enemy_panel.show_enemy(foe, int(state.get("turn", 0)), id == _pinned_enemy)
+		## A target that has just fallen hands the table to whoever is still standing.
+		var living: Array = DeepBattle.living(state.get("enemies", []))
+		if living.is_empty():
+			_enemy_panel.reset()
+			return
+		foe = living[0]
+	_enemy_panel.show_enemy(foe, int(state.get("turn", 0)))
 	_position_enemy_panel()
 
 func _position_enemy_panel() -> void:
+	## The table keeps to the right of the room (left of the party cards), and crosses to the
+	## left only when it would stand in front of a creature there and the left is clearer.
 	if _enemy_panel == null or not _enemy_panel.visible:
 		return
-	var living: Array = DeepBattle.living(state.get("enemies", []))
-	var index: int = 0
-	for i in range(living.size()):
-		if str(living[i].id) == _enemy_panel.enemy_id:
-			index = i
-	# Put the table opposite the acting creature; reserve the party cards on the right.
 	var right: float = size.x - 20.0
 	if not _ally_cards.is_empty():
 		right -= _ally_box.size.x + 20.0
-	var left: bool = index >= living.size() / 2
-	_enemy_panel.position = Vector2(20.0 if left else maxf(20.0, right - _enemy_panel.size.x), 82.0)
+	var panel_size: Vector2 = _enemy_panel.size
+	var at_right := Rect2(Vector2(maxf(20.0, right - panel_size.x), 82.0), panel_size)
+	var at_left := Rect2(Vector2(20.0, 82.0), panel_size)
+	var bodies: Array = _creature_rects()
+	## A little slack on the way back keeps a bobbing creature from flicking it side to side.
+	var on_left: bool = is_equal_approx(_enemy_panel.position.x, at_left.position.x) and at_left.position.x != at_right.position.x
+	var right_cover: float = _cover(at_right.grow(12.0 if on_left else 0.0), bodies)
+	if right_cover > 0.0 and _cover(at_left, bodies) < right_cover:
+		_enemy_panel.position = at_left.position
+	else:
+		_enemy_panel.position = at_right.position
 
+func _creature_rects() -> Array:
+	## Where each living creature and its nameplate stand on the screen.
+	var rects: Array = []
+	for foe in DeepBattle.living(state.get("enemies", [])):
+		var id: String = str(foe.id)
+		var plate: Variant = _plates.get(id, null)
+		if plate != null and is_instance_valid(plate) and plate.visible:
+			rects.append(Rect2(plate.global_position - global_position, plate.size))
+		var creature: CrystalCreature = _creature(id)
+		if creature == null or _camera == null or _headless:
+			continue
+		var feet: Vector2 = _to_screen(creature.rest_position)
+		var head: Vector2 = _to_screen(creature.rest_position + Vector3(0, creature.anchor.y, 0))
+		var tall: float = maxf(40.0, feet.y - head.y)
+		rects.append(Rect2(Vector2(feet.x - tall * 0.35, head.y), Vector2(tall * 0.7, tall)))
+	return rects
+
+static func _cover(area: Rect2, rects: Array) -> float:
+	var total: float = 0.0
+	for rect in rects:
+		var overlap: Rect2 = area.intersection(rect)
+		total += overlap.get_area()
+	return total
 func _inspect_creature(id: String, move: String) -> void:
 	var foe: Dictionary = DeepBattle.enemy(state, id)
 	if not foe.is_empty():

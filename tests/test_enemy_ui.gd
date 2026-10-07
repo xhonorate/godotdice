@@ -33,10 +33,10 @@ func _run() -> void:
 	var foe: Dictionary = state.enemies[0]
 	for face in foe.dice[0].faces:
 		face.value = 6
-	panel.show_enemy(foe, 1, true)
+	panel.show_enemy(foe, 1)
 	await process_frame
 	check(panel.visible and panel._rows.size() == 2, "pinned planning panel shows the entire moveset")
-	check(panel._revealed == 0 and panel._hint.text == "Damage and debuffs affect all players", "planning shows no roll or result")
+	check(panel._revealed == 0 and not panel._hint.visible, "planning shows no roll or result")
 	check(panel._rows[0].numbers[0].text == "Rolled value", "planning shows the formula")
 	DeepBattle.start_resolution(state)
 	var roll_event: Dictionary = {}
@@ -44,7 +44,7 @@ func _run() -> void:
 		var event: Dictionary = DeepBattle.step(state, rng.dice, rng.creatures)
 		if str(event.kind) == "enemy_roll":
 			roll_event = event
-	panel.show_enemy(foe, 1, true)
+	panel.show_enemy(foe, 1)
 	panel.roll_die(roll_event)
 	## The die itself turns over the creature's head (the battle screen's); the table only
 	## says it is waiting on it, and stays the one size.
@@ -52,34 +52,34 @@ func _run() -> void:
 	check(panel._revealed == 0, "new result stays hidden during the roll")
 	check(panel._rows.all(func(row: Dictionary) -> bool: return str(row.badge.text).is_empty()), "activation is not leaked before the die lands")
 	await panel._tween.finished
-	check(panel._revealed == 1 and panel._slots.size() == 1 and panel._hint.text == "Damage and debuffs affect all players", "landing reveals the rolled value")
+	check(panel._revealed == 1 and panel._slots.size() == 1 and not panel._hint.visible, "landing reveals the rolled value")
 	check(panel._rows.all(func(row: Dictionary) -> bool: return str(row.badge.text) == "READY"), "six activates Bite and Latch")
 	var hp: int = int(state.players[0].hp)
 	var ability: Dictionary = DeepBattle.step(state, rng.dice, rng.creatures)
-	panel.show_enemy(foe, 1, true)
+	panel.show_enemy(foe, 1)
 	panel.power(ability)
 	check(panel._rows[0].badge.text == "ACTING" and panel._rows[0].numbers[0].text == "1", "power-up highlights the active row and starts its count at one")
 	await create_timer(float(ability.duration)).timeout
 	check(panel._rows[0].numbers[0].text == "6" and int(state.players[0].hp) == hp, "count reaches six before damage happens")
 	var hit: Dictionary = DeepBattle.step(state, rng.dice, rng.creatures)
-	panel.show_enemy(foe, 1, true)
+	panel.show_enemy(foe, 1)
 	panel.impact(hit)
 	check(int(state.players[0].hp) == hp - 6 and panel._rows[0].badge.text == "DONE", "impact applies damage and completes the row")
 	var latch: Dictionary = DeepBattle.step(state, rng.dice, rng.creatures)
-	panel.show_enemy(foe, 1, true)
+	panel.show_enemy(foe, 1)
 	panel.power(latch)
 	panel.reset()
 	await create_timer(0.9).timeout
 	check(not panel.visible and panel._animations.is_empty(), "closing during an animation cancels all callbacks")
-	panel.show_enemy(foe, 1, true)
+	panel.show_enemy(foe, 1)
 	check(panel._revealed == 1, "reconnecting in an ability restores the revealed roll")
 	check(panel._table.get_child_count() == panel._rows.size() + (1 if not str(foe.get("gimmick", "")).is_empty() else 0), "the creature's passive is read out with its moves")
 	while DeepBattle.has_steps(state):
 		DeepBattle.step(state, rng.dice, rng.creatures)
-	panel.show_enemy(foe, int(state.turn), true)
+	panel.show_enemy(foe, int(state.turn))
 	check(panel._revealed == 0 and panel._rows[0].numbers[0].text == "Rolled value", "next turn resets results and amount formulas")
 	DeepBattle._apply(state, state.players[0], {"kind": "clouded", "target": "enemy", "amount": 2}, rng.dice)
-	panel.show_enemy(foe, int(state.turn), true)
+	panel.show_enemy(foe, int(state.turn))
 	var clouded: int = int(foe.clouded_move)
 	check(panel._rows[clouded].badge.text == "CLOUDED" and float(panel._rows[clouded].panel.modulate.a) < 0.5, "the disabled enemy ability is visibly clouded during planning")
 	panel.free()
@@ -98,20 +98,21 @@ func _run() -> void:
 	check(raised_marks.mouse_filter == Control.MOUSE_FILTER_IGNORE and bool(gem_card.get_meta("gem_inspection_wired", false)),
 		"raised-stat overlay leaves socket gems right-clickable for contextual details")
 	var aim: String = str(party_state.players[0].target)
-	battle._pin_enemy("e1")
 	await process_frame
-	check(battle._enemy_panel.visible and battle._pinned_enemy == "e1", "Moves pins the selected enemy's full table")
-	check(str(party_state.players[0].target) == aim, "pinning leaves the player's attack target unchanged")
-	battle._pin_enemy("e1")
-	check(not battle._enemy_panel.visible, "unpinning closes an unhovered inactive table")
-	battle._pin_enemy("e1")
+	check(battle._enemy_panel.visible and battle._enemy_panel.enemy_id == aim, "the target's full table is open without hovering")
+	battle._hover_creature("e1" if aim != "e1" else "e0")
+	check(battle._enemy_panel.enemy_id != aim, "hovering another creature shows its table instead")
+	check(str(party_state.players[0].target) == aim, "hovering leaves the player's attack target unchanged")
+	battle._hover_creature("")
+	check(battle._enemy_panel.visible and battle._enemy_panel.enemy_id == aim, "the table returns to the target when the pointer leaves")
+	party_state.players[0].target = "e1"
 	party_state.enemies[0].acting = true
 	party_state.phase = "resolving"
 	battle.show_state(party_state, 1)
 	await process_frame
 	await process_frame
 	battle._position_enemy_panel()
-	check(battle._enemy_panel.enemy_id == "e0", "the acting enemy takes precedence over the pinned enemy")
+	check(battle._enemy_panel.enemy_id == "e0", "the acting enemy takes precedence over the target")
 	check(not battle._enemy_panel.get_global_rect().intersects(battle._ally_box.get_global_rect()), "the acting panel leaves ally cards visible")
 	## The die a creature rolls turns over its own head, and goes when its action does.
 	var width_before: float = battle._enemy_panel.size.x
@@ -124,7 +125,7 @@ func _run() -> void:
 	battle._headless = true
 	party_state.enemies[0].acting = false
 	battle.show_state(party_state, 1)
-	check(battle._enemy_panel.enemy_id == "e1", "the pinned enemy returns when the action finishes")
+	check(battle._enemy_panel.enemy_id == "e1", "the target's table returns when the action finishes")
 	# Exercise the actual count-up tween even under the headless test renderer.
 	battle._headless = false
 	battle._charge_resonance(125)

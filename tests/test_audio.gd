@@ -13,6 +13,7 @@ func _init() -> void:
 	_test_mixer()
 	_test_score()
 	_test_composer()
+	_test_baked()
 	_test_director()
 	print("Sound keepers: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -198,6 +199,27 @@ func _test_composer() -> void:
 		check(air != null and air.loop_mode == AudioStreamWAV.LOOP_FORWARD, "%s air loops" % family)
 		check(air != null and absf(air.get_length() - DeepComposer.AIR_SECONDS) < 0.1, "%s air is the length it says" % family)
 		check(air != null and _peak_of(air) > 0.2, "%s air is audible" % family)
+	## A piece written records every note it lays down, for the editor and MIDI.
+	var record: Array = []
+	DeepComposer.write(DeepScore.track("home_bench"), record)
+	check(record.size() > 100 and record.all(func(n: Array) -> bool: return n.size() == 6 and int(n[0]) < 3), "a written piece lists its notes, layer by layer")
+	check(record.any(func(n: Array) -> bool: return str(n[1]).begins_with("drum:")), "the drums are listed with the notes")
+
+func _test_baked() -> void:
+	## What the game plays: every piece and every air baked, each layer of a piece the same
+	## length as the others and as the piece, so they loop together.
+	for id in DeepScore.TRACKS:
+		var spec: Dictionary = DeepScore.track(str(id))
+		var strips: Array = DeepMusic.baked(str(id))
+		check(strips.size() == clampi(int(spec.get("layers", 5)), 1, 5), "%s is baked in every layer it is written in (bake: node tools/data-browser/music.mjs bake %s)" % [id, id])
+		var p: Dictionary = DeepComposer.plan(spec)
+		var want: float = float(p.total) / float(DeepComposer.RATE)
+		for i in range(strips.size()):
+			check(absf(strips[i].get_length() - want) < 0.01, "%s's baked %s is as long as the piece (%.3f s, not %.3f)" % [id, DeepComposer.LAYERS[i], strips[i].get_length(), want])
+			check(strips[i] is AudioStreamOggVorbis and strips[i].loop, "%s's baked %s loops" % [id, DeepComposer.LAYERS[i]])
+	for family in DeepScore.AIR.values():
+		var air: AudioStream = DeepMusic.baked_air(str(family))
+		check(air != null and absf(air.get_length() - DeepComposer.AIR_SECONDS) < 0.1, "%s air is baked" % family)
 
 func _test_director() -> void:
 	## Where the party is, heard: the workshop, a walk, a fight, a Warden.

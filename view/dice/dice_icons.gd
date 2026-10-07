@@ -177,7 +177,7 @@ static func glyph_for(described: Dictionary) -> String:
 		"distinct": return "distinct"
 		"value": return "face"
 		"at_most", "below": return "low"
-		"pyrite": return "coin"
+		"pyrite", "fizzles": return "coin"
 		"at_least", "high_pct_at_least": return "peak"
 		"total_pct_at_least": return "total_high"
 		"total_pct_at_most": return "total_low"

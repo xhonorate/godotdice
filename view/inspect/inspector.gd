@@ -12,6 +12,7 @@ extends CanvasLayer
 
 const GemView = preload("res://view/gems/gem_view.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
+const EnemyPanel = preload("res://view/battle/enemy_panel.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
@@ -342,6 +343,8 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		StoneCard.staked_mark(tags, item, field, 13)
 	if reference:
 		DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13, "One of these has passed through your hands. The vault keeps the page, not the stone.")
+	elif bool(item.get("temporary", false)):
+		DeepUi.pill(tags, "hourglass", "Temporary · lent for this run", DeepUi.INFO, 13, "Filled a locked socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
 	elif DeepStone.is_fragile(item):
 		DeepUi.pill(tags, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 13)
 	else:
@@ -1046,7 +1049,7 @@ func _move_row(parent: Node, move: Dictionary, highlight: bool) -> void:
 	var panel := DeepUi.panel(parent, Color(DeepUi.BAD, 0.12) if highlight else Color(1, 1, 1, 0.03), Color(DeepUi.BAD, 0.6) if highlight else Color(0, 0, 0, 0), 8, 8)
 	var box := DeepUi.vbox(panel, 4)
 	var head := DeepUi.hbox(box, 10)
-	DeepUi.icon(head, GemIcons.emblem(str(move.get("name", "")).to_upper()), 20, DeepUi.BAD if highlight else DeepUi.MUTED)
+	DeepUi.icon(head, EnemyPanel.move_glyph(move), 20, DeepUi.BAD if highlight else DeepUi.MUTED)
 	DeepUi.title(head, str(move.get("name", "")), 16, DeepUi.PAPER)
 	DeepUi.label(box, DeepCreatures.trigger_words(move), 12, DeepUi.DIM)
 	for effect in move.get("effects", []):

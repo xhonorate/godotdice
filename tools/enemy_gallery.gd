@@ -33,7 +33,7 @@ func _run() -> void:
 	screen.local_id = "p"
 	screen.show_state(state.duplicate(true), 1, DeepBattle.forecast(state, "p"))
 	await create_timer(2.2).timeout
-	screen._pin_enemy("e0")
+	screen._hover_creature("e0")
 	if moment != "planning":
 		DeepBattle.start_resolution(state)
 		while DeepBattle.has_steps(state):

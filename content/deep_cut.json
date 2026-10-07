@@ -3,6 +3,14 @@
   "version": 1,
   "constants": {
     "starting_rail_cap": 3,
+    "socket_unlock_gold": [300, 1200, 4800],
+    "assay_rate": 5,
+    "temporary_depth": 4,
+    "commission_slots": 3,
+    "commission_payout_mult": 2.5,
+    "commission_reroll_gold": 10,
+    "commission_reroll_step": 10,
+    "commission_requirement_pct": 50,
     "carat_max": 24,
     "rerolls": 2,
     "landing_every": 4,
@@ -254,7 +262,7 @@
     "CRUSH": {
       "name": "Crush",
       "color": "RED",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["triple", "attack"],
       "text": "Damage three times the matched value.",
       "trigger": {
@@ -471,7 +479,7 @@
     "CROSSCUT": {
       "name": "Crosscut",
       "color": "RED",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["odd"],
       "text": "Deal 3 damage per odd die.",
       "trigger": {
@@ -507,7 +515,7 @@
     "DETONATE": {
       "name": "Detonate",
       "color": "RED",
-      "rarity": "RARE",
+      "rarity": "UNCOMMON",
       "tags": ["pair"],
       "text": "Consume all target Poison. Deal 4 damage per stack consumed.",
       "trigger": {
@@ -887,7 +895,7 @@
     "MORTAR": {
       "name": "Mortar",
       "color": "BLUE",
-      "rarity": "RARE",
+      "rarity": "UNCOMMON",
       "tags": ["always"],
       "text": "Gain Retain equal to {share}% of your current Block.",
       "trigger": {
@@ -967,7 +975,7 @@
     "GRAFT": {
       "name": "Graft",
       "color": "GREEN",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["two_pair", "sustain"],
       "text": "Heal equal to both pair values.",
       "trigger": {
@@ -1106,7 +1114,7 @@
     "THRIVE": {
       "name": "Thrive",
       "color": "GREEN",
-      "rarity": "RARE",
+      "rarity": "UNCOMMON",
       "tags": ["guard", "sustain"],
       "text": "Heal {share}% of your current block.",
       "numbers": {
@@ -1242,7 +1250,7 @@
     "HEX": {
       "name": "Hex",
       "color": "VIOLET",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["high", "control"],
       "text": "Apply 1 Bound.",
       "trigger": {
@@ -1508,7 +1516,7 @@
     "MIST": {
       "name": "Mist",
       "color": "VIOLET",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["pair", "control"],
       "text": "Apply 1 Clouded.",
       "trigger": {
@@ -1535,7 +1543,7 @@
     "ETCH": {
       "name": "Etch",
       "color": "VIOLET",
-      "rarity": "RARE",
+      "rarity": "UNCOMMON",
       "tags": ["pair", "control"],
       "text": "Apply 2 Marked.",
       "trigger": {
@@ -1662,7 +1670,7 @@
     "LUCKY_SEVEN": {
       "name": "Lucky Seven",
       "color": "GOLD",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["value", "fortune", "attack"],
       "text": "Deal 7 damage and gain {pay} Pyrite per rolled 7.",
       "numbers": {
@@ -1827,7 +1835,7 @@
     "PROSPECT": {
       "name": "Prospect",
       "color": "GOLD",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["distinct", "fortune"],
       "text": "Gain 1 Sparkle.",
       "trigger": {
@@ -1889,7 +1897,7 @@
     "APPRAISE": {
       "name": "Appraise",
       "color": "GOLD",
-      "rarity": "RARE",
+      "rarity": "UNCOMMON",
       "tags": ["pair"],
       "text": "Appraise 1 raw stone in your bag. Deal damage equal to its value.",
       "trigger": {
@@ -1951,6 +1959,52 @@
       "numbers": {
         "share": {
           "ladder": [10, 15, 20, 25, 30]
+        }
+      }
+    },
+    "TAILINGS": {
+      "name": "Tailings",
+      "color": "GOLD",
+      "rarity": "UNCOMMON",
+      "tags": ["fizzle", "fortune"],
+      "text": "Gain {pay} Pyrite for each gem that fizzled earlier this turn. Each fizzle pays once.",
+      "trigger": {
+        "kind": "fizzles",
+        "ladder": [1, 1, 1, 1, 1]
+      },
+      "effects": [
+        {
+          "kind": "gold",
+          "target": "self",
+          "amount": {
+            "op": "*",
+            "args": [
+              {
+                "term": "fizzles"
+              },
+              {
+                "ladder": [1, 2, 3, 4, 5]
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Gain 1 more Pyrite per paid fizzle.",
+        "effects": [
+          {
+            "kind": "gold",
+            "target": "self",
+            "amount": {
+              "term": "fizzles"
+            },
+            "scale": "none"
+          }
+        ]
+      },
+      "numbers": {
+        "pay": {
+          "ladder": [1, 2, 3, 4, 5]
         }
       }
     },
@@ -2041,7 +2095,7 @@
     "MIRROR": {
       "name": "Mirror",
       "color": "WHITE",
-      "rarity": "UNCOMMON",
+      "rarity": "COMMON",
       "tags": ["hand"],
       "text": "Change one die to join your strongest matching set.",
       "trigger": {
@@ -2068,7 +2122,7 @@
     "CASCADE": {
       "name": "Cascade",
       "color": "WHITE",
-      "rarity": "RARE",
+      "rarity": "COMMON",
       "tags": ["pair", "hand"],
       "text": "An extra reroll next turn.",
       "trigger": {
@@ -2095,7 +2149,7 @@
     "FACET": {
       "name": "Facet",
       "color": "WHITE",
-      "rarity": "RARE",
+      "rarity": "UNCOMMON",
       "tags": ["hand"],
       "text": "Adjacent gems gain 1 Cut this fight.",
       "trigger": {
@@ -7984,7 +8038,7 @@
       "tier": 1,
       "key": "QUARRY",
       "palette": "c9a26b",
-      "text": "Old galleries under the workshop. Ticks, rats and slimes near the top, moles, golems and wyrms below, and the Drill at the bottom.",
+      "text": "Old galleries under the workshop, worked out long ago. The creatures here are simple, and the stones are small.",
       "depth": 16,
       "warden_depths": [8, 12],
       "wardens": ["THE_FOREMAN", "THE_REGENT"],
@@ -7998,8 +8052,10 @@
       },
       "hp_mult": 1.0,
       "damage_mult": 1.0,
-      "loadout_sockets": 3,
       "start_pyrite": 0,
+      "fare_gold": 0,
+      "insurance_gold": 15,
+      "first_conquest_gold": 150,
       "biomes": ["galleries", "galleries_deep", "galleries_quartz"],
       "color_weights": {
         "RED": 100,
@@ -8076,7 +8132,7 @@
       "tier": 2,
       "key": "SEEPS",
       "palette": "4fb3a9",
-      "text": "Water finds every crack down here. Eels, drowned miners and lampreys in the flooded drifts; the Lock-Keeper, the Drowned Choir and, in the Black Sump, the Undertow.",
+      "text": "Water finds every crack down here. The flooded drifts are full of things that drown, drag and wear you down slowly.",
       "depth": 20,
       "warden_depths": [8, 16],
       "wardens": ["THE_LOCKKEEPER", "THE_DROWNED_CHOIR"],
@@ -8090,8 +8146,10 @@
       },
       "hp_mult": 1.8,
       "damage_mult": 1.3,
-      "loadout_sockets": 6,
       "start_pyrite": 120,
+      "fare_gold": 60,
+      "insurance_gold": 15,
+      "first_conquest_gold": 250,
       "biomes": ["seeps", "seeps_flooded", "seeps_sump"],
       "color_weights": {
         "RED": 100,
@@ -8156,7 +8214,7 @@
       "tier": 3,
       "key": "GLASS_VEINS",
       "palette": "9b8cff",
-      "text": "Crystal caves that punish straights, rerolls and single-colour rails. The Glazier, the Kaleidoscope, and the Prismarch in the Black Glass.",
+      "text": "Crystal caves that punish straights, rerolls and single-colour rails.",
       "depth": 24,
       "warden_depths": [8, 16],
       "wardens": ["THE_GLAZIER", "THE_KALEIDOSCOPE"],
@@ -8170,8 +8228,10 @@
       },
       "hp_mult": 3.2,
       "damage_mult": 1.7,
-      "loadout_sockets": 6,
       "start_pyrite": 200,
+      "fare_gold": 100,
+      "insurance_gold": 25,
+      "first_conquest_gold": 400,
       "biomes": ["crystal", "crystal_prism", "crystal_dark"],
       "color_weights": {
         "RED": 100,
@@ -8236,7 +8296,7 @@
       "tier": 4,
       "key": "WARRENS",
       "palette": "8fbf5a",
-      "text": "Fungus and roots. Healing comes hard down here and a few things can shed their poison, but nothing is immune to it. The Gardener, the Spore Mother, and the Heartrot in the Rot.",
+      "text": "Fungus and roots. Healing comes hard down here and a few things can shed their poison, but nothing is immune to it.",
       "depth": 24,
       "warden_depths": [8, 16],
       "wardens": ["THE_GARDENER", "THE_SPORE_MOTHER"],
@@ -8250,8 +8310,10 @@
       },
       "hp_mult": 5.8,
       "damage_mult": 2.2,
-      "loadout_sockets": 6,
       "start_pyrite": 280,
+      "fare_gold": 140,
+      "insurance_gold": 35,
+      "first_conquest_gold": 600,
       "biomes": ["fungal", "fungal_bloom", "fungal_rot"],
       "color_weights": {
         "RED": 100,
@@ -8318,7 +8380,7 @@
       "tier": 5,
       "key": "FURNACE",
       "palette": "ef7b3f",
-      "text": "Lava and slag. Creatures set you burning through the turn, ignore your block, and shrink and blank your dice. The Smelter, the Anvil Knight, and the Kiln Wyrm in the Lavafalls.",
+      "text": "Lava and slag. Creatures set you burning through the turn, ignore your block, and shrink and blank your dice.",
       "depth": 28,
       "warden_depths": [12, 20],
       "wardens": ["THE_SMELTER", "THE_ANVIL_KNIGHT"],
@@ -8332,8 +8394,10 @@
       },
       "hp_mult": 10.5,
       "damage_mult": 2.85,
-      "loadout_sockets": 6,
       "start_pyrite": 360,
+      "fare_gold": 180,
+      "insurance_gold": 45,
+      "first_conquest_gold": 900,
       "biomes": ["magma", "magma_glow", "magma_falls"],
       "color_weights": {
         "RED": 100,
@@ -8399,7 +8463,7 @@
       "tier": 6,
       "key": "GEODE",
       "palette": "d8a6ef",
-      "text": "Crystal and gold. Creatures steal pyrite and gems, and some limit how much one hit can take off them. The Assayer, the Collector, and the Hollow Crown in the Amethyst Throat.",
+      "text": "Crystal and gold. Creatures steal pyrite and gems, and some limit how much one hit can take off them.",
       "depth": 32,
       "warden_depths": [12, 24],
       "wardens": ["THE_ASSAYER", "THE_COLLECTOR"],
@@ -8413,8 +8477,10 @@
       },
       "hp_mult": 19.0,
       "damage_mult": 3.7,
-      "loadout_sockets": 6,
       "start_pyrite": 450,
+      "fare_gold": 225,
+      "insurance_gold": 55,
+      "first_conquest_gold": 1300,
       "biomes": ["geode", "geode_gold", "geode_amethyst"],
       "color_weights": {
         "RED": 100,
@@ -8425,7 +8491,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": ["JACKPOT", "LUCKY_SEVEN", "DOUBLE_DOWN", "STAKE", "APPRAISE", "OVERKILL", "PRISM"],
+      "batch": ["JACKPOT", "LUCKY_SEVEN", "DOUBLE_DOWN", "STAKE", "APPRAISE", "TAILINGS", "OVERKILL", "PRISM"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -8480,7 +8546,7 @@
       "tier": 7,
       "key": "RIFT",
       "palette": "8b7dff",
-      "text": "Below the Geode the rock stops making sense, and it does not end. Its creatures slow your Resonance, cap big hits, punish long chains and unmake your dice; its Wardens are the bosses above, remembered, and every fifth is the Infinite Void.",
+      "text": "Below the Geode the rock stops making sense, and it does not end. Its creatures slow your Resonance, cap big hits, punish long chains and unmake your dice.",
       "depth": 0,
       "warden_depths": [],
       "wardens": ["THE_DRILL", "THE_UNDERTOW", "THE_PRISMARCH", "THE_HEARTROT", "THE_KILN_WYRM"],
@@ -8500,8 +8566,10 @@
       },
       "hp_mult": 34.0,
       "damage_mult": 4.8,
-      "loadout_sockets": 6,
       "start_pyrite": 550,
+      "fare_gold": 275,
+      "insurance_gold": 70,
+      "first_conquest_gold": 0,
       "biomes": ["rift", "rift_shattered", "rift_echo"],
       "color_weights": {
         "RED": 100,
@@ -8932,12 +9000,12 @@
     "CARVER": {
       "name": "The Carver's Bench",
       "room": "carver",
-      "text": "Chisels and etching needles laid out under a lamp. Dice faces can be recut or etched here.",
+      "text": "Chisels and etching needles laid out under a lamp. Dice faces can be raised, lowered or etched here.",
       "choices": [
         {
           "id": "raise",
           "label": "Raise a face",
-          "text": "Pick a die face and raise it by 1. There's no cap. A blank face becomes a 1.",
+          "text": "Pick a die face and raise it by 1. There's no cap. A blank face becomes a 1. Any etching on it stays.",
           "needs": "die_face",
           "action": {
             "kind": "raise_face",
@@ -8945,12 +9013,13 @@
           }
         },
         {
-          "id": "recut",
-          "label": "Recut a face",
-          "text": "Pick two faces on the same die. The first is recut to show the second one's number.",
-          "needs": "die_face_pair",
+          "id": "lower",
+          "label": "Lower a face",
+          "text": "Pick a die face and lower it by 1, down to 1. Any etching on it stays. Good for gems that want low rolls.",
+          "needs": "die_face",
           "action": {
-            "kind": "copy_face"
+            "kind": "lower_face",
+            "amount": 1
           }
         },
         {

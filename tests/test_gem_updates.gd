@@ -9,6 +9,7 @@ func _init() -> void:
 	status_gems()
 	lifeline()
 	fortune()
+	tailings()
 	upgrades()
 	edge_cases()
 	persistence()
@@ -87,8 +88,8 @@ func triggers() -> void:
 	check(cast(f, "DOUBLE_DOWN", [1, 2, 3, 4, 5]).kind == "gem_fizzle", "Double Down needs two ones")
 	check(cast(f, "DOUBLE_DOWN", [1, 1, 3, 4, 5]).kind == "gem_fire", "Double Down accepts two ones")
 	check(DeepContent.skill("SPALL").rarity == "COMMON" and DeepContent.skill("ANCHOR").rarity == "COMMON", "rarities updated")
-	check(DeepContent.section("skills").size() == 65, "all 65 skills are present")
-	for key in ["CROSSCUT", "DETONATE", "SHELTER", "MORTAR", "SIPHON", "STAKE", "APEX", "ENRICH", "APPRAISE", "GILDED_ARMOR"]:
+	check(DeepContent.section("skills").size() == 66, "all 66 skills are present")
+	for key in ["CROSSCUT", "DETONATE", "SHELTER", "MORTAR", "SIPHON", "STAKE", "APEX", "ENRICH", "APPRAISE", "GILDED_ARMOR", "TAILINGS"]:
 		check(DeepForge.skill_pool(DeepContent.mine("RIFT")).has(key), key + " is in the deepest pool")
 	for key in ["POULTICE", "UNDERTOW", "SILENCE", "LEVEL", "INVERT", "MYCELIUM"]:
 		check(DeepContent.skill(key).is_empty(), key + " was not added")
@@ -242,6 +243,51 @@ func fortune() -> void:
 	## Gilded Armor reads a straight now that it wears the trigger Windfall used to ask for.
 	## On its own fixture, because a gem that stays dark spends the amplification above.
 	check(cast(setup(), "GILDED_ARMOR").kind == "gem_fizzle", "Gilded Armor needs a straight")
+
+func tailings() -> void:
+	## Two dark gems ahead of it: Tailings pays for each, once, and never again this turn.
+	var f: Dictionary = setup()
+	equip(f, "CRUSH", false, 4, 0)
+	equip(f, "CRUSH", false, 4, 1)
+	equip(f, "TAILINGS", false, 4, 2)
+	equip(f, "CRUSH", false, 4, 3)
+	rolls(f, [1, 2, 3, 4, 9])
+	var prediction: Dictionary = DeepBattle.forecast(f.state, "p0")
+	check(prediction.sockets[2].active and int(prediction.totals.gold) == 10, "forecast pays Perfect Tailings 5 Pyrite for each of two earlier fizzles")
+	check(int(f.player.gold) == 0, "the Tailings forecast leaves the live purse alone")
+	check(not DeepStone.evaluate(f.player.rail[2], f.player.hand, DeepBattle.rail_context(f.state, f.player, 2)).active, "Tailings with nothing fizzled stays dark")
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+	var event: Dictionary = DeepBattle.resolve_gem(f.state, f.player, 2, {}, f.rng.dice)
+	check(event.kind == "gem_fire" and int(f.player.gold) == 10, "Tailings pays for both earlier fizzles")
+	event = DeepBattle.resolve_gem(f.state, f.player, 2, {"retrigger": true}, f.rng.dice)
+	check(event.kind == "gem_fizzle" and int(f.player.gold) == 10, "a replayed Tailings cannot collect the same fizzles twice")
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	event = DeepBattle.resolve_gem(f.state, f.player, 2, {"retrigger": true}, f.rng.dice)
+	check(event.kind == "gem_fizzle", "a socket fizzling again the same turn does not pay again")
+	DeepBattle.resolve_gem(f.state, f.player, 3, {}, f.rng.dice)
+	DeepBattle.resolve_gem(f.state, f.player, 2, {"retrigger": true}, f.rng.dice)
+	check(int(f.player.gold) == 15, "a fresh fizzle after Tailings is paid on its next go")
+	for cut in range(5):
+		f = setup()
+		equip(f, "CRUSH", false, 4, 0)
+		equip(f, "TAILINGS", false, cut, 1)
+		rolls(f, [1, 2, 3, 4, 9])
+		DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+		DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+		check(int(f.player.gold) == cut + 1, "Tailings pays %d per fizzle at Cut %d" % [cut + 1, cut])
+	f = setup()
+	equip(f, "CRUSH", false, 4, 0)
+	equip(f, "CRUSH", false, 4, 1)
+	equip(f, "TAILINGS", true, 4, 2)
+	rolls(f, [1, 2, 3, 4, 9])
+	for socket in range(3):
+		DeepBattle.resolve_gem(f.state, f.player, socket, {}, f.rng.dice)
+	check(int(f.player.gold) == 17, "Flawless Tailings pays 10 × 1.5 and one exact Pyrite more per fizzle")
+	## A new turn clears what was paid along with what fizzled.
+	f.state.queue = [{"kind": "rail_begin", "unit": "p0"}]
+	DeepBattle._perform(f.state, f.state.queue.pop_front(), f.rng.dice, f.rng.creatures)
+	check(f.player.tailings_paid.is_empty() and f.player.fizzled_sockets.is_empty(), "the rail's next turn starts with nothing paid")
 
 func upgrades() -> void:
 	var f: Dictionary = setup()

@@ -372,6 +372,7 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			return "You start %d health down." % loss
 		"ore":
 			unit.ore = maxi(0, int(unit.get("ore", 0)) + amount)
+			DeepEconomy.earned(unit, amount)
 			return ("You take %d pyrite." % amount) if amount >= 0 else ("You give up %d pyrite." % -amount)
 		"soft_rock":
 			if not unit.has("run_mods"):

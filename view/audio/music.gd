@@ -10,9 +10,11 @@ extends Node
 ## Warden's hall adds the horns; winning lets them go again. Deeper in a mine the bass and
 ## the tune come up even between fights, and near the bottom a breath of the horns stays.
 ##
-## A change of place crossfades to the new piece once it is written. Pieces are written on a
-## worker thread, the one wanted now first and the one most likely next (the mine picked on
-## the map) after it, so going down rarely waits; until it is ready the old piece plays on.
+## A change of place crossfades to the new piece. Every piece is baked ahead of time, one Ogg
+## loop a layer in `audio/music/<id>/` (see `score.gd`), and read from there. A piece that has
+## not been baked yet (one just added to the score) is written here instead, on a worker
+## thread, the one wanted now first and the one most likely next after it; until it is ready
+## the old piece plays on.
 ##
 ## Under the music, on its own bus under the effects slider, is the air: a loop of wind, drips
 ## and whatever else lives in that rock, crossfaded the same way.
@@ -29,6 +31,8 @@ const FALL: float = 4.5
 const CROSSFADE: float = 3.0
 ## The air sits well under the music and the effects.
 const AIR_LEVEL: float = 0.3
+## Where the baked pieces are: <id>/<layer>.ogg, and air/<family>.ogg.
+const BAKED: String = "res://audio/music"
 
 ## How loud each layer plays in each mood, [bed, pulse, melody, drive, peril], before depth.
 const MOODS: Dictionary = {
@@ -49,6 +53,7 @@ static var _service: DeepMusic = null
 static var _master: float = 0.8
 static var _level: float = 0.6
 static var _picks: Dictionary = {}
+static var _baked_ids: Dictionary = {}
 
 var _where: Dictionary = {"place": DeepScore.HOME, "mood": "home", "deep": 0.0}
 var _preview: Dictionary = {}
@@ -116,7 +121,50 @@ static func previewing() -> Dictionary:
 	return node._preview.duplicate() if node != null else {}
 
 static func ready_to_play(track_id: String) -> bool:
-	return not DeepComposer.written(track_id).is_empty()
+	return is_baked(track_id) or not DeepComposer.written(track_id).is_empty()
+
+static func is_baked(track_id: String) -> bool:
+	## Cheap enough for every frame: the files do not come and go while the game runs.
+	if not _baked_ids.has(track_id):
+		_baked_ids[track_id] = _baked_paths(track_id).all(func(path: String) -> bool: return ResourceLoader.exists(path))
+	return bool(_baked_ids[track_id])
+
+static func baked(track_id: String) -> Array:
+	## The piece's baked layers, looping, or empty if any layer it is written in is missing.
+	if not is_baked(track_id):
+		return []
+	var out: Array = []
+	for path in _baked_paths(track_id):
+		var stream: AudioStream = _baked_loop(str(path))
+		if stream == null:
+			return []
+		out.append(stream)
+	return out
+
+static func _baked_paths(track_id: String) -> Array:
+	var spec: Dictionary = DeepScore.track(track_id)
+	if spec.is_empty():
+		return [""]
+	var count: int = clampi(int(spec.get("layers", DeepComposer.LAYERS.size())), 1, DeepComposer.LAYERS.size())
+	var out: Array = []
+	for i in range(count):
+		out.append("%s/%s/%s.ogg" % [BAKED, track_id, DeepComposer.LAYERS[i]])
+	return out
+
+static func baked_air(family: String) -> AudioStream:
+	return _baked_loop("%s/air/%s.ogg" % [BAKED, family])
+
+static func _baked_loop(path: String) -> AudioStream:
+	if not _baked_ids.has(path):
+		_baked_ids[path] = ResourceLoader.exists(path)
+	if not bool(_baked_ids[path]):
+		return null
+	var stream: AudioStream = load(path)
+	if stream is AudioStreamOggVorbis:
+		## Whatever the import says: a layer replaced by hand still has to come round.
+		stream.loop = true
+		stream.loop_offset = 0.0
+	return stream
 
 static func picks() -> Dictionary:
 	return _picks.duplicate()
@@ -227,18 +275,22 @@ func _process(_delta: float) -> void:
 	var id: String = str(want.get("track", DeepScore.pick(place, _picks)))
 	var playing: Dictionary = _decks.back() if not _decks.is_empty() else {}
 	if str(playing.get("id", "")) != id:
-		var strips: Array = DeepComposer.written(id)
+		var strips: Array = baked(id)
+		if strips.is_empty():
+			strips = DeepComposer.written(id)
 		if strips.is_empty():
 			_ask("piece:" + id, true)
 		else:
 			_play_piece(id, strips, layer_levels(str(want.get("mood", "explore")), float(want.get("deep", 0.0))))
 	var next: String = str(_where.get("next", ""))
-	if DeepScore.BOOK.has(next):
+	if DeepScore.BOOK.has(next) and not is_baked(DeepScore.pick(next, _picks)):
 		_ask("piece:" + DeepScore.pick(next, _picks), false)
 	var family: String = DeepScore.air(str(_where.get("place", DeepScore.HOME)))
 	var breathing: Dictionary = _airs.back() if not _airs.is_empty() else {}
 	if str(breathing.get("id", "")) != family:
-		var loop: AudioStreamWAV = DeepComposer.air_written(family)
+		var loop: AudioStream = baked_air(family)
+		if loop == null:
+			loop = DeepComposer.air_written(family)
 		if loop == null:
 			_ask("air:" + family, true)
 		else:
@@ -266,7 +318,7 @@ func _play_piece(id: String, strips: Array, levels_now: Array) -> void:
 		deck.target = 0.0
 	_decks.append({"id": id, "player": player, "sync": sync, "fade": 0.0, "target": 1.0, "presence": presence})
 
-func _play_air(family: String, loop: AudioStreamWAV) -> void:
+func _play_air(family: String, loop: AudioStream) -> void:
 	var player := AudioStreamPlayer.new()
 	player.bus = AIR_BUS
 	player.process_mode = Node.PROCESS_MODE_ALWAYS

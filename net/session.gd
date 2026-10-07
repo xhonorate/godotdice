@@ -27,8 +27,9 @@ signal invited(lobby_id: String)
 const Codec = preload("res://net/packet_codec.gd")
 const Enet = preload("res://net/enet_transport.gd")
 const SteamWire = preload("res://net/steam_transport.gd")
-## Sequential enemy roll/ability/impact events require matching clients.
-const VERSION: String = "0.2.0"
+## Sequential enemy roll/ability/impact events require matching clients; so do the fares,
+## insurance and open sockets each member brings to the lobby.
+const VERSION: String = "0.3.0"
 const DEFAULT_PORT: int = 24567
 const MAX_PLAYERS: int = 4
 const STEP_FLOOR: float = 0.15
@@ -205,7 +206,8 @@ func _set_status(value: String) -> void:
 func _add_member(id: String, member: Dictionary) -> void:
 	var record: Dictionary = {"id": id, "name": str(member.get("name", "Lapidary")), "character": str(member.get("character", DeepContent.starter_character())),
 		"rail": member.get("rail", []), "dice": member.get("dice", []), "ready": bool(member.get("ready", false)), "connected": true,
-		"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", ""))}
+		"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", "")),
+		"gold": int(member.get("gold", 0)), "insured": bool(member.get("insured", false)), "sockets": int(member.get("sockets", DeepProfile.starting_rail_cap()))}
 	lobby.members[id] = record
 	if not lobby.order.has(id):
 		lobby.order.append(id)
@@ -225,7 +227,7 @@ func _apply_member(id: String, fields: Dictionary) -> void:
 	var record: Dictionary = lobby.members.get(id, {})
 	if record.is_empty():
 		return
-	for key in ["name", "character", "rail", "dice", "ready", "last_depth", "last_outcome"]:
+	for key in ["name", "character", "rail", "dice", "ready", "last_depth", "last_outcome", "gold", "insured", "sockets"]:
 		if fields.has(key):
 			record[key] = fields[key]
 	if fields.has("character") or fields.has("rail") or fields.has("dice"):
@@ -252,12 +254,27 @@ func can_start() -> bool:
 		var member: Dictionary = lobby.members[id]
 		if bool(member.get("connected", true)) and not bool(member.get("ready", false)) and id != local_id:
 			return false
-	return true
+	return short_members().is_empty()
+
+func departure_cost(member: Dictionary) -> int:
+	## What this member pays at the shaft head for the mine the party is set to go down.
+	return DeepEconomy.departure(str(lobby.get("mine", DeepContent.starter_mine())), bool(member.get("insured", false)))
+
+func short_members() -> Array:
+	## Everyone going down who cannot pay their own way: each pays from their own purse.
+	var out: Array = []
+	for id in lobby.order:
+		var member: Dictionary = lobby.members.get(id, {})
+		if bool(member.get("connected", true)) and int(member.get("gold", 0)) < departure_cost(member):
+			out.append(str(id))
+	return out
 
 func start_run(seed_value: int = 0) -> Dictionary:
 	if not is_host:
 		return {"ok": false, "error": "only the host sets out"}
 	if not can_start():
+		if not short_members().is_empty():
+			return {"ok": false, "error": "not everyone can pay the way down"}
 		return {"ok": false, "error": "not everyone is ready"}
 	var players: Array = []
 	for id in lobby.order:
@@ -265,7 +282,8 @@ func start_run(seed_value: int = 0) -> Dictionary:
 		if not bool(member.get("connected", true)):
 			continue
 		players.append({"id": id, "name": member.name, "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", []),
-			"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", ""))})
+			"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", "")),
+			"sockets": int(member.get("sockets", DeepProfile.starting_rail_cap())), "insured": bool(member.get("insured", false))})
 	var config: Dictionary = {"seed": seed_value if seed_value != 0 else randi(), "mine": str(lobby.get("mine", DeepContent.starter_mine())), "players": players}
 	run = DeepDescent.new_run(config)
 	revision = 1

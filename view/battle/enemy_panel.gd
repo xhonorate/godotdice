@@ -1,5 +1,5 @@
 extends PanelContainer
-## One readable moveset, shared by hover, pinning and the acting enemy: its ordered dice,
+## One readable moveset, shared by the target, hover and the acting enemy: its ordered dice,
 ## every move with what it needs and what it does, and its trick (the passive it fights
 ## with) at the foot. The die it is rolling is not here: that turns over the creature's own
 ## head, in the room, so this table stays the one size whether it is acting or not.
@@ -8,8 +8,8 @@ const GemIcons = preload("res://view/gems/gem_icons.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun",
 	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "thorn", "dulled": "cut",
-	"summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "scorched": "flame", "burn": "flame", "strength": "sword", "die_lock": "die",
-	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
+	"summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "scorched": "flame", "burn": "flame", "strength": "bolt", "die_lock": "die",
+	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "bolt", "rally": "party", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
 	"charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die", "grind_die": "die", "break_gem": "cross_out", "lock_die": "die", "break_die": "cross_out", "blank_face": "die",
 	"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop"}
 ## The noun after a move's number. Kinds not here fall back to their own name.
@@ -20,7 +20,18 @@ const NOUNS: Dictionary = {"damage": "damage", "block": "block", "heal": "healin
 	"break_die": "die destroyed", "blank_face": "face burned blank", "reflect": "% of each blow sent back", "mirror": "blow mirrored", "absorb_color": "colour drunk", "roll_again": "throws again",
 	"end_action": "its action ends", "exhibit": "fires every gem it holds", "max_hp": "most health", "cleanse": "afflictions shed"}
 const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED", "latent": "ON DEATH", "spent": "SPENT"}
-signal pinned(id: String)
+
+static func move_glyph(move: Dictionary) -> String:
+	## A move wears the mark of what it does, the same mark on every creature: anything that
+	## hits the party is a sword, a guard is a shield, a burrow is a rampart. Its first effect
+	## decides, unless it deals damage somewhere in it.
+	var effects: Array = move.get("effects", [])
+	for effect in effects:
+		if str(effect.get("kind", "")) == "damage" and str(effect.get("target", "heroes")) != "self":
+			return "sword"
+	if effects.is_empty():
+		return "spark"
+	return str(GLYPHS.get(str(effects[0].get("kind", "")), "spark"))
 var enemy_id: String = ""
 var foe: Dictionary = {}
 var _key: String = ""
@@ -35,7 +46,6 @@ var _animations: Array = []
 var _tween: Tween
 var _revealed: int = 0
 var _turn: int = -1
-var _pin: Button
 var _effects_layer: Control
 
 func _ready() -> void:
@@ -44,9 +54,9 @@ func _ready() -> void:
 	var box := DeepUi.vbox(self, 6)
 	var head := DeepUi.hbox(box, 8)
 	_title = DeepUi.heading(head, "", 17, DeepUi.PAPER)
-	DeepUi.spacer(head)
-	_pin = DeepUi.button(head, "Pin", func() -> void: pinned.emit(enemy_id), 12)
-	_hint = DeepUi.label(box, "Damage and debuffs affect all players", 11, DeepUi.MUTED)
+	## Only says something while the creature is rolling.
+	_hint = DeepUi.label(box, "", 11, DeepUi.MUTED)
+	_hint.visible = false
 	_dice = DeepUi.hbox(box, 6)
 	_table = DeepUi.vbox(box, 5)
 	_table.custom_minimum_size.x = 265
@@ -74,7 +84,7 @@ func reset() -> void:
 	_shown_states = []
 	visible = false
 
-func show_enemy(unit: Dictionary, turn: int, is_pinned: bool = false) -> void:
+func show_enemy(unit: Dictionary, turn: int) -> void:
 	var changed: bool = enemy_id != str(unit.id) or _turn != turn
 	if changed:
 		reset()
@@ -83,9 +93,9 @@ func show_enemy(unit: Dictionary, turn: int, is_pinned: bool = false) -> void:
 		_revealed = unit.get("hand", []).size()
 	foe = unit.duplicate(true)
 	visible = true
-	_pin.text = "Unpin" if is_pinned else "Pin"
 	_title.text = str(foe.name)
-	_hint.text = "Damage and debuffs affect all players"
+	if changed or not bool(foe.get("acting", false)):
+		_say("")
 	var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
 	var key: String = str(moves) + "|" + str(DeepCreatures.traits_for(foe)) + "|" + str(int(foe.get("turns_acted", 0))) + "|" + str(foe.get("used_once", []))
 	if key != _key:
@@ -113,7 +123,7 @@ func _build_rows(moves: Array) -> void:
 		var panel := DeepUi.panel(_table, Color(1, 1, 1, 0.035), Color(1, 1, 1, 0.08), 6, 6)
 		var box := DeepUi.vbox(panel, 1)
 		var head := DeepUi.hbox(box, 5)
-		DeepUi.icon(head, GemIcons.emblem(str(move.name).to_upper()), 15, DeepUi.BAD)
+		DeepUi.icon(head, move_glyph(move), 15, DeepUi.BAD)
 		DeepUi.label(head, str(move.name), 14, DeepUi.PAPER)
 		DeepUi.spacer(head)
 		var badge := DeepUi.label(head, "", 9, DeepUi.DIM)
@@ -245,7 +255,7 @@ func roll_die(event: Dictionary) -> void:
 		else:
 			before.append("used" if prior == "used" else ("pending" if DeepCreatures.is_combination(foe.moves[i]) else "unrevealed"))
 	_states(before)
-	_hint.text = "One die away…" if bool(event.get("suspense", false)) else "Rolling…"
+	_say("One die away…" if bool(event.get("suspense", false)) else "Rolling…")
 	_revealed = int(event.roll_index)
 	_show_dice()
 	## The die itself tumbles over the creature's head (the battle screen's business); the
@@ -255,7 +265,7 @@ func roll_die(event: Dictionary) -> void:
 	_tween.tween_callback(func() -> void:
 		_revealed = int(event.roll_index) + 1
 		_show_dice()
-		_hint.text = "Damage and debuffs affect all players"
+		_say("")
 		_states(event.get("states", []))
 		var slot: Control = _slots.get(str(event.roll.get("die_id", "")), null)
 		if slot != null and is_instance_valid(slot):
@@ -267,7 +277,7 @@ func power(event: Dictionary) -> void:
 		## A blow it wound up over turns has no row of its own: the whole table lights.
 		if bool(event.get("release", false)):
 			DeepUi.pulse(self, 1.03, 0.3)
-			_hint.text = str(event.get("move", "Release")) + "!"
+			_say(str(event.get("move", "Release")) + "!")
 		return
 	var row: Dictionary = _rows[index]
 	_states(foe.get("move_states", []))
@@ -308,3 +318,7 @@ func impact(event: Dictionary) -> void:
 	if index >= 0 and index < _rows.size():
 		DeepUi.pulse(_rows[index].panel, 1.025, 0.24)
 		_states(foe.get("move_states", []))
+
+func _say(text: String) -> void:
+	_hint.text = text
+	_hint.visible = not text.is_empty()

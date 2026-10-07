@@ -6,14 +6,14 @@ extends RefCounted
 ## An oddity is a card with two to four choices. Each choice carries an action from the
 ## fixed list below and shows its odds on the card. A card with a `room` belongs to a chamber
 ## of that kind (a smithy, a carver) and is never drawn at random. Dice are only ever worked
-## here, never bought or swapped: made a size bigger or smaller, their faces raised or recut. `apply()` resolves one player's choice
+## here, never bought or swapped: made a size bigger or smaller, their faces raised or lowered. `apply()` resolves one player's choice
 ## against their own stones and dice; it never touches another player. Every roll comes
 ## from the oddities RNG stream. Besides the stones it made and the ids it took, a result
 ## names the stones it changed and the dice it made or changed, so a screen can show them.
 
 const ACTIONS: Array = ["none", "reroll_cut", "reroll_clarity", "push_clarity", "remove_inclusion", "fuse", "geode", "etch", "pattern", "material", "reset",
 	"trade_up", "shrine", "idol", "echo_stone", "collector_sell", "collector_buy", "heal", "ore",
-	"appraise", "acid_appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "copy_face", "pry", "chips", "wishing_well"]
+	"appraise", "acid_appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "lower_face", "pry", "chips", "wishing_well"]
 const SIZES: Array = DeepDice.TIERS
 ## Actions the room has to lay something out before anybody chooses: the Collector's case is
 ## rolled when the chamber opens, and the Idol's grip is rolled the first time it is pulled.
@@ -231,7 +231,15 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				keep = feed
 				feed = swap
 			var fused: Dictionary = fuse_stats(rng, keep, feed, mine, float(action.get("carry", 30)))
+			## Whatever a fragile stone gave the fire is fragile too: nothing that cannot leave
+			## the mine may be fused into something that can.
+			var fragile: bool = DeepStone.is_fragile(keep) or DeepStone.is_fragile(feed)
+			var temporary: bool = bool(keep.get("temporary", false)) or bool(feed.get("temporary", false))
 			keep.merge(fused, true)
+			if fragile:
+				keep.fragile = true
+			if temporary:
+				keep.temporary = true
 			remove_stone(player, str(feed.id))
 			out.lost.append(str(feed.id))
 			out.changed.append(keep.duplicate(true))
@@ -375,6 +383,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return _refuse("fragile stones cannot be sold")
 			var paid: int = DeepStone.value(stone) * int(action.get("mult", 3))
 			player.ore = int(player.get("ore", 0)) + paid
+			DeepEconomy.earned(player, paid)
 			remove_stone(player, str(stone.id))
 			out.lost.append(str(stone.id))
 			out.message = "She pays you %d pyrite for it." % paid
@@ -471,24 +480,23 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			die.faces[face] = DeepDice.face(after, "plain" if kind_was == "blank" else kind_was)
 			out.dice.append(die.duplicate(true))
 			out.message = "The %s is now a %s." % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])]
-		"copy_face":
-			## One face recut to show another face's number. Only the number is copied: a
-			## special face gives its value, never what makes it special.
+		"lower_face":
+			## One chosen face comes down by one, never below a 1. Whatever is etched on it
+			## stays on it. A blank face has no number to take down.
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
 			var face: int = int(payload.get("face", -1))
-			var from: int = int(payload.get("from", -1))
-			var count: int = die.get("faces", []).size()
-			if die.is_empty() or face < 0 or from < 0 or face >= count or from >= count or face == from:
-				return _refuse("choose a die, a face to recut and a face to copy")
-			if str(die.faces[from].get("kind", "plain")) == "blank":
-				return _refuse("a blank face has no number to copy")
-			var was: Dictionary = die.faces[face].duplicate()
-			var copied: Dictionary = DeepDice.face(int(die.faces[from].get("value", 0)))
-			if str(was.get("kind", "plain")) == "plain" and int(was.get("value", 0)) == int(copied.value):
-				return _refuse("that face already shows that number")
-			die.faces[face] = copied
+			if die.is_empty() or face < 0 or face >= die.get("faces", []).size():
+				return _refuse("choose a die and a face to lower")
+			var kind_was: String = str(die.faces[face].get("kind", "plain"))
+			if kind_was == "blank":
+				return _refuse("a blank face has no number to lower")
+			var before: int = _shown(die.faces[face])
+			var after: int = maxi(1, before - maxi(1, int(action.get("amount", 1))))
+			if after >= before:
+				return _refuse("that face is already a 1")
+			die.faces[face] = DeepDice.face(after, kind_was)
 			out.dice.append(die.duplicate(true))
-			out.message = "The %s is recut into a %s." % [_face_words(was), _face_words(copied)]
+			out.message = "The %s is now a %s." % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])]
 		"pry":
 			var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", 4)), {"run": ctx.get("run", ""), "source": "seam"})
 			player.haul.append(stone)
@@ -511,6 +519,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			## here is worth more the further it is from anywhere that would sell it.
 			var taken: int = ore_amount(action, depth)
 			player.ore = int(player.get("ore", 0)) + taken
+			DeepEconomy.earned(player, taken)
 			out.message = "You take %d pyrite." % taken
 		"wishing_well":
 			## The well takes and gives, and all it counts is what went down it. A stone is
@@ -533,6 +542,8 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 					return _refuse("choose one of your stones")
 				if DeepStone.is_locked(offered):
 					return _refuse("a Knot cannot leave its socket")
+				if DeepStone.is_fragile(offered):
+					return _refuse("the well will not take a fragile stone")
 				thrown = well_worth(offered, float(action.get("raw_mult", 0.5)), float(action.get("read_mult", 1.5)))
 				said = "%s goes down into the water." % (DeepStone.name(offered) if bool(offered.get("appraised", false)) else DeepStone.raw_name(offered))
 				remove_stone(player, str(offered.id))
@@ -705,6 +716,7 @@ static func well_prize(rng: RandomNumberGenerator, rung: int, player: Dictionary
 		"ore":
 			var amount: int = int(entry.get("amount", 1))
 			player.ore = int(player.get("ore", 0)) + amount
+			DeepEconomy.earned(player, amount)
 			out.ore = amount
 			out.message = "%d pyrite comes back up." % amount if amount > 1 else "One pyrite comes back up."
 		"heal":

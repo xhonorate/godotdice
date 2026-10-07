@@ -68,7 +68,7 @@ The final boss's hall is the one hall with a cage in it. After its hoard the par
 - the winch counts every floor since the workshop (`carried`), so the lift home from the second mine costs the first mine's floors too;
 - the run writes a record for every mine it went through (`results.mines`), and each one's boss and first Warden unlock as usual.
 
-A party that starts in a deeper mine instead gets what the way down would have given it: every socket filled from the vault (`loadout_sockets`, 3 in the Quarry, all of them below) and a purse (`start_pyrite`). The loadout screen lets a stone into a socket past the third once any deeper mine is open; a Quarry run leaves those sockets empty.
+~~A party that starts in a deeper mine instead gets what the way down would have given it: every socket filled from the vault (`loadout_sockets`, 3 in the Quarry, all of them below) and a purse (`start_pyrite`).~~ Revised (October 7, 2026, [GOLD.md](GOLD.md)): in every mine a lapidary goes down with the sockets they have opened filled from the vault: the first three, and any bought since with gold (`socket_unlock_gold`). A party that starts below the Quarry pays a fare (`fare_gold`, half the purse) and is handed a purse (`start_pyrite`) and, at the shaft head, a pick of three temporary stones for every socket still shut. Temporary stones are fragile: they cannot be kept, sold, turned in or thrown down a well, and they are gone when the run ends. A Quarry run, and a party pushing on into the next mine, gets none.
 
 ## Harder, mine by mine
 

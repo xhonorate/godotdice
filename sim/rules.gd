@@ -22,6 +22,7 @@ extends RefCounted
 ##   block block_lost healed dealt hp max_hp hp_missing gold pot
 ##   resonance previous_amount carat cut clarity depth turn party
 ##   crowns (dice on their top face)  low_dice (dice at or below half their top)
+##   fizzles (gems that stayed dark this turn that this stone has not yet been paid for)
 ##
 ## A skill may carry `numbers`: named amount expressions written into its `text` and its
 ## Flawless line wherever a `{token}` appears, so a Cut ladder never leaves the card lying.
@@ -83,7 +84,7 @@ const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct", "if", "ge",
 const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
-	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "pot", "enemy_poison",
+	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
 	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "turns_acted", "living_players", "strength"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
@@ -259,6 +260,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"pyrite": return pyrite(unit)
 		"pot": return int(unit.get("pot", 0))
 		"enemy_poison": return int(c.get("enemy_poison", 0))
+		"fizzles": return int(c.get("fizzles", 0))
 		## What a creature reads off itself and off the fight (see creatures.gd `context`).
 		"swell": return int(unit.get("swell", 0))
 		"held_gems": return unit.get("held_gems", []).size()

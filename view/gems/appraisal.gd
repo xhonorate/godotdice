@@ -59,6 +59,8 @@ var _done: bool = false
 var _closing: bool = false
 var _shatters: bool = false
 var _shattered_count: int = 1
+## The first stone of its skill the player has found: the reading ends on a fanfare of its own.
+var _new_skill: bool = false
 
 static func is_open() -> bool:
 	return _open != null and is_instance_valid(_open)
@@ -97,6 +99,7 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	actions = opts.get("actions", [])
 	_shatters = bool(opts.get("shatter", false))
 	_shattered_count = maxi(1, int(opts.get("shattered_count", 1)))
+	_new_skill = bool(opts.get("new_skill", false)) and not _shatters
 	if _shatters:
 		owned = {}
 		actions = [{"label": "Continue", "glyph": "split_shield", "tone": DeepUi.MUTED, "dismiss": true,
@@ -341,6 +344,16 @@ func _show_choices() -> void:
 		var shards: Control = load("res://view/gems/shatter.gd").new(stone, 250.0)
 		shards.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_stage.add_child(shards)
+	elif _new_skill:
+		## Never found before: it is announced as what it is, a new place lit in the vault.
+		_title.text = "A new skill!"
+		_title.add_theme_color_override("font_color", DeepUi.ACCENT_HI)
+		_subtitle.text = "The first %s you have found. A first stone is never sold." % str(DeepStone.skill_of(stone).get("name", "stone"))
+		DeepUi.pulse(_title, 1.3, 0.6)
+		DeepAudio.play("unlock", {"volume": 0.9})
+		if _root.is_inside_tree() and not GemView.headless():
+			DeepUi.burst(_root, _stage_centre(), DeepUi.ACCENT_HI, 120, 520.0, 1.4, 8.0)
+			DeepUi.burst(_root, _title.global_position + _title.size * 0.5, DeepUi.ACCENT, 50, 300.0, 1.0, 6.0)
 	DeepUi.stagger(_choices.get_children(), 0.0, 0.08, 0.85)
 
 func finish() -> void:

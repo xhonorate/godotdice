@@ -6,3 +6,6 @@
 .DS_Store
 
 __pycache__/
+
+# The data browser's npm packages (the Ogg encoder)
+/tools/data-browser/node_modules/

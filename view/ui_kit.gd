@@ -27,6 +27,8 @@ const HP_LOST := Color("5a2a2a")
 const BLOCK := Color("6fa8ff")
 const POISON := Color("9ad35a")
 const ORE := Color("e8a94f")
+## How wide the arrow past a row of choices stands, and the empty column that balances it.
+const SKIP_WIDTH: float = 92.0
 ## A pale lavender: Resonance's mark and, on its own, a fallback for anywhere its word can't
 ## be shown letter by letter (see EFFECT_KEYWORDS' "rainbow" flag, which is how the word itself
 ## is colored — flat text this close to PAPER's near-white would simply vanish into it).
@@ -67,6 +69,7 @@ const KEYWORD_HINTS: Dictionary = {
  "block": "Absorbs hit damage before HP. Resets at your next turn; Retain preserves some. Poison bypasses Block.",
  "poison": "Loses HP equal to its stacks at turn end, then loses one stack. Bypasses Block.",
  "pyrite": "Currency in your bag plus combat earnings, less spending. Wager and Stake pay once per activation.",
+ "fizzle": "A gem fizzles when it stays dark: its trigger is not met, or its socket is buried or clouded. Resonance carries on past it.",
  "carat": "Increases gem magnitude; whole-number effects usually gain additional procs instead. Temporary bonuses last this fight.",
  "cut": "The gem’s trigger/effect ladder: Poor, Fair, Good, Fine, Perfect. Temporary bonuses last this fight.",
  "clarity": "Pristine doubles base Resonance gain. Flawless triples it, grants ×1.5 magnitude and activates the Flawless line. Temporary bonuses preserve inclusions.",
@@ -518,6 +521,143 @@ static func primary(parent: Node, glyph: String, text: String, callback: Callabl
 	b.add_theme_color_override("icon_disabled_color", Color(INK, 0.6))
 	return b
 
+static func choice_card(parent: Node, tone: Color, callback: Callable, pad: int = 16) -> PanelContainer:
+	## An option that is a whole card rather than a card with a button on it: it lights in its
+	## tone under the pointer, dips on press and acts on release. What goes inside should
+	## let the mouse through (labels and containers do).
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", raised(GLASS, Color(tone, 0.4), 12, pad))
+	parent.add_child(box)
+	make_choice(box, tone, callback)
+	return box
+
+static func make_choice(box: PanelContainer, tone: Color, callback: Callable) -> void:
+	## Turns a card already built (a stone's card, say) into a choice card, keeping its own
+	## look at rest.
+	var rest: StyleBox = box.get_theme_stylebox("panel")
+	var lit: StyleBoxFlat = rest.duplicate() if rest is StyleBoxFlat else raised(GLASS, tone, 12, 16)
+	lit.bg_color = lit.bg_color.lerp(Color(tone, lit.bg_color.a), 0.14)
+	lit.border_color = tone.lightened(0.25)
+	lit.set_border_width_all(2)
+	lit.shadow_color = Color(tone, 0.4)
+	lit.shadow_size = 18
+	box.mouse_filter = Control.MOUSE_FILTER_STOP
+	box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	box.focus_mode = Control.FOCUS_ALL
+	box.set_meta("choice", true)
+	juice(box, 1.03)
+	var light := func(on: bool) -> void:
+		box.add_theme_stylebox_override("panel", lit if on and not bool(box.get_meta("disabled", false)) else rest)
+	box.mouse_entered.connect(light.bind(true))
+	box.mouse_exited.connect(light.bind(false))
+	box.focus_entered.connect(light.bind(true))
+	box.focus_exited.connect(light.bind(false))
+	var act := func() -> void:
+		if bool(box.get_meta("disabled", false)):
+			return
+		DeepAudio.play("ui_confirm")
+		callback.call()
+	box.gui_input.connect(func(event: InputEvent) -> void:
+		if bool(box.get_meta("disabled", false)):
+			return
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			box.accept_event()
+			var tween := box.create_tween()
+			tween.tween_property(box, "scale", Vector2.ONE * (0.97 if event.pressed else 1.03), 0.06 if event.pressed else 0.1)
+			if not event.pressed and Rect2(Vector2.ZERO, box.size).has_point(event.position):
+				act.call()
+		elif event.is_action_pressed("ui_accept"):
+			box.accept_event()
+			act.call())
+
+static func disable_choice(box: Control) -> void:
+	## A choice card with nothing it could be done to: shown, but dimmed and deaf.
+	box.set_meta("disabled", true)
+	box.mouse_default_cursor_shape = Control.CURSOR_ARROW
+	box.focus_mode = Control.FOCUS_NONE
+	## Dimmed through self and children rather than `modulate`, which an entrance tween owns.
+	box.self_modulate.a = 0.55
+	for child in box.get_children():
+		if child is CanvasItem:
+			(child as CanvasItem).modulate.a = 0.55
+
+static func skip_arrow(parent: Node, text: String, callback: Callable, tone: Color = MUTED, glyph: String = "next") -> Control:
+	## The way past a row of choices: an arrow off the end of the row rather than a button over
+	## it, with what it does written small beneath. Under the pointer it brightens and keeps
+	## nudging on, the way it would take you. Pair it with `skip_ghost` on the row's other end
+	## so the choices stay centred. With "prev" it is the way back instead, and nudges back.
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 4)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.custom_minimum_size.x = SKIP_WIDTH
+	column.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(column)
+	var b := Button.new()
+	b.tooltip_text = text
+	b.focus_mode = Control.FOCUS_ALL
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	b.custom_minimum_size = Vector2(56, 56)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.icon = GemIcons.texture(glyph, GemIcons.baked_size(40))
+	b.expand_icon = true
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.add_theme_constant_override("icon_max_width", 26)
+	var round := func(fill: Color, edge: Color) -> StyleBoxFlat:
+		var style := button_style(fill, edge, 12)
+		style.set_corner_radius_all(28)
+		return style
+	b.add_theme_stylebox_override("normal", round.call(Color(GLASS, 0.85), Color(tone, 0.55)))
+	b.add_theme_stylebox_override("hover", round.call(Color(tone, 0.2), tone.lightened(0.3)))
+	b.add_theme_stylebox_override("pressed", round.call(Color(tone, 0.32), tone.lightened(0.3)))
+	b.add_theme_stylebox_override("focus", round.call(Color(0, 0, 0, 0), Color(tone, 0.8)))
+	b.add_theme_color_override("icon_normal_color", tone)
+	b.add_theme_color_override("icon_hover_color", tone.lightened(0.4))
+	b.add_theme_color_override("icon_pressed_color", tone.lightened(0.4))
+	b.add_theme_color_override("icon_focus_color", tone.lightened(0.4))
+	b.pressed.connect(func() -> void: DeepAudio.play("ui_tap"))
+	if callback.is_valid():
+		b.pressed.connect(callback)
+	column.add_child(b)
+	var words := label(column, text, 12, PAPER.darkened(0.15), HORIZONTAL_ALIGNMENT_CENTER)
+	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	## It stands over the room, not on a card: an outline keeps it readable on bright rock.
+	words.add_theme_constant_override("outline_size", 6)
+	words.add_theme_color_override("font_outline_color", Color(INK, 0.9))
+	words.custom_minimum_size.x = SKIP_WIDTH
+	## The nudge: the arrow keeps stepping on and back while the pointer is over it.
+	var nudge: Array = [null]
+	b.resized.connect(func() -> void: b.pivot_offset = b.size * 0.5)
+	b.mouse_entered.connect(func() -> void:
+		DeepAudio.play("ui_hover", {"volume": 0.5, "gap": 0.07})
+		words.add_theme_color_override("font_color", tone.lightened(0.4))
+		if headless():
+			return
+		var tween := b.create_tween().set_loops()
+		tween.tween_property(b, "scale", Vector2.ONE * 1.1, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(b, "position:x", b.position.x + (-7.0 if glyph == "prev" else 7.0), 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tween.tween_property(b, "position:x", b.position.x, 0.26).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		nudge[0] = tween)
+	b.mouse_exited.connect(func() -> void:
+		words.add_theme_color_override("font_color", PAPER.darkened(0.15))
+		if nudge[0] != null and (nudge[0] as Tween).is_valid():
+			(nudge[0] as Tween).kill()
+		nudge[0] = null
+		if headless():
+			return
+		var tween := b.create_tween()
+		tween.tween_property(b, "scale", Vector2.ONE, 0.14)
+		## Let the container put it back where it belongs.
+		tween.tween_callback(column.queue_sort))
+	return column
+
+static func skip_ghost(parent: Node) -> Control:
+	## An empty column the width of a skip arrow, for the other end of its row.
+	var ghost := Control.new()
+	ghost.custom_minimum_size.x = SKIP_WIDTH
+	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(ghost)
+	return ghost
+
 static func tab_button(parent: Node, glyph: String, text: String, active: bool, callback: Callable, size: int = 14, badge: int = 0, rainbow: bool = false) -> Button:
 	var b := icon_button(parent, glyph, text if badge <= 0 else "%s  %d" % [text, badge], callback, size, ACCENT if active else MUTED, rainbow)
 	b.set_meta("sound", "ui_tab")
@@ -604,7 +744,7 @@ static func juice(control: Control, grow: float = 1.035) -> void:
 	## The pointer is answered: a control swells a touch on hover and dips on press.
 	control.resized.connect(func() -> void: control.pivot_offset = control.size * 0.5)
 	control.mouse_entered.connect(func() -> void:
-		if control is BaseButton and (control as BaseButton).disabled:
+		if (control is BaseButton and (control as BaseButton).disabled) or bool(control.get_meta("disabled", false)):
 			return
 		DeepAudio.play("ui_hover", {"volume": 0.5, "gap": 0.07})
 		var tween := control.create_tween()

@@ -44,7 +44,7 @@ extends RefCounted
 
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
-	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "below",
+	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "fizzles", "below",
 	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
 ## The kinds a creature reads from the turn rather than from a die.
 const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
@@ -218,6 +218,11 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 		"pyrite":
 			result.active = int(context.get("pyrite", 0)) >= need
 			result.value = int(context.get("pyrite", 0))
+		"fizzles":
+			## Gems that stayed dark earlier this turn and have not yet paid this stone.
+			result.active = int(context.get("fizzles", 0)) >= need
+			result.count = int(context.get("fizzles", 0))
+			result.value = int(context.get("fizzles", 0))
 		"resonance":
 			if int(context.get("resonance", 0)) >= need:
 				result.active = true
@@ -303,6 +308,8 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 				label += " ×%d" % need
 		"pyrite":
 			label = "≥%d Pyrite" % need
+		"fizzles":
+			label = "×%d" % need if need > 1 else ""
 		"below":
 			label = "<%d" % need
 		"each_turn", "emerge":
@@ -356,6 +363,7 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 			var names: String = " or ".join(wanted.map(func(v: Variant) -> String: return str(int(v))))
 			return "At least %d %s showing a %s." % [need, "die" if need == 1 else "dice", names]
 		"pyrite": return "At least %d Pyrite." % need
+		"fizzles": return "At least %d %s fizzled earlier this turn." % [need, "gem" if need == 1 else "gems"]
 		"below": return "At least one die showing less than %d." % need
 		"at_most": return "At least one die showing %d or less." % need
 		"at_least": return "Your highest die shows %d or more." % need

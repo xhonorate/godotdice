@@ -89,6 +89,7 @@ var frozen: bool = false
 
 var _headless: bool = false
 var _warmed: bool = false
+var _warmed_in_view: bool = false
 var _lantern: SpotLight3D = null
 var _lantern_fill: OmniLight3D = null
 var _lantern_level: float = 0.0
@@ -1698,6 +1699,8 @@ func _steady(work: Callable) -> Variant:
 func _process(delta: float) -> void:
 	if _headless or camera == null:
 		return
+	if not _warmed_in_view and has_room():
+		_warm_in_view()
 	if not _travel.is_empty() and not frozen:
 		_advance(delta)
 	_lantern_level = move_toward(_lantern_level, _lantern_goal, delta * (1.6 if _lantern_goal > _lantern_level else 0.9))
@@ -1823,6 +1826,7 @@ func warm_up() -> void:
 	fx.coins(at, below + Vector3(0, 1, 2), 2)
 	fx.stars(at)
 	fx.sigil(at, DeepUi.INFO)
+	_sample_goods(sample, sample.biome)
 	## Every kind of air a room can have, so the first room of each biome is not where its
 	## particles are compiled. `BattleFx.keep` holds them compiled from here on.
 	for kind in ["dust", "motes", "drips", "sparkles", "spores", "embers", "ash", "void"]:
@@ -1845,3 +1849,49 @@ func warm_up() -> void:
 	view.queue_free()
 	spare.queue_free()
 	creature.queue_free()
+
+func _sample_goods(parent: Node3D, biome: Dictionary) -> void:
+	## A merchant's counter and a Warden's pile, stocked with one stone of each kind a
+	## material is built differently for: rough in its rock, read and dull, read and clear
+	## (clearcoat and refraction), and banded. The first stall and the first hoard used to
+	## stop a frame for a tenth of a second while these compiled, just as they were revealed.
+	var samples: Array = [DeepStone.make("GUARD", 4, 2, 0, [], {}, "warm_dull"), DeepStone.make("STRIKE", 8, 5, 5, [], {}, "warm_clear"),
+		DeepStone.make("SEAM_RED", 6, 4, 4, [], {}, "warm_banded"), DeepStone.make("SEAM_BLUE", 3, 2, 1, [], {}, "warm_banded_dull")]
+	for stone in samples:
+		stone.appraised = true
+	var rough: Array = [DeepStone.make("MEND", 5, 3, 2, [], {}, "warm_rough"), DeepStone.make("SEAM_GOLD", 5, 3, 4, [], {}, "warm_rough_banded")]
+	var stock: Array = []
+	for stone in samples + rough:
+		stock.append({"id": "warm_" + str(stone.id), "kind": "stone", "stone": stone, "price": 1})
+	stock.append({"id": "warm_die", "kind": "die", "die": DeepDice.make("D8", "warm_die"), "price": 1})
+	var counter: Node3D = Stall.new()
+	counter.position = Chamber.ARENA + Vector3(0, 0, 1.9)
+	parent.add_child(counter)
+	counter.build(biome, stock, 23)
+	counter.show_stock(stock)
+	var pile: Node3D = Hoard.new()
+	pile.position = Chamber.ARENA + Vector3(-3.0, 0, -1.0)
+	parent.add_child(pile)
+	pile.build(biome, rough + samples.slice(0, 2), 29)
+
+func _warm_in_view() -> void:
+	## The hidden view in `warm_up` is not quite the real one (its size, its effects, its lamps),
+	## and the GPU builds a pipeline for each, so the goods are drawn once more in the real view:
+	## full size, where they would stand, but sunk under the floor where the room hides them,
+	## for a few frames, the first time the mine is seen.
+	if _headless or _warmed_in_view or camera == null or not has_room():
+		return
+	_warmed_in_view = true
+	var speck := Node3D.new()
+	speck.position = Vector3(0, -3.2, 0)
+	## Still, too: the goods' own animation would turn their lights back up.
+	speck.process_mode = Node.PROCESS_MODE_DISABLED
+	room.add_child(speck)
+	_sample_goods(speck, room.biome)
+	## Their lamps and beams would light the room for those frames: only the surfaces count.
+	for light in speck.find_children("*", "Light3D", true, false):
+		(light as Light3D).light_energy = 0.0
+		(light as Light3D).light_volumetric_fog_energy = 0.0
+	for _i in range(3):
+		await get_tree().process_frame
+	speck.queue_free()

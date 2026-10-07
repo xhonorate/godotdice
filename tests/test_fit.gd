@@ -80,10 +80,63 @@ func _workshop(app: Control) -> void:
 			home._pages[list] = page
 			if list == "vault_tray":
 				home._roster_view = "sockets"
+			if list == "ledger":
+				home._ledger_view = "records"
 			home.open({"vault_tray": "roster", "tray": "appraise", "ledger": "ledger"}[list])
 			await _fits(screen, "page %d of the %s" % [page, list])
 		home._pages[list] = 0
 	home._roster_view = "dossier"
+	## A lapidary with every socket bought, and one with the next for sale.
+	for open in [3, 6]:
+		app.profile.characters.FLORIN.sockets = open
+		home._roster_pick = "FLORIN"
+		home._roster_view = "sockets"
+		home.open("roster")
+		await _fits(screen, "Florin's sockets with %d open" % open)
+	app.profile.characters.FLORIN.sockets = 3
+	home._roster_view = "dossier"
+	## The way down to a deeper mine, insured, with guests who cannot pay their fare.
+	app.profile.mines.SEEPS.unlocked = true
+	app.profile.outfit.insure = true
+	lobby.mine = "SEEPS"
+	for host in [true, false]:
+		home.refresh(app.profile, lobby, "hosting" if host else "joined", host, app.session.local_id if host else "p1", false, app.settings, "109775241234567890")
+		for side in ["expedition", "party"]:
+			home._side = side
+			home.open("map")
+			await _fits(screen, "the map's %s view for the Seeps, insured, with the party short%s" % [side, "" if host else ", as a guest"])
+	app.profile.outfit.insure = false
+	lobby.mine = DeepContent.starter_mine()
+	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
+	home._side = "expedition"
+	## The ledger's commissions: one a stone on the tray can fill, one filled, one open.
+	var wanted: Dictionary = {}
+	for stone in app.profile.tray:
+		if bool(stone.get("appraised", false)):
+			wanted = stone
+	var commissions: Array = app.profile.daily.commissions
+	check(commissions.size() == 3, "the workshop opens on three commissions")
+	commissions[0] = {"id": "fit_ready", "skill": str(wanted.skill), "need": {"kind": "pure", "value": 0}, "reward": 99999, "done": false}
+	commissions[1] = commissions[1].duplicate()
+	commissions[1].done = true
+	commissions[1].paid = 12345
+	for view in ["commissions", "records"]:
+		home._ledger_view = view
+		home.open("ledger")
+		await _fits(screen, "the ledger's %s" % view)
+	home._ledger_view = "commissions"
+	## The tray stone a commission wants: Turn it in beside keeping either stone.
+	check(home._tray_actions(wanted, true).any(func(a: Dictionary) -> bool: return str(a.label) == "Turn it in"), "a stone a commission wants can be turned in")
+	home._appraise_pick = str(wanted.id)
+	home.open("appraise")
+	await _fits(screen, "the Appraise tab weighing a stone a commission wants")
+	## And the first stone of its skill, wanted by a commission: keep it, or turn it in.
+	var rival: Dictionary = app.profile.vault.get(str(wanted.skill), {})
+	app.profile.vault.erase(str(wanted.skill))
+	check(not home._tray_actions(wanted, true).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep your old")), "a first stone of its skill is never offered for sale")
+	home.open("appraise")
+	await _fits(screen, "the Appraise tab on a new skill a commission wants")
+	app.profile.vault[str(wanted.skill)] = rival
 	## The vault, each color, with a stone under the lamp.
 	home._vault_pick = str(app.profile.vault.keys()[0])
 	for color in [""] + home.color_ORDER:
@@ -174,7 +227,7 @@ func _enemy_panels() -> void:
 			DeepCreatures.prepare(foe)
 			for acting in [false, true]:
 				foe.acting = acting
-				panel.show_enemy(foe, health, true)
+				panel.show_enemy(foe, health)
 				panel.position = Vector2(100, 82)
 				await _fits(panel, "%s moveset at %d%% HP (%s)" % [str(key), health, "acting" if acting else "planning"])
 				check(panel.size.y < 460 and panel.size.x < 550, "moveset leaves room for the battle and dock")
@@ -229,12 +282,14 @@ func _appraisals(app: Control) -> void:
 	var run_actions: Array = [ {"label": "Set in socket 6", "glyph": "gem", "caption": "Into the rail for the next fight"},
 		{"label": "Into the bag", "glyph": "bag", "caption": "Set it from the bench any time", "dismiss": true},
 		{"label": "Sell for 9999 pyrite", "glyph": "scales", "caption": "Half its worth, on the scales"}]
+	## Every choice at home at once: both keeps, a commission's Turn in, and Decide later.
+	home_actions = home_actions.slice(0, 2) + [ {"label": "Turn it in", "glyph": "flag", "caption": "A commission pays 99999 gold for it"}] + home_actions.slice(2)
 	for found in [riddled, clear]:
 		for owned in [ {}, kept]:
 			for list in [home_actions, run_actions]:
 				var sheet: CanvasLayer = load("res://view/gems/appraisal.gd").new()
 				screen.add_child(sheet)
-				sheet.call("build", found, {"owned": owned, "actions": list})
+				sheet.call("build", found, {"owned": owned, "actions": list, "new_skill": owned.is_empty() and list == home_actions})
 				sheet.call("finish")
 				var what: String = "the appraisal of a %s stone%s, %s" % ["riddled" if found == riddled else "flawless", " weighed against a kept one" if not owned.is_empty() else "", "at home" if list == home_actions else "down the mine"]
 				await _fits(sheet, what)
@@ -269,6 +324,22 @@ func _run(app: Control) -> void:
 	descent.show_state(head_state)
 	await _fits(screen, "a pick stake's three stones")
 	descent._stake_choosing = ""
+	## Below the Quarry: a temporary stone for each of three locked sockets, one already set.
+	var lent_state: Dictionary = run.duplicate(true)
+	var lent_me: Dictionary = DeepDescent.player(lent_state, app.session.local_id)
+	lent_me.temps = []
+	for socket in range(3):
+		var offered: Array = []
+		for index in range(3):
+			var candidate: Dictionary = picks[index].duplicate(true)
+			candidate.id = "fit_lent%d_%d" % [socket, index]
+			candidate.temporary = true
+			candidate.fragile = true
+			offered.append(candidate)
+		lent_me.temps.append({"index": 2 + socket, "socket": "ANY", "picks": offered, "chosen": 1 if socket == 0 else -1})
+	check(DeepDescent.temporary_left(lent_me) == 2, "two sockets still wait for their temporary stone")
+	descent.show_state(lent_state)
+	await _fits(screen, "the temporary stones for three locked sockets")
 	## A heavy haul: raw and appraised stones in every color.
 	for i in range(36):
 		var found: Dictionary = DeepForge.roll_stone(rng, mine, 6 + i % 12, 3, {"run": "fit", "source": "vein"}, "fit_haul%d" % i)
@@ -338,7 +409,11 @@ func _run(app: Control) -> void:
 	fallen.phase = "salvage"
 	var rolls: Array = []
 	for stone in me.haul:
-		rolls.append({"stone": stone, "sides": 6, "roll": 6 if rolls.size() % 3 == 0 else 2, "kept": rolls.size() % 3 == 0, "tier": "FINE"})
+		var roll: Dictionary = {"stone": stone, "sides": 6, "roll": 6 if rolls.size() % 3 == 0 else 2, "kept": rolls.size() % 3 == 0, "tier": "FINE"}
+		if rolls.size() % 2 == 0:
+			## Insured: both throws are named on the card.
+			roll.merge({"insured": true, "first": 2, "second": int(roll.roll)})
+		rolls.append(roll)
 	fallen.salvage = {}
 	fallen.salvage[app.session.local_id] = {"rolls": rolls}
 	descent._salvage_thrown = true
@@ -350,6 +425,10 @@ func _run(app: Control) -> void:
 	var over: Dictionary = run.duplicate(true)
 	over.phase = "over"
 	over.outcome = "extracted"
+	## With a full pocket for the assayer, part of it the shaft head's purse.
+	var pocket: Dictionary = DeepDescent.player(over, app.session.local_id)
+	pocket.ore = 99999
+	pocket.stats.earned = 88888
 	descent._end_shown = true
 	for page in range(2):
 		descent._pages["home"] = page

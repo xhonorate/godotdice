@@ -128,7 +128,11 @@ func plan(new_biome: Dictionary, seed_value: int, exit_count: int = 0, drop: flo
 			"void_crystals": steps.append(_void_crystals.bind(12))
 			"pillars": steps.append(_pillars)
 			"braziers": steps.append(_braziers)
-	steps.append_array([_lights, _particles, _ground_mist, _clearing])
+	steps.append_array([_lights, _particles])
+	## Fog volumes are drawn by Forward+ alone. Under Compatibility (the web build) they would
+	## be nodes that do nothing, and the mist's fog shader would not even compile.
+	if RenderingServer.get_current_rendering_method() != "gl_compatibility":
+		steps.append_array([_ground_mist, _clearing])
 	return steps
 
 # --- the ways in and out -------------------------------------------------------------------------

@@ -112,7 +112,7 @@ func _init() -> void:
 					## The smithy's card stands along the bottom of its room, and its work reaches the run.
 					saw_smithy = true
 					app.descent.show_state(run)
-					check(app.descent._cross_title.text == "The Smithy" and _count_text(app.descent._page_holder, "Choose") == 3, "a smithy names itself at the top and puts its three pieces of work along the bottom")
+					check(app.descent._cross_title.text == "The Smithy" and _count_choices(app.descent._page_holder) == 3, "a smithy names itself at the top and puts its three pieces of work along the bottom")
 					var smith: Dictionary = app.session.local_player()
 					var shape: String = str(smith.dice[0].shape)
 					app.session.send({"kind": "oddity", "choice": "hammer" if shape != str(DeepDice.TIERS.back()) else "file", "payload": {"die_id": str(smith.dice[0].id)}})
@@ -205,25 +205,24 @@ func _init() -> void:
 		app.descent.show_state(fake)
 		check(app.descent._page_holder.get_child_count() > 0, "the %s page renders" % str(key))
 	## A smithy and a carver show their own card in their own room: every piece of work it
-	## holds, and the way out on a line of its own under them.
+	## holds, and the way out as an arrow off the end of the row.
 	for kind in DeepDescent.DICE_ROOMS:
 		var card: Dictionary = DeepContent.oddity(DeepDescent.room_card(kind))
 		var jobs: int = card.get("choices", []).filter(func(c: Dictionary) -> bool: return str(c.get("action", {}).get("kind", "")) != "none").size()
 		fake.chamber = {"kind": kind, "oddity": DeepDescent.room_card(kind), "results": {}, "depth": 1, "settled": false}
 		app.descent.show_state(fake)
-		check(app.descent._cross_title.text == str(card.name) and _count_text(app.descent._page_holder, "Choose") == jobs and _count_text(app.descent._page_holder, "Leave it") == 1,
+		check(app.descent._cross_title.text == str(card.name) and _count_choices(app.descent._page_holder) == jobs and _count_skips(app.descent._page_holder, "Leave it") == 1,
 			"a %s shows its card: %d pieces of work and the way out" % [kind, jobs])
 	## The well is a room of its own as well: a stone down it, or a measure of ore.
 	app.session.local_player().ore = 120
 	fake.chamber = {"kind": "well", "oddity": DeepDescent.room_card("well"), "results": {}, "depth": 1, "settled": false}
 	app.descent.show_state(fake)
-	check(app.descent._cross_title.text == str(DeepContent.oddity(DeepDescent.room_card("well")).name) and _count_text(app.descent._page_holder, "Choose") == 2,
+	check(app.descent._cross_title.text == str(DeepContent.oddity(DeepDescent.room_card("well")).name) and _count_choices(app.descent._page_holder) == 2,
 		"the wishing well shows its card in its own room")
 	var probe_box := VBoxContainer.new()
 	root.add_child(probe_box)
-	var pair: Dictionary = app.descent._picker(probe_box, "die_face_pair", app.descent.me(), "recut").call()
-	check(pair.has("die_id") and pair.has("face") and pair.has("from") and int(pair.face) != int(pair.from), "the carver's picker names a die, a face to recut and a face to copy: %s" % str(pair))
-	check(DeepOddities.apply({"kind": "copy_face"}, app.descent.me().duplicate(true), pair, RandomNumberGenerator.new(), {}).ok, "and what it names is work the carver will do")
+	var lowered: Dictionary = app.descent._picker(probe_box, "die_face", app.descent.me(), "lower").call()
+	check(lowered.has("die_id") and lowered.has("face"), "the carver's picker names a die and a face: %s" % str(lowered))
 	probe_box.free()
 	## The shaft head: a pick stake hides its three until it is taken, then shows them on a
 	## page of their own; a stake left to chance holds its result up once the party moves on.
@@ -246,7 +245,7 @@ func _init() -> void:
 	check(app.descent._page_holder.get_child_count() > 0 and _find_class(app.descent._page_holder, "OptionButton") == null, "the stakes render with nothing to set")
 	app.descent._stake_choosing = "stake_pick"
 	app.descent.show_state(head_state)
-	check(app.descent._stake_choosing == "stake_pick" and _count_text(app.descent._page_holder, "Take this one") == pick_offer.picks.size(), "taking a pick shows its candidates, one button each")
+	check(app.descent._stake_choosing == "stake_pick" and _count_choices(app.descent._page_holder) == pick_offer.picks.size(), "taking a pick shows its candidates, each one a card to click")
 	app.descent._stake_choosing = ""
 	head_state.phase = "tunnels"
 	app.descent.show_state(head_state)
@@ -419,3 +418,17 @@ func check(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
 		failures.append(message)
+
+func _count_choices(node: Node) -> int:
+	## Cards in a subtree that are themselves the button.
+	var count: int = 1 if bool(node.get_meta("choice", false)) else 0
+	for child in node.get_children():
+		count += _count_choices(child)
+	return count
+
+func _count_skips(node: Node, text: String) -> int:
+	## The arrows past a row of choices that say this.
+	var count: int = 1 if node is Button and (node as Button).tooltip_text == text and (node as Button).text.is_empty() else 0
+	for child in node.get_children():
+		count += _count_skips(child, text)
+	return count

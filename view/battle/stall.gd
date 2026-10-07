@@ -267,11 +267,8 @@ func show_stock(stock: Array) -> void:
 			## A merchant keeps one die beside the stones, turning on its own stand.
 			var die: Dictionary = item.get("die", {})
 			var palette: Dictionary = DiceIcons.die_palette(die)
-			var body := MeshInstance3D.new()
-			body.mesh = DiceGeometry.mesh(str(die.get("shape", "D6")), PackedColorArray([Color(palette.body)]))
-			body.material_override = _material(Color(palette.body), 0.35)
-			body.scale = Vector3.ONE * 0.42
-			shown = body
+			shown = _faced_die(die)
+			shown.scale = Vector3.ONE * 0.25
 			tone = Color(palette.body)
 		else:
 			var stone: Dictionary = item.get("stone", {})
@@ -349,3 +346,46 @@ func _process(delta: float) -> void:
 		var scale_goal: float = 1.18 if bool(entry.hover) else 1.0
 		spinner.scale = spinner.scale.lerp(Vector3.ONE * scale_goal, clampf(delta * 10.0, 0.0, 1.0))
 		(entry.shine as OmniLight3D).light_energy = 1.6 if bool(entry.hover) else 0.7
+
+func _faced_die(die: Dictionary) -> Node3D:
+	## The die as it rolls in a hand: each face shaded and numbered, etched faces tinted, so
+	## what is for sale can be read off the counter and not just its outline.
+	var node := Node3D.new()
+	var shape: String = str(die.get("shape", "D6"))
+	var built: Dictionary = DiceGeometry.solid(shape)
+	var frames: Array = built.frames
+	var palette: Dictionary = DiceIcons.die_palette(die)
+	var faces: Array = die.get("faces", [])
+	var colors := PackedColorArray()
+	for index in range(frames.size()):
+		var tone: Color = Color(palette.body).lightened(0.06 * float(index % 3))
+		var kind: String = str(faces[index].get("kind", "plain")) if index < faces.size() and faces[index] is Dictionary else "plain"
+		if kind != "plain":
+			tone = tone.lerp(DiceIcons.face_kind_tint(kind), 0.55)
+		colors.append(tone)
+	for _i in range(frames.size(), built.faces.size()):
+		colors.append(Color(palette.edge).lightened(0.12))
+	var body := MeshInstance3D.new()
+	body.mesh = DiceGeometry.mesh(shape, colors)
+	var material := _material(Color.WHITE, 0.35)
+	material.vertex_color_use_as_albedo = true
+	body.material_override = material
+	node.add_child(body)
+	var numeral: Color = Color("15181f") if Color(palette.body).get_luminance() > 0.45 else Color("f4f7fb")
+	for index in range(frames.size()):
+		var frame: Dictionary = frames[index]
+		var face: Variant = faces[index] if index < faces.size() else index + 1
+		var value: int = int(face.get("value", index + 1)) if face is Dictionary else int(face)
+		var kind: String = str(face.get("kind", "plain")) if face is Dictionary else "plain"
+		var label := Label3D.new()
+		label.text = DiceIcons.face_text(value, kind)
+		label.font_size = 96
+		label.outline_size = 0
+		label.modulate = numeral
+		label.double_sided = false
+		label.shaded = false
+		label.alpha_cut = Label3D.ALPHA_CUT_DISCARD
+		label.pixel_size = float(frame.inradius) * 1.5 / (96.0 * (0.58 * float(maxi(1, label.text.length())) + 0.42))
+		label.transform = Transform3D(Basis(frame.right, frame.up, frame.normal), frame.centre + frame.normal * 0.006)
+		node.add_child(label)
+	return node

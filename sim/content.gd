@@ -241,6 +241,15 @@ static func validate(p: Dictionary = {}) -> Array:
 		for group in ["stone", "kit", "cost", "reward"]:
 			if p.boons.values().filter(func(b: Variant) -> bool: return b is Dictionary and str(b.get("group", "")) == group).is_empty():
 				errors.append("boons: no %s stake to offer" % group)
+	## Gold at home (docs/GOLD.md): every socket bought costs more than the one before it.
+	var socket_prices: Variant = p.get("constants", {}).get("socket_unlock_gold", [])
+	if not socket_prices is Array:
+		errors.append("constants: socket_unlock_gold must be a list of prices")
+	else:
+		for index in range(socket_prices.size()):
+			if int(socket_prices[index]) <= 0 or (index > 0 and int(socket_prices[index]) <= int(socket_prices[index - 1])):
+				errors.append("constants: every socket must cost more than the one before it")
+				break
 	return errors
 
 static func _validate_die(def: Variant) -> Array:
@@ -487,4 +496,9 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 	for color_key in def.get("color_weights", {}):
 		if not str(color_key) in color_KEYS:
 			errors.append("unknown color " + str(color_key))
+	for field in ["start_pyrite", "fare_gold", "insurance_gold", "first_conquest_gold"]:
+		if int(def.get(field, 0)) < 0:
+			errors.append("%s cannot be negative" % field)
+	if bool(def.get("starter", false)) and int(def.get("fare_gold", 0)) != 0:
+		errors.append("the starter mine is always free to go down")
 	return errors

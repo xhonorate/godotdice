@@ -68,6 +68,11 @@ var tint: Color:
 var anchor: Vector3:
 	get: return (get_node("Anchor") as Marker3D).position * scale
 var rest_position: Vector3 = Vector3.ZERO
+## The floor under it, height at (x, z), when the room has one: the rings under it are laid
+## over the highest ground they cross rather than sunk into a bump or dipping as it breathes.
+var ground: Callable = Callable()
+var _ground_at: Vector3 = Vector3.INF
+var _ground_y: float = 0.0
 var _body: Node3D
 var _body_rest: Transform3D
 var _parts: Array[Part] = []
@@ -376,3 +381,20 @@ func _process(delta: float) -> void:
 	_ring_material.albedo_color.a = move_toward(_ring_material.albedo_color.a, minf(want, 1.0), delta * 4.0)
 	_ring.rotation.y += delta * 0.8
 	_ring.scale = _ring_rest_scale * (1.0 + 0.04 * sin(_clock * 4.0))
+	_lay_rings()
+
+func _lay_rings() -> void:
+	if not ground.is_valid():
+		return
+	if not rest_position.is_equal_approx(_ground_at):
+		_ground_at = rest_position
+		var reach: float = _ring.mesh.get_aabb().size.x * 0.5 * _ring_rest_scale.x * scale.x * 1.25 if _ring.mesh != null else 1.0
+		_ground_y = rest_position.y
+		for i in range(16):
+			var angle: float = TAU * float(i) / 16.0
+			for r in [reach, reach * 0.6]:
+				_ground_y = maxf(_ground_y, float(ground.call(rest_position.x + cos(angle) * r, rest_position.z + sin(angle) * r)))
+		_ground_y = minf(_ground_y, rest_position.y + 0.5)
+	if is_inside_tree():
+		_ring.global_position.y = _ground_y + 0.06
+		_halo.global_position.y = _ground_y + 0.08

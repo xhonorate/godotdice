@@ -243,7 +243,17 @@ func pluck(at: float, seconds: float, hz: float, amp: float = 0.4, damping: floa
 	var start: int = maxi(0, int(at * float(RATE)))
 	var count: int = int(seconds * float(RATE))
 	var limit: int = mini(count, samples.size() - start)
-	var ring_size: int = maxi(2, int(float(RATE) / maxf(hz, 20.0)))
+	## The ring is a whole number of samples long, and the averaging (each sample with the one
+	## after it) takes half a sample off it, which alone plays every note up to a third of a
+	## semitone sharp: sour against the pads. An all-pass makes up the fraction, so the loop
+	## is exactly one period.
+	var period: float = float(RATE) / maxf(hz, 20.0)
+	var ring_size: int = maxi(2, int(floor(period + 0.5)))
+	var fraction: float = period + 0.5 - float(ring_size)
+	if fraction < 0.1 and ring_size > 2:
+		ring_size -= 1
+		fraction += 1.0
+	var tune: float = (1.0 - fraction) / (1.0 + fraction)
 	if count <= 0 or limit <= 0:
 		return self
 	var ring: PackedFloat32Array = PackedFloat32Array()
@@ -266,10 +276,15 @@ func pluck(at: float, seconds: float, hz: float, amp: float = 0.4, damping: floa
 	var cursor: int = 0
 	var decay_step: float = exp(-3.6 / float(limit))
 	var decay: float = 1.0
+	var pass_in: float = 0.0
+	var pass_out: float = 0.0
 	for i in range(limit):
 		var value: float = ring[cursor]
 		var next: int = (cursor + 1) % ring_size
-		ring[cursor] = (value + ring[next]) * 0.5 * damping
+		var averaged: float = (value + ring[next]) * 0.5 * damping
+		pass_out = tune * averaged + pass_in - tune * pass_out
+		pass_in = averaged
+		ring[cursor] = pass_out
 		cursor = next
 		decay *= decay_step
 		samples[start + i] += value * amp * decay

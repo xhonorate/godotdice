@@ -44,7 +44,8 @@ func _ready() -> void:
 		## A profile from before characters: its settings become characters, its vault stays.
 		profile = DeepProfile.migrate(profile)
 		saves.save_profile(profile)
-	if DeepProfile.tidy(profile):
+	var upgraded: bool = DeepProfile.upgrade(profile)
+	if DeepProfile.tidy(profile) or upgraded or DeepEconomy.roll_day(profile):
 		saves.save_profile(profile)
 	Inspector.vault = profile.get("vault", {})
 	session = DeepSession.new()
@@ -129,23 +130,33 @@ func member() -> Dictionary:
 	var history: Array = profile.get("history", [])
 	var last: Dictionary = history[history.size() - 1] if not history.is_empty() else {}
 	return {"name": str(profile.get("name", "Lapidary")), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
-		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", ""))}
+		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")),
+		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key)}
+
+func _kit(loadout: Dictionary) -> Dictionary:
+	## What the lobby is told whenever the profile changes: who goes down, wearing what, and
+	## whether they can pay their own way.
+	var fields: Dictionary = {}
+	for key in ["character", "rail", "dice", "gold", "insured", "sockets"]:
+		fields[key] = loadout[key]
+	return fields
 
 func _refresh_home() -> void:
 	if home == null:
 		return
+	## A workshop left open past midnight (UTC) turns over to the new day's commissions.
+	if DeepEconomy.roll_day(profile):
+		saves.save_profile(profile)
 	home.refresh(profile, session.lobby, session.status, session.is_host, session.local_id, session.can_start(), settings, session.invite_code)
 
 func _profile_changed() -> void:
 	saves.save_profile(profile)
 	Inspector.vault = profile.get("vault", {})
-	var loadout: Dictionary = member()
-	session.update_member({"character": loadout.character, "rail": loadout.rail, "dice": loadout.dice})
+	session.update_member(_kit(member()))
 	_refresh_home()
 
 func _depart(seed_value: int) -> void:
-	var loadout: Dictionary = member()
-	session.update_member({"character": loadout.character, "rail": loadout.rail, "dice": loadout.dice})
+	session.update_member(_kit(member()))
 	var result: Dictionary = session.start_run(seed_value)
 	if not bool(result.get("ok", false)):
 		toast(str(result.get("error", "")), DeepUi.BAD)
@@ -197,6 +208,12 @@ func _on_invited(lobby_id: String) -> void:
 		_join_steam(lobby_id)
 
 func _on_run_started(state: Dictionary) -> void:
+	## Each lapidary pays their own way down, once, as the run reaches them.
+	var paid: Dictionary = DeepEconomy.charge_departure(profile, state, session.local_id)
+	if not paid.is_empty():
+		saves.save_profile(profile)
+		if int(paid.get("paid", 0)) > 0:
+			toast("Paid %d gold for the way down" % int(paid.paid), DeepUi.ACCENT, "coin")
 	descent.bind(session.local_id, session.forecast)
 	descent.show_state(state)
 	home.visible = false
@@ -216,6 +233,9 @@ func _process(_delta: float) -> void:
 	## planning included, runs at 1×.
 	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
 	var want: float = clampf(session.speed, 1.0, 8.0) if resolving and not session.paused else 1.0
+	## With the last creature down, what is left of the rail runs out at three times the pace.
+	if resolving and not session.paused and DeepBattle.living(DeepDescent.battle(session.run).get("enemies", [])).is_empty():
+		want = clampf(want * 3.0, 3.0, 8.0)
 	## A heavy blow holds the clock for a beat; the last one of a fight runs in slow motion.
 	## Whatever speed the fight is played at, a held beat is held.
 	var warp: float = ScreenFx.time_warp()
@@ -244,16 +264,26 @@ func _on_run_ended(results: Dictionary) -> void:
 			var mine: Dictionary = DeepContent.mine(str(unlocked.mine))
 			toast("Unlocked: %s" % str(mine.get("name", "")), DeepUi.ACCENT, "pick")
 			Inspector.announce("A new mine", "%s is open.\n\n%s" % [str(mine.get("name", "")), str(mine.get("text", ""))], "pick", DeepUi.ACCENT_HI)
+	for purse in applied.get("purses", []):
+		toast("First conquest of %s: +%d gold" % [DeepContent.mine_name(str(purse.mine)), int(purse.gold)], DeepUi.ACCENT, "crown")
 	descent.show_state(session.run)
 
 func _back_home() -> void:
 	session.leave_run()
+	## The run changed the purse (the fare, the assayer): the party hears what is in it now.
+	session.update_member(_kit(member()))
 	descent.visible = false
 	home.visible = true
 	home.open("appraise" if not profile.get("tray", []).is_empty() else "map")
 	_refresh_home()
 
 func toast(text: String, color: Color, glyph: String = "") -> void:
+	if glyph.is_empty():
+		glyph = "cross_out" if color == DeepUi.BAD else "spark"
+	## Down the mine the run's own toasts know where the bar along the bottom is.
+	if descent != null and descent.visible:
+		descent.toast(text, color, glyph)
+		return
 	DeepAudio.play("toast_bad" if color == DeepUi.BAD else "toast", {"volume": 0.7})
 	while _toasts.get_child_count() >= 3:
 		var oldest: Node = _toasts.get_child(0)
@@ -267,8 +297,6 @@ func toast(text: String, color: Color, glyph: String = "") -> void:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_toasts.add_child(box)
 	var row := DeepUi.hbox(box, 8)
-	if glyph.is_empty():
-		glyph = "cross_out" if color == DeepUi.BAD else "spark"
 	DeepUi.icon(row, glyph, 18, color)
 	DeepUi.label(row, text, 15, color)
 	DeepUi.pop_in(box, 0.0, 0.8)

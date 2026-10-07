@@ -4,9 +4,9 @@ extends SceneTree
 ## Targets: home (map) | map_party | map_deep | bench | roster_sockets | vault | appraise | ledger |
 ##          grubstake | grubstake_pick | grubstake_result |
 ##          tunnels | vein | vein_done | oddity | smithy | carver | well |
-##          landing | merchant | lift | run_bench | run_bench_dice | battle | battle_fx | battle_status | spoils |
+##          landing | landing_well | landing_bench | merchant | lift | run_bench | run_bench_dice | battle | battle_fx | battle_status | spoils |
 ##          over | inspect_stone | inspect_die | inspect_opal | vault_opals | inspect_flaw | vault_flaws | inspect_creature | menu | menu_settings | menu_soundtrack |
-##          abandon | map_lit |
+##          abandon | map_lit | chart |
 ##          crossroads | crossroads_hover | walk | walk_in | rockfall | crumble | vein_hover | vein_strike |
 ##          lift_ride | hoard | appraisal | appraisal_run | void_rail | void_bench | void_battle | void_end | void_appraisal
 ## `appraisal` puts a raw stone from the tray under the loupe at home (weighed against a kept
@@ -143,7 +143,7 @@ func _init() -> void:
 		_save(out)
 		return
 	app._depart(seed_value)
-	var want: Dictionary = {"crossroads": "fight", "crossroads_hover": "fight", "walk": "fight", "walk_in": "fight", "rockfall": "fight", "crumble": "fight", "menu": "vein", "menu_settings": "vein", "menu_soundtrack": "vein", "abandon": "vein", "map_lit": "vein", "tunnels": "vein", "vein": "vein", "vein_done": "vein", "vein_hover": "vein", "vein_strike": "vein", "oddity": "oddity", "battle": "fight", "battle_fx": "fight",
+	var want: Dictionary = {"crossroads": "fight", "crossroads_hover": "fight", "walk": "fight", "walk_in": "fight", "rockfall": "fight", "crumble": "fight", "menu": "vein", "menu_settings": "vein", "menu_soundtrack": "vein", "abandon": "vein", "map_lit": "vein", "chart": "vein", "tunnels": "vein", "vein": "vein", "vein_done": "vein", "vein_hover": "vein", "vein_strike": "vein", "oddity": "oddity", "battle": "fight", "battle_fx": "fight",
 		"battle_status": "fight", "spoils": "fight", "inspect_creature": "fight", "hoard": "fight"}
 	var guard: int = 0
 	var locked_at: int = -1
@@ -231,7 +231,7 @@ func _init() -> void:
 					for _i in range(52):
 						await process_frame
 					break
-		if target in ["menu", "menu_settings", "menu_soundtrack", "abandon", "map_lit"] and phase == "tunnels" and int(run.depth) >= 1:
+		if target in ["menu", "menu_settings", "menu_soundtrack", "abandon", "map_lit", "chart"] and phase == "tunnels" and int(run.depth) >= 1:
 			app.descent._hold = {}
 			app.descent.show_state(run)
 			match target:
@@ -250,6 +250,8 @@ func _init() -> void:
 					app.menu.close()
 				"map_lit":
 					app.session.send({"kind": "light"})
+				"chart":
+					app.descent.toggle_chart()
 			break
 		if target == "grubstake" and phase == "grubstake":
 			break
@@ -307,7 +309,16 @@ func _init() -> void:
 			return
 		if target in ["oddity"] + DeepDescent.CARD_ROOMS and phase == "chamber" and str(run.chamber.get("kind", "")) == target:
 			break
-		if target == "landing" and phase == "landing":
+		if target in ["landing", "landing_well", "landing_bench"] and phase == "landing":
+			if target != "landing":
+				## Something to read and something to throw: raw stones in the haul and pyrite.
+				var me: Dictionary = app.session.local_player()
+				me.ore = int(me.get("ore", 0)) + 120
+				for i in range(5):
+					me.haul.append(DeepForge.roll_stone(DeepRng.streams(seed_value + i).stones, DeepContent.mine(DeepContent.starter_mine()), 5, 2, {}, "shot_raw%d" % i))
+				while app.descent.walking():
+					await process_frame
+				app.descent._open_landing("wish" if target == "landing_well" else "appraise")
 			break
 		if target == "lift" and phase == "landing" and not str(app.session.local_player().get("respite", "")).is_empty():
 			break

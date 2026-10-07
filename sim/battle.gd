@@ -50,7 +50,7 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 	var sockets: Array = character.get("sockets", ["ANY"]).duplicate()
 	var max_hp: int = int(character.get("hp", 60))
 	var unit: Dictionary = {"id": id, "name": name, "side": "player", "character": character_key, "sockets": sockets, "rail": rail.duplicate(true), "riders": riders.duplicate(true),
-		"birthstone": character.get("birthstone", {}).duplicate(true), "flips": 0, "fired_sockets": [], "fizzled_sockets": [],
+		"birthstone": character.get("birthstone", {}).duplicate(true), "flips": 0, "fired_sockets": [], "fizzled_sockets": [], "tailings_paid": {},
 		"rank_buff": {"carat": 0, "cut": 0}, "gem_buffs": {}, "buff_sources": {}, "pyrite_delta": 0, "repeat_next": 0, "replaying": false, "stone_drops": 0, "pot": 0,
 		"hp": hp if hp >= 0 else max_hp, "max_hp": max_hp, "block": 0, "statuses": {}, "dice": dice.duplicate(true), "hand": [],
 		"rerolls": 0, "rerolls_max": 0, "locked": false, "target": "", "passive": character.get("passive", {"kind": "none"}),
@@ -354,6 +354,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.cut_step_bonus = 0
 			unit.fired_sockets = []
 			unit.fizzled_sockets = []
+			unit.tailings_paid = {}
 			unit.repeat_next = 0
 			unit.replaying = false
 			unit.fired_count = 0
@@ -577,6 +578,14 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 	var buff: Dictionary = unit.get("rank_buff", {})
 	var gem_buff: Dictionary = unit.get("gem_buffs", {}).get(str(stone.get("id", "")), {})
 	carat_bonus += int(buff.get("carat", 0)) + int(gem_buff.get("carat", 0))
+	## What a Tailings here has still to be paid for: every gem that stayed dark this turn
+	## since this stone last collected, never counting its own socket. Keyed by the stone, so
+	## a replay finds the fizzles it already took and a Doublet wearing it collects its own.
+	var dark: Array = unit.get("fizzled_sockets", [])
+	var unpaid: int = 0
+	for index in range(int(unit.get("tailings_paid", {}).get(str(stone.get("id", "")), 0)), dark.size()):
+		if int(dark[index]) != socket:
+			unpaid += 1
 	var enemy_poison: int = 0
 	var carat_cap: int = 0
 	for foe in living(state.enemies):
@@ -588,7 +597,7 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 	return {"unit": unit, "resonance": int(unit.get("resonance", 0)), "previous_fired": bool(unit.get("previous_fired", false)),
 		"previous_amount": int(unit.get("previous_amount", 0)), "amplify": float(unit.get("amplify", 1.0)),
 		"cut_step_bonus": int(unit.get("cut_step_bonus", 0)) + int(buff.get("cut", 0)) + int(gem_buff.get("cut", 0)), "carat_bonus": carat_bonus,
-		"clarity_bonus": int(gem_buff.get("clarity", 0)), "enemy_poison": enemy_poison, "carat_cap": carat_cap,
+		"clarity_bonus": int(gem_buff.get("clarity", 0)), "enemy_poison": enemy_poison, "carat_cap": carat_cap, "fizzles": unpaid,
 		## Only what was won mid-fight, apart from everything else folded into the bonuses
 		## above, so the close look can name the ranks that were raised and what raised them.
 		"fight_buffs": {"carat": int(buff.get("carat", 0)) + int(gem_buff.get("carat", 0)),
@@ -768,6 +777,11 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	unit.previous_socket = socket
 	if not unit.get("fired_sockets", []).has(socket):
 		unit.fired_sockets.append(socket)
+	## A Tailings collects on every fizzle it read, and none of them pays it again this turn.
+	if str(DeepStone.skill_of(stone).get("trigger", {}).get("kind", "")) == "fizzles":
+		if not unit.has("tailings_paid"):
+			unit.tailings_paid = {}
+		unit.tailings_paid[str(stone.id)] = unit.get("fizzled_sockets", []).size()
 	if not dry and not retrigger and int(ev.get("fires", 1)) > 1:
 		for _extra in range(int(ev.fires) - 1):
 			state.queue.push_front({"kind": "gem", "unit": unit.id, "socket": socket, "retrigger": true})
@@ -2751,6 +2765,7 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	unit.cut_step_bonus = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "first_gem_cut_step" else 0
 	unit.fired_sockets = []
 	unit.fizzled_sockets = []
+	unit.tailings_paid = {}
 	unit.repeat_next = 0
 	unit.replaying = false
 	unit.fired_count = 0

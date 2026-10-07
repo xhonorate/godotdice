@@ -164,7 +164,7 @@ func _workshop() -> void:
 		var fee: int = DeepProfile.appraisal_fee(raw)
 		check(DeepProfile.appraise(profile, raw), "fragile raw %s can be appraised" % key)
 		check(profile.tray.is_empty() and profile.gold == 1000 - fee and profile.seen.has(key), "appraisal pays its fee and immediately removes the fragile gem")
-		check(profile.vault == vault and DeepProfile.auto_keep(profile).is_empty(), "neither a first skill nor a rival displaces a vault stone")
+		check(profile.vault == vault and DeepProfile.clear_shattered(profile).is_empty(), "neither a first skill nor a rival displaces a vault stone")
 		check(not DeepProfile.decide_tray(profile, raw.id, true).ok, "a skipped ceremony cannot rescue its shattered gem")
 		for keep_it in [true, false]:
 			profile.tray.append(gem(key, "forced", true, false))
@@ -175,8 +175,9 @@ func _workshop() -> void:
 		check(profile.vault == vault, "direct keep also preserves the existing vault")
 	var profile: Dictionary = DeepProfile.new_profile()
 	profile.tray = [gem("CLEAVE", "loaded")]
-	DeepProfile.auto_keep(profile)
-	check(profile.tray.is_empty() and not profile.vault.has("CLEAVE"), "bulk keeping cannot retain an already revealed fragile stone")
+	check(DeepProfile.clear_shattered(profile).size() == 1, "clearing the tray breaks an already revealed fragile stone")
+	check(profile.tray.is_empty() and not profile.vault.has("CLEAVE"), "and nothing can retain it")
+	check(not DeepProfile.first_of_skill(profile, gem("CLEAVE", "again")), "a fragile stone is never anyone's first of a skill")
 
 func _rarity() -> void:
 	check(DeepContent.validate().is_empty(), "Void's modifiers and content validate")

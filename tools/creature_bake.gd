@@ -19,6 +19,7 @@ extends SceneTree
 ##   column(sides, radius, height)  cap(radius, height, sides)  slab(size[3], jitter)
 ##   shard(size)  dome(radius)  ring(radius, width, segments)  prism(size[3])
 ##   sphere(radius, segments, rings)  cylinder(top, bottom, height, sides)  cone(radius, height, sides)
+##   drill(radius, height, flutes, turns): a bit with fluted spirals running up to its point
 ##   box(size[3])  torus(inner, outer, rings, segments)  capsule(radius, height, segments)
 ## Positions are in creature units: a Cave Tick is about 1 high, a Warden about 3.
 ## The whole recipe may name "scale" to size the finished body at once.
@@ -91,8 +92,8 @@ static func validate(key: String, recipe: Dictionary) -> Array:
 			errors.append("unknown motion " + str(part.get("motion", "")))
 	return errors
 
-const SHAPES: Array = ["rock", "crystal", "spike", "column", "cap", "slab", "shard", "dome", "ring", "prism", "sphere", "cylinder", "cone", "box", "torus", "capsule"]
-const MOTIONS: Array = ["static", "crystal", "core", "block", "wing", "orbit", "spin", "bob", "swing", "tread", "flicker"]
+const SHAPES: Array = ["rock", "crystal", "spike", "column", "cap", "slab", "shard", "dome", "ring", "prism", "sphere", "cylinder", "cone", "box", "torus", "capsule", "drill"]
+const MOTIONS: Array = ["static", "crystal", "core", "block", "wing", "orbit", "spin", "drill", "bob", "swing", "tread", "flicker"]
 
 static func _vec(value: Variant, fallback: Vector3) -> Vector3:
 	if value is Array and value.size() >= 3:
@@ -144,6 +145,7 @@ static func mesh_for(part: Dictionary, rng: RandomNumberGenerator) -> Mesh:
 		"shard": return Lowpoly.shard(rng, white, float(part.get("size", 0.12)))
 		"dome": return Lowpoly.hex_dome(float(part.get("radius", 1.0)))
 		"ring": return Lowpoly.ring(float(part.get("radius", 1.0)), float(part.get("width", 0.1)), int(part.get("segments", 24)))
+		"drill": return _drill(rng, white, float(part.get("radius", 0.4)), float(part.get("height", 1.4)), int(part.get("flutes", 3)), float(part.get("turns", 2.0)))
 		"prism":
 			var prism := PrismMesh.new()
 			prism.size = _vec(part.get("size", null), Vector3(1, 1, 0.05))
@@ -301,3 +303,39 @@ static func _own(node: Node, owner: Node) -> void:
 	for child in node.get_children():
 		child.owner = owner
 		_own(child, owner)
+
+static func _drill(_rng: RandomNumberGenerator, tone: Color, radius: float, height: float, flutes: int, turns: float) -> ArrayMesh:
+	## A drill bit standing on its base, point up and centred like a cone: its section is a
+	## star of `flutes` lobes that twists `turns` times on the way up and narrows to the point,
+	## so the grooves read as a corkscrew when it turns. The grooves are shaded darker.
+	var surface := Lowpoly.begin()
+	var steps: int = 16
+	var around: int = maxi(3, flutes) * 6
+	var rings: Array = []
+	for s in range(steps + 1):
+		var t: float = float(s) / float(steps)
+		var reach: float = radius * (1.0 - t) * (1.0 - t * 0.15)
+		var y: float = -height * 0.5 + height * t
+		var ring: Array = []
+		for i in range(around):
+			var angle: float = TAU * float(i) / float(around)
+			var lobe: float = 0.68 + 0.32 * cos(float(flutes) * (angle - TAU * turns * t))
+			ring.append(Vector3(cos(angle) * reach * lobe, y, sin(angle) * reach * lobe))
+		rings.append(ring)
+	var tip := Vector3(0, height * 0.5, 0)
+	for s in range(steps):
+		var t: float = (float(s) + 0.5) / float(steps)
+		for i in range(around):
+			var j: int = (i + 1) % around
+			var angle: float = TAU * (float(i) + 0.5) / float(around)
+			var groove: float = cos(float(flutes) * (angle - TAU * turns * t))
+			var shade: Color = tone.darkened(0.7) if groove < -0.2 else (tone if groove > 0.5 else tone.darkened(0.3))
+			var out := Vector3(cos(angle), 0.4, sin(angle))
+			if s == steps - 1:
+				Lowpoly.tri(surface, rings[s][i], rings[s][j], tip, shade, out)
+			else:
+				Lowpoly.quad(surface, rings[s][i], rings[s][j], rings[s + 1][j], rings[s + 1][i], shade, out)
+	var base := Vector3(0, -height * 0.5, 0)
+	for i in range(around):
+		Lowpoly.tri(surface, rings[0][(i + 1) % around], rings[0][i], base, tone.darkened(0.2), Vector3.DOWN)
+	return surface.commit()

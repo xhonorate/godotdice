@@ -327,19 +327,9 @@ const SKILL_EMBLEMS := {
 	"SEAM_VIOLET": "lattice", "SEAM_GOLD": "lattice", "SEAM_WHITE": "lattice",
 	"FIRE_OPAL": "flame", "DOUBLET": "copy", "ECHO": "copy", "MATRIX": "geode", "PRELUDE": "reroll"}
 
-## The creatures' abilities wear the same marks as stones.
-const MOVE_EMBLEMS := {
-	"BITE": "slashes", "LATCH": "knot", "OOZE": "cloud", "ENGULF": "drain", "POUND": "hammer", "QUAKE": "arcs",
-	"PECK": "thorn", "SNATCH": "coin_fall", "FLUTTER": "spark", "DRAIN": "drain", "WAIL": "skull", "PUFF": "cloud",
-	"SMOTHER": "cloud", "LASH": "slashes", "COIL": "rampart", "SHATTERBREATH": "arcs", "PICK": "hammer", "CAVE-IN": "rampart",
-	"SHORE UP": "shield", "BLAST": "shield_burst", "COLLAPSE": "hammer", "REFLECT": "prism", "REFRACTION": "prism",
-	"HARDEN": "shield", "GATHER": "cloud", "REINFORCE": "die", "SPLINTER": "thorn",
-	"ABRASIVE FOG": "cloud", "REKNIT": "heart", "OMEN": "eye",
-	"SHATTER": "split_shield", "BORE": "hammer", "GRIND": "rose", "OVERDRIVE": "bolt"}
-
 static func emblem(skill_key: String) -> String:
 	var key := skill_key.to_upper()
-	return str(SKILL_EMBLEMS.get(key, MOVE_EMBLEMS.get(key, "sword")))
+	return str(SKILL_EMBLEMS.get(key, "sword"))
 
 static func _emblem_shapes(glyph: String) -> Array:
 	match glyph:

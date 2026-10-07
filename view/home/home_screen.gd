@@ -43,8 +43,8 @@ const color_ORDER: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "
 ## the picture rather than cost the page a scrollbar.
 const VAULT_TILE: int = 84
 const VAULT_COLUMNS: int = 10
-## The word on a socket the loadout does not fill, because only the mine does.
-const MINE_SOCKET: String = "Filled only in the mine: any stone found on the way down can be set here, whatever its color."
+## The word on a socket the lapidary has not opened, so the loadout does not fill it.
+const MINE_SOCKET: String = "Locked. Buy it with gold to fill it from the vault before every run. Until then it is filled in the mine: below the Quarry with a temporary stone, and anywhere with a stone found on the way down."
 ## What the lock on a lapidary's dice says: they are never swapped.
 const OWN_DICE: String = "Every lapidary goes down with their own five dice. Dice are worked in the mine, at a smithy or a carver, never swapped."
 ## How much of a long list goes on one page: three rows of the vault tray, two columns of the
@@ -90,6 +90,8 @@ var _cheer: Dictionary = {}
 var _side: String = "expedition"
 ## The Lapidaries tab: the roster and a dossier, or the picked lapidary's sockets.
 var _roster_view: String = "dossier"
+## The Ledger: the day's commissions, or the records and the runs.
+var _ledger_view: String = "commissions"
 ## The page each long list is turned to, by list.
 var _pages: Dictionary = {}
 ## Every drop target on the loadout, so a drag can light the ones that would take it.
@@ -120,6 +122,13 @@ func _ready() -> void:
 	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(_body)
+	## The build, faint in the corner, inside the body's margin so it never sits on a page.
+	## tools/release/deploy.ps1 stamps it into the project settings on every release.
+	var version := DeepUi.label(self, "v" + str(ProjectSettings.get_setting("application/config/version", "0.0.0")), 11, Color(DeepUi.MUTED, 0.45))
+	version.name = "Version"
+	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 4)
+	version.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	version.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
 func _notification(what: int) -> void:
 	## While a stone is being dragged, the places it could go are lit and the rest dim.
@@ -163,7 +172,8 @@ func _render() -> void:
 	DeepUi.title(brand, "DEEP CUT", 22, DeepUi.ACCENT_HI)
 	DeepUi.gap(_bar, 10)
 	var gold: int = int(profile.get("gold", 0))
-	var purse := DeepUi.pill(_bar, "coin", "%d" % gold, DeepUi.ACCENT, 14, "Gold: from selling stones. The loupe is paid out of it.")
+	var purse := DeepUi.pill(_bar, "coin", "%d" % gold, DeepUi.ACCENT, 14,
+		"Gold: from selling stones, commissions, the assayer at the lift and first conquests. It pays for the loupe, the way down to a deeper mine, insurance and sockets.")
 	purse.name = "Purse"
 	if _gold_seen >= 0 and gold != _gold_seen and not _headless:
 		## Gold coming in counts up, and the purse jingles.
@@ -182,12 +192,17 @@ func _render() -> void:
 	DeepUi.spacer(_bar)
 	for entry in TABS:
 		var key: String = str(entry[0])
-		var badge: int = profile.get("tray", []).size() if key == "appraise" else 0
+		## The tray's count on Appraise; on the Ledger, the commissions a stone on the tray
+		## could fill right now.
+		var badge: int = 0
+		match key:
+			"appraise": badge = profile.get("tray", []).size()
+			"ledger": badge = DeepEconomy.ready_count(profile)
 		var button := DeepUi.tab_button(_bar, str(entry[2]), str(entry[1]), key == tab, func() -> void: open(key), 15, badge)
 		if key == "vault" and not _cheer.is_empty():
-			call_deferred("_cheer_at", button, str(_cheer.text), _cheer.color, "chest")
+			call_deferred("_cheer_at", button, str(_cheer.text), _cheer.color, str(_cheer.get("glyph", "chest")))
 			_cheer = {}
-		if key == "appraise" and badge > 0 and key != tab:
+		if key in ["appraise", "ledger"] and badge > 0 and key != tab:
 			DeepUi.breathe(button, 0.65, 1.6)
 	DeepUi.spacer(_bar)
 	DeepUi.stat(_bar, "person", str(profile.get("name", "")), DeepUi.MUTED, 14)
@@ -291,7 +306,10 @@ func _map(content: VBoxContainer) -> void:
 		var button := DeepUi.tab_button(views, str(entry[1]), str(entry[2]), _side == key, func() -> void:
 			_side = key
 			_render(), 14, int(entry[3]))
+		## Both views get half the row whatever their words, so the pair never shifts.
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size.x = (side.custom_minimum_size.x - 8) / 2.0
+		button.clip_text = true
 	if _side == "party":
 		_party_view(side)
 	else:
@@ -324,14 +342,22 @@ func _expedition_view(side: VBoxContainer) -> void:
 		DeepUi.pill(facts, "crown", "%d of %d crowns" % [mini(record.get("wardens", []).size(), crowns), crowns], DeepUi.ACCENT, 12,
 			"%d Wardens and the final boss at depth %d" % [crowns - 1, DeepContent.mine_bottom(chosen_key)])
 	DeepUi.pill(facts, "pick", DeepUi.plural(int(record.get("runs", 0)), "run"), DeepUi.MUTED, 12)
-	## What the rock here gives up, who is met down here, and the skills first found here.
-	var band: Dictionary = DeepForge.carat_band(mine, 1)
-	if not band.is_empty():
-		DeepUi.stat(trip_box, "gem", "Stones usually up to %d carats, never over %d" % [int(band.soft), int(band.cap)], DeepUi.PAPER, 13)
+	## Who is met down here, by name; the rest is said on hover.
 	var lapidary: String = str(mine.get("lapidary", ""))
 	if not lapidary.is_empty():
 		var met: bool = bool(profile.get("characters", {}).get(lapidary, {}).get("unlocked", false))
-		DeepUi.stat(trip_box, "person", ("%s was met here" if met else "%s waits at the first Warden") % DeepContent.character_title(lapidary), DeepUi.GOOD if met else DeepUi.MUTED, 13)
+		DeepUi.pill(facts, "person", str(DeepContent.character(lapidary).get("name", lapidary)), DeepUi.GOOD if met else DeepUi.MUTED, 12,
+			("%s was met here" if met else "%s waits at the first Warden") % DeepContent.character_title(lapidary))
+	## What the rock here gives up and, below the Quarry, what a lapidary is handed for
+	## starting this deep. What it costs is on the Descend button: each pays their own fare.
+	var band: Dictionary = DeepForge.carat_band(mine, 1)
+	var deeper: bool = chosen_key != DeepContent.starter_mine()
+	if not band.is_empty():
+		var rock: String = "Stones usually up to %d carats, never over %d" % [int(band.soft), int(band.cap)]
+		if deeper:
+			rock += "; %d pyrite to start" % int(mine.get("start_pyrite", 0))
+		DeepUi.stat(trip_box, "gem", rock, DeepUi.PAPER, 13, ("Starting here costs a fare of %d gold, paid by each lapidary at the shaft head. Each starts with %d pyrite, never cashed at the lift, and every socket not bought is offered three temporary stones that shatter when the run ends."
+			% [DeepEconomy.fare(chosen_key), int(mine.get("start_pyrite", 0))]) if deeper else "")
 	var batch: Array = mine.get("batch", [])
 	if not batch.is_empty():
 		var found: Array = batch.filter(func(k: Variant) -> bool: return profile.get("vault", {}).has(str(k)) or profile.get("seen", []).has(str(k)))
@@ -343,8 +369,6 @@ func _expedition_view(side: VBoxContainer) -> void:
 			var known: bool = found.has(key)
 			DeepUi.icon(skills, GemIcons.emblem(str(key)), 16, DeepUi.color(str(def.get("color", ""))) if known else DeepUi.DIM,
 				str(def.get("name", key)) if known else "Not found yet")
-	if chosen_key != DeepContent.starter_mine():
-		DeepUi.stat(trip_box, "purse", "Starting here: every socket filled, %d pyrite each" % int(mine.get("start_pyrite", 0)), DeepUi.ORE, 12)
 	_enter(trip)
 	## Who goes down, in brief. The roster tab is where they are chosen and fitted.
 	var current: String = str(profile.get("current_character", DeepContent.starter_character()))
@@ -363,7 +387,7 @@ func _expedition_view(side: VBoxContainer) -> void:
 	DeepUi.pill(wear_pills, "gem", str(chosen_character.get("birthstone", {}).get("name", "Birthstone")), DeepUi.INFO, 11, str(chosen_character.get("birthstone", {}).get("text", "")))
 	DeepUi.wrap(wear_facts, str(chosen_character.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 320)
 	## What they take down, at a glance: click any of it to change it.
-	var loadout: Dictionary = DeepProfile.loadout(profile, current, _chosen_mine())
+	var loadout: Dictionary = DeepProfile.loadout(profile, current)
 	var kit := DeepUi.vbox(wear_box, 6)
 	kit.mouse_filter = Control.MOUSE_FILTER_PASS
 	kit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -382,20 +406,37 @@ func _expedition_view(side: VBoxContainer) -> void:
 		die_thumb.mouse_filter = Control.MOUSE_FILTER_PASS
 		dice_row.add_child(die_thumb)
 	var empty: int = 0
-	for index in range(DeepProfile.starting_rail_cap(_chosen_mine())):
+	for index in range(DeepProfile.open_sockets(profile, current)):
 		if index < loadout.rail.size() and not loadout.rail[index] is Dictionary:
 			empty += 1
 	if empty > 0:
-		DeepUi.stat(kit, "gem", "%s empty" % DeepUi.plural(empty, "socket"), DeepUi.ACCENT, 12)
+		DeepUi.gap(dice_row, 8)
+		DeepUi.stat(dice_row, "gem", "%s empty" % DeepUi.plural(empty, "socket"), DeepUi.ACCENT, 12)
 	var wear_buttons := DeepUi.hbox(wear_box, 8)
 	DeepUi.icon_button(wear_buttons, "gem", "Edit loadout", func() -> void: _edit_loadout(current), 13, DeepUi.ACCENT)
 	DeepUi.icon_button(wear_buttons, "person", "Change lapidary", func() -> void: _edit_loadout(current, "dossier"), 13, DeepUi.MUTED)
 	_enter(wear, 0.05)
 
+func _member_short(member: Dictionary) -> bool:
+	## Whether a member of the party cannot pay their own way down to the chosen mine.
+	return bool(member.get("connected", true)) and int(member.get("gold", 0)) < DeepEconomy.departure(_chosen_mine(), bool(member.get("insured", false)))
+
+func _set_insured(on: bool) -> void:
+	if not profile.has("outfit"):
+		profile.outfit = {}
+	profile.outfit.insure = on
+	DeepAudio.play("ui_toggle", {"volume": 0.7})
+	profile_changed.emit()
+
 func _go(box: VBoxContainer) -> void:
 	## The way down, or for a guest, the word that they are ready; and how ready the party is.
+	## Over it, what this lapidary will pay at the shaft head and the insurance on their haul.
 	var me: Dictionary = lobby.members.get(local_id, {})
 	var order: Array = lobby.get("order", [])
+	var insured: bool = bool(profile.get("outfit", {}).get("insure", false))
+	var cost: int = DeepEconomy.departure(_chosen_mine(), insured)
+	var purse: int = int(profile.get("gold", 0))
+	var short: Array = order.filter(func(id: Variant) -> bool: return _member_short(lobby.members.get(id, {})))
 	if order.size() > 1:
 		var ready_count: int = order.filter(func(id: Variant) -> bool:
 			return str(id) == str(lobby.get("host", "p0")) or bool(lobby.members.get(id, {}).get("ready", false))).size()
@@ -403,27 +444,50 @@ func _go(box: VBoxContainer) -> void:
 		DeepUi.stat(summary, "party", "A party of %d" % order.size(), DeepUi.PAPER, 13).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.pill(summary, "check", "%d of %d ready" % [ready_count, order.size()], DeepUi.GOOD if ready_count == order.size() else DeepUi.MUTED, 11)
 	if not is_host:
-		var ready := DeepUi.primary(box, "check", "Unready" if bool(me.get("ready", false)) else "I'm ready", func() -> void: member_changed.emit({"ready": not bool(me.get("ready", false))}), 16, DeepUi.GOOD)
-		ready.disabled = status != "joined"
+		var guest_row := DeepUi.hbox(box, 8)
+		var ready := DeepUi.primary(guest_row, "check", "Unready" if bool(me.get("ready", false)) else ("I'm ready · %d gold" % cost if cost > 0 else "I'm ready"),
+			func() -> void: member_changed.emit({"ready": not bool(me.get("ready", false))}), 16, DeepUi.GOOD)
+		ready.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ready.disabled = status != "joined" or (purse < cost and not bool(me.get("ready", false)))
+		_insurance_toggle(guest_row, insured)
+		if purse < cost:
+			DeepUi.stat(box, "coin", "You need %d gold for the way down." % cost, DeepUi.BAD, 12)
 		return
 	var typed: String = _seed.text if _seed != null and is_instance_valid(_seed) else ""
-	var go := DeepUi.primary(box, "descend", "Descend", func() -> void:
+	## What this lapidary pays at the shaft head is said on the button that spends it.
+	var go := DeepUi.primary(box, "descend", "Descend · %d gold" % cost if cost > 0 else "Descend", func() -> void:
 		depart_requested.emit(int(_seed.text) if _seed != null and is_instance_valid(_seed) and _seed.text.is_valid_int() else 0), 20)
+	go.tooltip_text = ("Taken from your purse at the shaft head: the fare%s." % (" and the insurance" if insured else "")) if cost > 0 else "The Quarry costs nothing to go down."
 	DeepUi.voice(go, "depart")
 	go.custom_minimum_size.y = 54
 	go.disabled = not can_start or bool(lobby.get("started", false))
 	if not go.disabled:
 		DeepUi.breathe(go, 0.82, 2.0)
-	if not can_start:
+	if not short.is_empty():
+		var names: Array = short.map(func(id: Variant) -> String: return "you" if str(id) == local_id else str(lobby.members.get(id, {}).get("name", id)))
+		DeepUi.stat(box, "coin", "Short of the way down: %s" % ", ".join(names), DeepUi.BAD, 12)
+	elif not can_start:
 		DeepUi.stat(box, "hourglass", "Waiting for everyone to be ready.", DeepUi.MUTED, 12)
 	var seed_row := DeepUi.hbox(box, 8)
+	_insurance_toggle(seed_row, insured)
+	DeepUi.gap(seed_row, 4)
 	DeepUi.label(seed_row, "Seed", 12, DeepUi.DIM)
 	_seed = LineEdit.new()
 	_seed.placeholder_text = "blank for a new one"
 	_seed.text = typed
-	_seed.custom_minimum_size = Vector2(170, 0)
+	_seed.custom_minimum_size = Vector2(130, 0)
 	_seed.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	seed_row.add_child(_seed)
+
+func _insurance_toggle(parent: Node, insured: bool) -> Button:
+	## Insurance on the haul, remembered from one run to the next until turned off.
+	var price: int = DeepEconomy.insurance(_chosen_mine())
+	var cover := DeepUi.icon_button(parent, "check" if insured else "split_shield", ("Insured · %d gold" if insured else "Insure · %d gold") % price,
+		func() -> void: _set_insured(not insured), 13, DeepUi.GOOD if insured else DeepUi.MUTED)
+	cover.tooltip_text = "Insurance: if the dig is lost, every salvage die is thrown twice and the better throw kept. Paid at the shaft head, every run, until you turn it off."
+	if insured:
+		DeepUi.selected_style(cover, DeepUi.GOOD)
+	return cover
 
 func _party_view(side: VBoxContainer) -> void:
 	## The party: who is coming and whether they are ready, and how friends join.
@@ -441,6 +505,8 @@ func _party_view(side: VBoxContainer) -> void:
 		var note: String = "host" if str(id) == str(lobby.get("host", "p0")) else ("ready" if bool(member.get("ready", false)) else "not ready")
 		if not bool(member.get("connected", true)):
 			note = "away"
+		if _member_short(member):
+			DeepUi.pill(row, "coin", "short", DeepUi.BAD, 11, "Cannot pay the way down to %s" % DeepContent.mine_name(_chosen_mine()))
 		DeepUi.pill(row, "crown" if note == "host" else ("check" if note == "ready" else "hourglass"), note, DeepUi.GOOD if note in ["ready", "host"] else DeepUi.MUTED, 11)
 	_enter(party)
 	## Co-op over the network.
@@ -478,19 +544,19 @@ func _party_view(side: VBoxContainer) -> void:
 
 func _socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge: float, labelled: bool = false) -> void:
 	## A lapidary's sockets at a glance: the stones their loadout sets, a lock on each socket
-	## only the mine fills, and the Birthstone at the end.
+	## not yet bought, and the Birthstone at the end.
 	var sockets: Array = DeepContent.character(character_key).get("sockets", [])
 	for index in range(sockets.size()):
 		var socket_color: String = str(sockets[index])
 		var set_stone: Variant = loadout.rail[index] if index < loadout.rail.size() else null
-		var locked: bool = not DeepProfile.loadout_socket(index, _chosen_mine())
+		var locked: bool = not DeepProfile.fillable_socket(profile, character_key, index)
 		if not labelled:
 			_kit_socket(parent, socket_color, set_stone if set_stone is Dictionary else {}, edge, locked)
 			continue
 		var holder := DeepUi.vbox(parent, 3)
 		holder.alignment = BoxContainer.ALIGNMENT_CENTER
 		_kit_socket(holder, socket_color, set_stone if set_stone is Dictionary else {}, edge, locked)
-		DeepUi.label(holder, "In the mine" if locked else ("Any" if socket_color == "ANY" else socket_color.capitalize()), 10, DeepUi.DIM if locked else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(holder, "Locked" if locked else ("Any" if socket_color == "ANY" else socket_color.capitalize()), 10, DeepUi.DIM if locked else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	var birthstone: Dictionary = DeepStone.birthstone(character_key)
 	if birthstone.is_empty():
 		return
@@ -671,7 +737,7 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	DeepUi.section(middle, "gem", "Their sockets")
 	var socket_row := DeepUi.hbox(middle, 10)
 	socket_row.mouse_filter = Control.MOUSE_FILTER_PASS
-	_socket_strip(socket_row, key, DeepProfile.loadout(profile, key, _chosen_mine()), 46.0, true)
+	_socket_strip(socket_row, key, DeepProfile.loadout(profile, key), 46.0, true)
 	if unlocked:
 		socket_row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		socket_row.tooltip_text = "Click to change the stones they bring"
@@ -738,16 +804,17 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 # --- loadout ------------------------------------------------------------------------------------
 
 func _sockets_view(content: VBoxContainer, character_key: String) -> void:
-	## The rail of one unlocked lapidary. The first few sockets are filled from the vault:
-	## drag a stone onto one (or click a socket, then a stone), drag a set stone onto another
-	## socket to move it, or back into the vault to take it out. The rest of the rail wears a
-	## lock here: it is only filled in the mine, where any stone fits any socket regardless
-	## of its color.
+	## The rail of one unlocked lapidary. The sockets they have opened are filled from the
+	## vault: drag a stone onto one (or click a socket, then a stone), drag a set stone onto
+	## another socket to move it, or back into the vault to take it out. The rest of the rail
+	## wears a lock, and the next of them is for sale here, for good. Until it is bought a
+	## locked socket is filled in the mine, where any stone fits any socket regardless of its
+	## color.
 	var character: Dictionary = DeepContent.character(character_key)
 	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	var sockets: Array = character.get("sockets", [])
-	var rail_cap: int = mini(DeepProfile.widest_rail_cap(profile), sockets.size())
-	if not DeepProfile.fillable_socket(profile, _bench_socket) or _bench_socket >= sockets.size():
+	var rail_cap: int = DeepProfile.open_sockets(profile, character_key)
+	if not DeepProfile.fillable_socket(profile, character_key, _bench_socket) or _bench_socket >= sockets.size():
 		_bench_socket = -1
 	var filled: int = 0
 	for index in range(rail_cap):
@@ -757,8 +824,8 @@ func _sockets_view(content: VBoxContainer, character_key: String) -> void:
 	var rail_box := DeepUi.vbox(rail_card, 12)
 	var rail_head := DeepUi.hbox(rail_box, 8)
 	DeepUi.section(rail_head, "gem", "Sockets").size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var quarry_cap: int = DeepProfile.starting_rail_cap(DeepContent.starter_mine())
-	var cap_words: String = "the locked sockets are filled in the mine" if rail_cap <= quarry_cap else "sockets past %d go down only into the deeper mines" % quarry_cap
+	var price: int = DeepEconomy.socket_price(profile, character_key)
+	var cap_words: String = "every socket open" if price < 0 else "the locked sockets are filled in the mine until bought"
 	DeepUi.label(rail_head, "%d of %d set; %s" % [filled, rail_cap, cap_words], 13, DeepUi.GOOD if filled >= rail_cap else DeepUi.MUTED)
 	DeepUi.gap(rail_head, 10)
 	DeepUi.label(rail_head, "Drag a stone onto a socket, or click a socket, then a stone." if _bench_socket < 0 else "Choose a stone for socket %d." % (_bench_socket + 1), 13, DeepUi.MUTED if _bench_socket < 0 else DeepUi.ACCENT)
@@ -766,7 +833,7 @@ func _sockets_view(content: VBoxContainer, character_key: String) -> void:
 	rail_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	for index in range(sockets.size()):
 		var skill: String = _rail_skill(record, index)
-		var stone: Dictionary = DeepProfile.owned(profile, skill) if DeepProfile.fillable_socket(profile, index) and skill != "" else {}
+		var stone: Dictionary = DeepProfile.owned(profile, skill) if DeepProfile.fillable_socket(profile, character_key, index) and skill != "" else {}
 		_enter(_socket_slot(rail_row, index, str(sockets[index]), stone, character_key), 0.05 + 0.04 * index)
 	_enter(BirthstoneCard.new(rail_row, character_key), 0.05 + 0.04 * sockets.size())
 	## The vault as a tray to set from, a page at a time; a set stone dropped on it comes out.
@@ -833,6 +900,14 @@ func _sockets_view(content: VBoxContainer, character_key: String) -> void:
 					_set_socket(character_key, socket_index, chosen_key, "dice_lock"))
 	_enter(tray_card, 0.1)
 
+func _buy_socket(character_key: String) -> void:
+	var bought: Dictionary = DeepEconomy.unlock_socket(profile, character_key)
+	if not bool(bought.get("ok", false)):
+		return
+	## The purse counts the price out on its own; the socket opening is the sound.
+	DeepAudio.play("unlock", {"volume": 0.8})
+	profile_changed.emit()
+
 func _rail_skill(record: Dictionary, index: int) -> String:
 	## The skill of the stone a loadout sets in one socket, or "".
 	var rail: Array = record.get("rail", [])
@@ -849,8 +924,8 @@ func _set_socket(character_key: String, index: int, skill: Variant, sound: Strin
 
 func _socket_slot(parent: Node, index: int, socket_color: String, stone: Dictionary, character_key: String) -> PanelContainer:
 	## One socket of the loadout, as a card to click, drag from and drop on; or, past the
-	## sockets a loadout fills, a locked one that only the mine fills.
-	var locked: bool = not DeepProfile.fillable_socket(profile, index)
+	## sockets the lapidary has opened, a locked one, the next of them with its price.
+	var locked: bool = not DeepProfile.fillable_socket(profile, character_key, index)
 	var chosen: bool = index == _bench_socket
 	var tone: Color = DeepUi.color(socket_color) if socket_color != "ANY" else DeepUi.LINE_HI
 	var border: Color = DeepUi.LINE if locked else (DeepUi.ACCENT if chosen else Color(tone, 0.45))
@@ -871,7 +946,17 @@ func _socket_slot(parent: Node, index: int, socket_color: String, stone: Diction
 		var lock := DeepUi.icon(slot, "lock", 30, DeepUi.MUTED, MINE_SOCKET)
 		lock.position = Vector2(23, 23)
 		DeepUi.label(box, "Any color" if socket_color == "ANY" else socket_color.capitalize(), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
-		DeepUi.label(box, "filled in the mine", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		## Sockets are bought in order: only the next one is for sale.
+		if index == DeepProfile.open_sockets(profile, character_key):
+			var price: int = DeepEconomy.socket_price(profile, character_key)
+			var buy := DeepUi.icon_button(box, "lock_open", "%d gold" % price, func() -> void: _buy_socket(character_key), 13, DeepUi.ACCENT)
+			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			buy.disabled = int(profile.get("gold", 0)) < price
+			buy.tooltip_text = ("Open this socket for good: it is filled from the vault before every run, in every mine." if not buy.disabled
+				else "You have %d gold. This socket costs %d." % [int(profile.get("gold", 0)), price])
+			DeepUi.voice(buy, "buy")
+		else:
+			DeepUi.label(box, "open socket %d first" % (DeepProfile.open_sockets(profile, character_key) + 1), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		return card
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	if chosen:
@@ -1219,11 +1304,12 @@ func _appraise(content: VBoxContainer) -> void:
 			## One ceremony for the whole tray, for the best thing in it.
 			if not best.is_empty():
 				DeepAudio.reveal_stone(best)
-			## Any first of its skill is already spoken for and leaves the tray at once.
-			var claimed: Array = DeepProfile.auto_keep(profile)
-			if not claimed.is_empty():
-				_appraise_pick = ""
-				_cheer = {"text": "%s straight into the vault" % DeepUi.plural(claimed.size(), "stone"), "color": DeepUi.GOOD}
+			## A first stone of its skill is never sold, but whether it is kept or turned in is
+			## asked: the table opens on the first of them, marked new.
+			var fresh: Array = profile.get("tray", []).filter(func(s: Dictionary) -> bool: return DeepProfile.first_of_skill(profile, s))
+			if not fresh.is_empty():
+				_appraise_pick = str(fresh[0].id)
+				DeepAudio.play("unlock", {"delay": 0.4, "volume": 0.8})
 			if not shattered.is_empty():
 				_appraise_pick = ""
 				_cheer = {"text": "%s shattered: Fragile" % DeepUi.plural(shattered.size(), "stone"), "color": DeepUi.BAD}
@@ -1251,6 +1337,11 @@ func _appraise(content: VBoxContainer) -> void:
 			style.border_color = DeepUi.ACCENT
 			style.set_border_width_all(2)
 			tile.add_theme_stylebox_override("panel", style)
+		## A first stone of its skill wears a star; one a commission wants, a flag.
+		if DeepProfile.first_of_skill(profile, stone):
+			_tile_mark(tile, "star", DeepUi.ACCENT_HI, "New skill: the first %s you have found" % str(DeepStone.skill_of(stone).get("name", "")), true)
+		if not DeepEconomy.commission_for(profile, stone).is_empty():
+			_tile_mark(tile, "flag", DeepUi.GOOD, "A commission wants this stone", false)
 		tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		DeepUi.juice(tile, 1.05)
 		tile.gui_input.connect(func(event: InputEvent) -> void:
@@ -1306,8 +1397,20 @@ func _appraise(content: VBoxContainer) -> void:
 		_lens_column(table_row, pick, 165.0 if comparing else 230.0)
 		var right := DeepUi.vbox(table_row, 14)
 		right.alignment = BoxContainer.ALIGNMENT_CENTER
-		var question: String = "Only one of each skill can be kept. Which %s goes in the vault?" % str(DeepStone.skill_of(pick).get("name", "stone")) if comparing else "Your first stone with this skill. It's kept automatically and can't be sold."
-		DeepUi.stat(right, "chest", question, DeepUi.INFO if comparing else DeepUi.GOOD, 14)
+		var wanted: Dictionary = DeepEconomy.commission_for(profile, pick)
+		var skill_name: String = str(DeepStone.skill_of(pick).get("name", "stone"))
+		if comparing:
+			DeepUi.stat(right, "chest", "Only one of each skill can be kept. Which %s goes in the vault?" % skill_name, DeepUi.INFO, 14)
+		else:
+			## The first of its skill: a moment of its own, and never a sale.
+			var fanfare := DeepUi.hbox(right, 10)
+			var star := DeepUi.pill(fanfare, "star", "New skill", DeepUi.ACCENT_HI, 15)
+			if _fresh and not _headless:
+				DeepUi.breathe(star, 0.7, 1.4)
+			DeepUi.wrap(fanfare, "Your first %s. A first stone is never sold: it lights up its place in the vault%s." % [skill_name, ", or it can be turned in for a commission" if not wanted.is_empty() else ""],
+				14, DeepUi.GOOD, HORIZONTAL_ALIGNMENT_LEFT, 460)
+		if not wanted.is_empty():
+			DeepUi.stat(right, "flag", "A commission wants this %s: %d gold" % [skill_name, DeepEconomy.payout(wanted, pick)], DeepUi.GOOD, 14)
 		var sheet := Appraisal.Sheet.new(pick, owned, {"skill_text": true, "owned_picture": not comparing})
 		right.add_child(sheet)
 		sheet.show_all()
@@ -1315,6 +1418,28 @@ func _appraise(content: VBoxContainer) -> void:
 		if comparing:
 			_lens_column(table_row, owned, 165.0)
 	_enter(table, 0.1)
+
+func _tile_mark(tile: PanelContainer, glyph: String, tone: Color, tip: String, left: bool) -> void:
+	## A small mark in a corner of a stone's tile. The tile's content is lifted into a layer
+	## the first time, so marks can sit over it without the container laying them out.
+	var layer: Control = tile.get_meta("mark_layer") if tile.has_meta("mark_layer") else null
+	if layer == null:
+		var tile_content := tile.get_child(0) as Control
+		tile.remove_child(tile_content)
+		layer = Control.new()
+		layer.custom_minimum_size = tile_content.get_combined_minimum_size()
+		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tile.add_child(layer)
+		tile_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		layer.add_child(tile_content)
+		tile.set_meta("mark_layer", layer)
+	var mark := DeepUi.icon(layer, glyph, 16, tone, tip)
+	mark.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT if left else Control.PRESET_TOP_RIGHT)
+	mark.offset_left = 4 if left else -22
+	mark.offset_right = 20 if left else -6
+	mark.offset_top = 4
+	mark.offset_bottom = 20
+	mark.mouse_filter = Control.MOUSE_FILTER_PASS
 
 func _lens_column(parent: Node, stone: Dictionary, edge: float) -> VBoxContainer:
 	## One stone on the loupe table with its full name under it, at whatever size the table
@@ -1355,14 +1480,11 @@ func _appraise_stone(pick: Dictionary) -> void:
 		return
 	var owned: Dictionary = DeepProfile.owned(profile, str(pick.skill))
 	var actions: Array = _tray_actions(pick, true)
+	var opts: Dictionary = {}
 	if owned.is_empty():
-		## Nothing to weigh it against: it goes in the vault as the ceremony ends, and the
-		## sheet is left with one line saying where it went.
-		DeepProfile.decide_tray(profile, str(pick.id), true)
-		_appraise_pick = ""
-		_cheer = {"text": "Into the vault", "color": DeepUi.GOOD}
-		actions = [ {"label": "Wonderful", "glyph": "chest", "tone": DeepUi.GOOD, "primary": true, "dismiss": true,
-			"caption": "The first of its skill: kept without asking"}]
+		## Nothing to weigh it against: the first of its skill. The ceremony ends on its own
+		## fanfare, and the choice is keeping it or, if a commission wants it, turning it in.
+		opts.new_skill = true
 	else:
 		## One of its skill is already in the vault, so the reading is only half the question.
 		## Rather than deciding it off a column of figures under the lamp, the ceremony hands
@@ -1370,7 +1492,9 @@ func _appraise_stone(pick: Dictionary) -> void:
 		owned = {}
 		actions = [ {"label": "Weigh them against each other", "glyph": "scales", "tone": DeepUi.INFO, "primary": true, "dismiss": true,
 			"caption": "You already keep one of this skill"}]
-	Appraisal.open(raw, {"owned": owned, "actions": actions})
+	opts.owned = owned
+	opts.actions = actions
+	Appraisal.open(raw, opts)
 	profile_changed.emit()
 
 func _tray_actions(pick: Dictionary, deferrable: bool) -> Array:
@@ -1392,13 +1516,21 @@ func _tray_actions(pick: Dictionary, deferrable: bool) -> Array:
 		profile_changed.emit()
 	var out: Array = []
 	if owned.is_empty():
-		## The first stone of a skill is never sold: it is already in the vault by the time
-		## this is read, and the one button only says so.
+		## The first stone of a skill is never sold: it goes into the vault, or to a commission.
 		out.append({"label": "Into the vault", "glyph": "chest", "tone": DeepUi.GOOD,
-			"caption": "The first of its skill is always kept", "call": keep, "sound": "keep"})
+			"caption": "The first of its skill is never sold", "call": keep, "sound": "keep"})
 	else:
 		out.append({"label": "Keep the new one", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "Sells your old one for %d gold" % DeepStone.value(owned), "call": keep, "sound": "keep"})
 		out.append({"label": "Keep your old one", "glyph": "coin", "tone": DeepUi.ACCENT, "caption": "Sells this one for %d gold" % DeepStone.value(pick), "call": sell, "sound": "sell"})
+	var wanted: Dictionary = DeepEconomy.commission_for(profile, pick)
+	if not wanted.is_empty():
+		var paid: int = DeepEconomy.payout(wanted, pick)
+		var commission_id: String = str(wanted.id)
+		var turn_in := func() -> void:
+			if bool(DeepEconomy.turn_in(profile, id, commission_id).get("ok", false)):
+				_appraise_pick = ""
+				profile_changed.emit()
+		out.append({"label": "Turn it in", "glyph": "flag", "tone": DeepUi.INFO, "caption": "A commission pays %d gold for it" % paid, "sound": "sell", "call": turn_in})
 	if deferrable:
 		out.append({"label": "Decide later", "glyph": "hourglass", "primary": false, "dismiss": true, "caption": "It waits on the tray"})
 	return out
@@ -1454,14 +1586,103 @@ class LoupeTable extends Control:
 # --- ledger ----------------------------------------------------------------------------------
 
 func _ledger(content: VBoxContainer) -> void:
-	var records: Dictionary = profile.get("records", {})
+	## Two views, each a page of its own: the day's commissions, and the records and runs.
 	var head := DeepUi.hbox(content, 12)
 	DeepUi.icon(head, "book", 28, DeepUi.ACCENT)
 	DeepUi.title(head, "The ledger", 30, DeepUi.PAPER)
+	DeepUi.gap(head, 16)
+	var ready: int = DeepEconomy.ready_count(profile)
+	for entry in [["commissions", "flag", "Commissions", ready], ["records", "crown", "Records", 0]]:
+		var key: String = str(entry[0])
+		DeepUi.tab_button(head, str(entry[1]), str(entry[2]), _ledger_view == key, func() -> void:
+			_ledger_view = key
+			DeepAudio.play("ui_tap", {"volume": 0.6})
+			_render(), 14, int(entry[3]))
+	DeepUi.spacer(head)
 	_enter(head)
+	if _ledger_view == "commissions":
+		_commissions(content)
+	else:
+		_records(content)
+
+func _commissions(content: VBoxContainer) -> void:
+	## The day's commissions: a skill each, sometimes with one of the four C's, and what it
+	## pays. A stone that meets one is turned in from the Appraise tab.
+	var daily: Dictionary = profile.get("daily", {})
+	var list: Array = daily.get("commissions", [])
+	var about := DeepUi.hbox(content, 14)
+	DeepUi.wrap(about, "Bring home the stone a commission names and turn it in on the Appraise tab, instead of keeping or selling it. A first stone of its skill can be turned in too.",
+		14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 860)
+	DeepUi.spacer(about)
+	var left: int = DeepEconomy.seconds_to_tomorrow()
+	DeepUi.stat(about, "hourglass", "New commissions in %dh %02dm" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 13, "Commissions turn over every day at midnight UTC.")
+	DeepUi.stat(about, "flag", "%d turned in" % int(profile.get("records", {}).get("commissions", 0)), DeepUi.ACCENT, 13)
+	_enter(about)
+	if list.is_empty():
+		_empty(content, "flag", "No commissions today", "Commissions ask for stones from the mines you have opened.")
+		return
+	var row := DeepUi.hbox(content, 18)
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var index: int = 0
+	for commission in list:
+		_commission_card(row, commission)
+		_enter(row.get_child(row.get_child_count() - 1), 0.05 + 0.06 * index)
+		index += 1
+
+func _commission_card(parent: Node, commission: Dictionary) -> void:
+	var skill_key: String = str(commission.get("skill", ""))
+	var skill: Dictionary = DeepContent.skill(skill_key)
+	var color: String = str(skill.get("color", "WHITE"))
+	var hue: Color = DeepUi.color(color)
+	var done: bool = bool(commission.get("done", false))
+	var fits: Array = profile.get("tray", []).filter(func(s: Dictionary) -> bool: return DeepEconomy.meets(commission, s))
+	var card := DeepUi.card(parent, Color(DeepUi.GOOD if not fits.is_empty() and not done else hue, 0.5 if not done else 0.2), 18)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var box := DeepUi.vbox(card, 10)
+	var known: String = "owned" if profile.get("vault", {}).has(skill_key) else ("seen" if profile.get("seen", []).has(skill_key) else "unseen")
+	var frame := DeepUi.center(box)
+	frame.custom_minimum_size.y = 120
+	DeepUi.icon(frame, GemIcons.emblem(skill_key), 96, Color(hue, 0.9 if known != "unseen" else 0.45), str(skill.get("text", "")))
+	DeepUi.title(box, str(skill.get("name", skill_key)), 24, hue.lightened(0.25) if not done else DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	var tags := DeepUi.hbox(box, 8)
+	tags.alignment = BoxContainer.ALIGNMENT_CENTER
+	var rarity: String = str(skill.get("rarity", "COMMON"))
+	DeepUi.pill(tags, "spark", rarity.capitalize(), StoneCard._rarity_color(rarity), 12)
+	DeepUi.pill(tags, "chest" if known == "owned" else ("eye" if known == "seen" else "question"),
+		{"owned": "In your vault", "seen": "Seen, not kept", "unseen": "Never found"}[known], DeepUi.MUTED, 12)
+	var need: String = DeepEconomy.need_text(commission.get("need", {}))
+	DeepUi.stat(box, "gem", "Any %s" % str(skill.get("name", skill_key)) if need.is_empty() else "%s, %s" % [str(skill.get("name", skill_key)), need], DeepUi.PAPER, 15).alignment = BoxContainer.ALIGNMENT_CENTER
+	var where: Array = DeepEconomy.where_found(skill_key)
+	var where_text: String = DeepContent.mine_name(str(where[0])) + (" and every mine below" if where.size() > 1 else "")
+	DeepUi.stat(box, "pick", "Found in %s" % where_text, DeepUi.MUTED, 12, ", ".join(where.map(func(k: Variant) -> String: return DeepContent.mine_name(str(k))))).alignment = BoxContainer.ALIGNMENT_CENTER
+	var pay := DeepUi.stat(box, "coins", ("Paid %d gold" % int(commission.get("paid", 0))) if done else "%d gold or more" % int(commission.get("reward", 0)), DeepUi.ACCENT if not done else DeepUi.GOOD, 20,
+		"Pays %d gold, or a quarter more than the stone would sell for if it is finer than that." % int(commission.get("reward", 0)))
+	pay.alignment = BoxContainer.ALIGNMENT_CENTER
+	var foot := DeepUi.hbox(box, 8)
+	foot.alignment = BoxContainer.ALIGNMENT_CENTER
+	if done:
+		DeepUi.pill(foot, "check", "Filled. A new one tomorrow", DeepUi.GOOD, 13)
+		return
+	if not fits.is_empty():
+		var pick_id: String = str(fits[0].id)
+		DeepUi.primary(foot, "flag", "Turn in from the tray", func() -> void:
+			_appraise_pick = pick_id
+			open("appraise"), 14, DeepUi.GOOD)
+	var price: int = DeepEconomy.reroll_price(profile)
+	var commission_id: String = str(commission.get("id", ""))
+	var reroll := DeepUi.icon_button(foot, "spark", "Reroll · free" if price == 0 else "Reroll · %d gold" % price, func() -> void:
+		if bool(DeepEconomy.reroll(profile, commission_id).get("ok", false)):
+			DeepAudio.play("ui_confirm", {"volume": 0.7})
+			profile_changed.emit(), 13, DeepUi.MUTED)
+	reroll.disabled = int(profile.get("gold", 0)) < price
+	reroll.tooltip_text = "Swap this commission for another skill. The first swap each day is free; each after it costs more." if not reroll.disabled else "You have %d gold. Another commission costs %d." % [int(profile.get("gold", 0)), price]
+
+func _records(content: VBoxContainer) -> void:
+	var records: Dictionary = profile.get("records", {})
 	var tiles := DeepUi.hbox(content, 12)
 	var index: int = 0
-	for entry in [["pick", "runs", "Runs"], ["lift", "extractions", "Extractions"], ["crown", "conquests", "Conquests"], ["skull", "falls", "Falls"], ["chest", "stones_kept", "Stones kept"]]:
+	for entry in [["pick", "runs", "Runs"], ["lift", "extractions", "Extractions"], ["crown", "conquests", "Conquests"], ["skull", "falls", "Falls"], ["chest", "stones_kept", "Stones kept"], ["flag", "commissions", "Commissions"]]:
 		var tile := DeepUi.card(tiles, DeepUi.LINE, 14)
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var box := DeepUi.vbox(tile, 2)
@@ -1528,6 +1749,8 @@ func _ledger(content: VBoxContainer) -> void:
 		DeepUi.spacer(row)
 		DeepUi.stat(row, "stairs", str(int(run_record.get("depth", 0))), DeepUi.INFO, 13, "Depth reached")
 		DeepUi.stat(row, "gem", str(int(run_record.get("stones", 0))), DeepUi.ACCENT, 13, "Stones brought home")
+		if int(run_record.get("gold", 0)) > 0:
+			DeepUi.stat(row, "coin", str(int(run_record.gold)), DeepUi.ACCENT, 13, "Gold from the assayer at the lift")
 		shown += 1
 	_enter(history_card, 0.12)
 

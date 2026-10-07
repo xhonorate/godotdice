@@ -238,7 +238,7 @@ These assignments are implemented in `content/deep_cut.json`. Amounts are base v
 
 | Gem | Implemented change | Gameplay / ordering |
 | --- | --- | --- |
-| **Mist — Violet / Uncommon** | Pair valued ≥5/4/3/2/1 by Cut; apply **1 Clouded**. Flawless applies to **all enemies**. | Disables one random ability slot; repeated firings extend that slot's duration. Ward can intercept applications. |
+| **Mist — Violet / Common** | Pair valued ≥5/4/3/2/1 by Cut; apply **1 Clouded**. Flawless applies to **all enemies**. | Disables one random ability slot; repeated firings extend that slot's duration. Ward can intercept applications. |
 | **Aegis — Flawless** | **1 Ward per ally** replaces the cleanse rider. Base party Block remains. | Proactive party protection; heavy stones can grant multiple charges, up to 99. |
 | **Bastion — Flawless** | **4 Retain per ally** replaces the cleanse rider. Base party Block remains. | Preserves a reserve of unspent Block for Thrive or the next enemy phase; Retain caps at 20. |
 | **Prism — Flawless** | **2 Charged** replaces the extra immediate Resonance. Base Resonance remains. | Repeated firings build a larger next-turn battery; its transfer is animated at turn start. |

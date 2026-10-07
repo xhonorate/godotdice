@@ -51,7 +51,8 @@ const WISH_MOST: int = 1000
 
 static func new_run(config: Dictionary) -> Dictionary:
 	## config: seed (int), mine (key), run_id, boons (bool, default true),
-	##   players: [{id, name, character, rail: [stones|null], dice: [die instances], last_depth, last_outcome}]
+	##   players: [{id, name, character, rail: [stones|null], dice: [die instances], last_depth, last_outcome,
+	##   sockets (how many the lapidary has open; three by default), insured (bool)}]
 	var seed_value: int = int(config.get("seed", randi()))
 	var mine_key: String = str(config.get("mine", DeepContent.starter_mine()))
 	var mine_def: Dictionary = DeepContent.mine(mine_key)
@@ -61,26 +62,37 @@ static func new_run(config: Dictionary) -> Dictionary:
 		"heat": 0, "carried": 0, "mines_done": [], "rng": {}, "seq": 0, "next_id": 1}
 	var streams: Dictionary = DeepRng.streams(seed_value)
 	state.schedule = plan_shaft(streams.tunnels, mine_def)
-	## A party that starts in a deeper mine rather than fighting down to it is given what the
-	## way down would have given it: every socket filled from the vault, and a purse.
-	var sockets: int = loadout_sockets(mine_key)
+	## Every lapidary goes down with the sockets they have opened filled from the vault, in any
+	## mine. A party that starts in a deeper mine rather than fighting down to it is given
+	## what the way down would have given it: a purse, and a temporary stone for every socket
+	## still shut, picked at the shaft head and gone when the run ends.
+	var deeper: bool = mine_key != DeepContent.starter_mine()
+	var temps: RandomNumberGenerator = DeepRng.streams(seed_value, ["temps"]).temps
 	var seat: int = 0
 	for entry in config.get("players", []):
+		var open: int = int(entry.get("sockets", DeepContent.constant("starting_rail_cap", 3)))
 		var rail: Array = entry.get("rail", []).duplicate(true)
-		for index in range(sockets, rail.size()):
+		for index in range(open, rail.size()):
 			rail[index] = null
 		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", "Lapidary")), str(entry.get("character", DeepContent.starter_character())),
 			rail, entry.get("dice", []))
 		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": int(mine_def.get("start_pyrite", 0)), "vote": "", "seen": [],
 			"choice": "", "respite": "", "ready": false, "strikes": 0, "mining": false, "oddity_choice": "", "stake": "", "last_depth": int(entry.get("last_depth", 0)),
-			"last_outcome": str(entry.get("last_outcome", "")), "stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0}}, true)
+			"last_outcome": str(entry.get("last_outcome", "")), "insured": bool(entry.get("insured", false)), "temps": [],
+			"stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0, "earned": 0}}, true)
 		state.players.append(unit)
+		if deeper:
+			unit.temps = _temporary_offers(state, unit, open, temps)
 		seat += 1
 	_unique_rails(state)
 	state.rng = DeepRng.save(streams)
 	if bool(config.get("boons", true)) and not DeepContent.section("boons").is_empty():
 		_offer_grubstake(state, streams)
 	else:
+		## No shaft head to stand at: every temporary socket takes the first of its three.
+		for unit in state.players:
+			for offer in unit.temps:
+				_set_temporary(unit, offer, 0)
 		_offer_tunnels(state, streams)
 	state.rng = DeepRng.save(streams)
 	return state
@@ -99,6 +111,8 @@ static func _offer_grubstake(state: Dictionary, streams: Dictionary) -> void:
 static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, payload: Dictionary) -> Dictionary:
 	if not str(unit.get("stake", "")).is_empty():
 		return _refuse("you have taken your stake")
+	if temporary_left(unit) > 0:
+		return _refuse("choose your temporary stones first")
 	var chosen: Dictionary = {}
 	for offer in state.get("grubstake", {}).get("offers", {}).get(str(unit.id), []):
 		if str(offer.get("id", "")) == offer_id:
@@ -132,9 +146,81 @@ static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, p
 static func streams_of(state: Dictionary) -> Dictionary:
 	return DeepRng.restore(state.get("rng", {}))
 
-static func loadout_sockets(mine_key: String) -> int:
-	## How many of a lapidary's sockets are filled from the vault before a run in this mine.
-	return int(DeepContent.mine(mine_key).get("loadout_sockets", DeepContent.constant("starting_rail_cap", 3)))
+# --- temporary stones ------------------------------------------------------------------------
+##
+## Below the Quarry a lapidary's shut sockets do not go down empty. Each is offered three
+## temporary stones in its own color (an Any socket, three colors), already read, and the one
+## taken is set there at the shaft head, before the stakes. A temporary stone is fragile: it
+## cannot be kept, sold, turned in or thrown down a well, and it is gone when the run ends.
+
+static func _temporary_offers(state: Dictionary, unit: Dictionary, open: int, rng: RandomNumberGenerator) -> Array:
+	var mine: Dictionary = mine_of(state)
+	var sockets: Array = DeepContent.character(str(unit.get("character", ""))).get("sockets", [])
+	var depth: int = int(DeepContent.constant("temporary_depth", 4))
+	var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) != DeepContent.OPAL)
+	var offers: Array = []
+	for index in range(open, sockets.size()):
+		if index < unit.rail.size() and unit.rail[index] is Dictionary:
+			continue
+		var socket: String = str(sockets[index])
+		var colors: Array = [socket, socket, socket]
+		if socket == DeepContent.SOCKET_ANY:
+			var left: Array = DeepContent.color_KEYS.duplicate()
+			colors = []
+			for _i in range(3):
+				var drawn: String = str(left[rng.randi_range(0, left.size() - 1)])
+				left.erase(drawn)
+				colors.append(drawn)
+		var picks: Array = []
+		for color in colors:
+			var of_color: Array = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == str(color))
+			picks.append(_temporary_stone(state, unit, mine, depth, rng, of_color if not of_color.is_empty() else pool, picks))
+		offers.append({"index": index, "socket": socket, "picks": picks, "chosen": -1})
+	return offers
+
+static func _temporary_stone(state: Dictionary, unit: Dictionary, mine: Dictionary, depth: int, rng: RandomNumberGenerator, pool: Array, beside: Array) -> Dictionary:
+	## One temporary stone, of a skill the others offered for its socket are not, if the
+	## pool runs to it. Never Void: a Void stone would leave its socket for a ride.
+	var fresh: Array = pool.filter(func(k: String) -> bool: return not beside.any(func(s: Dictionary) -> bool: return str(s.get("skill", "")) == k))
+	var stone: Dictionary = {}
+	for _try in range(12):
+		stone = DeepForge.roll_stone(rng, mine, depth, 0.0, {"run": str(state.get("run_id", "")), "source": "temporary", "finder": str(unit.get("id", ""))}, _id(state, "tmp"), fresh if not fresh.is_empty() else pool)
+		if not DeepStone.is_fragile(stone):
+			break
+	stone.inclusions = stone.inclusions.filter(func(k: Variant) -> bool:
+		return not DeepContent.inclusion(str(k)).get("modifiers", []).any(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "fragile"))
+	stone.appraised = true
+	stone.inclusions_revealed = true
+	stone.fragile = true
+	stone.temporary = true
+	return stone
+
+static func temporary_left(unit: Dictionary) -> int:
+	## How many of a player's shut sockets still wait for their temporary stone.
+	return unit.get("temps", []).filter(func(o: Dictionary) -> bool: return int(o.get("chosen", -1)) < 0).size()
+
+static func _set_temporary(unit: Dictionary, offer: Dictionary, pick: int) -> Dictionary:
+	var stone: Dictionary = offer.picks[pick].duplicate(true)
+	var index: int = int(offer.index)
+	while unit.rail.size() <= index:
+		unit.rail.append(null)
+	unit.rail[index] = stone
+	offer.chosen = pick
+	return stone
+
+static func _take_temporary(state: Dictionary, unit: Dictionary, index: int, pick: int) -> Dictionary:
+	var offer: Dictionary = {}
+	for candidate in unit.get("temps", []):
+		if int(candidate.get("index", -1)) == index:
+			offer = candidate
+	if offer.is_empty():
+		return _refuse("that socket takes no temporary stone")
+	if int(offer.get("chosen", -1)) >= 0:
+		return _refuse("that socket has its temporary stone")
+	if pick < 0 or pick >= offer.get("picks", []).size():
+		return _refuse("no such stone")
+	var stone: Dictionary = _set_temporary(unit, offer, pick)
+	return {"ok": true, "event": _event(state, "temporary", {"unit": unit.id, "index": index, "stone": stone.duplicate(true), "left": temporary_left(unit)})}
 
 static func mine_of(state: Dictionary) -> Dictionary:
 	var mine: Dictionary = DeepContent.mine(str(state.get("mine", "")))
@@ -665,6 +751,7 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 			ore += spending
 			unit.ore = maxi(0, int(unit.ore) + ore)
 			unit.stats.ore = int(unit.stats.get("ore", 0)) + ore
+			DeepEconomy.earned(unit, ore)
 			var reward: Dictionary = {"ore": ore, "stones": []}
 			if kind != "warden":
 				var drops: Dictionary = DeepContent.constant("stone_drop_pct", {"fight": 55, "elite": 100})
@@ -817,6 +904,7 @@ static func _strike(state: Dictionary, unit: Dictionary, spot_index: int) -> Dic
 			var ore: int = 4 + int(state.depth) + streams.tunnels.randi_range(0, 4)
 			unit.ore = int(unit.ore) + ore
 			unit.stats.ore = int(unit.stats.get("ore", 0)) + ore
+			DeepEconomy.earned(unit, ore)
 			result.ore = ore
 	spot.result = result
 	state.rng = DeepRng.save(streams)
@@ -1143,6 +1231,7 @@ static func _sell(state: Dictionary, unit: Dictionary, stone_id: String) -> Dict
 	var paid: int = DeepStone.sell_value(stone)
 	DeepOddities.remove_stone(unit, stone_id)
 	unit.ore = int(unit.ore) + paid
+	DeepEconomy.earned(unit, paid)
 	return {"ok": true, "event": _event(state, "sold", {"unit": unit.id, "stone_id": stone_id, "ore": unit.ore, "paid": paid})}
 
 static func _leave_stall(state: Dictionary, unit: Dictionary) -> Dictionary:
@@ -1195,9 +1284,10 @@ static func rest_amount(unit: Dictionary) -> int:
 
 static func can_wish(stone: Dictionary) -> bool:
 	## What the landing's well will take: any stone that is yours to give up. A birthstone is
-	## not — it came down with you and it goes back up with you — and a Knot will not leave
-	## its socket.
-	return not DeepStone.is_birthstone(stone) and not DeepStone.is_locked(stone)
+	## not — it came down with you and it goes back up with you — a Knot will not leave its
+	## socket, and a fragile stone (a temporary one, a Void, a staked find) was never yours to
+	## turn into anything that could come home.
+	return not DeepStone.is_birthstone(stone) and not DeepStone.is_locked(stone) and not DeepStone.is_fragile(stone)
 
 static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_id: String, ore: int = 0) -> Dictionary:
 	if not str(unit.get("respite", "")).is_empty():
@@ -1453,12 +1543,24 @@ static func _start_salvage(state: Dictionary) -> void:
 		_shatter_fragile(unit)
 		var rolls: Array = []
 		var kept: Array = []
+		## Insurance bought at the workshop throws every die twice and keeps the better throw.
+		var insured: bool = bool(unit.get("insured", false))
 		for stone in unit.haul:
 			var tier: String = DeepStone.grade(stone).tier
 			var sides: int = int(dice.get(tier, 6))
 			var roll: int = streams.salvage.randi_range(1, sides)
+			var first: int = roll
+			var second: int = 0
+			if insured:
+				second = streams.salvage.randi_range(1, sides)
+				roll = maxi(first, second)
 			var survives: bool = roll == sides
-			rolls.append({"stone": stone.duplicate(true), "sides": sides, "roll": roll, "kept": survives, "tier": tier})
+			var entry: Dictionary = {"stone": stone.duplicate(true), "sides": sides, "roll": roll, "kept": survives, "tier": tier}
+			if insured:
+				entry.insured = true
+				entry.first = first
+				entry.second = second
+			rolls.append(entry)
 			if survives:
 				kept.append(stone)
 		unit.haul = kept
@@ -1493,7 +1595,10 @@ static func _shatter_fragile(unit: Dictionary) -> void:
 					unit.seen = []
 				if not unit.seen.has(str(stone.skill)):
 					unit.seen.append(str(stone.skill))
-			unit.shattered.append(stone.duplicate(true))
+			## A temporary stone was only ever lent for the run: it goes back without being
+			## counted among the losses.
+			if not bool(stone.get("temporary", false)):
+				unit.shattered.append(stone.duplicate(true))
 			DeepOddities.remove_stone(unit, str(stone.id))
 	DeepStone.normalize_rail(unit)
 
@@ -1506,7 +1611,8 @@ static func _finish(state: Dictionary, outcome: String) -> void:
 	state.offers = []
 
 static func results(state: Dictionary) -> Dictionary:
-	## What each player takes home. Ore stays in the mine.
+	## What each player takes home: the haul, the dice, and what is left in the pocket with
+	## how much of it was earned down there, for the assayer at the lift to weigh into gold.
 	_saw(state)
 	var mines: Array = state.get("mines_done", []).duplicate(true)
 	mines.append(mine_record(state))
@@ -1514,7 +1620,8 @@ static func results(state: Dictionary) -> Dictionary:
 		"depth": int(state.depth), "deepest": int(state.records.deepest), "wardens": state.records.wardens.duplicate(), "mines": mines, "players": {}}
 	for unit in state.players:
 		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
-			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true)}
+			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true),
+			"ore": int(unit.get("ore", 0)), "earned": int(unit.get("stats", {}).get("earned", 0)), "insured": bool(unit.get("insured", false))}
 	return out
 
 # --- commands ----------------------------------------------------------------------------
@@ -1542,6 +1649,10 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 			if phase != "grubstake":
 				return _refuse("the stakes are taken at the shaft head")
 			return _take_stake(state, unit, str(cmd.get("offer", "")), cmd.get("payload", {}))
+		"temporary":
+			if phase != "grubstake":
+				return _refuse("temporary stones are taken at the shaft head")
+			return _take_temporary(state, unit, int(cmd.get("index", -1)), int(cmd.get("pick", -1)))
 		"vote_tunnel":
 			if phase != "tunnels":
 				return _refuse("no tunnels to choose")

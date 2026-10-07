@@ -4,11 +4,11 @@ extends Node3D
 ##
 ## `motion` is how the piece idles: still, a crystal that sways, a core that pulses, a block
 ## that turns a little, a wing that beats, or one of the newer kinds: a part that orbits the
-## body, one that spins on its axis, one that bobs, one that swings like a pendulum, a tread
+## body, one that spins on its axis (or bores, at a drill's pace), one that bobs, one that swings like a pendulum, a tread
 ## that rolls and a flame that flickers. `phase` offsets its clock so no two parts move
 ## together; `wing_side` mirrors a wing.
 
-@export_enum("static", "crystal", "core", "block", "wing", "orbit", "spin", "bob", "swing", "tread", "flicker") var motion: String = "static"
+@export_enum("static", "crystal", "core", "block", "wing", "orbit", "spin", "drill", "bob", "swing", "tread", "flicker") var motion: String = "static"
 @export var phase: float = 0.0
 @export var wing_side: float = 1.0
 
@@ -40,7 +40,13 @@ func animate(clock: float, style: String) -> void:
 			position = _rest.origin.rotated(Vector3.UP, clock * 0.7 + phase) + Vector3(0, sin(clock * 1.9 + phase) * 0.06, 0)
 			rotation = base_rotation + Vector3(0, clock * 0.7 + phase, 0)
 		"spin":
-			rotation = base_rotation + Vector3(0, clock * 2.4 + phase, 0)
+			## About the part's own long axis, however it is tilted: a wheel on its axle, a
+			## crystal on its point. Adding yaw to the resting angles swung a tilted part round
+			## the body instead.
+			transform.basis = _rest.basis * Basis(Vector3.UP, clock * 2.4 + phase)
+		"drill":
+			## The same, at a drill's pace.
+			transform.basis = _rest.basis * Basis(Vector3.UP, clock * 11.0 + phase)
 		"bob":
 			position = _rest.origin + Vector3(0, sin(clock * 2.2 + phase) * 0.1, 0)
 		"swing":

@@ -16,15 +16,20 @@ const Lowpoly = preload("res://view/battle/lowpoly.gd")
 
 const WIDTH := 11.0
 const HEIGHT := 3.0
-## Where each boulder lies and how big it is, left to right across the room, the lane up the
-## middle kept clear. No two are the same size: a row of matching lumps is a grid again.
+## Where each boulder lies and how big it is, left to right across the room. No two are the
+## same size: a row of matching lumps is a grid again. Laid out against the view from where
+## the party stands (VIEW) so that no boulder stands in front of another one's seam: each
+## back boulder is seen past the edge of the near ones, or over their tops.
 const SPOTS: Array = [
-	{"at": Vector3(-5.1, 0.0, -0.3), "size": 1.55},
-	{"at": Vector3(-3.0, 0.0, 1.9), "size": 0.92},
-	{"at": Vector3(-2.4, 0.0, -2.6), "size": 1.22},
-	{"at": Vector3(2.1, 0.0, 1.5), "size": 1.62},
-	{"at": Vector3(3.5, 0.0, -2.1), "size": 1.08},
-	{"at": Vector3(5.3, 0.0, 0.5), "size": 0.86}]
+	{"at": Vector3(-5.4, 0.0, -0.6), "size": 1.45},
+	{"at": Vector3(-2.5, 0.0, 2.2), "size": 0.9},
+	{"at": Vector3(-1.8, 0.0, -2.8), "size": 1.2},
+	{"at": Vector3(0.9, 0.0, -2.9), "size": 1.0},
+	{"at": Vector3(2.4, 0.0, 1.7), "size": 1.3},
+	{"at": Vector3(5.8, 0.0, 0.4), "size": 0.86}]
+## Where the party stands to look at the vein, in this node's space (the stage's home, seen
+## from where the vein is set down in the room).
+const VIEW := Vector3(0.0, 2.1, 10.5)
 const TONES: Dictionary = {"bright": Color("ffcf5a"), "glint": Color("8fd0ff"), "dull": Color("a09080")}
 const SPARKS: Dictionary = {"bright": 9, "glint": 5, "dull": 2}
 
@@ -32,6 +37,9 @@ var hazard: bool = false
 var _rock: StandardMaterial3D
 var _noise := FastNoiseLite.new()
 var _spots: Array = []
+## Each boulder, and where its seam was found on its near face.
+var _blocks: Array = []
+var _points: Array = []
 var _clock: float = 0.0
 ## The room's own floor, so no block of rock is left hanging in the air over a dip in it.
 var _ground: Callable = Callable()
@@ -56,6 +64,8 @@ func build(biome: Dictionary, spots: Array, seed_value: int, is_hazard: bool, gr
 	lamp.position = Vector3(0.0, 4.6, 2.4)
 	lamp.shadow_enabled = false
 	add_child(lamp)
+	for index in range(SPOTS.size()):
+		_points.append(_seam_on_face(index))
 	for index in range(SPOTS.size()):
 		var spot: Dictionary = spots[index] if index < spots.size() else {"glint": "dull"}
 		_spots.append(_nodule(index, str(spot.get("glint", "dull")), rng))
@@ -86,6 +96,7 @@ func _boulders(biome: Dictionary, rng: RandomNumberGenerator) -> void:
 		block.position = Vector3(lie.at) + Vector3(0.0, _floor_at(lie.at) + size * 0.64, 0.0)
 		block.rotation = Vector3(rng.randf_range(-0.22, 0.22), rng.randf() * TAU, rng.randf_range(-0.22, 0.22))
 		add_child(block)
+		_blocks.append(block)
 		## A shoulder of smaller rock leaning on it, so no block is a lone egg on the floor.
 		for lean in range(2):
 			var shoulder := MeshInstance3D.new()
@@ -93,7 +104,8 @@ func _boulders(biome: Dictionary, rng: RandomNumberGenerator) -> void:
 			shoulder.material_override = _rock
 			var small: float = size * rng.randf_range(0.34, 0.52)
 			shoulder.scale = Vector3.ONE * small
-			var angle: float = rng.randf() * TAU
+			## Behind it or to its sides, never in front where the seam is.
+			var angle: float = rng.randf_range(PI * 0.95, TAU + PI * 0.05)
 			var beside := Vector3(cos(angle) * size * 0.95, 0.0, sin(angle) * size * 0.95)
 			shoulder.position = Vector3(lie.at) + beside + Vector3(0.0, _floor_at(Vector3(lie.at) + beside) + small * 0.5, 0.0)
 			shoulder.rotation = Vector3(rng.randf(), rng.randf() * TAU, rng.randf())
@@ -127,9 +139,33 @@ func _glowing(color: Color, energy: float) -> StandardMaterial3D:
 
 func spot_point(index: int) -> Vector3:
 	## The seam in a boulder's near face, in this node's space: where the pick goes in.
+	if index >= 0 and index < _points.size():
+		return _points[index]
 	var lie: Dictionary = _lie(index)
 	var size: float = float(lie.size)
 	return Vector3(lie.at) + Vector3(0.0, _floor_at(lie.at) + size * 0.78, size * 0.78)
+
+func _seam_on_face(index: int) -> Vector3:
+	## Where a line from the party's eye to the middle of a boulder first meets that boulder:
+	## the seam sits on the face actually turned to them, a hand's width proud of it, so no
+	## bulge of its own rock can stand in front of it.
+	var fallback: Vector3 = spot_point(index)
+	if index >= _blocks.size():
+		return fallback
+	var block: MeshInstance3D = _blocks[index]
+	var lie: Dictionary = _lie(index)
+	var aim: Vector3 = Vector3(lie.at) + Vector3(0.0, _floor_at(lie.at) + float(lie.size) * 0.72, 0.0)
+	var toward: Vector3 = (aim - VIEW).normalized()
+	var faces: PackedVector3Array = block.mesh.get_faces()
+	var nearest: float = INF
+	for i in range(0, faces.size(), 3):
+		var hit: Variant = Geometry3D.ray_intersects_triangle(VIEW, toward,
+			block.transform * faces[i], block.transform * faces[i + 1], block.transform * faces[i + 2])
+		if hit != null:
+			nearest = minf(nearest, VIEW.distance_to(hit))
+	if nearest == INF:
+		return fallback
+	return VIEW + toward * (nearest - 0.12)
 
 func _nodule(index: int, glint: String, rng: RandomNumberGenerator) -> Dictionary:
 	var holder := Node3D.new()

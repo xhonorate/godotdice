@@ -1,22 +1,26 @@
 class_name DeepProfile
 extends RefCounted
 ## The player's own record: gold, the vault (one stone per skill), the bowl of dice, the
-## characters they have unlocked and how each is loaded, and what they have done.
+## characters they have unlocked, how each is loaded and how many sockets they have opened,
+## the day's commissions, and what they have done.
 ##
-## Only stones and dice cross from a run into a profile, and only through the tray on the
-## Appraise tab: every stone that comes home waits there until the player keeps it (into the
-## vault, selling any stone of the same skill it replaces) or sells it.
+## Only stones, dice and gold cross from a run into a profile. Stones come only through the
+## tray on the Appraise tab: every stone that comes home waits there until the player keeps it
+## (into the vault, selling any stone of the same skill it replaces), sells it, or turns it in
+## for a commission (DeepEconomy). Gold comes from the assayer at the lift and the purse for
+## a mine's first conquest.
 
-const SCHEMA: int = 2
+const SCHEMA: int = 3
 
 static func new_profile(name: String = "Lapidary") -> Dictionary:
 	var profile: Dictionary = {"schema": SCHEMA, "id": "pf%08x" % randi(), "name": name, "gold": 0, "vault": {}, "seen": [],
 		"bowl": [], "characters": {}, "current_character": DeepContent.starter_character(), "mines": {}, "tray": [],
-		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "best": {}}, "history": [], "next_id": 1}
+		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "commissions": 0, "best": {}}, "history": [], "next_id": 1,
+		"daily": {}, "outfit": {"insure": false}, "conquest_paid": [], "charged_run": ""}
 	for key in DeepContent.section("characters"):
 		var character: Dictionary = DeepContent.character(str(key))
 		var unlocked: bool = bool(character.get("starter", false))
-		profile.characters[str(key)] = {"unlocked": unlocked, "rail": [], "dice": []}
+		profile.characters[str(key)] = {"unlocked": unlocked, "rail": [], "dice": [], "sockets": starting_rail_cap()}
 		if unlocked:
 			_fit_default(profile, str(key))
 	ensure_mines(profile)
@@ -33,6 +37,31 @@ static func new_profile(name: String = "Lapidary") -> Dictionary:
 			if starter.rail[index] == null and set_rail(profile, str(profile.current_character), index, skill).is_empty():
 				break
 	return profile
+
+static func upgrade(profile: Dictionary) -> bool:
+	## A profile from before gold had uses at home (schema 2) gains what it is missing: the
+	## day's commissions, the outfit it last went down in, the mines whose first-conquest purse
+	## is paid (a mine already conquered counts as paid: that purse belongs to a first), and
+	## three open sockets for every lapidary. True if anything was added.
+	var changed: bool = false
+	for field in [["daily", {}], ["outfit", {"insure": false}], ["conquest_paid", []], ["charged_run", ""]]:
+		if not profile.has(field[0]):
+			profile[field[0]] = field[1].duplicate() if field[1] is Dictionary or field[1] is Array else field[1]
+			changed = true
+	if int(profile.get("schema", 0)) < SCHEMA:
+		for key in profile.get("mines", {}):
+			if bool(profile.mines[key].get("boss", false)) and not profile.conquest_paid.has(str(key)):
+				profile.conquest_paid.append(str(key))
+		profile.schema = SCHEMA
+		changed = true
+	if profile.has("records") and not profile.records.has("commissions"):
+		profile.records.commissions = 0
+		changed = true
+	for key in profile.get("characters", {}):
+		if not profile.characters[key].has("sockets"):
+			profile.characters[key].sockets = starting_rail_cap()
+			changed = true
+	return changed
 
 static func new_mine_record(key: String) -> Dictionary:
 	return {"unlocked": bool(DeepContent.mine(key).get("starter", false)), "deepest": 0, "wardens": [], "boss": false, "runs": 0}
@@ -84,7 +113,7 @@ static func migrate(profile: Dictionary) -> Dictionary:
 			earned += 1
 	profile.characters = {}
 	for key in DeepContent.section("characters"):
-		profile.characters[str(key)] = {"unlocked": bool(DeepContent.character(str(key)).get("starter", false)), "rail": [], "dice": []}
+		profile.characters[str(key)] = {"unlocked": bool(DeepContent.character(str(key)).get("starter", false)), "rail": [], "dice": [], "sockets": starting_rail_cap()}
 	profile.current_character = DeepContent.starter_character()
 	_fit_default(profile, str(profile.current_character))
 	for key in DeepContent.characters_in_unlock_order():
@@ -214,19 +243,16 @@ static func first_of_skill(profile: Dictionary, stone: Dictionary) -> bool:
 		return false
 	return owned(profile, str(stone.get("skill", ""))).is_empty()
 
-static func auto_keep(profile: Dictionary) -> Array:
-	## Every known stone on the tray that is the first of its skill goes straight into the
-	## vault. Returns what was kept, newest first in the order it was found.
-	var kept: Array = []
+static func clear_shattered(profile: Dictionary) -> Array:
+	## Every stone on the tray already known to be fragile breaks: none of them can be kept
+	## or sold. Returns what broke. (A first stone of its skill is no longer kept without
+	## asking: it waits on the tray to be kept, or turned in for a commission.)
+	var broke: Array = []
 	for stone in profile.get("tray", []).duplicate():
 		if DeepStone.known_fragile(stone):
 			shatter(profile, stone)
-			continue
-		if not bool(stone.get("appraised", false)) or not first_of_skill(profile, stone):
-			continue
-		decide_tray(profile, str(stone.get("id", "")), true)
-		kept.append(stone)
-	return kept
+			broke.append(stone)
+	return broke
 
 static func sell(profile: Dictionary, stone: Dictionary) -> int:
 	## A buyer pays what a stone is worth once it is known, and only the size class when it
@@ -308,16 +334,15 @@ static func vault_grid(profile: Dictionary) -> Array:
 
 # --- loadouts ------------------------------------------------------------------------------
 
-static func loadout(profile: Dictionary, character_key: String, mine_key: String = "") -> Dictionary:
+static func loadout(profile: Dictionary, character_key: String) -> Dictionary:
 	## The rail and dice a character takes down the mine: stone instances from the vault in
-	## the sockets a loadout fills (the rest go down empty, to be filled in the mine), and the
-	## character's own five dice, which are never swapped. Without a mine, every socket any
-	## open mine would fill is filled: the run itself empties the ones its mine does not.
+	## the sockets the lapidary has open (the rest go down empty, to be filled in the mine),
+	## and the character's own five dice, which are never swapped.
 	var character: Dictionary = DeepContent.character(character_key)
 	var record: Dictionary = profile.characters.get(character_key, {"rail": [], "dice": []})
 	var rail: Array = []
 	var sockets: Array = character.get("sockets", [])
-	var cap: int = starting_rail_cap(mine_key) if not mine_key.is_empty() else widest_rail_cap(profile)
+	var cap: int = open_sockets(profile, character_key)
 	for index in range(sockets.size()):
 		var skill: Variant = record.rail[index] if index < cap and index < record.rail.size() else null
 		var stone: Dictionary = owned(profile, str(skill)) if skill is String else {}
@@ -342,28 +367,23 @@ static func bowl_die(profile: Dictionary, die_id: String) -> Dictionary:
 			return die
 	return {}
 
-static func starting_rail_cap(mine_key: String = "") -> int:
-	## How many sockets a loadout fills before a run in this mine: the first few on the rail,
-	## and in a mine started from rather than fought down to, all of them.
-	if not mine_key.is_empty() and not DeepContent.mine(mine_key).is_empty():
-		return int(DeepContent.mine(mine_key).get("loadout_sockets", DeepContent.constant("starting_rail_cap", 3)))
+static func starting_rail_cap() -> int:
+	## How many sockets every lapidary has open from the start: the ones a loadout fills from
+	## the vault before any run, in any mine.
 	return int(DeepContent.constant("starting_rail_cap", 3))
 
-static func widest_rail_cap(profile: Dictionary) -> int:
-	## The most sockets any mine open to this profile fills from the vault.
-	var widest: int = starting_rail_cap()
-	for key in unlocked_mines(profile):
-		widest = maxi(widest, starting_rail_cap(str(key)))
-	return widest
+static func open_sockets(profile: Dictionary, character_key: String) -> int:
+	## How many of a lapidary's sockets are filled from the vault before a run: the first
+	## three, and every one bought for them since (DeepEconomy.unlock_socket). The rest go down
+	## empty and are filled in the mine; below the Quarry, with temporary stones.
+	var total: int = DeepContent.character(character_key).get("sockets", []).size()
+	var record: Dictionary = profile.get("characters", {}).get(character_key, {})
+	return clampi(int(record.get("sockets", starting_rail_cap())), 0, total)
 
-static func loadout_socket(index: int, mine_key: String = "") -> bool:
-	## Whether a socket is filled from the vault before a run in this mine. The rest of the
-	## rail is only ever filled in the mine, with stones found on the way down.
-	return index >= 0 and index < starting_rail_cap(mine_key)
-
-static func fillable_socket(profile: Dictionary, index: int) -> bool:
-	## Whether the loadout may hold a stone in this socket at all: some open mine fills it.
-	return index >= 0 and index < widest_rail_cap(profile)
+static func fillable_socket(profile: Dictionary, character_key: String, index: int) -> bool:
+	## Whether the loadout may hold a stone in this socket: it is one of the lapidary's open
+	## ones. The rest of the rail is only ever filled in the mine.
+	return index >= 0 and index < open_sockets(profile, character_key)
 
 static func rail_refusal(profile: Dictionary, character_key: String, index: int, skill: String) -> String:
 	## Why an owned stone (by skill) cannot go into a socket of a loadout, or "".
@@ -374,8 +394,8 @@ static func rail_refusal(profile: Dictionary, character_key: String, index: int,
 	var sockets: Array = character.get("sockets", [])
 	if index < 0 or index >= sockets.size():
 		return "no such socket"
-	if not fillable_socket(profile, index):
-		return "that socket is only filled in the mine"
+	if not fillable_socket(profile, character_key, index):
+		return "that socket is locked: unlock it to fill it before a run"
 	var stone: Dictionary = owned(profile, skill)
 	if stone.is_empty():
 		return "you do not own that stone"
@@ -417,20 +437,20 @@ static func set_rail(profile: Dictionary, character_key: String, index: int, ski
 	return ""
 
 static func tidy(profile: Dictionary) -> bool:
-	## A save from when any socket could be filled before a run: a stone sitting in a socket
-	## the loadout no longer fills moves to an empty one it fits, or comes out. True if
-	## anything moved.
+	## A save from when more sockets were filled before a run (every socket below the Quarry,
+	## before sockets were bought): a stone sitting in a socket the lapidary has not opened
+	## moves to an empty open one it fits, or comes out. True if anything moved.
 	var moved: bool = false
 	for key in profile.get("characters", {}):
 		var record: Dictionary = profile.characters[key]
 		var rail: Array = record.get("rail", [])
 		for index in range(rail.size()):
-			if fillable_socket(profile, index) or rail[index] == null:
+			if fillable_socket(profile, str(key), index) or rail[index] == null:
 				continue
 			var skill: String = str(rail[index])
 			rail[index] = null
 			moved = true
-			for slot in range(widest_rail_cap(profile)):
+			for slot in range(open_sockets(profile, str(key))):
 				if slot < rail.size() and rail[slot] == null and set_rail(profile, str(key), slot, skill).is_empty():
 					break
 	return moved
@@ -447,6 +467,7 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	if visited.is_empty():
 		visited = [{"mine": mine_key, "deepest": int(result.get("deepest", 0)), "wardens": result.get("wardens", []), "boss": false}]
 	var unlocked: Array = []
+	var purses: Array = []
 	for entry in visited:
 		var key: String = str(entry.get("mine", ""))
 		if not profile.mines.has(key):
@@ -467,6 +488,16 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 			var opened: String = _open_next(profile, key)
 			if not opened.is_empty():
 				unlocked.append({"mine": opened})
+			## The first conquest of a mine pays a purse, once, whether the party rode up with
+			## the news or carried it further down.
+			if not profile.get("conquest_paid", []).has(key):
+				if not profile.has("conquest_paid"):
+					profile.conquest_paid = []
+				profile.conquest_paid.append(key)
+				var purse: int = DeepEconomy.conquest_purse(key)
+				if purse > 0:
+					profile.gold = int(profile.get("gold", 0)) + purse
+					purses.append({"mine": key, "gold": purse})
 	profile.records.runs = int(profile.records.runs) + 1
 	match str(result.get("outcome", "")):
 		"extracted": profile.records.extractions = int(profile.records.extractions) + 1
@@ -493,12 +524,17 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		brought.append(home)
 	for die in mine_result.get("dice", []):
 		profile.bowl.append(die.duplicate(true))
+	## The assayer at the lift weighs what is left in the pocket, if anyone rode up.
+	var assayed: Dictionary = DeepEconomy.assay(mine_result, str(result.get("outcome", "")))
+	profile.gold = int(profile.get("gold", 0)) + int(assayed.gold)
 	profile.history.append({"run_id": str(result.get("run_id", "")), "mine": mine_key, "outcome": str(result.get("outcome", "")),
-		"depth": int(result.get("depth", 0)), "stones": brought.size(), "date": Time.get_date_string_from_system()})
-	## Anything that came home already read and is the first of its skill is kept without
-	## being asked about. What came home raw is kept the moment the loupe says what it is.
-	var claimed: Array = auto_keep(profile)
-	return {"tray": brought, "unlocked": unlocked, "kept": claimed, "shattered": shattered}
+		"depth": int(result.get("depth", 0)), "stones": brought.size(), "date": Time.get_date_string_from_system(), "gold": int(assayed.gold)})
+	## A stone that came home already read and is the first of its skill waits on the tray
+	## with everything else: it is never sold, but whether it is kept or turned in for a
+	## commission is the player's to say. Anything on the tray already known to be fragile
+	## (an older save's) breaks now.
+	clear_shattered(profile)
+	return {"tray": brought, "unlocked": unlocked, "kept": [], "shattered": shattered, "assay": assayed, "purses": purses}
 
 static func decide_tray(profile: Dictionary, stone_id: String, keep_it: bool) -> Dictionary:
 	for index in range(profile.tray.size()):

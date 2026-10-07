@@ -731,7 +731,7 @@ func _test_profile() -> void:
 	## A loadout fills only the first few sockets; the rest are filled in the mine.
 	DeepProfile.keep(profile, DeepStone.make("CLEAVE", 4, 2, 2, [], {"source": "test"}, "cleave1"))
 	check(DeepProfile.starting_rail_cap() == 3, "a loadout fills three sockets by default")
-	check(DeepProfile.loadout_socket(2) and not DeepProfile.loadout_socket(3), "the third socket is the loadout's last")
+	check(DeepProfile.fillable_socket(profile, "ARDOR", 2) and not DeepProfile.fillable_socket(profile, "ARDOR", 3), "the third socket is the last one open")
 	check(DeepProfile.set_rail(profile, "ARDOR", 3, "CLEAVE") != "" and DeepProfile.set_rail(profile, "ARDOR", 4, "CLEAVE") != "", "a stone is refused in a socket only the mine fills")
 	check(DeepProfile.set_rail(profile, "ARDOR", 0, "CLEAVE") == "" and profile.characters.ARDOR.rail[0] == "CLEAVE", "a stone set over another replaces it")
 	check(DeepProfile.set_rail(profile, "ARDOR", 0, "STRIKE") == "", "and Strike goes back")
@@ -756,8 +756,9 @@ func _test_profile() -> void:
 		"both mines are written down")
 	check(profile.bowl.size() == 11 and profile.records.runs == 2 and profile.records.falls == 1, "Vesper's five dice join the bowl (%d)" % profile.bowl.size())
 	check(not DeepProfile.unlocked_mines(profile).has("GLASS_VEINS") and DeepProfile.unlocked_mines(profile).has("SEEPS"), "the Glass Veins stay sealed")
-	check(DeepProfile.widest_rail_cap(profile) == 6 and DeepProfile.starting_rail_cap("QUARRY") == 3 and DeepProfile.loadout_socket(4, "SEEPS") and not DeepProfile.loadout_socket(4, "QUARRY"),
-		"a run started in the Seeps fills every socket from the vault; one in the Quarry fills three")
+	check(DeepProfile.open_sockets(profile, "VESPER") == 3 and not DeepProfile.fillable_socket(profile, "VESPER", 3),
+		"a deeper mine open changes nothing: a lapidary fills only the sockets they have opened, in any mine")
+	check(DeepProfile.loadout(profile, "VESPER").rail.slice(3).all(func(s: Variant) -> bool: return s == null), "and the rest go down empty")
 	## Vesper's two Red sockets: a stone moves between them, and swaps with one already there.
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "VESPER", 1, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == [null, "STRIKE"], "moving a stone empties its old socket")
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "CLEAVE") == "" and DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == ["STRIKE", "CLEAVE"], "a stone moved onto another swaps them: %s" % str(profile.characters.VESPER.rail))
@@ -1024,15 +1025,23 @@ func _test_mines() -> void:
 	var tick_seeps: Dictionary = DeepCreatures.make("CAVE_TICK", "t", 5, 1, DeepDescent.creature_scale(DeepContent.mine("SEEPS"), 5))
 	check(int(tick_seeps.max_hp) >= int(tick_quarry.max_hp) * 17 / 10 and float(tick_seeps.damage_mult) > 1.0, "a Seeps tick is far tougher than a Quarry one (%d vs %d)" % [int(tick_seeps.max_hp), int(tick_quarry.max_hp)])
 	check(float(DeepDescent.creature_scale(rift, 17).hp) > float(DeepDescent.creature_scale(rift, 9).hp) * 1.9, "the Rift doubles its creatures' health every eight floors")
-	## A run started in a deeper mine comes down with every socket filled and a purse.
+	## A run started in a deeper mine comes down with the sockets each lapidary has opened
+	## filled from the vault, a temporary stone in every one still shut, and a purse.
 	var cfg: Dictionary = config(31, true)
 	for entry in cfg.players:
 		entry.rail = entry.rail + [stone("STRIKE", 3, 4, 3, "%s_fourth" % entry.id), stone("TEMPO", 3, 4, 3, "%s_fifth" % entry.id)]
 	var quarry_run: Dictionary = DeepDescent.new_run(cfg.duplicate(true))
-	check(quarry_run.players[0].rail[3] == null and int(quarry_run.players[0].ore) == 0, "a Quarry run fills three sockets and starts with no pyrite")
+	check(quarry_run.players[0].rail[3] == null and int(quarry_run.players[0].ore) == 0 and quarry_run.players[0].temps.is_empty(), "a Quarry run fills three sockets, lends nothing and starts with no pyrite")
+	var bought: Dictionary = cfg.duplicate(true)
+	bought.players[0].sockets = 4
+	var opened: Dictionary = DeepDescent.new_run(bought)
+	check(str(opened.players[0].rail[3].get("id", "")) == "a_fourth" and opened.players[0].rail[4] == null and opened.players[1].rail[3] == null, "a socket bought fills from the vault, in the Quarry too, for whoever bought it")
 	cfg.mine = "SEEPS"
 	var seeps_run: Dictionary = DeepDescent.new_run(cfg)
-	check(seeps_run.players[0].rail[3] is Dictionary and int(seeps_run.players[0].ore) == int(DeepContent.mine("SEEPS").start_pyrite), "a Seeps run fills every socket and starts with a purse")
+	var lent: Variant = seeps_run.players[0].rail[3]
+	check(lent is Dictionary and str(lent.id) != "a_fourth" and bool(lent.get("temporary", false)) and DeepStone.is_fragile(lent) and bool(lent.get("appraised", false)),
+		"a Seeps run lends a temporary stone for each shut socket, not the vault's")
+	check(int(seeps_run.players[0].ore) == int(DeepContent.mine("SEEPS").start_pyrite), "and starts with a purse")
 	check(int(seeps_run.schedule.boss) == DeepContent.mine_bottom("SEEPS") and seeps_run.schedule.wardens.size() == 3, "the Seeps plans its own shaft: %s" % str(seeps_run.schedule))
 	## The boss's hall has a cage, and a way on into the next mine.
 	var bottom: int = DeepContent.mine_bottom("QUARRY")

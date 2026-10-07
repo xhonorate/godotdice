@@ -237,7 +237,7 @@ No new chamber kinds beyond one. The map is already thin at weight 5.
 | Room | Cards |
 | --- | --- |
 | **Smithy** (existing) | hammer a die bigger / file it smaller, **plus** **stamp**: the anvil is set for one pattern a night, and it is cut across every face of the die you choose |
-| **Carver** (existing) | raise a face / recut a face, **plus** **etch**: the needles are set for one etching a night — choose a die and a face; it bites 60%, cracks the die's best face 10%, or nothing |
+| **Carver** (existing) | raise a face / lower a face, **plus** **etch**: the needles are set for one etching a night — choose a die and a face; it bites 60%, cracks the die's best face 10%, or nothing |
 | **The Vat** (new, weight 4) | **dip** a die in what is in the vat tonight, **dip it blind** for a material rolled after you choose, or **melt it down** — standard numbers, every etching cleared, the material kept |
 
 A card holds at most four choices, which is why melting lives in the Vat rather than the

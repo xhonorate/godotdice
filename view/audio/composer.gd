@@ -18,7 +18,9 @@ extends RefCounted
 ## Every note is written once and laid into its strip wherever it falls (a held chord comes
 ## round every few bars, a kick drum hundreds of times), and anything ringing past the end of
 ## the loop is laid into its start, so the seam is never heard. Writing a piece takes a few
-## seconds, so it happens on the score player's worker thread; the suites write them headless.
+## seconds, so it is done ahead of time: `tools/music_render.gd` writes them and the soundtrack
+## editor bakes them to Ogg in audio/music, which is what the game plays. The score player
+## writes a piece here, on its worker thread, only if it has not been baked.
 
 const RATE: int = DeepSynth.RATE
 const LAYERS: PackedStringArray = ["bed", "pulse", "melody", "drive", "peril"]
@@ -164,10 +166,15 @@ static func plan(spec: Dictionary) -> Dictionary:
 		"scale": MODES.get(str(spec.get("mode", "aeolian")), MODES.aeolian),
 		"layers": clampi(int(spec.get("layers", LAYERS.size())), 1, LAYERS.size())}
 
-static func write(spec: Dictionary) -> Array:
+static func write(spec: Dictionary, record: Variant = null) -> Array:
 	## The piece as its layers, levelled together so the whole of it peaks just under full.
+	## Given an array as `record`, every note laid down is also listed in it, as
+	## [layer, voice, midi, step, length in steps, level]: what the soundtrack editor draws
+	## and exports as MIDI. A drum's voice is "drum:<part>:<drum>", and its midi is 0.
 	var p: Dictionary = plan(spec)
 	p.notes = {}
+	p.record = record
+	p.layer = 0
 	p.rng = RandomNumberGenerator.new()
 	p.rng.seed = int(spec.get("seed", 1)) * 7919 + 13
 	var strips: Array = []
@@ -179,6 +186,7 @@ static func write(spec: Dictionary) -> Array:
 	for i in range(strips.size()):
 		if abandon:
 			return []
+		p.layer = i
 		match i:
 			BED: _bed(p, strips[i])
 			PULSE: _pulse(p, strips[i])
@@ -324,9 +332,11 @@ static func _home(deg: int) -> int:
 	return deg
 
 static func lead_base(p: Dictionary) -> int:
-	## The key note the tune is written from: around A3 to G#4, or a fifth higher for a voice
-	## that rings (a bell, glass), which would be muddy down there and shrill an octave up.
-	return _fit(int(p.root), 57 + 7 * clampi(int(p.spec.get("lead_octave", 0)), 0, 1))
+	## The key note the tune is written from: around E3 to D#4, so the tune (which climbs an
+	## octave and a half from it) peaks near G5 rather than C6, where a flute or a string turns
+	## shrill. A fifth higher for a voice that rings (a bell, glass), which would be muddy
+	## down there.
+	return _fit(int(p.root), 52 + 7 * clampi(int(p.spec.get("lead_octave", 0)), 0, 1))
 
 static func pitch(p: Dictionary, base: int, deg: int) -> int:
 	## A scale step above (or below) a note, in the piece's mode, as a MIDI number.
@@ -358,6 +368,8 @@ static func _bed(p: Dictionary, strip: DeepSynth) -> void:
 	if bool(p.spec.get("drone", true)):
 		_hum(strip, hz(root - 12), 0.07, 3)
 		_hum(strip, hz(root - 5), 0.035, 5)
+		_mark(p, "drone", root - 12, 0, int(p.bars) * steps_bar, 0.07)
+		_mark(p, "drone", root - 5, 0, int(p.bars) * steps_bar, 0.035)
 
 static func _pulse(p: Dictionary, strip: DeepSynth) -> void:
 	var steps_bar: int = int(p.steps_bar)
@@ -397,14 +409,16 @@ static func _melody(p: Dictionary, strip: DeepSynth) -> void:
 	for n in tune(p):
 		var strong: bool = int(n[0]) % 4 == 0
 		_play(p, strip, lead, pitch(p, base, int(n[2])), int(n[0]), int(n[1]), (0.62 if strong else 0.5) * rng.randf_range(0.9, 1.05))
-	## A glint over each breath and each landing: three notes of the chord, high and soft.
+	## A glint over each breath and each landing: three notes of the chord climbing from the
+	## octave above middle C, high and soft but not shrill.
 	for slot in range(PLAN.size()):
 		if not str(PLAN[slot]) in ["ans", "end"]:
 			continue
 		var chord: int = int(p.chords[slot])
 		var at: int = slot * 2 * steps_bar + steps_bar
+		var lift: int = _fit(pitch(p, root, chord), 72) - pitch(p, root, chord)
 		for i in range(3):
-			_play(p, strip, "lead_bell", pitch(p, root + 24, chord + 2 * i), at + 2 + 2 * i, 2, 0.14 - 0.03 * float(i))
+			_play(p, strip, "lead_bell", pitch(p, root, chord + 2 * i) + lift, at + 2 + 2 * i, 2, 0.14 - 0.03 * float(i))
 	var echo: float = float(p.spec.get("echo", 0.22))
 	if echo > 0.0:
 		strip.echo_round(3 * int(p.step), echo, 3)
@@ -455,6 +469,7 @@ static func _peril(p: Dictionary, strip: DeepSynth) -> void:
 			## A cymbal swelling into the next four bars, cresting on their downbeat.
 			var swell: PackedFloat32Array = _note(p, "swell", 0, 0, 0)
 			strip.add(swell, (at + steps_bar) * step - int(1.45 * float(RATE)), 0.36)
+			_mark(p, "drum:swell:swell", 0, (at + steps_bar) % (int(p.bars) * steps_bar), 1, 0.36)
 
 static func _groove(p: Dictionary, strip: DeepSynth, part: String, level: float) -> void:
 	var meter: int = int(p.meter)
@@ -476,10 +491,17 @@ static func _groove(p: Dictionary, strip: DeepSynth, part: String, level: float)
 				if not HITS.has(mark):
 					continue
 				var hit: PackedFloat32Array = _note(p, drum, 0, 0, s % 2)
-				strip.add(hit, (bar * steps_bar + s) * int(p.step), level * float(HITS[mark]) * rng.randf_range(0.88, 1.0))
+				var loud: float = level * float(HITS[mark]) * rng.randf_range(0.88, 1.0)
+				strip.add(hit, (bar * steps_bar + s) * int(p.step), loud)
+				_mark(p, "drum:%s:%s" % [role, drum], 0, bar * steps_bar + s, 1, loud)
 
 static func _play(p: Dictionary, strip: DeepSynth, voice: String, midi: int, at_step: int, steps: int, level: float) -> void:
 	strip.add(_note(p, voice, midi, maxi(1, steps), 0), at_step * int(p.step), level)
+	_mark(p, voice, midi, at_step, maxi(1, steps), level)
+
+static func _mark(p: Dictionary, voice: String, midi: int, at_step: int, steps: int, level: float) -> void:
+	if p.get("record", null) is Array:
+		p.record.append([int(p.layer), voice, midi, at_step, steps, snappedf(level, 0.001)])
 
 static func _note(p: Dictionary, voice: String, midi: int, steps: int, take: int) -> PackedFloat32Array:
 	## A note, written once per piece and laid down as often as it is played.
@@ -524,10 +546,12 @@ static func sound(voice: String, freq: float, seconds: float, seed_value: int = 
 			s = DeepSynth.new(seconds + 0.2, seed_value)
 			s.voice(0.0, seconds, freq, 0.44, "saw", 0.01, 0.15, 2, 6.0, 210.0, 2.5)
 		"lead_flute":
+			## Breathed in rather than tongued, the breath itself low and soft: a wooden flute,
+			## not a whistle.
 			s = DeepSynth.new(seconds + 0.3, seed_value)
-			s.voice(0.0, seconds, freq, 0.34, "sine", 0.06, 0.25, 1, 0.0, 0.0, 0.0, 0.006)
-			s.voice(0.0, seconds, freq, 0.08, "triangle", 0.08, 0.2, 1, 0.0, 0.0, 0.0, 0.006)
-			s.noise(0.0, minf(seconds, 0.4) + 0.05, 0.025, 3200.0, 1800.0, 1.5, 0.04, 600.0)
+			s.voice(0.0, seconds, freq, 0.34, "sine", 0.09, 0.25, 1, 0.0, 0.0, 0.0, 0.005)
+			s.voice(0.0, seconds, freq, 0.05, "triangle", 0.11, 0.2, 1, 0.0, freq * 3.0, 0.0, 0.005)
+			s.noise(0.0, minf(seconds, 0.4) + 0.05, 0.018, 2000.0, 1100.0, 1.5, 0.05, 500.0)
 		"lead_bell":
 			ring = clampf(seconds * 1.6, 0.9, 2.6)
 			s = DeepSynth.new(ring, seed_value)
@@ -535,13 +559,14 @@ static func sound(voice: String, freq: float, seconds: float, seed_value: int = 
 		"lead_glass":
 			s = DeepSynth.new(seconds + 1.3, seed_value)
 			s.voice(0.0, seconds, freq, 0.3, "sine", 0.03, 1.2)
-			s.tone(0.0, minf(1.2, seconds + 0.5), freq * 3.0, -1.0, 0.04, "sine", 2.5, 0.002)
+			s.tone(0.0, minf(1.2, seconds + 0.5), freq * 3.0, -1.0, 0.025, "sine", 3.0, 0.002)
 			s.tone(0.0, 0.6, freq * 2.0, -1.0, 0.07, "sine", 3.0, 0.002)
 		"lead_pluck":
 			ring = clampf(seconds + 0.5, 0.6, 2.0)
 			s = DeepSynth.new(ring, seed_value)
-			s.pluck(0.0, ring, freq, 0.5, 0.997, 0.55)
-			s.tone(0.0, ring * 0.7, freq, -1.0, 0.1, "sine", 2.0, 0.003)
+			## Thumbed, not picked: the string starts soft, so it rings without a click.
+			s.pluck(0.0, ring, freq, 0.5, 0.996, 0.8)
+			s.tone(0.0, ring * 0.7, freq, -1.0, 0.12, "sine", 2.0, 0.003)
 		"lead_marimba":
 			ring = clampf(seconds + 0.3, 0.5, 1.1)
 			s = DeepSynth.new(ring, seed_value)
@@ -551,7 +576,7 @@ static func sound(voice: String, freq: float, seconds: float, seed_value: int = 
 				s.tone(0.0, ring * 0.12, freq * 9.4, -1.0, 0.025, "sine", 6.0, 0.001)
 		"lead_reed":
 			s = DeepSynth.new(seconds + 0.25, seed_value)
-			s.voice(0.0, seconds, freq, 0.26, "saw", 0.035, 0.2, 2, 5.0, freq * 2.2, 1.5, 0.005)
+			s.voice(0.0, seconds, freq, 0.26, "saw", 0.04, 0.2, 2, 5.0, minf(freq * 2.0, 1800.0), 1.2, 0.005)
 		"brass":
 			s = DeepSynth.new(seconds + 0.35, seed_value)
 			s.voice(0.0, seconds, freq, 0.3, "saw", 0.06, 0.3, 3, 9.0, freq * 1.2, 3.0)

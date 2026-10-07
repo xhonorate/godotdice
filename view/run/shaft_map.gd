@@ -409,20 +409,21 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 	var picked: String = facts.picked
 	## The ways between chambers.
 	var visible_depth: int = mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1)
+	## Every way is drawn, down to the landing: the ones past the lantern only as faint lines
+	## between unknown chambers, so the shape of what is below can be read but not its rooms.
 	var sources: Array = ["head"] if here.is_empty() else []
 	for node_id in nodes:
-		if int(nodes[node_id].get("depth", 0)) <= visible_depth:
-			sources.append(node_id)
+		sources.append(node_id)
 	for id in sources:
 		var children: Array = DeepDescent.row_of(map, int(map.from) + 1) if id == "head" else nodes[id].next
 		var a: Vector2 = positions[id]
 		for child in children:
-			if str(child) == "landing" and int(map.get("to", 0)) > visible_depth:
-				continue
-			if str(child) != "landing" and int(nodes.get(str(child), {}).get("depth", 0)) > visible_depth:
-				continue
 			var b: Vector2 = positions.get(str(child), Vector2.ZERO)
 			var line: PackedVector2Array = _curve(a, b)
+			var child_depth: int = int(map.get("to", 0)) if str(child) == "landing" else int(nodes.get(str(child), {}).get("depth", 0))
+			if child_depth > visible_depth:
+				_stroke(line, Color(DeepUi.LINE_HI, 0.16), 1.2)
+				continue
 			var from_here: bool = (id == "head" and here.is_empty()) or id == here
 			var taken: bool = visited.has(str(child)) and (id == "head" or visited.has(str(id)))
 			if taken:
@@ -482,10 +483,13 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		if id == "landing":
 			continue
 		var node: Dictionary = nodes[id]
-		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1):
-			continue
 		var at: Vector2 = positions[id]
 		if _fade(at.y) <= 0.0:
+			continue
+		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1):
+			## Past the lantern: a chamber is there, and nothing more is known of it.
+			_draw_unknown(at)
+			_spots.append({"at": at, "radius": 12.0, "text": "Depth %d: not seen yet. The lantern shows one floor ahead." % int(node.depth)})
 			continue
 		var offered: bool = choosing and _is_offer(id)
 		var strength: float = 1.0 if (offered or ahead.has(id) or visited.has(id) or id == here) else 0.28
@@ -519,6 +523,9 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		_spots.append({"at": at, "radius": 14.0, "text": words})
 	if int(map.get("to", 0)) <= int(run.get("depth", 0)) + 1:
 		_draw_landing(map, positions.landing, ahead.has("landing") or here.is_empty())
+	elif positions.has("landing"):
+		## The landing is always known to be there, even before the lantern reaches it.
+		_draw_landing(map, positions.landing, false)
 	_draw_party(here_at)
 
 func _kind_words(kind: String) -> String:
@@ -530,7 +537,7 @@ func _kind_words(kind: String) -> String:
 		"oddity": return "an oddity"
 		"merchant": return "a merchant: buy stones, sell and appraise"
 		"smithy": return "a smithy: a die a size bigger or smaller"
-		"carver": return "a carver: raise, recut or engrave a die"
+		"carver": return "a carver: raise, lower or etch a die face"
 		"hidden": return "a dark mouth: anything could be down there"
 		"well": return "a wishing well: throw something precious down it"
 		"landing": return "a landing"
@@ -578,7 +585,7 @@ func _draw_landing(map: Dictionary, at: Vector2, reachable: bool) -> void:
 	_canvas.draw_arc(at, 19.0, 0, TAU, 36, Color(tone, (0.95 if reachable else 0.5) * fade), 2.5, true)
 	_glyph("crown" if warden else "lift", at, 21.0, Color(tone.lightened(0.3), fade))
 	_canvas.draw_string(DeepUi.display_font(), at + Vector2(26, 5), "WARDEN" if warden else "LANDING", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tone, 0.85 * fade))
-	var words: String = "Depth %d: a landing with a lift. Rest, appraise or polish, then go up or down." % landing
+	var words: String = "Depth %d: a landing with a lift. Rest, appraise or use the well, then go up or down." % landing
 	if warden:
 		words += " A Warden guards the way down."
 	var spot: Dictionary = {"at": at, "radius": 19.0, "text": words}
@@ -603,3 +610,10 @@ func _draw_party(at: Vector2) -> void:
 	_canvas.draw_line(lamp + Vector2(0, -12), lamp + Vector2(0, -7), Color(DeepUi.MUTED, fade), 1.0)
 	_glyph("lantern", lamp, 15.0, Color(DeepUi.ACCENT.lightened(0.2), fade * flicker))
 	_spots.append({"at": at, "radius": 16.0, "text": "The party is here."})
+
+func _draw_unknown(at: Vector2) -> void:
+	## A chamber below the lantern's reach: a dim ring with a question in it.
+	var fade: float = _fade(at.y)
+	_canvas.draw_circle(at, 9.0, Color(0.03, 0.035, 0.05, 0.85 * fade))
+	_canvas.draw_arc(at, 9.0, 0, TAU, 24, Color(DeepUi.MUTED, 0.35 * fade), 1.2, true)
+	_glyph("question", at, 10.0, Color(DeepUi.MUTED, 0.6 * fade))

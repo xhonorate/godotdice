@@ -7,6 +7,11 @@ extends RefCounted
 ## five layers that always play together (see `DeepComposer.LAYERS`), and the score player in
 ## `music.gd` turns the layers up and down with what is happening in the mine.
 ##
+## The pieces are written in `content/score.json`. The game does not write them while it
+## plays: each is baked ahead of time to one Ogg loop a layer in `audio/music/<id>/`, by the
+## soundtrack editor or `node tools/data-browser/music.mjs bake`. A layer there may be replaced
+## by hand (a master from a DAW, say) as long as it stays the same length as the others.
+##
 ## Each mine has three pieces to choose between, the workshop two. Which one plays is the
 ## player's pick on the Soundtrack page (Esc, Settings, Soundtrack); the first is the default.
 ##
@@ -29,106 +34,44 @@ const AIR: Dictionary = {HOME: "workshop", "QUARRY": "galleries", "SEEPS": "seep
 ## The places in the order the Soundtrack page lists them.
 const PLACES: Array = [HOME, "QUARRY", "SEEPS", "GLASS_VEINS", "WARRENS", "FURNACE", "GEODE", "RIFT"]
 
-const BOOK: Dictionary = {
-	HOME: ["home_bench", "home_lamplight"],
-	"QUARRY": ["quarry_lantern", "quarry_timber", "quarry_galleries"],
-	"SEEPS": ["seeps_lanterns", "seeps_sluice", "seeps_sump"],
-	"GLASS_VEINS": ["glass_prism", "glass_kaleidoscope", "glass_black"],
-	"WARRENS": ["warrens_rootwork", "warrens_spores", "warrens_heartrot"],
-	"FURNACE": ["furnace_anvil", "furnace_slagfall", "furnace_kiln"],
-	"GEODE": ["geode_amethyst", "geode_gilded", "geode_crown"],
-	"RIFT": ["rift_void", "rift_remembered", "rift_unmaking"],
-}
+## Where the pieces are written down: one line a piece, edited by hand or by the soundtrack
+## editor (`node tools/data-browser/server.mjs`, then Soundtrack).
+const FILE: String = "res://content/score.json"
 
-const TRACKS: Dictionary = {
-	## The workshop: warm, unhurried, a guitar by the fire. No fight is ever had here, so it is
-	## written in three layers only.
-	"home_bench": {"name": "The Bench", "key": "D", "mode": "mixolydian", "bpm": 76, "meter": 4, "seed": 11,
-		"chords": [0, 3, 0, 6, 0, 3, 4, 4], "bridge": [5, 3, 1, 4],
-		"pad": "pad_warm", "bass": "bass_pluck", "bass_style": "walk", "lead": "lead_pluck", "kit": "hearth",
-		"layers": 3, "drone": false, "echo": 0.18},
-	"home_lamplight": {"name": "Lamplight", "key": "F", "mode": "lydian", "bpm": 66, "meter": 3, "seed": 23,
-		"chords": [0, 1, 0, 4, 0, 1, 5, 4], "bridge": [3, 1, 5, 4],
-		"pad": "pad_glass", "bass": "bass_sub", "bass_style": "pedal", "lead": "lead_bell", "lead_octave": 1, "kit": "hearth",
-		"layers": 3, "drone": false, "echo": 0.3},
+static var _book_and_tracks: Array = _read()
+## Each place's pieces, the default first.
+static var BOOK: Dictionary = _book_and_tracks[0]
+## Every piece's spec, by id.
+static var TRACKS: Dictionary = _book_and_tracks[1]
 
-	## The Quarry: timber, lamp oil and dust. Earthy and folk-like, mostly dorian.
-	"quarry_lantern": {"name": "Lantern Light", "key": "D", "mode": "dorian", "bpm": 88, "meter": 4, "seed": 101,
-		"chords": [0, 6, 3, 0, 0, 6, 4, 4], "bridge": [2, 3, 6, 4],
-		"pad": "pad_warm", "bass": "bass_pluck", "bass_style": "walk", "lead": "lead_pluck", "arp": "lead_marimba", "arp_rate": 2, "kit": "frame"},
-	"quarry_timber": {"name": "Pick and Timber", "key": "E", "mode": "aeolian", "bpm": 96, "meter": 4, "seed": 117,
-		"chords": [0, 5, 2, 6, 0, 5, 3, 4], "bridge": [3, 6, 2, 4],
-		"pad": "pad_warm", "bass": "bass_pluck", "bass_style": "syncop", "lead": "lead_flute", "arp": "lead_pluck", "arp_rate": 1, "kit": "frame"},
-	"quarry_galleries": {"name": "Old Galleries", "key": "A", "mode": "dorian", "bpm": 80, "meter": 3, "seed": 131,
-		"chords": [0, 3, 0, 6, 0, 3, 6, 4], "bridge": [5, 6, 3, 4],
-		"pad": "pad_choir", "bass": "bass_sub", "bass_style": "walk", "lead": "lead_marimba", "arp": "lead_pluck", "arp_rate": 2, "kit": "wood"},
+static func _read() -> Array:
+	var text: String = FileAccess.get_file_as_string(FILE)
+	var parsed: Variant = JSON.parse_string(text)
+	if not parsed is Dictionary:
+		push_error("The score at %s could not be read" % FILE)
+		return [{}, {}]
+	var book: Dictionary = {}
+	var places: Dictionary = parsed.get("places", {})
+	for place in places:
+		book[str(place)] = Array(places[place].get("tracks", []))
+	var tracks: Dictionary = {}
+	var written: Dictionary = parsed.get("tracks", {})
+	for id in written:
+		tracks[str(id)] = whole(written[id])
+	return [book, tracks]
 
-	## The Seeps: water in every crack. Slow, wet, echoing; bells that drip.
-	"seeps_lanterns": {"name": "Drowned Lanterns", "key": "C", "mode": "aeolian", "bpm": 72, "meter": 3, "seed": 203,
-		"chords": [0, 5, 3, 4, 0, 5, 6, 4], "bridge": [2, 5, 3, 4],
-		"pad": "pad_glass", "bass": "bass_sub", "bass_style": "pedal", "lead": "lead_glass", "lead_octave": 1, "arp": "lead_bell", "arp_rate": 2, "kit": "drip", "echo": 0.42},
-	"seeps_sluice": {"name": "Lock and Sluice", "key": "F#", "mode": "dorian", "bpm": 84, "meter": 4, "seed": 219,
-		"chords": [0, 3, 0, 6, 5, 3, 6, 4], "bridge": [2, 3, 1, 4],
-		"pad": "pad_glass", "bass": "bass_sub", "bass_style": "syncop", "lead": "lead_flute", "arp": "lead_bell", "arp_rate": 1, "kit": "drip", "echo": 0.35},
-	"seeps_sump": {"name": "The Black Sump", "key": "B", "mode": "aeolian", "bpm": 66, "meter": 4, "seed": 227,
-		"chords": [0, 5, 0, 6, 0, 5, 3, 4], "bridge": [5, 2, 6, 4],
-		"pad": "pad_dark", "bass": "bass_sub", "bass_style": "pedal", "lead": "lead_bell", "arp": "lead_glass", "arp_rate": 2, "kit": "drip", "echo": 0.45},
-
-	## The Glass Veins: crystal. Bright, ringing, lydian, arpeggios like light through a prism.
-	"glass_prism": {"name": "Prism Song", "key": "E", "mode": "lydian", "bpm": 100, "meter": 4, "seed": 307,
-		"chords": [0, 1, 0, 4, 5, 1, 3, 4], "bridge": [5, 1, 2, 4],
-		"pad": "pad_glass", "bass": "bass_sub", "bass_style": "syncop", "lead": "lead_bell", "lead_octave": 1, "arp": "lead_bell", "arp_rate": 1, "kit": "glass", "echo": 0.3},
-	"glass_kaleidoscope": {"name": "Kaleidoscope", "key": "G", "mode": "lydian", "bpm": 92, "meter": 3, "seed": 311,
-		"chords": [0, 1, 5, 4, 0, 1, 2, 4], "bridge": [3, 1, 5, 4],
-		"pad": "pad_choir", "bass": "bass_sub", "bass_style": "walk", "lead": "lead_glass", "lead_octave": 1, "arp": "lead_pluck", "arp_rate": 1, "kit": "glass", "echo": 0.3},
-	"glass_black": {"name": "Black Glass", "key": "C#", "mode": "phrygian", "bpm": 84, "meter": 4, "seed": 329,
-		"chords": [0, 1, 0, 6, 0, 1, 5, 6], "bridge": [3, 1, 5, 6],
-		"pad": "pad_dark", "bass": "bass_saw", "bass_style": "pedal", "lead": "lead_glass", "lead_octave": 1, "arp": "lead_bell", "arp_rate": 1, "kit": "glass", "echo": 0.35},
-
-	## The Warrens: fungus and roots. Woody, organic, a little sick.
-	"warrens_rootwork": {"name": "Rootwork", "key": "E", "mode": "phrygian", "bpm": 84, "meter": 4, "seed": 401,
-		"chords": [0, 1, 0, 6, 0, 1, 3, 6], "bridge": [5, 1, 3, 6],
-		"pad": "pad_choir", "bass": "bass_pluck", "bass_style": "syncop", "lead": "lead_marimba", "arp": "lead_marimba", "arp_rate": 1, "kit": "wood"},
-	"warrens_spores": {"name": "Spore Drift", "key": "D", "mode": "dorian", "bpm": 70, "meter": 3, "seed": 419,
-		"chords": [0, 3, 2, 0, 0, 3, 6, 4], "bridge": [5, 3, 6, 4],
-		"pad": "pad_warm", "bass": "bass_sub", "bass_style": "pedal", "lead": "lead_flute", "arp": "lead_marimba", "arp_rate": 2, "kit": "wood", "echo": 0.3},
-	"warrens_heartrot": {"name": "Heartrot", "key": "G", "mode": "harmonic", "bpm": 90, "meter": 4, "seed": 431,
-		"chords": [0, 5, 3, 4, 0, 5, 1, 4], "bridge": [3, 0, 5, 4],
-		"pad": "pad_dark", "bass": "bass_pluck", "bass_style": "syncop", "lead": "lead_reed", "arp": "lead_marimba", "arp_rate": 1, "kit": "wood"},
-
-	## The Furnace: lava and slag. Heavy, hammered, harmonic minor, anvils on the backbeat.
-	"furnace_anvil": {"name": "Anvil Hymn", "key": "D", "mode": "harmonic", "bpm": 104, "meter": 4, "seed": 503,
-		"chords": [0, 5, 3, 4, 0, 5, 1, 4], "bridge": [5, 3, 6, 4],
-		"pad": "pad_dark", "bass": "bass_saw", "bass_style": "syncop", "lead": "lead_reed", "arp": "lead_pluck", "arp_rate": 1, "kit": "anvil"},
-	"furnace_slagfall": {"name": "Slagfall", "key": "A", "mode": "phrygian_dominant", "bpm": 96, "meter": 4, "seed": 521,
-		"chords": [0, 1, 0, 6, 0, 1, 5, 1], "bridge": [3, 6, 1, 0],
-		"pad": "pad_dark", "bass": "bass_saw", "bass_style": "pedal", "lead": "lead_reed", "arp": "lead_marimba", "arp_rate": 1, "kit": "anvil"},
-	"furnace_kiln": {"name": "Kiln Heart", "key": "F", "mode": "harmonic", "bpm": 112, "meter": 4, "seed": 537,
-		"chords": [0, 3, 4, 0, 5, 3, 1, 4], "bridge": [3, 5, 1, 4],
-		"pad": "pad_warm", "bass": "bass_saw", "bass_style": "syncop", "lead": "lead_pluck", "arp": "lead_pluck", "arp_rate": 1, "kit": "anvil"},
-
-	## The Geode: crystal and gold. Wonder, a little grandeur; choirs and bells.
-	"geode_amethyst": {"name": "Amethyst Throat", "key": "Bb", "mode": "lydian", "bpm": 86, "meter": 4, "seed": 601,
-		"chords": [0, 1, 5, 4, 0, 1, 2, 4], "bridge": [5, 2, 1, 4],
-		"pad": "pad_choir", "bass": "bass_sub", "bass_style": "walk", "lead": "lead_bell", "lead_octave": 1, "arp": "lead_bell", "arp_rate": 2, "kit": "chime", "echo": 0.3},
-	"geode_gilded": {"name": "Gilded Hollow", "key": "Eb", "mode": "mixolydian", "bpm": 94, "meter": 4, "seed": 617,
-		"chords": [0, 6, 3, 0, 0, 6, 1, 4], "bridge": [5, 3, 6, 4],
-		"pad": "pad_warm", "bass": "bass_pluck", "bass_style": "syncop", "lead": "lead_flute", "arp": "lead_marimba", "arp_rate": 1, "kit": "chime"},
-	"geode_crown": {"name": "The Hollow Crown", "key": "C", "mode": "aeolian", "bpm": 78, "meter": 3, "seed": 631,
-		"chords": [0, 5, 2, 6, 0, 5, 3, 4], "bridge": [5, 6, 2, 4],
-		"pad": "pad_choir", "bass": "bass_sub", "bass_style": "walk", "lead": "lead_glass", "lead_octave": 1, "arp": "lead_bell", "arp_rate": 2, "kit": "chime", "echo": 0.35},
-
-	## The Rift: below everything. Slow, unmoored, detuned; the ground has stopped making sense.
-	"rift_void": {"name": "The Infinite Void", "key": "B", "mode": "locrian", "bpm": 64, "meter": 4, "seed": 701,
-		"chords": [0, 1, 0, 6, 0, 1, 4, 6], "bridge": [5, 1, 3, 6],
-		"pad": "pad_dark", "bass": "bass_sub", "bass_style": "pedal", "lead": "lead_glass", "lead_octave": 1, "arp": "lead_bell", "arp_rate": 2, "kit": "void", "echo": 0.5},
-	"rift_remembered": {"name": "Remembered", "key": "F#", "mode": "phrygian", "bpm": 76, "meter": 3, "seed": 719,
-		"chords": [0, 1, 6, 0, 0, 1, 5, 6], "bridge": [3, 5, 1, 6],
-		"pad": "pad_choir", "bass": "bass_sub", "bass_style": "pedal", "lead": "lead_bell", "arp": "lead_glass", "arp_rate": 2, "kit": "void", "echo": 0.45},
-	"rift_unmaking": {"name": "Unmaking", "key": "D", "mode": "phrygian_dominant", "bpm": 88, "meter": 4, "seed": 733,
-		"chords": [0, 1, 0, 6, 5, 1, 6, 1], "bridge": [3, 1, 5, 1],
-		"pad": "pad_dark", "bass": "bass_saw", "bass_style": "syncop", "lead": "lead_reed", "arp": "lead_bell", "arp_rate": 1, "kit": "void", "echo": 0.35},
-}
+static func whole(value: Variant) -> Variant:
+	## JSON has only one kind of number: a whole one is read back as the int it was written as.
+	if value is float and is_equal_approx(value, roundf(value)):
+		return int(value)
+	if value is Array:
+		return value.map(func(v: Variant) -> Variant: return whole(v))
+	if value is Dictionary:
+		var out: Dictionary = {}
+		for key in value:
+			out[key] = whole(value[key])
+		return out
+	return value
 
 static func tracks_for(place: String) -> Array:
 	return BOOK.get(place, [])
