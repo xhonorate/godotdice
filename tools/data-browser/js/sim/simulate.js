@@ -117,7 +117,7 @@ export function skillStats({ bowl, variations = [], rerolls = 2, samples = 4000,
 	const carat = stone.carat ?? 8;
 	const clarity = stone.clarity ?? C.clearIndex();
 	const inclusions = stone.inclusions || [];
-	const ctx = { resonance: context.resonance | 0, previous_amount: context.previous_amount | 0, previous_fired: Boolean(context.previous_fired), enemy_poison: context.enemy_poison | 0,
+	const ctx = { resonance: context.resonance | 0, previous_amount: context.previous_amount | 0, previous_fired: Boolean(context.previous_fired), enemy_poison: context.enemy_poison | 0, fizzles: context.fizzles | 0,
 		depth: context.depth | 0, turn: context.turn | 0, party: context.party | 0 || 1,
 		unit: { block: context.block | 0, block_lost: context.block_lost | 0, healed: context.healed | 0, dealt: context.dealt | 0, hp: context.hp | 0, max_hp: context.max_hp | 0, ore: context.pyrite | 0 } };
 	const groups = new Map();
@@ -185,7 +185,7 @@ function evaluateWith(stone, hand, c, analysis) {
 	const eff = Stone.effective(stone, c);
 	const mods = eff.modifiers;
 	const trigger = skill.trigger || { kind: 'always' };
-	const trig = Patterns.evaluate(trigger, eff.cut_step, analysis, { resonance: c.resonance | 0, pyrite: Rules.pyrite(c.unit || {}) });
+	const trig = Patterns.evaluate(trigger, eff.cut_step, analysis, { resonance: c.resonance | 0, pyrite: Rules.pyrite(c.unit || {}), fizzles: c.fizzles | 0 });
 	if (!trig.active && Stone.hasModifier(mods, 'always_fires')) {
 		trig.active = true; trig.forced = true; trig.dice = Hand.matching(analysis, () => true);
 		trig.value = analysis.best_set.value || analysis.high; trig.count = Math.max(1, analysis.best_set.count || 1);
@@ -194,7 +194,7 @@ function evaluateWith(stone, hand, c, analysis) {
 	const result = { active: Boolean(trig.active), trigger: trig, effects: [], fires: trig.active ? 1 : 0, resonance_gain: 0, magnitude: eff.magnitude };
 	if (!trig.active) return result;
 	const tc = { a: analysis, trig, unit: c.unit || {}, resonance: c.resonance | 0, previous_amount: c.previous_amount | 0, carat: eff.carat, cut: eff.cut_step, clarity: eff.clarity,
-		enemy_poison: c.enemy_poison | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1 };
+		enemy_poison: c.enemy_poison | 0, fizzles: c.fizzles | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1 };
 	let defs = skill.effects || [];
 	if (eff.flawless && skill.flawless && typeof skill.flawless === 'object') defs = Stone.applyFlawless(defs, skill.flawless);
 	for (const def of defs) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, eff.magnitude));

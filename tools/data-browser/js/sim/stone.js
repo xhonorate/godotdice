@@ -215,7 +215,7 @@ export function evaluate(stone, hand, c = {}) {
 	const wearing = colors(stone, String(c.socket || ''));
 	const a = Hand.analyze(working, wearing);
 	const trigger = skill.trigger || { kind: 'always' };
-	const trig = Patterns.evaluate(trigger, eff.cut_step, a, { resonance: c.resonance | 0, pyrite: Rules.pyrite(c.unit || {}) });
+	const trig = Patterns.evaluate(trigger, eff.cut_step, a, { resonance: c.resonance | 0, pyrite: Rules.pyrite(c.unit || {}), fizzles: c.fizzles | 0 });
 	if (!trig.active && (hasModifier(mods, 'always_fires') || c.force_fire)) {
 		trig.active = true; trig.forced = true;
 		trig.dice = Hand.matching(a, () => true);
@@ -240,7 +240,7 @@ export function evaluate(stone, hand, c = {}) {
 	result.die_boost = boost;
 	result.magnitude = magnitude;
 	const tc = { a, trig, unit: c.unit || {}, resonance: c.resonance | 0, previous_amount: c.previous_amount | 0, carat: eff.carat, cut: eff.cut_step,
-		clarity: eff.clarity, enemy_poison: c.enemy_poison | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1 };
+		clarity: eff.clarity, enemy_poison: c.enemy_poison | 0, fizzles: c.fizzles | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1 };
 	let defs = (skill.effects || []).map((d) => JSON.parse(JSON.stringify(d)));
 	if (eff.flawless && skill.flawless && typeof skill.flawless === 'object') defs = applyFlawless(defs, skill.flawless);
 	for (const def of defs) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, magnitude));

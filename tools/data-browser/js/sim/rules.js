@@ -8,7 +8,7 @@ export const OPS = ['+', '-', '*', 'min', 'max', 'floor_div', 'pct', 'if', 'ge',
 export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'total', 'max_total', 'missing', 'odd', 'even',
 	'distinct', 'held', 'rerolled', 'dice', 'count_value', 'count_at_most', 'count_at_least', 'run_high', 'run_length',
 	'set_value', 'set_count', 'sum_low', 'sum_high', 'block', 'block_lost', 'healed', 'dealt', 'hp', 'max_hp', 'hp_missing', 'gold',
-	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'low_dice', 'pyrite', 'pot', 'enemy_poison',
+	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'low_dice', 'pyrite', 'pot', 'enemy_poison', 'fizzles',
 	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'party_richest', 'turns_acted', 'living_players', 'strength'];
 export const RANKS = ['carat', 'cut', 'clarity'];
 export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun', 'remove_block', 'cleanse', 'revive',
@@ -114,6 +114,7 @@ export function term(name, node, c) {
 		case 'pyrite': return pyrite(unit);
 		case 'pot': return unit.pot | 0;
 		case 'enemy_poison': return c.enemy_poison | 0;
+		case 'fizzles': return c.fizzles | 0;
 		// What a creature reads off itself and off the fight (sim/creatures.gd context).
 		case 'swell': return unit.swell | 0;
 		case 'held_gems': return (unit.held_gems || []).length;
@@ -189,7 +190,7 @@ export function amountWords(expr, cutStep = null) {
 	if ('term' in expr) {
 		const names = { rolled: 'rolled value', value: 'matched value', second: 'second value', count: 'dice matched', high: 'highest die', low: 'lowest die', total: 'dice total',
 			sum_low: `sum of lowest ${expr.value || 1}`, sum_high: `sum of highest ${expr.value || 1}`, block: 'current block', block_lost: 'block lost', healed: 'healing done',
-			enemy_poison: 'enemy poison', resonance: 'Resonance', pyrite: 'pyrite', odd: 'odd dice', even: 'even dice', distinct: 'distinct values', held: 'held dice', rerolled: 'rerolled dice',
+			enemy_poison: 'enemy poison', fizzles: 'unpaid fizzles', resonance: 'Resonance', pyrite: 'pyrite', odd: 'odd dice', even: 'even dice', distinct: 'distinct values', held: 'held dice', rerolled: 'rerolled dice',
 			swell: 'its swelling', held_gems: 'gems it holds', biggest_hit: 'hardest hit on it this turn', party_heaviest_carat: "heaviest gem's carats",
 			party_best_turn: "the party's best turn", party_richest: 'the richest purse', strength: 'its Strength', turns_acted: 'actions taken', living_players: 'players standing', pot: 'the pot', dealt: 'damage dealt', hp: 'health', max_hp: 'max health', hp_missing: 'missing health' };
 		return names[expr.term] || expr.term;
