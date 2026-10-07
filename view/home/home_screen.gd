@@ -1,8 +1,8 @@
 extends Control
-## The workshop: five tabs in one frame. Map (the mines under the workshop, the party and
+## The workshop: six tabs in one frame. Map (the mines under the workshop, the party and
 ## the way down), Lapidaries (the roster: who goes down, their dossier and their loadout),
-## Vault (one stone per skill), Appraise (what came home, under the loupe), Ledger (records
-## and runs).
+## Vault (one stone per skill), Appraise (what came home, under the loupe), Commissions
+## (the day's requests), Ledger (records and runs).
 ##
 ## Tabs are rebuilt whenever the profile or the lobby changes; stones and dice are
 ## photographs, so that is cheap, and only the one stone a tab is about is live 3D. A tab
@@ -34,8 +34,9 @@ signal steam_join_requested(lobby_id: String)
 signal invite_requested
 signal profile_changed
 signal menu_requested
+signal player_name_requested
 
-const TABS: Array = [["map", "Map", "map"], ["roster", "Lapidaries", "person"], ["vault", "Vault", "chest"], ["appraise", "Appraise", "loupe"], ["ledger", "Ledger", "book"]]
+const TABS: Array = [["map", "Map", "map"], ["roster", "Lapidaries", "person"], ["vault", "Vault", "chest"], ["appraise", "Appraise", "loupe"], ["commissions", "Commissions", "flag"], ["ledger", "Ledger", "book"]]
 const color_ORDER: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
 ## How wide a skill tile is in the vault grid, and how many go in a row. The vault is the
 ## one page in the workshop that scrolls: every skill in the pack belongs on it at a size
@@ -90,8 +91,6 @@ var _cheer: Dictionary = {}
 var _side: String = "expedition"
 ## The Lapidaries tab: the roster and a dossier, or the picked lapidary's sockets.
 var _roster_view: String = "dossier"
-## The Ledger: the day's commissions, or the records and the runs.
-var _ledger_view: String = "commissions"
 ## The page each long list is turned to, by list.
 var _pages: Dictionary = {}
 ## Every drop target on the loadout, so a drag can light the ones that would take it.
@@ -192,20 +191,28 @@ func _render() -> void:
 	DeepUi.spacer(_bar)
 	for entry in TABS:
 		var key: String = str(entry[0])
-		## The tray's count on Appraise; on the Ledger, the commissions a stone on the tray
+		## The tray's count on Appraise; on Commissions, the requests a stone on the tray
 		## could fill right now.
 		var badge: int = 0
 		match key:
 			"appraise": badge = profile.get("tray", []).size()
-			"ledger": badge = DeepEconomy.ready_count(profile)
+			"commissions": badge = DeepEconomy.ready_count(profile)
 		var button := DeepUi.tab_button(_bar, str(entry[2]), str(entry[1]), key == tab, func() -> void: open(key), 15, badge)
 		if key == "vault" and not _cheer.is_empty():
 			call_deferred("_cheer_at", button, str(_cheer.text), _cheer.color, str(_cheer.get("glyph", "chest")))
 			_cheer = {}
-		if key in ["appraise", "ledger"] and badge > 0 and key != tab:
+		if key in ["appraise", "commissions"] and badge > 0 and key != tab:
 			DeepUi.breathe(button, 0.65, 1.6)
 	DeepUi.spacer(_bar)
-	DeepUi.stat(_bar, "person", str(profile.get("name", "")), DeepUi.MUTED, 14)
+	var player_name: String = str(profile.get("name", DeepProfile.DEFAULT_NAME))
+	var name_button := DeepUi.icon_button(_bar, "person", player_name, func() -> void: player_name_requested.emit(), 14, DeepUi.MUTED)
+	name_button.name = "PlayerName"
+	name_button.tooltip_text = "%s · Change player name" % player_name
+	name_button.clip_text = true
+	name_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_button.custom_minimum_size.x = 160
+	name_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	name_button.add_theme_stylebox_override("normal", DeepUi.button_style(Color(0, 0, 0, 0), Color(DeepUi.LINE, 0.7), 8))
 	DeepUi.gear_button(_bar, func() -> void: menu_requested.emit())
 	DeepUi.clear(_body)
 	_targets = []
@@ -221,6 +228,7 @@ func _render() -> void:
 		"roster": _roster(content)
 		"vault": _vault(content)
 		"appraise": _appraise(content)
+		"commissions": _commissions(content)
 		"ledger": _ledger(content)
 
 func _edit_loadout(character_key: String, view: String = "sockets") -> void:
@@ -1583,31 +1591,25 @@ class LoupeTable extends Control:
 		var sweep: float = fmod(_clock * 0.4, 1.0) * TAU
 		draw_arc(centre, radius - 12.0, sweep, sweep + 0.5, 16, Color(1, 1, 1, 0.25), 3.0, true)
 
-# --- ledger ----------------------------------------------------------------------------------
+# --- ledger and commissions ------------------------------------------------------------------
 
 func _ledger(content: VBoxContainer) -> void:
-	## Two views, each a page of its own: the day's commissions, and the records and runs.
+	content.add_theme_constant_override("separation", 12)
 	var head := DeepUi.hbox(content, 12)
 	DeepUi.icon(head, "book", 28, DeepUi.ACCENT)
 	DeepUi.title(head, "The ledger", 30, DeepUi.PAPER)
-	DeepUi.gap(head, 16)
-	var ready: int = DeepEconomy.ready_count(profile)
-	for entry in [["commissions", "flag", "Commissions", ready], ["records", "crown", "Records", 0]]:
-		var key: String = str(entry[0])
-		DeepUi.tab_button(head, str(entry[1]), str(entry[2]), _ledger_view == key, func() -> void:
-			_ledger_view = key
-			DeepAudio.play("ui_tap", {"volume": 0.6})
-			_render(), 14, int(entry[3]))
 	DeepUi.spacer(head)
 	_enter(head)
-	if _ledger_view == "commissions":
-		_commissions(content)
-	else:
-		_records(content)
+	_records(content)
 
 func _commissions(content: VBoxContainer) -> void:
 	## The day's commissions: a skill each, sometimes with one of the four C's, and what it
 	## pays. A stone that meets one is turned in from the Appraise tab.
+	var head := DeepUi.hbox(content, 12)
+	DeepUi.icon(head, "flag", 28, DeepUi.ACCENT)
+	DeepUi.title(head, "Commissions", 30, DeepUi.PAPER)
+	DeepUi.spacer(head)
+	_enter(head)
 	var daily: Dictionary = profile.get("daily", {})
 	var list: Array = daily.get("commissions", [])
 	var about := DeepUi.hbox(content, 14)
@@ -1671,7 +1673,7 @@ func _commission_card(parent: Node, commission: Dictionary) -> void:
 			open("appraise"), 14, DeepUi.GOOD)
 	var price: int = DeepEconomy.reroll_price(profile)
 	var commission_id: String = str(commission.get("id", ""))
-	var reroll := DeepUi.icon_button(foot, "spark", "Reroll · free" if price == 0 else "Reroll · %d gold" % price, func() -> void:
+	var reroll := DeepUi.icon_button(foot, "reroll", "Reroll · free" if price == 0 else "Reroll · %d gold" % price, func() -> void:
 		if bool(DeepEconomy.reroll(profile, commission_id).get("ok", false)):
 			DeepAudio.play("ui_confirm", {"volume": 0.7})
 			profile_changed.emit(), 13, DeepUi.MUTED)

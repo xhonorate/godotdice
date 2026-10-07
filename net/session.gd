@@ -204,7 +204,7 @@ func _set_status(value: String) -> void:
 # --- the lobby ------------------------------------------------------------------------------
 
 func _add_member(id: String, member: Dictionary) -> void:
-	var record: Dictionary = {"id": id, "name": str(member.get("name", "Lapidary")), "character": str(member.get("character", DeepContent.starter_character())),
+	var record: Dictionary = {"id": id, "name": str(member.get("name", DeepProfile.DEFAULT_NAME)), "character": str(member.get("character", DeepContent.starter_character())),
 		"rail": member.get("rail", []), "dice": member.get("dice", []), "ready": bool(member.get("ready", false)), "connected": true,
 		"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", "")),
 		"gold": int(member.get("gold", 0)), "insured": bool(member.get("insured", false)), "sockets": int(member.get("sockets", DeepProfile.starting_rail_cap()))}

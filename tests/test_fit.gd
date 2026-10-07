@@ -50,7 +50,15 @@ func _workshop(app: Control) -> void:
 		lobby.order.append(id)
 		lobby.members[id] = {"name": "Guest With A Long Name %d" % i, "character": "VESPER", "ready": i % 2 == 0, "connected": true}
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
-	for tab in ["map", "roster", "vault", "appraise", "ledger"]:
+	var player_name: String = str(app.profile.name)
+	app._rename_player("W".repeat(DeepProfile.NAME_LIMIT))
+	await _fits(screen, "the workshop with a long player name")
+	home._bar.get_node("PlayerName").pressed.emit()
+	await _fits(app.menu, "the player name editor")
+	app.menu.close()
+	app._rename_player(player_name)
+	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
+	for tab in ["map", "roster", "vault", "appraise", "commissions", "ledger"]:
 		home.open(tab)
 		await _fits(screen, "the %s tab" % tab)
 	## The map's two side views, as the host and as a guest.
@@ -80,8 +88,6 @@ func _workshop(app: Control) -> void:
 			home._pages[list] = page
 			if list == "vault_tray":
 				home._roster_view = "sockets"
-			if list == "ledger":
-				home._ledger_view = "records"
 			home.open({"vault_tray": "roster", "tray": "appraise", "ledger": "ledger"}[list])
 			await _fits(screen, "page %d of the %s" % [page, list])
 		home._pages[list] = 0
@@ -109,7 +115,7 @@ func _workshop(app: Control) -> void:
 	lobby.mine = DeepContent.starter_mine()
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
 	home._side = "expedition"
-	## The ledger's commissions: one a stone on the tray can fill, one filled, one open.
+	## Commissions: one a stone on the tray can fill, one filled, one open.
 	var wanted: Dictionary = {}
 	for stone in app.profile.tray:
 		if bool(stone.get("appraised", false)):
@@ -120,11 +126,9 @@ func _workshop(app: Control) -> void:
 	commissions[1] = commissions[1].duplicate()
 	commissions[1].done = true
 	commissions[1].paid = 12345
-	for view in ["commissions", "records"]:
-		home._ledger_view = view
-		home.open("ledger")
-		await _fits(screen, "the ledger's %s" % view)
-	home._ledger_view = "commissions"
+	for tab in ["commissions", "ledger"]:
+		home.open(tab)
+		await _fits(screen, "the %s tab with commissions ready and filled" % tab)
 	## The tray stone a commission wants: Turn it in beside keeping either stone.
 	check(home._tray_actions(wanted, true).any(func(a: Dictionary) -> bool: return str(a.label) == "Turn it in"), "a stone a commission wants can be turned in")
 	home._appraise_pick = str(wanted.id)

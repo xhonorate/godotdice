@@ -16,7 +16,8 @@ func _init() -> void:
 	await process_frame
 	check(app.session != null and app.session.status == "local", "the app boots into a local session")
 	check(app.home.visible and not app.descent.visible, "the workshop is shown first")
-	for tab in ["map", "roster", "vault", "appraise", "ledger"]:
+	await _player_name(app)
+	for tab in ["map", "roster", "vault", "appraise", "commissions", "ledger"]:
 		app.home.open(tab)
 		check(app.home._body.get_child_count() > 0, "the %s tab renders" % tab)
 	## The roster shows a locked lapidary's dossier without letting them be chosen.
@@ -28,6 +29,7 @@ func _init() -> void:
 	app._depart(9001)
 	await process_frame
 	check(app.descent.visible and not app.home.visible and app.session.in_run(), "departing shows the run")
+	check(app.session.local_player().name == "Ada the Delver", "the saved player name follows them into the mine")
 	var guard: int = 0
 	var saw_battle: bool = false
 	var saw_landing: bool = false
@@ -296,6 +298,47 @@ func _init() -> void:
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
 	quit(0 if failures.is_empty() else 1)
+
+func _player_name(app: Control) -> void:
+	check(app.profile.name == "Player" and app.settings.player_name == "Player", "new players start as Player")
+	var character: String = str(app.profile.current_character)
+	app.home._bar.get_node("PlayerName").pressed.emit()
+	await process_frame
+	check(app.menu.is_open() and app.menu._name_field.text == "Player", "clicking the corner name opens an editor with the current name")
+	var speed: float = app.session.speed
+	var typed := InputEventKey.new()
+	typed.keycode = KEY_F
+	typed.unicode = 70
+	typed.pressed = true
+	root.push_input(typed)
+	check(app.menu._name_field.text == "F" and app.session.speed == speed, "typing reaches the name field without triggering game shortcuts")
+	app.menu._name_field.text = "   "
+	app.menu._name_field.text_changed.emit("   ")
+	var save: Button = app.menu._body.find_child("SavePlayerName", true, false)
+	check(save.disabled, "a blank player name cannot be saved")
+	app.menu._name_field.text_submitted.emit("   ")
+	check(app.menu.is_open() and app.profile.name == "Player", "Enter cannot submit a blank name")
+	app.menu._name_field.text = "  Ada the Delver  "
+	app.menu._name_field.text_submitted.emit(app.menu._name_field.text)
+	check(not app.menu.is_open() and app.profile.name == "Ada the Delver", "Enter saves a name and trims surrounding spaces")
+	check(app.home._bar.get_node("PlayerName").text == "Ada the Delver" and app.session.local_member().name == "Ada the Delver", "the corner and current lobby show the saved name")
+	check(app.saves.load_profile().name == "Ada the Delver" and app.saves.load_settings().player_name == "Ada the Delver", "the name persists in the profile and settings")
+	check(app.profile.current_character == character, "renaming the player preserves their chosen lapidary")
+	app.home._bar.get_node("PlayerName").pressed.emit()
+	await process_frame
+	check(app.menu._name_field.text == "Ada the Delver", "reopening the editor shows the saved name")
+	app.menu._name_field.text = "Discard this"
+	var escape := InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	root.push_input(escape)
+	check(not app.menu.is_open() and app.profile.name == "Ada the Delver", "Escape cancels editing without reopening the menu")
+	app.home._bar.get_node("PlayerName").pressed.emit()
+	await process_frame
+	app.menu._name_field.text = "W".repeat(100)
+	check(app.menu._name_field.text.length() == DeepProfile.NAME_LIMIT, "the name editor limits long names")
+	app.menu.close()
+	check(app.saves.load_profile().name == "Ada the Delver", "closing the editor discards unsaved changes")
 
 func _loadout_drags(app: Control) -> void:
 	## The loadout is rearranged with the mouse: a set stone dragged into the vault comes out,

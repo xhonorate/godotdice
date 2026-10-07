@@ -38,7 +38,7 @@ func _ready() -> void:
 	DeepMusic.start(self, settings)
 	profile = saves.load_profile()
 	if profile.is_empty():
-		profile = DeepProfile.new_profile(str(settings.get("player_name", "Lapidary")))
+		profile = DeepProfile.new_profile(str(settings.get("player_name", DeepProfile.DEFAULT_NAME)))
 		saves.save_profile(profile)
 	elif profile.has("settings") or not profile.has("characters"):
 		## A profile from before characters: its settings become characters, its vault stays.
@@ -71,6 +71,7 @@ func _ready() -> void:
 	home.invite_requested.connect(_invite)
 	home.profile_changed.connect(_profile_changed)
 	home.menu_requested.connect(open_menu)
+	home.player_name_requested.connect(_edit_player_name)
 	add_child(home)
 	descent = DescentScreen.new()
 	descent.command.connect(func(cmd: Dictionary) -> void: session.send(cmd))
@@ -80,6 +81,7 @@ func _ready() -> void:
 	add_child(descent)
 	menu = GameMenu.new()
 	menu.settings_changed.connect(_apply_settings)
+	menu.player_name_changed.connect(_rename_player)
 	menu.closed.connect(_menu_closed)
 	menu.abandon_requested.connect(func() -> void: session.send({"kind": "abandon"}))
 	menu.leave_requested.connect(_leave_party)
@@ -129,7 +131,7 @@ func member() -> Dictionary:
 	## shown mercy.
 	var history: Array = profile.get("history", [])
 	var last: Dictionary = history[history.size() - 1] if not history.is_empty() else {}
-	return {"name": str(profile.get("name", "Lapidary")), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
+	return {"name": str(profile.get("name", DeepProfile.DEFAULT_NAME)), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
 		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")),
 		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key)}
 
@@ -319,13 +321,29 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 # --- the menu and the settings -----------------------------------------------------------------
 
+func _edit_player_name() -> void:
+	open_menu()
+	menu.edit_player_name()
+
+func _rename_player(value: String) -> void:
+	var player_name: String = value.strip_edges().left(DeepProfile.NAME_LIMIT)
+	if player_name.is_empty():
+		return
+	profile.name = player_name
+	settings.player_name = player_name
+	saves.save_profile(profile)
+	saves.save_settings(settings)
+	session.update_member({"name": player_name})
+	_refresh_home()
+
 func open_menu() -> void:
 	if menu.is_open():
 		return
 	var in_run: bool = session.in_run() and descent.visible
 	var solo: bool = session.status == "local"
 	menu.open(settings, {"in_run": in_run, "host": session.is_host, "solo": solo, "phase": str(session.run.get("phase", "")),
-		"depth": int(session.run.get("depth", 0)), "mine": str(DeepContent.mine(str(session.run.get("mine", ""))).get("name", "The mine"))})
+		"depth": int(session.run.get("depth", 0)), "mine": str(DeepContent.mine(str(session.run.get("mine", ""))).get("name", "The mine")),
+		"player_name": str(profile.get("name", DeepProfile.DEFAULT_NAME))})
 	## Alone, the dig waits for you; with a party it cannot.
 	if in_run and solo:
 		session.paused = true

@@ -7,6 +7,7 @@ extends CanvasLayer
 
 signal closed
 signal settings_changed
+signal player_name_changed(player_name: String)
 signal abandon_requested
 signal leave_requested
 signal join_requested(lobby_id: String)
@@ -33,6 +34,7 @@ var _body: VBoxContainer
 var _panel: PanelContainer
 var _page: String = "main"
 var _invite: String = ""
+var _name_field: LineEdit = null
 ## The Soundtrack page: the mood a piece is auditioned in, and the line saying what plays.
 var _audition: String = "explore"
 var _now_playing: Label = null
@@ -98,11 +100,18 @@ func _input(event: InputEvent) -> void:
 	if not visible or not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.keycode == KEY_ESCAPE:
-		if _page == "main":
+		if _page in ["main", "player_name"]:
 			close()
 		else:
 			_show("settings" if _page == "soundtrack" else "main")
+	elif _page == "player_name":
+		## Text and navigation keys must reach the editor's controls.
+		return
 	get_viewport().set_input_as_handled()
+
+func _unhandled_key_input(_event: InputEvent) -> void:
+	if visible:
+		get_viewport().set_input_as_handled()
 
 # --- pages -------------------------------------------------------------------------------------
 
@@ -110,11 +119,13 @@ func _show(page: String) -> void:
 	_page = page
 	DeepUi.clear(_body)
 	_now_playing = null
+	_name_field = null
 	if page != "soundtrack":
 		DeepMusic.end_preview()
 	match page:
 		"main": _page_main()
 		"settings": _page_settings()
+		"player_name": _page_player_name()
 		"soundtrack": _page_soundtrack()
 		"controls": _page_controls()
 		"abandon": _page_confirm("flag", "Abandon the expedition?", _abandon_text(), "Abandon", DeepUi.BAD, func() -> void:
@@ -132,6 +143,41 @@ func ask_to_join(lobby_id: String) -> void:
 	## A Steam invitation accepted in the middle of an expedition: leaving it is asked first.
 	_invite = lobby_id
 	_show("invite")
+
+func edit_player_name() -> void:
+	_show("player_name")
+
+func _page_player_name() -> void:
+	_heading("person", "Player name")
+	DeepUi.label(_body, "The name other players see in your party.", 15, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_name_field = LineEdit.new()
+	_name_field.max_length = DeepProfile.NAME_LIMIT
+	_name_field.text = str(context.get("player_name", DeepProfile.DEFAULT_NAME))
+	_name_field.placeholder_text = DeepProfile.DEFAULT_NAME
+	_name_field.custom_minimum_size.y = 44
+	_body.add_child(_name_field)
+	DeepUi.label(_body, "Up to %d characters." % DeepProfile.NAME_LIMIT, 13, DeepUi.MUTED)
+	var row := DeepUi.hbox(_body, 14)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.button(row, "Cancel", close, 16)
+	var save := DeepUi.primary(row, "check", "Save", _save_player_name, 16)
+	save.name = "SavePlayerName"
+	save.disabled = _name_field.text.strip_edges().is_empty()
+	_name_field.text_changed.connect(func(value: String) -> void: save.disabled = value.strip_edges().is_empty())
+	_name_field.text_submitted.connect(func(_value: String) -> void: _save_player_name())
+	_focus_name.call_deferred(_name_field)
+
+func _focus_name(field: LineEdit) -> void:
+	if visible and is_instance_valid(field) and field.is_inside_tree():
+		field.grab_focus()
+		field.select_all()
+
+func _save_player_name() -> void:
+	var player_name: String = _name_field.text.strip_edges()
+	if player_name.is_empty():
+		return
+	player_name_changed.emit(player_name)
+	close()
 
 func _focus(button: Button) -> void:
 	## Deferred, and the page may have moved on by then.

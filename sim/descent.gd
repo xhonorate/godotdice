@@ -74,7 +74,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 		var rail: Array = entry.get("rail", []).duplicate(true)
 		for index in range(open, rail.size()):
 			rail[index] = null
-		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", "Lapidary")), str(entry.get("character", DeepContent.starter_character())),
+		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", DeepProfile.DEFAULT_NAME)), str(entry.get("character", DeepContent.starter_character())),
 			rail, entry.get("dice", []))
 		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": int(mine_def.get("start_pyrite", 0)), "vote": "", "seen": [],
 			"choice": "", "respite": "", "ready": false, "strikes": 0, "mining": false, "oddity_choice": "", "stake": "", "last_depth": int(entry.get("last_depth", 0)),

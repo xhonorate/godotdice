@@ -11,8 +11,10 @@ extends RefCounted
 ## a mine's first conquest.
 
 const SCHEMA: int = 3
+const DEFAULT_NAME: String = "Player"
+const NAME_LIMIT: int = 24
 
-static func new_profile(name: String = "Lapidary") -> Dictionary:
+static func new_profile(name: String = DEFAULT_NAME) -> Dictionary:
 	var profile: Dictionary = {"schema": SCHEMA, "id": "pf%08x" % randi(), "name": name, "gold": 0, "vault": {}, "seen": [],
 		"bowl": [], "characters": {}, "current_character": DeepContent.starter_character(), "mines": {}, "tray": [],
 		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "commissions": 0, "best": {}}, "history": [], "next_id": 1,
