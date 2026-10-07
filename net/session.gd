@@ -23,6 +23,8 @@ signal refused(error: String)
 signal error(message: String)
 ## A Steam invitation accepted in the overlay or the friends list: the lobby to join.
 signal invited(lobby_id: String)
+## A guest put out of the party: kicked by the host, or the host closed it.
+signal removed(message: String)
 
 const Codec = preload("res://net/packet_codec.gd")
 const Enet = preload("res://net/enet_transport.gd")
@@ -245,6 +247,38 @@ func choose_mine(mine_key: String) -> void:
 	_broadcast({"kind": "lobby", "lobby": lobby})
 	lobby_changed.emit(lobby)
 
+func kick(player_id: String) -> bool:
+	## The host sends a guest home. Only in the workshop: a run underground keeps its party.
+	if not is_host or player_id == local_id or in_run() or not lobby.members.has(player_id):
+		return false
+	var peer_id: String = str(_peer_of.get(player_id, ""))
+	_send_peer(peer_id, {"kind": "kicked"})
+	_peer_of.erase(player_id)
+	_player_of.erase(peer_id)
+	lobby.members.erase(player_id)
+	lobby.order.erase(player_id)
+	if transport != null and transport.has_method("disconnect_peer") and not peer_id.is_empty() and is_inside_tree():
+		## A moment's grace so the word that they were kicked reaches them first.
+		var wire: Node = transport
+		get_tree().create_timer(0.5).timeout.connect(func() -> void:
+			if is_instance_valid(wire) and wire == transport:
+				wire.disconnect_peer(peer_id))
+	_broadcast({"kind": "lobby", "lobby": lobby})
+	lobby_changed.emit(lobby)
+	return true
+
+func in_party() -> bool:
+	## Whether there is anyone else at the other end of the wire, or a wire at all.
+	return transport != null
+
+func leave_party() -> void:
+	## Walking away. A host closing the party tells every guest first, so nobody is left
+	## waiting on a host who is not coming back.
+	if is_host and transport != null:
+		_broadcast({"kind": "closed"})
+	elif not is_host and transport != null:
+		_send_host({"kind": "leaving"})
+
 func can_start() -> bool:
 	if not is_host or lobby.get("started", false):
 		return false
@@ -455,7 +489,7 @@ func _on_peer_disconnected(peer_id: String) -> void:
 					_publish(before, {"kind": "battle", "battle": opened, "phase": str(run.phase), "depth": int(run.depth)})
 			_broadcast({"kind": "lobby", "lobby": lobby})
 			lobby_changed.emit(lobby)
-	elif peer_id == _host_peer and status != "lost":
+	elif peer_id == _host_peer and status not in ["lost", "local"]:
 		## Another guest leaving is the host's business; only the host going is ours.
 		_set_status("lost")
 		error.emit("The host is gone. The run waits at its last landing for the host to reopen it.")
@@ -509,6 +543,16 @@ func _host_packet(peer_id: String, packet: Dictionary) -> void:
 				_apply_command(player_id, packet.get("cmd", {}))
 		"snapshot_please":
 			_send_peer(peer_id, {"kind": "snapshot", "state": run, "revision": revision, "lobby": lobby})
+		"leaving":
+			## A guest who said goodbye is gone for good from the lobby, not merely away.
+			var player_id: String = str(_player_of.get(peer_id, ""))
+			if not player_id.is_empty() and not in_run():
+				_peer_of.erase(player_id)
+				_player_of.erase(peer_id)
+				lobby.members.erase(player_id)
+				lobby.order.erase(player_id)
+				_broadcast({"kind": "lobby", "lobby": lobby})
+				lobby_changed.emit(lobby)
 
 func _guest_packet(packet: Dictionary) -> void:
 	var kind: String = str(packet.get("kind", ""))
@@ -551,3 +595,9 @@ func _guest_packet(packet: Dictionary) -> void:
 			run_started.emit(run)
 		"refused":
 			refused.emit(str(packet.get("error", "refused")))
+		"kicked":
+			_set_status("lost")
+			removed.emit("The host sent you back to your own workshop.")
+		"closed":
+			_set_status("lost")
+			removed.emit("The host closed the party.")

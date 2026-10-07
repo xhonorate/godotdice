@@ -1054,7 +1054,7 @@ func _swing(target: Vector3) -> float:
 	tween.tween_callback(pick.queue_free)
 	return 0.17
 
-func throw_find(result: Dictionary, at: Vector3, ore_at: Vector2, bag_at: Vector2, arrived: Callable, mine: bool, after: float = 0.0) -> float:
+func throw_find(result: Dictionary, at: Vector3, ore_at: Vector2, bag_at: Vector2, arrived: Callable, mine: bool, after: float = 0.0, finder: String = "") -> float:
 	## What came out of the rock, thrown up and away: to the strip if it is the party's own
 	## (`arrived` is told when it lands), off into the dark toward whoever struck it if not.
 	if _headless or not has_room() or not _laid_out():
@@ -1072,7 +1072,7 @@ func throw_find(result: Dictionary, at: Vector3, ore_at: Vector2, bag_at: Vector
 	var spent: float = 0.3
 	match str(result.get("kind", "")):
 		"stone":
-			spent = _lift_stone(at, result.get("stone", {}), bag_goal, after + 0.12, tell)
+			spent = _lift_stone(at, result.get("stone", {}), bag_goal, after + 0.12, tell, mine, finder)
 		"die":
 			spent = _fly(_die_node(result.get("die", {}), at), bag_goal, after + 0.35, 0.6, "die_settle", tell)
 		"ore":
@@ -1546,9 +1546,11 @@ func _fly(node: Node3D, goal: Vector3, delay: float, seconds: float, sound: Stri
 		node.queue_free())
 	return delay + seconds
 
-func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, arrived: Callable) -> float:
+func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, arrived: Callable, own: bool = true, finder: String = "") -> float:
 	## The stone itself, cut from its own numbers: up out of the rough, a turn in the light so
-	## its color and size are read off it, then into the bag.
+	## its color and size are read off it, then into the bag. Only the one who found it is
+	## given the room for it; to the rest of the party it is a small find over the rock, named
+	## for whoever made it.
 	var holder := Node3D.new()
 	room.add_child(holder)
 	holder.global_position = at
@@ -1586,27 +1588,27 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 	## given the room: it comes up out of the rough into the middle of the view, twice the
 	## size it was, turns there under its own light while the room reads it out, and only
 	## then goes into the bag.
-	var held: Vector3 = from_screen(size * Vector2(0.5, 0.44), 3.4) if _laid_out() else at + Vector3(0, 1.4, 1.2)
+	var held: Vector3 = from_screen(size * Vector2(0.5, 0.44), 3.4) if _laid_out() and own else at + Vector3(0, 1.4 if own else 1.0, 1.2 if own else 0.5)
 	var loud: bool = not bool(stone.get("appraised", false)) or int(DeepStone.grade(stone).index) >= 2
 	var tween := holder.create_tween()
 	tween.tween_interval(delay)
 	tween.tween_callback(func() -> void:
-		DeepAudio.play("stone_found", {"volume": 0.9, "gap": 0.02})
-		fx.flash(at + Vector3(0, 0.3, 0), tint, 7.0, 5.5, 0.55, 1.4)
-		fx.glow_burst(at + Vector3(0, 0.3, 0), tint.lightened(0.25), 2.2, 0.45)
+		DeepAudio.play("stone_found", {"volume": 0.9 if own else 0.3, "gap": 0.02})
+		fx.flash(at + Vector3(0, 0.3, 0), tint, 7.0 if own else 3.0, 5.5, 0.55, 1.4)
+		fx.glow_burst(at + Vector3(0, 0.3, 0), tint.lightened(0.25), 2.2 if own else 1.0, 0.45)
 		fx.ring_wave(Vector3(at.x, 0.02, at.z), tint, 2.6, 0.7, 0.28)
 		fx.sparks(at + Vector3(0, 0.2, 0), tint.lightened(0.3), 34, 3.4, 0.7, 0.055)
 		fx.rise(at + Vector3(0, 0.1, 0), tint.lightened(0.4), 22, 0.9, 1.6)
-		if camera.has_method("punch"):
+		if own and camera.has_method("punch"):
 			camera.punch(-2.4, 0.5))
-	tween.tween_property(holder, "scale", Vector3.ONE * 2.6, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(holder, "scale", Vector3.ONE * (2.6 if own else 1.2), 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.parallel().tween_property(holder, "global_position", held, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tween.parallel().tween_property(shine, "light_energy", 3.2, 0.5)
 	tween.parallel().tween_property(holder, "rotation:y", TAU, 1.6)
 	tween.parallel().tween_callback(func() -> void:
-		announce(stone)
-		fx.glow_burst(held, tint.lightened(0.3), 3.0, 0.6)
-		if loud:
+		announce(stone, "" if own else (finder if not finder.is_empty() else "Someone"))
+		fx.glow_burst(held, tint.lightened(0.3), 3.0 if own else 1.2, 0.6)
+		if loud and own:
 			fx.stars(held, tint.lightened(0.45), 1.3, 0.8)).set_delay(0.3)
 	tween.tween_interval(1.0)
 	tween.tween_callback(func() -> void:
@@ -1614,10 +1616,22 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 		_fly(holder, goal, 0.0, 0.5, "", arrived))
 	return delay + 0.55 + 1.0 + 0.5
 
-func announce(stone: Dictionary) -> void:
+func announce(stone: Dictionary, finder: String = "") -> void:
 	## What came out of the rock, said plainly across the middle of the room: a size and a
-	## colour for a stone nobody has read, its whole name for one that has been.
+	## colour for a stone nobody has read, its whole name for one that has been. Another
+	## player's find is said small and high up, with their name on it.
 	if _headless or not _laid_out():
+		return
+	if not finder.is_empty():
+		var other: Label = DeepUi.label(self, "%s found %s" % [finder, DeepUi.stone_name(stone).to_lower() if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone)], 17, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+		other.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		other.add_theme_constant_override("outline_size", 6)
+		other.size = Vector2(size.x, 28)
+		other.position = Vector2(0, size.y * 0.2)
+		var drift := other.create_tween()
+		drift.tween_property(other, "position:y", size.y * 0.2 - 18.0, 1.6)
+		drift.parallel().tween_property(other, "modulate:a", 0.0, 0.5).set_delay(1.1)
+		drift.tween_callback(other.queue_free)
 		return
 	var read: bool = bool(stone.get("appraised", false))
 	var tint: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if read else GemMesh.tint(stone)

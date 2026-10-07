@@ -130,14 +130,14 @@ func _workshop(app: Control) -> void:
 		home.open(tab)
 		await _fits(screen, "the %s tab with commissions ready and filled" % tab)
 	## The tray stone a commission wants: Turn it in beside keeping either stone.
-	check(home._tray_actions(wanted, true).any(func(a: Dictionary) -> bool: return str(a.label) == "Turn it in"), "a stone a commission wants can be turned in")
+	check(home._tray_actions(wanted).any(func(a: Dictionary) -> bool: return str(a.label) == "Turn it in"), "a stone a commission wants can be turned in")
 	home._appraise_pick = str(wanted.id)
 	home.open("appraise")
 	await _fits(screen, "the Appraise tab weighing a stone a commission wants")
 	## And the first stone of its skill, wanted by a commission: keep it, or turn it in.
 	var rival: Dictionary = app.profile.vault.get(str(wanted.skill), {})
 	app.profile.vault.erase(str(wanted.skill))
-	check(not home._tray_actions(wanted, true).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep your old")), "a first stone of its skill is never offered for sale")
+	check(not home._tray_actions(wanted).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep your old")), "a first stone of its skill is never offered for sale")
 	home.open("appraise")
 	await _fits(screen, "the Appraise tab on a new skill a commission wants")
 	app.profile.vault[str(wanted.skill)] = rival
@@ -282,11 +282,11 @@ func _appraisals(app: Control) -> void:
 	var kept: Dictionary = riddled.duplicate(true)
 	kept.appraised = true
 	kept.id = "fit_kept"
-	var home_actions: Array = app.home._tray_actions(kept, true)
+	var home_actions: Array = app.home._tray_actions(kept)
 	var run_actions: Array = [ {"label": "Set in socket 6", "glyph": "gem", "caption": "Into the rail for the next fight"},
 		{"label": "Into the bag", "glyph": "bag", "caption": "Set it from the bench any time", "dismiss": true},
 		{"label": "Sell for 9999 pyrite", "glyph": "scales", "caption": "Half its worth, on the scales"}]
-	## Every choice at home at once: both keeps, a commission's Turn in, and Decide later.
+	## Every choice at home at once: both keeps, a commission's Turn in.
 	home_actions = home_actions.slice(0, 2) + [ {"label": "Turn it in", "glyph": "flag", "caption": "A commission pays 99999 gold for it"}] + home_actions.slice(2)
 	for found in [riddled, clear]:
 		for owned in [ {}, kept]:

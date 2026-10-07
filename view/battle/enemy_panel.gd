@@ -142,13 +142,15 @@ func _build_rows(moves: Array) -> void:
 			soon.tooltip_text = "%s fires in %s." % [str(move.name), DeepUi.plural(wait, "action")]
 		var numbers: Array = []
 		var formulas: Array = []
+		var marks: Array = []
 		for effect in move.get("effects", []):
 			var line: HBoxContainer = requirement if dense else DeepUi.hbox(box, 5)
 			if dense:
 				DeepUi.label(line, "·", 11, DeepUi.DIM)
 			var kind: String = str(effect.kind)
 			DeepUi.icon(line, str(GLYPHS.get(kind, "spark")), 13, DeepUi.BAD if kind == "damage" else DeepUi.INFO)
-			var formula: String = DeepCreatures.amount_words(effect.get("amount", 0))
+			var parts: Dictionary = DeepCreatures.amount_parts(effect.get("amount", 0))
+			var formula: String = str(parts.base) if not parts.is_empty() else DeepCreatures.amount_words(effect.get("amount", 0))
 			if kind in ["burrow", "bury_socket", "hold_gem", "lock_die", "break_gem", "downgrade_die", "grind_die", "break_die", "blank_face", "roll_again", "end_action", "exhibit", "absorb_color", "mirror"]:
 				formula = ""
 			if kind == "remove_block" and bool(effect.get("remove_all", false)):
@@ -156,6 +158,10 @@ func _build_rows(moves: Array) -> void:
 			if kind == "cleanse" and DeepCreatures.amount_words(effect.get("amount", 0)) == "99":
 				formula = "All"
 			var number := DeepUi.label(line, formula, 12, DeepUi.PAPER)
+			var mods := DeepUi.hbox(line, 3)
+			mods.visible = not formula.is_empty()
+			if not parts.is_empty() and not formula.is_empty():
+				_bonus_marks(mods, parts.mods)
 			var noun: String = str(NOUNS.get(kind, kind.replace("_", " ")))
 			if kind == "summon":
 				noun = "%s %s" % [str(DeepContent.creature(str(effect.get("creature", ""))).get("name", "creature")), "joins" if str(formula) == "1" else "join"]
@@ -174,8 +180,24 @@ func _build_rows(moves: Array) -> void:
 			line.tooltip_text = DeepCreatures.effect_words(effect)
 			numbers.append(number)
 			formulas.append(formula)
-		_rows.append({"panel": panel, "badge": badge, "numbers": numbers, "formulas": formulas})
+			marks.append(mods)
+		_rows.append({"panel": panel, "badge": badge, "numbers": numbers, "formulas": formulas, "marks": marks})
 	_build_passive()
+
+func _bonus_marks(parent: Node, mods: Array) -> void:
+	## What the mine, a Rising trait, Strength or a status added to the number it started as,
+	## each a colored mark and a figure, the way a stone's carat multiplier is shown.
+	for mod in mods:
+		var value: int = int(mod.value)
+		if str(mod.op) == "pct":
+			if value == 100:
+				continue
+			var times: String = ("%.2f" % (float(value) / 100.0)).rstrip("0").rstrip(".")
+			DeepUi.stat(parent, "carat", "×" + times, DeepUi.ACCENT if value > 100 else DeepUi.GOOD, 11,
+				"A multiplier of %d%% on the damage, from the depth it fights at and whatever is on it." % value)
+		elif value != 0:
+			DeepUi.stat(parent, "rise", "%+d" % value, DeepUi.BAD if value > 0 else DeepUi.GOOD, 11,
+				"%+d damage from Strength, rallying and the fight dragging on." % value)
 
 func _build_passive() -> void:
 	## The creature's traits, the things it does without rolling for them, read out with the
@@ -247,6 +269,7 @@ func roll_die(event: Dictionary) -> void:
 	for row in _rows:
 		for i in range(row.numbers.size()):
 			row.numbers[i].text = row.formulas[i]
+			row.marks[i].visible = not str(row.formulas[i]).is_empty()
 	var before: Array = []
 	for i in range(_rows.size()):
 		var prior: String = str(_shown_states[i]) if i < _shown_states.size() else "unrevealed"
@@ -303,6 +326,8 @@ func power(event: Dictionary) -> void:
 	var effects: Array = event.get("effects", [])
 	for i in range(mini(effects.size(), row.numbers.size())):
 		var number: Label = row.numbers[i]
+		## The roll's own figure already has every bonus in it.
+		row.marks[i].visible = false
 		var amount: int = int(effects[i].amount)
 		number.text = str(mini(1, amount))
 		var count := number.create_tween()

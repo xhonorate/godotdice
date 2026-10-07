@@ -19,6 +19,7 @@ const StoneCard = preload("res://view/gems/stone_card.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const CreatureStage = preload("res://view/creatures/creature_stage.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const Thumbs = preload("res://view/gems/thumbs.gd")
 
 const FACE_TEXT: Dictionary = {
 	"wild": "Wild: counts as any value for patterns, and as the die's top face for totals.",
@@ -117,6 +118,16 @@ static func creature(foe: Dictionary, battle: Dictionary = {}, opts: Dictionary 
 	var sheet := _begin(DeepUi.BAD if bool(foe.get("warden", false)) else Color("c8a8ff"))
 	if sheet != null:
 		sheet.call("_fill_creature", foe, battle, opts)
+
+static func member(unit: Dictionary) -> void:
+	## Another player of the party, looked at: their rail, their bag and their dice, read only.
+	var tone: Color = DeepUi.INFO
+	var stone: Dictionary = DeepStone.birthstone(str(unit.get("character", "")))
+	if not stone.is_empty():
+		tone = GemMesh.tint(stone)
+	var sheet := _begin(tone)
+	if sheet != null:
+		sheet.call("_fill_member", unit, tone)
 
 static func announce(title: String, text: String, glyph: String, tone: Color = DeepUi.ACCENT) -> void:
 	## A big moment with no object: a new setting, a new mine.
@@ -286,6 +297,102 @@ func _section(glyph: String, text: String, tone: Color = DeepUi.ACCENT) -> VBoxC
 	var box := DeepUi.vbox(_details, 6)
 	DeepUi.section(box, glyph, text, tone, 13)
 	return box
+
+# --- party members -----------------------------------------------------------------------------
+
+const MEMBER_PAGE := 18
+
+func _fill_member(unit: Dictionary, tone: Color) -> void:
+	var character_key: String = str(unit.get("character", ""))
+	_stage_hint.hide()
+	var frame := DeepUi.center(_stage)
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if not character_key.is_empty():
+		frame.add_child(load("res://view/home/roster.gd").Portrait.new(character_key, Vector2(320, 380), false, false, true))
+	var haul: Array = unit.get("haul", [])
+	DeepUi.title(_head, str(unit.get("name", "A lapidary")), 30, tone.lightened(0.3))
+	var tags := DeepUi.hbox(_head, 8)
+	if not character_key.is_empty():
+		DeepUi.pill(tags, "person", DeepContent.character_title(character_key), DeepUi.INFO, 13)
+	DeepUi.pill(tags, "heart", "%d / %d" % [int(unit.get("hp", 0)), int(unit.get("max_hp", 0))], DeepUi.HP, 13, "Health")
+	DeepUi.pill(tags, "ore", str(int(unit.get("ore", DeepRules.pyrite(unit)))), DeepUi.ORE, 13, "Pyrite")
+	if bool(unit.get("downed", false)):
+		DeepUi.pill(tags, "skull", "Down", DeepUi.BAD, 13)
+	if not bool(unit.get("connected", true)):
+		DeepUi.pill(tags, "hourglass", "Away", DeepUi.DIM, 13)
+	## The rail, each stone as it fires.
+	var rail_stones: Array = DeepStone.rail_stones(unit)
+	_page("Rail", "gem")
+	var rail_box := _section("gem", "Their rail, in the order it fires")
+	if rail_stones.is_empty():
+		DeepUi.label(rail_box, "Nothing is set in their rail.", 14, DeepUi.MUTED)
+	else:
+		_member_stones(rail_box, rail_stones)
+	## The bag, a page of it at a time.
+	_page("Bag  %d" % haul.size(), "bag")
+	var bag_box := _section("bag", "Loose stones they carry")
+	if haul.is_empty():
+		DeepUi.label(bag_box, "Their bag is empty.", 14, DeepUi.MUTED)
+	else:
+		_member_bag(bag_box, haul, 0)
+	## The dice.
+	var dice: Array = unit.get("dice", [])
+	var spare: Array = unit.get("bag_dice", [])
+	_page("Dice", "die")
+	var dice_box := _section("die", "Their bowl")
+	_member_dice(dice_box, dice)
+	if not spare.is_empty():
+		var spare_box := _section("bag", "Spare dice in the bag", DeepUi.MUTED)
+		_member_dice(spare_box, spare)
+	show_page("Rail")
+
+func _member_stones(parent: Node, stones: Array) -> void:
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 10)
+	flow.add_theme_constant_override("v_separation", 10)
+	parent.add_child(flow)
+	for stone in stones:
+		var card := VBoxContainer.new()
+		card.add_theme_constant_override("separation", 2)
+		card.tooltip_text = DeepUi.stone_name(stone) + "\nRight-click for details"
+		flow.add_child(card)
+		card.add_child(Thumbs.GemThumb.new(stone, 72))
+		var name_label := DeepUi.label(card, DeepUi.stone_name(stone) if bool(stone.get("appraised", true)) else "%s raw" % DeepStone.size_name(int(stone.get("carat", 1))), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		name_label.custom_minimum_size.x = 96
+		name_label.clip_text = true
+
+func _member_bag(parent: Node, haul: Array, from: int) -> void:
+	## The bag never scrolls: it is turned a page at a time.
+	DeepUi.clear(parent)
+	DeepUi.section(parent, "bag", "Loose stones they carry", DeepUi.ACCENT, 13)
+	var pages: int = maxi(1, int(ceil(float(haul.size()) / float(MEMBER_PAGE))))
+	var at: int = clampi(from, 0, pages - 1)
+	_member_stones(parent, haul.slice(at * MEMBER_PAGE, (at + 1) * MEMBER_PAGE))
+	if pages > 1:
+		var turn := DeepUi.hbox(parent, 8)
+		turn.alignment = BoxContainer.ALIGNMENT_CENTER
+		var back := DeepUi.icon_button(turn, "prev", "", func() -> void: _member_bag(parent, haul, at - 1), 13, DeepUi.MUTED)
+		back.disabled = at <= 0
+		DeepUi.label(turn, "%d of %d" % [at + 1, pages], 13, DeepUi.MUTED)
+		var next := DeepUi.icon_button(turn, "next", "", func() -> void: _member_bag(parent, haul, at + 1), 13, DeepUi.MUTED)
+		next.disabled = at >= pages - 1
+
+func _member_dice(parent: Node, dice: Array) -> void:
+	if dice.is_empty():
+		DeepUi.label(parent, "No dice.", 14, DeepUi.MUTED)
+		return
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 10)
+	flow.add_theme_constant_override("v_separation", 10)
+	parent.add_child(flow)
+	for die in dice:
+		var card := VBoxContainer.new()
+		card.add_theme_constant_override("separation", 2)
+		card.tooltip_text = DeepDice.describe(die)
+		flow.add_child(card)
+		card.add_child(Thumbs.DieThumb.new(die, 72))
+		var name_label := DeepUi.label(card, str(die.get("shape", "")), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		name_label.custom_minimum_size.x = 80
 
 # --- stones ------------------------------------------------------------------------------------
 

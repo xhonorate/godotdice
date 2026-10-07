@@ -559,20 +559,14 @@ static func _light(state: Dictionary, unit: Dictionary) -> Dictionary:
 	map.lit_to = target_depth
 	return {"ok": true, "event": _event(state, "lit", {"unit": unit.id, "method": "ore", "to": target_depth})}
 
-static func _tally(state: Dictionary) -> String:
-	## Plurality; a tie goes to the lowest seat that voted.
-	var counts: Dictionary = {}
+static func _tally(state: Dictionary, rng: RandomNumberGenerator) -> String:
+	## Every vote is a ticket in a hat and one is drawn: more votes make a way likelier, and
+	## a split party is a coin toss rather than the host's say.
+	var tickets: Array = []
 	for unit in living(state):
 		if not str(unit.get("vote", "")).is_empty():
-			counts[str(unit.vote)] = int(counts.get(str(unit.vote), 0)) + 1
-	var best: String = ""
-	var best_count: int = 0
-	for unit in living(state):
-		var vote: String = str(unit.get("vote", ""))
-		if not vote.is_empty() and int(counts[vote]) > best_count:
-			best = vote
-			best_count = int(counts[vote])
-	return best
+			tickets.append(str(unit.vote))
+	return "" if tickets.is_empty() else str(tickets[rng.randi_range(0, tickets.size() - 1)])
 
 static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) -> Dictionary:
 	state.depth = int(state.depth) + 1
@@ -1482,7 +1476,7 @@ static func mine_record(state: Dictionary) -> Dictionary:
 # --- hoard, salvage, endings ---------------------------------------------------------------
 
 static func _offer_hoard(state: Dictionary) -> void:
-	## Three stones on their pedestals, and, last of the three, an opal: the only thing in the
+	## Three stones on their pedestals, and, in the middle of the three, an opal: the only thing in the
 	## mine that no vein and no drop ever offers. Every one of them comes out of the Warden's
 	## hoard still in its rock, so a pedestal says only a colour and a size class: the choice
 	## is three gambles on what is inside, and the loupe settles it afterwards. The opal is
@@ -1498,7 +1492,7 @@ static func _offer_hoard(state: Dictionary) -> void:
 	for unit in state.players:
 		var offers: Array = []
 		for index in range(HOARD_OFFERS):
-			var opal: bool = index == HOARD_OFFERS - 1 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
+			var opal: bool = index == HOARD_OFFERS / 2 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
 			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), opal_luck if opal else luck, {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
 			stone.appraised = false
 			stone.inclusions_revealed = false
@@ -1667,10 +1661,12 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 			for other in living(state):
 				if str(other.get("vote", "")).is_empty():
 					return {"ok": true, "event": event}
-			var winner: String = _tally(state)
+			var streams: Dictionary = streams_of(state)
+			var winner: String = _tally(state, streams.tunnels)
+			state.rng = DeepRng.save(streams)
 			for candidate in state.offers:
 				if str(candidate.id) == winner:
-					var streams: Dictionary = streams_of(state)
+					streams = streams_of(state)
 					var entered: Dictionary = _enter(state, candidate, streams)
 					state.rng = DeepRng.save(streams)
 					event.entered = entered

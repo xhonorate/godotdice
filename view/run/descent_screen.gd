@@ -1070,7 +1070,11 @@ func _vein_struck(event: Dictionary) -> void:
 			if not _strip_hold.has(key) and _counts.has(key):
 				_strip_hold[key] = _counts[key]
 			arrived = _release_count.bind(key)
-		landed = _stage.throw_find(result, at, _pill_centre("ore"), _pill_centre("bag"), arrived, mine, 0.17 if mine else 0.0)
+		var finder: String = ""
+		for who in run.get("players", []):
+			if str(who.get("id", "")) == unit_id:
+				finder = str(who.get("name", ""))
+		landed = _stage.throw_find(result, at, _pill_centre("ore"), _pill_centre("bag"), arrived, mine, 0.17 if mine else 0.0, finder)
 		if mine:
 			var words: String = ""
 			match kind:
@@ -2148,8 +2152,13 @@ func _sync_strip() -> void:
 	for other in run.get("players", []):
 		var mine_too: bool = str(other.id) == local_id
 		var box := DeepUi.hbox(_strip, 6)
-		box.mouse_filter = Control.MOUSE_FILTER_PASS
-		box.tooltip_text = "%s: %d of %d" % [str(other.name), int(other.hp), int(other.max_hp)]
+		box.mouse_filter = Control.MOUSE_FILTER_STOP
+		box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		box.tooltip_text = "%s: %d of %d\nClick to see their rail, their bag and their dice." % [str(other.name), int(other.hp), int(other.max_hp)]
+		var member_id: String = str(other.id)
+		box.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				_look_at_member(member_id))
 		DeepUi.icon(box, "person", 18, DeepUi.PAPER if mine_too else DeepUi.INFO)
 		DeepUi.label(box, str(other.name), 14, DeepUi.PAPER if mine_too else DeepUi.MUTED)
 		var bar := DeepUi.bar(box, 12.0)
@@ -2195,6 +2204,13 @@ func _sync_strip() -> void:
 					call_deferred("_celebrate", entry[0], ("+%d" % change) if change > 0 else str(change), entry[1] if change > 0 else DeepUi.BAD)
 		_counts = counts
 	DeepUi.gear_button(_strip, func() -> void: menu_requested.emit())
+
+func _look_at_member(id: String) -> void:
+	## Anyone in the party, yourself included, opens on the same sheet, read only.
+	for other in run.get("players", []):
+		if str(other.get("id", "")) == id:
+			Inspector.member(other)
+			return
 
 func toggle_chart() -> void:
 	_chart_open = not _chart_open

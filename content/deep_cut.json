@@ -2013,7 +2013,7 @@
       "color": "WHITE",
       "rarity": "COMMON",
       "tags": ["hand"],
-      "text": "Permanently raise each matched die face by 1.",
+      "text": "Permanently raise the face of the first matched die by 1.",
       "numbers": {},
       "trigger": {
         "kind": "below",
@@ -2027,7 +2027,7 @@
         }
       ],
       "flawless": {
-        "text": "Raise all faces of each matched die.",
+        "text": "Raise every face of the first matched die.",
         "modify": [
           {
             "effect": 0,

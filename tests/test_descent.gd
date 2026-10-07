@@ -156,6 +156,16 @@ func _test_open_and_tunnels() -> void:
 	check(second.ok and second.event.has("entered") and state.depth == 1, "the second vote enters the chamber")
 	check(state.phase == "chamber", "now in a chamber of kind " + str(state.chamber.kind))
 	check(not cmd(state, "a", "vote_tunnel", {"offer": "t0"}).ok, "no voting inside a chamber")
+	## A split vote is drawn from the hat, not handed to the host: over a handful of runs
+	## both ways get taken.
+	var took: Dictionary = {}
+	for trial in range(24):
+		var split: Dictionary = DeepDescent.new_run(config(300 + trial, false))
+		var ways: Array = split.offers.map(func(o: Dictionary) -> String: return str(o.id))
+		cmd(split, "a", "vote_tunnel", {"offer": ways[0]})
+		cmd(split, "b", "vote_tunnel", {"offer": ways[1]})
+		took[str(split.path[0].id) == ways[0]] = true
+	check(took.has(true) and took.has(false), "a split vote goes either way, not always the host's")
 	check(DeepDescent.is_landing(4) and DeepDescent.is_landing(8) and not DeepDescent.is_landing(5), "landings every four depths")
 	check(DeepDescent.is_warden_depth(8) and DeepDescent.is_warden_depth(12) and DeepDescent.is_warden_depth(16) and not DeepDescent.is_warden_depth(4) and not DeepDescent.is_warden_depth(24),
 		"the Quarry's Wardens at 8 and 12 and its boss on the bottom floor, 16")
@@ -612,7 +622,7 @@ func _test_bot_runs() -> void:
 	check(JSON.stringify(one) == JSON.stringify(two), "two runs from one seed agree after sixty bot actions")
 
 func _test_hoard_opal() -> void:
-	## The Warden's pile: three stones still in their rock, the last of them an opal, a gem
+	## The Warden's pile: three stones still in their rock, the middle one an opal, a gem
 	## nothing else in the mine offers. Nothing on the pedestals has been read, so the choice
 	## is three gambles and the loupe settles it afterwards.
 	var state: Dictionary = DeepDescent.new_run(config(414, true))
@@ -620,8 +630,8 @@ func _test_hoard_opal() -> void:
 	DeepDescent._offer_hoard(state)
 	var offers: Array = state.hoard.a.offers
 	check(offers.size() == 3 and offers.all(func(s: Dictionary) -> bool: return not bool(s.appraised) and not bool(s.inclusions_revealed)), "all three lie there unread, in their rock")
-	var opal: Dictionary = offers[2]
-	check(DeepStone.is_opal(opal), "the third is an opal: %s" % str(opal.skill))
+	var opal: Dictionary = offers[1]
+	check(DeepStone.is_opal(opal), "the middle one is an opal: %s" % str(opal.skill))
 	check(not DeepStone.fits(opal, "RED") and not DeepStone.fits(opal, "GOLD") and DeepStone.fits(opal, "ANY"), "an opal answers to none of the six: only an ANY socket takes it")
 	var picked: Dictionary = cmd(state, "a", "pick_hoard", {"stone_id": str(opal.id)})
 	check(picked.ok and bool(picked.event.raw) and not bool(picked.event.stone.appraised),
@@ -638,8 +648,8 @@ func _test_hoard_opal() -> void:
 		pile.depth = 8
 		DeepDescent._offer_hoard(pile)
 		var stones: Array = pile.hoard.a.offers
-		opal_carats += float(stones[2].carat)
-		other_carats += (float(stones[0].carat) + float(stones[1].carat)) / 2.0
+		opal_carats += float(stones[1].carat)
+		other_carats += (float(stones[0].carat) + float(stones[2].carat)) / 2.0
 	check(opal_carats < other_carats, "a hoard's opal runs smaller than its other stones (%.1f vs %.1f carat on average)" % [opal_carats / 60.0, other_carats / 60.0])
 	## And nothing else in the mine ever hands one out.
 	var rng := RandomNumberGenerator.new()

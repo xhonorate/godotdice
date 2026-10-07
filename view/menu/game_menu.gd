@@ -212,6 +212,11 @@ func _page_main() -> void:
 			give_up.disabled = str(context.get("phase", "")) in ["salvage", "over"]
 		else:
 			DeepUi.icon_button(list, "door", "Leave the party", func() -> void: _show("leave"), 16, DeepUi.BAD)
+	elif not bool(context.get("solo", true)):
+		## In the workshop with a party: walk out of it, or as its host close it.
+		DeepUi.icon_button(list, "door", "Close the party" if bool(context.get("host", true)) else "Leave the party", func() -> void:
+			close()
+			leave_requested.emit(), 16, DeepUi.BAD)
 	DeepUi.icon_button(list, "door", "Quit to desktop", func() -> void: _show("quit"), 16, DeepUi.MUTED)
 	for child in list.get_children():
 		if child is Button:

@@ -317,10 +317,13 @@ static func roll_one(die: Dictionary, rng: RandomNumberGenerator, times_rerolled
 		climbed = true
 	var value: int = face_value(chosen)
 	var explosions: int = 0
+	var chain: Array = []
 	if kind == "exploding":
 		while explosions < MAX_EXPLOSIONS:
-			var extra: Dictionary = faces[rng.randi_range(0, faces.size() - 1)]
+			var again: int = rng.randi_range(0, faces.size() - 1)
+			var extra: Dictionary = faces[again]
 			value += face_value(extra)
+			chain.append({"face": again, "value": face_value(extra)})
 			explosions += 1
 			if str(extra.get("kind", "plain")) != "exploding":
 				break
@@ -328,10 +331,17 @@ static func roll_one(die: Dictionary, rng: RandomNumberGenerator, times_rerolled
 	if kind != "blank" and material == "iron":
 		value = maxi(value, iron_floor(die_top))
 	var shattered: bool = material == "glass" and DeepRng.chance(rng, GLASS_SHATTER_PCT)
-	return {"die_id": str(die.get("id", "")), "shape": str(die.get("shape", "D6")), "material": material,
+	var thrown: Dictionary = {"die_id": str(die.get("id", "")), "shape": str(die.get("shape", "D6")), "material": material,
 		"value": mini(value, VALUE_CAP), "face": index, "kind": kind, "top": die_top,
 		"held": false, "rerolls": times_rerolled, "locked": kind == "locked", "explosions": explosions,
 		"climbed": climbed, "shattered": shattered, "phantom": false}
+	if kind == "exploding":
+		## What the face itself says, before anything it threw again was added: the number an
+		## upgrade changes, and the one a gem that asks for low dice should be judging.
+		thrown.base = face_value(chosen)
+		## Each throw after it, in order, so the die can be seen to land on them one by one.
+		thrown.chain = chain
+	return thrown
 
 static func roll_hand(dice: Array, rng: RandomNumberGenerator, previous: Array = []) -> Array:
 	## A fresh hand. A Sticky face that was showing at the end of the last turn is not thrown

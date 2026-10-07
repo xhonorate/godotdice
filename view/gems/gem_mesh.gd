@@ -345,9 +345,11 @@ static func fit_scale(gem: Dictionary) -> float:
 
 static func span(gem: Dictionary) -> float:
 	## How wide the stone is drawn against its slot: its class if nobody has read it, its own
-	## carat once somebody has.
+	## carat once somebody has. A raw stone is sized by its rock, which is the same lump
+	## whatever the color, so the outline-area match is left out of it: with it, a Red
+	## trilliant's clump was drawn about a third larger than a round White one's.
 	if gem.has("appraised") and not bool(gem.appraised):
-		return float(CLASS_SPAN[clampi(int(DeepStone.size_class(int(gem.get("carat", 1))).index), 0, CLASS_SPAN.size() - 1)]) 			* fit_scale(gem)
+		return float(CLASS_SPAN[clampi(int(DeepStone.size_class(int(gem.get("carat", 1))).index), 0, CLASS_SPAN.size() - 1)])
 	return carat_span(int(gem.get("carat", 1))) * fit_scale(gem)
 
 static func display_offset(gem: Dictionary) -> Vector3:

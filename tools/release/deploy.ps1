@@ -171,9 +171,9 @@ $kind = $Bump
 if (-not $kind) {
     Write-Host ""
     Write-Host "Deep Cut is at $current$(if ($newest) { " (live: $newest)" })$(if ($DryRun) { ' - dry run, nothing is pushed' }). Releasing: $($selected -join ' and '). Which release is this?"
-    Write-Host "  1) patch  -> $($next.patch)"
+    Write-Host "  1) major  -> $($next.major)"
     Write-Host "  2) minor  -> $($next.minor)"
-    Write-Host "  3) major  -> $($next.major)"
+    Write-Host "  3) patch  -> $($next.patch)"
     $answer = (Read-Host "Choose 1-3 (anything else cancels)").Trim()
     $kind = @{ "1" = "patch"; "patch" = "patch"; "2" = "minor"; "minor" = "minor"; "3" = "major"; "major" = "major" }[$answer]
     if (-not $kind) {

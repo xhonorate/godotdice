@@ -24,10 +24,12 @@ extends RefCounted
 ##   crowns, crown_ids     dice showing their own top face (a wild is always a crown)
 ##   wilds         die ids of wild rolls
 ##   ids_by_value  {value: [die ids]}, each bucket in preference order
+##   bases         {die id: face value} for exploding rolls: what the face says before what it threw again
 
 static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var values: Array = []
 	var ids_by_value: Dictionary = {}
+	var bases: Dictionary = {}
 	var counts: Dictionary = {}
 	var wilds: Array = []
 	var wild_top: int = 0
@@ -72,6 +74,8 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		if kind == "blank":
 			continue
 		total += value
+		if kind == "exploding" and roll.has("base"):
+			bases[id] = int(roll.base)
 		values.append(value)
 		high = maxi(high, value)
 		low = value if low == 0 else mini(low, value)
@@ -135,7 +139,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
 		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids,
-		"ids_by_value": ids_by_value}
+		"ids_by_value": ids_by_value, "bases": bases}
 
 static func _prefer(ids: Array, rank: Dictionary) -> void:
 	## The dice that most want to be spent, first.
@@ -190,6 +194,19 @@ static func read(analysis: Dictionary, count: int, from_high: bool) -> Dictionar
 		sum += int(entries[index].value)
 		dice.append(str(entries[index].id))
 	return {"sum": sum, "dice": dice}
+
+static func matching_faces(analysis: Dictionary, predicate: Callable) -> Array:
+	## Like `matching`, but an exploding die is judged by the face it landed on rather than by
+	## everything that face threw again: a 2 that went off into a 19 is still a 2 to a gem that
+	## wants low faces, because a 2 is what an upgrade would raise.
+	var bases: Dictionary = analysis.get("bases", {})
+	var dice: Array = []
+	for v in analysis.get("ids_by_value", {}):
+		for id in analysis.ids_by_value[v]:
+			if predicate.call(int(bases.get(str(id), v))):
+				dice.append(id)
+	dice.append_array(analysis.get("wilds", []))
+	return dice
 
 static func matching(analysis: Dictionary, predicate: Callable) -> Array:
 	## Die ids whose value satisfies the predicate, plus every wild.

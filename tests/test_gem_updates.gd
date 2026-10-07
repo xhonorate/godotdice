@@ -74,7 +74,7 @@ func hit(f: Dictionary, target: Dictionary, amount: int) -> Dictionary:
 func triggers() -> void:
 	var f: Dictionary = setup()
 	for cut in range(5):
-		for spec in [["MEND", 3 + cut, false], ["THRIVE", 12 - cut, true], ["APEX", 20 - cut, true], ["GLIMMER", 7 - cut, false]]:
+		for spec in [["MEND", 3 + cut, false], ["THRIVE", 12 - cut, true], ["APEX", 20 - cut, true], ["GLIMMER", 3 + cut, false]]:
 			var key: String = spec[0]
 			var threshold: int = int(spec[1])
 			equip(f, key, false, cut)
@@ -292,10 +292,24 @@ func tailings() -> void:
 func upgrades() -> void:
 	var f: Dictionary = setup()
 	cast(f, "GLIMMER", [1, 2, 3, 4, 5])
-	check(int(f.player.dice[0].faces[0].value) == 2 and int(f.player.dice[1].faces[1].value) == 3 and int(f.player.dice[2].faces[2].value) == 3, "Glimmer changes only faces on dice below the threshold")
+	check(int(f.player.dice[0].faces[0].value) == 2 and int(f.player.dice[1].faces[1].value) == 2 and int(f.player.dice[2].faces[2].value) == 3, "Glimmer raises only the first die below the threshold")
 	check(int(f.player.hand[0].value) == 2 and int(f.player.dice[0].faces[19].value) == 20, "face upgrade affects later gems without changing other faces")
 	cast(f, "GLIMMER", [1, 2, 3, 4, 5], true)
-	check(int(f.player.dice[0].faces[19].value) == 21 and int(f.player.dice[2].faces[19].value) == 20, "Flawless Glimmer upgrades every face of matched dice only")
+	check(int(f.player.dice[0].faces[19].value) == 21 and int(f.player.dice[1].faces[19].value) == 20, "Flawless Glimmer upgrades every face of the first matched die only")
+	f = setup()
+	equip(f, "GLIMMER")
+	rolls(f, [15, 9, 9, 9, 9])
+	f.player.hand[0].kind = "exploding"
+	f.player.hand[0].face = 1
+	f.player.hand[0].base = 2
+	f.player.firing_target = f.player.target
+	check(DeepStone.evaluate(f.player.rail[0], f.player.hand).active, "an exploding die that landed on a low face counts as low, whatever it threw again")
+	DeepBattle.resolve_gem(f.state, f.player, 0, {"dry": true}, f.rng.dice)
+	check(int(f.player.dice[0].faces[1].value) == 3 and int(f.player.hand[0].base) == 3 and int(f.player.hand[0].value) == 16, "Glimmer raises the exploding face itself, and the roll with it")
+	rolls(f, [15, 9, 9, 9, 9])
+	f.player.hand[0].kind = "exploding"
+	f.player.hand[0].base = 9
+	check(not DeepStone.evaluate(f.player.rail[0], f.player.hand).active, "an exploding face at or over the threshold is not low")
 	f = setup()
 	f.player.dice[0].top = 20
 	cast(f, "GLIMMER", [1, 3, 4, 5, 6])

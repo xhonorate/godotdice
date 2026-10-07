@@ -602,9 +602,14 @@ static func skip_arrow(parent: Node, text: String, callback: Callable, tone: Col
 	b.expand_icon = true
 	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.add_theme_constant_override("icon_max_width", 26)
+	## A circle, so the border is one width all the way round and the corner radius stops a
+	## hair short of half the button. The ordinary button style is heavier along the bottom
+	## and a radius of exactly half leaves nothing between the two curves: the first put
+	## specks at the four points where the curve changes direction, the second a hairline
+	## down the middle of the fill on hover.
 	var round := func(fill: Color, edge: Color) -> StyleBoxFlat:
-		var style := button_style(fill, edge, 12)
-		style.set_corner_radius_all(28)
+		var style := flat(fill, edge, 27, 12, 2)
+		style.corner_detail = 16
 		return style
 	b.add_theme_stylebox_override("normal", round.call(Color(GLASS, 0.85), Color(tone, 0.55)))
 	b.add_theme_stylebox_override("hover", round.call(Color(tone, 0.2), tone.lightened(0.3)))

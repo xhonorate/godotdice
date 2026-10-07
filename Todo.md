@@ -92,7 +92,7 @@ Formulas are base values before ordinary carat/inclusion scaling. **Flawless als
 
 | Gem     | Rarity    | Trigger / Cut ladder                                 | Base effect                                         | Flawless card line                   |
 | ------- | --------- | ---------------------------------------------------- | --------------------------------------------------- | ------------------------------------ |
-| Glimmer | Common    | At least one die <3/4/5/6/7                          | Permanently raise each matched die face by 1.       | Raise all faces of each matched die. |
+| Glimmer | Common    | At least one die <3/4/5/6/7                          | Permanently raise the first matched die's face by 1 (an exploding face counts by its own number, not what it threw again).       | Raise every face of that die. |
 | Refract | Uncommon  | At least one die ≥95/90/85/80/70% of its own maximum | Add 1 phantom die copying your highest roll.        | Two phantoms.                        |
 | Polish  | Uncommon  | ≥4/3/2/1/0 dice at or below half their own maximum   | Adjacent gems gain 1 Clarity this fight.            | Apply to all gems.                   |
 | Mirror  | Common    | ≥5/4/3/2/1 distinct values                           | Change one die to join your strongest matching set. | Match two dice.                      |

@@ -357,14 +357,13 @@ func _build_hud() -> void:
 	_banner_sub.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_banner_sub.add_theme_constant_override("outline_size", 5)
 	_banner_box.modulate.a = 0.0
-	## Allies: cards down the right edge.
+	## Allies: cards stacked up the right edge from the top of the dock.
 	_ally_box = DeepUi.vbox(_hud, 8)
 	_ally_box.custom_minimum_size = Vector2(230, 0)
-	_ally_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT, Control.PRESET_MODE_MINSIZE, 22)
+	_ally_box.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 22)
 	_ally_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_ally_box.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_ally_box.offset_top -= 130
-	_ally_box.offset_bottom -= 130
+	_ally_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_ally_box.alignment = BoxContainer.ALIGNMENT_END
 	## Your buffs and troubles, in a row along the top edge of the dock.
 	_effects_box = DeepUi.vbox(_hud, 2)
 	_effects_box.position = Vector2(22, 600)
@@ -381,6 +380,7 @@ func _build_hud() -> void:
 	_dock.offset_bottom = -14
 	_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_hud.add_child(_dock)
+	_dock.resized.connect(_seat_allies)
 	var columns := DeepUi.hbox(_dock, 20)
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
 	## Left: you, and your rail.
@@ -440,6 +440,12 @@ func _build_hud() -> void:
 	DeepUi.icon(forecast_head, "eye", 16, DeepUi.ACCENT)
 	DeepUi.heading(forecast_head, "This hand would", 13)
 	_forecast_box = DeepUi.vbox(right, 4)
+
+func _seat_allies() -> void:
+	## The allies stand on the dock: their bottom edge is its top edge, wherever it grows to.
+	if _ally_box == null or _dock == null:
+		return
+	_ally_box.offset_bottom = - (_dock.size.y + 14.0 + 10.0)
 
 func bind(player_id: String) -> void:
 	local_id = player_id
@@ -1109,6 +1115,12 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 			value.position = Vector2(0, DIE_EDGE + 2)
 			value.size = Vector2(DIE_EDGE, 18)
 			value.name = "Value"
+			## An exploding face is added up as the die lands on each throw, not all at once.
+			view.chain_stepped.connect(func(total: int) -> void:
+				if is_instance_valid(value):
+					value.text = DiceIcons.face_text(total, "exploding").strip_edges()
+					if not _headless:
+						DeepUi.pulse(value, 1.25, 0.2))
 			var key_hint := DeepUi.label(holder, str(index), 10, DeepUi.DIM)
 			key_hint.position = Vector2(4, 2)
 			var hit := Button.new()
@@ -1145,7 +1157,8 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		## The die itself shows its number; only what the number cannot say goes under it.
 		var words: String = ""
 		if str(roll.get("kind", "plain")) != "plain":
-			words = DiceIcons.face_text(int(roll.value), str(roll.get("kind", "plain"))).strip_edges()
+			var added_up: int = view.running_total()
+			words = DiceIcons.face_text(added_up if added_up >= 0 else int(roll.value), str(roll.get("kind", "plain"))).strip_edges()
 		if bool(roll.get("locked", false)):
 			words += "  ⌂"
 		if bool(roll.get("flipped", false)):
@@ -1224,9 +1237,12 @@ class AllyCard extends PanelContainer:
 	var _hand: HBoxContainer
 	var _effects: EffectChips.Row
 	var _key: String = ""
+	var _unit: Dictionary = {}
 	func _init() -> void:
 		add_theme_stylebox_override("panel", DeepUi.raised(Color(0.06, 0.075, 0.105, 0.88), DeepUi.LINE, 12, 10, 0.4))
-		mouse_filter = Control.MOUSE_FILTER_PASS
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		tooltip_text = "Click to see their rail, their bag and their dice."
 		var box := DeepUi.vbox(self, 5)
 		var head := DeepUi.hbox(box, 6)
 		DeepUi.icon(head, "person", 16, DeepUi.INFO)
@@ -1237,7 +1253,12 @@ class AllyCard extends PanelContainer:
 		_hand = DeepUi.hbox(box, 3)
 		_effects = EffectChips.Row.new(13)
 		box.add_child(_effects)
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and not _unit.is_empty():
+			load("res://view/inspect/inspector.gd").member(_unit)
+			accept_event()
 	func update(unit: Dictionary, planning: bool) -> void:
+		_unit = unit
 		_effects.show_effects(EffectChips.for_player(unit))
 		var who: String = str(DeepContent.character(str(unit.get("character", ""))).get("name", ""))
 		_name.text = str(unit.name) + ("" if who.is_empty() else " · " + who)
@@ -1731,6 +1752,15 @@ func _flip() -> void:
 		DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.ACCENT_HI, 16, 150.0, 0.5)
 	selected.clear()
 
+func _lock_if_spent() -> void:
+	if _headless or not is_instance_valid(self) or not is_inside_tree() or state.is_empty():
+		return
+	var unit: Dictionary = me()
+	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)) or bool(unit.get("downed", false)):
+		return
+	if int(unit.get("rerolls", 0)) <= 0 and int(unit.get("flips", 0)) <= 0:
+		_toggle_lock()
+
 func _toggle_lock() -> void:
 	var locking: bool = not bool(me().get("locked", false))
 	command.emit({"kind": "lock" if locking else "unlock"})
@@ -1850,6 +1880,9 @@ func perform(event: Dictionary) -> void:
 		"reroll":
 			if str(event.get("unit", "")) == local_id:
 				_later_do(0.4, func() -> void: _dice_dues(event.get("dues", {}), event.get("dice", [])))
+				## The last reroll spent, there is nothing left to decide: the hand locks itself
+				## once its dice have been seen to land. Unlock takes it back.
+				_later_do(1.3, _lock_if_spent)
 		"flip":
 			if str(event.get("unit", "")) == local_id:
 				DeepAudio.play("die_settle", {"volume": 0.8})

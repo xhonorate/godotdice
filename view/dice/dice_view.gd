@@ -70,6 +70,16 @@ var _manual := Quaternion.IDENTITY
 var _goal := Quaternion.IDENTITY
 var _dragging := false
 var _steered := false
+## An exploding face lands on its own number first, then the die is thrown again for each
+## extra, and every one lands before it is added. `_chain` is the throws still to come,
+## `_chain_face` the face it is showing meanwhile, `_running` what has been added up so far.
+var _chain: Array = []
+var _chain_face := -1
+var _chain_wait := 0.0
+var _running := -1
+
+## The total so far, each time the die lands: the first face, then each extra added on.
+signal chain_stepped(total: int)
 
 static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
@@ -168,6 +178,14 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 			if _value_at(index) == shifted_value and _kind_at(index) == "plain":
 				_face_index = index
 				break
+	var resting: int = _face_index
+	var thrown: Array = roll.get("chain", []) if str(roll.get("kind", "plain")) == "exploding" else []
+	if not thrown.is_empty():
+		resting = clampi(int(thrown[thrown.size() - 1].get("face", resting)), 0, maxi(0, _frames.size() - 1))
+	if _running >= 0 and _chain_face >= 0:
+		_face_index = _chain_face
+	else:
+		_face_index = resting
 	_target = _orientation(_face_index)
 	var token := "%s#%s#%s#%s" % [str(roll.get("die_id", "")), str(roll.get("rerolls", -1)), str(roll.get("face", -1)), str(roll.get("turn_tag", ""))]
 	if bool(roll.get("flipped", false)):
@@ -185,7 +203,17 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 		_roll_token = token
 	elif token != _roll_token:
 		_roll_token = token
+		_chain = []
+		_chain_face = -1
+		_running = -1
 		if not roll.is_empty():
+			if not thrown.is_empty() and is_instance_valid(_pivot):
+				## It lands on the face it was thrown onto, and the rest follow.
+				_chain = thrown.duplicate()
+				_chain_face = clampi(int(roll.get("face", 0)), 0, maxi(0, _frames.size() - 1))
+				_running = int(roll.get("base", _value_at(_chain_face)))
+				_face_index = _chain_face
+				_target = _orientation(_face_index)
 			_start_spin()
 		elif is_instance_valid(_pivot):
 			_pivot.quaternion = _target
@@ -206,6 +234,8 @@ func _sync_readout() -> void:
 	if not wanted:
 		return
 	var value: int = int(roll.get("value", _value_at(_face_index))) if not roll.is_empty() else _value_at(_face_index)
+	if _running >= 0:
+		value = _running
 	_readout.text = str(value)
 	_readout.add_theme_font_size_override("font_size", maxi(14, int(minf(size.x, size.y) * 0.42)))
 	_readout.modulate.a = 1.0 if _spin_time > spin_seconds else 0.0
@@ -213,6 +243,9 @@ func _sync_readout() -> void:
 func settle_immediately() -> void:
 	## Restored state already knows this face; do not replay a roll on reconnect.
 	_spin_time = spin_seconds + 1.0
+	_chain = []
+	_chain_face = -1
+	_running = -1
 	if is_instance_valid(_pivot):
 		_pivot.quaternion = _target
 		_pivot.position = Vector3.ZERO
@@ -226,6 +259,11 @@ func enable_interaction() -> void:
 	mouse_default_cursor_shape = Control.CURSOR_MOVE
 	_spin_time = 99.0
 	_sync_readout()
+
+func running_total() -> int:
+	## What the die has added up to so far while an exploding face is still being thrown
+	## again, or -1 when it is not.
+	return _running
 
 func face_count() -> int:
 	return _frames.size()
@@ -437,12 +475,38 @@ func _process(delta: float) -> void:
 			_pivot.position = Vector3.ZERO
 			_pivot.scale = Vector3.ONE
 			_pivot.quaternion = _target
+			if _running >= 0:
+				chain_stepped.emit(_running)
+				_sync_readout()
+				_chain_wait = 0.22
+	elif _running >= 0:
+		_throw_again(delta)
 	elif live:
 		_pivot.position = Vector3(0, sin(_clock * 1.7) * 0.045, 0)
 		_pivot.quaternion = Quaternion(Vector3.UP, sin(_clock * 0.9) * 0.07) * _target
 		_pivot.scale = Vector3.ONE
 	if is_instance_valid(_glow) and (selected or highlighted):
 		_glow.queue_redraw()
+
+func _throw_again(delta: float) -> void:
+	## The die has landed with throws still owed: after a beat it is picked up and thrown onto
+	## the next face, and what it shows is added to the total once it has stopped.
+	_chain_wait -= delta
+	if _chain_wait > 0.0:
+		return
+	if _chain.is_empty():
+		_running = -1
+		_chain_face = -1
+		return
+	var next: Dictionary = _chain.pop_front()
+	_chain_face = clampi(int(next.get("face", 0)), 0, maxi(0, _frames.size() - 1))
+	_running += int(next.get("value", 0))
+	if _chain.is_empty():
+		## The last landing reports the figure the rules settled on, which a cap may have trimmed.
+		_running = int(roll.get("value", _running))
+	_face_index = _chain_face
+	_target = _orientation(_face_index)
+	_start_spin()
 
 func _draw_glow(target: Control) -> void:
 	var centre := target.size * 0.5

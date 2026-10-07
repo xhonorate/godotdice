@@ -279,8 +279,8 @@ func _init() -> void:
 	var poor: Dictionary = DeepStone.make("GUARD", 11, 2, 1, [], {}, "screens_poor")
 	check(not DeepProfile.appraise(app.profile, poor) and not bool(poor.get("appraised", false)), "an empty purse cannot pay for a loupe")
 	app.profile.gold = 500
-	var choices: Array = app.home._tray_actions(raw, true)
-	check(choices.size() == 3 and str(choices[0].label) == "Keep the new one" and str(choices[1].label) == "Keep your old one" and bool(choices[2].get("dismiss", false)), "with one of its skill kept, the choice is which to keep, or later")
+	var choices: Array = app.home._tray_actions(raw)
+	check(choices.size() == 2 and str(choices[0].label) == "Keep the new one" and str(choices[1].label) == "Keep your old one", "with one of its skill kept, the choice is which to keep")
 	app.home.open("appraise")
 	check(_count_text(app.home, "Keep the new one") == 1 and _count_text(app.home, "Keep your old one") == 1, "the tray offers the same choice beside the kept one")
 	var old_gold: int = int(app.profile.gold)

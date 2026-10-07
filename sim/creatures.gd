@@ -502,7 +502,31 @@ static func amount_words(expr: Variant) -> String:
 	if expr.has("const"):
 		return str(int(expr.const))
 	var parts: Array = expr.get("args", []).map(func(a: Variant) -> String: return amount_words(a))
+	if str(expr.get("op", "")) == "pct" and parts.size() == 2 and (expr.args[1] is int or expr.args[1] is float):
+		return "%s × %s" % [parts[0], ("%.2f" % (float(expr.args[1]) / 100.0)).rstrip("0").rstrip(".")]
 	return (" %s " % str(expr.get("op", "+"))).join(parts)
+
+static func amount_parts(expr: Variant) -> Dictionary:
+	## An amount the creature's bonuses were stacked on, taken apart for the screen: the plain
+	## number it started as, then each bonus in the order it applies, {op: "pct" | "+", value}.
+	## A formula that is not that shape (a die's value, a sum of two terms) is {}, and is read
+	## out in words instead.
+	if not expr is Dictionary or not expr.has("op"):
+		return {}
+	var args: Array = expr.get("args", [])
+	var op: String = str(expr.op)
+	if args.size() != 2 or not op in ["pct", "+"]:
+		return {}
+	if not (args[1] is int or args[1] is float):
+		return {}
+	var inner: Variant = args[0]
+	var parts: Dictionary = amount_parts(inner)
+	if parts.is_empty():
+		parts = {"base": amount_words(inner), "mods": []}
+		if inner is Dictionary and not inner.has("term") and not inner.has("const"):
+			return {}
+	parts.mods.append({"op": op, "value": int(args[1])})
+	return parts
 
 const TARGET_WORDS: Dictionary = {"heroes": "all players", "hero": "all players", "self": "itself", "allies": "every creature", "allies_other": "every other creature",
 	"hero_least_block": "the player with the least block", "hero_most_hp": "the player with the most health", "hero_most_gold": "the player with the most pyrite",

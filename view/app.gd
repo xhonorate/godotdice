@@ -20,6 +20,9 @@ var home: Control
 var descent: Control
 var menu: CanvasLayer
 var _toasts: VBoxContainer
+## How long the fight has been won, in fight time, so the rail running out waits for the blow that won it.
+var _won_for: float = 0.0
+const WON_BEAT: float = 1.6
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -60,6 +63,9 @@ func _ready() -> void:
 	session.refused.connect(func(message: String) -> void: toast(message, DeepUi.BAD))
 	session.error.connect(func(message: String) -> void: toast(message, DeepUi.BAD))
 	session.invited.connect(_on_invited)
+	session.removed.connect(func(message: String) -> void:
+		toast(message, DeepUi.MUTED, "party")
+		_leave_party.call_deferred())
 	home = HomeScreen.new()
 	home.depart_requested.connect(_depart)
 	home.member_changed.connect(func(fields: Dictionary) -> void: session.update_member(fields))
@@ -69,6 +75,10 @@ func _ready() -> void:
 	home.steam_host_requested.connect(_host_steam)
 	home.steam_join_requested.connect(_join_steam)
 	home.invite_requested.connect(_invite)
+	home.kick_requested.connect(func(id: String) -> void:
+		if session.kick(id):
+			toast("They are back in their own workshop.", DeepUi.MUTED, "party"))
+	home.leave_party_requested.connect(_leave_party)
 	home.profile_changed.connect(_profile_changed)
 	home.menu_requested.connect(open_menu)
 	home.player_name_requested.connect(_edit_player_name)
@@ -225,7 +235,7 @@ func _on_run_event(event: Dictionary) -> void:
 	descent.handle(event)
 	descent.show_state(session.run)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if DeepMusic.service() != null:
 		## The music follows the party: the workshop, or the mine they are in and what is
 		## happening there. The mine picked on the map is written before anyone descends.
@@ -236,8 +246,15 @@ func _process(_delta: float) -> void:
 	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
 	var want: float = clampf(session.speed, 1.0, 8.0) if resolving and not session.paused else 1.0
 	## With the last creature down, what is left of the rail runs out at three times the pace.
+	## It waits out a beat first: the blow that won the fight (a gem landing twenty times over)
+	## is still being thrown when the state says everything is dead, and speeding that up
+	## turned the finisher into a blur.
 	if resolving and not session.paused and DeepBattle.living(DeepDescent.battle(session.run).get("enemies", [])).is_empty():
-		want = clampf(want * 3.0, 3.0, 8.0)
+		_won_for += delta
+		if _won_for > WON_BEAT:
+			want = clampf(want * 3.0, 3.0, 8.0)
+	else:
+		_won_for = 0.0
 	## A heavy blow holds the clock for a beat; the last one of a fight runs in slow motion.
 	## Whatever speed the fight is played at, a held beat is held.
 	var warp: float = ScreenFx.time_warp()
@@ -374,7 +391,8 @@ func _apply_settings(starting: bool = false) -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if bool(settings.get("vsync", true)) else DisplayServer.VSYNC_DISABLED)
 
 func _leave_party() -> void:
-	## A guest walking away: back to a workshop of their own.
+	## Walking away, as a guest or by closing a party you host: back to a workshop of your own.
+	session.leave_party()
 	session.start_local(member())
 	descent.visible = false
 	home.visible = true

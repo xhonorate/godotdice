@@ -32,6 +32,8 @@ signal join_requested(address: String, port: int)
 signal steam_host_requested
 signal steam_join_requested(lobby_id: String)
 signal invite_requested
+signal kick_requested(player_id: String)
+signal leave_party_requested
 signal profile_changed
 signal menu_requested
 signal player_name_requested
@@ -516,6 +518,16 @@ func _party_view(side: VBoxContainer) -> void:
 		if _member_short(member):
 			DeepUi.pill(row, "coin", "short", DeepUi.BAD, 11, "Cannot pay the way down to %s" % DeepContent.mine_name(_chosen_mine()))
 		DeepUi.pill(row, "crown" if note == "host" else ("check" if note == "ready" else "hourglass"), note, DeepUi.GOOD if note in ["ready", "host"] else DeepUi.MUTED, 11)
+		if is_host and str(id) != local_id:
+			var member_id: String = str(id)
+			var kick := DeepUi.icon_button(row, "cross_out", "", func() -> void: kick_requested.emit(member_id), 12, DeepUi.BAD)
+			kick.tooltip_text = "Send %s back to their own workshop" % str(member.get("name", id))
+	## Out of the party: a guest goes home, a host closes it and sends everyone home.
+	if status not in ["local", "offline"]:
+		var hosting: bool = is_host
+		var out := DeepUi.icon_button(party_box, "prev", "Close the party" if hosting else "Leave the party", func() -> void: leave_party_requested.emit(), 13, DeepUi.MUTED)
+		out.size_flags_horizontal = Control.SIZE_SHRINK_END
+		out.tooltip_text = "Everyone goes back to their own workshop." if hosting else "Back to a workshop of your own."
 	_enter(party)
 	## Co-op over the network.
 	var together := DeepUi.card(side, DeepUi.LINE, 16)
@@ -1422,7 +1434,7 @@ func _appraise(content: VBoxContainer) -> void:
 		var sheet := Appraisal.Sheet.new(pick, owned, {"skill_text": true, "owned_picture": not comparing})
 		right.add_child(sheet)
 		sheet.show_all()
-		Appraisal.choices(right, _tray_actions(pick, false))
+		Appraisal.choices(right, _tray_actions(pick))
 		if comparing:
 			_lens_column(table_row, owned, 165.0)
 	_enter(table, 0.1)
@@ -1487,7 +1499,7 @@ func _appraise_stone(pick: Dictionary) -> void:
 		profile_changed.emit()
 		return
 	var owned: Dictionary = DeepProfile.owned(profile, str(pick.skill))
-	var actions: Array = _tray_actions(pick, true)
+	var actions: Array = _tray_actions(pick)
 	var opts: Dictionary = {}
 	if owned.is_empty():
 		## Nothing to weigh it against: the first of its skill. The ceremony ends on its own
@@ -1505,10 +1517,10 @@ func _appraise_stone(pick: Dictionary) -> void:
 	Appraisal.open(raw, opts)
 	profile_changed.emit()
 
-func _tray_actions(pick: Dictionary, deferrable: bool) -> Array:
+func _tray_actions(pick: Dictionary) -> Array:
 	## What can be done with a known stone on the tray. With one of its skill already kept the
 	## choice is which of the two to keep; otherwise it is keep or sell. At the end of an
-	## appraisal it can also be left on the tray for later.
+	## appraisal, Escape leaves it on the tray; there is no button for putting it off.
 	var id: String = str(pick.id)
 	if DeepStone.is_fragile(pick):
 		return []
@@ -1539,8 +1551,6 @@ func _tray_actions(pick: Dictionary, deferrable: bool) -> Array:
 				_appraise_pick = ""
 				profile_changed.emit()
 		out.append({"label": "Turn it in", "glyph": "flag", "tone": DeepUi.INFO, "caption": "A commission pays %d gold for it" % paid, "sound": "sell", "call": turn_in})
-	if deferrable:
-		out.append({"label": "Decide later", "glyph": "hourglass", "primary": false, "dismiss": true, "caption": "It waits on the tray"})
 	return out
 
 class LoupeTable extends Control:

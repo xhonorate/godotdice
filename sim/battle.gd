@@ -1228,9 +1228,12 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.rank = rank
 			_credit_buff(unit, rank, socket)
 		"upgrade_faces":
+			## Only the first die it matches, in the order they sit in the hand.
 			var changed: Array = []
 			for roll in unit.hand:
-				if bool(roll.get("phantom", false)) or not effect.get("dice", []).has(str(roll.die_id)) or changed.has(str(roll.die_id)):
+				if not changed.is_empty():
+					break
+				if bool(roll.get("phantom", false)) or not effect.get("dice", []).has(str(roll.die_id)):
 					continue
 				for die in unit.dice:
 					if str(die.id) != str(roll.die_id):
@@ -1239,6 +1242,8 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 						if bool(effect.get("all_faces", false)) or face_index == int(roll.get("face", -1)):
 							die.faces[face_index].value = mini(DeepDice.VALUE_CAP, int(die.faces[face_index].value) + amount)
 					roll.value = mini(DeepDice.VALUE_CAP, int(roll.value) + amount)
+					if roll.has("base"):
+						roll.base = mini(DeepDice.VALUE_CAP, int(roll.base) + amount)
 					if die.has("top"):
 						var physical_top: int = 0
 						for face in die.faces:

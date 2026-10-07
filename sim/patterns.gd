@@ -178,7 +178,8 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.count = dice.size()
 				result.value = int(wanted[0]) if not wanted.is_empty() else 0
 		"at_most", "below":
-			var dice: Array = DeepHand.matching(a, func(v: int) -> bool: return v < need if kind == "below" else v <= need)
+			var judge: Callable = func(v: int) -> bool: return v < need if kind == "below" else v <= need
+			var dice: Array = DeepHand.matching_faces(a, judge) if kind == "below" else DeepHand.matching(a, judge)
 			if dice.size() >= 1:
 				result.active = true
 				result.dice = dice

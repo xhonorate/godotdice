@@ -561,14 +561,14 @@ func _draw_glint(at: Vector2, glint: String, strength: float) -> void:
 		_canvas.draw_line(spark - Vector2(0, arm), spark + Vector2(0, arm), Color(1, 0.95, 0.8, fade), 1.2, true)
 
 func _draw_voters(id: String, at: Vector2, radius: float) -> void:
-	var seat: int = 0
+	## Everyone who has picked this way, you included, in their own seat's color: the same
+	## orbs the mouth in the room hangs over its arch.
 	var count: int = 0
 	for other in run.get("players", []):
-		if str(other.get("vote", "")) == id and str(other.id) != local_id:
+		if str(other.get("vote", "")) == id:
 			var dot: Vector2 = at + Vector2(radius + 8.0, -radius * 0.6 + float(count) * 9.0)
-			_canvas.draw_circle(dot, 3.5, Color(SEATS[seat % SEATS.size()], _fade(at.y)))
+			_canvas.draw_circle(dot, 3.5, Color(SEATS[int(other.get("seat", 0)) % SEATS.size()], _fade(at.y)))
 			count += 1
-		seat += 1
 
 func _draw_landing(map: Dictionary, at: Vector2, reachable: bool) -> void:
 	var fade: float = _fade(at.y)
