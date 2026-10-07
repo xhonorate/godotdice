@@ -7,7 +7,7 @@ import { colorKeyMark, CUTS, SHAPE_NAMES, silhouette } from '../gemart.js';
 import { tabs, rarityChip, RARITY_COLORS } from './common.js';
 
 const state = { tab: 'oddities' };
-const NEEDS = { stone: 'a stone', two_stones: 'two stones', inclusion: 'a stone and one of its inclusions', raw_stone: 'a raw stone', die: 'a die', die_face: 'a die and a face', die_face_pair: 'two faces of one die', pattern: 'a pattern', raw_stones: 'up to three raw stones', offer: 'what the room has laid out', ore: 'pyrite', socket: 'a socketed stone', pick: 'a choice of three' };
+const NEEDS = { stone: 'a stone', two_stones: 'two stones', inclusion: 'a stone and one of its inclusions', raw_stone: 'a raw stone', die: 'a die', die_face: 'a die and a face', pattern: 'a pattern', raw_stones: 'up to three raw stones', offer: 'what the room has laid out', ore: 'pyrite', socket: 'a socketed stone', pick: 'a choice of three' };
 
 // A card's "{ore}" is the pyrite it pays at the depth the party is on; here, the range across a run.
 function oreText(choice) {
