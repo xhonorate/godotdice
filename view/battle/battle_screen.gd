@@ -1159,6 +1159,9 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		if str(roll.get("kind", "plain")) != "plain":
 			var added_up: int = view.running_total()
 			words = DiceIcons.face_text(added_up if added_up >= 0 else int(roll.value), str(roll.get("kind", "plain"))).strip_edges()
+		elif roll.has("shown") and int(roll.value) == int(roll.get("counted", -1)):
+			## An Iron die shows its own face and counts for its floor: say what it counts for.
+			words = "counts %d" % int(roll.value)
 		if bool(roll.get("locked", false)):
 			words += "  ⌂"
 		if bool(roll.get("flipped", false)):
@@ -2025,7 +2028,7 @@ func _birthstone_fire(event: Dictionary) -> void:
 	var origin: Vector3 = _control_world(anchor, 1.6) if anchor != null else _origin_for(unit_id, -1)
 	if not bool(event.get("fired", false)):
 		if anchor != null and mine:
-			_float_at(anchor, "dark", DeepUi.DIM, 13)
+			_float_at(anchor, "fizzle", DeepUi.DIM, 13)
 			anchor.modulate = Color(0.6, 0.6, 0.7, 1.0)
 			var tween := create_tween()
 			tween.tween_property(anchor, "modulate", Color.WHITE, 0.6)

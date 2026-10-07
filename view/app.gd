@@ -60,7 +60,10 @@ func _ready() -> void:
 	session.run_started.connect(_on_run_started)
 	session.run_event.connect(_on_run_event)
 	session.run_ended.connect(_on_run_ended)
-	session.refused.connect(func(message: String) -> void: toast(message, DeepUi.BAD))
+	session.refused.connect(func(message: String) -> void:
+		toast(message, DeepUi.BAD)
+		if descent != null and descent.visible:
+			descent.refused())
 	session.error.connect(func(message: String) -> void: toast(message, DeepUi.BAD))
 	session.invited.connect(_on_invited)
 	session.removed.connect(func(message: String) -> void:

@@ -25,6 +25,7 @@ const Biomes = preload("res://view/battle/biomes.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const BenchPanel = preload("res://view/run/bench_panel.gd")
 const RunDock = preload("res://view/run/run_dock.gd")
+const DownedVeil = preload("res://view/run/downed_veil.gd")
 
 signal command(cmd: Dictionary)
 signal home_requested
@@ -40,7 +41,7 @@ const KIND_TEXT: Dictionary = {"fight": "A fight. Pays pyrite, with a good chanc
 	"elite": "An elite fight. Guaranteed stone, one grade better.",
 	"vein": "A wall of glinting rock. Strike it for stones and pyrite.",
 	"oddity": "Something odd. Usually a gamble with your stones or dice.",
-	"motherlode": "A pocket full of loose stones. Free to take.",
+	"motherlode": "Shining rocks with a stone in each. Breaking them out costs a little health.",
 	"merchant": "A stall on a ledge: stones for pyrite, appraisals, and a buyer for what you found.",
 	"smithy": "An anvil and a rack of files: make one of your dice a size bigger, or a size smaller.",
 	"carver": "Fine chisels and a case of needles under a lamp: raise a face of a die, recut one to show another's number, or cut a mark into it.",
@@ -95,6 +96,14 @@ var _chip_index: int = -1
 var _chip_pick: String = ""
 ## A strike sent and not yet answered: the vein waits for the rock to answer.
 var _strike_pending: bool = false
+var _strike_token: int = 0
+var _veil: Control
+## The two sides of the trading table on the page now showing, for the stones to fly from.
+var _trade_slots: Dictionary = {}
+var _trade_pulse: bool = false
+var _veil_synced: bool = false
+## Who was down at the last look, by id.
+var _fallen: Dictionary = {}
 ## A thing in the room clicked on: its chip stays up, with buttons, until something else is.
 var _pinned: String = ""
 ## The rail, the dice and the bag, along the bottom outside a fight.
@@ -212,7 +221,7 @@ func _ready() -> void:
 	_map_margin.visible = false
 	_map = ShaftMap.new()
 	_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_map.vote.connect(func(offer_id: String) -> void: command.emit({"kind": "vote_tunnel", "offer": offer_id}))
+	_map.vote.connect(_vote)
 	_map.light.connect(func() -> void: command.emit({"kind": "light"}))
 	_map_margin.add_child(_map)
 	_page_holder = Control.new()
@@ -226,6 +235,9 @@ func _ready() -> void:
 	_run_dock.chose.connect(_on_dock_chose)
 	_run_dock.visible = false
 	_body.add_child(_run_dock)
+	## Over the room, the fight and the dock alike while this player is down in a party.
+	_veil = DownedVeil.new()
+	_body.add_child(_veil)
 	## The bench lies over everything but the toasts, whatever page is showing.
 	_bench = BenchPanel.new()
 	_bench.command.connect(func(cmd: Dictionary) -> void: command.emit(cmd))
@@ -269,6 +281,9 @@ func bind(player_id: String, forecast: Callable) -> void:
 	_last_battle = {}
 	_last_offers = []
 	_walking = false
+	_veil.set_down(false, false)
+	_veil_synced = false
+	_fallen = {}
 
 func warm_up() -> void:
 	## Pays for the mine's shaders while nobody is looking.
@@ -297,6 +312,32 @@ func _celebrate(which: String, text: String, color: Color) -> void:
 
 func me() -> Dictionary:
 	return DeepDescent.player(run, local_id)
+
+func _sync_fallen() -> void:
+	## Who is down, said as it changes. This player's own fall greys the screen until a landing
+	## brings them round; an ally's is a line at the bottom. Getting back up waits for the walk
+	## into the landing to finish, so it happens in the landing and not in the tunnel.
+	var phase: String = str(run.get("phase", ""))
+	var party: bool = run.get("players", []).size() > 1
+	var animate: bool = _veil_synced and not _headless
+	var standing: bool = phase in ["over", "salvage"] or run.is_empty()
+	for other in run.get("players", []):
+		var id: String = str(other.get("id", ""))
+		var now_down: bool = bool(other.get("downed", false)) and party and not standing
+		var was_down: bool = bool(_fallen.get(id, false))
+		if now_down == was_down:
+			continue
+		if not now_down and _walking and animate:
+			continue
+		_fallen[id] = now_down
+		if id == local_id:
+			_veil.set_down(now_down, animate)
+		elif animate:
+			if now_down:
+				toast("%s is down. Carry them to the next landing." % str(other.get("name", "")), DeepUi.BAD, "skull")
+			else:
+				toast("%s is back on their feet." % str(other.get("name", "")), DeepUi.GOOD, "heart")
+	_veil_synced = true
 
 # --- state -----------------------------------------------------------------------------------
 
@@ -329,6 +370,7 @@ func show_state(state: Dictionary) -> void:
 		_bench.visible = false
 	_bench.refresh(run)
 	_sync_stage()
+	_sync_fallen()
 	## Outside a fight the party's kit stays at hand along the bottom.
 	_run_dock.visible = (_walking or not DeepDescent.in_battle(run)) and not phase in ["salvage", "over"] and not (not _hold.is_empty() and str(_hold.get("stage", "")) == "battle")
 	_run_dock.show_run(run)
@@ -393,7 +435,7 @@ func show_state(state: Dictionary) -> void:
 			_descend_via = -1
 			_choose_mouth.call_deferred(via)
 		return
-	if phase == "chamber" and str(run.chamber.get("kind", "")) in ["vein", "vug"] and _hold.is_empty():
+	if phase == "chamber" and str(run.chamber.get("kind", "")) in DeepDescent.ROCK_ROOMS and _hold.is_empty():
 		## A vein is worked in the room itself.
 		_scrim.visible = false
 		_show_vein()
@@ -558,10 +600,13 @@ func _depth_title(depth: int, kind: String) -> void:
 	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.ACCENT)
 	var mark := DeepUi.icon(column, str(DeepUi.CHAMBER_GLYPHS.get(kind, "stairs")), 54, tone)
 	mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var heading := DeepUi.title(column, "Depth %d" % depth, 54, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	## The head of a mine the party has pushed on into is named, not numbered.
+	var heading := DeepUi.title(column, DeepContent.mine_name(str(run.get("mine", ""))) if kind == "head" else "Depth %d" % depth, 54, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	heading.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
 	heading.add_theme_constant_override("outline_size", 10)
 	var words: String = str(KIND_WORDS.get(kind, kind.capitalize())) if kind != "warden" else "A Warden"
+	if kind == "head":
+		words = "The top of the mine"
 	var biome: Dictionary = Biomes.for_depth(str(run.get("mine", "")), maxi(1, depth), "fight", Biomes.run_phase(run, maxi(1, depth)))
 	var line := DeepUi.label(column, "%s  ·  %s" % [words, str(biome.get("name", ""))], 18, tone.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
 	line.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
@@ -686,8 +731,23 @@ func handle(event: Dictionary) -> void:
 				Inspector.stone(taken, {"fanfare": {"title": "The hoard is yours",
 					"subtitle": "From the Warden's hoard, appraised and ready to set." if known else "From the Warden's hoard, still raw. Appraise it to see what it is.",
 					"button": "Take it home"}})
-		"given":
-			toast("%s gave %s something." % [str(DeepDescent.player(run, str(event.get("from", ""))).get("name", "")), str(DeepDescent.player(run, str(event.get("to", ""))).get("name", ""))], DeepUi.INFO, "party")
+		"traded":
+			var units: Array = event.get("units", [])
+			var stones: Dictionary = event.get("stones", {})
+			if units.has(local_id):
+				var other_id: String = str(units[1] if str(units[0]) == local_id else units[0])
+				_trade_flourish(stones.get(local_id, {}), stones.get(other_id, {}))
+				toast("You traded with %s." % str(DeepDescent.player(run, other_id).get("name", "")), DeepUi.ORE, "scales")
+				_landing_view = ""
+			else:
+				toast("%s and %s traded stones." % [str(DeepDescent.player(run, str(units[0])).get("name", "")), str(DeepDescent.player(run, str(units[1])).get("name", ""))], DeepUi.ORE, "scales")
+		"trade_offer":
+			if str(event.get("unit", "")) != local_id and DeepDescent.trade_partner(run, local_id) == str(event.get("unit", "")):
+				DeepAudio.play("ui_toggle", {"volume": 0.6})
+				_trade_pulse = true
+		"trade_accept":
+			if str(event.get("unit", "")) != local_id:
+				DeepAudio.play("ui_confirm", {"volume": 0.6})
 		"bought":
 			## Off the counter and into the bag it goes, or away with whoever bought it.
 			var item: Dictionary = event.get("item", {})
@@ -726,10 +786,6 @@ func handle(event: Dictionary) -> void:
 						_appraisal(event.get("stone", {}))
 					"wish":
 						_well_hold(str(event.get("message", "")), event.get("well", {}), event.get("made", []), "landing")
-		"motherlode":
-			DeepAudio.play("stone_found")
-			_hold_page("spoils", {"title": "A motherlode", "subtitle": "A pocket full of loose stones. Free to take.", "glyph": "gem",
-				"rewards": event.get("rewards", {}).get(local_id, {})})
 		"landing":
 			DeepAudio.play("landing")
 			toast("The landing. Breathe.", DeepUi.GOOD, "lift")
@@ -901,6 +957,7 @@ func _place_of(state: Dictionary) -> Dictionary:
 	## The final boss's hall is the one hall with a cage sunk into it: the way home after it.
 	var cage: bool = kind == "warden" and DeepDescent.run_is_boss(state, depth)
 	return {"key": key, "mine": mine, "depth": depth, "kind": kind, "exits": clampi(exits, 1, 3), "drop": drop, "seal": DeepDescent.in_battle(state), "cage": cage,
+		"party": state.get("players", []).size(),
 		"phase": Biomes.run_phase(state, maxi(1, depth))}
 
 func _sync_stage() -> void:
@@ -930,6 +987,11 @@ func _sync_stage() -> void:
 			index = i
 	if index < 0 and str(_stage.place.get("kind", "")) == "landing" and str(place.kind) == "warden" and int(_stage.place.get("depth", -1)) == int(place.depth):
 		index = 0
+	## Out of a beaten boss's hall and on into the mine below: down its one mouth, walked, to
+	## the new mine's head, where the party chooses its own way on.
+	var pushed_on: bool = index < 0 and bool(_stage.place.get("cage", false)) and str(place.kind) == "head" and str(_stage.place.get("mine", "")) != str(place.mine)
+	if pushed_on:
+		index = 0
 	_last_offers = []
 	if index >= 0 and _stage.has_room():
 		_walking = true
@@ -942,7 +1004,7 @@ func _sync_stage() -> void:
 		## A fight waits down this tunnel: its creatures are read off the disk on the way.
 		if DeepDescent.in_battle(run):
 			CrystalCreature.preload_scenes(DeepDescent.battle(run).get("enemies", []))
-		_stage.walk(place, index, _arrived, _depth_title.bind(int(place.depth), str(place.kind) if str(place.kind) != "head" else "fight"))
+		_stage.walk(place, index, _arrived, _depth_title.bind(int(place.depth), str(place.kind) if str(place.kind) != "head" or pushed_on else "fight"))
 	else:
 		_stage.show_room(place)
 		if DeepDescent.in_battle(run):
@@ -979,44 +1041,66 @@ func _show_vein() -> void:
 	## business is a running question: one more, or walk on?
 	var vein: Dictionary = run.chamber.get("vein", {})
 	var hazard: bool = bool(vein.get("hazard", false))
-	var spots: Array = vein.get("spots", [])
+	var hollow: bool = bool(vein.get("hollow", false))
+	## A hollow's rocks are each somebody's own: this player sees theirs.
+	var spots: Array = _my_rocks()
 	var unit: Dictionary = me()
 	var mining: bool = bool(unit.get("mining", false))
 	var swings: int = int(unit.get("strikes", 0))
-	var cost: int = DeepDescent.strike_cost(swings, hazard)
+	var cost: int = DeepDescent.swing_cost(run, unit)
 	var finders: Dictionary = {}
-	for spot in spots:
-		if not str(spot.get("taken", "")).is_empty():
-			finders[int(spot.index)] = _seat_color(str(spot.taken))
+	for at in range(spots.size()):
+		if not str(spots[at].get("taken", "")).is_empty():
+			finders[at] = _seat_color(str(spots[at].taken))
 	var face: Node3D = _stage.vein(spots, hazard, finders)
 	if face != null:
-		for spot in spots:
-			var index: int = int(spot.index)
-			var id: String = "spot:%d" % index
+		for at in range(spots.size()):
+			var spot: Dictionary = spots[at]
+			var place: int = at
+			var id: String = "spot:%d" % int(spot.index)
 			if not _stage.has_pick(id):
-				var holder: Node3D = face.spot_node(index)
+				var holder: Node3D = face.spot_node(place)
 				_stage.add_pick(id, holder, Vector3(0.6, 0.55, 0.45), {"hover": func(on: bool) -> void:
 					if is_instance_valid(face):
-						face.set_hover(index if on else -1)})
+						face.set_hover(place if on else -1)})
 			var open: bool = mining and str(spot.get("taken", "")).is_empty() and not _strike_pending and int(unit.get("hp", 0)) > cost
 			_stage.enable_pick(id, open)
-			face.set_open(index, open)
+			face.set_open(place, open)
 	_crossroads.visible = true
-	_set_cross_mark("pick", DeepUi.CHAMBER_colorS.get("vein", DeepUi.ACCENT))
-	_cross_title.text = "The vug" if hazard else "A vein"
-	if mining:
+	_set_cross_mark("gem" if hollow else "pick", DeepUi.CHAMBER_colorS.get("vein", DeepUi.ACCENT))
+	_cross_title.text = "A glittering hollow" if hollow else ("The vug" if hazard else "A vein")
+	if mining and hollow:
+		var left: int = spots.filter(func(sp: Dictionary) -> bool: return str(sp.get("taken", "")).is_empty()).size()
+		_cross_sub.text = "Your shining rocks each hold a stone, and one blow breaks it out. %s left; the next costs %d health." % [DeepUi.plural(left, "rock"), cost]
+		if int(unit.get("hp", 0)) <= cost:
+			_cross_sub.text = "Breaking another would finish you. Leave the rest."
+	elif mining:
 		_cross_sub.text = "Swing as often as you like. The next swing costs %s." % ("nothing" if cost <= 0 else "%d health" % cost)
 		if int(unit.get("hp", 0)) <= cost:
 			_cross_sub.text = "Another swing would finish you. Put the pick down."
 	else:
 		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return bool(p.get("mining", false)) and not bool(p.get("downed", false)))
-		_cross_sub.text = "You put the pick down." + (" Waiting for %s." % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "")
+		var said: String = "You are down, and cannot swing a pick until the next landing." if bool(unit.get("downed", false)) else ("You are done here." if hollow else "You put the pick down.")
+		_cross_sub.text = said + (" Waiting for %s." % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "")
 	DeepUi.clear(_cross_hint)
 	var legend := PanelContainer.new()
 	legend.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4))
 	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cross_hint.add_child(legend)
 	var row := DeepUi.hbox(legend, 18)
+	if hollow:
+		DeepUi.stat(row, "gem", "a stone in every rock", Color("ffcf5a"), 12)
+		DeepUi.stat(row, "heart", "next rock: %d HP" % cost, DeepUi.BAD, 12, "The first rock costs a point of health, and each after it a point more.")
+		DeepUi.stat(row, "pick", "%s broken" % DeepUi.plural(swings, "rock"), DeepUi.ACCENT, 12)
+	if mining:
+		var leave := DeepUi.primary(_bottom_page(), "check", "Leave the rest" if hollow else "Put the pick down", func() -> void:
+			command.emit({"kind": "stop_mining"}), 15, DeepUi.GOOD)
+		leave.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		leave.custom_minimum_size.x = 260
+		leave.tooltip_text = "Leave the rest of the rock where it is and take the way on."
+	if hollow:
+		_fill_chip()
+		return
 	DeepUi.stat(row, "pick", "%s so far" % DeepUi.plural(swings, "swing"), DeepUi.ACCENT, 12, "Every few swings the next one costs another point of health.")
 	DeepUi.stat(row, "heart", ("next swing free" if cost <= 0 else "next swing: %d HP" % cost), DeepUi.BAD if cost > 0 else DeepUi.GOOD, 12)
 	DeepUi.stat(row, "spark", "bright: a fine stone, deep in", Color("ffcf5a"), 12)
@@ -1024,24 +1108,43 @@ func _show_vein() -> void:
 	DeepUi.stat(row, "ore", "dull: pyrite or dust", DeepUi.MUTED, 12)
 	if hazard:
 		DeepUi.stat(row, "skull", "bad air: %d HP on top of every swing" % DeepDescent.VUG_HP, DeepUi.BAD, 12)
-	if mining:
-		## Down at the bottom of the screen where every other room's choices are, not tucked
-		## under the title at the top.
-		var done := DeepUi.primary(_bottom_page(), "check", "Put the pick down", func() -> void:
-			command.emit({"kind": "stop_mining"}), 15, DeepUi.GOOD)
-		done.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		done.custom_minimum_size.x = 260
-		done.tooltip_text = "Leave the rest of the rock where it is and take the way on."
 	_fill_chip()
+
+func _my_rocks() -> Array:
+	## The rocks this player can see: every spot of a vein, or their own in a hollow.
+	var vein: Dictionary = run.get("chamber", {}).get("vein", _last_chamber.get("vein", {}))
+	var spots: Array = vein.get("spots", [])
+	if not bool(vein.get("hollow", false)):
+		return spots
+	return spots.filter(func(sp: Dictionary) -> bool: return str(sp.get("owner", "")) == local_id)
+
+func _rock_place(global_index: int) -> int:
+	## Where a spot stands on this player's face of the rock, or -1 when it is not on it.
+	var mine: Array = _my_rocks()
+	for at in range(mine.size()):
+		if int(mine[at].get("index", -1)) == global_index:
+			return at
+	return -1
 
 func _vein_struck(event: Dictionary) -> void:
 	var unit_id: String = str(event.get("unit", ""))
 	var mine: bool = unit_id == local_id
-	var index: int = int(event.get("spot", -1))
+	var spot_id: int = int(event.get("spot", -1))
+	var index: int = _rock_place(spot_id)
 	var result: Dictionary = event.get("result", {})
 	var hazard: bool = bool(_last_chamber.get("vein", {}).get("hazard", false))
 	if mine:
 		_strike_pending = false
+		_strike_token += 1
+	if index < 0:
+		## Somebody else's rock, in a hollow: it is not in this player's view.
+		DeepAudio.play("pick_strike", {"gap": 0.0, "volume": 0.5})
+		if bool(event.get("finished", false)):
+			_hold_page("vein", {"stage": "flight"})
+			_later(0.8, _after_vein.bind(int(_hold.token)))
+		else:
+			show_state(run)
+		return
 	if not bool(event.get("through", true)):
 		## The pick bit and the rock held. Nothing comes out of it; the spot stays open.
 		if not _headless:
@@ -1049,7 +1152,7 @@ func _vein_struck(event: Dictionary) -> void:
 			if mine:
 				var left: int = int(event.get("hardness", 1)) - int(event.get("struck", 0))
 				var said: String = "the rock holds" if left <= 1 else "deep in the rock"
-				var spot_at: Vector2 = _stage.pick_rect("spot:%d" % index).get_center()
+				var spot_at: Vector2 = _stage.pick_rect("spot:%d" % spot_id).get_center()
 				if int(event.get("hp_cost", 0)) > 0:
 					DeepUi.float_text(self, spot_at + Vector2(0, -28), "-%d" % int(event.hp_cost), DeepUi.BAD, 18, 55.0, 1.0)
 				DeepUi.float_text(self, spot_at, said, DeepUi.MUTED, 17, 50.0, 1.1)
@@ -1148,7 +1251,7 @@ func _press_pick(id: String) -> void:
 			match parts[1]:
 				"rest":
 					_respite("rest", "")
-				"wish", "appraise":
+				"wish", "appraise", "trade":
 					_open_landing(parts[1])
 				_:
 					_pin(id)
@@ -1156,9 +1259,28 @@ func _press_pick(id: String) -> void:
 			if not bool(me().get("mining", false)) or _strike_pending or str(run.get("phase", "")) != "chamber":
 				return
 			_strike_pending = true
+			_strike_token += 1
+			var token: int = _strike_token
 			for spot in run.chamber.get("vein", {}).get("spots", []):
 				_stage.enable_pick("spot:%d" % int(spot.index), false)
 			command.emit({"kind": "strike", "spot": int(parts[1])})
+			## A swing the host turned down (an ally broke through that spot first, or the arm
+			## is spent) never comes back as a strike, and a lost packet never comes back at all:
+			## neither may leave the rock shut to this player for the rest of the vein.
+			_later(2.5, _strike_lapsed.bind(token))
+
+func refused() -> void:
+	## The host said no to something this player asked for. A swing waiting on its answer is
+	## not waiting any more.
+	if _strike_pending:
+		_strike_lapsed(_strike_token)
+
+func _strike_lapsed(token: int) -> void:
+	if not _strike_pending or token != _strike_token:
+		return
+	_strike_pending = false
+	if str(run.get("phase", "")) == "chamber" and str(run.get("chamber", {}).get("kind", "")) in DeepDescent.ROCK_ROOMS and _hold.is_empty():
+		show_state(run)
 
 func _pick_chip(box: VBoxContainer, id: String) -> bool:
 	## What the chip says about a thing in the room. False if there is nothing to say.
@@ -1170,6 +1292,15 @@ func _pick_chip(box: VBoxContainer, id: String) -> bool:
 			if index < 0 or index >= spots.size():
 				return false
 			var glint: String = str(spots[index].get("glint", "dull"))
+			if bool(run.get("chamber", {}).get("vein", {}).get("hollow", false)):
+				var shine := DeepUi.hbox(box, 8)
+				DeepUi.icon(shine, "gem", 20, Color("ffcf5a"))
+				DeepUi.title(shine, "A shining rock", 18, Color("ffe08a"))
+				DeepUi.label(box, "A stone is in it. One blow breaks it out.", 13, DeepUi.MUTED)
+				var price: int = DeepDescent.swing_cost(run, me())
+				DeepUi.stat(box, "heart", "breaking it costs %d health" % price, DeepUi.BAD, 12)
+				DeepUi.label(box, "Click to break it.", 12, DeepUi.DIM)
+				return true
 			var words: Array = VEIN_WORDS.get(glint, VEIN_WORDS.dull)
 			var tone: Color = {"bright": Color("ffcf5a"), "glint": DeepUi.INFO}.get(glint, DeepUi.MUTED)
 			var title_row := DeepUi.hbox(box, 8)
@@ -1181,7 +1312,7 @@ func _pick_chip(box: VBoxContainer, id: String) -> bool:
 				DeepUi.stat(box, "pick", "%s in and the rock still holds" % DeepUi.plural(bitten, "swing"), DeepUi.ACCENT, 12)
 			elif glint == "bright":
 				DeepUi.stat(box, "pick", "buried deep: three or four swings", DeepUi.MUTED, 12)
-			var cost: int = DeepDescent.strike_cost(int(me().get("strikes", 0)), bool(run.get("chamber", {}).get("vein", {}).get("hazard", false)))
+			var cost: int = DeepDescent.swing_cost(run, me())
 			DeepUi.stat(box, "heart", "this swing costs %s" % ("nothing" if cost <= 0 else "%d health" % cost), DeepUi.BAD if cost > 0 else DeepUi.GOOD, 12)
 			DeepUi.label(box, "Click to strike.", 12, DeepUi.DIM)
 			return true
@@ -1463,8 +1594,12 @@ func _show_landing() -> void:
 	## has no hall to speak of: nothing to walk up to, so the mouths are live from the start.
 	var can_rest: bool = lift != null and not cleared and lift.parts.has("rest")
 	var waiting: bool = can_rest and taken.is_empty()
-	## Gone up to the well or the bench: the rest of the hall waits behind its page.
-	if not waiting or not lift.parts.has(_landing_view):
+	## In a party the trading table stays open after the respite, so the party stays in the
+	## hall with it: the ways down are chosen from beside it rather than walked up to.
+	var trading: bool = can_rest and DeepDescent.can_trade(run) and lift.parts.has("trade")
+	## Gone up to the well or the bench: the rest of the hall waits behind its page. The table
+	## is there whether or not the respite has been taken.
+	if lift == null or not lift.parts.has(_landing_view) or (not waiting and not (trading and _landing_view == "trade")):
 		_landing_view = ""
 	var offered: Array = []
 	if lift != null and (not cleared or boss_hall):
@@ -1472,11 +1607,15 @@ func _show_landing() -> void:
 			offered = [_landing_view]
 		elif waiting:
 			offered = ["rest", "appraise", "wish", "up"]
+			if trading:
+				offered.append("trade")
+		elif trading:
+			offered = ["trade"]
 		elif not can_rest:
 			offered = ["up"]
 		lift.set_taken(taken)
 		lift.set_offered(offered)
-		for key in ["rest", "appraise", "wish", "up"]:
+		for key in ["rest", "appraise", "wish", "up", "trade"]:
 			if not lift.parts.has(key):
 				continue
 			var id: String = "hall:" + key
@@ -1499,6 +1638,15 @@ func _show_landing() -> void:
 						options.accepts = func(data: Dictionary) -> bool:
 							return str(me().get("respite", "")).is_empty() and str(data.get("kind", "")) == "stone" and int(data.get("from_socket", -1)) < 0 and not bool(data.get("appraised", false))
 						options.drop = func(data: Dictionary) -> void: _respite("appraise", str(data.stone_id))
+					"trade":
+						## The whole booth, awning and all, the way the cage is the whole cage.
+						options.offset = Vector3(0, 1.5, 0)
+						options.half = Vector3(1.2, 1.5, 0.9)
+						options.accepts = func(data: Dictionary) -> bool:
+							return str(data.get("kind", "")) == "stone" and int(data.get("from_socket", -1)) < 0
+						options.drop = func(data: Dictionary) -> void:
+							_open_landing("trade")
+							command.emit({"kind": "trade_offer", "stone_id": str(data.stone_id)})
 					"wish":
 						options.offset = Vector3(0, 1.1, 0)
 						options.half = Vector3(1.0, 1.2, 1.0)
@@ -1516,6 +1664,10 @@ func _show_landing() -> void:
 		## The bottom of a mine: the cage home and the way on into the next mine are both
 		## chosen from where the party stands, so both stay in view.
 		_stage.open_ways(crossroads_entries())
+	elif trading:
+		## The respite is taken, and the table is still there: the ways down light up and can be
+		## chosen from here, and nobody is walked off to them before they are done trading.
+		_stage.open_ways(crossroads_entries())
 	else:
 		## The respite is taken and read: the party walks up to the crossroads.
 		_stage.crossroads(crossroads_entries())
@@ -1531,7 +1683,7 @@ func _show_landing() -> void:
 	else:
 		_cross_title.text = ("The Warden's hall" if cleared else "The landing") + "  ·  depth %d" % int(run.get("depth", 0))
 	if waiting:
-		_cross_sub.text = "Each of you gets one action: rest, appraise a stone or use the well. Or take the lift up now with what you're carrying."
+		_cross_sub.text = "Each of you gets one action: rest, appraise a stone or use the well. Or take the lift up now with what you're carrying." + (" Trading at the table is free." if trading else "")
 	elif boss_hall and not next_key.is_empty():
 		_cross_sub.text = "The mine is beaten. Ride the lift home with it all, or push on into %s carrying everything: nothing is banked until you ride up." % DeepContent.mine_name(next_key)
 	elif boss_hall:
@@ -1539,7 +1691,7 @@ func _show_landing() -> void:
 	elif cleared:
 		_cross_sub.text = "There's no lift out from this deep. Take a tunnel down and carry your haul to the next one."
 	else:
-		_cross_sub.text = "You've used your action here. Pick a tunnel to keep going."
+		_cross_sub.text = "You've used your action here. Trade at the table if you like, then pick a tunnel to go on." if trading else "You've used your action here. Pick a tunnel to keep going."
 	DeepUi.clear(_cross_hint)
 	if bool(landing.get("warden_next", false)) and not cleared:
 		DeepUi.pill(_cross_hint, "crown", "A Warden guards the way down", DeepUi.BAD, 13)
@@ -1550,6 +1702,9 @@ func _show_landing() -> void:
 	var rested: Dictionary = landing.get("respites", {}).get(local_id, {})
 	if not rested.is_empty():
 		DeepUi.pill(_cross_hint, {"rest": "heart", "appraise": "loupe", "wish": "drop"}.get(str(rested.get("choice", "")), "check"), str(rested.get("message", "")), DeepUi.GOOD, 12)
+	var traded: Array = landing.get("trades", {}).get(local_id, [])
+	if not traded.is_empty():
+		DeepUi.pill(_cross_hint, "scales", str(traded.back()), DeepUi.ORE, 12)
 	for other in run.get("players", []):
 		if str(other.id) == local_id:
 			continue
@@ -1567,11 +1722,188 @@ func _open_landing(view: String) -> void:
 	_oddity_step = ""
 	show_state(run)
 
+func _trade_page() -> void:
+	## The trading table up close: your stone on one side, the other lapidary's on the other,
+	## and between them the scales and the one word that matters. Below, your loose stones,
+	## one click to put any of them on the table instead.
+	var unit: Dictionary = me()
+	var tone: Color = DeepUi.ORE
+	var table: Dictionary = DeepDescent.trade_table(run)
+	var offers: Dictionary = table.get("offers", {})
+	var accepted: Array = table.get("accepted", [])
+	var partner_id: String = DeepDescent.trade_partner(run, local_id)
+	var partner: Dictionary = DeepDescent.player(run, partner_id)
+	var seated: bool = offers.has(local_id)
+	var full: bool = not seated and offers.size() >= 2
+	_set_cross_mark("scales", tone)
+	_cross_title.text = "The trading table"
+	_cross_sub.text = "One stone each. When you have both accepted, they swap. Trading is free: it does not use your action here."
+	DeepUi.clear(_cross_hint)
+	var content := _bottom_page()
+	var row := DeepUi.hbox(content, 18)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_enter(DeepUi.skip_arrow(row, "Back to the landing", func() -> void:
+		if seated:
+			command.emit({"kind": "trade_withdraw"})
+		_open_landing(""), DeepUi.MUTED, "prev"))
+	var mine_stone: Dictionary = DeepOddities.find_stone(unit, str(offers.get(local_id, ""))) if seated else {}
+	var their_stone: Dictionary = DeepOddities.find_stone(partner, str(offers.get(partner_id, ""))) if not partner.is_empty() else {}
+	_trade_slots = {}
+	_trade_slots["mine"] = _trade_slot(row, "Your stone", mine_stone, accepted.has(local_id), tone,
+		"Pick one of your loose stones below." if not full else "The table is taken.")
+	var middle := DeepUi.vbox(DeepUi.card(row, Color(tone, 0.35), 12), 8)
+	middle.alignment = BoxContainer.ALIGNMENT_CENTER
+	middle.custom_minimum_size.x = 190
+	var scales := DeepUi.icon(middle, "scales", 40, tone)
+	scales.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var ready: bool = not mine_stone.is_empty() and not their_stone.is_empty()
+	if full:
+		var names: Array = offers.keys().map(func(id: Variant) -> String: return str(DeepDescent.player(run, str(id)).get("name", "")))
+		DeepUi.wrap(middle, "%s are trading. Wait for the table to come free." % " and ".join(names), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, 190)
+	elif accepted.has(local_id):
+		DeepUi.stat(middle, "check", "You have accepted", DeepUi.GOOD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
+		DeepUi.label(middle, "Waiting for %s." % str(partner.get("name", "them")), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	else:
+		var accept := DeepUi.primary(middle, "check", "Accept the trade", func() -> void:
+			DeepAudio.play("ui_confirm", {"volume": 0.8})
+			command.emit({"kind": "trade_accept"}), 14, DeepUi.GOOD)
+		accept.disabled = not ready
+		accept.tooltip_text = "Swap your stone for theirs once they accept too." if ready else "You each need a stone on the table first."
+		if partner.is_empty():
+			var free: Array = run.get("players", []).filter(func(p: Dictionary) -> bool:
+				return str(p.id) != local_id and bool(p.get("connected", true)) and not bool(p.get("downed", false)))
+			DeepUi.wrap(middle, ("Waiting for someone to sit down: %s." % ", ".join(free.map(func(p: Dictionary) -> String: return str(p.name)))) if not free.is_empty() else "Nobody else is free to trade.", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, 190)
+		elif accepted.has(partner_id):
+			DeepUi.label(middle, "%s has accepted." % str(partner.name), 12, DeepUi.GOOD, HORIZONTAL_ALIGNMENT_CENTER)
+	if seated:
+		DeepUi.icon_button(middle, "prev", "Take my stone back", func() -> void: command.emit({"kind": "trade_withdraw"}), 12, DeepUi.MUTED)
+	_trade_slots["theirs"] = _trade_slot(row, ("%s's stone" % str(partner.name)) if not partner.is_empty() else "Their stone", their_stone, accepted.has(partner_id), tone,
+		"Nobody has sat down across from you yet." if partner.is_empty() else "%s has not put a stone down yet." % str(partner.name))
+	if _trade_pulse and not _headless:
+		## What they just put down swells as it lands.
+		DeepUi.pulse(_trade_slots.theirs, 1.15, 0.3)
+	_trade_pulse = false
+	DeepUi.skip_ghost(row)
+	if full:
+		return
+	## The bag: any loose stone goes on the table with one click, in place of the one there.
+	var haul: Array = unit.get("haul", [])
+	var bag_line := DeepUi.hbox(content, 8)
+	bag_line.alignment = BoxContainer.ALIGNMENT_CENTER
+	if haul.is_empty():
+		DeepUi.stat(bag_line, "cross_out", "You have no loose stone to trade.", DeepUi.DIM, 13)
+		return
+	DeepUi.label(bag_line, "Your bag", 12, DeepUi.MUTED)
+	for stone in _paged(content, "trade_bag", haul, 7):
+		var id: String = str(stone.get("id", ""))
+		var card := PanelContainer.new()
+		bag_line.add_child(card)
+		_mark(card, id == str(offers.get(local_id, "")), tone)
+		card.tooltip_text = DeepUi.stone_name(stone) + "\nClick to put it on the table."
+		var frame := DeepUi.center(card)
+		frame.custom_minimum_size = Vector2(56, 56)
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var picture := Thumbs.GemThumb.new(stone, 50)
+		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_child(picture)
+		card.gui_input.connect(func(event: InputEvent) -> void:
+			if not (event is InputEventMouseButton and event.pressed):
+				return
+			if event.button_index == MOUSE_BUTTON_RIGHT:
+				Inspector.stone(stone)
+			elif event.button_index == MOUSE_BUTTON_LEFT and id != str(DeepDescent.trade_table(run).get("offers", {}).get(local_id, "")):
+				DeepAudio.play("ui_toggle", {"volume": 0.7})
+				command.emit({"kind": "trade_offer", "stone_id": id})
+			card.accept_event())
+
+func _trade_slot(parent: Node, heading: String, stone: Dictionary, agreed: bool, tone: Color, empty_words: String) -> Control:
+	## One side of the table: the stone put down, its name, and whether its owner has accepted.
+	var panel := DeepUi.card(parent, Color(tone, 0.55) if not stone.is_empty() else Color(DeepUi.LINE, 0.7), 14)
+	panel.custom_minimum_size = Vector2(220, 0)
+	var card := DeepUi.vbox(panel, 6)
+	DeepUi.label(card, heading, 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var frame := DeepUi.center(card)
+	frame.custom_minimum_size = Vector2(96, 96)
+	if stone.is_empty():
+		DeepUi.icon(frame, "question", 34, DeepUi.DIM)
+		DeepUi.wrap(card, empty_words, 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, 200)
+		return frame
+	var picture := Thumbs.GemThumb.new(stone, 90)
+	frame.add_child(picture)
+	var named := DeepUi.label(card, DeepUi.stone_name(stone), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	named.custom_minimum_size.x = 200
+	named.clip_text = true
+	named.tooltip_text = named.text
+	named.mouse_filter = Control.MOUSE_FILTER_PASS
+	if agreed:
+		DeepUi.stat(card, "check", "Accepted", DeepUi.GOOD, 12).alignment = BoxContainer.ALIGNMENT_CENTER
+	else:
+		DeepUi.label(card, "Deciding", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	return frame
+
+func _trade_flourish(given: Dictionary, got: Dictionary) -> void:
+	## The two stones cross the table: each lifts off its own side, they pass in the middle with
+	## a flash, and each settles where the other was.
+	if _headless:
+		return
+	var left: Vector2 = size * Vector2(0.38, 0.62)
+	var right: Vector2 = size * Vector2(0.62, 0.62)
+	for pair in [["mine", true], ["theirs", false]]:
+		var slot: Variant = _trade_slots.get(pair[0], null)
+		if slot != null and is_instance_valid(slot) and (slot as Control).is_inside_tree():
+			var centre: Vector2 = (slot as Control).global_position + (slot as Control).size * 0.5 - global_position
+			if bool(pair[1]):
+				left = centre
+			else:
+				right = centre
+	var layer := Control.new()
+	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.z_index = 25
+	add_child(layer)
+	var middle: Vector2 = (left + right) * 0.5 - Vector2(0, 90)
+	for flight in [[given, left, right], [got, right, left]]:
+		var thumb := Thumbs.GemThumb.new(flight[0], 96)
+		thumb.live_on_hover = false
+		thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		thumb.size = Vector2(96, 96)
+		thumb.pivot_offset = Vector2(48, 48)
+		thumb.position = Vector2(flight[1]) - Vector2(48, 48)
+		layer.add_child(thumb)
+		var start: Vector2 = flight[1]
+		var finish: Vector2 = flight[2]
+		var arc := func(t: float) -> void:
+			var a: Vector2 = start.lerp(middle, t)
+			var b: Vector2 = middle.lerp(finish, t)
+			thumb.position = a.lerp(b, t) - Vector2(48, 48)
+			thumb.scale = Vector2.ONE * (1.0 + 0.45 * sin(t * PI))
+			thumb.rotation = sin(t * PI) * 0.35 * (1.0 if start.x < finish.x else -1.0)
+		var tween := thumb.create_tween()
+		tween.tween_interval(0.15)
+		tween.tween_method(arc, 0.0, 1.0, 0.9).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		tween.tween_callback(func() -> void:
+			DeepUi.burst(layer, finish, DeepUi.ORE, 18, 180.0, 0.6, 5.0)
+			DeepUi.pulse(thumb, 1.2, 0.3))
+	DeepAudio.play("buy", {"volume": 0.8})
+	DeepAudio.play("keep", {"volume": 0.7, "delay": 0.9})
+	_later(0.6, func() -> void:
+		if is_instance_valid(layer):
+			DeepUi.burst(layer, middle, Color("fff0c0"), 34, 300.0, 0.7, 6.0))
+	var said := DeepUi.float_text(layer, middle - Vector2(0, 20), "Traded!", DeepUi.ORE, 30, 50.0, 1.8)
+	said.z_index = 1
+	var fade := layer.create_tween()
+	fade.tween_interval(1.9)
+	fade.tween_property(layer, "modulate:a", 0.0, 0.5)
+	fade.tween_callback(layer.queue_free)
+
 func _landing_page(view: String) -> void:
 	## The well or the bench up close, along the bottom of the hall. The well is the same card
 	## the shaft's well rooms show; the bench lays your raw stones out to be read, one click
 	## each. The way back is an arrow at the left end of the row, so another of the landing's
 	## things can still be chosen instead.
+	if view == "trade":
+		_trade_page()
+		return
 	var unit: Dictionary = me()
 	var tone: Color = DeepUi.INFO
 	var appraise: bool = view == "appraise"
@@ -1680,6 +2012,14 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			var fit: Array = stones.filter(func(st: Dictionary) -> bool: return (not bool(st.get("appraised", false))) if appraise else DeepDescent.can_wish(st))
 			var empty: bool = fit.is_empty() and (appraise or int(unit.get("ore", 0)) < 10)
 			DeepUi.label(box, ("No raw stone to read." if appraise else "Nothing you could part with.") if empty else "Click to go up to it, or drop a stone here.", 12, DeepUi.DIM)
+			return true
+		"trade":
+			DeepUi.section(box, "scales", "The trading table", DeepUi.ORE)
+			DeepUi.wrap(box, "Sit down with one of the party. Each of you puts one loose stone on the table, and when you have both accepted the other's, they swap. Free: it is not your action here.", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+			var seated: Array = DeepDescent.trade_table(run).get("offers", {}).keys().map(func(id: Variant) -> String: return str(DeepDescent.player(run, str(id)).get("name", "")))
+			if not seated.is_empty():
+				DeepUi.stat(box, "person", "At the table: %s" % ", ".join(seated), DeepUi.ORE, 12)
+			DeepUi.label(box, "Click to sit down, or drop a stone here.", 12, DeepUi.DIM)
 			return true
 		"up":
 			## Riding up with the mine's last Warden behind you is not extraction but victory,
@@ -1903,7 +2243,7 @@ func _show_crossroads() -> void:
 		_cross_hint.add_child(note)
 		var row := DeepUi.hbox(note, 8)
 		DeepUi.icon(row, "lantern", 18, DeepUi.ACCENT)
-		DeepUi.label(row, "The next floor is lit. The chart shows one floor ahead." if lit else "Your lantern shows one floor ahead. Hover a tunnel to see where it leads.", 13, DeepUi.MUTED)
+		DeepUi.label(row, "The next floor is lit. The chart shows two floors ahead." if lit else "Your lantern shows two floors ahead. Hover a tunnel to see where it leads.", 13, DeepUi.MUTED)
 		if DeepDescent.needs_light(run):
 			var button := DeepUi.icon_button(_cross_hint, "lantern", "Light the way · %d pyrite" % DeepDescent.lantern_cost(), func() -> void: command.emit({"kind": "light"}), 13, DeepUi.ACCENT)
 			button.disabled = int(me().get("ore", 0)) < DeepDescent.lantern_cost()
@@ -1975,13 +2315,22 @@ func _choose_mouth(index: int) -> void:
 		return
 	match str(run.get("phase", "")):
 		"tunnels":
-			command.emit({"kind": "vote_tunnel", "offer": str(offers[index].id)})
+			_vote(str(offers[index].id))
 		"landing":
 			## Down this way: the party chooses to go down, and this mouth gets the vote. The
-			## respite is there to be taken, not to be waited on.
-			_descend_via = index
+			## respite is there to be taken, not to be waited on. A boss's hall has only the
+			## way into the mine below, and the ways on from that mine's head are chosen there.
+			_descend_via = index if str(offers[index].get("kind", "")) != "next_mine" else -1
 			DeepAudio.play("tunnel", {"volume": 0.6})
 			command.emit({"kind": "choose", "choice": "descend"})
+
+func _vote(offer_id: String) -> void:
+	## The living choose the way on. A fallen lapidary is carried, and gets back on their feet
+	## at the next landing.
+	if bool(me().get("downed", false)):
+		toast("You are down. The living choose the way.", DeepUi.BAD, "skull")
+		return
+	command.emit({"kind": "vote_tunnel", "offer": offer_id})
 
 func _fill_chip() -> void:
 	## Over the mouth under the cursor: what waits down it, what lies past that as far as the
@@ -2072,15 +2421,26 @@ func _place_chip() -> void:
 	if mouth.size == Vector2.ZERO:
 		return
 	_chip_over = over
-	var at := Vector2(mouth.get_center().x - _chip.size.x * 0.5, mouth.position.y - _chip.size.y - 14.0)
-	at.x = clampf(at.x, 12.0, _crossroads.size.x - _chip.size.x - 12.0)
-	at.y = clampf(at.y, 150.0, _crossroads.size.y - _chip.size.y - 12.0)
+	## Above what it is about if it fits there, else beside it, never over it: a tall chip (the
+	## way on into the next mine) pushed down onto its own mouth would sit under the pointer.
+	var low: Vector2 = Vector2(12.0, 150.0)
+	var high: Vector2 = _crossroads.size - _chip.size - Vector2(12.0, 12.0)
+	var middle: float = mouth.get_center().y - _chip.size.y * 0.5
+	var spots: Array = [Vector2(mouth.get_center().x - _chip.size.x * 0.5, mouth.position.y - _chip.size.y - 14.0),
+		Vector2(mouth.end.x + 18.0, middle), Vector2(mouth.position.x - _chip.size.x - 18.0, middle)]
+	var at: Vector2 = spots[0]
+	for spot in spots:
+		var fitted := Vector2(clampf(spot.x, low.x, maxf(low.x, high.x)), clampf(spot.y, low.y, maxf(low.y, high.y)))
+		if not Rect2(fitted, _chip.size).intersects(mouth.grow(6.0)):
+			at = fitted
+			break
+		at = fitted if spot == spots[0] else at
 	_chip.position = at
 
 func _process(_delta: float) -> void:
 	## A landing held still for a sheet walks on the moment it is put away.
 	if str(run.get("phase", "")) == "landing" and _hold.is_empty() and not _walking and _area.visible and not _reading():
-		if _stage.has_room() and not _stage.at_crossroads() and not _stage.strolling() and not str(me().get("respite", "")).is_empty():
+		if _stage.has_room() and not _stage.at_crossroads() and not _stage.strolling() and not str(me().get("respite", "")).is_empty() and not _stage.ways_live():
 			_show_landing()
 	## The chip rides above its mouth while the camera breathes and leans.
 	if _crossroads != null and _crossroads.visible:
@@ -2181,7 +2541,7 @@ func _sync_strip() -> void:
 		for held in _strip_hold:
 			counts[held] = _strip_hold[held]
 		var chart := DeepUi.icon_button(_strip, "map", "Chart", toggle_chart, 13, DeepUi.ACCENT if _chart_open else DeepUi.MUTED)
-		chart.tooltip_text = "The chart of the trail behind and one floor ahead; light dark mouths on the next floor for pyrite (M)"
+		chart.tooltip_text = "The chart of the trail behind and two floors ahead; light dark mouths on the next floor for pyrite (M)"
 		chart.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var ore := DeepUi.pill(_strip, "ore", str(counts.ore), DeepUi.ORE, 14, "Pyrite: spent at merchants and on the lantern")
 		var bag := DeepUi.pill(_strip, "bag", str(counts.haul), DeepUi.PAPER, 14, "Loose stones you carry. Click to look at them.")

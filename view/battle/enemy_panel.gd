@@ -1,8 +1,9 @@
 extends PanelContainer
-## One readable moveset, shared by the target, hover and the acting enemy: its ordered dice,
-## every move with what it needs and what it does, and its trick (the passive it fights
-## with) at the foot. The die it is rolling is not here: that turns over the creature's own
-## head, in the room, so this table stays the one size whether it is acting or not.
+## One readable moveset, shared by the target, hover and the acting enemy: its traits (the
+## passives it fights with) as pills under its name, its ordered dice, and every move with
+## what it needs and what it does. The die it is rolling is not here: that turns over the
+## creature's own head, in the room, so this table stays the one size whether it is acting
+## or not, and nothing in it comes and goes while it rolls.
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
@@ -36,7 +37,7 @@ var enemy_id: String = ""
 var foe: Dictionary = {}
 var _key: String = ""
 var _title: Label
-var _hint: Label
+var _traits: HFlowContainer
 var _dice: HBoxContainer
 var _table: VBoxContainer
 var _rows: Array = []
@@ -54,10 +55,11 @@ func _ready() -> void:
 	var box := DeepUi.vbox(self, 6)
 	var head := DeepUi.hbox(box, 8)
 	_title = DeepUi.heading(head, "", 17, DeepUi.PAPER)
-	## Only says something while the creature is rolling.
-	_hint = DeepUi.label(box, "", 11, DeepUi.MUTED)
-	_hint.visible = false
-	_dice = DeepUi.hbox(box, 6)
+	_traits = HFlowContainer.new()
+	_traits.add_theme_constant_override("h_separation", 4)
+	_traits.add_theme_constant_override("v_separation", 3)
+	box.add_child(_traits)
+	_dice = DeepUi.hbox(box, 4)
 	_table = DeepUi.vbox(box, 5)
 	_table.custom_minimum_size.x = 265
 	_effects_layer = Control.new()
@@ -94,8 +96,6 @@ func show_enemy(unit: Dictionary, turn: int) -> void:
 	foe = unit.duplicate(true)
 	visible = true
 	_title.text = str(foe.name)
-	if changed or not bool(foe.get("acting", false)):
-		_say("")
 	var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
 	var key: String = str(moves) + "|" + str(DeepCreatures.traits_for(foe)) + "|" + str(int(foe.get("turns_acted", 0))) + "|" + str(foe.get("used_once", []))
 	if key != _key:
@@ -202,8 +202,9 @@ func _bonus_marks(parent: Node, mods: Array) -> void:
 func _build_passive() -> void:
 	## The creature's traits, the things it does without rolling for them, read out with the
 	## moves rather than left to the chips over its head: a Latcher's latch or a Fogger's fog
-	## is as much its moveset as anything it rolls for. They share one row of pills, each
-	## with its sentence on hover, so a Warden with four traits costs the table two lines.
+	## is as much its moveset as anything it rolls for. They are pills under its name, each
+	## with its sentence on hover, so a Warden with four traits costs the table one line.
+	DeepUi.clear(_traits)
 	var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else {}
 	var keys: Array = traits.keys()
 	keys.sort()
@@ -212,22 +213,10 @@ func _build_passive() -> void:
 		if str(key) == "gift_rerolls" and (traits.has("reroll_drain") or traits.has("reroll_scorch")):
 			continue
 		pills.append(EffectChips.trait_entry(str(key), traits[key]))
-	if pills.is_empty():
-		return
-	var panel := DeepUi.panel(_table, Color(0.78, 0.66, 1.0, 0.05), Color(0.78, 0.66, 1.0, 0.16), 6, 6)
-	var box := DeepUi.vbox(panel, 2)
-	var head := DeepUi.hbox(box, 5)
-	DeepUi.icon(head, "spark", 13, Color("c8a8ff"))
-	DeepUi.label(head, "What it is", 12, DeepUi.PAPER)
-	DeepUi.spacer(head)
-	DeepUi.label(head, "PASSIVE · hover", 9, DeepUi.DIM)
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 4)
-	flow.add_theme_constant_override("v_separation", 3)
-	box.add_child(flow)
+	_traits.visible = not pills.is_empty()
 	for words in pills:
 		var text: String = str(words.title) + (" " + str(words.value) if not str(words.value).is_empty() else "")
-		DeepUi.pill(flow, str(words.glyph), text, Color("c8a8ff"), 11, "%s\n%s" % [str(words.title), str(words.text)])
+		DeepUi.pill(_traits, str(words.glyph), text, Color("c8a8ff"), 11, "%s\n%s" % [str(words.title), str(words.text)])
 
 func _show_dice() -> void:
 	DeepUi.clear(_dice)
@@ -237,17 +226,22 @@ func _show_dice() -> void:
 	for index in range(dice.size()):
 		if index > 0:
 			DeepUi.label(_dice, "›", 13, DeepUi.DIM)
+		## Each die is its own silhouette in the color of its size: the number it landed on
+		## once it has, a question until then, and a cross when it has been taken away.
 		var die: Dictionary = dice[index]
 		var shape: String = str(foe.hand[index].get("shape", die.shape)) if index < foe.get("hand", []).size() else str(die.shape)
-		var shown: String = shape.to_lower()
-		if index < _revealed and index < foe.get("hand", []).size():
-			shown += " · %d" % int(foe.hand[index].value)
-		elif index >= dice.size() - suppressed:
-			shown += " ×"
-		else:
-			shown += " · ?"
-		var slot := DeepUi.label(_dice, shown, 13, DeepUi.BAD if index == int(foe.get("next_die", 0)) - 1 and bool(foe.get("acting", false)) else DeepUi.MUTED)
-		slot.tooltip_text = "Suppressed" if index >= dice.size() - suppressed else "Roll %d" % (index + 1)
+		var rolled: bool = index < _revealed and index < foe.get("hand", []).size()
+		var gone: bool = not rolled and index >= dice.size() - suppressed
+		var tone: Color = DiceIcons.palette(shape).body
+		if gone:
+			tone = DeepUi.DIM
+		elif index == int(foe.get("next_die", 0)) - 1 and bool(foe.get("acting", false)):
+			tone = DeepUi.BAD
+		var text: String = str(int(foe.hand[index].value)) if rolled else ("×" if gone else "?")
+		var slot: Control = DiceIcons.face(24, int(foe.hand[index].value) if rolled else 0, tone, shape, rolled, text)
+		slot.mouse_filter = Control.MOUSE_FILTER_STOP
+		slot.tooltip_text = "%s · %s" % [shape.to_lower(), "suppressed" if gone else "roll %d" % (index + 1)]
+		_dice.add_child(slot)
 		_slots[str(die.id)] = slot
 
 func _states(states: Array) -> void:
@@ -278,7 +272,6 @@ func roll_die(event: Dictionary) -> void:
 		else:
 			before.append("used" if prior == "used" else ("pending" if DeepCreatures.is_combination(foe.moves[i]) else "unrevealed"))
 	_states(before)
-	_say("One die away…" if bool(event.get("suspense", false)) else "Rolling…")
 	_revealed = int(event.roll_index)
 	_show_dice()
 	## The die itself tumbles over the creature's head (the battle screen's business); the
@@ -288,7 +281,6 @@ func roll_die(event: Dictionary) -> void:
 	_tween.tween_callback(func() -> void:
 		_revealed = int(event.roll_index) + 1
 		_show_dice()
-		_say("")
 		_states(event.get("states", []))
 		var slot: Control = _slots.get(str(event.roll.get("die_id", "")), null)
 		if slot != null and is_instance_valid(slot):
@@ -300,7 +292,6 @@ func power(event: Dictionary) -> void:
 		## A blow it wound up over turns has no row of its own: the whole table lights.
 		if bool(event.get("release", false)):
 			DeepUi.pulse(self, 1.03, 0.3)
-			_say(str(event.get("move", "Release")) + "!")
 		return
 	var row: Dictionary = _rows[index]
 	_states(foe.get("move_states", []))
@@ -343,7 +334,3 @@ func impact(event: Dictionary) -> void:
 	if index >= 0 and index < _rows.size():
 		DeepUi.pulse(_rows[index].panel, 1.025, 0.24)
 		_states(foe.get("move_states", []))
-
-func _say(text: String) -> void:
-	_hint.text = text
-	_hint.visible = not text.is_empty()

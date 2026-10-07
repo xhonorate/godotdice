@@ -71,8 +71,7 @@ func _rail() -> void:
 	check(DeepDescent.command(run, "a", {"kind": "unsocket", "stone_id": third.id}).ok and ids(unit.riders[1]) == ["void_a"] and unit.haul.has(third), "a rider taken out by id goes back to the bag")
 	check(DeepDescent.command(run, "a", {"kind": "unsocket", "index": 4}).ok and unit.rail[4] == null and ids(unit.riders[4]) == ["void_b"], "taking out a socket's gem leaves its riders riding")
 	check(DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "normal4", "index": 4}).ok and unit.rail[4].id == "normal4" and ids(unit.riders[4]) == ["void_b"], "a socket with riders still takes an ordinary gem")
-	DeepDescent.command(run, "a", {"kind": "give", "to": "b", "item_id": third.id})
-	check(run.players[1].haul.has(third) and not unit.haul.has(third), "a Void gem can be passed to an ally from the bag")
+	check(not DeepDescent.command(run, "a", {"kind": "give", "to": "b", "item_id": third.id}).ok and unit.haul.has(third), "a Void gem is not handed to an ally for nothing: stones change hands only by trade")
 	## Working Void away or in.
 	second.inclusions.clear()
 	DeepStone.normalize_rail(unit)

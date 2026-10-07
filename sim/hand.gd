@@ -25,6 +25,8 @@ extends RefCounted
 ##   wilds         die ids of wild rolls
 ##   ids_by_value  {value: [die ids]}, each bucket in preference order
 ##   bases         {die id: face value} for exploding rolls: what the face says before what it threw again
+##   showing       {number: [die ids]} by the number printed on the face each die landed on,
+##                 where that differs from what it counts for (Iron, Doubled, exploding)
 
 static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var values: Array = []
@@ -48,6 +50,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var low_ids: Array = []
 	var crowns: int = 0
 	var crown_ids: Array = []
+	var showing: Dictionary = {}
 	for index in range(hand.size()):
 		var roll: Dictionary = hand[index]
 		var kind: String = str(roll.get("kind", "plain"))
@@ -90,6 +93,11 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		if value >= top:
 			crowns += 1
 			crown_ids.append(id)
+		## A gem may have changed the roll since it was thrown; then what it shows is what it is.
+		var shown: int = int(roll.shown) if roll.has("shown") and value == int(roll.get("counted", -1)) else value
+		if not showing.has(shown):
+			showing[shown] = []
+		showing[shown].append(id)
 		counts[value] = int(counts.get(value, 0)) + (2 if kind == "twin" or bool(roll.get("twinned", false)) else 1)
 		if not ids_by_value.has(value):
 			ids_by_value[value] = []
@@ -139,7 +147,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
 		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids,
-		"ids_by_value": ids_by_value, "bases": bases}
+		"ids_by_value": ids_by_value, "bases": bases, "showing": showing}
 
 static func _prefer(ids: Array, rank: Dictionary) -> void:
 	## The dice that most want to be spent, first.
@@ -205,6 +213,20 @@ static func matching_faces(analysis: Dictionary, predicate: Callable) -> Array:
 		for id in analysis.ids_by_value[v]:
 			if predicate.call(int(bases.get(str(id), v))):
 				dice.append(id)
+	dice.append_array(analysis.get("wilds", []))
+	return dice
+
+static func matching_shown(analysis: Dictionary, predicate: Callable) -> Array:
+	## Die ids whose face shows a number the predicate wants, plus every wild: an Iron d6
+	## that landed on its 1 is showing a 1, whatever its floor makes it count for. An analysis
+	## made before `showing` existed falls back on the counted values.
+	if not analysis.has("showing"):
+		return matching(analysis, predicate)
+	var dice: Array = []
+	for v in analysis.showing:
+		if predicate.call(int(v)):
+			dice.append_array(analysis.showing[v])
+	_prefer(dice, analysis.get("rank", {}))
 	dice.append_array(analysis.get("wilds", []))
 	return dice
 

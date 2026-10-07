@@ -36,7 +36,7 @@ func _run() -> void:
 	panel.show_enemy(foe, 1)
 	await process_frame
 	check(panel.visible and panel._rows.size() == 2, "pinned planning panel shows the entire moveset")
-	check(panel._revealed == 0 and not panel._hint.visible, "planning shows no roll or result")
+	check(panel._revealed == 0, "planning shows no roll or result")
 	check(panel._rows[0].numbers[0].text == "Rolled value", "planning shows the formula")
 	DeepBattle.start_resolution(state)
 	var roll_event: Dictionary = {}
@@ -46,13 +46,13 @@ func _run() -> void:
 			roll_event = event
 	panel.show_enemy(foe, 1)
 	panel.roll_die(roll_event)
-	## The die itself turns over the creature's head (the battle screen's); the table only
-	## says it is waiting on it, and stays the one size.
-	check(panel._hint.text in ["Rolling…", "One die away…"], "the acting enemy's table waits on the die over its head")
+	## The die itself turns over the creature's head (the battle screen's); the table says
+	## nothing while it rolls, so it never changes size.
+	check(not "_hint" in panel, "the acting enemy's table has no rolling line to come and go")
 	check(panel._revealed == 0, "new result stays hidden during the roll")
 	check(panel._rows.all(func(row: Dictionary) -> bool: return str(row.badge.text).is_empty()), "activation is not leaked before the die lands")
 	await panel._tween.finished
-	check(panel._revealed == 1 and panel._slots.size() == 1 and not panel._hint.visible, "landing reveals the rolled value")
+	check(panel._revealed == 1 and panel._slots.size() == 1, "landing reveals the rolled value")
 	check(panel._rows.all(func(row: Dictionary) -> bool: return str(row.badge.text) == "READY"), "six activates Bite and Latch")
 	var hp: int = int(state.players[0].hp)
 	var ability: Dictionary = DeepBattle.step(state, rng.dice, rng.creatures)
@@ -73,7 +73,7 @@ func _run() -> void:
 	check(not panel.visible and panel._animations.is_empty(), "closing during an animation cancels all callbacks")
 	panel.show_enemy(foe, 1)
 	check(panel._revealed == 1, "reconnecting in an ability restores the revealed roll")
-	check(panel._table.get_child_count() == panel._rows.size() + (1 if not str(foe.get("gimmick", "")).is_empty() else 0), "the creature's passive is read out with its moves")
+	check(panel._table.get_child_count() == panel._rows.size() and panel._traits.visible == not DeepCreatures.traits_for(foe).is_empty(), "the creature's passives are pills under its name, not a box among its moves")
 	while DeepBattle.has_steps(state):
 		DeepBattle.step(state, rng.dice, rng.creatures)
 	panel.show_enemy(foe, int(state.turn))

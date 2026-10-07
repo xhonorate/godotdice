@@ -21,6 +21,10 @@ const CAGE := Vector3(-7.0, 0.0, -12.0)
 const CAMPFIRE := Vector3(-3.6, 0.0, -2.0)
 const BENCH := Vector3(0.0, 0.0, -4.4)
 const WELL := Vector3(3.6, 0.0, -2.0)
+## In a party, a fifth: the trading booth, the cage's match on the right. It stands deep in
+## the room in the gap between the far side of the well and the ways down, so from where the
+## party stands nothing is in front of it and it is in front of nothing.
+const TRADE := Vector3(4.5, 0.0, -11.0)
 ## Where the party stands to look at them (the stage's home), so a far name can be drawn
 ## larger and read as easily as a near one.
 const VIEWPOINT := Vector3(0.0, 2.1, 5.2)
@@ -45,7 +49,7 @@ var _offered: Array = []
 var _respites: bool = true
 var _clock: float = 0.0
 
-func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, ground: Callable) -> void:
+func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, ground: Callable, trading: bool = false) -> void:
 	_respites = respites
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
@@ -54,6 +58,8 @@ func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, g
 		_build_campfire(rng, biome, ground)
 		_build_bench(rng, ground)
 		_build_well(rng, ground)
+		if trading:
+			_build_trade(rng, ground)
 
 func _material(color: Color, roughness: float, metal: float = 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -314,6 +320,80 @@ func _build_well(rng: RandomNumberGenerator, ground: Callable) -> void:
 	_glow(frame, "wish", DeepUi.INFO, Vector3(0, 0.9, 0.7))
 	_label(frame, "wish", "The well", Vector3(0, 2.3, 0), DeepUi.INFO)
 	parts["wish"] = frame
+
+func _build_trade(rng: RandomNumberGenerator, ground: Callable) -> void:
+	## A trader's booth: a trestle table with a pair of scales on it, two posts behind it
+	## carrying a striped awning, and a lantern hung under the awning. Tall enough to be read
+	## from the far end of the room the way the cage is, and turned to face the party.
+	var booth := Node3D.new()
+	booth.position = TRADE + Vector3(0, float(ground.call(TRADE.x, TRADE.z)) if ground.is_valid() else 0.0, 0)
+	booth.rotation.y = atan2(VIEWPOINT.x - TRADE.x, VIEWPOINT.z - TRADE.z)
+	add_child(booth)
+	var wood := _material(Color("7a5030"), 0.9)
+	wood.vertex_color_use_as_albedo = true
+	## The table.
+	_slab(booth, Vector3(2.0, 0.1, 0.9), Color("8a5c36"), Vector3(0, 0.95, 0.2), wood, rng)
+	_slab(booth, Vector3(1.9, 0.5, 0.06), Color("6a4428"), Vector3(0, 0.66, 0.62), wood, rng)
+	for side in [-1.0, 1.0]:
+		_slab(booth, Vector3(0.1, 0.92, 0.8), Color("5a3a22"), Vector3(side * 0.85, 0.46, 0.2), wood, rng)
+	## The posts, the beam and the awning, sloping down toward the party.
+	for side in [-1.0, 1.0]:
+		_slab(booth, Vector3(0.14, 2.9, 0.14), Color("5a3a22"), Vector3(side * 1.0, 1.45, -0.35), wood, rng)
+	_slab(booth, Vector3(2.3, 0.14, 0.14), Color("4a3020"), Vector3(0, 2.86, -0.35), wood, rng)
+	var cloth := _material(Color.WHITE, 0.95)
+	cloth.vertex_color_use_as_albedo = true
+	cloth.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for stripe in range(5):
+		var x: float = -0.92 + 0.46 * float(stripe)
+		var panel := _slab(booth, Vector3(0.46, 0.04, 1.3), Color("c8452f") if stripe % 2 == 0 else Color("e8d7b0"), Vector3(x, 2.62, 0.22), cloth, rng, 0.0)
+		panel.rotation.x = 0.38
+	## The scales.
+	var brass := _material(Color("c9a26b"), 0.35, 0.8)
+	_slab(booth, Vector3(0.08, 0.7, 0.08), Color("c9a26b"), Vector3(0, 1.35, 0.2), brass, rng, 0.0)
+	_slab(booth, Vector3(1.1, 0.05, 0.05), Color("c9a26b"), Vector3(0, 1.69, 0.2), brass, rng, 0.0)
+	for side in [-1.0, 1.0]:
+		var pan := MeshInstance3D.new()
+		var dish := CylinderMesh.new()
+		dish.top_radius = 0.22
+		dish.bottom_radius = 0.14
+		dish.height = 0.05
+		dish.radial_segments = 10
+		pan.mesh = dish
+		pan.material_override = brass
+		pan.position = Vector3(side * 0.52, 1.23, 0.2)
+		booth.add_child(pan)
+		for corner in [-1.0, 1.0]:
+			var cord := _slab(booth, Vector3(0.012, 0.46, 0.012), Color("8a8f98"), Vector3(side * 0.52 + corner * 0.13, 1.46, 0.2), _material(Color("8a8f98"), 0.4, 0.8), rng, 0.0)
+			cord.rotation.z = -corner * 0.28
+		var rough := MeshInstance3D.new()
+		rough.mesh = Lowpoly.rock(rng, Color("8d8479") if side < 0.0 else Color("7d8a96"), 0.3)
+		rough.material_override = _material(Color.WHITE, 0.6)
+		(rough.material_override as StandardMaterial3D).vertex_color_use_as_albedo = true
+		rough.scale = Vector3.ONE * 0.09
+		rough.position = Vector3(side * 0.52, 1.29, 0.2)
+		booth.add_child(rough)
+	## A lantern under the awning.
+	var lamp := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.18, 0.26, 0.18)
+	lamp.mesh = box
+	var glass := _material(Color("ffb060"), 0.3)
+	glass.emission_enabled = true
+	glass.emission = Color("ffb060")
+	glass.emission_energy_multiplier = 3.0
+	lamp.material_override = glass
+	lamp.position = Vector3(0.0, 2.25, 0.3)
+	booth.add_child(lamp)
+	var light := OmniLight3D.new()
+	light.light_color = Color("ffd49a")
+	light.light_energy = 1.6
+	light.omni_range = 4.5
+	light.position = Vector3(0, 2.0, 0.6)
+	light.shadow_enabled = false
+	booth.add_child(light)
+	_glow(booth, "trade", DeepUi.ORE, Vector3(0, 1.5, 0.9), 4.0)
+	_label(booth, "trade", "Trade", Vector3(0, 3.4, 0.2), DeepUi.ORE)
+	parts["trade"] = booth
 
 # --- what the room is told -----------------------------------------------------------------------
 

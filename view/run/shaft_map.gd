@@ -2,7 +2,7 @@ extends Control
 ## The lantern map: the way down as the party knows it.
 ##
 ## Above the party, the trail it walked, one mark per depth. Below it, the current floor and
-## one floor ahead, drawn from the larger chart held by the sim. The ways from the party's
+## two floors ahead, drawn from the larger chart held by the sim. The ways from the party's
 ## chamber are live and can be clicked to vote. The lantern reveals hidden mouths on the next
 ## floor for ore; deeper chambers stay off the chart until the party reaches them.
 
@@ -324,7 +324,7 @@ func _draw_header(map: Dictionary, depth: int) -> void:
 	_glyph("lantern", Vector2(size.x - width - 32, 40), 16.0, Color(DeepUi.ACCENT, flicker))
 	_canvas.draw_string(ThemeDB.fallback_font, Vector2(size.x - width - 18, 46), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tone)
 	_spots.append({"at": Vector2(size.x - width * 0.5 - 24, 40), "radius": 14.0,
-		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows one floor ahead."})
+		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows two floors ahead."})
 
 func _draw_depths() -> void:
 	## Depth numbers down the gutter, and a faint rule across the rock at each.
@@ -489,7 +489,7 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1):
 			## Past the lantern: a chamber is there, and nothing more is known of it.
 			_draw_unknown(at)
-			_spots.append({"at": at, "radius": 12.0, "text": "Depth %d: not seen yet. The lantern shows one floor ahead." % int(node.depth)})
+			_spots.append({"at": at, "radius": 12.0, "text": "Depth %d: not seen yet. The lantern shows two floors ahead." % int(node.depth)})
 			continue
 		var offered: bool = choosing and _is_offer(id)
 		var strength: float = 1.0 if (offered or ahead.has(id) or visited.has(id) or id == here) else 0.28

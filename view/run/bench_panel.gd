@@ -427,8 +427,6 @@ func _stone_lamp(box: VBoxContainer, unit: Dictionary, stone: Dictionary) -> voi
 				reasons[refusal] = true
 		if fits.get_child_count() == 0:
 			DeepUi.wrap(box, "It fits no socket: %s." % ", ".join(reasons.keys()), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 290)
-	if socket < 0 and place.is_empty():
-		_give_buttons(box, id)
 
 func _ride_buttons(box: VBoxContainer, unit: Dictionary, stone: Dictionary, riding: int) -> void:
 	## One button per socket a Void gem could ride, the one it rides now left out.
@@ -471,12 +469,6 @@ func _die_lamp(box: VBoxContainer, unit: Dictionary, die: Dictionary) -> void:
 	for i in range(unit.dice.size()):
 		if str(unit.dice[i].id) == id:
 			DeepUi.stat(box, "check", "Rolling in slot %d" % (i + 1), DeepUi.GOOD, 13)
-
-func _give_buttons(box: VBoxContainer, item_id: String) -> void:
-	for other in run.get("players", []):
-		if str(other.id) != local_id and bool(other.get("connected", true)):
-			var to: String = str(other.id)
-			DeepUi.icon_button(box, "party", "Give to %s" % str(other.name), func() -> void: _send({"kind": "give", "to": to, "item_id": item_id}, "ui_confirm"), 13, DeepUi.INFO)
 
 # --- wiring ------------------------------------------------------------------------------------
 

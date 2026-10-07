@@ -223,6 +223,23 @@ func _test_patterns() -> void:
 	var distinct: Dictionary = DeepHand.analyze(hand([1, 2, 3, 5, 6]))
 	check(DeepPatterns.evaluate({"kind": "distinct", "ladder": [5, 5, 4, 4, 3]}, 0, distinct).active, "five distinct")
 	check(DeepPatterns.evaluate({"kind": "value", "values": [7], "ladder": [1, 1, 1, 1, 1]}, 0, DeepHand.analyze(hand([7, 1, 1, 1, 1], 8))).active, "a seven")
+	## "Showing 1" reads the face a die landed on: an Iron d6 on its 1 counts for 2 but shows
+	## a 1, and so does a Doubled 1. A gem that has since changed the roll changes what it shows.
+	var ones: Array = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var iron: Dictionary = DeepDice.make("D6", "iron", {"faces": [DeepDice.face(1)], "material": "iron", "top": 6})
+	var doubled: Dictionary = DeepDice.make("D6", "dbl", {"faces": [DeepDice.face(1, "doubled")], "top": 6})
+	ones.append(DeepDice.roll_one(iron, rng))
+	ones.append(DeepDice.roll_one(doubled, rng))
+	for index in range(3):
+		ones.append(DeepDice.roll_one(DeepDice.make("D6", "p%d" % index, {"faces": [DeepDice.face(1)], "top": 6}), rng))
+	check(int(ones[0].value) == 2 and int(ones[1].value) == 2, "an Iron d6 and a Doubled face both land on a 1 and count for 2")
+	var five_ones: Dictionary = {"kind": "value", "values": [1], "amount": 5}
+	check(DeepPatterns.evaluate(five_ones, 0, DeepHand.analyze(ones)).active, "and both are still showing a 1")
+	check(int(DeepHand.analyze(ones).total) == 7, "while every sum counts what they are worth")
+	ones[0].value = 3
+	check(not DeepPatterns.evaluate(five_ones, 0, DeepHand.analyze(ones)).active, "a die a gem has raised shows what it was raised to")
 	check(DeepPatterns.evaluate({"kind": "at_most", "ladder": [1, 1, 2, 2, 3]}, 0, distinct).active, "a one for Ember")
 	check(not DeepPatterns.evaluate({"kind": "at_most", "ladder": [1, 1, 2, 2, 3]}, 0, DeepHand.analyze(hand([4, 4, 4, 4, 4]))).active, "no low dice")
 	check(DeepPatterns.evaluate({"kind": "at_least", "ladder": [6, 6, 6, 5, 5]}, 0, a).active == false, "highest die 5 fails at least 6")

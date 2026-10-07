@@ -490,6 +490,14 @@ func _burst(at: Vector3, amount: int, lifetime: float, process: ParticleProcessM
 	add_child(p)
 	p.emitting = true
 	p.finished.connect(p.queue_free)
+	## `finished` only comes once the renderer has run the burst to its end, and a burst the
+	## camera never looked at (behind it, off to one side, under a page) is never run: those
+	## used to pile up by the hundred over a long session, each holding its GPU buffers, until
+	## the card ran short and dice, stones and whole passes stopped drawing. A clock frees
+	## every burst whether or not it was seen.
+	var tree := get_tree()
+	if tree != null:
+		tree.create_timer(lifetime + 1.0, false).timeout.connect(p.queue_free)
 	return p
 
 # --- bursts ------------------------------------------------------------------------------------

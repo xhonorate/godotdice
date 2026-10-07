@@ -274,17 +274,17 @@ func _test_linked() -> void:
 							steps += 1
 							if not same(guest.run, host.run):
 								mismatch += 1
-				elif str(host.run.chamber.kind) in ["vein", "vug"]:
+				elif str(host.run.chamber.kind) in DeepDescent.ROCK_ROOMS:
 					for who in [host, guest]:
 						var unit: Dictionary = DeepDescent.player(host.run, who.local_id)
 						if not bool(unit.get("mining", false)):
 							continue
 						var open_spot: int = -1
 						for spot in host.run.chamber.vein.spots:
-							if str(spot.taken).is_empty():
+							if str(spot.taken).is_empty() and str(spot.get("owner", unit.id)) == str(unit.id):
 								open_spot = int(spot.index)
 								break
-						var can_swing: bool = int(unit.hp) > DeepDescent.strike_cost(int(unit.get("strikes", 0)), bool(host.run.chamber.vein.get("hazard", false)))
+						var can_swing: bool = int(unit.hp) > DeepDescent.swing_cost(host.run, unit)
 						if open_spot >= 0 and can_swing:
 							who.send({"kind": "strike", "spot": open_spot})
 						else:

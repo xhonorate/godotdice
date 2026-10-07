@@ -527,14 +527,14 @@ func _advance(app: Control) -> void:
 		"chamber":
 			if DeepDescent.in_battle(run):
 				app.session.tick(0.5)
-			elif str(run.chamber.kind) in ["vein", "vug"]:
+			elif str(run.chamber.kind) in DeepDescent.ROCK_ROOMS:
 				var unit: Dictionary = app.session.local_player()
 				var open_spot: int = -1
 				for spot in run.chamber.vein.spots:
-					if str(spot.taken).is_empty():
+					if str(spot.taken).is_empty() and str(spot.get("owner", unit.id)) == str(unit.id):
 						open_spot = int(spot.index)
 						break
-				var can_swing: bool = int(unit.hp) > DeepDescent.strike_cost(int(unit.get("strikes", 0)), bool(run.chamber.vein.get("hazard", false)))
+				var can_swing: bool = int(unit.hp) > DeepDescent.swing_cost(run, unit)
 				if open_spot >= 0 and can_swing and bool(unit.get("mining", false)):
 					app.session.send({"kind": "strike", "spot": open_spot})
 				else:

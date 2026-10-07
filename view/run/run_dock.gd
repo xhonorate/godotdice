@@ -526,19 +526,6 @@ func _build_drawer(unit: Dictionary) -> void:
 				_send({"kind": "buy", "item_id": str(incoming.item_id)}, "buy")
 			else:
 				_send({"kind": "unsocket", "index": int(incoming.from_socket), "stone_id": str(incoming.get("stone_id", ""))}, "ui_back"))
-	## Allies: drop a loose stone on one to hand it over.
-	var others: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return str(p.id) != local_id and bool(p.get("connected", true)))
-	if not others.is_empty():
-		DeepUi.rule(row, Color(DeepUi.LINE, 0.8)).custom_minimum_size = Vector2(1, 0)
-		var party := DeepUi.vbox(row, 6)
-		DeepUi.heading(party, "Give", 12)
-		for other in others:
-			var to: String = str(other.id)
-			var chip := DeepUi.pill(party, "person", str(other.name), DeepUi.INFO, 13, "Drop a loose stone here to give it to %s" % str(other.name))
-			chip.mouse_filter = Control.MOUSE_FILTER_STOP
-			_wire(chip, {}, Callable(),
-				func(incoming: Dictionary) -> bool: return editable() and str(incoming.get("kind", "")) == "stone" and int(incoming.get("from_socket", -1)) < 0,
-				func(incoming: Dictionary) -> void: _send({"kind": "give", "to": to, "item_id": str(incoming.get("stone_id", ""))}, "ui_confirm"))
 
 func _stone_tile(parent: Node, stone: Dictionary) -> void:
 	var appraised: bool = bool(stone.get("appraised", false))

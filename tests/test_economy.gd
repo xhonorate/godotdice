@@ -303,13 +303,13 @@ func _advance(state: Dictionary) -> void:
 						continue
 					if DeepDescent.step(state).is_empty() and not DeepBattle.has_steps(b):
 						break
-			elif str(state.chamber.kind) in ["vein", "vug"]:
+			elif str(state.chamber.kind) in DeepDescent.ROCK_ROOMS:
 				for unit in state.players:
 					if not bool(unit.get("mining", false)):
 						continue
 					var struck: bool = false
 					for spot in state.chamber.vein.spots:
-						if str(spot.taken).is_empty() and cmd(state, str(unit.id), "strike", {"spot": spot.index}).ok:
+						if str(spot.taken).is_empty() and str(spot.get("owner", unit.id)) == str(unit.id) and cmd(state, str(unit.id), "strike", {"spot": spot.index}).ok:
 							struck = true
 							break
 					if not struck:

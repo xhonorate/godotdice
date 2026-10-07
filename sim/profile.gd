@@ -59,6 +59,12 @@ static func upgrade(profile: Dictionary) -> bool:
 	if profile.has("records") and not profile.records.has("commissions"):
 		profile.records.commissions = 0
 		changed = true
+	## A lapidary joins when the boss above their mine falls (until October 2026 they waited
+	## at their own mine's first Warden), so a boss beaten under the old rule brings them now.
+	if profile.has("characters") and profile.has("bowl"):
+		for key in profile.get("mines", {}):
+			if bool(profile.mines[key].get("boss", false)) and unlock_character(profile, str(DeepContent.mine(str(DeepContent.mine(str(key)).get("next", ""))).get("lapidary", ""))):
+				changed = true
 	for key in profile.get("characters", {}):
 		if not profile.characters[key].has("sockets"):
 			profile.characters[key].sockets = starting_rail_cap()
@@ -193,9 +199,18 @@ static func next_locked_character(profile: Dictionary) -> String:
 	return ""
 
 static func lapidary_mine(character_key: String) -> String:
-	## The mine a lapidary is met in, at its first Warden; "" for the starter.
+	## The mine a lapidary belongs to, the one under the boss whose fall brings them; "" for
+	## the starter.
 	for key in DeepContent.mines_in_order():
 		if str(DeepContent.mine(str(key)).get("lapidary", "")) == character_key:
+			return str(key)
+	return ""
+
+static func lapidary_boss_mine(character_key: String) -> String:
+	## The mine whose final boss brings this lapidary: the one above the mine they belong to.
+	var home: String = lapidary_mine(character_key)
+	for key in DeepContent.mines_in_order():
+		if not home.is_empty() and str(DeepContent.mine(str(key)).get("next", "")) == home:
 			return str(key)
 	return ""
 
@@ -461,9 +476,9 @@ static func tidy(profile: Dictionary) -> bool:
 
 static func apply_result(profile: Dictionary, result: Dictionary, player_id: String) -> Dictionary:
 	## Hauls go to the tray, dice to the bowl, records are written, unlocks granted. A run
-	## that pushed on through several mines writes a record in each. A mine's lapidary joins
-	## at its first Warden, and its final boss opens the mine below; both hold whether or not
-	## the party lived to ride up, because the news was carried further down instead.
+	## that pushed on through several mines writes a record in each. A mine's final boss opens
+	## the mine below and brings that mine's lapidary into the workshop; both hold whether or
+	## not the party lived to ride up, because the news was carried further down instead.
 	var mine_key: String = str(result.get("mine", ""))
 	var visited: Array = result.get("mines", [])
 	if visited.is_empty():
@@ -481,15 +496,14 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		for depth in entry.get("wardens", []):
 			if not mine_record.wardens.has(int(depth)):
 				mine_record.wardens.append(int(depth))
-		if not entry.get("wardens", []).is_empty():
-			var lapidary: String = str(DeepContent.mine(key).get("lapidary", ""))
-			if not lapidary.is_empty() and unlock_character(profile, lapidary):
-				unlocked.append({"character": lapidary})
 		if bool(entry.get("boss", false)):
 			mine_record.boss = true
 			var opened: String = _open_next(profile, key)
 			if not opened.is_empty():
 				unlocked.append({"mine": opened})
+			var lapidary: String = str(DeepContent.mine(str(DeepContent.mine(key).get("next", ""))).get("lapidary", ""))
+			if not lapidary.is_empty() and unlock_character(profile, lapidary):
+				unlocked.append({"character": lapidary})
 			## The first conquest of a mine pays a purse, once, whether the party rode up with
 			## the news or carried it further down.
 			if not profile.get("conquest_paid", []).has(key):

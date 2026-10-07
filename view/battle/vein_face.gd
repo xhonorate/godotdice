@@ -27,6 +27,9 @@ const SPOTS: Array = [
 	{"at": Vector3(0.9, 0.0, -2.9), "size": 1.0},
 	{"at": Vector3(2.4, 0.0, 1.7), "size": 1.3},
 	{"at": Vector3(5.8, 0.0, 0.4), "size": 0.86}]
+## A glittering hollow has fewer rocks, each one somebody's own: these of the six, set out
+## across the middle of the room.
+const FEW: Dictionary = {1: [3], 2: [1, 4], 3: [1, 3, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4]}
 ## Where the party stands to look at the vein, in this node's space (the stage's home, seen
 ## from where the vein is set down in the room).
 const VIEW := Vector3(0.0, 2.1, 10.5)
@@ -41,12 +44,18 @@ var _spots: Array = []
 var _blocks: Array = []
 var _points: Array = []
 var _clock: float = 0.0
+## The places this outcrop has rocks at: all six for a vein, fewer for a hollow.
+var _layout: Array = SPOTS
 ## The room's own floor, so no block of rock is left hanging in the air over a dip in it.
 var _ground: Callable = Callable()
 
 func build(biome: Dictionary, spots: Array, seed_value: int, is_hazard: bool, ground: Callable = Callable()) -> void:
 	hazard = is_hazard
 	_ground = ground
+	if spots.size() < SPOTS.size():
+		_layout = []
+		for at in FEW.get(spots.size(), []):
+			_layout.append(SPOTS[int(at)])
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	_noise.seed = seed_value
@@ -64,14 +73,14 @@ func build(biome: Dictionary, spots: Array, seed_value: int, is_hazard: bool, gr
 	lamp.position = Vector3(0.0, 4.6, 2.4)
 	lamp.shadow_enabled = false
 	add_child(lamp)
-	for index in range(SPOTS.size()):
+	for index in range(_layout.size()):
 		_points.append(_seam_on_face(index))
-	for index in range(SPOTS.size()):
+	for index in range(_layout.size()):
 		var spot: Dictionary = spots[index] if index < spots.size() else {"glint": "dull"}
 		_spots.append(_nodule(index, str(spot.get("glint", "dull")), rng))
 
 func _lie(index: int) -> Dictionary:
-	return SPOTS[clampi(index, 0, SPOTS.size() - 1)]
+	return _layout[clampi(index, 0, _layout.size() - 1)] if not _layout.is_empty() else SPOTS[0]
 
 func _floor_at(at: Vector3) -> float:
 	## How high the room's floor is under a point, in this node's own space.
@@ -84,8 +93,8 @@ func _boulders(biome: Dictionary, rng: RandomNumberGenerator) -> void:
 	## turned its own way, sunk a little into the floor so none of them looks set down.
 	var rock: Color = Color(biome.rock).lightened(0.12)
 	var dark: Color = Color(biome.rock_dark)
-	for index in range(SPOTS.size()):
-		var lie: Dictionary = SPOTS[index]
+	for index in range(_layout.size()):
+		var lie: Dictionary = _layout[index]
 		var size: float = float(lie.size)
 		var block := MeshInstance3D.new()
 		block.mesh = Lowpoly.rock(rng, rock.lerp(dark, rng.randf_range(0.0, 0.3)), 0.5, Vector3(1.0, 0.82, 0.95))
@@ -114,13 +123,13 @@ func _boulders(biome: Dictionary, rng: RandomNumberGenerator) -> void:
 func _foot(biome: Dictionary, rng: RandomNumberGenerator) -> void:
 	## Chips and splinters lying between the blocks, so they read as rock that came down
 	## rather than props set out on the floor.
-	for i in range(16):
+	for i in range(16 if not _layout.is_empty() else 0):
 		var scale: float = rng.randf_range(0.14, 0.34)
 		var chip := MeshInstance3D.new()
 		chip.mesh = Lowpoly.rock(rng, Color(biome.rock).lightened(0.06), 0.42, Vector3(1.0, 0.7, 1.0))
 		chip.material_override = _rock
 		chip.scale = Vector3.ONE * scale
-		var lie: Dictionary = SPOTS[i % SPOTS.size()]
+		var lie: Dictionary = _layout[i % _layout.size()]
 		var beside := Vector3(rng.randf_range(-1.5, 1.5), 0.0, rng.randf_range(-1.2, 1.5))
 		chip.position = Vector3(lie.at) + beside + Vector3(0.0, _floor_at(Vector3(lie.at) + beside) + scale * 0.3, 0.0)
 		chip.rotation = Vector3(rng.randf(), rng.randf() * TAU, rng.randf())
@@ -216,7 +225,7 @@ func collapse(fx: Node3D) -> float:
 	## Returns how long it takes.
 	var seconds: float = 1.1
 	if fx != null and is_instance_valid(fx):
-		for lie in SPOTS:
+		for lie in _layout:
 			fx.puff(global_position + Vector3(lie.at) + Vector3(0, 0.8, 0.6), Color("8a7a66"), 10, 1.4, 2.0, 0.5)
 		fx.shards(global_position + Vector3(0, 1.4, 0.8), Color("8d8479"), 14, 3.5, 0.16, 1.2)
 	DeepAudio.play("crumble", {"volume": 0.9})

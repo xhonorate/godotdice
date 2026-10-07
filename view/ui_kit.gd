@@ -69,6 +69,7 @@ const KEYWORD_HINTS: Dictionary = {
  "block": "Absorbs hit damage before HP. Resets at your next turn; Retain preserves some. Poison bypasses Block.",
  "poison": "Loses HP equal to its stacks at turn end, then loses one stack. Bypasses Block.",
  "pyrite": "Currency in your bag plus combat earnings, less spending. Wager and Stake pay once per activation.",
+ "opal": "Opals never work with one another: a Seam, Matrix or Echo never repeats, wakes or copies an opal, and a Doublet skips past opals to copy the gem behind them.",
  "fizzle": "A gem fizzles when it stays dark: its trigger is not met, or its socket is buried or clouded. Resonance carries on past it.",
  "carat": "Increases gem magnitude; whole-number effects usually gain additional procs instead. Temporary bonuses last this fight.",
  "cut": "The gem’s trigger/effect ladder: Poor, Fair, Good, Fine, Perfect. Temporary bonuses last this fight.",

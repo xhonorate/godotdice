@@ -26,7 +26,7 @@
     "hoard_luck": 5,
     "opal_hoard_luck": 0,
     "lantern_ore_cost": 10,
-    "lift_ore_per_depth": 15,
+    "lift_ore_per_depth": 10.5,
     "salvage_dice": {
       "ROUGH": 4,
       "FINE": 6,
@@ -2455,7 +2455,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Copies the skill of the previous gem.",
+      "text": "Copies the skill of the previous gem, skipping opals.",
       "wears": "prev",
       "trigger": {
         "kind": "resonance",
@@ -2477,7 +2477,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Activate the first two gems that fizzled this turn.",
+      "text": "Activate the first two gems that fizzled this turn, skipping opals.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -2490,7 +2490,7 @@
         }
       ],
       "flawless": {
-        "text": "Activate all gems that fizzled.",
+        "text": "Activate all gems that fizzled, except opals.",
         "modify": [
           {
             "effect": 0,
@@ -2504,7 +2504,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Create a Void copy of the last gem that fired. It lasts for the rest of the fight.",
+      "text": "Create a Void copy of the last gem that fired, unless it was an opal. It lasts for the rest of the fight.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]

@@ -230,7 +230,7 @@ func _draw_earth() -> void:
 			canvas.draw_circle(face, 13.0, Color(hue.darkened(0.2), 0.95 if known else 0.35))
 			_glyph(canvas, "person", face, 16.0, Color(0.03, 0.035, 0.05, 0.75))
 			canvas.draw_string(ThemeDB.fallback_font, face + Vector2(19, 5), str(DeepContent.character(lapidary).get("name", lapidary)), HORIZONTAL_ALIGNMENT_LEFT, 90, 13, DeepUi.PAPER if known else DeepUi.DIM)
-			_hotspots.append({"at": face, "radius": 14.0, "text": "%s is met in %s, at its first Warden." % [DeepContent.character_title(lapidary), str(mine.get("name", key))] + ("" if known else " Not met yet.")})
+			_hotspots.append({"at": face, "radius": 14.0, "text": "%s joins when the boss of %s falls." % [DeepContent.character_title(lapidary), DeepContent.mine_name(DeepProfile.lapidary_boss_mine(lapidary))] + ("" if known else " Not met yet.")})
 		if chosen_one:
 			_cage = Vector2(SHAFT_X, top + 4.0)
 	## The ground line and the workshop on it, over the top of the shaft.

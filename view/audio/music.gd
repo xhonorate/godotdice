@@ -54,6 +54,9 @@ static var _master: float = 0.8
 static var _level: float = 0.6
 static var _picks: Dictionary = {}
 static var _baked_ids: Dictionary = {}
+## Baked layers read off the disk ahead of need, on a loader thread: the mine below a beaten
+## boss, while the party stands in its hall. Path -> the stream once it is in.
+static var _warm: Dictionary = {}
 
 var _where: Dictionary = {"place": DeepScore.HOME, "mood": "home", "deep": 0.0}
 var _preview: Dictionary = {}
@@ -159,7 +162,8 @@ static func _baked_loop(path: String) -> AudioStream:
 		_baked_ids[path] = ResourceLoader.exists(path)
 	if not bool(_baked_ids[path]):
 		return null
-	var stream: AudioStream = load(path)
+	var stream: AudioStream = _warm[path] if _warm.get(path, null) is AudioStream else load(path)
+	_warm.erase(path)
 	if stream is AudioStreamOggVorbis:
 		## Whatever the import says: a layer replaced by hand still has to come round.
 		stream.loop = true
@@ -193,7 +197,9 @@ static func where_now(run: Dictionary, next_mine: String = "") -> Dictionary:
 			if DeepDescent.in_battle(run):
 				var kind: String = str(run.get("chamber", {}).get("kind", "fight"))
 				mood = "warden" if kind == "warden" else ("elite" if kind == "elite" else "fight")
-	return {"place": mine, "mood": mood, "deep": depth_into(run), "next": ""}
+	## A boss's hall leads on into the mine below, whose music is worth having in hand.
+	var below: String = DeepDescent.next_mine(run) if str(run.get("phase", "")) in ["landing", "hoard"] and DeepDescent.in_boss_hall(run) else ""
+	return {"place": mine, "mood": mood, "deep": depth_into(run), "next": below}
 
 static func depth_into(run: Dictionary) -> float:
 	## How far down the mine the party is, 0 at the top to 1 at its boss. A mine with no bottom
@@ -285,6 +291,8 @@ func _process(_delta: float) -> void:
 	var next: String = str(_where.get("next", ""))
 	if DeepScore.BOOK.has(next) and not is_baked(DeepScore.pick(next, _picks)):
 		_ask("piece:" + DeepScore.pick(next, _picks), false)
+	elif DeepScore.BOOK.has(next):
+		_warm_up(_baked_paths(DeepScore.pick(next, _picks)) + ["%s/air/%s.ogg" % [BAKED, DeepScore.air(next)]])
 	var family: String = DeepScore.air(str(_where.get("place", DeepScore.HOME)))
 	var breathing: Dictionary = _airs.back() if not _airs.is_empty() else {}
 	if str(breathing.get("id", "")) != family:
@@ -297,6 +305,18 @@ func _process(_delta: float) -> void:
 			_play_air(family, loop)
 	_steer(layer_levels(str(want.get("mood", "explore")), float(want.get("deep", 0.0))), dt)
 	_run_writer()
+
+func _warm_up(paths: Array) -> void:
+	## Ask a loader thread for each file once, and keep what it brings back, so the walk into
+	## the next mine does not stop the frame to read five layers off the disk.
+	for path in paths:
+		var key: String = str(path)
+		if _warm.get(key, null) is AudioStream or not ResourceLoader.exists(key):
+			continue
+		if not _warm.has(key):
+			_warm[key] = "asked" if ResourceLoader.load_threaded_request(key) == OK else "failed"
+		elif str(_warm[key]) == "asked" and ResourceLoader.load_threaded_get_status(key) == ResourceLoader.THREAD_LOAD_LOADED:
+			_warm[key] = ResourceLoader.load_threaded_get(key)
 
 func _play_piece(id: String, strips: Array, levels_now: Array) -> void:
 	var sync := AudioStreamSynchronized.new()

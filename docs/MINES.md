@@ -57,7 +57,7 @@ New skills go into the later mines' batches first; they have room.
 
 ## Lapidaries
 
-A lapidary is met at the first Warden of their mine (`lapidary`), and unlocking them brings their five dice into the bowl, as before. The first Warden counts whether or not the party gets out alive. Ardor is the starter and the Quarry has no lapidary of its own.
+A lapidary belongs to a mine (`lapidary`) and joins the workshop when the final boss of the mine above it falls, which is also what unseals their mine; unlocking them brings their five dice into the bowl, as before. The boss counts whether or not the party gets out alive. (Until October 2026 they were met at their own mine’s first Warden; a profile that beat a boss under the old rule is given the lapidary on load.) Ardor is the starter and the Quarry has no lapidary of its own.
 
 ## Pushing on, or starting deeper
 
@@ -66,7 +66,7 @@ The final boss's hall is the one hall with a cage in it. After its hoard the par
 - the rail, the haul, the purse and the wounds all come along, and nothing is banked: a fall loses both mines' finds;
 - the new mine's depth starts again at 1, but its creatures are bred `chain_heat` (2) floors deeper for every mine pushed through (`heat`, read as the battle's `threat`);
 - the winch counts every floor since the workshop (`carried`), so the lift home from the second mine costs the first mine's floors too;
-- the run writes a record for every mine it went through (`results.mines`), and each one's boss and first Warden unlock as usual.
+- the run writes a record for every mine it went through (`results.mines`), and each one's boss unlocks the mine below and its lapidary as usual.
 
 ~~A party that starts in a deeper mine instead gets what the way down would have given it: every socket filled from the vault (`loadout_sockets`, 3 in the Quarry, all of them below) and a purse (`start_pyrite`).~~ Revised (October 7, 2026, [GOLD.md](GOLD.md)): in every mine a lapidary goes down with the sockets they have opened filled from the vault: the first three, and any bought since with gold (`socket_unlock_gold`). A party that starts below the Quarry pays a fare (`fare_gold`, half the purse) and is handed a purse (`start_pyrite`) and, at the shaft head, a pick of three temporary stones for every socket still shut. Temporary stones are fragile: they cannot be kept, sold, turned in or thrown down a well, and they are gone when the run ends. A Quarry run, and a party pushing on into the next mine, gets none.
 

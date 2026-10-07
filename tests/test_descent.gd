@@ -10,6 +10,7 @@ func _init() -> void:
 	_test_lantern_map()
 	_test_abandon()
 	_test_landing_commands()
+	_test_hollow()
 	_test_merchant()
 	_test_dice_rooms()
 	_test_bot_runs()
@@ -228,10 +229,14 @@ func _test_lantern_map() -> void:
 		check(stalls.size() >= 1, "every stretch has a merchant in it (seed %d)" % seed_value)
 		var benches: Array = map.nodes.values().filter(func(n: Dictionary) -> bool: return str(n.kind) in DeepDescent.DICE_ROOMS)
 		check(benches.size() >= 1, "every stretch has a smithy or a carver in it (seed %d)" % seed_value)
-		## The lantern shows one depth ahead; past it only glints.
+		## The lantern shows two depths ahead (the mouths already say what the first holds, so
+		## the chart's worth is the floor past them); past that only glints.
 		var deep: Dictionary = map.nodes[str(map.rows[1][0])]
-		check(not DeepDescent.revealed(state, deep), "depth 2 is beyond the lantern from the top")
-		check(DeepDescent.glint(deep) in ["hostile", "glittering", "strange", "dark"], "but it glints")
+		check(DeepDescent.revealed(state, deep) != bool(deep.hidden), "depth 2 is within the lantern from the top, unless it is a dark mouth")
+		if map.rows.size() > 2:
+			var past: Dictionary = map.nodes[str(map.rows[2][0])]
+			check(not DeepDescent.revealed(state, past), "depth 3 is beyond the lantern from the top")
+			check(DeepDescent.glint(past) in ["hostile", "glittering", "strange", "dark"], "but it glints")
 		var shallow: Dictionary = map.nodes[str(map.rows[0][0])]
 		check(DeepDescent.revealed(state, shallow) != bool(shallow.hidden), "depth 1 is lit unless it is a dark mouth")
 		## Walk the first way offered: the offers after it are exactly where it leads.
@@ -246,7 +251,9 @@ func _test_lantern_map() -> void:
 		if str(state.phase) == "tunnels" and int(state.depth) == 1:
 			var ways: Array = state.offers.map(func(o: Dictionary) -> String: return str(o.id))
 			check(ways == map.nodes[first].next, "the tunnels on are the ways the chamber leads (%s)" % str(ways))
-			check(DeepDescent.revealed(state, deep) != bool(deep.hidden), "one depth down, the lantern reaches depth 3")
+			if map.rows.size() > 2:
+				var past: Dictionary = map.nodes[str(map.rows[2][0])]
+				check(DeepDescent.revealed(state, past) != bool(past.hidden), "one depth down, the lantern reaches depth 3")
 	## Lighting the way costs ore; it reveals the next floor's dark mouths only.
 	var clear_floor: Dictionary = DeepDescent.new_run(config(10, true))
 	DeepDescent.player(clear_floor, "a").ore = 25
@@ -296,6 +303,32 @@ func _test_abandon() -> void:
 	cmd(state, "b", "ready")
 	check(state.phase == "over" and state.outcome == "fallen", "it ends as a fall")
 
+func _test_hollow() -> void:
+	## A glittering hollow: everyone has their own shining rocks, one blow each, a stone in
+	## every one, and health paid for each after the first.
+	var state: Dictionary = DeepDescent.new_run(config(77, true))
+	var a: Dictionary = DeepDescent.player(state, "a")
+	var b: Dictionary = DeepDescent.player(state, "b")
+	DeepDescent._enter(state, {"kind": "motherlode", "id": ""}, DeepDescent.streams_of(state))
+	var spots: Array = state.chamber.vein.spots
+	var mine: Array = spots.filter(func(sp: Dictionary) -> bool: return str(sp.owner) == "a")
+	var theirs: Array = spots.filter(func(sp: Dictionary) -> bool: return str(sp.owner) == "b")
+	check(state.phase == "chamber" and bool(state.chamber.vein.hollow) and mine.size() == DeepDescent.HOLLOW_ROCKS and theirs.size() == DeepDescent.HOLLOW_ROCKS, "everyone gets their own rocks in a hollow")
+	check(not cmd(state, "a", "strike", {"spot": int(theirs[0].index)}).ok, "nobody breaks another's rock")
+	var hp: int = int(a.hp)
+	var hauled: int = a.haul.size()
+	var first: Dictionary = cmd(state, "a", "strike", {"spot": int(mine[0].index)})
+	check(first.ok and bool(first.event.through) and a.haul.size() == hauled + 1 and int(a.hp) == hp - 1, "one blow breaks a rock out, a stone in it, for a point of health")
+	check(DeepDescent.swing_cost(state, a) == 2, "and the next costs a point more")
+	check(cmd(state, "a", "strike", {"spot": int(mine[1].index)}).ok and cmd(state, "a", "strike", {"spot": int(mine[2].index)}).ok, "a breaks all three")
+	check(not bool(a.mining) and a.haul.size() == hauled + 3 and state.phase == "chamber", "with nothing left a is done, and the room waits for b")
+	check(cmd(state, "b", "stop_mining", {}).ok and state.phase == "tunnels", "b leaves the rest, and the ways on open")
+	## The fallen are carried, and the living choose the way.
+	a.downed = true
+	var depth_before: int = int(state.depth)
+	check(not cmd(state, "a", "vote_tunnel", {"offer": str(state.offers[0].id)}).ok and str(a.vote).is_empty(), "a downed lapidary has no vote")
+	check(cmd(state, "b", "vote_tunnel", {"offer": str(state.offers[0].id)}).ok and int(state.depth) == depth_before + 1, "and the one standing chooses alone")
+
 func _test_landing_commands() -> void:
 	var state: Dictionary = DeepDescent.new_run(config(101, true))
 	var a: Dictionary = DeepDescent.player(state, "a")
@@ -324,7 +357,7 @@ func _test_landing_commands() -> void:
 	## every body in the cage, out of the party's pooled pyrite.
 	check(not cmd(state, "a", "choose", {"choice": "descend"}).ok, "the way down waits on the respite")
 	var fare: int = DeepDescent.lift_cost(state)
-	check(fare == 15 * 4 * 2, "the winch wants fifteen pyrite a depth a head: %d at depth 4 for two" % fare)
+	check(fare == 84, "the winch wants ten and a half pyrite a depth a head: %d at depth 4 for two" % fare)
 	a.ore = 0
 	b.ore = 0
 	check(not cmd(state, "a", "choose", {"choice": "lift"}).ok, "and no cage moves on empty pockets")
@@ -364,6 +397,35 @@ func _test_landing_commands() -> void:
 	check(not cmd(state, "a", "give", {"to": "b", "item_id": "spare"}).ok, "nor is a die handed to an ally")
 	a.bag_dice.clear()
 	check(not cmd(state, "a", "give", {"to": "a", "item_id": "x"}).ok, "not to yourself")
+	## Nor a stone, for nothing: stones change hands only at the trading table, one for one.
+	var a_rested: String = str(a.respite)
+	var b_rested: String = str(b.respite)
+	a.respite = ""
+	b.respite = ""
+	var mine_offer: Dictionary = stone("STRIKE", 3, 2, 3, "trade_a")
+	var their_offer: Dictionary = stone("GUARD", 2, 1, 3, "trade_b")
+	a.haul.append(mine_offer)
+	b.haul.append(their_offer)
+	check(not cmd(state, "a", "give", {"to": "b", "item_id": "trade_a"}).ok and a.haul.has(mine_offer), "a stone is never simply handed over")
+	check(DeepDescent.can_trade(state), "a landing in a party has a trading table")
+	check(not cmd(state, "a", "trade_offer", {"stone_id": "a_strike"}).ok, "only a loose stone from the bag goes on the table")
+	check(cmd(state, "a", "trade_offer", {"stone_id": "trade_a"}).ok and DeepDescent.trade_table(state).offers.get("a", "") == "trade_a", "a puts a stone on the table")
+	check(not cmd(state, "a", "trade_accept", {}).ok, "and cannot accept a trade with nobody")
+	check(cmd(state, "b", "trade_offer", {"stone_id": "trade_b"}).ok and DeepDescent.trade_partner(state, "a") == "b", "b puts one down across from it")
+	check(cmd(state, "a", "trade_accept", {}).ok and a.haul.has(mine_offer) and str(a.respite).is_empty(), "one yes is not a trade")
+	check(cmd(state, "b", "trade_offer", {"stone_id": "trade_b"}).ok and DeepDescent.trade_table(state).accepted.is_empty(), "putting a stone down again takes back every yes")
+	check(cmd(state, "a", "trade_accept", {}).ok and cmd(state, "b", "trade_accept", {}).ok, "both say yes")
+	check(b.haul.has(mine_offer) and a.haul.has(their_offer) and not a.haul.has(mine_offer) and not b.haul.has(their_offer), "and the stones cross the table")
+	check(str(a.respite).is_empty() and str(b.respite).is_empty() and state.landing.trades.a.size() == 1, "trading is free: neither has used their respite")
+	check(DeepDescent.trade_table(state).offers.is_empty(), "and the table is cleared for the next trade")
+	## After a respite the table is still there to sit down at.
+	a.respite = "rest"
+	check(cmd(state, "a", "trade_offer", {"stone_id": "trade_b"}).ok and cmd(state, "b", "trade_offer", {"stone_id": "trade_a"}).ok, "a lapidary who has rested can still trade")
+	check(cmd(state, "a", "trade_accept", {}).ok and cmd(state, "b", "trade_accept", {}).ok and a.haul.has(mine_offer) and b.haul.has(their_offer), "and the stones go back the way they came")
+	a.respite = a_rested
+	b.respite = b_rested
+	a.haul.erase(mine_offer)
+	b.haul.erase(their_offer)
 	## Once the respite is taken the cage is behind you: the only way left is down.
 	check(not cmd(state, "a", "choose", {"choice": "lift"}).ok, "the lift is gone once a respite is taken")
 	a.respite = ""
@@ -497,14 +559,14 @@ func _advance_once(state: Dictionary) -> void:
 		"chamber":
 			if DeepDescent.in_battle(state):
 				resolve_fight(state)
-			elif str(state.chamber.kind) in ["vein", "vug"]:
+			elif str(state.chamber.kind) in DeepDescent.ROCK_ROOMS:
 				## The rock never runs out of swings, only the arm does: swing until the rock
 				## refuses the next blow, then put the pick down.
 				for unit in state.players:
 					if not bool(unit.get("mining", false)):
 						continue
 					for spot in state.chamber.vein.spots:
-						if str(spot.taken).is_empty():
+						if str(spot.taken).is_empty() and str(spot.get("owner", unit.id)) == str(unit.id):
 							if cmd(state, str(unit.id), "strike", {"spot": spot.index}).ok:
 								return
 							break
@@ -755,13 +817,13 @@ func _test_profile() -> void:
 	check(profile.tray.size() == 2 and profile.bowl.size() == 6, "two stones wait in the tray and a die joins the bowl (%d)" % profile.bowl.size())
 	check(profile.mines.QUARRY.deepest == 8 and profile.mines.QUARRY.wardens == [8] and profile.records.runs == 1 and profile.records.extractions == 1, "records are written")
 	check(applied.unlocked.is_empty() and not profile.characters.VESPER.unlocked and not profile.mines.SEEPS.unlocked, "the Quarry's Wardens unlock nobody, and its boss still stands: %s" % str(applied.unlocked))
-	## A party that beat the Quarry's boss, pushed on into the Seeps and fell past its first
-	## Warden: the Seeps opens and Vesper, who is met there, joins, though nobody rode up.
+	## A party that beat the Quarry's boss, pushed on into the Seeps and fell there: the Seeps
+	## opens and Vesper, whose mine it is, joins with the boss's fall, though nobody rode up.
 	var pushed: Dictionary = {"run_id": "r2", "mine": "SEEPS", "from_mine": "QUARRY", "outcome": "fallen", "depth": 9, "deepest": 9, "wardens": [8],
 		"mines": [{"mine": "QUARRY", "deepest": 16, "wardens": [8, 12, 16], "boss": true}, {"mine": "SEEPS", "deepest": 9, "wardens": [8], "boss": false}],
 		"players": {"a": {"haul": [], "dice": [], "stats": {}, "rail": []}}}
 	applied = DeepProfile.apply_result(profile, pushed, "a")
-	check(applied.unlocked.size() == 2 and applied.unlocked[0].get("mine", "") == "SEEPS" and applied.unlocked[1].get("character", "") == "VESPER", "the boss opens the Seeps and its first Warden brings Vesper: %s" % str(applied.unlocked))
+	check(applied.unlocked.size() == 2 and applied.unlocked[0].get("mine", "") == "SEEPS" and applied.unlocked[1].get("character", "") == "VESPER", "the Quarry's boss opens the Seeps and brings Vesper: %s" % str(applied.unlocked))
 	check(profile.mines.QUARRY.boss and profile.mines.QUARRY.wardens == [8, 12, 16] and profile.mines.SEEPS.unlocked and profile.mines.SEEPS.deepest == 9 and profile.characters.VESPER.unlocked,
 		"both mines are written down")
 	check(profile.bowl.size() == 11 and profile.records.runs == 2 and profile.records.falls == 1, "Vesper's five dice join the bowl (%d)" % profile.bowl.size())
@@ -1080,7 +1142,7 @@ func _test_mines() -> void:
 	check(int(on.players[0].ore) == 40 and int(on.players[0].hp) == 7 and on.players[0].haul.size() == 1, "and everything carried comes along: the purse, the wounds, the haul")
 	check(int(on.schedule.boss) == DeepContent.mine_bottom("SEEPS") and on.records.wardens.is_empty() and not bool(on.records.boss), "the Seeps keeps its own records")
 	on.depth = 2
-	check(DeepDescent.lift_cost(on) == int(DeepContent.constant("lift_ore_per_depth", 15)) * (bottom + 2) * 2, "the winch charges for every floor down from the workshop")
+	check(DeepDescent.lift_cost(on) == roundi(float(DeepContent.constant("lift_ore_per_depth", 10.5)) * (bottom + 2) * 2), "the winch charges for every floor down from the workshop")
 	var summary: Dictionary = DeepDescent.results(on)
 	check(summary.mines.size() == 2 and summary.mines[0].mine == "QUARRY" and summary.mines[1].mine == "SEEPS" and summary.from_mine == "QUARRY", "the results write a record for each mine")
 	## A fight in the pushed-on Seeps is bred for its heat.

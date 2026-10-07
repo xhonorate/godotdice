@@ -328,4 +328,4 @@ granite as stone.
    matching dice on one gem is ×7.59.
 3. Crystal's +1 per roll: up to 3 Resonance a turn from one die, about a gem's worth.
 4. Material weight in the merchant axis roll (20 of 100) and the ×2.0 price.
-5. Fool's Gold at +2 pyrite, against 15 pyrite per depth per player for the lift.
+5. Fool's Gold at +2 pyrite, against 10.5 pyrite per depth per player for the lift.

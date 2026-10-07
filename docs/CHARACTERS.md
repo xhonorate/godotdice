@@ -26,8 +26,9 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
   tier, a large straight also fires the small one.
 - Thresholds on totals and "low" dice are **relative to each die's maximum**, as everywhere else.
 - Two players may pick the **same character**. Name plates are tinted to tell them apart.
-- **Unlock order.** Ardor is the starter. Vesper after the first Warden, Cadence after the second,
-  Rue after the third (the first full run), the sixth character and Florin from commissions.
+- **Unlock order.** Ardor is the starter. Every other lapidary joins when the final boss of the mine
+  above theirs falls: Vesper with the Quarry's boss, Cadence with the Seeps', Rue with the Glass
+  Veins', Puck with the Warrens' and Florin with the Furnace's.
 
 ## 2. The roster
 

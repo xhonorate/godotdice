@@ -357,7 +357,7 @@ func _expedition_view(side: VBoxContainer) -> void:
 	if not lapidary.is_empty():
 		var met: bool = bool(profile.get("characters", {}).get(lapidary, {}).get("unlocked", false))
 		DeepUi.pill(facts, "person", str(DeepContent.character(lapidary).get("name", lapidary)), DeepUi.GOOD if met else DeepUi.MUTED, 12,
-			("%s was met here" if met else "%s waits at the first Warden") % DeepContent.character_title(lapidary))
+			("%s was met here" if met else "%s joins when the boss above this mine falls") % DeepContent.character_title(lapidary))
 	## What the rock here gives up and, below the Quarry, what a lapidary is handed for
 	## starting this deep. What it costs is on the Descend button: each pays their own fare.
 	var band: Dictionary = DeepForge.carat_band(mine, 1)
@@ -806,7 +806,7 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	var actions := DeepUi.hbox(box, 12)
 	actions.alignment = BoxContainer.ALIGNMENT_END
 	if not unlocked:
-		var where: String = DeepProfile.lapidary_mine(key)
+		var where: String = DeepProfile.lapidary_boss_mine(key)
 		var sealed: bool = not where.is_empty() and not bool(profile.get("mines", {}).get(where, {}).get("unlocked", false))
 		DeepUi.stat(actions, "lock", "%s.%s" % [Roster.unlock_hint(key), " That mine is still sealed." if sealed else ""], DeepUi.DIM, 13)
 	elif chosen:

@@ -560,6 +560,12 @@ func gems_held_and_buried() -> void:
 	turn(e)
 	check(e.player.dice.size() == 4 and e.player.hand.size() == 4, "it stays gone for the fight")
 	check(DeepBattle.dice_after_fight(e.player).size() == 5, "and is back when the fight is over")
+	## A die broken this turn (a Glass die that shattered) grows back at the start of the next;
+	## a fight that ends before then gives it back all the same.
+	var shattered: Dictionary = e.player.dice[0]
+	check(DeepBattle.break_die(e.state, e.player, str(shattered.id), "shattered") and e.player.dice.size() == 3, "a shattered die leaves the bowl")
+	var after: Array = DeepBattle.dice_after_fight(e.player)
+	check(after.size() == 5 and after.any(func(d: Dictionary) -> bool: return str(d.id) == str(shattered.id)), "and is back when the fight ends before the next turn")
 
 func bursts_and_swelling() -> void:
 	var f: Dictionary = setup(["PUFFBALL"])
@@ -814,7 +820,9 @@ func the_hollow_crown() -> void:
 	f.foe.block = 0
 	var called: Dictionary = hit(f, 60)
 	check(called.get("thresholds", []).size() == 1 and DeepBattle.living(f.state.enemies).size() == 3, "falling to half calls two Gilded Magpies at once: %d standing" % DeepBattle.living(f.state.enemies).size())
-	check(DeepBattle.living(f.state.enemies).slice(1).all(func(e: Dictionary) -> bool: return str(e.key) == "GILDED_MAGPIE"), "and they are Gilded Magpies")
+	var standing: Array = DeepBattle.living(f.state.enemies)
+	check(standing.filter(func(e: Dictionary) -> bool: return str(e.key) == "GILDED_MAGPIE").size() == 2, "and they are Gilded Magpies")
+	check(standing.size() == 3 and standing[1] == f.foe, "one on either side of the boss that called them")
 
 func wording_and_content() -> void:
 	## Every move of every creature reads out without a hole in its sentence.

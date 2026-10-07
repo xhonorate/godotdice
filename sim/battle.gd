@@ -135,8 +135,21 @@ static func summon(state: Dictionary, source: Dictionary, key: String, count: in
 			source.escorts.append(str(foe.id))
 		DeepCreatures.prepare(foe)
 		DeepCreatures.refresh_bonuses(foe, state)
+		## Either side of the caller in turn, the first on its right, so a boss that calls two
+		## rats stands between them instead of at the end of a line.
 		var at: int = state.enemies.find(source)
-		state.enemies.insert(at + 1 if at >= 0 else state.enemies.size(), foe)
+		if at < 0:
+			state.enemies.append(foe)
+		else:
+			var left: int = 0
+			var right: int = 0
+			for index in range(state.enemies.size()):
+				if str(state.enemies[index].get("summoned_by", "")) == str(source.id) and int(state.enemies[index].get("hp", 0)) > 0:
+					if index < at:
+						left += 1
+					elif index > at:
+						right += 1
+			state.enemies.insert(at + 1 if right <= left else at, foe)
 		made.append(str(foe.id))
 	return made
 
@@ -1040,13 +1053,9 @@ static func _regrow(unit: Dictionary) -> Dictionary:
 	## The start of a turn: what was broken last turn comes back. A die returns as the one
 	## its hero went down with; a gem returns as the one that was in that socket.
 	var out: Dictionary = {"dice": [], "sockets": []}
-	var character: Dictionary = DeepContent.character(str(unit.get("character", "")))
 	for entry in unit.get("broken_dice", []):
-		var at: int = clampi(int(entry.get("at", 0)), 0, unit.get("dice", []).size())
-		var refs: Array = character.get("dice", [])
-		var ref: Variant = refs[int(entry.get("at", 0))] if int(entry.get("at", 0)) < refs.size() else "D6"
-		var die: Dictionary = DeepForge.die_from(ref, str(entry.get("id", "")))
-		unit.dice.insert(at, die)
+		var die: Dictionary = _regrown_die(unit, entry)
+		unit.dice.insert(clampi(int(entry.get("at", 0)), 0, unit.get("dice", []).size()), die)
 		out.dice.append(die.duplicate(true))
 	unit.broken_dice = []
 	for entry in unit.get("broken_gems", []):
@@ -1057,6 +1066,12 @@ static func _regrow(unit: Dictionary) -> Dictionary:
 			out.sockets.append(socket)
 	unit.broken_gems = []
 	return out
+
+static func _regrown_die(unit: Dictionary, entry: Dictionary) -> Dictionary:
+	## What a broken die grows back as: the hero's starting die for that slot, plain.
+	var refs: Array = DeepContent.character(str(unit.get("character", ""))).get("dice", [])
+	var slot: int = int(entry.get("at", 0))
+	return DeepForge.die_from(refs[slot] if slot >= 0 and slot < refs.size() else "D6", str(entry.get("id", "")))
 
 static func _blood_feeds(state: Dictionary, dead: Dictionary) -> void:
 	## Something died where a Blood die could see it. The face it is showing climbs by one,
@@ -2199,7 +2214,11 @@ static func _remember_die(unit: Dictionary, die: Dictionary) -> void:
 static func dice_after_fight(unit: Dictionary) -> Array:
 	## The bowl a hero walks out of a fight with: every die the fight shrank, blanked, ground
 	## or destroyed for the fight is back as it was. What was done for good stays done.
+	## A die broken this turn (a Glass die that shattered) would have grown back at the start
+	## of the next one, and a fight that ends first does not get to keep it.
 	var dice: Array = unit.get("dice", []).duplicate(true)
+	for entry in unit.get("broken_dice", []):
+		dice.insert(clampi(int(entry.get("at", 0)), 0, dice.size()), _regrown_die(unit, entry))
 	var kept: Dictionary = unit.get("fight_dice", {})
 	var ids: Array = kept.keys()
 	ids.sort_custom(func(a: Variant, b: Variant) -> bool: return int(kept[a].get("at", 0)) < int(kept[b].get("at", 0)))

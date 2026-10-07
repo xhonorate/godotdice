@@ -220,7 +220,7 @@ func _new_room(p: Dictionary, origin: Vector3) -> Dictionary:
 	if bool(p.get("seal", false)):
 		steps.append(_cut_seal.bind(made, room_seed(p)))
 	if str(p.get("kind", "")) in ["landing", "head"] or bool(p.get("cage", false)):
-		steps.append(_build_hall.bind(made, str(p.kind), room_seed(p)))
+		steps.append(_build_hall.bind(made, str(p.kind), room_seed(p), int(p.get("party", 1)) > 1))
 	return {"room": made, "steps": steps}
 
 func _dress_mouths(made: Node3D, bright: bool) -> void:
@@ -627,10 +627,11 @@ func _round_business(from: Vector3, to: Vector3) -> Array:
 ## that deep — so `hall()` is null there and the only way out of it is down. The hall at the
 ## bottom of a mine is the exception: its final boss's hall has the cage and nothing else.
 
-func _build_hall(made: Node3D, kind: String, seed_value: int) -> void:
+func _build_hall(made: Node3D, kind: String, seed_value: int, party: bool = false) -> void:
 	var hall: Node3D = LiftHall.new()
 	made.add_child(hall)
-	hall.build(made.biome, seed_value + 41, kind == "landing", kind == "head", made.ground)
+	## A party's landing has a trading table; nobody trades with themselves.
+	hall.build(made.biome, seed_value + 41, kind == "landing", kind == "head", made.ground, party)
 	made.set_meta("hall", hall)
 
 func hall() -> Node3D:
@@ -653,6 +654,10 @@ func open_ways(entries: Array) -> void:
 			mouth.configure(entries[index])
 	_open_mouths()
 	_mouths_live = true
+
+func ways_live() -> bool:
+	## Whether the ways on can be chosen from where the party stands, without walking up.
+	return _mouths_live
 
 func close_ways() -> void:
 	_mouths_live = false

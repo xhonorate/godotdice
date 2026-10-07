@@ -335,6 +335,13 @@ static func roll_one(die: Dictionary, rng: RandomNumberGenerator, times_rerolled
 		"value": mini(value, VALUE_CAP), "face": index, "kind": kind, "top": die_top,
 		"held": false, "rerolls": times_rerolled, "locked": kind == "locked", "explosions": explosions,
 		"climbed": climbed, "shattered": shattered, "phantom": false}
+	## The number printed on the face it landed on, when what it counts for is something else:
+	## an Iron floor, a Doubled face, a face that went off and threw again. A trigger that asks
+	## for dice showing a number reads this; everything that adds up reads `value`. `counted`
+	## is what `value` was when it was thrown, so a roll a gem has since changed is known.
+	if kind != "blank" and int(chosen.get("value", 0)) != int(thrown.value):
+		thrown.shown = int(chosen.get("value", 0))
+		thrown.counted = int(thrown.value)
 	if kind == "exploding":
 		## What the face itself says, before anything it threw again was added: the number an
 		## upgrade changes, and the one a gem that asks for low dice should be judging.
