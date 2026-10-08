@@ -235,11 +235,16 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			## the mine may be fused into something that can.
 			var fragile: bool = DeepStone.is_fragile(keep) or DeepStone.is_fragile(feed)
 			var temporary: bool = bool(keep.get("temporary", false)) or bool(feed.get("temporary", false))
+			## The same for a copy of a vault stone, which goes home with nobody: the vault keeps
+			## the stone itself, so nothing it fed the fire may ride the lift in another stone.
+			var lent: bool = bool(keep.get("lent", false)) or bool(feed.get("lent", false))
 			keep.merge(fused, true)
 			if fragile:
 				keep.fragile = true
 			if temporary:
 				keep.temporary = true
+			if lent:
+				keep.lent = true
 			remove_stone(player, str(feed.id))
 			out.lost.append(str(feed.id))
 			out.changed.append(keep.duplicate(true))

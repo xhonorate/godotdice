@@ -13,6 +13,9 @@ static func diff(before: Variant, after: Variant) -> Variant:
 		for key in after:
 			if not before.has(key):
 				_put(out, "set", key, after[key])
+			elif _untouched(before[key], after[key]):
+				## Most of the run does not move from one step of a fight to the next.
+				continue
 			elif before[key] is Dictionary and after[key] is Dictionary:
 				var sub: Variant = diff(before[key], after[key])
 				if sub != null:
@@ -53,7 +56,15 @@ static func _put(out: Dictionary, bucket: String, key: Variant, value: Variant) 
 		out[bucket] = {}
 	out[bucket][key] = value
 
+static func _untouched(a: Variant, b: Variant) -> bool:
+	## The engine's own comparison, which walks a whole branch natively and far faster than the
+	## loops below. It is strict about types, so "equal" here always means `_same` too; when it
+	## says no, `_same` still gets its say on 3 against 3.0.
+	return typeof(a) == typeof(b) and (a is Dictionary or a is Array) and a == b
+
 static func _same(a: Variant, b: Variant) -> bool:
+	if _untouched(a, b):
+		return true
 	if typeof(a) != typeof(b):
 		## JSON turns every number into a float; a patch must not thrash on 3 versus 3.0.
 		if (a is int or a is float) and (b is int or b is float):

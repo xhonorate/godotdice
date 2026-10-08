@@ -528,13 +528,18 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		saw(profile, str(skill))
 	var brought: Array = []
 	var shattered: Array = mine_result.get("shattered", []).duplicate(true)
-	for stone in mine_result.get("haul", []):
+	## Every stone found on the run that is still carried: the bag, and anything found and set
+	## on the rail. Copies of the vault's own stones never come home; see DeepDescent.coming_home.
+	for stone in mine_result.get("home", mine_result.get("haul", [])):
 		if DeepStone.known_fragile(stone):
 			shattered.append(stone.duplicate(true))
 			if bool(stone.get("appraised", false)):
 				saw(profile, str(stone.get("skill", "")))
 			continue
 		var home: Dictionary = DeepStone.unstake(stone.duplicate(true))
+		home.erase("lent")
+		if not home.has("provenance"):
+			home.provenance = {}
 		home.provenance.date = Time.get_date_string_from_system()
 		profile.tray.append(home)
 		brought.append(home)

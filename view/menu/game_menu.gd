@@ -12,16 +12,21 @@ signal abandon_requested
 signal leave_requested
 signal join_requested(lobby_id: String)
 signal quit_requested
+## The host of a party run opens a line for the party to come back on: "lan" or "steam".
+signal reopen_requested(kind: String)
+signal invite_requested
 
 const QUALITY: Array = [["Auto", 0], ["High", 3], ["Medium", 2], ["Low", 1]]
 const SPEEDS: Array = [["1×", 1.0], ["2×", 2.0], ["4×", 4.0]]
 const CONTROLS: Array = [
 	["Right-click", "Inspect a stone, a die or a creature: its full details and a model to turn"],
 	["Drag", "Turn the model in the inspector"],
-	["1 – 5", "Pick a die to reroll (or click it)"],
+	["1 – 5", "Pick a die to reroll (or click it); at the mouths, 1 – 3 picks a way on"],
 	["R", "Reroll the picked dice"],
 	["Space", "Lock in your hand"],
-	["F", "Fast fights on or off"],
+	["F", "Fast fights on or off (the Harlequin shifts the picked die instead)"],
+	["B", "Open the bag; the whole bench when the bag is not at hand"],
+	["M", "Fold out the chart of the stretch"],
 	["Wheel", "Scroll the map back up the trail"],
 	["Esc", "This menu; closes the inspector"],
 ]
@@ -86,6 +91,13 @@ func open(app_settings: Dictionary, new_context: Dictionary) -> void:
 		var tween := _root.create_tween()
 		tween.tween_property(_root, "modulate:a", 1.0, 0.16)
 		DeepUi.pop_in(_panel, 0.0, 0.95, 0.22)
+
+func reshow(new_context: Dictionary) -> void:
+	## The world behind the menu moved (the line opened, someone came back): the main page
+	## says so; any other page is left as it is.
+	context = new_context
+	if visible and _page == "main":
+		_show("main")
 
 func close() -> void:
 	if not visible:
@@ -198,6 +210,8 @@ func _page_main() -> void:
 		where = "%s  ·  depth %d" % [str(context.get("mine", "The mine")), int(context.get("depth", 0))]
 		where += "  ·  the dig is paused" if bool(context.get("solo", true)) else "  ·  the dig goes on while you are here"
 	DeepUi.label(_body, where, 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	if in_run and bool(context.get("host", true)) and context.has("party"):
+		_party_card(context.party)
 	var list := DeepUi.vbox(_body, 10)
 	list.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	list.custom_minimum_size = Vector2(340, 0)
@@ -223,8 +237,44 @@ func _page_main() -> void:
 			child.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			child.custom_minimum_size.y = 46
 
+func _party_card(party: Dictionary) -> void:
+	## A run with a party in it, as its host sees it from here: who is away, and the line they
+	## come back on. A run picked up again from its checkpoint starts with everyone away and no
+	## line at all, and this is where the host opens one.
+	var card := DeepUi.card(_body, Color(DeepUi.INFO, 0.45), 12)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.custom_minimum_size.x = 460
+	var box := DeepUi.vbox(card, 8)
+	var away: Array = party.get("away", [])
+	if away.is_empty():
+		DeepUi.stat(box, "party", "Everyone is here.", DeepUi.GOOD, 13)
+	else:
+		DeepUi.stat(box, "party", "Away: %s" % ", ".join(away), DeepUi.MUTED, 13)
+	match str(party.get("status", "")):
+		"local":
+			DeepUi.wrap(box, "Open the party and they can come back to their seats, wherever the run has got to.", 13, DeepUi.PAPER)
+			var row := DeepUi.hbox(box, 10)
+			row.alignment = BoxContainer.ALIGNMENT_CENTER
+			DeepUi.icon_button(row, "crown", "Open on LAN", func() -> void: reopen_requested.emit("lan"), 14, DeepUi.ACCENT)
+			DeepUi.icon_button(row, "party", "Open on Steam", func() -> void: reopen_requested.emit("steam"), 14, DeepUi.ACCENT)
+		"opening":
+			DeepUi.stat(box, "hourglass", "Opening a Steam lobby…", DeepUi.ACCENT, 13)
+		_:
+			var code: String = str(party.get("invite_code", ""))
+			var lan: String = str(party.get("lan", ""))
+			var row := DeepUi.hbox(box, 10)
+			if not code.is_empty():
+				DeepUi.stat(row, "party", "Steam lobby %s" % code, DeepUi.PAPER, 13).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				DeepUi.icon_button(row, "copy", "Copy", func() -> void: DisplayServer.clipboard_set(code), 13, DeepUi.MUTED)
+				DeepUi.icon_button(row, "person", "Invite", func() -> void: invite_requested.emit(), 13, DeepUi.GOOD)
+			elif not lan.is_empty():
+				DeepUi.stat(row, "crown", "Friends rejoin at %s" % lan, DeepUi.PAPER, 13).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				DeepUi.icon_button(row, "copy", "Copy", func() -> void: DisplayServer.clipboard_set(lan), 13, DeepUi.MUTED)
+			else:
+				DeepUi.stat(row, "check", "The party is open.", DeepUi.GOOD, 13)
+
 func _abandon_text() -> String:
-	var text: String = "It counts as a fall. Every raw stone you carry rolls its salvage die, and only the top face brings it home. Stones set in your rail are safe."
+	var text: String = "It counts as a fall. Every stone in your bag rolls its salvage die, and only the top face brings it home. Stones you found and set on your rail are safe, and your vault is never touched."
 	if not bool(context.get("solo", true)):
 		text += "\n\nThe whole party climbs out with you."
 	return text

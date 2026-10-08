@@ -7,7 +7,7 @@ extends RefCounted
 const SCHEMA: int = 1
 const MAX_BYTES: int = 8 * 1024 * 1024
 const DEFAULT_SETTINGS: Dictionary = {"master_volume": 0.8, "music_volume": 0.6, "sfx_volume": 0.85, "fullscreen": false,
-	"speed": 1.0, "reduced_motion": false, "outlines": true, "text_scale": 1.0, "vsync": true, "quality": 0, "shake": 1.0, "player_name": DeepProfile.DEFAULT_NAME, "last_address": "127.0.0.1",
+	"speed": 1.0, "reduced_motion": false, "outlines": true, "vsync": true, "quality": 0, "shake": 1.0, "player_name": DeepProfile.DEFAULT_NAME, "last_address": "127.0.0.1",
 	"music_picks": {}}
 
 ## Tests point every store at a scratch directory so they never touch a real vault.
@@ -21,20 +21,26 @@ func _init(save_directory: String = "user://deepcut") -> void:
 
 func read(file_name: String) -> Dictionary:
 	var path := directory.path_join(file_name)
+	var parsed: Variant = _parse(path)
+	if parsed is Dictionary:
+		return {"ok": true, "value": parsed}
+	## The last good copy, whether the save is damaged or missing outright: on Windows a save
+	## is replaced by deleting it and then moving the new one in, so a crash between the two
+	## leaves only the backup. Started fresh instead, the next save would have overwritten it.
+	var again: Variant = _parse(path + ".bak")
+	if again is Dictionary:
+		return {"ok": true, "value": again, "recovered": true}
 	if not FileAccess.file_exists(path):
 		return {"ok": false, "error": "nothing saved"}
+	return {"ok": false, "error": "the save file is damaged"}
+
+func _parse(path: String) -> Variant:
+	if not FileAccess.file_exists(path):
+		return null
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null or file.get_length() > MAX_BYTES:
-		return {"ok": false, "error": "the save could not be opened"}
-	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	if not parsed is Dictionary:
-		var backup := path + ".bak"
-		if FileAccess.file_exists(backup):
-			var again: Variant = JSON.parse_string(FileAccess.get_file_as_string(backup))
-			if again is Dictionary:
-				return {"ok": true, "value": again, "recovered": true}
-		return {"ok": false, "error": "the save file is damaged"}
-	return {"ok": true, "value": parsed}
+		return null
+	return JSON.parse_string(file.get_as_text())
 
 func write(file_name: String, record: Dictionary) -> Dictionary:
 	var bytes := JSON.stringify(record).to_utf8_buffer()
@@ -58,7 +64,8 @@ func write(file_name: String, record: Dictionary) -> Dictionary:
 	return {"ok": true}
 
 func remove(file_name: String) -> void:
-	for suffix in ["", ".bak", ".tmp"]:
+	## The backup goes first: `read` falls back to it, so it must never outlive the record.
+	for suffix in [".bak", ".tmp", ""]:
 		var path := directory.path_join(file_name + suffix)
 		if FileAccess.file_exists(path):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
@@ -101,3 +108,17 @@ func load_checkpoint() -> Dictionary:
 
 func clear_checkpoint() -> void:
 	remove("run.json")
+
+func load_held() -> Dictionary:
+	## What this machine, as a host, is keeping for lapidaries who dropped out of a run and were
+	## not back when it ended: {profile id: [{player_id, results}]}. See DeepSession.
+	var saved := read("held.json")
+	if saved.ok and saved.value.get("held", null) is Dictionary and int(saved.value.get("schema", 0)) == SCHEMA:
+		return saved.value.held
+	return {}
+
+func save_held(held: Dictionary) -> Dictionary:
+	if held.is_empty():
+		remove("held.json")
+		return {"ok": true}
+	return write("held.json", {"schema": SCHEMA, "saved_at": Time.get_datetime_string_from_system(true), "held": held})

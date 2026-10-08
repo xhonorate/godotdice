@@ -348,7 +348,9 @@ func show_state(state: Dictionary) -> void:
 	## Remember the chamber and the fight as they were: when either ends the state moves on
 	## at once, and the page that shows what came of them is drawn from these.
 	if phase == "chamber" and not run.get("chamber", {}).is_empty():
-		_last_chamber = run.chamber
+		## A copy of the room's own keys: a guest's mirror empties the very dictionary it was
+		## handed when the room closes, and what the room held is what the next page reads.
+		_last_chamber = run.chamber.duplicate()
 	if DeepDescent.in_battle(run):
 		_last_battle = DeepDescent.battle(run)
 	## A held page gives way the moment the party is somewhere new without us.
@@ -650,6 +652,17 @@ func _paged(parent: Node, list: String, items: Array, per_page: int) -> Array:
 func handle(event: Dictionary) -> void:
 	## One event from the host. Fights are animated; everything else gets a line of text.
 	var kind: String = str(event.get("kind", ""))
+	## Someone's line dropped or came back. Whatever the party was waiting on them for has
+	## already gone ahead in the same event; this only says why.
+	if event.has("absent") and str(event.absent) != local_id:
+		toast("%s lost their connection." % str(DeepDescent.player(run, str(event.absent)).get("name", "A lapidary")), DeepUi.MUTED, "party")
+	elif kind == "presence" and bool(event.get("connected", false)) and str(event.get("unit", "")) != local_id:
+		toast("%s is back." % str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", "A lapidary")), DeepUi.GOOD, "party")
+	## The cage was chosen when the party could pay for it and can no longer: whoever chose it
+	## chooses again.
+	if event.has("lift_short"):
+		var short: Dictionary = event.lift_short
+		toast("The winch wants %d pyrite and the party has %d now. Choose again." % [int(short.get("cost", 0)), int(short.get("have", 0))], DeepUi.BAD, "lift")
 	## The vote that carries takes the party into the next chamber, and the chamber's own
 	## event (a motherlode's spoils, the landing, the fight beginning) rides inside it.
 	if event.has("entered"):
@@ -804,6 +817,13 @@ func handle(event: Dictionary) -> void:
 		"abandoned":
 			_hold = {}
 			toast("The dig is abandoned.", DeepUi.BAD, "flag")
+		"moved_on":
+			## The party went on without someone who dropped. A card room's result stays up
+			## for those who chose from it, as it does when the last of them chooses.
+			if bool(event.get("finished", false)) and _hold.is_empty() and str(_last_chamber.get("kind", "")) in ["oddity"] + DeepDescent.CARD_ROOMS:
+				var mine_result: Dictionary = _last_chamber.get("results", {}).get(local_id, {})
+				if not mine_result.is_empty():
+					_hold_page("oddity", {"oddity": str(_last_chamber.get("oddity", "")), "room": str(_last_chamber.get("kind", "oddity")), "result": mine_result})
 
 func _acid_reveal(stones: Array, at: int) -> void:
 	## Out of the racks one at a time. Each stone gets the whole ceremony, and the last one
@@ -1338,6 +1358,9 @@ func _show_stall() -> void:
 	var stock: Array = DeepDescent.stall_stock(run, local_id)
 	var counter: Node3D = _stage.stall(stock, cost)
 	if counter != null:
+		## Every price on the counter says whether this purse can meet it.
+		if counter.has_method("set_purse"):
+			counter.set_purse(int(unit.get("ore", 0)))
 		for item in stock:
 			var id: String = "item:%s" % str(item.id)
 			if not str(item.get("sold", "")).is_empty():
@@ -1786,12 +1809,14 @@ func _trade_page() -> void:
 	DeepUi.skip_ghost(row)
 	if full:
 		return
-	## The bag: any loose stone goes on the table with one click, in place of the one there.
-	var haul: Array = unit.get("haul", [])
+	## The bag: any loose stone found down here goes on the table with one click, in place of
+	## the one there. A copy of a vault stone stays out of it: it goes home with nobody.
+	var haul: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool:
+		return not (bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, s)))
 	var bag_line := DeepUi.hbox(content, 8)
 	bag_line.alignment = BoxContainer.ALIGNMENT_CENTER
 	if haul.is_empty():
-		DeepUi.stat(bag_line, "cross_out", "You have no loose stone to trade.", DeepUi.DIM, 13)
+		DeepUi.stat(bag_line, "cross_out", "You have no stone found down here to trade.", DeepUi.DIM, 13)
 		return
 	DeepUi.label(bag_line, "Your bag", 12, DeepUi.MUTED)
 	for stone in _paged(content, "trade_bag", haul, 7):
@@ -2199,6 +2224,22 @@ func _build_crossroads() -> void:
 	_crossroads.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crossroads.visible = false
 	_body.add_child(_crossroads)
+	## A soft shade behind the room's name and its line of help, so they read the same over a
+	## lamp-lit wall as over shadow. The radial light every halo uses, turned dark.
+	var shade := TextureRect.new()
+	shade.texture = DeepUi.glow_texture()
+	shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shade.stretch_mode = TextureRect.STRETCH_SCALE
+	shade.modulate = Color(0.0, 0.0, 0.02, 0.62)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## Centred on the name and the line under it, and wide enough that the line's ends are
+	## still well inside the shade rather than out at its faint edge.
+	shade.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	shade.offset_left = -820.0
+	shade.offset_right = 820.0
+	shade.offset_top = 30.0
+	shade.offset_bottom = 235.0
+	_crossroads.add_child(shade)
 	var head := DeepUi.vbox(_crossroads, 2)
 	head.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 18)
 	head.grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -2521,10 +2562,12 @@ func _sync_strip() -> void:
 				_look_at_member(member_id))
 		DeepUi.icon(box, "person", 18, DeepUi.PAPER if mine_too else DeepUi.INFO)
 		DeepUi.label(box, str(other.name), 14, DeepUi.PAPER if mine_too else DeepUi.MUTED)
-		var bar := DeepUi.bar(box, 12.0)
-		bar.custom_minimum_size = Vector2(110, 12)
+		## Tall enough for its number to be read, which is how allies' health is followed.
+		var bar := DeepUi.bar(box, 16.0)
+		bar.custom_minimum_size = Vector2(110, 16)
 		bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar.warn = true
 		bar.set_values(float(other.hp) / float(maxi(1, int(other.max_hp))), "%d" % int(other.hp))
 		if bool(other.get("downed", false)):
 			DeepUi.icon(box, "skull", 16, DeepUi.BAD, "Down")
@@ -4010,7 +4053,9 @@ func _page_over(content: VBoxContainer) -> void:
 	DeepUi.title(box, str(titles.get(outcome, outcome.capitalize())), 38, tone, HORIZONTAL_ALIGNMENT_CENTER)
 	var stats := DeepUi.hbox(box, 12)
 	stats.alignment = BoxContainer.ALIGNMENT_CENTER
-	var haul: Array = unit.get("haul", [])
+	## Exactly what the workshop's tray will be handed: the bag, and the stones found down here
+	## and set on the rail. The vault's own stones were never in question.
+	var haul: Array = DeepDescent.coming_home(run, unit)
 	var tally: Dictionary = unit.get("stats", {})
 	for entry in [["stairs", "Depth", str(int(run.depth))], ["bag", "Stones home", str(haul.size())], ["sword", "Fights", str(int(tally.get("fights", 0)))],
 			["ore", "Pyrite dug", str(int(tally.get("ore", 0)))], ["shield_burst", "Damage", str(int(tally.get("damage", 0)))]]:
@@ -4039,12 +4084,17 @@ func _page_over(content: VBoxContainer) -> void:
 			index += 1
 	var shattered: Array = unit.get("shattered", [])
 	if not shattered.is_empty():
-		var losses := DeepUi.hbox(box, 10)
+		## Centred under the tiles like everything else on the card, and wide enough that its
+		## one line of explanation is not folded into a narrow column beside the shards.
+		var losses := DeepUi.hbox(box, 12)
+		losses.alignment = BoxContainer.ALIGNMENT_CENTER
 		var shards: Control = load("res://view/gems/shatter.gd").new(shattered[0], 64.0, 0.45, _fresh)
 		losses.add_child(shards)
 		var note := DeepUi.vbox(losses, 4)
+		note.custom_minimum_size.x = 440
+		note.alignment = BoxContainer.ALIGNMENT_CENTER
 		DeepUi.section(note, "split_shield", "%s shattered" % DeepUi.plural(shattered.size(), "fragile gem"), DeepUi.BAD)
-		DeepUi.wrap(note, "Void gems cannot leave the mine. Nothing was kept or sold.", 13, DeepUi.MUTED)
+		DeepUi.wrap(note, "Fragile gems never leave the mine: Void gems and fragile finds shatter when a run ends. Nothing was kept or sold.", 13, DeepUi.MUTED)
 		losses.tooltip_text = "\n".join(shattered.map(func(s: Dictionary) -> String: return DeepUi.stone_name(s)))
 	var go := DeepUi.primary(box, "anvil", "Back to the workshop", func() -> void: home_requested.emit(), 18)
 	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

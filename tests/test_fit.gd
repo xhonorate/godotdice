@@ -174,6 +174,13 @@ func _menu(app: Control) -> void:
 			app.menu._show(page)
 			await _fits(app.menu, "the menu's %s page" % page)
 		app.menu.close()
+	## The host of a party run: who is away, and the line they come back on, in each state.
+	for party in [ {"status": "local", "away": ["Guest With A Long Name 1", "Guest With A Long Name 2", "Guest With A Long Name 3"]},
+			{"status": "opening", "away": ["Bo"]}, {"status": "hosting", "invite_code": "109775241234567890", "away": ["Bo"]},
+			{"status": "hosting", "lan": "192.168.100.200", "away": []}]:
+		app.menu.open(app.settings, {"in_run": true, "host": true, "solo": party.status == "local", "phase": "tunnels", "depth": 12, "mine": "The Quarry", "party": party})
+		await _fits(app.menu, "the menu with the party %s" % str(party.status))
+		app.menu.close()
 
 # --- the close look ----------------------------------------------------------------------------
 
@@ -351,6 +358,8 @@ func _run(app: Control) -> void:
 			found.appraised = true
 			found.inclusions_revealed = true
 		me.haul.append(found)
+	## The haul went into the run itself; the screen was last shown the shaft head's copy.
+	descent.show_state(run)
 	for which in ["gems", "dice"]:
 		descent.open_bench(which)
 		await _fits(screen, "the bench's %s tab" % which)

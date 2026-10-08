@@ -332,9 +332,10 @@ func _test_passives() -> void:
 	var d8_state: Dictionary = DeepBattle.begin([player("c", [stone("STRIKE")], "PUCK")], ["QUARTZ_GOLEM"], {"depth": 1}, d8_rng.dice, d8_rng.creatures)
 	var harlequin: Dictionary = DeepBattle.player(d8_state, "c")
 	hand(harlequin, [1, 3, 5, 2, 4])
-	var d8_id: String = str(harlequin.hand[2].die_id)
+	## The Harlequin's bowl is d6 d6 d8 d8 d10, so the 2 lies on the second d8.
+	var d8_id: String = str(harlequin.hand[3].die_id)
 	var d8_shift: Dictionary = DeepBattle.command(d8_state, "c", {"kind": "flip", "die": d8_id}, d8_rng.dice)
-	check(d8_shift.ok and int(harlequin.hand[2].value) == 7, "a 2 on a d8 shifts to 7, the opposite parity")
+	check(d8_shift.ok and int(harlequin.hand[3].value) == 7, "a 2 on a d8 shifts to 7, the opposite parity")
 	var d3_rng: Dictionary = rngs(95)
 	var d3_state: Dictionary = DeepBattle.begin([player("d", [stone("STRIKE")], "PUCK")], ["QUARTZ_GOLEM"], {"depth": 1}, d3_rng.dice, d3_rng.creatures)
 	var odd_sided: Dictionary = DeepBattle.player(d3_state, "d")

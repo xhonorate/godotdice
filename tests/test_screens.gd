@@ -279,8 +279,15 @@ func _init() -> void:
 	var poor: Dictionary = DeepStone.make("GUARD", 11, 2, 1, [], {}, "screens_poor")
 	check(not DeepProfile.appraise(app.profile, poor) and not bool(poor.get("appraised", false)), "an empty purse cannot pay for a loupe")
 	app.profile.gold = 500
+	## Today's commissions are drawn for the day and the profile; one that wanted a Strike would
+	## add a third way off the tray. With none open, the choice is between the two stones.
+	var open_today: Array = DeepEconomy.open_commissions(app.profile)
+	for commission in open_today:
+		commission.done = true
 	var choices: Array = app.home._tray_actions(raw)
 	check(choices.size() == 2 and str(choices[0].label) == "Keep the new one" and str(choices[1].label) == "Keep your old one", "with one of its skill kept, the choice is which to keep")
+	for commission in open_today:
+		commission.done = false
 	app.home.open("appraise")
 	check(_count_text(app.home, "Keep the new one") == 1 and _count_text(app.home, "Keep your old one") == 1, "the tray offers the same choice beside the kept one")
 	var old_gold: int = int(app.profile.gold)

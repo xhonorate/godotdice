@@ -75,11 +75,17 @@ static func new_run(config: Dictionary) -> Dictionary:
 	var deeper: bool = mine_key != DeepContent.starter_mine()
 	var temps: RandomNumberGenerator = DeepRng.streams(seed_value, ["temps"]).temps
 	var seat: int = 0
+	## The rail goes down as copies of the vault's stones, and the vault keeps the stones
+	## themselves: a copy is marked lent, and wherever it ends up it never comes home.
+	state.marks_lent = true
 	for entry in config.get("players", []):
 		var open: int = int(entry.get("sockets", DeepContent.constant("starting_rail_cap", 3)))
 		var rail: Array = entry.get("rail", []).duplicate(true)
 		for index in range(open, rail.size()):
 			rail[index] = null
+		for stone in rail:
+			if stone is Dictionary:
+				stone.lent = true
 		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(entry.get("name", DeepProfile.DEFAULT_NAME)), str(entry.get("character", DeepContent.starter_character())),
 			rail, entry.get("dice", []))
 		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": int(mine_def.get("start_pyrite", 0)), "vote": "", "seen": [],
@@ -139,15 +145,21 @@ static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, p
 	var event: Dictionary = _event(state, "staked", {"unit": unit.id, "offer": offer_id, "boons": chosen.get("boons", []).duplicate(),
 		"message": str(result.message), "made": result.get("made", []).duplicate(true), "dice": result.get("dice", []).duplicate(true),
 		"changed": result.get("changed", []).duplicate(true), "pick": bool(result.get("pick", false))})
-	var everyone: bool = true
-	for other in living(state):
-		if str(other.get("stake", "")).is_empty():
-			everyone = false
-	if everyone:
-		_offer_tunnels(state, streams_of(state))
-		state.rng = DeepRng.save(streams_of(state))
+	if _close_grubstake(state):
 		event.finished = true
 	return {"ok": true, "event": event}
+
+static func _close_grubstake(state: Dictionary) -> bool:
+	## The shaft head lets the party go once everyone still in it has taken a stake.
+	for other in living(state):
+		if str(other.get("stake", "")).is_empty():
+			return false
+	## Charting the first stretch draws on the tunnels stream, so the streams it drew from are
+	## the ones saved: a fresh copy saved instead would hand the same numbers out again later.
+	var streams: Dictionary = streams_of(state)
+	_offer_tunnels(state, streams)
+	state.rng = DeepRng.save(streams)
+	return true
 
 static func streams_of(state: Dictionary) -> Dictionary:
 	return DeepRng.restore(state.get("rng", {}))
@@ -566,6 +578,23 @@ static func _light(state: Dictionary, unit: Dictionary) -> Dictionary:
 	map.lit_to = target_depth
 	return {"ok": true, "event": _event(state, "lit", {"unit": unit.id, "method": "ore", "to": target_depth})}
 
+static func _close_vote(state: Dictionary) -> Dictionary:
+	## Once everyone still in the party has voted, a way is drawn and the party goes down it.
+	## Returns the chamber's own event, or {} while someone has yet to vote.
+	for other in living(state):
+		if str(other.get("vote", "")).is_empty():
+			return {}
+	var streams: Dictionary = streams_of(state)
+	var winner: String = _tally(state, streams.tunnels)
+	state.rng = DeepRng.save(streams)
+	for candidate in state.offers:
+		if str(candidate.id) == winner:
+			streams = streams_of(state)
+			var entered: Dictionary = _enter(state, candidate, streams)
+			state.rng = DeepRng.save(streams)
+			return entered
+	return {}
+
 static func _tally(state: Dictionary, rng: RandomNumberGenerator) -> String:
 	## Every vote is a ticket in a hat and one is drawn: more votes make a way likelier, and
 	## a split party is a coin toss rather than the host's say.
@@ -777,7 +806,9 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 		settle.hoard = true
 		return settle
 	state.aftermath = settle.rewards.duplicate(true)
-	_offer_tunnels(state, streams_of(state))
+	var onward: Dictionary = streams_of(state)
+	_offer_tunnels(state, onward)
+	state.rng = DeepRng.save(onward)
 	return settle
 
 static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary, bonus: int, source: String, min_tier: String = "") -> Dictionary:
@@ -873,10 +904,17 @@ static func _vein_settles(state: Dictionary) -> bool:
 static func _settle_vein(state: Dictionary, event: Dictionary) -> Dictionary:
 	if not _vein_settles(state):
 		return {"ok": true, "event": event}
-	state.chamber.settled = true
-	_offer_tunnels(state, streams_of(state))
+	_close_chamber(state)
 	event.finished = true
 	return {"ok": true, "event": event}
+
+static func _close_chamber(state: Dictionary) -> void:
+	## The room is done with: the ways on open. Charting draws on the tunnels stream, so the
+	## streams it drew from are saved.
+	state.chamber.settled = true
+	var streams: Dictionary = streams_of(state)
+	_offer_tunnels(state, streams)
+	state.rng = DeepRng.save(streams)
 
 static func _stop_mining(state: Dictionary, unit: Dictionary) -> Dictionary:
 	if str(state.chamber.get("kind", "")) not in ROCK_ROOMS or not state.chamber.has("vein"):
@@ -990,15 +1028,17 @@ static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: Strin
 		if result.has(extra):
 			event[extra] = result[extra]
 			state.chamber.results[unit.id][extra] = result[extra]
-	var everyone: bool = true
-	for other in living(state):
-		if str(other.get("oddity_choice", "")).is_empty():
-			everyone = false
-	if everyone:
-		state.chamber.settled = true
-		_offer_tunnels(state, streams_of(state))
+	if _close_oddity(state):
 		event.finished = true
 	return {"ok": true, "event": event}
+
+static func _close_oddity(state: Dictionary) -> bool:
+	## The card is put away once everyone still in the party has made their choice from it.
+	for other in living(state):
+		if str(other.get("oddity_choice", "")).is_empty():
+			return false
+	_close_chamber(state)
+	return true
 
 # --- the bench -------------------------------------------------------------------------------
 ##
@@ -1157,6 +1197,9 @@ static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String) 
 			stone = held
 	if stone.is_empty():
 		return _refuse("only a loose stone from your bag can be put on the table")
+	if bool(state.get("marks_lent", false)) and is_lent(state, stone):
+		## It would go home with neither of them: the vault it came from keeps the stone itself.
+		return _refuse("that is a copy of a stone in your vault: only stones found down here change hands")
 	var table: Dictionary = trade_table(state)
 	var offers: Dictionary = table.get("offers", {}).duplicate()
 	if not offers.has(str(unit.id)) and offers.size() >= 2:
@@ -1346,15 +1389,17 @@ static func _leave_stall(state: Dictionary, unit: Dictionary) -> Dictionary:
 		return _refuse("you have already left the stall")
 	unit.ready = true
 	var event: Dictionary = _event(state, "left_stall", {"unit": unit.id})
+	if _close_stall(state):
+		event.finished = true
+	return {"ok": true, "event": event}
+
+static func _close_stall(state: Dictionary) -> bool:
+	## The stall packs up once everyone still in the party has walked away from it.
 	for other in living(state):
 		if not bool(other.get("ready", false)):
-			return {"ok": true, "event": event}
-	state.chamber.settled = true
-	var streams: Dictionary = streams_of(state)
-	_offer_tunnels(state, streams)
-	state.rng = DeepRng.save(streams)
-	event.finished = true
-	return {"ok": true, "event": event}
+			return false
+	_close_chamber(state)
+	return true
 
 # --- landings --------------------------------------------------------------------------------
 ##
@@ -1531,20 +1576,38 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 		return _refuse("the winch wants %d pyrite to lift the party from this depth" % lift_cost(state))
 	unit.choice = choice
 	var event: Dictionary = _event(state, "landing_choice", {"unit": unit.id, "choice": choice})
+	_close_landing(state, event)
+	return {"ok": true, "event": event}
+
+static func _close_landing(state: Dictionary, event: Dictionary) -> bool:
+	## Once everyone still in the party has said up or down, the party goes the way most of
+	## them chose (a tie goes the way the first of them did), and `event` says where.
 	var lifts: int = 0
 	var descends: int = 0
-	for other in living(state):
+	var party: Array = living(state)
+	if party.is_empty():
+		return false
+	for other in party:
 		match str(other.get("choice", "")):
-			"": return {"ok": true, "event": event}
+			"": return false
 			"lift": lifts += 1
 			"descend": descends += 1
-	var ride: bool = lifts > descends or (lifts == descends and str(living(state)[0].get("choice", "")) == "lift")
+	var ride: bool = lifts > descends or (lifts == descends and str(party[0].get("choice", "")) == "lift")
+	if ride and _party_ore(state) < lift_cost(state):
+		## The winch was affordable when the lift was chosen, but the purse has shrunk since:
+		## someone took their pyrite down a well, or left the party with it. Nobody rides on
+		## credit. Whoever chose the cage chooses again, and is told why.
+		for other in party:
+			if str(other.get("choice", "")) == "lift":
+				other.choice = ""
+		event.lift_short = {"cost": lift_cost(state), "have": _party_ore(state)}
+		return false
 	var streams: Dictionary = streams_of(state)
 	if ride:
 		event.paid = _pay_for_lift(state)
 		_finish(state, "conquered" if is_conquered(state) else "extracted")
 		event.finished = str(state.outcome)
-	elif boss_hall:
+	elif in_boss_hall(state):
 		event.next_mine = _push_on(state, streams)
 		state.rng = DeepRng.save(streams)
 		event.tunnels = true
@@ -1558,7 +1621,7 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 		_offer_tunnels(state, streams)
 		state.rng = DeepRng.save(streams)
 		event.tunnels = true
-	return {"ok": true, "event": event}
+	return true
 
 static func _push_on(state: Dictionary, streams: Dictionary) -> String:
 	## Down out of a beaten mine and into the one below it. Everything carried comes along —
@@ -1632,17 +1695,20 @@ static func _pick_hoard(state: Dictionary, unit: Dictionary, stone_id: String) -
 			unit.haul.append(stone)
 			unit.stats.stones = int(unit.stats.get("stones", 0)) + 1
 			var event: Dictionary = _event(state, "hoard_pick", {"unit": unit.id, "stone": stone.duplicate(true), "raw": raw})
-			var everyone: bool = true
-			for other in state.players:
-				if str(state.hoard.get(str(other.id), {}).get("chosen", "")).is_empty() and bool(other.get("connected", true)):
-					everyone = false
-			if everyone:
-				state.phase = "landing"
-				for other in state.players:
-					other.choice = ""
+			if _close_hoard(state):
 				event.landing = true
 			return {"ok": true, "event": event}
 	return _refuse("no such stone in the hoard")
+
+static func _close_hoard(state: Dictionary) -> bool:
+	## The pedestals are left behind once everyone still here has taken their stone.
+	for other in state.players:
+		if str(state.hoard.get(str(other.id), {}).get("chosen", "")).is_empty() and bool(other.get("connected", true)):
+			return false
+	state.phase = "landing"
+	for other in state.players:
+		other.choice = ""
+	return true
 
 static func _start_salvage(state: Dictionary) -> void:
 	## A wipe. Every raw stone rolls a die by its grade and only the top face brings it home.
@@ -1657,6 +1723,11 @@ static func _start_salvage(state: Dictionary) -> void:
 		## Insurance bought at the workshop throws every die twice and keeps the better throw.
 		var insured: bool = bool(unit.get("insured", false))
 		for stone in unit.haul:
+			## A copy of a vault stone was never going home, and the vault's own is safe: there
+			## is nothing to roll for, and nothing to show as lost.
+			if bool(state.get("marks_lent", false)) and is_lent(state, stone):
+				kept.append(stone)
+				continue
 			var tier: String = DeepStone.grade(stone).tier
 			var sides: int = int(dice.get(tier, 6))
 			var roll: int = streams.salvage.randi_range(1, sides)
@@ -1721,16 +1792,39 @@ static func _finish(state: Dictionary, outcome: String) -> void:
 	state.outcome = outcome
 	state.offers = []
 
+static func is_lent(state: Dictionary, stone: Dictionary) -> bool:
+	## A copy of one of the vault's stones, set on the rail when the run began. A run begun
+	## before copies were marked tells them by where they were found: not on this run.
+	if bool(state.get("marks_lent", false)):
+		return bool(stone.get("lent", false))
+	return str(stone.get("provenance", {}).get("run", "")) != str(state.get("run_id", ""))
+
+static func coming_home(state: Dictionary, unit: Dictionary) -> Array:
+	## Every stone a player found on this run and still carries comes home: the bag, and
+	## whatever they set on the rail or let ride it along the way. A copy of a vault stone
+	## never does, wherever it ended up: the vault has the stone itself. A run begun before
+	## copies were marked brings its whole bag home, as it always did.
+	var marked: bool = bool(state.get("marks_lent", false))
+	var out: Array = []
+	for stone in unit.get("haul", []):
+		if stone is Dictionary and not (marked and is_lent(state, stone)):
+			out.append(stone)
+	for stone in DeepStone.rail_stones(unit):
+		if stone is Dictionary and not is_lent(state, stone):
+			out.append(stone)
+	return out
+
 static func results(state: Dictionary) -> Dictionary:
-	## What each player takes home: the haul, the dice, and what is left in the pocket with
-	## how much of it was earned down there, for the assayer at the lift to weigh into gold.
+	## What each player takes home: the stones they found (`home`: the bag and whatever they
+	## set on the rail), the dice, and what is left in the pocket with how much of it was
+	## earned down there, for the assayer at the lift to weigh into gold.
 	_saw(state)
 	var mines: Array = state.get("mines_done", []).duplicate(true)
 	mines.append(mine_record(state))
 	var out: Dictionary = {"run_id": str(state.run_id), "mine": str(state.mine), "from_mine": str(state.get("from_mine", state.mine)), "outcome": str(state.outcome),
 		"depth": int(state.depth), "deepest": int(state.records.deepest), "wardens": state.records.wardens.duplicate(), "mines": mines, "players": {}}
 	for unit in state.players:
-		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
+		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "home": coming_home(state, unit).duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
 			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true),
 			"ore": int(unit.get("ore", 0)), "earned": int(unit.get("stats", {}).get("earned", 0)), "insured": bool(unit.get("insured", false))}
 	return out
@@ -1777,18 +1871,9 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 				return _refuse("no such tunnel")
 			unit.vote = str(offer.id)
 			var event: Dictionary = _event(state, "vote", {"unit": unit.id, "offer": offer.id})
-			for other in living(state):
-				if str(other.get("vote", "")).is_empty():
-					return {"ok": true, "event": event}
-			var streams: Dictionary = streams_of(state)
-			var winner: String = _tally(state, streams.tunnels)
-			state.rng = DeepRng.save(streams)
-			for candidate in state.offers:
-				if str(candidate.id) == winner:
-					streams = streams_of(state)
-					var entered: Dictionary = _enter(state, candidate, streams)
-					state.rng = DeepRng.save(streams)
-					event.entered = entered
+			var entered: Dictionary = _close_vote(state)
+			if not entered.is_empty():
+				event.entered = entered
 			return {"ok": true, "event": event}
 		"reroll", "lock", "unlock", "target", "flip":
 			if not in_battle(state):
@@ -1868,13 +1953,64 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 				return _refuse("nothing to acknowledge")
 			unit.ready = true
 			var event: Dictionary = _event(state, "ready", {"unit": unit.id})
-			for other in state.players:
-				if not bool(other.get("ready", false)) and bool(other.get("connected", true)):
-					return {"ok": true, "event": event}
-			_finish(state, "fallen")
-			event.finished = "fallen"
+			if _close_salvage(state):
+				event.finished = "fallen"
 			return {"ok": true, "event": event}
 	return _refuse("unknown command " + kind)
+
+static func _close_salvage(state: Dictionary) -> bool:
+	## The reckoning is over once everyone still here has read theirs.
+	for other in state.players:
+		if not bool(other.get("ready", false)) and bool(other.get("connected", true)):
+			return false
+	_finish(state, "fallen")
+	return true
+
+static func settle_absent(state: Dictionary) -> Dictionary:
+	## Every gate that waits on the whole party is checked when somebody acts. A player who
+	## drops out while the rest are already waiting on them never acts again, so whoever
+	## takes them out of the party checks the gate once more here: if everyone still in it
+	## has done what it waits on, the party moves on without them. Returns the event that
+	## says so, or {} while someone present has yet to act. A fight is the session's to start
+	## resolving, so a fight in progress is left alone. Each gate counts whom it always has:
+	## after a wipe everyone is down, and the reckoning still waits only on those present.
+	if not state.get("players", []).any(func(p: Dictionary) -> bool: return bool(p.get("connected", true))):
+		return {}
+	var fields: Dictionary = {}
+	match str(state.get("phase", "")):
+		"grubstake":
+			if _close_grubstake(state):
+				fields.finished = true
+		"tunnels":
+			var entered: Dictionary = _close_vote(state)
+			if not entered.is_empty():
+				fields.entered = entered
+		"chamber":
+			var chamber: Dictionary = state.get("chamber", {})
+			if in_battle(state) or bool(chamber.get("settled", false)):
+				return {}
+			var kind: String = str(chamber.get("kind", ""))
+			if kind in ROCK_ROOMS and chamber.has("vein"):
+				if _vein_settles(state):
+					_close_chamber(state)
+					fields.finished = true
+			elif kind in ["oddity"] + CARD_ROOMS:
+				if not str(chamber.get("oddity", "")).is_empty() and _close_oddity(state):
+					fields.finished = true
+			elif kind == "merchant":
+				if _close_stall(state):
+					fields.finished = true
+		"landing":
+			_close_landing(state, fields)
+		"hoard":
+			if _close_hoard(state):
+				fields.landing = true
+		"salvage":
+			if _close_salvage(state):
+				fields.finished = "fallen"
+	if fields.is_empty():
+		return {}
+	return _event(state, "moved_on", fields)
 
 static func set_connected(state: Dictionary, player_id: String, connected: bool) -> void:
 	var unit: Dictionary = player(state, player_id)

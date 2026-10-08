@@ -7,10 +7,17 @@ signal peer_disconnected(peer_id: String)
 signal connected
 signal failed(message: String)
 
+const CONNECT_TIMEOUT_MS := 15000
+
 var peer: ENetMultiplayerPeer
 var is_server := false
 var _was_connected := false
 var _connect_started := 0
+
+static func connect_timed_out(was_connected: bool, started_ms: int, now_ms: int) -> bool:
+	## Only a connection still being made can time out; one that is up stays up, however long
+	## the party plays.
+	return not was_connected and now_ms - started_ms > CONNECT_TIMEOUT_MS
 
 func host(port: int = 24567) -> Error:
 	close()
@@ -58,7 +65,7 @@ func _process(_delta: float) -> void:
 				failed.emit("Could not connect to that host. Check its address and UDP port.")
 			close()
 			return
-		elif Time.get_ticks_msec() - _connect_started > 15000:
+		elif connect_timed_out(_was_connected, _connect_started, Time.get_ticks_msec()):
 			failed.emit("Connection timed out. Check the host address and UDP port.")
 			close()
 			return
@@ -84,6 +91,10 @@ func disconnect_peer(peer_id: String) -> void:
 
 func close() -> void:
 	if peer != null:
+		## Closing throws away whatever is still queued, and the last thing queued is usually
+		## the one worth hearing: the host closing the party, a guest saying goodbye.
+		if peer.host != null:
+			peer.host.flush()
 		peer.close()
 	peer = null
 	is_server = false

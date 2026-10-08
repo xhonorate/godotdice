@@ -257,6 +257,7 @@ func _build_dock(unit: Dictionary) -> void:
 	bar.custom_minimum_size = Vector2(230, 20)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.warn = true
 	## The count rides in the bar, the way it does in a fight.
 	bar.set_values(float(unit.get("hp", 0)) / float(maxi(1, int(unit.get("max_hp", 1)))), "%d / %d" % [int(unit.get("hp", 0)), int(unit.get("max_hp", 0))])
 	var rail_row := DeepUi.hbox(left, 6)
@@ -294,6 +295,8 @@ func _build_dock(unit: Dictionary) -> void:
 	var middle := DeepUi.vbox(columns, 6)
 	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var dice_head := DeepUi.hbox(middle, 8)
+	## Over the dice it names: the tray below is centred in this column, so is its heading.
+	dice_head.alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.icon(dice_head, "die", 16, DeepUi.ACCENT)
 	DeepUi.heading(dice_head, "Your dice", 13)
 	var tray := DeepUi.hbox(middle, 8)
@@ -477,12 +480,13 @@ func _fit_drawer(unit: Dictionary) -> void:
 	## the width of the screen says nothing except that it is empty.
 	var wide: float = maxf(640.0, size.x)
 	var stones: int = unit.get("haul", []).size()
-	var allies: int = run.get("players", []).filter(func(p: Dictionary) -> bool: return str(p.id) != local_id).size()
-	var want: float = clampf(260.0 + 64.0 * float(mini(stones, 12)) + (180.0 if allies > 0 else 0.0), wide * 0.3, wide - 240.0)
+	## Stones are all the drawer holds: they change hands at a landing's table now, so there
+	## is no column of allies to drop them on and no room is kept for one.
+	var want: float = clampf(260.0 + 64.0 * float(mini(stones, 12)), wide * 0.3, wide - 240.0)
 	var edge: float = (wide - want) * 0.5
 	_drawer.offset_left = edge
 	_drawer.offset_right = - edge
-	var stone_width: float = want - 28.0 - (196.0 if allies > 0 else 0.0)
+	var stone_width: float = want - 28.0
 	var columns: int = maxi(1, int(floor((stone_width + 6.0) / GEM_TILE_STEP)))
 	var rows: int = maxi(1, ceili(float(stones) / float(columns)))
 	_drawer_height = DRAWER_BASE_HEIGHT + float(rows - 1) * GEM_TILE_STEP
@@ -547,6 +551,13 @@ func _stone_tile(parent: Node, stone: Dictionary) -> void:
 	tile.add_child(picture)
 	if not appraised:
 		tile.modulate = Color(1, 1, 1, 0.8)
+	## A copy of a stone the vault keeps, taken off the rail: marked, so it is never mistaken for
+	## a find that will come home.
+	if bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, stone):
+		var mark := DeepUi.icon(tile, "chest", 14, DeepUi.MUTED)
+		mark.position = Vector2(40, 3)
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tile.tooltip_text += "\nA copy of your vault's stone: the vault keeps yours, and this one stays down here."
 	var data: Dictionary = {"kind": "stone", "stone_id": str(stone.id), "from_socket": - 1, "appraised": appraised} if editable() else {}
 	_wire(tile, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60), Callable(), Callable())
 	_inspectable(tile, func() -> void: Inspector.stone(stone))

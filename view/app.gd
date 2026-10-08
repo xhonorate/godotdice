@@ -66,6 +66,7 @@ func _ready() -> void:
 			descent.refused())
 	session.error.connect(func(message: String) -> void: toast(message, DeepUi.BAD))
 	session.invited.connect(_on_invited)
+	session.claimed.connect(_on_claimed)
 	session.removed.connect(func(message: String) -> void:
 		toast(message, DeepUi.MUTED, "party")
 		_leave_party.call_deferred())
@@ -100,6 +101,15 @@ func _ready() -> void:
 	menu.leave_requested.connect(_leave_party)
 	menu.join_requested.connect(_join_steam)
 	menu.quit_requested.connect(_quit)
+	menu.reopen_requested.connect(_reopen)
+	menu.invite_requested.connect(_invite)
+	## The menu's word on the party follows the line as it opens and as the party comes back.
+	session.status_changed.connect(func(_status: String) -> void:
+		if menu.is_open():
+			menu.reshow(_menu_context()))
+	session.run_event.connect(func(event: Dictionary) -> void:
+		if menu.is_open() and str(event.get("kind", "")) == "presence":
+			menu.reshow(_menu_context()))
 	add_child(menu)
 	_apply_settings(true)
 	_toasts = VBoxContainer.new()
@@ -247,7 +257,9 @@ func _process(delta: float) -> void:
 	## A locked-in turn plays at the fight speed, bolts, numbers and all; everything else,
 	## planning included, runs at 1×.
 	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
-	var want: float = clampf(session.speed, 1.0, 8.0) if resolving and not session.paused else 1.0
+	## The host's clock paces every step of a turn, so a guest plays it at the host's speed.
+	var pace: float = session.speed if session.is_host else session.host_speed
+	var want: float = clampf(pace, 1.0, 8.0) if resolving and not session.paused else 1.0
 	## With the last creature down, what is left of the rail runs out at three times the pace.
 	## It waits out a beat first: the blow that won the fight (a gem landing twenty times over)
 	## is still being thrown when the state says everything is dead, and speeding that up
@@ -271,7 +283,22 @@ func _exit_tree() -> void:
 	GemMesh.finish_warm()
 
 func _on_run_ended(results: Dictionary) -> void:
-	var applied: Dictionary = DeepProfile.apply_result(profile, results, session.local_id)
+	_take_home(results, session.local_id)
+	descent.show_state(session.run)
+
+func _on_claimed(results: Dictionary, player_id: String) -> void:
+	## A share of a run this lapidary dropped out of and was not back for the end of, kept by
+	## its host until they came back. Taken once: the history knows every run it was handed.
+	var run_id: String = str(results.get("run_id", ""))
+	if run_id.is_empty() or profile.get("history", []).any(func(h: Dictionary) -> bool: return str(h.get("run_id", "")) == run_id):
+		return
+	var applied: Dictionary = _take_home(results, player_id)
+	toast("Your share of a run you dropped out of: %s for the tray." % DeepUi.plural(applied.get("tray", []).size(), "stone"), DeepUi.ACCENT, "bag")
+	_refresh_home()
+
+func _take_home(results: Dictionary, player_id: String) -> Dictionary:
+	## What a run brought this lapidary, into the profile and said aloud.
+	var applied: Dictionary = DeepProfile.apply_result(profile, results, player_id)
 	saves.save_profile(profile)
 	Inspector.vault = profile.get("vault", {})
 	if not applied.get("unlocked", []).is_empty():
@@ -288,7 +315,7 @@ func _on_run_ended(results: Dictionary) -> void:
 			Inspector.announce("A new mine", "%s is open.\n\n%s" % [str(mine.get("name", "")), str(mine.get("text", ""))], "pick", DeepUi.ACCENT_HI)
 	for purse in applied.get("purses", []):
 		toast("First conquest of %s: +%d gold" % [DeepContent.mine_name(str(purse.mine)), int(purse.gold)], DeepUi.ACCENT, "crown")
-	descent.show_state(session.run)
+	return applied
 
 func _back_home() -> void:
 	session.leave_run()
@@ -331,6 +358,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	match event.keycode:
 		KEY_F:
+			if not session.is_host and session.in_party():
+				toast("In a party, fights play at the host's speed.", DeepUi.MUTED, "hourglass")
+				return
 			session.speed = 4.0 if session.speed < 2.0 else maxf(1.0, float(settings.get("speed", 1.0)))
 			DeepAudio.play("ui_toggle")
 			toast("Speed ×%d" % int(session.speed), DeepUi.MUTED, "hourglass")
@@ -359,14 +389,32 @@ func _rename_player(value: String) -> void:
 func open_menu() -> void:
 	if menu.is_open():
 		return
-	var in_run: bool = session.in_run() and descent.visible
-	var solo: bool = session.status == "local"
-	menu.open(settings, {"in_run": in_run, "host": session.is_host, "solo": solo, "phase": str(session.run.get("phase", "")),
-		"depth": int(session.run.get("depth", 0)), "mine": str(DeepContent.mine(str(session.run.get("mine", ""))).get("name", "The mine")),
-		"player_name": str(profile.get("name", DeepProfile.DEFAULT_NAME))})
+	var context: Dictionary = _menu_context()
+	menu.open(settings, context)
 	## Alone, the dig waits for you; with a party it cannot.
-	if in_run and solo:
+	if bool(context.in_run) and bool(context.solo):
 		session.paused = true
+
+func _menu_context() -> Dictionary:
+	var in_run: bool = session.in_run() and descent.visible
+	var context: Dictionary = {"in_run": in_run, "host": session.is_host, "solo": session.status == "local", "phase": str(session.run.get("phase", "")),
+		"depth": int(session.run.get("depth", 0)), "mine": str(DeepContent.mine(str(session.run.get("mine", ""))).get("name", "The mine")),
+		"player_name": str(profile.get("name", DeepProfile.DEFAULT_NAME))}
+	## The host of a run with a party in it: who is away, and how they get back to it.
+	if in_run and session.is_host and session.run.get("players", []).size() > 1:
+		context.party = {"status": session.status, "invite_code": session.invite_code, "away": session.away(),
+			"lan": DeepSession.lan_address() if session.status == "hosting" and session.invite_code.is_empty() else ""}
+	return context
+
+func _reopen(kind: String) -> void:
+	## A party run picked up again from its checkpoint, opened for the party to come back to.
+	var result: Dictionary = session.reopen(kind)
+	if not bool(result.get("ok", false)):
+		toast(str(result.get("error", "")), DeepUi.BAD)
+	else:
+		## A party can be playing behind the menu now, so the dig no longer waits on it.
+		session.paused = false
+	menu.reshow(_menu_context())
 
 func _menu_closed() -> void:
 	session.paused = false

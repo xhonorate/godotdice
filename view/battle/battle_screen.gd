@@ -37,6 +37,8 @@ const SOCKET_EDGE: float = 60.0
 ## before a count stands for the rest.
 const RIDER_EDGE: float = 20.0
 const RIDERS_SHOWN: int = 3
+## A set gem the hand in the tray would leave dark: still readable, plainly stepped back.
+const QUIET_GEM := Color(0.62, 0.62, 0.68, 0.72)
 const ARC_Z: float = -4.4
 const MOVE_WORDS: Dictionary = {"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield",
 	"die_steal": "die", "heal": "heart", "curse": "eye", "bury_socket": "rampart", "cloud_socket": "cloud"}
@@ -392,6 +394,7 @@ func _build_hud() -> void:
 	me_row.custom_minimum_size.y = 30
 	DeepUi.icon(me_row, "heart", 22, DeepUi.HP, "Your health").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_hp_bar = DeepUi.bar(me_row, 20.0)
+	_hp_bar.warn = true
 	_hp_bar.custom_minimum_size = Vector2(250, 20)
 	_hp_bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_hp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -859,11 +862,36 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			var picture: Control = card.get_node_or_null("Slot/Gem")
 			if picture != null:
 				picture.set("context", DeepBattle.rail_context(state, unit, socket))
+			## Pointing at a gem lights the dice in the tray its trigger reads: the plainest way
+			## to learn what "a pair of 4+" asks for is to watch which dice answer it.
+			card.set_meta("flat", socket)
+			if not bool(card.get_meta("dice_link_wired", false)):
+				card.set_meta("dice_link_wired", true)
+				var linked: Control = card
+				card.mouse_entered.connect(func() -> void: _light_dice_for(int(linked.get_meta("flat", -1))))
+				card.mouse_exited.connect(func() -> void: _light_dice_for(-1))
 			_sync_raised(unit, card, stone)
 			var blocked: bool = unit.get("buried", []).has(socket) or unit.get("clouded", []).has(socket)
-			card.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else Color.WHITE
+			## A gem this hand leaves dark steps back, so the ones it fires stand out at a glance
+			## and "fires 2, fizzles 1" can be read off the rail itself. Its trigger, in the row
+			## under it, still says what it is waiting for.
+			var quiet: bool = showing and not entry.is_empty() and not active
+			card.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else (QUIET_GEM if quiet else Color.WHITE)
 			card.tooltip_text = ("Buried in rubble: this gem cannot fire this turn." if unit.get("buried", []).has(socket) else "Clouded: hit the Clouder to clear it.") if blocked else ""
 	_sync_birthstone(unit, planning, showing)
+
+func _light_dice_for(socket: int) -> void:
+	## The dice a gem's trigger counted in the hand as it stands, lit while that gem is pointed
+	## at; -1 (or a gem this hand leaves dark) lights none.
+	var reads: Array = []
+	if socket >= 0 and str(state.get("phase", "")) == "planning" and Time.get_ticks_msec() >= _dice_settle_at:
+		for entry in forecast.get("sockets", []):
+			if int(entry.get("socket", -1)) == socket and bool(entry.get("active", false)):
+				reads = entry.get("dice", []).map(func(d: Variant) -> String: return str(d))
+	for id in _dice_views:
+		var view: Variant = _dice_views[id]
+		if view != null and is_instance_valid(view):
+			view.set_highlight(reads.has(str(id)))
 
 static func raised_ranks(unit: Dictionary, stone: Dictionary) -> Array:
 	## What a Fire Opal, or any gem that raises another's ranks, has put on this gem for the
@@ -1252,7 +1280,9 @@ class AllyCard extends PanelContainer:
 		_name = DeepUi.label(head, "", 14, DeepUi.PAPER)
 		DeepUi.spacer(head)
 		_note = DeepUi.label(head, "", 11, DeepUi.MUTED)
-		_bar = DeepUi.bar(box, 10.0)
+		## Tall enough to carry its number, and tinted as it runs low: an ally in trouble shows.
+		_bar = DeepUi.bar(box, 14.0)
+		_bar.warn = true
 		_hand = DeepUi.hbox(box, 3)
 		_effects = EffectChips.Row.new(13)
 		box.add_child(_effects)
@@ -1777,15 +1807,30 @@ func _toggle_lock() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not is_visible_in_tree() or not event is InputEventKey or not event.pressed or event.echo:
 		return
+	## The hand's keys only mean something while it is being planned. Pressed while a turn
+	## plays out they used to reach the rules anyway and come back as a red refusal.
+	var unit: Dictionary = me()
+	if str(state.get("phase", "")) != "planning" or unit.is_empty() or bool(unit.get("downed", false)):
+		return
 	match event.keycode:
-		KEY_R: _reroll()
-		KEY_F: _flip()
-		KEY_SPACE: _toggle_lock()
+		KEY_R:
+			_reroll()
+		KEY_F:
+			## F is also the fast-fight key: it is a Sleight only for a hand that has one to
+			## spend, and otherwise goes on to the speed toggle.
+			if int(unit.get("flips", 0)) <= 0 or bool(unit.get("locked", false)):
+				return
+			_flip()
+		KEY_SPACE:
+			_toggle_lock()
 		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5:
 			var index: int = event.keycode - KEY_1
 			var ids: Array = _dice_views.keys()
 			if index < ids.size():
 				_toggle_die(str(ids[index]))
+		_:
+			return
+	get_viewport().set_input_as_handled()
 
 # --- events --------------------------------------------------------------------------------
 

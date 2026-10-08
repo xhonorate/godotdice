@@ -20,6 +20,10 @@ func _init() -> void:
 	_test_grubstake()
 	_test_profile()
 	_test_mines()
+	_test_absent()
+	_test_saves()
+	_test_coming_home()
+	_test_lift_short()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -869,6 +873,122 @@ func _test_profile() -> void:
 	check(sold.ok and not sold.kept and profile.tray.is_empty() and int(profile.gold) > gold_then and str(profile.vault.VENOM.id) == "v1b", "a second stone of a skill may be sold")
 	check(not DeepProfile.decide_tray(profile, "zzz", true).ok, "an unknown tray stone is refused")
 
+
+func _test_absent() -> void:
+	## A player who drops while the rest of the party is already waiting on them must not hold
+	## it at the gate: `settle_absent` opens the gate for the ones still there, and only then.
+	var setup: Dictionary = config(91, false)
+	setup.boons = true
+	var state: Dictionary = DeepDescent.new_run(setup)
+	check(DeepDescent.settle_absent(state).is_empty() and state.phase == "grubstake", "nothing moves while everyone present still has to act")
+	var offer: Dictionary = state.grubstake.offers.a[0]
+	var took: Dictionary = cmd(state, "a", "stake", {"offer": offer.id, "payload": {"pick": 0} if offer.needs.has("pick") else {}})
+	check(took.ok and state.phase == "grubstake", "one stake waits for the other: %s" % str(took.get("error", "")))
+	check(DeepDescent.settle_absent(state).is_empty() and state.phase == "grubstake", "and still waits while the other is there")
+	var charted_from: String = str(state.rng.tunnels.state)
+	DeepDescent.set_connected(state, "b", false)
+	var moved: Dictionary = DeepDescent.settle_absent(state)
+	check(str(moved.get("kind", "")) == "moved_on" and state.phase == "tunnels", "the shaft head lets the party go without a player who dropped (%s)" % state.phase)
+	check(str(state.rng.tunnels.state) != charted_from, "charting the first stretch is saved in the tunnels stream, not drawn again later")
+	## The same at the mouths of the tunnels.
+	DeepDescent.set_connected(state, "b", true)
+	check(cmd(state, "a", "vote_tunnel", {"offer": state.offers[0].id}).ok and int(state.depth) == 0, "a vote waits for the other")
+	DeepDescent.set_connected(state, "b", false)
+	moved = DeepDescent.settle_absent(state)
+	check(moved.has("entered") and int(state.depth) == 1, "the vote carries without a player who dropped")
+	## And at the reckoning after a wipe.
+	DeepDescent.set_connected(state, "b", true)
+	check(cmd(state, "a", "abandon").ok and state.phase == "salvage", "the dig is given up")
+	check(cmd(state, "a", "ready").ok and state.phase == "salvage", "one reckoning read waits for the other")
+	DeepDescent.set_connected(state, "b", false)
+	moved = DeepDescent.settle_absent(state)
+	check(state.phase == "over" and str(moved.get("finished", "")) == "fallen", "the run ends without a player who dropped (%s)" % state.phase)
+	## A real wipe leaves everyone down, and the reckoning still waits only on whoever is there.
+	var wiped: Dictionary = DeepDescent.new_run(config(92, false))
+	check(cmd(wiped, "a", "abandon").ok, "a second dig is given up")
+	for unit in wiped.players:
+		unit.downed = true
+	check(cmd(wiped, "a", "ready").ok and wiped.phase == "salvage", "with everyone down, one reckoning read waits for the other")
+	DeepDescent.set_connected(wiped, "b", false)
+	DeepDescent.settle_absent(wiped)
+	check(wiped.phase == "over", "and the run ends without the one who dropped, everyone down or not (%s)" % wiped.phase)
+
+func _test_coming_home() -> void:
+	## Everything found on a run comes home, the bag and whatever was set on the rail; the
+	## rail's copies of vault stones never do, wherever they ended up.
+	var state: Dictionary = DeepDescent.new_run(config(64, false))
+	var a: Dictionary = DeepDescent.player(state, "a")
+	check(a.rail.filter(func(s: Variant) -> bool: return s is Dictionary).all(func(s: Dictionary) -> bool: return bool(s.get("lent", false))), "the rail goes down as copies of the vault's stones")
+	var found: Dictionary = stone("GUARD", 6, 3, 3, "found_guard")
+	found.provenance = {"run": str(state.run_id), "source": "vein"}
+	a.haul.append(found)
+	var set_it: Dictionary = cmd(state, "a", "socket", {"stone_id": "found_guard", "index": 3})
+	check(set_it.ok and a.rail[3] is Dictionary and str(a.rail[3].id) == "found_guard", "a stone found down here is set on the rail: %s" % str(set_it.get("error", "")))
+	check(cmd(state, "a", "unsocket", {"index": 0}).ok and a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "a_strike"), "a copy of a vault stone is taken off the rail into the bag")
+	var home: Array = DeepDescent.coming_home(state, a).map(func(s: Dictionary) -> String: return str(s.id))
+	check(home.has("found_guard") and not home.has("a_strike") and not home.has("a_guard") and not home.has("a_mend"), "what comes home is what was found, set or not: %s" % str(home))
+	var phase_was: String = str(state.phase)
+	var landing_was: Dictionary = state.landing
+	state.phase = "landing"
+	state.landing = {"depth": int(state.depth), "cleared": false, "respites": {}}
+	var copy_offer: Dictionary = cmd(state, "a", "trade_offer", {"stone_id": "a_strike"})
+	check(not copy_offer.ok and str(copy_offer.get("error", "")).contains("vault"), "a copy of a vault stone never goes on the trading table: %s" % str(copy_offer.get("error", "")))
+	state.phase = phase_was
+	state.landing = landing_was
+	## Ridden up: the find set on the rail reaches the tray; no copy of the vault's Strike does.
+	DeepDescent._finish(state, "extracted")
+	var profile: Dictionary = DeepProfile.new_profile("Ada")
+	var vault_before: Dictionary = profile.vault.duplicate(true)
+	DeepProfile.apply_result(profile, DeepDescent.results(state), "a")
+	var tray: Array = profile.tray.map(func(s: Dictionary) -> String: return str(s.id))
+	check(tray.has("found_guard") and not tray.has("a_strike"), "the tray is handed the find on the rail and no copy of a vault stone: %s" % str(tray))
+	check(profile.tray.all(func(s: Dictionary) -> bool: return not s.has("lent")), "and nothing on the tray is marked as a copy")
+	check(profile.vault == vault_before, "the vault is not touched by what the rail did down there")
+	## A fall: the find on the rail is safe and rolls nothing; a copy in the bag rolls nothing either.
+	var fell: Dictionary = DeepDescent.new_run(config(65, false))
+	var b: Dictionary = DeepDescent.player(fell, "a")
+	var kept_find: Dictionary = stone("MEND", 4, 3, 3, "found_mend")
+	kept_find.provenance = {"run": str(fell.run_id), "source": "vein"}
+	b.haul.append(kept_find)
+	check(cmd(fell, "a", "socket", {"stone_id": "found_mend", "index": 3}).ok and cmd(fell, "a", "unsocket", {"index": 1}).ok, "a find set and a copy taken off before the fall")
+	check(cmd(fell, "a", "abandon").ok, "the dig is given up")
+	var rolled: Array = fell.salvage.get("a", {}).get("rolls", []).map(func(r: Dictionary) -> String: return str(r.stone.id))
+	check(not rolled.has("a_guard") and not rolled.has("found_mend"), "the salvage rolls for neither the vault's copy nor the find on the rail: %s" % str(rolled))
+	check(DeepDescent.coming_home(fell, b).any(func(s: Dictionary) -> bool: return str(s.id) == "found_mend"), "and the find on the rail comes home from a fall")
+
+func _test_lift_short() -> void:
+	## The cage is paid for when it is ridden. One lapidary chooses it while the party can pay;
+	## the other then throws the party's pyrite down the well and chooses the way down. The tie
+	## would go to the cage, but nobody rides on credit: the cage's chooser is asked again.
+	var state: Dictionary = DeepDescent.new_run(config(66, false))
+	state.depth = 4
+	DeepDescent._arrive_landing(state, DeepDescent.streams_of(state))
+	var a: Dictionary = DeepDescent.player(state, "a")
+	var b: Dictionary = DeepDescent.player(state, "b")
+	var cost: int = DeepDescent.lift_cost(state)
+	a.ore = 0
+	b.ore = cost
+	check(cmd(state, "a", "choose", {"choice": "lift"}).ok, "the cage is chosen while the party can pay for it (%d)" % cost)
+	## Spent after the cage was chosen (the well, a stall's lens: anything that takes pyrite).
+	b.ore = 0
+	check(cmd(state, "b", "respite", {"choice": "rest"}).ok, "the other takes a respite")
+	var down: Dictionary = cmd(state, "b", "choose", {"choice": "descend"})
+	check(down.ok and state.phase == "landing" and str(a.choice) == "" and down.event.has("lift_short"), "nobody rides on credit: the cage's chooser is asked again (%s)" % state.phase)
+	check(cmd(state, "a", "choose", {"choice": "lift"}).ok == false, "and the cage cannot be chosen again while the purse is short")
+
+func _test_saves() -> void:
+	## A crash between the old save going and the new one landing leaves only the backup. That
+	## backup is what comes back, never a fresh profile that the next save would write over it.
+	var store := DeepSaveStore.new("user://test_scratch")
+	store.remove("profile.json")
+	var profile: Dictionary = DeepProfile.new_profile("Ada")
+	store.save_profile(profile)
+	profile.name = "Ada again"
+	store.save_profile(profile)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(store.directory.path_join("profile.json")))
+	check(str(store.load_profile().get("name", "")) == "Ada", "a missing save comes back from its backup (%s)" % str(store.load_profile().get("name", "")))
+	store.remove("profile.json")
+	check(store.load_profile().is_empty(), "and a save cleared on purpose stays cleared")
 
 func _test_grubstake() -> void:
 	## The shaft head: everyone sees three stakes, a fallen lapidary is shown mercy, everyone

@@ -1,10 +1,8 @@
 class_name PacketCodec
 extends RefCounted
 
-## All gameplay uses bounded UTF-8 JSON. No object deserialization is allowed.
-const PROTOCOL_VERSION := 3
-const BUILD_VERSION := "0.1.0"
-const CONTENT_VERSION := "deep_cut.1"
+## All gameplay uses bounded UTF-8 JSON. No object deserialization is allowed. Which builds may
+## play together is the session's to say: see DeepSession.VERSION.
 const MAX_PACKET_BYTES := 1024 * 1024
 const MAX_COMMAND_BYTES := 16 * 1024
 const MAX_DEPTH := 32
@@ -28,14 +26,6 @@ static func decode(bytes: PackedByteArray, max_bytes: int = MAX_PACKET_BYTES) ->
 	if packet.kind == "command" and bytes.size() > MAX_COMMAND_BYTES:
 		return {"ok": false, "error": "Command exceeds the allowed size."}
 	return {"ok": true, "packet": packet}
-
-static func versions_match(packet: Dictionary) -> bool:
-	return packet.get("protocol_version") == PROTOCOL_VERSION and packet.get("build_version") == BUILD_VERSION and packet.get("content_version") == CONTENT_VERSION
-
-static func snapshot_hash(state: Dictionary) -> String:
-	# JSON parsing represents numbers as floats. Normalize the host's integers
-	# through the same JSON boundary before hashing, preserving string IDs/RNGs.
-	return JSON.stringify(JSON.parse_string(JSON.stringify(state))).sha256_text()
 
 static func _valid_tree(value: Variant, depth: int, count: Array) -> bool:
 	count[0] += 1

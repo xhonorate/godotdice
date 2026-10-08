@@ -27,6 +27,11 @@ var _scales_label: Label3D
 var _pans: Array = []
 var _glows: Dictionary = {}
 var _clock: float = 0.0
+## The buyer's pyrite, once told (-1 until then: every price reads as payable), and the lens's fee.
+var _purse: int = -1
+var _lens_cost: int = 0
+## A price the purse cannot meet.
+const DEARER := Color(0.86, 0.38, 0.33, 0.9)
 
 func build(biome: Dictionary, stock: Array, seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
@@ -231,8 +236,10 @@ func set_scales_price(price: int) -> void:
 		_scales_label.text = "Sell" if price < 0 else "Sell · %d pyrite" % price
 
 func set_lens_price(cost: int) -> void:
+	_lens_cost = cost
 	if _lens_label != null:
 		_lens_label.text = "Appraise · %d pyrite" % cost
+		_lens_label.modulate = DeepUi.INFO if _purse < 0 or _purse >= cost else DEARER
 
 func glow(which: String, on: bool) -> void:
 	## A drop target lights while something that would go there is dragged, or pointed at.
@@ -296,11 +303,26 @@ func show_stock(stock: Array) -> void:
 		shine.position = Vector3(0, 0.3, 0.45)
 		shine.shadow_enabled = false
 		holder.add_child(shine)
-		var price := _label("%d" % int(item.get("price", 0)), DeepUi.ORE, 44)
+		var price := _label("%d" % int(item.get("price", 0)), _price_tone(int(item.get("price", 0))), 44)
 		price.position = Vector3(0, -0.27, 0.6)
 		price.rotation = Vector3(-0.5, 0, 0)
 		holder.add_child(price)
-		_items[id] = {"holder": holder, "spinner": spinner, "shine": shine, "hover": false, "phase": float(index) * 1.3}
+		_items[id] = {"holder": holder, "spinner": spinner, "shine": shine, "hover": false, "phase": float(index) * 1.3,
+			"price_label": price, "price": int(item.get("price", 0))}
+
+func set_purse(ore: int) -> void:
+	## What the buyer can pay for reads off the counter at a glance: a price within the purse
+	## in gold, one beyond it in a dull red. The lens says the same of its fee.
+	_purse = ore
+	for id in _items:
+		var label: Variant = _items[id].get("price_label", null)
+		if label is Label3D and is_instance_valid(label):
+			(label as Label3D).modulate = _price_tone(int(_items[id].get("price", 0)))
+	if _lens_label != null:
+		_lens_label.modulate = DeepUi.INFO if _purse < 0 or _purse >= _lens_cost else DEARER
+
+func _price_tone(price: int) -> Color:
+	return DeepUi.ORE if _purse < 0 or _purse >= price else DEARER
 
 func item_node(id: String) -> Node3D:
 	return _items[id].holder if _items.has(id) and is_instance_valid(_items[id].holder) else null

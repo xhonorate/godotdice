@@ -4,7 +4,7 @@ Deep Cut is released on one itch.io page: a Windows download, which the **itch a
 
 | Where | What |
 |---|---|
-| `project.godot`, `application/config/version` | The version, `major.minor.patch`. The workshop shows it faintly in its bottom-right corner, the export stamps it into `DeepCut.exe`'s file properties, and itch.io shows it beside each upload. |
+| `project.godot`, `application/config/version` | The version, `major.minor.patch`. The workshop shows it faintly in its bottom-right corner, the export stamps it into `DeepCut.exe`'s file properties, and itch.io shows it beside each upload. A co-op party plays one release: the game refuses a host or a guest on any other version, so a release means everyone updates. |
 | `export_presets.cfg` | **Windows Desktop** and **Web**. Both leave out `build/`, `tools/` and `tests/`, none of which the game loads. |
 | `tools/release/deploy.cmd` | Runs `deploy.ps1` past PowerShell's execution policy. Double-click it or run it from a terminal. |
 | `tools/release/deploy.ps1` | The release itself (below). |

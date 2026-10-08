@@ -55,6 +55,11 @@ const OWN_DICE: String = "Every lapidary goes down with their own five dice. Dic
 const TRAY_PAGE: int = 45
 const APPRAISE_PAGE: int = 10
 const LEDGER_PAGE: int = 12
+## What the session's state means to a player, and the tone it is said in.
+const STATUS_WORDS: Dictionary = {"local": ["Playing alone: host or join to play together", DeepUi.MUTED],
+	"offline": ["Playing alone: host or join to play together", DeepUi.MUTED], "opening": ["Opening a Steam lobby…", DeepUi.ACCENT],
+	"hosting": ["Hosting: friends can join", DeepUi.GOOD], "connecting": ["Connecting to the host…", DeepUi.ACCENT],
+	"joined": ["In the party", DeepUi.GOOD], "lost": ["Disconnected", DeepUi.BAD]}
 
 var profile: Dictionary = {}
 var lobby: Dictionary = {}
@@ -339,7 +344,9 @@ func _expedition_view(side: VBoxContainer) -> void:
 	var mine: Dictionary = DeepContent.mine(chosen_key)
 	var record: Dictionary = profile.get("mines", {}).get(chosen_key, {})
 	var trip := DeepUi.card(side, Color(DeepUi.ACCENT, 0.4), 18)
-	var trip_box := DeepUi.vbox(trip, 8)
+	## A little tighter than the other cards: the Quarry's twenty-odd skill marks take two
+	## rows here, and a full party's way down still has to fit under it on one page.
+	var trip_box := DeepUi.vbox(trip, 6)
 	DeepUi.section(trip_box, "descend", "The expedition  ·  stratum %s" % MineMap.numeral(chosen_key))
 	DeepUi.title(trip_box, str(mine.get("name", chosen_key)), 28, DeepUi.PAPER)
 	DeepUi.wrap(trip_box, str(mine.get("text", "")), 13, DeepUi.MUTED)
@@ -371,13 +378,19 @@ func _expedition_view(side: VBoxContainer) -> void:
 	var batch: Array = mine.get("batch", [])
 	if not batch.is_empty():
 		var found: Array = batch.filter(func(k: Variant) -> bool: return profile.get("vault", {}).has(str(k)) or profile.get("seen", []).has(str(k)))
-		var skills := DeepUi.hbox(trip_box, 4)
-		DeepUi.label(skills, "%d skills first found here" % batch.size(), 12, DeepUi.MUTED)
+		## A row that wraps: in one long line a mine's twenty-odd marks widened the whole column,
+		## and the map beside it jumped every time the side was switched to the party and back.
+		var skills := HFlowContainer.new()
+		skills.add_theme_constant_override("h_separation", 3)
+		skills.add_theme_constant_override("v_separation", 3)
+		skills.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		trip_box.add_child(skills)
+		DeepUi.label(skills, "%d skills first found here  ·  %d found" % [batch.size(), found.size()], 12, DeepUi.MUTED)
 		DeepUi.gap(skills, 4)
 		for key in batch:
 			var def: Dictionary = DeepContent.skill(str(key))
 			var known: bool = found.has(key)
-			DeepUi.icon(skills, GemIcons.emblem(str(key)), 16, DeepUi.color(str(def.get("color", ""))) if known else DeepUi.DIM,
+			DeepUi.icon(skills, GemIcons.emblem(str(key)), 15, DeepUi.color(str(def.get("color", ""))) if known else DeepUi.DIM,
 				str(def.get("name", key)) if known else "Not found yet")
 	_enter(trip)
 	## Who goes down, in brief. The roster tab is where they are chosen and fitted.
@@ -533,7 +546,17 @@ func _party_view(side: VBoxContainer) -> void:
 	var together := DeepUi.card(side, DeepUi.LINE, 16)
 	var together_box := DeepUi.vbox(together, 8)
 	DeepUi.section(together_box, "wifi", "Play together")
-	DeepUi.stat(together_box, "wifi", "Status: %s" % status, DeepUi.MUTED, 12)
+	var said: Array = STATUS_WORDS.get(status, [status.capitalize(), DeepUi.MUTED])
+	DeepUi.stat(together_box, "wifi", str(said[0]), said[1], 12)
+	## Hosting on the LAN: the address a friend types into Join, ready to copy.
+	var lan_ip: String = DeepSession.lan_address() if is_host and status == "hosting" and invite_code.is_empty() else ""
+	if not lan_ip.is_empty():
+		var at := DeepUi.hbox(together_box, 8)
+		DeepUi.stat(at, "crown", "Friends on your network join %s" % lan_ip, DeepUi.PAPER, 12).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var copy_ip := DeepUi.icon_button(at, "copy", "Copy", Callable(), 13, DeepUi.MUTED)
+		copy_ip.pressed.connect(func() -> void:
+			DisplayServer.clipboard_set(lan_ip)
+			_cheer_at(copy_ip, "Copied", DeepUi.GOOD, "copy"))
 	var lan := DeepUi.hbox(together_box, 8)
 	DeepUi.icon_button(lan, "crown", "Host on LAN", func() -> void: host_requested.emit(DeepSession.DEFAULT_PORT), 13, DeepUi.ACCENT)
 	_address = LineEdit.new()

@@ -234,7 +234,49 @@ static func theme(scale: float = 1.0) -> Theme:
 		t.set_stylebox("grabber", bar, flat(Color(LINE_HI, 0.8), Color(0, 0, 0, 0), 4, 3))
 		t.set_stylebox("grabber_highlight", bar, flat(ACCENT_DIM, Color(0, 0, 0, 0), 4, 3))
 		t.set_stylebox("grabber_pressed", bar, flat(ACCENT, Color(0, 0, 0, 0), 4, 3))
+	## The engine's own switch is drawn for a light page: off, its track is a dark grey that
+	## vanishes into these panels and the setting stops looking like something to click.
+	for entry in [["checked", true, false], ["unchecked", false, false], ["checked_disabled", true, true], ["unchecked_disabled", false, true],
+			["checked_mirrored", true, false], ["unchecked_mirrored", false, false], ["checked_disabled_mirrored", true, true], ["unchecked_disabled_mirrored", false, true]]:
+		t.set_icon(str(entry[0]), "CheckButton", switch_icon(bool(entry[1]), bool(entry[2]), str(entry[0]).ends_with("mirrored")))
 	return t
+
+static var _switches: Dictionary = {}
+
+static func switch_icon(on: bool, disabled: bool = false, mirrored: bool = false) -> Texture2D:
+	## A toggle's track and knob: a lit gold track with the knob at its far end when on, an
+	## outlined slate track with the knob at its near end when off. Drawn once per look.
+	var key: String = "%s%s%s" % [on, disabled, mirrored]
+	if _switches.has(key):
+		return _switches[key]
+	var w: int = 46
+	var h: int = 26
+	var image := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var radius: float = float(h) * 0.5 - 1.0
+	var ends: Array = [Vector2(radius + 1.0, h * 0.5), Vector2(w - radius - 1.0, h * 0.5)]
+	var track: Color = Color(ACCENT, 0.92) if on else Color("1b2230")
+	var edge: Color = ACCENT_HI if on else LINE_HI.lightened(0.15)
+	var knob_tone: Color = PAPER if on else MUTED
+	var knob_at: Vector2 = ends[1] if on != mirrored else ends[0]
+	var fade: float = 0.45 if disabled else 1.0
+	for y in range(h):
+		for x in range(w):
+			var p := Vector2(x + 0.5, y + 0.5)
+			## Distance to the track's spine, so the track is a capsule with an edge 1.5 px wide.
+			var along: float = clampf(p.x, ends[0].x, ends[1].x)
+			var from_spine: float = p.distance_to(Vector2(along, h * 0.5))
+			var cover: float = clampf(radius + 0.5 - from_spine, 0.0, 1.0)
+			if cover <= 0.0:
+				continue
+			var inner: float = clampf(radius - 1.5 + 0.5 - from_spine, 0.0, 1.0)
+			var pixel: Color = edge.lerp(track, inner)
+			var knob: float = clampf(radius - 3.5 + 0.5 - p.distance_to(knob_at), 0.0, 1.0)
+			pixel = pixel.lerp(knob_tone, knob)
+			pixel.a = cover * fade * (pixel.a if knob <= 0.0 else 1.0)
+			image.set_pixel(x, y, pixel)
+	var texture := ImageTexture.create_from_image(image)
+	_switches[key] = texture
+	return texture
 
 # --- builders ------------------------------------------------------------------------------
 
@@ -827,6 +869,9 @@ class Bar extends Control:
 	var text: String = ""
 	var glyph: String = ""
 	var rounded: bool = true
+	## A player's health: below half the fill eases to amber, below a quarter on to red, so who
+	## is in trouble reads off the bar before anyone reads its number. See `health_tone`.
+	var warn: bool = false
 	## A share of the bar shown pulsing at the end of the fill: what is about to be lost.
 	var preview: float = 0.0:
 		set(value):
@@ -889,7 +934,7 @@ class Bar extends Control:
 		if _ghost > _shown:
 			_box(Rect2(Vector2.ZERO, Vector2(size.x * _ghost, size.y)), Color(1, 0.92, 0.8, 0.55), radius)
 		if _shown > 0.001:
-			_box(Rect2(Vector2.ZERO, Vector2(size.x * _shown, size.y)), fill, radius)
+			_box(Rect2(Vector2.ZERO, Vector2(size.x * _shown, size.y)), DeepUi.health_tone(_shown, fill) if warn else fill, radius)
 			_box(Rect2(Vector2(1, 1), Vector2(maxf(0.0, size.x * _shown - 2.0), size.y * 0.38)), Color(1, 1, 1, 0.16), radius * 0.6)
 		if preview > 0.0 and _shown > 0.001:
 			var cut: float = minf(preview, _shown)
@@ -907,12 +952,14 @@ class Bar extends Control:
 		outline.set_corner_radius_all(int(radius))
 		draw_style_box(outline, r)
 		if not text.is_empty() and size.y >= 12.0:
-			var font := ThemeDB.fallback_font
+			## Bold and lightly outlined: at this size a heavy outline swallows the glyphs and
+			## the number reads as a dark smudge on the fill.
+			var font: Font = DeepUi.bold_font()
 			var font_size := int(size.y * 0.78)
 			var measured := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 			var at := Vector2((size.x - measured.x) * 0.5, size.y * 0.5 + font.get_ascent(font_size) * 0.5 - font.get_descent(font_size) * 0.5)
-			draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 3, Color(0, 0, 0, 0.7))
-			draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DeepUi.PAPER)
+			draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, clampi(roundi(font_size / 5.5), 2, 3), Color(0, 0, 0, 0.8))
+			draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 	func _box(rect: Rect2, color: Color, radius: float) -> void:
 		if rect.size.x <= 0.5:
 			return
@@ -924,6 +971,17 @@ class Bar extends Control:
 		box.set_corner_radius_all(int(minf(radius, rect.size.x * 0.5)))
 		box.anti_aliasing = true
 		draw_style_box(box, rect)
+
+static func health_tone(share: float, healthy: Color = HP) -> Color:
+	## Health at a glance: its own green while there is plenty of it, easing to amber by a
+	## quarter and to red by a tenth.
+	const AMBER := Color("e8b04a")
+	const DANGER := Color("e5533d")
+	if share >= 0.5:
+		return healthy
+	if share >= 0.25:
+		return healthy.lerp(AMBER, (0.5 - share) / 0.25)
+	return AMBER.lerp(DANGER, clampf((0.25 - share) / 0.15, 0.0, 1.0))
 
 static func bar(parent: Node, height: float = 10.0, fill: Color = HP, back: Color = HP_LOST) -> Bar:
 	var b := Bar.new(height)

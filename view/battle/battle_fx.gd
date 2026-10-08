@@ -436,12 +436,20 @@ static func ambient(kind: String, biome: Dictionary, scale: float = 1.0) -> GPUP
 	return p
 
 static func _after_frames(frames: int, work: Callable) -> void:
-	## Runs `work` once this many more frames have been drawn, if what it acts on is still there.
+	## Runs `work` once this many more frames have gone by, if what it acts on is still there.
+	## Counted on the scene tree rather than the rendering server: a wait still pending when
+	## the game quits goes with the tree, while one left on the server outlived the script it
+	## was written in and brought the engine down on its way out.
 	if frames <= 0:
 		if work.is_valid():
 			work.call()
 		return
-	RenderingServer.frame_post_draw.connect(func() -> void: _after_frames(frames - 1, work), CONNECT_ONE_SHOT)
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		if work.is_valid():
+			work.call()
+		return
+	tree.process_frame.connect(func() -> void: _after_frames(frames - 1, work), CONNECT_ONE_SHOT)
 
 static func _stretched_quad() -> QuadMesh:
 	if _stretched == null:

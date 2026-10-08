@@ -119,6 +119,11 @@ func _init() -> void:
 	DeepSaveStore.override_directory = "user://test_scratch"
 	_test_local()
 	_test_linked()
+	_test_rejoin()
+	_test_held()
+	_test_reopen()
+	_test_versions()
+	_test_lan_timeout()
 	_test_steam()
 	print("Session: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -223,6 +228,13 @@ func _test_linked() -> void:
 	check(host.lobby.members.p1.name == "Bo the Delver" and guest.local_member().name == "Bo the Delver" and bool(host.lobby.members.p1.ready), "renaming a guest reaches both lobbies and preserves readiness")
 	host.update_member({"name": "Ada the Delver"})
 	check(guest.lobby.members.p0.name == "Ada the Delver", "guests see the host's new player name")
+	## A guest's packet is only data: fields of the wrong kind are dropped, not handed on.
+	var was: Dictionary = host.lobby.members.p1.duplicate(true)
+	guest.update_member({"ready": "yes", "gold": "lots", "character": "NOBODY", "name": 42, "rail": [ {"skill": "NOT_A_SKILL"}], "dice": "five", "sockets": -5})
+	var now: Dictionary = host.lobby.members.p1
+	check(bool(now.ready) == bool(was.ready) and str(now.character) == str(was.character) and str(now.name) == str(was.name) and same(now.rail, was.rail)
+		and same(now.dice, was.dice) and int(now.gold) == int(was.gold) and int(now.sockets) == 0, "a malformed update is cleaned rather than trusted: %s" % str(now))
+	guest.update_member({"sockets": int(was.sockets)})
 	guest.update_member({"character": "RUE"})
 	check(not bool(host.lobby.members.p1.ready) and host.lobby.members.p1.character == "RUE", "changing character clears readiness")
 	guest.update_member({"ready": true})
@@ -338,6 +350,235 @@ func _test_linked() -> void:
 		if wire.get_parent() == null:
 			wire.free()
 
+func _link(host_wire: Loopback, guest_wire: Loopback, peer_id: String) -> void:
+	host_wire.my_peer_id = "1"
+	guest_wire.my_peer_id = peer_id
+	host_wire.other = guest_wire
+	guest_wire.other = host_wire
+
+func _test_rejoin() -> void:
+	## A guest whose line drops mid-run does not stall the party, and comes back to their own
+	## seat by the profile they play with.
+	var host := DeepSession.new()
+	var guest := DeepSession.new()
+	root.add_child(host)
+	root.add_child(guest)
+	var host_wire := Loopback.new()
+	var guest_wire := Loopback.new()
+	_link(host_wire, guest_wire, "2")
+	host.start_local(member("Ada", "ARDOR"))
+	host.attach_transport(host_wire)
+	guest.is_host = false
+	guest.attach_transport(guest_wire)
+	var bo: Dictionary = member("Bo", "VESPER")
+	bo.id = "pfb0b0b0b0"
+	guest.hello(bo)
+	check(str(host.lobby.members.p1.get("profile", "")) == "pfb0b0b0b0", "the host knows which profile sits in seat p1")
+	guest.update_member({"ready": true})
+	check(host.start_run(5150).ok and guest.in_run(), "a party of two sets out")
+	stake(host)
+	check(host.run.phase == "grubstake", "the shaft head waits for the guest's stake")
+	host._on_peer_disconnected("2")
+	check(host.run.phase == "tunnels", "the guest dropping does not hold the party at the shaft head (%s)" % host.run.phase)
+	check(not bool(DeepDescent.player(host.run, "p1").connected) and not bool(host.lobby.members.p1.connected), "and the run marks them away")
+	## Back on a new line with the same profile: the same seat, and the whole run.
+	var again := DeepSession.new()
+	root.add_child(again)
+	var again_wire := Loopback.new()
+	_link(host_wire, again_wire, "3")
+	again.is_host = false
+	again.attach_transport(again_wire)
+	var started: Array = []
+	again.run_started.connect(func(state: Dictionary) -> void: started.append(state))
+	again.hello(bo)
+	check(again.local_id == "p1" and started.size() == 1 and same(again.run, host.run), "a dropped guest comes back to seat p1 and is handed the run (%s)" % again.local_id)
+	check(bool(DeepDescent.player(host.run, "p1").connected) and bool(host.lobby.members.p1.connected) and host.lobby.order == ["p0", "p1"], "present again, in one seat")
+	## A stranger with no seat to come back to is still turned away from a party underground.
+	var stranger_refusals: Array = []
+	var stranger := DeepSession.new()
+	root.add_child(stranger)
+	var stranger_wire := Loopback.new()
+	_link(host_wire, stranger_wire, "4")
+	stranger.is_host = false
+	stranger.attach_transport(stranger_wire)
+	stranger.refused.connect(func(message: String) -> void: stranger_refusals.append(message))
+	var cy: Dictionary = member("Cy", "RUE")
+	cy.id = "pfc1c1c1c1"
+	stranger.hello(cy)
+	check(stranger_refusals.size() == 1 and not stranger.in_run() and host.lobby.order == ["p0", "p1"], "a newcomer cannot take a seat underground: %s" % str(stranger_refusals))
+	## A step lost on the way is not patched in blind: the mirror asks once for the whole run.
+	_link(host_wire, again_wire, "3")
+	host_wire.other = null
+	host.send({"kind": "vote_tunnel", "offer": fighting(host.run.offers).id})
+	host_wire.other = again_wire
+	var asked_before: int = again_wire.sent
+	again.send({"kind": "vote_tunnel", "offer": fighting(host.run.offers).id})
+	check(again_wire.sent == asked_before + 2, "after a gap the guest sends its vote and one request for the run (%d)" % (again_wire.sent - asked_before))
+	check(again.revision == host.revision and same(again.run, host.run), "and the mirror matches the host again")
+	## Back in the workshop, nobody who dropped keeps a seat that nobody is sitting in.
+	host._on_peer_disconnected("3")
+	host.leave_run()
+	check(host.lobby.order == ["p0"] and not host.lobby.members.has("p1"), "a seat kept underground is let go in the workshop")
+	for session in [host, guest, again, stranger]:
+		session.queue_free()
+	for wire in [host_wire, guest_wire, again_wire, stranger_wire]:
+		if wire.get_parent() == null:
+			wire.free()
+
+func _test_held() -> void:
+	## A guest who drops out and is not back when the run ends still gets their share of how it
+	## ended: the host keeps it, on disk, and hands it over when that profile says hello again.
+	var store := DeepSaveStore.new("user://test_scratch")
+	store.remove("held.json")
+	var host := DeepSession.new()
+	host.saves = store
+	var guest := DeepSession.new()
+	root.add_child(host)
+	root.add_child(guest)
+	var host_wire := Loopback.new()
+	var guest_wire := Loopback.new()
+	_link(host_wire, guest_wire, "2")
+	host.start_local(member("Ada", "ARDOR"))
+	host.attach_transport(host_wire)
+	guest.is_host = false
+	guest.attach_transport(guest_wire)
+	var bo: Dictionary = member("Bo", "VESPER")
+	bo.id = "pfc0ffee01"
+	guest.hello(bo)
+	guest.update_member({"ready": true})
+	check(host.start_run(6060).ok, "a party of two sets out")
+	var run_id: String = str(host.run.run_id)
+	## Bo finds a stone and sets it on the rail, then drops; the dig is given up without them.
+	var find: Dictionary = DeepStone.make("GUARD", 5, 3, 3, [], {"run": run_id, "source": "vein"}, "bo_find")
+	find.appraised = true
+	DeepDescent.player(host.run, "p1").rail[3] = find
+	host._on_peer_disconnected("2")
+	host.send({"kind": "abandon"})
+	host.send({"kind": "ready"})
+	check(str(host.run.phase) == "over" and host.holding_for("pfc0ffee01") == 1, "the host keeps a share for the guest who was not back (%s, %d)" % [str(host.run.phase), host.holding_for("pfc0ffee01")])
+	## Kept on disk: a host that restarts still has it to hand over.
+	var restarted := DeepSession.new()
+	restarted.saves = store
+	root.add_child(restarted)
+	check(restarted.holding_for("pfc0ffee01") == 1, "the share outlives the host's session")
+	restarted.queue_free()
+	host.leave_run()
+	## Bo comes back on a new line, in the workshop: the share arrives first, and once it has,
+	## the host lets go of it.
+	var again := DeepSession.new()
+	root.add_child(again)
+	var again_wire := Loopback.new()
+	_link(host_wire, again_wire, "3")
+	again.is_host = false
+	again.attach_transport(again_wire)
+	var handed: Array = []
+	again.claimed.connect(func(results: Dictionary, seat: String) -> void: handed.append([results, seat]))
+	again.hello(bo)
+	check(handed.size() == 1 and str(handed[0][0].run_id) == run_id and str(handed[0][1]) == "p1", "the share is handed over on hello: %s" % str(handed.map(func(h: Array) -> String: return str(h[1]))))
+	check(host.holding_for("pfc0ffee01") == 0 and store.load_held().is_empty(), "and once it has arrived, the host lets go of it")
+	if not handed.is_empty():
+		var profile: Dictionary = DeepProfile.new_profile("Bo")
+		DeepProfile.apply_result(profile, handed[0][0], str(handed[0][1]))
+		check(profile.tray.any(func(s: Dictionary) -> bool: return str(s.id) == "bo_find") and str(profile.history.back().outcome) == "fallen",
+			"taken home, it is the run as it ended: the find set on the rail, and the fall")
+	store.remove("held.json")
+	for session in [host, guest, again]:
+		session.queue_free()
+	for wire in [host_wire, guest_wire, again_wire]:
+		if wire.get_parent() == null:
+			wire.free()
+
+func _test_reopen() -> void:
+	## A party run picked up again from its checkpoint: everyone else is away and nothing waits
+	## on them; the host opens a line and each comes back to their own seat in the same run.
+	var first := DeepSession.new()
+	var guest := DeepSession.new()
+	root.add_child(first)
+	root.add_child(guest)
+	var first_wire := Loopback.new()
+	var guest_wire := Loopback.new()
+	_link(first_wire, guest_wire, "2")
+	first.start_local(member("Ada", "ARDOR"))
+	first.attach_transport(first_wire)
+	guest.is_host = false
+	guest.attach_transport(guest_wire)
+	var bo: Dictionary = member("Bo", "VESPER")
+	bo.id = "pfbeefbeef"
+	guest.hello(bo)
+	guest.update_member({"ready": true})
+	check(first.start_run(7070).ok, "a party of two sets out")
+	## What the checkpoint holds, as a host that quit and came back would read it.
+	var saved_run: Dictionary = JSON.parse_string(JSON.stringify(first.run))
+	var saved_lobby: Dictionary = JSON.parse_string(JSON.stringify(first.lobby))
+	first.queue_free()
+	var host := DeepSession.new()
+	root.add_child(host)
+	host.start_local(member("Ada", "ARDOR"))
+	check(not host.reopen("lan").ok, "the workshop has no run to open to a party")
+	host.resume_run(saved_run, saved_lobby)
+	check(host.away() == ["Bo"] and not bool(DeepDescent.player(host.run, "p1").connected), "picked up again, the rest of the party is away: %s" % str(host.away()))
+	check(host._next_seat > 1, "and seats are numbered on past theirs (%d)" % host._next_seat)
+	stake(host)
+	check(str(host.run.phase) == "tunnels", "the shaft head does not wait on someone who is away (%s)" % str(host.run.phase))
+	## The line opens (a loopback here, where the game would open a LAN port or a Steam lobby).
+	var host_wire := Loopback.new()
+	var back_wire := Loopback.new()
+	_link(host_wire, back_wire, "3")
+	host.attach_transport(host_wire)
+	check(not host.reopen("lan").ok, "a line already open is not opened again")
+	var back := DeepSession.new()
+	root.add_child(back)
+	back.is_host = false
+	back.attach_transport(back_wire)
+	back.hello(bo)
+	check(back.local_id == "p1" and back.in_run() and str(back.run.run_id) == str(host.run.run_id) and same(back.run, host.run), "Bo comes back to seat p1 in the same run (%s)" % back.local_id)
+	check(host.away().is_empty() and bool(DeepDescent.player(host.run, "p1").connected), "and nobody is away now")
+	for session in [host, guest, back]:
+		session.queue_free()
+	for wire in [first_wire, guest_wire, host_wire, back_wire]:
+		if wire.get_parent() == null:
+			wire.free()
+
+func _test_versions() -> void:
+	## Two builds that disagree say so once each way, never back and forth.
+	var host := DeepSession.new()
+	var guest := DeepSession.new()
+	root.add_child(host)
+	root.add_child(guest)
+	var host_wire := Loopback.new()
+	var guest_wire := Loopback.new()
+	_link(host_wire, guest_wire, "2")
+	host.start_local(member("Ada", "ARDOR"))
+	host.attach_transport(host_wire)
+	guest.is_host = false
+	guest.attach_transport(guest_wire)
+	guest.status = "connecting"
+	var removed: Array = []
+	guest.removed.connect(func(message: String) -> void: removed.append(message))
+	## A guest on an older build says hello: one refusal, which the guest takes home with it.
+	guest_wire.send("1", PacketCodec.encode({"kind": "hello", "member": member("Bo", "VESPER"), "version": "0.0.1"}))
+	check(host_wire.sent == 1 and host.lobby.order == ["p0"], "the host refuses another build once and seats nobody (%d)" % host_wire.sent)
+	check(removed.size() == 1 and str(removed[0]).contains("does not match") and guest.status == "lost", "the guest is told why and sent home: %s" % str(removed))
+	## A refusal from another build is never answered.
+	host_wire.sent = 0
+	guest_wire.send("1", PacketCodec.encode({"kind": "refused", "error": "no", "version": "0.0.1"}))
+	check(host_wire.sent == 0, "the host does not answer a refusal (%d)" % host_wire.sent)
+	## Nor does a guest answer a host on another build: it goes home and says why.
+	guest.status = "joined"
+	removed.clear()
+	var guest_sent: int = guest_wire.sent
+	host_wire.send("2", PacketCodec.encode({"kind": "lobby", "lobby": {"members": {}, "order": []}, "version": "9.9.9"}))
+	check(guest_wire.sent == guest_sent and removed.size() == 1 and str(removed[0]).contains("9.9.9"), "a guest does not answer a host on another build: %s" % str(removed))
+	host.queue_free()
+	guest.queue_free()
+
+func _test_lan_timeout() -> void:
+	## Only a LAN connection still being made can time out: one that is up stays up.
+	var limit: int = DevelopmentTransport.CONNECT_TIMEOUT_MS
+	check(DevelopmentTransport.connect_timed_out(false, 0, limit + 1), "a connection never made gives up")
+	check(not DevelopmentTransport.connect_timed_out(false, 0, limit - 1), "and is given its time first")
+	check(not DevelopmentTransport.connect_timed_out(true, 0, limit * 40), "a connection that is up is never timed out, however long the party plays")
+
 func stake(session: DeepSession) -> void:
 	## Take the first stake on offer for this session's player, with whatever it needs.
 	var offers: Array = session.run.get("grubstake", {}).get("offers", {}).get(session.local_id, [])
@@ -382,6 +623,7 @@ func _test_steam() -> void:
 		root.add_child(session)
 	var guest_errors: Array = []
 	guest.error.connect(func(message: String) -> void: guest_errors.append(message))
+	guest.removed.connect(func(message: String) -> void: guest_errors.append(message))
 	## Steam in offline mode cannot open a lobby, and the workshop stays as it was.
 	host.start_local(member("Ada", "ARDOR"))
 	ada_steam.online = false
@@ -414,11 +656,12 @@ func _test_steam() -> void:
 	ada_steam.inbox.append({"identity": stranger.id, "payload": PackedByteArray([0]) + intruder})
 	settle([host])
 	check(host.lobby.order.size() == 3, "someone outside the lobby cannot take a seat")
-	## Another guest leaving is the host's business, not a lost connection.
+	## Another guest leaving is the host's business, not a lost connection. Nothing is kept for
+	## anyone in the workshop, so their seat goes with them rather than standing empty.
 	third.start_local(member("Cy", "RUE"))
-	check(not bool(host.lobby.members.p2.connected) and guest.status == "joined", "a guest leaving the lobby is marked away, and the other guest stays (%s)" % guest.status)
+	check(not host.lobby.members.has("p2") and host.lobby.order == ["p0", "p1"] and guest.status == "joined", "a guest leaving the lobby gives up their seat, and the other guest stays (%s)" % guest.status)
 	settle([host, guest])
-	check(not bool(guest.lobby.members.p2.connected), "and the other guest hears so from the host")
+	check(not guest.lobby.members.has("p2"), "and the other guest hears so from the host")
 	## Setting out: the whole run goes over Steam, cut into parts where it must be.
 	guest.update_member({"ready": true})
 	settle([host, guest])
