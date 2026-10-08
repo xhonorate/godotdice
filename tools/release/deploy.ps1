@@ -175,7 +175,7 @@ if (-not $kind) {
     Write-Host "  2) minor  -> $($next.minor)"
     Write-Host "  3) patch  -> $($next.patch)"
     $answer = (Read-Host "Choose 1-3 (anything else cancels)").Trim()
-    $kind = @{ "1" = "patch"; "patch" = "patch"; "2" = "minor"; "minor" = "minor"; "3" = "major"; "major" = "major" }[$answer]
+    $kind = @{ "1" = "major"; "major" = "major"; "2" = "minor"; "minor" = "minor"; "3" = "patch"; "patch" = "patch" }[$answer]
     if (-not $kind) {
         Write-Host "Cancelled. Nothing was changed."
         exit 0
