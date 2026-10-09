@@ -34,9 +34,10 @@ const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "ret
 ## How long a rail may grow mid-fight. An Echo adds a gem a turn and nothing else does, so
 ## this is only there to keep a very long fight from laying out a rail no screen can hold.
 const MAX_RAIL: int = 24
-## What a rail's rung is made of: once the last creature falls, these still play out to the
-## end of the rail that was firing, and nothing else does.
-const RUNG_STEPS: Array = ["gem", "birthstone", "rail_end"]
+## What the party's half of a turn is made of. Once the last creature falls these still play
+## out, the rail that was firing and every rail queued after it, so a heal, a shield or a
+## purse on a later rail is not lost because an ally's gem got there first; nothing else does.
+const RUNG_STEPS: Array = ["rail_begin", "gem", "birthstone", "rail_end", "skip"]
 const BIRTHSTONE_KINDS: Array = ["replay_rail", "tick_poison", "stone_drop", "pot"]
 
 # --- setup -------------------------------------------------------------------------------
@@ -104,13 +105,31 @@ static func _enemy_id(state: Dictionary) -> String:
 
 static func _bring_escorts(state: Dictionary, leader: Dictionary, rng: RandomNumberGenerator) -> void:
 	## The creatures written in beside it: a Prismarch's prisms, a Heartrot's tendrils. They
-	## stand after it and are bred to the same depth; the leader knows them by id.
+	## stand either side of it in turn, the first on its right (as a summons does), so the
+	## leader holds the middle of the row; they are bred to the same depth, and the leader
+	## knows them by id.
+	var right: Array = []
+	var left: Array = []
 	for key in DeepCreatures.definition(leader).get("escorts", []):
 		var escort: Dictionary = DeepCreatures.make(str(key), _enemy_id(state), int(leader.get("depth", state.threat)), state.players.size(), leader.get("scale", {}), rng)
 		escort.escort_of = str(leader.id)
 		escort.summoned = true
-		state.enemies.append(escort)
+		(right if right.size() <= left.size() else left).append(escort)
 		leader.escorts.append(str(escort.id))
+	if right.is_empty():
+		return
+	## The first on the left stands nearest the leader.
+	left.reverse()
+	var at: int = state.enemies.find(leader)
+	state.enemies = state.enemies.slice(0, at) + left + [leader] + right + state.enemies.slice(at + 1)
+
+static func default_target(foes: Array) -> Dictionary:
+	## Who a hero's blows go at when they have not chosen: the Warden when one stands, since
+	## its escorts stand either side of it, else the first creature in the row.
+	for foe in foes:
+		if bool(foe.get("warden", false)):
+			return foe
+	return foes[0] if not foes.is_empty() else {}
 
 static func targetable(units: Array) -> Array:
 	## The creatures a gem can reach: alive, and not under the floor.
@@ -222,7 +241,7 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			return {"ok": true, "event": _event(state, "reroll", {"unit": player_id, "dice": chosen, "hand": unit.hand.duplicate(true),
 				"rerolls": unit.rerolls, "drain": drain, "scorch": scorch, "loaded": loaded, "dues": dues, "resonance": int(unit.resonance)})}
 		"flip":
-			## Sleight shifts a die to the opposite parity, using its range complement when possible.
+			## Sleight turns a die over onto a face of the opposite parity. See `shift_face`.
 			if bool(unit.get("locked", false)):
 				return _refuse("you have locked in")
 			if int(unit.get("flips", 0)) <= 0:
@@ -231,14 +250,15 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			for roll in unit.hand:
 				if str(roll.get("die_id", "")) != wanted_id or bool(roll.get("phantom", false)):
 					continue
-				if str(roll.get("kind", "plain")) != "plain":
-					return _refuse("only a plain face can be shifted")
-				var top: int = maxi(1, int(roll.get("top", 6)))
-				var previous: int = int(roll.get("value", 1))
-				var shifted: int = clampi(top + 1 - previous, 1, DeepDice.VALUE_CAP)
-				if shifted % 2 == previous % 2 and top > 1:
-					shifted = previous + 1 if previous < top else previous - 1
-				roll.value = shifted
+				var refusal: String = shift_refusal(unit, roll)
+				if not refusal.is_empty():
+					return _refuse(refusal)
+				var face: int = shift_face(unit, roll)
+				var die: Dictionary = _die_of(unit, wanted_id)
+				roll.value = DeepDice.face_value(die.faces[face])
+				roll.face = face
+				roll.erase("shown")
+				roll.erase("counted")
 				roll.flipped = true
 				unit.flips = int(unit.flips) - 1
 				return {"ok": true, "event": _event(state, "flip", {"unit": player_id, "die": wanted_id, "value": int(roll.value),
@@ -248,6 +268,10 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			unit.locked = true
 			return {"ok": true, "event": _event(state, "lock", {"unit": player_id})}
 		"unlock":
+			## Locking in can be taken back only while there is still something to do with the
+			## hand: a reroll or a shift left to spend. With neither, the dice are as they will be.
+			if int(unit.get("rerolls", 0)) <= 0 and int(unit.get("flips", 0)) <= 0:
+				return _refuse("nothing left to change: no rerolls or shifts")
 			unit.locked = false
 			return {"ok": true, "event": _event(state, "unlock", {"unit": player_id})}
 		"target":
@@ -257,6 +281,51 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			unit.target = str(foe.id)
 			return {"ok": true, "event": _event(state, "target", {"unit": player_id, "enemy": unit.target})}
 	return _refuse("unknown battle command " + kind)
+
+## Sleight (Puck's shift) turns one die over onto a face of the other parity: the face whose
+## number mirrors the one it shows (a 2 on a d6 to its 5, as a real die's opposite sides add
+## up) when the die has that face, else the nearest number of the other parity it does have.
+## It only ever lands on a plain face the die really carries, so the die is shown turned over
+## rather than reading a number it has no face for, and a die whose faces are all odd or all
+## even (an Even or Odd pattern, a Stretched die) cannot be shifted at all.
+
+static func _die_of(unit: Dictionary, die_id: String) -> Dictionary:
+	for die in unit.get("dice", []):
+		if str(die.get("id", "")) == die_id:
+			return die
+	return {}
+
+static func shift_face(unit: Dictionary, roll: Dictionary) -> int:
+	## The face Sleight would turn this roll onto, or -1 when there is none.
+	var die: Dictionary = _die_of(unit, str(roll.get("die_id", "")))
+	var faces: Array = die.get("faces", [])
+	var previous: int = int(roll.get("value", 1))
+	var mirror: int = maxi(1, int(roll.get("top", DeepDice.top(die)))) + 1 - previous
+	var best: int = -1
+	for index in range(faces.size()):
+		if str(faces[index].get("kind", "plain")) != "plain":
+			continue
+		var value: int = DeepDice.face_value(faces[index])
+		if value <= 0 or value % 2 == previous % 2:
+			continue
+		var distance: int = absi(value - mirror)
+		var best_distance: int = absi(DeepDice.face_value(faces[best]) - mirror) if best >= 0 else 0
+		## Nearest the mirror; between two as near, the one nearer what it showed.
+		if best < 0 or distance < best_distance or (distance == best_distance and absi(value - previous) < absi(DeepDice.face_value(faces[best]) - previous)):
+			best = index
+	return best
+
+static func shift_refusal(unit: Dictionary, roll: Dictionary) -> String:
+	## Why Sleight cannot shift this roll, or "".
+	if bool(roll.get("phantom", false)):
+		return "a phantom die cannot be shifted"
+	if str(roll.get("kind", "plain")) != "plain":
+		return "only a plain face can be shifted"
+	if _die_of(unit, str(roll.get("die_id", ""))).is_empty():
+		return "no such die"
+	if shift_face(unit, roll) < 0:
+		return "that die has no face of the other parity to turn to"
+	return ""
 
 static func ready_to_resolve(state: Dictionary) -> bool:
 	if str(state.get("phase", "")) != "planning":
@@ -400,8 +469,9 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			var healed: int = 0
 			if str(unit.get("passive", {}).get("kind", "")) == "heal_resonance_per_unused_reroll" and unused > 0 and resonance > 0:
 				healed = _heal(unit, resonance * unused)
-			## The rail that killed the last creature has had its say: now the fight is won.
-			if bool(state.get("cleared", false)):
+			## The last rail of the turn has had its say since the last creature fell: now the
+			## fight is won. An ally's rail still queued after this one fires first.
+			if bool(state.get("cleared", false)) and not _rail_firing(state):
 				_close_cleared(state)
 			return _event(state, "rail_end", {"unit": unit.id, "resonance": resonance, "unused_rerolls": unused, "healed": healed})
 		"creatures_begin":
@@ -563,16 +633,28 @@ static func _drop_steps(state: Dictionary, unit_id: String) -> void:
 
 # --- gems --------------------------------------------------------------------------------
 
+static func _under_line(roll: Dictionary, line: Dictionary, raised: Array) -> bool:
+	## Whether a die the trigger matched is still one an upgrade may raise. A die judged by a
+	## line ("below 6") is judged by the face it shows now, so a raise that carried it past
+	## the line ends its turn; a wild matched every line and is raised once a firing.
+	if str(roll.get("kind", "plain")) == "wild":
+		return not raised.has(str(roll.get("die_id", "")))
+	if line.is_empty():
+		return true
+	var face: int = int(roll.get("base", roll.get("value", 0)))
+	var need: int = int(line.get("need", 0))
+	return face < need if str(line.get("kind", "")) == "below" else face <= need
+
 static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts: Dictionary = {}) -> Dictionary:
 	## What the rail hands a gem at this socket: the bonuses its neighbours and the run give
 	## it, and what the previous gem did.
-	var stone: Dictionary = unit.rail[socket]
+	var stone: Dictionary = DeepStone.fingerprinted(unit.rail, socket, unit.rail[socket])
 	var socket_color: String = str(unit.sockets[socket]) if socket < unit.sockets.size() else "ANY"
 	var carat_bonus: int = 0
 	for neighbour in [socket - 1, socket + 1]:
 		if neighbour < 0 or neighbour >= unit.rail.size() or not unit.rail[neighbour] is Dictionary:
 			continue
-		var other: Dictionary = unit.rail[neighbour]
+		var other: Dictionary = DeepStone.fingerprinted(unit.rail, neighbour, unit.rail[neighbour])
 		for m in DeepStone.modifiers(other):
 			if str(m.get("kind", "")) != "adjacent_carat":
 				continue
@@ -617,6 +699,8 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 			"cut": int(buff.get("cut", 0)) + int(gem_buff.get("cut", 0)), "clarity": int(gem_buff.get("clarity", 0))},
 		"buff_sources": unit.get("buff_sources", {}),
 		"dulled": int(unit.get("statuses", {}).get("dulled", 0)),
+		## What a Fingerprint here is carrying, for the close look to name.
+		"fingerprint": DeepStone.fingerprint_words(unit.rail, socket),
 		"depth": int(state.get("depth", 1)),
 		"turn": int(state.get("turn", 1)), "party": int(state.get("party", 1)), "socket": socket_color,
 		"retrigger": bool(opts.get("retrigger", false)), "force_fire": bool(opts.get("force", false))}
@@ -639,9 +723,9 @@ static func stone_at(unit: Dictionary, socket: int) -> Dictionary:
 	if socket < 0 or socket >= unit.rail.size() or not unit.rail[socket] is Dictionary:
 		return {}
 	var worn: int = worn_socket(unit, socket)
-	if worn < 0:
-		return unit.rail[socket]
-	return DeepStone.wearing(unit.rail[socket], unit.rail[worn])
+	var stone: Dictionary = unit.rail[socket] if worn < 0 else DeepStone.wearing(unit.rail[socket], unit.rail[worn])
+	## A Fingerprint carries an inclusion of the gem before it for as long as it fights there.
+	return DeepStone.fingerprinted(unit.rail, socket, stone)
 
 static func repeatable(unit: Dictionary, socket: int) -> bool:
 	## What an opal's repeat is allowed to touch. Never another opal: that one rule is the
@@ -1088,7 +1172,7 @@ static func _blood_feeds(state: Dictionary, dead: Dictionary) -> void:
 				var index: int = int(roll.get("face", -1))
 				if index < 0 or index >= die.get("faces", []).size():
 					continue
-				die.faces[index].value = mini(DeepDice.VALUE_CAP, int(die.faces[index].get("value", 0)) + 1)
+				die.faces[index].value = int(die.faces[index].get("value", 0)) + 1
 				roll.value = DeepDice.face_value(die.faces[index])
 				roll.top = DeepDice.top(die)
 				roll.fed = true
@@ -1107,12 +1191,13 @@ static func _mutate_hand(unit: Dictionary, effect: Dictionary) -> Dictionary:
 		"raise_low":
 			var lowest: Dictionary = _extreme(real, true)
 			if not lowest.is_empty():
-				lowest.value = mini(int(lowest.value) + amount, maxi(high, int(lowest.get("top", DeepDice.VALUE_CAP))) if amount >= 99 else mini(int(lowest.value) + amount, DeepDice.VALUE_CAP))
+				## An amount of 99 or more means "up to the top": as high as the hand goes, or the die can.
+				lowest.value = mini(int(lowest.value) + amount, maxi(high, int(lowest.get("top", high)))) if amount >= 99 else int(lowest.value) + amount
 				changed.append(str(lowest.die_id))
 		"raise_high":
 			var highest: Dictionary = _extreme(real, false)
 			if not highest.is_empty():
-				highest.value = mini(int(highest.value) + amount, DeepDice.VALUE_CAP)
+				highest.value = int(highest.value) + amount
 				changed.append(str(highest.die_id))
 		"set_match":
 			for _i in range(amount):
@@ -1134,7 +1219,7 @@ static func _mutate_hand(unit: Dictionary, effect: Dictionary) -> Dictionary:
 			sorted.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return int(x.value) < int(y.value) if kind == "flip_low" else int(x.value) > int(y.value))
 			for index in range(mini(amount, sorted.size())):
 				var roll: Dictionary = sorted[index]
-				roll.value = clampi(int(roll.get("top", 6)) + 1 - int(roll.value), 1, DeepDice.VALUE_CAP)
+				roll.value = maxi(1, int(roll.get("top", 6)) + 1 - int(roll.value))
 				changed.append(str(roll.die_id))
 		"phantom_high":
 			var highest: Dictionary = _extreme(real, false)
@@ -1243,30 +1328,37 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.rank = rank
 			_credit_buff(unit, rank, socket)
 		"upgrade_faces":
-			## Only the first die it matches, in the order they sit in the hand.
+			## Only the first die it matches, in the order they sit in the hand, that still meets
+			## the gem's line: a proc after the first finds the face it raised past the line and
+			## raises the next one instead, or nothing when none is left (see `_under_line`).
 			var changed: Array = []
+			var raised: Array = effect.get("raised", [])
 			for roll in unit.hand:
 				if not changed.is_empty():
 					break
 				if bool(roll.get("phantom", false)) or not effect.get("dice", []).has(str(roll.die_id)):
+					continue
+				if not _under_line(roll, effect.get("line", {}), raised):
 					continue
 				for die in unit.dice:
 					if str(die.id) != str(roll.die_id):
 						continue
 					for face_index in range(die.faces.size()):
 						if bool(effect.get("all_faces", false)) or face_index == int(roll.get("face", -1)):
-							die.faces[face_index].value = mini(DeepDice.VALUE_CAP, int(die.faces[face_index].value) + amount)
-					roll.value = mini(DeepDice.VALUE_CAP, int(roll.value) + amount)
+							die.faces[face_index].value = int(die.faces[face_index].value) + amount
+					roll.value = int(roll.value) + amount
 					if roll.has("base"):
-						roll.base = mini(DeepDice.VALUE_CAP, int(roll.base) + amount)
+						roll.base = int(roll.base) + amount
 					if die.has("top"):
 						var physical_top: int = 0
 						for face in die.faces:
 							if str(face.get("kind", "plain")) != "blank":
 								physical_top = maxi(physical_top, int(face.value))
-						die.top = mini(DeepDice.VALUE_CAP, maxi(int(die.top), physical_top))
+						die.top = maxi(int(die.top), physical_top)
 					roll.top = DeepDice.top(die)
 					changed.append(str(die.id))
+			raised.append_array(changed)
+			effect.raised = raised
 			out.dice = changed
 			out.hand = unit.hand.duplicate(true)
 		"stake":
@@ -1277,10 +1369,11 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				out.spent = cost
 				out.pyrite_after = DeepRules.pyrite(unit)
 		"appraise":
+			## How many stones it reads is exact; what they are thrown for swells with weight.
 			var appraised: Array = []
 			var worth: int = 0
 			for stone in unit.get("haul", []):
-				if appraised.size() >= amount:
+				if appraised.size() >= int(effect.get("stones", 1)):
 					break
 				if bool(stone.get("appraised", false)):
 					continue
@@ -1290,7 +1383,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				worth += DeepStone.value(stone)
 			out.appraised = appraised
 			out.value = worth
-			out.hits = _apply(state, unit, {"kind": "damage", "target": "enemy", "amount": worth}, rng) if worth > 0 else []
+			out.hits = _apply(state, unit, {"kind": "damage", "target": "enemy", "amount": worth * amount / 100}, rng) if worth > 0 else []
 
 		"replay_color":
 			## A Seam: every gem of one color that has already fired this turn plays again,
@@ -1459,20 +1552,20 @@ static func _targets(state: Dictionary, source: Dictionary, target: String, inte
 		"enemy", "hero":
 			var chosen: Dictionary = enemy(state, aim(source)) if is_player else player(state, intent_target)
 			if chosen.is_empty() or int(chosen.hp) <= 0 or bool(chosen.get("downed", false)) or (is_player and bool(chosen.get("burrowed", false))):
-				chosen = foes[0] if not foes.is_empty() else {}
+				chosen = default_target(foes)
 			return [chosen] if not chosen.is_empty() else []
 		"enemies":
 			return foes
 		"enemy_adjacent":
 			var chosen: Dictionary = enemy(state, aim(source))
 			if (chosen.is_empty() or bool(chosen.get("burrowed", false))) and not foes.is_empty():
-				chosen = foes[0]
+				chosen = default_target(foes)
 			return _adjacent_enemies(state, chosen).slice(0, 1)
 
 		"enemy_behind":
 			var chosen: Dictionary = enemy(state, aim(source))
 			if chosen.is_empty() or int(chosen.hp) <= 0 or bool(chosen.get("burrowed", false)):
-				chosen = foes[0] if not foes.is_empty() else {}
+				chosen = default_target(foes)
 			var index: int = foes.find(chosen)
 			return [foes[index + 1]] if index >= 0 and index + 1 < foes.size() else []
 		"downed_ally":
@@ -1614,7 +1707,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			var spent: int = 0
 			var consumed: int = 0
 			if kind == "damage_curse":
-				amount *= int(target.statuses.get("curse", 0))
+				amount = amount * int(target.statuses.get("curse", 0)) / 100
 			elif kind == "detonate":
 				consumed = int(target.statuses.get("poison", 0))
 				target.statuses.poison = 0
@@ -2680,7 +2773,7 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		unit.healed = 0
 		var foes: Array = living(state.enemies)
 		if enemy(state, str(unit.get("target", ""))).get("hp", 0) <= 0 and not foes.is_empty():
-			unit.target = str(foes[0].id)
+			unit.target = str(default_target(foes).id)
 		unit.firing_target = str(unit.get("target", ""))
 	## Refresh public movesets without rolling any enemy dice.
 	var high: int = 0
@@ -2744,22 +2837,12 @@ static func _check_outcome(state: Dictionary) -> void:
 		state.outcome = "victory"
 
 static func _rail_firing(state: Dictionary) -> bool:
-	## Whether the queue is partway through one player's rail: nothing but that player's
-	## gems (and Birthstone) stand between here and their rail_end.
+	## Whether the party's half of the turn is still playing: the next thing queued is part of
+	## a rail (this player's next gem, or the next player's rail), not the creatures' turn.
 	if str(state.get("phase", "")) != "resolving":
 		return false
-	var owner: String = ""
-	for q in state.get("queue", []):
-		var kind: String = str(q.get("kind", ""))
-		if not kind in RUNG_STEPS:
-			return false
-		if owner.is_empty():
-			owner = str(q.get("unit", ""))
-		elif str(q.get("unit", "")) != owner:
-			return false
-		if kind == "rail_end":
-			return true
-	return false
+	var queue: Array = state.get("queue", [])
+	return not queue.is_empty() and str(queue[0].get("kind", "")) in RUNG_STEPS
 
 static func _close_cleared(state: Dictionary) -> void:
 	state.erase("cleared")

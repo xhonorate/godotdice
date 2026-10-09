@@ -38,6 +38,7 @@ const LiftHall = preload("res://view/battle/lift_hall.gd")
 const Hoard = preload("res://view/battle/hoard.gd")
 const DiceGeometry = preload("res://view/dice/dice_geometry.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
+const StoneCard = preload("res://view/gems/stone_card.gd")
 
 signal mouth_hovered(index: int)
 signal mouth_pressed(index: int)
@@ -99,6 +100,11 @@ var _entries: Array = []
 var _hovered: int = -1
 ## "home", "crossroads", "moving" (a stroll inside the room) or "walking" (to the next room).
 var _at: String = "home"
+## A mouth clicked while the party was still settling in front of the ways on: chosen the
+## moment it stands at the crossroads, so the click is not lost to the camera.
+var _queued_mouth: int = -1
+## The salvage dice thrown on the floor and their numbers, faded out once the summary opens.
+var _salvage_nodes: Array = []
 var _falls: Array = []
 var _spoils: Array = []
 var _travel: Dictionary = {}
@@ -411,6 +417,12 @@ func _gui_input(event: InputEvent) -> void:
 				DeepAudio.play("ui_confirm", {"volume": 0.7})
 				mouth_pressed.emit(index)
 				accept_event()
+		elif _at == "moving" and str(_travel.get("to", "")) == "crossroads" and _pick_under(event.position).is_empty():
+			var index: int = _mouth_at(event.position)
+			if index >= 0:
+				_queued_mouth = index
+				DeepAudio.play("ui_confirm", {"volume": 0.7})
+				accept_event()
 	elif event is InputEventMouseMotion:
 		var over: String = _pick_under(event.position) if still else ""
 		_hover_pick(over)
@@ -661,6 +673,7 @@ func ways_live() -> bool:
 
 func close_ways() -> void:
 	_mouths_live = false
+	_queued_mouth = -1
 	_set_hover(-1)
 
 func ride_lift(done: Callable) -> void:
@@ -764,15 +777,12 @@ func well() -> Node3D:
 	made.add_child(built)
 	return made
 
-func well_swallow() -> void:
+func well_draw(tier: int) -> float:
+	## The well room's bucket goes down and comes back up with the answer. See WishingWell.
 	var here: Node3D = business()
-	if here != null and here.get_child_count() > 0 and here.get_child(0).has_method("swallow"):
-		here.get_child(0).swallow(fx)
-
-func well_answer(tier: int) -> void:
-	var here: Node3D = business()
-	if here != null and here.get_child_count() > 0 and here.get_child(0).has_method("answer"):
-		here.get_child(0).answer(fx, tier)
+	if here != null and here.get_child_count() > 0 and here.get_child(0).has_method("draw_up"):
+		return here.get_child(0).draw_up(fx, tier)
+	return 0.0
 
 # --- an oddity's shrine ----------------------------------------------------------------------------
 
@@ -860,6 +870,7 @@ func salvage(rolls: Array, bag_at: Vector2) -> void:
 		node.material_override = body
 		node.scale = Vector3.ONE * 0.16
 		room.add_child(node)
+		_salvage_nodes.append(node)
 		var across: float = (float(i) - float(count - 1) * 0.5) * 0.7
 		var side: Vector3 = camera.global_transform.basis.x * Vector3(1, 0, 1)
 		var land: Vector3 = ahead + side.normalized() * across
@@ -878,6 +889,7 @@ func salvage(rolls: Array, bag_at: Vector2) -> void:
 		number.modulate = Color(DeepUi.GOOD if kept else DeepUi.BAD, 0.0)
 		number.position = land + Vector3(0, 0.55, 0)
 		room.add_child(number)
+		_salvage_nodes.append(number)
 		var tween := node.create_tween()
 		tween.tween_interval(delay)
 		tween.tween_callback(func() -> void: DeepAudio.play("die_tumble", {"volume": 0.6, "gap": 0.02}))
@@ -900,6 +912,22 @@ func salvage(rolls: Array, bag_at: Vector2) -> void:
 				var tint: Color = GemMesh.tint(roll.get("stone", {}))
 				fx.shards(land + Vector3(0, 0.5, 0), tint, 14, 3.5, 0.12, 1.1)
 				fx.sparks(land + Vector3(0, 0.5, 0), tint, 30, 4.0, 0.5, 0.05))
+
+func clear_salvage(seconds: float = 0.45) -> void:
+	## The reckoning is read: its dice and numbers fade off the floor rather than stand
+	## behind the summary.
+	for thrown in _salvage_nodes:
+		if not is_instance_valid(thrown):
+			continue
+		var node: Node3D = thrown
+		var tween := node.create_tween()
+		if node is Label3D:
+			tween.tween_property(node, "modulate:a", 0.0, seconds)
+			tween.parallel().tween_property(node, "outline_modulate:a", 0.0, seconds)
+		else:
+			tween.tween_property(node, "scale", Vector3.ONE * 0.001, seconds)
+		tween.tween_callback(node.queue_free)
+	_salvage_nodes.clear()
 
 # --- the stall -----------------------------------------------------------------------------------
 
@@ -1200,6 +1228,7 @@ func _stroll(to: Vector3, look: Vector3, seconds: float, mode: String) -> void:
 
 func _stop_travel() -> void:
 	## Whatever the party was doing on its feet, it stops where it is.
+	_queued_mouth = -1
 	if _crumble_timer != null:
 		_crumble_timer = null
 	if not _falls.is_empty():
@@ -1345,6 +1374,10 @@ func _finish_travel() -> void:
 		_arrive(travel)
 	else:
 		_at = str(travel.get("to", "home"))
+		if _at == "crossroads" and _queued_mouth >= 0:
+			var queued: int = _queued_mouth
+			_queued_mouth = -1
+			mouth_pressed.emit.call_deferred(queued)
 
 func _arrive(travel: Dictionary) -> void:
 	## In the new room: finish it, drop the old one and the tunnel, and move the world back
@@ -1593,7 +1626,11 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 	## given the room: it comes up out of the rough into the middle of the view, twice the
 	## size it was, turns there under its own light while the room reads it out, and only
 	## then goes into the bag.
-	var held: Vector3 = from_screen(size * Vector2(0.5, 0.44), 3.4) if _laid_out() and own else at + Vector3(0, 1.4 if own else 1.0, 1.2 if own else 0.5)
+	## Two finds at once (a vein's last strike, a fight's spoils) each get a place of their own
+	## across the middle: the first in the centre, then either side of it, until it flies off.
+	var slot: int = _claim_held_slot(holder) if own and _laid_out() else -1
+	var across: float = 0.5 + (float(HELD_SLOTS[slot % HELD_SLOTS.size()]) if slot >= 0 else 0.0)
+	var held: Vector3 = from_screen(size * Vector2(across, 0.44), 3.4) if _laid_out() and own else at + Vector3(0, 1.4 if own else 1.0, 1.2 if own else 0.5)
 	var loud: bool = not bool(stone.get("appraised", false)) or int(DeepStone.grade(stone).index) >= 2
 	var tween := holder.create_tween()
 	tween.tween_interval(delay)
@@ -1611,26 +1648,58 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 	tween.parallel().tween_property(shine, "light_energy", 3.2, 0.5)
 	tween.parallel().tween_property(holder, "rotation:y", TAU, 1.6)
 	tween.parallel().tween_callback(func() -> void:
-		announce(stone, "" if own else (finder if not finder.is_empty() else "Someone"))
+		announce(stone, "" if own else (finder if not finder.is_empty() else "Someone"), across)
 		fx.glow_burst(held, tint.lightened(0.3), 3.0 if own else 1.2, 0.6)
 		if loud and own:
 			fx.stars(held, tint.lightened(0.45), 1.3, 0.8)).set_delay(0.3)
 	tween.tween_interval(1.0)
 	tween.tween_callback(func() -> void:
+		_release_held_slot(slot, holder)
 		fx.sparks(holder.global_position, tint.lightened(0.5), 14, 2.0, 0.45, 0.04)
 		_fly(holder, goal, 0.0, 0.5, "", arrived))
 	return delay + 0.55 + 1.0 + 0.5
 
-func announce(stone: Dictionary, finder: String = "") -> void:
+## Where finds shown at the same moment stand across the middle of the view, as a share of its
+## width either side of the centre, and which of those places are taken (by whose holder).
+const HELD_SLOTS: Array = [0.0, 0.22, -0.22, 0.44, -0.44]
+var _held_slots: Dictionary = {}
+
+func _claim_held_slot(holder: Node3D) -> int:
+	var slot: int = 0
+	while _held_slots.has(slot):
+		slot += 1
+	var id: int = holder.get_instance_id()
+	_held_slots[slot] = id
+	## A room torn down mid-flight still gives its place back.
+	holder.tree_exiting.connect(func() -> void: _release_held_slot(slot, null, id))
+	return slot
+
+func _release_held_slot(slot: int, holder: Node3D, id: int = 0) -> void:
+	if slot < 0:
+		return
+	var owner: int = id if holder == null else holder.get_instance_id()
+	if int(_held_slots.get(slot, -1)) == owner:
+		_held_slots.erase(slot)
+
+func announce(stone: Dictionary, finder: String = "", across: float = 0.5) -> void:
 	## What came out of the rock, said plainly across the middle of the room: a size and a
 	## colour for a stone nobody has read, its whole name for one that has been. Another
 	## player's find is said small and high up, with their name on it.
 	if _headless or not _laid_out():
 		return
 	if not finder.is_empty():
-		var other: Label = DeepUi.label(self, "%s found %s" % [finder, DeepUi.stone_name(stone).to_lower() if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone)], 17, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-		other.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-		other.add_theme_constant_override("outline_size", 6)
+		## The finder's line: who, the stone's skill, and its grade as marks after it.
+		var other := HBoxContainer.new()
+		other.alignment = BoxContainer.ALIGNMENT_CENTER
+		other.add_theme_constant_override("separation", 8)
+		other.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(other)
+		var appraised: bool = bool(stone.get("appraised", false))
+		DeepUi.label(other, "%s found %s" % [finder, DeepUi.skill_name(stone) if appraised else DeepStone.raw_name(stone)], 17, DeepUi.PAPER)
+		StoneCard.grade_marks(other, stone, 13).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for said in other.find_children("*", "Label", true, false):
+			(said as Label).add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+			(said as Label).add_theme_constant_override("outline_size", 6)
 		other.size = Vector2(size.x, 28)
 		other.position = Vector2(0, size.y * 0.2)
 		var drift := other.create_tween()
@@ -1645,10 +1714,12 @@ func announce(stone: Dictionary, finder: String = "") -> void:
 	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(banner)
 	var box := DeepUi.vbox(banner, 2)
-	DeepUi.title(box, DeepUi.stone_name(stone), 30, tint.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.title(box, DeepUi.skill_name(stone) if read else DeepStone.raw_name(stone), 30, tint.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
+	if read:
+		StoneCard.grade_marks(box, stone, 15).alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.label(box, "found" if read else "found, still in its rock", 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	banner.reset_size()
-	banner.position = Vector2(size.x * 0.5 - banner.size.x * 0.5, size.y * 0.44 + 92.0)
+	banner.position = Vector2(clampf(size.x * across - banner.size.x * 0.5, 8.0, maxf(8.0, size.x - banner.size.x - 8.0)), size.y * 0.44 + 92.0)
 	DeepUi.pop_in(banner, 0.0, 0.88, 0.28)
 	DeepUi.burst(self, banner.position + banner.size * 0.5, tint.lightened(0.3), 26, 220.0, 0.8, 5.0)
 	var fade := banner.create_tween()

@@ -186,15 +186,16 @@ func _build_rows(moves: Array) -> void:
 
 func _bonus_marks(parent: Node, mods: Array) -> void:
 	## What the mine, a Rising trait, Strength or a status added to the number it started as,
-	## each a colored mark and a figure, the way a stone's carat multiplier is shown.
+	## each a colored mark and a figure. The mine's share is marked with strata and a sinking
+	## arrow, never the Carat scale: it is how much harder things hit this deep, not a stone's.
 	for mod in mods:
 		var value: int = int(mod.value)
 		if str(mod.op) == "pct":
 			if value == 100:
 				continue
 			var times: String = ("%.2f" % (float(value) / 100.0)).rstrip("0").rstrip(".")
-			DeepUi.stat(parent, "carat", "×" + times, DeepUi.ACCENT if value > 100 else DeepUi.GOOD, 11,
-				"A multiplier of %d%% on the damage, from the depth it fights at and whatever is on it." % value)
+			DeepUi.stat(parent, "depth", "×" + times, DeepUi.ACCENT if value > 100 else DeepUi.GOOD, 11,
+				"Depth: ×%s damage. Creatures hit harder the deeper the mine they are bred in (and a Rising creature harder with every action)." % times)
 		elif value != 0:
 			DeepUi.stat(parent, "rise", "%+d" % value, DeepUi.BAD if value > 0 else DeepUi.GOOD, 11,
 				"%+d damage from Strength, rallying and the fight dragging on." % value)

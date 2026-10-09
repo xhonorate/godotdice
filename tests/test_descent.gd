@@ -24,6 +24,8 @@ func _init() -> void:
 	_test_saves()
 	_test_coming_home()
 	_test_lift_short()
+	_test_json_round_trip()
+	_test_refusal_changes_nothing()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -421,8 +423,12 @@ func _test_landing_commands() -> void:
 	check(cmd(state, "a", "trade_accept", {}).ok and cmd(state, "b", "trade_accept", {}).ok, "both say yes")
 	check(b.haul.has(mine_offer) and a.haul.has(their_offer) and not a.haul.has(mine_offer) and not b.haul.has(their_offer), "and the stones cross the table")
 	check(str(a.respite).is_empty() and str(b.respite).is_empty() and state.landing.trades.a.size() == 1, "trading is free: neither has used their respite")
-	check(DeepDescent.trade_table(state).offers.is_empty(), "and the table is cleared for the next trade")
-	## After a respite the table is still there to sit down at.
+	check(DeepDescent.trade_table(state).offers.is_empty(), "and the table is cleared")
+	## One trade each at a landing: the table is done with both of them until the next one.
+	check(DeepDescent.has_traded(state, "a") and DeepDescent.has_traded(state, "b"), "both have made their trade here")
+	check(not cmd(state, "a", "trade_offer", {"stone_id": "trade_b"}).ok and not cmd(state, "b", "trade_offer", {"stone_id": "trade_a"}).ok, "and neither can sit down at the table again at this landing")
+	## After a respite the table is still there to sit down at, at a landing nobody has traded at.
+	state.landing.trades = {}
 	a.respite = "rest"
 	check(cmd(state, "a", "trade_offer", {"stone_id": "trade_b"}).ok and cmd(state, "b", "trade_offer", {"stone_id": "trade_a"}).ok, "a lapidary who has rested can still trade")
 	check(cmd(state, "a", "trade_accept", {}).ok and cmd(state, "b", "trade_accept", {}).ok and a.haul.has(mine_offer) and b.haul.has(their_offer), "and the stones go back the way they came")
@@ -705,6 +711,15 @@ func _test_hoard_opal() -> void:
 	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return str(s.id) == str(opal.id) and not bool(s.get("appraised", false))),
 		"and goes into the haul that way, for a lens to open later")
 	check(DeepDescent.player(state, "a").haul.any(func(s: Dictionary) -> bool: return DeepStone.is_opal(s)), "and the opal goes in the haul")
+	## Whoever went down in the Warden's fight is carried past the pedestals.
+	var fallen: Dictionary = DeepDescent.new_run(config(415, true))
+	fallen.depth = 8
+	DeepDescent.player(fallen, "b").downed = true
+	DeepDescent._offer_hoard(fallen)
+	check(not fallen.hoard.has("b") and fallen.hoard.has("a"), "a lapidary who is down is offered no hoard")
+	check(not cmd(fallen, "b", "pick_hoard", {"stone_id": str(fallen.hoard.a.offers[0].id)}).ok, "and cannot take from anyone else's")
+	var closing: Dictionary = cmd(fallen, "a", "pick_hoard", {"stone_id": str(fallen.hoard.a.offers[0].id)})
+	check(closing.ok and bool(closing.event.get("landing", false)) and fallen.phase == "landing", "the pedestals are left behind once those standing have chosen")
 	## The opal is the rare colour, not the rich one: rolled with less luck, it is generally
 	## the smaller stone on the pile.
 	var opal_carats: float = 0.0
@@ -976,6 +991,35 @@ func _test_lift_short() -> void:
 	check(down.ok and state.phase == "landing" and str(a.choice) == "" and down.event.has("lift_short"), "nobody rides on credit: the cage's chooser is asked again (%s)" % state.phase)
 	check(cmd(state, "a", "choose", {"choice": "lift"}).ok == false, "and the cage cannot be chosen again while the purse is short")
 
+func _test_json_round_trip() -> void:
+	## A run read back from a checkpoint, or mirrored to a guest over the wire, has every number
+	## as a float, and `[5.0].has(5)` is false: the schedule must still say where the landings
+	## and the Wardens stand.
+	var state: Dictionary = DeepDescent.new_run(config(91, false))
+	var back: Dictionary = JSON.parse_string(JSON.stringify(state))
+	var agree: bool = true
+	for depth in range(1, 30):
+		if DeepDescent.run_is_landing(back, depth) != DeepDescent.run_is_landing(state, depth) or DeepDescent.run_is_warden(back, depth) != DeepDescent.run_is_warden(state, depth):
+			agree = false
+	check(agree, "a checkpointed run keeps its landings and Wardens")
+	check(DeepPatch.holds([5.0, 9.0], 5) and DeepPatch.holds([5, 9], 9) and not DeepPatch.holds([5.0, 9.0], 4), "whole numbers are found in a list read back from JSON")
+
+func _test_refusal_changes_nothing() -> void:
+	## Everything a player can already see is noted at the top of every command. A refused
+	## command is never sent to the party, so the note it made would never reach a guest's
+	## mirror: it is taken back with the refusal, and the next command that goes through
+	## makes it again.
+	var state: Dictionary = DeepDescent.new_run(config(92, false))
+	state.players[0].haul.append(stone("CLEAVE", 2, 2, 3, "seen_probe"))
+	var before: Array = state.players.map(func(p: Dictionary) -> Variant: return p.get("seen", []).duplicate())
+	var refused: Dictionary = cmd(state, "a", "strike", {"spot": 99})
+	var after: Array = state.players.map(func(p: Dictionary) -> Variant: return p.get("seen", []).duplicate())
+	check(not bool(refused.ok) and after == before, "a refused command leaves the record of what was seen alone (%s -> %s)" % [str(before), str(after)])
+	var offers: Array = state.get("offers", [])
+	if not offers.is_empty():
+		cmd(state, "a", "vote_tunnel", {"offer": str(offers[0].id)})
+		check(state.players[0].get("seen", []).has("CLEAVE"), "and the next command that goes through notes it")
+
 func _test_saves() -> void:
 	## A crash between the old save going and the new one landing leaves only the backup. That
 	## backup is what comes back, never a fresh profile that the next save would write over it.
@@ -1234,6 +1278,73 @@ func _test_mines() -> void:
 	check(lent is Dictionary and str(lent.id) != "a_fourth" and bool(lent.get("temporary", false)) and DeepStone.is_fragile(lent) and bool(lent.get("appraised", false)),
 		"a Seeps run lends a temporary stone for each shut socket, not the vault's")
 	check(int(seeps_run.players[0].ore) == int(DeepContent.mine("SEEPS").start_pyrite), "and starts with a purse")
+	## A socket bought and left without a vault stone is lent one too: buying it must never
+	## leave the run weaker than keeping it locked would have.
+	var empty_bought: Dictionary = bought.duplicate(true)
+	empty_bought.mine = "SEEPS"
+	empty_bought.players[0].rail[3] = null
+	var empty_run: Dictionary = DeepDescent.new_run(empty_bought)
+	var lent_at: Array = empty_run.players[0].temps.map(func(o: Dictionary) -> int: return int(o.index))
+	check(lent_at.has(3) and lent_at.has(4) and not lent_at.has(0), "an empty bought socket is lent a temporary stone like a locked one (%s)" % str(lent_at))
+	## Temporary stones are worth taking: rolled at the bottom of the mine's luck, at least
+	## Precious where they can be, and never the Rough they used to be four times in five.
+	var rough: int = 0
+	var seen_temps: int = 0
+	for trial in range(12):
+		var lent_run: Dictionary = DeepDescent.new_run(config(600 + trial, true).merged({"mine": "FURNACE"}, true))
+		for offer in lent_run.players[0].temps:
+			for pick in offer.picks:
+				seen_temps += 1
+				if str(DeepStone.grade(pick).tier) == "ROUGH":
+					rough += 1
+	check(seen_temps > 0 and rough == 0, "a Furnace start lends no Rough stones (%d of %d)" % [rough, seen_temps])
+	## And each die in its bowl is offered a swap at the shaft head, one die at a time.
+	var deep_cfg: Dictionary = config(616, true).merged({"mine": "FURNACE", "boons": true}, true)
+	var worked: Dictionary = DeepDescent.new_run(deep_cfg)
+	var deep_ada: Dictionary = DeepDescent.player(worked, "a")
+	var dice_offers: Array = deep_ada.get("dice_offers", [])
+	check(dice_offers.size() == deep_ada.dice.size() and dice_offers.all(func(o: Dictionary) -> bool: return o.picks.size() == 3), "a Furnace start offers three dice for every die in the bowl")
+	var sizes: Array = DeepOddities.SIZES
+	var shaped: bool = true
+	var distinct: bool = true
+	for offer in dice_offers:
+		var original: Dictionary = deep_ada.dice[int(offer.index)]
+		var at: int = sizes.find(str(original.shape))
+		shaped = shaped and sizes.find(str(offer.picks[0].shape)) <= at and str(offer.picks[1].shape) == str(original.shape) and sizes.find(str(offer.picks[2].shape)) >= at
+		distinct = distinct and offer.picks.all(func(d: Dictionary) -> bool: return not DeepDescent.same_die(d, original) and str(d.id) == str(original.id))
+	check(shaped, "the left die is its size or smaller, the middle one its size, the right one its size or bigger")
+	check(distinct, "and none of them is the die itself, though each keeps its id")
+	check(not cmd(worked, "a", "dice_offer", {"index": 0, "pick": 0}).ok, "the dice wait for the temporary stones")
+	for offer in deep_ada.temps:
+		cmd(worked, "a", "temporary", {"index": int(offer.index), "pick": 0})
+	check(not cmd(worked, "a", "stake", {"offer": worked.grubstake.offers.a[0].id}).ok, "and the stakes wait for the dice")
+	var swapped: Dictionary = cmd(worked, "a", "dice_offer", {"index": 0, "pick": 2})
+	check(swapped.ok and DeepDescent.same_die(deep_ada.dice[0], dice_offers[0].picks[2]) and int(swapped.event.left) == dice_offers.size() - 1, "a die taken goes into the bowl in the old one's place")
+	check(not cmd(worked, "a", "dice_offer", {"index": 0, "pick": 1}).ok, "and that die is answered for")
+	var kept: Dictionary = deep_ada.dice[1].duplicate(true)
+	for index in range(1, dice_offers.size()):
+		cmd(worked, "a", "dice_offer", {"index": index, "pick": -1})
+	check(DeepDescent.dice_offers_left(deep_ada) == 0 and DeepDescent.same_die(deep_ada.dice[1], kept), "keeping a die leaves it as it was")
+	check(cmd(worked, "a", "stake", {"offer": worked.grubstake.offers.a[0].id}).ok, "with every die answered for, the stake")
+	check(DeepDescent.new_run(config(616, true)).players[0].get("dice_offers", []).is_empty(), "the Quarry offers no dice")
+	var no_head: Dictionary = DeepDescent.new_run(config(616, true).merged({"mine": "FURNACE"}, true))
+	check(no_head.players.all(func(p: Dictionary) -> bool: return DeepDescent.dice_offers_left(p) == 0), "with no shaft head to stand at, every die stays as it is")
+	## How far the side dice stray grows with the mine: about three in ten a size off in the
+	## Seeps, nearly every one in the Geode.
+	for spec in [["SEEPS", 0.15, 0.45], ["GEODE", 0.9, 1.0]]:
+		var strayed: int = 0
+		var sides: int = 0
+		for seed_value in range(30):
+			var sample: Dictionary = DeepDescent.new_run(config(700 + seed_value, true).merged({"mine": str(spec[0]), "boons": true}, true))
+			for unit in sample.players:
+				for offer in unit.dice_offers:
+					var base: int = sizes.find(str(unit.dice[int(offer.index)].shape))
+					for side in [0, 2]:
+						sides += 1
+						if sizes.find(str(offer.picks[side].shape)) != base:
+							strayed += 1
+		var share: float = float(strayed) / float(maxi(1, sides))
+		check(share >= float(spec[1]) and share <= float(spec[2]), "%s side dice are a size off %.0f%% of the time" % [str(spec[0]), share * 100.0])
 	check(int(seeps_run.schedule.boss) == DeepContent.mine_bottom("SEEPS") and seeps_run.schedule.wardens.size() == 3, "the Seeps plans its own shaft: %s" % str(seeps_run.schedule))
 	## The boss's hall has a cage, and a way on into the next mine.
 	var bottom: int = DeepContent.mine_bottom("QUARRY")
@@ -1247,7 +1358,14 @@ func _test_mines() -> void:
 	check(DeepDescent.in_boss_hall(hall) and DeepDescent.is_conquered(hall), "the party stands in the boss's hall, the mine conquered")
 	var ride: Dictionary = hall.duplicate(true)
 	ride.players[0].ore = DeepDescent.lift_cost(ride)
-	cmd(ride, "a", "choose", {"choice": "lift"})
+	## The respite was taken at this landing before the boss was fought; it does not shut the
+	## cage the fight opened.
+	ride.players[0].respite = "rest"
+	ride.players[1].respite = "wish"
+	check(cmd(ride, "a", "choose", {"choice": "lift"}).ok, "a respite taken before the boss does not keep anyone off its cage")
+	ride.players[1].downed = true
+	check(not cmd(ride, "b", "choose", {"choice": "lift"}).ok, "a lapidary who is down has no vote")
+	ride.players[1].downed = false
 	cmd(ride, "b", "choose", {"choice": "lift"})
 	check(ride.phase == "over" and ride.outcome == "conquered", "the boss's hall has a cage, and riding it up conquers the mine")
 	var on: Dictionary = hall.duplicate(true)

@@ -43,6 +43,19 @@ for suite in ["test_dice.gd", "test_dice_shapes.gd", "test_stones.gd", "test_gem
     if result.returncode or re.search(r"SCRIPT ERROR:|^ERROR:|^FAIL:|[1-9]\d* failures", result.stdout, re.MULTILINE):
         failed.append(suite)
 
+# The balance browser's fight is a port of the rail in sim/battle.gd; hold it to the real one.
+node = shutil.which("node")
+if node:
+    print("\nRunning the balance parity check", flush=True)
+    result = subprocess.run([node, str(ROOT / "tools" / "data-browser" / "parity.mjs"), "--count", "300"],
+                            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            timeout=600, env=dict(os.environ, GODOT_BIN=godot))
+    print(result.stdout.strip()[-3000:], flush=True)
+    if result.returncode:
+        failed.append("balance parity (tools/data-browser/parity.mjs)")
+else:
+    print("\nSkipping the balance parity check: node was not found.", flush=True)
+
 if failed:
     sys.exit("Failed: " + ", ".join(failed))
 print("\nAll Godot scenario suites passed.")

@@ -8,7 +8,9 @@ const SCHEMA: int = 1
 const MAX_BYTES: int = 8 * 1024 * 1024
 const DEFAULT_SETTINGS: Dictionary = {"master_volume": 0.8, "music_volume": 0.6, "sfx_volume": 0.85, "fullscreen": false,
 	"speed": 1.0, "reduced_motion": false, "outlines": true, "vsync": true, "quality": 0, "shake": 1.0, "player_name": DeepProfile.DEFAULT_NAME, "last_address": "127.0.0.1",
-	"music_picks": {}}
+	"music_picks": {},
+	## A guest's party run, kept until it ends so a game that closes mid-run can offer to rejoin it.
+	"party_run": {}}
 
 ## Tests point every store at a scratch directory so they never touch a real vault.
 static var override_directory: String = ""

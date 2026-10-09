@@ -1,6 +1,6 @@
 // What a hand of rolls contains: a port of sim/hand.gd, field for field.
 
-import { heldForPatterns, preference, VALUE_CAP } from './dice.js';
+import { heldForPatterns, preference } from './dice.js';
 
 export function analyze(hand, colors = []) {
 	const values = [];
@@ -12,6 +12,7 @@ export function analyze(hand, colors = []) {
 	let total = 0, maxTotal = 0, held = 0, rerolled = 0, phantoms = 0, high = 0, low = 0, highPct = 0, odd = 0, even = 0, lowDice = 0, crowns = 0;
 	const lowIds = [];
 	const crownIds = [];
+	const crownValues = new Set();
 	for (let index = 0; index < hand.length; index += 1) {
 		const roll = hand[index];
 		const kind = roll.kind || 'plain';
@@ -41,7 +42,7 @@ export function analyze(hand, colors = []) {
 		highPct = Math.max(highPct, Math.floor((value * 100) / top));
 		if (value % 2 === 1) odd += 1; else even += 1;
 		if (value * 2 <= top) { lowDice += 1; lowIds.push(id); }
-		if (value >= top) { crowns += 1; crownIds.push(id); }
+		if (value >= top) { crowns += 1; crownIds.push(id); crownValues.add(value); }
 		counts.set(value, (counts.get(value) || 0) + (kind === 'twin' || roll.twinned ? 2 : 1));
 		if (!idsByValue.has(value)) idsByValue.set(value, []);
 		idsByValue.get(value).push(id);
@@ -74,15 +75,17 @@ export function analyze(hand, colors = []) {
 		high: high > 0 ? high : wildTop, low: low > 0 ? low : wildTop, high_pct: highPct,
 		held, rerolled, phantoms, dice_count: hand.length,
 		groups, best_set: groups.length ? groups[0] : { value: 0, count: 0, dice: [] },
-		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length),
+		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length, wildTop),
 		odd: odd + wilds.length, even: even + wilds.length, distinct: counts.size + wilds.length,
 		odd_values: oddValues + wilds.length, even_values: evenValues + wilds.length,
-		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds, ids_by_value: idsByValue,
+		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds,
+		high_crown: (high > 0 && crownValues.has(high)) || (high === 0 && wilds.length > 0) ? 1 : 0, ids_by_value: idsByValue,
 	};
 }
 
-function straightOf(counts, wilds, idsByValue, diceTotal) {
+function straightOf(counts, wilds, idsByValue, diceTotal, wildTop = 0) {
 	// The longest run of consecutive values, wilds filling gaps, preferring the highest run.
+	// Faces have no ceiling: a run of nothing but wilds tops out at the best top among them.
 	const present = counts;
 	let best = { length: 0, high: 0, low: 0, dice: [] };
 	const longest = Math.min(diceTotal, present.size + wilds.length);
@@ -90,11 +93,11 @@ function straightOf(counts, wilds, idsByValue, diceTotal) {
 	for (const v of present.keys()) { if (v < minPresent) minPresent = v; if (v > maxPresent) maxPresent = v; }
 	for (let length = longest; length >= 1; length--) {
 		let foundLow = -1;
-		if (present.size === 0) foundLow = VALUE_CAP - length + 1;
+		if (present.size === 0) foundLow = Math.max(1, wildTop - length + 1);
 		else {
 			// A run needs at least length - wilds present values, so only lows near them can work.
 			const from = Math.max(1, minPresent - length + 1);
-			const to = Math.min(VALUE_CAP - length + 1, maxPresent);
+			const to = maxPresent;
 			for (let low = from; low <= to; low++) {
 				let missing = 0;
 				for (let v = low; v < low + length; v++) if (!present.has(v)) missing += 1;

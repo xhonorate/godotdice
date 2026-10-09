@@ -120,4 +120,4 @@ func _values() -> void:
 	check(analysis.total == 100 and analysis.max_total == 100 and analysis.high_pct == 100, "large dice keep relative thresholds and totals")
 	var explode := DeepDice.make("D100", "explode", {"faces": [DeepDice.face(100, "exploding")]})
 	var result := DeepDice.roll_one(explode, rng)
-	check(result.value == 100 and result.explosions == DeepDice.MAX_EXPLOSIONS, "explosions retain finite caps")
+	check(result.value == 400 and result.explosions == DeepDice.MAX_EXPLOSIONS, "explosions stay finite, and every throw adds in full with no ceiling on the total: %d" % int(result.value))

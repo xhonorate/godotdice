@@ -20,6 +20,9 @@ var home: Control
 var descent: Control
 var menu: CanvasLayer
 var _toasts: VBoxContainer
+## How this lapidary reached the party they are in as a guest ({kind, address, port} or
+## {kind, lobby}): the way back to its run if the game closes under them (`_offer_rejoin`).
+var _joined: Dictionary = {}
 ## How long the fight has been won, in fight time, so the rail running out waits for the blow that won it.
 var _won_for: float = 0.0
 const WON_BEAT: float = 1.6
@@ -100,6 +103,8 @@ func _ready() -> void:
 	menu.abandon_requested.connect(func() -> void: session.send({"kind": "abandon"}))
 	menu.leave_requested.connect(_leave_party)
 	menu.join_requested.connect(_join_steam)
+	menu.rejoin_requested.connect(_rejoin)
+	menu.rejoin_declined.connect(_forget_party_run)
 	menu.quit_requested.connect(_quit)
 	menu.reopen_requested.connect(_reopen)
 	menu.invite_requested.connect(_invite)
@@ -132,6 +137,8 @@ func _ready() -> void:
 	var invited_to: String = SteamMessagesTransport.launch_lobby(OS.get_cmdline_args() + OS.get_cmdline_user_args())
 	if not invited_to.is_empty():
 		_on_invited.call_deferred(invited_to)
+	elif not bool(checkpoint.get("ok", false)) and not settings.get("party_run", {}).is_empty():
+		_offer_rejoin.call_deferred()
 
 func _prewarm() -> void:
 	## The first stone or die ever photographed pays for compiling everything a stone is
@@ -187,6 +194,7 @@ func _depart(seed_value: int) -> void:
 		toast(str(result.get("error", "")), DeepUi.BAD)
 
 func _host(port: int) -> void:
+	_joined = {}
 	var result: Dictionary = session.host_lan(member(), port)
 	if not bool(result.get("ok", false)):
 		toast(str(result.get("error", "")), DeepUi.BAD)
@@ -195,12 +203,14 @@ func _host(port: int) -> void:
 func _join(address: String, port: int) -> void:
 	settings.last_address = address
 	saves.save_settings(settings)
+	_joined = {"kind": "lan", "address": address, "port": port}
 	var result: Dictionary = session.join_lan(address, member(), port)
 	if not bool(result.get("ok", false)):
 		toast(str(result.get("error", "")), DeepUi.BAD)
 	_refresh_home()
 
 func _host_steam() -> void:
+	_joined = {}
 	var result: Dictionary = session.host_steam(member())
 	if not bool(result.get("ok", false)):
 		toast(str(result.get("error", "")), DeepUi.BAD)
@@ -211,6 +221,7 @@ func _join_steam(lobby_id: String) -> void:
 	if not bool(result.get("ok", false)):
 		toast(str(result.get("error", "")), DeepUi.BAD)
 		return
+	_joined = {"kind": "steam", "lobby": lobby_id.strip_edges()}
 	descent.visible = false
 	home.visible = true
 	home.open("map")
@@ -243,6 +254,15 @@ func _on_run_started(state: Dictionary) -> void:
 	descent.show_state(state)
 	home.visible = false
 	descent.visible = true
+	## A guest's run is noted with the way back to it, so a game that closes under them can
+	## offer to rejoin when it starts again.
+	if not session.is_host and not _joined.is_empty():
+		var host: Dictionary = session.lobby.get("members", {}).get(str(session.lobby.get("host", "")), {})
+		var record: Dictionary = _joined.duplicate()
+		record.merge({"host": str(host.get("name", "")), "mine": str(state.get("mine", ""))}, true)
+		if settings.get("party_run", {}) != record:
+			settings.party_run = record
+			saves.save_settings(settings)
 
 func _on_run_event(event: Dictionary) -> void:
 	descent.handle(event)
@@ -283,6 +303,7 @@ func _exit_tree() -> void:
 	GemMesh.finish_warm()
 
 func _on_run_ended(results: Dictionary) -> void:
+	_forget_party_run()
 	_take_home(results, session.local_id)
 	descent.show_state(session.run)
 
@@ -293,7 +314,9 @@ func _on_claimed(results: Dictionary, player_id: String) -> void:
 	if run_id.is_empty() or profile.get("history", []).any(func(h: Dictionary) -> bool: return str(h.get("run_id", "")) == run_id):
 		return
 	var applied: Dictionary = _take_home(results, player_id)
-	toast("Your share of a run you dropped out of: %s for the tray." % DeepUi.plural(applied.get("tray", []).size(), "stone"), DeepUi.ACCENT, "bag")
+	## A share of nothing is not worth a word.
+	if not applied.get("tray", []).is_empty():
+		toast("Your share of a run you dropped out of: %s for the tray." % DeepUi.plural(applied.get("tray", []).size(), "stone"), DeepUi.ACCENT, "bag")
 	_refresh_home()
 
 func _take_home(results: Dictionary, player_id: String) -> Dictionary:
@@ -444,11 +467,35 @@ func _apply_settings(starting: bool = false) -> void:
 func _leave_party() -> void:
 	## Walking away, as a guest or by closing a party you host: back to a workshop of your own.
 	session.leave_party()
+	_joined = {}
+	_forget_party_run()
 	session.start_local(member())
 	descent.visible = false
 	home.visible = true
 	home.open("map")
 	_refresh_home()
+
+func _offer_rejoin() -> void:
+	## A guest whose game closed in the middle of a party run is asked, as the game starts,
+	## whether to go back to it.
+	var record: Dictionary = settings.get("party_run", {})
+	if record.is_empty() or session.in_run() or menu.is_open():
+		return
+	open_menu()
+	menu.ask_to_rejoin(record)
+
+func _rejoin(record: Dictionary) -> void:
+	## Asked once: the run is noted again if it takes this lapidary back.
+	_forget_party_run()
+	if str(record.get("kind", "")) == "steam":
+		_join_steam(str(record.get("lobby", "")))
+	else:
+		_join(str(record.get("address", "")), int(record.get("port", DeepSession.DEFAULT_PORT)))
+
+func _forget_party_run() -> void:
+	if not settings.get("party_run", {}).is_empty():
+		settings.party_run = {}
+		saves.save_settings(settings)
 
 func _quit() -> void:
 	saves.save_settings(settings)

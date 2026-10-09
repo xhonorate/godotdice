@@ -314,7 +314,12 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			## `read` hands it over already under the loupe; `fragile` hands it over on the
 			## understanding that it is a loan. A fragile stake shatters when the run ends and
 			## never reaches the vault, which is what pays for its size.
-			var stone: Dictionary = DeepForge.roll_stone(rng, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0)),
+			## Never from deeper than the mine goes: a find "from depth 20" comes from the bottom of
+			## a mine that ends sooner. An endless mine has no bottom to stop at.
+			var from_depth: int = int(effect.get("depth", 4))
+			if int(mine.get("depth", 0)) > 0:
+				from_depth = mini(from_depth, int(mine.depth))
+			var stone: Dictionary = DeepForge.roll_stone(rng, mine, from_depth, int(effect.get("bonus", 0)),
 				{"run": str(state.get("run_id", "")), "source": "grubstake", "finder": str(unit.id)}, "%s_stake%08x" % [str(unit.id), rng.randi()])
 			var read: bool = bool(effect.get("read", false))
 			stone.appraised = read

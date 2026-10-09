@@ -8,7 +8,7 @@ export const OPS = ['+', '-', '*', 'min', 'max', 'floor_div', 'pct', 'if', 'ge',
 export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'total', 'max_total', 'missing', 'odd', 'even',
 	'distinct', 'held', 'rerolled', 'dice', 'count_value', 'count_at_most', 'count_at_least', 'run_high', 'run_length',
 	'set_value', 'set_count', 'sum_low', 'sum_high', 'block', 'block_lost', 'healed', 'dealt', 'hp', 'max_hp', 'hp_missing', 'gold',
-	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'low_dice', 'pyrite', 'pot', 'enemy_poison', 'fizzles',
+	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'high_crown', 'low_dice', 'pyrite', 'pot', 'enemy_poison', 'fizzles',
 	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'party_richest', 'turns_acted', 'living_players', 'strength'];
 export const RANKS = ['carat', 'cut', 'clarity'];
 export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun', 'remove_block', 'cleanse', 'revive',
@@ -38,13 +38,13 @@ export const HERO_PICKS = ['hero_least_block', 'hero_most_hp', 'hero_most_gold',
 export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'downed_ally', 'hero', 'heroes', ...HERO_PICKS];
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
-	'hurt', 'add', 'flat'];
+	'hurt', 'add', 'flat', 'stones'];
 // How an effect that works on one die or one gem chooses it, and how an absorb_color picks its colour.
 export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best', 'usable', 'showing', 'all'];
 export const ABSORB_PICKS = ['random', 'most_used'];
 export const POT_MODES = ['ante', 'double', 'all', 'lose'];
 export const FROM_RESULTS = ['damage', 'gold', 'block', 'removed', 'stolen'];
-export const MAX_REPEAT = 100;
+export const MAX_REPEAT = 1000;
 export const VALUE_LIMIT = 9999;
 export const MAX_PROCS = 10;
 export const CURSE_MAX_STACKS = 10;
@@ -90,7 +90,7 @@ export function term(name, node, c) {
 		case 'value': return trig.value | 0;
 		case 'second': return trig.second | 0;
 		case 'count': return trig.count | 0;
-		case 'high': case 'low': case 'total': case 'max_total': case 'odd': case 'even': case 'distinct': case 'held': case 'rerolled': case 'crowns': case 'low_dice':
+		case 'high': case 'low': case 'total': case 'max_total': case 'odd': case 'even': case 'distinct': case 'held': case 'rerolled': case 'crowns': case 'high_crown': case 'low_dice':
 			return a[name] | 0;
 		case 'missing': return Math.max(0, (a.max_total | 0) - (a.total | 0));
 		case 'dice': return a.dice_count | 0;
@@ -177,6 +177,11 @@ export function resolveEffect(def, c, magnitude, hostileSide = 'enemy') {
 	const proc = scale === 'carat' || 'scale' in def ? { procs: 1, chance: 0 } : caratProcs(magnitude);
 	const out = { kind, target: String(def.target || defaultTarget(kind, hostileSide)), amount: Math.max(-VALUE_LIMIT, Math.min(VALUE_LIMIT, final)),
 		raw, repeat, scaled: scale === 'carat', procs: proc.procs, proc_chance: proc.chance, dice: ((c.trig || {}).dice || []).slice() };
+	// A face raised by one proc is judged again by the next, against the line the trigger drew.
+	if (kind === 'upgrade_faces') {
+		const trig = c.trig || {};
+		if (['below', 'at_most'].includes(trig.kind) && !trig.forced) out.line = { kind: trig.kind, need: trig.need | 0 };
+	}
 	if ('cost' in def) out.cost = Math.max(0, amount(def.cost, c));
 	for (const field of [...EFFECT_OPTIONS, 'splash', 'once', 'win_mult', 'lose_mult', 'text', 'color', 'rank']) if (field in def) out[field] = def[field];
 	return out;
@@ -238,10 +243,10 @@ export function effectWords(effect, cutStep = null) {
 		marked: `${n} Marked`, dulled: `${n} Dulled`, clouded: atHeroes || !target ? 'cloud a socket' : `Clouded for ${n} actions · one random ability disabled`, die_steal: `suppress ${n} die`, dice_dread: `${n} Dread`,
 		dice_upgrade: `dice +${n} tier${effect.cap ? ` (${String(effect.cap).toLowerCase()} at most)` : ''}`,
 		max_hp_loss: `−${n} max HP`, lifeline: `${n} Lifeline`, detonate: `${n} damage per poison consumed`, wager: `wager: ${n} damage`, stake: `stake: amplify next`,
-		coin_flip: `${n}% coin flip`, sparkle: `${n} Sparkle`, quality_bonus: `stones +${n}% better`, appraise: `appraise ${n} raw stone`, upgrade_faces: `raise matched faces by ${n}`,
+		coin_flip: `${n}% coin flip`, sparkle: `${n} Sparkle`, quality_bonus: `stones +${n}% better`, appraise: `appraise ${effect.stones ?? 1} raw stone, ${n}% of its worth as damage`, upgrade_faces: `raise matched faces by ${n}`,
 		phantom_high: `${n} phantom of the highest die`, gem_rank: `+${n} ${effect.rank || 'rank'}`, set_match: 'join a die to the strongest set', grant_reroll: `${n} extra reroll`,
 		retrigger_previous: `repeat the previous gem at ${n}%`, resonance: `+${n} Resonance`, replay_color: `replay every ${effect.color ? effect.color.toLowerCase() : ''} gem`,
-		rank_buff: `+${n} ${effect.rank || 'rank'} to every gem`, replay_fizzled: `fire ${n} dark gem`, repeat_next: `next gem fires ${n} more`, damage_curse: 'damage = Curse stacks',
+		rank_buff: `+${n} ${effect.rank || 'rank'} to every gem`, replay_fizzled: `fire ${n} dark gem`, repeat_next: `next gem fires ${n} more`, damage_curse: `damage = ${n}% of Curse stacks`,
 		void_copy: `${n} Void copy of the last gem that fired`,
 		amplify_next: `amplify next gem ${n}%`, revive: 'revive an ally', max_hp: `+${n} max HP`,
 		// Elites only, and rare.

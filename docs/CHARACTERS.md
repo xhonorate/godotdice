@@ -201,10 +201,12 @@ _Blasting powder in a mine. Dice that explode, damage that splashes._ (alt names
 _Two faces. You choose which one the enemy sees, every turn._ (alt names: Quip, Jinx)
 
 - **HP** 70. **Dice** d6 d6 d8 d8 d10 (21.5). **Sockets** Red, Blue, White, Any, Any.
-- **Passive: Sleight.** Once per turn, before locking in, shift one die to the opposite parity
-  (even to odd, or odd to even) for free. On even-sided dice, this uses the value mirrored across
-  the die's range; on odd-sided dice, it moves to the nearest value of the other parity. The
-  Harlequin can almost always finish a hand in one parity.
+- **Passive: Sleight.** Once per turn, before locking in, turn one die over onto a face of the
+  opposite parity (even to odd, or odd to even) for free. It lands on the face mirrored across
+  the die's range (a 2 on a d6 to its 5) when the die has that face, else on the nearest face of
+  the other parity it does have, so a patterned die is only ever turned to a number it can show.
+  A die whose faces are all even or all odd (an Even, Odd or Stretched die) cannot be shifted,
+  and the Shift button says so. The Harlequin can almost always finish a hand in one parity.
 - **Birthstone: Motley.**
   - All five dice odd (_the Cruel Face_): deal 3×Res damage to the target.
   - All five dice even (_the Kind Face_): gain 3×Res block.

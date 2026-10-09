@@ -80,12 +80,13 @@ const KEYWORD_HINTS: Dictionary = {
  "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn."
 }
 ## The mark each chamber kind is drawn with, anywhere a chamber is shown.
-const CHAMBER_GLYPHS: Dictionary = {"fight": "sword", "elite": "skull", "vein": "pick", "oddity": "question", "motherlode": "gem",
+## An oddity wears the swirl; the question mark is a dark mouth's alone.
+const CHAMBER_GLYPHS: Dictionary = {"fight": "sword", "elite": "skull", "vein": "pick", "oddity": "swirl", "motherlode": "gem",
 	"merchant": "purse", "smithy": "anvil", "carver": "face", "landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch",
-	"well": "drop"}
+	"well": "drop", "vat": "flask"}
 const CHAMBER_colorS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff5f7a"), "vein": Color("ffc56a"), "oddity": Color("b58cff"),
 	"motherlode": Color("ffe07a"), "merchant": Color("5fd4c8"), "smithy": Color("8fb8ff"), "carver": Color("f2a0d0"), "landing": Color("7fd1a8"),
-	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8")}
+	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8"), "vat": Color("b9e769")}
 
 static var _display: Font = null
 static var _bold: Font = null
@@ -323,10 +324,15 @@ static func card(parent: Node, border: Color = LINE, pad: int = 14, bg: Color = 
 	parent.add_child(box)
 	return box
 
+## The smallest any text is set, whatever a caller asks: at the smallest window the game is
+## drawn at seven tenths of its size, and anything under this cannot be read there. A page that
+## no longer fits at this size is split into pages, never set smaller.
+const MIN_TEXT: int = 12
+
 static func label(parent: Node, text: String, size: int = 15, color: Color = PAPER, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_font_size_override("font_size", maxi(size, MIN_TEXT))
 	l.add_theme_color_override("font_color", color)
 	l.horizontal_alignment = align
 	## Centred down the label's own box. A label in a row is stretched to the row's height,
@@ -336,6 +342,29 @@ static func label(parent: Node, text: String, size: int = 15, color: Color = PAP
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(l)
 	return l
+
+static func fit_label(parent: Node, text: String, size: int, color: Color, width: float, align: int = HORIZONTAL_ALIGNMENT_CENTER, floor_size: int = MIN_TEXT) -> Label:
+	## A label that steps its font down until the whole text fits `width`, so a long name is
+	## smaller rather than cut off. Past the floor size (never under MIN_TEXT) it clips instead
+	## of going unreadable.
+	var l := label(parent, text, size, color, align)
+	var font: Font = ThemeDB.fallback_font
+	var fitted: int = maxi(size, MIN_TEXT)
+	var least: int = maxi(floor_size, MIN_TEXT)
+	while fitted > least and font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fitted).x > width:
+		fitted -= 1
+	l.add_theme_font_size_override("font_size", fitted)
+	l.custom_minimum_size.x = width
+	l.clip_text = true
+	return l
+
+static func skill_name(stone: Dictionary) -> String:
+	## Just the skill ("Strike"): the grade words are drawn as marks on the picture instead.
+	if not bool(stone.get("appraised", false)):
+		return "%s raw" % DeepStone.size_name(int(stone.get("carat", 1)))
+	if DeepStone.is_birthstone(stone):
+		return str(stone.get("name", "Birthstone"))
+	return str(DeepStone.skill_of(stone).get("name", stone.get("skill", "stone")))
 
 static func wrap(parent: Node, text: String, size: int = 13, color: Color = MUTED, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = 0.0) -> Label:
 	var l := label(parent, text, size, color, align)
@@ -407,7 +436,7 @@ static func effect_text(parent: Node, text: String, size: int = 13, color: Color
 		rtl.custom_minimum_size.x = width
 	if bold:
 		rtl.push_font(bold_font())
-	rtl.push_font_size(size)
+	rtl.push_font_size(maxi(size, MIN_TEXT))
 	rtl.push_color(color)
 	push_effect_text(rtl, text)
 	rtl.pop_all()
@@ -507,7 +536,7 @@ static func pill(parent: Node, glyph: String, text: String, color: Color, size: 
 static func button(parent: Node, text: String, callback: Callable = Callable(), size: int = 15) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.add_theme_font_size_override("font_size", size)
+	b.add_theme_font_size_override("font_size", maxi(size, MIN_TEXT))
 	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	b.pressed.connect(func() -> void: DeepAudio.play(str(b.get_meta("sound", "ui_tap"))))
@@ -639,25 +668,23 @@ static func skip_arrow(parent: Node, text: String, callback: Callable, tone: Col
 	b.tooltip_text = text
 	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	b.custom_minimum_size = Vector2(56, 56)
+	b.custom_minimum_size = Vector2(64, 44)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	b.icon = GemIcons.texture(glyph, GemIcons.baked_size(40))
 	b.expand_icon = true
 	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	b.add_theme_constant_override("icon_max_width", 26)
-	## A circle, so the border is one width all the way round and the corner radius stops a
-	## hair short of half the button. The ordinary button style is heavier along the bottom
-	## and a radius of exactly half leaves nothing between the two curves: the first put
-	## specks at the four points where the curve changes direction, the second a hairline
-	## down the middle of the fill on hover.
-	var round := func(fill: Color, edge: Color) -> StyleBoxFlat:
-		var style := flat(fill, edge, 27, 12, 2)
-		style.corner_detail = 16
+	b.add_theme_constant_override("icon_max_width", 24)
+	## The same key every other button on the page is cut as (a rounded slab, heavier along
+	## the bottom), only darker and empty but for its arrow: the way on is offered, not urged.
+	var key := func(fill: Color, edge: Color) -> StyleBoxFlat:
+		var style := button_style(fill, edge, 8)
+		style.content_margin_left = 10
+		style.content_margin_right = 10
 		return style
-	b.add_theme_stylebox_override("normal", round.call(Color(GLASS, 0.85), Color(tone, 0.55)))
-	b.add_theme_stylebox_override("hover", round.call(Color(tone, 0.2), tone.lightened(0.3)))
-	b.add_theme_stylebox_override("pressed", round.call(Color(tone, 0.32), tone.lightened(0.3)))
-	b.add_theme_stylebox_override("focus", round.call(Color(0, 0, 0, 0), Color(tone, 0.8)))
+	b.add_theme_stylebox_override("normal", key.call(Color(GLASS, 0.85), Color(tone, 0.4)))
+	b.add_theme_stylebox_override("hover", key.call(Color(tone, 0.18), tone.lightened(0.3)))
+	b.add_theme_stylebox_override("pressed", key.call(Color(tone, 0.3), tone.lightened(0.3)))
+	b.add_theme_stylebox_override("focus", key.call(Color(0, 0, 0, 0), Color(tone, 0.8)))
 	b.add_theme_color_override("icon_normal_color", tone)
 	b.add_theme_color_override("icon_hover_color", tone.lightened(0.4))
 	b.add_theme_color_override("icon_pressed_color", tone.lightened(0.4))
@@ -1092,9 +1119,10 @@ static func stone_marks(item: Dictionary) -> String:
 	## on down the mine keeps its id, so a view that rebuilds on the id alone would go on
 	## drawing the one that was there before.
 	## A die dipped in a vat or stamped at an anvil changes only its material or its pattern,
-	## so both are in it too.
-	var out: String = "%s%s%s%s|%s|%s|%s" % [str(item.get("id", "")), str(item.get("shape", "")), str(item.get("engraving", "")),
-		"a" if bool(item.get("appraised", false)) else "", str(item.get("material", "")), str(item.get("pattern", "")), str(item.get("name", ""))]
+	## so both are in it too; and a stone out of the Tumbler changes only its skill.
+	var out: String = "%s%s%s%s|%s|%s|%s|%s" % [str(item.get("id", "")), str(item.get("shape", "")), str(item.get("engraving", "")),
+		"a" if bool(item.get("appraised", false)) else "", str(item.get("material", "")), str(item.get("pattern", "")), str(item.get("name", "")),
+		str(item.get("skill", ""))]
 	for face in item.get("faces", []):
 		out += "%d%s," % [int(face.get("value", 0)), str(face.get("kind", ""))]
 	if item.has("cut"):

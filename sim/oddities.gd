@@ -292,6 +292,8 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return _refuse("choose a die and a face to etch")
 			DeepDice.etch(die, at, etching)
 			out.dice.append(die.duplicate(true))
+			## Which face it was, so the die can be shown turned to it.
+			out.faces = {str(die.id): at}
 			out.message = "The etching takes. That face is %s now." % DeepDice.etching_name(etching).to_lower()
 		"pattern":
 			## The anvil is set for one pattern a night, and it is cut across every face.
@@ -471,19 +473,20 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			out.message = "The lowest face comes up from %d to %d." % [before, after]
 		"raise_face":
 			## One chosen face comes up, as far as the chisel is asked to take it: nothing
-			## holds it to the die's own highest face, only the cap every die value shares.
+			## holds it to the die's own highest face, and a face has no ceiling at all.
 			## A blank face becomes a number.
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
 			var face: int = int(payload.get("face", -1))
 			if die.is_empty() or face < 0 or face >= die.get("faces", []).size():
 				return _refuse("choose a die and a face to raise")
 			var before: int = _shown(die.faces[face])
-			var after: int = mini(before + maxi(1, int(action.get("amount", 1))), DeepDice.VALUE_CAP)
+			var after: int = before + maxi(1, int(action.get("amount", 1)))
 			if after <= before:
 				return _refuse("that face is already as high as a face is cut")
 			var kind_was: String = str(die.faces[face].get("kind", "plain"))
 			die.faces[face] = DeepDice.face(after, "plain" if kind_was == "blank" else kind_was)
 			out.dice.append(die.duplicate(true))
+			out.faces = {str(die.id): face}
 			out.message = "The %s is now a %s." % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])]
 		"lower_face":
 			## One chosen face comes down by one, never below a 1. Whatever is etched on it
@@ -501,9 +504,14 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return _refuse("that face is already a 1")
 			die.faces[face] = DeepDice.face(after, kind_was)
 			out.dice.append(die.duplicate(true))
+			out.faces = {str(die.id): face}
 			out.message = "The %s is now a %s." % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])]
 		"pry":
 			var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", 4)), {"run": ctx.get("run", ""), "source": "seam"})
+			## The big one is never smaller than its `min_size` class, however poor the rock's luck.
+			var least: int = DeepStone.size_low(str(action.get("min_size", "")))
+			if int(stone.carat) < least:
+				stone.carat = least
 			player.haul.append(stone)
 			out.made.append(stone)
 			var cost: int = int(action.get("hp", 8))

@@ -39,9 +39,11 @@ not require a d30 or d40 limit. GPU time, numeral readability and draw-call cost
 still need a graphical run: both Metal and OpenGL initialization failed in the
 implementation session, before the gallery could render.
 
-The numerical ceiling is now 100, including mirrors, hand mutations and content
-validation. Explosions retain their three-extra-roll limit and cap their result at
-100. Per-point effects such as Thousand Cuts can repeat up to 100 times. Large die
+There is no numerical ceiling on a face any more (October 8, 2026), in mirrors, hand
+mutations or content validation: a Tally, a chisel or Glimmer can take a face past 100,
+and a Stretched d100 reads 200. Explosions keep their three-extra-roll limit, but their
+total is no longer capped. Per-point effects such as Thousand Cuts repeat once per point,
+with a guard at 1000 (`DeepRules.MAX_REPEAT`) against a runaway rule. Large die
 inspectors show faces in pages of 30, with statistics on an About page, so every
 number remains clickable without overflowing the screen.
 

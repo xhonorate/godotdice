@@ -35,6 +35,19 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		cap.material_override = rock
 		cap.position = Vector3(0, 1.2, 0)
 		stand.add_child(cap)
+		## Its size class, cut into the pedestal's face: all there is to see of a raw stone
+		## besides its colour, so it is shown without having to point at it.
+		var size := Label3D.new()
+		size.text = DeepStone.size_name(int(stone.get("carat", 1)))
+		size.font = DeepUi.display_font()
+		size.font_size = 46
+		size.pixel_size = 0.0042
+		size.outline_size = 10
+		size.outline_modulate = Color(0, 0, 0, 0.85)
+		size.modulate = Color("f1e6d2")
+		size.double_sided = false
+		size.position = Vector3(0, 0.78, 0.47)
+		stand.add_child(size)
 		## Nothing on a Warden's pile has been read, so the beam is the stone's own colour: a
 		## grade colour over an unopened stone would say what is inside it before the lens does.
 		var read: bool = bool(stone.get("appraised", false))

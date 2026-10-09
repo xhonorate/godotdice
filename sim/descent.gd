@@ -49,6 +49,8 @@ const DICE_ROOMS: Array = ["smithy", "carver", "vat"]
 ## Every room that holds one fixed card of its own rather than one drawn at random.
 const CARD_ROOMS: Array = ["smithy", "carver", "vat", "well"]
 const RESPITES: Array = ["rest", "appraise", "wish"]
+## What a player who is down cannot do: anything a room, a stall, a hoard or the way on offers.
+const DOWNED_CANNOT: Array = ["oddity", "buy", "sell", "appraise", "pick_hoard", "trade_offer", "trade_accept", "choose", "light", "strike", "respite"]
 ## What a landing's well will take, and the most of it.
 const WISH_LEAST: int = 10
 const WISH_MOST: int = 1000
@@ -70,10 +72,13 @@ static func new_run(config: Dictionary) -> Dictionary:
 	state.schedule = plan_shaft(streams.tunnels, mine_def)
 	## Every lapidary goes down with the sockets they have opened filled from the vault, in any
 	## mine. A party that starts in a deeper mine rather than fighting down to it is given
-	## what the way down would have given it: a purse, and a temporary stone for every socket
-	## still shut, picked at the shaft head and gone when the run ends.
+	## what the way down would have given it: a purse, a temporary stone for every socket
+	## with nothing in it (shut, or bought and left empty), picked at the shaft head and gone
+	## when the run ends, and a die to swap each of its own for, as the smithies, carvers and
+	## vats above would have offered (`_dice_offers`).
 	var deeper: bool = mine_key != DeepContent.starter_mine()
 	var temps: RandomNumberGenerator = DeepRng.streams(seed_value, ["temps"]).temps
+	var outfit: RandomNumberGenerator = DeepRng.streams(seed_value, ["outfit"]).outfit
 	var seat: int = 0
 	## The rail goes down as copies of the vault's stones, and the vault keeps the stones
 	## themselves: a copy is marked lent, and wherever it ends up it never comes home.
@@ -94,17 +99,21 @@ static func new_run(config: Dictionary) -> Dictionary:
 			"stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0, "earned": 0}}, true)
 		state.players.append(unit)
 		if deeper:
-			unit.temps = _temporary_offers(state, unit, open, temps)
+			unit.temps = _temporary_offers(state, unit, temps)
+			unit.dice_offers = _dice_offers(state, unit, outfit)
 		seat += 1
 	_unique_rails(state)
 	state.rng = DeepRng.save(streams)
 	if bool(config.get("boons", true)) and not DeepContent.section("boons").is_empty():
 		_offer_grubstake(state, streams)
 	else:
-		## No shaft head to stand at: every temporary socket takes the first of its three.
+		## No shaft head to stand at: every temporary socket takes the first of its three, and
+		## every die stays as it is.
 		for unit in state.players:
 			for offer in unit.temps:
 				_set_temporary(unit, offer, 0)
+			for offer in unit.get("dice_offers", []):
+				offer.kept = true
 		_offer_tunnels(state, streams)
 	state.rng = DeepRng.save(streams)
 	return state
@@ -125,6 +134,8 @@ static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, p
 		return _refuse("you have taken your stake")
 	if temporary_left(unit) > 0:
 		return _refuse("choose your temporary stones first")
+	if dice_offers_left(unit) > 0:
+		return _refuse("answer for your dice first")
 	var chosen: Dictionary = {}
 	for offer in state.get("grubstake", {}).get("offers", {}).get(str(unit.id), []):
 		if str(offer.get("id", "")) == offer_id:
@@ -166,18 +177,19 @@ static func streams_of(state: Dictionary) -> Dictionary:
 
 # --- temporary stones ------------------------------------------------------------------------
 ##
-## Below the Quarry a lapidary's shut sockets do not go down empty. Each is offered three
-## temporary stones in its own color (an Any socket, three colors), already read, and the one
-## taken is set there at the shaft head, before the stakes. A temporary stone is fragile: it
+## Below the Quarry a lapidary's sockets do not go down empty: neither the shut ones nor one
+## bought and left without a vault stone, which would otherwise be worse than not buying it.
+## Each is offered three temporary stones in its own color (an Any socket, three colors),
+## already read, and the one taken is set there at the shaft head, before the stakes. A temporary stone is fragile: it
 ## cannot be kept, sold, turned in or thrown down a well, and it is gone when the run ends.
 
-static func _temporary_offers(state: Dictionary, unit: Dictionary, open: int, rng: RandomNumberGenerator) -> Array:
+static func _temporary_offers(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerator) -> Array:
 	var mine: Dictionary = mine_of(state)
 	var sockets: Array = DeepContent.character(str(unit.get("character", ""))).get("sockets", [])
-	var depth: int = int(DeepContent.constant("temporary_depth", 4))
+	var depth: int = int(DeepContent.constant("temporary_depth", 20))
 	var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) != DeepContent.OPAL)
 	var offers: Array = []
-	for index in range(open, sockets.size()):
+	for index in range(sockets.size()):
 		if index < unit.rail.size() and unit.rail[index] is Dictionary:
 			continue
 		var socket: String = str(sockets[index])
@@ -199,12 +211,28 @@ static func _temporary_offers(state: Dictionary, unit: Dictionary, open: int, rn
 static func _temporary_stone(state: Dictionary, unit: Dictionary, mine: Dictionary, depth: int, rng: RandomNumberGenerator, pool: Array, beside: Array) -> Dictionary:
 	## One temporary stone, of a skill the others offered for its socket are not, if the
 	## pool runs to it. Never Void: a Void stone would leave its socket for a ride.
+	##
+	## A temporary stone has to stand comparison with the vault: a player who could just bring
+	## their own stones is choosing between one they picked and one they are lent. So it comes
+	## out of the rock at the bottom of the mine's luck, with `temporary_luck` on top, and the
+	## wheel spins again (a little kinder each time, as a Royal Flush's find does) until it is
+	## at least `temporary_min_tier`.
 	var fresh: Array = pool.filter(func(k: String) -> bool: return not beside.any(func(s: Dictionary) -> bool: return str(s.get("skill", "")) == k))
+	var bonus: float = float(DeepContent.constant("temporary_luck", 4))
+	var wanted: int = DeepStone.TIERS.find(str(DeepContent.constant("temporary_min_tier", "PRECIOUS")))
+	var provenance: Dictionary = {"run": str(state.get("run_id", "")), "source": "temporary", "finder": str(unit.get("id", ""))}
+	var stone_id: String = _id(state, "tmp")
 	var stone: Dictionary = {}
-	for _try in range(12):
-		stone = DeepForge.roll_stone(rng, mine, depth, 0.0, {"run": str(state.get("run_id", "")), "source": "temporary", "finder": str(unit.get("id", ""))}, _id(state, "tmp"), fresh if not fresh.is_empty() else pool)
-		if not DeepStone.is_fragile(stone):
+	for attempt in range(12):
+		var drawn: Dictionary = DeepForge.roll_stone(rng, mine, depth, bonus + attempt * 2.0, provenance, stone_id, fresh if not fresh.is_empty() else pool)
+		if DeepStone.is_fragile(drawn):
+			continue
+		if stone.is_empty() or int(DeepStone.grade(drawn).score) > int(DeepStone.grade(stone).score):
+			stone = drawn
+		if DeepStone.TIERS.find(str(DeepStone.grade(stone).tier)) >= wanted:
 			break
+	if stone.is_empty():
+		stone = DeepForge.roll_stone(rng, mine, depth, bonus, provenance, stone_id, fresh if not fresh.is_empty() else pool)
 	stone.inclusions = stone.inclusions.filter(func(k: Variant) -> bool:
 		return not DeepContent.inclusion(str(k)).get("modifiers", []).any(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "fragile"))
 	stone.appraised = true
@@ -214,7 +242,7 @@ static func _temporary_stone(state: Dictionary, unit: Dictionary, mine: Dictiona
 	return stone
 
 static func temporary_left(unit: Dictionary) -> int:
-	## How many of a player's shut sockets still wait for their temporary stone.
+	## How many of a player's empty sockets still wait for their temporary stone.
 	return unit.get("temps", []).filter(func(o: Dictionary) -> bool: return int(o.get("chosen", -1)) < 0).size()
 
 static func _set_temporary(unit: Dictionary, offer: Dictionary, pick: int) -> Dictionary:
@@ -239,6 +267,148 @@ static func _take_temporary(state: Dictionary, unit: Dictionary, index: int, pic
 		return _refuse("no such stone")
 	var stone: Dictionary = _set_temporary(unit, offer, pick)
 	return {"ok": true, "event": _event(state, "temporary", {"unit": unit.id, "index": index, "stone": stone.duplicate(true), "left": temporary_left(unit)})}
+
+# --- dice offered for a deeper start -------------------------------------------------------
+##
+## A party fighting down to a deep mine passes smithies, carvers and vats on the way. One that
+## starts there instead is offered, at the shaft head and after its temporary stones, a choice
+## for every die it carries, one die at a time: three dice to swap it for, or keep it as it is.
+## The left one is its size or smaller, the middle one its size and the right one its size or
+## bigger, and every one of them differs from it: the middle one always in its pattern, an
+## etching or its material. How far the sizes stray and how much else is cut into them grows
+## with the mine (`start_dice_offer`): `steps` are the chances, in percent, of a side die
+## being at least one, two and three sizes off, and `variation` the chance of each pattern,
+## etching or material being cut into a die on top of whatever it must have. Like everything
+## else done to a die down the mine, a swap stays down there: the bowl at home is untouched.
+
+const DICE_OFFER_AXES: Array = ["pattern", "etching", "material"]
+## How many times a die is drawn again when it comes out the same as one already offered.
+const DICE_OFFER_TRIES: int = 6
+
+static func _dice_offers(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerator) -> Array:
+	var tuning: Dictionary = mine_of(state).get("start_dice_offer", {})
+	var offers: Array = []
+	for index in range(unit.get("dice", []).size()):
+		var die: Dictionary = unit.dice[index]
+		var picks: Array = []
+		for side in [-1, 0, 1]:
+			var offered: Dictionary = {}
+			for _try in range(DICE_OFFER_TRIES):
+				offered = _offered_die(die, side * _offer_steps(rng, tuning), tuning, rng)
+				if not ([die] + picks).any(func(other: Dictionary) -> bool: return same_die(other, offered)):
+					break
+			picks.append(offered)
+		offers.append({"index": index, "die_id": str(die.get("id", "")), "picks": picks, "chosen": -1, "kept": false})
+	return offers
+
+static func _offer_steps(rng: RandomNumberGenerator, tuning: Dictionary) -> int:
+	## How many sizes a side die strays: one draw read against the chances of at least one,
+	## two and three sizes.
+	var drawn: float = rng.randf() * 100.0
+	var steps: int = 0
+	for chance in tuning.get("steps", [30, 1]):
+		if drawn < float(chance):
+			steps += 1
+	return steps
+
+static func _offered_die(original: Dictionary, steps: int, tuning: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	## One die to swap `original` for: `steps` sizes off (as far as dice go), with variations
+	## cut into it. A die of the same size always gets at least one, so no offer is the die
+	## itself.
+	var die: Dictionary = original.duplicate(true)
+	var at: int = DeepOddities.SIZES.find(str(die.get("shape", "D6")))
+	if at >= 0 and steps != 0:
+		var wanted: int = clampi(at + steps, 0, DeepOddities.SIZES.size() - 1) - at
+		if wanted != 0:
+			DeepOddities.resize(die, wanted)
+	var varied: int = 0
+	for axis in DICE_OFFER_AXES:
+		if DeepRng.chance(rng, float(tuning.get("variation", 15))) and _vary_offer(die, axis, rng):
+			varied += 1
+	if varied == 0 and str(die.get("shape", "")) == str(original.get("shape", "")):
+		var axes: Array = DICE_OFFER_AXES.duplicate()
+		while not axes.is_empty():
+			var axis: String = str(axes.pop_at(rng.randi_range(0, axes.size() - 1)))
+			if _vary_offer(die, axis, rng):
+				break
+	return die
+
+static func _vary_offer(die: Dictionary, axis: String, rng: RandomNumberGenerator) -> bool:
+	## One variation cut into an offered die, always a change: a pattern it does not have, an
+	## etching on a plain face, a material other than its own. Whether it took.
+	match axis:
+		"pattern":
+			var shape: String = str(die.get("shape", "D6"))
+			for _try in range(DICE_OFFER_TRIES):
+				var pattern: String = DeepForge.roll_pattern(rng, shape)
+				if pattern.is_empty() or pattern == str(die.get("pattern", "")):
+					continue
+				var stamped: Dictionary = DeepDice.make(shape, str(die.id), {"pattern": pattern, "rng": rng,
+					"material": str(die.get("material", "")), "etches": DeepDice.etchings(die), "name": DeepDice.given_name(die)})
+				die.clear()
+				die.merge(stamped)
+				return true
+		"etching":
+			var plain: Array = []
+			for index in range(die.get("faces", []).size()):
+				if str(die.faces[index].get("kind", "plain")) == "plain":
+					plain.append(index)
+			var etching: String = DeepForge.roll_etching(rng)
+			if not plain.is_empty() and not etching.is_empty():
+				DeepDice.etch(die, int(DeepRng.pick(rng, plain)), etching)
+				return true
+		"material":
+			for _try in range(DICE_OFFER_TRIES):
+				var material: String = DeepForge.roll_material(rng)
+				if not material.is_empty() and material != str(die.get("material", "")):
+					die.material = material
+					return true
+	return false
+
+static func same_die(a: Dictionary, b: Dictionary) -> bool:
+	## Two dice that would throw the same: one shape, pattern and material, and face for face
+	## the same numbers and etchings.
+	if str(a.get("shape", "")) != str(b.get("shape", "")) or str(a.get("pattern", "")) != str(b.get("pattern", "")) or str(a.get("material", "")) != str(b.get("material", "")):
+		return false
+	var mine: Array = a.get("faces", [])
+	var theirs: Array = b.get("faces", [])
+	if mine.size() != theirs.size():
+		return false
+	for index in range(mine.size()):
+		if int(mine[index].get("value", 0)) != int(theirs[index].get("value", 0)) or str(mine[index].get("kind", "plain")) != str(theirs[index].get("kind", "plain")):
+			return false
+	return true
+
+static func dice_offers_left(unit: Dictionary) -> int:
+	## How many of a player's dice still wait for an answer at the shaft head.
+	return unit.get("dice_offers", []).filter(func(o: Dictionary) -> bool: return int(o.get("chosen", -1)) < 0 and not bool(o.get("kept", false))).size()
+
+static func _take_dice_offer(state: Dictionary, unit: Dictionary, index: int, pick: int) -> Dictionary:
+	## `pick` -1 keeps the die as it is; 0 to 2 swaps it for that one.
+	if temporary_left(unit) > 0:
+		return _refuse("choose your temporary stones first")
+	var offer: Dictionary = {}
+	for candidate in unit.get("dice_offers", []):
+		if int(candidate.get("index", -1)) == index:
+			offer = candidate
+	if offer.is_empty():
+		return _refuse("that die is offered nothing")
+	if int(offer.get("chosen", -1)) >= 0 or bool(offer.get("kept", false)):
+		return _refuse("you have answered for that die")
+	if pick < -1 or pick >= offer.get("picks", []).size():
+		return _refuse("no such die")
+	var at: int = -1
+	for slot in range(unit.dice.size()):
+		if str(unit.dice[slot].get("id", "")) == str(offer.die_id):
+			at = slot
+	if at < 0:
+		return _refuse("that die is gone")
+	if pick < 0:
+		offer.kept = true
+	else:
+		unit.dice[at] = offer.picks[pick].duplicate(true)
+		offer.chosen = pick
+	return {"ok": true, "event": _event(state, "dice_offer", {"unit": unit.id, "index": index, "pick": pick, "die": unit.dice[at].duplicate(true), "left": dice_offers_left(unit)})}
 
 static func mine_of(state: Dictionary) -> Dictionary:
 	var mine: Dictionary = DeepContent.mine(str(state.get("mine", "")))
@@ -300,7 +470,7 @@ static func run_is_landing(state: Dictionary, depth: int) -> bool:
 	var listed: Array = state.get("schedule", {}).get("landings", [])
 	if listed.is_empty() or depth > int(listed[listed.size() - 1]):
 		return is_landing(depth)
-	return listed.has(depth)
+	return DeepPatch.holds(listed, depth)
 
 static func run_is_warden(state: Dictionary, depth: int) -> bool:
 	## A Warden or the final boss stands at this landing.
@@ -309,7 +479,7 @@ static func run_is_warden(state: Dictionary, depth: int) -> bool:
 	var listed: Array = state.get("schedule", {}).get("wardens", [])
 	if listed.is_empty():
 		return is_warden_depth(depth, str(state.get("mine", "")))
-	return listed.has(depth)
+	return DeepPatch.holds(listed, depth)
 
 static func run_is_boss(state: Dictionary, depth: int) -> bool:
 	## The mine's last floor, where its final boss waits.
@@ -1171,14 +1341,18 @@ static func _swap_die(state: Dictionary, unit: Dictionary, index: int, die_id: S
 ## stone changes hands. Two lapidaries sit down at it, each puts exactly one loose stone from
 ## their bag on it, and when both have said yes to what the other put down the two stones swap.
 ## Trading is free: it is not the landing's respite, so it can be done before or after the
-## fire, the bench or the well, and as often as the party likes until it goes down. Until
-## both have accepted either may take their stone back, or change it, which takes back both
-## acceptances.
+## fire, the bench or the well. But each lapidary trades once a landing: one swap, and the
+## table is done with them until the next one. Until both have accepted either may take their
+## stone back, or change it, which takes back both acceptances.
 
 static func can_trade(state: Dictionary) -> bool:
 	## The table stands only where there is someone to trade with, and only at a landing that
 	## has its respites: a Warden's hall has none.
 	return state.get("players", []).size() > 1 and _has_respites(state)
+
+static func has_traded(state: Dictionary, unit_id: String) -> bool:
+	## This lapidary has made their one trade at this landing.
+	return not state.get("landing", {}).get("trades", {}).get(unit_id, []).is_empty()
 
 static func trade_table(state: Dictionary) -> Dictionary:
 	return state.get("landing", {}).get("trade", {"offers": {}, "accepted": []})
@@ -1191,6 +1365,8 @@ static func trade_partner(state: Dictionary, unit_id: String) -> String:
 	return ""
 
 static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String) -> Dictionary:
+	if has_traded(state, str(unit.id)):
+		return _refuse("you have made your trade at this landing")
 	var stone: Dictionary = {}
 	for held in unit.get("haul", []):
 		if str(held.get("id", "")) == stone_id:
@@ -1222,6 +1398,8 @@ static func _trade_accept(state: Dictionary, unit: Dictionary) -> Dictionary:
 	var partner_id: String = trade_partner(state, str(unit.id))
 	if not offers.has(str(unit.id)) or partner_id.is_empty():
 		return _refuse("a trade wants a stone from each of you")
+	if has_traded(state, str(unit.id)) or has_traded(state, partner_id):
+		return _refuse("one trade each at a landing")
 	var accepted: Array = table.get("accepted", []).duplicate()
 	if not accepted.has(str(unit.id)):
 		accepted.append(str(unit.id))
@@ -1415,6 +1593,7 @@ static func _arrive_landing(state: Dictionary, streams: Dictionary) -> Dictionar
 	state.chamber = {}
 	for unit in state.players:
 		unit.choice = ""
+		unit.via = ""
 		unit.respite = ""
 		unit.ready = false
 		if bool(unit.get("downed", false)):
@@ -1552,7 +1731,7 @@ static func _pay_for_lift(state: Dictionary) -> Dictionary:
 		owed -= take
 	return paid
 
-static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: String) -> Dictionary:
+static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: String, via: String = "") -> Dictionary:
 	## A landing asks one question at a time. The cage stands beside the fire, the bench and
 	## the well, and any of the four may be walked up to first; but the moment a respite is
 	## taken the cage is behind you and the only way left is down. A Warden's hall has no cage
@@ -1563,7 +1742,10 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 	var landing: Dictionary = state.get("landing", {})
 	var boss_hall: bool = in_boss_hall(state)
 	var hall: bool = bool(landing.get("cleared", false)) and not boss_hall
-	var rested: bool = not str(unit.get("respite", "")).is_empty()
+	## A respite is taken at a landing before its Warden is fought. The bottom of a mine is
+	## that same landing with the boss dead in it and a cage sunk beside the hoard: the respite
+	## taken before the fight does not shut the cage that the fight opened.
+	var rested: bool = not str(unit.get("respite", "")).is_empty() and not boss_hall
 	if choice == "lift" and hall:
 		return _refuse("no cage was ever sunk into a Warden's hall: the way on is down")
 	if choice == "descend" and boss_hall and next_mine(state).is_empty():
@@ -1575,7 +1757,9 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 	if choice == "lift" and _party_ore(state) < lift_cost(state):
 		return _refuse("the winch wants %d pyrite to lift the party from this depth" % lift_cost(state))
 	unit.choice = choice
-	var event: Dictionary = _event(state, "landing_choice", {"unit": unit.id, "choice": choice})
+	## Which of the mouths they went down by, if they chose one: only that mouth shows them.
+	unit.via = via if choice == "descend" else ""
+	var event: Dictionary = _event(state, "landing_choice", {"unit": unit.id, "choice": choice, "via": str(unit.via)})
 	_close_landing(state, event)
 	return {"ok": true, "event": event}
 
@@ -1670,6 +1854,10 @@ static func _offer_hoard(state: Dictionary) -> void:
 	var luck: float = float(DeepContent.constant("hoard_luck", 5))
 	var opal_luck: float = float(DeepContent.constant("opal_hoard_luck", 0))
 	for unit in state.players:
+		## Whoever went down in the fight is carried past the pedestals: the hoard is for those
+		## still standing, and the one on the floor gets back up at the next landing.
+		if bool(unit.get("downed", false)):
+			continue
 		var offers: Array = []
 		for index in range(HOARD_OFFERS):
 			var opal: bool = index == HOARD_OFFERS / 2 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
@@ -1683,6 +1871,8 @@ static func _offer_hoard(state: Dictionary) -> void:
 static func _pick_hoard(state: Dictionary, unit: Dictionary, stone_id: String) -> Dictionary:
 	if str(state.phase) != "hoard":
 		return _refuse("there is no hoard to pick from")
+	if not state.hoard.has(str(unit.id)):
+		return _refuse("you were down when the hoard was opened")
 	var mine_hoard: Dictionary = state.hoard.get(str(unit.id), {})
 	if not str(mine_hoard.get("chosen", "")).is_empty():
 		return _refuse("you have chosen")
@@ -1701,13 +1891,17 @@ static func _pick_hoard(state: Dictionary, unit: Dictionary, stone_id: String) -
 	return _refuse("no such stone in the hoard")
 
 static func _close_hoard(state: Dictionary) -> bool:
-	## The pedestals are left behind once everyone still here has taken their stone.
+	## The pedestals are left behind once everyone still here has taken their stone. Nobody
+	## who was down when it opened has any to take.
 	for other in state.players:
+		if not state.hoard.has(str(other.id)):
+			continue
 		if str(state.hoard.get(str(other.id), {}).get("chosen", "")).is_empty() and bool(other.get("connected", true)):
 			return false
 	state.phase = "landing"
 	for other in state.players:
 		other.choice = ""
+		other.via = ""
 	return true
 
 static func _start_salvage(state: Dictionary) -> void:
@@ -1832,10 +2026,24 @@ static func results(state: Dictionary) -> Dictionary:
 # --- commands ----------------------------------------------------------------------------
 
 static func command(state: Dictionary, player_id: String, cmd: Dictionary) -> Dictionary:
+	## What everyone can already see is noted before anything moves (see `_saw`). A command
+	## that is then refused takes the note back with it: a refusal is never sent to the party,
+	## and the host's run would have changed under every guest's mirror without a word, so a
+	## guest summing up the run from its mirror missed the skills noted that way.
+	var noted: Dictionary = {}
+	for unit in state.get("players", []):
+		noted[str(unit.get("id", ""))] = unit.get("seen", []).size() if unit.has("seen") else -1
 	var result: Dictionary = _command(state, player_id, cmd)
 	if bool(result.get("ok", false)):
 		for unit in state.get("players", []):
 			DeepStone.normalize_rail(unit)
+	else:
+		for unit in state.get("players", []):
+			var was: int = int(noted.get(str(unit.get("id", "")), -1))
+			if was < 0:
+				unit.erase("seen")
+			elif unit.get("seen", []).size() > was:
+				unit.seen.resize(was)
 	return result
 
 static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> Dictionary:
@@ -1849,6 +2057,10 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 	var phase: String = str(state.get("phase", ""))
 	if phase == "over":
 		return _refuse("the run is over")
+	## The fallen are carried, not consulted: nothing a room offers is theirs to take until a
+	## landing has them back on their feet. Their own bench and the chart are still theirs.
+	if bool(unit.get("downed", false)) and kind in DOWNED_CANNOT:
+		return _refuse("you are down: the party carries you to the next landing")
 	match kind:
 		"stake":
 			if phase != "grubstake":
@@ -1858,6 +2070,10 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 			if phase != "grubstake":
 				return _refuse("temporary stones are taken at the shaft head")
 			return _take_temporary(state, unit, int(cmd.get("index", -1)), int(cmd.get("pick", -1)))
+		"dice_offer":
+			if phase != "grubstake":
+				return _refuse("dice are swapped at the shaft head")
+			return _take_dice_offer(state, unit, int(cmd.get("index", -1)), int(cmd.get("pick", -1)))
 		"vote_tunnel":
 			if phase != "tunnels":
 				return _refuse("no tunnels to choose")
@@ -1934,7 +2150,7 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 		"choose":
 			if phase != "landing":
 				return _refuse("the lift is at the landing")
-			return _choose_at_landing(state, unit, str(cmd.get("choice", "")))
+			return _choose_at_landing(state, unit, str(cmd.get("choice", "")), str(cmd.get("via", "")))
 		"pick_hoard":
 			return _pick_hoard(state, unit, str(cmd.get("stone_id", "")))
 		"light":

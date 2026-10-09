@@ -27,6 +27,8 @@ const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 ## The field of view the camera prefers; it widens on its own when a tall creature and its
 ## plate would not fit under the top of the screen, and narrows back when they would.
+## What Sleight does, on its button. See `DeepBattle.shift_face`.
+const SHIFT_TIP: String = "Sleight, once a turn  [F]: turn one chosen die over onto a face of the other parity, its mirror face (a 2 on a d6 to its 5) or the nearest one of the other parity it has. A die whose faces are all even or all odd can't be shifted."
 const BASE_FOV: float = 58.0
 
 signal command(cmd: Dictionary)
@@ -37,6 +39,10 @@ const SOCKET_EDGE: float = 60.0
 ## before a count stands for the rest.
 const RIDER_EDGE: float = 20.0
 const RIDERS_SHOWN: int = 3
+## A phantom die beside the hand, and how many are drawn before the rest are counted.
+const PHANTOM_EDGE: float = 56.0
+const PHANTOMS_SHOWN: int = 3
+const PHANTOM_TINT := Color(0.72, 0.84, 1.0, 0.62)
 ## A set gem the hand in the tray would leave dark: still readable, plainly stepped back.
 const QUIET_GEM := Color(0.62, 0.62, 0.68, 0.72)
 const ARC_Z: float = -4.4
@@ -55,6 +61,12 @@ var selected: Array = []
 var stage: Control = null
 ## Creatures leave ore and roughs on the floor as they die, for the run to settle later.
 var spoils: bool = false
+## How much of the left edge something else lies over (the run's chart, when it is open):
+## the creature's table stands clear of it.
+var left_inset: float = 0.0:
+	set(value):
+		left_inset = value
+		_position_enemy_panel()
 
 var _headless: bool = false
 var _world: Node3D
@@ -95,6 +107,10 @@ var _resonance_value: Label
 var _resonance_box: HBoxContainer
 var _tray_box: HBoxContainer
 var _dice_views: Dictionary = {}
+## Phantom dice (a Refract's copies of the highest die), drawn small and ghostly after the
+## five; and what they were last drawn from.
+var _phantom_box: HBoxContainer
+var _phantom_key: String = ""
 ## A rearrangement of the room put off until a death or a split has finished animating, and
 ## the creatures whose arrival has already been waited for.
 var _layout_wait: SceneTreeTimer = null
@@ -176,8 +192,10 @@ func _rebuild_chamber() -> void:
 		_camera.reset()
 		_camera.intro(1.5, bool(biome.warden))
 	_screen_fx.desaturate = 0.0
-	_depth_label.text = str(biome.name)
-	_biome_label.text = "Depth %d%s" % [depth, "  ·  Warden's gate" if bool(biome.warden) else ("  ·  Elite" if bool(biome.elite) else "")]
+	## The bottom of a mine is its final boss's, not a Warden's: the hall is built the same.
+	var boss: bool = bool(context.get("boss", false))
+	_depth_label.text = str(biome.name).replace("Warden's Hall", "The Final Hall") if boss else str(biome.name)
+	_biome_label.text = "Depth %d%s" % [depth, ("  ·  The bottom of the mine" if boss else "  ·  Warden's gate") if bool(biome.warden) else ("  ·  Elite" if bool(biome.elite) else "")]
 	_intro_pending = true
 
 func _creature(id: String) -> CrystalCreature:
@@ -424,14 +442,19 @@ func _build_hud() -> void:
 	DeepUi.heading(tray_head, "Your hand", 13)
 	DeepUi.spacer(tray_head)
 	_hint = DeepUi.label(tray_head, "", 13, DeepUi.MUTED)
-	_tray_box = DeepUi.hbox(middle, 8)
+	## The five, and after them any phantom dice a Refract has added for the rest of the turn.
+	var hand_row := DeepUi.hbox(middle, 10)
+	hand_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_tray_box = DeepUi.hbox(hand_row, 8)
 	_tray_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_phantom_box = DeepUi.hbox(hand_row, 6)
+	_phantom_box.visible = false
 	var buttons := DeepUi.hbox(middle, 10)
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	_reroll_button = DeepUi.icon_button(buttons, "reroll", "Reroll", _reroll, 15, DeepUi.INFO)
 	_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
 	_flip_button = DeepUi.icon_button(buttons, "eye", "Shift", _flip, 15, DeepUi.ACCENT)
-	_flip_button.tooltip_text = "Sleight: shift one chosen die to the opposite parity (even to odd or odd to even), once a turn  [F]"
+	_flip_button.tooltip_text = SHIFT_TIP
 	_flip_button.visible = false
 	_lock_button = DeepUi.primary(buttons, "check", "Lock in", _toggle_lock, 16)
 	_lock_button.tooltip_text = "Lock in this hand  [Space]"
@@ -556,7 +579,7 @@ func _sync() -> void:
 	var foe_label: Label = _foes_pill.get_child(0).get_node("Value")
 	foe_label.text = "%d %s" % [living_foes, "creature" if living_foes == 1 else "creatures"]
 	if bool(state.get("warden", false)):
-		foe_label.text = "Warden · " + foe_label.text
+		foe_label.text = ("Final boss · " if bool(context.get("boss", false)) else "Warden · ") + foe_label.text
 	elif bool(state.get("elite", false)):
 		foe_label.text = "Elite · " + foe_label.text
 	if not unit.is_empty():
@@ -591,12 +614,32 @@ func _sync() -> void:
 	var rerolls: int = int(unit.get("rerolls", 0))
 	_reroll_button.disabled = not planning or locked or downed or rerolls <= 0 or selected.is_empty()
 	_reroll_button.text = ("Reroll  %d left" % rerolls) if planning else "Resolving"
-	_lock_button.disabled = not planning or downed
-	_lock_button.text = "Unlock" if locked else "Lock in"
+	## A Roller in the room threw the hand this turn and took the rerolls with it: the button
+	## wears the Roller's own mark and name in its colour, and says why on a hover.
+	var roller: Dictionary = _roller(state) if planning else {}
+	var roller_chip: Array = EffectChips.GIMMICKS.get("roll_for_you", ["die", "Roller", ""])
+	var tone: Color = DeepUi.BAD if not roller.is_empty() else DeepUi.INFO
+	_reroll_button.icon = GemIcons.texture(str(roller_chip[0]) if not roller.is_empty() else "reroll", GemIcons.baked_size(30.0))
+	_reroll_button.add_theme_color_override("icon_normal_color", tone)
+	_reroll_button.add_theme_color_override("icon_disabled_color", Color(tone, 0.8))
+	if not roller.is_empty():
+		_reroll_button.text = str(roller_chip[1])
+		_reroll_button.add_theme_color_override("font_disabled_color", tone.lightened(0.2))
+		_reroll_button.tooltip_text = "%s: %s" % [str(roller.get("name", "A creature")), str(roller_chip[2])]
+	else:
+		_reroll_button.remove_theme_color_override("font_disabled_color")
+		_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
 	var flips: int = int(unit.get("flips", 0))
+	## Unlocking is only offered while there is something left to do with the hand.
+	var spent: bool = rerolls <= 0 and flips <= 0
+	_lock_button.disabled = not planning or downed or (locked and spent)
+	_lock_button.text = "Unlock" if locked else "Lock in"
+	_lock_button.tooltip_text = "Locked in: no rerolls or shifts left to spend." if locked and spent else "Lock in your hand  [Space]"
 	_flip_button.visible = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
-	_flip_button.disabled = not planning or locked or downed or flips <= 0 or selected.size() != 1
+	var shift_refusal: String = _shift_refusal()
+	_flip_button.disabled = not planning or locked or downed or flips <= 0 or selected.size() != 1 or not shift_refusal.is_empty()
 	_flip_button.text = "Shift" if flips > 0 or not planning else "Shifted"
+	_flip_button.tooltip_text = (shift_refusal.substr(0, 1).to_upper() + shift_refusal.substr(1) + ".") if not shift_refusal.is_empty() else SHIFT_TIP
 	## When there is nothing left to decide, the lock button asks to be pressed.
 	var waiting_on_me: bool = planning and not locked and not downed and ((rerolls <= 0 and flips <= 0) or selected.is_empty())
 	if waiting_on_me and _lock_pulse == null:
@@ -613,12 +656,26 @@ func _sync() -> void:
 		var waiting: Array = state.get("players", []).filter(func(p: Dictionary) -> bool: return not bool(p.get("locked", false)) and not bool(p.get("downed", false)))
 		_hint.text = "Waiting for %s" % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "Everyone is in."
 	else:
-		if rerolls <= 0 and flips > 0:
+		if flips > 0 and not shift_refusal.is_empty():
+			_hint.text = "That die has no face of the other parity to shift to"
+		elif rerolls <= 0 and flips > 0:
 			_hint.text = "Pick one die to shift parity  [F], or lock in  [Space]"
+		elif rerolls <= 0 and not roller.is_empty():
+			_hint.text = "%s rolled for you: no rerolls this turn. Lock in  [Space]" % str(roller.get("name", "A creature"))
 		elif rerolls <= 0:
 			_hint.text = "No rerolls left. Lock in  [Space]"
 		else:
 			_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
+
+func _roller(state: Dictionary) -> Dictionary:
+	## The creature that threw this turn's hand for the party, if one did: a Roller in the
+	## room on an odd turn (see the turn's opening in DeepBattle).
+	if int(state.get("turn", 0)) % 2 != 1:
+		return {}
+	for foe in DeepBattle.living(state.get("enemies", [])):
+		if DeepCreatures.has_trait(foe, "roll_for_you"):
+			return foe
+	return {}
 
 func _status_glyph(status: String) -> String:
 	match status:
@@ -768,6 +825,22 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 					badge.mouse_filter = Control.MOUSE_FILTER_PASS
 				badge.text = "+%d" % (int(place.rider) - RIDERS_SHOWN + 1)
 				_socket_cards.append(badge)
+				var socket_at: int = int(place.socket)
+				var riding: Array = []
+				for other in range(rail.size()):
+					var spot: Dictionary = DeepStone.place_of(unit, other)
+					if int(spot.socket) == socket_at and int(spot.rider) >= 0 and rail[other] is Dictionary:
+						riding.append(rail[other])
+				badge.tooltip_text = "\n".join(riding.slice(RIDERS_SHOWN).map(func(s: Dictionary) -> String: return "%s: %s" % [DeepUi.skill_name(s), DeepStone.text(s)])) + "\nClick to see every Void gem on this socket."
+				badge.set_meta("riding", riding)
+				if not bool(badge.get_meta("wired", false)):
+					badge.set_meta("wired", true)
+					badge.mouse_filter = Control.MOUSE_FILTER_STOP
+					badge.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+					badge.gui_input.connect(func(event: InputEvent) -> void:
+						if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+							Inspector.gathering("Void gems on socket %d" % (socket_at + 1), "They ride the socket instead of sitting in it, and fire after its own gem, in this order.", "gem", badge.get_meta("riding", []))
+							badge.accept_event())
 		if not unit.get("birthstone", {}).is_empty():
 			_birthstone_card = _build_birthstone_card(unit)
 			_rail_box.add_child(_birthstone_card)
@@ -825,10 +898,8 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				trigger_row.name = "Trigger"
 				trigger_row.mouse_filter = Control.MOUSE_FILTER_PASS
 				card.add_child(trigger_row)
-				var name_label := DeepUi.label(card, str(DeepStone.skill_of(stone).get("name", stone.skill)), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+				var name_label := DeepUi.fit_label(card, str(DeepStone.skill_of(stone).get("name", stone.skill)), 11, DeepUi.MUTED, SOCKET_EDGE + 8)
 				name_label.name = "SkillName"
-				name_label.custom_minimum_size.x = SOCKET_EDGE + 8
-				name_label.clip_text = true
 			else:
 				## The same rows a filled socket has, the trigger one empty: the cards are
 				## centred against one another, and one row short would hang the empty
@@ -871,13 +942,13 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				card.mouse_entered.connect(func() -> void: _light_dice_for(int(linked.get_meta("flat", -1))))
 				card.mouse_exited.connect(func() -> void: _light_dice_for(-1))
 			_sync_raised(unit, card, stone)
-			var blocked: bool = unit.get("buried", []).has(socket) or unit.get("clouded", []).has(socket)
+			var blocked: bool = DeepPatch.holds(unit.get("buried", []), socket) or DeepPatch.holds(unit.get("clouded", []), socket)
 			## A gem this hand leaves dark steps back, so the ones it fires stand out at a glance
 			## and "fires 2, fizzles 1" can be read off the rail itself. Its trigger, in the row
 			## under it, still says what it is waiting for.
 			var quiet: bool = showing and not entry.is_empty() and not active
 			card.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else (QUIET_GEM if quiet else Color.WHITE)
-			card.tooltip_text = ("Buried in rubble: this gem cannot fire this turn." if unit.get("buried", []).has(socket) else "Clouded: hit the Clouder to clear it.") if blocked else ""
+			card.tooltip_text = ("Buried in rubble: this gem cannot fire this turn." if DeepPatch.holds(unit.get("buried", []), socket) else "Clouded: hit the Clouder to clear it.") if blocked else ""
 	_sync_birthstone(unit, planning, showing)
 
 func _light_dice_for(socket: int) -> void:
@@ -1114,7 +1185,68 @@ class SocketRing extends Control:
 				centre + Vector2(5, -radius - 8), centre + Vector2(9, -radius - 1)])
 			draw_colored_polygon(crown, tone.lightened(0.2))
 
+func _sync_phantoms(unit: Dictionary) -> void:
+	## A Refract's phantoms: copies of the highest die that count for every gem after it this
+	## turn. They are not the player's to reroll, so they stand apart from the five, smaller and
+	## pale, ringed in the Void blue a rider wears; past three the rest are a count.
+	if _phantom_box == null:
+		return
+	var ghosts: Array = unit.get("hand", []).filter(func(r: Dictionary) -> bool: return bool(r.get("phantom", false)))
+	var key: String = ",".join(ghosts.map(func(r: Dictionary) -> String: return "%s=%d" % [str(r.get("die_id", "")), int(r.get("value", 0))]))
+	if key == _phantom_key:
+		return
+	_phantom_key = key
+	DeepUi.clear(_phantom_box)
+	_phantom_box.visible = not ghosts.is_empty()
+	if ghosts.is_empty():
+		return
+	var by_id: Dictionary = {}
+	for die in unit.get("dice", []):
+		by_id[str(die.id)] = die
+	for index in range(mini(ghosts.size(), PHANTOMS_SHOWN)):
+		var ghost: Dictionary = ghosts[index]
+		var source_id: String = str(ghost.get("source_id", str(ghost.get("die_id", "")).split("_ph")[0]))
+		var holder := PanelContainer.new()
+		holder.add_theme_stylebox_override("panel", DeepUi.flat(Color(DeepUi.INFO, 0.08), Color(DeepUi.INFO, 0.55), 12, 3, 2))
+		holder.mouse_filter = Control.MOUSE_FILTER_PASS
+		holder.tooltip_text = "Phantom %d: a copy of your highest die, made by a Refract. It counts for every gem after it this turn, then fades." % int(ghost.get("value", 0))
+		holder.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_phantom_box.add_child(holder)
+		var column := DeepUi.vbox(holder, 0)
+		column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var view := DiceView.new()
+		view.custom_minimum_size = Vector2(PHANTOM_EDGE, PHANTOM_EDGE)
+		view.size = Vector2(PHANTOM_EDGE, PHANTOM_EDGE)
+		view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		view.modulate = PHANTOM_TINT
+		column.add_child(view)
+		view.configure(by_id.get(source_id, {"shape": ghost.get("shape", "D6"), "material": str(ghost.get("material", "")), "faces": []}), ghost, false, false, DeepUi.INFO)
+		DeepUi.label(column, "phantom %d" % int(ghost.get("value", 0)), 11, DeepUi.INFO, HORIZONTAL_ALIGNMENT_CENTER)
+		if not _headless:
+			DeepUi.pop_in(holder, 0.05 * float(index))
+	if ghosts.size() > PHANTOMS_SHOWN:
+		var more := DeepUi.label(_phantom_box, "+%d" % (ghosts.size() - PHANTOMS_SHOWN), 14, DeepUi.INFO)
+		more.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		## What is behind the count: each phantom said on a hover, every one of them on a click.
+		var said: Array = []
+		var drawn: Array = []
+		var captions: Array = []
+		for ghost in ghosts:
+			var source_id: String = str(ghost.get("source_id", str(ghost.get("die_id", "")).split("_ph")[0]))
+			var source: Dictionary = by_id.get(source_id, {"shape": ghost.get("shape", "D6"), "material": str(ghost.get("material", "")), "faces": []})
+			said.append("Phantom %d, a copy of your %s" % [int(ghost.get("value", 0)), DeepDice.describe(source)])
+			drawn.append([source, int(ghost.get("face", -1))])
+			captions.append("phantom %d" % int(ghost.get("value", 0)))
+		more.tooltip_text = "\n".join(said.slice(PHANTOMS_SHOWN)) + "\nClick to see every phantom die."
+		more.mouse_filter = Control.MOUSE_FILTER_STOP
+		more.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		more.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				Inspector.gathering("Phantom dice", "Copies of your highest die, made by a Refract. Each counts for every gem after the one that made it this turn, then fades.", "die", [], drawn, captions)
+				more.accept_event())
+
 func _sync_tray(unit: Dictionary, planning: bool) -> void:
+	_sync_phantoms(unit)
 	var hand: Array = unit.get("hand", [])
 	var by_id: Dictionary = {}
 	for die in unit.get("dice", []):
@@ -1187,9 +1319,6 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		if str(roll.get("kind", "plain")) != "plain":
 			var added_up: int = view.running_total()
 			words = DiceIcons.face_text(added_up if added_up >= 0 else int(roll.value), str(roll.get("kind", "plain"))).strip_edges()
-		elif roll.has("shown") and int(roll.value) == int(roll.get("counted", -1)):
-			## An Iron die shows its own face and counts for its floor: say what it counts for.
-			words = "counts %d" % int(roll.value)
 		if bool(roll.get("locked", false)):
 			words += "  ⌂"
 		if bool(roll.get("flipped", false)):
@@ -1210,8 +1339,10 @@ func _sync_forecast() -> void:
 	if totals.is_empty():
 		DeepUi.label(_forecast_box, "—", 14, DeepUi.DIM)
 		return
+	## Pyrite is not one of these: it can go either way, and is said below as what the hand would
+	## win or spend, never as the bank it would leave.
 	var rows: Array = [["sword", "damage", DeepUi.BAD, "Damage"], ["shield", "block", DeepUi.BLOCK, "Block"], ["heart", "heal", DeepUi.GOOD, "Healing"],
-		["ore", "gold", DeepUi.ORE, "Pyrite"], ["drop", "poison", DeepUi.POISON, "Poison"]]
+		["drop", "poison", DeepUi.POISON, "Poison"]]
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 16)
@@ -1229,14 +1360,17 @@ func _sync_forecast() -> void:
 		cell.tooltip_text = str(row[3])
 		DeepUi.icon(cell, str(row[0]), 20, row[2], str(row[3]))
 		DeepUi.title(cell, str(amount), 22, row[2])
-	if not any:
+	var pyrite: int = int(totals.get("gold", 0))
+	if not any and pyrite == 0:
 		DeepUi.label(_forecast_box, "Nothing fires on this hand.", 13, DeepUi.DIM)
 	var summary := DeepUi.hbox(_forecast_box, 10)
 	var fires: int = int(totals.get("fires", 0))
 	var fizzles: int = int(totals.get("fizzles", 0))
 	DeepUi.stat(summary, "check", str(fires), DeepUi.GOOD, 13, "Gems that would fire")
 	DeepUi.stat(summary, "cross_out", str(fizzles), DeepUi.DIM if fizzles == 0 else DeepUi.BAD, 13, "Gems that would fizzle")
-	DeepUi.stat(summary, "ore", str(DeepRules.pyrite(me())), DeepUi.ORE, 13, "Available Pyrite, including combat earnings")
+	DeepUi.stat(summary, "ore", ("+%d" % pyrite) if pyrite > 0 else ("−%d" % -pyrite if pyrite < 0 else "±0"),
+		DeepUi.ORE if pyrite > 0 else (DeepUi.BAD if pyrite < 0 else DeepUi.DIM), 13,
+		"Pyrite this hand would win (or spend), on top of the %d you have" % DeepRules.pyrite(me()))
 	DeepUi.spacer(summary)
 	DeepUi.stat(summary, "spark", str(int(totals.get("resonance", 0))), _resonance_color(int(totals.get("resonance", 0))), 13, "Resonance this hand would build")
 
@@ -1467,8 +1601,9 @@ func _sync_enemy_panel() -> void:
 	_position_enemy_panel()
 
 func _position_enemy_panel() -> void:
-	## The table keeps to the right of the room (left of the party cards), and crosses to the
-	## left only when it would stand in front of a creature there and the left is clearer.
+	## The table keeps to the left of the room (right of the chart, when it is open), and
+	## crosses to the right (left of the party cards) only when it would stand in front of a
+	## creature there and the right is clearer.
 	if _enemy_panel == null or not _enemy_panel.visible:
 		return
 	var right: float = size.x - 20.0
@@ -1476,15 +1611,15 @@ func _position_enemy_panel() -> void:
 		right -= _ally_box.size.x + 20.0
 	var panel_size: Vector2 = _enemy_panel.size
 	var at_right := Rect2(Vector2(maxf(20.0, right - panel_size.x), 82.0), panel_size)
-	var at_left := Rect2(Vector2(20.0, 82.0), panel_size)
+	var at_left := Rect2(Vector2(minf(20.0 + left_inset, at_right.position.x), 82.0), panel_size)
 	var bodies: Array = _creature_rects()
 	## A little slack on the way back keeps a bobbing creature from flicking it side to side.
-	var on_left: bool = is_equal_approx(_enemy_panel.position.x, at_left.position.x) and at_left.position.x != at_right.position.x
-	var right_cover: float = _cover(at_right.grow(12.0 if on_left else 0.0), bodies)
-	if right_cover > 0.0 and _cover(at_left, bodies) < right_cover:
-		_enemy_panel.position = at_left.position
-	else:
+	var on_right: bool = is_equal_approx(_enemy_panel.position.x, at_right.position.x) and at_left.position.x != at_right.position.x
+	var left_cover: float = _cover(at_left.grow(12.0 if on_right else 0.0), bodies)
+	if left_cover > 0.0 and _cover(at_right, bodies) < left_cover:
 		_enemy_panel.position = at_right.position
+	else:
+		_enemy_panel.position = at_left.position
 
 func _creature_rects() -> Array:
 	## Where each living creature and its nameplate stand on the screen.
@@ -1773,9 +1908,22 @@ func _reroll() -> void:
 				DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.INFO, 14, 140.0, 0.5)
 	## The picked dice stay picked, so pressing Reroll again throws the same ones.
 
+func _shift_refusal() -> String:
+	## Why the one die picked out cannot be shifted, or "" (also "" with no single die picked).
+	if selected.size() != 1:
+		return ""
+	var unit: Dictionary = me()
+	for roll in unit.get("hand", []):
+		if str(roll.get("die_id", "")) == str(selected[0]) and not bool(roll.get("phantom", false)):
+			return DeepBattle.shift_refusal(unit, roll)
+	return ""
+
 func _flip() -> void:
-	## Sleight: the one chosen die shifts to the opposite parity.
+	## Sleight: the one chosen die turns over onto a face of the other parity.
 	if selected.size() != 1 or int(me().get("flips", 0)) <= 0 or bool(me().get("locked", false)):
+		return
+	if not _shift_refusal().is_empty():
+		DeepAudio.play("ui_back", {"volume": 0.6})
 		return
 	var id: String = str(selected[0])
 	command.emit({"kind": "flip", "die": id})
@@ -1796,6 +1944,9 @@ func _lock_if_spent() -> void:
 
 func _toggle_lock() -> void:
 	var locking: bool = not bool(me().get("locked", false))
+	## Locked in with nothing left to spend: there is nothing to unlock for.
+	if not locking and int(me().get("rerolls", 0)) <= 0 and int(me().get("flips", 0)) <= 0:
+		return
 	command.emit({"kind": "lock" if locking else "unlock"})
 	DeepAudio.play("dice_lock" if locking else "ui_back", {"volume": 0.8})
 	if locking and not _headless:

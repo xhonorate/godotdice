@@ -7,6 +7,15 @@ extends RefCounted
 ## or {"=": value} when either side is not a dictionary. Arrays are replaced whole: the
 ## state is small and the simplicity is worth more than the bytes.
 
+static func holds(list: Array, number: int) -> bool:
+	## Whether a list of whole numbers has this one in it. Anything that has been through JSON
+	## (a checkpoint, the profile, a packet to a guest) comes back with every number a float,
+	## and `[5.0].has(5)` is false.
+	for item in list:
+		if (item is int or item is float) and int(item) == number:
+			return true
+	return false
+
 static func diff(before: Variant, after: Variant) -> Variant:
 	if before is Dictionary and after is Dictionary:
 		var out: Dictionary = {}

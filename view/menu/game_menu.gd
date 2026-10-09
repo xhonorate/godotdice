@@ -11,6 +11,8 @@ signal player_name_changed(player_name: String)
 signal abandon_requested
 signal leave_requested
 signal join_requested(lobby_id: String)
+signal rejoin_requested(record: Dictionary)
+signal rejoin_declined
 signal quit_requested
 ## The host of a party run opens a line for the party to come back on: "lan" or "steam".
 signal reopen_requested(kind: String)
@@ -39,10 +41,9 @@ var _body: VBoxContainer
 var _panel: PanelContainer
 var _page: String = "main"
 var _invite: String = ""
+## The party run a guest was in when their game closed: {kind, address, port | lobby, host, mine}.
+var _rejoin: Dictionary = {}
 var _name_field: LineEdit = null
-## The Soundtrack page: the mood a piece is auditioned in, and the line saying what plays.
-var _audition: String = "explore"
-var _now_playing: Label = null
 
 func _init() -> void:
 	layer = 55
@@ -102,7 +103,6 @@ func reshow(new_context: Dictionary) -> void:
 func close() -> void:
 	if not visible:
 		return
-	DeepMusic.end_preview()
 	visible = false
 	DeepAudio.play("ui_close")
 	closed.emit()
@@ -130,10 +130,7 @@ func _unhandled_key_input(_event: InputEvent) -> void:
 func _show(page: String) -> void:
 	_page = page
 	DeepUi.clear(_body)
-	_now_playing = null
 	_name_field = null
-	if page != "soundtrack":
-		DeepMusic.end_preview()
 	match page:
 		"main": _page_main()
 		"settings": _page_settings()
@@ -147,6 +144,7 @@ func _show(page: String) -> void:
 			close()
 			leave_requested.emit())
 		"quit": _page_confirm("door", "Quit to the desktop?", _quit_text(), "Quit", DeepUi.BAD, func() -> void: quit_requested.emit())
+		"rejoin": _page_rejoin()
 		"invite": _page_confirm("party", "Join a friend's party?", _invite_text(), "Join", DeepUi.ACCENT, func() -> void:
 			close()
 			join_requested.emit(_invite))
@@ -155,6 +153,32 @@ func ask_to_join(lobby_id: String) -> void:
 	## A Steam invitation accepted in the middle of an expedition: leaving it is asked first.
 	_invite = lobby_id
 	_show("invite")
+
+func ask_to_rejoin(record: Dictionary) -> void:
+	## The game closed under a guest in the middle of a party run: as it starts again, going
+	## back is offered. Either answer is final, and the run is not offered again.
+	_rejoin = record
+	_show("rejoin")
+
+func _page_rejoin() -> void:
+	_heading("party", "Rejoin your party?")
+	var host: String = str(_rejoin.get("host", ""))
+	var mine: String = str(DeepContent.mine(str(_rejoin.get("mine", ""))).get("name", ""))
+	var party: String = ("%s's party" % host) if not host.is_empty() else "a party"
+	var text: String = "Your game closed while you were on a run with %s%s. If the run is still going, you take your seat again where you left it." % [party, (" in %s" % mine) if not mine.is_empty() else ""]
+	var words := DeepUi.wrap(_body, text, 15, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER, 500)
+	words.custom_minimum_size.x = 500
+	var row := DeepUi.hbox(_body, 14)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var later := DeepUi.button(row, "Not now", func() -> void:
+		close()
+		rejoin_declined.emit(), 16)
+	DeepUi.voice(later, "ui_back")
+	var record: Dictionary = _rejoin
+	var go := DeepUi.primary(row, "party", "Rejoin", func() -> void:
+		close()
+		rejoin_requested.emit(record), 16, DeepUi.ACCENT)
+	_focus.call_deferred(go)
 
 func edit_player_name() -> void:
 	_show("player_name")
@@ -318,9 +342,9 @@ func _page_settings() -> void:
 	_section(grid, "Sound")
 	_row(grid, "Master volume", _slider("master_volume", 0.8))
 	_row(grid, "Effects", _slider("sfx_volume", 0.85), "Every sound the game makes is written by the game itself.")
-	_row(grid, "Music", _slider("music_volume", 0.6), "The music is written by the game too, note by note, when it is first needed.")
+	_row(grid, "Music", _slider("music_volume", 0.6), "The music is written by the game too, from a few lines of score for each piece.")
 	DeepUi.label(grid, "Soundtrack", 15, DeepUi.PAPER)
-	var pieces := DeepUi.icon_button(grid, "pulse", "Choose and listen", func() -> void: _show("soundtrack"), 14, DeepUi.PAPER)
+	var pieces := DeepUi.icon_button(grid, "pulse", "Choose", func() -> void: _show("soundtrack"), 14, DeepUi.PAPER)
 	pieces.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	pieces.tooltip_text = "Pick the music for the workshop and for each mine."
 	_section(grid, "Comfort")
@@ -333,8 +357,7 @@ func _page_settings() -> void:
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 
 func _page_soundtrack() -> void:
-	## A piece for each place: click one to choose it and hear it, and the moods underneath
-	## play it as it sounds on a walk, in a fight or in a Warden's hall.
+	## A piece for each place: click one to make it the one that plays there.
 	_heading("pulse", "Soundtrack")
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -342,7 +365,6 @@ func _page_soundtrack() -> void:
 	grid.add_theme_constant_override("v_separation", 8)
 	_body.add_child(grid)
 	var picks: Dictionary = settings.get("music_picks", {}) if settings.get("music_picks", {}) is Dictionary else {}
-	var playing: Dictionary = DeepMusic.previewing()
 	for place in DeepScore.PLACES:
 		var tone: Color = DeepUi.ACCENT if place == DeepScore.HOME else Color(str(DeepContent.mine(place).get("palette", "c9a26b")))
 		var name_label := DeepUi.label(grid, DeepScore.place_name(place), 15, tone.lightened(0.25))
@@ -353,27 +375,9 @@ func _page_soundtrack() -> void:
 			var piece_id: String = str(id)
 			var b := DeepUi.button(row, str(DeepScore.track(piece_id).get("name", piece_id)), func() -> void: _choose_piece(place, piece_id), 13)
 			b.custom_minimum_size.x = 150
-			b.tooltip_text = "Choose and play"
+			b.tooltip_text = "Play this one here"
 			if piece_id == chosen:
 				DeepUi.selected_style(b, tone)
-			if piece_id == str(playing.get("track", "")):
-				b.add_theme_color_override("font_color", DeepUi.ACCENT_HI)
-	var moods := DeepUi.hbox(_body, 6)
-	moods.alignment = BoxContainer.ALIGNMENT_CENTER
-	DeepUi.label(moods, "Hear it", 14, DeepUi.MUTED)
-	for entry in DeepMusic.PREVIEWS:
-		var mood: String = str(entry[1])
-		var b := DeepUi.button(moods, str(entry[0]), func() -> void:
-			_audition = mood
-			var now: Dictionary = DeepMusic.previewing()
-			if not now.is_empty():
-				DeepMusic.preview(str(now.place), str(now.track), mood)
-			_show("soundtrack"), 13)
-		b.custom_minimum_size.x = 84
-		if mood == _audition:
-			DeepUi.selected_style(b)
-	_now_playing = DeepUi.label(_body, "", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	_say_playing()
 	var back := DeepUi.button(_body, "Back", func() -> void: _show("settings"), 15)
 	DeepUi.voice(back, "ui_back")
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -384,29 +388,7 @@ func _choose_piece(place: String, piece_id: String) -> void:
 	picks[place] = piece_id
 	settings["music_picks"] = picks
 	settings_changed.emit()
-	DeepMusic.preview(place, piece_id, _audition)
 	_show("soundtrack")
-
-func _say_playing() -> void:
-	if _now_playing == null or not is_instance_valid(_now_playing):
-		return
-	var now: Dictionary = DeepMusic.previewing()
-	if now.is_empty():
-		_now_playing.text = "Click a piece to hear it."
-		return
-	var title: String = str(DeepScore.track(str(now.track)).get("name", ""))
-	var mood: String = ""
-	for entry in DeepMusic.PREVIEWS:
-		if str(entry[1]) == str(now.mood):
-			mood = str(entry[0]).to_lower()
-	if DeepMusic.ready_to_play(str(now.track)):
-		_now_playing.text = "Playing %s, %s." % [title, mood]
-	else:
-		_now_playing.text = "Writing %s… (a few seconds, the first time)" % title
-
-func _process(_delta: float) -> void:
-	if visible and _page == "soundtrack":
-		_say_playing()
 
 func _section(grid: GridContainer, text: String) -> void:
 	var head := DeepUi.heading(grid, text, 12, DeepUi.ACCENT)

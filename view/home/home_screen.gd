@@ -486,7 +486,10 @@ func _go(box: VBoxContainer) -> void:
 	go.disabled = not can_start or bool(lobby.get("started", false))
 	if not go.disabled:
 		DeepUi.breathe(go, 0.82, 2.0)
-	if not short.is_empty():
+	if short.size() == 1 and str(short[0]) == local_id and insured and purse >= DeepEconomy.fare(_chosen_mine()):
+		## Only the insurance is out of reach (remembered on from a fuller purse): say how to go.
+		DeepUi.stat(box, "coin", "Your %d gold can't cover the insurance: turn it off to go down." % purse, DeepUi.BAD, 12)
+	elif not short.is_empty():
 		var names: Array = short.map(func(id: Variant) -> String: return "you" if str(id) == local_id else str(lobby.members.get(id, {}).get("name", id)))
 		DeepUi.stat(box, "coin", "Short of the way down: %s" % ", ".join(names), DeepUi.BAD, 12)
 	elif not can_start:
@@ -510,6 +513,11 @@ func _insurance_toggle(parent: Node, insured: bool) -> Button:
 	cover.tooltip_text = "Insurance: if the dig is lost, every salvage die is thrown twice and the better throw kept. Paid at the shaft head, every run, until you turn it off."
 	if insured:
 		DeepUi.selected_style(cover, DeepUi.GOOD)
+	elif int(profile.get("gold", 0)) < DeepEconomy.departure(_chosen_mine(), true):
+		## Not offered on a purse that cannot pay for it, the same as a socket or a reroll:
+		## insured on an empty purse, the way down would only refuse to open.
+		cover.disabled = true
+		cover.tooltip_text = "You have %d gold. Insurance costs %d on top of the way down." % [int(profile.get("gold", 0)), price]
 	return cover
 
 func _party_view(side: VBoxContainer) -> void:
@@ -557,23 +565,33 @@ func _party_view(side: VBoxContainer) -> void:
 		copy_ip.pressed.connect(func() -> void:
 			DisplayServer.clipboard_set(lan_ip)
 			_cheer_at(copy_ip, "Copied", DeepUi.GOOD, "copy"))
+	## With anyone else in the party, hosting or joining afresh would quietly break it up and
+	## send them home without a word: that is what Close or Leave the party is for.
+	var in_party: bool = lobby.get("order", []).size() > 1
+	var first: String = ("Close the party first." if is_host else "Leave the party first.") if in_party else ""
 	var lan := DeepUi.hbox(together_box, 8)
-	DeepUi.icon_button(lan, "crown", "Host on LAN", func() -> void: host_requested.emit(DeepSession.DEFAULT_PORT), 13, DeepUi.ACCENT)
+	var host_lan := DeepUi.icon_button(lan, "crown", "Host on LAN", func() -> void: host_requested.emit(DeepSession.DEFAULT_PORT), 13, DeepUi.ACCENT)
 	_address = LineEdit.new()
 	_address.text = str(settings.get("last_address", "127.0.0.1"))
 	_address.custom_minimum_size = Vector2(150, 0)
 	_address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lan.add_child(_address)
-	DeepUi.icon_button(lan, "play", "Join", func() -> void: join_requested.emit(_address.text, DeepSession.DEFAULT_PORT), 13, DeepUi.INFO)
+	var join_lan := DeepUi.icon_button(lan, "play", "Join", func() -> void: join_requested.emit(_address.text, DeepSession.DEFAULT_PORT), 13, DeepUi.INFO)
 	var steam := DeepUi.hbox(together_box, 8)
-	DeepUi.icon_button(steam, "party", "Host on Steam", func() -> void: steam_host_requested.emit(), 13, DeepUi.ACCENT)
+	var host_steam := DeepUi.icon_button(steam, "party", "Host on Steam", func() -> void: steam_host_requested.emit(), 13, DeepUi.ACCENT)
 	_lobby_field = LineEdit.new()
 	_lobby_field.placeholder_text = "Steam lobby ID"
 	_lobby_field.custom_minimum_size = Vector2(150, 0)
 	_lobby_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_lobby_field.text_submitted.connect(func(text: String) -> void: steam_join_requested.emit(text))
+	_lobby_field.text_submitted.connect(func(text: String) -> void:
+		if not in_party:
+			steam_join_requested.emit(text))
 	steam.add_child(_lobby_field)
-	DeepUi.icon_button(steam, "play", "Join", func() -> void: steam_join_requested.emit(_lobby_field.text), 13, DeepUi.INFO)
+	var join_steam := DeepUi.icon_button(steam, "play", "Join", func() -> void: steam_join_requested.emit(_lobby_field.text), 13, DeepUi.INFO)
+	for button in [host_lan, join_lan, host_steam, join_steam]:
+		button.disabled = in_party
+		if in_party:
+			button.tooltip_text = first
 	if not invite_code.is_empty():
 		var code := DeepUi.hbox(together_box, 8)
 		DeepUi.stat(code, "party", "Lobby %s" % invite_code, DeepUi.PAPER, 12).size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -797,7 +815,9 @@ func _dossier(content: VBoxContainer, key: String, unlocked: bool, chosen: bool)
 	var right := DeepUi.vbox(columns, 10)
 	right.custom_minimum_size.x = 330
 	var birth_card := DeepUi.card(right, Color(tint, 0.6), 14, Color(0.07, 0.06, 0.09, 0.92))
-	var birth_box := DeepUi.vbox(birth_card, 10)
+	## Tiers sit close: a Birthstone with many of them must still fit the page at the smallest
+	## text the game sets.
+	var birth_box := DeepUi.vbox(birth_card, 5)
 	var birth_head := DeepUi.hbox(birth_box, 12)
 	if not stone.is_empty():
 		var picture := StoneCard.mini(birth_head, stone, 84, str(stone.get("name", "")) + "\n" + str(stone.get("text", "")))
@@ -1755,9 +1775,12 @@ func _records(content: VBoxContainer) -> void:
 		var row := DeepUi.hbox(mine_grid, 6)
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.icon(row, ("crown" if bool(record.get("boss", false)) else "pick") if open else "lock", 16, DeepUi.ACCENT if open else DeepUi.DIM)
-		var named := DeepUi.label(row, DeepContent.mine_name(str(key)) if open else "Sealed", 13, DeepUi.PAPER if open else DeepUi.DIM)
+		## A sealed mine is still named, as the Map names it, dimmed and tagged.
+		var named := DeepUi.label(row, DeepContent.mine_name(str(key)), 13, DeepUi.PAPER if open else DeepUi.DIM)
 		named.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		named.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if not open:
+			DeepUi.label(row, "Sealed", 12, DeepUi.DIM)
 		if open:
 			DeepUi.stat(row, "stairs", str(int(record.get("deepest", 0))), DeepUi.INFO, 12, "Deepest")
 			DeepUi.stat(row, "crown", str(record.get("wardens", []).size()), DeepUi.ACCENT, 12, "Wardens and bosses beaten")

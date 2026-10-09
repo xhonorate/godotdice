@@ -60,21 +60,22 @@ Starting a run in any mine below the Quarry costs a **fare** in gold. The Quarry
 | --- | --- | --- | --- | --- | --- | --- |
 | `fare_gold` | 60 | 100 | 140 | 180 | 225 | 275 |
 
-**Temporary stones for the empty sockets.** At the shaft head of a run that starts below the Quarry, every socket the lapidary has not unlocked is offered a **pick of three temporary stones**:
+**Temporary stones for the empty sockets.** At the shaft head of a run that starts below the Quarry, every socket with no stone of its own (one the lapidary has not unlocked, or one unlocked and left empty, so that buying a socket never makes a deep run weaker) is offered a **pick of three temporary stones**:
 
 - **Color:** each pick matches its socket's color. An Any socket offers three different colors.
 - **One screen:** all the picks sit on one screen, a row of three cards per empty socket (two or three rows), before the Grubstake. The existing "Pick of Three" stake already draws this kind of row.
-- **Quality:** appraised, rolled at the mine's luck at depth 4 (as the Grubstake's stones are), never Void.
+- **Quality:** appraised, never Void. Rolled at the bottom of the mine's luck (`temporary_depth` 20) with `temporary_luck` (4) on top, and drawn again, a little kinder each time, until it is at least `temporary_min_tier` (Precious) or a dozen draws have been made. Buffed October 8, 2026: at depth 4 they came out Rough four times in five, which made bringing the vault's own stones the only sensible choice.
 - **Temporary means fragile:** the stone carries the same `fragile` flag as the "A Fragile Find" stake, shown with the Fragile mark. It cannot be sold, kept, turned in or thrown down a well, and it shatters when the run ends, however it ends.
 - **Replaceable:** a stone found during the run can take its socket. The temporary stone moves to the bag and still shatters at the end.
+- **Dice offered for the deep (October 9, 2026, replacing the dice worked for the deep of October 8):** after the temporary stones, each die in a player's bowl is offered three dice to swap it for, one die at a time, or kept as it is. The left one is its size or smaller, the middle one its size and the right one its size or bigger; every one differs from it, the middle one always in its pattern, an etching or its material. A mine's `start_dice_offer` tunes it: `steps` are the chances, in percent, of a side die being at least one, two and three sizes off (Seeps 30/1/0 up to the Geode 99/30/1), and `variation` the chance of each extra pattern, etching or material (Seeps 15% up to the Geode 50%). Like all work on a die down the mine, a swap stays there.
 - **Not when pushing on:** a party walking into the next mine already has its rail. The Quarry gets none, and the daily dig lends a full rail instead.
-- **Why unlock sockets, then:** temporary stones are random and average for the mine. An unlocked socket carries a stone the player chose from the vault. That difference is what socket unlocks sell.
+- **Why unlock sockets, then:** temporary stones are good (Precious, at the mine's usual carat) but random: three to choose from, of skills the rock picked, and gone when the run ends. An unlocked socket carries the stone the player chose from the vault, built around. That difference is what socket unlocks sell.
 
 **Closing two existing loopholes (needed before this ships, and worth fixing now):**
 - **The well:** the wishing well accepts fragile stones (`DeepDescent.can_wish` checks only Birthstones and Knots), so a temporary stone can be turned into a permanent reward. It should refuse them.
 - **The Crucible:** fusing a fragile stone with a permanent one keeps whichever survives the 50% draw. If the permanent one survives, it absorbs the fragile one's carats and comes home. A fused stone should be fragile if either input was.
 
-Both loopholes already exist with "A Fragile Find", the Grubstake's depth-20 fragile stone.
+Both loopholes already exist with "A Fragile Find", the Grubstake's depth-20 fragile stone (from the bottom of a mine that ends sooner, since October 9, 2026).
 
 ### 🟢 3.2 Salvage insurance
 
@@ -247,7 +248,7 @@ The first time a player beats a mine's final boss, they receive a one-off purse:
 - 🔵 `geode_gold` (phase 4).
 
 **New constants:**
-- 🟢 `assay_rate` (5), `socket_unlock_gold` ([300, 1200, 4800]), `temporary_depth` (4), `commission_slots` (3), `commission_payout_mult` (2.5), `commission_reroll_gold` (10) and `commission_reroll_step` (10), `commission_requirement_pct` (50).
+- 🟢 `assay_rate` (5), `socket_unlock_gold` ([300, 1200, 4800]), `temporary_depth` (20), `temporary_luck` (4), `temporary_min_tier` (PRECIOUS), `commission_slots` (3), `commission_payout_mult` (2.5), `commission_reroll_gold` (10) and `commission_reroll_step` (10), `commission_requirement_pct` (50).
 - 🔵 `geode_luck`, `geode_carat_over_cap` (2), `geode_opal_pct` (phase 4); `contract_inputs` (5), `contract_fee` (by tier) (phase 5); `daily_mines`, `daily_gold_per_depth`, `daily_clear_gold` (phase 6).
 
 **New sections:** 🔵 `geodes` (featured sets by week, phase 4), `daily_modifiers` (phase 6).

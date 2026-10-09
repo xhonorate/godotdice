@@ -407,15 +407,12 @@ func set_taken(choice: String) -> void:
 	## The respite taken: that one stays warm; the others go quiet.
 	_taken = choice
 
-func wish_taken(fx: Node3D) -> void:
-	## Something has gone down the well: the water takes it before it says anything.
+func wish_drawn(fx: Node3D, tier: int) -> float:
+	## Something has gone down the well: the bucket goes down after it and comes back up with
+	## the answer, as loud as it is. Returns how long until it breaks over the rim.
 	if _well != null and is_instance_valid(_well):
-		_well.swallow(fx)
-
-func wish_answered(fx: Node3D, tier: int) -> void:
-	## And a moment later, how loud the answer was.
-	if _well != null and is_instance_valid(_well):
-		_well.answer(fx, tier)
+		return _well.draw_up(fx, tier)
+	return 0.0
 
 func _process(delta: float) -> void:
 	_clock += delta

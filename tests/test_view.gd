@@ -54,6 +54,21 @@ func _test_gems() -> void:
 		check(GemIcons.known(GemIcons.emblem(key)), "%s has an emblem" % key)
 	for key in DeepContent.section("skills"):
 		check(GemIcons.known(GemIcons.emblem(str(key))), "every skill has a known emblem: " + str(key))
+	## No two skills share an emblem, and no Birthstone wears one a skill or another Birthstone
+	## does: the mark is how a stone is told apart at a glance.
+	var worn: Dictionary = {}
+	for key in DeepContent.section("skills"):
+		var mark: String = GemIcons.emblem(str(key))
+		check(not worn.has(mark), "%s shares its emblem (%s) with %s" % [str(key), mark, str(worn.get(mark, ""))])
+		worn[mark] = str(key)
+	for key in DeepContent.section("characters"):
+		var birthstone: Dictionary = DeepContent.character(str(key)).get("birthstone", {})
+		if birthstone.is_empty():
+			continue
+		var mark: String = str(birthstone.get("emblem", "gem"))
+		check(GemIcons.known(mark), "%s's Birthstone has a known emblem (%s)" % [str(key), mark])
+		check(not worn.has(mark), "%s's Birthstone shares its emblem (%s) with %s" % [str(key), mark, str(worn.get(mark, ""))])
+		worn[mark] = str(key)
 	check(GemMesh.color_key(DeepStone.make("HEX", 1, 0, 3)) == "VIOLET", "color comes from the skill")
 	check(is_equal_approx(GemMesh.brilliance(5), 1.0) and is_equal_approx(GemMesh.brilliance(3), 0.6) and is_equal_approx(GemMesh.brilliance(0), 0.0), "the clarity ladder maps to brilliance")
 	check(GemMesh.cut_rank(DeepStone.make("STRIKE", 1, 4, 3)) == 5 and GemMesh.cut_rank(DeepStone.make("STRIKE", 1, 0, 3)) == 1, "Cut 0..4 becomes the geometry's 1..5")
@@ -231,26 +246,28 @@ func _test_inside() -> void:
 	check(GemMesh.inside(DeepStone.make("STRIKE", 8, 4, 5, [], {}, "clean")) == null, "a Flawless stone is empty inside")
 	check(GemMesh.inside(DeepStone.make("STRIKE", 8, 4, 2, [], {}, "bathed")) == null, "a stone whose flaws were dissolved is empty inside")
 	check(GemMesh.inside({"skill": "STRIKE", "carat": 8, "cut": 4, "clarity": 1, "id": "nolist"}) != null, "a stone with no list still looks as included as its Clarity says")
-	## The six Seams are one emblem on one milky body, so the color each replays has to be
-	## the thing telling them apart — in the stone, not only in the tooltip.
-	var veins: Dictionary = {}
+	## The six Seams are one family of emblem, so the color each replays has to be the thing
+	## telling them apart — in the stone, not only in the tooltip. The whole body wears it, so
+	## nothing is drawn inside for it: a Flawless Seam is as clean inside as any Flawless stone.
+	var played: Dictionary = {}
 	for key in DeepContent.section("skills"):
 		var skill: Dictionary = DeepContent.skill(str(key))
 		if str(skill.get("color", "")) != "OPAL":
 			continue
 		var opal: Dictionary = DeepStone.make(str(key), 14, 4, 4, [], {}, "opal")
-		var vein: Color = GemFlaws.seam_color(opal)
+		var color: Color = GemFlaws.seam_color(opal)
 		var replays: bool = false
 		for effect in skill.get("effects", []):
 			replays = replays or (effect is Dictionary and str(effect.get("kind", "")) == "replay_color")
 		if not replays:
-			check(vein.a <= 0.0, "%s is an opal but not a Seam, so it carries no vein" % key)
+			check(color.a <= 0.0, "%s is an opal but not a Seam, so it plays back no color" % key)
 			continue
-		check(vein.a > 0.0 and GemMesh.inside(opal) != null, "%s carries a vein" % key)
-		for other in veins:
-			check(not vein.is_equal_approx(veins[other]), "%s does not run the same color as %s" % [key, other])
-		veins[key] = vein
-	check(veins.size() == 6, "all six Seams carry one")
+		check(color.a > 0.0, "%s plays back a color" % key)
+		check(GemMesh.inside(DeepStone.make(str(key), 14, 4, 5, [], {}, "clean")) == null, "a Flawless %s carries no streak inside" % key)
+		for other in played:
+			check(not GemMesh.tint(opal).is_equal_approx(played[other]), "%s is not washed the same color as %s" % [key, other])
+		played[key] = GemMesh.tint(opal)
+	check(played.size() == 6, "all six Seams wear a color of their own")
 
 func _test_rock() -> void:
 	## A raw stone comes in a crust of rock, the largest chunk last, the same every time.

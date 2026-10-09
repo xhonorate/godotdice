@@ -111,7 +111,9 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 	_dim = ColorRect.new()
-	_dim.color = Color(0.0, 0.0, 0.01, 0.82)
+	## Nearly opaque: the page behind already knows the answer (the stone is read the moment
+	## the fee is paid) and must not give the reveal away through the dark.
+	_dim.color = Color(0.0, 0.0, 0.01, 0.95)
 	_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.add_child(_dim)

@@ -22,7 +22,7 @@ extends RefCounted
 
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 ## What is set INSIDE the solid rather than cut on it: the inclusions the stone carries,
-## each class drawn as its own thing, and the vein of color an opal Seam is named for. It
+## each class drawn as its own thing, and the leaves of metal some stones grow. It
 ## is handed an `envelope()` and so never has to preload this file back.
 const GemFlaws = preload("res://view/gems/gem_flaws.gd")
 ## Every material and lighting number lives in one adjustable table, so the gem lab can
@@ -823,8 +823,8 @@ static func envelope(gem: Dictionary) -> Dictionary:
 		"murk": 1.0 - brilliance(clarity_grade(gem))}
 
 static func inside(gem: Dictionary) -> ArrayMesh:
-	## What is frozen in the stone: its inclusions, each drawn as its own class, and an
-	## opal Seam's vein. Null when the crystal is clean, which most of them are.
+	## What is frozen in the stone: its inclusions, each drawn as its own class. Null when
+	## the crystal is clean, which most of them are.
 	return GemFlaws.build(gem, envelope(gem))
 
 static func etch_plate(gem: Dictionary) -> ArrayMesh:
@@ -1091,13 +1091,13 @@ static func fire_material(gem: Dictionary) -> ShaderMaterial:
 		material.set_shader_parameter("fire", Tuning.value("fire") * lerpf(0.55, 1.35, b))
 		material.set_shader_parameter("bands", Tuning.value("fire_bands") * 0.75)
 		material.set_shader_parameter("spread", Tuning.value("fire_spread") * 1.7)
-		material.set_shader_parameter("reach", 0.42)
+		material.set_shader_parameter("reach", Tuning.value("opal_reach"))
 		material.set_shader_parameter("sharpness", 1.0)
 		## An ordinary opal has no color of its own to bias the spectrum towards, so its
 		## play-of-color stays white-light and is opened right up. A Seam is the exception
 		## and the whole point of one: it is named for a color and it replays that color's
-		## gems, so its fire leans the way its vein runs — and it is pulled back off the
-		## middle of the dome to leave room for the vein to be seen through. At full
+		## gems, so its fire leans towards that color — and it is pulled back off the
+		## middle of the dome to leave room for the color of the body to be seen. At full
 		## strength the additive pass drowned everything under it and all six Seams came
 		## out the same pastel, which is the thing this is here to fix.
 		var seam := GemFlaws.seam_color(gem)
@@ -1106,10 +1106,10 @@ static func fire_material(gem: Dictionary) -> ShaderMaterial:
 				Vector3.ONE.lerp(Vector3(seam.r, seam.g, seam.b), Tuning.value("seam_fire")))
 			material.set_shader_parameter("fire",
 				Tuning.value("fire") * lerpf(0.55, 1.35, b) * Tuning.value("seam_room"))
-			material.set_shader_parameter("reach", 0.26)
+			material.set_shader_parameter("reach", Tuning.value("opal_reach") * 0.62)
 		else:
 			material.set_shader_parameter("tint", Vector3.ONE)
-	material.render_priority = 4
+	material.render_priority = 5 if SHAPE_DOME.has(shape_of(gem)) and int(Tuning.value("opal_etch_layer")) == 1 else 4
 	return material
 
 static func etch_material(gem: Dictionary) -> StandardMaterial3D:
@@ -1127,9 +1127,12 @@ static func etch_material(gem: Dictionary) -> StandardMaterial3D:
 	## Every other stone lets its emblem be read by relief alone. An opal cannot: its body
 	## is pale to start with and the play-of-color is laid over the whole dome additively,
 	## which washes a groove flat. So on a cabochon the emblem is cut dark, and reads as a
-	## shadow inside the stone the way an opal's own matrix does.
-	if SHAPE_DOME.has(shape_of(gem)):
-		shade = clampf(shade + 0.55, 0.0, 1.0)
+	## shadow inside the stone the way an opal's own matrix does. Dark is not enough on its
+	## own: under the milk and the play-of-color even a black groove came out a pale grey
+	## that could hardly be found, so by default it is also drawn over both (see below).
+	var domed: bool = SHAPE_DOME.has(shape_of(gem))
+	if domed:
+		shade = clampf(shade + Tuning.value("opal_etch_shade"), 0.0, 1.0)
 		ink = clampf(ink + 0.14, 0.0, 1.0)
 	var material := StandardMaterial3D.new()
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -1159,6 +1162,13 @@ static func etch_material(gem: Dictionary) -> StandardMaterial3D:
 	# it — but it is now drawn BEFORE the near half, which is what puts it inside.
 	material.no_depth_test = true
 	material.render_priority = 1
+	## An opal's milk can be let lie under its emblem instead of over it (drawn after the near
+	## half, with the play-of-color moved up a step to stay on top), and so can the
+	## play-of-color itself, which is additive and lifts even a black groove to grey. The
+	## default is both: the swirl still plays all round the emblem, it just no longer washes
+	## the emblem out.
+	if domed:
+		material.render_priority = [1, 4, 6][clampi(int(Tuning.value("opal_etch_layer")), 0, 2)]
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return material
 

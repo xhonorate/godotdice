@@ -12,6 +12,7 @@ func _init() -> void:
 	_test_birthstones()
 	_test_passives()
 	_test_hand_mutation_and_retriggers()
+	_test_fingerprint()
 	_test_opals()
 	_test_creatures_and_statuses()
 	_test_forecast_matches()
@@ -125,6 +126,12 @@ func _test_setup_and_planning() -> void:
 	check(DeepBattle.command(state, "b", {"kind": "lock"}, r.dice).ok and DeepBattle.ready_to_resolve(state), "everyone locked: ready")
 	check(DeepBattle.command(state, "b", {"kind": "unlock"}, r.dice).ok and not DeepBattle.ready_to_resolve(state), "unlocking takes it back")
 	DeepBattle.command(state, "b", {"kind": "lock"}, r.dice)
+	## With no reroll or shift left there is nothing to unlock for.
+	var b_unit: Dictionary = DeepBattle.player(state, "b")
+	var kept_rerolls: int = int(b_unit.rerolls)
+	b_unit.rerolls = 0
+	check(not DeepBattle.command(state, "b", {"kind": "unlock"}, r.dice).ok and bool(b_unit.locked), "a hand with nothing left to spend cannot be unlocked")
+	b_unit.rerolls = kept_rerolls
 	var begin: Dictionary = DeepBattle.start_resolution(state)
 	check(begin.kind == "resolution_begin" and state.phase == "resolving", "resolution begins")
 	check(not DeepBattle.command(state, "a", {"kind": "lock"}, r.dice).ok, "no commands while resolving")
@@ -355,6 +362,26 @@ func _test_passives() -> void:
 	var broke: Dictionary = DeepBattle.make_player("b", "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, "b"))
 	check(int(DeepBattle.begin([broke], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures).players[0].pot) == 0, "a Gambler with nothing stakes nothing")
 	check(int(DeepBattle.player(state, "a").pot) == 0, "nobody else sits down with a stake")
+
+func _test_fingerprint() -> void:
+	## A Fingerprint carries the first inclusion of the gem before it: a Cleave behind a Cat's
+	## Eye reads the 1 as wild and finds a pair of sixes it could not find alone.
+	var r: Dictionary = rngs(41)
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 1, 4, 2, ["CATS_EYE"], "eye"), stone("CLEAVE", 1, 4, 2, ["FINGERPRINT"], "print")])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	var a: Dictionary = DeepBattle.player(state, "a")
+	hand(a, [1, 6, 2, 3, 5])
+	var copied: Dictionary = DeepBattle.stone_at(a, 1)
+	check(str(copied.get("copied", "")) == "CATS_EYE" and not a.rail[1].has("copied"), "the Fingerprint carries Cat's Eye, and the rail itself is untouched")
+	check(DeepStone.evaluate(copied, a.hand, DeepBattle.rail_context(state, a, 1)).active, "so Cleave reads the 1 as wild and fires")
+	var bare: Dictionary = DeepStone.make("CLEAVE", 1, 4, 2, [], {}, "bare")
+	check(not DeepStone.evaluate(bare, a.hand, DeepBattle.rail_context(state, a, 1)).active, "which a Cleave without it cannot")
+	## In the first socket, or behind a gem with nothing to give, it carries nothing.
+	check(DeepStone.fingerprint_source([a.rail[1]], 0) == {"inclusion": "", "from": {}}, "the first socket has nothing before it")
+	var plain: Array = [stone("STRIKE"), a.rail[1]]
+	check(str(DeepStone.fingerprint_source(plain, 1).inclusion).is_empty() and DeepStone.fingerprinted(plain, 1, plain[1]) == plain[1], "nor behind a gem without inclusions")
+	## It skips another Fingerprint and a Void for the next inclusion along.
+	var layered: Array = [stone("STRIKE", 1, 4, 1, ["FINGERPRINT", "VOID", "SPARK"]), a.rail[1]]
+	check(str(DeepStone.fingerprint_source(layered, 1).inclusion) == "SPARK", "and passes over a Fingerprint and a Void to the Spark behind them")
 
 func _test_hand_mutation_and_retriggers() -> void:
 	var r: Dictionary = rngs(31)
@@ -624,6 +651,21 @@ func _test_rung_finishes() -> void:
 	check(not kinds(events).has("enemy_begin"), "and no creature takes a turn after it")
 	var over: Array = events.filter(func(e: Dictionary) -> bool: return e.has("battle_over") or str(e.kind) == "battle_over")
 	check(not over.is_empty() and str(over[0].kind) in ["rail_end", "battle_over"], "the rail's end is what closes the fight: %s" % str(kinds(events)))
+	## In a party, an ally's rail queued after the killing blow still plays: their heal is
+	## theirs whether or not the creatures were already dead when it came round.
+	var r2: Dictionary = rngs(78)
+	var party: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 6)]), player("b", [stone("GUARD"), stone("MEND")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
+	for foe in party.enemies:
+		foe.hp = 1
+	var killer: Dictionary = DeepBattle.player(party, "a")
+	var ally: Dictionary = DeepBattle.player(party, "b")
+	ally.hp = 10
+	hand(killer, [3, 3, 1, 2, 5])
+	hand(ally, [3, 3, 1, 2, 5])
+	var shared: Array = run_turn(party, r2)
+	var ally_fired: Array = fires(shared, "b").map(func(e: Dictionary) -> int: return int(e.socket))
+	check(ally_fired.has(1) and int(ally.hp) > 10, "an ally's Mend after the last creature fell still heals: %s, %d" % [str(ally_fired), int(ally.hp)])
+	check(str(party.outcome) == "victory" and not kinds(shared).has("enemy_begin"), "and the fight is won once every rail is done")
 
 func _test_whole_fights() -> void:
 	## A bot that never rerolls plays fights at three depths. Every fight ends, the same seed

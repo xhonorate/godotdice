@@ -145,7 +145,7 @@ export const LEAD_OCTAVES = [
 	['High', 'A fifth higher: peaks around D6. For bell and glass, which turn muddy low. Can be piercing with any other lead.'],
 ];
 
-export const KIT = ['Kit', 'Which drums play the grooves. The pulse layer has a light kick, shaker and percussion; the fight layer the full groove with a backbeat and a fill every eighth bar; a Warden’s layer adds a swelling cymbal.'];
+export const KIT = ['Kit', 'Which drums play the grooves. The pulse layer has a light kick, shaker and percussion; the fight layer the full groove with a backbeat and a fill every eighth bar. The threat layer’s taiko and timpani are the same for every kit.'];
 export const KITS = {
 	frame: 'Kick, tom backbeat, shaker, frame drum. Folk, hand-played.',
 	drip: 'Kick, rimshot, shaker, water drips. Wet and sparse.',
@@ -170,28 +170,39 @@ export const ECHO = ['Echo on the tune', [
 	'The melody layer repeats itself three sixteenths later, three times, each repeat this much quieter than the last.',
 	'0 is dry. Around 0.2, a room. 0.4 and over, a cavern, and fast tunes start to blur into themselves.']];
 
-export const LAYERS = ['Layers', 'How many of the five layers the piece is written in.'];
+export const LAYERS = ['Layers', 'How many of the six layers the piece is written in.'];
 export const LAYER_COUNTS = [
-	['3: walk only', 'Bed, pulse and melody. No fight or Warden layers, so a fight would add nothing. Only for the workshop, where no fight is ever had.'],
-	['5: with fights', 'All five: the fight layer (full drums, arpeggio, eighth-note bass) and the Warden layer (horns, strings, cymbal swells) come in when the mine asks for them.'],
+	['3: walk only', 'Bed, pulse and melody. No fight, elite or Warden layers, so a fight would add nothing. Only for the workshop, where no fight is ever had.'],
+	['6: with fights', 'All six: the fight layer (full drums, arpeggio, eighth-note bass), the threat layer for elites and Wardens (taiko, timpani, braams) and the Warden layer (string gallop, the tune in horns) come in when the mine asks for them.'],
 ];
 
 export const DRONE = ['Drone under the bed', 'Two hums held for the whole loop, the key note deep down (A1 to G♯2) and the fifth above it, breathing slowly. Underground weight and pressure. Off, the piece is lighter and more open.'];
 export const SEVENTHS = ['Sevenths in the pads', 'Adds each chord’s seventh to the pads. Lusher, jazzier, less resolved; a major chord turns dreamy, a minor one bittersweet.'];
+export const WARDEN_LIFT = ['Warden key change', [
+	'In a Warden’s hall the whole piece goes up a semitone (and about 6% faster), switching on the next downbeat, and comes back down on the downbeat after the Warden falls. The classic last-chorus lift: the same music, suddenly higher and more urgent.',
+	'Nothing is re-rendered for it: the game speeds the baked loop up as it plays, so it needs no render and adopting it is instant. Try it in the Warden mood. It suits some pieces better than others, which is why it is per piece.']];
+export const LIFTED = ['Key change on', 'Playing a semitone up, as the game will in a Warden’s hall: the change waits for the next downbeat, as it does in game.'];
 
 // --- hearing it -------------------------------------------------------------------------------
 
-export const MOOD = ['Mood', 'Sets the five layers to the levels the game uses in that situation. In a mine the game also brings the bass and tune up the deeper the party goes.'];
+export const MOOD = ['Mood', 'Sets the layers to the levels the game uses in that situation, and runs the Music bus as hot as the game does there (with Game effects on). In a mine the game also brings the bass and tune up the deeper the party goes.'];
 export const MOODS = {
 	home: 'The workshop: bed, most of the pulse, nearly all of the tune.',
 	rest: 'A landing, or the shaft down: bed and tune, barely any pulse.',
 	explore: 'Walking the mine between fights: bed, half the pulse, half the tune.',
-	fight: 'A fight: everything but the Warden layer.',
-	elite: 'An elite fight: the fight, and half the Warden layer.',
-	warden: 'A Warden’s hall: all five layers.',
+	fight: 'A fight: the fight layer over everything that was playing.',
+	elite: 'An elite fight: the fight, and the threat layer’s big drums and braams.',
+	warden: 'A Warden’s hall: all six layers, the pads and the tune pulled back so the string gallop and the horns come through.',
 };
-export const ROOM = ['Room', 'The game plays music through a long, dark reverb on its Music bus. The baked files are dry; this is roughly how they sound in game.'];
-export const MIXER = (i) => [['Bed', 'Pulse', 'Melody', 'Drive', 'Peril'][i] + ' layer', ['Pads and the drone. Always on, in every mood.', 'The bass and a light hand on the drums. Grows the deeper the party goes.', 'The tune, its echo and the bell glints. Mixed loudest.', 'The fight: the full drum groove, the arpeggio, the bass in eighths.', 'A Warden’s hall: horns on the downbeat, tremolo strings, a cymbal swelling into every fourth bar.'][i], 'Click to mute it. The bar is its level in this mood.'];
+// What the bus does at a heat, in words for a mood's tip.
+export const HEAT_WORDS = (heat) => (heat <= 0 ? 'Bus: calm (in a mine, a gentle low pass at 6.5 kHz).'
+	: heat < 0.6 ? 'Bus: low pass open, compressor squeezing a little harder and louder.'
+		: heat < 0.9 ? 'Bus: open, compressed harder, a touch of saturation.'
+			: 'Bus: open, compressed hardest and loudest, saturated.');
+export const FX = ['Game effects', [
+	'The game’s Music bus, as it is in that mood: a long dark reverb; between fights in a mine a gentle low pass, so a fight opening it sounds brighter and closer; a compressor that squeezes harder and adds loudness the bigger the fight; soft saturation in an elite or a Warden’s hall; a limiter last.',
+	'The baked files are dry. Off, you hear them as they are.']];
+export const MIXER = (i) => [['Bed', 'Pulse', 'Melody', 'Drive', 'Threat', 'Peril'][i] + ' layer', ['Pads and the drone. Always on, in every mood.', 'The bass and a light hand on the drums. Grows the deeper the party goes.', 'The tune, its echo and the bell glints. Mixed loudest.', 'The fight: the full drum groove, the arpeggio, the bass in eighths.', 'Elites and Wardens: taiko on the strong beats, timpani on the chord’s root, a timpani roll and a cymbal swell into every fourth bar, and a low brass braam where they land. Heard far off near the bottom of a mine.', 'A Warden’s hall: strings galloping on the chord in sixteenths, the piece’s own tune in the horns, brass stabs on the downbeat, high tremolo strings.'][i], 'Click to mute it. The bar is its level in this mood.'];
 
 export const LIVE = ['Live', 'What the game plays: the Ogg files in audio/music/<id>, one a layer. Only Adopt (or a bake) changes them.'];
 export const DRAFT = ['Draft', 'Your edits, kept in build/music/drafts until you adopt or discard them. Rendered by Godot with the game’s own synth, so it sounds exactly as it would in game.'];

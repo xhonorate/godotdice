@@ -3,13 +3,16 @@ extends RefCounted
 ## The music, written the way the sound bank writes a crack: from nothing.
 ##
 ## A piece in `score.gd` is a key, a mode, a tempo, a chord for every two bars and a seed. This
-## writes it out as twenty-four bars that loop, cut into five layers of one arrangement:
+## writes it out as twenty-four bars that loop, cut into six layers of one arrangement:
 ##
 ##   bed     the pad and the drone: the chords, held. Always on.
 ##   pulse   the bass and a light hand on the drums: walking pace.
 ##   melody  the tune, with its echo and the odd glint of a bell.
 ##   drive   the fight: the full kit, an arpeggio running under the tune, the bass in eighths.
-##   peril   a Warden's hall: horns on the downbeat, tremolo strings, a cymbal swelling in.
+##   threat  an elite or a Warden: taiko and timpani, a roll and a cymbal swell into every
+##           fourth bar, and a low brass "braam" where they land.
+##   peril   a Warden's hall: a galloping string ostinato, the tune itself in the horns, brass
+##           stabs and high tremolo strings.
 ##
 ## The layers are strips of exactly the same length and the score player starts them on the
 ## same sample, so turning one up or down never moves the beat or changes the tune: a fight
@@ -23,15 +26,21 @@ extends RefCounted
 ## writes a piece here, on its worker thread, only if it has not been baked.
 
 const RATE: int = DeepSynth.RATE
-const LAYERS: PackedStringArray = ["bed", "pulse", "melody", "drive", "peril"]
+const LAYERS: PackedStringArray = ["bed", "pulse", "melody", "drive", "threat", "peril"]
 ## How loud each layer is written, as its average level in decibels: the tune clearly on top,
-## the fight just under it, the bed and the bass beneath, the horns of a Warden's hall last.
-const LOUDNESS: Array = [-26.0, -27.0, -22.5, -25.0, -28.0]
+## the fight just under it, the bed and the bass beneath. The boss layers are written loud,
+## to be heard over a fight already at full rather than to thicken it: a Warden's hall should
+## sound like something else has arrived.
+const LOUDNESS: Array = [-26.0, -27.0, -22.5, -25.0, -24.0, -23.0]
 const BED: int = 0
 const PULSE: int = 1
 const MELODY: int = 2
 const DRIVE: int = 3
-const PERIL: int = 4
+const THREAT: int = 4
+const PERIL: int = 5
+## The layers the whole piece is levelled by: everything short of a boss. The boss layers go
+## on top of that, and the Music bus's limiter catches what they push past full.
+const LEVELLED: int = 4
 
 const MODES: Dictionary = {
 	"ionian": [0, 2, 4, 5, 7, 9, 11], "dorian": [0, 2, 3, 5, 7, 9, 10], "phrygian": [0, 1, 3, 5, 7, 8, 10],
@@ -192,11 +201,13 @@ static func write(spec: Dictionary, record: Variant = null) -> Array:
 			PULSE: _pulse(p, strips[i])
 			MELODY: _melody(p, strips[i])
 			DRIVE: _drive(p, strips[i])
+			THREAT: _threat(p, strips[i])
 			PERIL: _peril(p, strips[i])
 	## Each layer is brought to its own loudness (the tune on top, the bed under it), then
-	## the whole is turned down together if the loudest moment of all of them would clip.
-	## Both are read at every fourth sample, which is close enough with the soft knee on
-	## the way out.
+	## the whole is turned down together if the loudest moment of a fight would clip. The boss
+	## layers are left out of that: turning every layer down so a Warden's hall fits would
+	## make every walk between fights quieter. Both are read at every fourth sample, which is
+	## close enough with the soft knee on the way out.
 	var total: int = int(p.total)
 	var buffers: Array = strips.map(func(strip: DeepSynth) -> PackedFloat32Array: return strip.samples)
 	var gains: Array = []
@@ -210,7 +221,7 @@ static func write(spec: Dictionary, record: Variant = null) -> Array:
 	var loudest: float = 0.0
 	for j in range(0, total, 4):
 		var value: float = 0.0
-		for i in range(buffers.size()):
+		for i in range(mini(buffers.size(), LEVELLED)):
 			value += buffers[i][j] * gains[i]
 		loudest = maxf(loudest, absf(value))
 	var fit: float = minf(1.0, 0.85 / maxf(loudest, 0.0001))
@@ -447,29 +458,76 @@ static func _drive(p: Dictionary, strip: DeepSynth) -> void:
 			_play(p, strip, bass, low, at + s, 1, 0.32 if s % 4 == 0 else 0.22)
 	_groove(p, strip, "drive", 1.0)
 
-static func _peril(p: Dictionary, strip: DeepSynth) -> void:
+static func _threat(p: Dictionary, strip: DeepSynth) -> void:
+	## An elite or a Warden: the big drums. Taiko on the strong beats, timpani on the chord's
+	## root under them, a roll building through every fourth bar into a cymbal swell, and a low
+	## brass "braam" where the swell lands. Nothing here is a tune, so it goes under any piece.
 	var steps_bar: int = int(p.steps_bar)
 	var meter: int = int(p.meter)
 	var root: int = int(p.root)
 	var step: int = int(p.step)
+	var taiko: Array = [[0, 1.0], [6, 0.55], [10, 0.75]] if meter == 4 else [[0, 1.0], [6, 0.6]]
 	for bar in range(int(p.bars)):
 		var chord: int = int(p.chords[bar / 2])
 		var at: int = bar * steps_bar
-		var low: int = _fit(pitch(p, root, chord), root - 3)
+		var drum_root: int = _fit(pitch(p, root, chord), root - 7)
+		var drum_fifth: int = _fit(pitch(p, root, chord + 4), drum_root)
+		for hit in taiko:
+			_hit(p, strip, "boom", "taiko", at + int(hit[0]), 0.8 * float(hit[1]))
+		_play(p, strip, "timpani", drum_root, at, 4, 0.7)
+		_play(p, strip, "timpani", drum_fifth if meter == 4 else drum_root, at + 8, 4, 0.5 if meter == 4 else 0.4)
+		if bar % 4 == 0:
+			## The braam: low, wide and opening, where the swell crests.
+			var low: int = _fit(pitch(p, root, chord), 38)
+			_play(p, strip, "braam", low, at, steps_bar + steps_bar / 2, 0.6)
+			_play(p, strip, "braam", _fit(pitch(p, root, chord + 4), low), at, steps_bar + steps_bar / 2, 0.42)
+		if bar % 4 == 3:
+			## The roll: sixteenths on the root through the second half of the bar, from a
+			## murmur to a crack, under a cymbal swelling into the next four bars.
+			var from: int = steps_bar / 2
+			for s in range(from, steps_bar):
+				_play(p, strip, "timpani", drum_root, at + s, 1, 0.18 + 0.45 * float(s - from) / float(maxi(1, steps_bar - from - 1)))
+			var swell: PackedFloat32Array = _note(p, "swell", 0, 0, 0)
+			strip.add(swell, (at + steps_bar) * step - int(1.45 * float(RATE)), 0.5)
+			_mark(p, "drum:swell:swell", 0, (at + steps_bar) % (int(p.bars) * steps_bar), 1, 0.5)
+
+static func _peril(p: Dictionary, strip: DeepSynth) -> void:
+	## A Warden's hall. Strings gallop on the chord in sixteenths (long, short, short), the
+	## piece's own tune comes back in the horns, broad and slow, brass stabs the downbeat, and
+	## high strings tremble over all of it: the mine's music, under pressure.
+	var steps_bar: int = int(p.steps_bar)
+	var meter: int = int(p.meter)
+	var root: int = int(p.root)
+	for bar in range(int(p.bars)):
+		var chord: int = int(p.chords[bar / 2])
+		var at: int = bar * steps_bar
+		var low: int = _fit(pitch(p, root, chord), root + 3)
 		var fifth: int = _fit(pitch(p, root, chord + 4), low)
-		_play(p, strip, "brass", low, at, 3, 0.5)
-		_play(p, strip, "brass", fifth, at, 3, 0.4)
-		if meter == 4:
-			_play(p, strip, "brass", low, at + 10, 2, 0.32)
-			_play(p, strip, "brass", fifth, at + 10, 2, 0.26)
+		var figure: Array = [low, low, fifth, low + 12] if meter == 4 else [low, fifth, low]
+		for beat in range(meter):
+			var s: int = at + beat * 4
+			var note: int = int(figure[beat])
+			_play(p, strip, "spiccato", note, s, 2, 0.44 if beat == 0 else 0.36)
+			_play(p, strip, "spiccato", note, s + 2, 1, 0.26)
+			_play(p, strip, "spiccato", note, s + 3, 1, 0.3)
+		for k in [0, 2, 4]:
+			var stab: int = _fit(pitch(p, root, chord + k), root + 7)
+			_play(p, strip, "brass", stab, at, 2, 0.34)
+			if meter == 4:
+				_play(p, strip, "brass", stab, at + 6, 2, 0.22)
 		if bar % 2 == 0:
 			for deg in [chord + 2, chord + 4]:
-				_play(p, strip, "strings", _fit(pitch(p, root, deg), root + 19), at, 2 * steps_bar, 0.32)
-		if bar % 4 == 3:
-			## A cymbal swelling into the next four bars, cresting on their downbeat.
-			var swell: PackedFloat32Array = _note(p, "swell", 0, 0, 0)
-			strip.add(swell, (at + steps_bar) * step - int(1.45 * float(RATE)), 0.36)
-			_mark(p, "drum:swell:swell", 0, (at + steps_bar) % (int(p.bars) * steps_bar), 1, 0.36)
+				_play(p, strip, "strings", _fit(pitch(p, root, deg), root + 19), at, 2 * steps_bar, 0.24)
+	## The horns: the notes of the tune that fall on a beat, held to the next and played broad,
+	## in the tune's own octave (an octave down for a tune written high, for bells and glass).
+	var horn_base: int = lead_base(p) - (12 if int(p.spec.get("lead_octave", 0)) == 1 else 0)
+	for n in tune(p):
+		if int(n[0]) % 4 == 0 and int(n[1]) >= 2:
+			_play(p, strip, "horn", pitch(p, horn_base, int(n[2])), int(n[0]), mini(int(n[1]), 8), 0.5)
+
+static func _hit(p: Dictionary, strip: DeepSynth, part: String, drum: String, at_step: int, level: float) -> void:
+	strip.add(_note(p, drum, 0, 0, at_step % 2), at_step * int(p.step), level)
+	_mark(p, "drum:%s:%s" % [part, drum], 0, at_step, 1, level)
 
 static func _groove(p: Dictionary, strip: DeepSynth, part: String, level: float) -> void:
 	var meter: int = int(p.meter)
@@ -583,6 +641,29 @@ static func sound(voice: String, freq: float, seconds: float, seed_value: int = 
 		"strings":
 			s = DeepSynth.new(seconds + 0.7, seed_value)
 			s.voice(0.0, seconds, freq, 0.22, "saw", 0.3, 0.6, 3, 12.0, freq * 3.0, 0.0, 0.0, 0.45)
+		"spiccato":
+			## Strings bounced off the bow: a hard start, gone almost at once.
+			s = DeepSynth.new(seconds + 0.15, seed_value)
+			s.voice(0.0, seconds * 0.8, freq, 0.3, "saw", 0.004, 0.07, 2, 7.0, minf(freq * 4.0, 3500.0))
+			s.noise(0.0, 0.025, 0.05, 4000.0, 1500.0, 4.0, 0.001, 800.0)
+		"horn":
+			## Broad and round: a dark brass with a sine under it so it never turns to a buzz.
+			s = DeepSynth.new(seconds + 0.4, seed_value)
+			s.voice(0.0, seconds, freq, 0.3, "saw", 0.08, 0.3, 2, 6.0, minf(freq * 1.6, 1400.0), 1.5, 0.004)
+			s.voice(0.0, seconds, freq, 0.12, "sine", 0.06, 0.3)
+		"braam":
+			## A low brass cluster blown hard: wide, detuned, its filter opening as it swells.
+			s = DeepSynth.new(seconds + 0.9, seed_value)
+			s.voice(0.0, seconds, freq, 0.36, "saw", 0.12, 0.9, 3, 16.0, freq * 1.4, 5.0)
+			s.voice(0.0, seconds, freq * 2.0, 0.1, "saw", 0.2, 0.8, 2, 10.0, freq * 2.0, 3.0)
+		"timpani":
+			## A tuned kettle: the head's note and its fifth and octave, a slap of felt on top.
+			ring = 1.6
+			s = DeepSynth.new(ring, seed_value)
+			s.tone(0.0, ring, freq * 1.01, freq, 0.62, "sine", 2.6, 0.003)
+			s.tone(0.0, ring * 0.6, freq * 1.5, -1.0, 0.2, "sine", 3.4, 0.003)
+			s.tone(0.0, ring * 0.4, freq * 1.99, -1.0, 0.1, "sine", 4.0, 0.002)
+			s.noise(0.0, 0.08, 0.22, 1600.0, 300.0, 4.0)
 		"kick":
 			s = DeepSynth.new(0.4, seed_value)
 			s.thump(0.0, 0.38, 105.0, 0.85, 0.12)

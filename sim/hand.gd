@@ -22,11 +22,12 @@ extends RefCounted
 ##   distinct      number of different values (wilds each count as a new one)
 ##   low_dice, low_ids     dice at or below half their own top (a wild is never low)
 ##   crowns, crown_ids     dice showing their own top face (a wild is always a crown)
+##   high_crown    1 when the highest roll is itself a crown, else 0
 ##   wilds         die ids of wild rolls
 ##   ids_by_value  {value: [die ids]}, each bucket in preference order
 ##   bases         {die id: face value} for exploding rolls: what the face says before what it threw again
 ##   showing       {number: [die ids]} by the number printed on the face each die landed on,
-##                 where that differs from what it counts for (Iron, Doubled, exploding)
+##                 where that differs from what it counts for (Doubled, exploding)
 
 static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var values: Array = []
@@ -50,6 +51,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var low_ids: Array = []
 	var crowns: int = 0
 	var crown_ids: Array = []
+	var crown_values: Dictionary = {}
 	var showing: Dictionary = {}
 	for index in range(hand.size()):
 		var roll: Dictionary = hand[index]
@@ -93,6 +95,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		if value >= top:
 			crowns += 1
 			crown_ids.append(id)
+			crown_values[value] = true
 		## A gem may have changed the roll since it was thrown; then what it shows is what it is.
 		var shown: int = int(roll.shown) if roll.has("shown") and value == int(roll.get("counted", -1)) else value
 		if not showing.has(shown):
@@ -143,27 +146,38 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		"high": high if high > 0 else wild_top, "low": low if low > 0 else wild_top, "high_pct": high_pct,
 		"held": held, "rerolled": rerolled, "phantoms": phantoms, "dice_count": hand.size(),
 		"groups": groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
-		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size()),
+		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size(), wild_top),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
 		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids,
+		"high_crown": 1 if (high > 0 and crown_values.has(high)) or (high == 0 and not wilds.is_empty()) else 0,
 		"ids_by_value": ids_by_value, "bases": bases, "showing": showing}
 
 static func _prefer(ids: Array, rank: Dictionary) -> void:
 	## The dice that most want to be spent, first.
 	ids.sort_custom(func(a: String, b: String) -> bool: return int(rank.get(a, 0)) > int(rank.get(b, 0)))
 
-static func _straight(present_values: Array, wilds: Array, ids_by_value: Dictionary, dice_total: int) -> Dictionary:
+static func _straight(present_values: Array, wilds: Array, ids_by_value: Dictionary, dice_total: int, wild_top: int = 0) -> Dictionary:
 	## The longest run of consecutive values, wilds filling gaps, preferring the highest run
-	## of that length. Straights count each value once, so twins do not help here.
+	## of that length. Straights count each value once, so twins do not help here. Faces have
+	## no ceiling, so only the runs that could hold a value showing are looked at: a run that
+	## is all wilds tops out at the best top among them, the way a wild reads as its die's top.
 	var present: Dictionary = {}
+	var lowest: int = 0
+	var highest: int = 0
 	for v in present_values:
 		present[int(v)] = true
+		lowest = int(v) if lowest == 0 else mini(lowest, int(v))
+		highest = maxi(highest, int(v))
 	var best: Dictionary = {"length": 0, "high": 0, "low": 0, "dice": []}
 	var longest: int = mini(dice_total, present.size() + wilds.size())
 	for length in range(longest, 0, -1):
 		var found_low: int = -1
-		for low in range(1, DeepDice.VALUE_CAP - length + 2):
+		if present.is_empty():
+			found_low = maxi(1, wild_top - length + 1)
+		## A run needs at least one value showing (it is never all wilds while one shows), so
+		## only the lows within a run's length of the values present can work.
+		for low in range(maxi(1, lowest - length + 1), highest + 1 if not present.is_empty() else 0):
 			var missing: int = 0
 			for v in range(low, low + length):
 				if not present.has(v):
@@ -217,8 +231,8 @@ static func matching_faces(analysis: Dictionary, predicate: Callable) -> Array:
 	return dice
 
 static func matching_shown(analysis: Dictionary, predicate: Callable) -> Array:
-	## Die ids whose face shows a number the predicate wants, plus every wild: an Iron d6
-	## that landed on its 1 is showing a 1, whatever its floor makes it count for. An analysis
+	## Die ids whose face shows a number the predicate wants, plus every wild: a Doubled 1
+	## is showing a 1, whatever it counts for. An analysis
 	## made before `showing` existed falls back on the counted values.
 	if not analysis.has("showing"):
 		return matching(analysis, predicate)

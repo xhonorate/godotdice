@@ -351,6 +351,45 @@ func _run(app: Control) -> void:
 	check(DeepDescent.temporary_left(lent_me) == 2, "two sockets still wait for their temporary stone")
 	descent.show_state(lent_state)
 	await _fits(screen, "the temporary stones for three locked sockets")
+	await _above_dock(descent, "the temporary stones for three locked sockets")
+	## A rail with nothing set at all: every one of six sockets waits, shown three at a time.
+	for socket in range(3, 6):
+		var offered: Array = []
+		for index in range(3):
+			var candidate: Dictionary = picks[index].duplicate(true)
+			candidate.id = "fit_lent%d_%d" % [socket, index]
+			candidate.temporary = true
+			candidate.fragile = true
+			offered.append(candidate)
+		lent_me.temps.append({"index": socket - 3, "socket": "ANY", "picks": offered, "chosen": -1})
+	check(DeepDescent.temporary_left(lent_me) == 5, "five sockets still wait for their temporary stone")
+	descent.show_state(lent_state)
+	await _fits(screen, "the temporary stones for six empty sockets")
+	await _above_dock(descent, "the temporary stones for six empty sockets")
+	## Then each die in the bowl is offered three to swap it for, one die at a time, at their
+	## wordiest: a size off, a pattern, a material, an etching, and a face lost.
+	for offer in lent_me.temps:
+		offer.chosen = 0
+	lent_me.dice_offers = []
+	for index in range(lent_me.dice.size()):
+		var original: Dictionary = lent_me.dice[index]
+		DeepDice.etch(original, original.faces.size() - 1, "golden")
+		var swaps: Array = []
+		for step in [-1, 0, 3]:
+			var offered: Dictionary = original.duplicate(true)
+			if step != 0:
+				DeepOddities.resize(offered, step)
+			var stamped: Dictionary = DeepDice.make(str(offered.shape), str(offered.id), {"pattern": "split" if DeepDice.pattern_allows("split", str(offered.shape)) else "", "etches": DeepDice.etchings(offered)})
+			offered.clear()
+			offered.merge(stamped)
+			offered.material = "cloud"
+			DeepDice.etch(offered, 0, "exploding")
+			swaps.append(offered)
+		lent_me.dice_offers.append({"index": index, "die_id": str(original.id), "picks": swaps, "chosen": -1, "kept": index == 0})
+	check(DeepDescent.dice_offers_left(lent_me) == lent_me.dice.size() - 1, "every die but the first still waits for its answer")
+	descent.show_state(lent_state)
+	await _fits(screen, "a die's three swaps at the shaft head")
+	await _above_dock(descent, "a die's three swaps at the shaft head")
 	## A heavy haul: raw and appraised stones in every color.
 	for i in range(36):
 		var found: Dictionary = DeepForge.roll_stone(rng, mine, 6 + i % 12, 3, {"run": "fit", "source": "vein"}, "fit_haul%d" % i)
@@ -402,6 +441,15 @@ func _run(app: Control) -> void:
 		descent.show_state(room)
 		await _fits(screen, "the dock giving way to the %s, large, for one to be chosen" % str(offered[0]))
 		descent._run_dock.cancel_offer()
+	## A stall's die traded for one of the party's own: the whole bowl, the wrong sizes dimmed.
+	var refusals: Dictionary = {str(me.dice[0].id): "Only a d8 can be traded for it."}
+	descent._run_dock.offer("die", me.dice, "Trade one of your dice for the Cloud d8 · 140 pyrite", refusals)
+	descent.show_state(room)
+	await _fits(screen, "the dock giving way to the dice for a trade, the wrong sizes dimmed")
+	var tiles: Array = descent._run_dock._chooser.find_children("*", "PanelContainer", true, false).filter(func(c: Node) -> bool: return str((c as Control).tooltip_text).contains("Right-click"))
+	check(tiles.size() == me.dice.size() and tiles.filter(func(c: Node) -> bool: return (c as Control).modulate.a < 0.5).size() == 1,
+		"every die stands in the tray, and only the one that will not do is dimmed")
+	descent._run_dock.cancel_offer()
 	descent.show_state(room)
 	## What a motherlode gives up, what an oddity made, and what a stake did.
 	var rewards: Dictionary = {"ore": 44, "stones": me.haul.slice(0, 4), "dice": me.dice.slice(0, 2)}
@@ -560,6 +608,14 @@ func _advance(app: Control) -> void:
 				app.session.send({"kind": "choose", "choice": "descend"})
 
 # --- the check ----------------------------------------------------------------------------------
+
+func _above_dock(descent: Node, what: String) -> void:
+	## A page over the room stops short of the dock: nothing laid out on it may run under it.
+	await process_frame
+	await process_frame
+	var found: Array = []
+	_scan(descent._page_holder, (descent._area as Control).get_global_rect(), found)
+	check(found.is_empty(), "%s stays above the dock: %s" % [what, "; ".join(found.slice(0, 4))])
 
 func _fits(node: Node, what: String) -> void:
 	## Twice round the loop, so every container has sorted its children.

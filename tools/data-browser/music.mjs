@@ -35,16 +35,26 @@ export const LIVE_DIR = path.join(ROOT, 'audio/music');
 export const DRAFT_DIR = path.join(ROOT, 'build/music/drafts');
 const RENDER_DIR = path.join(ROOT, 'build/music/render');
 
-// As DeepComposer.LAYERS: the five strips of every piece, in order.
-export const LAYERS = ['bed', 'pulse', 'melody', 'drive', 'peril'];
+// As DeepComposer.LAYERS: the six strips of every piece, in order.
+export const LAYERS = ['bed', 'pulse', 'melody', 'drive', 'threat', 'peril'];
+// Fields the game reads while it plays rather than baked into the sound: changing one needs no
+// render, and a draft that changes only these can be adopted as it stands.
+export const RUNTIME_FIELDS = ['name', 'warden_lift'];
 export const AIRS = ['workshop', 'galleries', 'seeps', 'crystal', 'fungal', 'magma', 'geode', 'rift'];
 // Vorbis quality, -1 to 10: 6 is transparent for these mono loops at about 80 kbit/s.
 const OGG_QUALITY = 6;
 // The order a track's fields are written in, so a diff of the score shows only what changed.
 const FIELD_ORDER = ['name', 'key', 'mode', 'bpm', 'meter', 'seed', 'chords', 'bridge', 'pad', 'bass', 'bass_style', 'lead', 'lead_octave',
-	'arp', 'arp_rate', 'kit', 'layers', 'drone', 'sevenths', 'echo'];
+	'arp', 'arp_rate', 'kit', 'layers', 'drone', 'sevenths', 'echo', 'warden_lift'];
 
 export const validId = (id) => /^[a-z0-9_]+$/.test(String(id));
+
+// A spec as far as the sound is concerned: what a render depends on.
+export function audible(spec) {
+	const out = orderTrack(spec || {});
+	for (const key of RUNTIME_FIELDS) delete out[key];
+	return JSON.stringify(out);
+}
 
 // --- the score --------------------------------------------------------------------------------
 
@@ -208,7 +218,7 @@ export async function liveState(id, spec) {
 		baked: layers.length > 0, complete: layers.length >= wanted, layers,
 		bakedAt: record?.baked || null,
 		// The score and the baked files can part ways (an edit by hand to the score): say so.
-		matchesScore: !!record && JSON.stringify(orderTrack(record.spec || {})) === JSON.stringify(orderTrack(spec || {})),
+		matchesScore: !!record && audible(record.spec) === audible(spec),
 		hasNotes: !!record?.notes,
 	};
 }
@@ -218,6 +228,7 @@ export async function draftState(id) {
 	const spec = await readJson(path.join(dir, 'spec.json'));
 	if (!spec) return null;
 	const rendered = await readJson(path.join(dir, 'rendered.json'));
+	const baked = await readJson(path.join(LIVE_DIR, id, 'render.json'));
 	const layers = [];
 	if (rendered) {
 		for (let i = 0; i < rendered.layers; i++) {
@@ -228,7 +239,10 @@ export async function draftState(id) {
 	return {
 		spec, layers, rendered: !!rendered && layers.length === rendered.layers,
 		renderedAt: rendered?.at || null, renderMs: rendered?.ms || null,
-		stale: !rendered || JSON.stringify(orderTrack(rendered.spec)) !== JSON.stringify(orderTrack(spec)),
+		stale: !rendered || audible(rendered.spec) !== audible(spec),
+		// Changes only what the game reads at play time (a name, the Warden key change): the
+		// live files already sound like this draft, so it can be adopted without a render.
+		runtimeOnly: !!baked && audible(baked.spec) === audible(spec),
 		error: rendered?.error || null,
 	};
 }
@@ -268,8 +282,20 @@ export async function renderDraft(id) {
 // the score.
 export async function adoptDraft(id) {
 	const state = await draftState(id);
-	if (!state || !state.rendered || state.stale) throw new Error('Render the draft before adopting it');
-	await bakeFrom(path.join(DRAFT_DIR, id), id, state.spec);
+	if (!state) throw new Error(`${id} has no draft`);
+	if (state.rendered && !state.stale) {
+		// A render is what was heard, and it may differ from the live files even for the same
+		// spec (the synth itself changed): bake it.
+		await bakeFrom(path.join(DRAFT_DIR, id), id, state.spec);
+	} else if (state.runtimeOnly) {
+		// Nothing to bake: the record keeps the sound's spec, the score takes the new fields.
+		const file = path.join(LIVE_DIR, id, 'render.json');
+		const record = await readJson(file);
+		record.spec = orderTrack(state.spec);
+		await writeFile(file, JSON.stringify(record) + '\n');
+	} else {
+		throw new Error('Render the draft before adopting it');
+	}
 	const score = await readScore();
 	score.tracks[id] = orderTrack(state.spec);
 	await writeScore(score);
@@ -320,7 +346,8 @@ const TICKS_PER_STEP = PPQ / 4;
 const PLAN = ['A', 'A2', 'B', 'ans', 'A', 'A2', 'B2', 'end', 'C', 'C2', 'B', 'end'];
 // The General MIDI programs nearest each of the synth's voices.
 const PROGRAMS = { pad_warm: 89, pad_glass: 94, pad_choir: 91, pad_dark: 95, bass_sub: 38, bass_pluck: 32, bass_saw: 39, lead_flute: 73,
-	lead_bell: 14, lead_glass: 98, lead_pluck: 24, lead_marimba: 12, lead_reed: 68, brass: 61, strings: 44, drone: 89 };
+	lead_bell: 14, lead_glass: 98, lead_pluck: 24, lead_marimba: 12, lead_reed: 68, brass: 61, strings: 44, drone: 89,
+	spiccato: 48, horn: 60, braam: 58, timpani: 47 };
 // The General MIDI drum nearest each of the kits' drums.
 const DRUMS = { kick: 36, taiko: 35, thud: 35, tom: 45, rim: 37, snare: 38, wood_low: 77, wood: 76, anvil: 56, shaker: 70, hat: 42,
 	tick: 76, tick_low: 77, frame: 63, drip: 75, drip_low: 77, chime: 81, swell: 49 };
@@ -375,7 +402,9 @@ export function midiFrom(notes, spec, title) {
 	for (const group of [...groups.values()].sort((a, b) => a.layer - b.layer || Number(a.drum) - Number(b.drum))) {
 		const ch = group.drum ? 9 : takeChannel();
 		const loudest = Math.max(...group.notes.map((n) => n.level), 0.0001);
-		const events = [[0, 0, text(0x03, `${notes.layers[group.layer]} · ${group.drum ? `drums (${spec.kit || 'frame'})` : group.voice}`)]];
+		// The threat layer's drums are the same taiko and cymbal whatever the piece's kit.
+		const kit = notes.layers[group.layer] === 'threat' ? 'taiko' : (spec.kit || 'frame');
+		const events = [[0, 0, text(0x03, `${notes.layers[group.layer]} · ${group.drum ? `drums (${kit})` : group.voice}`)]];
 		if (!group.drum) events.push([0, 0, [0xc0 | ch, PROGRAMS[group.voice] ?? 0]]);
 		for (const n of group.notes) {
 			const vel = Math.max(1, Math.min(127, Math.round(20 + 107 * n.level / loudest)));

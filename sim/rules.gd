@@ -21,7 +21,8 @@ extends RefCounted
 ##   run_high run_length set_value set_count   sum_low / sum_high with "value": n dice
 ##   block block_lost healed dealt hp max_hp hp_missing gold pot
 ##   resonance previous_amount carat cut clarity depth turn party
-##   crowns (dice on their top face)  low_dice (dice at or below half their top)
+##   crowns (dice on their top face)  high_crown (1 when the highest roll is a crown)
+##   low_dice (dice at or below half their top)
 ##   fizzles (gems that stayed dark this turn that this stone has not yet been paid for)
 ##
 ## A skill may carry `numbers`: named amount expressions written into its `text` and its
@@ -36,6 +37,8 @@ extends RefCounted
 ##   amplify_next(pct) cut_step_next raise_low raise_high set_match flip_high flip_low phantom_high
 ##   grant_reroll retrigger_previous(pct) dice_dread(enemy) die_steal(enemy)
 ##   quality_bonus(pct) sparkle coin_flip(win_mult, lose_mult) resonance
+##   damage_curse(enemy: amount% of its Curse stacks as damage)
+##   appraise(stones: that many raw stones in the bag read, amount% of their worth as damage)
 ##   Opal-only, and every one of them refuses to touch another opal, which is the whole of
 ##   why two opals can never call each other for ever:
 ##     replay_color(color: every gem of that color that has already fired plays again)
@@ -84,7 +87,7 @@ const OPS: Array = ["+", "-", "*", "min", "max", "floor_div", "pct", "if", "ge",
 const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "total", "max_total", "missing", "odd", "even",
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
-	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
+	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
 	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "turns_acted", "living_players", "strength"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
@@ -126,7 +129,7 @@ const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]
 const RANK_BUFFS: Array = ["carat", "cut"]
 const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode",
 	"piercing", "split_party", "pick", "creature", "pct", "permanent", "shape", "cap", "turns", "cancel_pct", "guard_pct", "store", "release",
-	"hurt", "add", "flat"]
+	"hurt", "add", "flat", "stones"]
 ## How an effect that works on one die or one gem chooses it: `showing` is the face every die
 ## lies on, `all` every die, `usable` the finest gem a creature could fire itself.
 const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best", "usable", "showing", "all"]
@@ -138,8 +141,9 @@ const MODIFY_FIELDS: Array = EFFECT_OPTIONS + ["amount", "repeat", "effect", "ta
 const MAX_EFFECTS: int = 6
 const MAX_DEPTH: int = 6
 const MAX_NODES: int = 60
-## Thousand Cuts can ask for one hit per point on even the largest die.
-const MAX_REPEAT: int = DeepDice.VALUE_CAP
+## Thousand Cuts asks for one hit per point on the highest die, and a face has no ceiling, so
+## this is only a guard against a runaway rule: far past any face a run can grow.
+const MAX_REPEAT: int = 1000
 const VALUE_LIMIT: int = 9999
 ## An effect whose amount cannot be a fraction — a reroll, a phantom die, a stun — grows by
 ## happening more often instead. No stone happens more than this many times.
@@ -230,7 +234,7 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"value": return int(trig.get("value", 0))
 		"second": return int(trig.get("second", 0))
 		"count": return int(trig.get("count", 0))
-		"high", "low", "total", "max_total", "odd", "even", "distinct", "held", "rerolled", "crowns", "low_dice":
+		"high", "low", "total", "max_total", "odd", "even", "distinct", "held", "rerolled", "crowns", "high_crown", "low_dice":
 			return int(a.get(name, 0))
 		"missing": return maxi(0, int(a.get("max_total", 0)) - int(a.get("total", 0)))
 		"dice": return int(a.get("dice_count", 0))
@@ -352,6 +356,13 @@ static func resolve_effect(def: Dictionary, c: Dictionary, magnitude: float, hos
 		"amount": clampi(final, -VALUE_LIMIT, VALUE_LIMIT), "raw": raw, "repeat": repeat, "scaled": scale == "carat",
 		"procs": int(proc.procs), "proc_chance": int(proc.chance)}
 	out.dice = trig_dice(c)
+	## A face raised by one proc is judged again by the next, against the line the gem's
+	## trigger drew: Glimmer under "below 6" lifts a 5 once and then moves on.
+	if kind == "upgrade_faces":
+		var trig: Dictionary = c.get("trig", {})
+		## A gem forced to fire (a Matrix, Always Fires) matched no line, so none is drawn.
+		if str(trig.get("kind", "")) in ["below", "at_most"] and not bool(trig.get("forced", false)):
+			out.line = {"kind": str(trig.kind), "need": int(trig.get("need", 0))}
 	if def.has("cost"):
 		out.cost = maxi(0, amount(def.cost, c))
 	for field in EFFECT_OPTIONS + ["splash", "once", "win_mult", "lose_mult", "text", "color", "rank"]:

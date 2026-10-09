@@ -170,7 +170,7 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.count = int(a.distinct)
 				result.value = int(a.distinct)
 		"value":
-			## Read off the faces: "showing 1" is a die that landed on its 1, Iron, Doubled or not.
+			## Read off the faces: "showing 1" is a die that landed on its 1, Doubled or not.
 			var wanted: Array = trigger.get("values", [7])
 			var dice: Array = DeepHand.matching_shown(a, func(v: int) -> bool: return wanted.has(v) or wanted.has(float(v)))
 			if dice.size() >= maxi(1, need):

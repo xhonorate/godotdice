@@ -494,7 +494,7 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		mine_record.runs = int(mine_record.get("runs", 0)) + 1
 		mine_record.deepest = maxi(int(mine_record.get("deepest", 0)), int(entry.get("deepest", 0)))
 		for depth in entry.get("wardens", []):
-			if not mine_record.wardens.has(int(depth)):
+			if not DeepPatch.holds(mine_record.wardens, int(depth)):
 				mine_record.wardens.append(int(depth))
 		if bool(entry.get("boss", false)):
 			mine_record.boss = true

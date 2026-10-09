@@ -98,10 +98,11 @@ func height() -> float:
 func choosing() -> bool:
 	return not _offer.is_empty()
 
-func offer(kind: String, items: Array, prompt: String) -> void:
+func offer(kind: String, items: Array, prompt: String, refusals: Dictionary = {}) -> void:
 	## `kind` is "die" or "stone"; `items` are the things themselves, in the order they should
-	## stand. Clicking one emits `chose` with its id.
-	_offer = {"kind": kind, "items": items, "prompt": prompt}
+	## stand. Clicking one emits `chose` with its id. One whose id `refusals` names stands
+	## dimmed and deaf, saying why, so the bowl reads whole while only some of it will do.
+	_offer = {"kind": kind, "items": items, "prompt": prompt, "refusals": refusals}
 	_build_chooser()
 	## The pages above stop short of whatever holds the bottom of the screen, and the tray is
 	## taller than the dock it stands in front of.
@@ -141,7 +142,7 @@ func _build_chooser() -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	for item in _offer.items:
-		_chooser_tile(row, item, str(_offer.kind))
+		_chooser_tile(row, item, str(_offer.kind), str(_offer.get("refusals", {}).get(str(item.get("id", "")), "")))
 	if _offer.items.is_empty():
 		DeepUi.label(row, "You have nothing this could be done to.", 14, DeepUi.DIM)
 	var foot := DeepUi.hbox(column, 10)
@@ -150,15 +151,19 @@ func _build_chooser() -> void:
 	if not DeepUi.headless():
 		DeepUi.pop_in(_chooser, 0.0, 0.96, 0.18)
 
-func _chooser_tile(parent: Node, item: Dictionary, kind: String) -> void:
+func _chooser_tile(parent: Node, item: Dictionary, kind: String, refusal: String = "") -> void:
 	var id: String = str(item.get("id", ""))
 	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", DeepUi.raised(Color(DeepUi.SLATE, 0.92), Color(DeepUi.LINE_HI, 0.8), 12, 8, 0.4))
+	var refused: bool = not refusal.is_empty()
+	card.add_theme_stylebox_override("panel", DeepUi.raised(Color(DeepUi.SLATE, 0.92), Color(DeepUi.LINE, 0.6) if refused else Color(DeepUi.ACCENT, 0.85), 12, 8, 0.4))
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
-	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.tooltip_text = (DeepDice.describe(item) if kind == "die" else DeepUi.stone_name(item)) + "\nClick to choose it. Right-click for everything about it."
+	card.mouse_default_cursor_shape = Control.CURSOR_ARROW if refused else Control.CURSOR_POINTING_HAND
+	card.tooltip_text = (DeepDice.describe(item) if kind == "die" else DeepUi.stone_name(item)) + ("\n" + refusal if refused else "\nClick to choose it.") + " Right-click for everything about it."
 	parent.add_child(card)
-	DeepUi.juice(card, 1.06)
+	if refused:
+		card.modulate.a = 0.4
+	else:
+		DeepUi.juice(card, 1.06)
 	var box := DeepUi.vbox(card, 4)
 	var frame := DeepUi.center(box)
 	frame.custom_minimum_size = Vector2(92, 92)
@@ -169,12 +174,8 @@ func _chooser_tile(parent: Node, item: Dictionary, kind: String) -> void:
 		frame.add_child(thumb)
 		DeepUi.label(box, DeepDice.describe(item), 12, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = 96
 	else:
-		var picture := Thumbs.GemThumb.new(item, 84)
-		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		frame.add_child(picture)
-		var named := DeepUi.label(box, DeepUi.stone_name(item), 12, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-		named.custom_minimum_size.x = 120
-		named.clip_text = true
+		StoneCard.marked_picture(frame, item, 84, "", false)
+		DeepUi.fit_label(box, DeepUi.skill_name(item), 12, DeepUi.PAPER, 120)
 	card.gui_input.connect(func(event: InputEvent) -> void:
 		if not (event is InputEventMouseButton and event.pressed):
 			return
@@ -183,6 +184,9 @@ func _chooser_tile(parent: Node, item: Dictionary, kind: String) -> void:
 				Inspector.die(item)
 			else:
 				Inspector.stone(item)
+			card.accept_event()
+		elif event.button_index == MOUSE_BUTTON_LEFT and refused:
+			DeepAudio.play("ui_deny", {"volume": 0.5})
 			card.accept_event()
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			DeepAudio.play("ui_confirm", {"volume": 0.7})
@@ -362,7 +366,15 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 			var battle: Dictionary = DeepDescent.battle(run)
 			var fighter: Dictionary = DeepBattle.player(battle, local_id) if not battle.is_empty() else {}
 			var flat: int = DeepStone.flat_index(fighter, at) if not fighter.is_empty() else -1
-			Inspector.stone(stone, {"context": DeepBattle.rail_context(battle, fighter, flat)} if flat >= 0 else {}))
+			if flat >= 0:
+				Inspector.stone(stone, {"context": DeepBattle.rail_context(battle, fighter, flat)})
+				return
+			## Out of a fight the rail is laid flat the way a fight will lay it, so a Fingerprint
+			## can say what it will be carrying.
+			var laid: Dictionary = {"rail": unit.get("rail", []).duplicate(), "sockets": unit.get("sockets", []).duplicate(), "riders": unit.get("riders", []).duplicate(), "character": str(unit.get("character", ""))}
+			DeepStone.flatten_rail(laid)
+			var words: Dictionary = DeepStone.fingerprint_words(laid.rail, DeepStone.flat_index(laid, at))
+			Inspector.stone(stone, {"context": {"fingerprint": words}} if not words.is_empty() else {}))
 
 func _riders_row(card: Node, unit: Dictionary, socket: int, riders: Array) -> void:
 	## The Void gems riding a socket, in a line under its name: each fires after the socket's

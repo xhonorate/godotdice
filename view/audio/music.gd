@@ -4,11 +4,20 @@ extends Node
 ##
 ## The app tells it where the party is every frame (`follow`), as a place (the workshop or a
 ## mine), a mood and how deep into the mine they are. The place picks the piece — the player's
-## pick from the Soundtrack page — and the mood and depth pick how much of it plays: the five
+## pick from the Soundtrack page — and the mood and depth pick how much of it plays: the six
 ## layers `composer.gd` writes are always running together, and only their levels move. A
-## fight brings the drums and the arpeggio in over the tune that was already playing; a
-## Warden's hall adds the horns; winning lets them go again. Deeper in a mine the bass and
-## the tune come up even between fights, and near the bottom a breath of the horns stays.
+## fight brings the drums and the arpeggio in over the tune that was already playing; an
+## elite adds the big drums; a Warden's hall adds the strings and horns as well, and pulls the
+## pads back to make room for them; winning lets them go again. Deeper in a mine the bass and
+## the tune come up even between fights, and near the bottom the big drums can be heard far off.
+##
+## The Music bus follows the same moods. Between fights in a mine the music is a little dark
+## (a low pass at 6.5 kHz), so a fight opening it up sounds brighter and closer; a fight is
+## squeezed harder and louder by a compressor the hotter it gets, and a Warden's hall is driven
+## into a soft saturation as well. A limiter at the end of the bus catches whatever that and
+## the boss layers push past full. A piece may ask (`warden_lift` in its spec) to go up a
+## semitone for a Warden: the whole stream is played faster, on the next downbeat, and back
+## down on the downbeat after.
 ##
 ## A change of place crossfades to the new piece. Every piece is baked ahead of time, one Ogg
 ## loop a layer in `audio/music/<id>/` (see `score.gd`), and read from there. A piece that has
@@ -34,20 +43,35 @@ const AIR_LEVEL: float = 0.3
 ## Where the baked pieces are: <id>/<layer>.ogg, and air/<family>.ogg.
 const BAKED: String = "res://audio/music"
 
-## How loud each layer plays in each mood, [bed, pulse, melody, drive, peril], before depth.
+## How loud each layer plays in each mood, [bed, pulse, melody, drive, threat, peril], before
+## depth. A Warden's hall takes some of the pads and the tune away as the boss layers come
+## in: what makes it feel bigger is that the music changes, not only that there is more of it.
 const MOODS: Dictionary = {
-	"home": [1.0, 0.7, 0.9, 0.0, 0.0],
-	"shaft": [1.0, 0.3, 0.6, 0.0, 0.0],
-	"rest": [1.0, 0.2, 0.75, 0.0, 0.0],
-	"explore": [1.0, 0.45, 0.55, 0.0, 0.0],
-	"hoard": [1.0, 0.5, 1.0, 0.0, 0.0],
-	"fight": [1.0, 1.0, 1.0, 0.9, 0.0],
-	"elite": [1.0, 1.0, 1.0, 1.0, 0.5],
-	"warden": [1.0, 1.0, 1.0, 1.0, 1.0],
-	"over": [0.8, 0.0, 0.4, 0.0, 0.0],
+	"home": [1.0, 0.7, 0.9, 0.0, 0.0, 0.0],
+	"shaft": [1.0, 0.3, 0.6, 0.0, 0.0, 0.0],
+	"rest": [1.0, 0.2, 0.75, 0.0, 0.0, 0.0],
+	"explore": [1.0, 0.45, 0.55, 0.0, 0.0, 0.0],
+	"hoard": [1.0, 0.5, 1.0, 0.0, 0.0, 0.0],
+	"fight": [1.0, 1.0, 1.0, 0.9, 0.0, 0.0],
+	"elite": [0.9, 1.0, 1.0, 1.0, 1.0, 0.0],
+	"warden": [0.7, 1.0, 0.85, 1.0, 1.0, 1.0],
+	"over": [0.8, 0.0, 0.4, 0.0, 0.0, 0.0],
 }
-## The moods the Soundtrack page can audition a piece in.
-const PREVIEWS: Array = [["Calm", "rest"], ["Explore", "explore"], ["Fight", "fight"], ["Warden", "warden"]]
+## How hot each mood runs the Music bus, 0 to 1: how open its low pass, how hard its
+## compressor squeezes, and (past 0.6) how far its saturation is driven.
+const HEAT: Dictionary = {"fight": 0.5, "elite": 0.75, "warden": 1.0}
+## The low pass between fights in a mine; a fight (heat 0.5 and up) opens it all the way.
+const CALM_CUTOFF: float = 6500.0
+const OPEN_CUTOFF: float = 20000.0
+## The compressor at full heat: its threshold, and the gain it makes up.
+const SQUEEZE_DB: float = -18.0
+const SQUEEZE_GAIN_DB: float = 5.0
+## The saturation's drive at full heat (the waveshaper's 0 to 1).
+const GRIT: float = 0.3
+## How fast the bus heats up and cools down, in seconds for the whole way.
+const HEAT_RISE: float = 1.0
+## A semitone up, as a playback speed.
+const SEMITONE: float = 1.0594630943592953
 
 static var _service: DeepMusic = null
 static var _master: float = 0.8
@@ -59,12 +83,15 @@ static var _baked_ids: Dictionary = {}
 static var _warm: Dictionary = {}
 
 var _where: Dictionary = {"place": DeepScore.HOME, "mood": "home", "deep": 0.0}
-var _preview: Dictionary = {}
 var _decks: Array = []
 var _airs: Array = []
 var _queue: Array = []
 var _writer: Thread = null
 var _clock: int = 0
+## The bus as it is now, eased toward what the mood wants: heat, and how dark the calm is.
+var _heat: float = 0.0
+var _dark: float = 0.0
+var _fx: Dictionary = {}
 
 static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
@@ -107,21 +134,6 @@ static func follow(where: Dictionary) -> void:
 	var node: DeepMusic = service()
 	if node != null:
 		node._where = where
-
-static func preview(place: String, track_id: String, mood: String) -> void:
-	## Play a piece in a mood instead of what the mine asks for, until `end_preview`.
-	var node: DeepMusic = service()
-	if node != null:
-		node._preview = {"place": place, "track": track_id, "mood": mood, "deep": 0.5}
-
-static func end_preview() -> void:
-	var node: DeepMusic = service()
-	if node != null:
-		node._preview = {}
-
-static func previewing() -> Dictionary:
-	var node: DeepMusic = service()
-	return node._preview.duplicate() if node != null else {}
 
 static func ready_to_play(track_id: String) -> bool:
 	return is_baked(track_id) or not DeepComposer.written(track_id).is_empty()
@@ -214,20 +226,38 @@ static func depth_into(run: Dictionary) -> float:
 	return float((depth - 1) % every) / float(maxi(1, every - 1))
 
 static func layer_levels(mood: String, deep: float) -> Array:
-	## [bed, pulse, melody, drive, peril] for a mood at a depth. Deeper, the walk between
-	## fights grows a stronger pulse and a louder tune, and near the bottom a breath of horn.
+	## [bed, pulse, melody, drive, threat, peril] for a mood at a depth. Deeper, the walk
+	## between fights grows a stronger pulse and a louder tune, near the bottom the big drums
+	## can be heard far off, and a fight deep down brings some of them in.
 	var out: Array = MOODS.get(mood, MOODS.explore).duplicate()
 	var d: float = clampf(deep, 0.0, 1.0)
 	match mood:
 		"explore":
-			out[1] = float(out[1]) + 0.4 * d
-			out[2] = float(out[2]) + 0.35 * d
-			out[4] = maxf(0.0, d - 0.6) * 0.5
+			out[DeepComposer.PULSE] = float(out[DeepComposer.PULSE]) + 0.4 * d
+			out[DeepComposer.MELODY] = float(out[DeepComposer.MELODY]) + 0.35 * d
+			out[DeepComposer.THREAT] = maxf(0.0, d - 0.6) * 0.5
 		"fight":
-			out[4] = 0.25 * d
+			out[DeepComposer.THREAT] = 0.3 * d
 		"rest", "shaft":
-			out[1] = float(out[1]) + 0.2 * d
+			out[DeepComposer.PULSE] = float(out[DeepComposer.PULSE]) + 0.2 * d
 	return out
+
+static func heat(mood: String) -> float:
+	return float(HEAT.get(mood, 0.0))
+
+static func lifts(track_id: String, mood: String) -> bool:
+	## Whether a piece goes up a semitone in this mood: only for a Warden, only if it asks.
+	return mood == "warden" and bool(DeepScore.track(track_id).get("warden_lift", false))
+
+static func bar_seconds(track_id: String) -> float:
+	## One bar of a piece, in the stream's own seconds.
+	var p: Dictionary = DeepComposer.plan(DeepScore.track(track_id))
+	return float(int(p.steps_bar) * int(p.step)) / float(DeepComposer.RATE)
+
+static func cutoff_for(dark: float, hot: float) -> float:
+	## The low pass for how dark the calm is and how hot the moment: half heat opens it fully.
+	var shut: float = clampf(dark, 0.0, 1.0) * (1.0 - clampf(hot / 0.5, 0.0, 1.0))
+	return exp(lerpf(log(OPEN_CUTOFF), log(CALM_CUTOFF), shut))
 
 # --- the service -------------------------------------------------------------------------------
 
@@ -262,6 +292,7 @@ func _open_buses() -> void:
 		room.dry = 1.0
 		room.wet = 0.2
 		AudioServer.add_bus_effect(at, room)
+	_open_fx(AudioServer.get_bus_index(BUS))
 	if AudioServer.get_bus_index(AIR_BUS) < 0:
 		var at: int = AudioServer.bus_count
 		AudioServer.add_bus(at)
@@ -270,15 +301,73 @@ func _open_buses() -> void:
 		AudioServer.set_bus_volume_db(at, linear_to_db(AIR_LEVEL))
 	DeepMusic.levels({})
 
+func _open_fx(bus: int) -> void:
+	## After the room: the low pass, the compressor, the saturation and the limiter the moods
+	## steer. Found again if the bus outlived an earlier score player, made if not.
+	var wanted: Array = [
+		["low", "AudioEffectLowPassFilter"], ["squeeze", "AudioEffectCompressor"],
+		["grit", "AudioEffectDistortion"], ["ceiling", "AudioEffectHardLimiter"]]
+	for entry in wanted:
+		var found: int = -1
+		for i in range(AudioServer.get_bus_effect_count(bus)):
+			if AudioServer.get_bus_effect(bus, i).get_class() == str(entry[1]):
+				found = i
+		if found < 0:
+			var made: AudioEffect = ClassDB.instantiate(str(entry[1]))
+			AudioServer.add_bus_effect(bus, made)
+			found = AudioServer.get_bus_effect_count(bus) - 1
+		_fx[entry[0]] = {"at": found, "effect": AudioServer.get_bus_effect(bus, found)}
+	var low: AudioEffectLowPassFilter = _fx.low.effect
+	low.db = AudioEffectFilter.FILTER_12DB
+	low.resonance = 0.5
+	var squeeze: AudioEffectCompressor = _fx.squeeze.effect
+	squeeze.ratio = 3.0
+	squeeze.attack_us = 2000.0
+	squeeze.release_ms = 180.0
+	var grit: AudioEffectDistortion = _fx.grit.effect
+	grit.mode = AudioEffectDistortion.MODE_WAVESHAPE
+	grit.keep_hf_hz = 16000.0
+	var ceiling: AudioEffectHardLimiter = _fx.ceiling.effect
+	ceiling.ceiling_db = -0.5
+	_heat = -1.0
+	_steer_fx(0.0, 0.0, 1.0)
+
+func _steer_fx(hot_wanted: float, dark_wanted: float, dt: float) -> void:
+	## Ease the bus toward a mood: heating quickly as a fight starts, cooling as slowly as its
+	## layers fade.
+	var bus: int = AudioServer.get_bus_index(BUS)
+	if bus < 0 or _fx.is_empty():
+		return
+	var was: float = _heat
+	_heat = move_toward(maxf(_heat, 0.0), hot_wanted, dt / (HEAT_RISE if hot_wanted > _heat else FALL))
+	var dark_was: float = _dark
+	_dark = move_toward(_dark, dark_wanted, dt / FALL)
+	if is_equal_approx(was, _heat) and is_equal_approx(dark_was, _dark):
+		return
+	var cutoff: float = cutoff_for(_dark, _heat)
+	_fx.low.effect.cutoff_hz = cutoff
+	AudioServer.set_bus_effect_enabled(bus, int(_fx.low.at), cutoff < OPEN_CUTOFF * 0.95)
+	_fx.squeeze.effect.threshold = SQUEEZE_DB * _heat
+	_fx.squeeze.effect.gain = SQUEEZE_GAIN_DB * _heat
+	AudioServer.set_bus_effect_enabled(bus, int(_fx.squeeze.at), _heat > 0.01)
+	## The waveshaper lifts quiet sound by 1 + k and leaves full scale where it is, so the
+	## output is turned down by the same: what changes is the shape of the loud parts.
+	var drive: float = GRIT * clampf((_heat - 0.6) / 0.4, 0.0, 1.0)
+	var k: float = 2.0 * drive / (1.00001 - drive)
+	_fx.grit.effect.drive = drive
+	_fx.grit.effect.post_gain = -linear_to_db(1.0 + k)
+	AudioServer.set_bus_effect_enabled(bus, int(_fx.grit.at), drive > 0.005)
+
 func _process(_delta: float) -> void:
 	## On the wall clock: a fight at four times speed or a held beat is not a reason to fade
 	## the music faster or slower.
 	var now: int = Time.get_ticks_usec()
 	var dt: float = clampf(float(now - _clock) / 1000000.0, 0.0, 0.25)
 	_clock = now
-	var want: Dictionary = _preview if not _preview.is_empty() else _where
+	var want: Dictionary = _where
 	var place: String = str(want.get("place", DeepScore.HOME))
-	var id: String = str(want.get("track", DeepScore.pick(place, _picks)))
+	var id: String = DeepScore.pick(place, _picks)
+	var mood: String = str(want.get("mood", "explore"))
 	var playing: Dictionary = _decks.back() if not _decks.is_empty() else {}
 	if str(playing.get("id", "")) != id:
 		var strips: Array = baked(id)
@@ -287,7 +376,10 @@ func _process(_delta: float) -> void:
 		if strips.is_empty():
 			_ask("piece:" + id, true)
 		else:
-			_play_piece(id, strips, layer_levels(str(want.get("mood", "explore")), float(want.get("deep", 0.0))))
+			_play_piece(id, strips, layer_levels(mood, float(want.get("deep", 0.0))), lifts(id, mood))
+	elif not playing.is_empty():
+		_lift(playing, lifts(id, mood))
+	_steer_fx(heat(mood), 0.0 if place == DeepScore.HOME else 1.0, dt)
 	var next: String = str(_where.get("next", ""))
 	if DeepScore.BOOK.has(next) and not is_baked(DeepScore.pick(next, _picks)):
 		_ask("piece:" + DeepScore.pick(next, _picks), false)
@@ -318,7 +410,17 @@ func _warm_up(paths: Array) -> void:
 		elif str(_warm[key]) == "asked" and ResourceLoader.load_threaded_get_status(key) == ResourceLoader.THREAD_LOAD_LOADED:
 			_warm[key] = ResourceLoader.load_threaded_get(key)
 
-func _play_piece(id: String, strips: Array, levels_now: Array) -> void:
+func _lift(deck: Dictionary, wanted: bool) -> void:
+	## Change key only as a bar begins (the loop's own start counts), so it lands as part of
+	## the music rather than as a slip of the tape.
+	var player: AudioStreamPlayer = deck.player
+	var bar_now: int = int(floor(player.get_playback_position() / maxf(float(deck.bar), 0.01)))
+	if bool(deck.lifted) != wanted and int(deck.last_bar) >= 0 and bar_now != int(deck.last_bar):
+		player.pitch_scale = SEMITONE if wanted else 1.0
+		deck.lifted = wanted
+	deck.last_bar = bar_now
+
+func _play_piece(id: String, strips: Array, levels_now: Array, lifted: bool = false) -> void:
 	var sync := AudioStreamSynchronized.new()
 	sync.stream_count = strips.size()
 	var presence: Array = []
@@ -332,11 +434,14 @@ func _play_piece(id: String, strips: Array, levels_now: Array) -> void:
 	player.process_mode = Node.PROCESS_MODE_ALWAYS
 	player.stream = sync
 	player.volume_db = _db(0.0)
+	## A piece arriving in a Warden's hall starts already lifted: a crossfade hides the change.
+	player.pitch_scale = SEMITONE if lifted else 1.0
 	add_child(player)
 	player.play()
 	for deck in _decks:
 		deck.target = 0.0
-	_decks.append({"id": id, "player": player, "sync": sync, "fade": 0.0, "target": 1.0, "presence": presence})
+	_decks.append({"id": id, "player": player, "sync": sync, "fade": 0.0, "target": 1.0, "presence": presence,
+		"bar": bar_seconds(id), "lifted": lifted, "last_bar": -1})
 
 func _play_air(family: String, loop: AudioStream) -> void:
 	var player := AudioStreamPlayer.new()

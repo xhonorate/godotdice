@@ -70,9 +70,13 @@ static func fits(stone: Dictionary, socket: String) -> bool:
 	return colors(stone, socket).has(socket)
 
 static func modifiers(stone: Dictionary) -> Array:
-	## Every modifier of every inclusion, each tagged with the inclusion it came from.
+	## Every modifier of every inclusion, each tagged with the inclusion it came from, and of the
+	## one a Fingerprint is carrying in a fight (`copied`, see `fingerprinted`).
 	var out: Array = []
-	for key in stone.get("inclusions", []):
+	var keys: Array = stone.get("inclusions", []).duplicate()
+	if not str(stone.get("copied", "")).is_empty():
+		keys.append(str(stone.copied))
+	for key in keys:
 		var def: Dictionary = DeepContent.inclusion(str(key))
 		for m in def.get("modifiers", []):
 			if m is Dictionary:
@@ -80,6 +84,55 @@ static func modifiers(stone: Dictionary) -> Array:
 				tagged.inclusion = str(key)
 				out.append(tagged)
 	return out
+
+## Inclusions a Fingerprint never takes up: another Fingerprint, which would only point further
+## along, and a Void, which would carry the gem off its socket in the middle of a fight.
+const FINGERPRINT_SKIPS: Array = ["FINGERPRINT", "VOID"]
+
+static func fingerprint_source(rail: Array, index: int) -> Dictionary:
+	## What a Fingerprint at `index` of a rail carries, read off the gem before it in the rail:
+	## {inclusion, from}, `from` being that gem. `inclusion` is empty when there is nothing to
+	## carry (the first socket, an empty one before it, a gem with no other inclusion), and the
+	## whole answer is {} for a stone with no Fingerprint at all.
+	if index < 0 or index >= rail.size() or not rail[index] is Dictionary:
+		return {}
+	if not rail[index].get("inclusions", []).has("FINGERPRINT"):
+		return {}
+	var before: Variant = rail[index - 1] if index > 0 else null
+	if not before is Dictionary:
+		return {"inclusion": "", "from": {}}
+	for key in before.get("inclusions", []):
+		if not str(key) in FINGERPRINT_SKIPS:
+			return {"inclusion": str(key), "from": before}
+	return {"inclusion": "", "from": before}
+
+static func fingerprint_words(rail: Array, index: int) -> Dictionary:
+	## What a Fingerprint is carrying, for a page to say: {inclusion, from}, `from` the name of
+	## the gem it copies (empty when there is no gem before it), or {} for a stone without one.
+	var source: Dictionary = fingerprint_source(rail, index)
+	if source.is_empty():
+		return {}
+	var from: Dictionary = source.get("from", {})
+	return {"inclusion": str(source.inclusion), "from": str(skill_of(from).get("name", "")) if not from.is_empty() else ""}
+
+static func fingerprint_line(words: Dictionary) -> String:
+	## A Fingerprint's own line on a page, once its rail is known: what it carries and from whom.
+	if str(words.get("inclusion", "")).is_empty():
+		if str(words.get("from", "")).is_empty():
+			return "Carrying nothing: there is no gem before it."
+		return "Carrying nothing: %s has no inclusion to give." % str(words.from)
+	var carried: Dictionary = DeepContent.inclusion(str(words.inclusion))
+	return "Carrying %s from %s. %s" % [str(carried.get("name", words.inclusion)), str(words.from), str(carried.get("text", ""))]
+
+static func fingerprinted(rail: Array, index: int, stone: Dictionary) -> Dictionary:
+	## `stone` as it fights from `index` of this rail: carrying the inclusion its Fingerprint
+	## copies, on a copy, so the rail itself never changes. Anything else is itself.
+	var source: Dictionary = fingerprint_source(rail, index)
+	if str(source.get("inclusion", "")).is_empty():
+		return stone
+	var copy: Dictionary = stone.duplicate()
+	copy.copied = str(source.inclusion)
+	return copy
 
 static func has_modifier(mods: Array, kind: String) -> bool:
 	for m in mods:
@@ -378,6 +431,13 @@ static func size_class(carat: int) -> Dictionary:
 	var high: int = int(SIZE_CLASSES[found + 1].low) - 1 if found + 1 < SIZE_CLASSES.size() else -1
 	entry.range = ("%d to %d carats" % [int(entry.low), high]) if high > 0 else ("%d carats or more" % int(entry.low))
 	return entry
+
+static func size_low(key: String) -> int:
+	## The fewest carats a size class ("SMALL") holds; 0 for no class at all.
+	for entry in SIZE_CLASSES:
+		if str(entry.key) == key:
+			return int(entry.low)
+	return 0
 
 static func size_name(carat: int) -> String:
 	return str(size_class(carat).name)

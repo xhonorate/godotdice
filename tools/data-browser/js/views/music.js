@@ -1,5 +1,5 @@
 // Soundtrack: every piece in content/score.json, its spec edited with the controls that suit it,
-// a draft rendered by Godot beside the live version, both heard through the same five-layer
+// a draft rendered by Godot beside the live version, both heard through the same layered
 // mixer the game uses, and either one taken out as MIDI.
 //
 // Edits go into a draft (build/music/drafts/<id>), never straight into the score. Render plays
@@ -12,9 +12,10 @@ import * as Help from './music-help.js';
 
 // --- what the composer knows (view/audio/composer.gd, score.gd, music.gd) ----------------------
 
-const LAYERS = ['bed', 'pulse', 'melody', 'drive', 'peril'];
-const LAYER_COLORS = ['#5b8bd9', '#3fb56b', '#e2b23a', '#e0473c', '#a77be0'];
-const LAYER_WORDS = ['pads and drone, always on', 'bass and a light hand on the drums', 'the tune, its echo, a glint of bell', 'the fight: full kit, arpeggio, eighths', 'a Warden: horns, strings, cymbal swells'];
+const LAYERS = ['bed', 'pulse', 'melody', 'drive', 'threat', 'peril'];
+const LAYER_COLORS = ['#5b8bd9', '#3fb56b', '#e2b23a', '#e0473c', '#e0873a', '#a77be0'];
+const LAYER_WORDS = ['pads and drone, always on', 'bass and a light hand on the drums', 'the tune, its echo, a glint of bell', 'the fight: full kit, arpeggio, eighths',
+	'elites and Wardens: taiko, timpani, braams', 'a Warden: string gallop, the tune in horns'];
 const PLAN = ['A', 'A2', 'B', 'ans', 'A', 'A2', 'B2', 'end', 'C', 'C2', 'B', 'end'];
 const MODES = {
 	ionian: [0, 2, 4, 5, 7, 9, 11], dorian: [0, 2, 3, 5, 7, 9, 10], phrygian: [0, 1, 3, 5, 7, 8, 10],
@@ -35,15 +36,18 @@ const VOICES = {
 };
 // The composer's fallbacks for a field a spec leaves out.
 const DEFAULTS = { key: 'C', mode: 'aeolian', bpm: 90, meter: 4, seed: 1, chords: [0, 5, 3, 4, 0, 5, 3, 4], bridge: [3, 5, 3, 4], pad: 'pad_warm',
-	bass: 'bass_sub', bass_style: 'walk', lead: 'lead_pluck', lead_octave: 0, arp: 'lead_pluck', arp_rate: 2, kit: 'frame', layers: 5,
-	drone: true, sevenths: false, echo: 0.22 };
+	bass: 'bass_sub', bass_style: 'walk', lead: 'lead_pluck', lead_octave: 0, arp: 'lead_pluck', arp_rate: 2, kit: 'frame', layers: LAYERS.length,
+	drone: true, sevenths: false, echo: 0.22, warden_lift: false };
 const FIELD_NAMES = { name: 'name', key: 'key', mode: 'mode', bpm: 'tempo', meter: 'metre', seed: 'seed', chords: 'verse chords', bridge: 'bridge chords',
 	pad: 'pad', bass: 'bass', bass_style: 'bass line', lead: 'lead', lead_octave: 'lead octave', arp: 'arpeggio', arp_rate: 'arp rate', kit: 'kit',
-	layers: 'layers', drone: 'drone', sevenths: 'sevenths', echo: 'echo' };
+	layers: 'layers', drone: 'drone', sevenths: 'sevenths', echo: 'echo', warden_lift: 'Warden key change' };
 // How loud each layer plays in each mood (DeepMusic.MOODS), as the game mixes them.
-const MOODS = [['home', 'Workshop', [1, 0.7, 0.9, 0, 0]], ['rest', 'Calm', [1, 0.2, 0.75, 0, 0]], ['explore', 'Explore', [1, 0.45, 0.55, 0, 0]],
-	['fight', 'Fight', [1, 1, 1, 0.9, 0]], ['elite', 'Elite', [1, 1, 1, 1, 0.5]], ['warden', 'Warden', [1, 1, 1, 1, 1]]];
-const DRUM_ROWS = ['kick', 'back', 'hat', 'perc', 'swell'];
+const MOODS = [['home', 'Workshop', [1, 0.7, 0.9, 0, 0, 0]], ['rest', 'Calm', [1, 0.2, 0.75, 0, 0, 0]], ['explore', 'Explore', [1, 0.45, 0.55, 0, 0, 0]],
+	['fight', 'Fight', [1, 1, 1, 0.9, 0, 0]], ['elite', 'Elite', [0.9, 1, 1, 1, 1, 0]], ['warden', 'Warden', [0.7, 1, 0.85, 1, 1, 1]]];
+// How hot each mood runs the Music bus (DeepMusic.HEAT, CALM_CUTOFF, SQUEEZE_*, GRIT, SEMITONE).
+const HEAT = { fight: 0.5, elite: 0.75, warden: 1 };
+const BUS = { calmCutoff: 6500, openCutoff: 20000, squeezeDb: -18, squeezeGainDb: 5, grit: 0.3, semitone: 2 ** (1 / 12) };
+const DRUM_ROWS = ['kick', 'back', 'hat', 'perc', 'boom', 'swell'];
 
 // --- state kept across renders ----------------------------------------------------------------
 
@@ -114,43 +118,71 @@ const ago = (iso) => {
 	return new Date(iso).toLocaleDateString();
 };
 
-// --- the player: five buffers started on one sample, gains moved like the game moves them ------
+// --- the player: six buffers started on one sample, gains moved like the game moves them ------
+// Through the same chain as the game's Music bus: the room, then a low pass, a compressor, a
+// waveshaper and a limiter, all steered by how hot the mood runs. A Warden key change speeds
+// every buffer up a semitone from the next downbeat, as the game does.
 
 const player = {
-	ctx: null, master: null, dry: null, wet: null, room: true, gains: [], sources: [], buffers: [], key: '',
-	id: '', version: 'live', playing: false, startAt: 0, offset: 0, duration: 0, mood: store('mood', 'explore'), muted: new Set(), cache: new Map(), loadToken: 0,
+	ctx: null, master: null, dry: null, wet: null, fx: store('fx', true), gains: [], sources: [], buffers: [], key: '',
+	id: '', version: 'live', playing: false, offset: 0, duration: 0, mood: store('mood', 'explore'), muted: new Set(), cache: new Map(), loadToken: 0,
+	// Where the loop was at a moment of the AudioContext's clock, and how fast it runs since;
+	// a scheduled change of speed waits in `pending` until its downbeat comes.
+	anchorAt: 0, anchorPos: 0, rate: 1, wantRate: 1, pending: null, bar: 2, dark: 1, shaped: -1,
 
 	ensure() {
 		if (this.ctx) return;
-		this.ctx = new AudioContext();
-		this.master = this.ctx.createGain();
+		const ctx = this.ctx = new AudioContext();
+		this.master = ctx.createGain();
 		this.master.gain.value = 0.9;
-		this.dry = this.ctx.createGain();
-		this.wet = this.ctx.createGain();
+		this.dry = ctx.createGain();
+		this.wet = ctx.createGain();
 		// The game's Music bus: a long, dark room, wet at a fifth.
-		const verb = this.ctx.createConvolver();
-		const rate = this.ctx.sampleRate, length = Math.round(rate * 2.4);
-		const ir = this.ctx.createBuffer(2, length, rate);
+		const verb = ctx.createConvolver();
+		const rate = ctx.sampleRate, length = Math.round(rate * 2.4);
+		const ir = ctx.createBuffer(2, length, rate);
 		for (let ch = 0; ch < 2; ch++) {
 			const data = ir.getChannelData(ch);
 			let lp = 0;
 			for (let i = 0; i < length; i++) { lp += 0.35 * ((Math.random() * 2 - 1) - lp); data[i] = lp * Math.pow(1 - i / length, 3.2); }
 		}
 		verb.buffer = ir;
-		this.master.connect(this.dry).connect(this.ctx.destination);
-		this.master.connect(verb).connect(this.wet).connect(this.ctx.destination);
-		this.setRoom(this.room);
-		for (let i = 0; i < LAYERS.length; i++) { const g = this.ctx.createGain(); g.connect(this.master); this.gains.push(g); }
+		const room = ctx.createGain();
+		this.master.connect(this.dry).connect(room);
+		this.master.connect(verb).connect(this.wet).connect(room);
+		// Then what the moods steer, in the game's order.
+		this.low = ctx.createBiquadFilter();
+		this.low.type = 'lowpass';
+		this.low.Q.value = 0.707;
+		this.squeeze = ctx.createDynamicsCompressor();
+		this.squeeze.ratio.value = 3;
+		this.squeeze.knee.value = 4;
+		this.squeeze.attack.value = 0.002;
+		this.squeeze.release.value = 0.18;
+		this.makeup = ctx.createGain();
+		this.grit = ctx.createWaveShaper();
+		this.grit.oversample = '2x';
+		this.ceiling = ctx.createDynamicsCompressor();
+		this.ceiling.threshold.value = -1;
+		this.ceiling.knee.value = 0;
+		this.ceiling.ratio.value = 20;
+		this.ceiling.attack.value = 0.001;
+		this.ceiling.release.value = 0.1;
+		room.connect(this.low).connect(this.squeeze).connect(this.makeup).connect(this.grit).connect(this.ceiling).connect(ctx.destination);
+		for (let i = 0; i < LAYERS.length; i++) { const g = ctx.createGain(); g.connect(this.master); this.gains.push(g); }
 		this.applyLevels(true);
+		this.applyBus(true);
 	},
-	setRoom(on) {
-		this.room = on;
-		if (this.ctx) { this.wet.gain.value = on ? 0.22 : 0; this.dry.gain.value = 1; }
+	setFx(on) {
+		this.fx = on;
+		keep('fx', on);
+		this.applyBus(true);
 	},
 	levels() {
 		const preset = (MOODS.find((m) => m[0] === this.mood) || MOODS[2])[2];
 		return preset.map((v, i) => (this.muted.has(i) ? 0 : v));
 	},
+	heat() { return this.fx ? (HEAT[this.mood] || 0) : 0; },
 	applyLevels(now = false) {
 		if (!this.ctx) return;
 		const levels = this.levels();
@@ -162,9 +194,57 @@ const player = {
 			else g.gain.setTargetAtTime(target, this.ctx.currentTime, target > g.gain.value ? 0.12 : 0.35);
 		});
 	},
+	// The bus for this mood: DeepMusic._steer_fx, eased the same way (quicker, to hear it).
+	applyBus(now = false) {
+		if (!this.ctx) return;
+		const heat = this.heat(), dark = this.fx ? this.dark : 0;
+		const t = this.ctx.currentTime, ease = heat > 0.01 ? 0.15 : 0.6;
+		const glide = (param, value) => { param.cancelScheduledValues(t); if (now) param.value = value; else param.setTargetAtTime(value, t, ease); };
+		const shut = dark * (1 - Math.min(1, heat / 0.5));
+		glide(this.low.frequency, Math.exp(Math.log(BUS.openCutoff) + (Math.log(BUS.calmCutoff) - Math.log(BUS.openCutoff)) * shut));
+		glide(this.squeeze.threshold, BUS.squeezeDb * heat);
+		glide(this.makeup.gain, 10 ** (BUS.squeezeGainDb * heat / 20));
+		glide(this.wet.gain, this.fx ? 0.22 : 0);
+		// The waveshaper as Godot's: lifts quiet sound by 1 + k, turned back down by the same.
+		const drive = Math.round(BUS.grit * Math.max(0, Math.min(1, (heat - 0.6) / 0.4)) * 50) / 50;
+		if (drive !== this.shaped) {
+			this.shaped = drive;
+			if (drive <= 0) this.grit.curve = null;
+			else {
+				const k = 2 * drive / (1.00001 - drive), n = 2048, curve = new Float32Array(n);
+				for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; curve[i] = (x / (1 + k * Math.abs(x))); }
+				this.grit.curve = curve;
+			}
+		}
+	},
+	// Speed for the Warden key change, from the next downbeat (or at once when not playing).
+	setRate(rate) {
+		this.wantRate = rate;
+		if (!this.playing) { this.rate = rate; this.pending = null; return; }
+		const heading = this.pending ? this.pending.rate : this.rate;
+		if (heading === rate) return;
+		const now = this.ctx.currentTime;
+		for (const s of this.sources) { s.playbackRate.cancelScheduledValues(now); s.playbackRate.setValueAtTime(this.rate, now); }
+		this.pending = null;
+		if (this.rate === rate) return;
+		const pos = this.position();
+		let next = (Math.floor(pos / this.bar) + 1) * this.bar;
+		if (next - pos < 0.03) next += this.bar;
+		const when = now + (next - pos) / this.rate;
+		for (const s of this.sources) s.playbackRate.setValueAtTime(rate, when);
+		this.pending = { at: when, pos: next % this.duration, rate };
+	},
 	position() {
 		if (!this.duration) return 0;
-		const raw = this.playing ? this.ctx.currentTime - this.startAt + this.offset : this.offset;
+		if (!this.playing) return ((this.offset % this.duration) + this.duration) % this.duration;
+		const now = this.ctx.currentTime;
+		if (this.pending && now >= this.pending.at) {
+			this.anchorAt = this.pending.at;
+			this.anchorPos = this.pending.pos;
+			this.rate = this.pending.rate;
+			this.pending = null;
+		}
+		const raw = this.anchorPos + Math.max(0, now - this.anchorAt) * this.rate;
 		return ((raw % this.duration) + this.duration) % this.duration;
 	},
 	async decode(url) {
@@ -176,7 +256,7 @@ const player = {
 	},
 	// Point the player at a version of a piece. Keeps the place in the loop, as a fraction, so
 	// switching live and draft (or a draft re-rendering) carries on from the same bar.
-	async load(id, version, layers) {
+	async load(id, version, layers, bar) {
 		this.ensure();
 		const key = `${id}|${version}|${layers.map((l) => l.url).join()}`;
 		if (key === this.key) return;
@@ -190,6 +270,7 @@ const player = {
 		this.id = id;
 		this.version = version;
 		this.buffers = buffers;
+		this.bar = bar;
 		this.duration = buffers.length ? Math.max(...buffers.map((b) => b.duration)) : 0;
 		this.offset = fraction * this.duration;
 		if (wasPlaying) this.start();
@@ -199,21 +280,27 @@ const player = {
 		if (!this.buffers.length) return;
 		this.ctx.resume();
 		const when = this.ctx.currentTime + 0.05;
+		// A fresh start takes the speed it should have at once: no downbeat to wait for.
+		this.rate = this.wantRate;
+		this.pending = null;
 		this.sources = this.buffers.map((buffer, i) => {
 			const src = this.ctx.createBufferSource();
 			src.buffer = buffer;
 			src.loop = true;
+			src.playbackRate.value = this.rate;
 			src.connect(this.gains[i]);
 			src.start(when, this.offset % buffer.duration);
 			return src;
 		});
-		this.startAt = when;
+		this.anchorAt = when;
+		this.anchorPos = this.offset % this.duration;
 		this.playing = true;
 	},
 	stopSources() {
 		if (this.playing) this.offset = this.position();
 		for (const s of this.sources) { try { s.stop(); } catch { /* never started */ } }
 		this.sources = [];
+		this.pending = null;
 	},
 	toggle() {
 		this.ensure();
@@ -226,7 +313,15 @@ const player = {
 		this.offset = fraction * this.duration;
 		if (was) this.start();
 	},
+	lifted() { return (this.pending ? this.pending.rate : this.rate) > 1.001; },
 };
+
+// One bar of a spec, in seconds of its audio, as DeepComposer.plan works it out.
+function barOf(spec) {
+	const s = effective(spec);
+	const step = Math.round(24000 * 60 / s.bpm / 4);
+	return (s.meter === 3 ? 12 : 16) * step / 24000;
+}
 
 // --- the page ---------------------------------------------------------------------------------
 
@@ -328,6 +423,7 @@ function change(key, value) {
 	state.edit[key] = value;
 	paintSpec();
 	scheduleSave();
+	if (key === 'warden_lift') { syncPlayer(); paintPlayer(); }
 }
 
 function scheduleSave() {
@@ -353,7 +449,8 @@ function scheduleRender() {
 	const id = state.id;
 	state.renderTimer = setTimeout(() => {
 		const draft = state.data.pieces[id].draft;
-		if (draft && draft.stale) queueRender(id);
+		// A change the game reads as it plays (a name, the Warden key change) needs no render.
+		if (draft && draft.stale && !draft.runtimeOnly) queueRender(id);
 	}, 900);
 }
 
@@ -486,7 +583,7 @@ function voicesPanel(s) {
 	const bassLine = Help.explainEach(segmented([['walk', 'Walk'], ['pedal', 'Pedal'], ['syncop', 'Syncop.']], s.bass_style, (v) => change('bass_style', v), { class: 'seg small' }), Help.BASS_LINES);
 	const octave = Help.explainEach(segmented([[0, 'Low'], [1, 'High']], Number(s.lead_octave), (v) => change('lead_octave', Number(v)), { class: 'seg small' }), Help.LEAD_OCTAVES);
 	const rate = Help.explainEach(segmented([[1, '16th'], [2, '8th'], [3, 'Dot. 8th'], [4, 'Qtr']], Number(s.arp_rate), (v) => change('arp_rate', Number(v)), { class: 'seg small' }), Help.ARP_RATES);
-	const layers = Help.explainEach(segmented([[3, '3: walk only'], [5, '5: with fights']], Number(s.layers) >= 5 ? 5 : 3, (v) => change('layers', Number(v)), { class: 'seg small' }), Help.LAYER_COUNTS);
+	const layers = Help.explainEach(segmented([[3, '3: walk only'], [LAYERS.length, `${LAYERS.length}: with fights`]], Number(s.layers) >= 4 ? LAYERS.length : 3, (v) => change('layers', Number(v)), { class: 'seg small' }), Help.LAYER_COUNTS);
 	const toggle = (key, help) => Help.explain(h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: s[key] ? true : null, onChange: (e) => change(key, e.target.checked) }), help[0]), ...help);
 	return h('div', { class: 'col', style: { gap: '14px' } },
 		h('div', { class: 'mu-voices' },
@@ -503,7 +600,7 @@ function voicesPanel(s) {
 				h('input', { type: 'range', min: 0, max: 0.6, step: 0.01, value: s.echo, class: 'mu-range', onInput: (e) => { e.target.nextSibling.textContent = Number(e.target.value).toFixed(2); }, onChange: (e) => change('echo', Number(e.target.value)) }),
 				h('span', { class: 'mono small', style: { width: '34px' } }, Number(s.echo).toFixed(2)))),
 			helped(Help.LAYERS, layers)),
-		h('div', { class: 'row' }, toggle('drone', Help.DRONE), toggle('sevenths', Help.SEVENTHS)),
+		h('div', { class: 'row' }, toggle('drone', Help.DRONE), toggle('sevenths', Help.SEVENTHS), toggle('warden_lift', Help.WARDEN_LIFT)),
 		h('div', { class: 'mu-layer-key' }, LAYERS.map((name, i) => Help.explain(h('div', { class: 'row tight' }, h('i', { class: 'dot', style: { background: LAYER_COLORS[i] } }), h('b', { class: 'small' }, name), h('span', { class: 'tiny muted' }, LAYER_WORDS[i])), ...Help.MIXER(i).slice(0, 2)))));
 }
 
@@ -550,6 +647,7 @@ function paintVersions() {
 	else if (rendering) { status = 'Rendering…'; statusColor = 'var(--accent)'; }
 	else if (queued) { status = 'Queued to render'; statusColor = 'var(--accent)'; }
 	else if (draft.error && draft.stale) { status = 'Render failed'; statusColor = 'var(--bad)'; }
+	else if (draft.stale && draft.runtimeOnly) { status = 'Changes only what the game reads as it plays: adopt as it is'; statusColor = 'var(--good)'; }
 	else if (draft.stale) { status = draft.rendered ? 'Edited since it was rendered' : 'Edited, not rendered'; statusColor = 'var(--warn)'; }
 	else { status = `Rendered ${ago(draft.renderedAt)}${draft.renderMs ? ` in ${(draft.renderMs / 1000).toFixed(1)} s` : ''}`; statusColor = 'var(--good)'; }
 
@@ -564,7 +662,7 @@ function paintVersions() {
 				listenTip('draft')[0], [listenTip('draft')[1], draft && draft.layers.length ? null : 'Nothing to hear yet: render the draft first.']),
 			draft && draft.layers.length ? midiLink('draft', `${state.id}_draft.mid`) : null));
 
-	const canAdopt = draft && draft.rendered && !draft.stale && !rendering && !queued;
+	const canAdopt = draft && ((draft.rendered && !draft.stale) || draft.runtimeOnly) && !rendering && !queued;
 	const why = !draft ? 'There is no draft: edit the spec first.' : (rendering || queued) ? 'Wait for the render to finish.' : draft.stale ? 'The draft has changed since it was rendered: render it first, so what is adopted is what was heard.' : null;
 	const actions = h('div', { class: 'mu-actions' },
 		tipBox(h('button', { type: 'button', class: 'btn', disabled: rendering || queued || !state.data.godot ? true : null, onClick: () => queueRender() }, draft ? 'Render draft' : 'Render a draft of live'),
@@ -630,11 +728,23 @@ async function pointPlayer(andPlay = false) {
 	if (!layers.length) { player.unload(); paintPlayer(); return; }
 	if (!player.ctx && !andPlay) { player.version = version; paintPlayer(); return; } // no AudioContext before a click
 	try {
-		await player.load(state.id, version, layers);
+		await player.load(state.id, version, layers, barOf(version === 'draft' ? p.draft.spec : liveSpec()));
+		syncPlayer();
 		if (andPlay && !player.playing) player.toggle();
 	} catch (error) { state.error = String(error.message || error); paintVersions(); }
 	paintPlayer();
 	paintRoll();
+}
+
+// Everything the mood and the spec in hand decide about how the player sounds: the layer
+// levels, how hot the bus runs (and whether the calm is dark: in a mine, not the workshop),
+// and the Warden key change, which follows the spec being edited so it can be tried at once.
+function syncPlayer() {
+	const places = state.data.score.places;
+	player.dark = places.HOME && places.HOME.tracks.includes(state.id) ? 0 : 1;
+	player.applyLevels();
+	player.applyBus();
+	player.setRate(player.mood === 'warden' && effective(state.edit).warden_lift ? BUS.semitone : 1);
 }
 
 // --- the player and the roll ------------------------------------------------------------------
@@ -645,17 +755,19 @@ function paintPlayer() {
 	const p = piece();
 	const version = player.version;
 	const spec = version === 'draft' && p.draft ? p.draft.spec : liveSpec();
-	const count = Math.min(LAYERS.length, Number(effective(spec).layers) >= 5 ? 5 : 3);
+	const count = Math.max(1, Math.min(LAYERS.length, Number(effective(spec).layers)));
 	const levels = player.levels();
 	ui.time = h('span', { class: 'mono small mu-time' }, '0:00');
+	const lift = player.mood === 'warden' && effective(state.edit).warden_lift;
 	const transport = h('div', { class: 'row', style: { gap: '12px' } },
 		Help.explain(h('button', { type: 'button', class: 'mu-play', 'aria-label': player.playing ? 'Pause' : 'Play', onClick: async () => { if (!player.buffers.length || player.id !== state.id) await pointPlayer(true); else player.toggle(); paintPlayer(); } },
-			player.playing ? '❚❚' : '▶'), player.playing ? 'Pause' : 'Play', 'Plays the version picked under Versions, looping, all five layers started on the same sample as the game starts them.'),
-		h('div', { class: 'col', style: { gap: '0' } }, h('b', {}, `${effective(spec).name || state.id}`), h('span', { class: 'tiny muted' }, `${version === 'draft' ? 'Draft' : 'Live'} · `, ui.time)),
+			player.playing ? '❚❚' : '▶'), player.playing ? 'Pause' : 'Play', 'Plays the version picked under Versions, looping, every layer started on the same sample as the game starts them.'),
+		h('div', { class: 'col', style: { gap: '0' } }, h('b', {}, `${effective(spec).name || state.id}`),
+			h('span', { class: 'tiny muted' }, `${version === 'draft' ? 'Draft' : 'Live'} · `, ui.time, lift ? Help.explain(h('span', { class: 'mu-lift' }, '+1 semitone'), ...Help.LIFTED) : null)),
 		h('div', { class: 'fill' }),
-		helped(Help.MOOD, Help.explainEach(segmented(MOODS.map(([k, label]) => [k, label]), player.mood, (m) => { player.mood = m; keep('mood', m); player.applyLevels(); paintPlayer(); }, { class: 'seg small' }),
-			MOODS.map(([k, label, levels]) => [label, [Help.MOODS[k], LAYERS.map((name, i) => `${name} ${Math.round(levels[i] * 100)}%`).join(' · ')]]))),
-		Help.explain(h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: player.room ? true : null, onChange: (e) => player.setRoom(e.target.checked) }), 'Room'), ...Help.ROOM));
+		helped(Help.MOOD, Help.explainEach(segmented(MOODS.map(([k, label]) => [k, label]), player.mood, (m) => { player.mood = m; keep('mood', m); syncPlayer(); paintPlayer(); }, { class: 'seg small' }),
+			MOODS.map(([k, label, levels]) => [label, [Help.MOODS[k], LAYERS.map((name, i) => `${name} ${Math.round(levels[i] * 100)}%`).join(' · '), Help.HEAT_WORDS(HEAT[k] || 0)]]))),
+		Help.explain(h('label', { class: 'checkbox' }, h('input', { type: 'checkbox', checked: player.fx ? true : null, onChange: (e) => player.setFx(e.target.checked) }), 'Game effects'), ...Help.FX));
 	const mixer = h('div', { class: 'mu-mixer' }, LAYERS.map((name, i) => {
 		const off = i >= count;
 		const muted = player.muted.has(i);

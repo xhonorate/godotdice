@@ -57,7 +57,12 @@ func setup(keys: Array, players: int = 1, context: Dictionary = {}, rail: Array 
 		for foe in state.enemies:
 			foe.max_hp = maxi(int(foe.max_hp), 1000)
 			foe.hp = int(foe.max_hp)
-	return {"state": state, "rng": rng, "foe": state.enemies[0], "player": state.players[0]}
+	## The creature under test is the first one written, wherever its escorts have stood it.
+	var leads: Array = state.enemies.filter(func(e: Dictionary) -> bool: return str(e.get("escort_of", "")).is_empty())
+	return {"state": state, "rng": rng, "foe": leads[0] if not leads.is_empty() else state.enemies[0], "player": state.players[0]}
+
+func escorts_of(f: Dictionary) -> Array:
+	return f.state.enemies.filter(func(e: Dictionary) -> bool: return str(e.get("escort_of", "")) == str(f.foe.id))
 
 func fixed(foe: Dictionary, values: Array, tops: Array = []) -> void:
 	## Every die a single face, so an action rolls exactly these values in this order. A
@@ -192,17 +197,22 @@ func summons_and_escorts() -> void:
 	## Escorts come with their leader, and shield it while they stand.
 	var p: Dictionary = setup(["THE_PRISMARCH"])
 	check(p.state.enemies.size() == 4 and p.foe.escorts.size() == 3, "the Prismarch walks in with three prisms")
-	check(p.state.enemies[1].escort_of == str(p.foe.id) and str(p.state.enemies[1].key) == "PRISM", "each prism knows its leader")
+	check(escorts_of(p).size() == 3 and escorts_of(p).all(func(e: Dictionary) -> bool: return str(e.key) == "PRISM"), "each prism knows its leader")
+	## They stand either side of it in turn, the first on its right, so it holds the middle.
+	var row: Array = p.state.enemies.map(func(e: Dictionary) -> String: return str(e.id))
+	var mine: Array = p.foe.escorts
+	check(row.find(str(p.foe.id)) == 1 and row.find(str(mine[0])) == 2 and row.find(str(mine[1])) == 0 and row.find(str(mine[2])) == 3, "the prisms flank the Prismarch: %s" % str(row))
+	check(str(DeepBattle.default_target(DeepBattle.living(p.state.enemies)).id) == str(p.foe.id) and str(p.player.target) == str(p.foe.id), "and the Prismarch is still who blows go at by default")
 	p.foe.block = 0
 	var shielded: Dictionary = hit(p, 40)
 	check(bool(shielded.get("shielded", false)) and int(shielded.hp_loss) == 20, "while a prism floats the Prismarch takes half: %d" % int(shielded.hp_loss))
-	for escort in p.state.enemies.slice(1):
+	for escort in escorts_of(p):
 		escort.hp = 0
 	var bare: Dictionary = hit(p, 40)
 	check(not bare.has("shielded") and int(bare.hp_loss) == 40, "with the prisms gone it takes the whole blow")
 	## A Heartrot's 10 grows a tendril back, room allowing, and the new one is its escort.
 	var h: Dictionary = setup(["THE_HEARTROT"])
-	h.state.enemies[1].hp = 0
+	escorts_of(h)[0].hp = 0
 	fixed(h.foe, [10, 3, 3], [10, 10, 10])
 	var grown: Array = turn(h)
 	var fresh: Array = h.state.enemies.filter(func(e: Dictionary) -> bool: return str(e.get("summoned_by", "")) == str(h.foe.id))
@@ -627,7 +637,7 @@ func charge_and_release() -> void:
 	## Near death the Prismarch gathers light every other action: it takes half meanwhile, and
 	## throws everything it was dealt back at every player.
 	var f: Dictionary = setup(["THE_PRISMARCH"])
-	for escort in f.state.enemies.slice(1):
+	for escort in escorts_of(f):
 		escort.hp = 0
 	f.foe.hp = int(f.foe.max_hp) * 30 / 100
 	f.foe.turns_acted = 1

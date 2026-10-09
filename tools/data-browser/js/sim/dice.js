@@ -11,18 +11,18 @@ export const FACE_KINDS = ['plain', 'wild', 'exploding', 'shiny', 'golden', 'tal
 export const BOON_FACES = ['wild', 'exploding', 'shiny', 'golden', 'tally', 'sticky', 'twin', 'doubled'];
 export const BANE_FACES = ['locked', 'blank'];
 export const PATTERNS = ['even', 'odd', 'split', 'gamblers', 'paired', 'stretched', 'shallow'];
-export const MATERIALS = ['ruby', 'sapphire', 'emerald', 'amethyst', 'citrine', 'diamond', 'opal', 'glass', 'crystal', 'iron', 'fools_gold', 'granite', 'blood'];
+export const MATERIALS = ['ruby', 'sapphire', 'emerald', 'amethyst', 'citrine', 'diamond', 'opal', 'glass', 'crystal', 'iron', 'cloud', 'fools_gold', 'granite', 'blood'];
+// Thrown twice, keeping one of the two faces: Iron the higher, Cloud the lower. A tie keeps the first.
+export const THROWN_TWICE = { iron: 1, cloud: -1 };
 export const MATERIAL_COLORS = { ruby: 'RED', sapphire: 'BLUE', emerald: 'GREEN', amethyst: 'VIOLET', citrine: 'GOLD', diamond: 'WHITE' };
 export const ANY_COLOR_MATERIALS = ['opal', 'glass'];
 export const MAX_EXPLOSIONS = 3;
-export const VALUE_CAP = 100;
 export const STRENGTH_STEP = 1.5;
 export const GLASS_SHATTER_PCT = 10;
 export const CRYSTAL_RESONANCE = 1;
 export const FOOLS_GOLD_PYRITE = 2;
 export const GOLDEN_FACE_PYRITE = 2;
 export const BLOOD_HP = 2;
-export const IRON_FLOOR_DIVISOR = 4;
 
 export const sizeOf = (shape) => Number(SHAPES[shape] || 6);
 
@@ -43,7 +43,7 @@ export function patternAllows(pattern, shape) {
 		case 'even': case 'odd': return n >= 4 && n % 2 === 0;
 		case 'split': case 'paired': case 'shallow': return n >= 6;
 		case 'gamblers': return n >= 6 && n <= 12;
-		case 'stretched': return n >= 4 && n * 2 <= VALUE_CAP;
+		case 'stretched': return n >= 4;
 		default: return false;
 	}
 }
@@ -90,13 +90,13 @@ export function patternFaces(shape, pattern = '', rng = null) {
 			for (const value of pairedValues(n, rng)) values.push(value, value);
 			break;
 		case 'stretched':
-			for (let value = 1; value <= n; value += 1) values.push(Math.min(VALUE_CAP, value * 2));
+			for (let value = 1; value <= n; value += 1) values.push(value * 2);
 			break;
 		case 'shallow':
 			for (let value = 1; value <= n; value += 1) values.push(Math.ceil(value / 2));
 			break;
 		default:
-			for (let value = 1; value <= n; value += 1) values.push(Math.min(VALUE_CAP, value));
+			for (let value = 1; value <= n; value += 1) values.push(value);
 	}
 	return values.map((v) => face(v));
 }
@@ -144,8 +144,10 @@ export function make(shape, id, opts = {}) {
 	const faces = (opts.faces && opts.faces.length ? opts.faces.map((f) => face(f.value, f.kind || 'plain')) : patternFaces(key, pattern, opts.rng || null));
 	const die = { id, shape: key, pattern, faces, material: opts.material || '', name: opts.name || '' };
 	for (const entry of etchList(opts.etches)) etch(die, Number(entry.face), String(entry.kind));
-	const override = Number(opts.top || patternTop(key, pattern));
-	if (override > 0) die.top = Math.min(VALUE_CAP, override);
+	// As sim/dice.gd reads it: a `top` that is given at all (die_from always gives one, 0 when
+	// the ref has none) wins over the pattern's, so a starting Phial is judged as a d3.
+	const override = Number('top' in opts ? opts.top : patternTop(key, pattern));
+	if (override > 0) die.top = override;
 	return die;
 }
 
@@ -176,29 +178,32 @@ export function faceValue(f) {
 	const kind = f.kind || 'plain';
 	if (kind === 'blank') return 0;
 	const value = f.value | 0;
-	return Math.min(VALUE_CAP, kind === 'doubled' ? value * 2 : value);
+	return kind === 'doubled' ? value * 2 : value;
 }
 
 export function top(die) {
-	if (Number(die.top || 0) > 0) return Math.min(VALUE_CAP, Number(die.top));
+	if (Number(die.top || 0) > 0) return Number(die.top);
 	let best = 0;
 	for (const f of die.faces || []) best = Math.max(best, faceValue(f));
-	return Math.min(VALUE_CAP, best);
+	return best;
 }
-
-export const ironFloor = (dieTop) => Math.ceil(dieTop / IRON_FLOOR_DIVISOR);
 
 // --- rolling ----------------------------------------------------------------------------
 
 export function rollOne(die, rng, timesRerolled = 0) {
 	const faces = die.faces && die.faces.length ? die.faces : [face(1)];
-	const index = rng.randiRange(0, faces.length - 1);
+	const material = die.material || '';
+	let index = rng.randiRange(0, faces.length - 1);
+	if (material in THROWN_TWICE) {
+		const other = rng.randiRange(0, faces.length - 1);
+		const lean = THROWN_TWICE[material];
+		if (lean * faceValue(faces[other]) > lean * faceValue(faces[index])) index = other;
+	}
 	const chosen = faces[index];
 	const kind = chosen.kind || 'plain';
-	const material = die.material || '';
 	let climbed = false;
 	if (kind === 'tally') {
-		chosen.value = Math.min(VALUE_CAP, (chosen.value | 0) + 1);
+		chosen.value = (chosen.value | 0) + 1;
 		climbed = true;
 	}
 	let value = faceValue(chosen);
@@ -212,9 +217,8 @@ export function rollOne(die, rng, timesRerolled = 0) {
 		}
 	}
 	const dieTop = top(die);
-	if (kind !== 'blank' && material === 'iron') value = Math.max(value, ironFloor(dieTop));
 	const shattered = material === 'glass' && rng.randf() * 100 < GLASS_SHATTER_PCT;
-	return { die_id: die.id, shape: die.shape, material, value: Math.min(value, VALUE_CAP), face: index, kind, top: dieTop,
+	return { die_id: die.id, shape: die.shape, material, value, face: index, kind, top: dieTop,
 		held: false, rerolls: timesRerolled, locked: kind === 'locked', explosions, climbed, shattered, phantom: false };
 }
 
@@ -254,6 +258,16 @@ export function throwDues(rolls) {
 	return out;
 }
 
+// The dice in a hand a reroll may touch: nothing locked, no phantom.
+export function rerollable(hand) {
+	return hand.filter((r) => !r.locked && !r.phantom).map((r) => r.die_id);
+}
+
+// A copy of a roll that exists only for the gems after the one that made it.
+export function phantom(source, id) {
+	return { ...source, die_id: id, phantom: true, held: false, rerolls: 0, locked: false, climbed: false, shattered: false };
+}
+
 export function heldForPatterns(roll) {
 	if (roll.held) return true;
 	return (roll.rerolls | 0) === 0 && !roll.phantom;
@@ -264,22 +278,32 @@ export function faceDistribution(die) {
 	const faces = die.faces && die.faces.length ? die.faces : [face(1)];
 	const out = new Map();
 	const add = (value, p) => out.set(value, (out.get(value) || 0) + p);
-	const floor = (value) => (die.material === 'iron' ? Math.max(value, ironFloor(top(die))) : value);
+	// How likely each face is to be the one the die keeps: 1/n, or for a die thrown twice the
+	// chance it wins (or ties first) against a second throw.
+	const n = faces.length;
+	const lean = THROWN_TWICE[die.material || ''] || 0;
+	const kept = faces.map((f) => {
+		if (!lean) return 1 / n;
+		const mine = lean * faceValue(f);
+		const notBeaten = faces.filter((g) => lean * faceValue(g) <= mine).length;
+		const beats = faces.filter((g) => lean * faceValue(g) < mine).length;
+		return (notBeaten + beats) / (n * n);
+	});
 	const explode = (value, depth, p) => {
 		for (const f of faces) {
 			const q = p / faces.length;
 			const v = value + faceValue(f);
 			if ((f.kind || 'plain') === 'exploding' && depth < MAX_EXPLOSIONS) explode(v, depth + 1, q);
-			else add(Math.min(floor(v), VALUE_CAP), q);
+			else add(v, q);
 		}
 	};
-	for (const f of faces) {
-		const p = 1 / faces.length;
+	faces.forEach((f, i) => {
+		const p = kept[i];
 		const kind = f.kind || 'plain';
-		if (kind === 'blank') { add(0, p); continue; }
-		if (kind === 'exploding') { explode(f.value | 0, 1, p); continue; }
-		add(Math.min(floor(faceValue(f)), VALUE_CAP), p);
-	}
+		if (kind === 'blank') { add(0, p); return; }
+		if (kind === 'exploding') { explode(f.value | 0, 1, p); return; }
+		add(faceValue(f), p);
+	});
 	return out;
 }
 

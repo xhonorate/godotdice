@@ -176,7 +176,7 @@ static func _called_state(enemy: Dictionary, move: Dictionary, index: int) -> St
 		"hp_below":
 			return "spent" if enemy.get("used_once", []).has(str(move.get("name", ""))) else "latent"
 		"action_begin":
-			return "used" if enemy.get("used_combos", []).has(index) else "unrevealed"
+			return "used" if DeepPatch.holds(enemy.get("used_combos", []), index) else "unrevealed"
 	return ""
 
 static func move_clouded(enemy: Dictionary, index: int) -> bool:

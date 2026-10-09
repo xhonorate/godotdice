@@ -55,7 +55,7 @@ func _test_rolls() -> void:
 		check(rolled.size() == 5, "five dice roll five results")
 		check(rolled[0].value >= 1 and rolled[0].value <= 6, "a d6 shows 1 to 6")
 		check(rolled[2].value >= 1 and rolled[2].value <= 20, "a d20 shows 1 to 20")
-		check(rolled[3].value >= 2, "an iron d6 never shows less than a quarter of its top")
+		check(rolled[3].value >= 1 and rolled[3].value <= 6 and int(rolled[3].face) == int(rolled[3].value) - 1, "an iron d6 shows one of its own faces, at what it says")
 		check(rolled[4].value != 6 or int(rolled[4].face) != 5, "a doubled six reads as twelve, never as six")
 		check(int(rolled[2].top) == 20 and int(rolled[4].top) == 12, "top reads the best face a die can show, doubling included")
 	var first: Array = DeepDice.roll_hand(dice, rng)
@@ -67,8 +67,12 @@ func _test_rolls() -> void:
 	for _i in range(400):
 		var roll: Dictionary = DeepDice.roll_one(exploding, rng)
 		biggest = maxi(biggest, int(roll.value))
-		check(int(roll.value) <= DeepDice.VALUE_CAP, "an exploding die is capped")
 	check(biggest > 6, "an exploding die can pass its own top")
+	## A face has no ceiling: one worked past a hundred counts for all of it.
+	var tall: Dictionary = die("D6", [150, 150, 150, 150, 150, 150], "tall")
+	check(int(DeepDice.roll_one(tall, rng).value) == 150 and DeepDice.top(tall) == 150, "a face past a hundred counts for all of it")
+	var climbing: Dictionary = die("D6", [DeepDice.face(100, "tally"), DeepDice.face(100, "tally"), DeepDice.face(100, "tally"), DeepDice.face(100, "tally"), DeepDice.face(100, "tally"), DeepDice.face(100, "tally")], "climb")
+	check(int(DeepDice.roll_one(climbing, rng).value) == 101, "a Tally face climbs past a hundred")
 	var locked: Dictionary = die("D6", [DeepDice.face(6, "locked"), 1, 1, 1, 1, 1], "l")
 	var lock_hand: Array = [DeepDice.roll_one(locked, rng)]
 	for _i in range(40):
@@ -154,7 +158,7 @@ func _test_cut_patterns() -> void:
 	check(DeepHand.analyze([DeepDice.roll_one(shallow, RandomNumberGenerator.new())]).low_dice == 1, "so every face of it is a low die")
 	check(not DeepDice.pattern_allows("split", "D4") and DeepDice.pattern_allows("even", "D4"), "Split wants a d6, Even does not")
 	check(not DeepDice.pattern_allows("gamblers", "D20") and DeepDice.pattern_allows("gamblers", "D12"), "Gambler's stops at a d12")
-	check(not DeepDice.pattern_allows("stretched", "D60"), "Stretched stops where the value cap does")
+	check(DeepDice.pattern_allows("stretched", "D60") and DeepDice.top(DeepDice.make("D100", "s", {"pattern": "stretched"})) == 200, "with no ceiling on a face, Stretched reaches every size: a d100 reads 200")
 	check(str(DeepDice.make("D20", "no", {"pattern": "gamblers"}).pattern).is_empty(), "a die refuses a pattern it cannot take")
 
 func _test_materials() -> void:
@@ -197,10 +201,16 @@ func _test_materials() -> void:
 		if bool(DeepDice.roll_one(glass, rng).shattered):
 			broke += 1
 	check(broke > 120 and broke < 280, "Glass breaks about one throw in ten: %d in 2000" % broke)
-	## Iron never shows less than a quarter of what it could.
-	var iron: Dictionary = DeepDice.make("D20", "iron", {"material": "iron"})
-	for _i in range(200):
-		check(int(DeepDice.roll_one(iron, rng).value) >= 5, "an iron d20 never shows less than a 5")
+	## Iron is thrown twice and keeps the higher face, Cloud the lower: on a d6 they average
+	## 161/36 (4.47) and 91/36 (2.53), against 3.5 for a plain one.
+	var sums: Dictionary = {"": 0, "iron": 0, "cloud": 0}
+	for material in sums:
+		var thrown: Dictionary = d6("t_" + material, {"material": material})
+		for _i in range(6000):
+			sums[material] += int(DeepDice.roll_one(thrown, rng).value)
+	check(absf(float(sums["iron"]) / 6000.0 - 4.47) < 0.1, "an Iron d6 averages about 4.47: %.2f" % (float(sums["iron"]) / 6000.0))
+	check(absf(float(sums["cloud"]) / 6000.0 - 2.53) < 0.1, "a Cloud d6 averages about 2.53: %.2f" % (float(sums["cloud"]) / 6000.0))
+	check(absf(float(sums[""]) / 6000.0 - 3.5) < 0.1, "and a plain one about 3.5")
 	check(DeepDice.describe(DeepDice.make("D12", "x", {"material": "ruby", "pattern": "split"})) == "Ruby Split d12", "a die says what it is")
 
 func _test_patterns() -> void:
@@ -223,18 +233,18 @@ func _test_patterns() -> void:
 	var distinct: Dictionary = DeepHand.analyze(hand([1, 2, 3, 5, 6]))
 	check(DeepPatterns.evaluate({"kind": "distinct", "ladder": [5, 5, 4, 4, 3]}, 0, distinct).active, "five distinct")
 	check(DeepPatterns.evaluate({"kind": "value", "values": [7], "ladder": [1, 1, 1, 1, 1]}, 0, DeepHand.analyze(hand([7, 1, 1, 1, 1], 8))).active, "a seven")
-	## "Showing 1" reads the face a die landed on: an Iron d6 on its 1 counts for 2 but shows
-	## a 1, and so does a Doubled 1. A gem that has since changed the roll changes what it shows.
+	## "Showing 1" reads the face a die landed on: a Doubled 1 counts for 2 but shows a 1. A
+	## gem that has since changed the roll changes what it shows.
 	var ones: Array = []
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5
-	var iron: Dictionary = DeepDice.make("D6", "iron", {"faces": [DeepDice.face(1)], "material": "iron", "top": 6})
 	var doubled: Dictionary = DeepDice.make("D6", "dbl", {"faces": [DeepDice.face(1, "doubled")], "top": 6})
-	ones.append(DeepDice.roll_one(iron, rng))
+	var doubled_too: Dictionary = DeepDice.make("D6", "dbl2", {"faces": [DeepDice.face(1, "doubled")], "top": 6})
+	ones.append(DeepDice.roll_one(doubled_too, rng))
 	ones.append(DeepDice.roll_one(doubled, rng))
 	for index in range(3):
 		ones.append(DeepDice.roll_one(DeepDice.make("D6", "p%d" % index, {"faces": [DeepDice.face(1)], "top": 6}), rng))
-	check(int(ones[0].value) == 2 and int(ones[1].value) == 2, "an Iron d6 and a Doubled face both land on a 1 and count for 2")
+	check(int(ones[0].value) == 2 and int(ones[1].value) == 2, "two Doubled faces both land on a 1 and count for 2")
 	var five_ones: Dictionary = {"kind": "value", "values": [1], "amount": 5}
 	check(DeepPatterns.evaluate(five_ones, 0, DeepHand.analyze(ones)).active, "and both are still showing a 1")
 	check(int(DeepHand.analyze(ones).total) == 7, "while every sum counts what they are worth")

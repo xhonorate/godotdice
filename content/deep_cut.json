@@ -5,7 +5,9 @@
     "starting_rail_cap": 3,
     "socket_unlock_gold": [300, 1200, 4800],
     "assay_rate": 5,
-    "temporary_depth": 4,
+    "temporary_depth": 20,
+    "temporary_luck": 4,
+    "temporary_min_tier": "PRECIOUS",
     "commission_slots": 3,
     "commission_payout_mult": 2.5,
     "commission_reroll_gold": 10,
@@ -198,8 +200,8 @@
       "text": "Damage equal to the dice it reads.",
       "trigger": {
         "kind": "always",
-        "read": ["low", "low", "high", "high", "high"],
-        "ladder": [1, 2, 2, 3, 4]
+        "read": ["low", "low", "low", "high", "high"],
+        "ladder": [1, 2, 3, 3, 4]
       },
       "effects": [
         {
@@ -264,7 +266,7 @@
       "color": "RED",
       "rarity": "COMMON",
       "tags": ["triple", "attack"],
-      "text": "Damage three times the matched value.",
+      "text": "Damage five times the matched value.",
       "trigger": {
         "kind": "triple",
         "ladder": [5, 4, 3, 2, 1]
@@ -279,7 +281,7 @@
               {
                 "term": "value"
               },
-              3
+              5
             ]
           }
         }
@@ -446,7 +448,7 @@
       "color": "RED",
       "rarity": "RARE",
       "tags": ["reroll", "attack"],
-      "text": "4 damage for every die you rerolled this turn.",
+      "text": "3 damage for every die you rerolled this turn.",
       "trigger": {
         "kind": "rerolled",
         "ladder": [5, 4, 3, 2, 1]
@@ -461,7 +463,7 @@
               {
                 "term": "count"
               },
-              4
+              3
             ]
           }
         }
@@ -547,7 +549,7 @@
       "text": "Deal damage equal to your highest qualifying roll.",
       "trigger": {
         "kind": "at_least",
-        "ladder": [20, 19, 18, 17, 16]
+        "ladder": [20, 18, 16, 14, 12]
       },
       "effects": [
         {
@@ -558,7 +560,7 @@
         }
       ],
       "flawless": {
-        "text": "Double damage if that roll is exactly 20.",
+        "text": "Double damage if that roll is a crown: its die's own top face.",
         "modify": [
           {
             "effect": 0,
@@ -572,13 +574,7 @@
                   "op": "if",
                   "args": [
                     {
-                      "op": "eq",
-                      "args": [
-                        {
-                          "term": "high"
-                        },
-                        20
-                      ]
+                      "term": "high_crown"
                     },
                     2,
                     1
@@ -666,7 +662,7 @@
       "text": "Block to every ally worth {share}% of the top of the straight.",
       "numbers": {
         "share": {
-          "ladder": [100, 100, 150, 150, 200]
+          "ladder": [100, 200, 300, 400, 500]
         }
       },
       "trigger": {
@@ -684,7 +680,7 @@
                 "term": "value"
               },
               {
-                "ladder": [100, 100, 150, 150, 200]
+                "ladder": [100, 200, 300, 400, 500]
               }
             ]
           }
@@ -706,7 +702,7 @@
       "color": "BLUE",
       "rarity": "RARE",
       "tags": ["full_house", "guard", "party"],
-      "text": "Block to every ally equal to both values of the house.",
+      "text": "Block to every ally equal to your total dice roll.",
       "trigger": {
         "kind": "full_house",
         "ladder": [5, 4, 3, 2, 1]
@@ -716,24 +712,16 @@
           "kind": "block",
           "target": "allies",
           "amount": {
-            "op": "+",
-            "args": [
-              {
-                "term": "value"
-              },
-              {
-                "term": "second"
-              }
-            ]
+            "term": "total"
           }
         }
       ],
       "flawless": {
-        "text": "Give each ally 4 Retain.",
+        "text": "Give each ally 10 Retain.",
         "effects": [
           {
             "kind": "retain",
-            "amount": 4,
+            "amount": 10,
             "target": "allies"
           }
         ]
@@ -912,11 +900,10 @@
                 "term": "block"
               },
               {
-                "ladder": [10, 15, 20, 25, 30]
+                "ladder": [10, 20, 30, 40, 50]
               }
             ]
-          },
-          "scale": "none"
+          }
         }
       ],
       "flawless": {
@@ -931,7 +918,7 @@
                   "term": "block"
                 },
                 {
-                  "ladder": [20, 25, 30, 35, 40]
+                  "ladder": [20, 30, 40, 50, 60]
                 }
               ]
             }
@@ -940,7 +927,7 @@
       },
       "numbers": {
         "share": {
-          "ladder": [10, 15, 20, 25, 30]
+          "ladder": [10, 20, 30, 40, 50]
         }
       }
     },
@@ -1148,8 +1135,7 @@
         "effects": [
           {
             "kind": "max_hp",
-            "amount": 1,
-            "scale": "none"
+            "amount": 1
           }
         ]
       }
@@ -1318,7 +1304,7 @@
       "color": "VIOLET",
       "rarity": "UNCOMMON",
       "tags": ["even", "poison", "group"],
-      "text": "Apply 2 Poison per even die to every enemy.",
+      "text": "Apply 1 Poison per even die to every enemy.",
       "trigger": {
         "kind": "even",
         "ladder": [5, 4, 3, 2, 1]
@@ -1332,14 +1318,14 @@
               {
                 "term": "even"
               },
-              2
+              1
             ]
           },
           "target": "enemies"
         }
       ],
       "flawless": {
-        "text": "Apply 3 Poison per even die.",
+        "text": "Apply 2 Poison per even die.",
         "modify": [
           {
             "effect": 0,
@@ -1349,7 +1335,7 @@
                 {
                   "term": "even"
                 },
-                3
+                2
               ]
             }
           }
@@ -1394,7 +1380,7 @@
             ]
           },
           "target": "enemy",
-          "scale": "none"
+          "scale": "carat"
         }
       ],
       "flawless": {
@@ -1402,9 +1388,9 @@
         "effects": [
           {
             "kind": "damage_curse",
-            "amount": 1,
+            "amount": 100,
             "target": "enemy",
-            "scale": "none"
+            "scale": "carat"
           }
         ]
       }
@@ -1876,7 +1862,7 @@
           "cost": {
             "ladder": [25, 20, 15, 10, 5]
           },
-          "scale": "none"
+          "scale": "carat"
         }
       ],
       "flawless": {
@@ -1907,8 +1893,9 @@
       "effects": [
         {
           "kind": "appraise",
-          "amount": 1,
-          "scale": "none"
+          "amount": 100,
+          "stones": 1,
+          "scale": "carat"
         }
       ],
       "flawless": {
@@ -1916,7 +1903,7 @@
         "modify": [
           {
             "effect": 0,
-            "amount": 2
+            "stones": 2
           }
         ]
       }
@@ -1997,8 +1984,7 @@
             "target": "self",
             "amount": {
               "term": "fizzles"
-            },
-            "scale": "none"
+            }
           }
         ]
       },
@@ -2022,8 +2008,7 @@
       "effects": [
         {
           "kind": "upgrade_faces",
-          "amount": 1,
-          "scale": "none"
+          "amount": 1
         }
       ],
       "flawless": {
@@ -2078,8 +2063,7 @@
           "kind": "gem_rank",
           "amount": 1,
           "rank": "clarity",
-          "scope": "adjacent",
-          "scale": "none"
+          "scope": "adjacent"
         }
       ],
       "flawless": {
@@ -2161,8 +2145,7 @@
           "kind": "gem_rank",
           "amount": 1,
           "rank": "cut",
-          "scope": "adjacent",
-          "scale": "none"
+          "scope": "adjacent"
         }
       ],
       "flawless": {
@@ -2224,8 +2207,7 @@
           "kind": "gem_rank",
           "amount": 1,
           "rank": "carat",
-          "scope": "adjacent",
-          "scale": "none"
+          "scope": "adjacent"
         }
       ],
       "flawless": {
@@ -2513,8 +2495,7 @@
         {
           "kind": "void_copy",
           "target": "self",
-          "amount": 1,
-          "scale": "none"
+          "amount": 1
         }
       ],
       "flawless": {
@@ -3313,7 +3294,15 @@
       "rarity": "UNCOMMON",
       "hue": "9aa7b8",
       "edge": "3c4656",
-      "text": "Never rolls below a quarter of its top face."
+      "text": "Rolls twice and keeps the higher result."
+    },
+    "CLOUD": {
+      "name": "Cloud",
+      "key": "cloud",
+      "rarity": "UNCOMMON",
+      "hue": "c8d0dc",
+      "edge": "6f7a8c",
+      "text": "Rolls twice and keeps the lower result."
     },
     "FOOLS_GOLD": {
       "name": "Fool's Gold",
@@ -3357,7 +3346,7 @@
       },
       "birthstone": {
         "name": "Rally",
-        "emblem": "shield",
+        "emblem": "formation",
         "style": "shield",
         "hue": "9a2323",
         "text": "Almandine garnet in a shield cut. Sets of matching dice rally the Knight.",
@@ -3461,7 +3450,7 @@
       },
       "birthstone": {
         "name": "Thousand Cuts",
-        "emblem": "slashes",
+        "emblem": "cuts",
         "style": "marquise",
         "hue": "1c1a26",
         "text": "Black opal in a thin marquise cut, dark with tiny flecks of color.",
@@ -3505,7 +3494,7 @@
       },
       "birthstone": {
         "name": "Encore",
-        "emblem": "arcs",
+        "emblem": "notes",
         "style": "step",
         "hue": "7a4fc4",
         "hue2": "d9a63c",
@@ -3577,7 +3566,7 @@
       },
       "birthstone": {
         "name": "Bitter Draught",
-        "emblem": "flask",
+        "emblem": "vial",
         "style": "briolette",
         "hue": "24402a",
         "text": "Dark tourmaline in a teardrop briolette cut, murky green-black with a bubble inside.",
@@ -3645,11 +3634,11 @@
         "kind": "free_flip",
         "amount": 1,
         "name": "Sleight",
-        "text": "Once a turn, shift one die to the opposite parity: even to odd, or odd to even."
+        "text": "Once a turn, turn one die over onto a face of the opposite parity: its mirror face, or the nearest face of the other parity it has. A die whose faces are all even or all odd can't be shifted."
       },
       "birthstone": {
         "name": "Motley",
-        "emblem": "eye",
+        "emblem": "harlequin",
         "style": "checkerboard",
         "hue": "d4557a",
         "hue2": "4e9c5a",
@@ -3779,7 +3768,7 @@
       },
       "birthstone": {
         "name": "High Roller",
-        "emblem": "coins",
+        "emblem": "dice_pair",
         "style": "heptagon",
         "hue": "c9a13a",
         "text": "Pyrite in a lopsided seven-sided cut, flecked with fool's gold.",
@@ -4077,7 +4066,7 @@
       "name": "A Fragile Find",
       "group": "stone",
       "weight": 3,
-      "text": "A heavy, appraised stone from depth 20. It shatters when the run ends and can't be taken home.",
+      "text": "A heavy, appraised stone from deeper in the mine. It shatters when the run ends and can't be taken home.",
       "effects": [
         {
           "kind": "raw_stone",
@@ -8147,6 +8136,10 @@
       "hp_mult": 1.8,
       "damage_mult": 1.3,
       "start_pyrite": 120,
+      "start_dice_offer": {
+        "steps": [30, 1, 0],
+        "variation": 15
+      },
       "fare_gold": 60,
       "insurance_gold": 15,
       "first_conquest_gold": 250,
@@ -8229,6 +8222,10 @@
       "hp_mult": 3.2,
       "damage_mult": 1.7,
       "start_pyrite": 200,
+      "start_dice_offer": {
+        "steps": [47, 8, 0.25],
+        "variation": 24
+      },
       "fare_gold": 100,
       "insurance_gold": 25,
       "first_conquest_gold": 400,
@@ -8311,6 +8308,10 @@
       "hp_mult": 5.8,
       "damage_mult": 2.2,
       "start_pyrite": 280,
+      "start_dice_offer": {
+        "steps": [65, 15, 0.5],
+        "variation": 32
+      },
       "fare_gold": 140,
       "insurance_gold": 35,
       "first_conquest_gold": 600,
@@ -8395,6 +8396,10 @@
       "hp_mult": 10.5,
       "damage_mult": 2.85,
       "start_pyrite": 360,
+      "start_dice_offer": {
+        "steps": [82, 23, 0.75],
+        "variation": 41
+      },
       "fare_gold": 180,
       "insurance_gold": 45,
       "first_conquest_gold": 900,
@@ -8478,6 +8483,10 @@
       "hp_mult": 19.0,
       "damage_mult": 3.7,
       "start_pyrite": 450,
+      "start_dice_offer": {
+        "steps": [99, 30, 1],
+        "variation": 50
+      },
       "fare_gold": 225,
       "insurance_gold": 55,
       "first_conquest_gold": 1300,
@@ -8567,6 +8576,10 @@
       "hp_mult": 34.0,
       "damage_mult": 4.8,
       "start_pyrite": 550,
+      "start_dice_offer": {
+        "steps": [100, 37, 1.25],
+        "variation": 58
+      },
       "fare_gold": 275,
       "insurance_gold": 70,
       "first_conquest_gold": 0,
@@ -8930,11 +8943,12 @@
         {
           "id": "pry",
           "label": "Pry out the big one",
-          "text": "Get a raw stone of better quality than usual for this depth. The sharp edge costs you 8 HP.",
+          "text": "Get a raw stone of better quality than usual for this depth, never smaller than Small. The sharp edge costs you 8 HP.",
           "action": {
             "kind": "pry",
             "bonus": 3,
-            "hp": 8
+            "hp": 8,
+            "min_size": "SMALL"
           }
         },
         {

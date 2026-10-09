@@ -33,15 +33,67 @@ export const inclusionSlots = (clarity) => Number(C.clarityEntry(clarity).inclus
 export const color = (stone) => String(skillOf(stone).color || 'WHITE');
 export const isOpal = (stone) => color(stone) === C.OPAL;
 
-export function modifiers(stone) {
-	const out = [];
-	for (const key of stone.inclusions || []) {
-		const def = C.inclusion(key);
-		for (const m of def.modifiers || []) if (m && typeof m === 'object') out.push({ ...m, inclusion: key });
+// Every colour the stone counts as: its skill's, any colour a Zoning adds, and the socket's
+// own colour for an Alexandrite. An opal answers to none of the six unless something says so.
+export function colors(stone, socket = '') {
+	const out = [color(stone)];
+	for (const m of modifiers(stone)) {
+		if (m.kind === 'color_also' && !out.includes(String(m.color))) out.push(String(m.color));
+		else if (m.kind === 'alexandrite' && C.COLOR_KEYS.includes(socket) && !out.includes(socket)) out.push(socket);
 	}
 	return out;
 }
+
+export function fits(stone, socket) {
+	return socket === C.SOCKET_ANY || colors(stone, socket).includes(socket);
+}
+
+// This stone with another's skill on it: what a Doublet is. Its four C's, inclusions and id
+// stay its own.
+export function wearing(stone, other) {
+	return { ...stone, inclusions: (stone.inclusions || []).slice(), skill: String(other.skill || ''), worn_from: String(other.id || '') };
+}
+
+// The modifiers of every inclusion, each tagged with the inclusion it came from. A stone's
+// inclusions never change in a fight, so the list is remembered per stone object and key.
+const modifierCache = new WeakMap();
+// Every modifier of every inclusion, and of the one a Fingerprint carries in a fight (copied).
+export function modifiers(stone) {
+	const keys = [...(stone.inclusions || [])];
+	if (stone.copied) keys.push(stone.copied);
+	const key = keys.join('|');
+	const cached = modifierCache.get(stone);
+	if (cached && cached.key === key) return cached.out;
+	const out = [];
+	for (const inclusion of keys) {
+		const def = C.inclusion(inclusion);
+		for (const m of def.modifiers || []) if (m && typeof m === 'object') out.push({ ...m, inclusion });
+	}
+	modifierCache.set(stone, { key, out });
+	return out;
+}
 export const hasModifier = (mods, kind) => mods.some((m) => m.kind === kind);
+
+// Inclusions a Fingerprint never takes up: another Fingerprint, and a Void.
+export const FINGERPRINT_SKIPS = ['FINGERPRINT', 'VOID'];
+
+// What a Fingerprint at index carries from the gem before it: { inclusion, from }, inclusion ''
+// when there is nothing to carry, and null for a stone with no Fingerprint.
+export function fingerprintSource(rail, index) {
+	const stone = rail[index];
+	if (!stone || !(stone.inclusions || []).includes('FINGERPRINT')) return null;
+	const before = index > 0 ? rail[index - 1] : null;
+	if (!before) return { inclusion: '', from: null };
+	const found = (before.inclusions || []).find((k) => !FINGERPRINT_SKIPS.includes(k));
+	return { inclusion: found || '', from: before };
+}
+
+// The stone as it fights from index of this rail: carrying its Fingerprint's inclusion, on a copy.
+export function fingerprinted(rail, index, stone) {
+	const source = fingerprintSource(rail, index);
+	if (!source || !source.inclusion) return stone;
+	return { ...stone, copied: source.inclusion };
+}
 export const modifierSum = (mods, kind, field = 'amount') => mods.reduce((s, m) => (m.kind === kind ? s + (Number(m[field]) | 0) : s), 0);
 
 export function sizeClass(carat) {
@@ -119,7 +171,11 @@ export function effective(stone, c = {}) {
 	cutStep += (clarityEntry.cut_step | 0) + modifierSum(mods, 'cut_step') + (c.cut_step_bonus | 0);
 	const dulled = Math.max(0, c.dulled | 0);
 	if (dulled > 0) cutStep = Math.max(0, Math.min(Patterns.STEPS - 1, cutStep) - dulled);
-	const magnitude = caratMultiplier(carat * caratMult) * Number(clarityEntry.magnitude ?? 1) * magnitudeMult * Number(c.amplify ?? 1);
+	// An Assayer in the room weighs every gem at no more than its limit, however it got there.
+	let weight = carat * caratMult;
+	const caratCap = c.carat_cap | 0;
+	if (caratCap > 0) { carat = Math.min(carat, caratCap); weight = Math.min(weight, caratCap); }
+	const magnitude = caratMultiplier(weight) * Number(clarityEntry.magnitude ?? 1) * magnitudeMult * Number(c.amplify ?? 1);
 	return { clarity, flawless: Boolean(clarityEntry.flawless_line), carat, cut_step: Math.max(0, cutStep), magnitude, modifiers: mods, resonance_mult: Number(clarityEntry.resonance_mult ?? 1) };
 }
 
@@ -213,7 +269,9 @@ export function evaluate(stone, hand, c = {}) {
 	// The hand is read for this gem in particular: the dice that would do it the most good
 	// come first in everything the trigger picks from.
 	const wearing = colors(stone, String(c.socket || ''));
-	const a = Hand.analyze(working, wearing);
+	// A fight may hand in its own reading of the hand (`c.analyze`), remembered while the hand
+	// stands still; it is only ever asked about the hand itself, never a lens's copy.
+	const a = c.analyze && working === hand ? c.analyze(wearing) : Hand.analyze(working, wearing);
 	const trigger = skill.trigger || { kind: 'always' };
 	const trig = Patterns.evaluate(trigger, eff.cut_step, a, { resonance: c.resonance | 0, pyrite: Rules.pyrite(c.unit || {}), fizzles: c.fizzles | 0 });
 	if (!trig.active && (hasModifier(mods, 'always_fires') || c.force_fire)) {
@@ -230,7 +288,8 @@ export function evaluate(stone, hand, c = {}) {
 		}
 	}
 	const result = { active: Boolean(trig.active), reason: trig.reason || '', dice: trig.dice || [], trigger: trig, cut_step: eff.cut_step, carat: eff.carat,
-		magnitude: eff.magnitude, analysis: a, effects: [], fires: trig.active ? 1 : 0, hp_cost: 0, resonance_gain: 0, skill: stone.skill, colors: wearing, die_boost: 1 };
+		magnitude: eff.magnitude, analysis: a, effects: [], fires: trig.active ? 1 : 0, hp_cost: 0, resonance_gain: 0, next_cut_step: modifierSum(mods, 'next_cut_step'),
+		skill: stone.skill, stone_id: String(stone.id || ''), colors: wearing, die_boost: 1 };
 	if (!trig.active) return result;
 	// What the dice themselves are made of. A material that answers to this gem colour is
 	// half again as strong, and they multiply.
@@ -241,7 +300,8 @@ export function evaluate(stone, hand, c = {}) {
 	result.magnitude = magnitude;
 	const tc = { a, trig, unit: c.unit || {}, resonance: c.resonance | 0, previous_amount: c.previous_amount | 0, carat: eff.carat, cut: eff.cut_step,
 		clarity: eff.clarity, enemy_poison: c.enemy_poison | 0, fizzles: c.fizzles | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1 };
-	let defs = (skill.effects || []).map((d) => JSON.parse(JSON.stringify(d)));
+	// resolveEffect only reads a definition, so the pack's own are used as they stand.
+	let defs = skill.effects || [];
 	if (eff.flawless && skill.flawless && typeof skill.flawless === 'object') defs = applyFlawless(defs, skill.flawless);
 	for (const def of defs) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, magnitude));
 	const perDie = modifierSum(mods, 'per_die_damage');
@@ -257,6 +317,13 @@ export function evaluate(stone, hand, c = {}) {
 		if (hasModifier(mods, 'retrigger_if_previous_fired') && c.previous_fired) result.fires += 1;
 	}
 	return result;
+}
+
+// The headline number of an evaluation: what an Echo repeats and the forecast sums.
+export function totalAmount(evaluation, kinds = ['damage', 'block', 'heal']) {
+	let total = 0;
+	for (const effect of evaluation.effects || []) if (kinds.includes(effect.kind)) total += (effect.amount | 0) * Math.max(1, effect.repeat | 0);
+	return total;
 }
 
 // The headline number of an evaluation, per kind: amount × repeat × expected procs.

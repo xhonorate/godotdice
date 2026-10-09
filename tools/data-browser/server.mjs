@@ -9,6 +9,7 @@
 //
 // The Soundtrack page also writes: /api/music/* edits drafts of the pieces in
 // content/score.json, renders them with Godot and adopts them into audio/music (see music.mjs).
+// The Balance page keeps its sweeps through /api/balance/* in build/balance (balance-store.mjs).
 // The server listens on this machine only. Run `npm install` in this folder once for the Ogg
 // encoder; Godot is found on the path, beside the project or through GODOT_BIN.
 
@@ -17,6 +18,7 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as Music from './music.mjs';
+import * as BalanceStore from './balance-store.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '../..');
@@ -29,6 +31,14 @@ createServer(async (request, response) => {
 	if (pathname.startsWith('/api/music')) {
 		try {
 			await musicApi(request, response, pathname);
+		} catch (error) {
+			sendJson(response, 400, { error: String(error.message || error) });
+		}
+		return;
+	}
+	if (pathname.startsWith('/api/balance')) {
+		try {
+			await balanceApi(request, response, pathname);
 		} catch (error) {
 			sendJson(response, 400, { error: String(error.message || error) });
 		}
@@ -57,13 +67,35 @@ function sendJson(response, code, body) {
 	response.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(body));
 }
 
-async function bodyOf(request) {
+async function bodyOf(request, limit = 1e6) {
 	let text = '';
 	for await (const part of request) {
 		text += part;
-		if (text.length > 1e6) throw new Error('body too large');
+		if (text.length > limit) throw new Error('body too large');
 	}
 	return text ? JSON.parse(text) : {};
+}
+
+// GET /api/balance                 what has been run: each sweep's settings, pack and date
+// GET /api/balance/<sweep>[?v=prev] a sweep's numbers, or the run before it
+// PUT /api/balance/<sweep>         keep a sweep the page has just run
+async function balanceApi(request, response, pathname) {
+	const [sweep] = pathname.split('/').filter(Boolean).slice(2);
+	if (!sweep && request.method === 'GET') { sendJson(response, 200, await BalanceStore.list()); return; }
+	if (sweep && request.method === 'GET') {
+		const result = await BalanceStore.load(sweep, new URL(request.url, 'http://localhost').searchParams.get('v') === 'prev');
+		if (!result) { sendJson(response, 404, { error: `${sweep} has not been run` }); return; }
+		sendJson(response, 200, result);
+		return;
+	}
+	if (sweep && request.method === 'PUT') {
+		const result = await bodyOf(request, 64e6);
+		if (!result || result.sweep !== sweep || typeof result.data !== 'object') throw new Error('that is not a sweep');
+		await BalanceStore.save(sweep, result);
+		sendJson(response, 200, { ok: true });
+		return;
+	}
+	throw new Error(`${request.method} ${pathname} is not a thing the server does`);
 }
 
 // GET    /api/music                    the score, with every piece's live and draft state

@@ -17,7 +17,7 @@ const GUTTER := 38.0
 const TOP := 66.0
 const FOOT := 58.0
 const SEATS: Array = [Color("f0b44c"), Color("5fb8ff"), Color("6fdc8c"), Color("e07ad6")]
-const GLINT_GLYPHS: Dictionary = {"hostile": "eye", "glittering": "star", "strange": "question", "dark": "question"}
+const GLINT_GLYPHS: Dictionary = {"hostile": "eye", "glittering": "star", "strange": "swirl", "dark": "question"}
 const GLINT_TONES: Dictionary = {"hostile": Color("ff5a4a"), "glittering": Color("ffd257"), "strange": Color("b58cff"), "dark": Color("6d7688")}
 const GLINT_WORDS: Dictionary = {
 	"hostile": "Something's moving down there.",
@@ -384,7 +384,7 @@ func _draw_trail(positions: Dictionary) -> void:
 		_medallion(at, 12.0, kind, 0.85)
 		var words: String = "Depth %d: %s" % [int(point.depth), "a dark mouth, and then a fight" if bool(point.get("hidden", false)) and kind == "hidden" else _kind_words(kind)]
 		if kind == "warden":
-			words += ". The Warden here is dead." if wardens.has(int(point.depth)) else ". A Warden held the way down."
+			words += ". The Warden here is dead." if DeepPatch.holds(wardens, int(point.depth)) else ". A Warden held the way down."
 		_spots.append({"at": at, "radius": 12.0, "text": words})
 
 func _draw_loose_offers() -> void:
@@ -486,7 +486,7 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		var at: Vector2 = positions[id]
 		if _fade(at.y) <= 0.0:
 			continue
-		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1):
+		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + DeepDescent.LANTERN_REACH):
 			## Past the lantern: a chamber is there, and nothing more is known of it.
 			_draw_unknown(at)
 			_spots.append({"at": at, "radius": 12.0, "text": "Depth %d: not seen yet. The lantern shows two floors ahead." % int(node.depth)})
@@ -540,6 +540,7 @@ func _kind_words(kind: String) -> String:
 		"carver": return "a carver: raise, lower or etch a die face"
 		"hidden": return "a dark mouth: anything could be down there"
 		"well": return "a wishing well: throw something precious down it"
+		"vat": return "a vat: dip a die in a new material, or melt it plain"
 		"landing": return "a landing"
 	return kind
 

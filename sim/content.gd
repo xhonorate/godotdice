@@ -266,12 +266,12 @@ static func _validate_die(def: Variant) -> Array:
 			if f is Dictionary:
 				if not str(f.get("kind", "plain")) in DeepDice.FACE_KINDS:
 					errors.append("unknown face kind " + str(f.get("kind", "")))
-				if int(f.get("value", 0)) < 0 or int(f.get("value", 0)) > DeepDice.VALUE_CAP:
-					errors.append("face values run 0 to %d" % DeepDice.VALUE_CAP)
-			elif not (f is int or f is float) or int(f) < 0 or int(f) > DeepDice.VALUE_CAP:
-				errors.append("face values run 0 to %d" % DeepDice.VALUE_CAP)
-	if def.has("top") and (not (def.top is int or def.top is float) or int(def.top) < 1 or int(def.top) > DeepDice.VALUE_CAP):
-		errors.append("top runs 1 to %d" % DeepDice.VALUE_CAP)
+				if int(f.get("value", 0)) < 0:
+					errors.append("face values cannot be negative")
+			elif not (f is int or f is float) or int(f) < 0:
+				errors.append("face values cannot be negative")
+	if def.has("top") and (not (def.top is int or def.top is float) or int(def.top) < 1):
+		errors.append("top is at least 1")
 	return errors
 
 static func validate_die_ref(ref: Variant) -> Array:
@@ -499,6 +499,23 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 	for field in ["start_pyrite", "fare_gold", "insurance_gold", "first_conquest_gold"]:
 		if int(def.get(field, 0)) < 0:
 			errors.append("%s cannot be negative" % field)
+	## The dice offered at a deeper start: chances, in percent, of at least one, two and three
+	## sizes off, which can only fall, and the chance of each extra variation.
+	var offer: Variant = def.get("start_dice_offer", {})
+	if not offer is Dictionary:
+		errors.append("start_dice_offer must be an object")
+	elif not offer.is_empty():
+		var steps: Variant = offer.get("steps", [])
+		if not steps is Array or steps.is_empty():
+			errors.append("start_dice_offer needs its steps")
+		else:
+			for index in range(steps.size()):
+				if not (steps[index] is int or steps[index] is float) or float(steps[index]) < 0.0 or float(steps[index]) > 100.0:
+					errors.append("start_dice_offer steps are percentages")
+				elif index > 0 and float(steps[index]) > float(steps[index - 1]):
+					errors.append("start_dice_offer steps cannot rise")
+		if float(offer.get("variation", 0)) < 0.0 or float(offer.get("variation", 0)) > 100.0:
+			errors.append("start_dice_offer variation is a percentage")
 	if bool(def.get("starter", false)) and int(def.get("fare_gold", 0)) != 0:
 		errors.append("the starter mine is always free to go down")
 	return errors

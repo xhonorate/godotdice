@@ -129,6 +129,14 @@ static func member(unit: Dictionary) -> void:
 	if sheet != null:
 		sheet.call("_fill_member", unit, tone)
 
+static func gathering(title: String, text: String, glyph: String, stones: Array = [], dice: Array = [], captions: Array = []) -> void:
+	## Everything a "+X" stood for, side by side on one sheet: the phantom dice past the three
+	## in the tray, the Void gems past the three on a socket. `dice` are [die, face] pairs to
+	## draw, captioned by `captions`. Each opens on its own with a right-click.
+	var sheet := _begin(DeepUi.INFO)
+	if sheet != null:
+		sheet.call("_fill_gathering", title, text, glyph, stones, dice, captions)
+
 static func announce(title: String, text: String, glyph: String, tone: Color = DeepUi.ACCENT) -> void:
 	## A big moment with no object: a new setting, a new mine.
 	var sheet := _begin(tone, {"title": title, "subtitle": ""})
@@ -190,7 +198,8 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 			_dismiss())
 	column.add_child(_panel)
-	var row := DeepUi.hbox(_panel, 24)
+	var sheet := DeepUi.vbox(_panel, 10)
+	var row := DeepUi.hbox(sheet, 24)
 	var left := DeepUi.vbox(row, 8)
 	_stage = Control.new()
 	_stage.custom_minimum_size = Vector2(400, 460)
@@ -207,7 +216,9 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	_tabs.visible = false
 	_book = DeepUi.vbox(right, 0)
 	_book.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var foot := DeepUi.hbox(column, 12)
+	## The way out sits inside the sheet's bottom edge, never on whatever is behind it; a
+	## won thing's one big button stands under the sheet instead.
+	var foot := DeepUi.hbox(sheet if fanfare.is_empty() else column, 12)
 	foot.alignment = BoxContainer.ALIGNMENT_CENTER
 	if fanfare.is_empty():
 		_close = DeepUi.icon_button(foot, "cross_out", "Close", _dismiss, 15, DeepUi.MUTED)
@@ -320,14 +331,26 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 		DeepUi.pill(tags, "skull", "Down", DeepUi.BAD, 13)
 	if not bool(unit.get("connected", true)):
 		DeepUi.pill(tags, "hourglass", "Away", DeepUi.DIM, 13)
-	## The rail, each stone as it fires.
+	## The rail, each stone as it fires, and their Birthstone after it, as the dock shows yours.
 	var rail_stones: Array = DeepStone.rail_stones(unit)
+	var birth: Dictionary = DeepStone.birthstone(character_key)
 	_page("Rail", "gem")
 	var rail_box := _section("gem", "Their rail, in the order it fires")
 	if rail_stones.is_empty():
 		DeepUi.label(rail_box, "Nothing is set in their rail.", 14, DeepUi.MUTED)
-	else:
-		_member_stones(rail_box, rail_stones)
+	var flow: HFlowContainer = _member_stones(rail_box, rail_stones)
+	if not birth.is_empty():
+		var card := VBoxContainer.new()
+		card.add_theme_constant_override("separation", 2)
+		card.tooltip_text = "%s, their Birthstone
+%s
+Right-click for details" % [str(birth.get("name", "")), str(birth.get("text", ""))]
+		flow.add_child(card)
+		StoneCard.marked_picture(card, birth, 72, card.tooltip_text)
+		var named := DeepUi.hbox(card, 3)
+		named.alignment = BoxContainer.ALIGNMENT_CENTER
+		DeepUi.icon(named, "crown", 12, tone.lightened(0.3))
+		DeepUi.fit_label(named, str(birth.get("name", "")), 12, tone.lightened(0.3), 84)
 	## The bag, a page of it at a time.
 	_page("Bag  %d" % haul.size(), "bag")
 	var bag_box := _section("bag", "Loose stones they carry")
@@ -346,7 +369,7 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 		_member_dice(spare_box, spare)
 	show_page("Rail")
 
-func _member_stones(parent: Node, stones: Array) -> void:
+func _member_stones(parent: Node, stones: Array) -> HFlowContainer:
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 10)
 	flow.add_theme_constant_override("v_separation", 10)
@@ -356,10 +379,11 @@ func _member_stones(parent: Node, stones: Array) -> void:
 		card.add_theme_constant_override("separation", 2)
 		card.tooltip_text = DeepUi.stone_name(stone) + "\nRight-click for details"
 		flow.add_child(card)
-		card.add_child(Thumbs.GemThumb.new(stone, 72))
-		var name_label := DeepUi.label(card, DeepUi.stone_name(stone) if bool(stone.get("appraised", true)) else "%s raw" % DeepStone.size_name(int(stone.get("carat", 1))), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-		name_label.custom_minimum_size.x = 96
-		name_label.clip_text = true
+		var shown: Dictionary = stone.duplicate()
+		shown.appraised = bool(stone.get("appraised", true))
+		StoneCard.marked_picture(card, shown, 72)
+		DeepUi.fit_label(card, DeepUi.skill_name(shown), 11, DeepUi.MUTED, 96)
+	return flow
 
 func _member_bag(parent: Node, haul: Array, from: int) -> void:
 	## The bag never scrolls: it is turned a page at a time.
@@ -426,7 +450,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		DeepUi.pill(facts, "gem", "%s: %s" % [str(DeepContent.color(color_key).get("name", color_key)), str(DeepContent.color(color_key).get("domain", ""))], DeepUi.color(color_key), 14, "", DeepUi.is_rainbow(color_key))
 		if bool(item.get("inclusions_revealed", false)) and not item.get("inclusions", []).is_empty():
 			var _page_container = _page("Inclusions", "spark")
-			_inclusions(item, _page_container)
+			_inclusions(item, _page_container, opts.get("context", {}))
 		return
 	## A reference is a skill, not a stone: nobody owns it, so its grade and its worth are
 	## numbers about a thing that does not exist and are left off the page entirely.
@@ -451,7 +475,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	if reference:
 		DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13, "One of these has passed through your hands. The vault keeps the page, not the stone.")
 	elif bool(item.get("temporary", false)):
-		DeepUi.pill(tags, "hourglass", "Temporary · lent for this run", DeepUi.INFO, 13, "Filled a locked socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
+		DeepUi.pill(tags, "hourglass", "Temporary · lent for this run", DeepUi.INFO, 13, "Filled an empty socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
 	elif DeepStone.is_fragile(item):
 		DeepUi.pill(tags, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 13)
 	else:
@@ -517,7 +541,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var prow := DeepUi.hbox(purity, 10)
 	DeepUi.title(prow, DeepContent.clarity_name(clarity), 18, DeepUi.PAPER)
 	DeepUi.wrap(prow, _clarity_words(clarity), 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_inclusions(item, purity)
+	_inclusions(item, purity, opts.get("context", {}))
 
 
 func _fight_buffs(parent: Node, context: Dictionary) -> void:
@@ -925,7 +949,7 @@ func _clarity_words(clarity: int) -> String:
 		3: return "An honest stone with nothing frozen inside."
 	return "Carries %s, the quirks that make one stone unlike another." % DeepUi.plural(DeepStone.inclusion_slots(clarity), "inclusion")
 
-func _inclusions(item: Dictionary, parent: Control) -> void:
+func _inclusions(item: Dictionary, parent: Control, context: Dictionary = {}) -> void:
 	if item.get("inclusions", []).is_empty():
 		return
 	## A grid, not a row per inclusion: the name column sizes to its widest pill, so every
@@ -941,9 +965,14 @@ func _inclusions(item: Dictionary, parent: Control) -> void:
 		var tone: Color = StoneCard.INCLUSION_TONES.get(cls, DeepUi.INFO)
 		var badge := DeepUi.pill(grid, str(StoneCard.INCLUSION_GLYPHS.get(cls, "spark")), str(inclusion.get("name", key)), tone, 13)
 		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var words := DeepUi.wrap(grid, str(inclusion.get("text", "")), 13, DeepUi.PAPER)
+		## A Fingerprint on a rail names what it is carrying, and is dimmed when it carries nothing.
+		var carrying: Dictionary = context.get("fingerprint", {}) if str(key) == "FINGERPRINT" else {}
+		var idle: bool = not carrying.is_empty() and str(carrying.get("inclusion", "")).is_empty()
+		var words := DeepUi.wrap(grid, DeepStone.fingerprint_line(carrying) if not carrying.is_empty() else str(inclusion.get("text", "")), 13, DeepUi.MUTED if idle else DeepUi.PAPER)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if idle:
+			badge.modulate.a = 0.6
 
 # --- dice --------------------------------------------------------------------------------------
 
@@ -1329,6 +1358,41 @@ func _fill_lapidary(character_key: String, tone: Color) -> void:
 				_close.disabled = false
 				DeepUi.breathe(_close, 0.7, 1.5))
 		reveal.tween_property(_close, "modulate:a", 1.0, 0.35)
+
+## How many things a gathering sheet lays out on one page before it turns to another.
+const GATHERING_PAGE := 21
+
+func _fill_gathering(title: String, text: String, glyph: String, stones: Array, dice: Array, captions: Array) -> void:
+	_stage_hint.hide()
+	var mark := DeepUi.center(_stage)
+	mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	DeepUi.icon(mark, glyph, 160, DeepUi.INFO.lightened(0.2))
+	DeepUi.title(_head, title, 28, DeepUi.PAPER)
+	DeepUi.wrap(_head, text, 14, DeepUi.MUTED).custom_minimum_size.x = 560
+	var count: int = stones.size() + dice.size()
+	var pages: int = maxi(1, int(ceil(float(count) / float(GATHERING_PAGE))))
+	for page_index in range(pages):
+		var page := _page("%d to %d" % [page_index * GATHERING_PAGE + 1, mini(count, (page_index + 1) * GATHERING_PAGE)] if pages > 1 else "", "gem" if not stones.is_empty() else "die")
+		var from: int = page_index * GATHERING_PAGE
+		var upto: int = mini(count, from + GATHERING_PAGE)
+		if from < stones.size():
+			_member_stones(page, stones.slice(from, mini(upto, stones.size())))
+		if upto > stones.size():
+			var flow := HFlowContainer.new()
+			flow.add_theme_constant_override("h_separation", 10)
+			flow.add_theme_constant_override("v_separation", 10)
+			page.add_child(flow)
+			for index in range(maxi(0, from - stones.size()), upto - stones.size()):
+				var pair: Array = dice[index]
+				var card := VBoxContainer.new()
+				card.add_theme_constant_override("separation", 2)
+				card.tooltip_text = str(captions[index]) if index < captions.size() else DeepDice.describe(pair[0])
+				flow.add_child(card)
+				card.add_child(Thumbs.DieThumb.new(pair[0], 72, int(pair[1])))
+				var caption := DeepUi.label(card, str(captions[index]) if index < captions.size() else str(pair[0].get("shape", "")), 12, DeepUi.INFO, HORIZONTAL_ALIGNMENT_CENTER)
+				caption.custom_minimum_size.x = 80
+	if pages > 1:
+		show_page("1 to %d" % GATHERING_PAGE)
 
 func _fill_announcement(text: String, glyph: String, tone: Color) -> void:
 	var mark := DeepUi.center(_stage)

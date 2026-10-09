@@ -29,6 +29,103 @@ static func picture(parent: Node, stone: Dictionary, size: float, live: bool = f
 	parent.add_child(thumb)
 	return thumb
 
+static func grade_entries(stone: Dictionary) -> Array:
+	## A stone's carat, Cut and Clarity as [glyph, figure, words, rungs reached, rungs]: the
+	## grade a full name spells out ("Fine Pristine 14-carat"), put as marks. Carat is a number
+	## (rungs 0); Cut and Clarity are rungs on their ladders, drawn as pips (see `Pips`).
+	## Empty for a stone whose grade is not known or not its own to show.
+	if not bool(stone.get("appraised", false)) or DeepStone.is_birthstone(stone):
+		return []
+	var cut: int = int(stone.get("cut", 0))
+	var clarity: int = int(stone.get("clarity", 0))
+	return [
+		["carat", str(int(stone.get("carat", 1))), "%d carats" % int(stone.get("carat", 1)), 0, 0],
+		["cut", str(cut + 1), "Cut: %s" % DeepContent.cut_name(cut), cut + 1, DeepContent.cuts().size()],
+		["clarity", str(clarity + 1), "Clarity: %s" % DeepContent.clarity_name(clarity), clarity + 1, DeepContent.clarities().size()],
+	]
+
+static func grade_marks(parent: Node, stone: Dictionary, size: int = 12, color: Color = DeepUi.PAPER) -> HBoxContainer:
+	## The grade as a row of marks beside a name, where a picture is too small to carry them.
+	var row := DeepUi.hbox(parent, maxi(6, size / 2))
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	for entry in grade_entries(stone):
+		if int(entry[4]) <= 0:
+			DeepUi.stat(row, str(entry[0]), str(entry[1]), color, size, str(entry[2]))
+			continue
+		var mark := DeepUi.hbox(row, maxi(2, size / 5))
+		mark.mouse_filter = Control.MOUSE_FILTER_PASS
+		mark.tooltip_text = str(entry[2])
+		DeepUi.icon(mark, str(entry[0]), float(size) + 1.0, color, str(entry[2]))
+		mark.add_child(Pips.new(int(entry[3]), int(entry[4]), maxf(3.0, float(size) * 0.4), color))
+	return row
+
+class Pips extends Control:
+	## A rank on its ladder as a row of dots, the rungs reached filled and the rest hollow: what
+	## a bare 1-based number said, read at a glance.
+	var filled: int = 0
+	var total: int = 5
+	var dot: float = 4.0
+	var tint: Color = DeepUi.PAPER
+	func _init(reached: int, rungs: int, edge: float, color: Color) -> void:
+		filled = reached
+		total = maxi(1, rungs)
+		dot = edge
+		tint = color
+		custom_minimum_size = Vector2(float(total) * dot + float(total - 1) * dot * 0.4, dot + 2.0)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	func _draw() -> void:
+		var step: float = dot * 1.4
+		for index in range(total):
+			var centre := Vector2(dot * 0.5 + step * float(index), size.y * 0.5)
+			if index < filled:
+				draw_circle(centre, dot * 0.5, tint)
+			else:
+				draw_arc(centre, dot * 0.5 - 0.5, 0.0, TAU, 14, Color(tint, 0.6), 1.0, true)
+
+static func marked_picture(parent: Node, stone: Dictionary, size: float, tooltip: String = "", interactive: bool = true) -> Control:
+	## A photograph with its carat, Cut and Clarity stacked over one corner as marks, the way a
+	## fight stacks what a gem has gained: for cards too narrow to spell the grade out. The
+	## picture stays live and right-clickable unless `interactive` is off, for a card that
+	## takes its own clicks.
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(size, size)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(holder)
+	var thumb := Thumbs.GemThumb.new(stone, size)
+	if interactive:
+		thumb.tooltip_text = (tooltip if not tooltip.is_empty() else DeepUi.stone_name(stone)) + "\nRight-click for details"
+	else:
+		thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(thumb)
+	var entries: Array = grade_entries(stone)
+	if entries.is_empty():
+		return holder
+	## A small picture gets smaller marks, or the stack would cover the stone.
+	var small: bool = size < 70.0
+	var marks := VBoxContainer.new()
+	marks.add_theme_constant_override("separation", 1)
+	marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	marks.z_index = 1
+	holder.add_child(marks)
+	for entry in entries:
+		var plate := PanelContainer.new()
+		plate.add_theme_stylebox_override("panel", DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.LINE_HI, 0.5), 5, 1 if small else 2))
+		plate.size_flags_horizontal = Control.SIZE_SHRINK_END
+		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		marks.add_child(plate)
+		var chip := DeepUi.hbox(plate, 2)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if int(entry[4]) > 0:
+			chip.add_child(Pips.new(int(entry[3]), int(entry[4]), 3.0 if small else 4.0, DeepUi.PAPER))
+		else:
+			DeepUi.label(chip, str(entry[1]), 9 if small else 10, DeepUi.PAPER)
+		DeepUi.icon(chip, str(entry[0]), 10 if small else 11, DeepUi.PAPER)
+	## Pinned to the bottom-right once the stack has its size.
+	marks.resized.connect(func() -> void: marks.position = Vector2(size, size) - marks.size)
+	marks.position = Vector2(size - 28, size - 48)
+	return holder
+
 static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> PanelContainer:
 	var size: float = float(opts.get("size", 84))
 	var appraised: bool = bool(stone.get("appraised", false)) or bool(opts.get("force_appraised", false))
@@ -95,11 +192,17 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 		var flawless := DeepUi.hbox(text, 6)
 		DeepUi.icon(flawless, "star", 14, DeepUi.tier_color("PEERLESS"))
 		DeepUi.effect_text(flawless, "Flawless: " + DeepStone.flawless_text(stone, opts.get("context", {})), 12, DeepUi.tier_color("PEERLESS")).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var carrying: Dictionary = opts.get("context", {}).get("fingerprint", {})
 	for key in stone.get("inclusions", []):
 		var inclusion: Dictionary = DeepContent.inclusion(str(key))
 		var line := DeepUi.hbox(text, 8)
 		_inclusion_chip(line, str(key))
-		DeepUi.wrap(line, str(inclusion.get("text", "")), 12, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## A Fingerprint on a rail says what it is carrying, and is dimmed when it carries nothing.
+		var idle: bool = str(key) == "FINGERPRINT" and not carrying.is_empty() and str(carrying.get("inclusion", "")).is_empty()
+		var words: String = DeepStone.fingerprint_line(carrying) if str(key) == "FINGERPRINT" and not carrying.is_empty() else str(inclusion.get("text", ""))
+		DeepUi.wrap(line, words, 12, DeepUi.DIM if idle else DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if idle:
+			line.modulate.a = 0.6
 	var footer := DeepUi.hbox(text, 14)
 	if bool(opts.get("provenance", false)) and not stone.get("provenance", {}).is_empty():
 		var where: Dictionary = stone.provenance
@@ -113,7 +216,7 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 		if not parts.is_empty():
 			DeepUi.stat(footer, "map", ", ".join(parts), DeepUi.DIM, 11, "Where it was found")
 	if bool(stone.get("temporary", false)):
-		DeepUi.stat(footer, "hourglass", "Temporary · lent for this run only", DeepUi.INFO, 12, "Filled a locked socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
+		DeepUi.stat(footer, "hourglass", "Temporary · lent for this run only", DeepUi.INFO, 12, "Filled an empty socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
 	elif DeepStone.is_fragile(stone):
 		DeepUi.stat(footer, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 12)
 	elif opts.has("value"):
@@ -138,9 +241,7 @@ static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: b
 	thumb.tooltip_text = DeepUi.stone_name(stone) + ("\n" + str(grade.name) if appraised else "") + "\nRight-click for details"
 	if caption:
 		var name: String = str(DeepStone.skill_of(stone).get("name", "")) if appraised else "%s raw" % DeepStone.size_name(int(stone.get("carat", 1)))
-		var l := DeepUi.label(column, name, 12, DeepUi.PAPER if appraised else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-		l.clip_text = true
-		l.custom_minimum_size.x = size
+		DeepUi.fit_label(column, name, 12, DeepUi.PAPER if appraised else DeepUi.MUTED, size)
 	return box
 
 static func mini(parent: Node, stone: Dictionary, size: float = 56.0, tooltip: String = "") -> Control:

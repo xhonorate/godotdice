@@ -13,6 +13,8 @@ var peer: ENetMultiplayerPeer
 var is_server := false
 var _was_connected := false
 var _connect_started := 0
+## The peers ENet still has, by id: a kicked guest usually hangs up before the host lets go of it.
+var _live: Dictionary = {}
 
 static func connect_timed_out(was_connected: bool, started_ms: int, now_ms: int) -> bool:
 	## Only a connection still being made can time out; one that is up stays up, however long
@@ -32,6 +34,10 @@ func host(port: int = 24567) -> Error:
 
 func join(address: String, port: int = 24567) -> Error:
 	close()
+	## An address that is no address at all is turned away here rather than by ENet, which
+	## logs an engine error before it gives up on it. The session says why to the player.
+	if address.strip_edges().is_empty() or (not address.is_valid_ip_address() and IP.resolve_hostname(address).is_empty()):
+		return ERR_CANT_RESOLVE
 	peer = ENetMultiplayerPeer.new()
 	var result := peer.create_client(address, port, 1)
 	if result != OK:
@@ -42,8 +48,12 @@ func join(address: String, port: int = 24567) -> Error:
 	return OK
 
 func _bind() -> void:
-	peer.peer_connected.connect(func(id: int): peer_connected.emit(str(id)))
-	peer.peer_disconnected.connect(func(id: int): peer_disconnected.emit(str(id)))
+	peer.peer_connected.connect(func(id: int):
+		_live[id] = true
+		peer_connected.emit(str(id)))
+	peer.peer_disconnected.connect(func(id: int):
+		_live.erase(id)
+		peer_disconnected.emit(str(id)))
 	peer.transfer_mode = MultiplayerPeer.TRANSFER_MODE_RELIABLE
 	peer.transfer_channel = 0
 	# Raw packets only; never expose RPCs or Variant object decoding to peers.
@@ -86,19 +96,25 @@ func send(peer_id: String, bytes: PackedByteArray) -> Error:
 	return peer.put_packet(bytes)
 
 func disconnect_peer(peer_id: String) -> void:
-	if peer != null:
+	## Told it was kicked, a guest hangs up on its own, and by the time the host's moment of
+	## grace is over ENet has already let it go: asking it to drop a peer it no longer has is
+	## an engine error.
+	if peer != null and _live.has(int(peer_id)):
 		peer.disconnect_peer(int(peer_id))
 
 func close() -> void:
 	if peer != null:
 		## Closing throws away whatever is still queued, and the last thing queued is usually
 		## the one worth hearing: the host closing the party, a guest saying goodbye.
-		if peer.host != null:
+		## A connection that has already dropped has no host left to flush, and asking for it
+		## is an engine error.
+		if peer.get_connection_status() != MultiplayerPeer.CONNECTION_DISCONNECTED and peer.host != null:
 			peer.host.flush()
 		peer.close()
 	peer = null
 	is_server = false
 	_was_connected = false
+	_live.clear()
 
 func _exit_tree() -> void:
 	close()

@@ -13,6 +13,7 @@ func _init() -> void:
 	upgrades()
 	edge_cases()
 	persistence()
+	weight()
 	print("Gem updates: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -58,12 +59,12 @@ func rolls(f: Dictionary, values: Array) -> void:
 		roll.held = false
 		roll.rerolls = 1
 
-func equip(f: Dictionary, key: String, flawless: bool = false, cut: int = 4, at: int = 0) -> void:
+func equip(f: Dictionary, key: String, flawless: bool = false, cut: int = 4, at: int = 0, carat: int = 1) -> void:
 	f.player.sockets[at] = "ANY"
-	f.player.rail[at] = DeepStone.make(key, 1, cut, 5 if flawless else 3, [], {}, "gem%d" % at)
+	f.player.rail[at] = DeepStone.make(key, carat, cut, 5 if flawless else 3, [], {}, "gem%d" % at)
 
-func cast(f: Dictionary, key: String, values: Array = [5, 5, 5, 2, 2], flawless: bool = false, cut: int = 4) -> Dictionary:
-	equip(f, key, flawless, cut)
+func cast(f: Dictionary, key: String, values: Array = [5, 5, 5, 2, 2], flawless: bool = false, cut: int = 4, carat: int = 1) -> Dictionary:
+	equip(f, key, flawless, cut, 0, carat)
 	rolls(f, values)
 	f.player.firing_target = f.player.target
 	return DeepBattle.resolve_gem(f.state, f.player, 0, {"dry": true}, f.rng.dice)
@@ -131,10 +132,19 @@ func attacks() -> void:
 	f.foe.block = 150
 	cast(f, "SHATTER", [5, 5, 5, 2, 2], true)
 	check(int(f.foe.hp) == 850 and int(f.foe.block) == 0, "Flawless Shatter strips every point, then deals exactly that amount")
+	## Flawless Apex doubles when the roll it reads is a crown: its die on its own top face (or
+	## past it, a face that has climbed). Every die here tops out at 20.
 	for value in [19, 20, 21]:
 		f = setup()
 		cast(f, "APEX", [value, 1, 2, 3, 4], true)
-		check(int(f.foe.hp) == 1000 - int(value * 1.5 * (2 if value == 20 else 1)), "Apex doubles only an exact 20")
+		check(int(f.foe.hp) == 1000 - int(value * 1.5 * (2 if value >= 20 else 1)), "Apex doubles only when its roll is a crown: %d" % value)
+	f = setup()
+	equip(f, "APEX", true)
+	rolls(f, [19, 6, 2, 3, 4])
+	f.player.hand[1].top = 6
+	f.player.firing_target = f.player.target
+	DeepBattle.resolve_gem(f.state, f.player, 0, {"dry": true}, f.rng.dice)
+	check(int(f.foe.hp) == 1000 - int(19 * 1.5), "another die on its top face does not double it: only the roll it reads counts")
 	f = setup()
 	f.foe.statuses.poison = 9
 	f.state.enemies[1].statuses.ward = 1
@@ -168,7 +178,7 @@ func status_gems() -> void:
 	check(int(f.player.hp) == 810, "Siphon heals 60% of the 18 enemy Poison, floored")
 	f = setup()
 	cast(f, "CURSE", [1, 1, 2, 3, 4], true)
-	check(int(f.foe.statuses.curse) == 2 and int(f.foe.max_hp) == 992 and int(f.foe.hp) == 990, "Curse stacks per one, lowers max HP per one, then deals stack damage")
+	check(int(f.foe.statuses.curse) == 2 and int(f.foe.max_hp) == 988 and int(f.foe.hp) == 985, "Curse stacks per one, lowers max HP per one (8 x 1.5), then deals stack damage (2 x 1.5, +20% from the Curse)")
 	f = setup()
 	f.foe.statuses.ward = 2
 	cast(f, "CURSE", [1, 1, 2, 3, 4])
@@ -237,9 +247,9 @@ func fortune() -> void:
 	check(DeepBattle.resolve_gem(f.state, f.player, 0, {"retrigger": true}, f.rng.dice).kind == "gem_fizzle", "repeat needs its own payment")
 	f = setup()
 	cast(f, "STAKE", [1, 2, 3, 4, 5], true)
-	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 1.75), "Flawless Stake spends five for exactly 75% amplification")
+	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 2.12), "Flawless Stake spends an exact five for 75% amplification, swelled by its own x1.5")
 	cast(f, "GILDED_ARMOR", [1, 2, 3, 4, 5])
-	check(int(f.player.block) == 49, "Gilded Armor uses remaining available Pyrite and preceding amplification")
+	check(int(f.player.block) == 59, "Gilded Armor uses remaining available Pyrite and preceding amplification: 28 x 2.12")
 	## Gilded Armor reads a straight now that it wears the trigger Windfall used to ask for.
 	## On its own fixture, because a gem that stays dark spends the amplification above.
 	check(cast(setup(), "GILDED_ARMOR").kind == "gem_fizzle", "Gilded Armor needs a straight")
@@ -283,7 +293,7 @@ func tailings() -> void:
 	rolls(f, [1, 2, 3, 4, 9])
 	for socket in range(3):
 		DeepBattle.resolve_gem(f.state, f.player, socket, {}, f.rng.dice)
-	check(int(f.player.gold) == 17, "Flawless Tailings pays 10 × 1.5 and one exact Pyrite more per fizzle")
+	check(int(f.player.gold) == 18, "Flawless Tailings pays 10 × 1.5 and one Pyrite more per fizzle, swelled the same: 2 × 1.5")
 	## A new turn clears what was paid along with what fizzled.
 	f.state.queue = [{"kind": "rail_begin", "unit": "p0"}]
 	DeepBattle._perform(f.state, f.state.queue.pop_front(), f.rng.dice, f.rng.creatures)
@@ -352,9 +362,9 @@ func upgrades() -> void:
 	check(JSON.stringify(f.state) == before, "forecast never appraises live stones or consumes currency")
 	var worth: int = DeepStone.value(f.player.haul[0]) + DeepStone.value(f.player.haul[1])
 	cast(f, "APPRAISE", [5, 5, 2, 3, 4], true)
-	check(f.player.haul.all(func(s: Dictionary) -> bool: return s.appraised and s.inclusions_revealed) and int(f.foe.hp) == 1000 - worth, "Appraise identifies stones and deals their combined value")
+	check(f.player.haul.all(func(s: Dictionary) -> bool: return s.appraised and s.inclusions_revealed) and int(f.foe.hp) == 1000 - worth * 150 / 100, "Appraise identifies stones and deals their combined value, x1.5 when Flawless")
 	cast(f, "APPRAISE")
-	check(int(f.foe.hp) == 1000 - worth, "already identified stones cannot pay again")
+	check(int(f.foe.hp) == 1000 - worth * 150 / 100, "already identified stones cannot pay again")
 
 func persistence() -> void:
 	for spec in [[0, 50, -30, false, "victory", 27], [100, 0, -30, false, "victory", 77], [100, 0, 30, true, "victory", 144], [0, 50, -30, true, "victory", 84], [100, 0, -30, false, "defeat", 70], [0, 50, -30, false, "defeat", 0]]:
@@ -421,7 +431,7 @@ func edge_cases() -> void:
 	f = setup()
 	var maximum: int = int(f.player.max_hp)
 	cast(f, "THRIVE", [8, 1, 2, 3, 4], true)
-	check(int(f.player.max_hp) == maximum + 1, "Flawless Thrive grants exactly one permanent max HP")
+	check(int(f.player.max_hp) == maximum + 1, "a one-carat Flawless Thrive grants one permanent max HP")
 	cast(f, "CROSSCUT", [1, 3, 5, 2, 2], true)
 	check(int(f.foe.hp) == 987 and int(f.player.block) == 4, "Crosscut deals odd-die damage and its Flawless Block rider")
 	f = setup()
@@ -437,3 +447,73 @@ func edge_cases() -> void:
 		f.player.ore = 25 - 5 * cut
 		cast(f, "STAKE", [1, 2, 3, 4, 5], false, cut)
 		check(DeepRules.pyrite(f.player) == 0 and is_equal_approx(float(f.player.amplify), 1.5), "Stake always amplifies 50%% at Cut %d" % cut)
+
+func weight() -> void:
+	## Every gem answers to its carat. A 24-carat Clear stone fires at x10: a whole-number
+	## effect happens exactly four times over, and everything else is ten times the number.
+	var f: Dictionary = setup()
+	cast(f, "GLIMMER", [1, 2, 3, 4, 5], false, 4, 24)
+	check(int(f.player.dice[0].faces[0].value) == 5 and int(f.player.hand[0].value) == 5, "a heavy Glimmer raises the face four times over")
+	## Every proc judges its die again: under "below 6" a 5 is raised once, to 6, and the
+	## next proc moves on to the next die still under the line, or does nothing at all.
+	f = setup()
+	cast(f, "GLIMMER", [5, 5, 2, 6, 6], false, 3, 24)
+	var shown: Array = f.player.hand.map(func(r: Dictionary) -> int: return int(r.value))
+	check(shown == [6, 6, 4, 6, 6], "a heavy Glimmer never lifts a die past its line: %s" % str(shown))
+	check(int(f.player.dice[0].faces[4].value) == 6 and int(f.player.dice[2].faces[1].value) == 4, "and the dice keep exactly those raises")
+	f = setup()
+	cast(f, "GLIMMER", [5, 6, 6, 6, 6], false, 3, 24)
+	shown = f.player.hand.map(func(r: Dictionary) -> int: return int(r.value))
+	check(shown == [6, 6, 6, 6, 6], "with no die left under the line, the spare procs do nothing: %s" % str(shown))
+	f = setup()
+	var maximum: int = int(f.player.max_hp)
+	cast(f, "THRIVE", [8, 1, 2, 3, 4], true, 4, 24)
+	check(int(f.player.max_hp) == maximum + 5, "a heavy Flawless Thrive (x15) grants five max HP")
+	f = setup()
+	equip(f, "STRIKE", false, 4, 0)
+	equip(f, "ENRICH", false, 4, 1, 24)
+	equip(f, "STRIKE", false, 4, 2)
+	rolls(f, [1, 2, 3, 4, 5])
+	DeepBattle.resolve_gem(f.state, f.player, 1, {"dry": true}, f.rng.dice)
+	check(int(f.player.gem_buffs.gem0.carat) == 4 and int(f.player.gem_buffs.gem2.carat) == 4, "a heavy Enrich gives its neighbours four carats")
+	f = setup()
+	equip(f, "STRIKE", false, 4, 0)
+	equip(f, "FACET", false, 4, 1, 24)
+	rolls(f, [20, 2, 3, 4, 5])
+	DeepBattle.resolve_gem(f.state, f.player, 1, {"dry": true}, f.rng.dice)
+	check(int(f.player.gem_buffs.gem0.cut) == 4, "a heavy Facet gives four Cut steps")
+	f = setup()
+	equip(f, "STRIKE", false, 4, 0)
+	equip(f, "ECHO", false, 4, 1, 24)
+	rolls(f, [1, 2, 3, 4, 5])
+	f.player.firing_target = f.player.target
+	var size: int = f.player.rail.size()
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+	check(f.player.rail.size() == size + 4, "a heavy Echo makes four Void copies (%d -> %d)" % [size, f.player.rail.size()])
+	f = setup()
+	f.player.block = 10
+	cast(f, "MORTAR", [1, 2, 3, 4, 5], false, 0, 24)
+	check(int(f.player.statuses.retain) == 10, "a heavy Mortar retains ten times its share")
+	f = setup()
+	cast(f, "STAKE", [1, 2, 3, 4, 5], false, 4, 24)
+	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 6.0), "a heavy Stake pays its exact price for ten times the amplification")
+	f = setup()
+	cast(f, "CURSE", [1, 1, 2, 3, 4], false, 4, 24)
+	check(int(f.foe.statuses.curse) == 8 and int(f.foe.max_hp) == 920, "a heavy Curse applies its stacks four times over and ten times the max HP loss")
+	f = setup()
+	f.foe.statuses.curse = 2
+	cast(f, "CURSE", [1, 2, 3, 4, 5], true, 4, 24)
+	check(int(f.foe.statuses.curse) == 7 and int(f.foe.max_hp) == 940 and int(f.foe.hp) == 762, "a heavy Flawless Curse (x15) hits for its 7 stacks x15, +70% from the Curse")
+	f = setup()
+	f.player.haul = [DeepStone.make("STRIKE", 1, 0, 3, [], {}, "raw0")]
+	var worth: int = DeepStone.value(f.player.haul[0])
+	cast(f, "APPRAISE", [5, 5, 2, 3, 4], false, 4, 24)
+	check(int(f.foe.hp) == 1000 - worth * 10, "a heavy Appraise throws the stone for ten times its worth")
+	f = setup()
+	equip(f, "CRUSH", false, 4, 0)
+	equip(f, "TAILINGS", true, 4, 1, 24)
+	rolls(f, [1, 2, 3, 4, 9])
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+	check(int(f.player.gold) == 75 + 15, "a heavy Flawless Tailings swells its extra Pyrite too")

@@ -3,8 +3,10 @@
 
 import { setPack } from './sim/content.js';
 import * as Sim from './sim/simulate.js';
+import * as Balance from './sim/balance.js';
 
-const jobs = { skillStats: Sim.skillStats, handStats: Sim.handStats, creatureTurn: Sim.creatureTurn, encounters: Sim.encounters, stones: Sim.stones, triggerOdds: Sim.triggerOdds };
+const jobs = { skillStats: Sim.skillStats, handStats: Sim.handStats, creatureTurn: Sim.creatureTurn, encounters: Sim.encounters, stones: Sim.stones, triggerOdds: Sim.triggerOdds,
+	balanceTask: Balance.runTask };
 
 self.onmessage = (event) => {
 	const { id, type, params } = event.data;

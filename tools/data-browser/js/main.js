@@ -2,6 +2,7 @@
 
 import * as C from './sim/content.js';
 import * as Engine from './engine.js';
+import * as Sweeps from './sweeps.js';
 import { setManifest } from './gemart.js';
 import { h, clear } from './ui.js';
 import overview from './views/overview.js';
@@ -15,9 +16,10 @@ import lapidaries from './views/lapidaries.js';
 import oddities from './views/oddities.js';
 import music from './views/music.js';
 import gold from './views/gold.js';
+import balance from './views/balance.js';
 
-const VIEWS = [overview, skills, stones, inclusions, dice, enemies, descent, lapidaries, oddities, gold, music];
-const GROUPS = [['Analysis', ['overview']], ['Stones', ['skills', 'stones', 'inclusions']], ['The bowl', ['dice', 'lapidaries']], ['The mine', ['enemies', 'descent', 'oddities']], ['The workshop', ['gold']], ['Sound', ['music']]];
+const VIEWS = [overview, balance, skills, stones, inclusions, dice, enemies, descent, lapidaries, oddities, gold, music];
+const GROUPS = [['Analysis', ['overview', 'balance']], ['Stones', ['skills', 'stones', 'inclusions']], ['The bowl', ['dice', 'lapidaries']], ['The mine', ['enemies', 'descent', 'oddities']], ['The workshop', ['gold']], ['Sound', ['music']]];
 
 const SETTINGS_KEY = 'deepcut.browser.settings';
 const defaults = { bowl: ['D6', 'D6', 'D6', 'D8', 'D8'], rerolls: 2, depth: 5, party: 1, mine: 'QUARRY', samples: 4000 };
@@ -94,6 +96,7 @@ async function start() {
 		if (manifestResponse.ok) setManifest(await manifestResponse.json());
 		document.getElementById('pack-version').textContent = `v${pack.version ?? '?'}`;
 		await Engine.start(pack);
+		Sweeps.init(pack);
 		Engine.onBusy((n) => document.getElementById('busy').classList.toggle('is-on', n > 0));
 		window.addEventListener('hashchange', render);
 		render();

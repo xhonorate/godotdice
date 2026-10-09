@@ -19,6 +19,7 @@ func _init() -> void:
 	_test_coming_home()
 	_test_commissions()
 	_test_no_profit()
+	_test_seam_and_fragile_find()
 	print("Economy: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -172,7 +173,10 @@ func _test_temporary() -> void:
 	var ada: Dictionary = DeepDescent.player(state, "a")
 	var bo: Dictionary = DeepDescent.player(state, "b")
 	check(state.phase == "grubstake", "a deeper run opens at the shaft head")
-	check(ada.temps.size() == 2 and bo.temps.size() == 3, "a temporary stone is offered for every shut socket (%d, %d)" % [ada.temps.size(), bo.temps.size()])
+	## Bo has three sockets open and one stone to set in them, so the two empty open ones
+	## are lent stones as well as the three shut ones.
+	check(ada.temps.size() == 2 and bo.temps.size() == 5, "a temporary stone is offered for every empty socket, open or shut (%d, %d)" % [ada.temps.size(), bo.temps.size()])
+	check(bo.temps.map(func(o: Dictionary) -> int: return int(o.index)) == [1, 2, 3, 4, 5], "in socket order, after the one stone")
 	var sockets: Array = DeepContent.character("FLORIN").sockets
 	for offer in bo.temps:
 		check(offer.picks.size() == 3 and int(offer.chosen) == -1, "three to choose from, none taken")
@@ -191,9 +195,14 @@ func _test_temporary() -> void:
 	check(first.ok and ada.rail[int(ada.temps[0].index)].id == ada.temps[0].picks[1].id and int(first.event.left) == 1, "the one taken is set in its socket")
 	check(not cmd(state, "a", "temporary", {"index": int(ada.temps[0].index), "pick": 0}).ok, "and the socket keeps it")
 	cmd(state, "a", "temporary", {"index": int(ada.temps[1].index), "pick": 2})
+	## Then each die is answered for (kept, here), as a deeper start asks.
+	for offer in ada.dice_offers:
+		cmd(state, "a", "dice_offer", {"index": int(offer.index), "pick": -1})
 	check(DeepDescent.temporary_left(ada) == 0 and cmd(state, "a", "stake", {"offer": state.grubstake.offers.a[1].id}).ok, "with every one taken, the stake")
 	for offer in bo.temps:
 		cmd(state, "b", "temporary", {"index": int(offer.index), "pick": 0})
+	for offer in bo.dice_offers:
+		cmd(state, "b", "dice_offer", {"index": int(offer.index), "pick": -1})
 	var staked: Dictionary = cmd(state, "b", "stake", {"offer": state.grubstake.offers.b[1].id})
 	check(staked.ok and state.phase == "tunnels", "and the tunnels open")
 	## A party that pushed on through the Quarry gets no temporary stones: it brought its rail.
@@ -233,6 +242,29 @@ func _test_loopholes() -> void:
 		var fused: Dictionary = _apply_action({"kind": "fuse", "carry": 30}, unit, {"keep_id": "keep%d" % seed_value, "feed_id": "feed%d" % seed_value}, fire, mine)
 		var made: Array = fused.get("changed", [])
 		check(not made.is_empty() and DeepStone.is_fragile(made[0]) and bool(made[0].get("temporary", false)), "a stone fused with a temporary one is temporary too (seed %d)" % seed_value)
+
+func _test_seam_and_fragile_find() -> void:
+	## Prying out "the big one" never gives less than a Small stone, even in the Quarry.
+	var quarry: Dictionary = DeepContent.mine("QUARRY")
+	var pry: Dictionary = {}
+	for choice in DeepContent.section("oddities").get("SEAM", {}).get("choices", []):
+		if str(choice.get("id", "")) == "pry":
+			pry = choice.action
+	check(str(pry.get("min_size", "")) == "SMALL", "the seam's pry asks for a Small stone at least")
+	var smallest: int = 99
+	for seed_value in range(120):
+		var unit: Dictionary = DeepBattle.make_player("s", "S", "ARDOR", [], dice("ARDOR", "s"))
+		unit.haul = []
+		var result: Dictionary = DeepOddities.apply(pry, unit, {}, DeepRng.streams(seed_value).oddities, {"mine": quarry, "depth": 1, "run": "test"})
+		smallest = mini(smallest, int(unit.haul[0].carat))
+		check(bool(result.get("ok", false)) and int(unit.haul[0].carat) <= int(quarry.carat.cap), "and stays inside the mine's band (seed %d)" % seed_value)
+	check(smallest >= DeepStone.size_low("SMALL"), "so the smallest of 120 pries is Small: %d carats" % smallest)
+	## A Fragile Find comes from depth 20, or from the bottom of a mine that ends sooner.
+	var state: Dictionary = DeepDescent.new_run(config(13, "QUARRY", true))
+	var ada: Dictionary = DeepDescent.player(state, "a")
+	var out: Dictionary = {"made": []}
+	DeepBoons._effect(state, ada, DeepContent.boon("FRAGILE_STONE").effects[0], {}, -1, -1, DeepRng.streams(13).boons, out)
+	check(out.made.size() == 1 and int(out.made[0].provenance.depth) == 16, "a Fragile Find in the 16-deep Quarry comes from depth 16: %s" % str(out.made[0].get("provenance", {}) if not out.made.is_empty() else {}))
 
 func _apply_action(action: Dictionary, unit: Dictionary, payload: Dictionary, rng: RandomNumberGenerator, mine: Dictionary) -> Dictionary:
 	## One oddity action on its own, as a card's choice would play it.

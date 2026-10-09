@@ -29,7 +29,7 @@ const MATERIAL_PALETTE := {
 	"ruby": ["e0473c", "6b1d18"], "sapphire": ["3f7fe0", "1c3a6b"], "emerald": ["3fb56b", "1c5636"],
 	"amethyst": ["8b5fd6", "402a6b"], "citrine": ["e2b23a", "6f5313"], "diamond": ["e8eef5", "8e9bad"],
 	"opal": ["eceaf6", "9a93c4"], "glass": ["bfe6ef", "5b8c99"], "crystal": ["d6f0ff", "6f9ab5"],
-	"iron": ["9aa7b8", "3c4656"], "fools_gold": ["e6c65a", "7a5f18"], "granite": ["9a968f", "4a4742"],
+	"iron": ["9aa7b8", "3c4656"], "cloud": ["c8d0dc", "6f7a8c"], "fools_gold": ["e6c65a", "7a5f18"], "granite": ["9a968f", "4a4742"],
 	"blood": ["a32b2b", "4d1212"]}
 
 ## What a special face is tinted toward on the solid, and the mark drawn on it.

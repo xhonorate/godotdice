@@ -30,6 +30,7 @@ const MATERIAL_LOOKS := {
 	"amethyst": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
 	"citrine": {"alpha": 0.96, "roughness": 0.18, "metallic": 0.55, "glow": 0.16},
 	"iron": {"alpha": 1.0, "roughness": 0.52, "metallic": 0.95, "glow": 0.0},
+	"cloud": {"alpha": 0.88, "roughness": 0.95, "metallic": 0.0, "glow": 0.1},
 	"fools_gold": {"alpha": 1.0, "roughness": 0.24, "metallic": 1.0, "glow": 0.12},
 	"granite": {"alpha": 1.0, "roughness": 0.88, "metallic": 0.04, "glow": 0.0},
 	"blood": {"alpha": 1.0, "roughness": 0.3, "metallic": 0.12, "glow": 0.2}}
@@ -172,7 +173,8 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 		_signature = signature
 		_rebuild()
 	_face_index = clampi(int(roll.get("face", 0)), 0, maxi(0, _frames.size() - 1))
-	if bool(roll.get("flipped", false)):
+	if bool(roll.get("flipped", false)) and _value_at(_face_index) != int(roll.get("value", 0)):
+		## A shift lands on a real face and says which; an older one only said the number.
 		var shifted_value: int = int(roll.get("value", 0))
 		for index in range(_frames.size()):
 			if _value_at(index) == shifted_value and _kind_at(index) == "plain":
@@ -328,9 +330,11 @@ func _wear_material(palette: Dictionary) -> void:
 	body_material.emission_energy_multiplier = glow
 
 func _face_values() -> String:
+	## Every face's number and its etching: a face etched where it stands (a carver's needle,
+	## a creature's brand) keeps its number, and the solid still has to be recut to show it.
 	var values: Array = []
 	for face in die.get("faces", []):
-		values.append(str(face.get("value", face) if face is Dictionary else face))
+		values.append(("%s:%s" % [str(face.get("value", 0)), str(face.get("kind", "plain"))]) if face is Dictionary else str(face))
 	return ",".join(values)
 
 func _shape() -> String:

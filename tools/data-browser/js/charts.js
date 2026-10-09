@@ -17,8 +17,8 @@ export function svg(tag, attrs = {}, ...children) {
 	return el;
 }
 
-const INK = { text: 'var(--text-2)', muted: 'var(--muted)', grid: 'var(--grid)', axis: 'var(--axis)', surface: 'var(--surface)' };
-const FONT = 11;
+export const INK = { text: 'var(--text-2)', muted: 'var(--muted)', grid: 'var(--grid)', axis: 'var(--axis)', surface: 'var(--surface)' };
+export const FONT = 11;
 
 function niceTicks(max, count = 4) {
 	if (max <= 0) return [0];
@@ -47,7 +47,7 @@ export function markPath(shape, cx, cy, r) {
 }
 export function mark(shape, cx, cy, r, fill, extra = {}) { return svg('path', { d: markPath(shape, cx, cy, r), fill, stroke: INK.surface, 'stroke-width': 2, 'paint-order': 'stroke', ...extra }); }
 
-function frame(width, height, pad) {
+export function frame(width, height, pad) {
 	const el = svg('svg', { viewBox: `0 0 ${width} ${height}`, width: '100%', height: '100%', class: 'chart', preserveAspectRatio: 'xMidYMid meet', style: `aspect-ratio:${width}/${height}` });
 	return { el, x0: pad.l, y0: pad.t, w: width - pad.l - pad.r, hh: height - pad.t - pad.b };
 }

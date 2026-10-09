@@ -153,7 +153,7 @@ func _test_composer() -> void:
 	check(DeepSynth.new(1.0).voice(0.0, 0.5, 220.0, 0.4, "saw", 0.05, 0.3, 3, 10.0, 800.0).peak() > 0.05, "a held voice is audible")
 	var held := DeepSynth.new(1.0).voice(0.0, 0.5, 220.0, 0.4, "sine", 0.05, 0.3)
 	check(absf(held.samples[int(0.79 * DeepSynth.RATE)]) < 0.02, "a held voice dies away after its release")
-	for voice in VOICES + ["brass", "strings", "kick", "taiko", "thud", "tom", "frame", "snare", "rim", "hat", "shaker", "tick", "tick_low", "wood", "wood_low", "anvil", "chime", "drip", "drip_low", "swell"]:
+	for voice in VOICES + ["brass", "strings", "kick", "taiko", "thud", "tom", "frame", "snare", "rim", "hat", "shaker", "tick", "tick_low", "wood", "wood_low", "anvil", "chime", "drip", "drip_low", "swell", "spiccato", "horn", "braam", "timpani"]:
 		var note: PackedFloat32Array = DeepComposer.sound(str(voice), 220.0, 0.4, 7)
 		var loudest: float = 0.0
 		for value in note:
@@ -211,7 +211,7 @@ func _test_baked() -> void:
 	for id in DeepScore.TRACKS:
 		var spec: Dictionary = DeepScore.track(str(id))
 		var strips: Array = DeepMusic.baked(str(id))
-		check(strips.size() == clampi(int(spec.get("layers", 5)), 1, 5), "%s is baked in every layer it is written in (bake: node tools/data-browser/music.mjs bake %s)" % [id, id])
+		check(strips.size() == clampi(int(spec.get("layers", DeepComposer.LAYERS.size())), 1, DeepComposer.LAYERS.size()), "%s is baked in every layer it is written in (bake: node tools/data-browser/music.mjs bake %s)" % [id, id])
 		var p: Dictionary = DeepComposer.plan(spec)
 		var want: float = float(p.total) / float(DeepComposer.RATE)
 		for i in range(strips.size()):
@@ -247,15 +247,22 @@ func _test_director() -> void:
 	var warden: Array = DeepMusic.layer_levels("warden", 0.0)
 	check(walk_top[DeepComposer.DRIVE] == 0.0 and fight[DeepComposer.DRIVE] > 0.5, "the drums are for fights")
 	check(walk_deep[DeepComposer.PULSE] > walk_top[DeepComposer.PULSE] and walk_deep[DeepComposer.MELODY] > walk_top[DeepComposer.MELODY], "deeper, the walk grows")
+	var elite: Array = DeepMusic.layer_levels("elite", 0.0)
 	check(warden[DeepComposer.PERIL] > fight[DeepComposer.PERIL], "a Warden brings the horns")
+	check(elite[DeepComposer.THREAT] > 0.5 and elite[DeepComposer.PERIL] == 0.0, "an elite brings the big drums and no more")
+	check(warden[DeepComposer.THREAT] > 0.5 and warden[DeepComposer.BED] < fight[DeepComposer.BED], "a Warden brings the big drums and pulls the pads back for them")
+	check(DeepMusic.heat("explore") == 0.0 and DeepMusic.heat("fight") > 0.0 and DeepMusic.heat("warden") > DeepMusic.heat("elite") and DeepMusic.heat("elite") > DeepMusic.heat("fight"), "the bus runs hotter the bigger the fight")
+	check(DeepMusic.cutoff_for(1.0, 0.0) < 8000.0 and DeepMusic.cutoff_for(1.0, 0.5) >= DeepMusic.OPEN_CUTOFF - 1.0 and DeepMusic.cutoff_for(0.0, 0.0) >= DeepMusic.OPEN_CUTOFF - 1.0, "the calm is dark in a mine, open at home, and a fight opens it")
+	check(not DeepMusic.lifts("quarry_lantern", "fight") and DeepMusic.lifts("quarry_lantern", "warden") == bool(DeepScore.track("quarry_lantern").get("warden_lift", false)), "only a Warden lifts the key, and only for a piece that asks")
+	for id in DeepScore.TRACKS:
+		var bar: float = DeepMusic.bar_seconds(str(id))
+		check(bar > 1.0 and bar < 5.0, "%s's bar is a sensible length (%.2f s)" % [id, bar])
 	for mood in DeepMusic.MOODS:
 		var levels: Array = DeepMusic.layer_levels(str(mood), 0.5)
 		check(levels.size() == DeepComposer.LAYERS.size() and levels[DeepComposer.BED] > 0.5, "%s always keeps the bed" % mood)
 	## No display: the player never starts, and every call is a quiet no-op.
 	check(DeepMusic.service() == null, "no display, no score player")
 	DeepMusic.follow(home)
-	DeepMusic.preview("QUARRY", "quarry_lantern", "fight")
-	DeepMusic.end_preview()
 	DeepMusic.levels({"music_volume": 0.3, "music_picks": {"QUARRY": "quarry_timber"}})
 	check(DeepMusic.picks().get("QUARRY", "") == "quarry_timber", "picks are taken from the settings")
 	DeepMusic.levels({"music_picks": {}})

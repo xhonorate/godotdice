@@ -43,7 +43,7 @@ shape; a pattern is never offered for a die that cannot take it.
 | **Split** | drop the `2t` middlemost values, add `t` more copies of 1 and of `n` | d6+ | UNCOMMON |
 | **Gambler's** | every face showing 6 or 8 becomes 7 | d6–d12 only | UNCOMMON |
 | **Paired** | pick `n/2` distinct values from 1…n at random; each appears twice | d6+ | UNCOMMON |
-| **Stretched** | face `i` shows `2i`, so the die tops out at `2n` | d4–d50 (`2n ≤ 100`) | RARE |
+| **Stretched** | face `i` shows `2i`, so the die tops out at `2n` | d4+ (a d100 reads 200) | RARE |
 | **Shallow** | face `i` shows `ceil(i/2)`; `top` stays `n` | d6+ | UNCOMMON |
 
 **Split's `t`:** 1 for d6–d16, 2 for d20–d30, 3 for d40+. The face count is unchanged,
@@ -88,7 +88,7 @@ are thrown fresh. The player may still spend a reroll on it deliberately. Becaus
 never rerolled it also satisfies `held` triggers for free, which is what the old
 `always_held` engraving did.
 
-**Tally has no cap** beyond `VALUE_CAP` (100). It raises the stored face value, so it
+**Tally has no cap**, and neither does any face (October 8, 2026). It raises the stored face value, so it
 also raises the die's `top` (§4) — a Tally d6 sitting at 14 makes its own 1–5 faces count
 as low dice. That is a real trade, not a bug: it feeds totals and crowns while quietly
 feeding Rue's low-dice triggers too. It ticks up as the face is landed on, with its own
@@ -106,10 +106,10 @@ tops the die at 12, and pairs with other 12s rather than with other 6s. Good for
 carver raising a face, an enemy grinding a face down.
 
 **Roll-time modifiers** are computed each throw and never written back: Doubled's ×2,
-Iron's floor, Exploding's chain, Blank's zero.
+Iron's and Cloud's second throw, Exploding's chain, Blank's zero.
 
 `top` is the highest **effective** value any face of the die can show — printed value
-plus stored mutations, then Doubled — clamped to `VALUE_CAP`. A pattern may override it
+plus stored mutations, then Doubled, with no ceiling. A pattern may override it
 (Shallow keeps the shape's own `n`, which is the whole point of the Phial). Everything
 that reads a die against itself reads `top`: crowns, `low_dice`, `high_pct`, `max_total`.
 
@@ -142,7 +142,8 @@ Rare by design: a material is the biggest single thing that can happen to a die.
 | **Opal** | +50% strength to *any* gem it helps activate | LEGENDARY |
 | **Glass** | +50% to any gem it helps activate; **10% per roll to shatter and be destroyed** | RARE |
 | **Crystal** | +1 Resonance on every roll and every reroll, no limit | RARE |
-| **Iron** | never shows less than a quarter of its `top`, rounded up | UNCOMMON |
+| **Iron** | thrown twice, keeps the higher face (a tie keeps the first) | UNCOMMON |
+| **Cloud** | thrown twice, keeps the lower face (a tie keeps the first) | UNCOMMON |
 | **Fool's Gold** | +2 pyrite on every roll and every reroll | UNCOMMON |
 | **Granite** | immune to every enemy die effect: etch, lock, destroy, grind, downgrade | COMMON |
 | **Blood** | −2 HP whenever it is **rerolled** (never on the opening roll); the showing face gains +1 permanently whenever an enemy unit dies | RARE |

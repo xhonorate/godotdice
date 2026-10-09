@@ -4,7 +4,7 @@ extends RefCounted
 ##
 ## A piece is not notes: it is a key and a mode, a tempo, a chord for every two bars, the
 ## voices that play it and a seed the tune is drawn from. `composer.gd` writes the notes, in
-## five layers that always play together (see `DeepComposer.LAYERS`), and the score player in
+## six layers that always play together (see `DeepComposer.LAYERS`), and the score player in
 ## `music.gd` turns the layers up and down with what is happening in the mine.
 ##
 ## The pieces are written in `content/score.json`. The game does not write them while it

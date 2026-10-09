@@ -174,6 +174,163 @@ static func _moved(shapes: Array, offset: Vector2, scale: float) -> Array:
 			moved.append({"op": shape.op, "poly": poly})
 	return moved
 
+static func _fitted(shapes: Array, margin: float = 0.06) -> Array:
+	## Scaled and centred so every added part keeps `margin` clear of the square's edge on
+	## its longer side. The etch blurs the mask before it bevels it, so ink drawn right up to
+	## the edge comes out cut off on the stone.
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for shape in shapes:
+		if shape.op != "add":
+			continue
+		if shape.has("circle"):
+			var circle: Array = shape.circle
+			lo = lo.min(Vector2(circle[0] - circle[2], circle[1] - circle[2]))
+			hi = hi.max(Vector2(circle[0] + circle[2], circle[1] + circle[2]))
+		else:
+			for point in shape.poly:
+				lo = lo.min(point)
+				hi = hi.max(point)
+	var scale: float = (1.0 - margin * 2.0) / maxf(hi.x - lo.x, hi.y - lo.y)
+	return _moved(shapes, Vector2(0.5, 0.5) - (lo + hi) * 0.5 * scale, scale)
+
+static func _turned(shapes: Array, angle: float) -> Array:
+	## Another glyph rotated about the middle of the square, so a mark can be borrowed at a tilt.
+	var middle := Vector2(0.5, 0.5)
+	var turned: Array = []
+	for shape in shapes:
+		if shape.has("circle"):
+			var circle: Array = shape.circle
+			var at := (Vector2(circle[0], circle[1]) - middle).rotated(angle) + middle
+			turned.append({"op": shape.op, "circle": [at.x, at.y, circle[2]]})
+		else:
+			var poly := PackedVector2Array()
+			for point in shape.poly:
+				poly.append((point - middle).rotated(angle) + middle)
+			turned.append({"op": shape.op, "poly": poly})
+	return turned
+
+static func _rounded(x0: float, y0: float, x1: float, y1: float, radius: float) -> PackedVector2Array:
+	## A rectangle with its corners rounded off, a quarter circle at each.
+	var built := PackedVector2Array()
+	for corner in [[x1 - radius, y0 + radius, -PI * 0.5], [x1 - radius, y1 - radius, 0.0], [x0 + radius, y1 - radius, PI * 0.5], [x0 + radius, y0 + radius, PI]]:
+		for step in 7:
+			var angle: float = float(corner[2]) + PI * 0.5 * float(step) / 6.0
+			built.append(Vector2(corner[0], corner[1]) + Vector2(cos(angle), sin(angle)) * radius)
+	return built
+
+static func _point(at) -> Vector2:
+	return at if at is Vector2 else Vector2(float(at[0]), float(at[1]))
+
+static func _stroke(points: Array, thickness: float, op := "add") -> Array:
+	## A polyline with round joints and round ends, so a stroke never ends on a square corner.
+	var built: Array = []
+	for index in range(points.size() - 1):
+		built.append({"op": op, "poly": _bar(_point(points[index]), _point(points[index + 1]), thickness)})
+	for at in points:
+		var point := _point(at)
+		built.append({"op": op, "circle": [point.x, point.y, thickness * 0.5]})
+	return built
+
+static func _curve(from_point, control, to_point, steps: int = 12) -> Array:
+	## Points along a quadratic curve, both ends included.
+	var a := _point(from_point)
+	var b := _point(control)
+	var c := _point(to_point)
+	var points: Array = []
+	for index in steps + 1:
+		var t := float(index) / float(steps)
+		points.append(a.lerp(b, t).lerp(b.lerp(c, t), t))
+	return points
+
+static func _diamond(centre: Vector2, half_width: float, half_height: float) -> PackedVector2Array:
+	return PackedVector2Array([centre + Vector2(0.0, -half_height), centre + Vector2(half_width, 0.0),
+		centre + Vector2(0.0, half_height), centre + Vector2(-half_width, 0.0)])
+
+static func _ellipse(centre: Vector2, radius_x: float, radius_y: float, turn: float = 0.0, steps: int = 48) -> PackedVector2Array:
+	var built := PackedVector2Array()
+	for index in steps:
+		var angle := TAU * float(index) / float(steps)
+		built.append(centre + Vector2(cos(angle) * radius_x, sin(angle) * radius_y).rotated(turn))
+	return built
+
+static func _along(centre: Vector2, radius_x: float, radius_y: float, from_angle: float, to_angle: float, steps: int = 32) -> Array:
+	## Points along an elliptical arc, both ends included.
+	var points: Array = []
+	for index in steps + 1:
+		var angle := lerpf(from_angle, to_angle, float(index) / float(steps))
+		points.append(centre + Vector2(cos(angle) * radius_x, sin(angle) * radius_y))
+	return points
+
+static func _band(centre: Vector2, radius_x: float, radius_y: float, thickness: float, from_angle: float, to_angle: float, turn: float = 0.0, steps: int = 40) -> PackedVector2Array:
+	## A stretch of an elliptical ring, `thickness` wide about its centre line. Run all the
+	## way round it is a whole ring, its hole left by the even-odd fill.
+	var built := PackedVector2Array()
+	for index in steps + 1:
+		var angle := lerpf(from_angle, to_angle, float(index) / float(steps))
+		built.append(centre + Vector2(cos(angle) * (radius_x + thickness * 0.5), sin(angle) * (radius_y + thickness * 0.5)).rotated(turn))
+	for index in steps + 1:
+		var angle := lerpf(to_angle, from_angle, float(index) / float(steps))
+		built.append(centre + Vector2(cos(angle) * (radius_x - thickness * 0.5), sin(angle) * (radius_y - thickness * 0.5)).rotated(turn))
+	return built
+
+static func _arc(centre: Vector2, radius: float, thickness: float, from_angle: float, to_angle: float, op := "add") -> Array:
+	## A circular arc stroke with round caps.
+	var built: Array = [ {"op": op, "poly": _band(centre, radius, radius, thickness, from_angle, to_angle)}]
+	for angle in [from_angle, to_angle]:
+		built.append({"op": op, "circle": [centre.x + cos(angle) * radius, centre.y + sin(angle) * radius, thickness * 0.5]})
+	return built
+
+static func _drop(tip: Vector2, centre: Vector2, radius: float, steps: int = 40) -> PackedVector2Array:
+	## A teardrop whose sides leave the tip as true tangents to the round, so the two meet
+	## in one smooth line instead of a corner where a triangle overlaps a circle.
+	var base := (tip - centre).angle()
+	var half := acos(clampf(radius / centre.distance_to(tip), -1.0, 1.0))
+	var built := PackedVector2Array([tip])
+	for index in steps + 1:
+		var angle := lerpf(base + half, base - half + TAU, float(index) / float(steps))
+		built.append(centre + Vector2(cos(angle), sin(angle)) * radius)
+	return built
+
+static func _blaze(base: Vector2, width: float, height: float, flip: bool = false) -> PackedVector2Array:
+	## A flame standing on `base`: round at the foot, one tall tip and a smaller tongue licking
+	## off its side. A plain teardrop tip up reads as water at a thumbnail; the tongue is what
+	## makes it fire.
+	var path: Array = [[0.0, 0.0], [0.50, 0.0], [0.48, 0.34], [0.46, 0.66], [0.10, 1.0], [0.20, 0.72], [-0.02, 0.56],
+		[-0.10, 0.68], [-0.26, 0.76], [-0.52, 0.42], [-0.44, 0.22], [-0.36, 0.0], [0.0, 0.0]]
+	var side := -1.0 if flip else 1.0
+	var built := PackedVector2Array()
+	for index in range(0, path.size() - 2, 2):
+		var points := _curve(path[index], path[index + 1], path[index + 2], 8)
+		for step in range(0 if index == 0 else 1, points.size()):
+			var point: Vector2 = points[step]
+			built.append(Vector2(base.x + point.x * width * side, base.y - point.y * height))
+	built.remove_at(built.size() - 1)
+	return built
+
+static func _heater(centre: Vector2, half_width: float, half_height: float, steps: int = 14) -> PackedVector2Array:
+	## A heater shield: flat top, straight shoulders, sides curving in to a point. The
+	## six-cornered `_shield` stays for the marks already drawn with it.
+	var waist := centre.y - half_height * 0.05
+	var tip := Vector2(centre.x, centre.y + half_height)
+	var built := PackedVector2Array([centre + Vector2(-half_width, -half_height), centre + Vector2(half_width, -half_height)])
+	for point in _curve(Vector2(centre.x + half_width, waist), Vector2(centre.x + half_width, centre.y + half_height * 0.62), tip, steps):
+		built.append(point)
+	var left := _curve(tip, Vector2(centre.x - half_width, centre.y + half_height * 0.62), Vector2(centre.x - half_width, waist), steps)
+	for index in range(1, left.size()):
+		built.append(left[index])
+	return built
+
+static func _burst(centre: Vector2, reaches: Array, inner: float, turn: float = 0.0) -> PackedVector2Array:
+	## A star whose points are not all alike: an impact, where `_star` is a sparkle.
+	var built := PackedVector2Array()
+	var count := reaches.size()
+	for index in count * 2:
+		var angle := turn - PI * 0.5 + PI * float(index) / float(count)
+		var radius: float = float(reaches[index / 2]) if index % 2 == 0 else inner
+		built.append(centre + Vector2(cos(angle), sin(angle)) * radius)
+	return built
+
 static func _shapes(glyph: String) -> Array:
 	match glyph:
 		"carat":
@@ -308,24 +465,28 @@ static func _shapes(glyph: String) -> Array:
 
 ## The emblem etched into a gem's face, one per skill. These are read at the size of a
 ## thumbnail and through a bevel, so every one is a bold silhouette with no thin detail.
+##
+## No two skills share an emblem, and neither does a Birthstone (its own `emblem` in the
+## pack): a mark is how a stone is told apart at a glance, on the rail and in the vault, so a
+## new skill gets a new drawing below. tests/test_view.gd holds every one of them to that.
 const SKILL_EMBLEMS := {
-	"STRIKE": "sword", "CLEAVE": "slashes", "CRUSH": "hammer", "BARRAGE": "arcs", "OVERKILL": "shield_burst",
-	"CROSSCUT": "slashes", "DETONATE": "flame", "APEX": "sword",
-	"SHELTER": "two_shields", "MORTAR": "rampart", "SIPHON": "drain",
-	"STAKE": "coin_fall", "APPRAISE": "eye", "GILDED_ARMOR": "shield", "ENRICH": "gem",
-	"SPALL": "split_shield", "EMBER": "spark", "FURY": "bolt",
-	"GUARD": "shield", "BULWARK": "rampart", "AEGIS": "two_shields", "BASTION": "broken_chain", "TEMPO": "hourglass",
-	"ANCHOR": "knot", "RIPOSTE": "split_shield",
-	"MEND": "cross", "GRAFT": "knot", "BLOOM": "heart", "RENEWAL": "clean_drop", "LIFELINE": "pulse", "THRIVE": "flask", "SAP": "wilt",
-	"HEX": "bolt", "VENOM": "skull", "MIASMA": "cloud", "CURSE": "eye", "SHATTER": "split_shield", "BIND": "broken_chain", "DREAD": "thorn",
-	"MIST": "cloud", "ETCH": "crosshair",
-	"TITHE": "coin", "JACKPOT": "coins", "LUCKY_SEVEN": "seven", "WAGER": "coin_fall", "DOUBLE_DOWN": "copy", "PROSPECT": "crosshair",
-	"GLIMMER": "spark", "REFRACT": "refract", "POLISH": "rose", "MIRROR": "eye", "CASCADE": "drain", "FACET": "rose", "PRISM": "prism",
-	## The opals. All six Seams wear the same check of color patches, because what tells
-	## them apart is the color washed through the stone under it, not the mark cut into it.
-	"SEAM_RED": "lattice", "SEAM_BLUE": "lattice", "SEAM_GREEN": "lattice",
-	"SEAM_VIOLET": "lattice", "SEAM_GOLD": "lattice", "SEAM_WHITE": "lattice",
-	"FIRE_OPAL": "flame", "DOUBLET": "copy", "ECHO": "copy", "MATRIX": "geode", "PRELUDE": "reroll"}
+	"STRIKE": "sword", "CLEAVE": "labrys", "CRUSH": "hammer", "BARRAGE": "ripples", "OVERKILL": "impacts",
+	"CROSSCUT": "crossed_cuts", "DETONATE": "bomb", "APEX": "apex",
+	"SHELTER": "nested_stone", "MORTAR": "bricks", "SIPHON": "healing_drop",
+	"STAKE": "raised_chip", "APPRAISE": "loupe", "GILDED_ARMOR": "gilded_shield", "ENRICH": "gem", "TAILINGS": "paid_stones",
+	"SPALL": "split_stone", "EMBER": "embers", "FURY": "bolt",
+	"GUARD": "shield", "BULWARK": "wall_before", "AEGIS": "two_shields", "BASTION": "ringed_party", "TEMPO": "hourglass",
+	"ANCHOR": "anchor", "RIPOSTE": "riposte",
+	"MEND": "cross", "GRAFT": "graft", "BLOOM": "heart", "RENEWAL": "struck_drop", "LIFELINE": "pulse", "THRIVE": "shield_cross", "SAP": "pierced_heart",
+	"HEX": "hex", "VENOM": "skull", "MIASMA": "cloud", "CURSE": "eye", "SHATTER": "split_shield", "BIND": "chain", "DREAD": "ghost",
+	"MIST": "mist", "ETCH": "crosshair",
+	"TITHE": "holed_coin", "JACKPOT": "coin_pyramid", "LUCKY_SEVEN": "seven", "WAGER": "coin_fall", "DOUBLE_DOWN": "double_up", "PROSPECT": "pickaxe",
+	"GLIMMER": "spark", "REFRACT": "phantom_die", "POLISH": "shine", "MIRROR": "flip", "CASCADE": "tumbling_dice", "FACET": "rose", "PRISM": "prism",
+	## The opals. The six Seams are one family: each wears the opal's check of color patches,
+	## with the mark of the color it fires again set in the middle of it.
+	"SEAM_RED": "seam_red", "SEAM_BLUE": "seam_blue", "SEAM_GREEN": "seam_green",
+	"SEAM_VIOLET": "seam_violet", "SEAM_GOLD": "seam_gold", "SEAM_WHITE": "seam_white",
+	"FIRE_OPAL": "warming_flame", "DOUBLET": "twin_stones", "ECHO": "echo", "MATRIX": "split_geode", "PRELUDE": "onward"}
 
 static func emblem(skill_key: String) -> String:
 	var key := skill_key.to_upper()
@@ -345,10 +506,6 @@ static func _emblem_shapes(glyph: String) -> Array:
 				{"op": "add", "poly": _rect(0.435, 0.02, 0.565, 0.30)},
 				{"op": "add", "poly": _poly([[0.435, 0.26], [0.565, 0.26], [0.80, 0.66], [0.20, 0.66]])},
 				{"op": "add", "circle": [0.5, 0.645, 0.295]}]
-		"slashes":
-			return _line([[0.10, 0.86], [0.34, 0.14]], 0.15) \
-				+ _line([[0.38, 0.86], [0.62, 0.14]], 0.15) \
-				+ _line([[0.66, 0.86], [0.90, 0.14]], 0.15)
 		"seven":
 			return [ {"op": "add", "poly": _poly([[0.15, 0.08], [0.87, 0.08], [0.87, 0.25],
 				[0.60, 0.93], [0.38, 0.93], [0.65, 0.27], [0.15, 0.27]])}]
@@ -383,10 +540,6 @@ static func _emblem_shapes(glyph: String) -> Array:
 				{"op": "sub", "poly": _rect(0.24, 0.14, 0.40, 0.40)},
 				{"op": "sub", "poly": _rect(0.60, 0.14, 0.76, 0.40)},
 				{"op": "sub", "poly": _rect(0.44, 0.52, 0.56, 0.94)}]
-		"drain":
-			return [ {"op": "add", "poly": _poly([[0.50, 0.04], [0.76, 0.48], [0.24, 0.48]])},
-				{"op": "add", "circle": [0.5, 0.50, 0.26]},
-				{"op": "add", "poly": _rect(0.20, 0.86, 0.80, 0.96)}]
 		"cross":
 			return [ {"op": "add", "poly": _rect(0.39, 0.08, 0.61, 0.92)},
 				{"op": "add", "poly": _rect(0.08, 0.39, 0.92, 0.61)}]
@@ -395,11 +548,6 @@ static func _emblem_shapes(glyph: String) -> Array:
 				{"op": "sub", "poly": _poly([[0.42, 0.00], [0.60, 0.30], [0.42, 0.50],
 					[0.62, 0.74], [0.44, 1.00], [0.58, 1.00], [0.76, 0.74], [0.56, 0.50],
 					[0.74, 0.30], [0.56, 0.00]])}]
-		"arcs":
-			return [ {"op": "add", "circle": [0.06, 0.5, 0.90]}, {"op": "sub", "circle": [0.06, 0.5, 0.76]},
-				{"op": "add", "circle": [0.06, 0.5, 0.60]}, {"op": "sub", "circle": [0.06, 0.5, 0.46]},
-				{"op": "add", "circle": [0.06, 0.5, 0.30]}, {"op": "sub", "circle": [0.06, 0.5, 0.16]},
-				{"op": "sub", "poly": _rect(-0.2, -0.2, 0.16, 1.2)}]
 		"skull":
 			return [ {"op": "add", "circle": [0.5, 0.42, 0.35]},
 				{"op": "add", "poly": _rect(0.29, 0.60, 0.71, 0.88)},
@@ -439,17 +587,7 @@ static func _emblem_shapes(glyph: String) -> Array:
 				var height := 0.36 + 0.15 * float(index)
 				rays.append({"op": "add", "poly": _bar(Vector2(0.50, height),
 					Vector2(0.99, height - 0.16), 0.085)})
-			return rays
-		"refract":
-			# A ray bending where it crosses a face: steep going in, shallow coming out.
-			# The face is drawn either side of the crossing and stops short of it, so the
-			# two never merge into one star. Refraction itself, and nothing like the
-			# triangle Prism wears.
-			return [ {"op": "add", "poly": _bar(Vector2(0.03, 0.52), Vector2(0.28, 0.52), 0.075)},
-				{"op": "add", "poly": _bar(Vector2(0.72, 0.52), Vector2(0.97, 0.52), 0.075)},
-				{"op": "add", "poly": _bar(Vector2(0.34, 0.03), Vector2(0.50, 0.52), 0.165)},
-				{"op": "add", "poly": _bar(Vector2(0.50, 0.52), Vector2(0.95, 0.90), 0.165)},
-				{"op": "add", "circle": [0.50, 0.52, 0.0825]}]
+			return _fitted(rays)
 		"eye":
 			# Two arcs meeting at the corners, with a ring and a pupil cut through them.
 			var lens := PackedVector2Array()
@@ -535,13 +673,6 @@ static func _emblem_shapes(glyph: String) -> Array:
 				{"op": "add", "circle": [0.24, 0.74, 0.085]},
 				{"op": "add", "circle": [0.52, 0.82, 0.085]},
 				{"op": "add", "circle": [0.78, 0.72, 0.085]}]
-		"wilt":
-			# Three chevrons pointing down: strength going out of something.
-			var chevrons: Array = []
-			for index in 3:
-				var top := 0.06 + 0.30 * float(index)
-				chevrons.append_array(_line([[0.14, top], [0.50, top + 0.24], [0.86, top]], 0.135))
-			return chevrons
 		"coin":
 			# A milled rim and one struck bar. Crossing two bars made a plus sign, which is
 			# already Mend's mark and says medicine rather than money.
@@ -582,6 +713,357 @@ static func _emblem_shapes(glyph: String) -> Array:
 			return [ {"op": "add", "circle": [0.5, 0.5, 0.47]},
 				{"op": "sub", "circle": [0.5, 0.5, 0.31]},
 				{"op": "add", "poly": _poly([[0.50, 0.76], [0.70, 0.50], [0.50, 0.24], [0.30, 0.50]])}]
+		"apex":
+			# A peak with a star over its summit: the highest roll, and nothing above it.
+			return [ {"op": "add", "poly": _poly([[0.02, 0.95], [0.50, 0.32], [0.98, 0.95]])},
+				{"op": "sub", "poly": _poly([[0.30, 0.95], [0.50, 0.68], [0.70, 0.95]])},
+				{"op": "add", "poly": _star(4, 0.21, 0.055, Vector2(0.50, 0.16))}]
+		"bomb":
+			# A round charge with its fuse lit.
+			return [ {"op": "add", "circle": [0.42, 0.62, 0.34]},
+				{"op": "add", "poly": _bar(Vector2(0.56, 0.40), Vector2(0.68, 0.28), 0.17)},
+				{"op": "sub", "circle": [0.30, 0.52, 0.07]}] \
+				+ _line([[0.66, 0.30], [0.74, 0.17], [0.84, 0.15]], 0.06) \
+				+[ {"op": "add", "poly": _star(6, 0.14, 0.045, Vector2(0.86, 0.13))}]
+		"bricks":
+			# Courses of brick with the mortar between them: what holds a wall together.
+			var courses: Array = []
+			for row in 3:
+				var y0: float = 0.10 + 0.28 * float(row)
+				var offset: float = 0.0 if row % 2 == 0 else 0.22
+				for column in range(-1, 3):
+					var x0: float = maxf(0.04, 0.04 + offset + 0.44 * float(column))
+					var x1: float = minf(0.96, 0.04 + offset + 0.44 * float(column) + 0.40)
+					if x1 - x0 >= 0.1:
+						courses.append({"op": "add", "poly": _rect(x0, y0, x1, y0 + 0.22)})
+			return courses
+		"anchor":
+			# An anchor: ring, shank and stock, and the arms curving up to their flukes.
+			return [ {"op": "add", "circle": [0.50, 0.48, 0.42]}, {"op": "sub", "circle": [0.50, 0.48, 0.31]},
+				{"op": "sub", "poly": _rect(0.0, -0.1, 1.0, 0.62)},
+				{"op": "add", "poly": _poly([[0.04, 0.68], [0.16, 0.48], [0.30, 0.68]])},
+				{"op": "add", "poly": _poly([[0.70, 0.68], [0.84, 0.48], [0.96, 0.68]])},
+				{"op": "add", "poly": _rect(0.44, 0.22, 0.56, 0.90)},
+				{"op": "add", "poly": _rect(0.24, 0.30, 0.76, 0.40)},
+				{"op": "add", "circle": [0.50, 0.13, 0.11]}, {"op": "sub", "circle": [0.50, 0.13, 0.05]}]
+		"riposte":
+			# A shield with a blow turned straight back off it.
+			return [ {"op": "add", "poly": _shield(Vector2(0.34, 0.58), 0.30, 0.38)},
+				{"op": "sub", "poly": _bar(Vector2(0.30, 0.62), Vector2(0.86, 0.24), 0.21)},
+				{"op": "add", "poly": _bar(Vector2(0.30, 0.62), Vector2(0.80, 0.28), 0.10)},
+				{"op": "add", "poly": _poly([[0.97, 0.16], [0.70, 0.18], [0.85, 0.42]])}]
+		"hex":
+			# A hex sign: a six-sided ring with a star set in it.
+			var outer := PackedVector2Array()
+			var inner := PackedVector2Array()
+			for index in 6:
+				var angle := TAU * float(index) / 6.0
+				outer.append(Vector2(0.5, 0.5) + Vector2(cos(angle), sin(angle)) * 0.48)
+				inner.append(Vector2(0.5, 0.5) + Vector2(cos(angle), sin(angle)) * 0.36)
+			return [ {"op": "add", "poly": outer}, {"op": "sub", "poly": inner},
+				{"op": "add", "poly": _star(5, 0.27, 0.11, Vector2(0.5, 0.53))}]
+		"mist":
+			# Three slow waves of fog, staggered.
+			var waves: Array = []
+			for row in 3:
+				var y: float = 0.22 + 0.28 * float(row)
+				var start: float = 0.06 if row % 2 == 0 else 0.14
+				var points: Array = []
+				for index in range(9):
+					var t: float = float(index) / 8.0
+					points.append([lerpf(start, start + 0.80, t), y + 0.07 * sin(t * TAU)])
+				waves.append_array(_line(points, 0.11))
+			return waves
+		"shine":
+			# A stone buffed until it gleams: a bright edge along it and a point of light off it.
+			return [ {"op": "add", "poly": _poly([[0.42, 0.12], [0.80, 0.52], [0.42, 0.94], [0.04, 0.52]])},
+				{"op": "sub", "poly": _poly([[0.42, 0.29], [0.64, 0.52], [0.42, 0.77], [0.20, 0.52]])},
+				{"op": "add", "poly": _bar(Vector2(0.29, 0.48), Vector2(0.40, 0.35), 0.07)},
+				{"op": "add", "poly": _star(4, 0.21, 0.055, Vector2(0.80, 0.18))}]
+		"gilded_shield":
+			# The rim of a heater shield with a coin inside it: armour bought with what you
+			# carry. The coin is stamped with a stone, since a struck bar read as a minus sign.
+			return [ {"op": "add", "poly": _heater(Vector2(0.5, 0.5), 0.40, 0.46)},
+				{"op": "sub", "poly": _heater(Vector2(0.5, 0.47), 0.29, 0.335)},
+				{"op": "add", "circle": [0.5, 0.43, 0.15]},
+				{"op": "sub", "poly": _diamond(Vector2(0.5, 0.43), 0.065, 0.08)}]
+		"echo":
+			# A stone and the two fainter ones it leaves behind it.
+			var built: Array = []
+			for index in 3:
+				var cx: float = 0.74 - 0.22 * float(index)
+				built.append({"op": "sub", "poly": _poly([[cx, 0.10], [cx + 0.28, 0.50], [cx, 0.90], [cx - 0.28, 0.50]])})
+				built.append({"op": "add", "poly": _poly([[cx, 0.16], [cx + 0.22, 0.50], [cx, 0.84], [cx - 0.22, 0.50]])})
+				if index < 2:
+					built.append({"op": "sub", "poly": _poly([[cx, 0.31], [cx + 0.12, 0.50], [cx, 0.69], [cx - 0.12, 0.50]])})
+			return built
+		"seam_red", "seam_blue", "seam_green", "seam_violet", "seam_gold", "seam_white":
+			# An opal's check of color patches at the corners and, set in the middle, the mark
+			# of the color it fires again: one family, and still never two alike.
+			var check: Array = []
+			for spot in [[0.14, 0.14], [0.86, 0.14], [0.14, 0.86], [0.86, 0.86]]:
+				var x: float = float(spot[0])
+				var y: float = float(spot[1])
+				check.append({"op": "add", "poly": _poly([[x, y + 0.13], [x + 0.13, y], [x, y - 0.13], [x - 0.13, y]])})
+			var marks: Dictionary = {"seam_red": "sword", "seam_blue": "shield", "seam_green": "heart", "seam_violet": "eye", "seam_gold": "holed_coin", "seam_white": "spark"}
+			return check + _moved(_shapes(str(marks[glyph])), Vector2(0.21, 0.21), 0.58)
+		"ripples":
+			# Three arcs spreading out from a point off to the left, each ending in a round cap
+			# inside the square: a volley widening as it goes.
+			var source := Vector2(0.06, 0.5)
+			return _fitted(_arc(source, 0.24, 0.12, deg_to_rad(-56.0), deg_to_rad(56.0))
+				+ _arc(source, 0.50, 0.12, deg_to_rad(-42.0), deg_to_rad(42.0))
+				+ _arc(source, 0.76, 0.12, deg_to_rad(-30.0), deg_to_rad(30.0)))
+		"labrys":
+			# A double-bitted axe on its haft: one blow that bites to both sides.
+			var bit: Array = [Vector2(0.46, 0.27)]
+			bit.append_array(_curve([0.46, 0.27], [0.32, 0.26], [0.153, 0.079], 8).slice(1))
+			bit.append_array(_along(Vector2(0.50, 0.35), 0.44, 0.44, deg_to_rad(218.0), deg_to_rad(142.0), 16).slice(1))
+			bit.append_array(_curve([0.153, 0.621], [0.32, 0.44], [0.46, 0.43], 8).slice(1))
+			var left := PackedVector2Array()
+			var right := PackedVector2Array()
+			for point in bit:
+				left.append(point)
+				right.append(Vector2(1.0 - point.x, point.y))
+			return _fitted([ {"op": "add", "poly": left}, {"op": "add", "poly": right},
+				{"op": "add", "poly": _rect(0.455, 0.10, 0.545, 0.96)}, {"op": "add", "circle": [0.5, 0.08, 0.05]}])
+		"impacts":
+			# A ragged impact with a smaller one thrown off from it: a blow with more than
+			# enough left over to land again.
+			return _fitted([ {"op": "add", "poly": _burst(Vector2(0.40, 0.60), [0.40, 0.31, 0.44, 0.34, 0.41, 0.30, 0.45, 0.35, 0.39], 0.20, 0.2)},
+				{"op": "add", "poly": _burst(Vector2(0.82, 0.18), [0.16, 0.12, 0.17, 0.12, 0.15, 0.13], 0.07, 0.3)}])
+		"crossed_cuts":
+			# Two long tapering cuts crossing, one passing over the other.
+			return [ {"op": "add", "poly": _poly([[0.08, 0.08], [0.571, 0.429], [0.92, 0.92], [0.429, 0.571]])},
+				{"op": "sub", "poly": _poly([[0.96, 0.04], [0.5955, 0.5955], [0.04, 0.96], [0.4045, 0.4045]])},
+				{"op": "add", "poly": _poly([[0.92, 0.08], [0.571, 0.571], [0.08, 0.92], [0.429, 0.429]])}]
+		"embers":
+			# Three small flames of different sizes drifting up, the middle one turned the other way.
+			return _fitted([ {"op": "add", "poly": _blaze(Vector2(0.32, 0.94), 0.46, 0.54)},
+				{"op": "add", "poly": _blaze(Vector2(0.74, 0.70), 0.32, 0.38, true)},
+				{"op": "add", "poly": _blaze(Vector2(0.48, 0.32), 0.22, 0.26)}])
+		"split_stone":
+			# A stone split by a jagged crack, a chip flown off either side.
+			return _fitted([ {"op": "add", "poly": _poly([[0.20, 0.20], [0.62, 0.08], [0.90, 0.36], [0.84, 0.80], [0.40, 0.94], [0.08, 0.62]])}]
+				+ _stroke([[0.50, 0.03], [0.57, 0.30], [0.43, 0.50], [0.59, 0.70], [0.50, 0.99]], 0.08, "sub")
+				+ [ {"op": "add", "poly": _diamond(Vector2(0.10, 0.20), 0.045, 0.06)}, {"op": "add", "poly": _diamond(Vector2(0.94, 0.88), 0.045, 0.06)}])
+		"wall_before":
+			# A thick curved wall standing over a single dot: cover for one.
+			return _fitted(_arc(Vector2(0.5, 0.72), 0.40, 0.16, deg_to_rad(200.0), deg_to_rad(340.0))
+				+ [ {"op": "add", "circle": [0.5, 0.72, 0.12]}])
+		"ringed_party":
+			# A thick ring with three dots safe inside it: the whole party behind one wall.
+			return [ {"op": "add", "circle": [0.5, 0.5, 0.46]}, {"op": "sub", "circle": [0.5, 0.5, 0.35]},
+				{"op": "add", "circle": [0.5, 0.37, 0.085]}, {"op": "add", "circle": [0.385, 0.58, 0.085]},
+				{"op": "add", "circle": [0.615, 0.58, 0.085]}]
+		"graft":
+			# Two stocks joined into one shoot, with the binding across the join. Crossing
+			# them instead read as a scribbled X, which says nothing about grafting.
+			return _fitted(_stroke([[0.12, 0.92], [0.5, 0.58]], 0.13) + _stroke([[0.88, 0.92], [0.5, 0.58]], 0.13)
+				+ _stroke([[0.5, 0.60], [0.5, 0.09]], 0.13) + [ {"op": "sub", "poly": _rect(0.10, 0.425, 0.90, 0.515)}]
+				+ _stroke([[0.22, 0.47], [0.78, 0.47]], 0.085))
+		"struck_drop":
+			# A droplet struck through: poison taken back out. Its sides run as true tangents
+			# into its round, where the older `clean_drop` meets them at a corner.
+			return [ {"op": "add", "poly": _drop(Vector2(0.5, 0.05), Vector2(0.5, 0.63), 0.31)}] \
+				+ _stroke([[0.10, 0.90], [0.90, 0.10]], 0.16, "sub") + _stroke([[0.10, 0.90], [0.90, 0.10]], 0.075)
+		"shield_cross":
+			# The rim of a heater shield with a healing cross inside: block turned into health.
+			return [ {"op": "add", "poly": _heater(Vector2(0.5, 0.5), 0.40, 0.46)},
+				{"op": "sub", "poly": _heater(Vector2(0.5, 0.47), 0.29, 0.335)},
+				{"op": "add", "poly": _rect(0.44, 0.26, 0.56, 0.64)}, {"op": "add", "poly": _rect(0.32, 0.39, 0.68, 0.51)}]
+		"pierced_heart":
+			# A heart run through by a dagger: the healing done this turn turned into a wound.
+			var across := Vector2(0.707, -0.707).orthogonal()
+			var hilt := Vector2(0.30, 0.70)
+			return _fitted([ {"op": "add", "poly": _heart(Vector2(0.46, 0.54), 0.40)},
+				{"op": "sub", "poly": PackedVector2Array([hilt + across * 0.11, Vector2(0.97, 0.03), hilt - across * 0.11])},
+				{"op": "add", "poly": PackedVector2Array([hilt + across * 0.055, Vector2(0.92, 0.08), hilt - across * 0.055])},
+				{"op": "add", "poly": _bar(hilt + across * 0.13, hilt - across * 0.13, 0.07)}]
+				+ _stroke([[0.27, 0.73], [0.14, 0.86]], 0.08) + [ {"op": "add", "circle": [0.11, 0.89, 0.06]}])
+		"healing_drop":
+			# A drop of poison with a healing cross cut through it: the venom turned to mending.
+			return [ {"op": "add", "poly": _drop(Vector2(0.5, 0.04), Vector2(0.5, 0.62), 0.34)},
+				{"op": "sub", "poly": _rect(0.44, 0.46, 0.56, 0.80)}, {"op": "sub", "poly": _rect(0.33, 0.57, 0.67, 0.69)}]
+		"chain":
+			# Three links of chain: two face on, the middle one edge on and lying over both.
+			return _fitted([ {"op": "add", "poly": _band(Vector2(0.25, 0.5), 0.19, 0.12, 0.08, 0.0, TAU)},
+				{"op": "add", "poly": _band(Vector2(0.75, 0.5), 0.19, 0.12, 0.08, 0.0, TAU)}]
+				+ _stroke([[0.34, 0.5], [0.66, 0.5]], 0.17, "sub") + _stroke([[0.34, 0.5], [0.66, 0.5]], 0.10))
+		"ghost":
+			# A sheet ghost with hollow eyes and a mouth open in a scream.
+			return _fitted([ {"op": "add", "circle": [0.5, 0.42, 0.36]}, {"op": "add", "poly": _rect(0.14, 0.42, 0.86, 0.80)},
+				{"op": "add", "circle": [0.26, 0.80, 0.12]}, {"op": "add", "circle": [0.50, 0.80, 0.12]}, {"op": "add", "circle": [0.74, 0.80, 0.12]},
+				{"op": "sub", "poly": _ellipse(Vector2(0.38, 0.44), 0.06, 0.09)}, {"op": "sub", "poly": _ellipse(Vector2(0.62, 0.44), 0.06, 0.09)},
+				{"op": "sub", "poly": _ellipse(Vector2(0.5, 0.64), 0.06, 0.08)}])
+		"holed_coin":
+			# A rimmed coin with a square hole through its middle, like old cash: Tithe's own
+			# coin, apart from the plain one the interface counts gold with.
+			return [ {"op": "add", "circle": [0.5, 0.5, 0.47]}, {"op": "sub", "circle": [0.5, 0.5, 0.38]},
+				{"op": "add", "circle": [0.5, 0.5, 0.33]}, {"op": "sub", "poly": _rect(0.40, 0.40, 0.60, 0.60)}]
+		"coin_pyramid":
+			# Three rimmed coins piled two and one: a winning hand paid out.
+			var pile: Array = []
+			for coin in [[0.29, 0.67], [0.71, 0.67], [0.5, 0.31]]:
+				if not pile.is_empty():
+					pile.append({"op": "sub", "circle": [coin[0], coin[1], 0.285]})
+				pile.append_array([ {"op": "add", "circle": [coin[0], coin[1], 0.25]}, {"op": "sub", "circle": [coin[0], coin[1], 0.19]},
+					{"op": "add", "circle": [coin[0], coin[1], 0.145]}])
+			return _fitted(pile)
+		"double_up":
+			# A coin with two chevrons stacked inside it: the next gem doubled, on a flip.
+			return [ {"op": "add", "circle": [0.5, 0.5, 0.46]}, {"op": "sub", "circle": [0.5, 0.5, 0.35]}] \
+				+ _stroke([[0.32, 0.50], [0.5, 0.33], [0.68, 0.50]], 0.10) + _stroke([[0.32, 0.69], [0.5, 0.52], [0.68, 0.69]], 0.10)
+		"raised_chip":
+			# A gambling chip with an arrow struck through it: a stake that raises the next gem.
+			# Its inlays sit inside an unbroken rim; notches cut through the edge read as a gear.
+			var chip: Array = [ {"op": "add", "circle": [0.5, 0.5, 0.46]}]
+			for index in 8:
+				var way := Vector2.RIGHT.rotated(TAU * float(index) / 8.0 + PI / 8.0)
+				chip.append({"op": "sub", "poly": _bar(Vector2(0.5, 0.5) + way * 0.335, Vector2(0.5, 0.5) + way * 0.415, 0.10)})
+			chip.append_array([ {"op": "sub", "circle": [0.5, 0.5, 0.29]}, {"op": "add", "circle": [0.5, 0.5, 0.245]},
+				{"op": "sub", "poly": _poly([[0.5, 0.31], [0.65, 0.48], [0.56, 0.48], [0.56, 0.68], [0.44, 0.68], [0.44, 0.48], [0.35, 0.48]])}])
+			return chip
+		"flip":
+			# A solid triangle and its outlined reflection either side of a dashed line: one
+			# die turned to match another.
+			return [ {"op": "add", "poly": _poly([[0.06, 0.50], [0.40, 0.16], [0.40, 0.84]])},
+				{"op": "add", "poly": _poly([[0.94, 0.50], [0.60, 0.16], [0.60, 0.84]])},
+				{"op": "sub", "poly": _poly([[0.82, 0.50], [0.67, 0.34], [0.67, 0.66]])},
+				{"op": "add", "poly": _rect(0.47, 0.06, 0.53, 0.24)}, {"op": "add", "poly": _rect(0.47, 0.41, 0.53, 0.59)},
+				{"op": "add", "poly": _rect(0.47, 0.76, 0.53, 0.94)}]
+		"tumbling_dice":
+			# Three dice tumbling down a slope, showing one, two and three: luck rolling on into
+			# the next turn.
+			var tumble: Array = []
+			var faces: Array = [[[0.0, 0.0]], [[-0.5, -0.5], [0.5, 0.5]], [[-0.5, -0.5], [0.0, 0.0], [0.5, 0.5]]]
+			for index in 3:
+				var centre := Vector2(0.22 + 0.28 * float(index), 0.22 + 0.28 * float(index))
+				var turn := 0.25 * float(index)
+				var square := PackedVector2Array()
+				var margin := PackedVector2Array()
+				for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					square.append(centre + (corner * 0.15).rotated(turn))
+					margin.append(centre + (corner * 0.20).rotated(turn))
+				tumble.append({"op": "sub", "poly": margin})
+				tumble.append({"op": "add", "poly": square})
+				for pip in faces[index]:
+					var at: Vector2 = centre + (Vector2(pip[0], pip[1]) * 0.15).rotated(turn)
+					tumble.append({"op": "sub", "circle": [at.x, at.y, 0.035]})
+			return _fitted(tumble)
+		"warming_flame":
+			# A flame with a small stone either side of it, warmed by it: every other gem grows.
+			return _fitted([ {"op": "add", "poly": _blaze(Vector2(0.5, 0.94), 0.50, 0.84)},
+				{"op": "sub", "poly": _drop(Vector2(0.5, 0.60), Vector2(0.5, 0.80), 0.08)},
+				{"op": "add", "poly": _diamond(Vector2(0.15, 0.72), 0.09, 0.13)}, {"op": "add", "poly": _diamond(Vector2(0.85, 0.72), 0.09, 0.13)}])
+		"twin_stones":
+			# A solid oval stone in front of an outlined one: the stone and the copy it makes.
+			return _fitted([ {"op": "add", "poly": _ellipse(Vector2(0.62, 0.40), 0.32, 0.30)},
+				{"op": "sub", "poly": _ellipse(Vector2(0.62, 0.40), 0.24, 0.22)},
+				{"op": "sub", "poly": _ellipse(Vector2(0.38, 0.60), 0.37, 0.35)},
+				{"op": "add", "poly": _ellipse(Vector2(0.38, 0.60), 0.32, 0.30)}]
+				+ _arc(Vector2(0.38, 0.60), 0.21, 0.055, deg_to_rad(200.0), deg_to_rad(245.0), "sub"))
+		"split_geode":
+			# A geode broken into two halves, crystals lining each, with two stones freed
+			# between them: the gems that fizzled, brought back out.
+			var halves: Array = [ {"op": "add", "poly": _band(Vector2(0.5, 0.5), 0.36, 0.40, 0.16, PI * 0.58, PI * 1.42)},
+				{"op": "add", "poly": _band(Vector2(0.5, 0.5), 0.36, 0.40, 0.16, -PI * 0.42, PI * 0.42)}]
+			for side in [-1.0, 1.0]:
+				for y in [0.34, 0.5, 0.66]:
+					var x: float = 0.5 + side * 0.28
+					halves.append({"op": "add", "poly": _poly([[x, y - 0.07], [x, y + 0.07], [x - side * 0.10, y]])})
+			halves.append({"op": "add", "poly": _diamond(Vector2(0.5, 0.33), 0.09, 0.13)})
+			halves.append({"op": "add", "poly": _diamond(Vector2(0.5, 0.67), 0.09, 0.13)})
+			return _fitted(halves)
+		"nested_stone":
+			# A small stone held inside the outline of a larger one: cover for the one who needs it.
+			return [ {"op": "add", "poly": _diamond(Vector2(0.5, 0.5), 0.44, 0.46)},
+				{"op": "sub", "poly": _diamond(Vector2(0.5, 0.5), 0.30, 0.32)},
+				{"op": "add", "poly": _diamond(Vector2(0.5, 0.5), 0.15, 0.17)}]
+		"paid_stones":
+			# Three empty stones with a coin dropped under each: every gem that fizzled pays once.
+			var row: Array = []
+			for x in [0.18, 0.5, 0.82]:
+				row.append_array([ {"op": "add", "poly": _diamond(Vector2(x, 0.32), 0.14, 0.20)},
+					{"op": "sub", "poly": _diamond(Vector2(x, 0.32), 0.07, 0.11)}, {"op": "add", "circle": [x, 0.78, 0.08]}])
+			return _fitted(row)
+		"pickaxe":
+			# The interface's pick, tilted so its head and handle fill the square: digging for a find.
+			return _fitted(_turned(_ui_shapes("pick"), -0.785))
+		"phantom_die":
+			# A die with a broken outline of itself behind it: the phantom copy of your highest roll.
+			# The outline breaks once along each side the front die leaves open.
+			return [ {"op": "add", "poly": _rounded(0.36, 0.06, 0.94, 0.64, 0.09)}, {"op": "sub", "poly": _rounded(0.43, 0.13, 0.87, 0.57, 0.04)},
+				{"op": "sub", "poly": _rect(0.62, 0.0, 0.68, 0.16)}, {"op": "sub", "poly": _rect(0.84, 0.32, 1.0, 0.38)},
+				{"op": "sub", "poly": _rounded(0.015, 0.315, 0.685, 0.985, 0.12)}, {"op": "add", "poly": _rounded(0.06, 0.36, 0.64, 0.94, 0.09)},
+				{"op": "sub", "circle": [0.20, 0.50, 0.055]}, {"op": "sub", "circle": [0.35, 0.65, 0.055]}, {"op": "sub", "circle": [0.50, 0.80, 0.055]}]
+		"onward":
+			# Two chevrons pointing into a stone: whatever fires next fires again.
+			return _fitted(_stroke([[0.08, 0.24], [0.24, 0.50], [0.08, 0.76]], 0.11) + _stroke([[0.29, 0.24], [0.45, 0.50], [0.29, 0.76]], 0.11)
+				+ [ {"op": "add", "poly": _diamond(Vector2(0.75, 0.50), 0.20, 0.30)}])
+		"formation":
+			# Five stones in a wedge behind a leader: matching dice falling into line for the Knight.
+			var wedge: Array = []
+			for spot in [[0.5, 0.20, 0.13], [0.33, 0.44, 0.10], [0.67, 0.44, 0.10], [0.17, 0.68, 0.085], [0.83, 0.68, 0.085]]:
+				wedge.append({"op": "add", "poly": _diamond(Vector2(spot[0], spot[1]), spot[2], spot[2] * 1.25)})
+			return _fitted(wedge)
+		"cuts":
+			# A thousand cuts: rows of short nicks, none of them much on its own.
+			var nicks: Array = []
+			for row in 3:
+				for column in 3:
+					var x: float = 0.14 + 0.32 * float(column) + (0.08 if row % 2 == 1 else 0.0)
+					var y: float = 0.20 + 0.30 * float(row)
+					nicks.append({"op": "add", "poly": _bar(Vector2(x - 0.08, y + 0.11), Vector2(x + 0.08, y - 0.11), 0.10)})
+			return nicks
+		"notes":
+			# Two notes beamed together: the phrase played again.
+			return [ {"op": "add", "circle": [0.26, 0.80, 0.15]}, {"op": "add", "circle": [0.72, 0.72, 0.15]},
+				{"op": "add", "poly": _rect(0.32, 0.18, 0.41, 0.80)},
+				{"op": "add", "poly": _rect(0.78, 0.10, 0.87, 0.72)},
+				{"op": "add", "poly": _poly([[0.32, 0.16], [0.87, 0.06], [0.87, 0.22], [0.32, 0.32]])}]
+		"vial":
+			# A narrow bottle stoppered at the neck, a bubble caught in what is inside.
+			return [ {"op": "add", "poly": _rect(0.38, 0.02, 0.62, 0.14)},
+				{"op": "add", "poly": _rect(0.43, 0.12, 0.57, 0.34)},
+				{"op": "add", "poly": _poly([[0.43, 0.30], [0.57, 0.30], [0.78, 0.52], [0.78, 0.86], [0.68, 0.97], [0.32, 0.97], [0.22, 0.86], [0.22, 0.52]])},
+				{"op": "sub", "circle": [0.42, 0.62, 0.08]}, {"op": "sub", "circle": [0.60, 0.80, 0.055]}]
+		"harlequin":
+			# A diamond quartered in checks, two solid and two hollow: a motley coat.
+			var centre := Vector2(0.5, 0.5)
+			var tips: Array = [Vector2(0.5, 0.03), Vector2(0.97, 0.5), Vector2(0.5, 0.97), Vector2(0.03, 0.5)]
+			var built: Array = [ {"op": "add", "poly": PackedVector2Array(tips)}]
+			for side in [1, 3]:
+				var a: Vector2 = (tips[side - 1] + tips[side]) * 0.5
+				var b: Vector2 = (tips[side] + tips[(side + 1) % 4]) * 0.5
+				var quarter := PackedVector2Array([a, tips[side], b, centre])
+				var middle: Vector2 = (a + tips[side] + b + centre) * 0.25
+				var hollow := PackedVector2Array()
+				for point in quarter:
+					hollow.append(middle.lerp(point, 0.5))
+				built.append({"op": "sub", "poly": hollow})
+			built.append({"op": "sub", "poly": _bar((tips[0] + tips[3]) * 0.5, (tips[1] + tips[2]) * 0.5, 0.05)})
+			built.append({"op": "sub", "poly": _bar((tips[0] + tips[1]) * 0.5, (tips[2] + tips[3]) * 0.5, 0.05)})
+			return built
+		"dice_pair":
+			# Two dice in the air, tumbling: the high roller's throw. Set close and only a
+			# little turned, so they stay large inside the margin their corners need.
+			var built: Array = []
+			for spec in [[Vector2(0.36, 0.60), 0.25, 0.28, [[-0.5, -0.5], [0.0, 0.0], [0.5, 0.5]]], [Vector2(0.74, 0.28), 0.18, -0.45, [[-0.5, 0.5], [0.5, -0.5]]]]:
+				var centre: Vector2 = spec[0]
+				var half: float = float(spec[1])
+				var turn: float = float(spec[2])
+				var square := PackedVector2Array()
+				var margin := PackedVector2Array()
+				for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					square.append(centre + (corner * half).rotated(turn))
+					margin.append(centre + (corner * (half + 0.05)).rotated(turn))
+				built.append({"op": "sub", "poly": margin})
+				built.append({"op": "add", "poly": square})
+				for pip in spec[3]:
+					var at: Vector2 = centre + (Vector2(pip[0], pip[1]) * half).rotated(turn)
+					built.append({"op": "sub", "circle": [at.x, at.y, half * 0.2]})
+			return _fitted(built)
 	return _ui_shapes(glyph)
 
 ## The marks the interface itself is drawn with: the things a player carries, the places a
@@ -710,6 +1192,16 @@ static func _ui_shapes(glyph: String) -> Array:
 			outer.append(Vector2(0.94, 0.96))
 			inner.append(Vector2(0.76, 0.96))
 			return [ {"op": "add", "poly": outer}, {"op": "sub", "poly": inner}]
+		"swirl":
+			# Something strange: a spiral winding out from the middle, nearly two turns, so it reads
+			# apart from the question mark a dark mouth wears.
+			var turns: Array = []
+			for index in range(31):
+				var t: float = float(index) / 30.0
+				var angle: float = t * TAU * 1.75 - PI * 0.5
+				var radius: float = 0.05 + t * 0.37
+				turns.append([0.5 + cos(angle) * radius, 0.5 + sin(angle) * radius])
+			return _line(turns, 0.12)
 		"question":
 			return [ {"op": "add", "circle": [0.5, 0.32, 0.26]}, {"op": "sub", "circle": [0.5, 0.32, 0.13]},
 				{"op": "sub", "poly": _rect(0.10, 0.34, 0.50, 0.62)},
@@ -753,6 +1245,15 @@ static func _ui_shapes(glyph: String) -> Array:
 			return [ {"op": "add", "poly": _poly([[0.50, 0.10], [0.92, 0.58], [0.64, 0.58], [0.64, 0.92], [0.36, 0.92], [0.36, 0.58], [0.08, 0.58]])}]
 		"fall":
 			return [ {"op": "add", "poly": _poly([[0.36, 0.08], [0.64, 0.08], [0.64, 0.42], [0.92, 0.42], [0.50, 0.90], [0.08, 0.42], [0.36, 0.42]])}]
+		"depth":
+			# Strata of rock with an arrow sinking through them: what fighting deeper does to a
+			# creature's blows. Never the Carat scale, which is a stone's own multiplier.
+			return [ {"op": "add", "poly": _rect(0.04, 0.12, 0.96, 0.25)},
+				{"op": "add", "poly": _rect(0.04, 0.41, 0.96, 0.54)},
+				{"op": "add", "poly": _rect(0.04, 0.70, 0.96, 0.83)},
+				{"op": "sub", "poly": _rect(0.33, -0.1, 0.67, 1.1)},
+				{"op": "add", "poly": _rect(0.42, 0.02, 0.58, 0.60)},
+				{"op": "add", "poly": _poly([[0.22, 0.54], [0.78, 0.54], [0.50, 0.97]])}]
 		"level":
 			return [ {"op": "add", "poly": _rect(0.14, 0.30, 0.86, 0.42)}, {"op": "add", "poly": _rect(0.14, 0.58, 0.86, 0.70)}]
 		"prev":

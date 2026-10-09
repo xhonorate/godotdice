@@ -19,10 +19,11 @@ extends RefCounted
 ##   Flakes      Metal grown into a stone rather than cut on it: pyrite in leaves through
 ##               the matrix, which is Florin's whole stone. Scattered by the shape it is
 ##               cut to rather than by Clarity, because they are not a fault.
-##   Seams       The six opal Seams share one emblem and one milky body, so the color each
-##               plays back was the only thing telling them apart. Every Seam carries the
-##               vein its skill is named for, running right through the stone in the true
-##               color of the gems it replays.
+##   Seams       The six opal Seams share one family of emblem (the opal's check, with the
+##               mark of the color in the middle), so the color each plays back is what
+##               tells them apart. The whole body is washed in that color and the play-of-
+##               color leans towards it; nothing is drawn inside for it. The vein each one
+##               used to carry only streaked a stone that already said its color.
 ##
 ## `gem_mesh.gd` hands over an `envelope`: the room inside the solid, as a few scalars.
 ## That is the whole of what this file knows about how a stone is cut, and it is why the
@@ -154,7 +155,7 @@ static func draws_inside(key: String) -> bool:
 static func seam_color(gem: Dictionary) -> Color:
 	## The color an opal Seam plays back, or a fully transparent color when the stone is not
 	## one. Read off the skill's own effect rather than a list of keys here, so a new Seam
-	## in the content pack gets its vein without this file being touched.
+	## in the content pack gets its play-of-color without this file being touched.
 	for effect in DeepContent.skill(str(gem.get("skill", gem.get("key", "")))).get("effects", []):
 		if not (effect is Dictionary) or str(effect.get("kind", "")) != "replay_color":
 			continue
@@ -956,63 +957,11 @@ static func _flake(surface: SurfaceTool, env: Dictionary, outline: PackedVector2
 	_tri(surface, plate[0], plate[1], plate[2], lit, dull, lit)
 	_tri(surface, plate[0], plate[2], plate[3], lit, lit, dull)
 
-static func _prism(surface: SurfaceTool, from: Vector3, to: Vector3, wide: float, tall: float,
-		near: Color, far: Color) -> void:
-	## One segment of a vein: a flattened four-sided tube, broad across and thin through, so
-	## the seam is still there when the stone is turned edge-on to it.
-	var along := to - from
-	if along.length() < 0.000001:
-		return
-	var side := Vector3(-along.y, along.x, 0.0)
-	side = Vector3(0.0, 1.0, 0.0) if side.length() < 0.000001 else side.normalized()
-	var up := along.normalized().cross(side).normalized()
-	var ring := [side * wide, up * tall, -side * wide, -up * tall]
-	for index in 4:
-		var a: Vector3 = ring[index]
-		var b: Vector3 = ring[(index + 1) % 4]
-		_tri(surface, from + a, to + a, to + b, near, far, far)
-		_tri(surface, from + a, to + b, from + b, near, far, near)
-
-static func _seam(surface: SurfaceTool, env: Dictionary, outline: PackedVector2Array,
-		tone: Color, seed_value: int) -> void:
-	## The vein an opal Seam is named for, run right through the stone. Three of them, not
-	## one: a single stripe reads as paint on the dome, and a few at slightly different
-	## headings read as something the rock did.
-	var width: float = clampf(Tuning.value("seam_width"), 0.01, 0.6)
-	var peak: float = clampf(Tuning.value("seam_alpha"), 0.0, 1.0)
-	## Deepened before it goes in. The body it runs through is milk and the play-of-color
-	## is laid over the whole dome additively, so a vein at the color's own value came out
-	## paler than the stone around it and read as a smear of light rather than as color.
-	tone = tone.darkened(0.18)
-	var base: float = _hash01(seed_value + 41) * PI
-	var steps := 14
-	for vein in 3:
-		var turn: float = base + (float(vein) - 1.0) * 0.42 + (_hash01(seed_value + vein * 53) - 0.5) * 0.3
-		var dir := Vector2(cos(turn), sin(turn))
-		var side := Vector2(-dir.y, dir.x)
-		var phase: float = _hash01(seed_value + vein * 71) * TAU
-		var thick: float = width * lerpf(0.55, 1.0, _hash01(seed_value + vein * 83))
-		var drift: float = (float(vein) - 1.0) * 0.26
-		var rail: Array = []
-		var shade: Array = []
-		for index in steps + 1:
-			var t := float(index) / float(steps)
-			var flat := dir * lerpf(-0.94, 0.94, t) + side * (drift + sin(t * PI * 1.7 + phase) * 0.17)
-			var z: float = lerpf(float(env.get("crown", 0.34)) * 0.34, -float(env.get("depth", 0.74)) * 0.40, t) \
-				+ sin(t * PI * 2.1 + phase) * 0.06
-			# The vein is a tube, not a line, so its own half-width comes off the margin or
-			# a corner of it stands out past the girdle where the path runs closest to it.
-			rail.append(_inside(env, outline, Vector3(flat.x, flat.y, z), 0.92 - thick))
-			# A seam does not start and stop inside a stone: both ends fade into the body.
-			shade.append(Color(tone.r, tone.g, tone.b, tone.a * peak * pow(sin(t * PI), 0.55)))
-		for index in steps:
-			_prism(surface, rail[index], rail[index + 1], thick, thick * 0.34, shade[index], shade[index + 1])
-
 # --- the whole interior -------------------------------------------------------
 
 static func build(gem: Dictionary, env: Dictionary) -> ArrayMesh:
 	## Everything set inside this stone, as one mesh. Null when there is nothing in there,
-	## which is the common case: a Flawless gem that is not a Seam has a clean interior.
+	## which is the common case: a Flawless gem has a clean interior.
 	var outline: PackedVector2Array = env.get("outline", PackedVector2Array())
 	if outline.size() < 3:
 		return null
@@ -1026,17 +975,14 @@ static func build(gem: Dictionary, env: Dictionary) -> ArrayMesh:
 		var key: String = str(listed[index])
 		if draws_inside(key):
 			keys.append([key, index])
-	var vein := seam_color(gem)
 	var flakes: int = int(env.get("flakes", 0))
-	if keys.is_empty() and vein.a <= 0.0 and flakes <= 0:
+	if keys.is_empty() and flakes <= 0:
 		return null
 	var mesh := ArrayMesh.new()
-	if not keys.is_empty() or vein.a > 0.0:
+	if not keys.is_empty():
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 		surface.set_material(inside_material())
-		if vein.a > 0.0:
-			_seam(surface, env, outline, vein, seed_value)
 		for entry: Array in keys:
 			_mark(surface, env, outline, str(entry[0]), seed_value + 101 + int(entry[1]) * 911, scale)
 		surface.commit(mesh)

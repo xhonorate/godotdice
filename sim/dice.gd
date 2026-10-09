@@ -40,14 +40,19 @@ const BANE_FACES: Array = ["locked", "blank"]
 
 const PATTERNS: Array = ["even", "odd", "split", "gamblers", "paired", "stretched", "shallow"]
 const MATERIALS: Array = ["ruby", "sapphire", "emerald", "amethyst", "citrine", "diamond",
-	"opal", "glass", "crystal", "iron", "fools_gold", "granite", "blood"]
+	"opal", "glass", "crystal", "iron", "cloud", "fools_gold", "granite", "blood"]
+## The materials that are thrown twice and keep one of the two faces: Iron the higher, Cloud
+## the lower. Only the face it lands on first is thrown twice; what an Exploding face throws
+## after it is thrown once, as on any die.
+const THROWN_TWICE: Dictionary = {"iron": 1, "cloud": -1}
 ## The materials that answer to one colour, and the ones that answer to all of them.
 const MATERIAL_COLORS: Dictionary = {"ruby": "RED", "sapphire": "BLUE", "emerald": "GREEN",
 	"amethyst": "VIOLET", "citrine": "GOLD", "diamond": "WHITE"}
 const ANY_COLOR_MATERIALS: Array = ["opal", "glass"]
 
 const MAX_EXPLOSIONS: int = 3
-const VALUE_CAP: int = 100
+## A face has no ceiling: a Tally climbs, a chisel raises, Glimmer grows, and a Stretched d100
+## reads 200. What does stay finite is how often one throw explodes (MAX_EXPLOSIONS).
 ## Each matching material multiplies the gem it helps fire. Multiplicative: two Rubies on
 ## a red gem is 2.25x, five is 7.59x. Five of one colour is a run spent building it.
 const STRENGTH_STEP: float = 1.5
@@ -56,7 +61,6 @@ const CRYSTAL_RESONANCE: int = 1
 const FOOLS_GOLD_PYRITE: int = 2
 const GOLDEN_FACE_PYRITE: int = 2
 const BLOOD_HP: int = 2
-const IRON_FLOOR_DIVISOR: int = 4
 
 static func face(value: int, kind: String = "plain") -> Dictionary:
 	return {"value": value, "kind": kind}
@@ -84,7 +88,7 @@ static func pattern_allows(pattern: String, shape: String) -> bool:
 		"even", "odd": return n >= 4 and n % 2 == 0
 		"split", "paired", "shallow": return n >= 6
 		"gamblers": return n >= 6 and n <= 12
-		"stretched": return n >= 4 and n * 2 <= VALUE_CAP
+		"stretched": return n >= 4
 	return false
 
 static func split_doublings(n: int) -> int:
@@ -147,13 +151,13 @@ static func pattern_faces(shape: String, pattern: String = "", rng: RandomNumber
 				values.append(value)
 		"stretched":
 			for value in range(1, n + 1):
-				values.append(mini(VALUE_CAP, value * 2))
+				values.append(value * 2)
 		"shallow":
 			for value in range(1, n + 1):
 				values.append(int(ceil(float(value) / 2.0)))
 		_:
 			for value in range(1, n + 1):
-				values.append(mini(VALUE_CAP, value))
+				values.append(value)
 	var faces: Array = []
 	for value in values:
 		faces.append(face(int(value)))
@@ -237,7 +241,7 @@ static func make(shape: String, id: String, opts: Dictionary = {}) -> Dictionary
 	if top_override > 0:
 		## A die may be judged against a face it cannot show: the Phial is a d6 that never
 		## rolls past 3, so every face of it is low and none of them is a crown.
-		die.top = mini(VALUE_CAP, top_override)
+		die.top = top_override
 	return die
 
 static func _etch_list(etches: Variant) -> Array:
@@ -284,19 +288,16 @@ static func face_value(f: Dictionary) -> int:
 	if kind == "blank":
 		return 0
 	var value: int = int(f.get("value", 0))
-	return mini(VALUE_CAP, value * 2 if kind == "doubled" else value)
+	return value * 2 if kind == "doubled" else value
 
 static func top(die: Dictionary) -> int:
 	## The most this die can show on one face: what totals measure themselves against.
 	if int(die.get("top", 0)) > 0:
-		return mini(VALUE_CAP, int(die.top))
+		return int(die.top)
 	var best: int = 0
 	for f in die.get("faces", []):
 		best = maxi(best, face_value(f))
-	return mini(VALUE_CAP, best)
-
-static func iron_floor(die_top: int) -> int:
-	return int(ceil(float(die_top) / float(IRON_FLOOR_DIVISOR)))
+	return best
 
 # --- rolling ----------------------------------------------------------------------------
 
@@ -307,13 +308,19 @@ static func roll_one(die: Dictionary, rng: RandomNumberGenerator, times_rerolled
 	var faces: Array = die.get("faces", [])
 	if faces.is_empty():
 		faces = [face(1)]
+	var material: String = str(die.get("material", ""))
 	var index: int = rng.randi_range(0, faces.size() - 1)
+	## Iron and Cloud are thrown twice and keep the face they want; a tie keeps the first.
+	if THROWN_TWICE.has(material):
+		var other: int = rng.randi_range(0, faces.size() - 1)
+		var lean: int = int(THROWN_TWICE[material])
+		if lean * face_value(faces[other]) > lean * face_value(faces[index]):
+			index = other
 	var chosen: Dictionary = faces[index]
 	var kind: String = str(chosen.get("kind", "plain"))
-	var material: String = str(die.get("material", ""))
 	var climbed: bool = false
 	if kind == "tally":
-		chosen.value = mini(VALUE_CAP, int(chosen.get("value", 0)) + 1)
+		chosen.value = int(chosen.get("value", 0)) + 1
 		climbed = true
 	var value: int = face_value(chosen)
 	var explosions: int = 0
@@ -328,15 +335,13 @@ static func roll_one(die: Dictionary, rng: RandomNumberGenerator, times_rerolled
 			if str(extra.get("kind", "plain")) != "exploding":
 				break
 	var die_top: int = top(die)
-	if kind != "blank" and material == "iron":
-		value = maxi(value, iron_floor(die_top))
 	var shattered: bool = material == "glass" and DeepRng.chance(rng, GLASS_SHATTER_PCT)
 	var thrown: Dictionary = {"die_id": str(die.get("id", "")), "shape": str(die.get("shape", "D6")), "material": material,
-		"value": mini(value, VALUE_CAP), "face": index, "kind": kind, "top": die_top,
+		"value": value, "face": index, "kind": kind, "top": die_top,
 		"held": false, "rerolls": times_rerolled, "locked": kind == "locked", "explosions": explosions,
 		"climbed": climbed, "shattered": shattered, "phantom": false}
 	## The number printed on the face it landed on, when what it counts for is something else:
-	## an Iron floor, a Doubled face, a face that went off and threw again. A trigger that asks
+	## a Doubled face, a face that went off and threw again. A trigger that asks
 	## for dice showing a number reads this; everything that adds up reads `value`. `counted`
 	## is what `value` was when it was thrown, so a roll a gem has since changed is known.
 	if kind != "blank" and int(chosen.get("value", 0)) != int(thrown.value):
@@ -436,6 +441,8 @@ static func phantom(source: Dictionary, id: String) -> Dictionary:
 	## A copy of a roll that exists only for the gems after the one that made it.
 	var ghost: Dictionary = source.duplicate(true)
 	ghost.die_id = id
+	## The die it is a copy of, so it can be drawn as that die.
+	ghost.source_id = str(source.get("source_id", source.get("die_id", "")))
 	ghost.phantom = true
 	ghost.held = false
 	ghost.rerolls = 0
