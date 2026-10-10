@@ -33,7 +33,7 @@ signal menu_requested
 
 const KIND_WORDS: Dictionary = {"fight": "A fight", "elite": "Something big", "vein": "A vein", "oddity": "Something odd",
 	"motherlode": "A glittering hollow", "merchant": "A merchant", "smithy": "A smithy", "carver": "A carver's bench", "landing": "The landing",
-	"hidden": "A dark mouth", "well": "A wishing well", "vat": "A vat"}
+	"hidden": "A dark mouth", "well": "A wishing well", "vat": "A vat", "altar": "An altar"}
 ## How many of the bag's stones the scales name at once: the chip is a panel, not a page.
 const SCALES_LISTED := 10
 
@@ -48,7 +48,8 @@ const KIND_TEXT: Dictionary = {"fight": "A fight. Pays pyrite, with a good chanc
 	"landing": "A landing with a lift. Rest, appraise or use the well, then head up or keep going.",
 	"well": "A wishing well. Throw in a stone or some pyrite. The more it's worth, the better your odds of a good reward.",
 	"hidden": "Too dark to see. Anything could be down there.",
-	"vat": "A sunken vat of molten material: dip a die and it comes out made of something else, or melt it back to plain numbers."}
+	"vat": "A sunken vat of molten material: dip a die and it comes out made of something else, or melt it back to plain numbers.",
+	"altar": "An altar of old stone with a star cut into it and five sockets round the star. Give it five gems and see what it gives back."}
 ## How many things to work on stand on one line of a room's second page.
 const WORK_PAGE: int = 8
 ## How wide the chart is where it lies over the left of the room.
@@ -93,6 +94,9 @@ const CHOICE_GLYPHS: Dictionary = {"none": "next", "reroll_cut": "cut", "reroll_
 var local_id: String = ""
 var run: Dictionary = {}
 var forecast_provider: Callable = Callable()
+## Where this player stands on the day's seam as the run starts: {eligible, best_score,
+## best_gold}, from the workshop's own record of the day (DeepEconomy.begin_daily).
+var daily_best: Dictionary = {}
 var _strip: HBoxContainer
 var _body: Control
 var _stage: Control
@@ -177,6 +181,12 @@ var _chip_over: String = ""
 var _oddity_step: String = ""
 ## The landing thing opened up close ("wish" or "appraise"), or "" for the hall itself.
 var _landing_view: String = ""
+## The five gems set on an altar's sockets, by stone id, until the crystal is pressed; and
+## whether it has been, so a second click waits on the host's answer.
+var _altar_slots: Array = ["", "", "", "", ""]
+var _altar_sent: bool = false
+## While the circle is taking our five, the sockets are the animation's, not the page's.
+var _altar_making: bool = false
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -389,6 +399,8 @@ func show_state(state: Dictionary) -> void:
 		_choice_picks.clear()
 		_choice_slot = ""
 		_oddity_step = ""
+		_altar_slots = ["", "", "", "", ""]
+		_altar_sent = false
 		if _run_dock != null and _run_dock.choosing():
 			_run_dock.cancel_offer()
 		## A bag a stall opened is shut again however the party leaves the stall: walking on,
@@ -475,6 +487,11 @@ func show_state(state: Dictionary) -> void:
 		## So is a stall: its goods are on the counter.
 		_scrim.visible = false
 		_show_stall()
+		return
+	if phase == "chamber" and str(run.chamber.get("kind", "")) == "altar" and _hold.is_empty():
+		## And an altar: its sockets and its crystal are on its face.
+		_scrim.visible = false
+		_show_altar()
 		return
 	if phase == "landing" and _hold.is_empty():
 		## A landing: rest, read or polish at the things in the room, then the lift or a mouth.
@@ -699,6 +716,10 @@ func handle(event: Dictionary) -> void:
 	## event (a motherlode's spoils, the landing, the fight beginning) rides inside it.
 	if event.has("entered"):
 		handle(event.entered)
+	## A Black Opal took a gem from the bag as the fight opened.
+	for entry in event.get("absorbed", []):
+		if str(entry.get("unit", "")) == local_id:
+			toast_parts(["Your Black Opal absorbed", entry.get("taken", {})], DeepUi.OPAL_TONE, "opal_setting")
 	match kind:
 		"staked":
 			if str(event.get("unit", "")) == local_id:
@@ -764,6 +785,35 @@ func handle(event: Dictionary) -> void:
 						"lost": event.get("lost", []), "changed": event.get("changed", []), "dice": event.get("dice", [])}
 				if not mine_result.is_empty():
 					_hold_page("oddity", {"oddity": str(_last_chamber.get("oddity", "")), "room": str(_last_chamber.get("kind", "oddity")), "result": mine_result})
+		"altar_made":
+			## Everyone sees the circle take the five; whoever gave them gets the gem held up, and
+			## a Transcendent is held up for the whole party.
+			var maker: String = str(event.get("unit", ""))
+			var made: Dictionary = event.get("made", {})
+			var transcendent: bool = bool(event.get("transcendent", false))
+			var wait: float = 0.0
+			var here: Node3D = _stage.business() if _stage.business_key().begins_with("altar|") else null
+			if here != null and here.has_method("make"):
+				wait = here.make(_stage.fx, transcendent, maker == local_id)
+			DeepAudio.play("altar_make")
+			if transcendent and not _headless:
+				DeepUi.shake(self, 10.0, 0.55)
+			if maker == local_id:
+				_altar_making = true
+				_later(wait, func() -> void:
+					_altar_making = false
+					_altar_slots = ["", "", "", "", ""]
+					_altar_sent = false
+					if DeepDescent.at_altar(run):
+						_show_altar()
+					_altar_reveal(made, transcendent, ""))
+			elif transcendent:
+				_later(wait, _altar_reveal.bind(made, true, str(DeepDescent.player(run, maker).get("name", "Someone"))))
+			else:
+				toast_parts(["%s's altar gave" % str(DeepDescent.player(run, maker).get("name", "Someone")), made], DeepUi.CHAMBER_colorS.get("altar", DeepUi.ACCENT), "altar")
+		"altar_left":
+			if str(event.get("unit", "")) != local_id:
+				toast("%s walked on from the altar." % str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", "Someone")), DeepUi.MUTED, "altar")
 		"appraised":
 			if str(event.get("unit", "")) == local_id:
 				_appraisal(event.stone)
@@ -1316,6 +1366,11 @@ func _press_pick(id: String) -> void:
 				_pin("")
 		"item", "scales", "lens", "hoard":
 			_pin(id)
+		"altar":
+			if parts.size() > 1 and parts[1] == "crystal":
+				_altar_offer()
+			elif parts.size() > 1:
+				_altar_take(int(parts[1]))
 		"hall":
 			match parts[1]:
 				"rest":
@@ -1340,7 +1395,8 @@ func _press_pick(id: String) -> void:
 
 func refused() -> void:
 	## The host said no to something this player asked for. A swing waiting on its answer is
-	## not waiting any more.
+	## not waiting any more, and nor is a press of the altar's crystal.
+	_altar_sent = false
 	if _strike_pending:
 		_strike_lapsed(_strike_token)
 
@@ -1355,6 +1411,8 @@ func _pick_chip(box: VBoxContainer, id: String) -> bool:
 	## What the chip says about a thing in the room. False if there is nothing to say.
 	var parts: PackedStringArray = id.split(":")
 	match parts[0]:
+		"altar":
+			return _altar_chip(box, parts[1] if parts.size() > 1 else "")
 		"spot":
 			var spots: Array = run.get("chamber", {}).get("vein", {}).get("spots", [])
 			var index: int = int(parts[1])
@@ -1672,6 +1730,193 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 			return true
 	return false
 
+# --- the altar ------------------------------------------------------------------------------------
+##
+## Five sockets on the star of an old stone face. A gem dragged up from the bag or the rail
+## sits in a socket until it is clicked out again: nothing is given up until the crystal is
+## pressed, so the five are this screen's to remember, not the run's. When all five sockets
+## hold a gem the crystal answers at once: lit for a set the circle knows, cold for anything
+## else. It never says which.
+
+func _altar_state() -> String:
+	for id in _altar_slots:
+		if str(id).is_empty():
+			return "dark"
+	var stones: Array = _altar_slots.map(func(id: Variant) -> Dictionary: return DeepOddities.find_stone(me(), str(id)))
+	return "lit" if DeepAltar.lit(stones) else "cold"
+
+func _altar_forget_missing() -> void:
+	## A gem that left our hands since it was set down (a trade, a fall) leaves its socket too.
+	for index in range(_altar_slots.size()):
+		var id: String = str(_altar_slots[index])
+		if not id.is_empty() and DeepAltar.refusal(DeepOddities.find_stone(me(), id)) != "":
+			_altar_slots[index] = ""
+
+func _altar_open() -> bool:
+	return DeepDescent.at_altar(run) and str(me().get("altar_done", "")).is_empty() and not bool(me().get("downed", false)) and not _altar_sent
+
+func _altar_takes(data: Dictionary) -> bool:
+	if str(data.get("kind", "")) != "stone" or not _altar_open():
+		return false
+	return DeepAltar.refusal(DeepOddities.find_stone(me(), str(data.get("stone_id", "")))).is_empty()
+
+func _altar_place(index: int, stone_id: String) -> void:
+	if not _altar_open() or index < 0 or index >= _altar_slots.size():
+		return
+	var stone: Dictionary = DeepOddities.find_stone(me(), stone_id)
+	if not DeepAltar.refusal(stone).is_empty():
+		return
+	## One gem fills one socket: set down again, it moves.
+	for other in range(_altar_slots.size()):
+		if str(_altar_slots[other]) == stone_id:
+			_altar_slots[other] = ""
+	_altar_slots[index] = stone_id
+	DeepAudio.play(str(DeepSoundBank.GEM_SOUNDS.get(DeepStone.color(stone), "gleam")), {"volume": 0.7})
+	_show_altar()
+
+func _altar_take(index: int) -> void:
+	if not _altar_open() or index < 0 or index >= _altar_slots.size() or str(_altar_slots[index]).is_empty():
+		return
+	_altar_slots[index] = ""
+	DeepAudio.play("ui_back", {"volume": 0.6})
+	_show_altar()
+
+func _altar_offer() -> void:
+	if not _altar_open() or _altar_state() != "lit":
+		return
+	_altar_sent = true
+	command.emit({"kind": "altar", "stone_ids": _altar_slots.duplicate()})
+
+func _altar_lent() -> bool:
+	## Whether any of the five is a copy of a stone at home, which the vault then loses too.
+	for id in _altar_slots:
+		var stone: Dictionary = DeepOddities.find_stone(me(), str(id))
+		if not stone.is_empty() and DeepDescent.is_lent(run, stone):
+			return true
+	return false
+
+func _show_altar() -> void:
+	var unit: Dictionary = me()
+	var done: String = str(unit.get("altar_done", ""))
+	var tone: Color = DeepUi.CHAMBER_colorS.get("altar", DeepUi.ACCENT)
+	if not _altar_making:
+		_altar_forget_missing()
+	var state: String = _altar_state()
+	var altar: Node3D = _stage.altar()
+	if altar != null and not _altar_making:
+		for index in range(DeepAltar.SOCKETS):
+			var id: String = "altar:%d" % index
+			if not _stage.has_pick(id):
+				var at: int = index
+				_stage.add_pick(id, altar.sockets[at], Vector3(0.3, 0.3, 0.3), {
+					"hover": func(on: bool) -> void:
+						if is_instance_valid(altar):
+							altar.set_hover(at, on),
+					"accepts": func(data: Dictionary) -> bool: return _altar_takes(data),
+					"drop": func(data: Dictionary) -> void: _altar_place(at, str(data.get("stone_id", "")))})
+		if not _stage.has_pick("altar:crystal"):
+			_stage.add_pick("altar:crystal", altar.crystal, Vector3(0.4, 0.55, 0.4), {
+				"hover": func(on: bool) -> void:
+					if is_instance_valid(altar):
+						altar.set_hover(-1, on)})
+		for index in range(DeepAltar.SOCKETS):
+			var id: String = str(_altar_slots[index])
+			altar.set_gem(index, DeepOddities.find_stone(unit, id) if not id.is_empty() else {})
+		## The crystal answers the moment the fifth gem goes in, and says it out loud.
+		var was: String = altar.state()
+		var showing: String = state if done.is_empty() else "dark"
+		altar.set_state(showing, _stage.fx)
+		if was != showing:
+			if showing == "lit":
+				DeepAudio.play("altar_hum")
+			elif showing == "cold":
+				DeepAudio.play("altar_fizzle")
+	## The bag opens as the party walks up, as it does at a stall: that is where the gems come from.
+	var room_key: String = str(_stage.place.get("key", run.get("depth", "")))
+	if _stall_opened != room_key:
+		_stall_opened = room_key
+		_run_dock.set_drawer(true)
+	_crossroads.visible = true
+	_set_cross_mark("altar", tone)
+	_cross_title.text = "An altar"
+	if bool(unit.get("downed", false)):
+		_cross_sub.text = "You are down, and the altar will not answer you until you are back on your feet at the next landing."
+	elif done == "made":
+		_cross_sub.text = "The circle has given what it had."
+	elif done == "left":
+		_cross_sub.text = "You walked on from the altar."
+	else:
+		match state:
+			"lit": _cross_sub.text = "The circle is lit. Click the crystal to give the five gems up."
+			"cold": _cross_sub.text = "The circle stays cold."
+			_: _cross_sub.text = "Drag five gems from your bag or your rail onto the sockets. Click a socket to take its gem back."
+	DeepUi.clear(_cross_hint)
+	if done == "made" and not _altar_making:
+		var onward := DeepUi.primary(_cross_hint, "descend", "Walk on", func() -> void:
+			_pin("")
+			command.emit({"kind": "altar_leave"}), 14, tone)
+		onward.mouse_filter = Control.MOUSE_FILTER_STOP
+	elif done.is_empty() and not bool(unit.get("downed", false)):
+		if _altar_lent():
+			DeepUi.stat(_cross_hint, "chest", "A gem your rail brought from home is on the altar: your Vault loses it too.", DeepUi.BAD, 13)
+		if _altar_slots.any(func(id: Variant) -> bool: return not str(id).is_empty()):
+			var clear := DeepUi.icon_button(_cross_hint, "reroll", "Clear the sockets", func() -> void:
+				_altar_slots = ["", "", "", "", ""]
+				DeepAudio.play("ui_back", {"volume": 0.6})
+				_show_altar(), 14, DeepUi.MUTED)
+			clear.mouse_filter = Control.MOUSE_FILTER_STOP
+		var leave := DeepUi.primary(_cross_hint, "descend", "Walk on", func() -> void:
+			_pin("")
+			command.emit({"kind": "altar_leave"}), 14, tone)
+		leave.mouse_filter = Control.MOUSE_FILTER_STOP
+	elif not _altar_making:
+		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool:
+			return str(p.get("id", "")) != local_id and str(p.get("altar_done", "")) != "left" and not bool(p.get("downed", false)) and bool(p.get("connected", true)))
+		if not waiting.is_empty():
+			DeepUi.stat(_cross_hint, "hourglass", "Waiting for " + ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))), DeepUi.MUTED, 13)
+	_fill_chip()
+
+func _altar_chip(box: VBoxContainer, which: String) -> bool:
+	## What the chip says over a socket or the crystal.
+	var tone: Color = DeepUi.CHAMBER_colorS.get("altar", DeepUi.ACCENT)
+	if which == "crystal":
+		var said: String = {"lit": "Lit. Click to give the five gems up.", "cold": "Cold. The circle does not answer these five.",
+			"dark": "Dark until all five sockets hold a gem."}.get(_altar_state(), "")
+		if not str(me().get("altar_done", "")).is_empty():
+			said = "Dark. The circle has done what it will do for you."
+		var row := DeepUi.hbox(box, 8)
+		DeepUi.icon(row, "altar", 20, tone)
+		DeepUi.label(row, said, 14, DeepUi.PAPER)
+		return true
+	var index: int = int(which)
+	if index < 0 or index >= _altar_slots.size():
+		return false
+	var stone: Dictionary = DeepOddities.find_stone(me(), str(_altar_slots[index]))
+	if stone.is_empty():
+		DeepUi.label(box, "An empty socket. Drag a gem here from your bag or your rail.", 13, DeepUi.MUTED)
+		return true
+	var line := DeepUi.hbox(box, 8)
+	StoneCard.mini(line, stone, 32)
+	DeepUi.label(line, DeepUi.skill_name(stone), 14, DeepUi.tier_color(str(DeepStone.grade(stone).tier)))
+	if _altar_open():
+		DeepUi.label(box, "Click to take it back.", 12, DeepUi.DIM)
+	return true
+
+func _altar_reveal(made: Dictionary, transcendent: bool, who: String) -> void:
+	## The new gem, held up: a plain reveal for anything the circle makes, every color there is
+	## for a Transcendent, and a Transcendent anyone in the party makes is everyone's moment.
+	if made.is_empty():
+		return
+	DeepAudio.reveal_stone(made)
+	var title: String = "The altar answers"
+	var subtitle: String = "%s, already appraised and in your bag." % DeepStone.name(made)
+	var button: String = "Into the bag"
+	if transcendent:
+		title = "Transcendent" if who.is_empty() else "%s made a Transcendent" % who
+		subtitle = str(DeepStone.skill_of(made).get("name", "")) + (": made at an altar, and nowhere else." if who.is_empty() else ".")
+		button = "Into the bag" if who.is_empty() else "Wonderful"
+	Inspector.stone(made, {"fanfare": {"title": title, "subtitle": subtitle, "button": button, "transcendent": transcendent}})
+
 func _fit_area() -> void:
 	## Pages stop short of the dock and its drawer, and so does the chart.
 	_area.offset_bottom = - _run_dock.height() if _run_dock.visible else 0.0
@@ -1716,6 +1961,9 @@ func _show_landing() -> void:
 			offered = [_landing_view]
 		elif waiting:
 			offered = ["rest", "appraise", "wish", "up"]
+			## A day of No Bench: the fire is cold.
+			if DeepDescent.has_mod(run, "NO_BENCH"):
+				offered.erase("rest")
 			if trading:
 				offered.append("trade")
 		elif trading:
@@ -2114,6 +2362,15 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 	match key:
 		"rest":
 			DeepUi.section(box, "heart", "Rest by the fire", DeepUi.GOOD)
+			if DeepDescent.has_mod(run, "NO_BENCH"):
+				DeepUi.label(box, "You cannot rest at a landing today.", 14, DeepUi.DIM)
+				return true
+			if DeepDescent.has_mod(run, "NIGHT_TERRORS"):
+				var to_full: int = maxi(0, int(unit.get("max_hp", 0)) - int(unit.get("hp", 0)))
+				DeepUi.label(box, "+%d health, and a little max health lost" % to_full, 14, DeepUi.GOOD)
+				if not taken:
+					DeepUi.label(box, "Click to sit down.", 12, DeepUi.DIM)
+				return true
 			var gain: int = DeepDescent.rest_amount(unit)
 			DeepUi.label(box, "+%d health" % gain if gain > 0 else "You are already whole.", 14, DeepUi.GOOD if gain > 0 else DeepUi.DIM)
 			## Whole already, sitting down would spend the landing's one action on nothing.
@@ -2667,19 +2924,25 @@ func _sync_strip() -> void:
 		var hp: Vector2i = health.call(p)
 		return "%s|%s|%d|%d|%s|%s" % [str(p.get("id", "")), str(p.get("name", "")), hp.x, hp.y,
 			str(bool(p.get("downed", false))), str(bool(p.get("connected", true)))])
-	var key: String = "%s#%d#%s#%d#%d#%s#%s#%s#%s#%d#%d#%s#%s" % [str(mine.get("name", "")), depth, note, every, into, str(guarded), local_id,
-		",".join(party), str(unit.is_empty()), int(unit.get("ore", 0)), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open)]
+	var key: String = "%s#%d#%s#%d#%d#%s#%s#%s#%s#%d#%d#%s#%s#%s" % [str(mine.get("name", "")), depth, note, every, into, str(guarded), local_id,
+		",".join(party), str(unit.is_empty()), int(unit.get("ore", 0)), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open), JSON.stringify(daily_best)]
 	if not unit.is_empty():
 		key += str(EffectChips.for_run(unit))
 	if key == _strip_key and _strip.get_child_count() > 0:
 		return
 	_strip_key = key
 	DeepUi.clear(_strip)
+	## A party of three or four shares the strip: names are cut short past a few letters (each
+	## says itself in full on hover) and the bars and the gaps between things narrow.
+	var crowd: bool = run.get("players", []).size() >= 3
+	_strip.add_theme_constant_override("separation", 12 if crowd else 18)
 	var place := DeepUi.hbox(_strip, 10)
 	DeepUi.icon(place, "pick", 22, DeepUi.ACCENT)
 	var names := DeepUi.vbox(place, 0)
 	DeepUi.title(names, str(mine.get("name", "The mine")), 17, DeepUi.PAPER)
 	DeepUi.label(names, "Depth %d  ·  %s" % [depth, note], 12, DeepUi.MUTED)
+	if not run.get("daily", {}).is_empty():
+		_daily_marks(place)
 	## Progress to the next landing as a row of little steps.
 	var steps := DeepUi.hbox(_strip, 3)
 	steps.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2704,10 +2967,13 @@ func _sync_strip() -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 				_look_at_member(member_id))
 		DeepUi.icon(box, "person", 18, DeepUi.PAPER if mine_too else DeepUi.INFO)
-		DeepUi.label(box, str(other.name), 14, DeepUi.PAPER if mine_too else DeepUi.MUTED)
+		var named := DeepUi.label(box, str(other.name), 14, DeepUi.PAPER if mine_too else DeepUi.MUTED)
+		var said: float = named.get_theme_font("font").get_string_size(named.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		named.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		named.custom_minimum_size.x = minf(52.0 if crowd else 150.0, ceilf(said) + 1.0)
 		## Tall enough for its number to be read, which is how allies' health is followed.
 		var bar := DeepUi.bar(box, 16.0)
-		bar.custom_minimum_size = Vector2(110, 16)
+		bar.custom_minimum_size = Vector2(80 if crowd else 110, 16)
 		bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar.warn = true
@@ -3044,6 +3310,8 @@ func _page_grubstake(content: VBoxContainer) -> void:
 	DeepUi.title(head, "The Grubstake", 34, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	DeepUi.wrap(head, "Before you head down, the workshop gives you a head start. Pick one. It only lasts for this run.", 16, DeepUi.PAPER.darkened(0.1), HORIZONTAL_ALIGNMENT_CENTER, 760).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_enter(head)
+	if not run.get("daily", {}).is_empty():
+		_enter(_daily_banner(content), 0.05)
 	if not stake.is_empty():
 		var waiting: Array = run.players.filter(func(p: Dictionary) -> bool: return str(p.get("stake", "")).is_empty() and bool(p.get("connected", true)) and not bool(p.get("downed", false)))
 		if not waiting.is_empty():
@@ -4480,6 +4748,126 @@ func _assay_strip(parent: Node, assay: Dictionary, outcome: String) -> void:
 			if is_instance_valid(coin) and coin.is_inside_tree():
 				DeepUi.burst(self, coin.global_position + coin.size * 0.5 - global_position, DeepUi.ACCENT_HI, 30, 220.0, 0.8, 6.0))
 
+# --- the day's seam --------------------------------------------------------------------------
+
+const DAILY_KIND_WORDS: Dictionary = {"rail": "Rail rule", "hazard": "Hazard", "blessing": "Blessing", "twist": "Twist"}
+
+func _daily_tone(kind: String) -> Color:
+	match kind:
+		"hazard": return DeepUi.BAD
+		"blessing": return DeepUi.GOOD
+		"twist": return _stake_tone("terms")
+	return DeepUi.INFO
+
+func _daily_cards() -> Array:
+	## The day's cards in the order they are dealt: the rail rule, then the hazard, blessing
+	## and twist, each as {key, name, text, glyph, kind, tone}.
+	var daily: Dictionary = run.get("daily", {})
+	var keys: Array = []
+	if not str(daily.get("rail", "")).is_empty():
+		keys.append(str(daily.rail))
+	keys.append_array(daily.get("mods", []))
+	var out: Array = []
+	for key in keys:
+		var mod: Dictionary = DeepContent.entry("daily_modifiers", str(key))
+		var kind: String = str(mod.get("kind", "hazard"))
+		var name: String = str(mod.get("name", key))
+		if str(key) == "DROUGHT" and daily.has("drought"):
+			name = "%s: no %s" % [name, str(DeepContent.color(str(daily.drought)).get("name", daily.drought))]
+		if str(key) == "BORROWED_BIRTHSTONE" and daily.has("birthstone"):
+			name = "%s: %s's" % [name, DeepContent.character_title(str(daily.birthstone)).get_slice(",", 0)]
+		out.append({"key": str(key), "name": name, "text": str(mod.get("text", "")), "glyph": str(mod.get("glyph", "spark")), "kind": kind,
+			"tone": _daily_tone(kind), "kind_word": str(DAILY_KIND_WORDS.get(kind, ""))})
+	return out
+
+func _daily_standing() -> String:
+	## Where this player stands today, in a line.
+	if not bool(daily_best.get("eligible", true)):
+		return "Beat the Quarry to be paid for the daily dig."
+	if int(daily_best.get("best_score", 0)) > 0:
+		return "Your best today is %d. This run pays only what it adds to that." % int(daily_best.best_score)
+	return "Your first dig today."
+
+func _daily_marks(parent: Node) -> void:
+	## On the strip: the day's mark, and its cards as their own marks, each saying itself on hover.
+	var marks := DeepUi.hbox(parent, 4)
+	marks.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DeepUi.icon(marks, "calendar", 18, DeepUi.ACCENT, "Today's seam\nYour score is the worth of the stones you bring up plus the pyrite you carry.\n" + _daily_standing())
+	for card in _daily_cards():
+		DeepUi.icon(marks, str(card.glyph), 15, card.tone, "%s · %s\n%s" % [str(card.name), str(card.kind_word), str(card.text)])
+
+func _daily_banner(parent: Node) -> Control:
+	## At the shaft head: the day's seam, its four cards, and the score to beat.
+	var card := DeepUi.card(parent, Color(DeepUi.ACCENT, 0.4), 12, Color(0.06, 0.055, 0.04, 0.9))
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var box := DeepUi.vbox(card, 8)
+	var head := DeepUi.hbox(box, 10)
+	head.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.icon(head, "calendar", 22, DeepUi.ACCENT)
+	DeepUi.title(head, "Today's seam", 18, DeepUi.PAPER)
+	var best: int = int(daily_best.get("best_score", 0))
+	var standing: String = ("Best today: %d" % best) if best > 0 else "First dig today"
+	if not bool(daily_best.get("eligible", true)):
+		standing = "Not paid yet"
+	DeepUi.pill(head, "star", standing, DeepUi.ACCENT if bool(daily_best.get("eligible", true)) else DeepUi.MUTED, 12, _daily_standing())
+	var cards := DeepUi.hbox(box, 8)
+	cards.alignment = BoxContainer.ALIGNMENT_CENTER
+	for entry in _daily_cards():
+		DeepUi.pill(cards, str(entry.glyph), str(entry.name), entry.tone, 13, "%s\n%s" % [str(entry.kind_word), str(entry.text)])
+	DeepUi.label(box, "Your score is the worth of the stones you bring up plus the pyrite you carry. Nothing is kept.", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	return card
+
+func _daily_result() -> Dictionary:
+	## This player's score for the run as it ended, and what it pays.
+	var unit: Dictionary = me()
+	var result: Dictionary = {"outcome": str(run.get("outcome", "")), "players": {local_id: {"home": DeepDescent.coming_home(run, unit), "ore": int(unit.get("ore", 0))}}}
+	var scored: Dictionary = DeepEconomy.daily_score(result, local_id)
+	var gold: int = DeepEconomy.daily_payout(int(scored.score))
+	var eligible: bool = bool(daily_best.get("eligible", true))
+	scored.gold = gold
+	scored.paid = maxi(0, gold - int(daily_best.get("best_gold", 0))) if eligible else 0
+	return scored
+
+func _daily_strip(parent: Node) -> void:
+	## At the lift: what came up, as a score, and the gold it pays, counted out.
+	var scored: Dictionary = _daily_result()
+	var strip := DeepUi.card(parent, Color(DeepUi.ACCENT, 0.4), 10, Color(0.06, 0.055, 0.04, 0.9))
+	var lines := DeepUi.vbox(strip, 4)
+	var row := DeepUi.hbox(lines, 10)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.icon(row, "calendar", 26, DeepUi.ACCENT)
+	DeepUi.title(row, "Today's seam", 18, DeepUi.PAPER)
+	DeepUi.gap(row, 6)
+	DeepUi.stat(row, "gem", "%d" % int(scored.worth), DeepUi.PAPER, 16, "The worth of the %s you brought up" % DeepUi.plural(scored.stones.size(), "stone"))
+	DeepUi.label(row, "+", 16, DeepUi.MUTED)
+	DeepUi.stat(row, "ore", "%d" % int(scored.pyrite), DeepUi.ORE, 16, "The pyrite you carried up" if not bool(scored.fell) else "A party that falls carries no pyrite up")
+	DeepUi.label(row, "=", 16, DeepUi.MUTED)
+	DeepUi.title(row, "%d" % int(scored.score), 22, DeepUi.PAPER).tooltip_text = "Your score"
+	DeepUi.icon(row, "next", 18, DeepUi.MUTED)
+	var coin := DeepUi.icon(row, "coin", 24, DeepUi.ACCENT)
+	var paid: int = int(scored.paid)
+	var gold_label := DeepUi.title(row, "%d gold" % paid, 22, DeepUi.ACCENT_HI if paid > 0 else DeepUi.DIM)
+	gold_label.custom_minimum_size.x = 96
+	var note: String = "A score of %d is worth %d gold." % [int(scored.score), int(scored.gold)]
+	if bool(scored.fell):
+		note = "The party fell: only the stones the salvage dice saved count. " + note
+	if not bool(daily_best.get("eligible", true)):
+		note += " Beat the Quarry to be paid for the daily dig."
+	elif int(daily_best.get("best_gold", 0)) > 0:
+		note += (" Your best today paid %d, so this run pays the difference." if paid > 0 else " Your best today paid %d, so this run adds nothing.") % int(daily_best.best_gold)
+	DeepUi.label(lines, note, 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	if _fresh and not _headless and paid > 0:
+		gold_label.text = "0 gold"
+		var tween := gold_label.create_tween()
+		tween.tween_interval(0.7)
+		tween.tween_callback(func() -> void: DeepAudio.play("ore", {"volume": 0.8}))
+		tween.tween_method(func(v: float) -> void: gold_label.text = "%d gold" % int(round(v)), 0.0, float(paid), 1.1).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tween.tween_callback(func() -> void:
+			DeepAudio.play("buy", {"volume": 0.7})
+			DeepUi.pulse(gold_label, 1.3, 0.4)
+			if is_instance_valid(coin) and coin.is_inside_tree():
+				DeepUi.burst(self, coin.global_position + coin.size * 0.5 - global_position, DeepUi.ACCENT_HI, 30, 220.0, 0.8, 6.0))
+
 func _page_over(content: VBoxContainer) -> void:
 	var unit: Dictionary = me()
 	var outcome: String = str(run.get("outcome", ""))
@@ -4491,7 +4879,8 @@ func _page_over(content: VBoxContainer) -> void:
 	var card := DeepUi.card(content, Color(tone, 0.6), 26)
 	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	card.custom_minimum_size.x = 720
-	var box := DeepUi.vbox(card, 14)
+	## The day's seam has one more line to say at the lift: the card closes up a little for it.
+	var box := DeepUi.vbox(card, 14 if run.get("daily", {}).is_empty() else 10)
 	var medal := Medallion.new(str(glyphs.get(outcome, "lift")), tone, 110)
 	medal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(medal)
@@ -4501,8 +4890,12 @@ func _page_over(content: VBoxContainer) -> void:
 	## Exactly what the workshop's tray will be handed: the bag, and the stones found down here
 	## and set on the rail. The vault's own stones were never in question.
 	var haul: Array = DeepDescent.coming_home(run, unit)
+	## The day's seam keeps nothing: what came up is scored, and the assayer weighs nothing.
+	var daily: bool = not run.get("daily", {}).is_empty()
+	if daily:
+		haul = haul.filter(func(s: Dictionary) -> bool: return not DeepStone.is_fragile(s) and not bool(s.get("lent", false)))
 	var tally: Dictionary = unit.get("stats", {})
-	for entry in [["stairs", "Depth", str(int(run.depth))], ["bag", "Stones home", str(haul.size())], ["sword", "Fights", str(int(tally.get("fights", 0)))],
+	for entry in [["stairs", "Depth", str(int(run.depth))], ["bag", "Stones up" if daily else "Stones home", str(haul.size())], ["sword", "Fights", str(int(tally.get("fights", 0)))],
 			["ore", "Pyrite dug", str(int(tally.get("ore", 0)))], ["shield_burst", "Damage", str(int(tally.get("damage", 0)))]]:
 		var tile := DeepUi.card(stats, DeepUi.LINE, 10, Color(0.05, 0.06, 0.085, 0.9))
 		tile.custom_minimum_size = Vector2(118, 0)
@@ -4513,11 +4906,13 @@ func _page_over(content: VBoxContainer) -> void:
 		DeepUi.label(inner, str(entry[1]), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	## The assayer at the lift: what is left in the pocket, weighed into gold.
 	var assay: Dictionary = DeepEconomy.assay({"ore": int(unit.get("ore", 0)), "earned": int(tally.get("earned", 0))}, outcome)
-	if int(assay.carried) > 0:
+	if int(assay.carried) > 0 and not daily:
 		_assay_strip(box, assay, outcome)
+	if daily:
+		_daily_strip(box)
 	if not haul.is_empty():
 		var home_head := DeepUi.hbox(box, 8)
-		DeepUi.section(home_head, "bag", "Coming home").size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.section(home_head, "bag", "Brought up, scored and not kept" if daily else "Coming home").size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var tiles := HFlowContainer.new()
 		tiles.add_theme_constant_override("h_separation", 10)
 		tiles.add_theme_constant_override("v_separation", 10)

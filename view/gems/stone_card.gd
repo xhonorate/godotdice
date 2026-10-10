@@ -179,7 +179,7 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 	staked_mark(marks, stone, "cut")
 	DeepUi.stat(marks, "clarity", DeepContent.clarity_name(int(stone.get("clarity", 3))), DeepUi.PAPER, 13, GemIcons.hint("clarity"))
 	staked_mark(marks, stone, "clarity")
-	_color_chip(marks, color_key)
+	_color_chip(marks, color_key, stone)
 	var needs := DeepUi.hbox(text, 10)
 	var effective: Dictionary = DeepStone.effective(stone, opts.get("context", {}))
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
@@ -280,11 +280,20 @@ static func _grade_badge(parent: Node, grade: Dictionary) -> void:
 	var badge := DeepUi.pill(parent, "star", str(grade.name), tone, 12, "Grade %d of 100" % int(grade.score))
 	badge.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 
-static func _color_chip(parent: Node, color_key: String) -> void:
+static func _color_chip(parent: Node, color_key: String, stone: Dictionary = {}) -> void:
 	var hue: Color = DeepUi.color(color_key)
 	var rainbow: bool = DeepUi.is_rainbow(color_key)
 	var row := DeepUi.hbox(parent, 5)
 	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	## A gem made from several colors counts as every one of them, and says so: a dot apiece.
+	var several: Array = DeepStone.skill_of(stone).get("colors", []) if not stone.is_empty() else []
+	if several.size() > 1:
+		row.add_theme_constant_override("separation", 2)
+		for key in several:
+			row.add_child(_Dot.new(DeepUi.color(str(key))))
+		row.tooltip_text = "Counts as %s." % ", ".join(several.map(func(k: Variant) -> String: return str(DeepContent.color(str(k)).get("name", k))))
+		DeepUi.label(row, " %d colors" % several.size(), 13, DeepUi.PAPER)
+		return
 	var name: String = str(DeepContent.color(color_key).get("name", color_key))
 	var domain: String = str(DeepContent.color(color_key).get("domain", ""))
 	row.tooltip_text = "%s: %s" % [name, domain]
@@ -309,7 +318,38 @@ static func _rarity_color(rarity: String) -> Color:
 		"RARE": return Color("6fa8ff")
 		"LEGENDARY": return Color("ffcf5a")
 		"MYTHIC": return DeepUi.OPAL_TONE
+		"TRANSCENDENT": return DeepUi.TRANSCENDENT_TONE
 	return DeepUi.MUTED
+
+static func rarity_tag(parent: Node, rarity: String, size: int = 13, as_pill: bool = true) -> Control:
+	## A stone's rarity, said the way every page says it: a Mythic in every color, a
+	## Transcendent in moving gold, anything else in its own tone.
+	if rarity == DeepContent.TRANSCENDENT:
+		var box := PanelContainer.new()
+		var style := DeepUi.flat(Color(DeepUi.TRANSCENDENT_TONE, 0.14), Color(DeepUi.TRANSCENDENT_TONE, 0.6), 20 if as_pill else 6, 5)
+		style.content_margin_left = 9
+		style.content_margin_right = 11
+		box.add_theme_stylebox_override("panel", style)
+		box.mouse_filter = Control.MOUSE_FILTER_PASS
+		box.tooltip_text = "Transcendent: made at an altar, and nowhere else."
+		parent.add_child(box)
+		var row := DeepUi.hbox(box, maxi(3, size / 4))
+		if as_pill:
+			DeepUi.icon(row, "spark", size + 3, DeepUi.TRANSCENDENT_TONE)
+		DeepUi.shimmer_word(row, "Transcendent", size)
+		return box
+	if as_pill:
+		return DeepUi.pill(parent, "spark", rarity.capitalize(), _rarity_color(rarity), size, "", is_mythic(rarity))
+	return DeepUi.chip(parent, rarity.capitalize(), _rarity_color(rarity), size, is_mythic(rarity))
+
+static func color_words(stone: Dictionary) -> String:
+	## The color line a card prints: one color and its domain, or every color a gem made
+	## from several counts as.
+	var colors: Array = DeepStone.skill_of(stone).get("colors", [])
+	if colors.size() > 1:
+		return " · ".join(colors.map(func(c: Variant) -> String: return str(DeepContent.color(str(c)).get("name", c))))
+	var key: String = DeepStone.color(stone)
+	return "%s · %s" % [str(DeepContent.color(key).get("name", key)), str(DeepContent.color(key).get("domain", ""))]
 
 static func is_mythic(rarity: String) -> bool:
 	## The one rarity written in every color, because the only stones that wear it are.

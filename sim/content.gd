@@ -18,8 +18,14 @@ const SKILL_COLORS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", 
 ## The cuts a Birthstone may wear. Each is drawn as its own solid, outside the six colors.
 const BIRTHSTONE_STYLES: Array = ["shield", "marquise", "step", "briolette", "checkerboard", "heptagon"]
 const INCLUSION_CLASSES: Array = ["PINPOINT", "LENS", "FEATHER", "FRACTURE", "STAR"]
-const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC"]
-const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "vat", "well"]
+const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC", "TRANSCENDENT"]
+## The rarity above Mythic. Nothing rolls one: a Transcendent is only ever made, at an altar,
+## and the game keeps it out of every list until the player has made it. See DeepAltar.
+const TRANSCENDENT: String = "TRANSCENDENT"
+## The cuts a Transcendent may name for itself, each its own solid, outside the six colors
+## and outside the Birthstones' too. The two opals keep the cabochon every opal wears.
+const TRANSCENDENT_CUTS: Array = ["kite", "pentagon", "hourglass", "keystone"]
+const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "vat", "well", "altar"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle",
 	"heal_resonance_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value", "pot_share"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",
@@ -132,6 +138,18 @@ static func rarity_weight(rarity: String) -> float:
 static func rarity_score(rarity: String) -> float:
 	return float(entry("rarities", rarity).get("score", 0))
 
+static func is_transcendent(skill_key: String) -> bool:
+	return str(skill(skill_key).get("rarity", "")) == TRANSCENDENT
+
+static func transcendents() -> Array:
+	## Every Transcendent in the pack, sorted, so a seed reads them in the same order.
+	var out: Array = []
+	for key in section("skills"):
+		if is_transcendent(str(key)):
+			out.append(str(key))
+	out.sort()
+	return out
+
 static func starter_mine() -> String:
 	for key in section("mines"):
 		if bool(section("mines")[key].get("starter", false)):
@@ -241,6 +259,45 @@ static func validate(p: Dictionary = {}) -> Array:
 		for group in ["stone", "kit", "cost", "reward"]:
 			if p.boons.values().filter(func(b: Variant) -> bool: return b is Dictionary and str(b.get("group", "")) == group).is_empty():
 				errors.append("boons: no %s stake to offer" % group)
+	## The shop's featured Geodes: each a named set of real skills the rock can give.
+	var featured: Variant = p.get("geodes", {}).get("featured", []) if p.get("geodes", {}) is Dictionary else null
+	if not featured is Array:
+		errors.append("geodes: featured must be a list of sets")
+	else:
+		var keys_seen: Dictionary = {}
+		for entry in featured:
+			if not entry is Dictionary or str(entry.get("key", "")).is_empty() or str(entry.get("name", "")).is_empty():
+				errors.append("geodes: every featured set needs a key and a name")
+				continue
+			if keys_seen.has(str(entry.key)):
+				errors.append("geodes: featured set %s is listed twice" % str(entry.key))
+			keys_seen[str(entry.key)] = true
+			var listed: Variant = entry.get("skills", [])
+			if not listed is Array or listed.size() < 3:
+				errors.append("geodes: featured set %s needs at least three skills" % str(entry.key))
+				continue
+			for skill in listed:
+				var def: Variant = p.skills.get(str(skill), null)
+				if not def is Dictionary:
+					errors.append("geodes: featured set %s names unknown skill %s" % [str(entry.key), str(skill)])
+				elif str(def.get("color", "")) == OPAL or str(def.get("rarity", "")) == TRANSCENDENT:
+					errors.append("geodes: featured set %s names %s, which no rock gives up" % [str(entry.key), str(skill)])
+	## The daily dig's cards: a rail rule, hazards, blessings and twists, enough of each kind
+	## for a day's deal (`daily_deal`).
+	var daily_mods: Variant = p.get("daily_modifiers", {})
+	if daily_mods is Dictionary:
+		var counts: Dictionary = {"rail": 0, "hazard": 0, "blessing": 0, "twist": 0}
+		for key in daily_mods:
+			var mod: Variant = daily_mods[key]
+			if not mod is Dictionary or not str(mod.get("kind", "")) in counts or str(mod.get("name", "")).is_empty():
+				errors.append("daily modifier %s: needs a name and a kind (rail, hazard, blessing or twist)" % str(key))
+				continue
+			counts[str(mod.kind)] = int(counts[str(mod.kind)]) + 1
+		var deal: Variant = p.get("constants", {}).get("daily_deal", {})
+		if not daily_mods.is_empty() and deal is Dictionary:
+			for kind in deal:
+				if int(counts.get(str(kind), 0)) < int(deal[kind]):
+					errors.append("daily modifiers: not enough of kind %s for a day's deal" % str(kind))
 	## Gold at home (docs/GOLD.md): every socket bought costs more than the one before it.
 	var socket_prices: Variant = p.get("constants", {}).get("socket_unlock_gold", [])
 	if not socket_prices is Array:
@@ -496,7 +553,7 @@ static func _validate_mine(def: Variant, p: Dictionary) -> Array:
 	for color_key in def.get("color_weights", {}):
 		if not str(color_key) in color_KEYS:
 			errors.append("unknown color " + str(color_key))
-	for field in ["start_pyrite", "fare_gold", "insurance_gold", "first_conquest_gold"]:
+	for field in ["start_pyrite", "fare_gold", "insurance_gold", "first_conquest_gold", "geode_gold"]:
 		if int(def.get(field, 0)) < 0:
 			errors.append("%s cannot be negative" % field)
 	## The dice offered at a deeper start: chances, in percent, of at least one, two and three

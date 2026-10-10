@@ -252,7 +252,8 @@ func _test_inside() -> void:
 	var played: Dictionary = {}
 	for key in DeepContent.section("skills"):
 		var skill: Dictionary = DeepContent.skill(str(key))
-		if str(skill.get("color", "")) != "OPAL":
+		## The Rainbow Seam plays back every color, not one of its own: it is the Seams' Transcendent.
+		if str(skill.get("color", "")) != "OPAL" or DeepContent.is_transcendent(str(key)):
 			continue
 		var opal: Dictionary = DeepStone.make(str(key), 14, 4, 4, [], {}, "opal")
 		var color: Color = GemFlaws.seam_color(opal)
@@ -411,6 +412,17 @@ func _test_rasteriser() -> void:
 		check(GemIcons.known(glyph), "the interface mark %s is drawn" % glyph)
 	for kind in DeepUi.CHAMBER_GLYPHS:
 		check(GemIcons.known(str(DeepUi.CHAMBER_GLYPHS[kind])), "chamber kind %s has a known mark" % kind)
+	## The daily dig's cards: each drawn, and no two of one kind with the same mark.
+	var marks_by_kind: Dictionary = {}
+	for key in DeepEconomy.daily_modifiers():
+		var mod: Dictionary = DeepEconomy.daily_mod(str(key))
+		var glyph: String = str(mod.get("glyph", ""))
+		check(GemIcons.known(glyph), "the daily card %s is drawn with a known mark (%s)" % [str(key), glyph])
+		var kind: String = str(mod.get("kind", ""))
+		check(not marks_by_kind.get(kind, []).has(glyph), "no two %s cards share the mark %s" % [kind, glyph])
+		if not marks_by_kind.has(kind):
+			marks_by_kind[kind] = []
+		marks_by_kind[kind].append(glyph)
 	check(GemIcons.baked_size(13.0) == 16 and GemIcons.baked_size(200.0) == 128, "glyph requests snap to the baked sizes")
 
 func _test_look() -> void:

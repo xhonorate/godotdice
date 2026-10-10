@@ -40,7 +40,7 @@ export default {
 				if (!s) return null;
 				const c = s.cuts[state.cut];
 				return { key, label: def.name, x: c.fireRate * 100, y: state.yKind === 'ev' ? c.ev : c.evFired, color: markColor(def.color), shape: SHAPES[def.color] || 'circle',
-					note: `${C.colorName(def.color)} · ${C.title(def.rarity)} · ${s.headline.replace(/_/g, ' ')}`, size: def.rarity === 'LEGENDARY' || def.rarity === 'MYTHIC' ? 6.5 : 5 };
+					note: `${C.colorName(def.color)} · ${C.title(def.rarity)} · ${s.headline.replace(/_/g, ' ')}`, size: ['LEGENDARY', 'MYTHIC', 'TRANSCENDENT'].includes(def.rarity) ? 6.5 : 5 };
 			}).filter(Boolean);
 			const wrap = h('div', { class: 'col' });
 			wrap.append(scatter({ points, width: 760, height: 360, xLabel: 'fires on this % of hands', yLabel: state.yKind === 'ev' ? 'headline effect per turn' : 'headline effect when it fires', xMax: 100,

@@ -1,8 +1,9 @@
 extends Control
-## The workshop: six tabs in one frame. Map (the mines under the workshop, the party and
-## the way down), Lapidaries (the roster: who goes down, their dossier and their loadout),
-## Vault (one stone per skill), Appraise (what came home, under the loupe), Commissions
-## (the day's requests), Ledger (records and runs).
+## The workshop: seven tabs in one frame. Map (the mines under the workshop, the party, the
+## way down and the day's seam), Lapidaries (the roster: who goes down, their dossier and
+## their loadout), Vault (one stone per skill), Appraise (what came home, under the loupe),
+## Shop (the day's Geodes, and contracts that trade five stones up for one), Commissions (the
+## day's requests), Ledger (records and runs).
 ##
 ## Tabs are rebuilt whenever the profile or the lobby changes; stones and dice are
 ## photographs, so that is cheap, and only the one stone a tab is about is live 3D. A tab
@@ -23,6 +24,7 @@ const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Roster = preload("res://view/home/roster.gd")
 const Appraisal = preload("res://view/gems/appraisal.gd")
+const Geode = preload("res://view/gems/geode.gd")
 
 signal depart_requested(seed: int)
 signal member_changed(fields: Dictionary)
@@ -37,8 +39,9 @@ signal leave_party_requested
 signal profile_changed
 signal menu_requested
 signal player_name_requested
+signal daily_chosen(date: String)
 
-const TABS: Array = [["map", "Map", "map"], ["roster", "Lapidaries", "person"], ["vault", "Vault", "chest"], ["appraise", "Appraise", "loupe"], ["commissions", "Commissions", "flag"], ["ledger", "Ledger", "book"]]
+const TABS: Array = [["map", "Map", "map"], ["roster", "Lapidaries", "person"], ["vault", "Vault", "chest"], ["appraise", "Appraise", "loupe"], ["shop", "Shop", "geode"], ["commissions", "Commissions", "flag"], ["ledger", "Ledger", "book"]]
 const color_ORDER: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
 ## How wide a skill tile is in the vault grid, and how many go in a row. The vault is the
 ## one page in the workshop that scrolls: every skill in the pack belongs on it at a size
@@ -55,6 +58,10 @@ const OWN_DICE: String = "Every lapidary goes down with their own five dice. Dic
 const TRAY_PAGE: int = 45
 const APPRAISE_PAGE: int = 10
 const LEDGER_PAGE: int = 12
+## How many stones the contract bench's picker shows a page: four rows of five.
+const CONTRACT_PAGE: int = 20
+## The size of a place on the contract bench.
+const CONTRACT_SLOT := Vector2(150, 176)
 ## What the session's state means to a player, and the tone it is said in.
 const STATUS_WORDS: Dictionary = {"local": ["Playing alone: host or join to play together", DeepUi.MUTED],
 	"offline": ["Playing alone: host or join to play together", DeepUi.MUTED], "opening": ["Opening a Steam lobby…", DeepUi.ACCENT],
@@ -94,8 +101,18 @@ var _shown_tab: String = ""
 var _headless: bool = false
 var _gold_seen: int = -1
 var _cheer: Dictionary = {}
-## The map's side column: the expedition itself, or the party and how to play together.
+## The map's side column: the expedition itself, the day's seam, or the party and how to play together.
 var _side: String = "expedition"
+## The day's seam the lobby was last seen set to, so a guest's side column follows the host there.
+var _daily_seen: String = ""
+## The Shop tab: the day's Geodes, or the contract bench.
+var _shop_view: String = "geodes"
+## The stones on the contract bench, by reference (DeepEconomy.contract_input), and which of
+## the picker's lists is showing.
+var _contract: Array = []
+var _contract_from: String = "all"
+## A contract that gives up vault stones asks twice.
+var _contract_sure: bool = false
 ## The Lapidaries tab: the roster and a dossier, or the picked lapidary's sockets.
 var _roster_view: String = "dossier"
 ## The page each long list is turned to, by list.
@@ -163,6 +180,12 @@ func refresh(new_profile: Dictionary, new_lobby: Dictionary, new_status: String,
 	local_id = id
 	can_start = startable
 	settings = new_settings
+	## A guest's side column follows the host to the day's seam and back.
+	var daily: String = str(lobby.get("daily", ""))
+	if daily != _daily_seen:
+		_daily_seen = daily
+		if not is_host:
+			_side = "daily" if not daily.is_empty() else ("expedition" if _side == "daily" else _side)
 	_render()
 
 func open(tab_name: String) -> void:
@@ -235,6 +258,7 @@ func _render() -> void:
 		"roster": _roster(content)
 		"vault": _vault(content)
 		"appraise": _appraise(content)
+		"shop": _shop(content)
 		"commissions": _commissions(content)
 		"ledger": _ledger(content)
 
@@ -308,25 +332,37 @@ func _map(content: VBoxContainer) -> void:
 	map.show_mines(keys, profile.get("mines", {}), str(lobby.get("mine", "")), is_host, DeepProfile.unlocked_characters(profile))
 	map.chosen.connect(func(key: String) -> void:
 		DeepAudio.play("ui_confirm", {"volume": 0.7})
+		## Picking a mine is picking the expedition over the day's seam.
+		if _side == "daily":
+			_side = "expedition"
+			daily_chosen.emit("")
 		mine_chosen.emit(key))
 	_enter(map)
-	## The side column is two views: the expedition (where, as whom, and the way down) and
-	## the party (who is coming, and how friends join). The way down is at hand in both.
+	## The side column is three views: the expedition (where, as whom, and the way down), the
+	## day's seam (everyone's same daily dig), and the party (who is coming, and how friends
+	## join). The way down is at hand in all three. For the host, choosing between the
+	## expedition and the day's seam is choosing which one the party goes down.
 	var side := DeepUi.vbox(columns, 14)
 	side.custom_minimum_size.x = 470
 	var views := DeepUi.hbox(side, 8)
 	var members: int = lobby.get("order", []).size()
-	for entry in [["expedition", "descend", "Expedition", 0], ["party", "party", "Party", members if members > 1 else 0]]:
+	for entry in [["expedition", "descend", "Expedition", 0], ["daily", "calendar", "Daily", 0], ["party", "party", "Party", members if members > 1 else 0]]:
 		var key: String = str(entry[0])
 		var button := DeepUi.tab_button(views, str(entry[1]), str(entry[2]), _side == key, func() -> void:
 			_side = key
+			if is_host and key in ["expedition", "daily"]:
+				daily_chosen.emit(DeepEconomy.today() if key == "daily" else "")
 			_render(), 14, int(entry[3]))
-		## Both views get half the row whatever their words, so the pair never shifts.
+		## The views share the row evenly whatever their words, so the row never shifts.
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size.x = (side.custom_minimum_size.x - 8) / 2.0
+		button.custom_minimum_size.x = (side.custom_minimum_size.x - 16) / 3.0
 		button.clip_text = true
+		if key == "daily" and DeepEconomy.daily_state(profile) == "fresh" and _side != "daily":
+			DeepUi.breathe(button, 0.7, 1.8)
 	if _side == "party":
 		_party_view(side)
+	elif _side == "daily":
+		_daily_view(side)
 	else:
 		_expedition_view(side)
 	var go_card := DeepUi.card(side, Color(DeepUi.ACCENT, 0.3), 16)
@@ -440,6 +476,90 @@ func _expedition_view(side: VBoxContainer) -> void:
 	DeepUi.icon_button(wear_buttons, "person", "Change lapidary", func() -> void: _edit_loadout(current, "dossier"), 13, DeepUi.MUTED)
 	_enter(wear, 0.05)
 
+const DAILY_KIND_WORDS: Dictionary = {"rail": "Rail rule", "hazard": "Hazard", "blessing": "Blessing", "twist": "Twist"}
+
+func _daily_tone(kind: String) -> Color:
+	match kind:
+		"hazard": return DeepUi.BAD
+		"blessing": return DeepUi.GOOD
+		"twist": return Color("c58bff")
+	return DeepUi.INFO
+
+func _daily_view(side: VBoxContainer) -> void:
+	## The day's seam: the same for everyone on this build today. Its four cards, how it is
+	## scored and paid, where this lapidary stands today, and what it lends the party.
+	var date: String = str(lobby.get("daily", ""))
+	if date.is_empty():
+		date = DeepEconomy.today()
+	var plan: Dictionary = DeepEconomy.daily_plan(date)
+	var mine_key: String = str(plan.mine)
+	var mine: Dictionary = DeepContent.mine(mine_key)
+	var palette: String = str(mine.get("palette", ""))
+	var tone: Color = Color(palette).lightened(0.15) if not palette.is_empty() else DeepUi.ACCENT
+	var seam := DeepUi.card(side, Color(tone, 0.45), 16)
+	var box := DeepUi.vbox(seam, 6)
+	var head := DeepUi.hbox(box, 8)
+	DeepUi.section(head, "calendar", "The daily dig", tone).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var left: int = DeepEconomy.seconds_to_tomorrow()
+	DeepUi.stat(head, "hourglass", "%dh %02dm left" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 12, "A new seam opens every day at midnight UTC.")
+	var title := DeepUi.title(box, "%s, and on down" % str(mine.get("name", mine_key)), 24, DeepUi.PAPER)
+	title.tooltip_text = "It starts at the top of the Quarry and goes on through every mine, as deep as you want to go."
+	title.mouse_filter = Control.MOUSE_FILTER_PASS
+	DeepUi.label(box, "The same seam for everyone today.", 12, DeepUi.MUTED)
+	## The day's four cards: the rail rule, then the hazard, the blessing and the twist.
+	var keys: Array = [str(plan.rail)] + plan.get("mods", [])
+	for key in keys:
+		var mod: Dictionary = DeepEconomy.daily_mod(str(key))
+		var kind: String = str(mod.get("kind", "hazard"))
+		var hue: Color = _daily_tone(kind)
+		var line := DeepUi.hbox(box, 8)
+		DeepUi.icon(line, str(mod.get("glyph", "spark")), 20, hue, str(DAILY_KIND_WORDS.get(kind, ""))).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var words := DeepUi.vbox(line, 0)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var name: String = str(mod.get("name", key))
+		if str(key) == "DROUGHT" and plan.has("drought"):
+			name = "%s: no %s" % [name, str(DeepContent.color(str(plan.drought)).get("name", plan.drought))]
+		if str(key) == "BORROWED_BIRTHSTONE" and plan.has("birthstone"):
+			name = "%s: %s's" % [name, DeepContent.character_title(str(plan.birthstone)).get_slice(",", 0)]
+		var title_line := DeepUi.hbox(words, 6)
+		DeepUi.label(title_line, name, 14, hue.lightened(0.1))
+		DeepUi.label(title_line, str(DAILY_KIND_WORDS.get(kind, "")), 11, DeepUi.DIM)
+		DeepUi.wrap(words, str(mod.get("text", "")), 12, DeepUi.MUTED)
+	## How it is scored and paid, and where this lapidary stands today.
+	var knee: int = int(DeepContent.constant("daily_score_knee", 1000))
+	DeepUi.stat(box, "coin", "Paid in gold for your score", DeepUi.ACCENT, 13,
+		"Your score is the worth of the stones you bring up plus the pyrite you carry. A fall scores only what the salvage dice save. A score pays %d gold at %d, and half the rate past that. Nothing you find is kept." % [DeepEconomy.daily_payout(knee), knee])
+	var best: Dictionary = DeepEconomy.daily_best(profile, date)
+	match DeepEconomy.daily_state(profile, date):
+		"locked":
+			DeepUi.pill(box, "lock", "Beat the Quarry's final boss to be paid for it", DeepUi.DIM, 12)
+		"played":
+			DeepUi.pill(box, "star", "Best today: %d, paid %d gold" % [int(best.score), int(best.gold)], DeepUi.GOOD, 12, "Another dig today pays only the gold its score adds to this.")
+		_:
+			DeepUi.pill(box, "star", "Not dug yet today", DeepUi.ACCENT, 12)
+	_enter(seam)
+	## Who the party goes down as: lent for the day, with what the rail rule gives them.
+	var seat: int = maxi(0, lobby.get("order", []).find(local_id))
+	var character: String = DeepEconomy.daily_lapidary(plan)
+	var lent := DeepUi.card(side, DeepUi.LINE, 14)
+	var lent_box := DeepUi.vbox(lent, 8)
+	DeepUi.section(lent_box, "person", "Lent for the day")
+	var row := DeepUi.hbox(lent_box, 12)
+	row.add_child(Roster.Portrait.new(character, Vector2(72, 86), false, false, true))
+	var facts := DeepUi.vbox(row, 4)
+	facts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.title(facts, DeepContent.character_title(character), 18, DeepUi.PAPER)
+	DeepUi.wrap(facts, "The whole party goes down as this lapidary, with the stones and dice the day lends. Nothing of yours goes down.", 12, DeepUi.MUTED)
+	var rail := DeepUi.hbox(lent_box, 6)
+	var stones: Array = DeepEconomy.daily_rail(plan, character, seat)
+	var sockets: Array = DeepContent.character(character).get("sockets", [])
+	for index in range(sockets.size()):
+		var stone: Variant = stones[index] if index < stones.size() else null
+		_kit_socket(rail, str(sockets[index]), stone if stone is Dictionary else {}, 40.0)
+	var carried: String = str(plan.get("birthstone", character)) if plan.get("mods", []).has("BORROWED_BIRTHSTONE") else character
+	_kit_socket(rail, "BIRTHSTONE", DeepStone.birthstone(carried), 40.0)
+	_enter(lent, 0.05)
+
 func _member_short(member: Dictionary) -> bool:
 	## Whether a member of the party cannot pay their own way down to the chosen mine.
 	return bool(member.get("connected", true)) and int(member.get("gold", 0)) < DeepEconomy.departure(_chosen_mine(), bool(member.get("insured", false)))
@@ -456,6 +576,9 @@ func _go(box: VBoxContainer) -> void:
 	## Over it, what this lapidary will pay at the shaft head and the insurance on their haul.
 	var me: Dictionary = lobby.members.get(local_id, {})
 	var order: Array = lobby.get("order", [])
+	if not str(lobby.get("daily", "")).is_empty():
+		_go_daily(box, me, order)
+		return
 	var insured: bool = bool(profile.get("outfit", {}).get("insure", false))
 	var cost: int = DeepEconomy.departure(_chosen_mine(), insured)
 	var purse: int = int(profile.get("gold", 0))
@@ -504,6 +627,37 @@ func _go(box: VBoxContainer) -> void:
 	_seed.custom_minimum_size = Vector2(130, 0)
 	_seed.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	seed_row.add_child(_seed)
+
+func _go_daily(box: VBoxContainer, me: Dictionary, order: Array) -> void:
+	## The way down the day's seam: nothing to pay and nothing to insure. Whether it pays is
+	## each lapidary's own question, said beside the button.
+	var state: String = DeepEconomy.daily_state(profile, str(lobby.get("daily", "")))
+	var best: Dictionary = DeepEconomy.daily_best(profile, str(lobby.get("daily", "")))
+	if order.size() > 1:
+		var ready_count: int = order.filter(func(id: Variant) -> bool:
+			return str(id) == str(lobby.get("host", "p0")) or bool(lobby.members.get(id, {}).get("ready", false))).size()
+		var summary := DeepUi.hbox(box, 8)
+		DeepUi.stat(summary, "party", "A party of %d, down today's seam" % order.size(), DeepUi.PAPER, 13).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.pill(summary, "check", "%d of %d ready" % [ready_count, order.size()], DeepUi.GOOD if ready_count == order.size() else DeepUi.MUTED, 11)
+	var pays: String = {"fresh": "Your first dig today is paid in full.", "played": "Your best today is %d. This dig pays only what it adds." % int(best.score),
+		"locked": "You have not beaten the Quarry: digging pays you nothing."}.get(state, "")
+	if not is_host:
+		var ready := DeepUi.primary(box, "check", "Unready" if bool(me.get("ready", false)) else "I'm ready", func() -> void: member_changed.emit({"ready": not bool(me.get("ready", false))}), 16, DeepUi.GOOD)
+		ready.disabled = status != "joined"
+		DeepUi.stat(box, "calendar", "The host is taking the party down today's seam. " + pays, DeepUi.MUTED, 12)
+		return
+	var words: String = "Dig today's seam" if state == "fresh" else ("Dig it again" if state == "played" else "Beat the Quarry first")
+	var go := DeepUi.primary(box, "calendar", words, func() -> void: depart_requested.emit(0), 20)
+	go.tooltip_text = "Down the day's seam as the lapidary it lends, with its stones and dice. Nothing of yours goes down, and nothing found comes home: it is scored and paid for."
+	DeepUi.voice(go, "depart")
+	go.custom_minimum_size.y = 54
+	go.disabled = not can_start or bool(lobby.get("started", false))
+	if not go.disabled:
+		DeepUi.breathe(go, 0.82, 2.0)
+	if state != "locked" and not can_start:
+		DeepUi.stat(box, "hourglass", "Waiting for everyone to be ready.", DeepUi.MUTED, 12)
+	else:
+		DeepUi.stat(box, "calendar", pays if state != "locked" else "The daily seam is for lapidaries who have beaten the Quarry.", DeepUi.GOOD if state == "fresh" else DeepUi.MUTED, 12)
 
 func _insurance_toggle(parent: Node, insured: bool) -> Button:
 	## Insurance on the haul, remembered from one run to the next until turned off.
@@ -1089,7 +1243,8 @@ func _faces_row(parent: Node, die: Dictionary, edge: float) -> HBoxContainer:
 
 func _vault(content: VBoxContainer) -> void:
 	var owned: int = profile.get("vault", {}).size()
-	var total: int = DeepContent.section("skills").size()
+	## Out of what the player may know of: a Transcendent nobody has made is not counted.
+	var total: int = DeepProfile.known_skills(profile).size()
 	var head := DeepUi.hbox(content, 12)
 	DeepUi.icon(head, "chest", 28, DeepUi.ACCENT)
 	DeepUi.title(head, "The vault", 30, DeepUi.PAPER)
@@ -1117,6 +1272,13 @@ func _vault(content: VBoxContainer) -> void:
 		if not rainbow:
 			button.add_theme_color_override("icon_normal_color", DeepUi.color(color))
 			button.add_theme_color_override("icon_hover_color", DeepUi.color(color).lightened(0.3))
+	## The Transcendent row has a filter of its own, once the player has made one.
+	if not profile.get("transcended", []).is_empty():
+		var lifted := DeepUi.tab_button(filters, "spark", "Transcendent", _vault_filter == DeepContent.TRANSCENDENT, func() -> void:
+			_vault_filter = DeepContent.TRANSCENDENT
+			_render(), 13)
+		lifted.add_theme_color_override("icon_normal_color", DeepUi.TRANSCENDENT_TONE)
+		lifted.add_theme_color_override("icon_hover_color", DeepUi.TRANSCENDENT_TONE.lightened(0.3))
 	_enter(filters)
 	var columns := DeepUi.hbox(content, 20)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1141,7 +1303,9 @@ func _vault(content: VBoxContainer) -> void:
 	var entries: Array = []
 	for entry in DeepProfile.vault_grid(profile):
 		var color: String = str(DeepContent.skill(str(entry.skill)).get("color", "WHITE"))
-		if _vault_filter.is_empty() or color == _vault_filter:
+		## A Transcendent sits in its own row, under All and its own filter, never a color's.
+		var lifted: bool = DeepContent.is_transcendent(str(entry.skill))
+		if _vault_filter.is_empty() or (lifted and _vault_filter == DeepContent.TRANSCENDENT) or (not lifted and color == _vault_filter):
 			entries.append(entry)
 	## Freshly opened, the tiles pop in on a stagger, which hides them arriving a couple of
 	## rows a frame; anything else gets the whole grid at once.
@@ -1249,7 +1413,7 @@ func _vault_reference(parent: Node, key: String) -> void:
 	DeepUi.title(column, str(skill.get("name", key)), 22, hue.lightened(0.25))
 	var tags := DeepUi.hbox(column, 8)
 	var rarity: String = str(skill.get("rarity", "COMMON"))
-	DeepUi.pill(tags, "spark", rarity.capitalize(), StoneCard._rarity_color(rarity), 13, "", StoneCard.is_mythic(rarity))
+	StoneCard.rarity_tag(tags, rarity, 13)
 	DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13)
 	var described: Dictionary = DeepPatterns.describe(skill.get("trigger", {"kind": "always"}), int(stone.cut))
 	DiceIcons.build(column, described, 18, DeepUi.PAPER)
@@ -1644,6 +1808,631 @@ class LoupeTable extends Control:
 		var sweep: float = fmod(_clock * 0.4, 1.0) * TAU
 		draw_arc(centre, radius - 12.0, sweep, sweep + 0.5, 16, Color(1, 1, 1, 0.25), 3.0, true)
 
+# --- shop ------------------------------------------------------------------------------------
+
+func _shop(content: VBoxContainer) -> void:
+	## Two views, each a page of its own: the day's Geodes, and the contract bench.
+	content.add_theme_constant_override("separation", 14)
+	var head := DeepUi.hbox(content, 12)
+	DeepUi.icon(head, "geode", 28, DeepUi.ACCENT)
+	DeepUi.title(head, "The shop", 30, DeepUi.PAPER)
+	DeepUi.gap(head, 16)
+	for entry in [["geodes", "geode", "Geodes"], ["contracts", "contract", "Contracts"]]:
+		var key: String = str(entry[0])
+		DeepUi.tab_button(head, str(entry[1]), str(entry[2]), _shop_view == key, func() -> void:
+			_shop_view = key
+			_contract_sure = false
+			_render(), 14)
+	DeepUi.spacer(head)
+	var records: Dictionary = profile.get("records", {})
+	if _shop_view == "contracts":
+		DeepUi.stat(head, "contract", "%s signed" % DeepUi.plural(int(records.get("contracts", 0)), "contract"), DeepUi.ACCENT, 13)
+	else:
+		var left: int = DeepEconomy.seconds_to_tomorrow()
+		DeepUi.stat(head, "hourglass", "New Geodes in %dh %02dm" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 13, "The shelf is stocked afresh every day at midnight UTC.")
+		DeepUi.stat(head, "geode", "%d cracked" % int(records.get("geodes", 0)), DeepUi.ACCENT, 13)
+	_enter(head)
+	if _shop_view == "contracts":
+		_contracts(content)
+	else:
+		_geodes(content)
+
+func _geodes(content: VBoxContainer) -> void:
+	## The shelf: three Geodes, each with everything it could hold and the odds of it.
+	var shelf: Array = DeepEconomy.shelf(profile)
+	DeepUi.wrap(content, "Three Geodes a day, each holding one stone, heavier and better cut than the rock usually gives. What is inside was decided when the shelf was stocked; every card shows its odds. Cracked, the stone goes to the Appraise tray, already read.",
+		14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 1200)
+	if shelf.is_empty():
+		_empty(content, "geode", "The shelf is bare", "Geodes come from the mines you have opened.")
+		return
+	var row := DeepUi.hbox(content, 18)
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var index: int = 0
+	for geode in shelf:
+		var card := _geode_card(row, geode)
+		_enter(card, 0.05 + 0.07 * index)
+		index += 1
+
+func _geode_card(parent: Node, geode: Dictionary) -> PanelContainer:
+	var tone: Color = Geode.theme_tone(geode)
+	var bought: bool = bool(geode.get("bought", false))
+	var price: int = int(geode.get("price", 0))
+	var purse: int = int(profile.get("gold", 0))
+	var odds: Dictionary = DeepEconomy.geode_odds(geode)
+	var card := DeepUi.card(parent, Color(tone, 0.2 if bought else 0.5), 16, DeepUi.GLASS if not bought else Color(0.05, 0.06, 0.085, 0.8))
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var box := DeepUi.vbox(card, 8)
+	## What kind of Geode it is, in small capitals; the week's set says how long it has left.
+	var tag := DeepUi.hbox(box, 8)
+	var kinds: Dictionary = {"mine": "A mine's Geode", "color": "A color's Geode", "featured": "The week's Geode"}
+	DeepUi.heading(tag, str(kinds.get(str(geode.get("kind", "mine")), "A Geode")), 12, tone if not bought else DeepUi.DIM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if str(geode.get("kind", "")) == "featured":
+		var days: int = DeepEconomy.featured_days_left(DeepEconomy.today())
+		DeepUi.stat(tag, "hourglass", DeepUi.plural(days, "day") + " left", DeepUi.MUTED, 12, "A new set takes the week's place on the shelf every seven days.")
+	## The rock takes whatever height the card has to spare. Every card is laid out alike
+	## below it, so the three rocks come out the same size.
+	var art := Geode.Art.new(geode, tone)
+	art.custom_minimum_size = Vector2(0, 170)
+	art.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	art.open = bought
+	box.add_child(art)
+	DeepUi.title(box, Geode.geode_name(geode), 25, tone.lightened(0.2) if not bought else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(box, Geode.geode_line(geode), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	## What sets a Geode's stone above the rock's, as marks.
+	var facts := DeepUi.hbox(box, 8)
+	facts.alignment = BoxContainer.ALIGNMENT_CENTER
+	var carats: Array = odds.get("carat", [1, 1])
+	DeepUi.pill(facts, "carat", "%d to %d carats" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 12,
+		"Never lighter than this rock's usual best, and now and then heavier than the rock itself ever gives up (it stops at %d)." % int(odds.get("cap", carats[1])))
+	DeepUi.pill(facts, "cut", "Kinder cut", DeepUi.INFO, 12, "Cut and clarity are rolled with more luck behind them than a stone found in the rock.")
+	if float(odds.get("opal", 0.0)) > 0.0:
+		DeepUi.pill(facts, "spark", "%s opal" % Geode.percent(float(odds.opal)), DeepUi.OPAL_TONE, 12, "Any Geode might hold one of the opals instead: the rarest stones there are.", true)
+	## What it can hold: the share of each rarity, and every skill it might be.
+	DeepUi.section(box, "gem", "What it can hold", DeepUi.MUTED, 12)
+	var rarity_parts: Array = []
+	var shares: Dictionary = Geode.rarity_shares(geode)
+	for rarity in Geode.RARITIES:
+		if float(shares.get(rarity, 0.0)) > 0.0:
+			rarity_parts.append({"label": "Opal" if rarity == "MYTHIC" else rarity.capitalize(), "share": float(shares[rarity]), "color": Geode.rarity_tone(rarity), "rainbow": rarity == "MYTHIC"})
+	box.add_child(OddsBar.new(rarity_parts))
+	var marks: Array = []
+	for entry in odds.get("skills", []):
+		var key: String = str(entry[0])
+		var def: Dictionary = DeepContent.skill(key)
+		var known: bool = profile.get("vault", {}).has(key) or profile.get("seen", []).has(key)
+		marks.append({"glyph": GemIcons.emblem(key), "color": DeepUi.color(str(def.get("color", ""))), "known": known, "name": str(def.get("name", key)),
+			"tip": "%s · %s · %s%s" % [str(def.get("name", key)), str(def.get("rarity", "COMMON")).capitalize(), Geode.percent(float(entry[1])), "" if known else "\nNever found yet"]})
+	box.add_child(MarkRows.new(marks))
+	## How its stones grade: measured, not written down.
+	DeepUi.section(box, "star", "How its stones grade", DeepUi.MUTED, 12)
+	var tier_parts: Array = []
+	for tier in DeepStone.TIERS:
+		var share: float = float(odds.get("tiers", {}).get(tier, 0.0))
+		if share > 0.0:
+			tier_parts.append({"label": str(DeepStone.TIER_NAMES.get(tier, tier)), "share": share, "color": DeepUi.tier_color(tier)})
+	box.add_child(OddsBar.new(tier_parts))
+	var foot := DeepUi.hbox(box, 10)
+	foot.alignment = BoxContainer.ALIGNMENT_CENTER
+	if bought:
+		## Open: what it held, and the shelf restocks tomorrow.
+		var held: Dictionary = geode.get("stone", {}).duplicate(true)
+		held.appraised = true
+		StoneCard.mini(foot, held, 46)
+		var said := DeepUi.vbox(foot, 0)
+		DeepUi.label(said, "Opened today", 12, DeepUi.DIM)
+		DeepUi.label(said, DeepStone.name(held), 14, DeepUi.tier_color(str(DeepStone.grade(held).tier)))
+		return card
+	var crack := DeepUi.primary(foot, "geode", "Crack it open · %d gold" % price, func() -> void: _crack_geode(geode), 17)
+	crack.custom_minimum_size = Vector2(300, 52)
+	DeepUi.voice(crack, "reel_lever")
+	crack.disabled = purse < price
+	crack.tooltip_text = "Opens it here and now: the drum spins, and the stone goes to your tray, read." if purse >= price else "You have %d gold. This Geode costs %d." % [purse, price]
+	## The shell answers the pointer: the seam brightens while the button is under it.
+	crack.mouse_entered.connect(func() -> void:
+		if not crack.disabled:
+			art.create_tween().tween_property(art, "hover", 1.0, 0.2))
+	crack.mouse_exited.connect(func() -> void: art.create_tween().tween_property(art, "hover", 0.0, 0.3))
+	return card
+
+func _crack_geode(geode: Dictionary) -> void:
+	## Pays for a Geode and cracks it: the stone is on the tray before the drum starts.
+	var opened: Dictionary = DeepEconomy.open_geode(profile, str(geode.get("id", "")))
+	if not bool(opened.get("ok", false)):
+		return
+	var made: Dictionary = opened.stone
+	var opts: Dictionary = {"actions": _found_actions(made), "new_skill": DeepProfile.first_of_skill(profile, made)}
+	var wanted: Dictionary = DeepEconomy.commission_for(profile, made)
+	if not wanted.is_empty():
+		opts.wanted = "A commission wants this %s: %d gold" % [DeepUi.skill_name(made), DeepEconomy.payout(wanted, made)]
+	profile_changed.emit()
+	Geode.open(opened.geode, made, opts)
+
+func _found_actions(made: Dictionary) -> Array:
+	## What can be done with a stone out of a Geode or a contract, the moment it is read: the
+	## tray's own choices, or for a skill already kept, the loupe table to weigh the two.
+	var id: String = str(made.get("id", ""))
+	var out: Array = []
+	if DeepProfile.owned(profile, str(made.get("skill", ""))).is_empty():
+		out = _tray_actions(made)
+	else:
+		out.append({"label": "Weigh it against yours", "glyph": "scales", "tone": DeepUi.INFO, "caption": "You already keep one of this skill",
+			"call": func() -> void:
+				_appraise_pick = id
+				open("appraise")})
+		for action in _tray_actions(made):
+			if str(action.get("label", "")) == "Turn it in":
+				out.append(action)
+	out.append({"label": "Back to the shop", "glyph": "geode", "primary": false, "dismiss": true, "caption": "It waits on the tray",
+		"call": func() -> void: open("shop")})
+	return out
+
+func _contracts(content: VBoxContainer) -> void:
+	## The contract bench: five stones of one grade in, one of the next grade out. The bench
+	## down the left, its five places running down to the one they make and what that one
+	## could be; the stones it could take on the right.
+	_contract = _contract.filter(func(ref: Variant) -> bool: return not DeepEconomy.contract_input(profile, str(ref)).is_empty())
+	var preview: Dictionary = DeepEconomy.contract_preview(profile, _contract)
+	if not bool(preview.ok):
+		## A bench left holding stones of two grades (the tray changed under it) starts again.
+		_contract = []
+		preview = DeepEconomy.contract_preview(profile, _contract)
+	var columns := DeepUi.hbox(content, 20)
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var tier: String = str(preview.get("tier", ""))
+	var next: String = str(preview.get("next", ""))
+	var tone: Color = DeepUi.tier_color(next) if not next.is_empty() else DeepUi.ACCENT
+	var bench := DeepUi.card(columns, Color(tone, 0.45), 18)
+	bench.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var box := DeepUi.vbox(bench, 10)
+	## The promise: this grade in, the next one out.
+	var promise := DeepUi.hbox(box, 14)
+	promise.alignment = BoxContainer.ALIGNMENT_CENTER
+	if tier.is_empty():
+		DeepUi.pill(promise, "gem", "Five of one grade", DeepUi.MUTED, 16)
+		DeepUi.icon(promise, "next", 26, DeepUi.DIM)
+		DeepUi.pill(promise, "star", "One of the next", DeepUi.MUTED, 16)
+	else:
+		DeepUi.pill(promise, "gem", "5 × %s" % str(DeepStone.TIER_NAMES.get(tier, tier)), DeepUi.tier_color(tier), 16)
+		DeepUi.icon(promise, "next", 26, tone)
+		DeepUi.pill(promise, "star", str(DeepStone.TIER_NAMES.get(next, next)), tone, 16)
+	DeepUi.wrap(box, "Its color is drawn from theirs, it weighs their average, and it is cut from the deepest of their mines' rock, with a grade one step up.",
+		13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = 700
+	var slots := DeepUi.hbox(box, 14)
+	slots.alignment = BoxContainer.ALIGNMENT_CENTER
+	var stones: Array = preview.get("stones", [])
+	for index in range(DeepEconomy.contract_size()):
+		_contract_slot(slots, index, stones[index] if index < stones.size() else {})
+	## The five places' lines run down to the one they make.
+	var signable: bool = bool(preview.get("ready", false))
+	var flow := Funnel.new(stones.size(), DeepEconomy.contract_size(), DeepUi.tier_color(tier) if not tier.is_empty() else DeepUi.DIM, signable, CONTRACT_SLOT.x + 14.0)
+	flow.custom_minimum_size = Vector2(0, 54)
+	box.add_child(flow)
+	DeepUi.center(box).add_child(Outcome.new(tone if not next.is_empty() else DeepUi.DIM, float(stones.size()) / float(DeepEconomy.contract_size()), signable))
+	_contract_forecast(box, preview)
+	DeepUi.spacer(box, false)
+	## The way to sign it, and why not yet.
+	if not preview.get("vault", []).is_empty():
+		var names: Array = preview.vault.map(func(k: Variant) -> String: return str(DeepContent.skill(str(k)).get("name", k)))
+		DeepUi.stat(box, "chest", "From your vault: %s. Signed, %s no longer kept." % [", ".join(names), "it is" if names.size() == 1 else "they are"], DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
+	var sign_row := DeepUi.hbox(box, 12)
+	sign_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var giving_up: bool = not preview.get("vault", []).is_empty()
+	var words: String = "Sign the contract"
+	if bool(preview.get("ready", false)):
+		words = ("Sign it, vault stones and all · %d gold" if giving_up and _contract_sure else "Sign the contract · %d gold") % int(preview.fee)
+	var sign := DeepUi.primary(sign_row, "contract", words, func() -> void:
+		if giving_up and not _contract_sure:
+			_contract_sure = true
+			DeepAudio.play("ui_deny", {"volume": 0.6})
+			_render()
+			return
+		_sign_contract(), 17, DeepUi.BAD if giving_up and _contract_sure else tone)
+	sign.custom_minimum_size = Vector2(320, 52)
+	DeepUi.voice(sign, "ui_tap" if giving_up and not _contract_sure else "contract_seal")
+	sign.disabled = not bool(preview.get("ready", false))
+	if bool(preview.get("ready", false)) and not sign.disabled:
+		DeepUi.breathe(sign, 0.82, 1.8)
+	var reason: String = str(preview.get("reason", ""))
+	if not reason.is_empty():
+		DeepUi.label(box, reason, 13, DeepUi.BAD if not bool(preview.get("feasible", true)) else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	elif giving_up and not _contract_sure:
+		DeepUi.label(box, "Signing gives up stones from your vault: it asks twice.", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_enter(bench, 0.05)
+	_contract_picker(columns, preview)
+
+func _contract_slot(parent: Node, index: int, stone: Dictionary) -> void:
+	## One place on the bench: empty, or a stone that a click takes back off.
+	var empty: bool = stone.is_empty()
+	var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if not empty else DeepUi.LINE
+	var slot := DeepUi.card(parent, Color(tone, 0.6) if not empty else DeepUi.LINE, 10, Color(0.05, 0.06, 0.085, 0.9) if not empty else Color(0.03, 0.035, 0.05, 0.6))
+	slot.custom_minimum_size = CONTRACT_SLOT
+	var box := DeepUi.vbox(slot, 6)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	var stand := Control.new()
+	stand.custom_minimum_size = Vector2(96, 96)
+	stand.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	stand.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(stand)
+	var ring := BattleScreen.SocketRing.new("ANY", empty)
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	stand.add_child(ring)
+	if empty:
+		var plus := DeepUi.icon(stand, "gem", 34, Color(DeepUi.DIM, 0.6))
+		plus.position = Vector2(31, 31)
+		DeepUi.label(box, "Stone %d" % (index + 1), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(box, "pick from the right", 12, Color(DeepUi.DIM, 0.8), HORIZONTAL_ALIGNMENT_CENTER)
+		return
+	var thumb := StoneCard.mini(stand, stone, 80, DeepStone.name(stone))
+	thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
+	thumb.mouse_filter = Control.MOUSE_FILTER_PASS
+	DeepUi.fit_label(box, DeepUi.skill_name(stone), 14, DeepUi.PAPER, 130)
+	var marks := DeepUi.hbox(box, 6)
+	marks.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.stat(marks, "carat", str(int(stone.get("carat", 1))), DeepUi.ACCENT, 12, "%d carats" % int(stone.get("carat", 1)))
+	var ref: String = str(_contract[index]) if index < _contract.size() else ""
+	if ref.begins_with("v:"):
+		DeepUi.icon(marks, "chest", 15, DeepUi.BAD, "From your vault")
+	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	slot.tooltip_text = "%s\nClick to take it back off the bench" % DeepStone.name(stone)
+	DeepUi.juice(slot, 1.04)
+	slot.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_contract.erase(ref)
+			_contract_sure = false
+			DeepAudio.play("die_drop", {"volume": 0.7})
+			_render.call_deferred())
+
+func _contract_forecast(box: VBoxContainer, preview: Dictionary) -> void:
+	## What the contract would make, under the place it comes out: its grade, weight and rock on
+	## one line, then the odds of each color and every skill it might be, with the odds of each.
+	## Before the first stone, how contracts climb.
+	var line := DeepUi.hbox(box, 22)
+	line.alignment = BoxContainer.ALIGNMENT_CENTER
+	var next: String = str(preview.get("next", ""))
+	if next.is_empty():
+		DeepUi.label(line, "Five Rough make a Fine, five Fine a Precious, five Precious an Exquisite, and five Exquisite a Peerless.", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		return
+	DeepUi.stat(line, "star", "A %s stone" % str(DeepStone.TIER_NAMES.get(next, next)), DeepUi.tier_color(next), 15, "Its Cut, Clarity and inclusions are rolled until its grade lands in this tier.")
+	DeepUi.stat(line, "carat", "%d carats" % int(preview.get("carat", 1)), DeepUi.ACCENT, 15, "The average of the stones on the bench, never past the cap of the rock it is cut from.")
+	var mine_key: String = str(preview.get("mine", ""))
+	var palette: String = str(DeepContent.mine(mine_key).get("palette", ""))
+	DeepUi.stat(line, "pick", "%s's rock" % DeepContent.mine_name(mine_key), Color(palette).lightened(0.2) if not palette.is_empty() else DeepUi.PAPER, 15,
+		"The deepest mine any of the stones came from. The new one's skill is one that rock can hold.")
+	var row := DeepUi.hbox(box, 26)
+	var colors_box := DeepUi.vbox(row, 6)
+	colors_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	colors_box.size_flags_stretch_ratio = 0.8
+	DeepUi.section(colors_box, "prism", "Its color", DeepUi.MUTED, 12)
+	var parts: Array = []
+	var colors: Dictionary = preview.get("colors", {})
+	for key in DeepContent.SKILL_COLORS:
+		if float(colors.get(key, 0.0)) > 0.0:
+			parts.append({"label": str(DeepContent.color(key).get("name", key)), "share": float(colors[key]), "color": DeepUi.color(key)})
+	if parts.is_empty():
+		DeepUi.wrap(colors_box, "No color can make the grade at this weight.", 13, DeepUi.BAD)
+	else:
+		colors_box.add_child(OddsBar.new(parts))
+	var can := DeepUi.vbox(row, 6)
+	can.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.section(can, "gem", "It could become", DeepUi.MUTED, 12)
+	var marks: Array = []
+	for entry in DeepEconomy.contract_odds(preview):
+		var key: String = str(entry[0])
+		var def: Dictionary = DeepContent.skill(key)
+		var known: bool = profile.get("vault", {}).has(key) or profile.get("seen", []).has(key)
+		marks.append({"glyph": GemIcons.emblem(key), "color": DeepUi.color(str(def.get("color", ""))), "known": known, "name": str(def.get("name", key)),
+			"tip": "%s · %s · %s%s" % [str(def.get("name", key)), str(def.get("rarity", "COMMON")).capitalize(), Geode.percent(float(entry[1])), "" if known else "\nNever found yet"]})
+	if marks.is_empty():
+		DeepUi.label(can, "Nothing, at this weight.", 13, DeepUi.DIM)
+	else:
+		can.add_child(MarkRows.new(marks))
+
+func _contract_picker(columns: Node, preview: Dictionary) -> void:
+	## The stones that could go on the bench, a page at a time: the tray's read stones and the
+	## vault's. Once the first is on, only stones of its grade can follow.
+	var picker := DeepUi.card(columns, DeepUi.LINE, 14)
+	picker.custom_minimum_size.x = 540
+	picker.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var box := DeepUi.vbox(picker, 10)
+	var head := DeepUi.hbox(box, 8)
+	DeepUi.section(head, "chest", "Your stones").size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for entry in [["all", "All"], ["tray", "Tray"], ["vault", "Vault"]]:
+		var key: String = str(entry[0])
+		DeepUi.tab_button(head, {"all": "gem", "tray": "bag", "vault": "chest"}[key], str(entry[1]), _contract_from == key, func() -> void:
+			_contract_from = key
+			_pages["contract"] = 0
+			_render(), 13)
+	var everything: Array = DeepEconomy.contract_stones(profile)
+	var listed: Array = everything.filter(func(e: Dictionary) -> bool:
+		return _contract_from == "all" or (_contract_from == "vault") == bool(e.vault))
+	var tier: String = str(preview.get("tier", ""))
+	var hint: String = "Pick five stones of one grade; the first sets the grade." if tier.is_empty() else "Only %s stones can join these." % str(DeepStone.TIER_NAMES.get(tier, tier))
+	DeepUi.label(box, hint, 13, DeepUi.MUTED)
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	box.add_child(grid)
+	if listed.is_empty():
+		DeepUi.label(grid, "Nothing here can go into a contract yet.", 13, DeepUi.DIM)
+	var full: bool = _contract.size() >= DeepEconomy.contract_size()
+	for entry in _paged(box, "contract", listed, CONTRACT_PAGE):
+		var stone: Dictionary = entry.stone
+		var ref: String = str(entry.ref)
+		var placed: bool = _contract.has(ref)
+		var fits: bool = tier.is_empty() or str(DeepStone.grade(stone).tier) == tier
+		var tile := StoneCard.tile(grid, stone, 72)
+		if bool(entry.vault):
+			_tile_mark(tile, "chest", DeepUi.INFO, "In your vault: put in a contract, its skill is no longer kept", true)
+		if placed:
+			_tile_mark(tile, "check", DeepUi.GOOD, "On the bench", false)
+			tile.modulate = Color(1, 1, 1, 0.45)
+			continue
+		if not fits or full:
+			tile.modulate = Color(1, 1, 1, 0.28)
+			tile.tooltip_text = ("Not %s: a contract takes stones of one grade" % str(DeepStone.TIER_NAMES.get(tier, tier))) if not fits else "The bench is full"
+			continue
+		tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		DeepUi.juice(tile, 1.06)
+		tile.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				_contract.append(ref)
+				_contract_sure = false
+				DeepAudio.play("die_pick", {"volume": 0.7})
+				_render.call_deferred())
+	DeepUi.spacer(box, false)
+	DeepUi.wrap(box, "Raw stones need reading first. Birthstones, opals, fragile stones and Peerless stones cannot go in.", 12, DeepUi.DIM)
+	if not _contract.is_empty():
+		var clear := DeepUi.icon_button(box, "cross_out", "Clear the bench", func() -> void:
+			_contract = []
+			_contract_sure = false
+			_render(), 13, DeepUi.MUTED)
+		clear.size_flags_horizontal = Control.SIZE_SHRINK_END
+	_enter(picker, 0.1)
+
+func _sign_contract() -> void:
+	## Signs the bench's contract: the fee and the stones are gone, the new stone is on the
+	## tray, and the bench plays the five going in and the one coming out.
+	var signed: Dictionary = DeepEconomy.sign_contract(profile, _contract)
+	if not bool(signed.get("ok", false)):
+		return
+	_contract = []
+	_contract_sure = false
+	var made: Dictionary = signed.stone
+	var opts: Dictionary = {"actions": _found_actions(made), "new_skill": DeepProfile.first_of_skill(profile, made)}
+	var wanted: Dictionary = DeepEconomy.commission_for(profile, made)
+	if not wanted.is_empty():
+		opts.wanted = "A commission wants this %s: %d gold" % [DeepUi.skill_name(made), DeepEconomy.payout(wanted, made)]
+	profile_changed.emit()
+	Geode.fuse(signed.given, made, opts)
+
+class OddsBar extends Control:
+	## Shares as one bar: a segment each, in its own color, the larger ones named under the bar
+	## and every one named on hover. What a Geode prints its odds with, and a contract its colors.
+	var parts: Array = []
+	const BAR: float = 12.0
+
+	func _init(list: Array) -> void:
+		parts = list
+		custom_minimum_size = Vector2(120, 32)
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		tooltip_text = " "
+
+	func _get_tooltip(at: Vector2) -> String:
+		var x: float = 0.0
+		for part in parts:
+			var width: float = size.x * float(part.share)
+			if at.x >= x and at.x <= x + width:
+				return "%s: %s" % [str(part.label), Geode.percent(float(part.share))]
+			x += width
+		return ""
+
+	func _draw() -> void:
+		var back := StyleBoxFlat.new()
+		back.bg_color = Color(DeepUi.LINE, 0.5)
+		back.set_corner_radius_all(int(BAR * 0.5))
+		back.anti_aliasing = true
+		draw_style_box(back, Rect2(Vector2.ZERO, Vector2(size.x, BAR)))
+		var x: float = 0.0
+		var font: Font = DeepUi.bold_font()
+		for index in range(parts.size()):
+			var part: Dictionary = parts[index]
+			var width: float = size.x * float(part.share)
+			if width <= 0.5:
+				continue
+			var segment := StyleBoxFlat.new()
+			segment.bg_color = part.color
+			segment.corner_radius_top_left = int(BAR * 0.5) if index == 0 else 0
+			segment.corner_radius_bottom_left = int(BAR * 0.5) if index == 0 else 0
+			segment.corner_radius_top_right = int(BAR * 0.5) if index == parts.size() - 1 else 0
+			segment.corner_radius_bottom_right = int(BAR * 0.5) if index == parts.size() - 1 else 0
+			segment.anti_aliasing = true
+			var rect := Rect2(Vector2(x, 0), Vector2(width, BAR))
+			draw_style_box(segment, rect)
+			if bool(part.get("rainbow", false)):
+				## A rainbow segment: the wheel run along it, in thin strips.
+				var strips: int = maxi(2, int(width / 3.0))
+				for s in range(strips):
+					draw_rect(Rect2(Vector2(x + width * float(s) / float(strips), 0), Vector2(width / float(strips) + 0.5, BAR)), DeepUi.rainbow_at(float(s) / float(strips), 0.55))
+			draw_line(Vector2(x, 1), Vector2(x + width, 1), Color(1, 1, 1, 0.22), 1.0)
+			## Named under the bar where it is wide enough to carry the words.
+			var words: String = "%s %s" % [str(part.label), Geode.percent(float(part.share))]
+			var measured: float = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			if measured > width - 2.0:
+				words = Geode.percent(float(part.share))
+				measured = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			if measured <= width + 6.0:
+				var tint: Color = part.color if not bool(part.get("rainbow", false)) else DeepUi.OPAL_TONE
+				draw_string(font, Vector2(x + (width - measured) * 0.5, BAR + 15.0), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tint.lightened(0.15))
+			x += width
+
+class MarkRows extends Control:
+	## Every skill a Geode might hold, each as its mark in its gem color, in as many to a row
+	## as the card is wide; past the last row the rest are counted. Each names itself on hover
+	## with its rarity and its odds, and says so if it has never been found (those are dimmed).
+	var marks: Array = []
+	var _hover: int = -1
+	const MARK: float = 24.0
+	const GAP: float = 5.0
+	const ROWS: int = 2
+
+	func _init(list: Array) -> void:
+		marks = list
+		custom_minimum_size = Vector2(120, MARK * ROWS + GAP * (ROWS - 1))
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		tooltip_text = " "
+		mouse_exited.connect(func() -> void:
+			_hover = -1
+			queue_redraw())
+
+	func _per_row() -> int:
+		return maxi(1, int((size.x + GAP) / (MARK + GAP)))
+
+	func _shown() -> int:
+		## All of them if they fit; otherwise one cell short, for the count of the rest.
+		var room: int = _per_row() * ROWS
+		return marks.size() if marks.size() <= room else room - 1
+
+	func _cell(index: int) -> Rect2:
+		return Rect2(Vector2(float(index % _per_row()), float(index / _per_row())) * (MARK + GAP), Vector2(MARK, MARK))
+
+	func _at(point: Vector2) -> int:
+		## The mark under a point, or -2 over the count of the rest, or -1 over nothing.
+		if point.x < 0.0 or point.y < 0.0:
+			return -1
+		var column: int = int(point.x / (MARK + GAP))
+		var row: int = int(point.y / (MARK + GAP))
+		if column >= _per_row() or row >= ROWS:
+			return -1
+		var index: int = row * _per_row() + column
+		if index < _shown():
+			return index
+		return -2 if index == _shown() and _shown() < marks.size() else -1
+
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseMotion:
+			var index: int = _at(event.position)
+			if index != _hover:
+				_hover = index
+				queue_redraw()
+
+	func _get_tooltip(at: Vector2) -> String:
+		var index: int = _at(at)
+		if index >= 0:
+			return str(marks[index].tip)
+		if index == -2:
+			var rest: Array = []
+			for i in range(_shown(), marks.size()):
+				rest.append(str(marks[i].name))
+			return "And %s" % ", ".join(rest)
+		return ""
+
+	func _draw() -> void:
+		var glow: Texture2D = DeepUi.glow_texture()
+		var shown: int = _shown()
+		for index in range(shown):
+			var mark: Dictionary = marks[index]
+			var cell: Rect2 = _cell(index)
+			var tint: Color = mark.color
+			if index == _hover:
+				var halo: float = MARK * 2.4
+				draw_texture_rect(glow, Rect2(cell.get_center() - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false, Color(tint, 0.45))
+			draw_texture_rect(GemIcons.texture(str(mark.glyph), GemIcons.baked_size(MARK)), cell, false, tint if bool(mark.known) else Color(tint, 0.42))
+		if shown < marks.size():
+			var cell: Rect2 = _cell(shown)
+			var font: Font = DeepUi.bold_font()
+			var words: String = "+%d" % (marks.size() - shown)
+			draw_string(font, Vector2(cell.position.x, cell.get_center().y + 5.0), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DeepUi.PAPER if _hover == -2 else DeepUi.MUTED)
+
+class Funnel extends Control:
+	## The contract bench's lines from its places down to the one they make: faint and dotted
+	## while a place is empty, lit in the grade's color once a stone is on it, and once the
+	## contract can be signed, light running down every line toward the middle.
+	var filled: int = 0
+	var count: int = 5
+	var tone: Color
+	var signable: bool = false
+	var pitch: float = 164.0
+	var _clock: float = 0.0
+
+	func _init(on: int, places: int, color: Color, can_sign: bool, apart: float) -> void:
+		filled = on
+		count = places
+		tone = color
+		signable = can_sign
+		pitch = apart
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _process(delta: float) -> void:
+		_clock += delta
+		queue_redraw()
+
+	func _point(index: int, t: float) -> Vector2:
+		## A line leaves its place straight down and curves in to the middle.
+		var top := Vector2(size.x * 0.5 + (float(index) - float(count - 1) * 0.5) * pitch, 0.0)
+		var bottom := Vector2(size.x * 0.5, size.y)
+		return top.bezier_interpolate(top + Vector2(0, size.y * 0.75), bottom - Vector2(0, size.y * 0.4), bottom, t)
+
+	func _draw() -> void:
+		var glow: Texture2D = DeepUi.glow_texture()
+		for index in range(count):
+			var points := PackedVector2Array()
+			for step in range(21):
+				points.append(_point(index, float(step) / 20.0))
+			if index >= filled:
+				for step in range(0, 20, 2):
+					draw_line(points[step], points[step + 1], Color(DeepUi.LINE_HI, 0.9), 2.0, true)
+				continue
+			draw_polyline(points, Color(tone, 0.22), 7.0, true)
+			draw_polyline(points, Color(tone.lightened(0.2), 0.85), 2.0, true)
+			if signable:
+				var t: float = fposmod(_clock * 0.9 + float(index) * 0.17, 1.0)
+				var spot: float = 24.0
+				draw_texture_rect(glow, Rect2(_point(index, t) - Vector2(spot, spot) * 0.5, Vector2(spot, spot)), false, Color(tone.lightened(0.4), 0.9 * sin(t * PI)))
+		draw_circle(Vector2(size.x * 0.5, size.y), 4.0, Color(tone, 0.9) if filled > 0 else DeepUi.LINE_HI)
+
+class Outcome extends Control:
+	## Where the one comes out of a contract: a brass ring lit round a fifth at a time as the
+	## bench fills, in the grade it promises, a stone's shape inside with a question for a
+	## heart. Once the contract can be signed, it breathes.
+	var tone: Color
+	var fill: float = 0.0
+	var signable: bool = false
+	var _clock: float = 0.0
+
+	func _init(color: Color, share: float, can_sign: bool) -> void:
+		tone = color
+		fill = clampf(share, 0.0, 1.0)
+		signable = can_sign
+		custom_minimum_size = Vector2(150, 132)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _process(delta: float) -> void:
+		_clock += delta
+		queue_redraw()
+
+	func _draw() -> void:
+		var glow: Texture2D = DeepUi.glow_texture()
+		var centre: Vector2 = size * 0.5
+		var radius: float = minf(size.x, size.y) * 0.42
+		var breath: float = 0.5 + 0.5 * sin(_clock * 2.4) if signable else 0.0
+		var halo: float = radius * (3.0 + 0.35 * breath)
+		draw_texture_rect(glow, Rect2(centre - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false, Color(tone, 0.1 + 0.25 * fill + 0.15 * breath))
+		draw_circle(centre, radius, Color(0.02, 0.025, 0.035, 0.92))
+		draw_arc(centre, radius, 0, TAU, 72, Color("b8a47a"), 4.0, true)
+		draw_arc(centre, radius - 6.0, 0, TAU, 72, Color("5a4a30"), 2.0, true)
+		if fill > 0.0:
+			draw_arc(centre, radius + 7.0, -PI * 0.5, -PI * 0.5 + TAU * fill, 64, Color(tone, 0.95), 3.0, true)
+		var mark: float = radius * 1.15
+		draw_texture_rect(GemIcons.texture("gem", GemIcons.baked_size(mark)), Rect2(centre - Vector2(mark, mark) * 0.5, Vector2(mark, mark)), false, Color(tone, 0.22 + 0.45 * fill + 0.2 * breath))
+		var font: Font = DeepUi.display_font()
+		var size_px: int = int(radius * 0.62)
+		var width: float = font.get_string_size("?", HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		draw_string(font, centre + Vector2(-width * 0.5, size_px * 0.36), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Color(DeepUi.PAPER, 0.45 + 0.5 * fill))
+
 # --- ledger and commissions ------------------------------------------------------------------
 
 func _ledger(content: VBoxContainer) -> void:
@@ -1737,9 +2526,19 @@ func _records(content: VBoxContainer) -> void:
 	var records: Dictionary = profile.get("records", {})
 	var tiles := DeepUi.hbox(content, 12)
 	var index: int = 0
-	for entry in [["pick", "runs", "Runs"], ["lift", "extractions", "Extractions"], ["crown", "conquests", "Conquests"], ["skull", "falls", "Falls"], ["chest", "stones_kept", "Stones kept"], ["flag", "commissions", "Commissions"]]:
+	for entry in [["pick", "runs", "Runs"], ["lift", "extractions", "Extractions"], ["crown", "conquests", "Conquests"], ["skull", "falls", "Falls"], ["chest", "stones_kept", "Stones kept"], ["flag", "commissions", "Commissions"],
+			["calendar", "best_daily", "Best daily score"]]:
 		var tile := DeepUi.card(tiles, DeepUi.LINE, 14)
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if str(entry[1]) == "best_daily":
+			## The daily bests, the latest days first, said on hover.
+			var bests: Array = records.get("daily_bests", []).duplicate()
+			bests.reverse()
+			var said: Array = ["Your best score on each day's seam:"]
+			for best_day in bests.slice(0, 10):
+				said.append("%s: %d (%d gold)" % [str(best_day.get("date", "")), int(best_day.get("score", 0)), int(best_day.get("gold", 0))])
+			tile.tooltip_text = "\n".join(said) if not bests.is_empty() else "No daily digs yet."
+			tile.mouse_filter = Control.MOUSE_FILTER_STOP
 		var box := DeepUi.vbox(tile, 2)
 		var mark := DeepUi.icon(box, str(entry[0]), 28, DeepUi.ACCENT)
 		mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -1803,12 +2602,19 @@ func _records(content: VBoxContainer) -> void:
 		DeepUi.icon(row, {"fallen": "skull", "conquered": "crown"}.get(outcome, "lift"), 18, tone, outcome.capitalize())
 		DeepUi.label(row, outcome.capitalize(), 14, tone).custom_minimum_size.x = 96
 		DeepUi.label(row, str(run_record.get("date", "")), 13, DeepUi.MUTED).custom_minimum_size.x = 100
-		DeepUi.label(row, str(DeepContent.mine(str(run_record.get("mine", ""))).get("name", "")), 13, DeepUi.PAPER)
+		var daily: bool = bool(run_record.get("daily", false))
+		if daily:
+			DeepUi.stat(row, "calendar", "Daily dig", DeepUi.ACCENT, 13, "The day's seam, as deep as %s" % DeepContent.mine_name(str(run_record.get("deepest_mine", run_record.get("mine", "")))))
+		else:
+			DeepUi.label(row, str(DeepContent.mine(str(run_record.get("mine", ""))).get("name", "")), 13, DeepUi.PAPER)
 		DeepUi.spacer(row)
 		DeepUi.stat(row, "stairs", str(int(run_record.get("depth", 0))), DeepUi.INFO, 13, "Depth reached")
-		DeepUi.stat(row, "gem", str(int(run_record.get("stones", 0))), DeepUi.ACCENT, 13, "Stones brought home")
+		if daily:
+			DeepUi.stat(row, "star", str(int(run_record.get("score", 0))), DeepUi.PAPER, 13, "Score: the worth of the stones brought up and the pyrite carried")
+		else:
+			DeepUi.stat(row, "gem", str(int(run_record.get("stones", 0))), DeepUi.ACCENT, 13, "Stones brought home")
 		if int(run_record.get("gold", 0)) > 0:
-			DeepUi.stat(row, "coin", str(int(run_record.gold)), DeepUi.ACCENT, 13, "Gold from the assayer at the lift")
+			DeepUi.stat(row, "coin", str(int(run_record.gold)), DeepUi.ACCENT, 13, "Gold paid for the day's seam" if daily else "Gold from the assayer at the lift")
 		shown += 1
 	_enter(history_card, 0.12)
 

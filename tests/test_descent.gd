@@ -587,6 +587,11 @@ func _advance_once(state: Dictionary) -> void:
 					if not bool(unit.get("ready", false)):
 						cmd(state, str(unit.id), "leave")
 						return
+			elif str(state.chamber.kind) == "altar":
+				for unit in state.players:
+					if str(unit.get("altar_done", "")) != "left":
+						cmd(state, str(unit.id), "altar_leave")
+						return
 			elif str(state.chamber.kind) in ["oddity"] + DeepDescent.CARD_ROOMS:
 				var oddity: Dictionary = DeepContent.oddity(str(state.chamber.oddity))
 				for unit in state.players:
@@ -817,7 +822,7 @@ func _test_profile() -> void:
 	check(kept.replaced.carat == 2 and profile.gold == kept.paid and profile.vault.STRIKE.carat == 9, "keeping a second Strike sells the first")
 	check(profile.records.best.stone.id == "better", "the best stone is remembered")
 	var grid: Array = DeepProfile.vault_grid(profile)
-	check(grid.size() == DeepContent.section("skills").size(), "the grid lists every skill")
+	check(grid.size() == DeepContent.section("skills").size() - DeepContent.transcendents().size(), "the grid lists every skill but the Transcendents nobody has made")
 	check(grid.filter(func(g: Dictionary) -> bool: return str(g.state) == "owned").size() == 3, "three owned")
 	## A loadout fills only the first few sockets; the rest are filled in the mine.
 	DeepProfile.keep(profile, DeepStone.make("CLEAVE", 4, 2, 2, [], {"source": "test"}, "cleave1"))
@@ -1223,7 +1228,7 @@ func _test_mines() -> void:
 		for skill in DeepContent.mine(str(key)).get("batch", []):
 			homes[str(skill)] = int(homes.get(str(skill), 0)) + 1
 	for skill in DeepContent.section("skills"):
-		if str(DeepContent.skill(str(skill)).get("color", "")) == DeepContent.OPAL:
+		if str(DeepContent.skill(str(skill)).get("color", "")) == DeepContent.OPAL or DeepContent.is_transcendent(str(skill)):
 			continue
 		check(int(homes.get(str(skill), 0)) == 1, "%s belongs to exactly one mine's batch (%d)" % [skill, int(homes.get(str(skill), 0))])
 	## A mine's pool is its own batch and the batches above it.

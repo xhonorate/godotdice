@@ -143,6 +143,10 @@ func _test_cut_steps() -> void:
 	var same: Array = []
 	for key in DeepContent.section("skills"):
 		var seen: Array = []
+		## Certainty fires on any hand and does the same at every Cut: its makers' design, made
+		## at an altar where a Transcendent's worth lies in what it is rather than how it is cut.
+		if str(key) == "CERTAINTY":
+			continue
 		for step in range(DeepPatterns.STEPS):
 			var one: Dictionary = DeepStone.effective(stone(str(key), 1, step))
 			var described: Dictionary = DeepPatterns.describe(DeepContent.skill(str(key)).get("trigger", {"kind": "always"}), step)
@@ -224,7 +228,10 @@ func _test_birthstones_and_references() -> void:
 		for def in defs:
 			var kind: String = str(def.get("kind", "damage"))
 			var scale: String = str(def.get("scale", "carat" if kind in DeepRules.SCALED_BY_DEFAULT else "procs"))
-			check(scale != "none" or def.has("from_result"), "%s's %s answers to carat" % [str(key), kind])
+			## A Transcendent counts exactly what it was designed to: one fire for every pair, five
+			## carats, every gem after it. Its weight swells everything else it does.
+			var exact: bool = DeepContent.is_transcendent(str(key)) and kind in ["fire_neighbours", "force_after", "absorbed", "gem_rank"]
+			check(scale != "none" or def.has("from_result") or exact, "%s's %s answers to carat" % [str(key), kind])
 			check(not def.has("cost") or scale == "carat", "%s's priced %s swells with carat, since it cannot proc" % [str(key), kind])
 
 func _test_grade_and_names() -> void:

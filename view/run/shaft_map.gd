@@ -317,7 +317,7 @@ func _draw_header(map: Dictionary, depth: int) -> void:
 	if map.is_empty():
 		return
 	var lit: bool = DeepDescent.lit_to(run) >= mini(depth + 1, int(map.to))
-	var words: String = "lit to %d" % DeepDescent.lit_to(run) if lit else "sees to %d" % mini(depth + DeepDescent.LANTERN_REACH, int(map.to))
+	var words: String = "lit to %d" % DeepDescent.lit_to(run) if lit else "sees to %d" % mini(depth + DeepDescent.lantern_reach(run), int(map.to))
 	var tone: Color = DeepUi.ACCENT if lit else DeepUi.MUTED
 	var width: float = ThemeDB.fallback_font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
 	var flicker: float = 0.85 + 0.15 * sin(_clock * 9.0) * sin(_clock * 4.3)
@@ -452,7 +452,7 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 				_canvas.draw_rect(Rect2(Vector2(1, fog_full), Vector2(size.x - 2, size.y - fog_full - 1)), Color(shade, 0.72))
 
 func _fog_top() -> float:
-	return _y(float(int(run.get("depth", 0)) + DeepDescent.LANTERN_REACH) + 0.45)
+	return _y(float(int(run.get("depth", 0)) + DeepDescent.lantern_reach(run)) + 0.45)
 
 func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary) -> void:
 	var nodes: Dictionary = map.get("nodes", {})
@@ -465,7 +465,7 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 	var choosing: bool = facts.choosing
 	## The lantern's pool, reaching down toward what it can show.
 	var flicker: float = 0.9 + 0.1 * sin(_clock * 7.0) * sin(_clock * 2.9 + 1.0)
-	var reach: float = _step * (float(DeepDescent.LANTERN_REACH) + 0.6)
+	var reach: float = _step * (float(DeepDescent.lantern_reach(run)) + 0.6)
 	_glow(here_at + Vector2(0, reach * 0.36), Vector2(size.x * 1.25, reach * 1.7) * flicker, Color(DeepUi.ACCENT, 0.1 * _fade(here_at.y)))
 	## Sparks running down the ways the party can take.
 	for flow in _flows:
@@ -486,7 +486,7 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 		var at: Vector2 = positions[id]
 		if _fade(at.y) <= 0.0:
 			continue
-		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + DeepDescent.LANTERN_REACH):
+		if int(node.get("depth", 0)) > mini(int(map.get("to", 0)), int(run.get("depth", 0)) + DeepDescent.lantern_reach(run)):
 			## Past the lantern: a chamber is there, and nothing more is known of it.
 			_draw_unknown(at)
 			_spots.append({"at": at, "radius": 12.0, "text": "Depth %d: not seen yet. The lantern shows two floors ahead." % int(node.depth)})
@@ -541,6 +541,7 @@ func _kind_words(kind: String) -> String:
 		"hidden": return "a dark mouth: anything could be down there"
 		"well": return "a wishing well: throw something precious down it"
 		"vat": return "a vat: dip a die in a new material, or melt it plain"
+		"altar": return "an altar: five gems given up for one"
 		"landing": return "a landing"
 	return kind
 

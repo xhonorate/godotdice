@@ -93,6 +93,18 @@ export function term(name, node, c) {
 		case 'high': case 'low': case 'total': case 'max_total': case 'odd': case 'even': case 'distinct': case 'held': case 'rerolled': case 'crowns': case 'high_crown': case 'low_dice':
 			return a[name] | 0;
 		case 'missing': return Math.max(0, (a.max_total | 0) - (a.total | 0));
+		case 'even_read': {
+			// The even dice among the ones the trigger read (a Miasma's handful of highest).
+			const evens = Hand.matching(a, (v) => v % 2 === 0);
+			return (trig.dice || []).filter((id) => evens.includes(id)).length;
+		}
+		case 'pairs': {
+			// Every pair whose value clears the trigger's rung: four or five alike are two, so is a full house.
+			const floorPair = trig.forced ? 0 : (trig.need | 0);
+			let pairs = 0;
+			for (const group of a.groups || []) if ((group.value | 0) >= floorPair) pairs += Math.trunc((group.count | 0) / 2);
+			return pairs;
+		}
 		case 'dice': return a.dice_count | 0;
 		case 'count_value': { const w = node.value | 0; return Hand.matching(a, (v) => v === w).length; }
 		case 'count_at_most': { const w = node.value | 0; return Hand.matching(a, (v) => v <= w).length; }
@@ -170,9 +182,16 @@ export function defaultTarget(kind, hostileSide = 'enemy') {
 
 export function resolveEffect(def, c, magnitude, hostileSide = 'enemy') {
 	const kind = String(def.kind || 'damage');
-	const raw = amount(def.amount ?? { const: 0 }, c);
+	let raw = amount(def.amount ?? { const: 0 }, c);
 	const scale = String(def.scale ?? (SCALED_BY_DEFAULT.includes(kind) ? 'carat' : 'none'));
-	const final = scale === 'carat' ? Math.floor(raw * magnitude) : raw;
+	let final = scale === 'carat' ? Math.floor(raw * magnitude) : raw;
+	if ('share' in def) {
+		// A share of the amount, taken after carat so nothing small is rounded away; never below one.
+		const share = Math.max(0, amount(def.share, c));
+		final = Math.floor(raw * (scale === 'carat' ? magnitude : 1) * share / 100);
+		if (raw > 0 && share > 0) final = Math.max(1, final);
+		raw = Math.floor(raw * share / 100);
+	}
 	const repeat = Math.max(0, Math.min(amount(def.repeat ?? { const: 1 }, c), MAX_REPEAT));
 	const proc = scale === 'carat' || 'scale' in def ? { procs: 1, chance: 0 } : caratProcs(magnitude);
 	const out = { kind, target: String(def.target || defaultTarget(kind, hostileSide)), amount: Math.max(-VALUE_LIMIT, Math.min(VALUE_LIMIT, final)),

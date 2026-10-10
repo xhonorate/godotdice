@@ -89,7 +89,8 @@ func triggers() -> void:
 	check(cast(f, "DOUBLE_DOWN", [1, 2, 3, 4, 5]).kind == "gem_fizzle", "Double Down needs two ones")
 	check(cast(f, "DOUBLE_DOWN", [1, 1, 3, 4, 5]).kind == "gem_fire", "Double Down accepts two ones")
 	check(DeepContent.skill("SPALL").rarity == "COMMON" and DeepContent.skill("ANCHOR").rarity == "COMMON", "rarities updated")
-	check(DeepContent.section("skills").size() == 66, "all 66 skills are present")
+	check(DeepContent.section("skills").size() - DeepContent.transcendents().size() == 66, "all 66 skills that can be found are present")
+	check(DeepContent.transcendents().size() == 6, "and the six that are only made at an altar")
 	for key in ["CROSSCUT", "DETONATE", "SHELTER", "MORTAR", "SIPHON", "STAKE", "APEX", "ENRICH", "APPRAISE", "GILDED_ARMOR", "TAILINGS"]:
 		check(DeepForge.skill_pool(DeepContent.mine("RIFT")).has(key), key + " is in the deepest pool")
 	for key in ["POULTICE", "UNDERTOW", "SILENCE", "LEVEL", "INVERT", "MYCELIUM"]:
@@ -493,7 +494,7 @@ func weight() -> void:
 	check(f.player.rail.size() == size + 4, "a heavy Echo makes four Void copies (%d -> %d)" % [size, f.player.rail.size()])
 	f = setup()
 	f.player.block = 10
-	cast(f, "MORTAR", [1, 2, 3, 4, 5], false, 0, 24)
+	cast(f, "MORTAR", [2, 4, 6, 8, 10], false, 0, 24)
 	check(int(f.player.statuses.retain) == 10, "a heavy Mortar retains ten times its share")
 	f = setup()
 	cast(f, "STAKE", [1, 2, 3, 4, 5], false, 4, 24)

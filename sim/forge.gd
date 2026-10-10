@@ -162,10 +162,11 @@ static func skill_pool(mine: Dictionary) -> Array:
 	## What the rock here can hold: a list the mine writes out in full, or else its own batch
 	## and the batches of every mine above it. A skill no mine has taken into its batch is in
 	## every pool, so nothing new is ever unfindable while it waits to be placed.
+	## A Transcendent is in no pool at all: it is made at an altar, never found.
 	var listed: Array = mine.get("skills", [])
 	if not listed.is_empty():
-		return listed.map(func(k: Variant) -> String: return str(k))
-	var keys: Array = DeepContent.section("skills").keys()
+		return listed.map(func(k: Variant) -> String: return str(k)).filter(func(k: String) -> bool: return not DeepContent.is_transcendent(k))
+	var keys: Array = DeepContent.section("skills").keys().filter(func(k: Variant) -> bool: return not DeepContent.is_transcendent(str(k)))
 	keys.sort()
 	var batched: Dictionary = batch_tiers()
 	if batched.is_empty():
@@ -194,6 +195,12 @@ static func inclusion_pool(mine: Dictionary) -> Array:
 	return keys
 
 static func roll_skill(rng: RandomNumberGenerator, mine: Dictionary, pool: Array = []) -> String:
+	return DeepRng.weighted_key(rng, skill_table(mine, pool))
+
+static func skill_table(mine: Dictionary, pool: Array = []) -> Dictionary:
+	## How likely each skill is to come out of this rock: its rarity, the mine's leaning toward
+	## its color, and twice as likely again in the mine whose own batch it is. What `roll_skill`
+	## draws from, and what a Geode prints as its odds.
 	var keys: Array = pool if not pool.is_empty() else skill_pool(mine)
 	var color_weights: Dictionary = mine.get("color_weights", {})
 	var home: Array = home_batch(mine)
@@ -216,13 +223,14 @@ static func roll_skill(rng: RandomNumberGenerator, mine: Dictionary, pool: Array
 	if total <= 0.0:
 		for key in table:
 			table[key] = 1.0
-	return DeepRng.weighted_key(rng, table)
+	return table
 
 static func opal_pool() -> Array:
-	## Every opal in the pack, sorted, so the same seed reaches for the same one.
+	## Every opal in the pack, sorted, so the same seed reaches for the same one. The two
+	## Transcendent opals are not among them: nothing reaches for one, not even a hoard.
 	var out: Array = []
 	for key in DeepContent.section("skills"):
-		if str(DeepContent.skill(str(key)).get("color", "")) == DeepContent.OPAL:
+		if str(DeepContent.skill(str(key)).get("color", "")) == DeepContent.OPAL and not DeepContent.is_transcendent(str(key)):
 			out.append(str(key))
 	out.sort()
 	return out
@@ -254,6 +262,7 @@ static func roll_inclusions(rng: RandomNumberGenerator, count: int, mine: Dictio
 			if not own_color.is_empty() and zoning_color(def) == own_color:
 				continue
 			var weight: float = float(def.get("weight", DEFAULT_CLASS_WEIGHTS.get(cls, 1.0)))
+			weight *= float(mine.get("inclusion_bias", {}).get(str(key), 1.0))
 			table[str(key)] = weight
 		var picked: String = DeepRng.weighted_key(rng, table)
 		if picked.is_empty():
@@ -270,13 +279,23 @@ static func roll_stone(rng: RandomNumberGenerator, mine: Dictionary, depth: int,
 	var carat: int = roll_carat(rng, q, carat_band(mine, depth))
 	var cut: int = roll_cut(rng, q)
 	var clarity: int = roll_clarity(rng, q)
+	## A daily dig's rock may keep every stone clear, or give none that are.
+	match str(mine.get("clarity_rule", "")):
+		"clear":
+			clarity = maxi(clarity, DeepContent.clear_index())
+		"flawed":
+			clarity = mini(clarity, DeepContent.clear_index() - 1)
 	var inclusions: Array = roll_inclusions(rng, DeepStone.inclusion_slots(clarity), mine, "", str(DeepContent.skill(skill).get("color", "")))
 	var where: Dictionary = provenance.duplicate()
 	where.depth = depth
 	if not where.has("mine"):
 		where.mine = str(mine.get("key", mine.get("name", "")))
 	var stone_id: String = id if not id.is_empty() else "st%08x" % rng.randi()
-	return DeepStone.make(skill, carat, cut, clarity, inclusions, where, stone_id)
+	var made: Dictionary = DeepStone.make(skill, carat, cut, clarity, inclusions, where, stone_id)
+	if bool(mine.get("read_on_find", false)):
+		made.appraised = true
+		made.inclusions_revealed = true
+	return made
 
 static func die_from(ref: Variant, id: String) -> Dictionary:
 	## The die a character or a creature is written down as: a shape on its own ("D6"), or

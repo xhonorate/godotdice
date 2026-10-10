@@ -390,7 +390,10 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return _refuse("fragile stones cannot be sold")
 			var paid: int = DeepStone.value(stone) * int(action.get("mult", 3))
 			player.ore = int(player.get("ore", 0)) + paid
-			DeepEconomy.earned(player, paid)
+			## A copy of a vault stone pays for the run, but the assayer will not cash it: the
+			## vault keeps the stone itself.
+			if not bool(stone.get("lent", false)):
+				DeepEconomy.earned(player, paid)
 			remove_stone(player, str(stone.id))
 			out.lost.append(str(stone.id))
 			out.message = "She pays you %d pyrite for it." % paid
@@ -547,7 +550,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				if int(player.get("ore", 0)) < spent:
 					return _refuse("you have not the pyrite to throw in")
 				player.ore = int(player.ore) - spent
-				thrown = float(spent)
+				thrown = float(spent) * float(ctx.get("well_mult", 1.0))
 				said = "%d pyrite goes down into the dark." % spent
 			else:
 				var offered: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
@@ -557,7 +560,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 					return _refuse("a Knot cannot leave its socket")
 				if DeepStone.is_fragile(offered):
 					return _refuse("the well will not take a fragile stone")
-				thrown = well_worth(offered, float(action.get("raw_mult", 0.5)), float(action.get("read_mult", 1.5)))
+				thrown = well_worth(offered, float(action.get("raw_mult", 0.5)), float(action.get("read_mult", 1.5))) * float(ctx.get("well_mult", 1.0))
 				said = "%s goes down into the water." % (DeepStone.name(offered) if bool(offered.get("appraised", false)) else DeepStone.raw_name(offered))
 				remove_stone(player, str(offered.id))
 				out.lost.append(str(offered.id))

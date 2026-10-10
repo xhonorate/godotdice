@@ -26,7 +26,8 @@ import { rerollIds } from './simulate.js';
 
 export const HAND_KINDS = ['raise_low', 'raise_high', 'set_match', 'flip_low', 'flip_high', 'phantom_high'];
 export const SELF_KINDS = ['amplify_next', 'cut_step_next', 'grant_reroll', 'retrigger_previous', 'quality_bonus', 'sparkle',
-	'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy', 'gem_rank', 'upgrade_faces', 'stake', 'appraise'];
+	'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy', 'gem_rank', 'upgrade_faces', 'stake', 'appraise',
+	'fire_neighbours', 'force_after', 'absorbed'];
 export const BIRTHSTONE_KINDS = ['replay_rail', 'tick_poison', 'stone_drop', 'pot'];
 const PROC_IN_PLACE = ['coin_flip'];
 const MAX_RAIL = 24;
@@ -188,6 +189,7 @@ function resetRail(unit) {
 	unit.repeat_next = 0;
 	unit.replaying = false;
 	unit.fired_count = 0;
+	unit.force_after = {};
 }
 
 // Queue one player's rail: their gems in socket order, the Birthstone, the close.
@@ -219,7 +221,7 @@ export function perform(state, s, rng) {
 			resetRail(unit);
 			return { kind: 'rail_begin', resonance: unit.resonance };
 		case 'gem':
-			return resolveGem(state, unit, s.socket | 0, { retrigger: Boolean(s.retrigger), scale: s.scale ?? 100, replay: Boolean(s.replay), force: Boolean(s.force) }, rng);
+			return resolveGem(state, unit, s.socket | 0, { retrigger: Boolean(s.retrigger), scale: s.scale ?? 100, replay: Boolean(s.replay), force: Boolean(s.force), as_skill: String(s.as_skill || '') }, rng);
 		case 'birthstone':
 			return resolveBirthstone(state, unit, { replay: Boolean(s.replay) }, rng);
 		case 'rail_end': {
@@ -235,10 +237,21 @@ export function perform(state, s, rng) {
 	return null;
 }
 
+// How many times a Certainty earlier on the rail has this socket fire this turn, whatever the dice say.
+export function certainTimes(unit, socket, retrigger) {
+	const certainty = unit.force_after || {};
+	if (retrigger || !('from' in certainty) || socket <= (certainty.from | 0)) return 0;
+	if (socket < 0 || socket >= unit.rail.length || !unit.rail[socket] || Stone.isOpal(unit.rail[socket])) return 0;
+	return Math.max(0, certainty.times | 0);
+}
+
 export function resolveGem(state, unit, socket, opts, rng) {
 	const dry = Boolean(opts.dry);
 	if (socket < 0 || socket >= unit.rail.length || !unit.rail[socket]) return null;
-	const stone = stoneAt(unit, socket);
+	// A Black Opal fires each skill it absorbed as a stone wearing that skill.
+	const stone = opts.as_skill ? Stone.wearing(unit.rail[socket], { skill: opts.as_skill }) : stoneAt(unit, socket);
+	const certain = certainTimes(unit, socket, Boolean(opts.retrigger));
+	if (certain > 0 && !opts.force) opts = { ...opts, force: true };
 	if (unit.buried.includes(socket) || unit.clouded.includes(socket)) {
 		unit.previous_fired = false;
 		return { kind: 'gem_fizzle', socket, skill: stone.skill, blocked: true, resonance: unit.resonance };
@@ -316,6 +329,7 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	if (String((Stone.skillOf(stone).trigger || {}).kind || '') === 'fizzles') unit.tailings_paid[String(stone.id)] = unit.fizzled_sockets.length;
 	if (!dry && !retrigger && (ev.fires | 0) > 1) for (let extra = 0; extra < (ev.fires | 0) - 1; extra++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true });
 	if (!dry && !retrigger && promised > 0) for (let more = 0; more < promised; more++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true });
+	if (!dry && certain > 1) for (let more = 0; more < certain - 1; more++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true, force: true });
 	state.ledger.fires += 1;
 	return { kind: 'gem_fire', socket, skill: stone.skill, resonance: unit.resonance, gain, harmony, retrigger, cut_step: ev.cut_step | 0, carat: ev.carat | 0,
 		magnitude: ev.magnitude, fires: ev.fires | 0, promised: retrigger ? 0 : promised, effects: results };
@@ -510,6 +524,7 @@ function joinRail(state, unit, at, stone) {
 	for (const entry of state.queue) if (entry.unit === unit.id && entry.socket !== undefined && entry.socket >= at) entry.socket += 1;
 	for (const field of ['fired_sockets', 'fizzled_sockets', 'buried', 'clouded']) unit[field] = (unit[field] || []).map((p) => (p >= at ? p + 1 : p));
 	if ((unit.previous_socket ?? -1) >= at) unit.previous_socket += 1;
+	if (unit.force_after && 'from' in unit.force_after && unit.force_after.from >= at) unit.force_after.from += 1;
 }
 
 // Whether a die the trigger matched may still be raised: judged by the face it shows now
@@ -531,7 +546,7 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			const rank = String(effect.rank || 'carat');
 			const changed = [];
 			for (let at = 0; at < unit.rail.length; at++) {
-				if (!unit.rail[at] || (scope === 'adjacent' && Math.abs(at - socket) !== 1) || (scope === 'others' && at === socket)) continue;
+				if (!unit.rail[at] || (scope === 'adjacent' && Math.abs(at - socket) !== 1) || (scope === 'others' && at === socket) || (scope === 'self' && at !== socket)) continue;
 				const id = String(unit.rail[at].id);
 				const buff = unit.gem_buffs[id] || (unit.gem_buffs[id] = {});
 				buff[rank] = (buff[rank] | 0) + amount;
@@ -601,7 +616,7 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			const touched = [];
 			for (const at of unit.fired_sockets.slice().sort((x, y) => x - y)) {
 				if (at === socket || !repeatable(unit, at)) continue;
-				if (!Stone.colors(stoneAt(unit, at), String(unit.sockets[at])).includes(want)) continue;
+				if (want !== 'ANY' && !Stone.colors(stoneAt(unit, at), String(unit.sockets[at])).includes(want)) continue;
 				touched.push(at);
 				for (let time = 0; time < Math.max(1, amount); time++) encore.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true });
 			}
@@ -645,6 +660,35 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			out.sockets = made;
 			if (!made.length) out.nothing = true;
 			else state.queue = made.map((at) => ({ kind: 'gem', unit: unit.id, socket: at })).concat(state.queue);
+			break;
+		}
+		case 'fire_neighbours': {
+			// A Gemini: the gems either side of it fire, once for every pair; never an opal.
+			const twins = [];
+			const woken = [];
+			for (const at of [socket - 1, socket + 1]) {
+				if (at === socket || !repeatable(unit, at)) continue;
+				twins.push(at);
+				for (let time = 0; time < Math.max(0, amount); time++) woken.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true, force: true });
+			}
+			out.sockets = twins;
+			if (dry || !woken.length) out.nothing = true; else state.queue = woken.concat(state.queue);
+			break;
+		}
+		case 'force_after': {
+			// A Certainty: every gem after it fires this turn whatever the dice show (set on a forecast too).
+			const standing = unit.force_after || {};
+			const from = 'from' in standing ? Math.min(socket, standing.from | 0) : socket;
+			unit.force_after = { from, times: Math.max(Math.max(1, amount), standing.times | 0) };
+			out.total = unit.force_after.times;
+			break;
+		}
+		case 'absorbed': {
+			// A Black Opal: every skill it took in this run fires from its socket.
+			const taken = socket >= 0 && unit.rail[socket] ? unit.rail[socket].absorbed || [] : [];
+			out.skills = taken.slice();
+			if (dry || !taken.length) out.nothing = true;
+			else state.queue = taken.map((key) => ({ kind: 'gem', unit: unit.id, socket, retrigger: true, as_skill: String(key) })).concat(state.queue);
 			break;
 		}
 		case 'amplify_next': unit.amplify = Number(unit.amplify) * (1 + amount / 100); break;
@@ -806,7 +850,12 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			break;
 		}
 		case 'gold':
-			if (source.side === 'player') { source.gold = (source.gold | 0) + amount; reactions.result_gold = (reactions.result_gold | 0) + amount; }
+			if (source.side === 'player') {
+				// Pyrite a gem sends to the party lands in each ally's own purse.
+				const purse = target.side === 'player' ? target : source;
+				purse.gold = (purse.gold | 0) + amount;
+				reactions.result_gold = (reactions.result_gold | 0) + amount;
+			}
 			else if (target.side === 'player') target.gold = (target.gold | 0) + amount;
 			break;
 		case 'max_hp':

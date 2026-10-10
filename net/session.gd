@@ -44,7 +44,7 @@ const STEP_FLOOR: float = 0.15
 var is_host: bool = true
 var local_id: String = "p0"
 var status: String = "offline"
-var lobby: Dictionary = {"members": {}, "order": [], "mine": "", "host": "p0", "started": false}
+var lobby: Dictionary = {"members": {}, "order": [], "mine": "", "host": "p0", "started": false, "daily": ""}
 var run: Dictionary = {}
 var revision: int = 0
 ## The fight speed the player chose. The app plays a resolving turn at this time scale, so
@@ -258,7 +258,7 @@ func hello(member: Dictionary) -> void:
 	_on_connected()
 
 func _reset() -> void:
-	lobby = {"members": {}, "order": [], "mine": DeepContent.starter_mine(), "host": "p0", "started": false}
+	lobby = {"members": {}, "order": [], "mine": DeepContent.starter_mine(), "host": "p0", "started": false, "daily": ""}
 	run = {}
 	revision = 0
 	_peer_of = {}
@@ -295,7 +295,8 @@ func _add_member(id: String, member: Dictionary) -> void:
 	var record: Dictionary = {"id": id, "profile": str(profile_id).left(64) if profile_id is String else "", "name": str(said.get("name", DeepProfile.DEFAULT_NAME)),
 		"character": str(said.get("character", DeepContent.starter_character())), "rail": said.get("rail", []), "dice": said.get("dice", []),
 		"ready": bool(said.get("ready", false)), "connected": true, "last_depth": int(said.get("last_depth", 0)), "last_outcome": str(said.get("last_outcome", "")),
-		"gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap()))}
+		"gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap())),
+		"daily_state": str(said.get("daily_state", "locked"))}
 	lobby.members[id] = record
 	if not lobby.order.has(id):
 		lobby.order.append(id)
@@ -372,6 +373,9 @@ static func clean_member_fields(fields: Dictionary) -> Dictionary:
 			"ready", "insured":
 				if value is bool:
 					out[key] = value
+			"daily_state":
+				if value is String and value in ["locked", "fresh", "played"]:
+					out.daily_state = value
 			"last_depth", "gold", "sockets":
 				if (value is int or value is float) and is_finite(float(value)):
 					out[key] = maxi(0, int(value))
@@ -385,6 +389,19 @@ func choose_mine(mine_key: String) -> void:
 		lobby.members[id].ready = false
 	_broadcast({"kind": "lobby", "lobby": lobby})
 	lobby_changed.emit(lobby)
+
+func choose_daily(date: String) -> void:
+	## The host sets the party to dig a day's seam (a date) or back to the mine on the map ("").
+	if not is_host or str(lobby.get("daily", "")) == date:
+		return
+	lobby.daily = date
+	for id in lobby.members:
+		lobby.members[id].ready = false
+	_broadcast({"kind": "lobby", "lobby": lobby})
+	lobby_changed.emit(lobby)
+
+func daily_lobby() -> bool:
+	return not str(lobby.get("daily", "")).is_empty()
 
 func kick(player_id: String) -> bool:
 	## The host sends a guest home. Only in the workshop: a run underground keeps its party.
@@ -424,10 +441,17 @@ func can_start() -> bool:
 		var member: Dictionary = lobby.members[id]
 		if bool(member.get("connected", true)) and not bool(member.get("ready", false)) and id != local_id:
 			return false
+	## The day's seam is for a host who has beaten the first mine; guests who have not, or who
+	## have dug it already today, come along for no reward.
+	if daily_lobby() and str(lobby.members.get(local_id, {}).get("daily_state", "locked")) == "locked":
+		return false
 	return short_members().is_empty()
 
 func departure_cost(member: Dictionary) -> int:
-	## What this member pays at the shaft head for the mine the party is set to go down.
+	## What this member pays at the shaft head for the mine the party is set to go down. The
+	## day's seam is lent, and costs nothing.
+	if daily_lobby():
+		return 0
 	return DeepEconomy.departure(str(lobby.get("mine", DeepContent.starter_mine())), bool(member.get("insured", false)))
 
 func short_members() -> Array:
@@ -460,6 +484,9 @@ func start_run(seed_value: int = 0) -> Dictionary:
 	## the second run look like the first (it went down free).
 	var run_id: String = "run%08x%06x" % [absi(chosen_seed) & 0xffffffff, randi() & 0xffffff]
 	var config: Dictionary = {"seed": chosen_seed, "run_id": run_id, "mine": str(lobby.get("mine", DeepContent.starter_mine())), "players": players}
+	if daily_lobby():
+		## The day's seam: its own seed, lapidaries, rails and dice, whatever anyone wore.
+		config = DeepEconomy.daily_config(str(lobby.daily), players, "daily%s%06x" % [str(lobby.daily).replace("-", ""), randi() & 0xffffff])
 	run = DeepDescent.new_run(config)
 	revision = 1
 	_ended = false

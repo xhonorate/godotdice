@@ -336,13 +336,37 @@ static func _color_place(color: String) -> int:
 	var found: int = DeepStone.colorS.find(color)
 	return found if found >= 0 else DeepStone.colorS.size()
 
+static func made_transcendent(profile: Dictionary, skill: String) -> bool:
+	## Writes down that this player has made a Transcendent. Until then the game does not
+	## admit it exists: no Vault slot, no count, no page. True the first time.
+	if not DeepContent.is_transcendent(skill):
+		return false
+	if not profile.has("transcended"):
+		profile.transcended = []
+	saw(profile, skill)
+	if profile.transcended.has(skill):
+		return false
+	profile.transcended.append(skill)
+	return true
+
+static func knows(profile: Dictionary, skill: String) -> bool:
+	## Whether the game may show this skill to this player at all. Everything but a
+	## Transcendent, and a Transcendent once they have made one or hold it.
+	if not DeepContent.is_transcendent(skill):
+		return true
+	return profile.get("transcended", []).has(skill) or profile.get("vault", {}).has(skill)
+
+static func known_skills(profile: Dictionary) -> Array:
+	return DeepContent.section("skills").keys().filter(func(k: Variant) -> bool: return knows(profile, str(k)))
+
 static func vault_grid(profile: Dictionary) -> Array:
-	## Every skill in the pack, in color order, as unseen, seen or owned.
+	## Every skill in the pack the player may know of, in color order, as unseen, seen or
+	## owned, and a Transcendent row after them once one has been made.
 	var out: Array = []
-	var keys: Array = DeepContent.section("skills").keys()
+	var keys: Array = known_skills(profile)
 	keys.sort_custom(func(a: String, b: String) -> bool:
-		var ca: int = _color_place(str(DeepContent.skill(a).color))
-		var cb: int = _color_place(str(DeepContent.skill(b).color))
+		var ca: int = _color_place(str(DeepContent.skill(a).color)) + (100 if DeepContent.is_transcendent(a) else 0)
+		var cb: int = _color_place(str(DeepContent.skill(b).color)) + (100 if DeepContent.is_transcendent(b) else 0)
 		return ca < cb if ca != cb else a < b)
 	for key in keys:
 		var state: String = "owned" if profile.vault.has(key) else ("seen" if profile.seen.has(key) else "unseen")
@@ -483,6 +507,11 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	var visited: Array = result.get("mines", [])
 	if visited.is_empty():
 		visited = [{"mine": mine_key, "deepest": int(result.get("deepest", 0)), "wardens": result.get("wardens", []), "boss": false}]
+	## The daily dig is a seam of its own: it opens no mine, brings nobody into the workshop,
+	## writes no mine's records and brings nothing home. What came up is scored and paid for.
+	var daily: Dictionary = result.get("daily", {})
+	if not daily.is_empty():
+		visited = []
 	var unlocked: Array = []
 	var purses: Array = []
 	for entry in visited:
@@ -514,18 +543,36 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 				if purse > 0:
 					profile.gold = int(profile.get("gold", 0)) + purse
 					purses.append({"mine": key, "gold": purse})
-	profile.records.runs = int(profile.records.runs) + 1
-	match str(result.get("outcome", "")):
-		"extracted": profile.records.extractions = int(profile.records.extractions) + 1
-		"conquered":
-			profile.records.conquests = int(profile.records.conquests) + 1
-			profile.records.extractions = int(profile.records.extractions) + 1
-		"fallen": profile.records.falls = int(profile.records.falls) + 1
+	if daily.is_empty():
+		profile.records.runs = int(profile.records.runs) + 1
+		match str(result.get("outcome", "")):
+			"extracted": profile.records.extractions = int(profile.records.extractions) + 1
+			"conquered":
+				profile.records.conquests = int(profile.records.conquests) + 1
+				profile.records.extractions = int(profile.records.extractions) + 1
+			"fallen": profile.records.falls = int(profile.records.falls) + 1
+	else:
+		profile.records.dailies = int(profile.records.get("dailies", 0)) + 1
 	var mine_result: Dictionary = result.get("players", {}).get(player_id, {})
+	var scored: Dictionary = {}
+	if not daily.is_empty():
+		## The day's seam: what came up is scored, and then the run is remembered and nothing
+		## else is kept.
+		scored = DeepEconomy.daily_score(result, player_id)
+		mine_result = {"seen": mine_result.get("seen", []), "transcended": mine_result.get("transcended", [])}
 	## What the run taught, whatever came of the stones themselves: a gem read under a lens
 	## down there is in the vault's record even if the party never came back up with it.
 	for skill in mine_result.get("seen", []):
 		saw(profile, str(skill))
+	## A Transcendent made down there is known from then on, wherever the stone itself ended up.
+	for skill in mine_result.get("transcended", []):
+		made_transcendent(profile, str(skill))
+	## A vault stone whose copy was given up at an altar is given up for good.
+	var spent: Array = []
+	for skill in mine_result.get("vault_spent", []):
+		if profile.vault.has(str(skill)):
+			profile.vault.erase(str(skill))
+			spent.append(str(skill))
 	var brought: Array = []
 	var shattered: Array = mine_result.get("shattered", []).duplicate(true)
 	## Every stone found on the run that is still carried: the bag, and anything found and set
@@ -538,6 +585,8 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 			continue
 		var home: Dictionary = DeepStone.unstake(stone.duplicate(true))
 		home.erase("lent")
+		## What a Black Opal took in down there is gone with the run.
+		home.erase("absorbed")
 		if not home.has("provenance"):
 			home.provenance = {}
 		home.provenance.date = Time.get_date_string_from_system()
@@ -548,14 +597,24 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	## The assayer at the lift weighs what is left in the pocket, if anyone rode up.
 	var assayed: Dictionary = DeepEconomy.assay(mine_result, str(result.get("outcome", "")))
 	profile.gold = int(profile.get("gold", 0)) + int(assayed.gold)
-	profile.history.append({"run_id": str(result.get("run_id", "")), "mine": mine_key, "outcome": str(result.get("outcome", "")),
-		"depth": int(result.get("depth", 0)), "stones": brought.size(), "date": Time.get_date_string_from_system(), "gold": int(assayed.gold)})
+	## The day's seam pays its score's worth in gold, less what the day's best already paid.
+	var dug: Dictionary = {}
+	if not daily.is_empty():
+		dug = DeepEconomy.settle_daily(profile, scored, str(daily.get("date", DeepEconomy.today())))
+		dug.erase("stones")
+	var entry: Dictionary = {"run_id": str(result.get("run_id", "")), "mine": mine_key, "outcome": str(result.get("outcome", "")),
+		"depth": int(result.get("depth", 0)), "stones": brought.size(), "date": Time.get_date_string_from_system(), "gold": int(assayed.gold) + int(dug.get("paid", 0))}
+	if not daily.is_empty():
+		entry.daily = true
+		entry.score = int(dug.get("score", 0))
+		entry.deepest_mine = str(result.get("mine", mine_key))
+	profile.history.append(entry)
 	## A stone that came home already read and is the first of its skill waits on the tray
 	## with everything else: it is never sold, but whether it is kept or turned in for a
 	## commission is the player's to say. Anything on the tray already known to be fragile
 	## (an older save's) breaks now.
 	clear_shattered(profile)
-	return {"tray": brought, "unlocked": unlocked, "kept": [], "shattered": shattered, "assay": assayed, "purses": purses}
+	return {"tray": brought, "unlocked": unlocked, "kept": [], "shattered": shattered, "assay": assayed, "purses": purses, "vault_spent": spent, "daily": dug}
 
 static func decide_tray(profile: Dictionary, stone_id: String, keep_it: bool) -> Dictionary:
 	for index in range(profile.tray.size()):

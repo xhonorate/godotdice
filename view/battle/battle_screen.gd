@@ -1037,7 +1037,7 @@ static func _raised_by(unit: Dictionary, rank: String) -> String:
 func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 	## The character's Birthstone at the end of the rail: the stone in its own bezel, its
 	## name, and its tiers as marks that light when the hand in the tray would fire them.
-	var stone: Dictionary = DeepStone.birthstone(str(unit.get("character", "")))
+	var stone: Dictionary = DeepStone.birthstone_for(unit)
 	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
 	var card := VBoxContainer.new()
 	card.add_theme_constant_override("separation", 2)
@@ -2214,7 +2214,7 @@ func _birthstone_fire(event: Dictionary) -> void:
 	var unit_id: String = str(event.get("unit", ""))
 	var mine: bool = unit_id == local_id
 	var unit: Dictionary = DeepBattle.player(state, unit_id)
-	var stone: Dictionary = DeepStone.birthstone(str(unit.get("character", "")))
+	var stone: Dictionary = DeepStone.birthstone_for(unit)
 	var color: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
 	var anchor: Control = null
 	if mine and _birthstone_card != null and is_instance_valid(_birthstone_card):

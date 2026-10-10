@@ -21,6 +21,7 @@ extends Control
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
 const Tuning = preload("res://view/gems/gem_tuning.gd")
+const Motes = preload("res://view/gems/motes.gd")
 
 ## Face-on, tipped just enough to catch the crown and a sliver of the pavilion.
 const REST := Vector3(-13.0, -11.0, 0.0)
@@ -245,6 +246,7 @@ func configure(new_gem: Dictionary) -> void:
 	tooltip_text = described if interactive else described.trim_suffix(" Drag to turn it.")
 	if is_instance_valid(_glow):
 		_glow.queue_redraw()
+	Motes.refresh(self, gem)
 	_apply()
 
 ## A stone found in the mine and not yet appraised is still half-buried in its rock: its

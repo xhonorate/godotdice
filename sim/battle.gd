@@ -30,7 +30,8 @@ const HIT_STEP: float = BOLT_GAP + HIT_BREATH
 const HIT_SPAN: float = 1.2
 const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
-	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise"]
+	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise",
+	"fire_neighbours", "force_after", "absorbed"]
 ## How long a rail may grow mid-fight. An Echo adds a gem a turn and nothing else does, so
 ## this is only there to keep a very long fight from laying out a rail no screen can hold.
 const MAX_RAIL: int = 24
@@ -441,6 +442,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.replaying = false
 			unit.fired_count = 0
 			unit.damp_carry = 0
+			unit.force_after = {}
 			if str(unit.get("passive", {}).get("kind", "")) == "first_gem_cut_step":
 				unit.cut_step_bonus = int(unit.passive.get("amount", 1))
 			## Second Wind is paid at rail_end, on the Resonance the rail built; the rerolls it
@@ -451,7 +453,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			if unit.is_empty() or bool(unit.get("downed", false)) or done(state):
 				return {}
 			return resolve_gem(state, unit, int(s.socket), {"retrigger": bool(s.get("retrigger", false)), "scale": int(s.get("scale", 100)),
-				"replay": bool(s.get("replay", false)), "force": bool(s.get("force", false))}, rng_dice)
+				"replay": bool(s.get("replay", false)), "force": bool(s.get("force", false)), "as_skill": str(s.get("as_skill", ""))}, rng_dice)
 		"birthstone":
 			var unit: Dictionary = player(state, str(s.unit))
 			if unit.is_empty() or bool(unit.get("downed", false)) or done(state):
@@ -737,6 +739,17 @@ static func repeatable(unit: Dictionary, socket: int) -> bool:
 		return true
 	return worn_socket(unit, socket) >= 0
 
+static func certain_times(unit: Dictionary, socket: int, retrigger: bool) -> int:
+	## How many times a Certainty earlier on the rail has this socket fire this turn, whatever
+	## the dice say: 0 when none stands before it. A replay is not the gem's own turn and an
+	## opal still answers only to Resonance, so neither is touched.
+	var certainty: Dictionary = unit.get("force_after", {})
+	if retrigger or certainty.is_empty() or socket <= int(certainty.get("from", 0)):
+		return 0
+	if socket < 0 or socket >= unit.rail.size() or not unit.rail[socket] is Dictionary or DeepStone.is_opal(unit.rail[socket]):
+		return 0
+	return maxi(0, int(certainty.get("times", 0)))
+
 static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	## One gem fires or fizzles. `opts.retrigger` marks a repeat, `opts.scale` a percentage
 	## an Echo repeats at, `opts.force` a Matrix waking a gem the hand never asked for, and
@@ -745,8 +758,17 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	if socket < 0 or socket >= unit.rail.size() or not unit.rail[socket] is Dictionary:
 		return {}
 	## A Doublet fires as the gem it wears; everything else is simply itself. The id, the
-	## four C's and the inclusions stay the socket's own either way.
+	## four C's and the inclusions stay the socket's own either way. A Black Opal fires each
+	## skill it has absorbed the same way, as a stone wearing it (`opts.as_skill`).
 	var stone: Dictionary = stone_at(unit, socket)
+	if not str(opts.get("as_skill", "")).is_empty():
+		stone = DeepStone.wearing(unit.rail[socket], {"skill": str(opts.as_skill)})
+	## A Certainty earlier on the rail: this gem fires whatever the dice say, and as often as
+	## it was told to. Only its own turn on the rail counts, never a replay of it.
+	var certain: int = certain_times(unit, socket, bool(opts.get("retrigger", false)))
+	if certain > 0 and not bool(opts.get("force", false)):
+		opts = opts.duplicate()
+		opts.force = true
 	if unit.buried.has(socket) or unit.clouded.has(socket):
 		unit.previous_fired = false
 		return _event(state, "gem_fizzle", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
@@ -885,6 +907,9 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	if not dry and not retrigger and promised > 0:
 		for _more in range(promised):
 			state.queue.push_front({"kind": "gem", "unit": unit.id, "socket": socket, "retrigger": true})
+	if not dry and certain > 1:
+		for _more in range(certain - 1):
+			state.queue.push_front({"kind": "gem", "unit": unit.id, "socket": socket, "retrigger": true, "force": true})
 	_check_outcome(state)
 	return _event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
 		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony,
@@ -892,6 +917,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		"die_boost": float(ev.get("die_boost", 1.0)), "materials": DeepDice.matching_materials(DeepStone.rolls_of(unit.hand, ev.get("dice", [])), ev.get("colors", [])),
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
 		"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
+		"absorbed": str(opts.get("as_skill", "")), "certain": certain,
 		"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed,
 		"duration": BASE_DURATION.gem_fire + maxf(0.1 * float(results.size()), hits_span(results))})
 
@@ -1304,6 +1330,9 @@ static func _join_rail(state: Dictionary, unit: Dictionary, at: int, stone: Dict
 				places[index] = int(places[index]) + 1
 	if int(unit.get("previous_socket", -1)) >= at:
 		unit.previous_socket = int(unit.previous_socket) + 1
+	var certainty: Dictionary = unit.get("force_after", {})
+	if not certainty.is_empty() and int(certainty.get("from", -1)) >= at:
+		certainty.from = int(certainty.from) + 1
 
 static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary, socket: int, previous_socket: int, dry: bool, rng: RandomNumberGenerator) -> Dictionary:
 	var kind: String = str(effect.kind)
@@ -1317,7 +1346,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				unit.gem_buffs = {}
 			var changed: Array = []
 			for at in range(unit.rail.size()):
-				if not unit.rail[at] is Dictionary or (scope == "adjacent" and absi(at - socket) != 1) or (scope == "others" and at == socket):
+				if not unit.rail[at] is Dictionary or (scope == "adjacent" and absi(at - socket) != 1) or (scope == "others" and at == socket) or (scope == "self" and at != socket):
 					continue
 				var id: String = str(unit.rail[at].id)
 				if not unit.gem_buffs.has(id):
@@ -1397,7 +1426,8 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				var at: int = int(other)
 				if at == socket or not repeatable(unit, at):
 					continue
-				if not DeepStone.colors(stone_at(unit, at), str(unit.sockets[at])).has(want):
+				## A Rainbow Seam asks for no color at all: everything that fired plays again.
+				if want != "ANY" and not DeepStone.colors(stone_at(unit, at), str(unit.sockets[at])).has(want):
 					continue
 				touched.append(at)
 				for _time in range(maxi(1, amount)):
@@ -1475,6 +1505,43 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 					for at in made:
 						fresh.append({"kind": "gem", "unit": unit.id, "socket": int(at)})
 					state.queue = fresh + state.queue
+		"fire_neighbours":
+			## A Gemini: the gems either side of it fire, once for every pair in the hand, the
+			## one before it first. Never an opal, which answers only to its Resonance.
+			var twins: Array = []
+			var woken: Array = []
+			for at in [socket - 1, socket + 1]:
+				if at == socket or not repeatable(unit, at):
+					continue
+				twins.append(at)
+				for _time in range(maxi(0, amount)):
+					woken.append({"kind": "gem", "unit": unit.id, "socket": at, "retrigger": true, "force": true})
+			out.sockets = twins
+			if dry or woken.is_empty():
+				out.nothing = true
+			else:
+				state.queue = woken + state.queue
+		"force_after":
+			## A Certainty: every gem after it this turn fires whatever the dice show, and that
+			## many times over. Set on a forecast too: the forecast plays on a copy of the fight,
+			## and the gems after it should read as firing there as they will in earnest.
+			var standing: Dictionary = unit.get("force_after", {})
+			var from: int = socket if standing.is_empty() else mini(socket, int(standing.get("from", socket)))
+			unit.force_after = {"from": from, "times": maxi(maxi(1, amount), int(standing.get("times", 0)))}
+			out.total = int(unit.force_after.times)
+		"absorbed":
+			## A Black Opal: every skill it has taken in this run fires from its socket, each as
+			## a stone wearing that skill at the Black Opal's own four C's, in the order it took
+			## them. Each one reads the hand the way the gem it came from would have.
+			var taken: Array = unit.rail[socket].get("absorbed", []) if socket >= 0 and socket < unit.rail.size() and unit.rail[socket] is Dictionary else []
+			out.skills = taken.duplicate()
+			if dry or taken.is_empty():
+				out.nothing = true
+			else:
+				var fired: Array = []
+				for key in taken:
+					fired.append({"kind": "gem", "unit": unit.id, "socket": socket, "retrigger": true, "as_skill": str(key)})
+				state.queue = fired + state.queue
 		"amplify_next":
 			unit.amplify = float(unit.amplify) * (1.0 + float(amount) / 100.0)
 		"cut_step_next":
@@ -1760,8 +1827,11 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				source.healed = int(source.get("healed", 0)) + int(out.healed)
 		"gold":
 			if str(source.get("side", "")) == "player":
-				source.gold = int(source.get("gold", 0)) + amount
-				out.gold_after = source.gold
+				## Pyrite a gem sends to the party lands in each ally's own purse; anything
+				## else a player's gem makes is theirs.
+				var purse: Dictionary = target if str(target.get("side", "")) == "player" else source
+				purse.gold = int(purse.get("gold", 0)) + amount
+				out.gold_after = purse.gold
 				reactions.result_gold = int(reactions.get("result_gold", 0)) + amount
 			elif str(target.get("side", "")) == "player":
 				## A creature dropping pyrite: it lands in the player's fight earnings.
@@ -2502,6 +2572,7 @@ static func _lifeline(unit: Dictionary) -> int:
 	if int(unit.hp) > 0 or stacks <= 0:
 		return 0
 	unit.statuses.erase("lifeline")
+	unit.lifeline_used = true
 	unit.hp = mini(int(unit.max_hp), stacks)
 	unit.downed = false
 	unit.block = int(unit.get("block", 0)) + int(unit.statuses.get("lifeline_block", 0))
@@ -2731,6 +2802,13 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		## Whatever was broken last turn is back in the bowl before anything is thrown.
 		var regrown: Dictionary = _regrow(unit)
 		var dice: Array = unit.dice.duplicate()
+		## A daily dig's Short-Handed: the smallest die sits this throw out.
+		if bool(unit.get("run_mods", {}).get("short_handed", false)) and dice.size() > 1:
+			var smallest: int = 0
+			for index in range(dice.size()):
+				if DeepDice.top(dice[index]) < DeepDice.top(dice[smallest]):
+					smallest = index
+			dice.remove_at(smallest)
 		var stolen: int = int(unit.get("stolen_dice", 0))
 		while stolen > 0 and dice.size() > 1:
 			dice.pop_back()
@@ -2762,7 +2840,9 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		if staked is Dictionary and not staked.is_empty() and int(state.get("depth", 1)) <= int(staked.get("until_depth", 0)):
 			## Steady Hands from the Grubstake: a reroll more until the first landing.
 			extra += int(staked.get("amount", 1))
-		unit.rerolls_max = base_rerolls + extra + gifts + int(unit.get("granted_rerolls", 0))
+		## A daily dig's Shaky Hands takes one away.
+		extra += int(unit.get("run_mods", {}).get("reroll_shift", 0))
+		unit.rerolls_max = maxi(0, base_rerolls + extra + gifts + int(unit.get("granted_rerolls", 0)))
 		unit.rerolls = 0 if frozen else unit.rerolls_max
 		unit.granted_rerolls = 0
 		unit.locked = false
@@ -2877,6 +2957,7 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	unit.replaying = false
 	unit.fired_count = 0
 	unit.damp_carry = 0
+	unit.force_after = {}
 	var starting_pyrite: int = DeepRules.pyrite(unit)
 	var sockets: Array = []
 	var totals: Dictionary = {"damage": 0, "block": 0, "heal": 0, "gold": 0, "poison": 0, "fires": 0, "fizzles": 0}
@@ -2888,6 +2969,8 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 		var context: Dictionary = rail_context(copy, unit, socket)
 		var preview: Dictionary = DeepStone.evaluate(stone, unit.hand, context)
 		var fires: int = maxi(1, int(preview.get("fires", 1))) if preview.active else 0
+		## A Certainty earlier on the rail has every gem after it firing whatever the hand says.
+		fires = maxi(fires, certain_times(unit, socket, false))
 		var event: Dictionary = {}
 		for repeat in range(maxi(1, fires)):
 			event = resolve_gem(copy, unit, socket, {"dry": true, "retrigger": repeat > 0}, rng)

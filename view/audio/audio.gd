@@ -25,7 +25,7 @@ const GAP: float = 0.035
 ## Sounds that carry a tune are never detuned; everything else gets a little life.
 const TUNED: PackedStringArray = ["unlock", "victory", "defeat", "landing", "reveal", "star", "gleam",
 	"grade_rough", "grade_fine", "grade_precious", "grade_exquisite", "grade_peerless",
-	"heal", "harmony", "turn_begin", "resonance"]
+	"heal", "harmony", "turn_begin", "resonance", "jackpot", "contract_seal"]
 const VARIATION: float = 0.035
 ## The sounds of a control being pressed. A click that rebuilds a bar of buttons puts a new
 ## one under the pointer, and its hover is not news: it is not played this soon after a press.

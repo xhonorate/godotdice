@@ -13,6 +13,21 @@
     "commission_reroll_gold": 10,
     "commission_reroll_step": 10,
     "commission_requirement_pct": 50,
+    "geode_luck": 4,
+    "geode_carat_over_cap": 2,
+    "geode_carat_keep": 50,
+    "geode_opal_pct": 1,
+    "geode_price_mult": 1.75,
+    "contract_inputs": 5,
+    "contract_fee": {
+      "ROUGH": 20,
+      "FINE": 60,
+      "PRECIOUS": 150,
+      "EXQUISITE": 400
+    },
+    "daily_deal": {"rail": 1, "hazard": 1, "blessing": 1, "twist": 1},
+    "daily_score_rate": 0.5,
+    "daily_score_knee": 1000,
     "carat_max": 24,
     "rerolls": 2,
     "landing_every": 4,
@@ -54,7 +69,10 @@
     "elite_stone_luck": 3,
     "chain_heat": 2,
     "max_creatures": 4,
-    "punished_straight": 4
+    "punished_straight": 4,
+    "altar_raise_pct": [20, 30],
+    "altar_nudge_pct": 17,
+    "altar_carat_nudge": 1
   },
   "colors": {
     "RED": {
@@ -189,6 +207,10 @@
     "MYTHIC": {
       "weight": 0,
       "score": 28
+    },
+    "TRANSCENDENT": {
+      "weight": 0,
+      "score": 40
     }
   },
   "skills": {
@@ -701,11 +723,11 @@
       "name": "Bastion",
       "color": "BLUE",
       "rarity": "RARE",
-      "tags": ["full_house", "guard", "party"],
+      "tags": ["triple", "guard", "party"],
       "text": "Block to every ally equal to your total dice roll.",
       "trigger": {
-        "kind": "full_house",
-        "ladder": [5, 4, 3, 2, 1]
+        "kind": "triple",
+        "ladder": [6, 5, 4, 3, 2]
       },
       "effects": [
         {
@@ -884,11 +906,11 @@
       "name": "Mortar",
       "color": "BLUE",
       "rarity": "UNCOMMON",
-      "tags": ["always"],
+      "tags": ["even"],
       "text": "Gain Retain equal to {share}% of your current Block.",
       "trigger": {
-        "kind": "always",
-        "ladder": [1, 1, 1, 1, 1]
+        "kind": "even",
+        "ladder": [5, 4, 3, 2, 1]
       },
       "effects": [
         {
@@ -1073,11 +1095,11 @@
       "name": "Lifeline",
       "color": "GREEN",
       "rarity": "LEGENDARY",
-      "tags": ["triple", "sustain", "revive"],
+      "tags": ["full_house", "sustain", "revive"],
       "text": "Give each ally Lifeline equal to the matched value.",
       "trigger": {
-        "kind": "triple",
-        "ladder": [6, 5, 4, 3, 2]
+        "kind": "full_house",
+        "ladder": [5, 4, 3, 2, 1]
       },
       "effects": [
         {
@@ -1303,11 +1325,11 @@
       "name": "Miasma",
       "color": "VIOLET",
       "rarity": "UNCOMMON",
-      "tags": ["even", "poison", "group"],
-      "text": "Apply 1 Poison per even die to every enemy.",
+      "tags": ["always", "poison", "group"],
+      "text": "Apply 1 Poison to every enemy for each even die it reads.",
       "trigger": {
-        "kind": "even",
-        "ladder": [5, 4, 3, 2, 1]
+        "kind": "always",
+        "ladder": [1, 2, 3, 4, 5]
       },
       "effects": [
         {
@@ -1316,7 +1338,7 @@
             "op": "*",
             "args": [
               {
-                "term": "even"
+                "term": "even_read"
               },
               1
             ]
@@ -1333,7 +1355,7 @@
               "op": "*",
               "args": [
                 {
-                  "term": "even"
+                  "term": "even_read"
                 },
                 2
               ]
@@ -2540,6 +2562,300 @@
             "add": 1
           }
         ]
+      }
+    },
+    "RAINBOW_SEAM": {
+      "name": "Rainbow Seam",
+      "color": "OPAL",
+      "hue": "f2e9f7",
+      "rarity": "TRANSCENDENT",
+      "tags": ["opal", "resonance", "transcendent"],
+      "text": "Every gem that has already fired this turn fires again.",
+      "trigger": {
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "replay_color",
+          "target": "self",
+          "color": "ANY",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Each of them plays a second time.",
+        "modify": [
+          {
+            "effect": 0,
+            "add": 1
+          }
+        ]
+      },
+      "altar": {
+        "from": ["SEAM_RED", "SEAM_BLUE", "SEAM_GREEN", "SEAM_VIOLET", "SEAM_GOLD", "SEAM_WHITE"]
+      }
+    },
+    "PROCESSION": {
+      "name": "Procession",
+      "color": "RED",
+      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "GOLD"],
+      "cut": "kite",
+      "rarity": "TRANSCENDENT",
+      "tags": ["straight", "transcendent"],
+      "text": "By the top of the straight: deal {dmg}% as damage, gain {blk}% as Block, heal {mend}%, apply {psn}% as Poison and gain {pay}% as Pyrite.",
+      "numbers": {
+        "dmg": {
+          "ladder": [100, 200, 300, 400, 500]
+        },
+        "blk": {
+          "ladder": [100, 200, 300, 400, 500]
+        },
+        "mend": {
+          "ladder": [20, 40, 60, 80, 100]
+        },
+        "psn": {
+          "ladder": [10, 20, 30, 40, 50]
+        },
+        "pay": {
+          "ladder": [10, 20, 30, 40, 50]
+        }
+      },
+      "trigger": {
+        "kind": "straight",
+        "ladder": [5, 4, 4, 3, 3]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "term": "value"
+          },
+          "share": {
+            "ladder": [100, 200, 300, 400, 500]
+          }
+        },
+        {
+          "kind": "block",
+          "target": "self",
+          "amount": {
+            "term": "value"
+          },
+          "share": {
+            "ladder": [100, 200, 300, 400, 500]
+          }
+        },
+        {
+          "kind": "heal",
+          "target": "self",
+          "amount": {
+            "term": "value"
+          },
+          "share": {
+            "ladder": [20, 40, 60, 80, 100]
+          }
+        },
+        {
+          "kind": "poison",
+          "target": "enemy",
+          "amount": {
+            "term": "value"
+          },
+          "share": {
+            "ladder": [10, 20, 30, 40, 50]
+          }
+        },
+        {
+          "kind": "gold",
+          "target": "self",
+          "amount": {
+            "term": "value"
+          },
+          "share": {
+            "ladder": [10, 20, 30, 40, 50]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Effects apply to every enemy and every ally.",
+        "modify": [
+          {
+            "effect": 0,
+            "target": "enemies"
+          },
+          {
+            "effect": 1,
+            "target": "allies"
+          },
+          {
+            "effect": 2,
+            "target": "allies"
+          },
+          {
+            "effect": 3,
+            "target": "enemies"
+          },
+          {
+            "effect": 4,
+            "target": "allies"
+          }
+        ]
+      },
+      "altar": {
+        "from": ["BARRAGE", "AEGIS", "RENEWAL", "DREAD", "GILDED_ARMOR"]
+      }
+    },
+    "BLACK_OPAL": {
+      "name": "Black Opal",
+      "color": "OPAL",
+      "hue": "3a3550",
+      "rarity": "TRANSCENDENT",
+      "tags": ["opal", "resonance", "transcendent"],
+      "text": "At the start of each fight it absorbs a random gem from your bag, destroying it, and keeps its skill for the rest of the run. When it fires, every skill it has absorbed fires too.",
+      "trigger": {
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "absorbed",
+          "target": "self",
+          "amount": 1,
+          "scale": "none"
+        }
+      ],
+      "flawless": {
+        "text": "It absorbs two gems at the start of each fight."
+      },
+      "absorbs": 1,
+      "altar": {
+        "from": ["FIRE_OPAL", "DOUBLET", "MATRIX", "ECHO", "PRELUDE"]
+      }
+    },
+    "QUINTESSENCE": {
+      "name": "Quintessence",
+      "color": "RED",
+      "colors": ["RED", "GREEN", "BLUE", "VIOLET", "GOLD"],
+      "cut": "pentagon",
+      "rarity": "TRANSCENDENT",
+      "tags": ["quint", "transcendent"],
+      "text": "Deal 5 damage, gain 5 Block, heal 5 and gain 5 Pyrite. Then this gem gains 5 carats for the rest of the fight.",
+      "trigger": {
+        "kind": "quint",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": 5
+        },
+        {
+          "kind": "block",
+          "target": "self",
+          "amount": 5
+        },
+        {
+          "kind": "heal",
+          "target": "self",
+          "amount": 5
+        },
+        {
+          "kind": "gold",
+          "target": "self",
+          "amount": 5
+        },
+        {
+          "kind": "gem_rank",
+          "rank": "carat",
+          "scope": "self",
+          "amount": 5,
+          "scale": "none"
+        }
+      ],
+      "flawless": {
+        "text": "Your other gems gain 5 carats too.",
+        "effects": [
+          {
+            "kind": "gem_rank",
+            "rank": "carat",
+            "scope": "others",
+            "amount": 5,
+            "scale": "none"
+          }
+        ]
+      },
+      "altar": {
+        "from": ["CRUSH", "SAP", "BASTION", "SHATTER", "JACKPOT"]
+      }
+    },
+    "GEMINI": {
+      "name": "Gemini",
+      "color": "RED",
+      "colors": ["RED", "BLUE", "VIOLET", "GOLD", "WHITE"],
+      "cut": "hourglass",
+      "rarity": "TRANSCENDENT",
+      "tags": ["pair", "transcendent"],
+      "text": "For each pair in your hand, the gems on either side of it fire.",
+      "trigger": {
+        "kind": "pair",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "fire_neighbours",
+          "target": "self",
+          "amount": {
+            "term": "pairs"
+          },
+          "scale": "none"
+        }
+      ],
+      "flawless": {
+        "text": "They fire one more time.",
+        "modify": [
+          {
+            "effect": 0,
+            "add": 1
+          }
+        ]
+      },
+      "altar": {
+        "from": ["CLEAVE", "GUARD", "VENOM", "TITHE", "CASCADE"]
+      }
+    },
+    "CERTAINTY": {
+      "name": "Certainty",
+      "color": "RED",
+      "colors": ["RED", "BLUE", "GREEN", "VIOLET", "WHITE"],
+      "cut": "keystone",
+      "rarity": "TRANSCENDENT",
+      "tags": ["always", "transcendent"],
+      "text": "Every gem after it fires this turn, whatever the dice show.",
+      "trigger": {
+        "kind": "always",
+        "ladder": [1, 1, 1, 1, 1]
+      },
+      "effects": [
+        {
+          "kind": "force_after",
+          "target": "self",
+          "amount": 1,
+          "scale": "none"
+        }
+      ],
+      "flawless": {
+        "text": "Every gem after it fires twice.",
+        "modify": [
+          {
+            "effect": 0,
+            "add": 1
+          }
+        ]
+      },
+      "altar": {
+        "from": ["STRIKE", "RIPOSTE", "SIPHON", "MIASMA", "PRISM"]
       }
     }
   },
@@ -8045,6 +8361,7 @@
       "fare_gold": 0,
       "insurance_gold": 15,
       "first_conquest_gold": 150,
+      "geode_gold": 150,
       "biomes": ["galleries", "galleries_deep", "galleries_quartz"],
       "color_weights": {
         "RED": 100,
@@ -8067,7 +8384,8 @@
         "smithy": 6,
         "carver": 6,
         "vat": 4,
-        "well": 5
+        "well": 5,
+        "altar": 2
       },
       "motherlode_pct": 3,
       "bands": [
@@ -8143,6 +8461,7 @@
       "fare_gold": 60,
       "insurance_gold": 15,
       "first_conquest_gold": 250,
+      "geode_gold": 200,
       "biomes": ["seeps", "seeps_flooded", "seeps_sump"],
       "color_weights": {
         "RED": 100,
@@ -8165,7 +8484,8 @@
         "smithy": 6,
         "carver": 6,
         "vat": 4,
-        "well": 5
+        "well": 5,
+        "altar": 2
       },
       "motherlode_pct": 3,
       "bands": [
@@ -8229,6 +8549,7 @@
       "fare_gold": 100,
       "insurance_gold": 25,
       "first_conquest_gold": 400,
+      "geode_gold": 240,
       "biomes": ["crystal", "crystal_prism", "crystal_dark"],
       "color_weights": {
         "RED": 100,
@@ -8251,7 +8572,8 @@
         "smithy": 6,
         "carver": 6,
         "vat": 4,
-        "well": 4
+        "well": 4,
+        "altar": 2
       },
       "motherlode_pct": 3,
       "bands": [
@@ -8315,6 +8637,7 @@
       "fare_gold": 140,
       "insurance_gold": 35,
       "first_conquest_gold": 600,
+      "geode_gold": 270,
       "biomes": ["fungal", "fungal_bloom", "fungal_rot"],
       "color_weights": {
         "RED": 100,
@@ -8337,7 +8660,8 @@
         "smithy": 5,
         "carver": 5,
         "vat": 4,
-        "well": 4
+        "well": 4,
+        "altar": 2
       },
       "motherlode_pct": 3,
       "bands": [
@@ -8403,6 +8727,7 @@
       "fare_gold": 180,
       "insurance_gold": 45,
       "first_conquest_gold": 900,
+      "geode_gold": 330,
       "biomes": ["magma", "magma_glow", "magma_falls"],
       "color_weights": {
         "RED": 100,
@@ -8425,7 +8750,8 @@
         "smithy": 5,
         "carver": 5,
         "vat": 3,
-        "well": 4
+        "well": 4,
+        "altar": 2
       },
       "motherlode_pct": 3,
       "bands": [
@@ -8490,6 +8816,7 @@
       "fare_gold": 225,
       "insurance_gold": 55,
       "first_conquest_gold": 1300,
+      "geode_gold": 370,
       "biomes": ["geode", "geode_gold", "geode_amethyst"],
       "color_weights": {
         "RED": 100,
@@ -8512,7 +8839,8 @@
         "smithy": 5,
         "carver": 5,
         "vat": 3,
-        "well": 3
+        "well": 3,
+        "altar": 2
       },
       "motherlode_pct": 3,
       "bands": [
@@ -8583,6 +8911,7 @@
       "fare_gold": 275,
       "insurance_gold": 70,
       "first_conquest_gold": 0,
+      "geode_gold": 370,
       "biomes": ["rift", "rift_shattered", "rift_echo"],
       "color_weights": {
         "RED": 100,
@@ -8605,7 +8934,8 @@
         "smithy": 5,
         "carver": 4,
         "vat": 3,
-        "well": 3
+        "well": 3,
+        "altar": 2
       },
       "motherlode_pct": 3,
       "bands": [
@@ -9169,6 +9499,507 @@
           }
         }
       ]
+    }
+  },
+  "geodes": {
+    "featured": [
+      {
+        "key": "BREAKERS",
+        "name": "The Breaker's Hammer",
+        "text": "Blows that land hard: the gems that hit for the most.",
+        "skills": ["STRIKE", "CRUSH", "OVERKILL", "APEX", "FURY", "SHATTER", "BARRAGE", "RIPOSTE"]
+      },
+      {
+        "key": "SHIELD_WALL",
+        "name": "The Shield Wall",
+        "text": "Block, and what can be done with it.",
+        "skills": ["GUARD", "BULWARK", "AEGIS", "BASTION", "TEMPO", "ANCHOR", "SHELTER", "MORTAR", "RIPOSTE", "THRIVE"]
+      },
+      {
+        "key": "SURGEON",
+        "name": "The Field Surgeon's Bag",
+        "text": "Healing for one and for the whole party.",
+        "skills": ["MEND", "GRAFT", "BLOOM", "RENEWAL", "LIFELINE", "THRIVE", "SAP", "SIPHON", "SHELTER"]
+      },
+      {
+        "key": "POISONER",
+        "name": "The Poisoner's Satchel",
+        "text": "Poison laid on, spread, and cashed in.",
+        "skills": ["VENOM", "MIASMA", "DETONATE", "SIPHON", "CURSE", "EMBER", "ETCH"]
+      },
+      {
+        "key": "PROSPECTOR",
+        "name": "The Prospector's Purse",
+        "text": "Pyrite, luck and the gambles that spend them.",
+        "skills": ["TITHE", "PROSPECT", "JACKPOT", "LUCKY_SEVEN", "WAGER", "STAKE", "TAILINGS", "GILDED_ARMOR", "APPRAISE", "DOUBLE_DOWN"]
+      },
+      {
+        "key": "POLISHER",
+        "name": "The Polisher's Kit",
+        "text": "Gems that work on the gems beside them, and on the dice.",
+        "skills": ["FACET", "POLISH", "ENRICH", "PRISM", "REFRACT", "GLIMMER", "MIRROR", "CASCADE"]
+      },
+      {
+        "key": "MATCHED_PAIR",
+        "name": "A Matched Pair",
+        "text": "Everything a pair can be turned into.",
+        "skills": ["CLEAVE", "GUARD", "GRAFT", "VENOM", "TITHE", "SHELTER", "DETONATE", "MIRROR", "GLIMMER"]
+      },
+      {
+        "key": "BINDINGS",
+        "name": "The Binder's Case",
+        "text": "Control: bound dice, clouded abilities, marks and dread.",
+        "skills": ["HEX", "MIST", "BIND", "DREAD", "ETCH", "CURSE", "SHATTER"]
+      }
+    ]
+  },
+  "daily_modifiers": {
+    "LENT_RAIL": {
+      "name": "Lent Rail",
+      "kind": "rail",
+      "glyph": "hourglass",
+      "text": "Every socket starts with a lent stone of its color.",
+      "weight": 3
+    },
+    "DRAFT": {
+      "name": "Draft",
+      "kind": "rail",
+      "glyph": "check",
+      "text": "Every socket starts empty and offers three stones of its color. Pick one for each.",
+      "weight": 2
+    },
+    "SEALED_TRAY": {
+      "name": "Sealed Tray",
+      "kind": "rail",
+      "glyph": "contract",
+      "text": "Your rail starts empty and your bag holds a dozen read stones. Set the ones you want.",
+      "weight": 2
+    },
+    "BIG_HAUL": {
+      "name": "The Big Haul",
+      "kind": "rail",
+      "glyph": "bag",
+      "text": "Your rail starts empty and your bag is full of raw stones. Read them and set what you find.",
+      "weight": 1
+    },
+    "BARE_HANDS": {
+      "name": "Bare Hands",
+      "kind": "rail",
+      "glyph": "person",
+      "text": "Only the Birthstone is set. Every other socket starts empty.",
+      "weight": 1
+    },
+    "ONE_TRICK": {
+      "name": "One Trick",
+      "kind": "rail",
+      "glyph": "copy",
+      "text": "Every socket that can take it holds the same skill. The others start empty.",
+      "weight": 1
+    },
+    "SHORT_WICK": {
+      "name": "Short Wick",
+      "kind": "hazard",
+      "glyph": "lantern",
+      "text": "The lantern only lights the next floor."
+    },
+    "HARD_ROCK": {
+      "name": "Hard Rock",
+      "kind": "hazard",
+      "glyph": "shield",
+      "text": "Creatures have a quarter more health."
+    },
+    "BAD_AIR": {
+      "name": "Bad Air",
+      "kind": "hazard",
+      "glyph": "cloud",
+      "text": "Everyone starts with a quarter less health."
+    },
+    "TIGHT_WINCH": {
+      "name": "Tight Winch",
+      "kind": "hazard",
+      "glyph": "lift",
+      "text": "The lift costs twice as much.",
+      "group": "lift_cost"
+    },
+    "BLANK_FACES": {
+      "name": "Blank Faces",
+      "kind": "hazard",
+      "glyph": "cross_out",
+      "text": "Every die's highest face is blank.",
+      "group": "top_face"
+    },
+    "CLOSED_STALLS": {
+      "name": "Closed Stalls",
+      "kind": "hazard",
+      "glyph": "door",
+      "text": "There are no merchants.",
+      "group": "stalls"
+    },
+    "GLASS_BOWL": {
+      "name": "Glass Bowl",
+      "kind": "hazard",
+      "glyph": "split_shield",
+      "text": "Every die is glass. Glass dice can break when thrown.",
+      "group": "material"
+    },
+    "BRITTLE_PICKS": {
+      "name": "Brittle Picks",
+      "kind": "hazard",
+      "glyph": "pick",
+      "text": "Swinging at the rock costs twice the health.",
+      "group": "swings"
+    },
+    "SMALL_BONES": {
+      "name": "Small Bones",
+      "kind": "hazard",
+      "glyph": "fall",
+      "text": "Every die is one size smaller.",
+      "group": "dice_size"
+    },
+    "VOID_SEASON": {
+      "name": "Void Season",
+      "kind": "hazard",
+      "glyph": "eye",
+      "text": "Void inclusions are much more common.",
+      "group": "inclusions"
+    },
+    "DROUGHT": {
+      "name": "Drought",
+      "kind": "hazard",
+      "glyph": "prism",
+      "text": "One color does not come out of the rock."
+    },
+    "SHARP_CLAWS": {
+      "name": "Sharp Claws",
+      "kind": "hazard",
+      "glyph": "sword",
+      "text": "Creatures deal a quarter more damage."
+    },
+    "WARDENS_WRATH": {
+      "name": "Warden's Wrath",
+      "kind": "hazard",
+      "glyph": "crown",
+      "text": "Wardens and bosses have half again their health. Their hoards have one more pedestal."
+    },
+    "OVERCAST": {
+      "name": "Overcast",
+      "kind": "hazard",
+      "glyph": "depth",
+      "text": "Every die is cloud: it rolls twice and keeps the lower result.",
+      "group": "material"
+    },
+    "SHAKY_HANDS": {
+      "name": "Shaky Hands",
+      "kind": "hazard",
+      "glyph": "level",
+      "text": "One fewer reroll every turn.",
+      "group": "rerolls"
+    },
+    "SHORT_HANDED": {
+      "name": "Short-Handed",
+      "kind": "hazard",
+      "glyph": "lock",
+      "text": "Your smallest die sits out every turn.",
+      "group": "dice_count"
+    },
+    "ONE_ROAD": {
+      "name": "One Road",
+      "kind": "hazard",
+      "glyph": "map",
+      "text": "Each floor has one chamber, so there is no choice of path."
+    },
+    "NO_BENCH": {
+      "name": "No Bench",
+      "kind": "hazard",
+      "glyph": "flame",
+      "text": "You cannot rest at landings.",
+      "group": "rest"
+    },
+    "LAST_LIFT": {
+      "name": "Last Lift",
+      "kind": "hazard",
+      "glyph": "ladder",
+      "text": "The lift only runs from Warden landings and boss halls."
+    },
+    "TOLLS": {
+      "name": "Toll Gates",
+      "kind": "hazard",
+      "glyph": "ore",
+      "text": "Each landing takes a quarter of the pyrite you carry."
+    },
+    "BLEEDING": {
+      "name": "Bleeding",
+      "kind": "hazard",
+      "glyph": "stairs",
+      "text": "Every floor you go down costs 2 health."
+    },
+    "CURSED_RUN": {
+      "name": "Cursed Run",
+      "kind": "hazard",
+      "glyph": "skull",
+      "text": "Beating a Warden locks a face on one of your dice."
+    },
+    "RICH_SEAMS": {
+      "name": "Rich Seams",
+      "kind": "blessing",
+      "glyph": "gem",
+      "text": "Stones from the rock are rolled with more luck."
+    },
+    "GOLDEN_FACES": {
+      "name": "Golden Faces",
+      "kind": "blessing",
+      "glyph": "coin",
+      "text": "Every die's lowest face is golden.",
+      "group": "low_face"
+    },
+    "DEEP_POCKETS": {
+      "name": "Deep Pockets",
+      "kind": "blessing",
+      "glyph": "coins",
+      "text": "Everyone starts with 100 pyrite."
+    },
+    "GENEROUS_HOARDS": {
+      "name": "Generous Hoards",
+      "kind": "blessing",
+      "glyph": "chest",
+      "text": "Warden hoards have one more pedestal."
+    },
+    "STEADY_HANDS": {
+      "name": "Steady Hands",
+      "kind": "blessing",
+      "glyph": "reroll",
+      "text": "One more reroll every turn until the first landing.",
+      "group": "rerolls"
+    },
+    "BRIGHT_WELL": {
+      "name": "Bright Well",
+      "kind": "blessing",
+      "glyph": "drop",
+      "text": "Wells count everything thrown in as worth half again as much."
+    },
+    "HEIRLOOM": {
+      "name": "Heirloom",
+      "kind": "blessing",
+      "glyph": "star",
+      "text": "One socket holds an Exquisite stone."
+    },
+    "BORROWED_OPAL": {
+      "name": "A Borrowed Opal",
+      "kind": "blessing",
+      "glyph": "spark",
+      "text": "One of your Any sockets holds an opal."
+    },
+    "BIG_BONES": {
+      "name": "Big Bones",
+      "kind": "blessing",
+      "glyph": "rise",
+      "text": "Every die is one size bigger.",
+      "group": "dice_size"
+    },
+    "MOTHERLODE": {
+      "name": "Motherlode",
+      "kind": "blessing",
+      "glyph": "geode",
+      "text": "Veins open into motherlodes much more often."
+    },
+    "LAMPLIGHT": {
+      "name": "Lamplight",
+      "kind": "blessing",
+      "glyph": "loupe",
+      "text": "Stones come out of the rock already read."
+    },
+    "TORPOR": {
+      "name": "Torpor",
+      "kind": "blessing",
+      "glyph": "stun",
+      "text": "Every creature is stunned on its first turn."
+    },
+    "FIREWORKS": {
+      "name": "Fireworks",
+      "kind": "blessing",
+      "glyph": "bolt",
+      "text": "Every die's highest face explodes.",
+      "group": "top_face"
+    },
+    "IRON_BOWL": {
+      "name": "Iron Bowl",
+      "kind": "blessing",
+      "glyph": "anvil",
+      "text": "Every die is iron: it rolls twice and keeps the higher result.",
+      "group": "material"
+    },
+    "WILD_CARD": {
+      "name": "Wild Card",
+      "kind": "blessing",
+      "glyph": "question",
+      "text": "Your biggest die has a wild face."
+    },
+    "RINGING_BOWL": {
+      "name": "Ringing Bowl",
+      "kind": "blessing",
+      "glyph": "wifi",
+      "text": "Every die is crystal: each throw adds Resonance.",
+      "group": "material"
+    },
+    "EXTRA_DIE": {
+      "name": "An Extra Die",
+      "kind": "blessing",
+      "glyph": "die",
+      "text": "A plain d6 joins your bowl.",
+      "group": "dice_count"
+    },
+    "GREASED_WINCH": {
+      "name": "Greased Winch",
+      "kind": "blessing",
+      "glyph": "lock_open",
+      "text": "The lift is free.",
+      "group": "lift_cost"
+    },
+    "ALTAR_LIGHTS": {
+      "name": "Altar Lights",
+      "kind": "blessing",
+      "glyph": "altar",
+      "text": "Every stretch has an altar."
+    },
+    "MARKET_DAY": {
+      "name": "Market Day",
+      "kind": "blessing",
+      "glyph": "purse",
+      "text": "Merchants sell at half price.",
+      "group": "stalls"
+    },
+    "COLLECTORS_DAY": {
+      "name": "Collector's Day",
+      "kind": "blessing",
+      "glyph": "scales",
+      "text": "Merchants pay full worth for stones.",
+      "group": "stalls"
+    },
+    "HARDY": {
+      "name": "Hardy",
+      "kind": "blessing",
+      "glyph": "heart",
+      "text": "Everyone has a quarter more max health."
+    },
+    "SECOND_WIND": {
+      "name": "Second Wind",
+      "kind": "blessing",
+      "glyph": "sun",
+      "text": "The first time you go down, you get back up with half your health."
+    },
+    "STRANGERS_DICE": {
+      "name": "Strangers' Dice",
+      "kind": "twist",
+      "glyph": "play",
+      "text": "Your dice are drawn from every lapidary's starting dice."
+    },
+    "BORROWED_BIRTHSTONE": {
+      "name": "Borrowed Birthstone",
+      "kind": "twist",
+      "glyph": "face",
+      "text": "You carry another lapidary's Birthstone instead of your own."
+    },
+    "CLEAR_WATER": {
+      "name": "Clear Water",
+      "kind": "twist",
+      "glyph": "clarity",
+      "text": "Stones have no inclusions. Every one is Clear or better.",
+      "group": "inclusions"
+    },
+    "FLAWED": {
+      "name": "Flawed",
+      "kind": "twist",
+      "glyph": "hammer",
+      "text": "Every stone has at least one inclusion.",
+      "group": "inclusions"
+    },
+    "HEAVY_ROCK": {
+      "name": "Heavy Rock",
+      "kind": "twist",
+      "glyph": "carat",
+      "text": "Stones are two carats heavier, and swinging at the rock costs more health.",
+      "group": "swings"
+    },
+    "RESTLESS_ROCK": {
+      "name": "Restless Rock",
+      "kind": "twist",
+      "glyph": "swirl",
+      "text": "At every landing, each stone on your rail changes to another skill of its color."
+    },
+    "BIG_GAME": {
+      "name": "Big Game",
+      "kind": "twist",
+      "glyph": "flag",
+      "text": "Elites are twice as common, and the stones they drop come out read."
+    },
+    "SWARMS": {
+      "name": "Swarms",
+      "kind": "twist",
+      "glyph": "party",
+      "text": "Every fight has one more creature, and each has less health."
+    },
+    "LONE_BEASTS": {
+      "name": "Lone Beasts",
+      "kind": "twist",
+      "glyph": "target",
+      "text": "Every fight is one creature with the health of the whole group."
+    },
+    "PLATED": {
+      "name": "Plated",
+      "kind": "twist",
+      "glyph": "shield",
+      "text": "You start every fight with 6 Block, but lose 1 max health after each fight."
+    },
+    "GAMBLERS_BOWL": {
+      "name": "Gambler's Bowl",
+      "kind": "twist",
+      "glyph": "coin",
+      "text": "Every die that can take the Gambler's pattern has it: 6s and 8s count as 7s."
+    },
+    "BLOOD_DICE": {
+      "name": "Blood Dice",
+      "kind": "twist",
+      "glyph": "drop",
+      "text": "Every die is blood: rerolling it costs 2 health, and its face goes up each time something dies.",
+      "group": "material"
+    },
+    "TALLY_MARKS": {
+      "name": "Tally Marks",
+      "kind": "twist",
+      "glyph": "rise",
+      "text": "Every die's lowest face goes up by 1 each time it shows.",
+      "group": "low_face"
+    },
+    "NIGHT_TERRORS": {
+      "name": "Night Terrors",
+      "kind": "twist",
+      "glyph": "flame",
+      "text": "Resting heals you to full, but lowers your max health a little.",
+      "group": "rest"
+    },
+    "STRANGE_DAY": {
+      "name": "Strange Day",
+      "kind": "twist",
+      "glyph": "question",
+      "text": "Oddities are three times as common, and fights are rarer."
+    },
+    "MIDAS": {
+      "name": "Midas",
+      "kind": "twist",
+      "glyph": "coins",
+      "text": "Fights and veins pay twice the pyrite, but there are no Smithies, Carvers or Vats."
+    },
+    "GLASS_LUNGS": {
+      "name": "Glass Lungs",
+      "kind": "twist",
+      "glyph": "heart",
+      "text": "Your max health is halved, but every landing heals you to full."
+    },
+    "COLORBLIND": {
+      "name": "Colorblind",
+      "kind": "twist",
+      "glyph": "prism",
+      "text": "Any stone fits any socket."
     }
   }
 }

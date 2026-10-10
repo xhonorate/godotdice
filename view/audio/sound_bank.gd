@@ -34,7 +34,9 @@ const NAMES: PackedStringArray = [
 	"pick_strike", "rock_break", "stone_found", "tunnel", "landing", "lift", "depart", "lantern", "oddity",
 	"buy", "salvage_save", "salvage_lose", "depth_card", "footstep", "rockfall", "crumble",
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
-	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break"]
+	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break",
+	"altar_hum", "altar_fizzle", "altar_make", "transcendent",
+	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal"]
 
 static var _cache: Dictionary = {}
 ## The bank is baked on a worker thread while the game is played, and asked for sounds from
@@ -388,6 +390,77 @@ static func _bake(name: String) -> AudioStreamWAV:
 			for i in range(ladder.size()):
 				star.bell(float(i) * 0.075, 0.9 - float(i) * 0.06, C6 * pow(2.0, float(ladder[i]) / 12.0), 0.24, DeepSynth.CHIME_PARTIALS, 2.2)
 			return star.sparkle(0.1, 1.2, 0.16, 3000.0, 8000.0, 16).echoes(0.11, 0.26, 3).normalise(0.88).stream()
+		"altar_hum":
+			## The circle answering: a low fifth that swells, and a shimmer high over it.
+			return DeepSynth.new(1.6).chord(0.0, 1.5, 110.0, [0, 7, 12], 0.26, DeepSynth.BELL_PARTIALS, 0.0) \
+				.chord(0.2, 1.3, 659.25, [0, 7], 0.12, DeepSynth.CHIME_PARTIALS, 0.05) \
+				.sparkle(0.25, 1.2, 0.08, 2400.0, 6000.0, 10).normalise(0.62).stream()
+		"altar_fizzle":
+			## Sparks that catch and die in the crystal: the circle stays cold.
+			return DeepSynth.new(0.7).noise(0.0, 0.18, 0.22, 4200.0, 900.0, 2.4, 0.01) \
+				.tone(0.05, 0.3, 420.0, 120.0, 0.14, "square", 5.0, 0.004) \
+				.noise(0.22, 0.3, 0.12, 2400.0, 300.0, 3.2, 0.01).normalise(0.5).stream()
+		"altar_make":
+			## Five gems given up: the lines burn in, and a chord climbs out of the centre.
+			var rite := DeepSynth.new(2.2).whoosh(0.0, 0.9, 0.22, 200.0, 2400.0)
+			var climb: Array = [0, 4, 7, 12, 16]
+			for i in range(climb.size()):
+				rite.bell(0.12 * float(i), 1.1, C5 * pow(2.0, float(climb[i]) / 12.0), 0.2, DeepSynth.CHIME_PARTIALS, 2.4)
+			return rite.chord(0.65, 1.4, C5, [0, 4, 7, 12], 0.26, DeepSynth.CHIME_PARTIALS, 0.06) \
+				.sparkle(0.6, 1.4, 0.14, 2600.0, 7200.0, 20).echoes(0.17, 0.3, 3).normalise(0.86).stream()
+		"transcendent":
+			## A Transcendent made: bigger than a Peerless grade, and it keeps climbing. Nothing
+			## else in the game should sound like this, and like every effect it is over in under
+			## three seconds.
+			var crown := DeepSynth.new(2.9).rumble(0.0, 1.2, 0.26).whoosh(0.0, 1.0, 0.24, 120.0, 3200.0)
+			var steps: Array = [0, 7, 12, 16, 19, 24, 28]
+			for i in range(steps.size()):
+				crown.bell(0.11 * float(i), 1.4, 261.63 * pow(2.0, float(steps[i]) / 12.0), 0.2, DeepSynth.CHIME_PARTIALS, 2.0)
+			return crown.chord(0.8, 2.0, 523.25, [0, 4, 7, 11, 14], 0.26, DeepSynth.CHIME_PARTIALS, 0.08) \
+				.chord(0.8, 2.05, 130.81, [0, 7, 12], 0.24, DeepSynth.BELL_PARTIALS, 0.0) \
+				.sparkle(0.7, 2.0, 0.2, 2600.0, 8800.0, 40).echoes(0.21, 0.3, 3).normalise(0.97).stream()
+		# --- the shop: a Geode's drum, and a contract sealed ---------------------------------
+		"reel_lever":
+			## The handle hauled down: a ratchet climbing its teeth, the catch letting go, and
+			## the drum inside the stone spinning up with a rush of air.
+			var haul := DeepSynth.new(1.1)
+			for i in range(7):
+				haul.clack(float(i) * 0.045, 0.2 + 0.03 * float(i), 700.0 + 110.0 * float(i))
+			return haul.thump(0.33, 0.22, 120.0, 0.5, 0.4).bell(0.34, 0.3, 880.0, 0.18, DeepSynth.METAL_PARTIALS, 3.0) \
+				.whoosh(0.32, 0.7, 0.24, 300.0, 2200.0).normalise(0.66).stream()
+		"reel_tick":
+			## One tooth of the drum past the pawl. Heard dozens of times a spin, so short, dry
+			## and wooden, with only a glint of metal in it.
+			return DeepSynth.new(0.09).clack(0.0, 0.34, 1900.0) \
+				.bell(0.0, 0.06, 2900.0, 0.08, DeepSynth.METAL_PARTIALS, 6.0).normalise(0.46).stream()
+		"reel_stop":
+			## The pawl drops into its last tooth and the whole machine takes the weight.
+			return DeepSynth.new(0.6).thump(0.0, 0.32, 96.0, 0.62, 0.45).clack(0.0, 0.42, 860.0) \
+				.bell(0.01, 0.42, 523.25, 0.24, DeepSynth.METAL_PARTIALS, 2.6).normalise(0.74).stream()
+		"geode_crack":
+			## The shell giving way along its seam: a hard crack, the crystal inside ringing,
+			## and the two halves knocking apart on the bench.
+			return DeepSynth.new(1.0).noise(0.0, 0.14, 0.5, 8000.0, 900.0, 3.4, 0.0008) \
+				.thump(0.0, 0.26, 88.0, 0.55, 0.45).shatter(0.02, 0.3, 2600.0, 8, 0.3) \
+				.bell(0.05, 0.7, 1567.98, 0.2, DeepSynth.CHIME_PARTIALS, 2.2) \
+				.clatter(0.18, 0.3, 0.18, 4, 520.0).normalise(0.82).stream()
+		"jackpot":
+			## A great one out of the drum: the coin tray spilling over and a fanfare climbing
+			## out of it. Saved for the rarest stones a Geode holds.
+			var spill := DeepSynth.new(2.4)
+			for i in range(16):
+				var when: float = spill.rng.randf() * 0.8
+				spill.bell(when, spill.rng.randf_range(0.16, 0.34), spill.rng.randf_range(1500.0, 3400.0), spill.rng.randf_range(0.1, 0.22), DeepSynth.METAL_PARTIALS, 3.0)
+			var climb: Array = [0, 4, 7, 12, 16]
+			for i in range(climb.size()):
+				spill.bell(0.1 + 0.09 * float(i), 1.0, C5 * pow(2.0, float(climb[i]) / 12.0), 0.2, DeepSynth.CHIME_PARTIALS, 2.2)
+			return spill.chord(0.55, 1.5, C5, [0, 4, 7, 12], 0.26, DeepSynth.CHIME_PARTIALS, 0.06) \
+				.sparkle(0.4, 1.6, 0.16, 2600.0, 8000.0, 30).echoes(0.17, 0.28, 3).normalise(0.9).stream()
+		"contract_seal":
+			## Wax pressed under the seal, and five stones' worth of light going into one.
+			return DeepSynth.new(1.6).whoosh(0.0, 0.6, 0.2, 200.0, 2600.0).thump(0.55, 0.24, 140.0, 0.5, 0.3) \
+				.clack(0.55, 0.3, 640.0).chord(0.6, 0.9, C5, [0, 7, 12], 0.24, DeepSynth.CHIME_PARTIALS, 0.04) \
+				.sparkle(0.6, 0.9, 0.12, 2400.0, 6400.0, 14).normalise(0.78).stream()
 		"keep":
 			## The lid of the vault.
 			return DeepSynth.new(0.7).thump(0.0, 0.3, 120.0, 0.55, 0.5).clack(0.02, 0.3, 520.0) \

@@ -24,6 +24,9 @@ extends RefCounted
 ##   crowns (dice on their top face)  high_crown (1 when the highest roll is a crown)
 ##   low_dice (dice at or below half their top)
 ##   fizzles (gems that stayed dark this turn that this stone has not yet been paid for)
+##   even_read (the even dice among those the trigger read)
+##   pairs (how many pairs the hand holds whose value clears the trigger: a set of four or five
+##     is two, a full house two, phantom dice counted like any other)
 ##
 ## A skill may carry `numbers`: named amount expressions written into its `text` and its
 ## Flawless line wherever a `{token}` appears, so a Cut ladder never leaves the card lying.
@@ -46,6 +49,12 @@ extends RefCounted
 ##     rank_buff(rank: carat or cut, added to every gem in the rail for the rest of the fight)
 ##     repeat_next(the next gem to resolve, the Birthstone included, fires that many times more)
 ##     void_copy(a Void copy of the last gem that fired joins the rail for the rest of the fight)
+##     absorbed(a Black Opal: every skill it has absorbed this run fires from its socket)
+##   Transcendent: fire_neighbours(the gems either side of it fire, that many times each)
+##     force_after(every gem after it fires this turn whatever the dice show, that many times)
+##   An effect may carry `share`: an expression giving a percentage of its amount, worked out
+##     after carat rather than before so a small share of a small number is never rounded to
+##     nothing, and never below one when there was anything to share.
 ##   Elites only, and rare: mar_die(blank or lock a face) grind_die(a face loses a point)
 ##     lock_die(one die cannot be thrown again this fight) break_die(a die is destroyed and
 ##     grows back next turn) downgrade_die(a size smaller, never below a d4) break_gem(a gem
@@ -88,7 +97,7 @@ const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "tota
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
-	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "turns_acted", "living_players", "strength"]
+	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "turns_acted", "living_players", "strength", "pairs", "even_read"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
@@ -96,6 +105,7 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"sparkle", "coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy",
 	"replay_rail", "tick_poison", "stone_drop", "pot", "dice_upgrade", "ward", "retain", "charged", "marked",
 	"regeneration", "spikes", "dulled", "clouded", "lifeline", "max_hp", "max_hp_loss", "damage_curse", "detonate", "wager", "stake", "upgrade_faces", "gem_rank", "appraise",
+	"fire_neighbours", "force_after", "absorbed",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
 	"summon", "purge", "burrow", "festering", "scorched", "burn", "strength", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
@@ -237,6 +247,20 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"high", "low", "total", "max_total", "odd", "even", "distinct", "held", "rerolled", "crowns", "high_crown", "low_dice":
 			return int(a.get(name, 0))
 		"missing": return maxi(0, int(a.get("max_total", 0)) - int(a.get("total", 0)))
+		"even_read":
+			## The even dice among the ones the trigger read: a Miasma counts only the evens in the
+			## handful of highest dice its Cut lets it see.
+			var evens: Array = DeepHand.matching(a, func(v: int) -> bool: return v % 2 == 0)
+			return trig.get("dice", []).filter(func(id: Variant) -> bool: return evens.has(id)).size()
+		"pairs":
+			## Every pair the hand holds whose value clears the trigger's rung. Four or five alike
+			## are two pairs, so is a full house; a gem forced to fire matched no rung at all.
+			var floor_pair: int = 0 if bool(trig.get("forced", false)) else int(trig.get("need", 0))
+			var pairs: int = 0
+			for group in a.get("groups", []):
+				if int(group.get("value", 0)) >= floor_pair:
+					pairs += int(group.get("count", 0)) / 2
+			return pairs
 		"dice": return int(a.get("dice_count", 0))
 		"count_value":
 			var wanted: int = int(node.get("value", 0))
@@ -348,6 +372,15 @@ static func resolve_effect(def: Dictionary, c: Dictionary, magnitude: float, hos
 	var raw: int = amount(def.get("amount", {"const": 0}), c)
 	var scale: String = str(def.get("scale", "carat" if kind in SCALED_BY_DEFAULT else "none"))
 	var final: int = int(floor(float(raw) * magnitude)) if scale == "carat" else raw
+	if def.has("share"):
+		## A share of the amount, taken after carat so the weight of the stone is counted
+		## before anything is rounded away: 10% of a 6 on a heavy stone is still worth having.
+		var share: int = maxi(0, amount(def.share, c))
+		var whole: float = float(raw) * (magnitude if scale == "carat" else 1.0) * float(share) / 100.0
+		final = int(floor(whole))
+		if raw > 0 and share > 0:
+			final = maxi(1, final)
+		raw = int(floor(float(raw) * float(share) / 100.0))
 	var repeat: int = clampi(amount(def.get("repeat", {"const": 1}), c), 0, MAX_REPEAT)
 	## An effect that cannot take a multiplier takes procs instead, unless its author wrote
 	## `scale: "none"` on it, which is how an inclusion's rider asks to stay flat.
@@ -417,7 +450,7 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		return [where + ": must be an object"]
 	var errors: Array = []
 	for field in effect:
-		if not str(field) in EFFECT_OPTIONS + ["kind", "target", "amount", "scale", "repeat", "splash", "once", "win_mult", "lose_mult", "text", "color", "rank", "cost"]:
+		if not str(field) in EFFECT_OPTIONS + ["kind", "target", "amount", "scale", "repeat", "splash", "once", "win_mult", "lose_mult", "text", "color", "rank", "cost", "share"]:
 			errors.append(where + ": unknown field " + str(field))
 	var kind: String = str(effect.get("kind", ""))
 	if not kind in EFFECT_KINDS:
@@ -427,15 +460,17 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": unknown target " + target)
 	if effect.has("scale") and not str(effect.scale) in ["carat", "none"]:
 		errors.append(where + ": scale must be carat or none")
-	if kind == "replay_color" and not str(effect.get("color", "")) in DeepContent.color_KEYS:
-		errors.append(where + ": replay_color names one of the six colors")
+	if kind == "replay_color" and not str(effect.get("color", "")) in DeepContent.color_KEYS + ["ANY"]:
+		errors.append(where + ": replay_color names one of the six colors, or ANY")
 	if kind == "rank_buff" and not str(effect.get("rank", "")) in RANK_BUFFS:
 		errors.append(where + ": rank_buff raises " + " or ".join(RANK_BUFFS))
 	if effect.has("cost"):
 		errors.append_array(validate_expression(effect.cost, where + " cost"))
 	if kind == "gem_rank" and not str(effect.get("rank", "")) in ["carat", "cut", "clarity"]:
 		errors.append(where + ": gem_rank needs carat, cut or clarity")
-	if effect.has("scope") and not str(effect.scope) in ["adjacent", "all", "others"]:
+	if effect.has("share"):
+		errors.append_array(validate_expression(effect.share, where + " share"))
+	if effect.has("scope") and not str(effect.scope) in ["adjacent", "all", "others", "self"]:
 		errors.append(where + ": unknown gem scope")
 	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed", "stolen"]:
 		errors.append(where + ": unknown previous result")
@@ -481,6 +516,37 @@ static func validate_skill(def: Variant, p: Dictionary) -> Array:
 		errors.append("wears must be prev, or be left out")
 	if not str(def.get("rarity", "")) in DeepContent.RARITIES:
 		errors.append("unknown rarity " + str(def.get("rarity", "")))
+	## A gem may count as several of the six: it lists them all, its own color first.
+	if def.has("colors"):
+		var listed: Variant = def.colors
+		if not listed is Array or listed.is_empty() or str(listed[0]) != str(def.get("color", "")):
+			errors.append("colors lists every color the gem counts as, its own first")
+		else:
+			for c in listed:
+				if not str(c) in DeepContent.color_KEYS:
+					errors.append("colors: unknown color " + str(c))
+	if def.has("cut") and not str(def.cut) in DeepContent.TRANSCENDENT_CUTS:
+		errors.append("unknown cut " + str(def.cut))
+	## A Transcendent is made, never found, so it names the five gems that make it.
+	var transcendent: bool = str(def.get("rarity", "")) == DeepContent.TRANSCENDENT
+	if def.has("altar"):
+		var from: Variant = def.altar.get("from", null) if def.altar is Dictionary else null
+		if not from is Array or from.size() < 5:
+			errors.append("altar: a recipe lists at least five gems to choose five from")
+		else:
+			var seen: Array = []
+			for key in from:
+				if seen.has(str(key)):
+					errors.append("altar: %s is listed twice" % str(key))
+				seen.append(str(key))
+				if not p.get("skills", {}).has(str(key)):
+					errors.append("altar: unknown skill " + str(key))
+				elif str(p.skills[str(key)].get("rarity", "")) == DeepContent.TRANSCENDENT:
+					errors.append("altar: a Transcendent is never offered up")
+	elif transcendent:
+		errors.append("a Transcendent needs an altar recipe")
+	if def.has("absorbs") and (int(def.absorbs) < 1 or int(def.absorbs) != float(def.absorbs)):
+		errors.append("absorbs is a whole number of gems, one or more")
 	errors.append_array(DeepPatterns.validate(def.get("trigger", null)))
 	var effects: Variant = def.get("effects", null)
 	if not effects is Array or effects.is_empty():

@@ -36,6 +36,7 @@ const Stall = preload("res://view/battle/stall.gd")
 const WishingWell = preload("res://view/battle/wishing_well.gd")
 const LiftHall = preload("res://view/battle/lift_hall.gd")
 const Hoard = preload("res://view/battle/hoard.gd")
+const Altar = preload("res://view/battle/altar.gd")
 const DiceGeometry = preload("res://view/dice/dice_geometry.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
@@ -783,6 +784,23 @@ func well_draw(tier: int) -> float:
 	if here != null and here.get_child_count() > 0 and here.get_child(0).has_method("draw_up"):
 		return here.get_child(0).draw_up(fx, tier)
 	return 0.0
+
+# --- the altar ---------------------------------------------------------------------------------
+
+func altar() -> Node3D:
+	## The altar, built once for the room where a plinth would stand, its face tipped toward
+	## the party so the star on it can be read and worked from where they stand.
+	if _headless or not has_room():
+		return null
+	var key: String = "altar|%s" % str(place.get("key", ""))
+	if business_key() != key:
+		var made: Node3D = Altar.new()
+		made.position = Chamber.ARENA + Vector3(0, 0, 0.9)
+		made.scale = Vector3.ONE * 1.15
+		set_business(key, made, 1.8)
+		made.build(room_seed(place) + 67, Color(room.biome.rock))
+		_lead_eye(Vector3(0.0, 1.1, -3.0))
+	return business()
 
 # --- an oddity's shrine ----------------------------------------------------------------------------
 

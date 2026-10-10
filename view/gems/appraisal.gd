@@ -537,8 +537,8 @@ class Sheet extends VBoxContainer:
 		var tags := DeepUi.hbox(name_row, 6)
 		tags.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var rarity: String = str(skill.get("rarity", "COMMON"))
-		DeepUi.chip(tags, rarity.capitalize(), StoneCard._rarity_color(rarity), 11, StoneCard.is_mythic(rarity))
-		DeepUi.chip(tags, "%s · %s" % [str(DeepContent.color(color_key).get("name", color_key)), str(DeepContent.color(color_key).get("domain", ""))], DeepUi.color(color_key), 11, DeepUi.is_rainbow(color_key))
+		StoneCard.rarity_tag(tags, rarity, 11, false)
+		DeepUi.chip(tags, StoneCard.color_words(stone), DeepUi.color(color_key), 11, DeepUi.is_rainbow(color_key) or DeepStone.skill_of(stone).get("colors", []).size() > 1)
 		var shown: Array = [tags]
 		if bool(opts.get("skill_text", false)):
 			shown.append(DeepUi.effect_text(name_box, DeepStone.text(stone), 13, DeepUi.MUTED))

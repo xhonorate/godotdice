@@ -62,11 +62,14 @@ const STYLE_SCALE := {"shield": 0.90, "step": 0.85, "briolette": 0.95,
 const STYLE_OFFSET := {"shield": Vector3(0.0, -0.08, 0.0)}
 
 static func shape_of(gem: Dictionary) -> String:
-	## The solid this stone is cut to. A Birthstone's style names it outright; everything
-	## else takes the one its Color wears.
+	## The solid this stone is cut to. A Birthstone's style names it outright, and so does a
+	## Transcendent's skill; everything else takes the one its Color wears.
 	var style: String = str(gem.get("style", ""))
 	if STYLE_SHAPES.has(style):
 		return str(STYLE_SHAPES[style])
+	var own_cut: String = str(DeepContent.skill(skill_key(gem)).get("cut", ""))
+	if own_cut in DeepContent.TRANSCENDENT_CUTS:
+		return own_cut
 	return str(CUTS.get(color_key(gem), "round"))
 
 static func color_key(gem: Dictionary) -> String:
@@ -104,6 +107,11 @@ static func zone_colors(gem: Dictionary) -> Array:
 		return []
 	var carried: Array = gem.get("inclusions", []) if gem.get("inclusions") is Array else []
 	var found: Array = []
+	## A gem made from several colors wears every one of them through its body, as if each
+	## after the first had grown in it as a Zoning.
+	var also: Array = DeepContent.skill(skill_key(gem)).get("colors", [])
+	for index in range(1, also.size()):
+		found.append(hue(str(also[index])))
 	for key in carried:
 		var named: String = GemFlaws.zone_color(str(key))
 		if named.is_empty():
@@ -155,7 +163,7 @@ const CUTS := {"RED": "trilliant", "BLUE": "princess", "GREEN": "heart",
 const SHAPE_NAMES := {"trilliant": "trilliant", "princess": "princess", "heart": "heart",
 	"pear": "pear", "dutch_rose": "half Dutch rose", "round": "round brilliant", "cabochon": "cabochon",
 	"shield": "shield", "marquise": "marquise", "step": "emerald", "briolette": "briolette",
-	"checkerboard": "checkerboard", "heptagon": "heptagon"}
+	"checkerboard": "checkerboard", "heptagon": "heptagon", "kite": "kite", "pentagon": "pentagon", "hourglass": "hourglass", "keystone": "keystone"}
 ## Cut is how TRUE the stone is cut, not how busy it is.
 ##
 ## Perfect is the clean solid: one band of crown facets over a two-band pavilion, a narrow
@@ -187,10 +195,10 @@ const CUT_DEPTH := [0.72, 0.82, 0.90, 0.96, 1.00]
 const EMBLEM_SPAN := {"trilliant": 0.86, "princess": 1.10, "heart": 0.94,
 	"pear": 0.84, "dutch_rose": 1.04, "round": 1.06, "cabochon": 0.96,
 	"shield": 0.92, "marquise": 0.62, "step": 0.96, "briolette": 0.66,
-	"checkerboard": 1.04, "heptagon": 1.00}
+	"checkerboard": 1.04, "heptagon": 1.00, "kite": 0.76, "pentagon": 0.98, "hourglass": 0.74, "keystone": 0.90}
 ## Move the engraving within its slice, towards the broad part of an asymmetric face.
 const EMBLEM_OFFSET := {"shield": Vector2(0.0, 0.12), "briolette": Vector2(0.0, -0.23),
-	"pear": Vector2(0.0, -0.13)}
+	"pear": Vector2(0.0, -0.13), "kite": Vector2(0.0, 0.02), "keystone": Vector2(0.0, 0.06)}
 ## Two of the cuts are not brilliants, and a brilliant's proportions would make them lie.
 ## A rose cut has no table worth the name: its crown is a dome of facets rising to a point,
 ## and its back is left flat, because the whole cut exists to save weight. These scale the
@@ -480,6 +488,21 @@ static func outline(shape: String) -> PackedVector2Array:
 			# A rose cut's girdle is a hexagon, and six segments over one crown band is
 			# exactly the twelve-facet dome the cut is named for.
 			return _wound(_regular(6, -PI * 0.5))
+		"kite":
+			# Procession's: one long point rising from a short base, the straight climbing to
+			# its top. Wide low, so the emblem has room, and truncated a little so a Poor
+			# stone chips its corners rather than losing them.
+			return _wound(_unit(_truncated(PackedVector2Array([Vector2(0.0, 1.0), Vector2(0.60, -0.26), Vector2(0.0, -0.80), Vector2(-0.60, -0.26)]), 0.07)))
+		"pentagon":
+			# Quintessence's: five even sides, point up, one for each color it counts as.
+			return _wound(_truncated(_regular(5, PI * 0.5), 0.08))
+		"hourglass":
+			# Gemini's: an hourglass lying on its side, two stones meeting at a narrow waist.
+			return _wound(_unit(_truncated(PackedVector2Array([Vector2(-1.0, -0.62), Vector2(0.0, -0.22), Vector2(1.0, -0.62),
+				Vector2(1.0, 0.62), Vector2(0.0, 0.22), Vector2(-1.0, 0.62)]), 0.08)))
+		"keystone":
+			# Certainty's: a keystone, wide at the top, the stone that holds the rest of the arch.
+			return _wound(_unit(_truncated(PackedVector2Array([Vector2(-0.88, 0.70), Vector2(0.88, 0.70), Vector2(0.52, -0.82), Vector2(-0.52, -0.82)]), 0.10)))
 		"cabochon":
 			# An oval, the outline every opal is cut to. Round enough to be no shape at
 			# all, which is the point: an opal is not one of the six, and the eye should

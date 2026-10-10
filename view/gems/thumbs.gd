@@ -16,6 +16,7 @@ const DiceView = preload("res://view/dice/dice_view.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
+const Motes = preload("res://view/gems/motes.gd")
 
 ## The size stones and dice are photographed at. Heavy stones are photographed into a larger
 ## frame around the same centre, exactly as the live view draws them.
@@ -259,6 +260,8 @@ class GemThumb extends Control:
 			_texture = shot
 			_fade = 1.0
 		set_process(glint or _texture == null)
+		## A Transcendent carries its ring of motes on every picture of it.
+		Motes.refresh(self, stone)
 		queue_redraw()
 
 	func _arrived(texture: Texture2D, key: String) -> void:

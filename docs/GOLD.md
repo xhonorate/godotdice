@@ -8,6 +8,9 @@ This is the plan for giving gold uses outside a run and new ways to earn it. Whe
 
 | | Feature | Section | Phase |
 | --- | --- | --- | --- |
+| 🟢 | The shop: Geodes, opened on a drum | §3.3 | 4, built October 10, 2026 |
+| 🟢 | Contracts (trade-ups) | §3.4 | 5, built October 10, 2026 |
+| 🟢 | The daily dig, reworked after the review | §4.2 | 6, built October 10, 2026, reworked the same day |
 | 🟢 | Mine fares | §3.1 | 3, built October 7, 2026 |
 | 🟢 | Salvage insurance | §3.2 | 3, built October 7, 2026 |
 | 🟢 | Socket unlocks, and temporary stones below the Quarry | §3.5, §3.1 | 3, built October 7, 2026 |
@@ -15,10 +18,7 @@ This is the plan for giving gold uses outside a run and new ways to earn it. Whe
 | 🟢 | The assay at the lift | §4.3 | 1, built October 7, 2026 |
 | 🟢 | First-conquest purse | §4.4 | 1, built October 7, 2026 |
 | 🟢 | Groundwork: economy code, save upgrade, daily turnover, Gold page in the balance browser | §5, §6 | 0, built October 7, 2026 |
-| 🟡 | The no-profit test: two of its four checks exist; the Geode and contract checks wait for those features | §7 | grows with 4 and 5 |
-| 🔵 | The shop: Geodes | §3.3 | 4, next |
-| 🔵 | Contracts (trade-ups) | §3.4 | 5 |
-| 🔵 | The daily dig | §4.2 | 6 |
+| 🟢 | The no-profit test: all four checks | §7 | grew with 4 and 5 |
 | ⚪ | Birthstone upgrades | §8.1 | not scheduled |
 | ⚪ | Shop services: the Wheel and the Oven | §8.2 | not scheduled |
 | ⛔ | Everything in §9 | §9 | — |
@@ -68,7 +68,7 @@ Starting a run in any mine below the Quarry costs a **fare** in gold. The Quarry
 - **Temporary means fragile:** the stone carries the same `fragile` flag as the "A Fragile Find" stake, shown with the Fragile mark. It cannot be sold, kept, turned in or thrown down a well, and it shatters when the run ends, however it ends.
 - **Replaceable:** a stone found during the run can take its socket. The temporary stone moves to the bag and still shatters at the end.
 - **Dice offered for the deep (October 9, 2026, replacing the dice worked for the deep of October 8):** after the temporary stones, each die in a player's bowl is offered three dice to swap it for, one die at a time, or kept as it is. The left one is its size or smaller, the middle one its size and the right one its size or bigger; every one differs from it, the middle one always in its pattern, an etching or its material. A mine's `start_dice_offer` tunes it: `steps` are the chances, in percent, of a side die being at least one, two and three sizes off (Seeps 30/1/0 up to the Geode 99/30/1), and `variation` the chance of each extra pattern, etching or material (Seeps 15% up to the Geode 50%). Like all work on a die down the mine, a swap stays there.
-- **Not when pushing on:** a party walking into the next mine already has its rail. The Quarry gets none, and the daily dig lends a full rail instead.
+- **Not when pushing on:** a party walking into the next mine already has its rail. The Quarry gets none, and the daily dig fills the rail by its own rule instead.
 - **Why unlock sockets, then:** temporary stones are good (Precious, at the mine's usual carat) but random: three to choose from, of skills the rock picked, and gone when the run ends. An unlocked socket carries the stone the player chose from the vault, built around. That difference is what socket unlocks sell.
 
 **Closing two existing loopholes (needed before this ships, and worth fixing now):**
@@ -84,57 +84,64 @@ An optional purchase on the Map's trip panel: a **checkbox the profile remembers
 - **What it does:** if the run falls or is abandoned, every salvage die rolls twice and keeps the better result.
 - **Price:** `insurance_gold` per mine, starting at 15 in the Quarry and a quarter of the fare below it (15, 25, 35, 45, 55, 70). It pays for itself only on a bad run.
 
-### 🔵 3.3 The shop: Geodes (phase 4)
+### 🟢 3.3 The shop: Geodes (phase 4)
 
-The Shop is a new home tab with two views: **Geodes** (this section) and **Contracts** (§3.4).
+The Shop is a home tab with two views, each a page of its own: **Geodes** (this section) and **Contracts** (§3.4).
 
-**The shelf.** Three Geodes a day, each bought at most once, all from mines the player has unlocked:
+**The shelf.** Three Geodes a day (UTC), each bought at most once, all from mines the player has unlocked:
 
 | Theme | What it can hold |
 | --- | --- |
-| **Mine Geode** | That mine's skill pool, weighted the way the mine weights it. |
-| **Color Geode** | One color, from the deepest mine the player has unlocked. |
-| **Featured Geode** | A hand-written set of 6–8 skills that changes every week (content: `geodes.featured`). |
+| **Mine Geode** | The skill pool of one open mine, drawn each day, weighted the way the mine weights it. |
+| **Color Geode** | One color, drawn each day, from the deepest mine the player has unlocked. |
+| **The week's Geode** | A hand-written set of 7–10 skills (content: `geodes.featured`, eight sets) from the deepest open mine's rock. The sets take turns a week each, the same for everyone. When fewer than three of the set are in reach of the mines open, the deepest mine's own Geode takes its place. |
 
-Each Geode lists its possible skills with their odds, and its odds by grade tier (measured by simulation, not written by hand).
+Each card prints everything the Geode can hold: the share of each skill rarity (a bar), every skill as its mark (dimmed while never found, its odds on hover), the share of each grade tier (sampled from 400 rolls, not written by hand), the carat range and the opal chance.
 
 **What is inside.** A Geode stone is better than a mine stone:
 
-- **Carat:** rolled in a raised band, from the mine's usual top up to **its cap + 2**. A Quarry Geode can hold an 8 or 9, where the Quarry itself never gives more than 7.
-- **Cut and Clarity:** rolled at the mine's luck plus `geode_luck` (a new bonus, passed through the existing `bonus` argument of `DeepForge.roll_stone`).
-- **No Void.** A fragile stone would shatter at home. A roll that comes up Void is rolled again.
+- **Carat:** from the mine's usual top (its band's `soft`) up to **its cap + 2** (`geode_carat_over_cap`), each carat past the top half as likely as the one before (`geode_carat_keep` 50). A Quarry Geode can hold an 8 or 9, where the Quarry itself never gives more than 7.
+- **Cut and Clarity:** rolled at the bottom of the mine's luck (depth 20) with `geode_luck` (4) on top.
+- **No Void.** A fragile stone would shatter at home. A roll that comes up Void is rolled again, and anything fragile left inside is taken out.
 - **Opals:** a 1% chance (`geode_opal_pct`) of a Mythic Opal in any Geode.
-- **Rolled in advance.** The stone is rolled when the day's shelf is rolled and saved with it, so reloading cannot change it. Cracking it only shows what was already there.
+- **Rolled in advance.** The stone is rolled when the day's shelf is rolled and saved with it, so reloading cannot change it. Cracking it only shows what was already there, and the stone is on the tray, read, before the drum turns: quitting half-way loses nothing.
 
-**The crack, not a reel.** A CS-style reel works because skins are instantly recognisable thumbnails. Stone thumbnails are not. Use the strike from veins instead:
+**The drum (a reel after all, decided October 10, 2026).** This section first planned a three-blow crack instead of a CS-style reel. The build went the other way: a slot machine in the spirit of a CS case, drawn in the workshop's brass and iron.
 
-1. The Geode sits on the bench. The player strikes it, three blows, with the vein pick.
-2. Each blow opens a crack, and **light leaks out in the color of the stone's grade tier** (Rough, Fine, Precious, Exquisite, Peerless), brighter with each blow. This is the "rarity flash" moment from CS, without a reel.
-3. The last blow splits the Geode into two halves lined with crystal in the stone's color, and the stone rises out.
-4. The normal appraisal ceremony (`view/gems/appraisal.gd`) reads it out, and it goes to the tray for the usual keep, sell or turn-in.
+1. The Geode sits in front of an iron drum case with a plaque, a ring of lamps, a loupe's hairline over its window and a lever at its side. The lever breathes, says PULL and shows which way it goes.
+2. Pulling it (a click anywhere, or Space) cracks the Geode along its glowing seam; the halves fall away and the drum spins behind them.
+3. The strip on the drum is 64 tiles, each a skill's mark on a tile washed in its **rarity's color** (Common to Legendary, opals in a rainbow), so the colors read at speed the way a case's do. Every tile but the winner is drawn at the Geode's own odds, so what goes by is what could have come out. The drum slows tooth by tooth, a tick for every tile past the pawl, and stops anywhere across the winning tile, not always dead centre.
+4. The lamps chase while it spins and blink the winner's rarity when it stops; a Rare stone adds a gleam and a shake, a Legendary or an opal the jackpot.
+5. The machine steps back and the stone is set on the lamp and read out line by line by the appraisal's own sheet (carat, Cut, Clarity, inclusions, grade, worth). Its grade's color takes over the frame.
+6. The choices are the tray's: Into the vault (with the "A new skill!" fanfare for a first stone), sell, Turn it in for a commission, or, for a skill already kept, Weigh it against yours at the loupe table; or back to the shop, the stone waiting on the tray.
 
-A click or Space skips to the end, as the appraisal already allows.
+A click or Space skips the spin to its last tooth, then the reading; Escape jumps to the end, and at the end takes the gentlest way out.
 
-**Price:** `geode_gold` per mine, set so the price is at least 1.5× the average sale value of what the Geode holds (§7 checks it). Starting point: about three times what a typical stone from that mine sells for.
+**Price:** `geode_price_mult` (1.75) times the average sale value of the Geode's stone, rounded up to ten, and never under the mine's own floor (`geode_gold`), so cracking Geodes to sell what is inside always loses gold (§7 checks it).
 
-### 🔵 3.4 Contracts, trade-ups (phase 5)
+| Mine | Quarry | Seeps | Glass Veins | Warrens | Furnace | Geode | Rift |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `geode_gold` (floor) | 150 | 200 | 240 | 270 | 330 | 370 | 370 |
+| A mine's Geode costs | 160 | 210 | 250 | 280 | 340 | 380 | 370 |
+
+### 🟢 3.4 Contracts, trade-ups (phase 5)
 
 Five stones of one grade tier go in, and one stone of the next tier comes out. It works like a CS trade-up contract.
 
 | Rule | Detail |
 | --- | --- |
-| Inputs | **5 appraised stones of the same grade tier**: Rough, Fine, Precious or Exquisite. They can come from the tray or the vault. No Birthstones, fragile stones or Opals. |
+| Inputs | **5 appraised stones of the same grade tier**: Rough, Fine, Precious or Exquisite. They can come from the tray or the vault. No Birthstones, fragile stones, Opals or Transcendents. |
 | Output tier | Always the next tier up. There is no fail state. The risk is giving up five known stones for one unknown. |
-| Output color | Weighted by the inputs: 3 Red and 2 Blue gives 60% Red and 40% Blue. |
+| Output color | Weighted by the inputs: 3 Red and 2 Blue gives 60% Red and 40% Blue. A color with no skill in the rock that could reach the next tier at that carat is struck out, and the others share its weight. |
 | Output mine | The deepest mine among the inputs. The skill comes from that mine's pool, filtered to the drawn color. |
-| Output carat | The inputs' average carat, rounded, capped at that mine's cap. This is the lever players control, like float in CS. Carat is 45 of the 100 grade points, so a big, badly cut stone becomes worth keeping for a contract. |
-| Cut, Clarity, inclusions | Rolled at that mine's luck, rolled again until the grade lands in the target tier, as `DeepBoons._raw_pick` already does for `min_tier`. |
+| Output carat | The inputs' average carat, rounded, capped at that mine's cap at the deepest floor its stones came from. This is the lever players control, like float in CS. Carat is 45 of the 100 grade points, so a big, badly cut stone becomes worth keeping for a contract. |
+| Cut, Clarity, inclusions | Rolled at the bottom of that mine's luck, with more luck each try, up to 48 tries, until the grade lands in the target tier. If luck alone never gets there the stone is worked up a step at a time (Cut first, then Clarity toward Intricate with the rarest sound inclusions the rock holds), which the feasibility check promises is possible. |
 | Impossible contracts | If the average carat is too low for the next tier even with a perfect Cut and Clarity, the contract cannot be signed, and the screen says why. |
 | Fee | 20 / 60 / 150 / 400 gold for Rough / Fine / Precious / Exquisite inputs. |
 
 **Vault stones as inputs.** A vault stone can go in, with a warning that the skill becomes unowned (still seen). This is how a player uses a stone they are about to replace: put the old one into a contract, then keep the new one.
 
-**The screen.** Five slots, a paged picker of eligible stones filtered to the tier of the first stone placed, and a panel with the color odds, the expected carat, the output mine, the fee and the Sign button. Signing plays a short fusing animation, then the normal appraisal ceremony for the new stone.
+**The screen.** The bench on the left: the promise (five of this grade, one of the next), five places (a click takes a stone back off), and lines running down from each place to a ring where the new stone will come out, lit a fifth at a time as the bench fills and breathing once the contract can be signed. Under it the forecast: the grade, carat and rock, the color odds, and every skill it could become with the exact odds of each (`DeepEconomy.contract_odds`). The picker on the right pages the tray's and the vault's eligible stones (All, Tray, Vault), and once the first is on, only stones of its grade can follow. Signing puts the five in a circle that turns in to its middle until they meet in a flash, then the new stone is read out the way a Geode's is, with the same choices.
 
 **Why we keep one stone per skill.** Contracts do not need duplicates. They need five stones of one *tier*, which can be any skills. The tray already keeps stones between runs and pages them, so it is the natural place for contract material to wait. Lifting the one-per-skill rule would mean:
 
@@ -157,7 +164,7 @@ A lapidary's rail is filled from the vault only as far as that lapidary's **unlo
 - **Where:** the Lapidaries tab already draws locked sockets with a lock. A locked socket shows its price and an Unlock button, and once unlocked it accepts a stone from the vault like the first three.
 - **Replaces** the per-mine `loadout_sockets`: deeper mines fill 3 plus whatever is unlocked, like the Quarry. The rule "the loadout lets a stone past the third socket once any deeper mine is open" goes away.
 - **Balance watch:** deeper starts lean on temporary stones (§3.1) for the sockets a player has not bought. If they feel too weak, raise their luck before touching the purse or creature health.
-- **The daily dig is unaffected:** it lends a full rail (§4.2).
+- **The daily dig is unaffected:** it fills the rail by its own rail rule (§4.2).
 - **Co-op:** each player's unlocks are their own. A guest's rail arrives filled as far as their own lapidary allows.
 
 ## 4. Earning gold
@@ -193,37 +200,120 @@ A lapidary's rail is filled from the vault only as far as that lapidary's **unlo
 
 **Optional extra:** when a stone is appraised down the mine and it meets a commission, mark it with a small commission icon.
 
-### 🔵 4.2 The daily dig (phase 6)
+### 🟢 4.2 The daily dig (phase 6, reworked October 10, 2026)
 
-One global seeded run per UTC day, harder than a normal run, in the spirit of Slay the Spire's daily climb.
+One seeded run per UTC day, the same for every player on the same build, in the spirit of Slay the Spire's daily climb. The first version (two hazards and a blessing, a lent rail in a seeded mine, gold per floor) was replaced the same day after a review of format options and 82 candidate modifiers (§10, decision 7).
 
-- **Global seed:** `hash("deep-cut-daily", UTC date, content version)`. Every player on the same build gets the same run with no server. The content version is included so two builds never claim the same daily with different rules. The same-build seed also makes a Steam leaderboard possible later.
-- **What the seed decides:**
-  - the mine, drawn from the Quarry to the Warrens (`daily_mines`);
-  - the lapidary;
-  - a **lent rail**: all six sockets filled with stones rolled for that mine, which go back when the run ends. The player's own loadout is never used, so everyone faces the same run and a new player is not behind;
-  - the stake offers;
-  - **two hazards and one blessing** from the list below.
-- **Who can play:** anyone who has beaten the Quarry once.
-- **One rewarded attempt a day.** The first start counts, and an abandoned attempt counts. Replays are allowed for fun, with no gold and no haul.
-- **Rewards (first attempt only):**
-  - gold for depth reached: `daily_gold_per_depth` × depth × the mine's tier, starting at 10;
-  - a clear bonus for beating the final boss: 200 × tier;
-  - the haul comes home as usual.
-- **Co-op:** the party plays the same seed. Each player is rewarded only if it is their first attempt of the day. A player who has already played can join for no reward.
+**The run.** It starts at the top of the Quarry and goes on through every mine into the Rift. There is no bottom: the party rides up when it chooses, or falls.
 
-**Daily modifiers** (content: `daily_modifiers`). The list starts with these. Most reuse existing mechanics:
+**What the seed decides** (`DeepEconomy.daily_plan`):
+- one lapidary for the whole party;
+- four cards (`daily_deal`): a rail rule, a hazard, a blessing and a twist. Cards share a `group` when they would cancel out or stack too hard (Iron Bowl and Overcast both set the dice's material; Tight Winch and Greased Winch both set the lift's cost), and two cards of one group are never dealt on the same day;
+- what some cards need: Drought's color, Strangers' Dice's bowl, the Borrowed Birthstone's owner and One Trick's skill.
 
-| Hazards | Blessings |
+The seed is `hash("deep-cut-daily:<UTC date>:<pack version>:<DAILY_RULES>")`. `DAILY_RULES` is 2 since the rework, so the two versions never claim the same day.
+
+**Score and pay.**
+- **Score:** the worth of every stone a player brings up, plus the pyrite they carry. Lent and fragile stones never count. After a fall, only the stones the salvage dice save count, and pyrite counts nothing.
+- **Nothing is kept.** The stones, dice and pyrite stay behind, and the assayer weighs nothing.
+- **Gold:** `daily_score_rate` (0.5) of the score up to `daily_score_knee` (1000), and half that rate above it. A score of 1000 pays 500 gold; 3000 pays 1000.
+- **Attempts:** as many as a player likes. A later dig the same day pays only the gold its score adds to the day's best, so a lower score pays nothing.
+- **Who is paid:** lapidaries who have beaten the Quarry's final boss. A guest who has not can come along in a party and see their score.
+- **The Ledger** keeps the best score of each day (the last 30 days), the best of all, and each daily run's score in the run history.
+- **Not a mine's run:** it opens no mine, brings no lapidary into the workshop, pays no first-conquest purse and writes no mine's records.
+
+**Co-op.** The host picks the day's seam for the party. It costs no fare and needs no insurance. Each player is scored and paid on their own stones and pyrite. The host must have beaten the Quarry.
+
+**Rail rules** (one a day, `kind: "rail"`, weighted by `weight`):
+
+| Rule | What it does |
 | --- | --- |
-| **Short Wick:** the lantern shows one depth ahead instead of two | **Rich Seams:** +1 luck on every stone |
-| **Hard Rock:** creatures have +25% health | **Golden Faces:** every die has one golden face |
-| **Bad Air:** start at 75% health | **Deep Pockets:** start with double pyrite |
-| **Tight Winch:** the winch charges double | **Generous Hoards:** Warden hoards offer four pedestals |
-| **Blank Faces:** every die has one blank face | **Steady Hands:** +1 reroll every turn until the first landing |
-| **Closed Stalls:** no merchants | **Bright Well:** wishing wells weigh offerings half again as much |
-| **Glass Bowl:** every die is Glass (breaks one throw in ten) | |
-| **Brittle Picks:** vein strikes cost health twice as soon | |
+| **Lent Rail** | Every socket starts with a lent stone of its color. |
+| **Draft** | Every socket starts empty and offers three stones of its color. Pick one for each. |
+| **Sealed Tray** | Your rail starts empty and your bag holds a dozen read stones. Set the ones you want. |
+| **The Big Haul** | Your rail starts empty and your bag is full of raw stones. Read them and set what you find. |
+| **Bare Hands** | Only the Birthstone is set. Every other socket starts empty. |
+| **One Trick** | Every socket that can take it holds the same skill. The others start empty. |
+
+**Hazards:**
+
+| Card | What it does |
+| --- | --- |
+| **Short Wick** | The lantern only lights the next floor. |
+| **Hard Rock** | Creatures have a quarter more health. |
+| **Bad Air** | Everyone starts with a quarter less health. |
+| **Tight Winch** | The lift costs twice as much. |
+| **Blank Faces** | Every die's highest face is blank. |
+| **Closed Stalls** | There are no merchants. |
+| **Glass Bowl** | Every die is glass. Glass dice can break when thrown. |
+| **Brittle Picks** | Swinging at the rock costs twice the health. |
+| **Small Bones** | Every die is one size smaller. |
+| **Void Season** | Void inclusions are much more common. |
+| **Drought** | One color does not come out of the rock. |
+| **Sharp Claws** | Creatures deal a quarter more damage. |
+| **Warden's Wrath** | Wardens and bosses have half again their health. Their hoards have one more pedestal. |
+| **Overcast** | Every die is cloud: it rolls twice and keeps the lower result. |
+| **Shaky Hands** | One fewer reroll every turn. |
+| **Short-Handed** | Your smallest die sits out every turn. |
+| **One Road** | Each floor has one chamber, so there is no choice of path. |
+| **No Bench** | You cannot rest at landings. |
+| **Last Lift** | The lift only runs from Warden landings and boss halls. |
+| **Toll Gates** | Each landing takes a quarter of the pyrite you carry. |
+| **Bleeding** | Every floor you go down costs 2 health. |
+| **Cursed Run** | Beating a Warden locks a face on one of your dice. |
+
+**Blessings:**
+
+| Card | What it does |
+| --- | --- |
+| **Rich Seams** | Stones from the rock are rolled with more luck. |
+| **Golden Faces** | Every die's lowest face is golden. |
+| **Deep Pockets** | Everyone starts with 100 pyrite. |
+| **Generous Hoards** | Warden hoards have one more pedestal. |
+| **Steady Hands** | One more reroll every turn until the first landing. |
+| **Bright Well** | Wells count everything thrown in as worth half again as much. |
+| **Heirloom** | One socket holds an Exquisite stone. |
+| **A Borrowed Opal** | One of your Any sockets holds an opal. |
+| **Big Bones** | Every die is one size bigger. |
+| **Motherlode** | Veins open into motherlodes much more often. |
+| **Lamplight** | Stones come out of the rock already read. |
+| **Torpor** | Every creature is stunned on its first turn. |
+| **Fireworks** | Every die's highest face explodes. |
+| **Iron Bowl** | Every die is iron: it rolls twice and keeps the higher result. |
+| **Wild Card** | Your biggest die has a wild face. |
+| **Ringing Bowl** | Every die is crystal: each throw adds Resonance. |
+| **An Extra Die** | A plain d6 joins your bowl. |
+| **Greased Winch** | The lift is free. |
+| **Altar Lights** | Every stretch has an altar. |
+| **Market Day** | Merchants sell at half price. |
+| **Collector's Day** | Merchants pay full worth for stones. |
+| **Hardy** | Everyone has a quarter more max health. |
+| **Second Wind** | The first time you go down, you get back up with half your health. |
+
+**Twists:**
+
+| Card | What it does |
+| --- | --- |
+| **Strangers' Dice** | Your dice are drawn from every lapidary's starting dice. |
+| **Borrowed Birthstone** | You carry another lapidary's Birthstone instead of your own. |
+| **Clear Water** | Stones have no inclusions. Every one is Clear or better. |
+| **Flawed** | Every stone has at least one inclusion. |
+| **Heavy Rock** | Stones are two carats heavier, and swinging at the rock costs more health. |
+| **Restless Rock** | At every landing, each stone on your rail changes to another skill of its color. |
+| **Big Game** | Elites are twice as common, and the stones they drop come out read. |
+| **Swarms** | Every fight has one more creature, and each has less health. |
+| **Lone Beasts** | Every fight is one creature with the health of the whole group. |
+| **Plated** | You start every fight with 6 Block, but lose 1 max health after each fight. |
+| **Gambler's Bowl** | Every die that can take the Gambler's pattern has it: 6s and 8s count as 7s. |
+| **Blood Dice** | Every die is blood: rerolling it costs 2 health, and its face goes up each time something dies. |
+| **Tally Marks** | Every die's lowest face goes up by 1 each time it shows. |
+| **Night Terrors** | Resting heals you to full, but lowers your max health a little. |
+| **Strange Day** | Oddities are three times as common, and fights are rarer. |
+| **Midas** | Fights and veins pay twice the pyrite, but there are no Smithies, Carvers or Vats. |
+| **Glass Lungs** | Your max health is halved, but every landing heals you to full. |
+| **Colorblind** | Any stone fits any socket. |
+
+Cut in the review: Matching Aprons, Sleeping Birthstone, In the Dark, Hoarder, Magpie Day, Rope and Grapple, Long Wick, Halfway Down, No Bottom (the seam has none anyway), Looking-Glass, Echoes, Restless Rail, Shifting Seam and One Rope.
 
 ### 🟢 4.3 The assay at the lift
 
@@ -241,20 +331,23 @@ The first time a player beats a mine's final boss, they receive a one-off purse:
 | --- | --- | --- | --- | --- | --- | --- |
 | Gold | 150 | 250 | 400 | 600 | 900 | 1300 |
 
-## 🟡 5. Content and save data
+## 🟢 5. Content and save data
 
 **New fields on each mine** (`mines.*`):
 - 🟢 `fare_gold`, `insurance_gold`, `first_conquest_gold`. `loadout_sockets` is removed; every mine uses `starting_rail_cap` (3) plus the lapidary's unlocks.
-- 🔵 `geode_gold` (phase 4).
+- 🟢 `geode_gold`: the floor under a mine's Geode price (§3.3).
 
 **New constants:**
 - 🟢 `assay_rate` (5), `socket_unlock_gold` ([300, 1200, 4800]), `temporary_depth` (20), `temporary_luck` (4), `temporary_min_tier` (PRECIOUS), `commission_slots` (3), `commission_payout_mult` (2.5), `commission_reroll_gold` (10) and `commission_reroll_step` (10), `commission_requirement_pct` (50).
-- 🔵 `geode_luck`, `geode_carat_over_cap` (2), `geode_opal_pct` (phase 4); `contract_inputs` (5), `contract_fee` (by tier) (phase 5); `daily_mines`, `daily_gold_per_depth`, `daily_clear_gold` (phase 6).
+- 🟢 `geode_luck` (4), `geode_carat_over_cap` (2), `geode_carat_keep` (50), `geode_opal_pct` (1), `geode_price_mult` (1.75); `contract_inputs` (5), `contract_fee` (20 / 60 / 150 / 400 by tier); `daily_deal` (a rail rule, a hazard, a blessing and a twist), `daily_score_rate` (0.5), `daily_score_knee` (1000). The first daily's `daily_mines`, `daily_hazards`, `daily_blessings`, `daily_gold_per_depth` and `daily_clear_gold` are gone.
 
-**New sections:** 🔵 `geodes` (featured sets by week, phase 4), `daily_modifiers` (phase 6).
+**New sections:** 🟢 `geodes` (`featured`: eight weekly sets, each a name, a line and its skills), `daily_modifiers` (six rail rules, 22 hazards, 23 blessings and 18 twists, each a name, kind, mark and line, some with a `group` or a `weight`). The pack's validation checks both.
 
 **Profile:** 🟢 schema 3, with an upgrade (`DeepProfile.upgrade`) that leaves every old field alone.
-- 🟡 `daily`: `{date, commissions: [3], rerolls, seq}` is built; `shelf: [3 Geodes with their stones]` (phase 4) and `dig: {played, depth, cleared}` (phase 6) are not. It is rebuilt whenever `date` is not today (UTC).
+- 🟢 `daily`: `{date, commissions: [3], rerolls, seq, shelf: [3 Geodes with their stones, prices and whether bought]}`, rebuilt whenever `date` is not today (UTC).
+- 🟢 `dig`: `{date, best_score, best_gold, runs, run_id}`, the day's attempts and its best.
+- 🟢 `records.daily_bests` (the last 30 days' bests) and `records.best_daily`.
+- 🟢 `records.geodes`, `records.contracts`, `records.dailies`.
 - 🟢 `outfit`: `{insure: bool}`.
 - 🟢 `characters.<key>.sockets`: how many sockets that lapidary has unlocked (3 to start).
 - 🟢 `conquest_paid`: the mines whose first-conquest purse has been paid.
@@ -272,16 +365,16 @@ Each phase ships on its own and leaves the game playable.
 | 🟢 **1. Assay and first-conquest purse** (built October 7, 2026) | The conversion on homecoming, with its animation before the tray. The one-off purse. | `sim/profile.gd` (homecoming), `view/home/home_screen.gd` | Earned-pyrite cap; fall pays nothing; purse paid once |
 | 🟢 **2. Commissions** (built October 7, 2026) | The three slots on the Ledger, the Turn in button, the "New skill" popup in place of `auto_keep`, rerolls. | `sim/economy.gd`, `sim/profile.gd`, `view/home/home_screen.gd`, `view/gems/appraisal.gd`, `view/audio/sound_bank.gd` | Requirement matching; first stone never sellable; payout always beats sale |
 | 🟢 **3. Fares, insurance and sockets** (built October 7, 2026) | Fares, the insurance checkbox, the Descend total, salvage keeping the better of two rolls, co-op payment and refund. Socket unlocks on the Lapidaries tab, every mine filling only unlocked sockets, and the temporary-stone picks at the shaft head. These ship together, so deeper starts never lose their full rail before players can buy sockets back. | `view/home/home_screen.gd` (trip panel, the "every socket filled" line, the loadout), `sim/descent.gd` (`new_run`, `loadout_sockets`, salvage, `can_wish`), `sim/oddities.gd` (fuse), `sim/boons.gd` (the pick row), `sim/profile.gd` (`starting_rail_cap`, `widest_rail_cap`), `content/deep_cut.json`, `docs/MINES.md`, `net/` | Fare charged once per player; push-on free; insured salvage; rail filled to exactly the unlocked count in every mine; unlocks are per lapidary and permanent; one temporary pick per empty socket, in its color; temporary stones shatter, cannot be wished, and make a fused stone fragile |
-| 🔵 **4. Shop: Geodes** (next) | The Shop tab, the daily shelf, the raised carat band, the crack ceremony. | `sim/forge.gd` (band override), `sim/economy.gd`, new `view/gems/geode.gd` | No Void; carat within the raised band; shelf stable across reloads |
-| 🔵 **5. Contracts** | The Contracts view, input rules, output roll, feasibility check, fusing animation. | `sim/economy.gd`, `view/home/home_screen.gd` | Color weighting; carat average and cap; tier always next; impossible contracts refused |
-| 🔵 **6. Daily dig** | Global seed, modifiers, lent rail, eligibility, rewards, co-op rules. | `sim/economy.gd`, `sim/descent.gd`, `view/home/home_screen.gd`, `net/` | Same date and build gives the same run; one rewarded attempt; lent rail never reaches the vault |
+| 🟢 **4. Shop: Geodes** (built October 10, 2026) | The Shop tab, the daily shelf with its printed odds, the raised carat band, the drum. | `sim/forge.gd` (`skill_table`), `sim/economy.gd`, new `view/gems/geode.gd`, `view/home/home_screen.gd`, `view/audio/sound_bank.gd`, `content/deep_cut.json` | No Void; carat within the raised band; shelf stable across reloads; odds add up; price over worth |
+| 🟢 **5. Contracts** (built October 10, 2026) | The Contracts view, input rules, output roll, feasibility check, the sealing. | `sim/economy.gd`, `view/home/home_screen.gd`, `view/gems/geode.gd` | Color weighting; carat average and cap; tier always next; impossible contracts refused; vault stones leave loadouts; odds add up |
+| 🟢 **6. Daily dig** (built October 10, 2026, reworked the same day) | Global seed, the four-card deal, rail rules, scoring and pay, co-op rules, the Map's Daily view, the run's daily marks and the Ledger's daily bests. | `sim/economy.gd`, `sim/descent.gd`, `sim/forge.gd`, `sim/battle.gd`, `sim/oddities.gd`, `sim/boons.gd`, `sim/profile.gd`, `view/home/home_screen.gd`, `view/run/`, `view/app.gd`, `net/session.gd` | Same date and build gives the same run; one card of each kind and never two of a group; every rail rule and every card does what it says; a score counts only what came up; later digs pay only the improvement; nothing found is kept |
 
-## 🟡 7. The no-profit test
+## 🟢 7. The no-profit test
 
 `tests/test_economy.gd` simulates thousands of rolls per mine and fails if any of these makes money on average:
 
-- 🔵 buying a Geode and selling what is inside (phase 4);
-- 🔵 buying a Geode, appraising nothing further, and putting its stone into a contract with four others bought the same way, then selling the output (phase 5);
+- 🟢 buying a Geode and selling what is inside (300 Geodes in each of five mines);
+- 🟢 buying Geodes, appraising nothing further, and putting their stones into contracts five at a time, then selling the output;
 - 🟢 the fare against cashing out the starting purse through the assay (blocked by the earned-pyrite cap; the test proves it);
 - 🟢 turning in against selling (this one must always favour turning in; it is the only intended profit).
 
@@ -336,7 +429,7 @@ Pick one of these if the service is built. "Once per stone" is the simplest to e
 | Bench upgrades | Shared upgrades are hard to balance. Replaced by per-lapidary socket unlocks (§3.5) and, later, Birthstone upgrades (§8.1). |
 | Paying for a fourth stone on each run | Annoying to buy every time. Replaced by permanent socket unlocks per lapidary (§3.5). |
 | A second vault slot per skill | Loadouts and the vault are built around one stone per skill (§3.4). |
-| A CS-style reel for Geodes | Stone thumbnails are not readable enough at reel speed; the crack shows the same moment better. |
+| A three-blow crack for Geodes | Planned first (thumbnails of stones read badly at speed), then replaced on October 10, 2026 by the drum (§3.3): tiles washed in rarity colors carry the moment, and the stone itself is read out afterwards. |
 | A guaranteed recut or re-fire for gold | Breaks rule 1. A reroll gamble with a climbing price is a candidate (§8.2). |
 | Depth or fight goals as commissions | Commissions are stones only, so they stay tied to the appraisal. |
 
@@ -350,9 +443,17 @@ Settled October 6, 2026:
 4. **Deeper mines stop filling every socket.** Every mine fills the first three plus the lapidary's unlocked sockets, bought with gold (§3.5).
 5. **Deeper starts fill the remaining sockets with temporary stones,** one pick of three per empty socket, which shatter when the run ends (§3.1).
 
+Settled October 10, 2026:
+
+6. **Geodes open on a reel after all:** a slot machine with a CS case's feel (§3.3), in place of the three-blow crack.
+7. **The daily dig is reworked** (from the review page of format options and modifiers): the same lapidary for the whole party; a rail rule, a hazard, a blessing and a twist each day; it starts at the Quarry and goes on into the Rift; the score is the worth of the stones brought up plus the pyrite carried, nothing is kept, and gold is paid for the score; a later dig pays only what it adds to the day's best; a fall scores what the salvage dice save; the Ledger keeps daily bests. 68 of the 82 modifiers were kept (§4.2).
+
 No questions are open for phases 0–6. The later ideas in §8 carry their own open questions.
 
-## 🟢 11. What the build settled (phases 0–3, October 7, 2026)
+## 🟢 11. What the build settled
+
+### Phases 0–3, October 7, 2026
+
 
 - **Turning in always beats selling.** A commission pays its price, or a quarter more than the stone handed in would sell for if that is more (`DeepEconomy.payout`). Its card says "N gold or more"; the Turn it in button says exactly what this stone fetches.
 - **A first stone of its skill** gets the "A new skill!" fanfare at the end of its appraisal, a star on its tray tile and a "New skill" heading on the loupe table. Its choices are Into the vault, Turn it in (when a commission wants it) and Decide later. It is never offered for sale, and `decide_tray` still keeps it if asked to sell. "Appraise all" opens the table on the first new skill it found.
@@ -360,4 +461,22 @@ No questions are open for phases 0–6. The later ideas in §8 carry their own o
 - **Co-op.** Each lobby member tells the host their gold, insurance and open sockets; Descend waits until everyone can pay and names who cannot. Each machine bills its own profile once per run (`profile.charged_run`), when the run first reaches it at the shaft head, so a run resumed from a checkpoint or joined late is never billed twice. The session version is now 0.3.0.
 - **Temporary stones** are rolled from a stream of their own (`temps`), so they never shift the rest of a seed. Same-color sockets are offered three different skills where the mine holds them. With no shaft head (`boons: false`) the first of each three is set. At the end of the run they leave quietly: they are not counted among the shattered losses.
 - **Loopholes closed:** the landing's well and the wishing-well oddity refuse fragile stones; a stone fused in the Crucible with a fragile one comes out fragile (and temporary, if either was). The Echo Chamber was checked and needs nothing: it copies only a skill into a fresh roll, never a stone's carats or quality.
-- **The no-profit test** covers phases 0–3: turning in beats selling over 800 rolled stones across four mines, and no purse cashed whole at the assayer is worth its fare. The Geode and contract chains join it with phases 4 and 5, as do the Gold page's Geode and Contract columns in the balance browser (`tools/data-browser`, The workshop → Gold).
+- **The no-profit test** covers phases 0–3: turning in beats selling over 800 rolled stones across four mines, and no purse cashed whole at the assayer is worth its fare.
+
+### Phases 4–6, October 10, 2026
+
+- **Prices.** A Geode's odds (its skills and their shares, its grades from 400 sampled stones, its average worth) are worked out once a session per recipe (`DeepEconomy.geode_odds`), and its price comes from that worth. The floors sit just under the 1.75× rule, so the rule sets the prices; only the Rift, whose stones are a little lighter than the Geode's, sits on its floor.
+- **The drum** is `view/gems/geode.gd`: a CanvasLayer over everything, opaque so the shelf behind (which already shows the Geode open and its stone named) gives nothing away. It has its own sounds in `sound_bank.gd`: the lever, a tick a tooth, the stop, the crack, the jackpot and the contract's seal. The rock is drawn low-poly like the stones, and the shelf shows a bought Geode as its two halves face up, a faceted bowl of crystal in each.
+- **Contracts.** The new stone is rolled in a stream seeded by the profile, the new id and the five refs, so the same five always make the same stone. A vault stone on the bench is named under it in red, and the Sign button asks twice before it gives a kept skill up; every loadout that set it lets it go. The ledger counts contracts and cracked Geodes.
+- **The daily dig.** The Map's side column has three views: Expedition, Daily and Party. For the host, Expedition and Daily are the choice of what the party goes down; a guest's column follows the host. The Daily view shows the day's four cards, how it is scored and paid, the player's best today and the time left, and what it lends the party (lapidary, rail, Birthstone). Starting a dig says in a toast whether it is the first today or what score to beat. Down the mine the strip carries the day's cards as marks and the Grubstake page a banner of them. The end of the run shows the score (stones' worth plus pyrite), the gold it is worth, and what this run pays after the day's best, counted out.
+- **Where the cards live** (reworked version):
+  - `mine_of` changes the rock and the chart's room weights (luck, carat band, a held-back color, clarity and inclusion rules, Void's weight, stones read as found, motherlodes, elites, oddities, the rooms Midas closes); `DeepForge.roll_stone` reads `clarity_rule`, `inclusion_bias` and `read_on_find` from the mine it is handed.
+  - `_dress_for_the_day` sets health, pyrite, dice (size, pattern, etched faces, material, the extra die, the wild face), Birthstone, socket colors and the run's flags (`run_mods`: Steady Hands, Shaky Hands, Short-Handed, Second Wind).
+  - `_chart` builds One Road's single path and places Altar Lights' altars.
+  - `_start_fight` and `_dress_the_fight` scale creatures (Hard Rock, Sharp Claws, Warden's Wrath), add or merge them (Swarms, Lone Beasts), stun them (Torpor) and plate the party (Plated); `_settle_fight` doubles Midas' pyrite, reads Big Game's elite drops, spends Second Wind, trims Plated's max health and locks Cursed Run's faces.
+  - `_dress_the_landing` takes Toll Gates' cut, heals Glass Lungs and turns Restless Rock's rail; `_respite` refuses rest on No Bench and runs Night Terrors' rest; `_choose_at_landing` keeps Last Lift's rule; `lift_cost`, the stall prices and the sale price read the winch and stall cards; `_enter` takes Bleeding's toll.
+  - `DeepBattle._begin_turn` reads `short_handed` and `reroll_shift`, and `_lifeline` marks a rescue so Second Wind is spent once.
+- **A first-pass call to revisit:** the score's rate and knee (0.5 and 1000) are a first guess; Quarry lent stones are weaker than the first version's, which rolled in deeper mines.
+- **Two holes closed on the way.** A stall or Collector sale of a lent stone does not count as pyrite earned down there, so the assayer never buys it; and an extra-rerolls boon adds to rerolls already granted instead of replacing them.
+- **A party of four on the run's strip.** With three or four players the strip's names are cut short (each says itself in full on hover) and its bars and gaps narrow; four long names used to push it past the screen's edge.
+- **Balance browser.** The Gold page has the Geode columns (a mine's Geode's stone and its price, sampled the way the game rolls them) and the contract fee ladder.

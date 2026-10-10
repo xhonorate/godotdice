@@ -14,7 +14,7 @@ const colorS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
 const TIERS: Array = ["ROUGH", "FINE", "PRECIOUS", "EXQUISITE", "PEERLESS"]
 const TIER_NAMES: Dictionary = {"ROUGH": "Rough", "FINE": "Fine", "PRECIOUS": "Precious", "EXQUISITE": "Exquisite", "PEERLESS": "Peerless"}
 const INCLUSION_SCORE: Dictionary = {"COMMON": 2.0, "UNCOMMON": 4.0, "RARE": 7.0, "LEGENDARY": 15.0}
-const RARITY_VALUE: Dictionary = {"COMMON": 1.0, "UNCOMMON": 1.5, "RARE": 2.5, "LEGENDARY": 4.0, "MYTHIC": 8.0}
+const RARITY_VALUE: Dictionary = {"COMMON": 1.0, "UNCOMMON": 1.5, "RARE": 2.5, "LEGENDARY": 4.0, "MYTHIC": 8.0, "TRANSCENDENT": 16.0}
 
 static func make(skill: String, carat: int, cut: int, clarity: int, inclusions: Array = [], provenance: Dictionary = {}, id: String = "") -> Dictionary:
 	return {"id": id, "skill": skill, "carat": carat, "cut": cut, "clarity": clarity, "inclusions": inclusions.duplicate(),
@@ -49,11 +49,18 @@ static func is_opal(stone: Dictionary) -> bool:
 	## socket is cut for one: it goes in an ANY socket unless a Zoning says otherwise.
 	return color(stone) == DeepContent.OPAL
 
+static func is_transcendent(stone: Dictionary) -> bool:
+	## Made at an altar and nowhere else. See DeepAltar.
+	return str(skill_of(stone).get("rarity", "")) == DeepContent.TRANSCENDENT
+
 static func colors(stone: Dictionary, socket: String = "") -> Array:
-	## Every color the stone counts as: its skill's, any color Zoning, and the socket's
-	## own color for an Alexandrite. An opal is only "OPAL" by itself: it answers to none of
-	## the six unless something frozen inside it says so.
+	## Every color the stone counts as: its skill's (all of them, for a gem made from several),
+	## any color Zoning, and the socket's own color for an Alexandrite. An opal is only "OPAL"
+	## by itself: it answers to none of the six unless something frozen inside it says so.
 	var out: Array = [color(stone)]
+	for also in skill_of(stone).get("colors", []):
+		if not out.has(str(also)):
+			out.append(str(also))
 	for m in modifiers(stone):
 		match str(m.get("kind", "")):
 			"color_also":
@@ -356,6 +363,10 @@ static func place_of(unit: Dictionary, index: int) -> Dictionary:
 	return {"socket": index, "rider": -1}
 
 # --- the Birthstone -------------------------------------------------------------------------
+
+static func birthstone_for(unit: Dictionary) -> Dictionary:
+	## The Birthstone a unit carries: its own lapidary's, or the one a daily dig lends it.
+	return birthstone(str(unit.get("birthstone_of", unit.get("character", ""))))
 
 static func birthstone(character_key: String) -> Dictionary:
 	## A character's Birthstone as a stone the views can draw and name: fixed ranks, its own

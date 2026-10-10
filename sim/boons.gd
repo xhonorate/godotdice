@@ -387,7 +387,10 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 		"extra_rerolls":
 			if not unit.has("run_mods"):
 				unit.run_mods = {}
-			unit.run_mods.extra_rerolls = {"amount": int(effect.get("amount", 1)), "until_depth": int(effect.get("until_depth", 4))}
+			## On top of whatever the day already lends (a daily dig's Steady Hands).
+			var had: Dictionary = unit.run_mods.get("extra_rerolls", {})
+			unit.run_mods.extra_rerolls = {"amount": int(had.get("amount", 0)) + int(effect.get("amount", 1)),
+				"until_depth": maxi(int(had.get("until_depth", 0)), int(effect.get("until_depth", 4)))}
 			return "+%d reroll a turn down to depth %d." % [int(effect.get("amount", 1)), int(effect.get("until_depth", 4))]
 	return ""
 

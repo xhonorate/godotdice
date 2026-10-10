@@ -58,18 +58,20 @@ func _workshop(app: Control) -> void:
 	app.menu.close()
 	app._rename_player(player_name)
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
-	for tab in ["map", "roster", "vault", "appraise", "commissions", "ledger"]:
+	for tab in ["map", "roster", "vault", "appraise", "shop", "commissions", "ledger"]:
 		home.open(tab)
 		await _fits(screen, "the %s tab" % tab)
-	## The map's two side views, as the host and as a guest.
+	## The map's three side views, as the host and as a guest.
 	for host in [true, false]:
 		home.refresh(app.profile, lobby, "hosting" if host else "joined", host, app.session.local_id if host else "p1", false, app.settings, "109775241234567890")
-		for side in ["expedition", "party"]:
+		for side in ["expedition", "daily", "party"]:
 			home._side = side
 			home.open("map")
 			await _fits(screen, "the map's %s view%s" % [side, "" if host else " for a guest"])
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
 	home._side = "expedition"
+	await _daily_map(app, lobby)
+	await _shop(app)
 	## Every lapidary's dossier and sockets, with a socket picked.
 	for key in DeepContent.characters_in_unlock_order():
 		for view in ["dossier", "sockets"]:
@@ -164,6 +166,92 @@ func _workshop(app: Control) -> void:
 	home.open("appraise")
 	await _fits(screen, "the Appraise tab on a stone of a skill not kept")
 	app.profile.vault[str(known.skill)] = kept
+
+func _daily_map(app: Control, lobby: Dictionary) -> void:
+	## The day's seam on the map, chosen for the party, as the host and as a guest: before the
+	## Quarry is beaten, not dug yet today, and dug.
+	var home: Control = app.home
+	var starter: Dictionary = app.profile.mines[DeepContent.starter_mine()]
+	var beaten: bool = bool(starter.get("boss", false))
+	lobby.daily = DeepEconomy.today()
+	for state in ["locked", "fresh", "played"]:
+		starter.boss = state != "locked"
+		app.profile.dig = {"date": DeepEconomy.today(), "run_id": "fit", "best_score": 999999, "best_gold": 99999, "runs": 99} if state == "played" else {}
+		for host in [true, false]:
+			home.refresh(app.profile, lobby, "hosting" if host else "joined", host, app.session.local_id if host else "p1", false, app.settings, "109775241234567890")
+			home._side = "daily"
+			home.open("map")
+			await _fits(screen, "the map's daily view, %s%s" % [state, "" if host else ", as a guest"])
+	lobby.daily = ""
+	app.profile.dig = {}
+	starter.boss = beaten
+	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
+	home._side = "expedition"
+
+func _shop(app: Control) -> void:
+	## The shop: the shelf fresh and with a Geode opened; the contract bench empty, with five of
+	## one grade on it (the vault's among them, asking twice), and every page of its stones.
+	## Then a Geode cracked and a contract sealed, each read to the end with its choices.
+	var home: Control = app.home
+	home._shop_view = "geodes"
+	home.open("shop")
+	await _fits(screen, "the shop's Geodes")
+	var shelf: Array = DeepEconomy.shelf(app.profile)
+	check(shelf.size() == 3, "the shop opens on three Geodes")
+	var opened: Dictionary = DeepEconomy.open_geode(app.profile, str(shelf[0].get("id", ""))) if not shelf.is_empty() else {}
+	check(bool(opened.get("ok", false)), "a Geode can be bought from the full workshop")
+	home.open("shop")
+	await _fits(screen, "the shop's Geodes with one opened")
+	home._shop_view = "contracts"
+	home._contract = []
+	home.open("shop")
+	await _fits(screen, "the contract bench, empty")
+	var by_tier: Dictionary = {}
+	for entry in DeepEconomy.contract_stones(app.profile):
+		var tier: String = str(DeepStone.grade(entry.stone).tier)
+		if not by_tier.has(tier):
+			by_tier[tier] = []
+		by_tier[tier].append(str(entry.ref))
+	var five: Array = []
+	for tier in by_tier:
+		if five.is_empty() and by_tier[tier].size() >= DeepEconomy.contract_size():
+			five = by_tier[tier].slice(0, DeepEconomy.contract_size())
+	check(five.size() == DeepEconomy.contract_size(), "the full workshop has five stones of one grade for a contract")
+	home._contract = five
+	for sure in [false, true]:
+		home._contract_sure = sure
+		home.open("shop")
+		await _fits(screen, "the contract bench with five on it%s" % (", asking twice" if sure else ""))
+	for page in range(3):
+		home._pages["contract"] = page
+		home.open("shop")
+		await _fits(screen, "page %d of the contract bench's stones" % page)
+	home._pages["contract"] = 0
+	home._contract = []
+	home._contract_sure = false
+	## The overlays, finished: the wordiest stone the tray has, every choice there is.
+	var made: Dictionary = {}
+	for stone in app.profile.tray:
+		if bool(stone.get("appraised", false)) and str(DeepContent.skill(str(stone.skill)).get("text", "")).length() > str(DeepContent.skill(str(made.get("skill", ""))).get("text", "")).length():
+			made = stone
+	var inputs: Array = []
+	for ref in five:
+		inputs.append(DeepEconomy.contract_input(app.profile, str(ref)).stone)
+	var actions: Array = home._found_actions(made)
+	actions = actions.slice(0, 1) + [ {"label": "Turn it in", "glyph": "flag", "caption": "A commission pays 99999 gold for it"}] + actions.slice(1)
+	for kind in ["geode", "contract"]:
+		for fresh in [true, false]:
+			var sheet: CanvasLayer = load("res://view/gems/geode.gd").new()
+			screen.add_child(sheet)
+			sheet.call("build", kind, shelf[1] if kind == "geode" else {}, inputs if kind == "contract" else [], made,
+				{"owned": {} if fresh else app.profile.vault.get(str(made.skill), {}), "actions": actions, "new_skill": fresh, "wanted": "" if fresh else "A commission wants this stone: 99999 gold"})
+			var what: String = "%s read to the end%s" % ["a Geode cracked" if kind == "geode" else "a contract sealed", ", a new skill" if fresh else ", weighed against a kept one"]
+			await _fits(sheet, what + " before it is played")
+			sheet.call("finish")
+			await _fits(sheet, what)
+			check(sheet.get("_choices").visible and not sheet.get("_skip").visible, "%s ends on its choices" % what)
+			sheet.free()
+	home._shop_view = "geodes"
 
 # --- the menu ----------------------------------------------------------------------------------
 
@@ -321,6 +409,28 @@ func _run(app: Control) -> void:
 	## The shaft head: the stakes, and a pick taken.
 	descent.show_state(run)
 	await _fits(screen, "the grubstake")
+	## The day's seam at the shaft head, first dug, beaten before and not paid, with its
+	## wordiest cards of every kind, and a full party along the strip.
+	var wordiest := func(kind: String) -> String:
+		var keys: Array = DeepEconomy.daily_modifiers(kind)
+		keys.sort_custom(func(a: String, b: String) -> bool: return str(DeepContent.entry("daily_modifiers", a).get("name", "")).length() > str(DeepContent.entry("daily_modifiers", b).get("name", "")).length())
+		return str(keys[0])
+	var seam: Dictionary = {"date": DeepEconomy.today(), "rail": wordiest.call("rail"), "mods": [wordiest.call("hazard"), wordiest.call("blessing"), "BORROWED_BIRTHSTONE"],
+		"birthstone": "FLORIN"}
+	var standings: Array = [ {"eligible": true, "best_score": 0, "best_gold": 0}, {"eligible": true, "best_score": 999999, "best_gold": 99999}, {"eligible": false, "best_score": 0, "best_gold": 0}]
+	var daily_state: Dictionary = run.duplicate(true)
+	daily_state.daily = seam
+	for i in range(1, 4):
+		var other: Dictionary = DeepDescent.player(daily_state, app.session.local_id).duplicate(true)
+		other.id = "fit_p%d" % i
+		other.name = "Guest With A Long Name %d" % i
+		daily_state.players.append(other)
+	for standing in standings:
+		descent.daily_best = standing
+		descent.show_state(daily_state)
+		await _fits(screen, "the grubstake of the day's seam for a party of four, standing %s" % JSON.stringify(standing))
+	descent.daily_best = {}
+	descent.show_state(run)
 	var head_state: Dictionary = run.duplicate(true)
 	var picks: Array = []
 	for index in range(3):
@@ -495,6 +605,20 @@ func _run(app: Control) -> void:
 		descent._pages["home"] = page
 		descent.show_state(over)
 		await _fits(screen, "page %d of the end of a run with a heavy haul" % page)
+	## The end of the day's seam, with a heavy haul scored, for every standing, and fallen.
+	var dug: Dictionary = over.duplicate(true)
+	dug.daily = seam
+	dug.records.boss = true
+	for standing in standings:
+		descent.daily_best = standing
+		descent._pages["home"] = 0
+		descent.show_state(dug)
+		await _fits(screen, "the end of the day's seam, standing %s" % JSON.stringify(standing))
+	var fell: Dictionary = dug.duplicate(true)
+	fell.outcome = "fallen"
+	descent.show_state(fell)
+	await _fits(screen, "the end of the day's seam, fallen")
+	descent.daily_best = {}
 	descent._end_shown = false
 	descent._pages = {}
 	## A fight, planning, with every chip on show.
@@ -699,6 +823,13 @@ func _fill(profile: Dictionary) -> void:
 	for i in range(40):
 		profile.history.append({"date": "2026-08-%02d" % (1 + i % 28), "mine": DeepContent.starter_mine(), "depth": 4 + i % 20, "outcome": ["extracted", "fallen", "conquered"][i % 3], "stones": i % 9})
 	profile.records.runs = 40
+	## Daily digs among them, with the longest names and the biggest numbers the Ledger shows.
+	for i in range(6):
+		profile.history.append({"date": "2026-09-%02d" % (1 + i), "mine": "GLASS_VEINS", "deepest_mine": "GLASS_VEINS", "depth": 99, "outcome": "extracted", "stones": 0, "daily": true, "score": 9999999, "gold": 999999})
+	profile.records.best_daily = 9999999
+	profile.records.daily_bests = []
+	for i in range(30):
+		profile.records.daily_bests.append({"date": "2026-09-%02d" % (1 + i), "score": 9999999, "gold": 999999})
 
 func check(condition: bool, message: String) -> void:
 	checks += 1

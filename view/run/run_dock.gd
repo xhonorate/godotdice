@@ -268,7 +268,7 @@ func _build_dock(unit: Dictionary) -> void:
 	var rail: Array = unit.get("rail", [])
 	for index in range(rail.size()):
 		_socket(rail_row, unit, index)
-	var birth: Dictionary = DeepStone.birthstone(str(unit.get("character", "")))
+	var birth: Dictionary = DeepStone.birthstone_for(unit)
 	if not birth.is_empty():
 		## Built the way a socket is, slot over name: in a row that stretches what it holds,
 		## a bare picture would take the height of its neighbours' captions as well and hang

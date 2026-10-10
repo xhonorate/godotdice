@@ -331,6 +331,15 @@ static func _burst(centre: Vector2, reaches: Array, inner: float, turn: float = 
 		built.append(centre + Vector2(cos(angle), sin(angle)) * radius)
 	return built
 
+static func _opal_check() -> Array:
+	## The opals' check of color patches: a lozenge at each corner of the square.
+	var check: Array = []
+	for spot in [[0.14, 0.14], [0.86, 0.14], [0.14, 0.86], [0.86, 0.86]]:
+		var x: float = float(spot[0])
+		var y: float = float(spot[1])
+		check.append({"op": "add", "poly": _poly([[x, y + 0.13], [x + 0.13, y], [x, y - 0.13], [x - 0.13, y]])})
+	return check
+
 static func _shapes(glyph: String) -> Array:
 	match glyph:
 		"carat":
@@ -486,7 +495,11 @@ const SKILL_EMBLEMS := {
 	## with the mark of the color it fires again set in the middle of it.
 	"SEAM_RED": "seam_red", "SEAM_BLUE": "seam_blue", "SEAM_GREEN": "seam_green",
 	"SEAM_VIOLET": "seam_violet", "SEAM_GOLD": "seam_gold", "SEAM_WHITE": "seam_white",
-	"FIRE_OPAL": "warming_flame", "DOUBLET": "twin_stones", "ECHO": "echo", "MATRIX": "split_geode", "PRELUDE": "onward"}
+	"FIRE_OPAL": "warming_flame", "DOUBLET": "twin_stones", "ECHO": "echo", "MATRIX": "split_geode", "PRELUDE": "onward",
+	## The Transcendents, made at an altar and nowhere else. The Rainbow Seam keeps the Seams'
+	## check round a star of six, one point for each color it plays back.
+	"RAINBOW_SEAM": "rainbow_star", "PROCESSION": "climbing_stones", "BLACK_OPAL": "opal_setting",
+	"QUINTESSENCE": "pentagram", "GEMINI": "gemini", "CERTAINTY": "infinity"}
 
 static func emblem(skill_key: String) -> String:
 	var key := skill_key.to_upper()
@@ -800,13 +813,52 @@ static func _emblem_shapes(glyph: String) -> Array:
 		"seam_red", "seam_blue", "seam_green", "seam_violet", "seam_gold", "seam_white":
 			# An opal's check of color patches at the corners and, set in the middle, the mark
 			# of the color it fires again: one family, and still never two alike.
-			var check: Array = []
-			for spot in [[0.14, 0.14], [0.86, 0.14], [0.14, 0.86], [0.86, 0.86]]:
-				var x: float = float(spot[0])
-				var y: float = float(spot[1])
-				check.append({"op": "add", "poly": _poly([[x, y + 0.13], [x + 0.13, y], [x, y - 0.13], [x - 0.13, y]])})
+			var check: Array = _opal_check()
 			var marks: Dictionary = {"seam_red": "sword", "seam_blue": "shield", "seam_green": "heart", "seam_violet": "eye", "seam_gold": "holed_coin", "seam_white": "spark"}
 			return check + _moved(_shapes(str(marks[glyph])), Vector2(0.21, 0.21), 0.58)
+		"rainbow_star":
+			# The Seams' check round a six-pointed star, one point for each color it plays back.
+			return _opal_check() + [ {"op": "add", "poly": _star(6, 0.28, 0.105)}, {"op": "sub", "circle": [0.5, 0.5, 0.055]}]
+		"climbing_stones":
+			# Five stones climbing a diagonal, each a size bigger than the last: a straight.
+			var climb: Array = []
+			for s in [[0.12, 0.80, 0.075, 0.12], [0.30, 0.66, 0.09, 0.14], [0.49, 0.51, 0.105, 0.165], [0.69, 0.35, 0.12, 0.19], [0.89, 0.18, 0.135, 0.215]]:
+				climb.append({"op": "add", "poly": _diamond(Vector2(s[0], s[1]), s[2], s[3])})
+			return _fitted(climb)
+		"opal_setting":
+			# A setting: one opal in the middle and five more set into the ring round it.
+			var setting: Array = [ {"op": "add", "poly": _band(Vector2(0.5, 0.5), 0.38, 0.38, 0.075, 0.0, TAU, 0.0, 64)},
+				{"op": "add", "circle": [0.5, 0.5, 0.17]}]
+			for index in 5:
+				var angle := -PI * 0.5 + TAU * float(index) / 5.0
+				var at := Vector2(0.5, 0.5) + Vector2(cos(angle), sin(angle)) * 0.38
+				setting.append({"op": "sub", "circle": [at.x, at.y, 0.135]})
+				setting.append({"op": "add", "circle": [at.x, at.y, 0.10]})
+			return _fitted(setting)
+		"pentagram":
+			# The five-pointed star drawn in one line, its heart left open, inside a ring: the
+			# altar's own sign, on the gem that turns three alike into five.
+			var star := PackedVector2Array()
+			for step in 5:
+				var angle := -PI * 0.5 + TAU * float(step * 2 % 5) / 5.0
+				star.append(Vector2(0.5, 0.5) + Vector2(cos(angle), sin(angle)) * 0.40)
+			return [ {"op": "add", "poly": _band(Vector2(0.5, 0.5), 0.44, 0.44, 0.075, 0.0, TAU, 0.0, 64)}, {"op": "add", "poly": star}]
+		"gemini":
+			# The twins' sign: two pillars under one lintel and over one sill.
+			var sign: Array = []
+			sign += _stroke(_curve([0.12, 0.13], [0.5, 0.33], [0.88, 0.13], 12), 0.11)
+			sign += _stroke(_curve([0.12, 0.87], [0.5, 0.67], [0.88, 0.87], 12), 0.11)
+			sign.append({"op": "add", "poly": _rect(0.285, 0.18, 0.395, 0.82)})
+			sign.append({"op": "add", "poly": _rect(0.605, 0.18, 0.715, 0.82)})
+			return _fitted(sign)
+		"infinity":
+			# Infinity, drawn as one thick loop: every hand, every turn.
+			var loop: Array = []
+			for index in 73:
+				var t := TAU * float(index) / 72.0
+				var d := 1.0 + sin(t) * sin(t)
+				loop.append([0.5 + 0.40 * cos(t) / d, 0.5 + 0.52 * sin(t) * cos(t) / d])
+			return _fitted(_stroke(loop, 0.12))
 		"ripples":
 			# Three arcs spreading out from a point off to the left, each ending in a round cap
 			# inside the square: a volley widening as it goes.
@@ -1181,6 +1233,12 @@ static func _ui_shapes(glyph: String) -> Array:
 				{"op": "sub", "poly": _bar(Vector2(0.14, 0.56), Vector2(0.38, 0.52), 0.04)},
 				{"op": "sub", "poly": _bar(Vector2(0.62, 0.36), Vector2(0.86, 0.40), 0.04)},
 				{"op": "sub", "poly": _bar(Vector2(0.62, 0.52), Vector2(0.86, 0.56), 0.04)}]
+		"altar":
+			# A stone table with a light hanging over it: the altar on the map.
+			return _fitted([ {"op": "add", "poly": _rect(0.10, 0.42, 0.90, 0.54)},
+				{"op": "add", "poly": _poly([[0.30, 0.54], [0.70, 0.54], [0.78, 0.90], [0.22, 0.90]])},
+				{"op": "add", "poly": _rect(0.14, 0.88, 0.86, 0.97)},
+				{"op": "add", "poly": _star(4, 0.17, 0.045, Vector2(0.5, 0.20))}])
 		"arch":
 			# A tunnel mouth: a round-headed arch with the dark cut out of it.
 			var outer := PackedVector2Array([Vector2(0.06, 0.96)])
@@ -1284,6 +1342,23 @@ static func _ui_shapes(glyph: String) -> Array:
 		"flag":
 			return [ {"op": "add", "poly": _rect(0.16, 0.06, 0.25, 0.96)},
 				{"op": "add", "poly": _poly([[0.25, 0.08], [0.90, 0.28], [0.25, 0.50]])}]
+		"calendar":
+			# A day's page: two rings holding it to the board, a heading band, and today
+			# picked out of the grid as the one filled square.
+			return [ {"op": "add", "poly": _rounded(0.08, 0.16, 0.92, 0.94, 0.08)},
+				{"op": "sub", "poly": _rect(0.16, 0.38, 0.84, 0.86)},
+				{"op": "add", "poly": _rect(0.20, 0.44, 0.34, 0.56)}, {"op": "add", "poly": _rect(0.43, 0.44, 0.57, 0.56)},
+				{"op": "add", "poly": _rect(0.66, 0.44, 0.80, 0.56)}, {"op": "add", "poly": _rect(0.20, 0.66, 0.34, 0.78)},
+				{"op": "add", "poly": _rect(0.43, 0.62, 0.57, 0.80)},
+				{"op": "add", "poly": _rounded(0.22, 0.04, 0.32, 0.26, 0.04)}, {"op": "add", "poly": _rounded(0.68, 0.04, 0.78, 0.26, 0.04)}]
+		"contract":
+			# A sheet with its lines written and a wax seal pressed at the foot.
+			return [ {"op": "add", "poly": _poly([[0.14, 0.04], [0.68, 0.04], [0.86, 0.22], [0.86, 0.96], [0.14, 0.96]])},
+				{"op": "sub", "poly": _poly([[0.66, 0.04], [0.86, 0.24], [0.66, 0.24]])},
+				{"op": "sub", "poly": _rect(0.25, 0.30, 0.62, 0.36)}, {"op": "sub", "poly": _rect(0.25, 0.44, 0.75, 0.50)},
+				{"op": "sub", "poly": _rect(0.25, 0.58, 0.55, 0.64)},
+				{"op": "sub", "circle": [0.66, 0.80, 0.15]}, {"op": "add", "circle": [0.66, 0.80, 0.105]},
+				{"op": "sub", "poly": _star(5, 0.06, 0.025, Vector2(0.66, 0.80))}]
 		"door":
 			return [ {"op": "add", "poly": _rect(0.18, 0.04, 0.82, 0.96)}, {"op": "sub", "poly": _rect(0.27, 0.12, 0.73, 0.96)},
 				{"op": "add", "poly": _poly([[0.27, 0.12], [0.62, 0.20], [0.62, 0.96], [0.27, 0.96]])},

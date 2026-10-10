@@ -38,6 +38,8 @@ const RESONANCE := Color("e4cdff")
 ## wrong for the interface — beside a White gem the two would be the same pale wash. This
 ## is the middle of the rainbow its word and its mark are drawn with, and nobody else's.
 const OPAL_TONE := Color("8ff0dc")
+## Gold: the color the Transcendent rarity starts and ends its sweep on. See `shimmer_word`.
+const TRANSCENDENT_TONE := Color("ffd98a")
 const TIER_colorS := {"ROUGH": Color("9aa3b2"), "FINE": Color("7fd1a8"), "PRECIOUS": Color("6fa8ff"), "EXQUISITE": Color("c58bff"), "PEERLESS": Color("ffcf5a")}
 ## The stems an effect's own text is picked out by, wherever it is read as prose: "Damage",
 ## "damages" and "damaged" all catch on "damage". Keyed lowercase; matched case-insensitively,
@@ -83,10 +85,10 @@ const KEYWORD_HINTS: Dictionary = {
 ## An oddity wears the swirl; the question mark is a dark mouth's alone.
 const CHAMBER_GLYPHS: Dictionary = {"fight": "sword", "elite": "skull", "vein": "pick", "oddity": "swirl", "motherlode": "gem",
 	"merchant": "purse", "smithy": "anvil", "carver": "face", "landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch",
-	"well": "drop", "vat": "flask"}
+	"well": "drop", "vat": "flask", "altar": "altar"}
 const CHAMBER_colorS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff5f7a"), "vein": Color("ffc56a"), "oddity": Color("b58cff"),
 	"motherlode": Color("ffe07a"), "merchant": Color("5fd4c8"), "smithy": Color("8fb8ff"), "carver": Color("f2a0d0"), "landing": Color("7fd1a8"),
-	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8"), "vat": Color("b9e769")}
+	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8"), "vat": Color("b9e769"), "altar": Color("d7a6ff")}
 
 static var _display: Font = null
 static var _bold: Font = null
@@ -493,6 +495,19 @@ static func rainbow_word(parent: Node, text: String, size: int = 13, saturation:
 		letter.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	return row
 
+static func shimmer_word(parent: Node, text: String, size: int = 13) -> HBoxContainer:
+	## The one word written in moving gold and every color: Transcendent, the rarity no roll
+	## gives. The letters chase a slow sweep along the word, so it reads alive even standing still.
+	var row := Shimmer.new()
+	row.add_theme_constant_override("separation", 0)
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	parent.add_child(row)
+	for i in range(text.length()):
+		var letter := label(row, text[i], size, TRANSCENDENT_TONE)
+		letter.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.paint(0.0)
+	return row
+
 static func stat(parent: Node, glyph: String, text: String, color: Color = PAPER, size: int = 15, tooltip: String = "", rainbow: bool = false) -> HBoxContainer:
 	## A mark and a number, read as one thing: the way every quantity is shown.
 	var row := hbox(parent, maxi(3, size / 4))
@@ -884,6 +899,23 @@ static func shake(control: Control, strength: float = 6.0, seconds: float = 0.3)
 	tween.tween_property(control, "rotation", 0.0, 0.05)
 
 # --- gauges ----------------------------------------------------------------------------------
+
+class Shimmer extends HBoxContainer:
+	## A word whose letters run from gold through the wheel and back, slowly, for ever.
+	var _clock: float = 0.0
+	func paint(clock: float) -> void:
+		var count: int = maxi(1, get_child_count())
+		for i in range(get_child_count()):
+			var letter: Variant = get_child(i)
+			if not letter is Label:
+				continue
+			var t: float = fposmod(float(i) / float(count) * 0.6 - clock * 0.12, 1.0)
+			## Gold for the first stretch of every sweep, then the wheel, then gold again.
+			var tone: Color = DeepUi.TRANSCENDENT_TONE.lerp(DeepUi.rainbow_at(t, 0.55), smoothstep(0.0, 0.35, t) * (1.0 - smoothstep(0.75, 1.0, t)))
+			(letter as Label).add_theme_color_override("font_color", tone)
+	func _process(delta: float) -> void:
+		_clock += delta
+		paint(_clock)
 
 class Bar extends Control:
 	## A gauge that moves like one: the fill eases to its new share, a pale ghost of what was

@@ -10,7 +10,7 @@ import { heldForPatterns } from './dice.js';
 export const TIERS = ['ROUGH', 'FINE', 'PRECIOUS', 'EXQUISITE', 'PEERLESS'];
 export const TIER_NAMES = { ROUGH: 'Rough', FINE: 'Fine', PRECIOUS: 'Precious', EXQUISITE: 'Exquisite', PEERLESS: 'Peerless' };
 export const INCLUSION_SCORE = { COMMON: 2, UNCOMMON: 4, RARE: 7, LEGENDARY: 15 };
-export const RARITY_VALUE = { COMMON: 1, UNCOMMON: 1.5, RARE: 2.5, LEGENDARY: 4, MYTHIC: 8 };
+export const RARITY_VALUE = { COMMON: 1, UNCOMMON: 1.5, RARE: 2.5, LEGENDARY: 4, MYTHIC: 8, TRANSCENDENT: 16 };
 export const SIZE_CLASSES = [
 	{ key: 'TINY', name: 'Tiny', low: 1, shown: 3 }, { key: 'SMALL', name: 'Small', low: 5, shown: 7 }, { key: 'MEDIUM', name: 'Medium', low: 10, shown: 12 },
 	{ key: 'LARGE', name: 'Large', low: 15, shown: 17 }, { key: 'HUGE', name: 'Huge', low: 20, shown: 24 }];
@@ -37,6 +37,8 @@ export const isOpal = (stone) => color(stone) === C.OPAL;
 // own colour for an Alexandrite. An opal answers to none of the six unless something says so.
 export function colors(stone, socket = '') {
 	const out = [color(stone)];
+	// A gem made from several colors counts as all of them.
+	for (const also of skillOf(stone).colors || []) if (!out.includes(String(also))) out.push(String(also));
 	for (const m of modifiers(stone)) {
 		if (m.kind === 'color_also' && !out.includes(String(m.color))) out.push(String(m.color));
 		else if (m.kind === 'alexandrite' && C.COLOR_KEYS.includes(socket) && !out.includes(socket)) out.push(socket);

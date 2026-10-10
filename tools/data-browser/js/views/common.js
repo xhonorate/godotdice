@@ -10,7 +10,7 @@ export const CUT_COLORS = ['#5a4a22', '#7d652a', '#a38434', '#c9a43e', '#f0c95a'
 export const GRADE_COLORS = ['#4d4d55', '#7d652a', '#a38434', '#c9a43e', '#f0c95a'];
 // Clarity diverges from Clear: the included tail warm, the pure tail cool, Clear a neutral grey.
 export const CLARITY_COLORS = ['#c96a2a', '#c98a3e', '#b39a6a', '#6f7683', '#6f9fe0', '#3f7fe0'];
-export const RARITY_COLORS = { COMMON: '#8a93a3', UNCOMMON: '#4fae7a', RARE: '#4a8fe0', LEGENDARY: '#c98a2a', MYTHIC: '#b98fe6' };
+export const RARITY_COLORS = { COMMON: '#8a93a3', UNCOMMON: '#4fae7a', RARE: '#4a8fe0', LEGENDARY: '#c98a2a', MYTHIC: '#b98fe6', TRANSCENDENT: '#e9b94a' };
 export const CHAMBER_COLORS = { fight: '#c0463c', elite: '#8b2f2a', vein: '#c9a43e', motherlode: '#f0c95a', oddity: '#8b5fd6', merchant: '#3f7fe0', smithy: '#7f8896', carver: '#b4bcc8', well: '#3fb56b' };
 
 export const cutNames = () => C.cuts().map((c) => c.name);

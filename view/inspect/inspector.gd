@@ -122,7 +122,7 @@ static func creature(foe: Dictionary, battle: Dictionary = {}, opts: Dictionary 
 static func member(unit: Dictionary) -> void:
 	## Another player of the party, looked at: their rail, their bag and their dice, read only.
 	var tone: Color = DeepUi.INFO
-	var stone: Dictionary = DeepStone.birthstone(str(unit.get("character", "")))
+	var stone: Dictionary = DeepStone.birthstone_for(unit)
 	if not stone.is_empty():
 		tone = GemMesh.tint(stone)
 	var sheet := _begin(tone)
@@ -239,6 +239,23 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 			DeepUi.burst(root, root.get_viewport_rect().size * 0.5 - Vector2(250, 40), Color.WHITE, 40, 300.0, 1.0, 6.0)
 			if _title != null:
 				DeepUi.pulse(_title, 1.25, 0.5))
+	## A Transcendent: wave after wave of every color, the title running through the wheel,
+	## and the chord nothing else in the game is allowed to make.
+	if bool(fanfare.get("transcendent", false)):
+		DeepAudio.play("transcendent")
+		var waves := create_tween()
+		for wave in range(7):
+			waves.tween_interval(0.3 if wave > 0 else 0.45)
+			waves.tween_callback(func() -> void:
+				var area: Vector2 = root.get_viewport_rect().size
+				var at := Vector2(randf_range(0.18, 0.82) * area.x, randf_range(0.15, 0.7) * area.y)
+				DeepUi.burst(root, at, DeepUi.rainbow_at(randf(), 0.75), 70, 460.0, 1.3, 8.0)
+				DeepUi.burst(root, at, DeepUi.TRANSCENDENT_TONE, 24, 260.0, 1.0, 5.0))
+		if _title != null:
+			var glow := create_tween().set_loops()
+			glow.tween_method(func(t: float) -> void:
+				if is_instance_valid(_title):
+					_title.add_theme_color_override("font_color", DeepUi.TRANSCENDENT_TONE.lerp(DeepUi.rainbow_at(t, 0.6), 0.6)), 0.0, 1.0, 2.6)
 
 func _dismiss() -> void:
 	if not is_instance_valid(self) or is_queued_for_deletion():
@@ -467,7 +484,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		grade_pill.gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 				_open_reveal(item))
-	DeepUi.pill(tags, "spark", rarity.capitalize(), StoneCard._rarity_color(rarity), 13, "", StoneCard.is_mythic(rarity))
+	StoneCard.rarity_tag(tags, rarity, 13)
 	## What the Grubstake lent this stone, marked the way a fight's buffs are marked: the
 	## rail is a copy for the length of a run, so none of it comes home.
 	for field in ["carat", "cut", "clarity"]:
@@ -503,6 +520,11 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	_fight_buffs(does, opts.get("context", {}))
 	var mods: Array = DeepStone.modifiers(item)
 	_effect_line(does, item, mods, opts.get("context", {}))
+	## A Black Opal says what it has taken in so far this run, in the order it took them.
+	if int(skill.get("absorbs", 0)) > 0 and not reference:
+		var taken: Array = item.get("absorbed", [])
+		var said: String = "Nothing absorbed yet this run." if taken.is_empty() else "Absorbed this run: %s." % ", ".join(taken.map(func(k: Variant) -> String: return str(DeepContent.skill(str(k)).get("name", k))))
+		DeepUi.stat(does, "opal_setting", said, DeepUi.OPAL_TONE, 13)
 	StoneCard.carat_lines(does, item, opts.get("context", {}), 13)
 	if reference:
 		DeepUi.stat(does, "eye", "Written as it comes out of the rock at its plainest: one carat, a Poor cut, nothing inside. The one you find will be its own.", DeepUi.DIM, 12)

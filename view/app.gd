@@ -77,6 +77,7 @@ func _ready() -> void:
 	home.depart_requested.connect(_depart)
 	home.member_changed.connect(func(fields: Dictionary) -> void: session.update_member(fields))
 	home.mine_chosen.connect(func(mine: String) -> void: session.choose_mine(mine))
+	home.daily_chosen.connect(func(date: String) -> void: session.choose_daily(date))
 	home.host_requested.connect(_host)
 	home.join_requested.connect(_join)
 	home.steam_host_requested.connect(_host_steam)
@@ -163,22 +164,26 @@ func member() -> Dictionary:
 	var last: Dictionary = history[history.size() - 1] if not history.is_empty() else {}
 	return {"name": str(profile.get("name", DeepProfile.DEFAULT_NAME)), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
 		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")),
-		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key)}
+		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key),
+		"daily_state": DeepEconomy.daily_state(profile)}
 
 func _kit(loadout: Dictionary) -> Dictionary:
-	## What the lobby is told whenever the profile changes: who goes down, wearing what, and
-	## whether they can pay their own way.
+	## What the lobby is told whenever the profile changes: who goes down, wearing what,
+	## whether they can pay their own way, and whether today's seam would pay them.
 	var fields: Dictionary = {}
-	for key in ["character", "rail", "dice", "gold", "insured", "sockets"]:
+	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state"]:
 		fields[key] = loadout[key]
 	return fields
 
 func _refresh_home() -> void:
 	if home == null:
 		return
-	## A workshop left open past midnight (UTC) turns over to the new day's commissions.
+	## A workshop left open past midnight (UTC) turns over to the new day's commissions and
+	## shelf, and to a new seam the party is told this lapidary has not dug yet.
 	if DeepEconomy.roll_day(profile):
 		saves.save_profile(profile)
+		if str(session.local_member().get("daily_state", "")) != DeepEconomy.daily_state(profile):
+			session.update_member({"daily_state": DeepEconomy.daily_state(profile)})
 	home.refresh(profile, session.lobby, session.status, session.is_host, session.local_id, session.can_start(), settings, session.invite_code)
 
 func _profile_changed() -> void:
@@ -250,6 +255,17 @@ func _on_run_started(state: Dictionary) -> void:
 		saves.save_profile(profile)
 		if int(paid.get("paid", 0)) > 0:
 			toast("Paid %d gold for the way down" % int(paid.paid), DeepUi.ACCENT, "coin")
+	## The day's seam: every attempt is written down, and told the score to beat.
+	var attempt: Dictionary = DeepEconomy.begin_daily(profile, state)
+	if not attempt.is_empty() and not bool(attempt.get("again", false)):
+		saves.save_profile(profile)
+		if not bool(attempt.get("eligible", false)):
+			toast("Today's seam: beat the Quarry to be paid for it", DeepUi.MUTED, "calendar")
+		elif int(attempt.get("best_score", 0)) > 0:
+			toast("Today's seam: your best today is %d" % int(attempt.best_score), DeepUi.ACCENT, "calendar")
+		else:
+			toast("Today's seam: your first dig today", DeepUi.ACCENT, "calendar")
+	descent.daily_best = attempt
 	descent.bind(session.local_id, session.forecast)
 	descent.show_state(state)
 	home.visible = false
@@ -338,6 +354,14 @@ func _take_home(results: Dictionary, player_id: String) -> Dictionary:
 			Inspector.announce("A new mine", "%s is open.\n\n%s" % [str(mine.get("name", "")), str(mine.get("text", ""))], "pick", DeepUi.ACCENT_HI)
 	for purse in applied.get("purses", []):
 		toast("First conquest of %s: +%d gold" % [DeepContent.mine_name(str(purse.mine)), int(purse.gold)], DeepUi.ACCENT, "crown")
+	var dug: Dictionary = applied.get("daily", {})
+	if int(dug.get("paid", 0)) > 0:
+		toast("Today's seam: scored %d, +%d gold" % [int(dug.get("score", 0)), int(dug.paid)], DeepUi.ACCENT, "calendar")
+	elif not dug.is_empty():
+		toast("Today's seam: scored %d. Your best today is %d" % [int(dug.get("score", 0)), int(dug.get("best_score", 0))], DeepUi.MUTED, "calendar")
+	if not dug.is_empty():
+		## Today's seam is dug: the party hears where this lapidary stands now.
+		session.update_member({"daily_state": DeepEconomy.daily_state(profile)})
 	return applied
 
 func _back_home() -> void:
