@@ -692,11 +692,11 @@ func strength_heads_and_empowerment() -> void:
 	fixed(c.foe, [1])
 	var nothing: Array = turn(c)
 	check(moves_named(nothing, "Nothing").size() == 1 and int(c.foe.statuses.get("stun", 0)) == 1 and int(c.player.gold) == 10, "a 1 stuns the crab and drops ten pyrite")
-	## The Anvil Knight tempers itself on an odd roll: Strength equal to the roll.
+	## The Anvil Knight quenches itself on an odd roll: Strength equal to the roll.
 	var k: Dictionary = setup(["THE_ANVIL_KNIGHT"])
 	fixed(k.foe, [3, 4], [10, 10])
 	var temper: Array = turn(k)
-	check(moves_named(temper, "Temper").size() == 1 and int(k.foe.statuses.get("strength", 0)) == 3, "a 3 tempers it to Strength 3")
+	check(moves_named(temper, "Quench").size() == 1 and int(k.foe.statuses.get("strength", 0)) == 3, "a 3 quenches it to Strength 3")
 	check(moves_named(temper, "Bulwark").size() == 1 and int(k.foe.block) >= 20, "a 4 raises a 20-block bulwark: %d" % int(k.foe.block))
 	fixed(k.foe, [4, 2], [10, 10])
 	var hammer: Array = turn(k)

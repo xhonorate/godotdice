@@ -94,7 +94,7 @@ func _run(f: Dictionary) -> Dictionary:
 					events.append(DeepBattle.resolve_gem(state, a, int(s.socket), {"dry": dry, "retrigger": bool(s.get("retrigger", false)),
 						"scale": int(s.get("scale", 100)), "replay": bool(s.get("replay", false)), "force": bool(s.get("force", false))}, rng))
 				"birthstone":
-					events.append(DeepBattle.resolve_birthstone(state, a, {"dry": dry, "replay": bool(s.get("replay", false))}, rng))
+					events.append(DeepBattle.resolve_birthstone(state, a, {"dry": dry, "replay": bool(s.get("replay", false)), "share": int(s.get("share", 100))}, rng))
 				_:
 					events.append(DeepBattle._perform(state, s, rng, rng))
 		snaps.append(_snapshot(state, a, events))

@@ -105,7 +105,9 @@ func _test_recipes() -> void:
 	check(str(DeepAltar.recipe_for(five(["SEAM_RED", "SEAM_BLUE", "SEAM_GREEN", "SEAM_GOLD", "SEAM_WHITE"])).get("skill", "")) == "RAINBOW_SEAM",
 		"five different Seams make the Rainbow Seam")
 	check(DeepAltar.recipe_for(five(["SEAM_RED", "SEAM_RED", "SEAM_GREEN", "SEAM_GOLD", "SEAM_WHITE"])).is_empty(), "five Seams with one twice stay cold")
-	check(str(DeepAltar.recipe_for(five(["FIRE_OPAL", "DOUBLET", "MATRIX", "ECHO", "PRELUDE"])).get("skill", "")) == "BLACK_OPAL", "the five other opals make the Black Opal")
+	check(str(DeepAltar.recipe_for(five(["PINFIRE", "DOUBLET", "MATRIX", "ECHO", "PRELUDE"])).get("skill", "")) == "BLACK_OPAL", "the five other opals make the Black Opal")
+	check(str(DeepAltar.recipe_for(five(["FIRE_OPAL", "DOUBLET", "MATRIX", "ECHO", "PRELUDE"])).get("skill", "")) != "BLACK_OPAL", "and Fire Opal is no longer one of them: Pinfire took its place")
+	check(str(DeepAltar.recipe_for(five(["LODESTONE", "CRESCENDO", "BARRAGE", "AEGIS", "DREAD"])).get("skill", "")) == "PROCESSION", "Lodestone and Crescendo, straight gems now, can make Procession")
 	check(str(DeepAltar.recipe_for(five(["CRUSH", "SAP", "BASTION", "SHATTER", "JACKPOT"])).get("skill", "")) == "QUINTESSENCE", "the three-of-a-kind gems make Quintessence")
 	check(str(DeepAltar.recipe_for(five(["CLEAVE", "GUARD", "VENOM", "TITHE", "CASCADE"])).get("skill", "")) == "GEMINI", "the common pair gems make Gemini")
 	check(str(DeepAltar.recipe_for(five(["STRIKE", "RIPOSTE", "SIPHON", "MIASMA", "PRISM"])).get("skill", "")) == "CERTAINTY", "the any-hand gems make Certainty")

@@ -1,6 +1,6 @@
 # Skill gem catalogue and future work
 
-Updated September 24, 2026 from [content/deep_cut.json](content/deep_cut.json). The current pack contains **66 skill gems: 55 standard gems and 11 Mythic Opals**. Standard gems are tiered as a pyramid — **21 Common, 17 Uncommon, 13 Rare, 4 Legendary** (rebalanced October 6, 2026; previously 12 / 18 / 20 / 4). The six character Birthstones are separate. All requested gem revisions and the ten additions below are implemented.
+Updated October 11, 2026 from [content/deep_cut.json](content/deep_cut.json). The current pack contains **103 skill gems: 89 standard gems and 14 Mythic Opals**, after the 37 October 2026 additions listed below their colour tables (26 Common, 32 Uncommon, 26 Rare, 5 Legendary among the standard gems). Standard gems are tiered as a pyramid — **21 Common, 17 Uncommon, 13 Rare, 4 Legendary** (rebalanced October 6, 2026; previously 12 / 18 / 20 / 4). The six character Birthstones are separate. All requested gem revisions and the ten additions below are implemented.
 
 | Color  | Role        | Skills |
 | ------ | ----------- | -----: |
@@ -117,7 +117,53 @@ Formulas are base values before ordinary carat/inclusion scaling. **Flawless als
 | Matrix      | Mythic | Always                                                                                              | The first 1/2/3/4/5 gems that stayed dark this turn fire anyway. Last in the rail it hears them all.                                               | However many of them there are.                 |
 | Prelude     | Mythic | ≥5/4/3/2/1 distinct values                                                                          | The next gem fires 1/1/1/1/2 extra times. Last in the rail, that is the Birthstone.                                                                | And once more after that.                       |
 
-## Character Birthstones — separate from the 66 skill gems
+## October 2026 additions — 37 gems
+
+Approved over four review rounds in October 2026 and built from that spec. Each has its own emblem in `view/gems/gem_icons.gd`; the mine column is where it is first found (see [docs/MINES.md](docs/MINES.md)). Opals are found in Warden hoards.
+
+| Gem | Colour | Rarity | Mine | Trigger / Cut ladder | Base effect | Flawless card line |
+| --- | --- | --- | --- | --- | --- | --- |
+| Crest | Red | Uncommon | Geode | ≥3/2/2/1/1 crowns | Damage 2/2/3/3/4 times the total of your crowns. | Each crown also pays its value in Pyrite. |
+| Grudge | Red | Rare | Rift | Always | Deal damage worth 25/35/50/65/80% of your missing health. | Heal a quarter of the damage dealt. |
+| Hone | Red | Uncommon | Furnace | ≥5/4/3/2/1 distinct values | Deal 4 damage, plus 1 for every time it has fired this run. | It grows by 2 each time. |
+| Flurry | Red | Uncommon | Seeps | Pair valued ≥5/4/3/2/1 | Deal 2 damage, once for every point of the pair's value. | 3 damage a hit. |
+| Temper | Red | Rare | Seeps | At least one die ≥20/18/16/14/12 | Gain 1 Strength: every hit you deal does 1 more for the rest of the fight. | 2 Strength. |
+| Bloodletting | Red | Uncommon | Rift | ≥5/4/3/2/1 even dice | Lose 3 HP. The next gem is amplified by 50%. | Amplified by 75%. |
+| Crescendo | Red | Rare | Glass Veins | Straight of ≥5/4/4/3/3 dice | Deal damage equal to 30/30/40/40/50% of the Resonance your rail has built this fight. | Gain Charged equal to 10% of the damage dealt. |
+| Caltrop | Blue | Common | Quarry | ≥5/4/3/2/1 odd dice | Gain 1 Spikes for every odd die. | Then gain Block equal to your Spikes. |
+| Bezel | Blue | Uncommon | Furnace | Two pair valued ≥5/4/3/2/1 | Gain Block equal to both pair values. Every ally gains 1 Ward. | 2 Ward each. |
+| Hardening | Blue | Uncommon | Quarry | ≥5/4/3/2/1 distinct values | Gain 4 Block, plus 1 for every time it has fired this run. | It grows by 2 each time. |
+| Bash | Blue | Uncommon | Quarry | Best die ≥95/90/85/80/70% of its top | Deal damage equal to half your Block. | Deal your whole Block instead. |
+| Fortify | Blue | Rare | Rift | Full house, triple valued ≥5/4/3/2/1 | Gain Block equal to half your Block. | Gain your whole Block again. |
+| Chainmail | Blue | Rare | Furnace | Pair valued ≥5/4/3/2/1 | For the rest of this turn, every gem that fires after it gives you 2 Block. | Each of those gems also gives you 1 Spikes. |
+| Rebound | Blue | Uncommon | Furnace | ≥5/4/3/2/1 low dice (half their top or less) | For the rest of this turn, each time you gain Block, deal 3 damage to the target. | Hits every enemy. |
+| Lichen | Green | Common | Seeps | ≥5/4/3/2/1 dice kept | Gain 2 Regeneration. | Gain 1 more Regeneration for every die you kept. |
+| Wellspring | Green | Uncommon | Geode | Total ≥80/75/70/65/60% of hand maximum | Heal half your dice total. Healing past full health becomes Block. | Heal your whole dice total instead. |
+| Thirst | Green | Uncommon | Rift | Always | Heal 10/15/20/25/30% of the damage you have dealt this turn. | Healing past full health is dealt as damage to the target. |
+| Heartwood | Green | Rare | Rift | Four of a kind valued ≥5/4/3/2/1 | Gain 3 max HP for the rest of the run, and heal 3. | Then deal damage equal to 10% of your max HP. |
+| Petrify | Violet | Rare | Rift | Four of a kind valued ≥5/4/3/2/1 | Deal damage equal to the four matched dice, and stun the target. | Stun every enemy. |
+| Confluence | Violet | Rare | Warrens | ≥5/4/3/2/1 low dice (half their top or less) | Move every enemy's Poison onto the target. Its Poison ticks once. | It ticks twice. |
+| Ferment | Violet | Rare | Warrens | ≥5/4/3/2/1 odd dice | Add 30% to the target's Poison. | Add 40% instead. |
+| Hemlock | Violet | Uncommon | Geode | ≥5/4/3/2/1 even dice | Gain Poison equal to your highest die. Then every enemy gains twice your Poison. | Three times your Poison instead. |
+| Arsenic | Violet | Rare | Seeps | Two pair valued ≥5/4/3/2/1 | For the rest of the fight, every hit that gets past Block also applies 1 Poison. | 2 Poison a hit instead. |
+| Contagion | Violet | Uncommon | Warrens | At least one die ≤1/2/3/4/5 | For the rest of this turn, every gem that fires after it applies 1 Poison to the target. | To every enemy. |
+| Placer | Gold | Rare | Quarry | A creature has died this turn | Each creature that has died this turn has a 15/20/25/30/40% chance to drop a raw stone. | Its stones are rolled with an elite's luck. |
+| Dividend | Gold | Uncommon | Seeps | ≥5/4/3/2/1 dice kept | Gain 1 Pyrite for every 10 you carry, up to 10. | Up to 20. |
+| Gilding | Gold | Uncommon | Quarry | Best die ≥95/90/85/80/70% of its top | Gild the face your highest die shows for the rest of the run: it pays Pyrite whenever it's rolled. | Also gild the face your lowest die shows. |
+| Rattle | Gold | Common | Warrens | At least one die ≤1/2/3/4/5 | Throw your lowest die again. | Throw it twice and keep the higher. |
+| Sediment | White | Uncommon | Quarry | At least one die ≤1/2/3/4/5 | Add a phantom die copying your lowest roll. | The phantom shows a 1. |
+| Overturn | White | Common | Geode | ≥4/3/2/1/0 low dice (half their top or less) | Turn your lowest die over to its opposite face. | Turn over your two lowest dice. |
+| Lodestone | White | Rare | Glass Veins | Straight of ≥4/4/4/4/4 dice | Store 10/15/20/25/30% of your Resonance as Charged. | Store 10 percentage points more. |
+| Birthright | White | Legendary | Rift | Always | Your Birthstone fires now as well, at 60/70/80/90/100% of the Resonance so far. | Twice the share. |
+| Tumble | White | Common | Quarry | Total ≤40/45/50/55/60% of hand maximum | Roll a phantom d6 into your hand. | Roll a d12 instead. |
+| Spectrum | White | Rare | Glass Veins | ≥5/4/3/2/1 distinct values | For each colour that has fired this turn: Red, 3 damage; Blue, 3 Block; Green, heal 3; Violet, 2 Poison; Gold, 2 Pyrite; White, 1 Resonance. | Count every gem that fired, not just every colour. |
+| Pinfire | Opal | Mythic | Warden hoards | Resonance ≥5/4/3/2/1 | Adds Resonance equal to the Resonance so far. | Every gem after it adds double Resonance this turn. |
+| Contra Luz | Opal | Mythic | Warden hoards | Resonance ≥5/4/3/2/1 | Roll a phantom d6. Your phantom dice stay into next turn. | Roll a phantom d20 instead. |
+| Hydrophane | Opal | Mythic | Warden hoards | Resonance ≥5/4/3/2/1 | Your smallest die gains a drop. At 3 drops it grows a size for the rest of the run. | Your smallest die shrinks a size instead, down to a d2. |
+
+New rules that came with them: Spikes last the fight for everyone; players can carry Strength; Hone and Hardening count their fires for the run (`run_counts`, kept by the run); Chainmail, Contagion and Rebound last the turn; Arsenic's Envenom lasts the fight; Bloodletting's blood is a price (`hp_cost`) that never takes the last point; a Placer's stones join the fight's spoils on a win; Hydrophane's drops are kept on the die. The creature moves that held the new names were renamed: the Glazier's Anneal, the Anvil Knight's Quench and the Drowned Choir's Requiem.
+
+## Character Birthstones — separate from the skill gems
 
 These are fixed character abilities at the end of the rail, not collectible skill entries. Resonance powers their effects; qualifying tiers can combine unless a tier is marked exclusive.
 

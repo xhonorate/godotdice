@@ -4,7 +4,7 @@ import * as Hand from './hand.js';
 
 export const KINDS = ['all_odd', 'all_even', 'always', 'pair', 'two_pair', 'triple', 'full_house', 'quad', 'quint', 'straight',
 	'odd', 'even', 'distinct', 'value', 'at_most', 'at_least', 'total_pct_at_least', 'total_pct_at_most',
-	'high_pct_at_least', 'held', 'rerolled', 'resonance', 'low_count', 'crowns', 'crowns_at_most', 'skip_straight', 'distinct_dominant', 'pyrite', 'fizzles', 'below',
+	'high_pct_at_least', 'held', 'rerolled', 'resonance', 'low_count', 'crowns', 'crowns_at_most', 'skip_straight', 'distinct_dominant', 'pyrite', 'fizzles', 'below', 'kills',
 	'each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin'];
 // The kinds a creature reads from the turn rather than from a die: each fires at most once an
 // action, on its first die (on_death never during an action: it fires when the creature dies;
@@ -166,6 +166,10 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			// Gems that stayed dark earlier this turn and have not yet paid this stone.
 			result.active = (context.fizzles | 0) >= need; result.count = context.fizzles | 0; result.value = context.fizzles | 0;
 			break;
+		case 'kills':
+			// Creatures fallen this turn, before this gem: the fight counts them, not the dice.
+			result.active = (context.kills | 0) >= Math.max(1, need); result.count = context.kills | 0; result.value = context.kills | 0;
+			break;
 		case 'resonance':
 			if ((context.resonance | 0) >= need) { result.active = true; result.value = context.resonance | 0; }
 			break;
@@ -216,7 +220,7 @@ export function label(trigger, cutStep) {
 		case 'crowns_at_most': return `≤${need}`;
 		case 'value': { const wanted = (trigger.values || [7]).join('/'); return need > 1 ? `${wanted} ×${need}` : wanted; }
 		case 'pyrite': return `≥${need} pyrite`;
-		case 'fizzles': return need > 1 ? `×${need}` : '';
+		case 'fizzles': case 'kills': return need > 1 ? `×${need}` : '';
 		case 'below': return `<${need}`;
 		case 'each_turn': return 'each action';
 		case 'every_nth_turn': return `÷${need}`;
@@ -283,6 +287,7 @@ export function words(trigger, cutStep) {
 		case 'value': return `At least ${need} ${need === 1 ? 'die' : 'dice'} showing a ${(trigger.values || [7]).join(' or ')}.`;
 		case 'pyrite': return `At least ${need} Pyrite.`;
 		case 'fizzles': return `At least ${need} ${need === 1 ? 'gem' : 'gems'} fizzled earlier this turn.`;
+		case 'kills': return `At least ${Math.max(1, need)} ${Math.max(1, need) === 1 ? 'creature has' : 'creatures have'} died this turn.`;
 		case 'below': return `At least one die showing less than ${need}.`;
 		case 'at_most': return `At least one die showing ${need} or less.`;
 		case 'at_least': return `Your highest die shows ${need} or more.`;
@@ -313,7 +318,7 @@ export const KIND_NAMES = {
 	straight: 'Straight', odd: 'Odd dice', even: 'Even dice', distinct: 'Distinct values', value: 'Specific value', at_most: 'A low die', below: 'A die below',
 	at_least: 'High die', total_pct_at_least: 'Total ≥ % of max', total_pct_at_most: 'Total ≤ % of max', high_pct_at_least: 'Die ≥ % of its top',
 	held: 'Held dice', rerolled: 'Rerolled dice', resonance: 'Resonance', low_count: 'Low dice', crowns: 'Crowns', crowns_at_most: 'Few crowns',
-	skip_straight: 'Skip straight', distinct_dominant: 'Dominant high die', pyrite: 'Pyrite in hand', fizzles: 'Earlier fizzles', all_odd: 'All odd', all_even: 'All even',
+	skip_straight: 'Skip straight', distinct_dominant: 'Dominant high die', pyrite: 'Pyrite in hand', fizzles: 'Earlier fizzles', kills: 'Kills this turn', all_odd: 'All odd', all_even: 'All even',
 	each_turn: 'Each action', every_nth_turn: 'Every nth action', emerge: 'When it comes up', on_death: 'When it dies',
 	hp_below: 'Health falls to', action_begin: 'Action opens',
 };

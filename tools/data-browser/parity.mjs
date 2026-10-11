@@ -31,7 +31,10 @@ C.setPack(JSON.parse(await readFile(path.join(ROOT, 'content', 'deep_cut.json'),
 
 // Live fixtures queue replays for real, so they keep to stones that never roll for a proc:
 // one carat, no Flawless, nothing that changes a stone's weight mid-rail, no coin.
-const LIVE_SKIP_SKILLS = ['ENRICH', 'FIRE_OPAL', 'STAKE', 'DOUBLE_DOWN', 'POLISH'];
+const LIVE_SKIP_SKILLS = ['ENRICH', 'FIRE_OPAL', 'STAKE', 'DOUBLE_DOWN', 'POLISH',
+	// Bloodletting changes the next gem's weight, as Stake does; the rest throw dice of their
+	// own (the two RNGs are not the same) or wait for a kill.
+	'BLOODLETTING', 'TUMBLE', 'CONTRA_LUZ', 'RATTLE', 'PLACER'];
 const LIVE_SKIP_INCLUSIONS = ['FRACTURE', 'BRUISE', 'KNOT', 'CAVITY', 'CHIP', 'HALO', 'VOID'];
 
 function fixtures(count, seed) {
@@ -109,7 +112,7 @@ function playDry(state, unit, rng) {
 	while (state.queue.length) {
 		const s = state.queue.shift();
 		if (s.kind === 'gem') events.push(Fight.resolveGem(state, unit, s.socket, { dry: true, retrigger: Boolean(s.retrigger), scale: s.scale ?? 100 }, rng));
-		else if (s.kind === 'birthstone') events.push(Fight.resolveBirthstone(state, unit, { dry: true, replay: Boolean(s.replay) }, rng));
+		else if (s.kind === 'birthstone') events.push(Fight.resolveBirthstone(state, unit, { dry: true, replay: Boolean(s.replay), share: s.share ?? 100 }, rng));
 		else events.push(Fight.perform(state, s, rng));
 	}
 	return events;

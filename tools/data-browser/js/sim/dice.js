@@ -164,6 +164,23 @@ export function etch(die, index, kind) {
 	return true;
 }
 
+// The die, in place, `steps` sizes bigger or smaller (sim/oddities.gd resize): it keeps its id,
+// material and every etching that still has a face, and a face worked past the pattern stays.
+export function resize(die, steps) {
+	const at = TIERS.indexOf(die.shape);
+	if (at < 0 || at + steps < 0 || at + steps >= TIERS.length) return 'that die cannot change size that far';
+	const had = (die.faces || []).map((f) => ({ ...f }));
+	const own = String(die.name || '');
+	const made = make(TIERS[at + steps], die.id, { pattern: die.pattern || '', material: die.material || '', name: own && !SHAPES[own.toUpperCase()] ? own : '' });
+	for (let index = 0; index < Math.min(had.length, made.faces.length); index++) {
+		made.faces[index].kind = had[index].kind || 'plain';
+		made.faces[index].value = Math.max(made.faces[index].value | 0, had[index].value | 0);
+	}
+	for (const key of Object.keys(die)) delete die[key];
+	Object.assign(die, made);
+	return '';
+}
+
 export function etchings(die) {
 	return (die.faces || []).map((f, index) => ({ face: index, kind: f.kind || 'plain' })).filter((e) => e.kind !== 'plain');
 }
@@ -235,7 +252,8 @@ export function reroll(hand, dice, dieIds, rng) {
 	const byId = new Map(dice.map((d) => [d.id, d]));
 	const out = [];
 	for (const roll of hand) {
-		if (roll.phantom) continue;
+		// A phantom a Contra Luz carried over stays as it is; any other belonged to the hand that is going.
+		if (roll.phantom) { if (roll.kept) out.push({ ...roll }); continue; }
 		if (dieIds.has(roll.die_id) && !roll.locked && byId.has(roll.die_id)) out.push(rollOne(byId.get(roll.die_id), rng, (roll.rerolls | 0) + 1));
 		else out.push({ ...roll, held: true, climbed: false, shattered: false });
 	}

@@ -608,6 +608,272 @@
         ]
       }
     },
+    "CREST": {
+      "name": "Crest",
+      "color": "RED",
+      "rarity": "UNCOMMON",
+      "tags": ["crowns", "attack"],
+      "text": "Damage {mult} times the total of your crowns.",
+      "numbers": {
+        "mult": {
+          "ladder": [2, 2, 3, 3, 4]
+        }
+      },
+      "trigger": {
+        "kind": "crowns",
+        "ladder": [3, 2, 2, 1, 1]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "*",
+            "args": [
+              {
+                "term": "crown_total"
+              },
+              {
+                "ladder": [2, 2, 3, 3, 4]
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Each crown also pays its value in Pyrite.",
+        "effects": [
+          {
+            "kind": "gold",
+            "amount": {
+              "term": "crown_total"
+            }
+          }
+        ]
+      }
+    },
+    "GRUDGE": {
+      "name": "Grudge",
+      "color": "RED",
+      "rarity": "RARE",
+      "tags": ["always", "attack", "blood"],
+      "text": "Deal damage worth {share}% of your missing health.",
+      "numbers": {
+        "share": {
+          "ladder": [25, 35, 50, 65, 80]
+        }
+      },
+      "trigger": {
+        "kind": "always",
+        "ladder": [1, 1, 1, 1, 1]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "pct",
+            "args": [
+              {
+                "term": "hp_missing"
+              },
+              {
+                "ladder": [25, 35, 50, 65, 80]
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Heal a quarter of the damage dealt.",
+        "effects": [
+          {
+            "kind": "heal",
+            "amount": 25,
+            "from_result": "damage",
+            "scale": "none"
+          }
+        ]
+      }
+    },
+    "HONE": {
+      "name": "Hone",
+      "color": "RED",
+      "rarity": "UNCOMMON",
+      "tags": ["distinct", "attack", "growth"],
+      "text": "Deal 4 damage, plus 1 for every time it has fired this run.",
+      "trigger": {
+        "kind": "distinct",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "+",
+            "args": [
+              4,
+              {
+                "term": "run_fires"
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "It grows by 2 each time.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": {
+              "op": "+",
+              "args": [
+                4,
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "term": "run_fires"
+                    },
+                    2
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "FLURRY": {
+      "name": "Flurry",
+      "color": "RED",
+      "rarity": "UNCOMMON",
+      "tags": ["pair", "attack", "hits"],
+      "text": "Deal 2 damage, once for every point of the pair's value.",
+      "trigger": {
+        "kind": "pair",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": 2,
+          "repeat": {
+            "term": "value"
+          }
+        }
+      ],
+      "flawless": {
+        "text": "3 damage a hit.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 3
+          }
+        ]
+      }
+    },
+    "TEMPER": {
+      "name": "Temper",
+      "color": "RED",
+      "rarity": "RARE",
+      "tags": ["high", "strength"],
+      "text": "Gain 1 Strength: every hit you deal does 1 more for the rest of the fight.",
+      "trigger": {
+        "kind": "at_least",
+        "ladder": [20, 18, 16, 14, 12]
+      },
+      "effects": [
+        {
+          "kind": "strength",
+          "target": "self",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "2 Strength.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 2
+          }
+        ]
+      }
+    },
+    "BLOODLETTING": {
+      "name": "Bloodletting",
+      "color": "RED",
+      "rarity": "UNCOMMON",
+      "tags": ["even", "cost", "blood"],
+      "text": "Lose 3 HP. The next gem is amplified by 50%.",
+      "trigger": {
+        "kind": "even",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "amplify_next",
+          "amount": 50,
+          "scale": "carat",
+          "hp_cost": 3
+        }
+      ],
+      "flawless": {
+        "text": "Amplified by 75%.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 75
+          }
+        ]
+      }
+    },
+    "CRESCENDO": {
+      "name": "Crescendo",
+      "color": "RED",
+      "rarity": "RARE",
+      "tags": ["straight", "resonance", "attack"],
+      "text": "Deal damage equal to {share}% of the Resonance your rail has built this fight.",
+      "numbers": {
+        "share": {
+          "ladder": [30, 30, 40, 40, 50]
+        }
+      },
+      "trigger": {
+        "kind": "straight",
+        "ladder": [5, 4, 4, 3, 3]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "pct",
+            "args": [
+              {
+                "term": "fight_resonance"
+              },
+              {
+                "ladder": [30, 30, 40, 40, 50]
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Gain Charged equal to 10% of the damage dealt.",
+        "effects": [
+          {
+            "kind": "charged",
+            "amount": 10,
+            "from_result": "damage",
+            "scale": "none"
+          }
+        ]
+      }
+    },
     "GUARD": {
       "name": "Guard",
       "color": "BLUE",
@@ -953,6 +1219,256 @@
         }
       }
     },
+    "CALTROP": {
+      "name": "Caltrop",
+      "color": "BLUE",
+      "rarity": "COMMON",
+      "tags": ["odd", "guard", "spikes"],
+      "text": "Gain 1 Spikes for every odd die.",
+      "trigger": {
+        "kind": "odd",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "spikes",
+          "amount": {
+            "term": "count"
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Then gain Block equal to your Spikes.",
+        "effects": [
+          {
+            "kind": "block",
+            "amount": 100,
+            "of_status": "spikes",
+            "scale": "none"
+          }
+        ]
+      }
+    },
+    "BEZEL": {
+      "name": "Bezel",
+      "color": "BLUE",
+      "rarity": "UNCOMMON",
+      "tags": ["two_pair", "guard", "party"],
+      "text": "Gain Block equal to both pair values. Every ally gains 1 Ward.",
+      "trigger": {
+        "kind": "two_pair",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "block",
+          "amount": {
+            "op": "+",
+            "args": [
+              {
+                "term": "value"
+              },
+              {
+                "term": "second"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ward",
+          "target": "allies",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "2 Ward each.",
+        "modify": [
+          {
+            "effect": 1,
+            "amount": 2
+          }
+        ]
+      }
+    },
+    "HARDENING": {
+      "name": "Hardening",
+      "color": "BLUE",
+      "rarity": "UNCOMMON",
+      "tags": ["distinct", "guard", "growth"],
+      "text": "Gain 4 Block, plus 1 for every time it has fired this run.",
+      "trigger": {
+        "kind": "distinct",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "block",
+          "amount": {
+            "op": "+",
+            "args": [
+              4,
+              {
+                "term": "run_fires"
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "It grows by 2 each time.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": {
+              "op": "+",
+              "args": [
+                4,
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "term": "run_fires"
+                    },
+                    2
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "BASH": {
+      "name": "Bash",
+      "color": "BLUE",
+      "rarity": "UNCOMMON",
+      "tags": ["high", "guard", "attack"],
+      "text": "Deal damage equal to half your Block.",
+      "trigger": {
+        "kind": "high_pct_at_least",
+        "ladder": [95, 90, 85, 80, 70]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "pct",
+            "args": [
+              {
+                "term": "block"
+              },
+              50
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Deal your whole Block instead.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": {
+              "term": "block"
+            }
+          }
+        ]
+      }
+    },
+    "FORTIFY": {
+      "name": "Fortify",
+      "color": "BLUE",
+      "rarity": "RARE",
+      "tags": ["full_house", "guard"],
+      "text": "Gain Block equal to half your Block.",
+      "trigger": {
+        "kind": "full_house",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "block",
+          "amount": {
+            "op": "pct",
+            "args": [
+              {
+                "term": "block"
+              },
+              50
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Gain your whole Block again.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": {
+              "term": "block"
+            }
+          }
+        ]
+      }
+    },
+    "CHAINMAIL": {
+      "name": "Chainmail",
+      "color": "BLUE",
+      "rarity": "RARE",
+      "tags": ["pair", "guard", "turn"],
+      "text": "For the rest of this turn, every gem that fires after it gives you 2 Block.",
+      "trigger": {
+        "kind": "pair",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "each_after",
+          "gift": "block",
+          "amount": 2,
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Each of those gems also gives you 1 Spikes.",
+        "effects": [
+          {
+            "kind": "each_after",
+            "gift": "spikes",
+            "amount": 1,
+            "scale": "carat"
+          }
+        ]
+      }
+    },
+    "REBOUND": {
+      "name": "Rebound",
+      "color": "BLUE",
+      "rarity": "UNCOMMON",
+      "tags": ["low", "guard", "attack", "turn"],
+      "text": "For the rest of this turn, each time you gain Block, deal 3 damage to the target.",
+      "trigger": {
+        "kind": "low_count",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "on_block",
+          "target": "enemy",
+          "amount": 3,
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Hits every enemy.",
+        "modify": [
+          {
+            "effect": 0,
+            "target": "enemies"
+          }
+        ]
+      }
+    },
     "MEND": {
       "name": "Mend",
       "color": "GREEN",
@@ -1253,6 +1769,148 @@
         "share": {
           "ladder": [20, 30, 40, 50, 60]
         }
+      }
+    },
+    "LICHEN": {
+      "name": "Lichen",
+      "color": "GREEN",
+      "rarity": "COMMON",
+      "tags": ["held", "sustain"],
+      "text": "Gain 2 Regeneration.",
+      "trigger": {
+        "kind": "held",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "regeneration",
+          "amount": 2
+        }
+      ],
+      "flawless": {
+        "text": "Gain 1 more Regeneration for every die you kept.",
+        "effects": [
+          {
+            "kind": "regeneration",
+            "amount": {
+              "term": "held"
+            }
+          }
+        ]
+      }
+    },
+    "WELLSPRING": {
+      "name": "Wellspring",
+      "color": "GREEN",
+      "rarity": "UNCOMMON",
+      "tags": ["total", "sustain", "guard"],
+      "text": "Heal half your dice total. Healing past full health becomes Block.",
+      "trigger": {
+        "kind": "total_pct_at_least",
+        "ladder": [80, 75, 70, 65, 60]
+      },
+      "effects": [
+        {
+          "kind": "heal",
+          "amount": {
+            "op": "floor_div",
+            "args": [
+              {
+                "term": "total"
+              },
+              2
+            ]
+          },
+          "overflow": "block"
+        }
+      ],
+      "flawless": {
+        "text": "Heal your whole dice total instead.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": {
+              "term": "total"
+            }
+          }
+        ]
+      }
+    },
+    "THIRST": {
+      "name": "Thirst",
+      "color": "GREEN",
+      "rarity": "UNCOMMON",
+      "tags": ["always", "sustain"],
+      "text": "Heal {share}% of the damage you have dealt this turn.",
+      "numbers": {
+        "share": {
+          "ladder": [10, 15, 20, 25, 30]
+        }
+      },
+      "trigger": {
+        "kind": "always",
+        "ladder": [1, 1, 1, 1, 1]
+      },
+      "effects": [
+        {
+          "kind": "heal",
+          "amount": {
+            "op": "pct",
+            "args": [
+              {
+                "term": "dealt"
+              },
+              {
+                "ladder": [10, 15, 20, 25, 30]
+              }
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Healing past full health is dealt as damage to the target.",
+        "modify": [
+          {
+            "effect": 0,
+            "overflow": "damage"
+          }
+        ]
+      }
+    },
+    "HEARTWOOD": {
+      "name": "Heartwood",
+      "color": "GREEN",
+      "rarity": "RARE",
+      "tags": ["quad", "sustain", "growth"],
+      "text": "Gain 3 max HP for the rest of the run, and heal 3.",
+      "trigger": {
+        "kind": "quad",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "max_hp",
+          "amount": 3,
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Then deal damage equal to 10% of your max HP.",
+        "effects": [
+          {
+            "kind": "damage",
+            "target": "enemy",
+            "amount": {
+              "op": "pct",
+              "args": [
+                {
+                  "term": "max_hp"
+                },
+                10
+              ]
+            }
+          }
+        ]
       }
     },
     "HEX": {
@@ -1571,6 +2229,199 @@
           {
             "effect": 0,
             "add": 1
+          }
+        ]
+      }
+    },
+    "PETRIFY": {
+      "name": "Petrify",
+      "color": "VIOLET",
+      "rarity": "RARE",
+      "tags": ["quad", "control", "attack"],
+      "text": "Deal damage equal to the four matched dice, and stun the target.",
+      "trigger": {
+        "kind": "quad",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "damage",
+          "target": "enemy",
+          "amount": {
+            "op": "*",
+            "args": [
+              {
+                "term": "value"
+              },
+              4
+            ]
+          }
+        },
+        {
+          "kind": "stun",
+          "target": "enemy",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Stun every enemy.",
+        "modify": [
+          {
+            "effect": 1,
+            "target": "enemies"
+          }
+        ]
+      }
+    },
+    "CONFLUENCE": {
+      "name": "Confluence",
+      "color": "VIOLET",
+      "rarity": "RARE",
+      "tags": ["low", "poison"],
+      "text": "Move every enemy's Poison onto the target. Its Poison ticks once.",
+      "trigger": {
+        "kind": "low_count",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "gather_poison",
+          "target": "enemy",
+          "amount": 1
+        },
+        {
+          "kind": "poison_tick",
+          "target": "enemy",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "It ticks twice.",
+        "modify": [
+          {
+            "effect": 1,
+            "amount": 2
+          }
+        ]
+      }
+    },
+    "FERMENT": {
+      "name": "Ferment",
+      "color": "VIOLET",
+      "rarity": "RARE",
+      "tags": ["odd", "poison"],
+      "text": "Add 30% to the target's Poison.",
+      "trigger": {
+        "kind": "odd",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "grow_poison",
+          "target": "enemy",
+          "amount": 30,
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Add 40% instead.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 40
+          }
+        ]
+      }
+    },
+    "HEMLOCK": {
+      "name": "Hemlock",
+      "color": "VIOLET",
+      "rarity": "UNCOMMON",
+      "tags": ["even", "poison", "group", "cost"],
+      "text": "Gain Poison equal to your highest die. Then every enemy gains twice your Poison.",
+      "trigger": {
+        "kind": "even",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "poison",
+          "target": "self",
+          "amount": {
+            "term": "high"
+          },
+          "scale": "none"
+        },
+        {
+          "kind": "poison",
+          "target": "enemies",
+          "amount": 200,
+          "of_status": "poison",
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Three times your Poison instead.",
+        "modify": [
+          {
+            "effect": 1,
+            "amount": 300
+          }
+        ]
+      }
+    },
+    "ARSENIC": {
+      "name": "Arsenic",
+      "color": "VIOLET",
+      "rarity": "RARE",
+      "tags": ["two_pair", "poison", "hits"],
+      "text": "For the rest of the fight, every hit that gets past Block also applies 1 Poison.",
+      "trigger": {
+        "kind": "two_pair",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "envenom",
+          "target": "self",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "2 Poison a hit instead.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 2
+          }
+        ]
+      }
+    },
+    "CONTAGION": {
+      "name": "Contagion",
+      "color": "VIOLET",
+      "rarity": "UNCOMMON",
+      "tags": ["low", "poison", "turn"],
+      "text": "For the rest of this turn, every gem that fires after it applies 1 Poison to the target.",
+      "trigger": {
+        "kind": "at_most",
+        "ladder": [1, 2, 3, 4, 5]
+      },
+      "effects": [
+        {
+          "kind": "each_after",
+          "gift": "poison",
+          "target": "enemy",
+          "amount": 1,
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "To every enemy.",
+        "modify": [
+          {
+            "effect": 0,
+            "target": "enemies"
           }
         ]
       }
@@ -2016,6 +2867,146 @@
         }
       }
     },
+    "PLACER": {
+      "name": "Placer",
+      "color": "GOLD",
+      "rarity": "RARE",
+      "tags": ["kills", "fortune"],
+      "text": "Each creature that has died this turn has a {chance}% chance to drop a raw stone.",
+      "numbers": {
+        "chance": {
+          "ladder": [15, 20, 25, 30, 40]
+        }
+      },
+      "trigger": {
+        "kind": "kills",
+        "ladder": [1, 1, 1, 1, 1]
+      },
+      "effects": [
+        {
+          "kind": "stone_chance",
+          "amount": {
+            "ladder": [15, 20, 25, 30, 40]
+          },
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Its stones are rolled with an elite's luck.",
+        "modify": [
+          {
+            "effect": 0,
+            "elite": true
+          }
+        ]
+      }
+    },
+    "DIVIDEND": {
+      "name": "Dividend",
+      "color": "GOLD",
+      "rarity": "UNCOMMON",
+      "tags": ["held", "pyrite"],
+      "text": "Gain 1 Pyrite for every 10 you carry, up to 10.",
+      "trigger": {
+        "kind": "held",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "gold",
+          "amount": {
+            "op": "min",
+            "args": [
+              {
+                "op": "floor_div",
+                "args": [
+                  {
+                    "term": "pyrite"
+                  },
+                  10
+                ]
+              },
+              10
+            ]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Up to 20.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": {
+              "op": "min",
+              "args": [
+                {
+                  "op": "floor_div",
+                  "args": [
+                    {
+                      "term": "pyrite"
+                    },
+                    10
+                  ]
+                },
+                20
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "GILDING": {
+      "name": "Gilding",
+      "color": "GOLD",
+      "rarity": "UNCOMMON",
+      "tags": ["high", "dice", "growth"],
+      "text": "Gild the face your highest die shows for the rest of the run: it pays Pyrite whenever it's rolled.",
+      "trigger": {
+        "kind": "high_pct_at_least",
+        "ladder": [95, 90, 85, 80, 70]
+      },
+      "effects": [
+        {
+          "kind": "gild",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Also gild the face your lowest die shows.",
+        "modify": [
+          {
+            "effect": 0,
+            "both_ends": true
+          }
+        ]
+      }
+    },
+    "RATTLE": {
+      "name": "Rattle",
+      "color": "GOLD",
+      "rarity": "COMMON",
+      "tags": ["low", "dice"],
+      "text": "Throw your lowest die again.",
+      "trigger": {
+        "kind": "at_most",
+        "ladder": [1, 2, 3, 4, 5]
+      },
+      "effects": [
+        {
+          "kind": "rethrow",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Throw it twice and keep the higher.",
+        "modify": [
+          {
+            "effect": 0,
+            "best_of": 2
+          }
+        ]
+      }
+    },
     "GLIMMER": {
       "name": "Glimmer",
       "color": "WHITE",
@@ -2238,6 +3229,200 @@
           {
             "effect": 0,
             "scope": "all"
+          }
+        ]
+      }
+    },
+    "SEDIMENT": {
+      "name": "Sediment",
+      "color": "WHITE",
+      "rarity": "UNCOMMON",
+      "tags": ["low", "hand"],
+      "text": "Add a phantom die copying your lowest roll.",
+      "trigger": {
+        "kind": "at_most",
+        "ladder": [1, 2, 3, 4, 5]
+      },
+      "effects": [
+        {
+          "kind": "phantom_low",
+          "target": "self",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "The phantom shows a 1.",
+        "modify": [
+          {
+            "effect": 0,
+            "shows": 1
+          }
+        ]
+      }
+    },
+    "OVERTURN": {
+      "name": "Overturn",
+      "color": "WHITE",
+      "rarity": "COMMON",
+      "tags": ["low", "hand", "crowns"],
+      "text": "Turn your lowest die over to its opposite face.",
+      "trigger": {
+        "kind": "low_count",
+        "ladder": [4, 3, 2, 1, 0]
+      },
+      "effects": [
+        {
+          "kind": "flip_low",
+          "target": "self",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Turn over your two lowest dice.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 2
+          }
+        ]
+      }
+    },
+    "LODESTONE": {
+      "name": "Lodestone",
+      "color": "WHITE",
+      "rarity": "RARE",
+      "tags": ["straight", "resonance"],
+      "text": "Store {share}% of your Resonance as Charged.",
+      "numbers": {
+        "share": {
+          "ladder": [10, 15, 20, 25, 30]
+        }
+      },
+      "trigger": {
+        "kind": "straight",
+        "ladder": [4, 4, 4, 4, 4]
+      },
+      "effects": [
+        {
+          "kind": "charged",
+          "amount": {
+            "op": "pct",
+            "args": [
+              {
+                "term": "resonance"
+              },
+              {
+                "ladder": [10, 15, 20, 25, 30]
+              }
+            ]
+          },
+          "scale": "carat",
+          "resonance_cap": true
+        }
+      ],
+      "flawless": {
+        "text": "Store 10 percentage points more.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": {
+              "op": "pct",
+              "args": [
+                {
+                  "term": "resonance"
+                },
+                {
+                  "ladder": [20, 25, 30, 35, 40]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "BIRTHRIGHT": {
+      "name": "Birthright",
+      "color": "WHITE",
+      "rarity": "LEGENDARY",
+      "tags": ["always", "birthstone"],
+      "text": "Your Birthstone fires now as well, at {share}% of the Resonance so far.",
+      "numbers": {
+        "share": {
+          "ladder": [60, 70, 80, 90, 100]
+        }
+      },
+      "trigger": {
+        "kind": "always",
+        "ladder": [1, 1, 1, 1, 1]
+      },
+      "effects": [
+        {
+          "kind": "fire_birthstone",
+          "amount": {
+            "ladder": [60, 70, 80, 90, 100]
+          }
+        }
+      ],
+      "flawless": {
+        "text": "Twice the share.",
+        "modify": [
+          {
+            "effect": 0,
+            "mult": 2
+          }
+        ]
+      }
+    },
+    "TUMBLE": {
+      "name": "Tumble",
+      "color": "WHITE",
+      "rarity": "COMMON",
+      "tags": ["total", "hand"],
+      "text": "Roll a phantom d6 into your hand.",
+      "trigger": {
+        "kind": "total_pct_at_most",
+        "ladder": [40, 45, 50, 55, 60]
+      },
+      "effects": [
+        {
+          "kind": "phantom_roll",
+          "shape": "D6",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Roll a d12 instead.",
+        "modify": [
+          {
+            "effect": 0,
+            "shape": "D12"
+          }
+        ]
+      }
+    },
+    "SPECTRUM": {
+      "name": "Spectrum",
+      "color": "WHITE",
+      "rarity": "RARE",
+      "tags": ["distinct", "colour"],
+      "text": "For each colour that has fired this turn: Red, 3 damage; Blue, 3 Block; Green, heal 3; Violet, 2 Poison; Gold, 2 Pyrite; White, 1 Resonance.",
+      "trigger": {
+        "kind": "distinct",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "spectrum",
+          "amount": 100,
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Count every gem that fired, not just every colour.",
+        "modify": [
+          {
+            "effect": 0,
+            "every_gem": true
           }
         ]
       }
@@ -2564,6 +3749,94 @@
         ]
       }
     },
+    "PINFIRE": {
+      "name": "Pinfire",
+      "color": "OPAL",
+      "rarity": "MYTHIC",
+      "tags": ["opal", "resonance"],
+      "text": "Adds Resonance equal to the Resonance so far.",
+      "trigger": {
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "resonance",
+          "target": "self",
+          "amount": {
+            "term": "resonance"
+          },
+          "scale": "carat"
+        }
+      ],
+      "flawless": {
+        "text": "Every gem after it adds double Resonance this turn.",
+        "effects": [
+          {
+            "kind": "double_resonance",
+            "target": "self",
+            "amount": 1
+          }
+        ]
+      }
+    },
+    "CONTRA_LUZ": {
+      "name": "Contra Luz",
+      "color": "OPAL",
+      "rarity": "MYTHIC",
+      "tags": ["opal", "dice"],
+      "text": "Roll a phantom d6. Your phantom dice stay into next turn.",
+      "trigger": {
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "phantom_roll",
+          "shape": "D6",
+          "amount": 1
+        },
+        {
+          "kind": "keep_phantoms",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Roll a phantom d20 instead.",
+        "modify": [
+          {
+            "effect": 0,
+            "shape": "D20"
+          }
+        ]
+      }
+    },
+    "HYDROPHANE": {
+      "name": "Hydrophane",
+      "color": "OPAL",
+      "rarity": "MYTHIC",
+      "tags": ["opal", "dice", "growth"],
+      "text": "Your smallest die gains a drop. At 3 drops it grows a size for the rest of the run.",
+      "trigger": {
+        "kind": "resonance",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "soak",
+          "amount": 1
+        }
+      ],
+      "flawless": {
+        "text": "Your smallest die shrinks a size instead, down to a d2.",
+        "modify": [
+          {
+            "effect": 0,
+            "shrink": true
+          }
+        ]
+      }
+    },
     "RAINBOW_SEAM": {
       "name": "Rainbow Seam",
       "color": "OPAL",
@@ -2703,7 +3976,7 @@
         ]
       },
       "altar": {
-        "from": ["BARRAGE", "AEGIS", "RENEWAL", "DREAD", "GILDED_ARMOR"]
+        "from": ["BARRAGE", "AEGIS", "RENEWAL", "DREAD", "GILDED_ARMOR", "LODESTONE", "CRESCENDO"]
       }
     },
     "BLACK_OPAL": {
@@ -2730,7 +4003,7 @@
       },
       "absorbs": 1,
       "altar": {
-        "from": ["FIRE_OPAL", "DOUBLET", "MATRIX", "ECHO", "PRELUDE"]
+        "from": ["DOUBLET", "MATRIX", "ECHO", "PRELUDE", "PINFIRE"]
       }
     },
     "QUINTESSENCE": {
@@ -5555,7 +6828,7 @@
       "dice": ["D6", "D6", "D6"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Seeps. One large body with three drowned heads; each head is one of its dice. Below half health a pair is enough for its Crescendo.",
+      "text": "Warden of the Seeps. One large body with three drowned heads; each head is one of its dice. Below half health a pair is enough for its Requiem.",
       "moves": [
         {
           "name": "Dirge",
@@ -5587,7 +6860,7 @@
           ]
         },
         {
-          "name": "Crescendo",
+          "name": "Requiem",
           "trigger": {
             "kind": "triple",
             "amount": 1
@@ -5641,7 +6914,7 @@
               ]
             },
             {
-              "name": "Crescendo",
+              "name": "Requiem",
               "trigger": {
                 "kind": "pair",
                 "amount": 1
@@ -6155,7 +7428,7 @@
           "dramatic": true
         },
         {
-          "name": "Temper",
+          "name": "Anneal",
           "trigger": {
             "kind": "value",
             "values": [10],
@@ -7275,7 +8548,7 @@
       "dice": ["D10", "D10"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Furnace. A knight in plate armour with an anvil for a shield. Steadfast: stuns barely work on it. Every odd roll tempers it: Ward, and Strength equal to the roll for the rest of the fight.",
+      "text": "Warden of the Furnace. A knight in plate armour with an anvil for a shield. Steadfast: stuns barely work on it. Every odd roll quenches it: Ward, and Strength equal to the roll for the rest of the fight.",
       "traits": {
         "steadfast": true
       },
@@ -7315,7 +8588,7 @@
           ]
         },
         {
-          "name": "Temper",
+          "name": "Quench",
           "trigger": {
             "kind": "odd",
             "amount": 1
@@ -8372,7 +9645,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": ["STRIKE", "CLEAVE", "CRUSH", "SPALL", "EMBER", "CROSSCUT", "GUARD", "SHELTER", "ANCHOR", "TEMPO", "BULWARK", "MEND", "GRAFT", "BLOOM", "VENOM", "HEX", "MIST", "TITHE", "PROSPECT", "GLIMMER", "MIRROR", "REFRACT"],
+      "batch": ["STRIKE", "CLEAVE", "CRUSH", "SPALL", "EMBER", "CROSSCUT", "GUARD", "SHELTER", "ANCHOR", "TEMPO", "BULWARK", "MEND", "GRAFT", "BLOOM", "VENOM", "HEX", "MIST", "TITHE", "PROSPECT", "GLIMMER", "MIRROR", "REFRACT", "CASCADE", "LUCKY_SEVEN", "TAILINGS", "BASH", "HARDENING", "TUMBLE", "SEDIMENT", "PLACER", "GILDING", "CALTROP"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -8472,7 +9745,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": ["APEX", "RIPOSTE", "ETCH", "SHATTER", "WAGER", "FACET"],
+      "batch": ["APEX", "ETCH", "SHATTER", "FACET", "LICHEN", "DIVIDEND", "FLURRY", "TEMPER", "ARSENIC"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -8560,7 +9833,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": ["BARRAGE", "FURY", "AEGIS", "RENEWAL", "DREAD", "CASCADE", "GILDED_ARMOR"],
+      "batch": ["BARRAGE", "FURY", "AEGIS", "RENEWAL", "DREAD", "GILDED_ARMOR", "PRISM", "LODESTONE", "CRESCENDO", "SPECTRUM"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -8648,7 +9921,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": ["DETONATE", "SIPHON", "SAP", "MIASMA", "CURSE", "POLISH"],
+      "batch": ["DETONATE", "SIPHON", "SAP", "MIASMA", "CURSE", "POLISH", "CONFLUENCE", "FERMENT", "CONTAGION", "RATTLE"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -8738,7 +10011,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": ["BIND", "MORTAR", "THRIVE", "BASTION", "ENRICH", "LIFELINE"],
+      "batch": ["BIND", "MORTAR", "THRIVE", "BASTION", "ENRICH", "RIPOSTE", "BEZEL", "CHAINMAIL", "REBOUND", "HONE"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -8827,7 +10100,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": ["JACKPOT", "LUCKY_SEVEN", "DOUBLE_DOWN", "STAKE", "APPRAISE", "TAILINGS", "OVERKILL", "PRISM"],
+      "batch": ["JACKPOT", "DOUBLE_DOWN", "STAKE", "APPRAISE", "OVERKILL", "WAGER", "CREST", "OVERTURN", "WELLSPRING", "HEMLOCK"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {
@@ -8922,7 +10195,7 @@
         "WHITE": 100
       },
       "skills": [],
-      "batch": [],
+      "batch": ["LIFELINE", "GRUDGE", "PETRIFY", "BIRTHRIGHT", "THIRST", "BLOODLETTING", "HEARTWOOD", "FORTIFY"],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],
       "chambers": {

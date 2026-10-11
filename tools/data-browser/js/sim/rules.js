@@ -9,7 +9,8 @@ export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'tota
 	'distinct', 'held', 'rerolled', 'dice', 'count_value', 'count_at_most', 'count_at_least', 'run_high', 'run_length',
 	'set_value', 'set_count', 'sum_low', 'sum_high', 'block', 'block_lost', 'healed', 'dealt', 'hp', 'max_hp', 'hp_missing', 'gold',
 	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'high_crown', 'low_dice', 'pyrite', 'pot', 'enemy_poison', 'fizzles',
-	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'party_richest', 'turns_acted', 'living_players', 'strength'];
+	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'party_richest', 'turns_acted', 'living_players', 'strength', 'pairs', 'even_read',
+	'crown_total', 'run_fires', 'fight_resonance'];
 export const RANKS = ['carat', 'cut', 'clarity'];
 export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun', 'remove_block', 'cleanse', 'revive',
 	'curse', 'amplify_next', 'cut_step_next', 'raise_low', 'raise_high', 'set_match', 'flip_high', 'flip_low',
@@ -20,16 +21,19 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
 	'summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'strength', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
-	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action'];
+	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action',
+	'phantom_low', 'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'envenom', 'gather_poison', 'poison_tick',
+	'grow_poison', 'fire_birthstone', 'spectrum', 'stone_chance', 'double_resonance', 'keep_phantoms'];
 // The creature-only kinds: a skill or an inclusion may not use them.
-export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'strength', 'die_lock', 'steal_gold',
+export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
 	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action'];
 export const SCALED_BY_DEFAULT = ['damage', 'block', 'heal', 'gold', 'poison', 'remove_block', 'retain', 'regeneration', 'spikes', 'lifeline', 'wager', 'detonate'];
-export const DEBUFFS = ['poison', 'stun', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss',
+export const DEBUFFS = ['poison', 'stun', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss', 'gather_poison', 'grow_poison',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
 	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'hold_gem', 'bury_socket'];
 export const HOSTILE = ['damage', 'damage_curse', 'detonate', 'wager', 'poison', 'stun', 'remove_block', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss',
+	'gather_poison', 'poison_tick', 'grow_poison',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
 	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'steal_gold', 'hold_gem', 'bury_socket'];
 // What a creature's hostile effect means by "the enemy": these are turned on the party.
@@ -38,7 +42,7 @@ export const HERO_PICKS = ['hero_least_block', 'hero_most_hp', 'hero_most_gold',
 export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'downed_ally', 'hero', 'heroes', ...HERO_PICKS];
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
-	'hurt', 'add', 'flat', 'stones'];
+	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends'];
 // How an effect that works on one die or one gem chooses it, and how an absorb_color picks its colour.
 export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best', 'usable', 'showing', 'all'];
 export const ABSORB_PICKS = ['random', 'most_used'];
@@ -136,6 +140,10 @@ export function term(name, node, c) {
 		case 'party_best_turn': return c.party_best_turn | 0;
 		case 'party_richest': return c.party_richest | 0;
 		case 'strength': return (unit.statuses || {}).strength | 0;
+		case 'crown_total': return a.crown_total | 0;
+		// How often this stone has fired this run, and what the rail has rung this fight.
+		case 'run_fires': return c.run_fires | 0;
+		case 'fight_resonance': return (unit.fight_resonance | 0) + (c.resonance | 0);
 		case 'living_players': return Math.max(1, (c.living_players ?? c.party ?? 1) | 0);
 		case 'resonance': return c.resonance | 0;
 		case 'previous_amount': return c.previous_amount | 0;
@@ -202,6 +210,7 @@ export function resolveEffect(def, c, magnitude, hostileSide = 'enemy') {
 		if (['below', 'at_most'].includes(trig.kind) && !trig.forced) out.line = { kind: trig.kind, need: trig.need | 0 };
 	}
 	if ('cost' in def) out.cost = Math.max(0, amount(def.cost, c));
+	if ('hp_cost' in def) out.hp_cost = Math.max(0, amount(def.hp_cost, c));
 	for (const field of [...EFFECT_OPTIONS, 'splash', 'once', 'win_mult', 'lose_mult', 'text', 'color', 'rank']) if (field in def) out[field] = def[field];
 	return out;
 }

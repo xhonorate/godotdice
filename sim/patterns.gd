@@ -27,6 +27,7 @@ extends RefCounted
 ##   crowns_at_most      no more than the rung many crowns (Bust reads zero)
 ##   skip_straight       the rung many different values all of one parity, like 2-4-6-8-10
 ##   distinct_dominant   the rung many different values and the top die outrolling the rest combined
+##   kills               at least the rung many creatures have died this turn (the fight says how many)
 ##
 ## Creature-only kinds, read from the fight rather than the dice (the context a creature's
 ## action passes in), each firing at most once an action:
@@ -44,7 +45,7 @@ extends RefCounted
 
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
-	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "fizzles", "below",
+	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "fizzles", "below", "kills",
 	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
 ## The kinds a creature reads from the turn rather than from a die.
 const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
@@ -225,6 +226,11 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 			result.active = int(context.get("fizzles", 0)) >= need
 			result.count = int(context.get("fizzles", 0))
 			result.value = int(context.get("fizzles", 0))
+		"kills":
+			## Creatures fallen this turn, before this gem: the fight counts them, not the dice.
+			result.active = int(context.get("kills", 0)) >= maxi(1, need)
+			result.count = int(context.get("kills", 0))
+			result.value = int(context.get("kills", 0))
 		"resonance":
 			if int(context.get("resonance", 0)) >= need:
 				result.active = true
@@ -321,6 +327,9 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 			label = "÷%d" % need
 		"on_death":
 			mark = "skull"
+		"kills":
+			mark = "skull"
+			label = "×%d" % need if need > 1 else ""
 		"hp_below":
 			mark = "skull"
 			label = "≤%d%%" % need
@@ -366,6 +375,7 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 			return "At least %d %s showing a %s." % [need, "die" if need == 1 else "dice", names]
 		"pyrite": return "At least %d Pyrite." % need
 		"fizzles": return "At least %d %s fizzled earlier this turn." % [need, "gem" if need == 1 else "gems"]
+		"kills": return "At least %d %s died this turn." % [maxi(1, need), "creature has" if maxi(1, need) == 1 else "creatures have"]
 		"below": return "At least one die showing less than %d." % need
 		"at_most": return "At least one die showing %d or less." % need
 		"at_least": return "Your highest die shows %d or more." % need

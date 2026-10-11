@@ -4,7 +4,7 @@ Updated September 24, 2026 after implementing the status changes and gem/enemy i
 
 The game already has a strong **Balatro-style combo engine**: copying, retriggers, multipliers, hand manipulation, and escalating gem strength. The new statuses add **Slay the Spire-style defensive planning**, softer enemy control, and effects that connect one turn to the next.
 
-**Implemented:** stacking Dread, enemy Clouded, Combo Breaker, Ward, Retain, stack-based Curse, Charged Battery, Marked, Regeneration, Spikes, and Dulled. Current Curse/Dread gems use the new rules, and all Wardens—including the Foreman—start each fight with **1 Ward**. The revised gem sources and eight enemy integrations below are live. The pack contains **66 skill gems**. Lifeline, permanent run upgrades, temporary gem ranks, paid Gold effects and the approved additions are also live; see [Todo.md](Todo.md) for the complete catalogue.
+**Implemented:** stacking Dread, enemy Clouded, Combo Breaker, Ward, Retain, stack-based Curse, Charged Battery, Marked, Regeneration, Spikes, and Dulled. Current Curse/Dread gems use the new rules, and all Wardens—including the Foreman—start each fight with **1 Ward**. The revised gem sources and eight enemy integrations below are live. The pack contains **103 skill gems** (37 added in October 2026, see [Todo.md](Todo.md)). Lifeline, permanent run upgrades, temporary gem ranks, paid Gold effects and the approved additions are also live; see [Todo.md](Todo.md) for the complete catalogue.
 
 ## Existing combat buffs and debuffs
 
@@ -70,7 +70,7 @@ Statuses can affect players or enemies where their mechanics apply. Charged Batt
 | **Retain** | Preserves up to N unspent Block when that unit's Block would reset. Does not generate Block. | Grants add, retaining the originally proposed **20-point cap**. Consumed at the next reset. Players reset at turn start; enemies at enemy-side action start. | Flawless Bulwark grants half its gained Block; Mortar grants 10/15/20/25/30% of current Block (+10 percentage points Flawless); Flawless Bastion grants 4 per ally; Quartz Golem’s Harden grants 3. |
 | **Charged Battery** | At the next player turn start, consumes all Charged stacks and sets starting Resonance to that amount. A count-up animation and pulse show the transfer; allies get a floating notification. Forecasts and rail start preserve the charged starting value. | No cap. Applications add. Charge is spent at turn start even if Stun later prevents that rail from acting. It does not carry forward a second time. | Flawless Prism grants 2; Flawless Bloom grants 1 per odd die to each ally. |
 | **Regeneration** | Heals HP equal to stacks at shared turn end, **after Poison**, then loses 1 stack. Cannot exceed max HP or revive a unit killed by Poison. | No cap. Applications add; loses 1 even if already at full HP. Clears after combat. | Flawless Mend grants 2; Silt Slime’s Reknit grants 2 on a maximum face. |
-| **Spikes** | Retaliates for N hit damage once per attacking gem firing/Birthstone/ability, including blocked hits. A multi-hit ability triggers it once per defender. Retaliation can be blocked and modified by Curse and enemy Enrage. | No cap. Applications add; expires at the owner's next Block reset. Retaliation cannot trigger Spikes/reflection recursively or consume Marked. A party-wide triggering hit finishes hitting everyone before combat settles. | Flawless Anchor grants 2; Glass Wyrm’s Coil grants 2. Former proposal name: Bristles. |
+| **Spikes** | Retaliates for N hit damage once per attacking gem firing/Birthstone/ability, including blocked hits. A multi-hit ability triggers it once per defender. Retaliation can be blocked and modified by Curse and enemy Enrage. | No cap. Applications add; lasts the fight (until October 2026 it expired at the owner's next Block reset). Retaliation cannot trigger Spikes/reflection recursively or consume Marked. A party-wide triggering hit finishes hitting everyone before combat settles. | Caltrop (1 per odd die); Flawless Chainmail (1 per later gem); Flawless Anchor grants 2; Glass Wyrm’s Coil grants 2. Former proposal name: Bristles. |
 | **Lifeline** | Before lethal damage downs the bearer, consumes every stack and restores that much HP, up to maximum HP. Works against direct hits, Poison and retaliation. Flawless applications also store revival Block. | No cap or decay; lasts this fight. Reapplications add. Cannot rescue an ally already downed before application. Other statuses remain after rescue. | Lifeline grants matched value to each living ally. |
 | **Clarity growth** | Raises affected gems’ effective Clarity, including its Resonance, magnitude and Flawless line. Preserves existing inclusions and stored stone values. | Adds for this fight, capped at Flawless. | Polish grants adjacent gems +1; Flawless affects all gems. |
 | **Maximum HP growth** | Raises current and maximum HP by 1 per proc (heavier stones proc more). | Each Flawless firing; lasts this run without changing the stored collection. | Thrive, requiring a highest roll of 12/11/10/9/8. |
@@ -92,6 +92,16 @@ These are immediate actions, rather than buffs with a duration, but they define 
 | **Poison conversion** | Heals the weakest ally for 20/30/40/50/60% of all living enemy Poison without consuming it; Flawless heals all allies. | Siphon. |
 | **Accelerate Poison** | Immediately ticks existing enemy Poison, including its normal one-stack decay and Rue's healing trigger. | Rue's Draught and Dregs. |
 
+## Statuses and turn effects added with the October 2026 gems
+
+| Effect | What it does | Rules | Sources |
+| --- | --- | --- | --- |
+| **Envenomed** | Every hit its owner lands that gets past Block also applies that much Poison. | Lasts the fight; stacks add. A hit the Block soaks entirely applies nothing. | Arsenic (1, Flawless 2). |
+| **Chainmail / Contagion** | For the rest of the turn every gem that fires after it (the Birthstone and replays included) gives its owner Block or Spikes, or poisons the target. | Cleared as the next turn begins. | Chainmail, Contagion. |
+| **Rebound** | For the rest of the turn, each time its owner gains Block the target takes a hit. | Block an ally gives counts. Cleared as the next turn begins. | Rebound. |
+| **Phantoms kept** | This turn's phantom dice stay in the hand into the next, showing what they showed. | Only while the opal keeps firing. | Contra Luz. |
+| **Drops** | A die soaks drops; at three it is a size bigger (smaller on a Flawless stone) for the rest of the run. | Kept on the die across fights; stops at the d100 or the d2. | Hydrophane. |
+
 ## Creature traits from the Bestiary (October 2, revised October 5, 2026)
 
 Traits are what a creature is rather than what it rolls for (`traits` in content, `DeepCreatures.traits_for`); a phase may add or remove them. See [docs/BESTIARY.md](docs/BESTIARY.md).
@@ -102,7 +112,7 @@ Traits are what a creature is rather than what it rolls for (`traits` in content
 | **Sturdy N%** | No single hit takes more than N% of its max HP off it. | Geode Golem 25%, the Hollow Crown 15%, the Infinite Void 10%, a remembered Rift Warden 25%. |
 | **Burrowed** | Under the floor until its next action: cannot be targeted; gems aimed at it hit another creature, gems that hit every creature miss it. | Pit Mole's Dig In, the Undertow's Dive. |
 | **Refracting / Mirror / Drinking a colour** | Refracting: until its next action, half of every blow on it goes back at every player. Mirror: the next blow on it goes back whole at whoever threw it. Drinking a colour: gems of that colour do it no damage, and the block, healing or Ward they would give their owner goes to it. | Prism Golem's Refract, Echo Sprite's Mirror, the Kaleidoscope's Absorb (and Turn, a second colour). |
-| **Strength** | A point more on every blow it deals, for the fight. | Slag Hound's Howl (every creature), Root Horror's Grow (the pair), the Anvil Knight's Temper (the roll), the Assayer's Weigh (1), the Refractor (1 per new colour it sees fired). |
+| **Strength** | A point more on every blow it deals, for the fight. Players can carry it too since October 2026. | The Temper gem (1, Flawless 2), Slag Hound's Howl (every creature), Root Horror's Grow (the pair), the Anvil Knight's Quench (the roll), the Assayer's Weigh (1), the Refractor (1 per new colour it sees fired). |
 | **Weighs every gem** | While it stands no gem counts for more than N carats. | the Assayer (5). |
 | **Flees after N** | Leaves the fight after its Nth action with everything it stole; a countdown chip on it says how many actions it has left. | Glint Magpie and Gilded Magpie (4). |
 | **Escalating** | +N damage per action taken in the phase. | the Drill below 60% (+1). |
@@ -243,7 +253,7 @@ These assignments are implemented in `content/deep_cut.json`. Amounts are base v
 | **Bastion — Flawless** | **4 Retain per ally** replaces the cleanse rider. Base party Block remains. | Preserves a reserve of unspent Block for Thrive or the next enemy phase; Retain caps at 20. |
 | **Prism — Flawless** | **2 Charged** replaces the extra immediate Resonance. Base Resonance remains. | Repeated firings build a larger next-turn battery; its transfer is animated at turn start. |
 | **Mend — Flawless** | **2 Regeneration** replaces the Block rider. Base healing remains. | Adds delayed recovery; Poison ticks before Regeneration. |
-| **Anchor — Flawless** | **2 Spikes** replaces the extra 1 Block per held die. Base **2 Block per held die** remains. | Punishes each attacking ability until the next player Block reset. |
+| **Anchor — Flawless** | **2 Spikes** replaces the extra 1 Block per held die. Base **2 Block per held die** remains. | Punishes each attacking ability for the rest of the fight. |
 | **Etch — Violet / Rare** | Pair valued ≥5/4/3/2/1 by Cut; apply **2 Marked**. Flawless adds **1**. | Set up a later heavy hit; the first hit spends every mark, even if Block absorbs it. |
 | **Renewal — Flawless** | Gain **1 Ward** instead of extra Cleanse. Base healing and 1/1/2/2/3 Cleanse remain. | Definitions live in keyword hovers; Poison can still consume the entire cleanse. |
 

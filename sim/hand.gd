@@ -22,6 +22,7 @@ extends RefCounted
 ##   distinct      number of different values (wilds each count as a new one)
 ##   low_dice, low_ids     dice at or below half their own top (a wild is never low)
 ##   crowns, crown_ids     dice showing their own top face (a wild is always a crown)
+##   crown_total   what those crowns add up to (a wild counts its top)
 ##   high_crown    1 when the highest roll is itself a crown, else 0
 ##   wilds         die ids of wild rolls
 ##   ids_by_value  {value: [die ids]}, each bucket in preference order
@@ -51,6 +52,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var low_ids: Array = []
 	var crowns: int = 0
 	var crown_ids: Array = []
+	var crown_total: int = 0
 	var crown_values: Dictionary = {}
 	var showing: Dictionary = {}
 	for index in range(hand.size()):
@@ -75,6 +77,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			high_pct = 100
 			crowns += 1
 			crown_ids.append(id)
+			crown_total += top
 			continue
 		if kind == "blank":
 			continue
@@ -95,6 +98,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		if value >= top:
 			crowns += 1
 			crown_ids.append(id)
+			crown_total += value
 			crown_values[value] = true
 		## A gem may have changed the roll since it was thrown; then what it shows is what it is.
 		var shown: int = int(roll.shown) if roll.has("shown") and value == int(roll.get("counted", -1)) else value
@@ -149,7 +153,7 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size(), wild_top),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
-		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids,
+		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids, "crown_total": crown_total,
 		"high_crown": 1 if (high > 0 and crown_values.has(high)) or (high == 0 and not wilds.is_empty()) else 0,
 		"ids_by_value": ids_by_value, "bases": bases, "showing": showing}
 

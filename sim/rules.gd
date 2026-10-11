@@ -22,6 +22,9 @@ extends RefCounted
 ##   block block_lost healed dealt hp max_hp hp_missing gold pot
 ##   resonance previous_amount carat cut clarity depth turn party
 ##   crowns (dice on their top face)  high_crown (1 when the highest roll is a crown)
+##   crown_total (what the crowns add up to)
+##   run_fires (how many times this stone has fired this run, before this time)
+##   fight_resonance (every point of Resonance the rail has rung this fight, this turn's so far included)
 ##   low_dice (dice at or below half their top)
 ##   fizzles (gems that stayed dark this turn that this stone has not yet been paid for)
 ##   even_read (the even dice among those the trigger read)
@@ -38,6 +41,26 @@ extends RefCounted
 ##   ward(self, max 99) retain*(self) charged(self) regeneration*(self) spikes*(self)
 ##   clouded(enemy: one random move disabled) marked(enemy: next hit +25% per stack) dulled(enemy)
 ##   amplify_next(pct) cut_step_next raise_low raise_high set_match flip_high flip_low phantom_high
+##   phantom_low(a phantom copying the lowest roll; `shows` sets the number it shows)
+##   phantom_roll(a phantom die of `shape` thrown into the hand)  rethrow(the lowest die thrown
+##     again; `best_of` throws it that many times and keeps the highest)
+##   gild(the face the highest die shows turns Golden for good; `both_ends` the lowest as well)
+##   soak(the smallest die takes a drop; at three it grows a size for the run, or shrinks with `shrink`)
+##   each_after(for the rest of this turn every gem after it gives its owner `gift`: block, spikes or poison)
+##   on_block(for the rest of this turn every time its owner gains block, a hit on the target)
+##   envenom(self: every hit past block applies that much Poison, for the fight)  strength(self)
+##   gather_poison(enemy: every other enemy's Poison moves onto it)  poison_tick(enemy: its Poison ticks)
+##   grow_poison(enemy: its Poison grows by amount%)
+##   fire_birthstone(the Birthstone fires now as well, at amount% of the Resonance so far)
+##   spectrum(one gift for every colour that has fired this turn, at amount%; `every_gem` counts gems)
+##   stone_chance(amount% a creature fallen this turn that a raw stone drops; `elite` rolls it richer)
+##   double_resonance(every gem after it this turn rings twice as loud)  keep_phantoms(this turn's
+##     phantoms stay in the hand into the next)
+##   An effect may carry `hp_cost`: health its owner pays as the gem fires, never the last point
+##   (the gem stays dark instead), soaked by no block, like a price never swollen by weight.
+##   An effect may carry `of_status`: its amount is then that percent of the status its owner holds
+##   when it lands, so a gem can read what the effects before it have just done. A heal may carry
+##   `overflow`: block (what would heal past full is gained as block) or damage (dealt to the target).
 ##   grant_reroll retrigger_previous(pct) dice_dread(enemy) die_steal(enemy)
 ##   quality_bonus(pct) sparkle coin_flip(win_mult, lose_mult) resonance
 ##   damage_curse(enemy: amount% of its Curse stacks as damage)
@@ -97,7 +120,8 @@ const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "tota
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
-	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "turns_acted", "living_players", "strength", "pairs", "even_read"]
+	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "turns_acted", "living_players", "strength", "pairs", "even_read",
+	"crown_total", "run_fires", "fight_resonance"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
@@ -109,16 +133,19 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
 	"summon", "purge", "burrow", "festering", "scorched", "burn", "strength", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
-	"reflect", "mirror", "absorb_color", "blank_face", "roll_again", "end_action"]
+	"reflect", "mirror", "absorb_color", "blank_face", "roll_again", "end_action",
+	"phantom_low", "phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "envenom", "gather_poison", "poison_tick",
+	"grow_poison", "fire_birthstone", "spectrum", "stone_chance", "double_resonance", "keep_phantoms"]
 ## The creature-only kinds: a skill or an inclusion may not use them.
-const CREATURE_KINDS: Array = ["summon", "purge", "burrow", "festering", "scorched", "burn", "strength", "die_lock", "steal_gold",
+const CREATURE_KINDS: Array = ["summon", "purge", "burrow", "festering", "scorched", "burn", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
 	"reflect", "mirror", "absorb_color", "blank_face", "roll_again", "end_action"]
 const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block", "retain", "regeneration", "spikes", "lifeline", "wager", "detonate"]
-const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
+const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss", "gather_poison", "grow_poison",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
 	"festering", "scorched", "burn", "die_lock", "blank_face", "hold_gem", "bury_socket"]
 const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
+	"gather_poison", "poison_tick", "grow_poison",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
 	"festering", "scorched", "burn", "die_lock", "blank_face", "steal_gold", "hold_gem", "bury_socket"]
 ## What a creature's hostile effect means by "the enemy": these are turned on the party. A
@@ -137,9 +164,11 @@ const LENSES: Array = ["low_as_high", "ones_wild", "held_twice"]
 ## Polish and Facet use — also supports temporary Clarity, without changing stored
 ## inclusion slots.
 const RANK_BUFFS: Array = ["carat", "cut"]
+## What a Chainmail or a Contagion hands its owner for every gem after it.
+const EACH_AFTER_GIFTS: Array = ["block", "spikes", "poison"]
 const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode",
 	"piercing", "split_party", "pick", "creature", "pct", "permanent", "shape", "cap", "turns", "cancel_pct", "guard_pct", "store", "release",
-	"hurt", "add", "flat", "stones"]
+	"hurt", "add", "flat", "stones", "of_status", "gift", "overflow", "resonance_cap", "shows", "every_gem", "elite", "best_of", "shrink", "both_ends"]
 ## How an effect that works on one die or one gem chooses it: `showing` is the face every die
 ## lies on, `all` every die, `usable` the finest gem a creature could fire itself.
 const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best", "usable", "showing", "all"]
@@ -298,6 +327,10 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"party_best_turn": return int(c.get("party_best_turn", 0))
 		"party_richest": return int(c.get("party_richest", 0))
 		"strength": return int(unit.get("statuses", {}).get("strength", 0))
+		"crown_total": return int(a.get("crown_total", 0))
+		## How often this stone has fired this run, and what the rail has rung this fight.
+		"run_fires": return int(c.get("run_fires", 0))
+		"fight_resonance": return int(unit.get("fight_resonance", 0)) + int(c.get("resonance", 0))
 		"living_players": return maxi(1, int(c.get("living_players", c.get("party", 1))))
 		"resonance": return int(c.get("resonance", 0))
 		"previous_amount": return int(c.get("previous_amount", 0))
@@ -398,6 +431,8 @@ static func resolve_effect(def: Dictionary, c: Dictionary, magnitude: float, hos
 			out.line = {"kind": str(trig.kind), "need": int(trig.get("need", 0))}
 	if def.has("cost"):
 		out.cost = maxi(0, amount(def.cost, c))
+	if def.has("hp_cost"):
+		out.hp_cost = maxi(0, amount(def.hp_cost, c))
 	for field in EFFECT_OPTIONS + ["splash", "once", "win_mult", "lose_mult", "text", "color", "rank"]:
 		if def.has(field):
 			out[field] = def[field]
@@ -450,7 +485,7 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		return [where + ": must be an object"]
 	var errors: Array = []
 	for field in effect:
-		if not str(field) in EFFECT_OPTIONS + ["kind", "target", "amount", "scale", "repeat", "splash", "once", "win_mult", "lose_mult", "text", "color", "rank", "cost", "share"]:
+		if not str(field) in EFFECT_OPTIONS + ["kind", "target", "amount", "scale", "repeat", "splash", "once", "win_mult", "lose_mult", "text", "color", "rank", "cost", "share", "hp_cost"]:
 			errors.append(where + ": unknown field " + str(field))
 	var kind: String = str(effect.get("kind", ""))
 	if not kind in EFFECT_KINDS:
@@ -480,6 +515,14 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": a summon names the creature it brings in")
 	if effect.has("pick") and not str(effect.pick) in PICKS:
 		errors.append(where + ": unknown pick " + str(effect.pick))
+	if kind == "each_after" and not str(effect.get("gift", "")) in EACH_AFTER_GIFTS:
+		errors.append(where + ": each_after gives one of " + ", ".join(EACH_AFTER_GIFTS))
+	if effect.has("overflow") and not str(effect.overflow) in ["block", "damage"]:
+		errors.append(where + ": overflow is block or damage")
+	if effect.has("of_status") and not str(effect.of_status) in ["spikes", "poison"]:
+		errors.append(where + ": of_status reads spikes or poison")
+	if kind in ["phantom_roll"] and not str(effect.get("shape", "D6")) in DeepDice.TIERS:
+		errors.append(where + ": phantom_roll needs a die shape")
 	if kind == "absorb_color" and not str(effect.get("color", "random")) in ABSORB_PICKS:
 		errors.append(where + ": absorb_color picks one of " + ", ".join(ABSORB_PICKS))
 	if kind == "dice_upgrade" and effect.has("cap") and not str(effect.cap) in DeepDice.TIERS:

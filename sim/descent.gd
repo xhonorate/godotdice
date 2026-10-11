@@ -1004,6 +1004,8 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 		fighter.gold = 0
 		fighter.quality_bonus = 0
 		fighter.stone_drops = 0
+		fighter.placer_drops = 0
+		fighter.placer_elite_drops = 0
 		fighter.pot = 0
 		fighter.gem_buffs = {}
 		fighter.rank_buff = {"carat": 0, "cut": 0}
@@ -1119,6 +1121,7 @@ static func _sync_fighters(state: Dictionary) -> void:
 		unit.dice = fighter.dice.duplicate(true)
 		unit.haul = fighter.get("haul", []).duplicate(true)
 		unit.downed = bool(fighter.get("downed", false))
+		unit.run_counts = fighter.get("run_counts", {}).duplicate()
 		unit.stats.damage = int(unit.stats.get("damage", 0))
 
 static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
@@ -1133,6 +1136,8 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 		unit.max_hp = int(fighter.max_hp)
 		## What the creatures did to the bowl for the fight ends with it.
 		unit.dice = DeepBattle.dice_after_fight(fighter)
+		## How often each gem has fired this run (Hone, Hardening) goes on with the run.
+		unit.run_counts = fighter.get("run_counts", {}).duplicate()
 		unit.haul = fighter.get("haul", []).duplicate(true)
 		unit.downed = bool(fighter.get("downed", false))
 		unit.block = 0
@@ -1177,6 +1182,12 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 			## A Hoard Mimic's belly: a raw stone for whoever opened it.
 			for _drop in range(int(fighter.get("raw_drops", 0))):
 				reward.stones.append(_find_stone(state, unit, streams, 2, "mimic"))
+			## What a Placer turned up from the creatures that fell: the mine's own luck, or an
+			## elite's for a Flawless stone.
+			for _drop in range(int(fighter.get("placer_drops", 0))):
+				reward.stones.append(_find_stone(state, unit, streams, 0, "placer"))
+			for _drop in range(int(fighter.get("placer_elite_drops", 0))):
+				reward.stones.append(_find_stone(state, unit, streams, int(DeepContent.constant("elite_stone_luck", 3)), "placer"))
 			settle.rewards[unit.id] = reward
 		else:
 			# Unbanked fight earnings are lost; bank-funded spending is still paid.
