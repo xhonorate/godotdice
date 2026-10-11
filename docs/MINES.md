@@ -46,14 +46,15 @@ Each mine's `batch` is the skills first found in its rock. A mine's pool is its 
 
 | Mine | Style | Batch |
 |---|---|---|
-| Quarry (22) | the basics of every lapidary's style, all six colours | Strike, Cleave, Crush, Spall, Ember, Crosscut · Guard, Shelter, Anchor, Tempo, Bulwark · Mend, Graft, Bloom · Venom, Hex, Mist · Tithe, Prospect · Glimmer, Mirror, Refract |
-| Seeps | one big die, hits, marks (Vesper) | Apex, Riposte, Etch, Shatter, Wager, Facet |
-| Glass Veins | straights and rerolls (Cadence) | Barrage, Fury, Aegis, Renewal, Dread, Cascade, Gilded Armor |
-| Warrens | low dice and poison (Rue) | Detonate, Siphon, Sap, Miasma, Curse, Polish |
-| Furnace | odd, even and two pair (Puck) | Bind, Mortar, Thrive, Bastion, Enrich, Lifeline |
-| Geode | pyrite and big totals (Florin) | Jackpot, Lucky Seven, Double Down, Stake, Appraise, Overkill, Prism |
+| Quarry (32) | the basics of every lapidary's style, all six colours | Strike, Cleave, Crush, Spall, Ember, Crosscut · Guard, Shelter, Anchor, Tempo, Bulwark · Mend, Graft, Bloom · Venom, Hex, Mist · Tithe, Prospect · Glimmer, Mirror, Refract · Cascade, Lucky Seven, Tailings · Bash, Hardening, Tumble, Sediment, Placer, Gilding, Caltrop |
+| Seeps (9) | one big die, hits, marks, holding your dice (Vesper) | Apex, Etch, Shatter, Facet · Lichen, Dividend, Flurry, Temper, Arsenic |
+| Glass Veins (10) | straights, rerolls and Resonance (Cadence) | Barrage, Fury, Aegis, Renewal, Dread, Gilded Armor, Prism · Lodestone, Crescendo, Spectrum |
+| Warrens (10) | low dice and poison (Rue) | Detonate, Siphon, Sap, Miasma, Curse, Polish · Confluence, Ferment, Contagion, Rattle |
+| Furnace (10) | Block and the forge (Puck) | Bind, Mortar, Thrive, Bastion, Enrich, Riposte · Bezel, Chainmail, Rebound, Hone |
+| Geode (10) | pyrite, crowns and big totals (Florin) | Jackpot, Double Down, Stake, Appraise, Overkill, Wager · Crest, Overturn, Wellspring, Hemlock |
+| Rift (8) | blood, the Birthstone and rare hands | Lifeline · Grudge, Petrify, Birthright, Thirst, Bloodletting, Heartwood, Fortify |
 
-New skills go into the later mines' batches first; they have room.
+The October 2026 regrouping (the 37 gems after the `·` in each row) keeps two rules: no mine's batch holds more than 10 skills, and every mine but the Quarry unlocks at least five colours. The Quarry takes what does not fit, so it grows instead. Pinfire, Contra Luz and Hydrophane are opals, found only in Warden hoards like every other opal.
 
 ## Lapidaries
 

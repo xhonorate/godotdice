@@ -2540,7 +2540,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					_float_at(_effects, "Ward blocked" if bool(effect.get("warded", false)) else "%s +%d" % [kind.capitalize(), int(effect.amount)], color, 16)
 				elif _ally_cards.has(target_id):
 					_float_at(_ally_cards[target_id], "Ward blocked" if bool(effect.get("warded", false)) else "%s +%d" % [kind.capitalize(), int(effect.amount)], color, 15)
-			"raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "upgrade_faces":
+			"raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "phantom_low", "phantom_roll", "rethrow", "gild", "upgrade_faces":
 				if mine:
 					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
 					for id in _dice_views:

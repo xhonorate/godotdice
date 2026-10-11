@@ -24,15 +24,20 @@ import * as Stone from './stone.js';
 import { makeRng } from './rng.js';
 import { rerollIds } from './simulate.js';
 
-export const HAND_KINDS = ['raise_low', 'raise_high', 'set_match', 'flip_low', 'flip_high', 'phantom_high'];
+export const HAND_KINDS = ['raise_low', 'raise_high', 'set_match', 'flip_low', 'flip_high', 'phantom_high', 'phantom_low'];
 export const SELF_KINDS = ['amplify_next', 'cut_step_next', 'grant_reroll', 'retrigger_previous', 'quality_bonus', 'sparkle',
 	'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy', 'gem_rank', 'upgrade_faces', 'stake', 'appraise',
-	'fire_neighbours', 'force_after', 'absorbed'];
+	'fire_neighbours', 'force_after', 'absorbed',
+	'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'fire_birthstone', 'spectrum', 'stone_chance',
+	'double_resonance', 'keep_phantoms'];
+// The six colours and what a Spectrum gives for each, as [effect kind, amount, target].
+const SPECTRUM_GIFTS = { RED: ['damage', 3, 'enemy'], BLUE: ['block', 3, 'self'], GREEN: ['heal', 3, 'self'], VIOLET: ['poison', 2, 'enemy'], GOLD: ['gold', 2, 'self'], WHITE: ['resonance', 1, 'self'] };
+const DROPS_PER_SIZE = 3;
 export const BIRTHSTONE_KINDS = ['replay_rail', 'tick_poison', 'stone_drop', 'pot'];
 const PROC_IN_PLACE = ['coin_flip'];
 const MAX_RAIL = 24;
 const SPARKLE_MAX_STACKS = 100;
-const STATUS_KINDS = ['poison', 'stun', 'curse', 'charged', 'marked', 'regeneration', 'spikes', 'dulled', 'lifeline', 'festering', 'scorched', 'burn', 'strength'];
+const STATUS_KINDS = ['poison', 'stun', 'curse', 'charged', 'marked', 'regeneration', 'spikes', 'dulled', 'lifeline', 'festering', 'scorched', 'burn', 'strength', 'envenom'];
 export const DUMMY_HP = 1000000;
 
 // --- units ---------------------------------------------------------------------------------
@@ -149,7 +154,8 @@ export function railContext(state, unit, socket, opts = {}) {
 	return { unit, resonance: unit.resonance | 0, previous_fired: Boolean(unit.previous_fired), previous_amount: unit.previous_amount | 0, amplify: Number(unit.amplify ?? 1),
 		cut_step_bonus: (unit.cut_step_bonus | 0) + (buff.cut | 0) + (gemBuff.cut | 0), carat_bonus: caratBonus, clarity_bonus: gemBuff.clarity | 0,
 		enemy_poison: enemyPoison, carat_cap: 0, fizzles: unpaid, dulled: unit.statuses.dulled | 0, depth: state.depth | 0, turn: state.turn | 0, party: state.party | 0,
-		socket: socketColor, retrigger: Boolean(opts.retrigger), force_fire: Boolean(opts.force), analyze: (colors) => readHand(unit, colors) };
+		socket: socketColor, retrigger: Boolean(opts.retrigger), force_fire: Boolean(opts.force), analyze: (colors) => readHand(unit, colors),
+		kills: state.turn_kills | 0, run_fires: (unit.run_counts || {})[String(stone.id || '')] | 0 };
 }
 
 // What a Doublet at this socket wears: the nearest gem behind it that is not itself an opal.
@@ -190,6 +196,8 @@ function resetRail(unit) {
 	unit.replaying = false;
 	unit.fired_count = 0;
 	unit.force_after = {};
+	unit.fired_colors = [];
+	unit.resonance_mult = 1;
 }
 
 // Queue one player's rail: their gems in socket order, the Birthstone, the close.
@@ -223,10 +231,12 @@ export function perform(state, s, rng) {
 		case 'gem':
 			return resolveGem(state, unit, s.socket | 0, { retrigger: Boolean(s.retrigger), scale: s.scale ?? 100, replay: Boolean(s.replay), force: Boolean(s.force), as_skill: String(s.as_skill || '') }, rng);
 		case 'birthstone':
-			return resolveBirthstone(state, unit, { replay: Boolean(s.replay) }, rng);
+			return resolveBirthstone(state, unit, { replay: Boolean(s.replay), share: s.share ?? 100 }, rng);
 		case 'rail_end': {
 			// Second Wind: the rerolls not spent, each worth the Resonance the rail just built.
 			const resonance = unit.resonance | 0;
+			// Everything this rail rang goes on the fight's tally, which a Crescendo reads.
+			unit.fight_resonance = (unit.fight_resonance | 0) + resonance;
 			const unused = unit.rerolls | 0;
 			let healed = 0;
 			if (unit.passive.kind === 'heal_resonance_per_unused_reroll' && unused > 0 && resonance > 0) healed = heal(state, unit, resonance * unused);
@@ -258,7 +268,11 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	}
 	const context = railContext(state, unit, socket, opts);
 	const ev = Stone.evaluate(stone, unit.hand, context);
-	for (const effect of ev.effects) if ((effect.cost | 0) > Rules.pyrite(unit)) { ev.active = false; ev.reason = 'Not enough Pyrite.'; }
+	for (const effect of ev.effects) {
+		if ((effect.cost | 0) > Rules.pyrite(unit)) { ev.active = false; ev.reason = 'Not enough Pyrite.'; }
+		// A gem that costs blood never takes the last of it: it stays dark instead.
+		if ((effect.hp_cost | 0) > 0 && ev.active && (effect.hp_cost | 0) >= (unit.hp | 0)) { ev.active = false; ev.reason = 'Not enough health.'; }
+	}
 	const nullified = Boolean(unit.nullify_next);
 	// A Prelude hands the next gem to resolve its extra goes, and is spent doing it.
 	const promised = unit.repeat_next | 0;
@@ -279,7 +293,9 @@ export function resolveGem(state, unit, socket, opts, rng) {
 		return { kind: 'gem_fizzle', socket, skill: stone.skill, reason: ev.reason || '', resonance: unit.resonance, healed, cut_step: ev.cut_step | 0 };
 	}
 	const scale = Number(opts.scale ?? 100);
-	const hpCost = ev.hp_cost | 0;
+	// Blood a gem asks for itself (Bloodletting) is paid with whatever an inclusion asks.
+	let hpCost = ev.hp_cost | 0;
+	for (const effect of ev.effects) hpCost += Math.max(0, effect.hp_cost | 0);
 	if (hpCost > 0) {
 		const before = unit.hp | 0;
 		unit.hp = Math.max(1, before - hpCost);
@@ -287,13 +303,15 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	}
 	let harmony = false;
 	if (unit.previous_fired) for (const color of unit.previous_colors) if (ev.colors.includes(color)) harmony = true;
-	const gain = (ev.resonance_gain | 0) + (harmony ? 1 : 0);
+	const gain = ((ev.resonance_gain | 0) + (harmony ? 1 : 0)) * Math.max(1, unit.resonance_mult | 0);
 	unit.resonance = (unit.resonance | 0) + gain;
 	const results = [];
 	const previousSocket = unit.previous_socket ?? -1;
 	const reactions = {};
 	unit.firing_colors = ev.colors.slice();
 	unit.fired_count = (unit.fired_count | 0) + 1;
+	// What a Chainmail or a Contagion earlier this turn hands over for this gem: taken now.
+	const answers = (unit.after_fire || []).map((x) => ({ ...x }));
 	for (const effect of ev.effects) {
 		const applied = { ...effect };
 		if (scale !== 100 && effect.scaled) applied.amount = Math.floor((effect.amount | 0) * scale / 100);
@@ -318,7 +336,11 @@ export function resolveGem(state, unit, socket, opts, rng) {
 			results.push(...apply(state, unit, applied, rng, '', reactions));
 		}
 	}
+	results.push(...answerFire(state, unit, answers, rng));
 	delete unit.firing_colors;
+	// A gem that grows over the run (Hone, Hardening) counts every fire, replays included.
+	if (!dry) { const counts = unit.run_counts || (unit.run_counts = {}); counts[String(stone.id || '')] = (counts[String(stone.id || '')] | 0) + 1; }
+	(unit.fired_colors || (unit.fired_colors = [])).push(ev.colors.slice());
 	if ((ev.next_cut_step | 0) > 0) unit.cut_step_bonus = (unit.cut_step_bonus | 0) + (ev.next_cut_step | 0);
 	unit.previous_fired = true;
 	unit.previous_amount = Stone.totalAmount(ev);
@@ -345,7 +367,8 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	const promised = unit.repeat_next | 0;
 	unit.repeat_next = 0;
 	const a = readHand(unit);
-	const resonance = unit.resonance | 0;
+	// A Birthright fires it mid-rail at a share of the Resonance so far.
+	const resonance = Math.trunc(((unit.resonance | 0) * Math.max(0, opts.share ?? 100)) / 100);
 	const defs = def.tiers || [];
 	const evaluated = [];
 	let exclusiveHit = -1;
@@ -380,8 +403,17 @@ export function resolveBirthstone(state, unit, opts, rng) {
 		tiers.push(entry);
 	}
 	if (!dry && !replay && promised > 0) for (let more = 0; more < promised; more++) state.queue.unshift({ kind: 'birthstone', unit: unit.id, replay: true });
+	// The Birthstone is a gem that fired, as far as a Chainmail is concerned.
+	if (fired) answerFire(state, unit, unit.after_fire || [], rng);
 	if (fired) state.ledger.birthstone += 1;
 	return { kind: 'birthstone', fired, resonance, replay, tiers };
+}
+
+// What a Chainmail or a Contagion earlier this turn gives for one more gem fired.
+function answerFire(state, unit, answers, rng) {
+	const out = [];
+	for (const answer of answers) out.push(...apply(state, unit, { kind: answer.kind, amount: answer.amount | 0, target: answer.target, repeat: 1 }, rng));
+	return out;
 }
 
 function birthstoneEffect(state, unit, effect, dry, replay) {
@@ -491,11 +523,13 @@ export function mutateHand(unit, effect) {
 			}
 			break;
 		}
-		case 'phantom_high': {
-			const highest = extreme(real, false);
-			if (highest) {
+		case 'phantom_high': case 'phantom_low': {
+			const picked = extreme(real, kind === 'phantom_low');
+			if (picked) {
 				for (let index = 0; index < amount; index++) {
-					const ghost = Dice.phantom(highest, `${highest.die_id}_ph${hand.length}_${index}`);
+					const ghost = Dice.phantom(picked, `${picked.die_id}_ph${hand.length}_${index}`);
+					// A Flawless Sediment's phantom shows a number of its own: a 1.
+					if ('shows' in effect) { ghost.value = effect.shows | 0; ghost.kind = 'plain'; delete ghost.shown; delete ghost.counted; delete ghost.base; }
 					hand.push(ghost);
 					changed.push(ghost.die_id);
 				}
@@ -691,6 +725,122 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			else state.queue = taken.map((key) => ({ kind: 'gem', unit: unit.id, socket, retrigger: true, as_skill: String(key) })).concat(state.queue);
 			break;
 		}
+		case 'phantom_roll': {
+			// A Tumble or a Contra Luz: a fresh phantom die of its own size, thrown into the hand.
+			if (dry) { out.nothing = true; break; }
+			const made = Dice.make(String(effect.shape || 'D6'), `${unit.id}_roll${state.turn | 0}_${unit.hand.length}`);
+			const ghost = Dice.rollOne(made, rng);
+			ghost.phantom = true;
+			unit.hand.push(ghost);
+			touchHand(unit);
+			out.value = ghost.value;
+			break;
+		}
+		case 'rethrow': {
+			// A Rattle: the lowest real die it has not yet thrown this firing goes again. A throw,
+			// so it pays what a throw pays, but never a reroll.
+			const thrown = effect.thrown || [];
+			let lowest = -1;
+			unit.hand.forEach((roll, index) => {
+				if (roll.phantom || ['wild', 'blank'].includes(roll.kind || 'plain') || roll.locked || thrown.includes(roll.die_id)) return;
+				if (lowest < 0 || roll.value < unit.hand[lowest].value) lowest = index;
+			});
+			const die = lowest >= 0 ? unit.dice.find((d) => d.id === unit.hand[lowest].die_id) : null;
+			if (dry || !die) { out.nothing = true; break; }
+			const was = unit.hand[lowest];
+			let best = null;
+			for (let time = 0; time < Math.max(1, effect.best_of | 0); time++) {
+				const again = Dice.rollOne(die, rng, was.rerolls | 0);
+				again.held = Boolean(was.held);
+				again.rethrown = true;
+				payDues(unit, [again]);
+				if (!best || again.value > best.value) best = again;
+			}
+			unit.hand[lowest] = best;
+			thrown.push(die.id);
+			effect.thrown = thrown;
+			touchHand(unit);
+			out.value = best.value;
+			break;
+		}
+		case 'gild': {
+			// A Gilding: the face the highest die shows turns Golden for the rest of the run.
+			const gilded = effect.gilded || [];
+			const changed = [];
+			for (const lowest of effect.both_ends ? [false, true] : [false]) {
+				let pick = null;
+				for (const roll of unit.hand) {
+					if (roll.phantom || (roll.kind || 'plain') === 'blank' || gilded.includes(roll.die_id)) continue;
+					const owner = unit.dice.find((d) => d.id === roll.die_id);
+					const at = roll.face ?? -1;
+					if (!owner || at < 0 || at >= owner.faces.length || (owner.faces[at].kind || 'plain') === 'golden') continue;
+					if (!pick || (lowest ? roll.value < pick.value : roll.value > pick.value)) pick = roll;
+				}
+				if (!pick || dry) continue;
+				Dice.etch(unit.dice.find((d) => d.id === pick.die_id), pick.face | 0, 'golden');
+				gilded.push(pick.die_id);
+				changed.push(pick.die_id);
+			}
+			effect.gilded = gilded;
+			if (!changed.length) out.nothing = true;
+			break;
+		}
+		case 'soak': {
+			// A Hydrophane: the smallest die drinks a drop; at three it is a size bigger (smaller, Flawless).
+			let smallest = null;
+			for (const die of unit.dice) if (!smallest || Dice.top(die) < Dice.top(smallest)) smallest = die;
+			if (dry || !smallest) { out.nothing = true; break; }
+			let drops = (smallest.drops | 0) + 1;
+			if (drops >= DROPS_PER_SIZE) drops = Dice.resize(smallest, effect.shrink ? -1 : 1) === '' ? 0 : DROPS_PER_SIZE;
+			smallest.drops = drops;
+			break;
+		}
+		case 'each_after':
+			(unit.after_fire || (unit.after_fire = [])).push({ kind: String(effect.gift || 'block'), amount, target: String(effect.target || 'self') });
+			break;
+		case 'on_block':
+			(unit.on_block || (unit.on_block = [])).push({ amount, target: String(effect.target || 'enemy') });
+			break;
+		case 'fire_birthstone':
+			if (dry || isEmpty(unit.birthstone)) out.nothing = true;
+			else state.queue.unshift({ kind: 'birthstone', unit: unit.id, replay: true, share: amount });
+			break;
+		case 'spectrum': {
+			// One gift for every colour that has fired this turn (every gem, Flawless).
+			const tally = {};
+			for (const colors of unit.fired_colors || []) for (const color of colors) {
+				if (!SPECTRUM_GIFTS[color]) continue;
+				tally[color] = effect.every_gem ? (tally[color] | 0) + 1 : 1;
+			}
+			const given = [];
+			for (const color of Object.keys(SPECTRUM_GIFTS)) {
+				if (!(color in tally)) continue;
+				const [gift, base, target] = SPECTRUM_GIFTS[color];
+				const worth = Math.trunc((base * tally[color] * amount) / 100);
+				if (worth <= 0) continue;
+				if (gift === 'resonance') unit.resonance = (unit.resonance | 0) + worth;
+				else given.push(...apply(state, unit, { kind: gift, amount: worth, target, repeat: 1 }, rng));
+			}
+			out.hits = given;
+			break;
+		}
+		case 'stone_chance': {
+			// A Placer: every creature fallen this turn may leave a raw stone.
+			const kills = state.turn_kills | 0;
+			let found = 0;
+			if (!dry) {
+				for (let kill = 0; kill < kills; kill++) {
+					found += Math.trunc(Math.max(0, amount) / 100);
+					if (rng.chance(Math.max(0, amount) % 100)) found += 1;
+				}
+				const field = effect.elite ? 'placer_elite_drops' : 'placer_drops';
+				unit[field] = (unit[field] | 0) + found;
+			}
+			out.stones = found;
+			break;
+		}
+		case 'double_resonance': unit.resonance_mult = Math.max(2, unit.resonance_mult | 0); break;
+		case 'keep_phantoms': unit.keep_phantoms = true; break;
 		case 'amplify_next': unit.amplify = Number(unit.amplify) * (1 + amount / 100); break;
 		case 'cut_step_next': unit.cut_step_bonus = (unit.cut_step_bonus | 0) + amount; break;
 		case 'grant_reroll': unit.granted_rerolls = (unit.granted_rerolls | 0) + amount; break;
@@ -804,13 +954,15 @@ function wardBlocks(target) {
 }
 
 function resetDefenses(unit) {
+	// Spikes are no longer cleared here: they last the fight.
 	unit.block = Math.min(unit.block | 0, Math.max(0, unit.statuses.retain | 0));
 	delete unit.statuses.retain;
-	delete unit.statuses.spikes;
 }
 
 export function applyOne(state, source, target, kind, amount, effect, rng, reactions = {}) {
 	if (effect.from_result) amount = Math.trunc(((reactions[`result_${effect.from_result}`] | 0) * amount) / 100);
+	// A share of what its owner carries as it lands: a Caltrop's Spikes, a Hemlock's Poison.
+	if (effect.of_status) amount = Math.trunc((((source.statuses || {})[effect.of_status] | 0) * amount) / 100);
 	const out = { kind, target: target.id, amount };
 	if (kind === 'stun' && (target.statuses.combo_breaker | 0) > 0) { out.resisted = true; return out; }
 	// Ward turns away what others do to it, never what it does to itself.
@@ -827,6 +979,8 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 				source.pyrite_delta = (source.pyrite_delta | 0) - spent;
 			}
 			if (effect.missing_hp_bonus) amount = Math.trunc((amount * (2 * (source.max_hp | 0) - (source.hp | 0))) / Math.max(1, source.max_hp | 0));
+			// A player's Strength (Temper) puts a point more on every blow.
+			if (kind === 'damage' && amount > 0 && source.side === 'player') amount += Math.max(0, (source.statuses || {}).strength | 0);
 			out.kind = 'damage';
 			out.amount = amount;
 			Object.assign(out, damage(state, source, target, amount, rng, reactions, false, Boolean(effect.piercing)));
@@ -842,11 +996,21 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			target.block = (target.block | 0) + amount;
 			if (target.side === 'player') state.ledger.blockGained += amount;
 			reactions.result_block = (reactions.result_block | 0) + amount;
+			// A Rebound: every time its owner gains block this turn, the target takes a hit.
+			if (amount > 0 && target.side === 'player' && (target.on_block || []).length && (target.hp | 0) > 0) {
+				for (const answer of target.on_block) apply(state, target, { kind: 'damage', amount: answer.amount | 0, target: answer.target, repeat: 1 }, rng);
+			}
 			break;
 		case 'heal': {
 			const healed = heal(state, target, amount);
 			out.healed = healed;
 			if (source.side === 'player') source.healed = (source.healed | 0) + healed;
+			// What would heal past full: block for a Wellspring, a blow for a Flawless Thirst.
+			const spill = ((target.statuses.festering | 0) > 0 ? Math.trunc(Math.max(0, amount) / 2) : Math.max(0, amount)) - healed;
+			if (effect.overflow && spill > 0 && (target.hp | 0) > 0) {
+				if (effect.overflow === 'block') applyOne(state, source, target, 'block', spill, {}, rng, reactions);
+				else apply(state, source, { kind: 'damage', amount: spill, target: 'enemy', repeat: 1 }, rng, '', reactions);
+			}
 			break;
 		}
 		case 'gold':
@@ -903,8 +1067,32 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			else target.dread_turns = (target.dread_turns | 0) + Math.max(0, amount);
 			break;
 		case 'die_steal': target.stolen_dice = (target.stolen_dice | 0) + amount; break;
+		case 'gather_poison': {
+			// A Confluence: every other creature's Poison moves onto this one.
+			let gathered = 0;
+			for (const other of living(state.enemies)) {
+				if (other.id === target.id) continue;
+				gathered += other.statuses.poison | 0;
+				other.statuses.poison = 0;
+			}
+			target.statuses.poison = (target.statuses.poison | 0) + gathered;
+			break;
+		}
+		case 'poison_tick':
+			for (let time = 0; time < Math.max(0, amount); time++) {
+				if ((target.statuses.poison | 0) <= 0 || (target.hp | 0) <= 0) break;
+				poisonTick(state, target);
+			}
+			break;
+		case 'grow_poison': {
+			const had = target.statuses.poison | 0;
+			target.statuses.poison = had + Math.trunc((had * Math.max(0, amount)) / 100);
+			break;
+		}
 		default:
 			if (STATUS_KINDS.includes(kind)) {
+				// Lodestone stores no more than the Resonance there is to store.
+				if (kind === 'charged' && effect.resonance_cap) { amount = Math.min(amount, Math.max(0, source.resonance | 0)); out.amount = amount; }
 				target.statuses[kind] = (target.statuses[kind] | 0) + Math.max(0, amount);
 				if (kind === 'curse') target.statuses.curse = Math.min(Rules.CURSE_MAX_STACKS, target.statuses.curse);
 				if (kind === 'lifeline' && effect.revive_block) target.statuses.lifeline_block = (target.statuses.lifeline_block | 0) + amount;
@@ -953,8 +1141,11 @@ function damage(state, source, target, amount, rng, reactions = {}, reactive = f
 			const parry = source.resonance | 0;
 			if (parry > 0) { source.block = (source.block | 0) + parry; state.ledger.blockGained += parry; }
 		}
-		if ((target.hp | 0) <= 0) out.killed = true;
+		if ((target.hp | 0) <= 0) { out.killed = true; state.turn_kills = (state.turn_kills | 0) + 1; }
 	}
+	// An Arsenic: every hit that gets past block leaves Poison behind.
+	const venom = (source.statuses || {}).envenom | 0;
+	if (!reactive && venom > 0 && loss > 0 && target.side === 'enemy' && (target.hp | 0) > 0 && source.side === 'player') applyOne(state, source, target, 'poison', venom, {}, rng, reactions);
 	const spikes = target.statuses.spikes | 0;
 	if (!reactive && amount > 0 && spikes > 0 && !reactions[target.id] && (source.hp | 0) > 0) {
 		reactions[target.id] = true;
@@ -991,6 +1182,7 @@ function poisonTick(state, unit) {
 	unit.hp -= loss;
 	unit.statuses.poison = poison - 1;
 	if (unit.side === 'player') state.ledger.hpLost += loss; else state.ledger.dealt += loss;
+	if (unit.side === 'enemy' && (unit.hp | 0) <= 0) state.turn_kills = (state.turn_kills | 0) + 1;
 	if (unit.side === 'enemy' && loss > 0) {
 		// Leech: every Apothecary drinks Resonance from the creature that bleeds.
 		for (const drinker of living(state.players)) if ((drinker.passive || {}).kind === 'heal_on_poison_tick' && (drinker.resonance | 0) > 0) heal(state, drinker, drinker.resonance | 0);
@@ -1025,6 +1217,12 @@ export function tick(state) {
 // the bowl is thrown, the rerolls are counted. `roll(die, index)` throws one die.
 export function beginTurn(state, unit, roll) {
 	resetDefenses(unit);
+	// What a Chainmail, a Contagion or a Rebound set up lasted the turn that has ended.
+	unit.after_fire = [];
+	unit.on_block = [];
+	// A Contra Luz that fired last turn: its phantoms are still in the hand.
+	const carried = unit.keep_phantoms ? unit.hand.filter((r) => r.phantom).map((r) => ({ ...r, held: true, rerolls: 0, kept: true })) : [];
+	unit.keep_phantoms = false;
 	const charged = unit.statuses.charged | 0;
 	delete unit.statuses.charged;
 	unit.initial_resonance = charged;
@@ -1033,6 +1231,7 @@ export function beginTurn(state, unit, roll) {
 	const kept = new Map();
 	for (const r of unit.hand) if ((r.kind || 'plain') === 'sticky' && !r.phantom) kept.set(r.die_id, r);
 	unit.hand = unit.dice.map((die, index) => (kept.has(die.id) ? { ...kept.get(die.id), held: true, rerolls: 0, phantom: false, climbed: false, shattered: false, carried: true } : roll(die, index)));
+	unit.hand.push(...carried);
 	payDues(unit, unit.hand);
 	unit.flips = unit.passive.kind === 'free_flip' ? Number(unit.passive.amount ?? 1) : 0;
 	const extra = unit.passive.kind === 'extra_reroll' ? Number(unit.passive.amount ?? 1) : 0;
@@ -1251,6 +1450,7 @@ export function playFight(spec, sample) {
 	const policy = spec.policy || 'none';
 	for (let turn = 1; turn <= turns; turn++) {
 		state.turn = turn;
+		state.turn_kills = 0;
 		standDummies(state);
 		beginTurn(state, unit, roll);
 		plan(unit, policy, roll);

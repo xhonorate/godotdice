@@ -89,7 +89,7 @@ func triggers() -> void:
 	check(cast(f, "DOUBLE_DOWN", [1, 2, 3, 4, 5]).kind == "gem_fizzle", "Double Down needs two ones")
 	check(cast(f, "DOUBLE_DOWN", [1, 1, 3, 4, 5]).kind == "gem_fire", "Double Down accepts two ones")
 	check(DeepContent.skill("SPALL").rarity == "COMMON" and DeepContent.skill("ANCHOR").rarity == "COMMON", "rarities updated")
-	check(DeepContent.section("skills").size() - DeepContent.transcendents().size() == 66, "all 66 skills that can be found are present")
+	check(DeepContent.section("skills").size() - DeepContent.transcendents().size() == 103, "all 103 skills that can be found are present")
 	check(DeepContent.transcendents().size() == 6, "and the six that are only made at an altar")
 	for key in ["CROSSCUT", "DETONATE", "SHELTER", "MORTAR", "SIPHON", "STAKE", "APEX", "ENRICH", "APPRAISE", "GILDED_ARMOR", "TAILINGS"]:
 		check(DeepForge.skill_pool(DeepContent.mine("RIFT")).has(key), key + " is in the deepest pool")

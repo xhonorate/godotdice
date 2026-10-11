@@ -12,6 +12,7 @@ export function analyze(hand, colors = []) {
 	let total = 0, maxTotal = 0, held = 0, rerolled = 0, phantoms = 0, high = 0, low = 0, highPct = 0, odd = 0, even = 0, lowDice = 0, crowns = 0;
 	const lowIds = [];
 	const crownIds = [];
+	let crownTotal = 0;
 	const crownValues = new Set();
 	for (let index = 0; index < hand.length; index += 1) {
 		const roll = hand[index];
@@ -32,6 +33,7 @@ export function analyze(hand, colors = []) {
 			highPct = 100;
 			crowns += 1;
 			crownIds.push(id);
+			crownTotal += top;
 			continue;
 		}
 		if (kind === 'blank') continue;
@@ -42,7 +44,7 @@ export function analyze(hand, colors = []) {
 		highPct = Math.max(highPct, Math.floor((value * 100) / top));
 		if (value % 2 === 1) odd += 1; else even += 1;
 		if (value * 2 <= top) { lowDice += 1; lowIds.push(id); }
-		if (value >= top) { crowns += 1; crownIds.push(id); crownValues.add(value); }
+		if (value >= top) { crowns += 1; crownIds.push(id); crownTotal += value; crownValues.add(value); }
 		counts.set(value, (counts.get(value) || 0) + (kind === 'twin' || roll.twinned ? 2 : 1));
 		if (!idsByValue.has(value)) idsByValue.set(value, []);
 		idsByValue.get(value).push(id);
@@ -78,7 +80,7 @@ export function analyze(hand, colors = []) {
 		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length, wildTop),
 		odd: odd + wilds.length, even: even + wilds.length, distinct: counts.size + wilds.length,
 		odd_values: oddValues + wilds.length, even_values: evenValues + wilds.length,
-		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds,
+		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds, crown_total: crownTotal,
 		high_crown: (high > 0 && crownValues.has(high)) || (high === 0 && wilds.length > 0) ? 1 : 0, ids_by_value: idsByValue,
 	};
 }

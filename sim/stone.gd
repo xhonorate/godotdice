@@ -722,7 +722,7 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 	var wearing: Array = colors(stone, str(c.get("socket", "")))
 	var a: Dictionary = DeepHand.analyze(working, wearing)
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
-	var trig: Dictionary = DeepPatterns.evaluate(trigger, eff.cut_step, a, {"resonance": int(c.get("resonance", 0)), "pyrite": DeepRules.pyrite(c.get("unit", {})), "fizzles": int(c.get("fizzles", 0))})
+	var trig: Dictionary = DeepPatterns.evaluate(trigger, eff.cut_step, a, {"resonance": int(c.get("resonance", 0)), "pyrite": DeepRules.pyrite(c.get("unit", {})), "fizzles": int(c.get("fizzles", 0)), "kills": int(c.get("kills", 0))})
 	if not trig.active and (has_modifier(mods, "always_fires") or bool(c.get("force_fire", false))):
 		trig.active = true
 		trig.forced = true
@@ -752,7 +752,8 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 	result.magnitude = magnitude
 	var tc: Dictionary = {"a": a, "trig": trig, "unit": c.get("unit", {}), "resonance": int(c.get("resonance", 0)),
 		"previous_amount": int(c.get("previous_amount", 0)), "carat": eff.carat, "cut": eff.cut_step,
-		"clarity": int(eff.clarity), "enemy_poison": int(c.get("enemy_poison", 0)), "fizzles": int(c.get("fizzles", 0)), "depth": int(c.get("depth", 0)), "turn": int(c.get("turn", 0)), "party": int(c.get("party", 1))}
+		"clarity": int(eff.clarity), "enemy_poison": int(c.get("enemy_poison", 0)), "fizzles": int(c.get("fizzles", 0)), "depth": int(c.get("depth", 0)), "turn": int(c.get("turn", 0)), "party": int(c.get("party", 1)),
+		"run_fires": int(c.get("run_fires", 0))}
 	var defs: Array = skill.get("effects", []).duplicate(true)
 	if bool(eff.flawless) and skill.get("flawless", null) is Dictionary:
 		defs = apply_flawless(defs, skill.flawless)
