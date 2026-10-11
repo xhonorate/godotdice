@@ -309,7 +309,7 @@ func spikes() -> void:
 	apply(f, "damage", 10, false)
 	check(int(f.foe.hp) == 910 and int(f.foe.statuses.marked) == 10, "uncapped player Spikes respects remaining enemy Block, does not consume Marked or recursively retaliate")
 	DeepBattle._reset_defenses(f.player)
-	check(not f.player.statuses.has("spikes"), "Spikes expires at the owner's Block reset")
+	check(int(f.player.statuses.get("spikes", 0)) == 150, "Spikes last the fight: the owner's Block reset leaves them")
 	var party: Dictionary = setup("CAVE_TICK", 4)
 	party.foe.hp = 1
 	party.player.statuses.spikes = 5

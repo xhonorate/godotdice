@@ -392,6 +392,10 @@ static func reroll(hand: Array, dice: Array, die_ids: Array, rng: RandomNumberGe
 	var out: Array = []
 	for roll in hand:
 		if bool(roll.get("phantom", false)):
+			## A phantom a Contra Luz carried over stays as it is: it was never thrown, so it
+			## cannot be thrown again. Any other phantom belonged to the hand that is going.
+			if bool(roll.get("kept", false)):
+				out.append(roll.duplicate(true))
 			continue
 		var id: String = str(roll.get("die_id", ""))
 		if id in die_ids and not bool(roll.get("locked", false)) and by_id.has(id):

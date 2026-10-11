@@ -217,9 +217,11 @@ func _test_birthstones_and_references() -> void:
 	check(DeepStone.procs_matter(DeepStone.make("CASCADE", 9, 2, 3, [], {}, "m3")) and not DeepStone.procs_matter(DeepStone.make("STRIKE", 9, 2, 3, [], {}, "m4")),
 		"and the two are the other way round for procs")
 	## Nothing a gem does is deaf to its weight: every effect, Flawless lines included, swells
-	## with the multiplier or procs more often. The one exception reads a result that already
-	## swelled (a from_result rider), so weighing it again would square the carat curve. A
-	## priced effect never procs (it would pay again), so it has to take the multiplier.
+	## with the multiplier or procs more often. The exceptions read a result that already
+	## swelled (a from_result rider, or an of_status share of what the gem just gave), so
+	## weighing it again would square the carat curve, or are a cost the gem makes its own
+	## owner pay (Hemlock's Poison), which is a price and stays exact. A priced effect never
+	## procs (it would pay again), so it has to take the multiplier.
 	for key in DeepContent.section("skills"):
 		var skill: Dictionary = DeepContent.skill(str(key))
 		var defs: Array = skill.get("effects", []).duplicate(true)
@@ -231,7 +233,8 @@ func _test_birthstones_and_references() -> void:
 			## A Transcendent counts exactly what it was designed to: one fire for every pair, five
 			## carats, every gem after it. Its weight swells everything else it does.
 			var exact: bool = DeepContent.is_transcendent(str(key)) and kind in ["fire_neighbours", "force_after", "absorbed", "gem_rank"]
-			check(scale != "none" or def.has("from_result") or exact, "%s's %s answers to carat" % [str(key), kind])
+			var cost: bool = kind in DeepRules.HOSTILE and str(def.get("target", "")) == "self"
+			check(scale != "none" or def.has("from_result") or def.has("of_status") or exact or cost, "%s's %s answers to carat" % [str(key), kind])
 			check(not def.has("cost") or scale == "carat", "%s's priced %s swells with carat, since it cannot proc" % [str(key), kind])
 
 func _test_grade_and_names() -> void:

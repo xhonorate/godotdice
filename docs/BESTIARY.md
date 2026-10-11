@@ -186,7 +186,7 @@ Warden (floors 40, 80, 120…) is the Infinite Void instead (its content key is 
 2. **Strength per blow.** "+damage on each attack" is read per damage effect, so a creature with
    several dice adds it on every die that hits. The Slag Hound's Howl gives every creature 1
    (the card's rally was 2 for one turn; 2 for the whole fight seemed too much); the Anvil
-   Knight's Temper gives its odd roll, as written, which grows fast.
+   Knight's Quench gives its odd roll, as written, which grows fast.
 3. **Refract** sends back half of the health each blow took, at every player, until it acts
    again. **Mirror** sends a blow back at whoever threw it and waits for that blow, however
    long. The Echo Sprite's mirror throws back the whole blow at its thrower, not the party.
@@ -263,7 +263,7 @@ Changed as the notes asked:
 | Will-o’-Wisp | Pink, not blue. Flicker hits for its roll; Lure (a 6) locks one of your dice. |
 | Echo Sprite | Twinkle hits for its roll; Mirror (5 or 6) sends the next blow on it back at its thrower. |
 | Refractor | Gains 1 Strength per new colour it sees fire; Split Light is its roll in hits of 1 + Strength; Prism Wall is 10 block × Strength. |
-| The Glazier | A glass spider, not a person. Cut is for good; Temper is 10 block. |
+| The Glazier | A glass spider, not a person. Cut is for good; Anneal is 10 block. |
 | The Kaleidoscope | Absorb (each action): drinks a colour: no damage from it, and its gems' gifts go to it. Turn (a pair) drinks another. |
 | The Prismarch | Every attack hits every player. Near death it charges for one action, every other action, takes half meanwhile, and throws all it was dealt back at every player. |
 | Spore Slime | Ooze poisons for 1 as well. |
@@ -280,7 +280,7 @@ Changed as the notes asked:
 | Forge Imp | Cackle burns for the roll. |
 | Ember Crawler | Bite burns for 4 as well; Spit removes block equal to the roll. |
 | The Smelter | 2d8. Pour hits and burns for the roll; Melt (an 8) burns a showing face blank for the fight; Slag Armour (even) is block equal to the roll and Spikes 4. |
-| The Anvil Knight | Bulwark is 20 block and Spikes 4; Temper is Ward 1 and Strength equal to the roll. |
+| The Anvil Knight | Bulwark is 20 block and Spikes 4; Quench is Ward 1 and Strength equal to the roll. |
 | The Kiln Wyrm | No Corroded aura. Claw hits for each roll; Firebreath burns for the pair; Lavafall is 20 damage and 20 Burn; Ember is now Scorch. |
 | Gilded Magpie | Every Magpie variant flees, and its plate counts the actions down. |
 | Geode Golem | A grey shell split open on amethyst, bigger than the Prism Golem. Harden is block and Retain equal to the roll. |
@@ -300,8 +300,10 @@ Changed as the notes asked:
 - The readings in §5 are calls made where a note was open; the ones that most change how a
   fight feels are Burn's slow decay (§5.1), Strength per die (§5.2), the Prismarch charging
   every other action (§5.5) and the Collector firing gems at one carat (§5.8).
-- The Anvil Knight's Temper grows Strength by its roll on every odd die, for the fight; two
+- The Anvil Knight's Quench grows Strength by its roll on every odd die, for the fight; two
   odd rolls can add 15 to every blow after. Is that the intended pace?
 - Should the Collector take one gem from *each* player in co-op, or one from the party as built?
 - The paired units plan (the "Deep Cut Mine Progression Plan" doc) was not read in this pass;
   if it carries other verdicts on these creatures they are not reflected here.
+
+The Glazier's and the Anvil Knight's Temper and the Drowned Choir's Crescendo were renamed Anneal, Quench and Requiem in October 2026, when those names went to the new Temper and Crescendo gems.
