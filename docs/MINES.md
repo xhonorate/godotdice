@@ -13,7 +13,7 @@ Everything here is data in `content/deep_cut.json` under `mines`, read by `sim/f
 | III | The Glass Veins | 24 | 8, 16 | 24 | ≤ 8 | 11 | +1 | ×3.2 / ×1.7 | Cadence |
 | IV | The Warrens | 24 | 8, 16 | 24 | ≤ 9 | 13 | +2 | ×5.8 / ×2.2 | Rue |
 | V | The Furnace | 28 | 12, 20 | 28 | ≤ 11 | 15 | +3 | ×10.5 / ×2.85 | Puck |
-| VI | The Geode | 32 | 12, 24 | 32 | ≤ 12 | 17 | +4 | ×19 / ×3.7 | Florin |
+| VI | The Hollow (key `GEODE`; the Geode until October 12, 2026) | 32 | 12, 24 | 32 | ≤ 12 | 17 | +4 | ×19 / ×3.7 | Florin |
 | ∞ | The Rift | endless | every 8 | — | ≤ 13, +1 a Warden | 17, +1 a Warden, to 24 | +5 | ×34, doubling every 8 floors / ×4.8, +15% every 8 | — |
 
 Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. Every mine has its own two Wardens and its own final boss (see [the Bestiary](BESTIARY.md)); the Rift's are the bosses above it, remembered, with the Infinite Void every fifth.
@@ -27,7 +27,7 @@ Landings still come every fourth floor and still wander a floor either way, Ward
 | Glass Veins | Echo Sprite, Glint Magpie, Will-o’-Wisp, Prism Golem, Refractor, Shard Wyrm | Cave Tick, Seep Eel, Drowned Miner, Clouder | the Glazier, the Kaleidoscope | the Prismarch and its Prisms |
 | Warrens | Spore Slime, Mycel Weaver, Puffball, Cap Shambler, Mycel Wraith, Root Horror | Clouder, Drowned Miner, Echo Sprite | the Gardener, the Spore Mother | the Heartrot and its Tendrils |
 | Furnace | Forge Imp, Salamander, Slag Hound, Fire Tick, Ember Crawler, Cinder Moth | Mycel Weaver, Clouder, Root Horror | the Smelter, the Anvil Knight | the Kiln Wyrm |
-| Geode | Croupier Crab, Gilded Magpie, Geode Golem, Hoard Mimic, Amethyst Wyrm, Crystal Hydra | Salamander, Slag Hound, Forge Imp, Clouder | the Assayer, the Collector | the Hollow Crown |
+| Hollow | Croupier Crab, Gilded Magpie, Geode Golem, Hoard Mimic, Amethyst Wyrm, Crystal Hydra | Salamander, Slag Hound, Forge Imp, Clouder | the Assayer, the Collector | the Hollow Crown |
 | Rift | Void Echo (anything from the first four mines), Null Shade, Riftling Swarm, Entropy Eye | through the Void Echo | the Remembered: the Drill, the Undertow, the Prismarch, the Heartrot, the Kiln Wyrm, round again; every fifth the Infinite Void | — |
 
 A variant (a Fire Tick for the Cave Tick) never stands within one mine of the creature it is based on, or of another variant of it; `tests/test_bestiary.gd` holds the bands to that.
@@ -51,7 +51,7 @@ Each mine's `batch` is the skills first found in its rock. A mine's pool is its 
 | Glass Veins (10) | straights, rerolls and Resonance (Cadence) | Barrage, Fury, Aegis, Renewal, Dread, Gilded Armor, Prism · Lodestone, Crescendo, Spectrum |
 | Warrens (10) | low dice and poison (Rue) | Detonate, Siphon, Sap, Miasma, Curse, Polish · Confluence, Ferment, Contagion, Rattle |
 | Furnace (10) | Block and the forge (Puck) | Bind, Mortar, Thrive, Bastion, Enrich, Riposte · Bezel, Chainmail, Rebound, Hone |
-| Geode (10) | pyrite, crowns and big totals (Florin) | Jackpot, Double Down, Stake, Appraise, Overkill, Wager · Crest, Overturn, Wellspring, Hemlock |
+| Hollow (10) | pyrite, crowns and big totals (Florin) | Jackpot, Double Down, Stake, Appraise, Overkill, Wager · Crest, Overturn, Wellspring, Hemlock |
 | Rift (8) | blood, the Birthstone and rare hands | Lifeline · Grudge, Petrify, Birthright, Thirst, Bloodletting, Heartwood, Fortify |
 
 The October 2026 regrouping (the 37 gems after the `·` in each row) keeps two rules: no mine's batch holds more than 10 skills, and every mine but the Quarry unlocks at least five colours. The Quarry takes what does not fit, so it grows instead. Pinfire, Contra Luz and Hydrophane are opals, found only in Warden hoards like every other opal.
@@ -88,7 +88,7 @@ Each mine lists three biomes in `biomes`, one per stretch: the base biome to its
 | Glass Veins | The Crystal Veins | The Prism Halls | The Black Glass |
 | Warrens | The Mycelium | The Bloom | The Rot |
 | Furnace | The Magma Seam | The Ember Crystals | The Lavafalls |
-| Geode | The Geode Heart | The Gilded Vault | The Amethyst Throat |
+| Hollow | The Hollow Heart | The Gilded Vault | The Amethyst Throat |
 | Rift | The Rift, The Shattered Deep and The Echoing Deep, turning over every eight floors |
 
 `tools/biome_gallery.gd` shoots every stretch of every mine.

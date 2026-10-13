@@ -33,11 +33,15 @@ static func roll_day(profile: Dictionary, date: String = "") -> bool:
 	var daily: Dictionary = profile.daily
 	var changed: bool = false
 	if str(daily.get("date", "")) != date:
+		## A new day starts clean: yesterday's services (the Wheel, the Oven, the contract
+		## bench, the restock) are free to use again, and the Market has not been looked at.
+		daily.clear()
 		daily.date = date
 		daily.rerolls = 0
 		daily.commissions = []
 		daily.seq = 0
 		daily.shelf = []
+		daily.case = []
 		changed = true
 	if not daily.get("commissions", null) is Array:
 		daily.commissions = []
@@ -50,8 +54,21 @@ static func roll_day(profile: Dictionary, date: String = "") -> bool:
 	## The shop's shelf is stocked once a day: a profile from before the shop gets today's on
 	## the spot, and so does one with no mine open yet once it has one.
 	if not daily.get("shelf", null) is Array or daily.shelf.is_empty():
-		daily.shelf = _roll_shelf(profile, date)
+		daily.shelf = _roll_daily_geode(profile, date, 1 if bool(daily.get("restocked", false)) else 0)
 		changed = changed or not daily.shelf.is_empty()
+	## The case of cut and read stones, three a day.
+	if not daily.get("case", null) is Array or daily.case.is_empty():
+		daily.case = _roll_case(profile, date, 1 if bool(daily.get("restocked", false)) else 0)
+		changed = changed or not daily.case.is_empty()
+	## The week's Geode turns over once a week, the same day for everyone.
+	if not profile.get("weekly", null) is Dictionary:
+		profile.weekly = {}
+	if int(profile.weekly.get("week", -1)) != week_number(date):
+		profile.weekly = {"week": week_number(date), "geode": _roll_weekly_geode(profile, date)}
+		changed = true
+	elif profile.weekly.get("geode", {}).is_empty():
+		profile.weekly.geode = _roll_weekly_geode(profile, date)
+		changed = changed or not profile.weekly.geode.is_empty()
 	return changed
 
 # --- the way down -----------------------------------------------------------------------------
@@ -112,7 +129,7 @@ static func unlock_socket(profile: Dictionary, character_key: String) -> Diction
 	## Buys this lapidary's next socket, for good.
 	var record: Dictionary = profile.get("characters", {}).get(character_key, {})
 	if record.is_empty() or not bool(record.get("unlocked", false)):
-		return {"ok": false, "error": "that lapidary has not joined the workshop"}
+		return {"ok": false, "error": "that delver has not joined the workshop"}
 	var price: int = socket_price(profile, character_key)
 	if price < 0:
 		return {"ok": false, "error": "every socket is already open"}
@@ -266,12 +283,39 @@ static func commission_for(profile: Dictionary, stone: Dictionary) -> Dictionary
 	return best
 
 static func ready_count(profile: Dictionary) -> int:
-	## How many open commissions a stone on the tray could fill right now.
+	## How many open commissions a stone the player has (on the tray or in the vault) could
+	## fill right now.
 	var count: int = 0
 	for commission in open_commissions(profile):
-		if profile.get("tray", []).any(func(s: Dictionary) -> bool: return meets(commission, s)):
+		if not vault_fill(profile, commission).is_empty() or profile.get("tray", []).any(func(s: Dictionary) -> bool: return meets(commission, s)):
 			count += 1
 	return count
+
+static func vault_fill(profile: Dictionary, commission: Dictionary) -> Dictionary:
+	## The kept stone that would fill a commission, or {}. A vault holds one stone per skill.
+	var stone: Dictionary = profile.get("vault", {}).get(str(commission.get("skill", "")), {})
+	return stone if not stone.is_empty() and meets(commission, stone) else {}
+
+static func turn_in_vault(profile: Dictionary, commission_id: String) -> Dictionary:
+	## Hands over the kept stone a commission names. Its skill is no longer kept, and every
+	## loadout that set it lets it go; it stays seen.
+	var commission: Dictionary = {}
+	for candidate in open_commissions(profile):
+		if str(candidate.get("id", "")) == commission_id:
+			commission = candidate
+	if commission.is_empty():
+		return {"ok": false, "error": "no such commission open"}
+	var stone: Dictionary = vault_fill(profile, commission)
+	if stone.is_empty():
+		return {"ok": false, "error": "no kept stone meets that commission"}
+	var paid: int = payout(commission, stone)
+	DeepProfile.lose(profile, str(stone.get("skill", "")))
+	profile.gold = int(profile.get("gold", 0)) + paid
+	commission.done = true
+	commission.paid = paid
+	if profile.has("records"):
+		profile.records.commissions = int(profile.records.get("commissions", 0)) + 1
+	return {"ok": true, "paid": paid, "stone": stone}
 
 static func turn_in(profile: Dictionary, stone_id: String, commission_id: String) -> Dictionary:
 	## Hands a stone from the tray over for a commission. The stone is gone; its skill stays
@@ -330,13 +374,13 @@ static func reroll(profile: Dictionary, commission_id: String) -> Dictionary:
 	list[at] = made
 	return {"ok": true, "paid": price, "commission": made}
 
-# --- the shop: geodes -------------------------------------------------------------------------
+# --- the market: geodes ------------------------------------------------------------------------
 ##
-## Three Geodes on the shelf a day (docs/GOLD.md §3.3): one of an open mine's rock, one of a
-## single color from the deepest open mine, and the week's featured set. Each holds one stone,
-## rolled with the shelf, finer than the rock usually gives: heavier, and cut and cleared with
-## more luck behind it. Buying one cracks it at once and puts the stone on the tray already
-## read, so the reel that shows it is only the showing: quitting half-way loses nothing.
+## Two Geodes on the shelf (docs/GOLD.md §3.3): today's, which is one open mine's rock or one
+## color from the deepest open mine (the day decides which), and the week's, the featured set,
+## heavier and better cut and priced to match. Each holds one stone, rolled with the shelf,
+## finer than the rock usually gives. Buying one cracks it at once and puts the stone on the
+## tray already read, so the cracking is only the showing: quitting half-way loses nothing.
 
 const GEODE_KINDS: Array = ["mine", "color", "featured"]
 ## A Geode's odds, worked out once a session per recipe: the skills it can hold and how
@@ -344,7 +388,12 @@ const GEODE_KINDS: Array = ["mine", "color", "featured"]
 static var _odds: Dictionary = {}
 
 static func shelf(profile: Dictionary) -> Array:
-	return profile.get("daily", {}).get("shelf", [])
+	## Today's Geode and the week's, in that order.
+	var out: Array = profile.get("daily", {}).get("shelf", []).duplicate()
+	var weekly: Dictionary = profile.get("weekly", {}).get("geode", {})
+	if not weekly.is_empty():
+		out.append(weekly)
+	return out
 
 static func geode_luck() -> float:
 	return float(DeepContent.constant("geode_luck", 4))
@@ -361,12 +410,15 @@ static func day_number(date: String) -> int:
 	## featured set and the daily dig turn over on.
 	return int(floor(float(Time.get_unix_time_from_datetime_string(date + "T00:00:00")) / 86400.0))
 
+static func week_number(date: String) -> int:
+	return day_number(date) / 7
+
 static func featured_set(date: String) -> Dictionary:
 	## The week's featured set: the sets take turns, a week each, the same for everyone.
 	var sets: Array = featured_sets()
 	if sets.is_empty():
 		return {}
-	return sets[posmod(day_number(date) / 7, sets.size())]
+	return sets[posmod(week_number(date), sets.size())]
 
 static func featured_days_left(date: String) -> int:
 	## How many days the week's featured set has left on the shelf, today included.
@@ -400,9 +452,10 @@ static func geode_pool(geode: Dictionary) -> Array:
 
 static func geode_band(geode: Dictionary) -> Dictionary:
 	## The carats a Geode's stone can weigh: from its mine's usual top to past the mine's cap.
+	## The week's Geode starts a carat or more above that.
 	var band: Dictionary = DeepForge.carat_band(geode_mine(geode), 1)
-	var low: int = int(band.get("soft", 5))
 	var high: int = mini(int(band.get("cap", 7)) + int(DeepContent.constant("geode_carat_over_cap", 2)), DeepStone.carat_max())
+	var low: int = mini(int(band.get("soft", 5)) + (int(DeepContent.constant("geode_week_carat", 1)) if bool(geode.get("weekly", false)) else 0), high)
 	return {"low": low, "high": maxi(low, high), "cap": int(band.get("cap", 7))}
 
 static func roll_geode_carat(rng: RandomNumberGenerator, band: Dictionary) -> int:
@@ -416,7 +469,7 @@ static func roll_geode_carat(rng: RandomNumberGenerator, band: Dictionary) -> in
 static func roll_geode_stone(rng: RandomNumberGenerator, geode: Dictionary, stone_id: String) -> Dictionary:
 	## One stone out of a Geode: the skill from its pool (or, rarely, an opal), cut and
 	## cleared at the bottom of its mine with the Geode's luck on top, never Void, and as
-	## heavy as `geode_band` allows.
+	## heavy as `geode_band` allows. The week's Geode is never cut worse than Fine.
 	var mine: Dictionary = geode_mine(geode)
 	var opal: bool = DeepRng.chance(rng, geode_opal_pct()) and not DeepForge.opal_pool().is_empty()
 	var pool: Array = DeepForge.opal_pool() if opal else geode_pool(geode)
@@ -428,6 +481,8 @@ static func roll_geode_stone(rng: RandomNumberGenerator, geode: Dictionary, ston
 			break
 	stone.inclusions = _sound(stone.get("inclusions", []))
 	stone.carat = roll_geode_carat(rng, geode_band(geode))
+	if bool(geode.get("weekly", false)):
+		stone.cut = maxi(int(stone.get("cut", 0)), int(DeepContent.constant("geode_week_min_cut", 3)))
 	return stone
 
 static func _sound(inclusions: Array) -> Array:
@@ -439,8 +494,8 @@ static func _sound(inclusions: Array) -> Array:
 static func geode_odds(geode: Dictionary) -> Dictionary:
 	## What a Geode can hold and how likely each thing is: every skill with its share, the opal
 	## chance, the share of each grade (by sampling the Geode four hundred times), the carats,
-	## and what one is worth on average. The shelf prints all of it: every gamble shows its odds.
-	var key: String = "%s:%s:%s" % [str(geode.get("kind", "")), str(geode.get("theme", "")), str(geode.get("mine", ""))]
+	## and what one is worth on average. Every gamble shows its odds.
+	var key: String = "%s:%s:%s:%s" % [str(geode.get("kind", "")), str(geode.get("theme", "")), str(geode.get("mine", "")), "w" if bool(geode.get("weekly", false)) else "d"]
 	if _odds.has(key):
 		return _odds[key]
 	var mine: Dictionary = geode_mine(geode)
@@ -471,44 +526,59 @@ static func geode_odds(geode: Dictionary) -> Dictionary:
 	return out
 
 static func geode_price(geode: Dictionary) -> int:
-	## Well over what a Geode's stone sells for on average (`geode_price_mult` of it), so
-	## cracking Geodes to sell what is inside always loses gold, and never under the mine's
-	## own floor. Rounded to ten.
-	var worth: float = float(geode_odds(geode).worth) * float(DeepContent.constant("geode_price_mult", 1.75))
+	## Well over what a Geode's stone sells for on average (`geode_price_mult` of it, more for
+	## the week's), so cracking Geodes to sell what is inside always loses gold, and never
+	## under the mine's own floor. Rounded to ten.
+	var mult: float = float(DeepContent.constant("geode_price_mult", 1.75))
+	if bool(geode.get("weekly", false)):
+		mult *= float(DeepContent.constant("geode_week_price_mult", 1.2))
+	var worth: float = float(geode_odds(geode).worth) * mult
 	var floor_price: int = int(DeepContent.mine(str(geode.get("mine", ""))).get("geode_gold", 0))
 	return maxi(floor_price, int(ceil(worth / 10.0)) * 10)
 
-static func _roll_shelf(profile: Dictionary, date: String) -> Array:
-	## The day's three Geodes, the same however often the game is opened: each one's stone is
-	## rolled now and kept with it, so cracking it only shows what was already there.
+static func _roll_daily_geode(profile: Dictionary, date: String, salt: int) -> Array:
+	## Today's Geode: one open mine's rock or one color from the deepest open mine, whichever
+	## the day picks. The same however often the game is opened; a restock (`salt`) rolls anew.
 	var open: Array = DeepProfile.unlocked_mines(profile)
 	if open.is_empty():
 		return []
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash("%s:%s:shelf" % [str(profile.get("id", "")), date])
+	rng.seed = hash("%s:%s:shelf:%d" % [str(profile.get("id", "")), date, salt])
 	var deepest: String = str(open.back())
-	var any_mine: String = str(open[rng.randi_range(0, open.size() - 1)])
-	var color: String = str(DeepContent.color_KEYS[rng.randi_range(0, DeepContent.color_KEYS.size() - 1)])
-	var plans: Array = [{"kind": "mine", "theme": any_mine, "mine": any_mine}, {"kind": "color", "theme": color, "mine": deepest}]
+	var geode: Dictionary
+	if rng.randi_range(0, 1) == 0:
+		var any_mine: String = str(open[rng.randi_range(0, open.size() - 1)])
+		geode = {"kind": "mine", "theme": any_mine, "mine": any_mine}
+	else:
+		geode = {"kind": "color", "theme": str(DeepContent.color_KEYS[rng.randi_range(0, DeepContent.color_KEYS.size() - 1)]), "mine": deepest}
+	geode.id = "g%s_%d" % [date.replace("-", ""), salt]
+	geode.stone = roll_geode_stone(rng, geode, "%s_%s" % [str(profile.get("id", "")).right(4), geode.id])
+	geode.price = geode_price(geode)
+	geode.bought = false
+	return [geode]
+
+static func _roll_weekly_geode(profile: Dictionary, date: String) -> Dictionary:
+	## The week's Geode: the featured set from the deepest open mine's rock (or that mine's own
+	## Geode when too little of the set is in reach), heavier and better cut than today's.
+	var open: Array = DeepProfile.unlocked_mines(profile)
+	if open.is_empty():
+		return {}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("%s:%d:week" % [str(profile.get("id", "")), week_number(date)])
+	var deepest: String = str(open.back())
 	var featured: Dictionary = featured_set(date)
-	var third: Dictionary = {"kind": "featured", "theme": str(featured.get("key", "")), "mine": deepest}
-	## The week's set is only offered when enough of it is in reach of the mines open.
-	if featured.is_empty() or geode_pool(third).size() < 3:
-		third = {"kind": "mine", "theme": deepest, "mine": deepest}
-	plans.append(third)
-	var out: Array = []
-	for index in range(plans.size()):
-		var geode: Dictionary = plans[index]
-		geode.id = "g%s_%d" % [date.replace("-", ""), index]
-		geode.stone = roll_geode_stone(rng, geode, "%s_%s" % [str(profile.get("id", "")).right(4), geode.id])
-		geode.price = geode_price(geode)
-		geode.bought = false
-		out.append(geode)
-	return out
+	var geode: Dictionary = {"kind": "featured", "theme": str(featured.get("key", "")), "mine": deepest, "weekly": true}
+	if featured.is_empty() or geode_pool(geode).size() < 3:
+		geode = {"kind": "mine", "theme": deepest, "mine": deepest, "weekly": true}
+	geode.id = "w%d" % week_number(date)
+	geode.stone = roll_geode_stone(rng, geode, "%s_%s" % [str(profile.get("id", "")).right(4), geode.id])
+	geode.price = geode_price(geode)
+	geode.bought = false
+	return geode
 
 static func open_geode(profile: Dictionary, geode_id: String) -> Dictionary:
 	## Buys a Geode off the shelf and cracks it: the gold is taken, the stone goes on the tray
-	## already read, and the Geode stays on the shelf, open, until tomorrow.
+	## already read, and the Geode stays on the shelf, open, until it is restocked.
 	var geode: Dictionary = {}
 	for candidate in shelf(profile):
 		if str(candidate.get("id", "")) == geode_id:
@@ -533,6 +603,191 @@ static func open_geode(profile: Dictionary, geode_id: String) -> Dictionary:
 	if profile.has("records"):
 		profile.records.geodes = int(profile.records.get("geodes", 0)) + 1
 	return {"ok": true, "paid": price, "stone": stone, "geode": geode}
+
+# --- the market: cut and read stones ------------------------------------------------------------
+##
+## Three stones a day, already cut and read: skill, carat, Cut, Clarity and inclusions all on
+## show. Never an opal or a Transcendent, never fragile. There is no gamble in them, so they
+## cost more than a Geode's stone of the same worth would (`case_price_mult` of what one sells
+## for). Bought, a stone goes into the vault, and the one of its skill already kept is sold.
+
+const CASE_SIZE: int = 3
+
+static func case_stones(profile: Dictionary) -> Array:
+	return profile.get("daily", {}).get("case", [])
+
+static func case_price(stone: Dictionary) -> int:
+	return maxi(int(DeepContent.constant("case_gold_min", 30)), int(ceil(float(DeepStone.value(stone)) * float(DeepContent.constant("case_price_mult", 2.5)) / 10.0)) * 10)
+
+static func _roll_case(profile: Dictionary, date: String, salt: int) -> Array:
+	var open: Array = DeepProfile.unlocked_mines(profile)
+	if open.is_empty():
+		return []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("%s:%s:case:%d" % [str(profile.get("id", "")), date, salt])
+	var out: Array = []
+	var taken: Array = []
+	for index in range(CASE_SIZE):
+		var key: String = str(open[rng.randi_range(0, open.size() - 1)])
+		var mine: Dictionary = DeepContent.mine(key).duplicate()
+		mine.key = key
+		var bottom: int = DeepContent.mine_bottom(key)
+		if bottom <= 0:
+			bottom = 24
+		var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool:
+			return str(DeepContent.skill(k).get("color", "")) != DeepContent.OPAL and not DeepContent.is_transcendent(k) and not taken.has(k))
+		if pool.is_empty():
+			continue
+		var stone: Dictionary = {}
+		var id: String = "c%s_%d_%d" % [date.replace("-", ""), salt, index]
+		for _try in range(12):
+			stone = DeepForge.roll_stone(rng, mine, rng.randi_range(maxi(1, bottom / 2), bottom), float(DeepContent.constant("case_luck", 2)),
+				{"source": "market", "mine": key}, "%s_%s" % [str(profile.get("id", "")).right(4), id], pool)
+			if not DeepStone.is_fragile(stone):
+				break
+		stone.inclusions = _sound(stone.get("inclusions", []))
+		stone.appraised = true
+		stone.inclusions_revealed = true
+		taken.append(str(stone.get("skill", "")))
+		out.append({"id": id, "stone": stone, "price": case_price(stone), "bought": false})
+	return out
+
+static func buy_case(profile: Dictionary, case_id: String) -> Dictionary:
+	## Buys a stone out of the case: into the vault, selling the one of its skill already kept.
+	var entry: Dictionary = {}
+	for candidate in case_stones(profile):
+		if str(candidate.get("id", "")) == case_id:
+			entry = candidate
+	if entry.is_empty():
+		return {"ok": false, "error": "no such stone in the case"}
+	if bool(entry.get("bought", false)):
+		return {"ok": false, "error": "that stone is sold"}
+	var price: int = int(entry.get("price", 0))
+	if int(profile.get("gold", 0)) < price:
+		return {"ok": false, "error": "that stone costs %d gold" % price}
+	profile.gold = int(profile.gold) - price
+	entry.bought = true
+	var stone: Dictionary = entry.stone.duplicate(true)
+	stone.id = DeepProfile._id(profile, "st")
+	if not stone.get("provenance", null) is Dictionary:
+		stone.provenance = {}
+	stone.provenance.date = today()
+	var kept: Dictionary = DeepProfile.keep(profile, stone)
+	return {"ok": true, "paid": price, "stone": stone, "replaced": kept.get("replaced", {}), "sold_for": int(kept.get("paid", 0))}
+
+# --- the market: the Wheel and the Oven -----------------------------------------------------------
+##
+## Once a day each, a vault stone can be put back on the wheel (its Cut drawn again) or into the
+## oven (its Clarity, and so what is frozen inside it, drawn again). It is the mine's own
+## gamble, run at home at the luck of the stone's own mine and depth: the result is always
+## different from what went in, better or worse, and one stone in `rework_break_pct` hundred
+## does not come back at all. The price follows what the stone is worth.
+
+const REWORKS: Array = ["cut", "clarity"]
+
+static func rework_price(stone: Dictionary) -> int:
+	return maxi(int(DeepContent.constant("rework_gold_min", 25)), int(ceil(float(DeepStone.value(stone)) * float(DeepContent.constant("rework_price_mult", 0.5)) / 5.0)) * 5)
+
+static func rework_break_pct() -> float:
+	return float(DeepContent.constant("rework_break_pct", 4))
+
+static func rework_used(profile: Dictionary, kind: String) -> bool:
+	return bool(profile.get("daily", {}).get("rework_" + kind, false))
+
+static func rework_refusal(profile: Dictionary, skill: String, kind: String) -> String:
+	## Why a vault stone cannot go on the Wheel or into the Oven, or "".
+	if not kind in REWORKS:
+		return "no such service"
+	if rework_used(profile, kind):
+		return "The %s has been used today. It is free again tomorrow." % ("Wheel" if kind == "cut" else "Oven")
+	var stone: Dictionary = DeepProfile.owned(profile, skill)
+	if stone.is_empty():
+		return "Only stones in your vault can be reworked."
+	if DeepStone.is_birthstone(stone) or DeepContent.is_transcendent(skill):
+		return "That stone cannot be reworked."
+	if int(profile.get("gold", 0)) < rework_price(stone):
+		return "That costs %d gold." % rework_price(stone)
+	return ""
+
+static func _rework_ground(stone: Dictionary) -> Array:
+	## The mine and depth a stone was found at, which its reroll draws at the luck of.
+	var provenance: Dictionary = stone.get("provenance", {}) if stone.get("provenance", null) is Dictionary else {}
+	var key: String = str(provenance.get("mine", DeepContent.starter_mine()))
+	if DeepContent.mine(key).is_empty():
+		key = DeepContent.starter_mine()
+	var mine: Dictionary = DeepContent.mine(key).duplicate()
+	mine.key = key
+	return [mine, maxi(1, int(provenance.get("depth", 10)))]
+
+static func rework_odds(stone: Dictionary, kind: String) -> Array:
+	## What a rework could make of this stone: [rung, share] for every rung it could land on
+	## (never the one it is on), and last ["break", share] for the stone lost.
+	var ground: Array = _rework_ground(stone)
+	var q: float = DeepForge.luck(ground[0], int(ground[1]), 0.0)
+	var current: int = int(stone.get("cut" if kind == "cut" else "clarity", 0))
+	var weights: Array = DeepForge.cut_weights(q, current) if kind == "cut" else DeepForge.clarity_weights(q, current)
+	var total: float = 0.0
+	for w in weights:
+		total += float(w)
+	var whole: float = 1.0 - rework_break_pct() / 100.0
+	var out: Array = []
+	for index in range(weights.size()):
+		if float(weights[index]) > 0.0:
+			out.append([index, whole * float(weights[index]) / maxf(total, 0.0001)])
+	out.append(["break", rework_break_pct() / 100.0])
+	return out
+
+static func rework(profile: Dictionary, skill: String, kind: String, rng: RandomNumberGenerator = null) -> Dictionary:
+	## Puts a vault stone on the Wheel ("cut") or into the Oven ("clarity"). Returns {ok, broke,
+	## was, now, stone, paid}. A broken stone is gone from the vault and every loadout.
+	var refusal: String = rework_refusal(profile, skill, kind)
+	if not refusal.is_empty():
+		return {"ok": false, "error": refusal}
+	var stone: Dictionary = profile.vault[skill]
+	var paid: int = rework_price(stone)
+	if rng == null:
+		rng = RandomNumberGenerator.new()
+		rng.randomize()
+	profile.gold = int(profile.gold) - paid
+	profile.daily["rework_" + kind] = true
+	var was: int = int(stone.get(kind, 0))
+	if DeepRng.chance(rng, rework_break_pct()):
+		var lost: Dictionary = stone.duplicate(true)
+		DeepProfile.lose(profile, skill)
+		return {"ok": true, "broke": true, "was": was, "now": was, "stone": lost, "paid": paid}
+	var ground: Array = _rework_ground(stone)
+	if kind == "cut":
+		DeepForge.reroll_cut(rng, stone, ground[0], int(ground[1]))
+	else:
+		DeepForge.reroll_clarity(rng, stone, ground[0], int(ground[1]))
+		stone.inclusions = _sound(stone.get("inclusions", []))
+	if not stone.get("provenance", null) is Dictionary:
+		stone.provenance = {}
+	stone.provenance.reworked = int(stone.provenance.get("reworked", 0)) + 1
+	DeepProfile.regrade(profile, stone)
+	return {"ok": true, "broke": false, "was": was, "now": int(stone.get(kind, 0)), "stone": stone.duplicate(true), "paid": paid}
+
+# --- the market: restocking ----------------------------------------------------------------------
+
+static func restock_price() -> int:
+	return int(DeepContent.constant("restock_gold", 100))
+
+static func restocked_today(profile: Dictionary) -> bool:
+	return bool(profile.get("daily", {}).get("restocked", false))
+
+static func restock(profile: Dictionary) -> Dictionary:
+	## Once a day, for gold: a new Geode of the day and three new cut stones. The week's Geode
+	## and the commissions stay as they are (commissions have their own reroll).
+	if restocked_today(profile):
+		return {"ok": false, "error": "The market has been restocked today."}
+	if int(profile.get("gold", 0)) < restock_price():
+		return {"ok": false, "error": "A restock costs %d gold." % restock_price()}
+	var date: String = str(profile.get("daily", {}).get("date", today()))
+	profile.gold = int(profile.gold) - restock_price()
+	profile.daily.restocked = true
+	profile.daily.shelf = _roll_daily_geode(profile, date, 1)
+	profile.daily.case = _roll_case(profile, date, 1)
+	return {"ok": true, "paid": restock_price()}
 
 # --- contracts ---------------------------------------------------------------------------------
 ##
@@ -569,7 +824,7 @@ static func contract_refusal(stone: Dictionary) -> String:
 	if not bool(stone.get("appraised", false)):
 		return "its grade is not known yet: appraise it first"
 	if DeepStone.is_birthstone(stone):
-		return "a Birthstone belongs to its lapidary"
+		return "a Birthstone belongs to its delver"
 	if DeepStone.is_fragile(stone):
 		return "a fragile stone cannot be traded"
 	if DeepStone.is_transcendent(stone):
@@ -696,8 +951,14 @@ static func contract_preview(profile: Dictionary, refs: Array) -> Dictionary:
 		out.reason = "%d more %s %s." % [contract_size() - stones.size(), DeepStone.TIER_NAMES.get(tier, tier), "stone" if contract_size() - stones.size() == 1 else "stones"]
 	elif int(profile.get("gold", 0)) < int(out.fee):
 		out.reason = "The fee is %d gold." % int(out.fee)
-	out.ready = out.ok and out.feasible and stones.size() == contract_size() and int(profile.get("gold", 0)) >= int(out.fee)
+	elif contract_signed_today(profile):
+		out.reason = "Today's contract is signed. The bench opens again tomorrow."
+	out.ready = out.ok and out.feasible and stones.size() == contract_size() and int(profile.get("gold", 0)) >= int(out.fee) and not contract_signed_today(profile)
 	return out
+
+static func contract_signed_today(profile: Dictionary) -> bool:
+	## One contract a day: the bench is a service of the market, like the Wheel and the Oven.
+	return bool(profile.get("daily", {}).get("contract", false))
 
 static func contract_odds(preview: Dictionary) -> Array:
 	## Every skill a contract could make and the chance of each, likeliest first, as
@@ -843,13 +1104,7 @@ static func sign_contract(profile: Dictionary, refs: Array) -> Dictionary:
 		var input: Dictionary = contract_input(profile, str(ref))
 		given.append(input.stone.duplicate(true))
 		if bool(input.vault):
-			var skill: String = str(input.stone.get("skill", ""))
-			profile.vault.erase(skill)
-			for key in profile.get("characters", {}):
-				var rail: Array = profile.characters[key].get("rail", [])
-				for i in range(rail.size()):
-					if rail[i] is String and str(rail[i]) == skill:
-						rail[i] = null
+			DeepProfile.lose(profile, str(input.stone.get("skill", "")))
 		else:
 			var tray: Array = profile.get("tray", [])
 			for i in range(tray.size() - 1, -1, -1):
@@ -859,7 +1114,22 @@ static func sign_contract(profile: Dictionary, refs: Array) -> Dictionary:
 	DeepProfile.saw(profile, str(made.get("skill", "")))
 	if profile.has("records"):
 		profile.records.contracts = int(profile.records.get("contracts", 0)) + 1
+	if profile.get("daily", null) is Dictionary:
+		profile.daily.contract = true
 	return {"ok": true, "stone": made, "given": given, "paid": int(preview.fee), "preview": preview}
+
+static func cheapest_contract(profile: Dictionary, tier: String) -> Array:
+	## "Fill from cheapest": the five lowest-worth stones of one grade that can go on the
+	## bench, tray stones before vault ones at the same worth (a vault stone given up is a
+	## skill no longer kept). Fewer than five if there are not five to be had.
+	var pool: Array = contract_stones(profile).filter(func(e: Dictionary) -> bool: return str(DeepStone.grade(e.stone).tier) == tier)
+	pool.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var va: int = DeepStone.value(a.stone)
+		var vb: int = DeepStone.value(b.stone)
+		if va != vb:
+			return va < vb
+		return not bool(a.vault) and bool(b.vault))
+	return pool.slice(0, contract_size()).map(func(e: Dictionary) -> String: return str(e.ref))
 
 # --- the daily dig -----------------------------------------------------------------------------
 ##

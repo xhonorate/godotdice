@@ -296,7 +296,7 @@ func _add_member(id: String, member: Dictionary) -> void:
 		"character": str(said.get("character", DeepContent.starter_character())), "rail": said.get("rail", []), "dice": said.get("dice", []),
 		"ready": bool(said.get("ready", false)), "connected": true, "last_depth": int(said.get("last_depth", 0)), "last_outcome": str(said.get("last_outcome", "")),
 		"gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap())),
-		"daily_state": str(said.get("daily_state", "locked"))}
+		"daily_state": str(said.get("daily_state", "locked")), "showcase": said.get("showcase", [])}
 	lobby.members[id] = record
 	if not lobby.order.has(id):
 		lobby.order.append(id)
@@ -376,6 +376,11 @@ static func clean_member_fields(fields: Dictionary) -> Dictionary:
 			"daily_state":
 				if value is String and value in ["locked", "fresh", "played"]:
 					out.daily_state = value
+			"showcase":
+				## The best stones a member shows the party: a few known stones, nothing else.
+				if value is Array and value.size() <= 7 and value.all(func(s: Variant) -> bool:
+						return s is Dictionary and s.get("skill") is String and DeepContent.section("skills").has(s.skill)):
+					out.showcase = value
 			"last_depth", "gold", "sockets":
 				if (value is int or value is float) and is_finite(float(value)):
 					out[key] = maxi(0, int(value))
@@ -384,9 +389,10 @@ static func clean_member_fields(fields: Dictionary) -> Dictionary:
 func choose_mine(mine_key: String) -> void:
 	if not is_host or DeepContent.mine(mine_key).is_empty():
 		return
+	## Guests stay ready when the host moves the party to another mine. A guest who cannot pay
+	## the new fare stays ready too, and is shown short of it: the way down stays shut
+	## (`can_start` asks `short_members`) until the host picks a mine everyone can afford.
 	lobby.mine = mine_key
-	for id in lobby.members:
-		lobby.members[id].ready = false
 	_broadcast({"kind": "lobby", "lobby": lobby})
 	lobby_changed.emit(lobby)
 

@@ -138,6 +138,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if DeepRng.chance(rng, float(action.get("shatter", 4))):
 				remove_stone(player, str(stone.id))
 				out.lost.append(str(stone.id))
+				out.broke = {"field": "cut", "stone": stone.duplicate(true)}
 				out.message = "The stone shatters on the wheel."
 			else:
 				var was: int = int(stone.get("cut", 0))
@@ -156,6 +157,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if DeepRng.chance(rng, float(action.get("shatter", 4))):
 				remove_stone(player, str(stone.id))
 				out.lost.append(str(stone.id))
+				out.broke = {"field": "clarity", "stone": stone.duplicate(true)}
 				out.message = "The stone cracks in the heat."
 			else:
 				var rolled: Dictionary = DeepForge.reroll_clarity(rng, stone, mine, depth, int(action.get("bonus", 0)))
@@ -177,6 +179,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if DeepRng.chance(rng, float(action.get("shatter", 4))):
 				remove_stone(player, str(stone.id))
 				out.lost.append(str(stone.id))
+				out.broke = {"field": "clarity", "stone": stone.duplicate(true)}
 				out.message = "The stone cracks in the heat."
 			else:
 				var pushed: Dictionary = DeepForge.step_clarity(rng, stone, mine, maxi(1, int(action.get("steps", 1))))

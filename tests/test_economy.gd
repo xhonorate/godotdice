@@ -21,6 +21,7 @@ func _init() -> void:
 	_test_no_profit()
 	_test_seam_and_fragile_find()
 	_test_geodes()
+	_test_market()
 	_test_contracts()
 	_test_no_profit_chains()
 	_test_daily_plan()
@@ -489,7 +490,8 @@ func _test_geodes() -> void:
 	check(DeepEconomy.roll_day(profile, "2026-10-10"), "a new day stocks the shelf")
 	var shelf: Array = DeepEconomy.shelf(profile)
 	var kinds: Array = shelf.map(func(g: Dictionary) -> String: return str(g.kind))
-	check(shelf.size() == 3 and kinds[0] == "mine" and kinds[1] == "color" and kinds[2] in ["featured", "mine"], "three Geodes a day: a mine's, a color's and the week's set: %s" % str(kinds))
+	check(shelf.size() == 2 and kinds[0] in ["mine", "color"] and kinds[1] in ["featured", "mine"] and not bool(shelf[0].get("weekly", false)) and bool(shelf[1].weekly),
+		"two Geodes: today's (a mine's or a color's) and the week's: %s" % str(kinds))
 	check(shelf.all(func(g: Dictionary) -> bool: return not bool(g.bought) and int(g.price) > 0 and not g.stone.is_empty()), "each priced, unopened, its stone already inside")
 	check(not DeepEconomy.roll_day(profile, "2026-10-10") and DeepEconomy.shelf(profile) == shelf, "the same day changes nothing")
 	var twin: Dictionary = DeepProfile.new_profile("Twin")
@@ -497,12 +499,22 @@ func _test_geodes() -> void:
 	twin.daily = {}
 	DeepEconomy.roll_day(twin, "2026-10-10")
 	check(JSON.stringify(DeepEconomy.shelf(twin)) == JSON.stringify(shelf), "a day's shelf is the same however often the game is opened")
-	var color: String = str(shelf[1].theme)
-	check(DeepStone.is_opal(shelf[1].stone) or DeepStone.color(shelf[1].stone) == color, "a Color Geode holds a stone of its color (or an opal)")
+	## Over enough days, today's Geode is sometimes a mine's and sometimes a color's.
+	var seen_kinds: Dictionary = {}
+	for day in range(1, 20):
+		var probe: Dictionary = DeepProfile.new_profile("Probe")
+		probe.id = "pf_probe"
+		probe.daily = {}
+		DeepEconomy.roll_day(probe, "2026-11-%02d" % day)
+		var today_geode: Dictionary = DeepEconomy.shelf(probe)[0]
+		seen_kinds[str(today_geode.kind)] = true
+		if str(today_geode.kind) == "color":
+			check(DeepStone.is_opal(today_geode.stone) or DeepStone.color(today_geode.stone) == str(today_geode.theme), "a Color Geode holds a stone of its color (or an opal)")
+	check(seen_kinds.has("mine") and seen_kinds.has("color"), "today's Geode is a mine's on some days and a color's on others: %s" % str(seen_kinds.keys()))
 	## A profile from before the shop gets today's shelf on the spot.
 	var older: Dictionary = DeepProfile.new_profile("Older")
 	older.daily = {"date": "2026-10-10", "rerolls": 0, "seq": 0, "commissions": []}
-	check(DeepEconomy.roll_day(older, "2026-10-10") and DeepEconomy.shelf(older).size() == 3, "a save from before the shop is stocked the same day")
+	check(DeepEconomy.roll_day(older, "2026-10-10") and DeepEconomy.shelf(older).size() == 2 and DeepEconomy.case_stones(older).size() == DeepEconomy.CASE_SIZE, "a save from before the market is stocked the same day")
 	var sealed: Dictionary = DeepProfile.new_profile("Sealed")
 	for key in sealed.mines:
 		sealed.mines[key].unlocked = false
@@ -511,7 +523,10 @@ func _test_geodes() -> void:
 	check(DeepEconomy.shelf(sealed).is_empty(), "with no mine open there is nothing to stock")
 	## Tomorrow: a new shelf.
 	DeepEconomy.roll_day(profile, "2026-10-11")
-	check(DeepEconomy.shelf(profile).size() == 3 and str(DeepEconomy.shelf(profile)[0].id) != str(shelf[0].id), "tomorrow's shelf is a new one")
+	check(DeepEconomy.shelf(profile).size() == 2 and str(DeepEconomy.shelf(profile)[0].id) != str(shelf[0].id), "tomorrow's Geode is a new one")
+	check(str(DeepEconomy.shelf(profile)[1].id) == str(shelf[1].id), "the week's Geode stays all week")
+	DeepEconomy.roll_day(profile, "2026-10-20")
+	check(str(DeepEconomy.shelf(profile)[1].id) != str(shelf[1].id), "and a new week brings a new one")
 	## What comes out of a Geode: never Void, as heavy as the band allows, now and then an opal.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 77
@@ -584,6 +599,121 @@ func graded(skill: String, carat: int, cut: int, clarity: int, id: String, mine:
 
 func refs_of(stones: Array) -> Array:
 	return stones.map(func(s: Dictionary) -> String: return "t:%s" % str(s.id))
+
+func _test_market() -> void:
+	## The week's Geode: heavier and better cut than today's, and dearer.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 91
+	var daily_geode: Dictionary = geode_of("mine", "QUARRY", "QUARRY")
+	var weekly_geode: Dictionary = geode_of("mine", "QUARRY", "QUARRY")
+	weekly_geode.weekly = true
+	check(int(DeepEconomy.geode_band(weekly_geode).low) > int(DeepEconomy.geode_band(daily_geode).low), "the week's Geode starts heavier")
+	var worst_cut: int = 9
+	for i in range(300):
+		worst_cut = mini(worst_cut, int(DeepEconomy.roll_geode_stone(rng, weekly_geode, "w%d" % i).cut))
+	check(worst_cut >= int(DeepContent.constant("geode_week_min_cut", 3)), "and is never cut worse than Fine (worst %d)" % worst_cut)
+	check(DeepEconomy.geode_price(weekly_geode) > DeepEconomy.geode_price(daily_geode), "and costs more (%d against %d)" % [DeepEconomy.geode_price(weekly_geode), DeepEconomy.geode_price(daily_geode)])
+	## The case: three cut and read stones a day, never opals, Transcendents or fragile stones.
+	var shopper: Dictionary = DeepProfile.new_profile("Shopper")
+	shopper.id = "pf_case"
+	shopper.daily = {}
+	DeepEconomy.roll_day(shopper, "2026-10-10")
+	var case: Array = DeepEconomy.case_stones(shopper)
+	check(case.size() == DeepEconomy.CASE_SIZE, "three stones in the case (%d)" % case.size())
+	check(case.all(func(e: Dictionary) -> bool:
+		return bool(e.stone.appraised) and not DeepStone.is_opal(e.stone) and not DeepContent.is_transcendent(str(e.stone.skill)) and not DeepStone.is_fragile(e.stone)),
+		"every one read, none an opal, a Transcendent or fragile")
+	check(case.all(func(e: Dictionary) -> bool: return int(e.price) >= int(ceil(DeepStone.value(e.stone) * 2.0))), "each costs well over what it sells for")
+	var skills_in_case: Array = case.map(func(e: Dictionary) -> String: return str(e.stone.skill))
+	var unique_skills: Dictionary = {}
+	for s in skills_in_case:
+		unique_skills[s] = true
+	check(unique_skills.size() == skills_in_case.size(), "three different skills: %s" % str(skills_in_case))
+	var item: Dictionary = case[0]
+	shopper.gold = int(item.price) - 1
+	check(not DeepEconomy.buy_case(shopper, str(item.id)).ok, "a short purse buys nothing")
+	shopper.gold = int(item.price) + 10
+	var bought: Dictionary = DeepEconomy.buy_case(shopper, str(item.id))
+	check(bought.ok and int(shopper.gold) == 10 + int(bought.get("sold_for", 0)) and shopper.vault.has(str(item.stone.skill)), "bought, it goes into the vault: %s" % str(bought.get("error", "")))
+	check(bool(shopper.vault[str(item.stone.skill)].get("fresh", false)) and DeepProfile.fresh_count(shopper) == 1, "and is new there until looked at")
+	check(DeepProfile.unfresh(shopper, str(item.stone.skill)) and DeepProfile.fresh_count(shopper) == 0, "looked at, it is not new any more")
+	check(not DeepEconomy.buy_case(shopper, str(item.id)).ok, "a stone in the case is sold once")
+	## Restocking: once a day, for its price, a new Geode of the day and a new case; the week's stays.
+	var before_geode: String = str(DeepEconomy.shelf(shopper)[0].id)
+	var before_case: String = JSON.stringify(DeepEconomy.case_stones(shopper))
+	var week_id: String = str(DeepEconomy.shelf(shopper)[1].id)
+	shopper.gold = DeepEconomy.restock_price() - 1
+	check(not DeepEconomy.restock(shopper).ok, "a restock needs its price")
+	shopper.gold = DeepEconomy.restock_price()
+	check(DeepEconomy.restock(shopper).ok and int(shopper.gold) == 0, "a restock takes its price")
+	check(str(DeepEconomy.shelf(shopper)[0].id) != before_geode and JSON.stringify(DeepEconomy.case_stones(shopper)) != before_case, "and brings a new Geode and a new case")
+	check(str(DeepEconomy.shelf(shopper)[1].id) == week_id, "but not a new week's Geode")
+	shopper.gold = 9999
+	check(not DeepEconomy.restock(shopper).ok, "one restock a day")
+	DeepEconomy.roll_day(shopper, "2026-10-10")
+	check(str(DeepEconomy.shelf(shopper)[0].id).ends_with("_1"), "the restocked shelf stays put for the rest of the day")
+	DeepEconomy.roll_day(shopper, "2026-10-11")
+	check(not DeepEconomy.restocked_today(shopper) and DeepEconomy.restock(shopper).ok, "a new day, a new restock")
+	## The Wheel and the Oven: once a day each, vault stones only, always a change, sometimes a loss.
+	var worker: Dictionary = DeepProfile.new_profile("Worker")
+	worker.daily = {}
+	DeepEconomy.roll_day(worker, "2026-10-10")
+	worker.gold = 100000
+	check(not DeepEconomy.rework(worker, "FURY", "cut").ok, "a stone that is not in the vault cannot be reworked")
+	var strike_cut: int = int(worker.vault.STRIKE.cut)
+	var odds: Array = DeepEconomy.rework_odds(worker.vault.STRIKE, "cut")
+	var share_sum: float = 0.0
+	for entry in odds:
+		share_sum += float(entry[1])
+		if str(entry[0]) != "break":
+			check(int(entry[0]) != strike_cut, "the Wheel never offers the Cut a stone already has")
+	check(absf(share_sum - 1.0) < 0.001 and str(odds.back()[0]) == "break" and is_equal_approx(float(odds.back()[1]), 0.04), "the Wheel's odds add up, a break among them: %s" % str(odds))
+	var price: int = DeepEconomy.rework_price(worker.vault.STRIKE)
+	var gold_before: int = int(worker.gold)
+	var spun: Dictionary = DeepEconomy.rework(worker, "STRIKE", "cut")
+	check(spun.ok and int(worker.gold) == gold_before - price, "the Wheel takes its price (%d)" % price)
+	if bool(spun.broke):
+		check(not worker.vault.has("STRIKE") and not worker.characters.ARDOR.rail.has("STRIKE"), "a stone broken on the Wheel is gone from the vault and the loadout")
+	else:
+		check(int(worker.vault.STRIKE.cut) != strike_cut and int(spun.now) == int(worker.vault.STRIKE.cut), "the Wheel always changes the Cut (%d to %d)" % [strike_cut, int(spun.now)])
+	check(not DeepEconomy.rework(worker, "GUARD", "cut").ok, "one turn of the Wheel a day")
+	var guard_clarity: int = int(worker.vault.GUARD.clarity)
+	var fired: Dictionary = DeepEconomy.rework(worker, "GUARD", "clarity")
+	check(fired.ok and (bool(fired.broke) or int(worker.vault.GUARD.clarity) != guard_clarity), "the Oven always changes the Clarity")
+	check(not DeepEconomy.rework(worker, "MEND", "clarity").ok, "one firing a day")
+	## Over many tries the break comes about one time in twenty-five.
+	var broke: int = 0
+	var tries: int = 4000
+	var roller := RandomNumberGenerator.new()
+	roller.seed = 5
+	for i in range(tries):
+		var probe: Dictionary = DeepProfile.new_profile("Probe")
+		probe.gold = 100000
+		if bool(DeepEconomy.rework(probe, "STRIKE", "cut", roller).broke):
+			broke += 1
+	check(broke > tries * 0.025 and broke < tries * 0.06, "about one stone in twenty-five breaks (%d of %d)" % [broke, tries])
+	## One contract a day.
+	check(not DeepEconomy.contract_signed_today(worker), "the contract bench starts the day open")
+	worker.daily.contract = true
+	check(str(DeepEconomy.contract_preview(worker, []).reason) != "" and DeepEconomy.contract_signed_today(worker), "and once one is signed it shuts for the day")
+	DeepEconomy.roll_day(worker, "2026-10-11")
+	check(not DeepEconomy.contract_signed_today(worker) and not DeepEconomy.rework_used(worker, "cut"), "a new day opens the bench, the Wheel and the Oven again")
+	## The Wanted list.
+	check(DeepProfile.toggle_wanted(worker, "FURY") and DeepProfile.wanted(worker) == ["FURY"], "a skill can be starred")
+	check(not DeepProfile.toggle_wanted(worker, "FURY") and DeepProfile.wanted(worker).is_empty(), "and unstarred")
+	check(not DeepProfile.toggle_wanted(worker, "NOT_A_SKILL"), "only real skills can be starred")
+	## A commission filled from the vault.
+	var filler: Dictionary = DeepProfile.new_profile("Filler")
+	filler.daily = {"date": "2026-10-10", "rerolls": 0, "seq": 0, "commissions": [{"id": "cv", "skill": "MEND", "need": {}, "reward": 50, "done": false}], "shelf": [], "case": []}
+	check(DeepEconomy.ready_count(filler) == 1 and not DeepEconomy.vault_fill(filler, filler.daily.commissions[0]).is_empty(), "a kept stone can fill a commission")
+	var handed: Dictionary = DeepEconomy.turn_in_vault(filler, "cv")
+	check(handed.ok and not filler.vault.has("MEND") and int(filler.gold) == int(handed.paid) and bool(filler.daily.commissions[0].done), "handed over, it pays and leaves the vault")
+	check(not filler.characters.ARDOR.rail.has("MEND"), "and every loadout lets it go")
+	## The showcase: the best kept stones, best first.
+	var show: Array = DeepProfile.showcase(shopper)
+	check(not show.is_empty() and show.size() <= 5, "the showcase holds up to five stones")
+	for i in range(show.size() - 1):
+		check(int(DeepStone.grade(show[i]).score) >= int(DeepStone.grade(show[i + 1]).score), "best first")
 
 func _test_contracts() -> void:
 	var clear: int = DeepContent.clear_index()

@@ -18,7 +18,7 @@ static func new_profile(name: String = DEFAULT_NAME) -> Dictionary:
 	var profile: Dictionary = {"schema": SCHEMA, "id": "pf%08x" % randi(), "name": name, "gold": 0, "vault": {}, "seen": [],
 		"bowl": [], "characters": {}, "current_character": DeepContent.starter_character(), "mines": {}, "tray": [],
 		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "commissions": 0, "best": {}}, "history": [], "next_id": 1,
-		"daily": {}, "outfit": {"insure": false}, "conquest_paid": [], "charged_run": ""}
+		"daily": {}, "weekly": {}, "wanted": [], "outfit": {"insure": false}, "conquest_paid": [], "charged_run": ""}
 	for key in DeepContent.section("characters"):
 		var character: Dictionary = DeepContent.character(str(key))
 		var unlocked: bool = bool(character.get("starter", false))
@@ -38,6 +38,8 @@ static func new_profile(name: String = DEFAULT_NAME) -> Dictionary:
 		for index in range(starter.rail.size()):
 			if starter.rail[index] == null and set_rail(profile, str(profile.current_character), index, skill).is_empty():
 				break
+	## The starting stones were there from the first day: nothing in the vault is new yet.
+	unfresh(profile)
 	return profile
 
 static func upgrade(profile: Dictionary) -> bool:
@@ -46,7 +48,7 @@ static func upgrade(profile: Dictionary) -> bool:
 	## is paid (a mine already conquered counts as paid: that purse belongs to a first), and
 	## three open sockets for every lapidary. True if anything was added.
 	var changed: bool = false
-	for field in [["daily", {}], ["outfit", {"insure": false}], ["conquest_paid", []], ["charged_run", ""]]:
+	for field in [["daily", {}], ["weekly", {}], ["wanted", []], ["outfit", {"insure": false}], ["conquest_paid", []], ["charged_run", ""]]:
 		if not profile.has(field[0]):
 			profile[field[0]] = field[1].duplicate() if field[1] is Dictionary or field[1] is Array else field[1]
 			changed = true
@@ -240,13 +242,77 @@ static func keep(profile: Dictionary, stone: Dictionary) -> Dictionary:
 	var kept: Dictionary = stone.duplicate(true)
 	kept.appraised = true
 	kept.inclusions_revealed = true
+	## New in the vault until the player has looked at it (see `unfresh`).
+	kept.fresh = true
 	profile.vault[skill] = kept
 	saw(profile, skill)
 	profile.records.stones_kept = int(profile.records.stones_kept) + 1
-	var grade: Dictionary = DeepStone.grade(kept)
-	if int(grade.score) > int(profile.records.best.get("score", -1)):
-		profile.records.best = {"score": grade.score, "tier": grade.tier, "stone": kept.duplicate(true)}
+	regrade(profile, kept)
 	return {"replaced": replaced, "paid": paid}
+
+static func regrade(profile: Dictionary, stone: Dictionary) -> void:
+	## A kept stone's grade is weighed against the best on record, after it is kept or reworked.
+	var grade: Dictionary = DeepStone.grade(stone)
+	if not profile.has("records"):
+		return
+	if int(grade.score) > int(profile.records.get("best", {}).get("score", -1)):
+		profile.records.best = {"score": grade.score, "tier": grade.tier, "stone": stone.duplicate(true)}
+
+static func lose(profile: Dictionary, skill: String) -> Dictionary:
+	## A vault stone gone for good (broken on the Wheel, given up for a contract or a
+	## commission): out of the vault and out of every loadout that set it. Its skill stays seen.
+	var gone: Dictionary = profile.get("vault", {}).get(skill, {})
+	profile.get("vault", {}).erase(skill)
+	for key in profile.get("characters", {}):
+		var rail: Array = profile.characters[key].get("rail", [])
+		for i in range(rail.size()):
+			if rail[i] is String and str(rail[i]) == skill:
+				rail[i] = null
+	return gone
+
+static func fresh_count(profile: Dictionary) -> int:
+	## Stones kept since the player last looked at them in the vault.
+	var count: int = 0
+	for key in profile.get("vault", {}):
+		if bool(profile.vault[key].get("fresh", false)):
+			count += 1
+	return count
+
+static func unfresh(profile: Dictionary, skill: String = "") -> bool:
+	## The player has seen one stone (or, with no skill, every stone): it is no longer new.
+	var changed: bool = false
+	for key in profile.get("vault", {}):
+		if (skill.is_empty() or str(key) == skill) and bool(profile.vault[key].get("fresh", false)):
+			profile.vault[key].erase("fresh")
+			changed = true
+	return changed
+
+static func showcase(profile: Dictionary, count: int = 5) -> Array:
+	## The player's best kept stones, highest grade first: what the profile page and the party
+	## see. Birthstones are not kept, so never shown.
+	var stones: Array = profile.get("vault", {}).values().filter(func(s: Variant) -> bool: return s is Dictionary and not DeepStone.is_birthstone(s))
+	stones.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ga: int = int(DeepStone.grade(a).score)
+		var gb: int = int(DeepStone.grade(b).score)
+		return ga > gb if ga != gb else str(a.get("skill", "")) < str(b.get("skill", "")))
+	return stones.slice(0, count)
+
+static func wanted(profile: Dictionary) -> Array:
+	## The skills the player has starred in the vault: the Market marks whatever could be one.
+	var found: Variant = profile.get("wanted", [])
+	return found if found is Array else []
+
+static func toggle_wanted(profile: Dictionary, skill: String) -> bool:
+	## Stars a skill, or takes its star off. True if it is wanted now.
+	if not DeepContent.section("skills").has(skill):
+		return false
+	if not profile.get("wanted", null) is Array:
+		profile.wanted = []
+	if profile.wanted.has(skill):
+		profile.wanted.erase(skill)
+		return false
+	profile.wanted.append(skill)
+	return true
 
 static func first_of_skill(profile: Dictionary, stone: Dictionary) -> bool:
 	## Whether this is the first stone of its skill to come home: the vault has none of that
@@ -592,6 +658,9 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		home.provenance.date = Time.get_date_string_from_system()
 		profile.tray.append(home)
 		brought.append(home)
+	## Stones came home: the workshop opens on them, and stays there until each is decided.
+	if not brought.is_empty():
+		profile.homecoming = true
 	for die in mine_result.get("dice", []):
 		profile.bowl.append(die.duplicate(true))
 	## The assayer at the lift weighs what is left in the pocket, if anyone rode up.

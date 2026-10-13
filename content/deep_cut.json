@@ -18,6 +18,16 @@
     "geode_carat_keep": 50,
     "geode_opal_pct": 1,
     "geode_price_mult": 1.75,
+    "geode_week_carat": 1,
+    "geode_week_min_cut": 3,
+    "geode_week_price_mult": 1.2,
+    "case_gold_min": 30,
+    "case_price_mult": 2.5,
+    "case_luck": 2,
+    "rework_gold_min": 25,
+    "rework_price_mult": 0.5,
+    "rework_break_pct": 4,
+    "restock_gold": 100,
     "contract_inputs": 5,
     "contract_fee": {
       "ROUGH": 20,
@@ -10063,7 +10073,7 @@
       ]
     },
     "GEODE": {
-      "name": "The Geode",
+      "name": "The Hollow",
       "tier": 6,
       "key": "GEODE",
       "palette": "d8a6ef",
@@ -11164,13 +11174,13 @@
       "name": "Strangers' Dice",
       "kind": "twist",
       "glyph": "play",
-      "text": "Your dice are drawn from every lapidary's starting dice."
+      "text": "Your dice are drawn from every delver's starting dice."
     },
     "BORROWED_BIRTHSTONE": {
       "name": "Borrowed Birthstone",
       "kind": "twist",
       "glyph": "face",
-      "text": "You carry another lapidary's Birthstone instead of your own."
+      "text": "You carry another delver's Birthstone instead of your own."
     },
     "CLEAR_WATER": {
       "name": "Clear Water",

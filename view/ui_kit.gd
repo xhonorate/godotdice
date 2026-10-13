@@ -1,21 +1,25 @@
 class_name DeepUi
 extends RefCounted
-## The frame everything sits in: dark slate, one warm accent, one line weight, one display
+## The frame everything sits in: deep blue slate cut like a stone (every panel and button has
+## its corners faceted off rather than rounded), one warm accent, one line weight, one display
 ## face for titles. Stones, dice and beams glow; the kit itself stays calm but never still:
 ## panels ease in, buttons answer the pointer, numbers roll rather than jump.
 
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 
-const INK := Color("0b0e14")
-const SLATE := Color("141924")
-const SLATE_HI := Color("1c2331")
-const SLATE_LOW := Color("0f131c")
-const GLASS := Color(0.07, 0.09, 0.13, 0.86)
-const LINE := Color("2c3648")
-const LINE_HI := Color("3d4a60")
-const PAPER := Color("e9edf3")
-const MUTED := Color("8792a6")
-const DIM := Color("5b6578")
+const INK := Color("0a0d18")
+const SLATE := Color("131a2c")
+const SLATE_HI := Color("1b2440")
+const SLATE_LOW := Color("0d1222")
+const GLASS := Color(0.07, 0.09, 0.16, 0.88)
+const LINE := Color("2c3858")
+const LINE_HI := Color("465783")
+const PAPER := Color("e8edf9")
+const MUTED := Color("8a96b6")
+const DIM := Color("59658a")
+## The facet: every corner the kit draws is cut straight across instead of rounded.
+## StyleBoxFlat draws a corner of one segment as a chamfer.
+const FACET_DETAIL: int = 1
 const ACCENT := Color("e2b23a")
 const ACCENT_HI := Color("ffd76a")
 const ACCENT_DIM := Color("8a6d2a")
@@ -93,6 +97,7 @@ const CHAMBER_colorS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff
 
 static var _display: Font = null
 static var _bold: Font = null
+static var _body: Font = null
 static var _glow: GradientTexture2D = null
 static var _dot: GradientTexture2D = null
 static var _keyword_regex: RegEx = null
@@ -118,28 +123,55 @@ static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
 
 static func display_font() -> Font:
-	## The one display face: a bookish serif from the system, bold, with a little air
-	## between the capitals. Falls back to the engine font where none is installed.
+	## The one display face: Cinzel (shipped with the game, SIL Open Font License), bold,
+	## with a little air between the capitals. A system serif stands in if the file is missing.
 	if _display == null:
-		var system := SystemFont.new()
-		system.font_names = PackedStringArray(["Cinzel", "Trajan Pro", "Palatino Linotype", "Book Antiqua", "Georgia", "Cambria", "DejaVu Serif", "serif"])
-		system.font_weight = 700
-		system.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
 		var face := FontVariation.new()
-		face.base_font = system
+		var shipped: Variant = load("res://view/fonts/Cinzel.ttf") if ResourceLoader.exists("res://view/fonts/Cinzel.ttf") else null
+		if shipped is Font:
+			face.base_font = shipped
+			face.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 700}
+		else:
+			var system := SystemFont.new()
+			system.font_names = PackedStringArray(["Cinzel", "Trajan Pro", "Palatino Linotype", "Book Antiqua", "Georgia", "serif"])
+			system.font_weight = 700
+			face.base_font = system
 		face.spacing_glyph = 1
 		_display = face
 	return _display
 
+static func release_fonts() -> void:
+	## Lets go of the faces before the engine shuts down. A font kept in a static variable
+	## past the end of the scene tree is freed after the text server is gone, which crashes
+	## the game on its way out.
+	_display = null
+	_body = null
+	_bold = null
+	## The same goes for the shared textures: the glows and the drawn switches.
+	_glow = null
+	_dot = null
+	_switches.clear()
+
+static func body_font() -> Font:
+	## The face everything else is set in: Barlow, shipped with the game (SIL Open Font
+	## License), a little narrow so long lines fit; the engine's own face if it is missing.
+	if _body == null:
+		var shipped: Variant = load("res://view/fonts/Barlow-Regular.ttf") if ResourceLoader.exists("res://view/fonts/Barlow-Regular.ttf") else null
+		_body = shipped if shipped is Font else ThemeDB.fallback_font
+	return _body
+
 static func bold_font() -> Font:
-	## A heavier weight of the system's plain face, for body text that must catch the eye
-	## before anything else on the page: an effect's text, a value the player is meant to read.
+	## Barlow's bold, for body text that must catch the eye before anything else on the page:
+	## an effect's text, a value the player is meant to read.
 	if _bold == null:
-		var system := SystemFont.new()
-		system.font_names = PackedStringArray(["Segoe UI", "Helvetica Neue", "Arial", "DejaVu Sans", "sans-serif"])
-		system.font_weight = 700
-		system.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
-		_bold = system
+		var shipped: Variant = load("res://view/fonts/Barlow-Bold.ttf") if ResourceLoader.exists("res://view/fonts/Barlow-Bold.ttf") else null
+		if shipped is Font:
+			_bold = shipped
+		else:
+			var system := SystemFont.new()
+			system.font_names = PackedStringArray(["Segoe UI", "Helvetica Neue", "Arial", "DejaVu Sans", "sans-serif"])
+			system.font_weight = 700
+			_bold = system
 	return _bold
 
 static func glow_texture() -> GradientTexture2D:
@@ -182,6 +214,13 @@ static func flat(bg: Color, border: Color = Color(0, 0, 0, 0), radius: int = 8, 
 	box.set_corner_radius_all(radius)
 	box.set_content_margin_all(pad)
 	box.anti_aliasing = true
+	facet(box)
+	return box
+
+static func facet(box: StyleBoxFlat) -> StyleBoxFlat:
+	## Cuts a box's corners straight across: the shape everything in the kit is drawn in.
+	## A box with its own rounded look (a dot, a gauge) simply never calls this.
+	box.corner_detail = FACET_DETAIL
 	return box
 
 static func raised(bg: Color, border: Color, radius: int = 10, pad: int = 12, shadow: float = 0.45) -> StyleBoxFlat:
@@ -205,6 +244,7 @@ static func button_style(bg: Color, border: Color, pad: int = 10) -> StyleBoxFla
 
 static func theme(scale: float = 1.0) -> Theme:
 	var t := Theme.new()
+	t.default_font = body_font()
 	t.default_font_size = int(15 * scale)
 	t.set_stylebox("panel", "Panel", flat(SLATE, LINE, 10, 14))
 	t.set_stylebox("panel", "PanelContainer", flat(SLATE, LINE, 10, 14))
@@ -351,7 +391,7 @@ static func fit_label(parent: Node, text: String, size: int, color: Color, width
 	## smaller rather than cut off. Past the floor size (never under MIN_TEXT) it clips instead
 	## of going unreadable.
 	var l := label(parent, text, size, color, align)
-	var font: Font = ThemeDB.fallback_font
+	var font: Font = body_font()
 	var fitted: int = maxi(size, MIN_TEXT)
 	var least: int = maxi(floor_size, MIN_TEXT)
 	while fitted > least and font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fitted).x > width:
@@ -750,10 +790,15 @@ static func skip_ghost(parent: Node) -> Control:
 	return ghost
 
 static func tab_button(parent: Node, glyph: String, text: String, active: bool, callback: Callable, size: int = 14, badge: int = 0, rainbow: bool = false) -> Button:
+	## A tab: plain at rest, and when it is the one open, a faint gold wash over a gold rule
+	## along its foot, the facet's way of marking a choice.
 	var b := icon_button(parent, glyph, text if badge <= 0 else "%s  %d" % [text, badge], callback, size, ACCENT if active else MUTED, rainbow)
 	b.set_meta("sound", "ui_tab")
 	if active:
-		var on := button_style(Color(ACCENT, 0.16), ACCENT, 10)
+		var on := button_style(Color(ACCENT, 0.12), Color(0, 0, 0, 0), 10)
+		on.border_color = ACCENT
+		on.set_border_width_all(0)
+		on.border_width_bottom = 2
 		b.add_theme_stylebox_override("normal", on)
 		b.add_theme_stylebox_override("hover", on)
 		b.add_theme_color_override("font_color", ACCENT_HI)

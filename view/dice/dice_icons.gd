@@ -152,7 +152,7 @@ class Face extends Control:
 		draw_polyline(loop, _edge, maxf(1.0, size.x * 0.055), true)
 		if text.is_empty():
 			return
-		var font := ThemeDB.fallback_font
+		var font: Font = DeepUi.bold_font()
 		var scale: float = _font_scale * minf(1.0, 1.4 / maxf(1.0, text.length()))
 		var font_size := maxi(7, int(size.y * scale))
 		var measured := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)

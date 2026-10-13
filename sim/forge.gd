@@ -89,17 +89,25 @@ static func roll_cut(rng: RandomNumberGenerator, q: float, without: int = -1) ->
 	## its middle rung, so a bad-luck roll is as much worse as a good-luck one is better.
 	## `without` strikes one rung off the table: a stone put back on a wheel is being worked
 	## on, and work that gives back exactly what it took is not work.
+	return maxi(0, DeepRng.weighted_index(rng, cut_weights(q, without)))
+
+static func cut_weights(q: float, without: int = -1) -> Array:
+	## The table `roll_cut` draws from, a weight per rung: what the Wheel prints as its odds.
 	var weights: Array = []
 	var cuts: Array = DeepContent.cuts()
 	for index in range(cuts.size()):
 		var lean: float = 1.0 + q * 0.06 * float(index - 2)
 		weights.append(0.0 if index == without else float(cuts[index].get("weight", 1)) * maxf(0.08, lean))
-	return maxi(0, DeepRng.weighted_index(rng, weights))
+	return weights
 
 static func roll_clarity(rng: RandomNumberGenerator, q: float, without: int = -1) -> int:
 	## Clear near the surface, and both ends of the ladder further down: Pristine and
 	## Flawless one way, Etched and Intricate the other, all four of them high rolls.
 	## `without` strikes one rung off the table, the way `roll_cut` does.
+	return maxi(0, DeepRng.weighted_index(rng, clarity_weights(q, without)))
+
+static func clarity_weights(q: float, without: int = -1) -> Array:
+	## The table `roll_clarity` draws from: what the Oven prints as its odds.
 	var weights: Array = []
 	var clarities: Array = DeepContent.clarities()
 	var clear: int = DeepContent.clear_index()
@@ -107,7 +115,7 @@ static func roll_clarity(rng: RandomNumberGenerator, q: float, without: int = -1
 		var distance: int = absi(index - clear)
 		var widen: float = 1.0 + q * 0.025 * float(distance * distance)
 		weights.append(0.0 if index == without else float(clarities[index].get("weight", 1)) * maxf(0.06, widen))
-	return maxi(0, DeepRng.weighted_index(rng, weights))
+	return weights
 
 static func reroll_cut(rng: RandomNumberGenerator, stone: Dictionary, mine: Dictionary, depth: int, bonus: float = 0.0) -> int:
 	## The stone goes back to the wheel and comes off it cut again: a fresh draw from the

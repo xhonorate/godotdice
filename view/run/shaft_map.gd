@@ -265,6 +265,7 @@ func _paint_back() -> void:
 	panel.border_color = Color(DeepUi.LINE_HI, 0.6)
 	panel.set_border_width_all(1)
 	panel.set_corner_radius_all(14)
+	DeepUi.facet(panel)
 	panel.shadow_color = Color(0, 0, 0, 0.45)
 	panel.shadow_size = 12
 	_canvas.draw_style_box(panel, Rect2(Vector2.ZERO, size))
@@ -313,16 +314,16 @@ func _draw_header(map: Dictionary, depth: int) -> void:
 	var font: Font = DeepUi.display_font()
 	_canvas.draw_string(font, Vector2(18, 28), "THE WAY DOWN", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DeepUi.ACCENT)
 	var mine_name: String = str(DeepContent.mine(str(run.get("mine", ""))).get("name", ""))
-	_canvas.draw_string(ThemeDB.fallback_font, Vector2(18, 46), mine_name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 36, 12, DeepUi.MUTED)
+	_canvas.draw_string(DeepUi.body_font(), Vector2(18, 46), mine_name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 36, 12, DeepUi.MUTED)
 	if map.is_empty():
 		return
 	var lit: bool = DeepDescent.lit_to(run) >= mini(depth + 1, int(map.to))
 	var words: String = "lit to %d" % DeepDescent.lit_to(run) if lit else "sees to %d" % mini(depth + DeepDescent.lantern_reach(run), int(map.to))
 	var tone: Color = DeepUi.ACCENT if lit else DeepUi.MUTED
-	var width: float = ThemeDB.fallback_font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+	var width: float = DeepUi.body_font().get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
 	var flicker: float = 0.85 + 0.15 * sin(_clock * 9.0) * sin(_clock * 4.3)
 	_glyph("lantern", Vector2(size.x - width - 32, 40), 16.0, Color(DeepUi.ACCENT, flicker))
-	_canvas.draw_string(ThemeDB.fallback_font, Vector2(size.x - width - 18, 46), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tone)
+	_canvas.draw_string(DeepUi.body_font(), Vector2(size.x - width - 18, 46), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tone)
 	_spots.append({"at": Vector2(size.x - width * 0.5 - 24, 40), "radius": 14.0,
 		"text": "The next floor is lit, including its dark mouths." if lit else "Your lantern shows two floors ahead."})
 
@@ -338,7 +339,7 @@ func _draw_depths() -> void:
 		if fade <= 0.0:
 			continue
 		var tone: Color = DeepUi.PAPER if d == depth else DeepUi.DIM
-		_canvas.draw_string(ThemeDB.fallback_font, Vector2(8, y + 5), str(d) if d > 0 else "", HORIZONTAL_ALIGNMENT_CENTER, 24, 12, Color(tone, fade))
+		_canvas.draw_string(DeepUi.body_font(), Vector2(8, y + 5), str(d) if d > 0 else "", HORIZONTAL_ALIGNMENT_CENTER, 24, 12, Color(tone, fade))
 		_canvas.draw_line(Vector2(GUTTER - 4, y), Vector2(size.x - 12, y), Color(DeepUi.LINE, 0.18 * fade), 1.0)
 		if bottom > 0 and d == bottom + 1:
 			var below: String = DeepDescent.next_mine(run)

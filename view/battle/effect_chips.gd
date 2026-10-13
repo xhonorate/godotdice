@@ -321,6 +321,7 @@ class Chip extends PanelContainer:
 		style.set_border_width_all(1)
 		style.border_width_bottom = 2
 		style.set_corner_radius_all(int(edge))
+		DeepUi.facet(style)
 		style.content_margin_left = 6
 		style.content_margin_right = 8 if not str(effect.value).is_empty() else 6
 		style.content_margin_top = 2

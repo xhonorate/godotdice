@@ -1,19 +1,19 @@
 extends RefCounted
-## The lapidaries as people: a portrait frame and the roster tile built around it.
+## The delvers as people: a portrait frame and the roster tile built around it.
 ##
-## No headshots are drawn yet, so the portrait is a placeholder that already behaves like
-## the real thing will: a plate lit in the character's Birthstone tint and a bust in
-## silhouette. The Birthstone itself sits at the end of their sockets, not on the portrait.
-## When the busts arrive they replace the silhouette and take the same `mood` the plate
-## carries (idle, rolling, wince, bloodied, critical, birthstone, downed, victory).
+## No headshots are drawn yet, so each delver is shown by their Birthstone: the plate is lit
+## in its tint and the stone itself sits in the middle of it. When the busts arrive they
+## replace the stone and take the same `mood` the plate carries (idle, rolling, wince,
+## bloodied, critical, birthstone, downed, victory).
 
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const Thumbs = preload("res://view/gems/thumbs.gd")
 
 const MOODS: Array = ["idle", "rolling", "wince", "bloodied", "critical", "birthstone", "downed", "victory"]
 const ORDINALS: Array = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"]
 
 static func unlock_hint(key: String) -> String:
-	## What earns a locked lapidary: the final boss of the mine above the one they belong to.
+	## What earns a locked delver: the final boss of the mine above the one they belong to.
 	var mine: String = DeepProfile.lapidary_boss_mine(key)
 	if mine.is_empty():
 		return ""
@@ -47,11 +47,19 @@ class Portrait extends Control:
 		var stone: Dictionary = DeepStone.birthstone(key)
 		if not stone.is_empty():
 			tint = GemMesh.tint(stone)
+			## The Birthstone stands in for the face until the busts are drawn.
+			var reach: float = minf(edge.x, edge.y) * 0.7
+			var thumb := Thumbs.GemThumb.new(stone, reach)
+			thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			thumb.position = Vector2((edge.x - reach) * 0.5, (edge.y - reach) * 0.46)
+			if locked:
+				thumb.modulate = Color(0.32, 0.33, 0.4, 0.9)
+			add_child(thumb)
 		if locked:
 			var lock := DeepUi.icon(self, "lock", edge.x * 0.22, DeepUi.DIM, "Locked")
 			lock.position = Vector2(edge.x * 0.39, edge.y * 0.30)
 		elif chosen:
-			var crown := DeepUi.icon(self, "crown", edge.x * 0.16, DeepUi.ACCENT, "Going down as this lapidary")
+			var crown := DeepUi.icon(self, "crown", edge.x * 0.16, DeepUi.ACCENT, "Going down as this delver")
 			crown.position = Vector2(edge.x - edge.x * 0.16 - 8.0, 8.0)
 
 	func _draw() -> void:
@@ -65,26 +73,16 @@ class Portrait extends Control:
 		var light: Color = tint if not locked else DeepUi.DIM
 		var reach: float = w * 1.5
 		draw_texture_rect(DeepUi.glow_texture(), Rect2(Vector2(w * 0.5 - reach * 0.5, h * 0.42 - reach * 0.5), Vector2(reach, reach)), false, Color(light, 0.24 if not locked else 0.08))
-		## The bust: shoulders, neck, head. A silhouette until the busts are drawn.
-		var body: Color = DeepUi.SLATE_HI if not locked else DeepUi.SLATE
-		var rim: Color = light.lightened(0.15)
-		## The shoulders are the top half of an ellipse standing on the plate's foot, so the
-		## polygon is convex and closes along the bottom edge on its own.
-		var shoulders := PackedVector2Array()
-		for index in range(25):
-			var angle: float = PI + PI * float(index) / 24.0
-			shoulders.append(Vector2(w * 0.5 + cos(angle) * w * 0.47, h + sin(angle) * h * 0.36))
-		draw_colored_polygon(shoulders, body)
-		draw_polyline(shoulders, Color(rim, 0.7), 2.0, true)
-		draw_rect(Rect2(w * 0.44, h * 0.50, w * 0.12, h * 0.17), body)
-		var head := Vector2(w * 0.5, h * 0.40)
-		draw_circle(head, w * 0.17, body)
-		draw_arc(head, w * 0.17, 0, TAU, 40, Color(rim, 0.75), 2.0, true)
+		## A ring of the plate's light under the stone, red at its rim when they are hurt.
+		var face: float = minf(w, h) * 0.7
+		var heart := Vector2(w * 0.5, (h - face) * 0.46 + face * 0.5)
+		var ring: float = face * 0.55
+		draw_arc(heart, ring, 0, TAU, 48, Color(light, 0.35 if not locked else 0.12), 2.0, true)
 		if mood in ["bloodied", "critical"] and not locked:
-			draw_arc(head, w * 0.17, PI * 1.1, PI * 1.9, 20, Color(DeepUi.BAD, 0.8), 3.0, true)
+			draw_arc(heart, ring, PI * 1.1, PI * 1.9, 20, Color(DeepUi.BAD, 0.8), 3.0, true)
 
 static func tile(parent: Node, key: String, selected: bool, chosen: bool, unlocked: bool, fresh: bool) -> PanelContainer:
-	## One lapidary in the roster strip: portrait, name, title, and their standing.
+	## One delver in the roster strip: portrait, name, title, and their standing.
 	var character: Dictionary = DeepContent.character(key)
 	var stone: Dictionary = DeepStone.birthstone(key)
 	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT

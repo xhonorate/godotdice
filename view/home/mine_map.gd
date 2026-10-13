@@ -6,8 +6,9 @@ extends Control
 ## One shaft runs down from the workshop floor through every stratum the player has broken
 ## into and stops at rubble and a lock where the first sealed one begins. Each open band
 ## carries its depth track (lit as far as the player has been, a crown for each Warden and
-## for the final boss, gold once beaten), the carats its rock gives up, and the lapidary met
-## there. Click a band to choose it.
+## for the final boss, gold once beaten) and the carats its rock gives up. The last crown of a
+## track wears the Birthstone of the delver that mine's bottom lets out. Click a band to
+## choose it. On the day's seam the whole cross-section is one route, from the Quarry down.
 ##
 ## The earth is drawn once into its own layer and only redrawn when the map changes; this
 ## control draws only what moves: twinkling stars and veins, the lit windows, chimney smoke,
@@ -18,6 +19,7 @@ signal chosen(mine_key: String)
 const Biomes = preload("res://view/battle/biomes.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const Thumbs = preload("res://view/gems/thumbs.gd")
 
 const NUMERALS: Array = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
 const SHAFT_X: float = 56.0
@@ -27,8 +29,12 @@ var mines: Array = []
 var records: Dictionary = {}
 var selected: String = ""
 var can_choose: bool = true
-## The lapidaries the player has met, so a stratum can show whether its own is one of them.
+## The delvers the player has met, so a track's last crown can show whether its own is one.
 var met: Array = []
+## The day's seam: every stratum is lit as one route and none can be chosen.
+var daily: bool = false
+## Birthstone photographs for the crowns, by delver, as they arrive.
+var _faces: Dictionary = {}
 var _clock: float = 0.0
 var _hover: String = ""
 var _hotspots: Array = []
@@ -51,12 +57,21 @@ func _ready() -> void:
 	add_child(_earth)
 	resized.connect(func() -> void: _earth.queue_redraw())
 
-func show_mines(keys: Array, profile_mines: Dictionary, chosen_key: String, host: bool, met_characters: Array = []) -> void:
+func show_mines(keys: Array, profile_mines: Dictionary, chosen_key: String, host: bool, met_characters: Array = [], route: bool = false) -> void:
 	met = met_characters
 	mines = keys
 	records = profile_mines
-	selected = chosen_key
-	can_choose = host
+	selected = chosen_key if not route else ""
+	can_choose = host and not route
+	daily = route
+	for key in keys:
+		var lapidary: String = _lets_out(str(key))
+		if lapidary.is_empty() or _faces.has(lapidary):
+			continue
+		var stone: Dictionary = DeepStone.birthstone(lapidary)
+		if stone.is_empty():
+			continue
+		_faces[lapidary] = Thumbs.request(Thumbs.gem_key(stone), "gem", {"stone": stone}, _face_arrived.bind(lapidary))
 	if _earth != null:
 		_earth.queue_redraw()
 
@@ -79,6 +94,15 @@ func _gui_input(event: InputEvent) -> void:
 
 func _choosable(key: String) -> bool:
 	return not key.is_empty() and can_choose and bool(records.get(key, {}).get("unlocked", false))
+
+func _face_arrived(texture: Texture2D, lapidary: String) -> void:
+	_faces[lapidary] = texture
+	if is_instance_valid(_earth):
+		_earth.queue_redraw()
+
+static func _lets_out(key: String) -> String:
+	## The delver this mine's final boss lets out: the one whose own mine lies below it.
+	return str(DeepContent.mine(str(DeepContent.mine(key).get("next", ""))).get("lapidary", ""))
 
 func _band_at(at: Vector2) -> String:
 	for key in _bands:
@@ -131,6 +155,7 @@ func _draw_earth() -> void:
 	var frame := StyleBoxFlat.new()
 	frame.bg_color = Color("07080b")
 	frame.set_corner_radius_all(16)
+	DeepUi.facet(frame)
 	frame.border_color = Color(DeepUi.LINE_HI, 0.6)
 	frame.set_border_width_all(1)
 	canvas.draw_style_box(frame, Rect2(Vector2.ZERO, size))
@@ -146,13 +171,13 @@ func _draw_earth() -> void:
 	## The strata: one band per mine, shallowest first, each the color of its own rock.
 	var count: int = maxi(1, mines.size())
 	var band_h: float = (size.y - surface_y - 6.0) / float(count)
-	var wide: bool = size.x >= 760.0
 	var open_to: float = surface_y
+	var outlines: Array = []
 	for index in range(mines.size()):
 		var key: String = str(mines[index])
 		var mine: Dictionary = DeepContent.mine(key)
 		var record: Dictionary = records.get(key, {})
-		var open: bool = bool(record.get("unlocked", false))
+		var open: bool = bool(record.get("unlocked", false)) or daily
 		var biome: Dictionary = Biomes.for_depth(key, 1)
 		var top: float = surface_y + float(index) * band_h
 		var bottom: float = top + band_h
@@ -175,7 +200,9 @@ func _draw_earth() -> void:
 		var chosen_one: bool = key == selected
 		var hovered: bool = key == _hover and _choosable(key)
 		if chosen_one or hovered:
-			canvas.draw_rect(rect.grow_individual(-3, -2, -3, -2), DeepUi.ACCENT if chosen_one else Color(tone, 0.8), false, 2.0)
+			## Outlined once every band is down (below), or the next band's ragged top covers
+			## the bottom edge of this one.
+			outlines.append([rect, DeepUi.ACCENT if chosen_one else Color(tone, 0.8)])
 		## The shaft through this stratum: lit if the mine is open, rubble and a lock where the
 		## way down is still shut.
 		var shaft := Rect2(Vector2(SHAFT_X - SHAFT_WIDTH * 0.5, top), Vector2(SHAFT_WIDTH, band_h))
@@ -199,13 +226,15 @@ func _draw_earth() -> void:
 		canvas.draw_string(DeepUi.display_font(), badge + Vector2(-15, 4), numeral(key), HORIZONTAL_ALIGNMENT_CENTER, 30, 12, Color(tone, 1.0 if open else 0.45))
 		var name_x: float = badge.x + 26.0
 		canvas.draw_string(DeepUi.display_font(), Vector2(name_x, mid - 2), str(mine.get("name", key)), HORIZONTAL_ALIGNMENT_LEFT, 230, 19, DeepUi.PAPER if open else DeepUi.DIM)
-		var under: String = ("SEALED" if not open else ("BEATEN" if bool(record.get("boss", false)) else "OPEN"))
+		var under: String = ("SEALED" if not open else ("BEATEN" if bool(record.get("boss", false)) else ("TODAY'S ROUTE" if daily and not bool(record.get("unlocked", false)) else "OPEN")))
 		canvas.draw_string(DeepUi.display_font(), Vector2(name_x, mid + 15), "%s  ·  %s" % [str(biome.name).to_upper(), under], HORIZONTAL_ALIGNMENT_LEFT, 240, 10, Color(tone, 0.85 if open else 0.4))
 		## The depth track: how far down this mine the player has been, and its crowns.
 		var track_x: float = name_x + 238.0
-		var track_w: float = clampf(size.x - track_x - (250.0 if wide else 120.0), 120.0, 300.0)
+		var track_w: float = clampf(size.x - track_x - 150.0, 120.0, 380.0)
 		if not open:
-			canvas.draw_string(ThemeDB.fallback_font, Vector2(track_x, mid + 4), sealed_hint(key), HORIZONTAL_ALIGNMENT_LEFT, track_w + 40.0, 12, DeepUi.DIM)
+			canvas.draw_string(DeepUi.body_font(), Vector2(track_x, mid + 4), sealed_hint(key), HORIZONTAL_ALIGNMENT_LEFT, track_w + 40.0, 13, DeepUi.DIM)
+		elif daily and not bool(record.get("unlocked", false)):
+			canvas.draw_string(DeepUi.body_font(), Vector2(track_x, mid + 4), "Open on today's seam", HORIZONTAL_ALIGNMENT_LEFT, track_w + 40.0, 13, DeepUi.MUTED)
 		else:
 			_draw_track(canvas, key, record, Vector2(track_x, mid), track_w, chosen_one)
 		## What its rock gives up, and who is met down there.
@@ -216,23 +245,27 @@ func _draw_earth() -> void:
 		chip_box.border_color = Color(tone, 0.5 if open else 0.2)
 		chip_box.set_border_width_all(1)
 		chip_box.set_corner_radius_all(12)
+		DeepUi.facet(chip_box)
 		canvas.draw_style_box(chip_box, chip)
 		_glyph(canvas, "gem", chip.position + Vector2(15, 12), 12.0, Color(tone, 1.0 if open else 0.45))
-		canvas.draw_string(ThemeDB.fallback_font, chip.position + Vector2(25, 17), carat_words(key), HORIZONTAL_ALIGNMENT_LEFT, 58, 12, DeepUi.PAPER if open else DeepUi.DIM)
+		canvas.draw_string(DeepUi.body_font(), chip.position + Vector2(25, 17), carat_words(key), HORIZONTAL_ALIGNMENT_LEFT, 58, 12, DeepUi.PAPER if open else DeepUi.DIM)
 		_hotspots.append({"at": chip.get_center(), "radius": 30.0, "text": _carat_tip(key)})
-		var lapidary: String = str(mine.get("lapidary", ""))
-		if wide and not lapidary.is_empty():
-			var known: bool = met.has(lapidary)
-			var face := Vector2(chip_x + 112.0, mid)
-			var hue: Color = GemMesh.tint(DeepStone.birthstone(lapidary)) if not DeepStone.birthstone(lapidary).is_empty() else tone
-			if hue.get_luminance() < 0.3:
-				hue = hue.lightened(0.45)
-			canvas.draw_circle(face, 13.0, Color(hue.darkened(0.2), 0.95 if known else 0.35))
-			_glyph(canvas, "person", face, 16.0, Color(0.03, 0.035, 0.05, 0.75))
-			canvas.draw_string(ThemeDB.fallback_font, face + Vector2(19, 5), str(DeepContent.character(lapidary).get("name", lapidary)), HORIZONTAL_ALIGNMENT_LEFT, 90, 13, DeepUi.PAPER if known else DeepUi.DIM)
-			_hotspots.append({"at": face, "radius": 14.0, "text": "%s joins when the boss of %s falls." % [DeepContent.character_title(lapidary), DeepContent.mine_name(DeepProfile.lapidary_boss_mine(lapidary))] + ("" if known else " Not met yet.")})
 		if chosen_one:
 			_cage = Vector2(SHAFT_X, top + 4.0)
+	for line in outlines:
+		var outline := StyleBoxFlat.new()
+		outline.draw_center = false
+		outline.border_color = line[1]
+		outline.set_border_width_all(2)
+		outline.set_corner_radius_all(6)
+		DeepUi.facet(outline)
+		canvas.draw_style_box(outline, (line[0] as Rect2).grow_individual(-3, -1, -3, -1))
+	if daily:
+		## The day's route: one dashed line of light down the whole shaft.
+		var y: float = surface_y + 6.0
+		while y < size.y - 10.0:
+			canvas.draw_line(Vector2(SHAFT_X, y), Vector2(SHAFT_X, minf(y + 9.0, size.y - 10.0)), Color(DeepUi.ACCENT, 0.85), 3.0)
+			y += 16.0
 	## The ground line and the workshop on it, over the top of the shaft.
 	canvas.draw_rect(Rect2(Vector2(0, surface_y - 3), Vector2(size.x, 6)), Color("3a2e22"))
 	_home = Vector2(SHAFT_X + 44.0, surface_y - 3)
@@ -255,7 +288,7 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 		var reach: float = clampf(float(deepest) / 64.0, 0.0, 1.0)
 		if deepest > 0:
 			canvas.draw_rect(Rect2(Vector2(at.x, line_y - 3), Vector2(width * reach, 6)), Color(DeepUi.ACCENT, 0.85))
-		canvas.draw_string(ThemeDB.fallback_font, Vector2(at.x, at.y + 16), "Endless  ·  deepest %d  ·  a Warden every %d" % [deepest, DeepDescent.warden_every(mine)], HORIZONTAL_ALIGNMENT_LEFT, width + 60.0, 11, DeepUi.MUTED)
+		canvas.draw_string(DeepUi.body_font(), Vector2(at.x, at.y + 16), "Endless  ·  deepest %d  ·  a Warden every %d" % [deepest, DeepDescent.warden_every(mine)], HORIZONTAL_ALIGNMENT_LEFT, width + 60.0, 11, DeepUi.MUTED)
 		if deepest > 0:
 			_lanterns.append(Vector2(at.x + width * reach, line_y) if chosen_one else Vector2(-1, -1))
 		return
@@ -272,13 +305,27 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 		var won: bool = beaten.any(func(d: Variant) -> bool: return absi(int(d) - depth) <= 1) if not boss else bool(record.get("boss", false))
 		var spot := Vector2(at.x + width * float(depth) / float(bottom), line_y)
 		var radius: float = 10.0 if boss else 8.0
+		var who: String = "the final boss" if boss else "a Warden"
+		var lapidary: String = _lets_out(key) if boss else ""
+		if not lapidary.is_empty():
+			## The delver this bottom lets out, as their Birthstone, ringed in gold once met.
+			var face_r: float = 15.0
+			var known: bool = met.has(lapidary)
+			canvas.draw_circle(spot, face_r, Color(0.05, 0.05, 0.07))
+			var texture: Variant = _faces.get(lapidary, null)
+			if texture is Texture2D:
+				canvas.draw_texture_rect(texture, Rect2(spot - Vector2.ONE * face_r * 0.85, Vector2.ONE * face_r * 1.7), false, Color(1, 1, 1, 1.0) if known else Color(0.45, 0.45, 0.5, 0.9))
+			canvas.draw_arc(spot, face_r, 0, TAU, 32, DeepUi.ACCENT if won or known else DeepUi.BAD, 2.0, true)
+			_glyph(canvas, "crown", spot + Vector2(face_r * 0.75, -face_r * 0.75), 11.0, DeepUi.ACCENT if won else DeepUi.BAD)
+			var joins: String = "%s has joined you." % DeepContent.character_title(lapidary) if known else "%s joins when it falls." % DeepContent.character_title(lapidary)
+			_hotspots.append({"at": spot, "radius": face_r, "text": "Depth %d: %s%s. %s" % [depth, who, " (beaten)" if won else "", joins]})
+			continue
 		canvas.draw_circle(spot, radius, Color(0.05, 0.05, 0.07))
 		canvas.draw_arc(spot, radius, 0, TAU, 24, DeepUi.ACCENT if won else DeepUi.BAD, 2.0, true)
 		_glyph(canvas, "crown", spot, radius * 1.2, DeepUi.ACCENT if won else DeepUi.BAD)
-		var who: String = "the final boss" if boss else "a Warden"
 		_hotspots.append({"at": spot, "radius": radius, "text": "Depth %d: %s%s" % [depth, who, " (beaten)" if won else ""]})
 	var wardens_won: int = beaten.size()
-	canvas.draw_string(ThemeDB.fallback_font, Vector2(at.x, at.y + 16), "deepest %d of %d  ·  %d of %d crowns" % [deepest, bottom, mini(wardens_won, crowns.size()), crowns.size()],
+	canvas.draw_string(DeepUi.body_font(), Vector2(at.x, at.y + 16), "deepest %d of %d  ·  %d of %d crowns" % [deepest, bottom, mini(wardens_won, crowns.size()), crowns.size()],
 		HORIZONTAL_ALIGNMENT_LEFT, width + 40.0, 11, DeepUi.MUTED)
 
 func _carat_tip(key: String) -> String:

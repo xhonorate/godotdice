@@ -1452,7 +1452,7 @@ static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: Strin
 	var event: Dictionary = _event(state, "oddity_result", {"unit": unit.id, "choice": choice_id, "message": str(result.message),
 		"made": result.get("made", []).duplicate(true), "lost": result.get("lost", []), "changed": result.get("changed", []).duplicate(true),
 		"dice": result.get("dice", []).duplicate(true)})
-	for extra in ["verdict", "well", "revealed", "hp_lost", "bought"]:
+	for extra in ["verdict", "well", "revealed", "hp_lost", "bought", "broke"]:
 		if result.has(extra):
 			event[extra] = result[extra]
 			state.chamber.results[unit.id][extra] = result[extra]

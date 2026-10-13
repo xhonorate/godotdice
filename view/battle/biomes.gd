@@ -67,7 +67,7 @@ const BIOMES: Dictionary = {
 		"particles": ["embers", "ash"], "ground_mist": 0.2,
 	},
 	"geode": {
-		"name": "The Geode Heart",
+		"name": "The Hollow Heart",
 		"rock": "4a3f5a", "rock_dark": "1a1420", "floor": "3a2f40", "moss": "ffd76a",
 		"background": "0a0708", "fog": "22182a", "fog_density": 0.028,
 		"vol_density": 0.03, "vol_albedo": "ffe6c0", "vol_emission": "140c06",

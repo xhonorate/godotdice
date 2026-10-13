@@ -13,7 +13,7 @@ extends Control
 
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
-const HomeScreen = preload("res://view/home/home_screen.gd")
+const Rework = preload("res://view/gems/rework.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
@@ -704,9 +704,9 @@ func handle(event: Dictionary) -> void:
 	## Someone's line dropped or came back. Whatever the party was waiting on them for has
 	## already gone ahead in the same event; this only says why.
 	if event.has("absent") and str(event.absent) != local_id:
-		toast("%s lost their connection." % str(DeepDescent.player(run, str(event.absent)).get("name", "A lapidary")), DeepUi.MUTED, "party")
+		toast("%s lost their connection." % str(DeepDescent.player(run, str(event.absent)).get("name", "A delver")), DeepUi.MUTED, "party")
 	elif kind == "presence" and bool(event.get("connected", false)) and str(event.get("unit", "")) != local_id:
-		toast("%s is back." % str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", "A lapidary")), DeepUi.GOOD, "party")
+		toast("%s is back." % str(DeepDescent.player(run, str(event.get("unit", ""))).get("name", "A delver")), DeepUi.GOOD, "party")
 	## The cage was chosen when the party could pay for it and can no longer: whoever chose it
 	## chooses again.
 	if event.has("lift_short"):
@@ -3128,11 +3128,17 @@ func _page_oddity_result(content: VBoxContainer) -> void:
 	DeepUi.title(head, str(oddity.get("name", "Something odd")), 36, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	DeepUi.wrap(head, str(result.get("message", "")), 19, tone.lightened(0.4), HORIZONTAL_ALIGNMENT_CENTER, 760).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_enter(head)
-	if result.has("verdict"):
+	## A Cut or a Clarity worked on is read off its ladder, the same as at the Market's Wheel
+	## and Oven; a stone that broke flies apart there.
+	var reworked: Dictionary = _reworked(result)
+	if not reworked.is_empty():
+		_rework_reveal(content, reworked)
+	elif result.has("verdict"):
 		_verdict_stamp(content, result.verdict)
 	if result.has("well"):
 		_well_stamp(content, result.well)
-	var made: Array = result.get("made", []) + result.get("changed", [])
+	## The stone on the ladder is not shown a second time underneath it.
+	var made: Array = result.get("made", []) + (result.get("changed", []) if reworked.is_empty() else [])
 	var dice: Array = result.get("dice", [])
 	var lost: Array = result.get("lost", [])
 	if not made.is_empty() or not dice.is_empty():
@@ -3876,6 +3882,35 @@ func _page_oddity_work(content: VBoxContainer, choice: Dictionary, unit: Diction
 				command.emit({"kind": "oddity", "choice": id, "payload": payload}), 17, tone)
 		go.custom_minimum_size.x = 200
 	_enter(card, 0.05)
+
+func _reworked(result: Dictionary) -> Dictionary:
+	## A room's result as a stone on the ladder: the stone as it was, which ladder, the rung it
+	## lands on and whether it broke. Empty when nothing's Cut or Clarity was worked on.
+	if result.get("broke", null) is Dictionary and result.broke.get("stone", null) is Dictionary:
+		var lost: Dictionary = result.broke.stone
+		var broken_field: String = str(result.broke.get("field", "cut"))
+		return {"stone": lost, "field": broken_field, "now": int(lost.get(broken_field, 0)), "broke": true}
+	var verdict: Dictionary = result.get("verdict", {}) if result.get("verdict", null) is Dictionary else {}
+	var changed: Array = result.get("changed", [])
+	if verdict.is_empty() or changed.is_empty() or not str(verdict.get("field", "")) in ["cut", "clarity"]:
+		return {}
+	var field: String = str(verdict.field)
+	var before: Dictionary = (changed[0] as Dictionary).duplicate(true)
+	before[field] = int(verdict.get("was", before.get(field, 0)))
+	return {"stone": before, "field": field, "now": int(verdict.get("now", 0)), "broke": false}
+
+func _rework_reveal(parent: Node, reworked: Dictionary) -> void:
+	var card := DeepUi.card(parent, Color(DeepUi.BAD if bool(reworked.broke) else DeepUi.ACCENT, 0.45), 14)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var ladder := Rework.new(reworked.stone, str(reworked.field), 96.0)
+	card.add_child(ladder)
+	_enter(card, 0.08)
+	if _fresh and not _headless:
+		get_tree().create_timer(0.35).timeout.connect(func() -> void:
+			if is_instance_valid(ladder):
+				ladder.play(int(reworked.now), bool(reworked.broke)))
+	else:
+		ladder.settle(int(reworked.now), bool(reworked.broke))
 
 func _verdict_stamp(parent: Node, verdict: Dictionary) -> void:
 	## Better or worse, said out loud. A wheel or an oven never gives back what it took, so

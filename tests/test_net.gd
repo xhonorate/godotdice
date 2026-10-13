@@ -239,9 +239,20 @@ func _test_linked() -> void:
 	check(not bool(host.lobby.members.p1.ready) and host.lobby.members.p1.character == "RUE", "changing character clears readiness")
 	guest.update_member({"ready": true})
 	host.choose_mine("QUARRY")
-	check(not bool(host.lobby.members.p1.ready), "choosing a mine clears everyone's readiness")
-	guest.update_member({"ready": true})
-	check(host.can_start(), "ready again")
+	check(bool(host.lobby.members.p1.ready) and bool(guest.lobby.members.p1.ready), "choosing a mine keeps everyone ready")
+	## A guest who cannot pay the new mine's fare stays ready, but the way down stays shut.
+	var fare_mine: String = ""
+	for key in DeepContent.mines_in_order():
+		if DeepEconomy.fare(str(key)) > 0:
+			fare_mine = str(key)
+			break
+	var guest_gold: int = int(host.lobby.members.p1.get("gold", 0))
+	guest.update_member({"gold": 0})
+	host.choose_mine(fare_mine)
+	check(bool(host.lobby.members.p1.ready) and host.short_members().has("p1") and not host.can_start(), "a guest short of the new fare stays ready, and the way down stays shut")
+	host.choose_mine("QUARRY")
+	guest.update_member({"gold": guest_gold})
+	check(host.can_start(), "back to a mine everyone can afford, the party can go")
 	var started: Dictionary = host.start_run(4242)
 	check(started.ok and guest.in_run() and same(guest.run, host.run), "the guest receives the whole run")
 	## Both take a stake at the shaft head; the guest's goes through the host and comes back.

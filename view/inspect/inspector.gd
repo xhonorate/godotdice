@@ -151,7 +151,7 @@ static func lapidary(character_key: String) -> void:
 		return
 	var stone: Dictionary = DeepStone.birthstone(character_key)
 	var tone: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
-	var sheet := _begin(tone, {"title": "A new lapidary", "subtitle": DeepContent.character_title(character_key), "button": "Take them on"})
+	var sheet := _begin(tone, {"title": "A new delver", "subtitle": DeepContent.character_title(character_key), "button": "Take them on"})
 	if sheet != null:
 		sheet.call("_fill_lapidary", character_key, tone)
 
@@ -338,7 +338,7 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 	if not character_key.is_empty():
 		frame.add_child(load("res://view/home/roster.gd").Portrait.new(character_key, Vector2(320, 380), false, false, true))
 	var haul: Array = unit.get("haul", [])
-	DeepUi.title(_head, str(unit.get("name", "A lapidary")), 30, tone.lightened(0.3))
+	DeepUi.title(_head, str(unit.get("name", "A delver")), 30, tone.lightened(0.3))
 	var tags := DeepUi.hbox(_head, 8)
 	if not character_key.is_empty():
 		DeepUi.pill(tags, "person", DeepContent.character_title(character_key), DeepUi.INFO, 13)

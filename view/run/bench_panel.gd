@@ -13,7 +13,7 @@ const StoneCard = preload("res://view/gems/stone_card.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
-const HomeScreen = preload("res://view/home/home_screen.gd")
+const HomeParts = preload("res://view/home/home_parts.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 
 signal command(cmd: Dictionary)
@@ -170,7 +170,7 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 	var rail_row := DeepUi.hbox(parent, 10)
 	for index in range(unit.get("rail", []).size()):
 		_socket_card(rail_row, unit, index)
-	HomeScreen.BirthstoneCard.new(rail_row, str(unit.get("character", "")), 132.0, true)
+	HomeParts.BirthstoneCard.new(rail_row, str(unit.get("character", "")), 132.0, true)
 	var haul: Array = unit.get("haul", [])
 	var raw: int = haul.filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false))).size()
 	var haul_head := DeepUi.hbox(parent, 10)

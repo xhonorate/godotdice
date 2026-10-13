@@ -108,6 +108,22 @@ func _ready() -> void:
 	for station in _gem_stations + _die_stations:
 		_idle(station)
 
+func _exit_tree() -> void:
+	## The game is closing (or the service is being taken down): stop photographing first. A
+	## station freed while its viewport is still rendering a stone crashes the engine on its way
+	## out, which every quick quit from a page full of new pictures used to do.
+	_jobs.clear()
+	_queue.clear()
+	for station in _gem_stations + _die_stations:
+		var viewport := _viewport_of(station.view)
+		if viewport != null:
+			viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_waiting.clear()
+	## The photographs too: a texture still held by a static once the renderer has shut
+	## down is leaked and freed too late.
+	_textures.clear()
+	_order.clear()
+
 func _viewport_of(view: Control) -> SubViewport:
 	return view.get("_viewport") as SubViewport
 

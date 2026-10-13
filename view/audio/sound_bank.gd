@@ -36,7 +36,7 @@ const NAMES: PackedStringArray = [
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
 	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break",
 	"altar_hum", "altar_fizzle", "altar_make", "transcendent",
-	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal"]
+	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter"]
 
 static var _cache: Dictionary = {}
 ## The bank is baked on a worker thread while the game is played, and asked for sounds from
@@ -444,6 +444,10 @@ static func _bake(name: String) -> AudioStreamWAV:
 				.thump(0.0, 0.26, 88.0, 0.55, 0.45).shatter(0.02, 0.3, 2600.0, 8, 0.3) \
 				.bell(0.05, 0.7, 1567.98, 0.2, DeepSynth.CHIME_PARTIALS, 2.2) \
 				.clatter(0.18, 0.3, 0.18, 4, 520.0).normalise(0.82).stream()
+		"gem_shatter":
+			## A stone lost: glass giving way, the pieces on the bench, and a low string falling
+			## a minor third under it.
+			return DeepSynth.new(2.2).noise(0.0, 0.12, 0.45, 9000.0, 1400.0, 3.6, 0.0006) 				.shatter(0.01, 0.42, 3000.0, 14, 0.4).clatter(0.2, 0.5, 0.2, 9, 1400.0) 				.voice(0.12, 0.6, 146.83, 0.2, "saw", 0.06, 0.6, 2, 0.15, 900.0).voice(0.7, 0.8, 123.47, 0.18, "saw", 0.08, 0.7, 2, 0.15, 800.0) 				.echoes(0.23, 0.28, 2).normalise(0.74).stream()
 		"jackpot":
 			## A great one out of the drum: the coin tray spilling over and a fanfare climbing
 			## out of it. Saved for the rarest stones a Geode holds.

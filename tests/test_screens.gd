@@ -2,6 +2,8 @@ extends SceneTree
 ## The screens, headless: the app boots, a run is played through the real screens with the
 ## real session, and nothing throws. Rendering is skipped; layout and logic are exercised.
 
+const Homecoming = preload("res://view/home/homecoming.gd")
+
 var checks: int = 0
 var failures: Array = []
 
@@ -17,13 +19,39 @@ func _init() -> void:
 	check(app.session != null and app.session.status == "local", "the app boots into a local session")
 	check(app.home.visible and not app.descent.visible, "the workshop is shown first")
 	await _player_name(app)
-	for tab in ["map", "roster", "vault", "appraise", "commissions", "ledger"]:
+	for tab in ["descend", "delvers", "vault", "market", "profile"]:
 		app.home.open(tab)
 		check(app.home._body.get_child_count() > 0, "the %s tab renders" % tab)
-	## The roster shows a locked lapidary's dossier without letting them be chosen.
+	## The old tab names still land on the page that took their place.
+	for old in [["map", "descend"], ["roster", "delvers"], ["shop", "market"], ["commissions", "market"], ["ledger", "profile"], ["appraise", "vault"]]:
+		app.home.open(str(old[0]))
+		check(app.home.tab == str(old[1]), "the old %s tab opens %s (got %s)" % [str(old[0]), str(old[1]), app.home.tab])
+	## The Delvers page shows a locked delver's dossier without letting them be chosen.
 	app.home._roster_pick = "FLORIN"
-	app.home.open("roster")
-	check(app.home._body.get_child_count() > 0 and app.profile.current_character == "ARDOR", "a locked lapidary can be looked at, not played")
+	app.home.open("delvers", true)
+	check(app.home._body.get_child_count() > 0 and app.profile.current_character == "ARDOR", "a locked delver can be looked at, not played")
+	## Changing a delver's sockets picks them to go down.
+	DeepProfile.unlock_character(app.profile, "VESPER")
+	app.home.edit_loadout("VESPER", 0)
+	check(app.profile.current_character == "VESPER" and app.home.tab == "delvers" and app.home._roster_view == "sockets", "editing a delver's sockets picks them to go down")
+	app.home.choose_character("ARDOR")
+	app.home._roster_view = "dossier"
+	app.home._roster_pick = ""
+	## The keyboard: 1 to 4 open the tabs, and Q and E change who goes down.
+	for index in range(4):
+		_key(KEY_1 + index)
+		check(app.home.tab == str(app.home.TABS[index][0]), "key %d opens the %s tab (got %s)" % [index + 1, str(app.home.TABS[index][0]), app.home.tab])
+	app.home.open("descend")
+	_key(KEY_E)
+	check(app.profile.current_character == "VESPER", "E steps to the next delver (got %s)" % app.profile.current_character)
+	_key(KEY_Q)
+	check(app.profile.current_character == "ARDOR", "Q steps back (got %s)" % app.profile.current_character)
+	## Escape steps out of a page inside a tab before it reaches the menu.
+	app.home._market_view = "wheel"
+	app.home.open("market", true)
+	_key(KEY_ESCAPE)
+	check(app.home._market_view == "main" and not app.menu.is_open(), "Escape steps back from the Wheel to the Market")
+	app.home.open("descend")
 	app.home._roster_pick = ""
 	await _loadout_drags(app)
 	app._depart(9001)
@@ -266,13 +294,16 @@ func _init() -> void:
 	app.profile.tray.append(raw)
 	app.profile.gold = 500
 	app.home._appraise_pick = "screens_raw"
-	app.home.open("appraise")
+	app.home._vault_view = "unappraised"
+	app.home.open("vault", true)
 	var fee: int = DeepProfile.appraisal_fee(raw)
-	check(_count_text(app.home, "Appraise · %d gold" % fee) == 1 and _label_count(app.home, "Medium red stone") >= 1 and _label_count(app.home, "11") == 0, "a raw stone on the tray is named by its size class and color, never its carat")
+	check(_count_text(app.home, "Read it · %d gold" % fee) == 1 and _label_count(app.home, "Medium red stone") >= 1 and _label_count(app.home, "11 ct") == 0, "a raw stone on the tray is named by its size class and color, never its carat")
 	## The loupe is paid work, and the other way off the tray is a buyer who never reads it.
-	check(_count_text(app.home, "Sell rough · +%d gold" % DeepStone.rough_value(raw)) == 1 and fee > DeepStone.rough_value(raw), "the tray offers the fee or a rough sale, and the fee is the dearer of the two")
+	check(_count_text(app.home, "Sell rough · +%d" % DeepStone.rough_value(raw)) == 1 and fee > DeepStone.rough_value(raw), "the tray offers the fee or a rough sale, and the fee is the dearer of the two")
 	var purse: int = int(app.profile.gold)
-	app.home._appraise_stone(raw)
+	var read: Button = _find_button(app.home, "Read it · %d gold" % fee)
+	if read != null:
+		read.pressed.emit()
 	check(bool(raw.appraised) and bool(raw.inclusions_revealed) and app.profile.tray.has(raw), "the loupe reads the stone and leaves it on the tray")
 	check(int(app.profile.gold) == purse - fee and app.profile.seen.has("STRIKE"), "the fee comes out of the purse and the vault notes the skill")
 	app.profile.gold = 0
@@ -284,19 +315,19 @@ func _init() -> void:
 	var open_today: Array = DeepEconomy.open_commissions(app.profile)
 	for commission in open_today:
 		commission.done = true
-	var choices: Array = app.home._tray_actions(raw)
-	check(choices.size() == 2 and str(choices[0].label) == "Keep the new one" and str(choices[1].label) == "Keep your old one", "with one of its skill kept, the choice is which to keep")
+	var choices: Array = Homecoming.actions(app.home, raw)
+	check(choices.size() == 2 and str(choices[0].label) == "Keep it, sell yours" and str(choices[1].label) == "Sell it", "with one of its skill kept, the choice is which to keep")
 	for commission in open_today:
 		commission.done = false
-	app.home.open("appraise")
-	check(_count_text(app.home, "Keep the new one") == 1 and _count_text(app.home, "Keep your old one") == 1, "the tray offers the same choice beside the kept one")
+	app.home.open("vault", true)
+	check(_exact_labels(app.home, "Keep it, sell yours") == 1 and _exact_labels(app.home, "Sell it") == 1, "the tray offers the same choice beside the kept one")
 	var old_gold: int = int(app.profile.gold)
 	var old_value: int = DeepStone.value(DeepProfile.owned(app.profile, "STRIKE"))
 	choices[0].call.call()
 	check(str(DeepProfile.owned(app.profile, "STRIKE").id) == "screens_raw" and not app.profile.tray.has(raw) and int(app.profile.gold) == old_gold + old_value, "keeping the new one sells the old one")
 	for stone in app.profile.get("tray", []).duplicate():
 		stone.appraised = true
-	app.home.open("appraise")
+	app.home.open("vault", true)
 	if not app.profile.tray.is_empty():
 		DeepProfile.decide_tray(app.profile, str(app.profile.tray[0].id), true)
 		app._profile_changed()
@@ -309,9 +340,9 @@ func _init() -> void:
 func _player_name(app: Control) -> void:
 	check(app.profile.name == "Player" and app.settings.player_name == "Player", "new players start as Player")
 	var character: String = str(app.profile.current_character)
-	app.home._bar.get_node("PlayerName").pressed.emit()
-	await process_frame
-	check(app.menu.is_open() and app.menu._name_field.text == "Player", "clicking the corner name opens an editor with the current name")
+	await _open_name_editor(app)
+	check(app.home.tab == "profile", "clicking the corner name opens the profile page")
+	check(app.menu.is_open() and app.menu._name_field.text == "Player", "the profile's Change name opens an editor with the current name")
 	var speed: float = app.session.speed
 	var typed := InputEventKey.new()
 	typed.keycode = KEY_F
@@ -331,8 +362,7 @@ func _player_name(app: Control) -> void:
 	check(app.home._bar.get_node("PlayerName").text == "Ada the Delver" and app.session.local_member().name == "Ada the Delver", "the corner and current lobby show the saved name")
 	check(app.saves.load_profile().name == "Ada the Delver" and app.saves.load_settings().player_name == "Ada the Delver", "the name persists in the profile and settings")
 	check(app.profile.current_character == character, "renaming the player preserves their chosen lapidary")
-	app.home._bar.get_node("PlayerName").pressed.emit()
-	await process_frame
+	await _open_name_editor(app)
 	check(app.menu._name_field.text == "Ada the Delver", "reopening the editor shows the saved name")
 	app.menu._name_field.text = "Discard this"
 	var escape := InputEventKey.new()
@@ -340,12 +370,30 @@ func _player_name(app: Control) -> void:
 	escape.pressed = true
 	root.push_input(escape)
 	check(not app.menu.is_open() and app.profile.name == "Ada the Delver", "Escape cancels editing without reopening the menu")
-	app.home._bar.get_node("PlayerName").pressed.emit()
-	await process_frame
+	await _open_name_editor(app)
 	app.menu._name_field.text = "W".repeat(100)
 	check(app.menu._name_field.text.length() == DeepProfile.NAME_LIMIT, "the name editor limits long names")
 	app.menu.close()
 	check(app.saves.load_profile().name == "Ada the Delver", "closing the editor discards unsaved changes")
+
+func _key(keycode: int) -> void:
+	var press := InputEventKey.new()
+	press.keycode = keycode
+	press.pressed = true
+	root.push_input(press)
+	var lift := InputEventKey.new()
+	lift.keycode = keycode
+	lift.pressed = false
+	root.push_input(lift)
+
+func _open_name_editor(app: Control) -> void:
+	## The corner chip opens the profile page; its Change name button opens the editor.
+	app.home._bar.get_node("PlayerName").pressed.emit()
+	await process_frame
+	var rename: Node = app.home.find_child("Rename", true, false)
+	if rename is Button:
+		(rename as Button).pressed.emit()
+	await process_frame
 
 func _loadout_drags(app: Control) -> void:
 	## The loadout is rearranged with the mouse: a set stone dragged into the vault comes out,
@@ -363,7 +411,7 @@ func _loadout_drags(app: Control) -> void:
 	home.profile_changed.connect(func() -> void: home.refresh(profile, lobby, "local", true, app.session.local_id, true, {}))
 	home._roster_pick = "ARDOR"
 	home._roster_view = "sockets"
-	home.tab = "roster"
+	home.tab = "delvers"
 	home.refresh(profile, lobby, "local", true, app.session.local_id, true, {})
 	await _frames(2)
 	var rail: Array = profile.characters.ARDOR.rail
@@ -385,10 +433,33 @@ func _loadout_drags(app: Control) -> void:
 func _vault_tile(home: Control, caption: String) -> Control:
 	## The loadout's vault tile whose caption is this.
 	var tray: Control = home._targets[home._targets.size() - 1].node
-	for tile in tray.get_child(0).get_child(1).get_children():
+	var flow: Node = _find_class(tray, "HFlowContainer")
+	if flow == null:
+		return null
+	for tile in flow.get_children():
 		if tile is PanelContainer and _label_count(tile, caption) > 0:
 			return tile
 	return null
+
+func _find_button(node: Node, text: String) -> Button:
+	if node is Button and (node as Button).text == text:
+		return node
+	for child in node.get_children():
+		var found: Button = _find_button(child, text)
+		if found != null:
+			return found
+	return null
+
+func _exact_labels(node: Node, text: String) -> int:
+	## Visible labels and buttons in a subtree whose words are exactly these.
+	var count: int = 0
+	if node is Label and (node as Label).is_visible_in_tree() and (node as Label).text == text:
+		count = 1
+	elif node is Button and (node as Button).is_visible_in_tree() and (node as Button).text == text:
+		count = 1
+	for child in node.get_children():
+		count += _exact_labels(child, text)
+	return count
 
 func _centre(control: Control) -> Vector2:
 	return control.get_global_rect().get_center() if control != null else Vector2.ZERO

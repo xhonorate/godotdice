@@ -5,6 +5,8 @@ const HomeScreen = preload("res://view/home/home_screen.gd")
 const DescentScreen = preload("res://view/run/descent_screen.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const GemIcons = preload("res://view/gems/gem_icons.gd")
+const Lift = preload("res://view/home/lift.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GameMenu = preload("res://view/menu/game_menu.gd")
 const MineStage = preload("res://view/run/mine_stage.gd")
@@ -59,7 +61,9 @@ func _ready() -> void:
 	session.speed = float(settings.get("speed", 1.0))
 	add_child(session)
 	session.lobby_changed.connect(func(_lobby: Dictionary) -> void: _refresh_home())
-	session.status_changed.connect(func(_status: String) -> void: _refresh_home())
+	session.status_changed.connect(func(_status: String) -> void:
+		_fetch_steam_avatar()
+		_refresh_home())
 	session.run_started.connect(_on_run_started)
 	session.run_event.connect(_on_run_event)
 	session.run_ended.connect(_on_run_ended)
@@ -88,6 +92,8 @@ func _ready() -> void:
 			toast("They are back in their own workshop.", DeepUi.MUTED, "party"))
 	home.leave_party_requested.connect(_leave_party)
 	home.profile_changed.connect(_profile_changed)
+	## A small change made by looking (a stone seen, the Market opened): saved, nothing rebuilt.
+	home.profile_touched.connect(func() -> void: saves.save_profile(profile))
 	home.menu_requested.connect(open_menu)
 	home.player_name_requested.connect(_edit_player_name)
 	add_child(home)
@@ -141,6 +147,23 @@ func _ready() -> void:
 	elif not bool(checkpoint.get("ok", false)) and not settings.get("party_run", {}).is_empty():
 		_offer_rejoin.call_deferred()
 
+func _fetch_steam_avatar() -> void:
+	## Once Steam is running (a Steam party, or a launch from an invitation), the profile chip
+	## shows the player's Steam avatar. Steam is never started just for the picture.
+	if Engine.has_meta("steam_face_asked") or not SteamMessagesTransport._started:
+		return
+	var api: Object = SteamMessagesTransport.singleton()
+	if api == null or not api.has_method("getPlayerAvatar") or not api.has_method("getSteamID") or not api.has_signal("avatar_loaded"):
+		return
+	Engine.set_meta("steam_face_asked", true)
+	api.connect("avatar_loaded", func(_id: Variant, width: int, data: PackedByteArray) -> void:
+		if width <= 0 or data.size() < width * width * 4:
+			return
+		var image := Image.create_from_data(width, width, false, Image.FORMAT_RGBA8, data)
+		Engine.set_meta("steam_face", ImageTexture.create_from_image(image))
+		_refresh_home())
+	api.call("getPlayerAvatar", 2, api.call("getSteamID"))
+
 func _prewarm() -> void:
 	## The first stone or die ever photographed pays for compiling everything a stone is
 	## drawn with. Paying it now, while the workshop is being looked at, keeps it out of the
@@ -165,13 +188,13 @@ func member() -> Dictionary:
 	return {"name": str(profile.get("name", DeepProfile.DEFAULT_NAME)), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
 		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")),
 		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key),
-		"daily_state": DeepEconomy.daily_state(profile)}
+		"daily_state": DeepEconomy.daily_state(profile), "showcase": DeepProfile.showcase(profile)}
 
 func _kit(loadout: Dictionary) -> Dictionary:
 	## What the lobby is told whenever the profile changes: who goes down, wearing what,
 	## whether they can pay their own way, and whether today's seam would pay them.
 	var fields: Dictionary = {}
-	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state"]:
+	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase"]:
 		fields[key] = loadout[key]
 	return fields
 
@@ -229,7 +252,7 @@ func _join_steam(lobby_id: String) -> void:
 	_joined = {"kind": "steam", "lobby": lobby_id.strip_edges()}
 	descent.visible = false
 	home.visible = true
-	home.open("map")
+	home.open("descend")
 	_refresh_home()
 
 func _invite() -> void:
@@ -268,6 +291,9 @@ func _on_run_started(state: Dictionary) -> void:
 	descent.daily_best = attempt
 	descent.bind(session.local_id, session.forecast)
 	descent.show_state(state)
+	## Leaving the workshop, the cage goes down the shaft over the change of screens.
+	if home.visible:
+		Lift.ride(self, true, str(state.get("mine", "")))
 	home.visible = false
 	descent.visible = true
 	## A guest's run is noted with the way back to it, so a game that closes under them can
@@ -317,6 +343,11 @@ func _process(delta: float) -> void:
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0
 	GemMesh.finish_warm()
+	DeepUi.release_fonts()
+	GemIcons.release()
+	## The Steam avatar is kept on the Engine, which outlives the renderer.
+	if Engine.has_meta("steam_face"):
+		Engine.remove_meta("steam_face")
 
 func _on_run_ended(results: Dictionary) -> void:
 	_forget_party_run()
@@ -368,9 +399,11 @@ func _back_home() -> void:
 	session.leave_run()
 	## The run changed the purse (the fare, the assayer): the party hears what is in it now.
 	session.update_member(_kit(member()))
+	Lift.ride(self, false, "")
 	descent.visible = false
 	home.visible = true
-	home.open("appraise" if not profile.get("tray", []).is_empty() else "map")
+	## Stones on the tray open the coming-home screen on their own (see home.homecoming).
+	home.open("descend")
 	_refresh_home()
 
 func toast(text: String, color: Color, glyph: String = "") -> void:
@@ -496,7 +529,7 @@ func _leave_party() -> void:
 	session.start_local(member())
 	descent.visible = false
 	home.visible = true
-	home.open("map")
+	home.open("descend")
 	_refresh_home()
 
 func _offer_rejoin() -> void:

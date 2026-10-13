@@ -6,6 +6,8 @@ extends SceneTree
 ## inside the screen and inside anything that clips it.
 
 const CANVAS := Vector2i(1600, 900)
+const Homecoming = preload("res://view/home/homecoming.gd")
+const MarketPage = preload("res://view/home/market_page.gd")
 
 var checks: int = 0
 var failures: Array = []
@@ -48,60 +50,76 @@ func _workshop(app: Control) -> void:
 	for i in range(1, 4):
 		var id: String = "p%d" % i
 		lobby.order.append(id)
-		lobby.members[id] = {"name": "Guest With A Long Name %d" % i, "character": "VESPER", "ready": i % 2 == 0, "connected": true}
+		lobby.members[id] = {"name": "Guest With A Long Name %d" % i, "character": "VESPER", "ready": i % 2 == 0, "connected": true,
+			"showcase": app.profile.vault.values().slice(0, 7)}
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
 	var player_name: String = str(app.profile.name)
 	app._rename_player("W".repeat(DeepProfile.NAME_LIMIT))
 	await _fits(screen, "the workshop with a long player name")
+	## The player's chip opens their profile, where the name is changed.
 	home._bar.get_node("PlayerName").pressed.emit()
-	await _fits(app.menu, "the player name editor")
-	app.menu.close()
+	check(home.tab == "profile", "the player's chip opens the profile page")
+	await _fits(screen, "the profile page with a long player name")
+	var rename: Node = home.find_child("Rename", true, false)
+	check(rename is Button, "the profile page offers to change the name")
+	if rename is Button:
+		(rename as Button).pressed.emit()
+		await _fits(app.menu, "the player name editor")
+		app.menu.close()
 	app._rename_player(player_name)
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
-	for tab in ["map", "roster", "vault", "appraise", "shop", "commissions", "ledger"]:
+	for tab in ["descend", "delvers", "vault", "market", "profile"]:
 		home.open(tab)
 		await _fits(screen, "the %s tab" % tab)
-	## The map's three side views, as the host and as a guest.
+	## Every page of the profile's runs.
+	for page in range(3):
+		home._pages["ledger"] = page
+		home.open("profile", true)
+		await _fits(screen, "page %d of the profile's runs" % page)
+	home._pages["ledger"] = 0
+	## Descend as the host and as a guest, with the party open and a guest's showcase shown.
 	for host in [true, false]:
 		home.refresh(app.profile, lobby, "hosting" if host else "joined", host, app.session.local_id if host else "p1", false, app.settings, "109775241234567890")
-		for side in ["expedition", "daily", "party"]:
-			home._side = side
-			home.open("map")
-			await _fits(screen, "the map's %s view%s" % [side, "" if host else " for a guest"])
+		for party in ["", "open", "p2"]:
+			home._party_open = not party.is_empty()
+			home._showcase_of = party if party.begins_with("p") else ""
+			home.open("descend")
+			await _fits(screen, "Descend%s%s" % ["" if party.is_empty() else (" with the party open" if party == "open" else " with a guest's showcase"), "" if host else " for a guest"])
+	home._party_open = false
+	home._showcase_of = ""
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
-	home._side = "expedition"
 	await _daily_map(app, lobby)
-	await _shop(app)
-	## Every lapidary's dossier and sockets, with a socket picked.
+	await _market(app)
+	## Every delver's dossier and sockets, with a socket picked.
 	for key in DeepContent.characters_in_unlock_order():
 		for view in ["dossier", "sockets"]:
 			for picked in [-1, 0]:
 				home._roster_pick = str(key)
 				home._roster_view = view
 				home._bench_socket = picked
-				home.open("roster")
-				await _fits(screen, "the Lapidaries tab on %s's %s%s" % [str(key), view, " with one picked" if picked >= 0 else ""])
-	home._roster_pick = ""
-	home._roster_view = "dossier"
-	home._bench_socket = -1
-	## Every page of the long lists.
-	for list in ["vault_tray", "tray", "ledger"]:
+				home.open("delvers", true)
+				await _fits(screen, "the Delvers tab on %s's %s%s" % [str(key), view, " with one picked" if picked >= 0 else ""])
+	## Every page of the sockets' stone picker, as tiles and as a list.
+	for layout in ["grid", "list"]:
+		load("res://view/home/stone_browser.gd").settings(home, "sockets").layout = layout
 		for page in range(3):
-			home._pages[list] = page
-			if list == "vault_tray":
-				home._roster_view = "sockets"
-			home.open({"vault_tray": "roster", "tray": "appraise", "ledger": "ledger"}[list])
-			await _fits(screen, "page %d of the %s" % [page, list])
-		home._pages[list] = 0
-	home._roster_view = "dossier"
-	## A lapidary with every socket bought, and one with the next for sale.
+			home._pages["sockets_page"] = page
+			home._roster_view = "sockets"
+			home._bench_socket = 0
+			home.open("delvers", true)
+			await _fits(screen, "page %d of the sockets' stones as a %s" % [page, layout])
+	load("res://view/home/stone_browser.gd").settings(home, "sockets").layout = "grid"
+	home._pages["sockets_page"] = 0
+	home._bench_socket = -1
+	## A delver with every socket bought, and one with the next for sale.
 	for open in [3, 6]:
 		app.profile.characters.FLORIN.sockets = open
 		home._roster_pick = "FLORIN"
 		home._roster_view = "sockets"
-		home.open("roster")
+		home.open("delvers", true)
 		await _fits(screen, "Florin's sockets with %d open" % open)
 	app.profile.characters.FLORIN.sockets = 3
+	home._roster_pick = ""
 	home._roster_view = "dossier"
 	## The way down to a deeper mine, insured, with guests who cannot pay their fare.
 	app.profile.mines.SEEPS.unlocked = true
@@ -109,14 +127,14 @@ func _workshop(app: Control) -> void:
 	lobby.mine = "SEEPS"
 	for host in [true, false]:
 		home.refresh(app.profile, lobby, "hosting" if host else "joined", host, app.session.local_id if host else "p1", false, app.settings, "109775241234567890")
-		for side in ["expedition", "party"]:
-			home._side = side
-			home.open("map")
-			await _fits(screen, "the map's %s view for the Seeps, insured, with the party short%s" % [side, "" if host else ", as a guest"])
+		for party in [false, true]:
+			home._party_open = party
+			home.open("descend")
+			await _fits(screen, "Descend into the Seeps, insured, with the party short%s%s" % [" and open" if party else "", "" if host else ", as a guest"])
+	home._party_open = false
 	app.profile.outfit.insure = false
 	lobby.mine = DeepContent.starter_mine()
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
-	home._side = "expedition"
 	## Commissions: one a stone on the tray can fill, one filled, one open.
 	var wanted: Dictionary = {}
 	for stone in app.profile.tray:
@@ -128,33 +146,48 @@ func _workshop(app: Control) -> void:
 	commissions[1] = commissions[1].duplicate()
 	commissions[1].done = true
 	commissions[1].paid = 12345
-	for tab in ["commissions", "ledger"]:
-		home.open(tab)
-		await _fits(screen, "the %s tab with commissions ready and filled" % tab)
+	home._market_view = "main"
+	home.open("market", true)
+	await _fits(screen, "the Market with commissions ready and filled")
 	## The tray stone a commission wants: Turn it in beside keeping either stone.
-	check(home._tray_actions(wanted).any(func(a: Dictionary) -> bool: return str(a.label) == "Turn it in"), "a stone a commission wants can be turned in")
+	check(Homecoming.actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.label) == "Turn it in"), "a stone a commission wants can be turned in")
+	home._vault_view = "unappraised"
 	home._appraise_pick = str(wanted.id)
-	home.open("appraise")
-	await _fits(screen, "the Appraise tab weighing a stone a commission wants")
+	home.open("vault", true)
+	await _fits(screen, "the Unappraised view weighing a stone a commission wants")
 	## And the first stone of its skill, wanted by a commission: keep it, or turn it in.
 	var rival: Dictionary = app.profile.vault.get(str(wanted.skill), {})
 	app.profile.vault.erase(str(wanted.skill))
-	check(not home._tray_actions(wanted).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep your old")), "a first stone of its skill is never offered for sale")
-	home.open("appraise")
-	await _fits(screen, "the Appraise tab on a new skill a commission wants")
+	check(not Homecoming.actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep it, sell")), "a first stone of its skill is never offered for sale")
+	home.open("vault", true)
+	await _fits(screen, "the Unappraised view on a new skill a commission wants")
 	app.profile.vault[str(wanted.skill)] = rival
-	## The vault, each color, with a stone under the lamp.
+	## The vault, each color, as tiles and as a list, with a stone under the lamp.
+	home._vault_view = "collection"
 	home._vault_pick = str(app.profile.vault.keys()[0])
-	for color in [""] + home.color_ORDER:
-		home._vault_filter = color
-		home.open("vault")
-		await _fits(screen, "the vault filtered to '%s'" % color)
-	home._vault_filter = ""
-	## The tray, raw and appraised, and a stone whose skill is already kept.
-	for stone in app.profile.tray:
-		home._appraise_pick = str(stone.id)
-		home.open("appraise")
-		await _fits(screen, "the Appraise tab on %s" % DeepUi.stone_name(stone))
+	var vault_settings: Dictionary = load("res://view/home/stone_browser.gd").settings(home, "vault")
+	for layout in ["grid", "list"]:
+		vault_settings.layout = layout
+		for color in [""] + home.color_ORDER:
+			vault_settings.colors = [] if color.is_empty() else [color]
+			home.open("vault", true)
+			await _fits(screen, "the vault as a %s filtered to '%s'" % [layout, color])
+	vault_settings.colors = []
+	vault_settings.layout = "grid"
+	## The tray, raw and appraised, and every page of it, coming home and in the vault.
+	for coming_home in [true, false]:
+		app.profile.homecoming = coming_home
+		home._vault_view = "unappraised"
+		for stone in app.profile.tray:
+			home._appraise_pick = str(stone.id)
+			home.open("descend" if coming_home else "vault", true)
+			await _fits(screen, "%s on %s" % ["coming home" if coming_home else "the Unappraised view", DeepUi.stone_name(stone)])
+		for page in range(3):
+			home._pages["tray"] = page
+			home.open("descend" if coming_home else "vault", true)
+			await _fits(screen, "page %d of the tray%s" % [page, ", coming home" if coming_home else ""])
+		home._pages["tray"] = 0
+	app.profile.homecoming = false
 	## A known stone whose skill is not kept yet: keep or sell, nothing to weigh it against.
 	var known: Dictionary = {}
 	for stone in app.profile.tray:
@@ -163,12 +196,14 @@ func _workshop(app: Control) -> void:
 	var kept: Dictionary = app.profile.vault.get(str(known.skill), {})
 	app.profile.vault.erase(str(known.skill))
 	home._appraise_pick = str(known.id)
-	home.open("appraise")
-	await _fits(screen, "the Appraise tab on a stone of a skill not kept")
+	home._vault_view = "unappraised"
+	home.open("vault", true)
+	await _fits(screen, "the Unappraised view on a stone of a skill not kept")
 	app.profile.vault[str(known.skill)] = kept
+	home._vault_view = "collection"
 
 func _daily_map(app: Control, lobby: Dictionary) -> void:
-	## The day's seam on the map, chosen for the party, as the host and as a guest: before the
+	## The day's seam on Descend, chosen for the party, as the host and as a guest: before the
 	## Quarry is beaten, not dug yet today, and dug.
 	var home: Control = app.home
 	var starter: Dictionary = app.profile.mines[DeepContent.starter_mine()]
@@ -179,32 +214,54 @@ func _daily_map(app: Control, lobby: Dictionary) -> void:
 		app.profile.dig = {"date": DeepEconomy.today(), "run_id": "fit", "best_score": 999999, "best_gold": 99999, "runs": 99} if state == "played" else {}
 		for host in [true, false]:
 			home.refresh(app.profile, lobby, "hosting" if host else "joined", host, app.session.local_id if host else "p1", false, app.settings, "109775241234567890")
-			home._side = "daily"
-			home.open("map")
-			await _fits(screen, "the map's daily view, %s%s" % [state, "" if host else ", as a guest"])
+			home.open("descend")
+			await _fits(screen, "the daily dig, %s%s" % [state, "" if host else ", as a guest"])
 	lobby.daily = ""
 	app.profile.dig = {}
 	starter.boss = beaten
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
-	home._side = "expedition"
 
-func _shop(app: Control) -> void:
-	## The shop: the shelf fresh and with a Geode opened; the contract bench empty, with five of
-	## one grade on it (the vault's among them, asking twice), and every page of its stones.
-	## Then a Geode cracked and a contract sealed, each read to the end with its choices.
+func _market(app: Control) -> void:
+	## The Market: the counter fresh, with a Geode's odds open, a Geode opened, the case sold
+	## out and the day restocked; the Wheel and the Oven with nothing and something picked; the
+	## contract bench empty, with five of one grade on it (the vault's among them, asking
+	## twice), and every page of its stones. Then a Geode cracked and a contract sealed, each
+	## read to the end with its choices.
 	var home: Control = app.home
-	home._shop_view = "geodes"
-	home.open("shop")
-	await _fits(screen, "the shop's Geodes")
+	home._market_view = "main"
+	home.open("market", true)
+	await _fits(screen, "the Market")
 	var shelf: Array = DeepEconomy.shelf(app.profile)
-	check(shelf.size() == 3, "the shop opens on three Geodes")
+	check(shelf.size() == 2, "the Market opens on today's Geode and the week's")
+	for geode in shelf:
+		home._odds_open = str(geode.get("id", ""))
+		home.open("market", true)
+		await _fits(screen, "the Market with the odds of %s open" % str(geode.get("id", "")))
+	home._odds_open = ""
 	var opened: Dictionary = DeepEconomy.open_geode(app.profile, str(shelf[0].get("id", ""))) if not shelf.is_empty() else {}
 	check(bool(opened.get("ok", false)), "a Geode can be bought from the full workshop")
-	home.open("shop")
-	await _fits(screen, "the shop's Geodes with one opened")
-	home._shop_view = "contracts"
+	for entry in DeepEconomy.case_stones(app.profile):
+		entry.bought = true
+	check(bool(DeepEconomy.restock(app.profile).get("ok", false)) or DeepEconomy.restocked_today(app.profile), "the Market can be restocked")
+	for entry in DeepEconomy.case_stones(app.profile):
+		entry.bought = true
+	home.open("market", true)
+	await _fits(screen, "the Market with a Geode opened, the case sold out and the day restocked")
+	for kind in ["wheel", "oven"]:
+		for pick in ["", str(app.profile.vault.keys()[0])]:
+			home._market_view = kind
+			home._rework_pick = pick
+			home.open("market", true)
+			await _fits(screen, "the %s%s" % [kind, " with a stone picked" if not pick.is_empty() else ""])
+		for page in range(3):
+			home._pages["bench_page"] = page
+			home.open("market", true)
+			await _fits(screen, "page %d of the %s's stones" % [page, kind])
+		home._pages["bench_page"] = 0
+	home._rework_pick = ""
+	home._market_view = "contract"
 	home._contract = []
-	home.open("shop")
+	home.open("market", true)
 	await _fits(screen, "the contract bench, empty")
 	var by_tier: Dictionary = {}
 	for entry in DeepEconomy.contract_stones(app.profile):
@@ -220,15 +277,19 @@ func _shop(app: Control) -> void:
 	home._contract = five
 	for sure in [false, true]:
 		home._contract_sure = sure
-		home.open("shop")
+		home.open("market", true)
 		await _fits(screen, "the contract bench with five on it%s" % (", asking twice" if sure else ""))
-	for page in range(3):
-		home._pages["contract"] = page
-		home.open("shop")
-		await _fits(screen, "page %d of the contract bench's stones" % page)
+	for from in ["all", "tray", "vault"]:
+		home._contract_from = from
+		for page in range(3):
+			home._pages["contract"] = page
+			home.open("market", true)
+			await _fits(screen, "page %d of the contract bench's stones (%s)" % [page, from])
+	home._contract_from = "all"
 	home._pages["contract"] = 0
 	home._contract = []
 	home._contract_sure = false
+	home._market_view = "main"
 	## The overlays, finished: the wordiest stone the tray has, every choice there is.
 	var made: Dictionary = {}
 	for stone in app.profile.tray:
@@ -237,7 +298,7 @@ func _shop(app: Control) -> void:
 	var inputs: Array = []
 	for ref in five:
 		inputs.append(DeepEconomy.contract_input(app.profile, str(ref)).stone)
-	var actions: Array = home._found_actions(made)
+	var actions: Array = MarketPage.found_actions(home, made)
 	actions = actions.slice(0, 1) + [ {"label": "Turn it in", "glyph": "flag", "caption": "A commission pays 99999 gold for it"}] + actions.slice(1)
 	for kind in ["geode", "contract"]:
 		for fresh in [true, false]:
@@ -251,7 +312,6 @@ func _shop(app: Control) -> void:
 			await _fits(sheet, what)
 			check(sheet.get("_choices").visible and not sheet.get("_skip").visible, "%s ends on its choices" % what)
 			sheet.free()
-	home._shop_view = "geodes"
 
 # --- the menu ----------------------------------------------------------------------------------
 
@@ -300,7 +360,7 @@ func _inspector() -> void:
 		## about them, all of it on one page.
 		var welcome: CanvasLayer = load("res://view/inspect/inspector.gd").new()
 		screen.add_child(welcome)
-		welcome.call("_frame", DeepUi.ACCENT, {"title": "A new lapidary", "subtitle": DeepContent.character_title(str(key)), "button": "Take them on"})
+		welcome.call("_frame", DeepUi.ACCENT, {"title": "A new delver", "subtitle": DeepContent.character_title(str(key)), "button": "Take them on"})
 		welcome.call("_fill_lapidary", str(key), DeepUi.ACCENT)
 		await _fits(welcome, "%s joining the workshop" % str(key))
 		welcome.free()
@@ -377,7 +437,7 @@ func _appraisals(app: Control) -> void:
 	var kept: Dictionary = riddled.duplicate(true)
 	kept.appraised = true
 	kept.id = "fit_kept"
-	var home_actions: Array = app.home._tray_actions(kept)
+	var home_actions: Array = Homecoming.actions(app.home, kept)
 	var run_actions: Array = [ {"label": "Set in socket 6", "glyph": "gem", "caption": "Into the rail for the next fight"},
 		{"label": "Into the bag", "glyph": "bag", "caption": "Set it from the bench any time", "dismiss": true},
 		{"label": "Sell for 9999 pyrite", "glyph": "scales", "caption": "Half its worth, on the scales"}]
@@ -570,6 +630,20 @@ func _run(app: Control) -> void:
 		"result": {"message": "A long message about what the oddity did to you and your stones, and your dice as well.", "made": me.haul.slice(0, 3), "dice": me.dice.slice(0, 2), "lost": me.haul.slice(3, 5)}})
 	descent.show_state(run)
 	await _fits(screen, "what an oddity did")
+	## A stone recut or refired on the ladder, and one that broke there.
+	for broke in [false, true]:
+		var worked: Dictionary = (me.haul[0] as Dictionary).duplicate(true)
+		worked.appraised = true
+		var worked_result: Dictionary = {"message": "A long message about the wheel, the stone on it and what came off it in the end.", "made": [], "lost": [], "changed": [], "dice": []}
+		if broke:
+			worked_result.lost = [str(worked.id)]
+			worked_result.broke = {"field": "clarity", "stone": worked}
+		else:
+			worked_result.changed = [worked]
+			worked_result.verdict = {"field": "cut", "was": 0, "now": 4, "better": 1}
+		descent._hold_page("oddity", {"oddity": "CUTTERS_WHEEL", "room": "oddity", "result": worked_result})
+		descent.show_state(run)
+		await _fits(screen, "a stone %s at an oddity" % ("broken" if broke else "recut"))
 	descent._hold_page("stake", {"result": {"boons": ["COST_CHIPPED", "REWARD_CARATS"], "message": "Strike is now judged Rough. Strike weighs 9 carats now.",
 		"made": me.haul.slice(0, 2), "dice": me.dice.slice(0, 2), "changed": me.haul.slice(2, 3)}})
 	descent.show_state(run)
@@ -664,7 +738,7 @@ func _void_views(app: Control) -> void:
 	var rider: Dictionary = unit.riders[0][0]
 	app.descent.show_state(run)
 	await _fits(screen, "the run dock with fourteen riders")
-	check(screen.find_children("*", "ScrollContainer", true, false).is_empty(), "the run dock has nothing that scrolls")
+	check(app.descent.find_children("*", "ScrollContainer", true, false).is_empty(), "the run dock has nothing that scrolls")
 	app.descent._bench.open(run, "gems")
 	app.descent._bench._pick = str(rider.id)
 	app.descent._bench._render()

@@ -239,6 +239,10 @@ static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: b
 	frame.custom_minimum_size = Vector2(size, size)
 	var thumb := picture(frame, stone, size * 0.86)
 	thumb.tooltip_text = DeepUi.stone_name(stone) + ("\n" + str(grade.name) if appraised else "") + "\nRight-click for details"
+	## Its carat, Cut and Clarity over the picture, the same on every tile in the game.
+	var tags := TileTags.new(stone, size)
+	box.add_child(tags)
+	box.set_meta("tags", tags)
 	if caption:
 		var name: String = str(DeepStone.skill_of(stone).get("name", "")) if appraised else "%s raw" % DeepStone.size_name(int(stone.get("carat", 1)))
 		DeepUi.fit_label(column, name, 12, DeepUi.PAPER if appraised else DeepUi.MUTED, size)
@@ -375,3 +379,92 @@ class _Dot extends Control:
 		else:
 			draw_circle(size * 0.5, size.x * 0.36, tone)
 		draw_circle(size * 0.5 - Vector2(2, 2), size.x * 0.12, Color(1, 1, 1, 0.6))
+
+class TileTags extends Control:
+	## A stone's carat, Cut and Clarity laid over its tile, wherever a tile is drawn: the carat
+	## in the top corner, the Cut as five pips along the foot of the picture and the Clarity
+	## beside them, as dots for what is frozen inside it (one to three) or a sparkle for a
+	## Pristine or Flawless stone. A stone new in the vault wears a NEW tag and a glow until
+	## it is looked at.
+	var stone: Dictionary
+	var edge: float
+	var fresh: bool = false
+	const CUT_TONE := Color("ffd76a")
+	const INCLUDED := Color("c58bff")
+	const SPARKLE := Color("9fe8ff")
+
+	func _init(new_stone: Dictionary, picture: float) -> void:
+		stone = new_stone
+		edge = picture
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		if not bool(stone.get("appraised", false)) or DeepStone.is_birthstone(stone):
+			return
+		var font: Font = DeepUi.bold_font()
+		## The facet cuts the tile's corners: everything sits inside them.
+		var inset: float = 7.0
+		var words: String = "%dct" % int(stone.get("carat", 1))
+		var width: float = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+		var plate := Rect2(Vector2(inset, 3), Vector2(width + 8, 15))
+		draw_style_box(DeepUi.flat(Color(0, 0, 0, 0.62), Color(0, 0, 0, 0), 3, 0), plate)
+		draw_string(font, plate.position + Vector2(4, 11.5), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DeepUi.PAPER)
+		## The foot of the picture: Cut pips on the left, the Clarity mark on the right.
+		var foot: float = edge - 2.0
+		var pip := Vector2(maxf(4.0, edge * 0.07), 3.0)
+		var cut: int = int(stone.get("cut", 0))
+		for index in range(DeepContent.cuts().size()):
+			var at := Vector2(inset + float(index) * (pip.x + 2.0), foot - pip.y)
+			draw_rect(Rect2(at, pip), CUT_TONE if index <= cut else Color(1, 1, 1, 0.16))
+		var clarity: int = int(stone.get("clarity", DeepContent.clear_index()))
+		var clear: int = DeepContent.clear_index()
+		var right: float = size.x - inset
+		var mid_y: float = foot - pip.y * 0.5
+		if clarity < clear:
+			for index in range(clear - clarity):
+				draw_circle(Vector2(right - 2.5 - float(index) * 6.5, mid_y), 2.4, INCLUDED)
+		elif clarity == clear:
+			draw_arc(Vector2(right - 3.0, mid_y), 2.6, 0, TAU, 12, Color(1, 1, 1, 0.45), 1.2, true)
+		else:
+			var flawless: bool = clarity >= DeepContent.clarities().size() - 1
+			var spark: float = 5.5 if flawless else 4.0
+			var heart := Vector2(right - spark, mid_y - 1.0)
+			if flawless:
+				draw_texture_rect(DeepUi.glow_texture(), Rect2(heart - Vector2.ONE * spark * 2.5, Vector2.ONE * spark * 5.0), false, Color(SPARKLE, 0.55))
+			var star := PackedVector2Array([heart + Vector2(0, -spark), heart + Vector2(spark * 0.28, -spark * 0.28), heart + Vector2(spark, 0), heart + Vector2(spark * 0.28, spark * 0.28),
+				heart + Vector2(0, spark), heart + Vector2(-spark * 0.28, spark * 0.28), heart + Vector2(-spark, 0), heart + Vector2(-spark * 0.28, -spark * 0.28)])
+			draw_colored_polygon(star, SPARKLE if flawless else SPARKLE.lerp(Color.WHITE, 0.4))
+		if fresh:
+			var tag: String = "NEW"
+			var tag_w: float = font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x + 8.0
+			## Astride the top edge, in the middle: the corners hold the carat and the marks.
+			var box := Rect2(Vector2((size.x - tag_w) * 0.5, -7), Vector2(tag_w, 14))
+			draw_texture_rect(DeepUi.glow_texture(), box.grow(10), false, Color(PIP_NEW, 0.45))
+			draw_style_box(DeepUi.flat(PIP_NEW, Color(0, 0, 0, 0), 3, 0), box)
+			draw_string(font, box.position + Vector2(4, 10.5), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("04202a"))
+
+const PIP_NEW := Color("7fe0ff")
+
+static func mark_new(tile: PanelContainer, seen: Callable) -> void:
+	## A stone new in the vault: a cyan glow round its tile and a NEW tag, both gone the first
+	## time the pointer rests on it, which is when `seen` is told.
+	var tags: TileTags = tile.get_meta("tags") if tile.has_meta("tags") else null
+	if tags == null:
+		return
+	tags.fresh = true
+	tags.queue_redraw()
+	var plain: StyleBox = tile.get_theme_stylebox("panel")
+	var lit: StyleBoxFlat = (plain as StyleBoxFlat).duplicate() if plain is StyleBoxFlat else DeepUi.flat(DeepUi.SLATE, PIP_NEW, 12, 8)
+	lit.border_color = PIP_NEW
+	lit.set_border_width_all(2)
+	lit.shadow_color = Color(PIP_NEW, 0.45)
+	lit.shadow_size = 10
+	lit.shadow_offset = Vector2.ZERO
+	tile.add_theme_stylebox_override("panel", lit)
+	tile.mouse_entered.connect(func() -> void:
+		if not tags.fresh:
+			return
+		tags.fresh = false
+		tags.queue_redraw()
+		tile.add_theme_stylebox_override("panel", plain)
+		seen.call(), CONNECT_ONE_SHOT)

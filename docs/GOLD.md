@@ -8,8 +8,9 @@ This is the plan for giving gold uses outside a run and new ways to earn it. Whe
 
 | | Feature | Section | Phase |
 | --- | --- | --- | --- |
-| 🟢 | The shop: Geodes, opened on a drum | §3.3 | 4, built October 10, 2026 |
-| 🟢 | Contracts (trade-ups) | §3.4 | 5, built October 10, 2026 |
+| 🟢 | Geodes: today's and the week's, cracked in three blows | §3.3 | 4, built October 10, 2026; reworked October 12, 2026 |
+| 🟢 | Contracts (trade-ups), once a day | §3.4 | 5, built October 10, 2026; once a day from October 12, 2026 |
+| 🟢 | The Market: the case of cut stones, the bench, restocking | §3.6 | built October 12, 2026 |
 | 🟢 | The daily dig, reworked after the review | §4.2 | 6, built October 10, 2026, reworked the same day |
 | 🟢 | Mine fares | §3.1 | 3, built October 7, 2026 |
 | 🟢 | Salvage insurance | §3.2 | 3, built October 7, 2026 |
@@ -20,7 +21,7 @@ This is the plan for giving gold uses outside a run and new ways to earn it. Whe
 | 🟢 | Groundwork: economy code, save upgrade, daily turnover, Gold page in the balance browser | §5, §6 | 0, built October 7, 2026 |
 | 🟢 | The no-profit test: all four checks | §7 | grew with 4 and 5 |
 | ⚪ | Birthstone upgrades | §8.1 | not scheduled |
-| ⚪ | Shop services: the Wheel and the Oven | §8.2 | not scheduled |
+| 🟢 | The Wheel and the Oven, once a day each | §3.6, §8.2 | built October 12, 2026 |
 | ⛔ | Everything in §9 | §9 | — |
 
 ## 1. Where gold stood before this plan
@@ -84,19 +85,18 @@ An optional purchase on the Map's trip panel: a **checkbox the profile remembers
 - **What it does:** if the run falls or is abandoned, every salvage die rolls twice and keeps the better result.
 - **Price:** `insurance_gold` per mine, starting at 15 in the Quarry and a quarter of the fare below it (15, 25, 35, 45, 55, 70). It pays for itself only on a bad run.
 
-### 🟢 3.3 The shop: Geodes (phase 4)
+### 🟢 3.3 Geodes (phase 4, reworked October 12, 2026)
 
-The Shop is a home tab with two views, each a page of its own: **Geodes** (this section) and **Contracts** (§3.4).
+Geodes are sold on the Market (§3.6), down its left side. Until October 12 they were a Shop tab of their own with three a day.
 
-**The shelf.** Three Geodes a day (UTC), each bought at most once, all from mines the player has unlocked:
+**The shelf.** Two Geodes, each bought at most once, all from mines the player has unlocked:
 
-| Theme | What it can hold |
+| Geode | What it can hold |
 | --- | --- |
-| **Mine Geode** | The skill pool of one open mine, drawn each day, weighted the way the mine weights it. |
-| **Color Geode** | One color, drawn each day, from the deepest mine the player has unlocked. |
-| **The week's Geode** | A hand-written set of 7–10 skills (content: `geodes.featured`, eight sets) from the deepest open mine's rock. The sets take turns a week each, the same for everyone. When fewer than three of the set are in reach of the mines open, the deepest mine's own Geode takes its place. |
+| **Today's Geode** (one a day, UTC) | Either a **mine's Geode** (the skill pool of one open mine, weighted the way the mine weights it) or a **color's Geode** (one color, from the deepest open mine's rock), whichever the day draws. A restock (§3.6) draws it again. |
+| **The week's Geode** (one a week, kept all week) | A hand-written set of 7–10 skills (content: `geodes.featured`, eight sets) from the deepest open mine's rock. The sets take turns a week each, the same for everyone. When fewer than three of the set are in reach of the mines open, the deepest mine's own Geode takes its place. It is better and dearer than today's: its carat floor is one higher (`geode_week_carat`), it is never cut worse than Fine (`geode_week_min_cut` 3), and its price is a fifth higher (`geode_week_price_mult` 1.2). It stays on the shelf through restocks. |
 
-Each card prints everything the Geode can hold: the share of each skill rarity (a bar), every skill as its mark (dimmed while never found, its odds on hover), the share of each grade tier (sampled from 400 rolls, not written by hand), the carat range and the opal chance.
+Each card shows the Geode's art (a mine's Geode in its mine's rock, a color's with crystals of its color breaking through, the week's strapped in brass), its carat range, whether it can hold a wanted skill (§3.6), and Odds and Crack it buttons. **Odds** opens a panel with the share of each skill rarity, every skill it can hold as its mark, and the share of each grade tier (sampled from 400 rolls, not written by hand), and the opal chance. "Crack it" pays and opens it in one click.
 
 **What is inside.** A Geode stone is better than a mine stone:
 
@@ -106,7 +106,17 @@ Each card prints everything the Geode can hold: the share of each skill rarity (
 - **Opals:** a 1% chance (`geode_opal_pct`) of a Mythic Opal in any Geode.
 - **Rolled in advance.** The stone is rolled when the day's shelf is rolled and saved with it, so reloading cannot change it. Cracking it only shows what was already there, and the stone is on the tray, read, before the drum turns: quitting half-way loses nothing.
 
-**The drum (a reel after all, decided October 10, 2026).** This section first planned a three-blow crack instead of a CS-style reel. The build went the other way: a slot machine in the spirit of a CS case, drawn in the workshop's brass and iron.
+**The crack (October 12, 2026).** The drum and its lever are gone. The Geode is opened in three blows, the way this section first planned:
+
+1. The Geode sits alone in the middle of a darkened screen under its name: "Strike it. Three blows open it." It rocks a little while it waits.
+2. The first blow (a click on it, or Space) puts a hairline in it with a puff of dust.
+3. The second opens the cracks, and light gets out of them. The light tells the grade: brighter and more coloured for a finer stone.
+4. The third splits it. The halves fall away, the hollow is lit in the grade's colour, rays and a burst go up, and the stone rises out of it turning. Its name and grade are called in the grade's colour (a jackpot for an Exquisite, a Peerless or an opal), and it slides aside for its card to be read out line by line.
+5. The choices are the tray's, made on the spot: Into the vault (with the "New skill" fanfare for a first stone), Keep it, sell yours, Sell it, Turn it in for a commission, or Decide later, which leaves it in the vault's Unappraised view.
+
+Escape jumps to the end, and at the end takes the gentlest way out.
+
+**The drum (October 10 to 12, 2026).** Before the rework the Geode was opened on a reel, a slot machine in the spirit of a CS case drawn in the workshop's brass and iron. It worked like this:
 
 1. The Geode sits in front of an iron drum case with a plaque, a ring of lamps, a loupe's hairline over its window and a lever at its side. The lever breathes, says PULL and shows which way it goes.
 2. Pulling it (a click anywhere, or Space) cracks the Geode along its glowing seam; the halves fall away and the drum spins behind them.
@@ -115,11 +125,9 @@ Each card prints everything the Geode can hold: the share of each skill rarity (
 5. The machine steps back and the stone is set on the lamp and read out line by line by the appraisal's own sheet (carat, Cut, Clarity, inclusions, grade, worth). Its grade's color takes over the frame.
 6. The choices are the tray's: Into the vault (with the "A new skill!" fanfare for a first stone), sell, Turn it in for a commission, or, for a skill already kept, Weigh it against yours at the loupe table; or back to the shop, the stone waiting on the tray.
 
-A click or Space skips the spin to its last tooth, then the reading; Escape jumps to the end, and at the end takes the gentlest way out.
-
 **Price:** `geode_price_mult` (1.75) times the average sale value of the Geode's stone, rounded up to ten, and never under the mine's own floor (`geode_gold`), so cracking Geodes to sell what is inside always loses gold (§7 checks it).
 
-| Mine | Quarry | Seeps | Glass Veins | Warrens | Furnace | Geode | Rift |
+| Mine | Quarry | Seeps | Glass Veins | Warrens | Furnace | Hollow | Rift |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `geode_gold` (floor) | 150 | 200 | 240 | 270 | 330 | 370 | 370 |
 | A mine's Geode costs | 160 | 210 | 250 | 280 | 340 | 380 | 370 |
@@ -138,10 +146,11 @@ Five stones of one grade tier go in, and one stone of the next tier comes out. I
 | Cut, Clarity, inclusions | Rolled at the bottom of that mine's luck, with more luck each try, up to 48 tries, until the grade lands in the target tier. If luck alone never gets there the stone is worked up a step at a time (Cut first, then Clarity toward Intricate with the rarest sound inclusions the rock holds), which the feasibility check promises is possible. |
 | Impossible contracts | If the average carat is too low for the next tier even with a perfect Cut and Clarity, the contract cannot be signed, and the screen says why. |
 | Fee | 20 / 60 / 150 / 400 gold for Rough / Fine / Precious / Exquisite inputs. |
+| How often | **Once a day** (from October 12, 2026), like the Wheel and the Oven. |
 
 **Vault stones as inputs.** A vault stone can go in, with a warning that the skill becomes unowned (still seen). This is how a player uses a stone they are about to replace: put the old one into a contract, then keep the new one.
 
-**The screen.** The bench on the left: the promise (five of this grade, one of the next), five places (a click takes a stone back off), and lines running down from each place to a ring where the new stone will come out, lit a fifth at a time as the bench fills and breathing once the contract can be signed. Under it the forecast: the grade, carat and rock, the color odds, and every skill it could become with the exact odds of each (`DeepEconomy.contract_odds`). The picker on the right pages the tray's and the vault's eligible stones (All, Tray, Vault), and once the first is on, only stones of its grade can follow. Signing puts the five in a circle that turns in to its middle until they meet in a flash, then the new stone is read out the way a Geode's is, with the same choices.
+**The screen.** The bench on the left: the promise (five of this grade, one of the next), five places (a click takes a stone back off), and lines running down from each place to a ring where the new stone will come out, lit a fifth at a time as the bench fills and breathing once the contract can be signed. Under it the forecast: the grade, carat and rock, the color odds, and every skill it could become with the exact odds of each (`DeepEconomy.contract_odds`). The picker on the right pages the tray's and the vault's eligible stones (All, Tray, Vault), and once the first is on, only stones of its grade can follow. Signing puts the five in a circle that turns in to its middle until they meet in a flash, then the new stone is read out the way a Geode's is, with the same choices. **Fill from cheapest** puts the five lowest-worth stones of a grade on the bench (tray stones before vault ones at the same worth), the grade being the first stone's on the bench, or with the bench empty the lowest grade that has five. The contract is a page of the Market reached from its bench (§3.6).
 
 **Why we keep one stone per skill.** Contracts do not need duplicates. They need five stones of one *tier*, which can be any skills. The tray already keeps stones between runs and pages them, so it is the natural place for contract material to wait. Lifting the one-per-skill rule would mean:
 
@@ -167,6 +176,21 @@ A lapidary's rail is filled from the vault only as far as that lapidary's **unlo
 - **The daily dig is unaffected:** it fills the rail by its own rail rule (§4.2).
 - **Co-op:** each player's unlocks are their own. A guest's rail arrives filled as far as their own lapidary allows.
 
+### 🟢 3.6 The Market (October 12, 2026)
+
+The Market is the home tab where gold is spent, on one page with no scrolling:
+
+- **Down the left:** today's Geode and the week's (§3.3).
+- **In the middle: the case.** Three stones a day, cut and read, each a different skill, from the open mines (a random depth in the lower half of the mine, with `case_luck` 2 on top). Never an opal, a Transcendent or anything fragile. Each sits under a lamp with its trigger, card text, carat line and inclusions, and beside it how it compares to the one of its skill already kept ("Yours: Fine · 38", and how many grade points apart), or "A skill you don't have yet". Holding Shift over one compares it in full. **Price:** 2.5 times what it sells for (`case_price_mult`), rounded up to ten, never under 30 (`case_gold_min`), so buying and selling always loses gold. **Buy** puts it straight into the vault (marked new) and sells the stone of its skill already kept.
+- **Down the right: the commissions** (§4.1), each with its own swap button, and a Turn in button when a tray stone or a kept stone meets it (a kept stone asks twice, since its skill is then no longer kept). Under them **the bench**: the Wheel, the Oven and the trade-up contract (§3.4), each a page of its own and **once a day each**, marked "Used today" once done.
+- **Restock.** Once a day, for 100 gold (`restock_gold`): a new Geode of the day and a new case. The week's Geode and the commissions stay as they are. The header says how long until the day turns over.
+
+**The Wheel and the Oven.** A stone from the vault (not the tray: those are decided first) goes on the Wheel to have its Cut cut again, or into the Oven to have its Clarity, and what is frozen inside it, fired again. The result is always a different rung (`DeepForge.cut_weights` and `clarity_weights` with the current rung struck off), drawn at the luck of the mine and depth the stone was found at, so a Quarry stone stays a Quarry stone, and the Oven never leaves anything fragile inside. **1 in 25 stones break** (`rework_break_pct` 4): the stone is gone from the vault and every loadout, and it flies apart on the page with a sound of its own. **Price:** half the stone's worth, rounded up to five, never under 25 (`rework_price_mult`, `rework_gold_min`). The page shows the stone on a ladder of rungs with a bar of what it could come out as and the break chance; the ladder flickers like a reel for about a second and lands, with a gleam and a rising chime for a better rung and a low note for a worse one. A reworked stone counts its reworks in its provenance. The same ladder now shows down the mine wherever an oddity recuts or refires a stone, and a stone broken there flies apart the same way.
+
+**Why once a day is enough of a guard (§8.2).** The plan worried that rerolls would let a player polish every vault stone to its mine's best Cut. With one turn of the Wheel and one firing a day, a result that always changes (better or worse), a price that follows the stone's worth and a 1 in 25 chance of losing it, polishing a stone is slow and costly, and a good stone is risked every time.
+
+**Wanted.** A star on a vault tile (or the Want button under its lamp) marks a skill the player wants; every Geode and case stone that could be one says so.
+
 ## 4. Earning gold
 
 ### 🟢 4.1 Commissions
@@ -189,7 +213,7 @@ A lapidary's rail is filled from the vault only as far as that lapidary's **unlo
 
 **Payout:** 2.5× the sale value of the weakest stone that would meet every requirement, rounded to 5. Turning a stone in must always beat selling it.
 
-**Turning in.** The Appraise tab gains a **Turn in** button beside Keep and Sell whenever a tray stone meets a commission. Turning in pays the gold and removes the stone. Its skill stays seen.
+**Turning in.** The Appraise tab gains a **Turn in** button beside Keep and Sell whenever a tray stone meets a commission. Turning in pays the gold and removes the stone. Its skill stays seen. (Since October 12, 2026 the commissions live on the Market, where a kept stone that meets one can be turned in too; §3.6.)
 
 **The first stone of a skill.** The automatic keep (`DeepProfile.auto_keep`, called on homecoming and from the home screen) is removed. Instead:
 
@@ -376,7 +400,8 @@ Each phase ships on its own and leaves the game playable.
 - 🟢 buying a Geode and selling what is inside (300 Geodes in each of five mines);
 - 🟢 buying Geodes, appraising nothing further, and putting their stones into contracts five at a time, then selling the output;
 - 🟢 the fare against cashing out the starting purse through the assay (blocked by the earned-pyrite cap; the test proves it);
-- 🟢 turning in against selling (this one must always favour turning in; it is the only intended profit).
+- 🟢 turning in against selling (this one must always favour turning in; it is the only intended profit);
+- 🟢 the case: every stone in it costs at least twice what it sells for.
 
 The test reads prices from content, so retuning a number can never quietly open a loop.
 
@@ -394,7 +419,9 @@ Like socket unlocks (§3.5), these grow one lapidary permanently. Rule 1 still h
 
 **Open for that pass:** whether upgrades are bought on the Lapidaries tab (likely, next to the dossier and the socket unlocks), and how a guest's Birthstone choice shows to the rest of the party.
 
-### ⚪ 8.2 Shop services: the Wheel and the Oven
+### 🟢 8.2 Shop services: the Wheel and the Oven
+
+**Built October 12, 2026, as described in §3.6:** vault stones only, once a day each, a result that always changes, a price that follows the stone's worth and 1 in 25 stones broken. The plan as it stood before follows.
 
 A third Shop view where a player pays gold to **reroll one stone's Cut (the Wheel) or its Clarity (the Oven)**, from the tray or the vault.
 
@@ -462,6 +489,16 @@ No questions are open for phases 0–6. The later ideas in §8 carry their own o
 - **Temporary stones** are rolled from a stream of their own (`temps`), so they never shift the rest of a seed. Same-color sockets are offered three different skills where the mine holds them. With no shaft head (`boons: false`) the first of each three is set. At the end of the run they leave quietly: they are not counted among the shattered losses.
 - **Loopholes closed:** the landing's well and the wishing-well oddity refuse fragile stones; a stone fused in the Crucible with a fragile one comes out fragile (and temporary, if either was). The Echo Chamber was checked and needs nothing: it copies only a skill into a fresh roll, never a stone's carats or quality.
 - **The no-profit test** covers phases 0–3: turning in beats selling over 800 rolled stones across four mines, and no purse cashed whole at the assayer is worth its fare.
+
+### The workshop rework, October 12, 2026
+
+From a review page of mockups and options, marked over three rounds:
+
+- **Where things live.** The workshop has four tabs, opened with 1 to 4: **Descend** (the mines as a cross-section, with Expedition or Daily dig as a switch beside it, who goes down, and the Descend button that names the delver and the fare), **Delvers** (each delver's dossier and sockets; editing a delver's sockets also picks them to go down), **Vault** (the one page that scrolls; grid or list, one row of sorts, filters and a search; Cut pips, Clarity marks and the carat on every tile; new stones glow until looked at) and **Market** (§3.6). The player's chip opens a profile page: the five best stones as a showcase the party can see, the records, each mine's progress and the runs. Lapidaries are called delvers, and the sixth mine is **The Hollow**.
+- **Coming home.** With stones on the tray the workshop waits behind a bench of its own: the tray down the left, the stone being looked at in the middle, read there under the loupe when paid for, the kept one of its skill on the right once it is known. Nothing opens until every stone is kept, sold or turned in; a player who cannot pay to read a stone sells it rough. Stones left on the tray later (Decide later) wait in the vault's Unappraised view.
+- **Pips.** A tab carries a count of what is waiting there (tray stones, commissions ready, new stones) or a dot for something new since it was looked at.
+- **The party.** Choosing another mine no longer takes a guest's ready mark away; a guest who cannot pay that mine's fare stays ready but shows a coin, and Descend waits until the host picks a mine everyone can pay for.
+- **The lift.** Setting out, the screen becomes the shaft for a moment and the cage drops past the strata to the mine; coming home it rises to the workshop.
 
 ### Phases 4–6, October 10, 2026
 
