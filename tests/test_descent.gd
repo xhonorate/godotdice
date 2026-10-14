@@ -26,6 +26,9 @@ func _init() -> void:
 	_test_lift_short()
 	_test_json_round_trip()
 	_test_refusal_changes_nothing()
+	_test_hazard_ladder()
+	_test_hazard_runs()
+	_test_hazard_progress()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -389,8 +392,8 @@ func _test_landing_commands() -> void:
 	b.ore = 0
 	a.respite = ""
 	a.hp = 10
-	var share: int = int(ceil(float(a.max_hp) * 0.3))
-	check(cmd(state, "a", "respite", {"choice": "rest"}).ok and int(a.hp) == 10 + share, "resting gives back 30%% of the most health (%d)" % int(a.hp))
+	var share: int = int(ceil(float(a.max_hp) * 0.35))
+	check(cmd(state, "a", "respite", {"choice": "rest"}).ok and int(a.hp) == 10 + share, "resting gives back 35%% of the most health (%d)" % int(a.hp))
 	## The bench still works here, and a socket keeps to its colour down the mine as it does
 	## at home: a Violet stone has no business in a Red socket.
 	raw.appraised = true
@@ -819,7 +822,7 @@ func _test_profile() -> void:
 	check(DeepProfile.next_locked_character(profile) == "VESPER", "Vesper is the next unlock")
 	var better: Dictionary = DeepStone.make("STRIKE", 9, 3, 4, [], {"source": "test"}, "better")
 	var kept: Dictionary = DeepProfile.keep(profile, better)
-	check(kept.replaced.carat == 2 and profile.gold == kept.paid and profile.vault.STRIKE.carat == 9, "keeping a second Strike sells the first")
+	check(kept.replaced.carat == 2 and profile.gold == 0 and not kept.has("paid") and profile.vault.STRIKE.carat == 9, "keeping a second Strike replaces the first, for no gold")
 	check(profile.records.best.stone.id == "better", "the best stone is remembered")
 	var grid: Array = DeepProfile.vault_grid(profile)
 	check(grid.size() == DeepContent.section("skills").size() - DeepContent.transcendents().size(), "the grid lists every skill but the Transcendents nobody has made")
@@ -870,8 +873,8 @@ func _test_profile() -> void:
 	check(moved.characters.ARDOR.rail[0] == "STRIKE" and moved.bowl.size() == 10, "the vault is set into Ardor's rail and both characters' dice fill the bowl (%d)" % moved.bowl.size())
 	var gold_before: int = profile.gold
 	var decided: Dictionary = DeepProfile.decide_tray(profile, "s1", true)
-	check(decided.ok and decided.kept and decided.replaced.id == "better" and profile.vault.STRIKE.id == "s1", "the player may keep a worse stone; the better one is sold")
-	check(profile.gold > gold_before, "and paid for it")
+	check(decided.ok and decided.kept and decided.replaced.id == "better" and profile.vault.STRIKE.id == "s1", "the player may keep a worse stone; the better one is let go")
+	check(profile.gold == gold_before and int(decided.paid) == 0, "and pays nothing")
 	## A stone nobody has read is nobody's first: sold rough it goes to a buyer for its size
 	## class and teaches the vault nothing, or the vault would be handing out free appraisals.
 	var rough_gold: int = int(profile.gold)
@@ -1403,3 +1406,139 @@ func _test_mines() -> void:
 	check(DeepDescent.warden_key(deep, 8) == "THE_DRILL" and DeepDescent.warden_key(deep, 16) == "THE_UNDERTOW" and DeepDescent.warden_key(deep, 24) == "THE_PRISMARCH"
 		and DeepDescent.warden_key(deep, 32) == "THE_HEARTROT" and DeepDescent.warden_key(deep, 48) == "THE_KILN_WYRM" and DeepDescent.warden_key(deep, 56) == "THE_DRILL", "the Rift remembers the bosses above it, in order")
 	check(DeepDescent.warden_key(deep, 40) == "THE_UNMADE" and DeepDescent.warden_key(deep, 80) == "THE_UNMADE" and DeepDescent.warden_key(deep, 88) == "THE_HEARTROT", "and every fifth Rift Warden is the Unmade")
+
+func hazard_config(seed_value: int, tier: int, mine: String = "QUARRY") -> Dictionary:
+	var made: Dictionary = config(seed_value, true)
+	made.hazard = tier
+	made.mine = mine
+	return made
+
+func _test_hazard_ladder() -> void:
+	## The ladder (docs/HAZARDS.md): twenty tiers, each carrying every one below it.
+	check(DeepContent.hazard_max() == 20 and DeepContent.hazard_tiers().size() == 20, "twenty Hazard tiers")
+	check(DeepContent.hazard_keys(3) == ["OLD_BLOOD", "COLD_START", "SHORT_REST"], "tier 3 carries the first three: %s" % str(DeepContent.hazard_keys(3)))
+	check(DeepContent.hazard_tier(20).get("key", "") == "CROWNS_COURT" and DeepContent.hazard_tier(21).is_empty() and DeepContent.hazard_tier(0).is_empty(), "tier 20 adds Crown's Court, and there is nothing past either end")
+	check(DeepContent.validate(DeepContent.pack()).is_empty(), "the pack with its ladder is valid")
+	## Heavier stones: the Hollow's band reaches 24 at the top of the ladder, the Quarry's barely moves.
+	var hollow: Dictionary = DeepContent.mine("GEODE")
+	var quarry: Dictionary = DeepContent.mine("QUARRY")
+	var top: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(hollow, 20), 1)
+	check(int(top.cap) == 24 and int(top.soft) == 19 and is_equal_approx(float(top.pressure), 65.0), "the Hollow on Hazard 20 runs 19 / 24 with pressure 65: %s" % str(top))
+	check(int(DeepForge.carat_band(DeepForge.at_hazard(quarry, 20), 1).cap) == 8, "the Quarry's cap rises by one")
+	check(not DeepForge.carat_band(hollow, 1).has("pressure") and int(DeepForge.carat_band(hollow, 1).cap) == 17, "tier 0 is the band as it was")
+	check(is_equal_approx(DeepForge.luck(DeepForge.at_hazard(hollow, 20), 24) - DeepForge.luck(hollow, 24), 5.0), "Hazard 20 rolls with five more luck")
+	var rng: RandomNumberGenerator = DeepRng.streams(91).stones
+	var heaviest: int = 0
+	var full: int = 0
+	var lifted: Dictionary = DeepForge.at_hazard(hollow, 20)
+	for i in range(20000):
+		var carat: int = DeepForge.roll_carat(rng, DeepForge.luck(lifted, 30, 3.0), top)
+		heaviest = maxi(heaviest, carat)
+		if carat == 24:
+			full += 1
+	check(heaviest == 24 and full > 100 and full < 1500, "an elite in the Hollow on Hazard 20 finds a 24-carat stone now and then (%d in 20000)" % full)
+	var stone_found: Dictionary = DeepForge.roll_stone(rng, lifted, 12, 0.0, {"source": "test"})
+	check(int(stone_found.provenance.get("hazard", 0)) == 20, "a stone remembers the tier it was found on")
+	check(not DeepForge.roll_stone(rng, hollow, 12, 0.0, {"source": "test"}).provenance.has("hazard"), "and an ordinary one says nothing of it")
+	## The day's gold scales with the tier, and a later dig pays only what it adds.
+	var profile: Dictionary = DeepProfile.new_profile("Ada")
+	profile.mines.QUARRY.boss = true
+	var date: String = "2026-10-14"
+	var first: Dictionary = DeepEconomy.settle_daily(profile, {"score": 500}, date, 4)
+	check(int(first.paid) == int(floor(DeepEconomy.daily_payout(500) * 1.2)), "Hazard 4 pays the day's gold times 1.2 (%d)" % int(first.paid))
+	var again: Dictionary = DeepEconomy.settle_daily(profile, {"score": 500}, date, 10)
+	check(int(again.paid) == DeepEconomy.daily_gold(500, 10) - int(first.paid) and int(again.paid) > 0, "the same score on Hazard 10 pays only the difference (%d)" % int(again.paid))
+	check(is_equal_approx(DeepEconomy.daily_gold_mult(20), 2.0), "twice the gold at Hazard 20")
+
+func _test_hazard_runs() -> void:
+	## A run carries its tier and every hazard under it, fixed when it sets out.
+	var plain: Dictionary = DeepDescent.new_run(config(500, true))
+	check(DeepDescent.hazard_tier(plain) == 0 and not plain.has("hazard_mods") and not DeepDescent.has_mod(plain, "OLD_BLOOD"), "an ordinary run carries no hazard")
+	var six: Dictionary = DeepDescent.new_run(hazard_config(500, 6))
+	check(DeepDescent.hazard_tier(six) == 6 and six.hazard_mods.size() == 6 and DeepDescent.has_mod(six, "WORN") and not DeepDescent.has_mod(six, "WARDENS_PRIDE"), "a Hazard 6 run carries six hazards")
+	var ada: Dictionary = six.players[0]
+	check(int(ada.hp) == int(ceil(float(ada.max_hp) * 0.85)), "Worn starts everyone at 85%% health (%d of %d)" % [int(ada.hp), int(ada.max_hp)])
+	check(int(ada.run_mods.get("first_turn_rerolls", 0)) == -1, "Cold Start takes a reroll from every fight's first turn")
+	check(int(DeepDescent.mine_of(six).get("hazard", 0)) == 6 and not DeepDescent.mine_of(plain).has("hazard"), "the rock knows the tier")
+	## A Cursed Run on the day and on the tier adds up.
+	var cursed: Dictionary = DeepDescent.new_run(hazard_config(501, 19))
+	cursed.daily = {"date": "2026-10-14", "rail": "LENT_RAIL", "mods": ["CURSED_RUN"]}
+	check(DeepDescent.mod_count(cursed, "CURSED_RUN") == 2, "the day's Cursed Run and the tier's count twice")
+	## Short Rest and Festering Air: resting gives back 25%, cut by a fifth.
+	var sixteen: Dictionary = DeepDescent.new_run(hazard_config(502, 16))
+	var resting: Dictionary = sixteen.players[0]
+	resting.hp = 1
+	var share: int = int(ceil(float(resting.max_hp) * 0.25)) * 80 / 100
+	check(DeepDescent.rest_amount(resting, sixteen) == share, "a rest on Hazard 16 gives back %d (%d)" % [share, DeepDescent.rest_amount(resting, sixteen)])
+	## Old Blood breeds the creatures ten floors deeper; Early Enrage, Bigger Teeth and
+	## Champions reach the fight.
+	var fight: Dictionary = DeepDescent.new_run(hazard_config(503, 10))
+	fight.phase = "chamber"
+	fight.depth = 3
+	var streams: Dictionary = DeepDescent.streams_of(fight)
+	DeepDescent._start_fight(fight, streams, true, "")
+	var b: Dictionary = DeepDescent.battle(fight)
+	check(int(b.threat) == 13, "Old Blood: creatures on floor 3 are bred for floor 13 (%d)" % int(b.threat))
+	check(DeepBattle.enrage_turn(b) == 6 and DeepBattle.enrage_step(b) == 3, "Early Enrage: turn 6, three a turn")
+	check(b.enemies.all(func(f: Dictionary) -> bool: return int(f.get("dice_upgrade", 0)) == 1), "Bigger Teeth: every creature's dice are a size up")
+	check(b.enemies.filter(func(f: Dictionary) -> bool: return not str(f.get("champion", "")).is_empty()).size() == 1, "Champions: one creature in an elite fight is a champion")
+	## Gauntlet and Dark Mouths on the map.
+	var dark: Dictionary = DeepDescent.new_run(hazard_config(504, 17))
+	var dark_streams: Dictionary = DeepDescent.streams_of(dark)
+	var two_dark: bool = false
+	for _stretch in range(6):
+		DeepDescent._chart(dark, dark_streams)
+		var rows: Array = dark.map.rows
+		check(rows[rows.size() - 1].all(func(id: Variant) -> bool: return str(dark.map.nodes[str(id)].kind) == "elite"), "Gauntlet: the floor before the landing is all elites")
+		for row in rows:
+			var hidden: int = row.filter(func(id: Variant) -> bool: return bool(dark.map.nodes[str(id)].hidden)).size()
+			check(hidden < row.size() or row.size() == 1, "Dark Mouths never hides a whole floor")
+			two_dark = two_dark or hidden == 2
+		dark.depth = int(dark.map.to)
+	check(two_dark, "Dark Mouths hides two on a floor now and then")
+	## Escorts and Crown's Court: the Hollow Crown on Hazard 20 fights beside a remembered boss.
+	var court: Dictionary = DeepDescent.new_run(hazard_config(505, 20, "GEODE"))
+	court.depth = 32
+	court.phase = "chamber"
+	DeepDescent._start_fight(court, DeepDescent.streams_of(court), false, "THE_HOLLOW_CROWN")
+	var hall: Dictionary = DeepDescent.battle(court)
+	var bosses: Array = hall.enemies.filter(func(f: Dictionary) -> bool: return bool(f.get("warden", false)))
+	check(bosses.size() == 2 and str(bosses[0].key) == "THE_HOLLOW_CROWN" and not str(bosses[1].get("remembered", "")).is_empty(), "Crown's Court: a remembered boss stands beside the Crown: %s" % str(bosses.map(func(f: Dictionary) -> String: return str(f.name))))
+	check(hall.enemies.size() <= DeepBattle.max_creatures(), "and the hall never holds more than %d" % DeepBattle.max_creatures())
+	check(bosses.all(func(f: Dictionary) -> bool: return int(f.statuses.get("ward", 0)) >= 2), "Warden's Pride: the bosses come in behind two Ward")
+	var escorted: Dictionary = DeepDescent.new_run(hazard_config(506, 14))
+	escorted.depth = 8
+	escorted.phase = "chamber"
+	DeepDescent._start_fight(escorted, DeepDescent.streams_of(escorted), false, "THE_FOREMAN")
+	check(DeepDescent.battle(escorted).enemies.size() == 2, "Escorts: the Foreman brings a creature from the Quarry's deepest band")
+	## The results carry the tier home.
+	check(int(DeepDescent.results(six).get("hazard", 0)) == 6 and not DeepDescent.results(plain).has("hazard"), "the results say which tier the run was on")
+
+func _test_hazard_progress() -> void:
+	## Every tier keeps its own map, starting from the Quarry; reaching the Rift opens the next.
+	var profile: Dictionary = DeepProfile.new_profile("Ada")
+	check(DeepProfile.hazard_top(profile) == 0, "nobody starts with a Hazard tier")
+	for key in DeepContent.mines_in_order():
+		profile.mines[str(key)].unlocked = true
+	check(DeepProfile.upgrade(profile) and DeepProfile.hazard_top(profile) == 1, "a profile that has reached the Rift is given Hazard 1")
+	check(DeepProfile.open_mines(profile, 1) == ["QUARRY"] and DeepProfile.open_mines(profile, 0).size() == 7, "Hazard 1 opens on the Quarry alone")
+	var won: Dictionary = {"mine": "QUARRY", "outcome": "conquered", "hazard": 1, "depth": 16, "deepest": 16, "wardens": [8, 12], "players": {"a": {}},
+		"mines": [{"mine": "QUARRY", "deepest": 16, "wardens": [8, 12], "boss": true}]}
+	var applied: Dictionary = DeepProfile.apply_result(profile, won, "a")
+	check(DeepProfile.open_mines(profile, 1) == ["QUARRY", "SEEPS"], "the Drill beaten on Hazard 1 opens the Seeps on Hazard 1")
+	check(applied.unlocked.any(func(u: Dictionary) -> bool: return str(u.get("mine", "")) == "SEEPS" and int(u.get("hazard", 0)) == 1), "and says so")
+	check(int(profile.mines.QUARRY.runs) == 0, "the ordinary map's records are untouched")
+	check(int(profile.history.back().get("hazard", 0)) == 1, "the history remembers the tier")
+	## The Hollow's boss on the highest tier opens the Rift there, and the next tier.
+	var hollow: Dictionary = {"mine": "GEODE", "outcome": "conquered", "hazard": 1, "depth": 32, "deepest": 32, "wardens": [12, 24], "players": {"a": {}},
+		"mines": [{"mine": "GEODE", "deepest": 32, "wardens": [12, 24], "boss": true}]}
+	var reached: Dictionary = DeepProfile.apply_result(profile, hollow, "a")
+	check(DeepProfile.hazard_top(profile) == 2 and reached.unlocked.any(func(u: Dictionary) -> bool: return int(u.get("tier", 0)) == 2), "reaching the Rift on Hazard 1 opens Hazard 2")
+	check(DeepProfile.open_mines(profile, 2) == ["QUARRY"], "and Hazard 2 starts from the Quarry again")
+	## Reaching it again on a lower tier opens nothing more.
+	DeepProfile.apply_result(profile, {"mine": "GEODE", "outcome": "conquered", "hazard": 0, "depth": 32, "players": {"a": {}}, "mines": [{"mine": "GEODE", "deepest": 32, "wardens": [], "boss": true}]}, "a")
+	check(DeepProfile.hazard_top(profile) == 2, "a lower tier's Rift opens nothing more")
+	## The party plays a tier everyone has, and a mine everyone has opened on it.
+	var guest: Dictionary = {"hazard_top": 3, "hazard_open": ["QUARRY", "SEEPS"]}
+	check(DeepSession.member_open_mines(guest, 2).size() == 7 and DeepSession.member_open_mines(guest, 3) == ["QUARRY", "SEEPS"], "a member has every mine below their highest tier, and their own on it")
+	check(DeepSession.clean_member_fields({"hazard_top": 99.0, "hazard_open": ["QUARRY", "NOWHERE"]}) == {"hazard_top": 20}, "a member's tier is clamped and unknown mines are dropped")

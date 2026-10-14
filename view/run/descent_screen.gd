@@ -2371,7 +2371,7 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 				if not taken:
 					DeepUi.label(box, "Click to sit down.", 12, DeepUi.DIM)
 				return true
-			var gain: int = DeepDescent.rest_amount(unit)
+			var gain: int = DeepDescent.rest_amount(unit, run)
 			DeepUi.label(box, "+%d health" % gain if gain > 0 else "You are already whole.", 14, DeepUi.GOOD if gain > 0 else DeepUi.DIM)
 			## Whole already, sitting down would spend the landing's one action on nothing.
 			if not taken:
@@ -2790,7 +2790,7 @@ func _fill_chip() -> void:
 		var below: Dictionary = DeepContent.mine(DeepDescent.next_mine(run))
 		DeepUi.title(title_row, "On into " + str(below.get("name", "the next mine")), 19, tone.lightened(0.25))
 		DeepUi.wrap(box, str(below.get("text", "")), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
-		var band: Dictionary = DeepForge.carat_band(below, 1)
+		var band: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(below, DeepDescent.hazard_tier(run)), 1)
 		DeepUi.stat(box, "gem", "Stones up to %d carats, usually %d or less" % [int(band.get("cap", 0)), int(band.get("soft", 0))], DeepUi.ACCENT, 12)
 		DeepUi.stat(box, "skull", "Its creatures are far tougher, and bred deeper for a party that pushes on", DeepUi.BAD, 12)
 		DeepUi.stat(box, "lift", "Nothing is banked: a fall loses everything from both mines", DeepUi.MUTED, 12)
@@ -2943,6 +2943,8 @@ func _sync_strip() -> void:
 	DeepUi.label(names, "Depth %d  ·  %s" % [depth, note], 12, DeepUi.MUTED)
 	if not run.get("daily", {}).is_empty():
 		_daily_marks(place)
+	if DeepDescent.hazard_tier(run) > 0:
+		DeepUi.stat(place, "skull", "Hazard %d" % DeepDescent.hazard_tier(run), DeepUi.BAD, 12, _hazard_words(DeepDescent.hazard_tier(run))).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	## Progress to the next landing as a row of little steps.
 	var steps := DeepUi.hbox(_strip, 3)
 	steps.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -4748,40 +4750,13 @@ class SalvageDie extends Control:
 		draw_string(font, Vector2(-measured.x * 0.5, 8), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, tone)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-func _assay_strip(parent: Node, assay: Dictionary, outcome: String) -> void:
-	## Pyrite onto the assayer's scales and gold counted out for it, before anything is
-	## appraised at home. A party that fell rides up with nothing to weigh.
-	var paid: bool = outcome in ["extracted", "conquered"]
-	var strip := DeepUi.card(parent, Color(DeepUi.ACCENT, 0.4), 10, Color(0.06, 0.055, 0.04, 0.9))
-	var row := DeepUi.hbox(strip, 10)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	DeepUi.icon(row, "scales", 26, DeepUi.ACCENT)
-	DeepUi.title(row, "The assayer", 18, DeepUi.PAPER)
-	DeepUi.gap(row, 8)
-	DeepUi.stat(row, "ore", "%d pyrite" % (int(assay.pyrite) if paid else int(assay.carried)), DeepUi.ORE, 16)
-	DeepUi.icon(row, "next", 18, DeepUi.MUTED)
-	var coin := DeepUi.icon(row, "coin", 24, DeepUi.ACCENT)
-	var gold_label := DeepUi.title(row, "%d gold" % int(assay.gold), 22, DeepUi.ACCENT_HI if int(assay.gold) > 0 else DeepUi.DIM)
-	gold_label.custom_minimum_size.x = 96
-	var note: String = "Five pyrite to the gold. Only pyrite earned down here is bought, never the purse from the shaft head."
-	if not paid:
-		note = "Nothing is weighed for a party that falls."
-	elif int(assay.pyrite) < int(assay.carried):
-		note = "%d carried: the rest is the purse from the shaft head or loose change." % int(assay.carried)
-	strip.tooltip_text = note
-	DeepUi.wrap(parent, note, 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	if _fresh and not _headless and int(assay.gold) > 0:
-		## The gold is counted out once the lift has stopped.
-		gold_label.text = "0 gold"
-		var tween := gold_label.create_tween()
-		tween.tween_interval(0.7)
-		tween.tween_callback(func() -> void: DeepAudio.play("ore", {"volume": 0.8}))
-		tween.tween_method(func(v: float) -> void: gold_label.text = "%d gold" % int(round(v)), 0.0, float(assay.gold), 1.1).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tween.tween_callback(func() -> void:
-			DeepAudio.play("buy", {"volume": 0.7})
-			DeepUi.pulse(gold_label, 1.3, 0.4)
-			if is_instance_valid(coin) and coin.is_inside_tree():
-				DeepUi.burst(self, coin.global_position + coin.size * 0.5 - global_position, DeepUi.ACCENT_HI, 30, 220.0, 0.8, 6.0))
+static func _hazard_words(tier: int) -> String:
+	## Every hazard the run carries, one to a line, for a hover.
+	var lines: Array = ["Hazard %d" % tier]
+	for index in range(1, tier + 1):
+		var entry: Dictionary = DeepContent.hazard_tier(index)
+		lines.append("%s: %s" % [str(entry.get("name", "")), str(entry.get("text", ""))])
+	return "\n".join(lines)
 
 # --- the day's seam --------------------------------------------------------------------------
 
@@ -4857,7 +4832,7 @@ func _daily_result() -> Dictionary:
 	var unit: Dictionary = me()
 	var result: Dictionary = {"outcome": str(run.get("outcome", "")), "players": {local_id: {"home": DeepDescent.coming_home(run, unit), "ore": int(unit.get("ore", 0))}}}
 	var scored: Dictionary = DeepEconomy.daily_score(result, local_id)
-	var gold: int = DeepEconomy.daily_payout(int(scored.score))
+	var gold: int = DeepEconomy.daily_gold(int(scored.score), DeepDescent.hazard_tier(run))
 	var eligible: bool = bool(daily_best.get("eligible", true))
 	scored.gold = gold
 	scored.paid = maxi(0, gold - int(daily_best.get("best_gold", 0))) if eligible else 0
@@ -4925,7 +4900,7 @@ func _page_over(content: VBoxContainer) -> void:
 	## Exactly what the workshop's tray will be handed: the bag, and the stones found down here
 	## and set on the rail. The vault's own stones were never in question.
 	var haul: Array = DeepDescent.coming_home(run, unit)
-	## The day's seam keeps nothing: what came up is scored, and the assayer weighs nothing.
+	## The day's seam keeps nothing: what came up is scored.
 	var daily: bool = not run.get("daily", {}).is_empty()
 	if daily:
 		haul = haul.filter(func(s: Dictionary) -> bool: return not DeepStone.is_fragile(s) and not bool(s.get("lent", false)))
@@ -4939,10 +4914,6 @@ func _page_over(content: VBoxContainer) -> void:
 		mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		DeepUi.title(inner, str(entry[2]), 24, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 		DeepUi.label(inner, str(entry[1]), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	## The assayer at the lift: what is left in the pocket, weighed into gold.
-	var assay: Dictionary = DeepEconomy.assay({"ore": int(unit.get("ore", 0)), "earned": int(tally.get("earned", 0))}, outcome)
-	if int(assay.carried) > 0 and not daily:
-		_assay_strip(box, assay, outcome)
 	if daily:
 		_daily_strip(box)
 	if not haul.is_empty():

@@ -1,7 +1,7 @@
 extends SceneTree
 ## Boots the game, drives it to a screen, and saves what it looks like.
 ##   godot --path . --script tools/screenshot.gd -- <target> out.png [seed]
-## Targets: home (map) | map_party | map_deep | bench | roster_sockets | vault | appraise | ledger |
+## Targets: home (map) | map_party | map_deep | map_hazard | bench | roster_sockets | vault | appraise | ledger |
 ##          grubstake | grubstake_pick | grubstake_result |
 ##          tunnels | vein | vein_done | oddity | smithy | carver | well |
 ##          landing | landing_well | landing_bench | merchant | lift | run_bench | run_bench_dice | battle | battle_fx | battle_status | spoils |
@@ -14,7 +14,7 @@ extends SceneTree
 ## how far into the ceremony to shoot, in seconds.
 ## Needs a window: this is the one tool here that is not headless.
 
-const HOME_TABS: Dictionary = {"home": "map", "map": "map", "map_party": "map", "map_deep": "map", "bench": "roster", "roster": "roster", "roster_sockets": "roster",
+const HOME_TABS: Dictionary = {"home": "map", "map": "map", "map_party": "map", "map_deep": "map", "map_hazard": "map", "bench": "roster", "roster": "roster", "roster_sockets": "roster",
 	"vault": "vault", "appraise": "appraise", "ledger": "ledger", "appraisal": "appraise"}
 
 func _init() -> void:
@@ -61,6 +61,22 @@ func _init() -> void:
 				for key in ["VESPER", "CADENCE"]:
 					DeepProfile.unlock_character(app.profile, key)
 				app._profile_changed()
+				app.session.choose_mine("GLASS_VEINS")
+			"map_hazard":
+				## The Rift reached seven times over: Hazard 7, with the Quarry and the Seeps
+				## beaten on it and the Glass Veins under way.
+				for key in DeepContent.mines_in_order():
+					app.profile.mines[str(key)].merge({"unlocked": true, "boss": not DeepContent.is_endless(str(key)), "deepest": maxi(24, DeepContent.mine_bottom(str(key))), "runs": 3}, true)
+				for key in DeepContent.characters_in_unlock_order():
+					DeepProfile.unlock_character(app.profile, str(key))
+				app.profile.hazard = {"top": 7, "tiers": {}}
+				var tier: Dictionary = DeepProfile.mine_records(app.profile, 7)
+				for key in ["QUARRY", "SEEPS"]:
+					tier[key].merge({"unlocked": true, "boss": true, "deepest": DeepContent.mine_bottom(key), "runs": 2,
+						"wardens": DeepContent.mine(key).warden_depths + [DeepContent.mine_bottom(key)]}, true)
+				tier.GLASS_VEINS.merge({"unlocked": true, "deepest": 11, "runs": 1, "wardens": [8]}, true)
+				app._profile_changed()
+				app.session.choose_hazard(7)
 				app.session.choose_mine("GLASS_VEINS")
 			"roster_sockets": app.home._roster_view = "sockets"
 		app.home.open(str(HOME_TABS.get(target, "vault")))

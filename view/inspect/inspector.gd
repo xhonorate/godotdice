@@ -1,5 +1,5 @@
 extends CanvasLayer
-## The close look: right-click a stone, a die or a creature anywhere and it opens here,
+## The close look: right-click a stone, a die, a Geode or a creature anywhere and it opens here,
 ## large and live, with everything there is to know about it laid out beside it. The same
 ## sheet, dressed with light and a title, is how a new stone is presented when one is won.
 ##
@@ -20,6 +20,7 @@ const EffectChips = preload("res://view/battle/effect_chips.gd")
 const CreatureStage = preload("res://view/creatures/creature_stage.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
+const GeodeView = preload("res://view/gems/geode_view.gd")
 
 const FACE_TEXT: Dictionary = {
 	"wild": "Wild: counts as any value for patterns, and as the die's top face for totals.",
@@ -113,6 +114,13 @@ static func die(item: Dictionary, opts: Dictionary = {}) -> void:
 	var sheet := _begin(DiceIcons.die_palette(item).body, opts.get("fanfare", {}))
 	if sheet != null:
 		sheet.call("_fill_die", item, opts)
+
+static func geode(shelf_geode: Dictionary, opts: Dictionary = {}) -> void:
+	## A Geode on the Market's shelf: the rock itself, turned by hand, and its odds in full.
+	## `opts.profile` marks the skills already found and the favorites.
+	var sheet := _begin(load("res://view/gems/geode.gd").theme_tone(shelf_geode))
+	if sheet != null:
+		sheet.call("_fill_geode", shelf_geode, opts)
 
 static func creature(foe: Dictionary, battle: Dictionary = {}, opts: Dictionary = {}) -> void:
 	var sheet := _begin(DeepUi.BAD if bool(foe.get("warden", false)) else Color("c8a8ff"))
@@ -437,6 +445,155 @@ func _member_dice(parent: Node, dice: Array) -> void:
 
 # --- stones ------------------------------------------------------------------------------------
 
+# --- a Geode ---------------------------------------------------------------------------------------
+
+## How many of a Geode's skills a page lists, and in how many columns.
+const GEODE_PAGE := 42
+const GEODE_COLUMNS := 3
+
+func _fill_geode(shelf_geode: Dictionary, opts: Dictionary) -> void:
+	## The odds a Geode prints, laid out in full: how its stones split by rarity and by grade,
+	## how big they come and what one is worth; then every skill it can hold with its own
+	## share, a page to a rarity.
+	var Geode: Script = load("res://view/gems/geode.gd")
+	var HomeParts: Script = load("res://view/home/home_parts.gd")
+	var tone: Color = Geode.theme_tone(shelf_geode)
+	var profile: Dictionary = opts.get("profile", {})
+	var bought: bool = bool(shelf_geode.get("bought", false))
+	var view: Control = GeodeView.new(shelf_geode, tone)
+	view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 30)
+	view.open = bought
+	_stage.add_child(view)
+	view.enable_interaction()
+	var odds: Dictionary = DeepEconomy.geode_odds(shelf_geode)
+	DeepUi.title(_head, Geode.geode_name(shelf_geode), 28, tone.lightened(0.2))
+	DeepUi.label(_head, Geode.geode_line(shelf_geode), 14, DeepUi.MUTED)
+	var tags := DeepUi.hbox(_head, 8)
+	var weekly: bool = bool(shelf_geode.get("weekly", false))
+	DeepUi.pill(tags, "calendar", "This week's" if weekly else "Today's", DeepUi.ACCENT if weekly else tone, 13)
+	var carats: Array = odds.get("carat", [1, 1])
+	DeepUi.pill(tags, "carat", "%d to %d ct" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 13, "Every stone inside weighs this much")
+	if weekly:
+		DeepUi.pill(tags, "cut", "Fine cut or better", DeepUi.INFO, 13)
+	if bought:
+		DeepUi.pill(tags, "check", "Opened", DeepUi.MUTED, 13)
+	else:
+		DeepUi.pill(tags, "coin", "%d" % int(shelf_geode.get("price", 0)), DeepUi.ACCENT, 13, "Its price, in gold")
+	## Every skill with its share, sorted into the rarities; the opals are a rarity of their own.
+	var known: Callable = func(key: String) -> bool:
+		return profile.get("vault", {}).has(key) or profile.get("seen", []).has(key)
+	var favorites: Array = DeepProfile.favorites(profile) if not profile.is_empty() else []
+	var by_rarity: Dictionary = {}
+	for entry in odds.get("skills", []):
+		var rarity: String = str(DeepContent.skill(str(entry[0])).get("rarity", "COMMON"))
+		if not by_rarity.has(rarity):
+			by_rarity[rarity] = []
+		by_rarity[rarity].append(entry)
+	var opals: Array = odds.get("opals", [])
+	if float(odds.get("opal", 0.0)) > 0.0 and not opals.is_empty():
+		by_rarity["MYTHIC"] = opals.map(func(key: Variant) -> Array: return [str(key), float(odds.opal) / float(opals.size())])
+	var shares: Dictionary = Geode.rarity_shares(shelf_geode)
+	## The first page: the whole of it at a glance.
+	_page("Odds", "geode")
+	var columns := DeepUi.hbox(_details, 24)
+	var rarity_box := DeepUi.vbox(columns, 6)
+	rarity_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.section(rarity_box, "gem", "By rarity", DeepUi.ACCENT, 13)
+	var rarity_parts: Array = []
+	for rarity in Geode.RARITIES:
+		if float(shares.get(rarity, 0.0)) > 0.0:
+			rarity_parts.append({"label": _rarity_word(rarity), "share": float(shares[rarity]), "color": Geode.rarity_tone(rarity), "rainbow": rarity == "MYTHIC"})
+	rarity_box.add_child(HomeParts.OddsBar.new(rarity_parts))
+	for rarity in Geode.RARITIES:
+		if not by_rarity.has(rarity):
+			continue
+		var count: int = by_rarity[rarity].size()
+		_odds_row(rarity_box, _rarity_word(rarity), Geode.rarity_tone(rarity), DeepUi.plural(count, "skill" if rarity != "MYTHIC" else "opal"), float(shares.get(rarity, 0.0)))
+	var grade_box := DeepUi.vbox(columns, 6)
+	grade_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.section(grade_box, "star", "By grade", DeepUi.ACCENT, 13)
+	var tier_parts: Array = []
+	for tier in DeepStone.TIERS:
+		var share: float = float(odds.get("tiers", {}).get(tier, 0.0))
+		if share > 0.0:
+			tier_parts.append({"label": str(DeepStone.TIER_NAMES.get(tier, tier)), "share": share, "color": DeepUi.tier_color(tier)})
+	grade_box.add_child(HomeParts.OddsBar.new(tier_parts))
+	for tier in DeepStone.TIERS:
+		var share: float = float(odds.get("tiers", {}).get(tier, 0.0))
+		if share > 0.0:
+			_odds_row(grade_box, str(DeepStone.TIER_NAMES.get(tier, tier)), DeepUi.tier_color(tier), "", share)
+	var facts := _section("carat", "What comes out")
+	var weighs := DeepUi.hbox(facts, 18)
+	DeepUi.stat(weighs, "carat", "%d to %d carats" % [int(carats[0]), int(carats[1])], DeepUi.PAPER, 14, "Heavier than the mine's own rock gives")
+	DeepUi.stat(weighs, "coin", "about %d" % int(round(float(odds.get("worth", 0.0)))), DeepUi.ACCENT, 14, "What its stone sells for, on average, in gold")
+	if float(odds.get("opal", 0.0)) > 0.0:
+		DeepUi.stat(weighs, "spark", "%s an opal" % _share_words(float(odds.opal)), DeepUi.OPAL_TONE, 14)
+	DeepUi.wrap(facts, "Cut and cleared with more luck than the rock gives. Never Void, never fragile.", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 580)
+	if not profile.is_empty():
+		var all_keys: Array = []
+		for rarity in by_rarity:
+			for entry in by_rarity[rarity]:
+				all_keys.append(str(entry[0]))
+		var unseen: int = all_keys.filter(func(k: String) -> bool: return not known.call(k)).size()
+		var starred: int = all_keys.filter(func(k: String) -> bool: return favorites.has(k)).size()
+		var yours := DeepUi.hbox(facts, 18)
+		DeepUi.stat(yours, "question", "%s you have never found" % DeepUi.plural(unseen, "skill"), DeepUi.INFO if unseen > 0 else DeepUi.DIM, 13)
+		if starred > 0:
+			DeepUi.stat(yours, "star", "%s of your favorites" % DeepUi.plural(starred, "skill"), DeepUi.ACCENT_HI, 13)
+	## Then a page to a rarity: every skill it can hold, likeliest first.
+	for rarity in Geode.RARITIES:
+		var list: Array = by_rarity.get(rarity, [])
+		for start in range(0, list.size(), GEODE_PAGE):
+			var chunk: Array = list.slice(start, start + GEODE_PAGE)
+			var word: String = _rarity_word(rarity) + ("" if start == 0 else " %d" % (start / GEODE_PAGE + 1))
+			_page(word, "star" if rarity != "MYTHIC" else "spark")
+			DeepUi.label(_details, "%s: %s of its stones, split as below." % [DeepUi.plural(list.size(), "skill" if rarity != "MYTHIC" else "opal"), _share_words(float(shares.get(rarity, 0.0)))], 13, DeepUi.MUTED)
+			var grid := GridContainer.new()
+			grid.columns = GEODE_COLUMNS
+			grid.add_theme_constant_override("h_separation", 14)
+			grid.add_theme_constant_override("v_separation", 4)
+			_details.add_child(grid)
+			for entry in chunk:
+				_skill_odds(grid, str(entry[0]), float(entry[1]), bool(known.call(str(entry[0]))) or profile.is_empty(), favorites.has(str(entry[0])))
+
+func _odds_row(parent: Node, words: String, tone: Color, note: String, share: float) -> void:
+	var row := DeepUi.hbox(parent, 8)
+	DeepUi.label(row, words, 14, tone)
+	if not note.is_empty():
+		DeepUi.label(row, note, 12, DeepUi.DIM)
+	DeepUi.spacer(row)
+	DeepUi.label(row, _share_words(share), 14, DeepUi.PAPER)
+
+func _skill_odds(parent: Node, key: String, share: float, known: bool, favorite: bool) -> void:
+	## One skill a Geode can hold: its mark in its color (dim if never found), its name, its share.
+	var def: Dictionary = DeepContent.skill(key)
+	var hue: Color = DeepUi.color(str(def.get("color", "")))
+	var row := DeepUi.hbox(parent, 6)
+	row.custom_minimum_size.x = 186
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.tooltip_text = "%s: %s%s%s" % [str(def.get("name", key)), str(def.get("text", "")), "" if known else "\nNever found yet", "\nOne of your favorites" if favorite else ""]
+	DeepUi.icon(row, GemIcons.emblem(key), 18, Color(hue, 1.0 if known else 0.4), row.tooltip_text, str(def.get("color", "")) == DeepContent.OPAL)
+	var name := DeepUi.label(row, str(def.get("name", key)), 13, DeepUi.PAPER if known else DeepUi.DIM)
+	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name.clip_text = true
+	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	if favorite:
+		DeepUi.icon(row, "star", 13, DeepUi.ACCENT_HI, row.tooltip_text)
+	DeepUi.label(row, _share_words(share), 13, DeepUi.MUTED)
+
+static func _rarity_word(rarity: String) -> String:
+	return "Opals" if rarity == "MYTHIC" else rarity.capitalize()
+
+static func _share_words(share: float) -> String:
+	## A share as a percentage, as exact as it needs to be: a sliver is not rounded away.
+	if share <= 0.0:
+		return "0%"
+	if share >= 0.095:
+		return "%d%%" % int(round(share * 100.0))
+	if share >= 0.0095:
+		return "%.1f%%" % (share * 100.0)
+	return "%.2f%%" % (share * 100.0)
+
 func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var reference: bool = bool(opts.get("reference", false))
 	if reference:
@@ -496,7 +653,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	elif DeepStone.is_fragile(item):
 		DeepUi.pill(tags, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 13)
 	else:
-		DeepUi.pill(tags, "coin", "Value · %d gold" % DeepStone.value(item), DeepUi.ACCENT, 13)
+		DeepUi.pill(tags, "coin", "%d" % DeepStone.value(item), DeepUi.ACCENT, 13, "Worth: what a buyer would pay, in gold")
 	## The stone of this skill already at home, if there is one and this is not it: the reader
 	## is almost always deciding between the two, and the sheet says so rather than leaving
 	## them to remember what is in the vault.

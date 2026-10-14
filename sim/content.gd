@@ -35,7 +35,7 @@ const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_
 ## The old single `gimmick` is read as one of these. See docs/BESTIARY.md.
 const TRAITS: Array = GIMMICKS + ["steadfast", "sturdy", "backlash", "flee", "rising", "escalate", "aura", "spikes",
 	"regen_with_escorts", "shielded_by_escorts", "regrow_escorts", "reroll_drain", "reroll_scorch", "punish_straight", "drops_stone",
-	"carat_cap", "resonance_damp", "colour_strength"]
+	"carat_cap", "resonance_damp", "colour_strength", "regenerating"]
 ## The traits a Rift Warden may be remembered with, one of them, picked by the seed.
 const REMEMBERED_TRAITS: Array = ["steadfast", "sturdy", "split_on_big_hit"]
 ## What each of those is called where a player reads it.
@@ -87,6 +87,35 @@ static func mine(key: String) -> Dictionary: return entry("mines", key)
 static func oddity(key: String) -> Dictionary: return entry("oddities", key)
 static func boon(key: String) -> Dictionary: return entry("boons", key)
 static func color(key: String) -> Dictionary: return entry("colors", key)
+
+## The Hazard ladder past the Rift (docs/HAZARDS.md), in order: a run on tier N carries the
+## first N of them.
+static func hazard_tiers() -> Array:
+	var found: Variant = pack().get("hazard_tiers", [])
+	return found if found is Array else []
+
+static func hazard_max() -> int:
+	return mini(int(constant("hazard_max", 20)), hazard_tiers().size())
+
+static func hazard_tier(tier: int) -> Dictionary:
+	## The hazard tier `tier` adds (the first is 1), or {} past either end of the ladder.
+	var tiers: Array = hazard_tiers()
+	return tiers[tier - 1] if tier >= 1 and tier <= tiers.size() and tiers[tier - 1] is Dictionary else {}
+
+static func hazard_keys(tier: int) -> Array:
+	## Every hazard a run on this tier carries.
+	var out: Array = []
+	for index in range(mini(maxi(0, tier), hazard_max())):
+		out.append(str(hazard_tiers()[index].get("key", "")))
+	return out
+
+static func hazard_param(key: String, name: String, fallback: Variant) -> Variant:
+	## One of a hazard's numbers, as the pack writes it.
+	for found in hazard_tiers():
+		if found is Dictionary and str(found.get("key", "")) == key:
+			var params: Variant = found.get("params", {})
+			return params.get(name, fallback) if params is Dictionary else fallback
+	return fallback
 
 static func constant(name: String, fallback: Variant) -> Variant:
 	var constants: Variant = pack().get("constants", {})
@@ -298,6 +327,19 @@ static func validate(p: Dictionary = {}) -> Array:
 			for kind in deal:
 				if int(counts.get(str(kind), 0)) < int(deal[kind]):
 					errors.append("daily modifiers: not enough of kind %s for a day's deal" % str(kind))
+	## The Hazard ladder: every tier a key, a name and its words, and no key twice.
+	var hazard_list: Variant = p.get("hazard_tiers", [])
+	if not hazard_list is Array:
+		errors.append("hazard_tiers must be a list")
+	else:
+		var hazard_seen: Dictionary = {}
+		for found in hazard_list:
+			if not found is Dictionary or str(found.get("key", "")).is_empty() or str(found.get("name", "")).is_empty() or str(found.get("text", "")).is_empty():
+				errors.append("hazard tier: needs a key, a name and its text")
+				continue
+			if hazard_seen.has(str(found.key)):
+				errors.append("hazard tier %s is listed twice" % str(found.key))
+			hazard_seen[str(found.key)] = true
 	## Gold at home (docs/GOLD.md): every socket bought costs more than the one before it.
 	var socket_prices: Variant = p.get("constants", {}).get("socket_unlock_gold", [])
 	if not socket_prices is Array:

@@ -51,6 +51,7 @@ signal profile_touched
 signal menu_requested
 signal player_name_requested
 signal daily_chosen(date: String)
+signal hazard_chosen(tier: int)
 
 ## The tabs, in order: key, word, mark. The number keys open them.
 const TABS: Array = [["descend", "Descend", "descend"], ["delvers", "Delvers", "person"], ["vault", "Vault", "chest"], ["market", "Market", "geode"]]
@@ -106,7 +107,6 @@ var _rework_pick: String = ""
 var _contract: Array = []
 var _contract_from: String = "all"
 var _contract_sure: bool = false
-var _odds_open: String = ""
 var _commission_sure: String = ""
 ## The party popover, and whose showcase is open in it.
 var _party_open: bool = false
@@ -199,7 +199,6 @@ func open(tab_name: String, keep_view: bool = false) -> void:
 	tab = tab_name
 	_party_open = false
 	_showcase_of = ""
-	_odds_open = ""
 	_render()
 
 func _reset_views(tab_name: String) -> void:
@@ -267,7 +266,7 @@ func _render() -> void:
 func _purse() -> void:
 	var gold: int = int(profile.get("gold", 0))
 	var purse := DeepUi.pill(_bar, "coin", "%d" % gold, DeepUi.ACCENT, 14,
-		"Gold: from selling stones, commissions, the assayer at the lift and first conquests. It pays for the loupe, the way down to a deeper mine, insurance, sockets and the market.")
+		"Gold: from selling stones, commissions, the daily dig and first conquests. It pays for the loupe, the way down to a deeper mine, insurance, sockets and the market.")
 	purse.name = "Purse"
 	if _gold_seen >= 0 and gold != _gold_seen and not _headless:
 		## Gold coming in counts up, and the purse jingles.
@@ -382,10 +381,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _step_back() -> bool:
 	## One page back inside the tab that is open. False when there is nothing to step back to.
-	if _party_open or not _odds_open.is_empty():
+	if _party_open:
 		_party_open = false
 		_showcase_of = ""
-		_odds_open = ""
 		_render()
 		return true
 	if tab == "market" and _market_view != "main":
@@ -723,6 +721,9 @@ func tile_mark(tile: PanelContainer, glyph: String, tone: Color, tip: String) ->
 		layer.custom_minimum_size = tile_content.get_combined_minimum_size()
 		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tile.add_child(layer)
+		## Back where the content was, under the carat, Cut and Clarity laid over the picture:
+		## added last, it would draw the picture on top of them.
+		tile.move_child(layer, 0)
 		tile_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		layer.add_child(tile_content)
 		tile.set_meta("mark_layer", layer)

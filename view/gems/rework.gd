@@ -35,13 +35,25 @@ func _init(new_stone: Dictionary, which: String, edge: float = 120.0) -> void:
 	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(column)
+	## The room the stone stands in: its edge at least, and whatever height the ladder is given
+	## past that (the Market's column gives it plenty), with the stone in its middle. A heavy
+	## stone is drawn well past its edge and needs the room.
 	_holder = Control.new()
 	_holder.custom_minimum_size = Vector2(edge, edge)
 	_holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(_holder)
 	_picture = Thumbs.GemThumb.new(stone, edge)
 	_picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_picture.anchor_left = 0.5
+	_picture.anchor_right = 0.5
+	_picture.anchor_top = 0.5
+	_picture.anchor_bottom = 0.5
+	_picture.offset_left = -edge * 0.5
+	_picture.offset_right = edge * 0.5
+	_picture.offset_top = -edge * 0.5
+	_picture.offset_bottom = edge * 0.5
 	_holder.add_child(_picture)
 	_ladder = HBoxContainer.new()
 	_ladder.add_theme_constant_override("separation", 6)

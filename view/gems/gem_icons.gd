@@ -1723,6 +1723,10 @@ static func _ui_shapes(glyph: String) -> Array:
 				{"op": "add", "circle": [0.5, 0.86, 0.085]}]
 		"star":
 			return [ {"op": "add", "poly": _star(5, 0.48, 0.20, Vector2(0.5, 0.54))}]
+		"star_line":
+			# The same star drawn as its outline: a favorite not yet starred.
+			return [ {"op": "add", "poly": _star(5, 0.48, 0.20, Vector2(0.5, 0.54))},
+				{"op": "sub", "poly": _star(5, 0.32, 0.133, Vector2(0.5, 0.54))}]
 		"check":
 			return _line([[0.10, 0.54], [0.38, 0.80], [0.90, 0.20]], 0.16)
 		"cross_out":

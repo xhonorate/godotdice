@@ -74,6 +74,12 @@ static func new_run(config: Dictionary) -> Dictionary:
 	var daily: Dictionary = config.get("daily", {})
 	if not daily.is_empty():
 		state.daily = daily.duplicate(true)
+	## The Hazard tier (docs/HAZARDS.md): every hazard up to it, fixed for the run when it
+	## sets out, so a ladder rewritten later never changes a run under way.
+	var tier: int = clampi(int(config.get("hazard", 0)), 0, DeepContent.hazard_max())
+	if tier > 0:
+		state.hazard = tier
+		state.hazard_mods = DeepContent.hazard_keys(tier)
 	state.schedule = plan_shaft(streams.tunnels, mine_def)
 	## Every lapidary goes down with the sockets they have opened filled from the vault, in any
 	## mine. A party that starts in a deeper mine rather than fighting down to it is given
@@ -103,7 +109,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 			"choice": "", "respite": "", "ready": false, "strikes": 0, "mining": false, "oddity_choice": "", "stake": "", "last_depth": int(entry.get("last_depth", 0)),
 			"last_outcome": str(entry.get("last_outcome", "")), "insured": bool(entry.get("insured", false)), "temps": [],
 			"altar_done": "", "vault_spent": [], "transcended": [],
-			"stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0, "earned": 0}}, true)
+			"stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0}}, true)
 		state.players.append(unit)
 		if deeper:
 			unit.temps = _temporary_offers(state, unit, temps)
@@ -115,6 +121,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 			if str(daily.get("rail", "")) == "DRAFT":
 				unit.temps = _temporary_offers(state, unit, temps)
 			_dress_for_the_day(state, unit, mine_def)
+		_dress_for_the_hazard(state, unit, not daily.is_empty())
 		seat += 1
 	_unique_rails(state)
 	state.rng = DeepRng.save(streams)
@@ -148,8 +155,6 @@ static func _dress_for_the_day(state: Dictionary, unit: Dictionary, _mine_def: D
 	if has_mod(state, "GLASS_LUNGS"):
 		unit.max_hp = maxi(1, int(unit.max_hp) / 2)
 		unit.hp = int(unit.max_hp)
-	if has_mod(state, "BAD_AIR"):
-		unit.hp = maxi(1, int(ceil(float(unit.max_hp) * 0.75)))
 	if has_mod(state, "DEEP_POCKETS"):
 		unit.ore = int(unit.get("ore", 0)) + 100
 	if has_mod(state, "STEADY_HANDS"):
@@ -211,6 +216,22 @@ static func _dress_for_the_day(state: Dictionary, unit: Dictionary, _mine_def: D
 				lowest = index
 		if lowest >= 0:
 			DeepDice.etch(biggest, lowest, "wild")
+
+static func _dress_for_the_hazard(state: Dictionary, unit: Dictionary, daily: bool) -> void:
+	## What the Hazard tier (and a day's Bad Air) does to a lapidary before the first step
+	## down. Cuts to the same thing add up: Bad Air and Worn together start a lapidary at 60%.
+	if not unit.has("run_mods"):
+		unit.run_mods = {}
+	var short: int = 25 * mod_count(state, "BAD_AIR") - int(DeepContent.hazard_param("WORN", "health_pct", -15)) * mod_count(state, "WORN")
+	if short > 0:
+		unit.hp = maxi(1, int(ceil(float(unit.max_hp) * float(100 - mini(95, short)) / 100.0)))
+	if has_mod(state, "COLD_START"):
+		unit.run_mods.first_turn_rerolls = int(DeepContent.hazard_param("COLD_START", "rerolls", -1)) * mod_count(state, "COLD_START")
+	if has_mod(state, "FESTERING_AIR"):
+		unit.run_mods.heal_cut = clampi(-int(DeepContent.hazard_param("FESTERING_AIR", "heal_pct", -20)) * mod_count(state, "FESTERING_AIR"), 0, 100)
+	## Dull Vault judges what came down from the vault, never what the day lends.
+	if has_mod(state, "DULL_VAULT") and not daily:
+		unit.run_mods.dull_vault = int(DeepContent.hazard_param("DULL_VAULT", "cut", 1))
 
 # --- the grubstake -----------------------------------------------------------------------
 
@@ -509,10 +530,15 @@ static func mine_of(state: Dictionary) -> Dictionary:
 	if not mine.has("key"):
 		mine = mine.duplicate()
 		mine.key = str(state.get("mine", ""))
-	if state.get("daily", {}).is_empty():
+	var hazard: int = int(state.get("hazard", 0))
+	if state.get("daily", {}).is_empty() and hazard <= 0:
 		return mine
-	## The day's cards that change the rock itself: what it gives up, how it is laid out.
+	## The day's cards and the Hazard tier's that change the rock itself: what it gives up,
+	## how it is laid out. A Hazard tier's rock gives up heavier stones (DeepForge.carat_band),
+	## except on the day's seam, where the tier multiplies the gold instead.
 	mine = mine.duplicate(true)
+	if hazard > 0 and state.get("daily", {}).is_empty():
+		mine.hazard = hazard
 	if has_mod(state, "RICH_SEAMS"):
 		mine.luck = DeepForge.mine_luck(mine) + 1
 	if has_mod(state, "HEAVY_ROCK") and mine.get("carat", {}) is Dictionary and not mine.get("carat", {}).is_empty():
@@ -520,7 +546,7 @@ static func mine_of(state: Dictionary) -> Dictionary:
 		band.soft = int(band.get("soft", DeepStone.carat_max())) + 2
 		band.cap = int(band.get("cap", DeepStone.carat_max())) + 2
 		mine.carat = band
-	var drought: String = str(state.daily.get("drought", ""))
+	var drought: String = str(state.get("daily", {}).get("drought", ""))
 	if has_mod(state, "DROUGHT") and not drought.is_empty():
 		var weights: Dictionary = mine.get("color_weights", {}).duplicate()
 		weights[drought] = 0
@@ -536,8 +562,10 @@ static func mine_of(state: Dictionary) -> Dictionary:
 	if has_mod(state, "MOTHERLODE"):
 		mine.motherlode_pct = float(mine.get("motherlode_pct", 3)) * 6.0
 	var chambers: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 14, "merchant": 8, "smithy": 6, "carver": 6, "vat": 4, "well": 5}).duplicate()
-	if has_mod(state, "BIG_GAME"):
-		chambers.elite = float(chambers.get("elite", 12)) * 2.0
+	## Big Game doubles the elites and Prowlers adds half again; together they add up.
+	var elites: float = 1.0 + float(mod_count(state, "BIG_GAME")) + float(DeepContent.hazard_param("PROWLERS", "elite_mult", 0.5)) * float(mod_count(state, "PROWLERS"))
+	if elites != 1.0:
+		chambers.elite = float(chambers.get("elite", 12)) * elites
 	if has_mod(state, "STRANGE_DAY"):
 		chambers.oddity = float(chambers.get("oddity", 14)) * 3.0
 		chambers.fight = float(chambers.get("fight", 48)) * 0.6
@@ -549,10 +577,24 @@ static func mine_of(state: Dictionary) -> Dictionary:
 	return mine
 
 static func has_mod(state: Dictionary, key: String) -> bool:
-	## Whether today's seam carries this card (a daily dig only): its hazard, blessing or twist,
-	## or its rail rule.
+	## Whether this run carries a rule: one of the day's cards (its hazard, blessing, twist or
+	## rail rule) or one of its Hazard tier's.
+	return mod_count(state, key) > 0
+
+static func mod_count(state: Dictionary, key: String) -> int:
+	## How many times a rule is in force. A rule both the day and the Hazard tier carry counts
+	## twice wherever it can add up: two Cursed Runs lock two faces after every Warden.
+	var count: int = 0
 	var daily: Dictionary = state.get("daily", {})
-	return daily.get("mods", []).has(key) or str(daily.get("rail", "")) == key
+	if not daily.is_empty() and (daily.get("mods", []).has(key) or str(daily.get("rail", "")) == key):
+		count += 1
+	if state.get("hazard_mods", []).has(key):
+		count += 1
+	return count
+
+static func hazard_tier(state: Dictionary) -> int:
+	## The run's Hazard tier, 0 for none.
+	return int(state.get("hazard", 0))
 
 static func player(state: Dictionary, id: String) -> Dictionary:
 	return DeepBattle.player(state, id)
@@ -763,13 +805,19 @@ static func _chart(state: Dictionary, streams: Dictionary) -> void:
 	## stretch has one, the first included.
 	var altar_lights: bool = has_mod(state, "ALTAR_LIGHTS")
 	var stretch_once: Array = [] if from > 0 or altar_lights else ["altar"]
+	## Elites wait until the third floor down, the second under Prowlers.
+	var elite_from: int = int(DeepContent.hazard_param("PROWLERS", "elite_from", 2)) if has_mod(state, "PROWLERS") else 3
+	## Dark Mouths hides more of each floor, but never all of it.
+	var dark_mouths: bool = has_mod(state, "DARK_MOUTHS")
+	var dark_pct: float = float(DeepContent.hazard_param("DARK_MOUTHS", "pct", 35)) if dark_mouths else 22.0
 	for depth in range(from + 1, to):
 		var row: Array = []
 		var once: Array = []
-		var dark: bool = false
+		var darks: int = 0
+		var dark_most: int = mini(int(DeepContent.hazard_param("DARK_MOUTHS", "most", 2)), maxi(1, width - 1)) if dark_mouths else 1
 		for index in range(width):
 			var table: Dictionary = weights.duplicate()
-			if depth <= 2:
+			if depth < elite_from:
 				table.erase("elite")
 			## Nobody has ore to spend on the first step down, and on a day of Closed Stalls
 			## nobody is trading at all.
@@ -790,25 +838,34 @@ static func _chart(state: Dictionary, streams: Dictionary) -> void:
 			var lane: float = (float(index) + 0.5) / float(width) + rng.randf_range(-0.28, 0.28) / float(width)
 			var id: String = "n%d_%d" % [depth, index]
 			## At most one dark mouth a depth: the lantern always has something to show.
-			var hidden: bool = depth > 1 and not dark and DeepRng.chance(rng, 22.0)
-			dark = dark or hidden
+			var hidden: bool = depth > 1 and darks < dark_most and DeepRng.chance(rng, dark_pct)
+			if hidden:
+				darks += 1
 			nodes[id] = {"id": id, "depth": depth, "x": snappedf(clampf(lane, 0.06, 0.94), 0.001), "kind": kind, "hidden": hidden, "next": []}
 			row.append(id)
 		rows.append(row)
 		if not one_road:
 			width = mini(width + 1, MAP_WIDEST)
+	## Gauntlet: the floor just before the landing is all elites. The fix-ups below keep to
+	## the floors above it.
+	var gauntlet: bool = has_mod(state, "GAUNTLET") and not rows.is_empty()
+	if gauntlet:
+		for id in rows[rows.size() - 1]:
+			nodes[str(id)].kind = "elite"
+	var open_rows: int = rows.size() - (1 if gauntlet else 0)
 	## A stretch with no merchant in it gets one: the second depth down trades a fight or a
 	## vein for a stall.
 	var stalls: Array = nodes.values().filter(func(n: Dictionary) -> bool: return str(n.kind) == "merchant")
-	if stalls.is_empty() and rows.size() >= 2 and not has_mod(state, "CLOSED_STALLS"):
-		var swappable: Array = rows[1].filter(func(id: Variant) -> bool: return str(nodes[str(id)].kind) in ["fight", "vein"])
+	var stall_row: int = mini(1, open_rows - 1)
+	if stalls.is_empty() and rows.size() >= 2 and stall_row >= 0 and not has_mod(state, "CLOSED_STALLS"):
+		var swappable: Array = rows[stall_row].filter(func(id: Variant) -> bool: return str(nodes[str(id)].kind) in ["fight", "vein"])
 		if not swappable.is_empty():
 			nodes[str(DeepRng.pick(rng, swappable))].kind = "merchant"
 	## Nor one with nowhere to work dice: the last depth trades a fight or a vein for a smithy
 	## or a carver.
 	var benches: Array = nodes.values().filter(func(n: Dictionary) -> bool: return str(n.kind) in DICE_ROOMS)
-	if benches.is_empty() and not rows.is_empty() and not has_mod(state, "MIDAS"):
-		var last: Array = rows[rows.size() - 1].filter(func(id: Variant) -> bool: return str(nodes[str(id)].kind) in ["fight", "vein"])
+	if benches.is_empty() and open_rows > 0 and not has_mod(state, "MIDAS"):
+		var last: Array = rows[open_rows - 1].filter(func(id: Variant) -> bool: return str(nodes[str(id)].kind) in ["fight", "vein"])
 		if not last.is_empty():
 			nodes[str(DeepRng.pick(rng, last))].kind = str(DeepRng.pick(rng, DICE_ROOMS))
 	if altar_lights and not rows.is_empty() and not nodes.values().any(func(n: Dictionary) -> bool: return str(n.kind) == "altar"):
@@ -990,8 +1047,25 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, warden: String) -> Dictionary:
 	var mine: Dictionary = mine_of(state)
 	var party: Array = living(state)
-	var threat: int = int(state.depth) + int(state.get("heat", 0))
+	## Old Blood breeds every creature further down than the floor it stands on.
+	var threat: int = int(state.depth) + int(state.get("heat", 0)) + int(DeepContent.hazard_param("OLD_BLOOD", "heat", 10)) * mod_count(state, "OLD_BLOOD")
 	var keys: Array = [warden] if not warden.is_empty() else DeepForge.encounter(streams.creatures, mine, threat, party.size(), elite)
+	## Crown's Court: the boss above the Rift fights beside one of the bosses the Rift remembers.
+	var court: int = -1
+	if not warden.is_empty() and has_mod(state, "CROWNS_COURT") and warden == str(mine.get("boss", "")) and DeepContent.is_endless(str(mine.get("next", ""))):
+		var remembered_bosses: Array = DeepContent.mine(str(mine.next)).get("wardens", [])
+		if not remembered_bosses.is_empty():
+			court = keys.size()
+			keys.append(str(DeepRng.pick(streams.creatures, remembered_bosses)))
+	## Escorts: every Warden and boss brings a creature from the deepest band of its mine, if
+	## the row has room beside whatever it brings of its own.
+	if not warden.is_empty() and has_mod(state, "ESCORTS"):
+		var standing: int = 0
+		for key in keys:
+			standing += 1 + DeepContent.creature(str(key)).get("escorts", []).size()
+		var escort: String = _deep_creature(mine, streams.creatures)
+		if not escort.is_empty() and standing < DeepBattle.max_creatures():
+			keys.append(escort)
 	## Swarms: one creature more in every ordinary fight, the group's health shared out
 	## between them once the fight is laid out.
 	var swarm: bool = warden.is_empty() and has_mod(state, "SWARMS") and not keys.is_empty() and keys.size() < DeepBattle.max_creatures()
@@ -1014,23 +1088,36 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 	## An endless mine's Wardens are remembered bosses: each comes back with one trait more.
 	var remembered: bool = not warden.is_empty() and bool(mine.get("endless", false)) and warden != str(mine.get("unmade", ""))
 	var scale: Dictionary = creature_scale(mine, int(state.depth))
-	## The day's cards on creatures: Hard Rock breeds them a quarter tougher, Sharp Claws a
-	## quarter fiercer, and Warden's Wrath makes Wardens and bosses half again as tough.
-	if has_mod(state, "HARD_ROCK"):
-		scale.hp = float(scale.hp) * 1.25
+	## The day's cards and the Hazard tier's on creatures: Hard Rock breeds them a quarter
+	## tougher and Thick Hides a fifth; Warden's Wrath makes Wardens and bosses half again as
+	## tough and Warden's Pride a fifth. Health added like this adds up rather than
+	## multiplying. Sharp Claws makes them a quarter fiercer.
+	var tougher: float = 0.25 * float(mod_count(state, "HARD_ROCK")) + float(DeepContent.hazard_param("THICK_HIDES", "hp", 0.2)) * float(mod_count(state, "THICK_HIDES"))
+	if not warden.is_empty():
+		tougher += 0.5 * float(mod_count(state, "WARDENS_WRATH")) + float(DeepContent.hazard_param("WARDENS_PRIDE", "hp", 0.2)) * float(mod_count(state, "WARDENS_PRIDE"))
+	if tougher > 0.0:
+		scale.hp = float(scale.hp) * (1.0 + tougher)
 	if has_mod(state, "SHARP_CLAWS"):
 		scale.damage = float(scale.damage) * 1.25
-	if not warden.is_empty() and has_mod(state, "WARDENS_WRATH"):
-		scale.hp = float(scale.hp) * 1.5
+	## Pressure Cooker: creatures toughen faster with every floor down.
+	if has_mod(state, "PRESSURE_COOKER"):
+		scale.depth_hp = float(DeepContent.hazard_param("PRESSURE_COOKER", "hp_per_depth", 0.07))
+		scale.damage_every = int(DeepContent.hazard_param("PRESSURE_COOKER", "damage_every", 3))
+	var context: Dictionary = {"depth": int(state.depth), "threat": threat, "scale": scale, "elite": elite, "warden": not warden.is_empty(), "remembered": remembered, "court": court}
+	## Early Enrage: the creatures enrage sooner and harder.
+	if has_mod(state, "EARLY_ENRAGE"):
+		var early: int = mod_count(state, "EARLY_ENRAGE")
+		context.enrage_turn = maxi(1, int(DeepContent.constant("enrage_turn", 7)) + int(DeepContent.hazard_param("EARLY_ENRAGE", "turn", -1)) * early)
+		context.enrage_damage = int(DeepContent.constant("enrage_damage", 2)) + int(DeepContent.hazard_param("EARLY_ENRAGE", "damage", 1)) * early
 	## Second Wind: a lapidary who has not yet gone down once goes into every fight ready to
 	## get back up.
 	for fighter in fighters:
 		if int(fighter.get("run_mods", {}).get("second_wind", 0)) > 0:
 			fighter.statuses = fighter.get("statuses", {}).duplicate()
 			fighter.statuses.lifeline = maxi(int(fighter.statuses.get("lifeline", 0)), int(ceil(float(fighter.max_hp) / 2.0)))
-	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": int(state.depth), "threat": threat, "scale": scale,
-		"elite": elite, "warden": not warden.is_empty(), "remembered": remembered}, streams.dice, streams.creatures)
+	var battle: Dictionary = DeepBattle.begin(fighters, keys, context, streams.dice, streams.creatures)
 	_dress_the_fight(state, battle, warden.is_empty(), swarm)
+	_harden_the_fight(state, battle, elite, streams.creatures)
 	## Soft Rock: a staked player's first fights open against creatures already cracked.
 	var soft: bool = false
 	for unit in state.players:
@@ -1074,6 +1161,64 @@ static func _dress_the_fight(state: Dictionary, battle: Dictionary, ordinary: bo
 	if has_mod(state, "PLATED"):
 		for fighter in battle.players:
 			fighter.block = int(fighter.get("block", 0)) + 6
+
+## What a Champion may be, and what the creature is shown as.
+const CHAMPION_TRAITS: Dictionary = {"steadfast": "Steadfast", "sturdy": "Sturdy", "split_on_big_hit": "Splits", "spikes": "Spiked",
+	"regenerating": "Regenerating", "warded": "Warded"}
+
+static func _harden_the_fight(state: Dictionary, battle: Dictionary, elite: bool, rng: RandomNumberGenerator) -> void:
+	## What the Hazard tier does to a fight once it is laid out.
+	if hazard_tier(state) <= 0:
+		return
+	var foes: Array = battle.get("enemies", [])
+	## Warden's Pride: Wardens and bosses come in behind more Ward.
+	if has_mod(state, "WARDENS_PRIDE"):
+		for foe in foes:
+			if bool(foe.get("warden", false)):
+				foe.statuses.ward = int(foe.statuses.get("ward", 0)) + int(DeepContent.hazard_param("WARDENS_PRIDE", "ward", 1)) * mod_count(state, "WARDENS_PRIDE")
+	## Bigger Teeth: every creature rolls bigger dice, for the whole fight.
+	if has_mod(state, "BIGGER_TEETH"):
+		for foe in foes:
+			foe.dice_upgrade = int(foe.get("dice_upgrade", 0)) + int(DeepContent.hazard_param("BIGGER_TEETH", "sizes", 1)) * mod_count(state, "BIGGER_TEETH")
+	## Champions: the strongest creature in an elite fight has a trait of its own.
+	if elite and has_mod(state, "CHAMPIONS") and not foes.is_empty():
+		var lead: Dictionary = foes[0]
+		for foe in foes:
+			if int(foe.max_hp) > int(lead.max_hp):
+				lead = foe
+		var picked: String = str(DeepRng.pick(rng, CHAMPION_TRAITS.keys()))
+		if not lead.has("traits"):
+			lead.traits = {}
+		match picked:
+			"sturdy":
+				lead.traits.sturdy = 25
+			"spikes":
+				var spikes: int = int(DeepContent.hazard_param("CHAMPIONS", "spikes", 3))
+				lead.traits.spikes = spikes
+				lead.statuses.spikes = maxi(int(lead.statuses.get("spikes", 0)), spikes)
+			"regenerating":
+				lead.traits.regenerating = maxi(1, int(round(float(lead.max_hp) * float(DeepContent.hazard_param("CHAMPIONS", "regen_pct", 4)) / 100.0)))
+			"warded":
+				lead.statuses.ward = maxi(int(lead.statuses.get("ward", 0)), int(DeepContent.hazard_param("CHAMPIONS", "ward", 2)))
+			_:
+				lead.traits[picked] = true
+		lead.champion = str(CHAMPION_TRAITS[picked])
+		lead.name = "Champion %s" % str(lead.get("name", ""))
+
+static func _deep_creature(mine: Dictionary, rng: RandomNumberGenerator) -> String:
+	## A creature from the deepest band of a mine, never a Warden and never one that only
+	## comes when called.
+	var bands: Array = mine.get("bands", [])
+	if bands.is_empty():
+		return ""
+	var band: Dictionary = bands[bands.size() - 1]
+	var table: Dictionary = {}
+	for key in band.get("creatures", {}):
+		var def: Dictionary = DeepContent.creature(str(key))
+		if bool(def.get("warden", false)) or bool(def.get("summon_only", false)):
+			continue
+		table[str(key)] = float(band.creatures[key])
+	return DeepRng.weighted_key(rng, table)
 
 static func creature_scale(mine: Dictionary, depth: int) -> Dictionary:
 	## How much tougher a mine breeds its creatures than the Quarry does. An endless mine
@@ -1153,7 +1298,9 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 			## nothing here puts it back.
 			spending += int(fighter.get("pot", 0))
 			## A Gambler's Bust can leave the fight's ore in the red; the pit never charges more than it paid.
-			var ore: int = maxi(0, int(DeepContent.constant("ore_per_fight", 6)) + int(state.depth) + int(fighter.get("gold", 0)))
+			## Lean Seams pays less for every fight and drops fewer stones.
+			var lean: int = mod_count(state, "LEAN_SEAMS")
+			var ore: int = maxi(0, int(DeepContent.constant("ore_per_fight", 20)) + int(DeepContent.hazard_param("LEAN_SEAMS", "pyrite", -5)) * lean + int(state.depth) + int(fighter.get("gold", 0)))
 			if kind == "elite":
 				ore *= 2
 			if kind == "warden":
@@ -1164,11 +1311,12 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 			ore += spending
 			unit.ore = maxi(0, int(unit.ore) + ore)
 			unit.stats.ore = int(unit.stats.get("ore", 0)) + ore
-			DeepEconomy.earned(unit, ore)
 			var reward: Dictionary = {"ore": ore, "stones": []}
 			if kind != "warden":
 				var drops: Dictionary = DeepContent.constant("stone_drop_pct", {"fight": 55, "elite": 100})
 				var chance: float = float(drops.get(kind, 55)) + float(fighter.get("quality_bonus", 0)) / 2.0
+				if kind == "fight":
+					chance += float(DeepContent.hazard_param("LEAN_SEAMS", "stone_pct", -10)) * float(lean)
 				if DeepRng.chance(streams.stones, chance):
 					var bonus: int = (int(DeepContent.constant("elite_stone_luck", 3)) if kind == "elite" else 0) + int(fighter.get("quality_bonus", 0)) / 10
 					var found: Dictionary = _find_stone(state, unit, streams, bonus, kind)
@@ -1199,20 +1347,22 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 		if has_mod(state, "PLATED") and outcome != "defeat":
 			unit.max_hp = maxi(1, int(unit.max_hp) - 1)
 			unit.hp = mini(int(unit.hp), int(unit.max_hp))
-	## Cursed Run: every Warden beaten locks a face on one of each lapidary's dice.
+	## Cursed Run: every Warden beaten locks a face on one of each lapidary's dice, and a face
+	## more for each Cursed Run the run carries (the day's and the Hazard tier's).
 	if outcome == "victory" and kind == "warden" and has_mod(state, "CURSED_RUN"):
 		settle.cursed = {}
 		for unit in living(state):
 			var dice: Array = unit.get("dice", [])
 			if dice.is_empty():
 				continue
-			var die: Dictionary = dice[streams.stones.randi_range(0, dice.size() - 1)]
-			var open: Array = []
-			for index in range(die.get("faces", []).size()):
-				if str(die.faces[index].get("kind", "plain")) != "locked":
-					open.append(index)
-			if not open.is_empty() and DeepDice.etch(die, int(open[streams.stones.randi_range(0, open.size() - 1)]), "locked"):
-				settle.cursed[str(unit.id)] = str(die.get("id", ""))
+			for _curse in range(mod_count(state, "CURSED_RUN")):
+				var die: Dictionary = dice[streams.stones.randi_range(0, dice.size() - 1)]
+				var open: Array = []
+				for index in range(die.get("faces", []).size()):
+					if str(die.faces[index].get("kind", "plain")) != "locked":
+						open.append(index)
+				if not open.is_empty() and DeepDice.etch(die, int(open[streams.stones.randi_range(0, open.size() - 1)]), "locked"):
+					settle.cursed[str(unit.id)] = str(die.get("id", ""))
 	state.rng = DeepRng.save(streams)
 	if outcome == "defeat":
 		_start_salvage(state)
@@ -1390,7 +1540,6 @@ static func _strike(state: Dictionary, unit: Dictionary, spot_index: int) -> Dic
 				ore *= 2
 			unit.ore = int(unit.ore) + ore
 			unit.stats.ore = int(unit.stats.get("ore", 0)) + ore
-			DeepEconomy.earned(unit, ore)
 			result.ore = ore
 	spot.result = result
 	state.rng = DeepRng.save(streams)
@@ -1821,10 +1970,6 @@ static func _sell(state: Dictionary, unit: Dictionary, stone_id: String) -> Dict
 		paid = maxi(paid, DeepStone.value(stone))
 	DeepOddities.remove_stone(unit, stone_id)
 	unit.ore = int(unit.ore) + paid
-	## A copy of a vault stone sold down here buys pyrite for the run, but nothing the assayer
-	## will pay for: the vault still has the stone, so it was never the player's to cash.
-	if not is_lent(state, stone):
-		DeepEconomy.earned(unit, paid)
 	return {"ok": true, "event": _event(state, "sold", {"unit": unit.id, "stone_id": stone_id, "ore": unit.ore, "paid": paid})}
 
 static func _leave_stall(state: Dictionary, unit: Dictionary) -> Dictionary:
@@ -2018,9 +2163,14 @@ static func _has_respites(state: Dictionary) -> bool:
 	## A Warden's hall has the hoard and nothing else: nothing to rest at and no cage.
 	return not bool(state.get("landing", {}).get("cleared", false))
 
-static func rest_amount(unit: Dictionary) -> int:
-	## What resting gives back: a share of the most health, never past it.
-	var share: int = int(ceil(float(unit.get("max_hp", 0)) * float(DeepContent.constant("rest_pct", 30)) / 100.0))
+static func rest_amount(unit: Dictionary, state: Dictionary = {}) -> int:
+	## What resting gives back: a share of the most health, never past it. Short Rest takes
+	## some of the share away and Festering Air cuts what is left, like every other heal.
+	var pct: int = int(DeepContent.constant("rest_pct", 35)) + int(DeepContent.hazard_param("SHORT_REST", "rest_pct", -10)) * mod_count(state, "SHORT_REST")
+	var share: int = int(ceil(float(unit.get("max_hp", 0)) * float(maxi(0, pct)) / 100.0))
+	var cut: int = int(unit.get("run_mods", {}).get("heal_cut", 0))
+	if cut > 0:
+		share = share * (100 - cut) / 100
 	return clampi(int(unit.get("max_hp", 0)) - int(unit.get("hp", 0)), 0, share)
 
 static func can_wish(stone: Dictionary) -> bool:
@@ -2042,7 +2192,7 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 		"rest":
 			if has_mod(state, "NO_BENCH"):
 				return _refuse("you cannot rest at a landing today")
-			var gained: int = rest_amount(unit)
+			var gained: int = rest_amount(unit, state)
 			if has_mod(state, "NIGHT_TERRORS"):
 				## Night Terrors: a full night's sleep, and something left behind in it.
 				gained = maxi(0, int(unit.max_hp) - int(unit.hp))
@@ -2276,6 +2426,9 @@ static func _offer_hoard(state: Dictionary) -> void:
 	state.hoard = {}
 	var opals: Array = DeepForge.opal_pool()
 	var opal_pct: float = float(DeepContent.constant("opal_hoard_pct", 100))
+	## Thin Hoards: only some of them hold an opal at all.
+	for _thin in range(mod_count(state, "THIN_HOARDS")):
+		opal_pct *= float(DeepContent.hazard_param("THIN_HOARDS", "opal_pct", 50)) / 100.0
 	var luck: float = float(DeepContent.constant("hoard_luck", 5))
 	var opal_luck: float = float(DeepContent.constant("opal_hoard_luck", 0))
 	for unit in state.players:
@@ -2285,7 +2438,8 @@ static func _offer_hoard(state: Dictionary) -> void:
 			continue
 		var offers: Array = []
 		## A day of Generous Hoards puts a fourth pedestal in every hall.
-		var pedestals: int = HOARD_OFFERS + (1 if has_mod(state, "GENEROUS_HOARDS") else 0) + (1 if has_mod(state, "WARDENS_WRATH") else 0)
+		var pedestals: int = maxi(1, HOARD_OFFERS + (1 if has_mod(state, "GENEROUS_HOARDS") else 0) + (1 if has_mod(state, "WARDENS_WRATH") else 0)
+			+ int(DeepContent.hazard_param("THIN_HOARDS", "pedestals", -1)) * mod_count(state, "THIN_HOARDS"))
 		for index in range(pedestals):
 			var opal: bool = index == HOARD_OFFERS / 2 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
 			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), opal_luck if opal else luck, {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
@@ -2437,8 +2591,8 @@ static func coming_home(state: Dictionary, unit: Dictionary) -> Array:
 
 static func results(state: Dictionary) -> Dictionary:
 	## What each player takes home: the stones they found (`home`: the bag and whatever they
-	## set on the rail), the dice, and what is left in the pocket with how much of it was
-	## earned down there, for the assayer at the lift to weigh into gold.
+	## set on the rail), the dice, and what is left in the pocket (the day's seam scores it;
+	## pyrite is never weighed into gold).
 	_saw(state)
 	var mines: Array = state.get("mines_done", []).duplicate(true)
 	mines.append(mine_record(state))
@@ -2446,10 +2600,12 @@ static func results(state: Dictionary) -> Dictionary:
 		"depth": int(state.depth), "deepest": int(state.records.deepest), "wardens": state.records.wardens.duplicate(), "mines": mines, "players": {}}
 	if not state.get("daily", {}).is_empty():
 		out.daily = state.daily.duplicate(true)
+	if hazard_tier(state) > 0:
+		out.hazard = hazard_tier(state)
 	for unit in state.players:
 		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "home": coming_home(state, unit).duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
 			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true),
-			"ore": int(unit.get("ore", 0)), "earned": int(unit.get("stats", {}).get("earned", 0)), "insured": bool(unit.get("insured", false)),
+			"ore": int(unit.get("ore", 0)), "insured": bool(unit.get("insured", false)),
 			"vault_spent": unit.get("vault_spent", []).duplicate(), "transcended": unit.get("transcended", []).duplicate()}
 	return out
 

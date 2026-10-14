@@ -293,6 +293,8 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 		var where: String = DeepContent.mine_name(str(provenance.get("mine", ""))) if not str(provenance.get("mine", "")).is_empty() else "–"
 		if int(provenance.get("depth", 0)) > 0:
 			where += " · %d" % int(provenance.depth)
+		if int(provenance.get("hazard", 0)) > 0:
+			where += " · H%d" % int(provenance.hazard)
 		var where_label := DeepUi.label(row, where, 12, DeepUi.MUTED)
 		where_label.custom_minimum_size.x = 130
 		where_label.clip_text = true

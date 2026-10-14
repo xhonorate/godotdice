@@ -32,7 +32,7 @@ static var _open: CanvasLayer = null
 ## The stone as it is once known, and the one it is weighed against, if any.
 var stone: Dictionary = {}
 var owned: Dictionary = {}
-## Each a choice: {label, glyph, tone, caption, call, primary, dismiss}.
+## Each a choice: {label, glyph, tone, caption, call, primary, dismiss, price}.
 var actions: Array = []
 var _root: Control
 var _dim: ColorRect
@@ -176,7 +176,7 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 
 static func choices(parent: Node, list: Array, before: Callable = Callable()) -> HBoxContainer:
 	## The choices at the end of an appraisal, or under a stone waiting on the tray: a button
-	## each, with a line under it saying what it costs. `before` runs first (closing the
+	## each, its gold on it, with a line under it saying what it means. `before` runs first (closing the
 	## sheet the buttons sit on).
 	var row := DeepUi.hbox(parent, 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -202,6 +202,9 @@ static func choices(parent: Node, list: Array, before: Callable = Callable()) ->
 			button.custom_minimum_size = Vector2(170, 48)
 		if action.has("sound"):
 			DeepUi.voice(button, str(action.sound))
+		## What it costs or pays, as the coin and the number on the button itself.
+		if not str(action.get("price", "")).is_empty():
+			DeepUi.priced(button, str(action.price))
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		if not str(action.get("caption", "")).is_empty():
 			DeepUi.label(box, str(action.caption), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
@@ -597,7 +600,7 @@ class Sheet extends VBoxContainer:
 		if not DeepStone.is_fragile(stone):
 			var worth: int = DeepStone.value(stone)
 			var owned_worth: int = DeepStone.value(owned) if comparing else 0
-			_row("worth", "coin", "Worth", "%d gold", worth, -1.0, "%d gold" % owned_worth, worth - owned_worth, false, owned_bits)
+			_row("worth", "coin", "Worth", "%d", worth, -1.0, "%d" % owned_worth, worth - owned_worth, false, owned_bits)
 		if comparing:
 			var weigh := func() -> void:
 				DeepAudio.play("ui_toggle", {"volume": 0.8})

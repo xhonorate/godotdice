@@ -393,10 +393,6 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return _refuse("fragile stones cannot be sold")
 			var paid: int = DeepStone.value(stone) * int(action.get("mult", 3))
 			player.ore = int(player.get("ore", 0)) + paid
-			## A copy of a vault stone pays for the run, but the assayer will not cash it: the
-			## vault keeps the stone itself.
-			if not bool(stone.get("lent", false)):
-				DeepEconomy.earned(player, paid)
 			remove_stone(player, str(stone.id))
 			out.lost.append(str(stone.id))
 			out.message = "She pays you %d pyrite for it." % paid
@@ -538,7 +534,6 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			## here is worth more the further it is from anywhere that would sell it.
 			var taken: int = ore_amount(action, depth)
 			player.ore = int(player.get("ore", 0)) + taken
-			DeepEconomy.earned(player, taken)
 			out.message = "You take %d pyrite." % taken
 		"wishing_well":
 			## The well takes and gives, and all it counts is what went down it. A stone is
@@ -735,7 +730,6 @@ static func well_prize(rng: RandomNumberGenerator, rung: int, player: Dictionary
 		"ore":
 			var amount: int = int(entry.get("amount", 1))
 			player.ore = int(player.get("ore", 0)) + amount
-			DeepEconomy.earned(player, amount)
 			out.ore = amount
 			out.message = "%d pyrite comes back up." % amount if amount > 1 else "One pyrite comes back up."
 		"heal":

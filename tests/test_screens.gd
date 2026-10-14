@@ -3,6 +3,7 @@ extends SceneTree
 ## real session, and nothing throws. Rendering is skipped; layout and logic are exercised.
 
 const Homecoming = preload("res://view/home/homecoming.gd")
+const HomeParts = preload("res://view/home/home_parts.gd")
 
 var checks: int = 0
 var failures: Array = []
@@ -51,6 +52,11 @@ func _init() -> void:
 	app.home.open("market", true)
 	_key(KEY_ESCAPE)
 	check(app.home._market_view == "main" and not app.menu.is_open(), "Escape steps back from the Wheel to the Market")
+	## A Geode's odds are its close look, opened with a right-click like a stone's: the Market
+	## has no Odds button of its own any more.
+	app.home.open("market", true)
+	await _frames(2)
+	check(_find_lamp(app.home) != null and _find_button(app.home, "Odds") == null, "the Market shows the case's stones, and no Odds button")
 	app.home.open("descend")
 	app.home._roster_pick = ""
 	await _loadout_drags(app)
@@ -297,11 +303,11 @@ func _init() -> void:
 	app.home._vault_view = "unappraised"
 	app.home.open("vault", true)
 	var fee: int = DeepProfile.appraisal_fee(raw)
-	check(_count_text(app.home, "Read it · %d gold" % fee) == 1 and _label_count(app.home, "Medium red stone") >= 1 and _label_count(app.home, "11 ct") == 0, "a raw stone on the tray is named by its size class and color, never its carat")
+	check(_count_text(app.home, "Read it") == 1 and _price_on(_find_button(app.home, "Read it")) == str(fee) and _label_count(app.home, "Medium red stone") >= 1 and _label_count(app.home, "11 ct") == 0, "a raw stone on the tray is named by its size class and color, never its carat")
 	## The loupe is paid work, and the other way off the tray is a buyer who never reads it.
-	check(_count_text(app.home, "Sell rough · +%d" % DeepStone.rough_value(raw)) == 1 and fee > DeepStone.rough_value(raw), "the tray offers the fee or a rough sale, and the fee is the dearer of the two")
+	check(_count_text(app.home, "Sell rough") == 1 and _price_on(_find_button(app.home, "Sell rough")) == "+%d" % DeepStone.rough_value(raw) and fee > DeepStone.rough_value(raw), "the tray offers the fee or a rough sale, and the fee is the dearer of the two")
 	var purse: int = int(app.profile.gold)
-	var read: Button = _find_button(app.home, "Read it · %d gold" % fee)
+	var read: Button = _find_button(app.home, "Read it")
 	if read != null:
 		read.pressed.emit()
 	check(bool(raw.appraised) and bool(raw.inclusions_revealed) and app.profile.tray.has(raw), "the loupe reads the stone and leaves it on the tray")
@@ -316,15 +322,14 @@ func _init() -> void:
 	for commission in open_today:
 		commission.done = true
 	var choices: Array = Homecoming.actions(app.home, raw)
-	check(choices.size() == 2 and str(choices[0].label) == "Keep it, sell yours" and str(choices[1].label) == "Sell it", "with one of its skill kept, the choice is which to keep")
+	check(choices.size() == 2 and str(choices[0].label) == "Keep it, replace yours" and str(choices[1].label) == "Sell it", "with one of its skill kept, the choice is which to keep")
 	for commission in open_today:
 		commission.done = false
 	app.home.open("vault", true)
-	check(_exact_labels(app.home, "Keep it, sell yours") == 1 and _exact_labels(app.home, "Sell it") == 1, "the tray offers the same choice beside the kept one")
+	check(_exact_labels(app.home, "Keep it, replace yours") == 1 and _exact_labels(app.home, "Sell it") == 1, "the tray offers the same choice beside the kept one")
 	var old_gold: int = int(app.profile.gold)
-	var old_value: int = DeepStone.value(DeepProfile.owned(app.profile, "STRIKE"))
 	choices[0].call.call()
-	check(str(DeepProfile.owned(app.profile, "STRIKE").id) == "screens_raw" and not app.profile.tray.has(raw) and int(app.profile.gold) == old_gold + old_value, "keeping the new one sells the old one")
+	check(str(DeepProfile.owned(app.profile, "STRIKE").id) == "screens_raw" and not app.profile.tray.has(raw) and int(app.profile.gold) == old_gold, "keeping the new one lets the old one go for no gold")
 	for stone in app.profile.get("tray", []).duplicate():
 		stone.appraised = true
 	app.home.open("vault", true)
@@ -505,6 +510,16 @@ func _click(viewport: Viewport, at: Vector2) -> void:
 	_mouse(viewport, at, false)
 	await _frames(3)
 
+func _find_lamp(node: Node) -> Node:
+	## The first stone standing under a lamp: the Market's case shows three.
+	if node is HomeParts.Showcase:
+		return node
+	for child in node.get_children():
+		var found: Node = _find_lamp(child)
+		if found != null:
+			return found
+	return null
+
 func _find_class(node: Node, wanted: String) -> Node:
 	if node.get_class() == wanted:
 		return node
@@ -513,6 +528,12 @@ func _find_class(node: Node, wanted: String) -> Node:
 		if found != null:
 			return found
 	return null
+
+func _price_on(button: Button) -> String:
+	## The sum on a button's price tag (DeepUi.priced), or "" when it has none.
+	var chip: Node = button.get_node_or_null("Price") if button != null else null
+	var value: Node = chip.find_child("Value", true, false) if chip != null else null
+	return (value as Label).text if value is Label else ""
 
 func _count_text(node: Node, text: String) -> int:
 	## Buttons in a subtree whose label is exactly this.

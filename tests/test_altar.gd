@@ -297,7 +297,7 @@ func _test_vault_and_secrecy() -> void:
 	var absorbed: Dictionary = gem("BLACK_OPAL")
 	absorbed.absorbed = ["STRIKE", "GUARD"]
 	var result: Dictionary = {"mine": "QUARRY", "outcome": "extracted", "depth": 4, "deepest": 4, "players": {"pa": {
-		"home": [gem("PROCESSION"), absorbed], "seen": [], "dice": [], "vault_spent": ["BARRAGE", "AEGIS"], "transcended": ["PROCESSION"], "ore": 0, "earned": 0}}}
+		"home": [gem("PROCESSION"), absorbed], "seen": [], "dice": [], "vault_spent": ["BARRAGE", "AEGIS"], "transcended": ["PROCESSION"], "ore": 0}}}
 	var applied: Dictionary = DeepProfile.apply_result(profile, result, "pa")
 	check(not profile.vault.has("BARRAGE") and not profile.vault.has("AEGIS") and profile.vault.has("STRIKE"), "the vault loses what was given up, and only that")
 	check(applied.vault_spent.size() == 2, "and says so")

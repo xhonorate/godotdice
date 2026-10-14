@@ -4,7 +4,6 @@
   "constants": {
     "starting_rail_cap": 3,
     "socket_unlock_gold": [300, 1200, 4800],
-    "assay_rate": 5,
     "temporary_depth": 20,
     "temporary_luck": 4,
     "temporary_min_tier": "PRECIOUS",
@@ -48,7 +47,7 @@
     "appraise_gold_min": 12,
     "appraise_gold_mult": 2.0,
     "appraise_cost_step": 50,
-    "rest_pct": 30,
+    "rest_pct": 35,
     "opal_hoard_pct": 100,
     "hoard_luck": 5,
     "opal_hoard_luck": 0,
@@ -75,14 +74,19 @@
       "vein": 100,
       "mimic": 100
     },
-    "ore_per_fight": 6,
+    "ore_per_fight": 20,
     "elite_stone_luck": 3,
     "chain_heat": 2,
     "max_creatures": 4,
     "punished_straight": 4,
     "altar_raise_pct": [20, 30],
     "altar_nudge_pct": 17,
-    "altar_carat_nudge": 1
+    "altar_carat_nudge": 1,
+    "hazard_max": 20,
+    "hazard_luck": 0.25,
+    "hazard_carats": 7,
+    "hazard_pressure_pct": 3.25,
+    "hazard_daily_gold": 0.05
   },
   "colors": {
     "RED": {
@@ -11284,5 +11288,143 @@
       "glyph": "prism",
       "text": "Any stone fits any socket."
     }
-  }
+  },
+  "hazard_tiers": [
+    {
+      "key": "OLD_BLOOD",
+      "name": "Old Blood",
+      "glyph": "drop",
+      "text": "Creatures are bred 10 floors deeper. The top of every mine fights like its middle.",
+      "params": {"heat": 10}
+    },
+    {
+      "key": "COLD_START",
+      "name": "Cold Start",
+      "glyph": "reroll",
+      "text": "One fewer reroll on the first turn of every fight.",
+      "params": {"rerolls": -1}
+    },
+    {
+      "key": "SHORT_REST",
+      "name": "Short Rest",
+      "glyph": "heart",
+      "text": "Resting at a landing heals 25% instead of 35%.",
+      "params": {"rest_pct": -10}
+    },
+    {
+      "key": "PROWLERS",
+      "name": "Prowlers",
+      "glyph": "eye",
+      "text": "Elites are more common and appear sooner.",
+      "params": {"elite_mult": 0.5, "elite_from": 2}
+    },
+    {
+      "key": "CHAMPIONS",
+      "name": "Champions",
+      "glyph": "star",
+      "text": "In every elite fight the strongest creature has a trait of its own: Steadfast, Sturdy, Splits, Spiked, Regenerating or Warded.",
+      "params": {"spikes": 3, "regen_pct": 4, "ward": 2}
+    },
+    {
+      "key": "WORN",
+      "name": "Worn",
+      "glyph": "fall",
+      "text": "Everyone starts the run at 85% health.",
+      "params": {"health_pct": -15}
+    },
+    {
+      "key": "WARDENS_PRIDE",
+      "name": "Warden's Pride",
+      "glyph": "crown",
+      "text": "Wardens and bosses have a fifth more health and start every fight with 2 Ward instead of 1.",
+      "params": {"hp": 0.2, "ward": 1}
+    },
+    {
+      "key": "THIN_HOARDS",
+      "name": "Thin Hoards",
+      "glyph": "chest",
+      "text": "Hoards offer 2 pedestals instead of 3, and only half of them hold an opal.",
+      "params": {"pedestals": -1, "opal_pct": 50}
+    },
+    {
+      "key": "EARLY_ENRAGE",
+      "name": "Early Enrage",
+      "glyph": "hourglass",
+      "text": "Creatures enrage on turn 6 instead of 7, and add 3 damage a turn instead of 2.",
+      "params": {"turn": -1, "damage": 1}
+    },
+    {
+      "key": "BIGGER_TEETH",
+      "name": "Bigger Teeth",
+      "glyph": "die",
+      "text": "Every creature's dice are one size bigger: a d6 becomes a d8.",
+      "params": {"sizes": 1}
+    },
+    {
+      "key": "DARK_MOUTHS",
+      "name": "Dark Mouths",
+      "glyph": "lantern",
+      "text": "More chambers are hidden: up to 2 on a floor, at 35% each.",
+      "params": {"pct": 35, "most": 2}
+    },
+    {
+      "key": "THICK_HIDES",
+      "name": "Thick Hides",
+      "glyph": "shield",
+      "text": "Creatures have 20% more health.",
+      "params": {"hp": 0.2}
+    },
+    {
+      "key": "LEAN_SEAMS",
+      "name": "Lean Seams",
+      "glyph": "ore",
+      "text": "Ordinary fights drop a stone 45% of the time instead of 55%, and pay 15 pyrite instead of 20.",
+      "params": {"stone_pct": -10, "pyrite": -5}
+    },
+    {
+      "key": "ESCORTS",
+      "name": "Escorts",
+      "glyph": "party",
+      "text": "Every Warden and boss brings one creature from the deepest part of its mine."
+    },
+    {
+      "key": "PRESSURE_COOKER",
+      "name": "Pressure Cooker",
+      "glyph": "depth",
+      "text": "Creatures toughen faster as you go down: 7% more health a floor instead of 5%, and a point more damage every 3 floors instead of every 4.",
+      "params": {"hp_per_depth": 0.07, "damage_every": 3}
+    },
+    {
+      "key": "FESTERING_AIR",
+      "name": "Festering Air",
+      "glyph": "cloud",
+      "text": "All healing you receive is 20% lower, all run long.",
+      "params": {"heal_pct": -20}
+    },
+    {
+      "key": "GAUNTLET",
+      "name": "Gauntlet",
+      "glyph": "sword",
+      "text": "The floor just before every landing is all elites."
+    },
+    {
+      "key": "DULL_VAULT",
+      "name": "Dull Vault",
+      "glyph": "loupe",
+      "text": "Stones brought down from the vault are judged one Cut step lower. Stones found on the run are not.",
+      "params": {"cut": 1}
+    },
+    {
+      "key": "CURSED_RUN",
+      "name": "Cursed Run",
+      "glyph": "lock",
+      "text": "Beating a Warden locks a face on one of your dice."
+    },
+    {
+      "key": "CROWNS_COURT",
+      "name": "Crown's Court",
+      "glyph": "skull",
+      "text": "The Hollow Crown fights beside one of the Rift's Remembered bosses."
+    }
+  ]
 }

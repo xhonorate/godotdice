@@ -37,6 +37,7 @@ const TRAITS: Dictionary = {
 	"escalate": ["sword", "Escalating", "Its damage goes up by %d for every action it takes in this phase."],
 	"spikes": ["thorn", "Bristling", "Has %d Spikes up every time it acts: anything that hits it is hit back."],
 	"regen_with_escorts": ["heart", "Fed", "While any of its escorts stands, it heals %d at the end of every turn."],
+	"regenerating": ["heart", "Regenerating", "It heals %d at the end of every turn."],
 	"shielded_by_escorts": ["shield", "Shielded", "While any of its escorts stands, it takes %d%% less from every hit."],
 	"regrow_escorts": ["copy", "Regrows its escorts", "A dead escort grows back %d actions later, unless all of them die within %d turns of each other."],
 	"reroll_drain": ["drop", "Costly light", "Each reroll anyone spends costs every player %d health."],
@@ -217,6 +218,8 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("echo", "copy", "", false, "Echo", "A Rift echo of %s: its health, dice and moves over again." % str(DeepContent.creature(str(foe.echo_of)).get("name", foe.echo_of)), Color("c8b8ff")))
 	if not str(foe.get("escort_of", "")).is_empty():
 		out.append(entry("escort", "copy", "", false, "Escort", "It came with the creature it stands beside.", Color("c8b8ff")))
+	if not str(foe.get("champion", "")).is_empty():
+		out.append(entry("champion", "star", "", false, "Champion", "A Hazard tier's elite, with a trait of its own: %s." % str(foe.champion), Color("ffb05a")))
 	if not str(foe.get("remembered", "")).is_empty():
 		out.append(entry("remembered", "crown", "", false, "Remembered", "A boss the Rift remembers, with one trait more: %s." % str(DeepContent.REMEMBERED_NAMES.get(str(foe.remembered), str(foe.remembered).capitalize())), Color("c8b8ff")))
 	var downgrade: int = int(foe.get("dread_turns", 0))
@@ -257,8 +260,8 @@ static func for_battle(battle: Dictionary) -> Array:
 	## The fight itself: the creatures grow vicious if it drags on.
 	var out: Array = []
 	var turn: int = int(battle.get("turn", 1))
-	var enrage_turn: int = int(DeepContent.constant("enrage_turn", 7))
-	var step: int = int(DeepContent.constant("enrage_damage", 2))
+	var enrage_turn: int = DeepBattle.enrage_turn(battle)
+	var step: int = DeepBattle.enrage_step(battle)
 	if turn >= enrage_turn:
 		var extra: int = step * (turn - enrage_turn + 1)
 		out.append(entry("enrage", "flame", "+%d" % extra, false, "Enraged", "The fight has dragged on: every creature hit deals %d more damage, and more each turn." % extra))

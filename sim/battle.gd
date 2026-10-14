@@ -78,6 +78,10 @@ static func begin(players: Array, creature_keys: Array, context: Dictionary, rng
 		"threat": int(context.get("threat", context.get("depth", 1))),
 		"party": players.size(), "elite": bool(context.get("elite", false)), "warden": bool(context.get("warden", false)),
 		"players": players.duplicate(true), "enemies": [], "queue": [], "seq": 0}
+	## Early Enrage: a Hazard tier's creatures enrage sooner and harder.
+	if context.has("enrage_turn"):
+		state.enrage_turn = int(context.enrage_turn)
+		state.enrage_damage = int(context.get("enrage_damage", DeepContent.constant("enrage_damage", 2)))
 	## Each rail is laid flat for the fight: a socket's gem, then the Void gems riding it.
 	for unit in state.players:
 		DeepStone.flatten_rail(unit)
@@ -92,19 +96,38 @@ static func begin(players: Array, creature_keys: Array, context: Dictionary, rng
 	## the seed before the fight so every guest sees the same creature.
 	var extra: Dictionary = {}
 	if bool(context.get("remembered", false)):
-		var remembered: String = str(context.get("extra_trait", ""))
-		if remembered.is_empty():
-			remembered = str(DeepRng.pick(rng_creatures, DeepContent.REMEMBERED_TRAITS))
-		extra = {"name_prefix": "The Remembered ", "traits": {remembered: 25 if remembered == "sturdy" else true}, "remembered": remembered}
+		extra = _remembered(str(context.get("extra_trait", "")), rng_creatures)
+	## Crown's Court: the boss at this place in the row is one the Rift remembers.
+	var court: int = int(context.get("court", -1))
 	state.next_enemy = 0
-	for key in creature_keys:
-		var foe: Dictionary = DeepCreatures.make(str(key), _enemy_id(state), state.threat, players.size(), context.get("scale", {}), rng_creatures, extra)
-		if not extra.is_empty():
-			foe.remembered = str(extra.get("remembered", ""))
+	for index in range(creature_keys.size()):
+		var key: String = str(creature_keys[index])
+		var own: Dictionary = extra if index == 0 else {}
+		if index == court:
+			own = _remembered("", rng_creatures)
+		var foe: Dictionary = DeepCreatures.make(key, _enemy_id(state), state.threat, players.size(), context.get("scale", {}), rng_creatures, own)
+		if not own.is_empty():
+			foe.remembered = str(own.get("remembered", ""))
 		state.enemies.append(foe)
 		_bring_escorts(state, foe, rng_creatures)
 	_begin_turn(state, rng_dice, rng_creatures)
 	return state
+
+static func _remembered(chosen: String, rng: RandomNumberGenerator) -> Dictionary:
+	## What a boss the Rift remembers comes back with: one trait more, picked by the seed
+	## before the fight so every guest sees the same creature.
+	var remembered: String = chosen
+	if remembered.is_empty():
+		remembered = str(DeepRng.pick(rng, DeepContent.REMEMBERED_TRAITS))
+	return {"name_prefix": "The Remembered ", "traits": {remembered: 25 if remembered == "sturdy" else true}, "remembered": remembered}
+
+static func enrage_turn(state: Dictionary) -> int:
+	## The turn a fight's creatures enrage on: the pack's, or sooner under Early Enrage.
+	return int(state.get("enrage_turn", DeepContent.constant("enrage_turn", 7)))
+
+static func enrage_step(state: Dictionary) -> int:
+	## How much harder every blow lands for each turn of enrage.
+	return int(state.get("enrage_damage", DeepContent.constant("enrage_damage", 2)))
 
 static func _enemy_id(state: Dictionary) -> String:
 	var id: String = "e%d" % int(state.get("next_enemy", 0))
@@ -624,8 +647,8 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 				foe.move_states[int(move.index)] = "resolving"
 			var shown: Array = move.effects.duplicate(true)
 			for effect in shown:
-				if str(effect.kind) == "damage" and int(state.turn) >= int(DeepContent.constant("enrage_turn", 7)):
-					effect.amount += int(DeepContent.constant("enrage_damage", 2)) * (int(state.turn) - int(DeepContent.constant("enrage_turn", 7)) + 1)
+				if str(effect.kind) == "damage" and int(state.turn) >= enrage_turn(state):
+					effect.amount += enrage_step(state) * (int(state.turn) - enrage_turn(state) + 1)
 				if str(effect.kind) == "damage":
 					effect.amount = DeepRules.outgoing_damage(int(effect.amount), foe.statuses)
 			return _event(state, "enemy_ability", {"unit": foe.id, "move": move.move, "index": move.index,
@@ -711,7 +734,8 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 		"fight_buffs": {"carat": int(buff.get("carat", 0)) + int(gem_buff.get("carat", 0)),
 			"cut": int(buff.get("cut", 0)) + int(gem_buff.get("cut", 0)), "clarity": int(gem_buff.get("clarity", 0))},
 		"buff_sources": unit.get("buff_sources", {}),
-		"dulled": int(unit.get("statuses", {}).get("dulled", 0)),
+		## Dull Vault: a Hazard tier judges every stone that came down from the vault a Cut lower.
+		"dulled": int(unit.get("statuses", {}).get("dulled", 0)) + (int(unit.get("run_mods", {}).get("dull_vault", 0)) if bool(stone.get("lent", false)) and not bool(stone.get("temporary", false)) else 0),
 		## What a Fingerprint here is carrying, for the close look to name.
 		"fingerprint": DeepStone.fingerprint_words(unit.rail, socket),
 		"depth": int(state.get("depth", 1)),
@@ -2681,9 +2705,9 @@ static func dice_after_fight(unit: Dictionary) -> Array:
 static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, amount: int, rng: RandomNumberGenerator, settle: bool = true, reactions: Dictionary = {}, reactive: bool = false, piercing: bool = false) -> Dictionary:
 	var raw: int = maxi(0, amount)
 	if str(source.get("side", "")) == "enemy":
-		var enrage_turn: int = int(DeepContent.constant("enrage_turn", 7))
-		if int(state.turn) >= enrage_turn:
-			raw += int(DeepContent.constant("enrage_damage", 2)) * (int(state.turn) - enrage_turn + 1)
+		var enraged_on: int = enrage_turn(state)
+		if int(state.turn) >= enraged_on:
+			raw += enrage_step(state) * (int(state.turn) - enraged_on + 1)
 	raw = DeepRules.outgoing_damage(raw, source.get("statuses", {}))
 	var curse: int = clampi(int(target.statuses.get("curse", 0)), 0, DeepRules.CURSE_MAX_STACKS)
 	var marked: int = int(target.statuses.get("marked", 0)) if not reactive and amount > 0 else 0
@@ -2871,6 +2895,10 @@ static func _heal(target: Dictionary, amount: int) -> int:
 	## Festering: what would heal only half does.
 	if int(target.get("statuses", {}).get("festering", 0)) > 0:
 		amount = maxi(0, amount) / 2
+	## Festering Air: a Hazard tier cuts every heal a lapidary receives, all run long.
+	var cut: int = int(target.get("run_mods", {}).get("heal_cut", 0))
+	if cut > 0:
+		amount = maxi(0, amount) * (100 - cut) / 100
 	var before: int = int(target.hp)
 	target.hp = mini(int(target.max_hp), before + maxi(0, amount))
 	return int(target.hp) - before
@@ -3018,6 +3046,12 @@ static func _tick(state: Dictionary) -> Dictionary:
 				var knit: int = _heal(unit, fed)
 				if knit > 0:
 					ticks.append({"unit": str(unit.id), "kind": "regrow", "amount": knit, "hp_after": unit.hp, "escorts": true})
+		## A Regenerating champion knits a share of itself back every turn.
+		var knits: int = DeepCreatures.trait_value(unit, "regenerating", 0) if str(unit.get("side", "")) == "enemy" and int(unit.hp) > 0 else 0
+		if knits > 0:
+			var knit: int = _heal(unit, knits)
+			if knit > 0:
+				ticks.append({"unit": str(unit.id), "kind": "regeneration", "amount": knit, "hp_after": unit.hp, "remaining": 0})
 		var regen: int = int(unit.statuses.get("regeneration", 0))
 		if regen > 0:
 			var healed: int = _heal(unit, regen)
@@ -3144,8 +3178,10 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		if staked is Dictionary and not staked.is_empty() and int(state.get("depth", 1)) <= int(staked.get("until_depth", 0)):
 			## Steady Hands from the Grubstake: a reroll more until the first landing.
 			extra += int(staked.get("amount", 1))
-		## A daily dig's Shaky Hands takes one away.
+		## A daily dig's Shaky Hands takes one away, and Cold Start one more on a fight's first turn.
 		extra += int(unit.get("run_mods", {}).get("reroll_shift", 0))
+		if int(state.turn) == 1:
+			extra += int(unit.get("run_mods", {}).get("first_turn_rerolls", 0))
 		unit.rerolls_max = maxi(0, base_rerolls + extra + gifts + int(unit.get("granted_rerolls", 0)))
 		unit.rerolls = 0 if frozen else unit.rerolls_max
 		unit.granted_rerolls = 0

@@ -20,7 +20,8 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 			source.warden = bool(def.get("warden", false))
 			source.erase("echo")
 			def = source
-	var hp_scale: float = 1.0 + float(DeepContent.constant("depth_hp_scale", 0.05)) * float(maxi(0, depth - 1))
+	## Pressure Cooker writes a steeper climb into the fight's scale.
+	var hp_scale: float = 1.0 + float(scale.get("depth_hp", DeepContent.constant("depth_hp_scale", 0.05))) * float(maxi(0, depth - 1))
 	hp_scale *= 1.0 + 0.15 * float(clampi(party, 1, 4) - 1)
 	hp_scale *= maxf(0.01, float(scale.get("hp", 1.0)))
 	var hp: int = maxi(1, int(round(float(def.get("hp", 10)) * hp_scale)))
@@ -410,7 +411,7 @@ static func moves_called(enemy: Dictionary, kind: String) -> Array:
 static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
 	var count: int = maxi(1, enemy.get("dice", []).size())
 	var threat: int = int(state.get("threat", state.get("depth", 1)))
-	enemy.damage_bonus = int(threat / maxi(1, int(DeepContent.constant("depth_damage_every", 4)))) / count
+	enemy.damage_bonus = int(threat / maxi(1, int(enemy.get("scale", {}).get("damage_every", DeepContent.constant("depth_damage_every", 4))))) / count
 	if has_trait(enemy, "mirror_last_gem"):
 		var reflected: int = 0
 		for player in state.get("players", []):
@@ -420,7 +421,7 @@ static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
 	var escalate: int = trait_value(enemy, "escalate", 0)
 	if escalate > 0:
 		enemy.damage_bonus += escalate * maxi(0, int(enemy.get("turns_acted", 0)) - int(enemy.get("phase_entered_turn", 0)))
-	enemy.enrage_bonus = maxi(0, int(state.get("turn", 1)) - int(DeepContent.constant("enrage_turn", 7)) + 1) * int(DeepContent.constant("enrage_damage", 2))
+	enemy.enrage_bonus = maxi(0, int(state.get("turn", 1)) - DeepBattle.enrage_turn(state) + 1) * DeepBattle.enrage_step(state)
 
 static func damage_pct(enemy: Dictionary) -> int:
 	## The mine's damage multiplier as a whole percentage, so what a move says it will deal

@@ -97,6 +97,10 @@ Each mine lists three biomes in `biomes`, one per stretch: the base biome to its
 
 The workshop's map is a cross-section of the earth with one stratum per mine, shallowest first. One shaft runs down through every stratum the player has opened and stops at rubble and a lock. An open stratum shows its depth track (a crown at each Warden and at the boss, gold once beaten), its carats and its lapidary; the expedition panel beside it adds the skills first found there and, for a deeper mine, what a run started there brings down.
 
+## Past the Rift
+
+Reaching the Rift unlocks the Hazard ladder: twenty cumulative tiers, each with its own map from the Quarry down and heavier stones. See [HAZARDS.md](HAZARDS.md).
+
 ## Not done yet
 
 - A balance pass with the bot on the health and damage multipliers, the start purses, `chain_heat`, and the new creatures' health and threat (the Bestiary's numbers are the page's, untested against real loadouts).

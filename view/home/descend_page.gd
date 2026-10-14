@@ -22,10 +22,18 @@ static func build(home: Control, content: VBoxContainer) -> void:
 	map.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	map.custom_minimum_size = Vector2(560, 560)
 	columns.add_child(map)
-	map.show_mines(DeepContent.mines_in_order(), home.profile.get("mines", {}), str(home.lobby.get("mine", "")), home.is_host, DeepProfile.unlocked_characters(home.profile), daily)
+	## The map of the party's Hazard tier: its own records, its own carats. On the day's seam,
+	## how far today's digs have gone instead.
+	var tier: int = int(home.lobby.get("hazard", 0))
+	var records: Dictionary = DeepEconomy.daily_reach(home.profile, str(home.lobby.get("daily", ""))) if daily else DeepProfile.mine_records(home.profile, tier)
+	map.show_mines(DeepContent.mines_in_order(), records, str(home.lobby.get("mine", "")), home.is_host, DeepProfile.unlocked_characters(home.profile), daily,
+		tier, DeepProfile.hazard_top(home.profile), party_cap(home.lobby))
 	map.chosen.connect(func(key: String) -> void:
 		DeepAudio.play("ui_confirm", {"volume": 0.7})
 		home.mine_chosen.emit(key))
+	map.hazard_chosen.connect(func(picked: int) -> void:
+		DeepAudio.play("ui_confirm", {"volume": 0.7})
+		home.hazard_chosen.emit(picked))
 	home.enter(map)
 	var side := DeepUi.vbox(columns, 12)
 	side.custom_minimum_size.x = SIDE_WIDTH
@@ -38,6 +46,15 @@ static func build(home: Control, content: VBoxContainer) -> void:
 	var go_card := DeepUi.card(side, Color(DeepUi.ACCENT, 0.3), 14)
 	_go(home, DeepUi.vbox(go_card, 8))
 	home.enter(go_card, 0.1)
+
+static func party_cap(lobby: Dictionary) -> int:
+	## The highest Hazard tier every member of the party has unlocked.
+	var cap: int = DeepContent.hazard_max()
+	for id in lobby.get("order", []):
+		var member: Dictionary = lobby.get("members", {}).get(id, {})
+		if bool(member.get("connected", true)):
+			cap = mini(cap, int(member.get("hazard_top", 0)))
+	return maxi(0, cap)
 
 static func _mode_switch(home: Control, side: VBoxContainer, daily: bool) -> void:
 	## Expedition or the day's seam. The host chooses for the party; a guest sees which.
@@ -60,7 +77,8 @@ static func _expedition_view(home: Control, side: VBoxContainer) -> void:
 	## The expedition: which mine, and who goes down wearing what.
 	var chosen_key: String = str(home.lobby.get("mine", DeepContent.starter_mine()))
 	var mine: Dictionary = DeepContent.mine(chosen_key)
-	var record: Dictionary = home.profile.get("mines", {}).get(chosen_key, {})
+	var tier: int = int(home.lobby.get("hazard", 0))
+	var record: Dictionary = DeepProfile.mine_records(home.profile, tier).get(chosen_key, {})
 	var trip := DeepUi.card(side, Color(DeepUi.ACCENT, 0.4), 16)
 	var trip_box := DeepUi.vbox(trip, 6)
 	DeepUi.section(trip_box, "descend", "Stratum %s" % MineMap.numeral(chosen_key))
@@ -79,10 +97,12 @@ static func _expedition_view(home: Control, side: VBoxContainer) -> void:
 		DeepUi.pill(facts, "crown", "%d of %d crowns" % [mini(record.get("wardens", []).size(), crowns), crowns], DeepUi.ACCENT, 12,
 			"%d Wardens and the final boss at depth %d" % [crowns - 1, DeepContent.mine_bottom(chosen_key)])
 	DeepUi.pill(facts, "pick", DeepUi.plural(int(record.get("runs", 0)), "run"), DeepUi.MUTED, 12)
-	var band: Dictionary = DeepForge.carat_band(mine, 1)
+	var band: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(mine, tier), 1)
 	var deeper: bool = chosen_key != DeepContent.starter_mine()
 	if not band.is_empty():
-		DeepUi.pill(facts, "gem", "up to %d ct" % int(band.cap), DeepUi.PAPER, 12, "Stones usually up to %d carats, never over %d." % [int(band.soft), int(band.cap)])
+		var lift: int = DeepForge.hazard_carats(mine, tier)
+		DeepUi.pill(facts, "gem", "up to %d ct" % int(band.cap), DeepUi.ACCENT_HI if lift > 0 else DeepUi.PAPER, 12, "Stones usually up to %d carats, never over %d.%s" % [int(band.soft), int(band.cap),
+			(" Hazard %d lifts both by %d." % [tier, lift]) if lift > 0 else ""])
 	if deeper:
 		DeepUi.pill(facts, "ore", "%d pyrite to start" % int(mine.get("start_pyrite", 0)), DeepUi.ORE, 12,
 			"Starting here costs a fare of %d gold, paid by each delver at the shaft head. Each starts with this much pyrite, and every socket not bought is offered three temporary stones that shatter when the run ends." % DeepEconomy.fare(chosen_key))
@@ -200,8 +220,11 @@ static func _daily_view(home: Control, side: VBoxContainer) -> void:
 	var knee: int = int(DeepContent.constant("daily_score_knee", 1000))
 	var best: Dictionary = DeepEconomy.daily_best(home.profile, date)
 	var standing := DeepUi.hbox(box, 8)
-	DeepUi.stat(standing, "coin", "Paid in gold for your score", DeepUi.ACCENT, 12,
-		"Your score is the worth of the stones you bring up plus the pyrite you carry. A fall scores only what the salvage dice save. A score pays %d gold at %d, and half the rate past that. Nothing you find is kept." % [DeepEconomy.daily_payout(knee), knee]).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## A Hazard tier pays more gold for the same score.
+	var tier: int = int(home.lobby.get("hazard", 0))
+	var paid_words: String = "Paid in gold for your score" if tier <= 0 else "Score paid ×%s on Hazard %d" % [String.num(DeepEconomy.daily_gold_mult(tier), 2), tier]
+	DeepUi.stat(standing, "coin", paid_words, DeepUi.ACCENT, 12,
+		"Your score is the worth of the stones you bring up plus the pyrite you carry. A fall scores only what the salvage dice save. A score pays %d gold at %d, and half the rate past that, more on a Hazard tier: twice as much at Hazard %d. Nothing you find is kept." % [DeepEconomy.daily_payout(knee), knee, DeepContent.hazard_max()]).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	match DeepEconomy.daily_state(home.profile, date):
 		"locked":
 			DeepUi.pill(standing, "lock", "Beat the Quarry to be paid", DeepUi.DIM, 11)
@@ -247,22 +270,31 @@ static func _go(home: Control, box: VBoxContainer) -> void:
 		_go_daily(home, box, me)
 		return
 	var who: String = str(DeepContent.character(str(home.profile.get("current_character", ""))).get("name", "you"))
+	## The tier goes into the button's words: nobody sets out on one by accident.
+	var tier: int = int(lobby.get("hazard", 0))
+	if tier > 0:
+		who = "%s · Hazard %d" % [who, tier]
 	var insured: bool = bool(home.profile.get("outfit", {}).get("insure", false))
 	var cost: int = DeepEconomy.departure(home.chosen_mine(), insured)
 	var purse: int = int(home.profile.get("gold", 0))
 	var short: Array = order.filter(func(id: Variant) -> bool: return home.member_short(lobby.members.get(id, {})))
 	if not home.is_host:
 		var guest_row := DeepUi.hbox(box, 8)
-		var ready := DeepUi.primary(guest_row, "check", "Unready" if bool(me.get("ready", false)) else ("Ready as %s · %d gold" % [who, cost] if cost > 0 else "Ready as %s" % who),
+		var ready := DeepUi.primary(guest_row, "check", "Unready" if bool(me.get("ready", false)) else "Ready as %s" % who,
 			func() -> void: home.member_changed.emit({"ready": not bool(me.get("ready", false))}), 16, DeepUi.GOOD)
+		if cost > 0 and not bool(me.get("ready", false)):
+			DeepUi.priced(ready, str(cost))
 		ready.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ready.disabled = home.status != "joined"
 		_insurance_toggle(home, guest_row, insured)
 		if purse < cost:
 			DeepUi.stat(box, "coin", "You can't pay the %d gold fare to %s. The host needs to pick a mine you can afford." % [cost, DeepContent.mine_name(home.chosen_mine())], Color("ffb04a"), 12)
 		return
-	var go := DeepUi.primary(box, "descend", "Descend as %s · %d gold" % [who, cost] if cost > 0 else "Descend as %s" % who, func() -> void:
-		home.depart_requested.emit(home.seed_value()), 20)
+	## Green, not the accent: the fare's coin sits on it, and a free mine looks the same.
+	var go := DeepUi.primary(box, "descend", "Descend as %s" % who, func() -> void:
+		home.depart_requested.emit(home.seed_value()), 20, DeepUi.GOOD)
+	if cost > 0:
+		DeepUi.priced(go, str(cost), 16)
 	go.name = "Descend"
 	go.tooltip_text = (("Taken from your purse at the shaft head: the fare%s." % (" and the insurance" if insured else "")) if cost > 0 else "The Quarry costs nothing to go down.") + " (Enter)"
 	DeepUi.voice(go, "depart")
@@ -275,6 +307,10 @@ static func _go(home: Control, box: VBoxContainer) -> void:
 	elif not short.is_empty():
 		var names: Array = short.map(func(id: Variant) -> String: return "You" if str(id) == home.local_id else str(lobby.members.get(id, {}).get("name", id)))
 		DeepUi.stat(box, "coin", "%s can't pay the fare to %s. Pick a mine everyone can afford." % [" and ".join(names), DeepContent.mine_name(home.chosen_mine())], Color("ffb04a"), 12)
+	elif not _hazard_blocked(home).is_empty():
+		var names: Array = _hazard_blocked(home).map(func(id: Variant) -> String: return "You" if str(id) == home.local_id else str(lobby.members.get(id, {}).get("name", id)))
+		DeepUi.stat(box, "lock", "%s %s not opened %s on Hazard %d. Pick a mine everyone has." % [" and ".join(names), "have" if names.size() > 1 or names[0] == "You" else "has",
+			DeepContent.mine_name(home.chosen_mine()), tier], Color("ffb04a"), 12)
 	elif not home.can_start:
 		DeepUi.stat(box, "hourglass", "Waiting for everyone to be ready.", DeepUi.MUTED, 12)
 	var seed_row := DeepUi.hbox(box, 8)
@@ -288,6 +324,18 @@ static func _go(home: Control, box: VBoxContainer) -> void:
 	home._seed.custom_minimum_size = Vector2(120, 0)
 	home._seed.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	seed_row.add_child(home._seed)
+
+static func _hazard_blocked(home: Control) -> Array:
+	## Everyone going down who has not opened the party's mine on the party's tier.
+	var tier: int = int(home.lobby.get("hazard", 0))
+	if tier <= 0:
+		return []
+	var out: Array = []
+	for id in home.lobby.get("order", []):
+		var member: Dictionary = home.lobby.get("members", {}).get(id, {})
+		if bool(member.get("connected", true)) and not DeepSession.member_open_mines(member, tier).has(home.chosen_mine()):
+			out.append(str(id))
+	return out
 
 static func _go_daily(home: Control, box: VBoxContainer, me: Dictionary) -> void:
 	## The way down the day's seam: nothing to pay and nothing to insure. Whether it pays is
@@ -319,7 +367,7 @@ static func _go_daily(home: Control, box: VBoxContainer, me: Dictionary) -> void
 static func _insurance_toggle(home: Control, parent: Node, insured: bool) -> Button:
 	## Insurance on the haul, remembered from one run to the next until turned off.
 	var price: int = DeepEconomy.insurance(home.chosen_mine())
-	var cover := DeepUi.icon_button(parent, "check" if insured else "split_shield", ("Insured · %d gold" if insured else "Insure · %d gold") % price,
+	var cover := DeepUi.icon_button(parent, "check" if insured else "split_shield", "Insured" if insured else "Insure",
 		func() -> void: home.set_insured(not insured), 13, DeepUi.GOOD if insured else DeepUi.MUTED)
 	cover.tooltip_text = "Insurance: if the dig is lost, every salvage die is thrown twice and the better throw kept. Paid at the shaft head, every run, until you turn it off."
 	if insured:
@@ -327,4 +375,6 @@ static func _insurance_toggle(home: Control, parent: Node, insured: bool) -> But
 	elif int(home.profile.get("gold", 0)) < DeepEconomy.departure(home.chosen_mine(), true):
 		cover.disabled = true
 		cover.tooltip_text = "You have %d gold. Insurance costs %d on top of the way down." % [int(home.profile.get("gold", 0)), price]
+	## Last: the price tag widens whatever look the button ends up with.
+	DeepUi.priced(cover, str(price))
 	return cover

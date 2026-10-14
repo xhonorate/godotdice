@@ -211,6 +211,8 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 			parts.append(str(DeepContent.mine(str(where.mine)).get("name", where.mine)))
 		if where.has("depth"):
 			parts.append("depth %d" % int(where.depth))
+		if int(where.get("hazard", 0)) > 0:
+			parts.append("Hazard %d" % int(where.hazard))
 		if where.has("date"):
 			parts.append(str(where.date))
 		if not parts.is_empty():
@@ -220,7 +222,7 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 	elif DeepStone.is_fragile(stone):
 		DeepUi.stat(footer, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 12)
 	elif opts.has("value"):
-		DeepUi.stat(footer, "coin", "%d gold" % DeepStone.value(stone), DeepUi.ACCENT, 12, "What a buyer would pay")
+		DeepUi.stat(footer, "coin", "%d" % DeepStone.value(stone), DeepUi.ACCENT, 12, "Worth: what a buyer would pay, in gold")
 	return card
 
 static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: bool = true) -> PanelContainer:

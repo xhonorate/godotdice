@@ -82,6 +82,7 @@ func _ready() -> void:
 	home.member_changed.connect(func(fields: Dictionary) -> void: session.update_member(fields))
 	home.mine_chosen.connect(func(mine: String) -> void: session.choose_mine(mine))
 	home.daily_chosen.connect(func(date: String) -> void: session.choose_daily(date))
+	home.hazard_chosen.connect(func(tier: int) -> void: session.choose_hazard(tier))
 	home.host_requested.connect(_host)
 	home.join_requested.connect(_join)
 	home.steam_host_requested.connect(_host_steam)
@@ -188,13 +189,14 @@ func member() -> Dictionary:
 	return {"name": str(profile.get("name", DeepProfile.DEFAULT_NAME)), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
 		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")),
 		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key),
-		"daily_state": DeepEconomy.daily_state(profile), "showcase": DeepProfile.showcase(profile)}
+		"daily_state": DeepEconomy.daily_state(profile), "showcase": DeepProfile.showcase(profile),
+		"hazard_top": DeepProfile.hazard_top(profile), "hazard_open": DeepProfile.open_mines(profile, DeepProfile.hazard_top(profile))}
 
 func _kit(loadout: Dictionary) -> Dictionary:
 	## What the lobby is told whenever the profile changes: who goes down, wearing what,
 	## whether they can pay their own way, and whether today's seam would pay them.
 	var fields: Dictionary = {}
-	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase"]:
+	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase", "hazard_top", "hazard_open"]:
 		fields[key] = loadout[key]
 	return fields
 
@@ -379,10 +381,18 @@ func _take_home(results: Dictionary, player_id: String) -> Dictionary:
 			var title: String = DeepContent.character_title(str(unlocked.character))
 			toast("Unlocked: %s" % title, DeepUi.ACCENT, "person")
 			Inspector.lapidary(str(unlocked.character))
-		if unlocked.has("mine"):
+		if unlocked.has("mine") and int(unlocked.get("hazard", 0)) > 0:
+			## A mine opened again on a Hazard tier: worth a word, not a ceremony.
+			toast("Hazard %d: %s is open" % [int(unlocked.hazard), DeepContent.mine_name(str(unlocked.mine))], DeepUi.ACCENT, "pick")
+		elif unlocked.has("mine"):
 			var mine: Dictionary = DeepContent.mine(str(unlocked.mine))
 			toast("Unlocked: %s" % str(mine.get("name", "")), DeepUi.ACCENT, "pick")
 			Inspector.announce("A new mine", "%s is open.\n\n%s" % [str(mine.get("name", "")), str(mine.get("text", ""))], "pick", DeepUi.ACCENT_HI)
+		if unlocked.has("tier"):
+			var tier: int = int(unlocked.tier)
+			var adds: Dictionary = DeepContent.hazard_tier(tier)
+			toast("Unlocked: Hazard %d" % tier, DeepUi.BAD, "skull")
+			Inspector.announce("Hazard %d" % tier, "%s Hazard %d is open: every hazard so far, and one more.\n\n%s: %s\n\nEvery tier keeps its own map, starting from the Quarry, and gives up heavier stones." % ["You reached the Rift." if tier == 1 else "You reached the Rift on Hazard %d." % (tier - 1), tier, str(adds.get("name", "")), str(adds.get("text", ""))], "skull", DeepUi.BAD)
 	for purse in applied.get("purses", []):
 		toast("First conquest of %s: +%d gold" % [DeepContent.mine_name(str(purse.mine)), int(purse.gold)], DeepUi.ACCENT, "crown")
 	var dug: Dictionary = applied.get("daily", {})
@@ -397,7 +407,7 @@ func _take_home(results: Dictionary, player_id: String) -> Dictionary:
 
 func _back_home() -> void:
 	session.leave_run()
-	## The run changed the purse (the fare, the assayer): the party hears what is in it now.
+	## The run changed the purse (the fare, a conquest, the day's seam): the party hears what is in it now.
 	session.update_member(_kit(member()))
 	Lift.ride(self, false, "")
 	descent.visible = false

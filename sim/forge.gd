@@ -30,8 +30,27 @@ static func mine_luck(mine: Dictionary) -> int:
 
 static func luck(mine: Dictionary, depth: int, bonus: float = 0.0) -> float:
 	## The whole of it: where the party is, how deep, and what is handing the stone over.
-	## `bonus` is a float because Sparkle is counted in fractions of a point.
-	return quality(depth, float(mine_luck(mine)) + bonus)
+	## `bonus` is a float because Sparkle is counted in fractions of a point. A Hazard tier's
+	## rock rolls kinder for every tier (docs/HAZARDS.md).
+	var hazard: float = float(DeepContent.constant("hazard_luck", 0.25)) * float(maxi(0, int(mine.get("hazard", 0))))
+	return quality(depth, float(mine_luck(mine)) + bonus + hazard)
+
+static func at_hazard(mine: Dictionary, tier: int) -> Dictionary:
+	## A mine as a Hazard tier's rock: what the map and the expedition read off it.
+	if tier <= 0:
+		return mine
+	var out: Dictionary = mine.duplicate()
+	out.hazard = tier
+	return out
+
+static func hazard_carats(mine: Dictionary, tier: int = -1) -> int:
+	## How far a Hazard tier lifts a mine's carat band: up to `hazard_carats` at the top of the
+	## ladder, all of it for the Hollow and the Rift and a sixth of it a mine further up.
+	var hazard: int = tier if tier >= 0 else int(mine.get("hazard", 0))
+	if hazard <= 0:
+		return 0
+	var share: float = float(clampi(int(mine.get("tier", 1)), 1, 6)) / 6.0
+	return int(round(float(DeepContent.constant("hazard_carats", 7)) * float(hazard) / float(maxi(1, DeepContent.hazard_max())) * share))
 
 ## Each mine keeps its stones inside a band. Luck still raises the average, but the average
 ## levels off below the band's usual top, however much luck is piled on: past that line each
@@ -55,8 +74,17 @@ static func carat_band(mine: Dictionary, depth: int) -> Dictionary:
 		var climbed: int = maxi(0, depth - 1) / every * int(mine.get("carat_per_warden", 0))
 		soft += climbed
 		cap += climbed
+	## A Hazard tier lifts the band, and past its usual top a stone keeps growing toward the
+	## cap (`pressure`, a percent a carat).
+	var lift: int = hazard_carats(mine)
+	soft += lift
+	cap += lift
 	cap = clampi(cap, 1, DeepStone.carat_max())
-	return {"soft": clampi(soft, 1, cap), "cap": cap}
+	var out: Dictionary = {"soft": clampi(soft, 1, cap), "cap": cap}
+	var hazard: int = int(mine.get("hazard", 0))
+	if hazard > 0:
+		out.pressure = float(DeepContent.constant("hazard_pressure_pct", 3.25)) * float(hazard)
+	return out
 
 static func carat_cap(mine: Dictionary, depth: int) -> int:
 	## The heaviest stone this mine will ever give up at this depth.
@@ -82,7 +110,13 @@ static func roll_carat(rng: RandomNumberGenerator, q: float, band: Dictionary = 
 		while held < drawn and DeepRng.chance(rng, BAND_KEEP_PERCENT):
 			held += 1
 		drawn = held
-	return clampi(drawn, 1, cap)
+	drawn = clampi(drawn, 1, cap)
+	## A Hazard tier's pressure: a stone that reached the usual top keeps growing toward the cap.
+	var pressure: float = float(band.get("pressure", 0.0))
+	if pressure > 0.0 and drawn >= soft:
+		while drawn < cap and DeepRng.chance(rng, pressure):
+			drawn += 1
+	return drawn
 
 static func roll_cut(rng: RandomNumberGenerator, q: float, without: int = -1) -> int:
 	## Poor and Fair near the surface, Fine and Perfect further down: the ladder tilts about
@@ -298,6 +332,9 @@ static func roll_stone(rng: RandomNumberGenerator, mine: Dictionary, depth: int,
 	where.depth = depth
 	if not where.has("mine"):
 		where.mine = str(mine.get("key", mine.get("name", "")))
+	## The Hazard tier it came out of, for the vault to show.
+	if int(mine.get("hazard", 0)) > 0 and not where.has("hazard"):
+		where.hazard = int(mine.hazard)
 	var stone_id: String = id if not id.is_empty() else "st%08x" % rng.randi()
 	var made: Dictionary = DeepStone.make(skill, carat, cut, clarity, inclusions, where, stone_id)
 	if bool(mine.get("read_on_find", false)):

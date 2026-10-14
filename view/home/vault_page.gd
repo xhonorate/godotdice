@@ -2,7 +2,8 @@ extends RefCounted
 ## The vault: one stone per skill, and the one page in the workshop that scrolls (every skill
 ## in the pack belongs on it at a size worth looking at). The stone browser's row sorts and
 ## filters it; it can be laid out as a grid of tiles or a list of rows; the stone picked sits
-## under the lamp on the right, where it can be starred as wanted or sent to a socket, the
+## under the lamp on the right, with a meter for each scale it is graded by and whose sockets
+## hold it; the star in its corner makes it a favorite, and it can be sent to a socket, the
 ## Wheel or the Oven. While anything waits on the tray, the Unappraised view shows it.
 
 const StoneBrowser = preload("res://view/home/stone_browser.gd")
@@ -11,6 +12,7 @@ const HomeParts = preload("res://view/home/home_parts.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const Homecoming = preload("res://view/home/homecoming.gd")
+const Roster = preload("res://view/home/roster.gd")
 
 const TILE: int = 84
 const COLUMNS: int = 9
@@ -105,7 +107,7 @@ static func _fill(home: Control, grid: GridContainer, entries: Array, from: int,
 			grid.tree_entered.connect(func() -> void: _fill(home, grid, entries, from, per_frame), CONNECT_ONE_SHOT)
 		return
 	var upto: int = mini(entries.size(), from + maxi(1, per_frame))
-	var wanted: Array = DeepProfile.wanted(home.profile)
+	var favorites: Array = DeepProfile.favorites(home.profile)
 	for index in range(from, upto):
 		var entry: Dictionary = entries[index]
 		var key: String = str(entry.skill)
@@ -120,8 +122,8 @@ static func _fill(home: Control, grid: GridContainer, entries: Array, from: int,
 			tile.mouse_entered.connect(func() -> void: home.hover_stone(tile, stone, {}))
 		else:
 			tile = _ghost_tile(grid, key, str(DeepContent.skill(key).get("color", "WHITE")), str(entry.state) == "seen")
-		if wanted.has(key):
-			home.tile_mark(tile, "star", DeepUi.ACCENT_HI, "Wanted: the Market marks anything that could be one")
+		if favorites.has(key):
+			home.tile_mark(tile, "star", DeepUi.ACCENT_HI, "A favorite: the Market marks anything that could be one")
 		if str(entry.state) in ["owned", "seen"]:
 			if key == home._vault_pick:
 				_ring(tile)
@@ -189,11 +191,13 @@ static func _lamp(home: Control, side: VBoxContainer) -> void:
 	var box := DeepUi.vbox(lamp, 8)
 	var stage := HomeParts.Showcase.new(shown, 190)
 	box.add_child(stage)
-	StoneCard.build(box, shown, {"picture": false, "provenance": true, "value": true, "text_width": 360})
+	_favorite_star(home, stage, str(shown.get("skill", "")))
+	StoneCard.build(box, shown, {"picture": false, "provenance": true, "text_width": 360})
+	_numbers(home, box, shown)
 	DeepUi.spacer(box, false)
 	var skill: String = str(shown.get("skill", ""))
+	_wearers(home, box, skill)
 	var actions := DeepUi.hbox(box, 6)
-	_want_button(home, actions, skill)
 	var current: String = str(home.profile.get("current_character", DeepContent.starter_character()))
 	var socket := DeepUi.icon_button(actions, "person", "Socket it", func() -> void:
 		home.edit_loadout(current, _first_fit(home, current, skill)), 13, DeepUi.PAPER)
@@ -209,15 +213,87 @@ static func _lamp(home: Control, side: VBoxContainer) -> void:
 		b.tooltip_text = refusal if b.disabled else ("Recut it on the Wheel" if kind == "cut" else "Fire it in the Oven")
 	home.enter(lamp, 0.05)
 
-static func _want_button(home: Control, parent: Node, skill: String) -> void:
-	var wanted: bool = DeepProfile.wanted(home.profile).has(skill)
-	var b := DeepUi.icon_button(parent, "star", "Wanted" if wanted else "Want", func() -> void:
-		DeepProfile.toggle_wanted(home.profile, skill)
+static func _numbers(home: Control, parent: Node, stone: Dictionary) -> void:
+	## Where the stone stands on every scale it is graded by, a meter each: its carat against
+	## the heaviest a stone can be, its Cut and its Clarity on their ladders, its grade out of
+	## 100, and its worth against the most valuable stone in the vault.
+	var box := DeepUi.vbox(parent, 5)
+	DeepUi.section(box, "ladder", "By the numbers", DeepUi.ACCENT, 12)
+	var carat: int = int(stone.get("carat", 1))
+	var cut: int = int(stone.get("cut", 0))
+	var clarity: int = int(stone.get("clarity", DeepContent.clear_index()))
+	var grade: Dictionary = DeepStone.grade(stone)
+	var worth: int = DeepStone.value(stone)
+	var richest: int = 1
+	for kept in home.profile.get("vault", {}).values():
+		if kept is Dictionary and not DeepStone.is_birthstone(kept):
+			richest = maxi(richest, DeepStone.value(kept))
+	var pure: Color = StoneCard.TileTags.INCLUDED if clarity < DeepContent.clear_index() else StoneCard.TileTags.SPARKLE
+	var rows: Array = [
+		["carat", "Carat", float(carat) / float(DeepStone.carat_max()), "%d of %d ct" % [carat, DeepStone.carat_max()], DeepUi.ACCENT, "Its carat, against the heaviest a stone can be"],
+		["cut", "Cut", float(cut + 1) / float(DeepContent.cuts().size()), DeepContent.cut_name(cut), StoneCard.TileTags.CUT_TONE, "Its Cut, on the ladder from the worst to the best"],
+		["clarity", "Clarity", float(clarity + 1) / float(DeepContent.clarities().size()), DeepContent.clarity_name(clarity), pure, "Its Clarity, from the most included to Flawless"],
+		["star", "Grade", float(grade.score) / 100.0, "%s · %d" % [str(grade.name), int(grade.score)], DeepUi.tier_color(str(grade.tier)), "Its grade, out of 100"],
+		["coin", "Worth", float(worth) / float(richest), "%d" % worth, DeepUi.ACCENT, "What a buyer would pay, in gold, against the most valuable stone in your vault"]]
+	for row in rows:
+		var line := DeepUi.hbox(box, 8)
+		line.mouse_filter = Control.MOUSE_FILTER_PASS
+		line.tooltip_text = str(row[5])
+		DeepUi.icon(line, str(row[0]), 15, row[4], str(row[5]))
+		DeepUi.label(line, str(row[1]), 13, DeepUi.MUTED).custom_minimum_size.x = 54
+		var meter := DeepUi.bar(line, 8.0, row[4], Color(DeepUi.LINE, 0.6))
+		meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		meter.set_values(clampf(float(row[2]), 0.0, 1.0))
+		var value := DeepUi.label(line, str(row[3]), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_RIGHT)
+		value.custom_minimum_size.x = 104
+
+static func _wearers(home: Control, parent: Node, skill: String) -> void:
+	## Whose sockets it is set in, by portrait.
+	var wearing: Array = []
+	for key in DeepProfile.unlocked_characters(home.profile):
+		if home.profile.characters[key].get("rail", []).has(skill):
+			wearing.append(str(key))
+	var row := DeepUi.hbox(parent, 6)
+	if wearing.is_empty():
+		DeepUi.stat(row, "person", "Not in anyone's sockets", DeepUi.DIM, 12)
+		return
+	DeepUi.label(row, "In", 12, DeepUi.MUTED)
+	for key in wearing:
+		var face := Roster.Portrait.new(key, Vector2(24, 24))
+		face.tooltip_text = "In %s's sockets" % DeepContent.character_title(key)
+		row.add_child(face)
+	DeepUi.label(row, ", ".join(wearing.map(func(k: Variant) -> String: return str(DeepContent.character(str(k)).get("name", k)))), 12, DeepUi.MUTED)
+
+static func _favorite_star(home: Control, holder: Control, skill: String) -> Button:
+	## The favorite star in the top-right corner of the viewing area: an outline until it is
+	## clicked, filled while the skill is a favorite. A favorite's tile wears the star too, and
+	## the Market marks anything that could be one.
+	var on: bool = DeepProfile.favorites(home.profile).has(skill)
+	var star := Button.new()
+	star.name = "Favorite"
+	## Just the mark: the theme's padding would squeeze the icon to nothing in a box this small.
+	for state in ["normal", "hover", "pressed", "disabled", "focus", "hover_pressed"]:
+		star.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	star.focus_mode = Control.FOCUS_NONE
+	star.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	star.icon = GemIcons.texture("star" if on else "star_line", GemIcons.baked_size(48.0))
+	star.expand_icon = true
+	star.add_theme_color_override("icon_normal_color", DeepUi.ACCENT_HI if on else DeepUi.MUTED)
+	star.add_theme_color_override("icon_hover_color", DeepUi.ACCENT_HI)
+	star.add_theme_color_override("icon_pressed_color", DeepUi.ACCENT)
+	star.add_theme_color_override("icon_focus_color", DeepUi.ACCENT_HI if on else DeepUi.MUTED)
+	star.tooltip_text = "A favorite. Click to take the star off." if on else "Make it a favorite: its tile wears a star, and the Market marks anything that could be one."
+	star.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	star.offset_left = -36
+	star.offset_right = 0
+	star.offset_top = 0
+	star.offset_bottom = 36
+	star.pressed.connect(func() -> void:
+		DeepProfile.toggle_favorite(home.profile, skill)
 		DeepAudio.play("ui_toggle", {"volume": 0.7})
-		home.profile_changed.emit(), 13, DeepUi.ACCENT_HI if wanted else DeepUi.MUTED)
-	b.tooltip_text = "The Market marks Geodes, cut stones and commissions that could give you this skill." if not wanted else "Take the star off"
-	if wanted:
-		DeepUi.selected_style(b, DeepUi.ACCENT)
+		home.profile_changed.emit())
+	holder.add_child(star)
+	return star
 
 static func _first_fit(home: Control, character: String, skill: String) -> int:
 	## The socket a stone would go in: the first open one it fits, empty sockets first.
@@ -243,9 +319,15 @@ static func _reference(home: Control, side: VBoxContainer, key: String) -> void:
 	var card := DeepUi.card(side, Color(hue, 0.35), 16)
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var column := DeepUi.vbox(card, 10)
-	var frame := DeepUi.center(column)
-	frame.custom_minimum_size.y = 190
+	## The emblem centred in the viewing area, the favorite star in its corner.
+	var holder := Control.new()
+	holder.custom_minimum_size.y = 190
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(holder)
+	var frame := DeepUi.center(holder)
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	DeepUi.icon(frame, GemIcons.emblem(key), 104, Color(hue, 0.65))
+	_favorite_star(home, holder, key)
 	DeepUi.title(column, str(skill.get("name", key)), 22, hue.lightened(0.25))
 	var tags := DeepUi.hbox(column, 8)
 	StoneCard.rarity_tag(tags, str(skill.get("rarity", "COMMON")), 13)
@@ -254,5 +336,4 @@ static func _reference(home: Control, side: VBoxContainer, key: String) -> void:
 	DeepUi.effect_text(column, DeepStone.text(stone), 13, DeepUi.PAPER, true, 360)
 	DeepUi.wrap(column, "At one carat, Poor cut and Clear clarity. The stone you find will have its own qualities.", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 360)
 	DeepUi.spacer(column, false)
-	_want_button(home, column, key)
 	home.enter(card, 0.05)

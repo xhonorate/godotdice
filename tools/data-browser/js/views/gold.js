@@ -71,16 +71,14 @@ function commissionRange(mine) {
 }
 
 export default {
-	id: 'gold', label: 'Gold', blurb: 'Fares, insurance, sockets, the assayer and commissions, against what stones are worth', count: () => '',
+	id: 'gold', label: 'Gold', blurb: 'Fares, insurance, sockets and commissions, against what stones are worth', count: () => '',
 	icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="7" rx="7" ry="3"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7"/><path d="M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/></svg>',
 	render(root) {
-		const rate = Number(C.constant('assay_rate', 5));
 		const sockets = C.constant('socket_unlock_gold', []);
 		const reroll = Number(C.constant('commission_reroll_gold', 10));
 		const step = Number(C.constant('commission_reroll_step', 10));
-		root.append(h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(5, minmax(0,1fr))' } },
-			stat('Assay rate', `${rate} : 1`, 'pyrite to the gold, earned pyrite only', { class: 'accent' }),
-			stat('Sockets', sockets.join(' · '), 'the 4th, 5th and 6th, per lapidary, for good'),
+		root.append(h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(4, minmax(0,1fr))' } },
+			stat('Sockets', sockets.join(' · '), 'the 4th, 5th and 6th, per lapidary, for good', { class: 'accent' }),
 			stat('Commission pay', `×${C.constant('commission_payout_mult', 2.5)}`, 'of the least stone that meets it; never under 1.25× the stone handed in'),
 			stat('Rerolls', `free, ${reroll}, ${reroll + step}, …`, 'per day, across all three commissions'),
 			stat('Commissions', String(C.constant('commission_slots', 3)), `a day; ${C.constant('commission_requirement_pct', 50)}% ask for one of the four C's too`)));
@@ -98,7 +96,7 @@ export default {
 			const geode = geodeWorth(mine, 303 + i);
 			return {
 				key, name: mine.name || key, fare: mine.fare_gold | 0, insurance: mine.insurance_gold | 0, purse,
-				cashed: Math.floor(purse / rate), conquest: mine.first_conquest_gold | 0,
+				conquest: mine.first_conquest_gold | 0,
 				top: meanWorth(mine, 1, 101 + i), deep: meanWorth(mine, bottom, 202 + i), bottom, commission: `${low}–${high}`,
 				geode: geode.price, geodeWorth: geode.worth, floor: mine.geode_gold | 0,
 			};
@@ -109,7 +107,6 @@ export default {
 				{ key: 'fare', label: 'Fare', align: 'right', title: 'Gold each lapidary pays at the shaft head to start here' },
 				{ key: 'insurance', label: 'Insurance', align: 'right', title: 'Gold for every salvage die thrown twice if the dig is lost' },
 				{ key: 'purse', label: 'Purse', align: 'right', title: 'Pyrite each lapidary starts with' },
-				{ key: 'cashed', label: 'Purse if cashed', align: 'right', title: 'What the purse would fetch at the assay if it could be cashed (it cannot): always under the fare', render: (r) => (r.purse ? `${r.cashed} (never)` : '—') },
 				{ key: 'conquest', label: 'First conquest', align: 'right', render: (r) => (r.conquest ? fmt(r.conquest, 0) : '—') },
 				{ key: 'top', label: 'Stone, top', align: 'right', title: 'Mean sale value of a stone found at depth 1', render: (r) => fmt(r.top, 0) },
 				{ key: 'deep', label: 'Stone, bottom', align: 'right', title: 'Mean sale value of a stone found on the bottom floor (depth 24 for the Rift)', render: (r) => `${fmt(r.deep, 0)} (d${r.bottom})` },
@@ -119,7 +116,7 @@ export default {
 			],
 			rows, compact: true,
 		}), { meta: `stone worth sampled from ${SAMPLES} stones per cell; the home scales pay full worth` }));
-		root.append(note('The fare buys a purse at 2 pyrite to the gold and the assayer buys back at 5, and only pyrite earned down there, so going down and straight back up never pays. A commission always pays more than selling the stone handed in. tests/test_economy.gd checks both against the pack.', 'plain'));
+		root.append(note('Pyrite is never weighed into gold: it can be dug without end, so it stays down the mine. A commission always pays more than selling the stone handed in; tests/test_economy.gd checks it against the pack.', 'plain'));
 		const fees = C.constant('contract_fee', {});
 		const ladder = ['ROUGH', 'FINE', 'PRECIOUS', 'EXQUISITE'].map((tier, i, all) => ({
 			key: tier, step: `${Stone.TIER_NAMES[tier]} → ${Stone.TIER_NAMES[all[i + 1] || 'PEERLESS']}`, fee: Number(fees[tier] || 0),

@@ -1,7 +1,7 @@
 extends SceneTree
 ## Gold at home (docs/GOLD.md): fares and insurance, sockets bought for good, temporary
-## stones below the Quarry, pyrite assayed at the lift, the first-conquest purse, and the
-## commissions the Ledger keeps.
+## stones below the Quarry, pyrite that never comes home as gold, the first-conquest purse,
+## and the commissions the Ledger keeps.
 
 var checks: int = 0
 var failures: Array = []
@@ -15,7 +15,6 @@ func _init() -> void:
 	_test_temporary()
 	_test_loopholes()
 	_test_insurance()
-	_test_assay()
 	_test_coming_home()
 	_test_commissions()
 	_test_no_profit()
@@ -295,74 +294,6 @@ func _test_insurance() -> void:
 	var saved_cover: int = cover.filter(func(r: Dictionary) -> bool: return bool(r.kept)).size()
 	check(saved_cover >= saved_plain, "insurance brings more home (%d against %d)" % [saved_cover, saved_plain])
 
-# --- pyrite at the lift -------------------------------------------------------------------------
-
-func _test_assay() -> void:
-	check(DeepEconomy.assay({"ore": 53, "earned": 400}, "extracted") == {"carried": 53, "pyrite": 50, "gold": 10}, "pyrite is weighed in fives")
-	check(int(DeepEconomy.assay({"ore": 300, "earned": 40}, "conquered").gold) == 8, "only what was earned down there is paid for")
-	check(int(DeepEconomy.assay({"ore": 300, "earned": 300}, "fallen").gold) == 0, "a fall pays nothing")
-	## Every way pyrite comes to hand down there is counted; the starting purse is not.
-	var state: Dictionary = DeepDescent.new_run(config(31, "SEEPS", false))
-	var ada: Dictionary = DeepDescent.player(state, "a")
-	check(int(ada.ore) == 120 and int(ada.stats.earned) == 0, "the Seeps' purse is in hand and none of it earned")
-	var guard: int = 0
-	while int(ada.stats.earned) == 0 and guard < 60:
-		guard += 1
-		_advance(state)
-	check(int(ada.stats.earned) > 0 and int(ada.ore) > 120, "a fight or a vein is counted as earned (%d)" % int(ada.stats.earned))
-	var home: Dictionary = DeepDescent.results(state).players.a
-	check(int(home.ore) == int(ada.ore) and int(home.earned) == int(ada.stats.earned), "the results carry the pocket and the tally")
-	var only_purse: Dictionary = {"ore": 120, "earned": 0}
-	check(int(DeepEconomy.assay(only_purse, "extracted").gold) == 0, "the purse a deeper mine hands out is never cashed")
-	## A stake's pyrite and an oddity's are earned too.
-	var unit: Dictionary = {"ore": 0, "stats": {}}
-	DeepEconomy.earned(unit, 40)
-	DeepEconomy.earned(unit, -9)
-	check(int(unit.stats.earned) == 40, "only gains are written down")
-
-func _advance(state: Dictionary) -> void:
-	match str(state.phase):
-		"tunnels":
-			var offer: Dictionary = state.offers[0]
-			for candidate in state.offers:
-				if str(candidate.kind) in ["fight", "vein"]:
-					offer = candidate
-			for unit in state.players:
-				if str(unit.get("vote", "")).is_empty():
-					cmd(state, str(unit.id), "vote_tunnel", {"offer": offer.id})
-		"chamber":
-			if DeepDescent.in_battle(state):
-				var guard: int = 0
-				while DeepDescent.in_battle(state) and guard < 400:
-					guard += 1
-					var b: Dictionary = DeepDescent.battle(state)
-					if str(b.phase) == "planning":
-						for unit in b.players:
-							if not bool(unit.locked):
-								cmd(state, str(unit.id), "lock")
-						continue
-					if DeepDescent.step(state).is_empty() and not DeepBattle.has_steps(b):
-						break
-			elif str(state.chamber.kind) in DeepDescent.ROCK_ROOMS:
-				for unit in state.players:
-					if not bool(unit.get("mining", false)):
-						continue
-					var struck: bool = false
-					for spot in state.chamber.vein.spots:
-						if str(spot.taken).is_empty() and str(spot.get("owner", unit.id)) == str(unit.id) and cmd(state, str(unit.id), "strike", {"spot": spot.index}).ok:
-							struck = true
-							break
-					if not struck:
-						cmd(state, str(unit.id), "stop_mining", {})
-			elif str(state.chamber.kind) == "merchant":
-				for unit in state.players:
-					cmd(state, str(unit.id), "leave")
-			else:
-				var oddity: Dictionary = DeepContent.oddity(str(state.chamber.get("oddity", "")))
-				for unit in state.players:
-					if str(unit.get("oddity_choice", "")).is_empty() and not oddity.is_empty():
-						cmd(state, str(unit.id), "oddity", {"choice": oddity.choices[oddity.choices.size() - 1].id})
-
 # --- coming home --------------------------------------------------------------------------------
 
 func _test_coming_home() -> void:
@@ -370,19 +301,20 @@ func _test_coming_home() -> void:
 	var first: Dictionary = stone("VENOM", 4, 2, 3, "venom_first")
 	var result: Dictionary = {"run_id": "h1", "mine": "QUARRY", "outcome": "conquered", "depth": 16, "deepest": 16, "wardens": [8, 12, 16],
 		"mines": [{"mine": "QUARRY", "deepest": 16, "wardens": [8, 12, 16], "boss": true}],
-		"players": {"a": {"haul": [first], "dice": [], "stats": {}, "rail": [], "ore": 237, "earned": 500}}}
+		"players": {"a": {"haul": [first], "dice": [], "stats": {}, "rail": [], "ore": 237}}}
 	var applied: Dictionary = DeepProfile.apply_result(profile, result, "a")
-	check(int(applied.assay.gold) == 47 and int(applied.assay.pyrite) == 235, "the assayer pays for what was carried up: %s" % str(applied.assay))
+	check(not applied.has("assay"), "pyrite carried up is never weighed into gold")
 	check(applied.purses == [{"mine": "QUARRY", "gold": DeepEconomy.conquest_purse("QUARRY")}], "the Quarry's first conquest pays its purse")
-	check(int(profile.gold) == 47 + DeepEconomy.conquest_purse("QUARRY"), "both into the purse (%d)" % int(profile.gold))
+	check(int(profile.gold) == DeepEconomy.conquest_purse("QUARRY"), "and only the purse comes home as gold (%d)" % int(profile.gold))
 	check(profile.tray.size() == 1 and not profile.vault.has("VENOM") and applied.kept.is_empty(), "the first stone of its skill waits on the tray to be kept or turned in")
-	check(int(profile.history.back().gold) == 47, "and the ledger remembers what the run was assayed for")
+	check(int(profile.history.back().gold) == 0, "and the ledger records no gold for the run's pyrite")
 	var again: Dictionary = DeepProfile.apply_result(profile, result, "a")
 	check(again.purses.is_empty() and profile.conquest_paid == ["QUARRY"], "the purse is paid once")
 	var lost: Dictionary = result.duplicate(true)
 	lost.outcome = "fallen"
 	var gold_before: int = int(profile.gold)
-	check(int(DeepProfile.apply_result(profile, lost, "a").assay.gold) == 0 and int(profile.gold) == gold_before, "a fall assays nothing")
+	DeepProfile.apply_result(profile, lost, "a")
+	check(int(profile.gold) == gold_before, "a fall pays nothing")
 	## Asked to sell the first stone of a skill, the vault keeps it: it is never sold.
 	var kept: Dictionary = DeepProfile.decide_tray(profile, "venom_first", false)
 	check(kept.kept and profile.vault.has("VENOM"), "the first of a skill is never sold")
@@ -472,10 +404,6 @@ func _test_no_profit() -> void:
 			var commission: Dictionary = {"skill": str(found.skill), "need": {}, "reward": DeepEconomy.base_reward(str(found.skill), {})}
 			if DeepEconomy.payout(commission, found) <= DeepStone.value(found):
 				check(false, "turning in a %s pays less than selling it" % DeepStone.name(found))
-		## The fare buys a purse at 2 pyrite to the gold; the assayer buys back at 5, and only
-		## what was earned: going down and straight back up can never pay.
-		var purse: int = int(mine.get("start_pyrite", 0))
-		check(int(DeepEconomy.assay({"ore": purse, "earned": purse}, "extracted").gold) < DeepEconomy.fare(key) or key == "QUARRY", "%s: even a purse cashed whole is worth less than its fare" % key)
 	check(true, "turning in beats selling across 800 stones")
 
 # --- the shop: Geodes ---------------------------------------------------------------------------
@@ -515,6 +443,14 @@ func _test_geodes() -> void:
 	var older: Dictionary = DeepProfile.new_profile("Older")
 	older.daily = {"date": "2026-10-10", "rerolls": 0, "seq": 0, "commissions": []}
 	check(DeepEconomy.roll_day(older, "2026-10-10") and DeepEconomy.shelf(older).size() == 2 and DeepEconomy.case_stones(older).size() == DeepEconomy.CASE_SIZE, "a save from before the market is stocked the same day")
+	## A save stocked with the old three Geodes a day keeps only the first as today's.
+	var three: Dictionary = DeepProfile.new_profile("Three")
+	DeepEconomy.roll_day(three, "2026-10-10")
+	var first_of_three: Dictionary = three.daily.shelf[0].duplicate(true)
+	first_of_three.bought = true
+	three.daily.shelf = [first_of_three, first_of_three.duplicate(true), first_of_three.duplicate(true)]
+	check(DeepEconomy.roll_day(three, "2026-10-10") and three.daily.shelf.size() == 1 and DeepEconomy.shelf(three).size() == 2, "a shelf of three from before the week's Geode keeps one of the day's")
+	check(bool(DeepEconomy.shelf(three)[0].bought) and bool(DeepEconomy.shelf(three)[1].get("weekly", false)), "the one kept is the first, opened or not, and the week's follows it")
 	var sealed: Dictionary = DeepProfile.new_profile("Sealed")
 	for key in sealed.mines:
 		sealed.mines[key].unlocked = false
@@ -634,7 +570,7 @@ func _test_market() -> void:
 	check(not DeepEconomy.buy_case(shopper, str(item.id)).ok, "a short purse buys nothing")
 	shopper.gold = int(item.price) + 10
 	var bought: Dictionary = DeepEconomy.buy_case(shopper, str(item.id))
-	check(bought.ok and int(shopper.gold) == 10 + int(bought.get("sold_for", 0)) and shopper.vault.has(str(item.stone.skill)), "bought, it goes into the vault: %s" % str(bought.get("error", "")))
+	check(bought.ok and int(shopper.gold) == 10 and shopper.vault.has(str(item.stone.skill)), "bought, it goes into the vault, and any it replaces pays nothing: %s" % str(bought.get("error", "")))
 	check(bool(shopper.vault[str(item.stone.skill)].get("fresh", false)) and DeepProfile.fresh_count(shopper) == 1, "and is new there until looked at")
 	check(DeepProfile.unfresh(shopper, str(item.stone.skill)) and DeepProfile.fresh_count(shopper) == 0, "looked at, it is not new any more")
 	check(not DeepEconomy.buy_case(shopper, str(item.id)).ok, "a stone in the case is sold once")
@@ -698,10 +634,15 @@ func _test_market() -> void:
 	check(str(DeepEconomy.contract_preview(worker, []).reason) != "" and DeepEconomy.contract_signed_today(worker), "and once one is signed it shuts for the day")
 	DeepEconomy.roll_day(worker, "2026-10-11")
 	check(not DeepEconomy.contract_signed_today(worker) and not DeepEconomy.rework_used(worker, "cut"), "a new day opens the bench, the Wheel and the Oven again")
-	## The Wanted list.
-	check(DeepProfile.toggle_wanted(worker, "FURY") and DeepProfile.wanted(worker) == ["FURY"], "a skill can be starred")
-	check(not DeepProfile.toggle_wanted(worker, "FURY") and DeepProfile.wanted(worker).is_empty(), "and unstarred")
-	check(not DeepProfile.toggle_wanted(worker, "NOT_A_SKILL"), "only real skills can be starred")
+	## Favorites.
+	check(DeepProfile.toggle_favorite(worker, "FURY") and DeepProfile.favorites(worker) == ["FURY"], "a skill can be starred")
+	check(not DeepProfile.toggle_favorite(worker, "FURY") and DeepProfile.favorites(worker).is_empty(), "and unstarred")
+	check(not DeepProfile.toggle_favorite(worker, "NOT_A_SKILL"), "only real skills can be starred")
+	## A save from when the stars were a "wanted" list keeps them, as favorites.
+	var starred: Dictionary = DeepProfile.new_profile("Starred")
+	starred.erase("favorites")
+	starred.wanted = ["FURY", "GUARD"]
+	check(DeepProfile.upgrade(starred) and DeepProfile.favorites(starred) == ["FURY", "GUARD"] and not starred.has("wanted"), "an old wanted list becomes the favorites")
 	## A commission filled from the vault.
 	var filler: Dictionary = DeepProfile.new_profile("Filler")
 	filler.daily = {"date": "2026-10-10", "rerolls": 0, "seq": 0, "commissions": [{"id": "cv", "skill": "MEND", "need": {}, "reward": 50, "done": false}], "shelf": [], "case": []}
@@ -1262,7 +1203,7 @@ func _test_daily_rewards() -> void:
 	lent.lent = true
 	var result: Dictionary = {"run_id": "daily_one", "mine": "QUARRY", "from_mine": "QUARRY", "outcome": "extracted", "depth": 9, "deepest": 9, "wardens": [8],
 		"mines": [{"mine": "QUARRY", "deepest": 9, "wardens": [8], "boss": false}], "daily": {"date": "2026-10-10", "rail": "LENT_RAIL", "mods": []},
-		"players": {"a": {"haul": [found], "home": [found, lent], "dice": [], "stats": {}, "ore": 140, "earned": 140}}}
+		"players": {"a": {"haul": [found], "home": [found, lent], "dice": [], "stats": {}, "ore": 140}}}
 	var scored: Dictionary = DeepEconomy.daily_score(result, "a")
 	check(int(scored.worth) == DeepStone.value(found) and int(scored.pyrite) == 140 and int(scored.score) == DeepStone.value(found) + 140, "a score is the stones' worth and the pyrite, never a lent stone (%s)" % str(scored.score))
 	var fell: Dictionary = result.duplicate(true)
@@ -1282,6 +1223,10 @@ func _test_daily_rewards() -> void:
 	check(JSON.stringify(profile.mines) == mines_before and int(profile.records.runs) == runs_before and int(profile.records.dailies) == 1, "it opens no mine and writes no mine's records")
 	check(bool(profile.history.back().daily) and int(profile.history.back().score) == int(scored.score), "the ledger keeps its score")
 	check(int(profile.dig.best_score) == int(scored.score) and int(profile.dig.best_gold) == worth, "and the day's best is raised")
+	## The map of today's dig reads how far the seam has gone, kept apart from the mine records.
+	var reach: Dictionary = DeepEconomy.daily_reach(profile, "2026-10-10")
+	check(reach.keys() == ["QUARRY"] and int(reach.QUARRY.deepest) == 9 and DeepPatch.holds(reach.QUARRY.wardens, 8) and not bool(reach.QUARRY.boss), "today's reach is the Quarry to depth 9: %s" % str(reach))
+	check(DeepEconomy.daily_reach(profile, "2026-10-11").is_empty(), "and a new day starts with none")
 	## Again the same day: only what it adds.
 	var again: Dictionary = DeepDescent.new_run(DeepEconomy.daily_config("2026-10-10", [{"id": "a", "name": "Ada"}], "daily_two"))
 	DeepEconomy.begin_daily(profile, again)

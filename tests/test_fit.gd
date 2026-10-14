@@ -158,7 +158,7 @@ func _workshop(app: Control) -> void:
 	## And the first stone of its skill, wanted by a commission: keep it, or turn it in.
 	var rival: Dictionary = app.profile.vault.get(str(wanted.skill), {})
 	app.profile.vault.erase(str(wanted.skill))
-	check(not Homecoming.actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep it, sell")), "a first stone of its skill is never offered for sale")
+	check(not Homecoming.actions(home, wanted).any(func(a: Dictionary) -> bool: return str(a.label).begins_with("Keep it, replace")), "a first stone of its skill is never offered for sale")
 	home.open("vault", true)
 	await _fits(screen, "the Unappraised view on a new skill a commission wants")
 	app.profile.vault[str(wanted.skill)] = rival
@@ -222,7 +222,7 @@ func _daily_map(app: Control, lobby: Dictionary) -> void:
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
 
 func _market(app: Control) -> void:
-	## The Market: the counter fresh, with a Geode's odds open, a Geode opened, the case sold
+	## The Market: the counter fresh, a Geode opened, the case sold
 	## out and the day restocked; the Wheel and the Oven with nothing and something picked; the
 	## contract bench empty, with five of one grade on it (the vault's among them, asking
 	## twice), and every page of its stones. Then a Geode cracked and a contract sealed, each
@@ -233,11 +233,6 @@ func _market(app: Control) -> void:
 	await _fits(screen, "the Market")
 	var shelf: Array = DeepEconomy.shelf(app.profile)
 	check(shelf.size() == 2, "the Market opens on today's Geode and the week's")
-	for geode in shelf:
-		home._odds_open = str(geode.get("id", ""))
-		home.open("market", true)
-		await _fits(screen, "the Market with the odds of %s open" % str(geode.get("id", "")))
-	home._odds_open = ""
 	var opened: Dictionary = DeepEconomy.open_geode(app.profile, str(shelf[0].get("id", ""))) if not shelf.is_empty() else {}
 	check(bool(opened.get("ok", false)), "a Geode can be bought from the full workshop")
 	for entry in DeepEconomy.case_stones(app.profile):
@@ -670,10 +665,9 @@ func _run(app: Control) -> void:
 	var over: Dictionary = run.duplicate(true)
 	over.phase = "over"
 	over.outcome = "extracted"
-	## With a full pocket for the assayer, part of it the shaft head's purse.
+	## With a full pocket.
 	var pocket: Dictionary = DeepDescent.player(over, app.session.local_id)
 	pocket.ore = 99999
-	pocket.stats.earned = 88888
 	descent._end_shown = true
 	for page in range(2):
 		descent._pages["home"] = page

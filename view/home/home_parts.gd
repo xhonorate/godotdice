@@ -129,33 +129,33 @@ class OddsBar extends Control:
 		return ""
 
 	func _draw() -> void:
-		var back := StyleBoxFlat.new()
-		back.bg_color = Color(DeepUi.LINE, 0.5)
-		back.set_corner_radius_all(int(BAR * 0.5))
-		back.anti_aliasing = true
-		draw_style_box(back, Rect2(Vector2.ZERO, Vector2(size.x, BAR)))
+		## Every segment is cut from the one rounded bar, so all of them stand the same height and
+		## only the bar's two ends are round. (Drawn as boxes, the end segments' rounded corners
+		## were anti-aliased inward and stood a pixel or two shorter than the square ones between.)
+		var shape: PackedVector2Array = _outline()
+		_fill(shape, Color(DeepUi.LINE, 0.5))
 		var x: float = 0.0
 		var font: Font = DeepUi.bold_font()
+		## How far in from each end the highlight along the top edge starts, where the round end
+		## is still below it.
+		var radius: float = BAR * 0.5
+		var inset: float = radius - sqrt(radius * radius - (radius - 1.0) * (radius - 1.0))
 		for index in range(parts.size()):
 			var part: Dictionary = parts[index]
 			var width: float = size.x * float(part.share)
 			if width <= 0.5:
 				continue
-			var segment := StyleBoxFlat.new()
-			segment.bg_color = part.color
-			segment.corner_radius_top_left = int(BAR * 0.5) if index == 0 else 0
-			segment.corner_radius_bottom_left = int(BAR * 0.5) if index == 0 else 0
-			segment.corner_radius_top_right = int(BAR * 0.5) if index == parts.size() - 1 else 0
-			segment.corner_radius_bottom_right = int(BAR * 0.5) if index == parts.size() - 1 else 0
-			segment.anti_aliasing = true
-			var rect := Rect2(Vector2(x, 0), Vector2(width, BAR))
-			draw_style_box(segment, rect)
+			_fill(_cut(shape, x, x + width), part.color)
 			if bool(part.get("rainbow", false)):
 				## A rainbow segment: the wheel run along it, in thin strips.
 				var strips: int = maxi(2, int(width / 3.0))
 				for s in range(strips):
-					draw_rect(Rect2(Vector2(x + width * float(s) / float(strips), 0), Vector2(width / float(strips) + 0.5, BAR)), DeepUi.rainbow_at(float(s) / float(strips), 0.55))
-			draw_line(Vector2(x, 1), Vector2(x + width, 1), Color(1, 1, 1, 0.22), 1.0)
+					var from: float = x + width * float(s) / float(strips)
+					_fill(_cut(shape, from, from + width / float(strips) + 0.5), DeepUi.rainbow_at(float(s) / float(strips), 0.55))
+			var shine_from: float = maxf(x, inset)
+			var shine_to: float = minf(x + width, size.x - inset)
+			if shine_to > shine_from:
+				draw_line(Vector2(shine_from, 1), Vector2(shine_to, 1), Color(1, 1, 1, 0.22), 1.0)
 			## Named under the bar where it is wide enough to carry the words.
 			var words: String = "%s %s" % [str(part.label), Geode.percent(float(part.share))]
 			var measured: float = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
@@ -166,6 +166,34 @@ class OddsBar extends Control:
 				var tint: Color = part.color if not bool(part.get("rainbow", false)) else DeepUi.OPAL_TONE
 				draw_string(font, Vector2(x + (width - measured) * 0.5, BAR + 15.0), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tint.lightened(0.15))
 			x += width
+
+	func _outline() -> PackedVector2Array:
+		## The whole bar, a rectangle with half-round ends.
+		var radius: float = minf(BAR * 0.5, size.x * 0.5)
+		var points := PackedVector2Array()
+		var steps: int = 10
+		for i in range(steps + 1):
+			var angle: float = -PI * 0.5 + PI * float(i) / float(steps)
+			points.append(Vector2(size.x - radius + cos(angle) * radius, radius + sin(angle) * radius))
+		for i in range(steps + 1):
+			var angle: float = PI * 0.5 + PI * float(i) / float(steps)
+			points.append(Vector2(radius + cos(angle) * radius, radius + sin(angle) * radius))
+		return points
+
+	func _cut(shape: PackedVector2Array, from: float, to: float) -> PackedVector2Array:
+		## The part of the bar between two points along it.
+		var band := PackedVector2Array([Vector2(from, -1.0), Vector2(to, -1.0), Vector2(to, BAR + 1.0), Vector2(from, BAR + 1.0)])
+		var pieces: Array = Geometry2D.intersect_polygons(shape, band)
+		return pieces[0] if not pieces.is_empty() else PackedVector2Array()
+
+	func _fill(points: PackedVector2Array, color: Color) -> void:
+		## A piece of the bar, its edge smoothed by a hairline of its own color.
+		if points.size() < 3:
+			return
+		draw_colored_polygon(points, color)
+		var loop := points.duplicate()
+		loop.append(points[0])
+		draw_polyline(loop, color, 1.0, true)
 
 class MarkRows extends Control:
 	## Every skill a Geode might hold, each as its mark in its gem color, in as many to a row

@@ -649,6 +649,67 @@ static func primary(parent: Node, glyph: String, text: String, callback: Callabl
 	b.add_theme_color_override("icon_disabled_color", Color(INK, 0.6))
 	return b
 
+## A button that sells something: its own fill, never the accent, so the coin on it reads.
+const TRADE := Color("b99cff")
+
+static func coin_safe(tone: Color, instead: Color = INFO) -> Color:
+	## A fill a coin can sit on: any tone but a yellow one (the accent, a Peerless gold), which
+	## the coin would melt into.
+	var yellow: bool = tone.s > 0.35 and tone.h > 0.09 and tone.h < 0.19
+	return instead if yellow else tone
+
+static func price_chip(parent: Node, sum: String, size: int = 13) -> PanelContainer:
+	## A sum of gold as every button shows one: the coin, then the number, in a dark capsule
+	## so the coin reads on any fill. Gold is never written out as a word on a button.
+	var chip := PanelContainer.new()
+	var style := flat(Color(INK, 0.62), Color(ACCENT, 0.35), 8, 0)
+	style.content_margin_left = 6
+	style.content_margin_right = 8
+	style.content_margin_top = 1
+	style.content_margin_bottom = 1
+	chip.add_theme_stylebox_override("panel", style)
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.name = "Price"
+	parent.add_child(chip)
+	var row := stat(chip, "coin", sum, ACCENT_HI, size)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for part in row.get_children():
+		(part as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return chip
+
+static func priced(b: Button, sum: String, size: int = -1) -> Button:
+	## Sets a price tag (`price_chip`) at the right end of a button built with its own mark and
+	## words, and widens the button's right margin to make room for it. The tag dims with the
+	## button when it is disabled. `sum` is the number as shown: "240", or "+38" for a payout.
+	var font_size: int = size if size > 0 else maxi(MIN_TEXT, b.get_theme_font_size("font_size") - 2)
+	var chip := price_chip(b, sum, font_size)
+	var gap: float = 10.0
+	var room: float = chip.get_combined_minimum_size().x + gap
+	for state in ["normal", "hover", "pressed", "disabled", "focus", "hover_pressed"]:
+		var box: StyleBox = b.get_theme_stylebox(state)
+		if box == null:
+			continue
+		var wider: StyleBox = box.duplicate()
+		wider.content_margin_right = maxf(0.0, box.get_margin(SIDE_RIGHT)) + room
+		b.add_theme_stylebox_override(state, wider)
+	## Also run on every draw of the button, since that is the one thing a change to
+	## `disabled` is sure to cause; nothing is set that has not changed.
+	var place := func() -> void:
+		var want: Vector2 = chip.get_combined_minimum_size()
+		var at := Vector2(b.size.x - want.x - gap, (b.size.y - want.y) * 0.5).round()
+		if chip.size != want:
+			chip.size = want
+		if chip.position != at:
+			chip.position = at
+		var alpha: float = 0.5 if b.disabled else 1.0
+		if chip.modulate.a != alpha:
+			chip.modulate.a = alpha
+	b.resized.connect(place)
+	b.draw.connect(place)
+	chip.minimum_size_changed.connect(place)
+	place.call()
+	return b
+
 static func choice_card(parent: Node, tone: Color, callback: Callable, pad: int = 16) -> PanelContainer:
 	## An option that is a whole card rather than a card with a button on it: it lights in its
 	## tone under the pointer, dips on press and acts on release. What goes inside should

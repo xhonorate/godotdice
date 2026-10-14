@@ -258,7 +258,7 @@ func hello(member: Dictionary) -> void:
 	_on_connected()
 
 func _reset() -> void:
-	lobby = {"members": {}, "order": [], "mine": DeepContent.starter_mine(), "host": "p0", "started": false, "daily": ""}
+	lobby = {"members": {}, "order": [], "mine": DeepContent.starter_mine(), "host": "p0", "started": false, "daily": "", "hazard": 0}
 	run = {}
 	revision = 0
 	_peer_of = {}
@@ -296,10 +296,12 @@ func _add_member(id: String, member: Dictionary) -> void:
 		"character": str(said.get("character", DeepContent.starter_character())), "rail": said.get("rail", []), "dice": said.get("dice", []),
 		"ready": bool(said.get("ready", false)), "connected": true, "last_depth": int(said.get("last_depth", 0)), "last_outcome": str(said.get("last_outcome", "")),
 		"gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap())),
-		"daily_state": str(said.get("daily_state", "locked")), "showcase": said.get("showcase", [])}
+		"daily_state": str(said.get("daily_state", "locked")), "showcase": said.get("showcase", []),
+		"hazard_top": int(said.get("hazard_top", 0)), "hazard_open": said.get("hazard_open", [])}
 	lobby.members[id] = record
 	if not lobby.order.has(id):
 		lobby.order.append(id)
+	_fit_hazard()
 	lobby_changed.emit(lobby)
 
 func local_member() -> Dictionary:
@@ -341,6 +343,8 @@ func _apply_member(id: String, fields: Dictionary) -> void:
 	if said.has("character") or said.has("rail") or said.has("dice"):
 		if not said.has("ready"):
 			record.ready = false
+	if said.has("hazard_top"):
+		_fit_hazard()
 	_broadcast({"kind": "lobby", "lobby": lobby})
 	lobby_changed.emit(lobby)
 
@@ -376,6 +380,13 @@ static func clean_member_fields(fields: Dictionary) -> Dictionary:
 			"daily_state":
 				if value is String and value in ["locked", "fresh", "played"]:
 					out.daily_state = value
+			"hazard_top":
+				if (value is int or value is float) and is_finite(float(value)):
+					out.hazard_top = clampi(int(value), 0, DeepContent.hazard_max())
+			"hazard_open":
+				## The mines a member has open on their highest Hazard tier.
+				if value is Array and value.size() <= 16 and value.all(func(k: Variant) -> bool: return k is String and DeepContent.section("mines").has(k)):
+					out.hazard_open = value
 			"showcase":
 				## The best stones a member shows the party: a few known stones, nothing else.
 				if value is Array and value.size() <= 7 and value.all(func(s: Variant) -> bool:
@@ -408,6 +419,61 @@ func choose_daily(date: String) -> void:
 
 func daily_lobby() -> bool:
 	return not str(lobby.get("daily", "")).is_empty()
+
+# --- the Hazard tier ---------------------------------------------------------------------------
+
+func hazard() -> int:
+	return int(lobby.get("hazard", 0))
+
+func hazard_cap() -> int:
+	## The highest tier the party may pick: one every member has unlocked.
+	var cap: int = DeepContent.hazard_max()
+	for id in lobby.get("order", []):
+		var member: Dictionary = lobby.members.get(id, {})
+		if bool(member.get("connected", true)):
+			cap = mini(cap, int(member.get("hazard_top", 0)))
+	return maxi(0, cap)
+
+static func member_open_mines(member: Dictionary, tier: int) -> Array:
+	## The mines a member may start in on a tier. Every tier under their highest has the Rift
+	## reached on it, so everything is open there; on their highest, what they have opened.
+	if tier < int(member.get("hazard_top", 0)):
+		return DeepContent.mines_in_order()
+	return member.get("hazard_open", [])
+
+func hazard_blocked() -> Array:
+	## Everyone going down who has not opened the party's mine on the party's tier. Tier 0 and
+	## the day's seam ask nothing of the kind.
+	if hazard() <= 0 or daily_lobby():
+		return []
+	var mine: String = str(lobby.get("mine", DeepContent.starter_mine()))
+	var out: Array = []
+	for id in lobby.order:
+		var member: Dictionary = lobby.members.get(id, {})
+		if bool(member.get("connected", true)) and not member_open_mines(member, hazard()).has(mine):
+			out.append(str(id))
+	return out
+
+func choose_hazard(tier: int) -> void:
+	## The host sets the party's Hazard tier, never past one everyone has. A mine the host has
+	## not opened on the new tier gives way to the starter mine.
+	if not is_host:
+		return
+	var picked: int = clampi(tier, 0, hazard_cap())
+	if picked == hazard():
+		return
+	lobby.hazard = picked
+	if not daily_lobby() and not member_open_mines(local_member(), picked).has(str(lobby.get("mine", ""))):
+		lobby.mine = DeepContent.starter_mine()
+	_broadcast({"kind": "lobby", "lobby": lobby})
+	lobby_changed.emit(lobby)
+
+func _fit_hazard() -> void:
+	## A member with a lower highest tier pulls the party's tier down to theirs.
+	if is_host and hazard() > hazard_cap():
+		lobby.hazard = hazard_cap()
+		if not daily_lobby() and not member_open_mines(local_member(), hazard()).has(str(lobby.get("mine", ""))):
+			lobby.mine = DeepContent.starter_mine()
 
 func kick(player_id: String) -> bool:
 	## The host sends a guest home. Only in the workshop: a run underground keeps its party.
@@ -451,6 +517,8 @@ func can_start() -> bool:
 	## have dug it already today, come along for no reward.
 	if daily_lobby() and str(lobby.members.get(local_id, {}).get("daily_state", "locked")) == "locked":
 		return false
+	if hazard() > hazard_cap() or not hazard_blocked().is_empty():
+		return false
 	return short_members().is_empty()
 
 func departure_cost(member: Dictionary) -> int:
@@ -475,6 +543,8 @@ func start_run(seed_value: int = 0) -> Dictionary:
 	if not can_start():
 		if not short_members().is_empty():
 			return {"ok": false, "error": "not everyone can pay the way down"}
+		if not hazard_blocked().is_empty():
+			return {"ok": false, "error": "not everyone has opened this mine on this Hazard tier"}
 		return {"ok": false, "error": "not everyone is ready"}
 	var players: Array = []
 	for id in lobby.order:
@@ -493,6 +563,8 @@ func start_run(seed_value: int = 0) -> Dictionary:
 	if daily_lobby():
 		## The day's seam: its own seed, lapidaries, rails and dice, whatever anyone wore.
 		config = DeepEconomy.daily_config(str(lobby.daily), players, "daily%s%06x" % [str(lobby.daily).replace("-", ""), randi() & 0xffffff])
+	## The party's Hazard tier, on either way down.
+	config.hazard = mini(hazard(), hazard_cap())
 	run = DeepDescent.new_run(config)
 	revision = 1
 	_ended = false
@@ -602,7 +674,7 @@ func _after_change() -> void:
 func _hold_for_absent(results: Dictionary) -> void:
 	## Whoever dropped out and was not back for the end still went through the run with the
 	## party, and how it ended is theirs as much as anyone's: the stones they carried (or what
-	## salvage left of them), the mines' records, the pocket for the assayer. Their share is
+	## salvage left of them), the mines' records, the pocket for the day's score. Their share is
 	## kept here, by the profile they play with, and handed over the next time that profile
 	## says hello to this host, in the workshop or in another run.
 	if not is_host:

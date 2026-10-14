@@ -115,7 +115,7 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 		var fee: int = 0
 		for stone in raw:
 			fee += DeepProfile.appraisal_fee(stone)
-		var all := DeepUi.icon_button(box, "loupe", "Read the rest · %d" % fee, func() -> void: _read_all(home, raw), 13, DeepUi.INFO)
+		var all := DeepUi.priced(DeepUi.icon_button(box, "loupe", "Read the rest", func() -> void: _read_all(home, raw), 13, DeepUi.INFO), str(fee))
 		all.disabled = int(home.profile.get("gold", 0)) < fee
 		all.tooltip_text = "Every unread stone, read at once." if not all.disabled else "You have %d gold. Reading the rest costs %d." % [int(home.profile.get("gold", 0)), fee]
 	var cheapest: int = 1 << 30
@@ -125,11 +125,12 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 		var rough: int = 0
 		for stone in raw:
 			rough += DeepStone.rough_value(stone)
-		var sell := DeepUi.icon_button(box, "coin", "Sell the unread rough · +%d" % rough, func() -> void:
+		var sell := DeepUi.icon_button(box, "scales", "Sell the unread rough", func() -> void:
 			for stone in raw:
 				DeepProfile.decide_tray(home.profile, str(stone.id), false)
 			home._appraise_pick = ""
-			home.profile_changed.emit(), 13, DeepUi.ACCENT)
+			home.profile_changed.emit(), 13, DeepUi.TRADE)
+		DeepUi.priced(sell, "+%d" % rough)
 		sell.tooltip_text = "You cannot pay to read them. A buyer pays for their size and color; you never learn what they were."
 	var since: int = int(home.profile.get("gold", 0)) - int(home.get_meta("came_with", int(home.profile.get("gold", 0))))
 	var tally := DeepUi.hbox(box, 6)
@@ -154,7 +155,7 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 	var purse: int = int(home.profile.get("gold", 0))
 	var choices := DeepUi.hbox(box, 14)
 	choices.alignment = BoxContainer.ALIGNMENT_CENTER
-	var read := DeepUi.primary(choices, "loupe", "Read it · %d gold" % fee, func() -> void:
+	var read := DeepUi.primary(choices, "loupe", "Read it", func() -> void:
 		var raw: Dictionary = pick.duplicate(true)
 		if not DeepProfile.appraise(home.profile, pick):
 			return
@@ -167,6 +168,7 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 				home._appraise_pick = ""
 				home.cheer("Shattered: Fragile", DeepUi.BAD)
 			home.profile_changed.emit()), 18, DeepUi.INFO)
+	DeepUi.priced(read, str(fee), 16)
 	read.custom_minimum_size = Vector2(230, 50)
 	read.disabled = purse < fee
 	DeepUi.voice(read, "loupe_spin")
@@ -175,12 +177,13 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 		DeepUi.label(box, "You can't pay to read it. Sell it rough to clear the tray.", 13, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
 	else:
 		DeepUi.breathe(read, 0.8, 1.6)
-	var off := DeepUi.icon_button(choices, "coin", "Sell rough · +%d" % rough, func() -> void:
+	var off := DeepUi.icon_button(choices, "scales", "Sell rough", func() -> void:
 		var result: Dictionary = DeepProfile.decide_tray(home.profile, str(pick.id), false)
 		home._appraise_pick = ""
 		if bool(result.get("shattered", false)):
 			home.cheer("Shattered: Fragile", DeepUi.BAD)
-		home.profile_changed.emit(), 16, DeepUi.ACCENT)
+		home.profile_changed.emit(), 16, DeepUi.TRADE)
+	DeepUi.priced(off, "+%d" % rough, 14)
 	off.custom_minimum_size = Vector2(200, 50)
 	off.tooltip_text = "Sells for what its color and size are worth. You never find out what it was."
 	DeepUi.voice(off, "sell")
@@ -244,7 +247,8 @@ static func _yours(home: Control, columns: HBoxContainer, owned: Dictionary) -> 
 
 static func actions(home: Control, pick: Dictionary) -> Array:
 	## What can be done with a known stone on the tray. With one of its skill already kept the
-	## choice is which of the two to keep; otherwise it is keep (a first is never sold).
+	## choice is which of the two to keep, and only the one not kept can be sold: keeping the
+	## new one lets the old one go for nothing. Otherwise it is keep (a first is never sold).
 	var id: String = str(pick.id)
 	if DeepStone.is_fragile(pick):
 		return []
@@ -262,13 +266,13 @@ static func actions(home: Control, pick: Dictionary) -> Array:
 	if owned.is_empty():
 		out.append({"label": "Into the vault", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "The first of its skill is never sold", "call": keep, "sound": "keep"})
 	else:
-		out.append({"label": "Keep it, sell yours", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "Yours sells for %d gold" % DeepStone.value(owned), "call": keep, "sound": "keep"})
-		out.append({"label": "Sell it", "glyph": "coin", "tone": DeepUi.ACCENT, "caption": "+%d gold; yours stays" % DeepStone.value(pick), "call": sell, "sound": "sell"})
+		out.append({"label": "Keep it, replace yours", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "Yours is let go for no gold", "call": keep, "sound": "keep"})
+		out.append({"label": "Sell it", "glyph": "scales", "tone": DeepUi.TRADE, "price": "+%d" % DeepStone.value(pick), "caption": "Yours stays", "call": sell, "sound": "sell"})
 	var wanted: Dictionary = DeepEconomy.commission_for(home.profile, pick)
 	if not wanted.is_empty():
 		var paid: int = DeepEconomy.payout(wanted, pick)
 		var commission_id: String = str(wanted.id)
-		out.append({"label": "Turn it in", "glyph": "flag", "tone": DeepUi.INFO, "caption": "A commission pays %d gold" % paid, "sound": "sell",
+		out.append({"label": "Turn it in", "glyph": "flag", "tone": DeepUi.INFO, "price": "+%d" % paid, "caption": "For a commission", "sound": "sell",
 			"call": func() -> void:
 				if bool(DeepEconomy.turn_in(home.profile, id, commission_id).get("ok", false)):
 					home._appraise_pick = ""

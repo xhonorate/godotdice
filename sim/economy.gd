@@ -2,9 +2,9 @@ class_name DeepEconomy
 extends RefCounted
 ## Gold at home: what the workshop charges and pays between runs (docs/GOLD.md). The fare
 ## down to a deeper mine and the insurance on a haul, sockets bought for a lapidary for good,
-## the pyrite weighed into gold at the lift, a purse for the first conquest of each mine, the
-## commissions, the shop's Geodes, contracts that trade five stones up for one, and the daily
-## dig everyone plays from the same seed.
+## a purse for the first conquest of each mine, the commissions, the shop's Geodes, contracts
+## that trade five stones up for one, and the daily dig everyone plays from the same seed.
+## Pyrite is never weighed into gold: it can be dug without end, so it stays down the mine.
 ##
 ## Every price is read from the pack. Nothing here makes a kept stone better: gold buys a
 ## way down, protection, sockets and new chances at stones; a commission takes a stone away
@@ -56,6 +56,11 @@ static func roll_day(profile: Dictionary, date: String = "") -> bool:
 	if not daily.get("shelf", null) is Array or daily.shelf.is_empty():
 		daily.shelf = _roll_daily_geode(profile, date, 1 if bool(daily.get("restocked", false)) else 0)
 		changed = changed or not daily.shelf.is_empty()
+	## A shelf stocked before the week's Geode had a place of its own held three of the day's;
+	## only the first (a mine's, bought or not) stays as today's.
+	elif daily.shelf.size() > 1:
+		daily.shelf = daily.shelf.slice(0, 1)
+		changed = true
 	## The case of cut and read stones, three a day.
 	if not daily.get("case", null) is Array or daily.case.is_empty():
 		daily.case = _roll_case(profile, date, 1 if bool(daily.get("restocked", false)) else 0)
@@ -140,30 +145,6 @@ static func unlock_socket(profile: Dictionary, character_key: String) -> Diction
 	return {"ok": true, "paid": price, "sockets": int(record.sockets)}
 
 # --- coming up --------------------------------------------------------------------------------
-
-static func earned(unit: Dictionary, amount: int) -> void:
-	## Writes pyrite a player came by down the mine (a fight, a vein, a sale, an oddity, a well,
-	## a stake) into the tally the assayer weighs at the lift. The purse a deeper mine hands
-	## out at the start is never written here.
-	if amount <= 0:
-		return
-	if not unit.get("stats", null) is Dictionary:
-		unit.stats = {}
-	unit.stats.earned = int(unit.stats.get("earned", 0)) + amount
-
-static func assay_rate() -> int:
-	return maxi(1, int(DeepContent.constant("assay_rate", 5)))
-
-static func assay(player_result: Dictionary, outcome: String) -> Dictionary:
-	## What the assayer at the lift weighs out of a player's pocket and pays for it. Only a
-	## party that rides up is paid, and only for pyrite earned down there: the purse a deeper
-	## mine hands out at the start is never cashed, however little of it was spent.
-	var carried: int = maxi(0, int(player_result.get("ore", 0)))
-	if not outcome in ["extracted", "conquered"]:
-		return {"carried": carried, "pyrite": 0, "gold": 0}
-	var weighed: int = mini(carried, maxi(0, int(player_result.get("earned", 0))))
-	var gold: int = weighed / assay_rate()
-	return {"carried": carried, "pyrite": gold * assay_rate(), "gold": gold}
 
 static func conquest_purse(mine_key: String) -> int:
 	## The one-off purse for beating a mine's final boss the first time.
@@ -609,7 +590,8 @@ static func open_geode(profile: Dictionary, geode_id: String) -> Dictionary:
 ## Three stones a day, already cut and read: skill, carat, Cut, Clarity and inclusions all on
 ## show. Never an opal or a Transcendent, never fragile. There is no gamble in them, so they
 ## cost more than a Geode's stone of the same worth would (`case_price_mult` of what one sells
-## for). Bought, a stone goes into the vault, and the one of its skill already kept is sold.
+## for). Bought, a stone goes into the vault in place of the one of its skill already kept,
+## which is let go for nothing.
 
 const CASE_SIZE: int = 3
 
@@ -653,7 +635,7 @@ static func _roll_case(profile: Dictionary, date: String, salt: int) -> Array:
 	return out
 
 static func buy_case(profile: Dictionary, case_id: String) -> Dictionary:
-	## Buys a stone out of the case: into the vault, selling the one of its skill already kept.
+	## Buys a stone out of the case: into the vault, in place of the one of its skill already kept.
 	var entry: Dictionary = {}
 	for candidate in case_stones(profile):
 		if str(candidate.get("id", "")) == case_id:
@@ -673,7 +655,7 @@ static func buy_case(profile: Dictionary, case_id: String) -> Dictionary:
 		stone.provenance = {}
 	stone.provenance.date = today()
 	var kept: Dictionary = DeepProfile.keep(profile, stone)
-	return {"ok": true, "paid": price, "stone": stone, "replaced": kept.get("replaced", {}), "sold_for": int(kept.get("paid", 0))}
+	return {"ok": true, "paid": price, "stone": stone, "replaced": kept.get("replaced", {})}
 
 # --- the market: the Wheel and the Oven -----------------------------------------------------------
 ##
@@ -1412,6 +1394,37 @@ static func daily_best(profile: Dictionary, date: String = "") -> Dictionary:
 		return {"score": 0, "gold": 0, "runs": 0}
 	return {"score": int(record.get("best_score", 0)), "gold": int(record.get("best_gold", 0)), "runs": int(record.get("runs", 0))}
 
+static func daily_reach(profile: Dictionary, date: String = "") -> Dictionary:
+	## How far this player has dug the day's seam, over every attempt today: a record for each
+	## mine reached, {unlocked, deepest, wardens, boss}, the way a mine's own records read.
+	## Empty before the first attempt.
+	var record: Dictionary = dig(profile)
+	if str(record.get("date", "")) != (date if not date.is_empty() else today()):
+		return {}
+	var found: Variant = record.get("mines", {})
+	return found if found is Dictionary else {}
+
+static func note_daily_reach(profile: Dictionary, date: String, visited: Array) -> void:
+	## Adds a finished attempt's mines to the day's reach: the deepest of each attempt, every
+	## Warden beaten in any of them, the boss if it fell in one.
+	var record: Dictionary = dig(profile)
+	if str(record.get("date", "")) != date:
+		return
+	if not record.get("mines", null) is Dictionary:
+		record.mines = {}
+	for entry in visited:
+		var key: String = str(entry.get("mine", ""))
+		if key.is_empty():
+			continue
+		var reached: Dictionary = record.mines.get(key, {"unlocked": true, "deepest": 0, "wardens": [], "boss": false})
+		reached.deepest = maxi(int(reached.get("deepest", 0)), int(entry.get("deepest", 0)))
+		for depth in entry.get("wardens", []):
+			if not DeepPatch.holds(reached.wardens, int(depth)):
+				reached.wardens.append(int(depth))
+		reached.boss = bool(reached.get("boss", false)) or bool(entry.get("boss", false))
+		record.mines[key] = reached
+	profile.dig = record
+
 static func daily_played(profile: Dictionary, date: String = "") -> bool:
 	return int(daily_best(profile, date).runs) > 0
 
@@ -1479,22 +1492,33 @@ static func _note_daily_best(profile: Dictionary, date: String, score: int, gold
 	profile.records.daily_bests = bests.slice(maxi(0, bests.size() - DAILY_BESTS_KEPT))
 	profile.records.best_daily = maxi(int(profile.records.get("best_daily", 0)), score)
 
-static func settle_daily(profile: Dictionary, scored: Dictionary, date: String) -> Dictionary:
-	## Pays a finished attempt at the day's seam: the gold its score is worth less what the
-	## day's best already paid, to a lapidary who may be paid at all. The best is raised when the
-	## score beats it. Returns the score's parts with {gold, paid, best_score, best_gold,
-	## improved, eligible}.
+static func daily_gold_mult(tier: int) -> float:
+	## What a Hazard tier multiplies the day's gold by: half again at tier 10, twice at 20.
+	return 1.0 + float(DeepContent.constant("hazard_daily_gold", 0.05)) * float(clampi(tier, 0, DeepContent.hazard_max()))
+
+static func daily_gold(score: int, tier: int = 0) -> int:
+	## The gold a score is worth on a Hazard tier.
+	return int(floor(float(daily_payout(score)) * daily_gold_mult(tier)))
+
+static func settle_daily(profile: Dictionary, scored: Dictionary, date: String, tier: int = 0) -> Dictionary:
+	## Pays a finished attempt at the day's seam: the gold its score is worth on its Hazard
+	## tier, less what the day's best already paid, to a lapidary who may be paid at all. The
+	## best is kept as gold paid, so a deeper run and a higher tier both pay only what they
+	## add. The best score is raised when the score beats it. Returns the score's parts with
+	## {gold, paid, best_score, best_gold, improved, eligible}.
 	var record: Dictionary = dig(profile).duplicate()
 	if str(record.get("date", "")) != date:
 		record = {"date": date, "best_score": 0, "best_gold": 0, "runs": 1, "run_id": ""}
 	var out: Dictionary = scored.duplicate()
-	var gold: int = daily_payout(int(scored.get("score", 0)))
+	var gold: int = daily_gold(int(scored.get("score", 0)), tier)
 	var best_gold: int = int(record.get("best_gold", 0))
 	var eligible: bool = daily_eligible(profile)
 	var paid: int = maxi(0, gold - best_gold) if eligible else 0
 	var improved: bool = int(scored.get("score", 0)) > int(record.get("best_score", 0))
 	if improved:
 		record.best_score = int(scored.get("score", 0))
+	## A higher tier can pay more for the same score, so the Ledger hears of either.
+	if improved or gold > best_gold:
 		_note_daily_best(profile, date, int(record.best_score), maxi(best_gold, gold))
 	record.best_gold = maxi(best_gold, gold)
 	profile.dig = record

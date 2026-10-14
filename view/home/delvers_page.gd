@@ -355,7 +355,7 @@ static func _socket_slot(home: Control, parent: Node, index: int, socket_color: 
 		DeepUi.label(box, "Any color" if socket_color == "ANY" else socket_color.capitalize(), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		if index == DeepProfile.open_sockets(home.profile, character_key):
 			var price: int = DeepEconomy.socket_price(home.profile, character_key)
-			var buy := DeepUi.icon_button(box, "lock_open", "%d gold" % price, func() -> void: home.buy_socket(character_key), 13, DeepUi.ACCENT)
+			var buy := DeepUi.priced(DeepUi.icon_button(box, "lock_open", "", func() -> void: home.buy_socket(character_key), 13, DeepUi.GOOD), str(price))
 			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			buy.disabled = int(home.profile.get("gold", 0)) < price
 			buy.tooltip_text = ("Open this socket for good: it is filled from the vault before every run, in every mine." if not buy.disabled
