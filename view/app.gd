@@ -27,7 +27,13 @@ var _toasts: VBoxContainer
 var _joined: Dictionary = {}
 ## How long the fight has been won, in fight time, so the rail running out waits for the blow that won it.
 var _won_for: float = 0.0
-const WON_BEAT: float = 1.6
+## How many times the workshop has been redrawn from the profile; see `_profile_changed`.
+var _refreshes: int = 0
+## While above zero, the workshop is not redrawn on every change; see `_back_home`.
+var _home_held: int = 0
+## Every "run_id:mine" whose final boss this lapidary has seen fall; see `_note_conquest`.
+var _conquests: Dictionary = {}
+const WON_BEAT: float = 2.8
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -99,7 +105,7 @@ func _ready() -> void:
 	home.player_name_requested.connect(_edit_player_name)
 	add_child(home)
 	descent = DescentScreen.new()
-	descent.command.connect(func(cmd: Dictionary) -> void: session.send(cmd))
+	descent.command.connect(_descent_command)
 	descent.home_requested.connect(_back_home)
 	descent.menu_requested.connect(open_menu)
 	descent.visible = false
@@ -203,9 +209,15 @@ func _kit(loadout: Dictionary) -> Dictionary:
 func _refresh_home() -> void:
 	if home == null:
 		return
+	## Held while several changes land together (see `_back_home`): drawn once, after.
+	if _home_held > 0:
+		return
+	_refreshes += 1
 	## A workshop left open past midnight (UTC) turns over to the new day's commissions and
 	## shelf, and to a new seam the party is told this lapidary has not dug yet.
 	if DeepEconomy.roll_day(profile):
+		## A new day changes the whole workshop, whatever part a click said it touched.
+		home._partial = []
 		saves.save_profile(profile)
 		if str(session.local_member().get("daily_state", "")) != DeepEconomy.daily_state(profile):
 			session.update_member({"daily_state": DeepEconomy.daily_state(profile)})
@@ -214,8 +226,12 @@ func _refresh_home() -> void:
 func _profile_changed() -> void:
 	saves.save_profile(profile)
 	Inspector.vault = profile.get("vault", {})
+	## The host's lobby answers a member update by redrawing the workshop already; a second
+	## redraw straight after it doubled the cost of every click that changes the profile.
+	var refreshed: int = _refreshes
 	session.update_member(_kit(member()))
-	_refresh_home()
+	if _refreshes == refreshed:
+		_refresh_home()
 
 func _depart(seed_value: int) -> void:
 	session.update_member(_kit(member()))
@@ -293,6 +309,8 @@ func _on_run_started(state: Dictionary) -> void:
 	descent.daily_best = attempt
 	descent.bind(session.local_id, session.forecast)
 	descent.show_state(state)
+	## A run picked up from its checkpoint in a beaten boss's hall.
+	_note_conquest(state)
 	## Leaving the workshop, the cage goes down the shaft over the change of screens.
 	if home.visible:
 		Lift.ride(self, true, str(state.get("mine", "")))
@@ -311,6 +329,42 @@ func _on_run_started(state: Dictionary) -> void:
 func _on_run_event(event: Dictionary) -> void:
 	descent.handle(event)
 	descent.show_state(session.run)
+	_note_conquest(session.run)
+
+func _note_conquest(run: Dictionary) -> void:
+	## A mine's final boss is dead. What it opens holds whether or not the party rides up (see
+	## DeepProfile.grant_conquest), so it is opened now, and said in the boss's hall, rather
+	## than when the cage reaches the workshop. The day's seam opens nothing.
+	if run.is_empty() or not run.get("daily", {}).is_empty() or not bool(run.get("records", {}).get("boss", false)):
+		return
+	var mine_key: String = str(run.get("mine", ""))
+	var key: String = "%s:%s" % [str(run.get("run_id", "")), mine_key]
+	if _conquests.has(key):
+		return
+	_conquests[key] = true
+	var unlocked: Array = DeepProfile.grant_conquest(profile, mine_key, DeepDescent.hazard_tier(run))
+	if not unlocked.is_empty():
+		saves.save_profile(profile)
+	## The first conquest's purse is paid when the run comes home, fall or ride.
+	var purse: int = 0 if profile.get("conquest_paid", []).has(mine_key) else DeepEconomy.conquest_purse(mine_key)
+	descent.conquered(mine_key, unlocked, purse)
+
+func _descent_command(cmd: Dictionary) -> void:
+	## Everything the run asks for goes to the rules, except a turn asked to hurry: that is
+	## only the clock, which the host owns.
+	if str(cmd.get("kind", "")) != "hurry":
+		session.send(cmd)
+		return
+	if session.hurried or not session.in_run() or not DeepDescent.in_battle(session.run) or str(DeepDescent.battle(session.run).get("phase", "")) != "resolving":
+		return
+	if not session.is_host and session.in_party():
+		toast("In a party, fights play at the host's speed.", DeepUi.MUTED, "hourglass")
+		return
+	if session.speed >= DeepSession.HURRY_SPEED:
+		return
+	session.hurried = true
+	DeepAudio.play("ui_toggle", {"volume": 0.6})
+	toast("Hurrying this turn", DeepUi.MUTED, "hourglass")
 
 func _process(delta: float) -> void:
 	if DeepMusic.service() != null:
@@ -322,10 +376,13 @@ func _process(delta: float) -> void:
 	## planning included, runs at 1×.
 	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
 	## The host's clock paces every step of a turn, so a guest plays it at the host's speed.
-	var pace: float = session.speed if session.is_host else session.host_speed
+	var pace: float = session.effective_speed() if session.is_host else session.host_speed
+	## A hurried turn is hurried until it is over.
+	if not resolving:
+		session.hurried = false
 	var want: float = clampf(pace, 1.0, 8.0) if resolving and not session.paused else 1.0
 	## With the last creature down, what is left of the rail runs out at three times the pace.
-	## It waits out a beat first: the blow that won the fight (a gem landing twenty times over)
+	## It waits out a beat first: the blow that won the fight (a gem counted out over its socket, then landing twenty times over)
 	## is still being thrown when the state says everything is dead, and speeding that up
 	## turned the finisher into a blur.
 	if resolving and not session.paused and DeepBattle.living(DeepDescent.battle(session.run).get("enemies", [])).is_empty():
@@ -395,6 +452,12 @@ func _take_home(results: Dictionary, player_id: String) -> Dictionary:
 			Inspector.announce("Hazard %d" % tier, "%s Hazard %d is open: every hazard so far, and one more.\n\n%s: %s\n\nEvery tier keeps its own map, starting from the Quarry, and gives up heavier stones." % ["You reached the Rift." if tier == 1 else "You reached the Rift on Hazard %d." % (tier - 1), tier, str(adds.get("name", "")), str(adds.get("text", ""))], "skull", DeepUi.BAD)
 	for purse in applied.get("purses", []):
 		toast("First conquest of %s: +%d gold" % [DeepContent.mine_name(str(purse.mine)), int(purse.gold)], DeepUi.ACCENT, "crown")
+	## Creatures met for the first time are named once, and wait in the bestiary marked new.
+	var first_met: Array = applied.get("first_met", [])
+	if not first_met.is_empty():
+		var names: Array = first_met.slice(0, 3).map(func(k: Variant) -> String: return str(DeepContent.creature(str(k)).get("name", k)))
+		var more: int = first_met.size() - names.size()
+		toast("New in the bestiary: %s%s" % [", ".join(names), " and %d more" % more if more > 0 else ""], HomeScreen.PIP_NEW, "book")
 	var dug: Dictionary = applied.get("daily", {})
 	if int(dug.get("paid", 0)) > 0:
 		toast("Today's seam: scored %d, +%d gold" % [int(dug.get("score", 0)), int(dug.paid)], DeepUi.ACCENT, "calendar")
@@ -406,6 +469,9 @@ func _take_home(results: Dictionary, player_id: String) -> Dictionary:
 	return applied
 
 func _back_home() -> void:
+	## Leaving the run, telling the party and opening the tab each redrew the workshop; it is
+	## drawn once, at the end, while the cage is still covering it.
+	_home_held += 1
 	session.leave_run()
 	## The run changed the purse (the fare, a conquest, the day's seam): the party hears what is in it now.
 	session.update_member(_kit(member()))
@@ -413,7 +479,8 @@ func _back_home() -> void:
 	descent.visible = false
 	home.visible = true
 	## Stones on the tray open the coming-home screen on their own (see home.homecoming).
-	home.open("descend")
+	home.open("descend", false, false)
+	_home_held -= 1
 	_refresh_home()
 
 func toast(text: String, color: Color, glyph: String = "") -> void:
@@ -520,6 +587,7 @@ func _apply_settings(starting: bool = false) -> void:
 	## The ink the rock is drawn in, and the one pass a weak machine can drop.
 	Looks.pref = Looks.HOUSE if bool(settings.get("outlines", true)) else "off"
 	session.speed = maxf(1.0, float(settings.get("speed", 1.0)))
+	session.count_pace = clampf(float(settings.get("count", 1.0)), 0.0, 1.0)
 	descent.apply_quality()
 	descent.apply_look()
 	if DisplayServer.get_name() == "headless":

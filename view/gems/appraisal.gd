@@ -65,6 +65,10 @@ var _new_skill: bool = false
 static func is_open() -> bool:
 	return _open != null and is_instance_valid(_open)
 
+static func current() -> CanvasLayer:
+	## The appraisal up now, or null.
+	return _open if is_open() else null
+
 static func open(raw: Dictionary, opts: Dictionary = {}) -> CanvasLayer:
 	## Puts a raw stone under the loupe and plays the whole appraisal. `opts` may carry
 	## `owned` (the stone of its skill already kept, to weigh it against), `actions` (the
@@ -397,6 +401,25 @@ func finish() -> void:
 	_sheet.show_all()
 	_tint(DeepUi.tier_color(str(DeepStone.grade(stone).tier)), false)
 	_show_choices()
+
+func set_actions(list: Array) -> void:
+	## What can be done with the stone changes while it is being read (the bench shuts when a
+	## fight starts, the stall is walked away from): the choices are handed over again and the
+	## row is redrawn, so nothing on it is refused when pressed.
+	if _closing or _shatters or _choices == null:
+		return
+	var labels := func(entries: Array) -> Array: return entries.map(func(a: Dictionary) -> String: return str(a.get("label", "")))
+	if labels.call(list) == labels.call(actions):
+		return
+	actions = list
+	var parent: Node = _choices.get_parent()
+	var at: int = _choices.get_index()
+	var shown: bool = _choices.visible
+	parent.remove_child(_choices)
+	_choices.queue_free()
+	_choices = choices(parent, actions, close)
+	parent.move_child(_choices, at)
+	_choices.visible = shown
 
 func close() -> void:
 	if not is_instance_valid(self) or is_queued_for_deletion() or _closing:

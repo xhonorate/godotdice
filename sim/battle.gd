@@ -17,7 +17,7 @@ extends RefCounted
 
 ## How long each event holds the clock at 1×. A fizzle, or a Birthstone that stays dark, only
 ## needs long enough to be seen; a gem that fires waits for its bolts to land.
-const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.65,
+const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.4,
 	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 1.1, "enemy_ability": 0.7, "enemy_move": 0.5, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2}
 ## The beat a run of blows is played on: one bolt every BOLT_GAP, a breath after each effect,
 ## and the whole run squeezed into HIT_SPAN once there are enough of them to run past it. A
@@ -28,6 +28,31 @@ const BOLT_GAP: float = 0.085
 const HIT_BREATH: float = 0.16
 const HIT_STEP: float = BOLT_GAP + HIT_BREATH
 const HIT_SPAN: float = 1.2
+## The beat a gem's own arithmetic is counted out on before what it does leaves the socket
+## (see `tally_of`): each die it read hops and sends its number to the gem, TALLY_FLIGHT after
+## it the number lands; each step that makes the sum into the gem's number (a ×2 its skill
+## puts on it, the stone's weight, a Ruby die) is laid on one after another; then the two
+## are fused into what flies. Like the blows, the dice and the steps close up as they pile on,
+## so five dice and five multipliers still fit. The battle screen plays exactly this beat.
+## At 1x every figure stays up long enough to be read: each die's number, each multiplier
+## and the box it lands in, the fused figure before it flies. The weight in carats is held
+## longest (TALLY_CARAT), since it is the step a stone is chosen for. Quick (a count pace of
+## a half) plays all of it in half the time; the fight speed shortens it again.
+const TALLY_DIE: float = 0.14
+const TALLY_DICE: float = 0.6
+const TALLY_FLIGHT: float = 0.2
+const TALLY_STEP: float = 0.26
+const TALLY_STEPS: float = 1.1
+const TALLY_CARAT: float = 1.5
+const TALLY_FUSE: float = 0.36
+## With the counts off, how long the figure alone is shown before it flies.
+const TALLY_GLANCE: float = 0.2
+## A blow on a lapidary that block takes part of: what came in, the block flying off it, what
+## was left to bleed, counted at the health bar before the next thing happens.
+const SOAK_SPAN: float = 0.6
+## The effects whose number a tally counts out: one that swells with weight and lands as a
+## figure. The first of them a gem fires is its headline.
+const TALLY_KINDS: Array = ["damage", "block", "heal", "poison", "gold", "spikes", "regeneration", "retain"]
 const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "phantom_low"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
 	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise",
@@ -651,8 +676,10 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 					effect.amount += enrage_step(state) * (int(state.turn) - enrage_turn(state) + 1)
 				if str(effect.kind) == "damage":
 					effect.amount = DeepRules.outgoing_damage(int(effect.amount), foe.statuses)
+			var counted: Dictionary = creature_tally(state, foe, move, shown)
 			return _event(state, "enemy_ability", {"unit": foe.id, "move": move.move, "index": move.index,
-				"dice": move.dice, "combo": move.combo, "trigger": move.trigger, "effects": shown, "duration": 1.0 if bool(move.combo) else 0.7})
+				"dice": move.dice, "combo": move.combo, "trigger": move.trigger, "effects": shown, "tally": counted,
+				"duration": (1.0 if bool(move.combo) else 0.7) + tally_span(counted)})
 		"enemy_move":
 			var foe: Dictionary = enemy(state, str(s.unit))
 			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
@@ -871,6 +898,8 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		gain = pooled / 100
 		unit.damp_carry = pooled % 100
 	unit.resonance = int(unit.get("resonance", 0)) + gain
+	## The Strength every blow of this gem will carry, as it fires, for the count to show.
+	var strength: int = maxi(0, int(unit.get("statuses", {}).get("strength", 0)))
 	var results: Array = []
 	var previous_socket: int = int(unit.get("previous_socket", -1))
 	var reactions: Dictionary = {}
@@ -969,15 +998,18 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		for _more in range(certain - 1):
 			state.queue.push_front({"kind": "gem", "unit": unit.id, "socket": socket, "retrigger": true, "force": true})
 	_check_outcome(state)
+	var tally: Dictionary = tally_of(ev, scale, strength)
+	if not tally.is_empty():
+		tally.pace = count_pace(state)
 	return _event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
-		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony,
+		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "tally": tally,
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
 		"die_boost": float(ev.get("die_boost", 1.0)), "materials": DeepDice.matching_materials(DeepStone.rolls_of(unit.hand, ev.get("dice", [])), ev.get("colors", [])),
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
 		"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
 		"absorbed": str(opts.get("as_skill", "")), "certain": certain,
 		"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed,
-		"duration": BASE_DURATION.gem_fire + maxf(0.1 * float(results.size()), hits_span(results))})
+		"duration": BASE_DURATION.gem_fire + tally_span(tally) + maxf(0.1 * float(results.size()), hits_span(results))})
 
 # --- the Birthstone ----------------------------------------------------------------------
 
@@ -1366,6 +1398,194 @@ static func hits_span(effects: Array) -> float:
 	## How long these effects take to play, once they have closed up.
 	return minf(HIT_STEP * float(blows(effects)), HIT_SPAN)
 
+static func tally_of(ev: Dictionary, scale: int = 100, strength: int = 0) -> Dictionary:
+	## What a gem that fires is seen to add up, for the screen to count out before anything
+	## leaves the socket: the dice it read and what each showed; how their sum became the
+	## skill's own number; every multiplier laid on that number, each from where it comes (a
+	## die of the gem's own colour, the stone's weight, a Flawless clarity, an inclusion, a
+	## Double Down, an Echo's share); whatever is added after; and what it all came to.
+	## Only a gem with a figure to land (its first effect that swells with weight) has the
+	## number half; one that rerolls a die or calls a phantom shows only the dice that woke
+	## it. Nothing reads this back: it says what the rules already did, in an order a player
+	## can follow. `strength` is the thrower's Strength as the gem fired, which every blow
+	## carries on top.
+	var colors: Array = ev.get("colors", [])
+	var dice: Array = []
+	var sum: int = 0
+	for read in ev.get("read", []):
+		var material: String = str(read.get("material", ""))
+		dice.append({"id": str(read.get("id", "")), "value": int(read.get("value", 0)),
+			"material": material if DeepDice.material_matches(material, colors) else ""})
+		sum += int(read.get("value", 0))
+	var out: Dictionary = {"dice": dice}
+	var headline: Dictionary = {}
+	for effect in ev.get("effects", []):
+		if not effect is Dictionary or not str(effect.get("kind", "")) in TALLY_KINDS or not bool(effect.get("scaled", false)) or int(effect.get("raw", 0)) <= 0:
+			continue
+		## A figure the rules reshape as it lands (a share of something, what an earlier blow
+		## did, the health its thrower is missing) is not one the count could honestly finish.
+		if not (effect.has("share") or effect.has("from_result") or effect.has("of_status") \
+				or bool(effect.get("missing_hp_bonus", false)) or bool(effect.get("split_party", false))):
+			headline = effect
+		break
+	if headline.is_empty():
+		return out
+	var base: int = int(headline.raw)
+	## How the dice became the skill's number, said only as far as it is known: the dice
+	## added up as they are (a Strike's, a Cleave's pair); the face of a set taken so many
+	## times over, as its card says (a Crush is five times the matched value); or a number
+	## of the skill's own the dice only woke (a Block of 3 on any pair, a Guard's pair
+	## value), and then they carry no figure and the number is simply shown.
+	var link: Dictionary = {}
+	var face: int = int(ev.get("trigger", {}).get("value", 0))
+	var times: int = _times_value(_headline_amount(ev, headline))
+	if not dice.is_empty() and base == sum:
+		link = {}
+	elif face > 0 and times > 1 and face * times == base:
+		link = {"op": "x", "by": times, "from": face}
+	else:
+		link = {"op": "=", "from": base}
+	var mults: Array = []
+	for die in dice:
+		if not str(die.material).is_empty():
+			mults.append({"what": "material", "x": DeepDice.STRENGTH_STEP, "die": str(die.id), "material": str(die.material)})
+	var parts: Dictionary = ev.get("parts", {})
+	for part in ["carat", "clarity", "inclusions", "amplify"]:
+		var x: float = float(parts.get(part, 1.0))
+		if absf(x - 1.0) > 0.001:
+			var entry: Dictionary = {"what": part, "x": x}
+			if part == "carat":
+				entry.weight = float(parts.get("weight", ev.get("carat", 1)))
+			mults.append(entry)
+	var magnitude: float = float(ev.get("magnitude", 1.0))
+	var amount: int = int(headline.get("amount", 0))
+	var expected: int = int(floor(float(base) * magnitude))
+	if scale != 100:
+		mults.append({"what": "echo", "x": float(scale) / 100.0})
+		amount = int(floor(float(amount) * float(scale) / 100.0))
+		expected = int(floor(float(expected) * float(scale) / 100.0))
+	var adds: Array = []
+	if amount != expected:
+		## Something the stone adds once its weight is counted (an inclusion's damage a die).
+		adds.append({"what": "bonus", "by": amount - expected})
+	if str(headline.kind) == "damage" and amount > 0 and strength > 0:
+		adds.append({"what": "strength", "by": strength})
+		amount += strength
+	out.merge({"kind": str(headline.kind), "target": str(headline.get("target", "")), "base": base, "sum": sum, "link": link,
+		"mults": mults, "adds": adds, "amount": amount, "repeat": maxi(1, int(headline.get("repeat", 1)))})
+	return out
+
+static func tally_die_gap(dice: int) -> float:
+	## How far apart the dice of one count hop.
+	return minf(TALLY_DIE, TALLY_DICE / float(maxi(1, dice)))
+
+static func _headline_amount(ev: Dictionary, headline: Dictionary) -> Variant:
+	## The amount a gem's headline effect is written with on its card: the first effect of
+	## that kind in the skill (the Flawless line can only add to these, never reorder them).
+	var skill: Dictionary = DeepContent.skill(str(ev.get("skill", "")))
+	for def in skill.get("effects", []):
+		if def is Dictionary and str(def.get("kind", "damage")) == str(headline.get("kind", "")):
+			return def.get("amount", null)
+	return null
+
+static func _times_value(expr: Variant) -> int:
+	## k, when an amount is written as the trigger's value times k (or k times it); else 0.
+	if not expr is Dictionary or str(expr.get("op", "")) != "*" or expr.get("args", []).size() != 2:
+		return 0
+	var args: Array = expr.args
+	for index in range(2):
+		var other: Variant = args[1 - index]
+		if args[index] is Dictionary and str(args[index].get("term", "")) == "value" and (other is int or other is float):
+			return int(other)
+	return 0
+
+static func tally_weight(entry: Dictionary) -> float:
+	## How many beats a step between the dice and the fuse is given: the carat step more.
+	return TALLY_CARAT if str(entry.get("what", "")) == "carat" else 1.0
+
+static func tally_weights(tally: Dictionary) -> float:
+	## Every step's beats added up: the skill's own, each multiplier, each addition.
+	if not tally.has("amount"):
+		return 0.0
+	var total: float = 1.0 if str(tally.get("link", {}).get("op", "")) == "x" else 0.0
+	for entry in tally.get("mults", []):
+		total += tally_weight(entry)
+	return total + float(tally.get("adds", []).size())
+
+static func tally_step_gap(weights: float) -> float:
+	## One beat of the steps: TALLY_STEP, closing up once there are enough to pass TALLY_STEPS.
+	return minf(TALLY_STEP, TALLY_STEPS / maxf(1.0, weights))
+
+static func tally_span(tally: Dictionary) -> float:
+	## How long the count takes on screen, from the gem lighting to the fused number leaving,
+	## at the pace the host chose: all of it at Full, half at Quick, and at Off only the fused
+	## figure, shown for a moment before it flies.
+	if tally.is_empty():
+		return 0.0
+	var pace: float = clampf(float(tally.get("pace", 1.0)), 0.0, 1.0)
+	if pace <= 0.0:
+		return TALLY_GLANCE if tally.has("amount") else 0.0
+	var dice: int = tally.get("dice", []).size()
+	var span: float = 0.0
+	if dice > 0:
+		span += tally_die_gap(dice) * float(dice - 1) + TALLY_FLIGHT
+	if tally.has("amount"):
+		var weights: float = tally_weights(tally)
+		span += tally_step_gap(weights) * weights + TALLY_FUSE
+	return span * pace
+
+static func count_pace(state: Dictionary) -> float:
+	## How fully the counts are played: 1 is all of it, 0.5 twice as fast, 0 only the figure.
+	## The host's choice, written on the fight, so every screen and the host's clock agree.
+	return clampf(float(state.get("count_pace", 1.0)), 0.0, 1.0)
+
+static func creature_tally(state: Dictionary, foe: Dictionary, move: Dictionary, shown: Array) -> Dictionary:
+	## What a creature's blow is seen to add up to before it lands, counted the way a gem's is:
+	## the dice it rolled for it, the mine's weight on it (and an Empowered creature's), then
+	## what every blow of its carries on top: the depth's bonus, a Howl's rallying, Strength,
+	## the turn's enrage, and a Curse taking its share back off. Only a blow whose pieces were
+	## written down when it was rolled (see `DeepCreatures.resolved_move`) is counted.
+	var effect: Dictionary = {}
+	for candidate in shown:
+		if candidate is Dictionary and str(candidate.get("kind", "")) == "damage" and candidate.has("scaled"):
+			effect = candidate
+			break
+	if effect.is_empty():
+		return {}
+	var dice: Array = []
+	var sum: int = 0
+	for id in move.get("dice", []):
+		for roll in foe.get("hand", []):
+			if str(roll.get("die_id", "")) == str(id):
+				dice.append({"id": str(id), "value": int(roll.get("value", 0)), "material": ""})
+				sum += int(roll.get("value", 0))
+				break
+	var base: int = int(effect.get("raw", effect.get("scaled", 0)))
+	var scaled: int = int(effect.scaled)
+	var link: Dictionary = {}
+	if dice.is_empty() or base != sum:
+		link = {"op": "=", "from": base}
+	var mults: Array = []
+	var depth_pct: int = int(effect.get("depth_pct", 100))
+	if effect.has("depth_pct") and depth_pct != 100:
+		mults.append({"what": "depth", "x": float(depth_pct) / 100.0})
+	if int(effect.get("empowered", 0)) > 0:
+		mults.append({"what": "empowered", "x": float(100 + int(effect.empowered)) / 100.0})
+	var adds: Array = []
+	var running: int = scaled
+	for entry in effect.get("adds", []):
+		if int(entry[1]) != 0:
+			adds.append({"what": str(entry[0]), "by": int(entry[1])})
+			running += int(entry[1])
+	if int(state.get("turn", 0)) >= enrage_turn(state):
+		var enraged: int = enrage_step(state) * (int(state.turn) - enrage_turn(state) + 1)
+		adds.append({"what": "enrage", "by": enraged})
+		running += enraged
+	if int(effect.amount) != running:
+		adds.append({"what": "curse", "by": int(effect.amount) - running})
+	return {"dice": dice, "kind": "damage", "target": str(effect.get("target", "")), "base": base, "sum": sum, "link": link,
+		"mults": mults, "adds": adds, "amount": int(effect.amount), "repeat": maxi(1, int(effect.get("repeat", 1))), "pace": count_pace(state)}
+
 static func _credit_buff(unit: Dictionary, rank: String, socket: int) -> void:
 	## Which skill raised this rank on the rail this fight. The rail carries the numbers; this
 	## carries the reason, so the close look can say where a gem's extra weight came from
@@ -1488,7 +1708,8 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			for stone in unit.get("haul", []):
 				if appraised.size() >= int(effect.get("stones", 1)):
 					break
-				if bool(stone.get("appraised", false)):
+				## A Geode stays sealed until the workshop cracks it.
+				if bool(stone.get("appraised", false)) or DeepStone.is_geode(stone):
 					continue
 				stone.appraised = true
 				stone.inclusions_revealed = true
@@ -2942,8 +3163,12 @@ static func _enemy_act(state: Dictionary, foe: Dictionary, move: Dictionary, rng
 	foe.beat = "impact"
 	if int(move.index) >= 0 and int(move.index) < foe.move_states.size():
 		foe.move_states[int(move.index)] = "used" if bool(move.get("combo", false)) else "resolved"
+	## A blow that block took part of is counted at the health bar, and the step waits for it.
+	var soaked: bool = results.any(func(r: Dictionary) -> bool:
+		return str(r.get("kind", "")) == "damage" and int(r.get("absorbed", 0)) > 0 and not player(state, str(r.get("target", ""))).is_empty())
 	return _event(state, "enemy_move", {"unit": foe.id, "move": str(move.get("move", "")), "index": int(move.index),
-		"effects": results, "dice": move.get("dice", []), "burrowed": bool(foe.get("burrowed", false)), "release": bool(move.get("release", false))})
+		"effects": results, "dice": move.get("dice", []), "burrowed": bool(foe.get("burrowed", false)), "release": bool(move.get("release", false)),
+		"pace": count_pace(state), "duration": BASE_DURATION.enemy_move + (SOAK_SPAN * count_pace(state) if soaked else 0.0)})
 
 static func _thresholds(state: Dictionary, foe: Dictionary, rng: RandomNumberGenerator) -> Array:
 	## The moves that wait for its health to fall: each fires once, the moment its health first
@@ -3320,7 +3545,8 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 			"active": str(event.get("kind", "")) == "gem_fire",
 			"reason": str(event.get("reason", "")), "dice": event.get("dice", []), "resonance": int(event.get("resonance", 0)),
 			"harmony": bool(event.get("harmony", false)), "cut_step": int(event.get("cut_step", 0)), "fires": fires,
-			"effects": event.get("effects", []), "trigger": DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(preview.get("cut_step", 0)))}
+			"effects": event.get("effects", []), "tally": event.get("tally", {}),
+			"trigger": DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(preview.get("cut_step", 0)))}
 		if entry.active:
 			totals.fires += fires
 			for effect in event.get("effects", []):

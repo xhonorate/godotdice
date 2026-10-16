@@ -25,7 +25,10 @@ static func build(home: Control, content: VBoxContainer) -> void:
 	if home._vault_view == "unappraised":
 		Homecoming.bench(home, content, false)
 		return
-	StoneBrowser.toolbar(home, content, "vault", {"layouts": true, "ghosts": true, "rarity": true})
+	## The toolbar, the stones and the lamp are each a part of their own (see home.region): a
+	## stone picked, a star or a sort redraws only what it changes.
+	home.region(DeepUi.hbox(content, 0), "vault_tools", func(holder: Control) -> void:
+		StoneBrowser.toolbar(home, holder, "vault", {"layouts": true, "ghosts": true, "rarity": true}).size_flags_horizontal = Control.SIZE_EXPAND_FILL)
 	var columns := DeepUi.hbox(content, 18)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var scroller := ScrollContainer.new()
@@ -37,39 +40,45 @@ static func build(home: Control, content: VBoxContainer) -> void:
 	columns.add_child(scroller)
 	var side := DeepUi.vbox(columns, 12)
 	side.custom_minimum_size = Vector2(420, 0)
+	var stones := DeepUi.vbox(scroller, 0)
+	stones.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	home.region(stones, "vault_stones", func(holder: Control) -> void: _stones(home, holder))
+	home.region(side, "vault_lamp", func(holder: Control) -> void: _lamp(home, holder))
+
+static func _stones(home: Control, holder: Control) -> void:
+	## The kept stones (and the ones not kept yet), as tiles or as rows.
 	var settings: Dictionary = StoneBrowser.settings(home, "vault")
 	var kept: Array = StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "vault")
 	if home._vault_pick.is_empty() and not kept.is_empty():
 		home._vault_pick = str(kept[0].get("skill", ""))
 	if str(settings.layout) == "list":
-		var list_holder := DeepUi.vbox(scroller, 0)
-		list_holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if kept.is_empty():
-			DeepUi.label(list_holder, "No kept stone matches.", 14, DeepUi.DIM)
-		StoneBrowser.table(home, list_holder, kept, {"context": "vault", "picked": home._vault_pick, "on_pick": func(stone: Dictionary) -> void:
+			DeepUi.label(holder, "No kept stone matches.", 14, DeepUi.DIM)
+		StoneBrowser.table(home, holder, kept, {"context": "vault", "picked": home._vault_pick, "on_pick": func(stone: Dictionary) -> void:
 			home._vault_pick = str(stone.get("skill", ""))
 			if DeepProfile.unfresh(home.profile, home._vault_pick):
 				home.touch()
-			home._render()})
-	else:
-		var grid := GridContainer.new()
-		grid.columns = COLUMNS
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 12)
-		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		scroller.add_child(grid)
-		var entries: Array = kept.map(func(stone: Dictionary) -> Dictionary: return {"skill": str(stone.get("skill", "")), "state": "owned", "stone": stone})
-		if bool(settings.ghosts) and str(settings.query).strip_edges().is_empty() and str(settings.rarity).is_empty():
-			for entry in DeepProfile.vault_grid(home.profile):
-				if str(entry.state) == "owned":
-					continue
-				var color: String = str(DeepContent.skill(str(entry.skill)).get("color", "WHITE"))
-				if settings.colors.is_empty() or settings.colors.has(color):
-					entries.append(entry)
-		if entries.is_empty():
-			DeepUi.label(grid, "No stone matches.", 14, DeepUi.DIM)
-		_fill(home, grid, entries, 0, COLUMNS * 2 if home._fresh and not home._headless else entries.size())
-	_lamp(home, side)
+			if not home.redraw(["vault_stones", "vault_lamp"]):
+				home._render()})
+		return
+	var grid := GridContainer.new()
+	grid.name = "VaultGrid"
+	grid.columns = COLUMNS
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 12)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	holder.add_child(grid)
+	var entries: Array = kept.map(func(stone: Dictionary) -> Dictionary: return {"skill": str(stone.get("skill", "")), "state": "owned", "stone": stone})
+	if bool(settings.ghosts) and str(settings.query).strip_edges().is_empty() and str(settings.rarity).is_empty():
+		for entry in DeepProfile.vault_grid(home.profile):
+			if str(entry.state) == "owned":
+				continue
+			var color: String = str(DeepContent.skill(str(entry.skill)).get("color", "WHITE"))
+			if settings.colors.is_empty() or settings.colors.has(color):
+				entries.append(entry)
+	if entries.is_empty():
+		DeepUi.label(grid, "No stone matches.", 14, DeepUi.DIM)
+	_fill(home, grid, entries, 0, COLUMNS * 2 if home._fresh and not home._headless else entries.size())
 
 static func _head(home: Control, content: VBoxContainer, tray: Array) -> void:
 	var head := DeepUi.hbox(content, 12)
@@ -107,34 +116,8 @@ static func _fill(home: Control, grid: GridContainer, entries: Array, from: int,
 			grid.tree_entered.connect(func() -> void: _fill(home, grid, entries, from, per_frame), CONNECT_ONE_SHOT)
 		return
 	var upto: int = mini(entries.size(), from + maxi(1, per_frame))
-	var favorites: Array = DeepProfile.favorites(home.profile)
 	for index in range(from, upto):
-		var entry: Dictionary = entries[index]
-		var key: String = str(entry.skill)
-		var tile: PanelContainer
-		if str(entry.state) == "owned":
-			var stone: Dictionary = entry.stone
-			tile = StoneCard.tile(grid, stone, TILE)
-			if bool(stone.get("fresh", false)):
-				StoneCard.mark_new(tile, func() -> void:
-					if DeepProfile.unfresh(home.profile, key):
-						home.touch())
-			tile.mouse_entered.connect(func() -> void: home.hover_stone(tile, stone, {}))
-		else:
-			tile = _ghost_tile(grid, key, str(DeepContent.skill(key).get("color", "WHITE")), str(entry.state) == "seen")
-		if favorites.has(key):
-			home.tile_mark(tile, "star", DeepUi.ACCENT_HI, "A favorite: the Market marks anything that could be one")
-		if str(entry.state) in ["owned", "seen"]:
-			if key == home._vault_pick:
-				_ring(tile)
-			tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			DeepUi.juice(tile, 1.06)
-			tile.gui_input.connect(func(event: InputEvent) -> void:
-				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-					DeepAudio.play("ui_tap", {"volume": 0.7})
-					home._vault_pick = key
-					home._render())
-		home.enter(tile, 0.012 * index)
+		_tile(home, grid, entries[index], index)
 	if upto < entries.size():
 		## Held weakly: a page rebuilt before the grid is full frees it, and the next frame
 		## must find it gone rather than call into a freed capture.
@@ -143,6 +126,63 @@ static func _fill(home: Control, grid: GridContainer, entries: Array, from: int,
 			var still: GridContainer = held.get_ref() as GridContainer
 			if still != null:
 				_fill(home, still, entries, upto, per_frame), CONNECT_ONE_SHOT)
+
+static func _tile(home: Control, grid: GridContainer, entry: Dictionary, index: int) -> PanelContainer:
+	## One place in the grid: a kept stone's tile, or the ghost of one not kept yet.
+	var key: String = str(entry.skill)
+	var tile: PanelContainer
+	if str(entry.state) == "owned":
+		var stone: Dictionary = entry.stone
+		tile = StoneCard.tile(grid, stone, TILE)
+		if bool(stone.get("fresh", false)):
+			StoneCard.mark_new(tile, func() -> void:
+				if DeepProfile.unfresh(home.profile, key):
+					home.touch())
+		tile.mouse_entered.connect(func() -> void: home.hover_stone(tile, stone, {}))
+	else:
+		tile = _ghost_tile(grid, key, str(DeepContent.skill(key).get("color", "WHITE")), str(entry.state) == "seen")
+	tile.set_meta("skill", key)
+	tile.set_meta("entry", entry)
+	if DeepProfile.favorites(home.profile).has(key):
+		home.tile_mark(tile, "star", DeepUi.ACCENT_HI, "A favorite: the Market marks anything that could be one")
+	if str(entry.state) in ["owned", "seen"]:
+		if key == home._vault_pick:
+			_ring(tile)
+		tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		DeepUi.juice(tile, 1.06)
+		tile.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				DeepAudio.play("ui_tap", {"volume": 0.7})
+				_pick(home, key))
+	home.enter(tile, 0.012 * index)
+	return tile
+
+static func _pick(home: Control, key: String) -> void:
+	## A stone picked from the grid: the ring moves and the lamp shows it. Only those redrawn.
+	var was: String = home._vault_pick
+	home._vault_pick = key
+	if not home.redraw(["vault_lamp"]):
+		home._render()
+		return
+	_retile(home, was)
+	_retile(home, key)
+
+static func _retile(home: Control, key: String) -> void:
+	## One tile built again in its place: the ring, the star and all.
+	var holder: Control = home.region_holder("vault_stones")
+	var grid: GridContainer = holder.get_node_or_null("VaultGrid") if holder != null else null
+	if grid == null or key.is_empty():
+		return
+	for child in grid.get_children():
+		if str(child.get_meta("skill", "")) != key or child.is_queued_for_deletion():
+			continue
+		var at: int = child.get_index()
+		home._fresh = false
+		var fresh: PanelContainer = _tile(home, grid, child.get_meta("entry"), at)
+		grid.move_child(fresh, at)
+		grid.remove_child(child)
+		child.queue_free()
+		return
 
 static func _ring(tile: PanelContainer) -> void:
 	var plain: StyleBox = tile.get_theme_stylebox("panel")
@@ -291,7 +331,9 @@ static func _favorite_star(home: Control, holder: Control, skill: String) -> But
 	star.pressed.connect(func() -> void:
 		DeepProfile.toggle_favorite(home.profile, skill)
 		DeepAudio.play("ui_toggle", {"volume": 0.7})
-		home.profile_changed.emit())
+		## The star under the lamp and on the tile; nothing else on the page shows it.
+		home.changed(["vault_lamp"])
+		_retile(home, skill))
 	holder.add_child(star)
 	return star
 

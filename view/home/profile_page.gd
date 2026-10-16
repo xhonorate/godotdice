@@ -110,7 +110,7 @@ static func _mines(home: Control, columns: HBoxContainer) -> void:
 		var tone: Color = Color(str(mine.get("palette", "c9a26b")))
 		var row := DeepUi.hbox(box, 10)
 		var numeral := DeepUi.label(row, MineMap.numeral(str(key)), 14, tone if open else DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
-		numeral.add_theme_font_override("font", DeepUi.display_font())
+		numeral.add_theme_font_override("font", DeepUi.caps_font())
 		numeral.custom_minimum_size.x = 30
 		var named := DeepUi.label(row, DeepContent.mine_name(str(key)), 14, DeepUi.PAPER if open else DeepUi.DIM)
 		named.custom_minimum_size.x = 150

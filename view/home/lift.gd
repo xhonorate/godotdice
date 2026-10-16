@@ -18,6 +18,8 @@ var stop: String = ""
 var _clock: float = 0.0
 var _strata: Array = []
 var _sparks: Array = []
+## Each band's facets, cut once: see `_stratum`.
+var _facets: Dictionary = {}
 
 static func ride(host: Control, going_down: bool, mine_key: String) -> void:
 	## Plays a ride over `host`. Nothing is drawn headless, where nobody would see it.
@@ -55,6 +57,10 @@ func _process(delta: float) -> void:
 		queue_free()
 		return
 	var opening: float = clampf((_clock - OPEN_AT) / (RIDE - OPEN_AT), 0.0, 1.0)
+	## Once it opens onto the screen behind, a click is for that screen: one on a card
+	## showing through was eaten here.
+	if _clock >= OPEN_AT:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
 	modulate.a = 1.0 - opening * opening * (3.0 - 2.0 * opening)
 	queue_redraw()
 
@@ -69,8 +75,22 @@ func _speed() -> float:
 
 func _stratum(index: int, top: float, band: float, w: float, tone: Color) -> void:
 	## One stratum: its rock broken into flat facets, and a ragged seam of its own colour
-	## where the rock above gives way to it.
+	## where the rock above gives way to it. The facets are cut once a band and then only
+	## moved: cutting them again every frame (a hundred-odd polygons a band) cost the ride
+	## a dozen milliseconds a frame.
 	draw_rect(Rect2(0, top, w, band), tone.darkened(0.8))
+	var key: String = "%d:%d:%d:%s" % [index, int(w), int(band), tone.to_html()]
+	var cut: Dictionary = _facets.get(key, {})
+	if cut.is_empty():
+		cut = _cut(index, band, w, tone)
+		_facets[key] = cut
+	draw_set_transform(Vector2(0, top))
+	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), cut.indices, cut.points, cut.colors)
+	draw_polyline(cut.seam, Color(tone, 0.6), 3.0, true)
+	draw_set_transform(Vector2.ZERO)
+
+func _cut(index: int, band: float, w: float, tone: Color) -> Dictionary:
+	## A band's facets with its top at 0: the triangles, a colour a corner, and the seam.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(index) + 7919
 	var step: float = 110.0
@@ -81,20 +101,26 @@ func _stratum(index: int, top: float, band: float, w: float, tone: Color) -> voi
 		var row: Array = []
 		for c in range(columns + 1):
 			var jitter := Vector2(rng.randf_range(-0.35, 0.35) * step if c > 0 and c < columns else 0.0, rng.randf_range(-0.3, 0.3) * band / rows if r > 0 and r < rows else 0.0)
-			row.append(Vector2(float(c) * step, top + float(r) * band / rows) + jitter)
+			row.append(Vector2(float(c) * step, float(r) * band / rows) + jitter)
 		points.append(row)
+	var corners := PackedVector2Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
 	for r in range(rows):
 		for c in range(columns):
 			var a: Vector2 = points[r][c]
 			var b: Vector2 = points[r][c + 1]
 			var d: Vector2 = points[r + 1][c]
 			var e: Vector2 = points[r + 1][c + 1]
-			draw_colored_polygon(PackedVector2Array([a, b, e]), tone.darkened(rng.randf_range(0.7, 0.84)))
-			draw_colored_polygon(PackedVector2Array([a, e, d]), tone.darkened(rng.randf_range(0.72, 0.88)))
+			for tri in [[a, b, e, tone.darkened(rng.randf_range(0.7, 0.84))], [a, e, d, tone.darkened(rng.randf_range(0.72, 0.88))]]:
+				for corner in range(3):
+					indices.append(corners.size())
+					corners.append(tri[corner])
+					colors.append(tri[3])
 	var seam := PackedVector2Array()
 	for c in range(columns + 1):
 		seam.append(points[0][c])
-	draw_polyline(seam, Color(tone, 0.6), 3.0, true)
+	return {"points": corners, "colors": colors, "indices": indices, "seam": seam}
 
 func _draw() -> void:
 	var w: float = size.x

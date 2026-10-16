@@ -42,6 +42,9 @@ static func inclusion_slots(clarity: int) -> int:
 	return int(DeepContent.clarity_entry(clarity).get("inclusions", 0))
 
 static func color(stone: Dictionary) -> String:
+	## A sealed Geode has no color to give away: the one its name already says, or plain white.
+	if is_geode(stone):
+		return str(stone.geode.get("theme", "WHITE")) if str(stone.geode.get("kind", "")) == "color" else "WHITE"
 	return str(skill_of(stone).get("color", "WHITE"))
 
 static func is_opal(stone: Dictionary) -> bool:
@@ -406,6 +409,19 @@ static func reference_stone(skill: String) -> Dictionary:
 static func is_birthstone(stone: Dictionary) -> bool:
 	return bool(stone.get("birthstone", false))
 
+static func haul_tab(stone: Dictionary) -> String:
+	## Which part of the haul a stone sits in: "geodes", "gems" (read) or "raw" (still in its rock).
+	if is_geode(stone):
+		return "geodes"
+	return "gems" if bool(stone.get("appraised", false)) else "raw"
+
+static func is_geode(stone: Variant) -> bool:
+	## A Geode brought up from a mine: a stone still sealed in its rock, with the recipe of
+	## the Geode it is in under `geode`. Down the mine it can only be carried, traded and
+	## thrown away; the workshop cracks it, which makes it an ordinary stone and takes the
+	## recipe off it.
+	return stone is Dictionary and stone.get("geode", null) is Dictionary and not (stone.geode as Dictionary).is_empty()
+
 # --- names and worth -------------------------------------------------------------------
 
 static func name(stone: Dictionary) -> String:
@@ -419,6 +435,8 @@ static func name(stone: Dictionary) -> String:
 static func raw_name(stone: Dictionary) -> String:
 	## What an unappraised stone is called: roughly how big and what color, nothing more.
 	## Its carat is never said exactly until a loupe has been put to it.
+	if is_geode(stone):
+		return DeepEconomy.geode_name(stone.geode)
 	var color_name: String = str(DeepContent.color(color(stone)).get("name", color(stone)))
 	return "%s %s stone" % [size_name(int(stone.get("carat", 1))), color_name.to_lower()]
 
@@ -507,6 +525,8 @@ static func rough_value(stone: Dictionary) -> int:
 	## What a buyer gives for a stone nobody has read: he can see its colour and judge its
 	## size class through the rock, and nothing else, so he pays for the class and takes the
 	## rest of the risk. Always well under what the same stone is worth once it is known.
+	if is_geode(stone):
+		return DeepEconomy.geode_rough(stone)
 	var entry: Dictionary = size_class(int(stone.get("carat", 1)))
 	var by_size: float = 6.0 + float(entry.low) * 2.2
 	return maxi(1, int(round(by_size)))
@@ -560,7 +580,10 @@ static func effective(stone: Dictionary, c: Dictionary = {}) -> Dictionary:
 		weight = minf(weight, float(carat_cap))
 	var magnitude: float = carat_multiplier(weight) * float(clarity_entry.get("magnitude", 1.0)) * magnitude_mult * float(c.get("amplify", 1.0))
 	return {"clarity": clarity, "flawless": bool(clarity_entry.get("flawless_line", false)), "carat": carat, "cut_step": maxi(0, cut_step), "magnitude": magnitude, "modifiers": mods,
-		"resonance_mult": float(clarity_entry.get("resonance_mult", 1.0))}
+		"resonance_mult": float(clarity_entry.get("resonance_mult", 1.0)),
+		## The magnitude taken apart, factor by factor, for a screen that counts it out.
+		"parts": {"weight": weight, "carat": carat_multiplier(weight), "clarity": float(clarity_entry.get("magnitude", 1.0)),
+			"inclusions": magnitude_mult, "amplify": float(c.get("amplify", 1.0))}}
 
 ## How a number of goes is said out loud, and what the next one after it is called.
 const TIMES_OVER: Array = ["once", "twice", "three times", "four times", "five times", "six times",
@@ -750,6 +773,9 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 	var magnitude: float = eff.magnitude * boost
 	result.die_boost = boost
 	result.magnitude = magnitude
+	result.parts = eff.parts
+	## What each die it read showed, as this gem saw it (through a lens, if it wears one).
+	result.read = fired.map(func(r: Dictionary) -> Dictionary: return {"id": str(r.get("die_id", "")), "value": int(r.get("value", 0)), "material": str(r.get("material", ""))})
 	var tc: Dictionary = {"a": a, "trig": trig, "unit": c.get("unit", {}), "resonance": int(c.get("resonance", 0)),
 		"previous_amount": int(c.get("previous_amount", 0)), "carat": eff.carat, "cut": eff.cut_step,
 		"clarity": int(eff.clarity), "enemy_poison": int(c.get("enemy_poison", 0)), "fizzles": int(c.get("fizzles", 0)), "depth": int(c.get("depth", 0)), "turn": int(c.get("turn", 0)), "party": int(c.get("party", 1)),

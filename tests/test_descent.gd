@@ -15,6 +15,7 @@ func _init() -> void:
 	_test_dice_rooms()
 	_test_bot_runs()
 	_test_hoard_opal()
+	_test_hoard_geode()
 	_test_sparkle()
 	_test_salvage()
 	_test_grubstake()
@@ -29,6 +30,7 @@ func _init() -> void:
 	_test_hazard_ladder()
 	_test_hazard_runs()
 	_test_hazard_progress()
+	_test_bestiary()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -749,6 +751,48 @@ func _test_hoard_opal() -> void:
 			wild += 1
 	check(wild == 0, "no vein, drop or merchant ever cuts an opal (%d of 400)" % wild)
 
+func _test_hoard_geode() -> void:
+	## The mine's last Warden trades its plainest pedestal for a Geode: sealed, carried up, and
+	## cracked at the workshop for the loupe's fee.
+	var boss: Dictionary = DeepDescent.new_run(config(616, true))
+	boss.depth = DeepDescent.bottom_of(boss)
+	check(DeepDescent.is_third_warden(boss, int(boss.depth)) and not DeepDescent.is_third_warden(boss, 8), "the third Warden is the mine's boss")
+	DeepDescent._offer_hoard(boss)
+	var offers: Array = boss.hoard.a.offers
+	check(offers.size() == 3 and offers.filter(func(s: Dictionary) -> bool: return DeepStone.is_geode(s)).size() == 1 and DeepStone.is_geode(offers[2]), "the boss's hoard has one Geode, on the last pedestal")
+	check(not DeepStone.is_geode(offers[0]) and not DeepStone.is_geode(offers[1]), "the opal's pedestal and the first keep their stones")
+	var geode: Dictionary = offers[2]
+	check(not bool(geode.appraised) and not bool(geode.inclusions_revealed) and str(geode.geode.mine) == "QUARRY" and str(geode.geode.id) == str(geode.id), "it is sealed, from the mine the party is in")
+	var carats: Dictionary = DeepEconomy.geode_odds(geode.geode)
+	check(int(geode.carat) >= int(carats.carat[0]) and int(geode.carat) <= int(carats.carat[1]), "and holds a stone of the weight its kind promises: %d ct" % int(geode.carat))
+	var early: Dictionary = DeepDescent.new_run(config(617, true))
+	early.depth = 8
+	DeepDescent._offer_hoard(early)
+	check(early.hoard.a.offers.all(func(s: Dictionary) -> bool: return not DeepStone.is_geode(s)), "a Warden before the last offers no Geode")
+	check(cmd(boss, "a", "pick_hoard", {"stone_id": str(geode.id)}).ok and DeepDescent.player(boss, "a").haul.any(func(s: Dictionary) -> bool: return DeepStone.is_geode(s)), "the Geode can be taken, and rides in the haul")
+	var unit: Dictionary = DeepDescent.player(boss, "a")
+	check(DeepDescent.coming_home(boss, unit).any(func(s: Dictionary) -> bool: return DeepStone.is_geode(s)), "and comes home with the rest")
+	check(not cmd(boss, "a", "socket", {"stone_id": str(geode.id), "index": 0}).ok, "it cannot be set in a socket down there")
+	check(not cmd(boss, "a", "appraise", {"stone_id": str(geode.id)}).ok, "nor read at a lens")
+	## Home: it waits on the tray sealed, and is cracked for the fee.
+	var profile: Dictionary = DeepProfile.new_profile("Geoda")
+	profile.gold = 1000
+	var result: Dictionary = {"mine": "QUARRY", "outcome": "extracted", "depth": 3, "players": {"a": {"home": [geode.duplicate(true)]}}, "mines": [{"mine": "QUARRY", "deepest": 3, "wardens": [], "boss": false}]}
+	DeepProfile.apply_result(profile, result, "a")
+	check(profile.tray.size() == 1 and DeepStone.is_geode(profile.tray[0]), "on the tray it is still sealed")
+	var sealed: Dictionary = profile.tray[0]
+	var fee: int = DeepProfile.appraisal_fee(sealed)
+	check(fee >= 12 and DeepStone.rough_value(sealed) > 0, "cracking has a fee, and selling it unopened a price: %d and %d" % [fee, DeepStone.rough_value(sealed)])
+	var skill: String = str(sealed.skill)
+	check(DeepProfile.appraise(profile, sealed) and int(profile.gold) == 1000 - fee, "cracking it takes the fee")
+	check(not DeepStone.is_geode(sealed) and bool(sealed.appraised) and str(sealed.skill) == skill and int(profile.records.get("geodes", 0)) == 1, "the stone inside is an ordinary read stone, and the crack is counted")
+	check(profile.seen.has(skill), "and its skill is seen")
+	var other: Dictionary = DeepEconomy.roll_run_geode(DeepRng.streams(5).stones, "QUARRY", {}, "ge_x")
+	profile.tray.append(other)
+	var seen_before: int = profile.seen.size()
+	var sold: Dictionary = DeepProfile.decide_tray(profile, "ge_x", false)
+	check(bool(sold.ok) and int(sold.paid) == DeepStone.rough_value(other) and profile.seen.size() == seen_before, "an unopened Geode sells for its rough price and teaches nothing")
+
 func _test_salvage() -> void:
 	var state: Dictionary = DeepDescent.new_run(config(505, false))
 	for unit in state.players:
@@ -858,6 +902,15 @@ func _test_profile() -> void:
 	check(DeepProfile.open_sockets(profile, "VESPER") == 3 and not DeepProfile.fillable_socket(profile, "VESPER", 3),
 		"a deeper mine open changes nothing: a lapidary fills only the sockets they have opened, in any mine")
 	check(DeepProfile.loadout(profile, "VESPER").rail.slice(3).all(func(s: Variant) -> bool: return s == null), "and the rest go down empty")
+	## The boss's fall is granted on the spot (view/app.gd): the run coming home finds it done
+	## and says nothing twice.
+	var early: Dictionary = DeepProfile.new_profile("Early")
+	var granted: Array = DeepProfile.grant_conquest(early, "QUARRY", 0)
+	check(granted.size() == 2 and str(granted[0].get("mine", "")) == "SEEPS" and str(granted[1].get("character", "")) == "VESPER" and early.characters.VESPER.unlocked and early.mines.QUARRY.boss,
+		"the Quarry's boss opens the Seeps and brings Vesper the moment it falls: %s" % str(granted))
+	check(DeepProfile.grant_conquest(early, "QUARRY", 0).is_empty(), "and only once")
+	var came_home: Dictionary = DeepProfile.apply_result(early, pushed, "a")
+	check(came_home.unlocked.is_empty() and not came_home.purses.is_empty(), "the run coming home grants nothing twice, and still pays the purse: %s" % str(came_home.unlocked))
 	## Vesper's two Red sockets: a stone moves between them, and swaps with one already there.
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "VESPER", 1, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == [null, "STRIKE"], "moving a stone empties its old socket")
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "CLEAVE") == "" and DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == ["STRIKE", "CLEAVE"], "a stone moved onto another swaps them: %s" % str(profile.characters.VESPER.rail))
@@ -1542,3 +1595,72 @@ func _test_hazard_progress() -> void:
 	var guest: Dictionary = {"hazard_top": 3, "hazard_open": ["QUARRY", "SEEPS"]}
 	check(DeepSession.member_open_mines(guest, 2).size() == 7 and DeepSession.member_open_mines(guest, 3) == ["QUARRY", "SEEPS"], "a member has every mine below their highest tier, and their own on it")
 	check(DeepSession.clean_member_fields({"hazard_top": 99.0, "hazard_open": ["QUARRY", "NOWHERE"]}) == {"hazard_top": 20}, "a member's tier is clamped and unknown mines are dropped")
+
+func _test_bestiary() -> void:
+	## Every creature in the pack is filed under one mine, has somewhere it is found, and the
+	## creatures that only walk in beside another follow it on its page.
+	var order: Array = DeepBestiary.order()
+	check(order.size() == DeepContent.section("creatures").size(), "every creature is in the bestiary once: %d of %d" % [order.size(), DeepContent.section("creatures").size()])
+	for key in DeepContent.section("creatures"):
+		check(order.count(str(key)) == 1, "%s is filed exactly once" % key)
+		check(not DeepBestiary.haunts(str(key)).is_empty(), "%s is found somewhere" % key)
+	for mine in DeepContent.mines_in_order():
+		check(not DeepBestiary.in_mine(str(mine)).is_empty(), "%s has creatures of its own" % mine)
+	var veins: Array = DeepBestiary.in_mine("GLASS_VEINS")
+	check(veins.find("PRISM") == veins.find("THE_PRISMARCH") + 1, "the Prism follows the Prismarch on its page: %s" % str(veins))
+	check(DeepBestiary.role("THE_DRILL") == "boss" and DeepBestiary.role("THE_FOREMAN") == "warden" and DeepBestiary.role("PRISM") == "escort" and DeepBestiary.role("CAVE_TICK") == "creature",
+		"roles: a boss, a Warden, an escort and an ordinary creature")
+	check(DeepBestiary.haunts("THE_DRILL").any(func(h: Dictionary) -> bool: return str(h.kind) == "remembered" and str(h.mine) == "RIFT"), "the Drill is also remembered in the Rift")
+	check(DeepBestiary.haunts("RAIL_RAT").any(func(h: Dictionary) -> bool: return str(h.kind) == "summoned" and str(h.by) == "THE_DRILL"), "the Rail Rat is called in by the Drill")
+	var clouder: Array = DeepBestiary.haunts("CLOUDER").filter(func(h: Dictionary) -> bool: return str(h.mine) == "QUARRY")
+	check(clouder.size() == 1 and int(clouder[0].from) == 5 and int(clouder[0].to) == 16, "the Quarry's bands draw the Clouder from depth 5 to the bottom, as one stretch: %s" % str(clouder))
+	## A fight settled: what was called in is met, what fell is slain, and a lost fight is lost
+	## once to each kind still standing (not to what fled).
+	var fight: Dictionary = {"mine": "QUARRY", "depth": 6}
+	var foes: Array = [{"key": "CAVE_TICK", "hp": 0}, {"key": "CAVE_TICK", "hp": 5}, {"key": "CAVE_TICK", "hp": 3}, {"key": "MAGPIE", "hp": 4, "fled": true}]
+	DeepBestiary.met(fight, foes)
+	foes.append({"key": "RAIL_RAT", "hp": 0, "summoned": true})
+	DeepBestiary.settled(fight, foes, "defeat")
+	var tick: Dictionary = fight.bestiary.CAVE_TICK
+	check(int(tick.met) == 3 and int(tick.slain) == 1 and int(tick.lost) == 1 and int(tick.mines.QUARRY) == 6, "three ticks met, one slain, the fight lost to them once: %s" % str(tick))
+	check(int(fight.bestiary.RAIL_RAT.met) == 1 and int(fight.bestiary.RAIL_RAT.slain) == 1, "a rat called in is met when the fight ends: %s" % str(fight.bestiary.RAIL_RAT))
+	check(int(fight.bestiary.MAGPIE.met) == 1 and int(fight.bestiary.MAGPIE.slain) == 0 and int(fight.bestiary.MAGPIE.lost) == 0, "a magpie that fled is neither slain nor a winner: %s" % str(fight.bestiary.MAGPIE))
+	## A whole run writes it down, and the run's results carry it home.
+	var state: Dictionary = DeepDescent.new_run(config(202, true))
+	var guard: int = 0
+	while str(state.phase) != "over" and guard < 600:
+		guard += 1
+		if str(state.phase) == "landing" and state.depth > 8 and not bool(state.landing.get("cleared", false)) and state.records.wardens.has(8):
+			state.players[0].ore = int(state.players[0].ore) + DeepDescent.lift_cost(state)
+			for unit in state.players:
+				cmd(state, str(unit.id), "choose", {"choice": "lift"})
+		else:
+			_advance_once(state)
+	check(state.phase == "over" and int(state.records.fights) > 1, "the run ends after several fights (%d)" % int(state.records.fights))
+	var seen: Dictionary = state.get("bestiary", {})
+	var met_total: int = 0
+	for key in seen:
+		check(not DeepContent.creature(str(key)).is_empty(), "%s met on the run is a creature" % key)
+		check(int(seen[key].slain) <= int(seen[key].met), "%s was not slain more often than met" % key)
+		check(seen[key].mines.keys() == ["QUARRY"], "%s was met in the Quarry: %s" % [key, str(seen[key].mines)])
+		met_total += int(seen[key].met)
+	check(met_total >= int(state.records.fights), "every fight met at least one creature: %d over %d fights" % [met_total, int(state.records.fights)])
+	check(seen.has("THE_FOREMAN") and int(seen.THE_FOREMAN.met) == 1 and int(seen.THE_FOREMAN.slain) == 1, "the first Warden met and slain once: %s" % str(seen.get("THE_FOREMAN", {})))
+	var results: Dictionary = DeepDescent.results(state)
+	check(JSON.stringify(results.get("bestiary", {})) == JSON.stringify(seen), "the results carry what the party met")
+	## Home: the first time, everything is new; the second time, only the numbers grow.
+	var profile: Dictionary = DeepProfile.new_profile("Ada")
+	var applied: Dictionary = DeepProfile.apply_result(profile, results, "a")
+	check(applied.get("first_met", []).size() == seen.size(), "every creature met is new to the profile: %s" % str(applied.get("first_met", [])))
+	check(DeepBestiary.fresh_count(profile) == seen.size() and DeepBestiary.known(profile, "THE_FOREMAN"), "and marked new until looked at")
+	check(not str(DeepBestiary.entry(profile, "THE_FOREMAN").get("first", "")).is_empty(), "the day it was first met is written down")
+	results.run_id = "again"
+	var twice: Dictionary = DeepProfile.apply_result(profile, results, "a")
+	check(twice.get("first_met", []).is_empty() and int(DeepBestiary.entry(profile, "THE_FOREMAN").met) == 2 and int(DeepBestiary.entry(profile, "THE_FOREMAN").slain) == 2, "a second run adds to the record and is new to nobody")
+	check(DeepBestiary.unfresh(profile, "THE_FOREMAN") and not DeepBestiary.unfresh(profile, "THE_FOREMAN") and DeepBestiary.fresh_count(profile) == seen.size() - 1, "looking at it once takes the mark off")
+	check(DeepBestiary.known_count(profile) == seen.size(), "the bestiary counts what was met: %d" % DeepBestiary.known_count(profile))
+	## An older profile gains an empty bestiary; a creature no longer in the pack is skipped.
+	var old: Dictionary = DeepProfile.new_profile("Old")
+	old.erase("bestiary")
+	check(DeepProfile.upgrade(old) and old.get("bestiary", null) is Dictionary, "an older profile gains a bestiary")
+	check(DeepBestiary.merge(old, {"NO_SUCH_THING": {"met": 1}}).is_empty() and old.bestiary.is_empty(), "a creature no longer in the pack is not written down")

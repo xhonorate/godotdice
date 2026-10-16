@@ -14,6 +14,7 @@ extends Control
 
 const GeodeMesh = preload("res://view/gems/geode_mesh.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
+const GemView = preload("res://view/gems/gem_view.gd")
 
 ## Vertical field of view: narrow, so the Geode has depth without its near side ballooning.
 const FOV := 24.0
@@ -108,6 +109,8 @@ var _cutting: Dictionary = {}
 ## Frames left in which a still Geode asks for one more picture. A single request can be
 ## spent before the page has finished laying out, leaving the frame blank.
 var _settle: int = 0
+## Waiting for its turn to start drawing, a few new views to a frame (see GemView).
+var _held: bool = false
 
 func _init(shelf_geode: Dictionary = {}, color: Color = Color.WHITE) -> void:
 	geode = shelf_geode
@@ -141,6 +144,20 @@ static func _headless() -> bool:
 
 # --- building -------------------------------------------------------------------------------------
 
+static var _sky: Sky = null
+
+static func _shared_sky() -> Sky:
+	if _sky == null:
+		var sky_material := ProceduralSkyMaterial.new()
+		sky_material.sky_top_color = Color("9fb6e0")
+		sky_material.sky_horizon_color = Color("d8dde8")
+		sky_material.ground_horizon_color = Color("5c5850")
+		sky_material.ground_bottom_color = Color("221f1c")
+		sky_material.energy_multiplier = 0.7
+		_sky = Sky.new()
+		_sky.sky_material = sky_material
+	return _sky
+
 func _build() -> void:
 	## The room at once; the Geode in it as soon as it is cut.
 	_frame = SubViewportContainer.new()
@@ -155,22 +172,18 @@ func _build() -> void:
 	_viewport.use_debanding = true
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	_frame.add_child(_viewport)
+	var wait: int = GemView._take_draw_slot()
+	if wait > 0:
+		_start_later(wait)
 	_camera = Camera3D.new()
 	_camera.fov = FOV
 	_camera.near = 0.1
 	_camera.far = 40.0
 	_camera.position = Vector3(0, 0, 7)
 	var environment := Environment.new()
-	## A sky for the polished face and the crystal to mirror, as the gems have.
-	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color("9fb6e0")
-	sky_material.sky_horizon_color = Color("d8dde8")
-	sky_material.ground_horizon_color = Color("5c5850")
-	sky_material.ground_bottom_color = Color("221f1c")
-	sky_material.energy_multiplier = 0.7
-	var sky := Sky.new()
-	sky.sky_material = sky_material
-	environment.sky = sky
+	## A sky for the polished face and the crystal to mirror, as the gems have: one for every
+	## Geode, its light worked out once (see GemView._shared_sky).
+	environment.sky = _shared_sky()
 	environment.background_mode = Environment.BG_CLEAR_COLOR
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	environment.ambient_light_energy = 0.4
@@ -271,8 +284,40 @@ func _notification(what: int) -> void:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 
-func _dress(look: Dictionary) -> void:
-	## One material per kind of surface, shared by both halves.
+func _dress(_look: Dictionary) -> void:
+	_materials = dress(_built, tone)
+
+static func prop(shelf_geode: Dictionary, color: Color) -> Node3D:
+	## The Geode shut, as a piece of a 3D scene (a Warden's pedestal): both halves of the rock,
+	## about a unit in radius, turned the way the shelf holds it. Cut on the spot, so this is
+	## for the one Geode in a room and not for a shelf of them.
+	var built: Dictionary = GeodeMesh.build(shelf_geode, color)
+	var materials: Dictionary = dress(built, color)
+	var root := Node3D.new()
+	for half in built.halves:
+		var body := MeshInstance3D.new()
+		body.mesh = half
+		var mesh: ArrayMesh = body.mesh
+		for surface in range(mesh.get_surface_count()):
+			body.set_surface_override_material(surface, materials.get(mesh.surface_get_name(surface), materials.rind))
+		root.add_child(body)
+	## The seam it will crack along, faintly lit, so a shut rock reads as a Geode and not a boulder.
+	var line := MeshInstance3D.new()
+	line.mesh = GeodeMesh.ribbon(built.seam, 0.016, false)
+	line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var ribbon: ArrayMesh = line.mesh
+	(materials.hint as StandardMaterial3D).emission_energy_multiplier = 1.6
+	for surface in range(ribbon.get_surface_count()):
+		line.set_surface_override_material(surface, materials.gap if ribbon.surface_get_name(surface) == "gap" else materials.hint)
+	root.add_child(line)
+	root.rotation = REST
+	return root
+
+static func dress(built: Dictionary, tone: Color) -> Dictionary:
+	## One material per kind of surface, shared by both halves of a Geode: its view's, or the
+	## closed rock on a hoard's pedestal.
+	var look: Dictionary = GeodeMesh.LOOKS[str(built.look)]
+	var materials: Dictionary = {}
 	var rind := _flat(float(look.rough))
 	rind.metallic_specular = 0.3
 	_gritty(rind, 2.4, 1.0)
@@ -280,19 +325,19 @@ func _dress(look: Dictionary) -> void:
 		rind.clearcoat_enabled = true
 		rind.clearcoat = 0.7
 		rind.clearcoat_roughness = 0.2
-	_materials.rind = rind
+	materials.rind = rind
 	var glow := _flat(0.6)
 	glow.emission_enabled = true
-	glow.emission = _built.glow_tone
+	glow.emission = built.glow_tone
 	glow.emission_energy_multiplier = 2.2
-	_materials.glow = glow
+	materials.glow = glow
 	## The face is cut and polished: it takes the sky.
 	var face := _flat(0.4)
 	face.metallic_specular = 0.45
 	_gritty(face, 3.0, 0.25)
-	_materials.face = face
+	materials.face = face
 	var wall := _flat(0.75)
-	_materials.wall = wall
+	materials.wall = wall
 	var crystal := _flat(0.16)
 	crystal.metallic_specular = 0.5
 	crystal.rim_enabled = true
@@ -301,39 +346,40 @@ func _dress(look: Dictionary) -> void:
 	crystal.emission_enabled = true
 	crystal.emission = tone
 	crystal.emission_energy_multiplier = 0.0
-	_materials.crystal = crystal
+	materials.crystal = crystal
 	var spur := _flat(0.08)
 	spur.metallic_specular = 0.8
 	spur.rim_enabled = true
 	spur.rim = 0.3
 	spur.rim_tint = 0.8
 	spur.emission_enabled = true
-	spur.emission = _built.spur_tone
+	spur.emission = built.spur_tone
 	spur.emission_energy_multiplier = 0.2
-	_materials.spur = spur
+	materials.spur = spur
 	var brass := _flat(0.3)
 	brass.metallic = 0.85
-	_materials.brass = brass
+	materials.brass = brass
 	var line := StandardMaterial3D.new()
 	line.albedo_color = Color.BLACK
 	line.roughness = 1.0
 	line.emission_enabled = true
 	line.emission = Color("f3e2b0")
-	_materials.line = line
+	materials.line = line
 	var hint := line.duplicate() as StandardMaterial3D
 	hint.emission = tone
-	_materials.hint = hint
+	materials.hint = hint
 	var gap := StandardMaterial3D.new()
 	gap.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	gap.albedo_color = Color("0b0807")
-	_materials.gap = gap
+	materials.gap = gap
+	return materials
 
 ## The grit on the crust and the speckle in it, mapped on from all three sides because the
 ## rock has no UVs. Made once and shared by every Geode.
 static var _grit: NoiseTexture2D = null
 static var _speckle: NoiseTexture2D = null
 
-func _gritty(made: StandardMaterial3D, scale: float, strength: float) -> void:
+static func _gritty(made: StandardMaterial3D, scale: float, strength: float) -> void:
 	if _grit == null:
 		var bumps := FastNoiseLite.new()
 		bumps.noise_type = FastNoiseLite.TYPE_SIMPLEX
@@ -368,7 +414,7 @@ func _gritty(made: StandardMaterial3D, scale: float, strength: float) -> void:
 	made.normal_scale = strength
 	made.albedo_texture = _speckle
 
-func _flat(rough: float) -> StandardMaterial3D:
+static func _flat(rough: float) -> StandardMaterial3D:
 	var made := StandardMaterial3D.new()
 	made.vertex_color_use_as_albedo = true
 	made.vertex_color_is_srgb = true
@@ -568,16 +614,27 @@ func _live() -> bool:
 	return wobble or (drifting and not open) or hover > 0.0 or _kick > 0.0 or not _puff.is_empty() or _flying > 0 \
 		or (blows >= 2 and _amount() <= 0.0) or (split > 0.0 and split < 1.0 and not open)
 
+func _start_later(frames: int) -> void:
+	_held = true
+	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	for _i in range(frames):
+		await get_tree().process_frame
+	if not is_instance_valid(self) or _viewport == null:
+		return
+	_held = false
+	_wake()
+	_redraw()
+
 func _wake() -> void:
 	if not is_inside_tree():
 		return
 	var live: bool = _live()
 	set_process(live or _task >= 0 or _settle > 0)
-	if _viewport != null:
+	if _viewport != null and not _held:
 		_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if live else SubViewport.UPDATE_ONCE
 
 func _redraw() -> void:
-	if _viewport != null and _viewport.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
+	if _viewport != null and not _held and _viewport.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
 		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 		_settle = 3
 		if is_inside_tree():
@@ -602,7 +659,7 @@ func _process(delta: float) -> void:
 			_fx.queue_redraw()
 	if _settle > 0:
 		_settle -= 1
-		if _viewport != null and _viewport.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
+		if _viewport != null and not _held and _viewport.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
 			_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	if not _live():
 		_wake()

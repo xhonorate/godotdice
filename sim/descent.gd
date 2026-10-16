@@ -67,7 +67,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 	var state: Dictionary = {"run_id": str(config.get("run_id", "run%08x" % seed_value)), "seed": seed_value, "mine": mine_key, "from_mine": mine_key,
 		"depth": 0, "phase": "tunnels", "outcome": "", "players": [], "offers": [], "chamber": {}, "landing": {},
 		"hoard": {}, "salvage": {}, "aftermath": {}, "used_oddities": [], "path": [], "records": {"deepest": 0, "wardens": [], "boss": false, "stones_found": 0, "fights": 0},
-		"heat": 0, "carried": 0, "mines_done": [], "rng": {}, "seq": 0, "next_id": 1}
+		"heat": 0, "carried": 0, "mines_done": [], "rng": {}, "seq": 0, "next_id": 1, "bestiary": {}}
 	var streams: Dictionary = DeepRng.streams(seed_value)
 	## The daily dig (DeepEconomy.daily_config): the day's seam, its lapidary, the rail and dice
 	## its rail rule lends every seat, and its hazard, blessing and twist.
@@ -665,6 +665,14 @@ static func run_is_boss(state: Dictionary, depth: int) -> bool:
 	var bottom: int = bottom_of(state)
 	return bottom > 0 and depth == bottom
 
+static func is_third_warden(state: Dictionary, depth: int) -> bool:
+	## The last guard of a mine: its final boss, after the two Wardens. The Rift has no bottom,
+	## so its Wardens count off in threes instead.
+	var mine: Dictionary = mine_of(state)
+	if bool(mine.get("endless", false)):
+		return depth > 0 and depth % warden_every(mine) == 0 and (depth / warden_every(mine)) % 3 == 0
+	return run_is_boss(state, depth)
+
 static func bottom_of(state: Dictionary) -> int:
 	## The last floor of the mine the party is in, or 0 in a mine with no bottom. A run saved
 	## before mines had bosses keeps the bottom it was planned with: its last landing.
@@ -1130,6 +1138,7 @@ static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, wa
 	state.chamber.battle = battle
 	state.chamber.kind = "warden" if not warden.is_empty() else ("elite" if elite else "fight")
 	state.records.fights = int(state.records.fights) + 1
+	DeepBestiary.met(state, battle.enemies)
 	return _event(state, "battle_begin", {"depth": state.depth, "creatures": keys, "elite": elite, "warden": warden, "soft_rock": soft, "absorbed": absorbed})
 
 static func _dress_the_fight(state: Dictionary, battle: Dictionary, ordinary: bool, swarm: bool) -> void:
@@ -1275,6 +1284,7 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	var kind: String = str(state.chamber.kind)
 	state.chamber.settled = true
 	var settle: Dictionary = {"outcome": outcome, "kind": kind, "rewards": {}}
+	DeepBestiary.settled(state, b.enemies, outcome)
 	for fighter in b.players:
 		var unit: Dictionary = player(state, str(fighter.id))
 		unit.hp = int(fighter.hp)
@@ -1899,7 +1909,7 @@ static func _reveal(stone: Dictionary) -> void:
 static func _raw_in_haul(unit: Dictionary, stone_id: String) -> Dictionary:
 	for stone in unit.get("haul", []):
 		if str(stone.get("id", "")) == stone_id:
-			return stone if not bool(stone.get("appraised", false)) else {}
+			return stone if not bool(stone.get("appraised", false)) and not DeepStone.is_geode(stone) else {}
 	return {}
 
 static func _appraise(state: Dictionary, unit: Dictionary, stone_id: String) -> Dictionary:
@@ -2178,7 +2188,7 @@ static func can_wish(stone: Dictionary) -> bool:
 	## not — it came down with you and it goes back up with you — a Knot will not leave its
 	## socket, and a fragile stone (a temporary one, a Void, a staked find) was never yours to
 	## turn into anything that could come home.
-	return not DeepStone.is_birthstone(stone) and not DeepStone.is_locked(stone) and not DeepStone.is_fragile(stone)
+	return not DeepStone.is_birthstone(stone) and not DeepStone.is_locked(stone) and not DeepStone.is_fragile(stone) and not DeepStone.is_geode(stone)
 
 static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_id: String, ore: int = 0) -> Dictionary:
 	if not str(unit.get("respite", "")).is_empty():
@@ -2431,6 +2441,8 @@ static func _offer_hoard(state: Dictionary) -> void:
 		opal_pct *= float(DeepContent.hazard_param("THIN_HOARDS", "opal_pct", 50)) / 100.0
 	var luck: float = float(DeepContent.constant("hoard_luck", 5))
 	var opal_luck: float = float(DeepContent.constant("opal_hoard_luck", 0))
+	## The third Warden's hoard (the mine's boss) trades its last plain pedestal for a Geode.
+	var geode_chance: float = float(DeepContent.constant("hoard_geode_pct", 100)) if is_third_warden(state, int(state.depth)) else 0.0
 	for unit in state.players:
 		## Whoever went down in the fight is carried past the pedestals: the hoard is for those
 		## still standing, and the one on the floor gets back up at the next landing.
@@ -2440,7 +2452,14 @@ static func _offer_hoard(state: Dictionary) -> void:
 		## A day of Generous Hoards puts a fourth pedestal in every hall.
 		var pedestals: int = maxi(1, HOARD_OFFERS + (1 if has_mod(state, "GENEROUS_HOARDS") else 0) + (1 if has_mod(state, "WARDENS_WRATH") else 0)
 			+ int(DeepContent.hazard_param("THIN_HOARDS", "pedestals", -1)) * mod_count(state, "THIN_HOARDS"))
+		## The last pedestal, or the one before it when the last is the opal's: never the opal's own.
+		var geode_at: int = -1
+		if pedestals >= 2 and geode_chance > 0.0 and DeepRng.chance(streams.stones, geode_chance):
+			geode_at = pedestals - 1 if pedestals - 1 != HOARD_OFFERS / 2 else pedestals - 2
 		for index in range(pedestals):
+			if index == geode_at:
+				offers.append(DeepEconomy.roll_run_geode(streams.stones, str(state.mine), {"run": str(state.run_id), "finder": str(unit.id), "seat": int(unit.get("seat", 0))}, _id(state, "ge")))
+				continue
 			var opal: bool = index == HOARD_OFFERS / 2 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
 			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), opal_luck if opal else luck, {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
 			stone.appraised = false
@@ -2602,6 +2621,8 @@ static func results(state: Dictionary) -> Dictionary:
 		out.daily = state.daily.duplicate(true)
 	if hazard_tier(state) > 0:
 		out.hazard = hazard_tier(state)
+	## The creatures the party met, for every player's bestiary.
+	out.bestiary = state.get("bestiary", {}).duplicate(true)
 	for unit in state.players:
 		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "home": coming_home(state, unit).duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
 			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true),

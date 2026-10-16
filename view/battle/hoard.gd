@@ -8,6 +8,7 @@ const Lowpoly = preload("res://view/battle/lowpoly.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
 const GemView = preload("res://view/gems/gem_view.gd")
+const GeodeView = preload("res://view/gems/geode_view.gd")
 
 const SPREAD := 2.6
 
@@ -38,7 +39,8 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		## Its size class, cut into the pedestal's face: all there is to see of a raw stone
 		## besides its colour, so it is shown without having to point at it.
 		var size := Label3D.new()
-		size.text = DeepStone.size_name(int(stone.get("carat", 1)))
+		var sealed_geode: bool = DeepStone.is_geode(stone)
+		size.text = "Geode" if sealed_geode else DeepStone.size_name(int(stone.get("carat", 1)))
 		size.font = DeepUi.display_font()
 		size.font_size = 46
 		size.pixel_size = 0.0042
@@ -52,13 +54,23 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		## grade colour over an unopened stone would say what is inside it before the lens does.
 		var read: bool = bool(stone.get("appraised", false))
 		var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if read else GemMesh.tint(stone)
+		if sealed_geode:
+			## A Geode is a rock of its mine's, or of one color: its own glow, not a stone's.
+			tone = load("res://view/gems/geode.gd").theme_tone(stone.geode)
 		var spinner := Node3D.new()
 		spinner.position = Vector3(0, 1.75, 0)
 		stand.add_child(spinner)
-		var gem: Node3D = GemMesh.solid(stone)
-		gem.scale = Vector3.ONE * 1.05 / float(gem.get_meta("extent", 1.0))
-		gem.rotation = Vector3(deg_to_rad(-65), 0, 0)
-		if not read:
+		var gem: Node3D = null
+		if sealed_geode:
+			## Shut, and sealed: the workshop cracks it. In headless there is no 3D to cut.
+			gem = Node3D.new() if DisplayServer.get_name() == "headless" else GeodeView.prop(stone.geode, tone)
+			gem.scale = Vector3.ONE * 0.62
+			gem.position.y = 0.2
+		else:
+			gem = GemMesh.solid(stone)
+			gem.scale = Vector3.ONE * 1.05 / float(gem.get_meta("extent", 1.0))
+			gem.rotation = Vector3(deg_to_rad(-65), 0, 0)
+		if not read and not sealed_geode:
 			var chunks: Array = GemRock.chunks(stone)
 			var rubble := GemRock.world_material()
 			var seams := GemRock.world_seams(GemMesh.tint(stone))

@@ -50,6 +50,13 @@ var revision: int = 0
 ## The fight speed the player chose. The app plays a resolving turn at this time scale, so
 ## the host's clock (which runs on scaled time) and every animation speed up together.
 var speed: float = 1.0
+## A turn the host asked to hurry (a click or Space while it plays out): it runs at least this
+## fast until it is over, and the guests are told the same speed with every step.
+const HURRY_SPEED: float = 4.0
+var hurried: bool = false
+## How fully each gem's count is played (1 Full, 0.5 Quick, 0 Off): the host's choice, written
+## on the fight as it resolves so every screen and the host's clock pace it alike.
+var count_pace: float = 1.0
 ## The host's fight speed, which a guest plays every turn at: the host's clock paces the
 ## steps, so a guest animating at a speed of its own would run ahead of them or fall behind.
 var host_speed: float = 1.0
@@ -545,6 +552,8 @@ func start_run(seed_value: int = 0) -> Dictionary:
 			return {"ok": false, "error": "not everyone can pay the way down"}
 		if not hazard_blocked().is_empty():
 			return {"ok": false, "error": "not everyone has opened this mine on this Hazard tier"}
+		if daily_lobby() and str(lobby.members.get(local_id, {}).get("daily_state", "locked")) == "locked":
+			return {"ok": false, "error": "the day's seam opens once you have beaten the Quarry"}
 		return {"ok": false, "error": "not everyone is ready"}
 	var players: Array = []
 	for id in lobby.order:
@@ -656,7 +665,7 @@ func _publish(before: Dictionary, event: Dictionary) -> void:
 	revision += 1
 	if _listening():
 		var patch: Variant = DeepPatch.diff(before, run)
-		_broadcast({"kind": "step", "event": event, "patch": patch, "revision": revision, "speed": clampf(speed, 1.0, 8.0)})
+		_broadcast({"kind": "step", "event": event, "patch": patch, "revision": revision, "speed": clampf(effective_speed(), 1.0, 8.0)})
 	run_event.emit(event)
 	_after_change()
 
@@ -740,12 +749,17 @@ func tick(delta: float) -> void:
 	if _wait > 0.0:
 		return
 	var before: Dictionary = run.duplicate(true) if _listening() else {}
+	b.count_pace = clampf(count_pace, 0.0, 1.0)
 	var event: Dictionary = DeepDescent.step(run)
 	if event.is_empty():
 		return
 	var duration: float = float(event.get("battle", {}).get("duration", 0.4))
 	_wait = maxf(STEP_FLOOR, duration)
 	_publish(before, event)
+
+func effective_speed() -> float:
+	## The fight speed, or faster for a turn the host asked to hurry.
+	return maxf(speed, HURRY_SPEED) if hurried else speed
 
 func _process(delta: float) -> void:
 	SteamWire.pump()

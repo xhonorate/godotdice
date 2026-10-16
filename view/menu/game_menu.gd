@@ -20,12 +20,13 @@ signal invite_requested
 
 const QUALITY: Array = [["Auto", 0], ["High", 3], ["Medium", 2], ["Low", 1]]
 const SPEEDS: Array = [["1×", 1.0], ["2×", 2.0], ["4×", 4.0]]
+const COUNTS: Array = [["Full", 1.0], ["Quick", 0.5], ["Off", 0.0]]
 const CONTROLS: Array = [
 	["Right-click", "Inspect a stone, a die or a creature: its full details and a model to turn"],
 	["Drag", "Turn the model in the inspector"],
 	["1 – 5", "Pick a die to reroll (or click it); at the mouths, 1 – 3 picks a way on"],
 	["R", "Reroll the picked dice"],
-	["Space", "Lock in your hand"],
+	["Space", "Lock in your hand; while a turn plays out, hurry it (so does a click)"],
 	["F", "Fast fights on or off (the Harlequin shifts the picked die instead)"],
 	["B", "Open the bag; the whole bench when the bag is not at hand"],
 	["M", "Fold out the chart of the stretch"],
@@ -343,15 +344,13 @@ func _page_settings() -> void:
 	_row(grid, "Master volume", _slider("master_volume", 0.8))
 	_row(grid, "Effects", _slider("sfx_volume", 0.85), "Every sound the game makes is written by the game itself.")
 	_row(grid, "Music", _slider("music_volume", 0.6), "The music is written by the game too, from a few lines of score for each piece.")
-	DeepUi.label(grid, "Soundtrack", 15, DeepUi.PAPER)
-	var pieces := DeepUi.icon_button(grid, "pulse", "Choose", func() -> void: _show("soundtrack"), 14, DeepUi.PAPER)
-	pieces.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	pieces.tooltip_text = "Pick the music for the workshop and for each mine."
 	_section(grid, "Comfort")
 	_row(grid, "Screen shake", _slider("shake", 1.0))
 	_row(grid, "Fewer flashes", _toggle("reduced_motion", false), "Softens the flashes and color smears on heavy blows.")
+	_row(grid, "Rumble", _toggle("rumble", true), "Shakes a gamepad (or a phone) as dice count, gems fire and blows land.")
 	_section(grid, "Fights")
-	_row(grid, "Fight speed", _choice("speed", SPEEDS, 1.0), "How fast a locked-in turn plays out, every animation with it. F toggles 4× mid-fight.")
+	_row(grid, "Fight speed", _choice("speed", SPEEDS, 1.0), "How fast a locked-in turn plays out, every animation with it. F toggles 4× mid-fight; a click or Space hurries one turn.")
+	_row(grid, "Gem count", _choice("count", COUNTS, 1.0), "How each gem counts its number out before it fires: every die and multiplier (Full), the same twice as fast (Quick), or only the total (Off). In a party, the host's choice.")
 	var back := DeepUi.button(_body, "Back", func() -> void: _show("main"), 15)
 	DeepUi.voice(back, "ui_back")
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -410,6 +409,9 @@ func _changed(key: String, value: Variant) -> void:
 	## A level you cannot hear is a level you cannot set: every nudge gives you something.
 	if key.ends_with("_volume"):
 		DeepAudio.play("ui_tap", {"gap": 0.1})
+	## Likewise a rumble switched on is felt at once.
+	if key == "rumble" and bool(value):
+		DeepAudio.rumble(0.4, 0.5, 0.15)
 
 func _toggle(key: String, fallback: bool) -> CheckButton:
 	var box := CheckButton.new()

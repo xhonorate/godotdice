@@ -249,6 +249,24 @@ static func lifts(track_id: String, mood: String) -> bool:
 	## Whether a piece goes up a semitone in this mood: only for a Warden, only if it asks.
 	return mood == "warden" and bool(DeepScore.track(track_id).get("warden_lift", false))
 
+static func tonic() -> Dictionary:
+	## The key the music is in right now, for a sound that climbs a scale and wants to climb
+	## this one rather than clash with it (a gem's count, tick by tick): the tonic as semitones
+	## over C, a Warden's lift included, and five steps of the piece's mode that sit well over
+	## it, the pentatonic its third calls for. C major's, with no music playing.
+	var player: DeepMusic = service()
+	if player == null or player._decks.is_empty():
+		return {"pc": 0, "steps": [0, 2, 4, 7, 9]}
+	var deck: Dictionary = player._decks.back()
+	return key_of(DeepScore.track(str(deck.get("id", ""))), bool(deck.get("lifted", false)))
+
+static func key_of(spec: Dictionary, lifted: bool = false) -> Dictionary:
+	var scale: Array = DeepComposer.MODES.get(str(spec.get("mode", "ionian")), DeepComposer.MODES.ionian)
+	var minor: bool = int(scale[2]) == 3
+	var steps: Array = [scale[0], scale[2], scale[3], scale[4], scale[6]] if minor else [scale[0], scale[1], scale[2], scale[4], scale[5]]
+	var pc: int = int(DeepComposer.PITCHES.get(str(spec.get("key", "C")), 0)) + (1 if lifted else 0)
+	return {"pc": pc % 12, "steps": steps}
+
 static func bar_seconds(track_id: String) -> float:
 	## One bar of a piece, in the stream's own seconds.
 	var p: Dictionary = DeepComposer.plan(DeepScore.track(track_id))

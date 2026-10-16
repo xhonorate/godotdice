@@ -19,6 +19,8 @@ func _init() -> void:
 	_test_patch_stream()
 	_test_whole_fights()
 	_test_rung_finishes()
+	_test_tally()
+	_test_tally_pace_and_creatures()
 	print("Battle: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -707,3 +709,94 @@ func _test_whole_fights() -> void:
 		log_a.append(JSON.stringify(run_turn(s_a, r_a)))
 		log_b.append(JSON.stringify(run_turn(s_b, r_b)))
 	check(log_a == log_b, "the same seeds replay the same fight")
+
+func _test_tally() -> void:
+	## A gem's count says what really happened: the dice it read and what they showed, how
+	## the skill made them its number, every multiplier laid on it, and the figure that landed.
+	var r: Dictionary = rngs(83)
+	var bowl: Array = dice(DeepContent.character("ARDOR").dice, "a")
+	bowl[1].material = "ruby"
+	var rail: Array = [stone("STRIKE", 7, 2, 3), stone("CRUSH", 16, 2, 5), stone("GUARD", 9, 3, 3), stone("CASCADE", 3, 4, 3)]
+	var state: Dictionary = DeepBattle.begin([DeepBattle.make_player("a", "A", "ARDOR", rail, bowl)], ["RAIL_RAT"], {"depth": 1}, r.dice, r.creatures)
+	for foe in state.enemies:
+		foe.hp = 999
+		foe.max_hp = 999
+	hand(DeepBattle.player(state, "a"), [4, 4, 4, 2, 5])
+	var by_skill: Dictionary = {}
+	for event in fires(run_turn(state, r), "a"):
+		by_skill[str(event.skill)] = event
+	var strike: Dictionary = by_skill.get("STRIKE", {}).get("tally", {})
+	check(strike.get("dice", []).map(func(d: Dictionary) -> int: return int(d.value)) == [2, 4, 4] and strike.get("link", {"op": "?"}).is_empty() and int(strike.get("base", 0)) == 10,
+		"a Strike's three low dice add up to its number: %s" % str(strike))
+	check(strike.get("mults", []).map(func(m: Dictionary) -> String: return str(m.what)) == ["material", "carat"] and int(strike.get("amount", 0)) == 37,
+		"then the Ruby die and seven carats multiply it, 10 x 1.5 x 2.5 = 37: %s" % str(strike.get("mults", [])))
+	var landed: Array = by_skill.get("STRIKE", {}).get("effects", []).filter(func(e: Dictionary) -> bool: return str(e.kind) == "damage")
+	check(not landed.is_empty() and int(landed[0].get("raw", 0)) == int(strike.get("amount", -1)), "and 37 is what the blow carried")
+	var crush: Dictionary = by_skill.get("CRUSH", {}).get("tally", {})
+	check(str(crush.get("link", {}).get("op", "")) == "x" and int(crush.link.get("from", 0)) == 4 and int(crush.link.get("by", 0)) == 5 and int(crush.get("base", 0)) == 20,
+		"a Crush is the matched value five times over, not its dice added up: %s" % str(crush.get("link", {})))
+	check(crush.get("mults", []).map(func(m: Dictionary) -> String: return str(m.what)) == ["material", "carat", "clarity"] and int(crush.get("amount", 0)) == 213,
+		"Ruby, sixteen carats and Flawless: 20 x 1.5 x 4.75 x 1.5 = 213 (%d)" % int(crush.get("amount", 0)))
+	var guard: Dictionary = by_skill.get("GUARD", {}).get("tally", {})
+	check(str(guard.get("kind", "")) == "block" and str(guard.get("link", {}).get("op", "")) == "=" and int(guard.get("base", 0)) == 4,
+		"a Guard's number is its pair's value, which the dice only woke: %s" % str(guard))
+	check(guard.get("mults", []).size() == 1 and int(guard.get("amount", 0)) == 12, "a red Ruby does nothing for a blue gem; nine carats triple it")
+	var cascade: Dictionary = by_skill.get("CASCADE", {}).get("tally", {})
+	check(not cascade.get("dice", []).is_empty() and not cascade.has("amount"), "a gem with no figure to land shows only the dice that woke it")
+	for skill in by_skill:
+		var event: Dictionary = by_skill[skill]
+		var tally: Dictionary = event.get("tally", {})
+		check(float(event.duration) >= DeepBattle.BASE_DURATION.gem_fire + DeepBattle.tally_span(tally) - 0.001, "%s holds the step long enough to count itself out" % skill)
+		if not tally.has("amount"):
+			continue
+		var magnitude: float = 1.0
+		for m in tally.mults:
+			magnitude *= float(m.x)
+		var added: int = 0
+		for entry in tally.adds:
+			added += int(entry.by)
+		check(int(floor(float(tally.base) * magnitude + 0.0001)) + added == int(tally.amount), "%s's count adds up: %d x %.4f + %d = %d" % [skill, int(tally.base), magnitude, added, int(tally.amount)])
+
+func _test_tally_pace_and_creatures() -> void:
+	## The host's count pace shortens every count alike, the forecast keeps each gem's count
+	## for the plate a hovered gem shows, and a creature's blow is counted the same way: its
+	## dice, the mine's weight on it, what goes on top, and block soaking it as it lands.
+	var full: Dictionary = {"dice": [{"id": "a", "value": 3}, {"id": "b", "value": 4}], "amount": 10, "mults": [{"what": "carat", "x": 1.5}], "adds": [], "link": {}}
+	var quick: Dictionary = full.duplicate(true)
+	quick.pace = 0.5
+	var off: Dictionary = full.duplicate(true)
+	off.pace = 0.0
+	check(is_equal_approx(DeepBattle.tally_span(quick), DeepBattle.tally_span(full) * 0.5), "Quick plays a count in half the time")
+	check(is_equal_approx(DeepBattle.tally_span(off), DeepBattle.TALLY_GLANCE), "Off shows only the figure, for a moment")
+	var r: Dictionary = rngs(91)
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 7, 2, 3), stone("GUARD", 9, 3, 3)])], ["RAIL_RAT"], {"depth": 1}, r.dice, r.creatures)
+	var a: Dictionary = DeepBattle.player(state, "a")
+	hand(a, [4, 4, 6, 2, 5])
+	var forecast: Dictionary = DeepBattle.forecast(state, "a")
+	check(int(forecast.sockets[0].get("tally", {}).get("amount", -1)) == 25, "the forecast keeps a gem's count for the plate a hover shows: %s" % str(forecast.sockets[0].get("tally", {})))
+	for foe in state.enemies:
+		foe.hp = 999
+		foe.max_hp = 999
+		foe.damage_mult = 3.0
+	state.count_pace = 0.5
+	a.hp = 500
+	a.max_hp = 500
+	var events: Array = run_turn(state, r)
+	var gem: Dictionary = fires(events, "a")[0]
+	check(is_equal_approx(float(gem.tally.get("pace", 1.0)), 0.5), "a gem's count carries the pace the host chose")
+	var counted: Array = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "enemy_ability" and not e.get("tally", {}).is_empty())
+	check(not counted.is_empty(), "a creature's blow is counted before it lands")
+	for event in counted:
+		var tally: Dictionary = event.tally
+		var magnitude: float = 1.0
+		for m in tally.mults:
+			magnitude *= float(m.x)
+		var added: int = 0
+		for entry in tally.adds:
+			added += int(entry.by)
+		check(int(floor(float(tally.base) * magnitude + 0.0001)) + added == int(tally.amount), "%s's count adds up: %d x %.2f + %d = %d" % [str(event.move), int(tally.base), magnitude, added, int(tally.amount)])
+		check(tally.mults.any(func(m: Dictionary) -> bool: return str(m.what) == "depth" and is_equal_approx(float(m.x), 3.0)), "the mine's weight on it is laid on as a multiplier")
+		check(float(event.duration) >= 0.7 + DeepBattle.tally_span(tally) - 0.001, "the creature's step waits for its count")
+	var soaked: Array = events.filter(func(e: Dictionary) -> bool:
+		return str(e.kind) == "enemy_move" and e.get("effects", []).any(func(h: Dictionary) -> bool: return str(h.get("target", "")) == "a" and int(h.get("absorbed", 0)) > 0))
+	check(not soaked.is_empty() and float(soaked[0].duration) > DeepBattle.BASE_DURATION.enemy_move, "a blow block takes part of waits to be counted at the bar")

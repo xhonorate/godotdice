@@ -283,14 +283,14 @@ func _draw_earth() -> void:
 		canvas.draw_circle(badge, 15.0, Color(0, 0, 0, 0.35))
 		canvas.draw_arc(badge, 15.0, 0, TAU, 28, Color(tone, 1.0 if open else 0.4), 1.5, true)
 		var lit_name: bool = open or ahead
-		canvas.draw_string(DeepUi.display_font(), badge + Vector2(-15, 4), numeral(key), HORIZONTAL_ALIGNMENT_CENTER, 30, 12, Color(tone, 1.0 if open else (0.7 if ahead else 0.45)))
+		canvas.draw_string(DeepUi.caps_font(), badge + Vector2(-15, 4), numeral(key), HORIZONTAL_ALIGNMENT_CENTER, 30, 12, Color(tone, 1.0 if open else (0.7 if ahead else 0.45)))
 		var name_x: float = badge.x + 26.0
 		canvas.draw_string(DeepUi.display_font(), Vector2(name_x, mid - 2), str(mine.get("name", key)), HORIZONTAL_ALIGNMENT_LEFT, 230, 19, DeepUi.PAPER if open else (DeepUi.MUTED if ahead else DeepUi.DIM))
 		var under: String = ("SEALED" if not open else ("BEATEN" if bool(record.get("boss", false)) else "OPEN"))
 		if daily:
 			## Short, to fit beside the longest biome's name: the whole map is today's.
 			under = "AHEAD" if ahead else ("BEATEN" if bool(record.get("boss", false)) else ("REACHED" if records.has(key) else "START"))
-		canvas.draw_string(DeepUi.display_font(), Vector2(name_x, mid + 15), "%s  ·  %s" % [str(biome.name).to_upper(), under], HORIZONTAL_ALIGNMENT_LEFT, 240, 10, Color(tone, 0.85 if open else (0.6 if lit_name else 0.4)))
+		canvas.draw_string(DeepUi.caps_font(), Vector2(name_x, mid + 15), "%s  ·  %s" % [str(biome.name).to_upper(), under], HORIZONTAL_ALIGNMENT_LEFT, 240, 10, Color(tone, 0.85 if open else (0.6 if lit_name else 0.4)))
 		## The depth track: how far down this mine the player has been, and its crowns.
 		var track_x: float = name_x + 238.0
 		var track_w: float = clampf(size.x - track_x - 150.0, 120.0, 380.0)
@@ -342,7 +342,7 @@ func _draw_earth() -> void:
 	var home := _home
 	canvas.draw_colored_polygon(PackedVector2Array([home + Vector2(-46, 0), home + Vector2(-46, -34), home + Vector2(0, -62), home + Vector2(46, -34), home + Vector2(46, 0)]), Color("241c16"))
 	canvas.draw_rect(Rect2(home + Vector2(22, -64), Vector2(10, 22)), Color("241c16"))
-	canvas.draw_string(DeepUi.display_font(), home + Vector2(60, -10), "THE WORKSHOP", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DeepUi.ACCENT)
+	canvas.draw_string(DeepUi.caps_font(), home + Vector2(60, -10), "THE WORKSHOP", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DeepUi.ACCENT)
 	queue_redraw()
 
 func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector2, width: float, chosen_one: bool) -> void:
@@ -431,7 +431,7 @@ func _draw_hazard_gauge(canvas: CanvasItem, surface_y: float) -> void:
 	## The label: the tier, its newest hazard, and how many more are under it.
 	var adds: Dictionary = DeepContent.hazard_tier(hazard)
 	var head: String = "HAZARD %d" % hazard if hazard > 0 else "NO HAZARD"
-	var font: Font = DeepUi.display_font()
+	var font: Font = DeepUi.caps_font()
 	canvas.draw_string(font, Vector2(left, label_y), head, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DeepUi.BAD if hazard > 0 else DeepUi.MUTED)
 	var head_w: float = font.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 	var said: String = "The ordinary map. Pick a tier to make it harder."

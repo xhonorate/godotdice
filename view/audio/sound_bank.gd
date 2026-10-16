@@ -28,7 +28,8 @@ const NAMES: PackedStringArray = [
 	"ui_deny", "toast", "toast_bad", "unlock",
 	"die_tumble", "die_settle", "die_pick", "die_drop", "dice_lock", "dice_reroll",
 	"battle_begin", "turn_begin", "resolve", "gem_red", "gem_blue", "gem_green", "gem_violet",
-	"gem_gold", "gem_white", "gem_fizzle", "resonance", "harmony", "hit_light", "hit_heavy",
+	"gem_gold", "gem_white", "gem_fizzle", "tally_tick", "tally_mult", "tally_fuse", "tally_blaze",
+	"tick_red", "tick_blue", "tick_green", "tick_violet", "tick_gold", "tick_white", "resonance", "harmony", "hit_light", "hit_heavy",
 	"hit_crit", "block", "block_break", "heal", "poison", "stun", "curse", "enemy_windup",
 	"enemy_strike", "creature_die", "warden_die", "victory", "defeat", "cave_rumble", "ore",
 	"pick_strike", "rock_break", "stone_found", "tunnel", "landing", "lift", "depart", "lantern", "oddity",
@@ -45,6 +46,12 @@ static var _shelf: Mutex = Mutex.new()
 
 static func gem_sound(color: String) -> String:
 	return str(GEM_SOUNDS.get(color.to_upper(), "gem_white"))
+
+static func tick_sound(color: String) -> String:
+	## A gem's count ticks in its own colour's voice: grit for red, glass for blue, wood for
+	## green, two bells beating for violet, struck metal for gold, a pure tone for white.
+	var name: String = "tick_" + color.to_lower()
+	return name if NAMES.has(name) else "tally_tick"
 
 static func grade_sound(tier: String) -> String:
 	return str(GRADE_SOUNDS.get(tier.to_upper(), "grade_rough"))
@@ -189,6 +196,64 @@ static func _bake(name: String) -> AudioStreamWAV:
 		"gem_fizzle":
 			return DeepSynth.new(0.4).noise(0.0, 0.26, 0.26, 1800.0, 260.0, 2.6, 0.01) \
 				.tone(0.0, 0.16, 300.0, 140.0, 0.16, "square", 4.0, 0.004).normalise(0.46).stream()
+		# --- a gem's count: one instrument in three registers, all on C so the mixer can walk
+		# them up the music's own scale (see DeepMusic.tonic and the battle screen's Tally) ---
+		"tally_tick":
+			## A die's number dropping into the setting: a small, bright tink with a click on
+			## the front of it, short enough to be played five times in half a second.
+			return DeepSynth.new(0.2).bell(0.0, 0.17, C5, 0.36, DeepSynth.CHIME_PARTIALS, 4.4) \
+				.tone(0.0, 0.05, C5 * 2.0, -1.0, 0.1, "triangle", 6.0, 0.001) \
+				.clack(0.0, 0.1, 2200.0).normalise(0.5).stream()
+		"tick_red":
+			## Cut and heat, small: a saw-edged tick with grit on the front of it.
+			return DeepSynth.new(0.2).tone(0.0, 0.11, C5, C5 * 0.985, 0.24, "saw", 5.4, 0.001) \
+				.bell(0.0, 0.14, C5, 0.2, DeepSynth.CHIME_PARTIALS, 5.0) \
+				.noise(0.0, 0.05, 0.22, 7000.0, 1600.0, 5.0, 0.0006).normalise(0.5).stream()
+		"tick_blue":
+			## A drop on glass: a clear bell and its octave, a breath of cold air.
+			return DeepSynth.new(0.22).bell(0.0, 0.2, C5, 0.32, DeepSynth.CHIME_PARTIALS, 3.6) \
+				.bell(0.0, 0.16, C5 * 2.0, 0.14, DeepSynth.CHIME_PARTIALS, 4.2) \
+				.whoosh(0.0, 0.08, 0.04, 2400.0, 5200.0).normalise(0.5).stream()
+		"tick_green":
+			## Wood: a plucked twig, warm and short.
+			return DeepSynth.new(0.22).pluck(0.002, 0.18, C5, 0.45, 0.99, 0.35) \
+				.tone(0.0, 0.06, C5, -1.0, 0.12, "triangle", 5.0, 0.001).fade(0.04).normalise(0.5).stream()
+		"tick_violet":
+			## Two bells a hair apart, beating against each other.
+			return DeepSynth.new(0.24).bell(0.0, 0.22, C5, 0.3, DeepSynth.CHIME_PARTIALS, 3.4, 0.014) \
+				.tone(0.0, 0.12, C5 * 0.5, -1.0, 0.1, "sine", 4.0, 0.004, 0.03, 9.0).normalise(0.5).stream()
+		"tick_gold":
+			## A coin on a coin: struck metal with a glint over it.
+			return DeepSynth.new(0.22).bell(0.0, 0.18, C5, 0.3, DeepSynth.METAL_PARTIALS, 4.0) \
+				.bell(0.01, 0.12, C5 * 3.0, 0.08, DeepSynth.CHIME_PARTIALS, 5.0) \
+				.clack(0.0, 0.08, 2600.0).normalise(0.5).stream()
+		"tick_white":
+			## Nothing added: a pure tone and its octave.
+			return DeepSynth.new(0.2).tone(0.0, 0.17, C5, -1.0, 0.3, "sine", 4.0, 0.002) \
+				.tone(0.0, 0.1, C5 * 2.0, -1.0, 0.08, "sine", 5.0, 0.002).normalise(0.5).stream()
+		"tally_blaze":
+			## A figure big enough to finish what it hits catches fire: the flame taking with a
+			## roar, a low strike under it, and sparks cracking off the top.
+			var blaze := DeepSynth.new(0.9).whoosh(0.0, 0.5, 0.34, 180.0, 2800.0) \
+				.noise(0.02, 0.6, 0.2, 1600.0, 400.0, 1.6, 0.04).thump(0.0, 0.3, 90.0, 0.5, 0.4) \
+				.tone(0.0, 0.4, 110.0, 160.0, 0.18, "saw", 2.0, 0.01)
+			for i in range(8):
+				blaze.clack(0.08 + blaze.rng.randf() * 0.5, blaze.rng.randf_range(0.06, 0.16), blaze.rng.randf_range(1800.0, 4200.0))
+			return blaze.normalise(0.74).stream()
+		"tally_mult":
+			## A multiplier laid on: a weightier strike an octave under the tick, a thump in
+			## the floor of it, so the two read as one instrument in two hands.
+			return DeepSynth.new(0.42).thump(0.0, 0.15, 118.0, 0.4, 0.3) \
+				.bell(0.0, 0.34, C5 * 0.5, 0.36, DeepSynth.CHIME_PARTIALS, 3.0) \
+				.tone(0.0, 0.1, C5, -1.0, 0.08, "saw", 5.0, 0.002) \
+				.clack(0.0, 0.18, 1300.0).normalise(0.64).stream()
+		"tally_fuse":
+			## The sum and its multiplier fused into the figure that flies: an open fifth struck
+			## hard (no third, so it sits over a major piece or a minor one), a little glitter,
+			## and the air rushing after it as it leaves the socket.
+			return DeepSynth.new(0.62).chord(0.0, 0.44, C5, [0, 7, 12], 0.28, DeepSynth.CHIME_PARTIALS, 0.012) \
+				.thump(0.0, 0.14, 130.0, 0.34, 0.25).whoosh(0.06, 0.3, 0.16, 500.0, 3200.0) \
+				.sparkle(0.02, 0.34, 0.08, 2400.0, 6000.0, 6).normalise(0.72).stream()
 		"resonance":
 			## Played at a higher pitch the longer the chain runs.
 			return DeepSynth.new(0.45).bell(0.0, 0.32, 880.0, 0.3, DeepSynth.CHIME_PARTIALS, 2.8) \

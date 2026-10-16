@@ -86,7 +86,7 @@ const ODDITY_GLYPHS: Dictionary = {"CUTTERS_WHEEL": "cut", "ACID_BATH": "flask",
 	"ANNEALING_OVEN": "flame", "WISHING_WELL": "drop", "VAT": "flask"}
 ## The mark for one piece of work, by the action it takes. See `choice_glyph`.
 const CHOICE_GLYPHS: Dictionary = {"none": "next", "reroll_cut": "cut", "reroll_clarity": "clarity", "push_clarity": "flame", "remove_inclusion": "clean_drop",
-	"fuse": "flame", "geode": "geode", "etch": "spark", "pattern": "die", "material": "drop", "reset": "flame", "trade_up": "scales", "shrine": "star",
+	"fuse": "flame", "geode_buy": "geode", "etch": "spark", "pattern": "die", "material": "drop", "reset": "flame", "trade_up": "scales", "shrine": "star",
 	"idol": "eye", "echo_stone": "copy", "collector_sell": "coins", "collector_buy": "purse", "heal": "heart", "ore": "coins", "appraise": "loupe",
 	"acid_appraise": "flask", "tumble": "reroll", "upsize": "rise", "downsize": "fall", "temper": "rise", "raise_face": "rise", "lower_face": "fall",
 	"pry": "pick", "chips": "gem", "wishing_well": "gem"}
@@ -157,6 +157,11 @@ var _toasts: VBoxContainer
 var _fresh: bool = true
 var _headless: bool = false
 var _hold: Dictionary = {}
+## What a final boss's death opened, waiting to be shown a sheet at a time once the hoard is
+## chosen: [{run_id, kind: character | tier | conquest, ...}]. See `conquered`.
+var _news: Array = []
+## The beaten mine's sheet while it is up, put away if the party leaves the hall under it.
+var _conquest_sheet: CanvasLayer = null
 var _last_chamber: Dictionary = {}
 var _last_battle: Dictionary = {}
 var _shown_depth: int = -1
@@ -298,6 +303,7 @@ func bind(player_id: String, forecast: Callable) -> void:
 	_pinned = ""
 	_stall_opened = ""
 	_descend_via = -1
+	_news = []
 	_end_started = false
 	_end_shown = false
 	_salvage_thrown = false
@@ -376,6 +382,7 @@ func _sync_fallen() -> void:
 
 func show_state(state: Dictionary) -> void:
 	run = state
+	_sync_ceremony()
 	_map.show_run(run)
 	var phase: String = str(run.get("phase", ""))
 	## Remember the chamber and the fight as they were: when either ends the state moves on
@@ -456,6 +463,7 @@ func show_state(state: Dictionary) -> void:
 		_battle.visible = true
 		_area.visible = false
 		_map_margin.visible = _chart_open
+		_fit_area()
 		_scrim.visible = false
 		_crossroads.visible = false
 		DeepUi.clear(_page_holder)
@@ -826,7 +834,7 @@ func handle(event: Dictionary) -> void:
 				DeepAudio.reveal_stone(taken)
 				var known: bool = bool(taken.get("appraised", false))
 				Inspector.stone(taken, {"fanfare": {"title": "The hoard is yours",
-					"subtitle": "From the Warden's hoard, appraised and ready to set." if known else "From the Warden's hoard, still raw. Appraise it to see what it is.",
+					"subtitle": "From the Warden's hoard, appraised and ready to set." if known else ("From the Warden's hoard, sealed. Carry it up: the workshop cracks it." if DeepStone.is_geode(taken) else "From the Warden's hoard, still raw. Appraise it to see what it is."),
 					"button": "Into the bag"}})
 		"traded":
 			var units: Array = event.get("units", [])
@@ -874,7 +882,8 @@ func handle(event: Dictionary) -> void:
 				match str(event.get("choice", "")):
 					"rest":
 						DeepAudio.play("heal", {"volume": 0.8})
-						toast("+%d health" % int(event.get("healed", 0)), DeepUi.GOOD, "heart")
+						var healed: int = int(event.get("healed", 0))
+						toast("+%d health" % healed if healed > 0 else "You were already at full health", DeepUi.GOOD if healed > 0 else DeepUi.MUTED, "heart")
 					"appraise":
 						_appraisal(event.get("stone", {}))
 					"wish":
@@ -919,7 +928,7 @@ func _acid_reveal(stones: Array, at: int) -> void:
 		"caption": "%d of %d out of the racks" % [at + 1, stones.size()]}
 	if not last:
 		action["call"] = func() -> void: _acid_reveal(stones, at + 1)
-	Appraisal.open(raw, {"actions": [action], "title": "Out of the acid"})
+	_belongs_here(Appraisal.open(raw, {"actions": [action], "title": "Out of the acid"}))
 
 func _oddity_action(choice_id: String) -> String:
 	for choice in DeepContent.oddity(str(_last_chamber.get("oddity", ""))).get("choices", []):
@@ -932,7 +941,41 @@ func _appraisal(stone: Dictionary) -> void:
 	## done with it here and now.
 	if stone.is_empty():
 		return
-	Appraisal.open(stone, {"actions": appraisal_actions(stone)})
+	_belongs_here(Appraisal.open(stone, {"actions": appraisal_actions(stone)}), stone)
+
+func _belongs_here(layer: CanvasLayer, stone: Dictionary = {}) -> void:
+	## An appraisal opened down the mine is the run's: it is told which run, whether a fight
+	## was on, and (when its choices follow the room) which stone. See `_sync_ceremony`.
+	if layer == null:
+		return
+	layer.set_meta("run_id", str(run.get("run_id", "")))
+	layer.set_meta("in_fight", DeepDescent.in_battle(run))
+	if not stone.is_empty():
+		layer.set_meta("stone", stone.duplicate(true))
+
+func _sync_ceremony() -> void:
+	## An appraisal is a layer over the whole window, and the run goes on under it when the
+	## party moves (or the run ends). Where the reading no longer fits (a fight has begun since,
+	## the run is over, the screen is gone) it is put away, the stone left in the bag; while it
+	## stays up, its choices are the ones that work here now.
+	var layer: CanvasLayer = Appraisal.current()
+	if layer == null or not layer.has_meta("run_id"):
+		return
+	var phase: String = str(run.get("phase", ""))
+	if run.is_empty() or not is_visible_in_tree() or str(run.get("run_id", "")) != str(layer.get_meta("run_id")) 			or phase in ["over", "salvage"] or (DeepDescent.in_battle(run) and not bool(layer.get_meta("in_fight", false))):
+		layer.close()
+		return
+	if layer.has_meta("stone"):
+		var stone: Dictionary = layer.get_meta("stone")
+		if DeepOddities.find_stone(me(), str(stone.get("id", ""))).is_empty():
+			## Gone from the bag already (sold, traded, set by the bench): nothing left to do.
+			layer.set_actions([{"label": "Continue", "glyph": "check", "tone": DeepUi.ACCENT, "dismiss": true}])
+		else:
+			layer.set_actions(appraisal_actions(stone))
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and not visible:
+		_sync_ceremony()
 
 func appraisal_actions(stone: Dictionary) -> Array:
 	## Down the mine a stone just read goes in the bag, into an empty socket if there is one
@@ -968,6 +1011,103 @@ func appraisal_actions(stone: Dictionary) -> Array:
 		out.append({"label": "Sell for %d pyrite" % DeepStone.sell_value(known), "glyph": "scales", "tone": DeepUi.ORE, "caption": "Half its worth, on the scales",
 			"sound": "sell", "call": func() -> void: command.emit({"kind": "sell", "stone_id": id})})
 	return out
+
+func conquered(mine_key: String, unlocked: Array, purse: int) -> void:
+	## This mine's final boss has just fallen and what it opened is already the lapidary's (see
+	## app._note_conquest). Whoever comes to the workshop is met first, then any Hazard tier
+	## that opened, and last the beaten mine itself, with the hall's choice: home, or deeper.
+	var run_id: String = str(run.get("run_id", ""))
+	var opened: String = ""
+	for entry in unlocked:
+		if entry.has("character"):
+			_news.append({"run_id": run_id, "kind": "character", "key": str(entry.character)})
+		if entry.has("mine"):
+			opened = str(entry.mine)
+	for entry in unlocked:
+		if entry.has("tier"):
+			_news.append({"run_id": run_id, "kind": "tier", "tier": int(entry.tier)})
+	_news.append({"run_id": run_id, "kind": "conquest", "mine": mine_key, "opened": opened, "unlocked": unlocked, "purse": purse})
+
+func _tell_news() -> void:
+	## One sheet at a time, once the room is quiet: no fight, no hoard still to choose from,
+	## no page held up and nothing already open over the room.
+	if str(_news[0].get("run_id", "")) != str(run.get("run_id", "")):
+		_news.clear()
+		return
+	var phase: String = str(run.get("phase", ""))
+	if phase in ["hoard", "salvage"] or DeepDescent.in_battle(run) or not _hold.is_empty() or _walking or _reading() or not is_visible_in_tree():
+		return
+	var item: Dictionary = _news.pop_front()
+	match str(item.get("kind", "")):
+		"character":
+			DeepAudio.play("unlock")
+			Inspector.lapidary(str(item.key))
+		"tier":
+			var tier: int = int(item.tier)
+			var adds: Dictionary = DeepContent.hazard_tier(tier)
+			DeepAudio.play("unlock")
+			Inspector.announce("Hazard %d beaten" % (tier - 1) if tier > 1 else "Hazard 1 unlocked",
+				"Hazard %d is open: every hazard so far, and one more.\n\n%s: %s\n\nEvery tier keeps its own map, starting from the Quarry, and gives up heavier stones." % [tier, str(adds.get("name", "")), str(adds.get("text", ""))],
+				"skull", DeepUi.BAD, {"subtitle": "Hazard %d is open" % tier if tier > 1 else "You reached the Rift"})
+		"conquest":
+			## Gone from the hall already (the cage, or the party went on): nothing to choose.
+			if phase == "landing" and DeepDescent.in_boss_hall(run):
+				_conquest_sheet = _show_conquest(item)
+
+func _show_conquest(item: Dictionary) -> CanvasLayer:
+	## The mine is beaten: what that opened, and the two ways out of the boss's hall.
+	var mine_key: String = str(item.get("mine", ""))
+	var opened: String = str(item.get("opened", ""))
+	var next_key: String = DeepDescent.next_mine(run)
+	var tier: int = DeepDescent.hazard_tier(run)
+	var unit: Dictionary = me()
+	var downed: bool = bool(unit.get("downed", false))
+	var said: Array = []
+	if not opened.is_empty():
+		DeepAudio.play("unlock")
+		said.append("%s is open%s.\n%s" % [DeepContent.mine_name(opened), " on Hazard %d" % tier if tier > 0 else "", str(DeepContent.mine(opened).get("text", ""))])
+	for entry in item.get("unlocked", []):
+		if entry.has("character"):
+			said.append("%s has come to the workshop." % DeepContent.character_title(str(entry.character)))
+		if entry.has("tier"):
+			said.append("Hazard %d is open." % int(entry.tier))
+	if int(item.get("purse", 0)) > 0:
+		said.append("First conquest: %d gold waits for you at the workshop." % int(item.purse))
+	var fare: int = DeepDescent.lift_cost(run)
+	## Pooled the way the winch counts it: whoever is standing and still on the line.
+	var pooled: int = 0
+	for other in DeepDescent.living(run):
+		pooled += int(other.get("ore", 0))
+	var afford: bool = pooled >= fare
+	var choice: String
+	if next_key.is_empty():
+		choice = "There is nowhere further down. Ride the lift home."
+	else:
+		choice = "Ride the lift home with everything, or dig on into %s carrying it all. Nothing is banked until you ride up." % DeepContent.mine_name(next_key)
+	if not afford:
+		choice += " The winch wants %d pyrite and the party has %d." % [fare, pooled]
+	if downed:
+		choice += " You are down: the party decides, and you go with it."
+	elif run.get("players", []).size() > 1:
+		choice += " The party goes where most of it points."
+	said.append(choice)
+	## Chosen from a sheet that may have stood a while: only if the party is still in the hall.
+	var ride := func() -> void:
+		if str(run.get("phase", "")) == "landing" and DeepDescent.in_boss_hall(run):
+			DeepAudio.play("lift")
+			command.emit({"kind": "choose", "choice": "lift"})
+	var deeper := func() -> void:
+		if str(run.get("phase", "")) == "landing" and DeepDescent.in_boss_hall(run):
+			_choose_mouth(0)
+	var actions: Array = [{"label": "Return home · %d" % fare, "glyph": "lift", "tone": DeepUi.GOOD, "call": ride,
+		"disabled": downed or not afford or str(unit.get("choice", "")) == "lift"}]
+	if not next_key.is_empty():
+		actions.append({"label": "Dig deeper", "glyph": "descend", "tone": DeepUi.ACCENT, "call": deeper,
+			"disabled": downed or str(unit.get("choice", "")) == "descend"})
+	actions.append({"label": "Not yet", "glyph": "cross_out", "primary": false})
+	var boss: String = str(DeepContent.creature(DeepDescent.warden_key(run, int(run.get("depth", 0)))).get("name", "The boss"))
+	return Inspector.announce("%s conquered" % DeepContent.mine_name(mine_key), "\n\n".join(said), "crown", DeepUi.ACCENT_HI,
+		{"subtitle": "%s is dead" % boss, "actions": actions})
 
 func _later(seconds: float, callback: Callable) -> void:
 	if _headless or not is_inside_tree():
@@ -1700,7 +1840,7 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 				if not DeepStone.known_fragile(held):
 					DeepUi.label(box, "Let go to sell it.", 12, DeepUi.DIM)
 				return true
-			var sellable: Array = unit.get("haul", [])
+			var sellable: Array = _loose(unit)
 			if not pinned:
 				DeepUi.label(box, "Drop one from your bag here, or click for a list.", 12, DeepUi.DIM)
 			elif sellable.is_empty():
@@ -1716,7 +1856,7 @@ func _stall_chip(box: VBoxContainer, id: String, parts: PackedStringArray) -> bo
 			var cost: int = DeepDescent.appraise_cost(run, local_id)
 			DeepUi.section(box, "loupe", "The lens", DeepUi.INFO)
 			DeepUi.label(box, "%d pyrite for the next stone; dearer each time at this stall." % cost, 12, DeepUi.MUTED)
-			var raw: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
+			var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
 			if not pinned:
 				DeepUi.label(box, "Drop a raw stone from your bag here, or click for a list.", 12, DeepUi.DIM)
 			elif raw.is_empty():
@@ -1920,7 +2060,12 @@ func _altar_reveal(made: Dictionary, transcendent: bool, who: String) -> void:
 func _fit_area() -> void:
 	## Pages stop short of the dock and its drawer, and so does the chart.
 	_area.offset_bottom = - _run_dock.height() if _run_dock.visible else 0.0
-	_map_margin.offset_bottom = (-_run_dock.height() - 8.0) if _run_dock.visible else -8.0
+	var floor_height: float = _run_dock.height() if _run_dock.visible else 0.0
+	## In a fight the fight's own dock runs along the bottom: the chart stops above it as
+	## well, instead of lying over the health bar and the rail.
+	if _battle.visible and _battle._dock != null and _battle.size.y > 0.0:
+		floor_height = maxf(floor_height, _battle.size.y - _battle._dock.position.y)
+	_map_margin.offset_bottom = -floor_height - 8.0
 
 # --- the landing ---------------------------------------------------------------------------------
 ##
@@ -2296,7 +2441,7 @@ func _landing_page(view: String) -> void:
 	_enter(DeepUi.skip_arrow(row, "Back to the landing", back, DeepUi.MUTED, "prev"))
 	var index: int = 0
 	if appraise:
-		var raw: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
+		var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
 		if raw.is_empty():
 			var none := DeepUi.card(row, Color(tone, 0.3), 18)
 			DeepUi.stat(none, "cross_out", "You have no raw stone to read.", DeepUi.MUTED, 15)
@@ -2386,7 +2531,7 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			DeepUi.label(box, "Read one raw stone under the lamp. Free." if appraise else
 				"Throw in something valuable. The more it's worth, the better your odds. A raw stone counts for half its value, an appraised one for 1.5 times.",
 				12, DeepUi.MUTED)
-			var stones: Array = unit.get("haul", []).duplicate()
+			var stones: Array = _loose(unit)
 			if not appraise:
 				stones.append_array(DeepStone.rail_stones(unit))
 			var fit: Array = stones.filter(func(st: Dictionary) -> bool: return (not bool(st.get("appraised", false))) if appraise else DeepDescent.can_wish(st))
@@ -2411,7 +2556,7 @@ func _hall_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			var haul: Array = unit.get("haul", [])
 			var worth: int = 0
 			for stone in haul:
-				worth += DeepStone.value(stone)
+				worth += DeepEconomy.geode_rough(stone) if DeepStone.is_geode(stone) else DeepStone.value(stone)
 			DeepUi.wrap(box, "You're carrying %s, worth roughly %d gold. The lift takes it all home." % [DeepUi.plural(haul.size(), "stone"), worth], 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
 			## The winch wants paying, and it wants more the deeper the cage has to come up from.
 			## The party pays it between them, so what matters is the pooled pyrite.
@@ -2469,7 +2614,8 @@ func _show_hoard() -> void:
 		## Down when it opened: the pedestals are for those still standing.
 		_cross_sub.text = "You went down in the fight, so the hoard is for the others. You get back on your feet at the next landing."
 	else:
-		_cross_sub.text = "Take one. All three are raw, so you can only see their color and size." if chosen.is_empty() else "Waiting for the others to choose."
+		var has_geode: bool = offers.any(func(s: Dictionary) -> bool: return DeepStone.is_geode(s))
+		_cross_sub.text = ("Take one. The stones are raw, so you can only see their color and size." + (" The Geode is sealed: its stone is better, but only the workshop can crack it." if has_geode else "")) if chosen.is_empty() else "Waiting for the others to choose."
 	DeepUi.clear(_cross_hint)
 	## Everyone else at the hoard, picked or still choosing.
 	for other in run.get("players", []):
@@ -2487,6 +2633,9 @@ func _hoard_chip(box: VBoxContainer, id: String, key: String) -> bool:
 	for stone in mine_hoard.get("offers", []):
 		if str(stone.id) != key:
 			continue
+		if DeepStone.is_geode(stone):
+			_hoard_geode_chip(box, stone, id, key, mine_hoard)
+			return true
 		var read: bool = bool(stone.get("appraised", false))
 		var grade: Dictionary = DeepStone.grade(stone)
 		var tone: Color = DeepUi.tier_color(str(grade.tier)) if read else DeepUi.color(DeepStone.color(stone))
@@ -2512,6 +2661,27 @@ func _hoard_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			DeepUi.label(box, "Click to choose it.", 12, DeepUi.DIM)
 		return true
 	return false
+
+func _hoard_geode_chip(box: VBoxContainer, stone: Dictionary, id: String, key: String, mine_hoard: Dictionary) -> void:
+	## A Geode on a pedestal: the rock, what kind, and that it cannot be opened down here.
+	var geode: Dictionary = stone.geode
+	var Geode: Script = load("res://view/gems/geode.gd")
+	var tone: Color = Geode.theme_tone(geode)
+	var head := DeepUi.hbox(box, 8)
+	StoneCard.mini(head, stone, 44)
+	var words := DeepUi.vbox(head, 1)
+	DeepUi.title(words, DeepStone.raw_name(stone), 18, tone.lightened(0.2))
+	DeepUi.label(words, str(Geode.geode_line(geode)), 12, DeepUi.MUTED)
+	var odds: Dictionary = DeepEconomy.geode_odds(geode)
+	var carats: Array = odds.get("carat", [1, 1])
+	DeepUi.stat(box, "carat", "%d to %d ct inside" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 12, "Every stone in this kind of Geode weighs this much.")
+	DeepUi.wrap(box, "Sealed. A better stone than the rock gives, but it can only be cracked at the workshop: it cannot be read or set down here. Right-click for its odds.", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+	if _pinned == id:
+		var take := DeepUi.primary(box, "check", "Take it", func() -> void:
+			command.emit({"kind": "pick_hoard", "stone_id": key}), 14, tone)
+		take.disabled = not str(mine_hoard.get("chosen", "")).is_empty()
+	else:
+		DeepUi.label(box, "Click to choose it.", 12, DeepUi.DIM)
 
 # --- an oddity -----------------------------------------------------------------------------------
 
@@ -2872,6 +3042,14 @@ func _process(_delta: float) -> void:
 	if str(run.get("phase", "")) == "landing" and _hold.is_empty() and not _walking and _area.visible and not _reading():
 		if _stage.has_room() and not _stage.at_crossroads() and not _stage.strolling() and not str(me().get("respite", "")).is_empty() and not _stage.ways_live():
 			_show_landing()
+	if not _news.is_empty():
+		_tell_news()
+	## The beaten mine's choice only stands while the party is still in the boss's hall.
+	if _conquest_sheet != null and (not is_instance_valid(_conquest_sheet) or _conquest_sheet.is_queued_for_deletion()):
+		_conquest_sheet = null
+	elif _conquest_sheet != null and not (str(run.get("phase", "")) == "landing" and DeepDescent.in_boss_hall(run)):
+		_conquest_sheet.call("_dismiss")
+		_conquest_sheet = null
 	## The chip rides above its mouth while the camera breathes and leans.
 	if _crossroads != null and _crossroads.visible:
 		_place_chip()
@@ -3032,6 +3210,7 @@ func toggle_chart() -> void:
 	_map_margin.visible = _chart_open and (_area.visible or _battle.visible)
 	## The creature's table keeps to the left of a fight: it steps aside for the chart.
 	_battle.left_inset = MAP_WIDTH if _chart_open else 0.0
+	_fit_area()
 	_sync_strip()
 
 func open_bench(which: String = "") -> void:
@@ -3797,6 +3976,13 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 			DeepUi.wrap(box, DeepOddities.choice_text(choice, int(run.get("depth", 0))), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 260)
 		## What the room is set up for tonight, read before the card is picked rather than after.
 		_tonight_chip(box, choice.get("action", {}))
+		if str(choice.get("action", {}).get("kind", "")) == "geode_buy":
+			_geode_offer(box, unit, card)
+		if needs == "offer" and not _picker_empty(needs, unit):
+			## The case's price on the card itself: opening it was the only way to learn it.
+			var price: int = int(run.get("chamber", {}).get("offer", {}).get("price", 0))
+			var purse: int = int(unit.get("ore", 0))
+			DeepUi.stat(box, "ore", "%d pyrite · you carry %d" % [price, purse], DeepUi.ORE if purse >= price else DeepUi.BAD, 12)
 		DeepUi.spacer(box, false)
 		if needs != "" and _picker_empty(needs, unit):
 			DeepUi.disable_choice(card)
@@ -3819,6 +4005,37 @@ static func choice_glyph(choice: Dictionary, room: String = "") -> String:
 	if kind == "wishing_well" and str(choice.get("needs", "")) == "ore":
 		return "coins"
 	return str(CHOICE_GLYPHS.get(kind, ODDITY_GLYPHS.get(room, "question")))
+
+func _geode_offer(box: VBoxContainer, unit: Dictionary, card: Control) -> bool:
+	## The Geode on offer, on the card that buys it: the rock turning in 3D, what it is and
+	## what it costs against what you carry. Too dear, and the card is shut. False when the
+	## room has none to show.
+	var held: Dictionary = run.get("chamber", {}).get("offer", {}).get("stone", {})
+	if not DeepStone.is_geode(held):
+		return false
+	var Geode: Script = load("res://view/gems/geode.gd")
+	var geode: Dictionary = held.geode
+	var tone: Color = Geode.theme_tone(geode)
+	var art: Control = load("res://view/gems/geode_view.gd").new(geode, tone)
+	art.custom_minimum_size = Vector2(0, 96)
+	box.add_child(art)
+	DeepUi.title(box, Geode.geode_name(geode), 17, tone.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.wrap(box, str(Geode.geode_line(geode)), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, 260)
+	var odds: Dictionary = DeepEconomy.geode_odds(geode)
+	var carats: Array = odds.get("carat", [1, 1])
+	DeepUi.stat(box, "carat", "%d to %d ct inside" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 12, "Every stone in this kind of Geode weighs this much.")
+	var price: int = int(run.get("chamber", {}).get("offer", {}).get("price", 0))
+	var purse: int = int(unit.get("ore", 0))
+	DeepUi.stat(box, "ore", "%d pyrite · you carry %d" % [price, purse], DeepUi.ORE if purse >= price else DeepUi.BAD, 12)
+	card.tooltip_text = "Right-click the rock for what it can hold, and how likely each thing is"
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			Inspector.stone(held)
+			card.accept_event())
+	if purse < price:
+		DeepUi.disable_choice(card)
+	return true
 
 func _tonight_chip(parent: Node, action: Dictionary) -> void:
 	## The one pattern, etching or material a room is set up with tonight, as a chip. A blind
@@ -4162,7 +4379,7 @@ func _picker_empty(needs: String, unit: Dictionary) -> bool:
 		"die", "die_face":
 			return unit.get("dice", []).is_empty()
 		"raw_stone", "raw_stones":
-			return unit.get("haul", []).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false))).is_empty()
+			return _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false))).is_empty()
 		"ore":
 			return int(unit.get("ore", 0)) < 10
 		"offer":
@@ -4175,9 +4392,14 @@ func _picker_empty(needs: String, unit: Dictionary) -> bool:
 			return _carried(unit).is_empty()
 	return false
 
+func _loose(unit: Dictionary) -> Array:
+	## The bag without its Geodes. Nothing down here can be done to a sealed Geode (read, sold,
+	## worked on, thrown in a well), so no list of what can be is given one.
+	return unit.get("haul", []).filter(func(s: Dictionary) -> bool: return not DeepStone.is_geode(s))
+
 func _carried(unit: Dictionary) -> Array:
 	## Every stone the player has to hand: the bag and the rail alike, riders included.
-	var out: Array = unit.get("haul", []).duplicate()
+	var out: Array = _loose(unit)
 	out.append_array(DeepStone.rail_stones(unit))
 	return out
 
@@ -4315,7 +4537,12 @@ func _work_refusal(action: Dictionary, item: Dictionary) -> String:
 			return "a Knot cannot leave its socket" if DeepStone.is_locked(item) else ""
 		"wishing_well", "trade_up", "echo_stone":
 			## These take a stone as it is: rough or read, it makes no difference to them.
-			return "a Knot cannot leave its socket" if DeepStone.is_locked(item) else ""
+			if DeepStone.is_locked(item):
+				return "a Knot cannot leave its socket"
+			## The well's own rule (DeepOddities): offered here, it was only refused on "Do it".
+			if str(action.get("kind", "")) == "wishing_well" and DeepStone.is_fragile(item):
+				return "the well will not take a fragile stone"
+			return ""
 		"remove_inclusion":
 			return "" if not item.get("inclusions", []).is_empty() else "nothing is frozen inside it"
 		"appraise":
@@ -4339,6 +4566,12 @@ func _thing_row(parent: Node, choice_id: String, slot: String, kind: String, ite
 	## open and nothing closes, so the choice can be changed as often as it likes.
 	var key: String = _slot_key(choice_id, slot)
 	var open: Array = items.filter(func(item: Dictionary) -> bool: return _work_refusal(action, item).is_empty())
+	## Work that takes the stone away (sold, traded, thrown in, fed to the fire) is never
+	## pointed at a set gem on its own: with nothing loose to sell, "Do it" sold the first gem
+	## on the rail. A socketed stone goes only once it is clicked.
+	if kind == "stone" and str(action.get("kind", "")) in ["collector_sell", "trade_up", "wishing_well", "fuse"] and not _choice_picks.has(key):
+		var set_ids: Array = DeepStone.rail_stones(me()).map(func(s: Dictionary) -> String: return str(s.get("id", "")))
+		open = open.filter(func(item: Dictionary) -> bool: return not set_ids.has(str(item.get("id", ""))))
 	var picked: String = _remembered(key, open)
 	if not label.is_empty():
 		DeepUi.label(parent, label, 12, DeepUi.MUTED)
@@ -4420,13 +4653,17 @@ func _thing_row(parent: Node, choice_id: String, slot: String, kind: String, ite
 		DeepUi.label(parent, "%d of %d" % [page + 1, pages], 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	return picked
 
-func _face_slot(parent: Node, choice_id: String, slot: String, die: Dictionary, label: String, blanks: bool) -> int:
+func _face_slot(parent: Node, choice_id: String, slot: String, die: Dictionary, label: String, blanks: bool, lowering: bool = false) -> int:
 	## One of a die's faces, chosen by clicking the face itself rather than reading its number
-	## off a list — the same row of faces the close look draws.
+	## off a list — the same row of faces the close look draws. Lowering, a 1 (or a blank) is
+	## left out: it cannot come down, and offering it (first, as the pick) only got it refused.
 	var faces: Array = die.get("faces", [])
 	var entries: Array = []
 	for index in range(faces.size()):
-		if blanks or str(faces[index].get("kind", "plain")) != "blank":
+		var kind: String = str(faces[index].get("kind", "plain"))
+		if lowering and (kind == "blank" or int(faces[index].get("value", 0)) <= 1):
+			continue
+		if blanks or kind != "blank":
 			entries.append([str(index), faces[index]])
 	if entries.is_empty():
 		return -1
@@ -4447,7 +4684,7 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 	## The controls a choice needs, and a callable that reads them into a payload.
 	if needs.is_empty():
 		return func() -> Dictionary: return {}
-	var stones: Array = unit.get("haul", []).duplicate()
+	var stones: Array = _loose(unit)
 	stones.append_array(DeepStone.rail_stones(unit))
 	var dice: Array = unit.get("dice", [])
 	var row := DeepUi.vbox(box, 6)
@@ -4457,7 +4694,7 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 			return func() -> Dictionary: return {} if id.is_empty() else {"stone_id": id}
 		"raw_stone":
 			## Only what the work is for: a lens is shown rough stones and nothing else.
-			var raw: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
+			var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
 			var id: String = _thing_row(row, choice_id, "stone", "stone", raw, "Which raw stone?", action)
 			return func() -> Dictionary: return {} if id.is_empty() else {"stone_id": id}
 		"two_stones":
@@ -4467,7 +4704,7 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 			return func() -> Dictionary: return {} if keep_id.is_empty() or feed_id.is_empty() or keep_id == feed_id else {"keep_id": keep_id, "feed_id": feed_id}
 		"raw_stones":
 			## The acid bath: up to three raw stones set in the racks, each clicked on and off.
-			var raw: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
+			var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
 			var most: int = maxi(1, int(action.get("most", 3)))
 			var set_ids: Array = _racks(row, choice_id, raw, most, int(action.get("hp", 6)))
 			return func() -> Dictionary: return {} if set_ids.is_empty() else {"stone_ids": set_ids}
@@ -4521,7 +4758,7 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 			var die: Dictionary = DeepOddities.find_die(unit, die_id)
 			if needs == "die":
 				return func() -> Dictionary: return {} if die_id.is_empty() else {"die_id": die_id}
-			var face: int = _face_slot(row, choice_id, "face", die, "Which face?", true)
+			var face: int = _face_slot(row, choice_id, "face", die, "Which face?", true, kind == "lower_face")
 			return func() -> Dictionary: return {} if die_id.is_empty() or face < 0 else {"die_id": die_id, "face": face}
 		"pattern":
 			## Three patterns, and they are your own: the shrine only offers what your gems

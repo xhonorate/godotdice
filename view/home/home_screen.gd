@@ -1,21 +1,22 @@
 extends Control
-## The workshop: four tabs in one frame, and a screen of its own for coming home.
+## The workshop: five tabs in one frame, and a screen of its own for coming home.
 ##
 ## Descend (the mines under the workshop, who goes down and the way down, or the day's seam),
 ## Delvers (each delver's dossier and their sockets), Vault (the collection, and anything
-## waiting on the tray) and Market (Geodes, cut stones, the bench and the commissions). The
+## waiting on the tray), Market (Geodes, cut stones, the bench and the commissions) and
+## Bestiary (every creature, mine by mine down one list, and the one picked live). The
 ## profile chip opens the profile page (records, runs and the showcase); the party sits in the
 ## top bar. Back from a run with stones on the tray, the tabs give way to the coming-home
 ## screen until every stone has been read and kept, sold or turned in.
 ##
 ## Every page is built by its own script (descend_page, delvers_page, vault_page, market_page,
-## profile_page, homecoming), which reads and writes the state kept here. Pages are rebuilt
+## bestiary_page, profile_page, homecoming), which reads and writes the state kept here. Pages are rebuilt
 ## whenever the profile or the lobby changes; stones and dice are photographs, so that is
 ## cheap, and only the one stone a page is about is live 3D. A page only animates in when it
 ## is opened, never on a rebuild.
 ##
-## Every page fits the screen whole: nothing scrolls but the vault. A tab opens at its start
-## page; its sort, filters and view are kept.
+## Every page fits the screen whole: nothing scrolls but the vault and the bestiary's list.
+## A tab opens at its start page; its sort, filters and view are kept.
 
 const HomeParts = preload("res://view/home/home_parts.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
@@ -32,6 +33,7 @@ const DelversPage = preload("res://view/home/delvers_page.gd")
 const VaultPage = preload("res://view/home/vault_page.gd")
 const MarketPage = preload("res://view/home/market_page.gd")
 const ProfilePage = preload("res://view/home/profile_page.gd")
+const BestiaryPage = preload("res://view/home/bestiary_page.gd")
 const Homecoming = preload("res://view/home/homecoming.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 
@@ -54,7 +56,8 @@ signal daily_chosen(date: String)
 signal hazard_chosen(tier: int)
 
 ## The tabs, in order: key, word, mark. The number keys open them.
-const TABS: Array = [["descend", "Descend", "descend"], ["delvers", "Delvers", "person"], ["vault", "Vault", "chest"], ["market", "Market", "geode"]]
+const TABS: Array = [["descend", "Descend", "descend"], ["delvers", "Delvers", "person"], ["vault", "Vault", "chest"], ["market", "Market", "geode"],
+	["bestiary", "Bestiary", "book"]]
 const color_ORDER: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
 ## The word on a socket the delver has not opened, so the loadout does not fill it.
 const MINE_SOCKET: String = "Locked. Buy it with gold to fill it from the vault before every run. Until then it is filled in the mine: below the Quarry with a temporary stone, and anywhere with a stone found on the way down."
@@ -108,6 +111,11 @@ var _contract: Array = []
 var _contract_from: String = "all"
 var _contract_sure: bool = false
 var _commission_sure: String = ""
+## Bestiary: how far down its list is scrolled (-1: to the creature picked), the creature
+## picked, and which of its pages.
+var _bestiary_scroll: float = -1.0
+var _bestiary_pick: String = ""
+var _bestiary_leaf: int = 0
 ## The party popover, and whose showcase is open in it.
 var _party_open: bool = false
 var _showcase_of: String = ""
@@ -118,6 +126,12 @@ var _seed: LineEdit
 var _pages: Dictionary = {}
 ## Every drop target on the loadout, so a drag can light the ones that would take it.
 var _targets: Array = []
+## Parts of the page that can be drawn again on their own, by key: {holder, draw}. A click
+## that changes one stone, one commission or the stone under the lamp redraws that part and
+## the purse, not the whole workshop. See `region`, `redraw` and `changed`.
+var _regions: Dictionary = {}
+## The parts a profile change touches, while the change is being told (see `changed`).
+var _partial: Array = []
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -186,11 +200,63 @@ func refresh(new_profile: Dictionary, new_lobby: Dictionary, new_status: String,
 	local_id = id
 	can_start = startable
 	settings = new_settings
+	## A change that said which parts of the page it touches redraws only those, when they
+	## are all on the page; anything else (a new day, another tab) redraws the lot.
+	if not _partial.is_empty() and redraw(_partial):
+		_draw_bar()
+		_gate_gold()
+		return
 	_render()
 
-func open(tab_name: String, keep_view: bool = false) -> void:
+func region(holder: Control, key: String, draw: Callable) -> Control:
+	## `draw(holder)` fills the holder now, and empties and fills it again on `redraw`.
+	_regions[key] = {"holder": holder, "draw": draw}
+	draw.call(holder)
+	return holder
+
+func region_holder(key: String) -> Control:
+	var entry: Dictionary = _regions.get(key, {})
+	if entry.is_empty() or not is_instance_valid(entry.holder) or not (entry.holder as Control).is_inside_tree():
+		return null
+	return entry.holder
+
+func redraw(keys: Array) -> bool:
+	## Draws just these parts of the page again. False, with nothing redrawn, unless every one
+	## of them is on the page now.
+	for key in keys:
+		if region_holder(str(key)) == null:
+			return false
+	## Nothing redrawn in place is new to the eye: no entrance.
+	_fresh = false
+	for key in keys:
+		var holder: Control = region_holder(str(key))
+		DeepUi.clear(holder)
+		_regions[str(key)].draw.call(holder)
+	return true
+
+func changed(parts: Array) -> void:
+	## A change to the profile that only these parts of the page show: saved and told to the
+	## party like any other (`profile_changed`), but only they and the bar drawn again.
+	_partial = parts
+	profile_changed.emit()
+	_partial = []
+
+func gold_gate(button: BaseButton, price: int) -> void:
+	## A button that waits on nothing but gold: when only part of the page is redrawn, it is
+	## told again whether the purse can meet it.
+	button.set_meta("gold_price", price)
+	button.add_to_group("home_gold_gate")
+
+func _gate_gold() -> void:
+	var gold: int = int(profile.get("gold", 0))
+	for node in get_tree().get_nodes_in_group("home_gold_gate"):
+		if node is BaseButton and is_instance_valid(node) and is_ancestor_of(node):
+			(node as BaseButton).disabled = gold < int(node.get_meta("gold_price", 0))
+
+func open(tab_name: String, keep_view: bool = false, draw: bool = true) -> void:
 	## Opens a tab at its start page, unless the caller has just set the page it wants.
-	## Older names are still understood (the map, the roster, the shop, the ledger).
+	## Older names are still understood (the map, the roster, the shop, the ledger). With
+	## `draw` false the tab is only chosen, for a `refresh` about to draw it anyway.
 	tab_name = {"map": "descend", "roster": "delvers", "lapidaries": "delvers", "shop": "market", "commissions": "market", "ledger": "profile", "appraise": "vault"}.get(tab_name, tab_name)
 	if tab_name != tab and not keep_view:
 		_reset_views(tab_name)
@@ -199,7 +265,8 @@ func open(tab_name: String, keep_view: bool = false) -> void:
 	tab = tab_name
 	_party_open = false
 	_showcase_of = ""
-	_render()
+	if draw:
+		_render()
 
 func _reset_views(tab_name: String) -> void:
 	match tab_name:
@@ -214,6 +281,8 @@ func _reset_views(tab_name: String) -> void:
 			_rework_pick = ""
 			_contract_sure = false
 			_commission_sure = ""
+		"bestiary":
+			_bestiary_leaf = 0
 
 func homecoming() -> bool:
 	## Back from a run with stones on the tray: the coming-home screen holds the workshop
@@ -225,23 +294,10 @@ func homecoming() -> bool:
 func _render() -> void:
 	_fresh = tab != _shown_tab
 	_shown_tab = tab
-	DeepUi.clear(_bar)
+	_regions = {}
 	DeepUi.clear(_overlay)
 	var coming_home: bool = homecoming()
-	var brand := DeepUi.hbox(_bar, 8)
-	DeepUi.icon(brand, "gem", 24, DeepUi.ACCENT)
-	DeepUi.title(brand, "DEEP CUT", 22, DeepUi.ACCENT_HI)
-	DeepUi.gap(_bar, 10)
-	_purse()
-	DeepUi.spacer(_bar)
-	if coming_home:
-		Homecoming.bar(self, _bar)
-	else:
-		_tabs()
-	DeepUi.spacer(_bar)
-	PartyDock.dock(self, _bar)
-	_profile_chip()
-	DeepUi.gear_button(_bar, func() -> void: menu_requested.emit())
+	_draw_bar()
 	DeepUi.clear(_body)
 	_targets = []
 	var margin := MarginContainer.new()
@@ -259,9 +315,29 @@ func _render() -> void:
 			"delvers": DelversPage.build(self, content)
 			"vault": VaultPage.build(self, content)
 			"market": MarketPage.build(self, content)
+			"bestiary": BestiaryPage.build(self, content)
 			"profile": ProfilePage.build(self, content)
 	if _party_open:
 		PartyDock.popover(self, _overlay)
+
+func _draw_bar() -> void:
+	## Along the top: the name, the purse, the tabs (or where the run came back from), the
+	## party, the profile and the menu.
+	DeepUi.clear(_bar)
+	var brand := DeepUi.hbox(_bar, 8)
+	DeepUi.icon(brand, "gem", 24, DeepUi.ACCENT)
+	DeepUi.cut_title(brand, "DEEP CUT", 24)
+	DeepUi.gap(_bar, 10)
+	_purse()
+	DeepUi.spacer(_bar)
+	if homecoming():
+		Homecoming.bar(self, _bar)
+	else:
+		_tabs()
+	DeepUi.spacer(_bar)
+	PartyDock.dock(self, _bar)
+	_profile_chip()
+	DeepUi.gear_button(_bar, func() -> void: menu_requested.emit())
 
 func _purse() -> void:
 	var gold: int = int(profile.get("gold", 0))
@@ -320,6 +396,10 @@ func tab_pip(key: String) -> Array:
 				return [ready, PIP_READY]
 			if not bool(profile.get("daily", {}).get("market_seen", false)):
 				return [0, PIP_ACT]
+		"bestiary":
+			var met: int = DeepBestiary.fresh_count(profile)
+			if met > 0:
+				return [met, PIP_NEW]
 	return []
 
 func _profile_chip() -> void:
@@ -355,7 +435,7 @@ func _profile_chip() -> void:
 		HomeParts.pin(chip, 0, PIP_NEW, true)
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	## 1 to 4 open the tabs, Q and E change who goes down, Enter sets out, and Escape steps
+	## 1 to 5 open the tabs, Q and E change who goes down, Enter sets out, and Escape steps
 	## back out of a page inside a tab (the menu takes it when there is nowhere to step back).
 	if not is_visible_in_tree() or not event is InputEventKey or not event.pressed or event.echo or Inspector.is_open():
 		return
@@ -368,7 +448,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	if homecoming():
 		return
-	if key >= KEY_1 and key <= KEY_4:
+	if key >= KEY_1 and key < KEY_1 + TABS.size():
 		open(str(TABS[key - KEY_1][0]))
 		get_viewport().set_input_as_handled()
 	elif key in [KEY_Q, KEY_E] and tab in ["descend", "delvers"]:

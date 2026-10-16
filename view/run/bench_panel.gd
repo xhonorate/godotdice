@@ -34,6 +34,8 @@ var _content: VBoxContainer
 ## Every drop target on the page, so a drag can light the ones that would take it.
 var _targets: Array = []
 var _haul_page: int = 0
+## Which part of the haul is showing: "gems", "raw" or "geodes" (see DeepUi.HAUL_TABS).
+var _haul_tab: String = "gems"
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -171,12 +173,19 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 	for index in range(unit.get("rail", []).size()):
 		_socket_card(rail_row, unit, index)
 	HomeParts.BirthstoneCard.new(rail_row, str(unit.get("character", "")), 132.0, true)
-	var haul: Array = unit.get("haul", [])
-	var raw: int = haul.filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false))).size()
+	var everything: Array = unit.get("haul", [])
+	var haul: Array = DeepUi.haul_of(everything, _haul_tab)
 	var haul_head := DeepUi.hbox(parent, 10)
-	DeepUi.section(haul_head, "bag", "Your haul (%d)" % haul.size())
-	if raw > 0:
-		DeepUi.label(haul_head, "%s raw: appraise at a merchant or a landing before setting" % DeepUi.plural(raw, "stone"), 12, DeepUi.DIM)
+	DeepUi.section(haul_head, "bag", "Your haul (%d)" % everything.size())
+	DeepUi.haul_tabs(haul_head, everything, _haul_tab, func(key: String) -> void:
+		_haul_tab = key
+		_haul_page = 0
+		_render(), 14)
+	match _haul_tab:
+		"raw":
+			DeepUi.label(haul_head, "Appraise at a merchant or a landing before setting", 12, DeepUi.DIM)
+		"geodes":
+			DeepUi.label(haul_head, "Carried up sealed: the workshop cracks them", 12, DeepUi.DIM)
 	var pages: int = DeepUi.pages(haul.size(), HAUL_PAGE)
 	_haul_page = clampi(_haul_page, 0, pages - 1)
 	if pages > 1:
@@ -198,7 +207,9 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 		func(data: Dictionary) -> void:
 			_send({"kind": "unsocket", "index": int(data.from_socket), "stone_id": str(data.get("stone_id", ""))}, "ui_back"))
 	if haul.is_empty():
-		DeepUi.label(flow, "Nothing loose. Stones you find wait here until they are set or taken home.", 13, DeepUi.DIM)
+		DeepUi.label(flow, {"gems": "No read stones loose. Appraised stones wait here until they are set or taken home.",
+			"raw": "No raw stones. Stones you find wait here, in their rock, until they are appraised.",
+			"geodes": "No Geodes. A Warden's last hoard and the odd chamber offer them; they come home sealed."}[_haul_tab], 13, DeepUi.DIM)
 	for stone in DeepUi.page_of(haul, _haul_page, HAUL_PAGE):
 		_haul_tile(flow, stone)
 
@@ -309,7 +320,9 @@ func _haul_tile(parent: Node, stone: Dictionary) -> void:
 		style.border_color = DeepUi.ACCENT
 		style.set_border_width_all(2)
 		tile.add_theme_stylebox_override("panel", style)
-	if not appraised:
+	if DeepStone.is_geode(stone):
+		tile.tooltip_text = "%s\nSealed: only the workshop can crack it open.\nRight-click for its odds." % DeepStone.raw_name(stone)
+	elif not appraised:
 		tile.modulate = Color(1, 1, 1, 0.75)
 		tile.tooltip_text = "Raw: appraise it at a merchant or a landing before it can be set."
 	var data: Dictionary = {"kind": "stone", "stone_id": id, "from_socket": - 1} if appraised and editable() else {}
@@ -366,13 +379,23 @@ func _lamp(parent: VBoxContainer, unit: Dictionary) -> void:
 	var box := DeepUi.vbox(card, 10)
 	var stone: Dictionary = DeepOddities.find_stone(unit, _pick) if tab == "gems" else {}
 	var die: Dictionary = DeepOddities.find_die(unit, _pick) if tab == "dice" else {}
-	if not stone.is_empty():
+	## A sealed Geode is in the haul but never found by anything that works on stones.
+	var sealed: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool: return DeepStone.is_geode(s) and str(s.get("id", "")) == _pick) if tab == "gems" else []
+	if not sealed.is_empty():
+		_geode_lamp(box, sealed[0])
+	elif not stone.is_empty():
 		_stone_lamp(box, unit, stone)
 	elif not die.is_empty():
 		_die_lamp(box, unit, die)
 	else:
 		DeepUi.icon(box, "gem" if tab == "gems" else "die", 40, DeepUi.DIM).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		DeepUi.wrap(box, "Click a %s to look at it here. Right-click anything for its full story." % ("stone" if tab == "gems" else "die"), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, 290)
+
+func _geode_lamp(box: VBoxContainer, geode: Dictionary) -> void:
+	## A Geode under the lamp: what kind it is and that it is shut. Nothing can be done to it here.
+	StoneCard.build(box, geode, {"size": 84, "text_width": 270, "vertical": true})
+	DeepUi.wrap(box, "Nothing down here can open it: carry it up and the workshop's bench cracks it for a stone better than the rock gives. It can be traded at a landing.", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 290)
+	DeepUi.icon_button(box, "geode", "Its odds", func() -> void: Inspector.stone(geode), 13, DeepUi.PAPER)
 
 func _stone_lamp(box: VBoxContainer, unit: Dictionary, stone: Dictionary) -> void:
 	var id: String = str(stone.id)

@@ -81,6 +81,22 @@ and `flicker`. The presentation API gained `burrow(down)`, `flee()`, `set_halo(c
 `clear_halo()` and `set_charging(on)`. A variant may also name a `core` colour and a `scale`
 (the Geode Golem is a grey shell split open on an amethyst heart, and bigger than a Prism Golem).
 
+## The bestiary's portraits
+
+The Bestiary tab lists creatures as pictures, not live 3D: one PNG per creature in
+`view/creatures/portraits/<key>.png`, baked from the scene on the turntable, off its plinth,
+cropped square. Bake again after changing a creature's scene or colours, and bake one for
+every new creature (`tests/test_creatures.gd` fails until it has one):
+
+```sh
+/path/to/Godot --path . --script tools/creature_portraits.gd                    # every creature
+/path/to/Godot --path . --script tools/creature_portraits.gd -- RAIL_RAT        # one
+/path/to/Godot --headless --path . --import                                     # then import
+```
+
+A new picture's `.import` should have `mipmaps/generate=true` like the others: the grid draws
+it at well under half the size it is baked at.
+
 Run `python3 tools/run_checks.py` to check scene loading, independent instance
 materials, authored transforms, Warden variants and the animation lifecycle alongside
 the existing game suites.

@@ -69,6 +69,7 @@ static func _counter(home: Control, content: VBoxContainer) -> void:
 			home.profile_changed.emit(), 13, DeepUi.PAPER)
 	if not done:
 		DeepUi.priced(restock, str(price))
+		home.gold_gate(restock, price)
 	restock.disabled = done or int(home.profile.get("gold", 0)) < price
 	restock.tooltip_text = "Once a day: a new Geode of the day and a new case of cut stones. The week's Geode and the commissions stay." if not done else "The market can be restocked once a day."
 	var columns := DeepUi.hbox(content, 16)
@@ -76,11 +77,17 @@ static func _counter(home: Control, content: VBoxContainer) -> void:
 	_geodes(home, columns)
 	var middle := DeepUi.vbox(columns, 14)
 	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_case(home, middle)
+	## The case and the commissions are parts of their own (see home.region): a stone bought
+	## or a commission swapped redraws them and the purse, not the counter.
+	var case_box := DeepUi.vbox(middle, 0)
+	case_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	home.region(case_box, "market_case", func(holder: Control) -> void: _case(home, holder))
 	_bench(home, middle)
 	var right := DeepUi.vbox(columns, 14)
 	right.custom_minimum_size.x = 340
-	_commissions(home, right)
+	var commission_box := DeepUi.vbox(right, 0)
+	commission_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	home.region(commission_box, "market_commissions", func(holder: Control) -> void: _commissions(home, holder))
 
 static func _favorite_in(home: Control, skills: Array) -> bool:
 	var favorites: Array = DeepProfile.favorites(home.profile)
@@ -150,6 +157,7 @@ static func _geode_card(home: Control, parent: Node, geode: Dictionary) -> void:
 	var crack := DeepUi.priced(DeepUi.primary(foot, "hammer", "Crack it", func() -> void: crack_geode(home, geode), 14, DeepUi.INFO), str(price))
 	DeepUi.voice(crack, "geode_crack")
 	crack.disabled = int(home.profile.get("gold", 0)) < price
+	home.gold_gate(crack, price)
 	crack.tooltip_text = "Buys it and cracks it open, three blows." if not crack.disabled else "You have %d gold. This Geode costs %d." % [int(home.profile.get("gold", 0)), price]
 	crack.mouse_entered.connect(func() -> void:
 		if not crack.disabled:
@@ -234,10 +242,12 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 				if bool(bought.get("ok", false)):
 					DeepAudio.play("keep")
 					home.cheer("%s into the vault" % DeepUi.skill_name(stone), DeepUi.GOOD)
-					home.profile_changed.emit(), 14, DeepUi.PAPER)
+					## The vault gained it: what the commissions can be filled with changes too.
+					home.changed(["market_case", "market_commissions"]), 14, DeepUi.PAPER)
 			DeepUi.priced(buy, str(int(entry.price)))
 			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			buy.disabled = int(home.profile.get("gold", 0)) < int(entry.price)
+			home.gold_gate(buy, int(entry.price))
 			buy.tooltip_text = ("It goes into your vault%s." % (" in place of yours, which is let go for no gold" if not own.is_empty() else "")) if not buy.disabled else "You have %d gold." % int(home.profile.get("gold", 0))
 			DeepUi.voice(buy, "buy")
 		card.mouse_entered.connect(func() -> void: home.hover_stone(card, stone))
@@ -363,7 +373,7 @@ static func _commission_row(home: Control, box: VBoxContainer, commission: Dicti
 	var reroll := _gold_button(corners, "reroll", "Free" if price == 0 else "", "" if price == 0 else str(price), func() -> void:
 		if bool(DeepEconomy.reroll(home.profile, id).get("ok", false)):
 			DeepAudio.play("ui_confirm", {"volume": 0.7})
-			home.profile_changed.emit(), DeepUi.MUTED)
+			home.changed(["market_commissions"]), DeepUi.MUTED)
 	reroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	reroll.disabled = int(home.profile.get("gold", 0)) < price
 	reroll.tooltip_text = ("Swap it for another skill · %s" % ("free once a day" if price == 0 else "%d gold" % price)) if not reroll.disabled else "You have %d gold. A swap costs %d." % [int(home.profile.get("gold", 0)), price]
@@ -380,12 +390,14 @@ static func _commission_row(home: Control, box: VBoxContainer, commission: Dicti
 			if not sure:
 				home._commission_sure = id
 				DeepAudio.play("ui_deny", {"volume": 0.5})
-				home._render()
+				if not home.redraw(["market_commissions"]):
+					home._render()
 				return
 			if bool(DeepEconomy.turn_in_vault(home.profile, id).get("ok", false)):
 				home._commission_sure = ""
 				DeepAudio.play("sell")
-				home.profile_changed.emit(), DeepUi.BAD if sure else DeepUi.GOOD, kept)
+				## The stone left the vault: the case's "yours" beside it may be gone too.
+				home.changed(["market_case", "market_commissions"]), DeepUi.BAD if sure else DeepUi.GOOD, kept)
 		hand.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		hand.tooltip_text = "The %s in your vault meets it. Handing it over takes it out of the vault and every loadout." % DeepUi.skill_name(kept)
 	if ready:

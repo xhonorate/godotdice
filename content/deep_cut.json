@@ -20,6 +20,8 @@
     "geode_week_carat": 1,
     "geode_week_min_cut": 3,
     "geode_week_price_mult": 1.2,
+    "geode_rough_share": 0.3,
+    "geode_run_price_mult": 1.0,
     "case_gold_min": 30,
     "case_price_mult": 2.5,
     "case_luck": 2,
@@ -51,6 +53,7 @@
     "opal_hoard_pct": 100,
     "hoard_luck": 5,
     "opal_hoard_luck": 0,
+    "hoard_geode_pct": 100,
     "lantern_ore_cost": 10,
     "lift_ore_per_depth": 10.5,
     "salvage_dice": {
@@ -10324,25 +10327,14 @@
     },
     "GEODE": {
       "name": "Geode",
-      "text": "A round grey rock, heavier than it looks.",
+      "text": "A round grey rock, heavier than it looks. Someone has left it here for whoever will pay. It cannot be cracked down here: only the workshop's bench will open it.",
       "choices": [
         {
-          "id": "crack",
-          "label": "Crack it open",
-          "text": "Three small stones 45%, one heavy stone 35%, dust 20%.",
+          "id": "buy",
+          "label": "Buy it",
+          "text": "Pay the pyrite and carry it up sealed. Its stone is better than the rock gives, and you will not know which until it is cracked at the workshop.",
           "action": {
-            "kind": "geode",
-            "three": 45,
-            "one": 35
-          }
-        },
-        {
-          "id": "sell",
-          "label": "Sell it unopened",
-          "text": "Get 25 pyrite. You never learn what was inside.",
-          "action": {
-            "kind": "ore",
-            "amount": 25
+            "kind": "geode_buy"
           }
         },
         {

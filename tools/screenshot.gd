@@ -8,14 +8,15 @@ extends SceneTree
 ##          over | inspect_stone | inspect_die | inspect_opal | vault_opals | inspect_flaw | vault_flaws | inspect_creature | menu | menu_settings | menu_soundtrack |
 ##          abandon | map_lit | chart |
 ##          crossroads | crossroads_hover | walk | walk_in | rockfall | crumble | vein_hover | vein_strike |
-##          lift_ride | hoard | appraisal | appraisal_run | void_rail | void_bench | void_battle | void_end | void_appraisal
+##          lift_ride | hoard | appraisal | appraisal_run | void_rail | void_bench | void_battle | void_end | void_appraisal |
+##          bestiary | bestiary_unmet
 ## `appraisal` puts a raw stone from the tray under the loupe at home (weighed against a kept
 ## one of its skill) and `appraisal_run` buys an appraisal at a merchant; the 4th argument is
 ## how far into the ceremony to shoot, in seconds.
 ## Needs a window: this is the one tool here that is not headless.
 
 const HOME_TABS: Dictionary = {"home": "map", "map": "map", "map_party": "map", "map_deep": "map", "map_hazard": "map", "bench": "roster", "roster": "roster", "roster_sockets": "roster",
-	"vault": "vault", "appraise": "appraise", "ledger": "ledger", "appraisal": "appraise"}
+	"vault": "vault", "appraise": "appraise", "ledger": "ledger", "appraisal": "appraise", "bestiary": "bestiary", "bestiary_unmet": "bestiary"}
 
 func _init() -> void:
 	var args: Array = OS.get_cmdline_user_args()
@@ -79,6 +80,14 @@ func _init() -> void:
 				app.session.choose_hazard(7)
 				app.session.choose_mine("GLASS_VEINS")
 			"roster_sockets": app.home._roster_view = "sockets"
+			"bestiary", "bestiary_unmet":
+				## The Quarry's creatures met but for two, a few of them new, and its first
+				## Warden (or one not met yet) picked.
+				var met: Array = DeepBestiary.in_mine("QUARRY")
+				for index in range(met.size() - 2):
+					app.profile.bestiary[str(met[index])] = {"met": 3 + index * 7, "slain": 2 + index * 6, "lost": index % 3, "mines": {"QUARRY": 4 + index}, "first": "2026-10-0%d" % (1 + index % 9), "fresh": index % 4 == 1}
+				app.profile.mines.SEEPS.unlocked = true
+				app.home._bestiary_pick = "THE_FOREMAN" if target == "bestiary" else str(met.back())
 		app.home.open(str(HOME_TABS.get(target, "vault")))
 		var inspector: Script = load("res://view/inspect/inspector.gd")
 		if target == "appraisal":

@@ -24,8 +24,11 @@ func _run() -> void:
 	quit(0 if failures.is_empty() else 1)
 
 func _test_catalog() -> void:
+	var BestiaryPage: Script = load("res://view/home/bestiary_page.gd")
 	for key in DeepContent.section("creatures"):
 		check(CrystalCreature.SCENE_PATHS.has(key), "%s has its own scene" % key)
+		## The bestiary's grid shows a picture baked ahead of time (tools/creature_portraits.gd).
+		check(BestiaryPage.call("portrait", str(key)) != null, "%s has a bestiary portrait (bake it with tools/creature_portraits.gd)" % key)
 		check(ResourceLoader.exists(str(CrystalCreature.SCENE_PATHS.get(key, ""))), "%s's scene is on disk" % key)
 		if not ResourceLoader.exists(str(CrystalCreature.SCENE_PATHS.get(key, ""))):
 			continue

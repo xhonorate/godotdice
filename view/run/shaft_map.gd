@@ -311,7 +311,7 @@ func _facts(map: Dictionary, positions: Dictionary) -> Dictionary:
 		"choosing": str(run.get("phase", "")) == "tunnels"}
 
 func _draw_header(map: Dictionary, depth: int) -> void:
-	var font: Font = DeepUi.display_font()
+	var font: Font = DeepUi.caps_font()
 	_canvas.draw_string(font, Vector2(18, 28), "THE WAY DOWN", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DeepUi.ACCENT)
 	var mine_name: String = str(DeepContent.mine(str(run.get("mine", ""))).get("name", ""))
 	_canvas.draw_string(DeepUi.body_font(), Vector2(18, 46), mine_name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 36, 12, DeepUi.MUTED)
@@ -345,7 +345,7 @@ func _draw_depths() -> void:
 			var below: String = DeepDescent.next_mine(run)
 			var words: String = ("%s BELOW" % DeepContent.mine_name(below).to_upper()) if not below.is_empty() else "THE BOTTOM"
 			var tint: Color = Color(str(DeepContent.mine(below).get("palette", "b58cff"))) if not below.is_empty() else DeepUi.DIM
-			_canvas.draw_string(DeepUi.display_font(), Vector2(GUTTER, y - _step * 0.5 + 4), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tint, fade))
+			_canvas.draw_string(DeepUi.caps_font(), Vector2(GUTTER, y - _step * 0.5 + 4), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tint, fade))
 
 func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring: Color = Color(0, 0, 0, 0)) -> void:
 	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED)
@@ -587,7 +587,7 @@ func _draw_landing(map: Dictionary, at: Vector2, reachable: bool) -> void:
 	_canvas.draw_circle(at, 19.0, Color(tone.darkened(0.65), 0.97 * fade))
 	_canvas.draw_arc(at, 19.0, 0, TAU, 36, Color(tone, (0.95 if reachable else 0.5) * fade), 2.5, true)
 	_glyph("crown" if warden else "lift", at, 21.0, Color(tone.lightened(0.3), fade))
-	_canvas.draw_string(DeepUi.display_font(), at + Vector2(26, 5), "WARDEN" if warden else "LANDING", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tone, 0.85 * fade))
+	_canvas.draw_string(DeepUi.caps_font(), at + Vector2(26, 5), "WARDEN" if warden else "LANDING", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tone, 0.85 * fade))
 	var words: String = "Depth %d: a landing with a lift. Rest, appraise or use the well, then go up or down." % landing
 	if warden:
 		words += " A Warden guards the way down."

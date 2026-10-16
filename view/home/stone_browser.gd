@@ -33,7 +33,10 @@ static func _change(home: Control, context: String, key: String, value: Variant)
 		settings(home, context)[key] = value
 	home._pages[context + "_page"] = 0
 	DeepAudio.play("ui_tap", {"volume": 0.6})
-	home._render()
+	## Where the place laid its toolbar and its stones out as parts of their own (the vault),
+	## only those are drawn again.
+	if not home.redraw([context + "_tools", context + "_stones"]):
+		home._render()
 
 # --- the controls --------------------------------------------------------------------------------
 
@@ -102,9 +105,12 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 	wait.wait_time = 0.3
 	search.add_child(wait)
 	wait.timeout.connect(func() -> void:
-		home.set_meta("browse_focus", context)
 		settings(home, context).query = search.text
 		home._pages[context + "_page"] = 0
+		## Only the stones, where they are a part of their own: the box keeps its focus.
+		if home.redraw([context + "_stones"]):
+			return
+		home.set_meta("browse_focus", context)
 		home._render())
 	search.text_changed.connect(func(_text: String) -> void: wait.start())
 	if str(home.get_meta("browse_focus", "")) == context:

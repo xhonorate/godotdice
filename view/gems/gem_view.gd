@@ -101,6 +101,56 @@ static var _halo_texture: ImageTexture
 static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
 
+## One sky for every stone on screen. It is the same sky for all of them, and each new Sky
+## had its light worked out again on the GPU: a page of five stones (the Market's case and
+## lamps) stopped a frame for some 30 ms doing it five times over.
+static var _sky_resource: Sky = null
+static var _shared_sky_material: ProceduralSkyMaterial = null
+
+## New views start drawing at most this many to a frame. Each one's first frame makes its
+## buffers (MSAA, glow, contact shadow) and draws its sky: a page that opened with five of
+## them (the Market) stopped one frame for every one of them at once.
+const FIRST_DRAWS_PER_FRAME: int = 2
+static var _draw_slot_frame: int = -1
+static var _draw_slot_used: int = 0
+## Waiting for its turn to start drawing; see `_take_draw_slot`.
+var _held: bool = false
+
+static func _take_draw_slot() -> int:
+	## How many frames from now this view may start drawing.
+	var now: int = Engine.get_process_frames()
+	if _draw_slot_frame < now:
+		_draw_slot_frame = now
+		_draw_slot_used = 0
+	if _draw_slot_used >= FIRST_DRAWS_PER_FRAME:
+		_draw_slot_frame += 1
+		_draw_slot_used = 0
+	_draw_slot_used += 1
+	return _draw_slot_frame - now
+
+func _start_later(frames: int) -> void:
+	_held = true
+	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	for _i in range(frames):
+		await get_tree().process_frame
+	if not is_instance_valid(self) or _viewport == null:
+		return
+	_held = false
+	_wake()
+	_redraw()
+
+static func _shared_sky() -> Sky:
+	if _sky_resource == null:
+		_shared_sky_material = ProceduralSkyMaterial.new()
+		_shared_sky_material.sky_top_color = Color("8fb4ef")
+		_shared_sky_material.sky_horizon_color = Color("dce6f4")
+		_shared_sky_material.ground_horizon_color = Color("6a7488")
+		_shared_sky_material.ground_bottom_color = Color("2b3242")
+		_shared_sky_material.sun_angle_max = 24.0
+		_sky_resource = Sky.new()
+		_sky_resource.sky_material = _shared_sky_material
+	return _sky_resource
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	clip_contents = false
@@ -139,15 +189,8 @@ func _ready() -> void:
 	# Clear background, but a real sky behind the scenes for the facets to mirror. Flat
 	# ambient color gave them nothing to reflect, and a gem that reflects nothing reads
 	# as colored plastic however well it is lit.
-	_sky_material = ProceduralSkyMaterial.new()
-	_sky_material.sky_top_color = Color("8fb4ef")
-	_sky_material.sky_horizon_color = Color("dce6f4")
-	_sky_material.ground_horizon_color = Color("6a7488")
-	_sky_material.ground_bottom_color = Color("2b3242")
-	_sky_material.sun_angle_max = 24.0
-	var sky := Sky.new()
-	sky.sky_material = _sky_material
-	_environment.sky = sky
+	_environment.sky = _shared_sky()
+	_sky_material = _shared_sky_material
 	_environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	_environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	# Highlights are what sell a gem. ACES rolls them off instead of clipping flat, and
@@ -227,6 +270,9 @@ func _ready() -> void:
 	_manual = Quaternion.from_euler(Vector3(deg_to_rad(REST.x), deg_to_rad(REST.y), 0.0))
 	_goal = _manual
 	_pivot.quaternion = _manual
+	var wait: int = _take_draw_slot()
+	if wait > 0:
+		_start_later(wait)
 	_wake()
 	_apply_ground()
 	if _wants_interaction:
@@ -389,7 +435,9 @@ func _tune() -> void:
 	var shade := Tuning.value("ssao")
 	_environment.ssao_enabled = shade > 0.001
 	_environment.ssao_intensity = shade
-	if _sky_material != null:
+	## Shared by every stone: touched only when the tuning moves it, or each new view would
+	## have the sky's light worked out again for all of them.
+	if _sky_material != null and not is_equal_approx(_sky_material.energy_multiplier, Tuning.value("sky_energy")):
 		_sky_material.energy_multiplier = Tuning.value("sky_energy")
 	var strength := Tuning.value("light_energy")
 	for slot in range(_lights.size()):
@@ -528,9 +576,11 @@ func _wake() -> void:
 	if headless() or _viewport == null:
 		return
 	var moving: bool = interactive or not is_zero_approx(_spin) or _drifts()
+	set_process(moving)
+	if _held:
+		return
 	_viewport.render_target_update_mode = (SubViewport.UPDATE_ALWAYS if moving
 		else SubViewport.UPDATE_ONCE)
-	set_process(moving)
 
 func _sway() -> Quaternion:
 	## The turn a gem has when nothing is happening to it, the way the dice breathe on the
@@ -556,7 +606,7 @@ func rest() -> void:
 		_apply_turn()
 
 func _redraw() -> void:
-	if headless() or _viewport == null:
+	if headless() or _viewport == null or _held:
 		return
 	if _viewport.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
 		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE

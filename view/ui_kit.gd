@@ -96,6 +96,8 @@ const CHAMBER_colorS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff
 	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8"), "vat": Color("b9e769"), "altar": Color("d7a6ff")}
 
 static var _display: Font = null
+static var _caps: Font = null
+static var _gold: Shader = null
 static var _bold: Font = null
 static var _body: Font = null
 static var _glow: GradientTexture2D = null
@@ -123,9 +125,31 @@ static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
 
 static func display_font() -> Font:
-	## The one display face: Cinzel (shipped with the game, SIL Open Font License), bold,
-	## with a little air between the capitals. A system serif stands in if the file is missing.
+	## The one display face: Jaro (shipped with the game, SIL Open Font License), the face of
+	## the store page's title, set at a display optical size with a little air between the
+	## letters. A system face stands in if the file is missing.
 	if _display == null:
+		var face := FontVariation.new()
+		var shipped: Variant = load("res://view/fonts/Jaro.ttf") if ResourceLoader.exists("res://view/fonts/Jaro.ttf") else null
+		if shipped is Font:
+			face.base_font = shipped
+			face.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("opsz"): 36}
+		else:
+			var system := SystemFont.new()
+			system.font_names = PackedStringArray(["Jaro", "Impact", "Arial Black", "sans-serif"])
+			system.font_weight = 700
+			face.base_font = system
+		face.spacing_glyph = 1
+		_display = face
+	return _display
+
+## Titles this size or smaller are set in `caps_font()`: Jaro is too heavy to read at label size.
+const SMALL_TITLE := 14
+
+static func caps_font() -> Font:
+	## The face for small titles and labels: Cinzel (shipped with the game, SIL Open Font
+	## License), bold, whose lowercase are small capitals, with a little air between them.
+	if _caps == null:
 		var face := FontVariation.new()
 		var shipped: Variant = load("res://view/fonts/Cinzel.ttf") if ResourceLoader.exists("res://view/fonts/Cinzel.ttf") else null
 		if shipped is Font:
@@ -137,14 +161,102 @@ static func display_font() -> Font:
 			system.font_weight = 700
 			face.base_font = system
 		face.spacing_glyph = 1
-		_display = face
-	return _display
+		_caps = face
+	return _caps
+
+static func title_font(font_size: int) -> Font:
+	## The display face for a title of this size: Jaro, or Cinzel once it is label-sized.
+	return caps_font() if font_size <= SMALL_TITLE else display_font()
+
+static func cut_title(parent: Node, text: String, font_size: int) -> Control:
+	## The game's name drawn the way the store page draws it: Jaro in gold, cut on a shallow
+	## diagonal (from two thirds down on the left to two fifths down on the right), the top
+	## half slipped up and to the right, and the whole word turned 0.6 degrees back so it
+	## does not seem to lean.
+	var font: Font = display_font()
+	var w: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var h: float = font.get_height(font_size)
+	var pad: float = font_size * 0.2
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(w + font_size * 0.12, h)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(box)
+	var turn := Node2D.new()
+	turn.position = Vector2(w, h) * 0.5
+	turn.rotation = deg_to_rad(-0.6)
+	box.add_child(turn)
+	var left: float = h * 0.66
+	var right: float = h * 0.40
+	var halves: Array = [
+		[PackedVector2Array([Vector2(-pad, -pad), Vector2(w + pad, -pad), Vector2(w + pad, right), Vector2(-pad, left)]), Vector2(0.03, -0.035) * font_size],
+		[PackedVector2Array([Vector2(-pad, left), Vector2(w + pad, right), Vector2(w + pad, h + pad), Vector2(-pad, h + pad)]), Vector2.ZERO],
+	]
+	for half in halves:
+		## Each half is the word masked by its side of the cut; the mask moves with its half.
+		var mask := Polygon2D.new()
+		mask.polygon = half[0]
+		mask.position = -Vector2(w, h) * 0.5 + half[1]
+		mask.clip_children = CanvasItem.CLIP_CHILDREN_ONLY
+		mask.antialiased = true
+		turn.add_child(mask)
+		var word := Label.new()
+		word.text = text
+		word.add_theme_font_override("font", font)
+		word.add_theme_font_size_override("font_size", font_size)
+		word.material = gold_material(h)
+		word.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mask.add_child(word)
+	## The cut itself: a thin bright line over the word, brightest in the middle.
+	## A strip of quads rather than a Line2D, which draws nothing beside the clipping masks.
+	var line := Polygon2D.new()
+	var half_width: float = maxf(0.6, font_size * 0.007)
+	var stops: Array = [[-0.04, 0.0], [0.25, 0.8], [0.5, 1.0], [0.75, 0.8], [1.04, 0.0]]
+	var top_edge := PackedVector2Array()
+	var bottom_edge := PackedVector2Array()
+	var shades := PackedColorArray()
+	for stop in stops:
+		var at := Vector2(w * float(stop[0]), lerpf(left, right, float(stop[0])))
+		top_edge.append(at - Vector2(0, half_width))
+		bottom_edge.append(at + Vector2(0, half_width))
+		shades.append(Color(1, 0.97, 0.85, float(stop[1])))
+	bottom_edge.reverse()
+	var back := shades.duplicate()
+	back.reverse()
+	line.polygon = top_edge + bottom_edge
+	line.vertex_colors = shades + back
+	line.position = -Vector2(w, h) * 0.5
+	line.antialiased = true
+	turn.add_child(line)
+	return box
+
+static func gold_material(height: float) -> ShaderMaterial:
+	## Paints whatever it is on with the store page's gold, light at the top and deep at the
+	## bottom of a box `height` tall.
+	if _gold == null:
+		_gold = Shader.new()
+		_gold.code = """shader_type canvas_item;
+uniform float height = 20.0;
+varying float y;
+void vertex() { y = VERTEX.y; }
+void fragment() {
+	float t = clamp(y / height, 0.0, 1.0);
+	vec3 a = vec3(1.0, 0.945, 0.722), b = vec3(1.0, 0.843, 0.416), c = vec3(0.886, 0.698, 0.227), d = vec3(0.655, 0.490, 0.133);
+	vec3 gold = t < 0.3 ? mix(a, b, t / 0.3) : (t < 0.62 ? mix(b, c, (t - 0.3) / 0.32) : mix(c, d, (t - 0.62) / 0.38));
+	COLOR = vec4(gold, COLOR.a);
+}"""
+	var material := ShaderMaterial.new()
+	material.shader = _gold
+	material.set_shader_parameter("height", height)
+	return material
 
 static func release_fonts() -> void:
 	## Lets go of the faces before the engine shuts down. A font kept in a static variable
 	## past the end of the scene tree is freed after the text server is gone, which crashes
 	## the game on its way out.
 	_display = null
+	_caps = null
+	_gold = null
 	_body = null
 	_bold = null
 	## The same goes for the shared textures: the glows and the drawn switches.
@@ -403,6 +515,8 @@ static func fit_label(parent: Node, text: String, size: int, color: Color, width
 
 static func skill_name(stone: Dictionary) -> String:
 	## Just the skill ("Strike"): the grade words are drawn as marks on the picture instead.
+	if DeepStone.is_geode(stone):
+		return DeepStone.raw_name(stone)
 	if not bool(stone.get("appraised", false)):
 		return "%s raw" % DeepStone.size_name(int(stone.get("carat", 1)))
 	if DeepStone.is_birthstone(stone):
@@ -489,7 +603,7 @@ static func effect_text(parent: Node, text: String, size: int = 13, color: Color
 static func title(parent: Node, text: String, size: int = 26, color: Color = PAPER, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	## A display-face title with a soft shadow, for the name of a place or a moment.
 	var l := label(parent, text, size, color, align)
-	l.add_theme_font_override("font", display_font())
+	l.add_theme_font_override("font", title_font(size))
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
 	l.add_theme_constant_override("shadow_offset_y", 2)
 	l.add_theme_constant_override("shadow_offset_x", 0)
@@ -497,7 +611,7 @@ static func title(parent: Node, text: String, size: int = 26, color: Color = PAP
 
 static func heading(parent: Node, text: String, size: int = 13, color: Color = ACCENT) -> Label:
 	var l := label(parent, text.to_upper(), size, color)
-	l.add_theme_font_override("font", display_font())
+	l.add_theme_font_override("font", title_font(size))
 	l.add_theme_constant_override("line_spacing", 0)
 	return l
 
@@ -578,10 +692,18 @@ static func pill(parent: Node, glyph: String, text: String, color: Color, size: 
 	## The outline is mixed down onto the dark rather than laid over it at less than full
 	## alpha: where a capsule's ends curve, the ring doubles back on itself inside one pixel
 	## and a see-through outline reads heavier there than it does down the sides.
-	var style := flat(Color(color, 0.12), SLATE_LOW.lerp(color, 0.45), 20, 5)
+	## The long diamond ends suit a line of text, but cut across a mark and a digit or two they
+	## bite into the content; a short pill takes a small corner and roomier sides instead.
+	var short: bool = not rainbow and text.length() <= 3
+	var style := flat(Color(color, 0.12), SLATE_LOW.lerp(color, 0.45), 8 if short else 20, 5)
 	## A pill with nothing but a mark in it is padded evenly, so the mark sits in its middle.
 	style.content_margin_left = 9 if not text.is_empty() or rainbow else 8
 	style.content_margin_right = 11 if not text.is_empty() or rainbow else 8
+	if short:
+		style.content_margin_left = 8 if text.is_empty() else 10
+		style.content_margin_right = 8 if text.is_empty() else 10
+		style.content_margin_top = 6
+		style.content_margin_bottom = 6
 	box.add_theme_stylebox_override("panel", style)
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.tooltip_text = tooltip
@@ -658,11 +780,12 @@ static func coin_safe(tone: Color, instead: Color = INFO) -> Color:
 	var yellow: bool = tone.s > 0.35 and tone.h > 0.09 and tone.h < 0.19
 	return instead if yellow else tone
 
-static func price_chip(parent: Node, sum: String, size: int = 13) -> PanelContainer:
-	## A sum of gold as every button shows one: the coin, then the number, in a dark capsule
-	## so the coin reads on any fill. Gold is never written out as a word on a button.
+static func price_chip(parent: Node, sum: String, size: int = 13, tone: Color = ACCENT_HI, boxed: bool = true) -> PanelContainer:
+	## A sum of gold as every button shows one: the coin, then the number. Gold is never written
+	## out as a word on a button. `boxed` sets it in a dark capsule (no outline) for a fill that
+	## is not the button's own; on a button it is bare and takes the button's text color.
 	var chip := PanelContainer.new()
-	var style := flat(Color(INK, 0.62), Color(ACCENT, 0.35), 8, 0)
+	var style := flat(Color(INK, 0.62) if boxed else Color(0, 0, 0, 0), Color(0, 0, 0, 0), 8, 0)
 	style.content_margin_left = 6
 	style.content_margin_right = 8
 	style.content_margin_top = 1
@@ -671,7 +794,7 @@ static func price_chip(parent: Node, sum: String, size: int = 13) -> PanelContai
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.name = "Price"
 	parent.add_child(chip)
-	var row := stat(chip, "coin", sum, ACCENT_HI, size)
+	var row := stat(chip, "coin", sum, tone, size)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for part in row.get_children():
 		(part as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -682,7 +805,7 @@ static func priced(b: Button, sum: String, size: int = -1) -> Button:
 	## words, and widens the button's right margin to make room for it. The tag dims with the
 	## button when it is disabled. `sum` is the number as shown: "240", or "+38" for a payout.
 	var font_size: int = size if size > 0 else maxi(MIN_TEXT, b.get_theme_font_size("font_size") - 2)
-	var chip := price_chip(b, sum, font_size)
+	var chip := price_chip(b, sum, font_size, b.get_theme_color("font_color"), false)
 	var gap: float = 10.0
 	var room: float = chip.get_combined_minimum_size().x + gap
 	for state in ["normal", "hover", "pressed", "disabled", "focus", "hover_pressed"]:
@@ -867,6 +990,29 @@ static func tab_button(parent: Node, glyph: String, text: String, active: bool, 
 		b.add_theme_stylebox_override("normal", button_style(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 10))
 	return b
 
+## The haul is kept in three tabs: stones read and ready to set, stones still in their rock,
+## and Geodes, which only the workshop can crack. [key, name, glyph, what it holds].
+const HAUL_TABS: Array = [["gems", "Appraised", "gem", "Appraised stones, ready to set"],
+	["raw", "Raw", "pick", "Stones still in their rock: appraise them at a stall or a landing"],
+	["geodes", "Geodes", "geode", "Sealed Geodes: only the workshop can crack them"]]
+
+static func haul_tab(stone: Dictionary) -> String:
+	return DeepStone.haul_tab(stone)
+
+static func haul_of(haul: Array, tab: String) -> Array:
+	## The stones of a haul that belong under one tab, in the order they were found.
+	return haul.filter(func(s: Dictionary) -> bool: return DeepStone.haul_tab(s) == tab)
+
+static func haul_tabs(parent: Node, haul: Array, current: String, choose: Callable, size: int = 14) -> HBoxContainer:
+	## The tabs themselves, each with the number of stones in it. `choose` is given the key.
+	var row := hbox(parent, 4)
+	for entry in HAUL_TABS:
+		var key: String = str(entry[0])
+		var count: int = haul_of(haul, key).size()
+		var tab := tab_button(row, str(entry[2]), str(entry[1]), current == key, func() -> void: choose.call(key), size, count)
+		tab.tooltip_text = str(entry[3])
+	return row
+
 static func pager(parent: Node, page: int, pages: int, turn: Callable, size: int = 13) -> HBoxContainer:
 	## Back and forth through a list longer than its page: "<  2 of 5  >". Pages never
 	## scroll; a long list is turned like a book. `turn` is given the page to show.
@@ -985,6 +1131,34 @@ static func pulse(control: Control, strength: float = 1.12, seconds: float = 0.3
 	var tween := control.create_tween()
 	tween.tween_property(control, "scale", Vector2.ONE * strength, seconds * 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(control, "scale", Vector2.ONE, seconds * 0.65).set_ease(Tween.EASE_IN_OUT)
+
+static func spring(control: Control, kick: float = 0.2, twist: float = 0.0, seconds: float = 0.5) -> void:
+	## A jolt that rings out like something on a spring: the control is thrown `kick` larger at
+	## once (smaller, if negative) and turned up to `twist` degrees one way or the other, then
+	## swings back and forth through rest, each swing smaller, and settles where it was. What
+	## a gem firing, a die counting or a number landing is drawn with: a pulse eases, this
+	## snaps. Scale and rotation only, so a container keeps ownership of where it sits, and a
+	## second jolt before the first has settled takes over from it rather than fighting it.
+	if headless() or control == null or not is_instance_valid(control):
+		return
+	var running: Variant = control.get_meta("spring") if control.has_meta("spring") else null
+	if running is Tween and (running as Tween).is_valid():
+		(running as Tween).kill()
+	control.pivot_offset = control.size * 0.5
+	var lean: float = deg_to_rad(twist) * (1.0 if randf() < 0.5 else -1.0)
+	var tween := control.create_tween()
+	control.set_meta("spring", tween)
+	## About two and a half swings over the time, dying away fast enough that the last of
+	## them is felt more than seen.
+	tween.tween_method(func(t: float) -> void:
+		var ring: float = exp(-5.0 * t)
+		## Kept on the centre as it goes: a control built this frame has no size yet.
+		control.pivot_offset = control.size * 0.5
+		control.scale = Vector2.ONE * (1.0 + kick * ring * cos(t * TAU * 2.4))
+		control.rotation = lean * ring * sin(t * TAU * 2.4), 0.0, 1.0, seconds)
+	tween.tween_callback(func() -> void:
+		control.scale = Vector2.ONE
+		control.rotation = 0.0)
 
 static func breathe(control: Control, low: float = 0.72, seconds: float = 1.6) -> Tween:
 	## A slow, endless fade between full and `low`, for things waiting on the player.
@@ -1164,7 +1338,7 @@ static func float_text(parent: Control, at: Vector2, text: String, color: Color,
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", size)
-	l.add_theme_font_override("font", display_font())
+	l.add_theme_font_override("font", title_font(size))
 	l.add_theme_color_override("font_color", color)
 	l.add_theme_color_override("font_outline_color", Color(INK, 0.95))
 	l.add_theme_constant_override("outline_size", maxi(4, size / 4))

@@ -72,6 +72,8 @@ var _compare_return_page: Control
 ## Every tween the popup's timeline is running, so a second click or a close can kill them
 ## before a late callback reaches into a row `_open_reveal` has already freed.
 var _reveal_tweens: Array = []
+## Dismissed and fading out: it takes no more input.
+var _closing: bool = false
 
 # --- opening -------------------------------------------------------------------------------
 
@@ -99,6 +101,10 @@ static func _begin(tone: Color, fanfare: Dictionary = {}) -> CanvasLayer:
 	return _sheet
 
 static func stone(item: Dictionary, opts: Dictionary = {}) -> void:
+	if DeepStone.is_geode(item):
+		## A Geode brought up from a mine: the rock and its odds, nothing of what is inside.
+		geode(item.geode, {"sealed": true, "profile": opts.get("profile", {}), "fanfare": opts.get("fanfare", {})})
+		return
 	if DeepStone.is_birthstone(item):
 		var own := _begin(GemMesh.tint(item), opts.get("fanfare", {}))
 		if own != null:
@@ -118,7 +124,7 @@ static func die(item: Dictionary, opts: Dictionary = {}) -> void:
 static func geode(shelf_geode: Dictionary, opts: Dictionary = {}) -> void:
 	## A Geode on the Market's shelf: the rock itself, turned by hand, and its odds in full.
 	## `opts.profile` marks the skills already found and the favorites.
-	var sheet := _begin(load("res://view/gems/geode.gd").theme_tone(shelf_geode))
+	var sheet := _begin(load("res://view/gems/geode.gd").theme_tone(shelf_geode), opts.get("fanfare", {}))
 	if sheet != null:
 		sheet.call("_fill_geode", shelf_geode, opts)
 
@@ -145,11 +151,14 @@ static func gathering(title: String, text: String, glyph: String, stones: Array 
 	if sheet != null:
 		sheet.call("_fill_gathering", title, text, glyph, stones, dice, captions)
 
-static func announce(title: String, text: String, glyph: String, tone: Color = DeepUi.ACCENT) -> void:
-	## A big moment with no object: a new setting, a new mine.
-	var sheet := _begin(tone, {"title": title, "subtitle": ""})
+static func announce(title: String, text: String, glyph: String, tone: Color = DeepUi.ACCENT, opts: Dictionary = {}) -> CanvasLayer:
+	## A big moment with no object: a new setting, a new mine. `opts.subtitle` goes under the
+	## title; `opts.actions` ([{label, glyph, tone, call, disabled}]) replaces its one button
+	## with a choice, each closing the sheet before it calls. Returns the sheet, if one opened.
+	var sheet := _begin(tone, {"title": title, "subtitle": str(opts.get("subtitle", "")), "actions": opts.get("actions", [])})
 	if sheet != null:
 		sheet.call("_fill_announcement", text, glyph, tone)
+	return sheet
 
 static func lapidary(character_key: String) -> void:
 	## Someone new comes to the workshop: their plate and their Birthstone turning beside it,
@@ -231,6 +240,22 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	if fanfare.is_empty():
 		_close = DeepUi.icon_button(foot, "cross_out", "Close", _dismiss, 15, DeepUi.MUTED)
 		DeepUi.label(foot, "Esc, right-click or click outside to close", 12, DeepUi.DIM)
+	elif not fanfare.get("actions", []).is_empty():
+		for action in fanfare.actions:
+			var call: Callable = action.get("call", Callable())
+			var chosen := func() -> void:
+				_dismiss()
+				if call.is_valid():
+					call.call()
+			var go: Button
+			if bool(action.get("primary", true)):
+				go = DeepUi.primary(foot, str(action.get("glyph", "check")), str(action.get("label", "")), chosen, 18, action.get("tone", tone))
+				go.custom_minimum_size.x = 220
+			else:
+				go = DeepUi.icon_button(foot, str(action.get("glyph", "cross_out")), str(action.get("label", "")), chosen, 15, action.get("tone", DeepUi.MUTED))
+			go.disabled = bool(action.get("disabled", false))
+			if _close == null and not go.disabled:
+				_close = go
 	else:
 		_close = DeepUi.primary(foot, "check", str(fanfare.get("button", "Wonderful")), _dismiss, 18, tone)
 		_close.custom_minimum_size.x = 240
@@ -266,9 +291,14 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 					_title.add_theme_color_override("font_color", DeepUi.TRANSCENDENT_TONE.lerp(DeepUi.rainbow_at(t, 0.6), 0.6)), 0.0, 1.0, 2.6)
 
 func _dismiss() -> void:
-	if not is_instance_valid(self) or is_queued_for_deletion():
+	if not is_instance_valid(self) or is_queued_for_deletion() or _closing:
 		return
+	_closing = true
 	DeepAudio.play("ui_close", {"volume": 0.6})
+	## While it fades it is already gone: a click meant for the screen under it lands there
+	## instead of on the dimmer, and a second Esc does not close it twice.
+	for node in find_children("*", "Control", true, false):
+		(node as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tween := create_tween()
 	tween.set_parallel(true)
 	for child in get_children():
@@ -280,6 +310,11 @@ func _dismiss() -> void:
 
 func _input(event: InputEvent) -> void:
 	## While the sheet is up, the keyboard belongs to it: the arrows turn its pages.
+	if _closing:
+		## The key that closed it, pressed twice, is still the sheet's, not the screen's.
+		if event is InputEventKey:
+			get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
 			if _reveal != null and _reveal.visible:
@@ -470,13 +505,18 @@ func _fill_geode(shelf_geode: Dictionary, opts: Dictionary) -> void:
 	DeepUi.label(_head, Geode.geode_line(shelf_geode), 14, DeepUi.MUTED)
 	var tags := DeepUi.hbox(_head, 8)
 	var weekly: bool = bool(shelf_geode.get("weekly", false))
-	DeepUi.pill(tags, "calendar", "This week's" if weekly else "Today's", DeepUi.ACCENT if weekly else tone, 13)
+	if bool(opts.get("sealed", false)):
+		DeepUi.pill(tags, "pick", "Found in the mine", tone, 13)
+	else:
+		DeepUi.pill(tags, "calendar", "This week's" if weekly else "Today's", DeepUi.ACCENT if weekly else tone, 13)
 	var carats: Array = odds.get("carat", [1, 1])
 	DeepUi.pill(tags, "carat", "%d to %d ct" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 13, "Every stone inside weighs this much")
 	if weekly:
 		DeepUi.pill(tags, "cut", "Fine cut or better", DeepUi.INFO, 13)
 	if bought:
 		DeepUi.pill(tags, "check", "Opened", DeepUi.MUTED, 13)
+	elif bool(opts.get("sealed", false)):
+		DeepUi.pill(tags, "lock", "Sealed", DeepUi.MUTED, 13, "Only the workshop can crack it open")
 	else:
 		DeepUi.pill(tags, "coin", "%d" % int(shelf_geode.get("price", 0)), DeepUi.ACCENT, 13, "Its price, in gold")
 	## Every skill with its share, sorted into the rarities; the opals are a rarity of their own.
@@ -1313,7 +1353,7 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		_page("Its moves" if chunk == 0 else "Its moves · %d" % (chunk + 1), "book")
 		var moves := _section("book", "Its moves" if chunk == 0 else "More of its moves")
 		for move in opening.slice(chunk * 4, chunk * 4 + 4):
-			_move_row(moves, move, str(move.get("name", "")) == highlight)
+			move_row(moves, move, str(move.get("name", "")) == highlight)
 		if chunk == 0 and not traits.is_empty():
 			var born := _section("spark", "What it is")
 			var trait_keys: Array = traits.keys()
@@ -1336,7 +1376,7 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 						var chip: Dictionary = EffectChips.trait_entry(str(trait_key), value)
 						DeepUi.stat(moves, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12)
 			for move in shown.slice(chunk * 4, chunk * 4 + 4):
-				_move_row(moves, move, str(move.get("name", "")) == highlight)
+				move_row(moves, move, str(move.get("name", "")) == highlight)
 	var rolls := _section("die", "Its dice")
 	var dice_row := DeepUi.hbox(rolls, 6)
 	var effective: Array = DeepCreatures.effective_dice(foe) if foe.has("dice") else definition.get("dice", []).map(func(key: String) -> Dictionary: return {"shape": key})
@@ -1360,17 +1400,34 @@ static func _dice_words(keys: Array) -> String:
 		parts.append(str(name) if int(counts[name]) <= 1 else "%s ×%d" % [str(name), int(counts[name])])
 	return ", ".join(parts)
 
-func _move_row(parent: Node, move: Dictionary, highlight: bool) -> void:
+static func move_row(parent: Node, move: Dictionary, highlight: bool = false, wrap: bool = false) -> void:
+	## One move as the sheet and the bestiary list it: its mark and name, when it fires, and
+	## what each of its effects does. With `wrap`, a long line runs on to the next rather
+	## than widening whatever holds it.
 	var panel := DeepUi.panel(parent, Color(DeepUi.BAD, 0.12) if highlight else Color(1, 1, 1, 0.03), Color(DeepUi.BAD, 0.6) if highlight else Color(0, 0, 0, 0), 8, 8)
 	var box := DeepUi.vbox(panel, 4)
 	var head := DeepUi.hbox(box, 10)
 	DeepUi.icon(head, EnemyPanel.move_glyph(move), 20, DeepUi.BAD if highlight else DeepUi.MUTED)
 	DeepUi.title(head, str(move.get("name", "")), 16, DeepUi.PAPER)
-	DeepUi.label(box, DeepCreatures.trigger_words(move), 12, DeepUi.DIM)
+	var when := DeepUi.label(box, DeepCreatures.trigger_words(move), 12, DeepUi.DIM)
+	if wrap:
+		when.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	for effect in move.get("effects", []):
-		DeepUi.stat(box, _effect_glyph(str(effect.get("kind", ""))), DeepCreatures.effect_words(effect), DeepUi.PAPER, 13)
+		var line := DeepUi.stat(box, _effect_glyph(str(effect.get("kind", ""))), DeepCreatures.effect_words(effect), DeepUi.PAPER, 13)
+		if wrap:
+			wrap_stat(line)
 
-func _effect_glyph(kind: String) -> String:
+static func wrap_stat(line: HBoxContainer) -> void:
+	## A stat whose words run on to a second line instead of widening the row, its mark kept
+	## level with the first.
+	var value := line.get_node("Value") as Label
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for child in line.get_children():
+		if child is TextureRect:
+			(child as TextureRect).size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+
+static func _effect_glyph(kind: String) -> String:
 	return str({"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield", "die_steal": "die",
 		"heal": "heart", "curse": "eye", "summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "burn": "flame", "strength": "sword",
 		"scorched": "flame", "die_lock": "die", "steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "break_die": "cross_out", "blank_face": "die",
@@ -1574,6 +1631,8 @@ func _fill_gathering(title: String, text: String, glyph: String, stones: Array, 
 		show_page("1 to %d" % GATHERING_PAGE)
 
 func _fill_announcement(text: String, glyph: String, tone: Color) -> void:
+	## A mark, not a thing: nothing to turn.
+	_stage_hint.visible = false
 	var mark := DeepUi.center(_stage)
 	mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	DeepUi.icon(mark, glyph, 180, tone.lightened(0.25))

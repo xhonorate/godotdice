@@ -2,6 +2,10 @@ extends Control
 ## One creature on a plinth of its own, lit from three sides and turning slowly, for the
 ## inspector. Its own small world, so it costs one viewport while it is open and nothing
 ## once it closes. Drag to turn it.
+##
+## With `fit` set before it enters the tree, the camera is drawn back to the creature's own
+## shape rather than its height, so a long wyrm turning on the spot never leaves the frame,
+## and the plinth is cut to its size (the bestiary, and the portraits baked for its list).
 
 var _viewport: SubViewport
 var _pivot: Node3D
@@ -15,6 +19,13 @@ var _key: String = ""
 var _warden: bool = false
 
 var _echo_of: String = ""
+var _plinth: MeshInstance3D
+## Frame the creature by its bounds, turning, instead of by its height.
+var fit: bool = false
+## Whether it stands on its plinth.
+var plinth_shown: bool = true
+## What `fit` frames: the creature's bounds as it rests, kept so a resize can frame it again.
+var _box: AABB = AABB()
 
 func _init(creature_key: String = "", warden: bool = false, echo_of: String = "") -> void:
 	_echo_of = echo_of
@@ -55,6 +66,7 @@ func _init(creature_key: String = "", warden: bool = false, echo_of: String = ""
 	_pivot = Node3D.new()
 	_viewport.add_child(_pivot)
 	var plinth := MeshInstance3D.new()
+	_plinth = plinth
 	var disc := CylinderMesh.new()
 	disc.top_radius = 1.5
 	disc.bottom_radius = 1.7
@@ -82,12 +94,78 @@ func show_creature(creature_key: String, warden: bool) -> void:
 		_creature.queue_free()
 	var made: CrystalCreature = CrystalCreature.make(creature_key, warden, _echo_of)
 	_pivot.add_child(made)
-	made.spawn(0.1)
 	_creature = made
+	_plinth.visible = plinth_shown
+	if fit:
+		## Measured as it rests, before it rises out of the rock.
+		_box = _bounds(made)
+		_frame_bounds(_box)
+		made.spawn(0.1)
+		return
+	made.spawn(0.1)
 	## Frame it by its own height, so a tick and a Warden both fill the stage.
 	var height: float = maxf(1.2, made.anchor.y)
 	var distance: float = height * 2.3 + 2.0
 	_camera.look_at_from_position(Vector3(0, height * 0.55, distance), Vector3(0, height * 0.42, 0), Vector3.UP)
+
+func _bounds(made: Node3D) -> AABB:
+	## The creature's body as it rests, in the turntable's own space.
+	var body: Node = made.get_node_or_null("Body")
+	var to_pivot: Transform3D = _pivot.global_transform.affine_inverse()
+	var box := AABB()
+	var first: bool = true
+	for node in (body if body != null else made).find_children("*", "GeometryInstance3D", true, false):
+		var shape := node as GeometryInstance3D
+		if not shape.is_visible_in_tree():
+			continue
+		var placed: AABB = to_pivot * shape.global_transform * shape.get_aabb()
+		box = placed if first else box.merge(placed)
+		first = false
+	return box if not first else AABB(Vector3(-0.6, 0, -0.6), Vector3(1.2, maxf(1.2, made.anchor.y), 1.2))
+
+func _frame_bounds(box: AABB) -> void:
+	## Back just far enough that the creature fits whichever way it has turned: every corner
+	## of its bounds, swung round the turntable's axis, lies inside the picture. The plinth is
+	## cut to the circle its widest part sweeps.
+	var reach: float = 0.3
+	for index in range(8):
+		var corner: Vector3 = box.get_endpoint(index)
+		reach = maxf(reach, Vector2(corner.x, corner.z).length())
+	var radius: float = clampf(reach * 1.12, 0.45, 4.0)
+	_plinth.scale = Vector3(radius / 1.6, 1.0, radius / 1.6)
+	var points: Array = []
+	for index in range(8):
+		points.append(box.get_endpoint(index))
+	if plinth_shown:
+		for step in range(12):
+			var angle: float = TAU * float(step) / 12.0
+			points.append(Vector3(cos(angle) * radius * 1.06, -0.18, sin(angle) * radius * 1.06))
+	var low: float = INF
+	var high: float = -INF
+	for point in points:
+		low = minf(low, point.y)
+		high = maxf(high, point.y)
+	var centre := Vector3(0, (low + high) * 0.5, 0)
+	## A little above it and looking down, as the inspector's camera does.
+	var tilt: float = deg_to_rad(14.0)
+	var back := Vector3(0, sin(tilt), cos(tilt))
+	var up := Vector3(0, cos(tilt), -sin(tilt))
+	var aspect: float = size.x / size.y if size.x > 0.0 and size.y > 0.0 else 1.0
+	var half_v: float = tan(deg_to_rad(_camera.fov) * 0.5) * 0.94
+	var half_h: float = half_v * aspect
+	var distance: float = 0.5
+	for turn in range(16):
+		var spun := Basis(Vector3.UP, TAU * float(turn) / 16.0)
+		for point in points:
+			var at: Vector3 = spun * point - centre
+			var across: float = maxf(absf(at.x) / half_h, absf(at.dot(up)) / half_v)
+			distance = maxf(distance, at.dot(back) + across)
+	_camera.look_at_from_position(centre + back * distance, centre, Vector3.UP)
+
+func _notification(what: int) -> void:
+	## A stage laid out after it was filled has its camera drawn back for its real shape.
+	if what == NOTIFICATION_RESIZED and fit and _creature != null and _camera != null:
+		_frame_bounds(_box)
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:

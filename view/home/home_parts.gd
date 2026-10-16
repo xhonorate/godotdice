@@ -493,7 +493,8 @@ class Avatar extends Control:
 		var r := Rect2(Vector2.ZERO, size)
 		var plate := DeepUi.flat(Color("1b2440"), DeepUi.ACCENT, int(size.x * 0.3), 0, 2)
 		draw_style_box(plate, r)
-		var face: Variant = Engine.get_meta("steam_face", null)
+		## A null default counts as no default to get_meta, which then errors on every draw.
+		var face: Variant = Engine.get_meta("steam_face") if Engine.has_meta("steam_face") else null
 		if face is Texture2D:
 			draw_texture_rect(face, r.grow(-3.0), false)
 			return
@@ -522,5 +523,5 @@ static func keycaps(parent: Node, letters: Array, hint: String) -> HBoxContainer
 		row.add_child(cap)
 		## Set in the display face, whose Q has a tail long enough to tell it from a nought.
 		var word := DeepUi.label(cap, str(letter), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-		word.add_theme_font_override("font", DeepUi.display_font())
+		word.add_theme_font_override("font", DeepUi.caps_font())
 	return row

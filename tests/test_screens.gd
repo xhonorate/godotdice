@@ -20,7 +20,7 @@ func _init() -> void:
 	check(app.session != null and app.session.status == "local", "the app boots into a local session")
 	check(app.home.visible and not app.descent.visible, "the workshop is shown first")
 	await _player_name(app)
-	for tab in ["descend", "delvers", "vault", "market", "profile"]:
+	for tab in ["descend", "delvers", "vault", "market", "bestiary", "profile"]:
 		app.home.open(tab)
 		check(app.home._body.get_child_count() > 0, "the %s tab renders" % tab)
 	## The old tab names still land on the page that took their place.
@@ -38,10 +38,11 @@ func _init() -> void:
 	app.home.choose_character("ARDOR")
 	app.home._roster_view = "dossier"
 	app.home._roster_pick = ""
-	## The keyboard: 1 to 4 open the tabs, and Q and E change who goes down.
-	for index in range(4):
+	## The keyboard: 1 to 5 open the tabs, and Q and E change who goes down.
+	for index in range(app.home.TABS.size()):
 		_key(KEY_1 + index)
 		check(app.home.tab == str(app.home.TABS[index][0]), "key %d opens the %s tab (got %s)" % [index + 1, str(app.home.TABS[index][0]), app.home.tab])
+	await _bestiary(app)
 	app.home.open("descend")
 	_key(KEY_E)
 	check(app.profile.current_character == "VESPER", "E steps to the next delver (got %s)" % app.profile.current_character)
@@ -574,3 +575,41 @@ func _count_skips(node: Node, text: String) -> int:
 	for child in node.get_children():
 		count += _count_skips(child, text)
 	return count
+
+func _bestiary(app: Control) -> void:
+	## A creature met after a run waits marked new; picking it shows it and takes the mark off,
+	## and one not met is only a shadow with no name.
+	var BestiaryPage: Script = load("res://view/home/bestiary_page.gd")
+	## What a run brings home (merged as DeepProfile.apply_result does, without counting a run).
+	var first: Array = DeepBestiary.merge(app.profile, {"CAVE_TICK": {"met": 3, "slain": 3, "lost": 0, "mines": {"QUARRY": 4}},
+		"THE_FOREMAN": {"met": 1, "slain": 1, "lost": 0, "mines": {"QUARRY": 8}}})
+	check(first.size() == 2, "the creatures met for the first time are named")
+	app._profile_changed()
+	check(app.home.tab_pip("bestiary") == [2, app.home.PIP_NEW], "the Bestiary tab counts the new creatures (got %s)" % str(app.home.tab_pip("bestiary")))
+	app.home._bestiary_pick = ""
+	app.home.open("bestiary")
+	await _frames(3)
+	check(app.home._bestiary_pick in ["CAVE_TICK", "THE_FOREMAN"], "the bestiary opens at a new creature (got %s)" % app.home._bestiary_pick)
+	var list: Node = app.home.find_child("BestiaryList", true, false)
+	check(list != null and list.get_parent() is ScrollContainer and list.get_child_count() == DeepContent.mines_in_order().size(), "every mine is a band of one scrolling list")
+	check(list != null and list.find_child("Creature_THE_DRILL", true, false) != null and list.find_child("Creature_VOID_ECHO", true, false) != null,
+		"the list holds every mine's creatures, met or not")
+	var drawn: Node = list.find_child("Creature_CAVE_TICK", true, false) if list != null else null
+	BestiaryPage.call("pick", app.home, "THE_FOREMAN")
+	await _frames(2)
+	check(app.home._bestiary_pick == "THE_FOREMAN" and not bool(DeepBestiary.entry(app.profile, "THE_FOREMAN").get("fresh", false)), "picking a creature shows it and takes its new mark off")
+	check(drawn != null and is_instance_valid(drawn) and drawn.is_inside_tree(), "picking one leaves the list as it was, scrolled where it was")
+	check(_find_label(app.home, "The Foreman") != null and app.home.find_child("BestiaryLeaves", true, false) != null, "the picked creature is named, with its pages")
+	BestiaryPage.call("pick", app.home, "THE_DRILL")
+	await _frames(2)
+	check(_find_label(app.home, "The Drill") == null and _find_label(app.home, "???") != null, "a creature not met has no name")
+	app.home._bestiary_pick = ""
+
+func _find_label(node: Node, text: String) -> Label:
+	if node is Label and (node as Label).text == text and (node as Label).is_visible_in_tree():
+		return node
+	for child in node.get_children():
+		var found: Label = _find_label(child, text)
+		if found != null:
+			return found
+	return null

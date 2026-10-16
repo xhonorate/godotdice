@@ -12,6 +12,7 @@ extends Node
 ## which is drawn from the same outline the 3D stone is cut from.
 
 const GemView = preload("res://view/gems/gem_view.gd")
+const GeodeView = preload("res://view/gems/geode_view.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
@@ -205,6 +206,8 @@ class GemThumb extends Control:
 	var _hovering: bool = false
 	var _hover_time: float = 0.0
 	var _live: Control = null
+	## A Geode (a sealed stone with a recipe) is shown as the rock itself, still, in place of a photograph.
+	var _geode: Control = null
 	var _clock: float = 0.0
 	var _key: String = ""
 	var _hue: Color = Color.WHITE
@@ -246,6 +249,13 @@ class GemThumb extends Control:
 	func configure(new_stone: Dictionary) -> void:
 		stone = new_stone
 		var thumbs = load("res://view/gems/thumbs.gd")
+		if DeepStone.is_geode(stone):
+			_show_geode()
+			return
+		if _geode != null:
+			_geode.queue_free()
+			_geode = null
+			_key = ""
 		var key: String = thumbs.gem_key(stone)
 		if key == _key:
 			return
@@ -280,6 +290,26 @@ class GemThumb extends Control:
 		Motes.refresh(self, stone)
 		queue_redraw()
 
+	func _show_geode() -> void:
+		var recipe: Dictionary = stone.geode
+		var key: String = "geode|%s|%s" % [str(recipe.get("id", "")), str(recipe.get("theme", ""))]
+		if key == _key and _geode != null:
+			return
+		_key = key
+		_texture = null
+		_fade = 1.0
+		glint = false
+		_slotless = false
+		if _geode != null:
+			_geode.queue_free()
+		_geode = GeodeView.new(recipe, load("res://view/gems/geode.gd").theme_tone(recipe))
+		_geode.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_geode.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_geode.set("drifting", false)
+		add_child(_geode)
+		set_process(true)
+		queue_redraw()
+
 	func _arrived(texture: Texture2D, key: String) -> void:
 		if key != _key or not is_instance_valid(self):
 			return
@@ -288,6 +318,13 @@ class GemThumb extends Control:
 
 	func _process(delta: float) -> void:
 		_clock += delta
+		if _geode != null:
+			## The rock only leans to the pointer; there is no photograph to wait for.
+			var lean: float = move_toward(float(_geode.get("hover")), 1.0 if _hovering else 0.0, delta * 6.0)
+			_geode.set("hover", lean)
+			if not _hovering and lean <= 0.0:
+				set_process(false)
+			return
 		var busy := glint
 		if _texture != null and _fade < 1.0:
 			_fade = minf(1.0, _fade + delta * 4.0)
@@ -306,7 +343,7 @@ class GemThumb extends Control:
 			set_process(false)
 
 	func _start_live() -> void:
-		if DisplayServer.get_name() == "headless" or stone.is_empty():
+		if DisplayServer.get_name() == "headless" or stone.is_empty() or _geode != null:
 			return
 		var view: Control = GemView.new()
 		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -330,6 +367,8 @@ class GemThumb extends Control:
 		_live = null
 
 	func _draw() -> void:
+		if _geode != null:
+			return
 		var edge: float = minf(size.x, size.y)
 		var centre: Vector2 = size * 0.5
 		var lift: float = 1.0 + 0.07 * _hover

@@ -2,7 +2,7 @@ class_name DeepProfile
 extends RefCounted
 ## The player's own record: gold, the vault (one stone per skill), the bowl of dice, the
 ## characters they have unlocked, how each is loaded and how many sockets they have opened,
-## the day's commissions, and what they have done.
+## the day's commissions, the creatures they have met (DeepBestiary), and what they have done.
 ##
 ## Only stones, dice and gold cross from a run into a profile. Stones come only through the
 ## tray on the Appraise tab: every stone that comes home waits there until the player keeps it
@@ -18,7 +18,7 @@ static func new_profile(name: String = DEFAULT_NAME) -> Dictionary:
 	var profile: Dictionary = {"schema": SCHEMA, "id": "pf%08x" % randi(), "name": name, "gold": 0, "vault": {}, "seen": [],
 		"bowl": [], "characters": {}, "current_character": DeepContent.starter_character(), "mines": {}, "tray": [],
 		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "commissions": 0, "best": {}}, "history": [], "next_id": 1,
-		"daily": {}, "weekly": {}, "favorites": [], "outfit": {"insure": false}, "conquest_paid": [], "charged_run": ""}
+		"daily": {}, "weekly": {}, "favorites": [], "outfit": {"insure": false}, "conquest_paid": [], "charged_run": "", "bestiary": {}}
 	for key in DeepContent.section("characters"):
 		var character: Dictionary = DeepContent.character(str(key))
 		var unlocked: bool = bool(character.get("starter", false))
@@ -54,7 +54,7 @@ static func upgrade(profile: Dictionary) -> bool:
 			profile.favorites = profile.wanted
 		profile.erase("wanted")
 		changed = true
-	for field in [["daily", {}], ["weekly", {}], ["favorites", []], ["outfit", {"insure": false}], ["conquest_paid", []], ["charged_run", ""]]:
+	for field in [["daily", {}], ["weekly", {}], ["favorites", []], ["outfit", {"insure": false}], ["conquest_paid", []], ["charged_run", ""], ["bestiary", {}]]:
 		if not profile.has(field[0]):
 			profile[field[0]] = field[1].duplicate() if field[1] is Dictionary or field[1] is Array else field[1]
 			changed = true
@@ -435,7 +435,8 @@ static func appraisal_fee(stone: Dictionary) -> int:
 		int(round(float(DeepStone.rough_value(stone)) * float(DeepContent.constant("appraise_gold_mult", 2.0)))))
 
 static func appraise(profile: Dictionary, stone: Dictionary) -> bool:
-	## Puts a tray stone under the loupe for gold. False if the purse is short.
+	## Puts a tray stone under the loupe for gold (a Geode is cracked open for the same fee).
+	## False if the purse is short.
 	if bool(stone.get("appraised", false)):
 		return false
 	var fee: int = appraisal_fee(stone)
@@ -444,6 +445,12 @@ static func appraise(profile: Dictionary, stone: Dictionary) -> bool:
 	profile.gold = int(profile.gold) - fee
 	stone.appraised = true
 	stone.inclusions_revealed = true
+	## Cracking a Geode brought up from a mine: the rock comes away and the stone inside is an
+	## ordinary one from here on. The caller keeps the recipe if it wants to show the crack.
+	if DeepStone.is_geode(stone):
+		stone.erase("geode")
+		if profile.has("records"):
+			profile.records.geodes = int(profile.records.get("geodes", 0)) + 1
 	saw(profile, str(stone.get("skill", "")))
 	if DeepStone.is_fragile(stone):
 		shatter(profile, stone)
@@ -661,17 +668,9 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 			if not DeepPatch.holds(mine_record.wardens, int(depth)):
 				mine_record.wardens.append(int(depth))
 		if bool(entry.get("boss", false)):
-			mine_record.boss = true
-			var opened: String = _open_next_in(records, key)
-			if not opened.is_empty():
-				unlocked.append({"mine": opened, "hazard": tier} if tier > 0 else {"mine": opened})
-				if DeepContent.is_endless(opened):
-					var raised: int = _raise_hazard(profile, tier)
-					if raised > 0:
-						unlocked.append({"tier": raised})
-			var lapidary: String = str(DeepContent.mine(str(DeepContent.mine(key).get("next", ""))).get("lapidary", ""))
-			if not lapidary.is_empty() and unlock_character(profile, lapidary):
-				unlocked.append({"character": lapidary})
+			## Granted already the moment the boss fell (view/app.gd), unless this lapidary
+			## was not there to see it; whatever is still new is new now.
+			unlocked.append_array(grant_conquest(profile, key, tier))
 			## The first conquest of a mine pays a purse, once, whether the party rode up with
 			## the news or carried it further down.
 			if not profile.get("conquest_paid", []).has(key):
@@ -692,6 +691,8 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 			"fallen": profile.records.falls = int(profile.records.falls) + 1
 	else:
 		profile.records.dailies = int(profile.records.get("dailies", 0)) + 1
+	## Every creature the party met goes in the bestiary, the day's seam's as much as any.
+	var first_met: Array = DeepBestiary.merge(profile, result.get("bestiary", {}))
 	var mine_result: Dictionary = result.get("players", {}).get(player_id, {})
 	var scored: Dictionary = {}
 	if not daily.is_empty():
@@ -756,7 +757,32 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	## commission is the player's to say. Anything on the tray already known to be fragile
 	## (an older save's) breaks now.
 	clear_shattered(profile)
-	return {"tray": brought, "unlocked": unlocked, "kept": [], "shattered": shattered, "purses": purses, "vault_spent": spent, "daily": dug}
+	return {"tray": brought, "unlocked": unlocked, "kept": [], "shattered": shattered, "purses": purses, "vault_spent": spent, "daily": dug, "first_met": first_met}
+
+static func grant_conquest(profile: Dictionary, mine_key: String, tier: int) -> Array:
+	## A mine's final boss is dead: the mine below opens on this tier, the Rift's opening
+	## raises the Hazard ladder, and the mine below's lapidary comes to the workshop. All of it
+	## holds whether or not the party lives to ride up, so it is granted the moment the boss
+	## falls, and again (finding it done) when the run comes home. Returns what was new:
+	## {mine, hazard?}, {tier}, {character}, as apply_result reports them.
+	tier = clampi(tier, 0, DeepContent.hazard_max())
+	var records: Dictionary = mine_records(profile, tier)
+	if not records.has(mine_key):
+		records[mine_key] = new_mine_record(mine_key)
+	records[mine_key].unlocked = true
+	records[mine_key].boss = true
+	var unlocked: Array = []
+	var opened: String = _open_next_in(records, mine_key)
+	if not opened.is_empty():
+		unlocked.append({"mine": opened, "hazard": tier} if tier > 0 else {"mine": opened})
+		if DeepContent.is_endless(opened):
+			var raised: int = _raise_hazard(profile, tier)
+			if raised > 0:
+				unlocked.append({"tier": raised})
+	var lapidary: String = str(DeepContent.mine(str(DeepContent.mine(mine_key).get("next", ""))).get("lapidary", ""))
+	if not lapidary.is_empty() and unlock_character(profile, lapidary):
+		unlocked.append({"character": lapidary})
+	return unlocked
 
 static func decide_tray(profile: Dictionary, stone_id: String, keep_it: bool) -> Dictionary:
 	for index in range(profile.tray.size()):

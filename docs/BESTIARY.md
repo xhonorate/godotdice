@@ -178,6 +178,18 @@ Warden (floors 40, 80, 120…) is the Infinite Void instead (its content key is 
   faceless, horned shadow holding its scale) were redesigned as the owner asked, none of them
   human-shaped. `tools/creature_sheet.gd` photographs any set of them to one contact sheet. See
   `docs/CREATURE_SCENES.md`.
+- **The Bestiary tab** (October 15, 2026) is the player's own record of all this. A run notes
+  every creature the party meets (`DeepBestiary.met` as a fight opens, `settled` as it ends:
+  called-in creatures met, the fallen slain, a lost fight counted once against each kind still
+  standing) in `state.bestiary`, and `DeepProfile.apply_result` adds it to the profile's
+  `bestiary` (met, slain, fights lost, the mines it was met in and how deep, the day first
+  met, and a "new" mark until it is looked at). The tab files every creature under the
+  shallowest mine it turns up in (`DeepBestiary.in_mine`) and shows them all on one scrolling
+  list banded like the map's strata (each mine's rock, its numeral, the shaft lit where it is
+  open and locked where it is sealed), as baked portraits (unmet ones as shadows), with the
+  picked one live on its plinth with its field notes (where it
+  lives, read from the bands, Warden depths, bosses, escorts and summons) and its moves.
+  Records start from the first run after it shipped; nothing was backfilled.
 
 ## 5. Readings where a note left a rule open
 

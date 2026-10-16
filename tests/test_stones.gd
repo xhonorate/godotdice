@@ -392,8 +392,7 @@ func _test_oddities() -> void:
 	check(int(player.haul[0].carat) >= 4 and int(player.haul[0].carat) <= 4 + int(3 * 30 / 100), "and it weighs the heavier stone plus a share of the lighter: %d" % int(player.haul[0].carat))
 	check(str(player.haul[0].skill) in ["STRIKE", "GUARD"], "its skill is one of the two")
 	_test_fuse(rng, ctx)
-	var geode: Dictionary = DeepOddities.apply({"kind": "geode", "three": 100, "one": 0}, player, {}, rng, ctx)
-	check(geode.ok and geode.made.size() == 3 and player.haul.size() == 4, "a geode can give three stones")
+	_test_geode_offer(player, rng, mine, ctx)
 	_test_workshop_oddities(rng, ctx)
 	check(DeepOddities.apply({"kind": "heal", "pct": 25}, player, {}, rng, ctx).ok and player.hp == 60, "the medic heals a quarter")
 	var before: int = player.haul.size()
@@ -416,6 +415,28 @@ func _test_oddities() -> void:
 	check(shrine.ok and player.run_mods.shrine == "pair", "the shrine remembers a pattern")
 	check(DeepOddities.validate(DeepContent.oddity("CUTTERS_WHEEL")).is_empty(), "the wheel validates")
 	check(not DeepOddities.validate({"name": "x", "choices": [ {"id": "a", "action": {"kind": "explode"}}, {"id": "b", "action": {"kind": "none"}}]}).is_empty(), "an unknown action is refused")
+
+func _test_geode_offer(player: Dictionary, rng: RandomNumberGenerator, mine: Dictionary, ctx: Dictionary) -> void:
+	## The Geode in a chamber is for sale, sealed: it goes into the haul and nothing down here can open it.
+	var sale: Dictionary = DeepOddities.offer_for(DeepContent.oddity("GEODE"), rng, mine, 6, "r1")
+	var held: Dictionary = sale.get("stone", {})
+	check(DeepStone.is_geode(held) and not bool(held.get("appraised", true)) and int(sale.get("price", 0)) > 0, "a chamber's Geode is a sealed stone with a price in pyrite")
+	check(DeepStone.raw_name(held).ends_with("Geode") and DeepStone.color(held) != "", "it is named for its kind and gives away nothing of what is inside")
+	var buy: Dictionary = {"kind": "geode_buy"}
+	var here: Dictionary = ctx.duplicate()
+	here.offer = sale
+	player.ore = int(sale.price) - 1
+	var haul_before: int = player.haul.size()
+	check(not DeepOddities.apply(buy, player, {}, rng, here).ok and player.haul.size() == haul_before, "too little pyrite buys nothing")
+	player.ore = int(sale.price)
+	var got: Dictionary = DeepOddities.apply(buy, player, {}, rng, here)
+	check(got.ok and player.ore == 0 and player.haul.size() == haul_before + 1 and DeepStone.is_geode(player.haul.back()), "the pyrite is paid and the Geode is in the haul")
+	var id: String = str(player.haul.back().id)
+	check(DeepOddities.find_stone(player, id).is_empty(), "no oddity can find it to work on")
+	check(not DeepOddities.apply({"kind": "appraise"}, player, {"stone_id": id}, rng, ctx).ok, "the loupe will not take it")
+	check(not DeepOddities.apply({"kind": "collector_sell", "mult": 2}, player, {"stone_id": id}, rng, ctx).ok, "and the Collector will not buy it")
+	check(DeepStone.haul_tab(player.haul.back()) == "geodes" and DeepStone.haul_tab({"appraised": true}) == "gems" and DeepStone.haul_tab({}) == "raw", "the haul sorts it into its own tab")
+	DeepOddities.remove_stone(player, id)
 
 func _test_fuse(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	## Two colors in means the colour that lost comes out frozen in as a Zoning, so a fused

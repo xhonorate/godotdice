@@ -8,6 +8,10 @@ extends RefCounted
 ##
 ## The same bench, without the hold on the workshop, is the vault's Unappraised view: stones
 ## left waiting on the tray (from a Geode or a contract) are decided there.
+##
+## A Geode brought up from a mine sits on the tray sealed. Where a raw stone is read under the
+## loupe, it is cracked open, for the same fee, in the Geode's three-blow ceremony; the stone
+## inside is then an ordinary one, decided like the rest. Or it is sold unopened.
 
 const StoneCard = preload("res://view/gems/stone_card.gd")
 const HomeParts = preload("res://view/home/home_parts.gd")
@@ -15,6 +19,7 @@ const GemView = preload("res://view/gems/gem_view.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
 const Appraisal = preload("res://view/gems/appraisal.gd")
 const Roster = preload("res://view/home/roster.gd")
+const Geode = preload("res://view/gems/geode.gd")
 
 ## How many tray stones the left column lists a page.
 const TRAY_PAGE: int = 8
@@ -66,6 +71,8 @@ static func bench(home: Control, content: VBoxContainer, holding: bool) -> void:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	if known:
 		_read_stone(home, box, pick, owned)
+	elif DeepStone.is_geode(pick):
+		_geode_stone(home, box, pick)
 	else:
 		_raw_stone(home, box, pick)
 	home.enter(middle, 0.05)
@@ -100,7 +107,7 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 		var words := DeepUi.vbox(row, 0)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.label(words, DeepUi.skill_name(stone) if known else DeepStone.raw_name(stone), 13, DeepUi.PAPER if known else DeepUi.MUTED)
-		var state: String = "new skill" if fresh_skill else ("read" if known else "unread")
+		var state: String = "new skill" if fresh_skill else ("read" if known else ("sealed" if DeepStone.is_geode(stone) else "unread"))
 		DeepUi.label(words, state, 11, StoneCard.PIP_NEW if fresh_skill else DeepUi.DIM)
 		if not DeepEconomy.commission_for(home.profile, stone).is_empty():
 			DeepUi.icon(row, "flag", 15, DeepUi.GOOD, "A commission wants this stone")
@@ -111,11 +118,13 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 				home._render())
 	DeepUi.spacer(box, false)
 	var raw: Array = tray.filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
-	if raw.size() > 1:
+	## A Geode is cracked on its own, one at a time, for the ceremony: "read the rest" leaves it.
+	var readable: Array = raw.filter(func(s: Dictionary) -> bool: return not DeepStone.is_geode(s))
+	if readable.size() > 1:
 		var fee: int = 0
-		for stone in raw:
+		for stone in readable:
 			fee += DeepProfile.appraisal_fee(stone)
-		var all := DeepUi.priced(DeepUi.icon_button(box, "loupe", "Read the rest", func() -> void: _read_all(home, raw), 13, DeepUi.INFO), str(fee))
+		var all := DeepUi.priced(DeepUi.icon_button(box, "loupe", "Read the rest", func() -> void: _read_all(home, readable), 13, DeepUi.INFO), str(fee))
 		all.disabled = int(home.profile.get("gold", 0)) < fee
 		all.tooltip_text = "Every unread stone, read at once." if not all.disabled else "You have %d gold. Reading the rest costs %d." % [int(home.profile.get("gold", 0)), fee]
 	var cheapest: int = 1 << 30
@@ -131,7 +140,7 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 			home._appraise_pick = ""
 			home.profile_changed.emit(), 13, DeepUi.TRADE)
 		DeepUi.priced(sell, "+%d" % rough)
-		sell.tooltip_text = "You cannot pay to read them. A buyer pays for their size and color; you never learn what they were."
+		sell.tooltip_text = "You cannot pay to read them. A buyer pays for their size and color (a Geode, for the kind it is); you never learn what they were."
 	var since: int = int(home.profile.get("gold", 0)) - int(home.get_meta("came_with", int(home.profile.get("gold", 0))))
 	var tally := DeepUi.hbox(box, 6)
 	DeepUi.label(tally, "Gold since you came up", 12, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -187,6 +196,70 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 	off.custom_minimum_size = Vector2(200, 50)
 	off.tooltip_text = "Sells for what its color and size are worth. You never find out what it was."
 	DeepUi.voice(off, "sell")
+
+static func _geode_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> void:
+	## A sealed Geode on the bench: the rock itself, turned by hand, and the two things to do
+	## with it. Cracking it costs what reading a stone of its size would; the stone inside is
+	## rolled already and nothing the bench does can change it.
+	var geode: Dictionary = pick.geode
+	var tone: Color = Geode.theme_tone(geode)
+	var art := Geode.Art.new(geode, tone)
+	art.custom_minimum_size = Vector2(300, 220)
+	art.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(art)
+	art.enable_interaction()
+	DeepUi.title(box, Geode.geode_name(geode), 26, tone.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(box, Geode.geode_line(geode), 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var odds: Dictionary = DeepEconomy.geode_odds(geode)
+	var carats: Array = odds.get("carat", [1, 1])
+	var facts := DeepUi.hbox(box, 8)
+	facts.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.pill(facts, "carat", "%d to %d ct inside" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 13, "Every stone in this kind of Geode weighs this much.")
+	DeepUi.pill(facts, "lock", "Sealed", DeepUi.MUTED, 13, "Brought up from the mine unopened.")
+	var line := DeepUi.label(box, "Brought up sealed. Its stone is better than the rock gives. Crack it open to see what is inside, or sell it as it is.", 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	line.name = "Line"
+	var fee: int = DeepProfile.appraisal_fee(pick)
+	var rough: int = DeepStone.rough_value(pick)
+	var purse: int = int(home.profile.get("gold", 0))
+	var choices := DeepUi.hbox(box, 14)
+	choices.alignment = BoxContainer.ALIGNMENT_CENTER
+	var crack := DeepUi.primary(choices, "hammer", "Crack it open", func() -> void: _crack(home, pick), 18, DeepUi.INFO)
+	DeepUi.priced(crack, str(fee), 16)
+	crack.custom_minimum_size = Vector2(230, 50)
+	crack.disabled = purse < fee
+	DeepUi.voice(crack, "geode_crack")
+	if purse < fee:
+		crack.tooltip_text = "You have %d gold. Cracking this one costs %d." % [purse, fee]
+		DeepUi.label(box, "You can't pay to crack it. Sell it unopened to clear the tray.", 13, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
+	else:
+		DeepUi.breathe(crack, 0.8, 1.6)
+		crack.mouse_entered.connect(func() -> void:
+			art.create_tween().tween_property(art, "hover", 1.0, 0.2))
+		crack.mouse_exited.connect(func() -> void: art.create_tween().tween_property(art, "hover", 0.0, 0.3))
+	var off := DeepUi.icon_button(choices, "scales", "Sell unopened", func() -> void:
+		DeepProfile.decide_tray(home.profile, str(pick.id), false)
+		home._appraise_pick = ""
+		home.profile_changed.emit(), 16, DeepUi.TRADE)
+	DeepUi.priced(off, "+%d" % rough, 14)
+	off.custom_minimum_size = Vector2(200, 50)
+	off.tooltip_text = "A buyer pays for the kind of Geode it is. You never find out what was inside."
+	DeepUi.voice(off, "sell")
+
+static func _crack(home: Control, pick: Dictionary) -> void:
+	## Pays the fee and cracks it. The stone is read and ordinary before the first blow, so the
+	## ceremony is only the showing: quitting half-way loses nothing, and the choice at its end
+	## is made on the spot or left for the tray.
+	var recipe: Dictionary = pick.geode.duplicate(true)
+	if not DeepProfile.appraise(home.profile, pick):
+		return
+	home.touch()
+	var made: Dictionary = pick
+	var list: Array = actions(home, made)
+	list.append({"label": "Decide later", "glyph": "chest", "primary": false, "dismiss": true, "caption": "It waits on the tray",
+		"call": func() -> void: home.profile_changed.emit()})
+	Geode.open(recipe, made, {"actions": list, "owned": DeepProfile.owned(home.profile, str(made.get("skill", "")))}, func() -> void: home.profile_changed.emit())
+	if DeepUi.headless():
+		home.profile_changed.emit()
 
 static func _known(raw: Dictionary) -> Dictionary:
 	var known: Dictionary = raw.duplicate(true)

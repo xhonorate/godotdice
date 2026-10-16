@@ -212,17 +212,7 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 # --- what the shelf and this page say about a Geode ---------------------------------------------------
 
 static func geode_name(shelf_geode: Dictionary) -> String:
-	var theme: String = str(shelf_geode.get("theme", ""))
-	match str(shelf_geode.get("kind", "mine")):
-		"color":
-			return "%s Geode" % str(DeepContent.color(theme).get("name", theme.capitalize()))
-		"featured":
-			var found: Dictionary = {}
-			for entry in DeepEconomy.featured_sets():
-				if str(entry.get("key", "")) == theme:
-					found = entry
-			return str(found.get("name", "The week's Geode"))
-	return "%s Geode" % DeepContent.mine_name(theme).trim_prefix("The ")
+	return DeepEconomy.geode_name(shelf_geode)
 
 static func geode_line(shelf_geode: Dictionary) -> String:
 	## One line under a Geode's name: where its stone comes from.

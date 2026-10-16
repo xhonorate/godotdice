@@ -1164,7 +1164,8 @@ func seal(animated: bool = true) -> void:
 	if _headless or not has_room() or not _falls.is_empty():
 		return
 	## Checked before it is typed: a freed node cannot even be assigned to a typed variable.
-	var kept: Variant = room.get_meta("seal", null)
+	## (has_meta first: a null default counts as none, and get_meta errors when it is missing.)
+	var kept: Variant = room.get_meta("seal") if room.has_meta("seal") else null
 	var fall: Node3D = kept if kept != null and is_instance_valid(kept) else _cut_seal(room, room_seed(place))
 	room.remove_meta("seal")
 	if animated:
@@ -1727,6 +1728,8 @@ func announce(stone: Dictionary, finder: String = "", across: float = 0.5) -> vo
 		return
 	var read: bool = bool(stone.get("appraised", false))
 	var tint: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if read else GemMesh.tint(stone)
+	if DeepStone.is_geode(stone):
+		tint = load("res://view/gems/geode.gd").theme_tone(stone.geode)
 	var banner := PanelContainer.new()
 	banner.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.03, 0.035, 0.05, 0.82), Color(tint, 0.85), 14, 12, 0.6))
 	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1954,6 +1957,35 @@ func warm_up() -> void:
 	eye.look_at_from_position(below + HOME, below + HOME_LOOK, Vector3.UP)
 	for _i in range(4):
 		await get_tree().process_frame
+	## The real view once as well, aimed at the same room: its own buffers, at its own size,
+	## and the passes laid over it (the look, the screen's effects) were otherwise all made
+	## in the first frame of the first run, two frames of 60-odd ms under the lift.
+	if is_instance_valid(camera) and not is_visible_in_tree():
+		var was_home: Vector3 = camera.home_position
+		var was_look: Vector3 = camera.home_look
+		camera.home_position = below + HOME
+		camera.home_look = below + HOME_LOOK
+		camera.reset()
+		var was_env: Environment = camera.environment
+		camera.environment = sample.environment()
+		## Hidden, the frame has not been laid out and the view is a pixel or two across, which
+		## no glow or blur can be made for: it is drawn at the size it will be shown at.
+		var stretched: bool = frame.stretch
+		if viewport.size.x < 64 or viewport.size.y < 64:
+			frame.stretch = false
+			viewport.size = Vector2i(get_viewport().get_visible_rect().size)
+		viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		for _i in range(2):
+			await get_tree().process_frame
+		## Back to following its frame, which sizes it properly when it is shown.
+		frame.stretch = stretched
+		if is_instance_valid(camera):
+			camera.environment = was_env
+			camera.home_position = was_home
+			camera.home_look = was_look
+			camera.reset()
+		if not is_visible_in_tree():
+			viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	view.queue_free()
 	spare.queue_free()
 	creature.queue_free()
@@ -1981,6 +2013,25 @@ func _sample_goods(parent: Node3D, biome: Dictionary) -> void:
 	pile.position = Chamber.ARENA + Vector3(-3.0, 0, -1.0)
 	parent.add_child(pile)
 	pile.build(biome, rough + samples.slice(0, 2), 29)
+	## The other rooms' fittings: with a cold shader cache the first altar stopped the walk
+	## to it for a third of a second, the first well for a quarter, a shrine's mark for 70 ms.
+	var altar_piece: Node3D = Altar.new()
+	altar_piece.position = Chamber.ARENA + Vector3(3.0, 0, -1.0)
+	parent.add_child(altar_piece)
+	altar_piece.build(31, Color(biome.rock))
+	altar_piece.set_gem(0, samples[1])
+	var well_piece: Node3D = WishingWell.new()
+	well_piece.position = Chamber.ARENA + Vector3(0, 0, -3.0)
+	well_piece.build(53, DeepUi.INFO)
+	well_piece.rest_light(1.1)
+	parent.add_child(well_piece)
+	var mark := Sprite3D.new()
+	mark.texture = GemIcons.texture("question", 128)
+	mark.pixel_size = 1.1 / float(mark.texture.get_width())
+	mark.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+	mark.shaded = false
+	mark.position = Chamber.ARENA + Vector3(0, 2.2, -1.2)
+	parent.add_child(mark)
 
 func _warm_in_view() -> void:
 	## The hidden view in `warm_up` is not quite the real one (its size, its effects, its lamps),

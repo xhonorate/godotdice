@@ -25,7 +25,8 @@ const GAP: float = 0.035
 ## Sounds that carry a tune are never detuned; everything else gets a little life.
 const TUNED: PackedStringArray = ["unlock", "victory", "defeat", "landing", "reveal", "star", "gleam",
 	"grade_rough", "grade_fine", "grade_precious", "grade_exquisite", "grade_peerless",
-	"heal", "harmony", "turn_begin", "resonance", "jackpot", "contract_seal"]
+	"heal", "harmony", "turn_begin", "resonance", "jackpot", "contract_seal", "tally_tick", "tally_mult", "tally_fuse",
+	"tick_red", "tick_blue", "tick_green", "tick_violet", "tick_gold", "tick_white"]
 const VARIATION: float = 0.035
 ## The sounds of a control being pressed. A click that rebuilds a bar of buttons puts a new
 ## one under the pointer, and its hover is not news: it is not played this soon after a press.
@@ -35,6 +36,8 @@ const HOVER_AFTER_PRESS: float = 0.35
 static var _service: DeepAudio = null
 static var _master: float = 0.8
 static var _level: float = 0.85
+## Rumble, off the settings page: a gamepad (or a phone) shaken along with what is heard.
+static var _rumble: bool = true
 
 var _flat: Array = []
 var _placed: Array = []
@@ -72,6 +75,8 @@ static func levels(settings: Dictionary) -> void:
 		_master = clampf(float(settings.master_volume), 0.0, 1.0)
 	if settings.has("sfx_volume"):
 		_level = clampf(float(settings.sfx_volume), 0.0, 1.0)
+	if settings.has("rumble"):
+		_rumble = bool(settings.rumble)
 	if headless():
 		return
 	var bus: int = AudioServer.get_bus_index(BUS)
@@ -99,6 +104,22 @@ static func from(control: Control, sound: String, opts: Dictionary = {}) -> void
 		play(sound, opts)
 		return
 	play_at(control.global_position + control.size * 0.5, sound, opts)
+
+static func rumble(weak: float, strong: float = 0.0, seconds: float = 0.05) -> void:
+	## A shake to go with a sound: `weak` is the small, quick motor (a tick, a die landing),
+	## `strong` the heavy one (a multiplier laid on, a blow). Every connected gamepad takes it,
+	## and a phone or tablet playing the web build buzzes for it; a desk with no pad does
+	## nothing. Short and light on purpose: it is felt under the sound, not over it.
+	if not _rumble or headless():
+		return
+	weak = clampf(weak, 0.0, 1.0)
+	strong = clampf(strong, 0.0, 1.0)
+	if weak <= 0.0 and strong <= 0.0:
+		return
+	for pad in Input.get_connected_joypads():
+		Input.start_joy_vibration(pad, weak, strong, seconds)
+	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
+		Input.vibrate_handheld(maxi(10, int(seconds * 1000.0)), maxf(weak, strong))
 
 static func reveal_stone(stone: Dictionary) -> void:
 	## The ceremony, in sound, wherever a stone is first known: the light falling on it, its

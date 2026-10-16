@@ -11,13 +11,13 @@ extends RefCounted
 ## from the oddities RNG stream. Besides the stones it made and the ids it took, a result
 ## names the stones it changed and the dice it made or changed, so a screen can show them.
 
-const ACTIONS: Array = ["none", "reroll_cut", "reroll_clarity", "push_clarity", "remove_inclusion", "fuse", "geode", "etch", "pattern", "material", "reset",
+const ACTIONS: Array = ["none", "reroll_cut", "reroll_clarity", "push_clarity", "remove_inclusion", "fuse", "geode_buy", "etch", "pattern", "material", "reset",
 	"trade_up", "shrine", "idol", "echo_stone", "collector_sell", "collector_buy", "heal", "ore",
 	"appraise", "acid_appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "lower_face", "pry", "chips", "wishing_well"]
 const SIZES: Array = DeepDice.TIERS
 ## Actions the room has to lay something out before anybody chooses: the Collector's case is
 ## rolled when the chamber opens, and the Idol's grip is rolled the first time it is pulled.
-const OFFERS: Array = ["collector_buy", "pattern", "etch", "material"]
+const OFFERS: Array = ["collector_buy", "geode_buy", "pattern", "etch", "material"]
 
 static func validate(def: Variant) -> Array:
 	if not def is Dictionary:
@@ -47,7 +47,8 @@ static func find_stone(player: Dictionary, stone_id: String) -> Dictionary:
 	## A stone anywhere the player has it: the bag, a socket, or riding one.
 	for stone in player.get("haul", []):
 		if str(stone.get("id", "")) == stone_id:
-			return stone
+			## A Geode is only carried: nothing down here can be done to one, so none is found.
+			return stone if not DeepStone.is_geode(stone) else {}
 	for stone in DeepStone.rail_stones(player):
 		if str(stone.get("id", "")) == stone_id:
 			return stone
@@ -267,23 +268,22 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			player.haul.append(like)
 			out.made.append(like)
 			out.message = "A raw stone with the same skill forms in the wall. It goes into your haul."
-		"geode":
-			var roll: float = rng.randf() * 100.0
-			var three: float = float(action.get("three", 45))
-			var one: float = float(action.get("one", 35))
-			if roll < three:
-				for _i in range(3):
-					var small: Dictionary = DeepForge.roll_stone(rng, mine, depth, -2, {"run": ctx.get("run", ""), "source": "geode"})
-					player.haul.append(small)
-					out.made.append(small)
-				out.message = "The geode splits into three small stones."
-			elif roll < three + one:
-				var big: Dictionary = DeepForge.roll_stone(rng, mine, depth, 6, {"run": ctx.get("run", ""), "source": "geode"})
-				player.haul.append(big)
-				out.made.append(big)
-				out.message = "One heavy stone rolls out of the geode."
-			else:
-				out.message = "Dust. The geode was hollow."
+		"geode_buy":
+			## One Geode, rolled when the room opened so the price on the card is the price paid.
+			## It goes into the haul sealed: only the workshop can crack it.
+			var offer: Dictionary = ctx.get("offer", {})
+			if offer.is_empty() or not offer.has("stone"):
+				return _refuse("there is no Geode here")
+			var price: int = int(offer.get("price", 0))
+			if int(player.get("ore", 0)) < price:
+				return _refuse("you have not the pyrite for it")
+			player.ore = int(player.ore) - price
+			var bought: Dictionary = (offer.stone as Dictionary).duplicate(true)
+			bought.provenance.finder = str(player.get("id", ""))
+			player.haul.append(bought)
+			out.made.append(bought)
+			out.bought = true
+			out.message = "You pay %d pyrite for the %s. It goes into your haul, sealed: only the workshop can crack it." % [price, DeepStone.raw_name(bought)]
 		"etch":
 			## The needles are set for one etching a night, and a chosen face always takes it.
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
@@ -593,6 +593,9 @@ static func offer_for(def: Dictionary, rng: RandomNumberGenerator, mine: Diction
 					return {"etching": DeepForge.roll_etching(rng)}
 				"material":
 					return {"material": DeepForge.roll_material(rng)}
+		if kind == "geode_buy":
+			var found: Dictionary = DeepEconomy.roll_run_geode(rng, str(mine.get("key", "")), {"run": run}, "ge%08x" % rng.randi())
+			return {"stone": found, "price": DeepEconomy.run_geode_price(found.geode)}
 		if kind != "collector_buy":
 			continue
 		var stone: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", 4)),

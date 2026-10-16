@@ -517,6 +517,53 @@ static func geode_price(geode: Dictionary) -> int:
 	var floor_price: int = int(DeepContent.mine(str(geode.get("mine", ""))).get("geode_gold", 0))
 	return maxi(floor_price, int(ceil(worth / 10.0)) * 10)
 
+## --- Geodes found down a mine ---------------------------------------------------------------
+##
+## A Warden's last hoard and the odd Geode in a chamber put one in the haul: a stone still
+## sealed in its rock, carrying the recipe of the Geode it is in (`geode`, see
+## `DeepStone.is_geode`). It is worth more than a stone of the rock but cannot be read, set or
+## put to work down there; it comes home and is cracked at the tray (`DeepProfile.appraise`).
+
+static func geode_name(geode: Dictionary) -> String:
+	var theme: String = str(geode.get("theme", ""))
+	match str(geode.get("kind", "mine")):
+		"color":
+			return "%s Geode" % str(DeepContent.color(theme).get("name", theme.capitalize()))
+		"featured":
+			for entry in featured_sets():
+				if str(entry.get("key", "")) == theme:
+					return str(entry.get("name", "The week's Geode"))
+			return "The week's Geode"
+	return "%s Geode" % DeepContent.mine_name(theme).trim_prefix("The ")
+
+static func roll_run_geode(rng: RandomNumberGenerator, mine_key: String, provenance: Dictionary, stone_id: String) -> Dictionary:
+	## A Geode from the mine the party is in, as a stone for the haul: the rock's own, or one
+	## color of it, the way a day's Geode on the Market is. What is inside is rolled now and
+	## stays sealed until the workshop.
+	var geode: Dictionary
+	if rng.randi_range(0, 1) == 0:
+		geode = {"kind": "mine", "theme": mine_key, "mine": mine_key}
+	else:
+		geode = {"kind": "color", "theme": str(DeepContent.color_KEYS[rng.randi_range(0, DeepContent.color_KEYS.size() - 1)]), "mine": mine_key}
+	geode.id = stone_id
+	var stone: Dictionary = roll_geode_stone(rng, geode, stone_id)
+	stone.provenance.merge(provenance, true)
+	stone.appraised = false
+	stone.inclusions_revealed = false
+	stone.geode = geode
+	return stone
+
+static func geode_rough(stone: Dictionary) -> int:
+	## What a buyer gives for a Geode nobody has cracked: a share of what the stones in this
+	## kind of Geode fetch on average, the same however heavy this one's stone is.
+	var worth: float = float(geode_odds(stone.get("geode", {})).get("worth", 0.0))
+	return maxi(6, int(round(worth * float(DeepContent.constant("geode_rough_share", 0.3)))))
+
+static func run_geode_price(geode: Dictionary) -> int:
+	## What a Geode in a chamber costs in pyrite: its price on the Market's shelf, in the
+	## currency of the mine.
+	return maxi(10, int(ceil(float(geode_price(geode)) * float(DeepContent.constant("geode_run_price_mult", 1.0)) / 10.0)) * 10)
+
 static func _roll_daily_geode(profile: Dictionary, date: String, salt: int) -> Array:
 	## Today's Geode: one open mine's rock or one color from the deepest open mine, whichever
 	## the day picks. The same however often the game is opened; a restock (`salt`) rolls anew.

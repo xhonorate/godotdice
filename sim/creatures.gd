@@ -332,14 +332,21 @@ static func resolved_move(enemy: Dictionary, state: Dictionary, move: Dictionary
 	for effect in effects:
 		if str(effect.target) == "hero":
 			effect.target = "heroes"
+		## Each blow keeps the pieces of its number (what it was before anything was added on,
+		## the weight it was given, what went on top), so the screen can count it out.
 		if str(effect.kind) == "damage" and bool(effect.get("flat", false)):
+			effect.scaled = int(effect.amount)
+			effect.adds = [["strength", strength(enemy)]]
 			effect.amount = int(effect.amount) + strength(enemy)
 		elif str(effect.kind) == "damage":
 			var pct: int = damage_pct(enemy)
+			effect.depth_pct = pct
 			if int(enemy.get("empowered", 0)) > 0:
 				pct = pct * (100 + int(enemy.empowered)) / 100
 				effect.empowered = int(enemy.empowered)
-			effect.amount = DeepRules.amount({"op": "pct", "args": [int(effect.amount), pct]}, {}) + int(enemy.get("damage_bonus", 0)) + int(enemy.get("rally_bonus", 0)) + strength(enemy)
+			effect.scaled = DeepRules.amount({"op": "pct", "args": [int(effect.amount), pct]}, {})
+			effect.adds = [["bonus", int(enemy.get("damage_bonus", 0))], ["rally", int(enemy.get("rally_bonus", 0))], ["strength", strength(enemy)]]
+			effect.amount = int(effect.scaled) + int(enemy.get("damage_bonus", 0)) + int(enemy.get("rally_bonus", 0)) + strength(enemy)
 		if str(effect.kind) == "charge":
 			## What the charge lets go is written down now, in this action's words, so a
 			## different phase or a smaller party later cannot change what was promised. A

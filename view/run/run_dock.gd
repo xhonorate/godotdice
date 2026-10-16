@@ -42,6 +42,8 @@ var _dock: PanelContainer
 var _drawer: PanelContainer
 var _drawer_height: float = DRAWER_BASE_HEIGHT
 var _open: bool = false
+## Which part of the bag is showing: "gems", "raw" or "geodes" (see DeepUi.HAUL_TABS).
+var _haul_tab: String = "gems"
 var _key: String = ""
 var _targets: Array = []
 var _hint: Label = null
@@ -232,7 +234,7 @@ func show_run(state: Dictionary) -> void:
 		ids.append("|")
 		for item in unit.get(group, []):
 			ids.append(DeepUi.stone_marks(item))
-	var key: String = "%s#%s#%s#%d#%d#%d#%s" % [",".join(ids), str(editable()), str(_open), int(unit.get("hp", 0)), int(unit.get("max_hp", 0)), int(unit.get("ore", 0)),
+	var key: String = "%s#%s#%s#%s#%d#%d#%d#%s" % [",".join(ids), _haul_tab, str(editable()), str(_open), int(unit.get("hp", 0)), int(unit.get("max_hp", 0)), int(unit.get("ore", 0)),
 		str(run.get("players", []).map(func(p: Dictionary) -> String: return str(p.get("id", "")) + str(p.get("connected", true))))]
 	if key == _key:
 		return
@@ -491,7 +493,7 @@ func _fit_drawer(unit: Dictionary) -> void:
 	## The bag is as wide as what is in it and no wider, centred over the dock: an empty one
 	## the width of the screen says nothing except that it is empty.
 	var wide: float = maxf(640.0, size.x)
-	var stones: int = unit.get("haul", []).size()
+	var stones: int = DeepUi.haul_of(unit.get("haul", []), _haul_tab).size()
 	## Stones are all the drawer holds: they change hands at a landing's table now, so there
 	## is no column of allies to drop them on and no room is kept for one.
 	var want: float = clampf(260.0 + 64.0 * float(mini(stones, 12)), wide * 0.3, wide - 240.0)
@@ -512,13 +514,20 @@ func _build_drawer(unit: Dictionary) -> void:
 	## Stones.
 	var stones := DeepUi.vbox(row, 4)
 	stones.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var haul: Array = unit.get("haul", [])
+	var everything: Array = unit.get("haul", [])
+	var haul: Array = DeepUi.haul_of(everything, _haul_tab)
 	var stone_head := DeepUi.hbox(stones, 8)
-	DeepUi.icon(stone_head, "gem", 15, DeepUi.ACCENT)
-	DeepUi.heading(stone_head, "Stones (%d)" % haul.size(), 12)
-	var raw: int = haul.filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false))).size()
-	if raw > 0:
-		DeepUi.label(stone_head, "%d raw: appraise before setting" % raw, 11, DeepUi.DIM)
+	DeepUi.icon(stone_head, "bag", 15, DeepUi.ACCENT)
+	DeepUi.heading(stone_head, "Bag (%d)" % everything.size(), 12)
+	DeepUi.haul_tabs(stone_head, everything, _haul_tab, func(key: String) -> void:
+		_haul_tab = key
+		_key = ""
+		show_run(run), 12)
+	match _haul_tab:
+		"raw":
+			DeepUi.label(stone_head, "appraise before setting", 11, DeepUi.DIM)
+		"geodes":
+			DeepUi.label(stone_head, "sealed: the workshop cracks them", 11, DeepUi.DIM)
 	var stone_flow := HFlowContainer.new()
 	stone_flow.add_theme_constant_override("h_separation", 6)
 	stone_flow.add_theme_constant_override("v_separation", 6)
@@ -526,7 +535,8 @@ func _build_drawer(unit: Dictionary) -> void:
 	stone_flow.mouse_filter = Control.MOUSE_FILTER_PASS
 	stones.add_child(stone_flow)
 	if haul.is_empty():
-		DeepUi.label(stone_flow, "Nothing loose. Stones you find wait here.", 12, DeepUi.DIM)
+		DeepUi.label(stone_flow, {"gems": "No read stones. Appraised stones wait here.", "raw": "No raw stones. Stones you find wait here.",
+			"geodes": "No Geodes."}[_haul_tab], 12, DeepUi.DIM)
 	for stone in haul:
 		_stone_tile(stone_flow, stone)
 	## The stone side of the drawer takes a set stone back, and a stall's goods.
@@ -549,7 +559,7 @@ func _stone_tile(parent: Node, stone: Dictionary) -> void:
 	tile.custom_minimum_size = Vector2(56, 56)
 	tile.mouse_filter = Control.MOUSE_FILTER_STOP
 	tile.mouse_default_cursor_shape = Control.CURSOR_DRAG if editable() else Control.CURSOR_ARROW
-	tile.tooltip_text = DeepUi.stone_name(stone) + ("" if appraised else "\nRaw: appraise it at a stall or a landing before it can be set.")
+	tile.tooltip_text = DeepUi.stone_name(stone) + ("" if appraised else ("\nSealed: only the workshop can crack it." if DeepStone.is_geode(stone) else "\nRaw: appraise it at a stall or a landing before it can be set."))
 	parent.add_child(tile)
 	var back := Panel.new()
 	back.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -570,7 +580,8 @@ func _stone_tile(parent: Node, stone: Dictionary) -> void:
 		mark.position = Vector2(40, 3)
 		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tile.tooltip_text += "\nA copy of your vault's stone: the vault keeps yours, and this one stays down here."
-	var data: Dictionary = {"kind": "stone", "stone_id": str(stone.id), "from_socket": - 1, "appraised": appraised} if editable() else {}
+	## A sealed Geode is never dragged: there is nothing to set it in and nothing to sell it to.
+	var data: Dictionary = {"kind": "stone", "stone_id": str(stone.id), "from_socket": - 1, "appraised": appraised} if editable() and not DeepStone.is_geode(stone) else {}
 	_wire(tile, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60), Callable(), Callable())
 	_inspectable(tile, func() -> void: Inspector.stone(stone))
 

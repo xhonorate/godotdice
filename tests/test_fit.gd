@@ -1,6 +1,7 @@
 extends SceneTree
 ## Every screen fits on the smallest canvas the game draws on (1600 × 900; a window of
-## any other shape only adds room). Only the vault and long gem rails may scroll.
+## any other shape only adds room). Only the vault, the bestiary's list and long gem rails
+## may scroll.
 ## Each screen is filled as full as a player can make it (a vault of every skill, a bowl of
 ## every lapidary's dice, a long ledger, a heavy haul) and every control on it must lie
 ## inside the screen and inside anything that clips it.
@@ -68,9 +69,10 @@ func _workshop(app: Control) -> void:
 		app.menu.close()
 	app._rename_player(player_name)
 	home.refresh(app.profile, lobby, "hosting", true, app.session.local_id, false, app.settings, "109775241234567890")
-	for tab in ["descend", "delvers", "vault", "market", "profile"]:
+	for tab in ["descend", "delvers", "vault", "market", "bestiary", "profile"]:
 		home.open(tab)
 		await _fits(screen, "the %s tab" % tab)
+	await _bestiary(app)
 	## Every page of the profile's runs.
 	for page in range(3):
 		home._pages["ledger"] = page
@@ -174,7 +176,12 @@ func _workshop(app: Control) -> void:
 			await _fits(screen, "the vault as a %s filtered to '%s'" % [layout, color])
 	vault_settings.colors = []
 	vault_settings.layout = "grid"
-	## The tray, raw and appraised, and every page of it, coming home and in the vault.
+	## The tray, raw and appraised, and every page of it, coming home and in the vault. Two Geodes
+	## are on it too: the bench shows each as a rock to crack, not a stone to read.
+	var sealed_rng := RandomNumberGenerator.new()
+	sealed_rng.seed = 31
+	for i in range(2):
+		app.profile.tray.append(DeepEconomy.roll_run_geode(sealed_rng, "QUARRY" if i == 0 else "GEODE", {"run": "fit"}, "fit_geode%d" % i))
 	for coming_home in [true, false]:
 		app.profile.homecoming = coming_home
 		home._vault_view = "unappraised"
@@ -187,6 +194,7 @@ func _workshop(app: Control) -> void:
 			home.open("descend" if coming_home else "vault", true)
 			await _fits(screen, "page %d of the tray%s" % [page, ", coming home" if coming_home else ""])
 		home._pages["tray"] = 0
+	app.profile.tray = app.profile.tray.filter(func(s: Dictionary) -> bool: return not DeepStone.is_geode(s))
 	app.profile.homecoming = false
 	## A known stone whose skill is not kept yet: keep or sell, nothing to weigh it against.
 	var known: Dictionary = {}
@@ -555,13 +563,16 @@ func _run(app: Control) -> void:
 	descent.show_state(lent_state)
 	await _fits(screen, "a die's three swaps at the shaft head")
 	await _above_dock(descent, "a die's three swaps at the shaft head")
-	## A heavy haul: raw and appraised stones in every color.
-	for i in range(36):
+	## A heavy haul: raw and appraised stones in every color, and a few sealed Geodes. Each part
+	## of the bag has to be heavy enough to wrap on its own.
+	for i in range(80):
 		var found: Dictionary = DeepForge.roll_stone(rng, mine, 6 + i % 12, 3, {"run": "fit", "source": "vein"}, "fit_haul%d" % i)
 		if i % 2 == 0:
 			found.appraised = true
 			found.inclusions_revealed = true
 		me.haul.append(found)
+	for i in range(3):
+		me.haul.append(DeepEconomy.roll_run_geode(rng, "QUARRY", {"run": "fit"}, "fit_haul_geode%d" % i))
 	## The haul went into the run itself; the screen was last shown the shaft head's copy.
 	descent.show_state(run)
 	for which in ["gems", "dice"]:
@@ -575,10 +586,26 @@ func _run(app: Control) -> void:
 	descent._bench._haul_page = 1
 	descent.open_bench("gems")
 	await _fits(screen, "the bench's second page of the haul")
+	for part in ["raw", "geodes"]:
+		descent._bench._haul_tab = part
+		descent._bench._haul_page = 0
+		descent._bench._render()
+		await _fits(screen, "the bench's %s part of the haul" % part)
+	for geode in me.haul.filter(func(s: Dictionary) -> bool: return DeepStone.is_geode(s)).slice(0, 1):
+		descent._bench._pick = str(geode.id)
+		descent._bench._render()
+		await _fits(screen, "the bench with a Geode under the lamp")
+	descent._bench._pick = ""
+	descent._bench._haul_tab = "gems"
 	descent._bench.close()
 	descent._run_dock.set_drawer(true)
 	await _fits(screen, "the open bag with a heavy haul")
 	check(descent._run_dock._drawer.size.y >= 220.0, "the bag drawer grows to show every wrapped row")
+	for part in ["raw", "geodes"]:
+		descent._run_dock._haul_tab = part
+		descent._run_dock.show_run(run)
+		await _fits(screen, "the open bag's %s part" % part)
+	descent._run_dock._haul_tab = "gems"
 	descent._run_dock.set_drawer(false)
 	## Every oddity, smithy and carver: its card along the bottom of its room.
 	var room: Dictionary = run.duplicate(true)
@@ -863,6 +890,28 @@ func _rect(rect: Rect2) -> String:
 
 # --- a full workshop ---------------------------------------------------------------------------
 
+func _bestiary(app: Control) -> void:
+	## Every creature picked on its mine's page, on every page of its sheet, and one not met.
+	var home: Control = app.home
+	for mine in DeepContent.mines_in_order():
+		for key in DeepBestiary.in_mine(str(mine)):
+			home._bestiary_pick = str(key)
+			home._bestiary_leaf = 0
+			home.open("bestiary", true)
+			await process_frame
+			var leaves: Node = home.find_child("BestiaryLeaves", true, false)
+			var count: int = leaves.get_child_count() if leaves != null else 1
+			for leaf in range(count):
+				home._bestiary_leaf = leaf
+				home.open("bestiary", true)
+				await _fits(screen, "the bestiary on %s, page %d" % [str(key), leaf])
+	var kept: Dictionary = app.profile.bestiary.get("THE_HOLLOW_CROWN", {})
+	app.profile.bestiary.erase("THE_HOLLOW_CROWN")
+	home._bestiary_pick = "THE_HOLLOW_CROWN"
+	home.open("bestiary", true)
+	await _fits(screen, "the bestiary on a creature not met")
+	app.profile.bestiary.THE_HOLLOW_CROWN = kept
+
 func _fill(profile: Dictionary) -> void:
 	## As much as a player can have: every lapidary, a stone for every skill, a full tray, a
 	## long ledger.
@@ -895,6 +944,14 @@ func _fill(profile: Dictionary) -> void:
 	for i in range(6):
 		profile.history.append({"date": "2026-09-%02d" % (1 + i), "mine": "GLASS_VEINS", "deepest_mine": "GLASS_VEINS", "depth": 99, "outcome": "extracted", "stones": 0, "daily": true, "score": 9999999, "gold": 999999})
 	profile.records.best_daily = 9999999
+	## Every creature met, in every mine, half of them still new.
+	var everywhere: Dictionary = {}
+	for key in DeepContent.mines_in_order():
+		everywhere[str(key)] = 99
+	var index: int = 0
+	for key in DeepContent.section("creatures"):
+		profile.bestiary[str(key)] = {"met": 99999, "slain": 99999, "lost": 9999, "mines": everywhere.duplicate(), "first": "2026-10-15", "fresh": index % 2 == 0}
+		index += 1
 	profile.records.daily_bests = []
 	for i in range(30):
 		profile.records.daily_bests.append({"date": "2026-09-%02d" % (1 + i), "score": 9999999, "gold": 999999})

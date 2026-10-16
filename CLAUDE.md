@@ -2,7 +2,7 @@
 
 ## UI layout
 
-- Every UI screen must fit on a single page with no scroll bar. Never add a ScrollContainer (or let content overflow) to make things fit - the only exception is the "Vault".
+- Every UI screen must fit on a single page with no scroll bar. Never add a ScrollContainer (or let content overflow) to make things fit - the only exceptions are the "Vault" and the Bestiary's creature list (one list down every mine, banded like the map).
 - If a screen has too much content, split it into separate pages/views (tabs, steps, or sub-screens) instead of scrolling.
 
 ## Skill icons

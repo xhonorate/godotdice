@@ -135,6 +135,15 @@ Escape jumps to the end, and at the end takes the gentlest way out.
 | `geode_gold` (floor) | 150    | 200   | 240         | 270     | 330     | 370    | 370  |
 | A mine's Geode costs | 160    | 210   | 250         | 280     | 340     | 380    | 370  |
 
+**Geodes from the mine (October 15, 2026).** A Geode can also be brought up from a run, and these cannot be bought with gold or cracked down there. They are the same rock as a shelf Geode: a recipe (`kind` mine or color, `theme`, `mine`, `id`) and one stone inside, rolled by `roll_geode_stone` the moment the Geode is made. In the haul and on the tray a Geode is a stone dictionary, still `appraised: false`, with the recipe under `geode` (`DeepStone.is_geode`), so everything that carries stones carries it; `DeepEconomy.roll_run_geode` makes one. Two things in a run put one in the bag:
+
+- **The third Warden's hoard** (the mine's boss; in the Rift, every third Warden) swaps its last non-opal pedestal for a Geode of the mine the party is in (`hoard_geode_pct`, 100). It stands on the pedestal as the 3D rock, with "Geode" cut into the plinth.
+- **The Geode oddity** now shows a Geode of the current mine on the plinth, turning, and sells it: `geode_buy`, for pyrite, `geode_run_price_mult` (1.0) times the Geode's gold price on the shelf (`run_geode_price`), or leave it. The old "crack it" and "sell it" choices are gone.
+
+Down the mine a Geode can be carried, traded at a landing and nothing else: `DeepOddities.find_stone` never finds one, so no oddity, lens, well, merchant or smith can touch it, and an unappraised stone cannot be set. A wipe's salvage dice roll it like any raw stone. The bag (the bench, and the dock's drawer) is split in tabs: **Appraised**, **Raw** and **Geodes** (`DeepUi.HAUL_TABS`, `DeepStone.haul_tab`), each with a count.
+
+At home it comes up on the tray (and the vault's Unappraised view) sealed. Where a raw stone is **read**, a Geode is **cracked**: the same fee as reading a stone of its size (`appraisal_fee`, on `geode_rough`), the three-blow ceremony, and then the stone is an ordinary one, decided like the rest. "Read the rest" leaves Geodes alone, so each is cracked on its own. **Sold unopened** it fetches `geode_rough_share` (0.3) of what a stone of that kind of Geode is worth on average, whatever is in this one. Cracking counts in `records.geodes`.
+
 ### 🟢 3.4 Contracts, trade-ups (phase 5)
 
 Five stones of one grade tier go in, and one stone of the next tier comes out. It works like a CS trade-up contract.

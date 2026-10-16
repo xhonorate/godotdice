@@ -82,6 +82,13 @@ var _running := -1
 ## The total so far, each time the die lands: the first face, then each extra added on.
 signal chain_stepped(total: int)
 
+## A die a gem counts hops where it stands and twists, a ring of light going out from it.
+const POP_SECONDS := 0.42
+var _pop_time := 99.0
+var _pop_strength := 1.0
+var _pop_axis := Vector3.RIGHT
+var _pop_tint := Color.WHITE
+
 static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
 
@@ -305,6 +312,18 @@ func aims_at(index: int) -> bool:
 	var facing: Vector3 = _orientation(index) * Vector3(_frames[index].normal)
 	return facing.normalized().dot(VIEW_DIRECTION.normalized()) > 0.999
 
+func pop(strength: float = 1.0, tint: Color = Color.WHITE) -> void:
+	## Counted: the solid hops and twists on the spot, a little larger for a moment, and a ring
+	## of `tint` goes out from under it. Only a die at rest answers; one still in the air is
+	## left to land.
+	_pop_time = 0.0
+	_pop_strength = clampf(strength, 0.2, 2.0)
+	_pop_axis = Vector3(randf_range(-1.0, 1.0), randf_range(-0.35, 0.35), randf_range(-0.6, 0.6))
+	_pop_axis = _pop_axis.normalized() if _pop_axis.length() > 0.1 else Vector3.RIGHT
+	_pop_tint = tint
+	if is_instance_valid(_glow):
+		_glow.queue_redraw()
+
 func set_highlight(on: bool) -> void:
 	if highlighted == on:
 		return
@@ -486,10 +505,25 @@ func _process(delta: float) -> void:
 	elif _running >= 0:
 		_throw_again(delta)
 	elif live:
-		_pivot.position = Vector3(0, sin(_clock * 1.7) * 0.045, 0)
-		_pivot.quaternion = Quaternion(Vector3.UP, sin(_clock * 0.9) * 0.07) * _target
-		_pivot.scale = Vector3.ONE
-	if is_instance_valid(_glow) and (selected or highlighted):
+		var hop: float = 0.0
+		var twist := Quaternion.IDENTITY
+		var swell: float = 1.0
+		if _pop_time < POP_SECONDS:
+			## Up and down again in the first half, a twist that swings back through rest and
+			## dies away, and a swell that rings the same way: a die nudged by a finger.
+			_pop_time += delta
+			var t: float = clampf(_pop_time / POP_SECONDS, 0.0, 1.0)
+			var ring: float = exp(-4.0 * t)
+			hop = sin(PI * clampf(t * 2.2, 0.0, 1.0)) * 0.3 * _pop_strength
+			twist = Quaternion(_pop_axis, sin(t * TAU * 1.6) * ring * 0.55 * _pop_strength)
+			swell = 1.0 + 0.2 * _pop_strength * ring * cos(t * TAU * 2.0)
+			## Done: one last redraw takes the ring away.
+			if _pop_time >= POP_SECONDS and is_instance_valid(_glow):
+				_glow.queue_redraw()
+		_pivot.position = Vector3(0, sin(_clock * 1.7) * 0.045 + hop, 0)
+		_pivot.quaternion = twist * Quaternion(Vector3.UP, sin(_clock * 0.9) * 0.07) * _target
+		_pivot.scale = Vector3.ONE * swell
+	if is_instance_valid(_glow) and (selected or highlighted or _pop_time < POP_SECONDS):
 		_glow.queue_redraw()
 
 func _throw_again(delta: float) -> void:
@@ -524,6 +558,11 @@ func _draw_glow(target: Control) -> void:
 		target.draw_colored_polygon(silhouette, _palette().body)
 	if highlighted:
 		target.draw_circle(centre, radius * 1.16, Color(accent, 0.16))
+	if _pop_time < POP_SECONDS:
+		var t: float = clampf(_pop_time / POP_SECONDS, 0.0, 1.0)
+		var fade: float = 1.0 - t
+		target.draw_circle(centre, radius * 1.05, Color(_pop_tint, 0.2 * fade * fade))
+		target.draw_arc(centre, radius * lerpf(0.95, 1.3, sqrt(t)), 0.0, TAU, 48, Color(_pop_tint, 0.85 * fade), 1.0 + 2.5 * fade, true)
 	if selected:
 		var pulse := 0.55 + 0.25 * sin(_clock * 4.2)
 		target.draw_arc(centre, radius * 1.06, 0.0, TAU, 48, Color(accent, pulse), 2.5, true)

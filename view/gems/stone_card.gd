@@ -153,6 +153,12 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 	var min_width: float = float(opts.get("text_width", 0.0))
 	if min_width > 0.0:
 		text.custom_minimum_size.x = min_width
+	if DeepStone.is_geode(stone):
+		## Sealed: not even its size is said. Where its stone comes from is all that is known.
+		DeepUi.title(text, DeepStone.raw_name(stone), 18, DeepUi.PAPER)
+		DeepUi.wrap(text, str(load("res://view/gems/geode.gd").geode_line(stone.geode)), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+		DeepUi.stat(text, "lock", "Sealed · only the workshop can crack it", DeepUi.MUTED, 12, "Carry it up and crack it open at the workshop to see the stone inside.")
+		return card
 	if not appraised:
 		DeepUi.title(text, DeepStone.raw_name(stone), 18, DeepUi.PAPER)
 		var facts := DeepUi.hbox(text, 12)
@@ -246,7 +252,7 @@ static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: b
 	box.add_child(tags)
 	box.set_meta("tags", tags)
 	if caption:
-		var name: String = str(DeepStone.skill_of(stone).get("name", "")) if appraised else "%s raw" % DeepStone.size_name(int(stone.get("carat", 1)))
+		var name: String = str(DeepStone.skill_of(stone).get("name", "")) if appraised else ("Geode" if DeepStone.is_geode(stone) else "%s raw" % DeepStone.size_name(int(stone.get("carat", 1))))
 		DeepUi.fit_label(column, name, 12, DeepUi.PAPER if appraised else DeepUi.MUTED, size)
 	return box
 
