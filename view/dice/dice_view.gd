@@ -36,6 +36,8 @@ const MATERIAL_LOOKS := {
 	"blood": {"alpha": 1.0, "roughness": 0.3, "metallic": 0.12, "glow": 0.2}}
 
 @export var live := true
+## How loud its tumble is: another player's dice land more quietly than the reader's own.
+var hush: float = 1.0
 
 ## Interactive views are steered by the reader instead of by the roll: dragging
 ## turns the solid freely and focus_face() swings one face to the front.
@@ -123,8 +125,8 @@ func _ready() -> void:
 	_viewport.own_world_3d = true
 	_viewport.disable_3d = false
 	_viewport.msaa_3d = Viewport.MSAA_4X
-	_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	container.add_child(_viewport)
+	_follow_visibility()
 	var camera := Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = 2.55
@@ -168,6 +170,16 @@ func _ready() -> void:
 	body_material.rim = 0.5
 	_body.material_override = body_material
 	_pivot.add_child(_body)
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED:
+		_follow_visibility()
+
+func _follow_visibility() -> void:
+	## A die nobody can see draws nothing: a fight keeps every player's tray built and shows
+	## one at a time, and a hidden tray's solids would otherwise each render a frame apiece.
+	if _viewport != null and is_instance_valid(_viewport):
+		_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if is_visible_in_tree() else SubViewport.UPDATE_DISABLED
 
 func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_highlighted: bool, tint: Color) -> void:
 	die = new_die
@@ -462,9 +474,10 @@ func _start_spin() -> void:
 		return
 	_spin_time = 0.0
 	## Each solid tumbles and lands on its own, a little apart from its neighbours, so five
-	## dice sound like five dice and not one.
-	DeepAudio.play("die_tumble", {"volume": 0.45, "gap": 0.0, "delay": randf() * 0.05})
-	DeepAudio.play("die_settle", {"volume": 0.55, "gap": 0.0, "delay": spin_seconds * randf_range(0.82, 0.98)})
+	## dice sound like five dice and not one. A tray out of sight lands in silence.
+	if is_visible_in_tree() and hush > 0.0:
+		DeepAudio.play("die_tumble", {"volume": 0.45 * hush, "gap": 0.0, "delay": randf() * 0.05})
+		DeepAudio.play("die_settle", {"volume": 0.55 * hush, "gap": 0.0, "delay": spin_seconds * randf_range(0.82, 0.98)})
 	_spin_from = Quaternion(Vector3(0.4, 1.0, 0.25).normalized(), randf() * TAU)
 	_spin_axis = Vector3(randf_range(-1.0, 1.0), randf_range(0.4, 1.0), randf_range(-1.0, 1.0)).normalized()
 	_spin_turns = randf_range(1.6, 2.6)

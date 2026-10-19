@@ -161,7 +161,12 @@ static func is_locked(stone: Dictionary) -> bool:
 	return has_modifier(modifiers(stone), "locked")
 
 static func is_slotless(stone: Dictionary) -> bool:
-	return has_modifier(modifiers(stone), "slotless")
+	return is_voided(stone) or has_modifier(modifiers(stone), "slotless")
+
+static func is_voided(stone: Dictionary) -> bool:
+	## A gem the Hollow made Void for the rest of a run: it rides a socket like any Void gem,
+	## but nothing is frozen in it, so it is not Fragile and the mark comes off at home.
+	return bool(stone.get("voided", false))
 
 static func unstake(stone: Dictionary) -> Dictionary:
 	## A stone with the Grubstake's mark on it, put back the way it went down. The rail a run

@@ -725,8 +725,9 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 			continue
 		var home: Dictionary = DeepStone.unstake(stone.duplicate(true))
 		home.erase("lent")
-		## What a Black Opal took in down there is gone with the run.
+		## What a Black Opal took in down there is gone with the run, and so is the Hollow's Void.
 		home.erase("absorbed")
+		home.erase("voided")
 		if not home.has("provenance"):
 			home.provenance = {}
 		home.provenance.date = Time.get_date_string_from_system()

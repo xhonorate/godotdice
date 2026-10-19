@@ -686,6 +686,8 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	## rail is a copy for the length of a run, so none of it comes home.
 	for field in ["carat", "cut", "clarity"]:
 		StoneCard.staked_mark(tags, item, field, 13)
+	if DeepStone.is_voided(item):
+		DeepUi.pill(tags, "widening_spiral", "Void · until the run ends", DeepUi.INFO, 13, StoneCard.VOIDED_WORDS)
 	if reference:
 		DeepUi.pill(tags, "eye", "Seen, not kept", DeepUi.MUTED, 13, "One of these has passed through your hands. The vault keeps the page, not the stone.")
 	elif bool(item.get("temporary", false)):

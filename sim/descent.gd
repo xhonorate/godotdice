@@ -1038,7 +1038,9 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 				var fresh: Array = pool.filter(func(k: Variant) -> bool: return not state.used_oddities.has(str(k)))
 				if fresh.is_empty():
 					fresh = pool
-				key = str(DeepRng.pick(streams.oddities, fresh))
+				## A card's `weight` (1 when it has none) is how often it turns up: the Hollow is rare.
+				var weights: Array = fresh.map(func(k: Variant) -> float: return float(DeepContent.oddity(str(k)).get("weight", 1.0)))
+				key = str(fresh[maxi(0, DeepRng.weighted_index(streams.oddities, weights))])
 				state.used_oddities.append(key)
 			state.chamber.oddity = key
 			state.chamber.results = {}
@@ -1611,7 +1613,7 @@ static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: Strin
 	var event: Dictionary = _event(state, "oddity_result", {"unit": unit.id, "choice": choice_id, "message": str(result.message),
 		"made": result.get("made", []).duplicate(true), "lost": result.get("lost", []), "changed": result.get("changed", []).duplicate(true),
 		"dice": result.get("dice", []).duplicate(true)})
-	for extra in ["verdict", "well", "revealed", "hp_lost", "bought", "broke"]:
+	for extra in ["verdict", "well", "revealed", "hp_lost", "bought", "broke", "dice_lost", "voided"]:
 		if result.has(extra):
 			event[extra] = result[extra]
 			state.chamber.results[unit.id][extra] = result[extra]

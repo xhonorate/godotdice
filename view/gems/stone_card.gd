@@ -13,6 +13,8 @@ const Thumbs = preload("res://view/gems/thumbs.gd")
 
 const INCLUSION_TONES := {"STAR": Color("ffcf5a"), "FRACTURE": Color("ff7a6b"), "FEATHER": Color("9fd8ff"), "LENS": Color("c58bff"), "PINPOINT": Color("76b6ff")}
 const INCLUSION_GLYPHS := {"STAR": "star", "FRACTURE": "split_shield", "FEATHER": "spark", "LENS": "eye", "PINPOINT": "crosshair"}
+## What the Hollow's mark on a gem means, wherever the gem is shown.
+const VOIDED_WORDS := "The Hollow made it Void: it takes no socket, rides one instead and fires right after that socket's gem. When the run ends it is an ordinary gem again."
 
 static func picture(parent: Node, stone: Dictionary, size: float, live: bool = false) -> Control:
 	## A stone's image: a photograph, or for `live` a view that sways in its light.
@@ -223,6 +225,8 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 			parts.append(str(where.date))
 		if not parts.is_empty():
 			DeepUi.stat(footer, "map", ", ".join(parts), DeepUi.DIM, 11, "Where it was found")
+	if DeepStone.is_voided(stone):
+		DeepUi.stat(footer, "widening_spiral", "Void · until the run ends", DeepUi.INFO, 12, VOIDED_WORDS)
 	if bool(stone.get("temporary", false)):
 		DeepUi.stat(footer, "hourglass", "Temporary · lent for this run only", DeepUi.INFO, 12, "Filled an empty socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
 	elif DeepStone.is_fragile(stone):

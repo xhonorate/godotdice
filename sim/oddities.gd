@@ -13,8 +13,10 @@ extends RefCounted
 
 const ACTIONS: Array = ["none", "reroll_cut", "reroll_clarity", "push_clarity", "remove_inclusion", "fuse", "geode_buy", "etch", "pattern", "material", "reset",
 	"trade_up", "shrine", "idol", "echo_stone", "collector_sell", "collector_buy", "heal", "ore",
-	"appraise", "acid_appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "lower_face", "pry", "chips", "wishing_well"]
+	"appraise", "acid_appraise", "tumble", "upsize", "downsize", "temper", "raise_face", "lower_face", "pry", "chips", "wishing_well", "hollow"]
 const SIZES: Array = DeepDice.TIERS
+## The fewest dice the Hollow leaves anybody with, unless its card says otherwise.
+const HOLLOW_LEAST_DICE: int = 3
 ## Actions the room has to lay something out before anybody chooses: the Collector's case is
 ## rolled when the chamber opens, and the Idol's grip is rolled the first time it is pulled.
 const OFFERS: Array = ["collector_buy", "geode_buy", "pattern", "etch", "material"]
@@ -83,6 +85,29 @@ static func find_die(player: Dictionary, die_id: String) -> Dictionary:
 		if str(die.get("id", "")) == die_id:
 			return die
 	return {}
+
+static func hollow_refusal(stone: Dictionary) -> String:
+	## Why the Hollow cannot make this stone Void, or "".
+	if stone.is_empty() or DeepStone.is_birthstone(stone) or DeepStone.is_geode(stone):
+		return "choose one of your gems"
+	if not bool(stone.get("appraised", false)):
+		return "nobody has read it yet"
+	if DeepStone.is_slotless(stone):
+		return "it takes no socket already"
+	return ""
+
+static func hollow_least(action: Dictionary) -> int:
+	return maxi(1, int(action.get("least_dice", HOLLOW_LEAST_DICE)))
+
+static func hollow_host(player: Dictionary, stone: Dictionary) -> int:
+	## The socket a gem made Void out of the bag rides: the first with a gem set in it, so it
+	## has something to fire after, else the first that will take it; -1 when none will.
+	var rail: Array = player.get("rail", [])
+	for filled in [true, false]:
+		for index in range(rail.size()):
+			if (rail[index] is Dictionary) == filled and DeepDescent.socket_refusal(player, stone, index).is_empty():
+				return index
+	return -1
 
 static func resize_refusal(die: Dictionary, steps: int) -> String:
 	## Why this die cannot be made `steps` sizes bigger (smaller when negative), or "".
@@ -567,6 +592,49 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			out.made.append_array(prize.get("made", []))
 			out.well = well_summary(rung, thrown, prize)
 			out.message = "%s %s" % [said, str(prize.get("message", ""))]
+		"hollow":
+			## A die goes down the hole and a gem comes away Void, both until the run ends.
+			## The die is one of the five thrown, never one carried in the bag. A gem set in
+			## a socket steps off it and rides it instead, first in line, so it fires where
+			## it always did and the socket is free for another. A gem from the bag goes
+			## straight onto the rail: it rides the first socket with a gem set in it.
+			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
+			var refusal: String = hollow_refusal(stone)
+			if not refusal.is_empty():
+				return _refuse(refusal)
+			var dice: Array = player.get("dice", [])
+			var at: int = -1
+			for index in range(dice.size()):
+				if str(dice[index].get("id", "")) == str(payload.get("die_id", "")):
+					at = index
+			if at < 0:
+				return _refuse("choose one of your dice")
+			var least: int = hollow_least(action)
+			if dice.size() <= least:
+				return _refuse("the Hollow will not leave you fewer than %d dice" % least)
+			var fed: Dictionary = dice[at]
+			dice.remove_at(at)
+			var from_socket: int = -1
+			var rail: Array = player.get("rail", [])
+			for index in range(rail.size()):
+				if rail[index] is Dictionary and str(rail[index].get("id", "")) == str(stone.id):
+					from_socket = index
+			var bagged: bool = DeepStone.rider_place(player, str(stone.id)).is_empty() and from_socket < 0
+			stone.voided = true
+			DeepStone.normalize_rail(player)
+			if bagged:
+				var host: int = hollow_host(player, stone)
+				if host >= 0:
+					remove_stone(player, str(stone.id))
+					DeepStone.normalize_rail(player)
+					player.riders[host].append(stone)
+			out.changed.append(stone.duplicate(true))
+			out.dice_lost = [fed.duplicate(true)]
+			## Where everything went, so a screen can show the die going in and the gem coming
+			## out onto the rail.
+			out.voided = {"stone_id": str(stone.id), "die_index": at, "from_socket": from_socket, "rides": DeepStone.rider_place(player, str(stone.id))}
+			out.message = "The Hollow takes a die (%s). %s comes away Void: it takes no socket until the run ends." % [
+				DeepDice.describe(fed), str(DeepStone.skill_of(stone).get("name", stone.get("skill", "")))]
 		_:
 			return _refuse("unknown oddity action")
 	return out

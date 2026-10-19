@@ -10740,6 +10740,30 @@
         }
       ]
     },
+    "HOLLOW": {
+      "name": "The Hollow",
+      "text": "A hole in the rock with no bottom. Drop a die in and hold a gem over it, and the gem comes away so light it no longer needs a socket.",
+      "weight": 0.35,
+      "choices": [
+        {
+          "id": "feed",
+          "label": "Feed it a die",
+          "needs": "gem_and_die",
+          "text": "Lose one of your dice until the run ends. One of your gems turns Void until then: it takes no socket, rides one instead and fires right after that socket's gem. It is not Fragile.",
+          "action": {
+            "kind": "hollow",
+            "least_dice": 3
+          }
+        },
+        {
+          "id": "pass",
+          "label": "Leave it",
+          "action": {
+            "kind": "none"
+          }
+        }
+      ]
+    },
     "WISHING_WELL": {
       "name": "The Wishing Well",
       "room": "well",

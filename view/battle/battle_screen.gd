@@ -3,9 +3,10 @@ extends Control
 ##
 ## The room is the mine stage's: during a run it is the room the party walked into, and a
 ## screen shown on its own (a gallery shot) makes a stage of its own. Creatures stand in an
-## arc facing the camera; the plate above each is a 2D control pinned to a 3D anchor. The
-## player's rail, dice and forecast sit in a dock at the bottom; allies are compact cards at
-## the side.
+## arc facing the camera; the plate above each is a 2D control pinned to a 3D anchor. A
+## player's rail, dice and forecast sit in a dock at the bottom, one page a player; in a party
+## a tab a player rides on top of the dock (the reader's first) with their buffs over it, and
+## the dock follows the turn from rail to rail as each one fires.
 ##
 ## Every event is played as something physical: a gem that fires throws a bolt of its own
 ## color from its socket to what it hits; a blow lands with sparks, light, a shockwave, a
@@ -26,6 +27,7 @@ const EffectChips = preload("res://view/battle/effect_chips.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Tally = preload("res://view/battle/tally.gd")
+const ShaftMap = preload("res://view/run/shaft_map.gd")
 ## The field of view the camera prefers; it widens on its own when a tall creature and its
 ## plate would not fit under the top of the screen, and narrows back when they would.
 ## What Sleight does, on its button. See `DeepBattle.shift_face`.
@@ -53,7 +55,10 @@ const MOVE_WORDS: Dictionary = {"damage": "sword", "block": "shield", "poison": 
 var local_id: String = ""
 var state: Dictionary = {}
 var depth: int = 1
-var forecast: Dictionary = {}
+## What the hand on the page being drawn would do (the reader's own, outside a page's sync).
+var forecast: Dictionary:
+	get: return _page.forecast
+	set(value): _page.forecast = value
 var context: Dictionary = {}
 var selected: Array = []
 
@@ -104,72 +109,159 @@ var _banner: Label
 var _banner_sub: Label
 var _banner_box: VBoxContainer
 var _dock: PanelContainer
-var _rail_box: HBoxContainer
+## The dock's border as it was last drawn: gold under the reader's own page in a party, the
+## seat color of whoever else's page is up.
+var _dock_tone: Color = Color(0, 0, 0, 0)
+var _dock_style: StyleBoxFlat = null
+var _dock_tween: Tween = null
+## The light run along the dock's top edge as a page comes up, built once.
+var _edge_texture: GradientTexture2D = null
+## A page a player (see `Page`): the reader's own, built with the screen, and one for everyone
+## else in the fight, built the first time they are seen. `_page` is the one the drawing
+## functions below draw on: the reader's own, except while another player's page is being
+## brought up to date, and it is put straight back after.
+var _local_page: Page = Page.new()
+var _page: Page = null
+var _pages: Dictionary = {}
+## Whose page is in the dock; "" for the reader's own.
+var _shown_id: String = ""
+## The party along the top of the dock: a tab a player, the reader's own first, each with
+## that player's buffs and troubles over it.
+var _tab_bar: HBoxContainer
+var _my_tab: SeatTab
+var _tabs: Dictionary = {}
+## The rail firing now, every player whose rail has had its go this turn, and the last rail
+## that began (the turn passes from its tab to the next one's).
+var _firing_id: String = ""
+var _fired: Dictionary = {}
+var _last_rail_id: String = ""
+## The turn the reader was last told everyone else is waiting on them.
+var _called_turn: int = -1
+## Each player's rerolls and lock as last seen, and when they last spent a reroll: their tab
+## says so for a moment after.
+var _seen_rerolls: Dictionary = {}
+var _seen_locked: Dictionary = {}
+var _rerolled_at: Dictionary = {}
+const REROLL_SHOWN_MS: int = 1200
+## How tall the reader's buttons stand, so a page without them keeps the dock the same height.
+var _buttons_height: float = 0.0
+var _rail_box: HBoxContainer:
+	get: return _page.rail_box
+	set(value): _page.rail_box = value
 ## One control per entry of the fighter's flat rail: a socket's card, or a rider's chip.
-var _socket_cards: Array = []
-var _rail_shape: String = ""
-var _resonance_value: Label
-var _resonance_box: HBoxContainer
-var _tray_box: HBoxContainer
-var _dice_views: Dictionary = {}
+var _socket_cards: Array:
+	get: return _page.socket_cards
+	set(value): _page.socket_cards = value
+var _rail_shape: String:
+	get: return _page.rail_shape
+	set(value): _page.rail_shape = value
+var _resonance_value: Label:
+	get: return _page.resonance_value
+	set(value): _page.resonance_value = value
+var _resonance_box: HBoxContainer:
+	get: return _page.resonance_box
+	set(value): _page.resonance_box = value
+var _tray_box: HBoxContainer:
+	get: return _page.tray_box
+	set(value): _page.tray_box = value
+var _dice_views: Dictionary:
+	get: return _page.dice_views
+	set(value): _page.dice_views = value
 ## Phantom dice (a Refract's copies of the highest die), drawn small and ghostly after the
 ## five; and what they were last drawn from.
-var _phantom_box: HBoxContainer
-var _phantom_key: String = ""
+var _phantom_box: HBoxContainer:
+	get: return _page.phantom_box
+	set(value): _page.phantom_box = value
+var _phantom_key: String:
+	get: return _page.phantom_key
+	set(value): _page.phantom_key = value
 ## A rearrangement of the room put off until a death or a split has finished animating, and
 ## the creatures whose arrival has already been waited for.
 var _layout_wait: SceneTreeTimer = null
 var _awaited: Dictionary = {}
 ## The hand as it was last seen, and when the dice it rolled will have finished tumbling.
-var _rolled_hand: String = ""
-var _dice_settle_at: int = 0
+var _rolled_hand: String:
+	get: return _page.rolled_hand
+	set(value): _page.rolled_hand = value
+var _dice_settle_at: int:
+	get: return _page.dice_settle_at
+	set(value): _page.dice_settle_at = value
 var _reroll_button: Button
 var _flip_button: Button
 var _lock_button: Button
-var _birthstone_card: VBoxContainer = null
-var _birthstone_key: String = ""
-var _hint: Label
-var _hp_bar: DeepUi.Bar
-var _status_row: HBoxContainer
+var _birthstone_card: VBoxContainer:
+	get: return _page.birthstone_card
+	set(value): _page.birthstone_card = value
+var _birthstone_key: String:
+	get: return _page.birthstone_key
+	set(value): _page.birthstone_key = value
+var _hint: Label:
+	get: return _page.hint
+	set(value): _page.hint = value
+var _hp_bar: DeepUi.Bar:
+	get: return _page.hp_bar
+	set(value): _page.hp_bar = value
+var _status_row: HBoxContainer:
+	get: return _page.status_row
+	set(value): _page.status_row = value
+## The reader's own buffs and troubles, over their tab.
 var _effects: EffectChips.Row
 var _fight_effects: EffectChips.Row
-var _effects_box: VBoxContainer
-var _forecast_box: VBoxContainer
-var _forecast_key: String = ""
+var _forecast_box: VBoxContainer:
+	get: return _page.forecast_box
+	set(value): _page.forecast_box = value
+var _forecast_key: String:
+	get: return _page.forecast_key
+	set(value): _page.forecast_key = value
 ## The block the status row was last drawn with: it is only rebuilt when that changes.
-var _status_block: int = -1
-var _ally_box: VBoxContainer
-var _ally_cards: Dictionary = {}
+var _status_block: int:
+	get: return _page.status_block
+	set(value): _page.status_block = value
 var _lock_pulse: Tween = null
-## The forecast as the hand stood when it was locked in, and what the local rail has actually
-## done since: socket -> fired, and the Birthstone's own event.
-var _held_forecast: Dictionary = {}
-var _outcomes: Dictionary = {}
-var _birth_outcome: Dictionary = {}
+## The forecast as the hand stood when it was locked in, and what the rail has actually done
+## since: socket -> fired, and the Birthstone's own event.
+var _held_forecast: Dictionary:
+	get: return _page.held_forecast
+	set(value): _page.held_forecast = value
+var _outcomes: Dictionary:
+	get: return _page.outcomes
+	set(value): _page.outcomes = value
+var _birth_outcome: Dictionary:
+	get: return _page.birth_outcome
+	set(value): _page.birth_outcome = value
 ## Bumped by every change to the Resonance number, so sparks still in flight never write an
 ## old value over a newer one.
-var _resonance_token: int = 0
+var _resonance_token: int:
+	get: return _page.resonance_token
+	set(value): _page.resonance_token = value
 ## What the dice owed on the throw this turn opened with, and what grew back with them.
 var _pending_dues: Dictionary = {}
 var _pending_regrown: Dictionary = {}
-var _battery_tween: Tween
+var _battery_tween: Tween:
+	get: return _page.battery_tween
+	set(value): _page.battery_tween = value
 ## The rail firing now, as pitch: each gem's count starts a step further up the music's scale.
 var _chain: Tally.Chain = Tally.Chain.new()
 ## The phantom dice beside the hand, by die id, for a count to point at.
-var _phantom_views: Dictionary = {}
+var _phantom_views: Dictionary:
+	get: return _page.phantom_views
+	set(value): _page.phantom_views = value
 ## What a count has not landed yet, held on the bars at what it was before: a creature's
-## health and block by its id, and the player's own under theirs. Each is {"hp", "block",
+## health and block by its id, and each player's under theirs. Each is {"hp", "block",
 ## "landings", "until"}: it lets go when its last blow (or guard, or heal) lands, and lapses
 ## by itself if one never does, so nothing is held for good.
 var _held: Dictionary = {}
 const HELD_MS: int = 6000
-## The local rail's last gem that fired this turn, for the bow drawn when the next one rings
-## with it; -1 after a fizzle or as a rail begins.
-var _last_fired: int = -1
-## What the local rail has dealt this turn, counted up beside the forecast as its blows land.
-var _turn_dealt: int = 0
-var _dealt_box: HBoxContainer
-var _dealt_label: Label
+## What the rail has dealt this turn, counted up beside the forecast as its blows land.
+var _turn_dealt: int:
+	get: return _page.turn_dealt
+	set(value): _page.turn_dealt = value
+var _dealt_box: HBoxContainer:
+	get: return _page.dealt_box
+	set(value): _page.dealt_box = value
+var _dealt_label: Label:
+	get: return _page.dealt_label
+	set(value): _page.dealt_label = value
 ## The plate a hovered gem shows while the hand is still being chosen.
 var _preview: Control = null
 ## Whether the creature move being played now is one whose blows block may be counted against.
@@ -177,6 +269,10 @@ var _soaking: bool = false
 var _soak_pace: float = 1.0
 
 var _shows: int = 0
+
+func _init() -> void:
+	_local_page.mine = true
+	_page = _local_page
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -405,22 +501,8 @@ func _build_hud() -> void:
 	_banner_sub.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_banner_sub.add_theme_constant_override("outline_size", 5)
 	_banner_box.modulate.a = 0.0
-	## Allies: cards stacked up the right edge from the top of the dock.
-	_ally_box = DeepUi.vbox(_hud, 8)
-	_ally_box.custom_minimum_size = Vector2(230, 0)
-	_ally_box.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 22)
-	_ally_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_ally_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_ally_box.alignment = BoxContainer.ALIGNMENT_END
-	## Your buffs and troubles, in a row along the top edge of the dock.
-	_effects_box = DeepUi.vbox(_hud, 2)
-	_effects_box.position = Vector2(22, 600)
-	_effects = EffectChips.Row.new(20)
-	_effects_box.add_child(_effects)
-	## The dock.
+	## The dock: one page a player, the one being looked at shown.
 	_dock = PanelContainer.new()
-	var dock_style := DeepUi.raised(Color(0.06, 0.075, 0.105, 0.9), Color(DeepUi.LINE_HI, 0.8), 16, 14, 0.55)
-	_dock.add_theme_stylebox_override("panel", dock_style)
 	_dock.mouse_filter = Control.MOUSE_FILTER_STOP
 	_dock.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_dock.offset_left = 16
@@ -428,18 +510,39 @@ func _build_hud() -> void:
 	_dock.offset_bottom = -14
 	_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_hud.add_child(_dock)
-	_dock.resized.connect(_seat_allies)
 	_dock.gui_input.connect(_hurry_input)
+	_dress_dock(Color(DeepUi.LINE_HI, 0.8), false)
+	_build_page(_local_page)
+	## The party, along the top of the dock: drawn after it, so the tab that is up lies over
+	## the dock's edge and the two read as one piece. Alone, only the buffs over the tab show.
+	_tab_bar = HBoxContainer.new()
+	_tab_bar.add_theme_constant_override("separation", 6)
+	_tab_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(_tab_bar)
+	_my_tab = SeatTab.new(true)
+	_my_tab.picked.connect(_pick_tab.bind(""))
+	_tab_bar.add_child(_my_tab)
+	_effects = _my_tab.chips
+
+func _build_page(page: Page) -> void:
+	## A player's page of the dock, built once: their health and Resonance, their rail, their
+	## tray and what their hand would do. The reader's own has the buttons; anyone else's says
+	## what they are doing in their place, so the dock stands the same height for both.
+	var was: Page = _page
+	_page = page
 	var columns := DeepUi.hbox(_dock, 20)
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
-	## Left: you, and your rail.
+	columns.set_meta("page", page)
+	columns.visible = page.mine
+	page.root = columns
+	## Left: the player, and their rail.
 	var left := DeepUi.vbox(columns, 8)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## As tall as the block pill from the start, and everything in it centred, so gaining
 	## block never stretches the bar or moves the dock.
 	var me_row := DeepUi.hbox(left, 8)
 	me_row.custom_minimum_size.y = 30
-	DeepUi.icon(me_row, "heart", 22, DeepUi.HP, "Your health").size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DeepUi.icon(me_row, "heart", 22, DeepUi.HP, "Your health" if page.mine else "Their health").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_hp_bar = DeepUi.bar(me_row, 20.0)
 	_hp_bar.warn = true
 	_hp_bar.custom_minimum_size = Vector2(250, 20)
@@ -468,7 +571,7 @@ func _build_hud() -> void:
 	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var tray_head := DeepUi.hbox(middle, 8)
 	DeepUi.icon(tray_head, "die", 16, DeepUi.ACCENT)
-	DeepUi.heading(tray_head, "Your hand", 13)
+	page.hand_title = DeepUi.heading(tray_head, "Your hand", 13)
 	DeepUi.spacer(tray_head)
 	_hint = DeepUi.label(tray_head, "", 13, DeepUi.MUTED)
 	## The five, and after them any phantom dice a Refract has added for the rest of the turn.
@@ -480,36 +583,69 @@ func _build_hud() -> void:
 	_phantom_box.visible = false
 	var buttons := DeepUi.hbox(middle, 10)
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	_reroll_button = DeepUi.icon_button(buttons, "reroll", "Reroll", _reroll, 15, DeepUi.INFO)
-	_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
-	_flip_button = DeepUi.icon_button(buttons, "eye", "Shift", _flip, 15, DeepUi.ACCENT)
-	_flip_button.tooltip_text = SHIFT_TIP
-	_flip_button.visible = false
-	_lock_button = DeepUi.primary(buttons, "check", "Lock in", _toggle_lock, 16)
-	_lock_button.tooltip_text = "Lock in this hand  [Space]"
+	if page.mine:
+		_reroll_button = DeepUi.icon_button(buttons, "reroll", "Reroll", _reroll, 15, DeepUi.INFO)
+		_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
+		_flip_button = DeepUi.icon_button(buttons, "eye", "Shift", _flip, 15, DeepUi.ACCENT)
+		_flip_button.tooltip_text = SHIFT_TIP
+		_flip_button.visible = false
+		_lock_button = DeepUi.primary(buttons, "check", "Lock in", _toggle_lock, 16)
+		_lock_button.tooltip_text = "Lock in this hand  [Space]"
+		_buttons_height = buttons.get_combined_minimum_size().y
+	else:
+		## Where the reader's buttons are: whether they are still choosing or locked in, and
+		## the rerolls they have left.
+		page.mate_state = buttons
+		buttons.custom_minimum_size.y = _buttons_height
 	DeepUi.rule(columns, Color(DeepUi.LINE, 0.8)).custom_minimum_size = Vector2(1, 0)
 	## Right: what the hand would do.
 	var right := DeepUi.vbox(columns, 6)
 	right.custom_minimum_size = Vector2(250, 0)
 	var forecast_head := DeepUi.hbox(right, 8)
 	DeepUi.icon(forecast_head, "eye", 16, DeepUi.ACCENT)
-	DeepUi.heading(forecast_head, "This hand would", 13)
+	page.would_title = DeepUi.heading(forecast_head, "This hand would" if page.mine else "Their hand would", 13)
 	## While the turn plays out: what the rail has really dealt, counted up blow by blow.
 	DeepUi.spacer(forecast_head)
 	_dealt_box = DeepUi.hbox(forecast_head, 4)
 	_dealt_box.mouse_filter = Control.MOUSE_FILTER_PASS
-	_dealt_box.tooltip_text = "Damage your rail has dealt this turn"
+	_dealt_box.tooltip_text = "Damage your rail has dealt this turn" if page.mine else "Damage their rail has dealt this turn"
 	DeepUi.icon(_dealt_box, "impacts", 16, DeepUi.BAD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_dealt_label = DeepUi.title(_dealt_box, "0", 18, DeepUi.BAD)
 	_dealt_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_dealt_box.visible = false
 	_forecast_box = DeepUi.vbox(right, 4)
+	_page = was
 
-func _seat_allies() -> void:
-	## The allies stand on the dock: their bottom edge is its top edge, wherever it grows to.
-	if _ally_box == null or _dock == null:
+func _dress_dock(tone: Color, theirs: bool) -> void:
+	## The dock's frame: the kit's plain edge alone, gold under the reader's own page in a
+	## party, and the seat color of whoever else's page is up, with a glow of it round the dock.
+	## One frame for the whole fight, its color eased from one player's to the next.
+	if tone == _dock_tone:
 		return
-	_ally_box.offset_bottom = - (_dock.size.y + 14.0 + 10.0)
+	_dock_tone = tone
+	var first: bool = _dock_style == null
+	if first:
+		_dock_style = DeepUi.raised(Color(0.06, 0.075, 0.105, 0.9), tone, 16, 14, 0.55)
+		_dock.add_theme_stylebox_override("panel", _dock_style)
+	_dock_style.set_border_width_all(2 if theirs else 1)
+	if not theirs:
+		_dock_style.border_width_bottom = 2
+	var shadow: Color = Color(tone, 0.3) if theirs else Color(0, 0, 0, 0.55)
+	var spread: int = 16 if theirs else 10
+	var offset: Vector2 = Vector2.ZERO if theirs else Vector2(0, 4)
+	if _dock_tween != null and _dock_tween.is_valid():
+		_dock_tween.kill()
+	if first or _headless or not is_inside_tree():
+		_dock_style.border_color = tone
+		_dock_style.shadow_color = shadow
+		_dock_style.shadow_size = spread
+		_dock_style.shadow_offset = offset
+		return
+	_dock_tween = create_tween().set_parallel(true)
+	_dock_tween.tween_property(_dock_style, "border_color", tone, 0.28).set_trans(Tween.TRANS_SINE)
+	_dock_tween.tween_property(_dock_style, "shadow_color", shadow, 0.28).set_trans(Tween.TRANS_SINE)
+	_dock_tween.tween_property(_dock_style, "shadow_size", spread, 0.28)
+	_dock_tween.tween_property(_dock_style, "shadow_offset", offset, 0.28)
 
 func bind(player_id: String) -> void:
 	local_id = player_id
@@ -541,8 +677,16 @@ func _forget_fight() -> void:
 	_held.clear()
 	if _enemy_panel != null:
 		_enemy_panel.reset()
-	_outcomes.clear()
-	_birth_outcome = {}
+	for page in _all_pages():
+		page.outcomes.clear()
+		page.birth_outcome = {}
+	## A new fight opens on the reader's own page.
+	_shown_id = ""
+	_firing_id = ""
+	_fired.clear()
+	_seen_rerolls.clear()
+	_seen_locked.clear()
+	_rerolled_at.clear()
 	for id in _plates.keys():
 		if is_instance_valid(_plates[id]):
 			_plates[id].queue_free()
@@ -594,19 +738,6 @@ func _sync() -> void:
 		return
 	var unit: Dictionary = me()
 	var planning: bool = str(state.get("phase", "")) == "planning"
-	## While the dice are still tumbling nothing on the rail is lit: the forecast is known the
-	## instant the roll is, and a gem that came on a beat before its dice landed gave the
-	## answer away. The rail is told again the moment they settle.
-	var rolled: String = ",".join(unit.get("hand", []).map(func(r: Dictionary) -> String: return "%s:%d:%s" % [str(r.get("die_id", "")), int(r.get("value", 0)), str(r.get("rerolls", 0))]))
-	if rolled != _rolled_hand:
-		_rolled_hand = rolled
-		if not _headless and is_inside_tree() and planning:
-			_dice_settle_at = Time.get_ticks_msec() + int(DiceView.SPIN_SECONDS * 1000.0) + 60
-			var settling_hand: String = rolled
-			get_tree().create_timer(DiceView.SPIN_SECONDS + 0.09).timeout.connect(func() -> void:
-				if is_instance_valid(self) and not state.is_empty() and _rolled_hand == settling_hand:
-					_dice_settle_at = 0
-					_sync())
 	## A pick outlives its reroll; a die that came back locked drops out of it, and the whole
 	## pick is let go once there are no rerolls left to spend on it.
 	var movable: Array = DeepDice.rerollable(unit.get("hand", [])) if int(unit.get("rerolls", 0)) > 0 or int(unit.get("flips", 0)) > 0 else []
@@ -621,23 +752,9 @@ func _sync() -> void:
 		foe_label.text = ("Final boss · " if bool(context.get("boss", false)) else "Warden · ") + foe_label.text
 	elif bool(state.get("elite", false)):
 		foe_label.text = "Elite · " + foe_label.text
-	if not unit.is_empty():
-		_sync_vitals(unit)
-		var effects: Array = EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
-		var passive: Dictionary = unit.get("passive", {})
-		if not str(passive.get("text", "")).is_empty():
-			effects.append(EffectChips.entry("passive", "spark", "", true, str(passive.get("name", DeepContent.character_title(str(unit.get("character", ""))))), str(passive.text), DeepUi.ACCENT))
-		_effects.show_effects(effects)
-		## While a turn resolves the rail's own events count the Resonance up, sparks and all.
-		if planning and (_battery_tween == null or not _battery_tween.is_running()):
-			_show_resonance(int(forecast.get("totals", {}).get("resonance", 0)))
-		elif not planning and (_headless or str(state.get("phase", "")) != "resolving"):
-			_show_resonance(int(unit.get("resonance", 0)))
 	_fight_effects.show_effects(EffectChips.for_battle(state))
-	_sync_rail(unit, planning)
-	_sync_tray(unit, planning)
-	_sync_forecast()
-	_sync_allies()
+	_sync_pages(planning)
+	_sync_tabs()
 	_sync_plates()
 	_sync_enemy_panel()
 	var locked: bool = bool(unit.get("locked", false))
@@ -698,13 +815,745 @@ func _sync() -> void:
 		else:
 			_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
 
+# --- the party: a page each, and a tab each -----------------------------------------------------
+
+class Page extends RefCounted:
+	## One player's page of the dock: their health and Resonance, their rail, their tray and
+	## what their hand would do. Every player in the fight has one, built once and kept up to
+	## date whether it is shown or not, so turning to it is only a matter of showing it.
+	var id: String = ""
+	var mine: bool = false
+	var root: Control = null
+	var hp_bar: DeepUi.Bar
+	var status_row: HBoxContainer
+	var status_block: int = -1
+	var resonance_box: HBoxContainer
+	var resonance_value: Label
+	var resonance_token: int = 0
+	var battery_tween: Tween
+	var rail_box: HBoxContainer
+	var socket_cards: Array = []
+	var rail_shape: String = ""
+	var birthstone_card: VBoxContainer = null
+	var birthstone_key: String = ""
+	var hand_title: Label
+	var hint: Label
+	var tray_box: HBoxContainer
+	var dice_views: Dictionary = {}
+	var phantom_box: HBoxContainer
+	var phantom_key: String = ""
+	var phantom_views: Dictionary = {}
+	var rolled_hand: String = ""
+	var dice_settle_at: int = 0
+	## Another player's page only: what they are doing, where the reader's buttons are.
+	var mate_state: HBoxContainer
+	var mate_key: String = ""
+	var would_title: Label
+	var forecast_box: VBoxContainer
+	var forecast_key: String = ""
+	var dealt_box: HBoxContainer
+	var dealt_label: Label
+	var turn_dealt: int = 0
+	## The rail's last gem that fired this turn, for the bow drawn when the next one rings
+	## with it; -1 after a fizzle or as a rail begins.
+	var last_fired: int = -1
+	var forecast: Dictionary = {}
+	var held_forecast: Dictionary = {}
+	## What another player's forecast was worked out from: "turn|hand", or "turn|held".
+	var forecast_for: String = ""
+	var outcomes: Dictionary = {}
+	var birth_outcome: Dictionary = {}
+
+func _all_pages() -> Array:
+	return [_local_page] + _pages.values()
+
+func _page_for(id: String) -> Page:
+	return _local_page if id == local_id else _pages.get(id, null)
+
+func _shown_owner() -> String:
+	return local_id if _shown_id.is_empty() else _shown_id
+
+func _is_shown(id: String) -> bool:
+	return id == _shown_owner()
+
+func _is_player(id: String) -> bool:
+	return not id.is_empty() and not DeepBattle.player(state, id).is_empty()
+
+func _party() -> bool:
+	return state.get("players", []).size() > 1
+
+func _seat_color(id: String) -> Color:
+	## A player's color wherever the party is drawn: the map's dots, the vein's picks, their tab.
+	var players: Array = state.get("players", [])
+	for index in range(players.size()):
+		if str(players[index].get("id", "")) == id:
+			return ShaftMap.SEATS[int(players[index].get("seat", index)) % ShaftMap.SEATS.size()]
+	return DeepUi.INFO
+
+func _on_page(page: Page, work: Callable) -> void:
+	## Does something on another player's page: what reads `_page` reads theirs meanwhile.
+	var was: Page = _page
+	_page = page
+	work.call()
+	_page = was
+
+func _sync_pages(planning: bool) -> void:
+	## Every player's page is kept up to date, shown or not: a tray out of sight still turns its
+	## dice over as they are rerolled (silently, and drawing nothing), so the next page turned
+	## to is already right. Pages of players who have left go with them.
+	var present: Dictionary = {}
+	for unit in state.get("players", []):
+		var id: String = str(unit.get("id", ""))
+		var page: Page = _page_for(id)
+		if page == null:
+			page = Page.new()
+			page.id = id
+			_build_page(page)
+			_pages[id] = page
+		page.id = id
+		present[id] = true
+		_sync_page(page, unit, planning)
+	for id in _pages.keys():
+		if not present.has(id):
+			var gone: Page = _pages[id]
+			if gone.root != null and is_instance_valid(gone.root):
+				gone.root.queue_free()
+			_pages.erase(id)
+	if not present.has(_shown_owner()):
+		_shown_id = ""
+	_apply_shown()
+
+func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
+	var was: Page = _page
+	_page = page
+	## While the dice are still tumbling nothing on the rail is lit: the forecast is known the
+	## instant the roll is, and a gem that came on a beat before its dice landed gave the
+	## answer away. The rail is told again the moment they settle.
+	var rolled: String = ",".join(unit.get("hand", []).map(func(r: Dictionary) -> String: return "%s:%d:%s" % [str(r.get("die_id", "")), int(r.get("value", 0)), str(r.get("rerolls", 0))]))
+	if rolled != _rolled_hand:
+		_rolled_hand = rolled
+		if not _headless and is_inside_tree() and planning:
+			_dice_settle_at = Time.get_ticks_msec() + int(DiceView.SPIN_SECONDS * 1000.0) + 60
+			var settling_hand: String = rolled
+			var settling: Page = page
+			get_tree().create_timer(DiceView.SPIN_SECONDS + 0.09).timeout.connect(func() -> void:
+				if is_instance_valid(self) and not state.is_empty() and settling.rolled_hand == settling_hand:
+					settling.dice_settle_at = 0
+					_sync())
+	if not page.mine:
+		_mate_forecast(page, unit, planning, rolled)
+	_sync_vitals(unit)
+	## While a turn resolves the rail's own events count the Resonance up, sparks and all.
+	if planning and (_battery_tween == null or not _battery_tween.is_running()):
+		_show_resonance(int(forecast.get("totals", {}).get("resonance", 0)))
+	elif not planning and (_headless or str(state.get("phase", "")) != "resolving"):
+		_show_resonance(int(unit.get("resonance", 0)))
+	_sync_rail(unit, planning)
+	_sync_tray(unit, planning)
+	_sync_forecast(unit)
+	if not page.mine:
+		_sync_mate_state(page, unit, planning)
+	_page = was
+
+func _mate_forecast(page: Page, unit: Dictionary, planning: bool, rolled: String) -> void:
+	## Another player's "this hand would", read here off the fight as it stands, the same way
+	## their own screen reads it for them: again only when their hand changes, and held still
+	## through a resolving turn as the reader's own is.
+	var turn: String = str(int(state.get("turn", 0)))
+	if planning:
+		var key: String = "%s|%s|%d" % [turn, rolled, unit.get("rail", []).size()]
+		if page.forecast_for != key:
+			page.forecast_for = key
+			page.forecast = DeepBattle.forecast(state, page.id)
+			page.held_forecast = page.forecast
+	elif not page.forecast_for.begins_with(turn + "|"):
+		page.forecast_for = turn + "|held"
+		page.forecast = DeepBattle.forecast(state, page.id)
+		page.held_forecast = page.forecast
+
+func _sync_mate_state(page: Page, unit: Dictionary, planning: bool) -> void:
+	## Another player's page has no buttons: in their place, whether they are still choosing or
+	## locked in, and how many rerolls they have left to spend.
+	var who: String = str(unit.get("name", ""))
+	page.hand_title.text = "%s's hand" % who
+	page.hint.text = "" if planning else "Resolving…  click or [Space] to hurry"
+	var downed: bool = bool(unit.get("downed", false))
+	var locked: bool = bool(unit.get("locked", false))
+	var away: bool = not bool(unit.get("connected", true))
+	var rerolls: int = int(unit.get("rerolls", 0))
+	var key: String = "%s|%s|%s|%s|%d" % [planning, downed, locked, away, rerolls]
+	if key == page.mate_key:
+		return
+	page.mate_key = key
+	DeepUi.clear(page.mate_state)
+	if downed:
+		DeepUi.pill(page.mate_state, "skull", "Down", DeepUi.BAD, 14, "%s is down. The party fights on." % who)
+		return
+	if away:
+		DeepUi.pill(page.mate_state, "wifi", "Away", DeepUi.MUTED, 14, "%s has lost the connection." % who)
+	elif locked or not planning:
+		DeepUi.pill(page.mate_state, "check", "Locked in", DeepUi.GOOD, 14, "%s has locked this hand in." % who)
+	else:
+		DeepUi.pill(page.mate_state, "hourglass", "Choosing", DeepUi.INFO, 14, "%s is still choosing what to reroll." % who)
+	if planning:
+		DeepUi.pill(page.mate_state, "reroll", "%d left" % rerolls, DeepUi.INFO if rerolls > 0 else DeepUi.DIM, 14,
+			"%s has %s left this turn." % [who, DeepUi.plural(rerolls, "reroll", "rerolls")])
+
+func _apply_shown() -> void:
+	## Only the page being looked at is shown, and the dock wears whose it is.
+	var shown: Page = _page_for(_shown_owner())
+	if shown == null:
+		shown = _local_page
+	for page in _all_pages():
+		if page.root != null and is_instance_valid(page.root):
+			page.root.visible = page == shown
+	if not _party():
+		_dress_dock(Color(DeepUi.LINE_HI, 0.8), false)
+	elif shown == _local_page:
+		_dress_dock(Color(DeepUi.ACCENT, 0.7), false)
+	else:
+		_dress_dock(_seat_color(shown.id), true)
+
+func _show_page(id: String) -> void:
+	## Puts a player's page in the dock. The turn does this by itself (whoever's rail is
+	## firing, then the reader again for the creatures and the next turn); a tab does it in
+	## between, for as long as the turn leaves it.
+	if id.is_empty():
+		id = local_id
+	if id == _shown_owner() or (id != local_id and not _pages.has(id)):
+		return
+	_shown_id = "" if id == local_id else id
+	_preview_count(-1)
+	_apply_shown()
+	if not state.is_empty():
+		_sync_tabs()
+	_reveal_page(_page_for(id))
+	_edge_light(_seat_tone(id), _tab_anchor(id))
+
+func _seat_tone(id: String) -> Color:
+	## A player's color in the party's own effects: gold for the reader, their seat for anyone else.
+	return DeepUi.ACCENT if id == local_id else _seat_color(id)
+
+func _reveal_page(page: Page) -> void:
+	## A page coming up: it fades in over a breath, and its stones and then its dice give a
+	## small jolt one after another, left to right, so the eye goes to whose rail is up now.
+	if _headless or page == null or page.root == null or not is_instance_valid(page.root) or not is_inside_tree():
+		return
+	var root: Control = page.root
+	root.modulate.a = 0.3
+	root.create_tween().tween_property(root, "modulate:a", 1.0, 0.2).set_trans(Tween.TRANS_SINE)
+	var things: Array = []
+	for card in page.socket_cards:
+		if card is Control and is_instance_valid(card) and not bool((card as Control).get_meta("badge", false)):
+			things.append(card)
+	if page.birthstone_card != null and is_instance_valid(page.birthstone_card):
+		things.append(page.birthstone_card)
+	for id in page.dice_views:
+		var view: Variant = page.dice_views[id]
+		if view is Control and is_instance_valid(view):
+			things.append(view)
+	var at: float = 0.0
+	for thing in things:
+		_later_do(at, _jolt.bind(weakref(thing)))
+		at += 0.028
+
+func _jolt(held: WeakRef) -> void:
+	var control: Control = held.get_ref() as Control
+	if control != null and control.is_visible_in_tree():
+		DeepUi.spring(control, 0.1, 3.0, 0.35)
+
+func _edge_light(tone: Color, from: Control) -> void:
+	## The dock's top edge lights up in the color of whoever's page has just come up, running
+	## out both ways from their tab and fading as it goes.
+	if _headless or ScreenFx.calm or _dock == null or not is_inside_tree():
+		return
+	if _edge_texture == null:
+		var ramp := Gradient.new()
+		ramp.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+		ramp.colors = PackedColorArray([Color(1, 1, 1, 0), Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
+		_edge_texture = GradientTexture2D.new()
+		_edge_texture.gradient = ramp
+		_edge_texture.width = 256
+		_edge_texture.height = 1
+	var dock: Rect2 = _dock.get_global_rect()
+	var centre: float = (from.get_global_rect().get_center().x if from != null else dock.get_center().x) - _hud.global_position.x
+	var y: float = dock.position.y - _hud.global_position.y
+	var add := CanvasItemMaterial.new()
+	add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	var strokes: Array = []
+	for thick in [5.0, 26.0]:
+		var stroke := TextureRect.new()
+		stroke.texture = _edge_texture
+		stroke.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		stroke.stretch_mode = TextureRect.STRETCH_SCALE
+		stroke.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stroke.material = add
+		stroke.modulate = Color(tone.lightened(0.35), 0.0)
+		_hud.add_child(stroke)
+		strokes.append(stroke)
+	var line: TextureRect = strokes[0]
+	var bloom: TextureRect = strokes[1]
+	var reach: float = dock.size.x * 0.95
+	var tween := line.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		var half: float = lerpf(40.0, reach, 1.0 - pow(1.0 - t, 3.0))
+		var alpha: float = (1.0 - t) * minf(1.0, t * 6.0)
+		line.position = Vector2(centre - half, y - 2.5)
+		line.size = Vector2(half * 2.0, 5.0)
+		line.modulate.a = alpha * 0.95
+		bloom.position = Vector2(centre - half * 0.8, y - 13.0)
+		bloom.size = Vector2(half * 1.6, 26.0)
+		bloom.modulate.a = alpha * 0.3, 0.0, 1.0, 0.5)
+	tween.tween_callback(bloom.queue_free)
+	tween.tween_callback(line.queue_free)
+
+func _baton(from: Control, to: Control, tone: Color) -> void:
+	## The turn passing from one rail to the next: a mote of light from the tab that has just
+	## fired arcs to the one firing now, and that tab jumps as it lands.
+	if _headless or to == null or not is_inside_tree():
+		return
+	var held: WeakRef = weakref(to)
+	var land := func() -> void:
+		var tab: Control = held.get_ref() as Control
+		if tab == null:
+			return
+		DeepUi.spring(tab, 0.16, 4.0, 0.45)
+		if not ScreenFx.calm:
+			DeepUi.burst(self, _center_of(tab), tone, 16, 130.0, 0.5)
+	if from == null or from == to or ScreenFx.calm:
+		land.call()
+		return
+	var a: Vector2 = _center_of(from)
+	var b: Vector2 = _center_of(to)
+	var top: Vector2 = (a + b) * 0.5 + Vector2(0, -36.0 - absf(b.x - a.x) * 0.12)
+	var mote := TextureRect.new()
+	mote.texture = DeepUi.glow_texture()
+	mote.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mote.size = Vector2(34, 34)
+	mote.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mote.modulate = tone.lightened(0.4)
+	mote.z_index = 46
+	var add := CanvasItemMaterial.new()
+	add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	mote.material = add
+	add_child(mote)
+	mote.position = a - mote.size * 0.5
+	mote.pivot_offset = mote.size * 0.5
+	var tween := mote.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		var eased: float = t * t * (3.0 - 2.0 * t)
+		mote.position = a.lerp(top, eased).lerp(top.lerp(b, eased), eased) - mote.size * 0.5
+		mote.scale = Vector2.ONE * lerpf(0.7, 1.15, sin(PI * t)), 0.0, 1.0, 0.3)
+	tween.tween_callback(land)
+	tween.tween_callback(mote.queue_free)
+
+func _tab_flash(id: String, tone: Color) -> void:
+	var tab: SeatTab = _tab_of(id)
+	if tab != null:
+		tab.flash(tone)
+
+func _pick_tab(id: String) -> void:
+	if (local_id if id.is_empty() else id) == _shown_owner():
+		return
+	DeepAudio.play("ui_tab", {"volume": 0.6})
+	_show_page(id)
+
+func _player_effects(unit: Dictionary) -> Array:
+	## A player's buffs and troubles over their tab. Block rides the health bars instead.
+	var effects: Array = EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
+	var passive: Dictionary = unit.get("passive", {})
+	if not str(passive.get("text", "")).is_empty():
+		effects.append(EffectChips.entry("passive", "spark", "", true, str(passive.get("name", DeepContent.character_title(str(unit.get("character", ""))))), str(passive.text), DeepUi.ACCENT))
+	return effects
+
+func _seat_status(unit: Dictionary) -> Array:
+	## What a player is doing, as the one mark on their tab: [glyph, tone, words].
+	var id: String = str(unit.get("id", ""))
+	if bool(unit.get("downed", false)):
+		return ["skull", DeepUi.BAD, "Down"]
+	if not bool(unit.get("connected", true)):
+		return ["wifi", DeepUi.DIM, "Away"]
+	match str(state.get("phase", "")):
+		"planning":
+			if bool(unit.get("locked", false)):
+				return ["check", DeepUi.GOOD, "Locked in"]
+			if Time.get_ticks_msec() < int(_rerolled_at.get(id, -REROLL_SHOWN_MS)) + REROLL_SHOWN_MS:
+				return ["reroll", DeepUi.INFO, "Rerolling"]
+			var left: int = int(unit.get("rerolls", 0))
+			return ["hourglass", DeepUi.MUTED, "Choosing · %s left" % DeepUi.plural(left, "reroll", "rerolls")]
+		"resolving":
+			if id == _firing_id:
+				return ["bolt", DeepUi.ACCENT_HI, "Firing"]
+			if _fired.has(id):
+				return ["check", DeepUi.MUTED, "Fired this turn"]
+			return ["hourglass", DeepUi.DIM, "Waiting to fire"]
+	return ["", DeepUi.MUTED, ""]
+
+func _sync_tabs() -> void:
+	## A tab a player, the reader's first and the rest in the order their rails fire, each with
+	## that player's buffs over it. A player alone has no one to turn to: their tab is put
+	## away and only the buffs stay, along the top of the dock.
+	if _tab_bar == null:
+		return
+	var players: Array = state.get("players", [])
+	var party: bool = players.size() > 1
+	var resolving: bool = str(state.get("phase", "")) == "resolving"
+	var turn: int = int(state.get("turn", 0))
+	var present: Dictionary = {}
+	var at: int = 1
+	for index in range(players.size()):
+		var unit: Dictionary = _shown(players[index])
+		var id: String = str(unit.get("id", ""))
+		var tab: SeatTab = _tab_of(id)
+		if tab == null:
+			tab = SeatTab.new(false)
+			tab.picked.connect(_pick_tab.bind(id))
+			tab.inspected.connect(func() -> void:
+				var member: Dictionary = DeepBattle.player(state, id)
+				if not member.is_empty():
+					Inspector.member(member))
+			_tab_bar.add_child(tab)
+			_tabs[id] = tab
+			if not _headless:
+				DeepUi.pop_in(tab)
+		present[id] = true
+		if id != local_id:
+			_tab_bar.move_child(tab, at)
+			at += 1
+		## A reroll spent, or a hand locked in, is seen landing on the tab.
+		var rerolls: int = int(unit.get("rerolls", 0))
+		var before: String = str(_seen_rerolls.get(id, ""))
+		if before.begins_with("%d|" % turn) and int(before.get_slice("|", 1)) > rerolls and str(state.get("phase", "")) == "planning":
+			_rerolled_at[id] = Time.get_ticks_msec()
+			tab.ping()
+			if not _headless and is_inside_tree():
+				get_tree().create_timer(float(REROLL_SHOWN_MS) / 1000.0 + 0.05).timeout.connect(func() -> void:
+					if is_instance_valid(self) and not state.is_empty():
+						_sync_tabs())
+		_seen_rerolls[id] = "%d|%d" % [turn, rerolls]
+		var locked: bool = bool(unit.get("locked", false))
+		if locked and not bool(_seen_locked.get(id, true)):
+			tab.ping()
+		_seen_locked[id] = locked
+		var character: String = DeepContent.character_title(str(unit.get("character", "")))
+		tab.update(unit, character, _seat_color(id), party and _is_shown(id), _seat_status(unit), index + 1 if resolving and party else 0, _player_effects(unit), party)
+	_tab_bar.move_child(_my_tab, 0)
+	for id in _tabs.keys():
+		if not present.has(id):
+			if is_instance_valid(_tabs[id]):
+				_tabs[id].queue_free()
+			_tabs.erase(id)
+	## Everyone else is in and the reader is not: their tab calls them back, and says so once.
+	var reader: Dictionary = me()
+	var calling: bool = party and str(state.get("phase", "")) == "planning" and not reader.is_empty() \
+		and not bool(reader.get("locked", false)) and not bool(reader.get("downed", false)) \
+		and players.all(func(p: Dictionary) -> bool: return str(p.get("id", "")) == local_id or bool(p.get("locked", false)) or bool(p.get("downed", false)) or not bool(p.get("connected", true)))
+	_my_tab.face.calling = calling
+	if calling and _called_turn != turn:
+		_called_turn = turn
+		_float_at(_my_tab.face, "The party is waiting on you", DeepUi.ACCENT_HI, 15)
+	## Alone, the buffs run along the top of the dock as they always have.
+	_my_tab.chips.custom_minimum_size.x = 0.0 if party else maxf(240.0, size.x - 300.0 - left_inset)
+
+func _tab_of(id: String) -> SeatTab:
+	if id == local_id:
+		return _my_tab
+	var tab: Variant = _tabs.get(id, null)
+	return tab as SeatTab if tab != null and is_instance_valid(tab) else null
+
+func _tab_anchor(id: String) -> Control:
+	## A player's tab, for what is said about them while their page is not the one up; null
+	## when there is none on screen (a player alone).
+	var tab: SeatTab = _tab_of(id)
+	return tab.face if tab != null and tab.face.is_visible_in_tree() else null
+
+func _vital_anchor(id: String) -> Control:
+	## Where what happens to a player's health is said: their health bar while their page is
+	## up, their tab while it is not.
+	var page: Page = _page_for(id)
+	if page != null and _is_shown(id) and page.hp_bar != null:
+		return page.hp_bar
+	return _tab_anchor(id)
+
+func _shown_anchor(control: Control) -> Control:
+	## A control on a page that is not up stands for nothing on the screen: what would be said
+	## over it is said over its player's tab instead.
+	if control == null or not is_instance_valid(control) or control.is_visible_in_tree() or not is_visible_in_tree():
+		return control
+	var at: Node = control
+	while at != null and at != _dock:
+		if at.has_meta("page"):
+			var page: Page = at.get_meta("page")
+			var tab: Control = _tab_anchor(local_id if page.mine else page.id)
+			return tab if tab != null else control
+		at = at.get_parent()
+	return control
+
+class SeatTab extends VBoxContainer:
+	## One player over the dock: their buffs and troubles, and under them the tab that puts
+	## their page in the dock. The reader's own is first, edged in gold and marked as theirs;
+	## everyone else's wears their seat color.
+	signal picked
+	signal inspected
+	const BG := Color(0.045, 0.056, 0.082, 0.9)
+	const BG_UP := Color(0.06, 0.075, 0.105, 1.0)
+	var mine: bool = false
+	var chips: EffectChips.Row
+	var face: TabFace
+	var _order: Label
+	var _disc: PanelContainer
+	var _initial: Label
+	var _name: Label
+	var _bar: DeepUi.Bar
+	var _status: TextureRect
+	var _status_key: String = ""
+	var _style_key: String = ""
+	var _was_up: bool = false
+	## The reroll mark turns for as long as the player is rerolling.
+	var _spin: Tween = null
+	func _init(is_mine: bool) -> void:
+		mine = is_mine
+		add_theme_constant_override("separation", 5)
+		alignment = BoxContainer.ALIGNMENT_END
+		size_flags_vertical = Control.SIZE_SHRINK_END
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chips = EffectChips.Row.new(18)
+		add_child(chips)
+		face = TabFace.new()
+		face.custom_minimum_size = Vector2(150, 0)
+		face.gui_input.connect(_face_input)
+		add_child(face)
+		var row := DeepUi.hbox(face, 7)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_order = DeepUi.label(row, "", 12, DeepUi.MUTED)
+		_order.visible = false
+		_disc = PanelContainer.new()
+		_disc.custom_minimum_size = Vector2(24, 24)
+		_disc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(_disc)
+		_initial = DeepUi.title(_disc, "", 15, DeepUi.INK, HORIZONTAL_ALIGNMENT_CENTER)
+		_initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		if mine:
+			var badge := PanelContainer.new()
+			var gold := DeepUi.flat(DeepUi.ACCENT, Color(0, 0, 0, 0), 3, 0)
+			gold.content_margin_left = 5
+			gold.content_margin_right = 5
+			gold.content_margin_top = 1
+			gold.content_margin_bottom = 1
+			badge.add_theme_stylebox_override("panel", gold)
+			badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			row.add_child(badge)
+			var you := DeepUi.label(badge, "YOU", 10, DeepUi.INK)
+			you.add_theme_font_override("font", DeepUi.caps_font())
+		var words := DeepUi.vbox(row, 4)
+		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_name = DeepUi.label(words, "", 14, DeepUi.PAPER)
+		_name.clip_text = true
+		_name.custom_minimum_size.x = 48
+		_bar = DeepUi.bar(words, 5.0)
+		_bar.warn = true
+		_bar.custom_minimum_size = Vector2(64, 5)
+		_status = DeepUi.icon(row, "hourglass", 18, DeepUi.MUTED)
+		_status.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _face_input(event: InputEvent) -> void:
+		if not (event is InputEventMouseButton and event.pressed):
+			return
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			picked.emit()
+			face.accept_event()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and not mine:
+			inspected.emit()
+			face.accept_event()
+	func update(unit: Dictionary, character: String, seat: Color, up: bool, status: Array, order: int, effects: Array, party: bool) -> void:
+		chips.show_effects(effects)
+		face.visible = party
+		if not party:
+			return
+		var who: String = str(unit.get("name", ""))
+		_name.text = who
+		_initial.text = who.substr(0, 1).to_upper()
+		var max_hp: int = maxi(1, int(unit.get("max_hp", 1)))
+		_bar.set_values(float(unit.get("hp", 0)) / float(max_hp), "", float(unit.get("block", 0)) / float(max_hp))
+		## As the turn starts resolving, the firing order is counted out along the tabs.
+		if order > 0 and not _order.visible and not DeepUi.headless():
+			var count := _order.create_tween()
+			count.tween_interval(0.08 * float(order))
+			count.tween_callback(func() -> void: DeepUi.pulse(_order, 1.8, 0.3))
+		_order.visible = order > 0
+		_order.text = str(order)
+		_order.add_theme_color_override("font_color", seat)
+		var key: String = "%s|%s" % [up, seat.to_html()]
+		if key != _style_key:
+			var rising: bool = up and not _was_up and not _style_key.is_empty()
+			_style_key = key
+			face.add_theme_stylebox_override("panel", _style(up, seat))
+			var circle := DeepUi.flat(seat, Color(0, 0, 0, 0), 12, 0)
+			circle.corner_detail = 10
+			_disc.add_theme_stylebox_override("panel", circle)
+			face.stripe = DeepUi.ACCENT if mine else seat
+			face.up = up
+			face.queue_redraw()
+			if rising:
+				DeepUi.pulse(face, 1.05, 0.28)
+		_was_up = up
+		var glyph: String = str(status[0])
+		var status_key: String = "%s|%s" % [glyph, (status[1] as Color).to_html()]
+		if status_key != _status_key:
+			var changed: bool = not _status_key.is_empty()
+			_status_key = status_key
+			_status.visible = not glyph.is_empty()
+			if not glyph.is_empty():
+				_status.texture = GemIcons.texture(glyph, GemIcons.baked_size(27.0))
+				_status.modulate = status[1]
+				if changed:
+					_status_changed(glyph, status[1])
+			_spin_status(glyph == "reroll")
+		face.firing = glyph == "bolt"
+		var lines: Array = [who if character.is_empty() else "%s · %s" % [who, character]]
+		if not str(status[2]).is_empty():
+			lines.append(str(status[2]))
+		lines.append("Your rail and dice." if mine else "Click to see their rail and dice. Right-click for their bag.")
+		face.tooltip_text = "\n".join(lines)
+		face.modulate = Color(1, 1, 1, 0.6) if bool(unit.get("downed", false)) else Color.WHITE
+	func _style(up: bool, seat: Color) -> StyleBoxFlat:
+		## The tab that is up is the dock's own color and lies over its edge, so the two read
+		## as one piece; the rest sit behind it, darker.
+		var edge: Color = DeepUi.ACCENT if mine else seat
+		var style := DeepUi.flat(BG_UP if up else BG, Color(edge, 0.85) if up else Color(DeepUi.LINE_HI, 0.6), 12, 8, 2 if up and not mine else 1)
+		style.corner_radius_bottom_left = 0
+		style.corner_radius_bottom_right = 0
+		style.border_width_bottom = 0
+		style.content_margin_left = 9
+		style.content_margin_right = 10
+		style.content_margin_top = 10 if up else 6
+		style.content_margin_bottom = 7
+		if up:
+			style.expand_margin_bottom = 3
+		return style
+	func _status_changed(glyph: String, tone: Color) -> void:
+		## A new mark on the tab pops as it lands; locking in, starting to fire and going down
+		## each throw a few sparks of their own color, so a glance along the tabs catches them.
+		if DeepUi.headless() or not face.is_visible_in_tree():
+			return
+		DeepUi.pulse(_status, 1.55, 0.36)
+		if glyph in ["check", "bolt", "skull"] and tone != DeepUi.MUTED and not ScreenFx.calm:
+			DeepUi.burst(face, _status.get_global_rect().get_center() - face.global_position, tone, 12, 110.0, 0.45, 4.0)
+	func _spin_status(on: bool) -> void:
+		if on == (_spin != null):
+			return
+		if _spin != null:
+			_spin.kill()
+			_spin = null
+			_status.rotation = 0.0
+		if on and not DeepUi.headless():
+			_status.pivot_offset = _status.custom_minimum_size * 0.5
+			_spin = _status.create_tween().set_loops()
+			_spin.tween_property(_status, "rotation", TAU, 0.7).from(0.0)
+	func brace(share: float) -> void:
+		## What a creature's blow being counted would take off them, pulsing on their health line.
+		_bar.preview = share
+	func ping() -> void:
+		## A reroll spent or a hand locked in: the player's mark jumps.
+		if not DeepUi.headless():
+			DeepUi.pulse(_disc, 1.3, 0.35)
+	func flash(tone: Color) -> void:
+		## Guarded or healed while their page is not up: the tab washes over in that color and
+		## its health line swells.
+		if DeepUi.headless() or not face.visible:
+			return
+		face.self_modulate = Color.WHITE.lerp(Color(tone.r * 1.9, tone.g * 1.9, tone.b * 1.9), 0.55)
+		face.create_tween().tween_property(face, "self_modulate", Color.WHITE, 0.45)
+		DeepUi.pulse(_bar, 1.2, 0.3)
+	func hurt() -> void:
+		if DeepUi.headless() or not face.visible:
+			return
+		DeepUi.shake(face, 8.0, 0.35)
+		var tween := face.create_tween()
+		face.self_modulate = Color(1.6, 0.6, 0.6)
+		tween.tween_property(face, "self_modulate", Color.WHITE, 0.4)
+
+class TabFace extends PanelContainer:
+	## A tab itself: a stripe of its player's color along the top, a lift under the pointer,
+	## and a glow round it that breathes while their rail is firing, or, slower and gold, on
+	## the reader's own tab while the rest of the party waits on them. Both are held steady
+	## for anyone who asked for fewer flashes.
+	var stripe: Color = DeepUi.ACCENT
+	var up: bool = false:
+		set(value):
+			up = value
+			queue_redraw()
+	var firing: bool = false:
+		set(value):
+			if value == firing:
+				return
+			firing = value
+			_clock = 0.0
+			_awake()
+	var calling: bool = false:
+		set(value):
+			if value == calling:
+				return
+			calling = value
+			_awake()
+	var _hovered: bool = false
+	var _clock: float = 0.0
+	var _halo: StyleBoxFlat
+	var _lift: StyleBoxFlat
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		## The glow is the tab's own outline drawn again a little outside it, cut the same way.
+		_halo = DeepUi.flat(Color(0, 0, 0, 0), Color.WHITE, 13, 0, 2)
+		_halo.draw_center = false
+		_halo.border_width_bottom = 0
+		_halo.corner_radius_bottom_left = 0
+		_halo.corner_radius_bottom_right = 0
+		_halo.set_expand_margin_all(3)
+		_halo.expand_margin_bottom = 0
+		_halo.shadow_size = 8
+		_lift = DeepUi.flat(Color(1, 1, 1, 0.07), Color(0, 0, 0, 0), 12, 0)
+		_lift.corner_radius_bottom_left = 0
+		_lift.corner_radius_bottom_right = 0
+		mouse_entered.connect(func() -> void:
+			_hovered = true
+			queue_redraw())
+		mouse_exited.connect(func() -> void:
+			_hovered = false
+			queue_redraw())
+		_awake()
+	func _awake() -> void:
+		set_process(firing or calling)
+		queue_redraw()
+	func _process(delta: float) -> void:
+		_clock += delta
+		queue_redraw()
+	func _draw() -> void:
+		var lit: bool = _hovered and not up
+		if lit and _lift != null:
+			draw_style_box(_lift, Rect2(Vector2.ZERO, size))
+		draw_rect(Rect2(Vector2(10, 0), Vector2(maxf(0.0, size.x - 20.0), 3.0)), stripe.lightened(0.3) if lit else stripe)
+		if (firing or calling) and _halo != null:
+			var glow: float
+			var tone: Color = stripe
+			if firing:
+				glow = 0.75 if ScreenFx.calm else 0.5 + 0.4 * sin(_clock * 5.0)
+			else:
+				tone = DeepUi.ACCENT_HI
+				glow = 0.6 if ScreenFx.calm else 0.25 + 0.5 * (0.5 + 0.5 * sin(_clock * 2.6))
+			_halo.border_color = Color(tone, glow)
+			_halo.shadow_color = Color(tone, glow * 0.35)
+			draw_style_box(_halo, Rect2(Vector2.ZERO, size))
+
 func _sync_vitals(unit: Dictionary) -> void:
 	## The health bar and the block beside it, as they should read: a guard or a heal still
 	## being counted out has not arrived yet.
 	var shown: Dictionary = _shown(unit)
 	var ratio: float = float(shown.hp) / float(maxi(1, int(shown.max_hp)))
 	_hp_bar.set_values(ratio, "%d / %d" % [int(shown.hp), int(shown.max_hp)], float(shown.block) / float(maxi(1, int(shown.max_hp))))
-	if _screen_fx != null:
+	if _screen_fx != null and str(unit.get("id", "")) == local_id:
 		_screen_fx.danger = clampf((0.3 - ratio) / 0.3, 0.0, 1.0) if not bool(shown.get("downed", false)) else 0.0
 	if int(shown.block) != _status_block:
 		_status_block = int(shown.block)
@@ -733,7 +1582,7 @@ func _hold_vitals(effects: Array) -> void:
 	var moved: Dictionary = {}
 	_vital_moves(effects, moved)
 	for id in moved:
-		var unit: Dictionary = me() if str(id) == local_id else DeepBattle.enemy(state, str(id))
+		var unit: Dictionary = DeepBattle.player(state, str(id)) if _is_player(str(id)) else DeepBattle.enemy(state, str(id))
 		if unit.is_empty():
 			continue
 		var change: Array = moved[id]
@@ -758,11 +1607,11 @@ func _vital_moves(effects: Array, into: Dictionary) -> void:
 			"appraise":
 				_vital_moves(effect.get("hits", []), into)
 			"block":
-				if str(effect.get("target", "")) == local_id:
-					_vital_move(into, local_id, 0, -int(effect.get("amount", 0)))
+				if _is_player(str(effect.get("target", ""))):
+					_vital_move(into, str(effect.target), 0, -int(effect.get("amount", 0)))
 			"heal", "revive":
-				if str(effect.get("target", "")) == local_id:
-					_vital_move(into, local_id, -int(effect.get("healed", effect.get("amount", 0))), 0)
+				if _is_player(str(effect.get("target", ""))):
+					_vital_move(into, str(effect.target), -int(effect.get("healed", effect.get("amount", 0))), 0)
 		_vital_moves(effect.get("poison_spread", []), into)
 
 static func _vital_move(into: Dictionary, id: String, hp: int, block: int) -> void:
@@ -780,10 +1629,13 @@ func _land_vitals(id: String, hp: int, block: int) -> void:
 	held.landings = int(held.landings) - 1
 	if int(held.landings) <= 0:
 		_held.erase(id)
-	if id == local_id:
-		var unit: Dictionary = me()
-		if not unit.is_empty():
-			_sync_vitals(unit)
+	if _is_player(id):
+		## That player's bars: on their page, and on their tab.
+		var unit: Dictionary = DeepBattle.player(state, id)
+		var page: Page = _page_for(id)
+		if page != null:
+			_on_page(page, _sync_vitals.bind(unit))
+		_sync_tabs()
 	else:
 		_sync_plates()
 
@@ -817,40 +1669,44 @@ func _resonance_color(value: int) -> Color:
 		return DeepUi.DIM
 	return DeepUi.ACCENT.lerp(Color("ff6a3a"), clampf(float(value - 1) / 6.0, 0.0, 1.0))
 
-func _show_resonance(value: int) -> void:
-	_resonance_token += 1
-	_resonance_value.text = str(value)
-	_resonance_value.add_theme_color_override("font_color", _resonance_color(value))
+func _show_resonance(value: int, page: Page = null) -> void:
+	## A page's Resonance count: the one being drawn on, unless one is named.
+	var on: Page = page if page != null else _page
+	on.resonance_token += 1
+	on.resonance_value.text = str(value)
+	on.resonance_value.add_theme_color_override("font_color", _resonance_color(value))
 
 func _charge_resonance(amount: int) -> void:
-	## The battery empties into the counter at turn start; never one particle per stack.
-	if _battery_tween != null and _battery_tween.is_valid():
-		_battery_tween.kill()
+	## The battery empties into the counter at turn start; never one particle per stack. Only
+	## the reader's own battery is played out like this.
+	var page: Page = _local_page
+	if page.battery_tween != null and page.battery_tween.is_valid():
+		page.battery_tween.kill()
 	if _headless:
-		_show_resonance(amount)
+		_show_resonance(amount, page)
 		return
-	_show_resonance(0)
-	var token: int = _resonance_token
-	DeepAudio.from(_resonance_box, "resonance", {"volume": 0.8, "pitch": 0.9})
-	_float_at(_resonance_box, "+%d Charged" % amount, DeepUi.ACCENT_HI, 20)
-	DeepUi.burst(self, _center_of(_resonance_box), DeepUi.ACCENT_HI, 20, 100.0, 0.55)
-	_battery_tween = create_tween()
-	_battery_tween.tween_method(func(value: float) -> void:
-		if token == _resonance_token:
-			_resonance_value.text = str(int(round(value)))
-			_resonance_value.add_theme_color_override("font_color", _resonance_color(int(round(value)))), 0.0, float(amount), 0.6)
-	_battery_tween.tween_callback(func() -> void:
-		if token == _resonance_token:
-			_show_resonance(amount)
-			DeepUi.pulse(_resonance_box, 1.2, 0.25))
+	_show_resonance(0, page)
+	var token: int = page.resonance_token
+	DeepAudio.from(page.resonance_box, "resonance", {"volume": 0.8, "pitch": 0.9})
+	_float_at(page.resonance_box, "+%d Charged" % amount, DeepUi.ACCENT_HI, 20)
+	DeepUi.burst(self, _center_of(page.resonance_box), DeepUi.ACCENT_HI, 20, 100.0, 0.55)
+	page.battery_tween = create_tween()
+	page.battery_tween.tween_method(func(value: float) -> void:
+		if token == page.resonance_token:
+			page.resonance_value.text = str(int(round(value)))
+			page.resonance_value.add_theme_color_override("font_color", _resonance_color(int(round(value)))), 0.0, float(amount), 0.6)
+	page.battery_tween.tween_callback(func() -> void:
+		if token == page.resonance_token:
+			_show_resonance(amount, page)
+			DeepUi.pulse(page.resonance_box, 1.2, 0.25))
 
-func _resonance_flight(card: Control, value: int, gain: int, color: Color, harmony: bool) -> void:
-	## A gem that fires throws sparks of its own color up to the Resonance count, and the
-	## number only ticks over when they land, so the chain is seen building gem by gem.
-	var token: int = _resonance_token + 1
-	_resonance_token = token
+func _resonance_flight(page: Page, card: Control, value: int, gain: int, color: Color, harmony: bool) -> void:
+	## A gem that fires throws sparks of its own color up to its rail's Resonance count, and
+	## the number only ticks over when they land, so the chain is seen building gem by gem.
+	var token: int = page.resonance_token + 1
+	page.resonance_token = token
 	var from: Vector2 = _center_of(card)
-	var to: Vector2 = _center_of(_resonance_box)
+	var to: Vector2 = _center_of(page.resonance_box)
 	var count: int = clampi(4 + 3 * gain, 6, 16)
 	var flight: float = 0.42
 	for index in range(count):
@@ -875,14 +1731,14 @@ func _resonance_flight(card: Control, value: int, gain: int, color: Color, harmo
 	var land := create_tween()
 	land.tween_interval(flight + 0.03 * float(count - 1) * 0.5)
 	land.tween_callback(func() -> void:
-		if token != _resonance_token:
+		if token != page.resonance_token:
 			return
-		_show_resonance(value)
-		DeepUi.spring(_resonance_box, 0.3, 6.0, 0.45)
-		DeepUi.burst(self, to, _resonance_color(value), 10 + 2 * gain, 110.0, 0.4, 4.0)
+		_show_resonance(value, page)
+		DeepUi.spring(page.resonance_box, 0.3, 6.0, 0.45)
+		DeepUi.burst(self, _center_of(page.resonance_box), _resonance_color(value), 10 + 2 * gain, 110.0, 0.4, 4.0)
 		if harmony:
-			DeepAudio.from(_resonance_box, "harmony", {"volume": 0.7})
-			_float_at(_resonance_box, "+%d harmony" % gain, DeepUi.ACCENT_HI, 15))
+			DeepAudio.from(page.resonance_box, "harmony", {"volume": 0.7 if page.mine else 0.5})
+			_float_at(page.resonance_box, "+%d harmony" % gain, DeepUi.ACCENT_HI, 15))
 
 func _sync_rail(unit: Dictionary, planning: bool) -> void:
 	## Lit while the hand is chosen and on through the resolution it was locked in for, and
@@ -998,7 +1854,8 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				picture.name = "Gem"
 				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 2)
 				var fate: String = "Made by an Echo: it lasts as long as the fight does." if bool(stone.get("temporary", false)) \
-					else "Fragile: shatters at the end of the run."
+					else ("The Hollow made it Void: it takes a socket again when the run ends." if not DeepStone.is_fragile(stone) \
+					else "Fragile: shatters at the end of the run.")
 				picture.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. %s" % [DeepStone.name(stone), DeepStone.text(stone), int(place.socket) + 1, fate]
 				slot.add_child(picture)
 			elif stone is Dictionary:
@@ -1047,7 +1904,8 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			if ring != null:
 				ring.set_ready(active and showing)
 				var lit: bool = active and showing
-				if lit and planning and not bool(card.get_meta("lit", false)) and not _headless:
+				## Only the reader's own rail ticks as it wakes: it answers what they rolled.
+				if lit and planning and not bool(card.get_meta("lit", false)) and not _headless and _page.mine:
 					if waking == null:
 						waking = Tally.Chain.new()
 						waking.reset()
@@ -1071,8 +1929,10 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			if not bool(card.get_meta("dice_link_wired", false)):
 				card.set_meta("dice_link_wired", true)
 				var linked: Control = card
-				card.mouse_entered.connect(func() -> void: _light_dice_for(int(linked.get_meta("flat", -1))))
-				card.mouse_exited.connect(func() -> void: _light_dice_for(-1))
+				## On whichever page the card is: another player's gems answer the pointer too.
+				var on: Page = _page
+				card.mouse_entered.connect(func() -> void: _on_page(on, _light_dice_for.bind(int(linked.get_meta("flat", -1)))))
+				card.mouse_exited.connect(func() -> void: _on_page(on, _light_dice_for.bind(-1)))
 			_sync_raised(unit, card, stone)
 			var blocked: bool = DeepPatch.holds(unit.get("buried", []), socket) or DeepPatch.holds(unit.get("clouded", []), socket)
 			## A gem this hand leaves dark steps back, so the ones it fires stand out at a glance
@@ -1108,13 +1968,14 @@ func _preview_count(socket: int) -> void:
 	var tally: Dictionary = entry.get("tally", {})
 	if not bool(entry.get("active", false)) or not tally.has("amount"):
 		return
+	var whose: String = local_id if _page.mine else _page.id
 	var plate := Tally.new()
-	plate.color = _stone_color(local_id, socket, str(entry.get("skill", "")))
+	plate.color = _stone_color(whose, socket, str(entry.get("skill", "")))
 	var said: String = str(DeepContent.skill(str(entry.get("skill", ""))).get("name", ""))
 	if int(entry.get("fires", 1)) > 1:
 		said += " · fires %d times" % int(entry.fires)
 	plate.caption = said
-	plate.gem_anchor = _gem_card.bind(local_id, socket)
+	plate.gem_anchor = _gem_card.bind(whose, socket)
 	plate.ceiling = _dock_top
 	add_child(plate)
 	plate.show_sum(tally)
@@ -1418,6 +2279,9 @@ func _sync_phantoms(unit: Dictionary) -> void:
 				more.accept_event())
 
 func _sync_tray(unit: Dictionary, planning: bool) -> void:
+	## The reader's own dice are theirs to pick; anyone else's are only to look at.
+	var mine: bool = _page.mine
+	var owner_id: String = str(unit.get("id", ""))
 	_sync_phantoms(unit)
 	var hand: Array = unit.get("hand", [])
 	var by_id: Dictionary = {}
@@ -1442,6 +2306,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 			view.position = Vector2.ZERO
 			view.size = Vector2(DIE_EDGE, DIE_EDGE)
 			view.custom_minimum_size = Vector2(DIE_EDGE, DIE_EDGE)
+			view.hush = 1.0 if mine else 0.6
 			holder.add_child(view)
 			var value := DeepUi.label(holder, "", 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 			value.position = Vector2(0, DIE_EDGE + 2)
@@ -1453,21 +2318,23 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 					value.text = DiceIcons.face_text(total, "exploding").strip_edges()
 					if not _headless:
 						DeepUi.pulse(value, 1.25, 0.2))
-			var key_hint := DeepUi.label(holder, str(index), 10, DeepUi.DIM)
-			key_hint.position = Vector2(4, 2)
+			if mine:
+				var key_hint := DeepUi.label(holder, str(index), 10, DeepUi.DIM)
+				key_hint.position = Vector2(4, 2)
 			var hit := Button.new()
 			hit.flat = true
 			hit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			for style in ["normal", "hover", "pressed", "focus", "disabled"]:
 				hit.add_theme_stylebox_override(style, StyleBoxEmpty.new())
-			hit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			hit.pressed.connect(_toggle_die.bind(id))
+			if mine:
+				hit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+				hit.pressed.connect(_toggle_die.bind(id))
 			hit.mouse_entered.connect(func() -> void: view.set_highlight(true))
 			hit.mouse_exited.connect(func() -> void: view.set_highlight(false))
-			hit.tooltip_text = "Left-click to choose it for a reroll. Right-click for everything about it."
+			hit.tooltip_text = "Left-click to choose it for a reroll. Right-click for everything about it." if mine else "Right-click for everything about this die."
 			hit.gui_input.connect(func(event: InputEvent) -> void:
 				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-					_inspect_die(id)
+					_inspect_die(id, owner_id)
 					hit.accept_event())
 			holder.add_child(hit)
 			_dice_views[id] = view
@@ -1478,7 +2345,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		var view: DiceView = _dice_views[id]
 		var tagged: Dictionary = roll.duplicate(true)
 		tagged.turn_tag = str(state.get("turn", 0))
-		var can_select: bool = planning and not bool(unit.get("locked", false)) and not bool(roll.get("locked", false))
+		var can_select: bool = mine and planning and not bool(unit.get("locked", false)) and not bool(roll.get("locked", false))
 		var chosen: bool = selected.has(id) and can_select
 		view.configure(by_id.get(id, {"shape": roll.shape, "material": str(roll.get("material", "")), "faces": []}), tagged, chosen, false, DeepUi.ACCENT)
 		var lift: float = -10.0 if chosen else 0.0
@@ -1499,11 +2366,21 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 			words += "  ↻"
 		value.text = words.strip_edges()
 		value.add_theme_color_override("font_color", DeepUi.ACCENT if chosen else DeepUi.MUTED)
+	## A hand locked in while the rest of the party still chooses settles back a shade: these
+	## dice are final. They come up bright again for the turn to count them.
+	var settled: Color = Color(0.74, 0.76, 0.86) if planning and bool(unit.get("locked", false)) else Color.WHITE
+	if not _tray_box.has_meta("tone") or Color(_tray_box.get_meta("tone")) != settled:
+		var was_set: bool = _tray_box.has_meta("tone")
+		_tray_box.set_meta("tone", settled)
+		if _headless or not was_set or not _tray_box.is_inside_tree():
+			_tray_box.modulate = settled
+		else:
+			_tray_box.create_tween().tween_property(_tray_box, "modulate", settled, 0.25).set_trans(Tween.TRANS_SINE)
 
-func _sync_forecast() -> void:
+func _sync_forecast(unit: Dictionary) -> void:
 	## Held still through a whole resolving turn, so it is rebuilt only when it changes.
 	var totals: Dictionary = forecast.get("totals", {})
-	var key: String = "%s#%d" % [str(totals), DeepRules.pyrite(me())]
+	var key: String = "%s#%d" % [str(totals), DeepRules.pyrite(unit)]
 	if key == _forecast_key and _forecast_box.get_child_count() > 0:
 		return
 	_forecast_key = key
@@ -1542,95 +2419,21 @@ func _sync_forecast() -> void:
 	DeepUi.stat(summary, "cross_out", str(fizzles), DeepUi.DIM if fizzles == 0 else DeepUi.BAD, 13, "Gems that would fizzle")
 	DeepUi.stat(summary, "ore", ("+%d" % pyrite) if pyrite > 0 else ("−%d" % -pyrite if pyrite < 0 else "±0"),
 		DeepUi.ORE if pyrite > 0 else (DeepUi.BAD if pyrite < 0 else DeepUi.DIM), 13,
-		"Pyrite this hand would win (or spend), on top of the %d you have" % DeepRules.pyrite(me()))
+		"Pyrite this hand would win (or spend), on top of the %d %s" % [DeepRules.pyrite(unit), "you have" if _page.mine else "they have"])
 	DeepUi.spacer(summary)
 	DeepUi.stat(summary, "spark", str(int(totals.get("resonance", 0))), _resonance_color(int(totals.get("resonance", 0))), 13, "Resonance this hand would build")
-
-func _sync_allies() -> void:
-	var present: Dictionary = {}
-	for unit in state.get("players", []):
-		var id: String = str(unit.id)
-		if id == local_id:
-			continue
-		present[id] = true
-		var card: AllyCard = _ally_cards.get(id, null)
-		if card == null or not is_instance_valid(card):
-			card = AllyCard.new()
-			_ally_box.add_child(card)
-			_ally_cards[id] = card
-			DeepUi.pop_in(card)
-		card.update(unit, str(state.get("phase", "")) == "planning")
-	for id in _ally_cards.keys():
-		if not present.has(id):
-			if is_instance_valid(_ally_cards[id]):
-				_ally_cards[id].queue_free()
-			_ally_cards.erase(id)
-
-class AllyCard extends PanelContainer:
-	## Another player, compact: health, what they are doing, and the hand they rolled.
-	var _name: Label
-	var _note: Label
-	var _bar: DeepUi.Bar
-	var _hand: HBoxContainer
-	var _effects: EffectChips.Row
-	var _key: String = ""
-	var _unit: Dictionary = {}
-	func _init() -> void:
-		add_theme_stylebox_override("panel", DeepUi.raised(Color(0.06, 0.075, 0.105, 0.88), DeepUi.LINE, 12, 10, 0.4))
-		mouse_filter = Control.MOUSE_FILTER_STOP
-		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		tooltip_text = "Click to see their rail, their bag and their dice."
-		var box := DeepUi.vbox(self, 5)
-		var head := DeepUi.hbox(box, 6)
-		DeepUi.icon(head, "person", 16, DeepUi.INFO)
-		_name = DeepUi.label(head, "", 14, DeepUi.PAPER)
-		DeepUi.spacer(head)
-		_note = DeepUi.label(head, "", 11, DeepUi.MUTED)
-		## Tall enough to carry its number, and tinted as it runs low: an ally in trouble shows.
-		_bar = DeepUi.bar(box, 14.0)
-		_bar.warn = true
-		_hand = DeepUi.hbox(box, 3)
-		_effects = EffectChips.Row.new(13)
-		box.add_child(_effects)
-	func _gui_input(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and not _unit.is_empty():
-			load("res://view/inspect/inspector.gd").member(_unit)
-			accept_event()
-	func update(unit: Dictionary, planning: bool) -> void:
-		_unit = unit
-		_effects.show_effects(EffectChips.for_player(unit))
-		var who: String = str(DeepContent.character(str(unit.get("character", ""))).get("name", ""))
-		_name.text = str(unit.name) + ("" if who.is_empty() else " · " + who)
-		var note: String = "down" if bool(unit.get("downed", false)) else ("locked in" if bool(unit.get("locked", false)) else "choosing")
-		if not bool(unit.get("connected", true)):
-			note = "away"
-		if not planning and not bool(unit.get("downed", false)):
-			note = "resonance %d" % int(unit.get("resonance", 0))
-		_note.text = note
-		_note.add_theme_color_override("font_color", DeepUi.GOOD if note == "locked in" else (DeepUi.BAD if note == "down" else DeepUi.MUTED))
-		_bar.set_values(float(unit.hp) / float(maxi(1, int(unit.max_hp))), "%d" % int(unit.hp), float(unit.block) / float(maxi(1, int(unit.max_hp))))
-		var faces: Array = []
-		for roll in unit.get("hand", []):
-			if not bool(roll.get("phantom", false)):
-				faces.append("%d:%s" % [int(roll.value), str(roll.get("shape", "D6"))])
-		var key: String = ",".join(faces)
-		if key != _key:
-			_key = key
-			DeepUi.clear(_hand)
-			for roll in unit.get("hand", []):
-				if not bool(roll.get("phantom", false)):
-					_hand.add_child(DiceIcons.face(20, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true, DiceIcons.face_text(int(roll.value), str(roll.get("kind", "plain")))))
-		modulate = Color(1, 1, 1, 0.55) if bool(unit.get("downed", false)) else Color.WHITE
-	func hurt() -> void:
-		DeepUi.shake(self, 8.0, 0.35)
-		var tween := create_tween()
-		self_modulate = Color(1.6, 0.6, 0.6)
-		tween.tween_property(self, "self_modulate", Color.WHITE, 0.4)
 
 func _sync_plates() -> void:
 	var present: Dictionary = {}
 	var target_id: String = str(me().get("target", ""))
 	var preview: int = int(forecast.get("totals", {}).get("damage", 0)) if str(state.get("phase", "")) == "planning" else 0
+	## The creature acting now, if one is: its plate is lit and the rest step back.
+	var acting: String = ""
+	if str(state.get("phase", "")) == "resolving":
+		for foe in state.get("enemies", []):
+			if bool(foe.get("acting", false)) and int(foe.get("hp", 0)) > 0:
+				acting = str(foe.id)
+				break
 	for truth in state.get("enemies", []):
 		## As its plate should read: health a count has not landed yet is still on it.
 		var foe: Dictionary = _shown(truth)
@@ -1653,6 +2456,7 @@ func _sync_plates() -> void:
 			_plates[id] = plate
 			DeepUi.pop_in(plate, 0.4)
 		plate.update(foe, state, local_id, target_id == id, preview if target_id == id else 0)
+		plate.set_spot(acting == id, not acting.is_empty() and acting != id)
 		_dress(_creature(id), foe)
 	for id in _plates.keys():
 		if not present.has(id):
@@ -1666,10 +2470,10 @@ func _soak(hit: Dictionary, creature: CrystalCreature, ratio: float) -> void:
 	var absorbed: int = int(hit.get("absorbed", 0))
 	var loss: int = int(hit.get("hp_loss", 0))
 	var plate := Tally.new()
-	plate.gem_anchor = func() -> Control: return _hp_bar
+	plate.gem_anchor = func() -> Control: return _vital_anchor(local_id)
 	plate.ceiling = _dock_top
 	plate.rumbles = true
-	plate.shield = func() -> Control: return _status_row if _status_row.get_child_count() > 0 else _hp_bar
+	plate.shield = func() -> Control: return _shown_anchor(_status_row if _status_row.get_child_count() > 0 else _hp_bar)
 	plate.on_soaked = func(block: int) -> void:
 		_land_vitals(local_id, 0, block)
 		DeepAudio.play("block", {"volume": 0.7, "gap": 0.0})
@@ -1704,6 +2508,10 @@ class Plate extends PanelContainer:
 	var _moves_key: String = ""
 	var _chip_key: String = ""
 	var _targeted: bool = false
+	## While a creature acts its plate is lit in the color of a blow and the others step back.
+	var _acting: bool = false
+	var _dimmed: bool = false
+	var _breath: Tween = null
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -1732,7 +2540,39 @@ class Plate extends PanelContainer:
 			style.set_border_width_all(2)
 			style.shadow_color = Color(DeepUi.ACCENT, 0.35)
 			style.shadow_size = 14
+		if _acting:
+			## Acting outranks targeted: the edge goes the color of a blow and glows, breathing
+			## until its action ends (held steady for anyone who asked for fewer flashes).
+			style.border_color = Color(DeepUi.BAD, 0.8)
+			style.set_border_width_all(2)
+			style.shadow_color = Color(DeepUi.BAD, 0.25)
+			style.shadow_size = 12
+			style.shadow_offset = Vector2.ZERO
+		if _breath != null and _breath.is_valid():
+			_breath.kill()
+		_breath = null
+		if _acting and not DeepUi.headless() and not ScreenFx.calm:
+			_breath = create_tween().set_loops()
+			_breath.tween_property(style, "shadow_color:a", 0.08, 0.6).set_trans(Tween.TRANS_SINE)
+			_breath.tween_property(style, "shadow_color:a", 0.3, 0.6).set_trans(Tween.TRANS_SINE)
 		add_theme_stylebox_override("panel", style)
+	func set_spot(acting: bool, dimmed: bool) -> void:
+		## Whether this creature is the one acting, or another one is.
+		if fading:
+			return
+		if dimmed != _dimmed:
+			_dimmed = dimmed
+			var alpha: float = 0.68 if dimmed else 1.0
+			if DeepUi.headless():
+				modulate.a = alpha
+			else:
+				create_tween().tween_property(self, "modulate:a", alpha, 0.2).set_trans(Tween.TRANS_SINE)
+		if acting == _acting:
+			return
+		_acting = acting
+		_style(_targeted)
+		if acting:
+			DeepUi.pulse(self, 1.04, 0.3)
 	func die_mark(index: int) -> Control:
 		## The mark of its die at this place on the plate (each die is a mark and a word).
 		var at: int = index * 2
@@ -1810,13 +2650,11 @@ func _sync_enemy_panel() -> void:
 
 func _position_enemy_panel() -> void:
 	## The table keeps to the left of the room (right of the chart, when it is open), and
-	## crosses to the right (left of the party cards) only when it would stand in front of a
-	## creature there and the right is clearer.
+	## crosses to the right only when it would stand in front of a creature there and the
+	## right is clearer.
 	if _enemy_panel == null or not _enemy_panel.visible:
 		return
 	var right: float = size.x - 20.0
-	if not _ally_cards.is_empty():
-		right -= _ally_box.size.x + 20.0
 	var panel_size: Vector2 = _enemy_panel.size
 	var at_right := Rect2(Vector2(maxf(20.0, right - panel_size.x), 82.0), panel_size)
 	var at_left := Rect2(Vector2(minf(20.0 + left_inset, at_right.position.x), 82.0), panel_size)
@@ -1857,8 +2695,8 @@ func _inspect_creature(id: String, move: String) -> void:
 	if not foe.is_empty():
 		Inspector.creature(foe, state, {"move": move})
 
-func _inspect_die(id: String) -> void:
-	var unit: Dictionary = me()
+func _inspect_die(id: String, owner_id: String = "") -> void:
+	var unit: Dictionary = DeepBattle.player(state, local_id if owner_id.is_empty() else owner_id)
 	for die in unit.get("dice", []):
 		if str(die.id) == id:
 			var roll: Dictionary = {}
@@ -1914,7 +2752,7 @@ func _pick_input(event: InputEvent) -> void:
 		_picker.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if not id.is_empty() else Control.CURSOR_ARROW
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if str(state.get("phase", "")) == "resolving":
-			command.emit({"kind": "hurry"})
+			_hurry()
 			return
 		var id := _creature_at(event.position)
 		if not id.is_empty():
@@ -1929,7 +2767,24 @@ func _pick_input(event: InputEvent) -> void:
 func _hurry_input(event: InputEvent) -> void:
 	## A click on the dock while a turn plays out hurries it, like one in the room.
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and str(state.get("phase", "")) == "resolving":
-		command.emit({"kind": "hurry"})
+		_hurry()
+
+func _hurry() -> void:
+	## Asks the clock to hurry the turn along, and says it was heard: the hint over the tray
+	## jumps and a pair of chevrons runs off it, no more often than the eye can follow.
+	command.emit({"kind": "hurry"})
+	var now: int = Time.get_ticks_msec()
+	if _headless or now - _hurried_at < 260:
+		return
+	_hurried_at = now
+	var page: Page = _page_for(_shown_owner())
+	var hint: Label = page.hint if page != null else null
+	if hint != null and is_instance_valid(hint) and hint.is_visible_in_tree():
+		DeepUi.pulse(hint, 1.12, 0.25)
+		_float_at(hint, "»", DeepUi.ACCENT_HI, 24)
+	DeepAudio.play("ui_tap", {"volume": 0.35, "gap": 0.05})
+
+var _hurried_at: int = 0
 
 func _to_screen(point: Vector3) -> Vector2:
 	return stage.to_screen(point) + (stage.global_position - global_position)
@@ -1944,9 +2799,11 @@ func _control_world(control: Control, distance: float = 1.8) -> Vector3:
 
 func _process(delta: float) -> void:
 	_position_enemy_panel()
-	var dock_top: float = _dock.position.y if _dock != null else size.y - 200.0
-	_effects_box.size.x = maxf(240.0, size.x - 300.0 - left_inset)
-	_effects_box.position = Vector2(22.0 + left_inset, dock_top - _effects_box.size.y - 8.0)
+	## The party's tabs stand on the dock, from its left edge (clear of the chart, when it is
+	## open): their bottom edge is its top edge, wherever it grows to.
+	if _tab_bar != null and _dock != null:
+		_tab_bar.reset_size()
+		_tab_bar.position = Vector2(_dock.position.x + 18.0 + left_inset, _dock.position.y - _tab_bar.size.y - (0.0 if _party() else 8.0))
 	if _headless or _camera == null or not is_visible_in_tree():
 		return
 	## The plates ride above the creatures' heads. `highest` is how far the worst of them
@@ -2198,7 +3055,17 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	## Space while a turn plays out hurries it, which only the clock hears.
 	if str(state.get("phase", "")) == "resolving" and event.keycode == KEY_SPACE:
-		command.emit({"kind": "hurry"})
+		_hurry()
+		get_viewport().set_input_as_handled()
+		return
+	## Tab turns the dock to the next player's page (Shift+Tab, the one before).
+	if event.keycode == KEY_TAB and _party():
+		var order: Array = [local_id]
+		for member in state.get("players", []):
+			if str(member.get("id", "")) != local_id:
+				order.append(str(member.get("id", "")))
+		var at: int = order.find(_shown_owner())
+		_pick_tab(order[posmod(at + (-1 if event.shift_pressed else 1), order.size())])
 		get_viewport().set_input_as_handled()
 		return
 	## The hand's keys only mean something while it is being planned. Pressed while a turn
@@ -2206,6 +3073,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	var unit: Dictionary = me()
 	if str(state.get("phase", "")) != "planning" or unit.is_empty() or bool(unit.get("downed", false)):
 		return
+	## They are the reader's own hand's keys: pressed while someone else's page is up, they
+	## turn the dock back to the reader's first.
+	if event.keycode in [KEY_R, KEY_SPACE, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5] and not _is_shown(local_id):
+		_show_page(local_id)
 	match event.keycode:
 		KEY_R:
 			_reroll()
@@ -2240,28 +3111,63 @@ func perform(event: Dictionary) -> void:
 		for battery in event.get("charged", []):
 			if str(battery.unit) == local_id:
 				_charge_resonance(int(battery.amount))
-			elif _ally_cards.has(str(battery.unit)):
-				_float_at(_ally_cards[str(battery.unit)], "+%d Charged" % int(battery.amount), DeepUi.ACCENT_HI, 16)
+			else:
+				_float_at(_tab_anchor(str(battery.unit)), "+%d Charged" % int(battery.amount), DeepUi.ACCENT_HI, 16)
+	var unit_id: String = str(event.get("unit", ""))
 	## Every rail climbs from the bottom of the scale again, in whatever key is playing.
 	if kind in ["turn_begin", "resolution_begin", "rail_begin"]:
 		_chain.reset()
-		_last_fired = -1
+	if kind == "rail_begin" and _page_for(unit_id) != null:
+		_page_for(unit_id).last_fired = -1
 	if kind in ["turn_begin", "resolution_begin"]:
-		_turn_dealt = 0
-		if _dealt_box != null:
-			_dealt_box.visible = false
-			_dealt_label.text = "0"
+		for page in _all_pages():
+			page.last_fired = -1
+			page.turn_dealt = 0
+			if page.dealt_box != null:
+				page.dealt_box.visible = false
+				page.dealt_label.text = "0"
 	if kind == "turn_begin":
 		_preview_count(-1)
-	## What the local rail really did this turn, kept so its highlights follow the dice.
+	## What each rail really did this turn, kept so its highlights follow the dice.
 	if kind in ["turn_begin", "resolution_begin"]:
-		_outcomes.clear()
-		_birth_outcome = {}
-	elif str(event.get("unit", "")) == local_id:
+		for page in _all_pages():
+			page.outcomes.clear()
+			page.birth_outcome = {}
+	elif _page_for(unit_id) != null:
+		var page: Page = _page_for(unit_id)
 		match kind:
-			"gem_fire": _outcomes[int(event.get("socket", -1))] = true
-			"gem_fizzle": _outcomes[int(event.get("socket", -1))] = false
-			"birthstone": _birth_outcome = event
+			"gem_fire": page.outcomes[int(event.get("socket", -1))] = true
+			"gem_fizzle": page.outcomes[int(event.get("socket", -1))] = false
+			"birthstone": page.birth_outcome = event
+	## The dock follows the turn: whoever's rail is firing has their page up, and the reader's
+	## own comes back for the creatures and for the next turn. A tab turns to anyone in between.
+	match kind:
+		"turn_begin", "resolution_begin":
+			_firing_id = ""
+			_fired.clear()
+			_last_rail_id = ""
+			if kind == "turn_begin":
+				_show_page(local_id)
+			_sync_tabs()
+		"rail_begin":
+			## The turn passes from the tab whose rail just closed to this one's.
+			var handed: Control = _tab_anchor(_last_rail_id) if not _last_rail_id.is_empty() else null
+			_firing_id = unit_id
+			_last_rail_id = unit_id
+			_show_page(unit_id)
+			_sync_tabs()
+			_baton(handed, _tab_anchor(unit_id), _seat_tone(unit_id))
+		"rail_end", "skip":
+			if _is_player(unit_id):
+				_fired[unit_id] = true
+				if _firing_id == unit_id:
+					_firing_id = ""
+				_sync_tabs()
+		"enemy_begin", "tick":
+			if not _firing_id.is_empty() or not _is_shown(local_id):
+				_firing_id = ""
+				_show_page(local_id)
+				_sync_tabs()
 	if _enemy_panel != null:
 		match kind:
 			"enemy_roll": _enemy_panel.roll_die(event)
@@ -2269,7 +3175,9 @@ func perform(event: Dictionary) -> void:
 			"enemy_move": _enemy_panel.impact(event)
 	match kind:
 		"enemy_roll": _show_enemy_roll(event)
-		"enemy_end", "skip", "battle_over", "turn_begin": _hide_enemy_roll()
+		"enemy_end", "skip", "battle_over", "turn_begin":
+			_hide_enemy_roll()
+			_brace({})
 	if _headless or stage.walking():
 		return
 	match kind:
@@ -2307,8 +3215,8 @@ func perform(event: Dictionary) -> void:
 			_camera.punch(-3.0, 0.8)
 			_screen_fx.blink(DeepUi.ACCENT, 0.06)
 		"rail_begin":
-			if str(event.get("unit", "")) == local_id:
-				_show_resonance(int(event.get("resonance", 0)))
+			if _page_for(unit_id) != null:
+				_show_resonance(int(event.get("resonance", 0)), _page_for(unit_id))
 		"gem_fire":
 			_gem_fire(event)
 			if str(event.get("unit", "")) == local_id:
@@ -2344,6 +3252,9 @@ func perform(event: Dictionary) -> void:
 			var who: String = str(event.get("unit", ""))
 			var up: CrystalCreature = _creature(who)
 			if up != null:
+				## Its turn: it lights up where it stands and a ring goes out under it.
+				up.flash(0.8)
+				_fx.ring_wave(Vector3(up.global_position.x, 0.0, up.global_position.z), Color(DeepUi.BAD, 0.7), 1.2, 0.4, 0.08)
 				if bool(event.get("emerged", false)):
 					DeepAudio.play_at(global_position + _to_screen(up.centre()), "rock_break", {"volume": 0.8})
 					_fx.puff(Vector3(up.global_position.x, 0.3, up.global_position.z), Color(0.5, 0.42, 0.35), 24, 1.2, 1.4, 1.0)
@@ -2377,22 +3288,27 @@ func perform(event: Dictionary) -> void:
 			var resonance: int = int(event.get("resonance", 0))
 			## Second Wind is paid as the rail closes, on the Resonance it built.
 			if int(event.get("healed", 0)) > 0:
-				if str(event.get("unit", "")) == local_id:
+				if unit_id == local_id:
 					DeepAudio.play("heal", {"volume": 0.6})
 					_float_at(_hp_bar, "+%d Second Wind" % int(event.healed), DeepUi.GOOD, 20)
-				elif _ally_cards.has(str(event.get("unit", ""))):
-					_float_at(_ally_cards[str(event.unit)], "+%d" % int(event.healed), DeepUi.GOOD, 16)
-			if str(event.get("unit", "")) == local_id and _turn_dealt > 0:
-				_dealt_flourish()
-			if str(event.get("unit", "")) == local_id and resonance >= 3:
-				## The chain pays off a step higher for every stone in it.
-				DeepAudio.from(_resonance_box, "resonance", {"pitch": 1.0 + 0.09 * float(mini(resonance, 8)), "volume": 0.8})
-				_float_at(_resonance_box, "Resonance ×%d" % resonance, _resonance_color(resonance), 20)
-				DeepUi.burst(self, _center_of(_resonance_box), _resonance_color(resonance), 20 + resonance * 4, 180.0, 0.7)
+				else:
+					_float_at(_vital_anchor(unit_id), "+%d" % int(event.healed), DeepUi.GOOD, 16)
+			## The rail that closed says what it came to, on its own page if that page is up.
+			var closing: Page = _page_for(unit_id)
+			if closing != null and _is_shown(unit_id):
+				if closing.turn_dealt > 0:
+					_dealt_flourish(closing)
+				if resonance >= 3:
+					## The chain pays off a step higher for every stone in it.
+					DeepAudio.from(closing.resonance_box, "resonance", {"pitch": 1.0 + 0.09 * float(mini(resonance, 8)), "volume": 0.8 if closing.mine else 0.6})
+					_float_at(closing.resonance_box, "Resonance ×%d" % resonance, _resonance_color(resonance), 20)
+					DeepUi.burst(self, _center_of(closing.resonance_box), _resonance_color(resonance), 20 + resonance * 4, 180.0, 0.7)
 		"enemy_ability":
 			_enemy_windup(event)
 			_count_creature(event)
+			_brace(event.get("tally", {}))
 		"enemy_move":
+			_brace({})
 			_enemy_move(event)
 		"tick":
 			for tick in event.get("ticks", []):
@@ -2409,6 +3325,8 @@ func perform(event: Dictionary) -> void:
 					_fx.shield(creature.centre(), Vector3.FORWARD, DeepUi.INFO, 1.0, 0.5)
 			elif who == local_id:
 				_announce("Stunned", Color("ffe27a"), "Your rail sits this turn out", 0.9)
+			elif _is_player(who):
+				_float_at(_tab_anchor(who), "Stunned", Color("ffe27a"), 16)
 		"battle_over":
 			var won: bool = str(event.get("outcome", "")) == "victory"
 			if won:
@@ -2458,15 +3376,17 @@ func _animate_tick(tick: Dictionary) -> void:
 		DeepAudio.play("poison" if hurt else "heal", {"volume": 0.6})
 		_float_at(_hp_bar, ("−%d" if hurt else "+%d") % int(tick.get("amount", 0)), color, 22)
 		_screen_fx.blink(color, 0.1)
-	elif _ally_cards.has(target_id):
-		_float_at(_ally_cards[target_id], ("−%d" if hurt else "+%d") % int(tick.get("amount", 0)), color, 16)
+	elif _is_player(target_id):
+		_float_at(_vital_anchor(target_id), ("−%d" if hurt else "+%d") % int(tick.get("amount", 0)), color, 16)
+		_tab_flash(target_id, color)
 	for leech in tick.get("leech", []):
 		var drinker: String = str(leech.get("unit", ""))
 		if drinker == local_id:
 			DeepAudio.play("heal", {"volume": 0.55})
 			_float_at(_hp_bar, "+%d Leech" % int(leech.get("amount", 0)), DeepUi.GOOD, 18)
-		elif _ally_cards.has(drinker) and is_instance_valid(_ally_cards[drinker]):
-			_float_at(_ally_cards[drinker], "+%d" % int(leech.get("amount", 0)), DeepUi.GOOD, 15)
+		elif _is_player(drinker):
+			_float_at(_vital_anchor(drinker), "+%d" % int(leech.get("amount", 0)), DeepUi.GOOD, 15)
+			_tab_flash(drinker, DeepUi.GOOD)
 
 func _birthstone_fire(event: Dictionary) -> void:
 	## The Birthstone at the end of a rail lights every tier the hand earned, then its effects
@@ -2476,14 +3396,13 @@ func _birthstone_fire(event: Dictionary) -> void:
 	var unit: Dictionary = DeepBattle.player(state, unit_id)
 	var stone: Dictionary = DeepStone.birthstone_for(unit)
 	var color: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
-	var anchor: Control = null
-	if mine and _birthstone_card != null and is_instance_valid(_birthstone_card):
-		anchor = _birthstone_card
-	elif _ally_cards.has(unit_id) and is_instance_valid(_ally_cards[unit_id]):
-		anchor = _ally_cards[unit_id]
+	## Its own bezel when its player's page is up, their tab when it is not.
+	var page: Page = _page_for(unit_id)
+	var shown: bool = page != null and _is_shown(unit_id) and page.birthstone_card != null and is_instance_valid(page.birthstone_card)
+	var anchor: Control = page.birthstone_card if shown else _tab_anchor(unit_id)
 	var origin: Vector3 = _control_world(anchor, 1.6) if anchor != null else _origin_for(unit_id, -1)
 	if not bool(event.get("fired", false)):
-		if anchor != null and mine:
+		if anchor != null and shown:
 			_float_at(anchor, "fizzle", DeepUi.DIM, 13)
 			anchor.modulate = Color(0.6, 0.6, 0.7, 1.0)
 			var tween := create_tween()
@@ -2512,7 +3431,7 @@ func _birthstone_fire(event: Dictionary) -> void:
 	else:
 		DeepAudio.play("resonance", {"volume": 0.7})
 	for entry in lit:
-		_animate_effects(entry.get("effects", []), origin, color, mine, anchor, 1.0)
+		_animate_effects(entry.get("effects", []), origin, color, mine, anchor, 1.0, unit_id)
 
 func _stone_color(unit_id: String, socket: int, skill_key: String) -> Color:
 	var unit: Dictionary = DeepBattle.player(state, unit_id)
@@ -2530,83 +3449,95 @@ func _color_key(unit_id: String, socket: int, skill_key: String) -> String:
 	return str(DeepContent.skill(skill_key).get("color", "WHITE"))
 
 func _origin_for(unit_id: String, socket: int) -> Vector3:
-	## Where a gem's light leaves from: its socket on your dock, or an ally's card.
-	if unit_id == local_id and socket >= 0 and socket < _socket_cards.size():
-		return _control_world(_socket_cards[socket], 1.6)
-	if _ally_cards.has(unit_id) and is_instance_valid(_ally_cards[unit_id]):
-		return _control_world(_ally_cards[unit_id], 1.8)
+	## Where a gem's light leaves from: its socket on the dock while its player's page is up,
+	## else their tab.
+	var card: Control = _gem_card(unit_id, socket)
+	if card != null:
+		return _control_world(card, 1.6)
+	var tab: Control = _tab_anchor(unit_id)
+	if tab != null:
+		return _control_world(tab, 1.8)
 	return _camera.global_position + (-_camera.global_transform.basis.z) * 1.5 + Vector3(0, -0.6, 0)
 
 func _gem_fire(event: Dictionary) -> void:
 	var unit_id: String = str(event.get("unit", ""))
 	var mine: bool = unit_id == local_id
+	## Played in full on its own socket while its player's page is up (the dock follows each
+	## rail as it fires); on their tab, small, while it is not.
+	var page: Page = _page_for(unit_id)
+	var shown: bool = page != null and _is_shown(unit_id)
 	var socket: int = int(event.get("socket", -1))
 	var color: Color = _stone_color(unit_id, socket, str(event.get("skill", "")))
 	var origin: Vector3 = _origin_for(unit_id, socket)
 	var magnitude: float = clampf(float(event.get("magnitude", 1.0)), 0.5, 4.0)
 	var voice: String = DeepSoundBank.gem_sound(_color_key(unit_id, socket, str(event.get("skill", ""))))
-	var carry: float = clampf(0.5 + magnitude * 0.14, 0.45, 1.0) * (1.0 if mine else 0.55)
+	var carry: float = clampf(0.5 + magnitude * 0.14, 0.45, 1.0) * (1.0 if mine else (0.8 if shown else 0.55))
 	var tally: Dictionary = event.get("tally", {})
 	## Each gem the rail fires starts its count a step further up the music's scale, and rings
 	## a little higher itself, so a rail that keeps firing is heard to climb.
 	var step: int = mini(_chain.fired, Tally.TOP_START)
 	_chain.fired += 1
 	var lift: float = 1.0 + 0.04 * float(step)
-	if mine and socket >= 0 and socket < _socket_cards.size():
-		var card: Control = _socket_cards[socket]
+	var tab: Control = _tab_anchor(unit_id)
+	if shown and socket >= 0 and socket < page.socket_cards.size():
+		var card: Control = page.socket_cards[socket]
 		DeepAudio.from(card, voice, {"volume": carry, "gap": 0.02, "pitch": lift})
-		DeepAudio.rumble(0.3, 0.12, 0.05)
+		if mine:
+			DeepAudio.rumble(0.3, 0.12, 0.05)
 		var ring: SocketRing = card.get_node_or_null("Slot/Ring")
 		if ring != null:
 			ring.fire()
 		DeepUi.spring(card, 0.22, 8.0, 0.5)
 		DeepUi.burst(self, _center_of(card), color, 18, 170.0, 0.55)
 		var resonance: int = int(event.get("resonance", 0))
-		if resonance > int(_resonance_value.text) or int(event.get("gain", 0)) > 0:
-			_resonance_flight(card, resonance, maxi(1, int(event.get("gain", 0))), color, bool(event.get("harmony", false)))
-		elif resonance != int(_resonance_value.text):
-			_show_resonance(resonance)
+		if resonance > int(page.resonance_value.text) or int(event.get("gain", 0)) > 0:
+			_resonance_flight(page, card, resonance, maxi(1, int(event.get("gain", 0))), color, bool(event.get("harmony", false)))
+		elif resonance != int(page.resonance_value.text):
+			_show_resonance(resonance, page)
 		## A count says it on its own plate.
 		if bool(event.get("retrigger", false)) and not tally.has("amount"):
 			_float_at(card, "Again!", DeepUi.ACCENT_HI, 15)
 		## Two of one colour fired back to back ring together: a bow of their light between them.
-		if bool(event.get("harmony", false)) and _last_fired >= 0 and _last_fired != socket:
-			_harmony_bow(_gem_card(local_id, _last_fired), card, color)
-		_last_fired = socket
-	elif _ally_cards.has(unit_id) and is_instance_valid(_ally_cards[unit_id]):
-		DeepAudio.from(_ally_cards[unit_id], voice, {"volume": carry, "gap": 0.02, "pitch": lift})
-		DeepUi.spring(_ally_cards[unit_id], 0.06, 2.0, 0.35)
+		if bool(event.get("harmony", false)) and page.last_fired >= 0 and page.last_fired != socket:
+			_harmony_bow(_gem_card(unit_id, page.last_fired), card, color)
+	elif tab != null:
+		DeepAudio.from(tab, voice, {"volume": carry, "gap": 0.02, "pitch": lift})
+		DeepUi.spring(tab, 0.06, 2.0, 0.35)
 	else:
 		DeepAudio.play(voice, {"volume": carry, "gap": 0.02, "pitch": lift})
+	if page != null:
+		page.last_fired = socket
 	var card_anchor: Control = _gem_card(unit_id, socket)
-	if mine and not tally.has("amount"):
+	if shown and not tally.has("amount"):
 		## A count with a figure in it lays what the dice were worth on its own plate.
-		_die_boost(card_anchor if card_anchor != null else _tray_box, event, color)
+		_die_boost(card_anchor if card_anchor != null else page.tray_box, event, color)
 	## A blow that kills is marked now, while its bolt waits for the count: the room must not
 	## clear the creature away before it has been hit.
 	_mark_dying(event.get("effects", []))
-	var wait: float = _count_out(event, mine, color, step)
+	var wait: float = _count_out(event, shown, color, step)
 	var effects: Array = event.get("effects", [])
 	if wait > 0.0:
 		_hold_vitals(effects)
 	if wait <= 0.0:
-		_animate_effects(effects, origin, color, mine, card_anchor, magnitude)
+		_animate_effects(effects, origin, color, mine, card_anchor, magnitude, unit_id)
 		return
 	_later_do(wait, func() -> void:
-		_animate_effects(effects, origin, color, mine, _gem_card(unit_id, socket), magnitude))
+		_animate_effects(effects, origin, color, mine, _gem_card(unit_id, socket), magnitude, unit_id))
 
-func _count_out(event: Dictionary, mine: bool, color: Color, step: int) -> float:
-	## A gem's arithmetic, counted out over its socket (or beside an ally's card) before what
-	## it does leaves it: the dice it read, what multiplied them and the figure they came to.
-	## Returns how long the count takes, which is how long the bolts wait: exactly the beat
-	## the rules reserved for it in the step (see `DeepBattle.tally_span`).
+func _count_out(event: Dictionary, shown: bool, color: Color, step: int) -> float:
+	## A gem's arithmetic, counted out over its socket (or, small, over its player's tab while
+	## their page is not the one up) before what it does leaves it: the dice it read, what
+	## multiplied them and the figure they came to. Returns how long the count takes, which is
+	## how long the bolts wait: exactly the beat the rules reserved for it in the step (see
+	## `DeepBattle.tally_span`).
 	var tally: Dictionary = event.get("tally", {})
 	var span: float = DeepBattle.tally_span(tally)
 	if span <= 0.0:
 		return 0.0
 	var unit_id: String = str(event.get("unit", ""))
+	var mine: bool = unit_id == local_id
 	var socket: int = int(event.get("socket", -1))
-	var anchor: Control = _gem_card(unit_id, socket) if mine else _ally_card(unit_id)
+	var anchor: Control = _gem_card(unit_id, socket) if shown else _tab_anchor(unit_id)
 	if anchor == null:
 		## Nowhere to count it, but the bolts still keep the step's time.
 		return span
@@ -2614,19 +3545,19 @@ func _count_out(event: Dictionary, mine: bool, color: Color, step: int) -> float
 	plate.chain = _chain
 	plate.start_step = step
 	plate.color = color
-	plate.compact = not mine
-	plate.volume = 1.0 if mine else 0.45
+	plate.compact = not shown
+	plate.volume = 1.0 if mine else (0.8 if shown else 0.45)
 	plate.skill = str(DeepContent.skill(str(event.get("skill", ""))).get("name", ""))
 	var words: Array = [] if mine else [str(DeepBattle.player(state, unit_id).get("name", ""))]
 	words.append(plate.skill)
 	if bool(event.get("retrigger", false)):
 		words.append("Again!")
 	plate.caption = " · ".join(words.filter(func(w: Variant) -> bool: return not str(w).is_empty()))
-	plate.gem_anchor = _gem_card.bind(unit_id, socket) if mine else _ally_card.bind(unit_id)
-	plate.die_anchor = _counted_die if mine else Callable()
+	plate.gem_anchor = _gem_card.bind(unit_id, socket) if shown else _tab_anchor.bind(unit_id)
+	plate.die_anchor = _counted_die.bind(unit_id) if shown else Callable()
 	plate.destination = _tally_destination.bind(event)
 	plate.ceiling = _dock_top
-	plate.placement = "above" if mine else "left"
+	plate.placement = "above"
 	plate.rumbles = mine
 	plate.tick = DeepSoundBank.tick_sound(_color_key(unit_id, socket, str(event.get("skill", ""))))
 	plate.blaze = _kills(event.get("effects", []))
@@ -2681,11 +3612,33 @@ func _count_creature(event: Dictionary) -> void:
 	plate.skill = str(event.get("move", ""))
 	plate.gem_anchor = _creature_plate.bind(id)
 	plate.die_anchor = _creature_die.bind(id)
-	plate.destination = func() -> Vector2: return _hp_bar.get_global_rect().get_center() if not bool(me().get("downed", false)) else Vector2.INF
+	plate.destination = func() -> Vector2:
+		var bar: Control = _vital_anchor(local_id)
+		return bar.get_global_rect().get_center() if bar != null and not bool(me().get("downed", false)) else Vector2.INF
 	var mine: Dictionary = _shown(me())
 	plate.blaze = not mine.is_empty() and not bool(mine.get("downed", false)) and int(tally.get("amount", 0)) * maxi(1, int(tally.get("repeat", 1))) >= int(mine.get("hp", 0)) + int(mine.get("block", 0))
 	add_child(plate)
 	plate.play(tally)
+
+func _brace(tally: Dictionary) -> void:
+	## While a creature's blow is counted, the share of each player's health it would take
+	## pulses at the end of their bars, on the dock and on the tabs, until it lands. An empty
+	## tally lets go of all of them.
+	for unit in state.get("players", []):
+		var id: String = str(unit.get("id", ""))
+		var share: float = 0.0
+		var target: String = str(tally.get("target", ""))
+		if str(tally.get("kind", "")) == "damage" and not bool(unit.get("downed", false)) and (target == "heroes" or target == id):
+			var shown: Dictionary = _shown(unit)
+			var blows: int = int(tally.get("amount", 0)) * maxi(1, int(tally.get("repeat", 1)))
+			var loss: int = clampi(blows - int(shown.get("block", 0)), 0, int(shown.get("hp", 0)))
+			share = float(loss) / float(maxi(1, int(shown.get("max_hp", 1))))
+		var page: Page = _page_for(id)
+		if page != null and page.hp_bar != null:
+			page.hp_bar.preview = share
+		var tab: SeatTab = _tab_of(id)
+		if tab != null:
+			tab.brace(share)
 
 func _creature_plate(id: String) -> Control:
 	var plate_node: Variant = _plates.get(id, null)
@@ -2751,35 +3704,44 @@ func _harmony_bow(from: Control, to: Control, tone: Color) -> void:
 		DeepUi.burst(self, b, tone, 14, 120.0, 0.4))
 
 func _gem_card(unit_id: String, socket: int) -> Control:
-	## The local rail's card (or rider chip) for a socket, if it is still on screen.
-	if unit_id != local_id or socket < 0 or socket >= _socket_cards.size():
+	## A rail's card (or rider chip) for a socket, while its player's page is the one up.
+	var page: Page = _page_for(unit_id)
+	if page == null or not _is_shown(unit_id) or socket < 0 or socket >= page.socket_cards.size():
 		return null
-	var card: Variant = _socket_cards[socket]
+	var card: Variant = page.socket_cards[socket]
 	return card if card is Control and is_instance_valid(card) else null
 
-func _ally_card(unit_id: String) -> Control:
-	var card: Variant = _ally_cards.get(unit_id, null)
-	return card if card is Control and is_instance_valid(card) else null
-
-func _counted_die(die_id: String) -> Control:
-	## The die a count points at: in the tray, or among the phantoms; null if it is not shown.
-	for views in [_dice_views, _phantom_views]:
+func _counted_die(die_id: String, unit_id: String = "") -> Control:
+	## The die a count points at: in its player's tray, or among their phantoms; null if it is
+	## not on screen.
+	var whose: String = local_id if unit_id.is_empty() else unit_id
+	var page: Page = _page_for(whose)
+	if page == null or not _is_shown(whose):
+		return null
+	for views in [page.dice_views, page.phantom_views]:
 		var view: Variant = views.get(die_id, null)
 		if view is Control and is_instance_valid(view):
 			return view
 	return null
 
 func _dock_top() -> float:
-	## How low a count's plate may sit: above the dock, never over it.
-	return _dock.get_global_rect().position.y - 6.0 if _dock != null else INF
+	## How low a count's plate may sit: above the dock and the party's tabs along it, never
+	## over them.
+	if _dock == null:
+		return INF
+	var top: float = _dock.get_global_rect().position.y - 6.0
+	if _my_tab != null and _my_tab.face.is_visible_in_tree():
+		top = minf(top, _my_tab.face.get_global_rect().position.y - 6.0)
+	return top
 
 func _tally_destination(event: Dictionary) -> Vector2:
 	## Where a counted figure flies as its bolt leaves: the creature it lands on, the health
-	## bar (or the ally's card) a guard or a heal goes to, or the pyrite purse.
+	## bar (or the tab) of the player a guard or a heal goes to, or the pyrite purse.
 	var tally: Dictionary = event.get("tally", {})
 	var kind: String = str(tally.get("kind", ""))
 	if kind == "gold":
-		return _forecast_box.get_global_rect().get_center() if _forecast_box != null else Vector2.INF
+		var purse: Control = _shown_anchor(_forecast_box)
+		return purse.get_global_rect().get_center() if purse != null else Vector2.INF
 	for effect in event.get("effects", []):
 		if str(effect.get("kind", "")) != kind:
 			continue
@@ -2787,11 +3749,9 @@ func _tally_destination(event: Dictionary) -> Vector2:
 		var creature: CrystalCreature = _creature(target)
 		if creature != null and not _camera.is_position_behind(creature.centre()):
 			return global_position + _to_screen(creature.centre())
-		if target == local_id:
-			return _hp_bar.get_global_rect().get_center()
-		var ally: Control = _ally_card(target)
-		if ally != null:
-			return ally.get_global_rect().get_center()
+		var bar: Control = _vital_anchor(target) if _is_player(target) else null
+		if bar != null:
+			return bar.get_global_rect().get_center()
 	return Vector2.INF
 
 func _mark_dying(effects: Array) -> void:
@@ -2929,10 +3889,11 @@ func _later_do(seconds: float, work: Callable) -> void:
 		if is_instance_valid(self) and is_inside_tree():
 			work.call())
 
-func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool, anchor: Control, magnitude: float = 1.0) -> void:
+func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool, anchor: Control, magnitude: float = 1.0, by: String = "") -> void:
 	## What a gem or a Birthstone did, animated effect by effect from where its light left —
 	## one after another, not all at once. A skill that files a die and then throws five
-	## bolts should read as exactly that: the file, a breath, then five bolts in a row.
+	## bolts should read as exactly that: the file, a breath, then five bolts in a row. `by`
+	## is the player whose rail it was: their page counts up what it dealt.
 	var at: float = 0.0
 	## Blows close up as they pile on, so a gem that lands twenty times over still plays inside
 	## the step the rules reserved for it. `DeepBattle` owns the beat; this only follows it.
@@ -2978,17 +3939,17 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 						_later_do(when , func() -> void:
 							var still: CrystalCreature = creature_ref.get_ref() as CrystalCreature
 							if still != null:
-								_fx.projectile(origin, still.centre(), color, 0.2, fat, _impact.bind(who, landing, color, mine), 0.6 + randf() * 0.5))
+								_fx.projectile(origin, still.centre(), color, 0.2, fat, _impact.bind(who, landing, color, mine, by), 0.6 + randf() * 0.5))
 					at += DeepBattle.BOLT_GAP * pace * float(over)
 				at += DeepBattle.HIT_BREATH * pace
 				if not effect.get("poison_spread", []).is_empty():
-					_animate_effects(effect.poison_spread, origin, DeepUi.POISON, mine, anchor)
+					_animate_effects(effect.poison_spread, origin, DeepUi.POISON, mine, anchor, 1.0, by)
 				if mine and effect.has("spent"):
 					_float_at(_forecast_box, "−%d Pyrite%s" % [int(effect.spent), " / +%d refund" % int(effect.refund) if effect.has("refund") else ""], DeepUi.ORE, 16)
 			"appraise":
 				if mine:
 					_float_at(_forecast_box, "%d appraised · %d Pyrite value" % [effect.get("appraised", []).size(), int(effect.get("value", 0))], DeepUi.ORE, 16)
-				_animate_effects(effect.get("hits", []), origin, DeepUi.ORE, mine, anchor, magnitude)
+				_animate_effects(effect.get("hits", []), origin, DeepUi.ORE, mine, anchor, magnitude, by)
 			"gem_rank":
 				if mine:
 					for socket in effect.get("sockets", []):
@@ -3008,8 +3969,8 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				var gained: int = int(effect.amount)
 				var swell: float = clampf(float(gained) / 18.0, 0.0, 1.0)
 				_later_do(at, func() -> void:
-					if target_id == local_id:
-						_land_vitals(local_id, 0, -gained)
+					if _is_player(target_id):
+						_land_vitals(target_id, 0, -gained)
 					DeepAudio.play("block", {"volume": (0.5 + 0.35 * swell) if target_id == local_id else 0.45})
 					if target_id == local_id:
 						var ahead: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 2.2 + Vector3(0, -0.35, 0)
@@ -3017,22 +3978,23 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 						_screen_fx.blink(DeepUi.BLOCK, 0.06 + swell * 0.22)
 						_ward(DeepUi.BLOCK, "shield", swell, 5 + int(round(swell * 9.0)))
 						_float_at(_hp_bar, "+%d block" % gained, DeepUi.BLOCK, 18 + int(round(swell * 14.0)))
-					elif _ally_cards.has(target_id):
-						_float_at(_ally_cards[target_id], "+%d block" % gained, DeepUi.BLOCK, 16))
+					elif _is_player(target_id):
+						_float_at(_vital_anchor(target_id), "+%d block" % gained, DeepUi.BLOCK, 16)
+						_tab_flash(target_id, DeepUi.BLOCK))
 				at += 0.2
 			"heal", "revive":
 				var healed: int = int(effect.get("healed", effect.amount))
 				var pour: float = clampf(float(healed) / 20.0, 0.0, 1.0)
 				var whole: bool = healed <= 0 and kind == "heal"
 				_later_do(at, func() -> void:
-					if target_id == local_id:
-						_land_vitals(local_id, -healed, 0)
+					if _is_player(target_id):
+						_land_vitals(target_id, -healed, 0)
 					if whole:
 						## Healing someone already whole: said quietly, not cheered as "+0".
 						if target_id == local_id:
 							_float_at(_hp_bar, "Full", DeepUi.MUTED, 15)
-						elif _ally_cards.has(target_id):
-							_float_at(_ally_cards[target_id], "Full", DeepUi.MUTED, 13)
+						elif _is_player(target_id):
+							_float_at(_vital_anchor(target_id), "Full", DeepUi.MUTED, 13)
 						return
 					DeepAudio.play("heal", {"volume": 0.55 + 0.35 * pour})
 					if target_id == local_id:
@@ -3041,8 +4003,9 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 						_screen_fx.blink(DeepUi.GOOD, 0.06 + pour * 0.2)
 						_ward(DeepUi.GOOD, "cross", pour, 5 + int(round(pour * 11.0)))
 						_float_at(_hp_bar, "+%d" % healed, DeepUi.GOOD, 18 + int(round(pour * 16.0)))
-					elif _ally_cards.has(target_id):
-						_float_at(_ally_cards[target_id], "+%d" % healed, DeepUi.GOOD, 16))
+					elif _is_player(target_id):
+						_float_at(_vital_anchor(target_id), "+%d" % healed, DeepUi.GOOD, 16)
+						_tab_flash(target_id, DeepUi.GOOD))
 				at += 0.2
 			"gold":
 				if mine:
@@ -3066,8 +4029,8 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					_fx.rise(_camera.global_position + (-_camera.global_transform.basis.z) * 2.6 + Vector3(0, -1.4, 0), Color.WHITE, 20, 1.2)
 				elif target_id == local_id:
 					_float_at(_effects, "Ward blocked" if bool(effect.get("warded", false)) else "%s +%d" % [kind.capitalize(), int(effect.amount)], color, 16)
-				elif _ally_cards.has(target_id):
-					_float_at(_ally_cards[target_id], "Ward blocked" if bool(effect.get("warded", false)) else "%s +%d" % [kind.capitalize(), int(effect.amount)], color, 15)
+				elif _is_player(target_id):
+					_float_at(_tab_anchor(target_id), "Ward blocked" if bool(effect.get("warded", false)) else "%s +%d" % [kind.capitalize(), int(effect.amount)], color, 15)
 			"raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "phantom_low", "phantom_roll", "rethrow", "gild", "upgrade_faces":
 				if mine:
 					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
@@ -3111,10 +4074,10 @@ func _ward(tone: Color, glyph: String, strength: float, count: int) -> void:
 		tween.tween_property(mark, "modulate:a", 0.0, 0.3)
 		tween.tween_callback(mark.queue_free)
 
-func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
+func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String = "") -> void:
 	_land_vitals(who, int(hit.get("hp_loss", 0)), int(hit.get("absorbed", 0)))
-	if mine and str(state.get("phase", "")) == "resolving":
-		_count_dealt(int(hit.get("hp_loss", 0)) + int(hit.get("absorbed", 0)))
+	if not by.is_empty() and str(state.get("phase", "")) == "resolving":
+		_count_dealt(int(hit.get("hp_loss", 0)) + int(hit.get("absorbed", 0)), by)
 	if hit.has("lifeline"):
 		_show_lifeline(who, int(hit.lifeline))
 	var creature: CrystalCreature = _creature(who)
@@ -3157,7 +4120,9 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
 	if hit.has("mirrored"):
 		text = "Mirrored"
 		size = 22
-	var number: Label = _float_world(at + Vector3(0, 0.6, 0), text, color.lightened(0.35) if mine else DeepUi.PAPER, size)
+	## In the gem's own color for the rail on the dock (the reader's, or the one being followed).
+	var watched: bool = mine or (not by.is_empty() and _is_shown(by))
+	var number: Label = _float_world(at + Vector3(0, 0.6, 0), text, color.lightened(0.35) if watched else DeepUi.PAPER, size)
 	## A heavy blow's number lands with a jolt of its own.
 	if number != null and (ratio >= 0.25 or bool(hit.get("killed", false))):
 		DeepUi.shake(number, 9.0 + 9.0 * minf(ratio, 1.0), 0.32)
@@ -3198,33 +4163,38 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool) -> void:
 	if bool(hit.get("killed", false)):
 		_kill(creature)
 
-func _count_dealt(amount: int) -> void:
-	## A blow of the rail's has landed: the turn's count beside the forecast rolls up to it.
-	if amount <= 0 or _dealt_box == null or _headless:
+func _count_dealt(amount: int, by: String) -> void:
+	## A blow of a rail's has landed: the turn's count beside its player's forecast rolls up to
+	## it, whether their page is up or not.
+	var page: Page = _page_for(by)
+	if amount <= 0 or page == null or page.dealt_box == null or _headless:
 		return
-	var from: int = _turn_dealt
-	_turn_dealt += amount
-	_dealt_box.visible = true
-	var shown: Label = _dealt_label
-	var to: int = _turn_dealt
+	var from: int = page.turn_dealt
+	page.turn_dealt += amount
+	page.dealt_box.visible = true
+	var shown: Label = page.dealt_label
+	var to: int = page.turn_dealt
 	var roll := shown.create_tween()
 	roll.tween_method(func(v: float) -> void: shown.text = str(int(round(v))), float(from), float(to), 0.25)
-	DeepUi.spring(_dealt_box, 0.22, 5.0, 0.4)
+	DeepUi.spring(page.dealt_box, 0.22, 5.0, 0.4)
 
-func _dealt_flourish() -> void:
+func _dealt_flourish(page: Page) -> void:
 	## The rail has closed: what it dealt is said once more and louder, gold if it came to
 	## everything the hand promised.
-	var promised: int = int(_held_forecast.get("totals", {}).get("damage", 0))
-	var whole: bool = promised > 0 and _turn_dealt >= promised
+	var promised: int = int(page.held_forecast.get("totals", {}).get("damage", 0))
+	var whole: bool = promised > 0 and page.turn_dealt >= promised
 	var tone: Color = DeepUi.ACCENT_HI if whole else DeepUi.BAD
-	_dealt_label.add_theme_color_override("font_color", tone)
-	DeepUi.spring(_dealt_box, 0.45, 8.0, 0.6)
-	DeepUi.burst(self, _center_of(_dealt_box), tone, 18 + mini(30, _turn_dealt / 4), 160.0, 0.6)
-	DeepAudio.from(_dealt_box, "tally_fuse", {"volume": 0.6, "pitch": 1.5 if whole else 1.0, "vary": 0.0, "gap": 0.0})
-	_float_at(_dealt_box, "dealt %d" % _turn_dealt, tone, 16)
+	var label: Label = page.dealt_label
+	label.add_theme_color_override("font_color", tone)
+	DeepUi.spring(page.dealt_box, 0.45, 8.0, 0.6)
+	DeepUi.burst(self, _center_of(page.dealt_box), tone, 18 + mini(30, page.turn_dealt / 4), 160.0, 0.6)
+	DeepAudio.from(page.dealt_box, "tally_fuse", {"volume": 0.6 if page.mine else 0.45, "pitch": 1.5 if whole else 1.0, "vary": 0.0, "gap": 0.0})
+	_float_at(page.dealt_box, "dealt %d" % page.turn_dealt, tone, 16)
+	var held: WeakRef = weakref(label)
 	_later_do(1.2, func() -> void:
-		if _dealt_label != null:
-			_dealt_label.add_theme_color_override("font_color", DeepUi.BAD))
+		var still: Label = held.get_ref() as Label
+		if still != null:
+			still.add_theme_color_override("font_color", DeepUi.BAD))
 
 func _thresholds(hit: Dictionary, creature: CrystalCreature) -> void:
 	## What a creature does the moment its health falls far enough (the Hollow Crown calling
@@ -3362,26 +4332,31 @@ func _kill(creature: CrystalCreature) -> void:
 	creature.die()
 
 func _gem_fizzle(event: Dictionary) -> void:
-	if str(event.get("unit", "")) != local_id:
+	## A gem that did not fire sags on its socket, while its player's page is up.
+	var unit_id: String = str(event.get("unit", ""))
+	var page: Page = _page_for(unit_id)
+	if page == null:
 		return
+	page.last_fired = -1
 	var socket: int = int(event.get("socket", -1))
-	if socket < 0 or socket >= _socket_cards.size():
+	if not _is_shown(unit_id) or socket < 0 or socket >= page.socket_cards.size():
 		return
-	var card: Control = _socket_cards[socket]
-	_last_fired = -1
-	DeepAudio.from(card, "gem_fizzle", {"volume": 0.6, "gap": 0.02})
+	var mine: bool = unit_id == local_id
+	var card: Control = page.socket_cards[socket]
+	DeepAudio.from(card, "gem_fizzle", {"volume": 0.6 if mine else 0.45, "gap": 0.02})
 	card.modulate = Color(0.4, 0.4, 0.5, 1.0)
 	var tween := create_tween()
 	tween.tween_property(card, "modulate", Color.WHITE, 0.6)
 	## It sags rather than leaps, and a dull knock goes through the pad.
 	DeepUi.spring(card, -0.14, 9.0, 0.45)
-	DeepAudio.rumble(0.0, 0.18, 0.07)
+	if mine:
+		DeepAudio.rumble(0.0, 0.18, 0.07)
 	DeepUi.burst(self, _center_of(card), Color(0.5, 0.5, 0.55), 10, 60.0, 0.6, 6.0)
 	_float_at(card, "fizzle", DeepUi.DIM, 14)
 	if int(event.get("healed", 0)) > 0:
-		_float_at(_hp_bar, "+%d" % int(event.healed), DeepUi.GOOD, 18)
-	_show_resonance(int(event.get("resonance", 0)))
-	DeepUi.shake(_resonance_box, 8.0, 0.25)
+		_float_at(page.hp_bar, "+%d" % int(event.healed), DeepUi.GOOD, 18)
+	_show_resonance(int(event.get("resonance", 0)), page)
+	DeepUi.shake(page.resonance_box, 8.0, 0.25)
 
 func _enemy_windup(event: Dictionary) -> void:
 	var who: String = str(event.get("unit", ""))
@@ -3432,8 +4407,8 @@ func _show_lifeline(who: String, hp: int) -> void:
 	if who == local_id:
 		_screen_fx.blink(DeepUi.GOOD, 0.25)
 		_float_at(_hp_bar, text, DeepUi.GOOD, 24)
-	elif _ally_cards.has(who):
-		_float_at(_ally_cards[who], text, DeepUi.GOOD, 18)
+	elif _is_player(who):
+		_float_at(_vital_anchor(who), text, DeepUi.GOOD, 18)
 	elif _creature(who) != null:
 		_float_world(_creature(who).centre(), text, DeepUi.GOOD, 18)
 
@@ -3445,14 +4420,14 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 		var label: String = "Ward blocked" if bool(effect.get("warded", false)) else "Immune"
 		if target_id == local_id:
 			_float_at(_hp_bar, label, DeepUi.INFO, 18)
-		elif _ally_cards.has(target_id):
-			_float_at(_ally_cards[target_id], label, DeepUi.INFO, 16)
+		elif _is_player(target_id):
+			_float_at(_vital_anchor(target_id), label, DeepUi.INFO, 16)
 		return
 	if effect.has("lifeline"):
 		_show_lifeline(target_id, int(effect.lifeline))
 	if effect.has("spikes"):
 		var retaliation: Dictionary = effect.spikes
-		_impact(str(retaliation.target), retaliation, DeepUi.INFO, true)
+		_impact(str(retaliation.target), retaliation, DeepUi.INFO, target_id == local_id, target_id)
 	match kind:
 		"damage":
 			var loss: int = int(effect.get("hp_loss", 0))
@@ -3482,16 +4457,25 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 					_fx.shield(ahead, _camera.global_position - ahead, DeepUi.BLOCK, 0.9, 0.5)
 				var text: String = "−%d" % loss if loss > 0 else "Blocked"
 				_float_at(_hp_bar, text, DeepUi.BAD if loss > 0 else DeepUi.BLOCK, 26 + mini(20, loss))
+				## Hit while looking at someone else's page: the reader's own tab flinches too.
+				if loss > 0 and not _is_shown(local_id):
+					_my_tab.hurt()
 				if absorbed > 0 and loss > 0:
 					_float_at(_hp_bar, "%d blocked" % absorbed, DeepUi.BLOCK, 14)
 				if bool(effect.get("downed", false)):
 					_announce("You are down", DeepUi.BAD, "The party fights on", 1.6)
 				if ratio > 0.2 and _chamber != null:
 					_fx.dust_fall(40)
-			elif _ally_cards.has(target_id) and is_instance_valid(_ally_cards[target_id]):
-				DeepAudio.from(_ally_cards[target_id], "enemy_strike", {"volume": 0.5, "gap": 0.02})
-				_ally_cards[target_id].hurt()
-				_float_at(_ally_cards[target_id], "−%d" % loss, DeepUi.BAD, 18)
+			elif _is_player(target_id):
+				## Someone else hit: their tab flinches, and the number lands on whatever of
+				## theirs is on screen.
+				var where: Control = _vital_anchor(target_id)
+				if where != null:
+					DeepAudio.from(where, "enemy_strike", {"volume": 0.5, "gap": 0.02})
+				var tab: SeatTab = _tab_of(target_id)
+				if tab != null:
+					tab.hurt()
+				_float_at(where, "−%d" % loss, DeepUi.BAD, 18)
 				_camera.add_trauma(0.12)
 		"block":
 			if creature != null and is_instance_valid(creature):
@@ -3551,8 +4535,8 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 					_float_at(_forecast_box, "−%d pyrite taken" % amount, DeepUi.ORE, 16)
 				else:
 					_float_at(_forecast_box, "+%d pyrite" % amount, DeepUi.ORE, 16)
-			elif _ally_cards.has(target_id) and int(effect.get("stolen", effect.get("amount", 0))) > 0:
-				_float_at(_ally_cards[target_id], ("−%d" if kind == "steal_gold" else "+%d") % int(effect.get("stolen", effect.get("amount", 0))), DeepUi.ORE, 14)
+			elif _is_player(target_id) and int(effect.get("stolen", effect.get("amount", 0))) > 0:
+				_float_at(_vital_anchor(target_id), ("−%d" if kind == "steal_gold" else "+%d") % int(effect.get("stolen", effect.get("amount", 0))), DeepUi.ORE, 14)
 			## The Assayer's tax: the pyrite it took, then a blow for as much.
 			if effect.has("hurt"):
 				_enemy_effect(effect.hurt, creature)
@@ -3710,18 +4694,48 @@ class Slash extends Control:
 # --- flourishes ----------------------------------------------------------------------------
 
 func _center_of(control: Control) -> Vector2:
+	## Where something on the HUD stands; a control on a page that is not up stands at its
+	## player's tab.
+	var shown: Control = _shown_anchor(control)
+	if shown != null:
+		control = shown
 	return control.global_position + control.size * 0.5 - global_position
 
 func _float_at(anchor: Control, text: String, color: Color, size: int = 18) -> void:
 	if anchor == null or not is_instance_valid(anchor) or _headless:
 		return
+	anchor = _shown_anchor(anchor)
 	var at: Vector2 = anchor.global_position + Vector2(anchor.size.x * 0.5, 0) - global_position
-	DeepUi.float_text(self, at, text, color, size)
+	DeepUi.float_text(self, _unstack(at, size), text, color, size)
 
 func _float_world(point: Vector3, text: String, color: Color, size: int = 20) -> Label:
 	if _headless or _camera == null or _camera.is_position_behind(point):
 		return null
-	return DeepUi.float_text(self, _to_screen(point), text, color, size, 70.0, 1.1)
+	return DeepUi.float_text(self, _unstack(_to_screen(point), size), text, color, size, 70.0, 1.1)
+
+## Words and numbers said in the last moment, and where: a run of them at one spot (five
+## blows of a Barrage, a hit and what block took off it) stack up instead of landing on top of
+## one another and reading as one smudge.
+var _recent_floats: Array = []
+const FLOAT_STACK_MS: int = 420
+
+func _unstack(at: Vector2, size: int) -> Vector2:
+	var now: int = Time.get_ticks_msec()
+	_recent_floats = _recent_floats.filter(func(entry: Array) -> bool: return now - int(entry[1]) < FLOAT_STACK_MS)
+	var spot: Vector2 = at
+	var step: float = float(size) * 0.95
+	for _try in range(4):
+		var crowded: bool = false
+		for entry in _recent_floats:
+			var other: Vector2 = entry[0]
+			if absf(other.x - spot.x) < 60.0 and absf(other.y - spot.y) < step * 0.8:
+				crowded = true
+				break
+		if not crowded:
+			break
+		spot.y -= step
+	_recent_floats.append([spot, now])
+	return spot
 
 func _announce(text: String, color: Color, sub: String = "", hold: float = 1.1) -> void:
 	## A title across the room: it lands large and settles, holds, and fades.

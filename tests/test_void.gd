@@ -11,6 +11,7 @@ func _init() -> void:
 	_endings()
 	_workshop()
 	_rarity()
+	_hollow()
 	print("Void: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -187,3 +188,62 @@ func _rarity() -> void:
 		if DeepForge.roll_inclusions(rng, 1, DeepContent.mine("QUARRY")).has("VOID"):
 			found += 1
 	check(found > 0 and found < 60, "Void rolls naturally but rarely (%d of 6000 inclusion draws)" % found)
+
+func _hollow() -> void:
+	## The Hollow: one of the five dice for a gem that is Void until the run ends.
+	var card: Dictionary = DeepContent.oddity("HOLLOW")
+	check(DeepOddities.validate(card).is_empty() and str(card.get("room", "")).is_empty(), "the Hollow is a card drawn by chance")
+	var run: Dictionary = run_state()
+	var unit: Dictionary = run.players[0]
+	var count: int = DeepStone.socket_count(unit)
+	for index in range(count):
+		unit.rail[index] = gem(["STRIKE", "GUARD", "MEND", "VENOM", "GLIMMER"][index], "set%d" % index, false)
+	unit.haul.append_array([gem("GUARD", "bagged", false), gem("FURY", "rough", false, false), gem("ECHO", "born_void")])
+	run.phase = "chamber"
+	run.chamber = {"kind": "oddity", "oddity": "HOLLOW", "depth": 1, "settled": false, "results": {}, "offer": {}, "tries": {}}
+	var dice: int = unit.dice.size()
+	var fed: String = str(unit.dice[1].id)
+	var feed := func(stone_id: String, die_id: String) -> Dictionary:
+		return DeepDescent.command(run, "a", {"kind": "oddity", "choice": "feed", "payload": {"stone_id": stone_id, "die_id": die_id}})
+	check(not feed.call("rough", fed).ok, "a gem nobody has read cannot be made Void")
+	check(not feed.call("born_void", fed).ok, "nor one that takes no socket already")
+	check(not feed.call("set1", "no_such_die").ok and unit.dice.size() == dice, "and nothing happens without a die to feed it")
+	var done: Dictionary = feed.call("set1", fed)
+	check(done.ok, "a socketed gem and a die go to the Hollow")
+	check(unit.dice.size() == dice - 1 and not unit.dice.any(func(d: Dictionary) -> bool: return str(d.id) == fed), "the die is gone from the five")
+	check(unit.rail[1] == null and ids(unit.riders[1]) == ["set1"], "the gem steps off its socket and rides it, first in line, leaving the socket free")
+	var voided: Dictionary = DeepOddities.find_stone(unit, "set1")
+	check(DeepStone.is_slotless(voided) and not DeepStone.is_fragile(voided) and not voided.inclusions.has("VOID"), "it is Void but not Fragile, and nothing is frozen into it")
+	check(done.event.get("dice_lost", []).size() == 1 and str(done.event.dice_lost[0].id) == fed, "the result names the die that went in")
+	check(DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "bagged", "index": 1}).ok and str(unit.rail[1].id) == "bagged", "the freed socket takes another gem")
+	## In a fight it fires right after the socket it rides.
+	var fighter: Dictionary = unit.duplicate(true)
+	DeepStone.flatten_rail(fighter)
+	var at: int = DeepStone.flat_index(fighter, 1, 0)
+	check(at == 2 and str(fighter.rail[at].id) == "set1" and str(fighter.rail[at - 1].id) == "bagged", "and in a fight it fires right after that socket's gem")
+	## The floor: the Hollow never leaves anybody with fewer than its card's least.
+	var other: Dictionary = run.players[1]
+	other.dice = other.dice.slice(0, DeepOddities.hollow_least(card.choices[0].action))
+	other.haul.append(gem("CLEAVE", "other_gem", false))
+	check(not DeepDescent.command(run, "b", {"kind": "oddity", "choice": "feed", "payload": {"stone_id": "other_gem", "die_id": str(other.dice[0].id)}}).ok, "it will not take a die below the least")
+	check(DeepDescent.command(run, "b", {"kind": "oddity", "choice": "pass", "payload": {}}).ok, "walking on is always allowed")
+	## Home: the gem comes up an ordinary gem; the bowl is the bowl it always was.
+	DeepDescent._finish(run, "extracted")
+	check(ids(unit.get("shattered", [])) == ["born_void"], "a gem the Hollow made Void never shatters, though one born Void does")
+	var profile: Dictionary = DeepProfile.new_profile()
+	DeepProfile.apply_result(profile, DeepDescent.results(run), "a")
+	var home: Array = profile.tray.filter(func(s: Dictionary) -> bool: return str(s.get("id", "")) == "set1")
+	check(home.size() == 1 and not DeepStone.is_slotless(home[0]) and not home[0].has("voided"), "it comes home without the mark")
+	## Rare: drawn well under its share of the cards chance can turn up.
+	var drawn: int = 0
+	var draws: int = 240
+	var pool: int = DeepContent.section("oddities").keys().filter(func(k: Variant) -> bool: return str(DeepContent.oddity(str(k)).get("room", "")).is_empty()).size()
+	for seed_value in range(draws):
+		var state: Dictionary = DeepDescent.new_run({"seed": 4100 + seed_value, "boons": false, "mine": "QUARRY", "players": [
+			{"id": "a", "name": "Ada", "character": "ARDOR", "rail": [], "dice": DeepProfile.loadout(profile, "ARDOR").dice}]})
+		var offer: Dictionary = state.offers[0]
+		offer.kind = "oddity"
+		DeepDescent.command(state, "a", {"kind": "vote_tunnel", "offer": offer.id})
+		if str(state.chamber.get("oddity", "")) == "HOLLOW":
+			drawn += 1
+	check(drawn > 0 and drawn < draws / pool, "the Hollow is rare (%d of %d oddities, a fair share would be %d)" % [drawn, draws, draws / pool])

@@ -113,7 +113,7 @@ func _run() -> void:
 	await process_frame
 	battle._position_enemy_panel()
 	check(battle._enemy_panel.enemy_id == "e0", "the acting enemy takes precedence over the target")
-	check(not battle._enemy_panel.get_global_rect().intersects(battle._ally_box.get_global_rect()), "the acting panel leaves ally cards visible")
+	check(not battle._enemy_panel.get_global_rect().intersects(battle._my_tab.face.get_global_rect()), "the acting panel leaves the party's tabs visible")
 	## The die a creature rolls turns over its own head, and goes when its action does.
 	var width_before: float = battle._enemy_panel.size.x
 	battle._headless = false

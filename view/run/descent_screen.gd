@@ -83,13 +83,13 @@ const SHRINE_WORDS: Dictionary = {"pair": ["Pair", "Gems that need two dice alik
 const ODDITY_GLYPHS: Dictionary = {"CUTTERS_WHEEL": "cut", "ACID_BATH": "flask", "CRUCIBLE": "flame", "GEODE": "geode",
 	"OLD_PROSPECTOR": "person", "SHRINE": "star", "IDOL": "eye", "ECHO_CHAMBER": "wifi", "COLLECTOR": "coins",
 	"LOUPE_CABINET": "loupe", "FIELD_MEDIC": "heart", "TUMBLER": "reroll", "SEAM": "gem", "SMITHY": "anvil", "CARVER": "face",
-	"ANNEALING_OVEN": "flame", "WISHING_WELL": "drop", "VAT": "flask"}
+	"ANNEALING_OVEN": "flame", "WISHING_WELL": "drop", "VAT": "flask", "HOLLOW": "widening_spiral"}
 ## The mark for one piece of work, by the action it takes. See `choice_glyph`.
 const CHOICE_GLYPHS: Dictionary = {"none": "next", "reroll_cut": "cut", "reroll_clarity": "clarity", "push_clarity": "flame", "remove_inclusion": "clean_drop",
 	"fuse": "flame", "geode_buy": "geode", "etch": "spark", "pattern": "die", "material": "drop", "reset": "flame", "trade_up": "scales", "shrine": "star",
 	"idol": "eye", "echo_stone": "copy", "collector_sell": "coins", "collector_buy": "purse", "heal": "heart", "ore": "coins", "appraise": "loupe",
 	"acid_appraise": "flask", "tumble": "reroll", "upsize": "rise", "downsize": "fall", "temper": "rise", "raise_face": "rise", "lower_face": "fall",
-	"pry": "pick", "chips": "gem", "wishing_well": "gem"}
+	"pry": "pick", "chips": "gem", "wishing_well": "gem", "hollow": "widening_spiral"}
 
 var local_id: String = ""
 var run: Dictionary = {}
@@ -790,7 +790,7 @@ func handle(event: Dictionary) -> void:
 				var mine_result: Dictionary = _last_chamber.get("results", {}).get(local_id, {})
 				if str(event.get("unit", "")) == local_id:
 					mine_result = {"choice": str(event.get("choice", "")), "message": str(event.get("message", "")), "made": event.get("made", []),
-						"lost": event.get("lost", []), "changed": event.get("changed", []), "dice": event.get("dice", [])}
+						"lost": event.get("lost", []), "changed": event.get("changed", []), "dice": event.get("dice", []), "dice_lost": event.get("dice_lost", [])}
 				if not mine_result.is_empty():
 					_hold_page("oddity", {"oddity": str(_last_chamber.get("oddity", "")), "room": str(_last_chamber.get("kind", "oddity")), "result": mine_result})
 		"altar_made":
@@ -3331,6 +3331,8 @@ func _page_oddity_result(content: VBoxContainer) -> void:
 		_enter(card, 0.15)
 	if not lost.is_empty():
 		DeepUi.stat(content, "split_shield", "%s gone for good." % DeepUi.plural(lost.size(), "stone"), DeepUi.BAD, 15).alignment = BoxContainer.ALIGNMENT_CENTER
+	for die in result.get("dice_lost", []):
+		DeepUi.stat(content, "die", "Gone until the run ends: %s." % DeepDice.describe(die), DeepUi.BAD, 15).alignment = BoxContainer.ALIGNMENT_CENTER
 	var go := DeepUi.primary(content, "descend", "Onward", _release, 18, tone)
 	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	go.custom_minimum_size.x = 240
@@ -3909,6 +3911,8 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 			die_row.add_child(Thumbs.DieThumb.new(die, 56))
 			DeepUi.label(die_row, DeepDice.describe(die), 15, DeepUi.PAPER)
 			_faces_row(die_row, die, 16)
+		for die in mine_result.get("dice_lost", []):
+			DeepUi.stat(box, "die", "Gone until the run ends: %s." % DeepDice.describe(die), DeepUi.BAD, 14)
 		_enter(result_card, 0.1)
 		return
 	if bool(unit.get("downed", false)):
@@ -3986,7 +3990,10 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 		DeepUi.spacer(box, false)
 		if needs != "" and _picker_empty(needs, unit):
 			DeepUi.disable_choice(card)
-			DeepUi.stat(box, "cross_out", "You have nothing this could be done to.", DeepUi.DIM, 12)
+			var least: int = DeepOddities.hollow_least(choice.get("action", {}))
+			var why: String = "It will not leave you fewer than %d dice." % least if needs == "gem_and_die" and unit.get("dice", []).size() <= least \
+				else "You have nothing this could be done to."
+			DeepUi.stat(box, "cross_out", why, DeepUi.DIM, 12)
 		_enter(card, 0.12 + 0.08 * index)
 		index += 1
 	## Walking on is not another piece of work: it is the way out, an arrow off the end of
@@ -4390,6 +4397,12 @@ func _picker_empty(needs: String, unit: Dictionary) -> bool:
 			return _carried(unit).size() < 2
 		"stone":
 			return _carried(unit).is_empty()
+		"gem_and_die":
+			var least: int = DeepOddities.HOLLOW_LEAST_DICE
+			for choice in DeepContent.oddity(str(run.get("chamber", {}).get("oddity", ""))).get("choices", []):
+				if str(choice.get("needs", "")) == needs:
+					least = DeepOddities.hollow_least(choice.get("action", {}))
+			return unit.get("dice", []).size() <= least or _carried(unit).all(func(s: Dictionary) -> bool: return not DeepOddities.hollow_refusal(s).is_empty())
 	return false
 
 func _loose(unit: Dictionary) -> Array:
@@ -4547,6 +4560,9 @@ func _work_refusal(action: Dictionary, item: Dictionary) -> String:
 			return "" if not item.get("inclusions", []).is_empty() else "nothing is frozen inside it"
 		"appraise":
 			return "" if not bool(item.get("appraised", false)) else "it has already been read"
+		"hollow":
+			## Any of the five dice will go down the hole; only a read gem with a socket to give up comes away Void.
+			return "" if item.has("faces") else DeepOddities.hollow_refusal(item)
 		"reset":
 			## The vat keeps a die's size and its material: one with no pattern and nothing
 			## etched on it would come out exactly as it went in.
@@ -4702,6 +4718,13 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 			var keep_id: String = _thing_row(row, choice_id, "keep", "stone", stones, "First stone", action)
 			var feed_id: String = _thing_row(row, choice_id, "feed", "stone", stones.filter(func(s: Dictionary) -> bool: return str(s.get("id", "")) != keep_id), "Second stone", action)
 			return func() -> Dictionary: return {} if keep_id.is_empty() or feed_id.is_empty() or keep_id == feed_id else {"keep_id": keep_id, "feed_id": feed_id}
+		"gem_and_die":
+			## The Hollow: a read gem to come away Void, the rail's first since freeing a socket
+			## is the point, and one of the five dice to pay for it.
+			var gems: Array = DeepStone.rail_stones(unit) + _loose(unit).filter(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)))
+			var gem_id: String = _thing_row(row, choice_id, "gem", "stone", gems, "Which gem turns Void?", action)
+			var die_id: String = _thing_row(row, choice_id, "die", "die", dice, "Which die goes in?", action)
+			return func() -> Dictionary: return {} if gem_id.is_empty() or die_id.is_empty() else {"stone_id": gem_id, "die_id": die_id}
 		"raw_stones":
 			## The acid bath: up to three raw stones set in the racks, each clicked on and off.
 			var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))

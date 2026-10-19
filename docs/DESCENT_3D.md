@@ -38,8 +38,9 @@ DescentScreen
   MineStage            the one World3D for the whole run: viewport, camera rig, BattleFx,
                        the Environment, the room the party is in, the tunnel it is walking,
                        the room it is walking to; beats: arrive → business → done → crossroads → walk
-  BattleScreen         the fight HUD and choreographer only: dock (rail, tray, forecast),
-                       plates, ally cards, banners, target pick; it animates events on the stage
+  BattleScreen         the fight HUD and choreographer only: dock (a page a player: rail, tray,
+                       forecast; the party's tabs on top, following the rail that fires),
+                       plates, banners, target pick; it animates events on the stage
   Room overlays        HUD cards over the room for what is text by nature: respite, oddity
                        choices, stakes, the hoard's lines, salvage, the summary
   Strip, toasts, inspector, menu, chart fold-out (optional, §3.4)

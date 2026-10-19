@@ -265,7 +265,7 @@ replaying a roll. Standard combat speed scales the events and their animations t
 
 `view/battle/enemy_panel.gd` owns hover/pinning, row states, the large die, combination
 assembly and amount count-ups. The table stands opposite the selected creature and
-reserves space for ally cards. Its visible damage formulas include depth, mirror and
+keeps clear of the party's tabs on the dock. Its visible damage formulas include depth, mirror and
 enrage bonuses. Boss phases have separate inspector tabs to keep every page readable.
 
 Validation: `test_enemy_turns.gd` exercises sequential resolution, control effects,
