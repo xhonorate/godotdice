@@ -292,7 +292,7 @@ static func ambient(kind: String, biome: Dictionary, scale: float = 1.0) -> GPUP
 	m.emission_box_extents = Vector3(11, 4.2, 7)
 	p.position = Vector3(0, 3.6, -7.5)
 	p.visibility_aabb = AABB(Vector3(-16, -8, -14), Vector3(32, 16, 28))
-	p.draw_pass_1 = quad(true)
+	var mesh: Mesh = quad(true)
 	p.local_coords = true
 	var key: Color = biome.get("key", Color.WHITE)
 	var accent: Color = biome.get("accent", Color.WHITE)
@@ -340,7 +340,7 @@ static func ambient(kind: String, biome: Dictionary, scale: float = 1.0) -> GPUP
 			m.scale_min = 0.03
 			m.scale_max = 0.05
 			m.color_ramp = fade_ramp(Color("bfe8ff"), 0.9, 0.05)
-			p.draw_pass_1 = _stretched_quad()
+			mesh = _stretched_quad()
 		"sparkles":
 			amount = 90
 			lifetime = 3.0
@@ -406,7 +406,7 @@ static func ambient(kind: String, biome: Dictionary, scale: float = 1.0) -> GPUP
 			m.scale_min = 0.04
 			m.scale_max = 0.08
 			m.color_ramp = fade_ramp(Color("3a3230"), 0.8)
-			p.draw_pass_1 = quad(false)
+			mesh = quad(false)
 		"void":
 			amount = 100
 			lifetime = 7.0
@@ -433,6 +433,9 @@ static func ambient(kind: String, biome: Dictionary, scale: float = 1.0) -> GPUP
 	p.fixed_fps = AMBIENT_FILL_FPS
 	_after_frames(3, p.set.bind("fixed_fps", 30))
 	p.process_material = keep("ambient:" + kind, m)
+	## Set the process material first: assigning a material-bearing mesh first leaks a
+	## shader in Godot 4.7.2 (reproduced by tools/repro_particle_shader.gd).
+	p.draw_pass_1 = mesh
 	return p
 
 static func _after_frames(frames: int, work: Callable) -> void:

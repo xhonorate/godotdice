@@ -1683,6 +1683,10 @@ static func _socket(state: Dictionary, unit: Dictionary, stone_id: String, index
 	var refusal: String = socket_refusal(unit, stone, index)
 	if not refusal.is_empty():
 		return _refuse(refusal)
+	## A stone that leaves the bag also leaves the trading table. Clear both acceptances in
+	## this successful rail change, so the cancellation reaches every player's mirror.
+	if str(trade_table(state).get("offers", {}).get(str(unit.id), "")) == stone_id:
+		_trade_withdraw(state, unit)
 	if DeepStone.is_slotless(stone):
 		## Out of the bag, or off whatever it rode before; a move earlier in its own line
 		## lands before the gem it was dropped on, not after it.
@@ -1819,6 +1823,14 @@ static func _trade_accept(state: Dictionary, unit: Dictionary) -> Dictionary:
 		return _refuse("a trade wants a stone from each of you")
 	if has_traded(state, str(unit.id)) or has_traded(state, partner_id):
 		return _refuse("one trade each at a landing")
+	var partner: Dictionary = player(state, partner_id)
+	## Validate before accepting or removing either stone. Refusals send no state patch, so
+	## even a stale offer from an older checkpoint must leave the whole run untouched.
+	var mine_id: String = str(offers[str(unit.id)])
+	var theirs_id: String = str(offers[partner_id])
+	if not unit.get("haul", []).any(func(s: Dictionary) -> bool: return str(s.get("id", "")) == mine_id) \
+			or not partner.get("haul", []).any(func(s: Dictionary) -> bool: return str(s.get("id", "")) == theirs_id):
+		return _refuse("a stone on the table is no longer in its bag")
 	var accepted: Array = table.get("accepted", []).duplicate()
 	if not accepted.has(str(unit.id)):
 		accepted.append(str(unit.id))
@@ -1826,17 +1838,8 @@ static func _trade_accept(state: Dictionary, unit: Dictionary) -> Dictionary:
 	if not accepted.has(partner_id):
 		return {"ok": true, "event": _event(state, "trade_accept", {"unit": unit.id})}
 	## Both have said yes: the stones cross the table.
-	var partner: Dictionary = player(state, partner_id)
-	var mine: Dictionary = _take_from_haul(unit, str(offers[str(unit.id)]))
-	var theirs: Dictionary = _take_from_haul(partner, str(offers[partner_id]))
-	if mine.is_empty() or theirs.is_empty():
-		## One of them is no longer in its bag: put back whatever came out and clear the table.
-		if not mine.is_empty():
-			unit.haul.append(mine)
-		if not theirs.is_empty():
-			partner.haul.append(theirs)
-		state.landing.trade = {"offers": {}, "accepted": []}
-		return _refuse("a stone on the table is no longer in its bag")
+	var mine: Dictionary = _take_from_haul(unit, mine_id)
+	var theirs: Dictionary = _take_from_haul(partner, theirs_id)
 	unit.haul.append(theirs)
 	partner.haul.append(mine)
 	## What each of them did here, for the landing to say back to them.
@@ -2175,6 +2178,11 @@ static func _has_respites(state: Dictionary) -> bool:
 	## A Warden's hall has the hoard and nothing else: nothing to rest at and no cage.
 	return not bool(state.get("landing", {}).get("cleared", false))
 
+static func needs_respite(state: Dictionary, unit: Dictionary) -> bool:
+	## No Bench forbids resting, but never requires spending a stone or pyrite to leave.
+	## A daily rail is fragile, so an empty bag and purse may offer no respite at all.
+	return _has_respites(state) and str(unit.get("respite", "")).is_empty() and not has_mod(state, "NO_BENCH")
+
 static func rest_amount(unit: Dictionary, state: Dictionary = {}) -> int:
 	## What resting gives back: a share of the most health, never past it. Short Rest takes
 	## some of the share away and Festering Air cuts what is left, like every other heal.
@@ -2195,10 +2203,6 @@ static func can_wish(stone: Dictionary) -> bool:
 static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_id: String, ore: int = 0) -> Dictionary:
 	if not str(unit.get("respite", "")).is_empty():
 		return _refuse("you have taken your respite")
-	## A stone on the trading table that goes down the well, or under the lens, comes off it:
-	## it is no longer the stone the other side said yes to.
-	if not stone_id.is_empty() and str(trade_table(state).get("offers", {}).get(str(unit.id), "")) == stone_id:
-		_trade_withdraw(state, unit)
 	var fields: Dictionary = {"unit": unit.id, "choice": choice}
 	match choice:
 		"rest":
@@ -2255,6 +2259,10 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 			fields.message = "%s %s" % [said, str(prize.get("message", ""))]
 		_:
 			return _refuse("rest, appraise or the well")
+	## Only a successful respite changes an offer: refusals send no patch to the party.
+	## A stone read or spent is no longer the stone the other side said yes to.
+	if not stone_id.is_empty() and str(trade_table(state).get("offers", {}).get(str(unit.id), "")) == stone_id:
+		_trade_withdraw(state, unit)
 	unit.respite = choice
 	state.landing.respites[str(unit.id)] = fields.duplicate(true)
 	return {"ok": true, "event": _event(state, "respite", fields)}
@@ -2337,7 +2345,7 @@ static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: Stri
 		return _refuse("today the lift only runs from Warden landings and boss halls")
 	if choice == "descend" and boss_hall and next_mine(state).is_empty():
 		return _refuse("this is the bottom of the mine: the only way is up")
-	if choice == "descend" and not rested and _has_respites(state):
+	if choice == "descend" and needs_respite(state, unit):
 		return _refuse("take your respite first: the fire, the bench or the well")
 	if choice == "lift" and rested:
 		return _refuse("you have taken your respite: the way on is down")
@@ -2852,6 +2860,10 @@ static func set_connected(state: Dictionary, player_id: String, connected: bool)
 	var unit: Dictionary = player(state, player_id)
 	if not unit.is_empty():
 		unit.connected = connected
+		## An empty chair cannot hold the two-person booth for the rest of the landing.
+		## The session publishes this withdrawal with the player's changed presence.
+		if not connected and trade_table(state).get("offers", {}).has(player_id):
+			_trade_withdraw(state, unit)
 		if in_battle(state):
 			var fighter: Dictionary = DeepBattle.player(state.chamber.battle, player_id)
 			if not fighter.is_empty():

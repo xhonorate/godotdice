@@ -16,6 +16,7 @@ func _init() -> void:
 	_test_opals()
 	_test_creatures_and_statuses()
 	_test_forecast_matches()
+	_test_forecast_repeated_gems()
 	_test_patch_stream()
 	_test_whole_fights()
 	_test_rung_finishes()
@@ -418,7 +419,7 @@ func _test_hand_mutation_and_retriggers() -> void:
 	var fired3: Array = fires(events3)
 	check(fired3.size() == 3, "Refract, then Crush twice: %s" % str(fired3.map(func(e: Dictionary) -> String: return str(e.skill))))
 	check(fired3[0].effects[0].kind == "phantom_high" and fired3[0].effects[0].hand.size() == 6, "a phantom six joins the hand")
-	check(fired3[1].skill == "CRUSH" and int(fired3[1].effects[0].amount) == int(floor(18 * 1.0)), "the phantom makes a triple of sixes for Crush")
+	check(fired3[1].skill == "CRUSH" and int(fired3[1].effects[0].amount) == 30, "the phantom makes a triple of sixes for Crush: matched value 6 × 5")
 	## Facet passes a Cut step, Double Down can empty the next gem.
 	var r4: Dictionary = rngs(34)
 	var state4: Dictionary = DeepBattle.begin([player("a", [stone("FACET"), stone("CLEAVE", 1, 0)])], ["QUARTZ_GOLEM"], {"depth": 1}, r4.dice, r4.creatures)
@@ -609,6 +610,33 @@ func _test_forecast_matches() -> void:
 	check(int(forecast.totals.damage) == actual_damage, "forecast damage equals what happened: %d vs %d" % [int(forecast.totals.damage), actual_damage])
 	check(int(forecast.totals.block) == actual_block, "forecast block equals what happened: %d vs %d" % [int(forecast.totals.block), actual_block])
 	check(int(forecast.totals.resonance) == int(fired[fired.size() - 1].resonance), "forecast Resonance matches")
+
+func _test_forecast_repeated_gems() -> void:
+	var r: Dictionary = rngs(614)
+	var unit: Dictionary = player("a", [stone("STRIKE", 1, 4, 2, ["CHATOYANCE"]), stone("GUARD", 1, 4, 2, ["CHATOYANCE"])])
+	unit.birthstone = {}
+	unit.passive = {}
+	var state: Dictionary = DeepBattle.begin([unit], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	state.enemies[0].hp = 10000
+	state.enemies[0].max_hp = 10000
+	hand(DeepBattle.player(state, "a"), [6, 6, 2, 3, 1])
+	var before: String = JSON.stringify(state)
+	var preview: Dictionary = DeepBattle.forecast(state, "a")
+	check(JSON.stringify(state) == before, "repeated-gem forecasting leaves the live fight untouched")
+	var actual: Dictionary = {"damage": 0, "block": 0}
+	var fired: Array = fires(run_turn(state, r))
+	for event in fired:
+		for effect in event.get("effects", []):
+			var kind: String = str(effect.get("kind", ""))
+			if actual.has(kind):
+				actual[kind] += int(effect.get("raw", effect.get("amount", 0))) if kind == "damage" else int(effect.get("amount", 0))
+	check(fired.size() == 4 and int(preview.totals.fires) == 4, "both Chatoyance gems fire twice in the forecast and live turn")
+	check(int(preview.totals.damage) == int(actual.damage), "forecast adds both Chatoyance hits: %d vs %d" % [int(preview.totals.damage), int(actual.damage)])
+	check(int(preview.totals.block) == int(actual.block), "forecast adds both Chatoyance block gains: %d vs %d" % [int(preview.totals.block), int(actual.block)])
+	var changing: Dictionary = DeepBattle.begin([player("a", [stone("GLIMMER", 1, 4, 2, ["CHATOYANCE"])])], ["QUARTZ_GOLEM"], {"depth": 1}, r.dice, r.creatures)
+	hand(DeepBattle.player(changing, "a"), [6, 8, 8, 8, 8])
+	var changed: Dictionary = DeepBattle.forecast(changing, "a")
+	check(bool(changed.sockets[0].active) and int(changed.sockets[0].fires) == 1, "Glimmer stays lit when its first activation raises its only qualifying die past the trigger for its repeat")
 
 func _test_patch_stream() -> void:
 	var r: Dictionary = rngs(61)

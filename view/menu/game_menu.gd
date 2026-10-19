@@ -120,6 +120,11 @@ func _input(event: InputEvent) -> void:
 	elif _page == "player_name":
 		## Text and navigation keys must reach the editor's controls.
 		return
+	elif event.keycode in [KEY_TAB, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_HOME, KEY_END,
+			KEY_PAGEUP, KEY_PAGEDOWN, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
+		## Let the focused menu control navigate, activate or change its value. Any key
+		## it does not use is caught below, before it can reach the game behind the menu.
+		return
 	get_viewport().set_input_as_handled()
 
 func _unhandled_key_input(_event: InputEvent) -> void:
@@ -149,6 +154,8 @@ func _show(page: String) -> void:
 		"invite": _page_confirm("party", "Join a friend's party?", _invite_text(), "Join", DeepUi.ACCENT, func() -> void:
 			close()
 			join_requested.emit(_invite))
+	if page in ["settings", "controls"]:
+		_focus_first.call_deferred()
 
 func ask_to_join(lobby_id: String) -> void:
 	## A Steam invitation accepted in the middle of an expedition: leaving it is asked first.
@@ -220,6 +227,14 @@ func _focus(button: Button) -> void:
 	## Deferred, and the page may have moved on by then.
 	if is_instance_valid(button) and button.is_inside_tree():
 		button.grab_focus()
+
+func _focus_first() -> void:
+	if not visible:
+		return
+	for button in _body.find_children("*", "Button", true, false):
+		if not button.disabled and button.focus_mode != Control.FOCUS_NONE:
+			_focus(button)
+			return
 
 func _heading(glyph: String, text: String, tone: Color = DeepUi.ACCENT) -> void:
 	var row := DeepUi.hbox(_body, 12)
@@ -344,6 +359,7 @@ func _page_settings() -> void:
 	_row(grid, "Master volume", _slider("master_volume", 0.8))
 	_row(grid, "Effects", _slider("sfx_volume", 0.85), "Every sound the game makes is written by the game itself.")
 	_row(grid, "Music", _slider("music_volume", 0.6), "The music is written by the game too, from a few lines of score for each piece.")
+	## Soundtrack selection is intentionally not exposed in the player menu.
 	_section(grid, "Comfort")
 	_row(grid, "Screen shake", _slider("shake", 1.0))
 	_row(grid, "Fewer flashes", _toggle("reduced_motion", false), "Softens the flashes and color smears on heavy blows.")

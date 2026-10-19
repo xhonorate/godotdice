@@ -186,6 +186,9 @@ static func _play_together(home: Control, box: VBoxContainer) -> void:
 		home._address.text = str(home.settings.get("last_address", "127.0.0.1"))
 		home._address.custom_minimum_size = Vector2(140, 0)
 		home._address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		home._address.text_submitted.connect(func(text: String) -> void:
+			if not in_party:
+				home.join_requested.emit(text, DeepSession.DEFAULT_PORT))
 		lan.add_child(home._address)
 		var join_lan := DeepUi.icon_button(lan, "play", "Join", func() -> void: home.join_requested.emit(home._address.text, DeepSession.DEFAULT_PORT), 13, DeepUi.INFO)
 		for button in [host_lan, join_lan, host_steam, join_steam]:
@@ -198,4 +201,3 @@ static func _play_together(home: Control, box: VBoxContainer) -> void:
 		var out := DeepUi.icon_button(box, "prev", "Close the party" if hosting else "Leave the party", func() -> void: home.leave_party_requested.emit(), 13, DeepUi.MUTED)
 		out.size_flags_horizontal = Control.SIZE_SHRINK_END
 		out.tooltip_text = "Everyone goes back to their own workshop." if hosting else "Back to a workshop of your own."
-

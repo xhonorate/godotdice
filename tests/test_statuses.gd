@@ -357,7 +357,8 @@ func gem_integrations() -> void:
 		f = setup("THE_FOREMAN")
 		cast(f, key)
 		check(int(f.foe.statuses.ward) == 0 and int(f.foe.statuses.get("clouded" if key == "MIST" else "marked", 0)) == 0, "opening Ward blocks %s" % key)
-	for spec in [["AEGIS", "ward", [1, 2]], ["BASTION", "retain", [12]], ["MEND", "regeneration", [6]], ["ANCHOR", "spikes", [6]], ["PRISM", "charged", [2, 4]]]:
+	## Five carats and Flawless make Bastion's 10 Retain worth 30, capped at 20.
+	for spec in [["AEGIS", "ward", [1, 2]], ["BASTION", "retain", [20]], ["MEND", "regeneration", [6]], ["ANCHOR", "spikes", [6]], ["PRISM", "charged", [2, 4]]]:
 		var f: Dictionary = setup("CAVE_TICK", 2)
 		var values: Array = [1, 2, 3, 4, 5] if spec[0] == "AEGIS" else [5, 5, 5, 2, 2]
 		f.player.hp = 900

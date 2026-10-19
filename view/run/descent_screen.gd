@@ -1330,7 +1330,7 @@ func _show_vein() -> void:
 		if int(unit.get("hp", 0)) <= cost:
 			_cross_sub.text = "Another swing would finish you. Put the pick down."
 	else:
-		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return bool(p.get("mining", false)) and not bool(p.get("downed", false)))
+		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return bool(p.get("connected", true)) and bool(p.get("mining", false)) and not bool(p.get("downed", false)))
 		var said: String = "You are down, and cannot swing a pick until the next landing." if bool(unit.get("downed", false)) else ("You are done here." if hollow else "You put the pick down.")
 		_cross_sub.text = said + (" Waiting for %s." % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "")
 	DeepUi.clear(_cross_hint)
@@ -2092,6 +2092,7 @@ func _show_landing() -> void:
 	## has no hall to speak of: nothing to walk up to, so the mouths are live from the start.
 	var can_rest: bool = lift != null and not cleared and lift.parts.has("rest")
 	var waiting: bool = can_rest and taken.is_empty()
+	var must_take_respite: bool = DeepDescent.needs_respite(run, unit)
 	## In a party the trading table stays open after the respite, so the party stays in the
 	## hall with it: the ways down are chosen from beside it rather than walked up to.
 	## Once a lapidary has made their one trade here, the table is done with them.
@@ -2157,14 +2158,15 @@ func _show_landing() -> void:
 						options.drop = func(data: Dictionary) -> void: _respite("wish", str(data.stone_id))
 				_stage.add_pick(id, part, options.get("half", Vector3.ONE), options)
 			_stage.enable_pick(id, key in offered)
-	if waiting or _reading():
+	if (waiting and must_take_respite) or _reading() or not _landing_view.is_empty():
 		## Nothing moves while a sheet is up. Walking the camera forward behind an appraisal
 		## or a close look means the room has changed under the player by the time they put
 		## it away, which reads as the game having got on without them.
 		_stage.close_ways()
-	elif boss_hall:
+	elif boss_hall or (waiting and not must_take_respite):
 		## The bottom of a mine: the cage home and the way on into the next mine are both
 		## chosen from where the party stands, so both stay in view.
+		## No Bench also leaves the ways down open beside the optional bench and well.
 		_stage.open_ways(crossroads_entries())
 	elif trading:
 		## The respite is taken, and the table is still there: the ways down light up and can be
@@ -2184,7 +2186,9 @@ func _show_landing() -> void:
 		_cross_title.text = "The bottom of %s  ·  depth %d" % [DeepContent.mine_name(str(run.get("mine", ""))), int(run.get("depth", 0))]
 	else:
 		_cross_title.text = ("The Warden's hall" if cleared else "The landing") + "  ·  depth %d" % int(run.get("depth", 0))
-	if waiting:
+	if waiting and not must_take_respite:
+		_cross_sub.text = "You cannot rest today. Appraise a stone, use the well, take the lift, or choose a tunnel to keep going." + (" One trade at the table is free." if trading else "")
+	elif waiting:
 		_cross_sub.text = "Each of you gets one action: rest, appraise a stone or use the well. Or take the lift up now with what you're carrying." + (" One trade at the table is free." if trading else "")
 	elif boss_hall and not next_key.is_empty():
 		_cross_sub.text = "The mine is beaten. Ride the lift home with it all, or push on into %s carrying everything: nothing is banked until you ride up." % DeepContent.mine_name(next_key)
@@ -2217,7 +2221,7 @@ func _show_landing() -> void:
 			continue
 		if not str(other.get("choice", "")).is_empty():
 			DeepUi.stat(_cross_hint, "lift" if str(other.choice) == "lift" else "descend", str(other.name), DeepUi.GOOD if str(other.choice) == "lift" else DeepUi.ACCENT, 12)
-		elif str(other.get("respite", "")).is_empty():
+		elif DeepDescent.needs_respite(run, other):
 			## Not "resting": Rest is one of the things they could choose here, and nobody has
 			## chosen anything yet.
 			DeepUi.stat(_cross_hint, "hourglass", "Waiting for %s" % str(other.name), DeepUi.DIM, 12)
@@ -2997,7 +3001,7 @@ func _fill_chip() -> void:
 		if kind == "warden":
 			var boss_below: bool = DeepDescent.run_is_boss(run, int(run.get("depth", 0)))
 			DeepUi.stat(box, "crown", "Going down means fighting the %s first." % ("final boss" if boss_below else "Warden"), DeepUi.BAD, 12)
-		DeepUi.label(box, "Click to go down this way." if not str(me().get("respite", "")).is_empty() else "Take a respite first.", 12, DeepUi.DIM)
+		DeepUi.label(box, "Take a respite first." if DeepDescent.needs_respite(run, me()) else "Click to go down this way.", 12, DeepUi.DIM)
 	elif bool(entry.mine):
 		DeepUi.stat(box, "check", "your pick" + ("" if voters.size() <= 1 else "  ·  " + ", ".join(voters)), DeepUi.GOOD, 12)
 	elif not voters.is_empty():
@@ -3040,7 +3044,7 @@ func _place_chip() -> void:
 func _process(_delta: float) -> void:
 	## A landing held still for a sheet walks on the moment it is put away.
 	if str(run.get("phase", "")) == "landing" and _hold.is_empty() and not _walking and _area.visible and not _reading():
-		if _stage.has_room() and not _stage.at_crossroads() and not _stage.strolling() and not str(me().get("respite", "")).is_empty() and not _stage.ways_live():
+		if _stage.has_room() and not _stage.at_crossroads() and not _stage.strolling() and _landing_view.is_empty() and not DeepDescent.needs_respite(run, me()) and not _stage.ways_live():
 			_show_landing()
 	if not _news.is_empty():
 		_tell_news()

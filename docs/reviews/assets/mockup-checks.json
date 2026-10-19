@@ -1,0 +1,102 @@
+{
+  "checks": [
+    {
+      "pass": true,
+      "description": "Game fonts load"
+    },
+    {
+      "pass": true,
+      "description": "First descent concept renders"
+    },
+    {
+      "pass": true,
+      "description": "Landing fare is explicit"
+    },
+    {
+      "pass": true,
+      "description": "No horizontal overflow at 1600px"
+    },
+    {
+      "pass": true,
+      "description": "Experienced mode replaces teaching with compact records"
+    },
+    {
+      "pass": true,
+      "description": "Battle shows three named skill cards"
+    },
+    {
+      "pass": true,
+      "description": "Missing trigger is explicit"
+    },
+    {
+      "pass": true,
+      "description": "All rail positions and Birthstone remain visible"
+    },
+    {
+      "pass": true,
+      "description": "Unused rerolls contribute Second Wind healing"
+    },
+    {
+      "pass": true,
+      "description": "Changing target updates enemy rules and damage forecast"
+    },
+    {
+      "pass": true,
+      "description": "Dice can be selected for reroll"
+    },
+    {
+      "pass": true,
+      "description": "Reroll lights Guard and updates the outcome"
+    },
+    {
+      "pass": true,
+      "description": "Rerolled two-lowest Strike and predicted target health match"
+    },
+    {
+      "pass": true,
+      "description": "Lock preserves fired result states"
+    },
+    {
+      "pass": true,
+      "description": "Resolved turn preserves target and updates its health"
+    },
+    {
+      "pass": true,
+      "description": "Homecoming shows the complete sample queue"
+    },
+    {
+      "pass": true,
+      "description": "Queued choice can be undone"
+    },
+    {
+      "pass": true,
+      "description": "Keep and sell choices accumulate in a batch"
+    },
+    {
+      "pass": true,
+      "description": "Batch displays sale proceeds"
+    },
+    {
+      "pass": true,
+      "description": "Review lists each queued decision"
+    },
+    {
+      "pass": true,
+      "description": "Applying the demo batch clears staged choices"
+    },
+    {
+      "pass": true,
+      "description": "Review later explains the proposed persistent tray"
+    },
+    {
+      "pass": true,
+      "description": "Mockup writes no local storage"
+    }
+  ],
+  "runtime_errors": [],
+  "screenshots": 6,
+  "viewport": [
+    1600,
+    1200
+  ]
+}

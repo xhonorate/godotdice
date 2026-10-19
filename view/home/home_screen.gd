@@ -552,6 +552,8 @@ func choose_character(key: String) -> void:
 func step_character(direction: int) -> void:
 	var owned: Array = DeepProfile.unlocked_characters(profile)
 	var current: String = str(profile.get("current_character", DeepContent.starter_character()))
+	if tab == "delvers" and owned.has(_roster_pick):
+		current = _roster_pick
 	if owned.size() < 2:
 		return
 	var next: String = str(owned[posmod(owned.find(current) + direction, owned.size())])
