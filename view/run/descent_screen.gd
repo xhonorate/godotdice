@@ -26,6 +26,7 @@ const EffectChips = preload("res://view/battle/effect_chips.gd")
 const BenchPanel = preload("res://view/run/bench_panel.gd")
 const RunDock = preload("res://view/run/run_dock.gd")
 const DownedVeil = preload("res://view/run/downed_veil.gd")
+const HollowRite = preload("res://view/run/hollow_rite.gd")
 
 signal command(cmd: Dictionary)
 signal home_requested
@@ -33,7 +34,7 @@ signal menu_requested
 
 const KIND_WORDS: Dictionary = {"fight": "A fight", "elite": "Something big", "vein": "A vein", "oddity": "Something odd",
 	"motherlode": "A glittering hollow", "merchant": "A merchant", "smithy": "A smithy", "carver": "A carver's bench", "landing": "The landing",
-	"hidden": "A dark mouth", "well": "A wishing well", "vat": "A vat", "altar": "An altar"}
+	"hidden": "A dark mouth", "well": "A wishing well", "vat": "A vat", "altar": "An altar", "rest_stop": "A rest stop"}
 ## How many of the bag's stones the scales name at once: the chip is a panel, not a page.
 const SCALES_LISTED := 10
 
@@ -49,7 +50,8 @@ const KIND_TEXT: Dictionary = {"fight": "A fight. Pays pyrite, with a good chanc
 	"well": "A wishing well. Throw in a stone or some pyrite. The more it's worth, the better your odds of a good reward.",
 	"hidden": "Too dark to see. Anything could be down there.",
 	"vat": "A sunken vat of molten material: dip a die and it comes out made of something else, or melt it back to plain numbers.",
-	"altar": "An altar of old stone with a star cut into it and five sockets round the star. Give it five gems and see what it gives back."}
+	"altar": "An altar of old stone with a star cut into it and five sockets round the star. Give it five gems and see what it gives back.",
+	"rest_stop": "A nook with a bench and a supply box: rest to heal, or take the supplies as pyrite."}
 ## How many things to work on stand on one line of a room's second page.
 const WORK_PAGE: int = 8
 ## How wide the chart is where it lies over the left of the room.
@@ -80,10 +82,7 @@ const SHRINE_WORDS: Dictionary = {"pair": ["Pair", "Gems that need two dice alik
 	"rerolled": ["Rerolled dice", "Gems that count the dice you rerolled."], "low_count": ["Low dice", "Gems that count dice at or below half their top."],
 	"crowns": ["Crowns", "Gems that count dice on their own top face."], "crowns_at_most": ["Few crowns", "Gems that want few dice on their top face."],
 	"pyrite": ["Pyrite", "Gems that need pyrite in hand."], "fizzles": ["Fizzles", "Gems that pay off on gems that stayed dark."]}
-const ODDITY_GLYPHS: Dictionary = {"CUTTERS_WHEEL": "cut", "ACID_BATH": "flask", "CRUCIBLE": "flame", "GEODE": "geode",
-	"OLD_PROSPECTOR": "person", "SHRINE": "star", "IDOL": "eye", "ECHO_CHAMBER": "wifi", "COLLECTOR": "coins",
-	"LOUPE_CABINET": "loupe", "FIELD_MEDIC": "heart", "TUMBLER": "reroll", "SEAM": "gem", "SMITHY": "anvil", "CARVER": "face",
-	"ANNEALING_OVEN": "flame", "WISHING_WELL": "drop", "VAT": "flask", "HOLLOW": "widening_spiral"}
+const ODDITY_GLYPHS: Dictionary = DeepUi.ODDITY_GLYPHS
 ## The mark for one piece of work, by the action it takes. See `choice_glyph`.
 const CHOICE_GLYPHS: Dictionary = {"none": "next", "reroll_cut": "cut", "reroll_clarity": "clarity", "push_clarity": "flame", "remove_inclusion": "clean_drop",
 	"fuse": "flame", "geode_buy": "geode", "etch": "spark", "pattern": "die", "material": "drop", "reset": "flame", "trade_up": "scales", "shrine": "star",
@@ -157,6 +156,8 @@ var _toasts: VBoxContainer
 var _fresh: bool = true
 var _headless: bool = false
 var _hold: Dictionary = {}
+## The Hollow's rite while it plays over the room; no page goes up until it is done.
+var _rite: HollowRite = null
 ## What a final boss's death opened, waiting to be shown a sheet at a time once the hoard is
 ## chosen: [{run_id, kind: character | tier | conquest, ...}]. See `conquered`.
 var _news: Array = []
@@ -460,6 +461,8 @@ func show_state(state: Dictionary) -> void:
 		_crossroads.visible = false
 		return
 	if DeepDescent.in_battle(run):
+		if _rite != null and is_instance_valid(_rite):
+			_rite.finish()
 		_battle.visible = true
 		_area.visible = false
 		_map_margin.visible = _chart_open
@@ -474,6 +477,13 @@ func show_state(state: Dictionary) -> void:
 	_battle.visible = false
 	## No fight here and none held on screen: the last one's creatures leave the room.
 	_battle.leave()
+	if _rite != null and is_instance_valid(_rite):
+		## The Hollow's rite has the room: nothing goes up over it until the gem is on the rail.
+		DeepUi.clear(_page_holder)
+		_area.visible = false
+		_scrim.visible = false
+		_crossroads.visible = false
+		return
 	_area.visible = true
 	_map_margin.visible = _chart_open
 	DeepUi.clear(_page_holder)
@@ -769,6 +779,9 @@ func handle(event: Dictionary) -> void:
 			## The cabinet's one good lens reads a stone the way any other appraisal does.
 			if str(event.get("unit", "")) == local_id and _oddity_action(str(event.get("choice", ""))) == "appraise" and not event.get("changed", []).is_empty():
 				_appraisal(event.changed[0])
+			## The Hollow takes its die and gives the gem back Void, over the room, before any page.
+			if str(event.get("unit", "")) == local_id and event.get("voided", null) is Dictionary:
+				_hollow_rite(event)
 			## The well answers in the room itself before any page goes up over it, and the
 			## page it puts up waits for the player rather than moving on by itself.
 			var wished: bool = str(event.get("unit", "")) == local_id and event.has("well")
@@ -929,6 +942,58 @@ func _acid_reveal(stones: Array, at: int) -> void:
 	if not last:
 		action["call"] = func() -> void: _acid_reveal(stones, at + 1)
 	_belongs_here(Appraisal.open(raw, {"actions": [action], "title": "Out of the acid"}))
+
+func _hollow_rite(event: Dictionary) -> void:
+	## The die out of the tray and down the hole, the gem off the rail, over it and back onto
+	## it Void (see hollow_rite.gd). This is called before the dock is drawn again from the new
+	## state, so the two are taken from where they stood; the gem's new place on the rail stays
+	## hidden until it lands there.
+	if _headless:
+		return
+	var voided: Dictionary = event.voided
+	var id: String = str(voided.get("stone_id", ""))
+	var stone: Dictionary = {}
+	for changed in event.get("changed", []):
+		if str(changed.get("id", "")) == id:
+			stone = changed
+	var lost: Array = event.get("dice_lost", [])
+	if stone.is_empty() or lost.is_empty():
+		return
+	if _rite != null and is_instance_valid(_rite):
+		_rite.finish()
+	var gem_at: Vector2 = _run_dock.centre_of("stone", id)
+	if gem_at == Vector2.INF:
+		gem_at = _run_dock.centre_of("bag")
+	var die_at: Vector2 = _run_dock.centre_of("die", str(lost[0].get("id", "")))
+	if die_at == Vector2.INF:
+		die_at = _run_dock.centre_of("dice")
+	_run_dock.veil(id)
+	var rides: Dictionary = voided.get("rides", {})
+	var rite := HollowRite.new()
+	rite.play(stone, lost[0], gem_at, die_at, func() -> Vector2:
+		var spot: Vector2 = _run_dock.centre_of("stone", id)
+		if spot == Vector2.INF and not rides.is_empty():
+			rite.land_edge = RunDock.SLOT - 12.0
+			spot = _run_dock.centre_of("socket", str(int(rides.socket)))
+		if spot == Vector2.INF:
+			rite.land_edge = 40.0
+			spot = _run_dock.centre_of("bag")
+		return spot)
+	rite.gem_from_edge = RunDock.SLOT - 12.0
+	rite.die_from_edge = RunDock.SLOT
+	rite.land_edge = RunDock.RIDER - 4.0
+	rite.beat.connect(func(moment: String) -> void:
+		if moment == "impact":
+			DeepUi.shake(self, 7.0, 0.45)
+		elif moment == "landed":
+			_run_dock.unveil(id))
+	rite.done.connect(func() -> void:
+		_rite = null
+		## The page that waited on it comes up fresh, with its own entrance.
+		_view_key = ""
+		show_state.call_deferred(run))
+	_rite = rite
+	_body.add_child(rite)
 
 func _oddity_action(choice_id: String) -> String:
 	for choice in DeepContent.oddity(str(_last_chamber.get("oddity", ""))).get("choices", []):
@@ -1128,7 +1193,7 @@ func toast_parts(parts: Array, color: Color, glyph: String = "") -> void:
 		_toasts.remove_child(oldest)
 		oldest.queue_free()
 	var box := PanelContainer.new()
-	var style := DeepUi.raised(Color(0.04, 0.05, 0.07, 0.94), Color(color, 0.6), 18, 8, 0.5)
+	var style := DeepUi.facet_ends(box, DeepUi.raised(Color(0.04, 0.05, 0.07, 0.94), Color(color, 0.6), 18, 8, 0.5))
 	style.content_margin_left = 14
 	style.content_margin_right = 16
 	box.add_theme_stylebox_override("panel", style)
@@ -1335,7 +1400,7 @@ func _show_vein() -> void:
 		_cross_sub.text = said + (" Waiting for %s." % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "")
 	DeepUi.clear(_cross_hint)
 	var legend := PanelContainer.new()
-	legend.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4))
+	legend.add_theme_stylebox_override("panel", DeepUi.facet_ends(legend, DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4)))
 	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cross_hint.add_child(legend)
 	var row := DeepUi.hbox(legend, 18)
@@ -1666,7 +1731,7 @@ func _show_stall() -> void:
 	DeepUi.clear(_cross_hint)
 	DeepUi.pill(_cross_hint, "ore", "%d pyrite to spend" % int(unit.get("ore", 0)), DeepUi.ORE, 14)
 	var tools := PanelContainer.new()
-	tools.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4))
+	tools.add_theme_stylebox_override("panel", DeepUi.facet_ends(tools, DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4)))
 	tools.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cross_hint.add_child(tools)
 	var row := DeepUi.hbox(tools, 14)
@@ -2826,7 +2891,7 @@ func _show_crossroads() -> void:
 	if not run.get("map", {}).is_empty() and not landing:
 		var lit: bool = DeepDescent.lit_to(run) >= mini(next_depth, int(run.map.get("to", 0)))
 		var note := PanelContainer.new()
-		note.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4))
+		note.add_theme_stylebox_override("panel", DeepUi.facet_ends(note, DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4)))
 		note.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_cross_hint.add_child(note)
 		var row := DeepUi.hbox(note, 8)

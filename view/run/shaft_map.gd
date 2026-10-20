@@ -347,13 +347,23 @@ func _draw_depths() -> void:
 			var tint: Color = Color(str(DeepContent.mine(below).get("palette", "b58cff"))) if not below.is_empty() else DeepUi.DIM
 			_canvas.draw_string(DeepUi.caps_font(), Vector2(GUTTER, y - _step * 0.5 + 4), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tint, fade))
 
-func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring: Color = Color(0, 0, 0, 0)) -> void:
+func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring: Color = Color(0, 0, 0, 0), mark: String = "") -> void:
+	## A chamber drawn in its kind's colour, wearing its kind's mark unless `mark` says otherwise.
 	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED)
 	var fade: float = _fade(at.y) * strength
 	_canvas.draw_circle(at, radius, Color(tone.darkened(0.62), 0.96 * fade))
 	_canvas.draw_arc(at, radius, 0, TAU, 32, Color(ring if ring.a > 0.0 else tone, 0.95 * fade), 2.0, true)
-	var glyph: String = str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch"))
+	var glyph: String = mark if not mark.is_empty() else str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch"))
 	_glyph(glyph, at, radius * 1.12, Color(tone.lightened(0.35), fade))
+
+func _face(kind: String, oddity: String, entered: bool) -> Dictionary:
+	## How a chamber is drawn: {tone (the kind whose colour it takes), mark, words}. An oddity
+	## the party has been into shows its own card's mark, still in the oddity's violet, so the
+	## chart says what it was and that it was a surprise.
+	if entered and kind == "oddity" and not oddity.is_empty():
+		return {"tone": "oddity", "mark": str(DeepUi.ODDITY_GLYPHS.get(oddity, "swirl")),
+			"words": "%s, an oddity" % str(DeepContent.oddity(oddity).get("name", "something odd"))}
+	return {"tone": kind, "mark": str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch")), "words": _kind_words(kind)}
 
 func _draw_trail(positions: Dictionary) -> void:
 	## The way the party came, above the stretch it is in now.
@@ -363,7 +373,7 @@ func _draw_trail(positions: Dictionary) -> void:
 		var d: int = int(entry.get("depth", 0))
 		if d <= from:
 			points.append({"at": Vector2(_x(float(entry.get("x", 0.5))), _y(float(d))), "kind": str(entry.get("kind", "fight")), "depth": d,
-				"hidden": bool(entry.get("hidden", false))})
+				"hidden": bool(entry.get("hidden", false)), "oddity": str(entry.get("oddity", ""))})
 	for i in range(points.size() - 1):
 		_stroke(_curve(points[i].at, points[i + 1].at), Color(DeepUi.ACCENT, 0.7), 3.0)
 	var wardens: Array = run.get("records", {}).get("wardens", [])
@@ -382,8 +392,9 @@ func _draw_trail(positions: Dictionary) -> void:
 		var kind: String = str(point.kind)
 		if kind == "landing" and DeepDescent.run_is_warden(run, int(point.depth)):
 			kind = "warden"
-		_medallion(at, 12.0, kind, 0.85)
-		var words: String = "Depth %d: %s" % [int(point.depth), "a dark mouth, and then a fight" if bool(point.get("hidden", false)) and kind == "hidden" else _kind_words(kind)]
+		var face: Dictionary = _face(kind, str(point.get("oddity", "")), true)
+		_medallion(at, 12.0, str(face.tone), 0.85, Color(0, 0, 0, 0), str(face.mark))
+		var words: String = "Depth %d: %s" % [int(point.depth), "a dark mouth, and then a fight" if bool(point.get("hidden", false)) and kind == "hidden" else str(face.words)]
 		if kind == "warden":
 			words += ". The Warden here is dead." if DeepPatch.holds(wardens, int(point.depth)) else ". A Warden held the way down."
 		_spots.append({"at": at, "radius": 12.0, "text": words})
@@ -514,8 +525,9 @@ func _stretch_chambers(map: Dictionary, positions: Dictionary, facts: Dictionary
 			_spots.append({"at": at, "radius": radius, "text": words, "offer": id})
 			continue
 		if seen:
-			_medallion(at, 14.0 if id != here else 15.0, str(node.kind), strength)
-			words = "Depth %d: %s" % [int(node.depth), _kind_words(str(node.kind))]
+			var face: Dictionary = _face(str(node.kind), str(node.get("oddity", "")), visited.has(id) or id == here)
+			_medallion(at, 14.0 if id != here else 15.0, str(face.tone), strength, Color(0, 0, 0, 0), str(face.mark))
+			words = "Depth %d: %s" % [int(node.depth), str(face.words)]
 		else:
 			_draw_glint(at, DeepDescent.glint(node), strength)
 			words = "Depth %d: %s" % [int(node.depth), str(GLINT_WORDS.get(DeepDescent.glint(node), ""))]
@@ -543,6 +555,7 @@ func _kind_words(kind: String) -> String:
 		"well": return "a wishing well: throw something precious down it"
 		"vat": return "a vat: dip a die in a new material, or melt it plain"
 		"altar": return "an altar: five gems given up for one"
+		"rest_stop": return "a rest stop: heal, or take the supplies"
 		"landing": return "a landing"
 	return kind
 

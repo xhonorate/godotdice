@@ -36,7 +36,7 @@ const NAMES: PackedStringArray = [
 	"buy", "salvage_save", "salvage_lose", "depth_card", "footstep", "rockfall", "crumble",
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
 	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break",
-	"altar_hum", "altar_fizzle", "altar_make", "transcendent",
+	"altar_hum", "altar_fizzle", "altar_make", "transcendent", "hollow_drop", "hollow_rise",
 	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter"]
 
 static var _cache: Dictionary = {}
@@ -484,6 +484,28 @@ static func _bake(name: String) -> AudioStreamWAV:
 			return crown.chord(0.8, 2.0, 523.25, [0, 4, 7, 11, 14], 0.26, DeepSynth.CHIME_PARTIALS, 0.08) \
 				.chord(0.8, 2.05, 130.81, [0, 7, 12], 0.24, DeepSynth.BELL_PARTIALS, 0.0) \
 				.sparkle(0.7, 2.0, 0.2, 2600.0, 8800.0, 40).echoes(0.21, 0.3, 3).normalise(0.97).stream()
+		"hollow_drop":
+			## A die let go over the Hollow: it knocks down the sides, each knock smaller and
+			## further off, the air pulled down after it, and 1.1 seconds on a blow from very far
+			## below that is felt more than heard.
+			var fall := DeepSynth.new(2.6).whoosh(0.0, 1.1, 0.2, 2600.0, 140.0)
+			for i in range(7):
+				var when: float = 0.06 * float(i) + 0.016 * float(i * i)
+				fall.clack(when, 0.34 * pow(0.78, float(i)), 1500.0 - 150.0 * float(i))
+			return fall.thump(1.1, 0.7, 46.0, 0.75, 0.65).rumble(1.1, 1.1, 0.36) \
+				.voice(1.1, 0.7, 61.74, 0.2, "saw", 0.01, 0.6, 2, 0.2, 320.0) \
+				.echoes(0.21, 0.34, 3).normalise(0.88).stream()
+		"hollow_rise":
+			## The dark coming up through the gem: a swell drawn in like a breath, a rising run
+			## that never settles into a key, and a glassy cluster hanging over a low chord.
+			var rise := DeepSynth.new(2.8).whoosh(0.0, 0.55, 0.22, 140.0, 3400.0) \
+				.voice(0.0, 0.5, 123.47, 0.16, "saw", 0.45, 0.5, 3, 0.25, 900.0)
+			var run_up: Array = [0, 3, 6, 10, 13, 18]
+			for i in range(run_up.size()):
+				rise.bell(0.42 + 0.06 * float(i), 1.2, 493.88 * pow(2.0, float(run_up[i]) / 12.0), 0.18, DeepSynth.CHIME_PARTIALS, 2.2)
+			return rise.chord(0.82, 1.6, 246.94, [0, 6, 10, 13], 0.2, DeepSynth.BELL_PARTIALS, 0.03) \
+				.chord(0.82, 1.7, 61.74, [0, 7], 0.22, DeepSynth.BELL_PARTIALS, 0.0) \
+				.sparkle(0.5, 1.7, 0.16, 2400.0, 7800.0, 28).echoes(0.23, 0.3, 3).normalise(0.9).stream()
 		# --- the shop: a Geode's drum, and a contract sealed ---------------------------------
 		"reel_lever":
 			## The handle hauled down: a ratchet climbing its teeth, the catch letting go, and

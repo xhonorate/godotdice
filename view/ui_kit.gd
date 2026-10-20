@@ -20,6 +20,8 @@ const DIM := Color("59658a")
 ## The facet: every corner the kit draws is cut straight across instead of rounded.
 ## StyleBoxFlat draws a corner of one segment as a chamfer.
 const FACET_DETAIL: int = 1
+## How much of a capsule's height stays as a flat facet at each end (`facet_ends`).
+const END_FACET: float = 0.4
 const ACCENT := Color("e2b23a")
 const ACCENT_HI := Color("ffd76a")
 const ACCENT_DIM := Color("8a6d2a")
@@ -90,10 +92,17 @@ const KEYWORD_HINTS: Dictionary = {
 ## An oddity wears the swirl; the question mark is a dark mouth's alone.
 const CHAMBER_GLYPHS: Dictionary = {"fight": "sword", "elite": "skull", "vein": "pick", "oddity": "swirl", "motherlode": "gem",
 	"merchant": "purse", "smithy": "anvil", "carver": "face", "landing": "lift", "warden": "crown", "vug": "pick", "hidden": "arch",
-	"well": "drop", "vat": "flask", "altar": "altar"}
+	"well": "drop", "vat": "flask", "altar": "altar", "rest_stop": "heart"}
 const CHAMBER_colorS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff5f7a"), "vein": Color("ffc56a"), "oddity": Color("b58cff"),
 	"motherlode": Color("ffe07a"), "merchant": Color("5fd4c8"), "smithy": Color("8fb8ff"), "carver": Color("f2a0d0"), "landing": Color("7fd1a8"),
-	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8"), "vat": Color("b9e769"), "altar": Color("d7a6ff")}
+	"warden": Color("ff4d5e"), "vug": Color("ffc56a"), "hidden": Color("8792a6"), "well": Color("6fd8e8"), "vat": Color("b9e769"), "altar": Color("d7a6ff"),
+	"rest_stop": Color("8fe388")}
+## Each oddity card's own mark: the face of its room, and what its room on the chart wears
+## once the party has been in. A card that is a room of its own wears that room's mark.
+const ODDITY_GLYPHS: Dictionary = {"CUTTERS_WHEEL": "cut", "ACID_BATH": "dissolving_rock", "CRUCIBLE": "bolted_gem", "GEODE": "geode",
+	"OLD_PROSPECTOR": "person", "SHRINE": "shrine_gate", "IDOL": "squat_idol", "ECHO_CHAMBER": "rough_copy", "COLLECTOR": "cushioned_gem",
+	"LOUPE_CABINET": "loupe", "FIELD_MEDIC": "heart", "TUMBLER": "reroll", "SEAM": "gem_cavity", "SMITHY": "anvil", "CARVER": "face",
+	"ANNEALING_OVEN": "thermometer", "WISHING_WELL": "drop", "VAT": "flask", "HOLLOW": "void_gem"}
 
 static var _display: Font = null
 static var _caps: Font = null
@@ -333,6 +342,23 @@ static func facet(box: StyleBoxFlat) -> StyleBoxFlat:
 	## Cuts a box's corners straight across: the shape everything in the kit is drawn in.
 	## A box with its own rounded look (a dot, a gauge) simply never calls this.
 	box.corner_detail = FACET_DETAIL
+	return box
+
+static func end_corner(height: float) -> int:
+	## The corner a capsule this tall is cut at, leaving a flat facet `END_FACET` of its height
+	## at each end. A corner of half the height or more closes each end to a point, and a
+	## point cuts across the mark and the digits sitting just inside it.
+	return maxi(2, roundi(height * (1.0 - END_FACET) * 0.5))
+
+static func facet_ends(control: Control, box: StyleBoxFlat) -> StyleBoxFlat:
+	## Keeps a capsule's ends flat at whatever height it is laid out at: its corners are cut at
+	## the radius it was given or `end_corner` of its height, whichever is smaller.
+	facet(box)
+	var asked: int = box.corner_radius_top_left
+	control.resized.connect(func() -> void:
+		var corner: int = mini(asked, end_corner(control.size.y))
+		if box.corner_radius_top_left != corner:
+			box.set_corner_radius_all(corner))
 	return box
 
 static func raised(bg: Color, border: Color, radius: int = 10, pad: int = 12, shadow: float = 0.45) -> StyleBoxFlat:
@@ -687,15 +713,16 @@ static func stat(parent: Node, glyph: String, text: String, color: Color = PAPER
 	return row
 
 static func pill(parent: Node, glyph: String, text: String, color: Color, size: int = 13, tooltip: String = "", rainbow: bool = false) -> PanelContainer:
-	## A stat in a rounded capsule, for headers and strips.
+	## A stat in a faceted capsule, for headers and strips.
 	var box := PanelContainer.new()
 	## The outline is mixed down onto the dark rather than laid over it at less than full
-	## alpha: where a capsule's ends curve, the ring doubles back on itself inside one pixel
+	## alpha: where a capsule's ends turn, the ring doubles back on itself inside one pixel
 	## and a see-through outline reads heavier there than it does down the sides.
-	## The long diamond ends suit a line of text, but cut across a mark and a digit or two they
-	## bite into the content; a short pill takes a small corner and roomier sides instead.
+	## Its ends are cut flat (`facet_ends`) rather than to a point, which bit into the mark
+	## and the last digit; a short pill takes a smaller corner still and roomier sides.
 	var short: bool = not rainbow and text.length() <= 3
 	var style := flat(Color(color, 0.12), SLATE_LOW.lerp(color, 0.45), 8 if short else 20, 5)
+	facet_ends(box, style)
 	## A pill with nothing but a mark in it is padded evenly, so the mark sits in its middle.
 	style.content_margin_left = 9 if not text.is_empty() or rainbow else 8
 	style.content_margin_right = 11 if not text.is_empty() or rainbow else 8
@@ -785,7 +812,7 @@ static func price_chip(parent: Node, sum: String, size: int = 13, tone: Color = 
 	## out as a word on a button. `boxed` sets it in a dark capsule (no outline) for a fill that
 	## is not the button's own; on a button it is bare and takes the button's text color.
 	var chip := PanelContainer.new()
-	var style := flat(Color(INK, 0.62) if boxed else Color(0, 0, 0, 0), Color(0, 0, 0, 0), 8, 0)
+	var style := facet_ends(chip, flat(Color(INK, 0.62) if boxed else Color(0, 0, 0, 0), Color(0, 0, 0, 0), 8, 0))
 	style.content_margin_left = 6
 	style.content_margin_right = 8
 	style.content_margin_top = 1

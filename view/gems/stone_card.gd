@@ -112,7 +112,7 @@ static func marked_picture(parent: Node, stone: Dictionary, size: float, tooltip
 	holder.add_child(marks)
 	for entry in entries:
 		var plate := PanelContainer.new()
-		plate.add_theme_stylebox_override("panel", DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.LINE_HI, 0.5), 5, 1 if small else 2))
+		plate.add_theme_stylebox_override("panel", DeepUi.facet_ends(plate, DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.LINE_HI, 0.5), 5, 1 if small else 2)))
 		plate.size_flags_horizontal = Control.SIZE_SHRINK_END
 		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		marks.add_child(plate)
@@ -345,6 +345,7 @@ static func rarity_tag(parent: Node, rarity: String, size: int = 13, as_pill: bo
 		var style := DeepUi.flat(Color(DeepUi.TRANSCENDENT_TONE, 0.14), Color(DeepUi.TRANSCENDENT_TONE, 0.6), 20 if as_pill else 6, 5)
 		style.content_margin_left = 9
 		style.content_margin_right = 11
+		DeepUi.facet_ends(box, style)
 		box.add_theme_stylebox_override("panel", style)
 		box.mouse_filter = Control.MOUSE_FILTER_PASS
 		box.tooltip_text = "Transcendent: made at an altar, and nowhere else."

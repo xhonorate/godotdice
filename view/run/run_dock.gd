@@ -51,6 +51,12 @@ var _hint: Label = null
 ## is up the dock gives way to a tray of those things, large, and nothing else is in the way.
 var _offer: Dictionary = {}
 var _chooser: PanelContainer = null
+## Where each thing stands in the dock as last drawn, by kind and id ("stone", "die",
+## "socket", "bag", "dice"), so a flourish can fly something out of it or into it.
+var _spots: Dictionary = {}
+## Stones drawn but not yet shown: a gem the Hollow made Void is on the rail before the rite
+## that put it there has finished, and stays out of sight until it lands.
+var _veiled: Dictionary = {}
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -99,6 +105,32 @@ func height() -> float:
 
 func choosing() -> bool:
 	return not _offer.is_empty()
+
+func centre_of(kind: String, id: String = "") -> Vector2:
+	## The middle of a thing in the dock, on the screen, or Vector2.INF when it is not drawn.
+	var spot: Variant = _spots.get("%s:%s" % [kind, id], null)
+	if spot == null or not is_instance_valid(spot) or not (spot as Control).is_visible_in_tree():
+		return Vector2.INF
+	return (spot as Control).get_global_rect().get_center()
+
+func veil(stone_id: String) -> void:
+	_veiled[stone_id] = true
+	var spot: Variant = _spots.get("stone:" + stone_id, null)
+	if spot != null and is_instance_valid(spot):
+		(spot as Control).modulate.a = 0.0
+
+func unveil(stone_id: String) -> void:
+	## The gem has landed: it shows, kicks, and its ring flashes.
+	_veiled.erase(stone_id)
+	var spot: Variant = _spots.get("stone:" + stone_id, null)
+	if spot == null or not is_instance_valid(spot):
+		return
+	var control: Control = spot
+	control.modulate.a = 1.0
+	DeepUi.pulse(control, 1.7, 0.5)
+	for child in control.get_children():
+		if child.has_method("fire"):
+			child.fire()
 
 func offer(kind: String, items: Array, prompt: String, refusals: Dictionary = {}) -> void:
 	## `kind` is "die" or "stone"; `items` are the things themselves, in the order they should
@@ -252,6 +284,7 @@ func show_run(state: Dictionary) -> void:
 
 func _build_dock(unit: Dictionary) -> void:
 	DeepUi.clear(_dock)
+	_spots = {}
 	var columns := DeepUi.hbox(_dock, 20)
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
 	## You, and your rail.
@@ -307,6 +340,7 @@ func _build_dock(unit: Dictionary) -> void:
 	DeepUi.heading(dice_head, "Your dice", 13)
 	var tray := DeepUi.hbox(middle, 8)
 	tray.alignment = BoxContainer.ALIGNMENT_CENTER
+	_spots["dice:"] = tray
 	var dice: Array = unit.get("dice", [])
 	for index in range(dice.size()):
 		_die_slot(tray, unit, index)
@@ -318,6 +352,7 @@ func _build_dock(unit: Dictionary) -> void:
 	var haul: int = unit.get("haul", []).size()
 	var bag := DeepUi.icon_button(right, "bag", ("Close the bag" if _open else "Open the bag") + "  ·  %d" % haul, toggle_drawer, 14, DeepUi.ACCENT if _open else DeepUi.PAPER)
 	bag.tooltip_text = "%s in your bag (B)" % DeepUi.plural(haul, "stone")
+	_spots["bag:"] = bag
 	_hint = DeepUi.wrap(right, "", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 226)
 	_hint.text = "Drag a stone onto a socket to set it, a die onto a die to change their places." if editable() else "Nothing moves while this lasts."
 	var void_about: bool = DeepStone.rider_count(unit) > 0 or unit.get("haul", []).any(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)) and DeepStone.is_slotless(s))
@@ -340,8 +375,10 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 	var ring := BattleScreen.SocketRing.new(color, not set_here)
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(ring)
+	_spots["socket:%d" % index] = slot
 	var data: Dictionary = {}
 	if set_here:
+		_spots["stone:" + str(stone.id)] = slot
 		var picture := Thumbs.GemThumb.new(stone, SLOT - 12)
 		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 6)
 		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -398,8 +435,12 @@ func _rider_chip(parent: Node, unit: Dictionary, socket: int, at: int, stone: Di
 	var chip := Control.new()
 	chip.custom_minimum_size = Vector2(RIDER, RIDER)
 	chip.mouse_filter = Control.MOUSE_FILTER_STOP
-	chip.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. Fragile: shatters when the run ends; cannot be sold or kept." % [DeepStone.name(stone), DeepStone.text(stone), socket + 1]
+	var fate: String = "Fragile: shatters when the run ends; cannot be sold or kept." if DeepStone.is_fragile(stone) else "The Hollow made it Void: it takes a socket again when the run ends."
+	chip.tooltip_text = "%s\n%s\nVoid · rides socket %d and fires right after its gem. %s" % [DeepStone.name(stone), DeepStone.text(stone), socket + 1, fate]
 	parent.add_child(chip)
+	_spots["stone:" + str(stone.id)] = chip
+	if _veiled.has(str(stone.id)):
+		chip.modulate.a = 0.0
 	var ring := BattleScreen.SocketRing.new("VOID", false)
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	chip.add_child(ring)
@@ -474,6 +515,7 @@ func _die_slot(parent: Node, unit: Dictionary, index: int) -> void:
 	var thumb := Thumbs.DieThumb.new(die, SLOT)
 	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(thumb)
+	_spots["die:" + id] = thumb
 	## Only what a die is made of, or the pattern cut into it, is written under it: its
 	## numbers are on its own faces and the close look has the rest.
 	var under: String = DeepDice.material_name(material)

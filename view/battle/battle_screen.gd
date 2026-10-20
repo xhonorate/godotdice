@@ -2035,7 +2035,7 @@ func _sync_raised(unit: Dictionary, card: Control, stone: Dictionary) -> void:
 			## Its own dark plate: a grown gem reaches out under these, and a bare mark on a
 			## bright facet is unreadable.
 			var plate := PanelContainer.new()
-			plate.add_theme_stylebox_override("panel", DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.GOOD, 0.45), 5, 2))
+			plate.add_theme_stylebox_override("panel", DeepUi.facet_ends(plate, DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.GOOD, 0.45), 5, 2)))
 			plate.size_flags_horizontal = Control.SIZE_SHRINK_END
 			plate.mouse_filter = Control.MOUSE_FILTER_PASS
 			plate.tooltip_text = "+%d %s for the rest of this fight%s" % [int(entry[1]), str(entry[0]).capitalize(), _raised_by(unit, str(entry[0]))]

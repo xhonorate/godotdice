@@ -215,6 +215,7 @@ func _hollow() -> void:
 	var voided: Dictionary = DeepOddities.find_stone(unit, "set1")
 	check(DeepStone.is_slotless(voided) and not DeepStone.is_fragile(voided) and not voided.inclusions.has("VOID"), "it is Void but not Fragile, and nothing is frozen into it")
 	check(done.event.get("dice_lost", []).size() == 1 and str(done.event.dice_lost[0].id) == fed, "the result names the die that went in")
+	check(done.event.get("voided", {}).get("from_socket", -2) == 1 and done.event.voided.get("rides", {}) == {"socket": 1, "at": 0}, "the result says where the gem came from and where it rides")
 	check(DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "bagged", "index": 1}).ok and str(unit.rail[1].id) == "bagged", "the freed socket takes another gem")
 	## In a fight it fires right after the socket it rides.
 	var fighter: Dictionary = unit.duplicate(true)
@@ -227,6 +228,15 @@ func _hollow() -> void:
 	other.haul.append(gem("CLEAVE", "other_gem", false))
 	check(not DeepDescent.command(run, "b", {"kind": "oddity", "choice": "feed", "payload": {"stone_id": "other_gem", "die_id": str(other.dice[0].id)}}).ok, "it will not take a die below the least")
 	check(DeepDescent.command(run, "b", {"kind": "oddity", "choice": "pass", "payload": {}}).ok, "walking on is always allowed")
+	## A gem from the bag goes straight onto the rail, riding the first socket with a gem in it.
+	var fresh: Dictionary = run_state()
+	var lapidary: Dictionary = fresh.players[0]
+	lapidary.rail[0] = null
+	lapidary.rail[1] = gem("GUARD", "only_set", false)
+	lapidary.haul.append(gem("CLEAVE", "from_bag", false))
+	var taken: Dictionary = DeepOddities.apply(card.choices[0].action, lapidary, {"stone_id": "from_bag", "die_id": str(lapidary.dice[0].id)}, RandomNumberGenerator.new(), {})
+	check(taken.ok and ids(lapidary.riders[1]) == ["from_bag"] and not lapidary.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "from_bag"), "a gem from the bag rides the first socket that has a gem set in it")
+	check(int(taken.voided.from_socket) == -1 and taken.voided.rides == {"socket": 1, "at": 0}, "and the result says it came from the bag")
 	## Home: the gem comes up an ordinary gem; the bowl is the bowl it always was.
 	DeepDescent._finish(run, "extracted")
 	check(ids(unit.get("shattered", [])) == ["born_void"], "a gem the Hollow made Void never shatters, though one born Void does")

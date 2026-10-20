@@ -13,6 +13,7 @@ func _init() -> void:
 	_test_hollow()
 	_test_merchant()
 	_test_dice_rooms()
+	_test_oddity_reveal()
 	_test_bot_runs()
 	_test_hoard_opal()
 	_test_hoard_geode()
@@ -515,8 +516,8 @@ func _test_merchant() -> void:
 	check(not cmd(state, "a", "buy", {"item_id": unsold}).ok, "the stall is gone once the party walks on")
 
 func _test_dice_rooms() -> void:
-	## A smithy, a carver and a vat: one fixed card each, one piece of work a player, and
-	## never a die that comes or goes — whole dice are bought at a merchant, not here.
+	## A smithy and a carver: one fixed card each, one piece of work a player, and never a
+	## die that comes or goes — whole dice are bought at a merchant, not here.
 	for kind in DeepDescent.DICE_ROOMS:
 		var state: Dictionary = DeepDescent.new_run(config(141, true))
 		var offer: Dictionary = state.offers[0]
@@ -536,11 +537,6 @@ func _test_dice_rooms() -> void:
 			"carver":
 				var low: int = int(a.dice[0].faces[0].value)
 				check(cmd(state, "a", "oddity", {"choice": "raise", "payload": {"die_id": str(die.id), "face": 0}}).ok and int(a.dice[0].faces[0].value) == low + 1, "the carver raises a face")
-			"vat":
-				check(str(state.chamber.get("offer", {}).get("material", "")) in DeepDice.MATERIALS, "the vat has something in it before anybody chooses")
-				var dipped: Dictionary = cmd(state, "a", "oddity", {"choice": "dip", "payload": {"die_id": str(die.id)}})
-				check(dipped.ok and str(a.dice[0].material) == str(state.chamber.offer.material), "the vat makes a die of what is in it")
-				check(a.dice[0].faces.size() == int(DeepDice.SHAPES[shape]) and str(a.dice[0].shape) == shape, "and leaves its faces alone")
 		check(not cmd(state, "a", "oddity", {"choice": "pass"}).ok, "one piece of work each")
 		check(a.dice.map(func(d: Dictionary) -> String: return str(d.id)) == ids and a.bag_dice.is_empty(), "the five are the same five")
 		check(cmd(state, "b", "oddity", {"choice": "pass"}).ok and str(state.phase) == "tunnels", "once everyone has chosen the tunnels open")
@@ -556,7 +552,61 @@ func _test_dice_rooms() -> void:
 			drawn[str(state.chamber.oddity)] = true
 		else:
 			check(state.chamber.vein.spots.all(func(s: Dictionary) -> bool: return str(s.kind) in ["stone", "ore", "nothing"]), "a vein holds stones, pyrite or dust (seed %d)" % seed_value)
-	check(not drawn.has("SMITHY") and not drawn.has("CARVER") and drawn.size() > 5, "chance never draws a room's card (%s)" % ", ".join(drawn.keys()))
+	check(not drawn.has("SMITHY") and not drawn.has("CARVER") and not drawn.has("FIELD_MEDIC") and drawn.size() > 5, "chance never draws a room's card (%s)" % ", ".join(drawn.keys()))
+	## The Vat is an oddity card: drawn at an oddity like any other, its dip still works.
+	var vat: Dictionary = DeepDescent.new_run(config(142, true))
+	vat.used_oddities = DeepDescent.oddity_pool(vat).filter(func(k: Variant) -> bool: return str(k) != "VAT")
+	var way: Dictionary = vat.offers[0]
+	way.kind = "oddity"
+	for unit in vat.players:
+		cmd(vat, str(unit.id), "vote_tunnel", {"offer": way.id})
+	check(str(vat.chamber.get("kind", "")) == "oddity" and str(vat.chamber.get("oddity", "")) == "VAT", "the Vat turns up at an oddity")
+	var dipper: Dictionary = DeepDescent.player(vat, "a")
+	var shape_was: String = str(dipper.dice[0].shape)
+	check(str(vat.chamber.get("offer", {}).get("material", "")) in DeepDice.MATERIALS, "the vat has something in it before anybody chooses")
+	var dipped: Dictionary = cmd(vat, "a", "oddity", {"choice": "dip", "payload": {"die_id": str(dipper.dice[0].id)}})
+	check(dipped.ok and str(dipper.dice[0].material) == str(vat.chamber.offer.material), "the vat makes a die of what is in it")
+	check(dipper.dice[0].faces.size() == int(DeepDice.SHAPES[shape_was]) and str(dipper.dice[0].shape) == shape_was, "and leaves its faces alone")
+
+func _test_oddity_reveal() -> void:
+	## Once the party has walked into an oddity, its room on the chart and its stop on the
+	## trail remember the card.
+	var state: Dictionary = DeepDescent.new_run(config(77, true))
+	var offer: Dictionary = state.offers[0]
+	offer.kind = "oddity"
+	state.map.nodes[str(offer.id)].kind = "oddity"
+	for unit in state.players:
+		cmd(state, str(unit.id), "vote_tunnel", {"offer": offer.id})
+	var key: String = str(state.chamber.get("oddity", ""))
+	check(not key.is_empty() and str(state.path.back().get("oddity", "")) == key, "the trail remembers which oddity it was (%s)" % key)
+	check(str(state.map.nodes[str(offer.id)].get("oddity", "")) == key, "and so does its room on the chart")
+	var saved: Dictionary = JSON.parse_string(JSON.stringify(state))
+	check(str(saved.path.back().get("oddity", "")) == key, "and a save keeps it")
+	## The Vat hides behind the swirl like any oddity card: no mine charts one, and a day of
+	## Midas keeps it out of the draw. A chart saved with a vat on it opens it as an oddity.
+	check(DeepDescent.oddity_pool(state).has("VAT") and str(DeepContent.oddity("VAT").get("room", "")).is_empty(), "the Vat is one of the oddities")
+	for mine_key in DeepContent.section("mines"):
+		check(not DeepContent.mine(str(mine_key)).get("chambers", {}).has("vat"), "%s charts no vats" % str(mine_key))
+	var midas: Dictionary = DeepDescent.new_run(config(79, true))
+	midas.hazard_mods = ["MIDAS"]
+	check(not DeepDescent.oddity_pool(midas).has("VAT"), "Midas keeps the Vat out of the draw")
+	var old: Dictionary = DeepDescent.new_run(config(80, true))
+	var old_way: Dictionary = old.offers[0]
+	old_way.kind = "vat"
+	for unit in old.players:
+		cmd(old, str(unit.id), "vote_tunnel", {"offer": old_way.id})
+	check(str(old.chamber.get("kind", "")) == "oddity" and not str(old.chamber.get("oddity", "")).is_empty(), "an old chart's vat opens as an oddity")
+	## The Rest Stop is a room of its own now: it shows on the chart, holds its one card,
+	## and is never drawn at an oddity.
+	var rest: Dictionary = DeepDescent.new_run(config(78, true))
+	var way: Dictionary = rest.offers[0]
+	way.kind = "rest_stop"
+	for unit in rest.players:
+		cmd(rest, str(unit.id), "vote_tunnel", {"offer": way.id})
+	check(str(rest.chamber.get("kind", "")) == "rest_stop" and str(rest.chamber.get("oddity", "")) == "FIELD_MEDIC", "a rest stop holds the Rest Stop card")
+	check(rest.used_oddities.is_empty() and not rest.path.back().has("oddity"), "and uses up no oddity")
+	for mine_key in DeepContent.section("mines"):
+		check(float(DeepContent.mine(str(mine_key)).get("chambers", {}).get("rest_stop", 0)) > 0.0, "%s charts rest stops" % str(mine_key))
 
 func _advance_once(state: Dictionary) -> void:
 	## One bot action toward the bottom: vote, strike, choose, lock, or step.
@@ -600,7 +650,8 @@ func _advance_once(state: Dictionary) -> void:
 			elif str(state.chamber.kind) in ["oddity"] + DeepDescent.CARD_ROOMS:
 				var oddity: Dictionary = DeepContent.oddity(str(state.chamber.oddity))
 				for unit in state.players:
-					if str(unit.get("oddity_choice", "")).is_empty():
+					## A fallen lapidary is carried past the card; the room waits on the living.
+					if str(unit.get("oddity_choice", "")).is_empty() and not bool(unit.get("downed", false)):
 						var picked: Dictionary = oddity.choices[oddity.choices.size() - 1]
 						for candidate in oddity.choices:
 							if not candidate.has("needs") and str(candidate.action.kind) != "none":
@@ -634,7 +685,7 @@ func _advance_once(state: Dictionary) -> void:
 func _test_bot_runs() -> void:
 	## A strong party digs past the first warden, takes the hoard and carries it on to the next
 	## lift: the Warden's hall has no cage of its own to ride up out of.
-	var state: Dictionary = DeepDescent.new_run(config(202, true))
+	var state: Dictionary = DeepDescent.new_run(config(200, true))
 	var guard: int = 0
 	var saw_warden: bool = false
 	var saw_hoard: bool = false

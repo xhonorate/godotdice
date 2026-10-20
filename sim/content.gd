@@ -25,7 +25,7 @@ const TRANSCENDENT: String = "TRANSCENDENT"
 ## The cuts a Transcendent may name for itself, each its own solid, outside the six colors
 ## and outside the Birthstones' too. The two opals keep the cabochon every opal wears.
 const TRANSCENDENT_CUTS: Array = ["kite", "pentagon", "hourglass", "keystone"]
-const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "vat", "well", "altar"]
+const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "well", "altar", "rest_stop"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle",
 	"heal_resonance_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value", "pot_share"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",

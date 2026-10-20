@@ -309,7 +309,7 @@ func _draw_earth() -> void:
 		var heavier: bool = DeepForge.hazard_carats(mine, hazard) > 0
 		chip_box.border_color = Color(DeepUi.ACCENT, 0.8 if open else 0.3) if heavier else Color(tone, 0.5 if open else 0.2)
 		chip_box.set_border_width_all(1)
-		chip_box.set_corner_radius_all(12)
+		chip_box.set_corner_radius_all(DeepUi.end_corner(chip.size.y))
 		DeepUi.facet(chip_box)
 		canvas.draw_style_box(chip_box, chip)
 		_glyph(canvas, "gem", chip.position + Vector2(15, 12), 12.0, Color(tone, 1.0 if open else 0.45))

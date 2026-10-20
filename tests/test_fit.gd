@@ -843,6 +843,26 @@ func _fits(node: Node, what: String) -> void:
 	var found: Array = []
 	_scan(node, Rect2(Vector2.ZERO, CANVAS), found)
 	check(found.is_empty(), "%s fits on one page: %s" % [what, "; ".join(found.slice(0, 4))])
+	var pointed: Array = []
+	_points(node, pointed)
+	check(pointed.is_empty(), "%s cuts no capsule's ends to a point: %s" % [what, "; ".join(pointed.slice(0, 4))])
+
+func _points(node: Node, found: Array) -> void:
+	## A faceted box too short for its corners closes each end to a point, and the point cuts
+	## across the mark and the digits inside it (`DeepUi.facet_ends`).
+	if node is CanvasItem and not (node as CanvasItem).visible:
+		return
+	if node is PanelContainer:
+		var face: StyleBox = (node as Control).get_theme_stylebox("panel")
+		var height: float = (node as Control).size.y
+		if face is StyleBoxFlat and (face as StyleBoxFlat).corner_detail <= DeepUi.FACET_DETAIL and height > 0.5:
+			var flat_face: StyleBoxFlat = face
+			var shown: bool = flat_face.bg_color.a > 0.0 or (flat_face.border_color.a > 0.0 and flat_face.border_width_left > 0)
+			var end: float = height - flat_face.corner_radius_top_left - flat_face.corner_radius_bottom_left
+			if shown and end < height * 0.2:
+				found.append("%s (%dpx tall, corner %d)" % [_name(node), int(height), flat_face.corner_radius_top_left])
+	for child in node.get_children():
+		_points(child, found)
 
 func _scan(node: Node, bounds: Rect2, found: Array) -> void:
 	if node is CanvasItem and not (node as CanvasItem).visible:

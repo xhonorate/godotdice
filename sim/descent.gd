@@ -43,11 +43,14 @@ const MERCHANT_STONES: int = 3
 ## A merchant also keeps one die for each player, in a size that player already carries.
 const MERCHANT_DICE: int = 1
 ## Where dice are worked: a smithy makes one a size bigger or smaller and stamps patterns, a
-## carver recuts and etches its faces, the vat changes what it is made of. Each is a chamber
-## holding one fixed card. Whole dice are bought at a merchant, and only swapped size for size.
-const DICE_ROOMS: Array = ["smithy", "carver", "vat"]
+## carver recuts and etches its faces. Each is a chamber holding one fixed card. The Vat, which
+## changes what a die is made of, is an oddity card drawn like any other. Whole dice are bought
+## at a merchant, and only swapped size for size.
+const DICE_ROOMS: Array = ["smithy", "carver"]
 ## Every room that holds one fixed card of its own rather than one drawn at random.
-const CARD_ROOMS: Array = ["smithy", "carver", "vat", "well"]
+const CARD_ROOMS: Array = ["smithy", "carver", "well", "rest_stop"]
+## The oddity cards a day of Midas keeps out of the draw, along with its smithies and carvers.
+const DICE_CARDS: Array = ["VAT"]
 const RESPITES: Array = ["rest", "appraise", "wish"]
 ## What a player who is down cannot do: anything a room, a stall, a hoard or the way on offers.
 const DOWNED_CANNOT: Array = ["oddity", "buy", "sell", "appraise", "pick_hoard", "trade_offer", "trade_accept", "choose", "light", "strike", "respite", "altar"]
@@ -561,7 +564,7 @@ static func mine_of(state: Dictionary) -> Dictionary:
 		mine.read_on_find = true
 	if has_mod(state, "MOTHERLODE"):
 		mine.motherlode_pct = float(mine.get("motherlode_pct", 3)) * 6.0
-	var chambers: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 14, "merchant": 8, "smithy": 6, "carver": 6, "vat": 4, "well": 5}).duplicate()
+	var chambers: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 14, "merchant": 8, "smithy": 6, "carver": 6, "well": 5, "rest_stop": 3}).duplicate()
 	## Big Game doubles the elites and Prowlers adds half again; together they add up.
 	var elites: float = 1.0 + float(mod_count(state, "BIG_GAME")) + float(DeepContent.hazard_param("PROWLERS", "elite_mult", 0.5)) * float(mod_count(state, "PROWLERS"))
 	if elites != 1.0:
@@ -766,7 +769,7 @@ static func _unique_rails(state: Dictionary) -> void:
 const MAP_WIDEST: int = 4
 const LANTERN_REACH: int = 2
 const GLINTS: Dictionary = {"fight": "hostile", "elite": "hostile", "warden": "hostile", "vein": "glittering", "motherlode": "glittering", "oddity": "strange",
-	"merchant": "strange", "smithy": "strange", "carver": "strange", "vat": "strange", "well": "strange", "altar": "strange"}
+	"merchant": "strange", "smithy": "strange", "carver": "strange", "vat": "strange", "well": "strange", "altar": "strange", "rest_stop": "strange"}
 
 static func _offer_tunnels(state: Dictionary, streams: Dictionary) -> void:
 	state.phase = "tunnels"
@@ -801,7 +804,7 @@ static func _chart(state: Dictionary, streams: Dictionary) -> void:
 	while not run_is_landing(state, to):
 		to += 1
 	var mine: Dictionary = mine_of(state)
-	var weights: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 14, "merchant": 8, "smithy": 6, "carver": 6, "vat": 4, "well": 5})
+	var weights: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 14, "merchant": 8, "smithy": 6, "carver": 6, "well": 5, "rest_stop": 3})
 	var rng: RandomNumberGenerator = streams.tunnels
 	var nodes: Dictionary = {}
 	var rows: Array = []
@@ -1001,6 +1004,9 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 	state.offers = []
 	state.aftermath = {}
 	var kind: String = str(offer.get("kind", "fight"))
+	## A chart saved before the Vat joined the oddities still has vats on it: each is an oddity.
+	if kind == "vat":
+		kind = "oddity"
 	## A day of Bleeding: every floor down costs a little health, never the last of it.
 	if has_mod(state, "BLEEDING"):
 		for unit in living(state):
@@ -1029,12 +1035,10 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 			_open_stall(state, streams)
 		"altar":
 			_open_altar(state)
-		"oddity", "smithy", "carver", "vat", "well":
+		"oddity", "smithy", "carver", "well", "rest_stop":
 			var key: String = room_card(kind)
 			if kind == "oddity":
-				## The cards that belong to a room of their own never turn up by chance.
-				var pool: Array = DeepContent.section("oddities").keys().filter(func(k: Variant) -> bool: return str(DeepContent.oddity(str(k)).get("room", "")).is_empty())
-				pool.sort()
+				var pool: Array = oddity_pool(state)
 				var fresh: Array = pool.filter(func(k: Variant) -> bool: return not state.used_oddities.has(str(k)))
 				if fresh.is_empty():
 					fresh = pool
@@ -1042,6 +1046,10 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 				var weights: Array = fresh.map(func(k: Variant) -> float: return float(DeepContent.oddity(str(k)).get("weight", 1.0)))
 				key = str(fresh[maxi(0, DeepRng.weighted_index(streams.oddities, weights))])
 				state.used_oddities.append(key)
+				## Once the party has been in, the chart and the trail show which card it was.
+				state.path.back().oddity = key
+				if not node.is_empty():
+					node.oddity = key
 			state.chamber.oddity = key
 			state.chamber.results = {}
 			## What the card has to have to hand before anybody chooses (the Collector's case),
@@ -1565,6 +1573,15 @@ static func _strike(state: Dictionary, unit: Dictionary, spot_index: int) -> Dic
 ##
 ## An oddity is a card drawn at random; a smithy and a carver are rooms that always hold the
 ## same card. Each player makes one choice from the card, and the tunnels open once all have.
+
+static func oddity_pool(state: Dictionary) -> Array:
+	## The cards an oddity can turn out to be: never one that belongs to a room of its own, and
+	## on a day of Midas never the Vat.
+	var pool: Array = DeepContent.section("oddities").keys().filter(func(k: Variant) -> bool: return str(DeepContent.oddity(str(k)).get("room", "")).is_empty())
+	if has_mod(state, "MIDAS"):
+		pool = pool.filter(func(k: Variant) -> bool: return not str(k) in DICE_CARDS)
+	pool.sort()
+	return pool
 
 static func room_card(kind: String) -> String:
 	## The card a room of this kind always holds, or "" when it holds none of its own.

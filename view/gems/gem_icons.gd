@@ -1822,7 +1822,91 @@ static func _ui_shapes(glyph: String) -> Array:
 			return [ {"op": "add", "poly": _rect(0.18, 0.04, 0.82, 0.96)}, {"op": "sub", "poly": _rect(0.27, 0.12, 0.73, 0.96)},
 				{"op": "add", "poly": _poly([[0.27, 0.12], [0.62, 0.20], [0.62, 0.96], [0.27, 0.96]])},
 				{"op": "sub", "circle": [0.54, 0.58, 0.045]}]
+		# The oddities' own marks, picked by the owner on Oct 19 2026: each one shows in its room
+		# and, once the party has been in, on the chart. No two rooms or oddities share one.
+		"dissolving_rock":
+			# The Acid Bath: a rock melting off at the foot in three drips, the gem left standing.
+			var rock: Array = [ {"op": "add", "poly": _poly([[0.08, 0.42], [0.24, 0.12], [0.56, 0.05], [0.84, 0.18], [0.94, 0.44], [0.88, 0.62], [0.12, 0.62]])}]
+			for drip in [[0.27, 0.82], [0.52, 0.93], [0.75, 0.78]]:
+				rock.append({"op": "add", "poly": _drop(Vector2(drip[0], 0.55), Vector2(drip[0], drip[1]), 0.075)})
+			rock.append({"op": "sub", "poly": _poly([[0.40, 0.22], [0.64, 0.22], [0.71, 0.31], [0.52, 0.52], [0.33, 0.31]])})
+			return _fitted(rock)
+		"shrine_gate":
+			# The Shrine of the Pattern: an upswept lintel on two posts, a die set between them.
+			return _fitted([ {"op": "add", "poly": _poly([[0.02, 0.10], [0.50, 0.19], [0.98, 0.10], [0.94, 0.25], [0.50, 0.30], [0.06, 0.25]])},
+				{"op": "add", "poly": _rect(0.13, 0.38, 0.87, 0.46)},
+				{"op": "add", "poly": _rect(0.21, 0.24, 0.32, 0.97)},
+				{"op": "add", "poly": _rect(0.68, 0.24, 0.79, 0.97)},
+				{"op": "add", "poly": _rounded(0.385, 0.58, 0.615, 0.81, 0.04)},
+				{"op": "sub", "circle": [0.5, 0.695, 0.045]}])
+		"rough_copy":
+			# The Echo Chamber: a stone, and behind it the rough copy the walls grow of it.
+			var middle := Vector2(0.64, 0.42)
+			var outline: PackedVector2Array = _cut_stone(Vector2(0.64, 0.40), 0.62)
+			var wobble: Array = [1.0, 0.86, 1.08, 0.92, 1.04, 0.88, 1.06, 0.9, 1.0, 0.94]
+			var rough := PackedVector2Array()
+			var inner := PackedVector2Array()
+			for index in outline.size():
+				for k in 2:
+					var point: Vector2 = outline[index].lerp(outline[(index + 1) % outline.size()], float(k) / 2.0)
+					var reach: float = float(wobble[(index * 2 + k) % wobble.size()])
+					rough.append(middle + (point - middle) * reach)
+					inner.append(middle + (point - middle) * reach * 0.62)
+			return _fitted([ {"op": "add", "poly": rough}, {"op": "sub", "poly": inner},
+				{"op": "sub", "poly": _cut_stone(Vector2(0.36, 0.60), 0.70)},
+				{"op": "add", "poly": _cut_stone(Vector2(0.36, 0.60), 0.56)}])
+		"thermometer":
+			# The Annealing Oven: a thermometer running hot beside a Clarity sparkle, since the
+			# heat is what changes how clear a stone is.
+			return _fitted([ {"op": "add", "poly": _rounded(0.22, 0.06, 0.46, 0.70, 0.12)},
+				{"op": "add", "circle": [0.34, 0.80, 0.18]},
+				{"op": "sub", "poly": _rounded(0.295, 0.13, 0.385, 0.72, 0.045)},
+				{"op": "add", "poly": _rect(0.295, 0.40, 0.385, 0.76)},
+				{"op": "add", "poly": _star(4, 0.27, 0.065, Vector2(0.75, 0.36))},
+				{"op": "add", "poly": _star(4, 0.11, 0.03, Vector2(0.86, 0.80))}])
+		"cushioned_gem":
+			# The Collector: a stone set out on a tasselled cushion, the way she keeps hers.
+			var cushion: Array = [ {"op": "add", "poly": _poly([[0.5, 0.56], [0.92, 0.74], [0.5, 0.92], [0.08, 0.74]])}]
+			for corner in [[0.08, 0.74, -1.0, 0.0], [0.92, 0.74, 1.0, 0.0], [0.5, 0.92, 0.0, 1.0]]:
+				var at := Vector2(corner[0], corner[1])
+				cushion.append({"op": "add", "poly": _drop(at, at + Vector2(corner[2], corner[3]) * 0.08 + Vector2(0, 0.04), 0.045)})
+			cushion.append({"op": "sub", "poly": _cut_stone(Vector2(0.5, 0.44), 0.62)})
+			cushion.append({"op": "add", "poly": _cut_stone(Vector2(0.5, 0.42), 0.52)})
+			return _fitted(cushion)
+		"squat_idol":
+			# The Idol: a squat little figure with a gem set in its belly.
+			return _fitted([ {"op": "add", "circle": [0.5, 0.24, 0.20]},
+				{"op": "add", "poly": _poly([[0.28, 0.40], [0.72, 0.40], [0.88, 0.96], [0.12, 0.96]])},
+				{"op": "sub", "poly": _diamond(Vector2(0.5, 0.68), 0.15, 0.15)},
+				{"op": "add", "poly": _diamond(Vector2(0.5, 0.68), 0.09, 0.09)}])
+		"void_gem":
+			# The Hollow: a stone with a tilted ring of light wound round it, the near side of the
+			# ring passing in front of it below the girdle, so its point still shows underneath.
+			var tilt := -0.22
+			return _fitted([ {"op": "add", "poly": _band(Vector2(0.5, 0.45), 0.47, 0.11, 0.065, PI, TAU, tilt)},
+				{"op": "sub", "poly": _cut_stone(Vector2(0.5, 0.44), 0.78)},
+				{"op": "add", "poly": _cut_stone(Vector2(0.5, 0.44), 0.66)},
+				{"op": "sub", "poly": _band(Vector2(0.5, 0.45), 0.47, 0.11, 0.11, 0.0, PI, tilt)},
+				{"op": "add", "poly": _band(Vector2(0.5, 0.45), 0.47, 0.11, 0.065, 0.0, PI, tilt)}])
+		"bolted_gem":
+			# The Crucible: one stone with a jagged line struck across it, where two were made one.
+			return _fitted([ {"op": "add", "poly": _cut_stone(Vector2(0.5, 0.5), 0.94)}]
+				+ _line([[0.14, 0.22], [0.56, 0.44], [0.44, 0.54], [0.90, 0.80]], 0.075, "sub"))
+		"gem_cavity":
+			# A Glittering Seam: a cracked block of rock with a stone in a hollow at its heart.
+			return _fitted([ {"op": "add", "poly": _rounded(0.04, 0.06, 0.96, 0.94, 0.10)}]
+				+ _stroke([[0.34, 0.04], [0.44, 0.18], [0.40, 0.28]], 0.08, "sub")
+				+ _stroke([[0.62, 0.72], [0.58, 0.82], [0.66, 0.96]], 0.08, "sub")
+				+ [ {"op": "sub", "circle": [0.5, 0.50, 0.26]},
+					{"op": "add", "poly": _cut_stone(Vector2(0.5, 0.51), 0.34)}])
 	return []
+
+static func _cut_stone(centre: Vector2, scale: float, turn: float = 0.0) -> PackedVector2Array:
+	## The outline of the `gem` mark, solid, `scale` wide, turned about its middle.
+	var out := PackedVector2Array()
+	for point in [[0.26, 0.14], [0.74, 0.14], [0.96, 0.38], [0.50, 0.92], [0.04, 0.38]]:
+		out.append(centre + ((Vector2(point[0], point[1]) - Vector2(0.5, 0.53)) * scale).rotated(turn))
+	return out
 
 # --- rasterising --------------------------------------------------------------
 

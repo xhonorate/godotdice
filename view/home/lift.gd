@@ -126,14 +126,16 @@ func _draw() -> void:
 	var w: float = size.x
 	var h: float = size.y
 	draw_rect(Rect2(Vector2.ZERO, size), DeepUi.INK)
-	## The strata, scrolling up past a cage going down and down past one coming up.
+	## The strata, scrolling up past a cage going down and down past one coming up, and
+	## lined up so the cage stops in the middle of a band rather than on its floor.
+	var cage_mid: float = h * 0.5 - 20.0
 	var band: float = h * 0.62
 	var offset: float = _travel() * PASSES * band
-	var scroll: float = -offset if down else offset
+	var scroll: float = cage_mid - band * 0.5 + (-offset if down else offset)
 	var count: int = _strata.size()
 	## The band at the cage when it stops is the stop's own rock; those above are shallower.
 	var full: float = PASSES * band
-	var end_band: int = int(floor((h * 0.5 + (full if down else -full)) / band))
+	var end_band: int = int(floor((band * 0.5 + (full if down else -full)) / band))
 	var stop_index: int = 0 if stop.is_empty() else DeepContent.mines_in_order().find(stop) + 1
 	var first: int = int(floor(-scroll / band)) - 1
 	for i in range(first, first + int(ceil(h / band)) + 3):
@@ -157,7 +159,7 @@ func _draw() -> void:
 		draw_rect(Rect2(x, y - (0.0 if down else length), 2.0, length), Color(DeepUi.PAPER, 0.18 * spark.z))
 	## The cables and the cage, swaying a little at speed.
 	var sway: float = sin(_clock * 37.0) * 2.5 * speed
-	var cage := Rect2(Vector2(w * 0.5 - 120.0 + sway, h * 0.5 - 150.0), Vector2(240.0, 260.0))
+	var cage := Rect2(Vector2(w * 0.5 - 120.0 + sway, cage_mid - 130.0), Vector2(240.0, 260.0))
 	var brass := Color("b08a4a")
 	for cx in [cage.position.x + 70.0, cage.end.x - 70.0]:
 		draw_line(Vector2(cx, 0), Vector2(cx, cage.position.y), Color("7a6a50"), 3.0, true)

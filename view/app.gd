@@ -496,7 +496,7 @@ func toast(text: String, color: Color, glyph: String = "") -> void:
 		_toasts.remove_child(oldest)
 		oldest.queue_free()
 	var box := PanelContainer.new()
-	var style := DeepUi.raised(Color(0.04, 0.05, 0.07, 0.94), Color(color, 0.6), 18, 8, 0.5)
+	var style := DeepUi.facet_ends(box, DeepUi.raised(Color(0.04, 0.05, 0.07, 0.94), Color(color, 0.6), 18, 8, 0.5))
 	style.content_margin_left = 14
 	style.content_margin_right = 16
 	box.add_theme_stylebox_override("panel", style)

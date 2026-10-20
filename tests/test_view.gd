@@ -412,6 +412,28 @@ func _test_rasteriser() -> void:
 		check(GemIcons.known(glyph), "the interface mark %s is drawn" % glyph)
 	for kind in DeepUi.CHAMBER_GLYPHS:
 		check(GemIcons.known(str(DeepUi.CHAMBER_GLYPHS[kind])), "chamber kind %s has a known mark" % kind)
+	## Every oddity card has a drawn mark, and a card that is a room of its own wears that
+	## room's mark, so the chart and the room never disagree.
+	for key in DeepContent.section("oddities"):
+		var mark: String = str(DeepUi.ODDITY_GLYPHS.get(str(key), ""))
+		check(GemIcons.known(mark), "the oddity %s has a drawn mark (%s)" % [str(key), mark])
+		var room: String = str(DeepContent.oddity(str(key)).get("room", ""))
+		if not room.is_empty():
+			check(mark == str(DeepUi.CHAMBER_GLYPHS.get(room, "")), "the %s card wears its room's mark" % str(key))
+	## No two oddities share a mark, none borrows another room's, and none is one of the marks
+	## the chart gives a room it cannot see yet, since an entered oddity shows its mark there.
+	## (A vug and a vat are kinds only an old save still holds.)
+	var glints: Array = load("res://view/run/shaft_map.gd").GLINT_GLYPHS.values()
+	var marked: Dictionary = {}
+	for key in DeepContent.section("oddities"):
+		var mark: String = str(DeepUi.ODDITY_GLYPHS.get(str(key), ""))
+		check(not marked.has(mark), "the oddities %s and %s share the mark %s" % [str(marked.get(mark, "")), str(key), mark])
+		marked[mark] = str(key)
+		var room: String = str(DeepContent.oddity(str(key)).get("room", ""))
+		for kind in DeepUi.CHAMBER_GLYPHS:
+			if kind != room and not kind in ["vug", "vat"]:
+				check(mark != str(DeepUi.CHAMBER_GLYPHS[kind]), "the oddity %s does not wear the %s room's mark" % [str(key), kind])
+		check(not glints.has(mark), "the oddity %s does not wear a chart glint (%s)" % [str(key), mark])
 	## The daily dig's cards: each drawn, and no two of one kind with the same mark.
 	var marks_by_kind: Dictionary = {}
 	for key in DeepEconomy.daily_modifiers():

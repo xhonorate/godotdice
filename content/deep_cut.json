@@ -9673,9 +9673,9 @@
         "merchant": 8,
         "smithy": 6,
         "carver": 6,
-        "vat": 4,
         "well": 5,
-        "altar": 2
+        "altar": 0.4,
+        "rest_stop": 3
       },
       "motherlode_pct": 3,
       "bands": [
@@ -9773,9 +9773,9 @@
         "merchant": 8,
         "smithy": 6,
         "carver": 6,
-        "vat": 4,
         "well": 5,
-        "altar": 2
+        "altar": 0.4,
+        "rest_stop": 3
       },
       "motherlode_pct": 3,
       "bands": [
@@ -9861,9 +9861,9 @@
         "merchant": 8,
         "smithy": 6,
         "carver": 6,
-        "vat": 4,
         "well": 4,
-        "altar": 2
+        "altar": 0.4,
+        "rest_stop": 3
       },
       "motherlode_pct": 3,
       "bands": [
@@ -9949,9 +9949,9 @@
         "merchant": 7,
         "smithy": 5,
         "carver": 5,
-        "vat": 4,
         "well": 4,
-        "altar": 2
+        "altar": 0.4,
+        "rest_stop": 3
       },
       "motherlode_pct": 3,
       "bands": [
@@ -10039,9 +10039,9 @@
         "merchant": 7,
         "smithy": 5,
         "carver": 5,
-        "vat": 3,
         "well": 4,
-        "altar": 2
+        "altar": 0.4,
+        "rest_stop": 3
       },
       "motherlode_pct": 3,
       "bands": [
@@ -10128,9 +10128,9 @@
         "merchant": 7,
         "smithy": 5,
         "carver": 5,
-        "vat": 3,
         "well": 3,
-        "altar": 2
+        "altar": 0.4,
+        "rest_stop": 3
       },
       "motherlode_pct": 3,
       "bands": [
@@ -10223,9 +10223,9 @@
         "merchant": 7,
         "smithy": 5,
         "carver": 4,
-        "vat": 3,
         "well": 3,
-        "altar": 2
+        "altar": 0.4,
+        "rest_stop": 3
       },
       "motherlode_pct": 3,
       "bands": [
@@ -10500,6 +10500,7 @@
     },
     "FIELD_MEDIC": {
       "name": "Rest Stop",
+      "room": "rest_stop",
       "text": "A nook in the wall with a bench, a cold stove and a supply box someone left behind.",
       "choices": [
         {
@@ -10665,7 +10666,6 @@
     },
     "VAT": {
       "name": "The Vat",
-      "room": "vat",
       "text": "A sunken vat of glowing molten material. Dip a die in and it comes out made of something else.",
       "choices": [
         {
@@ -10742,7 +10742,7 @@
     },
     "HOLLOW": {
       "name": "The Hollow",
-      "text": "A hole in the rock with no bottom. Drop a die in and hold a gem over it, and the gem comes away so light it no longer needs a socket.",
+      "text": "A hole with no bottom. Sacrifice a die to turn one of your gems Void.",
       "weight": 0.35,
       "choices": [
         {
