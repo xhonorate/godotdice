@@ -21,6 +21,7 @@ const CreatureStage = preload("res://view/creatures/creature_stage.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const GeodeView = preload("res://view/gems/geode_view.gd")
+const ConquestSheet = preload("res://view/inspect/conquest_sheet.gd")
 
 const FACE_TEXT: Dictionary = {
 	"wild": "Wild: counts as any value for patterns, and as the die's top face for totals.",
@@ -160,6 +161,15 @@ static func announce(title: String, text: String, glyph: String, tone: Color = D
 		sheet.call("_fill_announcement", text, glyph, tone)
 	return sheet
 
+static func conquest(view: Dictionary, actions: Array, footnote: String = "") -> CanvasLayer:
+	## A mine's final boss is dead: the map of the mines beside the mine below, and the two
+	## ways out of the hall under the sheet. `view` is what ConquestSheet draws.
+	var sheet := _begin(DeepUi.ACCENT_HI, {"title": "%s conquered" % DeepContent.mine_name(str(view.get("mine", ""))), "subtitle": ConquestSheet.subtitle(view),
+		"header": func(column: Control) -> void: ConquestSheet.header(view, column), "actions": actions, "footnote": footnote})
+	if sheet != null:
+		sheet.call("_fill_conquest", view)
+	return sheet
+
 static func lapidary(character_key: String) -> void:
 	## Someone new comes to the workshop: their plate and their Birthstone turning beside it,
 	## and everything about them read out a line at a time rather than all at once.
@@ -204,6 +214,10 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 		_title.add_theme_constant_override("outline_size", 10)
 		if not str(fanfare.get("subtitle", "")).is_empty():
 			DeepUi.label(column, str(fanfare.subtitle), 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+		## Whatever else a moment says under its name (a conquest's pills), drawn by the caller.
+		var header: Callable = fanfare.get("header", Callable())
+		if header.is_valid():
+			header.call(column)
 	_panel = PanelContainer.new()
 	var style := DeepUi.raised(Color(0.045, 0.055, 0.08, 0.97), Color(tone, 0.75), 18, 20, 0.7)
 	style.set_border_width_all(2)
@@ -253,9 +267,13 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 				go.custom_minimum_size.x = 220
 			else:
 				go = DeepUi.icon_button(foot, str(action.get("glyph", "cross_out")), str(action.get("label", "")), chosen, 15, action.get("tone", DeepUi.MUTED))
+			if action.has("price"):
+				DeepUi.priced(go, str(action.price), -1, str(action.get("price_glyph", "coin")))
 			go.disabled = bool(action.get("disabled", false))
 			if _close == null and not go.disabled:
 				_close = go
+		if not str(fanfare.get("footnote", "")).is_empty():
+			DeepUi.label(column, str(fanfare.footnote), 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	else:
 		_close = DeepUi.primary(foot, "check", str(fanfare.get("button", "Wonderful")), _dismiss, 18, tone)
 		_close.custom_minimum_size.x = 240
@@ -1635,6 +1653,15 @@ func _fill_gathering(title: String, text: String, glyph: String, stones: Array, 
 				caption.custom_minimum_size.x = 80
 	if pages > 1:
 		show_page("1 to %d" % GATHERING_PAGE)
+
+func _fill_conquest(view: Dictionary) -> void:
+	## The mines in place of a thing to turn, and the mine below on the page.
+	_stage_hint.visible = false
+	for child in _stage.get_children():
+		child.queue_free()
+	_stage.custom_minimum_size = ConquestSheet.MAP_SIZE
+	ConquestSheet.map(_stage, view)
+	ConquestSheet.below(_page("", ""), view)
 
 func _fill_announcement(text: String, glyph: String, tone: Color) -> void:
 	## A mark, not a thing: nothing to turn.

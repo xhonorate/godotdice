@@ -1096,10 +1096,11 @@ func appraisal_actions(stone: Dictionary) -> Array:
 			"sound": "sell", "call": func() -> void: command.emit({"kind": "sell", "stone_id": id})})
 	return out
 
-func conquered(mine_key: String, unlocked: Array, purse: int) -> void:
+func conquered(mine_key: String, unlocked: Array, purse: int, profile: Dictionary = {}) -> void:
 	## This mine's final boss has just fallen and what it opened is already the lapidary's (see
 	## app._note_conquest). Whoever comes to the workshop is met first, then any Hazard tier
 	## that opened, and last the beaten mine itself, with the hall's choice: home, or deeper.
+	## The profile is what the last sheet reads the map, the bestiary and the roster from.
 	var run_id: String = str(run.get("run_id", ""))
 	var opened: String = ""
 	for entry in unlocked:
@@ -1110,7 +1111,7 @@ func conquered(mine_key: String, unlocked: Array, purse: int) -> void:
 	for entry in unlocked:
 		if entry.has("tier"):
 			_news.append({"run_id": run_id, "kind": "tier", "tier": int(entry.tier)})
-	_news.append({"run_id": run_id, "kind": "conquest", "mine": mine_key, "opened": opened, "unlocked": unlocked, "purse": purse})
+	_news.append({"run_id": run_id, "kind": "conquest", "mine": mine_key, "opened": opened, "unlocked": unlocked, "purse": purse, "profile": profile})
 
 func _tell_news() -> void:
 	## One sheet at a time, once the room is quiet: no fight, no hoard still to choose from,
@@ -1139,42 +1140,44 @@ func _tell_news() -> void:
 				_conquest_sheet = _show_conquest(item)
 
 func _show_conquest(item: Dictionary) -> CanvasLayer:
-	## The mine is beaten: what that opened, and the two ways out of the boss's hall.
+	## The mine is beaten: what that opened, the map of the mines with the mine below laid out
+	## beside it (Inspector.conquest), and the two ways out of the boss's hall under the sheet.
 	var mine_key: String = str(item.get("mine", ""))
 	var opened: String = str(item.get("opened", ""))
 	var next_key: String = DeepDescent.next_mine(run)
 	var tier: int = DeepDescent.hazard_tier(run)
 	var unit: Dictionary = me()
 	var downed: bool = bool(unit.get("downed", false))
-	var said: Array = []
+	var profile: Dictionary = item.get("profile", {})
 	if not opened.is_empty():
 		DeepAudio.play("unlock")
-		said.append("%s is open%s.\n%s" % [DeepContent.mine_name(opened), " on Hazard %d" % tier if tier > 0 else "", str(DeepContent.mine(opened).get("text", ""))])
-	for entry in item.get("unlocked", []):
-		if entry.has("character"):
-			said.append("%s has come to the workshop." % DeepContent.character_title(str(entry.character)))
-		if entry.has("tier"):
-			said.append("Hazard %d is open." % int(entry.tier))
-	if int(item.get("purse", 0)) > 0:
-		said.append("First conquest: %d gold waits for you at the workshop." % int(item.purse))
 	var fare: int = DeepDescent.lift_cost(run)
 	## Pooled the way the winch counts it: whoever is standing and still on the line.
 	var pooled: int = 0
 	for other in DeepDescent.living(run):
 		pooled += int(other.get("ore", 0))
 	var afford: bool = pooled >= fare
-	var choice: String
-	if next_key.is_empty():
-		choice = "There is nowhere further down. Ride the lift home."
-	else:
-		choice = "Ride the lift home with everything, or dig on into %s carrying it all. Nothing is banked until you ride up." % DeepContent.mine_name(next_key)
+	var notes: Array = []
 	if not afford:
-		choice += " The winch wants %d pyrite and the party has %d." % [fare, pooled]
+		notes.append("The winch wants %d pyrite and the party has %d." % [fare, pooled])
 	if downed:
-		choice += " You are down: the party decides, and you go with it."
+		notes.append("You are down: the party decides, and you go with it.")
 	elif run.get("players", []).size() > 1:
-		choice += " The party goes where most of it points."
-	said.append(choice)
+		notes.append("The party goes where most of it points.")
+	## A creature of the mine below counts as met if the lapidary has met it, or the party has
+	## on this run (a guest can have been down there in someone else's).
+	var met: Array = []
+	for key in DeepBestiary.in_mine(next_key) if not next_key.is_empty() else []:
+		if DeepBestiary.known(profile, str(key)) or int(run.get("bestiary", {}).get(str(key), {}).get("met", 0)) > 0:
+			met.append(str(key))
+	var joined: Array = []
+	for key in profile.get("characters", {}):
+		if bool(profile.characters[key].get("unlocked", false)):
+			joined.append(str(key))
+	var boss: String = str(DeepContent.creature(DeepDescent.warden_key(run, int(run.get("depth", 0)))).get("name", "The boss"))
+	var view: Dictionary = {"mine": mine_key, "next": next_key, "tier": tier, "depth": int(run.get("depth", 0)), "boss": boss, "opened": opened,
+		"unlocked": item.get("unlocked", []), "purse": int(item.get("purse", 0)), "fare": fare, "met": met, "joined": joined,
+		"records": DeepProfile.mine_records(profile, tier) if not profile.is_empty() else {}}
 	## Chosen from a sheet that may have stood a while: only if the party is still in the hall.
 	var ride := func() -> void:
 		if str(run.get("phase", "")) == "landing" and DeepDescent.in_boss_hall(run):
@@ -1183,15 +1186,14 @@ func _show_conquest(item: Dictionary) -> CanvasLayer:
 	var deeper := func() -> void:
 		if str(run.get("phase", "")) == "landing" and DeepDescent.in_boss_hall(run):
 			_choose_mouth(0)
-	var actions: Array = [{"label": "Return home · %d" % fare, "glyph": "lift", "tone": DeepUi.GOOD, "call": ride,
+	## No "not yet": Esc or a click outside puts the sheet away, and the hall's cage and mouth
+	## still choose the same two things.
+	var actions: Array = [{"label": "Return home", "glyph": "lift", "tone": DeepUi.GOOD, "call": ride, "price": fare, "price_glyph": "ore",
 		"disabled": downed or not afford or str(unit.get("choice", "")) == "lift"}]
 	if not next_key.is_empty():
 		actions.append({"label": "Dig deeper", "glyph": "descend", "tone": DeepUi.ACCENT, "call": deeper,
 			"disabled": downed or str(unit.get("choice", "")) == "descend"})
-	actions.append({"label": "Not yet", "glyph": "cross_out", "primary": false})
-	var boss: String = str(DeepContent.creature(DeepDescent.warden_key(run, int(run.get("depth", 0)))).get("name", "The boss"))
-	return Inspector.announce("%s conquered" % DeepContent.mine_name(mine_key), "\n\n".join(said), "crown", DeepUi.ACCENT_HI,
-		{"subtitle": "%s is dead" % boss, "actions": actions})
+	return Inspector.conquest(view, actions, " ".join(notes))
 
 func _later(seconds: float, callback: Callable) -> void:
 	if _headless or not is_inside_tree():

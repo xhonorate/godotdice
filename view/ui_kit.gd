@@ -852,10 +852,11 @@ static func coin_safe(tone: Color, instead: Color = INFO) -> Color:
 	var yellow: bool = tone.s > 0.35 and tone.h > 0.09 and tone.h < 0.19
 	return instead if yellow else tone
 
-static func price_chip(parent: Node, sum: String, size: int = 13, tone: Color = ACCENT_HI, boxed: bool = true) -> PanelContainer:
+static func price_chip(parent: Node, sum: String, size: int = 13, tone: Color = ACCENT_HI, boxed: bool = true, glyph: String = "coin") -> PanelContainer:
 	## A sum of gold as every button shows one: the coin, then the number. Gold is never written
 	## out as a word on a button. `boxed` sets it in a dark capsule (no outline) for a fill that
-	## is not the button's own; on a button it is bare and takes the button's text color.
+	## is not the button's own; on a button it is bare and takes the button's text color. A sum
+	## of pyrite is the same tag with the nugget (`glyph` "ore") in place of the coin.
 	var chip := PanelContainer.new()
 	var style := facet_ends(chip, flat(Color(INK, 0.62) if boxed else Color(0, 0, 0, 0), Color(0, 0, 0, 0), 8, 0))
 	style.content_margin_left = 6
@@ -866,18 +867,18 @@ static func price_chip(parent: Node, sum: String, size: int = 13, tone: Color = 
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.name = "Price"
 	parent.add_child(chip)
-	var row := stat(chip, "coin", sum, tone, size)
+	var row := stat(chip, glyph, sum, tone, size)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for part in row.get_children():
 		(part as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return chip
 
-static func priced(b: Button, sum: String, size: int = -1) -> Button:
+static func priced(b: Button, sum: String, size: int = -1, glyph: String = "coin") -> Button:
 	## Sets a price tag (`price_chip`) at the right end of a button built with its own mark and
 	## words, and widens the button's right margin to make room for it. The tag dims with the
 	## button when it is disabled. `sum` is the number as shown: "240", or "+38" for a payout.
 	var font_size: int = size if size > 0 else maxi(MIN_TEXT, b.get_theme_font_size("font_size") - 2)
-	var chip := price_chip(b, sum, font_size, b.get_theme_color("font_color"), false)
+	var chip := price_chip(b, sum, font_size, b.get_theme_color("font_color"), false, glyph)
 	var gap: float = 10.0
 	var room: float = chip.get_combined_minimum_size().x + gap
 	for state in ["normal", "hover", "pressed", "disabled", "focus", "hover_pressed"]:

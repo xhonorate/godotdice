@@ -2108,6 +2108,12 @@ func _warm_in_view() -> void:
 	for light in speck.find_children("*", "Light3D", true, false):
 		(light as Light3D).light_energy = 0.0
 		(light as Light3D).light_volumetric_fog_energy = 0.0
+	## The room can be swapped out under it in those frames (`_clear_room`: the run picked up
+	## again, a room shown over this one), taking the speck with it; then there is nothing left
+	## to put away.
 	for _i in range(3):
+		if not is_inside_tree() or not is_instance_valid(speck):
+			break
 		await get_tree().process_frame
-	speck.queue_free()
+	if is_instance_valid(speck):
+		speck.queue_free()

@@ -347,7 +347,7 @@ func _note_conquest(run: Dictionary) -> void:
 		saves.save_profile(profile)
 	## The first conquest's purse is paid when the run comes home, fall or ride.
 	var purse: int = 0 if profile.get("conquest_paid", []).has(mine_key) else DeepEconomy.conquest_purse(mine_key)
-	descent.conquered(mine_key, unlocked, purse)
+	descent.conquered(mine_key, unlocked, purse, profile)
 
 func _descent_command(cmd: Dictionary) -> void:
 	## Everything the run asks for goes to the rules, except a turn asked to hurry: that is
