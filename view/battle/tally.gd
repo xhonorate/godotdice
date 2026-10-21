@@ -302,7 +302,7 @@ static func kind_look(kind: String) -> Array:
 		"heal", "regeneration": return ["heart", DeepUi.GOOD]
 		"poison": return ["drop", DeepUi.POISON]
 		"gold": return ["coin", DeepUi.ORE]
-		"spikes": return ["thorn", Color("ffa36b")]
+		"spikes": return ["caltrop", Color("ffa36b")]
 	return ["spark", DeepUi.PAPER]
 
 static func times(x: float) -> String:

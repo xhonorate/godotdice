@@ -77,24 +77,19 @@ func _slab(parent: Node3D, size: Vector3, color: Color, at: Vector3, material: M
 	return node
 
 func _label(parent: Node3D, key: String, text: String, at: Vector3, color: Color) -> void:
-	## Every name is drawn to read at about the same size from where the party stands, over
-	## whatever is in front of it, so the cage at the back is as plain as the fire at the front.
-	var label := Label3D.new()
-	label.text = text
-	label.font = DeepUi.display_font()
-	label.font_size = 56
-	var reach: float = (parent.position + at).distance_to(VIEWPOINT)
-	label.pixel_size = 0.0042 * clampf(reach / 8.0, 1.0, 2.6)
-	label.outline_size = 14
-	label.no_depth_test = true
-	label.render_priority = 10
-	label.outline_render_priority = 9
-	label.outline_modulate = Color(0, 0, 0, 0.85)
-	label.modulate = Color(color, 0.0)
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.position = at
-	parent.add_child(label)
-	_labels[key] = label
+	## Every name reads at the same size from where the party stands, over whatever is in
+	## front of it, so the cage at the back is as plain as the fire at the front. The stage
+	## writes it over the view in 2D (see `MineStage.NAME_GROUP`): drawn into the room, it was
+	## stretched soft with the room on any window bigger than the canvas.
+	var spot := Node3D.new()
+	spot.position = at
+	spot.set_meta("text", text)
+	spot.set_meta("tone", color)
+	spot.set_meta("font_size", 28)
+	spot.set_meta("alpha", 0.0)
+	spot.add_to_group("stage_name")
+	parent.add_child(spot)
+	_labels[key] = spot
 
 func _glow(parent: Node3D, key: String, color: Color, at: Vector3, reach: float = 2.4) -> void:
 	## Two lights on everything that can be used: a lamp in it, and a shaft from above that
@@ -433,7 +428,6 @@ func _process(delta: float) -> void:
 		## A breath in it, so a thing waiting to be used is never quite still.
 		beam.light_energy = move_toward(beam.light_energy, lit * (1.0 + 0.06 * sin(_clock * 1.7 + float(key.length()))), delta * 6.0)
 	for key in _labels:
-		var label: Label3D = _labels[key]
+		var spot: Node3D = _labels[key]
 		var shown: float = 1.0 if key == _hover else (0.88 if _offered.has(key) else 0.0)
-		label.modulate.a = move_toward(label.modulate.a, shown, delta * 6.0)
-		label.outline_modulate = Color(0, 0, 0, 0.85 * label.modulate.a)
+		spot.set_meta("alpha", move_toward(float(spot.get_meta("alpha", 0.0)), shown, delta * 6.0))

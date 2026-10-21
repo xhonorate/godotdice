@@ -200,6 +200,26 @@ func _test_birthstones() -> void:
 	check(rally.tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size() == 4, "five of a kind fires Rank, File, Phalanx and Legion")
 	check(int(rally.resonance) == 1 and int(tier(rally, "File").effects[0].raw) == 3 and tier(rally, "Legion").effects.size() == 5, "File deals 3×Res once, Legion 5×Res five times")
 	check(tier(rally, "Phalanx").effects.filter(func(e: Dictionary) -> bool: return str(e.kind) == "stun").size() == 1, "Phalanx stuns")
+	## Each lit tier is counted out on its own: what Resonance multiplies, Resonance, the figure.
+	var rank_count: Dictionary = tier(rally, "Rank").get("count", {})
+	var file_count: Dictionary = tier(rally, "File").get("count", {})
+	check(str(rank_count.get("kind", "")) == "block" and int(rank_count.get("coef", 0)) == 1 and int(rank_count.get("res", -1)) == 1 and int(rank_count.get("amount", 0)) == 1,
+		"Rank counts Resonance straight into its guard (%s)" % str(rank_count))
+	check(str(file_count.get("kind", "")) == "damage" and int(file_count.get("coef", 0)) == 3 and int(file_count.get("res", -1)) == 1 and int(file_count.get("amount", 0)) == 3,
+		"File counts its own three times Resonance (%s)" % str(file_count))
+	check(int(tier(rally, "Legion").count.get("repeat", 0)) == 5 and not tier(rally, "Phalanx").count.has("amount") and str(tier(rally, "Phalanx").count.get("name", "")) == "Phalanx",
+		"Legion lands five times; Phalanx has no figure, only its name called out")
+	var counted: float = DeepBattle.BASE_DURATION.birthstone
+	for lit in rally.tiers:
+		if bool(lit.active):
+			counted += DeepBattle.tier_span(lit)
+	check(is_equal_approx(float(rally.duration), counted), "the Birthstone holds the step for every tier counted and landed in turn (%.2fs)" % float(rally.duration))
+	var quick: Dictionary = file_count.duplicate()
+	quick.pace = 0.5
+	var off: Dictionary = file_count.duplicate()
+	off.pace = 0.0
+	check(is_equal_approx(DeepBattle.birth_span(quick), DeepBattle.birth_span(file_count) * 0.5) and is_equal_approx(DeepBattle.birth_span(off), DeepBattle.BIRTH_GLANCE),
+		"a tier's count halves at Quick and is only glanced at with counts Off")
 	## Vesper: five different values with the top die outrolling the rest; one hit per point on it.
 	var r2: Dictionary = rngs(72)
 	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
@@ -216,6 +236,10 @@ func _test_birthstones() -> void:
 	var hits: Array = effects_of(cuts, "damage")
 	check(bool(cuts.fired) and hits.size() == 15 and int(hits[0].amount) == 1, "a 15 on the d20 is fifteen hits of Resonance (%d hits)" % hits.size())
 	check(int(hits[hits.size() - 1].get("riposte", 0)) == 1, "Riposte: every hit raises block worth Resonance")
+	var cuts_count: Dictionary = tier(cuts, "Thousand Cuts").count
+	var d20: String = str(DeepBattle.player(state3b, "a").hand[4].die_id)
+	check(int(cuts_count.get("repeat", 0)) == 15 and str(cuts_count.get("repeat_die", "")) == d20 and int(cuts_count.get("coef", 0)) == 1,
+		"Thousand Cuts counts Resonance once and takes how many times from the d20 (%s)" % str(cuts_count))
 	var large_rng: Dictionary = rngs(73100)
 	var large_state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, large_rng.dice, large_rng.creatures)
 	var large_player: Dictionary = DeepBattle.player(large_state, "a")
@@ -299,11 +323,18 @@ func _test_birthstones() -> void:
 	## House Money put up 10, Ante staked 3 more, then Raise matched the 13 on the table.
 	## 26 riding and 74 still in the bank: every coin on the table has left it.
 	check(int(florin9.pot) == 26 and DeepRules.pyrite(florin9) == 74, "Raise matches the pot out of the bank (%d on the table, %d left)" % [int(florin9.pot), DeepRules.pyrite(florin9)])
+	var ante_count: Dictionary = tier(roller, "Ante").count
+	check(ante_count.get("coef_dice", []).size() == 3 and str(ante_count.get("pot", {}).get("mode", "")) == "ante" and int(ante_count.pot.get("moved", 0)) == 3,
+		"Ante counts a crown a die and stakes what it comes to (%s)" % str(ante_count))
+	var raise_count: Dictionary = tier(roller, "Raise").count
+	check(int(raise_count.get("base", 0)) == 13 and int(raise_count.get("pot", {}).get("moved", 0)) == 13 and int(raise_count.get("amount", 0)) == 26,
+		"Raise counts the pot, then the bank matching it (%s)" % str(raise_count))
 	var ten: Dictionary = gambler.call("a", 100, 80)
 	var florin10: Dictionary = DeepBattle.player(ten.state, "a")
 	hand(florin10, [7, 7, 7, 7, 7])
 	var flush: Dictionary = birthstones(run_turn(ten.state, ten.rng))[0]
 	check(bool(tier(flush, "All In").get("active", false)) and int(florin10.pot) == 100 and DeepRules.pyrite(florin10) > 0, "All In pushes the whole bank in and is paid what it took off them")
+	check(int(tier(flush, "All In").count.get("payout", 0)) > 0 and str(tier(flush, "All In").count.get("pot", {}).get("mode", "")) == "all", "and its count says what it was paid")
 	var eleven: Dictionary = gambler.call("a", 100, 81)
 	var florin11: Dictionary = DeepBattle.player(eleven.state, "a")
 	var opened: int = int(florin11.pot)
@@ -312,6 +343,9 @@ func _test_birthstones() -> void:
 	check(bool(tier(bust, "Bust").get("active", false)) and int(florin11.pot) == 0, "no crown: the table takes the pot")
 	## Read the blow off the tier, not off his health: the creature swings in the same turn.
 	check(int(tier(bust, "Bust").effects[0].amount) == opened / 2, "and half of what was on it comes out of him (%d of %d)" % [int(tier(bust, "Bust").effects[0].amount), opened])
+	var bust_count: Dictionary = tier(bust, "Bust").count
+	check(bool(bust_count.get("half", false)) and int(bust_count.get("base", 0)) == opened and int(bust_count.get("amount", 0)) == opened / 2 and str(bust_count.get("target", "")) == "self",
+		"a Bust counts the pot, halves it and turns it on him (%s)" % str(bust_count))
 
 func _test_passives() -> void:
 	## Second Wind: Ardor heals for the rerolls he did not spend.
@@ -324,6 +358,10 @@ func _test_passives() -> void:
 	var closes: Dictionary = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_end")[0]
 	check(int(closes.unused_rerolls) == 2 and int(closes.healed) == 2 * int(closes.resonance) and int(closes.resonance) > 0,
 		"Second Wind pays two unused rerolls the Resonance the rail built, as it closes (%s)" % str(closes))
+	var wind: Dictionary = closes.get("count", {})
+	check(int(wind.get("coef", 0)) == 2 and int(wind.get("res", 0)) == int(closes.resonance) and int(wind.get("amount", 0)) == 2 * int(closes.resonance) and str(wind.get("kind", "")) == "heal",
+		"Second Wind is counted out: the rerolls left, times the Resonance (%s)" % str(wind))
+	check(float(closes.duration) >= DeepBattle.BASE_DURATION.rail_end + DeepBattle.birth_span(wind), "and the rail's close waits for it to be counted")
 	var opens: Dictionary = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "rail_begin")[0]
 	check(int(opens.healed) == 0, "nothing is healed as the rail opens, when there is no Resonance to heal on")
 	## Sleight: Puck shifts one die to the opposite parity before locking.

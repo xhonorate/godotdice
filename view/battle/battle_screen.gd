@@ -27,7 +27,9 @@ const EffectChips = preload("res://view/battle/effect_chips.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Tally = preload("res://view/battle/tally.gd")
+const ResonanceCount = preload("res://view/battle/resonance_count.gd")
 const ShaftMap = preload("res://view/run/shaft_map.gd")
+const Roster = preload("res://view/home/roster.gd")
 ## The field of view the camera prefers; it widens on its own when a tall creature and its
 ## plate would not fit under the top of the screen, and narrows back when they would.
 ## What Sleight does, on its button. See `DeepBattle.shift_face`.
@@ -36,8 +38,10 @@ const BASE_FOV: float = 58.0
 
 signal command(cmd: Dictionary)
 
-const DIE_EDGE: float = 82.0
-const SOCKET_EDGE: float = 60.0
+const DIE_EDGE: float = 94.0
+const SOCKET_EDGE: float = 68.0
+## The player's face at the left of their page: as tall as the page, a little narrower.
+const FACE_EDGE := Vector2(132, 158)
 ## A Void gem riding a socket, as a chip under the socket's name, and how many of them show
 ## before a count stands for the rest.
 const RIDER_EDGE: float = 20.0
@@ -143,6 +147,35 @@ var _seen_rerolls: Dictionary = {}
 var _seen_locked: Dictionary = {}
 var _rerolled_at: Dictionary = {}
 const REROLL_SHOWN_MS: int = 1200
+## A face each player wears for a moment (a flinch, eyes on the dice, a Birthstone going
+## off), by id: [mood, until msec]. Past it they wear what their health says.
+var _passing: Dictionary = {}
+## The fight is won: everyone still standing wears it.
+var _won: bool = false
+## A figure growing while one gem's blows land (a Riposte's guard), by player id:
+## {"plate", "token", "total", "timer"}. A new gem from them closes it and starts again.
+var _swells: Dictionary = {}
+## Which gem or Birthstone each player's blows belong to right now, bumped as each fires; and
+## which round of poison is biting, with how many times each Leech has drunk from it.
+var _blow_token: Dictionary = {}
+var _leech_token: int = 0
+var _leech_beat: Dictionary = {}
+## A turn has opened and its passives are still to be shown, once the walk in is over.
+var _opening_due: bool = false
+## What the Gambler's pot and purse read while coins are still on their way, by player id:
+## the truth once they land.
+var _pot_held: Dictionary = {}
+var _bank_held: Dictionary = {}
+## Told when the purse should be read again (the strip over the fight shows it).
+signal bank_changed(delta: int)
+## The purse on the strip, for coins to fly to and from: () -> Control.
+var bank_anchor: Callable = Callable()
+## House Money has been seen going onto the table this fight (until it has, the pot reads
+## empty and the purse whole: see `_house_due`); Study's reroll is still being counted onto
+## the button (how many the button holds back, until when).
+var _house_shown: bool = false
+var _study_lag: int = 0
+var _study_until: int = 0
 ## How tall the reader's buttons stand, so a page without them keeps the dock the same height.
 var _buttons_height: float = 0.0
 var _rail_box: HBoxContainer:
@@ -207,12 +240,6 @@ var _status_row: HBoxContainer:
 ## The reader's own buffs and troubles, over their tab.
 var _effects: EffectChips.Row
 var _fight_effects: EffectChips.Row
-var _forecast_box: VBoxContainer:
-	get: return _page.forecast_box
-	set(value): _page.forecast_box = value
-var _forecast_key: String:
-	get: return _page.forecast_key
-	set(value): _page.forecast_key = value
 ## The block the status row was last drawn with: it is only rebuilt when that changes.
 var _status_block: int:
 	get: return _page.status_block
@@ -535,7 +562,11 @@ func _build_page(page: Page) -> void:
 	columns.set_meta("page", page)
 	columns.visible = page.mine
 	page.root = columns
-	## Left: the player, and their rail.
+	## Far left: the player themself, their face following what happens to them.
+	page.face = Roster.Portrait.new("", FACE_EDGE)
+	page.face.size_flags_vertical = Control.SIZE_FILL
+	columns.add_child(page.face)
+	## Then their health, and their rail.
 	var left := DeepUi.vbox(columns, 8)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## As tall as the block pill from the start, and everything in it centred, so gaining
@@ -555,6 +586,15 @@ func _build_page(page: Page) -> void:
 	## Resonance rides on the same line as the health bar: the stones below it say plainly
 	## enough what they are, so the rail needs no word over it.
 	DeepUi.spacer(me_row)
+	## While the turn plays out: what the rail has really dealt, counted up blow by blow.
+	_dealt_box = DeepUi.hbox(me_row, 4)
+	_dealt_box.mouse_filter = Control.MOUSE_FILTER_PASS
+	_dealt_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_dealt_box.tooltip_text = "Damage your rail has dealt this turn" if page.mine else "Damage their rail has dealt this turn"
+	DeepUi.icon(_dealt_box, "impacts", 16, DeepUi.BAD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_dealt_label = DeepUi.title(_dealt_box, "0", 18, DeepUi.BAD)
+	_dealt_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_dealt_box.visible = false
 	_resonance_box = DeepUi.hbox(me_row, 5)
 	_resonance_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	_resonance_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -597,23 +637,8 @@ func _build_page(page: Page) -> void:
 		## the rerolls they have left.
 		page.mate_state = buttons
 		buttons.custom_minimum_size.y = _buttons_height
-	DeepUi.rule(columns, Color(DeepUi.LINE, 0.8)).custom_minimum_size = Vector2(1, 0)
-	## Right: what the hand would do.
-	var right := DeepUi.vbox(columns, 6)
-	right.custom_minimum_size = Vector2(250, 0)
-	var forecast_head := DeepUi.hbox(right, 8)
-	DeepUi.icon(forecast_head, "eye", 16, DeepUi.ACCENT)
-	page.would_title = DeepUi.heading(forecast_head, "This hand would" if page.mine else "Their hand would", 13)
-	## While the turn plays out: what the rail has really dealt, counted up blow by blow.
-	DeepUi.spacer(forecast_head)
-	_dealt_box = DeepUi.hbox(forecast_head, 4)
-	_dealt_box.mouse_filter = Control.MOUSE_FILTER_PASS
-	_dealt_box.tooltip_text = "Damage your rail has dealt this turn" if page.mine else "Damage their rail has dealt this turn"
-	DeepUi.icon(_dealt_box, "impacts", 16, DeepUi.BAD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_dealt_label = DeepUi.title(_dealt_box, "0", 18, DeepUi.BAD)
-	_dealt_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_dealt_box.visible = false
-	_forecast_box = DeepUi.vbox(right, 4)
+	## No column of what the hand would do: the rail lights the gems that would fire and the
+	## creatures' bars show the blow coming, and the room it took goes to the dice and stones.
 	_page = was
 
 func _dress_dock(tone: Color, theirs: bool) -> void:
@@ -646,6 +671,11 @@ func _dress_dock(tone: Color, theirs: bool) -> void:
 	_dock_tween.tween_property(_dock_style, "shadow_color", shadow, 0.28).set_trans(Tween.TRANS_SINE)
 	_dock_tween.tween_property(_dock_style, "shadow_size", spread, 0.28)
 	_dock_tween.tween_property(_dock_style, "shadow_offset", offset, 0.28)
+
+func dock_height() -> float:
+	## How tall the dock stands with the reader's page in it: the run's own dock, outside a
+	## fight, stands exactly as tall, so the bottom of the screen never jumps.
+	return _dock.get_combined_minimum_size().y if _dock != null else 0.0
 
 func bind(player_id: String) -> void:
 	local_id = player_id
@@ -687,6 +717,19 @@ func _forget_fight() -> void:
 	_seen_rerolls.clear()
 	_seen_locked.clear()
 	_rerolled_at.clear()
+	_passing.clear()
+	_won = false
+	for id in _swells.keys():
+		_close_swell(str(id))
+	_blow_token.clear()
+	_pot_held.clear()
+	if not _bank_held.is_empty():
+		_bank_held.clear()
+		bank_changed.emit(0)
+	_study_lag = 0
+	_leech_beat.clear()
+	## A fight opens on its first turn with no turn_begin of its own: its passives are due.
+	_opening_due = true
 	for id in _plates.keys():
 		if is_instance_valid(_plates[id]):
 			_plates[id].queue_free()
@@ -710,6 +753,8 @@ func leave() -> void:
 	## the room go, and nothing of the last fight is kept to be recognised again. Without
 	## this the creatures a party fell to stood in every room of the next run until its
 	## first fight, because they live in the stage's world rather than under this screen.
+	## The next fight's House Money has not been seen yet.
+	_house_shown = false
 	if _creatures.is_empty() and _plates.is_empty() and state.is_empty():
 		return
 	for id in _creatures.keys():
@@ -761,7 +806,9 @@ func _sync() -> void:
 	var downed: bool = bool(unit.get("downed", false))
 	var rerolls: int = int(unit.get("rerolls", 0))
 	_reroll_button.disabled = not planning or locked or downed or rerolls <= 0 or selected.is_empty()
-	_reroll_button.text = ("Reroll  %d left" % rerolls) if planning else "Resolving"
+	## Study's reroll is shown arriving: the button holds it back until it has been counted on.
+	var lag: int = _study_lag if Time.get_ticks_msec() < _study_until else 0
+	_reroll_button.text = ("Reroll  %d left" % maxi(0, rerolls - lag)) if planning else "Resolving"
 	## A Roller in the room threw the hand this turn and took the rerolls with it: the button
 	## wears the Roller's own mark and name in its colour, and says why on a hover.
 	var roller: Dictionary = _roller(state) if planning else {}
@@ -824,6 +871,8 @@ class Page extends RefCounted:
 	var id: String = ""
 	var mine: bool = false
 	var root: Control = null
+	## Their face (a Roster.Portrait), in whatever mood the fight has put them in.
+	var face: Control = null
 	var hp_bar: DeepUi.Bar
 	var status_row: HBoxContainer
 	var status_block: int = -1
@@ -848,9 +897,6 @@ class Page extends RefCounted:
 	## Another player's page only: what they are doing, where the reader's buttons are.
 	var mate_state: HBoxContainer
 	var mate_key: String = ""
-	var would_title: Label
-	var forecast_box: VBoxContainer
-	var forecast_key: String = ""
 	var dealt_box: HBoxContainer
 	var dealt_label: Label
 	var turn_dealt: int = 0
@@ -930,9 +976,13 @@ func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
 	## instant the roll is, and a gem that came on a beat before its dice landed gave the
 	## answer away. The rail is told again the moment they settle.
 	var rolled: String = ",".join(unit.get("hand", []).map(func(r: Dictionary) -> String: return "%s:%d:%s" % [str(r.get("die_id", "")), int(r.get("value", 0)), str(r.get("rerolls", 0))]))
+	page.face.key = str(unit.get("character", ""))
+	page.face.tooltip_text = "%s · %s" % [str(unit.get("name", "")), DeepContent.character_title(page.face.key)] if not page.mine else "You, as %s" % DeepContent.character_title(page.face.key)
 	if rolled != _rolled_hand:
 		_rolled_hand = rolled
 		if not _headless and is_inside_tree() and planning:
+			## Their eyes go down to the dice for as long as they tumble.
+			_react(page.id, "rolling", DiceView.SPIN_SECONDS + 0.4)
 			_dice_settle_at = Time.get_ticks_msec() + int(DiceView.SPIN_SECONDS * 1000.0) + 60
 			var settling_hand: String = rolled
 			var settling: Page = page
@@ -950,9 +1000,9 @@ func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
 		_show_resonance(int(unit.get("resonance", 0)))
 	_sync_rail(unit, planning)
 	_sync_tray(unit, planning)
-	_sync_forecast(unit)
 	if not page.mine:
 		_sync_mate_state(page, unit, planning)
+	_show_mood(page.id)
 	_page = was
 
 func _mate_forecast(page: Page, unit: Dictionary, planning: bool, rolled: String) -> void:
@@ -1169,8 +1219,9 @@ func _player_effects(unit: Dictionary) -> Array:
 func _seat_status(unit: Dictionary) -> Array:
 	## What a player is doing, as the one mark on their tab: [glyph, tone, words].
 	var id: String = str(unit.get("id", ""))
+	## Down is said by the whole tab going grey, not by a mark on it.
 	if bool(unit.get("downed", false)):
-		return ["skull", DeepUi.BAD, "Down"]
+		return ["", DeepUi.DIM, "Down"]
 	if not bool(unit.get("connected", true)):
 		return ["wifi", DeepUi.DIM, "Away"]
 	match str(state.get("phase", "")):
@@ -1237,6 +1288,7 @@ func _sync_tabs() -> void:
 		_seen_locked[id] = locked
 		var character: String = DeepContent.character_title(str(unit.get("character", "")))
 		tab.update(unit, character, _seat_color(id), party and _is_shown(id), _seat_status(unit), index + 1 if resolving and party else 0, _player_effects(unit), party)
+		tab.portrait.mood = _mood_of(id)
 	_tab_bar.move_child(_my_tab, 0)
 	for id in _tabs.keys():
 		if not present.has(id):
@@ -1300,9 +1352,9 @@ class SeatTab extends VBoxContainer:
 	var mine: bool = false
 	var chips: EffectChips.Row
 	var face: TabFace
+	## Their face, ringed in their seat's color, in the same mood as on their page.
+	var portrait: Roster.Portrait
 	var _order: Label
-	var _disc: PanelContainer
-	var _initial: Label
 	var _name: Label
 	var _bar: DeepUi.Bar
 	var _status: TextureRect
@@ -1327,13 +1379,10 @@ class SeatTab extends VBoxContainer:
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_order = DeepUi.label(row, "", 12, DeepUi.MUTED)
 		_order.visible = false
-		_disc = PanelContainer.new()
-		_disc.custom_minimum_size = Vector2(24, 24)
-		_disc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_child(_disc)
-		_initial = DeepUi.title(_disc, "", 15, DeepUi.INK, HORIZONTAL_ALIGNMENT_CENTER)
-		_initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		portrait = Roster.Portrait.new("", Vector2(30, 30))
+		portrait.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(portrait)
 		if mine:
 			var badge := PanelContainer.new()
 			var gold := DeepUi.flat(DeepUi.ACCENT, Color(0, 0, 0, 0), 3, 0)
@@ -1374,7 +1423,7 @@ class SeatTab extends VBoxContainer:
 			return
 		var who: String = str(unit.get("name", ""))
 		_name.text = who
-		_initial.text = who.substr(0, 1).to_upper()
+		portrait.key = str(unit.get("character", ""))
 		var max_hp: int = maxi(1, int(unit.get("max_hp", 1)))
 		_bar.set_values(float(unit.get("hp", 0)) / float(max_hp), "", float(unit.get("block", 0)) / float(max_hp))
 		## As the turn starts resolving, the firing order is counted out along the tabs.
@@ -1390,9 +1439,7 @@ class SeatTab extends VBoxContainer:
 			var rising: bool = up and not _was_up and not _style_key.is_empty()
 			_style_key = key
 			face.add_theme_stylebox_override("panel", _style(up, seat))
-			var circle := DeepUi.flat(seat, Color(0, 0, 0, 0), 12, 0)
-			circle.corner_detail = 10
-			_disc.add_theme_stylebox_override("panel", circle)
+			portrait.ring = seat
 			face.stripe = DeepUi.ACCENT if mine else seat
 			face.up = up
 			face.queue_redraw()
@@ -1417,7 +1464,10 @@ class SeatTab extends VBoxContainer:
 			lines.append(str(status[2]))
 		lines.append("Your rail and dice." if mine else "Click to see their rail and dice. Right-click for their bag.")
 		face.tooltip_text = "\n".join(lines)
-		face.modulate = Color(1, 1, 1, 0.6) if bool(unit.get("downed", false)) else Color.WHITE
+		## A player who is down is greyed out, tab, face and all: that is the whole mark.
+		var down: bool = bool(unit.get("downed", false))
+		face.modulate = Color(0.55, 0.57, 0.62, 0.85) if down else Color.WHITE
+		chips.modulate = Color(0.55, 0.57, 0.62, 0.85) if down else Color.WHITE
 	func _style(up: bool, seat: Color) -> StyleBoxFlat:
 		## The tab that is up is the dock's own color and lies over its edge, so the two read
 		## as one piece; the rest sit behind it, darker.
@@ -1458,7 +1508,7 @@ class SeatTab extends VBoxContainer:
 	func ping() -> void:
 		## A reroll spent or a hand locked in: the player's mark jumps.
 		if not DeepUi.headless():
-			DeepUi.pulse(_disc, 1.3, 0.35)
+			DeepUi.pulse(portrait, 1.3, 0.35)
 	func flash(tone: Color) -> void:
 		## Guarded or healed while their page is not up: the tab washes over in that color and
 		## its health line swells.
@@ -1564,6 +1614,10 @@ func _sync_vitals(unit: Dictionary) -> void:
 func _shown(unit: Dictionary) -> Dictionary:
 	## A unit as its bars should read: the truth, unless a count is still on its way to it.
 	var id: String = str(unit.get("id", ""))
+	## The Gambler's pot reads what the coins have carried onto the table so far.
+	if _pot_held.has(id) or _house_due(unit, state):
+		unit = unit.duplicate()
+		unit.pot = int(_pot_held.get(id, 0))
 	if not _held.has(id):
 		return unit
 	var held: Dictionary = _held[id]
@@ -1575,12 +1629,28 @@ func _shown(unit: Dictionary) -> Dictionary:
 	copy.block = maxi(0, int(held.block))
 	return copy
 
-func _hold_vitals(effects: Array) -> void:
+func _hold_vitals(effects: Array, by: String = "") -> void:
 	## Before a count: what these effects took off a creature, or gave the player, goes back
 	## on the bars until the blow, the guard or the heal is seen to land. A unit an earlier
 	## count is still holding already reads as it was before both, and only waits longer.
+	## `by` is whose rail it was: a Riposte's guard from these blows is held too, and comes in
+	## all at once as its swell is flown to the bar.
 	var moved: Dictionary = {}
 	_vital_moves(effects, moved)
+	var parried: int = _parried(effects) if not by.is_empty() else 0
+	if parried > 0:
+		_vital_move(moved, by, 0, -parried)
+	_hold_moves(moved)
+
+func _hold_parry(effects: Array, by: String) -> void:
+	## Only a Riposte's guard, for blows that are not counted first.
+	var parried: int = _parried(effects)
+	if parried > 0:
+		var moved: Dictionary = {}
+		_vital_move(moved, by, 0, -parried)
+		_hold_moves(moved)
+
+func _hold_moves(moved: Dictionary) -> void:
 	for id in moved:
 		var unit: Dictionary = DeepBattle.player(state, str(id)) if _is_player(str(id)) else DeepBattle.enemy(state, str(id))
 		if unit.is_empty():
@@ -1614,6 +1684,16 @@ func _vital_moves(effects: Array, into: Dictionary) -> void:
 					_vital_move(into, str(effect.target), -int(effect.get("healed", effect.get("amount", 0))), 0)
 		_vital_moves(effect.get("poison_spread", []), into)
 
+static func _parried(effects: Array) -> int:
+	## The guard a Riposte raised off these blows, every hit of them.
+	var total: int = 0
+	for effect in effects:
+		if effect is Dictionary and str(effect.get("kind", "")) == "damage":
+			for hit in [effect] + effect.get("splash", []):
+				if hit is Dictionary:
+					total += maxi(0, int(hit.get("riposte", 0)))
+	return total
+
 static func _vital_move(into: Dictionary, id: String, hp: int, block: int) -> void:
 	var change: Array = into.get(id, [0, 0, 0])
 	into[id] = [int(change[0]) + hp, int(change[1]) + block, int(change[2]) + 1]
@@ -1630,14 +1710,68 @@ func _land_vitals(id: String, hp: int, block: int) -> void:
 	if int(held.landings) <= 0:
 		_held.erase(id)
 	if _is_player(id):
-		## That player's bars: on their page, and on their tab.
+		## That player's bars: on their page, and on their tab; and their face, which the
+		## blow may have taken down a step.
 		var unit: Dictionary = DeepBattle.player(state, id)
 		var page: Page = _page_for(id)
 		if page != null:
 			_on_page(page, _sync_vitals.bind(unit))
 		_sync_tabs()
+		_show_mood(id)
 	else:
 		_sync_plates()
+
+func _mood_of(id: String) -> String:
+	## The face a player wears right now: down once the blow that downed them has landed, the
+	## fight's end when it is won, a passing face while one lasts, and otherwise what their
+	## health says, as the bars read it.
+	var unit: Dictionary = DeepBattle.player(state, id)
+	if unit.is_empty():
+		return "idle"
+	var shown: Dictionary = _shown(unit)
+	var hp: int = int(shown.get("hp", 0))
+	if bool(unit.get("downed", false)) and hp <= 0:
+		return "downed"
+	if _won:
+		return "victory"
+	var passing: Array = _passing.get(id, [])
+	if not passing.is_empty() and Time.get_ticks_msec() < int(passing[1]):
+		return str(passing[0])
+	return Roster.resting_mood({"hp": maxi(1, hp), "max_hp": int(shown.get("max_hp", 1))})
+
+func _show_mood(id: String) -> void:
+	## A player's face, the same on their page and on their tab.
+	var mood: String = _mood_of(id)
+	var page: Page = _page_for(id)
+	if page != null and page.face != null:
+		page.face.mood = mood
+	var tab: SeatTab = _tab_of(id)
+	if tab != null:
+		tab.portrait.mood = mood
+
+func _react(id: String, mood: String, seconds: float) -> void:
+	## A passing face: a flinch, eyes on the dice, a Birthstone going off. It holds for its
+	## moment and then gives way to whatever their health says by then.
+	if not _is_player(id):
+		return
+	var until: int = Time.get_ticks_msec() + int(seconds * 1000.0)
+	_passing[id] = [mood, until]
+	_show_mood(id)
+	if _headless or not is_inside_tree():
+		return
+	## On their page the plate moves with the face: it rocks with a flinch, and jumps as their
+	## Birthstone goes off.
+	var page: Page = _page_for(id)
+	if page != null and page.face != null and page.face.is_visible_in_tree() and _mood_of(id) == mood:
+		page.face.pivot_offset = page.face.size * 0.5
+		if mood == "wince":
+			DeepUi.shake(page.face, 7.0, 0.32)
+		elif mood == "birthstone":
+			DeepUi.spring(page.face, 0.08, 3.0, 0.5)
+	get_tree().create_timer(seconds + 0.03).timeout.connect(func() -> void:
+		if is_instance_valid(self) and not state.is_empty() and int(_passing.get(id, [mood, 0])[1]) == until:
+			_passing.erase(id)
+			_show_mood(id))
 
 func _roller(state: Dictionary) -> Dictionary:
 	## The creature that threw this turn's hand for the party, if one did: a Roller in the
@@ -2099,10 +2233,9 @@ func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 	tiers.add_theme_constant_override("separation", 3)
 	tiers.mouse_filter = Control.MOUSE_FILTER_PASS
 	card.add_child(tiers)
-	var name_label := DeepUi.label(card, str(stone.get("name", "Birthstone")), 11, tint.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
+	## Stepped down to fit rather than cut off: a Birthstone's name is often the longest on the rail.
+	var name_label := DeepUi.fit_label(card, str(stone.get("name", "Birthstone")), 11, tint.lightened(0.35), SOCKET_EDGE + 8)
 	name_label.name = "Name"
-	name_label.custom_minimum_size.x = SOCKET_EDGE + 8
-	name_label.clip_text = true
 	return card
 
 func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
@@ -2376,52 +2509,6 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 			_tray_box.modulate = settled
 		else:
 			_tray_box.create_tween().tween_property(_tray_box, "modulate", settled, 0.25).set_trans(Tween.TRANS_SINE)
-
-func _sync_forecast(unit: Dictionary) -> void:
-	## Held still through a whole resolving turn, so it is rebuilt only when it changes.
-	var totals: Dictionary = forecast.get("totals", {})
-	var key: String = "%s#%d" % [str(totals), DeepRules.pyrite(unit)]
-	if key == _forecast_key and _forecast_box.get_child_count() > 0:
-		return
-	_forecast_key = key
-	DeepUi.clear(_forecast_box)
-	if totals.is_empty():
-		DeepUi.label(_forecast_box, "—", 14, DeepUi.DIM)
-		return
-	## Pyrite is not one of these: it can go either way, and is said below as what the hand would
-	## win or spend, never as the bank it would leave.
-	var rows: Array = [["sword", "damage", DeepUi.BAD, "Damage"], ["shield", "block", DeepUi.BLOCK, "Block"], ["heart", "heal", DeepUi.GOOD, "Healing"],
-		["drop", "poison", DeepUi.POISON, "Poison"]]
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 16)
-	grid.add_theme_constant_override("v_separation", 4)
-	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_forecast_box.add_child(grid)
-	var any: bool = false
-	for row in rows:
-		var amount: int = int(totals.get(row[1], 0))
-		if amount == 0:
-			continue
-		any = true
-		var cell := DeepUi.hbox(grid, 5)
-		cell.mouse_filter = Control.MOUSE_FILTER_PASS
-		cell.tooltip_text = str(row[3])
-		DeepUi.icon(cell, str(row[0]), 20, row[2], str(row[3]))
-		DeepUi.title(cell, str(amount), 22, row[2])
-	var pyrite: int = int(totals.get("gold", 0))
-	if not any and pyrite == 0:
-		DeepUi.label(_forecast_box, "Nothing fires on this hand.", 13, DeepUi.DIM)
-	var summary := DeepUi.hbox(_forecast_box, 10)
-	var fires: int = int(totals.get("fires", 0))
-	var fizzles: int = int(totals.get("fizzles", 0))
-	DeepUi.stat(summary, "check", str(fires), DeepUi.GOOD, 13, "Gems that would fire")
-	DeepUi.stat(summary, "cross_out", str(fizzles), DeepUi.DIM if fizzles == 0 else DeepUi.BAD, 13, "Gems that would fizzle")
-	DeepUi.stat(summary, "ore", ("+%d" % pyrite) if pyrite > 0 else ("−%d" % -pyrite if pyrite < 0 else "±0"),
-		DeepUi.ORE if pyrite > 0 else (DeepUi.BAD if pyrite < 0 else DeepUi.DIM), 13,
-		"Pyrite this hand would win (or spend), on top of the %d %s" % [DeepRules.pyrite(unit), "you have" if _page.mine else "they have"])
-	DeepUi.spacer(summary)
-	DeepUi.stat(summary, "spark", str(int(totals.get("resonance", 0))), _resonance_color(int(totals.get("resonance", 0))), 13, "Resonance this hand would build")
 
 func _sync_plates() -> void:
 	var present: Dictionary = {}
@@ -2804,6 +2891,9 @@ func _process(delta: float) -> void:
 	if _tab_bar != null and _dock != null:
 		_tab_bar.reset_size()
 		_tab_bar.position = Vector2(_dock.position.x + 18.0 + left_inset, _dock.position.y - _tab_bar.size.y - (0.0 if _party() else 8.0))
+	if _opening_due and not _headless and is_visible_in_tree() and stage != null and not stage.walking() and not state.is_empty():
+		_opening_due = false
+		_later_do(0.5, _turn_opening)
 	if _headless or _camera == null or not is_visible_in_tree():
 		return
 	## The plates ride above the creatures' heads. `highest` is how far the worst of them
@@ -2994,6 +3084,8 @@ func _toggle_die(id: String) -> void:
 func _reroll() -> void:
 	if selected.is_empty():
 		return
+	## Rerolling before Study's reroll has been counted on: it is simply there.
+	_study_lag = 0
 	command.emit({"kind": "reroll", "dice": selected.duplicate()})
 	DeepAudio.play("dice_reroll", {"volume": 0.8})
 	if not _headless:
@@ -3178,6 +3270,9 @@ func perform(event: Dictionary) -> void:
 		"enemy_end", "skip", "battle_over", "turn_begin":
 			_hide_enemy_roll()
 			_brace({})
+	## A turn's passives are shown once the room is up: straight away, or once the walk in ends.
+	if kind == "turn_begin":
+		_opening_due = true
 	if _headless or stage.walking():
 		return
 	match kind:
@@ -3286,13 +3381,9 @@ func perform(event: Dictionary) -> void:
 				down.burrow(true)
 		"rail_end":
 			var resonance: int = int(event.get("resonance", 0))
-			## Second Wind is paid as the rail closes, on the Resonance it built.
-			if int(event.get("healed", 0)) > 0:
-				if unit_id == local_id:
-					DeepAudio.play("heal", {"volume": 0.6})
-					_float_at(_hp_bar, "+%d Second Wind" % int(event.healed), DeepUi.GOOD, 20)
-				else:
-					_float_at(_vital_anchor(unit_id), "+%d" % int(event.healed), DeepUi.GOOD, 16)
+			## Second Wind is paid as the rail closes, on the Resonance it built: counted out.
+			if not event.get("count", {}).is_empty():
+				_second_wind(event)
 			## The rail that closed says what it came to, on its own page if that page is up.
 			var closing: Page = _page_for(unit_id)
 			if closing != null and _is_shown(unit_id):
@@ -3311,6 +3402,7 @@ func perform(event: Dictionary) -> void:
 			_brace({})
 			_enemy_move(event)
 		"tick":
+			_leech_token += 1
 			for tick in event.get("ticks", []):
 				_animate_tick(tick)
 		"skip":
@@ -3329,6 +3421,12 @@ func perform(event: Dictionary) -> void:
 				_float_at(_tab_anchor(who), "Stunned", Color("ffe27a"), 16)
 		"battle_over":
 			var won: bool = str(event.get("outcome", "")) == "victory"
+			_won = won
+			if won:
+				_cash_out()
+			_house_shown = false
+			for player in state.get("players", []):
+				_show_mood(str(player.get("id", "")))
 			if won:
 				DeepAudio.play("victory")
 				_announce("Victory", DeepUi.ACCENT_HI, "The chamber is yours", 2.2)
@@ -3354,6 +3452,8 @@ func _animate_tick(tick: Dictionary) -> void:
 	var color: Color = DeepUi.POISON if str(tick.get("kind", "")) == "poison" else (Color("ff7a2a") if str(tick.get("kind", "")) == "burn" else DeepUi.GOOD)
 	## Burning is a wound like poison; block soaking it shows as block lost.
 	var hurt: bool = str(tick.get("kind", "")) in ["poison", "burn"]
+	if hurt and int(tick.get("amount", 0)) > 0:
+		_react(target_id, "wince", 0.7)
 	if str(tick.get("kind", "")) == "burn" and int(tick.get("soaked", 0)) > 0 and target_id == local_id:
 		_float_at(_hp_bar, "%d burn blocked" % int(tick.soaked), DeepUi.BLOCK, 14)
 	if _creatures.has(target_id) and is_instance_valid(_creatures[target_id]):
@@ -3379,18 +3479,29 @@ func _animate_tick(tick: Dictionary) -> void:
 	elif _is_player(target_id):
 		_float_at(_vital_anchor(target_id), ("−%d" if hurt else "+%d") % int(tick.get("amount", 0)), color, 16)
 		_tab_flash(target_id, color)
+	## Leech: every poison that bites pays the Apothecary her Resonance, counted up over her
+	## bar for as long as this round of poison keeps biting.
 	for leech in tick.get("leech", []):
 		var drinker: String = str(leech.get("unit", ""))
-		if drinker == local_id:
-			DeepAudio.play("heal", {"volume": 0.55})
-			_float_at(_hp_bar, "+%d Leech" % int(leech.get("amount", 0)), DeepUi.GOOD, 18)
-		elif _is_player(drinker):
-			_float_at(_vital_anchor(drinker), "+%d" % int(leech.get("amount", 0)), DeepUi.GOOD, 15)
-			_tab_flash(drinker, DeepUi.GOOD)
+		if not _is_player(drinker):
+			continue
+		var token: int = _leech_token
+		var beat: int = int(_leech_beat.get(drinker, [0, 0])[1]) + 1 if int(_leech_beat.get(drinker, [-1, 0])[0]) == token else 0
+		_leech_beat[drinker] = [token, beat]
+		var name: String = str(DeepBattle.player(state, drinker).get("passive", {}).get("name", "Leech"))
+		var amount: int = int(leech.get("amount", 0))
+		_later_do(0.14 * float(beat), func() -> void:
+			if drinker == local_id:
+				DeepAudio.play("heal", {"volume": 0.45})
+			elif _tab_anchor(drinker) != null:
+				_tab_flash(drinker, DeepUi.GOOD)
+			_swell(drinker, name, "heal", amount, -token))
 
 func _birthstone_fire(event: Dictionary) -> void:
-	## The Birthstone at the end of a rail lights every tier the hand earned, then its effects
-	## leave from its bezel the way a gem's do.
+	## The Birthstone at the end of a rail lights, then every tier the hand earned is called
+	## out by name and counted on its own (the number Resonance multiplies, Resonance itself
+	## streaming out of the rail's counter, the figure), and lands, before the next is called:
+	## a Rally's Rank guards, then its File strikes.
 	var unit_id: String = str(event.get("unit", ""))
 	var mine: bool = unit_id == local_id
 	var unit: Dictionary = DeepBattle.player(state, unit_id)
@@ -3400,7 +3511,6 @@ func _birthstone_fire(event: Dictionary) -> void:
 	var page: Page = _page_for(unit_id)
 	var shown: bool = page != null and _is_shown(unit_id) and page.birthstone_card != null and is_instance_valid(page.birthstone_card)
 	var anchor: Control = page.birthstone_card if shown else _tab_anchor(unit_id)
-	var origin: Vector3 = _control_world(anchor, 1.6) if anchor != null else _origin_for(unit_id, -1)
 	if not bool(event.get("fired", false)):
 		if anchor != null and shown:
 			_float_at(anchor, "fizzle", DeepUi.DIM, 13)
@@ -3412,6 +3522,8 @@ func _birthstone_fire(event: Dictionary) -> void:
 	## A penalty tier (a Bust) is a loss, so it lights red, and alone it bursts red too.
 	var penalties: Array = stone.get("tiers", []).filter(func(x: Dictionary) -> bool: return bool(x.get("penalty", false))).map(func(x: Dictionary) -> String: return str(x.get("name", "")))
 	var busted: bool = lit.all(func(x: Dictionary) -> bool: return penalties.has(str(x.get("name", ""))))
+	## Their face goes with it: their own Birthstone face, or a flinch for a Bust.
+	_react(unit_id, "wince" if busted else "birthstone", 1.8)
 	if anchor != null:
 		DeepAudio.from(anchor, "resonance", {"pitch": 1.1 + 0.08 * float(mini(lit.size(), 4)), "volume": 0.9, "gap": 0.02})
 		var ring: SocketRing = anchor.get_node_or_null("Slot/Ring")
@@ -3421,17 +3533,377 @@ func _birthstone_fire(event: Dictionary) -> void:
 		if mine:
 			DeepAudio.rumble(0.3, 0.3, 0.08)
 		DeepUi.burst(self, _center_of(anchor), DeepUi.BAD if busted else color, 24 + 8 * lit.size(), 190.0, 0.6)
-		var lift: int = 0
-		for entry in lit:
-			var loss: bool = penalties.has(str(entry.get("name", "")))
-			_float_at(anchor, str(entry.get("name", "")), DeepUi.BAD if loss else color.lightened(0.35), 17 - mini(lift, 3))
-			lift += 1
 		if bool(event.get("replay", false)):
 			_float_at(anchor, "Encore!", DeepUi.ACCENT_HI, 18)
 	else:
 		DeepAudio.play("resonance", {"volume": 0.7})
+	## Everything the tiers will land is held on the bars until each lands, and a creature a
+	## later tier kills is left standing for the blow.
+	var landing: Array = []
 	for entry in lit:
-		_animate_effects(entry.get("effects", []), origin, color, mine, anchor, 1.0, unit_id)
+		landing.append_array(entry.get("effects", []))
+	_mark_dying(landing)
+	_hold_vitals(landing, unit_id)
+	var at: float = DeepBattle.BIRTH_LEAD
+	var step: int = mini(_chain.fired, Tally.TOP_START)
+	for entry in lit:
+		_later_do(at, _birth_tier.bind(unit_id, entry, color, step, penalties.has(str(entry.get("name", "")))))
+		at += DeepBattle.tier_span(entry)
+		step = mini(step + 2, Tally.TOP_START + 2)
+	_birth_purse(event, at + 0.3)
+
+func _birth_tier(unit_id: String, entry: Dictionary, color: Color, step: int, loss: bool) -> void:
+	## One lit tier: its count over the Birthstone (or, small, over its player's tab), then
+	## what it does, leaving from the stone as the figure flies.
+	if state.is_empty():
+		return
+	var mine: bool = unit_id == local_id
+	var count: Dictionary = entry.get("count", {})
+	var effects: Array = entry.get("effects", [])
+	## Each tier's blows are their own, for a Riposte growing off them.
+	_blow_token[unit_id] = int(_blow_token.get(unit_id, 0)) + 1
+	_close_swell(unit_id)
+	var page: Page = _page_for(unit_id)
+	var shown: bool = page != null and _is_shown(unit_id) and page.birthstone_card != null and is_instance_valid(page.birthstone_card)
+	var span: float = DeepBattle.birth_span(count)
+	var tone: Color = DeepUi.BAD if loss else color
+	if not count.is_empty() and not _headless and is_inside_tree():
+		var plate: ResonanceCount = _resonance_plate(unit_id, tone, step, shown)
+		plate.gem_anchor = _birth_anchor.bind(unit_id)
+		plate.destination = _figure_destination.bind(str(count.get("kind", "")), effects)
+		plate.blaze = _kills(effects)
+		plate.on_fuse = _count_fused
+		add_child(plate)
+		plate.play_tier(count)
+	var go := func() -> void:
+		var anchor: Control = _birth_anchor(unit_id)
+		var origin: Vector3 = _control_world(anchor, 1.6) if anchor != null else _origin_for(unit_id, -1)
+		if anchor != null and _is_shown(unit_id):
+			DeepUi.spring(anchor, 0.18, 6.0, 0.4)
+		_animate_effects(effects, origin, tone, mine, anchor, 1.0, unit_id)
+	if span <= 0.0:
+		go.call()
+	else:
+		_later_do(span, go)
+
+func _birth_anchor(unit_id: String) -> Control:
+	## A Birthstone's bezel while its player's page is up, else their tab.
+	var page: Page = _page_for(unit_id)
+	if page != null and _is_shown(unit_id) and page.birthstone_card != null and is_instance_valid(page.birthstone_card):
+		return page.birthstone_card
+	return _tab_anchor(unit_id)
+
+func _resonance_plate(unit_id: String, tone: Color, step: int, shown: bool) -> ResonanceCount:
+	## A count paid on a player's Resonance, wired to where its pieces come from: their rail's
+	## Resonance count, their dice, their rerolls, their pot and purse.
+	var mine: bool = unit_id == local_id
+	var plate := ResonanceCount.new()
+	plate.chain = _chain
+	plate.start_step = step
+	plate.color = tone
+	plate.compact = not shown
+	plate.volume = 1.0 if mine else (0.8 if shown else 0.45)
+	plate.rumbles = mine
+	plate.placement = "above"
+	plate.ceiling = _dock_top
+	plate.tick = DeepSoundBank.tick_sound("WHITE")
+	plate.die_anchor = _counted_die.bind(unit_id) if shown else Callable()
+	plate.flow_from = _resonance_anchor.bind(unit_id)
+	plate.coef_anchor = func() -> Control: return _reroll_button if mine and _is_shown(unit_id) else null
+	plate.pot_anchor = _pot_anchor.bind(unit_id)
+	plate.bank_anchor = func() -> Control: return _bank_control() if mine else null
+	plate.on_bank = _bank_moved.bind(unit_id)
+	plate.on_pot = _pot_shows.bind(unit_id)
+	return plate
+
+func _resonance_anchor(unit_id: String) -> Control:
+	## A player's Resonance count while their page is up, else their tab.
+	var page: Page = _page_for(unit_id)
+	if page != null and _is_shown(unit_id) and page.resonance_box != null and is_instance_valid(page.resonance_box):
+		return page.resonance_box
+	return _tab_anchor(unit_id)
+
+func _figure_destination(kind: String, effects: Array) -> Vector2:
+	## Where a counted figure flies as what it does leaves: the creature it lands on, the
+	## health bar (or the tab) of the player a guard or a heal goes to, or the pyrite purse.
+	if kind == "gold":
+		var purse: Control = _purse_spot()
+		return purse.get_global_rect().get_center() if purse != null else Vector2.INF
+	for effect in effects:
+		if str(effect.get("kind", "")) != kind:
+			continue
+		var target: String = str(effect.get("target", ""))
+		var creature: CrystalCreature = _creature(target)
+		if creature != null and not _camera.is_position_behind(creature.centre()):
+			return global_position + _to_screen(creature.centre())
+		var bar: Control = _vital_anchor(target) if _is_player(target) else null
+		if bar != null:
+			return bar.get_global_rect().get_center()
+	return Vector2.INF
+
+func _second_wind(event: Dictionary) -> void:
+	## Second Wind, counted out as the rail closes: the rerolls left unspent, times the
+	## Resonance the rail built, and the heal it comes to flown into the health bar.
+	var unit_id: String = str(event.get("unit", ""))
+	var count: Dictionary = event.get("count", {})
+	var healed: int = int(event.get("healed", 0))
+	var heal: Array = [{"kind": "heal", "target": unit_id, "amount": int(count.get("amount", healed)), "healed": healed}]
+	_hold_vitals(heal)
+	var page: Page = _page_for(unit_id)
+	var shown: bool = page != null and _is_shown(unit_id)
+	var plate: ResonanceCount = _resonance_plate(unit_id, DeepUi.GOOD, mini(_chain.fired, Tally.TOP_START), shown)
+	plate.gem_anchor = func() -> Control:
+		var on: Page = _page_for(unit_id)
+		return on.face if on != null and _is_shown(unit_id) and on.face != null else _tab_anchor(unit_id)
+	plate.destination = _figure_destination.bind("heal", heal)
+	add_child(plate)
+	plate.play_tier(count)
+	_later_do(DeepBattle.birth_span(count), func() -> void:
+		_animate_effects(heal, Vector3.ZERO, DeepUi.GOOD, unit_id == local_id, null, 1.0, unit_id))
+
+# --- passives that pay as blows land ---------------------------------------------------------
+
+func _swell(id: String, title: String, kind: String, amount: int, token: int) -> void:
+	## A figure over a player's bar that grows with every blow one gem of theirs lands (a
+	## Riposte's guard) or every poison that pays them (a Leech): a step up the scale each
+	## time, and flown into the bar once nothing more has landed for a moment. A new gem's
+	## blows close the last one's and start again.
+	var held: Dictionary = _swells.get(id, {})
+	if not held.is_empty() and int(held.token) != token:
+		_close_swell(id)
+		held = {}
+	if held.is_empty():
+		var page: Page = _page_for(id)
+		var shown: bool = page != null and _is_shown(id)
+		var plate: ResonanceCount = null
+		if not _headless and is_inside_tree():
+			plate = ResonanceCount.new()
+			plate.chain = Tally.Chain.new()
+			plate.chain.reset()
+			plate.start_step = 0
+			plate.compact = not shown
+			plate.color = DeepUi.BLOCK if kind == "block" else DeepUi.GOOD
+			plate.volume = 0.9 if id == local_id else 0.5
+			plate.rumbles = id == local_id
+			plate.placement = "above"
+			plate.ceiling = _dock_top
+			plate.tick = DeepSoundBank.tick_sound("BLUE" if kind == "block" else "GREEN")
+			plate.gem_anchor = func() -> Control:
+				var on: Page = _page_for(id)
+				return on.face if on != null and _is_shown(id) and on.face != null else _tab_anchor(id)
+			plate.destination = func() -> Vector2:
+				var bar: Control = _vital_anchor(id)
+				return bar.get_global_rect().get_center() if bar != null else Vector2.INF
+			add_child(plate)
+			plate.open_swell(title, kind)
+		held = {"plate": plate, "token": token, "total": 0, "kind": kind, "timer": 0}
+		_swells[id] = held
+	held.total = int(held.total) + amount
+	held.timer = int(held.timer) + 1
+	if held.plate != null and is_instance_valid(held.plate):
+		(held.plate as ResonanceCount).swell(amount)
+	var mark: int = int(held.timer)
+	_later_do(0.7, func() -> void:
+		var still: Dictionary = _swells.get(id, {})
+		if not still.is_empty() and int(still.token) == token and int(still.timer) == mark:
+			_close_swell(id))
+
+func _close_swell(id: String) -> void:
+	## The swell flies into the bar, and the guard it carried lands there with it.
+	var held: Dictionary = _swells.get(id, {})
+	_swells.erase(id)
+	if held.is_empty():
+		return
+	if held.plate != null and is_instance_valid(held.plate):
+		(held.plate as ResonanceCount).close_swell()
+	if str(held.kind) == "block":
+		var total: int = int(held.total)
+		_later_do(0.2, func() -> void:
+			_land_vitals(id, 0, -total)
+			if id == local_id:
+				DeepAudio.play("block", {"volume": 0.6})
+				_float_at(_hp_bar, "+%d block" % total, DeepUi.BLOCK, 18))
+
+# --- the Gambler's pot and purse -------------------------------------------------------------
+
+func bank_shown(id: String, live: int, battle: Dictionary = {}) -> int:
+	## What a player's purse should read in the strip over the fight: `live` (what the bank
+	## holds now), unless coins are still on their way out of it or into it, or House Money
+	## has yet to be seen leaving it. `battle` is the fight as the strip reads it, which may
+	## be newer than the one this screen has been shown.
+	if _bank_held.has(id):
+		return int(_bank_held[id])
+	var unit: Dictionary = DeepBattle.player(battle, id)
+	return live + int(unit.get("pot", 0)) if _house_due(unit, battle) else live
+
+func _house_due(unit: Dictionary, battle: Dictionary) -> bool:
+	## The reader is the Gambler, his first turn is still being chosen and House Money has not
+	## been seen going onto the table: the pot reads empty and the purse whole until it is.
+	return not _house_shown and not _headless and str(unit.get("id", "")) == local_id and str(unit.get("passive", {}).get("kind", "")) == "pot_share" and int(unit.get("pot", 0)) > 0 and int(battle.get("turn", 0)) == 1 and str(battle.get("phase", "")) == "planning"
+
+func _bank_live(id: String) -> int:
+	## What the bank holds this moment of the fight: what they came down with, and whatever
+	## the fight has taken out or put in since (a stake, a Wager, a Golden face).
+	var unit: Dictionary = DeepBattle.player(state, id)
+	return maxi(0, int(unit.get("ore", 0)) + int(unit.get("pyrite_delta", 0)))
+
+func _bank_control() -> Control:
+	var found: Variant = bank_anchor.call() if bank_anchor.is_valid() else null
+	return found as Control if found is Control and is_instance_valid(found) and (found as Control).is_inside_tree() else null
+
+func _bank_moved(delta: int, unit_id: String) -> void:
+	## Coins have left the purse (or come back to it): it reads that much less (or more).
+	if _bank_held.has(unit_id):
+		_bank_held[unit_id] = int(_bank_held[unit_id]) + delta
+	if unit_id == local_id:
+		bank_changed.emit(delta)
+
+func _purse_spot() -> Control:
+	## Where pyrite the reader wins or spends is said: over the purse on the strip, or failing
+	## that over their Resonance line in the dock.
+	var purse: Control = _bank_control()
+	return purse if purse != null else _local_page.resonance_box
+
+func _pot_shows(value: int, unit_id: String) -> void:
+	## The pot reads a new figure: the coins staked have landed on it, or the table took it.
+	_pot_held[unit_id] = value
+	_sync_tabs()
+
+func _pot_anchor(unit_id: String) -> Control:
+	## The pot among a player's buffs, or the buffs themselves while it is empty.
+	var tab: SeatTab = _tab_of(unit_id) if unit_id != local_id else _my_tab
+	if tab == null or not is_instance_valid(tab):
+		return null
+	var chip: Control = tab.chips.chip_for("pot")
+	return chip if chip != null else (tab.chips if tab.chips.is_visible_in_tree() else _tab_anchor(unit_id))
+
+func _hold_purse(unit_id: String, pot: int, bank: int) -> void:
+	## The pot and the purse read `pot` and `bank` until the coins of what follows have moved;
+	## the truth again `seconds` later, whatever happened.
+	_pot_held[unit_id] = pot
+	if unit_id == local_id:
+		_bank_held[unit_id] = bank
+		bank_changed.emit(0)
+	_sync_tabs()
+
+func _free_purse(unit_id: String) -> void:
+	_pot_held.erase(unit_id)
+	_sync_tabs()
+	if _bank_held.has(unit_id):
+		_bank_held.erase(unit_id)
+		bank_changed.emit(0)
+
+func _birth_purse(event: Dictionary, span: float) -> void:
+	## A Birthstone moving pyrite (an Ante's stake, a Raise, All In, a Bust) has already moved
+	## it by the time it is shown: the pot and the purse go back to how they stood, and each
+	## tier's count moves them as its coins fly.
+	var unit_id: String = str(event.get("unit", ""))
+	var was: int = -1
+	var moved: int = 0
+	for entry in event.get("tiers", []):
+		var pot: Dictionary = entry.get("count", {}).get("pot", {})
+		if not bool(entry.get("active", false)) or pot.is_empty():
+			continue
+		if was < 0:
+			was = int(pot.get("was", 0))
+		moved += int(pot.get("moved", 0))
+	if was < 0:
+		return
+	_hold_purse(unit_id, was, _bank_live(unit_id) + moved)
+	_later_do(span, _free_purse.bind(unit_id))
+
+func _house_money() -> void:
+	## House Money, as the Gambler's first turn opens: a tenth of his purse carried onto the
+	## table, coin by coin, under its name.
+	if _house_shown or _headless or not is_inside_tree():
+		return
+	var unit: Dictionary = me()
+	var pot: int = int(unit.get("pot", 0))
+	if str(unit.get("passive", {}).get("kind", "")) != "pot_share" or pot <= 0 or int(state.get("turn", 0)) != 1:
+		return
+	if str(state.get("phase", "")) != "planning":
+		## Locked in before it could be shown: the purse already reads it gone.
+		_house_shown = true
+		return
+	_hold_purse(local_id, 0, _bank_live(local_id) + pot)
+	_house_shown = true
+	var plate := ResonanceCount.new()
+	plate.color = DeepUi.ORE
+	plate.placement = "above"
+	plate.ceiling = _dock_top
+	plate.gem_anchor = func() -> Control: return _my_tab.chips if _my_tab != null and _my_tab.chips.is_visible_in_tree() else null
+	add_child(plate)
+	plate.call_only(str(unit.passive.get("name", "House Money")), "%d%% of your pyrite on the table" % int(unit.passive.get("amount", 10)))
+	_later_do(0.45, func() -> void:
+		var from: Control = _bank_control()
+		var to: Control = _pot_anchor(local_id)
+		_bank_moved(-pot, local_id)
+		var landed := func() -> void:
+			_free_purse(local_id)
+			var chip: Control = _pot_anchor(local_id)
+			if chip != null:
+				DeepUi.spring(chip, 0.4, 8.0, 0.45)
+				_float_at(chip, "+%d on the table" % pot, DeepUi.ORE, 16)
+		if from == null or to == null:
+			landed.call()
+			return
+		ResonanceCount.coins(self, from.get_global_rect().get_center(), to.get_global_rect().get_center(), pot, 0.6, landed))
+
+func _cash_out() -> void:
+	## The fight is won: everything the Gambler had on the table comes back to his purse.
+	var unit: Dictionary = me()
+	var pot: int = int(_shown(unit).get("pot", 0))
+	if pot <= 0 or _headless or not is_inside_tree():
+		return
+	var said: Control = _pot_anchor(local_id)
+	_float_at(said if said != null else _hp_bar, "Pot · +%d" % pot, DeepUi.ORE, 20)
+	var landed := func() -> void:
+		_pot_shows(0, local_id)
+		bank_changed.emit(pot)
+	## Looked up as the coins leave: the buffs may have been laid out again by then.
+	_later_do(0.5, func() -> void:
+		var from: Control = _pot_anchor(local_id)
+		var to: Control = _bank_control()
+		if from == null or to == null:
+			landed.call()
+			return
+		ResonanceCount.coins(self, from.get_global_rect().get_center(), to.get_global_rect().get_center(), pot, 0.7, landed))
+
+# --- passives as a turn opens ------------------------------------------------------------------
+
+func _turn_opening() -> void:
+	## What a passive does as the reader's turn opens, said without holding them up: Study's
+	## reroll counted onto the button, House Money going onto the table.
+	_house_money()
+	var unit: Dictionary = me()
+	var passive: Dictionary = unit.get("passive", {})
+	if str(passive.get("kind", "")) == "extra_reroll" and int(unit.get("rerolls", 0)) > 0 and str(state.get("phase", "")) == "planning":
+		_study(int(passive.get("amount", 1)), str(passive.get("name", "Study")))
+
+func _study(amount: int, title: String) -> void:
+	## The reroll Study gives, thrown from the reader's face onto the reroll button, which
+	## ticks up and shakes as it lands. The button works all the while: a reroll pressed
+	## before it lands simply has it.
+	if _headless or not is_inside_tree() or _reroll_button == null or not _reroll_button.is_visible_in_tree():
+		return
+	_study_lag = amount
+	_study_until = Time.get_ticks_msec() + 900
+	_sync()
+	_later_do(0.3, func() -> void:
+		var face: Control = _local_page.face if _local_page != null and _local_page.face != null and _local_page.face.is_visible_in_tree() else _resonance_box
+		var plate := ResonanceCount.new()
+		plate.chain = Tally.Chain.new()
+		plate.chain.reset()
+		add_child(plate)
+		var landed := func() -> void:
+			if _study_lag <= 0:
+				return
+			_study_lag = 0
+			_sync()
+			DeepUi.spring(_reroll_button, 0.28, 7.0, 0.45)
+			DeepUi.burst(self, _center_of(_reroll_button), DeepUi.INFO, 16, 150.0, 0.45)
+			DeepAudio.from(_reroll_button, "tally_mult", {"volume": 0.55, "pitch": 1.2, "vary": 0.0, "gap": 0.0})
+		plate.toss(face.get_global_rect().get_center(), _reroll_button.get_global_rect().get_center(), "+%d" % amount, title, DeepUi.INFO, 0.3, landed, "reroll"))
 
 func _stone_color(unit_id: String, socket: int, skill_key: String) -> Color:
 	var unit: Dictionary = DeepBattle.player(state, unit_id)
@@ -3514,10 +3986,15 @@ func _gem_fire(event: Dictionary) -> void:
 	## A blow that kills is marked now, while its bolt waits for the count: the room must not
 	## clear the creature away before it has been hit.
 	_mark_dying(event.get("effects", []))
+	## Its blows are its own: a Riposte growing off the last gem's is flown as this one fires.
+	_blow_token[unit_id] = int(_blow_token.get(unit_id, 0)) + 1
+	_close_swell(unit_id)
 	var wait: float = _count_out(event, shown, color, step)
 	var effects: Array = event.get("effects", [])
 	if wait > 0.0:
-		_hold_vitals(effects)
+		_hold_vitals(effects, unit_id)
+	else:
+		_hold_parry(effects, unit_id)
 	if wait <= 0.0:
 		_animate_effects(effects, origin, color, mine, card_anchor, magnitude, unit_id)
 		return
@@ -3732,27 +4209,16 @@ func _dock_top() -> float:
 	var top: float = _dock.get_global_rect().position.y - 6.0
 	if _my_tab != null and _my_tab.face.is_visible_in_tree():
 		top = minf(top, _my_tab.face.get_global_rect().position.y - 6.0)
+	## Nor over anyone's buffs and troubles, which ride over their tab (or, alone, along the
+	## top of the dock): a count laid over them hid them while it played.
+	for tab in [_my_tab] + _tabs.values():
+		if tab is SeatTab and is_instance_valid(tab) and (tab as SeatTab).chips.is_visible_in_tree() and (tab as SeatTab).chips.get_child_count() > 0:
+			top = minf(top, (tab as SeatTab).chips.get_global_rect().position.y - 6.0)
 	return top
 
 func _tally_destination(event: Dictionary) -> Vector2:
-	## Where a counted figure flies as its bolt leaves: the creature it lands on, the health
-	## bar (or the tab) of the player a guard or a heal goes to, or the pyrite purse.
-	var tally: Dictionary = event.get("tally", {})
-	var kind: String = str(tally.get("kind", ""))
-	if kind == "gold":
-		var purse: Control = _shown_anchor(_forecast_box)
-		return purse.get_global_rect().get_center() if purse != null else Vector2.INF
-	for effect in event.get("effects", []):
-		if str(effect.get("kind", "")) != kind:
-			continue
-		var target: String = str(effect.get("target", ""))
-		var creature: CrystalCreature = _creature(target)
-		if creature != null and not _camera.is_position_behind(creature.centre()):
-			return global_position + _to_screen(creature.centre())
-		var bar: Control = _vital_anchor(target) if _is_player(target) else null
-		if bar != null:
-			return bar.get_global_rect().get_center()
-	return Vector2.INF
+	## Where a gem's counted figure flies as its bolt leaves (see `_figure_destination`).
+	return _figure_destination(str(event.get("tally", {}).get("kind", "")), event.get("effects", []))
 
 func _mark_dying(effects: Array) -> void:
 	## Every creature these effects killed, marked as dying before its blow is drawn, so the
@@ -3928,6 +4394,8 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					if creature == null or not is_instance_valid(creature):
 						continue
 					var landing: Dictionary = hit.duplicate()
+					## Which gem's blows these are, for a Riposte growing off them.
+					landing.blow = int(_blow_token.get(by, 0))
 					if bool(hit.get("killed", false)):
 						creature.set_meta("dying", true)
 					## Bigger numbers throw bigger, faster bolts.
@@ -3945,10 +4413,10 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				if not effect.get("poison_spread", []).is_empty():
 					_animate_effects(effect.poison_spread, origin, DeepUi.POISON, mine, anchor, 1.0, by)
 				if mine and effect.has("spent"):
-					_float_at(_forecast_box, "−%d Pyrite%s" % [int(effect.spent), " / +%d refund" % int(effect.refund) if effect.has("refund") else ""], DeepUi.ORE, 16)
+					_float_at(_purse_spot(), "−%d Pyrite%s" % [int(effect.spent), " / +%d refund" % int(effect.refund) if effect.has("refund") else ""], DeepUi.ORE, 16)
 			"appraise":
 				if mine:
-					_float_at(_forecast_box, "%d appraised · %d Pyrite value" % [effect.get("appraised", []).size(), int(effect.get("value", 0))], DeepUi.ORE, 16)
+					_float_at(_purse_spot(), "%d appraised · %d Pyrite value" % [effect.get("appraised", []).size(), int(effect.get("value", 0))], DeepUi.ORE, 16)
 				_animate_effects(effect.get("hits", []), origin, DeepUi.ORE, mine, anchor, magnitude, by)
 			"gem_rank":
 				if mine:
@@ -3964,7 +4432,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 							_float_at(_socket_cards[int(socket)], "Void copy", DeepUi.ACCENT_HI, 15)
 			"stake":
 				if mine and effect.has("spent"):
-					_float_at(_forecast_box, "−%d Pyrite · next gem +%d%%" % [int(effect.spent), int(effect.amount)], DeepUi.ORE, 16)
+					_float_at(_purse_spot(), "−%d Pyrite · next gem +%d%%" % [int(effect.spent), int(effect.amount)], DeepUi.ORE, 16)
 			"block":
 				var gained: int = int(effect.amount)
 				var swell: float = clampf(float(gained) / 18.0, 0.0, 1.0)
@@ -4013,7 +4481,7 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					var pile: Vector3 = Vector3(randf_range(-1.5, 1.5), 1.2, ARC_Z + 0.5)
 					var home: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.4 + Vector3(0.8, -0.7, 0)
 					_fx.coins(pile, home, 8 + mini(12, int(effect.amount)))
-					_float_at(_forecast_box, "+%d pyrite" % int(effect.amount), DeepUi.ORE, 20)
+					_float_at(_purse_spot(), "+%d pyrite" % int(effect.amount), DeepUi.ORE, 20)
 			"poison", "stun", "curse", "remove_block", "dice_dread", "die_steal", "cleanse", "clouded", "marked", "dulled", "ward", "retain", "charged", "regeneration", "spikes", "lifeline", "max_hp", "max_hp_loss":
 				var creature: CrystalCreature = _creature(target_id)
 				if creature != null and is_instance_valid(creature):
@@ -4038,12 +4506,19 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 						var view: Control = _dice_views[id]
 						DeepUi.burst(self, _center_of(view), color, 6, 80.0, 0.4, 4.0)
 			"tick_poison":
+				_leech_token += 1
 				for tick in effect.get("ticks", []):
 					_animate_tick(tick)
 			"replay_rail":
+				## Its name has been called out over the Birthstone; the rail going round again
+				## is what is said here.
 				if not bool(effect.get("nothing", false)):
 					DeepAudio.play("harmony", {"volume": 0.9})
-					_announce("Encore", DeepUi.ACCENT_HI, "The rail plays again", 0.9)
+					if anchor != null:
+						_float_at(anchor, "The rail plays again", DeepUi.ACCENT_HI, 18)
+			"pot":
+				## The pot is counted out over the Birthstone, coins and all.
+				pass
 			"stone_drop":
 				DeepAudio.play("ore", {"volume": 0.9})
 				_announce("Royal Flush", DeepUi.ORE, "A stone falls from the rock", 1.1)
@@ -4078,6 +4553,11 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 	_land_vitals(who, int(hit.get("hp_loss", 0)), int(hit.get("absorbed", 0)))
 	if not by.is_empty() and str(state.get("phase", "")) == "resolving":
 		_count_dealt(int(hit.get("hp_loss", 0)) + int(hit.get("absorbed", 0)), by)
+	## Riposte: every blow that lands raises the Rogue's guard by her Resonance, counted up
+	## blow by blow over her bar for as long as this gem keeps landing them.
+	if int(hit.get("riposte", 0)) > 0 and _is_player(by):
+		var passive: Dictionary = DeepBattle.player(state, by).get("passive", {})
+		_swell(by, str(passive.get("name", "Riposte")), "block", int(hit.riposte), int(hit.get("blow", 0)))
 	if hit.has("lifeline"):
 		_show_lifeline(who, int(hit.lifeline))
 	var creature: CrystalCreature = _creature(who)
@@ -4432,6 +4912,8 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 		"damage":
 			var loss: int = int(effect.get("hp_loss", 0))
 			var absorbed: int = int(effect.get("absorbed", 0))
+			if loss > 0:
+				_react(target_id, "wince", 0.9)
 			if target_id == local_id:
 				var unit: Dictionary = me()
 				var ratio: float = clampf(float(loss) / float(maxi(1, int(unit.get("max_hp", 60)))), 0.0, 1.0)
@@ -4532,9 +5014,9 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 				DeepAudio.play("ore", {"volume": 0.6})
 				if kind == "steal_gold" and creature != null and is_instance_valid(creature):
 					_fx.coins(_camera.global_position + (-_camera.global_transform.basis.z) * 1.2 + Vector3(0, -0.4, 0), creature.centre(), mini(10, 3 + amount / 5))
-					_float_at(_forecast_box, "−%d pyrite taken" % amount, DeepUi.ORE, 16)
+					_float_at(_purse_spot(), "−%d pyrite taken" % amount, DeepUi.ORE, 16)
 				else:
-					_float_at(_forecast_box, "+%d pyrite" % amount, DeepUi.ORE, 16)
+					_float_at(_purse_spot(), "+%d pyrite" % amount, DeepUi.ORE, 16)
 			elif _is_player(target_id) and int(effect.get("stolen", effect.get("amount", 0))) > 0:
 				_float_at(_vital_anchor(target_id), ("−%d" if kind == "steal_gold" else "+%d") % int(effect.get("stolen", effect.get("amount", 0))), DeepUi.ORE, 14)
 			## The Assayer's tax: the pyrite it took, then a blow for as much.

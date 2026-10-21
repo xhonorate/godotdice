@@ -186,7 +186,9 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_card_style = DeepUi.raised(Color(0.045, 0.055, 0.09, 0.97), Color(_tier_tone, 0.7), 16, 18, 0.6)
 	_card_style.set_border_width_all(2)
 	_card.add_theme_stylebox_override("panel", _card_style)
-	_card.mouse_filter = Control.MOUSE_FILTER_STOP
+	## Unseen until the stone is read, and the rock is drawn over where it will stand (see
+	## `_centring`), so until then it lets every click through to the rock.
+	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_card.modulate.a = 0.0
 	row.add_child(_card)
 	var card_box := DeepUi.vbox(_card, 8)
@@ -377,6 +379,7 @@ func _grade() -> void:
 
 func _read() -> void:
 	_phase = "reading"
+	_card.mouse_filter = Control.MOUSE_FILTER_STOP
 	_card.modulate.a = 0.0
 	_track(create_tween()).tween_property(_card, "modulate:a", 1.0, 0.25)
 	var beat := _track(create_tween())
@@ -428,6 +431,7 @@ func finish() -> void:
 	_title.add_theme_color_override("font_color", _tier_tone.lightened(0.2))
 	_subtitle.text = "%s · %d" % [str(DeepStone.TIER_NAMES.get(str(grade.tier), grade.tier)), int(grade.score)]
 	_subtitle.add_theme_color_override("font_color", _tier_tone)
+	_card.mouse_filter = Control.MOUSE_FILTER_STOP
 	_card.modulate.a = 1.0
 	_sheet.call("show_all")
 	_show_choices()
@@ -484,6 +488,12 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_ESCAPE:
 			_dismiss()
 			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and _phase == "ready" \
+			and _slide.get_global_rect().has_point(event.position):
+		## The rock is drawn right of the stage it stands on (see `_centring`), so a blow lands
+		## wherever the rock is seen, not only over the part still above its stage.
+		strike()
+		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and not _done and _phase != "ready":
 		finish()
 		get_viewport().set_input_as_handled()

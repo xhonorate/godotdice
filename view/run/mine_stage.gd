@@ -126,6 +126,11 @@ var _footfall: int = 0
 var _slow: float = 0.0
 var _ambient_clock: float = 0.0
 var _next_rumble: float = 7.0
+## Names in the room (a landing's "Rest", a hoard pedestal's "Small") as 2D words over the
+## view: the room is drawn at the canvas's size and stretched to the window, and words drawn
+## inside it went soft with everything else. By the instance id of the spot they name.
+var _names_layer: Control = null
+var _names: Dictionary = {}
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -178,6 +183,10 @@ func _ready() -> void:
 	flare.viewport = viewport
 	flare.transient = fx.flares
 	add_child(flare)
+	_names_layer = Control.new()
+	_names_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_names_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_names_layer)
 	visibility_changed.connect(_on_visibility)
 	_set_quality(3 if quality_pref <= 0 else clampi(quality_pref, 1, 3))
 
@@ -1822,9 +1831,57 @@ func _process(delta: float) -> void:
 	_lantern.rotation = Vector3(-0.08 + sin(camera.stride) * 0.015 * camera.bob, sin(camera.stride * 0.5) * 0.05 * camera.bob, 0.0)
 	if not is_visible_in_tree():
 		return
+	_sync_names()
 	_govern(delta)
 	if _at in ["home", "crossroads"]:
 		_ambience(delta)
+
+## A spot in the room that wants a name over it: any Node3D in this group, with `text` and
+## optionally `tone` (Color), `font_size` (canvas pixels) and `alpha` (0-1, for fading) as
+## metas. The landing's names (lift_hall.gd) and a hoard's pedestals (hoard.gd) are.
+const NAME_GROUP := "stage_name"
+
+func _sync_names() -> void:
+	## Every named spot in this room, its word placed over where the spot is seen this frame
+	## (the live camera, sway and all, so the word stays on the thing it names).
+	if _names_layer == null or world == null:
+		return
+	var seen: Dictionary = {}
+	if _laid_out():
+		for node in get_tree().get_nodes_in_group(NAME_GROUP):
+			var spot: Node3D = node as Node3D
+			if spot == null or not world.is_ancestor_of(spot):
+				continue
+			var key: int = spot.get_instance_id()
+			seen[key] = true
+			var label: Label = _names.get(key, null)
+			if label == null or not is_instance_valid(label):
+				label = Label.new()
+				label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				label.add_theme_font_override("font", DeepUi.display_font())
+				label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+				_names_layer.add_child(label)
+				_names[key] = label
+			var font_size: int = int(spot.get_meta("font_size", 26))
+			label.add_theme_font_size_override("font_size", font_size)
+			label.add_theme_constant_override("outline_size", maxi(4, font_size / 4))
+			label.add_theme_color_override("font_color", spot.get_meta("tone", DeepUi.PAPER))
+			if label.text != str(spot.get_meta("text", "")):
+				label.text = str(spot.get_meta("text", ""))
+				label.size = label.get_combined_minimum_size()
+			var point: Vector3 = spot.global_position
+			var alpha: float = float(spot.get_meta("alpha", 1.0))
+			label.visible = spot.is_visible_in_tree() and alpha > 0.01 and not camera.is_position_behind(point)
+			if label.visible:
+				var at: Vector2 = camera.unproject_position(point) * (frame.size / Vector2(viewport.size)) + frame.position
+				label.position = (at - label.size * 0.5).round()
+				label.modulate.a = alpha
+	for key in _names.keys():
+		if not seen.has(key):
+			var gone: Variant = _names[key]
+			if gone is Node and is_instance_valid(gone):
+				(gone as Node).queue_free()
+			_names.erase(key)
 
 func _govern(delta: float) -> void:
 	## Keeps the mine smooth: after a few seconds under 40 frames a second, the room gives

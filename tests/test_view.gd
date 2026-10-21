@@ -21,6 +21,7 @@ const LiftHall = preload("res://view/battle/lift_hall.gd")
 const Hoard = preload("res://view/battle/hoard.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
 const Appraisal = preload("res://view/gems/appraisal.gd")
+const Roster = preload("res://view/home/roster.gd")
 
 var checks: int = 0
 var failures: Array = []
@@ -35,6 +36,7 @@ func _init() -> void:
 	_test_look()
 	_test_effects()
 	_test_mine()
+	_test_faces()
 	print("View keepers: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -44,6 +46,32 @@ func check(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
 		failures.append(message)
+
+func _test_faces() -> void:
+	## Every delver has a face for every mood, so no panel ever falls back to a stone halfway
+	## through a fight, and each is read from its mipmaps (drawn as small as a word).
+	for key in DeepContent.section("characters"):
+		for mood in Roster.MOODS:
+			var picture: Texture2D = Roster.face(str(key), str(mood))
+			check(picture != null, "%s has a %s face" % [key, mood])
+			if picture != null:
+				check(picture.get_width() == picture.get_height() and picture.get_width() >= 256, "%s's %s face is square and large enough" % [key, mood])
+				check(picture.get_image().has_mipmaps(), "%s's %s face is imported with mipmaps" % [key, mood])
+	check(Roster.face("NOBODY") == null, "a delver with no faces drawn has none")
+	## What a delver's health says, as the plate wears it.
+	check(Roster.resting_mood({"hp": 60, "max_hp": 60}) == "idle", "whole is idle")
+	check(Roster.resting_mood({"hp": 29, "max_hp": 60}) == "bloodied", "under half is bloodied")
+	check(Roster.resting_mood({"hp": 14, "max_hp": 60}) == "critical", "under a quarter is critical")
+	check(Roster.resting_mood({"hp": 0, "max_hp": 60}) == "downed", "none left is down")
+	check(Roster.resting_mood({"hp": 40, "max_hp": 60, "downed": true}) == "downed", "down is down whatever the bar says")
+	## A plate keeps itself when its delver or mood changes: only the face is swapped.
+	var plate = Roster.Portrait.new("ARDOR", Vector2(40, 40))
+	var idle: Texture2D = plate._texture
+	plate.mood = "wince"
+	check(plate._texture == Roster.face("ARDOR", "wince") and plate._texture != idle, "a new mood swaps the face")
+	plate.key = "PUCK"
+	check(plate._texture == Roster.face("PUCK", "wince"), "a new delver keeps the mood")
+	plate.free()
 
 func _test_gems() -> void:
 	for key in ["STRIKE", "GUARD", "MEND", "HEX", "TITHE", "GLIMMER"]:
@@ -80,6 +108,13 @@ func _test_gems() -> void:
 	check(described.contains("Perfect") and described.contains("Flawless") and described.contains("14 carats"), "describe speaks the new grades: " + described)
 	check(GemView.thumbnail_key(poor) != GemView.thumbnail_key(perfect), "thumbnails are keyed by what renders")
 	check(GemView.thumbnail_key(DeepStone.make("STRIKE", 1, 0, 3, ["SILK"])) != GemView.thumbnail_key(DeepStone.make("STRIKE", 1, 0, 3)), "inclusions change the thumbnail")
+	## A picture smaller than glow can be drawn into never comes alive under the pointer: the
+	## live view's renderer fails on every frame at that size (a Void rider, a daily socket).
+	for edge in [16.0, 30.0, 32.0, 64.0]:
+		var thumb = Thumbs.GemThumb.new(poor, edge)
+		thumb.size = Vector2(edge, edge)
+		check(thumb._roomy() == (edge >= GemView.GLOW_LEAST), "a %d px stone %s alive on hover" % [int(edge), "comes" if edge >= GemView.GLOW_LEAST else "never comes"])
+		thumb.free()
 	var material: StandardMaterial3D = GemMesh.body_material(perfect)
 	check(material != null and material.albedo_color.a > 0.0, "a body material is made")
 	check(GemMesh.fire_material(perfect) != null and GemMesh.etch_material(perfect) != null, "fire and etch materials are made")
@@ -638,6 +673,10 @@ func _test_mine() -> void:
 	root.add_child(hall)
 	hall.build(biome, 3, true, false, Callable())
 	check(hall.cage != null and hall.parts.has("rest") and hall.parts.has("appraise") and hall.parts.has("wish") and hall.parts.has("up"), "a landing has its cage, its fire, its bench and its well")
+	## Names in the room are written over the view in 2D by the stage, never drawn into the
+	## room, where a big window stretched them soft.
+	var named: Array = hall.find_children("*", "Node3D", true, false).filter(func(n: Node) -> bool: return n.is_in_group("stage_name"))
+	check(named.size() >= 4 and hall.find_children("*", "Label3D", true, false).is_empty(), "a landing's names are spots the stage writes over (%d)" % named.size())
 	hall.free()
 	var hall_only: Node3D = LiftHall.new()
 	root.add_child(hall_only)
@@ -648,6 +687,8 @@ func _test_mine() -> void:
 	root.add_child(pile)
 	pile.build(biome, [stock[0].stone, stock[2].stone], 3)
 	check(pile.spot(str(stock[0].stone.id)) != null, "a hoard shows each stone on its pedestal")
+	check(pile.find_children("*", "Label3D", true, false).is_empty() and pile.find_children("*", "Node3D", true, false).filter(func(n: Node) -> bool: return n.is_in_group("stage_name")).size() == 2,
+		"each pedestal's size is a name the stage writes over it")
 	pile.free()
 	## A hole is drawn a hair inside the tunnel, so the wall always overlaps it.
 	var hole: PackedVector2Array = Tunnel.outline(0.0, 30, -0.06)

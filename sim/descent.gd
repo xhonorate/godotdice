@@ -564,13 +564,13 @@ static func mine_of(state: Dictionary) -> Dictionary:
 		mine.read_on_find = true
 	if has_mod(state, "MOTHERLODE"):
 		mine.motherlode_pct = float(mine.get("motherlode_pct", 3)) * 6.0
-	var chambers: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 14, "merchant": 8, "smithy": 6, "carver": 6, "well": 5, "rest_stop": 3}).duplicate()
+	var chambers: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 19, "merchant": 8, "smithy": 6, "carver": 6, "well": 5, "rest_stop": 3}).duplicate()
 	## Big Game doubles the elites and Prowlers adds half again; together they add up.
 	var elites: float = 1.0 + float(mod_count(state, "BIG_GAME")) + float(DeepContent.hazard_param("PROWLERS", "elite_mult", 0.5)) * float(mod_count(state, "PROWLERS"))
 	if elites != 1.0:
 		chambers.elite = float(chambers.get("elite", 12)) * elites
 	if has_mod(state, "STRANGE_DAY"):
-		chambers.oddity = float(chambers.get("oddity", 14)) * 3.0
+		chambers.oddity = float(chambers.get("oddity", 19)) * 3.0
 		chambers.fight = float(chambers.get("fight", 48)) * 0.6
 		chambers.elite = float(chambers.get("elite", 12)) * 0.6
 	if has_mod(state, "MIDAS"):
@@ -804,7 +804,7 @@ static func _chart(state: Dictionary, streams: Dictionary) -> void:
 	while not run_is_landing(state, to):
 		to += 1
 	var mine: Dictionary = mine_of(state)
-	var weights: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 14, "merchant": 8, "smithy": 6, "carver": 6, "well": 5, "rest_stop": 3})
+	var weights: Dictionary = mine.get("chambers", {"fight": 48, "elite": 12, "vein": 18, "oddity": 19, "merchant": 8, "smithy": 6, "carver": 6, "well": 5, "rest_stop": 3})
 	var rng: RandomNumberGenerator = streams.tunnels
 	var nodes: Dictionary = {}
 	var rows: Array = []
@@ -1812,6 +1812,8 @@ static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String) 
 	if bool(state.get("marks_lent", false)) and is_lent(state, stone):
 		## It would go home with neither of them: the vault it came from keeps the stone itself.
 		return _refuse("that is a copy of a stone in your vault: only stones found down here change hands")
+	if DeepStone.is_geode(stone):
+		return _refuse("a Geode cannot change hands until the workshop has cracked it")
 	var table: Dictionary = trade_table(state)
 	var offers: Dictionary = table.get("offers", {}).duplicate()
 	if not offers.has(str(unit.id)) and offers.size() >= 2:

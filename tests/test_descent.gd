@@ -32,6 +32,7 @@ func _init() -> void:
 	_test_hazard_runs()
 	_test_hazard_progress()
 	_test_bestiary()
+	_test_gamblers_pots()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -421,6 +422,11 @@ func _test_landing_commands() -> void:
 	check(not cmd(state, "a", "give", {"to": "b", "item_id": "trade_a"}).ok and a.haul.has(mine_offer), "a stone is never simply handed over")
 	check(DeepDescent.can_trade(state), "a landing in a party has a trading table")
 	check(not cmd(state, "a", "trade_offer", {"stone_id": "a_strike"}).ok, "only a loose stone from the bag goes on the table")
+	var sealed: Dictionary = stone("GUARD", 4, 2, 3, "trade_geode")
+	sealed.geode = {"id": "trade_geode", "mine": "QUARRY"}
+	a.haul.append(sealed)
+	check(not cmd(state, "a", "trade_offer", {"stone_id": "trade_geode"}).ok and DeepDescent.trade_table(state).offers.is_empty(), "a sealed Geode never goes on the table")
+	a.haul.erase(sealed)
 	check(cmd(state, "a", "trade_offer", {"stone_id": "trade_a"}).ok and DeepDescent.trade_table(state).offers.get("a", "") == "trade_a", "a puts a stone on the table")
 	check(not cmd(state, "a", "trade_accept", {}).ok, "and cannot accept a trade with nobody")
 	check(cmd(state, "b", "trade_offer", {"stone_id": "trade_b"}).ok and DeepDescent.trade_partner(state, "a") == "b", "b puts one down across from it")
@@ -1715,3 +1721,28 @@ func _test_bestiary() -> void:
 	old.erase("bestiary")
 	check(DeepProfile.upgrade(old) and old.get("bestiary", null) is Dictionary, "an older profile gains a bestiary")
 	check(DeepBestiary.merge(old, {"NO_SUCH_THING": {"met": 1}}).is_empty() and old.bestiary.is_empty(), "a creature no longer in the pack is not written down")
+
+func _test_gamblers_pots() -> void:
+	## Two Gamblers in one party, with someone else in the first seat: each stakes from his own
+	## bank, and a won fight hands each his own pot back. Nobody is paid another's stake.
+	var players: Array = []
+	for spec in [["a", "ARDOR"], ["b", "FLORIN"], ["c", "FLORIN"]]:
+		players.append({"id": spec[0], "name": spec[0], "character": spec[1], "rail": [], "dice": dice(str(spec[1]), str(spec[0]))})
+	var state: Dictionary = DeepDescent.new_run({"seed": 11, "mine": "QUARRY", "boons": false, "players": players})
+	var banks: Array = [100, 200, 300]
+	for index in range(3):
+		state.players[index].ore = banks[index]
+	state.depth = 1
+	state.phase = "chamber"
+	DeepDescent._start_fight(state, DeepDescent.streams_of(state), false, "")
+	var fighters: Array = state.chamber.battle.players
+	check(int(fighters[0].pot) == 0 and int(fighters[1].pot) == 20 and int(fighters[2].pot) == 30, "House Money puts a tenth of each Gambler's own bank on his own table: %s" % str(fighters.map(func(f: Dictionary) -> int: return int(f.pot))))
+	DeepBattle.stake(fighters[1], 15)
+	DeepBattle.stake(fighters[2], 40)
+	var settle: Dictionary = DeepDescent._settle_fight(state, "victory")
+	var paid: Array = []
+	for index in range(3):
+		var unit: Dictionary = state.players[index]
+		paid.append(int(unit.ore) - int(banks[index]))
+		check(int(settle.rewards.get(str(unit.id), {}).get("ore", -1)) == int(unit.ore) - int(banks[index]), "%s is paid what the spoils say" % str(unit.id))
+	check(paid[0] == paid[1] and paid[1] == paid[2] and paid[0] > 0, "every pot goes back to the Gambler who staked it, so all three end up the same fight's pay ahead: %s" % str(paid))

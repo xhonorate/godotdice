@@ -43,6 +43,8 @@ const LIGHTS := [
 ## How far past the slot a stone still in its rock may be drawn: the clump hangs a little
 ## over the edges, and the crystal inside it is drawn smaller to make room.
 const ROCK_SPAN := 1.12
+## The smallest frame, in pixels, that glow can be drawn into (see `_fit_frame`).
+const GLOW_LEAST := 32.0
 ## A raw stone throws the light of an ordinary one, whatever it is: the glow on the ground
 ## would otherwise say how clear it is before anyone has looked.
 const SEALED_BRILLIANCE := 0.36
@@ -386,6 +388,11 @@ func _fit_frame() -> void:
 	var grown: float = maxf(1.0, want / reach)
 	_frame.size = size * grown
 	_frame.position = (size - _frame.size) * 0.5
+	## Glow is drawn through a chain of ever smaller copies of the frame, and under 32 px the
+	## renderer cannot make them: every frame after fails, and on some builds the game falls
+	## over. A picture that small has no room for a bloom anyway.
+	if _environment != null:
+		_environment.glow_enabled = minf(_frame.size.x, _frame.size.y) >= GLOW_LEAST
 	if is_instance_valid(_pivot):
 		_pivot.scale = Vector3.ONE * (want / (reach * grown)) / clump
 		_pivot.position = GemMesh.display_offset(gem) * _pivot.scale.x

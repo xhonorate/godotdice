@@ -333,7 +333,7 @@ class GemThumb extends Control:
 		if not is_equal_approx(_hover, goal):
 			_hover = move_toward(_hover, goal, delta * 6.0)
 			busy = true
-		if _hovering and live_on_hover and _live == null:
+		if _hovering and live_on_hover and _live == null and _roomy():
 			_hover_time += delta
 			busy = true
 			if _hover_time > 0.3:
@@ -342,8 +342,13 @@ class GemThumb extends Control:
 		if not busy:
 			set_process(false)
 
+	func _roomy() -> bool:
+		## Big enough to come alive: a live view smaller than this cannot draw its glow, and
+		## the renderer fails on every frame after (a Void rider's chip, a daily dig's socket).
+		return minf(size.x, size.y) >= GemView.GLOW_LEAST
+
 	func _start_live() -> void:
-		if DisplayServer.get_name() == "headless" or stone.is_empty() or _geode != null:
+		if DisplayServer.get_name() == "headless" or stone.is_empty() or _geode != null or not _roomy():
 			return
 		var view: Control = GemView.new()
 		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

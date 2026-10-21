@@ -27,6 +27,7 @@ const BenchPanel = preload("res://view/run/bench_panel.gd")
 const RunDock = preload("res://view/run/run_dock.gd")
 const DownedVeil = preload("res://view/run/downed_veil.gd")
 const HollowRite = preload("res://view/run/hollow_rite.gd")
+const Roster = preload("res://view/home/roster.gd")
 
 signal command(cmd: Dictionary)
 signal home_requested
@@ -233,10 +234,18 @@ func _ready() -> void:
 	_scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_scrim.visible = false
 	_body.add_child(_scrim)
+	## Over the room while this player is down in a party, and under everything drawn on it:
+	## the fight's dock, the tabs and every page stay in full colour, so someone who is down
+	## still watches the party's dice and gems as clearly as before.
+	_veil = DownedVeil.new()
+	_body.add_child(_veil)
 	_battle = BattleScreen.new()
 	_battle.stage = _stage
 	_battle.spoils = true
 	_battle.command.connect(func(cmd: Dictionary) -> void: command.emit(cmd))
+	## The purse on the strip is where a Gambler's coins leave from and come home to.
+	_battle.bank_anchor = func() -> Control: return _ore_pill if _ore_pill != null and is_instance_valid(_ore_pill) else null
+	_battle.bank_changed.connect(_bank_changed)
 	_battle.visible = false
 	_body.add_child(_battle)
 	_build_crossroads()
@@ -268,10 +277,8 @@ func _ready() -> void:
 	_run_dock.drawer_toggled.connect(func(_open: bool) -> void: _fit_area())
 	_run_dock.chose.connect(_on_dock_chose)
 	_run_dock.visible = false
+	_run_dock.bag_anchor = func() -> Control: return _bag_pill if _bag_pill != null and is_instance_valid(_bag_pill) else null
 	_body.add_child(_run_dock)
-	## Over the room, the fight and the dock alike while this player is down in a party.
-	_veil = DownedVeil.new()
-	_body.add_child(_veil)
 	## The chart is the one thing laid over the veil rather than under it: a lapidary who is
 	## down is still carried along the trail, and can read it as clearly as anyone.
 	_body.move_child(_map_margin, _body.get_child_count() - 1)
@@ -424,6 +431,7 @@ func show_state(state: Dictionary) -> void:
 	_sync_fallen()
 	## Outside a fight the party's kit stays at hand along the bottom.
 	_run_dock.visible = (_walking or not DeepDescent.in_battle(run)) and not phase in ["salvage", "over"] and not (not _hold.is_empty() and str(_hold.get("stage", "")) == "battle")
+	_run_dock.dock_height = _battle.dock_height()
 	_run_dock.show_run(run)
 	_fit_area()
 	if phase != "grubstake":
@@ -629,6 +637,24 @@ func _pill_centre(which: String) -> Vector2:
 	## Failing everything, the right-hand end of the strip, which is where they live.
 	return _pill_spots.get(which, Vector2(_stage.size.x * 0.86, -18.0))
 
+func _purse(unit: Dictionary) -> int:
+	## What the purse on the strip reads. In a fight it is the bank as it stands this moment
+	## (what a Gambler has staked has already left it), as far as the fight has shown it.
+	if unit.is_empty() or not DeepDescent.in_battle(run):
+		return int(unit.get("ore", 0))
+	var fighter: Dictionary = DeepBattle.player(DeepDescent.battle(run), local_id)
+	if fighter.is_empty():
+		return int(unit.get("ore", 0))
+	return _battle.bank_shown(local_id, maxi(0, int(fighter.get("ore", unit.get("ore", 0))) + int(fighter.get("pyrite_delta", 0))), DeepDescent.battle(run))
+
+func _bank_changed(delta: int) -> void:
+	## The fight has moved pyrite in or out of the purse: read it again. Once the fight is
+	## won the strip holds what it read until the spoils fly up, and the pot coming home is
+	## added to that.
+	if _strip_hold.has("ore"):
+		_strip_hold.ore = int(_strip_hold.ore) + delta
+	_sync_strip()
+
 func _release_count(key: String) -> void:
 	if _strip_hold.has(key):
 		_strip_hold.erase(key)
@@ -799,13 +825,13 @@ func handle(event: Dictionary) -> void:
 				if not _headless:
 					DeepUi.shake(self, 6.0, 0.25)
 				toast(str(event.get("message", "")), DeepUi.BAD, "eye")
-			elif bool(event.get("finished", false)) and not wished:
-				var mine_result: Dictionary = _last_chamber.get("results", {}).get(local_id, {})
-				if str(event.get("unit", "")) == local_id:
-					mine_result = {"choice": str(event.get("choice", "")), "message": str(event.get("message", "")), "made": event.get("made", []),
-						"lost": event.get("lost", []), "changed": event.get("changed", []), "dice": event.get("dice", []), "dice_lost": event.get("dice_lost", [])}
-				if not mine_result.is_empty():
-					_hold_page("oddity", {"oddity": str(_last_chamber.get("oddity", "")), "room": str(_last_chamber.get("kind", "oddity")), "result": mine_result})
+			elif str(event.get("unit", "")) == local_id and not wished:
+				## What came of this player's choice goes up the moment they make it, whoever
+				## else at the card is still choosing: the party waits on them in the room after.
+				var room: Dictionary = run.get("chamber", {}) if not run.get("chamber", {}).is_empty() else _last_chamber
+				var mine_result: Dictionary = {"choice": str(event.get("choice", "")), "message": str(event.get("message", "")), "made": event.get("made", []),
+					"lost": event.get("lost", []), "changed": event.get("changed", []), "dice": event.get("dice", []), "dice_lost": event.get("dice_lost", [])}
+				_hold_page("oddity", {"oddity": str(room.get("oddity", "")), "room": str(room.get("kind", "oddity")), "result": mine_result})
 		"altar_made":
 			## Everyone sees the circle take the five; whoever gave them gets the gem held up, and
 			## a Transcendent is held up for the whole party.
@@ -919,13 +945,6 @@ func handle(event: Dictionary) -> void:
 		"abandoned":
 			_hold = {}
 			toast("The dig is abandoned.", DeepUi.BAD, "flag")
-		"moved_on":
-			## The party went on without someone who dropped. A card room's result stays up
-			## for those who chose from it, as it does when the last of them chooses.
-			if bool(event.get("finished", false)) and _hold.is_empty() and str(_last_chamber.get("kind", "")) in ["oddity"] + DeepDescent.CARD_ROOMS:
-				var mine_result: Dictionary = _last_chamber.get("results", {}).get(local_id, {})
-				if not mine_result.is_empty():
-					_hold_page("oddity", {"oddity": str(_last_chamber.get("oddity", "")), "room": str(_last_chamber.get("kind", "oddity")), "result": mine_result})
 
 func _acid_reveal(stones: Array, at: int) -> void:
 	## Out of the racks one at a time. Each stone gets the whole ceremony, and the last one
@@ -1254,17 +1273,23 @@ func _place_of(state: Dictionary) -> Dictionary:
 			return {}
 	if kind == "head":
 		depth = 0
-	## How many ways on the room has: the chart knows before anyone is offered them.
-	var exits: int = 2
+	## How many ways on the room has: the chart knows before anyone is offered them. Where
+	## nobody has been offered them yet (the shaft head, a landing, a Warden's hall) they are
+	## the chart's next floor; and on a day of One Road there is only ever the one.
+	var fallback: int = 1 if DeepDescent.has_mod(state, "ONE_ROAD") else 2
+	var ahead: Array = DeepDescent.row_of(state.get("map", {}), depth + 1)
+	var exits: int = fallback
 	if phase == "tunnels":
 		exits = state.get("offers", []).size()
 	elif kind == "landing":
-		exits = 1 if bool(landing.get("warden_next", false)) and not cleared else 2
+		exits = 1 if bool(landing.get("warden_next", false)) and not cleared else (ahead.size() if not ahead.is_empty() else fallback)
 	elif kind == "warden" and DeepDescent.run_is_boss(state, depth):
 		exits = 1
-	elif not kind in ["warden", "head"]:
+	elif kind in ["warden", "head"]:
+		exits = ahead.size() if not ahead.is_empty() else fallback
+	else:
 		var node: Dictionary = state.get("map", {}).get("nodes", {}).get(str(last.get("id", "")), {})
-		exits = node.get("next", []).size() if not node.is_empty() else 2
+		exits = node.get("next", []).size() if not node.is_empty() else fallback
 	## The shaft falls a little with every depth, except where a stretch runs level, and a
 	## landing's way to its Warden's hall never does.
 	var key: String = "%s|%d|%s" % [mine, depth, kind]
@@ -1395,9 +1420,7 @@ func _show_vein() -> void:
 		if int(unit.get("hp", 0)) <= cost:
 			_cross_sub.text = "Another swing would finish you. Put the pick down."
 	else:
-		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return bool(p.get("mining", false)) and not bool(p.get("downed", false)))
-		var said: String = "You are down, and cannot swing a pick until the next landing." if bool(unit.get("downed", false)) else ("You are done here." if hollow else "You put the pick down.")
-		_cross_sub.text = said + (" Waiting for %s." % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "")
+		_cross_sub.text = "You are down, and cannot swing a pick until the next landing." if bool(unit.get("downed", false)) else ("You are done here." if hollow else "You put the pick down.")
 	DeepUi.clear(_cross_hint)
 	var legend := PanelContainer.new()
 	legend.add_theme_stylebox_override("panel", DeepUi.facet_ends(legend, DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4)))
@@ -1737,11 +1760,7 @@ func _show_stall() -> void:
 	var row := DeepUi.hbox(tools, 14)
 	DeepUi.stat(row, "loupe", "a raw stone on the lens: appraised for %d pyrite" % cost, DeepUi.INFO, 12)
 	DeepUi.stat(row, "scales", "any stone on the scales: sold, read or raw", DeepUi.ORE, 12)
-	if bool(unit.get("ready", false)) or bool(unit.get("downed", false)):
-		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool: return not bool(p.get("ready", false)) and not bool(p.get("downed", false)) and bool(p.get("connected", true)))
-		if not waiting.is_empty():
-			DeepUi.stat(_cross_hint, "hourglass", "Waiting for " + ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))), DeepUi.MUTED, 13)
-	else:
+	if not bool(unit.get("ready", false)) and not bool(unit.get("downed", false)):
 		var done := DeepUi.primary(_cross_hint, "descend", "Done here", func() -> void:
 			_pin("")
 			command.emit({"kind": "leave"}), 14, DeepUi.CHAMBER_colorS.merchant)
@@ -2074,11 +2093,6 @@ func _show_altar() -> void:
 			_pin("")
 			command.emit({"kind": "altar_leave"}), 14, tone)
 		leave.mouse_filter = Control.MOUSE_FILTER_STOP
-	elif not _altar_making:
-		var waiting: Array = run.get("players", []).filter(func(p: Dictionary) -> bool:
-			return str(p.get("id", "")) != local_id and str(p.get("altar_done", "")) != "left" and not bool(p.get("downed", false)) and bool(p.get("connected", true)))
-		if not waiting.is_empty():
-			DeepUi.stat(_cross_hint, "hourglass", "Waiting for " + ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))), DeepUi.MUTED, 13)
 	_fill_chip()
 
 func _altar_chip(box: VBoxContainer, which: String) -> bool:
@@ -2276,19 +2290,7 @@ func _show_landing() -> void:
 	var traded: Array = landing.get("trades", {}).get(local_id, [])
 	if not traded.is_empty():
 		DeepUi.pill(_cross_hint, "scales", str(traded.back()), DeepUi.ORE, 12)
-	for other in run.get("players", []):
-		## Nobody waits on someone whose line has dropped: the strip already says they are away.
-		if str(other.id) == local_id or not bool(other.get("connected", true)):
-			continue
-		if not str(other.get("choice", "")).is_empty():
-			DeepUi.stat(_cross_hint, "lift" if str(other.choice) == "lift" else "descend", str(other.name), DeepUi.GOOD if str(other.choice) == "lift" else DeepUi.ACCENT, 12)
-		elif str(other.get("respite", "")).is_empty():
-			## Not "resting": Rest is one of the things they could choose here, and nobody has
-			## chosen anything yet.
-			DeepUi.stat(_cross_hint, "hourglass", "Waiting for %s" % str(other.name), DeepUi.DIM, 12)
-		else:
-			## Their respite is taken and the way on is not: the party is still waiting on them.
-			DeepUi.stat(_cross_hint, "hourglass", "%s is choosing a way" % str(other.name), DeepUi.DIM, 12)
+	## Where everyone else is with their respite and the way on is on their tab.
 	_fill_chip()
 
 func _open_landing(view: String) -> void:
@@ -2364,9 +2366,10 @@ func _trade_page() -> void:
 	if full:
 		return
 	## The bag: any loose stone found down here goes on the table with one click, in place of
-	## the one there. A copy of a vault stone stays out of it: it goes home with nobody.
+	## the one there. A copy of a vault stone stays out of it: it goes home with nobody. So does
+	## a sealed Geode, which nobody can trade until the workshop has cracked it.
 	var haul: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool:
-		return not (bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, s)))
+		return not DeepStone.is_geode(s) and not (bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, s)))
 	var bag_line := DeepUi.hbox(content, 8)
 	bag_line.alignment = BoxContainer.ALIGNMENT_CENTER
 	if haul.is_empty():
@@ -2680,17 +2683,9 @@ func _show_hoard() -> void:
 		_cross_sub.text = "You went down in the fight, so the hoard is for the others. You get back on your feet at the next landing."
 	else:
 		var has_geode: bool = offers.any(func(s: Dictionary) -> bool: return DeepStone.is_geode(s))
-		_cross_sub.text = ("Take one. The stones are raw, so you can only see their color and size." + (" The Geode is sealed: its stone is better, but only the workshop can crack it." if has_geode else "")) if chosen.is_empty() else "Waiting for the others to choose."
+		_cross_sub.text = ("Take one. The stones are raw, so you can only see their color and size." + (" The Geode is sealed: its stone is better, but only the workshop can crack it." if has_geode else "")) if chosen.is_empty() else "Yours is picked."
 	DeepUi.clear(_cross_hint)
-	## Everyone else at the hoard, picked or still choosing.
-	for other in run.get("players", []):
-		var other_id: String = str(other.get("id", ""))
-		if other_id == local_id or not bool(other.get("connected", true)) or not run.get("hoard", {}).has(other_id):
-			continue
-		if str(run.hoard[other_id].get("chosen", "")).is_empty():
-			DeepUi.stat(_cross_hint, "hourglass", "Waiting for %s" % str(other.get("name", "")), DeepUi.DIM, 12)
-		else:
-			DeepUi.stat(_cross_hint, "check", "%s has picked" % str(other.get("name", "")), DeepUi.GOOD, 12)
+	## Who has picked and who is still choosing is on their tabs.
 	_fill_chip()
 
 func _hoard_chip(box: VBoxContainer, id: String, key: String) -> bool:
@@ -3165,10 +3160,10 @@ func _sync_strip() -> void:
 	## every step it plays, and the strip used to be torn down and put back for each one.
 	var party: Array = run.get("players", []).map(func(p: Dictionary) -> String:
 		var hp: Vector2i = health.call(p)
-		return "%s|%s|%d|%d|%s|%s" % [str(p.get("id", "")), str(p.get("name", "")), hp.x, hp.y,
+		return "%s|%s|%s|%d|%d|%s|%s" % [str(p.get("id", "")), str(p.get("name", "")), str(p.get("character", "")), hp.x, hp.y,
 			str(bool(p.get("downed", false))), str(bool(p.get("connected", true)))])
 	var key: String = "%s#%d#%s#%d#%d#%s#%s#%s#%s#%d#%d#%s#%s#%s" % [str(mine.get("name", "")), depth, note, every, into, str(guarded), local_id,
-		",".join(party), str(unit.is_empty()), int(unit.get("ore", 0)), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open), JSON.stringify(daily_best)]
+		",".join(party), str(unit.is_empty()), _purse(unit), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open), JSON.stringify(daily_best)]
 	if not unit.is_empty():
 		key += str(EffectChips.for_run(unit))
 	if key == _strip_key and _strip.get_child_count() > 0:
@@ -3211,7 +3206,14 @@ func _sync_strip() -> void:
 		box.gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 				_look_at_member(member_id))
-		DeepUi.icon(box, "person", 18, DeepUi.PAPER if mine_too else DeepUi.INFO)
+		## Their face, in the mood their health puts them in; ringed in their seat's color in a party.
+		var face := Roster.Portrait.new(str(other.get("character", "")), Vector2(26, 26))
+		face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		face.mood = Roster.resting_mood({"hp": hp.x, "max_hp": hp.y, "downed": bool(other.get("downed", false))})
+		if run.get("players", []).size() > 1:
+			face.ring = Color(_seat_color(member_id), 0.9)
+		box.add_child(face)
 		var named := DeepUi.label(box, str(other.name), 14, DeepUi.PAPER if mine_too else DeepUi.MUTED)
 		var said: float = named.get_theme_font("font").get_string_size(named.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
 		named.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -3233,7 +3235,7 @@ func _sync_strip() -> void:
 		var blessings := EffectChips.Row.new(15)
 		_strip.add_child(blessings)
 		blessings.show_effects(EffectChips.for_run(unit))
-		var counts: Dictionary = {"ore": int(unit.get("ore", 0)), "haul": unit.get("haul", []).size()}
+		var counts: Dictionary = {"ore": _purse(unit), "haul": unit.get("haul", []).size()}
 		## What was just won is counted when it lands here, not when the fight ends.
 		for held in _strip_hold:
 			counts[held] = _strip_hold[held]
@@ -3567,9 +3569,6 @@ func _page_grubstake(content: VBoxContainer) -> void:
 	if not run.get("daily", {}).is_empty():
 		_enter(_daily_banner(content), 0.05)
 	if not stake.is_empty():
-		var waiting: Array = run.players.filter(func(p: Dictionary) -> bool: return str(p.get("stake", "")).is_empty() and bool(p.get("connected", true)) and not bool(p.get("downed", false)))
-		if not waiting.is_empty():
-			_waiting_line(content, waiting)
 		var result_card := _stake_result(content, run.get("grubstake", {}).get("chosen", {}).get(local_id, {}))
 		_enter(result_card, 0.1)
 		return
@@ -3614,14 +3613,6 @@ func _page_grubstake(content: VBoxContainer) -> void:
 			DeepUi.stat(box, "cross_out", "Your rail is empty.", DeepUi.DIM, 12)
 		_enter(card, 0.1 + 0.08 * index)
 		index += 1
-
-func _waiting_line(content: VBoxContainer, waiting: Array) -> void:
-	## Who the party still waits on, over what this player's own choice came to.
-	var line := HBoxContainer.new()
-	line.alignment = BoxContainer.ALIGNMENT_CENTER
-	content.add_child(line)
-	DeepUi.pill(line, "hourglass", "Waiting for %s…" % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))), DeepUi.MUTED, 14)
-	DeepUi.breathe(line, 0.6, 1.6)
 
 ## How big a socket or a die is drawn in the strip over a shaft-head choice.
 const STRIP_EDGE: float = 44.0
@@ -3959,32 +3950,11 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 		_enter(head)
 	var chosen: String = str(unit.get("oddity_choice", ""))
 	if not chosen.is_empty():
-		var mine_result: Dictionary = run.chamber.get("results", {}).get(local_id, {})
-		## Who the room still waits on goes above what came of it, where it is seen first.
-		var waiting: Array = run.players.filter(func(p: Dictionary) -> bool: return str(p.get("oddity_choice", "")).is_empty() and not bool(p.get("downed", false)) and bool(p.get("connected", true)))
-		if not waiting.is_empty():
-			_waiting_line(content, waiting)
-		var result_card := DeepUi.card(content, Color(DeepUi.ACCENT, 0.5), 18)
-		result_card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		var box := DeepUi.vbox(result_card, 10)
-		DeepUi.section(box, "check", "What came of it", DeepUi.ACCENT)
-		DeepUi.wrap(box, str(mine_result.get("message", "You have chosen.")), 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_LEFT, 700)
-		for stone in mine_result.get("made", []) + mine_result.get("changed", []):
-			StoneCard.build(box, stone, {"size": 72, "text_width": 520})
-		for die in mine_result.get("dice", []):
-			var die_row := DeepUi.hbox(box, 10)
-			die_row.add_child(Thumbs.DieThumb.new(die, 56))
-			DeepUi.label(die_row, DeepDice.describe(die), 15, DeepUi.PAPER)
-			_faces_row(die_row, die, 16)
-		for die in mine_result.get("dice_lost", []):
-			DeepUi.stat(box, "die", "Gone until the run ends: %s." % DeepDice.describe(die), DeepUi.BAD, 14)
-		_enter(result_card, 0.1)
+		## What came of the choice had its own page the moment it was made, and who the room
+		## is still waiting on is on their tabs: there is nothing more to say here.
 		return
 	if bool(unit.get("downed", false)):
 		## The fallen are carried past it: nothing here is theirs to choose.
-		var waiting: Array = run.players.filter(func(p: Dictionary) -> bool: return str(p.get("oddity_choice", "")).is_empty() and not bool(p.get("downed", false)) and bool(p.get("connected", true)))
-		if not waiting.is_empty():
-			_waiting_line(content, waiting)
 		var down_card := DeepUi.card(content, Color(DeepUi.BAD, 0.5), 16)
 		down_card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		DeepUi.stat(down_card, "skull", "You are down. The party deals with this without you, and you get back on your feet at the next landing.", DeepUi.BAD.lightened(0.2), 14)
@@ -4923,15 +4893,19 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 				return func() -> Dictionary: return {}
 			var key: String = _slot_key(choice_id, "ore")
 			var held: int = clampi(int(str(_choice_picks.get(key, str(DeepDescent.WISH_LEAST)))), DeepDescent.WISH_LEAST, most)
+			## The least and the most at either end, so it reads as a range to drag along.
+			DeepUi.label(row, str(DeepDescent.WISH_LEAST), 12, DeepUi.DIM).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			var slider := HSlider.new()
 			slider.min_value = DeepDescent.WISH_LEAST
 			slider.max_value = most
 			slider.step = 1
 			slider.value = held
-			slider.custom_minimum_size = Vector2(200, 24)
+			slider.custom_minimum_size = Vector2(220, 26)
 			slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			slider.tooltip_text = "Anything from %d to %d pyrite." % [DeepDescent.WISH_LEAST, most]
+			slider.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			slider.tooltip_text = "Drag to choose how much goes down: anything from %d to %d pyrite." % [DeepDescent.WISH_LEAST, most]
 			row.add_child(slider)
+			DeepUi.label(row, str(most), 12, DeepUi.DIM).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			var readout := DeepUi.label(row, "%d pyrite" % held, 14, DeepUi.ORE)
 			readout.custom_minimum_size.x = 84
 			slider.value_changed.connect(func(value: float) -> void:
@@ -4946,9 +4920,6 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 ##
 ## A landing is a lift and a moment's rest. Each player first takes one respite (rest,
 ## appraise or polish); then the lift asks the only question it has: up, or down.
-
-func _faces_row(parent: Node, die: Dictionary, edge: float) -> HBoxContainer:
-	return BenchPanel.faces_row(parent, die, edge)
 
 # --- hoard, salvage, over ---------------------------------------------------------------------
 

@@ -1,7 +1,10 @@
 extends Control
 ## What the party carries, always at hand outside a fight: the rail and the five dice along
 ## the bottom of the screen, where the fight's dock stands when there is a fight, and the bag
-## in a drawer that slides up above them.
+## in a drawer that slides up above them (opened from the bag on the strip, or B). It stands
+## as tall as the fight's dock and draws its stones and dice as large, so nothing at the bottom
+## of the screen jumps when a fight begins or ends; in a party the seat tabs stand on it too,
+## each saying whether that player is still choosing, done, down or away.
 ##
 ## Everything is moved by dragging. A stone from the bag onto a socket sets it; a set stone
 ## into the bag takes it out; one of the five dice onto another changes their places (the
@@ -19,18 +22,24 @@ const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const ShaftMap = preload("res://view/run/shaft_map.gd")
+const EffectChips = preload("res://view/battle/effect_chips.gd")
+const Roster = preload("res://view/home/roster.gd")
 
 signal command(cmd: Dictionary)
 signal drawer_toggled(open: bool)
 signal chose(id: String)
 
-const SLOT := 58.0
+## A socket, and a die, as large as the fight's dock draws them (a die there has its number
+## under it, which this one has not).
+const SLOT := BattleScreen.SOCKET_EDGE
+const DIE := BattleScreen.DIE_EDGE - 10.0
 ## A Void gem riding a socket, and how many of them show at this size before a count.
 const RIDER := 18.0
 const RIDERS_SHOWN := 3
+## The least the dock stands, before it is told how tall the fight's dock is (`dock_height`).
 const DOCK_HEIGHT := 150.0
-## The bag drawer has room for its heading, padding and first row of stones.
-const DRAWER_BASE_HEIGHT := 100.0
+## A stone in the bag drawer and the gap after it.
 const GEM_TILE_STEP := 62.0
 ## How much taller than the dock the chooser stands: enough for a die or a stone at the size
 ## it is worth looking at, with its name under it.
@@ -38,15 +47,28 @@ const CHOOSER_LIFT := 86.0
 
 var local_id: String = ""
 var run: Dictionary = {}
+## How tall the fight's dock stands, so this one stands the same (the descent screen sets it).
+var dock_height: float = 0.0:
+	set(value):
+		dock_height = value
+		_fit_dock()
+## () -> Control: the bag on the strip, where a stone flies to and from now that the dock has
+## no bag of its own.
+var bag_anchor: Callable = Callable()
 var _dock: PanelContainer
+## The party's seat tabs over the dock: by player id.
+var _tab_bar: HBoxContainer = null
+var _tabs: Dictionary = {}
+## How tall the dock stands now.
+var _height: float = DOCK_HEIGHT
 var _drawer: PanelContainer
-var _drawer_height: float = DRAWER_BASE_HEIGHT
+var _drawer_height: float = 0.0
+var _stone_flow: HFlowContainer = null
 var _open: bool = false
 ## Which part of the bag is showing: "gems", "raw" or "geodes" (see DeepUi.HAUL_TABS).
 var _haul_tab: String = "gems"
 var _key: String = ""
 var _targets: Array = []
-var _hint: Label = null
 ## A choice waiting on one of the things the player carries: {kind, items, prompt}. While one
 ## is up the dock gives way to a tray of those things, large, and nothing else is in the way.
 var _offer: Dictionary = {}
@@ -67,8 +89,10 @@ func _ready() -> void:
 	_drawer.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_drawer.offset_left = 120
 	_drawer.offset_right = -120
-	_drawer.offset_bottom = - DOCK_HEIGHT - 20
-	_drawer.offset_top = - DOCK_HEIGHT - 20 - _drawer_height
+	_drawer.offset_bottom = - _height - 20
+	_drawer.offset_top = - _height - 20 - _drawer_height
+	## Anything that outgrows the drawer pushes its top up, never its foot down over the dock.
+	_drawer.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_drawer.visible = false
 	add_child(_drawer)
 	_dock = PanelContainer.new()
@@ -78,8 +102,112 @@ func _ready() -> void:
 	_dock.offset_left = 16
 	_dock.offset_right = -16
 	_dock.offset_bottom = -14
-	_dock.offset_top = -14 - DOCK_HEIGHT
+	_dock.offset_top = -14 - _height
 	add_child(_dock)
+	## The party, along the top of the dock, the way a fight shows it. Alone, nobody.
+	_tab_bar = HBoxContainer.new()
+	_tab_bar.add_theme_constant_override("separation", 6)
+	_tab_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tab_bar.visible = false
+	add_child(_tab_bar)
+
+func _process(_delta: float) -> void:
+	## The tabs stand on the dock: their bottom edge is its top edge.
+	if _tab_bar != null and _tab_bar.visible:
+		_tab_bar.reset_size()
+		_tab_bar.position = Vector2(_dock.position.x + 18.0, _dock.position.y - _tab_bar.size.y)
+
+func _fit_dock() -> void:
+	## As tall as the fight's dock, or as its own stones and dice need if that is more.
+	if _dock == null:
+		return
+	_height = maxf(maxf(DOCK_HEIGHT, dock_height), _dock.get_combined_minimum_size().y)
+	_dock.offset_top = -14 - _height
+	_drawer.offset_bottom = - _height - 20
+	_drawer.offset_top = - _height - 20 - _drawer_height
+	if _chooser != null and is_instance_valid(_chooser):
+		_chooser.offset_top = -14 - _height - CHOOSER_LIFT
+
+# --- the party's tabs --------------------------------------------------------------------------
+
+func _sync_tabs() -> void:
+	## A tab a player, the reader's first: the same tabs a fight stands on its dock, so the
+	## party is where it was when a fight ends. Each says what that player is doing here, in
+	## place of a line of "waiting for" under the room's name. Alone, none.
+	if _tab_bar == null:
+		return
+	var players: Array = run.get("players", [])
+	var party: bool = players.size() > 1
+	_tab_bar.visible = party and not choosing()
+	if not party:
+		return
+	var present: Dictionary = {}
+	for index in range(players.size()):
+		var unit: Dictionary = players[index]
+		var id: String = str(unit.get("id", ""))
+		var mine: bool = id == local_id
+		var tab: BattleScreen.SeatTab = _tabs.get(id, null)
+		if tab == null or not is_instance_valid(tab):
+			tab = BattleScreen.SeatTab.new(mine)
+			tab.picked.connect(_look_at.bind(id))
+			tab.inspected.connect(_look_at.bind(id))
+			_tab_bar.add_child(tab)
+			_tabs[id] = tab
+		present[id] = true
+		var seat: Color = ShaftMap.SEATS[int(unit.get("seat", index)) % ShaftMap.SEATS.size()]
+		tab.update(unit, DeepContent.character_title(str(unit.get("character", ""))), seat, mine, seat_status(unit), 0, EffectChips.for_run(unit), true)
+		tab.portrait.mood = Roster.resting_mood(unit)
+		if mine:
+			_tab_bar.move_child(tab, 0)
+	for id in _tabs.keys():
+		if not present.has(id):
+			if is_instance_valid(_tabs[id]):
+				_tabs[id].queue_free()
+			_tabs.erase(id)
+
+func _look_at(id: String) -> void:
+	## Another player's tab opens the close look at them: their rail, their dice, their bag.
+	var member: Dictionary = DeepDescent.player(run, id)
+	if id != local_id and not member.is_empty():
+		Inspector.member(member)
+
+func seat_status(unit: Dictionary) -> Array:
+	## What a player is doing in the room the party stands in, as the one mark on their tab:
+	## [glyph, tone, words]. Someone who is down has no mark: their whole tab is greyed.
+	if bool(unit.get("downed", false)):
+		return ["", DeepUi.DIM, "Down until the next landing"]
+	if not bool(unit.get("connected", true)):
+		return ["wifi", DeepUi.DIM, "Away"]
+	var choosing_now := func(words: String) -> Array: return ["hourglass", DeepUi.MUTED, words]
+	var done := func(words: String) -> Array: return ["check", DeepUi.GOOD, words]
+	var id: String = str(unit.get("id", ""))
+	match str(run.get("phase", "")):
+		"grubstake":
+			return done.call("Has taken a stake") if not str(unit.get("stake", "")).is_empty() else choosing_now.call("Choosing a stake")
+		"tunnels":
+			return done.call("Has chosen a way on") if not str(unit.get("vote", "")).is_empty() else choosing_now.call("Choosing a way on")
+		"chamber":
+			var kind: String = str(run.get("chamber", {}).get("kind", ""))
+			if kind == "oddity" or kind in DeepDescent.CARD_ROOMS:
+				return done.call("Has chosen") if not str(unit.get("oddity_choice", "")).is_empty() else choosing_now.call("Choosing")
+			if kind in DeepDescent.ROCK_ROOMS:
+				return ["pick", DeepUi.ACCENT, "Still mining"] if bool(unit.get("mining", false)) else done.call("Done mining")
+			if kind == "merchant":
+				return done.call("Done here") if bool(unit.get("ready", false)) else choosing_now.call("Shopping")
+			if kind == "altar":
+				return done.call("Done here") if str(unit.get("altar_done", "")) == "left" else choosing_now.call("At the altar")
+		"landing":
+			match str(unit.get("choice", "")):
+				"lift":
+					return ["lift", DeepUi.GOOD, "Riding the lift up"]
+				"descend":
+					return ["descend", DeepUi.ACCENT, "Going on down"]
+			return choosing_now.call("Taking a respite" if str(unit.get("respite", "")).is_empty() else "Choosing a way on")
+		"hoard":
+			var pile: Dictionary = run.get("hoard", {}).get(id, {})
+			if not pile.is_empty():
+				return done.call("Has picked") if not str(pile.get("chosen", "")).is_empty() else choosing_now.call("Choosing a stone")
+	return ["", DeepUi.MUTED, ""]
 
 func me() -> Dictionary:
 	return DeepDescent.player(run, local_id)
@@ -93,8 +221,10 @@ func is_drawer_open() -> bool:
 func height() -> float:
 	## How much of the bottom of the screen the dock and its drawer take.
 	if choosing():
-		return DOCK_HEIGHT + 28.0 + CHOOSER_LIFT
-	return DOCK_HEIGHT + 28.0 + (_drawer_height + 6.0 if _open else 0.0)
+		return _height + 28.0 + CHOOSER_LIFT
+	## The party's tabs stand on the dock and take their height above it.
+	var tabs: float = _tab_bar.get_combined_minimum_size().y if _tab_bar != null and _tab_bar.visible else 0.0
+	return _height + 28.0 + maxf(tabs, _drawer_height + 6.0 if _open else 0.0)
 
 # --- choosing one of your own ------------------------------------------------------------------
 ##
@@ -109,6 +239,8 @@ func choosing() -> bool:
 func centre_of(kind: String, id: String = "") -> Vector2:
 	## The middle of a thing in the dock, on the screen, or Vector2.INF when it is not drawn.
 	var spot: Variant = _spots.get("%s:%s" % [kind, id], null)
+	if spot == null and kind == "bag" and bag_anchor.is_valid():
+		spot = bag_anchor.call()
 	if spot == null or not is_instance_valid(spot) or not (spot as Control).is_visible_in_tree():
 		return Vector2.INF
 	return (spot as Control).get_global_rect().get_center()
@@ -165,7 +297,7 @@ func _build_chooser() -> void:
 	_chooser.offset_left = 16
 	_chooser.offset_right = -16
 	_chooser.offset_bottom = -14
-	_chooser.offset_top = -14 - DOCK_HEIGHT - CHOOSER_LIFT
+	_chooser.offset_top = -14 - _height - CHOOSER_LIFT
 	add_child(_chooser)
 	var column := DeepUi.vbox(_chooser, 8)
 	var head := DeepUi.hbox(column, 10)
@@ -250,6 +382,7 @@ func show_run(state: Dictionary) -> void:
 	if not visible:
 		return
 	var unit: Dictionary = me()
+	_sync_tabs()
 	## Rebuilt only when something it shows has changed, so a drag is never pulled out from
 	## under the pointer by a state that moved for some other reason.
 	## A stone or a die keeps its id when it is worked on — a wheel cuts it again, an oven
@@ -273,10 +406,15 @@ func show_run(state: Dictionary) -> void:
 	_key = key
 	_targets = []
 	_build_dock(unit)
+	_fit_dock()
 	_drawer.visible = _open and not choosing()
 	if _open:
+		var was: float = _drawer_height
 		_build_drawer(unit)
 		_fit_drawer(unit)
+		## A tab that wraps onto more rows stands taller, and the pages above move out of its way.
+		if _drawer_height != was:
+			drawer_toggled.emit(_open)
 	## Whatever was rebuilt, the tray keeps the bottom of the screen while a choice is open.
 	_dock.visible = not choosing()
 
@@ -287,19 +425,27 @@ func _build_dock(unit: Dictionary) -> void:
 	_spots = {}
 	var columns := DeepUi.hbox(_dock, 20)
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
+	## Far left: your face, as the fight's dock has it.
+	var face := Roster.Portrait.new(str(unit.get("character", "")), BattleScreen.FACE_EDGE)
+	face.mood = Roster.resting_mood(unit)
+	face.size_flags_vertical = Control.SIZE_FILL
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	columns.add_child(face)
 	## You, and your rail.
-	var left := DeepUi.vbox(columns, 6)
+	var left := DeepUi.vbox(columns, 8)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var me_row := DeepUi.hbox(left, 8)
-	DeepUi.icon(me_row, "heart", 20, DeepUi.HP, "Your health")
+	me_row.custom_minimum_size.y = 30
+	DeepUi.icon(me_row, "heart", 22, DeepUi.HP, "Your health").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var bar := DeepUi.bar(me_row, 20.0)
-	bar.custom_minimum_size = Vector2(230, 20)
+	bar.custom_minimum_size = Vector2(250, 20)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	bar.warn = true
 	## The count rides in the bar, the way it does in a fight.
 	bar.set_values(float(unit.get("hp", 0)) / float(maxi(1, int(unit.get("max_hp", 1)))), "%d / %d" % [int(unit.get("hp", 0)), int(unit.get("max_hp", 0))])
 	var rail_row := DeepUi.hbox(left, 6)
+	rail_row.tooltip_text = "Drag a stone from the bag onto a socket to set it, or a set stone back into the bag." if editable() else ""
 	var rail: Array = unit.get("rail", [])
 	for index in range(rail.size()):
 		_socket(rail_row, unit, index)
@@ -325,9 +471,7 @@ func _build_dock(unit: Dictionary) -> void:
 		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 6)
 		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.add_child(picture)
-		var birth_name := DeepUi.label(card, str(birth.get("name", "")), 10, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-		birth_name.custom_minimum_size.x = SLOT + 6
-		birth_name.clip_text = true
+		DeepUi.fit_label(card, str(birth.get("name", "")), 10, DeepUi.MUTED, SLOT + 6)
 		_inspectable(card, func() -> void: Inspector.stone(birth))
 	DeepUi.rule(columns, Color(DeepUi.LINE, 0.8)).custom_minimum_size = Vector2(1, 0)
 	## Your five dice.
@@ -338,26 +482,13 @@ func _build_dock(unit: Dictionary) -> void:
 	dice_head.alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.icon(dice_head, "die", 16, DeepUi.ACCENT)
 	DeepUi.heading(dice_head, "Your dice", 13)
-	var tray := DeepUi.hbox(middle, 8)
+	var tray := DeepUi.hbox(middle, 10)
 	tray.alignment = BoxContainer.ALIGNMENT_CENTER
+	tray.tooltip_text = "Drag a die onto another to change their places." if editable() else ""
 	_spots["dice:"] = tray
 	var dice: Array = unit.get("dice", [])
 	for index in range(dice.size()):
 		_die_slot(tray, unit, index)
-	DeepUi.rule(columns, Color(DeepUi.LINE, 0.8)).custom_minimum_size = Vector2(1, 0)
-	## The bag.
-	var right := DeepUi.vbox(columns, 8)
-	right.custom_minimum_size = Vector2(230, 0)
-	right.alignment = BoxContainer.ALIGNMENT_CENTER
-	var haul: int = unit.get("haul", []).size()
-	var bag := DeepUi.icon_button(right, "bag", ("Close the bag" if _open else "Open the bag") + "  ·  %d" % haul, toggle_drawer, 14, DeepUi.ACCENT if _open else DeepUi.PAPER)
-	bag.tooltip_text = "%s in your bag (B)" % DeepUi.plural(haul, "stone")
-	_spots["bag:"] = bag
-	_hint = DeepUi.wrap(right, "", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 226)
-	_hint.text = "Drag a stone onto a socket to set it, a die onto a die to change their places." if editable() else "Nothing moves while this lasts."
-	var void_about: bool = DeepStone.rider_count(unit) > 0 or unit.get("haul", []).any(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)) and DeepStone.is_slotless(s))
-	if editable() and void_about:
-		_hint.text = "A Void gem takes no socket: drop it on one to ride beside its gem and fire right after it."
 
 func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 	var sockets: Array = unit.get("sockets", [])
@@ -512,7 +643,7 @@ func _die_slot(parent: Node, unit: Dictionary, index: int) -> void:
 	for entry in DeepDice.etchings(die):
 		card.tooltip_text += "\n%s: %s" % [DeepDice.etching_name(str(entry.kind)), str(DeepContent.etching(str(entry.kind)).get("text", ""))]
 	parent.add_child(card)
-	var thumb := Thumbs.DieThumb.new(die, SLOT)
+	var thumb := Thumbs.DieThumb.new(die, DIE)
 	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(thumb)
 	_spots["die:" + id] = thumb
@@ -522,7 +653,7 @@ func _die_slot(parent: Node, unit: Dictionary, index: int) -> void:
 	if under.is_empty():
 		under = DeepDice.pattern_name(pattern)
 	var words := DeepUi.label(card, under.to_lower(), 10, DeepUi.ACCENT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	words.custom_minimum_size.x = SLOT + 10
+	words.custom_minimum_size.x = DIE + 10
 	words.clip_text = true
 	var at: int = index
 	var data: Dictionary = {"kind": "die", "die_id": id, "from_slot": index} if editable() else {}
@@ -539,14 +670,19 @@ func _fit_drawer(unit: Dictionary) -> void:
 	## Stones are all the drawer holds: they change hands at a landing's table now, so there
 	## is no column of allies to drop them on and no room is kept for one.
 	var want: float = clampf(260.0 + 64.0 * float(mini(stones, 12)), wide * 0.3, wide - 240.0)
+	## Never narrower than its heading and tabs, or it would spill off to the right of centre.
+	want = maxf(want, _drawer.get_combined_minimum_size().x)
 	var edge: float = (wide - want) * 0.5
 	_drawer.offset_left = edge
 	_drawer.offset_right = - edge
-	var stone_width: float = want - 28.0
+	var stone_width: float = want - _drawer.get_theme_stylebox("panel").get_minimum_size().x
 	var columns: int = maxi(1, int(floor((stone_width + 6.0) / GEM_TILE_STEP)))
 	var rows: int = maxi(1, ceili(float(stones) / float(columns)))
-	_drawer_height = DRAWER_BASE_HEIGHT + float(rows - 1) * GEM_TILE_STEP
-	_drawer.offset_top = - DOCK_HEIGHT - 20 - _drawer_height
+	## Every tab keeps room for one row of stones, an empty one too, so the drawer stands the
+	## same height whichever tab is open; one that wraps adds its rows on top.
+	_stone_flow.custom_minimum_size.y = float(rows) * GEM_TILE_STEP - 6.0
+	_drawer_height = _drawer.get_combined_minimum_size().y
+	_drawer.offset_top = - _height - 20 - _drawer_height
 
 # --- the drawer --------------------------------------------------------------------------------
 
@@ -576,9 +712,11 @@ func _build_drawer(unit: Dictionary) -> void:
 	stone_flow.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stone_flow.mouse_filter = Control.MOUSE_FILTER_PASS
 	stones.add_child(stone_flow)
+	_stone_flow = stone_flow
 	if haul.is_empty():
+		## Down the middle of the row a stone would stand in.
 		DeepUi.label(stone_flow, {"gems": "No read stones. Appraised stones wait here.", "raw": "No raw stones. Stones you find wait here.",
-			"geodes": "No Geodes."}[_haul_tab], 12, DeepUi.DIM)
+			"geodes": "No Geodes."}[_haul_tab], 12, DeepUi.DIM).custom_minimum_size.y = GEM_TILE_STEP - 6.0
 	for stone in haul:
 		_stone_tile(stone_flow, stone)
 	## The stone side of the drawer takes a set stone back, and a stall's goods.

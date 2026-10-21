@@ -46,20 +46,71 @@ static func grade_entries(stone: Dictionary) -> Array:
 		["clarity", str(clarity + 1), "Clarity: %s" % DeepContent.clarity_name(clarity), clarity + 1, DeepContent.clarities().size()],
 	]
 
-static func grade_marks(parent: Node, stone: Dictionary, size: int = 12, color: Color = DeepUi.PAPER) -> HBoxContainer:
-	## The grade as a row of marks beside a name, where a picture is too small to carry them.
+static func grade_marks(parent: Node, stone: Dictionary, size: int = 12, _color: Color = DeepUi.PAPER) -> HBoxContainer:
+	## The grade as a row of marks beside a name, where a picture is too small to carry them,
+	## drawn the way the vault's tiles draw it (see `TileTags`): one look everywhere, in a run
+	## and at home.
 	var row := DeepUi.hbox(parent, maxi(6, size / 2))
 	row.mouse_filter = Control.MOUSE_FILTER_PASS
-	for entry in grade_entries(stone):
-		if int(entry[4]) <= 0:
-			DeepUi.stat(row, str(entry[0]), str(entry[1]), color, size, str(entry[2]))
-			continue
-		var mark := DeepUi.hbox(row, maxi(2, size / 5))
-		mark.mouse_filter = Control.MOUSE_FILTER_PASS
-		mark.tooltip_text = str(entry[2])
-		DeepUi.icon(mark, str(entry[0]), float(size) + 1.0, color, str(entry[2]))
-		mark.add_child(Pips.new(int(entry[3]), int(entry[4]), maxf(3.0, float(size) * 0.4), color))
+	var entries: Array = grade_entries(stone)
+	if entries.is_empty():
+		return row
+	var marks := GradeMarks.new(stone, size)
+	marks.tooltip_text = "\n".join(entries.map(func(entry: Array) -> String: return str(entry[2])))
+	row.add_child(marks)
 	return row
+
+class GradeMarks extends Control:
+	## A stone's carat, Cut and Clarity in a line, as a vault tile wears them over its picture:
+	## the carat on a dark plate, the Cut as five gold bars, the Clarity as violet dots for what
+	## is frozen inside, a ring for Clear, or a sparkle for Pristine and Flawless.
+	var stone: Dictionary
+	var text_size: int = 12
+	func _init(new_stone: Dictionary, size_px: int) -> void:
+		stone = new_stone
+		text_size = maxi(9, size_px - 1)
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		custom_minimum_size = Vector2(_plate_width() + 6.0 + _cut_width() + 6.0 + _clarity_width(), float(text_size) + 5.0)
+	func _pip() -> Vector2:
+		return Vector2(maxf(4.0, float(text_size) * 0.45), 3.0)
+	func _plate_width() -> float:
+		return DeepUi.bold_font().get_string_size("%dct" % int(stone.get("carat", 1)), HORIZONTAL_ALIGNMENT_LEFT, -1, text_size).x + 8.0
+	func _cut_width() -> float:
+		return float(DeepContent.cuts().size()) * (_pip().x + 2.0) - 2.0
+	func _clarity_width() -> float:
+		var clarity: int = int(stone.get("clarity", DeepContent.clear_index()))
+		var clear: int = DeepContent.clear_index()
+		return float(clear - clarity) * 6.5 if clarity < clear else 11.0
+	func _draw() -> void:
+		var font: Font = DeepUi.bold_font()
+		var mid: float = size.y * 0.5
+		var words: String = "%dct" % int(stone.get("carat", 1))
+		var plate := Rect2(Vector2(0, mid - (float(text_size) + 4.0) * 0.5), Vector2(_plate_width(), float(text_size) + 4.0))
+		draw_style_box(DeepUi.flat(Color(0, 0, 0, 0.62), Color(0, 0, 0, 0), 3, 0), plate)
+		draw_string(font, plate.position + Vector2(4, plate.size.y * 0.5 + float(text_size) * 0.36), words, HORIZONTAL_ALIGNMENT_LEFT, -1, text_size, DeepUi.PAPER)
+		var pip: Vector2 = _pip()
+		var cut: int = int(stone.get("cut", 0))
+		var x: float = plate.end.x + 6.0
+		for index in range(DeepContent.cuts().size()):
+			draw_rect(Rect2(Vector2(x + float(index) * (pip.x + 2.0), mid - pip.y * 0.5), pip), TileTags.CUT_TONE if index <= cut else Color(1, 1, 1, 0.16))
+		x += _cut_width() + 6.0
+		var clarity: int = int(stone.get("clarity", DeepContent.clear_index()))
+		var clear: int = DeepContent.clear_index()
+		if clarity < clear:
+			for index in range(clear - clarity):
+				draw_circle(Vector2(x + 2.5 + float(index) * 6.5, mid), 2.4, TileTags.INCLUDED)
+		elif clarity == clear:
+			draw_arc(Vector2(x + 3.0, mid), 2.6, 0, TAU, 12, Color(1, 1, 1, 0.45), 1.2, true)
+		else:
+			var flawless: bool = clarity >= DeepContent.clarities().size() - 1
+			var spark: float = 5.5 if flawless else 4.0
+			var heart := Vector2(x + spark, mid)
+			if flawless:
+				draw_texture_rect(DeepUi.glow_texture(), Rect2(heart - Vector2.ONE * spark * 2.5, Vector2.ONE * spark * 5.0), false, Color(TileTags.SPARKLE, 0.55))
+			var star := PackedVector2Array([heart + Vector2(0, -spark), heart + Vector2(spark * 0.28, -spark * 0.28), heart + Vector2(spark, 0), heart + Vector2(spark * 0.28, spark * 0.28),
+				heart + Vector2(0, spark), heart + Vector2(-spark * 0.28, spark * 0.28), heart + Vector2(-spark, 0), heart + Vector2(-spark * 0.28, -spark * 0.28)])
+			draw_colored_polygon(star, TileTags.SPARKLE if flawless else TileTags.SPARKLE.lerp(Color.WHITE, 0.4))
 
 class Pips extends Control:
 	## A rank on its ladder as a row of dots, the rungs reached filled and the rest hollow: what
@@ -86,10 +137,9 @@ class Pips extends Control:
 				draw_arc(centre, dot * 0.5 - 0.5, 0.0, TAU, 14, Color(tint, 0.6), 1.0, true)
 
 static func marked_picture(parent: Node, stone: Dictionary, size: float, tooltip: String = "", interactive: bool = true) -> Control:
-	## A photograph with its carat, Cut and Clarity stacked over one corner as marks, the way a
-	## fight stacks what a gem has gained: for cards too narrow to spell the grade out. The
-	## picture stays live and right-clickable unless `interactive` is off, for a card that
-	## takes its own clicks.
+	## A photograph with its carat, Cut and Clarity laid over it the way a vault tile lays them
+	## (`TileTags`): for cards too narrow to spell the grade out. The picture stays live and
+	## right-clickable unless `interactive` is off, for a card that takes its own clicks.
 	var holder := Control.new()
 	holder.custom_minimum_size = Vector2(size, size)
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -100,32 +150,12 @@ static func marked_picture(parent: Node, stone: Dictionary, size: float, tooltip
 	else:
 		thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.add_child(thumb)
-	var entries: Array = grade_entries(stone)
-	if entries.is_empty():
+	if grade_entries(stone).is_empty():
 		return holder
-	## A small picture gets smaller marks, or the stack would cover the stone.
-	var small: bool = size < 70.0
-	var marks := VBoxContainer.new()
-	marks.add_theme_constant_override("separation", 1)
-	marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	marks.z_index = 1
-	holder.add_child(marks)
-	for entry in entries:
-		var plate := PanelContainer.new()
-		plate.add_theme_stylebox_override("panel", DeepUi.facet_ends(plate, DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.LINE_HI, 0.5), 5, 1 if small else 2)))
-		plate.size_flags_horizontal = Control.SIZE_SHRINK_END
-		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		marks.add_child(plate)
-		var chip := DeepUi.hbox(plate, 2)
-		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if int(entry[4]) > 0:
-			chip.add_child(Pips.new(int(entry[3]), int(entry[4]), 3.0 if small else 4.0, DeepUi.PAPER))
-		else:
-			DeepUi.label(chip, str(entry[1]), 9 if small else 10, DeepUi.PAPER)
-		DeepUi.icon(chip, str(entry[0]), 10 if small else 11, DeepUi.PAPER)
-	## Pinned to the bottom-right once the stack has its size.
-	marks.resized.connect(func() -> void: marks.position = Vector2(size, size) - marks.size)
-	marks.position = Vector2(size - 28, size - 48)
+	var tags := TileTags.new(stone, size)
+	tags.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tags.z_index = 1
+	holder.add_child(tags)
 	return holder
 
 static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> PanelContainer:

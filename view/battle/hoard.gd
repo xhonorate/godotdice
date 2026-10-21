@@ -37,18 +37,17 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		cap.position = Vector3(0, 1.2, 0)
 		stand.add_child(cap)
 		## Its size class, cut into the pedestal's face: all there is to see of a raw stone
-		## besides its colour, so it is shown without having to point at it.
-		var size := Label3D.new()
+		## besides its colour, so it is shown without having to point at it. The stage writes it
+		## over the pedestal's face in 2D (see `MineStage.NAME_GROUP`), so it stays crisp on a
+		## window bigger than the canvas the room is drawn at.
 		var sealed_geode: bool = DeepStone.is_geode(stone)
-		size.text = "Geode" if sealed_geode else DeepStone.size_name(int(stone.get("carat", 1)))
-		size.font = DeepUi.display_font()
-		size.font_size = 46
-		size.pixel_size = 0.0042
-		size.outline_size = 10
-		size.outline_modulate = Color(0, 0, 0, 0.85)
-		size.modulate = Color("f1e6d2")
-		size.double_sided = false
+		var size := Node3D.new()
 		size.position = Vector3(0, 0.78, 0.47)
+		size.set_meta("text", "Geode" if sealed_geode else DeepStone.size_name(int(stone.get("carat", 1))))
+		size.set_meta("tone", Color("f1e6d2"))
+		size.set_meta("font_size", 18)
+		size.set_meta("alpha", 1.0)
+		size.add_to_group("stage_name")
 		stand.add_child(size)
 		## Nothing on a Warden's pile has been read, so the beam is the stone's own colour: a
 		## grade colour over an unopened stone would say what is inside it before the lens does.
@@ -64,8 +63,11 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		if sealed_geode:
 			## Shut, and sealed: the workshop cracks it. In headless there is no 3D to cut.
 			gem = Node3D.new() if DisplayServer.get_name() == "headless" else GeodeView.prop(stone.geode, tone)
-			gem.scale = Vector3.ONE * 0.62
-			gem.position.y = 0.2
+			## As big as a stone in its rock on the next pedestal, measured the way a stone is
+			## (across its box) rather than guessed: a round rock fills far more of its box.
+			## A touch over, since a stone's rock is a loose clump that reads larger than its box.
+			gem.scale = Vector3.ONE * 1.2 * GemView.ROCK_SPAN / _extent(gem)
+			gem.position.y = 0.15
 		else:
 			gem = GemMesh.solid(stone)
 			gem.scale = Vector3.ONE * 1.05 / float(gem.get_meta("extent", 1.0))
@@ -103,6 +105,18 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		stand.add_child(shine)
 		_stands[str(stone.get("id", ""))] = {"stand": stand, "spinner": spinner, "beam": beam, "shine": shine, "hover": false, "phase": float(index) * 2.1, "out": false}
 
+static func _extent(root: Node3D) -> float:
+	## How far across a prop's meshes reach, corner to corner of the box round them all: the
+	## same measure a cut stone keeps as its "extent".
+	var box := AABB()
+	var first: bool = true
+	for child in root.get_children():
+		if child is MeshInstance3D and (child as MeshInstance3D).mesh != null:
+			var own: AABB = (child as MeshInstance3D).transform * (child as MeshInstance3D).mesh.get_aabb()
+			box = own if first else box.merge(own)
+			first = false
+	return maxf(0.01, box.size.length()) if not first else 1.0
+
 func spot(id: String) -> Node3D:
 	return _stands[id].spinner if _stands.has(id) and is_instance_valid(_stands[id].spinner) else null
 
@@ -137,6 +151,11 @@ func collapse(fx: Node3D) -> float:
 		for key in _stands:
 			fx.puff((_stands[key].stand as Node3D).global_position + Vector3(0, 0.6, 0.4), Color("8a7a66"), 10, 1.0, 1.6, 0.4)
 	DeepAudio.play("crumble", {"volume": 0.7})
+	## The names are written over the view, not cut into the stone: they go before the
+	## pedestals sink, or they would be read through the floor.
+	for spot in find_children("*", "Node3D", true, false):
+		if spot.is_in_group("stage_name"):
+			spot.set_meta("alpha", 0.0)
 	var tween := create_tween()
 	tween.tween_property(self, "position:y", position.y - 2.6, 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.tween_callback(queue_free)

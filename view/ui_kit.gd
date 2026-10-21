@@ -416,6 +416,25 @@ static func theme(scale: float = 1.0) -> Theme:
 		t.set_stylebox("grabber", bar, flat(Color(LINE_HI, 0.8), Color(0, 0, 0, 0), 4, 3))
 		t.set_stylebox("grabber_highlight", bar, flat(ACCENT_DIM, Color(0, 0, 0, 0), 4, 3))
 		t.set_stylebox("grabber_pressed", bar, flat(ACCENT, Color(0, 0, 0, 0), 4, 3))
+	## The engine's slider is a hairline track with a small knob, drawn for a light page: on
+	## these panels the track vanishes and all that is left is a dot nobody takes for a slider.
+	## Here the track is a slate channel, the part already taken is lit gold, and the knob is
+	## big enough to see and grab.
+	var channel := flat(Color("1b2230"), LINE_HI.lightened(0.15), 5, 0)
+	channel.content_margin_top = 4
+	channel.content_margin_bottom = 4
+	t.set_stylebox("slider", "HSlider", channel)
+	var taken := flat(Color(ACCENT, 0.92), ACCENT_HI, 5, 0)
+	taken.content_margin_top = 4
+	taken.content_margin_bottom = 4
+	t.set_stylebox("grabber_area", "HSlider", taken)
+	var taken_hot := flat(ACCENT_HI, ACCENT_HI, 5, 0)
+	taken_hot.content_margin_top = 4
+	taken_hot.content_margin_bottom = 4
+	t.set_stylebox("grabber_area_highlight", "HSlider", taken_hot)
+	t.set_icon("grabber", "HSlider", slider_knob(false))
+	t.set_icon("grabber_highlight", "HSlider", slider_knob(true))
+	t.set_icon("grabber_disabled", "HSlider", slider_knob(false, true))
 	## The engine's own switch is drawn for a light page: off, its track is a dark grey that
 	## vanishes into these panels and the setting stops looking like something to click.
 	for entry in [["checked", true, false], ["unchecked", false, false], ["checked_disabled", true, true], ["unchecked_disabled", false, true],
@@ -424,6 +443,32 @@ static func theme(scale: float = 1.0) -> Theme:
 	return t
 
 static var _switches: Dictionary = {}
+static var _knobs: Dictionary = {}
+
+static func slider_knob(hot: bool, disabled: bool = false) -> Texture2D:
+	## A slider's knob: a round paper button ringed in gold, lit brighter under the pointer.
+	var key: String = "%s%s" % [hot, disabled]
+	if _knobs.has(key):
+		return _knobs[key]
+	var edge: int = 22
+	var image := Image.create(edge, edge, false, Image.FORMAT_RGBA8)
+	var centre := Vector2(edge, edge) * 0.5
+	var radius: float = float(edge) * 0.5 - 1.0
+	var ring: Color = (ACCENT_HI if hot else ACCENT) if not disabled else LINE_HI
+	var face: Color = Color.WHITE if hot else PAPER
+	for y in range(edge):
+		for x in range(edge):
+			var d: float = Vector2(x + 0.5, y + 0.5).distance_to(centre)
+			var cover: float = clampf(radius + 0.5 - d, 0.0, 1.0)
+			if cover <= 0.0:
+				continue
+			var inner: float = clampf(radius - 3.0 + 0.5 - d, 0.0, 1.0)
+			var pixel: Color = ring.lerp(face, inner)
+			pixel.a = cover * (0.5 if disabled else 1.0)
+			image.set_pixel(x, y, pixel)
+	var texture := ImageTexture.create_from_image(image)
+	_knobs[key] = texture
+	return texture
 
 static func switch_icon(on: bool, disabled: bool = false, mirrored: bool = false) -> Texture2D:
 	## A toggle's track and knob: a lit gold track with the knob at its far end when on, an
@@ -1387,7 +1432,7 @@ static func float_text(parent: Control, at: Vector2, text: String, color: Color,
 	tween.chain().tween_callback(l.queue_free)
 	return l
 
-static func burst(parent: Control, at: Vector2, color: Color, amount: int = 16, speed: float = 160.0, seconds: float = 0.6, size: float = 5.0) -> void:
+static func burst(parent: Control, at: Vector2, color: Color, amount: int = 16, speed: float = 160.0, seconds: float = 0.6, size: float = 5.0, z: int = 60) -> void:
 	## A spray of sparks in 2D, gone when it is done.
 	if headless() or parent == null or not parent.is_inside_tree():
 		return
@@ -1414,7 +1459,7 @@ static func burst(parent: Control, at: Vector2, color: Color, amount: int = 16, 
 	add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	sparks.material = add
 	sparks.position = at
-	sparks.z_index = 60
+	sparks.z_index = z
 	parent.add_child(sparks)
 	sparks.emitting = true
 	sparks.finished.connect(sparks.queue_free)

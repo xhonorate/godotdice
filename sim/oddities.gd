@@ -741,11 +741,16 @@ static func zoning_key(color: String) -> String:
 ##
 ## Everything that goes down the well is weighed into one number of pyrite, and that number
 ## picks a rung on this ladder. The ladder runs worst to best and never changes; what changes
-## is where on it the draw lands. A pittance thrown in is nearly always nothing; a thousand
-## pyrite's worth puts the top of it within easy reach. `tier` is how loud the result is, 0
-## to 4, for the sparks and the noise the screen makes of it.
+## is where on it the draw lands. Even a pittance thrown in nearly always brings something
+## back, a little more than it cost; a thousand pyrite's worth puts the top of it within easy
+## reach. `tier` is how loud the result is, 0 to 4, for the sparks and the noise the screen
+## makes of it.
 
 const WELL_MOST: float = 1000.0
+## Where the smallest offering's bell is centred (rung 1.6, past a single pyrite), and how
+## quickly it climbs from there: an offering's share of the most is raised to this power.
+const WELL_FLOOR: float = 1.6
+const WELL_CLIMB: float = 0.6
 const WELL_PRIZES: Array = [
 	{"kind": "none", "tier": 0, "name": "Nothing"},
 	{"kind": "ore", "amount": 1, "tier": 0, "name": "A single pyrite"},
@@ -776,12 +781,14 @@ static func well_worth(stone: Dictionary, raw_mult: float, read_mult: float) -> 
 
 static func well_rung(rng: RandomNumberGenerator, worth: float) -> int:
 	## Which rung of the ladder a draw of this size lands on. The draw is a bell centred where
-	## the offering puts it and as wide as the offering is generous: a pittance is a spike on
-	## "Nothing", a thousand is a broad reach across the top of the ladder.
-	var share: float = clampf(worth / WELL_MOST, 0.0, 1.0)
+	## the offering puts it and as wide as the offering is generous. The bell never sits on
+	## "Nothing" (a pittance centres between a poor stone and fifty pyrite, and lands on
+	## Nothing about once in a hundred), and it climbs fastest for the first coins thrown in,
+	## so a modest offering is a real chance; a thousand is a broad reach across the top.
+	var share: float = pow(clampf(worth / WELL_MOST, 0.0, 1.0), WELL_CLIMB)
 	var top: float = float(WELL_PRIZES.size() - 1)
-	var centre: float = top * share
-	var spread: float = 0.35 + 3.65 * share
+	var centre: float = WELL_FLOOR + (top - WELL_FLOOR) * share
+	var spread: float = 0.8 + 3.2 * share
 	var weights: Array = []
 	for index in range(WELL_PRIZES.size()):
 		var off: float = float(index) - centre

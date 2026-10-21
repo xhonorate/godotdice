@@ -488,16 +488,20 @@ func _test_idol(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	check(pulls.size() >= 3, "how many pulls it takes varies: %s" % str(pulls.keys()))
 
 func _test_well(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
-	## Everything down the well is weighed into pyrite, and that number picks a rung. A
-	## pittance is nearly always nothing; a thousand of it reaches the top of the ladder.
+	## Everything down the well is weighed into pyrite, and that number picks a rung. Even
+	## the least it takes rarely comes back as nothing; a thousand reaches the top of the ladder.
 	var poor: int = 0
+	var something: int = 0
 	var rich_top: int = 0
 	for _i in range(2000):
-		if DeepOddities.well_rung(rng, 8.0) == 0:
+		if DeepOddities.well_rung(rng, 10.0) == 0:
 			poor += 1
+		if DeepOddities.well_rung(rng, 10.0) >= 2:
+			something += 1
 		if DeepOddities.well_rung(rng, 1000.0) >= DeepOddities.WELL_PRIZES.size() - 3:
 			rich_top += 1
-	check(poor > 1650 and poor < 1950, "a pittance comes back as nothing about nine times in ten (%d of 2000)" % poor)
+	check(poor < 60, "ten pyrite comes back as nothing under one time in thirty (%d of 2000)" % poor)
+	check(something > 1600, "and usually as a stone or more pyrite than went in (%d of 2000)" % something)
 	check(rich_top > 300, "a thousand of it reaches the top of the ladder often (%d of 2000)" % rich_top)
 	## A read stone is worth three times what the same stone in its rock is worth.
 	var raw: Dictionary = stone("STRIKE", 10, 3, 3)

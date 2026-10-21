@@ -35,7 +35,7 @@ const TRAITS: Dictionary = {
 	"flee": ["hourglass", "Flees", "After its %d%s action it leaves the fight with everything it stole."],
 	"rising": ["flame", "Rising", "Deals %d%% more than the action before, every action."],
 	"escalate": ["sword", "Escalating", "Its damage goes up by %d for every action it takes in this phase."],
-	"spikes": ["thorn", "Bristling", "Has %d Spikes up every time it acts: anything that hits it is hit back."],
+	"spikes": ["caltrop", "Bristling", "Has %d Spikes up every time it acts: anything that hits it is hit back."],
 	"regen_with_escorts": ["heart", "Fed", "While any of its escorts stands, it heals %d at the end of every turn."],
 	"regenerating": ["heart", "Regenerating", "It heals %d at the end of every turn."],
 	"shielded_by_escorts": ["shield", "Shielded", "While any of its escorts stands, it takes %d%% less from every hit."],
@@ -290,7 +290,7 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 		"charged": ["bolt", "Charged Battery", "At next turn start, consumes all stacks to start your rail at %d Resonance.", true],
 		"marked": ["eye", "Marked", "The next direct hit takes +%d%% damage, then consumes every mark. Block does not prevent consumption.", false],
 		"regeneration": ["heart", "Regeneration", "Heals %d HP at turn end after Poison, then loses one stack. Cannot revive.", true],
-		"spikes": ["thorn", "Spikes", "Retaliates for %d hit damage once per attacking gem or ability, including blocked hits. Lasts the fight.", true],
+		"spikes": ["caltrop", "Spikes", "Retaliates for %d hit damage once per attacking gem or ability, including blocked hits. Lasts the fight.", true],
 		"envenom": ["drop", "Envenomed", "Every hit that gets past Block also applies %d Poison. Lasts the fight.", true],
 		"dulled": ["cut", "Dulled", "Gems lose %d Cut steps after bonuses (minimum Poor). Loses one stack at turn end; Birthstone is unaffected.", false],
 		"festering": ["drop", "Festering", "Healing you receive is halved. Counts down 1 each turn (%d left).", false],
@@ -362,6 +362,10 @@ class Row extends HFlowContainer:
 		add_theme_constant_override("h_separation", 4)
 		add_theme_constant_override("v_separation", 4)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func chip_for(key: String) -> Control:
+		## The chip showing one effect, for something to fly to or from; null if none shows.
+		var chip: Variant = _chips.get(key, null)
+		return chip if chip is Control and is_instance_valid(chip) and (chip as Control).is_visible_in_tree() else null
 	func show_effects(effects: Array) -> void:
 		var present: Dictionary = {}
 		var index: int = 0

@@ -4,7 +4,7 @@ Second draft, September 21, 2026, with the owner's first-round notes folded in. 
 same day**: Puck was chosen as the sixth character, Vesper's requirement is the recommended one, and
 Florin keeps his Bust tier. The content lives in the `characters` section of `content/deep_cut.json`,
 the Birthstone resolves in `DeepBattle.resolve_birthstone`, and `tests/test_battle.gd` covers every
-tier and passive. Headshots and the six Birthstone cuts are still to draw; each Birthstone borrows
+tier and passive. The headshots are drawn and wired in (§4, October 20, 2026); the six Birthstone cuts are still to draw: each borrows
 the nearest of the six outlines and is told apart by its tint and emblem for now. The jewellery "settings" of §5 in `REIMAGINING.md` become **characters**: a lapidary
 you play, each with five colored gem sockets, a set of starting dice, a passive, and a
 **Birthstone**: a fixed personal gemstone that sits last in the rail and cannot be removed or
@@ -227,11 +227,27 @@ Eight states per character, the same eight for everyone so panels and tests stay
 2. Critical (under a quarter, the Duke Nukem face). 6. Birthstone (unique per character, listed
    above). 7. Downed. 8. Victory.
 
-Recommendation: keep §10's rule and build the heads as **low-poly busts in the shared four-light
-rig**, expressions done by swapping eye and mouth meshes and a small head tilt, rendered once each
-into the existing thumbnail cache. Ally panels get a face for free, and the busts can be posed for
-the character select. If the owner would rather commission 2D portraits, the doc's existing clause
-applies: stones and dice stay 3D, the portraits are the one hand-drawn element.
+**Built October 20, 2026, as 2D art** (the owner turned down the 3D busts recommended here; stones
+and dice stay 3D, the faces are the one hand-drawn element). Each face is a 512 square PNG with a
+transparent background at `view/home/delvers/<delver>/<mood>.png`, imported with mipmaps, made in
+ComfyUI from the owner's own mockups. `Roster.Portrait` (`view/home/roster.gd`) draws one on the
+plate lit in the Birthstone's tint, cut to the kit's chamfered corners: the whole bust at 120 px and
+over, closing in on the face as the plate shrinks to the size of a word. Key and mood can change on
+a built plate, and a new face fades in over the old in 0.12 s.
+
+Where the moods come from:
+
+- **Resting**, from health as the bars read it (`Roster.resting_mood`): idle, bloodied under half,
+  critical under a quarter, downed once the blow that downs them has landed.
+- **Passing**, for a moment, then back to resting (`_react` in `battle_screen.gd`): rolling while
+  their dice tumble (each roll and reroll), wince for 0.9 s on any hit that takes health (0.7 s for
+  a poison or burn tick), their Birthstone face for 1.8 s when it fires (a wince for a Bust).
+- **Victory** for everyone still standing once a fight is won.
+
+Where the faces are: the left of each player's page in the battle dock (it rocks with a flinch and
+jumps with the Birthstone), each seat tab in a party (ringed in the seat color), each player in the
+run's top strip (resting mood only), a party member's inspector sheet, and every roster and home
+plate that showed the Birthstone before. A delver with no faces drawn still shows their Birthstone.
 
 ## 5. Decided and still open
 
@@ -257,9 +273,9 @@ one tier in the content and trivial to remove. Harrow's bowl is moot until he is
   bench fills. Tier evaluation fires every satisfied tier in order. Block clears at end of turn (done).
   If the tray-order tier is taken, dice keep their bench order through a fight. If Blaise is taken,
   the hand records explosions per die. If Puck is taken, `flip` is a new player command like `reroll`.
-- **View.** Character select card with bust, HP, dice, sockets and Birthstone; Birthstone mesh
+- **View.** Character select card with face, HP, dice, sockets and Birthstone; Birthstone mesh
   variants (shield, marquise, step, briolette, cube, cushion, sphere, checkerboard) in `view/gems/`;
-  bust states wired to HP and events on the player's own panel and the ally panels; a flip button if
+  face moods wired to HP and events on the player's own panel and the ally panels (done, §4); a flip button if
   Puck is taken.
 - **Profile.** `current_setting` becomes `current_character`; per-character rail and bowl as today.
 - **Docs.** Rewrite §5 of `REIMAGINING.md` and the Heroes row of the decisions table; fold this in.

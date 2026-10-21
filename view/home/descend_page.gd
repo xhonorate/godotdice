@@ -140,13 +140,23 @@ static func _going_down(home: Control, side: VBoxContainer) -> void:
 		var portrait := Roster.Portrait.new(str(key), Vector2(48, 48), not unlocked, str(key) == current, false)
 		portrait.tooltip_text = DeepContent.character_title(str(key)) if unlocked else "Locked. " + Roster.unlock_hint(str(key)) + "."
 		faces.add_child(portrait)
-		if unlocked and str(key) != current:
+		if unlocked:
 			portrait.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			DeepUi.juice(portrait, 1.08)
+			portrait.tooltip_text += "\nRight-click for their page."
 			var picked: String = str(key)
 			portrait.gui_input.connect(func(event: InputEvent) -> void:
-				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				if not event is InputEventMouseButton or not event.pressed:
+					return
+				if event.button_index == MOUSE_BUTTON_RIGHT:
+					DeepAudio.play("ui_tap")
+					home._roster_pick = picked
+					home._roster_view = "dossier"
+					home._bench_socket = -1
+					home.open("delvers", true)
+				elif event.button_index == MOUSE_BUTTON_LEFT and picked != current:
 					home.choose_character(picked))
+			if str(key) != current:
+				DeepUi.juice(portrait, 1.08)
 		if bool(home.profile.get("characters", {}).get(str(key), {}).get("fresh", false)):
 			HomeParts.pin(portrait, 0, home.PIP_NEW, true)
 	DeepUi.title(box, DeepContent.character_title(current), 21, DeepUi.PAPER)

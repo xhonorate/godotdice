@@ -8,7 +8,7 @@ const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun",
-	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "thorn", "dulled": "cut",
+	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "caltrop", "dulled": "cut",
 	"summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "scorched": "flame", "burn": "flame", "strength": "bolt", "die_lock": "die",
 	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "bolt", "rally": "party", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
 	"charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die", "grind_die": "die", "break_gem": "cross_out", "lock_die": "die", "break_die": "cross_out", "blank_face": "die",

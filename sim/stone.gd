@@ -422,8 +422,8 @@ static func haul_tab(stone: Dictionary) -> String:
 
 static func is_geode(stone: Variant) -> bool:
 	## A Geode brought up from a mine: a stone still sealed in its rock, with the recipe of
-	## the Geode it is in under `geode`. Down the mine it can only be carried, traded and
-	## thrown away; the workshop cracks it, which makes it an ordinary stone and takes the
+	## the Geode it is in under `geode`. Down the mine it can only be carried and thrown
+	## away; the workshop cracks it, which makes it an ordinary stone and takes the
 	## recipe off it.
 	return stone is Dictionary and stone.get("geode", null) is Dictionary and not (stone.geode as Dictionary).is_empty()
 

@@ -57,7 +57,7 @@ const STYLE_KIN: Dictionary = {"shield": "RED", "marquise": "WHITE", "step": "VI
 ## against the sockets they sit in, and a Birthstone is a one-off rather than one of a set
 ## that has to look consistent. Every style a Birthstone can wear is listed, 1.0 included,
 ## so the two ways of sizing a stone never both apply to one.
-const STYLE_SCALE := {"shield": 0.90, "step": 0.85, "briolette": 0.95,
+const STYLE_SCALE := {"shield": 0.90, "step": 0.85, "briolette": 0.90,
 	"checkerboard": 0.70, "heptagon": 0.70, "marquise": 1.00}
 const STYLE_OFFSET := {"shield": Vector3(0.0, -0.08, 0.0)}
 

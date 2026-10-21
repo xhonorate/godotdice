@@ -50,6 +50,17 @@ const TALLY_GLANCE: float = 0.2
 ## A blow on a lapidary that block takes part of: what came in, the block flying off it, what
 ## was left to bleed, counted at the health bar before the next thing happens.
 const SOAK_SPAN: float = 0.6
+## A Birthstone's lit tiers, and Second Wind, are counted out one after another the way a gem
+## is (see `birth_count`): the tier's name called out large and standing alone for BIRTH_CALL,
+## the number Resonance multiplies, then Resonance itself streaming out of its counter into a
+## box of its own for BIRTH_FLOW, then the figure fused and flown; what it does lands before
+## the next tier is called (BIRTH_LAND at the least). With the counts off a tier shows its name
+## and figure together for BIRTH_GLANCE. The stone lights for BIRTH_LEAD before the first.
+const BIRTH_CALL: float = 0.5
+const BIRTH_FLOW: float = 0.7
+const BIRTH_GLANCE: float = 0.45
+const BIRTH_LAND: float = 0.3
+const BIRTH_LEAD: float = 0.25
 ## The effects whose number a tally counts out: one that swells with weight and lands as a
 ## figure. The first of them a gem fires is its headline.
 const TALLY_KINDS: Array = ["damage", "block", "heal", "poison", "gold", "spikes", "regeneration", "retain"]
@@ -528,13 +539,19 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.fight_resonance = int(unit.get("fight_resonance", 0)) + resonance
 			var unused: int = int(unit.get("rerolls", 0))
 			var healed: int = 0
+			## Counted out like a Birthstone's tier: the rerolls left, times the Resonance.
+			var count: Dictionary = {}
 			if str(unit.get("passive", {}).get("kind", "")) == "heal_resonance_per_unused_reroll" and unused > 0 and resonance > 0:
 				healed = _heal(unit, resonance * unused)
+				count = {"name": str(unit.passive.get("name", "Second Wind")), "line": "%d unspent %s" % [unused, "reroll" if unused == 1 else "rerolls"],
+					"pace": count_pace(state), "kind": "heal", "target": str(unit.id), "repeat": 1, "res": resonance, "coef": unused,
+					"coef_what": "rerolls", "amount": resonance * unused, "healed": healed, "adds": [], "also": []}
 			## The last rail of the turn has had its say since the last creature fell: now the
 			## fight is won. An ally's rail still queued after this one fires first.
 			if bool(state.get("cleared", false)) and not _rail_firing(state):
 				_close_cleared(state)
-			return _event(state, "rail_end", {"unit": unit.id, "resonance": resonance, "unused_rerolls": unused, "healed": healed})
+			return _event(state, "rail_end", {"unit": unit.id, "resonance": resonance, "unused_rerolls": unused, "healed": healed, "count": count,
+				"duration": BASE_DURATION.rail_end + (birth_span(count) + BIRTH_LAND if not count.is_empty() else 0.0)})
 		"creatures_begin":
 			## A creature's block has stood through one volley of gems; whatever is left of it
 			## falls away as the creatures take their turn.
@@ -1047,6 +1064,8 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	var tiers: Array = []
 	var fired: bool = false
 	var all_dice: Array = []
+	## The Strength every blow carries, for the counts to show on top.
+	var strength: int = maxi(0, int(unit.get("statuses", {}).get("strength", 0)))
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
 		var trig: Dictionary = evaluated[index]
@@ -1067,22 +1086,29 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 			## is paid for the blow All In landed, not for what Raise took off them first.
 			var reactions: Dictionary = {}
 			var results: Array = []
+			## Each effect as it was resolved, by the def it came from, and what it did: the
+			## count reads these, since a pot term means something else once the pot has moved.
+			var resolved: Array = []
 			for effect_def in tier.get("effects", []):
 				if not effect_def is Dictionary:
 					continue
 				var applied: Dictionary = DeepRules.resolve_effect(effect_def, tc, 1.0)
 				var kind: String = str(applied.kind)
+				var did: Array = []
 				if kind in HAND_KINDS:
-					results.append(_mutate_hand(unit, applied))
+					did = [_mutate_hand(unit, applied)]
 				elif kind in SELF_KINDS:
-					results.append(_self_effect(state, unit, applied, -1, -1, dry, rng))
+					did = [_self_effect(state, unit, applied, -1, -1, dry, rng)]
 				elif kind in BIRTHSTONE_KINDS:
-					results.append(_birthstone_effect(state, unit, applied, dry, replay))
+					did = [_birthstone_effect(state, unit, applied, dry, replay)]
 				else:
-					results.append_array(_apply(state, unit, applied, rng, "", reactions))
+					did = _apply(state, unit, applied, rng, "", reactions)
+				results.append_array(did)
+				resolved.append([effect_def, applied, did])
 				if done(state):
 					break
 			entry.effects = results
+			entry.count = birth_count(str(entry.name), entry.trigger, resolved, resonance, a, strength, count_pace(state))
 		tiers.append(entry)
 		if done(state):
 			break
@@ -1094,15 +1120,156 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	if fired and not done(state):
 		answered = _answer_fire(state, unit, unit.get("after_fire", []), rng)
 	_check_outcome(state)
-	## Each tier's blows are animated on their own beat, so the longest of them is what the
-	## step has to hold: a Thousand Cuts is one tier throwing twenty bolts.
-	var longest: float = 0.0
+	## The lit tiers are counted and land one after another, so the step holds all of them:
+	## a Thousand Cuts is one tier throwing twenty bolts, a Rally three tiers in a row.
+	var played: float = 0.0
 	for entry in tiers:
 		if bool(entry.active):
-			longest = maxf(longest, hits_span(entry.effects))
+			played += tier_span(entry)
 	return _event(state, "birthstone", {"unit": unit.id, "name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "")),
 		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay, "promised": promised, "answers": answered,
-		"duration": (BASE_DURATION.birthstone + 0.2 * tiers.filter(func(x: Dictionary) -> bool: return bool(x.active)).size() + longest) if fired else BASE_DURATION.gem_fizzle})
+		"duration": (BASE_DURATION.birthstone + played) if fired else BASE_DURATION.gem_fizzle})
+
+static func tier_span(entry: Dictionary) -> float:
+	## One lit tier on screen: its count, then what it does landing (at the least BIRTH_LAND,
+	## for a guard, a heal or a stun to be seen).
+	return birth_span(entry.get("count", {})) + maxf(BIRTH_LAND, hits_span(entry.get("effects", [])))
+
+static func birth_count(name: String, trigger: Dictionary, resolved: Array, resonance: int, a: Dictionary, strength: int, pace: float) -> Dictionary:
+	## What one lit tier is seen to add up to, for the screen to count out before it lands:
+	## its name, called out; the number Resonance multiplies (the tier's own three, or the
+	## crowns showing, which hop); Resonance itself; what the pot held and what the bank put
+	## in; the Strength every blow carries; and the figure each blow lands with, so many times.
+	## `resolved` is [def, applied, results] for each effect the tier fired. A tier with no
+	## figure (a cleanse, an Encore, the poison ticking) is only called out. Nothing reads this
+	## back: it says what the rules already did. `trigger` is the tier's, as described.
+	var count: Dictionary = {"name": name, "line": str(trigger.get("words", "")), "pace": pace,
+		"trigger": {"kind": str(trigger.get("kind", "")), "need": int(trigger.get("need", 0))}}
+	var headline: int = -1
+	for index in range(resolved.size()):
+		var applied: Dictionary = resolved[index][1]
+		if str(applied.get("kind", "")) in TALLY_KINDS and str(applied.get("kind", "")) != "gold":
+			headline = index
+			break
+	for entry in resolved:
+		var applied: Dictionary = entry[1]
+		if str(applied.get("kind", "")) == "pot" and not entry[2].is_empty():
+			var moved: Dictionary = entry[2][0]
+			count.pot = {"mode": str(moved.get("mode", "")), "was": int(moved.get("was", 0)), "moved": int(moved.get("moved", 0)), "total": int(moved.get("total", 0))}
+		elif str(applied.get("kind", "")) == "gold" and headline >= 0:
+			## All In pays him what the pot took off them.
+			var paid: int = 0
+			for result in entry[2]:
+				paid += int(result.get("amount", 0)) if result is Dictionary else 0
+			count.payout = paid
+	if headline < 0:
+		return count
+	var def: Dictionary = resolved[headline][0]
+	var headline_applied: Dictionary = resolved[headline][1]
+	var kind: String = str(headline_applied.kind)
+	var amount: int = int(headline_applied.get("amount", 0))
+	count.kind = kind
+	count.target = str(headline_applied.get("target", ""))
+	count.repeat = maxi(1, int(headline_applied.get("repeat", 1)))
+	var expr: Variant = def.get("amount", null)
+	var other: Array = _resonance_factor(expr)
+	if not other.is_empty():
+		## Resonance times something: the something is the base, Resonance its multiplier.
+		count.res = resonance
+		var by: Variant = other[0]
+		if by == null:
+			count.coef = 1
+		else:
+			count.coef = DeepRules.amount(by, {"a": a})
+			if by is Dictionary and str(by.get("term", "")) == "crowns":
+				count.coef_what = "crowns"
+				count.coef_dice = a.get("crown_ids", []).duplicate()
+	elif _reads_pot(expr):
+		## The pot is the figure: what it held, then what the bank matched (a Raise, All In),
+		## or half of it (a Bust).
+		count.half = _halves(expr)
+		count.base = int(count.get("pot", {}).get("was", amount * (2 if bool(count.half) else 1)))
+	else:
+		count.base = amount
+	## A blow thrown once for every point on the highest die: that die says how many.
+	var times: Variant = def.get("repeat", null)
+	if times is Dictionary and str(times.get("term", "")) == "high":
+		var showing: Array = a.get("ids_by_value", {}).get(int(a.get("high", 0)), [])
+		count.repeat_die = str(showing[0]) if not showing.is_empty() else ""
+	var adds: Array = []
+	if kind == "damage" and amount > 0 and strength > 0 and count.target != "self":
+		adds.append({"what": "strength", "by": strength})
+		amount += strength
+	count.adds = adds
+	count.amount = amount
+	## Anything else the tier lands with its figure (Full Motley's guard beside its blow).
+	var also: Array = []
+	for index in range(resolved.size()):
+		var applied: Dictionary = resolved[index][1]
+		if index != headline and str(applied.get("kind", "")) in TALLY_KINDS and str(applied.get("kind", "")) != "gold" and int(applied.get("amount", 0)) > 0:
+			also.append({"kind": str(applied.kind), "amount": int(applied.amount)})
+	count.also = also
+	return count
+
+static func _resonance_factor(expr: Variant) -> Array:
+	## [the other factor] when an amount is Resonance times something ([null] when it is
+	## Resonance alone); [] when it is not written on Resonance.
+	if not expr is Dictionary:
+		return []
+	if str(expr.get("term", "")) == "resonance":
+		return [null]
+	if str(expr.get("op", "")) != "*" or expr.get("args", []).size() != 2:
+		return []
+	for index in range(2):
+		var arg: Variant = expr.args[index]
+		if arg is Dictionary and str(arg.get("term", "")) == "resonance":
+			return [expr.args[1 - index]]
+	return []
+
+static func _reads_pot(expr: Variant) -> bool:
+	if not expr is Dictionary:
+		return false
+	if str(expr.get("term", "")) == "pot":
+		return true
+	for arg in expr.get("args", []):
+		if _reads_pot(arg):
+			return true
+	return false
+
+static func _halves(expr: Variant) -> bool:
+	## Half of something, floored: a Bust's half of the pot.
+	if not expr is Dictionary or str(expr.get("op", "")) != "floor_div":
+		return false
+	var args: Array = expr.get("args", [])
+	return args.size() == 2 and (args[1] is int or args[1] is float) and int(args[1]) == 2
+
+static func birth_span(count: Dictionary) -> float:
+	## How long a tier's count takes on screen, from its name being called to its figure
+	## leaving, at the pace the host chose: all of it at Full, half at Quick, and at Off the
+	## name and the figure together, for a moment.
+	if count.is_empty():
+		return 0.0
+	var pace: float = clampf(float(count.get("pace", 1.0)), 0.0, 1.0)
+	if pace <= 0.0:
+		return BIRTH_GLANCE
+	var span: float = BIRTH_CALL
+	if count.has("amount"):
+		var dice: int = count.get("coef_dice", []).size()
+		if dice > 0:
+			span += tally_die_gap(dice) * float(dice - 1) + TALLY_FLIGHT
+		elif int(count.get("coef", 1)) != 1 or count.has("base"):
+			span += TALLY_STEP
+		if count.has("res"):
+			span += BIRTH_FLOW
+		if str(count.get("pot", {}).get("mode", "")) in ["double", "all"] and count.has("base"):
+			span += TALLY_STEP
+		if bool(count.get("half", false)):
+			span += TALLY_STEP
+		span += TALLY_FUSE
+		if not str(count.get("repeat_die", "")).is_empty():
+			span += TALLY_STEP
+		span += TALLY_STEP * float(count.get("adds", []).size())
+	return span * pace
 
 static func _has_effect(tier: Dictionary, kind: String) -> bool:
 	for effect in tier.get("effects", []):

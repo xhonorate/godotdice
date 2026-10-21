@@ -22,8 +22,10 @@ const LENS_X := 3.05
 var scales: Node3D
 var lens: Node3D
 var _items: Dictionary = {}
-var _lens_label: Label3D
-var _scales_label: Label3D
+## The words over the lens and the scales: spots the stage writes over the view (see
+## `MineStage.NAME_GROUP`), with their words and tone as metas.
+var _lens_label: Node3D
+var _scales_label: Node3D
 var _pans: Array = []
 var _glows: Dictionary = {}
 var _clock: float = 0.0
@@ -108,17 +110,16 @@ func _material(color: Color, roughness: float) -> StandardMaterial3D:
 	m.roughness = roughness
 	return m
 
-func _label(text: String, color: Color, size: int = 40) -> Label3D:
-	var label := Label3D.new()
-	label.text = text
-	label.font = DeepUi.display_font()
-	label.font_size = size
-	label.pixel_size = 0.0042
-	label.outline_size = 10
-	label.outline_modulate = Color(0, 0, 0, 0.85)
-	label.modulate = color
-	label.double_sided = false
-	return label
+func _label(text: String, color: Color, size: int = 18) -> Node3D:
+	## A word over a spot on the counter, written by the stage in 2D so it stays crisp on a
+	## window bigger than the canvas the room is drawn at. `size` is in canvas pixels.
+	var spot := Node3D.new()
+	spot.set_meta("text", text)
+	spot.set_meta("tone", color)
+	spot.set_meta("font_size", size)
+	spot.set_meta("alpha", 1.0)
+	spot.add_to_group("stage_name")
+	return spot
 
 func _build_scales(rng: RandomNumberGenerator) -> void:
 	scales = Node3D.new()
@@ -164,7 +165,7 @@ func _build_scales(rng: RandomNumberGenerator) -> void:
 		dish.position = Vector3(0, -0.43, 0)
 		pan.add_child(dish)
 		_pans.append(pan)
-	_scales_label = _label("Sell", DeepUi.ORE, 36)
+	_scales_label = _label("Sell", DeepUi.ORE, 18)
 	_scales_label.position = Vector3(0, 1.02, 0.1)
 	scales.add_child(_scales_label)
 	_glows["scales"] = _glow_light(scales, DeepUi.ORE)
@@ -214,7 +215,7 @@ func _build_lens() -> void:
 	clear.emission_energy_multiplier = 0.25
 	glass.material_override = clear
 	head.add_child(glass)
-	_lens_label = _label("Appraise", DeepUi.INFO, 36)
+	_lens_label = _label("Appraise", DeepUi.INFO, 18)
 	_lens_label.position = Vector3(0, 1.02, 0.1)
 	lens.add_child(_lens_label)
 	_glows["lens"] = _glow_light(lens, DeepUi.INFO)
@@ -233,13 +234,13 @@ func set_scales_price(price: int) -> void:
 	## While a stone is held over the pans they say what it would fetch; the rest of the time
 	## the scales only say what they are for. A negative price is nothing on them.
 	if _scales_label != null:
-		_scales_label.text = "Sell" if price < 0 else "Sell · %d pyrite" % price
+		_scales_label.set_meta("text", "Sell" if price < 0 else "Sell · %d pyrite" % price)
 
 func set_lens_price(cost: int) -> void:
 	_lens_cost = cost
 	if _lens_label != null:
-		_lens_label.text = "Appraise · %d pyrite" % cost
-		_lens_label.modulate = DeepUi.INFO if _purse < 0 or _purse >= cost else DEARER
+		_lens_label.set_meta("text", "Appraise · %d pyrite" % cost)
+		_lens_label.set_meta("tone", DeepUi.INFO if _purse < 0 or _purse >= cost else DEARER)
 
 func glow(which: String, on: bool) -> void:
 	## A drop target lights while something that would go there is dragged, or pointed at.
@@ -303,9 +304,8 @@ func show_stock(stock: Array) -> void:
 		shine.position = Vector3(0, 0.3, 0.45)
 		shine.shadow_enabled = false
 		holder.add_child(shine)
-		var price := _label("%d" % int(item.get("price", 0)), _price_tone(int(item.get("price", 0))), 44)
+		var price := _label("%d" % int(item.get("price", 0)), _price_tone(int(item.get("price", 0))), 20)
 		price.position = Vector3(0, -0.27, 0.6)
-		price.rotation = Vector3(-0.5, 0, 0)
 		holder.add_child(price)
 		_items[id] = {"holder": holder, "spinner": spinner, "shine": shine, "hover": false, "phase": float(index) * 1.3,
 			"price_label": price, "price": int(item.get("price", 0))}
@@ -316,10 +316,10 @@ func set_purse(ore: int) -> void:
 	_purse = ore
 	for id in _items:
 		var label: Variant = _items[id].get("price_label", null)
-		if label is Label3D and is_instance_valid(label):
-			(label as Label3D).modulate = _price_tone(int(_items[id].get("price", 0)))
+		if label is Node3D and is_instance_valid(label):
+			(label as Node3D).set_meta("tone", _price_tone(int(_items[id].get("price", 0))))
 	if _lens_label != null:
-		_lens_label.modulate = DeepUi.INFO if _purse < 0 or _purse >= _lens_cost else DEARER
+		_lens_label.set_meta("tone", DeepUi.INFO if _purse < 0 or _purse >= _lens_cost else DEARER)
 
 func _price_tone(price: int) -> Color:
 	return DeepUi.ORE if _purse < 0 or _purse >= price else DEARER

@@ -379,7 +379,11 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 	var frame := DeepUi.center(_stage)
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if not character_key.is_empty():
-		frame.add_child(load("res://view/home/roster.gd").Portrait.new(character_key, Vector2(320, 380), false, false, true))
+		## Their face as things stand with them: hurt, or down.
+		var roster: GDScript = load("res://view/home/roster.gd")
+		var face: Control = roster.Portrait.new(character_key, Vector2(320, 380), false, false, true)
+		face.mood = roster.resting_mood(unit)
+		frame.add_child(face)
 	var haul: Array = unit.get("haul", [])
 	DeepUi.title(_head, str(unit.get("name", "A delver")), 30, tone.lightened(0.3))
 	var tags := DeepUi.hbox(_head, 8)
@@ -1435,7 +1439,7 @@ static func _effect_glyph(kind: String) -> String:
 		"scorched": "flame", "die_lock": "die", "steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "break_die": "cross_out", "blank_face": "die",
 		"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop",
 		"rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart", "charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die",
-		"grind_die": "die", "break_gem": "cross_out", "dulled": "cut", "marked": "eye", "ward": "shield_burst", "retain": "shield", "spikes": "thorn", "regeneration": "heart"}.get(kind, "spark"))
+		"grind_die": "die", "break_gem": "cross_out", "dulled": "cut", "marked": "eye", "ward": "shield_burst", "retain": "shield", "spikes": "caltrop", "regeneration": "heart"}.get(kind, "spark"))
 
 func _effect_words(effect: Dictionary) -> String:
 	var kind: String = str(effect.get("kind", ""))
