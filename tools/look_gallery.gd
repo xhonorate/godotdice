@@ -105,7 +105,7 @@ func _shoot_room(holder: Control, room: String) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = depth * 977
 	var keys: Array = [DeepDescent.warden_key({"mine": mine}, depth)] if kind == "warden" \
-		else DeepForge.encounter(rng, DeepContent.mine(mine), depth, 1, kind == "elite")
+		else DeepForge.encounter(rng, DeepContent.mine(mine), depth, kind == "elite")
 	var fighters: Array = [DeepBattle.make_player("p0", "Lapidary", character, loadout.rail, loadout.dice)]
 	var battle: Dictionary = DeepBattle.begin(fighters, keys, {"depth": depth, "elite": kind == "elite", "warden": kind == "warden"}, rng, rng)
 	var screen := BattleScreen.new()

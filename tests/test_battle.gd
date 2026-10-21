@@ -112,7 +112,7 @@ func _test_setup_and_planning() -> void:
 	check(a.birthstone.name == "Rally" and a.character == "ARDOR", "the unit carries its Birthstone")
 	check(a.target == "e0", "the first creature is targeted by default")
 	var tick: Dictionary = DeepBattle.enemy(state, "e0")
-	check(tick.max_hp == int(round(16 * (1.0 + 0.05 * 2) * 1.15)), "creature HP scales with depth and party: %d" % tick.max_hp)
+	check(tick.max_hp == int(round(16 * (1.0 + 0.05 * 2) * 2)), "creature HP scales with depth and doubles for a party of two: %d" % tick.max_hp)
 	check(tick.hand.is_empty() and tick.moves.size() == 2, "planning shows the moveset without rolling")
 	check(not tick.has("intents"), "no prepared moves or player targets leak into planning")
 	var before: Array = a.hand.duplicate(true)
@@ -745,7 +745,7 @@ func _test_whole_fights() -> void:
 		for seed_value in range(12):
 			var r: Dictionary = rngs(1000 + depth * 100 + seed_value)
 			var mine: Dictionary = DeepContent.mine("QUARRY")
-			var keys: Array = DeepForge.encounter(r.creatures, mine, depth, 2)
+			var keys: Array = DeepForge.encounter(r.creatures, mine, depth)
 			var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 2), stone("GUARD", 3, 2), stone("MEND", 2, 2), stone("CLEAVE", 3, 3)]),
 				player("b", [stone("BARRAGE", 4, 3), stone("TEMPO", 3, 2), stone("VENOM", 3, 2), stone("BLOOM", 2, 3), stone("CRUSH", 4, 2)], "VESPER")], keys, {"depth": depth}, r.dice, r.creatures)
 			var log: Array = []
@@ -763,8 +763,8 @@ func _test_whole_fights() -> void:
 	check(wins[1] >= 6, "a two-player party mostly wins at depth 1: %s" % str(wins))
 	var r_a: Dictionary = rngs(1000 + 100)
 	var r_b: Dictionary = rngs(1000 + 100)
-	var keys_a: Array = DeepForge.encounter(r_a.creatures, DeepContent.mine("QUARRY"), 1, 2)
-	var keys_b: Array = DeepForge.encounter(r_b.creatures, DeepContent.mine("QUARRY"), 1, 2)
+	var keys_a: Array = DeepForge.encounter(r_a.creatures, DeepContent.mine("QUARRY"), 1)
+	var keys_b: Array = DeepForge.encounter(r_b.creatures, DeepContent.mine("QUARRY"), 1)
 	var s_a: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")])], keys_a, {"depth": 1}, r_a.dice, r_a.creatures)
 	var s_b: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")])], keys_b, {"depth": 1}, r_b.dice, r_b.creatures)
 	var log_a: Array = []

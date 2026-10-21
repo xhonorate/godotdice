@@ -82,6 +82,47 @@ static func upgrade(profile: Dictionary) -> bool:
 		_ensure_hazard(profile)
 		profile.hazard.top = 1
 		changed = true
+	if forget_removed(profile):
+		changed = true
+	return changed
+
+static func forget_removed(profile: Dictionary) -> bool:
+	## A skill taken out of the pack (Windfall, September 2026) leaves nothing behind: its
+	## stone goes from the vault and the tray, and its name from the record of what was seen,
+	## the stars, the Transcendents made and every loadout. True if anything went.
+	var skills: Dictionary = DeepContent.section("skills")
+	var gone := func(skill: Variant) -> bool: return skill is String and not str(skill).is_empty() and not skills.has(str(skill))
+	var changed: bool = false
+	var vault: Variant = profile.get("vault", {})
+	if vault is Dictionary:
+		for key in vault.keys():
+			if gone.call(str(key)) or (vault[key] is Dictionary and gone.call(vault[key].get("skill", ""))):
+				lose(profile, str(key))
+				changed = true
+	var tray: Variant = profile.get("tray", [])
+	if tray is Array:
+		var kept: Array = tray.filter(func(s: Variant) -> bool: return not (s is Dictionary and gone.call(s.get("skill", ""))))
+		if kept.size() != tray.size():
+			profile.tray = kept
+			changed = true
+	for field in ["seen", "favorites", "transcended"]:
+		var names: Variant = profile.get(field, [])
+		if names is Array and names.any(gone):
+			profile[field] = names.filter(func(s: Variant) -> bool: return not gone.call(s))
+			changed = true
+	for key in profile.get("characters", {}):
+		var rail: Array = profile.characters[key].get("rail", [])
+		for index in range(rail.size()):
+			if gone.call(rail[index]):
+				rail[index] = null
+				changed = true
+	## The best stone on record is weighed again from what is left.
+	var best: Variant = profile.get("records", {}).get("best", {})
+	if best is Dictionary and best.get("stone", null) is Dictionary and gone.call(best.stone.get("skill", "")):
+		profile.records.best = {}
+		for key in profile.get("vault", {}):
+			regrade(profile, profile.vault[key])
+		changed = true
 	return changed
 
 static func new_mine_record(key: String) -> Dictionary:

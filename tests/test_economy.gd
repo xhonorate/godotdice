@@ -100,6 +100,23 @@ func _test_upgrade() -> void:
 	check(old.conquest_paid == ["QUARRY"], "a mine already conquered counts as paid: its purse was for a first")
 	check(old.characters.values().all(func(c: Dictionary) -> bool: return int(c.sockets) == 3), "every lapidary starts with three sockets open")
 	check(not DeepProfile.upgrade(old), "and an upgraded profile is left alone")
+	## A save that kept a stone of a skill since taken out of the pack.
+	var removed: Dictionary = DeepProfile.new_profile("Removed")
+	var windfall: Dictionary = DeepStone.make("STRIKE", 8, 4, 5, [], {}, "wf1")
+	windfall.skill = "WINDFALL"
+	removed.vault.WINDFALL = windfall
+	removed.seen.append("WINDFALL")
+	removed.favorites = ["WINDFALL", "GUARD"]
+	removed.tray = [windfall.duplicate(true), DeepStone.make("VENOM", 2, 1, 2, [], {}, "v1")]
+	removed.records.best = {"score": 9999, "tier": "x", "stone": windfall.duplicate(true)}
+	var rail: Array = removed.characters.ARDOR.rail
+	rail[rail.find(null)] = "WINDFALL"
+	check(DeepProfile.upgrade(removed), "a stone of a removed skill is upgraded away")
+	check(not removed.vault.has("WINDFALL") and not removed.seen.has("WINDFALL") and removed.favorites == ["GUARD"] and not removed.characters.ARDOR.rail.has("WINDFALL"),
+		"its skill is gone from the vault, the seen record, the stars and the loadout")
+	check(removed.tray.size() == 1 and str(removed.tray[0].skill) == "VENOM", "the tray keeps only what is still in the pack")
+	check(str(removed.records.best.get("stone", {}).get("skill", "")) in ["STRIKE", "GUARD", "MEND"], "and the best stone on record is weighed again: %s" % str(removed.records.best))
+	check(not DeepProfile.upgrade(removed), "after which the profile is left alone")
 
 # --- sockets ----------------------------------------------------------------------------------
 

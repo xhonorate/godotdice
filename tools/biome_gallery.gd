@@ -53,7 +53,7 @@ func _init() -> void:
 		if kind == "warden":
 			keys = [DeepDescent.warden_key({"mine": mine}, depth)]
 		else:
-			keys = DeepForge.encounter(rng, DeepContent.mine(mine), depth, 1, kind == "elite")
+			keys = DeepForge.encounter(rng, DeepContent.mine(mine), depth, kind == "elite")
 		var fighters: Array = [DeepBattle.make_player("p0", "Lapidary", character, loadout.rail, loadout.dice)]
 		## "depth:kind:party" shoots a room with a second player, to see the ally cards.
 		if parts.size() > 3 and parts[3] == "party":

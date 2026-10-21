@@ -475,19 +475,20 @@ static func band_for(mine: Dictionary, depth: int) -> Dictionary:
 		chosen = mine.bands[0]
 	return chosen
 
-static func encounter(rng: RandomNumberGenerator, mine: Dictionary, depth: int, party: int, elite: bool = false) -> Array:
-	## Creature keys for a fight, bought against a threat budget that grows with depth and
-	## with the size of the party. An elite fight has half again the budget.
+static func encounter(rng: RandomNumberGenerator, mine: Dictionary, depth: int, elite: bool = false) -> Array:
+	## Creature keys for a fight, bought against a threat budget that grows with depth. A
+	## party meets the same number a lone delver does: each creature is bred tougher for it
+	## instead (DeepCreatures.make). An elite fight has half again the budget.
 	var band: Dictionary = band_for(mine, depth)
 	var table: Dictionary = {}
 	for key in band.get("creatures", {}):
 		table[str(key)] = float(band.creatures[key])
 	if table.is_empty():
 		return []
-	var budget: float = (3.0 + float(depth) * 0.6) * (0.55 + 0.45 * float(clampi(party, 1, 4)))
+	var budget: float = 3.0 + float(depth) * 0.6
 	if elite:
 		budget *= 1.5
-	var most: int = 2 + clampi(party, 1, 4)
+	var most: int = 3
 	var picked: Array = []
 	var guard: int = 0
 	while picked.size() < most and guard < 20:

@@ -286,13 +286,11 @@ func _test_forge() -> void:
 	check(deep.tiers.get("ROUGH", 0) < shallow.tiers.get("ROUGH", 0), "fewer Rough stones deep")
 	check(shallow.stars > 0 and shallow.stars < 60, "a Star turns up, rarely: %d in 4000" % shallow.stars)
 	check(shallow.inclusion_ok, "inclusion counts match clarity slots and never repeat")
-	var solo: int = 0
-	var party: int = 0
+	var most: int = 0
 	for _i in range(200):
-		solo += DeepForge.encounter(rng, mine, 6, 1).size()
-		party += DeepForge.encounter(rng, mine, 6, 4).size()
-	check(party > solo, "a party of four meets more creatures: %d vs %d" % [party, solo])
-	check(DeepForge.encounter(rng, mine, 1, 1).size() >= 1, "there is always at least one creature")
+		most = maxi(most, DeepForge.encounter(rng, mine, 14).size())
+	check(most <= 3, "a fight never draws more than three creatures, whatever the party: %d" % most)
+	check(DeepForge.encounter(rng, mine, 1).size() >= 1, "there is always at least one creature")
 	var band: Dictionary = DeepForge.band_for(mine, 12)
 	check(int(band.from_depth) == 9, "the band for depth 12 starts at 9")
 	var die: Dictionary = DeepForge.roll_die(rng, mine, 5)

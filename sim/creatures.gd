@@ -22,7 +22,9 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 			def = source
 	## Pressure Cooker writes a steeper climb into the fight's scale.
 	var hp_scale: float = 1.0 + float(scale.get("depth_hp", DeepContent.constant("depth_hp_scale", 0.05))) * float(maxi(0, depth - 1))
-	hp_scale *= 1.0 + 0.15 * float(clampi(party, 1, 4) - 1)
+	## A party meets as many creatures as a lone delver would, each with a lone delver's
+	## health for every player on the run.
+	hp_scale *= float(maxi(1, party))
 	hp_scale *= maxf(0.01, float(scale.get("hp", 1.0)))
 	var hp: int = maxi(1, int(round(float(def.get("hp", 10)) * hp_scale)))
 	var dice: Array = []

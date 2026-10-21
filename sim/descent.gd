@@ -1064,10 +1064,9 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 
 static func _start_fight(state: Dictionary, streams: Dictionary, elite: bool, warden: String) -> Dictionary:
 	var mine: Dictionary = mine_of(state)
-	var party: Array = living(state)
 	## Old Blood breeds every creature further down than the floor it stands on.
 	var threat: int = int(state.depth) + int(state.get("heat", 0)) + int(DeepContent.hazard_param("OLD_BLOOD", "heat", 10)) * mod_count(state, "OLD_BLOOD")
-	var keys: Array = [warden] if not warden.is_empty() else DeepForge.encounter(streams.creatures, mine, threat, party.size(), elite)
+	var keys: Array = [warden] if not warden.is_empty() else DeepForge.encounter(streams.creatures, mine, threat, elite)
 	## Crown's Court: the boss above the Rift fights beside one of the bosses the Rift remembers.
 	var court: int = -1
 	if not warden.is_empty() and has_mod(state, "CROWNS_COURT") and warden == str(mine.get("boss", "")) and DeepContent.is_endless(str(mine.get("next", ""))):
