@@ -75,7 +75,7 @@ func hit(f: Dictionary, target: Dictionary, amount: int) -> Dictionary:
 func triggers() -> void:
 	var f: Dictionary = setup()
 	for cut in range(5):
-		for spec in [["MEND", 3 + cut, false], ["THRIVE", 12 - cut, true], ["APEX", 20 - cut, true], ["GLIMMER", 3 + cut, false]]:
+		for spec in [["MEND", 3 + cut, false], ["THRIVE", 12 - cut, true], ["APEX", 20 - 2 * cut, true], ["GLIMMER", 3 + cut, false]]:
 			var key: String = spec[0]
 			var threshold: int = int(spec[1])
 			equip(f, key, false, cut)
@@ -119,7 +119,7 @@ func attacks() -> void:
 	f = setup()
 	f.player.hp = 500
 	cast(f, "FURY", [1, 2, 3, 4, 5], true)
-	check(int(f.foe.hp) == 955, "Fury applies 50% missing HP after the Flawless magnitude: 20 × 1.5 × 1.5")
+	check(int(f.foe.hp) == 967, "Fury applies 50% missing HP after the Flawless magnitude: floor(5 × 3 × 1.5) × 1.5 = 33")
 	f = setup()
 	f.player.block_lost = 40
 	f.foe.block = 10
@@ -164,7 +164,7 @@ func status_gems() -> void:
 	cast(f, "BULWARK", [1, 2, 3, 4, 5], true)
 	check(int(f.player.block) == 22 and int(f.player.statuses.retain) == 11, "Bulwark reads total and retains half of actual Block gained")
 	cast(f, "MORTAR")
-	check(int(f.player.statuses.retain) == 17, "Mortar converts current Block into Retain")
+	check(int(f.player.statuses.retain) == 20, "Perfect Mortar adds 50% of 22 Block to 11 Retain, capped at 20")
 	f = setup()
 	cast(f, "BLOOM", [1, 3, 5, 2, 2], true)
 	check(f.state.players.all(func(p: Dictionary) -> bool: return int(p.statuses.charged) == 3), "Bloom gives Charged per odd die to the party")
@@ -173,10 +173,10 @@ func status_gems() -> void:
 	cast(f, "HEX", [20, 2, 3, 4, 5], true)
 	check(int(f.foe.stolen_dice) == 1 and int(f.foe.statuses.clouded) == 1 and int(f.foe.statuses.get("stun", 0)) == 0, "Hex applies Bound and Clouded")
 	cast(f, "MIASMA", [2, 4, 6, 1, 1])
-	check(f.state.enemies.all(func(e: Dictionary) -> bool: return int(e.statuses.poison) == 6), "Miasma gives two Poison per even die to every enemy")
+	check(f.state.enemies.all(func(e: Dictionary) -> bool: return int(e.statuses.poison) == 3), "Miasma gives one Poison per even die to every enemy")
 	f.player.hp = 800
 	cast(f, "SIPHON")
-	check(int(f.player.hp) == 810, "Siphon heals 60% of the 18 enemy Poison, floored")
+	check(int(f.player.hp) == 805, "Siphon heals 60% of the nine enemy Poison, floored")
 	f = setup()
 	cast(f, "CURSE", [1, 1, 2, 3, 4], true)
 	check(int(f.foe.statuses.curse) == 2 and int(f.foe.max_hp) == 988 and int(f.foe.hp) == 985, "Curse stacks per one, lowers max HP per one (8 x 1.5), then deals stack damage (2 x 1.5, +20% from the Curse)")
@@ -368,7 +368,9 @@ func upgrades() -> void:
 	check(int(f.foe.hp) == 1000 - worth * 150 / 100, "already identified stones cannot pay again")
 
 func persistence() -> void:
-	for spec in [[0, 50, -30, false, "victory", 27], [100, 0, -30, false, "victory", 77], [100, 0, 30, true, "victory", 144], [0, 50, -30, true, "victory", 84], [100, 0, -30, false, "defeat", 70], [0, 50, -30, false, "defeat", 0]]:
+	## The current pack pays 20 + depth per ordinary fight. Elites double winnings, while
+	## spending/refunds remain exact and defeat pays no winnings.
+	for spec in [[0, 50, -30, false, "victory", 41], [100, 0, -30, false, "victory", 91], [100, 0, 30, true, "victory", 172], [0, 50, -30, true, "victory", 112], [100, 0, -30, false, "defeat", 70], [0, 50, -30, false, "defeat", 0]]:
 		var f: Dictionary = setup(1, 1)
 		var state: Dictionary = DeepDescent.new_run({"seed": 11, "mine": "QUARRY", "boons": false, "players": [{"id": "p0", "name": "Player", "character": "ARDOR", "rail": [], "dice": f.player.dice}]})
 		state.players[0].ore = int(spec[0])

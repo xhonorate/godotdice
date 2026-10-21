@@ -202,7 +202,7 @@ func seat_status(unit: Dictionary) -> Array:
 					return ["lift", DeepUi.GOOD, "Riding the lift up"]
 				"descend":
 					return ["descend", DeepUi.ACCENT, "Going on down"]
-			return choosing_now.call("Taking a respite" if str(unit.get("respite", "")).is_empty() else "Choosing a way on")
+			return choosing_now.call("Taking a respite" if DeepDescent.needs_respite(run, unit) else "Choosing a way on")
 		"hoard":
 			var pile: Dictionary = run.get("hoard", {}).get(id, {})
 			if not pile.is_empty():

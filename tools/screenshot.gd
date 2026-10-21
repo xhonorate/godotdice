@@ -1,4 +1,6 @@
 extends SceneTree
+
+const Homecoming = preload("res://view/home/homecoming.gd")
 ## Boots the game, drives it to a screen, and saves what it looks like.
 ##   godot --path . --script tools/screenshot.gd -- <target> out.png [seed]
 ## Targets: home (map) | map_party | map_deep | map_hazard | bench | roster_sockets | vault | appraise | ledger |
@@ -105,7 +107,8 @@ func _init() -> void:
 			app.home._appraise_pick = str(pick.id)
 			app.home.open("appraise")
 			await create_timer(0.6).timeout
-			app.home._appraise_stone(pick)
+			if not _start_home_appraisal(app):
+				return
 			await create_timer(moment if moment >= 0.0 else 3.0).timeout
 			_save(out)
 			return
@@ -494,10 +497,14 @@ func _void_preview(app: Control, target: String, out: String) -> void:
 		app.profile.gold = 1000
 		app.profile.tray.append(raw)
 		app._profile_changed()
+		app.home._appraise_pick = str(raw.id)
 		app.home.open("appraise")
-		app.home._appraise_stone(raw)
+		if not _start_home_appraisal(app):
+			return
 		await create_timer(0.5).timeout
-		load("res://view/gems/appraisal.gd")._open.finish()
+		for bench in app.home.find_children("*", "Control", true, false):
+			if bench is Homecoming.LoupeBench:
+				bench._finish()
 		await create_timer(0.35).timeout
 		_save(out)
 		return
@@ -530,6 +537,16 @@ func _void_preview(app: Control, target: String, out: String) -> void:
 		app.descent._bench._render()
 	await create_timer(1.5).timeout
 	_save(out)
+
+func _start_home_appraisal(app: Control) -> bool:
+	## Home appraisal now plays in the tray's loupe. Use the same button as the player.
+	for button in app.home.find_children("*", "Button", true, false):
+		if button.text == "Read it" and button.is_visible_in_tree() and not button.disabled:
+			button.pressed.emit()
+			return true
+	printerr("screenshot: no available Read it action")
+	quit(1)
+	return false
 
 func _save(out: String) -> void:
 	var image: Image = root.get_viewport().get_texture().get_image()

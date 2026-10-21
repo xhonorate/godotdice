@@ -3706,17 +3706,28 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 		## A Certainty earlier on the rail has every gem after it firing whatever the hand says.
 		fires = maxi(fires, certain_times(unit, socket, false))
 		var event: Dictionary = {}
+		var fired_effects: Array = []
+		var activations: int = 0
 		for repeat in range(maxi(1, fires)):
-			event = resolve_gem(copy, unit, socket, {"dry": true, "retrigger": repeat > 0}, rng)
+			var resolved: Dictionary = resolve_gem(copy, unit, socket, {"dry": true, "retrigger": repeat > 0}, rng)
+			## Chatoyance and Certainty can fire a socket more than once. The socket's
+			## count shows one activation; the rail's totals include every activation.
+			## If the first changes the hand so the second fizzles, keep the first count.
+			if str(resolved.get("kind", "")) == "gem_fire":
+				activations += 1
+				fired_effects.append_array(resolved.get("effects", []))
+				event = resolved
+			elif event.is_empty():
+				event = resolved
 		var entry: Dictionary = {"socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill), "worn": str(stone.get("worn_from", "")),
-			"active": str(event.get("kind", "")) == "gem_fire",
+			"active": activations > 0,
 			"reason": str(event.get("reason", "")), "dice": event.get("dice", []), "resonance": int(event.get("resonance", 0)),
-			"harmony": bool(event.get("harmony", false)), "cut_step": int(event.get("cut_step", 0)), "fires": fires,
+			"harmony": bool(event.get("harmony", false)), "cut_step": int(event.get("cut_step", 0)), "fires": activations,
 			"effects": event.get("effects", []), "tally": event.get("tally", {}),
 			"trigger": DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(preview.get("cut_step", 0)))}
 		if entry.active:
-			totals.fires += fires
-			for effect in event.get("effects", []):
+			totals.fires += activations
+			for effect in fired_effects:
 				if str(effect.get("kind", "")) == "appraise":
 					for hit in effect.get("hits", []):
 						totals.damage += int(hit.get("raw", 0))

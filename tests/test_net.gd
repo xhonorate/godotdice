@@ -119,6 +119,7 @@ func _init() -> void:
 	DeepSaveStore.override_directory = "user://test_scratch"
 	_test_local()
 	_test_linked()
+	_test_trade_changes()
 	_test_rejoin()
 	_test_held()
 	_test_reopen()
@@ -360,6 +361,59 @@ func _test_linked() -> void:
 	for wire in [host_wire, guest_wire, late_wire, host_wire_2]:
 		if wire.get_parent() == null:
 			wire.free()
+
+func _test_trade_changes() -> void:
+	## Editing an offered stone at the bench must cancel its offer on every screen, and a
+	## refused landing command must leave both mirrors untouched.
+	var host := DeepSession.new()
+	var guest := DeepSession.new()
+	root.add_child(host)
+	root.add_child(guest)
+	var host_wire := Loopback.new()
+	var guest_wire := Loopback.new()
+	_link(host_wire, guest_wire, "2")
+	host.start_local(member("Ada", "ARDOR"))
+	host.attach_transport(host_wire)
+	guest.is_host = false
+	guest.attach_transport(guest_wire)
+	guest.hello(member("Bo", "VESPER"))
+	guest.update_member({"ready": true})
+	host.start_run(5151)
+	host.run.phase = "landing"
+	host.run.depth = 4
+	host.run.landing = {"depth": 4, "cleared": false, "respites": {}}
+	var offered := DeepStone.make("STRIKE", 1, 2, 3, [], {}, "trade-host")
+	offered.appraised = true
+	var other := DeepStone.make("GUARD", 1, 2, 3, [], {}, "trade-guest")
+	other.appraised = true
+	DeepDescent.player(host.run, "p0").haul.append(offered)
+	DeepDescent.player(host.run, "p1").haul.append(other)
+	guest._guest_packet({"kind": "snapshot", "state": host.run.duplicate(true), "revision": host.revision, "lobby": host.lobby.duplicate(true)})
+	host.send({"kind": "trade_offer", "stone_id": offered.id})
+	guest.send({"kind": "trade_offer", "stone_id": other.id})
+	host.send({"kind": "trade_accept"})
+	host.send({"kind": "socket", "stone_id": offered.id, "index": 0})
+	check(not DeepDescent.trade_table(host.run).offers.has("p0") and DeepDescent.trade_table(host.run).accepted.is_empty(), "setting an offered stone withdraws it and clears trade consent")
+	check(same(host.run, guest.run), "the guest sees an offered stone leave the trading table for a socket")
+	var before: Dictionary = host.run.duplicate(true)
+	guest.send({"kind": "trade_accept"})
+	check(same(host.run, before) and same(host.run, guest.run), "accepting after the other stone was set is refused without changing either mirror")
+	host.send({"kind": "unsocket", "index": 0})
+	host.send({"kind": "trade_offer", "stone_id": offered.id})
+	before = host.run.duplicate(true)
+	host.send({"kind": "respite", "choice": "appraise", "stone_id": offered.id})
+	check(same(host.run, before) and same(host.run, guest.run), "a refused appraisal of an already read trade stone does not silently withdraw it")
+	## An older checkpoint can still contain an offer whose stone is no longer loose.
+	DeepDescent.player(host.run, "p0").haul.clear()
+	host.run.landing.trade = {"offers": {"p0": offered.id, "p1": other.id}, "accepted": ["p0"]}
+	guest._guest_packet({"kind": "snapshot", "state": host.run.duplicate(true), "revision": host.revision, "lobby": host.lobby.duplicate(true)})
+	before = host.run.duplicate(true)
+	guest.send({"kind": "trade_accept"})
+	check(same(host.run, before) and same(host.run, guest.run), "a stale trade is refused without moving the other stone or desynchronizing the run")
+	host._on_peer_disconnected("2")
+	check(not DeepDescent.trade_table(host.run).offers.has("p1") and DeepDescent.trade_table(host.run).accepted.is_empty(), "a disconnected trader frees their side of the table and clears consent")
+	for session in [host, guest]:
+		session.queue_free()
 
 func _link(host_wire: Loopback, guest_wire: Loopback, peer_id: String) -> void:
 	host_wire.my_peer_id = "1"

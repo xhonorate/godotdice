@@ -73,7 +73,7 @@ func _test_evaluation() -> void:
 	var strike_steps: Array = []
 	for step in range(5):
 		strike_steps.append(amount_of(DeepStone.evaluate(stone("STRIKE", 1, step), a), "damage"))
-	check(strike_steps == [3, 6, 10, 15, 18], "every Cut step reads a different hand: %s" % str(strike_steps))
+	check(strike_steps == [3, 6, 11, 15, 18], "every Cut step reads a different hand (Good reads 3 + 3 + 5): %s" % str(strike_steps))
 	var strike_perfect: Dictionary = DeepStone.evaluate(stone("STRIKE", 1, 4), a)
 	check(amount_of(strike_perfect, "damage") == 18, "Perfect Strike reads four dice: 5 + 5 + 5 + 3 = 18 (%d)" % amount_of(strike_perfect, "damage"))
 	var strike_big: Dictionary = DeepStone.evaluate(stone("STRIKE", 12, 0), a)

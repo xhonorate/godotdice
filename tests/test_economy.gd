@@ -1135,6 +1135,16 @@ func _test_daily_run() -> void:
 	bench.phase = "landing"
 	bench.landing = {"depth": 4, "warden_next": false, "cleared": false, "respites": {}}
 	check(not bool(DeepDescent._respite(bench, DeepDescent.player(bench, "a"), "rest", "").ok), "No Bench: nobody rests")
+	bench.depth = int(bench.schedule.landings[0])
+	DeepDescent._arrive_landing(bench, DeepDescent.streams_of(bench))
+	for unit in bench.players:
+		unit.haul = []
+		unit.ore = 0
+		var health: int = int(unit.hp)
+		check(DeepStone.rail_stones(unit).all(func(s: Dictionary) -> bool: return not DeepDescent.can_wish(s)), "No Bench's daily rail has only fragile stones that the well refuses")
+		check(bool(DeepDescent.command(bench, str(unit.id), {"kind": "choose", "choice": "descend"}).ok), "No Bench: an empty purse and bag cannot trap a player at the landing")
+		check(int(unit.hp) == health and str(unit.respite).is_empty(), "skipping the No Bench respite gives no healing or other reward")
+	check(str(bench.phase) == "tunnels", "No Bench: the party continues after both players choose a way")
 	var terrors: Dictionary = daily_with(["NIGHT_TERRORS"])
 	terrors.phase = "landing"
 	terrors.landing = {"depth": 4, "warden_next": false, "cleared": false, "respites": {}}
