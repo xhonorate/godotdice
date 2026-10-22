@@ -79,7 +79,7 @@ static func validate(key: String, recipe: Dictionary) -> Array:
 	if not recipe.get("parts", []) is Array or recipe.get("parts", []).is_empty():
 		errors.append("needs parts")
 	if not str(recipe.get("tint", "")).is_valid_html_color():
-		errors.append("needs a tint colour")
+		errors.append("needs a tint color")
 	for part in recipe.get("parts", []):
 		if not part is Dictionary:
 			errors.append("every part is an object")
@@ -315,7 +315,7 @@ static func _drill(_rng: RandomNumberGenerator, tone: Color, radius: float, heig
 	for s in range(steps + 1):
 		var t: float = float(s) / float(steps)
 		var reach: float = radius * (1.0 - t) * (1.0 - t * 0.15)
-		var y: float = -height * 0.5 + height * t
+		var y: float = - height * 0.5 + height * t
 		var ring: Array = []
 		for i in range(around):
 			var angle: float = TAU * float(i) / float(around)

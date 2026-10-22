@@ -6,6 +6,7 @@ import * as Patterns from './patterns.js';
 import * as Rules from './rules.js';
 import * as Dice from './dice.js';
 import { heldForPatterns } from './dice.js';
+import { I } from './numbers.js';
 
 export const TIERS = ['ROUGH', 'FINE', 'PRECIOUS', 'EXQUISITE', 'PEERLESS'];
 export const TIER_NAMES = { ROUGH: 'Rough', FINE: 'Fine', PRECIOUS: 'Precious', EXQUISITE: 'Exquisite', PEERLESS: 'Peerless' };
@@ -28,13 +29,13 @@ export function caratMultiplier(carat) {
 	return carat - 14;
 }
 
-export const isFlawless = (stone) => Boolean(C.clarityEntry(stone.clarity | 0).flawless_line);
+export const isFlawless = (stone) => Boolean(C.clarityEntry(I(stone.clarity)).flawless_line);
 export const inclusionSlots = (clarity) => Number(C.clarityEntry(clarity).inclusions || 0);
 export const color = (stone) => String(skillOf(stone).color || 'WHITE');
 export const isOpal = (stone) => color(stone) === C.OPAL;
 
-// Every colour the stone counts as: its skill's, any colour a Zoning adds, and the socket's
-// own colour for an Alexandrite. An opal answers to none of the six unless something says so.
+// Every color the stone counts as: its skill's, any color a Zoning adds, and the socket's
+// own color for an Alexandrite. An opal answers to none of the six unless something says so.
 export function colors(stone, socket = '') {
 	const out = [color(stone)];
 	// A gem made from several colors counts as all of them.
@@ -96,7 +97,7 @@ export function fingerprinted(rail, index, stone) {
 	if (!source || !source.inclusion) return stone;
 	return { ...stone, copied: source.inclusion };
 }
-export const modifierSum = (mods, kind, field = 'amount') => mods.reduce((s, m) => (m.kind === kind ? s + (Number(m[field]) | 0) : s), 0);
+export const modifierSum = (mods, kind, field = 'amount') => mods.reduce((s, m) => (m.kind === kind ? s + (I(Number(m[field]))) : s), 0);
 
 export function sizeClass(carat) {
 	let found = 0;
@@ -108,8 +109,8 @@ export function sizeClass(carat) {
 }
 
 export function gradeBreakdown(stone) {
-	const caratPts = ((stone.carat | 0) / caratMax()) * 45;
-	const cutPts = ((stone.cut | 0) / (Patterns.STEPS - 1)) * 20;
+	const caratPts = ((I(stone.carat)) / caratMax()) * 45;
+	const cutPts = ((I(stone.cut)) / (Patterns.STEPS - 1)) * 20;
 	const clear = C.clearIndex();
 	const clarityIndex = stone.clarity ?? clear;
 	const reach = Math.max(1, clarityIndex > clear ? C.clarities().length - 1 - clear : clear);
@@ -132,8 +133,8 @@ export function grade(stone) {
 
 export function value(stone) {
 	const clear = C.clearIndex();
-	let base = 10 + (stone.carat | 0) * 4;
-	base *= 1 + (stone.cut | 0) * 0.25;
+	let base = 10 + (I(stone.carat)) * 4;
+	base *= 1 + (I(stone.cut)) * 0.25;
 	base *= 1 + 0.3 * Math.abs((stone.clarity ?? clear) - clear);
 	base *= RARITY_VALUE[skillOf(stone).rarity || 'COMMON'] ?? 1;
 	for (const key of stone.inclusions || []) base *= 1 + (INCLUSION_SCORE[C.inclusion(key).rarity || 'COMMON'] ?? 2) / 20;
@@ -141,41 +142,41 @@ export function value(stone) {
 }
 
 export function roughValue(stone) {
-	const entry = sizeClass(stone.carat | 0);
+	const entry = sizeClass(I(stone.carat));
 	return Math.max(1, Math.round(6 + entry.low * 2.2));
 }
 
 export function name(stone) {
 	const skill = skillOf(stone);
-	const cut = C.cutEntry(stone.cut | 0).name || '';
-	const clarity = C.clarityEntry(stone.clarity | 0).name || '';
-	return `${cut} ${clarity} ${stone.carat | 0}-carat ${skill.name || stone.skill}`;
+	const cut = C.cutEntry(I(stone.cut)).name || '';
+	const clarity = C.clarityEntry(I(stone.clarity)).name || '';
+	return `${cut} ${clarity} ${I(stone.carat)}-carat ${skill.name || stone.skill}`;
 }
 
 // The ranks the stone really has once its inclusions and the rail context speak.
 export function effective(stone, c = {}) {
 	const mods = modifiers(stone);
 	const clarityCount = C.clarities().length;
-	const clarity = Math.max(0, Math.min(clarityCount - 1, (stone.clarity | 0) + (c.clarity_bonus | 0)));
+	const clarity = Math.max(0, Math.min(clarityCount - 1, (I(stone.clarity)) + (I(c.clarity_bonus))));
 	const clarityEntry = C.clarityEntry(clarity);
-	let carat = (stone.carat | 0) + modifierSum(mods, 'carat') + (c.carat_bonus | 0);
-	const depth = c.depth | 0;
+	let carat = (I(stone.carat)) + modifierSum(mods, 'carat') + (I(c.carat_bonus));
+	const depth = I(c.depth);
 	let caratMult = 1, magnitudeMult = 1;
-	let cutStep = stone.cut | 0;
+	let cutStep = I(stone.cut);
 	for (const m of mods) {
 		switch (m.kind) {
-			case 'carat_per_depth': if (depth > (m.below | 0)) carat += (depth - (m.below | 0)) * (Number(m.amount ?? 1) | 0); break;
+			case 'carat_per_depth': if (depth > (I(m.below))) carat += (depth - (I(m.below))) * (I(Number(m.amount ?? 1))); break;
 			case 'carat_mult': caratMult *= Number(m.amount ?? 1); break;
 			case 'magnitude': magnitudeMult *= Number(m.amount ?? 1); break;
-			case 'cut_override': cutStep = m.value | 0; break;
+			case 'cut_override': cutStep = I(m.value); break;
 		}
 	}
-	cutStep += (clarityEntry.cut_step | 0) + modifierSum(mods, 'cut_step') + (c.cut_step_bonus | 0);
-	const dulled = Math.max(0, c.dulled | 0);
+	cutStep += (I(clarityEntry.cut_step)) + modifierSum(mods, 'cut_step') + (I(c.cut_step_bonus));
+	const dulled = Math.max(0, I(c.dulled));
 	if (dulled > 0) cutStep = Math.max(0, Math.min(Patterns.STEPS - 1, cutStep) - dulled);
 	// An Assayer in the room weighs every gem at no more than its limit, however it got there.
 	let weight = carat * caratMult;
-	const caratCap = c.carat_cap | 0;
+	const caratCap = I(c.carat_cap);
 	if (caratCap > 0) { carat = Math.min(carat, caratCap); weight = Math.min(weight, caratCap); }
 	const magnitude = caratMultiplier(weight) * Number(clarityEntry.magnitude ?? 1) * magnitudeMult * Number(c.amplify ?? 1);
 	return { clarity, flawless: Boolean(clarityEntry.flawless_line), carat, cut_step: Math.max(0, cutStep), magnitude, modifiers: mods, resonance_mult: Number(clarityEntry.resonance_mult ?? 1) };
@@ -199,12 +200,14 @@ export function magnitudeMatters(stone) {
 
 export function text(stone, c = {}) {
 	const skill = skillOf(stone);
-	return Rules.fill(String(skill.text || ''), skill.numbers || {}, effective(stone, c).cut_step);
+	const eff = effective(stone, c);
+	return Rules.fill(String(skill.text || ''), skill.numbers || {}, eff.cut_step, eff.magnitude);
 }
 export function flawlessText(stone, c = {}) {
 	const skill = skillOf(stone);
 	if (!skill.flawless || typeof skill.flawless !== 'object') return '';
-	return Rules.fill(String(skill.flawless.text || ''), skill.numbers || {}, effective(stone, c).cut_step);
+	const eff = effective(stone, c);
+	return Rules.fill(String(skill.flawless.text || ''), skill.numbers || {}, eff.cut_step, eff.magnitude);
 }
 
 export function applyLens(hand, mode) {
@@ -221,7 +224,7 @@ export function applyLens(hand, mode) {
 			if (lowIndex >= 0) out[lowIndex].value = high;
 			break;
 		}
-		case 'ones_wild': for (const roll of out) if ((roll.value | 0) === 1 && (roll.kind || 'plain') === 'plain') roll.kind = 'wild'; break;
+		case 'ones_wild': for (const roll of out) if ((I(roll.value)) === 1 && (roll.kind || 'plain') === 'plain') roll.kind = 'wild'; break;
 		case 'held_twice': for (const roll of out) if (heldForPatterns(roll)) roll.twinned = true; break;
 	}
 	return out;
@@ -231,17 +234,17 @@ export function applyFlawless(defs, flawless) {
 	const out = defs.map((d) => JSON.parse(JSON.stringify(d)));
 	for (const change of flawless.modify || []) {
 		if (!change || typeof change !== 'object') continue;
-		const index = change.effect | 0;
+		const index = I(change.effect);
 		if (index < 0 || index >= out.length) continue;
 		const def = out[index];
 		for (const field of [...Rules.EFFECT_OPTIONS, 'amount', 'repeat']) if (field in change) def[field] = change[field];
 		if ('target' in change) def.target = String(change.target);
 		if ('kind' in change) def.kind = String(change.kind);
 		if ('scale' in change) def.scale = String(change.scale);
-		if ('mult' in change) def.amount = { op: '*', args: [def.amount ?? { const: 0 }, { const: change.mult | 0 }] };
-		if ('add' in change) def.amount = { op: '+', args: [def.amount ?? { const: 0 }, { const: change.add | 0 }] };
-		if ('repeat_add' in change) def.repeat = { op: '+', args: [def.repeat ?? { const: 1 }, { const: change.repeat_add | 0 }] };
-		if ('splash' in change) def.splash = change.splash | 0;
+		if ('mult' in change) def.amount = { op: '*', args: [def.amount ?? { const: 0 }, { const: I(change.mult) }] };
+		if ('add' in change) def.amount = { op: '+', args: [def.amount ?? { const: 0 }, { const: I(change.add) }] };
+		if ('repeat_add' in change) def.repeat = { op: '+', args: [def.repeat ?? { const: 1 }, { const: I(change.repeat_add) }] };
+		if ('splash' in change) def.splash = I(change.splash);
 	}
 	for (const extra of flawless.effects || []) if (extra && typeof extra === 'object') out.push(JSON.parse(JSON.stringify(extra)));
 	return out;
@@ -275,7 +278,7 @@ export function evaluate(stone, hand, c = {}) {
 	// stands still; it is only ever asked about the hand itself, never a lens's copy.
 	const a = c.analyze && working === hand ? c.analyze(wearing) : Hand.analyze(working, wearing);
 	const trigger = skill.trigger || { kind: 'always' };
-	const trig = Patterns.evaluate(trigger, eff.cut_step, a, { resonance: c.resonance | 0, pyrite: Rules.pyrite(c.unit || {}), fizzles: c.fizzles | 0, kills: c.kills | 0 });
+	const trig = Patterns.evaluate(trigger, eff.cut_step, a, { resonance: I(c.resonance), pyrite: Rules.pyrite(c.unit || {}), fizzles: I(c.fizzles), kills: I(c.kills) });
 	if (!trig.active && (hasModifier(mods, 'always_fires') || c.force_fire)) {
 		trig.active = true; trig.forced = true;
 		trig.dice = Hand.matching(a, () => true);
@@ -293,16 +296,16 @@ export function evaluate(stone, hand, c = {}) {
 		magnitude: eff.magnitude, analysis: a, effects: [], fires: trig.active ? 1 : 0, hp_cost: 0, resonance_gain: 0, next_cut_step: modifierSum(mods, 'next_cut_step'),
 		skill: stone.skill, stone_id: String(stone.id || ''), colors: wearing, die_boost: 1 };
 	if (!trig.active) return result;
-	// What the dice themselves are made of. A material that answers to this gem colour is
+	// What the dice themselves are made of. A material that answers to this gem color is
 	// half again as strong, and they multiply.
 	const fired = rollsOf(working, trig.dice || []);
 	const boost = Dice.strength(fired, wearing);
 	const magnitude = eff.magnitude * boost;
 	result.die_boost = boost;
 	result.magnitude = magnitude;
-	const tc = { a, trig, unit: c.unit || {}, resonance: c.resonance | 0, previous_amount: c.previous_amount | 0, carat: eff.carat, cut: eff.cut_step,
-		clarity: eff.clarity, enemy_poison: c.enemy_poison | 0, fizzles: c.fizzles | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1,
-		run_fires: c.run_fires | 0 };
+	const tc = { a, trig, unit: c.unit || {}, resonance: I(c.resonance), previous_amount: I(c.previous_amount), carat: eff.carat, cut: eff.cut_step,
+		clarity: eff.clarity, enemy_poison: I(c.enemy_poison), fizzles: I(c.fizzles), depth: I(c.depth), turn: I(c.turn), party: I(c.party) || 1,
+		run_fires: I(c.run_fires) };
 	// resolveEffect only reads a definition, so the pack's own are used as they stand.
 	let defs = skill.effects || [];
 	if (eff.flawless && skill.flawless && typeof skill.flawless === 'object') defs = applyFlawless(defs, skill.flawless);
@@ -325,7 +328,7 @@ export function evaluate(stone, hand, c = {}) {
 // The headline number of an evaluation: what an Echo repeats and the forecast sums.
 export function totalAmount(evaluation, kinds = ['damage', 'block', 'heal']) {
 	let total = 0;
-	for (const effect of evaluation.effects || []) if (kinds.includes(effect.kind)) total += (effect.amount | 0) * Math.max(1, effect.repeat | 0);
+	for (const effect of evaluation.effects || []) if (kinds.includes(effect.kind)) total += (I(effect.amount)) * Math.max(1, I(effect.repeat));
 	return total;
 }
 
@@ -334,7 +337,7 @@ export function totals(evaluation) {
 	const out = {};
 	for (const effect of evaluation.effects || []) {
 		const expectedProcs = effect.scaled ? 1 : effect.procs + effect.proc_chance / 100;
-		const amount = effect.amount * Math.max(1, effect.repeat | 0) * expectedProcs;
+		const amount = effect.amount * Math.max(1, I(effect.repeat)) * expectedProcs;
 		out[effect.kind] = (out[effect.kind] || 0) + amount;
 	}
 	return out;

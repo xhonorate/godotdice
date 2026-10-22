@@ -6,29 +6,29 @@ Everything here is data in `content/deep_cut.json` under `mines`, read by `sim/f
 
 ## The ladder
 
-| # | Mine | Depth | Wardens | Final boss | Usual carats | Cap | Luck | Creature health / damage | Lapidary met here |
-|---|---|---|---|---|---|---|---|---|---|
-| I | The Quarry | 16 | 8, 12 | 16 | ≤ 5 | 7 | −1 | ×1 / ×1 | (Ardor is the starter) |
-| II | The Seeps | 20 | 8, 16 | 20 | ≤ 6 | 9 | 0 | ×1.8 / ×1.3 | Vesper |
-| III | The Glass Veins | 24 | 8, 16 | 24 | ≤ 8 | 11 | +1 | ×3.2 / ×1.7 | Cadence |
-| IV | The Warrens | 24 | 8, 16 | 24 | ≤ 9 | 13 | +2 | ×5.8 / ×2.2 | Rue |
-| V | The Furnace | 28 | 12, 20 | 28 | ≤ 11 | 15 | +3 | ×10.5 / ×2.85 | Puck |
-| VI | The Hollow (key `GEODE`; the Geode until October 12, 2026) | 32 | 12, 24 | 32 | ≤ 12 | 17 | +4 | ×19 / ×3.7 | Florin |
-| ∞ | The Rift | endless | every 8 | — | ≤ 13, +1 a Warden | 17, +1 a Warden, to 24 | +5 | ×34, doubling every 8 floors / ×4.8, +15% every 8 | — |
+| #   | Mine                                                       | Depth   | Wardens | Final boss | Usual carats      | Cap                    | Luck | Creature health / damage                          | Lapidary met here      |
+| --- | ---------------------------------------------------------- | ------- | ------- | ---------- | ----------------- | ---------------------- | ---- | ------------------------------------------------- | ---------------------- |
+| I   | The Quarry                                                 | 16      | 8, 12   | 16         | ≤ 5               | 7                      | −1   | ×1 / ×1                                           | (Ardor is the starter) |
+| II  | The Seeps                                                  | 20      | 8, 16   | 20         | ≤ 6               | 9                      | 0    | ×1.8 / ×1.3                                       | Vesper                 |
+| III | The Glass Veins                                            | 24      | 8, 16   | 24         | ≤ 8               | 11                     | +1   | ×3.2 / ×1.7                                       | Cadence                |
+| IV  | The Warrens                                                | 24      | 8, 16   | 24         | ≤ 9               | 13                     | +2   | ×5.8 / ×2.2                                       | Rue                    |
+| V   | The Furnace                                                | 28      | 12, 20  | 28         | ≤ 11              | 15                     | +3   | ×10.5 / ×2.85                                     | Puck                   |
+| VI  | The Hollow (key `GEODE`; the Geode until October 12, 2026) | 32      | 12, 24  | 32         | ≤ 12              | 17                     | +4   | ×19 / ×3.7                                        | Florin                 |
+| ∞   | The Rift                                                   | endless | every 8 | —          | ≤ 13, +1 a Warden | 17, +1 a Warden, to 24 | +5   | ×34, doubling every 8 floors / ×4.8, +15% every 8 | —                      |
 
 Landings still come every fourth floor and still wander a floor either way, Wardens with them; the bottom floor never moves. Every mine has its own two Wardens and its own final boss (see [the Bestiary](BESTIARY.md)); the Rift's are the bosses above it, remembered, with the Infinite Void every fifth.
 
 ## Creatures: who lives where
 
-| Mine | Its own creatures | Bled in from above | Wardens | Final boss |
-|---|---|---|---|---|
-| Quarry | Cave Tick, Silt Slime, Magpie, Lantern Moth, Rail Rat, Quartz Golem, Clouder, Pit Mole, Vein Wraith, Glass Wyrm | — | the Foreman, the Mirror Regent | the Drill |
-| Seeps | Seep Eel, Drowned Miner, Lamprey Knot, Cave Crayfish | Cave Tick, Silt Slime, Clouder, Vein Wraith | the Lock-Keeper, the Drowned Choir | the Undertow |
-| Glass Veins | Echo Sprite, Glint Magpie, Will-o’-Wisp, Prism Golem, Refractor, Shard Wyrm | Cave Tick, Seep Eel, Drowned Miner, Clouder | the Glazier, the Kaleidoscope | the Prismarch and its Prisms |
-| Warrens | Spore Slime, Mycel Weaver, Puffball, Cap Shambler, Mycel Wraith, Root Horror | Clouder, Drowned Miner, Echo Sprite | the Gardener, the Spore Mother | the Heartrot and its Tendrils |
-| Furnace | Forge Imp, Salamander, Slag Hound, Fire Tick, Ember Crawler, Cinder Moth | Mycel Weaver, Clouder, Root Horror | the Smelter, the Anvil Knight | the Kiln Wyrm |
-| Hollow | Croupier Crab, Gilded Magpie, Geode Golem, Hoard Mimic, Amethyst Wyrm, Crystal Hydra | Salamander, Slag Hound, Forge Imp, Clouder | the Assayer, the Collector | the Hollow Crown |
-| Rift | Void Echo (anything from the first four mines), Null Shade, Riftling Swarm, Entropy Eye | through the Void Echo | the Remembered: the Drill, the Undertow, the Prismarch, the Heartrot, the Kiln Wyrm, round again; every fifth the Infinite Void | — |
+| Mine        | Its own creatures                                                                                               | Bled in from above                          | Wardens                                                                                                                         | Final boss                    |
+| ----------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Quarry      | Cave Tick, Silt Slime, Magpie, Lantern Moth, Rail Rat, Quartz Golem, Clouder, Pit Mole, Vein Wraith, Glass Wyrm | —                                           | the Foreman, the Mirror Regent                                                                                                  | the Drill                     |
+| Seeps       | Seep Eel, Drowned Miner, Lamprey Knot, Cave Crayfish                                                            | Cave Tick, Silt Slime, Clouder, Vein Wraith | the Lock-Keeper, the Drowned Choir                                                                                              | the Undertow                  |
+| Glass Veins | Echo Sprite, Glint Magpie, Will-o’-Wisp, Prism Golem, Refractor, Shard Wyrm                                     | Cave Tick, Seep Eel, Drowned Miner, Clouder | the Glazier, the Kaleidoscope                                                                                                   | the Prismarch and its Prisms  |
+| Warrens     | Spore Slime, Mycel Weaver, Puffball, Cap Shambler, Mycel Wraith, Root Horror                                    | Clouder, Drowned Miner, Echo Sprite         | the Gardener, the Spore Mother                                                                                                  | the Heartrot and its Tendrils |
+| Furnace     | Forge Imp, Salamander, Slag Hound, Fire Tick, Ember Crawler, Cinder Moth                                        | Mycel Weaver, Clouder, Root Horror          | the Smelter, the Anvil Knight                                                                                                   | the Kiln Wyrm                 |
+| Hollow      | Croupier Crab, Gilded Magpie, Geode Golem, Hoard Mimic, Amethyst Wyrm, Crystal Hydra                            | Salamander, Slag Hound, Forge Imp, Clouder  | the Assayer, the Collector                                                                                                      | the Hollow Crown              |
+| Rift        | Void Echo (anything from the first four mines), Null Shade, Riftling Swarm, Entropy Eye                         | through the Void Echo                       | the Remembered: the Drill, the Undertow, the Prismarch, the Heartrot, the Kiln Wyrm, round again; every fifth the Infinite Void | —                             |
 
 A variant (a Fire Tick for the Cave Tick) never stands within one mine of the creature it is based on, or of another variant of it; `tests/test_bestiary.gd` holds the bands to that.
 
@@ -44,17 +44,17 @@ Luck sources were trimmed alongside: an elite's stone is +3 luck (was +4, `elite
 
 Each mine's `batch` is the skills first found in its rock. A mine's pool is its own batch plus every batch above it, and its own batch comes up twice as often (`DeepForge.skill_pool`, `HOME_BATCH_WEIGHT`). A skill in no batch is in every pool, so a new skill is never unfindable while it waits to be placed; `tests/test_descent.gd` fails until every skill outside the opals has a home.
 
-| Mine | Style | Batch |
-|---|---|---|
-| Quarry (32) | the basics of every lapidary's style, all six colours | Strike, Cleave, Crush, Spall, Ember, Crosscut · Guard, Shelter, Anchor, Tempo, Bulwark · Mend, Graft, Bloom · Venom, Hex, Mist · Tithe, Prospect · Glimmer, Mirror, Refract · Cascade, Lucky Seven, Tailings · Bash, Hardening, Tumble, Sediment, Placer, Gilding, Caltrop |
-| Seeps (9) | one big die, hits, marks, holding your dice (Vesper) | Apex, Etch, Shatter, Facet · Lichen, Dividend, Flurry, Temper, Arsenic |
-| Glass Veins (10) | straights, rerolls and Resonance (Cadence) | Barrage, Fury, Aegis, Renewal, Dread, Gilded Armor, Prism · Lodestone, Crescendo, Spectrum |
-| Warrens (10) | low dice and poison (Rue) | Detonate, Siphon, Sap, Miasma, Curse, Polish · Confluence, Ferment, Contagion, Rattle |
-| Furnace (10) | Block and the forge (Puck) | Bind, Mortar, Thrive, Bastion, Enrich, Riposte · Bezel, Chainmail, Rebound, Hone |
-| Hollow (10) | pyrite, crowns and big totals (Florin) | Jackpot, Double Down, Stake, Appraise, Overkill, Wager · Crest, Overturn, Wellspring, Hemlock |
-| Rift (8) | blood, the Birthstone and rare hands | Lifeline · Grudge, Petrify, Birthright, Thirst, Bloodletting, Heartwood, Fortify |
+| Mine             | Style                                                | Batch                                                                                                                                                                                                                                                                      |
+| ---------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quarry (32)      | the basics of every lapidary's style, all six colors | Strike, Cleave, Crush, Spall, Ember, Crosscut · Guard, Shelter, Anchor, Tempo, Bulwark · Mend, Graft, Bloom · Venom, Hex, Mist · Tithe, Prospect · Glimmer, Mirror, Refract · Cascade, Lucky Seven, Tailings · Bash, Hardening, Tumble, Sediment, Placer, Gilding, Caltrop |
+| Seeps (9)        | one big die, hits, marks, holding your dice (Vesper) | Apex, Etch, Shatter, Facet · Lichen, Dividend, Flurry, Temper, Arsenic                                                                                                                                                                                                     |
+| Glass Veins (10) | straights, rerolls and Resonance (Cadence)           | Barrage, Fury, Aegis, Renewal, Dread, Gilded Armor, Prism · Lodestone, Crescendo, Spectrum                                                                                                                                                                                 |
+| Warrens (10)     | low dice and poison (Rue)                            | Detonate, Siphon, Sap, Miasma, Curse, Polish · Confluence, Ferment, Contagion, Rattle                                                                                                                                                                                      |
+| Furnace (10)     | Block and the forge (Puck)                           | Bind, Mortar, Thrive, Bastion, Enrich, Riposte · Bezel, Chainmail, Rebound, Hone                                                                                                                                                                                           |
+| Hollow (10)      | pyrite, crowns and big totals (Florin)               | Jackpot, Double Down, Stake, Appraise, Overkill, Wager · Crest, Overturn, Wellspring, Hemlock                                                                                                                                                                              |
+| Rift (8)         | blood, the Birthstone and rare hands                 | Lifeline · Grudge, Petrify, Birthright, Thirst, Bloodletting, Heartwood, Fortify                                                                                                                                                                                           |
 
-The October 2026 regrouping (the 37 gems after the `·` in each row) keeps two rules: no mine's batch holds more than 10 skills, and every mine but the Quarry unlocks at least five colours. The Quarry takes what does not fit, so it grows instead. Pinfire, Contra Luz and Hydrophane are opals, found only in Warden hoards like every other opal.
+The October 2026 regrouping (the 37 gems after the `·` in each row) keeps two rules: no mine's batch holds more than 10 skills, and every mine but the Quarry unlocks at least five colors. The Quarry takes what does not fit, so it grows instead. Pinfire, Contra Luz and Hydrophane are opals, found only in Warden hoards like every other opal.
 
 ## Lapidaries
 
@@ -81,15 +81,15 @@ The numbers are a first guess at "a party that just beat one mine dies at the fi
 
 Each mine lists three biomes in `biomes`, one per stretch: the base biome to its first Warden, then a deeper variant past each Warden (`view/battle/biomes.gd` `VARIANTS`, a base biome with only its differences written). Every room builds by its `family`, the base biome it deepens.
 
-| Mine | First stretch | Past the first Warden | Past the second |
-|---|---|---|---|
-| Quarry | The Upper Galleries | The Lower Workings | The Quartz Cut |
-| Seeps | The Seeps | The Flooded Drifts | The Black Sump |
-| Glass Veins | The Crystal Veins | The Prism Halls | The Black Glass |
-| Warrens | The Mycelium | The Bloom | The Rot |
-| Furnace | The Magma Seam | The Ember Crystals | The Lavafalls |
-| Hollow | The Hollow Heart | The Gilded Vault | The Amethyst Throat |
-| Rift | The Rift, The Shattered Deep and The Echoing Deep, turning over every eight floors |
+| Mine        | First stretch                                                                      | Past the first Warden | Past the second     |
+| ----------- | ---------------------------------------------------------------------------------- | --------------------- | ------------------- |
+| Quarry      | The Upper Galleries                                                                | The Lower Workings    | The Quartz Cut      |
+| Seeps       | The Seeps                                                                          | The Flooded Drifts    | The Black Sump      |
+| Glass Veins | The Crystal Veins                                                                  | The Prism Halls       | The Black Glass     |
+| Warrens     | The Mycelium                                                                       | The Bloom             | The Rot             |
+| Furnace     | The Magma Seam                                                                     | The Ember Crystals    | The Lavafalls       |
+| Hollow      | The Hollow Heart                                                                   | The Gilded Vault      | The Amethyst Throat |
+| Rift        | The Rift, The Shattered Deep and The Echoing Deep, turning over every eight floors |
 
 `tools/biome_gallery.gd` shoots every stretch of every mine.
 

@@ -46,7 +46,7 @@ const TRAITS: Dictionary = {
 	"drops_stone": ["star", "Hoard", "Drops a raw stone when it dies."],
 	"carat_cap": ["gem", "Weighs every gem", "While it stands no gem counts for more than %d carats."],
 	"resonance_damp": ["cross_out", "Dampening", "While it lives your gems ring for %d%% less Resonance."],
-	"colour_strength": ["prism", "Feeds on colour", "The first time it sees each colour of gem fire, it gains 1 Strength."],
+	"color_strength": ["prism", "Feeds on color", "The first time it sees each color of gem fire, it gains 1 Strength."],
 	"aura": ["cloud", "Aura", "While it lives, every player is %s."]}
 
 static func trait_entry(key: String, value: Variant) -> Dictionary:
@@ -95,7 +95,7 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("downed", "skull", "", false, "Down", "Out of the fight until someone revives you."))
 	var block: int = int(unit.get("block", 0))
 	if block > 0:
-		out.append(entry("block", "shield", str(block), true, "Block", "Soaks %d hit damage. At turn start, Retain can preserve some; the rest falls away." % block, DeepUi.BLOCK))
+		out.append(entry("block", "shield", DeepUi.number(block), true, "Block", "Soaks %s hit damage. At turn start, Retain can preserve some; the rest falls away." % DeepUi.number(block), DeepUi.BLOCK))
 	var statuses: Dictionary = unit.get("statuses", {})
 	out.append_array(_statuses(statuses, false))
 	var buried: int = unit.get("buried", []).size()
@@ -273,7 +273,7 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 	var out: Array = []
 	var poison: int = int(statuses.get("poison", 0))
 	if poison > 0:
-		out.append(entry("poison", "drop", str(poison), on_enemy, "Poison", "Loses %d HP at the end of the turn, then one less each turn." % poison, DeepUi.POISON))
+		out.append(entry("poison", "drop", DeepUi.number(poison), on_enemy, "Poison", "Loses %s HP at the end of the turn, then one less each turn." % DeepUi.number(poison), DeepUi.POISON))
 	var stun: int = int(statuses.get("stun", 0))
 	if stun > 0:
 		out.append(entry("stun", "stun", str(stun), on_enemy, "Stunned", ("Skips its next action phase." if on_enemy else "Your rail does not fire next time it would.") + (" (%d)" % stun if stun > 1 else ""), Color("ffe27a")))
@@ -304,7 +304,7 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 		var info: Array = descriptions[key]
 		var good: bool = bool(info[3]) != on_enemy
 		var timing: String = " A new enemy application lasts through your next turn." if key in ["dulled", "festering", "scorched"] and not on_enemy else ""
-		out.append(entry(str(key), str(info[0]), str(value), good, str(info[1]), str(info[2]) % (value * 25 if key == "marked" else value) + timing))
+		out.append(entry(str(key), str(info[0]), DeepUi.number(value), good, str(info[1]), str(info[2]).replace("%d", "%s") % DeepUi.number(DeepRules.sat_mul(value, 25) if key == "marked" else value) + timing))
 	return out
 
 # --- showing them ------------------------------------------------------------------------------

@@ -15,7 +15,7 @@ const PLAIN_TONE := Color("d8dce6")
 const LEAD_TONE := Color("8f9fb5")
 
 ## Every shape's body and edge color, and every material's. The 3D view reads both, so a
-## solid and its icon never disagree. Colour is the one thing a material always changes:
+## solid and its icon never disagree. color is the one thing a material always changes:
 ## a plain die wears its size, and a die made of something wears what it is made of.
 const DIE_PALETTE := {
 	"D2": ["e0bc70", "77603b"], "D3": ["91d0de", "38566f"],
@@ -72,7 +72,7 @@ static func material_palette(material: String) -> Dictionary:
 	return {"body": Color(str(entry[0])), "edge": Color(str(entry[1]))}
 
 static func die_palette(die: Dictionary) -> Dictionary:
-	## A die wears its material, or the colour of its size when it is made of nothing in
+	## A die wears its material, or the color of its size when it is made of nothing in
 	## particular. A roll carries both, so this reads a roll as happily as a die.
 	var material: String = str(die.get("material", ""))
 	if not material.is_empty():

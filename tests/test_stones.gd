@@ -221,7 +221,8 @@ func _test_birthstones_and_references() -> void:
 	## swelled (a from_result rider, or an of_status share of what the gem just gave), so
 	## weighing it again would square the carat curve, or are a cost the gem makes its own
 	## owner pay (Hemlock's Poison), which is a price and stays exact. A priced effect never
-	## procs (it would pay again), so it has to take the multiplier.
+	## procs (it would pay again), so it has to take the multiplier: the whole carat curve, or
+	## for a multiplier its steps (Stake: see `DeepRules.carat_steps`).
 	for key in DeepContent.section("skills"):
 		var skill: Dictionary = DeepContent.skill(str(key))
 		var defs: Array = skill.get("effects", []).duplicate(true)
@@ -235,7 +236,7 @@ func _test_birthstones_and_references() -> void:
 			var exact: bool = DeepContent.is_transcendent(str(key)) and kind in ["fire_neighbours", "force_after", "absorbed", "gem_rank"]
 			var cost: bool = kind in DeepRules.HOSTILE and str(def.get("target", "")) == "self"
 			check(scale != "none" or def.has("from_result") or def.has("of_status") or exact or cost, "%s's %s answers to carat" % [str(key), kind])
-			check(not def.has("cost") or scale == "carat", "%s's priced %s swells with carat, since it cannot proc" % [str(key), kind])
+			check(not def.has("cost") or scale in ["carat", "steps"], "%s's priced %s swells with carat, since it cannot proc" % [str(key), kind])
 
 func _test_grade_and_names() -> void:
 	check(DeepStone.name(stone("BARRAGE", 14, 4, 5)) == "Perfect Flawless 14-carat Barrage", "the jeweller's name: " + DeepStone.name(stone("BARRAGE", 14, 4, 5)))

@@ -1406,6 +1406,27 @@ static func bar(parent: Node, height: float = 10.0, fill: Color = HP, back: Colo
 
 # --- flourishes ------------------------------------------------------------------------------
 
+## The mark for a count that reached the ceiling (DeepRules.CEILING), where counting stops.
+const INFINITY_MARK := "∞"
+
+static func number(value: int) -> String:
+	## A fight's count as the player reads it: as it is below a million, shortened past that
+	## (1.2M, 34B, 560T), and the ceiling, where counting stops, as Infinite.
+	if DeepRules.infinite(value):
+		return INFINITY_MARK if value > 0 else "−" + INFINITY_MARK
+	var size: int = absi(value)
+	if size < 1000000:
+		return str(value)
+	for step in [[1000000000000, "T"], [1000000000, "B"], [1000000, "M"]]:
+		if size < int(step[0]):
+			continue
+		var shown: float = float(size) / float(step[0])
+		var text: String = ("%.2f" if shown < 10.0 else "%.1f" if shown < 100.0 else "%.0f") % shown
+		if text.contains("."):
+			text = text.rstrip("0").trim_suffix(".")
+		return ("−" if value < 0 else "") + text + str(step[1])
+	return str(value)
+
 static func float_text(parent: Control, at: Vector2, text: String, color: Color, size: int = 22, rise: float = 46.0, seconds: float = 0.9) -> Label:
 	## A number that pops, rises and fades where something happened. Bigger numbers pop harder.
 	var l := Label.new()
@@ -1440,7 +1461,8 @@ static func burst(parent: Control, at: Vector2, color: Color, amount: int = 16, 
 	var sparks := CPUParticles2D.new()
 	sparks.one_shot = true
 	sparks.explosiveness = 0.92
-	sparks.amount = amount
+	## Never more than a few hundred, however big the number a burst was sized from.
+	sparks.amount = clampi(amount, 1, 600)
 	sparks.lifetime = seconds
 	sparks.texture = dot_texture()
 	sparks.spread = 180.0

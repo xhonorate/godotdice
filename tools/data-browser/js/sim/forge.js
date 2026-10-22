@@ -4,6 +4,7 @@
 import * as C from './content.js';
 import * as Dice from './dice.js';
 import * as Stone from './stone.js';
+import { satFloor } from './numbers.js';
 
 export const DEFAULT_CLASS_WEIGHTS = { PINPOINT: 10, LENS: 6, FEATHER: 4, FRACTURE: 3, STAR: 0.3 };
 export const JACKPOT_PERCENT = 2;
@@ -154,7 +155,7 @@ export function zoningColor(def) {
 	return '';
 }
 
-// The weight each inclusion carries in the draw, after the class defaults and the own-colour rule.
+// The weight each inclusion carries in the draw, after the class defaults and the own-color rule.
 export function inclusionWeights(mine, ownColor = '', forcedClass = '') {
 	const table = {};
 	for (const key of inclusionPool(mine)) {
@@ -395,7 +396,7 @@ export function creatureHp(def, depth, party, mine = null) {
 	let scale = 1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, depth - 1);
 	scale *= 1 + 0.15 * (Math.max(1, Math.min(4, party)) - 1);
 	scale *= creatureScale(mine, depth).hp;
-	return Math.max(1, Math.round(Number(def.hp ?? 10) * scale));
+	return Math.max(1, satFloor(Math.round(Number(def.hp ?? 10) * scale)));
 }
 
 // A creature's flat damage bonus at a depth: depth ÷ depth_damage_every, spread over its dice.

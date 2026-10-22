@@ -407,7 +407,7 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 	var tags := DeepUi.hbox(_head, 8)
 	if not character_key.is_empty():
 		DeepUi.pill(tags, "person", DeepContent.character_title(character_key), DeepUi.INFO, 13)
-	DeepUi.pill(tags, "heart", "%d / %d" % [int(unit.get("hp", 0)), int(unit.get("max_hp", 0))], DeepUi.HP, 13, "Health")
+	DeepUi.pill(tags, "heart", "%s / %s" % [DeepUi.number(int(unit.get("hp", 0))), DeepUi.number(int(unit.get("max_hp", 0)))], DeepUi.HP, 13, "Health")
 	DeepUi.pill(tags, "ore", str(int(unit.get("ore", DeepRules.pyrite(unit)))), DeepUi.ORE, 13, "Pyrite")
 	if bool(unit.get("downed", false)):
 		DeepUi.pill(tags, "skull", "Down", DeepUi.BAD, 13)
@@ -1350,7 +1350,7 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		var bar := DeepUi.bar(life, 16.0, DeepUi.BAD, DeepUi.HP_LOST)
 		bar.custom_minimum_size = Vector2(240, 16)
 		bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		bar.set_values(float(foe.hp) / float(maxi(1, int(foe.get("max_hp", 1)))), "%d / %d" % [int(foe.hp), int(foe.get("max_hp", 1))])
+		bar.set_values(float(foe.hp) / float(maxi(1, int(foe.get("max_hp", 1)))), "%s / %s" % [DeepUi.number(int(foe.hp)), DeepUi.number(int(foe.get("max_hp", 1)))])
 	## What is on it and what it means to do: the page for this turn, when there is one.
 	var effects: Array = EffectChips.for_enemy(foe, battle) if foe.has("hp") else []
 	if not effects.is_empty():

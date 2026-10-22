@@ -248,9 +248,12 @@ func fortune() -> void:
 	check(DeepBattle.resolve_gem(f.state, f.player, 0, {"retrigger": true}, f.rng.dice).kind == "gem_fizzle", "repeat needs its own payment")
 	f = setup()
 	cast(f, "STAKE", [1, 2, 3, 4, 5], true)
-	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 2.12), "Flawless Stake spends an exact five for 75% amplification, swelled by its own x1.5")
+	## A multiplier grows by its carat steps, not the whole curve: Flawless's x1.5 is a sixth of a step.
+	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 1.87), "Flawless Stake spends an exact five for 75% amplification, grown a sixth by its x1.5")
 	cast(f, "GILDED_ARMOR", [1, 2, 3, 4, 5])
-	check(int(f.player.block) == 59, "Gilded Armor uses remaining available Pyrite and preceding amplification: 28 x 2.12")
+	## Its share of the 95 Pyrite is read off the pack at a Perfect cut, then the Stake's 1.87.
+	var gilded: int = 95 * int(DeepContent.skill("GILDED_ARMOR").effects[0].amount.args[1].ladder[4]) / 100
+	check(int(f.player.block) == int(floor(float(gilded) * 1.87)), "Gilded Armor uses remaining available Pyrite and preceding amplification: %d x 1.87 (got %d)" % [gilded, int(f.player.block)])
 	## Gilded Armor reads a straight now that it wears the trigger Windfall used to ask for.
 	## On its own fixture, because a gem that stays dark spends the amplification above.
 	check(cast(setup(), "GILDED_ARMOR").kind == "gem_fizzle", "Gilded Armor needs a straight")
@@ -500,7 +503,7 @@ func weight() -> void:
 	check(int(f.player.statuses.retain) == 10, "a heavy Mortar retains ten times its share")
 	f = setup()
 	cast(f, "STAKE", [1, 2, 3, 4, 5], false, 4, 24)
-	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 6.0), "a heavy Stake pays its exact price for ten times the amplification")
+	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 3.0), "a heavy Stake pays its exact price for four times the amplification")
 	f = setup()
 	cast(f, "CURSE", [1, 1, 2, 3, 4], false, 4, 24)
 	check(int(f.foe.statuses.curse) == 8 and int(f.foe.max_hp) == 920, "a heavy Curse applies its stacks four times over and ten times the max HP loss")

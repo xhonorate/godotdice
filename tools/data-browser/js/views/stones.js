@@ -83,7 +83,7 @@ export default {
 			kv([['Mean worth', `${fmt(r.meanValue, 0)} gold`], ['Mean carat (sampled)', fmt(r.meanCarat, 2)], ['Sample', `${r.samples} stones`]]),
 			h('p', { class: 'tiny muted' }, 'Worth = (10 + 4 × carat) × (1 + 0.25 × cut) × (1 + 0.3 × clarity distance) × skill rarity (1, 1.5, 2.5, 4, 8) × (1 + inclusion score / 20) each.')));
 		const inclRows = C.keys('inclusions').map((k) => ({ key: k, label: C.inclusion(k).name, value: anyIncl(k) * 100, color: { PINPOINT: '#8a93a3', LENS: '#6f9fe0', FEATHER: '#4fae7a', FRACTURE: '#c96a2a', STAR: '#f0c95a' }[C.inclusion(k).class] || '#8a93a3', note: C.title(C.inclusion(k).class) })).sort((a, b) => b.value - a.value);
-		g3.append(card('Inclusion in a stone', h('div', { class: 'col' }, bars({ rows: inclRows.slice(0, 14), format: (v) => `${fmt(v, 2)}%`, labelWidth: 100, height: 18, onSelect: (r) => ctx.navigate('inclusions', r.key) }), h('p', { class: 'tiny muted' }, `Chance any one stone at this luck carries it, over every clarity. Zoning of a stone’s own colour is never drawn; this ignores that exclusion. Full list on the Inclusions page.`)), { meta: 'top 14' }));
+		g3.append(card('Inclusion in a stone', h('div', { class: 'col' }, bars({ rows: inclRows.slice(0, 14), format: (v) => `${fmt(v, 2)}%`, labelWidth: 100, height: 18, onSelect: (r) => ctx.navigate('inclusions', r.key) }), h('p', { class: 'tiny muted' }, `Chance any one stone at this luck carries it, over every clarity. Zoning of a stone’s own color is never drawn; this ignores that exclusion. Full list on the Inclusions page.`)), { meta: 'top 14' }));
 
 		const skillTable = Forge.skillTable(mine);
 		const total = Object.values(skillTable).reduce((a, b) => a + b, 0) || 1;
@@ -91,7 +91,7 @@ export default {
 		const byRarity = C.RARITIES.map((r) => ({ label: C.title(r), value: Object.entries(skillTable).filter(([k]) => C.skill(k).rarity === r).reduce((s, [, w]) => s + w, 0) / total, color: RARITY_COLORS[r] })).filter((x) => x.value > 0);
 		const topSkills = Object.entries(skillTable).sort((a, b) => b[1] - a[1]);
 		root.append(card('Which skill comes out of the rock', h('div', { class: 'grid grid-3' },
-			h('div', { class: 'col' }, h('div', { class: 'section-title' }, 'By colour'), stacked({ segments: byColor }), h('p', { class: 'tiny muted' }, `Mine colour weights ${Object.entries(mine.color_weights || {}).map(([k, v]) => `${C.colorName(k)} ${v}`).join(' · ')}`)),
+			h('div', { class: 'col' }, h('div', { class: 'section-title' }, 'By color'), stacked({ segments: byColor }), h('p', { class: 'tiny muted' }, `Mine color weights ${Object.entries(mine.color_weights || {}).map(([k, v]) => `${C.colorName(k)} ${v}`).join(' · ')}`)),
 			h('div', { class: 'col' }, h('div', { class: 'section-title' }, 'By rarity'), stacked({ segments: byRarity }), h('p', { class: 'tiny muted' }, `Rarity weights ${C.RARITIES.map((r) => `${C.title(r)} ${C.rarityWeight(r)}`).join(' · ')}. Opals weigh nothing: only a hoard or a hundred-ore well offers one.`)),
 			h('div', { class: 'col' }, h('div', { class: 'section-title' }, 'One skill'), h('div', { class: 'row tight' }, topSkills.slice(0, 12).map(([k, w]) => h('button', { type: 'button', class: 'chip', onClick: () => ctx.navigate('skills', k) }, gemImage(k, 18), `${C.skill(k).name} ${fmtPct(w / total, 1)}`))), h('p', { class: 'tiny muted' }, `A common skill is ${fmtPct(C.rarityWeight('COMMON') / total, 2)} of draws, a legendary ${fmtPct(C.rarityWeight('LEGENDARY') / total, 2)}.`)))));
 	},

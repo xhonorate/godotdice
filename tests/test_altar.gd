@@ -429,6 +429,13 @@ func _test_gemini() -> void:
 	hand(state.players[0], [6, 6, 4, 3, 1])
 	events = run_turn(state, r)
 	check(at_socket(events, 1).size() <= 1, "an opal beside Gemini answers only to its Resonance")
+	## Not even a Doublet wearing it: the two would wake each other for ever.
+	state = DeepBattle.begin([player("a", [gem("STRIKE", 1, 4, 3, [], "s0"), gem("GEMINI", 1, 4, 3, [], "gm"), gem("DOUBLET", 1, 4, 3, [], "db"), gem("STRIKE", 1, 4, 3, [], "s3")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 4, 4, 4])
+	events = run_turn(state, r)
+	check(at_socket(events, 2).size() <= 1, "a Doublet beside Gemini is never woken by it")
+	check(at_socket(events, 1).size() <= 3, "and wearing Gemini, it wakes Gemini no more than once a pair")
 	## A phantom die makes a pair like any other.
 	state = DeepBattle.begin([player("a", [gem("REFRACT", 1, 4, 3, [], "rf"), gem("GEMINI", 1, 4, 3, [], "gm"), gem("STRIKE", 1, 4, 3, [], "s2")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)

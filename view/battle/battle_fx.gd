@@ -170,7 +170,7 @@ static func fire(size: float = 1.0, smoke: bool = true) -> Node3D:
 		_tongue.material = tongue
 	if _fire_ramp == null:
 		## Brighter than white in the red and green, so it blooms orange: a fire drawn in plain
-		## colours either vanishes against a lit floor or, piled up, burns out to white.
+		## colors either vanishes against a lit floor or, piled up, burns out to white.
 		var gradient := Gradient.new()
 		gradient.set_color(0, Color(1.7, 0.95, 0.4, 0.0))
 		gradient.set_color(1, Color(0.3, 0.05, 0.02, 0.0))
@@ -485,7 +485,8 @@ func add_flare(at: Vector3, color: Color, strength: float = 1.0, size: float = 1
 	flares.append({"position": at, "color": color, "strength": strength, "size": size, "life": life, "age": 0.0})
 
 func _amount(count: int) -> int:
-	return maxi(1, int(float(count) * [0.35, 0.35, 0.65, 1.0][clampi(quality, 0, 3)]))
+	## Never more than a few thousand motes, however big the number a burst was sized from.
+	return clampi(int(float(mini(count, 3000)) * [0.35, 0.35, 0.65, 1.0][clampi(quality, 0, 3)]), 1, 3000)
 
 func _burst(at: Vector3, amount: int, lifetime: float, process: ParticleProcessMaterial, mesh: Mesh) -> GPUParticles3D:
 	var p := GPUParticles3D.new()

@@ -1228,11 +1228,11 @@ static func _emblem_shapes(glyph: String) -> Array:
 			# A stone split by a jagged crack, a chip flown off either side.
 			return _fitted([ {"op": "add", "poly": _poly([[0.20, 0.20], [0.62, 0.08], [0.90, 0.36], [0.84, 0.80], [0.40, 0.94], [0.08, 0.62]])}]
 				+ _stroke([[0.50, 0.03], [0.57, 0.30], [0.43, 0.50], [0.59, 0.70], [0.50, 0.99]], 0.08, "sub")
-				+ [ {"op": "add", "poly": _diamond(Vector2(0.10, 0.20), 0.045, 0.06)}, {"op": "add", "poly": _diamond(Vector2(0.94, 0.88), 0.045, 0.06)}])
+				+[ {"op": "add", "poly": _diamond(Vector2(0.10, 0.20), 0.045, 0.06)}, {"op": "add", "poly": _diamond(Vector2(0.94, 0.88), 0.045, 0.06)}])
 		"wall_before":
 			# A thick curved wall standing over a single dot: cover for one.
 			return _fitted(_arc(Vector2(0.5, 0.72), 0.40, 0.16, deg_to_rad(200.0), deg_to_rad(340.0))
-				+ [ {"op": "add", "circle": [0.5, 0.72, 0.12]}])
+				+[ {"op": "add", "circle": [0.5, 0.72, 0.12]}])
 		"ringed_party":
 			# A thick ring with three dots safe inside it: the whole party behind one wall.
 			return [ {"op": "add", "circle": [0.5, 0.5, 0.46]}, {"op": "sub", "circle": [0.5, 0.5, 0.35]},
@@ -1382,7 +1382,7 @@ static func _emblem_shapes(glyph: String) -> Array:
 		"onward":
 			# Two chevrons pointing into a stone: whatever fires next fires again.
 			return _fitted(_stroke([[0.08, 0.24], [0.24, 0.50], [0.08, 0.76]], 0.11) + _stroke([[0.29, 0.24], [0.45, 0.50], [0.29, 0.76]], 0.11)
-				+ [ {"op": "add", "poly": _diamond(Vector2(0.75, 0.50), 0.20, 0.30)}])
+				+[ {"op": "add", "poly": _diamond(Vector2(0.75, 0.50), 0.20, 0.30)}])
 		"formation":
 			# Five stones in a wedge behind a leader: matching dice falling into line for the Knight.
 			var wedge: Array = []
@@ -1517,7 +1517,7 @@ static func _emblem_shapes(glyph: String) -> Array:
 			var inner := PackedVector2Array()
 			for index in 91:
 				var t: float = float(index) / 90.0
-				var angle: float = -PI * 0.5 + t * TAU * 2.25
+				var angle: float = - PI * 0.5 + t * TAU * 2.25
 				var reach: float = 0.04 + 0.40 * t
 				var width: float = 0.025 + 0.085 * t
 				var dir := Vector2(cos(angle), sin(angle))
@@ -1538,7 +1538,7 @@ static func _emblem_shapes(glyph: String) -> Array:
 				centre + Vector2(cos(-PI * 0.55), sin(-PI * 0.55)) * 0.44, 0.12, 0.13))
 			return _fitted(built)
 		"six_cuts":
-			# Spectrum: the six colours' own stone outlines, in two rows.
+			# Spectrum: the six colors' own stone outlines, in two rows.
 			var edge := 0.13
 			return _fitted([ {"op": "add", "poly": _regular(Vector2(0.18, 0.31), edge * 1.3, 3)},
 				{"op": "add", "poly": _rect(0.5 - edge, 0.27 - edge, 0.5 + edge, 0.27 + edge)},
@@ -1897,7 +1897,7 @@ static func _ui_shapes(glyph: String) -> Array:
 			return _fitted([ {"op": "add", "poly": _rounded(0.04, 0.06, 0.96, 0.94, 0.10)}]
 				+ _stroke([[0.34, 0.04], [0.44, 0.18], [0.40, 0.28]], 0.08, "sub")
 				+ _stroke([[0.62, 0.72], [0.58, 0.82], [0.66, 0.96]], 0.08, "sub")
-				+ [ {"op": "sub", "circle": [0.5, 0.50, 0.26]},
+				+[ {"op": "sub", "circle": [0.5, 0.50, 0.26]},
 					{"op": "add", "poly": _cut_stone(Vector2(0.5, 0.51), 0.34)}])
 	return []
 

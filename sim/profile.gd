@@ -509,7 +509,7 @@ static func shatter(profile: Dictionary, stone: Dictionary) -> void:
 static func _color_place(color: String) -> int:
 	## Where a color sits in the vault. The six come in their own order; an opal is none of
 	## them and goes last, where the rarest things belong, rather than first, which is where
-	## a colour the list has never heard of would otherwise land.
+	## a color the list has never heard of would otherwise land.
 	var found: int = DeepStone.colorS.find(color)
 	return found if found >= 0 else DeepStone.colorS.size()
 
@@ -683,7 +683,7 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	var mine_key: String = str(result.get("mine", ""))
 	var visited: Array = result.get("mines", [])
 	if visited.is_empty():
-		visited = [{"mine": mine_key, "deepest": int(result.get("deepest", 0)), "wardens": result.get("wardens", []), "boss": false}]
+		visited = [ {"mine": mine_key, "deepest": int(result.get("deepest", 0)), "wardens": result.get("wardens", []), "boss": false}]
 	## The daily dig is a seam of its own: it opens no mine, brings nobody into the workshop,
 	## writes no mine's records and brings nothing home. What came up is scored and paid for.
 	var daily: Dictionary = result.get("daily", {})

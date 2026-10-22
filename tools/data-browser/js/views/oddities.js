@@ -57,8 +57,8 @@ export default {
 		}
 		const pack = C.getPack();
 		root.append(h('div', { class: 'grid grid-3' },
-			card('Colours and their cuts', table({ columns: [
-				{ key: 'name', label: 'Colour', render: (r) => h('span', { class: 'row tight' }, colorKeyMark(r.key, 16), r.name) },
+			card('colors and their cuts', table({ columns: [
+				{ key: 'name', label: 'color', render: (r) => h('span', { class: 'row tight' }, colorKeyMark(r.key, 16), r.name) },
 				{ key: 'domain', label: 'Domain', render: (r) => C.title(r.domain) },
 				{ key: 'cut', label: 'Cut', render: (r) => h('span', { class: 'row tight' }, silhouette(r.key, 22), SHAPE_NAMES[r.cut] || r.cut) },
 				{ key: 'hue', label: 'Hue', render: (r) => h('span', { class: 'row tight' }, h('i', { class: 'dot', style: { background: `#${r.hue}` } }), h('code', {}, `#${r.hue}`)) },

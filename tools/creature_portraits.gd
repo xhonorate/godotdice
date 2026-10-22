@@ -7,7 +7,7 @@ extends SceneTree
 ##   /path/to/Godot --path . --script tools/creature_portraits.gd                    # every creature
 ##   /path/to/Godot --path . --script tools/creature_portraits.gd -- RAIL_RAT PIT_MOLE
 ##
-## Bake again whenever a creature's scene or colours change, then import once
+## Bake again whenever a creature's scene or colors change, then import once
 ## (`--headless --path . --import`) so the game sees the new pictures. A new picture's
 ## .import wants `mipmaps/generate=true`, as the others have: the grid draws it far smaller
 ## than it is baked. tests/test_creatures.gd checks that every creature in the pack has one.

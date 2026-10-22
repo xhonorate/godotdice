@@ -1,6 +1,7 @@
 // What a hand of rolls contains: a port of sim/hand.gd, field for field.
 
 import { heldForPatterns, preference } from './dice.js';
+import { I } from './numbers.js';
 
 export function analyze(hand, colors = []) {
 	const values = [];
@@ -17,7 +18,7 @@ export function analyze(hand, colors = []) {
 	for (let index = 0; index < hand.length; index += 1) {
 		const roll = hand[index];
 		const kind = roll.kind || 'plain';
-		const value = roll.value | 0;
+		const value = I(roll.value);
 		const top = Math.max(1, roll.top ?? value);
 		const id = roll.die_id || '';
 		// Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
@@ -25,7 +26,7 @@ export function analyze(hand, colors = []) {
 		maxTotal += top;
 		if (roll.phantom) phantoms += 1;
 		if (heldForPatterns(roll)) held += 1;
-		if ((roll.rerolls | 0) > 0) rerolled += 1;
+		if ((I(roll.rerolls)) > 0) rerolled += 1;
 		if (kind === 'wild') {
 			wilds.push(id);
 			wildTop = Math.max(wildTop, top);

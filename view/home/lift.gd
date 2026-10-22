@@ -74,7 +74,7 @@ func _speed() -> float:
 	return pow(1.0 - t, 1.4)
 
 func _stratum(index: int, top: float, band: float, w: float, tone: Color) -> void:
-	## One stratum: its rock broken into flat facets, and a ragged seam of its own colour
+	## One stratum: its rock broken into flat facets, and a ragged seam of its own color
 	## where the rock above gives way to it. The facets are cut once a band and then only
 	## moved: cutting them again every frame (a hundred-odd polygons a band) cost the ride
 	## a dozen milliseconds a frame.
@@ -90,7 +90,7 @@ func _stratum(index: int, top: float, band: float, w: float, tone: Color) -> voi
 	draw_set_transform(Vector2.ZERO)
 
 func _cut(index: int, band: float, w: float, tone: Color) -> Dictionary:
-	## A band's facets with its top at 0: the triangles, a colour a corner, and the seam.
+	## A band's facets with its top at 0: the triangles, a color a corner, and the seam.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(index) + 7919
 	var step: float = 110.0

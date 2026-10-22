@@ -21,7 +21,7 @@ extends RefCounted
 ##                doubled    its value counts double.
 ##                locked     once shown, the die cannot be rerolled this fight.
 ##                blank      nothing at all: no value, no pattern.
-##   material   the whole die, every face, every roll. Colour comes from it and nothing
+##   material   the whole die, every face, every roll. color comes from it and nothing
 ##              else. See MATERIALS.
 ##
 ## A roll is the record of one die's result this turn. Nothing here reads content except
@@ -44,8 +44,8 @@ const MATERIALS: Array = ["ruby", "sapphire", "emerald", "amethyst", "citrine", 
 ## The materials that are thrown twice and keep one of the two faces: Iron the higher, Cloud
 ## the lower. Only the face it lands on first is thrown twice; what an Exploding face throws
 ## after it is thrown once, as on any die.
-const THROWN_TWICE: Dictionary = {"iron": 1, "cloud": -1}
-## The materials that answer to one colour, and the ones that answer to all of them.
+const THROWN_TWICE: Dictionary = {"iron": 1, "cloud": - 1}
+## The materials that answer to one color, and the ones that answer to all of them.
 const MATERIAL_COLORS: Dictionary = {"ruby": "RED", "sapphire": "BLUE", "emerald": "GREEN",
 	"amethyst": "VIOLET", "citrine": "GOLD", "diamond": "WHITE"}
 const ANY_COLOR_MATERIALS: Array = ["opal", "glass"]
@@ -54,7 +54,7 @@ const MAX_EXPLOSIONS: int = 3
 ## A face has no ceiling: a Tally climbs, a chisel raises, Glimmer grows, and a Stretched d100
 ## reads 200. What does stay finite is how often one throw explodes (MAX_EXPLOSIONS).
 ## Each matching material multiplies the gem it helps fire. Multiplicative: two Rubies on
-## a red gem is 2.25x, five is 7.59x. Five of one colour is a run spent building it.
+## a red gem is 2.25x, five is 7.59x. Five of one color is a run spent building it.
 const STRENGTH_STEP: float = 1.5
 const GLASS_SHATTER_PCT: float = 10.0
 const CRYSTAL_RESONANCE: int = 1
@@ -174,7 +174,7 @@ static func material_color(material: String) -> String:
 	return str(MATERIAL_COLORS.get(material, ""))
 
 static func material_matches(material: String, colors: Array) -> bool:
-	## Whether this material answers to a gem of these colours. Opal and Glass answer to all.
+	## Whether this material answers to a gem of these colors. Opal and Glass answer to all.
 	if material.is_empty():
 		return false
 	if material in ANY_COLOR_MATERIALS:
@@ -184,7 +184,7 @@ static func material_matches(material: String, colors: Array) -> bool:
 
 static func strength(rolls: Array, colors: Array) -> float:
 	## What the dice that fired a gem multiply it by: STRENGTH_STEP for each material that
-	## answers to its colour, multiplied together.
+	## answers to its color, multiplied together.
 	var boost: float = 1.0
 	for roll in rolls:
 		if material_matches(str(roll.get("material", "")), colors):
@@ -192,7 +192,7 @@ static func strength(rolls: Array, colors: Array) -> float:
 	return boost
 
 static func matching_materials(rolls: Array, colors: Array) -> Array:
-	## Which materials among these dice answered to a gem of these colours, so a view can
+	## Which materials among these dice answered to a gem of these colors, so a view can
 	## say what made it hit that hard.
 	var out: Array = []
 	for roll in rolls:
@@ -210,7 +210,7 @@ static func shiny_count(rolls: Array) -> int:
 
 static func preference(roll: Dictionary, colors: Array = []) -> int:
 	## How badly this die wants to be one of the dice that fires a gem. A material that
-	## answers to the gem's colour first, then an etching worth having, then any material
+	## answers to the gem's color first, then an etching worth having, then any material
 	## at all: three sixes and a Shiny six should spend the Shiny one.
 	var score: int = 0
 	var material: String = str(roll.get("material", ""))

@@ -58,18 +58,44 @@ function dropPool() {
 	pool = [];
 }
 
-// Run a sweep. `context.leads` is needed for pairs (see Balance.tasksFor). Resolves with the
-// result, already kept by the server; rejects if cancelled.
-export function run(sweep, settings, context = {}) {
-	if (active) return Promise.reject(new Error(`${active.sweep} is already running`));
-	const tasks = Balance.tasksFor(sweep, settings, context);
+// Run a sweep, a round of tasks at a time (see Balance.startJob). `context.leads` is needed
+// for the sweeps that set gems beside others; `weights` are what the hunt hunts by. Resolves
+// with the result, already kept by the server; rejects if cancelled.
+export async function run(sweep, settings, context = {}, weights = Balance.DEFAULT_WEIGHTS) {
+	if (active) throw new Error(`${active.sweep} is already running`);
+	const job = Balance.startJob(sweep, settings, context, weights);
+	const started = performance.now();
+	let cancelled = false;
+	active = { sweep, done: 0, total: Math.max(1, Balance.estimateTasks(job)), round: 0, started,
+		cancel: () => { cancelled = true; dropPool(); active = null; notify(); if (abortRound) abortRound(new Error('cancelled')); } };
+	notify();
+	let finished = 0;
+	for (let tasks = Balance.nextTasks(job); tasks; tasks = Balance.nextTasks(job)) {
+		if (active) { active.total = finished + Math.max(tasks.length, Balance.estimateTasks(job)); active.round = job.round; notify(); }
+		const out = await playRound(tasks, (done) => { if (active) { active.done = finished + done; notify(); } });
+		if (cancelled || !active) throw new Error('cancelled');
+		finished += tasks.length;
+		Balance.takeResults(job, out);
+	}
+	const seconds = Math.round((performance.now() - started) / 1000);
+	const result = Balance.finishJob(job, { packHash: hash, created: new Date().toISOString(), seconds, leads: context.leads });
+	if (results.has(sweep)) previous.set(sweep, results.get(sweep));
+	results.set(sweep, result);
+	active = null;
+	notify();
+	fetch(`api/balance/${sweep}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(result) }).catch((e) => console.warn('could not keep the sweep', e));
+	return result;
+}
+
+// One round of tasks on the pool; `report(done)` as each comes back. A cancel rejects it.
+let abortRound = null;
+function playRound(tasks, report) {
 	const workers = ensurePool();
 	const out = new Array(tasks.length);
-	const started = performance.now();
 	return new Promise((resolve, reject) => {
+		abortRound = reject;
+		if (!tasks.length) { resolve(out); return; }
 		let next = 0, done = 0;
-		active = { sweep, done: 0, total: tasks.length, started, cancel: () => { dropPool(); active = null; notify(); reject(new Error('cancelled')); } };
-		notify();
 		const feed = (worker) => {
 			if (next >= tasks.length) return;
 			const id = next++ + 1;
@@ -82,17 +108,8 @@ export function run(sweep, settings, context = {}) {
 				if (error) { dropPool(); active = null; notify(); reject(new Error(error)); return; }
 				out[id - 1] = result;
 				done += 1;
-				if (active) { active.done = done; notify(); }
-				if (done === tasks.length) {
-					const seconds = Math.round((performance.now() - started) / 1000);
-					const result = Balance.assemble(sweep, tasks, out, { packHash: hash, created: new Date().toISOString(), seconds, leads: context.leads });
-					if (results.has(sweep)) previous.set(sweep, results.get(sweep));
-					results.set(sweep, result);
-					active = null;
-					notify();
-					fetch(`api/balance/${sweep}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(result) }).catch((e) => console.warn('could not keep the sweep', e));
-					resolve(result);
-				} else feed(worker);
+				report(done);
+				if (done === tasks.length) resolve(out); else feed(worker);
 			};
 			worker.onerror = (event) => { dropPool(); active = null; notify(); reject(new Error(event.message || 'worker failed')); };
 			feed(worker);

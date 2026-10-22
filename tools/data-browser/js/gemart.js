@@ -151,7 +151,7 @@ function dieGlyph(def, size) {
 	el.append(svg('text', { x: size / 2, y: size / 2 + size * 0.14, 'text-anchor': 'middle', fill: '#1d1a17', 'font-size': size * 0.36, 'font-weight': 700, text: String(faces) }));
 	return el;
 }
-// A creature without a photograph yet: a tile in its side's colour wearing its initial, so a
+// A creature without a photograph yet: a tile in its side's color wearing its initial, so a
 // new entry in the bestiary reads at a glance before tools/browser_assets.gd has been run.
 function creatureGlyph(def, size) {
 	const name = String(def.name || '?').replace(/^the\s+/i, '').trim();
@@ -164,7 +164,7 @@ function creatureGlyph(def, size) {
 	return el;
 }
 
-// A small colour-and-shape key for a gem colour: the mark charts use, beside a label.
+// A small color-and-shape key for a gem color: the mark charts use, beside a label.
 export function colorKeyMark(colorKey, size = 12) {
 	return h('span', { class: 'ckey', title: C.colorName(colorKey) }, silhouette(colorKey, size, { hue: markColor(colorKey) }));
 }

@@ -37,7 +37,7 @@ const NAMES: PackedStringArray = [
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
 	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break",
 	"altar_hum", "altar_fizzle", "altar_make", "transcendent", "hollow_drop", "hollow_rise",
-	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter"]
+	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter", "infinity"]
 
 static var _cache: Dictionary = {}
 ## The bank is baked on a worker thread while the game is played, and asked for sounds from
@@ -48,7 +48,7 @@ static func gem_sound(color: String) -> String:
 	return str(GEM_SOUNDS.get(color.to_upper(), "gem_white"))
 
 static func tick_sound(color: String) -> String:
-	## A gem's count ticks in its own colour's voice: grit for red, glass for blue, wood for
+	## A gem's count ticks in its own color's voice: grit for red, glass for blue, wood for
 	## green, two bells beating for violet, struck metal for gold, a pure tone for white.
 	var name: String = "tick_" + color.to_lower()
 	return name if NAMES.has(name) else "tally_tick"
@@ -141,7 +141,7 @@ static func _bake(name: String) -> AudioStreamWAV:
 				.normalise(0.5).stream()
 		"die_break":
 			## A glass die going under: the crack, then the pieces on the tray.
-			return DeepSynth.new(0.6).clack(0.0, 0.5, 2600.0).shatter(0.01, 0.34, 2400.0, 11, 0.22) 				.thump(0.0, 0.1, 180.0, 0.25, 0.0).normalise(0.62).stream()
+			return DeepSynth.new(0.6).clack(0.0, 0.5, 2600.0).shatter(0.01, 0.34, 2400.0, 11, 0.22).thump(0.0, 0.1, 180.0, 0.25, 0.0).normalise(0.62).stream()
 		"die_pick":
 			return DeepSynth.new(0.12).clack(0.0, 0.22, 1300.0) \
 				.tone(0.0, 0.07, 700.0, 1150.0, 0.16, "triangle", 4.0, 0.002).normalise(0.42).stream()
@@ -473,6 +473,17 @@ static func _bake(name: String) -> AudioStreamWAV:
 				rite.bell(0.12 * float(i), 1.1, C5 * pow(2.0, float(climb[i]) / 12.0), 0.2, DeepSynth.CHIME_PARTIALS, 2.4)
 			return rite.chord(0.65, 1.4, C5, [0, 4, 7, 12], 0.26, DeepSynth.CHIME_PARTIALS, 0.06) \
 				.sparkle(0.6, 1.4, 0.14, 2600.0, 7200.0, 20).echoes(0.17, 0.3, 3).normalise(0.86).stream()
+		"infinity":
+			## A count past counting (DeepRules.CEILING): a figure of eight in bells, up and over and
+			## round again, then the biggest chord in the bank. Rarer than a Transcendent, and allowed
+			## to be the loudest thing a player ever hears from it.
+			var eight := DeepSynth.new(2.9).rumble(0.0, 1.3, 0.3).whoosh(0.0, 0.8, 0.26, 90.0, 4200.0)
+			var loop: Array = [0, 4, 7, 12, 7, 4, 0, -5, 0, 4, 7, 12, 16, 19, 24]
+			for i in range(loop.size()):
+				eight.bell(0.065 * float(i), 1.0, C5 * pow(2.0, float(loop[i]) / 12.0), 0.17, DeepSynth.CHIME_PARTIALS, 2.2)
+			return eight.chord(1.0, 1.8, C5, [0, 4, 7, 11, 14, 19], 0.27, DeepSynth.CHIME_PARTIALS, 0.05) \
+				.chord(1.0, 1.85, 65.41, [0, 7, 12, 19], 0.27, DeepSynth.BELL_PARTIALS, 0.0) \
+				.sparkle(0.85, 1.95, 0.24, 2400.0, 9800.0, 60).echoes(0.23, 0.3, 3).normalise(0.98).stream()
 		"transcendent":
 			## A Transcendent made: bigger than a Peerless grade, and it keeps climbing. Nothing
 			## else in the game should sound like this, and like every effect it is over in under
@@ -491,7 +502,7 @@ static func _bake(name: String) -> AudioStreamWAV:
 			var fall := DeepSynth.new(2.6).whoosh(0.0, 1.1, 0.2, 2600.0, 140.0)
 			for i in range(7):
 				var when: float = 0.06 * float(i) + 0.016 * float(i * i)
-				fall.clack(when, 0.34 * pow(0.78, float(i)), 1500.0 - 150.0 * float(i))
+				fall.clack(when , 0.34 * pow(0.78, float(i)), 1500.0 - 150.0 * float(i))
 			return fall.thump(1.1, 0.7, 46.0, 0.75, 0.65).rumble(1.1, 1.1, 0.36) \
 				.voice(1.1, 0.7, 61.74, 0.2, "saw", 0.01, 0.6, 2, 0.2, 320.0) \
 				.echoes(0.21, 0.34, 3).normalise(0.88).stream()
@@ -534,14 +545,14 @@ static func _bake(name: String) -> AudioStreamWAV:
 		"gem_shatter":
 			## A stone lost: glass giving way, the pieces on the bench, and a low string falling
 			## a minor third under it.
-			return DeepSynth.new(2.2).noise(0.0, 0.12, 0.45, 9000.0, 1400.0, 3.6, 0.0006) 				.shatter(0.01, 0.42, 3000.0, 14, 0.4).clatter(0.2, 0.5, 0.2, 9, 1400.0) 				.voice(0.12, 0.6, 146.83, 0.2, "saw", 0.06, 0.6, 2, 0.15, 900.0).voice(0.7, 0.8, 123.47, 0.18, "saw", 0.08, 0.7, 2, 0.15, 800.0) 				.echoes(0.23, 0.28, 2).normalise(0.74).stream()
+			return DeepSynth.new(2.2).noise(0.0, 0.12, 0.45, 9000.0, 1400.0, 3.6, 0.0006).shatter(0.01, 0.42, 3000.0, 14, 0.4).clatter(0.2, 0.5, 0.2, 9, 1400.0).voice(0.12, 0.6, 146.83, 0.2, "saw", 0.06, 0.6, 2, 0.15, 900.0).voice(0.7, 0.8, 123.47, 0.18, "saw", 0.08, 0.7, 2, 0.15, 800.0).echoes(0.23, 0.28, 2).normalise(0.74).stream()
 		"jackpot":
 			## A great one out of the drum: the coin tray spilling over and a fanfare climbing
 			## out of it. Saved for the rarest stones a Geode holds.
 			var spill := DeepSynth.new(2.4)
 			for i in range(16):
 				var when: float = spill.rng.randf() * 0.8
-				spill.bell(when, spill.rng.randf_range(0.16, 0.34), spill.rng.randf_range(1500.0, 3400.0), spill.rng.randf_range(0.1, 0.22), DeepSynth.METAL_PARTIALS, 3.0)
+				spill.bell(when , spill.rng.randf_range(0.16, 0.34), spill.rng.randf_range(1500.0, 3400.0), spill.rng.randf_range(0.1, 0.22), DeepSynth.METAL_PARTIALS, 3.0)
 			var climb: Array = [0, 4, 7, 12, 16]
 			for i in range(climb.size()):
 				spill.bell(0.1 + 0.09 * float(i), 1.0, C5 * pow(2.0, float(climb[i]) / 12.0), 0.2, DeepSynth.CHIME_PARTIALS, 2.2)

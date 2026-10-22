@@ -56,7 +56,7 @@ export default {
 		const colorsList = C.SKILL_COLORS;
 		const rarities = C.RARITIES;
 		const values = colorsList.map((ck) => rarities.map((r) => skills.filter((k) => C.skill(k).color === ck && C.skill(k).rarity === r).length || null));
-		side.append(card('Skills by colour and rarity', heatmap({ rows: colorsList.map((c) => C.colorName(c)), cols: rarities.map((r) => C.title(r).slice(0, 4)), values, format: (v) => String(v), rowLabelWidth: 70, cellHeight: 24 })));
+		side.append(card('Skills by color and rarity', heatmap({ rows: colorsList.map((c) => C.colorName(c)), cols: rarities.map((r) => C.title(r).slice(0, 4)), values, format: (v) => String(v), rowLabelWidth: 70, cellHeight: 24 })));
 		const kinds = {};
 		for (const k of skills) { const kind = C.skill(k).trigger.kind; kinds[kind] = (kinds[kind] || 0) + 1; }
 		const kindRows = Object.entries(kinds).sort((a, b) => b[1] - a[1]);

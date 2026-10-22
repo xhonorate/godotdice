@@ -345,7 +345,7 @@ func set_highlight(on: bool) -> void:
 
 func _wear_material(palette: Dictionary) -> void:
 	## What the die is made of, on the solid itself: glass goes see-through, crystal lights up
-	## from inside, iron reads as metal, granite as stone. Colour is already the material.
+	## from inside, iron reads as metal, granite as stone. color is already the material.
 	var body_material: StandardMaterial3D = _body.material_override as StandardMaterial3D
 	if body_material == null:
 		return

@@ -17,3 +17,13 @@
 - Everything else gets approve / reject / comment controls of its own: name, color, rarity, card text, activation requirement (trigger and Cut ladder), effects and numbers, and the Flawless line.
 - Revise whatever was rejected or commented on, show the new version in the same artifact, and repeat until everything is approved. Then implement.
 - Redrawing an existing emblem follows the same loop: 2-3 options per flagged emblem, pick one or flag again.
+
+## Carat scaling: three modes
+
+A stone's weight (carat) reaches an effect in one of three ways. Pick by what the number is; `DeepRules.resolve_effect` (sim/rules.gd) and its mirror in `tools/data-browser/js/sim/rules.js` implement all three.
+
+- **`"scale": "carat"` (the default for damage, block, heal, gold, poison, remove_block, retain, regeneration, spikes, lifeline, wager, detonate):** the amount is multiplied by the whole carat curve (`DeepStone.carat_multiplier`: 1x at 1 carat, 5.5x at 19, 10x at 24). Use it for plain output numbers a heavy stone should simply do more of.
+- **`"scale": "steps"`:** the amount is multiplied by `1 + carat_steps`, where `carat_steps = (carat_multiplier - 1) / 3` (0 at 1 carat, 1 at 13, 3 at 24, so x1 to x4). Use it for numbers that multiply *other* numbers (Bloodletting/Stake amplification, Hemlock's share of Poison, Ferment's growth, Pinfire's Resonance). The whole curve would compound with the effects they feed and run away. Put the same `"scale": "steps"` on the matching entry in the skill's `numbers` so the card text shows the stone's real number.
+- **No `scale` (procs):** a whole-number effect that cannot be a fraction (a reroll, a phantom die, a stun) happens more often instead: `carat_steps` read as extra goes, at most `MAX_PROCS` (10), the fraction as a chance of one more. Write `"scale": "none"` to keep an effect exactly flat (a cost the gem makes its owner pay, a fixed price).
+
+A priced effect (`cost`) never procs, so it must be `carat` or `steps`. Any change to these rules is mirrored in the browser sim and checked by `tests/test_limits.gd`, `tests/test_stones.gd` and `tools/data-browser/parity.mjs`.

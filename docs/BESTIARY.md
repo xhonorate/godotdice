@@ -42,14 +42,14 @@ one (the Infinite Void).
 
 Six trigger kinds read the fight rather than a die, and each fires at most once an action:
 
-| Kind | Fires |
-| --- | --- |
-| `each_turn` | on the first die of every action |
-| `every_nth_turn` (amount n) | on the first die of the n-th, 2n-th… action; the table and the chips show "in N actions" |
-| `emerge` | on the first die of the action after it burrowed |
-| `action_begin` | as its action opens, before any die is thrown (shown "As each action opens") |
-| `on_death` | never during an action: when the creature dies, with the creature as the source (shown ON DEATH) |
-| `hp_below` (amount n) | never during an action: once, the moment its health first falls to n% of its most, from a blow or from poison or burning (shown ON DEATH-style as latent, then SPENT) |
+| Kind                        | Fires                                                                                                                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `each_turn`                 | on the first die of every action                                                                                                                                      |
+| `every_nth_turn` (amount n) | on the first die of the n-th, 2n-th… action; the table and the chips show "in N actions"                                                                              |
+| `emerge`                    | on the first die of the action after it burrowed                                                                                                                      |
+| `action_begin`              | as its action opens, before any die is thrown (shown "As each action opens")                                                                                          |
+| `on_death`                  | never during an action: when the creature dies, with the creature as the source (shown ON DEATH)                                                                      |
+| `hp_below` (amount n)       | never during an action: once, the moment its health first falls to n% of its most, from a blow or from poison or burning (shown ON DEATH-style as latent, then SPENT) |
 
 Creature moves on a die read that die alone, so `crowns`, `value`, `at_least`, `odd`, `even`
 and `high_pct_at_least` (51 is "a high roll: over half its die") fire on every die that
@@ -88,33 +88,33 @@ does to itself.
 
 ## 2. The mechanics, as built
 
-| Mechanic | Built as | Where |
-| --- | --- | --- |
-| Festering | status on players: healing received is halved; counts down 1 at the tick (a fresh enemy application survives the tick that follows it) | `_heal` |
-| Scorched | status: block gained is halved, rounded up; counts down 1 a turn | `_apply_one` "block" |
-| Burn | status: at the tick, after poison, it hurts for its stacks like poison, but block soaks it first; then it loses one stack | `_burn_tick` |
-| Strength | status on a creature: a point more on every blow it deals, for the fight. A split twin does not inherit it | `resolved_move`, `display_moves` |
-| Piercing | `piercing: true` on a damage effect: block is not touched | `_damage` |
-| Steadfast | trait: Stun, Bound (die_steal), Clouded and Dread applications are halved (rounded up, at least 1); after an action lost to Stun the next Stun is resisted until it has acted | `_apply_one`, `enemy_begin` |
-| Purge | effect: sheds that percent of its own poison (100 for most, 50 for a boss) | `_apply_one` |
-| Summon | effect: that many of the named creature join beside it, bred to the same depth, acting from the next turn; `max_creatures` (4) standing at most | `DeepBattle.summon` |
-| Burrow | effect: it ends its action and cannot be targeted until its next action; gems aimed at it hit another creature, gems that hit every creature miss it; it emerges as it next acts | `_targets`, `enemy_roll`, `enemy_begin` |
-| Sturdy (was Bedrock) | trait: no single hit's HP loss exceeds that percent of its max HP (`capped` on the hit) | `_damage` |
-| Backlash | trait: while it lives, every gem that fires costs its owner 1 HP, wherever it sits on the rail, never the last | `resolve_gem` |
-| Flee | trait: after that many actions it leaves (`fled`, HP 0); what it stole goes with it. A countdown chip on its plate says how many actions it has left | `enemy_roll` |
-| Echo | `echo` on the creature, see §1 | `DeepCreatures.make` |
-| On death | `on_death` moves, see §1 | `_on_enemy_death` |
-| Refract | effect `reflect`: until its next action, that percent of every blow it takes goes back at every living player (Prism Golem, 50) | `_damage` |
-| Mirror | effect `mirror`: the next blow on it goes back whole at whoever threw it, and it takes nothing; it waits until a blow comes (Echo Sprite) | `_damage` |
-| Drinking a colour | effect `absorb_color`: until its next action, gems of that colour do it no damage, and the block, healing, Retain, Regeneration, Ward, Spikes or most health they would give their owner goes to it instead (the Kaleidoscope; a pair drinks a second colour, `add`) | `_damage`, `_apply` |
-| Splits | the Silt Slime's trait, now also a Remembered trait; a split never takes the room past four creatures | `_damage` |
-| Carat cap | trait `carat_cap`: while it stands no gem counts for more than that many carats (the Assayer, 5) | `rail_context`, `DeepStone.effective` |
-| Dampened Resonance | trait `resonance_damp`: gems ring for that percent less; the remainder carries, so two gems at half still make one (the Null Shade, 50) | `resolve_gem` |
-| Feeds on colour | trait `colour_strength`: it gains 1 Strength the first time it sees each colour of gem fire (the Refractor) | `resolve_gem` |
-| Charge | effect: a blow wound up over actions and let go. `guard_pct` takes that much less meanwhile; `store` lets go exactly what it was dealt; `cancel_pct` breaks it when that share of its health is lost (no creature uses that now) | `_tick_charge`, `_damage` |
-| Exhibit | effect: every gem it holds fires as its own move, read against its dice at the gem's Cut and one carat, through the mine's multiplier like any blow; what a gem does to "the enemy" lands on the party, what it does for its owner the creature keeps. Gems that only work the hand, rail or purse do nothing for it | `DeepCreatures.gem_effects` |
-| Grow and throw again | `dice_upgrade` with `cap` grows its dice a size; `roll_again` throws the die once more this action (three more at most); `end_action` stops its action | `enemy_roll`, `_apply_one` |
-| Fight-only dice | see §1 | `_spoil`, `dice_after_fight` |
+| Mechanic             | Built as                                                                                                                                                                                                                                                                                                             | Where                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Festering            | status on players: healing received is halved; counts down 1 at the tick (a fresh enemy application survives the tick that follows it)                                                                                                                                                                               | `_heal`                                 |
+| Scorched             | status: block gained is halved, rounded up; counts down 1 a turn                                                                                                                                                                                                                                                     | `_apply_one` "block"                    |
+| Burn                 | status: at the tick, after poison, it hurts for its stacks like poison, but block soaks it first; then it loses one stack                                                                                                                                                                                            | `_burn_tick`                            |
+| Strength             | status on a creature: a point more on every blow it deals, for the fight. A split twin does not inherit it                                                                                                                                                                                                           | `resolved_move`, `display_moves`        |
+| Piercing             | `piercing: true` on a damage effect: block is not touched                                                                                                                                                                                                                                                            | `_damage`                               |
+| Steadfast            | trait: Stun, Bound (die_steal), Clouded and Dread applications are halved (rounded up, at least 1); after an action lost to Stun the next Stun is resisted until it has acted                                                                                                                                        | `_apply_one`, `enemy_begin`             |
+| Purge                | effect: sheds that percent of its own poison (100 for most, 50 for a boss)                                                                                                                                                                                                                                           | `_apply_one`                            |
+| Summon               | effect: that many of the named creature join beside it, bred to the same depth, acting from the next turn; `max_creatures` (4) standing at most                                                                                                                                                                      | `DeepBattle.summon`                     |
+| Burrow               | effect: it ends its action and cannot be targeted until its next action; gems aimed at it hit another creature, gems that hit every creature miss it; it emerges as it next acts                                                                                                                                     | `_targets`, `enemy_roll`, `enemy_begin` |
+| Sturdy (was Bedrock) | trait: no single hit's HP loss exceeds that percent of its max HP (`capped` on the hit)                                                                                                                                                                                                                              | `_damage`                               |
+| Backlash             | trait: while it lives, every gem that fires costs its owner 1 HP, wherever it sits on the rail, never the last                                                                                                                                                                                                       | `resolve_gem`                           |
+| Flee                 | trait: after that many actions it leaves (`fled`, HP 0); what it stole goes with it. A countdown chip on its plate says how many actions it has left                                                                                                                                                                 | `enemy_roll`                            |
+| Echo                 | `echo` on the creature, see §1                                                                                                                                                                                                                                                                                       | `DeepCreatures.make`                    |
+| On death             | `on_death` moves, see §1                                                                                                                                                                                                                                                                                             | `_on_enemy_death`                       |
+| Refract              | effect `reflect`: until its next action, that percent of every blow it takes goes back at every living player (Prism Golem, 50)                                                                                                                                                                                      | `_damage`                               |
+| Mirror               | effect `mirror`: the next blow on it goes back whole at whoever threw it, and it takes nothing; it waits until a blow comes (Echo Sprite)                                                                                                                                                                            | `_damage`                               |
+| Drinking a color     | effect `absorb_color`: until its next action, gems of that color do it no damage, and the block, healing, Retain, Regeneration, Ward, Spikes or most health they would give their owner goes to it instead (the Kaleidoscope; a pair drinks a second color, `add`)                                                   | `_damage`, `_apply`                     |
+| Splits               | the Silt Slime's trait, now also a Remembered trait; a split never takes the room past four creatures                                                                                                                                                                                                                | `_damage`                               |
+| Carat cap            | trait `carat_cap`: while it stands no gem counts for more than that many carats (the Assayer, 5)                                                                                                                                                                                                                     | `rail_context`, `DeepStone.effective`   |
+| Dampened Resonance   | trait `resonance_damp`: gems ring for that percent less; the remainder carries, so two gems at half still make one (the Null Shade, 50)                                                                                                                                                                              | `resolve_gem`                           |
+| Feeds on color       | trait `color_strength`: it gains 1 Strength the first time it sees each color of gem fire (the Refractor)                                                                                                                                                                                                            | `resolve_gem`                           |
+| Charge               | effect: a blow wound up over actions and let go. `guard_pct` takes that much less meanwhile; `store` lets go exactly what it was dealt; `cancel_pct` breaks it when that share of its health is lost (no creature uses that now)                                                                                     | `_tick_charge`, `_damage`               |
+| Exhibit              | effect: every gem it holds fires as its own move, read against its dice at the gem's Cut and one carat, through the mine's multiplier like any blow; what a gem does to "the enemy" lands on the party, what it does for its owner the creature keeps. Gems that only work the hand, rail or purse do nothing for it | `DeepCreatures.gem_effects`             |
+| Grow and throw again | `dice_upgrade` with `cap` grows its dice a size; `roll_again` throws the die once more this action (three more at most); `end_action` stops its action                                                                                                                                                               | `enemy_roll`, `_apply_one`              |
+| Fight-only dice      | see §1                                                                                                                                                                                                                                                                                                               | `_spoil`, `dice_after_fight`            |
 
 **Taken out, as the owner asked:** Adapt (and the Remembered's adapting aura), Corroded,
 Invert and Unmake. Their effect kinds, statuses, chips and words are gone from the rules, the
@@ -126,21 +126,21 @@ Every mine has its own two Wardens and its own final boss; the Foreman, the Mirr
 the Drill are the Quarry's. A variant never appears within one mine of the creature it is based
 on, or of another variant of it (`tests/test_bestiary.gd` checks this against the bands).
 
-| Mine | New creatures | Wardens | Boss |
-| --- | --- | --- | --- |
-| Quarry | Rail Rat, Pit Mole | the Foreman, the Mirror Regent | the Drill, rebuilt |
-| Seeps | Seep Eel, Drowned Miner, Lamprey Knot, Cave Crayfish | the Lock-Keeper, the Drowned Choir | the Undertow |
-| Glass Veins | Prism Golem, Shard Wyrm, Glint Magpie, Will-o’-Wisp, Echo Sprite, Refractor | the Glazier, the Kaleidoscope | the Prismarch (with three Prisms) |
-| Warrens | Spore Slime, Mycel Wraith, Cap Shambler, Mycel Weaver, Puffball, Root Horror | the Gardener, the Spore Mother | the Heartrot (with three Tendrils) |
-| Furnace | Fire Tick, Cinder Moth, Salamander, Slag Hound, Forge Imp, Ember Crawler | the Smelter, the Anvil Knight | the Kiln Wyrm |
-| Geode | Gilded Magpie, Geode Golem, Amethyst Wyrm, Hoard Mimic, Croupier Crab, Crystal Hydra | the Assayer, the Collector | the Hollow Crown |
-| Rift | Void Echo, Null Shade, Riftling Swarm, Entropy Eye | the Remembered (see below) | none: it does not end |
+| Mine        | New creatures                                                                        | Wardens                            | Boss                               |
+| ----------- | ------------------------------------------------------------------------------------ | ---------------------------------- | ---------------------------------- |
+| Quarry      | Rail Rat, Pit Mole                                                                   | the Foreman, the Mirror Regent     | the Drill, rebuilt                 |
+| Seeps       | Seep Eel, Drowned Miner, Lamprey Knot, Cave Crayfish                                 | the Lock-Keeper, the Drowned Choir | the Undertow                       |
+| Glass Veins | Prism Golem, Shard Wyrm, Glint Magpie, Will-o’-Wisp, Echo Sprite, Refractor          | the Glazier, the Kaleidoscope      | the Prismarch (with three Prisms)  |
+| Warrens     | Spore Slime, Mycel Wraith, Cap Shambler, Mycel Weaver, Puffball, Root Horror         | the Gardener, the Spore Mother     | the Heartrot (with three Tendrils) |
+| Furnace     | Fire Tick, Cinder Moth, Salamander, Slag Hound, Forge Imp, Ember Crawler             | the Smelter, the Anvil Knight      | the Kiln Wyrm                      |
+| Geode       | Gilded Magpie, Geode Golem, Amethyst Wyrm, Hoard Mimic, Croupier Crab, Crystal Hydra | the Assayer, the Collector         | the Hollow Crown                   |
+| Rift        | Void Echo, Null Shade, Riftling Swarm, Entropy Eye                                   | the Remembered (see below)         | none: it does not end              |
 
 The Lens Beetle's places in the bands went to the mine's own creatures: the Refractor and Echo
 Sprite in the Glass Veins, the Echo Sprite and Mycel Weaver in the Warrens, the Forge Imp in the
 Furnace.
 
-**The Rift's Wardens.** Every eighth floor a boss from above comes back as *the Remembered*:
+**The Rift's Wardens.** Every eighth floor a boss from above comes back as _the Remembered_:
 the Drill, the Undertow, the Prismarch, the Heartrot, then the Kiln Wyrm, and round again, each
 with one trait more picked by the seed: Steadfast, Sturdy 25%, or Splits. Every fifth Rift
 Warden (floors 40, 80, 120…) is the Infinite Void instead (its content key is still
@@ -151,7 +151,7 @@ Warden (floors 40, 80, 120…) is the Infinite Void instead (its content key is 
 ## 4. Presentation
 
 - **Chips.** Every status and creature state has a chip with its sentence: Festering,
-  Scorched, Burn, Dread and locked dice on a player; Burrowed, Drinking (the colours),
+  Scorched, Burn, Dread and locked dice on a player; Burrowed, Drinking (the colors),
   Refracting, Mirror, Strength, Charging (with what it has stored), Empowered, Swollen, Holding
   gems (its own and those it took), Leaving (the Flee countdown), Echo, Escort, Remembered, and
   a countdown chip for every move that fires every so many actions. Every trait is a chip too
@@ -161,7 +161,7 @@ Warden (floors 40, 80, 120…) is the Infinite Void instead (its content key is 
   sentences on hover. A table with more than four moves, or more than six effects between
   them, is read densely so it still leaves the battle and the dock in view.
 - **In the room**: a burrowing creature sinks under the floor and erupts back with rubble; a
-  creature drinking a colour wears a halo in that colour, and one refracting or holding a
+  creature drinking a color wears a halo in that color, and one refracting or holding a
   mirror wears a pale one; a mirrored blow is beamed back at its thrower; a drunk blow says so;
   a charging creature pulses brighter; a summoned creature arrives in a flash and a ring; a
   fleeing one flies off in a shower of the pyrite it took; a dying Puffball bursts; held gems
@@ -169,8 +169,8 @@ Warden (floors 40, 80, 120…) is the Infinite Void instead (its content key is 
   what it does there; Sturdy, piercing, Backlash, Burn (and what block soaked of it), a Strength
   gained, a die thrown again and a stumble all say so where they land. A Void Echo is drawn as
   the creature it copies, violet and half there.
-- **Models.** Variants reuse their base scene in their own colours (`CrystalCreature.VARIANTS`),
-  and may name a core colour and a size: the Geode Golem is now a grey shell split open on an
+- **Models.** Variants reuse their base scene in their own colors (`CrystalCreature.VARIANTS`),
+  and may name a core color and a size: the Geode Golem is now a grey shell split open on an
   amethyst heart, a size bigger than the violet Prism Golem; the Will-o’-Wisp is pink, not the
   Lantern Moth's blue. Every new creature has a scene baked by `tools/creature_bake.gd` from a
   data recipe in `tools/creature_recipes/<mine>.gd`. The Glazier (a glass spider with a diamond
@@ -202,9 +202,9 @@ Warden (floors 40, 80, 120…) is the Infinite Void instead (its content key is 
 3. **Refract** sends back half of the health each blow took, at every player, until it acts
    again. **Mirror** sends a blow back at whoever threw it and waits for that blow, however
    long. The Echo Sprite's mirror throws back the whole blow at its thrower, not the party.
-4. **The Kaleidoscope's drink** keeps the original rule that the colour does it no damage, and
-   adds that what a gem of that colour gives its owner (block, healing, Retain, Regeneration,
-   Ward, Spikes, most health) goes to it. Its Turn adds the party's most-used colour it is not
+4. **The Kaleidoscope's drink** keeps the original rule that the color does it no damage, and
+   adds that what a gem of that color gives its owner (block, healing, Retain, Regeneration,
+   Ward, Spikes, most health) goes to it. Its Turn adds the party's most-used color it is not
    already drinking, until its next action.
 5. **The Prismarch's charge** takes one action and comes every other action, so the party has a
    turn to hit it in full between charges. While it charges it takes half, and it throws back
@@ -266,46 +266,46 @@ Turned down and taken out: **Lens Beetle**, **Adapt**, **Corroded**, **Invert**,
 
 Changed as the notes asked:
 
-| Card | Now |
-| --- | --- |
-| Lantern Moth (from the Cinder Moth's note) | Flutter hits for its roll. |
-| Lamprey Knot | Latch bites for each die's roll; Drink heals 4 on every 4 rolled, and takes no pyrite. |
-| The Lock-Keeper | Open the Sluice removes all block first, then hits. |
-| Prism Golem | Refract (even roll): until its next action, half of every blow on it goes back at every player. |
-| Will-o’-Wisp | Pink, not blue. Flicker hits for its roll; Lure (a 6) locks one of your dice. |
-| Echo Sprite | Twinkle hits for its roll; Mirror (5 or 6) sends the next blow on it back at its thrower. |
-| Refractor | Gains 1 Strength per new colour it sees fire; Split Light is its roll in hits of 1 + Strength; Prism Wall is 10 block × Strength. |
-| The Glazier | A glass spider, not a person. Cut is for good; Anneal is 10 block. |
-| The Kaleidoscope | Absorb (each action): drinks a colour: no damage from it, and its gems' gifts go to it. Turn (a pair) drinks another. |
-| The Prismarch | Every attack hits every player. Near death it charges for one action, every other action, takes half meanwhile, and throws all it was dealt back at every player. |
-| Spore Slime | Ooze poisons for 1 as well. |
-| Mycel Wraith | 2d6. |
-| Mycel Weaver | 2d4; Bite hits and poisons for its roll. |
-| Puffball | 30 health, a d6; it swells by its roll; a 6 gives it Regeneration 6. |
-| Root Horror | 3d4; Grow (a pair): a quarter more health and most health, and Strength equal to the pair. |
-| The Gardener | A beetle with a garden on its back. One d20: Tend heals every creature, itself included, by the roll; an even roll plants a Puffball, an odd one a Root Horror; Prune (a 20) hits for 20 and takes a point off every face your dice show, for good. |
-| The Spore Mother | 3d6; Brood on every 1; Choke on a 6; Shed (once, at half health) sheds every affliction. |
-| The Heartrot | 3d10; no Slough, no regrowth by phase; every 10 grows a Tendril back. |
-| Cinder Moth | Flutter hits for its roll; Embers (a 6) burns the party for 3. |
-| Salamander | A d12. Scratch (odd): the roll; Ember (even): Burn equal to the roll. **Burn** is new: poison that block soaks. |
-| Slag Hound | Howl gives every creature 1 Strength for the fight. |
-| Forge Imp | Cackle burns for the roll. |
-| Ember Crawler | Bite burns for 4 as well; Spit removes block equal to the roll. |
-| The Smelter | 2d8. Pour hits and burns for the roll; Melt (an 8) burns a showing face blank for the fight; Slag Armour (even) is block equal to the roll and Spikes 4. |
-| The Anvil Knight | Bulwark is 20 block and Spikes 4; Quench is Ward 1 and Strength equal to the roll. |
-| The Kiln Wyrm | No Corroded aura. Claw hits for each roll; Firebreath burns for the pair; Lavafall is 20 damage and 20 Burn; Ember is now Scorch. |
-| Gilded Magpie | Every Magpie variant flees, and its plate counts the actions down. |
-| Geode Golem | A grey shell split open on amethyst, bigger than the Prism Golem. Harden is block and Retain equal to the roll. |
-| The Assayer | A faceless horned shadow. 2d10. No gem counts for more than 5 carats while it stands; Weigh (even): the roll and 1 Strength; Balance (odd): block equal to the roll and 1 Spikes; Tax (a pair): a tenth of each purse and a blow for as much; Eat the Rich (a 10): heals and grows by the richest player's pyrite. |
-| The Collector | 3d6. Comes holding a Strike and a Bulwark. Acquire (a pair) takes a gem it can use; Exhibit (a 6) fires every gem it holds. |
-| The Hollow Crown | One d6, Sturdy 15% all fight. A 1 stuns it; any other roll hits and shields for the roll; a high roll grows its die and throws again; a crown heals it by the roll and doubles its next attack; at half health two Gilded Magpies come at once. |
-| Null Shade | Your Resonance is halved while it lives; Drain hits and heals for the roll; Snuff (even) melts a gem for the fight. |
-| Riftling Swarm | 3d4; Nibble hits for each roll; a 4 adds a riftling (a d4); Backlash on every gem. |
-| Entropy Eye | Gaze hits for its roll; Unmake (a 1) destroys one of your dice for the fight. |
-| The Remembered | The third trait is Splits, not Adapt. |
-| The Unmade | Now the Infinite Void: no dice, a d20 more as every action opens (five at most), and Existential Dread (a 20) shrinks every die you carry for the fight. |
-| Backlash | 1 health for every gem that fires, wherever it sits. |
-| Bedrock | Called Sturdy. |
+| Card                                       | Now                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Lantern Moth (from the Cinder Moth's note) | Flutter hits for its roll.                                                                                                                                                                                                                                                                                         |
+| Lamprey Knot                               | Latch bites for each die's roll; Drink heals 4 on every 4 rolled, and takes no pyrite.                                                                                                                                                                                                                             |
+| The Lock-Keeper                            | Open the Sluice removes all block first, then hits.                                                                                                                                                                                                                                                                |
+| Prism Golem                                | Refract (even roll): until its next action, half of every blow on it goes back at every player.                                                                                                                                                                                                                    |
+| Will-o’-Wisp                               | Pink, not blue. Flicker hits for its roll; Lure (a 6) locks one of your dice.                                                                                                                                                                                                                                      |
+| Echo Sprite                                | Twinkle hits for its roll; Mirror (5 or 6) sends the next blow on it back at its thrower.                                                                                                                                                                                                                          |
+| Refractor                                  | Gains 1 Strength per new color it sees fire; Split Light is its roll in hits of 1 + Strength; Prism Wall is 10 block × Strength.                                                                                                                                                                                   |
+| The Glazier                                | A glass spider, not a person. Cut is for good; Anneal is 10 block.                                                                                                                                                                                                                                                 |
+| The Kaleidoscope                           | Absorb (each action): drinks a color: no damage from it, and its gems' gifts go to it. Turn (a pair) drinks another.                                                                                                                                                                                               |
+| The Prismarch                              | Every attack hits every player. Near death it charges for one action, every other action, takes half meanwhile, and throws all it was dealt back at every player.                                                                                                                                                  |
+| Spore Slime                                | Ooze poisons for 1 as well.                                                                                                                                                                                                                                                                                        |
+| Mycel Wraith                               | 2d6.                                                                                                                                                                                                                                                                                                               |
+| Mycel Weaver                               | 2d4; Bite hits and poisons for its roll.                                                                                                                                                                                                                                                                           |
+| Puffball                                   | 30 health, a d6; it swells by its roll; a 6 gives it Regeneration 6.                                                                                                                                                                                                                                               |
+| Root Horror                                | 3d4; Grow (a pair): a quarter more health and most health, and Strength equal to the pair.                                                                                                                                                                                                                         |
+| The Gardener                               | A beetle with a garden on its back. One d20: Tend heals every creature, itself included, by the roll; an even roll plants a Puffball, an odd one a Root Horror; Prune (a 20) hits for 20 and takes a point off every face your dice show, for good.                                                                |
+| The Spore Mother                           | 3d6; Brood on every 1; Choke on a 6; Shed (once, at half health) sheds every affliction.                                                                                                                                                                                                                           |
+| The Heartrot                               | 3d10; no Slough, no regrowth by phase; every 10 grows a Tendril back.                                                                                                                                                                                                                                              |
+| Cinder Moth                                | Flutter hits for its roll; Embers (a 6) burns the party for 3.                                                                                                                                                                                                                                                     |
+| Salamander                                 | A d12. Scratch (odd): the roll; Ember (even): Burn equal to the roll. **Burn** is new: poison that block soaks.                                                                                                                                                                                                    |
+| Slag Hound                                 | Howl gives every creature 1 Strength for the fight.                                                                                                                                                                                                                                                                |
+| Forge Imp                                  | Cackle burns for the roll.                                                                                                                                                                                                                                                                                         |
+| Ember Crawler                              | Bite burns for 4 as well; Spit removes block equal to the roll.                                                                                                                                                                                                                                                    |
+| The Smelter                                | 2d8. Pour hits and burns for the roll; Melt (an 8) burns a showing face blank for the fight; Slag Armour (even) is block equal to the roll and Spikes 4.                                                                                                                                                           |
+| The Anvil Knight                           | Bulwark is 20 block and Spikes 4; Quench is Ward 1 and Strength equal to the roll.                                                                                                                                                                                                                                 |
+| The Kiln Wyrm                              | No Corroded aura. Claw hits for each roll; Firebreath burns for the pair; Lavafall is 20 damage and 20 Burn; Ember is now Scorch.                                                                                                                                                                                  |
+| Gilded Magpie                              | Every Magpie variant flees, and its plate counts the actions down.                                                                                                                                                                                                                                                 |
+| Geode Golem                                | A grey shell split open on amethyst, bigger than the Prism Golem. Harden is block and Retain equal to the roll.                                                                                                                                                                                                    |
+| The Assayer                                | A faceless horned shadow. 2d10. No gem counts for more than 5 carats while it stands; Weigh (even): the roll and 1 Strength; Balance (odd): block equal to the roll and 1 Spikes; Tax (a pair): a tenth of each purse and a blow for as much; Eat the Rich (a 10): heals and grows by the richest player's pyrite. |
+| The Collector                              | 3d6. Comes holding a Strike and a Bulwark. Acquire (a pair) takes a gem it can use; Exhibit (a 6) fires every gem it holds.                                                                                                                                                                                        |
+| The Hollow Crown                           | One d6, Sturdy 15% all fight. A 1 stuns it; any other roll hits and shields for the roll; a high roll grows its die and throws again; a crown heals it by the roll and doubles its next attack; at half health two Gilded Magpies come at once.                                                                    |
+| Null Shade                                 | Your Resonance is halved while it lives; Drain hits and heals for the roll; Snuff (even) melts a gem for the fight.                                                                                                                                                                                                |
+| Riftling Swarm                             | 3d4; Nibble hits for each roll; a 4 adds a riftling (a d4); Backlash on every gem.                                                                                                                                                                                                                                 |
+| Entropy Eye                                | Gaze hits for its roll; Unmake (a 1) destroys one of your dice for the fight.                                                                                                                                                                                                                                      |
+| The Remembered                             | The third trait is Splits, not Adapt.                                                                                                                                                                                                                                                                              |
+| The Unmade                                 | Now the Infinite Void: no dice, a d20 more as every action opens (five at most), and Existential Dread (a 20) shrinks every die you carry for the fight.                                                                                                                                                           |
+| Backlash                                   | 1 health for every gem that fires, wherever it sits.                                                                                                                                                                                                                                                               |
+| Bedrock                                    | Called Sturdy.                                                                                                                                                                                                                                                                                                     |
 
 ## 8. Open questions for the owner
 
@@ -314,7 +314,7 @@ Changed as the notes asked:
   every other action (§5.5) and the Collector firing gems at one carat (§5.8).
 - The Anvil Knight's Quench grows Strength by its roll on every odd die, for the fight; two
   odd rolls can add 15 to every blow after. Is that the intended pace?
-- Should the Collector take one gem from *each* player in co-op, or one from the party as built?
+- Should the Collector take one gem from _each_ player in co-op, or one from the party as built?
 - The paired units plan (the "Deep Cut Mine Progression Plan" doc) was not read in this pass;
   if it carries other verdicts on these creatures they are not reflected here.
 

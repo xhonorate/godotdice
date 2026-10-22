@@ -5,8 +5,8 @@ extends "res://view/battle/tally.gd"
 ## turns into one number, and a number is only felt if it is seen being made. Each lit tier is
 ## called out by name, large, and counted on its own: the number Resonance multiplies (the
 ## tier's own three, the crowns showing, the rerolls left unspent) in the left-hand box, then
-## Resonance itself streaming out of the rail's counter as light, every colour of it, into a
-## box framed in every colour, so it is never mistaken for a stone's weight in its gold one.
+## Resonance itself streaming out of the rail's counter as light, every color of it, into a
+## box framed in every color, so it is never mistaken for a stone's weight in its gold one.
 ## The two are fused into the figure and it flies; the screen lands it, then calls the next.
 ## A tier with no figure (a cleanse, an Encore, the poison ticking) is only called out. The
 ## Gambler's pot is counted in pyrite: coins out of his purse onto the table, the bank matching
@@ -34,7 +34,7 @@ var on_pot: Callable = Callable()
 
 var _count: Dictionary = {}
 var _callout: Control = null
-## The boxes framed in every colour, redrawn as their colours turn, and the numbers in them.
+## The boxes framed in every color, redrawn as their colors turn, and the numbers in them.
 var _rainbows: Array = []
 var _res_label: Label = null
 var _res_box: PanelContainer = null
@@ -161,7 +161,7 @@ func _build_tier() -> void:
 	sign.add_theme_constant_override("outline_size", 5)
 	sign.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if _count.has("res"):
-		## Resonance gets a box framed in every colour: the multiplier no stone carries.
+		## Resonance gets a box framed in every color: the multiplier no stone carries.
 		_mult_box = _rainbow_box(_row)
 		_res_box = _mult_box
 		var mult_row := DeepUi.hbox(_mult_box, 4)
@@ -178,7 +178,7 @@ func _build_tier() -> void:
 
 static func _bright(tone: Color) -> Color:
 	## A stone's tint made light enough to read as type over a dark room: a black opal's name
-	## is written pale, with the opal's play of colour in it.
+	## is written pale, with the opal's play of color in it.
 	var light: Color = tone.lightened(0.5)
 	return light if light.get_luminance() >= 0.55 else light.lerp(Color("e9e2ff"), 0.75)
 
@@ -213,7 +213,7 @@ static func tier_line(count: Dictionary) -> String:
 	return ""
 
 func _rainbow_box(parent: Control) -> PanelContainer:
-	## A box framed in every colour, the frame turning slowly: Resonance's own.
+	## A box framed in every color, the frame turning slowly: Resonance's own.
 	var box := PanelContainer.new()
 	box.add_theme_stylebox_override("panel", DeepUi.flat(Color(0.05, 0.03, 0.09, 0.94), Color(0, 0, 0, 0), 6, 5 if compact else 9, 0))
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -249,7 +249,7 @@ func _draw_rainbow(box: Control) -> void:
 	box.draw_polyline_colors(points, colors, 2.2 if not compact else 1.6, true)
 
 func _call_out() -> void:
-	## The tier's name slams in from large and settles, ringing, with a spray of its colour.
+	## The tier's name slams in from large and settles, ringing, with a spray of its color.
 	if _callout == null:
 		return
 	_column.modulate.a = 0.0
@@ -323,7 +323,7 @@ func _reveal_tier_base(seconds: float) -> void:
 		_voice(tick, _centre(_base_box), 0.6, step), glyph)
 
 func _flow() -> void:
-	## Resonance streams out of the rail's counter as light, every colour of it, and the box
+	## Resonance streams out of the rail's counter as light, every color of it, and the box
 	## counts it in as it lands: a rising run of ticks, the chain being spent.
 	var found: Variant = flow_from.call() if flow_from.is_valid() else null
 	var source: Control = found as Control if found is Control and is_instance_valid(found) and (found as Control).is_inside_tree() else null
@@ -358,7 +358,7 @@ func _flowed(value: int, index: int, motes: int, first: int) -> void:
 		_step = first + 5
 
 func _mote(from: Vector2, to: Vector2, tint: Color, delay: float, seconds: float, landed: Callable) -> void:
-	## One spark of Resonance on its way: a soft light trailing its colour, bowing out and in.
+	## One spark of Resonance on its way: a soft light trailing its color, bowing out and in.
 	if not from.is_finite() or not to.is_finite():
 		get_tree().create_timer(delay + seconds).timeout.connect(func() -> void:
 			if is_instance_valid(self):
@@ -392,7 +392,7 @@ func _mote(from: Vector2, to: Vector2, tint: Color, delay: float, seconds: float
 	glow.texture = DeepUi.glow_texture()
 	glow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	glow.size = Vector2(36, 36) if not compact else Vector2(18, 18)
-	glow.position = -glow.size * 0.5
+	glow.position = - glow.size * 0.5
 	glow.modulate = tint
 	glow.material = add
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -418,7 +418,7 @@ func _mote(from: Vector2, to: Vector2, tint: Color, delay: float, seconds: float
 	tween.tween_callback(mote.queue_free)
 
 func _rainbow_sparks(at: Vector2, amount: int, speed: float, behind: bool = false) -> void:
-	## A spray in every colour: three bursts off the wheel; `behind` the plate, so a number
+	## A spray in every color: three bursts off the wheel; `behind` the plate, so a number
 	## being sprayed over and over stays readable.
 	var parent: Control = get_parent() as Control
 	if parent == null or not at.is_finite():
@@ -612,7 +612,7 @@ func call_only(title: String, line: String) -> void:
 
 func open_swell(title: String, kind: String) -> void:
 	## A figure that grows for as long as a gem keeps landing blows: its name over a box framed
-	## in every colour, since it is Resonance that each blow pays. Shown at the first `swell`.
+	## in every color, since it is Resonance that each blow pays. Shown at the first `swell`.
 	_tally = {"kind": kind}
 	_kind_tone = kind_look(kind)[1]
 	_pace = 1.0

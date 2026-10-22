@@ -8,7 +8,7 @@ extends RefCounted
 ## same fields.
 ##
 ## `colors` is the gem asking. Every list of die ids here is ordered by how badly a die
-## wants to be the one that fires it — a material answering that gem colour first, then an
+## wants to be the one that fires it — a material answering that gem color first, then an
 ## etched face, then any material at all — so three sixes and a Shiny six spend the Shiny
 ## one. See `DeepDice.preference`.
 ##

@@ -424,7 +424,7 @@ class Stratum extends MarginContainer:
 		draw_texture_rect(GemIcons.texture("lock", GemIcons.baked_size(21.0)), Rect2(lock_at - Vector2(7, 7), Vector2(14, 14)), false, DeepUi.DIM)
 
 class Badge extends Control:
-	## A mine's numeral in a ring of its colour, as on the map.
+	## A mine's numeral in a ring of its color, as on the map.
 	var numeral: String
 	var tone: Color
 	var lit: bool
@@ -534,7 +534,7 @@ static func _name_of(profile: Dictionary, key: String) -> String:
 static func _leaves(home: Control, box: Control, key: String, def: Dictionary, record: Dictionary) -> void:
 	## What is said about it, in pages under tabs: the field notes (where it lives and the
 	## player's record against it), its moves four at a time, and each phase's.
-	var leaves: Array = [{"name": "Field notes", "glyph": "map", "draw": func(page: Control) -> void: _notes(home.profile, page, key, record)}]
+	var leaves: Array = [ {"name": "Field notes", "glyph": "map", "draw": func(page: Control) -> void: _notes(home.profile, page, key, record)}]
 	var traits: Dictionary = DeepCreatures.traits_for({"key": key, "hp": 1, "max_hp": 1})
 	var moves: Array = def.get("moves", [])
 	for chunk in range(maxi(1, ceili(float(moves.size()) / float(MOVES_PAGE)))):

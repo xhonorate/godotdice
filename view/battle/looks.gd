@@ -6,7 +6,7 @@ extends MeshInstance3D
 ## This sits under `screen_fx.gd`, which is the gameplay feedback layer (vignette, hurt,
 ## flashes) and stays on whatever look is picked.
 ##
-## The house style is `ink_crease`: every fold of the low-poly rock drawn in its own colour,
+## The house style is `ink_crease`: every fold of the low-poly rock drawn in its own color,
 ## which is what makes flat shading read as a choice. The settings menu turns it off for the
 ## frames a second it costs. The rest are kept for the sake of being able to look at them
 ## again - `tools/look_gallery.gd` shoots the same room in every one of them side by side,
@@ -114,7 +114,7 @@ void fragment() {
 		// Draw what is close and leave the far end of the room to the fog.
 		e *= clamp(1.0 - (min(d0, owner_d) - fade_at) / fade_at, 0.0, 1.0);
 	}
-	// What the line is drawn in. Only the lit colour of the solid is on hand, never its
+	// What the line is drawn in. Only the lit color of the solid is on hand, never its
 	// albedo, so a surface standing in shadow lends a nearly black line and a hot one a
 	// bright line - which is mostly what you want anyway.
 	vec3 owner = texture(screen_tex, owner_uv).rgb;
@@ -124,7 +124,7 @@ void fragment() {
 	else if (tint_mode == 3) { line = max(mix(vec3(lum(owner)), owner, 1.8), vec3(0.0)) * darken; }
 	else if (tint_mode == 4) { line = owner + (vec3(1.0) - owner) * darken; }
 	if (accent_mix > 0.0) {
-		// The hue of the room's accent at the darkness the line already had: colour the ink
+		// The hue of the room's accent at the darkness the line already had: color the ink
 		// without lighting it, which in a cave this dark is the whole difference.
 		float keep = lum(line);
 		line = mix(line, accent.rgb / max(lum(accent.rgb), 0.001) * keep, accent_mix);
@@ -151,7 +151,7 @@ void fragment() {
 	float l = clamp(lum(col) * scale, 0.0, 1.0);
 	// Shadow -> the room's own accent -> lamp light: three stops, everything between mixed.
 	vec3 ramp = l < 0.5 ? mix(ink.rgb, accent.rgb, l * 2.0) : mix(accent.rgb, paper.rgb, (l - 0.5) * 2.0);
-	// A quarter of the frame's own colour kept back, or every gem in the room turns the
+	// A quarter of the frame's own color kept back, or every gem in the room turns the
 	// same shade as the wall behind it.
 	ramp = mix(ramp, ramp * 0.55 + col * 0.65, 0.25);
 	ALBEDO = mix(col, ramp, amount);
@@ -272,7 +272,7 @@ void fragment() {
 const LOOKS: Dictionary = {
 	"off": {"name": "No pass", "body": "", "amount": 0.0, "scale": 1.0, "note": "the frame as the renderer leaves it"},
 	## The ink family: one shader, nine settings of it. `tint_mode` is what the line is
-	## drawn in - 0 flat, 1 the room's dark, 2 the solid's own lit colour, 3 the solid's hue
+	## drawn in - 0 flat, 1 the room's dark, 2 the solid's own lit color, 3 the solid's hue
 	## at a darkness of our choosing, 4 chalk (light lines).
 	"ink": {"name": "Ink · baseline", "body": INK, "knobs": INK_KNOBS, "amount": 0.85, "scale": 1.2,
 		"note": "depth and normal edges, drawn in the room's own dark"},
@@ -282,9 +282,9 @@ const LOOKS: Dictionary = {
 	"ink_bold": {"name": "Ink · bold", "body": INK, "knobs": INK_KNOBS, "amount": 1.0, "scale": 2.2,
 		"uniforms": {"depth_gain": 5.0, "normal_gain": 1.2, "edge_lo": 0.16, "edge_hi": 0.44, "tint_mode": 0},
 		"note": "thick and flat, the same near-black everywhere"},
-	"ink_own": {"name": "Ink · the solid's colour", "body": INK, "knobs": INK_KNOBS, "amount": 0.9, "scale": 1.2,
+	"ink_own": {"name": "Ink · the solid's color", "body": INK, "knobs": INK_KNOBS, "amount": 0.9, "scale": 1.2,
 		"uniforms": {"tint_mode": 2, "darken": 0.35},
-		"note": "the line is the lit colour of whatever it is drawn around, taken down a third"},
+		"note": "the line is the lit color of whatever it is drawn around, taken down a third"},
 	"ink_hue": {"name": "Ink · the solid's hue", "body": INK, "knobs": INK_KNOBS, "amount": 0.9, "scale": 1.2,
 		"uniforms": {"tint_mode": 3, "darken": 0.30},
 		"note": "same hue as the solid but our darkness, so a shadowed face still gets a line"},
@@ -297,7 +297,7 @@ const LOOKS: Dictionary = {
 	"ink_near": {"name": "Ink · near only", "body": INK, "knobs": INK_KNOBS, "amount": 0.95, "scale": 1.4,
 		"uniforms": {"tint_mode": 2, "darken": 0.35, "fade_at": 14.0},
 		"note": "the arc and the creatures inked, the far wall left to the fog"},
-	"ink_accent": {"name": "Ink · coloured", "body": INK, "knobs": INK_KNOBS, "amount": 0.85, "scale": 1.2,
+	"ink_accent": {"name": "Ink · colored", "body": INK, "knobs": INK_KNOBS, "amount": 0.85, "scale": 1.2,
 		"uniforms": {"tint_mode": 3, "darken": 0.34, "accent_mix": 0.6},
 		"note": "the solid's hue pulled most of the way to the biome's accent"},
 	"posterize": {"name": "Banded + dither", "body": POSTERIZE, "amount": 0.9, "scale": 6.0, "note": "light quantised to a few stops, seams broken with a 4x4 dither"},
@@ -394,7 +394,7 @@ func cycle(by: int = 1) -> String:
 	return look
 
 func tint(biome: Dictionary) -> void:
-	## The three colours a look grades with, taken from the room it stands in, so the same
+	## The three colors a look grades with, taken from the room it stands in, so the same
 	## pass reads as the Galleries down one shaft and the Rift down another.
 	_biome = biome
 	_apply()

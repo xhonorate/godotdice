@@ -235,7 +235,7 @@ func _ready() -> void:
 	_scrim.visible = false
 	_body.add_child(_scrim)
 	## Over the room while this player is down in a party, and under everything drawn on it:
-	## the fight's dock, the tabs and every page stay in full colour, so someone who is down
+	## the fight's dock, the tabs and every page stay in full color, so someone who is down
 	## still watches the party's dice and gems as clearly as before.
 	_veil = DownedVeil.new()
 	_body.add_child(_veil)
@@ -1046,14 +1046,14 @@ func _sync_ceremony() -> void:
 	if layer == null or not layer.has_meta("run_id"):
 		return
 	var phase: String = str(run.get("phase", ""))
-	if run.is_empty() or not is_visible_in_tree() or str(run.get("run_id", "")) != str(layer.get_meta("run_id")) 			or phase in ["over", "salvage"] or (DeepDescent.in_battle(run) and not bool(layer.get_meta("in_fight", false))):
+	if run.is_empty() or not is_visible_in_tree() or str(run.get("run_id", "")) != str(layer.get_meta("run_id")) or phase in ["over", "salvage"] or (DeepDescent.in_battle(run) and not bool(layer.get_meta("in_fight", false))):
 		layer.close()
 		return
 	if layer.has_meta("stone"):
 		var stone: Dictionary = layer.get_meta("stone")
 		if DeepOddities.find_stone(me(), str(stone.get("id", ""))).is_empty():
 			## Gone from the bag already (sold, traded, set by the bench): nothing left to do.
-			layer.set_actions([{"label": "Continue", "glyph": "check", "tone": DeepUi.ACCENT, "dismiss": true}])
+			layer.set_actions([ {"label": "Continue", "glyph": "check", "tone": DeepUi.ACCENT, "dismiss": true}])
 		else:
 			layer.set_actions(appraisal_actions(stone))
 
@@ -1188,7 +1188,7 @@ func _show_conquest(item: Dictionary) -> CanvasLayer:
 			_choose_mouth(0)
 	## No "not yet": Esc or a click outside puts the sheet away, and the hall's cage and mouth
 	## still choose the same two things.
-	var actions: Array = [{"label": "Return home", "glyph": "lift", "tone": DeepUi.GOOD, "call": ride, "price": fare, "price_glyph": "ore",
+	var actions: Array = [ {"label": "Return home", "glyph": "lift", "tone": DeepUi.GOOD, "call": ride, "price": fare, "price_glyph": "ore",
 		"disabled": downed or not afford or str(unit.get("choice", "")) == "lift"}]
 	if not next_key.is_empty():
 		actions.append({"label": "Dig deeper", "glyph": "descend", "tone": DeepUi.ACCENT, "call": deeper,
@@ -1236,7 +1236,7 @@ func toast_parts(parts: Array, color: Color, glyph: String = "") -> void:
 		bottom = maxf(bottom, _battle.size.y - _battle._dock.position.y + 14.0)
 	elif _run_dock.visible:
 		bottom = maxf(bottom, _run_dock.height() + 14.0)
-	_toasts.offset_bottom = -bottom
+	_toasts.offset_bottom = - bottom
 	_toasts.offset_top = _toasts.offset_bottom - _toasts.get_combined_minimum_size().y
 	DeepUi.pop_in(box, 0.0, 0.8)
 	var tween := box.create_tween()
@@ -2146,7 +2146,7 @@ func _fit_area() -> void:
 	## well, instead of lying over the health bar and the rail.
 	if _battle.visible and _battle._dock != null and _battle.size.y > 0.0:
 		floor_height = maxf(floor_height, _battle.size.y - _battle._dock.position.y)
-	_map_margin.offset_bottom = -floor_height - 8.0
+	_map_margin.offset_bottom = - floor_height - 8.0
 
 # --- the landing ---------------------------------------------------------------------------------
 ##
@@ -2261,7 +2261,7 @@ func _show_landing() -> void:
 		_landing_page(_landing_view)
 		_fill_chip()
 		return
-	_set_cross_mark("crown" if cleared else "lift",DeepUi.CHAMBER_colorS.get("warden" if cleared else "landing", DeepUi.GOOD))
+	_set_cross_mark("crown" if cleared else "lift", DeepUi.CHAMBER_colorS.get("warden" if cleared else "landing", DeepUi.GOOD))
 	var next_key: String = DeepDescent.next_mine(run)
 	if boss_hall:
 		_cross_title.text = "The bottom of %s  ·  depth %d" % [DeepContent.mine_name(str(run.get("mine", ""))), int(run.get("depth", 0))]
@@ -2715,7 +2715,7 @@ func _hoard_chip(box: VBoxContainer, id: String, key: String) -> bool:
 			for inclusion in stone.get("inclusions", []):
 				DeepUi.stat(box, "spark", str(DeepContent.inclusion(str(inclusion)).get("name", inclusion)), DeepUi.INFO, 12)
 		else:
-			## Still in its rock: a colour and a size class, and not one word about what it is.
+			## Still in its rock: a color and a size class, and not one word about what it is.
 			DeepUi.title(words, DeepStone.raw_name(stone), 18, tone)
 			StoneCard.size_stat(words, stone, 12)
 			DeepUi.label(box, "Not appraised yet. Its skill, cut and inclusions are unknown.", 12, DeepUi.MUTED)
@@ -3784,7 +3784,7 @@ func _page_dice_offer(content: VBoxContainer, unit: Dictionary) -> void:
 	var kept_thumb := Thumbs.DieThumb.new(original, 32)
 	keep_row.add_child(kept_thumb)
 	var keep := DeepUi.button(keep_row, "Keep your %s" % DeepDice.describe(original), func() -> void:
-		command.emit({"kind": "dice_offer", "index": index, "pick": -1}), 15)
+		command.emit({"kind": "dice_offer", "index": index, "pick": - 1}), 15)
 	keep.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	DeepUi.stat(body, "eye", "Right-click a die for the close look.", DeepUi.DIM, 12).alignment = BoxContainer.ALIGNMENT_CENTER
 
@@ -4443,7 +4443,7 @@ func _picker_empty(needs: String, unit: Dictionary) -> bool:
 			for choice in DeepContent.oddity(str(run.get("chamber", {}).get("oddity", ""))).get("choices", []):
 				if str(choice.get("needs", "")) == needs:
 					least = DeepOddities.hollow_least(choice.get("action", {}))
-			return unit.get("dice", []).size() <= least or _carried(unit).all(func(s: Dictionary) -> bool: return not DeepOddities.hollow_refusal(s).is_empty())
+			return unit.get("dice", []).size() <= least or _carried(unit).all(func(s: Dictionary) -> bool: return not DeepOddities.hollow_refusal(s, unit).is_empty())
 	return false
 
 func _loose(unit: Dictionary) -> Array:
@@ -4603,7 +4603,7 @@ func _work_refusal(action: Dictionary, item: Dictionary) -> String:
 			return "" if not bool(item.get("appraised", false)) else "it has already been read"
 		"hollow":
 			## Any of the five dice will go down the hole; only a read gem with a socket to give up comes away Void.
-			return "" if item.has("faces") else DeepOddities.hollow_refusal(item)
+			return "" if item.has("faces") else DeepOddities.hollow_refusal(item, me())
 		"reset":
 			## The vat keeps a die's size and its material: one with no pattern and nothing
 			## etched on it would come out exactly as it went in.

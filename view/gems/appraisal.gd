@@ -106,7 +106,7 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	_new_skill = bool(opts.get("new_skill", false)) and not _shatters
 	if _shatters:
 		owned = {}
-		actions = [{"label": "Continue", "glyph": "split_shield", "tone": DeepUi.MUTED, "dismiss": true,
+		actions = [ {"label": "Continue", "glyph": "split_shield", "tone": DeepUi.MUTED, "dismiss": true,
 			"caption": "Fragile stones cannot be sold or kept"}]
 	_hue = GemMesh.tint(stone)
 	_root = Control.new()
@@ -658,7 +658,7 @@ class Sheet extends VBoxContainer:
 		##
 		## Beside a kept stone the two columns are built out of the same parts at the same
 		## sizes — the same type, the same grade pill, the same inclusion chips — so the eye
-		## compares the stones and not the typography. Which one is ahead is said by colouring
+		## compares the stones and not the typography. Which one is ahead is said by coloring
 		## the winning value and dimming the other, rather than by an arrow the reader has to
 		## translate into "higher than the thing beside it".
 		var grade: Dictionary = extra.get("grade", {})
@@ -715,7 +715,7 @@ class Sheet extends VBoxContainer:
 					"%s: %s" % [str(inclusion.get("name", key)), str(inclusion.get("text", ""))])
 				chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			owned_bits.append(their_cell)
-		## Which of the two is ahead, said in colour once both values are on the page. A
+		## Which of the two is ahead, said in color once both values are on the page. A
 		## clarity is neither better nor worse for being further from Clear, so that row
 		## never picks a winner.
 		var judge := func() -> void:

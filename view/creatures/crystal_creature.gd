@@ -24,7 +24,7 @@ static func _scene_paths() -> Dictionary:
 	for key in VARIANTS:
 		out[key] = SCENE_DIR + str(VARIANTS[key].of).to_lower() + ".tscn"
 	return out
-## A variant is an earlier creature in another mine's colours: the same scene, recoloured.
+## A variant is an earlier creature in another mine's colors: the same scene, recolored.
 ## `tint` is the body, `accent` the glowing details (where the scene has an accent material),
 ## `core` the heart of it when that should not follow the body, and `scale` its size.
 const VARIANTS: Dictionary = {
@@ -100,8 +100,8 @@ var _charging: float = 0.0
 var _buried: float = 0.0
 var _buried_want: float = 0.0
 var _ghost: bool = false
-## A blow turns the body's light white for an instant before its own colour comes back. Its
-## own colour is kept here while it does, so `tint` never reads the flash.
+## A blow turns the body's light white for an instant before its own color comes back. Its
+## own color is kept here while it does, so `tint` never reads the flash.
 var _white: float = 0.0
 var _hue: Color = Color.WHITE
 
@@ -132,7 +132,7 @@ static func _scene(path: String) -> PackedScene:
 	return _scenes[path]
 
 static func make(creature_key: String, is_warden: bool = false, echo_of: String = "") -> CrystalCreature:
-	## A creature by key. A variant spawns its base scene in its own colours; a Void Echo
+	## A creature by key. A variant spawns its base scene in its own colors; a Void Echo
 	## spawns the scene of whatever it copies, in the Rift's light.
 	var looks: String = echo_of if not echo_of.is_empty() else creature_key
 	var path: String = _path_for(looks)
@@ -147,7 +147,7 @@ static func make(creature_key: String, is_warden: bool = false, echo_of: String 
 		creature._apply_palette(creature.normal_tint, creature.normal_accent)
 	creature._configure_warden(is_warden)
 	if VARIANTS.has(looks) and path != FALLBACK_SCENE:
-		## A grey shell split open on a coloured heart: a Geode Golem is not a Prism Golem.
+		## A grey shell split open on a colored heart: a Geode Golem is not a Prism Golem.
 		if VARIANTS[looks].has("core"):
 			var heart := Color(str(VARIANTS[looks].core))
 			creature.core_material.albedo_color = heart.darkened(0.3)
@@ -178,7 +178,7 @@ func _prepare() -> void:
 		_base_accent_emission = accent_material.emission_energy_multiplier
 	_base_light_energy = _light.light_energy
 	_collect_parts(_body)
-	## The halo under it that says what colour it has turned away, hidden until it does.
+	## The halo under it that says what color it has turned away, hidden until it does.
 	_halo = MeshInstance3D.new()
 	_halo.mesh = _ring.mesh
 	_halo_material = StandardMaterial3D.new()
@@ -239,8 +239,8 @@ func ghost() -> void:
 	(get_node("Glow") as OmniLight3D).light_color = ECHO_TINT
 
 func set_halo(color: Color) -> void:
-	## Something is guarding it: a colour it drinks, a refraction, a mirror held up. A halo of
-	## that colour under it.
+	## Something is guarding it: a color it drinks, a refraction, a mirror held up. A halo of
+	## that color under it.
 	_halo_material.albedo_color = Color(color, _halo_material.albedo_color.a)
 	_halo_want = 0.9 if color.a > 0.0 else 0.0
 
@@ -368,10 +368,10 @@ func _process(delta: float) -> void:
 	## Burrowed: the body sinks out of sight and the light goes with it.
 	_buried = move_toward(_buried, _buried_want, delta * 2.2)
 	if not _dying:
-		_body.position = _body_rest.origin + Vector3(0, -(anchor.y / maxf(0.01, scale.y) + 0.6) * _buried, 0)
+		_body.position = _body_rest.origin + Vector3(0, - (anchor.y / maxf(0.01, scale.y) + 0.6) * _buried, 0)
 	if _light != null and not _dying and _body.scale.x > _body_rest.basis.get_scale().x * 0.95:
 		_light.light_energy = (_base_light_energy * (1.0 + heartbeat) + _glow_boost * 1.2 + charge * 1.5) * (1.0 - _buried)
-	## The halo: a slow counter-turning ring in the colour of whatever guards it.
+	## The halo: a slow counter-turning ring in the color of whatever guards it.
 	if _halo != null:
 		_halo_material.albedo_color.a = move_toward(_halo_material.albedo_color.a, _halo_want * (1.0 - _buried), delta * 3.0)
 		_halo.rotation.y -= delta * 1.1

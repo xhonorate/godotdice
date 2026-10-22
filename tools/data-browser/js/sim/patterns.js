@@ -1,6 +1,7 @@
 // What a hand has to show before a gem fires: a port of sim/patterns.gd.
 
 import * as Hand from './hand.js';
+import { I } from './numbers.js';
 
 export const KINDS = ['all_odd', 'all_even', 'always', 'pair', 'two_pair', 'triple', 'full_house', 'quad', 'quint', 'straight',
 	'odd', 'even', 'distinct', 'value', 'at_most', 'at_least', 'total_pct_at_least', 'total_pct_at_most',
@@ -60,7 +61,7 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 	if (TURN_KINDS.includes(kind)) {
 		// The fight tells a creature which action this is; nothing on the dice does.
 		const first = Boolean(context.first_roll);
-		const acted = context.turns_acted | 0;
+		const acted = I(context.turns_acted);
 		switch (kind) {
 			case 'each_turn': result.active = first; break;
 			case 'every_nth_turn': result.active = first && need > 0 && acted % need === 0; break;
@@ -69,7 +70,7 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			case 'hp_below': result.active = Boolean(context.crossing); break;
 			case 'action_begin': result.active = Boolean(context.action_begin); break;
 		}
-		result.value = a.total | 0;
+		result.value = I(a.total);
 		if (result.active) result.dice = allDice(a);
 		else result.reason = { on_death: 'Only when it dies.', hp_below: 'Only as its health falls that far.', action_begin: 'Only as its action opens.' }[kind] || 'Not this action.';
 		return result;
@@ -160,18 +161,18 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			if (a.rerolled >= need) { result.active = true; result.count = a.rerolled; result.value = a.rerolled; }
 			break;
 		case 'pyrite':
-			result.active = (context.pyrite | 0) >= need; result.value = context.pyrite | 0;
+			result.active = (I(context.pyrite)) >= need; result.value = I(context.pyrite);
 			break;
 		case 'fizzles':
 			// Gems that stayed dark earlier this turn and have not yet paid this stone.
-			result.active = (context.fizzles | 0) >= need; result.count = context.fizzles | 0; result.value = context.fizzles | 0;
+			result.active = (I(context.fizzles)) >= need; result.count = I(context.fizzles); result.value = I(context.fizzles);
 			break;
 		case 'kills':
 			// Creatures fallen this turn, before this gem: the fight counts them, not the dice.
-			result.active = (context.kills | 0) >= Math.max(1, need); result.count = context.kills | 0; result.value = context.kills | 0;
+			result.active = (I(context.kills)) >= Math.max(1, need); result.count = I(context.kills); result.value = I(context.kills);
 			break;
 		case 'resonance':
-			if ((context.resonance | 0) >= need) { result.active = true; result.value = context.resonance | 0; }
+			if ((I(context.resonance)) >= need) { result.active = true; result.value = I(context.resonance); }
 			break;
 		case 'low_count':
 			if (a.low_dice >= need) { result.active = true; result.dice = a.low_ids.slice(); result.count = a.low_dice; result.value = a.low_dice; }

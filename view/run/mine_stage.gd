@@ -1643,7 +1643,7 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 		gem.scale *= GemView.ROCK_SPAN / GemRock.reach(chunks)
 	var tint: Color = GemMesh.tint(stone)
 	var shine := OmniLight3D.new()
-	## Half the stone's own colour, half lamplight, so the rock round a raw one still reads as
+	## Half the stone's own color, half lamplight, so the rock round a raw one still reads as
 	## rock and not as more of the stone.
 	shine.light_color = tint.lerp(Color("ffe2c4"), 0.5)
 	shine.light_energy = 0.0
@@ -1711,7 +1711,7 @@ func _release_held_slot(slot: int, holder: Node3D, id: int = 0) -> void:
 
 func announce(stone: Dictionary, finder: String = "", across: float = 0.5) -> void:
 	## What came out of the rock, said plainly across the middle of the room: a size and a
-	## colour for a stone nobody has read, its whole name for one that has been. Another
+	## color for a stone nobody has read, its whole name for one that has been. Another
 	## player's find is said small and high up, with their name on it.
 	if _headless or not _laid_out():
 		return

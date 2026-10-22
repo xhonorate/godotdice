@@ -305,7 +305,11 @@ static func _temporary_offers(state: Dictionary, unit: Dictionary, rng: RandomNu
 	var mine: Dictionary = mine_of(state)
 	var sockets: Array = DeepContent.character(str(unit.get("character", ""))).get("sockets", [])
 	var depth: int = int(DeepContent.constant("temporary_depth", 20))
-	var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) != DeepContent.OPAL)
+	## A rail holds one stone of each skill: none is offered that is set already, nor one
+	## offered for another socket, so whichever a player takes still fits (`rail_duplicate`).
+	var held: Array = DeepStone.rail_stones(unit).map(func(s: Dictionary) -> String: return str(s.get("skill", "")))
+	var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) != DeepContent.OPAL and not held.has(k))
+	var offered: Array = []
 	var offers: Array = []
 	for index in range(sockets.size()):
 		if index < unit.rail.size() and unit.rail[index] is Dictionary:
@@ -322,8 +326,10 @@ static func _temporary_offers(state: Dictionary, unit: Dictionary, rng: RandomNu
 		var picks: Array = []
 		for color in colors:
 			var of_color: Array = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == str(color))
-			picks.append(_temporary_stone(state, unit, mine, depth, rng, of_color if not of_color.is_empty() else pool, picks))
-		offers.append({"index": index, "socket": socket, "picks": picks, "chosen": -1})
+			var stone: Dictionary = _temporary_stone(state, unit, mine, depth, rng, of_color if not of_color.is_empty() else pool, picks + offered)
+			picks.append(stone)
+			offered.append(stone)
+		offers.append({"index": index, "socket": socket, "picks": picks, "chosen": - 1})
 	return offers
 
 static func _temporary_stone(state: Dictionary, unit: Dictionary, mine: Dictionary, depth: int, rng: RandomNumberGenerator, pool: Array, beside: Array) -> Dictionary:
@@ -383,6 +389,9 @@ static func _take_temporary(state: Dictionary, unit: Dictionary, index: int, pic
 		return _refuse("that socket has its temporary stone")
 	if pick < 0 or pick >= offer.get("picks", []).size():
 		return _refuse("no such stone")
+	var twin: String = rail_duplicate(unit, offer.picks[pick], index)
+	if not twin.is_empty():
+		return _refuse(twin)
 	var stone: Dictionary = _set_temporary(unit, offer, pick)
 	return {"ok": true, "event": _event(state, "temporary", {"unit": unit.id, "index": index, "stone": stone.duplicate(true), "left": temporary_left(unit)})}
 
@@ -416,7 +425,7 @@ static func _dice_offers(state: Dictionary, unit: Dictionary, rng: RandomNumberG
 				if not ([die] + picks).any(func(other: Dictionary) -> bool: return same_die(other, offered)):
 					break
 			picks.append(offered)
-		offers.append({"index": index, "die_id": str(die.get("id", "")), "picks": picks, "chosen": -1, "kept": false})
+		offers.append({"index": index, "die_id": str(die.get("id", "")), "picks": picks, "chosen": - 1, "kept": false})
 	return offers
 
 static func _offer_steps(rng: RandomNumberGenerator, tuning: Dictionary) -> int:
@@ -1657,14 +1666,12 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	## Why this stone cannot go in this socket, or "" when it can. The bench asks the same
 	## question to light the sockets a dragged stone would fit.
 	##
-	## A socket is cut for a colour and it keeps to it, at home and down the mine alike. An
+	## A socket is cut for a color and it keeps to it, at home and down the mine alike. An
 	## ANY socket takes anything, an opal fits only an ANY socket, and Zoning and Alexandrite say
 	## for themselves what else a stone counts as. A Void gem takes no socket at all: it
-	## rides one, any one of any colour, beside whatever is set there, and fires right after
+	## rides one, any one of any color, beside whatever is set there, and fires right after
 	## it; so the only things that can refuse it are its weight and a Knot holding it where it
-	## is. Two stones of one skill may both be set: down the mine they are two different
-	## stones, cut and weighed differently, and which of them is worth a socket is the
-	## player's question rather than the rail's.
+	## is. A rail holds one stone of each skill, riders included (see `rail_duplicate`).
 	var rail: Array = unit.get("rail", [])
 	if index < 0 or index >= rail.size():
 		return "no such socket"
@@ -1687,6 +1694,25 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	var current: Variant = rail[index]
 	if not riding and current is Dictionary and str(current.id) != str(stone.id) and DeepStone.is_locked(current):
 		return "a Knot cannot leave its socket"
+	return rail_duplicate(unit, stone, -1 if riding else index)
+
+static func rail_duplicate(unit: Dictionary, stone: Dictionary, displaced: int = -1) -> String:
+	## Why this stone cannot join the rail: another of its skill is already on it, set or
+	## riding. Two of one gem on a rail feed each other into numbers nothing can answer, so a
+	## rail holds one of each. A stone already on the rail only moves about it and is never
+	## refused; nor is one that takes the place of (`displaced`, a socket) the one it matches.
+	## A rail set before this rule, or a day's One Trick, keeps what it was given.
+	if stone.is_empty():
+		return ""
+	var skill: String = str(stone.get("skill", ""))
+	var on_rail: Array = DeepStone.rail_stones(unit)
+	if on_rail.any(func(s: Dictionary) -> bool: return str(s.get("id", "")) == str(stone.get("id", ""))):
+		return ""
+	var rail: Array = unit.get("rail", [])
+	var leaving: String = str(rail[displaced].get("id", "")) if displaced >= 0 and displaced < rail.size() and rail[displaced] is Dictionary else ""
+	for other in on_rail:
+		if str(other.get("skill", "")) == skill and str(other.get("id", "")) != leaving:
+			return "the rail already holds a %s" % str(DeepContent.skill(skill).get("name", skill))
 	return ""
 
 static func _rail_event(state: Dictionary, unit: Dictionary) -> Dictionary:
@@ -2455,9 +2481,9 @@ static func mine_record(state: Dictionary) -> Dictionary:
 static func _offer_hoard(state: Dictionary) -> void:
 	## Three stones on their pedestals, and, in the middle of the three, an opal: the only thing in the
 	## mine that no vein and no drop ever offers. Every one of them comes out of the Warden's
-	## hoard still in its rock, so a pedestal says only a colour and a size class: the choice
+	## hoard still in its rock, so a pedestal says only a color and a size class: the choice
 	## is three gambles on what is inside, and the loupe settles it afterwards. The opal is
-	## the rare colour, not the rich one: it comes out of the rock with less luck behind it
+	## the rare color, not the rich one: it comes out of the rock with less luck behind it
 	## than the other two, so it is generally the smaller, rougher stone of the three.
 	var streams: Dictionary = streams_of(state)
 	state.phase = "hoard"

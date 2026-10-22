@@ -18,7 +18,7 @@ const NOUNS: Dictionary = {"damage": "damage", "block": "block", "heal": "healin
 	"summon": "join the fight", "purge": "% of its poison shed", "burrow": "burrows", "festering": "Festering", "scorched": "Scorched", "burn": "Burn", "strength": "Strength", "die_lock": "die locked",
 	"steal_gold": "pyrite taken", "gold": "pyrite dropped", "empower_next": "% more next attack", "rally": "more for every creature", "grow_die": "die grown",
 	"swell": "swelling", "hold_gem": "gem taken", "bury_socket": "socket buried", "charge": "actions to charge", "dice_dread": "Dread", "downgrade_die": "die shrunk", "grind_die": "face ground down", "break_gem": "gem melted", "lock_die": "die locked",
-	"break_die": "die destroyed", "blank_face": "face burned blank", "reflect": "% of each blow sent back", "mirror": "blow mirrored", "absorb_color": "colour drunk", "roll_again": "throws again",
+	"break_die": "die destroyed", "blank_face": "face burned blank", "reflect": "% of each blow sent back", "mirror": "blow mirrored", "absorb_color": "color drunk", "roll_again": "throws again",
 	"end_action": "its action ends", "exhibit": "fires every gem it holds", "max_hp": "most health", "cleanse": "afflictions shed"}
 const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED", "latent": "ON DEATH", "spent": "SPENT"}
 
@@ -325,7 +325,7 @@ func power(event: Dictionary) -> void:
 		var count := number.create_tween()
 		_animations.append(count)
 		count.tween_interval(assemble + 0.14)
-		count.tween_method(func(value: float) -> void: number.text = str(int(round(value))), float(mini(1, amount)), float(amount), 0.22)
+		count.tween_method(func(value: float) -> void: number.text = DeepUi.number(int(round(value))), float(mini(1, amount)), float(amount), 0.22)
 		count.tween_callback(func() -> void:
 			DeepUi.pulse(number, 1.18, 0.18)
 			DeepAudio.from(number, "resonance", {"volume": 0.4, "pitch": 0.85}))

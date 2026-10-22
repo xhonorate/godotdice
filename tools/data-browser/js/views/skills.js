@@ -183,7 +183,8 @@ function rulesSection(ctx, key, stone) {
 		const scale = e.scale ?? (Rules.SCALED_BY_DEFAULT.includes(e.kind) ? 'carat' : 'none');
 		const procs = scale === 'carat' || 'scale' in e ? null : Rules.caratProcs(eff.magnitude);
 		return h('div', { class: 'effect' }, h('span', {}, h('span', { class: 'eff-kind' }, Rules.effectWords(e, cutStep)), h('span', { class: 'eff-sub' }, `target ${(e.target || Rules.defaultTarget(e.kind)).replace(/_/g, ' ')} · amount ${Rules.amountWords(e.amount ?? 0)}${e.repeat !== undefined ? ` · repeat ${Rules.amountWords(e.repeat)}` : ''}${Object.keys(e).filter((k) => !['kind', 'target', 'amount', 'repeat', 'scale'].includes(k)).map((k) => ` · ${k} ${JSON.stringify(e[k])}`).join('')}`)),
-			h('span', { class: 'eff-val' }, scale === 'carat' ? h('span', {}, `×${fmt(eff.magnitude, 2)}`, h('span', { class: 'cell-sub' }, 'scaled by carat')) : procs ? h('span', {}, `${procs.procs}×`, h('span', { class: 'cell-sub' }, procs.chance ? `+${procs.chance}% one more` : 'whole number')) : h('span', {}, 'flat', h('span', { class: 'cell-sub' }, 'written flat'))));
+			h('span', { class: 'eff-val' }, scale === 'carat' ? h('span', {}, `×${fmt(eff.magnitude, 2)}`, h('span', { class: 'cell-sub' }, 'scaled by carat'))
+				: scale === 'steps' ? h('span', {}, `×${fmt(1 + Rules.caratSteps(eff.magnitude), 2)}`, h('span', { class: 'cell-sub' }, 'a multiplier: a share of carat')) : procs ? h('span', {}, `${procs.procs}×`, h('span', { class: 'cell-sub' }, procs.chance ? `+${procs.chance}% one more` : 'whole number')) : h('span', {}, 'flat', h('span', { class: 'cell-sub' }, 'written flat'))));
 	}));
 	const numbers = Object.entries(def.numbers || {});
 	wrap.append(card('Effects at this stone', h('div', { class: 'col' }, effects,
@@ -216,7 +217,7 @@ function lookSection(ctx, key, stone) {
 			matrix.append(cell);
 		});
 	});
-	wrap.append(card(`How a ${C.colorName(colorKey).toLowerCase()} stone looks · Cut across, Clarity down`, matrix, { meta: 'eight-carat stone of this colour; a Poor cut is squat and chipped, an included grade carries its flaws, a Flawless one is glass · click a cell to judge the skill as that stone' }));
+	wrap.append(card(`How a ${C.colorName(colorKey).toLowerCase()} stone looks · Cut across, Clarity down`, matrix, { meta: 'eight-carat stone of this color; a Poor cut is squat and chipped, an included grade carries its flaws, a Flawless one is glass · click a cell to judge the skill as that stone' }));
 	wrap.append(h('div', { class: 'grid grid-2' },
 		card('Carat', h('div', { class: 'row', style: { alignItems: 'flex-end', justifyContent: 'space-around' } }, [1, 4, 8, 12, 16, 20, 24].map((ct) => h('div', { class: 'col', style: { alignItems: 'center', gap: '2px' } }, caratImage(colorKey, ct, 64), h('span', { class: 'tiny muted' }, `${ct}ct`)))), { meta: 'drawn in one frame; past about 19 carats a stone spills over its socket' }),
 		card('This stone', h('div', { class: 'row' }, gemImage(key, 96), kv([['Name', Stone.name(stone)], ['Shape', SHAPE_NAMES[CUTS[colorKey]]], ['Body hue', h('span', { class: 'row tight' }, h('i', { class: 'dot', style: { background: `#${def.hue || C.color(colorKey).hue}` } }), `#${def.hue || C.color(colorKey).hue}`)], ['Grade', `${Stone.grade(stone).score} · ${Stone.grade(stone).name}`], ['Worth', `${Stone.value(stone)} gold appraised · ${Stone.roughValue(stone)} rough`]])))));

@@ -1052,14 +1052,20 @@ func _test_coming_home() -> void:
 	var state: Dictionary = DeepDescent.new_run(config(64, false))
 	var a: Dictionary = DeepDescent.player(state, "a")
 	check(a.rail.filter(func(s: Variant) -> bool: return s is Dictionary).all(func(s: Dictionary) -> bool: return bool(s.get("lent", false))), "the rail goes down as copies of the vault's stones")
-	var found: Dictionary = stone("GUARD", 6, 3, 3, "found_guard")
+	## A rail holds one stone of each skill: a second Guard beside the vault's is refused.
+	var twin: Dictionary = stone("GUARD", 6, 3, 3, "found_guard")
+	twin.provenance = {"run": str(state.run_id), "source": "vein"}
+	a.haul.append(twin)
+	var refused: Dictionary = cmd(state, "a", "socket", {"stone_id": "found_guard", "index": 3})
+	check(not refused.ok and str(refused.get("error", "")).contains("Guard"), "a second Guard is not set beside the first: %s" % str(refused.get("error", "")))
+	var found: Dictionary = stone("CLEAVE", 6, 3, 3, "found_cleave")
 	found.provenance = {"run": str(state.run_id), "source": "vein"}
 	a.haul.append(found)
-	var set_it: Dictionary = cmd(state, "a", "socket", {"stone_id": "found_guard", "index": 3})
-	check(set_it.ok and a.rail[3] is Dictionary and str(a.rail[3].id) == "found_guard", "a stone found down here is set on the rail: %s" % str(set_it.get("error", "")))
+	var set_it: Dictionary = cmd(state, "a", "socket", {"stone_id": "found_cleave", "index": 3})
+	check(set_it.ok and a.rail[3] is Dictionary and str(a.rail[3].id) == "found_cleave", "a stone found down here is set on the rail: %s" % str(set_it.get("error", "")))
 	check(cmd(state, "a", "unsocket", {"index": 0}).ok and a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "a_strike"), "a copy of a vault stone is taken off the rail into the bag")
 	var home: Array = DeepDescent.coming_home(state, a).map(func(s: Dictionary) -> String: return str(s.id))
-	check(home.has("found_guard") and not home.has("a_strike") and not home.has("a_guard") and not home.has("a_mend"), "what comes home is what was found, set or not: %s" % str(home))
+	check(home.has("found_cleave") and not home.has("a_strike") and not home.has("a_guard") and not home.has("a_mend"), "what comes home is what was found, set or not: %s" % str(home))
 	var phase_was: String = str(state.phase)
 	var landing_was: Dictionary = state.landing
 	state.phase = "landing"
@@ -1074,20 +1080,20 @@ func _test_coming_home() -> void:
 	var vault_before: Dictionary = profile.vault.duplicate(true)
 	DeepProfile.apply_result(profile, DeepDescent.results(state), "a")
 	var tray: Array = profile.tray.map(func(s: Dictionary) -> String: return str(s.id))
-	check(tray.has("found_guard") and not tray.has("a_strike"), "the tray is handed the find on the rail and no copy of a vault stone: %s" % str(tray))
+	check(tray.has("found_cleave") and not tray.has("a_strike"), "the tray is handed the find on the rail and no copy of a vault stone: %s" % str(tray))
 	check(profile.tray.all(func(s: Dictionary) -> bool: return not s.has("lent")), "and nothing on the tray is marked as a copy")
 	check(profile.vault == vault_before, "the vault is not touched by what the rail did down there")
 	## A fall: the find on the rail is safe and rolls nothing; a copy in the bag rolls nothing either.
 	var fell: Dictionary = DeepDescent.new_run(config(65, false))
 	var b: Dictionary = DeepDescent.player(fell, "a")
-	var kept_find: Dictionary = stone("MEND", 4, 3, 3, "found_mend")
+	var kept_find: Dictionary = stone("SPALL", 4, 3, 3, "found_spall")
 	kept_find.provenance = {"run": str(fell.run_id), "source": "vein"}
 	b.haul.append(kept_find)
-	check(cmd(fell, "a", "socket", {"stone_id": "found_mend", "index": 3}).ok and cmd(fell, "a", "unsocket", {"index": 1}).ok, "a find set and a copy taken off before the fall")
+	check(cmd(fell, "a", "socket", {"stone_id": "found_spall", "index": 3}).ok and cmd(fell, "a", "unsocket", {"index": 1}).ok, "a find set and a copy taken off before the fall")
 	check(cmd(fell, "a", "abandon").ok, "the dig is given up")
 	var rolled: Array = fell.salvage.get("a", {}).get("rolls", []).map(func(r: Dictionary) -> String: return str(r.stone.id))
-	check(not rolled.has("a_guard") and not rolled.has("found_mend"), "the salvage rolls for neither the vault's copy nor the find on the rail: %s" % str(rolled))
-	check(DeepDescent.coming_home(fell, b).any(func(s: Dictionary) -> bool: return str(s.id) == "found_mend"), "and the find on the rail comes home from a fall")
+	check(not rolled.has("a_guard") and not rolled.has("found_spall"), "the salvage rolls for neither the vault's copy nor the find on the rail: %s" % str(rolled))
+	check(DeepDescent.coming_home(fell, b).any(func(s: Dictionary) -> bool: return str(s.id) == "found_spall"), "and the find on the rail comes home from a fall")
 
 func _test_lift_short() -> void:
 	## The cage is paid for when it is ridden. One lapidary chooses it while the party can pay;

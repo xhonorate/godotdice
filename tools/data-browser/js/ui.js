@@ -168,7 +168,7 @@ export function showTip(target, content, event = null) {
 }
 export function hideTip() { if (tip) tip.classList.remove('is-on'); }
 
-// A row in a tooltip: value first, label after, keyed by a short stroke of the series colour.
+// A row in a tooltip: value first, label after, keyed by a short stroke of the series color.
 export function tipRow(value, label, color = null) {
 	return h('div', { class: 'tip-row' }, color ? h('i', { class: 'tip-key', style: { background: color } }) : null, h('b', {}, value), h('span', {}, label));
 }

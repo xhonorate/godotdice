@@ -37,7 +37,7 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		cap.position = Vector3(0, 1.2, 0)
 		stand.add_child(cap)
 		## Its size class, cut into the pedestal's face: all there is to see of a raw stone
-		## besides its colour, so it is shown without having to point at it. The stage writes it
+		## besides its color, so it is shown without having to point at it. The stage writes it
 		## over the pedestal's face in 2D (see `MineStage.NAME_GROUP`), so it stays crisp on a
 		## window bigger than the canvas the room is drawn at.
 		var sealed_geode: bool = DeepStone.is_geode(stone)
@@ -49,8 +49,8 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		size.set_meta("alpha", 1.0)
 		size.add_to_group("stage_name")
 		stand.add_child(size)
-		## Nothing on a Warden's pile has been read, so the beam is the stone's own colour: a
-		## grade colour over an unopened stone would say what is inside it before the lens does.
+		## Nothing on a Warden's pile has been read, so the beam is the stone's own color: a
+		## grade color over an unopened stone would say what is inside it before the lens does.
 		var read: bool = bool(stone.get("appraised", false))
 		var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if read else GemMesh.tint(stone)
 		if sealed_geode:

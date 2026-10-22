@@ -5,22 +5,31 @@
 //
 // Every number is a value per turn: the rail's power less the empty rail's on the same bowl,
 // where power weighs damage dealt, health saved and pyrite won by the exchange rates set on the
-// Method tab. The rates apply as they change; the fight settings need the sweep run again.
+// Method tab, in the ordinary fight or the boss fight (the toggle by the rates). The rates and
+// the fight apply as they change; the fight settings need the sweep run again.
 
 import * as C from '../sim/content.js';
 import * as Balance from '../sim/balance.js';
 import * as Forge from '../sim/forge.js';
+import * as Stone from '../sim/stone.js';
+import * as Patterns from '../sim/patterns.js';
+import * as Rules from '../sim/rules.js';
 import * as Sweeps from '../sweeps.js';
 import { h, card, stat, table, fmt, fmtPct, note, chip, field, segmented, select, numberInput, sortRows, toggleSort, progress, tipRow, tipTitle } from '../ui.js';
-import { heatmap, heat, bars, SHAPES } from '../charts.js';
+import { heatmap, heat, bars, lines, sparkline, SHAPES } from '../charts.js';
 import { rangeStrip, matrix, dotColumns, diverge, rampKey } from '../balance-charts.js';
 import { gemImage, inclusionImage, birthstoneImage, markColor, colorKeyMark } from '../gemart.js';
-import { cutNames, tabs } from './common.js';
+import { cutNames, tabs, rarityChip, CUT_COLORS, CLARITY_COLORS } from './common.js';
 
 const STORE_KEY = 'deepcut.balance';
-const TABS = [['gems', 'Gems'], ['cutclarity', 'Cut & Clarity'], ['inclusions', 'Inclusions'], ['lapidaries', 'Lapidaries'], ['pairs', 'Pairings'], ['opals', 'Opals'], ['method', 'Method & settings']];
-const SWEEP_OF = { gems: 'gems', cutclarity: 'cutclarity', inclusions: 'inclusions', lapidaries: 'gems', pairs: 'pairs', opals: 'rails' };
-const SWEEP_NAMES = { gems: 'Gems alone', cutclarity: 'Cuts and clarities', inclusions: 'Inclusions', pairs: 'Every pair', rails: 'Gems in a rail' };
+const TABS = [['gems', 'Gems'], ['cutclarity', 'Cut & Clarity'], ['inclusions', 'Inclusions'], ['lapidaries', 'Lapidaries'], ['pairs', 'Pairings'], ['opals', 'Opals'],
+	['carats', 'Carat bands'], ['hunt', 'Combo hunt'], ['growth', 'Growth'], ['method', 'Method & settings']];
+const SWEEP_OF = { gems: 'gems', cutclarity: 'cutclarity', inclusions: 'inclusions', lapidaries: 'gems', pairs: 'pairs', opals: 'rails', carats: 'carats', hunt: 'hunt', growth: 'growth' };
+const SWEEP_NAMES = { gems: 'Gems alone', cutclarity: 'Cuts and clarities', inclusions: 'Inclusions', pairs: 'Every pair', rails: 'Gems in a rail', carats: 'Carat bands', hunt: 'Combo hunt', growth: 'Runs and long fights' };
+// Sweeps that set gems beside others read which gem a rail's rerolls chase from the gems sweep.
+const NEEDS_LEADS = ['pairs', 'rails', 'carats', 'hunt', 'growth'];
+// The gate's line (balance.mjs check): a hunted rail this many times its bowl's plain rail.
+const HUNT_LIMIT = 4;
 const MEASURES = { solo: 'Alone', partner: 'Beside a partner', rail: 'In a rail' };
 const PLACE_NAMES = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
 const CLASS_ORDER = ['PINPOINT', 'LENS', 'FEATHER', 'FRACTURE', 'STAR'];
@@ -30,7 +39,8 @@ const saved = (() => { try { return JSON.parse(localStorage.getItem(STORE_KEY) |
 const state = {
 	settings: { ...Balance.DEFAULTS, ...(saved.settings || {}), samples: { ...Balance.DEFAULTS.samples, ...((saved.settings || {}).samples || {}) } },
 	weights: { ...Balance.DEFAULT_WEIGHTS, ...(saved.weights || {}) },
-	tab: 'gems', gem: 'STRIKE', opal: 'DOUBLET', measure: 'solo', scale: 'own', lapView: 'relative', bowl: 'ALL', ccMeasure: 'cut', incUnit: 'turn', inclusion: '', lapGem: '', pair: null, pairShow: 'synergy', sort: null,
+	tab: 'gems', gem: 'STRIKE', opal: 'DOUBLET', measure: 'solo', scale: 'own', lapView: 'relative', bowl: 'ALL', ccCompare: 'cut', ccShow: 'level', incUnit: 'turn', inclusion: '', lapGem: '', pair: null, pairShow: 'synergy', sort: null,
+	huntBand: '', huntBuild: '', growthView: 'run',
 };
 function keep() { try { localStorage.setItem(STORE_KEY, JSON.stringify({ settings: state.settings, weights: state.weights })); } catch { /* private window */ } }
 
@@ -54,13 +64,15 @@ export default {
 	render(root, route, ctx) {
 		listen();
 		if (route.params.tab && TABS.some(([k]) => k === route.params.tab)) state.tab = route.params.tab;
+		// A link may name the fight (?fight=boss); the toggle still changes it after.
+		if (Balance.FIGHTS.includes(route.params.fight) && route.params.fight !== state.linkedFight) { state.linkedFight = route.params.fight; state.weights = { ...state.weights, fight: route.params.fight }; }
 		hook = { ctx, progress: () => {} };
 		const pending = Balance.SWEEPS.filter((s) => !Sweeps.get(s));
 		if (pending.length) Promise.all(pending.map((s) => Sweeps.load(s))).then((loaded) => { if (ctx.alive() && loaded.some(Boolean)) ctx.rerender(); });
 		root.append(h('div', { class: 'row between' }, tabs(TABS, state.tab, (t) => ctx.navigate('balance', '', { tab: t })), weightChips(ctx)));
 		const body = h('div', { class: 'col', style: { gap: '14px' } });
 		root.append(body);
-		const views = { gems: gemsTab, cutclarity: cutClarityTab, inclusions: inclusionsTab, lapidaries: lapidariesTab, pairs: pairsTab, opals: opalsTab, method: methodTab };
+		const views = { gems: gemsTab, cutclarity: cutClarityTab, inclusions: inclusionsTab, lapidaries: lapidariesTab, pairs: pairsTab, opals: opalsTab, carats: caratsTab, hunt: huntTab, growth: growthTab, method: methodTab };
 		views[state.tab](body, ctx);
 	},
 };
@@ -86,15 +98,26 @@ function quartiles(values) {
 	const q = (p) => (s.length ? s[Math.min(s.length - 1, Math.max(0, Math.round(p * (s.length - 1))))] : NaN);
 	return { q1: q(0.25), q3: q(0.75) };
 }
+// A strong or a weak outlier among `values`: past one and a half times the middle half's spread
+// from the middle half, and at least `floor` from the median.
+function outlierOf(values, floor) {
+	const med = median(values);
+	const { q1, q3 } = quartiles(values);
+	const iqr = q3 - q1;
+	return (v) => (v > q3 + 1.5 * iqr && v > med + floor ? 'high' : v < q1 - 1.5 * iqr && v < med - floor ? 'low' : '');
+}
+const flagCell = (flag) => (flag ? h('span', { class: `flag ${flag}`, title: 'More than one and a half times the middle half’s spread from its color’s middle' }, flag === 'high' ? 'outlier, strong' : 'outlier, weak') : '');
 function scaleField(ctx) {
-	return field('Scale', segmented([['own', 'Per colour'], ['shared', 'Shared']], state.scale, (v) => { state.scale = v; ctx.rerender(); }),
-		'Each colour on its own scale, to read a gem against its own kind; one scale to compare across colours');
+	return field('Scale', segmented([['own', 'Per color'], ['shared', 'Shared']], state.scale, (v) => { state.scale = v; ctx.rerender(); }),
+		'Each color on its own scale, to read a gem against its own kind; one scale to compare across colors');
 }
 const colorGroups = (fill) => C.SKILL_COLORS.map((color) => ({ key: color, label: C.colorName(color), color: markColor(color), shape: SHAPES[color], items: fill(color) }));
 
 function weightChips(ctx) {
 	const w = W();
-	return h('div', { class: 'row tight' }, h('span', { class: 'tiny muted' }, 'Power ='),
+	const fight = segmented([['mob', 'Ordinary fight'], ['boss', 'Boss fight']], w.fight === 'boss' ? 'boss' : 'mob', (v) => { state.weights = { ...state.weights, fight: v }; keep(); ctx.rerender(); });
+	fight.title = 'Ordinary: two dummies with a creature’s health, overkill wasted. Boss: one that never falls, read at the pace a rail brings down a boss’s health, so nothing is capped.';
+	return h('div', { class: 'row tight' }, fight, h('span', { class: 'tiny muted' }, 'Power ='),
 		chip(`damage ×${fmt(w.damage, 2)}`), chip(`health saved ×${fmt(w.saved, 2)}`), chip(`pyrite ×${fmt(w.gold, 2)}`),
 		h('button', { type: 'button', class: 'btn', onClick: () => ctx.navigate('balance', '', { tab: 'method' }) }, 'Change'));
 }
@@ -113,7 +136,7 @@ function sweepBar(ctx, sweep, controls = []) {
 			const elapsed = (performance.now() - now.started) / 1000;
 			const eta = now.done ? (elapsed / now.done) * (now.total - now.done) : NaN;
 			bar.append(h('b', {}, `Playing ${SWEEP_NAMES[now.sweep]}…`), progress(now.done / Math.max(1, now.total)),
-				h('span', { class: 'small muted' }, `${now.done}/${now.total} batches · ${fmt(elapsed, 0)}s${Number.isFinite(eta) ? ` · about ${fmt(eta, 0)}s to go` : ''}`),
+				h('span', { class: 'small muted' }, `${now.sweep === 'hunt' ? `round ${now.round + 1} · ` : ''}${now.done}/${now.total} batches · ${fmt(elapsed, 0)}s${Number.isFinite(eta) ? ` · about ${fmt(eta, 0)}s to go` : ''}`),
 				h('button', { type: 'button', class: 'btn', onClick: () => Sweeps.cancel() }, 'Cancel'));
 			return;
 		}
@@ -135,6 +158,7 @@ function sweepBar(ctx, sweep, controls = []) {
 function staleness(sweep, result) {
 	const out = [];
 	if (result.packHash && result.packHash !== Sweeps.packHash()) out.push({ label: 'content changed since', detail: 'content/deep_cut.json has changed since this sweep was run' });
+	if (sweep !== 'growth' && (result.vector || []).length !== Balance.VECTOR.length) out.push({ label: 'older format', detail: 'played before the boss fight was measured: run it again for the boss numbers' });
 	const now = Balance.sweepSettings(state.settings, sweep);
 	const was = result.settings || {};
 	const differs = Object.keys(now).filter((k) => JSON.stringify(now[k]) !== JSON.stringify(was[k]));
@@ -149,23 +173,21 @@ function estimate(sweep) {
 	return estimates.get(memo);
 }
 function estimateNow(sweep) {
-	const tasks = Balance.tasksFor(sweep, state.settings, { leads: {} });
-	let micros = 0;
-	for (const t of tasks) for (const r of t.rails) micros += t.settings.samples * (120 + 60 * r.stones.length) * (t.settings.turns / 4);
+	const single = Balance.estimateSeconds(sweep, state.settings, { leads: {} });
 	// Logical cores share their silicon: a pool of them goes about a third as fast as its count.
-	const seconds = 3 + micros / 1e6 / Math.max(1, 0.3 * (navigator.hardwareConcurrency || 4));
+	const seconds = 3 + single / Math.max(1, 0.3 * (navigator.hardwareConcurrency || 4));
 	return seconds < 60 ? `${Math.max(5, Math.round(seconds / 5) * 5)} seconds` : `${Math.round(seconds / 60)} minute${Math.round(seconds / 60) === 1 ? '' : 's'}`;
 }
 
 async function runSweep(ctx, sweep) {
 	try {
 		const context = {};
-		if (sweep === 'pairs' || sweep === 'rails') {
+		if (NEEDS_LEADS.includes(sweep)) {
 			let gems = Sweeps.get('gems') || (await Sweeps.load('gems'));
 			if (!gems || staleness('gems', gems).length) gems = await Sweeps.run('gems', state.settings);
 			context.leads = Balance.leadsFrom(gems, W());
 		}
-		await Sweeps.run(sweep, state.settings, context);
+		await Sweeps.run(sweep, state.settings, context, W());
 	} catch (error) {
 		if (String(error.message) !== 'cancelled') console.error(error);
 	}
@@ -237,14 +259,12 @@ function gemsTab(body, ctx) {
 		note: `best on ${bowlName(gems.bowls[rows[k].bestAt] || '')}’s bowl` })).sort((a, b) => b.avg - a.avg));
 	body.append(card(`Value ${MEASURES[state.measure].toLowerCase()} · a turn`, h('div', { class: 'bal-chart' },
 		rangeStrip({ groups, width: 1150, height: 220, format: fmtV, selected: state.gem, independent: state.scale === 'own', onSelect: (it) => { state.gem = it.key; ctx.rerender(); } })),
-	{ meta: 'a dot is a gem’s average over the six bowls, the whisker its worst bowl to its best, the hairline its colour’s median · click a gem' }));
+	{ meta: 'a dot is a gem’s average over the six bowls, the whisker its worst bowl to its best, the hairline its color’s median · click a gem' }));
 
 	const color = C.skill(state.gem).color;
 	const inColor = orderedSkills().filter((k) => C.skill(k).color === color);
 	const med = median(inColor.map((k) => rows[k].avg));
-	const { q1, q3 } = quartiles(inColor.map((k) => rows[k].avg));
-	const iqr = q3 - q1;
-	const flagOf = (v) => (v > q3 + 1.5 * iqr && v > med + 0.5 ? 'high' : v < q1 - 1.5 * iqr && v < med - 0.5 ? 'low' : '');
+	const flagOf = outlierOf(inColor.map((k) => rows[k].avg), 0.5);
 	const tableRows = inColor.map((k) => ({ key: k, ...rows[k], bestBowl: gems.bowls[rows[k].bestAt], vsMedian: med ? (rows[k].avg - med) / Math.abs(med) : NaN, flag: flagOf(rows[k].avg),
 		delta: prevRows ? rows[k].avg - prevRows[k].avg : NaN }));
 	const columns = [
@@ -254,7 +274,7 @@ function gemsTab(body, ctx) {
 		{ key: 'best', label: 'Best', align: 'right', sort: (r) => r.best, render: (r) => fmtV(r.best) },
 		{ key: 'bestBowl', label: 'Best bowl', sort: (r) => r.bestBowl || '', render: (r) => h('span', { class: 'small text-2' }, bowlName(r.bestBowl || '')) },
 		{ key: 'vsMedian', label: 'vs median', align: 'right', sort: (r) => r.vsMedian, render: (r) => h('span', { class: r.vsMedian > 0 ? 'delta-up' : 'delta-down' }, Number.isFinite(r.vsMedian) ? `${r.vsMedian > 0 ? '+' : ''}${fmtPct(r.vsMedian)}` : '—') },
-		{ key: 'flag', label: '', sort: false, render: (r) => (r.flag ? h('span', { class: `flag ${r.flag}`, title: 'More than one and a half times the middle half’s spread from its colour’s middle' }, r.flag === 'high' ? 'outlier, strong' : 'outlier, weak') : '') },
+		{ key: 'flag', label: '', sort: false, render: (r) => flagCell(r.flag) },
 	];
 	if (prevRows) columns.push({ key: 'delta', label: 'Since last run', align: 'right', sort: (r) => r.delta, render: (r) => (Math.abs(r.delta) >= 0.05 ? h('span', { class: r.delta > 0 ? 'delta-up' : 'delta-down' }, signed(r.delta)) : h('span', { class: 'muted' }, '·')) });
 	const sort = state.sort && state.sort.tab === 'gems' ? state.sort : { tab: 'gems', key: 'avg', dir: -1 };
@@ -289,95 +309,142 @@ function gemDetail(ctx, gems, pairs, rails, key, row) {
 }
 
 // --- Cut & Clarity ------------------------------------------------------------------------------
+// Two comparisons, each with the other C held still: a gem up the Cut ladder from Poor to
+// Perfect as a Clear stone, and a Clear stone against a Flawless one (half as hard again, and
+// its Flawless line) at the sweep's cut. A gain is the top rung over the bottom one as a share
+// of the bottom one, so every gem is read against itself.
+
+const CC_COMPARES = { cut: 'Poor → Perfect cut', clarity: 'Clear → Flawless' };
+// A gem worth less than this a turn on its bottom rung has no gain to speak of.
+const CC_FLOOR = 1;
+const fmtGain = (v) => (Number.isFinite(v) ? `${v > 0 ? '+' : ''}${fmtPct(v)}` : '—');
+const orLast = (v) => (Number.isFinite(v) ? v : -Infinity);
+const listed = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names.join(''));
+
+// The rungs a comparison reads, bottom first, as the sweep played them.
+function ccRungs(cc, compare) {
+	const clear = Balance.clarityOf('CLEAR');
+	const at = Number((cc.settings || {}).cut ?? Balance.DEFAULTS.cut);
+	if (compare === 'clarity') return [{ label: 'Clear', cut: at, clarity: clear }, { label: 'Flawless', cut: at, clarity: Balance.clarityOf('FLAWLESS') }];
+	return cutNames().map((label, cut) => ({ label, cut, clarity: clear }));
+}
+
+// A gem's value a turn at every rung over the chosen bowls, every rung's gain over the bottom
+// one, and the top rung's gain bowl by bowl.
+function ccRow(cc, rungs, skill) {
+	const val = (b, r) => perTurn(cc, Balance.value(cc, b, `c|${skill}|${r.cut}|${r.clarity}`, W()));
+	const gainOf = (base, v) => (base >= CC_FLOOR ? v / base - 1 : NaN);
+	const levels = rungs.map((r) => overBowls(cc, state.bowl, (b) => val(b, r)));
+	const gains = levels.map((v) => gainOf(levels[0], v));
+	const bowls = cc.bowls.map((b) => {
+		const base = val(b, rungs[0]), top = val(b, rungs[rungs.length - 1]);
+		return { bowl: b, base, top, gain: gainOf(base, top) };
+	});
+	const s = Balance.spread(bowls.map((b) => b.gain));
+	return { key: skill, levels, gains, top: levels[levels.length - 1], gain: gains[gains.length - 1], bowls, worst: s.min, worstBowl: cc.bowls[s.minAt], best: s.best, bestBowl: cc.bowls[s.bestAt] };
+}
+
+function flawlessLine(cc, skill) {
+	const stone = Stone.make(skill, Number(cc.settings.carat ?? Balance.DEFAULTS.carat), Number(cc.settings.cut ?? Balance.DEFAULTS.cut), Balance.clarityOf('FLAWLESS'));
+	return Stone.flawlessText(stone);
+}
 
 function cutClarityTab(body, ctx) {
 	const cc = Sweeps.get('cutclarity');
-	if (!cc) { body.append(sweepBar(ctx, 'cutclarity')); needSweep(ctx, body, 'cutclarity', 'Every gem at every Cut, as a Clear, a Pristine and a Flawless stone, played alone on every bowl. Included, Etched and Intricate stones are read from the Inclusions sweep once that has run.'); return; }
-	const inc = Sweeps.get('inclusions');
-	const cuts = cutNames();
-	const clear = Balance.clarityOf('CLEAR'), pristine = Balance.clarityOf('PRISTINE'), flawless = Balance.clarityOf('FLAWLESS');
-	const val = (bowl, skill, cut, clarity) => perTurn(cc, Balance.value(cc, bowl, `c|${skill}|${cut}|${clarity}`, W()));
-	const key = state.gem;
-	const measures = {
-		cut: { label: 'Poor → Perfect', text: 'value a turn gained from a Poor to a Perfect cut, Clear', fn: (b, k) => val(b, k, cuts.length - 1, clear) - val(b, k, 0, clear) },
-		pristine: { label: 'Clear → Pristine', text: 'value a turn gained by a Pristine stone over a Clear one, Good cut', fn: (b, k) => val(b, k, 2, pristine) - val(b, k, 2, clear) },
-		flawless: { label: 'Clear → Flawless', text: 'value a turn gained by a Flawless stone over a Clear one, Good cut', fn: (b, k) => val(b, k, 2, flawless) - val(b, k, 2, clear) },
-	};
-	const m = measures[state.ccMeasure] || measures.cut;
-	body.append(sweepBar(ctx, 'cutclarity', [field('Gem', gemSelect(ctx, key, (v) => { state.gem = v; ctx.rerender(); })), field('Grid shows', bowlSelect(state.bowl, (v) => { state.bowl = v; ctx.rerender(); })),
-		field('Strip measures', segmented(Object.entries(measures).map(([k, x]) => [k, x.label]), state.ccMeasure, (v) => { state.ccMeasure = v; ctx.rerender(); })), scaleField(ctx)]));
+	if (!cc) { body.append(sweepBar(ctx, 'cutclarity')); needSweep(ctx, body, 'cutclarity', 'Every gem up the Cut ladder from Poor to Perfect as a Clear stone, and as a Flawless stone beside the Clear one at Good cut, played alone on every bowl.'); return; }
+	const compare = CC_COMPARES[state.ccCompare] ? state.ccCompare : 'cut';
+	const gain = state.ccShow === 'gain';
+	const rungs = ccRungs(cc, compare);
+	const bottom = rungs[0].label, top = rungs[rungs.length - 1].label;
+	const heldCut = cutNames()[ccRungs(cc, 'clarity')[0].cut] || 'Good';
+	const keys = orderedSkills().filter((k) => C.skill(k).color !== C.OPAL);
+	const rows = Object.fromEntries(keys.map((k) => [k, ccRow(cc, rungs, k)]));
+	if (!rows[state.gem]) state.gem = 'STRIKE';
+	const bowls = state.bowl === 'ALL' ? 'average of the six bowls' : `${bowlName(state.bowl)}’s bowl`;
+	body.append(sweepBar(ctx, 'cutclarity', [
+		field('Compare', segmented(Object.entries(CC_COMPARES), compare, (v) => { state.ccCompare = v; ctx.rerender(); }),
+			`Cut: every Cut, the stone Clear. Clarity: a Clear stone against a Flawless one, both ${heldCut} cut; a Flawless stone hits half as hard again and carries its Flawless line.`),
+		field('Show', segmented([['level', 'Value a turn'], ['gain', 'Gain %']], gain ? 'gain' : 'level', (v) => { state.ccShow = v; ctx.rerender(); }),
+			`Gain: every rung over the bottom one, as a share of it. Gems worth under ${CC_FLOOR} a turn on the bottom rung are left out.`),
+		field('Bowls', bowlSelect(state.bowl, (v) => { state.bowl = v; ctx.rerender(); })),
+		scaleField(ctx)]));
 
-	// The grid: Cut across, Clarity down, the included grades estimated from single inclusions.
-	const rungs = [['Clear', clear], ['Pristine', pristine], ['Flawless', flawless]];
-	const values = rungs.map(([, k]) => cuts.map((_, c) => overBowls(cc, state.bowl, (b) => val(b, key, c, k))));
-	const labels = rungs.map(([n]) => n);
-	if (inc) {
-		for (const [name, slots] of [['Included', 1], ['Etched', 2], ['Intricate', 3]]) {
-			const uplift = overBowls(inc, state.bowl, (b) => expectedUplift(inc, b, key, slots));
-			labels.push(`${name} (est.)`);
-			values.push(cuts.map((_, c) => values[0][c] + uplift));
-		}
-	}
-	const top = Math.max(1e-9, ...values.flat().filter(Number.isFinite));
-	const low = Math.min(0, ...values.flat().filter(Number.isFinite));
-	const grid = h('div', { class: 'col' }, heatmap({ rows: labels, cols: cuts, values, format: fmtV, max: top, min: low, rowLabelWidth: 118, cellHeight: 28 }),
-		h('div', { class: 'row between' }, rampKey((v) => heat((v - low) / (top - low || 1)), low, top, fmtV, 'value a turn'), h('span', { class: 'tiny muted' }, inc ? 'Included, Etched, Intricate: Clear plus the average inclusion at the odds a stone of this colour draws them.' : 'Run Inclusions for the included grades.')));
-	const split = h('div', { class: 'bal-split-even' });
-	split.append(card(`${C.skill(key).name} · Cut × Clarity`, grid, { meta: C.skill(key).color === 'OPAL' ? 'an opal does nothing alone: see the Opals tab' : state.bowl === 'ALL' ? 'average of the six bowls, value a turn' : `${bowlName(state.bowl)}’s bowl, value a turn` }));
-	const groups = colorGroups((color) => orderedSkills().filter((k) => C.skill(k).color === color).map((k) => {
-		const s = Balance.spread(cc.bowls.map((b) => m.fn(b, k)));
-		return { key: k, label: C.skill(k).name, min: s.min, avg: s.avg, best: s.best, note: m.text };
-	}).sort((a, b) => b.avg - a.avg));
-	split.append(card(`${m.label} · every gem`, h('div', { class: 'bal-chart', style: { height: '230px' } }, rangeStrip({ groups, width: 580, height: 230, format: fmtV, selected: key, independent: state.scale === 'own', onSelect: (it) => { state.gem = it.key; ctx.rerender(); } })),
-		{ meta: m.text }));
+	// Every gem as a ladder of its rungs, sorted within its color by its top rung.
+	const groups = colorGroups((color) => keys.filter((k) => C.skill(k).color === color).map((k) => {
+		const r = rows[k];
+		const vals = gain ? r.gains : r.levels;
+		return { key: k, label: C.skill(k).name, avg: vals[vals.length - 1],
+			rungs: rungs.map((rung, i) => ({ label: rung.label, value: vals[i], tip: `${fmtV(r.levels[i])}${i && Number.isFinite(r.gains[i]) ? ` · ${fmtGain(r.gains[i])}` : ''}` })) };
+	}).filter((it) => Number.isFinite(it.avg)).sort((a, b) => b.avg - a.avg)).filter((g) => g.key !== C.OPAL);
+	const between = rungs.slice(1, -1).map((r) => r.label);
+	const ticks = between.length ? `, a tick at ${listed(between)}` : '';
+	const marks = gain ? `a stem from no gain up to ${top}${ticks}` : `hollow mark ${bottom}${ticks}, filled ${top}`;
+	const held = compare === 'clarity' ? `${heldCut} cut` : 'Clear';
+	body.append(card(`${CC_COMPARES[compare]}, ${held} · ${gain ? `gain over ${bottom}` : 'value a turn'}`, h('div', { class: 'bal-chart', style: { height: '240px' } },
+		rangeStrip({ groups, width: 1150, height: 240, format: gain ? fmtGain : fmtV, selected: state.gem, independent: state.scale === 'own', baseMark: !gain, onSelect: (it) => { state.gem = it.key; ctx.rerender(); } })),
+	{ meta: `${marks} · hairline, its color’s median · ${bowls} · click a gem` }));
+
+	const color = C.skill(state.gem).color;
+	const inColor = keys.filter((k) => C.skill(k).color === color);
+	const flagOf = outlierOf(inColor.map((k) => rows[k].gain), 0.1);
+	const tableRows = inColor.map((k) => ({ ...rows[k], flag: flagOf(rows[k].gain) }));
+	const columns = [
+		{ key: 'name', label: 'Gem', sort: (r) => C.skill(r.key).name, render: (r) => gemCell(r.key) },
+		...rungs.map((rung, i) => ({ key: `r${i}`, label: rung.label, align: 'right', sort: (r) => orLast(r.levels[i]), render: (r) => (i === rungs.length - 1 ? h('b', {}, fmtV(r.levels[i])) : fmtV(r.levels[i])) })),
+		{ key: 'gain', label: 'Gain', align: 'right', title: `${top} over ${bottom}, as a share of ${bottom}`, sort: (r) => orLast(r.gain), render: (r) => h('b', { class: r.gain > 0 ? 'delta-up' : r.gain < 0 ? 'delta-down' : '' }, fmtGain(r.gain)) },
+	];
+	// The bowls' names make room for the Flawless line beside a clarity, and stay in the tooltip.
+	const bowlCell = (v, bowl) => h('span', { title: `${bowlName(bowl || '')}’s bowl` }, fmtGain(v), compare === 'cut' ? h('span', { class: 'inline-sub' }, bowlName(bowl || '')) : null);
+	columns.push({ key: 'worst', label: 'Worst bowl', align: 'right', sort: (r) => orLast(r.worst), render: (r) => bowlCell(r.worst, r.worstBowl) },
+		{ key: 'best', label: 'Best bowl', align: 'right', sort: (r) => orLast(r.best), render: (r) => bowlCell(r.best, r.bestBowl) });
+	if (compare === 'clarity') columns.push({ key: 'line', label: 'Flawless line', sort: (r) => flawlessLine(cc, r.key), render: (r) => h('span', { class: 'small text-2' }, flawlessLine(cc, r.key)) });
+	columns.push({ key: 'flag', label: '', sort: false, render: (r) => flagCell(r.flag) });
+	const sortTab = `cutclarity:${compare}`;
+	const sort = state.sort && state.sort.tab === sortTab ? state.sort : { tab: sortTab, key: gain ? 'gain' : `r${rungs.length - 1}`, dir: -1 };
+	const split = h('div', { class: 'bal-split' });
+	split.append(card(`${C.colorName(color)} gems`, table({ columns, rows: sortRows(tableRows, columns, sort), sort, compact: true, selectedKey: state.gem, rowKey: (r) => r.key, sticky: false,
+		onSort: (k) => { state.sort = { tab: sortTab, ...toggleSort(sort, k, k === 'name' || k === 'line' ? 1 : -1) }; ctx.rerender(); },
+		onRowClick: (r) => { state.gem = r.key; ctx.rerender(); } }), { meta: `median gain ${fmtGain(median(inColor.map((k) => rows[k].gain)))} · value a turn, ${bowls} · worst and best of the six bowls`, pad: false, class: 'dense' }));
+	split.append(ccDetail(cc, compare, state.gem));
 	body.append(split);
-
-	// Every rung against its neighbour rung, over every gem: how much a step is worth.
-	const rungRows = [];
-	for (let c = 0; c < cuts.length; c++) {
-		if (c === 2) continue;
-		rungRows.push(rungRow(`${cuts[c]} cut`, 'against Good, Clear', (k) => overBowls(cc, 'ALL', (b) => val(b, k, c, clear) - val(b, k, 2, clear)), (k) => overBowls(cc, 'ALL', (b) => val(b, k, 2, clear))));
-	}
-	rungRows.push(rungRow('Pristine', 'against Clear, Good cut', (k) => overBowls(cc, 'ALL', (b) => val(b, k, 2, pristine) - val(b, k, 2, clear)), (k) => overBowls(cc, 'ALL', (b) => val(b, k, 2, clear))));
-	rungRows.push(rungRow('Flawless', 'against Clear, Good cut', (k) => overBowls(cc, 'ALL', (b) => val(b, k, 2, flawless) - val(b, k, 2, clear)), (k) => overBowls(cc, 'ALL', (b) => val(b, k, 2, clear))));
-	if (inc) for (const [name, slots] of [['Included', 1], ['Etched', 2], ['Intricate', 3]]) rungRows.push(rungRow(name, 'against Clear (estimated)', (k) => overBowls(inc, 'ALL', (b) => expectedUplift(inc, b, k, slots)), (k) => overBowls(cc, 'ALL', (b) => val(b, k, 2, clear))));
-	const ladder = cuts.map((name, c) => {
-		const s = Balance.spread(cc.bowls.map((b) => val(b, key, c, clear)));
-		return { key: c, cut: name, ...s, bestBowl: cc.bowls[s.bestAt], minBowl: cc.bowls[s.minAt] };
-	});
-	const lower = h('div', { class: 'bal-split-even' });
-	lower.append(card(`${C.skill(key).name} · Cut ladder, Clear`, table({ columns: [
-		{ key: 'cut', label: 'Cut' }, { key: 'min', label: 'Worst bowl', align: 'right', render: (r) => h('span', {}, fmtV(r.min), h('span', { class: 'inline-sub' }, bowlName(r.minBowl || ''))) },
-		{ key: 'avg', label: 'Average', align: 'right', render: (r) => h('b', {}, fmtV(r.avg)) },
-		{ key: 'best', label: 'Best bowl', align: 'right', render: (r) => h('span', {}, fmtV(r.best), h('span', { class: 'inline-sub' }, bowlName(r.bestBowl || ''))) },
-	], rows: ladder, compact: true, sticky: false, rowKey: (r) => r.key }), { pad: false, meta: 'value a turn, alone', class: 'dense' }));
-	lower.append(card('Every rung, over every gem', table({ columns: [
-		{ key: 'rung', label: 'Rung', render: (r) => h('span', { title: r.against }, h('b', {}, r.rung)) },
-		{ key: 'min', label: 'Least', align: 'right', render: (r) => h('span', {}, signed(r.min), h('span', { class: 'inline-sub' }, r.minGem)) },
-		{ key: 'avg', label: 'Average', align: 'right', render: (r) => h('span', {}, h('b', {}, signed(r.avg)), h('span', { class: 'inline-sub' }, Number.isFinite(r.pct) ? `${r.pct > 0 ? '+' : ''}${fmtPct(r.pct)}` : '')) },
-		{ key: 'best', label: 'Most', align: 'right', render: (r) => h('span', {}, signed(r.best), h('span', { class: 'inline-sub' }, r.bestGem)) },
-	], rows: rungRows, compact: true, sticky: false, rowKey: (r) => r.rung }), { pad: false, meta: 'value a turn over Good Clear, averaged over bowls · opals left out', class: 'dense' }));
-	body.append(lower);
 }
 
-function rungRow(rung, against, gain, base) {
-	const keys = orderedSkills().filter((k) => C.skill(k).color !== 'OPAL');
-	const gains = keys.map(gain);
-	const s = Balance.spread(gains);
-	const baseSum = keys.reduce((sum, k) => sum + (Number.isFinite(base(k)) ? base(k) : 0), 0);
-	return { rung, against, ...s, minGem: C.skill(keys[s.minAt] || '').name || '', bestGem: C.skill(keys[s.bestAt] || '').name || '', pct: baseSum ? (s.avg * keys.length) / baseSum : NaN };
-}
-
-// What `slots` inclusions add to a gem on a bowl, at the odds a stone of its colour draws them,
-// summed one inclusion at a time (an estimate: two inclusions are taken not to meet).
-function expectedUplift(inc, bowl, skill, slots) {
-	const odds = Balance.inclusionOdds(skill, slots, inc.settings.mine || state.settings.mine);
-	let sum = 0;
-	for (const [k, p] of Object.entries(odds)) {
-		const u = Balance.inclusionUplift(inc, bowl, skill, k, W());
-		if (Number.isFinite(u) && p > 0) sum += p * u;
-	}
-	return perTurn(inc, sum);
+function ccDetail(cc, compare, key) {
+	const def = C.skill(key);
+	const cut = ccRow(cc, ccRungs(cc, 'cut'), key);
+	const clarity = ccRow(cc, ccRungs(cc, 'clarity'), key);
+	const rungs = ccRungs(cc, compare);
+	const shown = compare === 'clarity' ? clarity : cut;
+	const flawless = C.clarityEntry(Balance.clarityOf('FLAWLESS'));
+	const also = [flawless.magnitude ? `×${flawless.magnitude} magnitude` : '', flawless.resonance_mult ? `×${flawless.resonance_mult} Resonance` : ''].filter(Boolean).join(', ');
+	const line = flawlessLine(cc, key);
+	// What every Cut asks of the hand, the card's numbers at that Cut when they move with it, and
+	// what the Clear stone is worth there.
+	const trigger = def.trigger || { kind: 'always' };
+	const texts = cutNames().map((_, i) => Rules.fill(def.text || '', def.numbers || {}, i));
+	const textMoves = new Set(texts).size > 1;
+	const heldCut = ccRungs(cc, 'clarity')[0].cut;
+	const ladder = cutNames().map((name, i) => ({ key: i, cut: name, words: Patterns.words(trigger, i), text: texts[i], value: cut.levels[i] }));
+	return card(null, h('div', { class: 'col', style: { gap: '8px' } },
+		h('div', { class: 'row', style: { alignItems: 'flex-start', flexWrap: 'nowrap' } }, gemImage(key, 52), h('div', { class: 'col', style: { gap: '2px' } }, h('h2', { style: { fontSize: '16px' } }, def.name), h('p', { class: 'small text-2 two-line' }, texts[heldCut] || ''))),
+		line ? h('p', { class: 'small text-2' }, h('b', { style: { color: CLARITY_COLORS[5] } }, 'Flawless: '), line, also ? h('span', { class: 'inline-sub' }, `with ${also}`) : null) : null,
+		h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } },
+			stat(`${cutNames()[ccRungs(cc, 'clarity')[0].cut] || 'Good'}, Clear`, fmtV(clarity.levels[0]), 'value a turn'),
+			stat('Cut gain', fmtGain(cut.gain), `${fmtV(cut.levels[0])} → ${fmtV(cut.top)}`, { class: compare === 'cut' ? 'accent' : '' }),
+			stat('Flawless gain', fmtGain(clarity.gain), `${fmtV(clarity.levels[0])} → ${fmtV(clarity.top)}`, { class: compare === 'clarity' ? 'accent' : '' })),
+		h('div', { class: 'section-title' }, `Cut ladder · ${Patterns.KIND_NAMES[trigger.kind] || C.title(trigger.kind || 'always')}`),
+		table({ columns: [
+			{ key: 'cut', label: 'Cut', render: (r) => h('span', { class: 'row tight', style: { flexWrap: 'nowrap' } }, h('i', { class: 'dot', style: { background: CUT_COLORS[r.key] } }), r.cut) },
+			{ key: 'words', label: 'Asks for', render: (r) => h('span', { class: 'small text-2' }, r.words, textMoves ? h('span', { class: 'cell-sub' }, r.text) : null) },
+			{ key: 'value', label: 'Clear', align: 'right', render: (r) => fmtV(r.value) },
+		], rows: ladder, compact: true, sticky: false, rowKey: (r) => r.key, selectedKey: compare === 'clarity' ? heldCut : null }),
+		h('div', { class: 'section-title' }, `By bowl · ${rungs[0].label} → ${rungs[rungs.length - 1].label}`),
+		table({ columns: [
+			{ key: 'bowl', label: 'Bowl', render: (b) => bowlName(b.bowl) },
+			{ key: 'base', label: rungs[0].label, align: 'right', render: (b) => fmtV(b.base) },
+			{ key: 'top', label: rungs[rungs.length - 1].label, align: 'right', render: (b) => h('b', {}, fmtV(b.top)) },
+			{ key: 'gain', label: 'Gain', align: 'right', render: (b) => h('span', { class: b.gain > 0 ? 'delta-up' : b.gain < 0 ? 'delta-down' : '' }, fmtGain(b.gain)) },
+		], rows: shown.bowls, compact: true, sticky: false, rowKey: (b) => b.bowl })), { class: 'dense' });
 }
 
 // --- Inclusions ---------------------------------------------------------------------------------
@@ -409,10 +476,10 @@ function inclusionsTab(body, ctx) {
 	body.append(sweepBar(ctx, 'inclusions', [field('Bowls', bowlSelect(state.bowl, (v) => { state.bowl = v; ctx.rerender(); })),
 		field('Uplift as', segmented([['turn', 'Value a turn'], ['pct', '% of the bare gem']], state.incUnit, (v) => { state.incUnit = v; ctx.rerender(); }), '% leaves out gems worth under 1 a turn bare, opals among them')]));
 	const split = h('div', { class: 'bal-split' });
-	split.append(card('What an inclusion adds, by colour', h('div', { class: 'col' },
+	split.append(card('What an inclusion adds, by color', h('div', { class: 'col' },
 		heatmap({ rows: incs.map((i) => C.inclusion(i).name || i), cols, values, format: fmtU, min: -absMax, max: absMax, colorFor: (v) => diverge(v / absMax), rowLabelWidth: 128, cellHeight: 14,
 			selected: `${incs.indexOf(state.inclusion)}:0`, onSelect: (i) => { state.inclusion = incs[i]; ctx.rerender(); } }),
-		h('div', { class: 'row between' }, rampKey((v) => diverge(v / absMax), -absMax, absMax, fmtU, 'uplift'), h('span', { class: 'tiny muted' }, 'Rows run Pinpoint, Lens, Feather, Fracture, Star · click a row'))), { class: 'tight-heat', meta: `an 8-carat Good stone, averaged over each colour’s gems · ${state.bowl === 'ALL' ? 'all six bowls' : `${bowlName(state.bowl)}’s bowl`}` }));
+		h('div', { class: 'row between' }, rampKey((v) => diverge(v / absMax), -absMax, absMax, fmtU, 'uplift'), h('span', { class: 'tiny muted' }, 'Rows run Pinpoint, Lens, Feather, Fracture, Star · click a row'))), { class: 'tight-heat', meta: `an 8-carat Good stone, averaged over each color’s gems · ${state.bowl === 'ALL' ? 'all six bowls' : `${bowlName(state.bowl)}’s bowl`}` }));
 	split.append(inclusionDetail(ctx, inc, state.inclusion, (k) => table2[state.inclusion][k], fmtU));
 	body.append(split);
 }
@@ -434,7 +501,7 @@ function inclusionDetail(ctx, inc, key, upliftFor, fmtU) {
 			stat('One draw', fmtPct((weights[key] || 0) / total, 1), 'share of a slot')),
 		Balance.railInclusion(key) ? note('Judged beside a bare copy of its own gem, in the better of the two places: a Feather works on its neighbour.', 'plain') : null,
 		key === 'FINGERPRINT' ? note('Nothing in sim/ reads copy_previous_inclusion, so a Fingerprint does nothing in a fight yet.', 'warn') : null,
-		['ALEXANDRITE', 'ZONING_RED', 'ZONING_BLUE', 'ZONING_GREEN', 'ZONING_VIOLET', 'ZONING_GOLD', 'ZONING_WHITE'].includes(key) ? note('Mostly worth where it lets a stone sit (a coloured socket) and the Harmony it finds beside its new colour, which a lone gem in an Any socket cannot show.', 'plain') : null,
+		['ALEXANDRITE', 'ZONING_RED', 'ZONING_BLUE', 'ZONING_GREEN', 'ZONING_VIOLET', 'ZONING_GOLD', 'ZONING_WHITE'].includes(key) ? note('Mostly worth where it lets a stone sit (a colored socket) and the Harmony it finds beside its new color, which a lone gem in an Any socket cannot show.', 'plain') : null,
 		h('div', { class: 'section-title' }, 'Best hosts'), h('div', { class: 'bal-list' }, hosts.slice(0, 6).map(listRow)),
 		h('div', { class: 'section-title' }, 'Worst hosts'), h('div', { class: 'bal-list' }, hosts.slice(-4).reverse().map(listRow))));
 }
@@ -457,13 +524,13 @@ function lapidariesTab(body, ctx) {
 		note: relative ? `over its average of ${fmtV(means[k])} a turn` : 'value a turn, alone' })) }));
 	body.append(card(relative ? 'How much each bowl lifts every gem' : 'Every gem on every bowl', h('div', { class: 'bal-chart', style: { height: '270px' } },
 		dotColumns({ columns, width: 1150, height: 270, format: relative ? fmtLift : fmtV, clip: relative ? [-1, 1.5] : null, selected: state.lapGem || null, onSelect: (p) => { state.lapGem = state.lapGem === p.key ? '' : p.key; ctx.rerender(); } })),
-	{ meta: `a dot a gem, in its colour and shape · the box is the middle half, the line the median · click a dot to follow a gem${relative ? ' · gems worth under 2 a turn are left out' : ''}` }));
+	{ meta: `a dot a gem, in its color and shape · the box is the middle half, the line the median · click a dot to follow a gem${relative ? ' · gems worth under 2 a turn are left out' : ''}` }));
 
 	const colors = C.SKILL_COLORS.filter((c) => c !== 'OPAL');
 	const heatValues = gems.bowls.map((b) => colors.map((c) => { const ks = skills.filter((k) => C.skill(k).color === c); return ks.reduce((s, k) => s + v(b, k), 0) / ks.length; }));
 	const top = Math.max(1e-9, ...heatValues.flat());
 	const split = h('div', { class: 'grid', style: { gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)' } });
-	split.append(card('Average gem by colour', h('div', { class: 'col' }, heatmap({ rows: gems.bowls.map(bowlName), cols: colors.map((c) => C.colorName(c)), values: heatValues, format: fmtV, max: top, rowLabelWidth: 80, cellHeight: 28 }),
+	split.append(card('Average gem by color', h('div', { class: 'col' }, heatmap({ rows: gems.bowls.map(bowlName), cols: colors.map((c) => C.colorName(c)), values: heatValues, format: fmtV, max: top, rowLabelWidth: 80, cellHeight: 28 }),
 		rampKey((x) => heat(x / top), 0, top, fmtV, 'value a turn')), { meta: 'opals do nothing alone and are left out' }));
 	const rows = gems.bowls.map((b) => {
 		const vals = skills.map((k) => v(b, k));
@@ -545,7 +612,7 @@ function pairsTab(body, ctx) {
 	const split = h('div', { class: 'bal-split' });
 	split.append(card(metric === 'synergy' ? 'Synergy of every pair' : 'Value of every pair', h('div', { class: 'col' }, h('div', { class: 'bal-matrix' }, grid),
 		h('div', { class: 'row between' }, metric === 'synergy' ? rampKey((v) => diverge(v / scale), -scale, scale, signed, 'synergy a turn') : rampKey((v) => heat(v / scale), 0, scale, fmtV, 'value a turn'),
-			h('span', { class: 'tiny muted' }, 'Gems run by colour, the strips along the edges are their colours; hover for names.'))),
+			h('span', { class: 'tiny muted' }, 'Gems run by color, the strips along the edges are their colors; hover for names.'))),
 	{ meta: state.bowl === 'ALL' ? 'average of the six bowls · each pair in its better order' : `${bowlName(state.bowl)}’s bowl` }));
 
 	const [a, b] = state.pair;
@@ -577,7 +644,7 @@ function railOver(rails, bowl, skill) {
 	const changed = new Array(Balance.VECTOR.length).fill(0);
 	const places = new Array(Balance.HOST_SIZE + 1).fill(0);
 	const hosts = new Map();
-	let value = 0, n = 0;
+	let value = 0, n = 0, runaways = 0;
 	for (const b of bowls) {
 		const r = Balance.railValue(rails, b, skill, W());
 		if (!r) continue;
@@ -585,9 +652,10 @@ function railOver(rails, bowl, skill) {
 		r.changed.forEach((x, j) => { changed[j] += x; });
 		r.places.forEach((x, j) => { places[j] += x; });
 		for (const p of r.perHost) { const at = hosts.get(p.host) || { host: p.host, gems: p.gems, value: 0, n: 0 }; at.value += p.value; at.n += 1; hosts.set(p.host, at); }
+		runaways += r.runaways || 0;
 	}
 	if (!n) return null;
-	return { value: value / n / T, changed: changed.map((x) => x / n / T), places, hosts: [...hosts.values()].map((x) => ({ ...x, value: x.value / x.n / T })).sort((a, b) => b.value - a.value) };
+	return { value: value / n / T, changed: changed.map((x) => x / n / T), places, runaways, hosts: [...hosts.values()].map((x) => ({ ...x, value: x.value / x.n / T })).sort((a, b) => b.value - a.value) };
 }
 
 function opalsTab(body, ctx) {
@@ -625,6 +693,7 @@ function opalsTab(body, ctx) {
 		{ key: 'saved', label: 'Health saved', align: 'right', title: 'Blows blocked or prevented and health healed, together', render: (k) => delta(ch(over[k], 'saved')) },
 		{ key: 'fires', label: 'Fires', align: 'right', title: 'Gem firings added a turn: its own, and the replays and repeats it causes', render: (k) => delta(ch(over[k], 'fires')) },
 		{ key: 'place', label: 'Best place', render: (k) => h('span', { class: 'small text-2' }, usual(over[k])) },
+		{ key: 'loops', label: '', render: (k) => (over[k] && over[k].runaways ? h('span', { class: 'flag high', title: `Spent at ${Balance.RAIL_CAP} gems in a turn in ${over[k].runaways} host rail${over[k].runaways === 1 ? '' : 's'}, over the bowls: its numbers there are what it did until then` }, 'runs away') : '') },
 	];
 	const rows = opals.slice().sort((a, b) => ((over[b] && over[b].value) || 0) - ((over[a] && over[a].value) || 0));
 	const split = h('div', { class: 'bal-split' });
@@ -647,6 +716,286 @@ function opalDetail(ctx, rails, key, r, idx) {
 		h('div', { class: 'section-title' }, 'Best hosts'), h('div', { class: 'bal-list' }, r.hosts.slice(0, 3).map(hostRow)),
 		h('div', { class: 'section-title' }, 'Worst hosts'), h('div', { class: 'bal-list' }, r.hosts.slice(-2).reverse().map(hostRow)),
 		placeRows.length > 2 ? h('p', { class: 'tiny muted' }, 'Sat best ', placeRows.filter((x) => x.value > 0).map((x) => `${PLACE_NAMES[x.key]} ${fmtPct(x.value / Math.max(1, placeRows.reduce((t, y) => t + y.value, 0)))}`).join(' · ')) : null));
+}
+
+// --- Carat bands --------------------------------------------------------------------------------
+
+const fmtShare = (v) => (Number.isFinite(v) ? fmtPct(v) : '—');
+const fmtTimes = (v) => (Number.isFinite(v) ? `${fmt(v, v < 10 ? 1 : 0)}×` : '—');
+const bandShort = (b) => `${b.carat}c · ${C.mine(b.mine).name || C.title(b.mine)}${b.key.includes('@') ? ` ${b.depth}` : ''}`;
+
+// A gem across the bands, over the chosen bowls: what it adds to the host rails at each band
+// (a turn), what the hosts do alone there, the first as a share of the second, and how much
+// that share grows from the first band to the last.
+function caratRow(res, skill) {
+	const bands = res.bands || [];
+	const bowls = state.bowl === 'ALL' ? res.bowls : [state.bowl];
+	const value = bands.map(() => 0);
+	const host = bands.map(() => 0);
+	let n = 0;
+	for (const b of bowls) {
+		const curve = Balance.caratCurve(res, b, skill, W());
+		if (!curve.length) continue;
+		curve.forEach((c, i) => { value[i] += c.value; host[i] += c.host; });
+		n += 1;
+	}
+	if (!n) return null;
+	const T = turnsOf(res);
+	const v = value.map((x) => x / n / T);
+	const hv = host.map((x) => x / n / T);
+	const share = v.map((x, i) => (hv[i] > 0 ? x / hv[i] : NaN));
+	const first = share[0], last = share[share.length - 1];
+	const growth = Number.isFinite(first) && Number.isFinite(last) ? last / Math.max(first, 0.05) : NaN;
+	return { value: v, host: hv, share, first, last, growth, flag: growth >= 2 && last >= 0.1 ? 'outgrows' : last >= 1 ? 'doubles' : '' };
+}
+
+function caratsTab(body, ctx) {
+	const res = Sweeps.get('carats');
+	body.append(sweepBar(ctx, 'carats', res ? [field('Gem', gemSelect(ctx, state.gem, (v) => { state.gem = v; ctx.rerender(); })), field('Bowls', bowlSelect(state.bowl, (v) => { state.bowl = v; ctx.rerender(); }))] : []));
+	if (!res) {
+		needSweep(ctx, body, 'carats', `Every gem set into ${state.settings.caratHosts} rails of four other gems (the same rails on every bowl) at every mine’s carats: the cap of the mine’s carat band at its boss, with its creatures’ health and blows (the Rift twice, three Wardens down and seven, where it reaches 24 carats). What a gem adds is read as a share of what the host rail does alone at the same band, so a gem whose share climbs with the carats is one the rail cannot keep up with. Needs the Gems sweep, which runs first if it has not.`);
+		return;
+	}
+	const bands = res.bands || [];
+	const skills = orderedSkills();
+	const rows = Object.fromEntries(skills.map((k) => [k, caratRow(res, k)]));
+	if (!rows[state.gem]) state.gem = 'STRIKE';
+	const growers = skills.filter((k) => rows[k] && Number.isFinite(rows[k].growth)).sort((a, b) => rows[b].growth - rows[a].growth).slice(0, 24);
+	const shares = growers.flatMap((k) => rows[k].share).filter(Number.isFinite).sort((a, b) => a - b);
+	const shareCap = Math.max(0.5, shares.length ? shares[Math.floor((shares.length - 1) * 0.97)] : 0);
+	body.append(card('The fastest growers · what a gem adds, as a share of its host rail', h('div', { class: 'col' },
+		heatmap({ rows: growers.map((k) => `${C.skill(k).name} ${fmtTimes(rows[k].growth)}`), cols: bands.map(bandShort), values: growers.map((k) => rows[k].share), format: fmtShare, max: shareCap, min: 0,
+			rowLabelWidth: 150, cellHeight: 18, selected: growers.includes(state.gem) ? `${growers.indexOf(state.gem)}:0` : null, onSelect: (i) => { state.gem = growers[i]; ctx.rerender(); } }),
+		h('div', { class: 'row between' }, rampKey((v) => heat(v / shareCap), 0, shareCap, fmtShare, 'share of the host rail'),
+			h('span', { class: 'tiny muted' }, 'The 24 gems whose share grows most from the first band to the last (the × by the name) · click a row'))),
+	{ class: 'tight-heat', meta: `${state.bowl === 'ALL' ? 'average of the six bowls' : `${bowlName(state.bowl)}’s bowl`} · ${state.weights.fight === 'boss' ? 'boss fight' : 'ordinary fight'} · each gem in its best place over ${res.hosts.length} hosts` }));
+
+	const color = C.skill(state.gem).color;
+	const inColor = skills.filter((k) => C.skill(k).color === color && rows[k]);
+	const columns = [
+		{ key: 'name', label: 'Gem', sort: (k) => C.skill(k).name, render: (k) => gemCell(k) },
+		...bands.map((b, i) => ({ key: `b${i}`, label: `${b.carat}c`, align: 'right', title: b.name, sort: (k) => rows[k].share[i], render: (k) => h('span', { class: 'small' }, fmtShare(rows[k].share[i])) })),
+		{ key: 'growth', label: 'Grows', align: 'right', title: 'Its share at the last band over its share at the first', sort: (k) => rows[k].growth, render: (k) => h('b', {}, fmtTimes(rows[k].growth)) },
+		{ key: 'flag', label: '', sort: false, render: (k) => (rows[k].flag ? h('span', { class: 'flag high', title: rows[k].flag === 'outgrows' ? 'Its share of the rail at least doubles from the first band to the last' : 'Adds more than the rest of the rail does at the last band' }, rows[k].flag === 'outgrows' ? 'outgrows the rail' : 'doubles the rail') : '') },
+	];
+	const sort = state.sort && state.sort.tab === 'carats' ? state.sort : { tab: 'carats', key: 'growth', dir: -1 };
+	const split = h('div', { class: 'bal-split' });
+	split.append(card(`${C.colorName(color)} gems · share of the host rail`, table({ columns, rows: sortRows(inColor, columns, sort), sort, compact: true, sticky: false, selectedKey: state.gem, rowKey: (k) => k,
+		onSort: (k) => { state.sort = { tab: 'carats', ...toggleSort(sort, k, k === 'name' ? 1 : -1) }; ctx.rerender(); }, onRowClick: (k) => { state.gem = k; ctx.rerender(); } }), { pad: false, class: 'dense' }));
+	const r = rows[state.gem];
+	const medianShare = bands.map((_, i) => median(skills.map((k) => rows[k] && rows[k].share[i])));
+	const series = [
+		{ label: C.skill(state.gem).name, color: markColor(color), shape: SHAPES[color], points: r.share.map((y, x) => ({ x, y: Number.isFinite(y) ? y : 0 })) },
+		{ label: 'median gem', color: 'var(--muted)', points: medianShare.map((y, x) => ({ x, y: Number.isFinite(y) ? y : 0 })), dim: true },
+	];
+	split.append(card(null, h('div', { class: 'col', style: { gap: '8px' } },
+		h('div', { class: 'row', style: { alignItems: 'flex-start', flexWrap: 'nowrap' } }, gemImage(state.gem, 48), h('div', { class: 'col', style: { gap: '2px' } }, h('h2', { style: { fontSize: '16px' } }, C.skill(state.gem).name), h('p', { class: 'small text-2 two-line' }, C.skill(state.gem).text || ''))),
+		h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } }, stat('First band', fmtShare(r.first), `${fmtBig(r.value[0])} a turn`), stat('Last band', fmtShare(r.last), `${fmtBig(r.value[r.value.length - 1])} a turn`, { class: 'accent' }), stat('Grows', fmtTimes(r.growth), 'its share, first to last')),
+		h('div', { class: 'section-title' }, 'Share of the host rail, band by band'),
+		lines({ series, width: 520, height: 200, xLabels: Object.fromEntries(bands.map((b, i) => [i, `${b.carat}c`])), format: fmtShare, legend: false }),
+		h('p', { class: 'tiny muted' }, `The host rails alone: ${bands.map((b, i) => fmtBig(r.host[i])).join(' → ')} a turn.`))));
+	body.append(split);
+
+	body.append(card('The bands', table({ columns: [
+		{ key: 'name', label: 'Mine', render: (b) => h('b', {}, b.name) },
+		{ key: 'carat', label: 'Carats', align: 'right', render: (b) => String(b.carat) },
+		{ key: 'hp', label: 'Creature health', align: 'right', render: (b) => fmtTimes(b.hp) },
+		{ key: 'damage', label: 'Blows', align: 'right', render: (b) => fmtTimes(b.damage) },
+		{ key: 'boss', label: 'Boss · kill line', render: (b) => h('span', { class: 'small' }, `${b.bossName} · ${fmt(b.bossHp, 0)} health`) },
+	], rows: bands, compact: true, sticky: false, rowKey: (b) => b.key }), { pad: false, class: 'dense', meta: 'each mine at its boss: the cap of its carat band there, its creatures against the Quarry’s, and its boss’s health' }));
+}
+
+// --- Combo hunt ---------------------------------------------------------------------------------
+
+const fmtTurns = (v) => (!Number.isFinite(v) ? 'never' : v < 0.1 ? 'under 0.1' : fmt(v, v < 10 ? 1 : 0));
+// A value a hunt can find: anything from a few points a turn to millions, kept short.
+const fmtBig = (v) => (!Number.isFinite(v) ? '—' : Math.abs(v) >= 1e6 ? `${fmt(v / 1e6, 1)}M` : Math.abs(v) >= 1e4 ? `${fmt(v / 1e3, 0)}k` : fmtV(v));
+const signedBig = (v) => (Number.isFinite(v) ? `${v > 0 ? '+' : ''}${fmtBig(v)}` : '—');
+
+function huntTab(body, ctx) {
+	const hunt = Sweeps.get('hunt');
+	const bandsHunted = hunt ? hunt.bands || [] : [];
+	if (hunt && !bandsHunted.some((b) => b.key === state.huntBand)) state.huntBand = (bandsHunted[0] || {}).key || '';
+	body.append(sweepBar(ctx, 'hunt', hunt ? [field('Band', select(bandsHunted.map((b) => [b.key, `${b.name} · ${b.carat} carats`]), state.huntBand, (v) => { state.huntBand = v; state.huntBuild = ''; ctx.rerender(); }, { style: 'width:230px' })),
+		field('Bowls', bowlSelect(state.bowl, (v) => { state.bowl = v; state.huntBuild = ''; ctx.rerender(); }))] : []));
+	if (!hunt) {
+		needSweep(ctx, body, 'hunt', `A search for the strongest whole rails. On every bowl, at each hunted band, it starts from the bowl’s best gems alone, a random rail and a random rail ending in two opals, and walks each one socket by socket: every gem that could sit there and every swap is played in the boss fight, and the best is kept. Then what it found is played again on fresh fights beside the plain rail (the bowl’s best gems alone) and a dozen random rails. Rails that never stop firing are kept aside and listed. Needs the Gems sweep, which runs first if it has not.`);
+		return;
+	}
+	const T = turnsOf(hunt);
+	const w = W();
+	const name = (k) => C.skill(k).name || k;
+	if (w.fight !== 'boss') body.append(note('Read in the ordinary fight, where no rail can deal more than the dummies’ health: the hunt searched in the boss fight, and the Boss fight toggle above shows what it found uncapped. The kill turns are the boss fight’s either way.', 'plain'));
+	const bowls = state.bowl === 'ALL' ? hunt.bowls : [state.bowl];
+	const reports = {};
+	for (const band of bandsHunted) for (const bowl of hunt.bowls) reports[`${bowl}|${band.key}`] = Balance.huntReport(hunt, bowl, band.key, w);
+	const turnsFor = (vector, band) => Balance.killTurns(vector, band.bossHp, T);
+
+	// Every band: the strongest rail on any bowl, against that bowl's plain rail.
+	const summary = bandsHunted.map((band) => {
+		let best = null;
+		for (const bowl of bowls) {
+			const r = reports[`${bowl}|${band.key}`];
+			if (!r || !r.builds.length) continue;
+			const top = r.builds[0];
+			const ratio = r.plain && r.plain.value > 0 ? top.value / r.plain.value : NaN;
+			if (!best || !(best.ratio >= ratio)) best = { key: band.key, band, bowl, top, plain: r.plain, ratio, r };
+		}
+		return best || { key: band.key, band, r: null };
+	});
+	const loopsIn = (bandKey) => (hunt.runaways || []).filter((x) => x.band === bandKey && bowls.includes(x.bowl)).length;
+	body.append(card('Every hunted band · the strongest rail found', table({ columns: [
+		{ key: 'band', label: 'Band', render: (x) => h('span', { class: 'cell-name' }, h('b', {}, x.band.name), h('span', { class: 'inline-sub' }, `${x.band.carat} carats`)) },
+		{ key: 'boss', label: 'Kill line', render: (x) => h('span', { class: 'small text-2' }, `${x.band.bossName} · ${fmt(x.band.bossHp, 0)}`) },
+		{ key: 'rail', label: 'Strongest rail', render: (x) => (x.top ? h('span', { class: 'small', title: x.top.rail.map(name).join(' → ') }, h('b', {}, `${bowlName(x.bowl)}: `), x.top.rail.map(name).join(', ')) : '—') },
+		{ key: 'turns', label: 'Kills it in', align: 'right', title: 'Turns to bring the boss down, at the pace it set in the boss fight', render: (x) => (x.top ? h('b', {}, fmtTurns(turnsFor(x.top.vector, x.band))) : '—') },
+		{ key: 'plain', label: 'Plain rail', align: 'right', title: 'The same bowl’s best gems alone', render: (x) => (x.plain ? fmtTurns(turnsFor(x.plain.vector, x.band)) : '—') },
+		{ key: 'random', label: 'Random rail', align: 'right', title: 'The middle of a dozen random rails', render: (x) => (x.r ? fmtTurns(x.r.randomTurns) : '—') },
+		{ key: 'ratio', label: '× plain', align: 'right', title: 'Its value over the plain rail’s, in the fight shown', render: (x) => (Number.isFinite(x.ratio) ? h('span', { class: x.ratio > HUNT_LIMIT ? 'flag high' : '' }, fmtTimes(x.ratio)) : '—') },
+		{ key: 'loops', label: 'Runaways', align: 'right', render: (x) => (loopsIn(x.key) ? h('span', { class: 'flag high' }, String(loopsIn(x.key))) : h('span', { class: 'muted' }, '·')) },
+	], rows: summary, compact: true, sticky: false, selectedKey: state.huntBand, rowKey: (x) => x.key, onRowClick: (x) => { state.huntBand = x.key; state.huntBuild = ''; ctx.rerender(); } }),
+	{ pad: false, class: 'dense', meta: `${state.bowl === 'ALL' ? 'the bowl where it beats its plain rail most' : `${bowlName(state.bowl)}’s bowl`} · flagged over ${HUNT_LIMIT}× the plain rail, the gate’s line · ${hunt.rounds} rounds, ${fmt(hunt.seconds || 0, 0)}s` }));
+
+	const band = bandsHunted.find((b) => b.key === state.huntBand);
+	if (!band) return;
+	const builds = [];
+	for (const bowl of bowls) {
+		const r = reports[`${bowl}|${band.key}`];
+		if (!r) continue;
+		r.builds.forEach((b, i) => builds.push({ ...b, bowl, rank: i + 1, id: `${bowl}|${b.key}`, plain: r.plain, turns: turnsFor(b.vector, band), runaway: (b.vector[Balance.RUNAWAY] || 0) > 0, r }));
+	}
+	builds.sort((a, b) => b.value - a.value);
+	if (!builds.some((b) => b.id === state.huntBuild)) state.huntBuild = (builds[0] || {}).id || '';
+	const railCell = (rail) => h('span', { class: 'row tight', style: { flexWrap: 'nowrap', gap: '2px' }, title: rail.map(name).join(' → ') }, rail.map((k) => gemImage(k, 18)));
+	const split = h('div', { class: 'bal-split' });
+	split.append(card(`${band.name} · every rail the hunt ended on`, table({ columns: [
+		{ key: 'bowl', label: 'Bowl', render: (b) => h('span', { class: 'small' }, bowlName(b.bowl)) },
+		{ key: 'rail', label: 'Rail', render: (b) => railCell(b.rail) },
+		{ key: 'value', label: 'Value', align: 'right', title: 'A turn, over the empty rail, in the fight shown', render: (b) => h('b', {}, fmtBig(perTurn(hunt, b.value))) },
+		{ key: 'ratio', label: '× plain', align: 'right', render: (b) => (b.plain && b.plain.value > 0 ? fmtTimes(b.value / b.plain.value) : '—') },
+		{ key: 'synergy', label: 'Synergy', align: 'right', title: 'A turn: the rail over its gems played alone, summed', render: (b) => h('span', { class: b.synergy >= 0 ? 'delta-up' : 'delta-down' }, signedBig(perTurn(hunt, b.synergy))) },
+		{ key: 'turns', label: 'Kills in', align: 'right', render: (b) => fmtTurns(b.turns) },
+		{ key: 'flag', label: '', render: (b) => (b.runaway ? h('span', { class: 'flag high', title: `On the fresh fights the game spent it at ${Balance.RAIL_CAP} gems in a turn` }, 'runs away') : '') },
+	], rows: builds, compact: true, sticky: false, selectedKey: state.huntBuild, rowKey: (b) => b.id, onRowClick: (b) => { state.huntBuild = b.id; ctx.rerender(); } }),
+	{ pad: false, class: 'dense', meta: `${band.carat}-carat Good Clear stones · ${band.bossName}, ${fmt(band.bossHp, 0)} health · creatures ${fmtTimes(band.hp)} health, ${fmtTimes(band.damage)} blows` }));
+	const pick = builds.find((b) => b.id === state.huntBuild);
+	split.append(pick ? huntDetail(hunt, band, pick, T) : card(null, note('Nothing found on this bowl at this band.', 'plain')));
+	body.append(split);
+
+	const loops = (hunt.runaways || []).filter((x) => bowls.includes(x.bowl));
+	if (loops.length) {
+		const cores = Balance.runawayCores({ runaways: loops }).slice(0, 5);
+		body.append(card(`Runaways · ${loops.length} rail${loops.length === 1 ? '' : 's'} spent at ${Balance.RAIL_CAP} gems in a turn`, h('div', { class: 'col', style: { gap: '8px' } },
+			note(`These rails played ${Balance.RAIL_CAP} gems in a single turn, where the game spends a rail: what is still queued for it is dropped and the turn goes on. Some would have stopped a little later, some never (two Geminis side by side wake each other for ever while the hand holds a pair). The hunt walks around them, so the rails above are what it found without them.`, 'warn'),
+			h('div', { class: 'section-title' }, 'Neighbours most of them share'),
+			h('div', { class: 'bal-list' }, cores.map((c) => h('div', { class: 'bal-list-row' }, gemImage(c.pair[0], 16), h('span', { class: 'small' }, `${name(c.pair[0])} → ${name(c.pair[1])}`), h('span', { class: 'v' }, fmtPct(c.share))))),
+			h('div', { class: 'section-title' }, 'Some of them'),
+			h('div', { class: 'bal-list' }, loops.slice(0, 5).map((x) => h('div', { class: 'bal-list-row', style: { gridTemplateColumns: '96px auto minmax(0, 1fr)' }, title: x.rail.map(name).join(' → ') }, h('span', { class: 'tiny muted' }, `${bowlName(x.bowl)} · ${(bandsHunted.find((b) => b.key === x.band) || {}).carat || ''}c`), railCell(x.rail), h('span', { class: 'small' }, x.rail.map(name).join(', '))))))));
+	}
+}
+
+function huntDetail(hunt, band, b, T) {
+	const name = (k) => C.skill(k).name || k;
+	const searches = (hunt.searches || []).filter((x) => x.bowl === b.bowl && x.band === band.key && x.rail.join(',') === b.rail.join(','));
+	const START_NAMES = { plain: 'the bowl’s best gems alone', random: 'a random rail', opals: 'a random rail ending in two opals' };
+	const stepRow = (s) => {
+		const changed = s.to.map((k, i) => (k !== s.from[i] ? i : -1)).filter((i) => i >= 0);
+		const text = changed.length === 2 && s.to[changed[0]] === s.from[changed[1]] ? `swap sockets ${changed[0] + 1} and ${changed[1] + 1}` : changed.map((i) => `${name(s.from[i])} → ${name(s.to[i])}`).join(', ');
+		return h('div', { class: 'bal-list-row', style: { gridTemplateColumns: '104px minmax(0, 1fr) auto' } }, h('span', { class: 'tiny muted' }, `pass ${s.pass + 1} · socket ${s.socket + 1}`), h('span', { class: 'small' }, text), h('span', { class: 'v delta-up' }, `+${fmtPct(s.after / Math.max(1e-9, Math.abs(s.before)) - 1)}`));
+	};
+	return card(null, h('div', { class: 'col', style: { gap: '8px' } },
+		h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '6px' } }, h('b', {}, `${bowlName(b.bowl)}’s bowl`), b.runaway ? h('span', { class: 'flag high' }, 'runs away') : null),
+		h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } },
+			stat('Value', fmtBig(perTurn(hunt, b.value)), 'a turn', { class: 'accent' }), stat('Kills the boss in', fmtTurns(b.turns), 'turns'), stat('Synergy', signedBig(perTurn(hunt, b.synergy)), 'over its gems alone'),
+			stat('Fires', fmtV(perTurn(hunt, b.vector[3])), 'gems a turn')),
+		h('div', { class: 'section-title' }, 'In socket order, and each gem alone'),
+		h('div', { class: 'bal-list' }, b.rail.map((k, i) => h('div', { class: 'bal-list-row' }, h('span', { class: 'tiny muted' }, String(i + 1)), h('span', { class: 'cell-name' }, gemImage(k, 18), h('span', { class: 'small' }, name(k)), rarityChip(C.skill(k).rarity)),
+			h('span', { class: 'v' }, fmtBig(perTurn(hunt, b.r.solo(k))))))),
+		h('div', { class: 'section-title' }, searches.length ? `Found from ${searches.map((x) => START_NAMES[x.start] || x.start).join(' and from ')}` : 'How it was found'),
+		h('div', { class: 'bal-list' }, (searches[0] ? searches[0].steps : []).slice(-8).map(stepRow)),
+		h('p', { class: 'tiny muted' }, `The plain rail here: ${b.plain ? b.plain.rail.map(name).join(', ') : '—'}, ${b.plain ? fmtBig(perTurn(hunt, b.plain.value)) : '—'} a turn.`)));
+}
+
+// --- Growth ---------------------------------------------------------------------------------------
+
+// A gem over a run and over one long fight, on the chosen bowls: its value in each fight of the
+// run and in each turn of the long fight (a turn, over its host), early against late.
+function growthRow(res, skill) {
+	const bowls = state.bowl === 'ALL' ? res.bowls : [state.bowl];
+	const L = Balance.growthLayout(res.settings);
+	const fights = new Array(L.fights).fill(0);
+	const turns = new Array(L.turns).fill(0);
+	let n = 0;
+	for (const b of bowls) {
+		const g = Balance.growthValue(res, b, skill, W());
+		if (!g) continue;
+		g.fights.forEach((v, i) => { fights[i] += v; });
+		g.turns.forEach((v, i) => { turns[i] += v; });
+		n += 1;
+	}
+	if (!n) return null;
+	const T = turnsOf(res);
+	const run = fights.map((v) => v / n / T);
+	const fight = turns.map((v) => v / n);
+	const late = (xs) => xs.slice(-3).reduce((a, x) => a + x, 0) / Math.min(3, xs.length);
+	const read = (xs) => {
+		const early = xs[0], end = late(xs);
+		return { series: xs, early, late: end, gain: end - early, ratio: end / Math.max(Math.abs(early), 0.5) };
+	};
+	return { run: read(run), fight: read(fight) };
+}
+
+function growthTab(body, ctx) {
+	const res = Sweeps.get('growth');
+	const view = state.growthView === 'fight' ? 'fight' : 'run';
+	body.append(sweepBar(ctx, 'growth', res ? [field('Over', segmented([['run', `A run of ${res.settings.runFights} fights`], ['fight', `One ${res.settings.longTurns}-turn fight`]], view, (v) => { state.growthView = v; ctx.rerender(); }),
+		'A run: the ordinary fight again and again, keeping what lasts the run. A long fight: the boss fight, turn by turn.'),
+	field('Gem', gemSelect(ctx, state.gem, (v) => { state.gem = v; ctx.rerender(); })), field('Bowls', bowlSelect(state.bowl, (v) => { state.bowl = v; ctx.rerender(); }))] : []));
+	if (!res) {
+		needSweep(ctx, body, 'growth', `What a gem is worth when it is kept. Every gem is set into ${state.settings.caratHosts} host rails, first and last, and plays a run of ${state.settings.runFights} ordinary fights one after another, keeping what lasts the run: the faces a Glimmer raised, a Hydrophane’s drops, how often a Hone has fired, a Heartwood’s health. Then one ${state.settings.longTurns}-turn boss fight, turn by turn, for what grows within a fight (Temper, Fire Opal, Echo, Arsenic). Needs the Gems sweep, which runs first if it has not.`);
+		return;
+	}
+	const skills = orderedSkills();
+	const rows = Object.fromEntries(skills.map((k) => [k, growthRow(res, k)]));
+	if (!rows[state.gem]) state.gem = 'GLIMMER';
+	const of = (k) => rows[k] && rows[k][view];
+	const unit = view === 'run' ? 'fight' : 'turn';
+	const n = view === 'run' ? res.settings.runFights : res.settings.longTurns;
+	const growers = skills.filter((k) => of(k) && Number.isFinite(of(k).gain)).sort((a, b) => of(b).gain - of(a).gain);
+	const listRow = (k) => h('div', { class: 'bal-list-row clickable', onClick: () => { state.gem = k; ctx.rerender(); } }, colorKeyMark(C.skill(k).color, 14), h('span', { class: 'small' }, C.skill(k).name),
+		h('span', { class: 'row tight', style: { flexWrap: 'nowrap' } }, sparkline(of(k).series.map((v) => Math.max(0, v)), { color: markColor(C.skill(k).color) }), h('span', { class: `v ${of(k).gain >= 0 ? 'delta-up' : 'delta-down'}` }, signed(of(k).gain))));
+	const color = C.skill(state.gem).color;
+	const inColor = skills.filter((k) => C.skill(k).color === color && of(k));
+	const columns = [
+		{ key: 'name', label: 'Gem', sort: (k) => C.skill(k).name, render: (k) => gemCell(k) },
+		{ key: 'early', label: view === 'run' ? 'Fight 1' : 'Turn 1', align: 'right', sort: (k) => of(k).early, render: (k) => fmtV(of(k).early) },
+		{ key: 'late', label: view === 'run' ? `Fights ${n - 2}–${n}` : `Turns ${n - 2}–${n}`, align: 'right', sort: (k) => of(k).late, render: (k) => h('b', {}, fmtV(of(k).late)) },
+		{ key: 'gain', label: 'Gain', align: 'right', title: 'Late less early, a turn', sort: (k) => of(k).gain, render: (k) => h('span', { class: of(k).gain >= 0 ? 'delta-up' : 'delta-down' }, signed(of(k).gain)) },
+		{ key: 'curve', label: `Every ${unit}`, sort: false, render: (k) => sparkline(of(k).series.map((v) => Math.max(0, v)), { color: markColor(C.skill(k).color) }) },
+		{ key: 'flag', label: '', sort: false, render: (k) => (of(k).gain >= 1 && of(k).ratio >= 1.5 ? h('span', { class: 'flag high', title: 'Worth at least half as much again late as early, and a point a turn more' }, 'keeps growing') : '') },
+	];
+	const sort = state.sort && state.sort.tab === 'growth' ? state.sort : { tab: 'growth', key: 'gain', dir: -1 };
+	const top = h('div', { class: 'bal-split' });
+	top.append(card(`${C.colorName(color)} gems · value a turn, ${view === 'run' ? 'fight by fight' : 'turn by turn'}`, table({ columns, rows: sortRows(inColor, columns, sort), sort, compact: true, sticky: false, selectedKey: state.gem, rowKey: (k) => k,
+		onSort: (k) => { state.sort = { tab: 'growth', ...toggleSort(sort, k, k === 'name' ? 1 : -1) }; ctx.rerender(); }, onRowClick: (k) => { state.gem = k; ctx.rerender(); } }),
+	{ pad: false, class: 'dense', meta: `${state.bowl === 'ALL' ? 'average of the six bowls' : `${bowlName(state.bowl)}’s bowl`} · each gem in its better place over ${res.hosts.length} hosts, against the host alone` }));
+	top.append(card(null, h('div', { class: 'col', style: { gap: '6px' } },
+		h('div', { class: 'section-title' }, `Gains the most ${view === 'run' ? 'over the run' : 'over the fight'}`), h('div', { class: 'bal-list' }, growers.slice(0, 8).map(listRow)),
+		h('div', { class: 'section-title' }, 'Fades the most'), h('div', { class: 'bal-list' }, growers.slice(-4).reverse().map(listRow)))));
+	body.append(top);
+
+	const r = rows[state.gem][view];
+	const med = Array.from({ length: n }, (_, i) => median(skills.map((k) => of(k) && of(k).series[i])));
+	const series = [
+		{ label: C.skill(state.gem).name, color: markColor(color), shape: SHAPES[color], points: r.series.map((y, i) => ({ x: i + 1, y })) },
+		{ label: 'median gem', color: 'var(--muted)', points: med.map((y, i) => ({ x: i + 1, y: Number.isFinite(y) ? y : 0 })), dim: true },
+	];
+	const low = Math.min(0, ...r.series, ...med.filter(Number.isFinite));
+	body.append(card(`${C.skill(state.gem).name} · ${view === 'run' ? 'value a turn in each fight of the run' : 'value in each turn of the long fight'}`, h('div', { class: 'col' },
+		lines({ series, width: 1150, height: 220, min: low, format: fmtV, xFormat: (x) => `${view === 'run' ? 'fight' : 'turn'} ${x}` }),
+		h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, stat(view === 'run' ? 'Fight 1' : 'Turn 1', fmtV(r.early), 'a turn'), stat('Late', fmtV(r.late), `the last three ${unit}s`, { class: 'accent' }),
+			stat('Gain', signed(r.gain), 'a turn'), stat('Late ÷ early', fmtTimes(r.ratio), ''))),
+	{ meta: view === 'run' ? `${res.settings.turns}-turn ordinary fights; the dice, fire counts and health a gem grew are kept from one to the next, and the player starts each whole` : 'the boss fight, played on past the usual turns; creatures enrage from turn 7' }));
 }
 
 // --- Method & settings --------------------------------------------------------------------------
@@ -675,9 +1024,24 @@ function methodTab(body, ctx) {
 			field('Pyrite carried', numberInput(s.pyrite, setS('pyrite', 0, 999), { style: 'width:80px' }), 'What Wager, Stake, Gilded Armor and House Money read'),
 			field('Birthstones', segmented([[true, 'On'], [false, 'Off']], s.birthstone, (v) => { state.settings = { ...state.settings, birthstone: v === true || v === 'true' }; keep(); ctx.rerender(); })),
 			field('Passives', segmented([[true, 'On'], [false, 'Off']], s.passive, (v) => { state.settings = { ...state.settings, passive: v === true || v === 'true' }; keep(); ctx.rerender(); }))),
+			h('div', { class: 'row' }, field('Boss health', numberInput(s.bossHp, setS('bossHp', 1, 1e7), { style: 'width:90px' }), 'The boss fight’s kill line for the sweeps played at one carat (the bands use each mine’s boss)'),
+			field('Boss throws', h('span', { class: 'row tight' }, ...s.bossDice.map((d, i) => select(dieOptions, d, (v) => { const dice = s.bossDice.slice(); dice[i] = v; state.settings = { ...state.settings, bossDice: dice }; keep(); ctx.rerender(); }, { class: 'select small', style: 'width:70px' })))),
+			field('Boss block', numberInput(s.bossGuard, setS('bossGuard', 0, 99), { style: 'width:70px' }))),
 		h('div', { class: 'row' }, field('Host rails', segmented([[12, '12'], [24, '24'], [48, '48']], s.hosts, setS('hosts', 1, 200)), 'How many rails of four other gems the Opals sweep sets every gem into'),
-			...Balance.SWEEPS.map((sw) => field(`${SWEEP_NAMES[sw]} · fights`, select([[100, '100'], [150, '150'], [300, '300'], [1000, '1000'], [3000, '3000']], s.samples[sw],
+			field('Carat and growth hosts', segmented([[4, '4'], [6, '6'], [12, '12']], s.caratHosts, setS('caratHosts', 1, 48)), 'How many of those rails the Carat bands and Growth sweeps use'),
+			...Balance.SWEEPS.map((sw) => field(`${SWEEP_NAMES[sw]} · fights`, select([10, 15, 20, 30, 40, 60, 100, 150, 300, 1000, 3000].map((x) => [x, String(x)]), s.samples[sw],
 			(v) => { state.settings = { ...state.settings, samples: { ...state.settings.samples, [sw]: Number(v) } }; keep(); ctx.rerender(); }, { style: 'width:90px' })))),
+		h('div', { class: 'row' }, field('Hunted bands', h('span', { class: 'row tight' }, ...Balance.bands().map((b) => {
+			const on = (s.huntBands || []).includes(b.key);
+			return h('button', { type: 'button', class: `btn${on ? ' primary' : ''}`, title: b.name, onClick: () => { const now = new Set(s.huntBands || []); if (on) now.delete(b.key); else now.add(b.key); state.settings = { ...state.settings, huntBands: Balance.bands().map((x) => x.key).filter((k) => now.has(k)) }; keep(); ctx.rerender(); } }, `${b.carat}c`);
+		})), 'The mines the hunt searches at; each one adds about a quarter to its time'),
+			field('Starts', segmented([[1, '1'], [2, '2'], [3, '3']], s.huntStarts, setS('huntStarts', 1, 3)), 'Rails each search starts from: the bowl’s best gems alone, then a random rail, then a random rail ending in two opals'),
+			field('Passes', segmented([[1, '1'], [2, '2'], [3, '3']], s.huntPasses, setS('huntPasses', 1, 5)), 'How many times a search may walk every socket'),
+			field('Copies', segmented([[1, '1'], [2, '2'], [3, '3']], s.copies, setS('copies', 1, 7)), 'The most of one gem a hunted rail may hold'),
+			field('Transcendent', segmented([[0, '0'], [1, '1'], [2, '2']], s.transcendent, setS('transcendent', 0, 7)), 'The most Transcendent gems a hunted rail may hold'),
+			field('Checked over', select([150, 300, 600, 1000].map((x) => [x, `${x} fights`]), s.huntVerify, (v) => { state.settings = { ...state.settings, huntVerify: Number(v) }; keep(); ctx.rerender(); }, { style: 'width:110px' }), 'Fresh fights every rail the hunt found is played again on')),
+		h('div', { class: 'row' }, field('A run', segmented([[6, '6 fights'], [12, '12'], [20, '20']], s.runFights, setS('runFights', 2, 60)), 'The Growth sweep’s run of ordinary fights'),
+			field('The long fight', segmented([[8, '8 turns'], [10, '10'], [16, '16']], s.longTurns, setS('longTurns', 2, 40)), 'The Growth sweep’s boss fight, turn by turn')),
 		h('button', { type: 'button', class: 'btn', onClick: () => { state.settings = { ...Balance.DEFAULTS, samples: { ...Balance.DEFAULTS.samples } }; keep(); ctx.rerender(); } }, 'Back to the defaults'))));
 	body.append(split);
 	const lower = h('div', { class: 'bal-split-even' });
@@ -696,8 +1060,13 @@ function methodTab(body, ctx) {
 	lower.append(card('How it is measured', h('div', { class: 'col small text-2', style: { gap: '6px' } },
 		h('p', {}, h('b', {}, 'The fight. '), `Every rail is played ${s.turns} turns against ${s.dummies} training dumm${s.dummies === 1 ? 'y' : 'ies'}, each throwing ${s.dummyDice.join(' and ').toLowerCase()} at the player every action. The player’s half is the game’s own rail, ported to js/sim/fight.js and held to sim/battle.gd by tools/data-browser/parity.mjs: Resonance and Harmony, every gem, the hand White gems change, Opal replays, Echoes and Preludes, the Birthstone, the passives.`),
 		h('p', {}, h('b', {}, 'The dummies. '), `They answer stuns, stolen dice, Dread, clouding and Curse the way a creature does, and do nothing else. ${s.dummyHp ? `Each has ${s.dummyHp} health; one that falls misses its action and a fresh one stands up next turn.` : 'Endless ones never die, so poison and House Money’s pot can run away.'} A player never goes down (a blow that would down them counts in full).`),
+		h('p', {}, h('b', {}, 'Two fights. '), `Every rail is played twice. The ordinary fight is the dummies above: overkill is wasted, so no rail can show more damage than they have health. The boss fight is one dummy throwing ${s.bossDice.join(' and ').toLowerCase()} that never falls, with a kill line at ${fmt(s.bossHp, 0)} health: its damage is the pace the rail reaches that line at, read within the turn that crosses it, so nothing is capped and a rail that kills on the first turn shows all it did. The toggle by the exchange rates picks the fight every tab reads.`),
+		h('p', {}, h('b', {}, 'Carat bands. '), 'Each mine at its boss: the cap of its carat band there, its creatures’ health and blows against the Quarry’s, its boss’s health as the kill line. The Rift is read three Wardens down and seven, where its band reaches 24 carats. A gem’s value at a band is read as a share of what its host rail does alone there.'),
+		h('p', {}, h('b', {}, 'The hunt. '), 'For every bowl and hunted band, searches start from a few rails and walk them a socket at a time, keeping the best gem or swap in the boss fight on the same seeded fights. What they end on is played again on fresh fights beside the bowl’s best gems alone (the plain rail) and a dozen random rails. node tools/data-browser/balance.mjs check is the gate: it flags a band whose strongest rail beats its bowl’s plain rail more than four times over.'),
+		h('p', {}, h('b', {}, 'Growth. '), 'A run plays the ordinary fight again and again, keeping the dice (Glimmer, Gilding, Hydrophane), how often each gem has fired (Hone, Hardening) and the health the rail grew (Heartwood). The long fight is the boss fight played on, turn by turn.'),
+		h('p', {}, h('b', {}, 'Runaways. '), `The game spends a rail once it has played ${Balance.RAIL_CAP} gems in a turn (sim/battle.gd RAIL_CAP): what is still queued for it is dropped and the turn goes on. Here such a rail is a runaway: played no further, flagged wherever it shows, and the hunt walks around it. Every count in a fight also stops at a ceiling of a thousand million million, which the game shows as Infinite.`),
 		h('p', {}, h('b', {}, 'The bowls. '), 'Each of the six lapidaries rolls their own starting dice with their passive (Cadence’s extra reroll, Puck’s parity shift, Ardor’s Second Wind…) and Birthstone. Rerolls chase the trigger of the gem that does most alone; a pair chases its stronger half’s.'),
 		h('p', {}, h('b', {}, 'Fair comparisons. '), 'Every rail on a bowl plays the same seeded fights: each die has its own stream of throws, so two rails that make the same choices see the same dice. Values are means; with a few hundred fights a value moves by a few tenths between runs.'),
 		h('p', {}, h('b', {}, 'Contexts. '), 'Gems, cuts and clarities are judged alone; a Feather inclusion beside a bare copy of its own gem; a pair in its better order. The Opals tab sets every gem into rails of four other gems (an opal in its best place, anything else first or last) and measures what changes against the same rail without it.'),
-		h('p', {}, h('b', {}, 'Known gaps. '), 'Economy (Prospect’s Sparkle, Appraise’s haul, quality bonuses) is not combat and reads as nothing here. Sockets are all Any, so Zoning and Alexandrite only show through Harmony.'))));
+		h('p', {}, h('b', {}, 'Known gaps. '), 'Economy (Prospect’s Sparkle, Appraise’s haul, quality bonuses) is not combat and reads as nothing here. Sockets are all Any, so Zoning and Alexandrite only show through Harmony. Every band rolls the lapidary’s starting dice, though a deeper player carries bigger ones. A run starts every fight whole and with the same pyrite. A Black Opal has no bag to feed on, so the hunt leaves it out.'))));
 }

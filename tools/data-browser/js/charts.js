@@ -1,6 +1,6 @@
 // SVG charts, hand-built: bars, lines, histograms, a scatter, a heatmap and a stacked bar.
 // Thin marks, hairline grid, a legend for two or more series, hover tooltips on every mark,
-// text in ink tokens and never in the series colour.
+// text in ink tokens and never in the series color.
 
 import { h, showTip, hideTip, tipRow, tipTitle, fmt } from './ui.js';
 
@@ -32,7 +32,7 @@ function niceTicks(max, count = 4) {
 	return ticks;
 }
 
-// The mark shape for a gem colour, so identity never rides on hue alone.
+// The mark shape for a gem color, so identity never rides on hue alone.
 export const SHAPES = { RED: 'triangle', BLUE: 'square', GREEN: 'heart', VIOLET: 'drop', GOLD: 'hexagon', WHITE: 'circle', OPAL: 'oval', DEFAULT: 'circle' };
 export function markPath(shape, cx, cy, r) {
 	switch (shape) {
@@ -61,7 +61,7 @@ function yAxis(g, f, max, format, ticks) {
 }
 
 // Columns for categories. data: [{label, value, color, shape, key, note}]. A single series takes
-// one colour unless each item names its own (entity colours, never a value ramp).
+// one color unless each item names its own (entity colors, never a value ramp).
 export function columns({ data, width = 480, height = 200, format = (v) => fmt(v, 1), max = null, color = 'var(--accent)', onSelect = null, selected = null, labelEvery = 1, valueLabels = 'ends', yLabel = '' }) {
 	const pad = { l: 44, r: 8, t: 10, b: 30 };
 	const f = frame(width, height, pad);

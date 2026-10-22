@@ -1,4 +1,4 @@
-// Pieces several pages share: the bowl and depth controls, rank colours, chips, async slots.
+// Pieces several pages share: the bowl and depth controls, rank colors, chips, async slots.
 
 import * as C from '../sim/content.js';
 import * as Dice from '../sim/dice.js';
@@ -86,7 +86,7 @@ export function tabs(options, active, onChange) {
 }
 
 export function socketRow(sockets) {
-	return h('div', { class: 'socket-row' }, sockets.map((s) => h('span', { class: `socket${s === 'ANY' ? ' any' : ''}`, title: s === 'ANY' ? 'Any colour' : C.colorName(s), style: s === 'ANY' ? null : { borderColor: markColor(s), background: `${markColor(s)}22` } }, s === 'ANY' ? h('span', { class: 'tiny muted' }, 'any') : colorKeyMark(s, 14))));
+	return h('div', { class: 'socket-row' }, sockets.map((s) => h('span', { class: `socket${s === 'ANY' ? ' any' : ''}`, title: s === 'ANY' ? 'Any color' : C.colorName(s), style: s === 'ANY' ? null : { borderColor: markColor(s), background: `${markColor(s)}22` } }, s === 'ANY' ? h('span', { class: 'tiny muted' }, 'any') : colorKeyMark(s, 14))));
 }
 
 // The mark every etched face wears, the same glyphs the game draws.

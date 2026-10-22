@@ -11,6 +11,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument("--godot", default=os.environ.get("GODOT_BIN"))
+parser.add_argument("--balance-strict", action="store_true", help="fail, not warn, when the balance gate finds a band over its limit")
+parser.add_argument("--no-balance", action="store_true", help="skip the balance gate")
 args = parser.parse_args()
 candidates = [args.godot, shutil.which("godot"), shutil.which("godot4"),
               "/Users/benthomas/Downloads/Godot.app/Contents/MacOS/Godot",
@@ -30,7 +32,7 @@ failed = []
 subprocess.run([godot, "--headless", "--path", str(ROOT), "--import"], cwd=ROOT, text=True,
                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
 
-for suite in ["test_dice.gd", "test_dice_shapes.gd", "test_stones.gd", "test_gem_updates.gd", "test_new_gems.gd", "test_void.gd", "test_battle.gd", "test_statuses.gd", "test_enemy_turns.gd", "test_bestiary.gd", "test_enemy_ui.gd", "test_descent.gd", "test_altar.gd", "test_economy.gd", "test_net.gd", "test_view.gd", "test_creatures.gd", "test_audio.gd", "test_screens.gd", "test_menu_navigation.gd", "test_fit.gd"]:
+for suite in ["test_dice.gd", "test_dice_shapes.gd", "test_stones.gd", "test_gem_updates.gd", "test_new_gems.gd", "test_void.gd", "test_battle.gd", "test_statuses.gd", "test_limits.gd", "test_enemy_turns.gd", "test_bestiary.gd", "test_enemy_ui.gd", "test_descent.gd", "test_altar.gd", "test_economy.gd", "test_net.gd", "test_view.gd", "test_creatures.gd", "test_audio.gd", "test_screens.gd", "test_menu_navigation.gd", "test_fit.gd"]:
     path = ROOT / "tests" / suite
     if not path.exists():
         failed.append(suite + " (missing)")
@@ -55,6 +57,20 @@ if node:
         failed.append("balance parity (tools/data-browser/parity.mjs)")
 else:
     print("\nSkipping the balance parity check: node was not found.", flush=True)
+
+# The balance gate: the strongest rails the combo hunt can find against each bowl's best gems
+# alone. It reads the last hunt while the content pack is unchanged and plays a quick one when
+# it has moved on. A band over the limit is a warning unless --balance-strict.
+if node and not args.no_balance:
+    print("\nRunning the balance gate", flush=True)
+    result = subprocess.run([node, str(ROOT / "tools" / "data-browser" / "balance.mjs"), "check", "--quick"],
+                            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=3600)
+    report = "\n".join(line.split("\r")[-1] for line in result.stdout.split("\n"))
+    print(report.strip()[-4000:], flush=True)
+    if result.returncode == 1 and not args.balance_strict:
+        print("Balance gate: a band is over its limit (a warning; --balance-strict makes it a failure).", flush=True)
+    elif result.returncode:
+        failed.append("balance gate (tools/data-browser/balance.mjs check)")
 
 if failed:
     sys.exit("Failed: " + ", ".join(failed))

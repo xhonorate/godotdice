@@ -15,7 +15,7 @@ const RADIUS: float = 1.15
 const RIM: float = 0.95
 
 ## How loud each rung of the well's ladder is: how many sparks go up, how far, and in what
-## colour. Index is the `tier` a result carries, 0 (nothing) to 4 (a jackpot).
+## color. Index is the `tier` a result carries, 0 (nothing) to 4 (a jackpot).
 const ANSWERS: Array = [
 	{"sparks": 10, "reach": 1.4, "light": 0.8, "seconds": 0.5, "tone": Color("6b7a86")},
 	{"sparks": 26, "reach": 2.6, "light": 2.0, "seconds": 0.9, "tone": Color("9fd0e8")},
@@ -67,7 +67,7 @@ func build(seed_value: int, tone: Color = Color("6fb7d8")) -> void:
 			brick.mesh = Lowpoly.slab(Vector3(0.42, 0.3, 0.3), Lowpoly.shade(Color("7c7369"), rng, 0.16), rng, 0.05)
 			brick.material_override = rock
 			brick.position = Vector3(cos(angle) * RADIUS, lift, sin(angle) * RADIUS)
-			brick.rotation.y = -angle
+			brick.rotation.y = - angle
 			add_child(brick)
 	## A lip of flatter stone round the top, and the water a little way down inside it.
 	var lip := MeshInstance3D.new()
@@ -110,7 +110,7 @@ func build(seed_value: int, tone: Color = Color("6fb7d8")) -> void:
 		slope.mesh = Lowpoly.slab(Vector3(1.25, 0.09, 1.05), Color("8a6a4a"), rng, 0.03)
 		slope.material_override = _plain(Color("8a6a4a"), 0.9)
 		slope.position = Vector3(side * 0.5, 2.82, 0)
-		slope.rotation.z = -side * 0.62
+		slope.rotation.z = - side * 0.62
 		add_child(slope)
 	_winch = MeshInstance3D.new()
 	var barrel := CylinderMesh.new()
@@ -193,7 +193,7 @@ func rest_light(energy: float) -> void:
 
 func draw_up(fx: Node3D, tier: int) -> float:
 	## Something has gone down it, and the well answers in its own time: the winch turns and the
-	## bucket goes down into the water, the light gathers in it in the colour of the answer,
+	## bucket goes down into the water, the light gathers in it in the color of the answer,
 	## and it is hauled back up glowing, to break over the rim in sparks and light as loud as
 	## the rung it landed on (see `answer`). Returns how long until it breaks, so whatever
 	## shows the answer in words can wait for it.
@@ -218,7 +218,7 @@ func draw_up(fx: Node3D, tier: int) -> float:
 		if fx != null and is_instance_valid(fx) and fx.has_method("sparks"):
 			fx.sparks(_water_point(), Color("7fb2ff"), 22, 1.6 * grow, 0.55, 0.04)
 			fx.ring_wave(_water_point(), tone, 1.1 * grow, 0.6, 0.12 * grow))
-	## In the water: the light gathers in the bucket, and the water takes the answer's colour.
+	## In the water: the light gathers in the bucket, and the water takes the answer's color.
 	_sequence.tween_method(func(t: float) -> void:
 		if _water_material != null:
 			_water_material.emission = _rest_tone.lerp(tone, t)
@@ -275,7 +275,7 @@ func answer(fx: Node3D, tier: int) -> void:
 	## jackpot feel like one: it keeps going after you think it has stopped.
 	for wave in range(clampi(tier, 0, 4)):
 		var when: float = 0.18 * float(wave + 1)
-		get_tree().create_timer(when).timeout.connect(func() -> void:
+		get_tree().create_timer(when ).timeout.connect(func() -> void:
 			if not is_instance_valid(self) or fx == null or not is_instance_valid(fx):
 				return
 			fx.sparks(_bucket_point(), tone.lightened(0.15 * float(wave)),
@@ -311,7 +311,7 @@ func _process(delta: float) -> void:
 		_water.position.y = 0.34 - 0.05 * _ripple
 	if _water_material != null:
 		_water_material.emission_energy_multiplier = 0.45 + 0.6 * _ripple + _hot * 0.35
-		## Once the answer has gone out of it, the water slowly comes back to its own colour.
+		## Once the answer has gone out of it, the water slowly comes back to its own color.
 		if _hot <= 0.0 and (_sequence == null or not _sequence.is_running()):
 			_water_material.emission = _water_material.emission.lerp(_rest_tone, minf(1.0, delta * 0.8))
 	if _bucket != null:

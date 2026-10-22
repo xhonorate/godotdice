@@ -3,7 +3,7 @@ extends Control
 ##
 ## A number is only felt if it is seen being made. The dice a gem read hop in the tray one
 ## after another and send what they showed up to the gem, where they add up in the left-hand
-## box; then each multiplier the stone carries (a die of its own colour, its weight in carats,
+## box; then each multiplier the stone carries (a die of its own color, its weight in carats,
 ## a Flawless clarity, an inclusion, a Double Down, an Echo's share) flies in from where it
 ## comes from and stacks in the right-hand box; then the two are fused into the figure that
 ## lands, anything added on top lands on that, and only then does the bolt leave. Every tick
@@ -31,7 +31,7 @@ const TOP_STEP: int = 9
 ## Where in the scale a gem's count starts, at most: a long rail's later gems still have
 ## room to climb inside their own count.
 const TOP_START: int = 5
-## How each step a count lays on is said: its note under the number, its mark and its colour.
+## How each step a count lays on is said: its note under the number, its mark and its color.
 const STEP_LOOKS: Dictionary = {
 	"carat": ["carat", "e2b23a", ""], "clarity": ["clarity", "dff3ff", "Flawless"], "inclusions": ["prism", "76b6ff", "inclusion"],
 	"amplify": ["double_up", "ffd76a", "amplified"], "echo": ["echo", "76b6ff", "Echo"],
@@ -77,7 +77,7 @@ var ceiling: Callable = Callable()
 var on_fuse: Callable = Callable()
 var chain: Chain = null
 var start_step: int = 0
-## The gem's own colour, the name it is counted under, and the voice its ticks are in.
+## The gem's own color, the name it is counted under, and the voice its ticks are in.
 var color: Color = Color.WHITE
 var caption: String = ""
 var tick: String = "tally_tick"
@@ -199,7 +199,7 @@ func show_sum(tally: Dictionary) -> void:
 	if str(link.get("op", "")) == "x":
 		_base_label.text = "%d×%d" % [int(link.get("from", 0)), int(link.get("by", 0))]
 	else:
-		_base_label.text = str(int(tally.get("base", 0)))
+		_base_label.text = DeepUi.number(int(tally.get("base", 0)))
 	var product: float = 1.0
 	for entry in tally.get("mults", []):
 		product *= float(entry.get("x", 1.0))
@@ -207,7 +207,7 @@ func show_sum(tally: Dictionary) -> void:
 	for entry in tally.get("adds", []):
 		var by: int = int(entry.get("by", 0))
 		var look: Array = STEP_LOOKS.get(str(entry.get("what", "")), ["spark", "76b6ff", ""])
-		var added := DeepUi.label(_row, ("+%d" % by) if by >= 0 else ("−%d" % -by), 18, Color(str(look[1])))
+		var added := DeepUi.label(_row, ("+" + DeepUi.number(by)) if by >= 0 else ("−" + DeepUi.number(-by)), 18, Color(str(look[1])))
 		added.add_theme_color_override("font_outline_color", Color(DeepUi.INK, 0.95))
 		added.add_theme_constant_override("outline_size", 5)
 		added.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -217,7 +217,7 @@ func show_sum(tally: Dictionary) -> void:
 	equals.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var total := _box(_row, _kind_tone)
 	var line := DeepUi.hbox(total, 4)
-	_number(line, str(int(tally.get("amount", 0))), 28, _kind_tone.lightened(0.3))
+	_number(line, DeepUi.number(int(tally.get("amount", 0))), 28, _kind_tone.lightened(0.3))
 	if int(tally.get("repeat", 1)) > 1:
 		_number(line, "×%d" % int(tally.repeat), 18, DeepUi.PAPER)
 	_place()
@@ -250,11 +250,11 @@ func _soak_block(absorbed: int, loss: int, seconds: float) -> void:
 	var found: Variant = shield.call() if shield.is_valid() else null
 	var source: Control = found as Control if found is Control and is_instance_valid(found) else null
 	var from: Vector2 = _centre(source) if source != null else _centre(_total_box) + Vector2(0, 60)
-	_fly(from, _centre(_total_box), "−%d" % absorbed, "block", DeepUi.BLOCK, maxf(0.06, seconds), _soaked.bind(absorbed, loss), "shield")
+	_fly(from, _centre(_total_box), "−" + DeepUi.number(absorbed), "block", DeepUi.BLOCK, maxf(0.06, seconds), _soaked.bind(absorbed, loss), "shield")
 
 func _soaked(absorbed: int, loss: int) -> void:
 	_total = loss
-	_total_label.text = str(loss) if loss > 0 else "0"
+	_total_label.text = DeepUi.number(loss) if loss > 0 else "0"
 	_total_label.add_theme_color_override("font_color", DeepUi.BAD.lightened(0.3) if loss > 0 else DeepUi.BLOCK)
 	DeepUi.spring(_total_box, -0.18, 6.0, 0.36)
 	_sparks(_centre(_total_box), DeepUi.BLOCK, 14, 130.0)
@@ -295,7 +295,7 @@ func _process(_delta: float) -> void:
 # --- the plate ---------------------------------------------------------------------------------
 
 static func kind_look(kind: String) -> Array:
-	## A figure's mark and colour: the ones the forecast and the floating numbers use.
+	## A figure's mark and color: the ones the forecast and the floating numbers use.
 	match kind:
 		"damage": return ["sword", DeepUi.BAD]
 		"block", "retain": return ["shield", DeepUi.BLOCK]
@@ -306,7 +306,10 @@ static func kind_look(kind: String) -> Array:
 	return ["spark", DeepUi.PAPER]
 
 static func times(x: float) -> String:
-	## A multiplier as it is written on the plate: ×2.5, ×3.75, ×2, never ×2.50.
+	## A multiplier as it is written on the plate: ×2.5, ×3.75, ×2, never ×2.50; a vast one is
+	## shortened the way a count is (×1.2M), and one past counting is Infinite.
+	if x >= 1000000.0:
+		return "×" + DeepUi.number(DeepRules.sat_floor(x))
 	var text: String = ("%.2f" % x).rstrip("0").rstrip(".")
 	return "×" + text
 
@@ -520,7 +523,7 @@ func _fuse(whole: bool) -> void:
 	var look: Array = kind_look(str(_tally.get("kind", "")))
 	var size_now: int = (22 if compact else 34) + mini(12, _total / 8)
 	DeepUi.icon(line, str(look[0]), float(size_now) * 0.8, tone).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_total_label = _number(line, str(_total), size_now, tone.lightened(0.3))
+	_total_label = _number(line, DeepUi.number(_total), size_now, tone.lightened(0.3))
 	if int(_tally.get("repeat", 1)) > 1:
 		var over := _number(line, "×%d" % int(_tally.repeat), maxi(14, size_now - 10), DeepUi.PAPER)
 		over.tooltip_text = "Lands this many times"
@@ -586,13 +589,13 @@ func _add(entry: Dictionary, seconds: float) -> void:
 		from.y -= source.size.y * 0.35
 	var step: int = _step
 	_step += 1
-	_fly(from, _centre(_total_box), ("+%d" % by) if by >= 0 else ("−%d" % -by), str(look[2]), Color(str(look[1])),
+	_fly(from, _centre(_total_box), ("+" + DeepUi.number(by)) if by >= 0 else ("−" + DeepUi.number(-by)), str(look[2]), Color(str(look[1])),
 		clampf(seconds * 0.6, 0.05, 0.24), _added.bind(by, step), str(look[0]))
 
 func _added(by: int, step: int) -> void:
-	_total += by
+	_total = DeepRules.sat_add(_total, by)
 	if _total_label != null:
-		_total_label.text = str(_total)
+		_total_label.text = DeepUi.number(_total)
 	DeepUi.spring(_total_box, 0.2 if by >= 0 else -0.12, 5.0, 0.36)
 	_voice(tick, _centre(_total_box), 0.6, step if by >= 0 else maxi(0, step - 3))
 
@@ -625,7 +628,7 @@ func _set_base(value: int) -> void:
 	_base = value
 	if _base_label == null:
 		return
-	_base_label.text = str(value)
+	_base_label.text = DeepUi.number(value)
 	DeepUi.spring(_base_box, 0.26, 7.0, 0.4)
 	_sparks(_centre(_base_box), _kind_tone, 8, 90.0)
 
@@ -638,7 +641,7 @@ func _sparks(at: Vector2, tint: Color, amount: int, speed: float) -> void:
 
 func _fly(from: Vector2, to: Vector2, text: String, note: String, tint: Color, seconds: float, landed: Callable, glyph: String = "") -> void:
 	## A chip carrying a number (or a glint, with no number) from where it comes from to where
-	## it lands, along a bow, trailing sparks of its own colour.
+	## it lands, along a bow, trailing sparks of its own color.
 	if not from.is_finite() or not to.is_finite():
 		landed.call()
 		return

@@ -443,7 +443,7 @@ func _build_dock(unit: Dictionary) -> void:
 	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	bar.warn = true
 	## The count rides in the bar, the way it does in a fight.
-	bar.set_values(float(unit.get("hp", 0)) / float(maxi(1, int(unit.get("max_hp", 1)))), "%d / %d" % [int(unit.get("hp", 0)), int(unit.get("max_hp", 0))])
+	bar.set_values(float(unit.get("hp", 0)) / float(maxi(1, int(unit.get("max_hp", 1)))), "%s / %s" % [DeepUi.number(int(unit.get("hp", 0))), DeepUi.number(int(unit.get("max_hp", 0)))])
 	var rail_row := DeepUi.hbox(left, 6)
 	rail_row.tooltip_text = "Drag a stone from the bag onto a socket to set it, or a set stone back into the bag." if editable() else ""
 	var rail: Array = unit.get("rail", [])

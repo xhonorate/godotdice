@@ -824,7 +824,7 @@
       "color": "RED",
       "rarity": "UNCOMMON",
       "tags": ["even", "cost", "blood"],
-      "text": "Lose 3 HP. The next gem is amplified by 50%.",
+      "text": "Lose 3 HP. The next gem is amplified by {amp}%.",
       "trigger": {
         "kind": "even",
         "ladder": [5, 4, 3, 2, 1]
@@ -833,18 +833,28 @@
         {
           "kind": "amplify_next",
           "amount": 50,
-          "scale": "carat",
+          "scale": "steps",
           "hp_cost": 3
         }
       ],
       "flawless": {
-        "text": "Amplified by 75%.",
+        "text": "Amplified by {amp_flawless}%.",
         "modify": [
           {
             "effect": 0,
             "amount": 75
           }
         ]
+      },
+      "numbers": {
+        "amp": {
+          "const": 50,
+          "scale": "steps"
+        },
+        "amp_flawless": {
+          "const": 75,
+          "scale": "steps"
+        }
       }
     },
     "CRESCENDO": {
@@ -1505,11 +1515,11 @@
         }
       ],
       "flawless": {
-        "text": "Gain 2 Regeneration.",
+        "text": "Gain 1 Regeneration.",
         "effects": [
           {
             "kind": "regeneration",
-            "amount": 2
+            "amount": 1
           }
         ]
       }
@@ -2327,7 +2337,7 @@
       "color": "VIOLET",
       "rarity": "RARE",
       "tags": ["odd", "poison"],
-      "text": "Add 30% to the target's Poison.",
+      "text": "Add {grow}% to the target's Poison.",
       "trigger": {
         "kind": "odd",
         "ladder": [5, 4, 3, 2, 1]
@@ -2337,17 +2347,27 @@
           "kind": "grow_poison",
           "target": "enemy",
           "amount": 30,
-          "scale": "carat"
+          "scale": "steps"
         }
       ],
       "flawless": {
-        "text": "Add 40% instead.",
+        "text": "Add {grow_flawless}% instead.",
         "modify": [
           {
             "effect": 0,
             "amount": 40
           }
         ]
+      },
+      "numbers": {
+        "grow": {
+          "const": 30,
+          "scale": "steps"
+        },
+        "grow_flawless": {
+          "const": 40,
+          "scale": "steps"
+        }
       }
     },
     "HEMLOCK": {
@@ -2355,7 +2375,7 @@
       "color": "VIOLET",
       "rarity": "UNCOMMON",
       "tags": ["even", "poison", "group", "cost"],
-      "text": "Gain Poison equal to your highest die. Then every enemy gains twice your Poison.",
+      "text": "Gain Poison equal to your highest die. Then every enemy gains {gift}% of your Poison.",
       "trigger": {
         "kind": "even",
         "ladder": [5, 4, 3, 2, 1]
@@ -2374,17 +2394,27 @@
           "target": "enemies",
           "amount": 200,
           "of_status": "poison",
-          "scale": "carat"
+          "scale": "steps"
         }
       ],
       "flawless": {
-        "text": "Three times your Poison instead.",
+        "text": "{gift_flawless}% of your Poison instead.",
         "modify": [
           {
             "effect": 1,
             "amount": 300
           }
         ]
+      },
+      "numbers": {
+        "gift": {
+          "const": 200,
+          "scale": "steps"
+        },
+        "gift_flawless": {
+          "const": 300,
+          "scale": "steps"
+        }
       }
     },
     "ARSENIC": {
@@ -2740,7 +2770,7 @@
       "color": "GOLD",
       "rarity": "RARE",
       "tags": ["pyrite"],
-      "text": "Spend {cost} Pyrite. Amplify the next gem by 50%.",
+      "text": "Spend {cost} Pyrite. Amplify the next gem by {amp}%.",
       "trigger": {
         "kind": "pyrite",
         "ladder": [25, 20, 15, 10, 5]
@@ -2752,11 +2782,11 @@
           "cost": {
             "ladder": [25, 20, 15, 10, 5]
           },
-          "scale": "carat"
+          "scale": "steps"
         }
       ],
       "flawless": {
-        "text": "Amplify by 75% instead.",
+        "text": "Amplify by {amp_flawless}% instead.",
         "modify": [
           {
             "effect": 0,
@@ -2767,6 +2797,14 @@
       "numbers": {
         "cost": {
           "ladder": [25, 20, 15, 10, 5]
+        },
+        "amp": {
+          "const": 50,
+          "scale": "steps"
+        },
+        "amp_flawless": {
+          "const": 75,
+          "scale": "steps"
         }
       }
     },
@@ -2818,7 +2856,7 @@
                 "term": "pyrite"
               },
               {
-                "ladder": [10, 15, 20, 25, 30]
+                "ladder": [10, 10, 15, 15, 20]
               }
             ]
           }
@@ -2835,7 +2873,7 @@
       },
       "numbers": {
         "share": {
-          "ladder": [10, 15, 20, 25, 30]
+          "ladder": [10, 10, 15, 15, 20]
         }
       }
     },
@@ -3421,8 +3459,8 @@
       "name": "Spectrum",
       "color": "WHITE",
       "rarity": "RARE",
-      "tags": ["distinct", "colour"],
-      "text": "For each colour that has fired this turn: Red, 3 damage; Blue, 3 Block; Green, heal 3; Violet, 2 Poison; Gold, 2 Pyrite; White, 1 Resonance.",
+      "tags": ["distinct", "color"],
+      "text": "For each color that has fired this turn: Red, 3 damage; Blue, 3 Block; Green, heal 3; Violet, 2 Poison; Gold, 2 Pyrite; White, 1 Resonance.",
       "trigger": {
         "kind": "distinct",
         "ladder": [5, 4, 3, 2, 1]
@@ -3435,7 +3473,7 @@
         }
       ],
       "flawless": {
-        "text": "Count every gem that fired, not just every colour.",
+        "text": "Count every gem that fired, not just every color.",
         "modify": [
           {
             "effect": 0,
@@ -3710,7 +3748,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Create a Void copy of the last gem that fired, unless it was an opal. It lasts for the rest of the fight.",
+      "text": "Create a Void copy of the last gem that fired. It lasts for the rest of the fight.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3771,7 +3809,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Adds Resonance equal to the Resonance so far.",
+      "text": "Adds {share}% of the Resonance so far.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3783,7 +3821,7 @@
           "amount": {
             "term": "resonance"
           },
-          "scale": "carat"
+          "scale": "steps"
         }
       ],
       "flawless": {
@@ -3795,6 +3833,12 @@
             "amount": 1
           }
         ]
+      },
+      "numbers": {
+        "share": {
+          "const": 100,
+          "scale": "steps"
+        }
       }
     },
     "CONTRA_LUZ": {
@@ -4919,7 +4963,7 @@
       "rarity": "LEGENDARY",
       "hue": "eceaf6",
       "edge": "9a93c4",
-      "text": "Half again as strong on every gem it helps light, whatever colour it is."
+      "text": "Half again as strong on every gem it helps light, whatever color it is."
     },
     "GLASS": {
       "name": "Glass",
@@ -7399,9 +7443,9 @@
       "threat": 4,
       "dice": ["D12"],
       "gimmick": "",
-      "text": "A floating prism. It gains 1 Strength the first time it sees each colour of gem fire, splits its light into as many hits as it rolls, and walls itself in block for every point of Strength.",
+      "text": "A floating prism. It gains 1 Strength the first time it sees each color of gem fire, splits its light into as many hits as it rolls, and walls itself in block for every point of Strength.",
       "traits": {
-        "colour_strength": true
+        "color_strength": true
       },
       "moves": [
         {
@@ -7517,7 +7561,7 @@
       "dice": ["D6", "D6", "D12"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Glass Veins. Six coloured mirrors in a ring around one eye. Each turn it drinks one colour: gems of that colour do it no damage, and what they would give their owner, it takes. A pair makes it drink another.",
+      "text": "Warden of the Glass Veins. Six colored mirrors in a ring around one eye. Each turn it drinks one color: gems of that color do it no damage, and what they would give their owner, it takes. A pair makes it drink another.",
       "moves": [
         {
           "name": "Absorb",
@@ -9460,7 +9504,7 @@
       "threat": 4,
       "dice": ["D8"],
       "gimmick": "",
-      "text": "A dark shape like a person, with coloured rings at its feet. While it lives your gems ring for half the Resonance; it drains you, and an even roll snuffs one of your gems out for the fight.",
+      "text": "A dark shape like a person, with colored rings at its feet. While it lives your gems ring for half the Resonance; it drains you, and an even roll snuffs one of your gems out for the fight.",
       "traits": {
         "resonance_damp": 50
       },
@@ -9903,7 +9947,7 @@
       "tier": 3,
       "key": "GLASS_VEINS",
       "palette": "9b8cff",
-      "text": "Crystal caves that punish straights, rerolls and single-colour rails.",
+      "text": "Crystal caves that punish straights, rerolls and single-color rails.",
       "depth": 24,
       "warden_depths": [8, 16],
       "wardens": ["THE_GLAZIER", "THE_KALEIDOSCOPE"],

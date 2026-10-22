@@ -320,7 +320,7 @@ static func flatten_rail(unit: Dictionary) -> void:
 	for index in range(rail.size()):
 		flat.append(rail[index])
 		colors.append(str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_ANY)
-		places.append({"socket": index, "rider": -1})
+		places.append({"socket": index, "rider": - 1})
 		var line: Array = riders_of(unit, index)
 		for at in range(line.size()):
 			flat.append(line[at])
@@ -368,7 +368,7 @@ static func place_of(unit: Dictionary, index: int) -> Dictionary:
 	var places: Array = unit.get("places", [])
 	if index >= 0 and index < places.size():
 		return {"socket": int(places[index].get("socket", index)), "rider": int(places[index].get("rider", -1))}
-	return {"socket": index, "rider": -1}
+	return {"socket": index, "rider": - 1}
 
 # --- the Birthstone -------------------------------------------------------------------------
 
@@ -527,7 +527,7 @@ static func value(stone: Dictionary) -> int:
 	return maxi(1, int(round(base)))
 
 static func rough_value(stone: Dictionary) -> int:
-	## What a buyer gives for a stone nobody has read: he can see its colour and judge its
+	## What a buyer gives for a stone nobody has read: he can see its color and judge its
 	## size class through the rock, and nothing else, so he pays for the class and takes the
 	## rest of the risk. Always well under what the same stone is worth once it is known.
 	if is_geode(stone):
@@ -652,15 +652,17 @@ static func proc_lines(stone: Dictionary, c: Dictionary = {}) -> Array:
 	return out
 
 static func text(stone: Dictionary, c: Dictionary = {}) -> String:
-	## The skill's card text with this stone's Cut written into it.
+	## The skill's card text with this stone's Cut (and, for a multiplier, its weight) written into it.
 	var skill: Dictionary = skill_of(stone)
-	return DeepRules.fill(str(skill.get("text", "")), skill.get("numbers", {}), int(effective(stone, c).cut_step))
+	var eff: Dictionary = effective(stone, c)
+	return DeepRules.fill(str(skill.get("text", "")), skill.get("numbers", {}), int(eff.cut_step), float(eff.magnitude))
 
 static func flawless_text(stone: Dictionary, c: Dictionary = {}) -> String:
 	var skill: Dictionary = skill_of(stone)
 	if not skill.get("flawless", null) is Dictionary:
 		return ""
-	return DeepRules.fill(str(skill.flawless.get("text", "")), skill.get("numbers", {}), int(effective(stone, c).cut_step))
+	var eff: Dictionary = effective(stone, c)
+	return DeepRules.fill(str(skill.flawless.get("text", "")), skill.get("numbers", {}), int(eff.cut_step), float(eff.magnitude))
 
 static func apply_lens(hand: Array, mode: String) -> Array:
 	var out: Array = hand.duplicate(true)
@@ -771,7 +773,7 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 		"colors": wearing, "skill": str(stone.get("skill", "")), "stone_id": str(stone.get("id", "")), "die_boost": 1.0}
 	if not trig.active:
 		return result
-	## What the dice themselves are made of. A material that answers to this gem colour is
+	## What the dice themselves are made of. A material that answers to this gem color is
 	## half again as strong, and they multiply: two Rubies on a red gem is 2.25x.
 	var fired: Array = rolls_of(working, trig.get("dice", []))
 	var boost: float = DeepDice.strength(fired, wearing)

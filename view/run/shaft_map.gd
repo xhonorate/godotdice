@@ -348,7 +348,7 @@ func _draw_depths() -> void:
 			_canvas.draw_string(DeepUi.caps_font(), Vector2(GUTTER, y - _step * 0.5 + 4), words, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(tint, fade))
 
 func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring: Color = Color(0, 0, 0, 0), mark: String = "") -> void:
-	## A chamber drawn in its kind's colour, wearing its kind's mark unless `mark` says otherwise.
+	## A chamber drawn in its kind's color, wearing its kind's mark unless `mark` says otherwise.
 	var tone: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED)
 	var fade: float = _fade(at.y) * strength
 	_canvas.draw_circle(at, radius, Color(tone.darkened(0.62), 0.96 * fade))
@@ -357,7 +357,7 @@ func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring:
 	_glyph(glyph, at, radius * 1.12, Color(tone.lightened(0.35), fade))
 
 func _face(kind: String, oddity: String, entered: bool) -> Dictionary:
-	## How a chamber is drawn: {tone (the kind whose colour it takes), mark, words}. An oddity
+	## How a chamber is drawn: {tone (the kind whose color it takes), mark, words}. An oddity
 	## the party has been into shows its own card's mark, still in the oddity's violet, so the
 	## chart says what it was and that it was a surprise.
 	if entered and kind == "oddity" and not oddity.is_empty():

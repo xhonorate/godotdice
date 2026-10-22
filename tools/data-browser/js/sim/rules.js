@@ -3,6 +3,7 @@
 
 import * as Hand from './hand.js';
 import * as C from './content.js';
+import { I, satAdd, satMul, satFloor } from './numbers.js';
 
 export const OPS = ['+', '-', '*', 'min', 'max', 'floor_div', 'pct', 'if', 'ge', 'eq'];
 export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'total', 'max_total', 'missing', 'odd', 'even',
@@ -43,7 +44,7 @@ export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', '
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
 	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends'];
-// How an effect that works on one die or one gem chooses it, and how an absorb_color picks its colour.
+// How an effect that works on one die or one gem chooses it, and how an absorb_color picks its color.
 export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best', 'usable', 'showing', 'all'];
 export const ABSORB_PICKS = ['random', 'most_used'];
 export const POT_MODES = ['ante', 'double', 'all', 'lose'];
@@ -54,33 +55,33 @@ export const MAX_PROCS = 10;
 export const CURSE_MAX_STACKS = 10;
 export const CURSE_PERCENT = 10;
 
-export function pyrite(unit) { return Math.max(0, (unit.ore | 0) + (unit.gold | 0) + (unit.pyrite_delta | 0)); }
+export function pyrite(unit) { return Math.max(0, (I(unit.ore)) + (I(unit.gold)) + (I(unit.pyrite_delta))); }
 
 export function amount(expr, c) {
 	if (typeof expr === 'number') return Math.trunc(expr);
 	if (!expr || typeof expr !== 'object') return 0;
 	if ('const' in expr) return Math.trunc(expr.const);
 	if ('term' in expr) return term(String(expr.term), expr, c);
-	if ('rank' in expr) return c[String(expr.rank)] | 0;
+	if ('rank' in expr) return I(c[String(expr.rank)]);
 	if ('ladder' in expr) {
 		const ladder = expr.ladder;
 		if (!ladder.length) return 0;
-		return Math.trunc(ladder[Math.max(0, Math.min(c.cut | 0, ladder.length - 1))]);
+		return Math.trunc(ladder[Math.max(0, Math.min(I(c.cut), ladder.length - 1))]);
 	}
 	const op = String(expr.op || '+');
 	const values = (expr.args || []).map((a) => amount(a, c));
 	if (!values.length) return 0;
 	switch (op) {
-		case 'if': return values[0] !== 0 ? values[1] | 0 : values[2] | 0;
+		case 'if': return values[0] !== 0 ? I(values[1]) : I(values[2]);
 		case 'ge': return values[0] >= values[1] ? 1 : 0;
 		case 'eq': return values[0] === values[1] ? 1 : 0;
-		case '+': return values.reduce((s, v) => s + v, 0);
-		case '-': return values.slice(1).reduce((s, v) => s - v, values[0]);
-		case '*': return values.reduce((s, v) => s * v, 1);
+		case '+': return values.reduce((s, v) => satAdd(s, v), 0);
+		case '-': return values.slice(1).reduce((s, v) => satAdd(s, -v), values[0]);
+		case '*': return values.reduce((s, v) => satMul(s, v), 1);
 		case 'min': return Math.min(...values);
 		case 'max': return Math.max(...values);
 		case 'floor_div': return values.length > 1 ? Math.trunc(values[0] / Math.max(1, values[1])) : values[0];
-		case 'pct': return values.length > 1 ? Math.floor((values[0] * values[1]) / 100) : values[0];
+		case 'pct': return values.length > 1 ? satFloor((values[0] * values[1]) / 100) : values[0];
 	}
 	return 0;
 }
@@ -90,13 +91,13 @@ export function term(name, node, c) {
 	const trig = c.trig || {};
 	const unit = c.unit || {};
 	switch (name) {
-		case 'rolled': return c.rolled | 0;
-		case 'value': return trig.value | 0;
-		case 'second': return trig.second | 0;
-		case 'count': return trig.count | 0;
+		case 'rolled': return I(c.rolled);
+		case 'value': return I(trig.value);
+		case 'second': return I(trig.second);
+		case 'count': return I(trig.count);
 		case 'high': case 'low': case 'total': case 'max_total': case 'odd': case 'even': case 'distinct': case 'held': case 'rerolled': case 'crowns': case 'high_crown': case 'low_dice':
-			return a[name] | 0;
-		case 'missing': return Math.max(0, (a.max_total | 0) - (a.total | 0));
+			return I(a[name]);
+		case 'missing': return Math.max(0, (I(a.max_total)) - (I(a.total)));
 		case 'even_read': {
 			// The even dice among the ones the trigger read (a Miasma's handful of highest).
 			const evens = Hand.matching(a, (v) => v % 2 === 0);
@@ -104,61 +105,63 @@ export function term(name, node, c) {
 		}
 		case 'pairs': {
 			// Every pair whose value clears the trigger's rung: four or five alike are two, so is a full house.
-			const floorPair = trig.forced ? 0 : (trig.need | 0);
+			const floorPair = trig.forced ? 0 : (I(trig.need));
 			let pairs = 0;
-			for (const group of a.groups || []) if ((group.value | 0) >= floorPair) pairs += Math.trunc((group.count | 0) / 2);
+			for (const group of a.groups || []) if ((I(group.value)) >= floorPair) pairs += Math.trunc((I(group.count)) / 2);
 			return pairs;
 		}
-		case 'dice': return a.dice_count | 0;
-		case 'count_value': { const w = node.value | 0; return Hand.matching(a, (v) => v === w).length; }
-		case 'count_at_most': { const w = node.value | 0; return Hand.matching(a, (v) => v <= w).length; }
-		case 'count_at_least': { const w = node.value | 0; return Hand.matching(a, (v) => v >= w).length; }
-		case 'run_high': return (a.straight || {}).high | 0;
-		case 'run_length': return (a.straight || {}).length | 0;
-		case 'set_value': return (a.best_set || {}).value | 0;
-		case 'set_count': return (a.best_set || {}).count | 0;
-		case 'sum_low': return Hand.read(a, Math.max(1, node.value | 0 || 1), false).sum;
-		case 'sum_high': return Hand.read(a, Math.max(1, node.value | 0 || 1), true).sum;
-		case 'block': return unit.block | 0;
-		case 'block_lost': return unit.block_lost | 0;
-		case 'healed': return unit.healed | 0;
-		case 'dealt': return unit.dealt | 0;
-		case 'hp': return unit.hp | 0;
-		case 'max_hp': return unit.max_hp | 0;
-		case 'hp_missing': return Math.max(0, (unit.max_hp | 0) - (unit.hp | 0));
-		case 'gold': return unit.gold | 0;
+		case 'dice': return I(a.dice_count);
+		case 'count_value': { const w = I(node.value); return Hand.matching(a, (v) => v === w).length; }
+		case 'count_at_most': { const w = I(node.value); return Hand.matching(a, (v) => v <= w).length; }
+		case 'count_at_least': { const w = I(node.value); return Hand.matching(a, (v) => v >= w).length; }
+		case 'run_high': return I((a.straight || {}).high);
+		case 'run_length': return I((a.straight || {}).length);
+		case 'set_value': return I((a.best_set || {}).value);
+		case 'set_count': return I((a.best_set || {}).count);
+		case 'sum_low': return Hand.read(a, Math.max(1, I(node.value) || 1), false).sum;
+		case 'sum_high': return Hand.read(a, Math.max(1, I(node.value) || 1), true).sum;
+		case 'block': return I(unit.block);
+		case 'block_lost': return I(unit.block_lost);
+		case 'healed': return I(unit.healed);
+		case 'dealt': return I(unit.dealt);
+		case 'hp': return I(unit.hp);
+		case 'max_hp': return I(unit.max_hp);
+		case 'hp_missing': return Math.max(0, (I(unit.max_hp)) - (I(unit.hp)));
+		case 'gold': return I(unit.gold);
 		case 'pyrite': return pyrite(unit);
-		case 'pot': return unit.pot | 0;
-		case 'enemy_poison': return c.enemy_poison | 0;
-		case 'fizzles': return c.fizzles | 0;
+		case 'pot': return I(unit.pot);
+		case 'enemy_poison': return I(c.enemy_poison);
+		case 'fizzles': return I(c.fizzles);
 		// What a creature reads off itself and off the fight (sim/creatures.gd context).
-		case 'swell': return unit.swell | 0;
+		case 'swell': return I(unit.swell);
 		case 'held_gems': return (unit.held_gems || []).length;
-		case 'biggest_hit': return unit.biggest_hit | 0;
-		case 'turns_acted': return unit.turns_acted | 0;
-		case 'party_heaviest_carat': return c.party_heaviest_carat | 0;
-		case 'party_best_turn': return c.party_best_turn | 0;
-		case 'party_richest': return c.party_richest | 0;
-		case 'strength': return (unit.statuses || {}).strength | 0;
-		case 'crown_total': return a.crown_total | 0;
+		case 'biggest_hit': return I(unit.biggest_hit);
+		case 'turns_acted': return I(unit.turns_acted);
+		case 'party_heaviest_carat': return I(c.party_heaviest_carat);
+		case 'party_best_turn': return I(c.party_best_turn);
+		case 'party_richest': return I(c.party_richest);
+		case 'strength': return I((unit.statuses || {}).strength);
+		case 'crown_total': return I(a.crown_total);
 		// How often this stone has fired this run, and what the rail has rung this fight.
-		case 'run_fires': return c.run_fires | 0;
-		case 'fight_resonance': return (unit.fight_resonance | 0) + (c.resonance | 0);
-		case 'living_players': return Math.max(1, (c.living_players ?? c.party ?? 1) | 0);
-		case 'resonance': return c.resonance | 0;
-		case 'previous_amount': return c.previous_amount | 0;
-		case 'carat': case 'cut': case 'clarity': case 'depth': case 'turn': case 'party': return c[name] | 0;
+		case 'run_fires': return I(c.run_fires);
+		case 'fight_resonance': return (I(unit.fight_resonance)) + (I(c.resonance));
+		case 'living_players': return Math.max(1, I((c.living_players ?? c.party ?? 1)));
+		case 'resonance': return I(c.resonance);
+		case 'previous_amount': return I(c.previous_amount);
+		case 'carat': case 'cut': case 'clarity': case 'depth': case 'turn': case 'party': return I(c[name]);
 	}
 	return 0;
 }
 
-// A skill's card text with its Cut-dependent numbers written in.
-export function fill(text, numbers, cutStep) {
+// A skill's card text with its Cut-dependent numbers written in; a number written
+// `"scale": "steps"` grows with the stone's weight as its effect does (see caratSteps).
+export function fill(text, numbers, cutStep, magnitude = 1) {
 	if (!numbers || !Object.keys(numbers).length || !text.includes('{')) return text;
 	const c = { cut: cutStep };
 	let out = text;
 	for (const key of Object.keys(numbers)) {
-		const n = amount(numbers[key], c);
+		let n = amount(numbers[key], c);
+		if (numbers[key] && numbers[key].scale === 'steps') n = satFloor(n * (1 + caratSteps(magnitude)));
 		const marker = `{${key}#`;
 		while (out.includes(marker)) {
 			const start = out.indexOf(marker);
@@ -172,9 +175,13 @@ export function fill(text, numbers, cutStep) {
 	return out;
 }
 
+// The carat curve less its first step, divided by three (sim/rules.gd carat_steps): what a
+// whole-number effect reads as procs, and what a multiplier written `scale: "steps"` grows by.
+export const caratSteps = (magnitude) => Math.max(0, (magnitude - 1) / 3);
+
 // How a whole-number effect answers to weight: extra goes, and the chance of one more.
 export function caratProcs(magnitude) {
-	const steps = Math.max(0, (magnitude - 1) / 3);
+	const steps = Math.min(caratSteps(magnitude), MAX_PROCS);
 	let whole = Math.floor(steps);
 	let chance = Math.round((steps - whole) * 100);
 	if (chance >= 100) { whole += 1; chance = 0; }
@@ -192,13 +199,14 @@ export function resolveEffect(def, c, magnitude, hostileSide = 'enemy') {
 	const kind = String(def.kind || 'damage');
 	let raw = amount(def.amount ?? { const: 0 }, c);
 	const scale = String(def.scale ?? (SCALED_BY_DEFAULT.includes(kind) ? 'carat' : 'none'));
-	let final = scale === 'carat' ? Math.floor(raw * magnitude) : raw;
+	const weight = scale === 'carat' ? magnitude : scale === 'steps' ? 1 + caratSteps(magnitude) : 1;
+	let final = scale === 'carat' || scale === 'steps' ? satFloor(raw * weight) : raw;
 	if ('share' in def) {
 		// A share of the amount, taken after carat so nothing small is rounded away; never below one.
 		const share = Math.max(0, amount(def.share, c));
-		final = Math.floor(raw * (scale === 'carat' ? magnitude : 1) * share / 100);
+		final = satFloor(raw * weight * share / 100);
 		if (raw > 0 && share > 0) final = Math.max(1, final);
-		raw = Math.floor(raw * share / 100);
+		raw = satFloor(raw * share / 100);
 	}
 	const repeat = Math.max(0, Math.min(amount(def.repeat ?? { const: 1 }, c), MAX_REPEAT));
 	const proc = scale === 'carat' || 'scale' in def ? { procs: 1, chance: 0 } : caratProcs(magnitude);
@@ -207,7 +215,7 @@ export function resolveEffect(def, c, magnitude, hostileSide = 'enemy') {
 	// A face raised by one proc is judged again by the next, against the line the trigger drew.
 	if (kind === 'upgrade_faces') {
 		const trig = c.trig || {};
-		if (['below', 'at_most'].includes(trig.kind) && !trig.forced) out.line = { kind: trig.kind, need: trig.need | 0 };
+		if (['below', 'at_most'].includes(trig.kind) && !trig.forced) out.line = { kind: trig.kind, need: I(trig.need) };
 	}
 	if ('cost' in def) out.cost = Math.max(0, amount(def.cost, c));
 	if ('hp_cost' in def) out.hp_cost = Math.max(0, amount(def.hp_cost, c));
@@ -263,7 +271,7 @@ export function effectWords(effect, cutStep = null) {
 	if (effect.piercing) damage += ' · ignores block';
 	if (effect.flat) damage += ' · plus its Strength, nothing more';
 	if (target === 'spread') damage += ' · spread round the party';
-	const drunk = String(effect.color || 'random') === 'most_used' ? 'the colour the party uses most' : 'a colour';
+	const drunk = String(effect.color || 'random') === 'most_used' ? 'the color the party uses most' : 'a color';
 	const showing = pick === 'showing';
 	const labels = {
 		damage, block: `${n} block${rep}`, heal: `heal ${n}${rep}`, gold: atHeroes ? `drops ${n} pyrite` : `${n} pyrite`, poison: `${n} poison${rep}`, stun: target === 'self' ? `stuns itself · ${n} turn` : `stun ${n}`, remove_block: effect.remove_all ? 'removes all your block' : `remove ${n} block`,

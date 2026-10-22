@@ -3,9 +3,9 @@ extends SceneTree
 ##
 ##   /path/to/Godot --path . --script tools/browser_assets.gd -- [out_dir] [set ...]
 ##
-## Sets: gems (one hero picture per skill), matrix (every Cut × Clarity of each colour),
-## carats (a carat sweep per colour), inclusions (each inclusion frozen in a stone),
-## raw (each size class of each colour still in its rock), birthstones, dice, creatures.
+## Sets: gems (one hero picture per skill), matrix (every Cut × Clarity of each color),
+## carats (a carat sweep per color), inclusions (each inclusion frozen in a stone),
+## raw (each size class of each color still in its rock), birthstones, dice, creatures.
 ## With no set named, all of them. Out defaults to tools/data-browser/assets.
 ##
 ## Uses the real live views (`gem_view.gd`, `dice_view.gd`, `creature_stage.gd`), so the
@@ -129,14 +129,14 @@ func _gems() -> void:
 	_manifest.gems = {"skills": made, "carat": 8, "cut": 2, "clarity": DeepContent.clear_index(), "edge": HERO}
 
 func _sample_skill(color: String) -> String:
-	## The first skill of a colour, alphabetically: any stone of that colour is cut alike.
+	## The first skill of a color, alphabetically: any stone of that color is cut alike.
 	for key in _skills_sorted():
 		if str(DeepContent.skill(str(key)).get("color", "")) == color:
 			return str(key)
 	return ""
 
 func _matrix() -> void:
-	## Cut across, Clarity down, for one stone of every colour, so the page can show what
+	## Cut across, Clarity down, for one stone of every color, so the page can show what
 	## each rank does to the solid: a Poor stone is squat and chipped, a Flawless one is glass.
 	var cuts: int = DeepContent.cuts().size()
 	var clarities: int = DeepContent.clarities().size()
@@ -190,7 +190,7 @@ func _inclusions() -> void:
 	_manifest.inclusions = {"keys": keys, "host": host, "edge": CELL}
 
 func _raw() -> void:
-	## A stone nobody has read yet: half in its rock, drawn at its size class, colour only.
+	## A stone nobody has read yet: half in its rock, drawn at its size class, color only.
 	var colors: Array = []
 	var classes: Array = []
 	for entry in DeepStone.SIZE_CLASSES:

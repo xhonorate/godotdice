@@ -107,7 +107,7 @@ export const DEGREES = [
 
 // --- voices and mix ---------------------------------------------------------------------------
 
-export const PAD = ['Pad', 'The held chords in the bed layer, which plays under everything, always. Sets the colour of the whole piece.'];
+export const PAD = ['Pad', 'The held chords in the bed layer, which plays under everything, always. Sets the color of the whole piece.'];
 export const PADS = {
 	pad_warm: 'Three detuned sawtooths through a soft filter. Warm, analog, cosy; fills the room.',
 	pad_glass: 'Sine with a faint octave shimmer and a slow tremolo. Pure, watery, cold; leaves space.',
@@ -211,5 +211,5 @@ export const ADOPT = ['Adopt draft → live', 'Bakes the draft over the live Ogg
 export const DISCARD = ['Discard draft', 'Deletes the draft and its render. The live version and the score stay as they are.'];
 export const MIDI = ['MIDI', ['Every note of this version as a Standard MIDI file: one track for each instrument in each layer, drums on channel 10, with the tempo, metre, key and the phrase names as markers.', 'Edit it in a DAW, bounce a layer to Ogg at the same length, and drop it over that layer in audio/music/<id>: the page marks it as replaced by hand and nothing here overwrites it without asking.']];
 export const AUTO = ['Render as I edit', 'Queues a render of the draft a moment after every change, so the draft is always ready to hear. Off, render by hand.'];
-export const ROLL = ['Notes', ['Every note of the version playing, coloured by layer; brighter is louder. Pitch runs up the page, the drums sit in rows along the bottom, the phrases and their chords along the top.', 'Click anywhere to jump there.']];
+export const ROLL = ['Notes', ['Every note of the version playing, colored by layer; brighter is louder. Pitch runs up the page, the drums sit in rows along the bottom, the phrases and their chords along the top.', 'Click anywhere to jump there.']];
 export const PIECE = ['Piece', ['The dot: green is baked and has no draft; gold has a rendered draft; amber has edits not yet rendered; red was never baked.', '“Default” is the piece the game plays in this place unless the player picks another.']];

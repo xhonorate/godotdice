@@ -10,8 +10,8 @@ import { inclusionImage, colorKeyMark } from '../gemart.js';
 import { depthControls, clarityNames, rarityChip, CLARITY_COLORS } from './common.js';
 
 const CLASS_COLORS = { PINPOINT: '#8a93a3', LENS: '#6f9fe0', FEATHER: '#4fae7a', FRACTURE: '#c96a2a', STAR: '#f0c95a' };
-const CLASS_TEXT = { PINPOINT: 'Small pure riders: a little more of something when the gem fires.', LENS: 'Change what the gem reads: a low die as high, ones as wild, held dice twice, or another colour.',
-	FEATHER: 'Chains between gems: the next gem judged better, a second firing, a copied inclusion, a carat to neighbours.', FRACTURE: 'Double-edged: a big upside paid for somewhere else.', STAR: 'Jackpot-tier: fires on every hand, fires twice, grows with depth, takes any colour.' };
+const CLASS_TEXT = { PINPOINT: 'Small pure riders: a little more of something when the gem fires.', LENS: 'Change what the gem reads: a low die as high, ones as wild, held dice twice, or another color.',
+	FEATHER: 'Chains between gems: the next gem judged better, a second firing, a copied inclusion, a carat to neighbours.', FRACTURE: 'Double-edged: a big upside paid for somewhere else.', STAR: 'Jackpot-tier: fires on every hand, fires twice, grows with depth, takes any color.' };
 const state = { sort: { key: 'share', dir: -1 } };
 
 function modifierWords(m) {
@@ -33,11 +33,11 @@ function modifierWords(m) {
 		case 'next_cut_step': return `next gem judged ${m.amount} Cut step better`;
 		case 'retrigger_if_previous_fired': return 'fires again if the previous gem fired';
 		case 'copy_previous_inclusion': return 'carries one inclusion of the previous gem';
-		case 'adjacent_carat': return `neighbours of its colour gain ${m.amount} carat`;
+		case 'adjacent_carat': return `neighbours of its color gain ${m.amount} carat`;
 		case 'always_fires': return 'fires on every hand';
 		case 'fires_twice': return 'fires twice';
 		case 'carat_per_depth': return `+${m.amount} carat per depth below ${m.below}`;
-		case 'alexandrite': return 'takes the colour of its socket; Flawless line always on';
+		case 'alexandrite': return 'takes the color of its socket; Flawless line always on';
 		case 'resonance_bonus': return `+${m.amount} Resonance when it fires`;
 	}
 	return `${m.kind} ${JSON.stringify(Object.fromEntries(Object.entries(m).filter(([k]) => k !== 'kind' && k !== 'inclusion')))}`;
@@ -65,7 +65,7 @@ export default {
 		const classes = Object.keys(CLASS_COLORS);
 		root.append(h('div', { class: 'grid grid-2' },
 			card('Share of one draw, by class', h('div', { class: 'col' }, stacked({ segments: classes.map((c) => ({ label: C.title(c), value: rows.filter((r) => r.class === c).reduce((s, r) => s + r.share, 0), color: CLASS_COLORS[c] })) }),
-				h('p', { class: 'tiny muted' }, `Class default weights: ${Object.entries(Forge.DEFAULT_CLASS_WEIGHTS).map(([k, v]) => `${C.title(k)} ${v}`).join(' · ')}. An inclusion may write its own weight (Void: 0.25). A stone never draws the same inclusion twice, nor a Zoning of its own colour.`))),
+				h('p', { class: 'tiny muted' }, `Class default weights: ${Object.entries(Forge.DEFAULT_CLASS_WEIGHTS).map(([k, v]) => `${C.title(k)} ${v}`).join(' · ')}. An inclusion may write its own weight (Void: 0.25). A stone never draws the same inclusion twice, nor a Zoning of its own color.`))),
 			card(`Slots by clarity at luck ${fmt(q, 1)}`, h('div', { class: 'col' }, stacked({ segments: clarN.map((n, i) => ({ label: `${n} (${Stone.inclusionSlots(i)})`, value: clarP[i], color: CLARITY_COLORS[i] })) }),
 				h('div', { class: 'stats' }, stat('Any inclusion', fmtPct(clarP.slice(0, C.clearIndex()).reduce((a, b) => a + b, 0), 1), 'in a stone at this depth'), stat('Two or three', fmtPct(clarP[0] + clarP[1], 1), 'Etched or Intricate'), stat('A Star', fmtPct(rows.filter((r) => r.class === 'STAR').reduce((s, r) => s + r.any, 0), 2), 'in any one stone'))))));
 		const grid = h('div', { class: 'grid grid-main-side' });

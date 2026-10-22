@@ -391,6 +391,10 @@ func _process(delta: float) -> void:
 			want = clampf(want * 3.0, 3.0, 8.0)
 	else:
 		_won_for = 0.0
+	## A rail that keeps firing plays out faster and faster, past the fight speed's own top:
+	## two hundred gems of one rail would otherwise take minutes to watch (DeepBattle.rush).
+	if resolving and not session.paused:
+		want = minf(want * DeepBattle.rush(DeepBattle.rail_plays(DeepDescent.battle(session.run))), DeepBattle.RUSH_MOST)
 	## A heavy blow holds the clock for a beat; the last one of a fight runs in slow motion.
 	## Whatever speed the fight is played at, a held beat is held.
 	var warp: float = ScreenFx.time_warp()

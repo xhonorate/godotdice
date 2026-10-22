@@ -1,7 +1,7 @@
 extends Control
 ## What a lapidary sees while they are down and the party fights on without them: the room
-## drained of its colour and bruised at the edges, a slow pulse in it, and a banner that says
-## what has happened and when it ends. Going down drains the colour in; getting back on their
+## drained of its color and bruised at the edges, a slow pulse in it, and a banner that says
+## what has happened and when it ends. Going down drains the color in; getting back on their
 ## feet at a landing floods it back with a warm flash.
 ##
 ## Only in a party: alone, going down is the end of the dig, and the run's own ending says so.

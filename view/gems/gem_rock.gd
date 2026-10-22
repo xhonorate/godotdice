@@ -27,7 +27,7 @@ const STAIN := 0.1
 ## boulders stuck to its sides; one more is pressed flat against a face, over the table or
 ## the pavilion, so the stone cannot be read straight through either; and the bed it grew
 ## from comes last and largest, over the heart of the crown. Only a window of the stone is
-## ever left: enough for its colour and roughly its size, never its facets or its girdle.
+## ever left: enough for its color and roughly its size, never its facets or its girdle.
 ## Each chunk is stretched along the girdle and pressed flat on the axis facing the stone.
 const RING_DISTANCE := 0.78
 const RING_RADIUS := 0.44
@@ -182,7 +182,7 @@ static func seam_material(glow: Color) -> StandardMaterial3D:
 static func world_material() -> StandardMaterial3D:
 	## The same rock out in a room rather than under the loupe's lamps. By lantern light its
 	## tones are all but black, and a raw stone lifted out of a vein or left on a Warden's
-	## pile was a black lump with a window of colour in it. Out here it holds a little light of
+	## pile was a black lump with a window of color in it. Out here it holds a little light of
 	## its own and its edges catch what light there is, so it reads as rock round a stone.
 	var made := material()
 	made.rim_enabled = true

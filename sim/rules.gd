@@ -52,7 +52,7 @@ extends RefCounted
 ##   gather_poison(enemy: every other enemy's Poison moves onto it)  poison_tick(enemy: its Poison ticks)
 ##   grow_poison(enemy: its Poison grows by amount%)
 ##   fire_birthstone(the Birthstone fires now as well, at amount% of the Resonance so far)
-##   spectrum(one gift for every colour that has fired this turn, at amount%; `every_gem` counts gems)
+##   spectrum(one gift for every color that has fired this turn, at amount%; `every_gem` counts gems)
 ##   stone_chance(amount% a creature fallen this turn that a raw stone drops; `elite` rolls it richer)
 ##   double_resonance(every gem after it this turn rings twice as loud)  keep_phantoms(this turn's
 ##     phantoms stay in the hand into the next)
@@ -97,7 +97,7 @@ extends RefCounted
 ##       guard_pct: takes that much less meanwhile, store: lets go the damage it was dealt meanwhile)
 ##     reflect(amount: that percent of what hits it goes back to every player until its next action)
 ##     mirror(amount: that many next blows on it hit their thrower instead)
-##     absorb_color(color: random or most_used; add keeps the colours it had: gems of those colours
+##     absorb_color(color: random or most_used; add keeps the colors it had: gems of those colors
 ##       do it no damage, and what they would give their owner goes to it)
 ##     blank_face(the face one of your dice shows is blank for the rest of the fight)
 ##     roll_again(this die is thrown once more this action)  end_action(its action stops here)
@@ -172,7 +172,7 @@ const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result
 ## How an effect that works on one die or one gem chooses it: `showing` is the face every die
 ## lies on, `all` every die, `usable` the finest gem a creature could fire itself.
 const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best", "usable", "showing", "all"]
-## How an absorb_color effect chooses the colour it drinks.
+## How an absorb_color effect chooses the color it drinks.
 const ABSORB_PICKS: Array = ["random", "most_used"]
 ## How a `pot` effect moves money. Everything but "lose" takes what it stakes out of the bank.
 const POT_MODES: Array = ["ante", "double", "all", "lose"]
@@ -184,6 +184,13 @@ const MAX_NODES: int = 60
 ## this is only a guard against a runaway rule: far past any face a run can grow.
 const MAX_REPEAT: int = 1000
 const VALUE_LIMIT: int = 9999
+## The most any count in a fight may hold: a blow, a heal, block, a status's stacks, health,
+## pyrite, Resonance. A number that would pass it stays here, and the view writes it as
+## Infinite. A whole number wraps round to a huge negative one when it overflows, and a float
+## too big for a whole number turns into the same, so without this a big enough combo would
+## suddenly do nothing at all. It is far under the 64-bit edge, so two of them added never
+## wrap, and every whole number up to it is exact as a float (the browser's port reads it so).
+const CEILING: int = 1000000000000000
 ## An effect whose amount cannot be a fraction — a reroll, a phantom die, a stun — grows by
 ## happening more often instead. No stone happens more than this many times.
 const MAX_PROCS: int = 10
@@ -205,7 +212,7 @@ static func pyrite(unit: Dictionary) -> int:
 
 static func outgoing_damage(amount: int, statuses: Dictionary) -> int:
 	var stacks: int = clampi(int(statuses.get("curse", 0)), 0, CURSE_MAX_STACKS)
-	return maxi(0, amount) * (100 - CURSE_PERCENT * stacks) / 100
+	return sat_muldiv(maxi(0, amount), 100 - CURSE_PERCENT * stacks, 100)
 
 static func amount(expr: Variant, c: Dictionary) -> int:
 	if expr is int or expr is float:
@@ -236,17 +243,17 @@ static func amount(expr: Variant, c: Dictionary) -> int:
 		"+":
 			var sum: int = 0
 			for v in values:
-				sum += int(v)
+				sum = sat_add(sum, int(v))
 			return sum
 		"-":
 			var left: int = int(values[0])
 			for index in range(1, values.size()):
-				left -= int(values[index])
+				left = sat_add(left, -int(values[index]))
 			return left
 		"*":
 			var product: int = 1
 			for v in values:
-				product *= int(v)
+				product = sat_mul(product, int(v))
 			return product
 		"min":
 			var lowest: int = int(values[0])
@@ -261,7 +268,7 @@ static func amount(expr: Variant, c: Dictionary) -> int:
 		"floor_div":
 			return int(values[0]) / maxi(1, int(values[1])) if values.size() > 1 else int(values[0])
 		"pct":
-			return int(floor(float(values[0]) * float(values[1]) / 100.0)) if values.size() > 1 else int(values[0])
+			return sat_floor(float(values[0]) * float(values[1]) / 100.0) if values.size() > 1 else int(values[0])
 	return 0
 
 static func term(name: String, node: Dictionary, c: Dictionary) -> int:
@@ -338,15 +345,18 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 			return int(c.get(name, 0))
 	return 0
 
-static func fill(text: String, numbers: Dictionary, cut_step: int) -> String:
+static func fill(text: String, numbers: Dictionary, cut_step: int, magnitude: float = 1.0) -> String:
 	## A skill's card text with its Cut-dependent numbers written in. `{token}` in the text
 	## names an entry in the skill's `numbers`, so a ladder reads the same on the card as it
-	## does in the fight and no line of rules text can quietly go stale.
+	## does in the fight and no line of rules text can quietly go stale. A number written
+	## `"scale": "steps"` grows with the stone's weight as its effect does (`carat_steps`).
 	if numbers.is_empty() or not text.contains("{"):
 		return text
 	var c: Dictionary = {"cut": cut_step}
 	for key in numbers:
 		var n: int = amount(numbers[key], c)
+		if numbers[key] is Dictionary and str(numbers[key].get("scale", "")) == "steps":
+			n = sat_floor(float(n) * (1.0 + carat_steps(magnitude)))
 		## `{key#noun}` writes the number and its noun, so a ladder that reads 1 at one Cut
 		## and 3 at another never says "1 afflictions".
 		var marker: String = "{%s#" % str(key)
@@ -377,12 +387,70 @@ static func tokens(text: String) -> Array:
 
 # --- effects -------------------------------------------------------------------------
 
+# --- numbers that stop at the ceiling ---------------------------------------------------------
+## Every count that can grow without end goes through these, so it stops at CEILING instead
+## of wrapping. Each one is mirrored, to the digit, in the browser's js/sim/rules.js.
+
+static func sat(v: int) -> int:
+	return clampi(v, -CEILING, CEILING)
+
+static func sat_add(a: int, b: int) -> int:
+	return sat(sat(a) + sat(b))
+
+static func sat_mul(a: int, b: int) -> int:
+	## a × b, exact whenever the answer is under the ceiling.
+	var f: float = float(a) * float(b)
+	if f >= float(CEILING):
+		return CEILING
+	if f <= -float(CEILING):
+		return -CEILING
+	return a * b
+
+static func sat_floor(f: float) -> int:
+	## A float as a whole number, rounded down. Nothing (NaN) is nought.
+	if is_nan(f):
+		return 0
+	if f >= float(CEILING):
+		return CEILING
+	if f <= -float(CEILING):
+		return -CEILING
+	return floori(f)
+
+static func sat_muldiv(x: int, mul: int, div: int) -> int:
+	## x × mul ÷ div, cut toward nought the way whole numbers divide.
+	return sat_scale(x, mul, 1, div)
+
+static func sat_scale(x: int, a: int, b: int, div: int) -> int:
+	## x × a × b ÷ div, cut toward nought, in whole numbers while the product fits in them.
+	if div == 0:
+		return 0
+	var f: float = float(x) * float(a) * float(b) / float(div)
+	if f >= float(CEILING):
+		return CEILING
+	if f <= -float(CEILING):
+		return -CEILING
+	if absf(float(x) * float(a) * float(b)) < 9.0e18:
+		return x * a * b / div
+	return int(f)
+
+static func infinite(v: int) -> bool:
+	## A count that reached the ceiling: the view writes it as Infinite.
+	return absi(v) >= CEILING
+
+static func carat_steps(magnitude: float) -> float:
+	## The carat curve less its first step, divided by three: nought at one carat, one at
+	## thirteen, three at twenty-four. A whole-number effect reads it as procs (`carat_procs`);
+	## a multiplier written `scale: "steps"` grows by it instead, by that many times its own
+	## size again (a Bloodletting's 50% is 100% at thirteen carats and 200% at twenty-four),
+	## so a heavy stone is worth more without its multiplier running away with the carat curve.
+	return maxf(0.0, (magnitude - 1.0) / 3.0)
+
 static func carat_procs(magnitude: float) -> Dictionary:
 	## How a whole-number effect answers to weight. It cannot swell by a fraction, so it
 	## happens more often instead: the carat curve less its first step, divided by three.
 	## The whole part is how many times over it is certain to happen; what is left is the
 	## chance of one more. A one-carat stone gets exactly one go, as it always did.
-	var steps: float = maxf(0.0, (magnitude - 1.0) / 3.0)
+	var steps: float = minf(carat_steps(magnitude), float(MAX_PROCS))
 	var whole: int = int(floor(steps))
 	var chance: int = int(round((steps - float(whole)) * 100.0))
 	if chance >= 100:
@@ -404,16 +472,19 @@ static func resolve_effect(def: Dictionary, c: Dictionary, magnitude: float, hos
 	var kind: String = str(def.get("kind", "damage"))
 	var raw: int = amount(def.get("amount", {"const": 0}), c)
 	var scale: String = str(def.get("scale", "carat" if kind in SCALED_BY_DEFAULT else "none"))
-	var final: int = int(floor(float(raw) * magnitude)) if scale == "carat" else raw
+	## How much the stone's weight multiplies the amount: the whole carat curve, or for a
+	## multiplier (`steps`) only a share of it, see `carat_steps`.
+	var weight: float = magnitude if scale == "carat" else (1.0 + carat_steps(magnitude) if scale == "steps" else 1.0)
+	var final: int = sat_floor(float(raw) * weight) if scale in ["carat", "steps"] else raw
 	if def.has("share"):
 		## A share of the amount, taken after carat so the weight of the stone is counted
 		## before anything is rounded away: 10% of a 6 on a heavy stone is still worth having.
 		var share: int = maxi(0, amount(def.share, c))
-		var whole: float = float(raw) * (magnitude if scale == "carat" else 1.0) * float(share) / 100.0
-		final = int(floor(whole))
+		var whole: float = float(raw) * weight * float(share) / 100.0
+		final = sat_floor(whole)
 		if raw > 0 and share > 0:
 			final = maxi(1, final)
-		raw = int(floor(float(raw) * float(share) / 100.0))
+		raw = sat_floor(float(raw) * float(share) / 100.0)
 	var repeat: int = clampi(amount(def.get("repeat", {"const": 1}), c), 0, MAX_REPEAT)
 	## An effect that cannot take a multiplier takes procs instead, unless its author wrote
 	## `scale: "none"` on it, which is how an inclusion's rider asks to stay flat.
@@ -493,7 +564,7 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 	var target: String = str(effect.get("target", default_target(kind, hostile_side)))
 	if not target in TARGETS:
 		errors.append(where + ": unknown target " + target)
-	if effect.has("scale") and not str(effect.scale) in ["carat", "none"]:
+	if effect.has("scale") and not str(effect.scale) in ["carat", "steps", "none"]:
 		errors.append(where + ": scale must be carat or none")
 	if kind == "replay_color" and not str(effect.get("color", "")) in DeepContent.color_KEYS + ["ANY"]:
 		errors.append(where + ": replay_color names one of the six colors, or ANY")

@@ -86,14 +86,17 @@ static func find_die(player: Dictionary, die_id: String) -> Dictionary:
 			return die
 	return {}
 
-static func hollow_refusal(stone: Dictionary) -> String:
-	## Why the Hollow cannot make this stone Void, or "".
+static func hollow_refusal(stone: Dictionary, player: Dictionary = {}) -> String:
+	## Why the Hollow cannot make this stone Void, or "". A gem from the bag goes onto the
+	## rail, so it must be one the rail can take: one of each skill (`rail_duplicate`).
 	if stone.is_empty() or DeepStone.is_birthstone(stone) or DeepStone.is_geode(stone):
 		return "choose one of your gems"
 	if not bool(stone.get("appraised", false)):
 		return "nobody has read it yet"
 	if DeepStone.is_slotless(stone):
 		return "it takes no socket already"
+	if not player.is_empty():
+		return DeepDescent.rail_duplicate(player, stone)
 	return ""
 
 static func hollow_least(action: Dictionary) -> int:
@@ -599,7 +602,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			## it always did and the socket is free for another. A gem from the bag goes
 			## straight onto the rail: it rides the first socket with a gem set in it.
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
-			var refusal: String = hollow_refusal(stone)
+			var refusal: String = hollow_refusal(stone, player)
 			if not refusal.is_empty():
 				return _refuse(refusal)
 			var dice: Array = player.get("dice", [])

@@ -182,7 +182,7 @@ func _process(delta: float) -> void:
 		goal = 1.0 + (0.45 if hovered else 0.0) + (0.25 if bool(entry.get("mine", false)) else 0.0)
 	_level = move_toward(_level, goal, delta * (3.0 if goal > _level else 5.0))
 	var flicker: float = 0.88 + 0.12 * sin(_clock * 6.3) * sin(_clock * 2.7 + 1.0)
-	## Walked into, the breath of colour deep in the mouth filled the whole view, and its light
+	## Walked into, the breath of color deep in the mouth filled the whole view, and its light
 	## lit the fog round the eye into an orange wall: both give way as the eye comes up to them.
 	var eye: Camera3D = get_viewport().get_camera_3d()
 	var near: float = 1.0

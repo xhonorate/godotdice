@@ -1,7 +1,7 @@
 // The Balance page's charts, in the same hand as charts.js: a range strip (a dot at each
 // item's average, a whisker from its worst to its best), a dense pair matrix, columns of dots,
 // and a diverging scale for signed values. Hairline grid, text in ink tokens, a tooltip on
-// every mark, identity carried by the gem colour's own shape as well as its hue.
+// every mark, identity carried by the gem color's own shape as well as its hue.
 
 import { h, showTip, hideTip, tipRow, tipTitle, fmt } from './ui.js';
 import { svg, mark, frame, INK, FONT } from './charts.js';
@@ -36,19 +36,23 @@ export function diverge(t) {
 	return `rgb(${[0, 1, 2].map((i) => Math.round(mid[i] + (end[i] - mid[i]) * k)).join(',')})`;
 }
 
-// Items grouped into bands (a gem colour each), drawn in the order given: a dot at the
+// Items grouped into bands (a gem color each), drawn in the order given: a dot at the
 // average, a whisker from worst to best with a tick at the best, the band's median as a
 // hairline. groups: [{key, label, color, shape, items: [{key, label, min, avg, best, note}]}].
 // `independent` gives every band its own scale (small multiples), so a band is read against
 // itself rather than against the loudest item on the chart.
-export function rangeStrip({ groups, width = 1000, height = 300, format = (v) => fmt(v, 1), onSelect = null, selected = null, yLabel = '', independent = false }) {
+// An item may carry `rungs` ([{label, value, tip}], bottom rung first) in place of min and best:
+// it is drawn as a ladder, a stem through every rung with a tick at each one between, the
+// bottom rung a hollow mark (left off with `baseMark: false`) and the top one, its `avg`, filled.
+export function rangeStrip({ groups, width = 1000, height = 300, format = (v) => fmt(v, 1), onSelect = null, selected = null, yLabel = '', independent = false, baseMark = true }) {
 	const pad = { l: independent ? 6 : 48, r: 10, t: 16, b: 30 };
 	const f = frame(width, height, pad);
 	const g = svg('g');
 	const all = groups.flatMap((gr) => gr.items);
+	const rungValues = (it) => (it.rungs || []).map((r) => r.value).filter(Number.isFinite);
 	const scaleOf = (items) => {
-		const lows = items.map((it) => (Number.isFinite(it.min) ? it.min : it.avg)).filter(Number.isFinite);
-		const highs = items.map((it) => (Number.isFinite(it.best) ? it.best : it.avg)).filter(Number.isFinite);
+		const lows = items.flatMap((it) => [Number.isFinite(it.min) ? it.min : it.avg, ...rungValues(it)]).filter(Number.isFinite);
+		const highs = items.flatMap((it) => [Number.isFinite(it.best) ? it.best : it.avg, ...rungValues(it)]).filter(Number.isFinite);
 		const ticks = rangeTicks(Math.min(0, ...lows), Math.max(1e-9, ...highs), independent ? 3 : 4);
 		const lo = ticks[0], hi = ticks[ticks.length - 1];
 		return { ticks, py: (v) => f.y0 + f.hh - ((v - lo) / (hi - lo || 1)) * f.hh };
@@ -84,9 +88,17 @@ export function rangeStrip({ groups, width = 1000, height = 300, format = (v) =>
 			const cx = x + unit * i + unit / 2;
 			const isSel = selected !== null && it.key === selected;
 			const dim = selected !== null && !isSel ? 0.6 : 1;
-			if (Number.isFinite(it.min) && Number.isFinite(it.best)) {
+			const half = Math.min(4, unit * 0.3);
+			const ladder = rungValues(it);
+			if (it.rungs && ladder.length >= 2) {
+				g.append(svg('line', { x1: cx, x2: cx, y1: py(Math.min(...ladder)), y2: py(Math.max(...ladder)), stroke: group.color, 'stroke-width': 2, 'stroke-linecap': 'round', opacity: 0.45 * dim }));
+				it.rungs.slice(1, -1).forEach((r) => {
+					if (Number.isFinite(r.value)) g.append(svg('line', { x1: cx - half, x2: cx + half, y1: py(r.value), y2: py(r.value), stroke: group.color, 'stroke-width': 1.5, 'stroke-linecap': 'round', opacity: 0.8 * dim }));
+				});
+				const foot = it.rungs[0].value;
+				if (baseMark && Number.isFinite(foot)) g.append(mark(group.shape || 'circle', cx, py(foot), isSel ? 4 : 3.4, 'var(--surface)', { stroke: group.color, 'stroke-width': 1.5, 'paint-order': 'normal', opacity: dim }));
+			} else if (Number.isFinite(it.min) && Number.isFinite(it.best)) {
 				g.append(svg('line', { x1: cx, x2: cx, y1: py(it.min), y2: py(it.best), stroke: group.color, 'stroke-width': 2, 'stroke-linecap': 'round', opacity: 0.45 * dim }));
-				const half = Math.min(4, unit * 0.3);
 				g.append(svg('line', { x1: cx - half, x2: cx + half, y1: py(it.best), y2: py(it.best), stroke: group.color, 'stroke-width': 2, 'stroke-linecap': 'round', opacity: 0.8 * dim }));
 			}
 			if (Number.isFinite(it.avg)) g.append(mark(group.shape || 'circle', cx, py(it.avg), isSel ? 5.5 : 4.5, group.color, { opacity: dim }));
@@ -97,9 +109,10 @@ export function rangeStrip({ groups, width = 1000, height = 300, format = (v) =>
 				labels.append(svg('text', { x: right ? cx + 14 : cx - 14, y: py(it.avg) + 4, 'text-anchor': right ? 'start' : 'end', fill: 'var(--text)', 'font-size': 12, 'font-weight': 600,
 					stroke: 'var(--surface)', 'stroke-width': 3, 'paint-order': 'stroke', text: it.label }));
 			}
+			const rows = it.rungs ? it.rungs.slice().reverse().map((r) => tipRow(r.tip ?? format(r.value), r.label, group.color))
+				: [tipRow(format(it.best), 'best', group.color), tipRow(format(it.avg), 'average', group.color), tipRow(format(it.min), 'worst', group.color)];
 			const hit = svg('rect', { x: x + unit * i, y: f.y0, width: unit, height: f.hh, fill: 'transparent', class: onSelect ? 'hit clickable' : 'hit',
-				onPointermove: (e) => showTip(hit, [tipTitle(it.label), tipRow(format(it.best), 'best', group.color), tipRow(format(it.avg), 'average', group.color),
-					tipRow(format(it.min), 'worst', group.color), it.note ? h('div', { class: 'tip-note' }, it.note) : null], e),
+				onPointermove: (e) => showTip(hit, [tipTitle(it.label), ...rows, it.note ? h('div', { class: 'tip-note' }, it.note) : null], e),
 				onPointerleave: hideTip, onClick: onSelect ? () => onSelect(it) : null });
 			hits.append(hit);
 		});
@@ -118,7 +131,7 @@ export function matrix({ rows, cols, value, colorFor, cell = 8, onSelect = null,
 	const w = lead + cols.length * cell, hgt = lead + rows.length * cell;
 	const el = svg('svg', { viewBox: `0 0 ${w} ${hgt}`, class: 'chart', preserveAspectRatio: 'xMidYMid meet' });
 	const g = svg('g');
-	// The colour strips along the edges stand in for the names; the tooltip carries them.
+	// The color strips along the edges stand in for the names; the tooltip carries them.
 	cols.forEach((c, j) => g.append(svg('rect', { x: lead + j * cell, y: 2, width: cell - 0.5, height: lead - 5, fill: c.color })));
 	rows.forEach((r, i) => g.append(svg('rect', { x: 2, y: lead + i * cell, width: lead - 5, height: cell - 0.5, fill: r.color })));
 	rows.forEach((r, i) => cols.forEach((c, j) => {
@@ -207,7 +220,7 @@ export function dotColumns({ columns, width = 1000, height = 300, format = (v) =
 	return f.el;
 }
 
-// A key for a colour scale: the ramp as a strip, its two ends named.
+// A key for a color scale: the ramp as a strip, its two ends named.
 export function rampKey(colorFor, lo, hi, format = (v) => fmt(v, 1), label = '') {
 	const stops = Array.from({ length: 9 }, (_, i) => colorFor(lo + ((hi - lo) * i) / 8));
 	return h('div', { class: 'ramp-key' }, label ? h('span', { class: 'tiny muted' }, label) : null, h('span', { class: 'tiny muted' }, format(lo)),

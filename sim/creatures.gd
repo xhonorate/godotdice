@@ -26,7 +26,8 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 	## health for every player on the run.
 	hp_scale *= float(maxi(1, party))
 	hp_scale *= maxf(0.01, float(scale.get("hp", 1.0)))
-	var hp: int = maxi(1, int(round(float(def.get("hp", 10)) * hp_scale)))
+	## Deep in the Rift the scale runs past what a whole number holds: it stops at the ceiling.
+	var hp: int = maxi(1, DeepRules.sat_floor(roundf(float(def.get("hp", 10)) * hp_scale)))
 	var dice: Array = []
 	var index: int = 0
 	for die_ref in def.get("dice", []):
@@ -42,12 +43,12 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 	## the ones it takes, but nobody's to have back.
 	var held: Array = []
 	for skill_key in def.get("gems", []):
-		held.append({"unit": "", "socket": -1, "stone": DeepStone.make(str(skill_key), 1, 2, 1, [], {}, "%s_gem%d" % [id, held.size()])})
+		held.append({"unit": "", "socket": - 1, "stone": DeepStone.make(str(skill_key), 1, 2, 1, [], {}, "%s_gem%d" % [id, held.size()])})
 	return {"id": id, "key": key, "name": name, "side": "enemy", "hp": hp, "max_hp": hp,
 		"block": int(def.get("block", 0)), "statuses": {"ward": clampi(int(def.get("ward", 1 if bool(def.get("warden", false)) else 0)), 0, 99)}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
-		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": -1,
+		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": - 1,
 		"gimmick": str(def.get("gimmick", "")), "warden": bool(def.get("warden", false)), "phase": 0,
-		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "stun_streak": 0, "clouded_move": -1, "threat": int(def.get("threat", 1)),
+		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "stun_streak": 0, "clouded_move": - 1, "threat": int(def.get("threat", 1)),
 		"text": str(def.get("text", "")), "damage_mult": maxf(0.01, float(scale.get("damage", 1.0))),
 		## The deeper mines' creatures (docs/BESTIARY.md): what the fight pinned on them, and
 		## what the fight so far has done to them. Written traits are read from the definition.
@@ -510,7 +511,7 @@ static func amount_words(expr: Variant) -> String:
 			"party_best_turn": "The party's best turn", "party_richest": "Richest purse", "turns_acted": "Actions taken",
 			"living_players": "Players standing", "max_hp": "Its most health", "hp": "Its health", "strength": "Its Strength"}.get(str(expr.term), str(expr.term)))
 	if expr.has("const"):
-		return str(int(expr.const))
+		return str(int(expr.const ))
 	var parts: Array = expr.get("args", []).map(func(a: Variant) -> String: return amount_words(a))
 	if str(expr.get("op", "")) == "pct" and parts.size() == 2 and (expr.args[1] is int or expr.args[1] is float):
 		return "%s × %s" % [parts[0], ("%.2f" % (float(expr.args[1]) / 100.0)).rstrip("0").rstrip(".")]
@@ -570,7 +571,7 @@ static func effect_words(effect: Dictionary) -> String:
 		"purge": return "Sheds %s%% of its poison" % n
 		"burrow": return "Burrows · cannot be targeted until its next action"
 		"absorb_color":
-			var chosen: String = "the colour the party uses most" if str(effect.get("color", "random")) == "most_used" else "a colour"
+			var chosen: String = "the color the party uses most" if str(effect.get("color", "random")) == "most_used" else "a color"
 			return ("Drinks %s as well" if bool(effect.get("add", false)) else "Drinks %s") % chosen + " · those gems do it no damage, and what they would give their owner goes to it"
 		"reflect": return "Until its next action, %s%% of every blow on it goes back to every player" % n
 		"mirror": return "The next blow on it hits whoever threw it instead" if str(n) == "1" else "The next %s blows on it hit whoever threw them instead" % n

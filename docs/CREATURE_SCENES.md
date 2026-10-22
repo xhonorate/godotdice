@@ -70,22 +70,22 @@ afterwards: edit it in Godot like any other, or edit the recipe and bake again.
 
 ## Variants and the accent material
 
-A variant (a Fire Tick for the Cave Tick) is its base creature's scene in other colours:
-`CrystalCreature.VARIANTS` names the base and the tint, and `make()` recolours the instance.
+A variant (a Fire Tick for the Cave Tick) is its base creature's scene in other colors:
+`CrystalCreature.VARIANTS` names the base and the tint, and `make()` recolors the instance.
 Scenes may carry a third **Accent Material** for their brightest parts (a lamp, a fire, an
-eye); it is animated with the body and core and recoloured for variants. A Void Echo spawns
+eye); it is animated with the body and core and recolored for variants. A Void Echo spawns
 the scene of the creature it copies and is drawn as a ghost (`ghost()`).
 
 Parts gained idle motions beyond the first five: `orbit`, `spin`, `bob`, `swing`, `tread`
 and `flicker`. The presentation API gained `burrow(down)`, `flee()`, `set_halo(color)`,
-`clear_halo()` and `set_charging(on)`. A variant may also name a `core` colour and a `scale`
+`clear_halo()` and `set_charging(on)`. A variant may also name a `core` color and a `scale`
 (the Geode Golem is a grey shell split open on an amethyst heart, and bigger than a Prism Golem).
 
 ## The bestiary's portraits
 
 The Bestiary tab lists creatures as pictures, not live 3D: one PNG per creature in
 `view/creatures/portraits/<key>.png`, baked from the scene on the turntable, off its plinth,
-cropped square. Bake again after changing a creature's scene or colours, and bake one for
+cropped square. Bake again after changing a creature's scene or colors, and bake one for
 every new creature (`tests/test_creatures.gd` fails until it has one):
 
 ```sh

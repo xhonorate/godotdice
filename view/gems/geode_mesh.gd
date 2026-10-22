@@ -156,7 +156,7 @@ static func cut(shelf_geode: Dictionary, tone: Color) -> Dictionary:
 				row_lift.append(r)
 		grid.append(row)
 		lifts.append(row_lift)
-	var parts: Array = [{}, {}]
+	var parts: Array = [ {}, {}]
 	_rind(parts, grid, lifts, look, shape, rng)
 	## The face: the seam, then each band's edge inside it, closing in on the mouth of the
 	## hollow. The bands wander a little, as agate does, but never cross.
@@ -285,7 +285,7 @@ static func _rind(parts: Array, grid: Array, lifts: Array, look: Dictionary, sha
 			var c: Vector3 = grid[tri[2][0]][tri[2][1]]
 			var facet: Vector3 = (b - a).cross(c - a)
 			if facet.dot(a + b + c) < 0.0:
-				facet = -facet
+				facet = - facet
 			for corner in tri:
 				var at: Vector2i = Vector2i(int(corner[0]), int(corner[1]))
 				normals[at] = (normals.get(at, Vector3.ZERO) as Vector3) + facet
@@ -344,11 +344,11 @@ static func _hollow(out: Dictionary, side: int, mouth: Array, rim: Array, scale:
 	## handful of large crystal points rising from its floor toward the viewer. Nothing small and
 	## nothing dark: a hollow crowded with little points and the shadows between them reads as
 	## a field of pits, which is unpleasant to look at, so every form in here is large and the
-	## floor is the crystal's own colour.
+	## floor is the crystal's own color.
 	var depth: float = HOLLOW_DEPTH * scale.x * rng.randf_range(0.94, 1.04)
 	var outward := Vector3(-float(side), 0.0, 0.0)
 	var heart := Vector3(float(side) * depth * 0.4, 0.0, 0.0)
-	## The crystal a little richer than the Geode's own colour, which is drawn for the rind.
+	## The crystal a little richer than the Geode's own color, which is drawn for the rind.
 	tone = Color.from_hsv(tone.h, minf(1.0, tone.s * 1.2 + 0.1), tone.v * 0.9)
 	## The rings of the bowl, coarser as it deepens: each a list of points with the turn each
 	## sits at, so rings of different counts can be stitched together.
@@ -366,7 +366,7 @@ static func _hollow(out: Dictionary, side: int, mouth: Array, rim: Array, scale:
 			turns.append(turn)
 		rings.append([points, turns])
 	var bottom := Vector3(float(side) * depth, rng.randf_range(-0.05, 0.05), rng.randf_range(-0.05, 0.05))
-	## Deeper in colour toward the floor, so the bowl reads as a bowl, never toward black.
+	## Deeper in color toward the floor, so the bowl reads as a bowl, never toward black.
 	var deepest: Color = Color.from_hsv(tone.h, minf(1.0, tone.s * 1.3 + 0.08), tone.v * 0.72)
 	for k in range(rings.size() - 1):
 		_stitch(out, "crystal", rings[k], rings[k + 1], tone.lerp(deepest, float(k) / float(rings.size())), heart, rng)
@@ -705,7 +705,7 @@ static func _tri(out: Dictionary, surface: String, a: Vector3, b: Vector3, c: Ve
 		var swap: Vector3 = b
 		b = c
 		c = swap
-		normal = -normal
+		normal = - normal
 	var part: Part = _part(out, surface)
 	part.points.append(a)
 	part.points.append(c)
