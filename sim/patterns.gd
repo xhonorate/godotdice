@@ -117,7 +117,13 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 					result.count = int(group.count)
 					break
 		"two_pair":
+			## `high_pair`: only the higher of the two pairs has to clear the rung (Mirror's).
 			var qualifying: Array = a.get("pairs", []).filter(func(g: Dictionary) -> bool: return int(g.value) >= need)
+			if bool(trigger.get("high_pair", false)):
+				qualifying = a.get("pairs", []).duplicate()
+				qualifying.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return int(x.value) > int(y.value))
+				if qualifying.size() >= 2 and int(qualifying[0].value) < need:
+					qualifying = []
 			if qualifying.size() >= 2:
 				result.active = true
 				result.dice = qualifying[0].dice + qualifying[1].dice
@@ -363,7 +369,10 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"triple": return "Three of a kind" + _of_at_least(need) + "."
 		"quad": return "Four of a kind" + _of_at_least(need) + "."
 		"quint": return "Five of a kind" + _of_at_least(need) + "."
-		"two_pair": return "Two pairs" + _of_at_least(need) + "."
+		"two_pair":
+			if bool(trigger.get("high_pair", false)) and need > 1:
+				return "Two pairs, the higher one %d or more." % need
+			return "Two pairs" + _of_at_least(need) + "."
 		"full_house": return "A full house: three of one value and two of another" + (", the three %d or higher" % need if need > 1 else "") + "."
 		"straight": return "A straight of %d: %d consecutive values in any order." % [need, need]
 		"odd": return "At least %s showing odd values." % _dice(need)

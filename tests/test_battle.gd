@@ -302,8 +302,8 @@ func _test_birthstones() -> void:
 	hand(DeepBattle.player(state8, "a"), [2, 4, 4, 6, 2])
 	var kind: Dictionary = birthstones(run_turn(state8, r8))[0]
 	check(bool(tier(kind, "The Kind Face").active) and not bool(tier(kind, "Full Motley").active), "all even with a repeat is only the Kind Face")
-	## Florin: crowns stake and strike, three match the pot, five push the bank in, none is a
-	## Bust. Every coin staked leaves the bank at once, so what he owns caps what he can do.
+	## Florin: Lucky deals Resonance a crown; two crowns earn a reroll next turn, three a bonus
+	## Gambler's die, four double Resonance next turn, five the Jackpot; none is a Bust.
 	## A golem stout enough to outlast the whole rail, so every tier is reached and reported.
 	var gambler := func(id: String, bank: int, seed_value: int) -> Dictionary:
 		var streams: Dictionary = rngs(seed_value)
@@ -314,39 +314,60 @@ func _test_birthstones() -> void:
 			foe.hp = 9000
 			foe.max_hp = 9000
 		return {"state": fight, "rng": streams}
+	## A chosen hand, as if thrown, with no crowns banked from the real throw: the rail rings
+	## once for Strike, so High Roller reads Resonance 1.
+	var deal := func(unit: Dictionary, numbers: Array) -> void:
+		hand(unit, numbers)
+		unit.initial_resonance = 0
 	var nine: Dictionary = gambler.call("a", 100, 79)
 	var florin9: Dictionary = DeepBattle.player(nine.state, "a")
-	check(int(florin9.pot) == 10, "the table opens with ten of a hundred on it")
-	hand(florin9, [7, 7, 7, 1, 2])
+	check(int(florin9.pot) == 0 and DeepRules.pyrite(florin9) == 100, "nothing is staked as the fight opens")
+	deal.call(florin9, [7, 7, 7, 1, 2])
 	var roller: Dictionary = birthstones(run_turn(nine.state, nine.rng))[0]
-	check(bool(tier(roller, "Ante").get("active", false)) and int(tier(roller, "Ante").effects[1].amount) == 3, "three crowns at Resonance 1 deal 3")
-	check(bool(tier(roller, "Raise").get("active", false)) and not bool(tier(roller, "All In").get("active", false)) and not bool(tier(roller, "Bust").get("active", false)), "three crowns Raise and no further")
-	## House Money put up 10, Ante staked 3 more, then Raise matched the 13 on the table.
-	## 26 riding and 74 still in the bank: every coin on the table has left it.
-	check(int(florin9.pot) == 26 and DeepRules.pyrite(florin9) == 74, "Raise matches the pot out of the bank (%d on the table, %d left)" % [int(florin9.pot), DeepRules.pyrite(florin9)])
-	var ante_count: Dictionary = tier(roller, "Ante").count
-	check(ante_count.get("coef_dice", []).size() == 3 and str(ante_count.get("pot", {}).get("mode", "")) == "ante" and int(ante_count.pot.get("moved", 0)) == 3,
-		"Ante counts a crown a die and stakes what it comes to (%s)" % str(ante_count))
-	var raise_count: Dictionary = tier(roller, "Raise").count
-	check(int(raise_count.get("base", 0)) == 13 and int(raise_count.get("pot", {}).get("moved", 0)) == 13 and int(raise_count.get("amount", 0)) == 26,
-		"Raise counts the pot, then the bank matching it (%s)" % str(raise_count))
+	check(bool(tier(roller, "Lucky").get("active", false)) and int(tier(roller, "Lucky").effects[0].amount) == 3, "three crowns at Resonance 1 deal 3")
+	check(bool(tier(roller, "Heating Up").get("active", false)) and bool(tier(roller, "Hot Streak").get("active", false)) and not bool(tier(roller, "On Fire").get("active", false))
+		and not bool(tier(roller, "Jackpot").get("active", false)) and not bool(tier(roller, "Bust").get("active", false)), "three crowns light Lucky, Heating Up and Hot Streak, and no further")
+	## The next turn has begun: Heating Up's reroll is in it, and Hot Streak's die is in the bowl.
+	check(int(florin9.rerolls_max) == int(DeepContent.constant("rerolls", 2)) + 1, "Heating Up adds a reroll to the next turn (%d)" % int(florin9.rerolls_max))
+	var lent: Array = florin9.dice.filter(func(d: Dictionary) -> bool: return bool(d.get("bonus", false)))
+	check(lent.size() == 1 and str(lent[0].shape) == "D6" and str(lent[0].pattern) == "gamblers" and florin9.hand.size() == 6, "Hot Streak puts a Gambler's die in the next throw")
+	check(florin9.hand.any(func(r: Dictionary) -> bool: return bool(r.get("bonus", false)) and not bool(r.get("phantom", false))), "it is thrown with the hand, so it can be thrown again")
+	check(DeepBattle.dice_after_fight(florin9).size() == 5, "and it never leaves the fight with him")
+	deal.call(florin9, [1, 2, 3, 4, 5])
+	run_turn(nine.state, nine.rng)
+	check(florin9.dice.size() == 5 and florin9.hand.size() == 5, "the bonus die is gone the turn after")
 	var ten: Dictionary = gambler.call("a", 100, 80)
 	var florin10: Dictionary = DeepBattle.player(ten.state, "a")
-	hand(florin10, [7, 7, 7, 7, 7])
-	var flush: Dictionary = birthstones(run_turn(ten.state, ten.rng))[0]
-	check(bool(tier(flush, "All In").get("active", false)) and int(florin10.pot) == 100 and DeepRules.pyrite(florin10) > 0, "All In pushes the whole bank in and is paid what it took off them")
-	check(int(tier(flush, "All In").count.get("payout", 0)) > 0 and str(tier(flush, "All In").count.get("pot", {}).get("mode", "")) == "all", "and its count says what it was paid")
+	deal.call(florin10, [7, 7, 7, 7, 1])
+	var fire: Dictionary = birthstones(run_turn(ten.state, ten.rng))[0]
+	check(bool(tier(fire, "On Fire").get("active", false)) and bool(florin10.resonance_doubled), "four crowns: On Fire doubles the next turn's Resonance")
+	deal.call(florin10, [7, 1, 2, 3, 4])
+	var doubled: Dictionary = birthstones(run_turn(ten.state, ten.rng))[0]
+	check(bool(doubled.get("doubled", false)) and int(doubled.resonance) == 2 and int(tier(doubled, "Lucky").effects[0].amount) == 2, "and High Roller reads the whole total twice over (%d)" % int(doubled.resonance))
+	check(not bool(florin10.resonance_doubled), "for that one turn")
 	var eleven: Dictionary = gambler.call("a", 100, 81)
 	var florin11: Dictionary = DeepBattle.player(eleven.state, "a")
-	var opened: int = int(florin11.pot)
-	hand(florin11, [1, 2, 3, 4, 5])
-	var bust: Dictionary = birthstones(run_turn(eleven.state, eleven.rng))[0]
-	check(bool(tier(bust, "Bust").get("active", false)) and int(florin11.pot) == 0, "no crown: the table takes the pot")
-	## Read the blow off the tier, not off his health: the creature swings in the same turn.
-	check(int(tier(bust, "Bust").effects[0].amount) == opened / 2, "and half of what was on it comes out of him (%d of %d)" % [int(tier(bust, "Bust").effects[0].amount), opened])
-	var bust_count: Dictionary = tier(bust, "Bust").count
-	check(bool(bust_count.get("half", false)) and int(bust_count.get("base", 0)) == opened and int(bust_count.get("amount", 0)) == opened / 2 and str(bust_count.get("target", "")) == "self",
-		"a Bust counts the pot, halves it and turns it on him (%s)" % str(bust_count))
+	deal.call(florin11, [7, 7, 7, 7, 7])
+	var jackpot: Dictionary = birthstones(run_turn(eleven.state, eleven.rng))[0]
+	var jackpot_hits: Array = tier(jackpot, "Jackpot").get("effects", []).filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "damage")
+	check(bool(tier(jackpot, "Jackpot").get("active", false)) and jackpot_hits.size() == 7 and jackpot_hits.all(func(e: Dictionary) -> bool: return int(e.amount) == 7), "five crowns: the Jackpot deals 7x Resonance seven times (%d hits)" % jackpot_hits.size())
+	check(int(florin11.gold) == 7, "and pays 7x Resonance in pyrite (%d)" % int(florin11.gold))
+	check(bool(tier(jackpot, "Lucky").get("active", false)) and bool(tier(jackpot, "On Fire").get("active", false)), "every tier it passed on the way pays too")
+	var twelve: Dictionary = gambler.call("a", 100, 82)
+	var florin12: Dictionary = DeepBattle.player(twelve.state, "a")
+	deal.call(florin12, [1, 2, 3, 4, 5])
+	var bust: Dictionary = birthstones(run_turn(twelve.state, twelve.rng))[0]
+	## The bank pays first, so a Bust that downs him has still taken its pyrite.
+	var paid: Array = effects_of(bust, "lose_pyrite")
+	var bled: Array = effects_of(bust, "damage")
+	check(bool(tier(bust, "Bust").get("active", false)) and bled.size() == 1 and str(bled[0].get("target", "")) == str(florin12.id) and int(bled[0].amount) == 1,
+		"no crown: a Bust takes Resonance off him (%s)" % str(tier(bust, "Bust").effects))
+	check(DeepRules.pyrite(florin12) == 99 and paid.size() == 1 and int(paid[0].get("lost", 0)) == 1, "and Resonance out of his bank (%d left)" % DeepRules.pyrite(florin12))
+	var broke: Dictionary = gambler.call("b", 0, 83)
+	var florin13: Dictionary = DeepBattle.player(broke.state, "b")
+	deal.call(florin13, [1, 2, 3, 4, 5])
+	run_turn(broke.state, broke.rng)
+	check(DeepRules.pyrite(florin13) == 0 and int(florin13.pyrite_delta) == 0, "a Bust takes no more than the bank holds")
 
 func _test_passives() -> void:
 	## Second Wind: Ardor heals for the rerolls he did not spend.
@@ -392,17 +413,24 @@ func _test_passives() -> void:
 	var d3_id: String = str(odd_sided.hand[0].die_id)
 	var d3_shift: Dictionary = DeepBattle.command(d3_state, "d", {"kind": "flip", "die": d3_id}, d3_rng.dice)
 	check(d3_shift.ok and int(odd_sided.hand[0].value) == 2, "a 1 on a d3 shifts to the nearest value of the other parity")
-	## House Money: Florin sits down with a tenth of what he owns already on the table, and
-	## it has left his bank before the first die falls.
+	## All or Nothing: Florin throws the whole bowl or none of it, and every crown that comes up,
+	## on any throw, rings the rail once before it starts.
 	var r3: Dictionary = rngs(93)
-	var rich: Dictionary = DeepBattle.make_player("a", "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, "a"))
-	rich.ore = 200
-	var state3: Dictionary = DeepBattle.begin([rich], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
+	var gambler: Dictionary = DeepBattle.make_player("a", "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, "a"))
+	gambler.ore = 200
+	var state3: Dictionary = DeepBattle.begin([gambler], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
 	var florin: Dictionary = DeepBattle.player(state3, "a")
-	check(int(florin.pot) == 20 and DeepRules.pyrite(florin) == 180, "House Money stakes a tenth of the bank before the first roll (%d on %d)" % [int(florin.pot), DeepRules.pyrite(florin)])
-	var broke: Dictionary = DeepBattle.make_player("b", "Florin", "FLORIN", [stone("STRIKE")], dice(DeepContent.character("FLORIN").dice, "b"))
-	check(int(DeepBattle.begin([broke], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures).players[0].pot) == 0, "a Gambler with nothing stakes nothing")
-	check(int(DeepBattle.player(state, "a").pot) == 0, "nobody else sits down with a stake")
+	var opening: int = florin.hand.filter(func(r: Dictionary) -> bool: return DeepBattle.is_crown(r)).size()
+	check(int(florin.pot) == 0 and int(florin.initial_resonance) == opening, "the opening throw's crowns are banked as Resonance (%d of %d)" % [int(florin.initial_resonance), opening])
+	var thrown: Dictionary = DeepBattle.command(state3, "a", {"kind": "reroll", "dice": [str(florin.hand[0].die_id)]}, r3.dice)
+	var again: int = florin.hand.filter(func(r: Dictionary) -> bool: return DeepBattle.is_crown(r)).size()
+	check(thrown.ok and thrown.event.dice.size() == 5, "asking for one die throws all five")
+	check(int(florin.initial_resonance) == opening + again and thrown.event.crowned.size() == again, "and its crowns ring too: %d + %d" % [opening, again])
+	check(int(DeepBattle.player(state, "a").pot) == 0, "nobody sits down with a stake")
+	var picky: Dictionary = DeepBattle.begin([player("z", [stone("STRIKE")])], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
+	var knight: Dictionary = DeepBattle.player(picky, "z")
+	var one: Dictionary = DeepBattle.command(picky, "z", {"kind": "reroll", "dice": [str(knight.hand[0].die_id)]}, r3.dice)
+	check(one.ok and one.event.dice.size() == 1, "everyone else still picks the dice they throw")
 
 func _test_fingerprint() -> void:
 	## A Fingerprint carries the first inclusion of the gem before it: a Cleave behind a Cat's
@@ -449,15 +477,21 @@ func _test_hand_mutation_and_retriggers() -> void:
 	hand(echoer, [5, 5, 2, 3, 1])
 	var again2: Array = fires(run_turn(state2, r2))
 	check(again2.size() == 4 and int(again2[3].socket) == 3, "it is still there the turn after, with a second copy ahead of it: %s" % str(again2.map(func(e: Dictionary) -> int: return int(e.socket))))
-	## Chatoyance fires twice and Refract adds a phantom.
+	## Chatoyance fires twice and Refract rolls a phantom copy of the largest die.
 	var r3: Dictionary = rngs(33)
 	var state3: Dictionary = DeepBattle.begin([player("a", [stone("REFRACT"), stone("CRUSH", 1, 4, 2, ["CHATOYANCE"])])], ["QUARTZ_GOLEM"], {"depth": 1}, r3.dice, r3.creatures)
-	hand(DeepBattle.player(state3, "a"), [6, 6, 2, 3, 1])
+	var refractor: Dictionary = DeepBattle.player(state3, "a")
+	hand(refractor, [6, 6, 6, 2, 1])
 	var events3: Array = run_turn(state3, r3)
 	var fired3: Array = fires(events3)
 	check(fired3.size() == 3, "Refract, then Crush twice: %s" % str(fired3.map(func(e: Dictionary) -> String: return str(e.skill))))
-	check(fired3[0].effects[0].kind == "phantom_high" and fired3[0].effects[0].hand.size() == 6, "a phantom six joins the hand")
-	check(fired3[1].skill == "CRUSH" and int(fired3[1].effects[0].amount) == 30, "the phantom makes a triple of sixes for Crush: matched value 6 × 5")
+	## Ardor's bowl is d6 d6 d6 d8 d8: the largest are the d8s, and of the two the one showing 2.
+	var thrown3: Dictionary = fired3[0].effects[0]
+	var ghost: Array = thrown3.get("hand", []).filter(func(r: Dictionary) -> bool: return bool(r.get("phantom", false)))
+	check(str(thrown3.kind) == "phantom_roll" and ghost.size() == 1 and str(ghost[0].shape) == "D8" and str(ghost[0].source_id) == str(refractor.dice[3].id),
+		"a phantom d8 is thrown, a copy of the larger die showing more: %s" % str(ghost))
+	check(int(ghost[0].value) >= 1 and int(ghost[0].value) <= 8, "and lands on one of its own faces")
+	check(fired3[1].skill == "CRUSH" and int(fired3[1].effects[0].amount) == 30, "Crush reads the triple of sixes: matched value 6 × 5")
 	## Facet passes a Cut step, Double Down can empty the next gem.
 	var r4: Dictionary = rngs(34)
 	var state4: Dictionary = DeepBattle.begin([player("a", [stone("FACET"), stone("CLEAVE", 1, 0)])], ["QUARTZ_GOLEM"], {"depth": 1}, r4.dice, r4.creatures)

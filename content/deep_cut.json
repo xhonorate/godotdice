@@ -3094,14 +3094,15 @@
       "color": "WHITE",
       "rarity": "UNCOMMON",
       "tags": ["hand"],
-      "text": "Add 1 phantom die copying your highest roll.",
+      "text": "Roll a phantom copy of your largest die.",
       "trigger": {
         "kind": "high_pct_at_least",
         "ladder": [95, 90, 85, 80, 70]
       },
       "effects": [
         {
-          "kind": "phantom_high",
+          "kind": "phantom_roll",
+          "of": "largest",
           "target": "self",
           "amount": 1
         }
@@ -3148,25 +3149,27 @@
       "name": "Mirror",
       "color": "WHITE",
       "rarity": "COMMON",
-      "tags": ["hand"],
-      "text": "Change one die to join your strongest matching set.",
+      "tags": ["two_pair", "guard"],
+      "text": "Reflect half of the next enemy attack.",
       "trigger": {
-        "kind": "distinct",
-        "ladder": [5, 4, 3, 2, 1]
+        "kind": "two_pair",
+        "high_pair": true,
+        "ladder": [6, 5, 4, 3, 2]
       },
       "effects": [
         {
-          "kind": "set_match",
+          "kind": "reflect_blows",
           "target": "self",
-          "amount": 1
+          "amount": 1,
+          "pct": 50
         }
       ],
       "flawless": {
-        "text": "Match two dice.",
+        "text": "Reflect all of it.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "pct": 100
           }
         ]
       }
@@ -5429,7 +5432,7 @@
       "title": "the Gambler",
       "unlock_order": 5,
       "hp": 60,
-      "text": "The high roller. Has six sockets and turns pyrite into damage.",
+      "text": "The high roller. Seven sockets, and every roll is all or nothing.",
       "sockets": ["RED", "GOLD", "GOLD", "ANY", "ANY", "ANY", "ANY"],
       "dice": [
         {
@@ -5454,10 +5457,9 @@
         }
       ],
       "passive": {
-        "kind": "pot_share",
-        "amount": 10,
-        "name": "House Money",
-        "text": "Each fight opens with a tenth of your pyrite on the table."
+        "kind": "all_or_nothing",
+        "name": "All or Nothing",
+        "text": "Florin must throw all dice together, but gains +1 Resonance for every crown rolled."
       },
       "birthstone": {
         "name": "High Roller",
@@ -5468,28 +5470,13 @@
         "face": "Wide eyes, a whoop.",
         "tiers": [
           {
-            "name": "Ante",
+            "name": "Lucky",
             "trigger": {
               "kind": "crowns",
               "amount": 1
             },
-            "text": "Each crown: stake Resonance, and deal it.",
+            "text": "Deal Resonance for each crown showing.",
             "effects": [
-              {
-                "kind": "pot",
-                "pot_mode": "ante",
-                "amount": {
-                  "op": "*",
-                  "args": [
-                    {
-                      "term": "resonance"
-                    },
-                    {
-                      "term": "crowns"
-                    }
-                  ]
-                }
-              },
               {
                 "kind": "damage",
                 "amount": {
@@ -5507,51 +5494,85 @@
             ]
           },
           {
-            "name": "Raise",
+            "name": "Heating Up",
+            "trigger": {
+              "kind": "crowns",
+              "amount": 2
+            },
+            "text": "Gain +1 reroll next turn.",
+            "effects": [
+              {
+                "kind": "grant_reroll",
+                "target": "self",
+                "amount": 1
+              }
+            ]
+          },
+          {
+            "name": "Hot Streak",
             "trigger": {
               "kind": "crowns",
               "amount": 3
             },
-            "text": "Three crowns: match the pot from your bank, then deal it.",
+            "text": "Gain a phantom Gambler's die next turn.",
             "effects": [
               {
-                "kind": "pot",
-                "pot_mode": "double",
-                "amount": 0
-              },
-              {
-                "kind": "damage",
-                "amount": {
-                  "term": "pot"
-                }
+                "kind": "bonus_die",
+                "target": "self",
+                "shape": "D6",
+                "pattern": "gamblers",
+                "amount": 1
               }
             ]
           },
           {
-            "name": "All In",
+            "name": "On Fire",
+            "trigger": {
+              "kind": "crowns",
+              "amount": 4
+            },
+            "text": "Gain double Resonance next turn.",
+            "effects": [
+              {
+                "kind": "double_resonance_next",
+                "target": "self",
+                "amount": 1
+              }
+            ]
+          },
+          {
+            "name": "Jackpot",
             "trigger": {
               "kind": "crowns",
               "amount": 5
             },
-            "text": "Five crowns: go all in with your bank. The pot hits every creature and pays out the damage dealt as pyrite.",
+            "text": "Deal 7× Resonance seven times. Gain 7× Resonance pyrite.",
             "effects": [
               {
-                "kind": "pot",
-                "pot_mode": "all",
-                "amount": 0
-              },
-              {
                 "kind": "damage",
-                "target": "enemies",
                 "amount": {
-                  "term": "pot"
-                }
+                  "op": "*",
+                  "args": [
+                    7,
+                    {
+                      "term": "resonance"
+                    }
+                  ]
+                },
+                "repeat": 7
               },
               {
                 "kind": "gold",
                 "target": "self",
-                "amount": 100,
-                "from_result": "damage",
+                "amount": {
+                  "op": "*",
+                  "args": [
+                    7,
+                    {
+                      "term": "resonance"
+                    }
+                  ]
+                },
                 "scale": "none"
               }
             ]
@@ -5563,25 +5584,21 @@
               "amount": 0
             },
             "penalty": true,
-            "text": "No crown: you lose the pot and take half of it as damage.",
+            "text": "Take Resonance damage and lose Resonance pyrite.",
             "effects": [
+              {
+                "kind": "lose_pyrite",
+                "target": "self",
+                "amount": {
+                  "term": "resonance"
+                }
+              },
               {
                 "kind": "damage",
                 "target": "self",
                 "amount": {
-                  "op": "floor_div",
-                  "args": [
-                    {
-                      "term": "pot"
-                    },
-                    2
-                  ]
+                  "term": "resonance"
                 }
-              },
-              {
-                "kind": "pot",
-                "pot_mode": "lose",
-                "amount": 0
               }
             ]
           }

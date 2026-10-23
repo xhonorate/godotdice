@@ -24,7 +24,8 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
 	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action',
 	'phantom_low', 'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'envenom', 'gather_poison', 'poison_tick',
-	'grow_poison', 'fire_birthstone', 'spectrum', 'stone_chance', 'double_resonance', 'keep_phantoms'];
+	'grow_poison', 'fire_birthstone', 'spectrum', 'stone_chance', 'double_resonance', 'keep_phantoms',
+	'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows'];
 // The creature-only kinds: a skill or an inclusion may not use them.
 export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
@@ -43,7 +44,8 @@ export const HERO_PICKS = ['hero_least_block', 'hero_most_hp', 'hero_most_gold',
 export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'downed_ally', 'hero', 'heroes', ...HERO_PICKS];
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
-	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends'];
+	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends',
+	'of', 'pattern'];
 // How an effect that works on one die or one gem chooses it, and how an absorb_color picks its color.
 export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best', 'usable', 'showing', 'all'];
 export const ABSORB_PICKS = ['random', 'most_used'];
@@ -284,6 +286,10 @@ export function effectWords(effect, cutStep = null) {
 		retrigger_previous: `repeat the previous gem at ${n}%`, resonance: `+${n} Resonance`, replay_color: `replay every ${effect.color ? effect.color.toLowerCase() : ''} gem`,
 		rank_buff: `+${n} ${effect.rank || 'rank'} to every gem`, replay_fizzled: `fire ${n} dark gem`, repeat_next: `next gem fires ${n} more`, damage_curse: `damage = ${n}% of Curse stacks`,
 		void_copy: `${n} Void copy of the last gem that fired`,
+		phantom_roll: effect.of === 'largest' ? `roll ${n} phantom copy of your largest die` : `roll ${n} phantom ${String(effect.shape || 'D6').toLowerCase()}`,
+		bonus_die: `a ${effect.pattern === 'gamblers' ? "Gambler's " : ''}${String(effect.shape || 'D6').toLowerCase()} joins next turn's throw`,
+		double_resonance_next: 'double Resonance next turn', lose_pyrite: `lose ${n} pyrite`,
+		reflect_blows: `reflect ${effect.pct ?? 50}% of the next ${n === '1' ? 'blow' : `${n} blows`} back at the thrower`,
 		amplify_next: `amplify next gem ${n}%`, revive: 'revive an ally', max_hp: `+${n} max HP`,
 		// Elites only, and rare.
 		mar_die: 'mars a face of one of your dice (blank or locked)',

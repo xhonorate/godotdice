@@ -34,7 +34,7 @@ C.setPack(JSON.parse(await readFile(path.join(ROOT, 'content', 'deep_cut.json'),
 const LIVE_SKIP_SKILLS = ['ENRICH', 'FIRE_OPAL', 'STAKE', 'DOUBLE_DOWN', 'POLISH',
 	// Bloodletting changes the next gem's weight, as Stake does; the rest throw dice of their
 	// own (the two RNGs are not the same) or wait for a kill.
-	'BLOODLETTING', 'TUMBLE', 'CONTRA_LUZ', 'RATTLE', 'PLACER'];
+	'BLOODLETTING', 'TUMBLE', 'CONTRA_LUZ', 'RATTLE', 'PLACER', 'REFRACT'];
 const LIVE_SKIP_INCLUSIONS = ['FRACTURE', 'BRUISE', 'KNOT', 'CAVITY', 'CHIP', 'HALO', 'VOID'];
 
 function fixtures(count, seed) {

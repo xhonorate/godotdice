@@ -84,7 +84,12 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			}
 			break;
 		case 'two_pair': {
-			const qualifying = a.pairs.filter((g) => g.value >= need);
+			// `high_pair`: only the higher of the two pairs has to clear the rung (Mirror's).
+			let qualifying = a.pairs.filter((g) => g.value >= need);
+			if (trigger.high_pair) {
+				qualifying = a.pairs.slice().sort((x, y) => y.value - x.value);
+				if (qualifying.length >= 2 && qualifying[0].value < need) qualifying = [];
+			}
 			if (qualifying.length >= 2) {
 				result.active = true; result.dice = qualifying[0].dice.concat(qualifying[1].dice);
 				result.value = qualifying[0].value; result.second = qualifying[1].value; result.count = 4;
@@ -279,7 +284,7 @@ export function words(trigger, cutStep) {
 		case 'triple': return `Three of a kind${ofAtLeast(need)}.`;
 		case 'quad': return `Four of a kind${ofAtLeast(need)}.`;
 		case 'quint': return `Five of a kind${ofAtLeast(need)}.`;
-		case 'two_pair': return `Two pairs${ofAtLeast(need)}.`;
+		case 'two_pair': return trigger.high_pair && need > 1 ? `Two pairs, the higher one ${need} or more.` : `Two pairs${ofAtLeast(need)}.`;
 		case 'full_house': return `A full house: three of one value and two of another${need > 1 ? `, the three ${need} or higher` : ''}.`;
 		case 'straight': return `A straight of ${need}: ${need} consecutive values in any order.`;
 		case 'odd': return `At least ${dice(need)} showing odd values.`;

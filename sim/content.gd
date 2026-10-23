@@ -27,7 +27,8 @@ const TRANSCENDENT: String = "TRANSCENDENT"
 const TRANSCENDENT_CUTS: Array = ["kite", "pentagon", "hourglass", "keystone"]
 const CHAMBER_KINDS: Array = ["fight", "elite", "vein", "oddity", "merchant", "smithy", "carver", "well", "altar", "rest_stop"]
 const PASSIVE_KINDS: Array = ["none", "extra_reroll", "first_gem_cut_step", "heal_on_fizzle",
-	"heal_resonance_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value", "pot_share"]
+	"heal_resonance_per_unused_reroll", "block_per_hit", "heal_on_poison_tick", "free_flip", "free_reroll_value", "pot_share",
+	"all_or_nothing"]
 const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_resonance", "cloud_socket", "split_on_big_hit",
 	"steal_gold", "gift_rerolls", "poison_immune", "bury_socket", "mirror_last_gem", "roll_for_you", "regrow"]
 ## What a creature is, as well as what it rolls for: the traits it carries into every fight

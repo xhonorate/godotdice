@@ -437,11 +437,11 @@ func _test_gemini() -> void:
 	check(at_socket(events, 2).size() <= 1, "a Doublet beside Gemini is never woken by it")
 	check(at_socket(events, 1).size() <= 3, "and wearing Gemini, it wakes Gemini no more than once a pair")
 	## A phantom die makes a pair like any other.
-	state = DeepBattle.begin([player("a", [gem("REFRACT", 1, 4, 3, [], "rf"), gem("GEMINI", 1, 4, 3, [], "gm"), gem("STRIKE", 1, 4, 3, [], "s2")])],
+	state = DeepBattle.begin([player("a", [gem("SEDIMENT", 1, 4, 3, [], "rf"), gem("GEMINI", 1, 4, 3, [], "gm"), gem("STRIKE", 1, 4, 3, [], "s2")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [6, 5, 4, 2, 1])
 	events = run_turn(state, r)
-	check(not at_socket(events, 1).is_empty(), "a phantom copying the highest die gives Gemini its pair")
+	check(not at_socket(events, 1).is_empty(), "a phantom copying the lowest die gives Gemini its pair")
 
 func _test_certainty() -> void:
 	var r: Dictionary = rngs(7)

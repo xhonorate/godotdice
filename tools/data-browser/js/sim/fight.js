@@ -30,7 +30,7 @@ export const SELF_KINDS = ['amplify_next', 'cut_step_next', 'grant_reroll', 'ret
 	'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy', 'gem_rank', 'upgrade_faces', 'stake', 'appraise',
 	'fire_neighbours', 'force_after', 'absorbed',
 	'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'fire_birthstone', 'spectrum', 'stone_chance',
-	'double_resonance', 'keep_phantoms'];
+	'double_resonance', 'keep_phantoms', 'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows'];
 // The six colors and what a Spectrum gives for each, as [effect kind, amount, target].
 const SPECTRUM_GIFTS = { RED: ['damage', 3, 'enemy'], BLUE: ['block', 3, 'self'], GREEN: ['heal', 3, 'self'], VIOLET: ['poison', 2, 'enemy'], GOLD: ['gold', 2, 'self'], WHITE: ['resonance', 1, 'self'] };
 const DROPS_PER_SIZE = 3;
@@ -90,7 +90,59 @@ export function makePlayer(id, characterKey, rail, dice, opts = {}) {
 		resonance: 0, initial_resonance: 0, previous_fired: false, previous_amount: 0, previous_colors: [], previous_socket: -1, amplify: 1, cut_step_bonus: 0, nullify_next: false,
 		block_lost: 0, block_lost_accum: 0, healed: 0, dealt: 0, dealt_last_turn: 0, gold: 0, ore: I(Number(opts.pyrite ?? 0)), once: {}, downed: false,
 		buried: [], clouded: [], stolen_dice: 0, granted_rerolls: 0, sparkle: 0, quality_bonus: 0, fired_count: 0, void_copies: 0, haul: [],
+		bonus_dice_next: [], double_resonance_next: false, resonance_doubled: false,
 	};
+}
+
+// --- All or Nothing (DeepBattle.all_or_nothing and friends) ------------------------------------
+
+export const allOrNothing = (unit) => (unit.passive || {}).kind === 'all_or_nothing';
+
+// A die showing its own top face, read the way the hand counts crowns: a wild always is.
+export function isCrown(roll) {
+	const kind = roll.kind || 'plain';
+	if (kind === 'wild') return true;
+	if (kind === 'blank') return false;
+	return (I(roll.value)) >= Math.max(1, I(roll.top ?? roll.value ?? 1));
+}
+
+function crownIds(hand) {
+	const out = new Set();
+	for (const r of hand) if (isCrown(r)) out.add(r.die_id);
+	return out;
+}
+
+// Every crown that comes up rings the rail once; in planning it is banked, as Crystal is.
+function crownsRolled(unit, rolls, planning) {
+	if (!allOrNothing(unit)) return [];
+	const crowned = rolls.filter((r) => !r.carried && !r.kept && isCrown(r)).map((r) => r.die_id);
+	if (crowned.length) {
+		if (planning) unit.initial_resonance = satAdd(I(unit.initial_resonance), crowned.length);
+		unit.resonance = satAdd(I(unit.resonance), crowned.length);
+	}
+	return crowned;
+}
+
+// The crowns a gem's turn on the hand brought up, counted the same way.
+function crownsChanged(unit, before) {
+	if (!allOrNothing(unit)) return [];
+	const fresh = unit.hand.filter((r) => isCrown(r) && !before.has(r.die_id)).map((r) => r.die_id);
+	if (fresh.length) unit.resonance = satAdd(I(unit.resonance), fresh.length);
+	return fresh;
+}
+
+// The die in the hand with the most faces; between two as large, the one showing more.
+function largestDie(unit) {
+	let best = null, bestRoll = null;
+	for (const r of unit.hand) {
+		if (r.phantom) continue;
+		const die = (unit.dice || []).find((d) => d.id === r.die_id);
+		if (!die) continue;
+		const faces = (die.faces || []).length;
+		const bestFaces = best ? (best.faces || []).length : -1;
+		if (!best || faces > bestFaces || (faces === bestFaces && (I(r.value)) > (I(bestRoll.value)))) { best = die; bestRoll = r; }
+	}
+	return best;
 }
 
 // A training dummy: `hp` (endless when 0), `dice` to throw at the player every action (each
@@ -365,6 +417,7 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	unit.fired_count = (I(unit.fired_count)) + 1;
 	// What a Chainmail or a Contagion earlier this turn hands over for this gem: taken now.
 	const answers = (unit.after_fire || []).map((x) => ({ ...x }));
+	const crownsBefore = allOrNothing(unit) ? crownIds(unit.hand) : null;
 	for (const effect of ev.effects) {
 		const applied = { ...effect };
 		if (scale !== 100 && effect.scaled) applied.amount = satFloor((I(effect.amount)) * scale / 100);
@@ -389,6 +442,7 @@ export function resolveGem(state, unit, socket, opts, rng) {
 			results.push(...apply(state, unit, applied, rng, '', reactions));
 		}
 	}
+	if (crownsBefore) crownsChanged(unit, crownsBefore);
 	results.push(...answerFire(state, unit, answers, rng));
 	delete unit.firing_colors;
 	// A gem that grows over the run (Hone, Hardening) counts every fire, replays included.
@@ -421,7 +475,9 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	unit.repeat_next = 0;
 	const a = readHand(unit);
 	// A Birthright fires it mid-rail at a share of the Resonance so far.
-	const resonance = satMulDiv(I(unit.resonance), Math.max(0, opts.share ?? 100), 100);
+	let resonance = satMulDiv(I(unit.resonance), Math.max(0, opts.share ?? 100), 100);
+	// On Fire: last turn's High Roller doubled the whole total it reads this turn.
+	if (unit.resonance_doubled) resonance = satMul(resonance, 2);
 	const defs = def.tiers || [];
 	const evaluated = [];
 	let exclusiveHit = -1;
@@ -782,13 +838,41 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 		}
 		case 'phantom_roll': {
 			// A Tumble or a Contra Luz: a fresh phantom die of its own size, thrown into the hand.
-			if (dry) { out.nothing = true; break; }
-			const made = Dice.make(String(effect.shape || 'D6'), `${unit.id}_roll${I(state.turn)}_${unit.hand.length}`);
-			const ghost = Dice.rollOne(made, rng);
-			ghost.phantom = true;
-			unit.hand.push(ghost);
+			// A Refract (`of: largest`) throws a copy of the owner's largest die, faces and all.
+			const source = effect.of === 'largest' ? largestDie(unit) : null;
+			if (dry || (effect.of === 'largest' && !source)) { out.nothing = true; break; }
+			for (let n = 0; n < Math.max(1, amount); n++) {
+				let made;
+				if (!source) made = Dice.make(String(effect.shape || 'D6'), `${unit.id}_roll${I(state.turn)}_${unit.hand.length}`);
+				else { made = cloneDie(source); made.id = `${source.id}_ph${I(state.turn)}_${unit.hand.length}`; delete made.bonus; }
+				const ghost = Dice.rollOne(made, rng);
+				ghost.phantom = true;
+				ghost.source_id = source ? source.id : '';
+				delete ghost.bonus;
+				unit.hand.push(ghost);
+				if (n === 0) out.value = ghost.value;
+			}
 			touchHand(unit);
-			out.value = ghost.value;
+			break;
+		}
+		case 'bonus_die': {
+			// A Hot Streak: a die of its own joins the next throw, for that turn only.
+			const owed = unit.bonus_dice_next || (unit.bonus_dice_next = []);
+			for (let n = 0; n < Math.max(1, amount); n++) owed.push({ shape: String(effect.shape || 'D6'), pattern: String(effect.pattern || '') });
+			break;
+		}
+		case 'double_resonance_next': unit.double_resonance_next = true; break;
+		case 'lose_pyrite': {
+			// A Bust: the bank pays, as much of it as there is.
+			const lost = Math.min(Math.max(0, amount), Rules.pyrite(unit));
+			if (lost > 0) unit.pyrite_delta = (I(unit.pyrite_delta)) - lost;
+			out.lost = lost;
+			break;
+		}
+		case 'reflect_blows': {
+			// A Mirror: the next blows a creature lands, until its owner's next turn, are split.
+			unit.statuses.reflect = Math.min(99, (I(unit.statuses.reflect)) + Math.max(1, amount));
+			unit.statuses.reflect_pct = Math.max(0, Math.min(100, Math.max(I(unit.statuses.reflect_pct), Number(effect.pct ?? 50))));
 			break;
 		}
 		case 'rethrow': {
@@ -1170,6 +1254,19 @@ function damage(state, source, target, amount, rng, reactions = {}, reactive = f
 	raw = satScale(raw, 100 + Rules.CURSE_PERCENT * curse, 100 + 25 * marked, 10000);
 	if (marked > 0) delete target.statuses.marked;
 	const out = { raw };
+	// A Mirror a delver holds up: the next blow a creature lands is split, its share sent back.
+	if (target.side === 'player' && source.side === 'enemy' && !reactive && raw > 0 && (I(target.statuses.reflect)) > 0) {
+		const pct = Math.max(0, Math.min(100, I(target.statuses.reflect_pct ?? 50)));
+		target.statuses.reflect = (I(target.statuses.reflect)) - 1;
+		if (target.statuses.reflect <= 0) { delete target.statuses.reflect; delete target.statuses.reflect_pct; }
+		const sent = satMulDiv(raw, pct, 100);
+		if (sent > 0) {
+			damage(state, target, source, sent, rng, {}, true);
+			out.reflected_amount = sent;
+			raw -= sent;
+			out.raw = raw;
+		}
+	}
 	const absorbed = piercing ? 0 : Math.min(I(target.block), raw);
 	target.block = (I(target.block)) - absorbed;
 	const through = raw - absorbed;
@@ -1277,7 +1374,21 @@ export function beginTurn(state, unit, roll) {
 	unit.on_block = [];
 	// A Contra Luz that fired last turn: its phantoms are still in the hand.
 	const carried = unit.keep_phantoms ? unit.hand.filter((r) => r.phantom).map((r) => ({ ...r, held: true, rerolls: 0, kept: true })) : [];
+	// A Hot Streak's bonus die lasts the turn it was thrown for, unless a Contra Luz kept that
+	// turn's phantoms; then what last turn's High Roller earned joins the bowl.
+	if (!unit.keep_phantoms) unit.dice = unit.dice.filter((d) => !d.bonus);
 	unit.keep_phantoms = false;
+	(unit.bonus_dice_next || []).forEach((spec, index) => {
+		const extra = Dice.make(spec.shape || 'D6', `${unit.id}_bonus${I(state.turn)}_${index}`, spec.pattern ? { pattern: spec.pattern } : {});
+		extra.bonus = true;
+		unit.dice.push(extra);
+	});
+	unit.bonus_dice_next = [];
+	unit.resonance_doubled = Boolean(unit.double_resonance_next);
+	unit.double_resonance_next = false;
+	// Mirror's reflection lasts until its owner's next turn, like Block.
+	delete unit.statuses.reflect;
+	delete unit.statuses.reflect_pct;
 	const charged = I(unit.statuses.charged);
 	delete unit.statuses.charged;
 	unit.initial_resonance = charged;
@@ -1288,6 +1399,7 @@ export function beginTurn(state, unit, roll) {
 	unit.hand = unit.dice.map((die, index) => (kept.has(die.id) ? { ...kept.get(die.id), held: true, rerolls: 0, phantom: false, climbed: false, shattered: false, carried: true } : roll(die, index)));
 	unit.hand.push(...carried);
 	payDues(unit, unit.hand);
+	crownsRolled(unit, unit.hand.filter((r) => !r.phantom), true);
 	unit.flips = unit.passive.kind === 'free_flip' ? Number(unit.passive.amount ?? 1) : 0;
 	const extra = unit.passive.kind === 'extra_reroll' ? Number(unit.passive.amount ?? 1) : 0;
 	unit.rerolls_max = Number(C.constant('rerolls', 2)) + extra + (I(unit.granted_rerolls));
@@ -1315,10 +1427,11 @@ function payDues(unit, rolls) {
 // character has one and it helps.
 export function plan(unit, policy, roll) {
 	while ((I(unit.rerolls)) > 0) {
-		if (policy === 'none') break;
-		const ids = rerollIds(policy, unit.hand, readHand(unit));
+		if (policy === 'none' && !allOrNothing(unit)) break;
 		const allowed = new Set(Dice.rerollable(unit.hand));
-		const chosen = [...ids].filter((id) => allowed.has(id));
+		// All or Nothing: the whole bowl goes again or none of it (see allOrNothingRolls).
+		const chosen = allOrNothing(unit) ? (allOrNothingRolls(unit, policy) ? [...allowed] : [])
+			: [...rerollIds(policy, unit.hand, readHand(unit))].filter((id) => allowed.has(id));
 		if (!chosen.length) break;
 		const set = new Set(chosen);
 		const byId = new Map(unit.dice.map((d, i) => [d.id, [d, i]]));
@@ -1331,9 +1444,21 @@ export function plan(unit, policy, roll) {
 		unit.hand = next;
 		unit.rerolls -= 1;
 		payDues(unit, unit.hand.filter((r) => set.has(r.die_id)));
+		crownsRolled(unit, unit.hand.filter((r) => set.has(r.die_id)), true);
 	}
 	if ((I(unit.flips)) > 0) flipBest(unit, policy);
 	unit.locked = true;
+}
+
+// Whether an All or Nothing hand is worth throwing again: never with three crowns showing,
+// always with none, and with one or two only when the gem the rail chases is not answered.
+// A Gambler who must throw the whole bowl plays the odds, not a pattern.
+function allOrNothingRolls(unit, policy) {
+	const crowns = unit.hand.filter((r) => isCrown(r)).length;
+	if (crowns >= 3) return false;
+	if (crowns === 0) return true;
+	if (policy === 'none' || policy === 'always') return crowns < 2;
+	return rerollIds(policy, unit.hand, readHand(unit)).size > 0 && crowns < 2;
 }
 
 // How well a hand answers a reroll policy, for choosing what Sleight should shift.
@@ -1542,7 +1667,8 @@ export function playFight(spec, sample, carry = null) {
 		if (L.runaway && spec.stopOnRunaway) break;
 		if (spec.stopAtWall && killTurn < Infinity) break;
 	}
-	if (carry) { carry.dice = unit.dice; carry.runCounts = unit.run_counts || {}; carry.maxHp = unit.max_hp; }
+	// A Hot Streak's bonus die was only lent for a turn.
+	if (carry) { carry.dice = unit.dice.filter((d) => !d.bonus); carry.runCounts = unit.run_counts || {}; carry.maxHp = unit.max_hp; }
 	const out = { dealt: L.dealt, kills: L.kills, incoming: L.incoming, hpLost: L.hpLost, healed: L.healed, gold: (I(unit.gold)) + (I(unit.pyrite_delta)) + (I(unit.pot)), blockGained: L.blockGained,
 		fires: L.fires, fizzles: L.fizzles, birthstone: L.birthstone, resonance: L.resonance, downs: L.downs, sparkle: I(unit.sparkle), killTurn, runaway: I(L.runaway), maxEvents: I(L.maxEvents) };
 	if (turnDealt) { out.turnDealt = turnDealt; out.turnSaved = turnSaved; }

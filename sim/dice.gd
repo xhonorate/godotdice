@@ -340,6 +340,9 @@ static func roll_one(die: Dictionary, rng: RandomNumberGenerator, times_rerolled
 		"value": value, "face": index, "kind": kind, "top": die_top,
 		"held": false, "rerolls": times_rerolled, "locked": kind == "locked", "explosions": explosions,
 		"climbed": climbed, "shattered": shattered, "phantom": false}
+	## A die a Hot Streak lent for one turn: thrown like any other, drawn as a guest.
+	if bool(die.get("bonus", false)):
+		thrown.bonus = true
 	## The number printed on the face it landed on, when what it counts for is something else:
 	## a Doubled face, a face that went off and threw again. A trigger that asks
 	## for dice showing a number reads this; everything that adds up reads `value`. `counted`

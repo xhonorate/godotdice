@@ -1742,7 +1742,7 @@ func _test_gamblers_pots() -> void:
 	state.phase = "chamber"
 	DeepDescent._start_fight(state, DeepDescent.streams_of(state), false, "")
 	var fighters: Array = state.chamber.battle.players
-	check(int(fighters[0].pot) == 0 and int(fighters[1].pot) == 20 and int(fighters[2].pot) == 30, "House Money puts a tenth of each Gambler's own bank on his own table: %s" % str(fighters.map(func(f: Dictionary) -> int: return int(f.pot))))
+	check(fighters.all(func(f: Dictionary) -> bool: return int(f.pot) == 0), "nobody sits down with a stake: %s" % str(fighters.map(func(f: Dictionary) -> int: return int(f.pot))))
 	DeepBattle.stake(fighters[1], 15)
 	DeepBattle.stake(fighters[2], 40)
 	var settle: Dictionary = DeepDescent._settle_fight(state, "victory")

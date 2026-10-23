@@ -42,8 +42,14 @@ extends RefCounted
 ##   clouded(enemy: one random move disabled) marked(enemy: next hit +25% per stack) dulled(enemy)
 ##   amplify_next(pct) cut_step_next raise_low raise_high set_match flip_high flip_low phantom_high
 ##   phantom_low(a phantom copying the lowest roll; `shows` sets the number it shows)
-##   phantom_roll(a phantom die of `shape` thrown into the hand)  rethrow(the lowest die thrown
+##   phantom_roll(a phantom die of `shape` thrown into the hand, `amount` of them; `of: "largest"`
+##     throws a copy of the owner's largest die instead, faces and all)  rethrow(the lowest die thrown
 ##     again; `best_of` throws it that many times and keeps the highest)
+##   bonus_die(a die of `shape` and `pattern` joins the owner's next throw, for that turn only)
+##   double_resonance_next(next turn the Birthstone reads twice the Resonance)
+##   lose_pyrite(self: that much leaves the bank, as much of it as there is)
+##   reflect_blows(self: the next blows a creature lands on its owner, until their next turn, are
+##     split: `pct` percent goes back at whoever threw it and the rest lands; stacks add)
 ##   gild(the face the highest die shows turns Golden for good; `both_ends` the lowest as well)
 ##   soak(the smallest die takes a drop; at three it grows a size for the run, or shrinks with `shrink`)
 ##   each_after(for the rest of this turn every gem after it gives its owner `gift`: block, spikes or poison)
@@ -135,7 +141,8 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
 	"reflect", "mirror", "absorb_color", "blank_face", "roll_again", "end_action",
 	"phantom_low", "phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "envenom", "gather_poison", "poison_tick",
-	"grow_poison", "fire_birthstone", "spectrum", "stone_chance", "double_resonance", "keep_phantoms"]
+	"grow_poison", "fire_birthstone", "spectrum", "stone_chance", "double_resonance", "keep_phantoms",
+	"bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows"]
 ## The creature-only kinds: a skill or an inclusion may not use them.
 const CREATURE_KINDS: Array = ["summon", "purge", "burrow", "festering", "scorched", "burn", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
@@ -168,7 +175,8 @@ const RANK_BUFFS: Array = ["carat", "cut"]
 const EACH_AFTER_GIFTS: Array = ["block", "spikes", "poison"]
 const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode",
 	"piercing", "split_party", "pick", "creature", "pct", "permanent", "shape", "cap", "turns", "cancel_pct", "guard_pct", "store", "release",
-	"hurt", "add", "flat", "stones", "of_status", "gift", "overflow", "resonance_cap", "shows", "every_gem", "elite", "best_of", "shrink", "both_ends"]
+	"hurt", "add", "flat", "stones", "of_status", "gift", "overflow", "resonance_cap", "shows", "every_gem", "elite", "best_of", "shrink", "both_ends",
+	"of", "pattern"]
 ## How an effect that works on one die or one gem chooses it: `showing` is the face every die
 ## lies on, `all` every die, `usable` the finest gem a creature could fire itself.
 const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best", "usable", "showing", "all"]
@@ -592,8 +600,12 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": overflow is block or damage")
 	if effect.has("of_status") and not str(effect.of_status) in ["spikes", "poison"]:
 		errors.append(where + ": of_status reads spikes or poison")
-	if kind in ["phantom_roll"] and not str(effect.get("shape", "D6")) in DeepDice.TIERS:
-		errors.append(where + ": phantom_roll needs a die shape")
+	if kind in ["phantom_roll", "bonus_die"] and not str(effect.get("shape", "D6")) in DeepDice.TIERS:
+		errors.append(where + ": " + kind + " needs a die shape")
+	if effect.has("of") and str(effect.of) != "largest":
+		errors.append(where + ": a phantom_roll can only copy the largest die")
+	if effect.has("pattern") and not str(effect.pattern) in DeepDice.PATTERNS:
+		errors.append(where + ": unknown die pattern " + str(effect.pattern))
 	if kind == "absorb_color" and not str(effect.get("color", "random")) in ABSORB_PICKS:
 		errors.append(where + ": absorb_color picks one of " + ", ".join(ABSORB_PICKS))
 	if kind == "dice_upgrade" and effect.has("cap") and not str(effect.cap) in DeepDice.TIERS:

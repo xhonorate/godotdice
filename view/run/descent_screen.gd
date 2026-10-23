@@ -3166,8 +3166,8 @@ func _sync_strip() -> void:
 	## every step it plays, and the strip used to be torn down and put back for each one.
 	var party: Array = run.get("players", []).map(func(p: Dictionary) -> String:
 		var hp: Vector2i = health.call(p)
-		return "%s|%s|%s|%d|%d|%s|%s" % [str(p.get("id", "")), str(p.get("name", "")), str(p.get("character", "")), hp.x, hp.y,
-			str(bool(p.get("downed", false))), str(bool(p.get("connected", true)))])
+		return "%s|%s|%s|%d|%d|%s|%s|%d" % [str(p.get("id", "")), str(p.get("name", "")), str(p.get("character", "")), hp.x, hp.y,
+			str(bool(p.get("downed", false))), str(bool(p.get("connected", true))), int(fighting.get(str(p.get("id", "")), {}).get("streak", 0))])
 	var key: String = "%s#%d#%s#%d#%d#%s#%s#%s#%s#%d#%d#%s#%s#%s" % [str(mine.get("name", "")), depth, note, every, into, str(guarded), local_id,
 		",".join(party), str(unit.is_empty()), _purse(unit), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open), JSON.stringify(daily_best)]
 	if not unit.is_empty():
@@ -3231,6 +3231,10 @@ func _sync_strip() -> void:
 		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar.warn = true
 		bar.set_values(float(hp.x) / float(maxi(1, hp.y)), "%d" % hp.x)
+		## A hot streak, a Hot Streak's die or better, is seen by the whole table.
+		var streak: int = int(fighting.get(member_id, {}).get("streak", 0))
+		if streak >= 2:
+			DeepUi.icon(box, "flame", 16, Color("ff7a2f"), "On Fire" if streak >= 3 else "Hot Streak").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		if bool(other.get("downed", false)):
 			DeepUi.icon(box, "skull", 16, DeepUi.BAD, "Down")
 		if not bool(other.get("connected", true)):

@@ -69,7 +69,7 @@ const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "ret
 	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise",
 	"fire_neighbours", "force_after", "absorbed",
 	"phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "fire_birthstone", "spectrum", "stone_chance",
-	"double_resonance", "keep_phantoms"]
+	"double_resonance", "keep_phantoms", "bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows"]
 ## The six colors and what a Spectrum gives for each of them, as [effect kind, amount, target].
 const SPECTRUM_GIFTS: Dictionary = {"RED": ["damage", 3, "enemy"], "BLUE": ["block", 3, "self"], "GREEN": ["heal", 3, "self"],
 	"VIOLET": ["poison", 2, "enemy"], "GOLD": ["gold", 2, "self"], "WHITE": ["resonance", 1, "self"]}
@@ -114,7 +114,8 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 		"amplify": 1.0, "cut_step_bonus": 0, "nullify_next": false, "block_lost": 0, "block_lost_accum": 0,
 		"healed": 0, "dealt": 0, "dealt_last_turn": 0, "gold": 0, "once": {}, "downed": false, "connected": true,
 		"eligible_turn": 1, "buried": [], "clouded": [], "stolen_dice": 0, "granted_rerolls": 0, "sparkle": 0,
-		"quality_bonus": 0, "run_mods": {}, "skipped_turn": - 1, "fired_count": 0, "raw_drops": 0, "damp_carry": 0}
+		"quality_bonus": 0, "run_mods": {}, "skipped_turn": - 1, "fired_count": 0, "raw_drops": 0, "damp_carry": 0,
+		"bonus_dice_next": [], "double_resonance_next": false, "resonance_doubled": false, "streak": 0, "streak_next": 0}
 	DeepStone.normalize_rail(unit)
 	return unit
 
@@ -295,12 +296,16 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			var wanted: Array = cmd.get("dice", []).map(func(d: Variant) -> String: return str(d))
 			var allowed: Array = DeepDice.rerollable(unit.hand)
 			var chosen: Array = wanted.filter(func(d: String) -> bool: return allowed.has(d))
+			## All or Nothing: the Gambler throws the whole bowl again or none of it.
+			if all_or_nothing(unit):
+				chosen = allowed.duplicate()
 			if chosen.is_empty():
 				return _refuse("choose dice to reroll")
 			unit.hand = DeepDice.reroll(unit.hand, unit.dice, chosen, rng_dice)
 			unit.rerolls = int(unit.rerolls) - 1
 			var loaded: Array = _loaded(unit, chosen, rng_dice)
 			var dues: Dictionary = _pay_dues(state, unit, chosen)
+			var crowned: Array = _crowns_rolled(unit, unit.hand.filter(func(r: Dictionary) -> bool: return chosen.has(str(r.get("die_id", "")))), true)
 			## A lantern's price: every creature that gifts rerolls takes blood for each one
 			## spent (a Will-o'-Wisp twice as much), and a Cinder Moth scorches instead.
 			var drain: int = 0
@@ -317,7 +322,7 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 				for victim in living(state.players):
 					victim.statuses.scorched = int(victim.statuses.get("scorched", 0)) + scorch
 			return {"ok": true, "event": _event(state, "reroll", {"unit": player_id, "dice": chosen, "hand": unit.hand.duplicate(true),
-				"rerolls": unit.rerolls, "drain": drain, "scorch": scorch, "loaded": loaded, "dues": dues, "resonance": int(unit.resonance)})}
+				"rerolls": unit.rerolls, "drain": drain, "scorch": scorch, "loaded": loaded, "dues": dues, "resonance": int(unit.resonance), "crowned": crowned})}
 		"flip":
 			## Sleight turns a die over onto a face of the opposite parity. See `shift_face`.
 			if bool(unit.get("locked", false)):
@@ -988,6 +993,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 				backlash = 1
 		if backlash > 0:
 			unit.hp = maxi(1, int(unit.hp) - backlash)
+	var crowns_before: Dictionary = _crown_ids(unit.hand) if all_or_nothing(unit) else {}
 	for effect in ev.get("effects", []):
 		var applied: Dictionary = effect.duplicate(true)
 		if scale != 100 and bool(effect.get("scaled", false)):
@@ -1019,6 +1025,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 			results.append_array(_apply(state, unit, applied, rng, "", reactions))
 		if done(state):
 			break
+	var crowned: Array = _crowns_changed(unit, crowns_before) if all_or_nothing(unit) else []
 	if not done(state):
 		results.append_array(_answer_fire(state, unit, answers, rng))
 	unit.erase("firing_colors")
@@ -1076,7 +1083,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
 		"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
 		"absorbed": str(opts.get("as_skill", "")), "certain": certain,
-		"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed,
+		"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed, "crowned": crowned,
 		"duration": BASE_DURATION.gem_fire + tally_span(tally) + maxf(0.1 * float(results.size()), hits_span(results))})
 
 # --- the Birthstone ----------------------------------------------------------------------
@@ -1100,6 +1107,10 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	var a: Dictionary = DeepHand.analyze(unit.hand)
 	## A Birthright fires it mid-rail at a share of the Resonance so far.
 	var resonance: int = DeepRules.sat_muldiv(int(unit.get("resonance", 0)), maxi(0, int(opts.get("share", 100))), 100)
+	## On Fire: last turn's High Roller doubled the whole total it reads this turn.
+	var doubled: bool = bool(unit.get("resonance_doubled", false))
+	if doubled:
+		resonance = DeepRules.sat_mul(resonance, 2)
 	var defs: Array = def.get("tiers", [])
 	var evaluated: Array = []
 	var exclusive_hit: int = -1
@@ -1166,6 +1177,19 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	if not dry and not replay and promised > 0:
 		for _more in range(promised):
 			state.queue.push_front({"kind": "birthstone", "unit": unit.id, "replay": true})
+	## How hot a streak next turn rides on, for the screens to wear: a reroll earned (1), a die
+	## (2), doubled Resonance (3). The highest any firing this turn reached.
+	if not dry:
+		var streak: int = 0
+		for entry in tiers:
+			if not bool(entry.get("active", false)):
+				continue
+			for effect in entry.get("effects", []):
+				match str(effect.get("kind", "")):
+					"grant_reroll": streak = maxi(streak, 1)
+					"bonus_die": streak = maxi(streak, 2)
+					"double_resonance_next": streak = maxi(streak, 3)
+		unit.streak_next = maxi(int(unit.get("streak_next", 0)), streak)
 	## The Birthstone is a gem that fired, as far as a Chainmail is concerned.
 	var answered: Array = []
 	if fired and not done(state):
@@ -1178,7 +1202,7 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 		if bool(entry.active):
 			played += tier_span(entry)
 	return _event(state, "birthstone", {"unit": unit.id, "name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "")),
-		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay, "promised": promised, "answers": answered,
+		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay, "promised": promised, "answers": answered, "doubled": doubled,
 		"duration": (BASE_DURATION.birthstone + played) if fired else BASE_DURATION.gem_fizzle})
 
 static func tier_span(entry: Dictionary) -> float:
@@ -1405,6 +1429,74 @@ static func stake(unit: Dictionary, wanted: int) -> int:
 	unit.pot = int(unit.get("pot", 0)) + moved
 	unit.pyrite_delta = int(unit.get("pyrite_delta", 0)) - moved
 	return moved
+
+static func all_or_nothing(unit: Dictionary) -> bool:
+	## Florin's All or Nothing: he throws the whole bowl or none of it.
+	return str(unit.get("passive", {}).get("kind", "")) == "all_or_nothing"
+
+static func _largest_die(unit: Dictionary) -> Dictionary:
+	## The die in the hand with the most faces; between two as large, the one showing more.
+	var best: Dictionary = {}
+	var best_roll: Dictionary = {}
+	for roll in unit.get("hand", []):
+		if bool(roll.get("phantom", false)):
+			continue
+		var die: Dictionary = _die_of(unit, str(roll.get("die_id", "")))
+		if die.is_empty():
+			continue
+		var faces: int = die.get("faces", []).size()
+		var best_faces: int = best.get("faces", []).size() if not best.is_empty() else -1
+		if best.is_empty() or faces > best_faces or (faces == best_faces and int(roll.get("value", 0)) > int(best_roll.get("value", 0))):
+			best = die
+			best_roll = roll
+	return best
+
+static func is_crown(roll: Dictionary) -> bool:
+	## A die showing its own top face, read the way DeepHand counts crowns: a wild always is.
+	var kind: String = str(roll.get("kind", "plain"))
+	if kind == "wild":
+		return true
+	if kind == "blank":
+		return false
+	return int(roll.get("value", 0)) >= maxi(1, int(roll.get("top", roll.get("value", 1))))
+
+static func _crown_ids(hand: Array) -> Dictionary:
+	var out: Dictionary = {}
+	for roll in hand:
+		if is_crown(roll):
+			out[str(roll.get("die_id", ""))] = true
+	return out
+
+static func _crowns_rolled(unit: Dictionary, rolls: Array, planning: bool) -> Array:
+	## All or Nothing: every crown that comes up rings the rail once. In planning it is banked
+	## the way a Crystal die's Resonance is, so the rail starts from it. Returns the die ids.
+	if not all_or_nothing(unit):
+		return []
+	var crowned: Array = []
+	for roll in rolls:
+		if bool(roll.get("carried", false)) or bool(roll.get("kept", false)):
+			continue
+		if is_crown(roll):
+			crowned.append(str(roll.get("die_id", "")))
+	if not crowned.is_empty():
+		if planning:
+			unit.initial_resonance = DeepRules.sat_add(int(unit.get("initial_resonance", 0)), crowned.size())
+		unit.resonance = DeepRules.sat_add(int(unit.get("resonance", 0)), crowned.size())
+	return crowned
+
+static func _crowns_changed(unit: Dictionary, before: Dictionary) -> Array:
+	## The crowns a gem's turn on the hand brought up: a phantom thrown or copied onto a top
+	## face, a die turned or raised onto one. All or Nothing counts each of them too.
+	if not all_or_nothing(unit):
+		return []
+	var fresh: Array = []
+	for roll in unit.hand:
+		var id: String = str(roll.get("die_id", ""))
+		if is_crown(roll) and not before.has(id):
+			fresh.append(id)
+	if not fresh.is_empty():
+		unit.resonance = DeepRules.sat_add(int(unit.get("resonance", 0)), fresh.size())
+	return fresh
 
 static func _loaded(unit: Dictionary, ids: Array, rng: RandomNumberGenerator) -> Array:
 	## The Gambler's Loaded dice: any die that lands on a 1 is thrown once more, free. `ids`
@@ -2068,17 +2160,56 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				state.queue = fired + state.queue
 		"phantom_roll":
 			## A Tumble or a Contra Luz: a fresh phantom die of its own size, thrown into the hand.
-			if dry:
+			## A Refract (`of: largest`) throws a copy of the owner's largest die, its faces and
+			## all: the most faces, and between two as large the one showing more.
+			var source: Dictionary = _largest_die(unit) if str(effect.get("of", "")) == "largest" else {}
+			if dry or (str(effect.get("of", "")) == "largest" and source.is_empty()):
 				out.nothing = true
 			else:
-				var made: Dictionary = DeepDice.make(str(effect.get("shape", "D6")), "%s_roll%d_%d" % [str(unit.id), int(state.get("turn", 0)), unit.hand.size()])
-				var ghost: Dictionary = DeepDice.roll_one(made, rng)
-				ghost.phantom = true
-				ghost.source_id = ""
-				unit.hand.append(ghost)
-				out.dice = [str(ghost.die_id)]
-				out.value = int(ghost.value)
+				var thrown_ids: Array = []
+				var values: Array = []
+				for _each in range(maxi(1, amount)):
+					var made: Dictionary
+					if source.is_empty():
+						made = DeepDice.make(str(effect.get("shape", "D6")), "%s_roll%d_%d" % [str(unit.id), int(state.get("turn", 0)), unit.hand.size()])
+					else:
+						made = source.duplicate(true)
+						made.id = "%s_ph%d_%d" % [str(source.id), int(state.get("turn", 0)), unit.hand.size()]
+						made.erase("bonus")
+					var ghost: Dictionary = DeepDice.roll_one(made, rng)
+					ghost.phantom = true
+					ghost.source_id = str(source.get("id", ""))
+					ghost.erase("bonus")
+					unit.hand.append(ghost)
+					thrown_ids.append(str(ghost.die_id))
+					values.append(int(ghost.value))
+				out.dice = thrown_ids
+				out.value = int(values[0])
+				out.values = values
 				out.hand = unit.hand.duplicate(true)
+		"bonus_die":
+			## A Hot Streak: a die of its own joins the next throw, for that turn only.
+			var owed: Array = unit.get("bonus_dice_next", [])
+			for _each in range(maxi(1, amount)):
+				owed.append({"shape": str(effect.get("shape", "D6")), "pattern": str(effect.get("pattern", ""))})
+			unit.bonus_dice_next = owed
+			out.count = unit.get("bonus_dice_next", []).size()
+		"double_resonance_next":
+			## On Fire: next turn the Birthstone reads twice the whole total.
+			unit.double_resonance_next = true
+		"lose_pyrite":
+			## A Bust: the bank pays, as much of it as there is.
+			var lost: int = mini(maxi(0, amount), DeepRules.pyrite(unit))
+			if lost > 0:
+				unit.pyrite_delta = int(unit.get("pyrite_delta", 0)) - lost
+			out.lost = lost
+		"reflect_blows":
+			## A Mirror: the next blows a creature lands on its owner, until their next turn,
+			## are split, `pct` percent sent back at whoever threw them. Every firing adds blows.
+			unit.statuses.reflect = mini(99, int(unit.statuses.get("reflect", 0)) + maxi(1, amount))
+			unit.statuses.reflect_pct = clampi(maxi(int(unit.statuses.get("reflect_pct", 0)), int(effect.get("pct", 50))), 0, 100)
+			out.blows = int(unit.statuses.get("reflect", 0))
+			out.pct = int(unit.statuses.get("reflect_pct", effect.get("pct", 50)))
 		"rethrow":
 			## A Rattle: the lowest real die it has not yet thrown this firing goes again. It is
 			## a throw, so it pays what a throw pays, but never a reroll: Fury and Anchor are blind to it.
@@ -3125,7 +3256,8 @@ static func dice_after_fight(unit: Dictionary) -> Array:
 	## or destroyed for the fight is back as it was. What was done for good stays done.
 	## A die broken this turn (a Glass die that shattered) would have grown back at the start
 	## of the next one, and a fight that ends first does not get to keep it.
-	var dice: Array = unit.get("dice", []).duplicate(true)
+	## A Hot Streak's bonus die was only lent for a turn.
+	var dice: Array = unit.get("dice", []).filter(func(d: Dictionary) -> bool: return not bool(d.get("bonus", false))).duplicate(true)
 	for entry in unit.get("broken_dice", []):
 		dice.insert(clampi(int(entry.get("at", 0)), 0, dice.size()), _regrown_die(unit, entry))
 	var kept: Dictionary = unit.get("fight_dice", {})
@@ -3155,6 +3287,23 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 	if marked > 0:
 		target.statuses.erase("marked")
 	var out: Dictionary = {"raw": raw}
+	## A Mirror a delver holds up: the next blow a creature lands is split, its share sent
+	## straight back at whoever threw it and the rest landing as it would.
+	if str(target.get("side", "")) == "player" and str(source.get("side", "")) == "enemy" and not reactive and raw > 0 and int(target.statuses.get("reflect", 0)) > 0:
+		var pct: int = clampi(int(target.statuses.get("reflect_pct", 50)), 0, 100)
+		target.statuses.reflect = int(target.statuses.reflect) - 1
+		if int(target.statuses.reflect) <= 0:
+			target.statuses.erase("reflect")
+			target.statuses.erase("reflect_pct")
+		var sent: int = DeepRules.sat_muldiv(raw, pct, 100)
+		if sent > 0:
+			var back: Dictionary = _damage(state, target, source, sent, rng, false, {}, true)
+			back.target = str(source.id)
+			back.kind = "damage"
+			out.reflected = back
+			out.reflected_amount = sent
+			raw -= sent
+			out.raw = raw
 	var is_enemy_target: bool = str(target.get("side", "")) == "enemy"
 	if is_enemy_target and str(source.get("side", "")) == "player" and not reactive:
 		## A mirror held up: the next blow on it goes straight back at whoever threw it.
@@ -3557,6 +3706,9 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		unit.on_block = []
 		## A Contra Luz that fired last turn: its phantoms are still in the hand.
 		var carried_phantoms: Array = []
+		## A Hot Streak's bonus die lasts the turn it was thrown for, unless a Contra Luz kept
+		## that turn's phantoms: then it stays in the bowl for one more.
+		var keep_bonus: bool = bool(unit.get("keep_phantoms", false))
 		if bool(unit.get("keep_phantoms", false)):
 			for roll in unit.get("hand", []):
 				if bool(roll.get("phantom", false)):
@@ -3566,6 +3718,24 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 					kept.kept = true
 					carried_phantoms.append(kept)
 		unit.keep_phantoms = false
+		if not keep_bonus:
+			unit.dice = unit.dice.filter(func(d: Dictionary) -> bool: return not bool(d.get("bonus", false)))
+		## What last turn's High Roller earned for this one: a bonus die, double Resonance.
+		var earned: Array = unit.get("bonus_dice_next", [])
+		for index in range(earned.size()):
+			var spec: Dictionary = earned[index]
+			var extra_die: Dictionary = DeepDice.make(str(spec.get("shape", "D6")), "%s_bonus%d_%d" % [str(unit.id), int(state.turn), index],
+				{"pattern": str(spec.get("pattern", ""))} if not str(spec.get("pattern", "")).is_empty() else {})
+			extra_die.bonus = true
+			unit.dice.append(extra_die)
+		unit.bonus_dice_next = []
+		unit.resonance_doubled = bool(unit.get("double_resonance_next", false))
+		unit.double_resonance_next = false
+		unit.streak = int(unit.get("streak_next", 0))
+		unit.streak_next = 0
+		## Mirror's reflection lasts until its owner's next turn, like Block.
+		unit.statuses.erase("reflect")
+		unit.statuses.erase("reflect_pct")
 		if bool(unit.get("downed", false)):
 			unit.hand = []
 			unit.locked = true
@@ -3616,6 +3786,7 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		_loaded(unit, [], rng_dice)
 		unit.regrown = regrown
 		unit.dues = _pay_dues(state, unit)
+		unit.crowned = _crowns_rolled(unit, unit.hand.filter(func(r: Dictionary) -> bool: return not bool(r.get("phantom", false))), true)
 		unit.flips = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "free_flip" else 0
 		var extra: int = int(unit.passive.get("amount", 1)) if str(unit.get("passive", {}).get("kind", "")) == "extra_reroll" else 0
 		var staked: Dictionary = unit.get("run_mods", {}).get("extra_rerolls", {})
@@ -3681,6 +3852,7 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 	return _event(state, "turn_begin", {"turn": state.turn, "frozen": frozen, "charged": batteries, "afflicted": afflicted,
 		"hands": state.players.map(func(u: Dictionary) -> Dictionary: return {"unit": u.id, "hand": u.hand.duplicate(true), "rerolls": u.rerolls,
 			"dues": u.get("dues", {}), "regrown": u.get("regrown", {}), "resonance": int(u.get("resonance", 0)),
+			"crowned": u.get("crowned", []), "doubled": bool(u.get("resonance_doubled", false)),
 			"locked": u.hand.filter(func(r: Dictionary) -> bool: return bool(r.get("locked_by_foe", false))).map(func(r: Dictionary) -> String: return str(r.die_id))})})
 
 static func _check_outcome(state: Dictionary) -> void:

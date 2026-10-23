@@ -38,7 +38,7 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 | **Vesper**, the Rogue             | 65  | d4 d4 d4 d4 d20 (20.5)      | Red, Red, Violet, Any, Any     | Block per hit dealt        | Five distinct, see options        |
 | **Cadence**, the Wizard           | 70  | d4 d6 d8 d10 d12 (22.5)     | Red, White, Violet, Any, Any   | +1 reroll                  | Straights                         |
 | **Rue**, the Apothecary           | 70  | d4 d4 d6 d6 Phial (13.7)    | Red, Violet, Green, Any, Any   | Heal Res when poison ticks | Low dice and ones                 |
-| **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Red, Gold, Gold, Any, Any, Any | A tenth of his bank staked | Crowns                            |
+| **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Red, Gold, Gold, Any ×4        | All or Nothing             | Crowns                            |
 | **Sixth**: Harrow, Blaise or Puck |     |                             |                                |                            | High total, explosions, or parity |
 
 ### Ardor, the Knight
@@ -130,26 +130,39 @@ _The low roller. Wants ones. Everything the other five dread, Rue drinks._
 
 ### Florin, the Gambler
 
-_The six-socket high roller. Every coin he owns is ammunition._
+_The seven-socket high roller. Every roll is all or nothing._
 
 - **HP** 60. **Dice** five **Gambler's Dice**: d6s whose 6 is a 7 (faces 1 2 3 4 5 7, bowl mean
   18.3). The 7 is the crown, and it is the face Lucky Seven pays on. **Sockets** Red, Gold, Gold,
-  Any, Any, Any (six).
-- **The pot.** Florin fights with money on the table. Everything staked leaves his bank the moment
-  it is staked, so what he owns is the ceiling on what he can do — and it all comes back to him if
-  he wins the fight. Lose it, or Bust, and it stays on the table.
-- **Passive: House Money.** Each fight opens with a tenth of his pyrite already staked, so the
-  stakes climb with the run and a first-turn Bust is never free.
-- **Birthstone: High Roller.** A _crown_ is a die showing its top face.
-  - Each crown (_Ante_): stake Res, and deal Res.
-  - Three or more crowns (_Raise_): match the pot out of the bank, then deal the whole of it.
-  - Five crowns (_All In_): the whole bank goes in; the pot lands on every creature and pays him
-    what it actually takes off them, overkill excluded.
-  - Fourth tier, _Bust_: no crown showing. The table takes the pot, and half of it comes out of
-    him. Block soaks that blow. The richer the turn, the worse the fall.
-- **Fire rates** chasing crowns: at least one 94%, three or more 35%, five 1.3%, Bust 6.5%.
-- **What the sixth socket costs.** Lowest HP, a flat bowl, and a sixth chance to fizzle and reset
-  Resonance before the Birthstone. Wild and Twin faces are the Gambler's shopping list.
+  Any, Any, Any, Any (seven).
+- **Passive: All or Nothing.** Florin throws all his dice together or none of them: a reroll throws
+  the whole bowl, so no gem's pattern can be chased. Every crown that comes up, on any throw,
+  phantom dice and a die a gem turns onto its top face included, adds 1 Resonance; the throws of
+  the planning phase bank it before the rail starts.
+- **Birthstone: High Roller.** A _crown_ is a die showing its top face. Every tier the hand reaches pays.
+  - One crown or more (_Lucky_): deal Resonance for each crown showing.
+  - Two or more (_Heating Up_): +1 reroll next turn.
+  - Three or more (_Hot Streak_): a phantom Gambler's die joins next turn's throw. It is thrown and
+    rerolled with the hand and leaves after that turn, unless a Contra Luz keeps the turn's phantoms.
+  - Four or more (_On Fire_): next turn High Roller reads double the whole Resonance total.
+  - Five or more (_Jackpot_): deal 7× Resonance seven times, and gain 7× Resonance in pyrite.
+  - None (_Bust_): lose Resonance in pyrite, as much as the bank holds, then take Resonance as
+    damage. Block soaks it.
+- **The streak.** What one turn earns the next one rides on, and the battle screen wears it:
+  embers off the tray for Heating Up, flames along it for a Hot Streak (the bonus die gold-rimmed),
+  burning dice, heat at the screen's edges and his victory face On Fire, a slot machine's lights for
+  a Jackpot, smoke for a Bust. His seat tab and the run strip carry a flame for the whole table.
+- **Odds** (dice-only model, two rerolls, a rail ringing 5 on its own): about 2.2× Resonance a turn
+  when he rerolls one-crown hands, busting 1 turn in 4; 1.8× when he stops on any crown, busting 1 in
+  18. The Jackpot comes about 1 turn in 2,700 on bare dice; face changes and extra rerolls bring it closer.
+- **What the seventh socket costs.** Lowest HP, a flat bowl, and rerolls that cannot chase a pattern.
+  Wild and Twin faces are the Gambler's shopping list.
+- **Reworked October 22, 2026.** House Money and the pot (Ante, Raise, All In) are gone: the pot was
+  never spent, so every fire dealt it again, it doubled for free on a win, and it grew with the bank,
+  which made Florin's Birthstone cut his boss kill time by a third to four fifths against 0 to 15%
+  for everyone else. Refract and Mirror changed at the same time, because their copies of a 7 kept
+  the new ladder lit (Refract now rolls a phantom copy of the largest die; Mirror reflects half of
+  the next enemy attack).
 - **Stone.** A pyrite cube, fool's gold, which forms as a perfect cube in nature: the Birthstone is a
   metal die. **Birthstone face:** wide eyes, a whoop.
 

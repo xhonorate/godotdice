@@ -24,6 +24,7 @@ const Thumbs = preload("res://view/gems/thumbs.gd")
 const Biomes = preload("res://view/battle/biomes.gd")
 const MineStage = preload("res://view/run/mine_stage.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
+const StreakFx = preload("res://view/battle/streak_fx.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Tally = preload("res://view/battle/tally.gd")
@@ -263,6 +264,10 @@ var _resonance_token: int:
 	set(value): _page.resonance_token = value
 ## What the dice owed on the throw this turn opened with, and what grew back with them.
 var _pending_dues: Dictionary = {}
+## All or Nothing: the crowns the turn's opening throw brought up, rung once it is seen.
+var _pending_crowns: Array = []
+## Florin's hot streak, worn by the reader's own tray (see streak_fx.gd).
+var _streak_fx: Control = null
 var _pending_regrown: Dictionary = {}
 var _battery_tween: Tween:
 	get: return _page.battery_tween
@@ -550,6 +555,17 @@ func _build_hud() -> void:
 	_my_tab.picked.connect(_pick_tab.bind(""))
 	_tab_bar.add_child(_my_tab)
 	_effects = _my_tab.chips
+	## A hot streak's embers and flames, over the reader's own tray.
+	_streak_fx = StreakFx.new()
+	_streak_fx.follow = _local_page.tray_box
+	_streak_fx.shimmer_host = _hud
+	_streak_fx.dice_rects = func() -> Array:
+		var rects: Array = []
+		for view in _local_page.dice_views.values():
+			if is_instance_valid(view) and (view as Control).is_visible_in_tree():
+				rects.append((view as Control).get_global_rect())
+		return rects
+	_hud.add_child(_streak_fx)
 
 func _build_page(page: Page) -> void:
 	## A player's page of the dock, built once: their health and Resonance, their rail, their
@@ -806,7 +822,9 @@ func _sync() -> void:
 	var locked: bool = bool(unit.get("locked", false))
 	var downed: bool = bool(unit.get("downed", false))
 	var rerolls: int = int(unit.get("rerolls", 0))
-	_reroll_button.disabled = not planning or locked or downed or rerolls <= 0 or selected.is_empty()
+	## All or Nothing: nothing to pick, the button throws the whole bowl.
+	var whole_bowl: bool = DeepBattle.all_or_nothing(unit)
+	_reroll_button.disabled = not planning or locked or downed or rerolls <= 0 or (selected.is_empty() and not whole_bowl)
 	## Study's reroll is shown arriving: the button holds it back until it has been counted on.
 	var lag: int = _study_lag if Time.get_ticks_msec() < _study_until else 0
 	_reroll_button.text = ("Reroll  %d left" % maxi(0, rerolls - lag)) if planning else "Resolving"
@@ -824,7 +842,7 @@ func _sync() -> void:
 		_reroll_button.tooltip_text = "%s: %s" % [str(roller.get("name", "A creature")), str(roller_chip[2])]
 	else:
 		_reroll_button.remove_theme_color_override("font_disabled_color")
-		_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
+		_reroll_button.tooltip_text = "All or Nothing: reroll every die  [R]" if whole_bowl else "Reroll the selected dice  [R]"
 	var flips: int = int(unit.get("flips", 0))
 	## Unlocking is only offered while there is something left to do with the hand.
 	var spent: bool = rerolls <= 0 and flips <= 0
@@ -837,7 +855,7 @@ func _sync() -> void:
 	_flip_button.text = "Shift" if flips > 0 or not planning else "Shifted"
 	_flip_button.tooltip_text = (shift_refusal.substr(0, 1).to_upper() + shift_refusal.substr(1) + ".") if not shift_refusal.is_empty() else SHIFT_TIP
 	## When there is nothing left to decide, the lock button asks to be pressed.
-	var waiting_on_me: bool = planning and not locked and not downed and ((rerolls <= 0 and flips <= 0) or selected.is_empty())
+	var waiting_on_me: bool = planning and not locked and not downed and ((rerolls <= 0 and flips <= 0) or (selected.is_empty() and not whole_bowl))
 	if waiting_on_me and _lock_pulse == null:
 		_lock_pulse = DeepUi.breathe(_lock_button, 0.7, 1.4)
 	elif not waiting_on_me and _lock_pulse != null:
@@ -861,7 +879,10 @@ func _sync() -> void:
 		elif rerolls <= 0:
 			_hint.text = "No rerolls left. Lock in  [Space]"
 		else:
-			_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
+			if whole_bowl:
+				_hint.text = "All or Nothing: reroll every die  [R], or lock in  [Space]"
+			else:
+				_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
 
 # --- the party: a page each, and a tab each -----------------------------------------------------
 
@@ -1003,6 +1024,7 @@ func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
 		_show_resonance(int(unit.get("resonance", 0)))
 	_sync_rail(unit, planning)
 	_sync_tray(unit, planning)
+	_sync_streak(page, unit)
 	if not page.mine:
 		_sync_mate_state(page, unit, planning)
 	_show_mood(page.id)
@@ -1740,6 +1762,9 @@ func _mood_of(id: String) -> String:
 	var passing: Array = _passing.get(id, [])
 	if not passing.is_empty() and Time.get_ticks_msec() < int(passing[1]):
 		return str(passing[0])
+	## On Fire: the face of a man on a run of luck, for as long as it lasts.
+	if int(unit.get("streak", 0)) >= 3:
+		return "victory"
 	return Roster.resting_mood({"hp": maxi(1, hp), "max_hp": int(shown.get("max_hp", 1))})
 
 func _show_mood(id: String) -> void:
@@ -2412,7 +2437,7 @@ func _sync_phantoms(unit: Dictionary) -> void:
 		more.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		more.gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-				Inspector.gathering("Phantom dice", "Copies of your highest die, made by a Refract. Each counts for every gem after the one that made it this turn, then fades.", "die", [], drawn, captions)
+				Inspector.gathering("Phantom dice", "Dice your gems rolled or copied into the hand. Each counts for every gem after the one that made it this turn, then fades.", "die", [], drawn, captions)
 				more.accept_event())
 
 func _sync_tray(unit: Dictionary, planning: bool) -> void:
@@ -2468,7 +2493,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 				hit.pressed.connect(_toggle_die.bind(id))
 			hit.mouse_entered.connect(func() -> void: view.set_highlight(true))
 			hit.mouse_exited.connect(func() -> void: view.set_highlight(false))
-			hit.tooltip_text = "Left-click to choose it for a reroll. Right-click for everything about it." if mine else "Right-click for everything about this die."
+			hit.tooltip_text = ("All or Nothing: Reroll throws every die. Right-click for everything about this one." if DeepBattle.all_or_nothing(unit) else "Left-click to choose it for a reroll. Right-click for everything about it.") if mine else "Right-click for everything about this die."
 			hit.gui_input.connect(func(event: InputEvent) -> void:
 				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 					_inspect_die(id, owner_id)
@@ -2501,8 +2526,12 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 			words += "  ⇅"
 		if bool(roll.get("loaded", false)):
 			words += "  ↻"
+		var lent: bool = bool(roll.get("bonus", false))
+		if lent:
+			words = "bonus  " + words
 		value.text = words.strip_edges()
-		value.add_theme_color_override("font_color", DeepUi.ACCENT if chosen else DeepUi.MUTED)
+		value.add_theme_color_override("font_color", DeepUi.ACCENT if chosen else (DeepUi.ORE if lent else DeepUi.MUTED))
+		_bonus_rim(view.get_parent(), lent)
 	## A hand locked in while the rest of the party still chooses settles back a shade: these
 	## dice are final. They come up bright again for the turn to count them.
 	var settled: Color = Color(0.74, 0.76, 0.86) if planning and bool(unit.get("locked", false)) else Color.WHITE
@@ -3077,6 +3106,11 @@ func _toggle_die(id: String) -> void:
 	var unit: Dictionary = me()
 	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)) or (int(unit.get("rerolls", 0)) <= 0 and int(unit.get("flips", 0)) <= 0):
 		return
+	## All or Nothing: no die is picked out; the whole bowl goes again or none of it.
+	if DeepBattle.all_or_nothing(unit):
+		if not _headless:
+			_float_at(_tray_box, "All or Nothing: Reroll throws every die", DeepUi.INFO, 14)
+		return
 	if selected.has(id):
 		selected.erase(id)
 		DeepAudio.play("die_drop", {"gap": 0.0})
@@ -3086,14 +3120,16 @@ func _toggle_die(id: String) -> void:
 	_sync()
 
 func _reroll() -> void:
-	if selected.is_empty():
+	var whole_bowl: bool = DeepBattle.all_or_nothing(me())
+	if selected.is_empty() and not whole_bowl:
 		return
 	## Rerolling before Study's reroll has been counted on: it is simply there.
 	_study_lag = 0
-	command.emit({"kind": "reroll", "dice": selected.duplicate()})
+	var thrown: Array = DeepDice.rerollable(me().get("hand", [])) if whole_bowl else selected.duplicate()
+	command.emit({"kind": "reroll", "dice": thrown})
 	DeepAudio.play("dice_reroll", {"volume": 0.8})
 	if not _headless:
-		for id in selected:
+		for id in thrown:
 			if _dice_views.has(id):
 				var view: Control = _dice_views[id]
 				DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.INFO, 14, 140.0, 0.5)
@@ -3204,6 +3240,7 @@ func perform(event: Dictionary) -> void:
 			if str(entry.get("unit", "")) == local_id:
 				_pending_dues = entry.get("dues", {})
 				_pending_regrown = entry.get("regrown", {})
+				_pending_crowns = entry.get("crowned", [])
 		for battery in event.get("charged", []):
 			if str(battery.unit) == local_id:
 				_charge_resonance(int(battery.amount))
@@ -3305,11 +3342,14 @@ func perform(event: Dictionary) -> void:
 			## the tray a beat later, once the solids have settled where they landed.
 			var owed: Dictionary = _pending_dues
 			var back: Dictionary = _pending_regrown
+			var crowns: Array = _pending_crowns
 			_pending_dues = {}
 			_pending_regrown = {}
+			_pending_crowns = []
 			_later_do(0.55, func() -> void:
 				_dice_regrown(back)
-				_dice_dues(owed, _dice_views.keys()))
+				_dice_dues(owed, _dice_views.keys())
+				_crowns_ring(crowns))
 		"resolution_begin":
 			DeepAudio.play("resolve", {"volume": 0.75})
 			_announce("Resolve", DeepUi.ACCENT, "", 0.5)
@@ -3321,6 +3361,7 @@ func perform(event: Dictionary) -> void:
 		"gem_fire":
 			_gem_fire(event)
 			if str(event.get("unit", "")) == local_id:
+				_crowns_ring(event.get("crowned", []))
 				if int(event.get("backlash", 0)) > 0:
 					DeepAudio.play("enemy_strike", {"volume": 0.5})
 					_screen_fx.wound(0.4)
@@ -3343,7 +3384,9 @@ func perform(event: Dictionary) -> void:
 			_birthstone_fire(event)
 		"reroll":
 			if str(event.get("unit", "")) == local_id:
-				_later_do(0.4, func() -> void: _dice_dues(event.get("dues", {}), event.get("dice", [])))
+				_later_do(0.4, func() -> void:
+					_dice_dues(event.get("dues", {}), event.get("dice", []))
+					_crowns_ring(event.get("crowned", [])))
 				## The last reroll spent, there is nothing left to decide: the hand locks itself
 				## once its dice have been seen to land. Unlock takes it back.
 				_later_do(1.3, _lock_if_spent)
@@ -3532,6 +3575,15 @@ func _birthstone_fire(event: Dictionary) -> void:
 	var busted: bool = lit.all(func(x: Dictionary) -> bool: return penalties.has(str(x.get("name", ""))))
 	## Their face goes with it: their own Birthstone face, or a flinch for a Bust.
 	_react(unit_id, "wince" if busted else "birthstone", 1.8)
+	## High Roller's moments: a Bust snuffs the streak out at once; the Jackpot's slot machine
+	## pays when its own tier is reached, below.
+	if mine and not _headless:
+		if busted and penalties.size() > 0 and _streak_fx != null:
+			_streak_fx.snuff()
+			_screen_fx.blink(Color(0.55, 0.65, 0.85), 0.25)
+			_later_do(0.3, func() -> void: _fx.coins(_purse(), _purse() + Vector3(0, -1.6, 0.4), 8))
+	if bool(event.get("doubled", false)) and anchor != null and not _headless:
+		_float_at(_resonance_anchor(unit_id), "On Fire ×2", StreakFx.HOT, 18)
 	if anchor != null:
 		DeepAudio.from(anchor, "resonance", {"pitch": 1.1 + 0.08 * float(mini(lit.size(), 4)), "volume": 0.9, "gap": 0.02})
 		var ring: SocketRing = anchor.get_node_or_null("Slot/Ring")
@@ -3556,6 +3608,8 @@ func _birthstone_fire(event: Dictionary) -> void:
 	var step: int = mini(_chain.fired, Tally.TOP_START)
 	for entry in lit:
 		_later_do(at, _birth_tier.bind(unit_id, entry, color, step, penalties.has(str(entry.get("name", "")))))
+		if mine and not _headless and str(entry.get("trigger", {}).get("kind", "")) == "crowns" and int(entry.get("trigger", {}).get("need", 0)) >= 5:
+			_later_do(at, _jackpot.bind(entry))
 		at += DeepBattle.tier_span(entry)
 		step = mini(step + 2, Tally.TOP_START + 2)
 	_birth_purse(event, at + 0.3)
@@ -4324,6 +4378,78 @@ func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
 			_screen_fx.blink(DeepUi.PAPER, 0.05))
 		beat += 0.18
 
+func _crowns_ring(ids: Array) -> void:
+	## All or Nothing: every crown that came up rings the rail once. Each glints gold where it
+	## landed, and the count goes up by as many.
+	if ids.is_empty() or _headless or not is_inside_tree():
+		return
+	var box: Control = _local_page.resonance_box
+	DeepAudio.from(box, "resonance", {"volume": 0.6, "pitch": 1.25})
+	_float_at(box, "+%d" % ids.size(), StreakFx.BULB, 18)
+	DeepUi.burst(self, _center_of(box), StreakFx.BULB, 8 + 4 * ids.size(), 110.0, 0.5)
+	for id in ids:
+		var lit: Control = _die_anchor(str(id))
+		if lit != null and lit != _tray_box:
+			DeepUi.burst(self, _center_of(lit), StreakFx.BULB, 10, 80.0, 0.45)
+			DeepUi.pulse(lit, 1.15, 0.25)
+
+func _bonus_rim(holder: Node, lent: bool) -> void:
+	## A Hot Streak's bonus die wears a gold rim for the turn it was lent, and drops in burning.
+	if holder == null or not holder is Control:
+		return
+	var rim: Panel = holder.get_node_or_null("BonusRim")
+	if rim == null and lent:
+		rim = Panel.new()
+		rim.name = "BonusRim"
+		var edge := DeepUi.flat(Color(0, 0, 0, 0), DeepUi.ORE, 2, 9)
+		rim.add_theme_stylebox_override("panel", edge)
+		rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rim.position = Vector2(-3, -3)
+		rim.size = Vector2(DIE_EDGE + 6, DIE_EDGE + 6)
+		holder.add_child(rim)
+		if not _headless and holder.is_inside_tree():
+			DeepUi.burst(self, _center_of(holder as Control), StreakFx.EMBER, 26, 150.0, 0.6)
+	if rim != null:
+		rim.visible = lent
+
+func _sync_streak(page: Page, unit: Dictionary) -> void:
+	## The hot streak this turn rides on (DeepBattle's `streak`): the reader's own tray wears it,
+	## and On Fire's doubled Resonance is written beside the count.
+	var downed: bool = bool(unit.get("downed", false))
+	var doubled: bool = bool(unit.get("resonance_doubled", false)) and not downed
+	var mark: Label = page.resonance_box.get_node_or_null("Doubled") if page.resonance_box != null else null
+	if mark == null and doubled and page.resonance_box != null:
+		mark = DeepUi.title(page.resonance_box, "×2", 18, StreakFx.HOT)
+		mark.name = "Doubled"
+		mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mark.mouse_filter = Control.MOUSE_FILTER_PASS
+		mark.tooltip_text = "On Fire: High Roller reads double Resonance this turn."
+	if mark != null:
+		mark.visible = doubled
+	if page.mine and _streak_fx != null:
+		_streak_fx.set_level(0 if downed else int(unit.get("streak", 0)))
+
+func _jackpot(entry: Dictionary) -> void:
+	## Five crowns, as the Jackpot's own tier is reached: the slot machine pays. Time slows, bulbs
+	## chase round the tray, each of the seven blows lands with a ring as the count lets them go,
+	## and coins pour into the purse.
+	if state.is_empty() or not is_inside_tree():
+		return
+	ScreenFx.hold(0.9, 0.35)
+	if _streak_fx != null:
+		_streak_fx.jackpot()
+	_announce("JACKPOT", StreakFx.BULB, "Seven times seven", 1.6)
+	DeepAudio.rumble(0.6, 0.6, 0.3)
+	var hit_at: Vector3 = _purse() + Vector3(0, 1.0, -1.0)
+	for effect in entry.get("effects", []):
+		var struck: CrystalCreature = _creature(str(effect.get("target", ""))) if str(effect.get("kind", "")) == "damage" else null
+		if struck != null and is_instance_valid(struck):
+			hit_at = struck.centre()
+	var land: float = DeepBattle.birth_span(entry.get("count", {}))
+	for index in range(7):
+		_later_do(land + 0.13 * float(index), func() -> void: _fx.ring_wave(Vector3(hit_at.x, 0.0, hit_at.z), StreakFx.BULB, 1.8, 0.4, 0.1))
+	_later_do(land + 1.0, func() -> void: _fx.coins(hit_at, _purse(), 26))
+
 func _dice_regrown(regrown: Dictionary) -> void:
 	## A die or a gem that was broken is back, the way its hero came down with it.
 	if regrown.is_empty() or _headless:
@@ -4924,6 +5050,16 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 	if effect.has("spikes"):
 		var retaliation: Dictionary = effect.spikes
 		_impact(str(retaliation.target), retaliation, DeepUi.INFO, target_id == local_id, target_id)
+	if effect.has("reflected"):
+		## A Mirror held up: part of the blow goes straight back at whoever threw it.
+		var back: Dictionary = effect.reflected
+		var glass: Color = Color("dfe6ff")
+		var held_at: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.8 if target_id == local_id else source + Vector3(0, 0, 1.2)
+		_fx.shield(held_at, _camera.global_position - held_at, glass, 0.85, 0.45)
+		_fx.beam(held_at, source, glass, 0.3, 0.12)
+		_impact(str(back.get("target", "")), back, glass, target_id == local_id, target_id)
+		if target_id == local_id:
+			_float_at(_hp_bar, "Reflected %s" % DeepUi.number(int(effect.get("reflected_amount", 0))), glass, 18)
 	match kind:
 		"damage":
 			var loss: int = int(effect.get("hp_loss", 0))
@@ -4953,7 +5089,7 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 				if absorbed > 0:
 					var ahead: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.8
 					_fx.shield(ahead, _camera.global_position - ahead, DeepUi.BLOCK, 0.9, 0.5)
-				var text: String = "−%d" % loss if loss > 0 else "Blocked"
+				var text: String = "−%d" % loss if loss > 0 else ("Reflected" if effect.has("reflected") and absorbed <= 0 else "Blocked")
 				_float_at(_hp_bar, text, DeepUi.BAD if loss > 0 else DeepUi.BLOCK, 26 + mini(20, loss))
 				## Hit while looking at someone else's page: the reader's own tab flinches too.
 				if loss > 0 and not _is_shown(local_id):

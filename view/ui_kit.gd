@@ -84,6 +84,8 @@ const KEYWORD_HINTS: Dictionary = {
  "cut": "The gem’s trigger/effect ladder: Poor, Fair, Good, Fine, Perfect. Temporary bonuses last this fight.",
  "clarity": "Pristine doubles base Resonance gain. Flawless triples it, grants ×1.5 magnitude and activates the Flawless line. Temporary bonuses preserve inclusions.",
  "phantom": "An extra temporary die read by later gems. It cannot receive permanent face upgrades.",
+ "reflect": "Splits the next blow a creature lands on you: part goes straight back at whoever threw it, the rest lands. One blow a stack; they fall away at your next turn.",
+ "crown": "A die showing its own top face. On Gambler's dice, the 7.",
  "amplif": "Increases the next evaluated gem’s magnitude. Consumed even if that gem fizzles.",
  "permanent": "Lasts for the current run, including later fights. Does not alter your stored collection.",
  "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn."

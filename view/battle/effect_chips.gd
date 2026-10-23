@@ -118,6 +118,12 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	if not battle.is_empty() and DeepBattle.living(battle.get("enemies", [])).any(func(f: Dictionary) -> bool: return DeepCreatures.has_trait(f, "backlash")):
 		out.append(entry("backlash", "bolt", "−%d" % fired if str(battle.get("phase", "")) == "resolving" and fired > 0 else "", false, "Backlash",
 			"Every gem that fires costs you 1 health while it lives (never your last).", Color("ff8ad8")))
+	## The hot streak High Roller earned last turn, being ridden now.
+	var streak: int = clampi(int(unit.get("streak", 0)), 0, 3)
+	if streak > 0:
+		var named: Array = [["Heating Up", "Last turn's crowns earned a reroll more this turn."], ["Hot Streak", "Last turn's crowns put a Gambler's die in this throw."],
+			["On Fire", "Last turn's crowns doubled the Resonance High Roller reads this turn."]][streak - 1]
+		out.append(entry("streak", "flame", "×2" if streak >= 3 else "", true, str(named[0]), str(named[1]), Color("ff7a2f")))
 	var gifts: int = int(unit.get("granted_rerolls", 0))
 	if gifts > 0:
 		out.append(entry("gifts", "reroll", "+%d" % gifts, true, "Extra rerolls", "%s more next turn." % DeepUi.plural(gifts, "reroll")))
@@ -138,7 +144,7 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("nullify", "cross_out", "", false, "Came up empty", "Double Down lost: the next gem does nothing."))
 	var quality: int = int(unit.get("quality_bonus", 0))
 	if quality > 0:
-		out.append(entry("quality", "star", "+%d" % quality, true, "Hot Streak", "Stones found when this fight is won roll at +%.1f generation luck, and are %d%% likelier to turn up at all." % [float(quality) / 10.0, quality / 2], DeepUi.ACCENT))
+		out.append(entry("quality", "star", "+%d" % quality, true, "Good Prospects", "Stones found when this fight is won roll at +%.1f generation luck, and are %d%% likelier to turn up at all." % [float(quality) / 10.0, quality / 2], DeepUi.ACCENT))
 	## A gem raised mid-fight is not a chip here: the rail draws the raised ranks on the gem
 	## itself, where the player is already looking, and it grows to the carat it now counts as.
 	out.append_array(for_run(unit))
@@ -283,6 +289,10 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 	var breaker: int = int(statuses.get("combo_breaker", 0))
 	if breaker > 0:
 		out.append(entry("combo_breaker", "shield_burst", "", not on_enemy, "Combo Breaker", "After three consecutive stunned turns, clears all Stun and rejects new Stun through its next turn.", DeepUi.INFO))
+	var reflect: int = int(statuses.get("reflect", 0))
+	if reflect > 0:
+		var pct: int = clampi(int(statuses.get("reflect_pct", 50)), 0, 100)
+		out.append(entry("reflect", "flip", str(reflect), not on_enemy, "Reflect", "%s of the next %s a creature lands goes back at whoever threw it; the rest lands. Falls away at your next turn." % ["All" if pct >= 100 else "%d%%" % pct, DeepUi.plural(reflect, "blow")], Color("dfe6ff")))
 	var descriptions: Dictionary = {
 		"lifeline": ["pulse", "Lifeline", "The next lethal hit or Poison tick consumes all stacks and restores %d HP, up to maximum HP. Lasts this fight.", true],
 		"ward": ["shield_burst", "Ward", "Blocks the next %d debuff applications, consuming one charge each. Maximum 99. Lasts this fight.", true],

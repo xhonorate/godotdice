@@ -93,9 +93,9 @@ Formulas are base values before ordinary carat/inclusion scaling. **Flawless als
 | Gem     | Rarity    | Trigger / Cut ladder                                 | Base effect                                                                                                                | Flawless card line            |
 | ------- | --------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | Glimmer | Common    | At least one die <3/4/5/6/7                          | Permanently raise the first matched die's face by 1 (an exploding face counts by its own number, not what it threw again). | Raise every face of that die. |
-| Refract | Uncommon  | At least one die ≥95/90/85/80/70% of its own maximum | Add 1 phantom die copying your highest roll.                                                                               | Two phantoms.                 |
+| Refract | Uncommon  | At least one die ≥95/90/85/80/70% of its own maximum | Roll a phantom copy of your largest die (the most faces; a tie goes to the one showing more). The copy keeps the die’s changed faces. | Two phantoms.                 |
 | Polish  | Uncommon  | ≥4/3/2/1/0 dice at or below half their own maximum   | Adjacent gems gain 1 Clarity this fight.                                                                                   | Apply to all gems.            |
-| Mirror  | Common    | ≥5/4/3/2/1 distinct values                           | Change one die to join your strongest matching set.                                                                        | Match two dice.               |
+| Mirror  | Common    | Two pairs, the higher one ≥6/5/4/3/2                 | Reflect half of the next enemy attack: half the blow goes back at its thrower. Carat adds blows; they fall away at your next turn. | Reflect all of it.            |
 | Cascade | Common    | Pair valued ≥5/4/3/2/1                               | An extra reroll next turn.                                                                                                 | Two extra rerolls.            |
 | Facet   | Uncommon  | At least one die ≥90/75/60/40/0% of its own maximum  | Adjacent gems gain 1 Cut this fight.                                                                                       | Apply to all gems.            |
 | Echo    | Rare      | Pair valued ≥5/4/3/2/1                               | Repeat the previous gem at half strength.                                                                                  | At full strength.             |
@@ -174,7 +174,7 @@ These are fixed character abilities at the end of the rail, not collectible skil
 | Cadence, the Wizard | Encore         | Four-die straight: 4× Resonance damage to every creature. Five-die straight: replay the fired rail, including Overture.                                                                                                                                                  |
 | Rue, the Apothecary | Bitter Draught | Four low dice: Resonance poison. Five low dice: tick every creature’s poison. Five ones: tick every poison Resonance times.                                                                                                                                              |
 | Puck, the Harlequin | Motley         | Five odd dice: 3× Resonance damage. Five even: 3× Resonance block. Five distinct values of one parity: exclusive 6× damage and block, plus stun.                                                                                                                         |
-| Florin, the Gambler | High Roller    | Each crown stakes Resonance in the pot and deals it; three crowns match the pot out of the bank and deal it; five push the whole bank in, hit every creature and pay what they take. No crowns loses the pot and half of it in damage. A crown is a die on its top face. |
+| Florin, the Gambler | High Roller    | All or Nothing rerolls; each crown rolled is +1 Resonance. One crown: Resonance per crown. Two: +1 reroll next turn. Three: a phantom Gambler’s die next turn. Four: double Resonance next turn. Five: 7× Resonance seven times and 7× Resonance pyrite. None: lose Resonance pyrite and take Resonance damage. |
 
 ## Implementation notes
 
@@ -209,6 +209,7 @@ Every mine's creatures, Wardens and final boss, and sixteen new mechanics, from 
 ## Future work — not implemented
 
 - [ ] **Balance playtesting:** compare paid Gold builds, poison conversion, Lifeline stacking, and repeating fight/run upgrades with Echo, Seams, Prelude and Encore.
+- [ ] **Gem idea for later: Reverse Image** (White; October 22, 2026). Reflect the gem before it: half of what it did, turned around. Damage becomes Block, Block becomes damage, healing becomes Poison on the target, and Poison becomes healing; anything else reflects nothing. Flawless: all of it, not half. Trigger: a pair, two dice that mirror each other. Where it sits matters, like Polish and Facet. It came out of the Florin rework as an idea for Mirror and was set aside as too complicated for now.
 
 **Not selected:** Poultice, Undertow, Silence, Level and Invert are excluded from the content pack and active implementation plan. Siphon is the selected name for Mycelium. Additional status ideas remain in [Buffs.md](Buffs.md).
 

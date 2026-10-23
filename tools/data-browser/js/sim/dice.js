@@ -235,8 +235,11 @@ export function rollOne(die, rng, timesRerolled = 0) {
 	}
 	const dieTop = top(die);
 	const shattered = material === 'glass' && rng.randf() * 100 < GLASS_SHATTER_PCT;
-	return { die_id: die.id, shape: die.shape, material, value, face: index, kind, top: dieTop,
+	const thrown = { die_id: die.id, shape: die.shape, material, value, face: index, kind, top: dieTop,
 		held: false, rerolls: timesRerolled, locked: kind === 'locked', explosions, climbed, shattered, phantom: false };
+	// A die a Hot Streak lent for one turn: thrown like any other.
+	if (die.bonus) thrown.bonus = true;
+	return thrown;
 }
 
 export function rollHand(dice, rng, previous = []) {
