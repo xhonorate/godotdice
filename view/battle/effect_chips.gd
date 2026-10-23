@@ -124,6 +124,14 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		var named: Array = [["Heating Up", "Last turn's crowns earned a reroll more this turn."], ["Hot Streak", "Last turn's crowns put a Gambler's die in this throw."],
 			["On Fire", "Last turn's crowns doubled the Resonance High Roller reads this turn."]][streak - 1]
 		out.append(entry("streak", "flame", "×2" if streak >= 3 else "", true, str(named[0]), str(named[1]), Color("ff7a2f")))
+	## The Changing Face: the other face from last turn's pays double, and more as the run goes on.
+	if str(unit.get("passive", {}).get("kind", "")) == "free_flip" and not str(unit.get("last_face", "")).is_empty():
+		var pays: int = 2 + int(unit.get("change", 0))
+		var shown: String = "Cruel" if str(unit.last_face) == "odd" else "Kind"
+		var other: String = "Kind" if shown == "Cruel" else "Cruel"
+		out.append(entry("change", "flip", "×%d" % pays, true, "The Changing Face",
+			"Last turn Motley showed the %s Face. The %s Face this turn pays ×%d; the same face again starts over." % [shown, other, pays],
+			Color("6fe08a") if other == "Kind" else Color("ff6fae")))
 	var gifts: int = int(unit.get("granted_rerolls", 0))
 	if gifts > 0:
 		out.append(entry("gifts", "reroll", "+%d" % gifts, true, "Extra rerolls", "%s more next turn." % DeepUi.plural(gifts, "reroll")))
@@ -298,7 +306,7 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 		"ward": ["shield_burst", "Ward", "Blocks the next %d debuff applications, consuming one charge each. Maximum 99. Lasts this fight.", true],
 		"retain": ["shield", "Retain", "Preserves up to %d unspent Block at the next Block reset, then is consumed. Maximum 20.", true],
 		"charged": ["bolt", "Charged Battery", "At next turn start, consumes all stacks to start your rail at %d Resonance.", true],
-		"marked": ["eye", "Marked", "The next direct hit takes +%d%% damage, then consumes every mark. Block does not prevent consumption.", false],
+		"marked": ["eye", "Marked", "Every hit of the next gem or move to land takes +%d%% damage; that gem spends every mark, even if Block soaked its hits.", false],
 		"regeneration": ["heart", "Regeneration", "Heals %d HP at turn end after Poison, then loses one stack. Cannot revive.", true],
 		"spikes": ["caltrop", "Spikes", "Retaliates for %d hit damage once per attacking gem or ability, including blocked hits. Lasts the fight.", true],
 		"envenom": ["drop", "Envenomed", "Every hit that gets past Block also applies %d Poison. Lasts the fight.", true],

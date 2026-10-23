@@ -35,7 +35,7 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 | Character                         | HP  | Dice (mean)                 | Sockets                        | Passive                    | Birthstone reads                  |
 | --------------------------------- | --- | --------------------------- | ------------------------------ | -------------------------- | --------------------------------- |
 | **Ardor**, the Knight             | 80  | d6 d6 d6 d8 d8 (19.5)       | Red, Blue, Green, Any, Any     | Heal Resonance per unused reroll | Sets                        |
-| **Vesper**, the Rogue             | 65  | d4 d4 d4 d4 d20 (20.5)      | Red, Red, Violet, Any, Any     | Block per hit dealt        | Five distinct, see options        |
+| **Vesper**, the Rogue             | 65  | d4 d4 d4 d4 d12 (16.5)      | Red, Red, Any ×4               | Block per hit dealt        | Five different values             |
 | **Cadence**, the Wizard           | 70  | d4 d6 d8 d10 d12 (22.5)     | Red, White, Violet, Any, Any   | +1 reroll                  | Straights                         |
 | **Rue**, the Apothecary           | 70  | d4 d4 d6 d6 Phial (13.7)    | Red, Violet, Green, Any, Any   | Heal Res when poison ticks | Low dice and ones                 |
 | **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Red, Gold, Gold, Any ×4        | All or Nothing             | Crowns                            |
@@ -61,49 +61,51 @@ _The wall. Locks in early, heals for patience, and turns a lucky triple into a h
 
 _The assassin's gamble. Four tiny knives and one enormous die._
 
-- **HP** 65. **Dice** d4 d4 d4 d4 d20. **Sockets** Red, Red, Violet, Any, Any.
+- **HP** 65. **Dice** d4 d4 d4 d4 d12. **Sockets** Red, Red, Any, Any, Any, Any.
 - **Passive: Riposte.** Gain Res block for every hit one of your gems lands. Block falls off at the end
   of the turn, so a big Birthstone turn is a wall for that turn only.
-- **Birthstone: Thousand Cuts.** Deal Res damage a number of times equal to your **highest rolled
-  value**: a d20 showing 7 means seven hits, not twenty.
-- **Combo.** Curse in the Violet socket, then the Birthstone.
+- **Birthstone: Thousand Cuts.** Five different values: deal Res damage once for every point on your
+  highest die (a d12 showing 7 is seven cuts). _Clean Kill_: a crown on that die as well lands
+  every cut twice.
+- **Combo.** Curse in an Any socket, then the Birthstone. Etch before it marks every cut, since
+  Marked is spent per gem (October 23, 2026).
 - **Stone.** Black opal in a needle-thin marquise: dark body, a thousand pinprick flashes.
   **Birthstone face:** a thin smile, eyes on the target.
 
-**The requirement is the open question.** Five distinct values fires 44% of chased turns with the
-starting bowl, but 72% once a single d4 becomes a d6 or d8, because four d4s can only be distinct as
-1-2-3-4. The owner suggested ascending order across the tray instead. Odds for each candidate, chasing
-with two rerolls; "expected" is fires × average hits, so it is the Res multiplier a turn is worth:
+**Reworked October 23, 2026.** The first rule, five different values with the top die outrolling the
+other four combined, asked for arithmetic at the tray, and on the fight sim's hunted rails, where
+the rerolls chase the gems, it fired 0.0 times in four turns. The owner chose the plain rule for its
+plainness, knowing it balloons as the small dice grow (dice-only model, two rerolls, chasing it):
 
-| Requirement                                                        | Start bowl                           | Mid-run bowl (d4 d4 d6 d8 d20) | Late bowl (d6 d8 d8 d10 d20) | Notes                                                   |
-| ------------------------------------------------------------------ | ------------------------------------ | ------------------------------ | ---------------------------- | ------------------------------------------------------- |
-| Five distinct (draft one)                                          | 44%, avg 12.5 hits, expected 5.5     | 72%, expected 9.0              | higher still                 | balloons as the bowl improves                           |
-| Ascending across the tray: 1, 2, 3, 4, then 5+                     | 11%, expected 1.4                    | 4.6%, expected 0.6             | lower                        | too rare to carry a character; needs a fixed tray order |
-| Five distinct and the top die at 10 or more                        | 40%, avg 15 hits, expected 6.1       | 67%, expected 10.1             |                              | still balloons                                          |
-| **Five distinct and the top die outrolls the other four combined** | **37%, avg 15.7 hits, expected 5.9** | **48%, expected 8.3**          | **23%, expected 4.1**        | self-limiting: bigger small dice raise the bar          |
+| Bowl                  | Fires | Cuts | Res multiplier a turn |
+| --------------------- | ----- | ---- | --------------------- |
+| Start d4 d4 d4 d4 d20 | 44%   | 12.5 | 5.6×                  |
+| Mid d4 d4 d6 d8 d20   | 72%   | 12.6 | 9.1×                  |
+| Late d6 d8 d8 d10 d20 | 88%   | 12.7 | 11.1×                 |
 
-For scale, Ardor's Birthstone is worth about 2.7×Res a chased turn, so any of the 35-to-50% rows
-makes Vesper the damage dealer she should be at 65 HP.
-
-**Recommendation.** The last row, named for what it is: _one long knife and four short ones_. The
-d20 has to beat 1+2+3+4 at the start, so a d20 showing 7 does not fire; the average hit count goes up
-and the rate stays in a band across the whole run instead of climbing to three turns in four. If the
-owner still wants the tray-order idea, it works best as a **rare top tier** on top of that base:
-_Perfect Fan_, the five dice ascending left to right, every hit deals 2×Res (11% at the start). That
-needs the tray order fixed for the fight and arrangeable at the bench, which is a small addition.
+Clean Kill comes on 5% of natural hands and 12% chased. The owner's lever against the balloon, a d12 in place of the d20 to start, was taken: the model gives it 3.× on the starting bowl, 6.× mid-run and 7.× late (4.×, 6.× and 8.× with Clean Kill, which comes 5 to 10% of chased turns on a d12), beside the old rule's 3.×, 5.× and 5.×; the d20 would have been 5.×, 9.× and 11.×. It also takes a fifth off her Hemlock pace in the gem sweep (the single gem reading her highest die) and puts Apex (16+) and Temper (12+) where Cadence has them. Her first bowl mean falls from 20.5 to 16.5; a d20 remains one upgrade away. The rules the owner turned down
+are on the review page: the long knife (the top die at 85% of its top, 9× on every bowl), the lead
+(top die minus second, every turn), Ambush, Execute and Bleed riders.
 
 ### Cadence, the Wizard
 
 _The combo player. Runs of numbers, and the turn that plays twice._
 
-- **HP** 70. **Dice** d4 d6 d8 d10 d12. **Sockets** Red, White, Violet, Any, Any.
+- **HP** 70. **Dice** d4 d6 d8 d10 d12. **Sockets** Red, White, Violet, Any, Any, Any.
 - **Passive: Study.** +1 reroll every turn.
 - **Birthstone: Encore.**
-  - Small straight, four in a row (_Overture_): deal 4×Res damage to every creature.
+  - Three in a row (_Motif_): the last gem that fired plays again, at full strength. It is queued
+    after the Birthstone, Echo's way, so the Resonance it rings comes too late for Encore itself.
+    Added October 23, 2026: a run of three is 75% of chased turns with two rerolls and 85% with
+    Study's third (31% of natural hands), and until then most of her turns ended with one and
+    nothing to show for it.
+  - Small straight, four in a row (_Overture_): deal 4×Res damage to every creature. (The owner
+    kept 4× on October 23, 2026, over the 5× picked on the balance page the day before.)
   - Large straight, five in a row (_Encore_): replay every gem that fired this turn from the first
     socket onward, Overture included. Resonance keeps climbing through the replay. **Replayed gems do
     exactly what they did the first time, hand mutations included**: a Glimmer raises the lowest die
     again, a Refract adds a second phantom, so the hand the later gems read is bigger the second time.
+    Motif fires on the replay pass too, so the last gem plays once more after it.
 - **Fire rates.** With the passive's three rerolls: small 50%, large 15%. With two: 37% and 9%.
 - **Stone.** Ametrine, violet fading to gold, in a step cut: a staircase of facets.
   **Birthstone face:** eyes closed, one hand raised like a conductor.
@@ -213,22 +215,38 @@ _Blasting powder in a mine. Dice that explode, damage that splashes._ (alt names
 
 _Two faces. You choose which one the enemy sees, every turn._ (alt names: Quip, Jinx)
 
-- **HP** 70. **Dice** d6 d6 d8 d8 d10 (21.5). **Sockets** Red, Blue, White, Any, Any.
-- **Passive: Sleight.** Once per turn, before locking in, turn one die over onto a face of the
-  opposite parity (even to odd, or odd to even) for free. It lands on the face mirrored across
-  the die's range (a 2 on a d6 to its 5) when the die has that face, else on the nearest face of
-  the other parity it does have, so a patterned die is only ever turned to a number it can show.
-  A die whose faces are all even or all odd (an Even, Odd or Stretched die) cannot be shifted,
-  and the Shift button says so. The Harlequin can almost always finish a hand in one parity.
+- **HP** 70. **Dice** d6 d6 d8 d8 d10 (21.5). **Sockets** Red, Blue, White, Any, Any, Any.
+- **Passive: Sleight.** Once a turn, turn one die over. The face underneath is the other parity: the
+  face mirrored across the die's range (a 2 on a d6 to its 5) when the die has that face, else the
+  nearest face of the other parity it does have, so a patterned die is only ever turned to a number
+  it can show. A die whose faces are all even or all odd (an Even, Odd or Stretched die) cannot turn,
+  and the button says so. The Harlequin can almost always finish a hand in one parity.
+- **On the tray (October 23, 2026).** Her odd dice wear a pink rim light and her even dice a green
+  one, the two halves of her tourmaline, and the tray's title line counts them ("3 cruel · 2 kind ·
+  one turn from the Cruel Face"). Hovering a die shows the face it would turn to as a ghost; a
+  right-click, a long press, or F with the die picked turns it over on the spot, and the button
+  reads "Turn over". Shift+right-click still opens the die.
 - **Birthstone: Motley.**
   - All five dice odd (_the Cruel Face_): deal 3×Res damage to the target.
   - All five dice even (_the Kind Face_): gain 3×Res block.
   - All five one parity and all distinct, a skip straight like 2-4-6-8-10 or 1-3-5-7-9
     (_Full Motley_): both, doubled, and the target is stunned.
+  - **The Changing Face** (October 23, 2026): a face different from last turn's pays double, and
+    every turn running the faces keep changing pays one more: ×2, ×3, ×4… Full Motley is
+    multiplied too. The same face twice running, a mixed hand or a stunned turn starts it over.
+- **The run, on screen.** The ×N beside the Resonance count says what the other face is worth this
+  turn (and a chip over her tab says which face that is). From ×2 a ribbon of pink and green squares
+  runs round the tray, faster the longer the run, with motley drifting up off it; when the face
+  turns at the Birthstone the tray flashes in that face's color, motley bursts off it and the room
+  is told "CHANGING FACE ×N". The count under the tier's name says "Changing Face ×N" too.
 - **Fire rates.** A single face is reachable 96% of chased turns, so the choice each turn is attack or
   defend, not whether. Full Motley is 6.4% when chased, and chasing it drops the safe tier to 77%.
 - **Why it is different.** Every other Birthstone is a gamble. This one is a decision, which is a
   playstyle the roster otherwise lacks, and the shift is a small, satisfying action.
+- **Reviewed October 23, 2026.** Nine directions were offered (majority Motley, a whole-hand turn,
+  masks, a patchwork of colors, crowns and ones, called rerolls, rail shuffling, the Changing Face,
+  wild cards); the owner kept Sleight and Motley as they were, took the Changing Face with its run
+  stacking, and asked for the tray to show the faces.
 - **Stone.** Watermelon tourmaline, pink one half and green the other, in a checkerboard cut.
   **Birthstone face:** one eye winking, mouth half grin, half frown.
 

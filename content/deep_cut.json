@@ -3323,7 +3323,7 @@
       "color": "WHITE",
       "rarity": "COMMON",
       "tags": ["low", "hand", "crowns"],
-      "text": "Turn your lowest die over to its opposite face.",
+      "text": "Turn your lowest die over. The face underneath is the other parity.",
       "trigger": {
         "kind": "low_count",
         "ladder": [4, 3, 2, 1, 0]
@@ -5136,9 +5136,9 @@
       "title": "the Rogue",
       "unlock_order": 1,
       "hp": 65,
-      "text": "The assassin. Four d4s and a d20, betting on one huge roll.",
+      "text": "The assassin. Four d4s and a d12, betting on one big roll.",
       "sockets": ["RED", "RED", "ANY", "ANY", "ANY", "ANY"],
-      "dice": ["D4", "D4", "D4", "D4", "D20"],
+      "dice": ["D4", "D4", "D4", "D4", "D12"],
       "passive": {
         "kind": "block_per_hit",
         "name": "Riposte",
@@ -5155,10 +5155,30 @@
           {
             "name": "Thousand Cuts",
             "trigger": {
-              "kind": "distinct_dominant",
+              "kind": "distinct",
               "amount": 5
             },
-            "text": "Five different values, the top die outrolling the other four combined: deal Resonance damage once for every point on your highest die.",
+            "text": "Five different values: deal Resonance once for every point on your highest die.",
+            "effects": [
+              {
+                "kind": "damage",
+                "amount": {
+                  "term": "resonance"
+                },
+                "repeat": {
+                  "term": "high"
+                }
+              }
+            ]
+          },
+          {
+            "name": "Clean Kill",
+            "trigger": {
+              "kind": "distinct",
+              "amount": 5,
+              "high_crown": true
+            },
+            "text": "A crown on your highest die as well: every cut lands twice.",
             "effects": [
               {
                 "kind": "damage",
@@ -5197,6 +5217,22 @@
         "text": "Ametrine in a step cut, fading from violet to gold.",
         "face": "Eyes closed, one hand raised like a conductor.",
         "tiers": [
+          {
+            "name": "Motif",
+            "trigger": {
+              "kind": "straight",
+              "amount": 3
+            },
+            "text": "Three in a row: the last gem that fired plays again.",
+            "effects": [
+              {
+                "kind": "retrigger_previous",
+                "target": "self",
+                "amount": 100,
+                "scale": "none"
+              }
+            ]
+          },
           {
             "name": "Overture",
             "trigger": {
@@ -5330,7 +5366,7 @@
         "kind": "free_flip",
         "amount": 1,
         "name": "Sleight",
-        "text": "Once a turn, turn one die over onto a face of the opposite parity: its mirror face, or the nearest face of the other parity it has. A die whose faces are all even or all odd can't be shifted."
+        "text": "Once a turn, turn one die over. The face underneath is the other parity."
       },
       "birthstone": {
         "name": "Motley",
@@ -5338,7 +5374,8 @@
         "style": "checkerboard",
         "hue": "d4557a",
         "hue2": "4e9c5a",
-        "text": "Watermelon tourmaline, pink one half and green the other, in a checkerboard cut.",
+        "changing_face": true,
+        "text": "Watermelon tourmaline, pink one half and green the other, in a checkerboard cut. The Changing Face: a face different from last turn's pays double, and every turn the faces keep changing pays one more.",
         "face": "One eye winking, mouth half grin, half frown.",
         "tiers": [
           {

@@ -69,7 +69,7 @@ const KEYWORD_HINTS: Dictionary = {
  "bound": "Suppresses one die per stack for the next action, even if no dice remain.",
  "clouded": "On enemies: disables one random ability for its duration; reapplication extends the same ability. On players: disables a socket until the fogging enemy is hit.",
  "curse": "Each stack reduces hit damage dealt by 10% and increases hit damage taken by 10%. Maximum 10; loses one stack per turn.",
- "marked": "The next direct hit deals +25% per stack and consumes all stacks, even if Block absorbs it. No cap.",
+ "marked": "Every hit of the next gem, Birthstone or creature's move to land on it deals +25% per stack; the marks are spent once that gem is done, even if Block soaked its hits. No cap.",
  "dread": "Each stack lowers every enemy die one size tier, to a minimum d2. Loses one stack after each enemy action.",
  "dulled": "Each stack reduces effective Cut by one step, to a minimum Poor. Loses one stack per turn.",
  "lifeline": "Before lethal damage downs you, consumes all stacks and restores that much HP, up to maximum HP. Lasts this fight.",
@@ -86,6 +86,8 @@ const KEYWORD_HINTS: Dictionary = {
  "phantom": "An extra temporary die read by later gems. It cannot receive permanent face upgrades.",
  "reflect": "Splits the next blow a creature lands on you: part goes straight back at whoever threw it, the rest lands. One blow a stack; they fall away at your next turn.",
  "crown": "A die showing its own top face. On Gambler's dice, the 7.",
+ "changing face": "Puck's Motley: a face different from last turn's pays double, and one more for every turn running the faces keep changing (×2, ×3, ×4). The same face twice, or a turn with no face, starts over.",
+ "turn over": "The die lands on the face underneath: its mirror face (a 2 on a d6 to its 5), always of the other parity, or the nearest face of the other parity it has.",
  "amplif": "Increases the next evaluated gem’s magnitude. Consumed even if that gem fizzles.",
  "permanent": "Lasts for the current run, including later fights. Does not alter your stored collection.",
  "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn."

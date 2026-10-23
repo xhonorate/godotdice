@@ -221,35 +221,51 @@ func _test_birthstones() -> void:
 	off.pace = 0.0
 	check(is_equal_approx(DeepBattle.birth_span(quick), DeepBattle.birth_span(file_count) * 0.5) and is_equal_approx(DeepBattle.birth_span(off), DeepBattle.BIRTH_GLANCE),
 		"a tier's count halves at Quick and is only glanced at with counts Off")
-	## Vesper: five different values with the top die outrolling the rest; one hit per point on it.
+	## Vesper: five different values, one cut per point on the highest die; a crown on it lands
+	## every cut twice (Clean Kill); a pair keeps it dark.
 	var r2: Dictionary = rngs(72)
 	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
+	DeepBattle.enemy(state2, "e0").hp = 300
+	DeepBattle.enemy(state2, "e0").max_hp = 300
 	var vesper: Dictionary = DeepBattle.player(state2, "a")
 	hand(vesper, [1, 2, 3, 4, 7])
-	var dark: Dictionary = birthstones(run_turn(state2, r2))[0]
-	check(not bool(dark.fired), "a d20 showing 7 does not outroll 1+2+3+4: Thousand Cuts stays dark")
+	var seven: Dictionary = birthstones(run_turn(state2, r2))[0]
+	check(bool(seven.fired) and effects_of(seven, "damage").size() == 7 and not bool(tier(seven, "Clean Kill").active), "five different values: a 7 on the d12 is seven cuts, and no Clean Kill")
+	var r2b: Dictionary = rngs(7200)
+	var state2b: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, r2b.dice, r2b.creatures)
+	hand(DeepBattle.player(state2b, "a"), [1, 2, 3, 3, 11])
+	var dark: Dictionary = birthstones(run_turn(state2b, r2b))[0]
+	check(not bool(dark.fired), "a pair keeps Thousand Cuts dark, however high the d12")
+	var r2c: Dictionary = rngs(7300)
+	var state2c: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, r2c.dice, r2c.creatures)
+	DeepBattle.enemy(state2c, "e0").hp = 300
+	DeepBattle.enemy(state2c, "e0").max_hp = 300
+	hand(DeepBattle.player(state2c, "a"), [1, 2, 3, 4, 12])
+	var clean: Dictionary = birthstones(run_turn(state2c, r2c))[0]
+	check(bool(tier(clean, "Thousand Cuts").active) and bool(tier(clean, "Clean Kill").active) and effects_of(clean, "damage").size() == 24, "a crown on the d12: Clean Kill lands every cut twice (%d cuts)" % effects_of(clean, "damage").size())
+	check(str(tier(clean, "Clean Kill").count.get("repeat_die", "")) == str(DeepBattle.player(state2c, "a").hand[4].die_id), "and its count takes how many from the d12 too")
 	var r3b: Dictionary = rngs(73)
 	var state3b: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, r3b.dice, r3b.creatures)
 	DeepBattle.enemy(state3b, "e0").hp = 300
 	DeepBattle.enemy(state3b, "e0").max_hp = 300
-	hand(DeepBattle.player(state3b, "a"), [1, 2, 3, 4, 15])
+	hand(DeepBattle.player(state3b, "a"), [1, 2, 3, 4, 11])
 	var cuts: Dictionary = birthstones(run_turn(state3b, r3b))[0]
 	var hits: Array = effects_of(cuts, "damage")
-	check(bool(cuts.fired) and hits.size() == 15 and int(hits[0].amount) == 1, "a 15 on the d20 is fifteen hits of Resonance (%d hits)" % hits.size())
+	check(bool(cuts.fired) and hits.size() == 11 and int(hits[0].amount) == 1, "an 11 on the d12 is eleven hits of Resonance (%d hits)" % hits.size())
 	check(int(hits[hits.size() - 1].get("riposte", 0)) == 1, "Riposte: every hit raises block worth Resonance")
 	var cuts_count: Dictionary = tier(cuts, "Thousand Cuts").count
-	var d20: String = str(DeepBattle.player(state3b, "a").hand[4].die_id)
-	check(int(cuts_count.get("repeat", 0)) == 15 and str(cuts_count.get("repeat_die", "")) == d20 and int(cuts_count.get("coef", 0)) == 1,
-		"Thousand Cuts counts Resonance once and takes how many times from the d20 (%s)" % str(cuts_count))
+	var d12: String = str(DeepBattle.player(state3b, "a").hand[4].die_id)
+	check(int(cuts_count.get("repeat", 0)) == 11 and str(cuts_count.get("repeat_die", "")) == d12 and int(cuts_count.get("coef", 0)) == 1,
+		"Thousand Cuts counts Resonance once and takes how many times from the d12 (%s)" % str(cuts_count))
 	var large_rng: Dictionary = rngs(73100)
 	var large_state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "VESPER")], ["QUARTZ_GOLEM"], {"depth": 1}, large_rng.dice, large_rng.creatures)
 	var large_player: Dictionary = DeepBattle.player(large_state, "a")
 	large_player.dice[4] = DeepDice.make("D100", str(large_player.dice[4].id))
 	DeepBattle.enemy(large_state, "e0").hp = 1000
 	DeepBattle.enemy(large_state, "e0").max_hp = 1000
-	hand(large_player, [1, 2, 3, 4, 100])
+	hand(large_player, [1, 2, 3, 4, 99])
 	var large_cuts: Dictionary = birthstones(run_turn(large_state, large_rng))[0]
-	check(bool(large_cuts.fired) and effects_of(large_cuts, "damage").size() == 100, "Thousand Cuts honours a d100 result without capping at twenty hits")
+	check(bool(large_cuts.fired) and effects_of(large_cuts, "damage").size() == 99, "Thousand Cuts honours a d100 result without capping at twenty hits")
 	## The step has to hold the whole run of bolts, however many there are, or the turn moves
 	## on while the Birthstone is still throwing them.
 	for played in [cuts, large_cuts]:
@@ -259,7 +275,8 @@ func _test_birthstones() -> void:
 				longest = maxf(longest, DeepBattle.hits_span(tier.effects))
 		check(float(played.duration) >= longest, "a %d-hit Birthstone is given long enough to play it: %.2fs of %.2fs" % [effects_of(played, "damage").size(), longest, float(played.duration)])
 	check(DeepBattle.hits_span(effects_of(large_cuts, "damage")) <= DeepBattle.HIT_SPAN, "and a hundred blows still close up into one beat")
-	## Cadence: a straight of four hits the room, a straight of five plays the rail again.
+	## Cadence: three in a row plays the last gem again, a straight of four hits the room, a
+	## straight of five plays the rail again.
 	var r4: Dictionary = rngs(74)
 	var state4: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE"), stone("MEND")], "CADENCE")], ["QUARTZ_GOLEM", "CAVE_TICK"], {"depth": 1}, r4.dice, r4.creatures)
 	for foe in state4.enemies:
@@ -270,10 +287,21 @@ func _test_birthstones() -> void:
 	hand(cadence, [2, 3, 4, 5, 6])
 	var events4: Array = run_turn(state4, r4)
 	var encores: Array = birthstones(events4)
-	check(fires(events4).size() == 4 and encores.size() == 2, "Encore replays both gems and the Birthstone once: %s" % str(kinds(events4)))
+	var again: Array = fires(events4).filter(func(e: Dictionary) -> bool: return bool(e.get("retrigger", false)) and not bool(e.get("replay", false)))
+	check(fires(events4).size() == 6 and encores.size() == 2, "Encore replays both gems and the Birthstone once, and Motif plays the last gem again on each pass: %s" % str(kinds(events4)))
+	check(again.size() == 2 and again.all(func(e: Dictionary) -> bool: return int(e.socket) == 1), "Motif's two goes are both the last gem that fired, Mend")
+	check(bool(tier(encores[0], "Motif").active) and bool(tier(encores[1], "Motif").active), "three in a row lights Motif on both passes")
 	check(bool(fires(events4)[2].replay) and int(fires(events4)[3].resonance) == 4, "the replayed gems keep climbing Resonance (%d)" % int(fires(events4)[3].resonance))
 	check(int(tier(encores[0], "Overture").effects[0].raw) == 8 and int(tier(encores[1], "Overture").effects[0].raw) == 16, "Overture hits for 4×2 then 4×4")
 	check(bool(encores[1].replay) and not bool(tier(encores[1], "Encore").active), "the second pass does not ask for a third")
+	var r4b: Dictionary = rngs(7400)
+	var state4b: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE"), stone("MEND")], "CADENCE")], ["QUARTZ_GOLEM"], {"depth": 1}, r4b.dice, r4b.creatures)
+	DeepBattle.player(state4b, "a").hp = 40
+	hand(DeepBattle.player(state4b, "a"), [2, 3, 4, 8, 11])
+	var events4b: Array = run_turn(state4b, r4b)
+	var motif: Dictionary = birthstones(events4b)[0]
+	check(bool(tier(motif, "Motif").active) and not bool(tier(motif, "Overture").active) and fires(events4b).size() == 3 and int(fires(events4b)[2].socket) == 1 and bool(fires(events4b)[2].retrigger),
+		"a run of three alone: Mend plays again after the Birthstone, at full strength: %s" % str(kinds(events4b)))
 	## Rue: low dice poison, all low ticks it, all ones tick it Resonance times, and Leech drinks.
 	var r5: Dictionary = rngs(75)
 	var state5: Dictionary = DeepBattle.begin([player("a", [stone("VENOM")], "RUE")], ["QUARTZ_GOLEM"], {"depth": 1}, r5.dice, r5.creatures)
@@ -302,6 +330,38 @@ func _test_birthstones() -> void:
 	hand(DeepBattle.player(state8, "a"), [2, 4, 4, 6, 2])
 	var kind: Dictionary = birthstones(run_turn(state8, r8))[0]
 	check(bool(tier(kind, "The Kind Face").active) and not bool(tier(kind, "Full Motley").active), "all even with a repeat is only the Kind Face")
+	## The Changing Face: a face different from last turn's pays double, and one more each turn
+	## the faces keep changing; the same face twice, or a turn with no face, starts it over.
+	var r9: Dictionary = rngs(79)
+	var state9: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE")], "PUCK")], ["QUARTZ_GOLEM"], {"depth": 1}, r9.dice, r9.creatures)
+	for foe in state9.enemies:
+		foe.hp = 9000
+		foe.max_hp = 9000
+	var harlequin: Dictionary = DeepBattle.player(state9, "a")
+	hand(harlequin, [1, 3, 3, 5, 7])
+	var first: Dictionary = birthstones(run_turn(state9, r9))[0]
+	check(str(first.face) == "odd" and int(first.change) == 0 and int(effects_of(first, "damage")[0].raw) == 3, "the first face pays its plain three times Resonance")
+	check(DeepBattle.next_face_pays(harlequin) == 2 and str(harlequin.last_face) == "odd", "and the other face is worth double next turn")
+	hand(harlequin, [2, 4, 4, 6, 8])
+	var second: Dictionary = birthstones(run_turn(state9, r9))[0]
+	check(str(second.face) == "even" and int(second.change) == 1 and int(effects_of(second, "block")[0].amount) == 6, "the Kind Face after the Cruel one pays double")
+	var changed: Dictionary = tier(second, "The Kind Face").count
+	check(int(changed.get("change", 0)) == 2 and int(changed.get("coef", 0)) == 6 and int(changed.get("amount", 0)) == 6, "and is counted out doubled (%s)" % str(changed))
+	hand(harlequin, [1, 3, 5, 5, 9])
+	var third: Dictionary = birthstones(run_turn(state9, r9))[0]
+	check(int(third.change) == 2 and int(effects_of(third, "damage")[0].raw) == 9, "and the Cruel Face after that pays triple")
+	hand(harlequin, [1, 1, 3, 5, 7])
+	var fourth: Dictionary = birthstones(run_turn(state9, r9))[0]
+	check(int(fourth.change) == 0 and int(effects_of(fourth, "damage")[0].raw) == 3, "the same face twice running starts over")
+	hand(harlequin, [2, 4, 6, 8, 10])
+	var fifth: Dictionary = birthstones(run_turn(state9, r9))[0]
+	check(bool(tier(fifth, "Full Motley").active) and int(fifth.change) == 1 and int(effects_of(fifth, "damage")[0].raw) == 12 and int(effects_of(fifth, "block")[0].amount) == 12, "a Full Motley on a changed face is doubled too")
+	hand(harlequin, [1, 2, 3, 4, 5])
+	var none: Dictionary = birthstones(run_turn(state9, r9))[0]
+	check(not bool(none.fired) and str(none.face) == "" and DeepBattle.next_face_pays(harlequin) == 1, "a mixed hand shows no face, and the run is over")
+	hand(harlequin, [1, 3, 5, 7, 9])
+	var afresh: Dictionary = birthstones(run_turn(state9, r9))[0]
+	check(int(afresh.change) == 0 and int(effects_of(afresh, "damage")[0].raw) == 6, "so the next face pays plain again")
 	## Florin: Lucky deals Resonance a crown; two crowns earn a reroll next turn, three a bonus
 	## Gambler's die, four double Resonance next turn, five the Jackpot; none is a Bust.
 	## A golem stout enough to outlast the whole rail, so every tier is reached and reported.

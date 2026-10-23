@@ -128,7 +128,8 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			break;
 		}
 		case 'distinct':
-			if (a.distinct >= need) {
+			// `high_crown`: the highest die has to be on its top face as well (Clean Kill's).
+			if (a.distinct >= need && (!trigger.high_crown || I(a.high_crown) > 0)) {
 				result.active = true;
 				const dice = [];
 				for (const ids of a.ids_by_value.values()) dice.push(ids[0]);
@@ -289,7 +290,7 @@ export function words(trigger, cutStep) {
 		case 'straight': return `A straight of ${need}: ${need} consecutive values in any order.`;
 		case 'odd': return `At least ${dice(need)} showing odd values.`;
 		case 'even': return `At least ${dice(need)} showing even values.`;
-		case 'distinct': return `At least ${dice(need)} with no two alike.`;
+		case 'distinct': return trigger.high_crown ? `At least ${dice(need)} with no two alike, the highest on its own top face.` : `At least ${dice(need)} with no two alike.`;
 		case 'value': return `At least ${need} ${need === 1 ? 'die' : 'dice'} showing a ${(trigger.values || [7]).join(' or ')}.`;
 		case 'pyrite': return `At least ${need} Pyrite.`;
 		case 'fizzles': return `At least ${need} ${need === 1 ? 'gem' : 'gems'} fizzled earlier this turn.`;

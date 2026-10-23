@@ -198,16 +198,26 @@ func curse_and_marked() -> void:
 	apply(f, "marked", 10)
 	hit = apply(f, "damage", 20)[0]
 	check(int(hit.raw) == 70 and int(hit.marked_spent) == 10, "10 marks make the next hit 350% of normal")
-	check(int(apply(f, "damage", 20)[0].raw) == 20, "every mark is consumed on the first hit")
+	check(int(f.foe.statuses.marked) == 10 and int(apply(f, "damage", 20)[0].raw) == 70, "the marks stay on for every blow of the gem that spends them")
+	DeepBattle._settle_marks(f.state)
+	check(not f.foe.statuses.has("marked") and int(apply(f, "damage", 20)[0].raw) == 20, "and come off once that gem is done")
 	apply(f, "marked", 1, false)
 	f.player.block = 100
-	check(int(apply(f, "damage", 20, false)[0].absorbed) == 25 and not f.player.statuses.has("marked"), "player Marked is consumed even by a fully blocked hit")
+	check(int(apply(f, "damage", 20, false)[0].absorbed) == 25, "player Marked is taken even by a fully blocked hit")
+	DeepBattle._settle_marks(f.state)
+	check(not f.player.statuses.has("marked"), "and spent with it")
 	apply(f, "marked", 2)
 	apply(f, "poison", 1)
 	DeepBattle._tick(f.state)
 	check(int(f.foe.statuses.marked) == 2, "Poison and end-of-turn ticks do not consume Marked")
 	var multi: Array = DeepBattle._apply(f.state, f.player, {"kind": "damage", "target": "enemy", "amount": 20, "repeat": 3}, f.rng.dice)
-	check(multi.map(func(e: Dictionary) -> int: return int(e.raw)) == [30, 20, 20], "only the first hit in a multi-hit attack uses Marked")
+	check(multi.map(func(e: Dictionary) -> int: return int(e.raw)) == [30, 30, 30], "every hit of a multi-hit attack takes Marked")
+	DeepBattle._settle_marks(f.state)
+	cast(f, "ETCH", false, [5, 5, 1, 2, 3])
+	var marks_on: int = int(f.foe.statuses.get("marked", 0))
+	var flurry: Array = cast(f, "FLURRY", false, [5, 5, 1, 2, 3]).get("effects", []).filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "damage")
+	check(marks_on > 0 and flurry.size() > 1 and flurry.all(func(e: Dictionary) -> bool: return int(e.get("marked_spent", 0)) == marks_on) and not f.foe.statuses.has("marked"),
+		"an Etch before a Flurry marks every one of its blows, and the gem spends the marks (%d marks, %d blows)" % [marks_on, flurry.size()])
 
 func retain_and_regeneration() -> void:
 	var f: Dictionary = setup()
@@ -351,7 +361,9 @@ func gem_integrations() -> void:
 			check(int(f.foe.statuses.clouded) in [2, 3] and int(f.foe.clouded_move) == slot, "Flawless Mist applies its base duration to every enemy, retaining an existing slot")
 		else:
 			check(int(f.foe.statuses.marked) == 2, "Etch applies two Marked without spending them")
-			check(int(apply(f, "damage", 20)[0].raw) == 30 and int(apply(f, "damage", 20)[0].raw) == 20, "Etch boosts only the next hit")
+			check(int(apply(f, "damage", 20)[0].raw) == 30 and int(apply(f, "damage", 20)[0].raw) == 30, "Etch boosts every blow of the gem that spends it")
+			DeepBattle._settle_marks(f.state)
+			check(int(apply(f, "damage", 20)[0].raw) == 20, "and nothing after that gem")
 			cast(f, key, true)
 			check(int(f.foe.statuses.marked) in [3, 6], "Flawless Etch adds the third mark before whole-number scaling")
 		f = setup("THE_FOREMAN")

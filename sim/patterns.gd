@@ -14,7 +14,8 @@ extends RefCounted
 ##   full_house          a set of three and a set of two, the triple at or above the rung
 ##   straight            a run at least the rung long
 ##   odd / even          at least the rung many dice of that parity
-##   distinct            at least the rung many different values
+##   distinct            at least the rung many different values; `high_crown` asks the highest die
+##                       to be a crown as well (Clean Kill)
 ##   value               at least the rung many dice showing one of `values`
 ##   at_most             at least one die showing the rung or less (Ember reads ones)
 ##   at_least            the highest die shows the rung or more, as an absolute value
@@ -167,7 +168,8 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.count = have
 				result.value = have
 		"distinct":
-			if int(a.get("distinct", 0)) >= need:
+			## `high_crown`: the highest die has to be on its top face as well (Clean Kill's).
+			if int(a.get("distinct", 0)) >= need and (not bool(trigger.get("high_crown", false)) or int(a.get("high_crown", 0)) > 0):
 				result.active = true
 				var dice: Array = []
 				for v in a.get("ids_by_value", {}):
@@ -377,7 +379,10 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"straight": return "A straight of %d: %d consecutive values in any order." % [need, need]
 		"odd": return "At least %s showing odd values." % _dice(need)
 		"even": return "At least %s showing even values." % _dice(need)
-		"distinct": return "At least %s with no two alike." % _dice(need)
+		"distinct":
+			if bool(trigger.get("high_crown", false)):
+				return "At least %s with no two alike, the highest on its own top face." % _dice(need)
+			return "At least %s with no two alike." % _dice(need)
 		"value":
 			var wanted: Array = trigger.get("values", [7])
 			var names: String = " or ".join(wanted.map(func(v: Variant) -> String: return str(int(v))))

@@ -183,8 +183,16 @@ static func _bright(tone: Color) -> Color:
 	return light if light.get_luminance() >= 0.55 else light.lerp(Color("e9e2ff"), 0.75)
 
 static func tier_line(count: Dictionary) -> String:
-	## What earned a tier, in a few words under its name: "three of a kind", "2 crowns". A
-	## count with no trigger (a passive) brings its own line.
+	## What earned a tier, in a few words under its name: "three of a kind", "2 crowns", and the
+	## Changing Face's run when it multiplied the figure. A count with no trigger (a passive)
+	## brings its own line.
+	var words: String = _tier_words(count)
+	var change: int = int(count.get("change", 0))
+	if change > 1:
+		words = ("%s · " % words if not words.is_empty() else "") + "Changing Face ×%d" % change
+	return words
+
+static func _tier_words(count: Dictionary) -> String:
 	var trigger: Dictionary = count.get("trigger", {})
 	if trigger.is_empty():
 		return str(count.get("line", ""))
@@ -198,6 +206,7 @@ static func tier_line(count: Dictionary) -> String:
 		"quint": return "five of a kind"
 		"straight": return "a straight of %s" % said
 		"distinct_dominant": return "one long knife"
+		"distinct": return "all five different" if need >= 5 else "%s different" % said
 		"low_count": return "all five low" if need >= 5 else "%s low dice" % said
 		"value": return "five ones"
 		"odd": return "all odd"

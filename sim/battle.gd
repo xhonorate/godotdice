@@ -115,7 +115,8 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 		"healed": 0, "dealt": 0, "dealt_last_turn": 0, "gold": 0, "once": {}, "downed": false, "connected": true,
 		"eligible_turn": 1, "buried": [], "clouded": [], "stolen_dice": 0, "granted_rerolls": 0, "sparkle": 0,
 		"quality_bonus": 0, "run_mods": {}, "skipped_turn": - 1, "fired_count": 0, "raw_drops": 0, "damp_carry": 0,
-		"bonus_dice_next": [], "double_resonance_next": false, "resonance_doubled": false, "streak": 0, "streak_next": 0}
+		"bonus_dice_next": [], "double_resonance_next": false, "resonance_doubled": false, "streak": 0, "streak_next": 0,
+		"last_face": "", "face_shown": "", "change": 0, "change_now": 0}
 	DeepStone.normalize_rail(unit)
 	return unit
 
@@ -1072,6 +1073,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	if not dry and certain > 1:
 		for _more in range(certain - 1):
 			state.queue.push_front({"kind": "gem", "unit": unit.id, "socket": socket, "retrigger": true, "force": true})
+	_settle_marks(state)
 	_check_outcome(state)
 	var tally: Dictionary = tally_of(ev, scale, strength)
 	if not tally.is_empty():
@@ -1111,6 +1113,16 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	var doubled: bool = bool(unit.get("resonance_doubled", false))
 	if doubled:
 		resonance = DeepRules.sat_mul(resonance, 2)
+	## The Changing Face (Motley): a face different from last turn's pays double, and every
+	## turn the faces keep changing pays one more, ×2, ×3, ×4. The same face twice running, or
+	## a hand that shows none, starts it over. The face is the hand's parity, every die.
+	var face: String = face_of(a) if bool(def.get("changing_face", false)) else ""
+	var change: int = 0
+	if not face.is_empty() and not str(unit.get("last_face", "")).is_empty() and face != str(unit.get("last_face", "")):
+		change = int(unit.get("change", 0)) + 1
+	if bool(def.get("changing_face", false)) and not dry:
+		unit.face_shown = face
+		unit.change_now = change
 	var defs: Array = def.get("tiers", [])
 	var evaluated: Array = []
 	var exclusive_hit: int = -1
@@ -1156,11 +1168,15 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 					continue
 				var applied: Dictionary = DeepRules.resolve_effect(effect_def, tc, 1.0)
 				var kind: String = str(applied.kind)
+				## The Changing Face multiplies what the faces land: the blow, the guard.
+				if change > 0 and kind in TALLY_KINDS and kind != "gold":
+					applied.amount = DeepRules.sat_mul(int(applied.get("amount", 0)), 1 + change)
 				var did: Array = []
 				if kind in HAND_KINDS:
 					did = [_mutate_hand(unit, applied)]
 				elif kind in SELF_KINDS:
-					did = [_self_effect(state, unit, applied, -1, -1, dry, rng)]
+					## A Motif plays the gem before the Birthstone again: the last one that fired.
+					did = [_self_effect(state, unit, applied, -1, int(unit.get("previous_socket", -1)), dry, rng)]
 				elif kind in BIRTHSTONE_KINDS:
 					did = [_birthstone_effect(state, unit, applied, dry, replay)]
 				else:
@@ -1171,6 +1187,13 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 					break
 			entry.effects = results
 			entry.count = birth_count(str(entry.name), entry.trigger, resolved, resonance, a, strength, count_pace(state))
+			if change > 0 and entry.count.has("amount"):
+				## The count shows the multiplied figure: the tier's own three, twice.
+				entry.count.change = 1 + change
+				if entry.count.has("coef"):
+					entry.count.coef = int(entry.count.coef) * (1 + change)
+				elif entry.count.has("base"):
+					entry.count.base = int(entry.count.base) * (1 + change)
 		tiers.append(entry)
 		if done(state):
 			break
@@ -1194,6 +1217,7 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	var answered: Array = []
 	if fired and not done(state):
 		answered = _answer_fire(state, unit, unit.get("after_fire", []), rng)
+	_settle_marks(state)
 	_check_outcome(state)
 	## The lit tiers are counted and land one after another, so the step holds all of them:
 	## a Thousand Cuts is one tier throwing twenty bolts, a Rally three tiers in a row.
@@ -1203,7 +1227,27 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 			played += tier_span(entry)
 	return _event(state, "birthstone", {"unit": unit.id, "name": str(def.get("name", "Birthstone")), "style": str(def.get("style", "")),
 		"tiers": tiers, "fired": fired, "dice": all_dice, "resonance": resonance, "replay": replay, "promised": promised, "answers": answered, "doubled": doubled,
+		"face": face, "change": change,
 		"duration": (BASE_DURATION.birthstone + played) if fired else BASE_DURATION.gem_fizzle})
+
+static func face_of(a: Dictionary) -> String:
+	## The face a hand wears for Motley: "odd" when every die is odd, "even" when every die is
+	## even, "" when it is mixed. A hand with no dice wears none.
+	var count: int = int(a.get("dice_count", 0))
+	if count <= 0:
+		return ""
+	if int(a.get("odd", 0)) == count:
+		return "odd"
+	if int(a.get("even", 0)) == count:
+		return "even"
+	return ""
+
+static func next_face_pays(unit: Dictionary) -> int:
+	## What the Changing Face would multiply a face by this turn, if it is the other face from
+	## last turn's: 2 the first time the faces change, 3 the next, and so on. 1 with no run on.
+	if str(unit.get("last_face", "")).is_empty():
+		return 1
+	return 2 + int(unit.get("change", 0))
 
 static func tier_span(entry: Dictionary) -> float:
 	## One lit tier on screen: its count, then what it does landing (at the least BIRTH_LAND,
@@ -3284,8 +3328,11 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 	var curse: int = clampi(int(target.statuses.get("curse", 0)), 0, DeepRules.CURSE_MAX_STACKS)
 	var marked: int = int(target.statuses.get("marked", 0)) if not reactive and amount > 0 else 0
 	raw = DeepRules.sat_scale(raw, 100 + DeepRules.CURSE_PERCENT * curse, 100 + 25 * marked, 10000)
+	## Marked is spent by the whole gem (or Birthstone, or creature's move) that lands on it,
+	## not by its first blow: every blow of a Thousand Cuts takes the mark. The marks come off
+	## once that gem is done (`_settle_marks`).
 	if marked > 0:
-		target.statuses.erase("marked")
+		target.mark_spent = true
 	var out: Dictionary = {"raw": raw}
 	## A Mirror a delver holds up: the next blow a creature lands is split, its share sent
 	## straight back at whoever threw it and the rest landing as it would.
@@ -3528,6 +3575,7 @@ static func _enemy_act(state: Dictionary, foe: Dictionary, move: Dictionary, rng
 		results.append_array(_apply(state, foe, effect, rng, "", reactions))
 		if done(state):
 			break
+	_settle_marks(state)
 	foe.beat = "impact"
 	if int(move.index) >= 0 and int(move.index) < foe.move_states.size():
 		foe.move_states[int(move.index)] = "used" if bool(move.get("combo", false)) else "resolved"
@@ -3556,10 +3604,19 @@ static func _thresholds(state: Dictionary, foe: Dictionary, rng: RandomNumberGen
 		var reactions: Dictionary = {}
 		for effect in resolved.effects:
 			results.append_array(_apply(state, foe, effect, rng, "", reactions))
+		_settle_marks(state)
 		out.append({"move": name, "unit": str(foe.id), "effects": results})
 	if not out.is_empty() and not bool(foe.get("acting", false)):
 		DeepCreatures.prepare(foe)
 	return out
+
+static func _settle_marks(state: Dictionary) -> void:
+	## Marks spent by the gem, Birthstone or move that just finished come off now, so every
+	## blow of it took them and the next thing to land starts clean.
+	for unit in state.players + state.enemies:
+		if bool(unit.get("mark_spent", false)):
+			unit.erase("mark_spent")
+			unit.statuses.erase("marked")
 
 static func _poison_tick(state: Dictionary, unit: Dictionary) -> Dictionary:
 	## One round of poison on one unit: it hurts for its stacks and loses one. When a creature
@@ -3619,6 +3676,7 @@ static func _tick_wound(state: Dictionary, unit: Dictionary, tick: Dictionary) -
 
 static func _tick(state: Dictionary) -> Dictionary:
 	var ticks: Array = []
+	_settle_marks(state)
 	for unit in state.players + state.enemies:
 		if int(unit.hp) <= 0 or bool(unit.get("downed", false)):
 			continue
@@ -3733,6 +3791,12 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		unit.double_resonance_next = false
 		unit.streak = int(unit.get("streak_next", 0))
 		unit.streak_next = 0
+		## The Changing Face: the face Motley showed last turn, and how many turns running the
+		## faces have changed. A turn that showed no face (a mixed hand, a stun) ends the run.
+		unit.last_face = str(unit.get("face_shown", ""))
+		unit.change = int(unit.get("change_now", 0))
+		unit.face_shown = ""
+		unit.change_now = 0
 		## Mirror's reflection lasts until its owner's next turn, like Block.
 		unit.statuses.erase("reflect")
 		unit.statuses.erase("reflect_pct")

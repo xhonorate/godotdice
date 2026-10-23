@@ -91,6 +91,7 @@ export function makePlayer(id, characterKey, rail, dice, opts = {}) {
 		block_lost: 0, block_lost_accum: 0, healed: 0, dealt: 0, dealt_last_turn: 0, gold: 0, ore: I(Number(opts.pyrite ?? 0)), once: {}, downed: false,
 		buried: [], clouded: [], stolen_dice: 0, granted_rerolls: 0, sparkle: 0, quality_bonus: 0, fired_count: 0, void_copies: 0, haul: [],
 		bonus_dice_next: [], double_resonance_next: false, resonance_doubled: false,
+		last_face: '', face_shown: '', change: 0, change_now: 0,
 	};
 }
 
@@ -459,6 +460,7 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	if (!dry && !retrigger && (I(ev.fires)) > 1) for (let extra = 0; extra < (I(ev.fires)) - 1; extra++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true });
 	if (!dry && !retrigger && promised > 0) for (let more = 0; more < promised; more++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true });
 	if (!dry && certain > 1) for (let more = 0; more < certain - 1; more++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true, force: true });
+	settleMarks(state);
 	state.ledger.fires += 1;
 	return { kind: 'gem_fire', socket, skill: stone.skill, resonance: unit.resonance, gain, harmony, retrigger, cut_step: I(ev.cut_step), carat: I(ev.carat),
 		magnitude: ev.magnitude, fires: I(ev.fires), promised: retrigger ? 0 : promised, effects: results };
@@ -478,6 +480,12 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	let resonance = satMulDiv(I(unit.resonance), Math.max(0, opts.share ?? 100), 100);
 	// On Fire: last turn's High Roller doubled the whole total it reads this turn.
 	if (unit.resonance_doubled) resonance = satMul(resonance, 2);
+	// The Changing Face (Motley): a face different from last turn's pays double, and every turn
+	// the faces keep changing pays one more. The same face twice, or no face, starts it over.
+	const face = def.changing_face ? faceOf(a) : '';
+	let change = 0;
+	if (face && unit.last_face && face !== unit.last_face) change = I(unit.change) + 1;
+	if (def.changing_face && !dry) { unit.face_shown = face; unit.change_now = change; }
 	const defs = def.tiers || [];
 	const evaluated = [];
 	let exclusiveHit = -1;
@@ -503,8 +511,11 @@ export function resolveBirthstone(state, unit, opts, rng) {
 				if (!effectDef || typeof effectDef !== 'object') continue;
 				const applied = Rules.resolveEffect(effectDef, tc, 1.0);
 				const kind = applied.kind;
+				// The Changing Face multiplies what the faces land: the blow, the guard.
+				if (change > 0 && TALLY_KINDS.includes(kind) && kind !== 'gold') applied.amount = satMul(I(applied.amount), 1 + change);
 				if (HAND_KINDS.includes(kind)) entry.effects.push(mutateHand(unit, applied));
-				else if (SELF_KINDS.includes(kind)) entry.effects.push(selfEffect(state, unit, applied, -1, -1, dry, rng));
+				// A Motif plays the gem before the Birthstone again: the last one that fired.
+				else if (SELF_KINDS.includes(kind)) entry.effects.push(selfEffect(state, unit, applied, -1, unit.previous_socket ?? -1, dry, rng));
 				else if (BIRTHSTONE_KINDS.includes(kind)) entry.effects.push(birthstoneEffect(state, unit, applied, dry, replay));
 				else entry.effects.push(...apply(state, unit, applied, rng, '', reactions));
 			}
@@ -514,8 +525,29 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	if (!dry && !replay && promised > 0) for (let more = 0; more < promised; more++) state.queue.unshift({ kind: 'birthstone', unit: unit.id, replay: true });
 	// The Birthstone is a gem that fired, as far as a Chainmail is concerned.
 	if (fired) answerFire(state, unit, unit.after_fire || [], rng);
+	settleMarks(state);
 	if (fired) state.ledger.birthstone += 1;
-	return { kind: 'birthstone', fired, resonance, replay, tiers };
+	return { kind: 'birthstone', fired, resonance, replay, tiers, face, change };
+}
+
+// What the tiers land that the Changing Face multiplies (sim/battle.gd TALLY_KINDS).
+const TALLY_KINDS = ['damage', 'block', 'heal', 'poison', 'gold', 'spikes', 'regeneration', 'retain'];
+
+// The face a hand wears for Motley: odd when every die is odd, even when every die is even.
+function faceOf(a) {
+	const count = I(a.dice_count);
+	if (count <= 0) return '';
+	if (I(a.odd) === count) return 'odd';
+	if (I(a.even) === count) return 'even';
+	return '';
+}
+
+// Marks spent by the gem, Birthstone or move that just finished come off now, so every blow of
+// it took them and the next thing to land starts clean.
+function settleMarks(state) {
+	for (const unit of state.players.concat(state.enemies)) {
+		if (unit.mark_spent) { delete unit.mark_spent; delete unit.statuses.marked; }
+	}
 }
 
 // What a Chainmail or a Contagion earlier this turn gives for one more gem fired.
@@ -1252,7 +1284,9 @@ function damage(state, source, target, amount, rng, reactions = {}, reactive = f
 	const curse = Math.max(0, Math.min(Rules.CURSE_MAX_STACKS, I(target.statuses.curse)));
 	const marked = !reactive && amount > 0 ? I(target.statuses.marked) : 0;
 	raw = satScale(raw, 100 + Rules.CURSE_PERCENT * curse, 100 + 25 * marked, 10000);
-	if (marked > 0) delete target.statuses.marked;
+	// Marked is spent by the whole gem (or Birthstone, or move) that lands on it, not by its
+	// first blow; the marks come off once it is done (settleMarks).
+	if (marked > 0) target.mark_spent = true;
 	const out = { raw };
 	// A Mirror a delver holds up: the next blow a creature lands is split, its share sent back.
 	if (target.side === 'player' && source.side === 'enemy' && !reactive && raw > 0 && (I(target.statuses.reflect)) > 0) {
@@ -1353,6 +1387,7 @@ function burnTick(state, unit) {
 }
 
 export function tick(state) {
+	settleMarks(state);
 	for (const unit of state.players.concat(state.enemies)) {
 		if ((I(unit.hp)) <= 0 || unit.downed) continue;
 		poisonTick(state, unit);
@@ -1386,6 +1421,12 @@ export function beginTurn(state, unit, roll) {
 	unit.bonus_dice_next = [];
 	unit.resonance_doubled = Boolean(unit.double_resonance_next);
 	unit.double_resonance_next = false;
+	// The Changing Face: the face Motley showed last turn, and how many turns running the faces
+	// have changed. A turn that showed no face ends the run.
+	unit.last_face = String(unit.face_shown || '');
+	unit.change = I(unit.change_now);
+	unit.face_shown = '';
+	unit.change_now = 0;
 	// Mirror's reflection lasts until its owner's next turn, like Block.
 	delete unit.statuses.reflect;
 	delete unit.statuses.reflect_pct;
@@ -1579,6 +1620,7 @@ export function dummyAct(state, foe, rng) {
 		if (i === clouded || !target) continue;
 		damage(state, foe, target, blow(shrunk(foe.dice[i], dread), draws[i]), rng);
 	}
+	settleMarks(state);
 	finish(foe);
 }
 

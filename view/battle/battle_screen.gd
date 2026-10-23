@@ -25,6 +25,7 @@ const Biomes = preload("res://view/battle/biomes.gd")
 const MineStage = preload("res://view/run/mine_stage.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
 const StreakFx = preload("res://view/battle/streak_fx.gd")
+const MotleyFx = preload("res://view/battle/motley_fx.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Tally = preload("res://view/battle/tally.gd")
@@ -34,7 +35,7 @@ const Roster = preload("res://view/home/roster.gd")
 ## The field of view the camera prefers; it widens on its own when a tall creature and its
 ## plate would not fit under the top of the screen, and narrows back when they would.
 ## What Sleight does, on its button. See `DeepBattle.shift_face`.
-const SHIFT_TIP: String = "Sleight, once a turn  [F]: turn one chosen die over onto a face of the other parity, its mirror face (a 2 on a d6 to its 5) or the nearest one of the other parity it has. A die whose faces are all even or all odd can't be shifted."
+const SHIFT_TIP: String = "Sleight, once a turn: turn one die over. The face underneath is the other parity (its mirror face, a 2 on a d6 to its 5, or the nearest face of the other parity it has). Right-click a die to turn it, hold it, or pick it and press F. A die whose faces are all even or all odd can't turn."
 const BASE_FOV: float = 58.0
 
 signal command(cmd: Dictionary)
@@ -268,6 +269,12 @@ var _pending_dues: Dictionary = {}
 var _pending_crowns: Array = []
 ## Florin's hot streak, worn by the reader's own tray (see streak_fx.gd).
 var _streak_fx: Control = null
+## Puck's motley, over the reader's own tray, for as long as the faces keep changing.
+var _motley_fx: Control = null
+## A die held down long enough turns over (Sleight): the click that follows is not a pick.
+var _pressing: String = ""
+var _press_token: int = 0
+var _long_pressed: String = ""
 var _pending_regrown: Dictionary = {}
 var _battery_tween: Tween:
 	get: return _page.battery_tween
@@ -566,6 +573,10 @@ func _build_hud() -> void:
 				rects.append((view as Control).get_global_rect())
 		return rects
 	_hud.add_child(_streak_fx)
+	## The Changing Face's motley, over the same tray.
+	_motley_fx = MotleyFx.new()
+	_motley_fx.follow = _local_page.tray_box
+	_hud.add_child(_motley_fx)
 
 func _build_page(page: Page) -> void:
 	## A player's page of the dock, built once: their health and Resonance, their rail, their
@@ -640,9 +651,17 @@ func _build_page(page: Page) -> void:
 	var buttons := DeepUi.hbox(middle, 10)
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	if page.mine:
+		## Puck's tray says which face the hand wears, and how far it is from a full one: beside
+		## her buttons, at a fixed width so they do not shuffle as the words change.
+		page.face_chip = DeepUi.label(buttons, "", 12, DeepUi.MUTED)
+		page.face_chip.visible = false
+		page.face_chip.custom_minimum_size.x = 236
+		page.face_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		page.face_chip.mouse_filter = Control.MOUSE_FILTER_PASS
+		page.face_chip.tooltip_text = "Motley reads the whole hand: all odd is the Cruel Face, all even the Kind Face, and all one parity and all different is Full Motley."
 		_reroll_button = DeepUi.icon_button(buttons, "reroll", "Reroll", _reroll, 15, DeepUi.INFO)
 		_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
-		_flip_button = DeepUi.icon_button(buttons, "eye", "Shift", _flip, 15, DeepUi.ACCENT)
+		_flip_button = DeepUi.icon_button(buttons, "eye", "Turn over", _flip, 15, DeepUi.ACCENT)
 		_flip_button.tooltip_text = SHIFT_TIP
 		_flip_button.visible = false
 		_lock_button = DeepUi.primary(buttons, "check", "Lock in", _toggle_lock, 16)
@@ -848,11 +867,11 @@ func _sync() -> void:
 	var spent: bool = rerolls <= 0 and flips <= 0
 	_lock_button.disabled = not planning or downed or (locked and spent)
 	_lock_button.text = "Unlock" if locked else "Lock in"
-	_lock_button.tooltip_text = "Locked in: no rerolls or shifts left to spend." if locked and spent else "Lock in your hand  [Space]"
+	_lock_button.tooltip_text = "Locked in: no rerolls or turns left to spend." if locked and spent else "Lock in your hand  [Space]"
 	_flip_button.visible = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
 	var shift_refusal: String = _shift_refusal()
 	_flip_button.disabled = not planning or locked or downed or flips <= 0 or selected.size() != 1 or not shift_refusal.is_empty()
-	_flip_button.text = "Shift" if flips > 0 or not planning else "Shifted"
+	_flip_button.text = "Turn over" if flips > 0 or not planning else "Turned"
 	_flip_button.tooltip_text = (shift_refusal.substr(0, 1).to_upper() + shift_refusal.substr(1) + ".") if not shift_refusal.is_empty() else SHIFT_TIP
 	## When there is nothing left to decide, the lock button asks to be pressed.
 	var waiting_on_me: bool = planning and not locked and not downed and ((rerolls <= 0 and flips <= 0) or (selected.is_empty() and not whole_bowl))
@@ -871,9 +890,9 @@ func _sync() -> void:
 		_hint.text = "Waiting for %s" % ", ".join(waiting.map(func(p: Dictionary) -> String: return str(p.name))) if not waiting.is_empty() else "Everyone is in."
 	else:
 		if flips > 0 and not shift_refusal.is_empty():
-			_hint.text = "That die has no face of the other parity to shift to"
+			_hint.text = "That die has no face of the other parity to turn to"
 		elif rerolls <= 0 and flips > 0:
-			_hint.text = "Pick one die to shift parity  [F], or lock in  [Space]"
+			_hint.text = "Right-click a die to turn it over (or pick it, [F]), or lock in  [Space]"
 		elif rerolls <= 0 and not roller.is_empty():
 			_hint.text = "%s rolled for you: no rerolls this turn. Lock in  [Space]" % str(roller.get("name", "A creature"))
 		elif rerolls <= 0:
@@ -881,8 +900,10 @@ func _sync() -> void:
 		else:
 			if whole_bowl:
 				_hint.text = "All or Nothing: reroll every die  [R], or lock in  [Space]"
+			elif selected.is_empty():
+				_hint.text = "Click dice to reroll  [1-5] · right-click to turn over" if flips > 0 else "Click dice to reroll  [1-5]"
 			else:
-				_hint.text = "Click dice to reroll  [1-5]" if selected.is_empty() else "%d selected" % selected.size()
+				_hint.text = "%d selected" % selected.size()
 
 # --- the party: a page each, and a tab each -----------------------------------------------------
 
@@ -911,6 +932,8 @@ class Page extends RefCounted:
 	var birthstone_key: String = ""
 	var hand_title: Label
 	var hint: Label
+	## Puck only: which face the hand wears, under the tray's title.
+	var face_chip: Label = null
 	var tray_box: HBoxContainer
 	var dice_views: Dictionary = {}
 	var phantom_box: HBoxContainer
@@ -1025,6 +1048,7 @@ func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
 	_sync_rail(unit, planning)
 	_sync_tray(unit, planning)
 	_sync_streak(page, unit)
+	_sync_face(page, unit)
 	if not page.mine:
 		_sync_mate_state(page, unit, planning)
 	_show_mood(page.id)
@@ -2491,13 +2515,28 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 			if mine:
 				hit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 				hit.pressed.connect(_toggle_die.bind(id))
-			hit.mouse_entered.connect(func() -> void: view.set_highlight(true))
-			hit.mouse_exited.connect(func() -> void: view.set_highlight(false))
-			hit.tooltip_text = ("All or Nothing: Reroll throws every die. Right-click for everything about this one." if DeepBattle.all_or_nothing(unit) else "Left-click to choose it for a reroll. Right-click for everything about it.") if mine else "Right-click for everything about this die."
+			hit.mouse_entered.connect(func() -> void:
+				view.set_highlight(true)
+				_show_ghost(id, true))
+			hit.mouse_exited.connect(func() -> void:
+				view.set_highlight(false)
+				_show_ghost(id, false))
+			var sleight: bool = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
+			hit.tooltip_text = ("All or Nothing: Reroll throws every die. Right-click for everything about this one." if DeepBattle.all_or_nothing(unit)
+				else ("Left-click to choose it for a reroll. Right-click it, or hold it, to turn it over (Sleight). Shift+right-click for everything about it." if sleight
+				else "Left-click to choose it for a reroll. Right-click for everything about it.")) if mine else "Right-click for everything about this die."
+			## A right-click turns a die over while Puck has a Sleight to spend; with Shift held, or
+			## for anyone else, it opens the die.
 			hit.gui_input.connect(func(event: InputEvent) -> void:
 				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-					_inspect_die(id, owner_id)
+					if mine and not event.shift_pressed and _can_turn(id):
+						_turn_die(id)
+					else:
+						_inspect_die(id, owner_id)
 					hit.accept_event())
+			if mine:
+				hit.button_down.connect(_press_start.bind(id))
+				hit.button_up.connect(_press_end.bind(id))
 			holder.add_child(hit)
 			_dice_views[id] = view
 	for roll in hand:
@@ -2532,6 +2571,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		value.text = words.strip_edges()
 		value.add_theme_color_override("font_color", DeepUi.ACCENT if chosen else (DeepUi.ORE if lent else DeepUi.MUTED))
 		_bonus_rim(view.get_parent(), lent)
+		_parity_rim(view.get_parent(), roll, unit)
 	## A hand locked in while the rest of the party still chooses settles back a shade: these
 	## dice are final. They come up bright again for the turn to count them.
 	var settled: Color = Color(0.74, 0.76, 0.86) if planning and bool(unit.get("locked", false)) else Color.WHITE
@@ -3103,6 +3143,10 @@ func apply_look() -> void:
 # --- input ---------------------------------------------------------------------------------
 
 func _toggle_die(id: String) -> void:
+	## The click that let go of a long press already turned the die over: it is not a pick.
+	if _long_pressed == id:
+		_long_pressed = ""
+		return
 	var unit: Dictionary = me()
 	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)) or (int(unit.get("rerolls", 0)) <= 0 and int(unit.get("flips", 0)) <= 0):
 		return
@@ -3146,19 +3190,172 @@ func _shift_refusal() -> String:
 	return ""
 
 func _flip() -> void:
-	## Sleight: the one chosen die turns over onto a face of the other parity.
+	## Sleight, from its button or F: the one chosen die turns over.
 	if selected.size() != 1 or int(me().get("flips", 0)) <= 0 or bool(me().get("locked", false)):
 		return
 	if not _shift_refusal().is_empty():
 		DeepAudio.play("ui_back", {"volume": 0.6})
 		return
-	var id: String = str(selected[0])
+	_turn_die(str(selected[0]))
+	selected.clear()
+
+func _turn_roll(id: String) -> Dictionary:
+	## The reader's own roll on that die, or {} (a phantom is not a die that turns).
+	for roll in me().get("hand", []):
+		if str(roll.get("die_id", "")) == id and not bool(roll.get("phantom", false)):
+			return roll
+	return {}
+
+func _can_turn(id: String) -> bool:
+	## Whether Sleight can turn that die over right now: Puck's, while planning, unlocked, with a
+	## turn left, and a die with a face of the other parity to land on.
+	var unit: Dictionary = me()
+	if str(state.get("phase", "")) != "planning" or bool(unit.get("locked", false)) or bool(unit.get("downed", false)):
+		return false
+	if int(unit.get("flips", 0)) <= 0 or str(unit.get("passive", {}).get("kind", "")) != "free_flip":
+		return false
+	var roll: Dictionary = _turn_roll(id)
+	return not roll.is_empty() and DeepBattle.shift_refusal(unit, roll).is_empty()
+
+func _turn_value(id: String) -> int:
+	## The number the die would show turned over, or -1 when it cannot turn.
+	if not _can_turn(id):
+		return -1
+	var unit: Dictionary = me()
+	var roll: Dictionary = _turn_roll(id)
+	var face: int = DeepBattle.shift_face(unit, roll)
+	for die in unit.get("dice", []):
+		if str(die.get("id", "")) == id and face >= 0 and face < die.get("faces", []).size():
+			return DeepDice.face_value(die.faces[face])
+	return -1
+
+func _turn_die(id: String) -> void:
+	## Sleight: the die turns over onto the face underneath, by right-click, a long press, its
+	## button or F.
+	if not _can_turn(id):
+		return
 	command.emit({"kind": "flip", "die": id})
 	DeepAudio.play("die_pick", {"volume": 0.9})
 	if not _headless and _dice_views.has(id):
 		var view: Control = _dice_views[id]
 		DeepUi.burst(self, view.global_position - global_position + view.size * 0.5, DeepUi.ACCENT_HI, 16, 150.0, 0.5)
-	selected.clear()
+	selected.erase(id)
+	_show_ghost(id, false)
+
+func _press_start(id: String) -> void:
+	## A die held down for a moment turns over, without the pick-then-button dance.
+	_long_pressed = ""
+	if _headless or not _can_turn(id):
+		return
+	_pressing = id
+	_press_token += 1
+	var token: int = _press_token
+	get_tree().create_timer(0.45).timeout.connect(func() -> void:
+		if is_instance_valid(self) and not state.is_empty() and _pressing == id and _press_token == token:
+			_pressing = ""
+			_long_pressed = id
+			_turn_die(id))
+
+func _press_end(id: String) -> void:
+	if _pressing == id:
+		_pressing = ""
+
+func _show_ghost(id: String, on: bool) -> void:
+	## Hovering a die Sleight can turn shows the face it would land on, as a ghost on the die.
+	if _headless or not _dice_views.has(id) or not is_instance_valid(_dice_views[id]):
+		return
+	var holder: Node = (_dice_views[id] as Control).get_parent()
+	var ghost: Label = holder.get_node_or_null("Ghost")
+	var value: int = _turn_value(id) if on else -1
+	if ghost == null:
+		if value < 0:
+			return
+		ghost = DeepUi.label(holder, "", 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+		ghost.name = "Ghost"
+		ghost.position = Vector2(DIE_EDGE - 38, -8)
+		ghost.size = Vector2(40, 18)
+		ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ghost.z_index = 2
+		ghost.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.9))
+		ghost.add_theme_constant_override("outline_size", 5)
+	ghost.visible = value >= 0
+	if value >= 0:
+		ghost.text = "⇅ %d" % value
+		ghost.add_theme_color_override("font_color", MotleyFx.CRUEL if value % 2 == 1 else MotleyFx.KIND)
+
+func _parity_rim(holder: Node, roll: Dictionary, unit: Dictionary) -> void:
+	## Puck's dice wear their parity: a pink rim light for odd, green for even, the two halves of
+	## her tourmaline, so the face the hand wears can be read straight off the tray.
+	if holder == null or not holder is Control:
+		return
+	var rim: Panel = holder.get_node_or_null("ParityRim")
+	var value: int = int(roll.get("value", 0))
+	var wanted: bool = str(unit.get("passive", {}).get("kind", "")) == "free_flip" and value > 0 and str(roll.get("kind", "plain")) != "blank"
+	if rim == null and wanted:
+		rim = Panel.new()
+		rim.name = "ParityRim"
+		rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rim.position = Vector2(-2, -2)
+		rim.size = Vector2(DIE_EDGE + 4, DIE_EDGE + 4)
+		holder.add_child(rim)
+		holder.move_child(rim, 0)
+	if rim == null:
+		return
+	rim.visible = wanted
+	if wanted:
+		var tone: Color = MotleyFx.CRUEL if value % 2 == 1 else MotleyFx.KIND
+		if not rim.has_meta("tone") or Color(rim.get_meta("tone")) != tone:
+			rim.set_meta("tone", tone)
+			rim.add_theme_stylebox_override("panel", DeepUi.flat(Color(tone, 0.07), Color(tone, 0.8), 10, 0, 2))
+
+func _sync_face(page: Page, unit: Dictionary) -> void:
+	## Puck's tray says which face the hand wears and how far it is from a full one, and the
+	## Changing Face what the other face from last turn's would pay: ×2, ×3 as the run goes on.
+	var harlequin: bool = str(unit.get("passive", {}).get("kind", "")) == "free_flip"
+	var downed: bool = bool(unit.get("downed", false))
+	var pays: int = DeepBattle.next_face_pays(unit) if harlequin and not downed else 1
+	var last: String = str(unit.get("last_face", ""))
+	var other: String = "the Kind Face" if last == "odd" else "the Cruel Face"
+	if page.face_chip != null:
+		page.face_chip.visible = harlequin and not downed and not unit.get("hand", []).is_empty()
+		if page.face_chip.visible:
+			var odd: int = 0
+			var even: int = 0
+			var seen: Dictionary = {}
+			for roll in unit.get("hand", []):
+				var value: int = int(roll.get("value", 0))
+				if value <= 0:
+					continue
+				if value % 2 == 1:
+					odd += 1
+				else:
+					even += 1
+				seen[value] = true
+			var cruel: bool = odd >= even
+			var away: int = mini(odd, even)
+			var full: String = "the Cruel Face" if cruel else "the Kind Face"
+			var words: String = "%d cruel · %d kind" % [odd, even]
+			if away == 0 and odd + even > 0:
+				words += " · Full Motley" if seen.size() == odd + even else " · " + full
+			elif away > 0:
+				words += " · %s from %s" % ["one" if away == 1 else str(away), full]
+			page.face_chip.text = words
+			page.face_chip.add_theme_color_override("font_color", MotleyFx.CRUEL if cruel else MotleyFx.KIND)
+	## The run, written beside the count the way On Fire's ×2 is.
+	var mark: Label = page.resonance_box.get_node_or_null("Change") if page.resonance_box != null else null
+	if mark == null and pays > 1 and page.resonance_box != null:
+		mark = DeepUi.title(page.resonance_box, "", 18, MotleyFx.CRUEL)
+		mark.name = "Change"
+		mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mark.mouse_filter = Control.MOUSE_FILTER_PASS
+	if mark != null:
+		mark.visible = pays > 1
+		if pays > 1:
+			mark.text = "×%d" % pays
+			mark.add_theme_color_override("font_color", MotleyFx.KIND if last == "odd" else MotleyFx.CRUEL)
+			mark.tooltip_text = "The Changing Face: show %s this turn and Motley pays ×%d. The same face again starts over." % [other, pays]
+	if page.mine and _motley_fx != null:
+		_motley_fx.set_level(pays, last)
 
 func _lock_if_spent() -> void:
 	if _headless or not is_instance_valid(self) or not is_inside_tree() or state.is_empty():
@@ -3393,7 +3590,7 @@ func perform(event: Dictionary) -> void:
 		"flip":
 			if str(event.get("unit", "")) == local_id:
 				DeepAudio.play("die_settle", {"volume": 0.8})
-				_float_at(_tray_box, "Shifted to %d" % int(event.get("value", 0)), DeepUi.ACCENT_HI, 16)
+				_float_at(_tray_box, "Turned over to %d" % int(event.get("value", 0)), DeepUi.ACCENT_HI, 16)
 		"enemy_begin":
 			var who: String = str(event.get("unit", ""))
 			var up: CrystalCreature = _creature(who)
@@ -3584,6 +3781,17 @@ func _birthstone_fire(event: Dictionary) -> void:
 			_later_do(0.3, func() -> void: _fx.coins(_purse(), _purse() + Vector3(0, -1.6, 0.4), 8))
 	if bool(event.get("doubled", false)) and anchor != null and not _headless:
 		_float_at(_resonance_anchor(unit_id), "On Fire ×2", StreakFx.HOT, 18)
+	## The Changing Face: the other face from last turn's, paying double and more. Her motley
+	## bursts off the tray and the room is told how much.
+	if int(event.get("change", 0)) > 0 and not _headless:
+		var pays: int = int(event.change) + 1
+		var face_tone: Color = MotleyFx.CRUEL if str(event.get("face", "")) == "odd" else MotleyFx.KIND
+		if anchor != null:
+			_float_at(_resonance_anchor(unit_id), "Changing Face ×%d" % pays, face_tone, 18)
+		if mine:
+			if _motley_fx != null:
+				_motley_fx.change(str(event.get("face", "")), pays)
+			_announce("CHANGING FACE", face_tone, "×%d" % pays, 1.1)
 	if anchor != null:
 		DeepAudio.from(anchor, "resonance", {"pitch": 1.1 + 0.08 * float(mini(lit.size(), 4)), "volume": 0.9, "gap": 0.02})
 		var ring: SocketRing = anchor.get_node_or_null("Slot/Ring")
