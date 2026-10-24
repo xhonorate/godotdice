@@ -109,6 +109,12 @@ static func headless() -> bool:
 static var _sky_resource: Sky = null
 static var _shared_sky_material: ProceduralSkyMaterial = null
 
+static func release() -> void:
+	## Lets go of the shared halo and sky before the renderer shuts down.
+	_halo_texture = null
+	_sky_resource = null
+	_shared_sky_material = null
+
 ## New views start drawing at most this many to a frame. Each one's first frame makes its
 ## buffers (MSAA, glow, contact shadow) and draws its sky: a page that opened with five of
 ## them (the Market) stopped one frame for every one of them at once.

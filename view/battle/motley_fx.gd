@@ -144,6 +144,10 @@ func change(shown: String, pays: int) -> void:
 		add_child(burst)
 		burst.emitting = true
 		burst.finished.connect(burst.queue_free)
+		## `finished` never comes while this layer is hidden (the dock turned to another page),
+		## so a clock frees the burst as well.
+		if is_inside_tree():
+			get_tree().create_timer(burst.lifetime + 1.0, false).timeout.connect(burst.queue_free)
 	_flash = 1.0
 	_flash_tone = CRUEL if shown == "odd" else KIND
 	queue_redraw()

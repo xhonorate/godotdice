@@ -110,7 +110,7 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 			"caption": "Fragile stones cannot be sold or kept"}]
 	_hue = GemMesh.tint(stone)
 	_root = Control.new()
-	_root.theme = DeepUi.theme()
+	DeepUi.use_theme(_root)
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)

@@ -173,18 +173,24 @@ static func clarity_side(clarity: int) -> int:
 	## Which way off Clear a stone leans: -1 toward Intricate, +1 toward Flawless, 0 at Clear.
 	return signi(clarity - DeepContent.clear_index())
 
+static func stepped_clarity(was: int, steps: int = 1, up: int = 0) -> int:
+	## Where `step_clarity` would leave a stone of this clarity, without touching it.
+	var side: int = clarity_side(was)
+	if side == 0:
+		side = 1 if up >= 0 else -1
+	return clampi(was + side * maxi(1, steps), 0, DeepContent.clarities().size() - 1)
+
 static func step_clarity(rng: RandomNumberGenerator, stone: Dictionary, mine: Dictionary, steps: int = 1, up: int = 0) -> Dictionary:
 	## Clarity driven `steps` rungs further from Clear along the side it already leans (a Clear
 	## stone takes the side `up` names, or Pristine's when it names none), and whatever the
 	## new clarity has room for frozen inside it. What was already in there is kept as far as
-	## the slots allow. Returns {clarity, was, inclusions, had, moved}.
+	## the slots allow. Returns {clarity, was, inclusions, had, moved}. A stone already at the
+	## end of the ladder is left exactly as it was.
 	var was: int = int(stone.get("clarity", DeepContent.clear_index()))
 	var had: Array = stone.get("inclusions", []).duplicate()
-	var side: int = clarity_side(was)
-	if side == 0:
-		side = 1 if up >= 0 else -1
-	var top: int = DeepContent.clarities().size() - 1
-	var now: int = clampi(was + side * maxi(1, steps), 0, top)
+	var now: int = stepped_clarity(was, steps, up)
+	if now == was:
+		return {"clarity": now, "was": was, "inclusions": had.duplicate(), "had": had, "moved": false}
 	stone.clarity = now
 	var slots: int = DeepStone.inclusion_slots(now)
 	var kept: Array = had.slice(0, slots)

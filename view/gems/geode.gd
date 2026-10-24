@@ -119,7 +119,7 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_tone = theme_tone(geode) if mode == "geode" else DeepUi.ACCENT
 	_tier_tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier))
 	_root = Control.new()
-	_root.theme = DeepUi.theme()
+	DeepUi.use_theme(_root)
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)

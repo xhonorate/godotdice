@@ -185,6 +185,10 @@ func snuff() -> void:
 	add_child(smoke)
 	smoke.emitting = true
 	smoke.finished.connect(smoke.queue_free)
+	## `finished` never comes while this layer is hidden (the dock turned to another page),
+	## so a clock frees the puff as well.
+	if is_inside_tree():
+		get_tree().create_timer(smoke.lifetime + 1.0, false).timeout.connect(smoke.queue_free)
 	## The fire is out at once, not over the usual second.
 	level = 0
 	for key in ["embers", "flames", "burning", "shimmer"]:

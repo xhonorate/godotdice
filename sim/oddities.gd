@@ -205,6 +205,9 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return _refuse("choose one of your stones")
 			if not bool(stone.get("appraised", false)):
 				return _refuse("a raw stone has no clarity to speak of yet")
+			var was: int = int(stone.get("clarity", DeepContent.clear_index()))
+			if DeepForge.stepped_clarity(was, maxi(1, int(action.get("steps", 1)))) == was:
+				return _refuse("that stone is already as far from Clear as the ladder goes")
 			if DeepRng.chance(rng, float(action.get("shatter", 4))):
 				remove_stone(player, str(stone.id))
 				out.lost.append(str(stone.id))
@@ -212,8 +215,6 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				out.message = "The stone cracks in the heat."
 			else:
 				var pushed: Dictionary = DeepForge.step_clarity(rng, stone, mine, maxi(1, int(action.get("steps", 1))))
-				if not bool(pushed.moved):
-					return _refuse("that stone is already as far from Clear as the ladder goes")
 				out.changed.append(stone.duplicate(true))
 				out.verdict = _clarity_verdict(int(pushed.was), int(pushed.clarity))
 				var inside: Array = DeepStone.inclusion_names(stone)
@@ -236,11 +237,17 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if ids.size() > maxi(1, int(action.get("most", 3))):
 				return _refuse("the racks hold only %d" % maxi(1, int(action.get("most", 3))))
 			var each: int = maxi(0, int(action.get("hp", 6)))
-			var read: Array = []
+			## Every stone is checked before the acid touches any, so a refused rack reads nothing.
+			var racked: Array = []
+			var seen: Array = []
 			for raw_id in ids:
 				var stone: Dictionary = find_stone(player, str(raw_id))
-				if stone.is_empty() or bool(stone.get("appraised", false)):
+				if stone.is_empty() or bool(stone.get("appraised", false)) or seen.has(str(raw_id)):
 					return _refuse("the racks take raw stones only")
+				seen.append(str(raw_id))
+				racked.append(stone)
+			var read: Array = []
+			for stone in racked:
 				stone.appraised = true
 				stone.inclusions_revealed = true
 				read.append(stone.duplicate(true))
@@ -368,11 +375,19 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty():
 				return _refuse("choose a stone to trade")
+			if DeepStone.is_locked(stone):
+				return _refuse("a Knot cannot leave its socket")
 			var bigger: Dictionary = DeepForge.roll_stone(rng, mine, depth, 0, {"run": ctx.get("run", ""), "source": "prospector"})
 			var gained: int = rng.randi_range(int(action.get("carats", 0)), maxi(int(action.get("carats", 0)), int(action.get("carats_max", 2))))
 			bigger.carat = mini(int(stone.carat) + gained, DeepStone.carat_max())
 			bigger.appraised = false
 			bigger.inclusions_revealed = false
+			## What he hands back is no more free to leave the mine than what he took, as at the
+			## crucible. A vault copy is the vault's loss instead (see DeepDescent `vault_spent`).
+			if DeepStone.is_fragile(stone):
+				bigger.fragile = true
+			if bool(stone.get("temporary", false)):
+				bigger.temporary = true
 			remove_stone(player, str(stone.id))
 			out.lost.append(str(stone.id))
 			player.haul.append(bigger)

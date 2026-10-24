@@ -55,10 +55,12 @@ static func _stones(home: Control, holder: Control) -> void:
 		if kept.is_empty():
 			DeepUi.label(holder, "No kept stone matches.", 14, DeepUi.DIM)
 		StoneBrowser.table(home, holder, kept, {"context": "vault", "picked": home._vault_pick, "on_pick": func(stone: Dictionary) -> void:
+			var was: String = home._vault_pick
 			home._vault_pick = str(stone.get("skill", ""))
 			if DeepProfile.unfresh(home.profile, home._vault_pick):
 				home.touch()
-			if not home.redraw(["vault_stones", "vault_lamp"]):
+			## The lamp drawn again, and only the two rows whose ring moved restyled.
+			if not home.redraw(["vault_lamp"]) or not StoneBrowser.repick(home.region_holder("vault_stones"), was, home._vault_pick):
 				home._render()})
 		return
 	var grid := GridContainer.new()
@@ -78,7 +80,8 @@ static func _stones(home: Control, holder: Control) -> void:
 				entries.append(entry)
 	if entries.is_empty():
 		DeepUi.label(grid, "No stone matches.", 14, DeepUi.DIM)
-	_fill(home, grid, entries, 0, COLUMNS * 2 if home._fresh and not home._headless else entries.size())
+	## A frame at a time whenever it is drawn, a sort or a search as much as the tab opening.
+	_fill(home, grid, entries, 0, COLUMNS * 2 if not home._headless else entries.size())
 
 static func _head(home: Control, content: VBoxContainer, tray: Array) -> void:
 	var head := DeepUi.hbox(content, 12)

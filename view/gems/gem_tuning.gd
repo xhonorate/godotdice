@@ -32,8 +32,11 @@ const KNOBS := [
 	{"key": "grey_pull", "group": "STONE", "label": "Cloudiness",
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.32,
 		"hint": "How far a Fractured stone's hue is pulled towards grey. Re-cuts the stone."},
+	{"key": "body_depth", "group": "STONE", "label": "Body depth",
+		"low": 1.0, "high": 2.0, "step": 0.01, "value": 1.45,
+		"hint": "How deep and saturated the body color is laid into the facets. 1.0 is the stone's own color; higher darkens and saturates it, the way light grows richer the further it travels through colored glass. Re-cuts the stone."},
 	{"key": "facet_swing", "group": "STONE", "label": "Facet variation",
-		"low": 0.0, "high": 1.0, "step": 0.01, "value": 1.00,
+		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.70,
 		"hint": "How much neighbouring facets differ in tone. Zero is a moulded blob. Re-cuts the stone."},
 	{"key": "pale_bias", "group": "STONE", "label": "Pale facets swing down",
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 1.00,
@@ -151,7 +154,7 @@ const KNOBS := [
 		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.21,
 		"hint": "Zero throws a pure white-light spectrum, like a diamond. One pulls it right back into the gem's own color."},
 	{"key": "facet_hue", "group": "FIRE", "label": "Facet hue spread",
-		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.60,
+		"low": 0.0, "high": 1.0, "step": 0.01, "value": 0.15,
 		"hint": "Splits the body color slightly differently on each facet, baked into the solid. This is the half of the prism that stays put when the stone does. Re-cuts the stone."},
 
 	# --- the emblem cut into the table --------------------------------------------

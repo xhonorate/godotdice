@@ -23,6 +23,24 @@ static var _stretched: QuadMesh = null
 ## compiled again from nothing on the frame it was next needed: several milliseconds for
 ## each kind, on every hit after a pause. Holding one of each keeps them all compiled.
 static var _kept: Dictionary = {}
+
+static func release() -> void:
+	## Lets go of every shared material, mesh and ramp before the renderer goes, on quit.
+	_add_material = null
+	_soft_material = null
+	_quad = null
+	_sparkle = null
+	_stretched = null
+	_kept.clear()
+	_ramps.clear()
+	_shrink = null
+	_swell = null
+	_twinkle = null
+	_fire_ramp = null
+	_tongue = null
+	_flame_curve = null
+	_smoke_ramp = null
+
 ## The step rate a room's air is filled at before it is first drawn. See `ambient`.
 const AMBIENT_FILL_FPS := 6
 
@@ -113,7 +131,23 @@ static func quad(additive: bool = true) -> QuadMesh:
 		return soft
 	return _quad
 
+## The ramps and curves bursts are drawn with, made once each and shared: nothing changes one
+## after it is handed out. The ramps are kept by color, and let go if they pile up.
+static var _ramps: Dictionary = {}
+static var _shrink: CurveTexture = null
+static var _swell: CurveTexture = null
+const RAMPS_KEPT := 256
+
+static func _kept_ramp(key: Array) -> GradientTexture1D:
+	if _ramps.size() >= RAMPS_KEPT and not _ramps.has(key):
+		_ramps.clear()
+	return _ramps.get(key, null)
+
 static func fade_ramp(color: Color, peak: float = 1.0, hold: float = 0.2) -> GradientTexture1D:
+	var key: Array = ["fade", color, peak, hold]
+	var kept: GradientTexture1D = _kept_ramp(key)
+	if kept != null:
+		return kept
 	var gradient := Gradient.new()
 	gradient.set_color(0, Color(color, 0.0))
 	gradient.set_color(1, Color(color, 0.0))
@@ -121,34 +155,44 @@ static func fade_ramp(color: Color, peak: float = 1.0, hold: float = 0.2) -> Gra
 	gradient.add_point(1.0 - hold, Color(color, peak * 0.8))
 	var texture := GradientTexture1D.new()
 	texture.gradient = gradient
+	_ramps[key] = texture
 	return texture
 
 static func burst_ramp(color: Color) -> GradientTexture1D:
 	## White-hot at birth, the color through its life, nothing at the end.
+	var key: Array = ["burst", color]
+	var kept: GradientTexture1D = _kept_ramp(key)
+	if kept != null:
+		return kept
 	var gradient := Gradient.new()
 	gradient.set_color(0, Color(color.lightened(0.7), 1.0))
 	gradient.set_color(1, Color(color, 0.0))
 	gradient.add_point(0.25, Color(color, 1.0))
 	var texture := GradientTexture1D.new()
 	texture.gradient = gradient
+	_ramps[key] = texture
 	return texture
 
 static func shrink_curve() -> CurveTexture:
+	if _shrink != null:
+		return _shrink
 	var curve := Curve.new()
 	curve.add_point(Vector2(0, 1))
 	curve.add_point(Vector2(1, 0))
-	var texture := CurveTexture.new()
-	texture.curve = curve
-	return texture
+	_shrink = CurveTexture.new()
+	_shrink.curve = curve
+	return _shrink
 
 static func swell_curve() -> CurveTexture:
+	if _swell != null:
+		return _swell
 	var curve := Curve.new()
 	curve.add_point(Vector2(0, 0.2))
 	curve.add_point(Vector2(0.3, 1.0))
 	curve.add_point(Vector2(1, 0.7))
-	var texture := CurveTexture.new()
-	texture.curve = curve
-	return texture
+	_swell = CurveTexture.new()
+	_swell.curve = curve
+	return _swell
 
 # --- fire ----------------------------------------------------------------------------------------
 
@@ -461,7 +505,11 @@ static func _stretched_quad() -> QuadMesh:
 		_stretched.material = glow_material()
 	return _stretched
 
+static var _twinkle: CurveTexture = null
+
 static func _twinkle_curve() -> CurveTexture:
+	if _twinkle != null:
+		return _twinkle
 	var curve := Curve.new()
 	curve.add_point(Vector2(0, 0))
 	curve.add_point(Vector2(0.15, 1.0))
@@ -469,9 +517,9 @@ static func _twinkle_curve() -> CurveTexture:
 	curve.add_point(Vector2(0.55, 0.9))
 	curve.add_point(Vector2(0.75, 0.05))
 	curve.add_point(Vector2(1, 0))
-	var texture := CurveTexture.new()
-	texture.curve = curve
-	return texture
+	_twinkle = CurveTexture.new()
+	_twinkle.curve = curve
+	return _twinkle
 
 # --- the heartbeat -----------------------------------------------------------------------------
 

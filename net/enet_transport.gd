@@ -15,6 +15,9 @@ var _was_connected := false
 var _connect_started := 0
 ## The peers ENet still has, by id: a kicked guest usually hangs up before the host lets go of it.
 var _live: Dictionary = {}
+## A host given by name, being looked up off the main thread: the lookup, and the port to join on.
+var _resolving: int = IP.RESOLVER_INVALID_ID
+var _resolving_port: int = 0
 
 static func connect_timed_out(was_connected: bool, started_ms: int, now_ms: int) -> bool:
 	## Only a connection still being made can time out; one that is up stays up, however long
@@ -36,16 +39,45 @@ func join(address: String, port: int = 24567) -> Error:
 	close()
 	## An address that is no address at all is turned away here rather than by ENet, which
 	## logs an engine error before it gives up on it. The session says why to the player.
-	if address.strip_edges().is_empty() or (not address.is_valid_ip_address() and IP.resolve_hostname(address).is_empty()):
+	address = address.strip_edges()
+	if address.is_empty():
 		return ERR_CANT_RESOLVE
+	_connect_started = Time.get_ticks_msec()
+	if not address.is_valid_ip_address():
+		## A name is looked up in the background, so the game does not freeze while it is; the
+		## line is opened once it is found (see `_process`), and `failed` says if it is not.
+		_resolving = IP.resolve_hostname_queue_item(address)
+		if _resolving == IP.RESOLVER_INVALID_ID:
+			return ERR_CANT_RESOLVE
+		_resolving_port = port
+		return OK
+	return _open(address, port)
+
+func _open(address: String, port: int) -> Error:
 	peer = ENetMultiplayerPeer.new()
 	var result := peer.create_client(address, port, 1)
 	if result != OK:
 		peer = null
 		return result
-	_connect_started = Time.get_ticks_msec()
 	_bind()
 	return OK
+
+func _poll_lookup() -> void:
+	var status := IP.get_resolve_item_status(_resolving)
+	if status == IP.RESOLVER_STATUS_WAITING:
+		if connect_timed_out(false, _connect_started, Time.get_ticks_msec()):
+			_drop_lookup()
+			failed.emit("Connection timed out. Check the host address and UDP port.")
+		return
+	var found: String = IP.get_resolve_item_address(_resolving) if status == IP.RESOLVER_STATUS_DONE else ""
+	_drop_lookup()
+	if found.is_empty() or _open(found, _resolving_port) != OK:
+		failed.emit("Could not find that host. Check its address.")
+
+func _drop_lookup() -> void:
+	if _resolving != IP.RESOLVER_INVALID_ID:
+		IP.erase_resolve_item(_resolving)
+	_resolving = IP.RESOLVER_INVALID_ID
 
 func _bind() -> void:
 	peer.peer_connected.connect(func(id: int):
@@ -60,6 +92,8 @@ func _bind() -> void:
 	peer.refuse_new_connections = false
 
 func _process(_delta: float) -> void:
+	if _resolving != IP.RESOLVER_INVALID_ID:
+		_poll_lookup()
 	if peer == null:
 		return
 	peer.poll()
@@ -103,6 +137,7 @@ func disconnect_peer(peer_id: String) -> void:
 		peer.disconnect_peer(int(peer_id))
 
 func close() -> void:
+	_drop_lookup()
 	if peer != null:
 		## Closing throws away whatever is still queued, and the last thing queued is usually
 		## the one worth hearing: the host closing the party, a guest saying goodbye.

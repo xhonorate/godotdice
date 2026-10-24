@@ -2,7 +2,12 @@
 // fixtures, has Godot play them with the real DeepBattle (tools/balance_parity.gd), plays the
 // same fixtures here, and compares the state after every rail field by field.
 //
-//   node tools/data-browser/parity.mjs [--count 400] [--seed 1] [--keep]
+//   node tools/data-browser/parity.mjs [--count 400] [--seed 1] [--keep] [--etched]
+//
+// --etched etches Exploding and Doubled faces onto some fixtures' dice and writes each
+// exploding face's throws after it (`chain`, face indices), so shown faces, `base` and the
+// value/below triggers that read them are held to the game too. tools/balance_parity.gd
+// reads the same `etch` and `chain` (see buildRoll below).
 //
 // Exits 1 on any difference. Files go to build/parity/ (kept with --keep).
 
@@ -23,6 +28,8 @@ const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
 const COUNT = Number(option('count', 400));
 const SEED = Number(option('seed', 1));
+const ETCHED = args.includes('--etched');
+const ETCH_KINDS = ['exploding', 'doubled'];
 const OUT = path.join(ROOT, 'build', 'parity');
 
 C.setPack(JSON.parse(await readFile(path.join(ROOT, 'content', 'deep_cut.json'), 'utf8')));
@@ -63,9 +70,31 @@ function fixtures(count, seed) {
 			rail[socket] = { skill, carat: live ? 1 : rng.randiRange(1, 24), cut: rng.randiRange(0, 4), clarity, inclusions: chosen, id: `g${socket}` };
 		}
 		const dice = def.dice.map((ref, i) => Dice.dieFrom(ref, `p${i}`));
-		const runs = Array.from({ length: rng.randiRange(1, 3) }, () => ({ hand: dice.map((die) => { const rerolls = rng.randf() < 0.4 ? 1 : 0; return { face: rng.randiRange(0, die.faces.length - 1), rerolls, held: rerolls === 0 ? rng.randf() < 0.5 : true }; }) }));
+		// Only with --etched, and from a stream of its own, so the plain fixtures stay as they were.
+		const etch = [];
+		const extra = ETCHED ? makeRng(seed * 104729 + n) : null;
+		if (extra && extra.randf() < 0.6) {
+			for (let i = 0; i < dice.length; i++) {
+				if (extra.randf() < 0.5) continue;
+				const at = { die: i, face: extra.randiRange(0, dice[i].faces.length - 1), kind: ETCH_KINDS[extra.randiRange(0, ETCH_KINDS.length - 1)] };
+				if (Dice.etch(dice[i], at.face, at.kind)) etch.push(at);
+			}
+		}
+		const runs = Array.from({ length: rng.randiRange(1, 3) }, () => ({ hand: dice.map((die) => {
+			const rerolls = rng.randf() < 0.4 ? 1 : 0;
+			const spec = { face: rng.randiRange(0, die.faces.length - 1), rerolls, held: rerolls === 0 ? rng.randf() < 0.5 : true };
+			if (extra && (die.faces[spec.face].kind || 'plain') === 'exploding') {
+				spec.chain = [];
+				while (spec.chain.length < Dice.MAX_EXPLOSIONS) {
+					const again = extra.randiRange(0, die.faces.length - 1);
+					spec.chain.push(again);
+					if ((die.faces[again].kind || 'plain') !== 'exploding') break;
+				}
+			}
+			return spec;
+		}) }));
 		const enemy = () => ({ block: rng.randf() < 0.5 ? 0 : rng.randiRange(1, 10), statuses: { poison: rng.randiRange(0, 6), curse: rng.randiRange(0, 2), marked: rng.randiRange(0, 1) } });
-		out.push({ id: n, mode: live ? 'live' : 'dry', seed: seed * 1000 + n, character, pyrite: rng.randiRange(0, 80), depth: 3, rail, runs,
+		out.push({ id: n, mode: live ? 'live' : 'dry', seed: seed * 1000 + n, character, pyrite: rng.randiRange(0, 80), depth: 3, rail, runs, ...(etch.length ? { etch } : {}),
 			enemies: [enemy(), enemy()], unit: { hp: rng.randiRange(20, Number(def.hp)), block: rng.randiRange(0, 10), block_lost: rng.randiRange(0, 8), statuses: {},
 				initial_resonance: rng.randiRange(0, 5), rerolls: rng.randiRange(0, 2) } });
 	}
@@ -79,6 +108,7 @@ const ints = (source) => Object.fromEntries(Object.entries(source || {}).filter(
 function play(f) {
 	const def = C.character(f.character);
 	const dice = def.dice.map((ref, i) => Dice.dieFrom(ref, `p${i}`));
+	for (const at of f.etch || []) Dice.etch(dice[at.die], at.face, at.kind);
 	const rail = f.rail.map((s) => (s ? Stone.make(s.skill, s.carat, s.cut, s.clarity, s.inclusions, s.id) : null));
 	const unit = Fight.makePlayer('p0', f.character, rail, dice, { pyrite: f.pyrite });
 	const enemies = f.enemies.map((spec, i) => { const foe = Fight.makeDummy(`e${i}`, { dice: ['D4', 'D4'] }); foe.block = spec.block; foe.statuses = ints(spec.statuses); return foe; });
@@ -93,17 +123,28 @@ function play(f) {
 	const rng = makeRng(7);
 	const snaps = [];
 	for (const run of f.runs) {
-		unit.hand = unit.dice.map((die, index) => {
-			const spec = run.hand[index];
-			const face = die.faces[spec.face];
-			return { die_id: die.id, shape: die.shape, material: die.material || '', value: Dice.faceValue(face), face: spec.face, kind: face.kind || 'plain', top: Dice.top(die),
-				held: spec.held, rerolls: spec.rerolls, locked: false, explosions: 0, phantom: false };
-		});
+		unit.hand = unit.dice.map((die, index) => buildRoll(die, run.hand[index]));
 		Fight.startRail(state, unit);
 		const events = f.mode === 'dry' ? playDry(state, unit, rng) : Fight.runQueue(state, rng, true);
 		snaps.push(snapshot(state, unit, events));
 	}
 	return { id: f.id, snaps };
+}
+
+// A fixed roll, written the way DeepDice.roll_one writes a thrown one: an exploding face adds
+// each face of its `chain` and keeps `base` and `chain`; a face whose number is not what it
+// counts for keeps `shown` and `counted`. tools/balance_parity.gd _hand builds the same.
+function buildRoll(die, spec) {
+	const face = die.faces[spec.face];
+	const kind = face.kind || 'plain';
+	let value = Dice.faceValue(face);
+	const chain = (kind === 'exploding' ? spec.chain || [] : []).map((at) => ({ face: at, value: Dice.faceValue(die.faces[at]) }));
+	for (const link of chain) value += link.value;
+	const roll = { die_id: die.id, shape: die.shape, material: die.material || '', value, face: spec.face, kind, top: Dice.top(die),
+		held: spec.held, rerolls: spec.rerolls, locked: false, explosions: chain.length, phantom: false };
+	if (kind !== 'blank' && (face.value | 0) !== value) { roll.shown = face.value | 0; roll.counted = value; }
+	if (kind === 'exploding') { roll.base = Dice.faceValue(face); roll.chain = chain; }
+	return roll;
 }
 
 // The forecast's way through a rail: every gem and the Birthstone resolved dry.
@@ -129,7 +170,7 @@ function snapshot(state, a, events) {
 	for (const [id, entry] of Object.entries(a.gem_buffs || {})) { const clean = ints(entry); if (Object.keys(clean).length) buffs[id] = clean; }
 	return { unit: { hp: a.hp, max_hp: a.max_hp, block: a.block, resonance: a.resonance, gold: a.gold | 0, pyrite_delta: a.pyrite_delta | 0, pot: a.pot | 0, statuses: ints(a.statuses),
 		granted_rerolls: a.granted_rerolls | 0, sparkle: a.sparkle | 0, quality_bonus: a.quality_bonus | 0, rank_buff: ints(a.rank_buff), gem_buffs: buffs,
-		fired: a.fired_sockets.slice(), fizzled: a.fizzled_sockets.slice(), rail: a.rail.map((s) => (s ? String(s.id) : '')), hand: a.hand.map((r) => [r.die_id, r.value, Boolean(r.phantom)]),
+		fired: a.fired_sockets.slice(), fizzled: a.fizzled_sockets.slice(), rail: a.rail.map((s) => (s ? String(s.id) : '')), hand: a.hand.map((r) => [r.die_id, r.value, Boolean(r.phantom), Math.trunc(r.shown ?? -1), Math.trunc(r.counted ?? -1)]),
 		faces: a.dice.map((d) => d.faces.map((f) => f.value | 0)), amplify: Math.round(Number(a.amplify) * 10000) / 10000, cut_step_bonus: a.cut_step_bonus | 0,
 		nullify_next: Boolean(a.nullify_next), repeat_next: a.repeat_next | 0, healed: a.healed | 0, dealt: a.dealt | 0, once: Object.keys(a.once).sort() },
 	enemies: state.enemies.map((foe) => ({ hp: foe.hp, max_hp: foe.max_hp, block: foe.block, statuses: ints(foe.statuses), stolen_dice: foe.stolen_dice | 0, dread_turns: foe.dread_turns | 0 })),
@@ -157,7 +198,7 @@ function describe(f) {
 	return `${f.mode} ${f.character} [${f.rail.map((s) => (s ? `${s.skill} ${s.carat}ct c${s.cut} k${s.clarity}${s.inclusions.length ? ' +' + s.inclusions.join('+') : ''}` : '·')).join(', ')}]`;
 }
 
-// Godot 4.7.2: GODOT_BIN, the path, or a console build beside the project, on the desktop or in
+// Godot 4.7.2: GODOT_BIN, the path, or a build (console or not) beside the project, on the desktop or in
 // downloads (the way music.mjs looks, without needing its encoder installed).
 function findGodot() {
 	const candidates = [process.env.GODOT_BIN];
@@ -166,7 +207,8 @@ function findGodot() {
 	}
 	const home = process.env.USERPROFILE || process.env.HOME || '';
 	for (const dir of [path.dirname(ROOT), path.join(home, 'Desktop'), path.join(home, 'Downloads')]) {
-		try { for (const file of readdirSync(dir)) if (/^Godot_v4\.7\.2-stable_win64_console\.exe$/i.test(file)) candidates.push(path.join(dir, file)); } catch { /* no such folder */ }
+		// The console build first (its output reaches the pipe as it is written), then the plain one.
+		try { for (const file of readdirSync(dir).sort((a, b) => Number(/_console/i.test(b)) - Number(/_console/i.test(a)))) if (/^Godot_v4\.7\.2-stable_win64(_console)?\.exe$/i.test(file)) candidates.push(path.join(dir, file)); } catch { /* no such folder */ }
 	}
 	candidates.push('/Applications/Godot.app/Contents/MacOS/Godot');
 	return candidates.find((c) => c && existsSync(c)) || null;
@@ -174,7 +216,7 @@ function findGodot() {
 
 function runGodot(fixtureFile, outFile) {
 	const godot = findGodot();
-	if (!godot) throw new Error('Godot 4.7.2 was not found. Set GODOT_BIN to the console executable.');
+	if (!godot) throw new Error('Godot 4.7.2 was not found. Set GODOT_BIN to the Godot executable.');
 	return new Promise((resolve, reject) => {
 		const child = spawn(godot, ['--headless', '--path', ROOT, '--script', 'res://tools/balance_parity.gd', '--', fixtureFile, outFile], { cwd: ROOT, windowsHide: true });
 		let log = '';

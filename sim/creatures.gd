@@ -115,11 +115,34 @@ static func traits_for(enemy: Dictionary) -> Dictionary:
 			out.erase(key)
 	return out
 
+static func _trait(enemy: Dictionary, name: String) -> Variant:
+	## One trait as `traits_for` would read it, or null, without building the whole set: a
+	## blow asks after several of them, and every copy of the set was one more dictionary.
+	var def: Dictionary = definition(enemy)
+	var value: Variant = null
+	var pinned: Dictionary = enemy.get("traits", {})
+	var phased: Dictionary = {}
+	if not pinned.has(name):
+		var phase: int = phase_for(enemy)
+		if phase > 0:
+			phased = def.phases[phase - 1].get("traits", {})
+	if pinned.has(name):
+		value = pinned[name]
+	elif phased.has(name):
+		value = phased[name]
+	elif def.get("traits", {}).has(name):
+		value = def.traits[name]
+	elif str(enemy.get("gimmick", def.get("gimmick", ""))) == name and not name.is_empty():
+		value = true
+	if (value is bool and not value) or ((value is int or value is float) and float(value) <= 0.0):
+		return null
+	return value
+
 static func has_trait(enemy: Dictionary, name: String) -> bool:
-	return traits_for(enemy).has(name)
+	return _trait(enemy, name) != null
 
 static func trait_value(enemy: Dictionary, name: String, fallback: int = 0) -> int:
-	var value: Variant = traits_for(enemy).get(name, null)
+	var value: Variant = _trait(enemy, name)
 	if value == null:
 		return fallback
 	if value is bool:

@@ -439,6 +439,10 @@ func _test_rejoin() -> void:
 	bo.id = "pfb0b0b0b0"
 	guest.hello(bo)
 	check(str(host.lobby.members.p1.get("profile", "")) == "pfb0b0b0b0", "the host knows which profile sits in seat p1")
+	## The profile ids and seat tokens are the host's alone: a guest is handed its own token,
+	## and nobody's profile id or token in the lobby.
+	check(not guest.seat_token.is_empty() and guest.seat_token == str(host.lobby.members.p1.get("token", "")), "the guest is handed its seat's token")
+	check(guest.lobby.members.values().all(func(m: Dictionary) -> bool: return not m.has("profile") and not m.has("token")), "the lobby a guest is sent carries no profile ids or tokens")
 	guest.update_member({"ready": true})
 	check(host.start_run(5150).ok and guest.in_run(), "a party of two sets out")
 	stake(host)
@@ -446,7 +450,17 @@ func _test_rejoin() -> void:
 	host._on_peer_disconnected("2")
 	check(host.run.phase == "tunnels", "the guest dropping does not hold the party at the shaft head (%s)" % host.run.phase)
 	check(not bool(DeepDescent.player(host.run, "p1").connected) and not bool(host.lobby.members.p1.connected), "and the run marks them away")
-	## Back on a new line with the same profile: the same seat, and the whole run.
+	## Someone else saying hello with Bo's profile but not Bo's seat token is a newcomer, and
+	## a newcomer cannot sit down in a party underground.
+	var mimic := DeepSession.new()
+	root.add_child(mimic)
+	var mimic_wire := Loopback.new()
+	_link(host_wire, mimic_wire, "5")
+	mimic.is_host = false
+	mimic.attach_transport(mimic_wire)
+	mimic.hello(bo)
+	check(mimic.local_id != "p1" and not mimic.in_run() and not bool(host.lobby.members.p1.connected), "an away seat is not handed to its profile without its token (%s)" % mimic.local_id)
+	## Back on a new line with the same profile and the seat's token: the same seat, and the whole run.
 	var again := DeepSession.new()
 	root.add_child(again)
 	var again_wire := Loopback.new()
@@ -455,6 +469,7 @@ func _test_rejoin() -> void:
 	again.attach_transport(again_wire)
 	var started: Array = []
 	again.run_started.connect(func(state: Dictionary) -> void: started.append(state))
+	again.seat_token = guest.seat_token
 	again.hello(bo)
 	check(again.local_id == "p1" and started.size() == 1 and same(again.run, host.run), "a dropped guest comes back to seat p1 and is handed the run (%s)" % again.local_id)
 	check(bool(DeepDescent.player(host.run, "p1").connected) and bool(host.lobby.members.p1.connected) and host.lobby.order == ["p0", "p1"], "present again, in one seat")
@@ -484,9 +499,9 @@ func _test_rejoin() -> void:
 	host._on_peer_disconnected("3")
 	host.leave_run()
 	check(host.lobby.order == ["p0"] and not host.lobby.members.has("p1"), "a seat kept underground is let go in the workshop")
-	for session in [host, guest, again, stranger]:
+	for session in [host, guest, again, stranger, mimic]:
 		session.queue_free()
-	for wire in [host_wire, guest_wire, again_wire, stranger_wire]:
+	for wire in [host_wire, guest_wire, again_wire, stranger_wire, mimic_wire]:
 		if wire.get_parent() == null:
 			wire.free()
 
@@ -595,6 +610,8 @@ func _test_reopen() -> void:
 	root.add_child(back)
 	back.is_host = false
 	back.attach_transport(back_wire)
+	## The token the host gave Bo before it quit is in its checkpoint, and still takes the seat.
+	back.seat_token = guest.seat_token
 	back.hello(bo)
 	check(back.local_id == "p1" and back.in_run() and str(back.run.run_id) == str(host.run.run_id) and same(back.run, host.run), "Bo comes back to seat p1 in the same run (%s)" % back.local_id)
 	check(host.away().is_empty() and bool(DeepDescent.player(host.run, "p1").connected), "and nobody is away now")
@@ -708,7 +725,7 @@ func _test_steam() -> void:
 	check(guest.transport.host_peer_id == str(ada_steam.id), "the guest talks to the lobby's owner")
 	third.join_steam(" %s " % host.invite_code, member("Cy", "RUE"))
 	settle([host, guest, third])
-	check(third.local_id == "p2" and host.lobby.order == ["p0", "p1", "p2"] and same(guest.lobby, host.lobby), "a third lapidary joins, and everyone sees the party of three")
+	check(third.local_id == "p2" and host.lobby.order == ["p0", "p1", "p2"] and same(guest.lobby, DeepSession._public(host.lobby)), "a third lapidary joins, and everyone sees the party of three")
 	## A guest listens to the host alone; another member's packet is not the run.
 	var lobby_before: Dictionary = guest.lobby.duplicate(true)
 	third.transport.send(str(bo_steam.id), PacketCodec.encode({"kind": "lobby", "lobby": {"members": {}, "order": []}, "version": DeepSession.VERSION}))

@@ -530,8 +530,10 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 		home.touch()
 		if bool(result.broke):
 			home._rework_pick = ""
+		## Told a moment after the reveal, or as soon as the page is left before it is over.
+		var settle: Callable = home.when_done(reveal, func() -> void: home.profile_changed.emit())
 		reveal.finished.connect(func() -> void:
-			home.get_tree().create_timer(1.6).timeout.connect(func() -> void: home.profile_changed.emit()), CONNECT_ONE_SHOT)
+			home.get_tree().create_timer(1.6).timeout.connect(settle), CONNECT_ONE_SHOT)
 		reveal.play(int(result.now), bool(result.broke)), 17, DeepUi.INFO)
 	DeepUi.priced(go, str(price))
 	pressed.append(go)

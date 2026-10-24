@@ -6,6 +6,8 @@ import { I } from './numbers.js';
 export function analyze(hand, colors = []) {
 	const values = [];
 	const idsByValue = new Map();
+	const bases = new Map();
+	const showing = new Map();
 	const counts = new Map();
 	const wilds = [];
 	let wildTop = 0;
@@ -39,6 +41,7 @@ export function analyze(hand, colors = []) {
 		}
 		if (kind === 'blank') continue;
 		total += value;
+		if (kind === 'exploding' && 'base' in roll) bases.set(id, I(roll.base));
 		values.push(value);
 		high = Math.max(high, value);
 		low = low === 0 ? value : Math.min(low, value);
@@ -46,6 +49,10 @@ export function analyze(hand, colors = []) {
 		if (value % 2 === 1) odd += 1; else even += 1;
 		if (value * 2 <= top) { lowDice += 1; lowIds.push(id); }
 		if (value >= top) { crowns += 1; crownIds.push(id); crownTotal += value; crownValues.add(value); }
+		// A gem may have changed the roll since it was thrown; then what it shows is what it is.
+		const shown = 'shown' in roll && value === I(roll.counted ?? -1) ? I(roll.shown) : value;
+		if (!showing.has(shown)) showing.set(shown, []);
+		showing.get(shown).push(id);
 		counts.set(value, (counts.get(value) || 0) + (kind === 'twin' || roll.twinned ? 2 : 1));
 		if (!idsByValue.has(value)) idsByValue.set(value, []);
 		idsByValue.get(value).push(id);
@@ -83,6 +90,7 @@ export function analyze(hand, colors = []) {
 		odd_values: oddValues + wilds.length, even_values: evenValues + wilds.length,
 		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds, crown_total: crownTotal,
 		high_crown: (high > 0 && crownValues.has(high)) || (high === 0 && wilds.length > 0) ? 1 : 0, ids_by_value: idsByValue,
+		bases, showing,
 	};
 }
 
@@ -98,13 +106,18 @@ function straightOf(counts, wilds, idsByValue, diceTotal, wildTop = 0) {
 		let foundLow = -1;
 		if (present.size === 0) foundLow = Math.max(1, wildTop - length + 1);
 		else {
-			// A run needs at least length - wilds present values, so only lows near them can work.
-			const from = Math.max(1, minPresent - length + 1);
-			const to = maxPresent;
-			for (let low = from; low <= to; low++) {
-				let missing = 0;
-				for (let v = low; v < low + length; v++) if (!present.has(v)) missing += 1;
-				if (missing <= wilds.length) foundLow = low;
+			// A run needs at least one value showing, so only the lows within a run's length of the
+			// values present can work. Between two of them what a run holds stays the same, so the
+			// highest low that works is always one just before a value comes in or goes out (or the
+			// highest value itself): faces can be far apart, and the lows between need no trying.
+			const floorLow = Math.max(1, minPresent - length + 1);
+			const lows = [maxPresent];
+			for (const v of present.keys()) lows.push(v, v - length);
+			for (const low of lows) {
+				if (low < floorLow || low > maxPresent || low <= foundLow) continue;
+				let held = 0;
+				for (const v of present.keys()) if (v >= low && v < low + length) held += 1;
+				if (length - held <= wilds.length) foundLow = low;
 			}
 		}
 		if (foundLow > 0) {
@@ -138,6 +151,29 @@ export function read(analysis, count, fromHigh) {
 export function matching(analysis, predicate) {
 	const dice = [];
 	for (const [v, ids] of analysis.ids_by_value) if (predicate(v)) dice.push(...ids);
+	dice.push(...analysis.wilds);
+	return dice;
+}
+
+// Like `matching`, but an exploding die is judged by the face it landed on rather than by
+// everything that face threw again: a 2 that went off into a 19 is still a 2 to a gem that
+// wants low faces.
+export function matchingFaces(analysis, predicate) {
+	const bases = analysis.bases || new Map();
+	const dice = [];
+	for (const [v, ids] of analysis.ids_by_value) for (const id of ids) if (predicate(bases.has(id) ? bases.get(id) : v)) dice.push(id);
+	dice.push(...analysis.wilds);
+	return dice;
+}
+
+// Die ids whose face shows a number the predicate wants, plus every wild: a Doubled 1 is
+// showing a 1, whatever it counts for. An analysis without `showing` reads the counted values.
+export function matchingShown(analysis, predicate) {
+	if (!analysis.showing) return matching(analysis, predicate);
+	const dice = [];
+	for (const [v, ids] of analysis.showing) if (predicate(v)) dice.push(...ids);
+	const rank = analysis.rank || new Map();
+	dice.sort((a, b) => (rank.get(b) || 0) - (rank.get(a) || 0));
 	dice.push(...analysis.wilds);
 	return dice;
 }

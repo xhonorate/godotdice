@@ -246,8 +246,9 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			## this run: the workshop's own stone is untouched whichever way this goes, so a
 			## stake may promise a truer cut without a stone ever becoming farmable.
 			var stone: Dictionary = unit.rail[socket]
-			stone.cut = clampi(int(stone.get("cut", 0)) + amount, 0, DeepPatterns.STEPS - 1)
-			_note(stone, "cut", amount)
+			var before: int = int(stone.get("cut", 0))
+			stone.cut = clampi(before + amount, 0, DeepPatterns.STEPS - 1)
+			_note(stone, "cut", before, int(stone.cut) - before)
 			return "%s is now judged %s." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), DeepContent.cut_name(int(stone.cut))]
 		"reroll_cut":
 			## A fresh draw of the stone's Cut from this mine's table, better or worse. With
@@ -258,18 +259,24 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			for _try in range(maxi(1, int(effect.get("best_of", 1)))):
 				best = maxi(best, DeepForge.reroll_cut(rng, stone, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0))))
 			stone.cut = best
+			_note(stone, "cut", was, best - was)
 			return "%s comes off the wheel %s, from %s." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), DeepContent.cut_name(best), DeepContent.cut_name(was)]
 		"reroll_clarity":
 			var stone: Dictionary = unit.rail[socket]
 			var rolled: Dictionary = DeepForge.reroll_clarity(rng, stone, mine, int(effect.get("depth", 4)), int(effect.get("bonus", 0)))
+			## Marked in steps from Clear, the way the ladder counts better, so the mark reads
+			## the same as a stake that stepped it; the old inclusions go back with the stone.
+			var clear: int = DeepContent.clear_index()
+			_note(stone, "clarity", int(rolled.was), absi(int(rolled.clarity) - clear) - absi(int(rolled.was) - clear), rolled.had)
 			var named: Array = DeepStone.inclusion_names(stone)
 			return "%s is fired again: %s, from %s.%s" % [str(DeepStone.skill_of(stone).get("name", stone.skill)),
 				DeepContent.clarity_name(int(rolled.clarity)), DeepContent.clarity_name(int(rolled.was)),
 				("" if named.is_empty() else " Inside it now: %s." % ", ".join(named))]
 		"carat":
 			var stone: Dictionary = unit.rail[socket]
-			stone.carat = clampi(int(stone.get("carat", 1)) + amount, 1, DeepStone.carat_max())
-			_note(stone, "carat", amount)
+			var before: int = int(stone.get("carat", 1))
+			stone.carat = clampi(before + amount, 1, DeepStone.carat_max())
+			_note(stone, "carat", before, int(stone.carat) - before)
 			return "%s weighs %d carats now." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), int(stone.carat)]
 		"rail_all":
 			## Every stone set on the rail, not one drawn from it. Carat and Cut step straight
@@ -281,11 +288,13 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 					continue
 				var stone: Dictionary = unit.rail[index]
 				if int(effect.get("carat", 0)) != 0:
-					stone.carat = clampi(int(stone.get("carat", 1)) + int(effect.carat), 1, DeepStone.carat_max())
-					_note(stone, "carat", int(effect.carat))
+					var carat_was: int = int(stone.get("carat", 1))
+					stone.carat = clampi(carat_was + int(effect.carat), 1, DeepStone.carat_max())
+					_note(stone, "carat", carat_was, int(stone.carat) - carat_was)
 				if int(effect.get("cut", 0)) != 0:
-					stone.cut = clampi(int(stone.get("cut", 0)) + int(effect.cut), 0, DeepPatterns.STEPS - 1)
-					_note(stone, "cut", int(effect.cut))
+					var cut_was: int = int(stone.get("cut", 0))
+					stone.cut = clampi(cut_was + int(effect.cut), 0, DeepPatterns.STEPS - 1)
+					_note(stone, "cut", cut_was, int(stone.cut) - cut_was)
 				if int(effect.get("clarity", 0)) != 0:
 					## Where it stood, and what was inside it, before the ladder moved: the
 					## mark has to be able to put both back when the run ends.
@@ -293,9 +302,7 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 					var was_inside: Array = stone.get("inclusions", []).duplicate()
 					var stepped: Dictionary = DeepForge.step_clarity(rng, stone, mine, absi(int(effect.clarity)))
 					if bool(stepped.moved):
-						_note(stone, "clarity", int(effect.clarity))
-						stone.staked.was.clarity = was_clarity
-						stone.staked.was.inclusions = was_inside
+						_note(stone, "clarity", was_clarity, absi(int(stepped.clarity) - was_clarity) * signi(int(effect.clarity)), was_inside)
 				out.changed.append(stone.duplicate(true))
 				touched.append(str(DeepStone.skill_of(stone).get("name", stone.skill)))
 			if touched.is_empty():
@@ -393,22 +400,24 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			return "+%d reroll a turn down to depth %d." % [int(effect.get("amount", 1)), int(effect.get("until_depth", 4))]
 	return ""
 
-static func _note(stone: Dictionary, field: String, amount: int) -> void:
+static func _note(stone: Dictionary, field: String, before: int, applied: int, inside: Array = []) -> void:
 	## What a stake did to one of the rail's stones, written on the stone itself so every
 	## screen that draws it can mark the change the way a buff is marked.
 	##
 	## The mark carries the stone as it was before the stake touched it, because the rail is
 	## only a copy of the vault for as long as the run lasts: a stone taken out of its socket
 	## and carried home in the haul has to arrive as the stone that went down. `DeepStone.
-	## unstake` is what puts it back, and the vault is where that is done.
+	## unstake` is what puts it back, and the vault is where that is done. `before` is the
+	## field as it stood and `applied` what the stake really moved it by, after the ladder's
+	## ends; a clarity step also hands over what was inside the stone before it moved.
 	if not stone.has("staked"):
 		stone.staked = {}
 	if not stone.staked.has("was"):
-		stone.staked.was = {"carat": int(stone.get("carat", 1)) - (amount if field == "carat" else 0),
-			"cut": int(stone.get("cut", 0)) - (amount if field == "cut" else 0),
-			"clarity": int(stone.get("clarity", DeepContent.clear_index())),
-			"inclusions": stone.get("inclusions", []).duplicate()}
-	stone.staked[field] = int(stone.staked.get(field, 0)) + amount
+		stone.staked.was = {"carat": before if field == "carat" else int(stone.get("carat", 1)),
+			"cut": before if field == "cut" else int(stone.get("cut", 0)),
+			"clarity": before if field == "clarity" else int(stone.get("clarity", DeepContent.clear_index())),
+			"inclusions": (inside if field == "clarity" else stone.get("inclusions", [])).duplicate()}
+	stone.staked[field] = int(stone.staked.get(field, 0)) + applied
 
 static func _max_hp(unit: Dictionary, pct: int) -> String:
 	var delta: int = int(round(float(unit.get("max_hp", 60)) * float(pct) / 100.0))

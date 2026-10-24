@@ -230,14 +230,33 @@ export function applyLens(hand, mode) {
 	return out;
 }
 
+// The effects of a Flawless stone, worked out once per skill's effects and Flawless line and
+// kept: every evaluate asks for them. What comes back shares nothing with the pack and is frozen
+// all the way down, so a caller that tried to change it would fail loudly instead of changing it
+// for every stone after.
+const flawlessCache = new WeakMap();
+const clone = (v) => (v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v);
+function deepFreeze(v) {
+	if (v && typeof v === 'object' && !Object.isFrozen(v)) { Object.freeze(v); for (const k of Object.keys(v)) deepFreeze(v[k]); }
+	return v;
+}
+
 export function applyFlawless(defs, flawless) {
-	const out = defs.map((d) => JSON.parse(JSON.stringify(d)));
+	let byDefs = flawlessCache.get(flawless);
+	if (!byDefs) { byDefs = new WeakMap(); flawlessCache.set(flawless, byDefs); }
+	let out = byDefs.get(defs);
+	if (!out) { out = deepFreeze(flawlessEffects(defs, flawless)); byDefs.set(defs, out); }
+	return out;
+}
+
+function flawlessEffects(defs, flawless) {
+	const out = defs.map((d) => clone(d));
 	for (const change of flawless.modify || []) {
 		if (!change || typeof change !== 'object') continue;
 		const index = I(change.effect);
 		if (index < 0 || index >= out.length) continue;
 		const def = out[index];
-		for (const field of [...Rules.EFFECT_OPTIONS, 'amount', 'repeat']) if (field in change) def[field] = change[field];
+		for (const field of [...Rules.EFFECT_OPTIONS, 'amount', 'repeat']) if (field in change) def[field] = clone(change[field]);
 		if ('target' in change) def.target = String(change.target);
 		if ('kind' in change) def.kind = String(change.kind);
 		if ('scale' in change) def.scale = String(change.scale);
@@ -246,7 +265,7 @@ export function applyFlawless(defs, flawless) {
 		if ('repeat_add' in change) def.repeat = { op: '+', args: [def.repeat ?? { const: 1 }, { const: I(change.repeat_add) }] };
 		if ('splash' in change) def.splash = I(change.splash);
 	}
-	for (const extra of flawless.effects || []) if (extra && typeof extra === 'object') out.push(JSON.parse(JSON.stringify(extra)));
+	for (const extra of flawless.effects || []) if (extra && typeof extra === 'object') out.push(clone(extra));
 	return out;
 }
 

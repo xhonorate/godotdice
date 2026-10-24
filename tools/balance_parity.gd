@@ -41,6 +41,9 @@ func _run(f: Dictionary) -> Dictionary:
 	var dice: Array = []
 	for index in range(refs.size()):
 		dice.append(DeepForge.die_from(refs[index], "p%d" % index))
+	## --etched fixtures: Exploding and Doubled faces cut into the character's own dice.
+	for at in f.get("etch", []):
+		DeepDice.etch(dice[int(at.die)], int(at.face), str(at.kind))
 	var rail: Array = []
 	for spec in f.rail:
 		if spec == null:
@@ -105,9 +108,27 @@ func _hand(unit: Dictionary, spec: Array) -> Array:
 	for index in range(mini(spec.size(), unit.dice.size())):
 		var die: Dictionary = unit.dice[index]
 		var face: int = int(spec[index].face)
-		out.append({"die_id": str(die.id), "shape": str(die.shape), "material": str(die.get("material", "")), "value": DeepDice.face_value(die.faces[face]),
-			"face": face, "kind": str(die.faces[face].get("kind", "plain")), "top": DeepDice.top(die), "held": bool(spec[index].held),
-			"rerolls": int(spec[index].rerolls), "locked": false, "explosions": 0, "phantom": false})
+		var landed: Dictionary = die.faces[face]
+		var kind: String = str(landed.get("kind", "plain"))
+		var value: int = DeepDice.face_value(landed)
+		## An exploding face adds each face it threw after it (`chain`, face indices), the way
+		## DeepDice.roll_one writes a thrown one.
+		var chain: Array = []
+		if kind == "exploding":
+			for again in spec[index].get("chain", []):
+				var extra: int = DeepDice.face_value(die.faces[int(again)])
+				chain.append({"face": int(again), "value": extra})
+				value += extra
+		var roll: Dictionary = {"die_id": str(die.id), "shape": str(die.shape), "material": str(die.get("material", "")), "value": value,
+			"face": face, "kind": kind, "top": DeepDice.top(die), "held": bool(spec[index].held),
+			"rerolls": int(spec[index].rerolls), "locked": false, "explosions": chain.size(), "phantom": false}
+		if kind != "blank" and int(landed.get("value", 0)) != value:
+			roll.shown = int(landed.get("value", 0))
+			roll.counted = value
+		if kind == "exploding":
+			roll.base = DeepDice.face_value(landed)
+			roll.chain = chain
+		out.append(roll)
 	return out
 
 func _ints(source: Variant, skip: Array = []) -> Dictionary:
@@ -129,7 +150,7 @@ func _snapshot(state: Dictionary, a: Dictionary, events: Array) -> Dictionary:
 			"stolen_dice": int(foe.get("stolen_dice", 0)), "dread_turns": int(foe.get("dread_turns", 0))})
 	var hand: Array = []
 	for roll in a.hand:
-		hand.append([str(roll.die_id), int(roll.value), bool(roll.get("phantom", false))])
+		hand.append([str(roll.die_id), int(roll.value), bool(roll.get("phantom", false)), int(roll.get("shown", -1)), int(roll.get("counted", -1))])
 	var faces: Array = []
 	for die in a.dice:
 		var values: Array = []

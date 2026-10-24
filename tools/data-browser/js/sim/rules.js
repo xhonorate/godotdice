@@ -19,6 +19,7 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'sparkle', 'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy',
 	'replay_rail', 'tick_poison', 'stone_drop', 'pot', 'dice_upgrade', 'ward', 'retain', 'charged', 'marked',
 	'regeneration', 'spikes', 'dulled', 'clouded', 'lifeline', 'max_hp', 'max_hp_loss', 'damage_curse', 'detonate', 'wager', 'stake', 'upgrade_faces', 'gem_rank', 'appraise',
+	'fire_neighbours', 'force_after', 'absorbed',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
 	'summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'strength', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',

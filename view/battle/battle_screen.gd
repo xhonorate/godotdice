@@ -213,6 +213,8 @@ var _phantom_key: String:
 ## A rearrangement of the room put off until a death or a split has finished animating, and
 ## the creatures whose arrival has already been waited for.
 var _layout_wait: SceneTreeTimer = null
+var _layout_generation: int = 0
+var _banner_tween: Tween = null
 var _awaited: Dictionary = {}
 ## The hand as it was last seen, and when the dice it rolled will have finished tumbling.
 var _rolled_hand: String:
@@ -376,10 +378,14 @@ func _hold_layout(seconds: float = SETTLE_SECONDS) -> void:
 	## Puts the rearrangement off until what caused it has played out.
 	if _layout_wait != null or _headless or not is_inside_tree():
 		return
+	## A wait started in a fight that has since been let go lays nothing out in the next one.
+	var generation: int = _layout_generation
 	_layout_wait = get_tree().create_timer(maxf(0.1, seconds))
 	_layout_wait.timeout.connect(func() -> void:
+		if not is_instance_valid(self) or generation != _layout_generation:
+			return
 		_layout_wait = null
-		if is_instance_valid(self) and not state.is_empty():
+		if not state.is_empty():
 			_place_creatures()
 			_sync())
 
@@ -722,20 +728,28 @@ func show_state(battle: Dictionary, at_depth: int, new_forecast: Dictionary = {}
 	depth = at_depth
 	## Once the hand is locked in, the forecast it was locked in with stays up: the rail keeps
 	## showing what would fire, and each gem corrects it as it actually fires or fizzles.
-	if str(battle.get("phase", "")) == "planning" or _held_forecast.is_empty():
+	if wants_forecast(battle):
 		_held_forecast = new_forecast
 	forecast = _held_forecast
 	if not new_context.is_empty():
 		context = new_context
-	## Enemy ids start again at e0 in every fight, so a new fight is recognised by who is in
-	## it and where, and everything pinned to the old one is let go.
-	var signature: String = "%d|%s" % [depth, ",".join(state.get("enemies", []).map(func(e: Dictionary) -> String: return str(e.get("key", ""))))]
+	## Enemy ids start again at e0 in every fight, so a new fight is recognised by the run's
+	## fight count, where it is, and who it opened with, and everything pinned to the old one
+	## is let go. Something summoned or split off mid-fight is not a new fight.
+	var founders: Array = state.get("enemies", []).filter(func(e: Dictionary) -> bool:
+		return str(e.get("summoned_by", "")).is_empty() and not str(e.get("id", "")).contains("_split"))
+	var signature: String = "%d|%d|%s" % [int(context.get("fight", 0)), depth, ",".join(founders.map(func(e: Dictionary) -> String: return "%s:%s" % [str(e.get("id", "")), str(e.get("key", ""))]))]
 	if signature != _battle_signature:
 		_battle_signature = signature
 		_forget_fight()
 	_rebuild_chamber()
 	_place_creatures()
 	_sync()
+
+func wants_forecast(battle: Dictionary) -> bool:
+	## Whether show_state would take a new forecast for this state: while planning, or with
+	## none held. Asked first, so a forecast nobody will look at is never worked out.
+	return str(battle.get("phase", "")) == "planning" or _held_forecast.is_empty()
 
 func _forget_fight() -> void:
 	selected.clear()
@@ -777,6 +791,7 @@ func _forget_fight() -> void:
 	_intro_pending = true
 	_awaited.clear()
 	_layout_wait = null
+	_layout_generation += 1
 	DeepAudio.play("battle_begin", {"volume": 0.9})
 	if _screen_fx != null:
 		_screen_fx.desaturate = 0.0
@@ -807,6 +822,7 @@ func leave() -> void:
 	_hide_enemy_roll()
 	_hovered_creature = ""
 	_layout_wait = null
+	_layout_generation += 1
 	_battle_signature = ""
 	_stage_key = ""
 	state = {}
@@ -1768,7 +1784,8 @@ func _land_vitals(id: String, hp: int, block: int) -> void:
 		_sync_tabs()
 		_show_mood(id)
 	else:
-		_sync_plates()
+		## Only the plate it landed on: the others have not moved.
+		_sync_plates(id)
 
 func _mood_of(id: String) -> String:
 	## The face a player wears right now: down once the blow that downed them has landed, the
@@ -2583,7 +2600,8 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		else:
 			_tray_box.create_tween().tween_property(_tray_box, "modulate", settled, 0.25).set_trans(Tween.TRANS_SINE)
 
-func _sync_plates() -> void:
+func _sync_plates(only: String = "") -> void:
+	## Every creature's plate, or with `only` just that one creature's (a blow landing on it).
 	var present: Dictionary = {}
 	var target_id: String = str(me().get("target", ""))
 	var preview: int = int(forecast.get("totals", {}).get("damage", 0)) if str(state.get("phase", "")) == "planning" else 0
@@ -2595,6 +2613,8 @@ func _sync_plates() -> void:
 				acting = str(foe.id)
 				break
 	for truth in state.get("enemies", []):
+		if not only.is_empty() and str(truth.get("id", "")) != only:
+			continue
 		## As its plate should read: health a count has not landed yet is still on it.
 		var foe: Dictionary = _shown(truth)
 		var id: String = str(foe.id)
@@ -2602,7 +2622,10 @@ func _sync_plates() -> void:
 		var plate: Plate = _plates.get(id, null)
 		if int(foe.hp) <= 0:
 			if plate != null and is_instance_valid(plate) and not plate.fading:
-				plate.fade()
+				var dead: Plate = plate
+				plate.fade(func() -> void:
+					if _plates.get(id, null) == dead:
+						_plates.erase(id))
 			continue
 		if plate == null or not is_instance_valid(plate) or plate.fading:
 			if plate != null and is_instance_valid(plate):
@@ -2618,6 +2641,8 @@ func _sync_plates() -> void:
 		plate.update(foe, state, local_id, target_id == id, preview if target_id == id else 0)
 		plate.set_spot(acting == id, not acting.is_empty() and acting != id)
 		_dress(_creature(id), foe)
+	if not only.is_empty():
+		return
 	for id in _plates.keys():
 		if not present.has(id):
 			if is_instance_valid(_plates[id]):
@@ -2776,12 +2801,17 @@ class Plate extends PanelContainer:
 				tip += "\n" + DeepCreatures.effect_words(effect)
 			var mark: String = EnemyPanel.move_glyph(move)
 			DeepUi.icon(_abilities, mark, 17, DeepUi.BAD, tip)
-	func fade() -> void:
+	func fade(gone: Callable = Callable()) -> void:
+		## Out, and then freed: `gone` is told first, so the screen can drop it from its book.
 		fading = true
 		var tween := create_tween()
 		tween.tween_interval(0.35)
 		tween.tween_property(self, "modulate:a", 0.0, 0.3)
-		tween.tween_callback(func() -> void: visible = false)
+		tween.tween_callback(func() -> void:
+			visible = false
+			if gone.is_valid():
+				gone.call()
+			queue_free())
 
 func _plate_input(event: InputEvent, id: String) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -2945,6 +2975,10 @@ func _hurry() -> void:
 	DeepAudio.play("ui_tap", {"volume": 0.35, "gap": 0.05})
 
 var _hurried_at: int = 0
+## How often the creature's table is checked against the room, and when it is next due.
+const PANEL_EVERY: float = 0.1
+var _panel_clock: float = 0.0
+var _panel_placed_size: Vector2 = Vector2.ZERO
 
 func _to_screen(point: Vector3) -> Vector2:
 	return stage.to_screen(point) + (stage.global_position - global_position)
@@ -2958,7 +2992,13 @@ func _control_world(control: Control, distance: float = 1.8) -> Vector3:
 	return _from_screen(local, distance)
 
 func _process(delta: float) -> void:
-	_position_enemy_panel()
+	## The table is weighed against the creatures a few times a second rather than every
+	## frame, and at once whenever it has changed size.
+	_panel_clock -= delta
+	if _enemy_panel != null and is_visible_in_tree() and (_panel_clock <= 0.0 or _enemy_panel.size != _panel_placed_size):
+		_panel_clock = PANEL_EVERY
+		_panel_placed_size = _enemy_panel.size
+		_position_enemy_panel()
 	## The party's tabs stand on the dock, from its left edge (clear of the chart, when it is
 	## open): their bottom edge is its top edge, wherever it grows to.
 	if _tab_bar != null and _dock != null:
@@ -5893,7 +5933,11 @@ func _announce(text: String, color: Color, sub: String = "", hold: float = 1.1, 
 	_banner_box.modulate.a = 0.0
 	_banner_box.pivot_offset = _banner_box.size * 0.5
 	_banner_box.scale = Vector2.ONE * 1.35
+	## The last title's fade would otherwise carry on and take this one down with it.
+	if _banner_tween != null and _banner_tween.is_valid():
+		_banner_tween.kill()
 	var tween := create_tween()
+	_banner_tween = tween
 	tween.set_ignore_time_scale(real_time)
 	tween.set_parallel(true)
 	tween.tween_property(_banner_box, "modulate:a", 1.0, 0.18)

@@ -367,6 +367,11 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	const certain = certainTimes(unit, socket, Boolean(opts.retrigger));
 	if (certain > 0 && !opts.force) opts = { ...opts, force: true };
 	if (unit.buried.includes(socket) || unit.clouded.includes(socket)) {
+		// What the gem before handed this one is spent here, as on any gem that stays dark.
+		unit.amplify = 1;
+		unit.cut_step_bonus = 0;
+		unit.nullify_next = false;
+		unit.repeat_next = 0;
 		unit.previous_fired = false;
 		return { kind: 'gem_fizzle', socket, skill: stone.skill, blocked: true, resonance: unit.resonance };
 	}
@@ -700,6 +705,8 @@ function joinRail(state, unit, at, stone) {
 	for (const field of ['fired_sockets', 'fizzled_sockets', 'buried', 'clouded']) unit[field] = (unit[field] || []).map((p) => (p >= at ? p + 1 : p));
 	if ((unit.previous_socket ?? -1) >= at) unit.previous_socket += 1;
 	if (unit.force_after && 'from' in unit.force_after && unit.force_after.from >= at) unit.force_after.from += 1;
+	// The rail it walked in with moves along too, with nothing in the new place.
+	if (unit.initial_rail && at <= unit.initial_rail.length) unit.initial_rail.splice(at, 0, null);
 }
 
 // Whether a die the trigger matched may still be raised: judged by the face it shows now
@@ -1107,7 +1114,7 @@ export function apply(state, source, effect, rng, intentTarget = '', reactions =
 			let hit = applyOne(state, source, target, kind, I(effect.amount), effect, rng, reactions);
 			results.push(hit);
 			while (effect.chain_on_kill && hit.killed && (I(source.hp)) > 0) {
-				const survivors = living(state.enemies);
+				const survivors = targetable(state.enemies);
 				if (!survivors.length) break;
 				hit = applyOne(state, source, survivors[0], kind, I(effect.amount), effect, rng, reactions);
 				results.push(hit);
@@ -1177,7 +1184,7 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			out.healed = healed;
 			if (source.side === 'player') source.healed = satAdd(I(source.healed), healed);
 			// What would heal past full: block for a Wellspring, a blow for a Flawless Thirst.
-			const spill = ((I(target.statuses.festering)) > 0 ? Math.trunc(Math.max(0, amount) / 2) : Math.max(0, amount)) - healed;
+			const spill = healReceived(target, amount) - healed;
 			if (effect.overflow && spill > 0 && (I(target.hp)) > 0) {
 				if (effect.overflow === 'block') applyOne(state, source, target, 'block', spill, {}, rng, reactions);
 				else apply(state, source, { kind: 'damage', amount: spill, target: 'enemy', repeat: 1 }, rng, '', reactions);
@@ -1275,7 +1282,8 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 // One blow, the way sim/battle.gd _damage lands it, without the creature traits a dummy lacks.
 function damage(state, source, target, amount, rng, reactions = {}, reactive = false, piercing = false) {
 	let raw = Math.max(0, amount);
-	if (source.side === 'enemy') {
+	// Enrage hardens a creature's own blows, not what its Spikes or a mirror send back.
+	if (source.side === 'enemy' && !reactive) {
 		const enrageTurn = Number(C.constant('enrage_turn', 7));
 		if (state.turn >= enrageTurn) raw = satAdd(raw, Number(C.constant('enrage_damage', 2)) * (state.turn - enrageTurn + 1));
 	}
@@ -1351,9 +1359,18 @@ function lifeline(unit) {
 	return I(unit.hp);
 }
 
+// How much of a heal reaches its target before full health stops it: Festering halves it, a
+// Hazard tier's Festering Air (run_mods.heal_cut) cuts it.
+function healReceived(target, amount) {
+	if ((I(target.statuses?.festering)) > 0) amount = Math.trunc(Math.max(0, amount) / 2);
+	const cut = I(target.run_mods?.heal_cut);
+	if (cut > 0) amount = satMulDiv(Math.max(0, amount), 100 - cut, 100);
+	return Math.max(0, amount);
+}
+
 function heal(state, target, amount) {
 	if (target.downed || (I(target.hp)) <= 0) return 0;
-	if ((I(target.statuses.festering)) > 0) amount = Math.trunc(Math.max(0, amount) / 2);
+	amount = healReceived(target, amount);
 	const before = I(target.hp);
 	target.hp = Math.min(I(target.max_hp), satAdd(before, Math.max(0, amount)));
 	const healed = (I(target.hp)) - before;
@@ -1434,10 +1451,10 @@ export function beginTurn(state, unit, roll) {
 	delete unit.statuses.charged;
 	unit.initial_resonance = charged;
 	unit.resonance = charged;
-	// A Sticky face that was showing is not thrown again.
+	// A Sticky face that was showing is not thrown again, nor a die a creature locked.
 	const kept = new Map();
-	for (const r of unit.hand) if ((r.kind || 'plain') === 'sticky' && !r.phantom) kept.set(r.die_id, r);
-	unit.hand = unit.dice.map((die, index) => (kept.has(die.id) ? { ...kept.get(die.id), held: true, rerolls: 0, phantom: false, climbed: false, shattered: false, carried: true } : roll(die, index)));
+	for (const r of unit.hand) if (Dice.carriesOver(r)) kept.set(r.die_id, r);
+	unit.hand = unit.dice.map((die, index) => (kept.has(die.id) ? Dice.carried(kept.get(die.id)) : roll(die, index)));
 	unit.hand.push(...carried);
 	payDues(unit, unit.hand);
 	crownsRolled(unit, unit.hand.filter((r) => !r.phantom), true);

@@ -225,10 +225,13 @@ export function rollOne(die, rng, timesRerolled = 0) {
 	}
 	let value = faceValue(chosen);
 	let explosions = 0;
+	const chain = [];
 	if (kind === 'exploding') {
 		while (explosions < MAX_EXPLOSIONS) {
-			const extra = faces[rng.randiRange(0, faces.length - 1)];
+			const again = rng.randiRange(0, faces.length - 1);
+			const extra = faces[again];
 			value += faceValue(extra);
+			chain.push({ face: again, value: faceValue(extra) });
 			explosions += 1;
 			if ((extra.kind || 'plain') !== 'exploding') break;
 		}
@@ -239,16 +242,39 @@ export function rollOne(die, rng, timesRerolled = 0) {
 		held: false, rerolls: timesRerolled, locked: kind === 'locked', explosions, climbed, shattered, phantom: false };
 	// A die a Hot Streak lent for one turn: thrown like any other.
 	if (die.bonus) thrown.bonus = true;
+	// The number printed on the face it landed on, when what it counts for is something else
+	// (a Doubled face, a face that went off and threw again): what a trigger asking for dice
+	// showing a number reads. `counted` is what `value` was when thrown, so a roll a gem has
+	// since changed is known.
+	if (kind !== 'blank' && (chosen.value | 0) !== thrown.value) {
+		thrown.shown = chosen.value | 0;
+		thrown.counted = thrown.value;
+	}
+	if (kind === 'exploding') {
+		// What the face itself says before anything it threw again: what an upgrade changes and
+		// what a gem asking for low dice judges. Then each throw after it, in order.
+		thrown.base = faceValue(chosen);
+		thrown.chain = chain;
+	}
 	return thrown;
+}
+
+// A Sticky face that was showing is not thrown again; a die a creature locked (`lock_next`)
+// is carried the same way and comes up locked.
+export function carriesOver(roll) {
+	return ((roll.kind || 'plain') === 'sticky' || Boolean(roll.lock_next)) && !roll.phantom;
+}
+
+export function carried(roll) {
+	const out = { ...roll, held: true, rerolls: 0, phantom: false, climbed: false, shattered: false, carried: true };
+	if (out.lock_next) { out.locked = true; out.lock_next = false; out.locked_by_foe = true; }
+	return out;
 }
 
 export function rollHand(dice, rng, previous = []) {
 	const kept = new Map();
-	for (const roll of previous) if ((roll.kind || 'plain') === 'sticky' && !roll.phantom) kept.set(roll.die_id, roll);
-	return dice.map((die) => {
-		if (!kept.has(die.id)) return rollOne(die, rng);
-		return { ...kept.get(die.id), held: true, rerolls: 0, phantom: false, climbed: false, shattered: false, carried: true };
-	});
+	for (const roll of previous) if (carriesOver(roll)) kept.set(roll.die_id, roll);
+	return dice.map((die) => (kept.has(die.id) ? carried(kept.get(die.id)) : rollOne(die, rng)));
 }
 
 export function reroll(hand, dice, dieIds, rng) {

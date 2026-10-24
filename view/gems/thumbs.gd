@@ -36,6 +36,8 @@ var _queue: Array = []
 var _gem_stations: Array = []
 var _die_stations: Array = []
 var _jobs: Array = []
+## Photographs read back and having their mipmaps made on a worker thread: {task, image, key}.
+var _minting: Array = []
 
 static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
@@ -115,6 +117,9 @@ func _exit_tree() -> void:
 	## out, which every quick quit from a page full of new pictures used to do.
 	_jobs.clear()
 	_queue.clear()
+	for entry in _minting:
+		WorkerThreadPool.wait_for_task_completion(int(entry.task))
+	_minting.clear()
 	for station in _gem_stations + _die_stations:
 		var viewport := _viewport_of(station.view)
 		if viewport != null:
@@ -135,20 +140,29 @@ func _idle(station: Dictionary) -> void:
 		viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 
 func _process(_delta: float) -> void:
+	## Mipmaps made on a worker are turned into textures here, on the main thread.
+	for entry in _minting.duplicate():
+		if not WorkerThreadPool.is_task_completed(int(entry.task)):
+			continue
+		WorkerThreadPool.wait_for_task_completion(int(entry.task))
+		_minting.erase(entry)
+		_store(str(entry.key), ImageTexture.create_from_image(entry.image))
 	for job in _jobs.duplicate():
 		job.frames -= 1
 		if job.frames > 0:
 			continue
 		_jobs.erase(job)
 		var viewport := _viewport_of(job.station.view)
-		var texture: ImageTexture = null
+		var image: Image = null
 		if viewport != null:
-			var image: Image = viewport.get_texture().get_image()
-			if image != null and not image.is_empty():
-				image.generate_mipmaps()
-				texture = ImageTexture.create_from_image(image)
+			## The read back itself waits on the GPU. It stays a plain read: the game can fall
+			## back to the Compatibility renderer, which has no asynchronous one.
+			image = viewport.get_texture().get_image()
 		_idle(job.station)
-		_store(str(job.key), texture)
+		if image != null and not image.is_empty():
+			_minting.append({"task": WorkerThreadPool.add_task(image.generate_mipmaps), "image": image, "key": job.key})
+		else:
+			_store(str(job.key), null)
 	## One new subject a frame. Cutting a stone is the expensive half of a photograph, and
 	## loading all three stations at once put three of them in the same frame. Staggered,
 	## each station still comes free every few frames, so a page fills just as fast.

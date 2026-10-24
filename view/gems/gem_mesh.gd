@@ -728,6 +728,9 @@ static func build(gem: Dictionary) -> ArrayMesh:
 	# Stones with more than one color get their hue from a continuous texture, leaving
 	# vertex colors free to carry the same facet lighting and flaws as every other stone.
 	var body := Color.WHITE if banded(gem) else body_color_of(gem, l)
+	var depth := Tuning.value("body_depth")
+	if depth > 1.001:
+		body = Color(pow(body.r, depth), pow(body.g, depth), pow(body.b, depth), body.a)
 	var hue_spread := Tuning.value("facet_hue")
 	## How far this stone's facets are swung DOWN rather than either way.
 	##
@@ -952,13 +955,16 @@ static func _color_gradient(gem: Dictionary) -> GradientTexture2D:
 static func _stone_material(gem: Dictionary, interior: bool) -> StandardMaterial3D:
 	var l: int = clarity_grade(gem)
 	var b := brilliance(l)
-	var body := body_color_of(gem, l)
 	var two_colors: bool = banded(gem)
 	var clear: float = colorless(gem)
-	if two_colors:
-		body = Color.WHITE
+	# The body's color lives in the facets' vertex colors (see `build`), so it is laid on
+	# once, there. The material carries only how much darker this pass is. It used to carry
+	# the color again, which tinted every stone twice and skipped the sRGB step on the
+	# vertex half, so a stone came out darker and more saturated than its own color.
+	var body := Color.WHITE
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
+	material.vertex_color_is_srgb = true
 	if two_colors:
 		material.albedo_texture = _color_gradient(gem)
 		material.texture_repeat = false

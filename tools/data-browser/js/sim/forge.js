@@ -4,7 +4,7 @@
 import * as C from './content.js';
 import * as Dice from './dice.js';
 import * as Stone from './stone.js';
-import { satFloor } from './numbers.js';
+import { roundi, satFloor } from './numbers.js';
 
 export const DEFAULT_CLASS_WEIGHTS = { PINPOINT: 10, LENS: 6, FEATHER: 4, FRACTURE: 3, STAR: 0.3 };
 export const JACKPOT_PERCENT = 2;
@@ -19,7 +19,26 @@ export const LUCK_DEPTH_CAP = 10;
 
 export const mineLuck = (mine) => Number(mine.luck ?? mine.quality ?? 0);
 export const quality = (depth, bonus = 0) => Math.min(depth * LUCK_PER_DEPTH, LUCK_DEPTH_CAP) + bonus;
-export const luck = (mine, depth, bonus = 0) => quality(depth, mineLuck(mine) + bonus);
+// A Hazard tier's rock rolls kinder for every tier (docs/HAZARDS.md); the tier rides on the
+// mine as `hazard`, the way sim/descent.gd mine_of hands it to the forge.
+export const hazardOf = (mine) => Math.max(0, Math.trunc(Number(mine?.hazard ?? 0)));
+export const luck = (mine, depth, bonus = 0) => quality(depth, mineLuck(mine) + bonus + Number(C.constant('hazard_luck', 0.25)) * hazardOf(mine));
+export const hazardMax = () => Math.min(Math.trunc(Number(C.constant('hazard_max', 20))), Array.isArray(C.getPack().hazard_tiers) ? C.getPack().hazard_tiers.length : 0);
+
+// A mine as a Hazard tier's rock: what the map and the expedition read off it.
+export function atHazard(mine, tier) {
+	if (!(tier > 0)) return mine;
+	return { ...mine, hazard: Math.trunc(tier) };
+}
+
+// How far a Hazard tier lifts a mine's carat band: up to `hazard_carats` at the top of the
+// ladder, all of it for the Hollow and the Rift and a sixth of it a mine further up.
+export function hazardCarats(mine, tier = -1) {
+	const hazard = tier >= 0 ? Math.trunc(tier) : hazardOf(mine);
+	if (hazard <= 0) return 0;
+	const share = Math.max(1, Math.min(6, Math.trunc(Number(mine.tier ?? 1)))) / 6;
+	return Math.round(Number(C.constant('hazard_carats', 7)) * hazard / Math.max(1, hazardMax()) * share);
+}
 
 export function caratParams(q) {
 	return { mean: Math.max(1, 1.5 + q * 0.5), deviation: Math.max(1, 1.6 + q * 0.08) };
@@ -46,8 +65,16 @@ export function caratBand(mine, depth) {
 		soft += climbed;
 		cap += climbed;
 	}
+	// A Hazard tier lifts the band, and past its usual top a stone keeps growing toward the
+	// cap (`pressure`, a percent a carat).
+	const lift = hazardCarats(mine);
+	soft += lift;
+	cap += lift;
 	cap = Math.max(1, Math.min(cap, Stone.caratMax()));
-	return { soft: Math.max(1, Math.min(soft, cap)), cap };
+	const out = { soft: Math.max(1, Math.min(soft, cap)), cap };
+	const hazard = hazardOf(mine);
+	if (hazard > 0) out.pressure = Number(C.constant('hazard_pressure_pct', 3.25)) * hazard;
+	return out;
 }
 
 function rawCarats(mean, deviation, max) {
@@ -87,6 +114,9 @@ export function caratDistribution(q, band = null) {
 			}
 			out[Math.min(band.cap, k)] += still;
 		}
+		// A Hazard tier's pressure: a stone at the usual top or over keeps growing toward the cap.
+		const pressure = Number(band.pressure || 0) / 100;
+		if (pressure > 0) for (let k = Math.max(1, band.soft); k < band.cap; k++) { out[k + 1] += out[k] * pressure; out[k] *= 1 - pressure; }
 		const sum = out.reduce((a, b) => a + b, 0);
 		return out.map((p) => p / sum);
 	}
@@ -208,7 +238,11 @@ export function rollCarat(rng, q, band = null) {
 		while (held < drawn && rng.chance(BAND_KEEP_PERCENT)) held += 1;
 		drawn = held;
 	}
-	return Math.max(1, Math.min(drawn, band.cap));
+	drawn = Math.max(1, Math.min(drawn, band.cap));
+	// A Hazard tier's pressure: a stone that reached the usual top keeps growing toward the cap.
+	const pressure = Number(band.pressure || 0);
+	if (pressure > 0 && drawn >= band.soft) while (drawn < band.cap && rng.chance(pressure)) drawn += 1;
+	return drawn;
 }
 export const rollCut = (rng, q) => Math.max(0, rng.weightedIndex(cutWeights(q)));
 export const rollClarity = (rng, q) => Math.max(0, rng.weightedIndex(clarityWeights(q)));
@@ -355,11 +389,14 @@ export function bandFor(mine, depth) {
 	return chosen || { creatures: {} };
 }
 
-export function encounterBudget(depth, party, elite) {
-	let budget = (3 + depth * 0.6) * (0.55 + 0.45 * Math.max(1, Math.min(4, party)));
+// A party meets the same number a lone delver does: each creature is bred tougher for it
+// instead (creatureHp), so `party` no longer moves the budget. An elite fight has half again.
+export function encounterBudget(depth, _party = 1, elite = false) {
+	let budget = 3 + depth * 0.6;
 	if (elite) budget *= 1.5;
 	return budget;
 }
+export const ENCOUNTER_MOST = 3;
 
 export function encounter(rng, mine, depth, party, elite = false) {
 	const band = bandFor(mine, depth);
@@ -367,7 +404,7 @@ export function encounter(rng, mine, depth, party, elite = false) {
 	for (const key in band.creatures || {}) table[key] = Number(band.creatures[key]);
 	if (!Object.keys(table).length) return [];
 	let budget = encounterBudget(depth, party, elite);
-	const most = 2 + Math.max(1, Math.min(4, party));
+	const most = ENCOUNTER_MOST;
 	const picked = [];
 	let guard = 0;
 	while (picked.length < most && guard < 20) {
@@ -394,7 +431,8 @@ export function creatureScale(mine, depth) {
 
 export function creatureHp(def, depth, party, mine = null) {
 	let scale = 1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, depth - 1);
-	scale *= 1 + 0.15 * (Math.max(1, Math.min(4, party)) - 1);
+	// A lone delver's health for every player on the run (sim/creatures.gd make).
+	scale *= Math.max(1, Math.trunc(party));
 	scale *= creatureScale(mine, depth).hp;
 	return Math.max(1, satFloor(Math.round(Number(def.hp ?? 10) * scale)));
 }
@@ -422,7 +460,14 @@ export function fightOre(depth, kind = 'fight') {
 	return ore;
 }
 
-export const liftCost = (depth, riders) => Number(C.constant('lift_ore_per_depth', 15)) * depth * riders;
+// What the winch wants to haul the party up (sim/descent.gd lift_cost): so much a floor, a
+// share for every living rider. A party that pushed on from one mine into the next pays for the
+// floors of the mines above as well (`carried`). Tight Winch doubles it, Greased Winch waives it.
+export function liftCost(depth, riders, { carried = 0, tight = false, greased = false } = {}) {
+	if (greased) return 0;
+	const floors = Math.trunc(depth) + Math.trunc(carried);
+	return roundi(Number(C.constant('lift_ore_per_depth', 10.5)) * Math.max(1, floors) * Math.max(1, Math.trunc(riders)) * (tight ? 2 : 1));
+}
 export const isLanding = (depth) => depth > 0 && depth % Number(C.constant('landing_every', 4)) === 0;
 // The last floor of a mine, where its final boss waits; 0 for one with no bottom.
 export const mineBottom = (mine) => (mine?.endless ? 0 : Number(mine?.depth ?? 24));

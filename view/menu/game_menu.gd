@@ -53,7 +53,7 @@ func _init() -> void:
 
 func _ready() -> void:
 	_root = Control.new()
-	_root.theme = DeepUi.theme()
+	DeepUi.use_theme(_root)
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)

@@ -180,13 +180,23 @@ static func _straight(present_values: Array, wilds: Array, ids_by_value: Diction
 		if present.is_empty():
 			found_low = maxi(1, wild_top - length + 1)
 		## A run needs at least one value showing (it is never all wilds while one shows), so
-		## only the lows within a run's length of the values present can work.
-		for low in range(maxi(1, lowest - length + 1), highest + 1 if not present.is_empty() else 0):
-			var missing: int = 0
-			for v in range(low, low + length):
-				if not present.has(v):
-					missing += 1
-			if missing <= wilds.size():
+		## only the lows within a run's length of the values present can work. Between two of
+		## them what a run holds stays the same, so the highest low that works is always one
+		## just before a value comes in or goes out (or the highest value itself): faces can
+		## be far apart, and the lows in between need not each be tried.
+		var floor_low: int = maxi(1, lowest - length + 1)
+		var lows: Array = [highest] if not present.is_empty() else []
+		for v in present:
+			lows.append(int(v))
+			lows.append(int(v) - length)
+		for low in lows:
+			if low < floor_low or low > highest or low <= found_low:
+				continue
+			var held: int = 0
+			for v in present:
+				if int(v) >= low and int(v) < low + length:
+					held += 1
+			if length - held <= wilds.size():
 				found_low = low
 		if found_low > 0:
 			var dice: Array = []

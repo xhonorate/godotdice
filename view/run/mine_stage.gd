@@ -69,6 +69,10 @@ const ENV_FIELDS: Array = ["background_color", "ambient_light_color", "ambient_l
 
 ## The graphics setting: 0 lets the governor decide, 1-3 fixes low, medium or high.
 static var quality_pref: int = 0
+## Shared by every stage: the spoils' metal by [color, glow] (`_metal`), the salvage dice by
+## their sides (`_die_mesh`). Let go of in `release`.
+static var _metals: Dictionary = {}
+static var _die_meshes: Dictionary = {}
 
 var camera: Camera3D = null
 var fx: Node3D = null
@@ -124,6 +128,11 @@ var _mouths_live: bool = false
 var _seal_until: int = 0
 var _footfall: int = 0
 var _slow: float = 0.0
+## Seconds over 55 frames a second, how many of them win a step of quality back, and how
+## long since the last step back (`_govern`).
+var _fast: float = 0.0
+var _climb_after: float = 6.0
+var _since_climb: float = INF
 var _ambient_clock: float = 0.0
 var _next_rumble: float = 7.0
 ## Names in the room (a landing's "Rest", a hoard pedestal's "Small") as 2D words over the
@@ -197,6 +206,11 @@ func _on_visibility() -> void:
 	var shown := is_visible_in_tree()
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if shown else SubViewport.UPDATE_DISABLED
 	world.process_mode = Node.PROCESS_MODE_INHERIT if shown else Node.PROCESS_MODE_DISABLED
+
+static func release() -> void:
+	## Drops the shared metal and dice so nothing outlives the renderer on the way out.
+	_metals.clear()
+	_die_meshes.clear()
 
 func has_room() -> bool:
 	return room != null and is_instance_valid(room)
@@ -494,17 +508,30 @@ func pick_rect(id: String) -> Rect2:
 	var node: Node3D = entry.node
 	var half: Vector3 = entry.half
 	var offset: Vector3 = entry.get("offset", Vector3.ZERO)
-	var box := Rect2()
-	var first: bool = true
+	var corners: Array = []
 	for sx in [-1.0, 1.0]:
 		for sy in [-1.0, 1.0]:
 			for sz in [-1.0, 1.0]:
 				var corner: Vector3 = node.global_transform * (offset + Vector3(half.x * sx, half.y * sy, half.z * sz))
-				if camera.is_position_behind(corner):
-					continue
-				var at: Vector2 = to_screen(corner)
-				box = Rect2(at, Vector2.ZERO) if first else box.expand(at)
-				first = false
+				if not camera.is_position_behind(corner):
+					corners.append(corner)
+	if corners.is_empty():
+		return Rect2()
+	## All the corners through the steady view in one go, rather than the camera moved and
+	## put back for each.
+	var project := func() -> Variant:
+		var seen: Array = []
+		for corner in corners:
+			seen.append(camera.unproject_position(corner))
+		return seen
+	var points: Array = _steady(project)
+	var stretch: Vector2 = frame.size / Vector2(viewport.size)
+	var box := Rect2()
+	var first: bool = true
+	for point in points:
+		var at: Vector2 = (point as Vector2) * stretch + frame.position
+		box = Rect2(at, Vector2.ZERO) if first else box.expand(at)
+		first = false
 	return box
 
 func _pick_under(local: Vector2, wanted: Callable = Callable()) -> String:
@@ -865,7 +892,9 @@ func shrine(glyph: String, color: Color) -> Node3D:
 # --- salvage -------------------------------------------------------------------------------------
 
 func _die_mesh(sides: int) -> ArrayMesh:
-	## A plain die of the right shape, flat-shaded, for throwing.
+	## A plain die of the right shape, flat-shaded, for throwing. Made once per shape.
+	if _die_meshes.has(sides):
+		return _die_meshes[sides]
 	var solid: Dictionary = DiceGeometry.solid(DiceGeometry.shape_for_sides(sides))
 	var points: PackedVector3Array = solid.vertices
 	var surface := Lowpoly.begin()
@@ -876,7 +905,9 @@ func _die_mesh(sides: int) -> ArrayMesh:
 		centre /= float(face.size())
 		for k in range(1, face.size() - 1):
 			Lowpoly.tri(surface, points[face[0]], points[face[k]], points[face[k + 1]], Color("e8e2d4"), centre)
-	return surface.commit()
+	var mesh: ArrayMesh = surface.commit()
+	_die_meshes[sides] = mesh
+	return mesh
 
 func salvage(rolls: Array, bag_at: Vector2) -> void:
 	## The fall's reckoning, thrown on the floor in front of the party: a die for every raw
@@ -1446,6 +1477,11 @@ static func _blend_env(e: Environment, a: Dictionary, b: Dictionary, weight: flo
 # --- spoils ------------------------------------------------------------------------------------
 
 func _metal(color: Color, glow: float) -> StandardMaterial3D:
+	## One material per color and glow, shared by every nugget and rough made in it: nothing
+	## changes them after, so none needs its own.
+	var key: Array = [color, glow]
+	if _metals.has(key):
+		return _metals[key]
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
 	m.albedo_color = Color.WHITE
@@ -1454,6 +1490,7 @@ func _metal(color: Color, glow: float) -> StandardMaterial3D:
 	m.emission_enabled = true
 	m.emission = color
 	m.emission_energy_multiplier = glow
+	_metals[key] = m
 	return m
 
 func shed(at: Vector3, tint: Color) -> void:
@@ -1850,7 +1887,9 @@ func _sync_names() -> void:
 	if _laid_out():
 		for node in get_tree().get_nodes_in_group(NAME_GROUP):
 			var spot: Node3D = node as Node3D
-			if spot == null or not world.is_ancestor_of(spot):
+			## A spot that is held still is not in the room to be read: the goods sunk under
+			## the floor for `_warm_in_view` have names too.
+			if spot == null or not world.is_ancestor_of(spot) or not spot.can_process():
 				continue
 			var key: int = spot.get_instance_id()
 			seen[key] = true
@@ -1862,10 +1901,16 @@ func _sync_names() -> void:
 				label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 				_names_layer.add_child(label)
 				_names[key] = label
+			## Only when they change: each override has the word laid out again.
 			var font_size: int = int(spot.get_meta("font_size", 26))
-			label.add_theme_font_size_override("font_size", font_size)
-			label.add_theme_constant_override("outline_size", maxi(4, font_size / 4))
-			label.add_theme_color_override("font_color", spot.get_meta("tone", DeepUi.PAPER))
+			if int(label.get_meta("font_size", -1)) != font_size:
+				label.set_meta("font_size", font_size)
+				label.add_theme_font_size_override("font_size", font_size)
+				label.add_theme_constant_override("outline_size", maxi(4, font_size / 4))
+			var tone: Color = spot.get_meta("tone", DeepUi.PAPER)
+			if not label.has_meta("tone") or Color(label.get_meta("tone")) != tone:
+				label.set_meta("tone", tone)
+				label.add_theme_color_override("font_color", tone)
 			if label.text != str(spot.get_meta("text", "")):
 				label.text = str(spot.get_meta("text", ""))
 				label.size = label.get_combined_minimum_size()
@@ -1885,20 +1930,35 @@ func _sync_names() -> void:
 
 func _govern(delta: float) -> void:
 	## Keeps the mine smooth: after a few seconds under 40 frames a second, the room gives
-	## up its most expensive effects one step at a time.
-	if quality <= 1 or quality_pref > 0:
+	## up its most expensive effects one step at a time, and after several comfortably over
+	## 55 it takes them back a step at a time, so one cold shader is not the whole session
+	## at the lowest level. A step back up that does not hold makes the next one wait longer.
+	if quality_pref > 0:
 		return
-	if Engine.get_frames_per_second() < 40:
+	var fps: float = Engine.get_frames_per_second()
+	_since_climb += delta
+	if fps < 40:
 		_slow += delta
+		_fast = 0.0
 	else:
 		_slow = maxf(0.0, _slow - delta * 2.0)
-	if _slow > 3.0:
+		_fast = _fast + delta if fps > 55 else maxf(0.0, _fast - delta * 2.0)
+	if _slow > 3.0 and quality > 1:
 		_slow = 0.0
+		if _since_climb < 20.0:
+			_climb_after = minf(_climb_after * 2.0, 96.0)
 		_set_quality(quality - 1)
+	elif _fast > _climb_after and quality < 3:
+		_fast = 0.0
+		_since_climb = 0.0
+		_set_quality(quality + 1)
 
 func apply_quality() -> void:
 	## The settings menu changed the graphics setting: take it up now, even mid-fight.
 	_slow = 0.0
+	_fast = 0.0
+	_climb_after = 6.0
+	_since_climb = INF
 	_set_quality(3 if quality_pref <= 0 else clampi(quality_pref, 1, 3))
 
 func apply_look() -> void:
@@ -2032,11 +2092,14 @@ func warm_up() -> void:
 			frame.stretch = false
 			viewport.size = Vector2i(get_viewport().get_visible_rect().size)
 		viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		var before: int = room.get_instance_id() if has_room() else 0
 		for _i in range(2):
 			await get_tree().process_frame
-		## Back to following its frame, which sizes it properly when it is shown.
+		## Back to following its frame, which sizes it properly when it is shown. A room shown
+		## in those frames has set its own air and pose, which are not to be undone.
 		frame.stretch = stretched
-		if is_instance_valid(camera):
+		var after: int = room.get_instance_id() if has_room() else 0
+		if is_instance_valid(camera) and (after == 0 or after == before):
 			camera.environment = was_env
 			camera.home_position = was_home
 			camera.home_look = was_look

@@ -171,7 +171,7 @@ function creaturesPage(root, route, ctx) {
 	whenReady(ctx, histSlot, job, (r) => histogram({ bins: r.damageHist, width: 420, height: 190, color: '#e0473c', mean: r.meanDamage, xLabel: 'damage', xFormat: (v) => String(v) }));
 	const depths = Array.from({ length: 28 }, (_, i) => i + 1);
 	detail.append(h('div', { class: 'grid grid-2' },
-		card('Health by depth', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.creatureHp(def, d, p, mine) })) })), width: 420, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `+${fmt(Number(C.constant('depth_hp_scale', 0.05)) * 100, 0)}% a depth, +15% a player, ×${fmt(Number(mine.hp_mult ?? 1), 1)} here` }),
+		card('Health by depth', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.creatureHp(def, d, p, mine) })) })), width: 420, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `+${fmt(Number(C.constant('depth_hp_scale', 0.05)) * 100, 0)}% a depth, × the party's size, ×${fmt(Number(mine.hp_mult ?? 1), 1)} here` }),
 		card('Phases, traits and dice', h('div', { class: 'col' }, kv([
 			['Phases', (def.phases || []).length ? def.phases.map((p, i) => `below ${p.below_hp_pct}% HP: ${(p.moves || []).map((m) => m.name).join(', ')}${Object.keys(p.traits || {}).length ? ` (traits then: ${traitText(traitsFor(def, i + 1))})` : ''}`).join(' · ') : 'none'],
 			['Traits', traitText(traits)],
@@ -206,7 +206,7 @@ function encountersPage(root, ctx) {
 	const total = Object.values(band.creatures || {}).reduce((a, b) => a + Number(b), 0) || 1;
 	const statsSlot = h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(6, minmax(0,1fr))' } });
 	root.append(statsSlot);
-	whenReady(ctx, statsSlot, job, (r) => h('div', { style: { display: 'contents' } }, stat('Threat budget', fmt(r.budget, 1), `(3 + 0.6 × depth) × (0.55 + 0.45 × party)${state.elite ? ' × 1.5' : ''}`, { class: 'accent' }), stat('Creatures', fmt(r.counts.reduce((s, [k, p]) => s + k * p, 0), 2), `mean; at most ${2 + Math.min(4, party)} drawn, ${C.constant('max_creatures', 4)} standing`),
+	whenReady(ctx, statsSlot, job, (r) => h('div', { style: { display: 'contents' } }, stat('Threat budget', fmt(r.budget, 1), `3 + 0.6 × depth${state.elite ? ', × 1.5' : ''}, any party`, { class: 'accent' }), stat('Creatures', fmt(r.counts.reduce((s, [k, p]) => s + k * p, 0), 2), `mean; at most ${Forge.ENCOUNTER_MOST} drawn, ${C.constant('max_creatures', 4)} standing`),
 		stat('Total health', fmt(r.meanHp, 0), `mean, at this depth and party in ${mine.name || ctx.settings.mine}`), stat('Damage a turn', fmt(r.meanDamage, 1), `sum of the pack on its first action · ×${fmt(r.damageMult ?? 1, 2)} here`), stat('Threat spent', fmt(r.meanThreat, 1), 'mean'), stat('Band from', `depth ${band.from_depth ?? 1}`, `${Object.keys(band.creatures || {}).length} creatures in the pool`)));
 	const g = h('div', { class: 'grid grid-3' });
 	root.append(g);
@@ -241,9 +241,9 @@ function bandsPage(root, ctx) {
 	const values = keys.map((k) => depths.map((d) => { const band = Forge.bandFor(mine, d); const total = Object.values(band.creatures || {}).reduce((a, b) => a + Number(b), 0) || 1; const w = band.creatures?.[k]; return w ? (Number(w) / total) * 100 : null; }));
 	root.append(card(`Creature pool by depth · ${mine.name || ctx.settings.mine}`, h('div', { class: 'col' }, heatmap({ rows: keys.map((k) => C.creature(k).name), cols: depths.map(String), values, format: (v) => `${fmt(v, 0)}%`, rowLabelWidth: 110, cellHeight: 28, cellLabels: true }),
 		h('p', { class: 'small text-2' }, `Bands begin at depths ${(mine.bands || []).map((b) => b.from_depth).join(', ')}. ${wardenText(mine)}`)), { meta: 'first-pick share of the band' }));
-	const budgetSeries = [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.encounterBudget(d, p, false) })) }));
+	const budgetSeries = [[false, 'a fight'], [true, 'an elite']].map(([elite, label], i) => ({ key: label, label, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.encounterBudget(d, 1, elite) })) }));
 	root.append(h('div', { class: 'grid grid-2' },
-		card('Threat budget by depth', lines({ series: budgetSeries, width: 480, height: 200, xFormat: (d) => String(d), format: (v) => fmt(v, 1), markers: false }), { meta: 'an elite fight has half again' }),
+		card('Threat budget by depth', lines({ series: budgetSeries, width: 480, height: 200, xFormat: (d) => String(d), format: (v) => fmt(v, 1), markers: false }), { meta: `any party: at most ${Forge.ENCOUNTER_MOST} creatures, each with health × the party` }),
 		card('Threat costs', table({ columns: [{ key: 'name', label: 'Creature', render: (r) => h('span', { class: 'cell-name' }, creatureImage(r.key, 28), r.name) }, { key: 'threat', label: 'Threat', align: 'right' }, { key: 'hp', label: 'Base HP', align: 'right' }, { key: 'perThreat', label: 'HP per threat', align: 'right', render: (r) => fmt(r.perThreat, 1) }, { key: 'dice', label: 'Dice' }, { key: 'traits', label: 'Traits' }],
 			rows: C.keys('creatures').map((k) => ({ key: k, name: C.creature(k).name, threat: C.creature(k).threat, hp: C.creature(k).hp, perThreat: C.creature(k).hp / Math.max(1, C.creature(k).threat), dice: diceText(C.creature(k)), traits: traitText(traitsFor(C.creature(k), 0)).replace(/^none$/, '') })).sort((a, b) => a.threat - b.threat), compact: true, rowKey: (r) => r.key, onRowClick: (r) => { state.tab = 'creatures'; ctx.navigate('enemies', r.key); } }))));
 }

@@ -65,6 +65,10 @@ class Part:
 
 static var _cache: Dictionary = {}
 
+static func release() -> void:
+	## Lets go of the cut Geodes (their meshes and materials) before the renderer shuts down.
+	_cache.clear()
+
 static func look_of(shelf_geode: Dictionary) -> String:
 	return str(BY_MINE.get(str(shelf_geode.get("mine", "QUARRY")), "quarry"))
 

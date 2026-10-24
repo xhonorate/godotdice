@@ -111,6 +111,10 @@ static func make(rng: RandomNumberGenerator, stones: Array, recipe: Dictionary, 
 	var made: Dictionary = DeepStone.make(skill, carat, cut, clarity, inclusions, where, id)
 	made.appraised = true
 	made.inclusions_revealed = true
+	## What a fragile stone gave the circle is fragile too, as at the crucible: nothing that
+	## cannot leave the mine may be made into something that can.
+	if stones.any(func(s: Variant) -> bool: return s is Dictionary and DeepStone.is_fragile(s)):
+		made.fragile = true
 	return made
 
 static func inherited(rng: RandomNumberGenerator, stones: Array, slots: int, own_colors: Array) -> Array:

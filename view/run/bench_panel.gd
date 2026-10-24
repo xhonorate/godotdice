@@ -36,6 +36,8 @@ var _targets: Array = []
 var _haul_page: int = 0
 ## Which part of the haul is showing: "gems", "raw" or "geodes" (see DeepUi.HAUL_TABS).
 var _haul_tab: String = "gems"
+## What the page was last drawn from (`_shown_key`).
+var _key: String = ""
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -75,9 +77,29 @@ func open(state: Dictionary, which: String = "") -> void:
 		DeepUi.pop_in(_panel, 0.0, 0.96, 0.22)
 
 func refresh(state: Dictionary) -> void:
+	## Rebuilt only when something it shows has changed: a fight sends a state with every step
+	## it plays, and an ally's vote another, and each would pull a drag out from under the pointer.
 	run = state
-	if visible:
+	if visible and _shown_key() != _key:
 		_render()
+
+func _shown_key() -> String:
+	## Everything the page draws, as one string (the same marks the run dock keys on).
+	var unit: Dictionary = me()
+	var ids: Array = []
+	for stone in unit.get("rail", []):
+		ids.append(DeepUi.stone_marks(stone) + ("v" if bool(stone.get("voided", false)) else "") if stone is Dictionary else "-")
+	for line in unit.get("riders", []):
+		ids.append("|")
+		for rider in line:
+			ids.append(DeepUi.stone_marks(rider) + ("v" if bool(rider.get("voided", false)) else ""))
+	for group in ["dice", "haul"]:
+		ids.append("|")
+		for item in unit.get(group, []):
+			ids.append(DeepUi.stone_marks(item) + ("v" if bool(item.get("voided", false)) else ""))
+	var room: Vector2 = get_viewport_rect().size if is_inside_tree() else Vector2(1280, 720)
+	return "%s#%s#%s#%s#%s#%s#%d#%s#%s#%s" % [",".join(ids), str(unit.get("sockets", [])), str(unit.get("character", "")), tab, _pick, _haul_tab, _haul_page,
+		str(editable()), str(unit.is_empty()), str(room)]
 
 func close() -> void:
 	if not visible:
@@ -122,6 +144,7 @@ func editable() -> bool:
 # --- the page ----------------------------------------------------------------------------------
 
 func _render() -> void:
+	_key = _shown_key()
 	DeepUi.clear(_content)
 	_targets = []
 	var unit: Dictionary = me()

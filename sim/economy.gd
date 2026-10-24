@@ -451,9 +451,17 @@ static func roll_geode_stone(rng: RandomNumberGenerator, geode: Dictionary, ston
 	## One stone out of a Geode: the skill from its pool (or, rarely, an opal), cut and
 	## cleared at the bottom of its mine with the Geode's luck on top, never Void, and as
 	## heavy as `geode_band` allows. The week's Geode is never cut worse than Fine.
-	var mine: Dictionary = geode_mine(geode)
-	var opal: bool = DeepRng.chance(rng, geode_opal_pct()) and not DeepForge.opal_pool().is_empty()
-	var pool: Array = DeepForge.opal_pool() if opal else geode_pool(geode)
+	return _roll_geode_stone(rng, geode, _geode_rock(geode), stone_id)
+
+static func _geode_rock(geode: Dictionary) -> Dictionary:
+	## What every stone out of this Geode is rolled from, worked out once for a run of them.
+	return {"mine": geode_mine(geode), "pool": geode_pool(geode), "opals": DeepForge.opal_pool(), "band": geode_band(geode)}
+
+static func _roll_geode_stone(rng: RandomNumberGenerator, geode: Dictionary, rock: Dictionary, stone_id: String) -> Dictionary:
+	var mine: Dictionary = rock.mine
+	var opals: Array = rock.opals
+	var opal: bool = DeepRng.chance(rng, geode_opal_pct()) and not opals.is_empty()
+	var pool: Array = opals if opal else rock.pool
 	var provenance: Dictionary = {"source": "geode", "geode": str(geode.get("kind", "mine")), "mine": str(mine.key)}
 	var stone: Dictionary = {}
 	for _try in range(12):
@@ -461,7 +469,7 @@ static func roll_geode_stone(rng: RandomNumberGenerator, geode: Dictionary, ston
 		if not DeepStone.is_fragile(stone):
 			break
 	stone.inclusions = _sound(stone.get("inclusions", []))
-	stone.carat = roll_geode_carat(rng, geode_band(geode))
+	stone.carat = roll_geode_carat(rng, rock.band)
 	if bool(geode.get("weekly", false)):
 		stone.cut = maxi(int(stone.get("cut", 0)), int(DeepContent.constant("geode_week_min_cut", 3)))
 	return stone
@@ -496,8 +504,9 @@ static func geode_odds(geode: Dictionary) -> Dictionary:
 	rng.seed = hash("odds:" + key)
 	var samples: int = 400
 	var worth: float = 0.0
+	var rock: Dictionary = _geode_rock(geode)
 	for _i in range(samples):
-		var stone: Dictionary = roll_geode_stone(rng, geode, "odds")
+		var stone: Dictionary = _roll_geode_stone(rng, geode, rock, "odds")
 		tiers[str(DeepStone.grade(stone).tier)] += 1.0 / float(samples)
 		worth += float(DeepStone.value(stone))
 	var band: Dictionary = geode_band(geode)

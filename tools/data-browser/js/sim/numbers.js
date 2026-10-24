@@ -14,6 +14,10 @@ export function I(v) {
 	return n > 0 ? CEILING : n < 0 ? -CEILING : 0;
 }
 
+// A float rounded the way `roundi()` and `round()` round one: halves away from nought
+// (Math.round sends -2.5 to -2, Godot to -3).
+export const roundi = (f) => Math.sign(f) * Math.round(Math.abs(f));
+
 export const sat = (v) => Math.max(-CEILING, Math.min(CEILING, v));
 export const satAdd = (a, b) => sat(sat(a) + sat(b));
 

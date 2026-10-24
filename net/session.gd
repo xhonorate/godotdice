@@ -71,6 +71,11 @@ var saves: DeepSaveStore = null:
 var invite_code: String = ""
 ## Tests hand in a stand-in for the GodotSteam singleton.
 var steam_api: Object = null
+## A guest's seat token: handed over by the host with the welcome, to this lapidary alone, and
+## said with every hello after it. It is what takes an away seat back (see `_away_seat`), so
+## nobody else in the party can sit down in it. Kept over a dropped line, and by the app over
+## a game that closed (its `party_run` record).
+var seat_token: String = ""
 
 var _peer_of: Dictionary = {}
 var _player_of: Dictionary = {}
@@ -296,7 +301,8 @@ func _set_status(value: String) -> void:
 
 func _add_member(id: String, member: Dictionary) -> void:
 	## `profile` is the lapidary's own profile id, which is how a player who drops out is
-	## known again when they come back: seats are numbered by the host, profiles are not.
+	## known again when they come back: seats are numbered by the host, profiles are not. It
+	## and the seat's `token` are the host's alone: no guest is sent them (see `_public`).
 	var said: Dictionary = clean_member_fields(member)
 	var profile_id: Variant = member.get("id", "")
 	var record: Dictionary = {"id": id, "profile": str(profile_id).left(64) if profile_id is String else "", "name": str(said.get("name", DeepProfile.DEFAULT_NAME)),
@@ -314,15 +320,48 @@ func _add_member(id: String, member: Dictionary) -> void:
 func local_member() -> Dictionary:
 	return lobby.members.get(local_id, {})
 
-func _away_seat(profile_id: String) -> String:
-	## The seat of a member who plays this profile and is away, or "" for someone new.
+func _away_seat(profile_id: String, token: String) -> String:
+	## The seat of a member who plays this profile and is away, or "" for someone new. A seat
+	## handed a token is only given back with it; one from a checkpoint older than tokens is
+	## given back on the profile alone.
 	if profile_id.is_empty():
 		return ""
 	for id in lobby.get("order", []):
 		var record: Dictionary = lobby.members.get(id, {})
-		if str(record.get("profile", "")) == profile_id and not bool(record.get("connected", true)):
+		if str(record.get("profile", "")) != profile_id or bool(record.get("connected", true)):
+			continue
+		var kept: String = str(record.get("token", ""))
+		if kept.is_empty() or kept == token:
 			return str(id)
 	return ""
+
+static func _new_token() -> String:
+	return Crypto.new().generate_random_bytes(16).hex_encode()
+
+static func _public(source: Dictionary) -> Dictionary:
+	## The lobby as a guest is sent it: every member without their profile id or seat token,
+	## which are how a lapidary is known again, and so are nobody else's to know.
+	var out: Dictionary = source.duplicate()
+	var members: Dictionary = {}
+	var given: Variant = source.get("members", {})
+	if given is Dictionary:
+		for id in given:
+			var record: Variant = given[id]
+			if record is Dictionary:
+				var said: Dictionary = record.duplicate()
+				said.erase("profile")
+				said.erase("token")
+				members[id] = said
+	out.members = members
+	return out
+
+static func _dict(packet: Dictionary, key: String, fallback: Dictionary) -> Dictionary:
+	## A field of a peer's packet that has to be a Dictionary, or the fallback if it is not one.
+	var value: Variant = packet.get(key, fallback)
+	return value if value is Dictionary else fallback
+
+static func _whole(value: Variant) -> int:
+	return int(value) if (value is int or value is float) and is_finite(float(value)) else 0
 
 func _forget_member(player_id: String) -> void:
 	## Out of the lobby for good: a guest who left, or one who dropped before the party set out.
@@ -345,6 +384,10 @@ func _apply_member(id: String, fields: Dictionary) -> void:
 	if record.is_empty():
 		return
 	var said: Dictionary = clean_member_fields(fields)
+	## Nothing new (the app tells the lobby the whole kit after every profile change): nobody
+	## is told, and nothing is redrawn for it.
+	if said.keys().all(func(key: Variant) -> bool: return record.has(key) and typeof(record[key]) == typeof(said[key]) and record[key] == said[key]):
+		return
 	for key in said:
 		record[key] = said[key]
 	if said.has("character") or said.has("rail") or said.has("dice"):
@@ -784,6 +827,9 @@ func _send_peer(peer_id: String, packet: Dictionary) -> void:
 		return
 	var stamped: Dictionary = packet.duplicate()
 	stamped.version = VERSION
+	## Every lobby leaves the host without the profile ids and seat tokens in it.
+	if is_host and stamped.get("lobby") is Dictionary:
+		stamped.lobby = _public(stamped.lobby)
 	var bytes: PackedByteArray = Codec.encode(stamped)
 	if bytes.is_empty():
 		error.emit("a packet could not be encoded")
@@ -808,7 +854,10 @@ func _on_connected() -> void:
 	var known: Variant = transport.get("host_peer_id") if transport != null else null
 	if known != null and not str(known).is_empty():
 		_host_peer = str(known)
-	_send_peer(_host_peer, {"kind": "hello", "member": _pending_hello})
+	var said: Dictionary = _pending_hello.duplicate()
+	if not seat_token.is_empty() and not said.has("seat_token"):
+		said.seat_token = seat_token
+	_send_peer(_host_peer, {"kind": "hello", "member": said})
 
 func _on_peer_connected(_peer_id: String) -> void:
 	## Nobody is seated until they say hello.
@@ -890,15 +939,21 @@ func _host_packet(peer_id: String, packet: Dictionary) -> void:
 			if _player_of.has(peer_id):
 				## Already seated: a second hello from the same line takes no second seat, and is
 				## answered with the welcome again in case the first went astray.
-				_send_peer(peer_id, {"kind": "welcome", "player_id": str(_player_of[peer_id]), "lobby": lobby, "state": run, "revision": revision})
+				var seated: String = str(_player_of[peer_id])
+				_send_peer(peer_id, {"kind": "welcome", "player_id": seated, "lobby": lobby, "state": run, "revision": revision,
+					"token": str(lobby.members.get(seated, {}).get("token", ""))})
 				return
-			var member: Dictionary = packet.get("member", {})
+			var said: Variant = packet.get("member", {})
+			var member: Dictionary = said if said is Dictionary else {}
+			var profile_id: String = str(member.get("id", "")).left(64) if member.get("id") is String else ""
+			var token: String = str(member.get("seat_token", "")) if member.get("seat_token") is String else ""
 			## Whatever this host kept for them from a run they dropped out of goes first, so it
 			## reaches them even if there is no seat for them this time.
-			_hand_over(peer_id, str(member.get("id", "")).left(64))
+			_hand_over(peer_id, profile_id)
 			## A player coming back keeps their seat; a new one takes the next. The seat is
-			## found by the profile they play with, since the seat ids are the host's own.
-			var player_id: String = _away_seat(str(member.get("id", "")))
+			## found by the profile they play with and the token it was given, since the seat
+			## ids are the host's own.
+			var player_id: String = _away_seat(profile_id, token)
 			if player_id.is_empty():
 				if lobby.order.size() >= MAX_PLAYERS or bool(lobby.get("started", false)):
 					_send_peer(peer_id, {"kind": "refused", "error": "The party is full or already underground."})
@@ -916,17 +971,22 @@ func _host_packet(peer_id: String, packet: Dictionary) -> void:
 					_publish(before, {"kind": "presence", "unit": player_id, "connected": true})
 			_peer_of[player_id] = peer_id
 			_player_of[peer_id] = player_id
-			_send_peer(peer_id, {"kind": "welcome", "player_id": player_id, "lobby": lobby, "state": run, "revision": revision})
+			## The token goes to this line alone; the lobby every guest gets is without it.
+			if str(lobby.members[player_id].get("token", "")).is_empty():
+				lobby.members[player_id].token = _new_token()
+			_send_peer(peer_id, {"kind": "welcome", "player_id": player_id, "lobby": lobby, "state": run, "revision": revision, "token": str(lobby.members[player_id].token)})
 			_broadcast({"kind": "lobby", "lobby": lobby})
 			lobby_changed.emit(lobby)
 		"member":
 			var player_id: String = str(_player_of.get(peer_id, ""))
-			if not player_id.is_empty():
-				_apply_member(player_id, packet.get("fields", {}))
+			var fields: Variant = packet.get("fields", {})
+			if not player_id.is_empty() and fields is Dictionary:
+				_apply_member(player_id, fields)
 		"command":
 			var player_id: String = str(_player_of.get(peer_id, ""))
-			if not player_id.is_empty() and in_run():
-				_apply_command(player_id, packet.get("cmd", {}))
+			var cmd: Variant = packet.get("cmd", {})
+			if not player_id.is_empty() and in_run() and cmd is Dictionary:
+				_apply_command(player_id, cmd)
 		"snapshot_please":
 			_send_peer(peer_id, {"kind": "snapshot", "state": run, "revision": revision, "lobby": lobby})
 		"claimed":
@@ -946,8 +1006,11 @@ func _guest_packet(packet: Dictionary) -> void:
 	match kind:
 		"welcome":
 			local_id = str(packet.get("player_id", ""))
-			lobby = packet.get("lobby", lobby)
-			revision = int(packet.get("revision", 0))
+			lobby = _dict(packet, "lobby", lobby)
+			revision = _whole(packet.get("revision", 0))
+			var token: Variant = packet.get("token", "")
+			if token is String and not token.is_empty():
+				seat_token = token
 			_snapshot_asked = 0
 			var state: Variant = packet.get("state", {})
 			_set_status("joined")
@@ -957,18 +1020,20 @@ func _guest_packet(packet: Dictionary) -> void:
 				_ended = str(run.get("phase", "")) == "over"
 				run_started.emit(run)
 		"lobby":
-			lobby = packet.get("lobby", lobby)
+			lobby = _dict(packet, "lobby", lobby)
 			lobby_changed.emit(lobby)
 		"start":
-			run = packet.get("state", {})
-			lobby = packet.get("lobby", lobby)
-			revision = int(packet.get("revision", 0))
+			run = _dict(packet, "state", {})
+			lobby = _dict(packet, "lobby", lobby)
+			revision = _whole(packet.get("revision", 0))
 			_snapshot_asked = 0
 			_ended = false
 			run_started.emit(run)
 		"step":
-			var incoming: int = int(packet.get("revision", 0))
-			host_speed = clampf(float(packet.get("speed", host_speed)), 1.0, 8.0)
+			var incoming: int = _whole(packet.get("revision", 0))
+			var pace: Variant = packet.get("speed", host_speed)
+			if pace is int or pace is float:
+				host_speed = clampf(float(pace), 1.0, 8.0)
 			if incoming <= revision:
 				## Already in hand: a snapshot overtook it.
 				return
@@ -979,7 +1044,7 @@ func _guest_packet(packet: Dictionary) -> void:
 				return
 			run = DeepPatch.apply(run, packet.get("patch", null))
 			revision = incoming
-			run_event.emit(packet.get("event", {}))
+			run_event.emit(_dict(packet, "event", {}))
 			if str(run.get("phase", "")) == "over" and not _ended:
 				_ended = true
 				run_ended.emit(DeepDescent.results(run))
@@ -990,8 +1055,8 @@ func _guest_packet(packet: Dictionary) -> void:
 			if not state is Dictionary or state.is_empty():
 				return
 			run = state
-			revision = int(packet.get("revision", 0))
-			lobby = packet.get("lobby", lobby)
+			revision = _whole(packet.get("revision", 0))
+			lobby = _dict(packet, "lobby", lobby)
 			if fresh:
 				run_started.emit(run)
 			else:
@@ -1004,7 +1069,8 @@ func _guest_packet(packet: Dictionary) -> void:
 			## Shares of runs this lapidary was not back for the end of. Each is applied by the
 			## app (which keeps it from being applied twice), and the host is told they arrived.
 			var arrived: Array = []
-			for entry in packet.get("held", []):
+			var held: Variant = packet.get("held", [])
+			for entry in (held if held is Array else []):
 				if entry is Dictionary and entry.get("results", null) is Dictionary:
 					claimed.emit(entry.results, str(entry.get("player_id", "")))
 					arrived.append(str(entry.results.get("run_id", "")))

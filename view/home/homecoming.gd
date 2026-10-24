@@ -172,11 +172,12 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 		choices.visible = false
 		line.text = "Under the loupe…"
 		sheet.visible = true
-		bench.play(sheet, raw, func() -> void:
+		## Told when the reading is over, or as soon as the bench is left before it is.
+		bench.play(sheet, raw, home.when_done(bench, func() -> void:
 			if DeepStone.is_fragile(pick):
 				home._appraise_pick = ""
 				home.cheer("Shattered: Fragile", DeepUi.BAD)
-			home.profile_changed.emit()), 18, DeepUi.INFO)
+			home.profile_changed.emit())), 18, DeepUi.INFO)
 	DeepUi.priced(read, str(fee), 16)
 	read.custom_minimum_size = Vector2(230, 50)
 	read.disabled = purse < fee

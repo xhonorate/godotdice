@@ -132,6 +132,8 @@ var _targets: Array = []
 var _regions: Dictionary = {}
 ## The parts a profile change touches, while the change is being told (see `changed`).
 var _partial: Array = []
+## Changes that came while the workshop was hidden under a run, drawn once when it is shown.
+var _stale: bool = false
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -190,8 +192,27 @@ func _notification(what: int) -> void:
 				target.node.modulate = Color.WHITE
 			if target.get("ring") != null and is_instance_valid(target.ring):
 				target.ring.set_ready(false)
+	elif what == NOTIFICATION_VISIBILITY_CHANGED:
+		if not visible:
+			## Under a run nobody looks at the workshop, and every live stone on it is a viewport
+			## drawing every frame: the page is let go, and drawn again when it is shown.
+			_hide_compare()
+			_hover = {}
+			_regions = {}
+			_targets = []
+			DeepUi.clear(_body)
+			DeepUi.clear(_overlay)
+			_stale = true
+		elif _stale:
+			## Whoever shows it usually refreshes it straight after; this is for anyone who does not.
+			_catch_up.call_deferred()
 
-func refresh(new_profile: Dictionary, new_lobby: Dictionary, new_status: String, host: bool, id: String, startable: bool, new_settings: Dictionary, code: String = "") -> void:
+func _catch_up() -> void:
+	if _stale and visible:
+		_stale = false
+		_render()
+
+func refresh(new_profile: Dictionary, new_lobby: Dictionary, new_status: String, host: bool, id: String, startable: bool, new_settings: Dictionary, code: String = "", party_only: bool = false) -> void:
 	invite_code = code
 	profile = new_profile
 	lobby = new_lobby
@@ -200,13 +221,29 @@ func refresh(new_profile: Dictionary, new_lobby: Dictionary, new_status: String,
 	local_id = id
 	can_start = startable
 	settings = new_settings
+	## Hidden under a run: kept, and drawn once the workshop is shown again.
+	if not visible:
+		_stale = true
+		return
 	## A change that said which parts of the page it touches redraws only those, when they
 	## are all on the page; anything else (a new day, another tab) redraws the lot.
 	if not _partial.is_empty() and redraw(_partial):
 		_draw_bar()
 		_gate_gold()
 		return
+	## A change to the party alone (`party_only`) is shown by the bar, the party popover and
+	## the Descend page; any other page (a vault scrolled down, a search being typed) is left be.
+	if party_only and not shows_party():
+		_draw_bar()
+		if _party_open:
+			DeepUi.clear(_overlay)
+			PartyDock.popover(self, _overlay)
+		return
 	_render()
+
+func shows_party() -> bool:
+	## Whether the page open draws anything from the lobby.
+	return tab == "descend" and not homecoming()
 
 func region(holder: Control, key: String, draw: Callable) -> Control:
 	## `draw(holder)` fills the holder now, and empties and fills it again on `redraw`.
@@ -292,6 +329,7 @@ func homecoming() -> bool:
 # --- the frame ---------------------------------------------------------------------------------
 
 func _render() -> void:
+	_stale = false
 	_fresh = tab != _shown_tab
 	_shown_tab = tab
 	_regions = {}
@@ -587,6 +625,20 @@ func touch() -> void:
 	## and the tab pips redrawn, without rebuilding the page.
 	profile_touched.emit()
 	_refresh_pips()
+
+func when_done(reveal: Node, then: Callable) -> Callable:
+	## `then`, called exactly once: by the Callable handed back (a reveal played out), or just
+	## after `reveal` leaves the page, if it is let go first (Escape, another page).
+	var done: Array = [false]
+	var once := func() -> void:
+		if done[0]:
+			return
+		done[0] = true
+		then.call()
+	reveal.tree_exiting.connect(func() -> void:
+		if not done[0] and is_inside_tree():
+			get_tree().create_timer(0.0).timeout.connect(once), CONNECT_ONE_SHOT)
+	return once
 
 func _refresh_pips() -> void:
 	if not is_instance_valid(_bar):

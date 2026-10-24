@@ -27,7 +27,13 @@ const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=u
 	'.json': 'application/json; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mid': 'audio/midi' };
 
 createServer(async (request, response) => {
-	const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+	let pathname;
+	try {
+		pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+	} catch {
+		response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Bad request');
+		return;
+	}
 	if (pathname.startsWith('/api/music')) {
 		try {
 			await musicApi(request, response, pathname);
@@ -68,11 +74,16 @@ function sendJson(response, code, body) {
 }
 
 async function bodyOf(request, limit = 1e6) {
-	let text = '';
+	// The chunks are kept as bytes and read as text once: a character split across two chunks
+	// would come out as two broken ones if each were decoded on its own.
+	const parts = [];
+	let size = 0;
 	for await (const part of request) {
-		text += part;
-		if (text.length > limit) throw new Error('body too large');
+		size += part.length;
+		if (size > limit) throw new Error('body too large');
+		parts.push(part);
 	}
+	const text = Buffer.concat(parts).toString('utf8');
 	return text ? JSON.parse(text) : {};
 }
 

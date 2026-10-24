@@ -146,6 +146,12 @@ static func _headless() -> bool:
 
 static var _sky: Sky = null
 
+static func release() -> void:
+	## Lets go of the shared sky and grit before the renderer shuts down.
+	_sky = null
+	_grit = null
+	_speckle = null
+
 static func _shared_sky() -> Sky:
 	if _sky == null:
 		var sky_material := ProceduralSkyMaterial.new()
@@ -656,6 +662,7 @@ func _process(delta: float) -> void:
 		if blows >= 2:
 			_mark()
 		if not _puff.is_empty():
+			_drift_puff(delta)
 			_fx.queue_redraw()
 	if _settle > 0:
 		_settle -= 1
@@ -674,11 +681,14 @@ func _draw_shadow() -> void:
 	if shown > 0.01:
 		_shadow.draw_texture_rect(glow, Rect2(Vector2((size.x - width) * 0.5, size.y * 0.86 - depth * 0.5), Vector2(width, depth)), false, Color(0, 0, 0, 0.6 * shown))
 
+func _drift_puff(delta: float) -> void:
+	## The dust moves by the frame's own time, so it falls as fast at any frame rate.
+	for p in _puff:
+		p.life = float(p.life) - delta
+		p.at = Vector2(p.at) + Vector2(p.v) * delta
+		p.v = Vector2(p.v) + Vector2(0, 220) * delta
+	_puff = _puff.filter(func(p: Dictionary) -> bool: return float(p.life) > 0.0)
+
 func _draw_fx() -> void:
 	for p in _puff:
-		p.life = float(p.life) - 0.016
-		p.at = Vector2(p.at) + Vector2(p.v) * 0.016
-		p.v = Vector2(p.v) + Vector2(0, 220) * 0.016
-		if float(p.life) > 0.0:
-			_fx.draw_circle(p.at, 1.6 + 1.6 * float(p.life), Color(0.85, 0.79, 0.66, float(p.life)))
-	_puff = _puff.filter(func(p: Dictionary) -> bool: return float(p.life) > 0.0)
+		_fx.draw_circle(p.at, 1.6 + 1.6 * float(p.life), Color(0.85, 0.79, 0.66, float(p.life)))

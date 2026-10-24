@@ -38,6 +38,8 @@ var _callout: Control = null
 var _rainbows: Array = []
 var _res_label: Label = null
 var _res_box: PanelContainer = null
+## The label last made white for the turning color, by instance id.
+var _res_tinted: int = 0
 var _hue: float = 0.0
 ## A swell: how many times it has grown.
 var _swells: int = 0
@@ -50,7 +52,12 @@ func _process(delta: float) -> void:
 		if is_instance_valid(box):
 			(box as Control).queue_redraw()
 	if _res_label != null and is_instance_valid(_res_label):
-		_res_label.add_theme_color_override("font_color", Color.from_hsv(fmod(_hue + 0.5, 1.0), 0.28, 1.0))
+		## Its type is made white once and the turning color laid over it, rather than the
+		## label's theme being changed (and its text shaped again) every frame.
+		if _res_tinted != _res_label.get_instance_id():
+			_res_tinted = _res_label.get_instance_id()
+			_res_label.add_theme_color_override("font_color", Color.WHITE)
+		_res_label.self_modulate = Color.from_hsv(fmod(_hue + 0.5, 1.0), 0.28, 1.0)
 
 # --- a tier ------------------------------------------------------------------------------------
 

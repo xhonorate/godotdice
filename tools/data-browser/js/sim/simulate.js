@@ -466,8 +466,9 @@ export function encounters({ mineKey, depth = 1, party = 1, elite = false, sampl
 
 // --- stones ----------------------------------------------------------------------------------
 
-export function stones({ mineKey, depth = 1, bonus = 0, samples = 8000, seed = 9, pool = [] }) {
-	const mine = C.mine(mineKey);
+// `hazard`: the Hazard tier the rock is dug at (0 for none), as sim/descent.gd mine_of hands it on.
+export function stones({ mineKey, depth = 1, bonus = 0, samples = 8000, seed = 9, pool = [], hazard = 0 }) {
+	const mine = Forge.atHazard(C.mine(mineKey), hazard);
 	const rng = makeRng(seed * 4099 + depth * 17 + bonus);
 	const tiers = Object.fromEntries(Stone.TIERS.map((t) => [t, 0]));
 	const scores = new Map();
@@ -497,7 +498,7 @@ export function stones({ mineKey, depth = 1, bonus = 0, samples = 8000, seed = 9
 	}
 	const dist = (m) => [...m].sort((a, b) => a[0] - b[0]).map(([k, n]) => [k, n / samples]);
 	return {
-		mineKey, depth, bonus, samples, luck: Forge.luck(mine, depth, bonus),
+		mineKey, depth, bonus, hazard, samples, luck: Forge.luck(mine, depth, bonus),
 		tiers: Object.fromEntries(Object.entries(tiers).map(([k, n]) => [k, n / samples])),
 		scores: dist(scores), values: dist(values), meanValue: valueSum / samples, meanScore: scoreSum / samples, meanCarat: caratSum / samples,
 		carats: carats.map((n) => n / samples), cuts: cuts.map((n) => n / samples), clarities: clarities.map((n) => n / samples),

@@ -82,18 +82,34 @@ static func fits(stone: Dictionary, socket: String) -> bool:
 static func modifiers(stone: Dictionary) -> Array:
 	## Every modifier of every inclusion, each tagged with the inclusion it came from, and of the
 	## one a Fingerprint is carrying in a fight (`copied`, see `fingerprinted`).
+	## The tagged modifiers are shared between calls and read-only: read them, never change them.
 	var out: Array = []
 	var keys: Array = stone.get("inclusions", []).duplicate()
 	if not str(stone.get("copied", "")).is_empty():
 		keys.append(str(stone.copied))
 	for key in keys:
-		var def: Dictionary = DeepContent.inclusion(str(key))
-		for m in def.get("modifiers", []):
-			if m is Dictionary:
-				var tagged: Dictionary = m.duplicate(true)
-				tagged.inclusion = str(key)
-				out.append(tagged)
+		out.append_array(_tagged_modifiers(str(key)))
 	return out
+
+## Each inclusion's modifiers, tagged once per content pack rather than copied on every call.
+static var _tagged: Dictionary = {}
+static var _tagged_from: Dictionary = {}
+
+static func _tagged_modifiers(key: String) -> Array:
+	var listed: Dictionary = DeepContent.section("inclusions")
+	if not is_same(listed, _tagged_from):
+		_tagged = {}
+		_tagged_from = listed
+	if not _tagged.has(key):
+		var tagged: Array = []
+		for m in DeepContent.inclusion(key).get("modifiers", []):
+			if m is Dictionary:
+				var one: Dictionary = m.duplicate(true)
+				one.inclusion = key
+				one.make_read_only()
+				tagged.append(one)
+		_tagged[key] = tagged
+	return _tagged[key]
 
 ## Inclusions a Fingerprint never takes up: another Fingerprint, which would only point further
 ## along, and a Void, which would carry the gem off its socket in the middle of a fight.
