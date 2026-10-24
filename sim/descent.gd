@@ -31,11 +31,14 @@ const VEIN_SPOTS: int = 6
 const VEIN_HP_BASE: int = 1
 ## A hazardous vug charges this on top of every swing.
 const VUG_HP: int = 2
-const VEIN_HARDNESS: Dictionary = {"bright": [3, 4], "glint": [2, 3], "ore": [1, 2], "dull": [1, 1], "nothing": [1, 1]}
-## A glittering hollow: every lapidary has their own few shining rocks, each with a stone in
-## it that one blow breaks out. The first costs a point of health, and each after it a point
-## more, so taking all of them is a choice.
-const HOLLOW_ROCKS: int = 3
+const VEIN_HARDNESS: Dictionary = {"rich": [1, 2], "bright": [3, 4], "glint": [2, 3], "ore": [1, 2], "dull": [1, 1], "nothing": [1, 1]}
+## A motherlode: the vein's six spots and a few rich seams besides, shared like the rest of
+## the rock. A rich seam is a fine stone all but loose: a swing or two breaks it out, and it
+## comes out with the pack's `rich_seam_luck` behind it (a bright seam's stone has 3). How
+## many a motherlode has is the pack's `motherlode_rich` band; these are what the pack
+## falls back on.
+const MOTHERLODE_RICH: Array = [3, 5]
+const RICH_LUCK: int = 6
 ## The rooms whose rock is struck with a pick.
 const ROCK_ROOMS: Array = ["vein", "vug", "motherlode"]
 const HOARD_OFFERS: int = 3
@@ -112,7 +115,7 @@ static func new_run(config: Dictionary) -> Dictionary:
 			"choice": "", "respite": "", "ready": false, "strikes": 0, "mining": false, "oddity_choice": "", "stake": "", "last_depth": int(entry.get("last_depth", 0)),
 			"last_outcome": str(entry.get("last_outcome", "")), "insured": bool(entry.get("insured", false)), "temps": [],
 			"altar_done": "", "vault_spent": [], "transcended": [],
-			"stats": {"damage": 0, "healing": 0, "stones": 0, "fights": 0, "ore": 0}}, true)
+			"stats": DeepBattle.fresh_stats()}, true)
 		state.players.append(unit)
 		if deeper:
 			unit.temps = _temporary_offers(state, unit, temps)
@@ -978,6 +981,7 @@ static func _light(state: Dictionary, unit: Dictionary) -> Dictionary:
 	if int(unit.get("ore", 0)) < lantern_cost():
 		return _refuse("not enough pyrite")
 	unit.ore = int(unit.ore) - lantern_cost()
+	DeepBattle.tally_add(unit, "spent", lantern_cost())
 	map.lit_to = target_depth
 	return {"ok": true, "event": _event(state, "lit", {"unit": unit.id, "method": "ore", "to": target_depth})}
 
@@ -1039,7 +1043,7 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 		"vein":
 			_dig_vein(state, streams, false)
 		"motherlode":
-			_dig_hollow(state)
+			_dig_vein(state, streams, false, true)
 		"merchant":
 			_open_stall(state, streams)
 		"altar":
@@ -1294,7 +1298,7 @@ static func _sync_fighters(state: Dictionary) -> void:
 		unit.haul = fighter.get("haul", []).duplicate(true)
 		unit.downed = bool(fighter.get("downed", false))
 		unit.run_counts = fighter.get("run_counts", {}).duplicate()
-		unit.stats.damage = int(unit.stats.get("damage", 0))
+		unit.stats = DeepBattle.stats_of(fighter).duplicate(true)
 
 static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	var streams: Dictionary = streams_of(state)
@@ -1315,8 +1319,13 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 		unit.downed = bool(fighter.get("downed", false))
 		unit.block = 0
 		unit.statuses = {}
+		## The fight's tally comes back to the run with the fighter (see DeepBattle.fresh_stats).
+		unit.stats = DeepBattle.stats_of(fighter).duplicate(true)
 		unit.stats.fights = int(unit.stats.get("fights", 0)) + 1
-		unit.stats.damage = int(unit.stats.get("damage", 0)) + int(fighter.get("dealt", 0)) + int(fighter.get("dealt_last_turn", 0))
+		if kind == "elite":
+			unit.stats.elites = int(unit.stats.get("elites", 0)) + 1
+		elif kind == "warden":
+			unit.stats.wardens = int(unit.stats.get("wardens", 0)) + 1
 		unit.sparkle = clampi(int(fighter.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
 		unit.hand = []
 		var spending: int = int(fighter.get("pyrite_delta", 0))
@@ -1435,33 +1444,13 @@ static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary
 
 # --- veins -------------------------------------------------------------------------------
 
-static func hollow_cost(swings: int) -> int:
-	## What breaking the next of your rocks in a glittering hollow costs.
-	return (maxi(0, swings) + 1) * VEIN_HP_BASE
-
 static func swing_cost(state: Dictionary, unit: Dictionary) -> int:
 	## What this player's next blow costs in the room they are standing in. On a day of
 	## Brittle Picks every blow costs twice the health.
 	var vein: Dictionary = state.get("chamber", {}).get("vein", {})
 	## Heavy Rock: half as much again.
 	var brittle: float = 2.0 if has_mod(state, "BRITTLE_PICKS") else (1.5 if has_mod(state, "HEAVY_ROCK") else 1.0)
-	if bool(vein.get("hollow", false)):
-		return int(ceil(float(hollow_cost(int(unit.get("strikes", 0)))) * brittle))
 	return int(ceil(float(strike_cost(int(unit.get("strikes", 0)), bool(vein.get("hazard", false)))) * brittle))
-
-static func _dig_hollow(state: Dictionary) -> void:
-	## Every lapidary standing gets their own shining rocks, a stone in each. Nobody can break
-	## anyone else's.
-	var spots: Array = []
-	for unit in state.players:
-		unit.strikes = 0
-		unit.mining = not bool(unit.get("downed", false))
-		if not bool(unit.mining):
-			continue
-		for _rock in range(HOLLOW_ROCKS):
-			spots.append({"index": spots.size(), "kind": "stone", "glint": "bright", "owner": str(unit.id), "taken": "", "result": {},
-				"hardness": 1, "struck": 0})
-	state.chamber.vein = {"spots": spots, "hazard": false, "hollow": true}
 
 static func strike_cost(swings: int, hazard: bool) -> int:
 	## What the next swing costs, given how many have already been taken at this outcrop: the
@@ -1474,7 +1463,9 @@ static func spot_hardness(rng: RandomNumberGenerator, kind: String, glint: Strin
 	var band: Array = VEIN_HARDNESS.get(glint if kind == "stone" else kind, [1, 1])
 	return rng.randi_range(int(band[0]), int(band[1]))
 
-static func _dig_vein(state: Dictionary, streams: Dictionary, hazard: bool) -> void:
+static func _dig_vein(state: Dictionary, streams: Dictionary, hazard: bool, motherlode: bool = false) -> void:
+	## The six spots of a vein, and in a motherlode a few rich seams besides them: a fine
+	## stone in each, barely held, for whoever's pick gets there first.
 	var rng: RandomNumberGenerator = streams.tunnels
 	var spots: Array = []
 	for index in range(VEIN_SPOTS):
@@ -1484,7 +1475,12 @@ static func _dig_vein(state: Dictionary, streams: Dictionary, hazard: bool) -> v
 			glint = "bright" if DeepRng.chance(rng, 35.0) else "glint"
 		spots.append({"index": index, "kind": kind, "glint": glint, "taken": "", "result": {},
 			"hardness": spot_hardness(rng, kind, glint), "struck": 0})
-	state.chamber.vein = {"spots": spots, "hazard": hazard}
+	var band: Array = DeepContent.constant("motherlode_rich", MOTHERLODE_RICH)
+	var rich: int = rng.randi_range(int(band[0]), int(band[1])) if motherlode else 0
+	for _seam in range(rich):
+		spots.append({"index": spots.size(), "kind": "stone", "glint": "rich", "taken": "", "result": {},
+			"hardness": spot_hardness(rng, "stone", "rich"), "struck": 0})
+	state.chamber.vein = {"spots": spots, "hazard": hazard, "rich": rich}
 	for unit in state.players:
 		unit.strikes = 0
 		unit.mining = not bool(unit.get("downed", false))
@@ -1538,9 +1534,6 @@ static func _strike(state: Dictionary, unit: Dictionary, spot_index: int) -> Dic
 	var spot: Dictionary = spots[spot_index]
 	if not str(spot.get("taken", "")).is_empty():
 		return _refuse("someone already struck there")
-	if spot.has("owner") and str(spot.owner) != str(unit.id):
-		return _refuse("those rocks are someone else's")
-	var hollow: bool = bool(state.chamber.vein.get("hollow", false))
 	var hazard: bool = bool(state.chamber.vein.get("hazard", false))
 	var cost: int = swing_cost(state, unit)
 	if int(unit.hp) - cost <= 0:
@@ -1561,7 +1554,9 @@ static func _strike(state: Dictionary, unit: Dictionary, spot_index: int) -> Dic
 	var result: Dictionary = {"kind": str(spot.kind)}
 	match str(spot.kind):
 		"stone":
-			result.stone = _find_stone(state, unit, streams, 3 if str(spot.glint) == "bright" else 0, "motherlode" if hollow else "vein")
+			var luck: int = int(DeepContent.constant("rich_seam_luck", RICH_LUCK)) if str(spot.glint) == "rich" else (3 if str(spot.glint) == "bright" else 0)
+			var source: String = "motherlode" if str(state.chamber.get("kind", "")) == "motherlode" else "vein"
+			result.stone = _find_stone(state, unit, streams, luck, source)
 		"ore":
 			var ore: int = 4 + int(state.depth) + streams.tunnels.randi_range(0, 4)
 			if has_mod(state, "MIDAS"):
@@ -1572,9 +1567,6 @@ static func _strike(state: Dictionary, unit: Dictionary, spot_index: int) -> Dic
 	spot.result = result
 	state.rng = DeepRng.save(streams)
 	fields.result = result.duplicate(true)
-	if hollow and state.chamber.vein.spots.all(func(other: Dictionary) -> bool: return str(other.get("owner", "")) != str(unit.id) or not str(other.get("taken", "")).is_empty()):
-		## Every one of their rocks is broken: nothing left for this pick.
-		unit.mining = false
 	return _settle_vein(state, _event(state, "vein_strike", fields))
 
 # --- oddities, smithies and carvers -------------------------------------------------------
@@ -1613,6 +1605,9 @@ static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: Strin
 	if choice.is_empty():
 		return _refuse("no such choice")
 	var streams: Dictionary = streams_of(state)
+	## The stone handed over, looked at before the card takes it: a vault copy traded, sold or
+	## thrown down the well for something is the vault's loss, as at the altar.
+	var given: Dictionary = DeepOddities.find_stone(unit, str(payload.get("stone_id", "")))
 	var result: Dictionary = DeepOddities.apply(choice.get("action", {"kind": "none"}), unit, payload, streams.oddities,
 		{"mine": mine_of(state), "depth": int(state.depth), "run": str(state.run_id), "party": state.players.size(),
 		"offer": state.chamber.get("offer", {}), "tries": state.chamber.get("tries", {}).get(str(unit.id), {}),
@@ -1642,6 +1637,10 @@ static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: Strin
 		if result.has(extra):
 			event[extra] = result[extra]
 			state.chamber.results[unit.id][extra] = result[extra]
+	if str(choice.get("action", {}).get("kind", "")) in ["trade_up", "wishing_well", "collector_sell"] and not given.is_empty() and result.get("lost", []).has(str(given.get("id", ""))):
+		var spent: String = _spend_lent(state, unit, given)
+		if not spent.is_empty():
+			event.vault_spent = [spent]
 	if _close_oddity(state):
 		event.finished = true
 	return {"ok": true, "event": event}
@@ -1971,6 +1970,7 @@ static func _appraise(state: Dictionary, unit: Dictionary, stone_id: String) -> 
 	if int(unit.get("ore", 0)) < cost:
 		return _refuse("not enough pyrite")
 	unit.ore = int(unit.ore) - cost
+	DeepBattle.tally_add(unit, "spent", cost)
 	state.chamber.appraisals[str(unit.id)] = int(state.chamber.appraisals.get(str(unit.id), 0)) + 1
 	_reveal(stone)
 	return {"ok": true, "event": _event(state, "appraised", {"unit": unit.id, "stone": stone.duplicate(true), "method": "ore", "paid": cost,
@@ -2000,6 +2000,7 @@ static func _buy(state: Dictionary, unit: Dictionary, item_id: String, payload: 
 		if str(unit.dice[at].get("shape", "")) != str(item.die.get("shape", "")):
 			return _refuse("a die is only swapped for one of the same size")
 		unit.ore = int(unit.ore) - int(item.price)
+		DeepBattle.tally_add(unit, "spent", int(item.price))
 		item.sold = str(unit.id)
 		var bought: Dictionary = item.die.duplicate(true)
 		var gone: Dictionary = unit.dice[at]
@@ -2007,6 +2008,7 @@ static func _buy(state: Dictionary, unit: Dictionary, item_id: String, payload: 
 		return {"ok": true, "event": _event(state, "bought", {"unit": unit.id, "item": item.duplicate(true), "ore": unit.ore,
 			"die": bought.duplicate(true), "traded": gone.duplicate(true), "dice": unit.dice.duplicate(true)})}
 	unit.ore = int(unit.ore) - int(item.price)
+	DeepBattle.tally_add(unit, "spent", int(item.price))
 	item.sold = str(unit.id)
 	var stone: Dictionary = item.stone.duplicate(true)
 	stone.provenance.finder = str(unit.id)
@@ -2029,7 +2031,11 @@ static func _sell(state: Dictionary, unit: Dictionary, stone_id: String) -> Dict
 		paid = maxi(paid, DeepStone.value(stone))
 	DeepOddities.remove_stone(unit, stone_id)
 	unit.ore = int(unit.ore) + paid
-	return {"ok": true, "event": _event(state, "sold", {"unit": unit.id, "stone_id": stone_id, "ore": unit.ore, "paid": paid})}
+	var fields: Dictionary = {"unit": unit.id, "stone_id": stone_id, "ore": unit.ore, "paid": paid}
+	var spent: String = _spend_lent(state, unit, stone)
+	if not spent.is_empty():
+		fields.vault_spent = [spent]
+	return {"ok": true, "event": _event(state, "sold", fields)}
 
 static func _leave_stall(state: Dictionary, unit: Dictionary) -> Dictionary:
 	if bool(unit.get("ready", false)):
@@ -2056,6 +2062,18 @@ static func _close_stall(state: Dictionary) -> bool:
 ## until everyone has walked on, so the circle's answer is never cut short. A gem the rail
 ## brought from the vault can be given up too, and then the vault loses it as well: the run
 ## writes it down (`vault_spent`) and the profile takes it out when the run is over.
+
+static func _spend_lent(state: Dictionary, unit: Dictionary, stone: Dictionary) -> String:
+	## A vault copy given up anywhere else for something of worth (the Prospector, a well, a
+	## sale) is written down the same way. Returns the skill written down, or "".
+	if not bool(state.get("marks_lent", false)) or not is_lent(state, stone):
+		return ""
+	var skill: String = str(stone.get("skill", ""))
+	if not unit.has("vault_spent"):
+		unit.vault_spent = []
+	if not unit.vault_spent.has(skill):
+		unit.vault_spent.append(skill)
+	return skill
 
 static func _open_altar(state: Dictionary) -> void:
 	state.chamber.altar = {}
@@ -2196,6 +2214,7 @@ static func _dress_the_landing(state: Dictionary, streams: Dictionary) -> void:
 			var toll: int = int(unit.get("ore", 0)) / 4
 			if toll > 0:
 				unit.ore = int(unit.ore) - toll
+				DeepBattle.tally_add(unit, "spent", toll)
 				tolls[str(unit.id)] = toll
 		state.landing.tolls = tolls
 	if has_mod(state, "GLASS_LUNGS"):
@@ -2280,6 +2299,7 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 				if int(unit.get("ore", 0)) < spent:
 					return _refuse("you have not the pyrite to throw in")
 				unit.ore = int(unit.ore) - spent
+				DeepBattle.tally_add(unit, "spent", spent)
 				worth = float(spent)
 				said = "%d pyrite goes down into the dark." % spent
 			else:
@@ -2290,6 +2310,9 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 				said = "%s goes down into the water." % (DeepStone.name(stone) if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone))
 				fields.stone = stone.duplicate(true)
 				DeepOddities.remove_stone(unit, stone_id)
+				var lent_skill: String = _spend_lent(state, unit, stone)
+				if not lent_skill.is_empty():
+					fields.vault_spent = [lent_skill]
 			if has_mod(state, "BRIGHT_WELL"):
 				worth *= 1.5
 			var rung: int = DeepOddities.well_rung(streams.oddities, worth)
@@ -2357,6 +2380,7 @@ static func _pay_for_lift(state: Dictionary) -> Dictionary:
 	for unit in riders:
 		var take: int = mini(int(unit.get("ore", 0)), mini(share, owed))
 		unit.ore = int(unit.ore) - take
+		DeepBattle.tally_add(unit, "spent", take)
 		paid[str(unit.id)] = take
 		owed -= take
 	for unit in riders:
@@ -2364,6 +2388,7 @@ static func _pay_for_lift(state: Dictionary) -> Dictionary:
 			break
 		var take: int = mini(int(unit.get("ore", 0)), owed)
 		unit.ore = int(unit.ore) - take
+		DeepBattle.tally_add(unit, "spent", take)
 		paid[str(unit.id)] = int(paid.get(str(unit.id), 0)) + take
 		owed -= take
 	return paid
@@ -2681,6 +2706,8 @@ static func results(state: Dictionary) -> Dictionary:
 		out.players[str(unit.id)] = {"haul": unit.haul.duplicate(true), "home": coming_home(state, unit).duplicate(true), "dice": unit.bag_dice.duplicate(true), "stats": unit.stats.duplicate(true),
 			"rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true), "seen": unit.get("seen", []).duplicate(), "shattered": unit.get("shattered", []).duplicate(true),
 			"ore": int(unit.get("ore", 0)), "insured": bool(unit.get("insured", false)),
+			"name": str(unit.get("name", "")), "character": str(unit.get("character", "")), "seat": int(unit.get("seat", 0)),
+			"connected": bool(unit.get("connected", true)), "left_depth": int(unit.get("left_depth", -1)),
 			"vault_spent": unit.get("vault_spent", []).duplicate(), "transcended": unit.get("transcended", []).duplicate()}
 	return out
 
@@ -2904,6 +2931,11 @@ static func set_connected(state: Dictionary, player_id: String, connected: bool)
 	var unit: Dictionary = player(state, player_id)
 	if not unit.is_empty():
 		unit.connected = connected
+		## Where they left the party, for the stats at the lift; back, and it is forgotten.
+		if connected:
+			unit.erase("left_depth")
+		else:
+			unit.left_depth = int(state.get("depth", 0))
 		## An empty chair cannot hold the two-person booth for the rest of the landing.
 		## The session publishes this withdrawal with the player's changed presence.
 		if not connected and trade_table(state).get("offers", {}).has(player_id):

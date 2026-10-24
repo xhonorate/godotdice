@@ -79,6 +79,8 @@
     },
     "ore_per_fight": 20,
     "elite_stone_luck": 3,
+    "motherlode_rich": [3, 5],
+    "rich_seam_luck": 6,
     "chain_heat": 2,
     "max_creatures": 4,
     "punished_straight": 4,

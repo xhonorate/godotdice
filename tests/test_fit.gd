@@ -17,6 +17,9 @@ var failures: Array = []
 var screen: SubViewport
 
 func _init() -> void:
+	## Drawn the way the smallest window draws it (1024 × 640, 0.64 of the canvas): the floor
+	## on text is at its highest and small text is set in SemiBold, so pages are at their widest.
+	DeepUi.text_scale = 0.64
 	DeepSaveStore.override_directory = "user://test_scratch"
 	var scratch := DeepSaveStore.new()
 	for file in ["profile.json", "settings.json", "run.json"]:
@@ -696,10 +699,47 @@ func _run(app: Control) -> void:
 	var pocket: Dictionary = DeepDescent.player(over, app.session.local_id)
 	pocket.ore = 99999
 	descent._end_shown = true
+	descent._over_tab = "haul"
 	for page in range(2):
 		descent._pages["home"] = page
 		descent.show_state(over)
 		await _fits(screen, "page %d of the end of a run with a heavy haul" % page)
+	## The run's stats, with the biggest numbers the count can show; and the party's, four
+	## seats with one gone, every stat led by someone.
+	var loud: Dictionary = DeepBattle.fresh_stats()
+	for key in ["damage", "overkill", "block", "blocked", "healed", "overheal", "ore", "spent", "taken"]:
+		loud[key] = 123456789
+	loud.merge({"slain": 999, "slain_wardens": 99, "downs": 3, "revives": 12, "debuffs": {"poison": 99999, "scorched": 5}, "buffs": {"regeneration": 4444},
+		"best_hit": {"amount": 98765432, "stone_id": "x", "skill": "STRIKE", "creature": "The Remembered Mirror Regent", "depth": 99}, "best_turn": {"amount": 99999999, "creature": "The Remembered Mirror Regent", "depth": 99, "turn": 12},
+		"hands": {"quint": 3, "pair": 40}, "rerolls": 999, "rerolls_given": 1999, "birthstone": 99, "resonance": 999, "turns": 999, "fights": 99, "elites": 9, "wardens": 9, "stones": 99}, true)
+	for stone in DeepStone.rail_stones(pocket):
+		loud.gems[str(stone.id)] = {"damage": 123456789, "block": 1234567, "healed": 123456, "debuffs": 12345, "ore": 1234, "fires": 999, "best": 98765432}
+	pocket.stats = loud
+	descent._over_seen = {}
+	descent._over_tab = "run"
+	descent.show_state(over)
+	await _fits(screen, "the run's stats at the end of a run")
+	var crowd: Dictionary = over.duplicate(true)
+	var names: Array = ["", "Marigold Underhill", "Tov", "Quill"]
+	var callings: Array = ["", "VESPER", "RUE", "FLORIN"]
+	for index in range(1, 4):
+		var other: Dictionary = crowd.players[0].duplicate(true)
+		other.id = "fit%d" % index
+		other.seat = index
+		other.name = names[index]
+		other.character = callings[index]
+		other.stats = loud.duplicate(true)
+		other.stats.damage = 1000000 * index
+		other.stats.healed = 50000 * (4 - index)
+		other.connected = index != 3
+		other.left_depth = 4
+		crowd.players.append(other)
+	descent._over_seen = {}
+	descent._over_tab = "party"
+	descent.show_state(crowd)
+	await _fits(screen, "the party's stats at the end of a run")
+	descent._over_tab = "haul"
+	descent._over_seen = {}
 	## The end of the day's seam, with a heavy haul scored, for every standing, and fallen.
 	var dug: Dictionary = over.duplicate(true)
 	dug.daily = seam
@@ -716,6 +756,8 @@ func _run(app: Control) -> void:
 	descent.daily_best = {}
 	descent._end_shown = false
 	descent._pages = {}
+	descent._over_tab = "run"
+	descent._over_seen = {}
 	## A fight, planning, with every chip on show.
 	var guard: int = 0
 	while guard < 400 and not (DeepDescent.in_battle(app.session.run) and str(DeepDescent.battle(app.session.run).phase) == "planning"):

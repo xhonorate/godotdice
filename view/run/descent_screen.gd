@@ -34,8 +34,8 @@ signal home_requested
 signal menu_requested
 
 const KIND_WORDS: Dictionary = {"fight": "A fight", "elite": "Something big", "vein": "A vein", "oddity": "Something odd",
-	"motherlode": "A glittering hollow", "merchant": "A merchant", "smithy": "A smithy", "carver": "A carver's bench", "landing": "The landing",
-	"hidden": "A dark mouth", "well": "A wishing well", "vat": "A vat", "altar": "An altar", "rest_stop": "A rest stop"}
+	"motherlode": "A motherlode", "merchant": "A merchant", "smithy": "A smithy", "carver": "A carver's bench", "landing": "The landing",
+	"hidden": "A dark mouth", "well": "A wishing well", "vat": "A vat", "altar": "An altar", "rest_stop": "A rest stop", "warden": "The Warden's hall"}
 ## How many of the bag's stones the scales name at once: the chip is a panel, not a page.
 const SCALES_LISTED := 10
 
@@ -43,11 +43,12 @@ const KIND_TEXT: Dictionary = {"fight": "A fight. Pays pyrite, with a good chanc
 	"elite": "An elite fight. Guaranteed stone, one grade better.",
 	"vein": "A wall of glinting rock. Strike it for stones and pyrite.",
 	"oddity": "Something odd. Usually a gamble with your stones or dice.",
-	"motherlode": "Shining rocks with a stone in each. Breaking them out costs a little health.",
+	"motherlode": "A vein with rich seams besides: fine stones all but loose in the rock, for anyone's pick.",
 	"merchant": "A stall on a ledge: stones for pyrite, appraisals, and a buyer for what you found.",
 	"smithy": "An anvil and a rack of files: make one of your dice a size bigger, or a size smaller.",
 	"carver": "Fine chisels and a case of needles under a lamp: raise a face of a die, recut one to show another's number, or cut a mark into it.",
 	"landing": "A landing with a lift. Rest, appraise or use the well, then head up or keep going.",
+	"warden": "The hall below the landing. Its Warden stands between the party and the way on down; beat it for a hoard of stones.",
 	"well": "A wishing well. Throw in a stone or some pyrite. The more it's worth, the better your odds of a good reward.",
 	"hidden": "Too dark to see. Anything could be down there.",
 	"vat": "A sunken vat of molten material: dip a die and it comes out made of something else, or melt it back to plain numbers.",
@@ -314,6 +315,8 @@ func bind(player_id: String, forecast: Callable) -> void:
 	_news = []
 	_end_started = false
 	_end_shown = false
+	_over_tab = "run"
+	_over_seen = {}
 	_salvage_thrown = false
 	_salvage_rolled = {}
 	_pages = {}
@@ -478,9 +481,12 @@ func show_state(state: Dictionary) -> void:
 		_scrim.visible = false
 		_crossroads.visible = false
 		DeepUi.clear(_page_holder)
-		var forecast: Dictionary = forecast_provider.call() if forecast_provider.is_valid() else {}
-		_battle.show_state(DeepDescent.battle(run), int(run.depth), forecast, {"mine": mine, "kind": str(run.chamber.get("kind", "fight")),
-			"exits": int(_stage.place.get("exits", 2)), "boss": DeepDescent.run_is_boss(run, int(run.depth))})
+		## A forecast is a whole dry run of the rail: worked out only when the fight will take it.
+		var battle: Dictionary = DeepDescent.battle(run)
+		var forecast: Dictionary = forecast_provider.call() if forecast_provider.is_valid() and _battle.wants_forecast(battle) else {}
+		_battle.show_state(battle, int(run.depth), forecast, {"mine": mine, "kind": str(run.chamber.get("kind", "fight")),
+			"exits": int(_stage.place.get("exits", 2)), "boss": DeepDescent.run_is_boss(run, int(run.depth)),
+			"fight": int(run.get("records", {}).get("fights", 0))})
 		return
 	_battle.visible = false
 	## No fight here and none held on screen: the last one's creatures leave the room.
@@ -1371,8 +1377,10 @@ func _arrived() -> void:
 ## the rock as it arrives, and what came out flies to whoever found it. When the rock is spent
 ## the finds are let land before the way on opens, and then the rock sinks away.
 
-const VEIN_WORDS: Dictionary = {"bright": ["Something bright", "Likely a fine stone."], "glint": ["A glint", "A stone."],
-	"dull": ["Dull rock", "Pyrite, or nothing but dust."]}
+const VEIN_WORDS: Dictionary = {"rich": ["A rich seam", "A fine stone, all but loose."], "bright": ["Something bright", "Likely a fine stone."],
+	"glint": ["A glint", "A stone."], "dull": ["Dull rock", "Pyrite, or nothing but dust."]}
+## The color of a motherlode's rich seams, wherever the screen names one.
+const RICH_TONE := Color("fff1a6")
 
 func _seat_color(unit_id: String) -> Color:
 	var unit: Dictionary = DeepDescent.player(run, unit_id)
@@ -1384,9 +1392,8 @@ func _show_vein() -> void:
 	## business is a running question: one more, or walk on?
 	var vein: Dictionary = run.chamber.get("vein", {})
 	var hazard: bool = bool(vein.get("hazard", false))
-	var hollow: bool = bool(vein.get("hollow", false))
-	## A hollow's rocks are each somebody's own: this player sees theirs.
-	var spots: Array = _my_rocks()
+	var motherlode: bool = str(run.chamber.get("kind", "")) == "motherlode"
+	var spots: Array = vein.get("spots", [])
 	var unit: Dictionary = me()
 	var mining: bool = bool(unit.get("mining", false))
 	var swings: int = int(unit.get("strikes", 0))
@@ -1410,40 +1417,30 @@ func _show_vein() -> void:
 			_stage.enable_pick(id, open)
 			face.set_open(place, open)
 	_crossroads.visible = true
-	_set_cross_mark("gem" if hollow else "pick", DeepUi.CHAMBER_colorS.get("vein", DeepUi.ACCENT))
-	_cross_title.text = "A glittering hollow" if hollow else ("The vug" if hazard else "A vein")
-	if mining and hollow:
-		var left: int = spots.filter(func(sp: Dictionary) -> bool: return str(sp.get("taken", "")).is_empty()).size()
-		_cross_sub.text = "Your shining rocks each hold a stone, and one blow breaks it out. %s left; the next costs %d health." % [DeepUi.plural(left, "rock"), cost]
-		if int(unit.get("hp", 0)) <= cost:
-			_cross_sub.text = "Breaking another would finish you. Leave the rest."
-	elif mining:
+	_set_cross_mark("gem" if motherlode else "pick", DeepUi.CHAMBER_colorS.get("vein", DeepUi.ACCENT))
+	_cross_title.text = "A motherlode" if motherlode else ("The vug" if hazard else "A vein")
+	if mining:
 		_cross_sub.text = "Swing as often as you like. The next swing costs %s." % ("nothing" if cost <= 0 else "%d health" % cost)
 		if int(unit.get("hp", 0)) <= cost:
 			_cross_sub.text = "Another swing would finish you. Put the pick down."
 	else:
-		_cross_sub.text = "You are down, and cannot swing a pick until the next landing." if bool(unit.get("downed", false)) else ("You are done here." if hollow else "You put the pick down.")
+		_cross_sub.text = "You are down, and cannot swing a pick until the next landing." if bool(unit.get("downed", false)) else "You put the pick down."
 	DeepUi.clear(_cross_hint)
 	var legend := PanelContainer.new()
 	legend.add_theme_stylebox_override("panel", DeepUi.facet_ends(legend, DeepUi.raised(Color(0.04, 0.05, 0.07, 0.88), DeepUi.LINE, 14, 8, 0.4)))
 	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cross_hint.add_child(legend)
 	var row := DeepUi.hbox(legend, 18)
-	if hollow:
-		DeepUi.stat(row, "gem", "a stone in every rock", Color("ffcf5a"), 12)
-		DeepUi.stat(row, "heart", "next rock: %d HP" % cost, DeepUi.BAD, 12, "The first rock costs a point of health, and each after it a point more.")
-		DeepUi.stat(row, "pick", "%s broken" % DeepUi.plural(swings, "rock"), DeepUi.ACCENT, 12)
 	if mining:
-		var leave := DeepUi.primary(_bottom_page(), "check", "Leave the rest" if hollow else "Put the pick down", func() -> void:
+		var leave := DeepUi.primary(_bottom_page(), "check", "Put the pick down", func() -> void:
 			command.emit({"kind": "stop_mining"}), 15, DeepUi.GOOD)
 		leave.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		leave.custom_minimum_size.x = 260
 		leave.tooltip_text = "Leave the rest of the rock where it is and take the way on."
-	if hollow:
-		_fill_chip()
-		return
 	DeepUi.stat(row, "pick", "%s so far" % DeepUi.plural(swings, "swing"), DeepUi.ACCENT, 12, "Every few swings the next one costs another point of health.")
 	DeepUi.stat(row, "heart", ("next swing free" if cost <= 0 else "next swing: %d HP" % cost), DeepUi.BAD if cost > 0 else DeepUi.GOOD, 12)
+	if motherlode:
+		DeepUi.stat(row, "gem", "rich: a fine stone, all but loose", RICH_TONE, 12, "The motherlode's own seams, for anyone's pick: a stone with real luck in it, a swing or two from out.")
 	DeepUi.stat(row, "spark", "bright: a fine stone, deep in", Color("ffcf5a"), 12)
 	DeepUi.stat(row, "spark", "glint: a stone", DeepUi.INFO, 12)
 	DeepUi.stat(row, "ore", "dull: pyrite or dust", DeepUi.MUTED, 12)
@@ -1451,19 +1448,12 @@ func _show_vein() -> void:
 		DeepUi.stat(row, "skull", "bad air: %d HP on top of every swing" % DeepDescent.VUG_HP, DeepUi.BAD, 12)
 	_fill_chip()
 
-func _my_rocks() -> Array:
-	## The rocks this player can see: every spot of a vein, or their own in a hollow.
+func _rock_place(global_index: int) -> int:
+	## Where a spot stands on the face of the rock, or -1 when it is not on it.
 	var vein: Dictionary = run.get("chamber", {}).get("vein", _last_chamber.get("vein", {}))
 	var spots: Array = vein.get("spots", [])
-	if not bool(vein.get("hollow", false)):
-		return spots
-	return spots.filter(func(sp: Dictionary) -> bool: return str(sp.get("owner", "")) == local_id)
-
-func _rock_place(global_index: int) -> int:
-	## Where a spot stands on this player's face of the rock, or -1 when it is not on it.
-	var mine: Array = _my_rocks()
-	for at in range(mine.size()):
-		if int(mine[at].get("index", -1)) == global_index:
+	for at in range(spots.size()):
+		if int(spots[at].get("index", -1)) == global_index:
 			return at
 	return -1
 
@@ -1478,7 +1468,7 @@ func _vein_struck(event: Dictionary) -> void:
 		_strike_pending = false
 		_strike_token += 1
 	if index < 0:
-		## Somebody else's rock, in a hollow: it is not in this player's view.
+		## A spot this screen has no rock for: nothing to play on the face.
 		DeepAudio.play("pick_strike", {"gap": 0.0, "volume": 0.5})
 		if bool(event.get("finished", false)):
 			_hold_page("vein", {"stage": "flight"})
@@ -1649,24 +1639,17 @@ func _pick_chip(box: VBoxContainer, id: String) -> bool:
 			if index < 0 or index >= spots.size():
 				return false
 			var glint: String = str(spots[index].get("glint", "dull"))
-			if bool(run.get("chamber", {}).get("vein", {}).get("hollow", false)):
-				var shine := DeepUi.hbox(box, 8)
-				DeepUi.icon(shine, "gem", 20, Color("ffcf5a"))
-				DeepUi.title(shine, "A shining rock", 18, Color("ffe08a"))
-				DeepUi.label(box, "A stone is in it. One blow breaks it out.", 13, DeepUi.MUTED)
-				var price: int = DeepDescent.swing_cost(run, me())
-				DeepUi.stat(box, "heart", "breaking it costs %d health" % price, DeepUi.BAD, 12)
-				DeepUi.label(box, "Click to break it.", 12, DeepUi.DIM)
-				return true
 			var words: Array = VEIN_WORDS.get(glint, VEIN_WORDS.dull)
-			var tone: Color = {"bright": Color("ffcf5a"), "glint": DeepUi.INFO}.get(glint, DeepUi.MUTED)
+			var tone: Color = {"rich": RICH_TONE, "bright": Color("ffcf5a"), "glint": DeepUi.INFO}.get(glint, DeepUi.MUTED)
 			var title_row := DeepUi.hbox(box, 8)
-			DeepUi.icon(title_row, "spark" if glint != "dull" else "ore", 20, tone)
+			DeepUi.icon(title_row, "gem" if glint == "rich" else ("spark" if glint != "dull" else "ore"), 20, tone)
 			DeepUi.title(title_row, str(words[0]), 18, tone.lightened(0.2))
 			DeepUi.label(box, str(words[1]), 13, DeepUi.MUTED)
 			var bitten: int = int(spots[index].get("struck", 0))
 			if bitten > 0:
 				DeepUi.stat(box, "pick", "%s in and the rock still holds" % DeepUi.plural(bitten, "swing"), DeepUi.ACCENT, 12)
+			elif glint == "rich":
+				DeepUi.stat(box, "pick", "barely held: a swing or two", RICH_TONE, 12)
 			elif glint == "bright":
 				DeepUi.stat(box, "pick", "buried deep: three or four swings", DeepUi.MUTED, 12)
 			var cost: int = DeepDescent.swing_cost(run, me())
@@ -2939,14 +2922,13 @@ func _entries_for(offers: Array) -> Array:
 		var node: Dictionary = nodes.get(str(offer.id), {})
 		var seen: bool = DeepDescent.revealed(run, node) if not node.is_empty() else not bool(offer.get("hidden", false))
 		var kind: String = str(offer.kind) if seen else "hidden"
-		var look: String = "warden" if kind == "landing" and bool(node.get("warden", false)) else kind
 		var voters: Array = []
 		for other in run.get("players", []):
 			var chose: bool = _went_by(other, offer, offers.size()) if landing else str(other.get("vote", "")) == str(offer.id)
 			if chose:
 				voters.append(ShaftMap.SEATS[int(other.get("seat", 0)) % ShaftMap.SEATS.size()])
-		var color: Color = DeepUi.CHAMBER_colorS.get(look, DeepUi.MUTED)
-		var glyph: String = str(DeepUi.CHAMBER_GLYPHS.get(look, "arch")) if kind != "hidden" else "question"
+		var color: Color = DeepUi.CHAMBER_colorS.get(kind, DeepUi.MUTED)
+		var glyph: String = str(DeepUi.CHAMBER_GLYPHS.get(kind, "arch")) if kind != "hidden" else "question"
 		if kind == "next_mine":
 			color = Color(str(DeepContent.mine(DeepDescent.next_mine(run)).get("palette", "b58cff")))
 			glyph = "descend"
@@ -3021,7 +3003,9 @@ func _fill_chip() -> void:
 	var box := DeepUi.vbox(_chip, 6)
 	var title_row := DeepUi.hbox(box, 8)
 	DeepUi.icon(title_row, str(entry.glyph), 22, tone)
-	var called: String = str(KIND_WORDS.get(kind, kind.capitalize())) if str(entry.glyph) != "crown" else ("The Warden's hall" if kind == "warden" else "The landing, and its Warden")
+	var called: String = str(KIND_WORDS.get(kind, kind.capitalize()))
+	if kind == "warden" and DeepDescent.run_is_boss(run, int(run.get("depth", 0))):
+		called = "The final boss's hall"
 	if kind == "next_mine":
 		var below: Dictionary = DeepContent.mine(DeepDescent.next_mine(run))
 		DeepUi.title(title_row, "On into " + str(below.get("name", "the next mine")), 19, tone.lightened(0.25))
@@ -3039,7 +3023,11 @@ func _fill_chip() -> void:
 	DeepUi.wrap(box, str(KIND_TEXT.get(kind, "")), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
 	var nodes: Dictionary = run.get("map", {}).get("nodes", {})
 	var node: Dictionary = nodes.get(str(offer.id), {})
-	if str(offer.kind) != "landing" and not node.is_empty():
+	if str(offer.kind) == "landing" and bool(node.get("warden", false)):
+		## The landing comes first; its Warden waits in the hall past it.
+		var boss: bool = DeepDescent.run_is_boss(run, int(node.get("depth", 0)))
+		DeepUi.stat(box, "crown", "Past it, the %s guards the way on down." % ("final boss" if boss else "Warden"), DeepUi.BAD, 12)
+	elif str(offer.kind) != "landing" and not node.is_empty():
 		var leads := DeepUi.hbox(box, 6)
 		DeepUi.label(leads, "then", 12, DeepUi.DIM)
 		for child in node.get("next", []):
@@ -3149,7 +3137,7 @@ func _sync_strip() -> void:
 	var here: bool = DeepDescent.run_is_landing(run, depth)
 	var note: String = "On a landing" if here else ("Landing in %d" % (next_landing - depth) if charted else "A landing somewhere below")
 	if charted and not here and DeepDescent.run_is_warden(run, next_landing):
-		note = "Warden in %d" % (next_landing - depth)
+		note = "Landing in %d, then %s" % [next_landing - depth, "the boss" if DeepDescent.run_is_boss(run, next_landing) else "a Warden"]
 	var every: int = maxi(1, next_landing - _last_landing_before(depth))
 	var into: int = depth - _last_landing_before(depth)
 	var guarded: bool = charted and DeepDescent.run_is_warden(run, next_landing)
@@ -3199,7 +3187,9 @@ func _sync_strip() -> void:
 		pip.color = DeepUi.ACCENT if lit else Color(DeepUi.LINE_HI, 0.8)
 		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		steps.add_child(pip)
-	DeepUi.icon(steps, "crown" if guarded else "lift", 16, DeepUi.BAD if guarded else DeepUi.GOOD)
+	DeepUi.icon(steps, "lift", 16, DeepUi.GOOD)
+	if guarded:
+		DeepUi.icon(steps, "crown", 16, DeepUi.BAD)
 	DeepUi.spacer(_strip)
 	for other in run.get("players", []):
 		var mine_too: bool = str(other.id) == local_id
@@ -3221,7 +3211,7 @@ func _sync_strip() -> void:
 			face.ring = Color(_seat_color(member_id), 0.9)
 		box.add_child(face)
 		var named := DeepUi.label(box, str(other.name), 14, DeepUi.PAPER if mine_too else DeepUi.MUTED)
-		var said: float = named.get_theme_font("font").get_string_size(named.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		var said: float = named.get_theme_font("font").get_string_size(named.text, HORIZONTAL_ALIGNMENT_LEFT, -1, named.get_theme_font_size("font_size")).x
 		named.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		named.custom_minimum_size.x = minf(52.0 if crowd else 150.0, ceilf(said) + 1.0)
 		## Tall enough for its number to be read, which is how allies' health is followed.
@@ -4492,6 +4482,61 @@ class Medallion extends Control:
 		var bob: float = sin(_clock * 1.6) * 3.0
 		draw_texture_rect(GemIcons.texture(glyph, 128), Rect2(centre - Vector2(edge, edge) * 0.5 + Vector2(0, bob), Vector2(edge, edge)), false, tone.lightened(0.35))
 
+class StatChart extends Control:
+	## The party compared: one row a stat, one thin bar a player, each row its own scale, the
+	## leader's bar crowned and every bar's number beside it. A hovered delver's bars stay lit
+	## while the others fade. `reveal` grows the bars in when the tab first opens.
+	var rows: Array = []
+	var seats: Array = []
+	var highlight: String = "":
+		set(value):
+			highlight = value
+			queue_redraw()
+	var reveal: float = 1.0:
+		set(value):
+			reveal = value
+			queue_redraw()
+	func _init(stat_rows: Array, party: Array) -> void:
+		rows = stat_rows
+		seats = party
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		if rows.is_empty() or seats.is_empty():
+			return
+		var font: Font = DeepUi.text_face(12)
+		var text_size: int = DeepUi.readable(12)
+		var label_width: float = 118.0
+		var value_width: float = 76.0
+		var row_height: float = size.y / float(rows.size())
+		var bar_height: float = clampf((row_height - 22.0) / float(seats.size()) - 3.0, 5.0, 11.0)
+		var span: float = maxf(10.0, size.x - label_width - value_width)
+		var crown: Texture2D = GemIcons.texture("crown", 64)
+		for index in range(rows.size()):
+			var row: Dictionary = rows[index]
+			var top: float = row_height * float(index)
+			draw_string(font, Vector2(0, top + 14.0), str(row.words), HORIZONTAL_ALIGNMENT_LEFT, label_width - 6.0, text_size, DeepUi.PAPER)
+			var most: int = 0
+			for seat in seats:
+				most = maxi(most, int(row.values.get(str(seat.id), 0)))
+			for j in range(seats.size()):
+				var seat: Dictionary = seats[j]
+				var value: int = int(row.values.get(str(seat.id), 0))
+				var y: float = top + 20.0 + float(j) * (bar_height + 3.0)
+				var width: float = (span * float(value) / float(maxi(1, most))) * reveal
+				var lit: bool = highlight.is_empty() or highlight == str(seat.id)
+				var tone: Color = seat.color
+				if not lit:
+					tone.a = 0.3
+				draw_rect(Rect2(label_width, y, maxf(2.0, width), bar_height), tone)
+				var words: String = DeepUi.number(value)
+				var ink: Color = DeepUi.PAPER if lit else Color(DeepUi.MUTED, 0.5)
+				draw_string(font, Vector2(label_width + width + 6.0, y + bar_height - 1.0), words, HORIZONTAL_ALIGNMENT_LEFT, value_width, text_size, ink)
+				if str(row.get("leader", "")) == str(seat.id) and value > 0:
+					var after: float = font.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, text_size).x
+					draw_texture_rect(crown, Rect2(Vector2(label_width + width + 10.0 + after, y + bar_height * 0.5 - 6.0), Vector2(12, 12)), false, DeepUi.ACCENT_HI if lit else Color(DeepUi.ACCENT_HI, 0.4))
+			if index < rows.size() - 1:
+				draw_line(Vector2(0, top + row_height - 3.0), Vector2(size.x, top + row_height - 3.0), Color(DeepUi.LINE, 0.6), 1.0)
+
 ## Nothing in the mine is worked on through a list of names. A choice that wants one of your
 ## stones or one of your dice gives the dock over to those things themselves, drawn large
 ## where it stood, and the one to work on is clicked. A face, an inclusion, an engraving, a
@@ -5184,14 +5229,494 @@ func _daily_strip(parent: Node) -> void:
 			if is_instance_valid(coin) and coin.is_inside_tree():
 				DeepUi.burst(self, coin.global_position + coin.size * 0.5 - global_position, DeepUi.ACCENT_HI, 30, 220.0, 0.8, 6.0))
 
+# --- the end of the run --------------------------------------------------------------------------
+##
+## The run ends on tabs over the room. Your run is the tally: six totals with what each one
+## cost (overkill, damage blocked, overhealing, pyrite spent), the run's highlights, the Crown
+## Jewel (the stone on the rail that did the most) and the way down. Party, in a party of two
+## or more, is everyone side by side, the stat each one led crowned, the MVP crowned on their
+## portrait, and the party compared on one chart. Haul is the lift card as it was: the stones
+## coming home and the way to the workshop. A tab's numbers count up the first time it is
+## seen; the music plays once, on the first tab.
+
+const OVER_TABS: Array = [["run", "person", "Your run"], ["party", "party", "Party"], ["haul", "bag", "Haul"]]
+const HAND_WORDS: Dictionary = {"quint": "Five of a kind", "quad": "Four of a kind", "straight": "A straight", "full_house": "A full house",
+	"triple": "Three of a kind", "two_pair": "Two pair", "pair": "A pair", "distinct": "All different", "nothing": "Nothing"}
+## The order hands rank in, best first, for the one a run is remembered by.
+const HAND_RANK: Array = ["quint", "quad", "straight", "full_house", "triple", "two_pair", "pair", "distinct", "nothing"]
+## A color a seat, for the party's chart (checked apart under every kind of color vision).
+const PARTY_TONES: Array = [Color("3a7fd9"), Color("b9871a"), Color("1f9e78"), Color("d4574c")]
+## Points: what a gem or a player did, weighed together. Damage, block and healing as they
+## are, a debuff stack worth three, a pyrite worth two; a player's revive fifty, a kill ten.
+const POINT_WEIGHTS: Dictionary = {"damage": 1, "block": 1, "healed": 1, "debuffs": 3, "ore": 2, "revives": 50, "slain": 10}
+
+var _over_tab: String = "run"
+var _over_seen: Dictionary = {}
+
+func _over_tone() -> Color:
+	var outcome: String = str(run.get("outcome", ""))
+	return DeepUi.BAD if outcome == "fallen" else (DeepUi.ACCENT if outcome == "conquered" else DeepUi.GOOD)
+
+func _show_over_tab(tab: String) -> void:
+	_over_tab = tab
+	show_state(run)
+
 func _page_over(content: VBoxContainer) -> void:
+	var party: bool = run.get("players", []).size() > 1
+	if _over_tab == "party" and not party:
+		_over_tab = "run"
+	if _over_seen.is_empty():
+		DeepAudio.play("defeat" if str(run.get("outcome", "")) == "fallen" else "victory")
+	var animate: bool = not _over_seen.has(_over_tab) and not _headless
+	_over_seen[_over_tab] = true
+	var tabs := DeepUi.hbox(content, 6)
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	for entry in OVER_TABS:
+		if str(entry[0]) == "party" and not party:
+			continue
+		DeepUi.tab_button(tabs, str(entry[1]), str(entry[2]), _over_tab == str(entry[0]), _show_over_tab.bind(str(entry[0])), 15)
+	match _over_tab:
+		"party":
+			_page_over_party(content, animate)
+		"haul":
+			_page_over_haul(content)
+		_:
+			_page_over_run(content, animate)
+
+static func tally_of(unit: Dictionary) -> Dictionary:
+	## A player's tally, whole, without writing to the run: a run begun before the tally was
+	## kept has only part of it.
+	var out: Dictionary = DeepBattle.fresh_stats()
+	out.merge(unit.get("stats", {}), true)
+	return out
+
+static func stat_value(stats: Dictionary, key: String) -> int:
+	## One compared number out of a tally: a total, the sum of a dictionary, or a best's amount.
+	var value: Variant = stats.get(key, 0)
+	if value is Dictionary:
+		if value.has("amount"):
+			return int(value.amount)
+		var sum: int = 0
+		for kind in value:
+			sum = DeepRules.sat_add(sum, int(value[kind]))
+		return sum
+	return int(value)
+
+static func points_of(stats: Dictionary, player: bool) -> int:
+	## What a gem's tally (or a player's) is worth as one number (see POINT_WEIGHTS).
+	var total: int = 0
+	for key in POINT_WEIGHTS:
+		if not player and key in ["revives", "slain"]:
+			continue
+		total = DeepRules.sat_add(total, DeepRules.sat_mul(stat_value(stats, str(key)), int(POINT_WEIGHTS[key])))
+	return total
+
+static func top_kind(counts: Dictionary) -> Array:
+	## The biggest entry of a dictionary of counts: [kind, count], or [] for none.
+	var best: Array = []
+	for kind in counts:
+		if best.is_empty() or int(counts[kind]) > int(best[1]):
+			best = [str(kind), int(counts[kind])]
+	return best
+
+static func status_words(kind: String) -> String:
+	return kind.replace("_", " ").capitalize()
+
+func _best_hand(stats: Dictionary) -> Array:
+	## The best hand the run rolled and how often: [words, times], or [] for none.
+	var hands: Dictionary = stats.get("hands", {})
+	for kind in HAND_RANK:
+		if int(hands.get(kind, 0)) > 0:
+			return [str(HAND_WORDS.get(kind, kind)), int(hands[kind])]
+	return []
+
+func _crown_jewel(unit: Dictionary, stats: Dictionary) -> Dictionary:
+	## The stone on the rail at the end that did the most, by points: {stone, tally, points},
+	## or nothing when no gem on it fired.
+	var gems: Dictionary = stats.get("gems", {})
+	var best: Dictionary = {}
+	for stone in DeepStone.rail_stones(unit) + unit.get("riders", []):
+		if not stone is Dictionary or DeepStone.is_birthstone(stone):
+			continue
+		var tally: Dictionary = gems.get(str(stone.get("id", "")), {})
+		if tally.is_empty() or int(tally.get("fires", 0)) <= 0:
+			continue
+		var points: int = points_of(tally, false)
+		if best.is_empty() or points > int(best.points) or (points == int(best.points) and int(tally.get("fires", 0)) > int(best.tally.get("fires", 0))):
+			best = {"stone": stone, "tally": tally, "points": points}
+	return best
+
+func _party_units() -> Array:
+	var out: Array = run.get("players", []).duplicate()
+	out.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return int(x.get("seat", 0)) < int(y.get("seat", 0)))
+	return out
+
+func _party_stats() -> Array:
+	## What the party is compared on: [key, words, glyph, tint].
+	return [["damage", "Damage dealt", "sword", DeepUi.ACCENT], ["block", "Block gained", "shield", DeepUi.BLOCK], ["healed", "Healed", "heart", DeepUi.HP],
+		["slain", "Enemies slain", "skull", DeepUi.BAD], ["ore", "Pyrite dug", "ore", DeepUi.ORE], ["debuffs", "Debuffs applied", "drop", DeepUi.POISON],
+		["best_hit", "Biggest hit", "hit", DeepUi.ACCENT_HI], ["best_turn", "Best turn", "flurry_burst", DeepUi.ACCENT_HI]]
+
+func _leads(players: Array) -> Dictionary:
+	## Who led each compared stat (by seat on a tie), where anyone did anything at all.
+	var out: Dictionary = {}
+	for entry in _party_stats():
+		var key: String = str(entry[0])
+		var best: int = 0
+		for unit in players:
+			var value: int = stat_value(tally_of(unit), key)
+			if value > best:
+				best = value
+				out[key] = str(unit.id)
+	return out
+
+func _mvp(players: Array) -> Dictionary:
+	## The party's MVP: the most points (see points_of), damage breaking a tie. {id, points}.
+	var best: Dictionary = {}
+	for unit in players:
+		var stats: Dictionary = tally_of(unit)
+		var points: int = points_of(stats, true)
+		if best.is_empty() or points > int(best.points) or (points == int(best.points) and int(stats.damage) > int(best.damage)):
+			best = {"id": str(unit.id), "points": points, "damage": int(stats.damage)}
+	return best
+
+func _count_up(label: Label, value: int, delay: float) -> void:
+	## A number that ticks up from nothing to what it is, the way the seam's gold is paid out.
+	## The label keeps the width of its full number while it counts, so nothing shifts.
+	if value <= 0:
+		return
+	label.custom_minimum_size.x = label.get_minimum_size().x
+	label.text = "0"
+	var tween := label.create_tween()
+	tween.tween_interval(delay)
+	tween.tween_callback(func() -> void: DeepAudio.play("tally", {"volume": 0.4}))
+	tween.tween_method(func(v: float) -> void: label.text = DeepUi.number(int(round(v))), 0.0, float(value), 0.8).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+func _over_card(content: VBoxContainer) -> VBoxContainer:
+	var card := DeepUi.card(content, Color(_over_tone(), 0.6), 20)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.custom_minimum_size.x = 1180
+	return DeepUi.vbox(card, 10)
+
+func _over_head(box: VBoxContainer, glyph: String, title: String, words: String) -> HBoxContainer:
+	var head := DeepUi.hbox(box, 16)
+	var medal := Medallion.new(glyph, _over_tone(), 68)
+	head.add_child(medal)
+	var lines := DeepUi.vbox(head, 0)
+	lines.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lines.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.title(lines, title, 32, _over_tone())
+	DeepUi.label(lines, words, 13, DeepUi.MUTED)
+	return head
+
+func _who_chip(parent: Node, unit: Dictionary) -> PanelContainer:
+	## A delver's face, name and calling, as a small plate.
+	var chip := DeepUi.card(parent, DeepUi.LINE, 6, Color(0.05, 0.06, 0.085, 0.8))
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var row := DeepUi.hbox(chip, 10)
+	var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(44, 44))
+	face.mood = Roster.resting_mood(unit)
+	row.add_child(face)
+	var words := DeepUi.vbox(row, 0)
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.label(words, str(unit.get("name", "")), 15, DeepUi.PAPER)
+	DeepUi.label(words, DeepContent.character_title(str(unit.get("character", ""))), 12, DeepUi.MUTED)
+	DeepUi.gap(row, 4)
+	return chip
+
+func _stat_tile(parent: Node, glyph: String, tint: Color, value: int, words: String, note: String, animate: bool, delay: float) -> PanelContainer:
+	## One of the six totals: a mark, the number, what it is, and under it what it cost.
+	var tile := DeepUi.card(parent, DeepUi.LINE, 8, Color(0.05, 0.06, 0.085, 0.9))
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var inner := DeepUi.vbox(tile, 0)
+	var mark := DeepUi.icon(inner, glyph, 22, tint)
+	mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var number := DeepUi.title(inner, DeepUi.number(value), 26, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(inner, words, 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(inner, note if not note.is_empty() else " ", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	if animate:
+		_count_up(number, value, delay)
+	return tile
+
+func _over_panel(parent: Node, glyph: String, words: String) -> VBoxContainer:
+	var panel := DeepUi.card(parent, DeepUi.LINE, 12, Color(0.05, 0.06, 0.085, 0.8))
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var box := DeepUi.vbox(panel, 5)
+	DeepUi.section(box, glyph, words)
+	return box
+
+func _over_row(box: VBoxContainer, words: String, value: String, note: String) -> void:
+	## A highlight: what it is down the left, the number large, and where it happened under it.
+	var row := DeepUi.hbox(box, 8)
+	var key := DeepUi.label(row, words, 12, DeepUi.MUTED)
+	key.custom_minimum_size.x = 104
+	key.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var lines := DeepUi.vbox(row, 0)
+	lines.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.title(lines, value, 17, DeepUi.PAPER)
+	if not note.is_empty():
+		DeepUi.wrap(lines, note, 11, DeepUi.MUTED)
+
+func _journey_row(box: VBoxContainer, words: String, value: String, note: String = "") -> void:
+	## One line of the way down: what it is, and the number against the right edge.
+	var row := DeepUi.hbox(box, 8)
+	DeepUi.label(row, words, 12, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if not note.is_empty():
+		DeepUi.label(row, note, 11, DeepUi.DIM)
+	DeepUi.title(row, value, 15, DeepUi.PAPER)
+
+func _page_over_run(content: VBoxContainer, animate: bool) -> void:
+	var unit: Dictionary = me()
+	var stats: Dictionary = tally_of(unit)
+	var outcome: String = str(run.get("outcome", ""))
+	var titles: Dictionary = {"extracted": "Extracted", "conquered": "The mine is yours", "fallen": "Fallen"}
+	var glyphs: Dictionary = {"extracted": "lift", "conquered": "crown", "fallen": "skull"}
+	var party: bool = run.get("players", []).size() > 1
+	var box := _over_card(content)
+	var head := _over_head(box, str(glyphs.get(outcome, "lift")), str(titles.get(outcome, outcome.capitalize())),
+		"%s · depth %d · %s · %s" % [DeepContent.mine_name(str(run.get("mine", ""))), int(run.get("depth", 0)), DeepUi.plural(int(stats.fights), "fight"), DeepUi.plural(int(stats.turns), "turn")])
+	_who_chip(head, unit)
+	## The six totals, each with what it cost.
+	var tiles := DeepUi.hbox(box, 10)
+	var top_debuff: Array = top_kind(stats.get("debuffs", {}))
+	var wardens: int = int(stats.slain_wardens)
+	var sums: Array = [["sword", DeepUi.ACCENT, int(stats.damage), "Damage dealt", "%s overkill" % DeepUi.number(int(stats.overkill)) if int(stats.overkill) > 0 else ""],
+		["shield", DeepUi.BLOCK, int(stats.block), "Block gained", "%s damage blocked" % DeepUi.number(int(stats.blocked)) if int(stats.blocked) > 0 else ""],
+		["heart", DeepUi.HP, int(stats.healed), "Healed", "%s overhealed" % DeepUi.number(int(stats.overheal)) if int(stats.overheal) > 0 else ""],
+		["ore", DeepUi.ORE, int(stats.ore), "Pyrite dug", "%s spent" % DeepUi.number(int(stats.spent)) if int(stats.spent) > 0 else ""],
+		["skull", DeepUi.BAD, int(stats.slain), "Enemies slain", DeepUi.plural(wardens, "Warden") if wardens > 0 else ""],
+		["drop", DeepUi.POISON, stat_value(stats, "debuffs"), "Debuffs applied", "%s %s" % [DeepUi.number(int(top_debuff[1])), status_words(str(top_debuff[0]))] if not top_debuff.is_empty() else ""]]
+	for index in range(sums.size()):
+		var entry: Array = sums[index]
+		_stat_tile(tiles, str(entry[0]), entry[1], int(entry[2]), str(entry[3]), str(entry[4]), animate, 0.15 + 0.12 * float(index))
+	var panels := DeepUi.hbox(box, 10)
+	panels.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	## Highlights: the run's bests, with where they happened.
+	var highlights := _over_panel(panels, "spark", "Highlights")
+	var hit: Dictionary = stats.get("best_hit", {})
+	if int(hit.get("amount", 0)) > 0:
+		var skill: String = str(DeepContent.skill(str(hit.get("skill", ""))).get("name", hit.get("skill", "")))
+		_over_row(highlights, "Biggest hit", DeepUi.number(int(hit.amount)), "%s%s · depth %d" % [skill, (" on " + str(hit.creature)) if not str(hit.get("creature", "")).is_empty() else "", int(hit.get("depth", 0))])
+	else:
+		_over_row(highlights, "Biggest hit", "–", "No gem landed a blow.")
+	var turn: Dictionary = stats.get("best_turn", {})
+	if int(turn.get("amount", 0)) > 0:
+		_over_row(highlights, "Best turn", DeepUi.number(int(turn.amount)), "damage%s, turn %d · depth %d" % [(" · " + str(turn.creature)) if not str(turn.get("creature", "")).is_empty() else "", int(turn.get("turn", 0)), int(turn.get("depth", 0))])
+	var hand: Array = _best_hand(stats)
+	if not hand.is_empty():
+		_over_row(highlights, "Best hand", str(hand[0]), "%s, in %s" % [DeepUi.plural(int(hand[1]), "time"), DeepUi.plural(int(stats.turns), "rail")])
+	var downs: String = "never downed" if int(stats.downs) == 0 else "downed %s" % DeepUi.plural(int(stats.downs), "time")
+	if party and int(stats.revives) > 0:
+		downs += " · picked up %s" % DeepUi.plural(int(stats.revives), "ally", "allies")
+	_over_row(highlights, "Taken", DeepUi.number(int(stats.taken)), "damage · " + downs)
+	var top_buff: Array = top_kind(stats.get("buffs", {}))
+	if not top_buff.is_empty():
+		_over_row(highlights, "Buffs given", DeepUi.number(stat_value(stats, "buffs")), "%s %s, most of all" % [DeepUi.number(int(top_buff[1])), status_words(str(top_buff[0]))])
+	## The Crown Jewel: the stone on the rail that did the most.
+	var jewel := _over_panel(panels, "crown", "Crown Jewel")
+	var pick: Dictionary = _crown_jewel(unit, stats)
+	if pick.is_empty():
+		DeepUi.wrap(jewel, "No gem on the rail fired this run.", 13, DeepUi.MUTED)
+	else:
+		var stone: Dictionary = pick.stone
+		var tally: Dictionary = pick.tally
+		var row := DeepUi.hbox(jewel, 10)
+		StoneCard.tile(row, stone, 60, false)
+		var words := DeepUi.vbox(row, 0)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.alignment = BoxContainer.ALIGNMENT_CENTER
+		DeepUi.title(words, str(DeepStone.skill_of(stone).get("name", stone.get("skill", ""))), 19, DeepUi.ACCENT_HI)
+		DeepUi.wrap(words, DeepUi.stone_name(stone), 11, DeepUi.MUTED)
+		DeepUi.label(words, "%s points · fired %s" % [DeepUi.number(int(pick.points)), DeepUi.plural(int(tally.get("fires", 0)), "time")], 11, DeepUi.DIM)
+		for entry in [["Damage", int(tally.get("damage", 0)), int(stats.damage), DeepUi.ACCENT], ["Block", int(tally.get("block", 0)), int(stats.block), DeepUi.BLOCK],
+				["Healed", int(tally.get("healed", 0)), int(stats.healed), DeepUi.HP], ["Debuffs", int(tally.get("debuffs", 0)), stat_value(stats, "debuffs"), DeepUi.POISON],
+				["Biggest hit", int(tally.get("best", 0)), int(hit.get("amount", 0)), DeepUi.ACCENT_HI]]:
+			if int(entry[1]) <= 0:
+				continue
+			var line := DeepUi.hbox(jewel, 8)
+			DeepUi.label(line, str(entry[0]), 11, DeepUi.MUTED).custom_minimum_size.x = 72
+			var share: float = clampf(float(entry[1]) / float(maxi(1, int(entry[2]))), 0.0, 1.0)
+			var gauge := DeepUi.bar(line, 8.0, entry[3], Color(DeepUi.INK, 0.9))
+			gauge.ratio = share
+			gauge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			var pct: String = " · %d%%" % int(round(share * 100.0)) if str(entry[0]) != "Biggest hit" and int(entry[2]) > 0 else ""
+			DeepUi.label(line, DeepUi.number(int(entry[1])) + pct, 11, DeepUi.PAPER).custom_minimum_size.x = 84
+	## The way down.
+	var journey := _over_panel(panels, "map", "The way down")
+	var deepest: int = int(run.get("records", {}).get("deepest", 0))
+	_journey_row(journey, "Depth reached", str(int(run.get("depth", 0))), ("deepest %d" % deepest) if deepest > int(run.get("depth", 0)) else "")
+	var kinds: Array = []
+	if int(stats.elites) > 0:
+		kinds.append("%d elite" % int(stats.elites))
+	if int(stats.wardens) > 0:
+		kinds.append(DeepUi.plural(int(stats.wardens), "Warden"))
+	_journey_row(journey, "Fights", str(int(stats.fights)), " · ".join(kinds))
+	var shattered: int = unit.get("shattered", []).size()
+	_journey_row(journey, "Stones found", str(int(stats.stones)), DeepUi.plural(shattered, "shattered") if shattered > 0 else "")
+	_journey_row(journey, "Turns played", str(int(stats.turns)))
+	_journey_row(journey, "Rerolls used", str(int(stats.rerolls)), "of %d" % int(stats.rerolls_given) if int(stats.rerolls_given) > 0 else "")
+	_journey_row(journey, "Birthstone fired", "%s" % DeepUi.plural(int(stats.birthstone), "time"), str(unit.get("birthstone", {}).get("name", "")))
+	_journey_row(journey, "Peak Resonance", str(int(stats.resonance)))
+	var foot := DeepUi.hbox(box, 12)
+	foot.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.primary(foot, "next", "Next: the party" if party else "Next: the haul", _show_over_tab.bind("party" if party else "haul"), 16)
+
+func _page_over_party(content: VBoxContainer, animate: bool) -> void:
+	var players: Array = _party_units()
+	var leads: Dictionary = _leads(players)
+	var mvp: Dictionary = _mvp(players)
+	var box := _over_card(content)
+	var fights: int = 0
+	var left: int = 0
+	for unit in players:
+		fights = maxi(fights, int(tally_of(unit).fights))
+		if not bool(unit.get("connected", true)):
+			left += 1
+	var head := _over_head(box, "party", "The party", "%s · %s · %s" % [DeepUi.plural(players.size(), "delver"), DeepUi.plural(fights, "fight"),
+		"nobody left behind" if left == 0 else DeepUi.plural(left, "delver") + " left on the way"])
+	## The MVP: the most points, said with what they led.
+	var crowned: Dictionary = DeepDescent.player(run, str(mvp.get("id", "")))
+	if not crowned.is_empty():
+		var band := DeepUi.card(head, DeepUi.ACCENT, 8, Color(DeepUi.ACCENT, 0.1))
+		band.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var row := DeepUi.hbox(band, 10)
+		DeepUi.icon(row, "crown", 28, DeepUi.ACCENT_HI)
+		var words := DeepUi.vbox(row, 0)
+		words.alignment = BoxContainer.ALIGNMENT_CENTER
+		DeepUi.title(words, "MVP · %s" % str(crowned.get("name", "")), 20, DeepUi.ACCENT_HI)
+		var led: Array = []
+		for entry in _party_stats():
+			if str(leads.get(str(entry[0]), "")) == str(crowned.id):
+				led.append(str(entry[1]).to_lower())
+		DeepUi.label(words, "%s points%s" % [DeepUi.number(int(mvp.points)), (" · led " + ", ".join(led)) if not led.is_empty() else ""], 12, DeepUi.MUTED)
+		DeepUi.gap(row, 4)
+	var body := DeepUi.hbox(box, 12)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var side := DeepUi.vbox(body, 8)
+	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## The chart: one row a stat, one bar a player, the leader crowned. A column hovered
+	## lights that player's bars.
+	var rows: Array = []
+	for entry in _party_stats().slice(0, 6):
+		var values: Dictionary = {}
+		for unit in players:
+			values[str(unit.id)] = stat_value(tally_of(unit), str(entry[0]))
+		rows.append({"words": str(entry[1]), "values": values, "leader": str(leads.get(str(entry[0]), ""))})
+	var seats: Array = []
+	for index in range(players.size()):
+		seats.append({"id": str(players[index].id), "name": str(players[index].get("name", "")), "color": PARTY_TONES[index % PARTY_TONES.size()]})
+	var chart := StatChart.new(rows, seats)
+	var cols := DeepUi.hbox(side, 8)
+	for index in range(players.size()):
+		_party_column(cols, players[index], PARTY_TONES[index % PARTY_TONES.size()], leads, str(mvp.get("id", "")), animate, 0.15 + 0.1 * float(index), chart)
+	## The party's totals under the columns.
+	var totals := DeepUi.hbox(side, 8)
+	for entry in _party_stats().slice(0, 6):
+		var sum: int = 0
+		for unit in players:
+			sum = DeepRules.sat_add(sum, stat_value(tally_of(unit), str(entry[0])))
+		var tile := DeepUi.card(totals, DeepUi.LINE, 6, Color(0.05, 0.06, 0.085, 0.7))
+		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var inner := DeepUi.vbox(tile, 0)
+		var number := DeepUi.title(inner, DeepUi.number(sum), 17, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(inner, "Party " + str(entry[1]).to_lower(), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		if animate:
+			_count_up(number, sum, 0.9)
+	var panel := DeepUi.card(body, DeepUi.LINE, 12, Color(0.05, 0.06, 0.085, 0.8))
+	panel.custom_minimum_size.x = 470
+	var inner := DeepUi.vbox(panel, 6)
+	DeepUi.section(inner, "count", "Compared")
+	var legend := DeepUi.hbox(inner, 14)
+	for seat in seats:
+		var mark := DeepUi.hbox(legend, 5)
+		var swatch := ColorRect.new()
+		swatch.color = seat.color
+		swatch.custom_minimum_size = Vector2(12, 12)
+		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mark.add_child(swatch)
+		DeepUi.label(mark, str(seat.name), 12, DeepUi.MUTED)
+	chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	chart.custom_minimum_size = Vector2(440, 280)
+	inner.add_child(chart)
+	DeepUi.label(inner, "Each row is its own scale. Hover a delver to pick out their bars.", 11, DeepUi.DIM)
+	if animate:
+		chart.reveal = 0.0
+		var tween := chart.create_tween()
+		tween.tween_interval(0.3)
+		tween.tween_property(chart, "reveal", 1.0, 0.9).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var foot := DeepUi.hbox(box, 12)
+	foot.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.icon_button(foot, "prev", "Your run", _show_over_tab.bind("run"), 15, DeepUi.MUTED)
+	DeepUi.primary(foot, "next", "Next: the haul", _show_over_tab.bind("haul"), 16)
+
+func _party_column(parent: Node, unit: Dictionary, tone: Color, leads: Dictionary, mvp_id: String, animate: bool, delay: float, chart: Control) -> PanelContainer:
+	## One delver of the party: their face, the compared stats with a crown on each one they
+	## led, and their Crown Jewel. The MVP's column is lit, and the crown drops onto them.
+	var stats: Dictionary = tally_of(unit)
+	var is_mvp: bool = str(unit.id) == mvp_id
+	var col := DeepUi.card(parent, DeepUi.ACCENT if is_mvp else DeepUi.LINE, 10, Color(0.05, 0.06, 0.085, 0.8))
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.mouse_entered.connect(func() -> void: chart.highlight = str(unit.id))
+	col.mouse_exited.connect(func() -> void: chart.highlight = "")
+	var inner := DeepUi.vbox(col, 3)
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(72, 72)
+	holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	inner.add_child(holder)
+	var face := Roster.Portrait.new(str(unit.get("character", "")), Vector2(72, 72))
+	face.mood = Roster.resting_mood(unit)
+	face.ring = tone
+	holder.add_child(face)
+	DeepUi.title(inner, str(unit.get("name", "")), 19, DeepUi.ACCENT_HI if is_mvp else DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(inner, DeepContent.character_title(str(unit.get("character", ""))), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	if not bool(unit.get("connected", true)):
+		var gone := DeepUi.pill(inner, "hourglass", "left at depth %d" % int(unit.get("left_depth", run.get("depth", 0))), DeepUi.BAD, 11)
+		gone.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var numbers: Array = []
+	for entry in _party_stats():
+		var row := DeepUi.hbox(inner, 6)
+		DeepUi.label(row, str(entry[1]), 11, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var value: int = stat_value(stats, str(entry[0]))
+		numbers.append([DeepUi.title(row, DeepUi.number(value), 15, DeepUi.PAPER), value])
+		if str(leads.get(str(entry[0]), "")) == str(unit.id):
+			DeepUi.icon(row, "crown", 13, DeepUi.ACCENT_HI, "Led the party")
+		else:
+			DeepUi.gap(row, 13)
+	var pick: Dictionary = _crown_jewel(unit, stats)
+	var jewel := DeepUi.pill(inner, "crown", str(DeepStone.skill_of(pick.stone).get("name", "")) if not pick.is_empty() else "no gem fired", DeepUi.ACCENT if not pick.is_empty() else DeepUi.DIM, 11,
+		("Crown Jewel: " + DeepUi.stone_name(pick.stone)) if not pick.is_empty() else "")
+	jewel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if not bool(unit.get("connected", true)):
+		col.modulate = Color(1, 1, 1, 0.6)
+	if animate:
+		for index in range(numbers.size()):
+			_count_up(numbers[index][0], int(numbers[index][1]), delay + 0.05 * float(index))
+	if is_mvp:
+		var crown := DeepUi.icon(holder, "crown", 30, DeepUi.ACCENT_HI, "MVP")
+		crown.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var rest := Vector2(21, -16)
+		crown.position = rest
+		if animate:
+			crown.modulate.a = 0.0
+			crown.position = rest - Vector2(0, 40)
+			var tween := crown.create_tween()
+			tween.tween_interval(delay + 1.1)
+			tween.tween_callback(func() -> void: crown.modulate.a = 1.0)
+			tween.tween_property(crown, "position", rest, 0.4).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+			tween.tween_callback(func() -> void:
+				DeepAudio.play("gleam")
+				DeepUi.pulse(crown, 1.3, 0.4)
+				if is_instance_valid(crown) and crown.is_inside_tree():
+					DeepUi.burst(self, crown.global_position + crown.size * 0.5 - global_position, DeepUi.ACCENT_HI, 30, 220.0, 0.8, 6.0))
+	return col
+
+func _page_over_haul(content: VBoxContainer) -> void:
 	var unit: Dictionary = me()
 	var outcome: String = str(run.get("outcome", ""))
 	var titles: Dictionary = {"extracted": "Extracted", "conquered": "The mine is yours", "fallen": "Fallen"}
 	var glyphs: Dictionary = {"extracted": "lift", "conquered": "crown", "fallen": "skull"}
-	var tone: Color = DeepUi.BAD if outcome == "fallen" else (DeepUi.ACCENT if outcome == "conquered" else DeepUi.GOOD)
-	if _fresh:
-		DeepAudio.play("defeat" if outcome == "fallen" else "victory")
+	var tone: Color = _over_tone()
 	var card := DeepUi.card(content, Color(tone, 0.6), 26)
 	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	card.custom_minimum_size.x = 720

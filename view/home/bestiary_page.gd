@@ -540,7 +540,7 @@ static func _leaves(home: Control, box: Control, key: String, def: Dictionary, r
 	for chunk in range(maxi(1, ceili(float(moves.size()) / float(MOVES_PAGE)))):
 		var part: Array = moves.slice(chunk * MOVES_PAGE, (chunk + 1) * MOVES_PAGE)
 		var first: bool = chunk == 0
-		leaves.append({"name": "Moves" if first else "Moves · %d" % (chunk + 1), "glyph": "book", "draw": func(page: Control) -> void:
+		leaves.append({"name": "Moves" if first else str(chunk + 1), "tip": "Moves · %d" % (chunk + 1), "glyph": "book", "draw": func(page: Control) -> void:
 			_moves(page, part, traits if first else {})})
 	for phase in def.get("phases", []):
 		var below: int = int(phase.get("below_hp_pct", 0))
@@ -548,17 +548,20 @@ static func _leaves(home: Control, box: Control, key: String, def: Dictionary, r
 		for chunk in range(maxi(1, ceili(float(shown.size()) / float(MOVES_PAGE)))):
 			var part: Array = shown.slice(chunk * MOVES_PAGE, (chunk + 1) * MOVES_PAGE)
 			var first: bool = chunk == 0
-			leaves.append({"name": "Below %d%%" % below + ("" if first else " · %d" % (chunk + 1)), "glyph": "crown", "draw": func(page: Control) -> void:
+			leaves.append({"name": "Below %d%%" % below if first else str(chunk + 1), "tip": "Below %d%%" % below + ("" if first else " · %d" % (chunk + 1)), "glyph": "crown", "draw": func(page: Control) -> void:
 				_phase(page, phase if first else {}, below, part)})
 	var at: int = clampi(int(home._bestiary_leaf), 0, leaves.size() - 1)
 	var tabs := DeepUi.hbox(box, 6)
 	tabs.name = "BestiaryLeaves"
 	for index in range(leaves.size()):
 		var to: int = index
-		DeepUi.tab_button(tabs, str(leaves[index].glyph), str(leaves[index].name), index == at, func() -> void:
+		## A page that runs on from the one before it is just its number under the same mark,
+		## so a creature with many phases keeps its tabs on one row.
+		var tab := DeepUi.tab_button(tabs, str(leaves[index].glyph), str(leaves[index].name), index == at, func() -> void:
 			home._bestiary_leaf = to
 			if not home.redraw(["bestiary_leaf"]):
 				home._render(), 13)
+		tab.tooltip_text = str(leaves[index].get("tip", ""))
 	var page := DeepUi.vbox(box, 12)
 	leaves[at].draw.call(page)
 

@@ -22,6 +22,7 @@ func _init() -> void:
 	_test_rung_finishes()
 	_test_tally()
 	_test_tally_pace_and_creatures()
+	_test_tally_stats()
 	print("Battle: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -547,10 +548,11 @@ func _test_hand_mutation_and_retriggers() -> void:
 	check(fired3.size() == 3, "Refract, then Crush twice: %s" % str(fired3.map(func(e: Dictionary) -> String: return str(e.skill))))
 	## Ardor's bowl is d6 d6 d6 d8 d8: the largest are the d8s, and of the two the one showing 2.
 	var thrown3: Dictionary = fired3[0].effects[0]
-	var ghost: Array = thrown3.get("hand", []).filter(func(r: Dictionary) -> bool: return bool(r.get("phantom", false)))
-	check(str(thrown3.kind) == "phantom_roll" and ghost.size() == 1 and str(ghost[0].shape) == "D8" and str(ghost[0].source_id) == str(refractor.dice[3].id),
+	## The effect names the phantom by id; it is gone from the hand once the turn is over.
+	var ghost: Array = thrown3.get("dice", [])
+	check(str(thrown3.kind) == "phantom_roll" and ghost.size() == 1 and str(refractor.dice[3].shape) == "D8" and str(ghost[0]).begins_with(str(refractor.dice[3].id) + "_ph"),
 		"a phantom d8 is thrown, a copy of the larger die showing more: %s" % str(ghost))
-	check(int(ghost[0].value) >= 1 and int(ghost[0].value) <= 8, "and lands on one of its own faces")
+	check(int(thrown3.get("value", 0)) >= 1 and int(thrown3.get("value", 0)) <= 8, "and lands on one of its own faces")
 	check(fired3[1].skill == "CRUSH" and int(fired3[1].effects[0].amount) == 30, "Crush reads the triple of sixes: matched value 6 × 5")
 	## Facet passes a Cut step, Double Down can empty the next gem.
 	var r4: Dictionary = rngs(34)
@@ -960,3 +962,78 @@ func _test_tally_pace_and_creatures() -> void:
 	var soaked: Array = events.filter(func(e: Dictionary) -> bool:
 		return str(e.kind) == "enemy_move" and e.get("effects", []).any(func(h: Dictionary) -> bool: return str(h.get("target", "")) == "a" and int(h.get("absorbed", 0)) > 0))
 	check(not soaked.is_empty() and float(soaked[0].duration) > DeepBattle.BASE_DURATION.enemy_move, "a blow block takes part of waits to be counted at the bar")
+
+func _test_tally_stats() -> void:
+	## The run's tally: what a player did, kept on the unit through the whole fight (never
+	## reset by a new turn), with every blow credited to the gem that threw it, and a tick's
+	## damage and kill to whoever put the last stacks on.
+	var r: Dictionary = rngs(4242)
+	var a: Dictionary = player("a", [stone("STRIKE", 6, 3), stone("GUARD", 3, 2), stone("MEND", 2, 2)])
+	var state: Dictionary = DeepBattle.begin([a], ["CAVE_TICK", "CAVE_TICK"], {"depth": 3}, r.dice, r.creatures)
+	var guard: int = 0
+	while str(state.phase) != "over" and guard < 30:
+		guard += 1
+		run_turn(state, r)
+	var unit: Dictionary = DeepBattle.player(state, "a")
+	var tally: Dictionary = DeepBattle.stats_of(unit)
+	var lost: int = 0
+	for foe in state.enemies:
+		lost += int(foe.max_hp) - maxi(0, int(foe.hp))
+	check(state.phase == "over", "the tally fight ends (turn %d)" % int(state.turn))
+	check(int(tally.damage) == lost, "damage dealt is every point the creatures lost, over every turn: %d vs %d" % [int(tally.damage), lost])
+	check(int(tally.turns) == int(state.turn), "a turn is counted for every turn: %d vs %d" % [int(tally.turns), int(state.turn)])
+	check(int(tally.rerolls_given) == int(state.turn) * int(DeepContent.constant("rerolls", 2)), "rerolls given count every turn's: %d" % int(tally.rerolls_given))
+	check(int(tally.block) > 0 and int(tally.block) >= int(tally.blocked), "block gained, and the damage it blocked: %d / %d" % [int(tally.block), int(tally.blocked)])
+	check(int(tally.healed) + int(tally.overheal) > 0, "a Mend heals or overheals: %d / %d" % [int(tally.healed), int(tally.overheal)])
+	var hands: int = 0
+	for kind in tally.hands:
+		hands += int(tally.hands[kind])
+	check(hands == int(state.turn), "a hand is counted for every rail: %d" % hands)
+	var strike: Dictionary = tally.gems.get("strike", {})
+	check(int(strike.get("fires", 0)) > 0 and int(strike.get("damage", 0)) > 0, "the Strike keeps its own tally: %s" % str(strike))
+	check(int(strike.get("best", 0)) <= int(tally.best_hit.get("amount", 0)) and str(tally.best_hit.get("stone_id", "")) in ["strike", "guard", "mend"], "the biggest hit names its stone: %s" % str(tally.best_hit))
+	check(int(tally.best_turn.get("amount", 0)) > 0 and int(tally.best_turn.amount) <= int(tally.damage), "the best turn is part of the damage: %s" % str(tally.best_turn))
+	check(str(tally.best_turn.get("creature", "")) == "Cave Tick", "the best turn remembers the creature: %s" % str(tally.best_turn))
+	if state.outcome == "victory":
+		check(int(tally.slain) == 2, "both ticks slain: %d" % int(tally.slain))
+	var gem_damage: int = 0
+	for id in tally.gems:
+		gem_damage += int(tally.gems[id].damage)
+	check(gem_damage <= int(tally.damage), "the gems' damage is within the player's: %d vs %d" % [gem_damage, int(tally.damage)])
+	## Poison: its ticks and its kills belong to whoever put the last stacks on.
+	var r2: Dictionary = rngs(77)
+	var b: Dictionary = player("b", [stone("VENOM", 4, 3)], "RUE")
+	var s2: Dictionary = DeepBattle.begin([b, player("c", [stone("GUARD", 2, 2)])], ["CAVE_TICK"], {"depth": 1}, r2.dice, r2.creatures)
+	var foe: Dictionary = s2.enemies[0]
+	foe.statuses.poison = 5
+	foe.stacked_by = {"poison": "b"}
+	foe.hp = 3
+	var before: int = int(DeepBattle.stats_of(DeepBattle.player(s2, "b")).damage)
+	var tick: Dictionary = DeepBattle._poison_tick(s2, foe)
+	var poisoner: Dictionary = DeepBattle.stats_of(DeepBattle.player(s2, "b"))
+	check(int(poisoner.damage) == before + 3 and bool(tick.get("killed", false)), "a poison tick's damage is the poisoner's: %d" % int(poisoner.damage))
+	check(int(poisoner.slain) == 1, "a poison kill is the poisoner's: %d" % int(poisoner.slain))
+	check(int(DeepBattle.stats_of(DeepBattle.player(s2, "c")).slain) == 0, "and nobody else's")
+	## Taken, blocked and downed; a revive is the reviver's.
+	var c: Dictionary = DeepBattle.player(s2, "c")
+	c.block = 10
+	c.hp = 25
+	DeepBattle._damage(s2, foe, c, 30, r2.dice, false)
+	var took: Dictionary = DeepBattle.stats_of(c)
+	check(int(took.taken) == 20 and int(took.blocked) == 10, "taken and blocked: %d / %d" % [int(took.taken), int(took.blocked)])
+	DeepBattle._damage(s2, foe, c, 50, r2.dice, false)
+	check(int(DeepBattle.stats_of(c).downs) == 1 and bool(c.downed), "a fall is counted")
+	DeepBattle._apply_one(s2, DeepBattle.player(s2, "b"), c, "revive", 10, {}, r2.dice)
+	check(int(DeepBattle.stats_of(DeepBattle.player(s2, "b")).revives) == 1 and not bool(c.downed), "a revive is the reviver's")
+	## What a player puts on creatures and on the party, by kind.
+	var venom: Dictionary = DeepBattle._apply_one(s2, DeepBattle.player(s2, "b"), foe, "poison", 4, {}, r2.dice)
+	DeepBattle._apply_one(s2, DeepBattle.player(s2, "b"), c, "regeneration", 2, {}, r2.dice)
+	var gave: Dictionary = DeepBattle.stats_of(DeepBattle.player(s2, "b"))
+	var landed: int = 0 if venom.has("immune") or venom.has("warded") else 4
+	check(int(gave.debuffs.get("poison", 0)) == landed and int(gave.buffs.get("regeneration", 0)) == 2, "debuffs and buffs by kind: %s / %s" % [str(gave.debuffs), str(gave.buffs)])
+	check(landed == 0 or str(foe.get("stacked_by", {}).get("poison", "")) == "b", "the creature knows whose poison it carries")
+	## Hands are named by the best thing they show.
+	for entry in [[[4, 4, 4, 4, 4], "quint"], [[2, 2, 2, 2, 5], "quad"], [[1, 2, 3, 4, 5], "straight"], [[2, 2, 2, 5, 5], "full_house"], [[6, 6, 6, 1, 2], "triple"],
+			[[3, 3, 5, 5, 1], "two_pair"], [[3, 3, 1, 5, 6], "pair"], [[1, 3, 5, 2, 6], "distinct"]]:
+		hand(a, entry[0])
+		check(DeepBattle.hand_name(DeepHand.analyze(a.hand)) == str(entry[1]), "%s is %s, not %s" % [str(entry[0]), str(entry[1]), DeepBattle.hand_name(DeepHand.analyze(a.hand))])

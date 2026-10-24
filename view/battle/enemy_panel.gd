@@ -36,6 +36,10 @@ static func move_glyph(move: Dictionary) -> String:
 var enemy_id: String = ""
 var foe: Dictionary = {}
 var _key: String = ""
+var _dice_key: String = ""
+## A row's frame: one for the move being acted out and one for the rest, shared by every row.
+var _row_idle: StyleBoxFlat = DeepUi.raised(Color("171c29"), Color("343443"), 6, 6, 0.0)
+var _row_acting: StyleBoxFlat = DeepUi.raised(Color("30221f"), DeepUi.ACCENT, 6, 6, 0.0)
 var _title: Label
 var _traits: HFlowContainer
 var _dice: HBoxContainer
@@ -82,6 +86,7 @@ func reset() -> void:
 	DeepUi.clear(_effects_layer)
 	enemy_id = ""
 	_key = ""
+	_dice_key = ""
 	_revealed = 0
 	_shown_states = []
 	visible = false
@@ -174,8 +179,10 @@ func _build_rows(moves: Array) -> void:
 				noun += " · " + DeepCreatures.target_words(effect) if not dense else " · one player"
 			elif who == "self" and kind in ["stun", "damage"]:
 				noun += " · itself"
-			if dense and noun.length() > 22:
-				noun = noun.substr(0, 20).strip_edges() + "…"
+			## Cut shorter when a small window sets the text bigger, so the line keeps its width.
+			var most: int = 22 * DeepUi.MIN_TEXT / DeepUi.min_text()
+			if dense and noun.length() > most:
+				noun = noun.substr(0, most - 2).strip_edges() + "…"
 			DeepUi.label(line, noun, 11, DeepUi.MUTED)
 			line.tooltip_text = DeepCreatures.effect_words(effect)
 			numbers.append(number)
@@ -220,10 +227,17 @@ func _build_passive() -> void:
 		DeepUi.pill(_traits, str(words.glyph), text, Color("c8a8ff"), 11, "%s\n%s" % [str(words.title), str(words.text)])
 
 func _show_dice() -> void:
-	DeepUi.clear(_dice)
-	_slots.clear()
 	var dice: Array = DeepCreatures.effective_dice(foe)
 	var suppressed: int = int(foe.get("suppressed", 0)) if bool(foe.get("acting", false)) or str(foe.get("beat", "")) == "done" else int(foe.get("stolen_dice", 0))
+	## Laid out again only when something it shows has changed: a hover or a sync that moved
+	## nothing keeps the dice it has.
+	var hand_key: Array = foe.get("hand", []).map(func(r: Dictionary) -> String: return "%s:%d" % [str(r.get("shape", "")), int(r.get("value", 0))])
+	var dice_key: String = "%s|%d|%d|%d|%s|%s" % [str(dice), suppressed, _revealed, int(foe.get("next_die", 0)), str(bool(foe.get("acting", false))), str(hand_key)]
+	if dice_key == _dice_key:
+		return
+	_dice_key = dice_key
+	DeepUi.clear(_dice)
+	_slots.clear()
 	for index in range(dice.size()):
 		if index > 0:
 			DeepUi.label(_dice, "›", 13, DeepUi.DIM)
@@ -255,7 +269,10 @@ func _states(states: Array) -> void:
 		row.badge.text = str(STATES.get(status, ""))
 		row.badge.modulate = DeepUi.ACCENT if status in ["activated", "resolving"] else (Color("ff8ad8") if status == "latent" else DeepUi.MUTED)
 		row.panel.modulate.a = 0.4 if status in ["missed", "clouded", "spent"] else (0.65 if status in ["used", "resolved"] else (0.8 if status == "latent" else 1.0))
-		row.panel.add_theme_stylebox_override("panel", DeepUi.raised(Color("30221f") if status == "resolving" else Color("171c29"), DeepUi.ACCENT if status == "resolving" else Color("343443"), 6, 6, 0.0))
+		var frame: StyleBoxFlat = _row_acting if status == "resolving" else _row_idle
+		if row.get("frame", null) != frame:
+			row.frame = frame
+			row.panel.add_theme_stylebox_override("panel", frame)
 
 func roll_die(event: Dictionary) -> void:
 	_cancel_animations()

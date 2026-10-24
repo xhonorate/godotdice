@@ -34,6 +34,10 @@ var _home_held: int = 0
 ## Every "run_id:mine" whose final boss this lapidary has seen fall; see `_note_conquest`.
 var _conquests: Dictionary = {}
 const WON_BEAT: float = 2.8
+## A change made by looking (a stone seen) waits this long to be saved, so a sweep of the
+## pointer over new tiles is one write; see `_touched`.
+const TOUCH_SAVE_WAIT: float = 1.5
+var _touch_pending: bool = false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -41,6 +45,10 @@ func _ready() -> void:
 	if not Thumbs.headless():
 		GemMesh.warm_etches()
 	theme = DeepUi.theme()
+	## A smaller window draws everything smaller: the smallest text grows to stay readable.
+	if DisplayServer.get_name() != "headless":
+		DeepUi.rescale(self)
+		get_viewport().size_changed.connect(func() -> void: DeepUi.rescale(self))
 	var backdrop := ColorRect.new()
 	backdrop.color = DeepUi.INK
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -66,7 +74,7 @@ func _ready() -> void:
 	session.saves = saves
 	session.speed = float(settings.get("speed", 1.0))
 	add_child(session)
-	session.lobby_changed.connect(func(_lobby: Dictionary) -> void: _refresh_home())
+	session.lobby_changed.connect(func(_lobby: Dictionary) -> void: _refresh_home(true))
 	session.status_changed.connect(func(_status: String) -> void:
 		_fetch_steam_avatar()
 		_refresh_home())
@@ -100,7 +108,7 @@ func _ready() -> void:
 	home.leave_party_requested.connect(_leave_party)
 	home.profile_changed.connect(_profile_changed)
 	## A small change made by looking (a stone seen, the Market opened): saved, nothing rebuilt.
-	home.profile_touched.connect(func() -> void: saves.save_profile(profile))
+	home.profile_touched.connect(_touched)
 	home.menu_requested.connect(open_menu)
 	home.player_name_requested.connect(_edit_player_name)
 	add_child(home)
@@ -206,22 +214,44 @@ func _kit(loadout: Dictionary) -> Dictionary:
 		fields[key] = loadout[key]
 	return fields
 
-func _refresh_home() -> void:
+func _refresh_home(party_only: bool = false) -> void:
 	if home == null:
 		return
 	## Held while several changes land together (see `_back_home`): drawn once, after.
 	if _home_held > 0:
 		return
-	_refreshes += 1
+	## A change to the party alone redraws only what shows the party (see home.refresh). It is
+	## not counted: a profile change that set it off still draws its own page after it.
+	var bar_only: bool = party_only and home._partial.is_empty() and not home.shows_party()
 	## A workshop left open past midnight (UTC) turns over to the new day's commissions and
 	## shelf, and to a new seam the party is told this lapidary has not dug yet.
 	if DeepEconomy.roll_day(profile):
 		## A new day changes the whole workshop, whatever part a click said it touched.
 		home._partial = []
+		bar_only = false
 		saves.save_profile(profile)
 		if str(session.local_member().get("daily_state", "")) != DeepEconomy.daily_state(profile):
 			session.update_member({"daily_state": DeepEconomy.daily_state(profile)})
-	home.refresh(profile, session.lobby, session.status, session.is_host, session.local_id, session.can_start(), settings, session.invite_code)
+	if not bar_only:
+		_refreshes += 1
+	home.refresh(profile, session.lobby, session.status, session.is_host, session.local_id, session.can_start(), settings, session.invite_code, bar_only)
+
+func _touched() -> void:
+	## Saved a moment later, once for however many looks land in the meantime; and before a
+	## run starts or the game closes, whichever comes first.
+	if _touch_pending:
+		return
+	_touch_pending = true
+	get_tree().create_timer(TOUCH_SAVE_WAIT, true, false, true).timeout.connect(_save_touched)
+
+func _save_touched() -> void:
+	if _touch_pending:
+		_touch_pending = false
+		saves.save_profile(profile)
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_save_touched()
 
 func _profile_changed() -> void:
 	saves.save_profile(profile)
@@ -290,6 +320,7 @@ func _on_invited(lobby_id: String) -> void:
 		_join_steam(lobby_id)
 
 func _on_run_started(state: Dictionary) -> void:
+	_save_touched()
 	## Each lapidary pays their own way down, once, as the run reaches them.
 	var paid: Dictionary = DeepEconomy.charge_departure(profile, state, session.local_id)
 	if not paid.is_empty():
@@ -321,7 +352,8 @@ func _on_run_started(state: Dictionary) -> void:
 	if not session.is_host and not _joined.is_empty():
 		var host: Dictionary = session.lobby.get("members", {}).get(str(session.lobby.get("host", "")), {})
 		var record: Dictionary = _joined.duplicate()
-		record.merge({"host": str(host.get("name", "")), "mine": str(state.get("mine", ""))}, true)
+		## The seat's token, which the host gave this lapidary alone, is what takes the seat back.
+		record.merge({"host": str(host.get("name", "")), "mine": str(state.get("mine", "")), "token": session.seat_token}, true)
 		if settings.get("party_run", {}) != record:
 			settings.party_run = record
 			saves.save_settings(settings)
@@ -405,7 +437,13 @@ func _process(delta: float) -> void:
 
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0
-	GemMesh.finish_warm()
+	## Waits for the etch warm-up, then lets go of every shared mesh, texture and sky.
+	GemMesh.release()
+	Thumbs.GemView.release()
+	Thumbs.GeodeView.release()
+	Thumbs.GeodeView.GeodeMesh.release()
+	MineStage.release()
+	MineStage.BattleFx.release()
 	DeepUi.release_fonts()
 	GemIcons.release()
 	## The Steam avatar is kept on the Engine, which outlives the renderer.
@@ -522,9 +560,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			if not session.is_host and session.in_party():
 				toast("In a party, fights play at the host's speed.", DeepUi.MUTED, "hourglass")
 				return
-			session.speed = 4.0 if session.speed < 2.0 else maxf(1.0, float(settings.get("speed", 1.0)))
+			## Between the hurry speed and the one chosen in the settings; a chosen speed that is
+			## already that fast or faster is flipped to 1× instead.
+			var chosen: float = maxf(1.0, float(settings.get("speed", 1.0)))
+			var other: float = DeepSession.HURRY_SPEED if chosen < DeepSession.HURRY_SPEED else 1.0
+			session.speed = other if is_equal_approx(session.speed, chosen) else chosen
 			DeepAudio.play("ui_toggle")
-			toast("Speed ×%d" % int(session.speed), DeepUi.MUTED, "hourglass")
+			toast("Speed ×%s" % String.num(session.speed, 2), DeepUi.MUTED, "hourglass")
 		KEY_ESCAPE:
 			if not Inspector.is_open():
 				open_menu()
@@ -624,7 +666,11 @@ func _offer_rejoin() -> void:
 	menu.ask_to_rejoin(record)
 
 func _rejoin(record: Dictionary) -> void:
-	## Asked once: the run is noted again if it takes this lapidary back.
+	## Asked once: the run is noted again if it takes this lapidary back. The seat's token goes
+	## with the hello, after the game closed under them.
+	var token: Variant = record.get("token", "")
+	if token is String and not token.is_empty():
+		session.seat_token = token
 	_forget_party_run()
 	if str(record.get("kind", "")) == "steam":
 		_join_steam(str(record.get("lobby", "")))
@@ -637,5 +683,6 @@ func _forget_party_run() -> void:
 		saves.save_settings(settings)
 
 func _quit() -> void:
+	_save_touched()
 	saves.save_settings(settings)
 	get_tree().quit()

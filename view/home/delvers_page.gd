@@ -152,9 +152,9 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 	DeepUi.title(passive_box, str(passive.get("name", "Passive")), 16, DeepUi.ACCENT_HI)
 	DeepUi.wrap(passive_box, str(passive.get("text", "")), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_LEFT, 380)
 	var right := DeepUi.vbox(columns, 10)
-	right.custom_minimum_size.x = 330
+	right.custom_minimum_size.x = 420
 	var birth_card := DeepUi.card(right, Color(tint, 0.6), 14, Color(0.07, 0.06, 0.09, 0.92))
-	var birth_box := DeepUi.vbox(birth_card, 5)
+	var birth_box := DeepUi.vbox(birth_card, 3)
 	var birth_head := DeepUi.hbox(birth_box, 12)
 	if not stone.is_empty():
 		var picture := StoneCard.mini(birth_head, stone, 84, str(stone.get("name", "")) + "\n" + str(stone.get("text", "")))
@@ -163,7 +163,7 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 	birth_names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DeepUi.label(birth_names, "Birthstone", 11, DeepUi.DIM)
 	DeepUi.title(birth_names, str(stone.get("name", "")), 22, tint.lightened(0.35))
-	DeepUi.wrap(birth_names, str(stone.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 210)
+	DeepUi.wrap(birth_names, str(stone.get("text", "")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 290)
 	var die: String = DiceIcons.ladder_die(stone.get("tiers", []))
 	for tier in stone.get("tiers", []):
 		var tier_row := DeepUi.hbox(birth_box, 10)
@@ -177,12 +177,14 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 		var words := DeepUi.vbox(tier_row, 1)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.label(words, str(tier.get("name", "")), 13, DeepUi.PAPER)
-		DeepUi.wrap(words, str(tier.get("text", "")), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 230)
+		DeepUi.wrap(words, str(tier.get("text", "")), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+	var actions := DeepUi.hbox(box, 12)
+	## The face they pull when the Birthstone fires sits at the foot of the card, beside the
+	## buttons: the Birthstone's column is the tallest on the page and has no line to spare.
 	var face: String = str(character.get("birthstone", {}).get("face", ""))
 	if not face.is_empty():
-		DeepUi.stat(birth_box, "eye", face, DeepUi.DIM, 11, "The face they pull when the Birthstone fires")
-	var actions := DeepUi.hbox(box, 12)
-	actions.alignment = BoxContainer.ALIGNMENT_END
+		DeepUi.stat(actions, "eye", face, DeepUi.DIM, 11, "The face they pull when the Birthstone fires")
+	DeepUi.spacer(actions)
 	if not unlocked:
 		var where: String = DeepProfile.lapidary_boss_mine(key)
 		var sealed: bool = not where.is_empty() and not bool(home.profile.get("mines", {}).get(where, {}).get("unlocked", false))
@@ -255,8 +257,14 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 	var stones: Array = StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "sockets")
 	## Stones that fit the picked socket come first; the rest are dimmed after them.
 	if home._bench_socket >= 0:
-		var fits: Array = stones.filter(func(s: Dictionary) -> bool: return DeepProfile.rail_refusal(home.profile, character_key, home._bench_socket, str(s.skill)).is_empty())
-		stones = fits + stones.filter(func(s: Dictionary) -> bool: return not fits.has(s))
+		var fits: Array = []
+		var rest: Array = []
+		for s in stones:
+			if DeepProfile.rail_refusal(home.profile, character_key, home._bench_socket, str(s.skill)).is_empty():
+				fits.append(s)
+			else:
+				rest.append(s)
+		stones = fits + rest
 	var pager_row := DeepUi.hbox(tray_box, 8)
 	tray_box.add_child(flow)
 	if home.profile.get("vault", {}).is_empty():

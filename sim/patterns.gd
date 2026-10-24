@@ -381,7 +381,7 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"even": return "At least %s showing even values." % _dice(need)
 		"distinct":
 			if bool(trigger.get("high_crown", false)):
-				return "At least %s with no two alike, the highest on its own top face." % _dice(need)
+				return "At least %s with no two alike, the highest a crown." % _dice(need)
 			return "At least %s with no two alike." % _dice(need)
 		"value":
 			var wanted: Array = trigger.get("values", [7])
@@ -400,8 +400,8 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"rerolled": return "At least %s you rerolled this turn." % _dice(need)
 		"resonance": return "Resonance of %d or more when this gem is reached." % need
 		"low_count": return "At least %s at or below half its own top face." % _dice(need) if need == 1 else "At least %s at or below half their own top face." % _dice(need)
-		"crowns": return "At least %d %s showing %s own top face." % [need, "die" if need == 1 else "dice", "its" if need == 1 else "their"]
-		"crowns_at_most": return "No die on its top face." if need == 0 else "No more than %d dice on their top face." % need
+		"crowns": return "At least %d %s: %s on %s own top face." % [need, "crown" if need == 1 else "crowns", "a die" if need == 1 else "dice", "its" if need == 1 else "their"]
+		"crowns_at_most": return "No crowns: no die on its top face." if need == 0 else "No more than %d %s." % [need, "crown" if need == 1 else "crowns"]
 		"skip_straight": return "%d different values, all odd or all even, like 2-4-6-8-10." % need
 		"distinct_dominant": return "%d different values, the highest die outrolling the other %d combined." % [need, need - 1]
 		"each_turn": return "Every action, once, before its dice."

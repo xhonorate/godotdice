@@ -86,6 +86,7 @@ const KEYWORD_HINTS: Dictionary = {
  "phantom": "An extra temporary die read by later gems. It cannot receive permanent face upgrades.",
  "reflect": "Splits the next blow a creature lands on you: part goes straight back at whoever threw it, the rest lands. One blow a stack; they fall away at your next turn.",
  "crown": "A die showing its own top face. On Gambler's dice, the 7.",
+ "void": "Takes no socket: rides beside a socketed gem and fires right after it.",
  "changing face": "Puck's Motley: a face different from last turn's pays double, and one more for every turn running the faces keep changing (×2, ×3, ×4). The same face twice, or a turn with no face, starts over.",
  "turn over": "The die lands on the face underneath: its mirror face (a 2 on a d6 to its 5), always of the other parity, or the nearest face of the other parity it has.",
  "amplif": "Increases the next evaluated gem’s magnitude. Consumed even if that gem fizzles.",
@@ -113,6 +114,10 @@ static var _caps: Font = null
 static var _gold: Shader = null
 static var _bold: Font = null
 static var _body: Font = null
+static var _semibold: Font = null
+## How many screen pixels one canvas pixel is drawn at: 1.0 at 1600 wide, 0.8 at 1280.
+## The app sets it whenever the window changes size (`rescale`).
+static var text_scale: float = 1.0
 static var _glow: GradientTexture2D = null
 static var _dot: GradientTexture2D = null
 static var _keyword_regex: RegEx = null
@@ -271,11 +276,14 @@ static func release_fonts() -> void:
 	_caps = null
 	_gold = null
 	_body = null
+	_semibold = null
 	_bold = null
 	## The same goes for the shared textures: the glows and the drawn switches.
 	_glow = null
 	_dot = null
 	_switches.clear()
+	_knobs.clear()
+	_shared_theme = null
 
 static func body_font() -> Font:
 	## The face everything else is set in: Barlow, shipped with the game (SIL Open Font
@@ -284,6 +292,14 @@ static func body_font() -> Font:
 		var shipped: Variant = load("res://view/fonts/Barlow-Regular.ttf") if ResourceLoader.exists("res://view/fonts/Barlow-Regular.ttf") else null
 		_body = shipped if shipped is Font else ThemeDB.fallback_font
 	return _body
+
+static func semibold_font() -> Font:
+	## Barlow SemiBold, the face small text is set in: Regular's strokes are thinner than a
+	## screen pixel once the window draws the game smaller, and break up into jagged bits.
+	if _semibold == null:
+		var shipped: Variant = load("res://view/fonts/Barlow-SemiBold.ttf") if ResourceLoader.exists("res://view/fonts/Barlow-SemiBold.ttf") else null
+		_semibold = shipped if shipped is Font else body_font()
+	return _semibold
 
 static func bold_font() -> Font:
 	## Barlow's bold, for body text that must catch the eye before anything else on the page:
@@ -386,8 +402,8 @@ static func button_style(bg: Color, border: Color, pad: int = 10) -> StyleBoxFla
 
 static func theme(scale: float = 1.0) -> Theme:
 	var t := Theme.new()
-	t.default_font = body_font()
 	t.default_font_size = int(15 * scale)
+	t.default_font = text_face(t.default_font_size)
 	t.set_stylebox("panel", "Panel", flat(SLATE, LINE, 10, 14))
 	t.set_stylebox("panel", "PanelContainer", flat(SLATE, LINE, 10, 14))
 	t.set_stylebox("normal", "Button", button_style(SLATE_HI, LINE))
@@ -448,6 +464,21 @@ static func theme(scale: float = 1.0) -> Theme:
 
 static var _switches: Dictionary = {}
 static var _knobs: Dictionary = {}
+static var _shared_theme: Theme = null
+const THEMED_GROUP: StringName = &"deep_themed"
+
+static func shared_theme() -> Theme:
+	## One theme for the whole game, built once and again only when `rescale` moves the text
+	## face, so opening a sheet does not draw some forty boxes all over again.
+	if _shared_theme == null:
+		_shared_theme = theme()
+	return _shared_theme
+
+static func use_theme(control: Control) -> void:
+	## Gives a sheet the shared theme and keeps it on the newest one after a rescale.
+	control.theme = shared_theme()
+	if not control.is_in_group(THEMED_GROUP):
+		control.add_to_group(THEMED_GROUP)
 
 static func slider_knob(hot: bool, disabled: bool = false) -> Texture2D:
 	## A slider's knob: a round paper button ringed in gold, lit brighter under the pointer.
@@ -554,15 +585,85 @@ static func card(parent: Node, border: Color = LINE, pad: int = 14, bg: Color = 
 	parent.add_child(box)
 	return box
 
-## The smallest any text is set, whatever a caller asks: at the smallest window the game is
-## drawn at seven tenths of its size, and anything under this cannot be read there. A page that
-## no longer fits at this size is split into pages, never set smaller.
+## The smallest any text is set, whatever a caller asks. A page that no longer fits at this
+## size is split into pages, never set smaller.
 const MIN_TEXT: int = 12
+## The same floor in screen pixels: a smaller window draws the whole game smaller (0.8 at
+## 1280 wide), so the floor in canvas pixels rises until the smallest text still lands on at
+## least this many real ones. It stops rising at MAX_TEXT_FLOOR, which is as far as the
+## tightest pages can grow before they no longer fit.
+const READABLE_PX: float = 12.0
+const MAX_TEXT_FLOOR: int = 15
+## Text drawn under this many screen pixels is set in SemiBold instead of Regular.
+const SEMIBOLD_UNDER_PX: float = 13.0
+## Every label, button and effect text whose size goes through `set_text_size`, so a change
+## of window size can set it again (`rescale`).
+const TEXT_GROUP: StringName = &"deep_text"
+
+static func min_text() -> int:
+	## The smallest text, in canvas pixels, at the current window size.
+	return clampi(ceili(READABLE_PX / maxf(text_scale, 0.01) - 0.05), MIN_TEXT, MAX_TEXT_FLOOR)
+
+static func readable(size: int) -> int:
+	## `size`, raised to the floor if it is under it.
+	return maxi(size, min_text())
+
+static func text_face(size: int) -> Font:
+	## Regular for text big enough on screen, SemiBold for text that would break up.
+	return semibold_font() if float(size) * text_scale < SEMIBOLD_UNDER_PX else body_font()
+
+static func caps_size(size: int) -> int:
+	## The floor for words set in capitals (`caps_font`), which stand a cap-height tall
+	## everywhere and read at two pixels less than lowercase.
+	return maxi(size, min_text() - 2)
+
+static func set_text_size(control: Control, size: int) -> void:
+	## Sets a control's text size (raised to the floor) and its face, and keeps both up to date
+	## when the window changes size. A face the caller set afterwards (bold, display) is kept.
+	control.set_meta(&"text_asked", size)
+	if not control.is_in_group(TEXT_GROUP):
+		control.add_to_group(TEXT_GROUP)
+	_apply_text_size(control)
+
+static func _apply_text_size(control: Control) -> void:
+	var rich: bool = control is RichTextLabel
+	var size_name: StringName = &"normal_font_size" if rich else &"font_size"
+	var face_name: StringName = &"normal_font" if rich else &"font"
+	## A size the caller set by hand since (a count that grows) becomes the size asked for.
+	if control.has_meta(&"text_set") and control.get_theme_font_size(size_name) != int(control.get_meta(&"text_set")):
+		control.set_meta(&"text_asked", control.get_theme_font_size(size_name))
+	var size: int = readable(int(control.get_meta(&"text_asked", MIN_TEXT)))
+	control.add_theme_font_size_override(size_name, size)
+	control.set_meta(&"text_set", size)
+	if control.has_theme_font_override(face_name):
+		var face: Font = control.get_theme_font(face_name)
+		if face != body_font() and face != semibold_font():
+			return
+	control.add_theme_font_override(face_name, text_face(size))
+
+static func rescale(root: Control) -> void:
+	## Called when the window changes size: works out the new draw scale and, if the floor or
+	## the small-text face moved with it, sets every registered text again.
+	var window: Window = root.get_window()
+	var canvas: Vector2 = root.get_viewport_rect().size
+	if window == null or canvas.x <= 0.0 or window.size.x <= 0:
+		return
+	var was_floor: int = min_text()
+	var was_face: Font = text_face(15)
+	text_scale = float(window.size.x) / canvas.x
+	if min_text() == was_floor and text_face(15) == was_face:
+		return
+	_shared_theme = theme()
+	root.theme = _shared_theme
+	for node in root.get_tree().get_nodes_in_group(THEMED_GROUP):
+		(node as Control).theme = _shared_theme
+	for node in root.get_tree().get_nodes_in_group(TEXT_GROUP):
+		_apply_text_size(node as Control)
 
 static func label(parent: Node, text: String, size: int = 15, color: Color = PAPER, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", maxi(size, MIN_TEXT))
+	set_text_size(l, size)
 	l.add_theme_color_override("font_color", color)
 	l.horizontal_alignment = align
 	## Centred down the label's own box. A label in a row is stretched to the row's height,
@@ -578,12 +679,11 @@ static func fit_label(parent: Node, text: String, size: int, color: Color, width
 	## smaller rather than cut off. Past the floor size (never under MIN_TEXT) it clips instead
 	## of going unreadable.
 	var l := label(parent, text, size, color, align)
-	var font: Font = body_font()
-	var fitted: int = maxi(size, MIN_TEXT)
-	var least: int = maxi(floor_size, MIN_TEXT)
-	while fitted > least and font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fitted).x > width:
+	var fitted: int = readable(size)
+	var least: int = readable(floor_size)
+	while fitted > least and text_face(fitted).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fitted).x > width:
 		fitted -= 1
-	l.add_theme_font_size_override("font_size", fitted)
+	set_text_size(l, fitted)
 	l.custom_minimum_size.x = width
 	l.clip_text = true
 	return l
@@ -666,9 +766,9 @@ static func effect_text(parent: Node, text: String, size: int = 13, color: Color
 	rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if width > 0.0:
 		rtl.custom_minimum_size.x = width
+	set_text_size(rtl, size)
 	if bold:
 		rtl.push_font(bold_font())
-	rtl.push_font_size(maxi(size, MIN_TEXT))
 	rtl.push_color(color)
 	push_effect_text(rtl, text)
 	rtl.pop_all()
@@ -790,7 +890,7 @@ static func pill(parent: Node, glyph: String, text: String, color: Color, size: 
 static func button(parent: Node, text: String, callback: Callable = Callable(), size: int = 15) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.add_theme_font_size_override("font_size", maxi(size, MIN_TEXT))
+	set_text_size(b, size)
 	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	b.pressed.connect(func() -> void: DeepAudio.play(str(b.get_meta("sound", "ui_tap"))))
@@ -881,7 +981,7 @@ static func priced(b: Button, sum: String, size: int = -1, glyph: String = "coin
 	## Sets a price tag (`price_chip`) at the right end of a button built with its own mark and
 	## words, and widens the button's right margin to make room for it. The tag dims with the
 	## button when it is disabled. `sum` is the number as shown: "240", or "+38" for a payout.
-	var font_size: int = size if size > 0 else maxi(MIN_TEXT, b.get_theme_font_size("font_size") - 2)
+	var font_size: int = size if size > 0 else readable(b.get_theme_font_size("font_size") - 2)
 	var chip := price_chip(b, sum, font_size, b.get_theme_color("font_color"), false, glyph)
 	var gap: float = 10.0
 	var room: float = chip.get_combined_minimum_size().x + gap
@@ -1261,19 +1361,27 @@ static func shake(control: Control, strength: float = 6.0, seconds: float = 0.3)
 class Shimmer extends HBoxContainer:
 	## A word whose letters run from gold through the wheel and back, slowly, for ever.
 	var _clock: float = 0.0
+	## Letters are set in white once and tinted through self_modulate, so a frame of the sweep
+	## does not restyle every letter (and reshape its text).
+	var _whitened: int = 0
 	func paint(clock: float) -> void:
 		var count: int = maxi(1, get_child_count())
+		var whiten: bool = _whitened != get_child_count()
 		for i in range(get_child_count()):
 			var letter: Variant = get_child(i)
 			if not letter is Label:
 				continue
+			if whiten:
+				(letter as Label).add_theme_color_override("font_color", Color.WHITE)
 			var t: float = fposmod(float(i) / float(count) * 0.6 - clock * 0.12, 1.0)
 			## Gold for the first stretch of every sweep, then the wheel, then gold again.
 			var tone: Color = DeepUi.TRANSCENDENT_TONE.lerp(DeepUi.rainbow_at(t, 0.55), smoothstep(0.0, 0.35, t) * (1.0 - smoothstep(0.75, 1.0, t)))
-			(letter as Label).add_theme_color_override("font_color", tone)
+			(letter as Label).self_modulate = tone
+		_whitened = get_child_count()
 	func _process(delta: float) -> void:
 		_clock += delta
-		paint(_clock)
+		if is_visible_in_tree():
+			paint(_clock)
 
 class Bar extends Control:
 	## A gauge that moves like one: the fill eases to its new share, a pale ghost of what was
@@ -1301,9 +1409,16 @@ class Bar extends Control:
 	var _flash_color: Color = Color.WHITE
 	var _clock: float = 0.0
 	var _shown_overlay: float = 0.0
+	## Kept and reshaped rather than made new on every redraw: a moving bar redraws each frame.
+	var _fill_box: StyleBoxFlat = StyleBoxFlat.new()
+	var _outline: StyleBoxFlat = StyleBoxFlat.new()
 	func _init(height: float = 10.0) -> void:
 		custom_minimum_size = Vector2(60, height)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_fill_box.anti_aliasing = true
+		_outline.bg_color = Color(0, 0, 0, 0)
+		_outline.border_color = Color(0, 0, 0, 0.55)
+		_outline.set_border_width_all(1)
 	func set_values(new_ratio: float, new_text: String = "", new_overlay: float = 0.0) -> void:
 		new_ratio = clampf(new_ratio, 0.0, 1.0)
 		if _shown < 0.0 or not is_inside_tree() or DeepUi.headless():
@@ -1362,12 +1477,8 @@ class Bar extends Control:
 			_box(Rect2(Vector2(0, size.y - h), Vector2(size.x * _shown_overlay, h)), overlay_color, radius * 0.5)
 		if _flash > 0.0:
 			_box(r, Color(_flash_color, 0.35 * _flash), radius)
-		var outline := StyleBoxFlat.new()
-		outline.bg_color = Color(0, 0, 0, 0)
-		outline.border_color = Color(0, 0, 0, 0.55)
-		outline.set_border_width_all(1)
-		outline.set_corner_radius_all(int(radius))
-		draw_style_box(outline, r)
+		_outline.set_corner_radius_all(int(radius))
+		draw_style_box(_outline, r)
 		if not text.is_empty() and size.y >= 12.0:
 			## Bold and lightly outlined: at this size a heavy outline swallows the glyphs and
 			## the number reads as a dark smudge on the fill.
@@ -1383,11 +1494,11 @@ class Bar extends Control:
 		if radius <= 0.5:
 			draw_rect(rect, color)
 			return
-		var box := StyleBoxFlat.new()
-		box.bg_color = color
-		box.set_corner_radius_all(int(minf(radius, rect.size.x * 0.5)))
-		box.anti_aliasing = true
-		draw_style_box(box, rect)
+		## One box, reshaped for each layer: a style box is drawn the moment it is called, so
+		## changing it for the next layer leaves the last one as it was.
+		_fill_box.bg_color = color
+		_fill_box.set_corner_radius_all(int(minf(radius, rect.size.x * 0.5)))
+		draw_style_box(_fill_box, rect)
 
 static func health_tone(share: float, healthy: Color = HP) -> Color:
 	## Health at a glance: its own green while there is plenty of it, easing to amber by a

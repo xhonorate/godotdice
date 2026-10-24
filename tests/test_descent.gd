@@ -10,7 +10,7 @@ func _init() -> void:
 	_test_lantern_map()
 	_test_abandon()
 	_test_landing_commands()
-	_test_hollow()
+	_test_motherlode()
 	_test_merchant()
 	_test_dice_rooms()
 	_test_oddity_reveal()
@@ -33,6 +33,7 @@ func _init() -> void:
 	_test_hazard_progress()
 	_test_bestiary()
 	_test_gamblers_pots()
+	_test_tally()
 	print("Descent/profile: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -316,26 +317,57 @@ func _test_abandon() -> void:
 	cmd(state, "b", "ready")
 	check(state.phase == "over" and state.outcome == "fallen", "it ends as a fall")
 
-func _test_hollow() -> void:
-	## A glittering hollow: everyone has their own shining rocks, one blow each, a stone in
-	## every one, and health paid for each after the first.
+func _test_motherlode() -> void:
+	## A motherlode: the vein's six spots and three to five rich seams besides, shared by
+	## everyone like the rest of the rock, a fine stone all but loose in each.
 	var state: Dictionary = DeepDescent.new_run(config(77, true))
 	var a: Dictionary = DeepDescent.player(state, "a")
 	var b: Dictionary = DeepDescent.player(state, "b")
 	DeepDescent._enter(state, {"kind": "motherlode", "id": ""}, DeepDescent.streams_of(state))
 	var spots: Array = state.chamber.vein.spots
-	var mine: Array = spots.filter(func(sp: Dictionary) -> bool: return str(sp.owner) == "a")
-	var theirs: Array = spots.filter(func(sp: Dictionary) -> bool: return str(sp.owner) == "b")
-	check(state.phase == "chamber" and bool(state.chamber.vein.hollow) and mine.size() == DeepDescent.HOLLOW_ROCKS and theirs.size() == DeepDescent.HOLLOW_ROCKS, "everyone gets their own rocks in a hollow")
-	check(not cmd(state, "a", "strike", {"spot": int(theirs[0].index)}).ok, "nobody breaks another's rock")
-	var hp: int = int(a.hp)
-	var hauled: int = a.haul.size()
-	var first: Dictionary = cmd(state, "a", "strike", {"spot": int(mine[0].index)})
-	check(first.ok and bool(first.event.through) and a.haul.size() == hauled + 1 and int(a.hp) == hp - 1, "one blow breaks a rock out, a stone in it, for a point of health")
-	check(DeepDescent.swing_cost(state, a) == 2, "and the next costs a point more")
-	check(cmd(state, "a", "strike", {"spot": int(mine[1].index)}).ok and cmd(state, "a", "strike", {"spot": int(mine[2].index)}).ok, "a breaks all three")
-	check(not bool(a.mining) and a.haul.size() == hauled + 3 and state.phase == "chamber", "with nothing left a is done, and the room waits for b")
-	check(cmd(state, "b", "stop_mining", {}).ok and state.phase == "tunnels", "b leaves the rest, and the ways on open")
+	var rich: Array = spots.filter(func(sp: Dictionary) -> bool: return str(sp.glint) == "rich")
+	var band: Array = DeepContent.constant("motherlode_rich", DeepDescent.MOTHERLODE_RICH)
+	var fewest: int = int(band[0])
+	var most: int = int(band[1])
+	check(state.phase == "chamber" and not state.chamber.vein.has("hollow") and spots.size() == DeepDescent.VEIN_SPOTS + rich.size() \
+		and rich.size() >= fewest and rich.size() <= most and int(state.chamber.vein.rich) == rich.size(), "a motherlode is the vein's six spots and %d rich seams besides" % rich.size())
+	check(spots.all(func(sp: Dictionary) -> bool: return not sp.has("owner")) \
+		and rich.all(func(sp: Dictionary) -> bool: return str(sp.kind) == "stone" and int(sp.hardness) >= 1 and int(sp.hardness) <= 2), "nobody owns a seam, and a rich one is a stone a swing or two in")
+	check(range(rich.size()).all(func(i: int) -> bool: return int(rich[i].index) == DeepDescent.VEIN_SPOTS + i), "the rich seams come after the six")
+	check(DeepDescent.swing_cost(state, a) == 0 and DeepDescent.swing_cost(state, b) == 0, "the first swing is free, as at any vein")
+	## Anyone's pick: b breaks a rich seam out, and a the next.
+	var hauled: int = b.haul.size()
+	var hp: int = int(b.hp)
+	var swings: int = 0
+	var struck: Dictionary = {}
+	while swings < 3:
+		struck = cmd(state, "b", "strike", {"spot": int(rich[0].index)})
+		swings += 1
+		if not struck.ok or bool(struck.event.through):
+			break
+	check(struck.ok and bool(struck.event.through) and swings <= 2 and b.haul.size() == hauled + 1, "b breaks a rich seam out in %d: a stone" % swings)
+	check(int(b.hp) == hp - swings * (swings - 1) / 2, "paid for on the vein's ladder: the first swing free, the next a point")
+	var found: Dictionary = b.haul.back()
+	check(str(found.get("provenance", {}).get("source", "")) == "motherlode" and str(found.provenance.finder) == "b", "the stone comes from the motherlode, b its finder")
+	check(not cmd(state, "a", "strike", {"spot": int(rich[0].index)}).ok, "a seam once broken out is done with")
+	hauled = a.haul.size()
+	swings = 0
+	var second: Dictionary = {}
+	while swings < 3:
+		second = cmd(state, "a", "strike", {"spot": int(rich[1].index)})
+		swings += 1
+		if not second.ok or bool(second.event.through):
+			break
+	check(second.ok and bool(second.event.through) and a.haul.size() == hauled + 1, "and a breaks out the next: the seams are anyone's")
+	check(state.phase == "chamber" and bool(a.mining) and bool(b.mining), "the room waits while anyone is still swinging")
+	check(cmd(state, "a", "stop_mining", {}).ok and state.phase == "chamber" and cmd(state, "b", "stop_mining", {}).ok and state.phase == "tunnels", "both put the pick down, and the ways on open")
+	## Over many motherlodes the count of rich seams runs the whole band.
+	var seen: Dictionary = {}
+	for seed in range(1, 41):
+		var again: Dictionary = DeepDescent.new_run(config(seed, true))
+		DeepDescent._enter(again, {"kind": "motherlode", "id": ""}, DeepDescent.streams_of(again))
+		seen[int(again.chamber.vein.rich)] = true
+	check(seen.keys().size() == most - fewest + 1 and seen.keys().all(func(n: int) -> bool: return n >= fewest and n <= most), "over forty motherlodes every count from %d to %d turns up: %s" % [fewest, most, str(seen.keys())])
 	## The fallen are carried, and the living choose the way.
 	a.downed = true
 	var depth_before: int = int(state.depth)
@@ -1240,8 +1272,25 @@ func _test_grubstake() -> void:
 	var cuts_before: Array = u.rail.map(func(s: Variant) -> int: return int(s.cut) if s is Dictionary else 0)
 	var truer: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["STAKE_CUT"], ["socket"]), {}, rng)
 	var truer_at: int = int(truer.socket)
-	check(truer.ok and int(u.rail[truer_at].cut) == mini(int(cuts_before[truer_at]) + 1, DeepPatterns.STEPS - 1) and int(u.rail[truer_at].staked.cut) >= 1,
-		"A Truer Set lifts a Cut step for the run and marks the stone")
+	## A stone already at the top of the ladder takes no step, and the mark says so.
+	var truer_lift: int = mini(int(cuts_before[truer_at]) + 1, DeepPatterns.STEPS - 1) - int(cuts_before[truer_at])
+	check(truer.ok and int(u.rail[truer_at].cut) == int(cuts_before[truer_at]) + truer_lift and int(u.rail[truer_at].staked.get("cut", 0)) >= truer_lift,
+		"A Truer Set lifts a Cut step for the run and marks the stone (lifted %d)" % truer_lift)
+	## A stake that sends a stone back to the wheel or the oven marks it too, so the stone that
+	## goes home is the one that came down, whichever way the draw went.
+	var wheel_rng := RandomNumberGenerator.new()
+	var restored: int = 0
+	for attempt in range(20):
+		wheel_rng.seed = 900 + attempt
+		var went_down: Dictionary = u.rail[truer_at].duplicate(true)
+		went_down.erase("staked")
+		var wheel_unit: Dictionary = {"rail": [went_down.duplicate(true)]}
+		DeepBoons._effect(quiet, wheel_unit, {"kind": "reroll_clarity"}, {}, 0, -1, wheel_rng, {})
+		DeepBoons._effect(quiet, wheel_unit, {"kind": "reroll_cut"}, {}, 0, -1, wheel_rng, {})
+		var home: Dictionary = DeepStone.unstake(wheel_unit.rail[0].duplicate(true))
+		if int(home.cut) == int(went_down.cut) and int(home.clarity) == int(went_down.clarity) and home.get("inclusions", []) == went_down.get("inclusions", []):
+			restored += 1
+	check(restored == 20, "a staked reroll of Cut or Clarity comes off at the shaft head (%d of 20)" % restored)
 	## The whole rail at once, and it steps clarity away from Clear on whichever side it leans.
 	var whole_before: Array = u.rail.map(func(s: Variant) -> Array: return [int(s.carat), int(s.cut), int(s.clarity)] if s is Dictionary else [])
 	var whole: Dictionary = DeepBoons.apply(quiet, u, offer_of.call(["REWARD_ALL"]), {}, rng)
@@ -1752,3 +1801,37 @@ func _test_gamblers_pots() -> void:
 		paid.append(int(unit.ore) - int(banks[index]))
 		check(int(settle.rewards.get(str(unit.id), {}).get("ore", -1)) == int(unit.ore) - int(banks[index]), "%s is paid what the spoils say" % str(unit.id))
 	check(paid[0] == paid[1] and paid[1] == paid[2] and paid[0] > 0, "every pot goes back to the Gambler who staked it, so all three end up the same fight's pay ahead: %s" % str(paid))
+
+func _test_tally() -> void:
+	## The tally rides into a fight and back to the run when it settles, counts what the purse
+	## paid, names every player in the results, and comes home with the run's record.
+	var state: Dictionary = DeepDescent.new_run(config(200, true))
+	var guard: int = 0
+	var fought: bool = false
+	while str(state.phase) != "over" and guard < 600:
+		guard += 1
+		if str(state.phase) == "landing" and state.depth > 8 and not bool(state.landing.get("cleared", false)):
+			state.players[0].ore = int(state.players[0].ore) + DeepDescent.lift_cost(state)
+			for unit in state.players:
+				cmd(state, str(unit.id), "choose", {"choice": "lift"})
+		else:
+			_advance_once(state)
+		if not fought and int(state.players[0].stats.get("fights", 0)) == 1 and not DeepDescent.in_battle(state):
+			fought = true
+			var first: Dictionary = state.players[0].stats
+			check(int(first.get("damage", 0)) > 0 and int(first.get("turns", 0)) > 0 and not first.get("gems", {}).is_empty(), "the fight's tally came back to the run: %s" % str(first))
+	check(fought and state.phase == "over", "the tally run ends (guard %d)" % guard)
+	var ada: Dictionary = state.players[0]
+	check(int(ada.stats.get("fights", 0)) >= 2 and int(ada.stats.get("wardens", 0)) == 1, "fights and the Warden are counted: %d / %d" % [int(ada.stats.get("fights", 0)), int(ada.stats.get("wardens", 0))])
+	check(int(ada.stats.get("spent", 0)) > 0, "the lift fare is counted as pyrite spent: %d" % int(ada.stats.get("spent", 0)))
+	var results: Dictionary = DeepDescent.results(state)
+	check(str(results.players.a.name) == "Ada" and str(results.players.a.character) == "ARDOR" and int(results.players.a.stats.fights) == int(ada.stats.fights), "the results name each player with their tally")
+	var profile: Dictionary = DeepProfile.new_profile("Ada")
+	DeepProfile.apply_result(profile, results, "a")
+	var entry: Dictionary = profile.history.back()
+	check(int(entry.get("stats", {}).get("fights", 0)) == int(ada.stats.fights), "the run's record keeps the tally")
+	check(entry.get("party", []).size() == 2 and str(entry.party[1].name) == "Bo" and int(entry.party[1].stats.get("fights", 0)) > 0, "and the party's: %s" % str(entry.get("party", [])))
+	## A run begun before the tally was kept is read whole.
+	var old: Dictionary = {"id": "x", "side": "player", "stats": {"damage": 5, "fights": 1}}
+	var whole: Dictionary = DeepBattle.stats_of(old)
+	check(int(whole.damage) == 5 and int(whole.fights) == 1 and whole.gems.is_empty() and whole.has("best_hit"), "an old tally is made whole: %s" % str(whole))

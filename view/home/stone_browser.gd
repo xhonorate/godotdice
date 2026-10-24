@@ -54,7 +54,7 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 		sorter.add_item(("Sort: " if not compact else "") + str(SORTS[index][1]), index)
 		if str(SORTS[index][0]) == str(s.sort):
 			sorter.select(index)
-	sorter.add_theme_font_size_override("font_size", 13)
+	DeepUi.set_text_size(sorter, 13)
 	sorter.item_selected.connect(func(index: int) -> void:
 		DeepAudio.play("ui_tap")
 		_change(home, context, "sort", str(SORTS[index][0])))
@@ -86,7 +86,7 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 			rarity.add_item(str(RARITIES[index]).capitalize(), index + 1)
 			if str(RARITIES[index]) == str(s.rarity):
 				rarity.select(index + 1)
-		rarity.add_theme_font_size_override("font_size", 13)
+		DeepUi.set_text_size(rarity, 13)
 		rarity.item_selected.connect(func(index: int) -> void:
 			DeepAudio.play("ui_tap")
 			_change(home, context, "rarity", "" if index == 0 else str(RARITIES[index - 1])))
@@ -98,7 +98,7 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 	search.clear_button_enabled = true
 	search.custom_minimum_size.x = 150 if compact else 250
 	search.size_flags_horizontal = Control.SIZE_EXPAND_FILL if not compact else Control.SIZE_SHRINK_BEGIN
-	search.add_theme_font_size_override("font_size", 13)
+	DeepUi.set_text_size(search, 13)
 	row.add_child(search)
 	var wait := Timer.new()
 	wait.one_shot = true
@@ -123,7 +123,7 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 		ghosts.tooltip_text = "Show the skills you have not kept yet"
 		ghosts.button_pressed = bool(s.ghosts)
 		ghosts.focus_mode = Control.FOCUS_NONE
-		ghosts.add_theme_font_size_override("font_size", 13)
+		DeepUi.set_text_size(ghosts, 13)
 		ghosts.toggled.connect(func(on: bool) -> void: _change(home, context, "ghosts", on))
 		row.add_child(ghosts)
 	if bool(opts.get("layouts", false)):
@@ -163,16 +163,18 @@ class ColorDot extends Control:
 static func sorted(home: Control, stones: Array, context: String) -> Array:
 	## The stones that pass this place's filters, in its sort.
 	var s: Dictionary = settings(home, context)
-	var out: Array = stones.filter(func(stone: Dictionary) -> bool: return passes(stone, s))
 	var key: String = str(s.sort)
 	var desc: bool = bool(s.desc)
-	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var va: Variant = sort_value(a, key)
-		var vb: Variant = sort_value(b, key)
-		if va == vb:
-			return DeepUi.skill_name(a) < DeepUi.skill_name(b)
-		return (va > vb) if desc else (va < vb))
-	return out
+	## Each stone's place worked out once, not at every comparison: a grade or a worth is not cheap.
+	var keyed: Array = []
+	for stone in stones:
+		if passes(stone, s):
+			keyed.append([sort_value(stone, key), DeepUi.skill_name(stone), stone])
+	keyed.sort_custom(func(a: Array, b: Array) -> bool:
+		if a[0] == b[0]:
+			return a[1] < b[1]
+		return (a[0] > b[0]) if desc else (a[0] < b[0]))
+	return keyed.map(func(entry: Array) -> Dictionary: return entry[2])
 
 static func passes(stone: Dictionary, s: Dictionary) -> bool:
 	var color: String = DeepStone.color(stone)
@@ -232,6 +234,7 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 	var context: String = str(opts.get("context", "vault"))
 	var s: Dictionary = settings(home, context)
 	var box := DeepUi.vbox(parent, 2)
+	box.name = "StoneTable"
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var widths: Array = [["name", "Stone", 200], ["grade", "Grade", 104], ["carat", "Carat", 56], ["cut", "Cut", 124], ["clarity", "Clarity", 100], ["", "Inside", 0], ["mine", "Found", 130], ["found", "When", 84], ["", "In", 76]]
 	## The headings sit in a pad as deep as a row's, so they line up over their columns.
@@ -250,7 +253,7 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.focus_mode = Control.FOCUS_NONE
 			b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-			b.add_theme_font_size_override("font_size", 11)
+			DeepUi.set_text_size(b, 11)
 			b.add_theme_color_override("font_color", DeepUi.ACCENT_HI if key == str(s.sort) else DeepUi.DIM)
 			b.pressed.connect(func() -> void:
 				DeepAudio.play("ui_tap")
@@ -269,7 +272,11 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 	for stone in stones:
 		var skill: String = str(stone.get("skill", ""))
 		var picked: bool = skill == str(opts.get("picked", ""))
-		var panel := DeepUi.panel(box, Color(DeepUi.ACCENT, 0.12) if picked else Color(1, 1, 1, 0.025 if index % 2 == 0 else 0.0), DeepUi.ACCENT if picked else Color(0, 0, 0, 0), 6, 4)
+		var panel := PanelContainer.new()
+		panel.add_theme_stylebox_override("panel", _row_style(picked, index))
+		panel.set_meta("skill", skill)
+		panel.set_meta("row", index)
+		box.add_child(panel)
 		panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		var row := DeepUi.hbox(panel, 10)
@@ -281,7 +288,7 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 		name_label.clip_text = true
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		if bool(stone.get("fresh", false)):
-			DeepUi.chip(name_cell, "NEW", StoneCard.PIP_NEW, 10)
+			DeepUi.chip(name_cell, "NEW", StoneCard.PIP_NEW, 10).name = "New"
 		var grade: Dictionary = DeepStone.grade(stone)
 		DeepUi.label(row, "%s · %d" % [str(DeepStone.TIER_NAMES.get(str(grade.tier), grade.tier)), int(grade.score)], 13, DeepUi.tier_color(str(grade.tier))).custom_minimum_size.x = 104
 		DeepUi.label(row, "%d ct" % int(stone.get("carat", 1)), 14, DeepUi.PAPER).custom_minimum_size.x = 56
@@ -320,6 +327,28 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 					on_pick.call(picked_stone))
 		index += 1
 	return box
+
+static func _row_style(picked: bool, index: int) -> StyleBoxFlat:
+	return DeepUi.flat(Color(DeepUi.ACCENT, 0.12) if picked else Color(1, 1, 1, 0.025 if index % 2 == 0 else 0.0), DeepUi.ACCENT if picked else Color(0, 0, 0, 0), 6, 4)
+
+static func repick(holder: Node, was: String, now: String) -> bool:
+	## A row picked in the list: the old row and the new one restyled where they stand, the
+	## rest left alone. False when there is no list here to do it in.
+	var box: Node = holder.get_node_or_null("StoneTable") if holder != null else null
+	if box == null:
+		return false
+	for row in box.get_children():
+		if not row is PanelContainer or not row.has_meta("row"):
+			continue
+		var skill: String = str(row.get_meta("skill", ""))
+		if skill != was and skill != now:
+			continue
+		(row as PanelContainer).add_theme_stylebox_override("panel", _row_style(skill == now, int(row.get_meta("row"))))
+		## Looked at, it is not new any more.
+		var mark: Node = row.find_child("New", true, false) if skill == now else null
+		if mark != null:
+			mark.queue_free()
+	return true
 
 static func _wearers(home: Control) -> Dictionary:
 	## skill -> the delvers whose loadouts set it.

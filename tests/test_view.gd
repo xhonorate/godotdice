@@ -655,6 +655,34 @@ func _test_mine() -> void:
 	face.hollow(2, Color.RED)
 	check(face.is_taken(2) and not face.is_taken(1), "a struck spot is a hole, the rest are whole")
 	face.free()
+	## A motherlode: the six and three to five rich seams besides, laid out so that the party
+	## sees every seam past every other rock, whatever the seed, on the room's own floor. A
+	## plain vein's six keep clear of one another the same way.
+	var floor_room: Node3D = Chamber.new()
+	root.add_child(floor_room)
+	floor_room.build(biome, 91, 2, 2.5)
+	var ground: Callable = func(x: float, z: float) -> float: return floor_room.ground(x, z)
+	var hidden: Array = []
+	var seams: Array = VeinFace.LODE.slice(6)
+	for seed in range(1, 25):
+		var lode: Array = spots.duplicate(true)
+		if seed % 4 != 0:
+			for _extra in range(3 + seed % 3):
+				lode.append({"index": lode.size(), "glint": "rich"})
+		var rich_face: Node3D = VeinFace.new()
+		root.add_child(rich_face)
+		rich_face.position = Chamber.ARENA + Vector3(0, 0, -0.8)
+		rich_face.build(biome, lode, seed * 7 + 17, false, ground)
+		var laid: Array = rich_face.layout()
+		check(rich_face.spot_node(lode.size() - 1) != null and laid.size() == lode.size(), "a rock for every spot (%d)" % lode.size())
+		if lode.size() > 6:
+			check(laid.slice(0, 6) == VeinFace.LODE.slice(0, 6) and laid.slice(6).all(func(lie: Dictionary) -> bool: return seams.has(lie)), "a motherlode's six and its rich seams lie where LODE puts them")
+		for i in range(lode.size()):
+			if not rich_face.seam_clear(i):
+				hidden.append("seed %d spot %d of %d" % [seed, i, lode.size()])
+		rich_face.free()
+	floor_room.free()
+	check(hidden.is_empty(), "every seam is seen clear of every other rock: %s" % str(hidden))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11
 	var dig: Dictionary = DeepContent.mine(mine)

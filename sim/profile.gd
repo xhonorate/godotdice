@@ -13,6 +13,9 @@ extends RefCounted
 const SCHEMA: int = 3
 const DEFAULT_NAME: String = "Player"
 const NAME_LIMIT: int = 24
+## How many of the latest runs keep their whole tally (and their party's) in the history.
+## Older ones keep the line the ledger shows; the save is written often and a tally is long.
+const HISTORY_STATS_KEPT: int = 10
 
 static func new_profile(name: String = DEFAULT_NAME) -> Dictionary:
 	var profile: Dictionary = {"schema": SCHEMA, "id": "pf%08x" % randi(), "name": name, "gold": 0, "vault": {}, "seen": [],
@@ -748,7 +751,8 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 	## A Transcendent made down there is known from then on, wherever the stone itself ended up.
 	for skill in mine_result.get("transcended", []):
 		made_transcendent(profile, str(skill))
-	## A vault stone whose copy was given up at an altar is given up for good.
+	## A vault stone whose copy was given up for something down there (an altar, a well, the
+	## Prospector, a sale) is given up for good.
 	var spent: Array = []
 	for skill in mine_result.get("vault_spent", []):
 		if profile.vault.has(str(skill)):
@@ -793,7 +797,26 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		entry.daily = true
 		entry.score = int(dug.get("score", 0))
 		entry.deepest_mine = str(result.get("mine", mine_key))
+	## The run's tally stays with its record, and in a party, everyone's.
+	var tallies: Dictionary = result.get("players", {})
+	if tallies.get(player_id, {}).has("stats"):
+		entry.stats = tallies[player_id].stats.duplicate(true)
+	if tallies.size() > 1:
+		var party: Array = []
+		for id in tallies:
+			var took: Dictionary = tallies[id]
+			party.append({"id": str(id), "name": str(took.get("name", "")), "character": str(took.get("character", "")), "seat": int(took.get("seat", 0)),
+				"stats": took.get("stats", {}).duplicate(true)})
+		party.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return int(x.seat) < int(y.seat))
+		entry.party = party
 	profile.history.append(entry)
+	var history: Array = profile.history
+	for index in range(maxi(0, history.size() - HISTORY_STATS_KEPT)):
+		if history[index] is Dictionary:
+			history[index].erase("stats")
+			for took in history[index].get("party", []):
+				if took is Dictionary:
+					took.erase("stats")
 	## A stone that came home already read and is the first of its skill waits on the tray
 	## with everything else: it is never sold, but whether it is kept or turned in for a
 	## commission is the player's to say. Anything on the tray already known to be fragile

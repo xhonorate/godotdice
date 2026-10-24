@@ -138,13 +138,15 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			}
 			break;
 		case 'value': {
-			const wanted = trigger.values || [7];
-			const dice = Hand.matching(a, (v) => wanted.includes(v));
+			// Read off the faces: "showing 1" is a die that landed on its 1, Doubled or not.
+			const wanted = (trigger.values || [7]).map(Number);
+			const dice = Hand.matchingShown(a, (v) => wanted.includes(v));
 			if (dice.length >= Math.max(1, need)) { result.active = true; result.dice = dice; result.count = dice.length; result.value = wanted.length ? Number(wanted[0]) : 0; }
 			break;
 		}
 		case 'at_most': case 'below': {
-			const dice = Hand.matching(a, (v) => (kind === 'below' ? v < need : v <= need));
+			const judge = (v) => (kind === 'below' ? v < need : v <= need);
+			const dice = kind === 'below' ? Hand.matchingFaces(a, judge) : Hand.matching(a, judge);
 			if (dice.length >= 1) { result.active = true; result.dice = dice; result.count = dice.length; result.value = need; }
 			break;
 		}
@@ -290,7 +292,7 @@ export function words(trigger, cutStep) {
 		case 'straight': return `A straight of ${need}: ${need} consecutive values in any order.`;
 		case 'odd': return `At least ${dice(need)} showing odd values.`;
 		case 'even': return `At least ${dice(need)} showing even values.`;
-		case 'distinct': return trigger.high_crown ? `At least ${dice(need)} with no two alike, the highest on its own top face.` : `At least ${dice(need)} with no two alike.`;
+		case 'distinct': return trigger.high_crown ? `At least ${dice(need)} with no two alike, the highest a crown.` : `At least ${dice(need)} with no two alike.`;
 		case 'value': return `At least ${need} ${need === 1 ? 'die' : 'dice'} showing a ${(trigger.values || [7]).join(' or ')}.`;
 		case 'pyrite': return `At least ${need} Pyrite.`;
 		case 'fizzles': return `At least ${need} ${need === 1 ? 'gem' : 'gems'} fizzled earlier this turn.`;
@@ -305,8 +307,8 @@ export function words(trigger, cutStep) {
 		case 'rerolled': return `At least ${dice(need)} you rerolled this turn.`;
 		case 'resonance': return `Resonance of ${need} or more when this gem is reached.`;
 		case 'low_count': return need === 1 ? `At least ${dice(need)} at or below half its own top face.` : `At least ${dice(need)} at or below half their own top face.`;
-		case 'crowns': return `At least ${need} ${need === 1 ? 'die' : 'dice'} showing ${need === 1 ? 'its' : 'their'} own top face.`;
-		case 'crowns_at_most': return need === 0 ? 'No die on its top face.' : `No more than ${need} dice on their top face.`;
+		case 'crowns': return `At least ${need} ${need === 1 ? 'crown' : 'crowns'}: ${need === 1 ? 'a die' : 'dice'} on ${need === 1 ? 'its' : 'their'} own top face.`;
+		case 'crowns_at_most': return need === 0 ? 'No crowns: no die on its top face.' : `No more than ${need} ${need === 1 ? 'crown' : 'crowns'}.`;
 		case 'skip_straight': return `${need} different values, all odd or all even, like 2-4-6-8-10.`;
 		case 'distinct_dominant': return `${need} different values, the highest die outrolling the other ${need - 1} combined.`;
 		case 'each_turn': return 'Every action, once, before its dice.';

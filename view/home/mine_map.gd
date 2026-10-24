@@ -224,6 +224,12 @@ func _draw_earth() -> void:
 		if records.has(str(key)):
 			deepest_today = str(key)
 	var reached_to: float = surface_y
+	## The names' column: wide enough for the longest biome line under a name, which grows
+	## when a small window sets the capitals bigger.
+	var name_column: float = 240.0
+	for key in mines:
+		var line: String = "%s  ·  SEALED" % str(Biomes.for_depth(str(key), 1).name).to_upper()
+		name_column = maxf(name_column, DeepUi.caps_font().get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(10)).x + 8.0)
 	for index in range(mines.size()):
 		var key: String = str(mines[index])
 		var mine: Dictionary = DeepContent.mine(key)
@@ -283,26 +289,29 @@ func _draw_earth() -> void:
 		canvas.draw_circle(badge, 15.0, Color(0, 0, 0, 0.35))
 		canvas.draw_arc(badge, 15.0, 0, TAU, 28, Color(tone, 1.0 if open else 0.4), 1.5, true)
 		var lit_name: bool = open or ahead
-		canvas.draw_string(DeepUi.caps_font(), badge + Vector2(-15, 4), numeral(key), HORIZONTAL_ALIGNMENT_CENTER, 30, 12, Color(tone, 1.0 if open else (0.7 if ahead else 0.45)))
+		canvas.draw_string(DeepUi.caps_font(), badge + Vector2(-15, 4), numeral(key), HORIZONTAL_ALIGNMENT_CENTER, 30, DeepUi.caps_size(12), Color(tone, 1.0 if open else (0.7 if ahead else 0.45)))
 		var name_x: float = badge.x + 26.0
 		canvas.draw_string(DeepUi.display_font(), Vector2(name_x, mid - 2), str(mine.get("name", key)), HORIZONTAL_ALIGNMENT_LEFT, 230, 19, DeepUi.PAPER if open else (DeepUi.MUTED if ahead else DeepUi.DIM))
 		var under: String = ("SEALED" if not open else ("BEATEN" if bool(record.get("boss", false)) else "OPEN"))
 		if daily:
 			## Short, to fit beside the longest biome's name: the whole map is today's.
 			under = "AHEAD" if ahead else ("BEATEN" if bool(record.get("boss", false)) else ("REACHED" if records.has(key) else "START"))
-		canvas.draw_string(DeepUi.caps_font(), Vector2(name_x, mid + 15), "%s  ·  %s" % [str(biome.name).to_upper(), under], HORIZONTAL_ALIGNMENT_LEFT, 240, 10, Color(tone, 0.85 if open else (0.6 if lit_name else 0.4)))
+		canvas.draw_string(DeepUi.caps_font(), Vector2(name_x, mid + 15), "%s  ·  %s" % [str(biome.name).to_upper(), under], HORIZONTAL_ALIGNMENT_LEFT, name_column, DeepUi.caps_size(10), Color(tone, 0.85 if open else (0.6 if lit_name else 0.4)))
 		## The depth track: how far down this mine the player has been, and its crowns.
-		var track_x: float = name_x + 238.0
+		var track_x: float = name_x + name_column - 2.0
 		var track_w: float = clampf(size.x - track_x - 150.0, 120.0, 380.0)
 		if ahead:
-			canvas.draw_string(DeepUi.body_font(), Vector2(track_x, mid + 4), "Not reached today", HORIZONTAL_ALIGNMENT_LEFT, track_w + 40.0, 13, DeepUi.MUTED)
+			canvas.draw_string(DeepUi.text_face(DeepUi.readable(13)), Vector2(track_x, mid + 4), "Not reached today", HORIZONTAL_ALIGNMENT_LEFT, track_w + 40.0, DeepUi.readable(13), DeepUi.MUTED)
 		elif not open:
-			canvas.draw_string(DeepUi.body_font(), Vector2(track_x, mid + 4), sealed_hint(key, hazard), HORIZONTAL_ALIGNMENT_LEFT, track_w + 40.0, 13, DeepUi.DIM)
+			canvas.draw_string(DeepUi.text_face(DeepUi.readable(13)), Vector2(track_x, mid + 4), sealed_hint(key, hazard), HORIZONTAL_ALIGNMENT_LEFT, track_w + 40.0, DeepUi.readable(13), DeepUi.DIM)
 		else:
 			_draw_track(canvas, key, record, Vector2(track_x, mid), track_w, chosen_one or (daily and key == deepest_today))
 		## What its rock gives up, and who is met down there.
 		var chip_x: float = track_x + track_w + 28.0
-		var chip := Rect2(Vector2(chip_x, mid - 12), Vector2(86, 24))
+		var chip_words: String = carat_words(key, hazard)
+		var chip_size: int = DeepUi.readable(12)
+		var chip_face: Font = DeepUi.text_face(chip_size)
+		var chip := Rect2(Vector2(chip_x, mid - 12), Vector2(maxf(86.0, 35.0 + chip_face.get_string_size(chip_words, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size).x), 24))
 		var chip_box := StyleBoxFlat.new()
 		chip_box.bg_color = Color(0, 0, 0, 0.38)
 		## A Hazard tier's heavier rock rings its chip in gold.
@@ -313,7 +322,7 @@ func _draw_earth() -> void:
 		DeepUi.facet(chip_box)
 		canvas.draw_style_box(chip_box, chip)
 		_glyph(canvas, "gem", chip.position + Vector2(15, 12), 12.0, Color(tone, 1.0 if open else 0.45))
-		canvas.draw_string(DeepUi.body_font(), chip.position + Vector2(25, 17), carat_words(key, hazard), HORIZONTAL_ALIGNMENT_LEFT, 58, 12, (DeepUi.ACCENT_HI if heavier else DeepUi.PAPER) if open else DeepUi.DIM)
+		canvas.draw_string(chip_face, chip.position + Vector2(25, 12 + chip_size * 0.36), chip_words, HORIZONTAL_ALIGNMENT_LEFT, chip.size.x - 28.0, chip_size, (DeepUi.ACCENT_HI if heavier else DeepUi.PAPER) if open else DeepUi.DIM)
 		_hotspots.append({"at": chip.get_center(), "radius": 30.0, "text": _carat_tip(key)})
 		if chosen_one:
 			_cage = Vector2(SHAFT_X, top + 4.0)
@@ -342,7 +351,7 @@ func _draw_earth() -> void:
 	var home := _home
 	canvas.draw_colored_polygon(PackedVector2Array([home + Vector2(-46, 0), home + Vector2(-46, -34), home + Vector2(0, -62), home + Vector2(46, -34), home + Vector2(46, 0)]), Color("241c16"))
 	canvas.draw_rect(Rect2(home + Vector2(22, -64), Vector2(10, 22)), Color("241c16"))
-	canvas.draw_string(DeepUi.caps_font(), home + Vector2(60, -10), "THE WORKSHOP", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DeepUi.ACCENT)
+	canvas.draw_string(DeepUi.caps_font(), home + Vector2(60, -10), "THE WORKSHOP", HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(12), DeepUi.ACCENT)
 	queue_redraw()
 
 func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector2, width: float, chosen_one: bool) -> void:
@@ -358,7 +367,7 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 		var reach: float = clampf(float(deepest) / 64.0, 0.0, 1.0)
 		if deepest > 0:
 			canvas.draw_rect(Rect2(Vector2(at.x, line_y - 3), Vector2(width * reach, 6)), Color(DeepUi.ACCENT, 0.85))
-		canvas.draw_string(DeepUi.body_font(), Vector2(at.x, at.y + 16), "Endless  ·  deepest %d  ·  a Warden every %d" % [deepest, DeepDescent.warden_every(mine)], HORIZONTAL_ALIGNMENT_LEFT, width + 60.0, 11, DeepUi.MUTED)
+		canvas.draw_string(DeepUi.text_face(DeepUi.readable(11)), Vector2(at.x, at.y + 16), "Endless  ·  deepest %d  ·  a Warden every %d" % [deepest, DeepDescent.warden_every(mine)], HORIZONTAL_ALIGNMENT_LEFT, width + 60.0, DeepUi.readable(11), DeepUi.MUTED)
 		if deepest > 0:
 			_lanterns.append(Vector2(at.x + width * reach, line_y) if chosen_one else Vector2(-1, -1))
 		return
@@ -396,8 +405,8 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 		_glyph(canvas, "crown", spot, radius * 1.2, DeepUi.ACCENT if won else DeepUi.BAD)
 		_hotspots.append({"at": spot, "radius": radius, "text": "Depth %d: %s%s" % [depth, who, " (beaten)" if won else ""]})
 	var wardens_won: int = beaten.size()
-	canvas.draw_string(DeepUi.body_font(), Vector2(at.x, at.y + 16), "deepest %d of %d  ·  %d of %d crowns" % [deepest, bottom, mini(wardens_won, crowns.size()), crowns.size()],
-		HORIZONTAL_ALIGNMENT_LEFT, width + 40.0, 11, DeepUi.MUTED)
+	canvas.draw_string(DeepUi.text_face(DeepUi.readable(11)), Vector2(at.x, at.y + 16), "deepest %d of %d  ·  %d of %d crowns" % [deepest, bottom, mini(wardens_won, crowns.size()), crowns.size()],
+		HORIZONTAL_ALIGNMENT_LEFT, width + 40.0, DeepUi.readable(11), DeepUi.MUTED)
 
 func _carat_tip(key: String) -> String:
 	var band: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(DeepContent.mine(key), hazard), 1)
@@ -437,7 +446,7 @@ func _draw_hazard_gauge(canvas: CanvasItem, surface_y: float) -> void:
 	var said: String = "The ordinary map. Pick a tier to make it harder."
 	if hazard > 0:
 		said = str(adds.get("name", "")) + (", and %d more" % (hazard - 1) if hazard > 1 else "")
-	canvas.draw_string(DeepUi.body_font(), Vector2(left + head_w + 12.0, label_y), said, HORIZONTAL_ALIGNMENT_LEFT, right - left - head_w - 12.0, 12, DeepUi.PAPER if hazard > 0 else DeepUi.MUTED)
+	canvas.draw_string(DeepUi.text_face(DeepUi.readable(12)), Vector2(left + head_w + 12.0, label_y), said, HORIZONTAL_ALIGNMENT_LEFT, right - left - head_w - 12.0, DeepUi.readable(12), DeepUi.PAPER if hazard > 0 else DeepUi.MUTED)
 	_hotspots.append({"rect": Rect2(Vector2(left, label_y - 14.0), Vector2(right - left, 18.0)), "text": hazard_list(hazard)})
 	for tier in range(tiers + 1):
 		var centre := Vector2(left + step * (float(tier) + 0.5), row_y)

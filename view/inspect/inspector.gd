@@ -187,7 +187,7 @@ static func lapidary(character_key: String) -> void:
 func _frame(tone: Color, fanfare: Dictionary) -> void:
 	layer = 60
 	var root := Control.new()
-	root.theme = DeepUi.theme()
+	DeepUi.use_theme(root)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
@@ -757,7 +757,11 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	if bool(effective.flawless) and skill.get("flawless", null) is Dictionary:
 		var flawless := DeepUi.hbox(does, 6)
 		DeepUi.icon(flawless, "star", 14, DeepUi.tier_color("PEERLESS"))
-		DeepUi.effect_text(flawless, "Flawless: " + DeepStone.flawless_text(item, opts.get("context", {})), 13, DeepUi.tier_color("PEERLESS"))
+		## Its own column, like the rungs below, so the rich text is not squeezed to nothing
+		## beside the star.
+		var flawless_said := DeepUi.vbox(flawless, 0)
+		flawless_said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.effect_text(flawless_said, "Flawless: " + DeepStone.flawless_text(item, opts.get("context", {})), 13, DeepUi.tier_color("PEERLESS"))
 	## When it fires: the whole ladder, with the rung this stone stands on.
 	var fires := _section("cut", "When it fires")
 	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
@@ -770,7 +774,11 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		var name_label := DeepUi.label(cells, DeepContent.cut_name(rung), 13, DeepUi.ACCENT_HI if here else DeepUi.DIM)
 		name_label.custom_minimum_size.x = 64
 		DiceIcons.build(cells, described, 18, DeepUi.PAPER if here else DeepUi.MUTED)
-		DeepUi.wrap(cells, str(described.words), 12, DeepUi.PAPER if here else DeepUi.DIM).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## Its own column, so the rich text (keywords and their hints) stretches instead of
+		## collapsing beside the rung name and dice.
+		var said := DeepUi.vbox(cells, 0)
+		said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DeepUi.effect_text(said, str(described.words), 12, DeepUi.PAPER if here else DeepUi.DIM)
 	if step > int(item.get("cut", 0)):
 		DeepUi.stat(fires, "spark", "It is judged %s above its cut." % DeepUi.plural(step - int(item.get("cut", 0)), "rung"), DeepUi.INFO, 12)
 	var cut_override_mods: Array = mods.filter(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "cut_override")
@@ -810,6 +818,10 @@ static func kept_stone(item: Dictionary) -> Dictionary:
 
 func _open_compare(item: Dictionary, kept: Dictionary) -> void:
 	## Compare in place, then return to the stone's details instead of adding another page.
+	## Only one of Compare and the grade reveal stands over the page at a time.
+	if _reveal != null and _reveal.visible:
+		_kill_reveal_tweens()
+		_reveal.visible = false
 	if not _pages.is_empty():
 		_compare_return_page = _pages[0].box
 		_compare_return_page.visible = false
@@ -839,7 +851,7 @@ func _open_compare(item: Dictionary, kept: Dictionary) -> void:
 func _close_compare() -> void:
 	if _compare_view != null:
 		_compare_view.visible = false
-	if is_instance_valid(_compare_return_page):
+	if is_instance_valid(_compare_return_page) and not (_reveal != null and _reveal.visible):
 		_compare_return_page.visible = true
 	_compare_return_page = null
 	DeepAudio.play("ui_close", {"volume": 0.5})
@@ -917,6 +929,9 @@ func _open_reveal(item: Dictionary) -> void:
 	## A second click while the last run is still animating must not let a late callback
 	## reach into a row this call is about to free, so every tracked tween dies first.
 	_kill_reveal_tweens()
+	if _compare_view != null and _compare_view.visible:
+		_compare_view.visible = false
+		_compare_return_page = null
 	if not _pages.is_empty():
 		_pages[0].box.visible = false
 	if _reveal == null:
@@ -934,7 +949,7 @@ func _close_reveal() -> void:
 	_kill_reveal_tweens()
 	if _reveal != null:
 		_reveal.visible = false
-	if not _pages.is_empty():
+	if not _pages.is_empty() and not (_compare_view != null and _compare_view.visible):
 		_pages[0].box.visible = true
 	DeepAudio.play("ui_close", {"volume": 0.5})
 

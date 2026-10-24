@@ -316,11 +316,11 @@ static func _go(home: Control, box: VBoxContainer) -> void:
 		DeepUi.stat(box, "coin", "Your %d gold can't cover the insurance: turn it off to go down." % purse, DeepUi.BAD, 12)
 	elif not short.is_empty():
 		var names: Array = short.map(func(id: Variant) -> String: return "You" if str(id) == home.local_id else str(lobby.members.get(id, {}).get("name", id)))
-		DeepUi.stat(box, "coin", "%s can't pay the fare to %s. Pick a mine everyone can afford." % [" and ".join(names), DeepContent.mine_name(home.chosen_mine())], Color("ffb04a"), 12)
+		_warn(box, "coin", "%s can't pay the fare to %s. Pick a mine everyone can afford." % [_who(names), DeepContent.mine_name(home.chosen_mine())], Color("ffb04a"), " and ".join(names))
 	elif not _hazard_blocked(home).is_empty():
 		var names: Array = _hazard_blocked(home).map(func(id: Variant) -> String: return "You" if str(id) == home.local_id else str(lobby.members.get(id, {}).get("name", id)))
-		DeepUi.stat(box, "lock", "%s %s not opened %s on Hazard %d. Pick a mine everyone has." % [" and ".join(names), "have" if names.size() > 1 or names[0] == "You" else "has",
-			DeepContent.mine_name(home.chosen_mine()), tier], Color("ffb04a"), 12)
+		_warn(box, "lock", "%s %s not opened %s on Hazard %d. Pick a mine everyone has." % [_who(names), "have" if names.size() > 1 or names[0] == "You" else "has",
+			DeepContent.mine_name(home.chosen_mine()), tier], Color("ffb04a"), " and ".join(names))
 	elif not home.can_start:
 		DeepUi.stat(box, "hourglass", "Waiting for everyone to be ready.", DeepUi.MUTED, 12)
 	var seed_row := DeepUi.hbox(box, 8)
@@ -388,3 +388,14 @@ static func _insurance_toggle(home: Control, parent: Node, insured: bool) -> But
 	## Last: the price tag widens whatever look the button ends up with.
 	DeepUi.priced(cover, str(price))
 	return cover
+
+static func _who(names: Array) -> String:
+	## One delver by name; several by count, their names in the warning's tooltip.
+	return str(names[0]) if names.size() == 1 else "%d of you" % names.size()
+
+static func _warn(box: Node, glyph: String, text: String, color: Color, tooltip: String) -> void:
+	## A warning about the party. It wraps under its mark rather than pushing the page wider.
+	var row := DeepUi.stat(box, glyph, text, color, 12, tooltip)
+	var words: Label = row.get_node("Value")
+	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL

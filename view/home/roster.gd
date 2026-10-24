@@ -46,6 +46,10 @@ class Portrait extends Control:
 	## ones show the whole bust standing on the plate's bottom edge. Locked plates go dark and
 	## wear a lock; the one going down wears a crown. Key and mood can change after it is built,
 	## so a panel that follows a player keeps one plate and only swaps the face.
+	## A locked delver's face (or stone) multiplied by this: a flat shadow, nearly black.
+	const SILHOUETTE := Color(0.02, 0.022, 0.032, 1.0)
+	## The plate behind a locked delver: lit, so their shadow reads against it.
+	const BACKLIT := Color(0.13, 0.15, 0.21, 0.96)
 	var key: String = "":
 		set(value):
 			if value == key:
@@ -124,7 +128,7 @@ class Portrait extends Control:
 			_thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			_thumb.position = Vector2((edge.x - reach) * 0.5, (edge.y - reach) * 0.46)
 			if locked:
-				_thumb.modulate = Color(0.32, 0.33, 0.4, 0.9)
+				_thumb.modulate = SILHOUETTE
 			add_child(_thumb)
 			move_child(_thumb, 0)
 		queue_redraw()
@@ -158,7 +162,8 @@ class Portrait extends Control:
 		var whole := Rect2(Vector2.ZERO, size)
 		var border: Color = ring if ring.a > 0.0 else (DeepUi.ACCENT if selected else (Color(tint, 0.55) if not locked else DeepUi.LINE))
 		var corner: int = _corner()
-		var plate := DeepUi.raised(Color(0.05, 0.055, 0.08, 0.96), border, corner, 0, 0.35)
+		## A locked delver stands as a shadow against a lit plate, so the plate is lighter.
+		var plate := DeepUi.raised(Color(0.05, 0.055, 0.08, 0.96) if not locked else BACKLIT, border, corner, 0, 0.35)
 		var heavy: bool = selected or ring.a > 0.0
 		if heavy:
 			plate.set_border_width_all(2)
@@ -167,14 +172,15 @@ class Portrait extends Control:
 		draw_style_box(plate, whole)
 		var light: Color = tint if not locked else DeepUi.DIM
 		var reach: float = w * 1.5
-		draw_texture_rect(DeepUi.glow_texture(), Rect2(Vector2(w * 0.5 - reach * 0.5, h * 0.42 - reach * 0.5), Vector2(reach, reach)), false, Color(light, 0.24 if not locked else 0.08))
+		draw_texture_rect(DeepUi.glow_texture(), Rect2(Vector2(w * 0.5 - reach * 0.5, h * 0.42 - reach * 0.5), Vector2(reach, reach)), false, Color(light, 0.24 if not locked else 0.6))
 		if _texture == null:
 			## No face: a ring of the plate's light under the stone standing in for one.
 			var stand: float = minf(w, h) * 0.7
 			draw_arc(Vector2(w * 0.5, (h - stand) * 0.46 + stand * 0.5), stand * 0.55, 0, TAU, 48, Color(light, 0.35 if not locked else 0.12), 2.0, true)
 			return
 		var inside := Rect2(Vector2(1, 1), size - Vector2(2, 3)) if not heavy else whole.grow(-2.0)
-		var shade: Color = Color(0.3, 0.31, 0.38, 0.92) if locked else Color.WHITE
+		## Locked: the face as a flat silhouette, its colors multiplied down to the plate's dark.
+		var shade: Color = SILHOUETTE if locked else Color.WHITE
 		if _from != null and _fade < 1.0:
 			_draw_face(_from, inside, corner - 1, shade)
 		_draw_face(_texture, inside, corner - 1, Color(shade, shade.a * _fade))
@@ -187,7 +193,8 @@ class Portrait extends Control:
 	func _draw_face(picture: Texture2D, into: Rect2, corner: int, shade: Color) -> void:
 		## The face cut to the plate's shape. The smaller the plate, the closer it comes in on
 		## the face (from the whole bust at 120 and over, to the face alone at about 36).
-		var zoom: float = clampf(remap(minf(into.size.x, into.size.y), 120.0, 36.0, 1.0, 1.65), 1.0, 1.65)
+		## A silhouette is known by its outline, so a locked delver always shows the whole bust.
+		var zoom: float = 1.0 if locked else clampf(remap(minf(into.size.x, into.size.y), 120.0, 36.0, 1.0, 1.65), 1.0, 1.65)
 		var closeness: float = (zoom - 1.0) / 0.65
 		var side: float = 1.0 / zoom
 		var span := Vector2(side, side)
