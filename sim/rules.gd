@@ -59,6 +59,9 @@ extends RefCounted
 ##   grow_poison(enemy: its Poison grows by amount%)
 ##   fire_birthstone(the Birthstone fires now as well, at amount% of the Resonance so far)
 ##   spectrum(one gift for every color that has fired this turn, at amount%; `every_gem` counts gems)
+##   invert_previous(amount% of what the gem in the socket before it did on its last go, turned
+##     around: damage to Block, Block and Retain to damage, healing and Regeneration to Poison,
+##     Poison to healing, Spikes and Marked swapped, Strength and Curse swapped)
 ##   stone_chance(amount% a creature fallen this turn that a raw stone drops; `elite` rolls it richer)
 ##   double_resonance(every gem after it this turn rings twice as loud)  keep_phantoms(this turn's
 ##     phantoms stay in the hand into the next)
@@ -142,7 +145,7 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"reflect", "mirror", "absorb_color", "blank_face", "roll_again", "end_action",
 	"phantom_low", "phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "envenom", "gather_poison", "poison_tick",
 	"grow_poison", "fire_birthstone", "spectrum", "stone_chance", "double_resonance", "keep_phantoms",
-	"bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows"]
+	"bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous"]
 ## The creature-only kinds: a skill or an inclusion may not use them.
 const CREATURE_KINDS: Array = ["summon", "purge", "burrow", "festering", "scorched", "burn", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",

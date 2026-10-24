@@ -285,6 +285,148 @@ func white() -> void:
 	f.player.fired_colors = [["RED"], ["BLUE"], ["RED"]]
 	fire(f, "SPECTRUM", [1, 2, 3, 4, 5], true)
 	check(int(f.foe.hp) == 1000 - 9, "Flawless Spectrum counts every gem: two Reds, twice the damage, swollen by Flawless")
+	invert()
+
+func turn_around(f: Dictionary, did: Dictionary, carat: int = 1, flawless: bool = false) -> Dictionary:
+	## An Invert at socket 1 reading what the gem at socket 0 is said to have done.
+	equip(f, "CASCADE", 0)
+	equip(f, "INVERT", 1, flawless, carat)
+	f.player.gem_results = {"gem0": did}
+	rolls(f, [5, 5, 1, 2, 3])
+	return DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+
+func pair_then_invert(f: Dictionary, left: String, values: Array) -> Dictionary:
+	## The gem at socket 0 fires for real on this hand, then the Invert after it.
+	equip(f, left, 0)
+	equip(f, "INVERT", 1)
+	rolls(f, values)
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	return DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+
+func invert() -> void:
+	## Each thing it reads, turned around at half.
+	var f: Dictionary = setup()
+	check(fired(turn_around(f, {"damage": 10})) and int(f.player.block) == 5, "Invert: damage dealt becomes Block")
+	f = setup()
+	turn_around(f, {"block": 10})
+	check(int(f.foe.hp) == 995, "Block gained becomes damage on the target")
+	f = setup()
+	turn_around(f, {"block": 6, "retain": 4})
+	check(int(f.foe.hp) == 995, "Retain counts as Block")
+	f = setup()
+	turn_around(f, {"heal": 10})
+	check(int(f.foe.statuses.get("poison", 0)) == 5, "healing becomes Poison on the target")
+	f = setup()
+	turn_around(f, {"regeneration": 4})
+	check(int(f.foe.statuses.get("poison", 0)) == 2, "Regeneration becomes Poison too")
+	f = setup()
+	f.player.hp = 900
+	turn_around(f, {"poison": 10})
+	check(int(f.player.hp) == 905, "Poison applied becomes healing")
+	f = setup()
+	turn_around(f, {"spikes": 10})
+	check(int(f.foe.statuses.get("marked", 0)) == 5, "Spikes become Marked on the target")
+	f = setup()
+	turn_around(f, {"marked": 10})
+	check(int(f.player.statuses.get("spikes", 0)) == 5, "Marked becomes Spikes")
+	f = setup()
+	turn_around(f, {"strength": 10})
+	check(int(f.foe.statuses.get("curse", 0)) == 5, "Strength becomes Curse on the target")
+	f = setup()
+	turn_around(f, {"curse": 4})
+	check(int(f.player.statuses.get("strength", 0)) == 2, "Curse becomes Strength")
+	f = setup()
+	var small: Dictionary = turn_around(f, {"damage": 1})
+	check(fired(small) and int(f.player.block) == 0 and bool(small.effects[0].get("nothing", false)), "a share that rounds down to nothing gives nothing")
+
+	## Its share grows by carat steps; Flawless is all of it.
+	for spec in [[1, 50], [13, 100], [24, 200]]:
+		f = setup()
+		turn_around(f, {"damage": 100}, int(spec[0]))
+		check(int(f.player.block) == int(spec[1]), "at %d carats it gives back %d%%: %d" % [int(spec[0]), int(spec[1]), int(f.player.block)])
+		check(DeepStone.text(f.player.rail[1]).contains("%d%%" % int(spec[1])), "and its card says so: " + DeepStone.text(f.player.rail[1]))
+	f = setup()
+	turn_around(f, {"damage": 100}, 1, true)
+	## Flawless also swells the stone's magnitude by half, which a carat step reads (116%).
+	check(int(f.player.block) == 116, "Flawless: all of it, and the Flawless weight on top: %d" % int(f.player.block))
+	f = setup()
+	turn_around(f, {"damage": 100}, 13, true)
+	check(int(f.player.block) >= 200, "Flawless at 13 carats: twice it at least: %d" % int(f.player.block))
+
+	## It stays dark with nothing beside it to turn around, even when forced.
+	f = setup()
+	equip(f, "INVERT", 1)
+	rolls(f, [5, 5, 1, 2, 3])
+	check(not fired(DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)), "dark with the socket before it empty")
+	check(not fired(DeepBattle.resolve_gem(f.state, f.player, 1, {"force": true}, f.rng.dice)), "even when it is forced to fire")
+	f = setup()
+	equip(f, "INVERT", 0)
+	rolls(f, [5, 5, 1, 2, 3])
+	check(not fired(DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)), "dark in the first socket")
+	f = setup()
+	var dark: Dictionary = pair_then_invert(f, "TEMPER", [5, 5, 1, 2, 3])
+	check(not fired(dark) and str(dark.get("reason", "")).contains("turn around"), "dark when the gem before it fizzled: " + str(dark.get("reason", "")))
+	f = setup()
+	check(not fired(pair_then_invert(f, "CASCADE", [5, 5, 1, 2, 3])), "dark when the gem before it only gave a reroll")
+	f = setup()
+	f.foe.statuses.ward = 1
+	check(not fired(pair_then_invert(f, "VENOM", [6, 6, 1, 2, 3])), "dark when Ward turned the gem before it's Poison away")
+	f = setup()
+	check(not fired(pair_then_invert(f, "TITHE", [6, 6, 1, 2, 3])), "Pyrite turns into nothing")
+
+	## What it reads is what really happened.
+	f = setup()
+	f.foe.block = 4
+	equip(f, "STRIKE", 0)
+	equip(f, "INVERT", 1)
+	rolls(f, [5, 5, 1, 2, 3])
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	var landed: int = 1000 - int(f.foe.hp) + 4
+	DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+	check(landed > 4 and int(f.player.block) == landed / 2, "Strike's damage, Block knocked off included, comes back as Block: %d of %d" % [int(f.player.block), landed])
+	f = setup()
+	pair_then_invert(f, "GUARD", [6, 6, 1, 2, 3])
+	check(int(f.foe.hp) == 997, "Guard's 6 Block comes back as 3 damage")
+	f = setup()
+	f.player.hp = 997
+	pair_then_invert(f, "MEND", [6, 6, 7, 7, 6])
+	check(int(f.foe.statuses.get("poison", 0)) == 1, "Mend's healing past full is not counted: 3 healed, 1 Poison")
+	f = setup()
+	f.player.hp = 900
+	pair_then_invert(f, "VENOM", [6, 6, 1, 2, 3])
+	check(int(f.player.hp) == 903 and int(f.foe.statuses.get("poison", 0)) == 6, "Venom's 6 Poison comes back as 3 healing")
+	f = setup()
+	pair_then_invert(f, "ETCH", [6, 6, 1, 2, 3])
+	check(int(f.player.statuses.get("spikes", 0)) == 1, "Etch's 2 Marked come back as 1 Spikes")
+
+	## Only the most recent go counts, and a replay reads it again.
+	f = setup()
+	equip(f, "GUARD", 0)
+	equip(f, "INVERT", 1)
+	rolls(f, [8, 8, 1, 2, 3])
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	rolls(f, [4, 4, 1, 2, 3])
+	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+	DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
+	check(int(f.foe.hp) == 998, "it reads the gem before it's latest go (4 Block, not 8)")
+	DeepBattle.resolve_gem(f.state, f.player, 1, {"retrigger": true}, f.rng.dice)
+	check(int(f.foe.hp) == 996, "and a replay of the Invert reads that go again")
+	DeepBattle._perform(f.state, {"kind": "rail_begin", "unit": f.player.id}, f.rng.dice, f.rng.creatures)
+	check(f.player.get("gem_results", {}).is_empty(), "what the gems did is forgotten as the next rail begins")
+
+	## The forecast sees it too.
+	f = setup()
+	equip(f, "GUARD", 0)
+	equip(f, "INVERT", 1)
+	rolls(f, [6, 6, 1, 2, 3])
+	var ahead: Dictionary = DeepBattle.forecast(f.state, f.player.id)
+	check(bool(ahead.sockets[1].active) and int(ahead.totals.damage) == 3, "the forecast lights the Invert and counts its damage: %d" % int(ahead.totals.damage))
+	check(int(f.foe.hp) == 1000 and int(f.player.block) == 0, "and changes nothing")
+	f = setup()
+	equip(f, "TEMPER", 0)
+	equip(f, "INVERT", 1)
+	rolls(f, [6, 6, 1, 2, 3])
+	check(not bool(DeepBattle.forecast(f.state, f.player.id).sockets[1].active), "and leaves it dark when the gem before it will not fire")
 
 # --- Gold -----------------------------------------------------------------------------------------
 

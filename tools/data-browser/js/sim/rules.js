@@ -26,7 +26,7 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action',
 	'phantom_low', 'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'envenom', 'gather_poison', 'poison_tick',
 	'grow_poison', 'fire_birthstone', 'spectrum', 'stone_chance', 'double_resonance', 'keep_phantoms',
-	'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows'];
+	'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows', 'invert_previous'];
 // The creature-only kinds: a skill or an inclusion may not use them.
 export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',

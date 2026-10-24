@@ -69,7 +69,14 @@ const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "ret
 	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise",
 	"fire_neighbours", "force_after", "absorbed",
 	"phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "fire_birthstone", "spectrum", "stone_chance",
-	"double_resonance", "keep_phantoms", "bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows"]
+	"double_resonance", "keep_phantoms", "bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous"]
+## What an Invert gives back for what the gem before it did, in the order it gives it, as
+## [effect kind, what it reads, target]. Retain is Block that stays; Regeneration is healing to come.
+const INVERTED: Array = [["block", ["damage"], "self"], ["damage", ["block", "retain"], "enemy"],
+	["poison", ["heal", "regeneration"], "enemy"], ["heal", ["poison"], "self"], ["marked", ["spikes"], "enemy"],
+	["spikes", ["marked"], "self"], ["curse", ["strength"], "enemy"], ["strength", ["curse"], "self"]]
+## What a gem does to the other side, as an Invert reads it; everything else it reads is given to its own.
+const INVERTED_HOSTILE: Array = ["damage", "poison", "marked", "curse"]
 ## The six colors and what a Spectrum gives for each of them, as [effect kind, amount, target].
 const SPECTRUM_GIFTS: Dictionary = {"RED": ["damage", 3, "enemy"], "BLUE": ["block", 3, "self"], "GREEN": ["heal", 3, "self"],
 	"VIOLET": ["poison", 2, "enemy"], "GOLD": ["gold", 2, "self"], "WHITE": ["resonance", 1, "self"]}
@@ -629,6 +636,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.damp_carry = 0
 			unit.force_after = {}
 			unit.fired_colors = []
+			unit.gem_results = {}
 			unit.resonance_mult = 1
 			if str(unit.get("passive", {}).get("kind", "")) == "first_gem_cut_step":
 				unit.cut_step_bonus = int(unit.passive.get("amount", 1))
@@ -1028,6 +1036,10 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		if int(effect.get("hp_cost", 0)) > 0 and ev.active and int(effect.hp_cost) >= int(unit.hp):
 			ev.active = false
 			ev.reason = "Not enough health."
+		## An Invert with nothing beside it to turn around stays dark, however it was woken.
+		if str(effect.get("kind", "")) == "invert_previous" and ev.active and _left_results(unit, socket).is_empty():
+			ev.active = false
+			ev.reason = "The gem before it did nothing to turn around."
 	var nullified: bool = bool(unit.get("nullify_next", false))
 	## A Prelude hands the next gem to resolve its extra goes, and is spent doing it.
 	var promised: int = int(unit.get("repeat_next", 0))
@@ -1093,6 +1105,9 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	## so the one that sets it up is not paid for itself.
 	var answers: Array = unit.get("after_fire", []).duplicate(true)
 	unit.fired_count = int(unit.get("fired_count", 0)) + 1
+	## What this go does, kept for an Invert in the socket after it (see `_note_result`).
+	var outer_results: Variant = unit.get("firing_results", null)
+	unit.firing_results = {}
 	## Backlash: with a Riftling Swarm in the room, every gem that fires costs its owner a point
 	## of blood, wherever it sits on the rail. Never the last point.
 	var backlash: int = 0
@@ -1137,6 +1152,14 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	var crowned: Array = _crowns_changed(unit, crowns_before) if all_or_nothing(unit) else []
 	if not done(state):
 		results.append_array(_answer_fire(state, unit, answers, rng))
+	## Only its most recent go is kept: a replay of it overwrites what the first go did.
+	if not unit.has("gem_results"):
+		unit.gem_results = {}
+	unit.gem_results[str(stone.get("id", ""))] = unit.firing_results
+	if outer_results is Dictionary:
+		unit.firing_results = outer_results
+	else:
+		unit.erase("firing_results")
 	if not dry:
 		## The tally: one more fire for the stone, and what this one did against its best and
 		## the run's biggest hit.
@@ -1866,6 +1889,8 @@ static func blows(effects: Array) -> int:
 	for effect in effects:
 		if str(effect.get("kind", "")) == "damage":
 			count += maxi(1, int(effect.get("repeat", 1))) * (1 + effect.get("splash", []).size())
+		elif str(effect.get("kind", "")) == "invert_previous":
+			count += blows(effect.get("hits", []))
 	return count
 
 static func hit_pace(effects: Array) -> float:
@@ -2530,6 +2555,24 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.hits = given
 			if given.is_empty():
 				out.nothing = true
+		"invert_previous":
+			## An Invert: a share of what the gem before it did on its last go, each part turned around.
+			var did: Dictionary = _left_results(unit, socket)
+			var given: Array = []
+			for turn in INVERTED:
+				var read: int = 0
+				for key in turn[1]:
+					read = DeepRules.sat_add(read, int(did.get(key, 0)))
+				var worth: int = DeepRules.sat_muldiv(read, maxi(0, amount), 100)
+				if worth <= 0:
+					continue
+				given.append_array(_apply(state, unit, {"kind": str(turn[0]), "amount": worth, "target": str(turn[2]), "repeat": 1}, rng))
+				if done(state):
+					break
+			out.read = did
+			out.hits = given
+			if given.is_empty():
+				out.nothing = true
 		"stone_chance":
 			## A Placer: every creature fallen this turn may leave a raw stone. Past a sure
 			## stone, what is left is the chance of a second.
@@ -2581,6 +2624,28 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			elif previous_socket < 0:
 				out.nothing = true
 	return out
+
+static func _left_results(unit: Dictionary, socket: int) -> Dictionary:
+	## What the gem in the socket before this one did on its last go this turn, as an Invert
+	## reads it: only what came to anything. Empty if that socket is empty or never fired.
+	if socket <= 0 or socket - 1 >= unit.rail.size() or not unit.rail[socket - 1] is Dictionary:
+		return {}
+	var did: Dictionary = unit.get("gem_results", {}).get(str(unit.rail[socket - 1].get("id", "")), {})
+	var out: Dictionary = {}
+	for key in did:
+		if int(did[key]) > 0:
+			out[key] = int(did[key])
+	return out
+
+static func _note_result(source: Dictionary, target: Dictionary, key: String, amount: int) -> void:
+	## What the gem firing now has really done, for an Invert after it: damage that landed
+	## (Block knocked off included) and the debuffs that stuck on the other side; the Block,
+	## healing and buffs it gave its own side.
+	if amount <= 0 or not source.get("firing_results", null) is Dictionary:
+		return
+	if (key in INVERTED_HOSTILE) == (str(source.get("side", "")) == str(target.get("side", ""))):
+		return
+	source.firing_results[key] = DeepRules.sat_add(int(source.firing_results.get(key, 0)), amount)
 
 # --- the shared effect pipeline -------------------------------------------------------------
 
@@ -2834,6 +2899,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			target.block = DeepRules.sat_add(int(target.block), amount)
 			out.block_after = target.block
 			tally_add(target, "block", amount)
+			_note_result(source, target, "block", amount)
 			if str(source.get("side", "")) == "player":
 				gem_tally(source, "block", amount)
 			reactions.result_block = DeepRules.sat_add(int(reactions.get("result_block", 0)), amount)
@@ -2848,6 +2914,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 		"heal":
 			out.healed = _heal(target, amount)
 			out.hp_after = target.hp
+			_note_result(source, target, "heal", int(out.healed))
 			if str(source.get("side", "")) == "player":
 				source.healed = DeepRules.sat_add(int(source.get("healed", 0)), int(out.healed))
 			## What would heal past full: block for a Wellspring, a blow for a Flawless Thirst.
@@ -2896,9 +2963,11 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				if not target.has("deferred_decay"):
 					target.deferred_decay = {}
 				target.deferred_decay[kind] = true
-			target.statuses[kind] = DeepRules.sat_add(int(target.statuses.get(kind, 0)), maxi(0, amount))
+			var had: int = int(target.statuses.get(kind, 0))
+			target.statuses[kind] = DeepRules.sat_add(had, maxi(0, amount))
 			if kind == "curse":
 				target.statuses[kind] = mini(DeepRules.CURSE_MAX_STACKS, int(target.statuses[kind]))
+			_note_result(source, target, kind, int(target.statuses[kind]) - had)
 			if kind == "lifeline" and bool(effect.get("revive_block", false)):
 				target.statuses.lifeline_block = DeepRules.sat_add(int(target.statuses.get("lifeline_block", 0)), amount)
 			out[kind + "_after"] = target.statuses[kind]
@@ -2930,6 +2999,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			var had: int = int(target.statuses.get("poison", 0))
 			target.statuses.poison = DeepRules.sat_add(had, DeepRules.sat_muldiv(had, maxi(0, amount), 100))
 			out.poison_after = int(target.statuses.poison)
+			_note_result(source, target, "poison", int(target.statuses.poison) - had)
 		"max_hp":
 			target.max_hp = DeepRules.sat_add(int(target.max_hp), maxi(0, amount))
 			target.hp = DeepRules.sat_add(int(target.hp), maxi(0, amount))
@@ -2945,8 +3015,10 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			target.statuses.ward = mini(99, int(target.statuses.get("ward", 0)) + maxi(0, amount))
 			out.ward_after = target.statuses.ward
 		"retain":
-			target.statuses.retain = mini(20, int(target.statuses.get("retain", 0)) + maxi(0, amount))
+			var kept: int = int(target.statuses.get("retain", 0))
+			target.statuses.retain = mini(20, kept + maxi(0, amount))
 			out.retain_after = target.statuses.retain
+			_note_result(source, target, "retain", int(target.statuses.retain) - kept)
 		"clouded":
 			if str(target.get("side", "")) == "enemy":
 				var moves: Array = DeepCreatures.moves_for(target)
@@ -3564,6 +3636,8 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 	target.hp = int(target.hp) - loss
 	var rescued: int = _lifeline(target)
 	out.merge({"absorbed": absorbed, "hp_loss": loss, "hp_after": target.hp, "block_after": target.block}, true)
+	if not reactive:
+		_note_result(source, target, "damage", DeepRules.sat_add(absorbed, loss))
 	if piercing:
 		out.piercing = true
 	if rescued > 0:
@@ -4186,6 +4260,7 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 	unit.damp_carry = 0
 	unit.force_after = {}
 	unit.fired_colors = []
+	unit.gem_results = {}
 	unit.resonance_mult = 1
 	var starting_pyrite: int = DeepRules.pyrite(unit)
 	var sockets: Array = []
@@ -4228,6 +4303,11 @@ static func forecast(state: Dictionary, player_id: String) -> Dictionary:
 				if str(effect.get("kind", "")) == "appraise":
 					for hit in effect.get("hits", []):
 						totals.damage += int(hit.get("raw", 0))
+				if str(effect.get("kind", "")) == "invert_previous":
+					for hit in effect.get("hits", []):
+						var turned: String = str(hit.get("kind", ""))
+						if totals.has(turned):
+							totals[turned] += int(hit.get("raw", 0)) if turned == "damage" else int(hit.get("amount", 0))
 				var kind: String = str(effect.get("kind", ""))
 				if totals.has(kind):
 					var amount: int = int(effect.get("amount", 0))

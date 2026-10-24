@@ -30,7 +30,13 @@ export const SELF_KINDS = ['amplify_next', 'cut_step_next', 'grant_reroll', 'ret
 	'coin_flip', 'resonance', 'replay_color', 'replay_fizzled', 'rank_buff', 'repeat_next', 'void_copy', 'gem_rank', 'upgrade_faces', 'stake', 'appraise',
 	'fire_neighbours', 'force_after', 'absorbed',
 	'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'fire_birthstone', 'spectrum', 'stone_chance',
-	'double_resonance', 'keep_phantoms', 'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows'];
+	'double_resonance', 'keep_phantoms', 'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows', 'invert_previous'];
+// What an Invert gives back for what the gem before it did, in the order it gives it, as
+// [effect kind, what it reads, target] (DeepBattle.INVERTED).
+const INVERTED = [['block', ['damage'], 'self'], ['damage', ['block', 'retain'], 'enemy'],
+	['poison', ['heal', 'regeneration'], 'enemy'], ['heal', ['poison'], 'self'], ['marked', ['spikes'], 'enemy'],
+	['spikes', ['marked'], 'self'], ['curse', ['strength'], 'enemy'], ['strength', ['curse'], 'self']];
+const INVERTED_HOSTILE = ['damage', 'poison', 'marked', 'curse'];
 // The six colors and what a Spectrum gives for each, as [effect kind, amount, target].
 const SPECTRUM_GIFTS = { RED: ['damage', 3, 'enemy'], BLUE: ['block', 3, 'self'], GREEN: ['heal', 3, 'self'], VIOLET: ['poison', 2, 'enemy'], GOLD: ['gold', 2, 'self'], WHITE: ['resonance', 1, 'self'] };
 const DROPS_PER_SIZE = 3;
@@ -264,6 +270,7 @@ function resetRail(unit) {
 	unit.socket_plays = {};
 	unit.force_after = {};
 	unit.fired_colors = [];
+	unit.gem_results = {};
 	unit.resonance_mult = 1;
 }
 
@@ -381,6 +388,8 @@ export function resolveGem(state, unit, socket, opts, rng) {
 		if ((I(effect.cost)) > Rules.pyrite(unit)) { ev.active = false; ev.reason = 'Not enough Pyrite.'; }
 		// A gem that costs blood never takes the last of it: it stays dark instead.
 		if ((I(effect.hp_cost)) > 0 && ev.active && (I(effect.hp_cost)) >= (I(unit.hp))) { ev.active = false; ev.reason = 'Not enough health.'; }
+		// An Invert with nothing beside it to turn around stays dark, however it was woken.
+		if (effect.kind === 'invert_previous' && ev.active && isEmpty(leftResults(unit, socket))) { ev.active = false; ev.reason = 'The gem before it did nothing to turn around.'; }
 	}
 	const nullified = Boolean(unit.nullify_next);
 	// A Prelude hands the next gem to resolve its extra goes, and is spent doing it (an opal,
@@ -421,6 +430,9 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	const reactions = {};
 	unit.firing_colors = ev.colors.slice();
 	unit.fired_count = (I(unit.fired_count)) + 1;
+	// What this go does, kept for an Invert in the socket after it (see noteResult).
+	const outerResults = unit.firing_results;
+	unit.firing_results = {};
 	// What a Chainmail or a Contagion earlier this turn hands over for this gem: taken now.
 	const answers = (unit.after_fire || []).map((x) => ({ ...x }));
 	const crownsBefore = allOrNothing(unit) ? crownIds(unit.hand) : null;
@@ -450,6 +462,9 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	}
 	if (crownsBefore) crownsChanged(unit, crownsBefore);
 	results.push(...answerFire(state, unit, answers, rng));
+	// Only its most recent go is kept: a replay of it overwrites what the first go did.
+	(unit.gem_results || (unit.gem_results = {}))[String(stone.id || '')] = unit.firing_results;
+	if (outerResults) unit.firing_results = outerResults; else delete unit.firing_results;
 	delete unit.firing_colors;
 	// A gem that grows over the run (Hone, Hardening) counts every fire, replays included.
 	if (!dry) { const counts = unit.run_counts || (unit.run_counts = {}); counts[String(stone.id || '')] = (I(counts[String(stone.id || '')])) + 1; }
@@ -480,7 +495,7 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	const replay = Boolean(opts.replay);
 	const promised = I(unit.repeat_next);
 	unit.repeat_next = 0;
-	const a = readHand(unit);
+	const a = whatifPhantomCrowns(unit, def, readHand(unit));
 	// A Birthright fires it mid-rail at a share of the Resonance so far.
 	let resonance = satMulDiv(I(unit.resonance), Math.max(0, opts.share ?? 100), 100);
 	// On Fire: last turn's High Roller doubled the whole total it reads this turn.
@@ -498,6 +513,12 @@ export function resolveBirthstone(state, unit, opts, rng) {
 		const tier = defs[index];
 		const trig = Patterns.evaluate(tier.trigger || { kind: 'always' }, 0, a, { resonance });
 		if (replay && trig.active && (tier.effects || []).some((e) => e && e.kind === 'replay_rail')) { trig.active = false; trig.reason = 'Once a turn.'; }
+		// WHAT-IF (balance sweeps only; no tier in the shipped pack has the key): a tier marked
+		// `whatif_once_a_turn` pays on the first firing of the turn that reaches it, never again.
+		if (trig.active && tier.whatif_once_a_turn) {
+			const paid = unit.whatif_tier_paid || (unit.whatif_tier_paid = {});
+			if (paid[index] === I(state.turn)) { trig.active = false; trig.reason = 'Once a turn.'; } else if (!dry) paid[index] = I(state.turn);
+		}
 		if (trig.active && tier.exclusive && exclusiveHit < 0) exclusiveHit = index;
 		evaluated.push(trig);
 	}
@@ -533,6 +554,16 @@ export function resolveBirthstone(state, unit, opts, rng) {
 	settleMarks(state);
 	if (fired) state.ledger.birthstone += 1;
 	return { kind: 'birthstone', fired, resonance, replay, tiers, face, change };
+}
+
+// WHAT-IF (balance sweeps only; the shipped pack never sets it): a Birthstone with
+// `whatif_phantom_crown_pct` reads each phantom die's crown at that percent of a crown, for its
+// tier ladder and its `crowns` term alike. Without the key the hand is read as it is.
+function whatifPhantomCrowns(unit, def, a) {
+	if (def.whatif_phantom_crown_pct === undefined) return a;
+	const ghosts = unit.hand.filter((r) => r.phantom && isCrown(r)).length;
+	const crowns = Math.max(0, I(a.crowns) - ghosts) + Math.floor((ghosts * Number(def.whatif_phantom_crown_pct)) / 100);
+	return { ...a, crowns, crown_ids: (a.crown_ids || []).slice(0, crowns) };
 }
 
 // What the tiers land that the Changing Face multiplies (sim/battle.gd TALLY_KINDS).
@@ -1002,6 +1033,21 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			out.hits = given;
 			break;
 		}
+		case 'invert_previous': {
+			// An Invert: a share of what the gem before it did on its last go, each part turned around.
+			const did = leftResults(unit, socket);
+			const given = [];
+			for (const [gift, reads, target] of INVERTED) {
+				let read = 0;
+				for (const key of reads) read = satAdd(read, I(did[key]));
+				const worth = satMulDiv(read, Math.max(0, amount), 100);
+				if (worth <= 0) continue;
+				given.push(...apply(state, unit, { kind: gift, amount: worth, target, repeat: 1 }, rng));
+			}
+			out.hits = given;
+			if (!given.length) out.nothing = true;
+			break;
+		}
 		case 'stone_chance': {
 			// A Placer: every creature fallen this turn may leave a raw stone.
 			const kills = I(state.turn_kills);
@@ -1040,6 +1086,24 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			break;
 	}
 	return out;
+}
+
+// What the gem in the socket before this one did on its last go this turn, as an Invert reads
+// it: only what came to anything (DeepBattle._left_results).
+function leftResults(unit, socket) {
+	if (socket <= 0 || socket - 1 >= unit.rail.length || !unit.rail[socket - 1]) return {};
+	const did = (unit.gem_results || {})[String(unit.rail[socket - 1].id || '')] || {};
+	const out = {};
+	for (const [key, value] of Object.entries(did)) if (I(value) > 0) out[key] = I(value);
+	return out;
+}
+
+// What the gem firing now has really done, for an Invert after it: damage that landed and the
+// debuffs that stuck on the other side; the Block, healing and buffs it gave its own side.
+function noteResult(source, target, key, amount) {
+	if (amount <= 0 || !source.firing_results) return;
+	if (INVERTED_HOSTILE.includes(key) === (source.side === target.side)) return;
+	source.firing_results[key] = satAdd(I(source.firing_results[key]), amount);
 }
 
 // --- the shared effect pipeline --------------------------------------------------------------
@@ -1173,6 +1237,7 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			if ((I(target.statuses.scorched)) > 0 && amount > 0) amount = Math.ceil(amount / 2);
 			target.block = satAdd(I(target.block), amount);
 			if (target.side === 'player') state.ledger.blockGained += amount;
+			noteResult(source, target, 'block', amount);
 			reactions.result_block = satAdd(I(reactions.result_block), amount);
 			// A Rebound: every time its owner gains block this turn, the target takes a hit.
 			if (amount > 0 && target.side === 'player' && (target.on_block || []).length && (I(target.hp)) > 0) {
@@ -1182,6 +1247,7 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 		case 'heal': {
 			const healed = heal(state, target, amount);
 			out.healed = healed;
+			noteResult(source, target, 'heal', healed);
 			if (source.side === 'player') source.healed = satAdd(I(source.healed), healed);
 			// What would heal past full: block for a Wellspring, a blow for a Flawless Thirst.
 			const spill = healReceived(target, amount) - healed;
@@ -1213,7 +1279,12 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 			break;
 		}
 		case 'ward': target.statuses.ward = Math.min(99, (I(target.statuses.ward)) + Math.max(0, amount)); break;
-		case 'retain': target.statuses.retain = Math.min(20, (I(target.statuses.retain)) + Math.max(0, amount)); break;
+		case 'retain': {
+			const kept = I(target.statuses.retain);
+			target.statuses.retain = Math.min(20, kept + Math.max(0, amount));
+			noteResult(source, target, 'retain', target.statuses.retain - kept);
+			break;
+		}
 		case 'clouded':
 			if (target.side === 'enemy') {
 				const moves = target.dice.length;
@@ -1265,14 +1336,17 @@ export function applyOne(state, source, target, kind, amount, effect, rng, react
 		case 'grow_poison': {
 			const had = I(target.statuses.poison);
 			target.statuses.poison = satAdd(had, satMulDiv(had, Math.max(0, amount), 100));
+			noteResult(source, target, 'poison', target.statuses.poison - had);
 			break;
 		}
 		default:
 			if (STATUS_KINDS.includes(kind)) {
 				// Lodestone stores no more than the Resonance there is to store.
 				if (kind === 'charged' && effect.resonance_cap) { amount = Math.min(amount, Math.max(0, I(source.resonance))); out.amount = amount; }
-				target.statuses[kind] = satAdd(I(target.statuses[kind]), Math.max(0, amount));
+				const had = I(target.statuses[kind]);
+				target.statuses[kind] = satAdd(had, Math.max(0, amount));
 				if (kind === 'curse') target.statuses.curse = Math.min(Rules.CURSE_MAX_STACKS, target.statuses.curse);
+				noteResult(source, target, kind, I(target.statuses[kind]) - had);
 				if (kind === 'lifeline' && effect.revive_block) target.statuses.lifeline_block = satAdd(I(target.statuses.lifeline_block), amount);
 			}
 	}
@@ -1316,6 +1390,7 @@ function damage(state, source, target, amount, rng, reactions = {}, reactive = f
 	target.hp = (I(target.hp)) - loss;
 	const rescued = lifeline(target);
 	Object.assign(out, { absorbed, hp_loss: loss });
+	if (!reactive) noteResult(source, target, 'damage', satAdd(absorbed, loss));
 	if (target.side === 'player') {
 		target.block_lost_accum = (I(target.block_lost_accum)) + absorbed;
 		state.ledger.hpLost += state.noDowns ? through : loss;

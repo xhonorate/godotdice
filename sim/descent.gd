@@ -320,7 +320,12 @@ static func _temporary_offers(state: Dictionary, unit: Dictionary, rng: RandomNu
 		var socket: String = str(sockets[index])
 		var colors: Array = [socket, socket, socket]
 		if socket == DeepContent.SOCKET_ANY:
-			var left: Array = DeepContent.color_KEYS.duplicate()
+			## Only colors with a skill not yet offered: Florin's two Gold sockets take six of
+			## a mine's seven Gold skills, and an Any socket drawing Gold after them could only
+			## offer a stone the rail would then refuse beside the one already taken.
+			var left: Array = DeepContent.color_KEYS.filter(func(c: String) -> bool: return _unoffered(pool, offered, c).size() > 0)
+			if left.size() < 3:
+				left = DeepContent.color_KEYS.duplicate()
 			colors = []
 			for _i in range(3):
 				var drawn: String = str(left[rng.randi_range(0, left.size() - 1)])
@@ -328,12 +333,19 @@ static func _temporary_offers(state: Dictionary, unit: Dictionary, rng: RandomNu
 				colors.append(drawn)
 		var picks: Array = []
 		for color in colors:
-			var of_color: Array = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == str(color))
+			var of_color: Array = _unoffered(pool, offered, str(color))
+			if of_color.is_empty():
+				of_color = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == str(color))
 			var stone: Dictionary = _temporary_stone(state, unit, mine, depth, rng, of_color if not of_color.is_empty() else pool, picks + offered)
 			picks.append(stone)
 			offered.append(stone)
 		offers.append({"index": index, "socket": socket, "picks": picks, "chosen": - 1})
 	return offers
+
+static func _unoffered(pool: Array, offered: Array, color: String) -> Array:
+	## The pool's skills of one color that no socket has been offered yet.
+	return pool.filter(func(k: String) -> bool:
+		return str(DeepContent.skill(k).get("color", "")) == color and not offered.any(func(s: Dictionary) -> bool: return str(s.get("skill", "")) == k))
 
 static func _temporary_stone(state: Dictionary, unit: Dictionary, mine: Dictionary, depth: int, rng: RandomNumberGenerator, pool: Array, beside: Array) -> Dictionary:
 	## One temporary stone, of a skill the others offered for its socket are not, if the

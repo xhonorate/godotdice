@@ -173,10 +173,11 @@ func _test_cuts() -> void:
 			"%s carries what its words promise" % key)
 
 func _test_birthstone_finish() -> void:
-	var reductions := {"ARDOR": 0.90, "VESPER": 1.0, "CADENCE": 0.85, "RUE": 0.95, "PUCK": 0.70, "FLORIN": 0.70}
-	for key in reductions:
+	## Each is drawn at its style's by-eye socket fit (GemMesh.STYLE_SCALE), never area-matched.
+	for key in ["ARDOR", "VESPER", "CADENCE", "RUE", "PUCK", "FLORIN"]:
 		var born := DeepStone.birthstone(key)
-		check(int(born.carat) == 24 and is_equal_approx(GemMesh.span(born) / GemMesh.carat_span(24), float(reductions[key])),
+		var reduction: float = float(GemMesh.STYLE_SCALE.get(str(born.get("style", "")), -1.0))
+		check(int(born.carat) == 24 and reduction > 0.0 and is_equal_approx(GemMesh.span(born) / GemMesh.carat_span(24), reduction),
 			"%s keeps 24 carats while fitting its socket" % key)
 	# Every front vertex has its reflected partner behind the thin girdle, at every Cut.
 	for cut in 5:

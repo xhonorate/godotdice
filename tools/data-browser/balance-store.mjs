@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { SWEEPS } from './js/sim/balance.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const DIR = path.resolve(here, '../../build/balance');
+// WHAT-IF opt-in: DEEP_BALANCE_DIR sends a scratch run's sweeps somewhere else (default: build/balance).
+export const DIR = process.env.DEEP_BALANCE_DIR ? path.resolve(process.env.DEEP_BALANCE_DIR) : path.resolve(here, '../../build/balance');
 
 const fileFor = (sweep, prev = false) => {
 	if (!SWEEPS.includes(sweep)) throw new Error(`No sweep called ${sweep}`);

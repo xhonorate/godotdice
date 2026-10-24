@@ -123,7 +123,8 @@ func _test_upgrade() -> void:
 func _test_sockets() -> void:
 	var profile: Dictionary = DeepProfile.new_profile("Sockets")
 	DeepProfile.unlock_character(profile, "FLORIN")
-	check(DeepContent.character("FLORIN").sockets.size() == 6, "Florin has six sockets")
+	var florin_total: int = DeepContent.character("FLORIN").sockets.size()
+	check(florin_total > DeepContent.character("ARDOR").sockets.size(), "Florin has more sockets than the others (%d)" % florin_total)
 	check(DeepEconomy.socket_price(profile, "FLORIN") == 300, "the fourth socket costs 300")
 	check(not DeepEconomy.unlock_socket(profile, "FLORIN").ok and DeepProfile.open_sockets(profile, "FLORIN") == 3, "an empty purse buys nothing")
 	profile.gold = 300 + 1200 + 4800 + 7
@@ -131,7 +132,16 @@ func _test_sockets() -> void:
 	check(fourth.ok and int(fourth.paid) == 300 and DeepProfile.open_sockets(profile, "FLORIN") == 4 and DeepProfile.open_sockets(profile, "ARDOR") == 3, "a socket is bought for one lapidary only")
 	check(DeepEconomy.socket_price(profile, "FLORIN") == 1200, "the fifth costs far more")
 	check(DeepEconomy.unlock_socket(profile, "FLORIN").ok and DeepEconomy.socket_price(profile, "FLORIN") == 4800, "and the sixth more again")
-	check(DeepEconomy.unlock_socket(profile, "FLORIN").ok and int(profile.gold) == 7 and DeepEconomy.socket_price(profile, "FLORIN") == -1, "with all six open there is nothing left to buy")
+	check(DeepEconomy.unlock_socket(profile, "FLORIN").ok and int(profile.gold) == 7, "the sixth is bought")
+	## Past the written prices, each costs four times the one before.
+	var last_price: int = 4800
+	for _socket in range(DeepProfile.open_sockets(profile, "FLORIN"), florin_total):
+		var price: int = DeepEconomy.socket_price(profile, "FLORIN")
+		check(price == last_price * 4, "a socket past the written prices costs four times the last: %d" % price)
+		profile.gold = int(profile.gold) + price
+		check(DeepEconomy.unlock_socket(profile, "FLORIN").ok, "and is bought")
+		last_price = price
+	check(DeepProfile.open_sockets(profile, "FLORIN") == florin_total and int(profile.gold) == 7 and DeepEconomy.socket_price(profile, "FLORIN") == -1, "with all %d open there is nothing left to buy" % florin_total)
 	check(not DeepEconomy.unlock_socket(profile, "FLORIN").ok, "and nothing more is sold")
 	check(not DeepEconomy.unlock_socket(profile, "CADENCE").ok, "a lapidary not yet met cannot be fitted")
 	## What a socket opens is filled from the vault before a run, wherever it goes down.
@@ -139,14 +149,21 @@ func _test_sockets() -> void:
 	check(DeepProfile.set_rail(profile, "FLORIN", 3, "CLEAVE") == "" and DeepProfile.loadout(profile, "FLORIN").rail[3] is Dictionary, "an opened socket takes a stone from the vault")
 	check(DeepProfile.set_rail(profile, "ARDOR", 3, "CLEAVE") != "", "a shut one does not")
 	var ardor: Dictionary = DeepProfile.new_profile("Five")
-	ardor.gold = 2000
-	DeepEconomy.unlock_socket(ardor, "ARDOR")
-	DeepEconomy.unlock_socket(ardor, "ARDOR")
-	check(DeepProfile.open_sockets(ardor, "ARDOR") == 5 and DeepEconomy.socket_price(ardor, "ARDOR") == -1 and int(ardor.gold) == 500, "a five-socket lapidary is done after two")
+	var ardor_total: int = DeepContent.character("ARDOR").sockets.size()
+	var ladder: Array = [300, 1200, 4800, 19200, 76800]
+	ardor.gold = 500
+	for price in ladder.slice(0, ardor_total - DeepProfile.starting_rail_cap()):
+		ardor.gold = int(ardor.gold) + int(price)
+	for _socket in range(ardor_total - DeepProfile.starting_rail_cap()):
+		DeepEconomy.unlock_socket(ardor, "ARDOR")
+	check(DeepProfile.open_sockets(ardor, "ARDOR") == ardor_total and DeepEconomy.socket_price(ardor, "ARDOR") == -1 and int(ardor.gold) == 500, "a %d-socket lapidary is done after %d" % [ardor_total, ardor_total - DeepProfile.starting_rail_cap()])
 	## An old save whose loadout used a socket a deeper mine used to fill: it moves in.
 	ardor.characters.ARDOR.sockets = 3
 	ardor.characters.ARDOR.rail = [null, "GUARD", "MEND", "STRIKE", null]
-	check(DeepProfile.tidy(ardor) and ardor.characters.ARDOR.rail == ["STRIKE", "GUARD", "MEND", null, null], "a stone in a shut socket moves into an open one")
+	var tidied: Array = ["STRIKE", "GUARD", "MEND"]
+	while tidied.size() < ardor_total:
+		tidied.append(null)
+	check(DeepProfile.tidy(ardor) and ardor.characters.ARDOR.rail == tidied, "a stone in a shut socket moves into an open one: %s" % str(ardor.characters.ARDOR.rail))
 
 # --- the way down -----------------------------------------------------------------------------
 
@@ -198,10 +215,11 @@ func _test_temporary() -> void:
 	var bo: Dictionary = DeepDescent.player(state, "b")
 	check(state.phase == "grubstake", "a deeper run opens at the shaft head")
 	## Bo has three sockets open and one stone to set in them, so the two empty open ones
-	## are lent stones as well as the three shut ones.
-	check(ada.temps.size() == 2 and bo.temps.size() == 5, "a temporary stone is offered for every empty socket, open or shut (%d, %d)" % [ada.temps.size(), bo.temps.size()])
-	check(bo.temps.map(func(o: Dictionary) -> int: return int(o.index)) == [1, 2, 3, 4, 5], "in socket order, after the one stone")
+	## are lent stones as well as every shut one.
 	var sockets: Array = DeepContent.character("FLORIN").sockets
+	var ada_empty: int = DeepContent.character("ARDOR").sockets.size() - 3
+	check(ada.temps.size() == ada_empty and bo.temps.size() == sockets.size() - 1, "a temporary stone is offered for every empty socket, open or shut (%d, %d)" % [ada.temps.size(), bo.temps.size()])
+	check(bo.temps.map(func(o: Dictionary) -> int: return int(o.index)) == range(1, sockets.size()), "in socket order, after the one stone")
 	for offer in bo.temps:
 		check(offer.picks.size() == 3 and int(offer.chosen) == -1, "three to choose from, none taken")
 		var socket: String = str(sockets[int(offer.index)])
@@ -216,9 +234,10 @@ func _test_temporary() -> void:
 	check(not cmd(state, "a", "stake", {"offer": state.grubstake.offers.a[0].id}).ok, "the stakes wait for the temporary stones")
 	check(not cmd(state, "a", "temporary", {"index": 0, "pick": 0}).ok, "an open socket takes no temporary stone")
 	var first: Dictionary = cmd(state, "a", "temporary", {"index": int(ada.temps[0].index), "pick": 1})
-	check(first.ok and ada.rail[int(ada.temps[0].index)].id == ada.temps[0].picks[1].id and int(first.event.left) == 1, "the one taken is set in its socket")
+	check(first.ok and ada.rail[int(ada.temps[0].index)].id == ada.temps[0].picks[1].id and int(first.event.left) == ada_empty - 1, "the one taken is set in its socket")
 	check(not cmd(state, "a", "temporary", {"index": int(ada.temps[0].index), "pick": 0}).ok, "and the socket keeps it")
-	cmd(state, "a", "temporary", {"index": int(ada.temps[1].index), "pick": 2})
+	for offer in ada.temps.slice(1):
+		cmd(state, "a", "temporary", {"index": int(offer.index), "pick": 2})
 	## Then each die is answered for (kept, here), as a deeper start asks.
 	for offer in ada.dice_offers:
 		cmd(state, "a", "dice_offer", {"index": int(offer.index), "pick": -1})
@@ -228,7 +247,7 @@ func _test_temporary() -> void:
 	for offer in bo.dice_offers:
 		cmd(state, "b", "dice_offer", {"index": int(offer.index), "pick": -1})
 	var staked: Dictionary = cmd(state, "b", "stake", {"offer": state.grubstake.offers.b[1].id})
-	check(staked.ok and state.phase == "tunnels", "and the tunnels open")
+	check(staked.ok and state.phase == "tunnels", "and the tunnels open: %s" % str(staked.get("error", "")))
 	## A party that pushed on through the Quarry gets no temporary stones: it brought its rail.
 	var quarry: Dictionary = DeepDescent.new_run(config(12, "QUARRY", true))
 	check(quarry.players.all(func(p: Dictionary) -> bool: return p.temps.is_empty()), "the Quarry lends nothing")

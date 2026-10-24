@@ -1739,7 +1739,7 @@ func _vital_moves(effects: Array, into: Dictionary) -> void:
 					var who: String = str(hit.get("target", effect.get("target", ""))) if hit is Dictionary else ""
 					if _creature(who) != null:
 						_vital_move(into, who, int(hit.get("hp_loss", 0)), int(hit.get("absorbed", 0)))
-			"appraise":
+			"appraise", "invert_previous":
 				_vital_moves(effect.get("hits", []), into)
 			"block":
 				if _is_player(str(effect.get("target", ""))):
@@ -4364,7 +4364,7 @@ func _kills(effects: Array) -> bool:
 			for hit in [effect] + effect.get("splash", []):
 				if hit is Dictionary and bool(hit.get("killed", false)):
 					return true
-		elif str(effect.get("kind", "")) == "appraise" and _kills(effect.get("hits", [])):
+		elif str(effect.get("kind", "")) in ["appraise", "invert_previous"] and _kills(effect.get("hits", [])):
 			return true
 	return false
 
@@ -4545,7 +4545,7 @@ func _mark_dying(effects: Array) -> void:
 						var struck: CrystalCreature = _creature(str(hit.get("target", effect.get("target", ""))))
 						if struck != null:
 							struck.set_meta("dying", true)
-			"appraise":
+			"appraise", "invert_previous":
 				_mark_dying(effect.get("hits", []))
 			"tick_poison":
 				for tick in effect.get("ticks", []):
@@ -4802,6 +4802,11 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 				if mine:
 					_float_at(_purse_spot(), "%d appraised · %d Pyrite value" % [effect.get("appraised", []).size(), int(effect.get("value", 0))], DeepUi.ORE, 16)
 				_animate_effects(effect.get("hits", []), origin, DeepUi.ORE, mine, anchor, magnitude, by)
+			"invert_previous":
+				## An Invert: said over its card, then what it turned around lands like any other gem's.
+				if mine and anchor != null:
+					_float_at(anchor, "Nothing to turn around" if bool(effect.get("nothing", false)) else "Inverted", color.lightened(0.3), 15)
+				_animate_effects(effect.get("hits", []), origin, color, mine, anchor, magnitude, by)
 			"gem_rank":
 				if mine:
 					for socket in effect.get("sockets", []):

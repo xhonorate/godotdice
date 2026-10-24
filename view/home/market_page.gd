@@ -21,7 +21,7 @@ const CONTRACT_PAGE: int = 20
 ## The size of a place on the contract bench.
 const CONTRACT_SLOT := Vector2(150, 176)
 ## How tall the lamp over each stone in the case is: short enough that the bench fits under
-## the case with a stone's longest rules and three inclusions read out.
+## the case with a stone's longest rules and three inclusions a line each.
 const CASE_LAMP: float = 190.0
 ## How large the stone on the Wheel and in the Oven is drawn; a heavy one hangs well past it,
 ## so the room it stands in grows with the column.
@@ -227,10 +227,24 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 		var need := DeepUi.center(rule_box)
 		DiceIcons.build(need, DeepPatterns.describe(trigger, int(DeepStone.effective(stone, {}).cut_step)), 18, DeepUi.PAPER)
 		DeepUi.effect_text(rule_box, DeepStone.text(stone, {}), 12, DeepUi.PAPER if not sold else DeepUi.DIM)
+		var lines_from: int = rule_box.get_child_count()
 		StoneCard.carat_lines(rule_box, stone, {}, 11)
+		## A heavy stone's carat line ("Four times over, for its weight.") wraps under its
+		## mark rather than widen the case.
+		for at in range(lines_from, rule_box.get_child_count()):
+			var value: Node = rule_box.get_child(at).get_node_or_null("Value")
+			if value is Label:
+				(value as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				(value as Label).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		for key in stone.get("inclusions", []):
 			var inclusion: Dictionary = DeepContent.inclusion(str(key))
-			DeepUi.wrap(rule_box, "%s: %s" % [str(inclusion.get("name", key)), str(inclusion.get("text", ""))], 11, Color("c58bff"))
+			var read := DeepUi.wrap(rule_box, "%s: %s" % [str(inclusion.get("name", key)), str(inclusion.get("text", ""))], 11, Color("c58bff"))
+			## A line each and the rest on hover: read out in full beside a heavy stone's long
+			## rules, at the small window's text floor, they push the bench off the page.
+			read.max_lines_visible = 1
+			read.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			read.tooltip_text = read.text
+			read.mouse_filter = Control.MOUSE_FILTER_PASS
 		DeepUi.spacer(column, false)
 		_yours_beside(column, stone, own)
 		var id: String = str(entry.get("id", ""))
@@ -270,7 +284,11 @@ static func _yours_beside(parent: Node, stone: Dictionary, own: Dictionary) -> v
 	var names := DeepUi.hbox(words, 6)
 	DeepUi.label(names, "Yours", 12, DeepUi.MUTED)
 	DeepUi.label(names, "%s · %d" % [str(DeepStone.TIER_NAMES.get(str(grade.tier), grade.tier)), int(grade.score)], 12, DeepUi.tier_color(str(grade.tier)))
-	DeepUi.label(words, "%d ct · %s · %s" % [int(own.get("carat", 1)), DeepContent.cut_name(int(own.get("cut", 0))), DeepContent.clarity_name(int(own.get("clarity", 0)))], 11, DeepUi.DIM)
+	var stats := DeepUi.label(words, "%d ct · %s · %s" % [int(own.get("carat", 1)), DeepContent.cut_name(int(own.get("cut", 0))), DeepContent.clarity_name(int(own.get("clarity", 0)))], 11, DeepUi.DIM)
+	## A heavy stone of the longest Cut and Clarity gives way rather than widen the case: three
+	## such plates side by side would push the counter past the page.
+	stats.clip_text = true
+	stats.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	var gap: int = int(DeepStone.grade(stone).score) - int(grade.score)
 	var tone: Color = DeepUi.GOOD if gap > 0 else (DeepUi.BAD if gap < 0 else DeepUi.MUTED)
 	var lead := DeepUi.label(row, "%+d" % gap if gap != 0 else "even", 15, tone)

@@ -44,7 +44,7 @@ func _rail() -> void:
 	var count: int = DeepStone.socket_count(unit)
 	check(unit.rail.size() == count and unit.riders.size() == count and unit.riders.all(func(l: Variant) -> bool: return l is Array and l.is_empty()), "a fresh rail has one place and one empty line of riders per socket")
 	for index in range(count):
-		unit.rail[index] = gem(["STRIKE", "GUARD", "MEND", "VENOM", "GLIMMER"][index], "normal%d" % index, false)
+		unit.rail[index] = gem(["STRIKE", "GUARD", "MEND", "VENOM", "GLIMMER", "TEMPO", "SPALL", "LICHEN"][index], "normal%d" % index, false)
 	var before: Array = unit.rail.duplicate(true)
 	var first: Dictionary = gem("CLEAVE", "void_a")
 	var second: Dictionary = gem("FURY", "void_b")
@@ -58,10 +58,10 @@ func _rail() -> void:
 	check(unit.rail.size() == count and unit.sockets.size() == count, "riders never lengthen the rail")
 	var patched: Dictionary = DeepPatch.apply(guest, DeepPatch.diff(guest, run))
 	check(JSON.stringify(patched) == JSON.stringify(run), "riders reach co-op guests exactly")
-	## Down the mine two stones of one skill are two different stones, so both may be set.
+	## A rail holds one stone of each skill, riders included (`rail_duplicate`).
 	unit.haul.append(gem("CLEAVE", "duplicate"))
-	check(DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "duplicate", "index": 3}).ok and ids(unit.riders[3]) == ["duplicate"],
-		"a second stone of a skill already riding may ride too")
+	check(not DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "duplicate", "index": 3}).ok and unit.riders[3].is_empty() and unit.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "duplicate"),
+		"a second stone of a skill already riding is refused and stays in the bag")
 	check(not DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "normal0", "index": 1}).ok or unit.rail[1].id == "normal0", "an ordinary gem still cannot ride: it swaps sockets")
 	unit.rail[0] = before[0]
 	unit.rail[1] = before[1]
@@ -97,7 +97,10 @@ func _rail() -> void:
 	var sale: Dictionary = DeepOddities.apply({"kind": "collector_sell"}, unit, {"stone_id": locked.id}, DeepRng.streams(1).oddities, {})
 	check(not sale.ok and unit.ore == ore, "the collector cannot turn a fragile gem into pyrite")
 	var order: Array = ids(DeepStone.rail_stones(unit))
-	check(order == ["normal0", "normal1", "void_a", "normal2", "normal3", "duplicate", "void_b"], "the rail's stones are read in firing order, riders after their socket's gem: %s" % str(order))
+	var expected: Array = ["normal0", "normal1", "void_a", "normal2", "normal3", "void_b"]
+	for index in range(5, count):
+		expected.append("normal%d" % index)
+	check(order == expected, "the rail's stones are read in firing order, riders after their socket's gem: %s" % str(order))
 
 func _battle() -> void:
 	var run: Dictionary = run_state()
@@ -197,8 +200,8 @@ func _hollow() -> void:
 	var unit: Dictionary = run.players[0]
 	var count: int = DeepStone.socket_count(unit)
 	for index in range(count):
-		unit.rail[index] = gem(["STRIKE", "GUARD", "MEND", "VENOM", "GLIMMER"][index], "set%d" % index, false)
-	unit.haul.append_array([gem("GUARD", "bagged", false), gem("FURY", "rough", false, false), gem("ECHO", "born_void")])
+		unit.rail[index] = gem(["STRIKE", "GUARD", "MEND", "VENOM", "GLIMMER", "TEMPO", "SPALL", "LICHEN"][index], "set%d" % index, false)
+	unit.haul.append_array([gem("SHELTER", "bagged", false), gem("FURY", "rough", false, false), gem("ECHO", "born_void")])
 	run.phase = "chamber"
 	run.chamber = {"kind": "oddity", "oddity": "HOLLOW", "depth": 1, "settled": false, "results": {}, "offer": {}, "tries": {}}
 	var dice: int = unit.dice.size()

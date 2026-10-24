@@ -507,6 +507,7 @@ const SKILL_EMBLEMS := {
 	"PETRIFY": "gorgon", "CONFLUENCE": "converging", "FERMENT": "toadstool", "HEMLOCK": "hemlock_flower", "ARSENIC": "crystal_cluster", "CONTAGION": "spore_ring",
 	"PLACER": "placer_stones", "DIVIDEND": "sprouting_coin", "GILDING": "gilded_die", "RATTLE": "knocking_dice",
 	"SEDIMENT": "settled_jar", "OVERTURN": "turned_die", "LODESTONE": "magnet", "BIRTHRIGHT": "crowned_gem", "TUMBLE": "rolling_boulder", "SPECTRUM": "six_cuts",
+	"INVERT": "negative_gem",
 	"PINFIRE": "pin_sparks", "CONTRA_LUZ": "backlit_gem", "HYDROPHANE": "drop_die"}
 
 static func emblem(skill_key: String) -> String:
@@ -1546,6 +1547,15 @@ static func _emblem_shapes(glyph: String) -> Array:
 				{"op": "add", "poly": _drop(Vector2(0.18, 0.76 - edge * 1.6), Vector2(0.18, 0.76), edge * 0.9)},
 				{"op": "add", "poly": _regular(Vector2(0.5, 0.72), edge * 1.12, 6)},
 				{"op": "add", "circle": [0.82, 0.72, edge]}])
+		"negative_gem":
+			# Invert: a stone split down a mirror line into itself and its negative, the left half
+			# solid with a smaller stone cut out of it, the right half only a rim with that stone solid.
+			return _fitted([ {"op": "add", "poly": _poly([[0.50, 0.14], [0.26, 0.14], [0.04, 0.38], [0.50, 0.92]])},
+				{"op": "sub", "poly": _poly([[0.50, 0.351], [0.39, 0.351], [0.288, 0.461], [0.50, 0.709]])},
+				{"op": "add", "poly": _poly([[0.50, 0.14], [0.74, 0.14], [0.96, 0.38], [0.50, 0.92]])},
+				{"op": "sub", "poly": _poly([[0.50, 0.257], [0.668, 0.257], [0.822, 0.425], [0.50, 0.803]])},
+				{"op": "add", "poly": _poly([[0.50, 0.351], [0.61, 0.351], [0.712, 0.461], [0.50, 0.709]])},
+				{"op": "sub", "poly": _rect(0.465, 0.0, 0.535, 1.0)}])
 		"gilded_die":
 			# Gilding: a die seen from above a corner, its top face gilded solid, its sides plain.
 			return _fitted([ {"op": "add", "poly": _poly([[0.5, 0.08], [0.90, 0.30], [0.5, 0.52], [0.10, 0.30]])},

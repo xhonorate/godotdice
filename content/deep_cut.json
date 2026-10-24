@@ -3487,6 +3487,39 @@
         ]
       }
     },
+    "INVERT": {
+      "name": "Invert",
+      "color": "WHITE",
+      "rarity": "RARE",
+      "tags": ["pair", "attack", "guard"],
+      "text": "Repeat the gem before it at {share}%, inverted.",
+      "trigger": {
+        "kind": "pair",
+        "ladder": [5, 4, 3, 2, 1]
+      },
+      "effects": [
+        {
+          "kind": "invert_previous",
+          "amount": 50,
+          "scale": "steps"
+        }
+      ],
+      "flawless": {
+        "text": "All of it.",
+        "modify": [
+          {
+            "effect": 0,
+            "amount": 100
+          }
+        ]
+      },
+      "numbers": {
+        "share": {
+          "const": 50,
+          "scale": "steps"
+        }
+      }
+    },
     "SEAM_RED": {
       "name": "Red Seam",
       "color": "OPAL",
@@ -9947,7 +9980,8 @@
         "DIVIDEND",
         "FLURRY",
         "TEMPER",
-        "ARSENIC"
+        "ARSENIC",
+        "INVERT"
       ],
       "inclusions": [],
       "dice": ["D4", "D6", "D8", "D10", "D12", "D20"],

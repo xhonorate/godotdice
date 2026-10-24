@@ -213,7 +213,10 @@ func _test_map() -> void:
 	var first_stretch: int = 0
 	var later: int = 0
 	var doubled: bool = false
-	for seed_value in range(300):
+	## The altar's chart weight (0.4) keeps it rarer than a motherlode: about one stretch in
+	## fifty. Enough seeds that a shift in the map's draws cannot push the count out of band.
+	var runs: int = 2000
+	for seed_value in range(runs):
 		var state: Dictionary = DeepDescent.new_run(run_config(seed_value))
 		for node in state.map.nodes.values():
 			if str(node.kind) == "altar":
@@ -225,7 +228,7 @@ func _test_map() -> void:
 		doubled = doubled or here > 1
 	check(first_stretch == 0, "no altar in the first stretch of a mine")
 	check(not doubled, "never two in one stretch")
-	check(later > 15 and later < 80, "but one in a few stretches below it (%d in 300)" % later)
+	check(later >= 15 and later <= 100, "but one in about fifty stretches below it (%d in %d)" % [later, runs])
 	check(DeepDescent.glint({"kind": "altar"}) == "strange", "its mouth glints strange")
 
 # --- the room -------------------------------------------------------------------------------------------

@@ -945,7 +945,7 @@ func _test_profile() -> void:
 	check(profile.characters.ARDOR.unlocked and not profile.characters.FLORIN.unlocked and profile.current_character == "ARDOR", "only Ardor is unlocked, and chosen")
 	check(profile.bowl.size() == 5, "the bowl holds Ardor's five dice")
 	var loadout: Dictionary = DeepProfile.loadout(profile, "ARDOR")
-	check(loadout.rail.size() == 5 and loadout.rail[0].skill == "STRIKE" and loadout.rail[1].skill == "GUARD" and loadout.rail[2].skill == "MEND" and loadout.rail[3] == null and loadout.dice.size() == 5, "the loadout is stones and dice ready for a run")
+	check(loadout.rail.size() == DeepContent.character("ARDOR").sockets.size() and loadout.rail[0].skill == "STRIKE" and loadout.rail[1].skill == "GUARD" and loadout.rail[2].skill == "MEND" and loadout.rail[3] == null and loadout.dice.size() == 5, "the loadout is stones and dice ready for a run")
 	var ardor_dice: Array = DeepContent.character("ARDOR").get("dice", [])
 	check(loadout.dice.map(func(d: Dictionary) -> String: return str(d.shape)) == ardor_dice, "and the dice are Ardor's own: %s" % str(loadout.dice.map(func(d: Dictionary) -> String: return str(d.shape))))
 	check(DeepProfile.set_rail(profile, "ARDOR", 3, "STRIKE") != "" and profile.characters.ARDOR.rail[0] == "STRIKE" and profile.characters.ARDOR.rail[3] == null, "the fourth socket is only filled in the mine")
@@ -969,7 +969,10 @@ func _test_profile() -> void:
 	check(DeepProfile.set_rail(profile, "ARDOR", 0, "STRIKE") == "", "and Strike goes back")
 	## An old save that set a stone past the third socket: it moves to an empty one it fits.
 	profile.characters.ARDOR.rail = [null, "GUARD", "MEND", "STRIKE", null]
-	check(DeepProfile.tidy(profile) and profile.characters.ARDOR.rail == ["STRIKE", "GUARD", "MEND", null, null], "a stone in a mine socket moves into the loadout: %s" % str(profile.characters.ARDOR.rail))
+	var tidied: Array = ["STRIKE", "GUARD", "MEND"]
+	while tidied.size() < DeepContent.character("ARDOR").sockets.size():
+		tidied.append(null)
+	check(DeepProfile.tidy(profile) and profile.characters.ARDOR.rail == tidied, "a stone in a mine socket moves into the loadout: %s" % str(profile.characters.ARDOR.rail))
 	check(not DeepProfile.tidy(profile), "and a tidy rail is left as it is")
 	var result: Dictionary = {"run_id": "r1", "mine": "QUARRY", "outcome": "extracted", "depth": 8, "deepest": 8, "wardens": [8], "mines": [{"mine": "QUARRY", "deepest": 8, "wardens": [8], "boss": false}],
 		"players": {"a": {"haul": [DeepStone.make("VENOM", 4, 2, 2, ["SILK"], {}, "v1"), DeepStone.make("STRIKE", 1, 0, 3, [], {}, "s1")], "dice": [DeepDice.make("D20", "d20x")], "stats": {}, "rail": []}}}

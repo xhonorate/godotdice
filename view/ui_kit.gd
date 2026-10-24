@@ -90,6 +90,7 @@ const KEYWORD_HINTS: Dictionary = {
  "changing face": "Puck's Motley: a face different from last turn's pays double, and one more for every turn running the faces keep changing (×2, ×3, ×4). The same face twice, or a turn with no face, starts over.",
  "turn over": "The die lands on the face underneath: its mirror face (a 2 on a d6 to its 5), always of the other parity, or the nearest face of the other parity it has.",
  "amplif": "Increases the next evaluated gem’s magnitude. Consumed even if that gem fizzles.",
+ "inverted": "Turned around: damage becomes Block and Block becomes damage; healing becomes Poison and Poison becomes healing; Regeneration becomes Poison; Spikes and Marked swap; Strength and Curse swap; Retain counts as Block.",
  "permanent": "Lasts for the current run, including later fights. Does not alter your stored collection.",
  "stun": "Skips the next action per stack. Enemies break out after three consecutive missed actions and resist Stun through the following turn."
 }

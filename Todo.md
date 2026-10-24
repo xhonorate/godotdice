@@ -1,6 +1,6 @@
 # Skill gem catalogue and future work
 
-Updated October 11, 2026 from [content/deep_cut.json](content/deep_cut.json). The current pack contains **103 skill gems: 89 standard gems and 14 Mythic Opals**, after the 37 October 2026 additions listed below their color tables (26 Common, 32 Uncommon, 26 Rare, 5 Legendary among the standard gems). Standard gems are tiered as a pyramid — **21 Common, 17 Uncommon, 13 Rare, 4 Legendary** (rebalanced October 6, 2026; previously 12 / 18 / 20 / 4). The six character Birthstones are separate. All requested gem revisions and the ten additions below are implemented.
+Updated October 11, 2026 from [content/deep_cut.json](content/deep_cut.json). The current pack contains **104 skill gems: 90 standard gems and 14 Mythic Opals**, after the 38 October 2026 additions listed below their color tables (26 Common, 32 Uncommon, 27 Rare, 5 Legendary among the standard gems). Standard gems are tiered as a pyramid — **21 Common, 17 Uncommon, 13 Rare, 4 Legendary** (rebalanced October 6, 2026; previously 12 / 18 / 20 / 4). The six character Birthstones are separate. All requested gem revisions and the ten additions below are implemented.
 
 | Color  | Role        | Skills |
 | ------ | ----------- | -----: |
@@ -117,7 +117,7 @@ Formulas are base values before ordinary carat/inclusion scaling. **Flawless als
 | Matrix      | Mythic | Always                                                                                              | The first 1/2/3/4/5 gems that stayed dark this turn fire anyway. Last in the rail it hears them all.                                               | However many of them there are.                 |
 | Prelude     | Mythic | ≥5/4/3/2/1 distinct values                                                                          | The next gem fires 1/1/1/1/2 extra times. Last in the rail, that is the Birthstone.                                                                | And once more after that.                       |
 
-## October 2026 additions — 37 gems
+## October 2026 additions — 38 gems
 
 Approved over four review rounds in October 2026 and built from that spec. Each has its own emblem in `view/gems/gem_icons.gd`; the mine column is where it is first found (see [docs/MINES.md](docs/MINES.md)). Opals are found in Warden hoards.
 
@@ -157,11 +157,12 @@ Approved over four review rounds in October 2026 and built from that spec. Each 
 | Birthright   | White  | Legendary | Rift          | Always                                       | Your Birthstone fires now as well, at 60/70/80/90/100% of the Resonance so far.                                                             | Twice the share.                                           |
 | Tumble       | White  | Common    | Quarry        | Total ≤40/45/50/55/60% of hand maximum       | Roll a phantom d6 into your hand.                                                                                                           | Roll a d12 instead.                                        |
 | Spectrum     | White  | Rare      | Glass Veins   | ≥5/4/3/2/1 distinct values                   | For each color that has fired this turn: Red, 3 damage; Blue, 3 Block; Green, heal 3; Violet, 2 Poison; Gold, 2 Pyrite; White, 1 Resonance. | Count every gem that fired, not just every color.          |
+| Invert       | White  | Rare      | Seeps         | Pair valued ≥5/4/3/2/1, and the gem in the socket before it fired this turn | Repeat the gem before it at 50% (carat steps: 100% at 13 ct, 200% at 24), inverted: damage becomes Block, Block and Retain become damage, healing and Regeneration become Poison, Poison becomes healing, Spikes and Marked swap, Strength and Curse swap. Reads that gem's most recent go; with nothing to turn around it stays dark. | All of it.                                                 |
 | Pinfire      | Opal   | Mythic    | Warden hoards | Resonance ≥5/4/3/2/1                         | Adds Resonance equal to the Resonance so far.                                                                                               | Every gem after it adds double Resonance this turn.        |
 | Contra Luz   | Opal   | Mythic    | Warden hoards | Resonance ≥5/4/3/2/1                         | Roll a phantom d6. Your phantom dice stay into next turn.                                                                                   | Roll a phantom d20 instead.                                |
 | Hydrophane   | Opal   | Mythic    | Warden hoards | Resonance ≥5/4/3/2/1                         | Your smallest die gains a drop. At 3 drops it grows a size for the rest of the run.                                                         | Your smallest die shrinks a size instead, down to a d2.    |
 
-New rules that came with them: Spikes last the fight for everyone; players can carry Strength; Hone and Hardening count their fires for the run (`run_counts`, kept by the run); Chainmail, Contagion and Rebound last the turn; Arsenic's Envenom lasts the fight; Bloodletting's blood is a price (`hp_cost`) that never takes the last point; a Placer's stones join the fight's spoils on a win; Hydrophane's drops are kept on the die. The creature moves that held the new names were renamed: the Glazier's Anneal, the Anvil Knight's Quench and the Drowned Choir's Requiem.
+New rules that came with them: Spikes last the fight for everyone; players can carry Strength; Hone and Hardening count their fires for the run (`run_counts`, kept by the run); Chainmail, Contagion and Rebound last the turn; Arsenic's Envenom lasts the fight; Bloodletting's blood is a price (`hp_cost`) that never takes the last point; a Placer's stones join the fight's spoils on a win; Hydrophane's drops are kept on the die. Invert (approved October 24, 2026, the Reverse Image idea under its new name) reads what the gem in the socket before it really did on its last go this turn (`gem_results`, kept per stone and reset each turn) and gives a share of it back turned around; its share grows by carat steps, and the "inverted" keyword hover says what turns into what. The creature moves that held the new names were renamed: the Glazier's Anneal, the Anvil Knight's Quench and the Drowned Choir's Requiem.
 
 ## Character Birthstones — separate from the skill gems
 
@@ -210,8 +211,7 @@ Every mine's creatures, Wardens and final boss, and sixteen new mechanics, from 
 ## Future work — not implemented
 
 - [ ] **Balance playtesting:** compare paid Gold builds, poison conversion, Lifeline stacking, and repeating fight/run upgrades with Echo, Seams, Prelude and Encore.
-- [ ] **Gem idea for later: Reverse Image** (White; October 22, 2026). Reflect the gem before it: half of what it did, turned around. Damage becomes Block, Block becomes damage, healing becomes Poison on the target, and Poison becomes healing; anything else reflects nothing. Flawless: all of it, not half. Trigger: a pair, two dice that mirror each other. Where it sits matters, like Polish and Facet. It came out of the Florin rework as an idea for Mirror and was set aside as too complicated for now.
 
-**Not selected:** Poultice, Undertow, Silence, Level and Invert are excluded from the content pack and active implementation plan. Siphon is the selected name for Mycelium. Additional status ideas remain in [Buffs.md](Buffs.md).
+**Not selected:** Poultice, Undertow, Silence and Level are excluded from the content pack and active implementation plan. Siphon is the selected name for Mycelium. Additional status ideas remain in [Buffs.md](Buffs.md).
 
 Sources: [content pack](content/deep_cut.json), [trigger rules](sim/patterns.gd), [effect rules](sim/rules.gd), [stone scaling](sim/stone.gd), [battle resolution](sim/battle.gd), [run settlement](sim/descent.gd).
