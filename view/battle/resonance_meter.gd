@@ -98,6 +98,8 @@ func set_value(new_value: int, animate: bool = true) -> void:
 		_jolt = 1.0
 		_ripples.append({"at": _clock, "strength": clampf(float(value - was) / 4.0, 0.5, 1.2)})
 		DeepUi.spring(box, 0.16, 3.0, 0.4)
+		## A soft chime, a step higher with every point up to the end of the rail.
+		DeepAudio.from(box, "resonance", {"volume": 0.28, "pitch": 1.0 + 0.035 * float(mini(value, FULL_REACH)), "gap": 0.04, "vary": 0.0})
 	_place_box()
 	queue_redraw()
 

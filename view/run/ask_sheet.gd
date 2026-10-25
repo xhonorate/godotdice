@@ -43,6 +43,8 @@ var _slot_boxes: Dictionary = {}
 var _confirm: Button = null
 var _extras_box: VBoxContainer = null
 var _key: String = ""
+## The scrim easing in or out.
+var _fade: Tween = null
 
 func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -100,8 +102,15 @@ func open(new_spec: Dictionary) -> void:
 	visible = true
 	scrim.visible = true
 	_build()
+	if _fade != null and _fade.is_valid():
+		_fade.kill()
 	if not same and not DeepUi.headless():
 		DeepUi.pop_in(_block, 0.0, 0.96, 0.18)
+		scrim.modulate.a = 0.0
+		_fade = scrim.create_tween()
+		_fade.tween_property(scrim, "modulate:a", 1.0, 0.16).set_trans(Tween.TRANS_SINE)
+	else:
+		scrim.modulate.a = 1.0
 	changed.emit()
 
 func close() -> void:
@@ -109,13 +118,31 @@ func close() -> void:
 	_key = ""
 	picks = {}
 	extras = {}
-	visible = false
-	scrim.visible = false
-	if _block != null and is_instance_valid(_block):
-		_block.queue_free()
-	_block = null
 	_slot_boxes.clear()
 	Tips.hide_now()
+	if _fade != null and _fade.is_valid():
+		_fade.kill()
+	var leaving: Control = _block
+	_block = null
+	if DeepUi.headless() or not is_inside_tree():
+		visible = false
+		scrim.visible = false
+		if leaving != null and is_instance_valid(leaving):
+			leaving.queue_free()
+		return
+	## Out over a beat: the block shrinks a touch and fades, the scrim lifts with it.
+	_fade = create_tween().set_parallel(true)
+	_fade.tween_property(scrim, "modulate:a", 0.0, 0.12)
+	if leaving != null and is_instance_valid(leaving):
+		leaving.pivot_offset = leaving.size * 0.5
+		_fade.tween_property(leaving, "modulate:a", 0.0, 0.12)
+		_fade.tween_property(leaving, "scale", Vector2.ONE * 0.97, 0.12)
+	_fade.chain().tween_callback(func() -> void:
+		if leaving != null and is_instance_valid(leaving):
+			leaving.queue_free()
+		if spec.is_empty():
+			visible = false
+			scrim.visible = false)
 
 func cancel() -> void:
 	if not is_open():

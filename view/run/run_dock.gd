@@ -339,7 +339,11 @@ func _apply_spotlight() -> void:
 		if _veiled.has(id):
 			continue
 		var tile: Control = control if kind != "stone" or not control.get_parent() is Control or control.get_parent() == _dock else control
-		tile.modulate = Color.WHITE if lit else Color(0.5, 0.5, 0.55, 0.45)
+		var goal: Color = Color.WHITE if lit else Color(0.5, 0.5, 0.55, 0.45)
+		if DeepUi.headless() or not tile.is_inside_tree():
+			tile.modulate = goal
+		elif tile.modulate != goal:
+			tile.create_tween().tween_property(tile, "modulate", goal, 0.16).set_trans(Tween.TRANS_SINE)
 		for child in control.get_children():
 			if child.has_method("set_ready"):
 				child.set_ready(not _spot.is_empty() and lit)
@@ -544,7 +548,7 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 			data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": index, "appraised": true}
 			card.mouse_default_cursor_shape = Control.CURSOR_DRAG
 	else:
-		DeepUi.label(card, "Any" if color == "ANY" else color.capitalize(), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = SLOT + 8
+		DeepUi.label(card, "Any" if color == "ANY" else color.capitalize(), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = SLOT + 8
 		Tips.attach(card, func() -> Control: return Plates.words("An empty socket", "Drag any appraised stone onto it. Its color only matters when the loadout is built at home.", "Any" if color == "ANY" else color.capitalize()))
 	var riders: Array = DeepStone.riders_of(unit, index)
 	if not riders.is_empty():

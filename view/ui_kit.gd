@@ -460,22 +460,31 @@ static func facet_ends(control: Control, box: StyleBoxFlat) -> StyleBoxFlat:
 	return box
 
 static func raised(bg: Color, border: Color, radius: int = 10, pad: int = 12, shadow: float = 0.45) -> StyleBoxFlat:
-	## A panel that sits on the page: a lit top edge, a heavier bottom one and a soft shadow.
-	var box := flat(bg, border, radius, pad)
-	box.border_width_top = 1
-	box.border_width_bottom = 2
-	box.shadow_color = Color(0, 0, 0, shadow)
-	box.shadow_size = 10
-	box.shadow_offset = Vector2(0, 4)
+	## A panel that sits on the page, in the Ledger look (docs/UI_REDO.md): a 2 px outline and
+	## a hard shadow down and to the right. A panel meant to be a panel (nearly opaque) is
+	## made fully so; a faint tint (a lit choice, a mark) keeps its own see-through fill.
+	var fill: Color = bg
+	if fill.a >= 0.8:
+		fill.a = 1.0 if fill.a >= 0.95 else maxf(fill.a, 0.96)
+	var box := flat(fill, border, radius, pad, 2)
+	if shadow > 0.0:
+		box.shadow_color = Color(LEDGER_SHADOW, clampf(0.5 + shadow, 0.0, 1.0))
+		box.shadow_size = 1
+		var drop: float = clampf(float(radius) / 3.0, 2.0, 4.0)
+		box.shadow_offset = Vector2(drop, drop)
 	return box
 
 static func button_style(bg: Color, border: Color, pad: int = 10) -> StyleBoxFlat:
-	var box := flat(bg, border, 8, pad)
+	## Every button in the game: chamfered, a 2 px outline and the Ledger's hard shadow.
+	var box := flat(bg, border, 8, pad, 2)
 	box.content_margin_left = pad + 6
 	box.content_margin_right = pad + 6
 	box.content_margin_top = pad - 2
 	box.content_margin_bottom = pad - 2
-	box.border_width_bottom = 2
+	if bg.a > 0.0:
+		box.shadow_color = LEDGER_SHADOW
+		box.shadow_size = 1
+		box.shadow_offset = Vector2(3, 3)
 	return box
 
 static func theme(scale: float = 1.0) -> Theme:
@@ -1010,16 +1019,17 @@ static func primary(parent: Node, glyph: String, text: String, callback: Callabl
 	## The one call to action on a page: filled with the accent and breathing gently.
 	var b := icon_button(parent, glyph, text, callback, size, INK)
 	b.set_meta("sound", "ui_confirm")
+	## Filled with its tone, a hard shadow under it and no glow: the Ledger's call to action.
 	var normal := button_style(tone, tone.lightened(0.35), 14)
-	normal.shadow_color = Color(tone, 0.35)
-	normal.shadow_size = 14
 	var hover := button_style(tone.lightened(0.15), Color.WHITE, 14)
-	hover.shadow_color = Color(tone, 0.55)
-	hover.shadow_size = 20
+	var pressed := button_style(tone.darkened(0.25), tone, 14)
+	pressed.shadow_offset = Vector2(1, 1)
+	var disabled := button_style(Color(tone.darkened(0.6), 0.6), Color(tone, 0.25), 14)
+	disabled.shadow_size = 0
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", button_style(tone.darkened(0.25), tone, 14))
-	b.add_theme_stylebox_override("disabled", button_style(Color(tone.darkened(0.6), 0.6), Color(tone, 0.25), 14))
+	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("disabled", disabled)
 	for key in ["font_color", "font_hover_color", "font_pressed_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
 		b.add_theme_color_override(key, INK)
 	b.add_theme_color_override("font_disabled_color", Color(INK, 0.6))
@@ -1106,9 +1116,7 @@ static func make_choice(box: PanelContainer, tone: Color, callback: Callable) ->
 	var lit: StyleBoxFlat = rest.duplicate() if rest is StyleBoxFlat else raised(GLASS, tone, 12, 16)
 	lit.bg_color = lit.bg_color.lerp(Color(tone, lit.bg_color.a), 0.14)
 	lit.border_color = tone.lightened(0.25)
-	lit.set_border_width_all(2)
-	lit.shadow_color = Color(tone, 0.4)
-	lit.shadow_size = 18
+	lit.set_border_width_all(3)
 	box.mouse_filter = Control.MOUSE_FILTER_STOP
 	box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	box.focus_mode = Control.FOCUS_ALL

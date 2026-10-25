@@ -24,6 +24,11 @@ static var _layer: CanvasLayer = null
 static var _anchor: Control = null
 ## Controls told to hush until the pointer leaves them (a click closed their plate).
 static var _hushed: Dictionary = {}
+## How long a finger rests on a thing before its plate comes up, on a touch screen.
+const LONG_PRESS: float = 0.42
+## A press being held, waiting to become a long-press: its control's id and a token.
+static var _press_id: int = 0
+static var _press_token: int = 0
 
 static func attach(control: Control, build: Callable, opts: Dictionary = {}) -> void:
 	## Wires a control. `opts`: `tone` (the plate's outline color), `keep` (the plate takes the
@@ -43,17 +48,47 @@ static func attach(control: Control, build: Callable, opts: Dictionary = {}) -> 
 	control.mouse_exited.connect(func() -> void: _leave(control))
 	control.gui_input.connect(func(event: InputEvent) -> void:
 		## A press closes the plate until the pointer comes back: what was clicked is now
-		## more interesting than what it said.
+		## more interesting than what it said. On a touch screen there is no hover: a finger
+		## held on the thing brings its plate up, and lifting it puts the plate away.
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and _touch():
+			if event.pressed:
+				_long_press(control)
+			else:
+				_press_id = 0
+				if _anchor == control:
+					hide_now()
+			return
 		if event is InputEventMouseButton and event.pressed:
 			_hushed[control.get_instance_id()] = true
 			if _anchor == control:
 				hide_now())
+	## Keyboard and gamepad: a thing with the focus shows its plate, as one under the pointer does.
+	control.focus_entered.connect(func() -> void:
+		if not DeepUi.headless() and control.is_visible_in_tree():
+			_show(control))
+	control.focus_exited.connect(func() -> void:
+		if _anchor == control:
+			hide_now())
 	control.tree_exiting.connect(func() -> void:
 		if _anchor == control:
 			hide_now())
 	control.visibility_changed.connect(func() -> void:
 		if _anchor == control and not control.is_visible_in_tree():
 			hide_now())
+
+static func _touch() -> bool:
+	return DisplayServer.is_touchscreen_available()
+
+static func _long_press(control: Control) -> void:
+	## Starts the wait; the plate comes up if the finger is still down on the thing after it.
+	_press_token += 1
+	var token: int = _press_token
+	_press_id = control.get_instance_id()
+	if not control.is_inside_tree():
+		return
+	control.get_tree().create_timer(LONG_PRESS).timeout.connect(func() -> void:
+		if token == _press_token and _press_id == control.get_instance_id() and is_instance_valid(control) and control.is_visible_in_tree():
+			_show(control))
 
 static func refresh(control: Control) -> void:
 	## A control whose plate is up has something new to say: it is built again in place.

@@ -45,6 +45,10 @@ var _flash: float = 0.0
 var _flash_color: Color = Color.WHITE
 var _clock: float = 0.0
 var _shown_overlay: float = 0.0
+## Block just gained: a bright flare along the stretch of arc it added, fading.
+var _gain_flare: float = 0.0
+var _gain_from: float = 0.0
+var _gain_to: float = 0.0
 
 func _init(edge: float = 156.0, character: String = "") -> void:
 	_edge = edge
@@ -101,6 +105,12 @@ func set_values(new_ratio: float, new_text: String = "", new_overlay: float = 0.
 			_ghost = new_ratio
 	ratio = new_ratio
 	text = new_text
+	var gained: bool = new_overlay > overlay + 0.0001
+	if gained and is_inside_tree() and not DeepUi.headless():
+		_gain_from = minf(1.0, overlay)
+		_gain_to = minf(1.0, new_overlay)
+		_gain_flare = 1.0
+		DeepUi.spring(shield_badge, 0.25, 4.0, 0.45)
 	overlay = clampf(new_overlay, 0.0, 1.0 + OVERFLOW)
 	if DeepUi.headless() or not is_inside_tree():
 		_shown_overlay = overlay
@@ -137,6 +147,9 @@ func _process(delta: float) -> void:
 		_hexes.queue_redraw()
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta * 3.0)
+		settled = false
+	if _gain_flare > 0.0:
+		_gain_flare = maxf(0.0, _gain_flare - delta * 1.8)
 		settled = false
 	if preview > 0.0:
 		settled = false
@@ -182,6 +195,19 @@ func _draw() -> void:
 			var glow: float = armour * (0.35 + (0.0 if ScreenFx.calm else 0.15 * sin(_clock * 3.0)))
 			draw_arc(centre, r_block, start - half, start + half, 96, Color(overlay_color.lightened(0.4), glow), w_block + 6.0, true)
 		draw_arc(centre, r_block, start - half, start + half, 96, overlay_color.lerp(Color("bfe0ff"), armour * 0.6), w_block, true)
+	if _gain_flare > 0.0:
+		## The stretch just added, both ways round, lit white-blue and fading; when the arc
+		## was already whole, the whole ring answers.
+		var whole: bool = _gain_to - _gain_from < 0.01
+		var calm: float = 0.5 if ScreenFx.calm else 1.0
+		var glow := Color(Color("dbeaff"), 0.85 * _gain_flare * calm)
+		if whole:
+			draw_arc(centre, r_block, 0.0, TAU, 96, Color(glow, glow.a * 0.5), w_block + 4.0, true)
+		else:
+			for sign in [-1.0, 1.0]:
+				var a: float = start + sign * PI * _gain_from
+				var b: float = start + sign * PI * _gain_to
+				draw_arc(centre, r_block, minf(a, b), maxf(a, b), 48, glow, w_block + 4.0 * _gain_flare, true)
 	if _flash > 0.0:
 		draw_arc(centre, r_hp, 0.0, TAU, 96, Color(_flash_color, 0.35 * _flash), w_hp, true)
 

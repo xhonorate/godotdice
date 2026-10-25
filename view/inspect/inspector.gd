@@ -219,10 +219,7 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 		if header.is_valid():
 			header.call(column)
 	_panel = PanelContainer.new()
-	var style := DeepUi.raised(Color(0.045, 0.055, 0.08, 0.97), Color(tone, 0.75), 18, 20, 0.7)
-	style.set_border_width_all(2)
-	style.shadow_color = Color(tone, 0.25)
-	style.shadow_size = 30
+	var style := DeepUi.ledger(DeepUi.LEDGER_FILL, Color(tone, 0.85), 18, 20, 3, 6)
 	_panel.add_theme_stylebox_override("panel", style)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.gui_input.connect(func(event: InputEvent) -> void:

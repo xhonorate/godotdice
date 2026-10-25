@@ -42,6 +42,10 @@ var hush: float = 1.0
 ## Interactive views are steered by the reader instead of by the roll: dragging
 ## turns the solid freely and focus_face() swings one face to the front.
 var interactive := false
+## Rest turned three-quarters, the way the dice's pictures are drawn (thumbs.gd), so a die in
+## a fight looks like the same die as the one on the dock outside it.
+var tilt := false
+const TILT := Vector3(-0.42, 0.52, 0.0)
 var spin_seconds: float = SPIN_SECONDS
 var suspense: bool = false
 var suspense_scale: float = 1.0
@@ -207,7 +211,7 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 		_face_index = _chain_face
 	else:
 		_face_index = resting
-	_target = _orientation(_face_index)
+	_target = _rest(_face_index)
 	var token := "%s#%s#%s#%s" % [str(roll.get("die_id", "")), str(roll.get("rerolls", -1)), str(roll.get("face", -1)), str(roll.get("turn_tag", ""))]
 	if bool(roll.get("flipped", false)):
 		token += "#shift:%d" % int(roll.get("value", 0))
@@ -234,7 +238,7 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 				_chain_face = clampi(int(roll.get("face", 0)), 0, maxi(0, _frames.size() - 1))
 				_running = int(roll.get("base", _value_at(_chain_face)))
 				_face_index = _chain_face
-				_target = _orientation(_face_index)
+				_target = _rest(_face_index)
 			_start_spin()
 		elif is_instance_valid(_pivot):
 			_pivot.quaternion = _target
@@ -458,6 +462,9 @@ func _value_at(index: int) -> int:
 func _nominal(index: int) -> int:
 	return index + 1
 
+func _rest(index: int) -> Quaternion:
+	return Quaternion.from_euler(TILT) * _orientation(index) if tilt else _orientation(index)
+
 func _orientation(index: int) -> Quaternion:
 	if index < 0 or index >= _frames.size():
 		return Quaternion.IDENTITY
@@ -556,7 +563,7 @@ func _throw_again(delta: float) -> void:
 		## The last landing reports the figure the rules settled on, which a cap may have trimmed.
 		_running = int(roll.get("value", _running))
 	_face_index = _chain_face
-	_target = _orientation(_face_index)
+	_target = _rest(_face_index)
 	_start_spin()
 
 func _draw_glow(target: Control) -> void:

@@ -368,7 +368,10 @@ func _rebuild_chamber() -> void:
 	## The bottom of a mine is its final boss's, not a Warden's: the hall is built the same.
 	var boss: bool = bool(context.get("boss", false))
 	_depth_label.text = str(biome.name).replace("Warden's Hall", "The Final Hall") if boss else str(biome.name)
-	_biome_label.text = "Depth %d%s" % [depth, ("  ·  The bottom of the mine" if boss else "  ·  Warden's gate") if bool(biome.warden) else ("  ·  Elite" if bool(biome.elite) else "")]
+	## The depth is on the strip already: only what kind of room it is is said here.
+	var kind_words: String = ("The bottom of the mine" if boss else "Warden's gate") if bool(biome.warden) else ("Elite" if bool(biome.elite) else "")
+	_biome_label.text = kind_words
+	_biome_label.visible = not kind_words.is_empty()
 	_intro_pending = true
 
 func _creature(id: String) -> CrystalCreature:
@@ -732,6 +735,10 @@ func _vitals_plate(page: Page) -> Control:
 	else:
 		words += "Block, when there is any, is a number at the top and an arc round the ring. "
 	words += "A blow being counted hatches in red what it will take."
+	var passive: String = passive_words(unit)
+	if not passive.is_empty():
+		words += "
+" + passive
 	return Plates.words(str(unit.get("name", "")), words, DeepContent.character_title(str(unit.get("character", ""))), DeepUi.HP)
 
 func _sync_pips(left: int, total: int) -> void:
@@ -1152,17 +1159,32 @@ func _sync_mate_state(page: Page, unit: Dictionary, planning: bool) -> void:
 	page.mate_key = key
 	DeepUi.clear(page.mate_state)
 	if downed:
-		DeepUi.pill(page.mate_state, "skull", "Down", DeepUi.BAD, 14, "%s is down. The party fights on." % who)
+		_mate_block(page.mate_state, "skull", "Down", DeepUi.BAD, 170, "%s is down. The party fights on." % who)
 		return
-	if away:
-		DeepUi.pill(page.mate_state, "wifi", "Away", DeepUi.MUTED, 14, "%s has lost the connection." % who)
-	elif locked or not planning:
-		DeepUi.pill(page.mate_state, "check", "Locked in", DeepUi.GOOD, 14, "%s has locked this hand in." % who)
-	else:
-		DeepUi.pill(page.mate_state, "hourglass", "Choosing", DeepUi.INFO, 14, "%s is still choosing what to reroll." % who)
 	if planning:
-		DeepUi.pill(page.mate_state, "reroll", "%d left" % rerolls, DeepUi.INFO if rerolls > 0 else DeepUi.DIM, 14,
+		_mate_block(page.mate_state, "reroll", "%s left" % DeepUi.plural(rerolls, "reroll", "rerolls"), DeepUi.INFO if rerolls > 0 else DeepUi.DIM, 150,
 			"%s has %s left this turn." % [who, DeepUi.plural(rerolls, "reroll", "rerolls")])
+	if away:
+		_mate_block(page.mate_state, "wifi", "Away", DeepUi.MUTED, 170, "%s has lost the connection." % who)
+	elif locked or not planning:
+		_mate_block(page.mate_state, "check", "Locked in", DeepUi.GOOD, 170, "%s has locked this hand in." % who)
+	else:
+		_mate_block(page.mate_state, "hourglass", "Choosing", DeepUi.ACCENT, 170, "%s is still choosing what to reroll." % who)
+
+func _mate_block(parent: Node, glyph: String, words: String, tone: Color, width: float, tip: String) -> void:
+	## A plate the size of the reader's own button in the same place, saying instead of doing.
+	var block := PanelContainer.new()
+	var style := DeepUi.ledger(Color(tone.darkened(0.7), 1.0), Color(tone, 0.7), 8, 6, 2, 3)
+	block.add_theme_stylebox_override("panel", style)
+	block.custom_minimum_size = Vector2(width, BUTTONS_ROW)
+	block.mouse_filter = Control.MOUSE_FILTER_PASS
+	block.tooltip_text = tip
+	parent.add_child(block)
+	var row := DeepUi.hbox(block, 6)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.icon(row, glyph, 16, tone).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var said := DeepUi.label(row, words, 15, tone.lightened(0.2))
+	said.add_theme_font_override("font", DeepUi.bold_font())
 
 func _apply_shown() -> void:
 	## Only the page being looked at is shown, and the dock wears whose it is.
@@ -1325,11 +1347,15 @@ func _pick_tab(id: String) -> void:
 
 func _player_effects(unit: Dictionary) -> Array:
 	## A player's buffs and troubles over their tab. Block rides the health bars instead.
-	var effects: Array = EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
+	## A player's passive is not a chip: it is said on their face's plate and their tab's.
+	return EffectChips.for_player(unit, state).filter(func(e: Dictionary) -> bool: return str(e.key) != "block")
+
+static func passive_words(unit: Dictionary) -> String:
+	## "Second Wind: heal Resonance for each unused reroll...", or "" for none.
 	var passive: Dictionary = unit.get("passive", {})
-	if not str(passive.get("text", "")).is_empty():
-		effects.append(EffectChips.entry("passive", "spark", "", true, str(passive.get("name", DeepContent.character_title(str(unit.get("character", ""))))), str(passive.text), DeepUi.ACCENT))
-	return effects
+	if str(passive.get("text", "")).is_empty():
+		return ""
+	return "%s: %s" % [str(passive.get("name", DeepContent.character_title(str(unit.get("character", ""))))), str(passive.text)]
 
 func _seat_status(unit: Dictionary) -> Array:
 	## What a player is doing, as the one mark on their tab: [glyph, tone, words].
@@ -1419,7 +1445,7 @@ func _sync_tabs() -> void:
 	if calling and _called_turn != turn:
 		_called_turn = turn
 		_float_at(_my_tab.face, "The party is waiting on you", DeepUi.ACCENT_HI, 15)
-	## Alone, the buffs run along the top of the dock as they always have.
+	## Alone or not, the reader's chips run over their tab the same way.
 	_my_tab.chips.custom_minimum_size.x = 0.0 if party else maxf(240.0, size.x - 300.0 - left_inset)
 
 func _tab_of(id: String) -> SeatTab:
@@ -1500,12 +1526,7 @@ class SeatTab extends VBoxContainer:
 		row.add_child(portrait)
 		if mine:
 			var badge := PanelContainer.new()
-			var gold := DeepUi.flat(DeepUi.ACCENT, Color(0, 0, 0, 0), 3, 0)
-			gold.content_margin_left = 5
-			gold.content_margin_right = 5
-			gold.content_margin_top = 1
-			gold.content_margin_bottom = 1
-			badge.add_theme_stylebox_override("panel", gold)
+			badge.add_theme_stylebox_override("panel", DeepUi.capsule(badge, DeepUi.ACCENT, DeepUi.ACCENT, 1, 7, 0))
 			badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			row.add_child(badge)
@@ -1533,7 +1554,11 @@ class SeatTab extends VBoxContainer:
 			face.accept_event()
 	func update(unit: Dictionary, character: String, seat: Color, up: bool, status: Array, order: int, effects: Array, party: bool) -> void:
 		chips.show_effects(effects)
-		face.visible = party
+		## Alone, the tab is kept but unseen, so the chips over it stand where they stand in
+		## a party and nothing moves when someone joins.
+		face.visible = true
+		face.modulate.a = 1.0 if party else 0.0
+		face.mouse_filter = Control.MOUSE_FILTER_STOP if party else Control.MOUSE_FILTER_IGNORE
 		if not party:
 			return
 		var who: String = str(unit.get("name", ""))
@@ -1577,6 +1602,9 @@ class SeatTab extends VBoxContainer:
 		var lines: Array = [who if character.is_empty() else "%s · %s" % [who, character]]
 		if not str(status[2]).is_empty():
 			lines.append(str(status[2]))
+		var passive: Dictionary = unit.get("passive", {})
+		if not str(passive.get("text", "")).is_empty():
+			lines.append("%s: %s" % [str(passive.get("name", character)), str(passive.text)])
 		lines.append("Your rail and dice." if mine else "Click to see their rail and dice. Right-click for their bag.")
 		face.tooltip_text = "\n".join(lines)
 		## A player who is down is greyed out, tab, face and all: that is the whole mark.
@@ -1587,7 +1615,7 @@ class SeatTab extends VBoxContainer:
 		## The tab that is up is the dock's own color and lies over its edge, so the two read
 		## as one piece; the rest sit behind it, darker.
 		var edge: Color = DeepUi.ACCENT if mine else seat
-		var style := DeepUi.ledger(DeepUi.LEDGER_FILL if up else BG, edge if up else DeepUi.LEDGER_LINE, 12, 8, 3 if up else 2, 0)
+		var style := DeepUi.ledger(DeepUi.LEDGER_FILL if up else BG, edge if up else Color(edge, 0.55), 12, 8, 3 if up else 2, 0)
 		style.corner_radius_bottom_left = 0
 		style.corner_radius_bottom_right = 0
 		style.border_width_bottom = 0
@@ -1699,7 +1727,6 @@ class TabFace extends PanelContainer:
 		var lit: bool = _hovered and not up
 		if lit and _lift != null:
 			draw_style_box(_lift, Rect2(Vector2.ZERO, size))
-		draw_rect(Rect2(Vector2(10, 0), Vector2(maxf(0.0, size.x - 20.0), 3.0)), stripe.lightened(0.3) if lit else stripe)
 		if (firing or calling) and _halo != null:
 			var glow: float
 			var tone: Color = stripe
@@ -1721,10 +1748,8 @@ func _sync_vitals(unit: Dictionary) -> void:
 		DeepUi.number(int(shown.block)) if int(shown.block) > 0 else "")
 	if _screen_fx != null and str(unit.get("id", "")) == local_id:
 		_screen_fx.danger = clampf((0.3 - ratio) / 0.3, 0.0, 1.0) if not bool(shown.get("downed", false)) else 0.0
-	if int(shown.block) != _status_block:
-		_status_block = int(shown.block)
-		if _status_block > 0 and not _headless:
-			DeepUi.pulse(_status_row, 1.2, 0.3)
+	## Block gained jumps the badge and flares along the arc (the ring does both).
+	_status_block = int(shown.block)
 
 func _shown(unit: Dictionary) -> Dictionary:
 	## A unit as its bars should read: the truth, unless a count is still on its way to it.
@@ -2164,10 +2189,11 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				var name_label := DeepUi.fit_label(card, DeepUi.skill_name(stone), 12, DeepUi.PAPER, SOCKET_EDGE + 8)
 				name_label.name = "SkillName"
 			elif not rider:
-				DeepUi.label(card, socket_color.capitalize() if socket_color != "ANY" else "Any", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = SOCKET_EDGE + 8
+				DeepUi.label(card, socket_color.capitalize() if socket_color != "ANY" else "Any", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = SOCKET_EDGE + 8
 			if stone is Dictionary:
 				var flat: int = socket
 				var hue: Color = DeepUi.color(DeepStone.color(stone))
+				card.focus_mode = Control.FOCUS_ALL
 				Tips.attach(card, func() -> Control: return _gem_plate(on, unit_id, flat), {"tone": hue, "keep": true})
 		if stone is Dictionary:
 			var entry: Dictionary = {}
@@ -2218,7 +2244,14 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			## A gem this hand leaves dark steps back, so the ones it fires stand out at a glance
 			## and "fires 2, fizzles 1" can be read off the rail itself.
 			var quiet: bool = showing and not entry.is_empty() and not active
-			card.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else (QUIET_GEM if quiet else Color.WHITE)
+			## The stone steps back; its name only greys, so it stays readable (4.5:1 or better).
+			card.modulate = Color.WHITE
+			var slot_node: Control = card.get_node_or_null("Slot")
+			if slot_node != null:
+				slot_node.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else (QUIET_GEM if quiet else Color.WHITE)
+			var named: Label = card.get_node_or_null("SkillName")
+			if named != null:
+				named.add_theme_color_override("font_color", DeepUi.MUTED if blocked or quiet else DeepUi.PAPER)
 			if lit and not entry.is_empty():
 				links.append([DeepStone.color(stone), int(entry.get("resonance", 0))])
 	_sync_birthstone(unit, planning, showing)
@@ -2772,6 +2805,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 			holder.mouse_filter = Control.MOUSE_FILTER_PASS
 			_tray_box.add_child(holder)
 			var view := DiceView.new()
+			view.tilt = true
 			view.position = Vector2.ZERO
 			view.size = Vector2(DIE_EDGE, DIE_EDGE)
 			view.custom_minimum_size = Vector2(DIE_EDGE, DIE_EDGE)
@@ -2996,7 +3030,7 @@ class Plate extends VBoxContainer:
 		var head := DeepUi.hbox(box, 6)
 		_target = DeepUi.icon(head, "crosshair", 14, DeepUi.ACCENT, "Your target")
 		_name = DeepUi.label(head, "", 14, DeepUi.PAPER)
-		_name.add_theme_font_override("font", DeepUi.caps_font())
+		_name.add_theme_font_override("font", DeepUi.bold_font())
 		DeepUi.spacer(head)
 		_dice = DeepUi.hbox(head, 3)
 		_dice.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -3076,7 +3110,7 @@ class Plate extends VBoxContainer:
 			if targeted:
 				DeepUi.pulse(self, 1.06, 0.3)
 		_target.visible = targeted
-		_name.text = str(foe.name)
+		_name.text = str(foe.name).to_upper()
 		_name.add_theme_color_override("font_color", Color("ffb0a0") if bool(foe.get("warden", false)) else DeepUi.PAPER)
 		var max_hp: int = maxi(1, int(foe.max_hp))
 		_bar.set_values(float(foe.hp) / float(max_hp), "%s / %s" % [DeepUi.number(int(foe.hp)), DeepUi.number(max_hp)], float(foe.get("block", 0)) / float(max_hp))
@@ -3102,9 +3136,11 @@ class Plate extends VBoxContainer:
 				var rolled: bool = index < hand.size()
 				## The next die to be thrown is the lit one.
 				var next: bool = acting and not rolled and not gone and index == hand.size()
-				var mark: String = "×" if gone else (str(int(hand[index].get("value", 0))) if rolled else "?")
-				var tone: Color = DeepUi.DIM if gone else (DeepUi.ACCENT_HI if next else DiceIcons.die_palette(dice[index]).body)
-				var face: Control = DiceIcons.face(17, int(hand[index].get("value", 0)) if rolled else 0, tone, str(dice[index].shape), rolled or next, mark)
+				## Unrolled, a die says its size in a quiet grey; rolled, its number in its own color.
+				var shape_name: String = str(dice[index].shape).to_lower()
+				var mark: String = "×" if gone else (str(int(hand[index].get("value", 0))) if rolled else shape_name)
+				var tone: Color = DeepUi.DIM if gone else (DeepUi.ACCENT_HI if next else (DiceIcons.die_palette(dice[index]).body if rolled else DeepUi.MUTED))
+				var face: Control = DiceIcons.face(22, int(hand[index].get("value", 0)) if rolled else 0, tone, str(dice[index].shape), rolled or next, mark)
 				face.mouse_filter = Control.MOUSE_FILTER_PASS
 				face.tooltip_text = "%s · %s" % [str(dice[index].shape).to_lower(), "taken away" if gone else ("next to roll" if next else "roll %d" % (index + 1))]
 				_dice.add_child(face)
@@ -3493,7 +3529,7 @@ func _process(delta: float) -> void:
 	## open): their bottom edge is its top edge, wherever it grows to.
 	if _tab_bar != null and _dock != null:
 		_tab_bar.reset_size()
-		_tab_bar.position = Vector2(_dock.position.x + 18.0 + left_inset, _dock.position.y - _tab_bar.size.y - (0.0 if _party() else 8.0))
+		_tab_bar.position = Vector2(_dock.position.x + 18.0 + left_inset, _dock.position.y - _tab_bar.size.y)
 	if _opening_due and not _headless and is_visible_in_tree() and stage != null and not stage.walking() and not state.is_empty():
 		_opening_due = false
 		_later_do(0.5, _turn_opening)

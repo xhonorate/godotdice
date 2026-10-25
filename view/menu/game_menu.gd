@@ -70,10 +70,7 @@ func _ready() -> void:
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(centre)
 	_panel = PanelContainer.new()
-	var style := DeepUi.raised(Color(0.045, 0.055, 0.08, 0.98), Color(DeepUi.ACCENT, 0.6), 18, 26, 0.7)
-	style.set_border_width_all(2)
-	style.shadow_color = Color(DeepUi.ACCENT, 0.18)
-	style.shadow_size = 30
+	var style := DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.ACCENT, 18, 26, 3, 6)
 	_panel.add_theme_stylebox_override("panel", style)
 	_panel.custom_minimum_size = Vector2(560, 0)
 	centre.add_child(_panel)

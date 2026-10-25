@@ -3162,8 +3162,8 @@ func _sync_strip() -> void:
 		var hp: Vector2i = health.call(p)
 		return "%s|%s|%s|%d|%d|%s|%s|%d" % [str(p.get("id", "")), str(p.get("name", "")), str(p.get("character", "")), hp.x, hp.y,
 			str(bool(p.get("downed", false))), str(bool(p.get("connected", true))), int(fighting.get(str(p.get("id", "")), {}).get("streak", 0))])
-	var key: String = "%s#%d#%s#%d#%d#%s#%s#%s#%s#%d#%d#%s#%s#%s" % [str(mine.get("name", "")), depth, note, every, into, str(guarded), local_id,
-		",".join(party), str(unit.is_empty()), _purse(unit), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open), JSON.stringify(daily_best)]
+	var key: String = "%s#%d#%s#%d#%d#%s#%s#%s#%s#%d#%d#%s#%s#%s#%s" % [str(mine.get("name", "")), depth, note, every, into, str(guarded), local_id,
+		",".join(party), str(unit.is_empty()), _purse(unit), unit.get("haul", []).size(), str(_strip_hold), str(_chart_open), JSON.stringify(daily_best), str(not fighting.is_empty())]
 	if not unit.is_empty():
 		key += str(EffectChips.for_run(unit))
 	if key == _strip_key and _strip.get_child_count() > 0:
@@ -3197,7 +3197,8 @@ func _sync_strip() -> void:
 	if guarded:
 		DeepUi.icon(steps, "crown", 16, DeepUi.BAD)
 	DeepUi.spacer(_strip)
-	for other in run.get("players", []):
+	## In a fight each player's health is on their tab and on the dock: the strip leaves it out.
+	for other in ([] if not fighting.is_empty() else run.get("players", [])):
 		var mine_too: bool = str(other.id) == local_id
 		var box := DeepUi.hbox(_strip, 6)
 		box.mouse_filter = Control.MOUSE_FILTER_STOP
