@@ -1453,10 +1453,19 @@ function heal(state, target, amount) {
 	return healed;
 }
 
+// What a round of Poison or Burn hurts for (sim/battle.gd tick_amount): the stacks a creature
+// put on a player carry the weight its blows carry here; anything else is its stacks.
+const tickAmount = (state, unit, stacks, kind) => {
+	const pct = I(state.creature_damage_pct) || 100;
+	if (unit.side !== 'player' || pct === 100) return stacks;
+	const heavy = Math.min(Math.max(0, I((unit.creature_stacks || {})[kind])), Math.max(0, stacks));
+	return stacks - heavy + Math.floor(heavy * pct / 100);
+};
+
 function poisonTick(state, unit) {
 	const poison = I(unit.statuses.poison);
 	if (poison <= 0 || (I(unit.hp)) <= 0) return;
-	const loss = Math.min(I(unit.hp), poison);
+	const loss = Math.min(I(unit.hp), tickAmount(state, unit, poison, 'poison'));
 	unit.hp -= loss;
 	unit.statuses.poison = poison - 1;
 	if (unit.side === 'player') state.ledger.hpLost += loss; else state.ledger.dealt += loss;
@@ -1470,9 +1479,10 @@ function poisonTick(state, unit) {
 function burnTick(state, unit) {
 	const burn = I(unit.statuses.burn);
 	if (burn <= 0 || (I(unit.hp)) <= 0) return;
-	const soaked = Math.min(Math.max(0, I(unit.block)), burn);
+	const hurts = tickAmount(state, unit, burn, 'burn');
+	const soaked = Math.min(Math.max(0, I(unit.block)), hurts);
 	unit.block = (I(unit.block)) - soaked;
-	const loss = Math.min(I(unit.hp), burn - soaked);
+	const loss = Math.min(I(unit.hp), hurts - soaked);
 	unit.hp -= loss;
 	unit.statuses.burn = burn - 1;
 	if (unit.side === 'player') state.ledger.hpLost += loss; else state.ledger.dealt += loss;

@@ -320,7 +320,8 @@ export function nextNthIn(move, action) {
 // party. `action` is which of its actions this is (1 = its first), `mineKey` the mine whose
 // damage multiplier it fights with, `emerging` whether it has just come up out of the floor.
 // Damage per move follows sim/creatures.gd resolved_move: pct(raw, damage_pct) + damage_bonus
-// + rally, with the enrage the fight adds on top; `once` moves are taken as spent after action 1
+// + rally and Escalate weighed like the roll, with the enrage the fight adds on top; what it does
+// for itself (block, heals) grows with its health and the block it strips with its blows; `once` moves are taken as spent after action 1
 // and an Escalating creature as having spent every earlier action in this phase.
 export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, action = 1, mineKey = '', emerging = false, samples = 6000, seed = 3 }) {
 	const def = C.creature(key);
@@ -344,9 +345,12 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 	const scale = Forge.creatureScale(mine, depth);
 	const turnsActed = action - 1;
 	const pct = damagePct(scale.damage, traits, turnsActed);
-	let damageBonus = Forge.creatureDamageBonus(def, depth);
+	const damageBonus = Forge.creatureDamageBonus(def, depth);
 	const escalate = traitValue(traits, 'escalate');
-	if (escalate > 0) damageBonus += escalate * turnsActed;
+	const escalateBonus = escalate > 0 ? escalate * turnsActed : 0;
+	const weighted = (points) => (points ? Math.round(points * pct / 100) : 0);
+	const healthPct = Math.max(1, Math.round(Forge.creatureHealthScale(depth, party, mine) * 100));
+	const readsHealth = (expr) => Boolean(expr && typeof expr === 'object' && (['max_hp', 'hp', 'hp_missing'].includes(expr.term) || (expr.args || []).some(readsHealth)));
 	const enrageTurn = Number(C.constant('enrage_turn', 7));
 	const enrage = Math.max(0, turn - enrageTurn + 1) * Number(C.constant('enrage_damage', 2));
 	const living = Math.max(1, Math.min(4, party));
@@ -355,7 +359,7 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 	let damageSum = 0;
 	const hit = (effect, rally) => {
 		// A flat blow is its own number and nothing more (its Strength is not simulated).
-		let amount = effect.flat ? effect.amount + enrage : Rules.amount({ op: 'pct', args: [effect.amount, pct] }, {}) + damageBonus + rally + enrage;
+		let amount = effect.flat ? effect.amount + enrage : Rules.amount({ op: 'pct', args: [effect.amount, pct] }, {}) + damageBonus + weighted(rally) + weighted(escalateBonus) + enrage;
 		if (effect.split_party) amount = Math.ceil(amount / living);
 		return amount * Math.max(1, effect.repeat);
 	};
@@ -390,6 +394,8 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 				const c = { ...ctx, a, trig, rolled: roll.value, unit: { turns_acted: turnsActed, swell: 0, held_gems: [], biggest_hit: 0 } };
 				for (const definition of move.effects || []) {
 					const effect = Rules.resolveEffect(definition, c, 1, 'heroes');
+					if (['block', 'heal', 'regeneration', 'retain', 'max_hp'].includes(effect.kind) && !readsHealth(definition.amount) && !definition.keep_all) effect.amount = Math.floor(effect.amount * healthPct / 100);
+					else if (effect.kind === 'remove_block' && !definition.remove_all) effect.amount = Math.floor(effect.amount * pct / 100);
 					let amount = effect.amount * Math.max(1, effect.repeat);
 					if (effect.kind === 'damage') {
 						amount = hit(effect, rally);

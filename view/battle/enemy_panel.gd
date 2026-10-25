@@ -12,14 +12,17 @@ const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart
 	"summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "scorched": "flame", "burn": "flame", "strength": "bolt", "die_lock": "die",
 	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "bolt", "rally": "party", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
 	"charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die", "grind_die": "die", "break_gem": "cross_out", "lock_die": "die", "break_die": "cross_out", "blank_face": "die",
-	"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop"}
+	"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop",
+	"copy_hand": "copy", "grip_die": "die", "lose_die": "cross_out", "hasten": "hourglass", "swap_gems": "flip", "poison_tick": "drop"}
 ## The noun after a move's number. Kinds not here fall back to their own name.
 const NOUNS: Dictionary = {"damage": "damage", "block": "block", "heal": "healing", "poison": "poison", "die_steal": "die suppressed", "remove_block": "block removed", "dice_upgrade": "tier up · this fight", "stun": "turn stunned",
 	"summon": "join the fight", "purge": "% of its poison shed", "burrow": "burrows", "festering": "Festering", "scorched": "Scorched", "burn": "Burn", "strength": "Strength", "die_lock": "die locked",
 	"steal_gold": "pyrite taken", "gold": "pyrite dropped", "empower_next": "% more next attack", "rally": "more for every creature", "grow_die": "die grown",
 	"swell": "swelling", "hold_gem": "gem taken", "bury_socket": "socket buried", "charge": "actions to charge", "dice_dread": "Dread", "downgrade_die": "die shrunk", "grind_die": "face ground down", "break_gem": "gem melted", "lock_die": "die locked",
 	"break_die": "die destroyed", "blank_face": "face burned blank", "reflect": "% of each blow sent back", "mirror": "blow mirrored", "absorb_color": "color drunk", "roll_again": "throws again",
-	"end_action": "its action ends", "exhibit": "fires every gem it holds", "max_hp": "most health", "cleanse": "afflictions shed"}
+	"end_action": "its action ends", "exhibit": "fires every gem it holds", "max_hp": "most health", "cleanse": "afflictions shed",
+	"copy_hand": "of your dice copied", "grip_die": "die gripped", "lose_die": "head falls silent", "hasten": "action sooner", "swap_gems": "gems swapped",
+	"poison_tick": "poison bites again"}
 const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED", "latent": "ON DEATH", "spent": "SPENT"}
 
 static func move_glyph(move: Dictionary) -> String:
@@ -141,8 +144,8 @@ func _build_rows(moves: Array) -> void:
 		var condition := DeepUi.label(requirement, DeepCreatures.trigger_words(move), 11, DeepUi.MUTED)
 		condition.tooltip_text = condition.text
 		## A move that fires every so many actions says how far off it is.
-		if str(move.get("trigger", {}).get("kind", "")) == "every_nth_turn":
-			var wait: int = DeepCreatures.next_nth_in(foe, move)
+		if str(move.get("trigger", {}).get("kind", "")) in ["every_nth_turn", "countdown"]:
+			var wait: int = DeepCreatures.next_nth_in(foe, move) if str(move.trigger.kind) == "every_nth_turn" else DeepCreatures.countdown_in(foe, move)
 			var soon := DeepUi.label(requirement, "· in %s" % DeepUi.plural(wait, "action"), 11, Color("ffb05a"))
 			soon.tooltip_text = "%s fires in %s." % [str(move.name), DeepUi.plural(wait, "action")]
 		var numbers: Array = []
@@ -166,7 +169,14 @@ func _build_rows(moves: Array) -> void:
 			var mods := DeepUi.hbox(line, 3)
 			mods.visible = not formula.is_empty()
 			if not parts.is_empty() and not formula.is_empty():
-				_bonus_marks(mods, parts.mods)
+				_bonus_marks(mods, parts.mods, kind)
+			## A Poison or Burn here: its stacks are as written, but every round of them hurts
+			## with the weight on its blows.
+			if int(effect.get("weight", 100)) != 100 and not formula.is_empty():
+				mods.visible = true
+				var times: String = ("%.2f" % (float(effect.weight) / 100.0)).rstrip("0").rstrip(".")
+				DeepUi.stat(mods, "depth", "×" + times, DeepUi.ACCENT, 11,
+					"Depth: every round of this %s hurts ×%s. A creature's Poison and Burn carry the weight its blows carry this deep." % [kind.capitalize(), times])
 			var noun: String = str(NOUNS.get(kind, kind.replace("_", " ")))
 			if kind == "summon":
 				noun = "%s %s" % [str(DeepContent.creature(str(effect.get("creature", ""))).get("name", "creature")), "joins" if str(formula) == "1" else "join"]
@@ -191,7 +201,7 @@ func _build_rows(moves: Array) -> void:
 		_rows.append({"panel": panel, "badge": badge, "numbers": numbers, "formulas": formulas, "marks": marks})
 	_build_passive()
 
-func _bonus_marks(parent: Node, mods: Array) -> void:
+func _bonus_marks(parent: Node, mods: Array, kind: String = "damage") -> void:
 	## What the mine, a Rising trait, Strength or a status added to the number it started as,
 	## each a colored mark and a figure. The mine's share is marked with strata and a sinking
 	## arrow, never the Carat scale: it is how much harder things hit this deep, not a stone's.
@@ -201,8 +211,12 @@ func _bonus_marks(parent: Node, mods: Array) -> void:
 			if value == 100:
 				continue
 			var times: String = ("%.2f" % (float(value) / 100.0)).rstrip("0").rstrip(".")
-			DeepUi.stat(parent, "depth", "×" + times, DeepUi.ACCENT if value > 100 else DeepUi.GOOD, 11,
-				"Depth: ×%s damage. Creatures hit harder the deeper the mine they are bred in (and a Rising creature harder with every action)." % times)
+			var said: String = "Depth: ×%s damage. Creatures hit harder the deeper the mine they are bred in (and a Rising creature harder with every action)." % times
+			if kind in DeepCreatures.HEALTH_SCALED:
+				said = "Its health: ×%s. What a creature does for itself (block, healing, Regeneration) grows with the health it was bred with." % times
+			elif kind == "remove_block":
+				said = "Depth: ×%s. The block a creature strips grows with how hard it hits this deep." % times
+			DeepUi.stat(parent, "heart" if kind in DeepCreatures.HEALTH_SCALED else "depth", "×" + times, DeepUi.ACCENT if value > 100 else DeepUi.GOOD, 11, said)
 		elif value != 0:
 			DeepUi.stat(parent, "rise", "%+d" % value, DeepUi.BAD if value > 0 else DeepUi.GOOD, 11,
 				"%+d damage from Strength, rallying and the fight dragging on." % value)

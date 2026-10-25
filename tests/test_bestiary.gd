@@ -22,6 +22,9 @@ func _init() -> void:
 	dice_for_the_fight_and_for_good()
 	echoes_and_the_remembered()
 	the_hollow_crown()
+	scaling_with_the_mine()
+	the_identity_pass()
+	every_creature_has_a_tip()
 	wording_and_content()
 	print("Bestiary: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -228,10 +231,15 @@ func summons_and_escorts() -> void:
 	fixed(g.foe, [4], [20])
 	var plant: Array = turn(g)
 	check(moves_named(plant, "Plant").size() == 1 and g.state.enemies.size() == 2 and str(g.state.enemies[1].key) == "PUFFBALL", "an even roll plants a Puffball")
-	check(int(g.foe.hp) == 904, "Tend heals the Gardener itself by the roll: %d" % int(g.foe.hp))
+	check(int(g.foe.hp) == 902, "Tend heals the Gardener itself by half the roll: %d" % int(g.foe.hp))
 	fixed(g.foe, [7], [20])
+	var tend_only: Array = turn(g)
+	check(moves_named(tend_only, "Sow").is_empty() and moves_named(tend_only, "Plant").is_empty(), "a 7 only tends: it plants nothing")
+	fixed(g.foe, [5], [20])
 	var sow: Array = turn(g)
-	check(moves_named(sow, "Sow").size() == 1 and g.state.enemies.any(func(e: Dictionary) -> bool: return str(e.key) == "ROOT_HORROR"), "an odd roll plants a Root Horror")
+	check(moves_named(sow, "Sow").size() == 1 and g.state.enemies.any(func(e: Dictionary) -> bool: return str(e.key) == "ROOT_HORROR"), "a 5 sows a Root Horror")
+	var prune: Array = DeepContent.creature("THE_GARDENER").moves.filter(func(m: Dictionary) -> bool: return str(m.name) == "Prune")
+	check(not bool(prune[0].effects[1].get("permanent", true)), "its Prune grinds the faces for the fight, not for good")
 
 func burrow_and_emerge() -> void:
 	var f: Dictionary = setup(["PIT_MOLE", "RAIL_RAT"], 2)
@@ -342,7 +350,7 @@ func fester_scorch_and_burn() -> void:
 	fixed(fresh.foe, [9])
 	var cloud: Array = turn(fresh)
 	check(moves_named(cloud, "Spore Cloud").size() == 1 and int(fresh.player.statuses.get("festering", 0)) == 2, "a Spore Cloud on 8+ festers the party for 2, and a fresh application survives the tick that follows")
-	## A Salamander's even roll sets the party burning for the roll; the tick that ends the turn burns.
+	## A Salamander's even roll sets the party burning for half the roll; the tick that ends the turn burns.
 	var s: Dictionary = setup(["SALAMANDER"])
 	s.player.block = 0
 	fixed(s.foe, [8], [12])
@@ -351,7 +359,7 @@ func fester_scorch_and_burn() -> void:
 	var ticks: Array = []
 	for event in of(ember, "tick"):
 		ticks.append_array(event.ticks.filter(func(t: Dictionary) -> bool: return str(t.kind) == "burn"))
-	check(not ticks.is_empty() and int(ticks[0].amount) == 8 and int(s.player.statuses.get("burn", 0)) == 7, "Burn 8 hurts 8 at the turn's end and falls to 7: %s" % str(ticks))
+	check(not ticks.is_empty() and int(ticks[0].amount) == 4 and int(s.player.statuses.get("burn", 0)) == 3, "an 8 burns for 4, which hurts 4 at the turn's end and falls to 3: %s" % str(ticks))
 	fixed(s.foe, [7], [12])
 	var scratch: Array = turn(s)
 	check(moves_named(scratch, "Scratch").size() == 1 and int(moves_named(scratch, "Scratch")[0].effects[0].raw) == 7, "an odd roll scratches for the roll")
@@ -362,9 +370,9 @@ func fester_scorch_and_burn() -> void:
 	w.player.block = 0
 	fixed(w.foe, [3, 3, 5], [10, 12, 20])
 	var breath: Array = turn(w)
-	check(moves_named(breath, "Firebreath").size() == 1 and int(w.player.statuses.get("burn", 0)) == 2, "a pair of 3s burns the party for 3, and one round has burned: %d left" % int(w.player.statuses.get("burn", 0)))
+	check(moves_named(breath, "Firebreath").size() == 1 and int(w.player.statuses.get("burn", 0)) == 1, "a pair of 3s burns the party for 2, and one round has burned: %d left" % int(w.player.statuses.get("burn", 0)))
 	var lava: Array = DeepContent.creature("THE_KILN_WYRM").phases[0].moves.filter(func(m: Dictionary) -> bool: return str(m.name) == "Lavafall")
-	check(lava.size() == 1 and int(lava[0].effects[0].amount) == 20 and str(lava[0].effects[1].kind) == "burn" and int(lava[0].effects[1].amount) == 20, "hurt, its lava falls for 20 and burns for 20")
+	check(lava.size() == 1 and int(lava[0].effects[0].amount) == 20 and str(lava[0].effects[1].kind) == "burn" and int(lava[0].effects[1].amount) == 8, "hurt, its lava falls for 20 and burns for 8")
 
 func steadfast_and_sturdy() -> void:
 	var f: Dictionary = setup(["THE_ANVIL_KNIGHT"])
@@ -432,8 +440,11 @@ func backlash_and_damping() -> void:
 	var drain: Array = moves_named(damped, "Drain")
 	check(drain.size() == 1 and drain[0].effects.size() == 2 and str(drain[0].effects[1].kind) == "heal", "the Shade's Drain hits and heals it for the roll")
 	fixed(u.foe, [2], [8])
+	var spared: Array = turn(u)
+	check(moves_named(spared, "Snuff").is_empty() and u.player.rail.filter(func(x: Variant) -> bool: return x is Dictionary).size() == 3, "a 2 snuffs nothing now")
+	fixed(u.foe, [8], [8])
 	var snuff: Array = turn(u)
-	check(moves_named(snuff, "Snuff").size() == 1 and u.player.rail.filter(func(x: Variant) -> bool: return x is Dictionary).size() == 2, "an even roll snuffs out a gem")
+	check(moves_named(snuff, "Snuff").size() == 1 and u.player.rail.filter(func(x: Variant) -> bool: return x is Dictionary).size() == 2, "an 8 snuffs out a gem")
 	fixed(u.foe, [1], [8])
 	turn(u)
 	check(u.player.rail.filter(func(x: Variant) -> bool: return x is Dictionary).size() == 2, "for the rest of the fight")
@@ -484,7 +495,7 @@ func theft_and_flight() -> void:
 	l.foe.hp = 900
 	fixed(l.foe, [4, 4, 1], [4, 4, 4])
 	var drink: Array = turn(l)
-	check(moves_named(drink, "Drink").size() == 2 and int(l.foe.hp) == 908, "two 4s drink twice, 4 each: hp %d" % int(l.foe.hp))
+	check(moves_named(drink, "Drink").size() == 2 and int(l.foe.hp) == 904, "two 4s drink twice, 2 each: hp %d" % int(l.foe.hp))
 	check(moves_named(drink, "Latch").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [4, 4, 1], "each Latch bites for its own die")
 	check(int(l.foe.stolen_gold) == 0, "and it no longer drinks pyrite")
 	## The Assayer's tax is a tenth of each purse, and each player is hit for what it took.
@@ -498,12 +509,14 @@ func theft_and_flight() -> void:
 	check(moves_named(tax, "Tax").size() == 1 and int(a.foe.stolen_gold) == 14, "a tenth of 100 and of 40 is 14: %d" % int(a.foe.stolen_gold))
 	check(int(a.state.players[0].hp) == 990 and int(a.state.players[1].hp) == 996, "each is hit for what was taken from them: %d / %d" % [int(a.state.players[0].hp), int(a.state.players[1].hp)])
 	check(moves_named(tax, "Balance").size() == 2 and int(a.foe.statuses.get("spikes", 0)) == 2, "odd rolls shield it and raise its spikes")
-	## Its 10 eats the rich: it heals and grows by the richest player's pyrite.
+	## Its 10 eats the rich: it heals and grows a hundredth of its health for every 10 pyrite
+	## the richest player holds.
 	var rich: int = DeepRules.pyrite(a.state.players[0])
 	var most: int = int(a.foe.max_hp)
 	fixed(a.foe, [10, 4], [10, 10])
 	var eat: Array = turn(a)
-	check(moves_named(eat, "Eat the Rich").size() == 1 and int(a.foe.max_hp) == most + rich, "Eat the Rich grows it by %d: %d" % [rich, int(a.foe.max_hp)])
+	var grew: int = most * (rich / 10) / 100
+	check(moves_named(eat, "Eat the Rich").size() == 1 and int(a.foe.max_hp) == most + grew, "Eat the Rich grows it by %d%% (%d): %d" % [rich / 10, grew, int(a.foe.max_hp)])
 	check(moves_named(eat, "Weigh").size() == 2 and int(a.foe.statuses.get("strength", 0)) == 2, "each even roll weighs in and makes it stronger")
 	## While it stands no gem counts for more than five carats.
 	var heavy: Dictionary = setup(["THE_ASSAYER"], 1, {}, [stone("STRIKE", "heavy", 12)])
@@ -552,28 +565,27 @@ func gems_held_and_buried() -> void:
 	lone.player.statuses.stun = 1
 	var spared: Array = turn(lone)
 	check(bool(moves_named(spared, "Acquire")[0].effects[0].get("nothing", false)) and lone.player.rail[0] is Dictionary, "it will not take a rail's only gem")
-	## An Entropy Eye buries the socket under the heaviest gem, and its 1 unmakes a die.
+	## An Entropy Eye unmakes a die on a 1 or a 12, and no longer buries sockets.
 	var e: Dictionary = setup(["ENTROPY_EYE"], 1, {}, rail)
 	fixed(e.foe, [12])
 	e.player.statuses.stun = 1
-	var stare: Array = turn(e)
-	check(moves_named(stare, "Stare").size() == 1 and int(moves_named(stare, "Gaze")[0].effects[0].raw) == 12, "a crown stares, and the gaze hits for the roll")
-	fixed(e.foe, [1], [12])
-	DeepBattle.force_lock(e.state)
-	check(e.player.buried.is_empty(), "burial clears at the turn start that follows")
+	var first: Array = turn(e)
+	check(moves_named(first, "Unmake").size() == 1 and int(moves_named(first, "Gaze")[0].effects[0].raw) == 12 and e.player.dice.size() == 4, "a 12 unmakes a die, and the gaze hits for the roll")
+	check(e.player.buried.is_empty() and DeepContent.creature("ENTROPY_EYE").moves.all(func(m: Dictionary) -> bool: return str(m.name) != "Stare"), "it buries nothing: burying is the Foreman's")
 	var again: Dictionary = DeepBattle._apply(e.state, e.foe, {"kind": "bury_socket", "target": "heroes", "amount": 1, "pick": "heaviest"}, e.rng.dice)[0]
-	check(int(again.get("socket", -1)) == 1 and e.player.buried.has(1), "the nine-carat Guard's socket goes under rubble")
+	check(int(again.get("socket", -1)) == 1 and e.player.buried.has(1), "a bury_socket still finds the nine-carat Guard's socket")
+	fixed(e.foe, [1], [12])
 	e.player.statuses.stun = 1
 	var unmake: Array = turn(e)
-	check(moves_named(unmake, "Unmake").size() == 1 and e.player.dice.size() == 4, "a 1 unmakes one of the five dice")
+	check(moves_named(unmake, "Unmake").size() == 1 and e.player.dice.size() == 3, "a 1 unmakes another")
 	fixed(e.foe, [5], [12])
 	turn(e)
-	check(e.player.dice.size() == 4 and e.player.hand.size() == 4, "it stays gone for the fight")
-	check(DeepBattle.dice_after_fight(e.player).size() == 5, "and is back when the fight is over")
+	check(e.player.dice.size() == 3 and e.player.hand.size() == 3, "they stay gone for the fight")
+	check(DeepBattle.dice_after_fight(e.player).size() == 5, "and are back when the fight is over")
 	## A die broken this turn (a Glass die that shattered) grows back at the start of the next;
 	## a fight that ends before then gives it back all the same.
 	var shattered: Dictionary = e.player.dice[0]
-	check(DeepBattle.break_die(e.state, e.player, str(shattered.id), "shattered") and e.player.dice.size() == 3, "a shattered die leaves the bowl")
+	check(DeepBattle.break_die(e.state, e.player, str(shattered.id), "shattered") and e.player.dice.size() == 2, "a shattered die leaves the bowl")
 	var after: Array = DeepBattle.dice_after_fight(e.player)
 	check(after.size() == 5 and after.any(func(d: Dictionary) -> bool: return str(d.id) == str(shattered.id)), "and is back when the fight ends before the next turn")
 
@@ -586,15 +598,19 @@ func bursts_and_swelling() -> void:
 	check(int(f.foe.swell) == 6, "it swells by its roll each action: %d" % int(f.foe.swell))
 	fixed(f.foe, [6], [6])
 	turn(f)
-	check(int(f.foe.swell) == 12 and int(f.foe.statuses.get("regeneration", 0)) >= 5, "a 6 swells it and it regenerates: %s" % str(f.foe.statuses))
+	check(int(f.foe.swell) == 12 and int(f.foe.statuses.get("regeneration", 0)) == 0, "a 6 swells it, and it no longer regenerates: %s" % str(f.foe.statuses))
 	f.foe.block = 0
 	var killed: Dictionary = hit(f, 9999)
-	check(int(f.player.statuses.get("poison", 0)) == 12 and killed.get("deathburst", [])[0].move == "Burst", "its burst poisons the party for its swelling")
+	check(int(f.player.statuses.get("poison", 0)) == 6 and killed.get("deathburst", [])[0].move == "Burst", "its burst poisons the party for half its swelling")
 	var s: Dictionary = setup(["SPORE_SLIME"])
 	s.foe.statuses.poison = 999
 	s.foe.hp = 1
 	var tick: Dictionary = DeepBattle._poison_tick(s.state, s.foe)
-	check(bool(tick.get("killed", false)) and int(s.player.statuses.get("poison", 0)) == 3, "a Spore Slime that dies to poison still bursts")
+	check(bool(tick.get("killed", false)) and int(s.player.statuses.get("poison", 0)) == 0, "a Spore Slime no longer bursts: bursting is the Puffball's")
+	var big: Dictionary = setup(["SPORE_SLIME"])
+	big.foe.block = 0
+	var struck: Dictionary = hit(big, int(big.foe.max_hp) / 2)
+	check(struck.has("split") and big.state.enemies.size() == 2, "it splits when struck hard, like every slime")
 	var ooze: Dictionary = setup(["SPORE_SLIME"])
 	fixed(ooze.foe, [3], [8])
 	var oozed: Array = turn(ooze)
@@ -603,24 +619,50 @@ func bursts_and_swelling() -> void:
 	var weaver: Dictionary = setup(["MYCEL_WEAVER"])
 	fixed(weaver.foe, [3, 1], [4, 4])
 	turn(weaver)
-	check(int(weaver.player.statuses.get("poison", 0)) == 3, "a Mycel Weaver poisons for each roll, 3 and 1, and the tick takes one: %d" % int(weaver.player.statuses.get("poison", 0)))
-	## A Root Horror drinks its poison away, and a pair grows it.
+	check(int(weaver.player.statuses.get("poison", 0)) == 2, "a Mycel Weaver poisons for half of each roll, 3 and 1 (2 and 1), and the tick takes one: %d" % int(weaver.player.statuses.get("poison", 0)))
+	## A Root Horror no longer drinks; a pair grows it a quarter and a point stronger.
 	var r: Dictionary = setup(["ROOT_HORROR"])
 	r.foe.statuses.poison = 7
-	r.foe.hp = 10
-	fixed(r.foe, [4, 1, 2], [4, 4, 4])
+	fixed(r.foe, [4, 1, 3], [4, 4, 4])
 	var drink: Array = turn(r)
-	check(moves_named(drink, "Drink").size() == 1 and int(r.foe.statuses.poison) == 0 and int(r.foe.hp) == 18, "a 4 heals 8 and sheds every stack of poison")
+	check(moves_named(drink, "Drink").is_empty() and int(r.foe.statuses.poison) == 6, "a 4 drinks nothing: its poison only ticks")
 	var grow: Dictionary = setup(["ROOT_HORROR"])
 	fixed(grow.foe, [2, 2, 1], [4, 4, 4])
 	var grown: Array = turn(grow)
-	check(moves_named(grown, "Grow").size() == 1 and int(grow.foe.max_hp) == 1250 and int(grow.foe.hp) == 1250 and int(grow.foe.statuses.get("strength", 0)) == 2, "a pair of 2s grows it by a quarter and 2 Strength: %d / %s" % [int(grow.foe.max_hp), str(grow.foe.statuses)])
-	## The Spore Mother hatches a Weaver on every 1, and sheds everything at half health, once.
+	check(moves_named(grown, "Grow").size() == 1 and int(grow.foe.max_hp) == 1250 and int(grow.foe.hp) == 1250 and int(grow.foe.statuses.get("strength", 0)) == 1, "a pair grows it by a quarter and 1 Strength: %d / %s" % [int(grow.foe.max_hp), str(grow.foe.statuses)])
+	## The Spore Mother's spores bloom every third action, unless a hard turn puts them back.
 	var m: Dictionary = setup(["THE_SPORE_MOTHER"])
 	m.foe.statuses.ward = 0
+	m.player.statuses.stun = 1
 	fixed(m.foe, [1, 3, 2], [6, 6, 6])
-	var brood: Array = turn(m)
-	check(moves_named(brood, "Brood").size() == 1 and m.state.enemies.size() == 2 and str(m.state.enemies[1].key) == "MYCEL_WEAVER", "a 1 hatches a Mycel Weaver")
+	var calm: Array = turn(m)
+	check(moves_named(calm, "Bloom").is_empty() and m.state.enemies.size() == 1, "her first action blooms nothing and hatches nothing")
+	check(int(of(calm, "enemy_begin")[0].get("countdowns", {}).get("Bloom", 0)) == 2, "the bloom is two actions off: %s" % str(of(calm, "enemy_begin")[0].get("countdowns", {})))
+	m.player.statuses.stun = 1
+	turn(m)
+	m.player.statuses.stun = 1
+	var poison_before: int = int(m.player.statuses.get("poison", 0))
+	var bloom: Array = turn(m)
+	check(moves_named(bloom, "Bloom").size() == 1 and int(m.player.statuses.get("festering", 0)) >= 1 and int(m.player.statuses.get("poison", 0)) >= poison_before + 5, "the third action blooms: poison and Festering on the party")
+	## A turn that takes a tenth of her health puts the bloom back to three.
+	m.player.statuses.stun = 1
+	turn(m)
+	check(DeepCreatures.countdown_in(m.foe, DeepCreatures.moves_for(m.foe)[0]) == 2, "after one action it is two off again")
+	m.foe.hp_at_turn = int(m.foe.hp)
+	m.foe.block = 0
+	hit(m, int(m.foe.max_hp) / 10)
+	m.player.statuses.stun = 1
+	var held: Array = turn(m)
+	check(bool(of(held, "enemy_begin")[0].get("held_back", false)) and int(of(held, "enemy_begin")[0].get("countdowns", {}).get("Bloom", 0)) == 2, "a hard turn holds it back: it counts from three again")
+	## Poison that bit her at the end of the turn before counts toward the hard turn too.
+	m.player.statuses.stun = 1
+	turn(m)
+	m.foe.statuses.poison = int(m.foe.max_hp) / 16
+	DeepBattle._poison_tick(m.state, m.foe)
+	DeepBattle._poison_tick(m.state, m.foe)
+	m.player.statuses.stun = 1
+	var poisoned_turn: Array = turn(m)
+	check(bool(of(poisoned_turn, "enemy_begin")[0].get("held_back", false)), "a tenth of her health lost to poison since she last acted holds the bloom back too")
 	m.foe.statuses.poison = 9
 	m.foe.statuses.curse = 3
 	m.foe.block = 0
@@ -670,16 +712,24 @@ func strength_heads_and_empowerment() -> void:
 	fixed(f.foe, [1, 2])
 	var later: Array = turn(f)
 	check(moves_named(later, "Maul").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [2, 3], "the Strength lasts: every maul hits 1 harder")
+	## A Crystal Hydra loses a head for every quarter of its health it loses, and grows two
+	## back for each as it next acts.
 	var h: Dictionary = setup(["CRYSTAL_HYDRA"])
 	fixed(h.foe, [5, 5, 2])
+	h.foe.block = 0
+	var cut: Dictionary = hit(h, int(h.foe.max_hp) / 4)
+	check(int(cut.get("heads_cut", 0)) == 1 and h.foe.dice.size() == 2, "a quarter of its health cuts a head off")
+	hit(h, int(h.foe.max_hp) / 4)
+	hit(h, int(h.foe.max_hp) / 4)
+	check(h.foe.dice.size() == 1 and int(h.foe.heads_cut) == 2, "never below one head")
+	h.player.statuses.stun = 1
+	var regrow: Array = turn(h)
+	check(int(of(regrow, "enemy_begin")[0].get("heads_grown", 0)) == 4 and h.foe.dice.size() == 5, "each cut head grows back as two: %d" % h.foe.dice.size())
+	hit(h, 1)
+	h.foe.heads_cut = 4
+	h.player.statuses.stun = 1
 	turn(h)
-	check(h.foe.dice.size() == 4, "a pair grows a fourth head")
-	fixed(h.foe, [5, 5, 5, 5])
-	turn(h)
-	check(h.foe.dice.size() == 5, "and a fifth")
-	fixed(h.foe, [5, 5, 5, 5, 5])
-	var full: Array = turn(h)
-	check(h.foe.dice.size() == 5 and bool(moves_named(full, "Grow a Head")[0].effects[0].get("nothing", false)), "five heads at most")
+	check(h.foe.dice.size() == DeepBattle.HYDRA_HEADS, "six heads at most")
 	var c: Dictionary = setup(["CROUPIER_CRAB"])
 	c.player.block = 0
 	fixed(c.foe, [20])
@@ -692,15 +742,15 @@ func strength_heads_and_empowerment() -> void:
 	fixed(c.foe, [1])
 	var nothing: Array = turn(c)
 	check(moves_named(nothing, "Nothing").size() == 1 and int(c.foe.statuses.get("stun", 0)) == 1 and int(c.player.gold) == 10, "a 1 stuns the crab and drops ten pyrite")
-	## The Anvil Knight quenches itself on an odd roll: Strength equal to the roll.
+	## The Anvil Knight quenches itself on an odd roll: 2 Strength each time.
 	var k: Dictionary = setup(["THE_ANVIL_KNIGHT"])
 	fixed(k.foe, [3, 4], [10, 10])
 	var temper: Array = turn(k)
-	check(moves_named(temper, "Quench").size() == 1 and int(k.foe.statuses.get("strength", 0)) == 3, "a 3 quenches it to Strength 3")
+	check(moves_named(temper, "Quench").size() == 1 and int(k.foe.statuses.get("strength", 0)) == 2, "a 3 quenches it to Strength 2")
 	check(moves_named(temper, "Bulwark").size() == 1 and int(k.foe.block) >= 20, "a 4 raises a 20-block bulwark: %d" % int(k.foe.block))
 	fixed(k.foe, [4, 2], [10, 10])
 	var hammer: Array = turn(k)
-	check(moves_named(hammer, "Hammer").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [7, 5], "and every hammer after hits 3 harder")
+	check(moves_named(hammer, "Hammer").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [6, 4], "and every hammer after hits 2 harder")
 
 func the_refractor_feeds_on_colour() -> void:
 	## A Refractor gains a point of Strength the first time it sees each colour fire.
@@ -718,7 +768,7 @@ func the_refractor_feeds_on_colour() -> void:
 	fixed(f.foe, [10], [12])
 	f.foe.block = 0
 	var wall: Array = turn(f)
-	check(moves_named(wall, "Prism Wall").size() == 1 and int(f.foe.block) == 20, "a 10 walls it in ten block for each point of Strength: %d" % int(f.foe.block))
+	check(moves_named(wall, "Prism Wall").size() == 1 and int(f.foe.block) == 4, "a 10 walls it in two block for each point of Strength: %d" % int(f.foe.block))
 
 func dice_for_the_fight_and_for_good() -> void:
 	## A Forge Imp's heat treatment shrinks a die for the fight; it is itself again after.
@@ -833,6 +883,187 @@ func the_hollow_crown() -> void:
 	var standing: Array = DeepBattle.living(f.state.enemies)
 	check(standing.filter(func(e: Dictionary) -> bool: return str(e.key) == "GILDED_MAGPIE").size() == 2, "and they are Gilded Magpies")
 	check(standing.size() == 3 and standing[1] == f.foe, "one on either side of the boss that called them")
+
+func scaling_with_the_mine() -> void:
+	## A creature's own numbers carry the weight its mine gives it (October 25, 2026): what it
+	## does for itself grows with its health, what it strips or burns grows with its blows.
+	var deep: Dictionary = setup(["QUARTZ_GOLEM"], 1, {"depth": 1, "scale": {"hp": 4.0, "damage": 2.5}, "tough": false})
+	var golem: Dictionary = deep.foe
+	check(DeepCreatures.health_pct(golem) == 400 and int(golem.block) == 24, "a golem bred four times as tough walks in behind four times the block: %d" % int(golem.block))
+	var harden: Dictionary = {"kind": "block", "target": "self", "amount": {"term": "rolled"}}
+	var resolved: Dictionary = DeepRules.resolve_effect(harden, {"rolled": 5}, 1.0, "heroes")
+	DeepCreatures.scale_effect(golem, resolved, harden)
+	check(int(resolved.amount) == 20 and int(resolved.get("health_pct", 0)) == 400, "and hardens for four times its roll: %d" % int(resolved.amount))
+	var share: Dictionary = {"kind": "max_hp", "target": "self", "amount": {"op": "pct", "args": [{"term": "max_hp"}, 25]}}
+	var grown: Dictionary = {"kind": "max_hp", "target": "self", "amount": 50}
+	DeepCreatures.scale_effect(golem, grown, share)
+	check(int(grown.amount) == 50, "a share of its own health is left as it is")
+	var strip: Dictionary = {"kind": "remove_block", "target": "heroes", "amount": 4}
+	var stripped: Dictionary = strip.duplicate()
+	DeepCreatures.scale_effect(golem, stripped, strip)
+	check(int(stripped.amount) == 10, "block it strips carries the weight on its blows: %d" % int(stripped.amount))
+	golem.statuses.strength = 2
+	check(DeepCreatures.weighted(golem, DeepCreatures.strength(golem)) == 5, "two Strength is five points on a blow at x2.5")
+	## Poison and Burn a creature puts on a player hurt for their stacks times the creatures'
+	## weight here; a player's own (a Hemlock's) for its stacks.
+	DeepBattle._apply(deep.state, golem, {"kind": "poison", "target": "heroes", "amount": 4}, deep.rng.dice)
+	DeepBattle._apply(deep.state, golem, {"kind": "burn", "target": "heroes", "amount": 4}, deep.rng.dice)
+	deep.player.block = 3
+	var poisoned: Dictionary = DeepBattle._poison_tick(deep.state, deep.player)
+	var burned: Dictionary = DeepBattle._burn_tick(deep.state, deep.player)
+	check(int(poisoned.amount) == 10 and int(deep.player.statuses.poison) == 3, "a creature's Poison 4 hurts 10 at x2.5 and loses one stack: %d" % int(poisoned.amount))
+	check(int(burned.soaked) == 3 and int(burned.amount) == 7 and int(deep.player.statuses.burn) == 3, "a creature's Burn 4 hurts 10, block soaking 3 of it: %s" % str(burned))
+	DeepBattle._apply(deep.state, deep.player, {"kind": "poison", "target": "self", "amount": 5}, deep.rng.dice)
+	var mixed: Dictionary = DeepBattle._poison_tick(deep.state, deep.player)
+	check(int(mixed.amount) == 5 + 7, "a Hemlock's own 5 stacks hurt 5 beside the creature's 3 at x2.5 (7): %d" % int(mixed.amount))
+	deep.player.statuses.poison = 0
+	DeepBattle._apply(deep.state, deep.player, {"kind": "poison", "target": "self", "amount": 4}, deep.rng.dice)
+	check(int(DeepBattle._poison_tick(deep.state, deep.player).amount) == 4, "stacks cleansed away take the creature's share with them: a fresh Hemlock 4 hurts 4")
+	golem.statuses.poison = 4
+	check(int(DeepBattle._poison_tick(deep.state, golem).amount) == 4, "on a creature it is only its stacks")
+	## The Quarry is untouched: one player, the first floor, plain weights.
+	var plain: Dictionary = setup(["QUARTZ_GOLEM"], 1, {"tough": false})
+	check(DeepCreatures.health_pct(plain.foe) == 100 and int(plain.foe.block) == 6 and int(plain.state.creature_damage_pct) == 100, "a Quarry golem on the first floor is as written")
+	## What its move table says about a Poison or Burn that will hurt harder here.
+	var imp: Dictionary = setup(["FORGE_IMP"], 1, {"scale": {"hp": 1.0, "damage": 2.85}})
+	var cackle: Dictionary = DeepCreatures.display_moves(imp.foe)[0].effects[0]
+	check(int(cackle.get("weight", 0)) == 285 and DeepCreatures.effect_words(cackle).contains("×2.85"), "an Imp's Cackle says every round hurts ×2.85 here: %s" % DeepCreatures.effect_words(cackle))
+	check(not DeepContent.creature("FORGE_IMP").get("tip", "").is_empty(), "and its page says what to remember about it")
+	## A golem's Harden keeps all its block into its next turn, so it piles up.
+	var keep: Dictionary = setup(["QUARTZ_GOLEM"])
+	keep.foe.block = 0
+	keep.player.statuses.stun = 1
+	fixed(keep.foe, [4], [12])
+	turn(keep)
+	var after_one: int = int(keep.foe.block)
+	keep.player.statuses.stun = 1
+	fixed(keep.foe, [6], [12])
+	turn(keep)
+	check(after_one >= 4 and int(keep.foe.block) >= after_one + 6, "Harden piles its block up: %d then %d" % [after_one, int(keep.foe.block)])
+
+func every_creature_has_a_tip() -> void:
+	for key in DeepContent.section("creatures"):
+		var tip: String = str(DeepContent.creature(str(key)).get("tip", ""))
+		check(not tip.is_empty() and tip.length() <= 110, "%s says what to remember about it, in a line: %s" % [str(key), tip])
+
+func the_identity_pass() -> void:
+	## The creatures reworked from the owner's identity review (October 25, 2026).
+	## The Mirror Regent throws copies of the best hand's highest dice.
+	var r: Dictionary = setup(["THE_REGENT"])
+	r.foe.statuses.ward = 0
+	r.player.block = 0
+	r.player.statuses.stun = 1
+	for i in range(r.player.hand.size()):
+		r.player.hand[i].value = [2, 6, 5, 1, 6][i]
+	var mirrored: Array = turn(r)
+	var reflections: Array = moves_named(mirrored, "Reflection").map(func(e: Dictionary) -> int: return int(e.effects[0].raw))
+	check(moves_named(mirrored, "Mirror Image").size() == 1 and r.foe.dice.size() == 3, "the Regent copies three dice as its action opens")
+	check(reflections == [6, 6, 5], "and throws back what the player rolled: %s" % str(reflections))
+	check(moves_named(mirrored, "Splinter").size() == 1, "two copied 6s are a pair: Splinter curses")
+	## The Drowned Miner gets back up once.
+	var d: Dictionary = setup(["DROWNED_MINER"])
+	d.foe.block = 0
+	var down: Dictionary = hit(d, 9999)
+	check(bool(down.get("risen", false)) and int(d.foe.hp) == int(d.foe.max_hp) / 2 and not down.has("killed"), "the first killing blow leaves it standing at half")
+	var again: Dictionary = hit(d, 9999)
+	check(bool(again.get("killed", false)) and int(d.foe.hp) <= 0, "the second one keeps it down")
+	## The Cave Crayfish grips the best die until it is hurt.
+	var c: Dictionary = setup(["CAVE_CRAYFISH"])
+	c.player.statuses.stun = 1
+	for i in range(c.player.hand.size()):
+		c.player.hand[i].value = i + 1
+	fixed(c.foe, [3, 3], [8, 8])
+	var grip: Array = turn(c)
+	var held: String = str(c.player.gripped.keys()[0]) if not c.player.get("gripped", {}).is_empty() else ""
+	check(moves_named(grip, "Grip").size() == 1 and held == "p0_d4" and int(c.foe.block) >= 6, "a pair grips the die showing the most and shells up: %s" % held)
+	check(c.player.hand.size() == 4 and not c.player.hand.any(func(r2: Dictionary) -> bool: return str(r2.die_id) == held), "the gripped die sits the throw out")
+	c.foe.block = 0
+	var freed: Dictionary = hit(c, 5)
+	check(not freed.get("released", []).is_empty() and c.player.gripped.is_empty(), "hurting it opens the claw")
+	fixed(c.foe, [1, 2], [8, 8])
+	c.player.statuses.stun = 1
+	turn(c)
+	check(c.player.hand.size() == 5, "and the die is back for the next throw")
+	## The Lock-Keeper opens the sluice every third action, sooner on a pair.
+	var k: Dictionary = setup(["THE_LOCKKEEPER"])
+	k.foe.statuses.ward = 0
+	check(not DeepCreatures.has_trait(k.foe, "cloud_socket"), "the Lock-Keeper no longer fogs sockets")
+	k.player.statuses.stun = 1
+	fixed(k.foe, [2, 2], [6, 12])
+	var wheel: Array = turn(k)
+	check(moves_named(wheel, "Turn the Wheel").size() == 1 and DeepCreatures.countdown_in(k.foe, DeepCreatures.moves_for(k.foe)[0]) == 1, "a pair turns the wheel: the sluice opens next action")
+	k.player.block = 50
+	k.player.statuses.stun = 1
+	fixed(k.foe, [3, 5], [6, 12])
+	var sluice: Array = turn(k)
+	var opened: Array = moves_named(sluice, "Open the Sluice")
+	check(opened.size() == 1 and int(opened[0].effects[0].get("removed", 0)) == 50 and int(opened[0].effects[1].raw) == 6, "the sluice washes away all block, then hits for twice the roll: %s" % str(opened[0].effects if not opened.is_empty() else []))
+	## The Drowned Choir loses a head at two thirds and one third, and sings louder.
+	var ch: Dictionary = setup(["THE_DROWNED_CHOIR"])
+	ch.foe.statuses.ward = 0
+	ch.foe.block = 0
+	hit(ch, int(ch.foe.max_hp) * 35 / 100)
+	check(ch.foe.dice.size() == 2 and int(ch.foe.statuses.get("strength", 0)) == 2, "a third of its health silences a head: %d dice, Strength %d" % [ch.foe.dice.size(), int(ch.foe.statuses.get("strength", 0))])
+	hit(ch, int(ch.foe.max_hp) * 35 / 100)
+	check(ch.foe.dice.size() == 1 and int(ch.foe.statuses.get("strength", 0)) == 4, "and two thirds a second")
+	## The Undertow's Drag Under now finds someone: the player with the least block.
+	var u: Dictionary = setup(["THE_UNDERTOW"], 2)
+	u.foe.statuses.ward = 0
+	u.state.players[0].block = 9
+	u.state.players[1].block = 0
+	fixed(u.foe, [4, 4], [8, 12])
+	var drag: Array = turn(u)
+	var dragged: Array = moves_named(drag, "Drag Under")
+	check(dragged.size() == 1 and dragged[0].effects.size() == 1 and str(dragged[0].effects[0].target) == "p1", "a pair drags the player with the least block under")
+	## A Will-o'-Wisp marks the players who rerolled.
+	var w: Dictionary = setup(["WILL_O_WISP"], 2)
+	w.state.players[0].rerolled = 1
+	## A Lantern's frozen turn (no rerolls handed out) is not a reroll.
+	w.state.players[1].rerolls = 0
+	fixed(w.foe, [6])
+	DeepBattle.force_lock(w.state)
+	DeepBattle.start_resolution(w.state)
+	var lured: Array = []
+	while DeepBattle.has_steps(w.state) and lured.size() < 300:
+		var event: Dictionary = DeepBattle.step(w.state, w.rng.dice, w.rng.creatures)
+		lured.append(event)
+		if str(event.get("kind", "")) == "enemy_move" and str(event.get("move", "")) == "Lure":
+			break
+	var lure: Array = moves_named(lured, "Lure")
+	check(lure.size() == 1 and lure[0].effects.size() == 1 and str(lure[0].effects[0].target) == "p0", "a 6 marks only the player who rerolled: %s" % str(lure[0].effects.map(func(e: Dictionary) -> String: return str(e.target)) if not lure.is_empty() else []))
+	## A Magpie's pair snatches pyrite from the richest player; dice stay with the Tick.
+	var m: Dictionary = setup(["MAGPIE"], 2)
+	m.state.players[0].ore = 5
+	m.state.players[1].ore = 40
+	for unit in m.state.players:
+		unit.statuses.stun = 1
+	fixed(m.foe, [2, 2, 1], [4, 4, 4])
+	var snatch: Array = turn(m)
+	check(moves_named(snatch, "Snatch").size() == 1 and str(moves_named(snatch, "Snatch")[0].effects[0].target) == "p1" and int(moves_named(snatch, "Snatch")[0].effects[0].stolen) == 10, "a pair snatches 10 from the richest")
+	## The Rift Shifter swaps two neighbouring gems for the fight.
+	var rail: Array = [stone("STRIKE", "s1"), stone("GUARD", "g1"), stone("MEND", "m1")]
+	var sh: Dictionary = setup(["RIFT_SHIFTER"], 1, {}, rail)
+	var swapped: Array = DeepBattle._apply(sh.state, sh.foe, {"kind": "swap_gems", "target": "heroes", "amount": 1}, sh.rng.dice)
+	var order: Array = sh.player.rail.map(func(x: Variant) -> String: return str(x.id) if x is Dictionary else "-")
+	check(swapped.size() == 1 and order.slice(0, 3) != ["s1", "g1", "m1"] and order.slice(0, 3).has("s1") and order.slice(0, 3).has("g1") and order.slice(0, 3).has("m1"), "two neighbours change places: %s" % str(order))
+	var at: Array = swapped[0].get("swapped", [0, 1])
+	check(str(sh.player.initial_rail[int(at[0])].id) == str(sh.player.rail[int(at[0])].id), "and what a broken gem grows back as follows the swap")
+	## A Collapsar draws every single-target blow into itself.
+	var co: Dictionary = setup(["CAVE_TICK", "COLLAPSAR"])
+	co.player.target = str(co.state.enemies[0].id)
+	var bent: Array = DeepBattle._targets(co.state, co.player, "enemy")
+	check(bent.size() == 1 and str(bent[0].key) == "COLLAPSAR", "a blow aimed at the tick bends into the Collapsar")
+	check(DeepBattle._targets(co.state, co.player, "enemies").size() == 2, "a blow that hits every creature still does")
+	co.state.enemies[1].hp = 0
+	check(str(DeepBattle._targets(co.state, co.player, "enemy")[0].key) == "CAVE_TICK", "once it falls, aim is free again")
+	## The Mycel Weaver's web makes poison bite again at once.
+	var wv: Dictionary = setup(["MYCEL_WEAVER"])
+	wv.player.statuses.poison = 5
+	var webbed: Array = DeepBattle._apply(wv.state, wv.foe, {"kind": "poison_tick", "target": "heroes", "amount": 1}, wv.rng.dice)
+	check(webbed.size() == 1 and webbed[0].get("ticks", []).size() == 1 and int(wv.player.statuses.poison) == 4, "its web ticks the party's poison once more")
+	## Every wyrm throws back what fires at Resonance 0.
+	for key in ["GLASS_WYRM", "SHARD_WYRM", "AMETHYST_WYRM"]:
+		check(DeepCreatures.has_trait(setup([key]).foe, "reflect_zero_resonance"), "%s carries the wyrm family's reflect" % key)
 
 func wording_and_content() -> void:
 	## Every move of every creature reads out without a hole in its sentence.

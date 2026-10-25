@@ -497,7 +497,7 @@ static func _detail(home: Control, holder: Control) -> void:
 	DeepUi.pill(facts, "skull", "threat %d" % int(def.get("threat", 1)), DeepUi.MUTED, 13,
 		"How much of a fight's budget it takes. Fights are made from a budget that grows with depth and the party.")
 	if int(def.get("block", 0)) > 0:
-		DeepUi.pill(facts, "shield", "%d block" % int(def.block), DeepUi.BLOCK, 13, "The block it starts every fight with.")
+		DeepUi.pill(facts, "shield", "%d block" % int(def.block), DeepUi.BLOCK, 13, "The block it starts every fight with, as written. Like its health, it grows deeper down.")
 	var dice: Array = def.get("dice", [])
 	if dice.is_empty():
 		DeepUi.pill(facts, "die", "no dice of its own", DeepUi.DIM, 13)
@@ -566,6 +566,12 @@ static func _leaves(home: Control, box: Control, key: String, def: Dictionary, r
 	leaves[at].draw.call(page)
 
 static func _notes(profile: Dictionary, page: Control, key: String, record: Dictionary) -> void:
+	## What to remember about it, in a line, before anything else.
+	var tip: String = str(DeepContent.creature(key).get("tip", ""))
+	if not tip.is_empty():
+		var remember := DeepUi.vbox(page, 6)
+		DeepUi.section(remember, "eye", "Remember", DeepUi.ACCENT_HI, 13)
+		Inspector.wrap_stat(DeepUi.stat(remember, "eye", tip, DeepUi.PAPER, 13))
 	var tally := DeepUi.vbox(page, 8)
 	DeepUi.section(tally, "star", "Your record", DeepUi.ACCENT, 13)
 	var row := DeepUi.hbox(tally, 22)

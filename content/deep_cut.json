@@ -5907,6 +5907,7 @@
       "dice": ["D6"],
       "gimmick": "steal_high_die",
       "text": "On a 6, takes one die from every player for their next turn.",
+      "tip": "Kill it before it rolls a 6, or you lose a die next turn.",
       "moves": [
         {
           "name": "Bite",
@@ -5948,6 +5949,7 @@
       "dice": ["D8"],
       "gimmick": "split_on_big_hit",
       "text": "Splits when struck hard. Dies to many small blows.",
+      "tip": "One big blow splits it. Chip it down with small hits.",
       "moves": [
         {
           "name": "Ooze",
@@ -5977,20 +5979,6 @@
               "amount": 2
             }
           ]
-        },
-        {
-          "name": "Reknit",
-          "trigger": {
-            "kind": "crowns",
-            "amount": 1
-          },
-          "effects": [
-            {
-              "kind": "regeneration",
-              "target": "self",
-              "amount": 2
-            }
-          ]
         }
       ]
     },
@@ -6001,7 +5989,8 @@
       "threat": 4,
       "dice": ["D12"],
       "gimmick": "block_from_high",
-      "text": "Gains block equal to your highest die each turn.",
+      "text": "Gains block equal to your highest die each turn. An even roll hardens it: block equal to the roll, and it keeps all its block into its next turn, so its armour piles up.",
+      "tip": "Its armour piles up. Strip its block, or go round it with poison.",
       "moves": [
         {
           "name": "Pound",
@@ -6028,12 +6017,15 @@
             {
               "kind": "block",
               "target": "self",
-              "amount": 3
+              "amount": {
+                "term": "rolled"
+              }
             },
             {
               "kind": "retain",
               "target": "self",
-              "amount": 3
+              "amount": 0,
+              "keep_all": true
             }
           ]
         }
@@ -6046,7 +6038,8 @@
       "threat": 2,
       "dice": ["D4", "D4", "D4"],
       "gimmick": "steal_gold",
-      "text": "Steals pyrite when it hits and drops it all when it dies.",
+      "text": "Steals pyrite when it hits and drops it all when it dies. A pair snatches 10 pyrite from the richest player.",
+      "tip": "Kill it fast to get your pyrite back.",
       "moves": [
         {
           "name": "Peck",
@@ -6066,19 +6059,14 @@
         {
           "name": "Snatch",
           "trigger": {
-            "kind": "triple",
+            "kind": "pair",
             "amount": 1
           },
           "effects": [
             {
-              "kind": "damage",
-              "target": "heroes",
-              "amount": 6
-            },
-            {
-              "kind": "die_steal",
-              "target": "heroes",
-              "amount": 1
+              "kind": "steal_gold",
+              "target": "hero_most_gold",
+              "amount": 10
             }
           ],
           "dramatic": true
@@ -6093,6 +6081,7 @@
       "dice": ["D6"],
       "gimmick": "gift_rerolls",
       "text": "Its light gives everyone a reroll; each reroll drains 1 HP from every player.",
+      "tip": "Its rerolls are free, but each one costs everyone health.",
       "moves": [
         {
           "name": "Flutter",
@@ -6118,7 +6107,8 @@
       "threat": 3,
       "dice": ["D10"],
       "gimmick": "poison_immune",
-      "text": "Immune to poison. Takes extra damage from straights.",
+      "text": "Immune to poison. Its wail strips away block equal to its roll.",
+      "tip": "Poison will not touch it, and it strips your block. Bring hits.",
       "moves": [
         {
           "name": "Drain",
@@ -6145,26 +6135,9 @@
             {
               "kind": "remove_block",
               "target": "heroes",
-              "amount": 4
-            },
-            {
-              "kind": "poison",
-              "target": "heroes",
-              "amount": 1
-            }
-          ]
-        },
-        {
-          "name": "Omen",
-          "trigger": {
-            "kind": "crowns",
-            "amount": 1
-          },
-          "effects": [
-            {
-              "kind": "marked",
-              "target": "heroes",
-              "amount": 1
+              "amount": {
+                "term": "rolled"
+              }
             }
           ]
         }
@@ -6178,6 +6151,7 @@
       "dice": ["D6"],
       "gimmick": "cloud_socket",
       "text": "Breathes a fog into one of your sockets until you strike it.",
+      "tip": "It fogs a socket. Hit it to clear the fog.",
       "moves": [
         {
           "name": "Puff",
@@ -6210,20 +6184,6 @@
               }
             }
           ]
-        },
-        {
-          "name": "Abrasive Fog",
-          "trigger": {
-            "kind": "at_least",
-            "amount": 6
-          },
-          "effects": [
-            {
-              "kind": "dulled",
-              "target": "heroes",
-              "amount": 1
-            }
-          ]
         }
       ]
     },
@@ -6234,7 +6194,8 @@
       "threat": 5,
       "dice": ["D4", "D6", "D8"],
       "gimmick": "reflect_zero_resonance",
-      "text": "Throws back damage from gems that fire at Resonance 0.",
+      "text": "Throws back half the damage of any gem that fires at Resonance 0 or 1.",
+      "tip": "Gems fired at Resonance 0 or 1 bounce back. Chain Resonance before you hit it.",
       "moves": [
         {
           "name": "Lash",
@@ -6248,27 +6209,6 @@
               "amount": {
                 "term": "rolled"
               }
-            }
-          ]
-        },
-        {
-          "name": "Coil",
-          "trigger": {
-            "kind": "pair",
-            "amount": 1
-          },
-          "effects": [
-            {
-              "kind": "block",
-              "target": "self",
-              "amount": {
-                "term": "value"
-              }
-            },
-            {
-              "kind": "spikes",
-              "target": "self",
-              "amount": 2
             }
           ]
         },
@@ -6300,6 +6240,7 @@
       "gimmick": "bury_socket",
       "warden": true,
       "text": "Warden of the eighth landing. Buries one of your sockets in rubble each turn.",
+      "tip": "It buries a socket every turn. Kill it before your rail runs dry.",
       "moves": [
         {
           "name": "Pick",
@@ -6344,7 +6285,7 @@
             {
               "kind": "block",
               "target": "self",
-              "amount": 4
+              "amount": 12
             },
             {
               "kind": "ward",
@@ -6424,13 +6365,26 @@
       "hp": 140,
       "block": 10,
       "threat": 30,
-      "dice": ["D20"],
-      "gimmick": "mirror_last_gem",
+      "dice": [],
       "warden": true,
-      "text": "Mirrors half the party’s strongest last turn, up to 6 extra damage.",
+      "text": "Warden of the twelfth landing. It has no dice of its own: as each action opens it copies the three highest dice of whoever rolled the most, and throws them back at the party. Below 40% it copies four.",
+      "tip": "It throws your own best dice back at you. Finish low, or block on your big turns.",
       "moves": [
         {
-          "name": "Reflect",
+          "name": "Mirror Image",
+          "trigger": {
+            "kind": "action_begin"
+          },
+          "effects": [
+            {
+              "kind": "copy_hand",
+              "target": "self",
+              "amount": 3
+            }
+          ]
+        },
+        {
+          "name": "Reflection",
           "trigger": {
             "kind": "always"
           },
@@ -6445,16 +6399,16 @@
           ]
         },
         {
-          "name": "Refraction",
+          "name": "Splinter",
           "trigger": {
-            "kind": "at_least",
-            "amount": 16
+            "kind": "pair",
+            "amount": 1
           },
           "effects": [
             {
-              "kind": "remove_block",
+              "kind": "curse",
               "target": "heroes",
-              "amount": 4
+              "amount": 1
             }
           ]
         }
@@ -6464,7 +6418,20 @@
           "below_hp_pct": 40,
           "moves": [
             {
-              "name": "Shatter",
+              "name": "Mirror Image",
+              "trigger": {
+                "kind": "action_begin"
+              },
+              "effects": [
+                {
+                  "kind": "copy_hand",
+                  "target": "self",
+                  "amount": 4
+                }
+              ]
+            },
+            {
+              "name": "Reflection",
               "trigger": {
                 "kind": "always"
               },
@@ -6473,13 +6440,7 @@
                   "kind": "damage",
                   "target": "heroes",
                   "amount": {
-                    "op": "+",
-                    "args": [
-                      {
-                        "term": "rolled"
-                      },
-                      2
-                    ]
+                    "term": "rolled"
                   }
                 }
               ]
@@ -6487,8 +6448,8 @@
             {
               "name": "Splinter",
               "trigger": {
-                "kind": "at_least",
-                "amount": 16
+                "kind": "pair",
+                "amount": 1
               },
               "effects": [
                 {
@@ -6511,6 +6472,7 @@
       "gimmick": "",
       "warden": true,
       "text": "The Quarry’s final boss: a rusted mining rig on treads. Above 60% health it rolls your dice for you on odd turns; hurt, it bristles and hits harder every turn; near death it calls the rats and its Overdrive ignores block.",
+      "tip": "It plays your dice on odd turns. Hurt, it gets angrier every turn and calls the rats.",
       "traits": {
         "roll_for_you": true
       },
@@ -6695,6 +6657,7 @@
       "dice": ["D4", "D4"],
       "gimmick": "",
       "text": "A rat with amber crystals along its back. Weak alone, but it calls more rats.",
+      "tip": "Kill the rats before they breed.",
       "moves": [
         {
           "name": "Gnaw",
@@ -6736,6 +6699,7 @@
       "dice": ["D8"],
       "gimmick": "",
       "text": "A mole with crystal claws. It digs into the floor and comes up under whoever has the least block.",
+      "tip": "When it digs in, give block to whoever has the least.",
       "moves": [
         {
           "name": "Erupt",
@@ -6798,6 +6762,7 @@
       "dice": ["D6", "D10"],
       "gimmick": "",
       "text": "A long eel with glowing spots along its body. Its shock locks your highest die.",
+      "tip": "It locks your best die for the next turn.",
       "moves": [
         {
           "name": "Bite",
@@ -6838,7 +6803,8 @@
       "threat": 3,
       "dice": ["D6", "D6"],
       "gimmick": "",
-      "text": "A dead miner with a pick and a helmet lamp, covered in weed. The Seeps’ basic melee creature.",
+      "text": "A dead miner with a pick and a helmet lamp, covered in weed. Waterlogged: the first time it dies it gets back up at half health.",
+      "tip": "It gets back up once. Save a hit for the second time.",
       "moves": [
         {
           "name": "Pick",
@@ -6869,7 +6835,10 @@
             }
           ]
         }
-      ]
+      ],
+      "traits": {
+        "waterlogged": true
+      }
     },
     "LAMPREY_KNOT": {
       "name": "Lamprey Knot",
@@ -6878,7 +6847,8 @@
       "threat": 2,
       "dice": ["D4", "D4", "D4"],
       "gimmick": "",
-      "text": "Three lampreys knotted together. Each bites for its roll, and every 4 it rolls heals it 4.",
+      "text": "Three lampreys knotted together. Each bites for its roll, and every 4 it rolls heals it.",
+      "tip": "Burst it down: every 4 it rolls heals it.",
       "moves": [
         {
           "name": "Latch",
@@ -6906,7 +6876,7 @@
             {
               "kind": "heal",
               "target": "self",
-              "amount": 4
+              "amount": 2
             }
           ]
         }
@@ -6919,7 +6889,8 @@
       "threat": 3,
       "dice": ["D8", "D8"],
       "gimmick": "",
-      "text": "A pale crayfish with a thick shell and two heavy claws.",
+      "text": "A pale crayfish with a thick shell and two heavy claws. A pair grips your best die and shells up: the die sits out every throw until the crayfish loses health.",
+      "tip": "It grips your best die. Hurt it to get the die back.",
       "moves": [
         {
           "name": "Claw",
@@ -6937,12 +6908,17 @@
           ]
         },
         {
-          "name": "Shell Up",
+          "name": "Grip",
           "trigger": {
             "kind": "pair",
             "amount": 1
           },
           "effects": [
+            {
+              "kind": "grip_die",
+              "target": "heroes",
+              "amount": 1
+            },
             {
               "kind": "block",
               "target": "self",
@@ -6968,11 +6944,37 @@
       "dice": ["D6", "D12"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Seeps. A large figure turning a valve wheel, with a sluice gate on its back. Each turn it floods one of your sockets until you hit it, and its sluice washes all your block away before the water hits.",
-      "traits": {
-        "cloud_socket": true
-      },
+      "text": "Warden of the Seeps. A large figure turning a valve wheel, with a sluice gate on its back. Every third action the sluice opens: all your block washes away, then the water hits everyone for twice its roll. A pair turns the wheel and brings the sluice an action sooner.",
+      "tip": "Watch the sluice count. When it opens, all your block washes away.",
       "moves": [
+        {
+          "name": "Open the Sluice",
+          "trigger": {
+            "kind": "countdown",
+            "amount": 3
+          },
+          "effects": [
+            {
+              "kind": "remove_block",
+              "target": "heroes",
+              "amount": 0,
+              "remove_all": true
+            },
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": {
+                "op": "*",
+                "args": [
+                  {
+                    "term": "rolled"
+                  },
+                  2
+                ]
+              }
+            }
+          ]
+        },
         {
           "name": "Wrench",
           "trigger": {
@@ -6989,27 +6991,18 @@
           ]
         },
         {
-          "name": "Open the Sluice",
+          "name": "Turn the Wheel",
           "trigger": {
             "kind": "pair",
             "amount": 1
           },
           "effects": [
             {
-              "kind": "remove_block",
-              "target": "heroes",
-              "amount": 0,
-              "remove_all": true
-            },
-            {
-              "kind": "damage",
-              "target": "heroes",
-              "amount": {
-                "term": "value"
-              }
+              "kind": "hasten",
+              "target": "self",
+              "amount": 1
             }
-          ],
-          "dramatic": true
+          ]
         }
       ]
     },
@@ -7021,7 +7014,8 @@
       "dice": ["D6", "D6", "D6"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Seeps. One large body with three drowned heads; each head is one of its dice. Below half health a pair is enough for its Requiem.",
+      "text": "Warden of the Seeps. One large body with three drowned heads; each head is one of its dice. At two thirds and one third of its health a head falls silent (one die fewer) and the others sing louder (+2 Strength). Below half health a pair is enough for its Requiem.",
+      "tip": "Every third of its health you take silences a head. Fewer heads, fewer Requiems.",
       "moves": [
         {
           "name": "Dirge",
@@ -7071,6 +7065,44 @@
             }
           ],
           "dramatic": true
+        },
+        {
+          "name": "First Head Falls",
+          "trigger": {
+            "kind": "hp_below",
+            "amount": 66
+          },
+          "effects": [
+            {
+              "kind": "lose_die",
+              "target": "self",
+              "amount": 1
+            },
+            {
+              "kind": "strength",
+              "target": "self",
+              "amount": 2
+            }
+          ]
+        },
+        {
+          "name": "Second Head Falls",
+          "trigger": {
+            "kind": "hp_below",
+            "amount": 33
+          },
+          "effects": [
+            {
+              "kind": "lose_die",
+              "target": "self",
+              "amount": 1
+            },
+            {
+              "kind": "strength",
+              "target": "self",
+              "amount": 2
+            }
+          ]
         }
       ],
       "phases": [
@@ -7125,6 +7157,44 @@
                 }
               ],
               "dramatic": true
+            },
+            {
+              "name": "First Head Falls",
+              "trigger": {
+                "kind": "hp_below",
+                "amount": 66
+              },
+              "effects": [
+                {
+                  "kind": "lose_die",
+                  "target": "self",
+                  "amount": 1
+                },
+                {
+                  "kind": "strength",
+                  "target": "self",
+                  "amount": 2
+                }
+              ]
+            },
+            {
+              "name": "Second Head Falls",
+              "trigger": {
+                "kind": "hp_below",
+                "amount": 33
+              },
+              "effects": [
+                {
+                  "kind": "lose_die",
+                  "target": "self",
+                  "amount": 1
+                },
+                {
+                  "kind": "strength",
+                  "target": "self",
+                  "amount": 2
+                }
+              ]
             }
           ]
         }
@@ -7138,7 +7208,8 @@
       "dice": ["D8", "D12"],
       "gimmick": "",
       "warden": true,
-      "text": "The Seeps’ final boss: a huge eel that lives in the Black Sump. Steadfast. Hurt, it dives every other turn and surfaces hitting everyone for twice its roll through block; near death it calls eels and drags a die from every player each turn.",
+      "text": "The Seeps’ final boss: a huge eel that lives in the Black Sump. Steadfast. A pair drags the player with the least block under (stunned). Hurt, it dives every other turn and surfaces hitting everyone for twice its roll through block; near death it calls eels and drags a die from every player each turn.",
+      "tip": "You cannot hit it while it dives, and it comes up through block.",
       "traits": {
         "steadfast": true
       },
@@ -7167,7 +7238,7 @@
           "effects": [
             {
               "kind": "stun",
-              "target": "hero_marked",
+              "target": "hero_least_block",
               "amount": 1
             }
           ],
@@ -7238,7 +7309,7 @@
               "effects": [
                 {
                   "kind": "stun",
-                  "target": "hero_marked",
+                  "target": "hero_least_block",
                   "amount": 1
                 }
               ],
@@ -7301,7 +7372,7 @@
               "effects": [
                 {
                   "kind": "stun",
-                  "target": "hero_marked",
+                  "target": "hero_least_block",
                   "amount": 1
                 }
               ],
@@ -7319,6 +7390,7 @@
       "dice": ["D12"],
       "gimmick": "",
       "text": "A Quartz Golem made of violet glass. On an even roll it refracts: until its next action, half of every blow it takes goes back at every player.",
+      "tip": "While it refracts, hit something else.",
       "moves": [
         {
           "name": "Pound",
@@ -7357,8 +7429,9 @@
       "block": 4,
       "threat": 5,
       "dice": ["D4", "D6", "D8"],
-      "gimmick": "",
-      "text": "A pink Glass Wyrm. Its breath ignores block.",
+      "gimmick": "reflect_zero_resonance",
+      "text": "A pink Glass Wyrm. Like every wyrm it throws back half the damage of gems fired at Resonance 0 or 1, and its breath ignores block.",
+      "tip": "Gems at Resonance 0 or 1 bounce off it, and its breath goes through block.",
       "moves": [
         {
           "name": "Lash",
@@ -7403,6 +7476,7 @@
       "dice": ["D4", "D4", "D4"],
       "gimmick": "",
       "text": "A pale Magpie. It steals pyrite, its flash dulls your gems, and after its fourth turn it leaves with everything it took.",
+      "tip": "Kill it within four turns, or it flies off with your pyrite.",
       "traits": {
         "steal_gold": 1,
         "flee": 4
@@ -7446,7 +7520,8 @@
       "threat": 1,
       "dice": ["D6"],
       "gimmick": "",
-      "text": "A pink Lantern Moth. Its light gives everyone a reroll, each one spent costs 2 health, and on a 6 it locks one of your dice.",
+      "text": "A pink Lantern Moth. Its light gives everyone a reroll, each one spent costs 2 health, and on a 6 it marks every player who rerolled this turn.",
+      "tip": "Every reroll costs 2 health, and rerolling marks you.",
       "traits": {
         "gift_rerolls": true,
         "reroll_drain": 2
@@ -7475,10 +7550,9 @@
           },
           "effects": [
             {
-              "kind": "die_lock",
-              "target": "heroes",
-              "amount": 1,
-              "pick": "random"
+              "kind": "marked",
+              "target": "hero_rerolled",
+              "amount": 1
             }
           ]
         }
@@ -7492,6 +7566,7 @@
       "dice": ["D6"],
       "gimmick": "",
       "text": "A small crystal sprite with four wings. On a 5 or 6 it holds up a mirror: the next blow on it hits whoever threw it.",
+      "tip": "When it holds up a mirror, pop it with a small gem first.",
       "moves": [
         {
           "name": "Twinkle",
@@ -7533,6 +7608,7 @@
       "dice": ["D12"],
       "gimmick": "",
       "text": "A floating prism. It gains 1 Strength the first time it sees each color of gem fire, splits its light into as many hits as it rolls, and walls itself in block for every point of Strength.",
+      "tip": "Every new colour you fire makes it stronger. Fire one colour.",
       "traits": {
         "color_strength": true
       },
@@ -7570,7 +7646,7 @@
                   {
                     "term": "strength"
                   },
-                  10
+                  2
                 ]
               }
             }
@@ -7587,6 +7663,7 @@
       "gimmick": "",
       "warden": true,
       "text": "Warden of the Glass Veins. A many-legged thing of glass with a diamond saw for a mouth. Its cut takes a point off the top of your biggest die for good.",
+      "tip": "Its cut ruins your best die for the run. Kill it fast.",
       "moves": [
         {
           "name": "Score",
@@ -7651,6 +7728,7 @@
       "gimmick": "",
       "warden": true,
       "text": "Warden of the Glass Veins. Six colored mirrors in a ring around one eye. Each turn it drinks one color: gems of that color do it no damage, and what they would give their owner, it takes. A pair makes it drink another.",
+      "tip": "It drinks one colour a turn. Switch colours.",
       "moves": [
         {
           "name": "Absorb",
@@ -7708,6 +7786,7 @@
       "gimmick": "",
       "warden": true,
       "text": "The Glass Veins’ final boss: a crystal giant with a crown of shards and three floating prisms. While a prism floats it takes half damage. Hurt, it locks the highest die of anyone who rolls a straight; near death, every other action it gathers light, taking half damage, and throws everything it was dealt back at every player.",
+      "tip": "Shatter the prisms first. Hold back while it gathers light.",
       "traits": {
         "steadfast": true,
         "shielded_by_escorts": 50
@@ -7847,6 +7926,7 @@
       "gimmick": "",
       "summon_only": true,
       "text": "One of the Prismarch’s floating prisms. While any floats, the Prismarch takes half damage.",
+      "tip": "While any prism floats, the Prismarch takes half.",
       "moves": [
         {
           "name": "Glint",
@@ -7869,8 +7949,9 @@
       "block": 0,
       "threat": 2,
       "dice": ["D8"],
-      "gimmick": "",
-      "text": "A yellow-green Silt Slime. Its ooze poisons, it does not split, and it bursts when it dies.",
+      "gimmick": "split_on_big_hit",
+      "text": "A yellow-green Silt Slime. Its ooze poisons, and like every slime it splits when struck hard.",
+      "tip": "One big blow splits it, and every split poisons. Finish it with poison or small hits.",
       "moves": [
         {
           "name": "Ooze",
@@ -7891,19 +7972,6 @@
               "amount": 1
             }
           ]
-        },
-        {
-          "name": "Burst",
-          "trigger": {
-            "kind": "on_death"
-          },
-          "effects": [
-            {
-              "kind": "poison",
-              "target": "heroes",
-              "amount": 3
-            }
-          ]
         }
       ]
     },
@@ -7915,6 +7983,7 @@
       "dice": ["D6", "D6"],
       "gimmick": "",
       "text": "A green Vein Wraith covered in fungus. Immune to poison, and it heals itself.",
+      "tip": "Poison will not touch it, and it regrows. Burst it with hits.",
       "traits": {
         "poison_immune": true
       },
@@ -7958,6 +8027,7 @@
       "dice": ["D10"],
       "gimmick": "",
       "text": "A walking mushroom about the size of a person. Its spores halve your healing.",
+      "tip": "Its spores halve your healing. Save heals for after.",
       "moves": [
         {
           "name": "Slam",
@@ -7997,7 +8067,8 @@
       "threat": 3,
       "dice": ["D4", "D4"],
       "gimmick": "",
-      "text": "A spider that spins webs of mould. Its bite poisons for the roll, and its web locks one of your dice.",
+      "text": "A spider that spins webs of mould. Its bite poisons for half its roll, and on a pair its web makes every player’s poison bite again, right away.",
+      "tip": "It poisons, and its web makes the poison bite again. Kill it early.",
       "moves": [
         {
           "name": "Bite",
@@ -8016,7 +8087,19 @@
               "kind": "poison",
               "target": "heroes",
               "amount": {
-                "term": "rolled"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "rolled"
+                      },
+                      1
+                    ]
+                  },
+                  2
+                ]
               }
             }
           ]
@@ -8029,10 +8112,9 @@
           },
           "effects": [
             {
-              "kind": "die_lock",
+              "kind": "poison_tick",
               "target": "heroes",
-              "amount": 1,
-              "pick": "random"
+              "amount": 1
             }
           ]
         }
@@ -8045,7 +8127,8 @@
       "threat": 1,
       "dice": ["D6"],
       "gimmick": "",
-      "text": "A round fungus that swells by its roll every turn. The longer it lives, the worse its burst.",
+      "text": "A round fungus that swells by its roll every turn. When it dies it bursts, poisoning everyone for half its swelling. Pop it early.",
+      "tip": "Pop it early: the longer it lives, the worse its burst.",
       "moves": [
         {
           "name": "Swell",
@@ -8063,20 +8146,6 @@
           ]
         },
         {
-          "name": "Regrow",
-          "trigger": {
-            "kind": "crowns",
-            "amount": 1
-          },
-          "effects": [
-            {
-              "kind": "regeneration",
-              "target": "self",
-              "amount": 6
-            }
-          ]
-        },
-        {
           "name": "Burst",
           "trigger": {
             "kind": "on_death"
@@ -8086,7 +8155,19 @@
               "kind": "poison",
               "target": "heroes",
               "amount": {
-                "term": "swell"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "swell"
+                      },
+                      1
+                    ]
+                  },
+                  2
+                ]
               }
             }
           ]
@@ -8100,7 +8181,8 @@
       "threat": 5,
       "dice": ["D4", "D4", "D4"],
       "gimmick": "",
-      "text": "A mass of roots with a mouth in the middle. On a pair it grows a quarter bigger and stronger by the pair; it can drink its poison away, but it is not immune.",
+      "text": "A mass of roots with a mouth in the middle. On a pair it grows a quarter bigger and a point stronger.",
+      "tip": "Kill it before it grows.",
       "moves": [
         {
           "name": "Lash",
@@ -8114,25 +8196,6 @@
               "amount": {
                 "term": "rolled"
               }
-            }
-          ]
-        },
-        {
-          "name": "Drink",
-          "trigger": {
-            "kind": "crowns",
-            "amount": 1
-          },
-          "effects": [
-            {
-              "kind": "heal",
-              "target": "self",
-              "amount": 8
-            },
-            {
-              "kind": "purge",
-              "target": "self",
-              "amount": 100
             }
           ]
         },
@@ -8159,9 +8222,7 @@
             {
               "kind": "strength",
               "target": "self",
-              "amount": {
-                "term": "value"
-              }
+              "amount": 1
             }
           ],
           "dramatic": true
@@ -8176,7 +8237,8 @@
       "dice": ["D20"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Warrens. A great beetle with a garden growing on its back. Every roll heals every creature by the roll and plants another: a Puffball on an even roll, a Root Horror on an odd one. A 20 prunes the party: every face your dice show loses a point for good.",
+      "text": "Warden of the Warrens. A great beetle with a garden growing on its back. Every roll heals every creature by half the roll; an even roll plants a Puffball and a 1, 3 or 5 sows a Root Horror. A 20 prunes the party: every face your dice show loses a point for the fight.",
+      "tip": "It heals everything and fills the room. Kill the gardener, not the garden.",
       "moves": [
         {
           "name": "Tend",
@@ -8188,7 +8250,13 @@
               "kind": "heal",
               "target": "allies",
               "amount": {
-                "term": "rolled"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "term": "rolled"
+                  },
+                  2
+                ]
               }
             }
           ]
@@ -8211,7 +8279,8 @@
         {
           "name": "Sow",
           "trigger": {
-            "kind": "odd",
+            "kind": "value",
+            "values": [1, 3, 5],
             "amount": 1
           },
           "effects": [
@@ -8240,7 +8309,7 @@
               "target": "heroes",
               "amount": 1,
               "pick": "showing",
-              "permanent": true
+              "permanent": false
             }
           ],
           "dramatic": true
@@ -8255,21 +8324,25 @@
       "dice": ["D6", "D6", "D6"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Warrens. A large sac on root legs that lays insects: every 1 it rolls hatches a Mycel Weaver. The moment it falls to half health it sheds everything ailing it, once.",
+      "text": "Warden of the Warrens. A large sac on root legs. Every third action her spores bloom: Poison 6 and Festering 2 on every player. Any turn the party deals her a tenth of her health, the bloom goes back to 3. At half health she sheds everything ailing her, once.",
+      "tip": "Hit her hard every turn, or her spores bloom on everyone.",
       "moves": [
         {
-          "name": "Brood",
+          "name": "Bloom",
           "trigger": {
-            "kind": "value",
-            "values": [1],
-            "amount": 1
+            "kind": "countdown",
+            "amount": 3
           },
           "effects": [
             {
-              "kind": "summon",
-              "target": "self",
-              "amount": 1,
-              "creature": "MYCEL_WEAVER"
+              "kind": "poison",
+              "target": "heroes",
+              "amount": 6
+            },
+            {
+              "kind": "festering",
+              "target": "heroes",
+              "amount": 2
             }
           ]
         },
@@ -8326,7 +8399,10 @@
             }
           ]
         }
-      ]
+      ],
+      "traits": {
+        "countdown_reset": 10
+      }
     },
     "THE_HEARTROT": {
       "name": "The Heartrot",
@@ -8336,7 +8412,8 @@
       "dice": ["D10", "D10", "D10"],
       "gimmick": "",
       "warden": true,
-      "text": "The Warrens’ final boss: a rotting heart rooted to the floor, with three tendrils that attack separately. Every player is Festering while it lives; while a tendril stands it knits itself back together each turn; every 10 it rolls grows a tendril back.",
+      "text": "The Warrens’ final boss: a rotting heart rooted to the floor, with three tendrils that attack separately. Each of its three dice rots the party for its roll. Every player is Festering while it lives; while a tendril stands it knits itself back together each turn; every 10 it rolls grows a tendril back.",
+      "tip": "Kill the tendrils, or it heals every turn.",
       "traits": {
         "aura": {
           "festering": 1
@@ -8354,7 +8431,9 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 4
+              "amount": {
+                "term": "rolled"
+              }
             }
           ]
         },
@@ -8384,6 +8463,7 @@
       "gimmick": "",
       "summon_only": true,
       "text": "One of the Heartrot’s tendrils. It lashes for its roll, and while it stands the heart heals.",
+      "tip": "While it stands, the heart heals.",
       "moves": [
         {
           "name": "Lash",
@@ -8410,6 +8490,7 @@
       "dice": ["D8"],
       "gimmick": "",
       "text": "A stronger Cave Tick with a bigger die. Its Ignite takes a die and scorches the party.",
+      "tip": "Kill it before it rolls 6 or more: it takes a die and scorches your block.",
       "moves": [
         {
           "name": "Bite",
@@ -8455,6 +8536,7 @@
       "dice": ["D6"],
       "gimmick": "",
       "text": "An orange Lantern Moth. Its light gives everyone a reroll, each one spent Scorches you, and on a 6 its embers burn the party.",
+      "tip": "Its rerolls are free, but each one Scorches you.",
       "traits": {
         "gift_rerolls": true,
         "reroll_scorch": 1
@@ -8498,7 +8580,8 @@
       "threat": 3,
       "dice": ["D12"],
       "gimmick": "",
-      "text": "A lizard with flames along its back. An odd roll scratches for the roll; an even roll sets you burning for the roll.",
+      "text": "A lizard with flames along its back. An odd roll scratches for the roll; an even roll sets you burning for half the roll.",
+      "tip": "Keep block up after its turn: Burn bites through what is left.",
       "moves": [
         {
           "name": "Scratch",
@@ -8527,7 +8610,19 @@
               "kind": "burn",
               "target": "heroes",
               "amount": {
-                "term": "rolled"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "rolled"
+                      },
+                      1
+                    ]
+                  },
+                  2
+                ]
               }
             }
           ]
@@ -8542,6 +8637,7 @@
       "dice": ["D6", "D6"],
       "gimmick": "",
       "text": "A dog made of cooled slag with a glowing back. Its maul ignores block, and its howl makes every creature in the room stronger for the fight.",
+      "tip": "Kill the hound first. It bites through block and makes the pack stronger.",
       "moves": [
         {
           "name": "Maul",
@@ -8582,7 +8678,8 @@
       "threat": 2,
       "dice": ["D4", "D4"],
       "gimmick": "",
-      "text": "A small horned imp with a hammer. Its cackle sets you burning for the roll, and its heat treatment shrinks one of your dice for the fight.",
+      "text": "A small horned imp with a hammer. Its cackle sets you burning for half its roll, and its heat treatment shrinks one of your dice for the fight.",
+      "tip": "It shrinks your dice for the fight.",
       "moves": [
         {
           "name": "Cackle",
@@ -8594,7 +8691,19 @@
               "kind": "burn",
               "target": "heroes",
               "amount": {
-                "term": "rolled"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "rolled"
+                      },
+                      1
+                    ]
+                  },
+                  2
+                ]
               }
             }
           ]
@@ -8624,6 +8733,7 @@
       "dice": ["D10"],
       "gimmick": "",
       "text": "A long centipede with glowing joints. Its bite burns, and its spit eats away block equal to the roll.",
+      "tip": "It eats your block.",
       "moves": [
         {
           "name": "Bite",
@@ -8641,7 +8751,7 @@
             {
               "kind": "burn",
               "target": "heroes",
-              "amount": 4
+              "amount": 2
             }
           ]
         },
@@ -8671,7 +8781,8 @@
       "dice": ["D8", "D8"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Furnace. A large brute with a crucible of molten metal in its belly. It pours for its roll and burns you for as much; an 8 burns the face one of your dice shows blank for the fight.",
+      "text": "Warden of the Furnace. A large brute with a crucible of molten metal in its belly. It pours for its roll and burns you for half as much; an 8 burns the face one of your dice shows blank for the fight.",
+      "tip": "Its 8 burns a face of your die blank for the fight.",
       "moves": [
         {
           "name": "Pour",
@@ -8690,7 +8801,19 @@
               "kind": "burn",
               "target": "heroes",
               "amount": {
-                "term": "rolled"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "rolled"
+                      },
+                      1
+                    ]
+                  },
+                  2
+                ]
               }
             }
           ]
@@ -8741,7 +8864,8 @@
       "dice": ["D10", "D10"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Furnace. A knight in plate armour with an anvil for a shield. Steadfast: stuns barely work on it. Every odd roll quenches it: Ward, and Strength equal to the roll for the rest of the fight.",
+      "text": "Warden of the Furnace. A knight in plate armour with an anvil for a shield. Steadfast: stuns barely work on it. Every odd roll quenches it: Ward, and 2 Strength for the rest of the fight.",
+      "tip": "It gets stronger every turn and stuns barely work. Kill it before Quench stacks.",
       "traits": {
         "steadfast": true
       },
@@ -8795,9 +8919,7 @@
             {
               "kind": "strength",
               "target": "self",
-              "amount": {
-                "term": "rolled"
-              }
+              "amount": 2
             }
           ]
         }
@@ -8811,7 +8933,8 @@
       "dice": ["D10", "D12", "D20"],
       "gimmick": "",
       "warden": true,
-      "text": "The Furnace’s final boss: a dragon made of molten rock. Steadfast. Its breath sets the party burning; hurt, lava falls every third action for 20 through block and 20 Burn, and its crowns scorch; near death a crown melts one of your gems for the rest of the fight.",
+      "text": "The Furnace’s final boss: a dragon made of molten rock. Steadfast. Its breath sets the party burning; hurt, lava falls every third action for 20 through block and 8 Burn, and its crowns scorch; near death a crown melts one of your gems for the rest of the fight.",
+      "tip": "Watch the Lavafall count, and block up before it lands.",
       "traits": {
         "steadfast": true
       },
@@ -8842,7 +8965,19 @@
               "kind": "burn",
               "target": "heroes",
               "amount": {
-                "term": "value"
+                "op": "floor_div",
+                "args": [
+                  {
+                    "op": "+",
+                    "args": [
+                      {
+                        "term": "value"
+                      },
+                      1
+                    ]
+                  },
+                  2
+                ]
               }
             }
           ],
@@ -8879,7 +9014,19 @@
                   "kind": "burn",
                   "target": "heroes",
                   "amount": {
-                    "term": "value"
+                    "op": "floor_div",
+                    "args": [
+                      {
+                        "op": "+",
+                        "args": [
+                          {
+                            "term": "value"
+                          },
+                          1
+                        ]
+                      },
+                      2
+                    ]
                   }
                 }
               ],
@@ -8901,7 +9048,7 @@
                 {
                   "kind": "burn",
                   "target": "heroes",
-                  "amount": 20
+                  "amount": 8
                 }
               ]
             },
@@ -8950,7 +9097,19 @@
                   "kind": "burn",
                   "target": "heroes",
                   "amount": {
-                    "term": "value"
+                    "op": "floor_div",
+                    "args": [
+                      {
+                        "op": "+",
+                        "args": [
+                          {
+                            "term": "value"
+                          },
+                          1
+                        ]
+                      },
+                      2
+                    ]
                   }
                 }
               ],
@@ -8972,7 +9131,7 @@
                 {
                   "kind": "burn",
                   "target": "heroes",
-                  "amount": 20
+                  "amount": 8
                 }
               ]
             },
@@ -9017,6 +9176,7 @@
       "dice": ["D4", "D4", "D4"],
       "gimmick": "",
       "text": "A gold Magpie. It steals three times as much, and after its fourth turn it leaves with everything it took.",
+      "tip": "Kill it within four turns, or it leaves with three times the pyrite.",
       "traits": {
         "steal_gold": 3,
         "flee": 4
@@ -9047,6 +9207,7 @@
       "dice": ["D12"],
       "gimmick": "",
       "text": "A Quartz Golem in a shell of grey rock, split open on amethyst. Sturdy: no single hit takes more than a quarter of its health.",
+      "tip": "No single hit takes more than a quarter of it. Bring many hits.",
       "traits": {
         "sturdy": 25
       },
@@ -9097,8 +9258,9 @@
       "block": 4,
       "threat": 5,
       "dice": ["D4", "D6", "D8"],
-      "gimmick": "",
-      "text": "A purple Glass Wyrm. Its breath curses.",
+      "gimmick": "reflect_zero_resonance",
+      "text": "A purple Glass Wyrm. Like every wyrm it throws back half the damage of gems fired at Resonance 0 or 1, and its breath curses.",
+      "tip": "Gems at Resonance 0 or 1 bounce off it, and its breath curses.",
       "moves": [
         {
           "name": "Lash",
@@ -9147,6 +9309,7 @@
       "dice": ["D12"],
       "gimmick": "",
       "text": "A treasure chest with teeth. It swallows the gem that hit it hardest until it dies, and it drops a raw stone.",
+      "tip": "It swallows the gem that hit it hardest. Kill it to get the gem back, and a stone.",
       "traits": {
         "drops_stone": true
       },
@@ -9192,6 +9355,7 @@
       "dice": ["D20"],
       "gimmick": "",
       "text": "A crab with a shell made of coins. On a 20 its next attack is doubled; on a 1 it is stunned and drops pyrite.",
+      "tip": "A gambler: a 20 doubles its next hit, a 1 pays you.",
       "moves": [
         {
           "name": "Deal",
@@ -9258,7 +9422,8 @@
       "threat": 5,
       "dice": ["D6", "D6", "D6"],
       "gimmick": "",
-      "text": "An amethyst hydra. Each head is one of its dice, and it grows more.",
+      "text": "An amethyst hydra; each head is one of its dice. Every quarter of its health you take cuts a head off, and as it next acts each cut head grows back as two (six at most). Kill it in one turn.",
+      "tip": "Cut its heads in one turn, or two grow back for each.",
       "moves": [
         {
           "name": "Bite",
@@ -9274,24 +9439,11 @@
               }
             }
           ]
-        },
-        {
-          "name": "Grow a Head",
-          "trigger": {
-            "kind": "pair",
-            "amount": 1
-          },
-          "effects": [
-            {
-              "kind": "grow_die",
-              "target": "self",
-              "amount": 1,
-              "shape": "D6",
-              "cap": 5
-            }
-          ]
         }
-      ]
+      ],
+      "traits": {
+        "hydra": 25
+      }
     },
     "THE_ASSAYER": {
       "name": "The Assayer",
@@ -9301,7 +9453,8 @@
       "dice": ["D10", "D10"],
       "gimmick": "",
       "warden": true,
-      "text": "Warden of the Geode. A faceless shadow holding a balance scale. While it stands no gem counts for more than 5 carats. Its tax hits each player for what it took from them, and a 10 eats the rich: it heals and grows by the richest player’s pyrite.",
+      "text": "Warden of the Geode. A faceless shadow holding a balance scale. While it stands no gem counts for more than 5 carats. Its tax hits each player for what it took from them, and a 10 eats the rich: it heals and grows 1% of its health for every 10 pyrite the richest player holds.",
+      "tip": "Your heavy gems count as 5 carats here, and it taxes your pyrite. Bring many light gems.",
       "traits": {
         "carat_cap": 5
       },
@@ -9376,14 +9529,42 @@
               "kind": "heal",
               "target": "self",
               "amount": {
-                "term": "party_richest"
+                "op": "pct",
+                "args": [
+                  {
+                    "term": "max_hp"
+                  },
+                  {
+                    "op": "floor_div",
+                    "args": [
+                      {
+                        "term": "party_richest"
+                      },
+                      10
+                    ]
+                  }
+                ]
               }
             },
             {
               "kind": "max_hp",
               "target": "self",
               "amount": {
-                "term": "party_richest"
+                "op": "pct",
+                "args": [
+                  {
+                    "term": "max_hp"
+                  },
+                  {
+                    "op": "floor_div",
+                    "args": [
+                      {
+                        "term": "party_richest"
+                      },
+                      10
+                    ]
+                  }
+                ]
               }
             }
           ]
@@ -9399,6 +9580,7 @@
       "gimmick": "",
       "warden": true,
       "text": "Warden of the Geode. A tall figure with display cases on its back. It comes holding a Strike and a Bulwark; a pair takes a gem from your rail for the fight, one it can use if it can, and a 6 fires every gem it holds as its own.",
+      "tip": "It steals your gems and fires them at you.",
       "gems": ["STRIKE", "BULWARK"],
       "moves": [
         {
@@ -9457,6 +9639,7 @@
       "gimmick": "",
       "warden": true,
       "text": "The Geode’s final boss: a huge geode wearing a crystal crown. Sturdy: no single hit takes more than 15% of it. It rolls one die: a 1 stuns it, anything else hits and shields for the roll, a high roll grows the die and throws again, and a crown heals it and doubles its next attack. At half health two Gilded Magpies answer its call.",
+      "tip": "One die that grows. A 1 stops it, and a crown doubles its next hit.",
       "traits": {
         "sturdy": 15
       },
@@ -9565,6 +9748,7 @@
       "dice": ["D6"],
       "gimmick": "",
       "text": "A ghostly copy of a creature from the first four mines, with Rift scaling.",
+      "tip": "It is something you have met before. Remember what that one did.",
       "echo": {
         "mines": ["QUARRY", "SEEPS", "GLASS_VEINS", "WARRENS"]
       },
@@ -9593,7 +9777,8 @@
       "threat": 4,
       "dice": ["D8"],
       "gimmick": "",
-      "text": "A dark shape like a person, with colored rings at its feet. While it lives your gems ring for half the Resonance; it drains you, and an even roll snuffs one of your gems out for the fight.",
+      "text": "A dark shape like a person, with colored rings at its feet. While it lives your gems ring for half the Resonance; it drains you, and an 8 snuffs one of your gems out for the fight.",
+      "tip": "Kill it first: it halves your Resonance and breaks gems.",
       "traits": {
         "resonance_damp": 50
       },
@@ -9623,7 +9808,7 @@
         {
           "name": "Snuff",
           "trigger": {
-            "kind": "even",
+            "kind": "crowns",
             "amount": 1
           },
           "effects": [
@@ -9645,6 +9830,7 @@
       "dice": ["D4", "D4", "D4"],
       "gimmick": "",
       "text": "A cloud of small shard creatures. While it lives every gem that fires costs its owner 1 health, and every 4 it rolls adds another riftling.",
+      "tip": "Every gem costs you health while it lives, and it keeps adding riftlings.",
       "traits": {
         "backlash": true
       },
@@ -9689,7 +9875,8 @@
       "threat": 4,
       "dice": ["D12"],
       "gimmick": "",
-      "text": "One large eye inside a ring of shards. Its gaze hits for the roll, its stare buries your heaviest gem, and a 1 unmakes one of your dice for the fight.",
+      "text": "One large eye inside a ring of shards. Its gaze hits for the roll, and a 1 or a 12 unmakes one of your dice for the fight.",
+      "tip": "It unmakes your dice for the fight.",
       "moves": [
         {
           "name": "Gaze",
@@ -9707,25 +9894,10 @@
           ]
         },
         {
-          "name": "Stare",
-          "trigger": {
-            "kind": "crowns",
-            "amount": 1
-          },
-          "effects": [
-            {
-              "kind": "bury_socket",
-              "target": "heroes",
-              "amount": 1,
-              "pick": "heaviest"
-            }
-          ]
-        },
-        {
           "name": "Unmake",
           "trigger": {
             "kind": "value",
-            "values": [1],
+            "values": [1, 12],
             "amount": 1
           },
           "effects": [
@@ -9748,6 +9920,7 @@
       "gimmick": "",
       "warden": true,
       "text": "Every fifth Rift Warden. A giant black figure with stars inside it. It comes with no dice and gains a d20 as every action opens. Sturdy and Backlash; a 20 shrinks every die you carry for the rest of the fight.",
+      "tip": "It grows a d20 every action. Race it.",
       "traits": {
         "sturdy": 10,
         "backlash": true
@@ -9798,6 +9971,98 @@
             }
           ],
           "dramatic": true
+        }
+      ]
+    },
+    "RIFT_SHIFTER": {
+      "name": "Rift Shifter",
+      "hp": 30,
+      "block": 0,
+      "threat": 4,
+      "dice": ["D10"],
+      "text": "A ribbon of folded rock that never holds one shape. An even roll swaps two neighbouring gems on each of your rails for the fight.",
+      "tip": "It swaps your gems around. Kill it before it breaks your combos.",
+      "moves": [
+        {
+          "name": "Lash",
+          "trigger": {
+            "kind": "always"
+          },
+          "effects": [
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": {
+                "term": "rolled"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Shift",
+          "trigger": {
+            "kind": "even",
+            "amount": 1
+          },
+          "effects": [
+            {
+              "kind": "swap_gems",
+              "target": "heroes",
+              "amount": 1
+            }
+          ]
+        }
+      ]
+    },
+    "COLLAPSAR": {
+      "name": "Collapsar",
+      "hp": 44,
+      "block": 0,
+      "threat": 5,
+      "dice": ["D6", "D6"],
+      "traits": {
+        "taunt": true
+      },
+      "text": "A knot of crushed light that pulls everything towards it. While it stands, gems aimed at one creature hit it instead. A pair collapses on the party for twice the pair, through block.",
+      "tip": "Everything you aim goes into it. Kill it first, or hit every creature.",
+      "moves": [
+        {
+          "name": "Pull",
+          "trigger": {
+            "kind": "always"
+          },
+          "effects": [
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": {
+                "term": "rolled"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Collapse",
+          "trigger": {
+            "kind": "pair",
+            "amount": 1
+          },
+          "effects": [
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": {
+                "op": "*",
+                "args": [
+                  {
+                    "term": "value"
+                  },
+                  2
+                ]
+              },
+              "piercing": true
+            }
+          ]
         }
       ]
     }
@@ -10104,18 +10369,17 @@
             "ECHO_SPRITE": 3,
             "GLINT_MAGPIE": 2,
             "WILL_O_WISP": 2,
-            "CAVE_TICK": 2,
             "SEEP_EEL": 2,
-            "DROWNED_MINER": 2
+            "DROWNED_MINER": 2,
+            "LAMPREY_KNOT": 2
           }
         },
         {
           "from_depth": 9,
           "creatures": {
             "PRISM_GOLEM": 3,
-            "REFRACTOR": 3,
+            "REFRACTOR": 5,
             "ECHO_SPRITE": 3,
-            "CLOUDER": 2,
             "SEEP_EEL": 1
           }
         },
@@ -10124,9 +10388,8 @@
           "creatures": {
             "PRISM_GOLEM": 3,
             "SHARD_WYRM": 3,
-            "REFRACTOR": 3,
-            "ECHO_SPRITE": 1,
-            "CLOUDER": 2
+            "REFRACTOR": 5,
+            "ECHO_SPRITE": 1
           }
         }
       ]
@@ -10201,11 +10464,10 @@
           "from_depth": 1,
           "creatures": {
             "SPORE_SLIME": 3,
-            "MYCEL_WEAVER": 3,
+            "MYCEL_WEAVER": 5,
             "PUFFBALL": 2,
-            "CLOUDER": 2,
-            "DROWNED_MINER": 2,
-            "ECHO_SPRITE": 1
+            "ECHO_SPRITE": 1,
+            "PRISM_GOLEM": 2
           }
         },
         {
@@ -10227,7 +10489,7 @@
             "MYCEL_WRAITH": 2,
             "PUFFBALL": 2,
             "MYCEL_WEAVER": 2,
-            "CLOUDER": 1
+            "PRISM_GOLEM": 1
           }
         }
       ]
@@ -10305,7 +10567,7 @@
             "SALAMANDER": 3,
             "SLAG_HOUND": 3,
             "MYCEL_WEAVER": 2,
-            "CLOUDER": 2
+            "CAP_SHAMBLER": 2
           }
         },
         {
@@ -10406,7 +10668,7 @@
             "SALAMANDER": 2,
             "SLAG_HOUND": 2,
             "FORGE_IMP": 2,
-            "CLOUDER": 2
+            "EMBER_CRAWLER": 2
           }
         },
         {
@@ -10417,7 +10679,7 @@
             "CROUPIER_CRAB": 2,
             "AMETHYST_WYRM": 2,
             "SLAG_HOUND": 2,
-            "CLOUDER": 1
+            "EMBER_CRAWLER": 1
           }
         },
         {
@@ -10514,7 +10776,9 @@
             "VOID_ECHO": 4,
             "NULL_SHADE": 3,
             "RIFTLING_SWARM": 3,
-            "ENTROPY_EYE": 3
+            "ENTROPY_EYE": 3,
+            "RIFT_SHIFTER": 3,
+            "COLLAPSAR": 3
           }
         }
       ],

@@ -395,7 +395,7 @@ func _enemy_panels() -> void:
 				panel.show_enemy(foe, health)
 				panel.position = Vector2(100, 82)
 				await _fits(panel, "%s moveset at %d%% HP (%s)" % [str(key), health, "acting" if acting else "planning"])
-				check(panel.size.y < 460 and panel.size.x < 550, "moveset leaves room for the battle and dock")
+				check(panel.size.y < 460 and panel.size.x < 550, "%s moveset leaves room for the battle and dock: %s" % [str(key), str(panel.size)])
 	panel.free()
 
 func _look(kind: String, item: Dictionary, what: String) -> void:

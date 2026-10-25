@@ -237,7 +237,9 @@ func retain_and_regeneration() -> void:
 	DeepBattle._reset_defenses(f.foe)
 	check(int(f.foe.block) == 0, "Retain does not persist past its one reset")
 	apply(f, "retain", 100)
-	check(int(f.foe.statuses.retain) == 20, "Retain keeps its proposed 20-point cap on either side")
+	check(int(f.foe.statuses.retain) == 100, "a creature's Retain grows with it: no 20-point cap")
+	apply(f, "retain", 100, false)
+	check(int(f.player.statuses.retain) == 20, "a player's Retain keeps its 20-point cap")
 	f = setup()
 	f.foe.hp = 990
 	f.player.hp = 990
@@ -411,28 +413,32 @@ func enemy_integrations() -> void:
 	var golem: Dictionary = setup("QUARTZ_GOLEM")
 	fixed_content_dice(golem, [2])
 	turn(golem)
-	check(int(golem.foe.statuses.retain) == 3, "Harden grants Retain through a real enemy turn")
+	check(int(golem.foe.statuses.retain) >= DeepRules.CEILING, "Harden keeps all its block through a real enemy turn")
+	var hardened: int = int(golem.foe.block)
 	DeepBattle._reset_defenses(golem.foe)
-	check(int(golem.foe.block) == 3, "Harden carries three Block through the next enemy reset")
+	check(hardened >= 2 and int(golem.foe.block) == hardened, "Harden carries every point of its block through the next enemy reset: %d" % hardened)
 	var slime: Dictionary = setup("SILT_SLIME")
 	fixed_content_dice(slime, [8])
 	slime.foe.hp = 990
 	turn(slime)
-	check(int(slime.foe.hp) == 992 and int(slime.foe.statuses.regeneration) == 1, "Reknit can activate with the Slime's single die and heals at turn end")
+	check(int(slime.foe.hp) == 990 and int(slime.foe.statuses.get("regeneration", 0)) == 0, "the Silt Slime no longer regenerates on an 8")
+	check(int(slime.player.statuses.get("poison", 0)) >= 1, "its Engulf still poisons on 7 or more")
 	var wyrm: Dictionary = setup("GLASS_WYRM")
 	fixed_content_dice(wyrm, [2, 2, 3])
 	turn(wyrm)
-	check(int(wyrm.foe.statuses.spikes) == 2, "Coil grants Spikes once when the pair completes")
+	check(int(wyrm.foe.statuses.get("spikes", 0)) == 0, "the Glass Wyrm no longer coils: a pair raises no Spikes")
 	var foreman: Dictionary = setup("THE_FOREMAN")
 	fixed_content_dice(foreman, [1, 12])
 	turn(foreman)
 	check(int(foreman.foe.statuses.ward) == 2 and int(foreman.foe.dice_upgrade) == 0, "Shore Up replenishes Ward instead of upgrading dice")
-	var omen: Dictionary = setup("VEIN_WRAITH", 2)
-	fixed_content_dice(omen, [10])
-	turn(omen)
-	check(omen.state.players.all(func(p: Dictionary) -> bool: return int(p.statuses.get("marked", 0)) == 1), "Omen marks the whole party after its damage resolves")
-	check(int(apply(omen, "damage", 20, false)[0].raw) == 25, "Omen boosts the next enemy attack")
-	for key in ["CLOUDER", "THE_DRILL", "THE_REGENT"]:
+	var wail: Dictionary = setup("VEIN_WRAITH", 2)
+	fixed_content_dice(wail, [10])
+	for unit in wail.state.players:
+		unit.block = 30
+	var wailed: Array = turn(wail).filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_move" and str(e.get("move", "")) == "Wail")
+	check(wailed.size() == 1 and wailed[0].effects.all(func(e: Dictionary) -> bool: return int(e.get("removed", 0)) == 10), "a 10 wails away 10 block from every player")
+	check(wail.state.players.all(func(p: Dictionary) -> bool: return int(p.statuses.get("marked", 0)) == 0), "it no longer marks the party")
+	for key in ["THE_DRILL"]:
 		var f: Dictionary = setup(key, 2)
 		var kind: String = "curse" if key == "THE_REGENT" else "dulled"
 		if key == "THE_REGENT":

@@ -39,6 +39,8 @@ extends RefCounted
 ##   hp_below            never during an action: fires once, the moment its health first falls
 ##                       to the rung percent of its most
 ##   action_begin        as its action opens, before any die is thrown
+##   countdown           on the first die of the action its countdown from the rung reaches 0;
+##                       then it starts again (the fight keeps the count, `DeepCreatures.countdown_in`)
 ## A creature's trigger may also name `die`, the index of the one die it reads.
 ##
 ## `describe` turns a trigger into the pictograph the interface draws and the sentence a
@@ -47,9 +49,9 @@ extends RefCounted
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
 	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "fizzles", "below", "kills",
-	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
+	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin", "countdown"]
 ## The kinds a creature reads from the turn rather than from a die.
-const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin"]
+const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin", "countdown"]
 ## The turn kinds that never fire on a die the creature throws: the fight calls them itself.
 const CALLED_KINDS: Array = ["on_death", "hp_below", "action_begin"]
 const SET_SIZES: Dictionary = {"pair": 2, "triple": 3, "quad": 4, "quint": 5}
@@ -98,6 +100,7 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 		match kind:
 			"each_turn": result.active = first
 			"every_nth_turn": result.active = first and need > 0 and acted % need == 0
+			"countdown": result.active = first and bool(context.get("countdown_due", false))
 			"emerge": result.active = first and bool(context.get("emerging", false))
 			"on_death": result.active = bool(context.get("dying", false))
 			"hp_below": result.active = bool(context.get("crossing", false))
@@ -333,6 +336,9 @@ static func describe(trigger: Dictionary, cut_step: int) -> Dictionary:
 		"every_nth_turn":
 			mark = "hourglass"
 			label = "÷%d" % need
+		"countdown":
+			mark = "hourglass"
+			label = "%d…0" % need
 		"on_death":
 			mark = "skull"
 		"kills":
@@ -406,6 +412,7 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"distinct_dominant": return "%d different values, the highest die outrolling the other %d combined." % [need, need - 1]
 		"each_turn": return "Every action, once, before its dice."
 		"every_nth_turn": return "Every %s action, once, before its dice." % _ordinal(need)
+		"countdown": return "When its countdown from %d reaches 0, once, before its dice." % need
 		"emerge": return "The action after it burrowed, once, before its dice."
 		"on_death": return "When it dies."
 		"hp_below": return "Once, the moment its health falls to %d%%." % need

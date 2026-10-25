@@ -35,6 +35,7 @@ export function triggerWords(move) {
 		case 'action_begin': return 'As each action opens';
 		case 'each_turn': return `Each action${once}`;
 		case 'every_nth_turn': return `Every ${Patterns.ordinal(n)} action${once}`;
+		case 'countdown': return `Counts down from ${n}, fires at 0`;
 		case 'emerge': return `When it comes up${once}`;
 		case 'on_death': return 'When it dies';
 		case 'pair': case 'triple': case 'quad': case 'quint': return `${Patterns.KIND_NAMES[t.kind]}${n > 1 ? ` of ${n}+` : ''} · once an action${once}`;
@@ -52,7 +53,7 @@ const TRAIT_WORDS = {
 	backlash: () => ['Backlash', 'Every gem that fires costs its owner 1 health'],
 	flee: (v) => [`Flees after ${v} turns`, 'Leaves the fight, and takes what it stole with it'],
 	rising: (v) => [`Rising +${v}%/turn`, 'Its damage multiplier grows by this share every action'],
-	escalate: (v) => [`Escalating +${v}/turn`, 'A flat point more on every blow for each action spent in this phase'],
+	escalate: (v) => [`Escalating +${v}/turn`, 'A point more on every blow for each action spent in this phase, weighed like the roll'],
 	spikes: (v) => [`Spikes ${v}`, 'Retaliates once per attacking ability'],
 	regen_with_escorts: (v) => [`Regenerates ${v} with escorts`, 'Heals at turn end while an escort still stands'],
 	shielded_by_escorts: (v) => [`Shielded by escorts ${v}%`, 'Takes that much less while an escort still stands'],
@@ -64,6 +65,11 @@ const TRAIT_WORDS = {
 	carat_cap: (v) => [`Gems count ${v} carats at most`, 'While it stands no gem counts for more'],
 	resonance_damp: (v) => [`Dampens Resonance ${v}%`, 'Your gems ring for that much less while it lives'],
 	color_strength: () => ['Feeds on color', 'Gains 1 Strength the first time it sees each color of gem fire'],
+	waterlogged: () => ['Waterlogged', 'The first time it dies it gets back up at half health'],
+	hydra: (v) => [`Heads every ${v}%`, 'Every share of its health lost cuts a head off; each grows back as two as it next acts (six at most)'],
+	countdown_reset: (v) => [`Held back at ${v}%`, 'A turn that takes this share of its health starts its countdown again'],
+	taunt: () => ['Gravity', 'Gems aimed at one creature hit it instead while it stands'],
+	regenerating: (v) => [`Regenerating ${v}`, 'Heals that much at the end of every turn'],
 	steal_high_die: () => ['Steals your high die', ''],
 	block_from_high: () => ['Blocks from its high roll', ''],
 	reflect_zero_resonance: () => ['Reflects at zero Resonance', 'A hit from a player at Resonance 1 or less comes back'],
@@ -140,7 +146,7 @@ function creaturesPage(root, route, ctx) {
 				def.echo ? chip(`Echo of ${(def.echo.mines || []).map((m) => C.mine(m).name || m).join(', ')}`, { title: 'A random non-Warden creature from those mines, over again, with this mine’s scaling' }) : null,
 				escorts.length ? chip(`Escorts: ${escortText(escorts)}`, { title: 'Spawned beside it at the start of the fight' }) : null),
 			h('div', { class: 'row tight' }, ...traitChips(traits)),
-			h('h2', {}, def.name), h('p', { class: 'lede' }, def.text || ''),
+			h('h2', {}, def.name), h('p', { class: 'lede' }, def.text || ''), def.tip ? h('p', { class: 'lede' }, h('strong', {}, 'Remember: '), def.tip) : null,
 			h('div', { class: 'row tight' }, h('span', { class: 'small muted' }, 'Rolls, in order:'), ...(def.dice || []).map((k, i) => h('span', { class: 'row tight', title: `die ${i + 1}` }, dieImage(dieKey(k), 30), h('span', { class: 'small text-2' }, dieKey(k))))))))));
 	const job = ctx.engine.run('creatureTurn', { key: active, depth, party, phase, turn: state.turn, action: state.action, mineKey, emerging: canEmerge && state.emerging, samples: 6000 });
 	const statsSlot = h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(7, minmax(0,1fr))' } });

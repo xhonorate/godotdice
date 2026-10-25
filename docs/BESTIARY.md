@@ -134,7 +134,7 @@ on, or of another variant of it (`tests/test_bestiary.gd` checks this against th
 | Warrens     | Spore Slime, Mycel Wraith, Cap Shambler, Mycel Weaver, Puffball, Root Horror         | the Gardener, the Spore Mother     | the Heartrot (with three Tendrils) |
 | Furnace     | Fire Tick, Cinder Moth, Salamander, Slag Hound, Forge Imp, Ember Crawler             | the Smelter, the Anvil Knight      | the Kiln Wyrm                      |
 | Geode       | Gilded Magpie, Geode Golem, Amethyst Wyrm, Hoard Mimic, Croupier Crab, Crystal Hydra | the Assayer, the Collector         | the Hollow Crown                   |
-| Rift        | Void Echo, Null Shade, Riftling Swarm, Entropy Eye                                   | the Remembered (see below)         | none: it does not end              |
+| Rift        | Void Echo, Null Shade, Riftling Swarm, Entropy Eye, Rift Shifter, Collapsar          | the Remembered (see below)         | none: it does not end              |
 
 The Lens Beetle's places in the bands went to the mine's own creatures: the Refractor and Echo
 Sprite in the Glass Veins, the Echo Sprite and Mycel Weaver in the Warrens, the Forge Imp in the
@@ -319,3 +319,137 @@ Changed as the notes asked:
   if it carries other verdicts on these creatures they are not reflected here.
 
 The Glazier's and the Anvil Knight's Temper and the Drowned Choir's Crescendo were renamed Anneal, Quench and Requiem in October 2026, when those names went to the new Temper and Crescendo gems.
+
+## 9. The identity pass (October 25, 2026)
+
+Built from the owner's review page "Bestiary Identity Pass" (claude.ai artifact
+46SkWdsXYBxEvhZUVH13gG; the marks are in its database, collection `verdicts`). The question
+for every creature was what the player should think on meeting it ("watch out for X", "use X
+to beat it"). 73 of 76 cards were approved; what was not:
+
+- **G4, no starting block: rejected.** Creatures keep the block they walk in behind; under G1
+  it now grows with their health like every other defence.
+- **The Vein Wraith's straight weakness: rejected** ("remove the straight weakness"). The line
+  is gone from its text and nothing was built.
+- **The open question on the health curve: rejected.** Nothing was changed.
+- **G2 was approved with a note, "same for poison"**: Poison on a player carries the creatures'
+  weight as Burn does.
+
+### Rules for every creature
+
+| Rule | Built as | Where |
+| ---- | -------- | ----- |
+| G1 Defences grow with health | Block, heal, Regeneration, Retain and flat max-health gains are multiplied by the factor its health was bred with (mine, depth, party, the day's cards), `DeepCreatures.health_pct`. Amounts that read its own health (`max_hp`, `hp`) are left alone. Starting block, the Quartz Golem's passive and the Heartrot's and `regrow` heals carry it too. A creature's Retain has no cap of 20. The move table shows the weighed numbers. | `DeepCreatures.make`, `scale_effect`, `display_moves`; `battle.gd` `_tick`, `_begin_turn`, `_apply_one` retain |
+| G2 Block-stripping, Burn and Poison grow with damage | A creature's `remove_block` amount carries `damage_pct`. Burn and Poison on a player keep their stacks and their one-a-turn decay, but each round hurts for stacks × the creatures' damage weight here (`state.creature_damage_pct`, from the fight's `scale.damage`). On a creature a round is its stacks. The player's chip shows what the next round hurts for. | `scale_effect`, `DeepBattle.tick_amount`, `EffectChips._status_entries` |
+| G3 Strength before the multiplier | Strength, a Howl's rally and Escalate are points on the roll: they are added as `weighted(points)` = points × damage_pct, after the roll's own multiplier (the same sum, and the tally keeps showing them as adds). Escalate is kept apart from the depth bonus (`escalate_bonus`). The depth bonus is unchanged. | `resolved_move`, `refresh_bonuses`, `display_moves` |
+| G5 Bleed-ins | Only natives of the mine directly above. Glass Veins: Cave Tick and Clouder out, Lamprey Knot and more Refractor in. Warrens: Clouder and Drowned Miner out, Prism Golem and more Mycel Weaver in. Furnace: Clouder out, Cap Shambler in. Hollow: Clouder out, Ember Crawler in. | `content/deep_cut.json` bands |
+| G6 Two abilities, G7 one owner per mechanic | Applied card by card, below. | content |
+
+### New mechanics
+
+- **`copy_hand`** (the Mirror Regent): as its action opens it throws copies of the highest dice
+  of the player who rolled the most (every face set to what that player rolled).
+- **`waterlogged`** (Drowned Miner): the first time it dies it gets back up at half health.
+- **`grip_die`** (Cave Crayfish): one die of each player (the one showing the most) sits out of
+  every throw until the crayfish loses health, from a blow or a tick, or dies. Never the last die.
+- **`countdown`** trigger with **`hasten`** and the **`countdown_reset`** trait: the move fires
+  on the first die of the action its count reaches 0, then counts from the top again
+  (`DeepCreatures.countdown_in`, `enemy.countdowns`). `hasten` brings it that many actions
+  sooner (never sooner than the next). `countdown_reset` puts it back to the top on any party
+  turn that takes that share of the creature's health (`hp_at_turn`, checked at
+  `creatures_begin`). A stunned action does not count down.
+- **`lose_die`** (the Drowned Choir's heads): one die fewer, never the last.
+- **`hydra`** trait (Crystal Hydra): every share of its health lost since its last action cuts a
+  head (a die) off, down to one; as it next acts each cut head grows back as two, six at most
+  (`DeepBattle.HYDRA_HEADS`).
+- **`hero_rerolled`** target (Will-o'-Wisp): every player who rerolled this turn.
+- **`swap_gems`** (Rift Shifter): two neighbouring gems on each rail change places for the fight,
+  and what a broken gem grows back as follows them.
+- **`taunt`** trait (Collapsar): while it stands, a gem aimed at one creature hits it instead.
+- A retain with **`keep_all`** keeps every point of a creature's block (the Quartz Golem's Harden).
+
+### The creatures, as changed
+
+| Creature | Now |
+| -------- | --- |
+| Silt Slime | Reknit gone. |
+| Magpie | Snatch (a pair) takes 10 pyrite from the richest player; no die. |
+| Quartz Golem | Harden (even): block equal to its roll, and it keeps all its block into its next turn. |
+| Clouder | Abrasive Fog gone; Quarry and Seeps only. |
+| Vein Wraith | Omen gone; Wail (8+) strips block equal to its roll. |
+| Glass Wyrm | Coil gone. Its Resonance-0 reflect is now every wyrm's. |
+| The Foreman | Shore Up is 12 block (weighed) and Ward 1. |
+| The Mirror Regent | No dice of its own: Mirror Image copies three (four below 40%), Reflection hits for each, Splinter curses on a pair. |
+| Drowned Miner | Waterlogged. |
+| Lamprey Knot | Drink heals 2 (weighed). |
+| Cave Crayfish | Claw; Grip (a pair) holds a die and shells up for twice the pair. |
+| The Lock-Keeper | No fog. Open the Sluice counts down from 3 (all block washed away, then twice its roll); Wrench; Turn the Wheel (a pair) brings it a step sooner. |
+| The Drowned Choir | At 66% and 33% a head falls silent: a die fewer and +2 Strength. |
+| The Undertow | Drag Under stuns the player with the least block. |
+| Shard Wyrm, Amethyst Wyrm | Carry the Resonance-0 reflect. |
+| Will-o'-Wisp | Lure (a 6) marks every player who rerolled. |
+| Refractor | Prism Wall is 2 block per Strength (weighed). |
+| Spore Slime | Splits; no death burst. |
+| Mycel Weaver | Web (a pair) ticks every player's poison once more. |
+| Puffball | Regrow gone. |
+| Root Horror | Drink gone; Grow gives 1 Strength. |
+| The Gardener | Tend heals half the roll; Sow on a 1, 3 or 5; Prune grinds for the fight. |
+| The Spore Mother | Brood gone. Bloom counts down from 3 (Poison 6, Festering 2 on everyone); a turn that takes a tenth of her health resets it. |
+| The Heartrot | Rot hits for each die's roll. |
+| The Anvil Knight | Quench gives 2 Strength. |
+| The Kiln Wyrm | Lavafall burns 8; Firebreath burns half the pair (second pass). |
+| Crystal Hydra | Grow a Head gone; heads are cut and regrow (above). |
+| The Assayer | Eat the Rich heals and grows 1% of its health per 10 pyrite the richest player holds. |
+| Null Shade | Snuff on an 8 only. |
+| Entropy Eye | Stare gone; Unmake on a 1 or a 12. |
+| Rift Shifter (new) | 30 health, a d10, threat 4. Lash; Shift (even) swaps gems. |
+| Collapsar (new) | 44 health, 2d6, threat 5, Gravity (taunt). Pull; Collapse (a pair) twice the pair through block. |
+
+Two readings where a card left a rule open: the Heartrot's "Rot hits for its highest die" is
+built as every die rotting for its roll (a creature's move reads one die at a time, so "the
+highest" has no single die to fire on), and the Collapsar has two d6 rather than one d8 so its
+Collapse can be a pair, as the card asked.
+
+### In the room
+
+The battle screen dresses a creature for what it is doing (`_dress`): a see-through barrier in
+front of it while it refracts (faceted glass), holds up a mirror (a round mirror) or drinks a
+color (glass in that color), which breaks when its guard comes down or a mirrored blow goes
+back; a ring of warning over its head when a countdown, an every-so-often move or a charge
+lands on its next action; a Collapsar's pull on the floor; the dice a Crayfish holds turning in
+front of it (`CrystalCreature.set_barrier`, `set_omen`, `set_well`, `set_gripping`). What
+creatures do has effects of its own (`_creature_fx`, `BattleFx.flames`, `bubbles`, `splash`,
+`reticle`, `spiral_in`, `claw`): fire where Burn lands and bites, bubbles for Poison, spores
+for Festering, ash for Scorched, crosshairs for Marked, a red lance for a blow through block, a
+flood for the sluice, the Regent's copies flying off the reader's dice, a claw snapping shut,
+heads cut and grown back, a drowned miner rising, gems swapped on the rail.
+`build/identity_fx_shot.gd` (gitignored) films them in a real fight.
+
+### Second pass (the same day)
+
+- **Only a creature's Poison and Burn carry its weight.** A player's own stacks (a Hemlock's
+  cost, an Invert turning a heal into Poison) hurt for their stacks, as before. The creatures'
+  share is kept apart (`creature_stacks` on the player, `DeepBattle.weighed_stacks`) and never
+  outlasts the stacks themselves (a tick or a cleanse takes it down with them).
+- **Numbers written big come down: Poison and Burn.** They were written for the Warrens and the
+  Furnace when they did not carry the mine's weight; they now do, so they are halved (rounded
+  up): the Mycel Weaver's bite poisons for half its roll, the Puffball bursts for half its
+  swelling, the Forge Imp, Salamander and Smelter burn for half their roll, the Ember Crawler's
+  bite burns 2 (was 4), the Kiln Wyrm's Firebreath half the pair. A Puffball swollen to 12 now
+  bursts for 6 Poison, 13 a round in the Warrens (it was 12 a round before the weight).
+- **The Will-o'-Wisp marks who actually rerolled** (`rerolled`, counted on the reroll command),
+  so a turn with no rerolls handed out (the Drill's) is not read as a reroll.
+- **The Spore Mother's hard turn counts poison.** Her health is noted as each of her actions
+  closes (`hp_at_turn` in `DeepCreatures.finish`), so the party's poison biting her at the end
+  of the turn counts toward the tenth that holds her bloom back.
+- **Daily cards that change health after a creature is bred** (Lone Beasts, Swarms) change its
+  health factor with it, so its defences follow.
+- **What to remember about it.** Every creature has a `tip`, one plain line (the "player should
+  think" line from the review). It is the first thing in the Bestiary's field notes, first on
+  the close look's "This turn" page, and on the data browser's creature page.
+- **The move table says when a Poison or Burn will hurt harder here** (a depth mark beside the
+  number, and "every round hurts ×N here" in its words), and the depth mark on a block or a heal
+  says it is the creature's health weighing it, not its damage.
+- **Sounds** for fire, water, glass and a claw (`flame`, `splash`, `mirror`, `claw` in
+  `DeepSoundBank`), played where Burn lands and bites, where the sluice opens and a drowned miner
+  rises, where a mirror or refraction goes up, and where a die is gripped.

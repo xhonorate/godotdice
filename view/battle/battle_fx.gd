@@ -934,3 +934,142 @@ func sigil(at: Vector3, color: Color, radius: float = 1.1, seconds: float = 0.9)
 	tween.parallel().tween_property(node, "rotation:y", PI, seconds)
 	tween.tween_property(m, "albedo_color:a", 0.0, seconds * 0.5)
 	tween.tween_callback(node.queue_free)
+
+# --- what creatures do (docs/BESTIARY.md) -----------------------------------------------------
+
+func flames(at: Vector3, size: float = 0.6, seconds: float = 0.9) -> void:
+	## A lick of fire that catches, burns for a moment and goes out: Burn landing, Burn biting.
+	var fire_node: Node3D = fire(size, false)
+	fire_node.position = at
+	add_child(fire_node)
+	flash(at, Color("ff8a30"), 3.0 + 3.0 * size, 5.0, seconds * 0.6, 0.7)
+	var tree := get_tree()
+	if tree == null:
+		fire_node.queue_free()
+		return
+	var held: WeakRef = weakref(fire_node)
+	tree.create_timer(seconds, false).timeout.connect(func() -> void:
+		var still: Node3D = held.get_ref() as Node3D
+		if still != null:
+			for child in still.get_children():
+				if child is GPUParticles3D:
+					(child as GPUParticles3D).emitting = false)
+	## The flames already in the air burn out before it goes; freed on the clock all the same,
+	## seen or not (a particle node the camera never ran would wait for ever otherwise).
+	tree.create_timer(seconds + 1.8, false).timeout.connect(fire_node.queue_free)
+
+func bubbles(at: Vector3, color: Color, amount: int = 24, spread: float = 0.8, lifetime: float = 1.3) -> void:
+	## Bubbles welling up and bursting: poison taking hold.
+	var m := ParticleProcessMaterial.new()
+	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	m.emission_box_extents = Vector3(spread, 0.15, spread * 0.5)
+	m.direction = Vector3.UP
+	m.spread = 18.0
+	m.initial_velocity_min = 0.4
+	m.initial_velocity_max = 1.2
+	m.gravity = Vector3(0, 0.5, 0)
+	m.turbulence_enabled = true
+	m.turbulence_noise_strength = 0.9
+	m.turbulence_noise_scale = 2.0
+	m.scale_min = 0.03
+	m.scale_max = 0.09
+	m.scale_curve = swell_curve()
+	m.color_ramp = fade_ramp(color.lightened(0.2), 0.95, 0.1)
+	var p := _burst(at, amount, lifetime, keep("bubbles", m), quad(true))
+	p.explosiveness = 0.3
+
+func splash(at: Vector3, color: Color = Color("8fd0e8"), amount: int = 40, speed: float = 4.0, lifetime: float = 1.0) -> void:
+	## Water thrown up and falling back: the sluice opening, a drowned thing rising.
+	var m := ParticleProcessMaterial.new()
+	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	m.emission_sphere_radius = 0.4
+	m.direction = Vector3(0, 1, 0.3)
+	m.spread = 50.0
+	m.initial_velocity_min = speed * 0.5
+	m.initial_velocity_max = speed
+	m.gravity = Vector3(0, -9.0, 0)
+	m.scale_min = 0.03
+	m.scale_max = 0.07
+	m.color_ramp = fade_ramp(color.lightened(0.35), 0.95, 0.05)
+	_burst(at, amount, lifetime, keep("splash", m), _stretched_quad())
+	puff(at, Color(color, 0.6), 10, 0.9, 0.9, 0.6, true)
+
+func reticle(at: Vector3, facing: Vector3, color: Color, size: float = 0.9, seconds: float = 1.0) -> void:
+	## Crosshairs closing on a target: Marked.
+	var pivot := Node3D.new()
+	add_child(pivot)
+	pivot.look_at_from_position(at, at + facing, Vector3.UP)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	m.albedo_color = Color(color, 0.0)
+	var ring := MeshInstance3D.new()
+	ring.mesh = Lowpoly.ring(1.0, 0.08, 32)
+	ring.rotation = Vector3(PI * 0.5, 0, 0)
+	ring.material_override = m
+	pivot.add_child(ring)
+	for i in range(4):
+		var tick := MeshInstance3D.new()
+		var bar := BoxMesh.new()
+		bar.size = Vector3(0.06, 0.4, 0.02)
+		tick.mesh = bar
+		tick.material_override = m
+		var angle: float = TAU * float(i) / 4.0
+		tick.position = Vector3(cos(angle), sin(angle), 0) * 1.1
+		tick.rotation = Vector3(0, 0, angle + PI * 0.5)
+		pivot.add_child(tick)
+	pivot.scale = Vector3.ONE * size * 2.2
+	var tween := pivot.create_tween().set_parallel(true)
+	tween.tween_property(pivot, "scale", Vector3.ONE * size, seconds * 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(m, "albedo_color:a", 1.0, seconds * 0.2)
+	tween.tween_property(pivot, "rotation:z", PI * 0.25, seconds * 0.35)
+	tween.chain().tween_property(m, "albedo_color:a", 0.0, seconds * 0.5).set_delay(seconds * 0.15)
+	tween.chain().tween_callback(pivot.queue_free)
+
+func spiral_in(at: Vector3, color: Color, radius: float = 2.2, amount: int = 40, lifetime: float = 1.0) -> void:
+	## Light pulled in from all round and swallowed: a copy taken, a blow bent into a Collapsar.
+	var m := ParticleProcessMaterial.new()
+	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+	m.emission_ring_axis = Vector3(0, 0, 1)
+	m.emission_ring_radius = radius
+	m.emission_ring_inner_radius = radius * 0.8
+	m.emission_ring_height = 0.2
+	m.gravity = Vector3.ZERO
+	m.radial_accel_min = -radius * 3.5
+	m.radial_accel_max = -radius * 2.5
+	m.orbit_velocity_min = 0.3
+	m.orbit_velocity_max = 0.6
+	m.scale_min = 0.05
+	m.scale_max = 0.12
+	m.scale_curve = shrink_curve()
+	m.color_ramp = burst_ramp(color)
+	var p := _burst(at, amount, lifetime, keep("spiral_in", m), quad(true))
+	p.explosiveness = 0.6
+
+func claw(at: Vector3, facing: Vector3, color: Color, seconds: float = 0.45) -> void:
+	## Two pincers snapping shut on something: a die taken in a claw.
+	var pivot := Node3D.new()
+	add_child(pivot)
+	pivot.look_at_from_position(at, at + facing, Vector3.UP)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	m.albedo_color = Color(color.lightened(0.3), 0.95)
+	var tween := pivot.create_tween().set_parallel(true)
+	for side in [-1.0, 1.0]:
+		var pincer := MeshInstance3D.new()
+		pincer.mesh = Lowpoly.ring(0.5, 0.18, 12)
+		pincer.material_override = m
+		pincer.rotation = Vector3(PI * 0.5, 0, 0)
+		pincer.position = Vector3(side * 0.9, 0, 0)
+		pivot.add_child(pincer)
+		tween.tween_property(pincer, "position:x", side * 0.22, seconds * 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.chain().tween_property(m, "albedo_color:a", 0.0, seconds * 0.6)
+	tween.chain().tween_callback(pivot.queue_free)
+	shards(at, color, 6, 2.5, 0.08, 0.6)

@@ -37,7 +37,8 @@ const NAMES: PackedStringArray = [
 	"loupe_spin", "reveal", "grade_rough", "grade_fine", "grade_precious", "grade_exquisite",
 	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break",
 	"altar_hum", "altar_fizzle", "altar_make", "transcendent", "hollow_drop", "hollow_rise",
-	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter", "infinity"]
+	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter", "infinity",
+	"flame", "splash", "mirror", "claw"]
 
 static var _cache: Dictionary = {}
 ## The bank is baked on a worker thread while the game is played, and asked for sounds from
@@ -292,6 +293,28 @@ static func _bake(name: String) -> AudioStreamWAV:
 			for i in range(4):
 				ring.bell(0.1 + float(i) * 0.12, 0.2, 1400.0 + ring.rng.randf_range(-300.0, 500.0), 0.12, DeepSynth.CHIME_PARTIALS, 3.4)
 			return ring.normalise(0.62).stream()
+		# --- what creatures do: fire, water, glass and a claw (docs/BESTIARY.md, section 9) ----
+		"flame":
+			## Fire catching: a rush of air drawn up into it, and the crackle of it taking hold.
+			return DeepSynth.new(0.8).whoosh(0.0, 0.45, 0.3, 260.0, 2200.0) \
+				.noise(0.04, 0.6, 0.16, 1600.0, 500.0, 2.2, 0.01) \
+				.clatter(0.06, 0.55, 0.09, 12, 2800.0).normalise(0.6).stream()
+		"splash":
+			## Water let go: a slap, a wash falling away, and a few bubbles coming up after.
+			var wash := DeepSynth.new(1.0).thump(0.0, 0.18, 110.0, 0.4, 0.4) \
+				.noise(0.0, 0.7, 0.42, 4800.0, 500.0, 2.4, 0.004)
+			for i in range(5):
+				wash.tone(0.18 + float(i) * 0.09, 0.07, 520.0 + wash.rng.randf_range(-80.0, 200.0), 1200.0, 0.12, "sine", 4.0, 0.002)
+			return wash.normalise(0.62).stream()
+		"mirror":
+			## A sheet of glass put up: a bright high chime, held, and its ring off the walls.
+			return DeepSynth.new(1.1).bell(0.0, 0.9, 1760.0, 0.26, DeepSynth.CHIME_PARTIALS, 2.0, 0.004) \
+				.bell(0.04, 0.8, 2637.0, 0.16, DeepSynth.CHIME_PARTIALS, 2.4) \
+				.sparkle(0.02, 0.6, 0.08, 3000.0, 7000.0, 8).echoes(0.13, 0.3, 2).normalise(0.55).stream()
+		"claw":
+			## Two pincers snapping shut on something hard.
+			return DeepSynth.new(0.4).clack(0.0, 0.4, 1400.0).clack(0.035, 0.45, 1100.0) \
+				.thump(0.03, 0.12, 190.0, 0.35, 0.3).noise(0.03, 0.08, 0.15, 5000.0, 1500.0, 5.0).normalise(0.6).stream()
 		"curse":
 			return DeepSynth.new(0.9).tone(0.0, 0.7, 190.0, 118.0, 0.3, "saw", 1.8, 0.03) \
 				.tone(0.0, 0.7, 193.0, 120.0, 0.24, "saw", 1.8, 0.03) \

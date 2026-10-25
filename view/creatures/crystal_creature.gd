@@ -4,6 +4,8 @@ extends Node3D
 ## Combat state stays in sim/; the battle and inspector both spawn through make().
 
 const Part = preload("res://view/creatures/creature_part.gd")
+const Lowpoly = preload("res://view/battle/lowpoly.gd")
+const BattleFx = preload("res://view/battle/battle_fx.gd")
 ## Every creature with a scene of its own. The deeper mines' creatures are baked from the
 ## recipes in tools/creature_recipes by tools/creature_bake.gd; the Quarry's first eight
 ## were saved from the old procedural builder.
@@ -15,7 +17,7 @@ const SCENE_KEYS: Array = ["CAVE_TICK", "SILT_SLIME", "QUARTZ_GOLEM", "MAGPIE", 
 	"CAP_SHAMBLER", "MYCEL_WEAVER", "PUFFBALL", "ROOT_HORROR", "THE_GARDENER", "THE_SPORE_MOTHER", "THE_HEARTROT", "TENDRIL",
 	"SALAMANDER", "SLAG_HOUND", "FORGE_IMP", "EMBER_CRAWLER", "THE_SMELTER", "THE_ANVIL_KNIGHT", "THE_KILN_WYRM",
 	"HOARD_MIMIC", "CROUPIER_CRAB", "CRYSTAL_HYDRA", "THE_ASSAYER", "THE_COLLECTOR", "THE_HOLLOW_CROWN",
-	"VOID_ECHO", "NULL_SHADE", "RIFTLING_SWARM", "ENTROPY_EYE", "THE_UNMADE"]
+	"VOID_ECHO", "NULL_SHADE", "RIFTLING_SWARM", "ENTROPY_EYE", "THE_UNMADE", "RIFT_SHIFTER", "COLLAPSAR"]
 static var SCENE_PATHS: Dictionary = _scene_paths()
 static func _scene_paths() -> Dictionary:
 	var out: Dictionary = {}
@@ -104,6 +106,24 @@ var _ghost: bool = false
 ## own color is kept here while it does, so `tint` never reads the flash.
 var _white: float = 0.0
 var _hue: Color = Color.WHITE
+## What guards it, or what it is about to do, worn in the room for as long as it lasts: a
+## barrier in front of it while it refracts, holds up a mirror or drinks a color; a ring over
+## its head when its countdown comes due on its next action; a pull of light on the floor while
+## it bends every blow to itself; the dice it holds in its claw. Made the first time they are
+## wanted and kept, hidden, after.
+var _barrier: MeshInstance3D
+var _barrier_rim: MeshInstance3D
+var _barrier_material: StandardMaterial3D
+var _barrier_kind: String = ""
+var _barrier_want: float = 0.0
+var _omen: MeshInstance3D
+var _omen_material: StandardMaterial3D
+var _omen_want: float = 0.0
+var _well: Node3D
+var _well_material: StandardMaterial3D
+var _well_want: float = 0.0
+var _held: Array[MeshInstance3D] = []
+var _held_material: StandardMaterial3D
 
 static func _path_for(looks: String) -> String:
 	var path: String = str(SCENE_PATHS.get(looks, FALLBACK_SCENE))
@@ -251,6 +271,162 @@ func set_charging(on: bool) -> void:
 	## Winding up a blow: it gathers light, brighter the longer it holds.
 	_charging = 1.0 if on else 0.0
 
+func _own_height() -> float:
+	## Its height in its own units, for laying things against it whatever its scale.
+	return maxf(0.6, (get_node("Anchor") as Marker3D).position.y)
+
+static func _see_through(color: Color, additive: bool = true) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if additive:
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	m.albedo_color = Color(color, 0.0)
+	return m
+
+func set_barrier(kind: String, color: Color = Color("e8e0ff")) -> void:
+	## A see-through barrier standing in front of it, between it and the party, for as long as
+	## it turns blows: `refract` a faceted wall of glass, `mirror` a bright round mirror,
+	## `drink` a wall in the color it drinks. An empty kind lets it fade.
+	if kind.is_empty():
+		_barrier_want = 0.0
+		_barrier_kind = ""
+		return
+	var tall: float = _own_height()
+	if _barrier == null:
+		_barrier = MeshInstance3D.new()
+		_barrier.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_barrier_material = _see_through(color)
+		_barrier.material_override = _barrier_material
+		add_child(_barrier)
+		_barrier_rim = MeshInstance3D.new()
+		_barrier_rim.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_barrier_rim.material_override = _barrier_material
+		_barrier.add_child(_barrier_rim)
+	if kind != _barrier_kind:
+		if kind == "mirror":
+			var disc := CylinderMesh.new()
+			disc.top_radius = 1.0
+			disc.bottom_radius = 1.0
+			disc.height = 0.04
+			disc.radial_segments = 24
+			disc.rings = 1
+			_barrier.mesh = disc
+			_barrier.rotation = Vector3(PI * 0.5, 0, 0)
+			_barrier_rim.mesh = Lowpoly.ring(1.0, 0.1, 32)
+			_barrier_rim.rotation = Vector3.ZERO
+			_barrier_rim.position = Vector3(0, 0.03, 0)
+		else:
+			_barrier.mesh = Lowpoly.hex_dome(1.0)
+			_barrier.rotation = Vector3.ZERO
+			_barrier_rim.mesh = Lowpoly.ring(1.02, 0.06, 6)
+			_barrier_rim.rotation = Vector3(PI * 0.5, 0, 0)
+			_barrier_rim.position = Vector3.ZERO
+		## Raised from nothing, as though it had just been put up.
+		_barrier.scale = Vector3.ONE * 0.2
+	_barrier_kind = kind
+	var size: float = tall * (0.42 if kind == "mirror" else 0.55)
+	_barrier.position = Vector3(0, tall * 0.48, size * 0.9 + 0.35)
+	_barrier.set_meta("size", size)
+	_barrier_material.albedo_color = Color(color.lightened(0.15), _barrier_material.albedo_color.a)
+	_barrier_want = 1.0
+
+func barrier_point() -> Vector3:
+	## Where its barrier stands, in the room: where a blow meets it, and where it breaks.
+	if _barrier == null:
+		return centre() + Vector3(0, 0, 0.6)
+	return _barrier.global_position
+
+func has_barrier() -> bool:
+	return _barrier != null and _barrier_want > 0.0
+
+func set_omen(on: bool, color: Color = Color("ffb05a")) -> void:
+	## What it is counting down to comes on its next action: a ring of warning over its head.
+	if on and _omen == null:
+		_omen = MeshInstance3D.new()
+		_omen.mesh = Lowpoly.ring(1.0, 0.16, 32)
+		_omen.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_omen_material = _see_through(color)
+		_omen.material_override = _omen_material
+		add_child(_omen)
+	if _omen != null:
+		_omen_material.albedo_color = Color(color, _omen_material.albedo_color.a)
+		_omen.position = Vector3(0, _own_height() + 0.35, 0)
+	_omen_want = 1.0 if on else 0.0
+
+func set_well(on: bool, color: Color = Color("8b7dff")) -> void:
+	## A Collapsar's pull: a dark ring on the floor and motes of light drawn into it.
+	if on and _well == null:
+		_well = Node3D.new()
+		add_child(_well)
+		var ring := MeshInstance3D.new()
+		ring.mesh = Lowpoly.ring(1.0, 0.22, 40)
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_well_material = _see_through(color)
+		ring.material_override = _well_material
+		ring.position = Vector3(0, 0.1, 0)
+		ring.scale = Vector3.ONE * 1.6
+		_well.add_child(ring)
+		var pull := GPUParticles3D.new()
+		var m := ParticleProcessMaterial.new()
+		m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+		m.emission_ring_axis = Vector3.UP
+		m.emission_ring_radius = 2.4
+		m.emission_ring_inner_radius = 1.8
+		m.emission_ring_height = 0.4
+		m.gravity = Vector3.ZERO
+		m.radial_accel_min = -2.6
+		m.radial_accel_max = -1.6
+		m.orbit_velocity_min = 0.25
+		m.orbit_velocity_max = 0.45
+		m.scale_min = 0.05
+		m.scale_max = 0.12
+		m.color_ramp = BattleFx.fade_ramp(color.lightened(0.3), 0.9, 0.2)
+		pull.process_material = BattleFx.keep("well", m)
+		pull.draw_pass_1 = BattleFx.quad(true)
+		pull.amount = 48
+		pull.lifetime = 1.4
+		pull.local_coords = true
+		pull.position = Vector3(0, _own_height() * 0.35, 0)
+		pull.visibility_aabb = AABB(Vector3(-4, -2, -4), Vector3(8, 6, 8))
+		_well.add_child(pull)
+	if _well != null:
+		for child in _well.get_children():
+			if child is GPUParticles3D:
+				(child as GPUParticles3D).emitting = on
+	_well_want = 1.0 if on else 0.0
+
+func set_gripping(count: int, color: Color = Color("8fd0e8")) -> void:
+	## The dice it holds in its claw: little dice turning in front of it, one for each.
+	if _held_material == null and count > 0:
+		_held_material = StandardMaterial3D.new()
+		_held_material.albedo_color = Color("f2efe6")
+		_held_material.emission_enabled = true
+		_held_material.emission = color
+		_held_material.emission_energy_multiplier = 0.9
+		_held_material.roughness = 0.4
+	while _held.size() < count:
+		var die := MeshInstance3D.new()
+		var cube := BoxMesh.new()
+		cube.size = Vector3.ONE * 0.24
+		die.mesh = cube
+		die.material_override = _held_material
+		die.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(die)
+		_held.append(die)
+	while _held.size() > count:
+		var gone: MeshInstance3D = _held.pop_back()
+		if is_instance_valid(gone):
+			gone.queue_free()
+
+func gripped_point(index: int = 0) -> Vector3:
+	## Where a held die is, for one to fly back to its owner from.
+	if index < _held.size() and is_instance_valid(_held[index]):
+		return _held[index].global_position
+	return centre() + Vector3(0, 0, 0.5)
+
 func burrow(down: bool) -> void:
 	## Under the floor and out of reach, or back up out of it. The body sinks, the light
 	## dims and the shadow is all that marks the spot.
@@ -376,12 +552,48 @@ func _process(delta: float) -> void:
 		_halo_material.albedo_color.a = move_toward(_halo_material.albedo_color.a, _halo_want * (1.0 - _buried), delta * 3.0)
 		_halo.rotation.y -= delta * 1.1
 		_halo.scale = _ring_rest_scale * (1.25 + 0.06 * sin(_clock * 3.0))
+	_wear(delta)
 	## The ring under it when it is the target: turning slowly, brighter on hover.
 	var want: float = (0.85 if _targeted else 0.0) + (0.35 if _hovered else 0.0)
 	_ring_material.albedo_color.a = move_toward(_ring_material.albedo_color.a, minf(want, 1.0), delta * 4.0)
 	_ring.rotation.y += delta * 0.8
 	_ring.scale = _ring_rest_scale * (1.0 + 0.04 * sin(_clock * 4.0))
 	_lay_rings()
+
+func _wear(delta: float) -> void:
+	## The barrier, the warning ring, the pull and the held dice, each easing toward what is
+	## wanted of it; everything fades as it dies or goes under the floor.
+	var shown: float = (0.0 if _dying else 1.0) * (1.0 - _buried)
+	if _barrier != null:
+		var want: float = _barrier_want * shown
+		var shimmer: float = 0.06 * sin(_clock * 5.0) + 0.04 * sin(_clock * 13.0)
+		## A mirror is the brightest thing in the room already: it shows at half the strength.
+		var strength: float = 0.16 if _barrier_kind == "mirror" else 0.34
+		_barrier_material.albedo_color.a = move_toward(_barrier_material.albedo_color.a, want * (strength + shimmer * 0.5), delta * 2.5)
+		var size: float = float(_barrier.get_meta("size", 1.0))
+		var grown: float = _barrier.scale.x
+		_barrier.scale = Vector3.ONE * move_toward(grown, size * (1.0 if want > 0.0 else 1.15), delta * size * 3.0)
+		if _barrier_kind != "mirror":
+			_barrier.rotation.z += delta * 0.4
+		_barrier.visible = _barrier_material.albedo_color.a > 0.005
+	if _omen != null:
+		var beat: float = 0.6 + 0.4 * pow(maxf(0.0, sin(_clock * 4.5)), 2.0)
+		_omen_material.albedo_color.a = move_toward(_omen_material.albedo_color.a, _omen_want * shown * beat, delta * 3.0)
+		_omen.scale = Vector3.ONE * (0.55 + 0.1 * beat)
+		_omen.rotation.y += delta * 1.6
+		_omen.visible = _omen_material.albedo_color.a > 0.005
+	if _well != null:
+		_well_material.albedo_color.a = move_toward(_well_material.albedo_color.a, _well_want * shown * (0.55 + 0.15 * sin(_clock * 2.0)), delta * 2.0)
+		_well.rotation.y -= delta * 0.9
+	var tall: float = _own_height()
+	for index in range(_held.size()):
+		var die: MeshInstance3D = _held[index]
+		if not is_instance_valid(die):
+			continue
+		var angle: float = _clock * 0.8 + TAU * float(index) / float(maxi(1, _held.size()))
+		die.position = Vector3(cos(angle) * 0.5, tall * 0.35 + 0.08 * sin(_clock * 3.0 + float(index)), 0.75 + sin(angle) * 0.2)
+		die.rotation = Vector3(_clock * 1.3 + float(index), _clock * 0.9, 0.0)
+		die.visible = shown > 0.5
 
 func _lay_rings() -> void:
 	if not ground.is_valid():

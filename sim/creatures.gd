@@ -44,8 +44,10 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 	var held: Array = []
 	for skill_key in def.get("gems", []):
 		held.append({"unit": "", "socket": - 1, "stone": DeepStone.make(str(skill_key), 1, 2, 1, [], {}, "%s_gem%d" % [id, held.size()])})
-	return {"id": id, "key": key, "name": name, "side": "enemy", "hp": hp, "max_hp": hp,
-		"block": int(def.get("block", 0)), "statuses": {"ward": clampi(int(def.get("ward", 1 if bool(def.get("warden", false)) else 0)), 0, 99)}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
+	## Its defences grow with it: the block it walks in behind, and every block, heal and
+	## Regeneration it gives itself, carry the same factor its health was given (`health_pct`).
+	return {"id": id, "key": key, "name": name, "side": "enemy", "hp": hp, "max_hp": hp, "hp_scale": hp_scale,
+		"block": DeepRules.sat_floor(roundf(float(def.get("block", 0)) * hp_scale)), "statuses": {"ward": clampi(int(def.get("ward", 1 if bool(def.get("warden", false)) else 0)), 0, 99)}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
 		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": - 1,
 		"gimmick": str(def.get("gimmick", "")), "warden": bool(def.get("warden", false)), "phase": 0,
 		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "stun_streak": 0, "clouded_move": - 1, "threat": int(def.get("threat", 1)),
@@ -53,7 +55,7 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 		## The deeper mines' creatures (docs/BESTIARY.md): what the fight pinned on them, and
 		## what the fight so far has done to them. Written traits are read from the definition.
 		"traits": traits, "echo_of": echo_of, "echo_def": def if not echo_of.is_empty() else {}, "scale": scale.duplicate(true), "depth": depth,
-		"turns_acted": 0, "phase_entered_turn": 0, "used_once": [], "burrowed": false, "emerging": false,
+		"turns_acted": 0, "phase_entered_turn": 0, "hp_at_turn": hp, "used_once": [], "burrowed": false, "emerging": false,
 		"held_gems": held, "swell": 0, "rally_bonus": 0, "empowered": 0, "charging": {},
 		"reflect": 0, "mirror": 0, "absorb": [], "extra_dice": [], "stopped": false, "seen_colors": [],
 		"hurt_by": {}, "hurt_by_color": {}, "biggest_hit": 0, "hardest_gem": {},
@@ -222,6 +224,8 @@ static func finish(enemy: Dictionary) -> void:
 	enemy.hurt_by_color = {}
 	enemy.biggest_hit = 0
 	enemy.hardest_gem = {}
+	## Its health as this action closes, against which a hard turn on it is measured.
+	enemy.hp_at_turn = int(enemy.get("hp", 0))
 	enemy.dread_turns = maxi(0, int(enemy.get("dread_turns", 0)) - 1)
 	if int(enemy.statuses.get("clouded", 0)) > 0:
 		enemy.statuses.clouded = int(enemy.statuses.clouded) - 1
@@ -300,6 +304,22 @@ static func context(enemy: Dictionary, state: Dictionary, roll_index: int = -1) 
 		"living_players": maxi(1, living), "party_heaviest_carat": heaviest, "party_best_turn": int(state.get("party_best_turn", 0)),
 		"party_richest": richest}
 
+static func _move_context(enemy: Dictionary, move: Dictionary, ctx: Dictionary) -> Dictionary:
+	## A countdown move learns whether this is the action it has been counting to.
+	if str(move.get("trigger", {}).get("kind", "")) != "countdown":
+		return ctx
+	var own: Dictionary = ctx.duplicate()
+	own.countdown_due = enemy.get("countdown_due", []).has(str(move.get("name", "")))
+	return own
+
+static func countdown_in(enemy: Dictionary, move: Dictionary) -> int:
+	## How many actions until a countdown move fires, the coming one counted as 1.
+	var whole: int = maxi(1, int(move.get("trigger", {}).get("amount", 1)))
+	var counts: Variant = enemy.get("countdowns", {})
+	if not counts is Dictionary:
+		return whole
+	return int(counts.get(str(move.get("name", "")), whole))
+
 static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 	var dice: Array = effective_dice(enemy)
 	var available: int = maxi(0, dice.size() - int(enemy.get("suppressed", 0)))
@@ -324,7 +344,7 @@ static func resolve_roll(enemy: Dictionary, state: Dictionary) -> Array:
 		if once and enemy.used_combos.has(index):
 			enemy.move_states[index] = "used"
 			continue
-		var trig: Dictionary = activation(move, enemy.hand, remaining.is_empty(), ctx)
+		var trig: Dictionary = activation(move, enemy.hand, remaining.is_empty(), _move_context(enemy, move, ctx))
 		if not trig.active:
 			enemy.move_states[index] = "pending" if combo and can_complete(move, enemy.hand, remaining) else "missed"
 			continue
@@ -354,6 +374,7 @@ static func resolved_move(enemy: Dictionary, state: Dictionary, move: Dictionary
 		var effect: Dictionary = DeepRules.resolve_effect(definition, c, 1.0, "heroes")
 		if str(effect.kind) == "roll_again":
 			effect.die = roll_index
+		scale_effect(enemy, effect, definition)
 		effects.append(effect)
 	for effect in effects:
 		if str(effect.target) == "hero":
@@ -371,8 +392,12 @@ static func resolved_move(enemy: Dictionary, state: Dictionary, move: Dictionary
 				pct = pct * (100 + int(enemy.empowered)) / 100
 				effect.empowered = int(enemy.empowered)
 			effect.scaled = DeepRules.amount({"op": "pct", "args": [int(effect.amount), pct]}, {})
-			effect.adds = [["bonus", int(enemy.get("damage_bonus", 0))], ["rally", int(enemy.get("rally_bonus", 0))], ["strength", strength(enemy)]]
-			effect.amount = int(effect.scaled) + int(enemy.get("damage_bonus", 0)) + int(enemy.get("rally_bonus", 0)) + strength(enemy)
+			## Strength, a Howl's rally and an Escalating creature's anger are points on the roll,
+			## so they carry the mine's weight as the roll does; only the depth bonus sits on top.
+			var adds: Array = [["bonus", int(enemy.get("damage_bonus", 0))], ["rally", weighted(enemy, int(enemy.get("rally_bonus", 0)))],
+				["strength", weighted(enemy, strength(enemy) + int(enemy.get("escalate_bonus", 0)))]]
+			effect.adds = adds
+			effect.amount = int(effect.scaled) + int(adds[0][1]) + int(adds[1][1]) + int(adds[2][1])
 		if str(effect.kind) == "charge":
 			## What the charge lets go is written down now, in this action's words, so a
 			## different phase or a smaller party later cannot change what was promised. A
@@ -383,13 +408,53 @@ static func resolved_move(enemy: Dictionary, state: Dictionary, move: Dictionary
 				if str(ready.target) == "hero":
 					ready.target = "heroes"
 				if str(ready.kind) == "damage" and not bool(effect.get("store", false)):
-					ready.amount = DeepRules.amount({"op": "pct", "args": [int(ready.amount), damage_pct(enemy)]}, {}) + int(enemy.get("damage_bonus", 0)) + strength(enemy)
+					ready.amount = DeepRules.amount({"op": "pct", "args": [int(ready.amount), damage_pct(enemy)]}, {}) + int(enemy.get("damage_bonus", 0)) + weighted(enemy, strength(enemy))
 				release.append(ready)
 			effect.release = release
 	if int(enemy.get("empowered", 0)) > 0 and effects.any(func(e: Dictionary) -> bool: return str(e.kind) == "damage"):
 		enemy.empowered = 0
 	return {"move": str(move.get("name", "?")), "index": index, "effects": effects,
 		"dice": trig.get("dice", []), "combo": combo, "trigger": move.get("trigger", {}), "roll_index": roll_index}
+
+## What a creature does for itself, which grows with its health (see `health_pct`).
+const HEALTH_SCALED: Array = ["block", "heal", "regeneration", "retain", "max_hp"]
+
+static func health_pct(enemy: Dictionary) -> int:
+	## The factor its health was bred with (mine, depth, party, the day's cards), as a whole
+	## percentage: a number written as the Quarry would show it weighs the same anywhere.
+	return maxi(1, int(round(float(enemy.get("hp_scale", 1.0)) * 100.0)))
+
+static func weighted(enemy: Dictionary, points: int) -> int:
+	## Points that sit on a creature's roll (Strength, a rally, its anger) carry the mine's
+	## weight on that roll, rounded to the nearest.
+	if points == 0:
+		return 0
+	return int(round(float(points) * float(damage_pct(enemy)) / 100.0))
+
+static func _reads_health(expr: Variant) -> bool:
+	## An amount already written as a share of its own health (a quarter more, a tenth back).
+	if expr is Dictionary:
+		if str(expr.get("term", "")) in ["max_hp", "hp", "hp_missing"]:
+			return true
+		for arg in expr.get("args", []):
+			if _reads_health(arg):
+				return true
+	return false
+
+static func scale_effect(enemy: Dictionary, effect: Dictionary, definition: Dictionary) -> void:
+	## A creature's own numbers, weighed for where it is met: what it does for itself grows
+	## with its health, and what it strips from the party's block grows with its blows.
+	var kind: String = str(effect.get("kind", ""))
+	if kind in HEALTH_SCALED and not _reads_health(definition.get("amount", 0)) and not bool(effect.get("keep_all", false)):
+		var pct: int = health_pct(enemy)
+		if pct != 100:
+			effect.amount = DeepRules.sat_muldiv(int(effect.amount), pct, 100)
+			effect.health_pct = pct
+	elif kind == "remove_block" and not bool(effect.get("remove_all", false)):
+		var pct: int = damage_pct(enemy)
+		if pct != 100:
+			effect.amount = DeepRules.sat_muldiv(int(effect.amount), pct, 100)
+			effect.damage_pct = pct
 
 ## What a creature can do with a gem it holds: the effects that land on the party or help the
 ## creature itself. A gem that only works the hand, the rail or the purse is a trophy to it.
@@ -419,6 +484,7 @@ static func gem_effects(enemy: Dictionary, stone: Dictionary, c: Dictionary) -> 
 		if not definition is Dictionary or not str(definition.get("kind", "")) in GEM_USABLE:
 			continue
 		var effect: Dictionary = DeepRules.resolve_effect(definition, gc, 1.0, "heroes")
+		scale_effect(enemy, effect, definition)
 		effect.gem = str(skill.get("name", stone.get("skill", "")))
 		effect.repeat = maxi(1, int(effect.get("repeat", 1)))
 		out.append(effect)
@@ -450,10 +516,10 @@ static func refresh_bonuses(enemy: Dictionary, state: Dictionary) -> void:
 		for player in state.get("players", []):
 			reflected = maxi(reflected, int(player.get("dealt_last_turn", 0)) / 2)
 		enemy.damage_bonus += mini(6, reflected) / count
-	## Escalating: a flat point more on every blow for each action it has spent in this phase.
+	## Escalating: a point more on every blow for each action it has spent in this phase, on
+	## the roll, so the mine's weight carries it (`resolved_move`).
 	var escalate: int = trait_value(enemy, "escalate", 0)
-	if escalate > 0:
-		enemy.damage_bonus += escalate * maxi(0, int(enemy.get("turns_acted", 0)) - int(enemy.get("phase_entered_turn", 0)))
+	enemy.escalate_bonus = escalate * maxi(0, int(enemy.get("turns_acted", 0)) - int(enemy.get("phase_entered_turn", 0))) if escalate > 0 else 0
 	enemy.enrage_bonus = maxi(0, int(state.get("turn", 1)) - DeepBattle.enrage_turn(state) + 1) * DeepBattle.enrage_step(state)
 
 static func damage_pct(enemy: Dictionary) -> int:
@@ -482,9 +548,26 @@ static func next_nth_in(enemy: Dictionary, move: Dictionary) -> int:
 
 static func display_moves(enemy: Dictionary, moves: Array = []) -> Array:
 	var shown: Array = (enemy.get("moves", []) if moves.is_empty() else moves).duplicate(true)
-	var bonus: int = int(enemy.get("damage_bonus", 0)) + int(enemy.get("enrage_bonus", 0)) + int(enemy.get("rally_bonus", 0)) + strength(enemy)
+	var bonus: int = int(enemy.get("damage_bonus", 0)) + int(enemy.get("enrage_bonus", 0)) + weighted(enemy, int(enemy.get("rally_bonus", 0)))
+	bonus += weighted(enemy, strength(enemy) + int(enemy.get("escalate_bonus", 0)))
 	for move in shown:
 		for effect in move.get("effects", []):
+			var kind: String = str(effect.get("kind", ""))
+			if kind in HEALTH_SCALED and not _reads_health(effect.get("amount", 0)) and not bool(effect.get("keep_all", false)) and health_pct(enemy) != 100:
+				effect.amount = {"op": "pct", "args": [effect.get("amount", 0), health_pct(enemy)]}
+			elif kind == "remove_block" and not bool(effect.get("remove_all", false)) and damage_pct(enemy) != 100:
+				effect.amount = {"op": "pct", "args": [effect.get("amount", 0), damage_pct(enemy)]}
+			## Its Poison and Burn keep their stacks, and every round of them hurts with the
+			## weight on its blows (`DeepBattle.tick_amount`): said beside the number.
+			if kind in ["poison", "burn"] and not str(effect.get("target", "heroes")) in ["self", "allies", "allies_other", "ally_low"]:
+				var weight: int = int(round(float(enemy.get("damage_mult", 1.0)) * 100.0))
+				if weight != 100:
+					effect.weight = weight
+			if str(effect.kind) == "damage" and bool(effect.get("flat", false)):
+				## Its own number and its Strength, nothing more.
+				if strength(enemy) > 0:
+					effect.amount = {"op": "+", "args": [effect.get("amount", 0), strength(enemy)]}
+				continue
 			if str(effect.kind) == "damage":
 				if damage_pct(enemy) != 100:
 					effect.amount = {"op": "pct", "args": [effect.get("amount", 0), damage_pct(enemy)]}
@@ -511,6 +594,7 @@ static func trigger_words(move: Dictionary) -> String:
 		"high_pct_at_least": return ("High roll · over half its die" if n == 51 else "Roll %d%%+ of its die" % n) + which
 		"each_turn": return "Each action" + once_only
 		"every_nth_turn": return "Every %s action" % DeepPatterns._ordinal(n) + once_only
+		"countdown": return "Every %d, counting down" % n
 		"emerge": return "When it comes up" + once_only
 		"on_death": return "When it dies"
 		"hp_below": return "Once, at %d%% health" % n
@@ -535,10 +619,25 @@ static func amount_words(expr: Variant) -> String:
 			"living_players": "Players standing", "max_hp": "Its most health", "hp": "Its health", "strength": "Its Strength"}.get(str(expr.term), str(expr.term)))
 	if expr.has("const"):
 		return str(int(expr.const ))
-	var parts: Array = expr.get("args", []).map(func(a: Variant) -> String: return amount_words(a))
+	var args: Array = expr.get("args", [])
+	## A share of its own health for every so much of the richest purse (the Assayer's Eat the Rich).
+	if _share_of_purse(expr):
+		return "1%%/%s pyrite" % amount_words(args[1].args[1])
+	if str(expr.get("op", "")) == "floor_div" and args.size() == 2 and (args[1] is int or args[1] is float):
+		return "%s ÷ %d" % [amount_words(args[0]), int(args[1])]
+	var parts: Array = args.map(func(a: Variant) -> String: return amount_words(a))
 	if str(expr.get("op", "")) == "pct" and parts.size() == 2 and (expr.args[1] is int or expr.args[1] is float):
 		return "%s × %s" % [parts[0], ("%.2f" % (float(expr.args[1]) / 100.0)).rstrip("0").rstrip(".")]
 	return (" %s " % str(expr.get("op", "+"))).join(parts)
+
+static func _share_of_purse(expr: Dictionary) -> bool:
+	## pct(max_hp, floor_div(party_richest, N)): a hundredth of its health for every N pyrite.
+	var args: Array = expr.get("args", [])
+	if str(expr.get("op", "")) != "pct" or args.size() != 2 or not args[0] is Dictionary or str(args[0].get("term", "")) != "max_hp":
+		return false
+	if not args[1] is Dictionary or str(args[1].get("op", "")) != "floor_div" or args[1].get("args", []).size() != 2:
+		return false
+	return args[1].args[0] is Dictionary and str(args[1].args[0].get("term", "")) == "party_richest"
 
 static func amount_parts(expr: Variant) -> Dictionary:
 	## An amount the creature's bonuses were stacked on, taken apart for the screen: the plain
@@ -565,10 +664,17 @@ static func amount_parts(expr: Variant) -> Dictionary:
 const TARGET_WORDS: Dictionary = {"heroes": "all players", "hero": "all players", "self": "itself", "allies": "every creature", "allies_other": "every other creature",
 	"hero_least_block": "the player with the least block", "hero_most_hp": "the player with the most health", "hero_most_gold": "the player with the most pyrite",
 	"hero_top_damage": "whoever hurt it most this turn", "hero_top_dealt": "whoever dealt the most last turn", "hero_marked": "every Marked player",
+	"hero_rerolled": "every player who rerolled this turn",
 	"spread": "spread round the party"}
 
 static func target_words(effect: Dictionary, fallback: String = "all players") -> String:
 	return str(TARGET_WORDS.get(str(effect.get("target", "heroes")), fallback))
+
+static func _weight_words(effect: Dictionary) -> String:
+	## A creature's Poison or Burn in a deeper mine: every round of it hurts with its blows' weight.
+	if int(effect.get("weight", 100)) == 100:
+		return ""
+	return " · every round hurts ×%s here" % ("%.2f" % (float(effect.weight) / 100.0)).rstrip("0").rstrip(".")
 
 static func _dice_words(n: int) -> String:
 	return "%d %s" % [n, "die" if n == 1 else "dice"]
@@ -589,7 +695,10 @@ static func effect_words(effect: Dictionary) -> String:
 			if bool(effect.get("piercing", false)):
 				words += " · ignores block"
 			return words
-		"heal": return "Heal %s · %s" % [n, who] if str(effect.get("target", "self")) != "self" else "Heal %s" % n
+		"heal":
+			if effect.get("amount", 0) is Dictionary and _share_of_purse(effect.amount):
+				return "Heals 1%% of its most health for every %s pyrite the richest player holds" % amount_words(effect.amount.args[1].args[1])
+			return "Heal %s · %s" % [n, who] if str(effect.get("target", "self")) != "self" else "Heal %s" % n
 		"summon": return "%s joins the fight" % summoned if str(n) == "1" else "%s %ss join the fight" % [n, summoned]
 		"purge": return "Sheds %s%% of its poison" % n
 		"burrow": return "Burrows · cannot be targeted until its next action"
@@ -600,7 +709,7 @@ static func effect_words(effect: Dictionary) -> String:
 		"mirror": return "The next blow on it hits whoever threw it instead" if str(n) == "1" else "The next %s blows on it hit whoever threw them instead" % n
 		"festering": return "%s Festering · healing halved · all players" % n
 		"scorched": return "%s Scorched · block gained halved · all players" % n
-		"burn": return "%s Burn · hurts at the end of each turn, block soaks it, one less each turn · all players" % n
+		"burn": return "%s Burn · hurts at the end of each turn, block soaks it, one less each turn · all players" % n + _weight_words(effect)
 		"strength": return ("%s Strength · %s more on every blow, for the fight" % [n, n]) + ("" if str(effect.get("target", "self")) == "self" else " · " + who.replace("all players", "every creature"))
 		"blank_face": return "The face one of your dice shows is blank for the rest of the fight · all players"
 		"roll_again": return "Throws this die once more"
@@ -644,20 +753,28 @@ static func effect_words(effect: Dictionary) -> String:
 		"block": return "Gain %s block" % n
 		"heal": return "Heal %s" % n
 		"die_steal": return "Suppress %s die · all players · next turn" % n
-		"poison": return "%s poison · all players" % n
+		"poison": return "%s poison · all players" % n + _weight_words(effect)
 		"stun": return "Stun all players · %s turn" % n
 		"remove_block": return "Removes all your block · all players" if bool(effect.get("remove_all", false)) else "Remove %s block · all players" % n
 		"curse": return "%s Curse · −10%% dealt / +10%% taken per stack (max 10) · all players" % n
 		"clouded": return "Cloud a socket · all players" if str(effect.get("target", "heroes")) in ["hero", "heroes"] else "Clouded for %s actions · one random ability disabled" % n
-		"marked": return "%s Marked · next hit +25%% per stack" % n
+		"marked": return "%s Marked · next hit +25%% per stack" % n + ("" if str(effect.get("target", "heroes")) in ["hero", "heroes"] else " · " + who)
 		"dulled": return "%s Dulled · gems lose one Cut step per stack" % n
 		"ward": return "%s Ward · blocks debuff applications (max 99)" % n
-		"retain": return "Retain up to %s block at the next reset" % n
+		"retain": return "Keeps all its block into its next turn" if bool(effect.get("keep_all", false)) else "Retain up to %s block at the next reset" % n
+		"copy_hand": return "Throws copies of the %s highest dice of whoever rolled the most, showing the same faces" % n
+		"grip_die": return "Holds your best die in its claw · it sits out every throw until this creature loses health · all players"
+		"lose_die": return "Loses a head · one die fewer"
+		"hasten": return "Its countdown comes %s %s sooner" % [n, "action" if str(n) == "1" else "actions"]
+		"swap_gems": return "Two neighbouring gems on your rail change places for the fight · all players"
 		"charged": return "%s Charged · starting Resonance next turn" % n
 		"regeneration": return "%s Regeneration · heal at turn end, then lose one stack" % n
 		"spikes": return "%s Spikes · retaliate once per attacking ability" % n
 		"dice_dread": return "%s Dread · dice lose one tier per stack" % n if str(effect.get("target", "")) in ["", "enemy", "enemies", "self"] else "%s Dread · your dice roll a size smaller next turn · all players" % n
 		"dice_upgrade": return "Dice +%s tier · this fight" % n + (" (%s at most)" % str(effect.cap).to_lower() if effect.has("cap") else "")
-		"max_hp": return "Gains %s most health, and that much health" % n
+		"max_hp":
+			if effect.get("amount", 0) is Dictionary and _share_of_purse(effect.amount):
+				return "Grows by 1%% of its most health for every %s pyrite the richest player holds" % amount_words(effect.amount.args[1].args[1])
+			return "Gains %s most health, and that much health" % n
 		"cleanse": return "Sheds every affliction on it" if int(effect.get("amount", 0)) >= 99 else "Sheds %s afflictions" % n
 	return str(effect.get("kind", "")).capitalize() + " " + n

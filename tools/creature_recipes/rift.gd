@@ -38,7 +38,27 @@ static func recipes() -> Dictionary:
 	var stars: Array = [[0.3, 2.6, 0.42], [-0.45, 2.3, 0.42], [0.1, 1.7, 0.42], [-0.2, 2.75, 0.42], [0.5, 1.95, 0.42], [-0.1, 3.35, 0.27], [0.25, 3.2, 0.3], [-0.55, 1.6, 0.42], [0.95, 1.3, 0.34], [-1.0, 0.7, 0.34]]
 	for i in range(stars.size()):
 		unmade.append({"shape": "sphere", "at": stars[i], "scale": 0.045 + 0.02 * float(i % 3), "material": "accent", "motion": "core", "phase": float(i) * 0.8, "radius": 1.0, "segments": 5, "rings": 3})
+	## The Rift Shifter (October 2026): a ribbon of folded rock that never holds one shape,
+	## its slabs turning round a lit seam.
+	var shifter: Array = [{"shape": "sphere", "at": [0, 1.2, 0], "scale": 0.2, "material": "core", "motion": "core", "radius": 1.0, "segments": 7, "rings": 4}]
+	for i in range(8):
+		var a: float = float(i) * TAU / 5.0
+		shifter.append({"shape": "slab", "at": [cos(a) * 0.55, 0.35 + float(i) * 0.24, sin(a) * 0.35], "rot": [10, rad_to_deg(a) + 90.0, 28 if i % 2 == 0 else -28],
+			"material": "accent" if i % 4 == 1 else "body", "motion": "orbit" if i % 2 == 0 else "swing", "phase": a, "size": [0.62, 0.16, 0.34], "jitter": 0.05})
+	## The Collapsar: a dark knot with a lit disc turning round it and splinters falling in.
+	var collapsar: Array = [
+		{"shape": "sphere", "at": [0, 1.3, 0], "scale": 0.5, "material": "body", "motion": "bob", "radius": 1.0, "segments": 10, "rings": 6},
+		{"shape": "sphere", "at": [0, 1.3, 0], "scale": 0.2, "material": "core", "motion": "core", "radius": 1.0, "segments": 7, "rings": 4},
+		{"shape": "ring", "at": [0, 1.3, 0], "rot": [16, 0, 14], "material": "accent", "motion": "spin", "radius": 0.95, "width": 0.12, "segments": 36},
+		{"shape": "ring", "at": [0, 1.3, 0], "rot": [16, 0, 14], "material": "accent", "motion": "spin", "phase": 1.5, "radius": 1.3, "width": 0.05, "segments": 40}]
+	for i in range(10):
+		var a: float = float(i) * TAU / 10.0
+		var r: float = 0.75 + 0.35 * float(i % 3) / 2.0
+		collapsar.append({"shape": "shard", "at": [cos(a) * r, 1.3 + sin(a * 2.0) * 0.18, sin(a) * r], "rot": [float(i) * 41.0, rad_to_deg(a), 30], "scale": 1.4,
+			"material": "accent" if i % 4 == 0 else "body", "motion": "orbit", "phase": a, "size": 0.12})
 	return {
+		"RIFT_SHIFTER": {"style": "shards", "sway": 1.6, "tint": "4a3a8a", "accent": "4ab8d8", "anchor": 2.4, "shadow": 2.0, "ring": 1.1, "parts": shifter},
+		"COLLAPSAR": {"style": "shards", "sway": 0.8, "tint": "2a1a48", "accent": "9a6aff", "anchor": 2.6, "shadow": 2.4, "ring": 1.2, "parts": collapsar},
 		"VOID_ECHO": {"style": "shards", "sway": 1.5, "tint": "4a3a8a", "accent": "c8b8ff", "anchor": 1.8, "shadow": 1.8, "parts": echo},
 		"NULL_SHADE": {"style": "wings", "sway": 1.0, "tint": "1a1630", "accent": "8b7dff", "anchor": 2.5, "shadow": 2.2, "ring": 1.1, "parts": shade},
 		"RIFTLING_SWARM": {"style": "shards", "sway": 2.4, "tint": "5a4ab0", "accent": "ff8ad8", "anchor": 2.1, "shadow": 2.4, "ring": 1.2, "parts": swarm},

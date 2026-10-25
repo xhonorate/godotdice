@@ -6,11 +6,11 @@ import { I } from './numbers.js';
 export const KINDS = ['all_odd', 'all_even', 'always', 'pair', 'two_pair', 'triple', 'full_house', 'quad', 'quint', 'straight',
 	'odd', 'even', 'distinct', 'value', 'at_most', 'at_least', 'total_pct_at_least', 'total_pct_at_most',
 	'high_pct_at_least', 'held', 'rerolled', 'resonance', 'low_count', 'crowns', 'crowns_at_most', 'skip_straight', 'distinct_dominant', 'pyrite', 'fizzles', 'below', 'kills',
-	'each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin'];
+	'each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin', 'countdown'];
 // The kinds a creature reads from the turn rather than from a die: each fires at most once an
 // action, on its first die (on_death never during an action: it fires when the creature dies;
 // hp_below the moment its health first falls that far; action_begin as its action opens).
-export const TURN_KINDS = ['each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin'];
+export const TURN_KINDS = ['each_turn', 'every_nth_turn', 'emerge', 'on_death', 'hp_below', 'action_begin', 'countdown'];
 // The turn kinds the fight calls itself, never on a die the creature throws.
 export const CALLED_KINDS = ['on_death', 'hp_below', 'action_begin'];
 export const isTurnKind = (kind) => TURN_KINDS.includes(kind);
@@ -65,6 +65,8 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		switch (kind) {
 			case 'each_turn': result.active = first; break;
 			case 'every_nth_turn': result.active = first && need > 0 && acted % need === 0; break;
+			// A countdown fires on the action it reaches 0 (the fight keeps the count): read as every nth.
+			case 'countdown': result.active = first && (context.countdown_due !== undefined ? Boolean(context.countdown_due) : (need > 0 && acted % need === 0)); break;
 			case 'emerge': result.active = first && Boolean(context.emerging); break;
 			case 'on_death': result.active = Boolean(context.dying); break;
 			case 'hp_below': result.active = Boolean(context.crossing); break;
@@ -233,6 +235,7 @@ export function label(trigger, cutStep) {
 		case 'below': return `<${need}`;
 		case 'each_turn': return 'each action';
 		case 'every_nth_turn': return `÷${need}`;
+		case 'countdown': return `${need}…0`;
 		case 'emerge': return 'emerging';
 		case 'on_death': return 'on death';
 		case 'hp_below': return `≤${need}% health`;
@@ -252,7 +255,7 @@ export function mark(trigger, cutStep) {
 	const need = rung(trigger, cutStep);
 	if (kind !== 'always' && unconditional(kind, need)) return 'read_high';
 	if (kind === 'always') return readSide(trigger, cutStep) !== 'low' ? 'read_high' : 'read_low';
-	if (kind === 'each_turn' || kind === 'emerge' || kind === 'every_nth_turn' || kind === 'action_begin') return 'hourglass';
+	if (kind === 'each_turn' || kind === 'emerge' || kind === 'every_nth_turn' || kind === 'action_begin' || kind === 'countdown') return 'hourglass';
 	if (kind === 'on_death' || kind === 'hp_below') return 'skull';
 	return kind;
 }
@@ -313,6 +316,7 @@ export function words(trigger, cutStep) {
 		case 'distinct_dominant': return `${need} different values, the highest die outrolling the other ${need - 1} combined.`;
 		case 'each_turn': return 'Every action, once, before its dice.';
 		case 'every_nth_turn': return `Every ${ordinal(need)} action, once, before its dice.`;
+		case 'countdown': return `When its countdown from ${need} reaches 0, once, before its dice.`;
 		case 'emerge': return 'The action after it burrowed, once, before its dice.';
 		case 'on_death': return 'When it dies.';
 		case 'hp_below': return `Once, the moment its health falls to ${need}%.`;
@@ -329,5 +333,5 @@ export const KIND_NAMES = {
 	held: 'Held dice', rerolled: 'Rerolled dice', resonance: 'Resonance', low_count: 'Low dice', crowns: 'Crowns', crowns_at_most: 'Few crowns',
 	skip_straight: 'Skip straight', distinct_dominant: 'Dominant high die', pyrite: 'Pyrite in hand', fizzles: 'Earlier fizzles', kills: 'Kills this turn', all_odd: 'All odd', all_even: 'All even',
 	each_turn: 'Each action', every_nth_turn: 'Every nth action', emerge: 'When it comes up', on_death: 'When it dies',
-	hp_below: 'Health falls to', action_begin: 'Action opens',
+	hp_below: 'Health falls to', action_begin: 'Action opens', countdown: 'Countdown',
 };

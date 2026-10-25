@@ -429,12 +429,18 @@ export function creatureScale(mine, depth) {
 	return { hp, damage };
 }
 
-export function creatureHp(def, depth, party, mine = null) {
+// The factor a creature's health is bred with (sim/creatures.gd make): its block, heals and
+// Regeneration carry the same one (DeepCreatures.health_pct).
+export function creatureHealthScale(depth, party, mine = null) {
 	let scale = 1 + Number(C.constant('depth_hp_scale', 0.05)) * Math.max(0, depth - 1);
 	// A lone delver's health for every player on the run (sim/creatures.gd make).
 	scale *= Math.max(1, Math.trunc(party));
 	scale *= creatureScale(mine, depth).hp;
-	return Math.max(1, satFloor(Math.round(Number(def.hp ?? 10) * scale)));
+	return scale;
+}
+
+export function creatureHp(def, depth, party, mine = null) {
+	return Math.max(1, satFloor(Math.round(Number(def.hp ?? 10) * creatureHealthScale(depth, party, mine))));
 }
 
 // A creature's flat damage bonus at a depth: depth ÷ depth_damage_every, spread over its dice.

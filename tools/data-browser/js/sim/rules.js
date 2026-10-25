@@ -26,27 +26,29 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action',
 	'phantom_low', 'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'envenom', 'gather_poison', 'poison_tick',
 	'grow_poison', 'fire_birthstone', 'spectrum', 'stone_chance', 'double_resonance', 'keep_phantoms',
-	'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows', 'invert_previous'];
+	'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows', 'invert_previous',
+	'copy_hand', 'grip_die', 'lose_die', 'hasten', 'swap_gems'];
 // The creature-only kinds: a skill or an inclusion may not use them.
 export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
-	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action'];
+	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action',
+	'copy_hand', 'grip_die', 'lose_die', 'hasten', 'swap_gems'];
 export const SCALED_BY_DEFAULT = ['damage', 'block', 'heal', 'gold', 'poison', 'remove_block', 'retain', 'regeneration', 'spikes', 'lifeline', 'wager', 'detonate'];
 export const DEBUFFS = ['poison', 'stun', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss', 'gather_poison', 'grow_poison',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
-	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'hold_gem', 'bury_socket'];
+	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'hold_gem', 'bury_socket', 'grip_die', 'swap_gems'];
 export const HOSTILE = ['damage', 'damage_curse', 'detonate', 'wager', 'poison', 'stun', 'remove_block', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss',
 	'gather_poison', 'poison_tick', 'grow_poison',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
-	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'steal_gold', 'hold_gem', 'bury_socket'];
+	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'steal_gold', 'hold_gem', 'bury_socket', 'grip_die', 'swap_gems'];
 // What a creature's hostile effect means by "the enemy": these are turned on the party.
 export const ENEMY_SIDE_TARGETS = ['enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'hero', 'heroes'];
-export const HERO_PICKS = ['hero_least_block', 'hero_most_hp', 'hero_most_gold', 'hero_top_damage', 'hero_top_dealt', 'hero_marked'];
+export const HERO_PICKS = ['hero_least_block', 'hero_most_hp', 'hero_most_gold', 'hero_top_damage', 'hero_top_dealt', 'hero_marked', 'hero_rerolled'];
 export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'downed_ally', 'hero', 'heroes', ...HERO_PICKS];
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
 	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends',
-	'of', 'pattern'];
+	'of', 'pattern', 'keep_all'];
 // How an effect that works on one die or one gem chooses it, and how an absorb_color picks its color.
 export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best', 'usable', 'showing', 'all'];
 export const ABSORB_PICKS = ['random', 'most_used'];

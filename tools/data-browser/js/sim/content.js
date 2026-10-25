@@ -14,7 +14,7 @@ export const GIMMICKS = ['', 'steal_high_die', 'block_from_high', 'reflect_zero_
 // `gimmick` is read as one of these.
 export const TRAITS = [...GIMMICKS, 'steadfast', 'sturdy', 'backlash', 'flee', 'rising', 'escalate', 'aura', 'spikes',
 	'regen_with_escorts', 'shielded_by_escorts', 'regrow_escorts', 'reroll_drain', 'reroll_scorch', 'punish_straight', 'drops_stone',
-	'carat_cap', 'resonance_damp', 'color_strength'];
+	'carat_cap', 'resonance_damp', 'color_strength', 'regenerating', 'waterlogged', 'hydra', 'countdown_reset', 'taunt'];
 // The traits a Rift Warden may be remembered with, one of them, picked by the seed.
 export const REMEMBERED_TRAITS = ['steadfast', 'sturdy', 'split_on_big_hit'];
 

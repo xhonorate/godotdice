@@ -1186,6 +1186,7 @@ static func _dress_the_fight(state: Dictionary, battle: Dictionary, ordinary: bo
 		for foe in foes:
 			foe.max_hp = maxi(1, int(round(float(foe.max_hp) * share)))
 			foe.hp = mini(int(foe.hp), int(foe.max_hp))
+			foe.hp_scale = float(foe.get("hp_scale", 1.0)) * share
 	if ordinary and has_mod(state, "LONE_BEASTS") and foes.size() > 1:
 		## The strongest stays, with the whole group's health; the rest never arrive.
 		var total: int = 0
@@ -1194,6 +1195,7 @@ static func _dress_the_fight(state: Dictionary, battle: Dictionary, ordinary: bo
 			total += int(foe.max_hp)
 			if int(foe.max_hp) > int(lead.max_hp):
 				lead = foe
+		lead.hp_scale = float(lead.get("hp_scale", 1.0)) * float(total) / float(maxi(1, int(lead.max_hp)))
 		lead.max_hp = total
 		lead.hp = total
 		lead.escorts = []

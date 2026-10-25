@@ -1369,8 +1369,13 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		var chips := EffectChips.Row.new(16)
 		head.add_child(chips)
 		chips.show_effects(effects)
-	if not effects.is_empty() or not foe.get("hand", []).is_empty():
+	## What to remember about it, in a line (docs/BESTIARY.md, section 9), first on the page
+	## for this turn.
+	var tip: String = str(definition.get("tip", ""))
+	if not effects.is_empty() or not foe.get("hand", []).is_empty() or not tip.is_empty():
 		_page("This turn", "sword")
+	if not tip.is_empty():
+		wrap_stat(DeepUi.stat(_section("eye", "Remember", DeepUi.ACCENT_HI), "eye", tip, DeepUi.PAPER, 13))
 	if not effects.is_empty():
 		var notes := _section("spark", "On it now")
 		for effect in effects:
