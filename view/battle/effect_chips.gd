@@ -53,9 +53,9 @@ static func trait_entry(key: String, value: Variant) -> Dictionary:
 	## One trait as a chip. Traits the older gimmick table already names use its words.
 	if GIMMICKS.has(key):
 		var g: Array = GIMMICKS[key]
-		return entry("trait_" + key, str(g[0]), "", false, str(g[1]), str(g[2]), Color("c8a8ff"))
+		return entry("trait_" + key, str(g[0]), str(g[1]), false, str(g[1]), str(g[2]), Color("c8a8ff"), -1, "trait")
 	if not TRAITS.has(key):
-		return entry("trait_" + key, "spark", "", false, key.capitalize(), "", Color("c8a8ff"))
+		return entry("trait_" + key, "spark", key.capitalize(), false, key.capitalize(), "", Color("c8a8ff"), -1, "trait")
 	var t: Array = TRAITS[key]
 	var text: String = str(t[2])
 	var shown: String = ""
@@ -76,16 +76,28 @@ static func trait_entry(key: String, value: Variant) -> Dictionary:
 			if text.contains("%d"):
 				text = text % number
 				shown = ("%d%%" % number) if text.contains("%") and key in ["sturdy", "rising", "shielded_by_escorts", "resonance_damp"] else str(number)
-	return entry("trait_" + key, str(t[0]), shown, false, str(t[1]), text, Color("c8a8ff"))
+	## On a plate the chip says the trait's name, and its number after it when it has one.
+	return entry("trait_" + key, str(t[0]), (str(t[1]) + (" " + shown if not shown.is_empty() else "")), false, str(t[1]), text, Color("c8a8ff"), -1, "trait")
 
 static func _ordinal_suffix(n: int) -> String:
 	if n % 100 in [11, 12, 13]:
 		return "th"
 	return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
 
-static func entry(key: String, glyph: String, value: String, good: bool, title: String, text: String, tone: Color = Color(0, 0, 0, 0)) -> Dictionary:
+## The statuses that count down a stack a turn: their chip wears a bar of the turns it has
+## left (DeepUi.capsule chips, docs/UI_REDO.md). Everything else lasts the fight, or until
+## something is done about it, and wears a ghost bar so every chip stands on one baseline.
+const COUNTS_DOWN: Array = ["poison", "stun", "curse", "dulled", "festering", "scorched", "burn", "regeneration", "dread", "clouded", "reflect", "retain"]
+
+static func entry(key: String, glyph: String, value: String, good: bool, title: String, text: String, tone: Color = Color(0, 0, 0, 0), turns: int = -1, span: String = "fight") -> Dictionary:
+	## One effect as a chip reads it. `turns` is how many turns it has left (-1 for no clock);
+	## `span` is "fight" or "run" (a run-long blessing wears gold).
 	return {"key": key, "glyph": glyph, "value": value, "good": good, "title": title, "text": text,
-		"tone": tone if tone.a > 0.0 else (GOOD if good else BAD)}
+		"tone": tone if tone.a > 0.0 else (GOOD if good else BAD), "turns": turns, "span": span}
+
+static func clocked(chip: Dictionary, turns: int) -> Dictionary:
+	chip.turns = turns
+	return chip
 
 static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 	var out: Array = []
@@ -113,7 +125,7 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("locked", "die", str(locked.size()), false, "Locked dice", ("%s came up as last turn and cannot be rerolled." if now else "%s will come up next turn exactly as it shows now, and cannot be rerolled.") % DeepUi.plural(locked.size(), "die", "dice")))
 	var dread: int = int(statuses.get("dread", 0))
 	if dread > 0:
-		out.append(entry("dread", "thorn", str(dread), false, "Dread", "Next turn your whole bowl rolls %s smaller." % DeepUi.plural(dread, "size")))
+		out.append(entry("dread", "thorn", str(dread), false, "Dread", "Next turn your whole bowl rolls %s smaller." % DeepUi.plural(dread, "size"), Color(0, 0, 0, 0), dread))
 	var fired: int = int(unit.get("fired_count", 0))
 	if not battle.is_empty() and DeepBattle.living(battle.get("enemies", [])).any(func(f: Dictionary) -> bool: return DeepCreatures.has_trait(f, "backlash")):
 		out.append(entry("backlash", "bolt", "−%d" % fired if str(battle.get("phase", "")) == "resolving" and fired > 0 else "", false, "Backlash",
@@ -163,10 +175,10 @@ static func for_run(unit: Dictionary) -> Array:
 	var out: Array = []
 	var sparkle: int = clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
 	if sparkle > 0:
-		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%.1f generation luck, %s of a point each. Maximum 100; carries between fights." % [sparkle, float(sparkle) * DeepRules.SPARKLE_LUCK, str(DeepRules.SPARKLE_LUCK)], DeepUi.ACCENT))
+		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%.1f generation luck, %s of a point each. Maximum 100; carries between fights." % [sparkle, float(sparkle) * DeepRules.SPARKLE_LUCK, str(DeepRules.SPARKLE_LUCK)], DeepUi.ACCENT, -1, "run"))
 	var shrine: String = str(unit.get("run_mods", {}).get("shrine", ""))
 	if not shrine.is_empty():
-		out.append(entry("shrine", "star", "+1 ct", true, "Shrine blessing", "For the rest of the run, every gem that fires on %s gains 1 carat." % shrine.replace("_", " "), DeepUi.ACCENT))
+		out.append(entry("shrine", "star", "+1 ct", true, "Shrine blessing", "For the rest of the run, every gem that fires on %s gains 1 carat." % shrine.replace("_", " "), DeepUi.ACCENT, -1, "run"))
 	return out
 
 static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
@@ -201,7 +213,7 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 			words += " It takes %d%% less while it gathers." % int(gathering.guard_pct)
 		if int(gathering.get("cancel_pct", 0)) > 0:
 			words += " Taking %d%% of its health off it meanwhile breaks the charge." % int(gathering.cancel_pct)
-		out.append(entry("charging", "bolt", str(charge), true, "Charging", words, Color("ffe27a")))
+		out.append(entry("charging", "bolt", str(charge), true, "Charging", words, Color("ffe27a"), charge))
 	var empowered: int = int(foe.get("empowered", 0))
 	if empowered > 0:
 		out.append(entry("empowered", "sword", "+%d%%" % empowered, false, "Empowered", "Its next attack deals %d%% more." % empowered))
@@ -223,11 +235,11 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	var flee: int = DeepCreatures.trait_value(foe, "flee", 0)
 	if flee > 0:
 		var left: int = maxi(0, flee - int(foe.get("turns_acted", 0)))
-		out.append(entry("fleeing", "hourglass", str(left), false, "Leaving", "It flies off with everything it stole after %s." % DeepUi.plural(left, "more action"), Color("ffb05a")))
+		out.append(entry("fleeing", "hourglass", str(left), false, "Leaving", "It flies off with everything it stole after %s." % DeepUi.plural(left, "more action"), Color("ffb05a"), left))
 	for move in DeepCreatures.moves_for(foe):
 		if str(move.get("trigger", {}).get("kind", "")) == "every_nth_turn":
 			var wait: int = DeepCreatures.next_nth_in(foe, move)
-			out.append(entry("nth_" + str(move.get("name", "")), "hourglass", str(wait), false, str(move.get("name", "")) + " coming", "%s fires in %s." % [str(move.get("name", "")), DeepUi.plural(wait, "action")], Color("ffb05a")))
+			out.append(entry("nth_" + str(move.get("name", "")), "hourglass", str(wait), false, str(move.get("name", "")) + " coming", "%s fires in %s." % [str(move.get("name", "")), DeepUi.plural(wait, "action")], Color("ffb05a"), wait))
 	if not str(foe.get("echo_of", "")).is_empty():
 		out.append(entry("echo", "copy", "", false, "Echo", "A Rift echo of %s: its health, dice and moves over again." % str(DeepContent.creature(str(foe.echo_of)).get("name", foe.echo_of)), Color("c8b8ff")))
 	if not str(foe.get("escort_of", "")).is_empty():
@@ -238,13 +250,13 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("remembered", "crown", "", false, "Remembered", "A boss the Rift remembers, with one trait more: %s." % str(DeepContent.REMEMBERED_NAMES.get(str(foe.remembered), str(foe.remembered).capitalize())), Color("c8b8ff")))
 	var downgrade: int = int(foe.get("dread_turns", 0))
 	if downgrade > 0:
-		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are %d tiers smaller (minimum d2). One stack wears off after each action phase." % downgrade))
+		out.append(entry("dread", "thorn", str(downgrade), true, "Dread", "All its dice are %d tiers smaller (minimum d2). One stack wears off after each action phase." % downgrade, Color(0, 0, 0, 0), downgrade))
 	var clouded: int = int(foe.get("statuses", {}).get("clouded", 0))
 	if clouded > 0:
 		var moves: Array = DeepCreatures.moves_for(foe)
 		var index: int = mini(int(foe.get("clouded_move", -1)), moves.size() - 1)
 		var skill: String = str(moves[index].get("name", "One ability")) if index >= 0 else "One ability"
-		out.append(entry("clouded", "cloud", str(clouded), true, "Clouded", "%s is disabled for %s. Reapplication extends its duration." % [skill, DeepUi.plural(clouded, "action phase")]))
+		out.append(entry("clouded", "cloud", str(clouded), true, "Clouded", "%s is disabled for %s. Reapplication extends its duration." % [skill, DeepUi.plural(clouded, "action phase")], Color(0, 0, 0, 0), clouded))
 	var bound: int = int(foe.get("stolen_dice", 0))
 	if bound > 0:
 		out.append(entry("bound", "broken_chain", "−%d" % bound, true, "Bound", "Its next action rolls %s, even if that leaves none." % DeepUi.plural(bound, "die fewer", "dice fewer")))
@@ -284,6 +296,13 @@ static func for_battle(battle: Dictionary) -> Array:
 	return out
 
 static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
+	var out: Array = _status_entries(statuses, on_enemy)
+	for chip in out:
+		if COUNTS_DOWN.has(str(chip.key)):
+			chip.turns = int(statuses.get(str(chip.key), 0))
+	return out
+
+static func _status_entries(statuses: Dictionary, on_enemy: bool) -> Array:
 	var out: Array = []
 	var poison: int = int(statuses.get("poison", 0))
 	if poison > 0:
@@ -327,47 +346,103 @@ static func _statuses(statuses: Dictionary, on_enemy: bool) -> Array:
 
 # --- showing them ------------------------------------------------------------------------------
 
-class Chip extends PanelContainer:
-	## One effect: a mark in a ring of its color and the number beside it. Hover for the
-	## sentence. It swells when the number changes, so a new poison stack is seen landing.
+class TurnBar extends Control:
+	## The turns an effect has left, as a row of small segments under its chip: one lit
+	## segment a turn, five at most (the number on the chip says the rest). An effect with no
+	## clock wears a ghost: one dim bar, so chips with and without a clock share a baseline.
+	const SEGMENTS: int = 5
+	var lit: int = -1
+	var tone: Color = DeepUi.MUTED
+	func _init(width: float) -> void:
+		custom_minimum_size = Vector2(width, 3)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func show_turns(turns: int, color: Color) -> void:
+		if turns == lit and color == tone:
+			return
+		lit = turns
+		tone = color
+		queue_redraw()
+	func _draw() -> void:
+		var w: float = size.x
+		var h: float = size.y
+		if lit < 0:
+			draw_rect(Rect2(Vector2(w * 0.2, h * 0.5 - 1.0), Vector2(w * 0.6, 2.0)), Color(DeepUi.LINE_HI, 0.35))
+			return
+		var count: int = clampi(lit, 1, SEGMENTS)
+		var gap: float = 2.0
+		var seg: float = (w - gap * float(count - 1)) / float(count)
+		for i in range(count):
+			var on: bool = i < lit
+			draw_rect(Rect2(Vector2(float(i) * (seg + gap), 0.0), Vector2(seg, h)), Color(tone, 0.95) if on else Color(tone, 0.22))
+
+class Chip extends VBoxContainer:
+	## One effect: a pointed capsule, green for what helps, red for what hurts and gold for
+	## a run-long blessing, with the effect's own mark and number inside, and under it the
+	## turns it has left (TurnBar). Hover for the sentence. It swells when the number changes,
+	## so a new poison stack is seen landing.
 	var key: String = ""
+	var effect: Dictionary = {}
+	var plate: PanelContainer
 	var _value: Label
+	var _mark: TextureRect
+	var _bar: TurnBar
 	var _last: String = ""
-	func _init(effect: Dictionary, edge: float = 16.0) -> void:
-		key = str(effect.key)
-		var tone: Color = effect.tone
-		var style := StyleBoxFlat.new()
-		style.bg_color = Color(tone.darkened(0.7), 0.85)
-		style.border_color = Color(tone, 0.85)
-		style.set_border_width_all(1)
-		style.border_width_bottom = 2
-		style.set_corner_radius_all(int(edge))
-		DeepUi.facet_ends(self, style)
-		style.content_margin_left = 6
-		style.content_margin_right = 8 if not str(effect.value).is_empty() else 6
-		style.content_margin_top = 2
-		style.content_margin_bottom = 2
-		add_theme_stylebox_override("panel", style)
-		mouse_filter = Control.MOUSE_FILTER_STOP
-		tooltip_text = "%s\n%s" % [str(effect.title), str(effect.text)]
+	var _edge: float = 16.0
+	func _init(first: Dictionary, edge: float = 16.0) -> void:
+		key = str(first.key)
+		_edge = edge
+		add_theme_constant_override("separation", 1)
+		alignment = BoxContainer.ALIGNMENT_CENTER
+		mouse_filter = Control.MOUSE_FILTER_PASS
+		plate = PanelContainer.new()
+		plate.mouse_filter = Control.MOUSE_FILTER_STOP
+		plate.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		add_child(plate)
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 3)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(row)
-		var mark := GemIcons.glyph(row, str(effect.glyph), edge, tone.lightened(0.2), tooltip_text)
-		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		plate.add_child(row)
+		_mark = GemIcons.glyph(row, str(first.glyph), edge, Color.WHITE)
+		_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_value = Label.new()
-		_value.add_theme_font_size_override("font_size", int(edge * 0.82))
-		_value.add_theme_color_override("font_color", tone.lightened(0.35))
+		_value.add_theme_font_size_override("font_size", maxi(DeepUi.min_text(), int(edge * 0.82)))
+		_value.add_theme_font_override("font", DeepUi.bold_font())
 		_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_value.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(_value)
-		set_value(str(effect.value), false)
+		_bar = TurnBar.new(edge * 1.6)
+		add_child(_bar)
+		show_effect(first, false)
+	static func family(of: Dictionary) -> Color:
+		## The capsule's color says only whether it helps or hurts (or lasts the run); a
+		## creature's trait, what it is rather than what is on it, wears violet.
+		match str(of.get("span", "fight")):
+			"run": return DeepUi.ACCENT
+			"trait": return Color("b58cff")
+		return GOOD if bool(of.get("good", false)) else BAD
+	func show_effect(now: Dictionary, animate: bool = true) -> void:
+		var tone: Color = now.tone
+		var fam: Color = family(now)
+		var look: String = "%s|%s|%s" % [fam.to_html(), tone.to_html(), str(now.get("glyph", ""))]
+		if str(plate.get_meta("look", "")) != look:
+			plate.set_meta("look", look)
+			var style := DeepUi.capsule(plate, fam.darkened(0.62), fam, 2, int(_edge * 0.6) + 2, 1)
+			plate.add_theme_stylebox_override("panel", style)
+			## The mark keeps the effect's own color (poison violet, block blue) on the family fill.
+			var mark_tone: Color = tone.lightened(0.25) if tone != fam else Color.WHITE
+			_mark.texture = GemIcons.texture(str(now.glyph), GemIcons.baked_size(_edge * 1.5))
+			_mark.modulate = mark_tone
+			_value.add_theme_color_override("font_color", Color.WHITE)
+		effect = now
+		plate.tooltip_text = "%s\n%s" % [str(now.title), str(now.text)]
+		_bar.show_turns(int(now.get("turns", -1)), fam)
+		set_value(str(now.value), animate)
 	func set_value(value: String, animate: bool = true) -> void:
 		_value.text = value
 		_value.visible = not value.is_empty()
 		if animate and value != _last:
-			DeepUi.pulse(self, 1.35, 0.4)
+			DeepUi.pulse(plate, 1.35, 0.4)
 		_last = value
 
 class Row extends HFlowContainer:
@@ -397,8 +472,7 @@ class Row extends HFlowContainer:
 				_chips[key] = chip
 				DeepUi.pop_in(chip, 0.0, 0.5)
 			else:
-				chip.tooltip_text = "%s\n%s" % [str(effect.title), str(effect.text)]
-				chip.set_value(str(effect.value))
+				chip.show_effect(effect)
 			move_child(chip, index)
 			index += 1
 		for key in _chips.keys():

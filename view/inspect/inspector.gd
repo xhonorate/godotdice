@@ -1369,7 +1369,7 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 	## What is on it and what it means to do: the page for this turn, when there is one.
 	var effects: Array = EffectChips.for_enemy(foe, battle) if foe.has("hp") else []
 	if not effects.is_empty():
-		var chips := EffectChips.Row.new(18)
+		var chips := EffectChips.Row.new(16)
 		head.add_child(chips)
 		chips.show_effects(effects)
 	if not effects.is_empty() or not foe.get("hand", []).is_empty():

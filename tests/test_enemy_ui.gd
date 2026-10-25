@@ -98,34 +98,38 @@ func _run() -> void:
 	check(raised_marks.mouse_filter == Control.MOUSE_FILTER_IGNORE and bool(gem_card.get_meta("gem_inspection_wired", false)),
 		"raised-stat overlay leaves socket gems right-clickable for contextual details")
 	var aim: String = str(party_state.players[0].target)
+	var other: String = "e1" if aim != "e1" else "e0"
 	await process_frame
-	check(battle._enemy_panel.visible and battle._enemy_panel.enemy_id == aim, "the target's full table is open without hovering")
-	battle._hover_creature("e1" if aim != "e1" else "e0")
-	check(battle._enemy_panel.enemy_id != aim, "hovering another creature shows its table instead")
+	## Every creature wears its whole moveset on its plate; the one being looked at (hovered,
+	## else the target) opens into a line a move. There is no table at the side of the room.
+	check(battle._enemy_panel == null, "there is no moves table beside the room")
+	check(battle._plates[aim].expanded and not battle._plates[other].expanded, "the target's plate is open without hovering")
+	battle._hover_creature(other)
+	check(battle._plates[other].expanded and not battle._plates[aim].expanded, "hovering another creature opens its plate instead")
 	check(str(party_state.players[0].target) == aim, "hovering leaves the player's attack target unchanged")
 	battle._hover_creature("")
-	check(battle._enemy_panel.visible and battle._enemy_panel.enemy_id == aim, "the table returns to the target when the pointer leaves")
+	check(battle._plates[aim].expanded, "the plate returns to the target when the pointer leaves")
+	check(battle._plates[aim]._lines.get_child_count() > 1 and battle._plates[aim]._tiles.size() == DeepCreatures.display_moves(party_state.enemies[int(aim.trim_prefix("e"))]).size(), "the open plate has a tile and a line for every move")
 	party_state.players[0].target = "e1"
 	party_state.enemies[0].acting = true
 	party_state.phase = "resolving"
 	battle.show_state(party_state, 1)
 	await process_frame
 	await process_frame
-	battle._position_enemy_panel()
-	check(battle._enemy_panel.enemy_id == "e0", "the acting enemy takes precedence over the target")
-	check(not battle._enemy_panel.get_global_rect().intersects(battle._my_tab.face.get_global_rect()), "the acting panel leaves the party's tabs visible")
+	check(battle._plates["e0"]._acting and not battle._plates["e1"]._acting, "the acting enemy's plate is lit")
+	check(not battle._plates["e0"].get_global_rect().intersects(battle._my_tab.face.get_global_rect()), "the acting plate leaves the party's tabs visible")
 	## The die a creature rolls turns over its own head, and goes when its action does.
-	var width_before: float = battle._enemy_panel.size.x
+	var width_before: float = battle._plates["e0"].size.x
 	battle._headless = false
 	battle.perform(roll_event)
-	check(battle._enemy_roll != null and battle._enemy_roll.visible and battle._enemy_roll_id == "e0", "the rolled die is shown over the acting creature, not in its table")
-	check(is_equal_approx(battle._enemy_panel.size.x, width_before), "the table does not grow while the creature acts")
+	check(battle._enemy_roll != null and battle._enemy_roll.visible and battle._enemy_roll_id == "e0", "the rolled die is shown over the acting creature, not on its plate")
+	check(is_equal_approx(battle._plates["e0"].size.x, width_before), "the plate does not grow while the creature acts")
 	battle.perform({"kind": "enemy_end", "unit": "e0"})
 	check(battle._enemy_roll_id == "", "the die is put away when the action ends")
 	battle._headless = true
 	party_state.enemies[0].acting = false
 	battle.show_state(party_state, 1)
-	check(battle._enemy_panel.enemy_id == "e1", "the target's table returns when the action finishes")
+	check(battle._plates["e1"].expanded, "the target's plate opens again when the action finishes")
 	# Exercise the actual count-up tween even under the headless test renderer.
 	battle._headless = false
 	battle._charge_resonance(125)

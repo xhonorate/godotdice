@@ -65,6 +65,11 @@ class Portrait extends Control:
 				return
 			mood = value
 			_turn_to(_face_for(mood))
+	## Drawn as a disc rather than a cut plate: the dock's vitals ring stands round it.
+	var round: bool = false:
+		set(value):
+			round = value
+			queue_redraw()
 	## A frame color of its own, over the Birthstone's (a seat's, in a party); clear for none.
 	var ring: Color = Color(0, 0, 0, 0):
 		set(value):
@@ -157,6 +162,9 @@ class Portrait extends Control:
 		return clampi(int(minf(size.x, size.y) * 0.14), 3, 14)
 
 	func _draw() -> void:
+		if round:
+			_draw_round()
+			return
 		var w: float = size.x
 		var h: float = size.y
 		var whole := Rect2(Vector2.ZERO, size)
@@ -189,6 +197,42 @@ class Portrait extends Control:
 		edge.draw_center = false
 		edge.shadow_size = 0
 		draw_style_box(edge, whole)
+
+	func _draw_round() -> void:
+		## The face in a disc: the plate, the Birthstone's light under it, the face cut to a
+		## circle and the frame over its edge.
+		var radius: float = minf(size.x, size.y) * 0.5
+		var centre: Vector2 = size * 0.5
+		var light: Color = tint if not locked else DeepUi.DIM
+		draw_circle(centre, radius, Color(0.05, 0.055, 0.08, 1.0))
+		var reach: float = radius * 2.6
+		draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(reach, reach) * 0.5, Vector2(reach, reach)), false, Color(light, 0.22))
+		var border: Color = ring if ring.a > 0.0 else Color(tint, 0.55)
+		if _texture == null:
+			draw_arc(centre, radius * 0.55, 0, TAU, 48, Color(light, 0.35), 2.0, true)
+			draw_arc(centre, radius - 1.0, 0, TAU, 64, border, 2.0, true)
+			return
+		var shade: Color = SILHOUETTE if locked else Color.WHITE
+		if _from != null and _fade < 1.0:
+			_draw_disc(_from, centre, radius - 2.0, shade)
+		_draw_disc(_texture, centre, radius - 2.0, Color(shade, shade.a * _fade))
+		draw_arc(centre, radius - 1.0, 0, TAU, 64, border, 2.0, true)
+
+	func _draw_disc(picture: Texture2D, centre: Vector2, radius: float, shade: Color) -> void:
+		## The face close in on the eyes, cut to a circle: a polygon of many sides with the
+		## picture mapped onto it.
+		var zoom: float = 1.0 if locked else 1.3
+		var side: float = 1.0 / zoom
+		var top: float = clampf(0.44 - side * 0.5, 0.0, 1.0 - side)
+		var source := Rect2(Vector2(0.5 - side * 0.5, top), Vector2(side, side))
+		var points := PackedVector2Array()
+		var uvs := PackedVector2Array()
+		for i in range(48):
+			var angle: float = TAU * float(i) / 48.0
+			var at: Vector2 = centre + Vector2.from_angle(angle) * radius
+			points.append(at)
+			uvs.append(source.position + (at - (centre - Vector2(radius, radius))) / (radius * 2.0) * source.size)
+		draw_colored_polygon(points, shade, uvs, picture)
 
 	func _draw_face(picture: Texture2D, into: Rect2, corner: int, shade: Color) -> void:
 		## The face cut to the plate's shape. The smaller the plate, the closer it comes in on

@@ -27,6 +27,7 @@ const BenchPanel = preload("res://view/run/bench_panel.gd")
 const RunDock = preload("res://view/run/run_dock.gd")
 const DownedVeil = preload("res://view/run/downed_veil.gd")
 const HollowRite = preload("res://view/run/hollow_rite.gd")
+const AskSheet = preload("res://view/run/ask_sheet.gd")
 const Roster = preload("res://view/home/roster.gd")
 
 signal command(cmd: Dictionary)
@@ -130,6 +131,9 @@ var _fallen: Dictionary = {}
 var _pinned: String = ""
 ## The rail, the dice and the bag, along the bottom outside a fight.
 var _run_dock: Control
+## The ask (ask_sheet.gd): one block in the middle of the screen for anything a room wants
+## from the party's own things.
+var _ask: Control
 var _stall_opened: String = ""
 ## A mouth clicked at a landing: when the party's ways down are offered, the vote goes to it.
 var _descend_via: int = -1
@@ -280,6 +284,16 @@ func _ready() -> void:
 	_run_dock.visible = false
 	_run_dock.bag_anchor = func() -> Control: return _bag_pill if _bag_pill != null and is_instance_valid(_bag_pill) else null
 	_body.add_child(_run_dock)
+	## The ask: its scrim under the dock, so the dock stays lit, and the block itself over it.
+	_ask = AskSheet.new()
+	_body.add_child(_ask.scrim)
+	_body.move_child(_ask.scrim, _run_dock.get_index())
+	_body.add_child(_ask)
+	_run_dock.ask = _ask
+	_run_dock.picked.connect(func(kind: String, id: String) -> void: _ask.take(kind, id))
+	_ask.confirmed.connect(_ask_confirmed)
+	_ask.cancelled.connect(_ask_cancelled)
+	_ask.changed.connect(_light_ask)
 	## The chart is the one thing laid over the veil rather than under it: a lapidary who is
 	## down is still carried along the trail, and can read it as clearly as anyone.
 	_body.move_child(_map_margin, _body.get_child_count() - 1)
@@ -421,6 +435,9 @@ func show_state(state: Dictionary) -> void:
 		_altar_sent = false
 		if _run_dock != null and _run_dock.choosing():
 			_run_dock.cancel_offer()
+		if _ask != null and _ask.is_open():
+			_ask.close()
+			_run_dock.unspotlight()
 		## A bag a stall opened is shut again however the party leaves the stall: walking on,
 		## the chart, a fight. Walking up to the next one opens it again.
 		if not _stall_opened.is_empty():
@@ -430,6 +447,7 @@ func show_state(state: Dictionary) -> void:
 	if phase == "over":
 		_bench.visible = false
 	_bench.refresh(run)
+	_settle_ask()
 	_sync_stage()
 	_sync_fallen()
 	## Outside a fight the party's kit stays at hand along the bottom.
@@ -2122,9 +2140,11 @@ func _altar_reveal(made: Dictionary, transcendent: bool, who: String) -> void:
 	Inspector.stone(made, {"fanfare": {"title": title, "subtitle": subtitle, "button": button, "transcendent": transcendent}})
 
 func _fit_area() -> void:
-	## Pages stop short of the dock and its drawer, and so does the chart.
+	## Pages stop short of the dock and its drawer, and so does the chart, and so does the ask.
 	_area.offset_bottom = - _run_dock.height() if _run_dock.visible else 0.0
 	var floor_height: float = _run_dock.height() if _run_dock.visible else 0.0
+	if _ask != null:
+		_ask.floor_height = floor_height
 	## In a fight the fight's own dock runs along the bottom: the chart stops above it as
 	## well, instead of lying over the health bar and the rail.
 	if _battle.visible and _battle._dock != null and _battle.size.y > 0.0:
@@ -2354,9 +2374,10 @@ func _trade_page() -> void:
 	DeepUi.skip_ghost(row)
 	if full:
 		return
-	## The bag: any loose stone found down here goes on the table with one click, in place of
-	## the one there. A copy of a vault stone stays out of it: it goes home with nobody. So does
-	## a sealed Geode, which nobody can trade until the workshop has cracked it.
+	## The bag: any loose stone found down here goes on the table, chosen on the ask with the
+	## things that would do lit on the dock. A copy of a vault stone stays out of it: it goes
+	## home with nobody. So does a sealed Geode, which nobody can trade until the workshop has
+	## cracked it.
 	var haul: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool:
 		return not DeepStone.is_geode(s) and not (bool(run.get("marks_lent", false)) and DeepDescent.is_lent(run, s)))
 	var bag_line := DeepUi.hbox(content, 8)
@@ -2364,28 +2385,13 @@ func _trade_page() -> void:
 	if haul.is_empty():
 		DeepUi.stat(bag_line, "cross_out", "You have no stone found down here to trade.", DeepUi.DIM, 13)
 		return
-	DeepUi.label(bag_line, "Your bag", 12, DeepUi.MUTED)
-	for stone in _paged(content, "trade_bag", haul, 7):
-		var id: String = str(stone.get("id", ""))
-		var card := PanelContainer.new()
-		bag_line.add_child(card)
-		_mark(card, id == str(offers.get(local_id, "")), tone)
-		card.tooltip_text = DeepUi.stone_name(stone) + "\nClick to put it on the table."
-		var frame := DeepUi.center(card)
-		frame.custom_minimum_size = Vector2(56, 56)
-		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var picture := Thumbs.GemThumb.new(stone, 50)
-		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		frame.add_child(picture)
-		card.gui_input.connect(func(event: InputEvent) -> void:
-			if not (event is InputEventMouseButton and event.pressed):
-				return
-			if event.button_index == MOUSE_BUTTON_RIGHT:
-				Inspector.stone(stone)
-			elif event.button_index == MOUSE_BUTTON_LEFT and id != str(DeepDescent.trade_table(run).get("offers", {}).get(local_id, "")):
-				DeepAudio.play("ui_toggle", {"volume": 0.7})
-				command.emit({"kind": "trade_offer", "stone_id": id})
-			card.accept_event())
+	var offered: String = str(offers.get(local_id, ""))
+	var choose := DeepUi.icon_button(bag_line, "gem", "Put a different stone down" if seated else "Put a stone on the table", func() -> void:
+		_ask.open({"key": "trade", "title": "Your stone for the table", "text": "One stone each. When you have both accepted, they swap.", "glyph": "scales", "tone": tone,
+			"confirm": "Put it down", "slots": [{"key": "stone_id", "kind": "stone", "label": "Which stone?", "items": haul, "pick": offered}]})
+		_light_ask(), 14, tone)
+	DeepUi.ledger_button(choose, DeepUi.SLATE_HI, DeepUi.ORE, 9)
+	_enter(choose, 0.1)
 
 func _trade_slot(parent: Node, heading: String, stone: Dictionary, agreed: bool, tone: Color, empty_words: String) -> Control:
 	## One side of the table: the stone put down, its name, and whether its owner has accepted.
@@ -4113,6 +4119,14 @@ func _page_oddity_work(content: VBoxContainer, choice: Dictionary, unit: Diction
 	## done to set in a socket beside it, and nothing else on the screen to read.
 	## `submit` takes the payload instead of it going to the room as an oddity choice (the
 	## landing's well is the well card, paid for as the landing's respite).
+	## Work that wants one of the party's own things is asked on the ask sheet, in the middle
+	## of the screen, with the things that would do lit on the dock (docs/UI_REDO.md). A card
+	## that chooses among things the room holds (a pattern, a case) stays a card here.
+	var wants: String = str(choice.get("needs", ""))
+	if not wants in ["", "pattern", "offer"]:
+		_ask.open(_ask_spec(choice, unit, tone, key, submit.is_valid()))
+		_light_ask()
+		return
 	var card := DeepUi.card(content, Color(tone, 0.55), 18)
 	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var box := DeepUi.vbox(card, 12)
@@ -4143,6 +4157,136 @@ func _page_oddity_work(content: VBoxContainer, choice: Dictionary, unit: Diction
 				command.emit({"kind": "oddity", "choice": id, "payload": payload}), 17, tone)
 		go.custom_minimum_size.x = 200
 	_enter(card, 0.05)
+
+func _ask_spec(choice: Dictionary, unit: Dictionary, tone: Color, room_key: String, well: bool) -> Dictionary:
+	## What a piece of work asks for, as the ask sheet opens it: a slot for each thing, the
+	## things that would do and why the rest would not, and a face, an inclusion or a sum of
+	## pyrite after the slot when the work wants one.
+	var needs: String = str(choice.get("needs", ""))
+	var action: Dictionary = choice.get("action", {})
+	var id: String = str(choice.id)
+	var spec: Dictionary = {"key": ("well:" if well else "oddity:") + id, "title": str(choice.get("label", id)),
+		"text": DeepOddities.choice_text(choice, int(run.get("depth", 0))) if choice.has("text") else "",
+		"glyph": choice_glyph(choice, room_key), "tone": tone, "confirm": "Do it", "slots": []}
+	var tonight: String = _tonight_words(action)
+	if not tonight.is_empty():
+		spec.text = (str(spec.text) + "\n" + tonight).strip_edges()
+	var refuse := func(items: Array) -> Dictionary:
+		var out: Dictionary = {}
+		for item in items:
+			var why: String = _work_refusal(action, item)
+			if not why.is_empty():
+				out[str(item.get("id", ""))] = why
+		return out
+	var stones: Array = _carried(unit)
+	var dice: Array = unit.get("dice", [])
+	match needs:
+		"stone":
+			spec.slots = [{"key": "stone_id", "kind": "stone", "label": "Which stone?", "items": stones, "refusals": refuse.call(stones)}]
+		"raw_stone":
+			var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
+			spec.slots = [{"key": "stone_id", "kind": "stone", "label": "Which raw stone?", "items": raw, "refusals": refuse.call(raw)}]
+		"two_stones":
+			spec.slots = [{"key": "keep_id", "kind": "stone", "label": "First stone", "items": stones, "refusals": refuse.call(stones)},
+				{"key": "feed_id", "kind": "stone", "label": "Second stone", "items": stones, "refusals": refuse.call(stones)}]
+		"gem_and_die":
+			var gems: Array = DeepStone.rail_stones(unit) + _loose(unit).filter(func(s: Dictionary) -> bool: return bool(s.get("appraised", false)))
+			spec.slots = [{"key": "stone_id", "kind": "stone", "label": "Which gem turns Void?", "items": gems, "refusals": refuse.call(gems)},
+				{"key": "die_id", "kind": "die", "label": "Which die goes in?", "items": dice, "refusals": refuse.call(dice)}]
+		"raw_stones":
+			var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
+			var most: int = maxi(1, int(action.get("most", 3)))
+			spec.slots = [{"key": "stone_ids", "kind": "stone", "label": "Up to %s" % DeepUi.plural(most, "raw stone"), "items": raw, "refusals": refuse.call(raw), "most": most, "hp": int(action.get("hp", 6))}]
+		"inclusion":
+			var carriers: Array = stones.filter(func(s: Dictionary) -> bool: return not s.get("inclusions", []).is_empty() and (bool(s.get("appraised", false)) or bool(s.get("inclusions_revealed", false))))
+			spec.slots = [{"key": "stone_id", "kind": "stone", "label": "Which stone?", "items": carriers, "refusals": refuse.call(carriers)}]
+			spec.inclusions = {"key": "inclusion", "of": "stone_id"}
+		"die", "die_face":
+			var kind: String = str(action.get("kind", ""))
+			var offered: Array = dice
+			var set_for: Dictionary = run.get("chamber", {}).get("offer", {})
+			if kind == "pattern" and not str(set_for.get("pattern", "")).is_empty():
+				## Only the dice the anvil could actually stamp tonight.
+				offered = dice.filter(func(d: Dictionary) -> bool: return DeepDice.pattern_allows(str(set_for.pattern), str(d.get("shape", "D6"))))
+			spec.slots = [{"key": "die_id", "kind": "die", "label": "Which die?", "items": offered, "refusals": refuse.call(offered)}]
+			if needs == "die_face":
+				spec.faces = {"key": "face", "of": "die_id", "blanks": true, "lowering": kind == "lower_face", "label": "Which face?"}
+		"ore":
+			## How much goes down the well: anything from the least it takes to the most it
+			## takes, or to all you carry.
+			var carried: int = int(unit.get("ore", 0))
+			var most: int = mini(carried, DeepDescent.WISH_MOST)
+			if most < DeepDescent.WISH_LEAST:
+				spec.blocked = "You carry %d pyrite: the well wants %d at least." % [carried, DeepDescent.WISH_LEAST]
+			else:
+				spec.slider = {"key": "ore", "min": DeepDescent.WISH_LEAST, "max": most, "value": DeepDescent.WISH_LEAST, "unit": "pyrite"}
+	return spec
+
+func _tonight_words(action: Dictionary) -> String:
+	## The one pattern, etching or material a room is set up with tonight, in a line. A blind
+	## dip has none of them until the die is already in.
+	if bool(action.get("random", false)):
+		return ""
+	var tonight: Dictionary = run.get("chamber", {}).get("offer", {})
+	match str(action.get("kind", "")):
+		"pattern":
+			if not str(tonight.get("pattern", "")).is_empty():
+				return "Tonight: %s. %s" % [DeepDice.pattern_name(str(tonight.pattern)), str(DeepContent.pattern(str(tonight.pattern)).get("text", ""))]
+		"etch":
+			if not str(tonight.get("etching", "")).is_empty():
+				return "Tonight: %s. %s" % [DeepDice.etching_name(str(tonight.etching)), str(DeepContent.etching(str(tonight.etching)).get("text", ""))]
+		"material":
+			if not str(tonight.get("material", "")).is_empty():
+				return "Tonight: %s. %s" % [DeepDice.material_name(str(tonight.material)), str(DeepContent.material(str(tonight.material)).get("text", ""))]
+	return ""
+
+func _light_ask() -> void:
+	## The things the ask would take stay lit on the dock; the rest step back.
+	if _ask == null or _run_dock == null:
+		return
+	if _ask.is_open():
+		_run_dock.spotlight({"stone": _ask.eligible("stone"), "die": _ask.eligible("die")})
+	else:
+		_run_dock.unspotlight()
+	_ask.floor_height = _run_dock.height() if _run_dock.visible else 0.0
+
+func _settle_ask() -> void:
+	## An ask outlives the page it was opened from only while the room still wants it.
+	if _ask == null or not _ask.is_open():
+		return
+	var key: String = str(_ask.key())
+	var phase: String = str(run.get("phase", ""))
+	var wanted: bool = false
+	if key.begins_with("oddity:"):
+		wanted = phase == "chamber" and _oddity_step == key.trim_prefix("oddity:") and str(me().get("oddity_choice", "")).is_empty()
+	elif key.begins_with("well:"):
+		wanted = phase == "landing" and _landing_view == "wish" and _oddity_step == key.trim_prefix("well:") and str(me().get("respite", "")).is_empty()
+	elif key == "trade":
+		wanted = phase == "landing" and _landing_view == "trade"
+	elif key == "dock_offer":
+		wanted = _run_dock.choosing()
+	if not wanted:
+		_ask.close()
+		_run_dock.unspotlight()
+
+func _ask_confirmed(key: String, payload: Dictionary) -> void:
+	_run_dock.unspotlight()
+	if key.begins_with("oddity:"):
+		_oddity_step = ""
+		command.emit({"kind": "oddity", "choice": key.trim_prefix("oddity:"), "payload": payload})
+	elif key.begins_with("well:"):
+		_oddity_step = ""
+		if payload.has("ore"):
+			_respite_ore(int(payload.ore))
+		else:
+			_respite("wish", str(payload.get("stone_id", "")))
+	elif key == "trade":
+		command.emit({"kind": "trade_offer", "stone_id": str(payload.get("stone_id", ""))})
+
+func _ask_cancelled() -> void:
+	_oddity_step = ""
+	_run_dock.unspotlight()
+	show_state(run)
 
 func _reworked(result: Dictionary) -> Dictionary:
 	## A room's result as a stone on the ladder: the stone as it was, which ladder, the rung it

@@ -365,6 +365,83 @@ static func facet(box: StyleBoxFlat) -> StyleBoxFlat:
 	box.corner_detail = FACET_DETAIL
 	return box
 
+## The in-run look (docs/UI_REDO.md): opaque plates with a heavy outline and a hard shadow.
+const LEDGER_FILL := Color("11141d")
+const LEDGER_LINE := Color("2f3752")
+const LEDGER_SHADOW := Color("05070c")
+const LEDGER_CUT: int = 12
+
+static func ledger(fill: Color = LEDGER_FILL, line: Color = LEDGER_LINE, cut: int = LEDGER_CUT, pad: int = 12, width: int = 3, shadow: int = 4) -> StyleBoxFlat:
+	## A Ledger plate: opaque, every corner cut straight across by `cut`, outlined `width`
+	## wide, with a hard shadow `shadow` pixels down and to the right (the engine's shadow
+	## is the box again, offset, with a soft ring `shadow_size` wide round it; one pixel of
+	## ring is as hard as it draws).
+	var box := flat(fill, line, cut, pad, width)
+	if shadow > 0:
+		box.shadow_color = LEDGER_SHADOW
+		box.shadow_size = 1
+		box.shadow_offset = Vector2(shadow, shadow)
+	return box
+
+static func capsule(control: Control, fill: Color, line: Color, width: int = 2, pad_x: int = 10, pad_y: int = 3) -> StyleBoxFlat:
+	## A capsule with flat ends: its corners cut as `facet_ends` cuts a pill's, leaving a
+	## facet of the height at each end rather than a point (the shape the workshop's pills
+	## have). The status chips, the dock's badges and the ask's name capsule are all this.
+	var box := flat(fill, line, 20, pad_y, width)
+	box.content_margin_left = pad_x
+	box.content_margin_right = pad_x
+	facet_ends(control, box)
+	return box
+
+static func ledger_button(b: Button, fill: Color = SLATE_HI, line: Color = LEDGER_LINE, pad: int = 10, text: Color = PAPER) -> Button:
+	## Dresses a button in the Ledger look: chamfered, outlined, a hard shadow under it, and
+	## on hover the outline lights; pressed, the fill goes to the accent.
+	var normal := ledger(fill, line, 8, pad, 2, 3)
+	normal.content_margin_left = pad + 6
+	normal.content_margin_right = pad + 6
+	var hover := ledger(fill.lightened(0.12), LINE_HI, 8, pad, 2, 3)
+	hover.content_margin_left = pad + 6
+	hover.content_margin_right = pad + 6
+	var pressed := ledger(ACCENT_DIM, ACCENT, 8, pad, 2, 1)
+	pressed.content_margin_left = pad + 6
+	pressed.content_margin_right = pad + 6
+	var disabled := ledger(Color(fill, 0.4), Color(line, 0.4), 8, pad, 2, 0)
+	disabled.content_margin_left = pad + 6
+	disabled.content_margin_right = pad + 6
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("hover_pressed", pressed)
+	b.add_theme_stylebox_override("disabled", disabled)
+	b.add_theme_color_override("font_color", text)
+	b.add_theme_color_override("font_hover_color", Color.WHITE)
+	b.add_theme_color_override("font_disabled_color", Color(text, 0.4))
+	b.add_theme_color_override("icon_disabled_color", Color(text, 0.4))
+	b.add_theme_font_override("font", bold_font())
+	return b
+
+static func ledger_primary(b: Button, tone: Color = ACCENT) -> Button:
+	## The one call to action on a Ledger plate: filled with the accent, ink on it, the same
+	## hard shadow, and no glow.
+	var normal := ledger(tone, tone.lightened(0.3), 8, 10, 2, 3)
+	var hover := ledger(tone.lightened(0.15), Color.WHITE, 8, 10, 2, 3)
+	var pressed := ledger(tone.darkened(0.25), tone, 8, 10, 2, 1)
+	var disabled := ledger(Color(tone.darkened(0.5), 0.5), Color(tone, 0.3), 8, 10, 2, 0)
+	for box in [normal, hover, pressed, disabled]:
+		box.content_margin_left = 18
+		box.content_margin_right = 18
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("hover_pressed", pressed)
+	b.add_theme_stylebox_override("disabled", disabled)
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
+		b.add_theme_color_override(key, INK)
+	b.add_theme_color_override("font_disabled_color", Color(INK, 0.55))
+	b.add_theme_color_override("icon_disabled_color", Color(INK, 0.55))
+	b.add_theme_font_override("font", bold_font())
+	return b
+
 static func end_corner(height: float) -> int:
 	## The corner a capsule this tall is cut at, leaving a flat facet `END_FACET` of its height
 	## at each end. A corner of half the height or more closes each end to a point, and a
@@ -430,8 +507,9 @@ static func theme(scale: float = 1.0) -> Theme:
 	t.set_stylebox("pressed", "OptionButton", button_style(SLATE_HI, ACCENT))
 	t.set_stylebox("panel", "PopupMenu", flat(INK, LINE, 8, 6))
 	t.set_stylebox("hover", "PopupMenu", flat(ACCENT_DIM, Color(0, 0, 0, 0), 6, 4))
-	t.set_stylebox("panel", "TooltipPanel", flat(Color(INK, 0.96), LINE_HI, 6, 9))
+	t.set_stylebox("panel", "TooltipPanel", ledger(LEDGER_FILL, LEDGER_LINE, 8, 9, 2, 3))
 	t.set_color("font_color", "TooltipLabel", PAPER)
+	t.set_font("font", "TooltipLabel", semibold_font())
 	for bar in ["VScrollBar", "HScrollBar"]:
 		t.set_stylebox("scroll", bar, flat(Color(1, 1, 1, 0.03), Color(0, 0, 0, 0), 4, 0))
 		t.set_stylebox("grabber", bar, flat(Color(LINE_HI, 0.8), Color(0, 0, 0, 0), 4, 3))
@@ -1398,6 +1476,9 @@ class Bar extends Control:
 	## A player's health: below half the fill eases to amber, below a quarter on to red, so who
 	## is in trouble reads off the bar before anyone reads its number. See `health_tone`.
 	var warn: bool = false
+	## Block drawn as a cap past the end of health, hatched, and a blow hatched in red over the
+	## health it would take (docs/UI_REDO.md); off, block rides along the bottom as a strip.
+	var cap: bool = false
 	## A share of the bar shown pulsing at the end of the fill: what is about to be lost.
 	var preview: float = 0.0:
 		set(value):
@@ -1472,10 +1553,24 @@ class Bar extends Control:
 		if preview > 0.0 and _shown > 0.001:
 			var cut: float = minf(preview, _shown)
 			var pulse: float = 0.45 + 0.35 * sin(Time.get_ticks_msec() * 0.008)
-			_box(Rect2(Vector2(size.x * (_shown - cut), 0), Vector2(size.x * cut, size.y)), Color(1, 0.95, 0.85, pulse), 0.0)
+			var taking := Rect2(Vector2(size.x * (_shown - cut), 0), Vector2(size.x * cut, size.y))
+			if cap:
+				_box(taking, Color(1.0, 0.35, 0.3, pulse * 0.5), 0.0)
+				_hatch(taking, Color(1.0, 0.45, 0.4, pulse))
+			else:
+				_box(taking, Color(1, 0.95, 0.85, pulse), 0.0)
 		if _shown_overlay > 0.0:
-			var h: float = maxf(3.0, size.y * 0.32)
-			_box(Rect2(Vector2(0, size.y - h), Vector2(size.x * _shown_overlay, h)), overlay_color, radius * 0.5)
+			if cap:
+				## Block past the end of health: it is what a blow has to get through first.
+				var from: float = size.x * _shown
+				var span: float = minf(size.x * _shown_overlay, size.x - from)
+				if span > 0.5:
+					var guard := Rect2(Vector2(from, 0), Vector2(span, size.y))
+					_box(guard, Color(overlay_color, 0.5), 0.0)
+					_hatch(guard, Color(overlay_color.lightened(0.3), 0.9))
+			else:
+				var h: float = maxf(3.0, size.y * 0.32)
+				_box(Rect2(Vector2(0, size.y - h), Vector2(size.x * _shown_overlay, h)), overlay_color, radius * 0.5)
 		if _flash > 0.0:
 			_box(r, Color(_flash_color, 0.35 * _flash), radius)
 		_outline.set_corner_radius_all(int(radius))
@@ -1489,6 +1584,18 @@ class Bar extends Control:
 			var at := Vector2((size.x - measured.x) * 0.5, size.y * 0.5 + font.get_ascent(font_size) * 0.5 - font.get_descent(font_size) * 0.5)
 			draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, clampi(roundi(font_size / 5.5), 2, 3), Color(0, 0, 0, 0.8))
 			draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+	func _hatch(rect: Rect2, color: Color) -> void:
+		## Diagonal lines across a rect, clipped to it.
+		var h: float = rect.size.y
+		var x: float = rect.position.x - h
+		while x < rect.end.x:
+			var a := Vector2(x, rect.end.y)
+			var b := Vector2(x + h, rect.position.y)
+			var t0: float = maxf(0.0, (rect.position.x - x) / h)
+			var t1: float = minf(1.0, (rect.end.x - x) / h)
+			if t1 > t0:
+				draw_line(a.lerp(b, t0), a.lerp(b, t1), color, 1.5, true)
+			x += 5.0
 	func _box(rect: Rect2, color: Color, radius: float) -> void:
 		if rect.size.x <= 0.5:
 			return

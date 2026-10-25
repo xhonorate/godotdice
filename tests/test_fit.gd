@@ -605,10 +605,27 @@ func _run(app: Control) -> void:
 	await _fits(screen, "the open bag with a heavy haul")
 	check(descent._run_dock._drawer.size.y >= 220.0, "the bag drawer grows to show every wrapped row")
 	for part in ["raw", "geodes"]:
-		descent._run_dock._haul_tab = part
+		descent._run_dock.show_appraised = part == "geodes"
+		descent._run_dock.show_raw = part == "raw"
+		descent._run_dock.show_geodes = part == "geodes"
+		descent._run_dock._key = ""
 		descent._run_dock.show_run(run)
-		await _fits(screen, "the open bag's %s part" % part)
-	descent._run_dock._haul_tab = "gems"
+		await _fits(screen, "the open bag showing its %s" % part)
+	descent._run_dock.show_appraised = true
+	descent._run_dock.show_raw = true
+	descent._run_dock.show_geodes = false
+	for by in ["carat", "grade", "color"]:
+		descent._run_dock.sort_by = by
+		descent._run_dock._reading = str(me.haul[0].id)
+		descent._run_dock._key = ""
+		descent._run_dock.show_run(run)
+		await _fits(screen, "the open bag sorted by %s, reading a stone" % by)
+	descent._run_dock._reading = ""
+	descent._run_dock.fits_only = true
+	descent._run_dock._key = ""
+	descent._run_dock.show_run(run)
+	await _fits(screen, "the open bag showing only what fits")
+	descent._run_dock.fits_only = false
 	descent._run_dock.set_drawer(false)
 	## Every oddity, smithy and carver: its card along the bottom of its room.
 	var room: Dictionary = run.duplicate(true)
@@ -630,21 +647,28 @@ func _run(app: Control) -> void:
 			descent.show_state(room)
 			await _fits(screen, "choosing what to %s at the %s" % [str(choice.get("label", choice.id)).to_lower(), str(key)])
 		descent._oddity_step = ""
-	## The tray that takes the dock's place while one of the party's own things is chosen.
+	## The ask in the middle of the screen while one of the party's own things is chosen: on
+	## the dock the things that would do stay lit and the rest step back.
 	for offered in [["die", me.dice], ["stone", me.haul.slice(0, 6)]]:
 		descent._run_dock.offer(str(offered[0]), offered[1], "Which one?")
 		descent.show_state(room)
-		await _fits(screen, "the dock giving way to the %s, large, for one to be chosen" % str(offered[0]))
+		await _fits(screen, "the ask for one of the party's %s" % str(offered[0]))
+		check(descent._ask.is_open(), "the ask is open for a %s" % str(offered[0]))
 		descent._run_dock.cancel_offer()
 	## A stall's die traded for one of the party's own: the whole bowl, the wrong sizes dimmed.
 	var refusals: Dictionary = {str(me.dice[0].id): "Only a d8 can be traded for it."}
 	descent._run_dock.offer("die", me.dice, "Trade one of your dice for the Cloud d8 · 140 pyrite", refusals)
 	descent.show_state(room)
-	await _fits(screen, "the dock giving way to the dice for a trade, the wrong sizes dimmed")
-	var tiles: Array = descent._run_dock._chooser.find_children("*", "PanelContainer", true, false).filter(func(c: Node) -> bool: return str((c as Control).tooltip_text).contains("Right-click"))
-	check(tiles.size() == me.dice.size() and tiles.filter(func(c: Node) -> bool: return (c as Control).modulate.a < 0.5).size() == 1,
-		"every die stands in the tray, and only the one that will not do is dimmed")
+	await _fits(screen, "the ask for a die to trade, the wrong sizes dimmed")
+	var lit: int = 0
+	for die in me.dice:
+		if descent._run_dock.spotlit("die", str(die.id)):
+			lit += 1
+	check(lit == me.dice.size() - 1, "every die but the one that will not do stays lit on the dock")
+	check(descent._ask.take("die", str(me.dice[1].id)) and not descent._ask.take("die", str(me.dice[0].id)), "a lit die drops into the slot and a refused one does not")
+	await _fits(screen, "the ask with a die in its slot")
 	descent._run_dock.cancel_offer()
+	check(not descent._ask.is_open(), "never mind closes the ask")
 	descent.show_state(room)
 	## What a motherlode gives up, what an oddity made, and what a stake did.
 	var rewards: Dictionary = {"ore": 44, "stones": me.haul.slice(0, 4), "dice": me.dice.slice(0, 2)}
@@ -897,7 +921,7 @@ func _points(node: Node, found: Array) -> void:
 	if node is PanelContainer:
 		var face: StyleBox = (node as Control).get_theme_stylebox("panel")
 		var height: float = (node as Control).size.y
-		if face is StyleBoxFlat and (face as StyleBoxFlat).corner_detail <= DeepUi.FACET_DETAIL and height > 0.5:
+		if face is StyleBoxFlat and (face as StyleBoxFlat).corner_detail <= DeepUi.FACET_DETAIL and height > 0.5 and not _pointed_on_purpose(face as StyleBoxFlat):
 			var flat_face: StyleBoxFlat = face
 			var shown: bool = flat_face.bg_color.a > 0.0 or (flat_face.border_color.a > 0.0 and flat_face.border_width_left > 0)
 			var end: float = height - flat_face.corner_radius_top_left - flat_face.corner_radius_bottom_left
@@ -905,6 +929,11 @@ func _points(node: Node, found: Array) -> void:
 				found.append("%s (%dpx tall, corner %d)" % [_name(node), int(height), flat_face.corner_radius_top_left])
 	for child in node.get_children():
 		_points(child, found)
+
+func _pointed_on_purpose(face: StyleBoxFlat) -> bool:
+	## A Ledger capsule (`DeepUi.capsule`) comes to a point on purpose, and pads its sides
+	## past the point so nothing inside is cut by it.
+	return bool(face.get_meta("pointed", false)) and face.content_margin_left >= float(face.corner_radius_top_left) - 1.0
 
 func _scan(node: Node, bounds: Rect2, found: Array) -> void:
 	if node is CanvasItem and not (node as CanvasItem).visible:
