@@ -49,6 +49,9 @@ const DOCK_HEIGHT := 150.0
 const GEM_TILE_STEP := 62.0
 ## The bag drawer's reading pane, and the least columns of stones beside it.
 const PANE_WIDTH := 250.0
+## The reading pane keeps a stone's reading's height even while empty, so pointing at a stone
+## never stands the bag taller under the pointer.
+const PANE_HEIGHT := 140.0
 const DRAWER_COLUMNS := 6
 
 var local_id: String = ""
@@ -71,6 +74,11 @@ var _drawer: PanelContainer
 var _drawer_height: float = 0.0
 var _stone_flow: HFlowContainer = null
 var _open: bool = false
+## The bag was opened by an ask's spotlight, not by the player: it shuts again with the ask, or
+## it would stand over the page the ask's answer opens (and that page's Onward).
+var _ask_opened: bool = false
+## The bag was opened by a drag off a stall's counter: it shuts again when the drag ends.
+var _drag_opened: bool = false
 ## What the bag shows (docs/UI_REDO.md): appraised stones and raw ones by default, Geodes
 ## only when asked; sorted by color, carat or grade; only what fits a socket, when asked.
 var show_appraised: bool = true
@@ -143,15 +151,20 @@ func _fit_dock() -> void:
 		return
 	_height = maxf(maxf(DOCK_HEIGHT, dock_height), _dock.get_combined_minimum_size().y)
 	_dock.offset_top = -14 - _height
-	_drawer.offset_bottom = - _height - 20
-	_drawer.offset_top = - _height - 20 - _drawer_height
+	_drawer.offset_bottom = - _height - 20 - _tabs_lift()
+	_drawer.offset_top = - _height - 20 - _tabs_lift() - _drawer_height
+
+func _tabs_lift() -> float:
+	## In a party the seat tabs stand on the dock: the drawer opens above them, not behind
+	## them, so a click on a stone near its foot is not taken by a tab.
+	return _tab_bar.get_combined_minimum_size().y if _tab_bar != null and _tab_bar.visible else 0.0
 
 # --- the party's tabs --------------------------------------------------------------------------
 
 func _sync_tabs() -> void:
 	## A tab a player, the reader's first: the same tabs a fight stands on its dock, so the
-	## party is where it was when a fight ends. Each says what that player is doing here, in
-	## place of a line of "waiting for" under the room's name. Alone, none.
+	## party is where it was when a fight ends. Each says what that player is doing here; once
+	## this player is done, the room's name also gets a "Waiting for" line. Alone, none.
 	if _tab_bar == null:
 		return
 	var players: Array = run.get("players", [])
@@ -194,8 +207,9 @@ func seat_status(unit: Dictionary) -> Array:
 	## [glyph, tone, words]. Someone who is down has no mark: their whole tab is greyed.
 	if bool(unit.get("downed", false)):
 		return ["", DeepUi.DIM, "Down until the next landing"]
+	## The tab's plate says what being away means here, not only the word.
 	if not bool(unit.get("connected", true)):
-		return ["wifi", DeepUi.DIM, "Away"]
+		return ["wifi", DeepUi.DIM, "Lost connection. The party goes on without them until they are back."]
 	var choosing_now := func(words: String) -> Array: return ["hourglass", DeepUi.MUTED, words]
 	var done := func(words: String) -> Array: return ["check", DeepUi.GOOD, words]
 	var id: String = str(unit.get("id", ""))
@@ -238,9 +252,9 @@ func is_drawer_open() -> bool:
 
 func height() -> float:
 	## How much of the bottom of the screen the dock and its drawer take.
-	## The party's tabs stand on the dock and take their height above it.
-	var tabs: float = _tab_bar.get_combined_minimum_size().y if _tab_bar != null and _tab_bar.visible else 0.0
-	return _height + 28.0 + maxf(tabs, _drawer_height + 6.0 if _open else 0.0)
+	## The party's tabs stand on the dock and take their height above it; an open drawer
+	## stands on the tabs.
+	return _height + 28.0 + _tabs_lift() + (_drawer_height + 6.0 if _open else 0.0)
 
 # --- choosing one of your own ------------------------------------------------------------------
 ##
@@ -281,6 +295,34 @@ func unveil(stone_id: String) -> void:
 		if child.has_method("fire"):
 			child.fire()
 
+func flash_sockets(indices: Array, badge: String = "") -> void:
+	## Sockets that have just taken a stone: each kicks and its ring flashes, and the first has
+	## the stone's weight float up over it. Waits a frame for the dock drawn from the new rail.
+	if DeepUi.headless() or not is_inside_tree():
+		return
+	await get_tree().process_frame
+	for at in range(indices.size()):
+		var spot: Variant = _spots.get("socket:%d" % int(indices[at]), null)
+		if spot == null or not is_instance_valid(spot) or not (spot as Control).is_visible_in_tree():
+			continue
+		var slot: Control = spot
+		DeepUi.pulse(slot, 1.3, 0.45)
+		for child in slot.get_children():
+			if child.has_method("fire"):
+				child.fire()
+		if at == 0 and not badge.is_empty():
+			var over: Vector2 = slot.get_global_rect().get_center() - get_global_rect().position - Vector2(0, SLOT * 0.66)
+			DeepUi.float_text(self, over, badge, DeepUi.GOOD, 16, 26.0, 1.3)
+
+func light_socket(index: int, on: bool) -> void:
+	## A socket something on the screen offers to fill, lit while that offer is pointed at.
+	var spot: Variant = _spots.get("socket:%d" % index, null)
+	if spot == null or not is_instance_valid(spot):
+		return
+	for child in (spot as Control).get_children():
+		if child.has_method("set_ready"):
+			child.set_ready(on)
+
 func offer(kind: String, items: Array, prompt: String, refusals: Dictionary = {}) -> void:
 	## `kind` is "die" or "stone"; `items` are the things themselves, in the order they should
 	## stand. One of them chosen and confirmed emits `chose` with its id. One whose id
@@ -315,35 +357,68 @@ func spotlight(wanted: Dictionary) -> void:
 		var haul_ids: Array = me().get("haul", []).map(func(s: Dictionary) -> String: return str(s.get("id", "")))
 		if wanted.get("stone", []).any(func(id: Variant) -> bool: return haul_ids.has(str(id))):
 			set_drawer(true)
+			_ask_opened = true
 	_apply_spotlight()
 
 func unspotlight() -> void:
-	if _spot.is_empty():
-		return
+	## Clears the spotlight before shutting the bag: shutting it rebuilds the dock, and a
+	## rebuild while the spotlight still stands would start dimming the fresh controls.
+	var was_lit: bool = not _spot.is_empty()
 	_spot = {}
-	_apply_spotlight()
+	if _ask_opened:
+		_ask_opened = false
+		if _open:
+			set_drawer(false)
+	if was_lit:
+		_apply_spotlight()
 
 func spotlit(kind: String, id: String) -> bool:
 	return _spot.get(kind, []).has(id)
 
+func _refused(plate: Control, kind: String, id: String) -> Control:
+	## A thing the open ask will not take is dimmed here, and its plate says why in red under
+	## the rest: a dimmed d6 read only "d6, 6 faces", and the reason was never shown.
+	if ask == null or not ask.is_open():
+		return plate
+	var why: String = str(ask.refusal(kind, id))
+	if not why.is_empty():
+		var line := DeepUi.stat(plate, "cross_out", why, DeepUi.BAD, 12)
+		var words: Label = line.get_node("Value")
+		words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.custom_minimum_size.x = 240
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return plate
+
 func _apply_spotlight() -> void:
+	## One control can stand under two keys (a set gem is both "socket:N" and "stone:<id>"):
+	## it is lit when any of its keys is, and dimmed or lit once.
+	var lit_of: Dictionary = {}
+	var veiled: Dictionary = {}
 	for key in _spots:
 		var spot: Variant = _spots[key]
 		if not (spot is Control and is_instance_valid(spot)):
 			continue
-		var control: Control = spot
 		var parts: PackedStringArray = str(key).split(":")
 		var kind: String = str(parts[0])
 		var id: String = str(parts[1]) if parts.size() > 1 else ""
 		var lit: bool = _spot.is_empty() or spotlit(kind, id)
+		## The tray holds the dice: it stays lit while any of them is wanted, or its dimming
+		## would dim the lit dice with the rest.
+		if kind == "dice":
+			lit = _spot.is_empty() or not _spot.get("die", []).is_empty()
 		if _veiled.has(id):
+			veiled[spot] = true
+		lit_of[spot] = bool(lit_of.get(spot, false)) or lit
+	for spot in lit_of:
+		if veiled.has(spot):
 			continue
-		var tile: Control = control if kind != "stone" or not control.get_parent() is Control or control.get_parent() == _dock else control
+		var control: Control = spot
+		var lit: bool = bool(lit_of[spot])
 		var goal: Color = Color.WHITE if lit else Color(0.5, 0.5, 0.55, 0.45)
-		if DeepUi.headless() or not tile.is_inside_tree():
-			tile.modulate = goal
-		elif tile.modulate != goal:
-			tile.create_tween().tween_property(tile, "modulate", goal, 0.16).set_trans(Tween.TRANS_SINE)
+		if DeepUi.headless() or not control.is_inside_tree():
+			control.modulate = goal
+		elif control.modulate != goal:
+			control.create_tween().tween_property(control, "modulate", goal, 0.16).set_trans(Tween.TRANS_SINE)
 		for child in control.get_children():
 			if child.has_method("set_ready"):
 				child.set_ready(not _spot.is_empty() and lit)
@@ -360,6 +435,9 @@ func set_drawer(open: bool) -> void:
 	drawer_toggled.emit(open)
 
 func toggle_drawer() -> void:
+	## Opened or shut by hand: the player's to keep, whatever an ask or a drag does.
+	_ask_opened = false
+	_drag_opened = false
 	set_drawer(not _open)
 
 func show_run(state: Dictionary) -> void:
@@ -413,7 +491,13 @@ func _build_dock(unit: Dictionary) -> void:
 	## with names under the stones, the five dice. No headings: the things say what they are.
 	DeepUi.clear(_dock)
 	_spots = {}
-	var columns := DeepUi.hbox(_dock, 16)
+	## Eight stones on the rail (seven sockets and a Birthstone) only fit the screen with the
+	## gaps and the captions drawn in a little; every shorter rail keeps its room.
+	var rail: Array = unit.get("rail", [])
+	var birth: Dictionary = DeepStone.birthstone_for(unit)
+	var tight: bool = rail.size() + (0 if birth.is_empty() else 1) >= 8
+	var cap: float = SLOT + (2.0 if tight else 8.0)
+	var columns := DeepUi.hbox(_dock, 6 if tight else 16)
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
 	## Far left: your face, as the fight's dock has it.
 	var ring := VitalsRing.new(BattleScreen.VITALS_EDGE, str(unit.get("character", "")))
@@ -430,7 +514,7 @@ func _build_dock(unit: Dictionary) -> void:
 	left.size_flags_vertical = Control.SIZE_FILL
 	left.alignment = BoxContainer.ALIGNMENT_BEGIN
 	DeepUi.gap(left, BattleScreen.OVER_ROW + 4.0)
-	var rail_row := DeepUi.hbox(left, 6)
+	var rail_row := DeepUi.hbox(left, 0 if tight else 6)
 	rail_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	rail_row.custom_minimum_size.y = SLOT + 20
 	## Where the fight's Resonance meter stands: empty, so the rail stands where it stands
@@ -439,10 +523,8 @@ func _build_dock(unit: Dictionary) -> void:
 	under.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	under.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rail_row.tooltip_text = "Drag a stone from the bag onto a socket to set it, or a set stone back into the bag." if editable() else ""
-	var rail: Array = unit.get("rail", [])
 	for index in range(rail.size()):
-		_socket(rail_row, unit, index)
-	var birth: Dictionary = DeepStone.birthstone_for(unit)
+		_socket(rail_row, unit, index, cap)
 	if not birth.is_empty():
 		## Built the way a socket is, slot over name: in a row that stretches what it holds,
 		## a bare picture would take the height of its neighbours' captions as well and hang
@@ -464,7 +546,7 @@ func _build_dock(unit: Dictionary) -> void:
 		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
 		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.add_child(picture)
-		DeepUi.fit_label(card, str(birth.get("name", "")), 12, GemMesh.tint(birth).lightened(0.35), SLOT + 8)
+		DeepUi.fit_label(card, str(birth.get("name", "")), 12, GemMesh.tint(birth).lightened(0.35), cap)
 		Tips.attach(card, func() -> Control: return _birth_plate(unit, birth), {"tone": GemMesh.tint(birth)})
 		_inspectable(card, func() -> void: Inspector.stone(birth))
 	var divider := DeepUi.rule(columns, DeepUi.LEDGER_LINE)
@@ -476,7 +558,7 @@ func _build_dock(unit: Dictionary) -> void:
 	## The fight's line over the dice and its buttons under them, as empty rows of the same
 	## height, so the dice stand where they stand in a fight.
 	DeepUi.gap(middle, BattleScreen.OVER_ROW).mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var tray := DeepUi.hbox(middle, 8)
+	var tray := DeepUi.hbox(middle, 2 if tight else 8)
 	tray.alignment = BoxContainer.ALIGNMENT_CENTER
 	tray.tooltip_text = "Drag a die onto another to change their places." if editable() else ""
 	_spots["dice:"] = tray
@@ -506,7 +588,8 @@ func _birth_plate(unit: Dictionary, birth: Dictionary) -> Control:
 	Plates.footer(box)
 	return box
 
-func _socket(parent: Node, unit: Dictionary, index: int) -> void:
+func _socket(parent: Node, unit: Dictionary, index: int, cap: float = SLOT + 8) -> void:
+	## cap: how wide the name under the stone may run (narrower on an eight-stone rail).
 	var sockets: Array = unit.get("sockets", [])
 	var color: String = str(sockets[index]) if index < sockets.size() else "ANY"
 	var stone: Variant = unit.rail[index]
@@ -518,7 +601,7 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 	host.mouse_filter = Control.MOUSE_FILTER_PASS
 	parent.add_child(host)
 	var fan := Control.new()
-	fan.custom_minimum_size = Vector2(SLOT + 8, 0)
+	fan.custom_minimum_size = Vector2(cap, 0)
 	fan.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	host.add_child(fan)
 	var card := VBoxContainer.new()
@@ -529,7 +612,13 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 	slot.custom_minimum_size = Vector2(SLOT, SLOT)
 	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(slot)
-	var ring := BattleScreen.SocketRing.new(color, not set_here)
+	var riders: Array = DeepStone.riders_of(unit, index)
+	## A socket with no gem of its own wears its first rider in front, in the gem's place and
+	## named in the Void's blue (as the fight's dock does); the rest fan out behind. An empty
+	## ring saying "Any" over faint riders read as a socket where nothing fires.
+	var lead: Dictionary = riders[0] if not set_here and not riders.is_empty() else {}
+	var ring := BattleScreen.SocketRing.new(color if lead.is_empty() else "VOID", not set_here and lead.is_empty())
+	ring.front = not lead.is_empty()
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(ring)
 	_spots["socket:%d" % index] = slot
@@ -541,22 +630,43 @@ func _socket(parent: Node, unit: Dictionary, index: int) -> void:
 		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
 		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		slot.add_child(picture)
-		DeepUi.fit_label(card, DeepUi.skill_name(stone), 12, DeepUi.PAPER, SLOT + 8)
+		DeepUi.fit_label(card, DeepUi.skill_name(stone), 12, DeepUi.PAPER, cap)
 		var set_stone: Dictionary = stone
-		Tips.attach(card, func() -> Control: return Plates.gem(set_stone, _rail_context(unit, index), [], {}, [], _rider_opts(unit, index, set_stone)), {"tone": DeepUi.color(DeepStone.color(set_stone)), "keep": true})
+		Tips.attach(card, func() -> Control: return _refused(Plates.gem(set_stone, _rail_context(unit, index), [], {}, [], _rider_opts(unit, index, set_stone)), "stone", str(set_stone.id)), {"tone": DeepUi.color(DeepStone.color(set_stone)), "keep": true})
 		if editable() and not DeepStone.is_locked(stone):
 			data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": index, "appraised": true}
 			card.mouse_default_cursor_shape = Control.CURSOR_DRAG
+	elif not lead.is_empty():
+		var lead_id: String = str(lead.get("id", ""))
+		_spots["stone:" + lead_id] = slot
+		card.set_meta("pick", ["stone", lead_id])
+		if _veiled.has(lead_id):
+			slot.modulate.a = 0.0
+		var front := Thumbs.GemThumb.new(lead, SLOT - 22)
+		front.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
+		front.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(front)
+		DeepUi.fit_label(card, DeepUi.skill_name(lead), 12, DeepUi.INFO, cap)
+		Tips.attach(card, func() -> Control: return _refused(Plates.gem(lead, {}, [], {}, [], _rider_opts(unit, index, lead, true)), "stone", lead_id), {"tone": DeepUi.INFO, "keep": true})
+		if editable() and not DeepStone.is_locked(lead):
+			data = {"kind": "stone", "stone_id": lead_id, "from_socket": index, "rider": 0, "appraised": true}
+			card.mouse_default_cursor_shape = Control.CURSOR_DRAG
 	else:
-		DeepUi.label(card, "Any" if color == "ANY" else color.capitalize(), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = SLOT + 8
+		DeepUi.label(card, "Any" if color == "ANY" else color.capitalize(), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = cap
 		Tips.attach(card, func() -> Control: return Plates.words("An empty socket", "Drag any appraised stone onto it. Its color only matters when the loadout is built at home.", "Any" if color == "ANY" else color.capitalize()))
-	var riders: Array = DeepStone.riders_of(unit, index)
 	if not riders.is_empty():
-		_riders_fan(fan, unit, index, riders)
+		_riders_fan(fan, unit, index, riders, 0 if lead.is_empty() else 1)
 	var at: int = index
-	_wire(card, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60) if set_here else Control.new(),
-		func(incoming: Dictionary) -> bool: return _socket_takes(unit, incoming, at),
-		func(incoming: Dictionary) -> void: _socket_drop(incoming, at), ring)
+	var shown: Dictionary = stone if set_here else lead
+	_wire(card, data, func() -> Control: return Thumbs.GemThumb.new(shown, 60) if not shown.is_empty() else Control.new(),
+		func(incoming: Dictionary) -> bool: return _socket_takes(unit, incoming, at) or (not lead.is_empty() and _rider_takes(unit, incoming, at, 0)),
+		func(incoming: Dictionary) -> void:
+			if lead.is_empty():
+				_socket_drop(incoming, at)
+			else:
+				_front_drop(unit, incoming, at), ring)
+	if not lead.is_empty():
+		_inspectable(card, func() -> void: Inspector.stone(lead))
 	if set_here:
 		_inspectable(card, func() -> void:
 			var battle: Dictionary = DeepDescent.battle(run)
@@ -597,16 +707,18 @@ func _rider_opts(unit: Dictionary, socket: int, stone: Dictionary, rider_of: boo
 		opts.riders = riders
 	return opts
 
-func _riders_fan(fan: Control, unit: Dictionary, socket: int, riders: Array) -> void:
+func _riders_fan(fan: Control, unit: Dictionary, socket: int, riders: Array, lead: int = 0) -> void:
 	## The Void gems riding a socket, fanned out behind its ring, each firing after the socket's
 	## own gem in this order. Three show; a count at the ring's corner says how many there are,
-	## and the bench lays them out in full.
-	var shown: int = mini(riders.size(), RIDERS_SHOWN)
-	for at in range(shown):
+	## and the bench lays them out in full. The first `lead` of them stand in front instead (an
+	## empty socket's first rider), so the fan starts after them.
+	var shown: int = mini(riders.size() - lead, RIDERS_SHOWN)
+	for step in range(shown):
+		var at: int = step + lead
 		var chip := Control.new()
 		chip.custom_minimum_size = Vector2(SLOT, SLOT)
 		chip.size = Vector2(SLOT, SLOT)
-		chip.position = Vector2(4.0, 0.0) + Fan.STEP * float(at + 1)
+		chip.position = Vector2(4.0, 0.0) + Fan.STEP * float(step + 1)
 		chip.mouse_filter = Control.MOUSE_FILTER_STOP
 		fan.add_child(chip)
 		fan.move_child(chip, 0)
@@ -658,7 +770,7 @@ func _rider_chip(chip: Control, unit: Dictionary, socket: int, at: int, stone: D
 		data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": socket, "rider": at, "appraised": true}
 		chip.mouse_default_cursor_shape = Control.CURSOR_DRAG
 	var rider: Dictionary = stone
-	Tips.attach(chip, func() -> Control: return Plates.gem(rider, {}, [], {}, [], _rider_opts(unit, socket, rider, true)), {"tone": DeepUi.INFO, "keep": true})
+	Tips.attach(chip, func() -> Control: return _refused(Plates.gem(rider, {}, [], {}, [], _rider_opts(unit, socket, rider, true)), "stone", str(rider.id)), {"tone": DeepUi.INFO, "keep": true})
 	## Another Void gem dropped on this one goes into the line ahead of it.
 	_wire(chip, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60),
 		func(incoming: Dictionary) -> bool: return _rider_takes(unit, incoming, socket, at),
@@ -702,6 +814,14 @@ func _socket_drop(incoming: Dictionary, index: int) -> void:
 			_send({"kind": "buy", "item_id": str(incoming.item_id)}, "buy")
 			_send({"kind": "socket", "stone_id": str(incoming.get("stone", {}).get("id", "")), "index": index}, "dice_lock")
 
+func _front_drop(unit: Dictionary, incoming: Dictionary, index: int) -> void:
+	## Dropped on the rider standing in an empty socket's place: a Void gem goes into the line
+	## ahead of it, as on any rider; any other stone is set in the socket, the riders behind it.
+	if str(incoming.get("kind", "")) == "stone" and DeepStone.is_slotless(DeepOddities.find_stone(unit, str(incoming.get("stone_id", "")))):
+		_send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": index, "at": 0}, "dice_lock")
+	else:
+		_socket_drop(incoming, index)
+
 func _die_slot(parent: Node, unit: Dictionary, index: int) -> void:
 	var die: Dictionary = unit.dice[index]
 	var id: String = str(die.get("id", ""))
@@ -712,7 +832,7 @@ func _die_slot(parent: Node, unit: Dictionary, index: int) -> void:
 	var material: String = str(die.get("material", ""))
 	var pattern: String = str(die.get("pattern", ""))
 	var shown_die: Dictionary = die
-	Tips.attach(card, func() -> Control: return Plates.die(shown_die, {}, {"footer": "Drag · change its place · Right-click · everything" if editable() else Plates.FOOTER}), {"tone": DiceIcons.die_palette(shown_die).body})
+	Tips.attach(card, func() -> Control: return _refused(Plates.die(shown_die, {}, {"footer": "Drag · change its place · Right-click · everything" if editable() else Plates.FOOTER}), "die", id), {"tone": DiceIcons.die_palette(shown_die).body})
 	parent.add_child(card)
 	var thumb := Thumbs.DieThumb.new(die, DIE)
 	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -798,7 +918,7 @@ func _fit_drawer(unit: Dictionary) -> void:
 	## the same height whichever toggles are on; one that wraps adds its rows on top.
 	_stone_flow.custom_minimum_size.y = float(rows) * GEM_TILE_STEP - 6.0
 	_drawer_height = _drawer.get_combined_minimum_size().y
-	_drawer.offset_top = - _height - 20 - _drawer_height
+	_drawer.offset_top = - _height - 20 - _tabs_lift() - _drawer_height
 
 # --- the drawer --------------------------------------------------------------------------------
 
@@ -808,6 +928,13 @@ func _build_drawer(unit: Dictionary) -> void:
 	## Stones.
 	var stones := DeepUi.vbox(row, 6)
 	stones.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Packed against the foot of the drawer: pointing at a stone fills the reading pane, which can
+	## stand taller than the empty one, and the drawer grows upward to hold it. Packed at the top,
+	## the toggles and stones would jump up from under the pointer and the click would miss.
+	stones.alignment = BoxContainer.ALIGNMENT_END
+	## Heard by the mouse, so a set stone dropped in the empty band above the toggles still lands
+	## in the bag, as it did when the stones' row stretched to fill that band.
+	stones.mouse_filter = Control.MOUSE_FILTER_PASS
 	var everything: Array = unit.get("haul", [])
 	var haul: Array = _shown_haul(unit)
 	var head := DeepUi.hbox(stones, 6)
@@ -821,7 +948,8 @@ func _build_drawer(unit: Dictionary) -> void:
 	_toggle(head, "gem", "Appraised %d" % appraised_count, show_appraised, DeepUi.ACCENT, func() -> void:
 		show_appraised = not show_appraised
 		_rebuild())
-	_toggle(head, "pick", "Raw %d" % raw_count, show_raw, DeepUi.MUTED, func() -> void:
+	## Lit in paper when on, not muted grey: grey is how a toggle looks when it is off.
+	_toggle(head, "pick", "Raw %d" % raw_count, show_raw, DeepUi.PAPER, func() -> void:
 		show_raw = not show_raw
 		_rebuild())
 	_toggle(head, "geode", "Geodes %d" % geode_count, show_geodes, Color("c8a8ff"), func() -> void:
@@ -840,7 +968,8 @@ func _build_drawer(unit: Dictionary) -> void:
 	var stone_flow := HFlowContainer.new()
 	stone_flow.add_theme_constant_override("h_separation", 6)
 	stone_flow.add_theme_constant_override("v_separation", 6)
-	stone_flow.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	## Not EXPAND: a box ignores its alignment while any child expands.
+	stone_flow.size_flags_vertical = Control.SIZE_FILL
 	stone_flow.mouse_filter = Control.MOUSE_FILTER_PASS
 	stones.add_child(stone_flow)
 	_stone_flow = stone_flow
@@ -867,7 +996,7 @@ func _build_drawer(unit: Dictionary) -> void:
 	var divider := DeepUi.rule(row, DeepUi.LEDGER_LINE)
 	divider.custom_minimum_size = Vector2(3, 0)
 	var pane := DeepUi.vbox(row, 6)
-	pane.custom_minimum_size.x = PANE_WIDTH
+	pane.custom_minimum_size = Vector2(PANE_WIDTH, PANE_HEIGHT)
 	pane.name = "Pane"
 	_fill_pane(pane, unit)
 
@@ -887,6 +1016,9 @@ func _toggle(parent: Node, glyph: String, words: String, on: bool, tone: Color, 
 	b.add_theme_color_override("font_hover_color", Color.WHITE)
 	b.add_theme_font_override("font", DeepUi.bold_font())
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	## Drawn 20 tall, it was a hard target on a trackpad: its click reaches 7 above and below
+	## and half the 6 px gap to each side (DeepUi.reach), the capsule drawn as before.
+	DeepUi.reach(b, Vector2(3, 7))
 	return b
 
 func _fill_pane(pane: VBoxContainer, unit: Dictionary) -> void:
@@ -945,9 +1077,27 @@ func _fill_pane(pane: VBoxContainer, unit: Dictionary) -> void:
 				into = index
 		if into >= 0:
 			var target: int = into
-			var set_button := DeepUi.icon_button(buttons, "gem", "Ride socket %d" % (target + 1) if DeepStone.is_slotless(stone) else "Set in %d" % (target + 1), func() -> void:
+			var set_button := DeepUi.icon_button(buttons, "gem", "Ride socket %d" % (target + 1) if DeepStone.is_slotless(stone) else "Set in socket %d" % (target + 1), func() -> void:
 				_send({"kind": "socket", "stone_id": id, "index": target}, "dice_lock"), 12, DeepUi.GOOD)
 			DeepUi.ledger_button(set_button, DeepUi.SLATE_HI, DeepUi.GOOD, 6)
+		elif not rail.is_empty() and not DeepStone.is_slotless(stone):
+			## No empty socket takes it: most often the rail already holds its skill. It can still
+			## take the place of that twin; otherwise say why, rather than offer nothing.
+			var swap: int = -1
+			for index in range(rail.size()):
+				if swap < 0 and rail[index] is Dictionary and str(rail[index].get("skill", "")) == str(stone.get("skill", "")) and DeepDescent.socket_refusal(unit, stone, index).is_empty():
+					swap = index
+			if swap >= 0:
+				var twin: int = swap
+				var swap_button := DeepUi.icon_button(buttons, "gem", "Swap for your %s (socket %d)" % [str(DeepStone.skill_of(rail[twin]).get("name", "stone")), twin + 1], func() -> void:
+					_send({"kind": "socket", "stone_id": id, "index": twin}, "dice_lock"), 12, DeepUi.GOOD)
+				DeepUi.ledger_button(swap_button, DeepUi.SLATE_HI, DeepUi.GOOD, 6)
+			else:
+				var reason: String = DeepDescent.rail_duplicate(unit, stone)
+				if reason.is_empty() and rail.has(null):
+					reason = DeepDescent.socket_refusal(unit, stone, rail.find(null))
+				if not reason.is_empty():
+					DeepUi.wrap(pane, "Can't be set: %s." % reason, 11, DeepUi.BAD, HORIZONTAL_ALIGNMENT_LEFT, PANE_WIDTH - 10.0)
 	if DeepDescent.at_stall(run) and not DeepStone.is_geode(stone) and not DeepStone.known_fragile(stone) and not bool(me().get("downed", false)):
 		var sell := DeepUi.icon_button(buttons, "scales", "Sell · %d" % DeepStone.sell_value(stone), func() -> void: _send({"kind": "sell", "stone_id": id}, "sell"), 12, DeepUi.ORE)
 		DeepUi.ledger_button(sell, DeepUi.SLATE_HI, DeepUi.ORE, 6)
@@ -1000,6 +1150,12 @@ func _stone_tile(parent: Node, stone: Dictionary) -> void:
 			if pane != null:
 				DeepUi.clear(pane)
 				_fill_pane(pane, me())
+				## A reading taller than the pane's floor (a long appraised text) still stands the
+				## bag taller: the pages above move out of its way, as they do when it opens.
+				var was: float = _drawer_height
+				_fit_drawer(me())
+				if _drawer_height != was:
+					drawer_toggled.emit(_open)
 			for other in _stone_flow.get_children():
 				var face: Node = other.get_child(0) if other.get_child_count() > 0 else null
 				if face is Panel:
@@ -1009,10 +1165,10 @@ func _stone_tile(parent: Node, stone: Dictionary) -> void:
 	tile.mouse_exited.connect(func() -> void: _light_fits(unit, stone, false))
 	Tips.attach(tile, func() -> Control:
 		if appraised and not DeepStone.is_geode(stone):
-			return Plates.gem(stone, {}, [], {}, [], {})
+			return _refused(Plates.gem(stone, {}, [], {}, [], {}), "stone", id)
 		if DeepStone.is_geode(stone):
 			return Plates.words(DeepStone.raw_name(stone), "Sealed: only the workshop can crack it.", "geode", Color("c8a8ff"))
-		return Plates.words(DeepStone.raw_name(stone), "%s, %s. Appraise it at a stall or a landing before it can be set." % [DeepStone.size_name(int(stone.get("carat", 1))), str(DeepContent.color(DeepStone.color(stone)).get("name", "")).to_lower()], "raw", DeepUi.color(DeepStone.color(stone))), {"tone": tone})
+		return _refused(Plates.words(DeepStone.raw_name(stone), "%s, %s. Appraise it at a stall or a landing before it can be set." % [DeepStone.size_name(int(stone.get("carat", 1))), str(DeepContent.color(DeepStone.color(stone)).get("name", "")).to_lower()], "raw", DeepUi.color(DeepStone.color(stone))), "stone", id), {"tone": tone})
 	## A sealed Geode is never dragged: there is nothing to set it in and nothing to sell it to.
 	var data: Dictionary = {"kind": "stone", "stone_id": id, "from_socket": - 1, "appraised": appraised} if editable() and not DeepStone.is_geode(stone) else {}
 	_wire(tile, data, func() -> Control: return Thumbs.GemThumb.new(stone, 60), Callable(), Callable())
@@ -1061,11 +1217,13 @@ func _wire(control: Control, data: Dictionary, preview: Callable, accepts: Calla
 
 func _notification(what: int) -> void:
 	## While something is being dragged, the places it could go are lit and the rest dim; a
-	## drag from the room opens the drawer, since that is where bought things go.
+	## drag from the room opens the drawer, since that is where bought things go, and shuts it
+	## again when it ends, so the stall's goods and price tags are not left under it.
 	if what == NOTIFICATION_DRAG_BEGIN:
 		var data: Variant = get_viewport().gui_get_drag_data()
 		if data is Dictionary and str(data.get("kind", "")) == "shop_item" and not _open:
 			set_drawer(true)
+			_drag_opened = true
 		for target in _targets:
 			if not is_instance_valid(target.node):
 				continue
@@ -1079,3 +1237,8 @@ func _notification(what: int) -> void:
 				target.node.modulate = Color.WHITE
 			if target.get("ring") != null and is_instance_valid(target.ring):
 				target.ring.set_ready(false)
+		if _drag_opened:
+			_drag_opened = false
+			## After the drop has been answered, not in the middle of it.
+			if _open:
+				set_drawer.call_deferred(false)

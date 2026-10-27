@@ -46,6 +46,8 @@ var _hover: String = ""
 var _taken: String = ""
 ## What can be done here now: their names show faintly without pointing at them.
 var _offered: Array = []
+## While a landing's page is open its own words say what the station is: the names float no more.
+var names_hushed: bool = false
 var _respites: bool = true
 var _clock: float = 0.0
 
@@ -237,7 +239,9 @@ func _build_campfire(rng: RandomNumberGenerator, biome: Dictionary, ground: Call
 	_fire_light.shadow_enabled = false
 	fire.add_child(_fire_light)
 	_glow(fire, "rest", Color("ffb066"), Vector3(0, 0.8, 0.5), 3.0)
-	_label(fire, "rest", "Rest", Vector3(0, 1.35, 0), DeepUi.GOOD)
+	## Low, on the flame tips: any higher and the near fire's word lands on the far cage, and
+	## points at the lift (the smaller rect wins the pick) rather than the fire.
+	_label(fire, "rest", "Rest", Vector3(0, 0.9, 0), DeepUi.GOOD)
 	parts["rest"] = fire
 
 func _build_bench(rng: RandomNumberGenerator, ground: Callable) -> void:
@@ -402,6 +406,12 @@ func set_taken(choice: String) -> void:
 	## The respite taken: that one stays warm; the others go quiet.
 	_taken = choice
 
+func name_spot(key: String) -> Node3D:
+	## Where a thing's floating name hangs ("up", "trade", ...), so a tag about it can sit just
+	## under its name rather than over it. Null for a thing this hall does not have.
+	var spot: Variant = _labels.get(key, null)
+	return spot if spot is Node3D and is_instance_valid(spot) else null
+
 func wish_drawn(fx: Node3D, tier: int) -> float:
 	## Something has gone down the well: the bucket goes down after it and comes back up with
 	## the answer, as loud as it is. Returns how long until it breaks over the rim.
@@ -429,5 +439,5 @@ func _process(delta: float) -> void:
 		beam.light_energy = move_toward(beam.light_energy, lit * (1.0 + 0.06 * sin(_clock * 1.7 + float(key.length()))), delta * 6.0)
 	for key in _labels:
 		var spot: Node3D = _labels[key]
-		var shown: float = 1.0 if key == _hover else (0.88 if _offered.has(key) else 0.0)
+		var shown: float = 0.0 if names_hushed else (1.0 if key == _hover else (0.88 if _offered.has(key) else 0.0))
 		spot.set_meta("alpha", move_toward(float(spot.get_meta("alpha", 0.0)), shown, delta * 6.0))

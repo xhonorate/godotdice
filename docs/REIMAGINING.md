@@ -66,7 +66,7 @@ Every gem is one formula with three multiplicative dials. Carat multiplies every
 | ----------- | -------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------- |
 | **color**   | _What kind of thing does it do?_             | Red, Blue, Green, Violet, Gold, White                  | Yes: hue, through a window in its rock            |
 | **Carat**   | _How much?_                                  | 1 to 24, heavy-tailed                                  | Only as a class: Tiny, Small, Medium, Large, Huge |
-| **Cut**     | _How often does it fire?_                    | Poor, Fair, Good, Fine, Perfect                        | No: the rock covers most of the girdle            |
+| **Cut**     | _How often does it fire?_                    | Poor, Fair, Good, Keen, Perfect                        | No: the rock covers most of the girdle            |
 | **Clarity** | _How pure is it, and what is frozen inside?_ | Intricate, Etched, Included, Clear, Pristine, Flawless | No: nothing says whether anything is inside       |
 
 **Revised (September 22, 2026).** A raw stone is drawn half-buried in three or four chunks of its host rock and at its size class's size, and says only its color and that class. The appraisal knocks the chunks off one at a time, the largest last, before reading out the four C's and the inclusions one by one.
@@ -356,7 +356,7 @@ Before the first tunnels the run opens at the **shaft head**, where the workshop
 
 Every player sees exactly these three: a stone stake, a kit stake and terms. (An earlier fourth, a long shot offered to veterans, was cut as dull.)
 
-**Mercy.** A player whose last run fell before the first landing has their kit stake drawn from the stakes tagged for it (Hardy, Soft Rock), so a bad run is followed by a gentler start. Standing travels with the lobby member as the last run's depth and ending, so it works the same alone and over the network.
+**Mercy.** A player whose last run fell before the first landing, or fell in a mine whose first Warden their profile has never beaten (Oct 26 2026: most new players fall at that Warden), has their kit stake drawn from the stakes tagged for it (Hardy, Soft Rock), so a bad run is followed by a gentler start, and the kit card says "The workshop goes easy on you after that fall." Standing travels with the lobby member as the last run's depth, ending and `last_warden_unbeaten`, refreshed whenever the profile changes, so it works the same alone and over the network.
 
 Every stake is content (`boons` in the pack) with a small vocabulary of run effects and a `needs` field: a socket in the rail, or a pick from candidates rolled when the offer is made so the player sees what is on the table. The offer is rolled from its own RNG stream, so a seed replays the same stakes. In co-op each player takes their own stake and the tunnels open when everyone has.
 
@@ -419,6 +419,8 @@ This is the lever. It gets the most polish of anything in the game.
 Every stone gets this, but the ceremony is skippable to a fast "flip" for Rough and Fine stones after the player has seen a few, and batchable ("appraise all Rough"). The near-miss is honest: a Carat 19 says 19. Odds are shown on the card: "Perfect Cut: 1 in 40. Flawless: 1 in 60. Star inclusion: 1 in 400."
 
 ~~Mid-run, the same ceremony plays at a Landing's Lapidary, paid for with a loupe or ore. Loupes are scarce (two per run plus finds), so appraising underground is a real decision: use the huge red one now, or save the loupe.~~ Revised (October 6, 2026): loupes are gone as an item. Mid-run, the same ceremony plays wherever a stone is read: a landing's one free appraisal (a respite, so it costs the rest or the well), a merchant's lens for pyrite that costs more each time at the same stall, the Dead Man's Kit, or the Acid Bath for health. Appraising underground is still a real decision, paid in respites, pyrite or blood.
+
+Revised (October 26, 2026), from the playtest: in the Quarry the rail never grew, its empty sockets waiting while raw finds sat unread in the bag. The lens's first reading at a stall now costs 25 pyrite in every mine (`appraise_ore_cost`, was 50; each one after at the same stall still costs 50 more), and in the Quarry (`elite_drops_read` on the mine) a stone an elite drops comes out read, as on a Big Game day. A read stone a fight gives up is offered straight to the rail over the room: "Set in socket N" (or Ride, or Swap for the set gem of its skill) beside "Keep in bag".
 
 ### 9.2 Progression, in one place
 

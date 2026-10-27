@@ -39,6 +39,9 @@ var quality: int = 3
 var exits: Array = []
 ## The party's lantern, faded as the party walks away from its mark.
 var lamp: float = 1.0
+## Where a landing's own furniture stands, room x/z (the lift cage, a party's trading booth):
+## floor props keep off it and out of the line the party sees it along. Set before `plan`.
+var keep_clear: Array = []
 
 var _rng := RandomNumberGenerator.new()
 var _noise := FastNoiseLite.new()
@@ -51,6 +54,8 @@ var _optional_lights: Array = []
 var _ambient: Array = []
 var _mist: FogVolume = null
 var _key_light: SpotLight3D = null
+## The lights that fall on the creatures alone (CrystalCreature.LAYER).
+var _creature_lights: Array = []
 var _rock: StandardMaterial3D
 var _floor_material: StandardMaterial3D
 var _seed: int = 0
@@ -403,10 +408,22 @@ func _free_spot(min_side: float = 5.5, min_back: float = -8.5) -> Vector2:
 	for _try in range(40):
 		var x := _rng.randf_range(-12.0, 12.0)
 		var z := _rng.randf_range(Z_FAR + 3.0, 3.0)
-		if (absf(x) > min_side or z < min_back) and trail_distance(x, z) > 2.8:
+		if (absf(x) > min_side or z < min_back) and trail_distance(x, z) > 2.8 and not _hides_furniture(x, z):
 			if absf(x) < 10.5 or z < -14.0:
 				return Vector2(x, z)
 	return Vector2(8.0, -12.0)
+
+func _hides_furniture(x: float, z: float) -> bool:
+	## On one of `keep_clear`, or between it and where the party stands at a landing
+	## (LiftHall.VIEWPOINT, x 0 z 5.2), so the cage is never behind a crystal.
+	var at := Vector2(x, z)
+	var eye := Vector2(0.0, 5.2)
+	for spot in keep_clear:
+		var to: Vector2 = (spot as Vector2) - eye
+		var t: float = clampf((at - eye).dot(to) / to.length_squared(), 0.0, 1.0)
+		if at.distance_to(eye + to * t) < 3.0:
+			return true
+	return false
 
 # --- placing -----------------------------------------------------------------------------------
 
@@ -971,6 +988,22 @@ func _lights() -> void:
 		## creature nobody can see. Their haze in the fog is kept low for the same reason.
 		var rim := _light(spots[i], color, energy * (1.2 if i < 2 else 0.8), 13.0, float(biome.get("flicker", 0.1)), 0.0, i >= 2)
 		rim.light_volumetric_fog_energy = 0.45
+	## Light for the creatures alone, drawn on their layer and nothing else: a fill from the
+	## party's side in the lantern's color, and a rim from behind in the room's own. Lit
+	## only as the rock is, a tan Rail Rat read as one more grey rock on the floor. A
+	## Warden glows enough of its own and stands close: it takes half, or goes flat.
+	var lift: float = float(biome.get("creature_light", 0.5 if bool(biome.get("warden", false)) else 1.0))
+	for spec in [[Vector3(-1.8, 3.4, 1.4), Color(biome.key), 8.0, 16.0], [Vector3(0.0, 4.4, -10.0), Color(colors[0]), 4.0, 12.0]]:
+		var light := OmniLight3D.new()
+		light.position = spec[0]
+		light.light_color = spec[1]
+		light.light_energy = float(spec[2]) * lift
+		light.omni_range = spec[3]
+		light.light_cull_mask = CrystalCreature.LAYER
+		light.light_volumetric_fog_energy = 0.0
+		light.shadow_enabled = false
+		add_child(light)
+		_creature_lights.append(light)
 	## Shafts of light from cracks in the ceiling, drawn out by the fog.
 	if family() in ["galleries", "geode", "crystal", "fungal"] or bool(biome.get("warden", false)):
 		for x in [-3.2, 3.8]:
@@ -1124,6 +1157,10 @@ func rest_lights(on: bool) -> void:
 	for light in _optional_lights:
 		if is_instance_valid(light):
 			(light as Light3D).visible = on and (quality >= 2 or _optional_lights.find(light) % 2 == 0)
+	## Nothing is left standing in a room behind the party to light.
+	for light in _creature_lights:
+		if is_instance_valid(light):
+			(light as Light3D).visible = on
 
 func surge(color: Color, amount: float = 1.0) -> void:
 	## Every light in the room leaps for a moment: a heavy blow, a Warden's roar.

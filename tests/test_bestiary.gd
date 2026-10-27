@@ -22,6 +22,7 @@ func _init() -> void:
 	dice_for_the_fight_and_for_good()
 	echoes_and_the_remembered()
 	the_hollow_crown()
+	a_bosss_brood_runs()
 	scaling_with_the_mine()
 	the_identity_pass()
 	every_creature_has_a_tip()
@@ -883,6 +884,58 @@ func the_hollow_crown() -> void:
 	var standing: Array = DeepBattle.living(f.state.enemies)
 	check(standing.filter(func(e: Dictionary) -> bool: return str(e.key) == "GILDED_MAGPIE").size() == 2, "and they are Gilded Magpies")
 	check(standing.size() == 3 and standing[1] == f.foe, "one on either side of the boss that called them")
+
+func a_bosss_brood_runs() -> void:
+	## A Warden's death ends its brood's fight too (playtest R59): what it called, what those
+	## called, and its escorts run; a creature that came in on its own stays.
+	var f: Dictionary = setup(["THE_DRILL", "CAVE_TICK"])
+	var rats: Array = DeepBattle.summon(f.state, f.foe, "RAIL_RAT", 1, f.rng.creatures)
+	var pup: Array = DeepBattle.summon(f.state, DeepBattle.enemy(f.state, str(rats[0])), "RAIL_RAT", 1, f.rng.creatures) if not rats.is_empty() else []
+	var tick: Dictionary = f.state.enemies.filter(func(e: Dictionary) -> bool: return str(e.key) == "CAVE_TICK")[0]
+	check(rats.size() == 1 and pup.size() == 1, "the Drill calls a rat and the rat calls another")
+	if rats.is_empty() or pup.is_empty():
+		return
+	## A rat dying routs nothing: only a Warden's death does.
+	var first: Dictionary = DeepBattle.enemy(f.state, str(rats[0]))
+	first.block = 0
+	var rat_down: Dictionary = DeepBattle._damage(f.state, f.player, first, 9999, f.rng.dice)
+	check(bool(rat_down.get("killed", false)) and not rat_down.has("routed") and int(DeepBattle.enemy(f.state, str(pup[0])).hp) > 0, "a rat's death leaves the rat it called standing")
+	f.foe.statuses.ward = 0
+	f.foe.block = 0
+	f.foe.hp = 5
+	var blow: Dictionary = hit(f, 50)
+	var routed: Array = blow.get("routed", []).map(func(e: Dictionary) -> String: return str(e.unit))
+	check(bool(blow.get("killed", false)) and routed == [str(pup[0])], "the Drill's death routs the rat its dead rat called: %s" % str(routed))
+	var runner: Dictionary = DeepBattle.enemy(f.state, str(pup[0]))
+	check(bool(runner.fled) and int(runner.hp) == 0 and not bool(first.get("fled", false)), "it flees rather than dies; the rat already dead stays dead")
+	check(int(tick.hp) > 0 and not bool(tick.get("fled", false)) and str(f.state.outcome).is_empty(), "a creature that came in on its own stays, and the fight goes on")
+	tick.block = 0
+	DeepBattle._damage(f.state, f.player, tick, 9999, f.rng.dice)
+	check(str(f.state.outcome) == "victory", "then it ends with the last of them")
+	## With only its brood beside it, the boss's death ends the fight there and then.
+	var lone: Dictionary = setup(["THE_DRILL"])
+	DeepBattle.summon(lone.state, lone.foe, "RAIL_RAT", 2, lone.rng.creatures)
+	lone.foe.statuses.ward = 0
+	lone.foe.block = 0
+	lone.foe.hp = 5
+	hit(lone, 50)
+	check(str(lone.state.outcome) == "victory" and DeepBattle.living(lone.state.enemies).is_empty(), "the Drill dead, its rats gone, the chamber is won")
+	## Escorts go with their leader; a thief drops what it took for the blow that did it.
+	var p: Dictionary = setup(["THE_PRISMARCH"])
+	p.foe.statuses.ward = 0
+	p.foe.block = 0
+	p.foe.hp = 5
+	var prism_blow: Dictionary = hit(p, 500)
+	check(prism_blow.get("routed", []).size() == 3 and str(p.state.outcome) == "victory", "the Prismarch's prisms leave with it")
+	var c: Dictionary = setup(["THE_HOLLOW_CROWN"])
+	var magpies: Array = DeepBattle.summon(c.state, c.foe, "GILDED_MAGPIE", 2, c.rng.creatures)
+	DeepBattle.enemy(c.state, str(magpies[0])).stolen_gold = 12
+	c.player.gold = 0
+	c.foe.statuses.ward = 0
+	c.foe.block = 0
+	c.foe.hp = 5
+	var crown_blow: Dictionary = hit(c, 500)
+	check(int(c.player.gold) == 12 and crown_blow.routed.any(func(e: Dictionary) -> bool: return int(e.get("recovered_gold", 0)) == 12), "a fleeing magpie drops its 12 pyrite for the killer: %d" % int(c.player.gold))
 
 func scaling_with_the_mine() -> void:
 	## A creature's own numbers carry the weight its mine gives it (October 25, 2026): what it

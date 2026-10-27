@@ -45,6 +45,12 @@ const VARIANTS: Dictionary = {
 const FALLBACK_SCENE: String = "res://view/creatures/scenes/crystal_cluster.tscn"
 ## The ghostly palette a Void Echo wears over whatever it copies.
 const ECHO_TINT := Color("8b7dff")
+## A render layer its body is drawn on as well as the first, so a room can light its
+## creatures without lighting its rock (Chamber's creature lights): a tan rat stands off tan
+## rubble instead of sinking into it.
+const LAYER: int = 1 << 10
+## Where the party stands in a room, room space: a creature in the arc turns to face it.
+const PARTY_Z: float = 5.2
 const TINTS: Array = ["9a7dff", "4fd6b8", "ff8a4a", "5a8cff", "ffc23a", "c860ff", "58d878", "ff5a7a", "7ac8ff", "ffd45a"]
 
 # Paths avoid a preload cycle with the scenes' root script. Keep each PackedScene loaded
@@ -61,6 +67,9 @@ static var _requested: Dictionary = {}
 @export var core_material: StandardMaterial3D
 ## An optional third material for the parts that glow hardest: a lamp, a fire, an eye.
 @export var accent_material: StandardMaterial3D
+## An optional fourth, for worked metal (a pick's head, a hard hat, a track): dark, so the
+## shape reads against the creature's own glow.
+@export var iron_material: StandardMaterial3D
 ## The unmodified color to use when switching between normal and Warden variants.
 @export var normal_tint: Color = Color.WHITE
 @export var normal_accent: Color = Color.WHITE
@@ -70,9 +79,19 @@ var tint: Color:
 var anchor: Vector3:
 	get: return (get_node("Anchor") as Marker3D).position * scale
 var rest_position: Vector3 = Vector3.ZERO
-## The floor under it, height at (x, z), when the room has one: the rings under it are laid
-## over the highest ground they cross rather than sunk into a bump or dipping as it breathes.
-var ground: Callable = Callable()
+## The floor under it, height at (x, z), when the room has one: the rings and the shadow
+## under it are laid over the highest ground they cross rather than sunk into a bump or
+## dipping as it breathes. Standing on a room's floor, it also turns to face the party.
+var ground: Callable = Callable():
+	set(value):
+		ground = value
+		_in_room = value.is_valid()
+		_stand_in_room()
+var _in_room: bool = false
+var _dressed: bool = false
+## The shadow it casts on a room's floor: darker and wider than the faint one it wears on a
+## plinth, so the rock around it never runs straight into its body. Shared by every creature.
+static var _room_shadow: StandardMaterial3D = null
 var _ground_at: Vector3 = Vector3.INF
 var _ground_y: float = 0.0
 var _body: Node3D
@@ -94,6 +113,7 @@ var _dying: bool = false
 var _base_emission: float
 var _base_core_emission: float
 var _base_accent_emission: float = 2.2
+var _base_iron_emission: float = 0.05
 var _base_light_energy: float
 var _halo: MeshInstance3D
 var _halo_material: StandardMaterial3D
@@ -196,8 +216,12 @@ func _prepare() -> void:
 	_base_core_emission = core_material.emission_energy_multiplier
 	if accent_material != null:
 		_base_accent_emission = accent_material.emission_energy_multiplier
+	if iron_material != null:
+		_base_iron_emission = iron_material.emission_energy_multiplier
 	_base_light_energy = _light.light_energy
 	_collect_parts(_body)
+	for shape in _body.find_children("*", "GeometryInstance3D", true, false):
+		(shape as GeometryInstance3D).layers |= LAYER
 	## The halo under it that says what color it has turned away, hidden until it does.
 	_halo = MeshInstance3D.new()
 	_halo.mesh = _ring.mesh
@@ -212,6 +236,43 @@ func _prepare() -> void:
 	_halo.scale = _ring_rest_scale * 1.25
 	_halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_halo)
+	_stand_in_room()
+
+func _stand_in_room() -> void:
+	## On a room's floor rather than a plinth: a darker, wider shadow under it, so the floor
+	## never runs straight into its body; less of its own light lost in the ground mist,
+	## where it hung a pale haze in front of a small creature and greyed it out; and its
+	## crystals, eyes and lamps a little hotter, the brightest marks on it at a distance.
+	if not _in_room or _dressed or _shadow == null:
+		return
+	_dressed = true
+	_shadow.material_override = _floor_shadow()
+	_shadow.scale *= 1.3
+	_light.light_volumetric_fog_energy *= 0.3
+	if accent_material != null:
+		_base_accent_emission *= 1.3
+
+static func _floor_shadow() -> StandardMaterial3D:
+	## Drawn the way every scene's own shadow is (unshaded, see-through, a radial fade), so
+	## standing in a room asks for no shader the plinth had not already compiled.
+	if _room_shadow == null:
+		var fade := Gradient.new()
+		fade.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+		fade.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.85), Color(1, 1, 1, 0)])
+		var texture := GradientTexture2D.new()
+		texture.gradient = fade
+		texture.width = 128
+		texture.height = 128
+		texture.fill = GradientTexture2D.FILL_RADIAL
+		texture.fill_from = Vector2(0.5, 0.5)
+		texture.fill_to = Vector2(1.0, 0.5)
+		_room_shadow = StandardMaterial3D.new()
+		_room_shadow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_room_shadow.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		_room_shadow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_room_shadow.albedo_color = Color(0, 0, 0, 0.9)
+		_room_shadow.albedo_texture = texture
+	return _room_shadow
 
 func _collect_parts(parent: Node) -> void:
 	for child in parent.get_children():
@@ -248,7 +309,7 @@ func ghost() -> void:
 	_ghost = true
 	normal_tint = ECHO_TINT
 	_apply_palette(ECHO_TINT, ECHO_TINT.lightened(0.4))
-	for material in [body_material, core_material, accent_material]:
+	for material in [body_material, core_material, accent_material, iron_material]:
 		if material == null:
 			continue
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -523,6 +584,9 @@ func _process(delta: float) -> void:
 	_squash = lerpf(_squash, 0.0, clampf(delta * 8.0, 0.0, 1.0))
 	var rear := Vector3(0, 0.12 * maxf(_rear, 0.0), -0.5 * _rear) if _rear >= 0.0 else Vector3(0, 0, 1.6 * -_rear)
 	position = rest_position + Vector3(0, breathe * 0.05, 0) + _recoil + rear
+	if _in_room:
+		## Turned to the party wherever along the arc it stands, not staring past it.
+		rotation.y = atan2(-rest_position.x, PARTY_Z - rest_position.z)
 	var squish: float = _squash * sin(_clock * 30.0) + (0.05 * breathe if style == "blob" else 0.0)
 	if not _dying:
 		_body.scale = _body_rest.basis.get_scale() * Vector3(1.0 + squish * 0.5, 1.0 - squish, 1.0 + squish * 0.5)
@@ -541,6 +605,9 @@ func _process(delta: float) -> void:
 	core_material.emission_energy_multiplier = _base_core_emission + heartbeat * 2.0 + _glow_boost * 0.6 + charge * 1.5
 	if accent_material != null:
 		accent_material.emission_energy_multiplier = _base_accent_emission + heartbeat * 1.5 + _glow_boost * 0.8 + charge * 2.0
+	if iron_material != null:
+		## Even the iron flares on a blow, or it read as a hole in the flash.
+		iron_material.emission_energy_multiplier = _base_iron_emission + _glow_boost * 0.5 + charge * 0.4
 	## Burrowed: the body sinks out of sight and the light goes with it.
 	_buried = move_toward(_buried, _buried_want, delta * 2.2)
 	if not _dying:
@@ -608,5 +675,8 @@ func _lay_rings() -> void:
 				_ground_y = maxf(_ground_y, float(ground.call(rest_position.x + cos(angle) * r, rest_position.z + sin(angle) * r)))
 		_ground_y = minf(_ground_y, rest_position.y + 0.5)
 	if is_inside_tree():
+		## The shadow too: left at its own height, a bump in the floor swallowed it, and a
+		## creature with no dark under it read as one more rock on the floor.
+		_shadow.global_position.y = _ground_y + 0.04
 		_ring.global_position.y = _ground_y + 0.06
 		_halo.global_position.y = _ground_y + 0.08

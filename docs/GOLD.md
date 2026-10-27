@@ -95,7 +95,7 @@ Geodes are sold on the Market (§3.6), down its left side. Until October 12 they
 | Geode                                            | What it can hold                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Today's Geode** (one a day, UTC)               | Either a **mine's Geode** (the skill pool of one open mine, weighted the way the mine weights it) or a **color's Geode** (one color, from the deepest open mine's rock), whichever the day draws. A restock (§3.6) draws it again.                                                                                                                                                                                                                                                                                                              |
-| **The week's Geode** (one a week, kept all week) | A hand-written set of 7–10 skills (content: `geodes.featured`, eight sets) from the deepest open mine's rock. The sets take turns a week each, the same for everyone. When fewer than three of the set are in reach of the mines open, the deepest mine's own Geode takes its place. It is better and dearer than today's: its carat floor is one higher (`geode_week_carat`), it is never cut worse than Fine (`geode_week_min_cut` 3), and its price is a fifth higher (`geode_week_price_mult` 1.2). It stays on the shelf through restocks. |
+| **The week's Geode** (one a week, kept all week) | A hand-written set of 7–10 skills (content: `geodes.featured`, eight sets) from the deepest open mine's rock. The sets take turns a week each, the same for everyone. When fewer than three of the set are in reach of the mines open, the deepest mine's own Geode takes its place. It is better and dearer than today's: its carat floor is one higher (`geode_week_carat`), it is never cut worse than Keen (`geode_week_min_cut` 3), and its price is a fifth higher (`geode_week_price_mult` 1.2). It stays on the shelf through restocks. |
 
 Each card shows the Geode's art (a mine's Geode in its mine's rock, a color's with crystals of its color breaking through, the week's strapped in brass), its carat range, whether it can hold a favorite (§3.6), and the Crack it button. **Right-clicking** the card opens its close look, the way a stone's or a die's opens (October 14, 2026; it replaced an Odds button): the Geode in 3D, turned by dragging, beside its odds in full. The first page has the share of each rarity and of each grade tier (sampled from 400 rolls, not written by hand), with the count of skills in each rarity, its carats, what its stone is worth on average, the opal chance, and how many of its skills the player has never found or has starred; then a page to a rarity lists every skill it can hold with its own share, likeliest first. "Crack it" pays and opens it in one click.
 
@@ -258,11 +258,11 @@ The seed is `hash("deep-cut-daily:<UTC date>:<pack version>:<DAILY_RULES>")`. `D
 - **Nothing is kept.** The stones, dice and pyrite stay behind.
 - **Gold:** `daily_score_rate` (0.5) of the score up to `daily_score_knee` (1000), and half that rate above it. A score of 1000 pays 500 gold; 3000 pays 1000.
 - **Attempts:** as many as a player likes. A later dig the same day pays only the gold its score adds to the day's best, so a lower score pays nothing.
-- **Who is paid:** lapidaries who have beaten the Quarry's final boss. A guest who has not can come along in a party and see their score.
+- **Who is paid:** lapidaries who have beaten the Quarry's final boss. Anyone who has not, host or guest, can still dig it and see their score, unpaid (a solo player is a host; since October 26, 2026).
 - **The Ledger** keeps the best score of each day (the last 30 days), the best of all, and each daily run's score in the run history.
-- **Not a mine's run:** it opens no mine, brings no lapidary into the workshop, pays no first-conquest purse and writes no mine's records.
+- **Not a mine's run:** it opens no mine, brings no lapidary into the workshop, pays no first-conquest or Warden purse and writes no mine's records.
 
-**Co-op.** The host picks the day's seam for the party. It costs no fare and needs no insurance. Each player is scored and paid on their own stones and pyrite. The host must have beaten the Quarry.
+**Co-op.** The host picks the day's seam for the party. It costs no fare and needs no insurance. Each player is scored and paid on their own stones and pyrite. A host who has not beaten the Quarry digs it unpaid, as such a guest does (until October 26, 2026 the host had to have beaten it).
 
 **Rail rules** (one a day, `kind: "rail"`, weighted by `weight`):
 
@@ -339,7 +339,7 @@ The seed is `hash("deep-cut-daily:<UTC date>:<pack version>:<DAILY_RULES>")`. `D
 | **Clear Water**         | Stones have no inclusions. Every one is Clear or better.                                        |
 | **Flawed**              | Every stone has at least one inclusion.                                                         |
 | **Heavy Rock**          | Stones are two carats heavier, and swinging at the rock costs more health.                      |
-| **Restless Rock**       | At every landing, each stone on your rail changes to another skill of its color.                |
+| **Restless Rock**       | At every landing, the stones on your rail may change to another skill of their color.           |
 | **Big Game**            | Elites are twice as common, and the stones they drop come out read.                             |
 | **Swarms**              | Every fight has one more creature, and each has less health.                                    |
 | **Lone Beasts**         | Every fight is one creature with the health of the whole group.                                 |
@@ -371,6 +371,13 @@ The first time a player beats a mine's final boss, they receive a one-off purse:
 | ---- | ------ | ----- | ----------- | ------- | ------- | ----- |
 | Gold | 150    | 250   | 400         | 600     | 900     | 1300  |
 
+**Warden purses (October 26, 2026).** The first time each Warden falls it pays a purse of its own: a third of the mine's `first_conquest_gold` for the first Warden and half for the second, rounded to 5 (`DeepEconomy.WARDEN_PURSE_SHARES`, `warden_purse`): 50 and 75 in the Quarry. Like the conquest purse it is paid at home, once on any Hazard tier, whether the party rode up or fell, and never on the day's seam. The Descend track shows each crown's purse until it is paid. Wardens beaten before then count as paid.
+
+| Mine           | Quarry | Seeps | Glass Veins | Warrens | Furnace | Geode |
+| -------------- | ------ | ----- | ----------- | ------- | ------- | ----- |
+| First Warden   | 50     | 85    | 135         | 200     | 300     | 435   |
+| Second Warden  | 75     | 125   | 200         | 300     | 450     | 650   |
+
 ## 🟢 5. Content and save data
 
 **New fields on each mine** (`mines.*`):
@@ -394,6 +401,7 @@ The first time a player beats a mine's final boss, they receive a one-off purse:
 - 🟢 `outfit`: `{insure: bool}`.
 - 🟢 `characters.<key>.sockets`: how many sockets that lapidary has unlocked (3 to start).
 - 🟢 `conquest_paid`: the mines whose first-conquest purse has been paid.
+- 🟢 `warden_paid`: the Wardens whose purse has been paid, as `"<mine>:<index>"` (`"QUARRY:0"` is The Foreman).
 - 🟢 `charged_run`: the last run this profile paid its fare for, so no run is billed twice.
 
 All date logic takes the date as an argument, so tests can set any day.
@@ -503,7 +511,7 @@ No questions are open for phases 0–6. The later ideas in §8 carry their own o
 
 ### Pyrite and kept stones, October 14, 2026
 
-- **No gold for a stone replaced in the vault.** Keeping a stone of a skill already kept lets the old one go for nothing (`DeepProfile.keep` pays nothing). The only stone sold is the one not kept: Sell it pays the new stone's worth and leaves the vault alone. The tray's choice reads Keep it, replace yours ("Yours is let go for no gold"), and a stone bought from the case replaces the one kept the same way.
+- **No gold for a stone replaced in the vault.** Keeping a stone of a skill already kept lets the old one go for nothing (`DeepProfile.keep` pays nothing). The only stone sold is the one not kept: Sell it pays the new stone's worth and leaves the vault alone. The tray's choice reads Keep it, replace yours ("Yours is let go for no gold"), and a stone bought from the case replaces the one kept the same way. Since Oct 26 2026 keeping stands last on the row, in one place on every stone (and the row waits 0.35 s after the tray moves on); whichever choice would cost the better of the two stones (higher grade, then worth) is drawn in outline and asks for a second click that says in red what it costs.
 - **No gold for pyrite.** The assay at the lift is gone (§4.3). Gold now comes from selling stones, commissions, first-conquest purses and the daily dig.
 - **Gold on buttons.** Every button that costs or pays gold shows it the same way: the coin, then the number, in a small dark tag at the button's right end (`DeepUi.priced`, `DeepUi.price_chip`), and never the word "gold". A button carrying the coin is never filled with the accent yellow, which the coin would melt into: Descend is green, Crack it, Read it and the Wheel and Oven blue, and selling a lavender of its own (`DeepUi.TRADE`). Sentences and tooltips still say "gold".
 - **The daily dig's map** shows how far today's digs have gone (`DeepEconomy.daily_reach`, kept in `profile.dig.mines` and topped up by each attempt): the strata reached are lit with their depth tracks, the Quarry always as the start, and the rest of the route is dark and marked Ahead with a dashed shaft. Its bottoms carry plain crowns, without the Birthstones of the delvers they let out, since the seam lets nobody out.

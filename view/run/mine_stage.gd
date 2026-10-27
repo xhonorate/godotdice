@@ -37,6 +37,7 @@ const WishingWell = preload("res://view/battle/wishing_well.gd")
 const LiftHall = preload("res://view/battle/lift_hall.gd")
 const Hoard = preload("res://view/battle/hoard.gd")
 const Altar = preload("res://view/battle/altar.gd")
+const CardProps = preload("res://view/battle/card_props.gd")
 const DiceGeometry = preload("res://view/dice/dice_geometry.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
@@ -49,6 +50,9 @@ signal pick_inspected(id: String)
 
 const HOME := Vector3(0.0, 2.1, 5.2)
 const HOME_LOOK := Vector3(0.0, 1.2, -3.5)
+## Where the eye rests in a card room: lower than in a fight, so the forge, the bench or the
+## plinth stands clear above the row of cards along the bottom instead of behind it.
+const CARD_LOOK := Vector3(0.0, 0.6, -3.0)
 ## Where the party stands to choose a way on: near enough that the mouths are plain.
 const CROSSROADS := Vector3(0.0, 2.05, -9.0)
 const CROSSROADS_LOOK := Vector3(0.0, 2.1, Chamber.Z_FAR - 2.0)
@@ -243,6 +247,12 @@ func _new_room(p: Dictionary, origin: Vector3) -> Dictionary:
 	var biome: Dictionary = Biomes.for_depth(str(p.get("mine", DeepContent.starter_mine())), maxi(1, int(p.get("depth", 1))), biome_kind(str(p.get("kind", "fight"))), int(p.get("phase", -1)))
 	var made: Node3D = Chamber.new()
 	made.quality = quality
+	if str(p.get("kind", "")) in ["landing", "head"] or bool(p.get("cage", false)):
+		## The room's dressing is planned before the lift hall is built: tell it where the cage
+		## (and a party landing's trading booth) will stand, so no crystal hides them.
+		made.keep_clear = [Vector2(LiftHall.CAGE.x, LiftHall.CAGE.z)]
+		if str(p.get("kind", "")) == "landing" and int(p.get("party", 1)) > 1:
+			made.keep_clear.append(Vector2(LiftHall.TRADE.x, LiftHall.TRADE.z))
 	made.position = origin
 	world.add_child(made)
 	var steps: Array = made.plan(biome, room_seed(p), int(p.get("exits", 2)), float(p.get("drop", 2.5)))
@@ -840,16 +850,27 @@ func altar() -> Node3D:
 
 # --- an oddity's shrine ----------------------------------------------------------------------------
 
-func shrine(glyph: String, color: Color) -> Node3D:
-	## Something strange on a plinth: the oddity's mark burning in the air over it.
+func shrine(glyph: String, color: Color, card: String = "") -> Node3D:
+	## Something strange on a plinth: the oddity's mark burning in the air over it. A card with
+	## furniture of its own (the Smithy's forge and anvil, the Carver's bench and the rest of
+	## CardProps.FURNISHED) stands that instead, and its mark is only the medallion over its name.
 	if _headless or not has_room():
 		return null
 	var key: String = "shrine|%s" % str(place.get("key", ""))
 	if business_key() == key:
 		return business()
+	if CardProps.furnished(card):
+		var props: Node3D = CardProps.new()
+		props.position = Chamber.ARENA + Vector3(0, 0, -0.3)
+		## Built where it will rest, before the room takes it: see `vein`.
+		props.build(card, room_seed(place) + 31, color, func(x: float, z: float) -> float: return room.ground(x, z))
+		set_business(key, props, CardProps.half_width(card))
+		_lead_eye(CARD_LOOK)
+		return props
 	var made := Node3D.new()
 	made.position = Chamber.ARENA + Vector3(0, 0, -1.2)
 	set_business(key, made, 0.0)
+	_lead_eye(CARD_LOOK)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = room_seed(place) + 31
 	var rock := StandardMaterial3D.new()
@@ -883,11 +904,33 @@ func shrine(glyph: String, color: Color) -> Node3D:
 	glow.position = Vector3(0, 2.2, 0.4)
 	glow.shadow_enabled = false
 	made.add_child(glow)
+	made.set_meta("mark", mark)
+	made.set_meta("glow", glow)
 	var motes: GPUParticles3D = BattleFx.ambient("motes", {"key": color, "accent": color, "lights": [color]}, 0.5)
 	motes.position = Vector3(0, 1.8, 0)
 	(motes.process_material as ParticleProcessMaterial).emission_box_extents = Vector3(1.2, 1.0, 1.2)
 	made.add_child(motes)
 	return made
+
+func hush_shrine(hushed: bool) -> void:
+	## While a page is up over the room (what came of a choice there), the mark over the plinth
+	## fades out and its light sinks: left burning, the flat glyph showed through the page as a
+	## grey shape behind its words.
+	var here: Node3D = business()
+	if _headless or here == null or not here.has_meta("mark"):
+		return
+	if bool(here.get_meta("hushed", false)) == hushed:
+		return
+	here.set_meta("hushed", hushed)
+	## A fade still running the other way stops where it is, so two never fight over the mark.
+	if here.has_meta("hush_tween"):
+		var running: Tween = here.get_meta("hush_tween")
+		if running != null and running.is_valid():
+			running.kill()
+	var tween := here.create_tween().set_parallel(true)
+	tween.tween_property(here.get_meta("mark"), "modulate:a", 0.0 if hushed else 1.0, 0.25)
+	tween.tween_property(here.get_meta("glow"), "light_energy", 0.5 if hushed else 2.6, 0.25)
+	here.set_meta("hush_tween", tween)
 
 # --- salvage -------------------------------------------------------------------------------------
 
@@ -914,7 +957,19 @@ func salvage(rolls: Array, bag_at: Vector2) -> void:
 	## stone. The top face keeps the stone and it goes to the bag; anything else shatters it.
 	if _headless or not has_room() or not _laid_out():
 		return
-	var ahead: Vector3 = camera.global_position + (-camera.global_transform.basis.z * Vector3(1, 0, 1)).normalized() * 2.8
+	## On the floor ahead, far enough out to be in the frame: from a landing's high camera,
+	## pitched down, the floor 2.8 m out is under the bottom edge and only the numbers showed.
+	var forward: Vector3 = (-camera.global_transform.basis.z * Vector3(1, 0, 1)).normalized()
+	var frame_y: float = camera.get_viewport().get_visible_rect().size.y
+	var reach: float = 2.8
+	while reach < 6.0:
+		var probe: Vector3 = camera.global_position + forward * reach
+		probe.y = room.ground(probe.x - room.global_position.x, probe.z - room.global_position.z)
+		var seen: Vector2 = _steady(func() -> Variant: return camera.unproject_position(probe))
+		if not camera.is_position_behind(probe) and seen.y < frame_y * 0.72:
+			break
+		reach += 0.3
+	var ahead: Vector3 = camera.global_position + forward * reach
 	var count: int = rolls.size()
 	var bag_goal: Vector3 = from_screen(bag_at, 1.5)
 	for i in range(count):
@@ -1722,7 +1777,8 @@ func _lift_stone(at: Vector3, stone: Dictionary, goal: Vector3, delay: float, ar
 		_release_held_slot(slot, holder)
 		fx.sparks(holder.global_position, tint.lightened(0.5), 14, 2.0, 0.45, 0.04)
 		_fly(holder, goal, 0.0, 0.5, "", arrived))
-	return delay + 0.55 + 1.0 + 0.5
+	## The 1.6 s turn runs alongside the rise, so it sets that step's length, not the 0.55 s rise.
+	return delay + 1.6 + 1.0 + 0.5
 
 ## Where finds shown at the same moment stand across the middle of the view, as a share of its
 ## width either side of the centre, and which of those places are taken (by whose holder).
@@ -1759,6 +1815,8 @@ func announce(stone: Dictionary, finder: String = "", across: float = 0.5) -> vo
 		other.add_theme_constant_override("separation", 8)
 		other.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(other)
+		## Drawn over the room's page buttons; clicks still pass through to them.
+		other.z_index = 20
 		var appraised: bool = bool(stone.get("appraised", false))
 		DeepUi.label(other, "%s found %s" % [finder, DeepUi.skill_name(stone) if appraised else DeepStone.raw_name(stone)], 17, DeepUi.PAPER)
 		StoneCard.grade_marks(other, stone, 13).mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1780,6 +1838,9 @@ func announce(stone: Dictionary, finder: String = "", across: float = 0.5) -> vo
 	banner.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.03, 0.035, 0.05, 0.82), Color(tint, 0.85), 14, 12, 0.6))
 	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(banner)
+	## Drawn over 'Put the pick down', which sits at the same height; clicks still pass
+	## through to the button while the name shows.
+	banner.z_index = 20
 	var box := DeepUi.vbox(banner, 2)
 	DeepUi.title(box, DeepUi.skill_name(stone) if read else DeepStone.raw_name(stone), 30, tint.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
 	if read:
@@ -1875,7 +1936,9 @@ func _process(delta: float) -> void:
 
 ## A spot in the room that wants a name over it: any Node3D in this group, with `text` and
 ## optionally `tone` (Color), `font_size` (canvas pixels) and `alpha` (0-1, for fading) as
-## metas. The landing's names (lift_hall.gd) and a hoard's pedestals (hoard.gd) are.
+## metas. The landing's names (lift_hall.gd) and a hoard's pedestals (hoard.gd) are. A spot
+## may also carry a `plate` (StyleBox) its word sits on and a `font` of its own: a stall's
+## name tags (stall.gd) do.
 const NAME_GROUP := "stage_name"
 
 func _sync_names() -> void:
@@ -1897,8 +1960,13 @@ func _sync_names() -> void:
 			if label == null or not is_instance_valid(label):
 				label = Label.new()
 				label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				label.add_theme_font_override("font", DeepUi.display_font())
+				## (`get_meta` with a null default still complains when the meta is missing.)
+				var face: Variant = spot.get_meta("font") if spot.has_meta("font") else null
+				label.add_theme_font_override("font", face if face is Font else DeepUi.display_font())
 				label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+				var plate: Variant = spot.get_meta("plate") if spot.has_meta("plate") else null
+				if plate is StyleBox:
+					label.add_theme_stylebox_override("normal", plate)
 				_names_layer.add_child(label)
 				_names[key] = label
 			## Only when they change: each override has the word laid out again.
@@ -1906,7 +1974,8 @@ func _sync_names() -> void:
 			if int(label.get_meta("font_size", -1)) != font_size:
 				label.set_meta("font_size", font_size)
 				label.add_theme_font_size_override("font_size", font_size)
-				label.add_theme_constant_override("outline_size", maxi(4, font_size / 4))
+				## A word on a plate of its own needs no outline to stand off the rock.
+				label.add_theme_constant_override("outline_size", 0 if label.has_theme_stylebox_override("normal") else maxi(4, font_size / 4))
 			var tone: Color = spot.get_meta("tone", DeepUi.PAPER)
 			if not label.has_meta("tone") or Color(label.get_meta("tone")) != tone:
 				label.set_meta("tone", tone)
@@ -2152,6 +2221,12 @@ func _sample_goods(parent: Node3D, biome: Dictionary) -> void:
 	mark.shaded = false
 	mark.position = Chamber.ARENA + Vector3(0, 2.2, -1.2)
 	parent.add_child(mark)
+	## And a card room's furniture: the Smithy's has every kind of surface the others are made
+	## of (its coals lit from inside, its die numbered, its fire), so it stands for them all.
+	var props: Node3D = CardProps.new()
+	props.position = Chamber.ARENA + Vector3(0, 0, -5.0)
+	props.build("SMITHY", 37, DeepUi.ACCENT)
+	parent.add_child(props)
 
 func _warm_in_view() -> void:
 	## The hidden view in `warm_up` is not quite the real one (its size, its effects, its lamps),

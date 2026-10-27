@@ -60,7 +60,8 @@ const TABS: Array = [["descend", "Descend", "descend"], ["delvers", "Delvers", "
 	["bestiary", "Bestiary", "book"]]
 const color_ORDER: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
 ## The word on a socket the delver has not opened, so the loadout does not fill it.
-const MINE_SOCKET: String = "Locked. Buy it with gold to fill it from the vault before every run. Until then it is filled in the mine: below the Quarry with a temporary stone, and anywhere with a stone found on the way down."
+## Broken into lines by hand: an engine tooltip never wraps, and one line ran across the screen.
+const MINE_SOCKET: String = "Locked. Buy it with gold to fill it from the vault before every run.\nUntil then it is filled in the mine: below the Quarry with a temporary stone,\nand anywhere with a stone found on the way down."
 ## What the lock on a delver's dice says: they are never swapped.
 const OWN_DICE: String = "Every delver goes down with their own five dice. Dice are worked in the mine, at a smithy or a carver, never swapped."
 ## Pip tones: something new to look at, something to act on, something ready to collect.
@@ -96,6 +97,8 @@ var _cheer: Dictionary = {}
 var _roster_pick: String = ""
 var _roster_view: String = "dossier"
 var _bench_socket: int = -1
+## A stone the Vault's "Socket it" sent to the sockets: first in the picker, marked.
+var _socket_ready: String = ""
 ## Vault: the stone under the lamp and whether the collection or the tray is shown.
 var _vault_pick: String = ""
 var _vault_view: String = "collection"
@@ -107,6 +110,12 @@ var _appraise_pick: String = ""
 ## Market: the page shown (main, wheel, oven, contract), and what is on each bench.
 var _market_view: String = "main"
 var _rework_pick: String = ""
+## The Wheel's or the Oven's last result, kept on its page until another stone is picked or
+## the page is left: {kind, skill, before (the stone as it went in), now, broke}.
+var _rework_done: Dictionary = {}
+## Where the reworked stone's tile stood in the picker, so its new grade does not move it
+## until the page is left: {kind, skill, at, sort}.
+var _rework_hold: Dictionary = {}
 var _contract: Array = []
 var _contract_from: String = "all"
 var _contract_sure: bool = false
@@ -134,6 +143,12 @@ var _regions: Dictionary = {}
 var _partial: Array = []
 ## Changes that came while the workshop was hidden under a run, drawn once when it is shown.
 var _stale: bool = false
+## Live 3D views a page keeps from one drawing of it to the next, by key (the Market's
+## Geodes): each is a world of its own, and made again on every visit the Market's cost a
+## tenth of a second, the first on a cold start a second and more. Put aside before the page
+## is cleared and handed back when it is drawn again (`kept`); let go when the workshop is
+## hidden under a run. See `kept`, `let_go_kept`.
+var _kept: Dictionary = {}
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -200,12 +215,16 @@ func _notification(what: int) -> void:
 			_hover = {}
 			_regions = {}
 			_targets = []
+			let_go_kept()
 			DeepUi.clear(_body)
 			DeepUi.clear(_overlay)
 			_stale = true
 		elif _stale:
 			## Whoever shows it usually refreshes it straight after; this is for anyone who does not.
 			_catch_up.call_deferred()
+	elif what == NOTIFICATION_PREDELETE:
+		## A view put aside is held by nobody else: it goes with the workshop.
+		let_go_kept()
 
 func _catch_up() -> void:
 	if _stale and visible:
@@ -267,9 +286,52 @@ func redraw(keys: Array) -> bool:
 	_fresh = false
 	for key in keys:
 		var holder: Control = region_holder(str(key))
+		_put_kept_aside(holder)
 		DeepUi.clear(holder)
 		_regions[str(key)].draw.call(holder)
 	return true
+
+func kept(key: String, make: Callable) -> Control:
+	## The view kept under `key`, taken off whatever held it, ready to be placed on the page
+	## again; or, the first time, a new one from `make()`, kept from now on.
+	var view: Variant = _kept.get(key, null)
+	if is_instance_valid(view) and not (view as Node).is_queued_for_deletion():
+		if (view as Node).get_parent() != null:
+			(view as Node).get_parent().remove_child(view)
+		return view
+	var made: Control = make.call()
+	_kept[key] = made
+	return made
+
+func prewarm() -> void:
+	## Readies what the Market shows before it is first opened, while the workshop is being
+	## looked at (see MarketPage.prewarm). Called once the game has started.
+	if visible and not _headless:
+		MarketPage.prewarm(self)
+
+func let_go_kept(prefix: String = "", keep: Array = []) -> void:
+	## Frees the kept views whose keys start with `prefix`, all but those in `keep` (a Geode
+	## gone from the shelf). With no prefix, every one.
+	for key in _kept.keys():
+		if not str(key).begins_with(prefix) or keep.has(key):
+			continue
+		var view: Variant = _kept[key]
+		_kept.erase(key)
+		if is_instance_valid(view):
+			if (view as Node).is_inside_tree():
+				(view as Node).queue_free()
+			else:
+				(view as Node).free()
+
+func _put_kept_aside(under: Node) -> void:
+	## Takes every kept view inside `under` off the page about to be cleared, so the clearing
+	## does not free it with the rest.
+	for key in _kept.keys():
+		var view: Variant = _kept[key]
+		if not is_instance_valid(view):
+			_kept.erase(key)
+		elif under.is_ancestor_of(view as Node):
+			(view as Node).get_parent().remove_child(view)
 
 func changed(parts: Array) -> void:
 	## A change to the profile that only these parts of the page show: saved and told to the
@@ -297,6 +359,10 @@ func open(tab_name: String, keep_view: bool = false, draw: bool = true) -> void:
 	tab_name = {"map": "descend", "roster": "delvers", "lapidaries": "delvers", "shop": "market", "commissions": "market", "ledger": "profile", "appraise": "vault"}.get(tab_name, tab_name)
 	if tab_name != tab and not keep_view:
 		_reset_views(tab_name)
+	if tab_name != tab:
+		## A rework's result is read where it was done: leaving the tab lets it go.
+		_rework_done = {}
+		_rework_hold = {}
 	if tab_name == "vault" and not keep_view and not profile.get("tray", []).is_empty() and not homecoming():
 		_vault_view = "unappraised"
 	tab = tab_name
@@ -336,6 +402,7 @@ func _render() -> void:
 	DeepUi.clear(_overlay)
 	var coming_home: bool = homecoming()
 	_draw_bar()
+	_put_kept_aside(_body)
 	DeepUi.clear(_body)
 	_targets = []
 	var margin := MarginContainer.new()
@@ -407,7 +474,7 @@ func _tabs() -> void:
 		if not pip.is_empty():
 			HomeParts.pin(button, int(pip[0]), pip[1], true)
 		if key == "vault" and not _cheer.is_empty():
-			call_deferred("_cheer_at", button, str(_cheer.text), _cheer.color, str(_cheer.get("glyph", "chest")))
+			call_deferred("_cheer_tab", key, str(_cheer.text), _cheer.color, str(_cheer.get("glyph", "chest")))
 			_cheer = {}
 
 func tab_pip(key: String) -> Array:
@@ -605,11 +672,15 @@ func step_character(direction: int) -> void:
 		return
 	choose_character(next)
 
-func edit_loadout(character_key: String, socket: int = -1) -> void:
+func edit_loadout(character_key: String, socket: int = -1, ready_skill: String = "") -> void:
 	## Opens a delver's sockets. Editing a delver's loadout makes them the one going down.
+	## `ready_skill`: a stone sent from the Vault, shown first in the picker on its first page.
 	_roster_pick = character_key
 	_roster_view = "sockets"
 	_bench_socket = socket
+	_socket_ready = ready_skill
+	if not ready_skill.is_empty():
+		_pages.erase("sockets_page")
 	if str(profile.get("current_character", "")) != character_key and DeepProfile.unlocked_characters(profile).has(character_key):
 		profile.current_character = character_key
 		if profile.get("characters", {}).has(character_key):
@@ -676,10 +747,28 @@ func _cheer_purse(text: String) -> void:
 	## The gold that just came in or went out, shouted over the purse as it stands now.
 	var purse: Node = _bar.get_node_or_null("Purse") if is_instance_valid(_bar) else null
 	if purse is Control:
-		cheer_at(purse as Control, text, DeepUi.ACCENT, "coin")
+		## Gold spent reads red, so "-170 gold" is not mistaken for a gain.
+		var tone: Color = DeepUi.BAD if text.begins_with("-") else DeepUi.ACCENT
+		## Coming home, the tray's header sits right under the purse: the word rises from the
+		## homecoming's own "Gold since you came up" figure instead, into the room above it.
+		var since: Node = find_child("GoldSince", true, false)
+		if not _headless and since is Control and (since as Control).is_visible_in_tree():
+			var row: Control = since
+			DeepUi.pulse(purse as Control, 1.3, 0.45)
+			var at: Vector2 = row.global_position + Vector2(row.size.x * 0.5, -4.0) - global_position
+			DeepUi.float_text(self, at, text, tone, 20, 40.0, 1.5).z_index = 40
+			return
+		cheer_at(purse as Control, text, tone, "coin")
 
-func _cheer_at(control: Control, text: String, color: Color, glyph: String) -> void:
-	cheer_at(control, text, color, glyph)
+func _cheer_tab(key: String, text: String, color: Color, glyph: String) -> void:
+	## Looked up by name when it lands, a frame on: the bar may have been drawn again since the
+	## cheer was queued (and the button it was queued with freed), and the new bar has to be
+	## laid out first.
+	if not _headless and is_inside_tree():
+		await get_tree().process_frame
+	var button: Node = _bar.find_child("Tab_" + key, true, false) if is_instance_valid(_bar) else null
+	if button is Control:
+		cheer_at(button as Control, text, color, glyph)
 
 func cheer_at(control: Control, text: String, color: Color, _glyph: String = "") -> void:
 	## A little celebration where something landed: a burst, a swell and a word.
@@ -715,6 +804,10 @@ func chosen_mine() -> String:
 	## The mine the party is set to go down, which decides how many sockets come down filled.
 	var key: String = str(lobby.get("mine", ""))
 	return key if not DeepContent.mine(key).is_empty() else DeepContent.starter_mine()
+
+func member_name(id: String) -> String:
+	## A member as the party sees them: their name, with their seat number when two share it.
+	return str(DeepSession.shown_names(lobby).get(id, lobby.get("members", {}).get(id, {}).get("name", id)))
 
 func member_short(member: Dictionary) -> bool:
 	## Whether a member of the party cannot pay their own way down to the chosen mine.

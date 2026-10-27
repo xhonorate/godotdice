@@ -503,27 +503,21 @@ static func _detail(home: Control, holder: Control) -> void:
 		DeepUi.pill(facts, "die", "no dice of its own", DeepUi.DIM, 13)
 	for die in dice:
 		var shape: String = str(die.get("shape", die)) if die is Dictionary else str(die)
-		DeepUi.pill(facts, "die", shape, DiceIcons.palette(shape).body, 13, "It rolls its dice in this order, and every move a die qualifies for fires.")
+		DeepUi.pill(facts, "die", shape.to_lower(), DiceIcons.palette(shape).body, 13, "It rolls its dice in this order, and every move a die qualifies for fires.")
 	home.region(DeepUi.vbox(right, 10), "bestiary_leaf", func(box: Control) -> void: _leaves(home, box, key, def, record))
 
 static func _unknown(home: Control, right: VBoxContainer, key: String) -> void:
-	## Not met: where to look, and nothing else.
+	## Not met: where to look, and nothing else. The place is said as exactly as a met one's
+	## (the depths, the landing, the bottom floor): its name, dice and moves stay hidden.
 	DeepUi.wrap(right, "Not met yet. Its name, its dice and what it does are written down the first time a fight opens on it.", 14, DeepUi.MUTED)
 	var where := DeepUi.vbox(right, 6)
 	DeepUi.section(where, "map", "Where to look", DeepUi.ACCENT, 13)
 	var said: Array = []
-	for haunt in DeepBestiary.haunts(key):
-		var line: String = ""
-		match str(haunt.kind):
-			"band", "warden", "boss", "remembered", "unmade":
-				line = "Somewhere in %s" % DeepContent.mine_name(str(haunt.mine))
-			"escort":
-				line = "Beside %s" % _name_of(home.profile, str(haunt.of))
-			"summoned":
-				line = "Called in by %s" % _name_of(home.profile, str(haunt.by))
-		if not line.is_empty() and not said.has(line):
-			said.append(line)
-			DeepUi.stat(where, "pick", line, DeepUi.PAPER, 13)
+	for haunt in _places(key):
+		var line: Array = _haunt_words(home.profile, haunt)
+		if not said.has(str(line[1])):
+			said.append(str(line[1]))
+			Inspector.wrap_stat(DeepUi.stat(where, str(line[0]), str(line[1]), DeepUi.PAPER, 13))
 
 static func _name_of(profile: Dictionary, key: String) -> String:
 	## Another creature, by name once the player has met it.
@@ -595,7 +589,13 @@ static func _notes(profile: Dictionary, page: Control, key: String, record: Dict
 		DeepUi.wrap(tally, "Met in " + ", ".join(met_in) + ".", 13, DeepUi.MUTED)
 	var lives := DeepUi.vbox(page, 6)
 	DeepUi.section(lives, "map", "Where it lives", DeepUi.ACCENT, 13)
-	## A mine's bands said as one line, however many stretches of it the creature is drawn in.
+	for haunt in _places(key):
+		var line: Array = _haunt_words(profile, haunt)
+		Inspector.wrap_stat(DeepUi.stat(lives, str(line[0]), str(line[1]), DeepUi.PAPER, 13))
+
+static func _places(key: String) -> Array:
+	## Every place it is found, a mine's bands gathered into one entry however many stretches
+	## of it the creature is drawn in, so each mine is said as one line.
 	var haunts: Array = []
 	for haunt in DeepBestiary.haunts(key):
 		var last: Dictionary = haunts.back() if not haunts.is_empty() else {}
@@ -605,9 +605,7 @@ static func _notes(profile: Dictionary, page: Control, key: String, record: Dict
 			haunts.append({"kind": "band", "mine": str(haunt.mine), "spans": [haunt]})
 		else:
 			haunts.append(haunt)
-	for haunt in haunts:
-		var line: Array = _haunt_words(profile, haunt)
-		Inspector.wrap_stat(DeepUi.stat(lives, str(line[0]), str(line[1]), DeepUi.PAPER, 13))
+	return haunts
 
 static func _haunt_words(profile: Dictionary, haunt: Dictionary) -> Array:
 	## [glyph, words] for one place it is found.

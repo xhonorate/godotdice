@@ -106,6 +106,8 @@ class Portrait extends Control:
 		if locked:
 			var lock := DeepUi.icon(self, "lock", edge.x * 0.22, DeepUi.PAPER, "Locked")
 			lock.position = Vector2(edge.x * 0.39, edge.y * 0.36)
+			## The plate (or the tile it sits on) says how this delver joins; the lock must not answer for it.
+			lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		elif chosen:
 			var crown := DeepUi.icon(self, "crown", edge.x * 0.16, DeepUi.ACCENT, "Going down as this delver")
 			crown.position = Vector2(edge.x - edge.x * 0.16 - 8.0, 8.0)

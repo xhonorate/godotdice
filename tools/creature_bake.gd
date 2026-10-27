@@ -23,6 +23,15 @@ extends SceneTree
 ##   box(size[3])  torus(inner, outer, rings, segments)  capsule(radius, height, segments)
 ## Positions are in creature units: a Cave Tick is about 1 high, a Warden about 3.
 ## The whole recipe may name "scale" to size the finished body at once.
+##
+## A limb or a tool is easier laid as a stick: "from" and "to" (creature units) stand a
+## cylinder, cone, capsule, drill, crystal, spike or column between two points, the distance
+## its "height", and its pivot turns about the stick, so a drill bores and a wheel spins on
+## its own axle. "aim": [x, y, z] points any other part's long axis that way instead of "rot".
+## "joint": [x, y, z] puts the pivot there and leaves the shape where it was laid: every part
+## of an arm that names the same shoulder swings as one piece (give them one "phase").
+## A fourth material, "iron", is worked metal: dark and barely lit, so a pick's head, a hard
+## hat or a track reads against the creature's own glow.
 
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
 const Part = preload("res://view/creatures/creature_part.gd")
@@ -86,8 +95,10 @@ static func validate(key: String, recipe: Dictionary) -> Array:
 			continue
 		if not str(part.get("shape", "")) in SHAPES:
 			errors.append("unknown shape " + str(part.get("shape", "")))
-		if not str(part.get("material", "body")) in ["body", "core", "accent"]:
-			errors.append("material is body, core or accent")
+		if not str(part.get("material", "body")) in ["body", "core", "accent", "iron"]:
+			errors.append("material is body, core, accent or iron")
+		if part.has("from") != part.has("to"):
+			errors.append("a stick needs both from and to")
 		if not str(part.get("motion", "static")) in MOTIONS:
 			errors.append("unknown motion " + str(part.get("motion", "")))
 	return errors
@@ -102,9 +113,30 @@ static func _vec(value: Variant, fallback: Vector3) -> Vector3:
 		return Vector3.ONE * float(value)
 	return fallback
 
+## Shapes built from their base up the Y axis rather than about their middle: a stick of one
+## of these starts at its "from".
+const BASED: Array = ["crystal", "spike", "column", "cap"]
+
+static func _laid(part: Dictionary) -> Transform3D:
+	## Where a part's shape sits in the creature and which way its long axis points.
+	if part.has("from") and part.has("to"):
+		var a: Vector3 = _vec(part.from, Vector3.ZERO)
+		var b: Vector3 = _vec(part.to, Vector3.UP)
+		return Transform3D(_aimed(b - a), a if str(part.get("shape", "")) in BASED else (a + b) * 0.5)
+	var basis := _aimed(_vec(part.aim, Vector3.UP)) if part.has("aim") else Basis.from_euler(_vec(part.get("rot", null), Vector3.ZERO) * (PI / 180.0))
+	return Transform3D(basis, _vec(part.get("at", null), Vector3.ZERO))
+
+static func _aimed(direction: Vector3) -> Basis:
+	## Upright turned the shortest way round until its Y axis runs along `direction`.
+	var up: Vector3 = direction.normalized()
+	var axis: Vector3 = Vector3.UP.cross(up)
+	if axis.length() < 0.0001:
+		return Basis() if up.y > 0.0 else Basis(Vector3.RIGHT, PI)
+	return Basis(axis.normalized(), Vector3.UP.angle_to(up))
+
 static func material(tone: Color, role: String) -> StandardMaterial3D:
-	## The three materials a creature wears: a faceted body, a dim glowing core, and an
-	## accent (a lamp, a fire, an eye) that glows harder than either.
+	## The materials a creature wears: a faceted body, a dim glowing core, an accent (a lamp,
+	## a fire, an eye) that glows harder than either, and, where it carries any, dark iron.
 	var m := StandardMaterial3D.new()
 	m.resource_local_to_scene = true
 	m.vertex_color_use_as_albedo = true
@@ -121,6 +153,17 @@ static func material(tone: Color, role: String) -> StandardMaterial3D:
 			m.metallic = 0.1
 			m.emission = tone
 			m.emission_energy_multiplier = 2.2
+		"iron":
+			## Only a breath of the creature's own color in it, and a rim of light so a dark
+			## pick against dark rock still has an edge.
+			m.albedo_color = Color.from_hsv(tone.h, tone.s * 0.3, 0.3)
+			m.roughness = 0.4
+			m.metallic = 0.5
+			m.emission = tone
+			m.emission_energy_multiplier = 0.05
+			m.rim_enabled = true
+			m.rim = 0.6
+			m.rim_tint = 0.5
 		_:
 			m.albedo_color = tone.darkened(0.25)
 			m.roughness = 0.18
@@ -194,6 +237,9 @@ static func bake(key: String, recipe: Dictionary) -> void:
 		body_material.emission_energy_multiplier = 0.4
 	var core_material := material(tint.lerp(Color("ff5a4a"), 0.35) if warden else tint, "core")
 	var accent_material := material(accent, "accent")
+	var iron_material: StandardMaterial3D = null
+	if recipe.get("parts", []).any(func(p: Variant) -> bool: return p is Dictionary and str(p.get("material", "")) == "iron"):
+		iron_material = material(tint.lerp(Color("ff5a4a"), 0.35) if warden else tint, "iron")
 	var root := Node3D.new()
 	root.name = key.to_pascal_case()
 	root.set_script(CreatureScript)
@@ -204,6 +250,8 @@ static func bake(key: String, recipe: Dictionary) -> void:
 	root.set("body_material", body_material)
 	root.set("core_material", core_material)
 	root.set("accent_material", accent_material)
+	if iron_material != null:
+		root.set("iron_material", iron_material)
 	root.set("normal_tint", tint)
 	root.set("normal_accent", accent)
 	var whole: float = 1.5 if warden else 1.0
@@ -215,16 +263,22 @@ static func bake(key: String, recipe: Dictionary) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = key.hash()
 	var index: int = 0
-	for part in recipe.get("parts", []):
+	for laid_part in recipe.get("parts", []):
+		var part: Dictionary = laid_part
 		index += 1
 		var motion: String = str(part.get("motion", "static"))
 		var label: String = str(part.get("name", motion if motion != "static" else str(part.get("shape", "part"))))
 		counts[label] = int(counts.get(label, 0)) + 1
 		var pivot := Node3D.new()
 		pivot.name = "%s%02d" % [label.to_pascal_case(), counts[label]]
-		pivot.position = _vec(part.get("at", null), Vector3.ZERO)
-		var tilt: Vector3 = _vec(part.get("rot", null), Vector3.ZERO)
-		pivot.rotation_degrees = tilt
+		var laid: Transform3D = _laid(part)
+		if part.has("from") and not part.has("height"):
+			part = part.duplicate()
+			part["height"] = _vec(part.from, Vector3.ZERO).distance_to(_vec(part.to, Vector3.ZERO))
+		if part.has("joint"):
+			pivot.position = _vec(part.joint, Vector3.ZERO)
+		else:
+			pivot.transform = laid
 		pivot.set_script(Part)
 		pivot.set("motion", motion)
 		pivot.set("phase", float(part.get("phase", float(index) * 0.9)))
@@ -238,10 +292,14 @@ static func bake(key: String, recipe: Dictionary) -> void:
 		match str(part.get("material", "body")):
 			"core": mesh.material_override = core_material
 			"accent": mesh.material_override = accent_material
+			"iron": mesh.material_override = iron_material
 			_: mesh.material_override = body_material
 		mesh.scale = _vec(part.get("scale", null), Vector3.ONE)
 		mesh.rotation_degrees = _vec(part.get("mesh_rot", null), Vector3.ZERO)
 		mesh.position = _vec(part.get("offset", null), Vector3.ZERO)
+		if part.has("joint"):
+			## The shape stays where it was laid, now hung from the joint.
+			mesh.transform = Transform3D(Basis(), -pivot.position) * laid * mesh.transform
 		pivot.add_child(mesh)
 	var anchor := Marker3D.new()
 	anchor.name = "Anchor"

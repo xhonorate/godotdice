@@ -58,7 +58,8 @@ func _test_catalog() -> void:
 		for pivot in direct.get_node("Body").get_children():
 			var mesh := pivot.get_child(0) as MeshInstance3D
 			check(mesh.mesh != null, "%s has saved geometry" % key)
-			check(mesh.material_override == direct.core_material or mesh.material_override == direct.body_material or (direct.accent_material != null and mesh.material_override == direct.accent_material),
+			check(mesh.material_override == direct.core_material or mesh.material_override == direct.body_material or (direct.accent_material != null and mesh.material_override == direct.accent_material)
+				or (direct.iron_material != null and mesh.material_override == direct.iron_material),
 				"%s meshes use the material animated by their own instance" % key)
 		direct.free()
 		creature.free()

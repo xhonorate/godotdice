@@ -10,6 +10,8 @@ const Tips = preload("res://view/ui/tips.gd")
 
 const WIDTH: float = 330.0
 const FOOTER: String = "Right-click · everything"
+## How big a die plate draws each face: its numbers are kept to the text floor.
+const FACE_MARK: float = 30.0
 
 static func head(box: Control, title: String, small: String, tone: Color = DeepUi.PAPER) -> HBoxContainer:
 	## The title line: the name in bold, and after it what kind of thing it is, in small capitals.
@@ -88,8 +90,9 @@ static func gem(stone: Dictionary, context: Dictionary, hand: Array, entry: Dict
 	return box
 
 static func _weight_line(box: Control, stone: Dictionary, context: Dictionary, eff: Dictionary) -> void:
-	## What the stone's weight multiplies its numbers by, as one underlined figure; rest the
-	## pointer on it and the working opens beside the plate (tips.gd).
+	## What the stone's weight multiplies what it lands by, as one underlined figure; rest the
+	## pointer on it and the working opens beside the plate (tips.gd). It is the amount that is
+	## multiplied, not the card's numbers: "reads your lowest 2 dice" never becomes 2.5.
 	if not DeepStone.magnitude_matters(stone):
 		return
 	var magnitude: float = float(eff.magnitude)
@@ -101,7 +104,7 @@ static func _weight_line(box: Control, stone: Dictionary, context: Dictionary, e
 	rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DeepUi.set_text_size(rtl, 12)
 	rtl.push_color(DeepUi.MUTED)
-	rtl.add_text("Every number above is ")
+	rtl.add_text("What it lands is ")
 	rtl.push_color(Color("ffd77a"))
 	rtl.push_font(DeepUi.bold_font())
 	rtl.push_meta("weight", RichTextLabel.META_UNDERLINE_ALWAYS)
@@ -165,7 +168,8 @@ static func _rider_row(box: Control, stone: Dictionary, riders: Array, socket: i
 	row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	var first: Dictionary = riders[0] if rider_of and not riders.is_empty() else stone
 	var line: Array = riders.slice(1) if rider_of else riders
-	_rider_mark(row, first, not rider_of)
+	## A rider first in line (its socket has no gem of its own) is the one ringed as here.
+	_rider_mark(row, first, not rider_of or str(first.get("id", "")) == str(stone.get("id", "")))
 	for rider in line:
 		DeepUi.label(row, "›", 12, DeepUi.DIM)
 		_rider_mark(row, rider, rider_of and str(rider.get("id", "")) == str(stone.get("id", "")))
@@ -233,6 +237,42 @@ static func badge(entry: Dictionary) -> Array:
 	var text: String = str(first[0]).split(" ")[0]
 	return [text, first[1]]
 
+static func birth_badge(tiers: Array, defs: Array) -> Array:
+	## The figure a Birthstone wears while the hand is planned, like a gem's: the Resonance
+	## the rail would bring it, times what the lit tier multiplies that by (its own three, the
+	## crowns showing), times the blows it throws. "7×9" is Thousand Cuts' 7 Resonance thrown
+	## nine times, off a 9 on the high die. With more than one tier lit, the one that lands
+	## most. ["", _] when nothing with a number fires, or only a penalty does (a Bust).
+	## `tiers` are the forecast's, each with the count the rules made of it; `defs` the
+	## Birthstone's own, which say which tier is a penalty.
+	var best: Array = ["", DeepUi.PAPER]
+	var most: int = -1
+	for index in range(tiers.size()):
+		var tier: Dictionary = tiers[index] if tiers[index] is Dictionary else {}
+		if not bool(tier.get("active", false)) or (index < defs.size() and bool(defs[index].get("penalty", false))):
+			continue
+		var count: Dictionary = tier.get("count", {})
+		if not count.has("amount"):
+			continue
+		var factors: Array = []
+		if count.has("res"):
+			factors.append(int(count.res))
+			if int(count.get("coef", 1)) != 1:
+				factors.append(int(count.coef))
+		else:
+			factors.append(int(count.get("base", count.amount)))
+		var repeat: int = maxi(1, int(count.get("repeat", 1)))
+		if repeat > 1:
+			factors.append(repeat)
+		var lands: int = DeepRules.sat_mul(int(count.amount), repeat)
+		if lands <= most:
+			continue
+		most = lands
+		var kind: String = str(count.get("kind", "damage"))
+		var tone: Color = DeepUi.EFFECT_KEYWORDS[kind].color if DeepUi.EFFECT_KEYWORDS.has(kind) else DeepUi.PAPER
+		best = ["×".join(PackedStringArray(factors.map(func(f: int) -> String: return DeepUi.number(f)))), tone]
+	return best
+
 static func _this_hand(box: Control, hand: Array, dice: Array, entry: Dictionary) -> void:
 	## The strip: the hand's dice as small faces, the ones this gem reads lit, and what lands.
 	var strip := PanelContainer.new()
@@ -245,13 +285,19 @@ static func _this_hand(box: Control, hand: Array, dice: Array, entry: Dictionary
 	var by_id: Dictionary = {}
 	for die in dice:
 		by_id[str(die.get("id", ""))] = die
+	## The hand's numbers at the text floor, every face at the size the widest one needs.
+	var edge: float = 18.0
+	for roll in hand:
+		if not bool(roll.get("phantom", false)):
+			edge = maxf(edge, DiceIcons.fit_edge(18.0, str(by_id.get(str(roll.get("die_id", "")), {}).get("shape", roll.get("shape", "D6"))),
+				DiceIcons.face_text(int(roll.get("value", 0)), str(roll.get("kind", "plain")))))
 	for roll in hand:
 		if bool(roll.get("phantom", false)):
 			continue
 		var id: String = str(roll.get("die_id", ""))
 		var lit: bool = active and read.has(id)
 		var shape: String = str(by_id.get(id, {}).get("shape", roll.get("shape", "D6")))
-		row.add_child(DiceIcons.face(18, int(roll.get("value", 0)), Color.WHITE if lit else DeepUi.LINE_HI, shape, lit,
+		row.add_child(DiceIcons.readable_face(edge, int(roll.get("value", 0)), Color.WHITE if lit else DeepUi.LINE_HI, shape, lit,
 			DiceIcons.face_text(int(roll.get("value", 0)), str(roll.get("kind", "plain")))))
 	var words := DeepUi.vbox(row, 0)
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -285,22 +331,35 @@ static func _this_hand(box: Control, hand: Array, dice: Array, entry: Dictionary
 # --- dice --------------------------------------------------------------------------------------
 
 static func die(item: Dictionary, roll: Dictionary = {}, opts: Dictionary = {}) -> Control:
-	## A die in the tray: what it is, its faces with the one it landed on lit, and whatever is
-	## cut into it. `opts.note` is a line about this turn (locked, lent, a phantom's source).
+	## A die in the tray: what it is, what it rolled, its faces with the one it landed on lit,
+	## and whatever is cut into it. `opts.note` is a line about this turn (locked, lent, a
+	## phantom's source).
 	var box := plate(300.0)
 	var tone: Color = DiceIcons.die_palette(item).body
-	head(box, DeepDice.describe(item), "%d faces" % item.get("faces", []).size(), tone.lightened(0.2))
+	var landed: int = int(roll.get("face", -1)) if not roll.is_empty() else -1
+	## Rolled, the head says the number it counts as ("d8 ROLLED 3"); the lit face below says
+	## which face that is. A lit diamond in a row of eight was the only sign of it.
+	var rolled: bool = landed >= 0 and roll.has("value")
+	var top := head(box, DeepDice.describe(item), "rolled" if rolled else "%d faces" % item.get("faces", []).size(), tone.lightened(0.2))
+	if rolled:
+		var number := DeepUi.label(top, DiceIcons.face_text(int(roll.get("value", 0)), str(roll.get("kind", "plain"))), 15, Color.WHITE)
+		number.add_theme_font_override("font", DeepUi.bold_font())
+		number.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var faces := HFlowContainer.new()
 	faces.add_theme_constant_override("h_separation", 3)
 	faces.add_theme_constant_override("v_separation", 3)
 	faces.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(faces)
-	var landed: int = int(roll.get("face", -1)) if not roll.is_empty() else -1
 	var list: Array = item.get("faces", [])
+	var shape: String = str(item.get("shape", "D6"))
+	## One size for every face, the one the widest number needs.
+	var edge: float = FACE_MARK
+	for face in list:
+		edge = maxf(edge, DiceIcons.fit_edge(FACE_MARK, shape, DiceIcons.face_text(int(face.get("value", 0)), str(face.get("kind", "plain")))))
 	for index in range(list.size()):
 		var face: Dictionary = list[index]
 		var here: bool = index == landed
-		faces.add_child(DiceIcons.face(20, int(face.get("value", 0)), Color.WHITE if here else tone, str(item.get("shape", "D6")), here,
+		faces.add_child(DiceIcons.readable_face(edge, int(face.get("value", 0)), Color.WHITE if here else tone, shape, here,
 			DiceIcons.face_text(int(face.get("value", 0)), str(face.get("kind", "plain")))))
 	var material: String = str(item.get("material", ""))
 	var pattern: String = str(item.get("pattern", ""))
@@ -321,7 +380,7 @@ static func die(item: Dictionary, roll: Dictionary = {}, opts: Dictionary = {}) 
 		section(box, "%s behind it" % DeepUi.plural(ghosts.size(), "phantom"))
 		var ghost_row := DeepUi.hbox(box, 6)
 		for ghost in ghosts:
-			ghost_row.add_child(DiceIcons.face(22, int(ghost.get("value", 0)), DeepUi.INFO, str(item.get("shape", "D6")), true, str(int(ghost.get("value", 0)))))
+			ghost_row.add_child(DiceIcons.readable_face(22, int(ghost.get("value", 0)), DeepUi.INFO, str(item.get("shape", "D6")), true, str(int(ghost.get("value", 0)))))
 		var ghost_words := DeepUi.vbox(ghost_row, 0)
 		ghost_words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ghost_words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -337,7 +396,7 @@ static func phantom(ghosts: Array, source: Dictionary) -> Control:
 	head(box, "%s behind this die" % DeepUi.plural(ghosts.size(), "phantom"), "copies", DeepUi.INFO)
 	var row := DeepUi.hbox(box, 6)
 	for ghost in ghosts:
-		row.add_child(DiceIcons.face(22, int(ghost.get("value", 0)), DeepUi.INFO, str(source.get("shape", ghost.get("shape", "D6"))), true, str(int(ghost.get("value", 0)))))
+		row.add_child(DiceIcons.readable_face(22, int(ghost.get("value", 0)), DeepUi.INFO, str(source.get("shape", ghost.get("shape", "D6"))), true, str(int(ghost.get("value", 0)))))
 	DeepUi.wrap(box, "Copies of your %s, made by a Refract. Each counts for every gem after the one that made it this turn, then fades." % DeepDice.describe(source), 12, DeepUi.MUTED)
 	return box
 
@@ -348,4 +407,45 @@ static func words(title: String, text: String, small: String = "", tone: Color =
 	var box := plate(280.0)
 	head(box, title, small, tone)
 	DeepUi.effect_text(box, text, 12, DeepUi.PAPER)
+	return box
+
+# --- grade ---------------------------------------------------------------------------------------
+
+static func grade(stone: Dictionary, footer_words: String = "") -> Control:
+	## Where a stone's grade comes from, a row for each part out of what it can give
+	## (DeepStone.grade_breakdown): carat 45, cut 20, clarity 20, inclusions 15, rarity 8.
+	## It is what explains a heavy Perfect Clear stone grading under a lighter Included one.
+	var graded: Dictionary = DeepStone.grade(stone)
+	var parts: Dictionary = graded.get("breakdown", {})
+	var tone: Color = DeepUi.tier_color(str(graded.tier))
+	var box := plate(310.0)
+	head(box, "Grade %d of 100" % int(graded.score), "%s · %s" % [DeepUi.skill_name(stone), str(graded.name)], tone)
+	DeepUi.label(box, "Where its points come from", 12, DeepUi.MUTED)
+	var clear: bool = int(stone.get("clarity", DeepContent.clear_index())) == DeepContent.clear_index()
+	var held: int = stone.get("inclusions", []).size()
+	var rarity: String = str(DeepStone.skill_of(stone).get("rarity", "COMMON"))
+	var rows: Array = [
+		["Carat", "%d ct" % int(stone.get("carat", 1)), float(parts.get("carat_pts", 0.0)), 45.0, DeepUi.MUTED],
+		["Cut", DeepContent.cut_name(int(stone.get("cut", 0))), float(parts.get("cut_pts", 0.0)), 20.0, DeepUi.MUTED],
+		["Clarity", DeepContent.clarity_name(int(stone.get("clarity", 0))), float(parts.get("clarity_pts", 0.0)), 20.0, DeepUi.BAD if clear else DeepUi.MUTED],
+		["Inclusions", "none" if held == 0 else str(held), float(parts.get("inclusion_pts", 0.0)), 15.0, DeepUi.MUTED],
+		["Rarity", rarity.capitalize(), float(parts.get("skill_pts", 0.0)), 8.0, DeepUi.MUTED]]
+	for row in rows:
+		var line := DeepUi.hbox(box, 8)
+		var part := DeepUi.label(line, str(row[0]), 13, DeepUi.PAPER)
+		part.custom_minimum_size.x = 76
+		var value := DeepUi.label(line, str(row[1]), 12, row[4])
+		value.custom_minimum_size.x = 64
+		var points: int = int(round(float(row[2])))
+		var meter := DeepUi.bar(line, 5.0, Color("ffc247"), Color(DeepUi.LINE, 0.7))
+		meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		meter.set_values(clampf(float(row[2]) / float(row[3]), 0.0, 1.0))
+		var said := DeepUi.label(line, "%d of %d" % [mini(points, int(row[3])), int(row[3])], 12, Color.WHITE if points > 0 else DeepUi.DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+		said.custom_minimum_size.x = 56
+		if points > 0:
+			said.add_theme_font_override("font", DeepUi.bold_font())
+	DeepUi.rule(box, DeepUi.LEDGER_LINE)
+	DeepUi.wrap(box, "Clarity scores how far it sits from Clear, either way. Clear itself scores 0.", 11, DeepUi.MUTED)
+	if not footer_words.is_empty():
+		footer(box, footer_words)
 	return box

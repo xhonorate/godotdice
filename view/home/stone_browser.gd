@@ -136,6 +136,7 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 class ColorDot extends Control:
 	## One color's dot in the browser's row: lit when its stones are shown, ringed when it is
 	## the filter.
+	const REACH := Vector2(3, 7)
 	var color: String
 	var lit: bool
 	var picked: bool
@@ -147,10 +148,18 @@ class ColorDot extends Control:
 		size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		add_to_group(DeepUi.MARKED_GROUP)
+	func _has_point(point: Vector2) -> bool:
+		## A click counts well past the dot: 34 tall, and half the gap to each neighbour wide,
+		## so the dots share the whole strip between them. The dot is drawn as it always was.
+		return Rect2(-REACH, size + REACH * 2.0).has_point(point)
 	func _draw() -> void:
 		var centre: Vector2 = size * 0.5
 		var alpha: float = 1.0 if lit else 0.28
-		if color == DeepContent.OPAL:
+		if DeepUi.color_marks:
+			## Settings > Comfort > Color marks: the dot takes its color's shape.
+			DeepUi.draw_color_mark(self, centre, 8.0, color, false, false, alpha)
+		elif color == DeepContent.OPAL:
 			for i in range(12):
 				draw_arc(centre, 4.0, TAU * float(i) / 12.0, TAU * float(i + 1) / 12.0, 4, Color(DeepUi.rainbow_at(float(i) / 11.0, 0.62), alpha), 7.0)
 		else:
@@ -236,7 +245,7 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 	var box := DeepUi.vbox(parent, 2)
 	box.name = "StoneTable"
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var widths: Array = [["name", "Stone", 200], ["grade", "Grade", 104], ["carat", "Carat", 56], ["cut", "Cut", 124], ["clarity", "Clarity", 100], ["", "Inside", 0], ["mine", "Found", 130], ["found", "When", 84], ["", "In", 76]]
+	var widths: Array = [["name", "Stone", 200], ["grade", "Grade", 104], ["carat", "Carat", 56], ["cut", "Cut", 124], ["clarity", "Clarity", 100], ["worth", "Worth", 56], ["", "Inside", 0], ["mine", "Found", 130], ["found", "When", 84], ["", "In", 76]]
 	## The headings sit in a pad as deep as a row's, so they line up over their columns.
 	var head_pad := DeepUi.panel(box, Color(0, 0, 0, 0), Color(0, 0, 0, 0), 6, 4)
 	var head := DeepUi.hbox(head_pad, 10)
@@ -297,6 +306,8 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 		cut_cell.add_child(StoneCard.Pips.new(int(stone.get("cut", 0)) + 1, DeepContent.cuts().size(), 6.0, StoneCard.TileTags.CUT_TONE))
 		DeepUi.label(cut_cell, DeepContent.cut_name(int(stone.get("cut", 0))), 13, DeepUi.MUTED)
 		DeepUi.label(row, DeepContent.clarity_name(int(stone.get("clarity", 0))), 13, DeepUi.MUTED).custom_minimum_size.x = 100
+		## Worth is a sort, so it is a column too: a list sorted by it shows what it was sorted on.
+		DeepUi.label(row, "%d" % DeepStone.value(stone), 13, DeepUi.ACCENT).custom_minimum_size.x = 56
 		var inside: Array = stone.get("inclusions", []).map(func(k: Variant) -> String: return str(DeepContent.inclusion(str(k)).get("name", k)))
 		var inside_label := DeepUi.label(row, ", ".join(inside) if not inside.is_empty() else "–", 12, DeepUi.MUTED)
 		inside_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -304,7 +315,8 @@ static func table(home: Control, parent: Node, stones: Array, opts: Dictionary =
 		inside_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		var provenance: Dictionary = stone.get("provenance", {}) if stone.get("provenance", null) is Dictionary else {}
 		var where: String = DeepContent.mine_name(str(provenance.get("mine", ""))) if not str(provenance.get("mine", "")).is_empty() else "–"
-		if int(provenance.get("depth", 0)) > 0:
+		## A Geode or a contract stone was rolled at a depth's luck, not found on that floor.
+		if int(provenance.get("depth", 0)) > 0 and not str(provenance.get("source", "")) in ["geode", "contract"]:
 			where += " · %d" % int(provenance.depth)
 		if int(provenance.get("hazard", 0)) > 0:
 			where += " · H%d" % int(provenance.hazard)

@@ -75,7 +75,8 @@ func open(new_spec: Dictionary) -> void:
 	## extras: slider {key, min, max, value, unit}, faces {key, of, blanks, lowering} (a face of
 	## the die in slot `of`), inclusions {key, of} (an inclusion of the stone in slot `of`).
 	## `build` is a Callable(picks, extras) -> Dictionary that turns the picks into the payload
-	## (empty when the ask is not answered yet); without it the picks are the payload.
+	## (empty when the ask is not answered yet); without it the picks are the payload. `warn` is
+	## a Callable(picks) -> String: a warning line under the slots for the current pick ("" for none).
 	var same: bool = str(new_spec.get("key", "")) == _key and is_open()
 	spec = new_spec
 	_key = str(new_spec.get("key", ""))
@@ -166,6 +167,50 @@ func eligible(kind: String) -> Array:
 			if not out.has(id):
 				out.append(id)
 	return out
+
+func refusal(kind: String, id: String) -> String:
+	## Why the ask will not take this thing, as a sentence for its plate, or "" when it would
+	## (or when no slot of its kind lists it at all). Refused by every slot that lists it, it
+	## says the first slot's reason.
+	if not is_open():
+		return ""
+	var why: String = ""
+	for slot in spec.get("slots", []):
+		if str(slot.get("kind", "")) != kind or not _lists(slot, id):
+			continue
+		var refusals: Dictionary = slot.get("refusals", {})
+		if not refusals.has(id):
+			return ""
+		if why.is_empty():
+			why = str(refusals[id])
+	return sentence(why)
+
+static func sentence(words: String) -> String:
+	## The rooms give their reasons as the end of a sentence ("nobody has read it yet"): on a
+	## line of its own one starts with a capital and ends with a stop.
+	var said: String = words.strip_edges()
+	if said.is_empty():
+		return ""
+	said = said.left(1).to_upper() + said.substr(1)
+	return said if said.right(1) in [".", "!", "?"] else said + "."
+
+func _shared_refusal() -> String:
+	## The one reason every refused thing has, when they all have the same one: said once
+	## under the question, so the dimmed half of the dock is explained before it is pointed at.
+	## Left as the rooms word it ("nobody has read it yet"), to follow "Dimmed: ".
+	var said: String = ""
+	for slot in spec.get("slots", []):
+		var refusals: Dictionary = slot.get("refusals", {})
+		for id in refusals:
+			var why: String = str(refusals[id]).strip_edges()
+			if why.is_empty():
+				continue
+			if not said.is_empty() and why != said:
+				return ""
+			said = why
+	if said.is_empty() or said.right(1) in [".", "!", "?"]:
+		return said
+	return said + "."
 
 func wants(kind: String) -> bool:
 	return spec.get("slots", []).any(func(s: Dictionary) -> bool: return str(s.get("kind", "")) == kind)
@@ -291,6 +336,11 @@ func _build() -> void:
 	if not str(spec.get("text", "")).is_empty():
 		var words := DeepUi.wrap(box, str(spec.text), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, 440)
 		words.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	## What is dimmed on the dock, and why, when one reason covers all of it. Each dimmed
+	## thing also says its own reason on its plate (run_dock.gd).
+	var shared: String = _shared_refusal()
+	if not shared.is_empty():
+		DeepUi.stat(box, "cross_out", "Dimmed: " + shared, DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
 	var slots := DeepUi.hbox(box, 22)
 	slots.alignment = BoxContainer.ALIGNMENT_CENTER
 	for slot in spec.get("slots", []):
@@ -303,6 +353,13 @@ func _build() -> void:
 	_extras(tone)
 	if not str(spec.get("blocked", "")).is_empty():
 		DeepUi.stat(box, "cross_out", str(spec.blocked), DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
+	## A word on what the current pick costs beyond the room (a Vault stone given up for
+	## good); drawn again with every pick, so it follows what is in the slot.
+	var warn: Callable = spec.get("warn", Callable())
+	if warn.is_valid():
+		var said: String = str(warn.call(picks))
+		if not said.is_empty():
+			DeepUi.stat(box, "chest", said, DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
 	var buttons := DeepUi.hbox(box, 12)
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	var never := DeepUi.icon_button(buttons, "cross_out", "Never mind", cancel, 14, DeepUi.MUTED)

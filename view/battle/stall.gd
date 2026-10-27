@@ -1,9 +1,9 @@
 extends Node3D
 ## A merchant's stall, set up where a fight would stand: a timber counter between two posts
 ## with a sign hung over it and a lantern at one end; the goods laid out on a cloth, each a
-## real stone turning slowly in its own light with its price in front of it (a merchant never
-## sells dice); a pair of scales at one end for selling and a lens on a stand at the other for
-## appraising.
+## real stone turning slowly in its own light with its price in front of it and its name on a
+## tag under that (now and then a die, traded for one of yours); a pair of scales at one end
+## for selling and a lens on a stand at the other for appraising.
 ##
 ## In room space, facing the party. It shows what it is told: the stock, what is sold, what
 ## the lens costs. What dragging and clicking mean is the run's business.
@@ -34,6 +34,14 @@ var _purse: int = -1
 var _lens_cost: int = 0
 ## A price the purse cannot meet.
 const DEARER := Color(0.86, 0.38, 0.33, 0.9)
+## The tag under a price: the goods' name on a small plate edged in their color, as the bag's
+## tiles are, with a pip of that color before it (a gem's diamond, a die's own outline). Two
+## stones of one color look alike from across the room; the name tells them apart without
+## pointing at each one. `TAG_DROP` is how far under the goods it hangs, in room units.
+const TAG_SIZE: int = 15
+const TAG_PIP: float = 12.0
+const TAG_DROP: float = 0.56
+const DIAMOND: Array = [Vector2(0.5, 0.0), Vector2(1.0, 0.5), Vector2(0.5, 1.0), Vector2(0.0, 0.5)]
 
 func build(biome: Dictionary, stock: Array, seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
@@ -307,8 +315,31 @@ func show_stock(stock: Array) -> void:
 		var price := _label("%d" % int(item.get("price", 0)), _price_tone(int(item.get("price", 0))), 20)
 		price.position = Vector3(0, -0.27, 0.6)
 		holder.add_child(price)
+		var tag := _tag(item)
+		tag.position = Vector3(0, -TAG_DROP, 0.62)
+		holder.add_child(tag)
 		_items[id] = {"holder": holder, "spinner": spinner, "shine": shine, "hover": false, "phase": float(index) * 1.3,
-			"price_label": price, "price": int(item.get("price", 0))}
+			"price_label": price, "tag": tag, "price": int(item.get("price", 0))}
+
+func _tag(item: Dictionary) -> Node3D:
+	## The name under the price: a gem's name, or a die's size ("d4"), the way the bag reads them.
+	var words: String = ""
+	var tone: Color = DeepUi.PAPER
+	var outline: Array = DIAMOND
+	if str(item.get("kind", "stone")) == "die":
+		var die: Dictionary = item.get("die", {})
+		var shape: String = str(die.get("shape", "D6"))
+		words = shape.to_lower()
+		tone = Color(DiceIcons.die_palette(die).body)
+		outline = DiceIcons.silhouette(shape).points
+	else:
+		var stone: Dictionary = item.get("stone", {})
+		words = str(DeepStone.skill_of(stone).get("name", DeepStone.name(stone)))
+		tone = DeepUi.color(DeepStone.color(stone))
+	var spot := _label(words, DeepUi.PAPER, TAG_SIZE)
+	spot.set_meta("plate", TagPlate.new(tone, outline))
+	spot.set_meta("font", DeepUi.bold_font())
+	return spot
 
 func set_purse(ore: int) -> void:
 	## What the buyer can pay for reads off the counter at a glance: a price within the purse
@@ -349,6 +380,13 @@ func take(id: String) -> Node3D:
 	spinner.transform = at
 	var tween := holder.create_tween()
 	tween.tween_property(holder, "scale", Vector3.ONE * 0.01, 0.35).set_delay(0.2)
+	## The words are drawn flat over the room and do not shrink with it: they fade instead,
+	## or the price and the tag would slide together into the empty stand.
+	var words: Array = [entry.get("price_label", null), entry.get("tag", null)].filter(func(n: Variant) -> bool: return n is Node3D)
+	tween.parallel().tween_method(func(alpha: float) -> void:
+		for spot in words:
+			if is_instance_valid(spot):
+				(spot as Node3D).set_meta("alpha", alpha), 1.0, 0.0, 0.25).set_delay(0.2)
 	tween.tween_callback(holder.queue_free)
 	return spinner
 
@@ -411,3 +449,31 @@ func _faced_die(die: Dictionary) -> Node3D:
 		label.transform = Transform3D(Basis(frame.right, frame.up, frame.normal), frame.centre + frame.normal * 0.006)
 		node.add_child(label)
 	return node
+
+class TagPlate extends StyleBox:
+	## A tag's plate (the stage sits the name on it, see `MineStage.NAME_GROUP`): a small Ledger
+	## plate edged in the goods' color, and the pip in its left margin.
+	var _plate: StyleBoxFlat
+	var _pip: PackedVector2Array = PackedVector2Array()
+	var _tone: Color
+
+	func _init(tone: Color, outline: Array) -> void:
+		_tone = tone
+		_plate = DeepUi.ledger(DeepUi.SLATE_LOW, Color(tone, 0.7), 6, 3, 2, 2)
+		for point in outline:
+			_pip.append(Vector2(point))
+		content_margin_left = 8.0 + TAG_PIP + 6.0
+		content_margin_right = 10.0
+		content_margin_top = 2.0
+		content_margin_bottom = 3.0
+
+	func _draw(to_canvas_item: RID, rect: Rect2) -> void:
+		_plate.draw(to_canvas_item, rect)
+		var at := Vector2(rect.position.x + 8.0, rect.position.y + (rect.size.y - TAG_PIP) * 0.5)
+		var shape := PackedVector2Array()
+		for point in _pip:
+			shape.append(at + point * TAG_PIP)
+		RenderingServer.canvas_item_add_polygon(to_canvas_item, shape, PackedColorArray([_tone]))
+		var rim := shape.duplicate()
+		rim.append(shape[0])
+		RenderingServer.canvas_item_add_polyline(to_canvas_item, rim, PackedColorArray([_tone.darkened(0.45)]), 1.0, true)

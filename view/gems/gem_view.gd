@@ -63,6 +63,8 @@ var ground_texture: Texture2D = null
 ## Right-click opens the stone in the inspector. Off by default, and off inside the
 ## inspector itself, where a right-click means close.
 var inspectable := false
+## What that close look is opened with (at the Market's case: its price and a Buy button).
+var inspect_opts: Dictionary = {}
 
 var _viewport: SubViewport
 var _frame: SubViewportContainer
@@ -626,7 +628,7 @@ func _redraw() -> void:
 
 func _gui_input(event: InputEvent) -> void:
 	if inspectable and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and not gem.is_empty():
-		load("res://view/inspect/inspector.gd").stone(gem)
+		load("res://view/inspect/inspector.gd").stone(gem, inspect_opts)
 		accept_event()
 		return
 	if not interactive:

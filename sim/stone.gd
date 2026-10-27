@@ -459,12 +459,19 @@ static func raw_name(stone: Dictionary) -> String:
 	if is_geode(stone):
 		return DeepEconomy.geode_name(stone.geode)
 	var color_name: String = str(DeepContent.color(color(stone)).get("name", color(stone)))
-	return "%s %s stone" % [size_name(int(stone.get("carat", 1))), color_name.to_lower()]
+	var size: Dictionary = size_class(int(stone.get("carat", 1)))
+	## A name that is a thing of its own ("pebble") is said after the color, as one would.
+	if bool(size.get("noun", false)):
+		return "%s %s" % [color_name, str(size.name).to_lower()]
+	return "%s %s stone" % [str(size.name), color_name.to_lower()]
 
 ## How big a raw stone looks, half-buried in its rock: a class, never the carat itself.
 ## `low` is the smallest carat in the class; each class runs up to the next one's `low`.
+## The smallest class is named in two (`split`): under `below` carats it is a Pebble, so the
+## finds of a shallow mine, nearly all of them this class, still tell a light stone from a
+## heavier one. It stays one class all the same: drawn at one size, sold rough at one price.
 const SIZE_CLASSES: Array = [
-	{"key": "TINY", "name": "Tiny", "low": 1, "shown": 3},
+	{"key": "TINY", "name": "Tiny", "low": 1, "shown": 3, "split": {"name": "Pebble", "below": 3, "noun": true}},
 	{"key": "SMALL", "name": "Small", "low": 5, "shown": 7},
 	{"key": "MEDIUM", "name": "Medium", "low": 10, "shown": 12},
 	{"key": "LARGE", "name": "Large", "low": 15, "shown": 17},
@@ -480,6 +487,18 @@ static func size_class(carat: int) -> Dictionary:
 	entry.index = found
 	var high: int = int(SIZE_CLASSES[found + 1].low) - 1 if found + 1 < SIZE_CLASSES.size() else -1
 	entry.range = ("%d to %d carats" % [int(entry.low), high]) if high > 0 else ("%d carats or more" % int(entry.low))
+	## A split class: only its name and its range change. `low` stays the class's own, since
+	## the rough price is set by it.
+	var split: Dictionary = entry.get("split", {})
+	entry.erase("split")
+	if not split.is_empty():
+		var below: int = int(split.below)
+		if carat < below:
+			entry.name = str(split.name)
+			entry.noun = bool(split.get("noun", false))
+			entry.range = "%d to %d carats" % [int(entry.low), below - 1]
+		else:
+			entry.range = "%d to %d carats" % [below, high]
 	return entry
 
 static func size_low(key: String) -> int:

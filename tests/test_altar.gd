@@ -162,7 +162,7 @@ func _test_making() -> void:
 	check(mean > 9.5 and mean < 10.5, "and about 10 on average (%.2f)" % mean)
 	var fine: int = int(cuts.get(3, 0))
 	check(fine > trials * 3 / 4 and cuts.keys().all(func(k: Variant) -> bool: return int(k) >= 2 and int(k) <= 4),
-		"five Good gems make a Fine one most of the time, never more than a grade off: %s" % str(cuts))
+		"five Good gems make a Keen one most of the time, never more than a rung off: %s" % str(cuts))
 	var pristine: int = DeepContent.clarity_index("PRISTINE")
 	check(int(clarities.get(pristine, 0)) > trials * 3 / 4, "five Clear gems make a Pristine one most of the time: %s" % str(clarities))
 	## The top of every ladder holds.

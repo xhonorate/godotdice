@@ -112,6 +112,121 @@ static func hollow_host(player: Dictionary, stone: Dictionary) -> int:
 				return index
 	return -1
 
+# --- what a card's work can be done to -------------------------------------------------------
+##
+## The card's screen greys out a piece of work with nothing to take (descent_screen.gd asks
+## these), and the draw at an oddity asks the same of the whole party: a card nobody could do
+## a thing at is drawn again, so a room behind "Something odd" is never only a "Leave it".
+
+static func carried(player: Dictionary, loose_only: bool = false) -> Array:
+	## Every stone the player has to hand: the bag, then the rail with its riders unless only
+	## the loose ones are asked for. Never a sealed Geode: nothing down here can be done to
+	## one (read, sold, worked on, thrown in a well).
+	var out: Array = player.get("haul", []).filter(func(s: Dictionary) -> bool: return not DeepStone.is_geode(s))
+	if not loose_only:
+		out.append_array(DeepStone.rail_stones(player))
+	return out
+
+static func work_refusal(action: Dictionary, item: Dictionary, player: Dictionary = {}, offer: Dictionary = {}) -> String:
+	## Why this die or this stone cannot take this piece of work, or "". A d4 cannot be filed
+	## any smaller and a stone nobody has read has no cut to draw again: neither should be
+	## offered and then refused. `offer` is what the room laid out (the anvil's pattern).
+	match str(action.get("kind", "")):
+		"upsize":
+			return resize_refusal(item, 1)
+		"downsize":
+			return resize_refusal(item, -1)
+		"raise_face":
+			## The chisel has no ceiling, and neither does a face: any die with a face takes it.
+			return "" if not item.get("faces", []).is_empty() else "it has no faces to raise"
+		"lower_face":
+			for f in item.get("faces", []):
+				if str(f.get("kind", "plain")) != "blank" and int(f.get("value", 0)) > 1:
+					return ""
+			return "every face is already as low as it goes"
+		"reroll_cut", "reroll_clarity", "push_clarity", "collector_sell", "tumble", "fuse":
+			if str(action.get("kind", "")) == "collector_sell" and DeepStone.known_fragile(item):
+				return "fragile stones cannot be sold"
+			if not bool(item.get("appraised", false)):
+				return "nobody has read it yet"
+			if DeepStone.is_locked(item):
+				return "a Knot cannot leave its socket"
+			## The oven's own rule (push_clarity): a stone at the end of the ladder has nowhere to go.
+			if str(action.get("kind", "")) == "push_clarity":
+				var was: int = int(item.get("clarity", DeepContent.clear_index()))
+				if DeepForge.stepped_clarity(was, maxi(1, int(action.get("steps", 1)))) == was:
+					return "it is as far from Clear as the ladder goes"
+			return ""
+		"wishing_well", "trade_up", "echo_stone":
+			## These take a stone as it is: rough or read, it makes no difference to them.
+			if DeepStone.is_locked(item):
+				return "a Knot cannot leave its socket"
+			## The well's own rule (wishing_well): offered here, it was only refused on "Do it".
+			if str(action.get("kind", "")) == "wishing_well" and DeepStone.is_fragile(item):
+				return "the well will not take a fragile stone"
+			return ""
+		"remove_inclusion":
+			return "" if not item.get("inclusions", []).is_empty() else "nothing is frozen inside it"
+		"appraise":
+			return "" if not bool(item.get("appraised", false)) else "it has already been read"
+		"hollow":
+			## Any of the five dice will go down the hole; only a read gem with a socket to give up comes away Void.
+			return "" if item.has("faces") else hollow_refusal(item, player)
+		"reset":
+			## The vat keeps a die's size and its material: one with no pattern and nothing
+			## etched on it would come out exactly as it went in.
+			if str(item.get("pattern", "")).is_empty() and DeepDice.etchings(item).is_empty():
+				return "it is as plain as they come already"
+		"pattern":
+			## The anvil is set for one pattern, and not every size of die can take it.
+			if not bool(action.get("random", false)):
+				var pattern: String = str(offer.get("pattern", action.get("pattern", "")))
+				if not pattern.is_empty() and not DeepDice.pattern_allows(pattern, str(item.get("shape", "D6"))):
+					return "it is the wrong size for this pattern"
+	return ""
+
+static func nothing_to_work(needs: String, action: Dictionary, player: Dictionary, offer: Dictionary = {}) -> bool:
+	## Whether a piece of work that `needs` something has nothing of the player's it could be
+	## done to at all.
+	match needs:
+		"die", "die_face":
+			var dice: Array = player.get("dice", [])
+			## A die the work would refuse (a plain one in the vat, a d4 at the file) is not one it could be done to.
+			return dice.is_empty() or (not action.is_empty() and not dice.any(func(d: Dictionary) -> bool: return work_refusal(action, d, player, offer).is_empty()))
+		"raw_stone", "raw_stones":
+			return carried(player, true).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false))).is_empty()
+		"ore":
+			return int(player.get("ore", 0)) < DeepDescent.WISH_LEAST
+		"offer":
+			return offer.get("stone", null) == null
+		"inclusion":
+			return carried(player).filter(func(s: Dictionary) -> bool: return not s.get("inclusions", []).is_empty() and (bool(s.get("appraised", false)) or bool(s.get("inclusions_revealed", false)))).is_empty()
+		"two_stones":
+			return carried(player).filter(func(s: Dictionary) -> bool: return work_refusal(action, s, player, offer).is_empty()).size() < 2
+		"stone":
+			## A stone the work would refuse (a fragile one down a well, a Knot) is not one it could be done to.
+			return not carried(player).any(func(s: Dictionary) -> bool: return work_refusal(action, s, player, offer).is_empty())
+		"gem_and_die":
+			return player.get("dice", []).size() <= hollow_least(action) or carried(player).all(func(s: Dictionary) -> bool: return not hollow_refusal(s, player).is_empty())
+	return false
+
+static func can_work(card: Dictionary, player: Dictionary, offer: Dictionary) -> bool:
+	## Whether the player could do any of the card's work: a choice other than walking away,
+	## with something of theirs to do it to and, where it is bought, the pyrite to pay.
+	for choice in card.get("choices", []):
+		var action: Dictionary = choice.get("action", {})
+		var kind: String = str(action.get("kind", "none"))
+		if kind == "none":
+			continue
+		if kind in ["geode_buy", "collector_buy"]:
+			if offer.has("stone") and int(player.get("ore", 0)) >= int(offer.get("price", 0)):
+				return true
+			continue
+		var needs: String = str(choice.get("needs", ""))
+		if needs.is_empty() or not nothing_to_work(needs, action, player, offer):
+			return true
+	return false
+
 static func resize_refusal(die: Dictionary, steps: int) -> String:
 	## Why this die cannot be made `steps` sizes bigger (smaller when negative), or "".
 	var at: int = SIZES.find(str(die.get("shape", "")))
@@ -313,6 +428,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if int(player.get("ore", 0)) < price:
 				return _refuse("you have not the pyrite for it")
 			player.ore = int(player.ore) - price
+			DeepBattle.tally_add(player, "spent", price)
 			var bought: Dictionary = (offer.stone as Dictionary).duplicate(true)
 			bought.provenance.finder = str(player.get("id", ""))
 			player.haul.append(bought)
@@ -449,6 +565,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			if int(player.get("ore", 0)) < price:
 				return _refuse("you have not the pyrite for it")
 			player.ore = int(player.ore) - price
+			DeepBattle.tally_add(player, "spent", price)
 			var bought: Dictionary = (offer.stone as Dictionary).duplicate(true)
 			bought.appraised = true
 			bought.inclusions_revealed = true
@@ -483,10 +600,15 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 				return str(DeepContent.skill(k).get("color", "")) == color and k != str(stone.skill) and not (socketed and beside.has(k)))
 			if pool.is_empty():
 				return _refuse("nothing else of that color could come out of the drum")
+			var was: String = str(stone.skill)
 			stone.skill = DeepForge.roll_skill(rng, mine, pool)
 			out.changed.append(stone.duplicate(true))
 			if bool(stone.get("appraised", false)):
-				out.message = "The stone comes out as a %s." % str(DeepStone.skill_of(stone).get("name", stone.skill))
+				## Named going in as well as coming out: "The stone comes out as a Spall" alone
+				## never said it had been an Ember, and the change was easy to miss.
+				var now: String = str(DeepStone.skill_of(stone).get("name", stone.skill))
+				out.message = "%s comes out as %s." % [str(DeepContent.skill(was).get("name", was)), a_or_an(now)]
+				out.tumbled = {"from": was, "to": str(stone.skill)}
 			else:
 				out.message = "The stone's skill has changed. Appraise it to find out what it is now."
 		"upsize", "downsize":
@@ -585,12 +707,14 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			## ladder of what can come back up, from nothing at all to a stone cut perfect.
 			var thrown: float = 0.0
 			var said: String = ""
+			var spent: int = 0
 			if str(action.get("mode", "stone")) == "ore":
 				var least: int = int(action.get("least", 10))
-				var spent: int = clampi(int(payload.get("ore", 0)), least, int(action.get("most", 1000)))
+				spent = clampi(int(payload.get("ore", 0)), least, int(action.get("most", 1000)))
 				if int(player.get("ore", 0)) < spent:
 					return _refuse("you have not the pyrite to throw in")
 				player.ore = int(player.ore) - spent
+				DeepBattle.tally_add(player, "spent", spent)
 				thrown = float(spent) * float(ctx.get("well_mult", 1.0))
 				said = "%d pyrite goes down into the dark." % spent
 			else:
@@ -608,7 +732,7 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var rung: int = well_rung(rng, thrown)
 			var prize: Dictionary = well_prize(rng, rung, player, mine, depth, str(ctx.get("run", "")))
 			out.made.append_array(prize.get("made", []))
-			out.well = well_summary(rung, thrown, prize)
+			out.well = well_summary(rung, thrown, prize, spent)
 			out.message = "%s %s" % [said, str(prize.get("message", ""))]
 		"hollow":
 			## A die goes down the hole and a gem comes away Void, both until the run ends.
@@ -762,7 +886,9 @@ static func zoning_key(color: String) -> String:
 ## is where on it the draw lands. Even a pittance thrown in nearly always brings something
 ## back, a little more than it cost; a thousand pyrite's worth puts the top of it within easy
 ## reach. `tier` is how loud the result is, 0 to 4, for the sparks and the noise the screen
-## makes of it.
+## makes of it. A rung's `name` is the ladder's own label, never the result's headline: "A good
+## stone" over a tiny one, or "A hundred pyrite" after a throw of 157, said what the rung was
+## meant to be rather than what came back (the screen judges it, see well_headline).
 
 const WELL_MOST: float = 1000.0
 ## Where the smallest offering's bell is centred (rung 1.6, past a single pyrite), and how
@@ -772,9 +898,9 @@ const WELL_CLIMB: float = 0.6
 const WELL_PRIZES: Array = [
 	{"kind": "none", "tier": 0, "name": "Nothing"},
 	{"kind": "ore", "amount": 1, "tier": 0, "name": "A single pyrite"},
-	{"kind": "raw", "bonus": -4, "tier": 1, "name": "A poor stone"},
+	{"kind": "raw", "bonus": -4, "tier": 1, "name": "A lesser stone"},
 	{"kind": "ore", "amount": 50, "tier": 1, "name": "Fifty pyrite"},
-	{"kind": "gem", "bonus": -3, "tier": 1, "name": "A poor gem"},
+	{"kind": "gem", "bonus": -3, "tier": 1, "name": "A lesser gem"},
 	{"kind": "raw", "bonus": 0, "tier": 2, "name": "A fair stone"},
 	{"kind": "ore", "amount": 100, "tier": 2, "name": "A hundred pyrite"},
 	{"kind": "heal", "tier": 2, "name": "A full heal"},
@@ -864,11 +990,64 @@ static func well_prize(rng: RandomNumberGenerator, rung: int, player: Dictionary
 			out.message = "A flawless gem comes back up: %s." % DeepStone.name(made)
 	return out
 
-static func well_summary(rung: int, worth: float, prize: Dictionary) -> Dictionary:
+static func well_summary(rung: int, worth: float, prize: Dictionary, spent: int = 0) -> Dictionary:
 	## What the screen needs to make a noise about a draw: the rung, what went down, and
-	## what came back up in pyrite or health as well as in words.
+	## what came back up in pyrite or health as well as in words. `spent` is the pyrite thrown
+	## in, 0 when a stone went down instead.
 	return {"rung": rung, "worth": int(round(worth)), "tier": int(prize.get("tier", 0)), "name": str(prize.get("name", "")),
-		"kind": str(prize.get("kind", "none")), "ore": int(prize.get("ore", 0)), "healed": int(prize.get("healed", 0))}
+		"kind": str(prize.get("kind", "none")), "ore": int(prize.get("ore", 0)), "healed": int(prize.get("healed", 0)), "spent": maxi(0, spent)}
+
+static func well_headline(well: Dictionary, made: Array = []) -> String:
+	## The well's answer in a few words, judged against what went down it rather than read off
+	## the rung: pyrite back is less or more than the pyrite thrown (or than the well counted a
+	## stone at), a stone is named by its real size and grade, and warm water over no wounds
+	## says so.
+	var spent: int = int(well.get("spent", 0))
+	match str(well.get("kind", "none")):
+		"none":
+			return "Nothing"
+		"ore":
+			var back: int = int(well.get("ore", 0))
+			var thrown: String = "you threw" if spent > 0 else "it was worth"
+			if well_short(well):
+				return "Less than %s" % thrown
+			if back > _well_stake(well):
+				return "More than %s" % thrown
+			return "Your pyrite back" if spent > 0 else "Its worth in pyrite"
+		"heal":
+			return "Every wound closed" if int(well.get("healed", 0)) > 0 else "Warm water, and no wounds"
+		"raw", "gem", "perfect":
+			for stone in made:
+				if stone is Dictionary:
+					return found_words(stone)
+	return str(well.get("name", "The well answers"))
+
+static func well_short(well: Dictionary) -> bool:
+	## Whether the pyrite that came back up is less than what went down: a loss, said quietly
+	## whatever rung it landed on.
+	return str(well.get("kind", "")) == "ore" and int(well.get("ore", 0)) < _well_stake(well)
+
+static func _well_stake(well: Dictionary) -> int:
+	## The pyrite thrown in, or what the well counted a stone at.
+	var spent: int = int(well.get("spent", 0))
+	return spent if spent > 0 else int(well.get("worth", 0))
+
+static func found_words(stone: Dictionary) -> String:
+	## A stone named by what it really is: "A tiny blue stone" still in its rock, "A small
+	## Spall" once read, its grade said only from Precious up ("A large Exquisite Barrage"):
+	## Rough reads as still in its rock and Fine as plain praise, so neither is said here.
+	var words: String = DeepStone.raw_name(stone).to_lower()
+	if bool(stone.get("appraised", false)):
+		var size: String = str(DeepStone.SIZE_CLASSES[int(DeepStone.size_class(int(stone.get("carat", 1))).index)].name).to_lower()
+		var grade: Dictionary = DeepStone.grade(stone)
+		var graded: String = (str(grade.name) + " ") if int(grade.get("index", 0)) >= DeepStone.TIERS.find("PRECIOUS") else ""
+		words = "%s %s%s" % [size, graded, str(DeepStone.skill_of(stone).get("name", stone.get("skill", "stone")))]
+	words = a_or_an(words)
+	return words.left(1).to_upper() + words.substr(1)
+
+static func a_or_an(words: String) -> String:
+	## "a Spall", "an Ember".
+	return ("an " if not words.is_empty() and "aeiou".contains(words.left(1).to_lower()) else "a ") + words
 
 static func _clarity_verdict(was: int, now: int) -> Dictionary:
 	## Which way a clarity moved, judged by how far off Clear it ended: both ends of the

@@ -178,27 +178,63 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_flash)
 
+## A second click on a choice that asks for one counts only this long after the first, so the
+## two halves of a double-click never make one.
+const CONFIRM_GAP_MS: int = 350
+
 static func choices(parent: Node, list: Array, before: Callable = Callable()) -> HBoxContainer:
 	## The choices at the end of an appraisal, or under a stone waiting on the tray: a button
 	## each, its gold on it, with a line under it saying what it means. `before` runs first (closing the
 	## sheet the buttons sit on).
+	## A choice may be drawn in `outline` (its tone round it, not filled: the one a slip of the
+	## hand should not take) and may ask to be sure (`confirm`): its first click only says in
+	## red, over the row, what it would cost, and turns the button to `confirm_label`; a second
+	## click does it. Clicks before the row's "wait_until" meta (msec) do nothing at all.
+	var warning: PanelContainer = null
+	if list.any(func(a: Dictionary) -> bool: return not str(a.get("confirm", "")).is_empty()):
+		warning = PanelContainer.new()
+		warning.name = "ChoiceWarning"
+		warning.add_theme_stylebox_override("panel", DeepUi.ledger(Color(DeepUi.BAD, 0.12), DeepUi.BAD, 6, 6, 1, 0))
+		warning.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		warning.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		warning.visible = false
+		parent.add_child(warning)
+		DeepUi.label(warning, "", 13, DeepUi.BAD.lightened(0.1), HORIZONTAL_ALIGNMENT_CENTER).name = "Words"
 	var row := DeepUi.hbox(parent, 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	if warning != null:
+		row.set_meta("warning", warning)
 	for action in list:
 		var box := DeepUi.vbox(row, 4)
 		var primary: bool = bool(action.get("primary", true))
 		var run: Callable = action.get("call", Callable())
+		var ask: String = str(action.get("confirm", ""))
 		var pressed := func() -> void:
 			## One choice, once: a second click on the way out does nothing.
 			if bool(row.get_meta("chosen", false)):
 				return
+			if Time.get_ticks_msec() < int(row.get_meta("wait_until", 0)):
+				return
+			if not ask.is_empty():
+				var asked: Button = box.get_child(0) as Button
+				var armed: int = int(asked.get_meta("armed_at", -1))
+				if armed < 0:
+					_arm(row, asked, ask, str(action.get("confirm_label", "Click again")))
+					return
+				if Time.get_ticks_msec() - armed < CONFIRM_GAP_MS:
+					return
 			row.set_meta("chosen", true)
 			if before.is_valid():
 				before.call()
 			if run.is_valid():
 				run.call()
 		var button: Button
-		if primary:
+		if primary and bool(action.get("outline", false)):
+			button = DeepUi.icon_button(box, str(action.get("glyph", "check")), str(action.get("label", "")), pressed, 17, action.get("tone", DeepUi.ACCENT))
+			_outline(button, action.get("tone", DeepUi.ACCENT))
+			button.set_meta("sound", "ui_confirm")
+			button.custom_minimum_size = Vector2(230, 48)
+		elif primary:
 			button = DeepUi.primary(box, str(action.get("glyph", "check")), str(action.get("label", "")), pressed, 17, action.get("tone", DeepUi.ACCENT))
 			button.custom_minimum_size = Vector2(230, 48)
 		else:
@@ -206,13 +242,117 @@ static func choices(parent: Node, list: Array, before: Callable = Callable()) ->
 			button.custom_minimum_size = Vector2(170, 48)
 		if action.has("sound"):
 			DeepUi.voice(button, str(action.sound))
+		## A choice that asks first says "no" to its first click, and its own sound on the second.
+		if not ask.is_empty():
+			button.set_meta("armed_sound", button.get_meta("sound", "ui_confirm"))
+			DeepUi.voice(button, "ui_deny")
 		## What it costs or pays, as the coin and the number on the button itself.
 		if not str(action.get("price", "")).is_empty():
 			DeepUi.priced(button, str(action.price))
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		## A swap for the set gem of the same skill: the two read side by side under it.
+		var compare: Dictionary = action.get("compare", {})
+		if not compare.is_empty():
+			swap_lines(box, compare.get("found", {}), compare.get("kept", {}))
 		if not str(action.get("caption", "")).is_empty():
 			DeepUi.label(box, str(action.caption), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	return row
+
+static func _outline(button: Button, tone: Color) -> void:
+	## A choice in its tone but not filled with it: dark, outlined, its words light.
+	var normal := DeepUi.button_style(DeepUi.SLATE, tone, 14)
+	var hover := DeepUi.button_style(DeepUi.SLATE_HI, tone.lightened(0.3), 14)
+	var pressed := DeepUi.button_style(Color(tone, 0.25), tone, 14)
+	pressed.shadow_offset = Vector2(1, 1)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("hover_pressed", pressed)
+	for key in ["font_color", "font_hover_color", "font_pressed_color"]:
+		button.add_theme_color_override(key, DeepUi.PAPER)
+	for key in ["icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
+		button.add_theme_color_override(key, tone)
+
+static func _arm(row: HBoxContainer, button: Button, words: String, label: String) -> void:
+	## A choice's first click: the button goes red and says to click again, and the line over
+	## the row says what it costs. Any other choice armed before goes back to how it was.
+	for holder in row.get_children():
+		var other: Button = holder.get_child(0) as Button if holder.get_child_count() > 0 else null
+		if other != null and other != button and other.has_meta("armed_at"):
+			var was: Dictionary = other.get_meta("unarmed")
+			other.text = str(was.text)
+			for state in was.styles:
+				other.add_theme_stylebox_override(state, was.styles[state])
+			for key in was.colors:
+				other.add_theme_color_override(key, was.colors[key])
+			_tint_price(other, Color.WHITE)
+			DeepUi.voice(other, "ui_deny")
+			other.remove_meta("armed_at")
+	var styles: Dictionary = {}
+	var colors: Dictionary = {}
+	for state in ["normal", "hover", "pressed", "hover_pressed"]:
+		styles[state] = button.get_theme_stylebox(state)
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
+		colors[key] = button.get_theme_color(key)
+	button.set_meta("unarmed", {"text": button.text, "styles": styles, "colors": colors})
+	button.set_meta("armed_at", Time.get_ticks_msec())
+	DeepUi.voice(button, str(button.get_meta("armed_sound", "ui_confirm")))
+	button.text = label
+	var red: Color = DeepUi.BAD
+	var normal := DeepUi.button_style(Color(red.darkened(0.72), 0.96), red, 14)
+	var hover := DeepUi.button_style(Color(red.darkened(0.6), 0.96), red.lightened(0.3), 14)
+	## The price tag widened the button's right margin; the red look keeps that room.
+	var room: float = (styles.normal as StyleBox).get_margin(SIDE_RIGHT) if styles.normal != null else normal.content_margin_right
+	for look in [normal, hover]:
+		look.content_margin_right = room
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
+		button.add_theme_color_override(key, red.lightened(0.15))
+	_tint_price(button, red.lightened(0.15))
+	if row.has_meta("warning"):
+		var warning: PanelContainer = row.get_meta("warning")
+		(warning.get_node("Words") as Label).text = words
+		warning.visible = true
+		DeepUi.pop_in(warning, 0.0, 0.9, 0.25)
+
+static func _tint_price(button: Button, tint: Color) -> void:
+	## The coin and sum on a button, in the button's words' color. Only the color: `priced`
+	## owns the alpha, dimming it with the button.
+	var price: Control = button.get_node_or_null("Price")
+	if price != null:
+		price.modulate = Color(tint, price.modulate.a)
+
+static func swap_lines(parent: Node, found: Dictionary, kept: Dictionary) -> GridContainer:
+	## Carat, Cut and Clarity, the kept stone's then the found one's ("3 ct → 4 ct"), the way
+	## the vault's comparison says them: the better of the two in green, the other dimmed, both
+	## plain when they are the same. Below Clear a clarity only trades one inclusion for
+	## another, so there it never picks a winner, as the Sheet's clarity line does not.
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 2)
+	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	parent.add_child(grid)
+	var clear: int = DeepContent.clear_index()
+	var rows: Array = [
+		["carat", "Carat", "%d ct" % int(kept.get("carat", 1)), "%d ct" % int(found.get("carat", 1)), int(found.get("carat", 1)) - int(kept.get("carat", 1))],
+		["cut", "Cut", DeepContent.cut_name(int(kept.get("cut", 0))), DeepContent.cut_name(int(found.get("cut", 0))), int(found.get("cut", 0)) - int(kept.get("cut", 0))],
+		["clarity", "Clarity", DeepContent.clarity_name(int(kept.get("clarity", clear))), DeepContent.clarity_name(int(found.get("clarity", clear))),
+			int(found.get("clarity", clear)) - int(kept.get("clarity", clear)) if maxi(int(found.get("clarity", clear)), int(kept.get("clarity", clear))) > clear else 0]]
+	for entry in rows:
+		var head := DeepUi.hbox(grid, 6)
+		DeepUi.icon(head, str(entry[0]), 14, DeepUi.ACCENT).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		DeepUi.label(head, str(entry[1]), 12, DeepUi.MUTED)
+		var said := DeepUi.hbox(grid, 6)
+		var delta: int = int(entry[4])
+		var was := DeepUi.label(said, str(entry[2]), 12, DeepUi.PAPER if delta == 0 else (DeepUi.GOOD if delta < 0 else DeepUi.MUTED))
+		was.add_theme_font_override("font", DeepUi.bold_font())
+		DeepUi.label(said, "→", 12, DeepUi.DIM)
+		var now := DeepUi.label(said, str(entry[3]), 12, DeepUi.PAPER if delta == 0 else (DeepUi.GOOD if delta > 0 else DeepUi.MUTED))
+		now.add_theme_font_override("font", DeepUi.bold_font())
+	return grid
 
 # --- the reading ---------------------------------------------------------------------------------
 
@@ -294,7 +434,7 @@ func _break_open() -> void:
 	_title.text = "Appraised"
 	_title.add_theme_color_override("font_color", _hue.lightened(0.4))
 	DeepUi.pulse(_title, 1.25, 0.5)
-	_subtitle.text = "Appraised. Here's what it is."
+	_subtitle.text = "Out of its rock at last. Here's what it is."
 
 func _read(part: String) -> void:
 	_sheet.reveal(part)
@@ -390,7 +530,7 @@ func finish() -> void:
 		_graded = true
 		if not _shatters:
 			DeepAudio.play(DeepSoundBank.grade_sound(str(DeepStone.grade(stone).tier)), {"delay": 0.2})
-	_subtitle.text = _question() if not owned.is_empty() else "Appraised. Here's what it is."
+	_subtitle.text = _question() if not owned.is_empty() else "Out of its rock at last. Here's what it is."
 	_view.call("set_spin", 0.45)
 	_flash.color.a = 0.0
 	_lamp.modulate.a = 0.35
@@ -448,9 +588,27 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_ESCAPE:
 			_dismiss()
 			get_viewport().set_input_as_handled()
+		elif event.keycode in [KEY_ENTER, KEY_KP_ENTER] and _press_main():
+			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and not _done:
 		finish()
 		get_viewport().set_input_as_handled()
+
+func _press_main() -> bool:
+	## Enter, once the stone is read: the choice its maker marked `main` (down the mine, the
+	## first socket offered, or else the bag), or the only one there is. Pressed as a click
+	## would, so one that asks first still asks.
+	if _choices == null or not _choices.visible:
+		return false
+	for index in range(mini(actions.size(), _choices.get_child_count())):
+		if not bool(actions[index].get("main", false)) and actions.size() > 1:
+			continue
+		var button: Button = _choices.get_child(index).get_child(0) as Button if _choices.get_child(index).get_child_count() > 0 else null
+		if button == null or button.disabled:
+			return false
+		button.pressed.emit()
+		return true
+	return false
 
 func _dismiss() -> void:
 	for action in actions:

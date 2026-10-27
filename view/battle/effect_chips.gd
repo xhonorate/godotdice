@@ -7,6 +7,8 @@ extends RefCounted
 ## every screen that shows a unit shows the same effects the same way.
 
 const GemIcons = preload("res://view/gems/gem_icons.gd")
+const Tips = preload("res://view/ui/tips.gd")
+const Plates = preload("res://view/ui/plates.gd")
 
 const GOOD := Color("6fe3b0")
 const BAD := Color("ff7a6b")
@@ -171,7 +173,7 @@ static func for_player(unit: Dictionary, battle: Dictionary = {}) -> Array:
 		out.append(entry("nullify", "cross_out", "", false, "Came up empty", "Double Down lost: the next gem does nothing."))
 	var quality: int = int(unit.get("quality_bonus", 0))
 	if quality > 0:
-		out.append(entry("quality", "star", "+%d" % quality, true, "Good Prospects", "Stones found when this fight is won roll at +%.1f generation luck, and are %d%% likelier to turn up at all." % [float(quality) / 10.0, quality / 2], DeepUi.ACCENT))
+		out.append(entry("quality", "star", "+%d" % quality, true, "Good Prospects", "Stones found when this fight is won roll at +%.1f luck, and are %d%% likelier to turn up at all." % [float(quality) / 10.0, quality / 2], DeepUi.ACCENT))
 	## A gem raised mid-fight is not a chip here: the rail draws the raised ranks on the gem
 	## itself, where the player is already looking, and it grows to the carat it now counts as.
 	out.append_array(for_run(unit))
@@ -182,7 +184,7 @@ static func for_run(unit: Dictionary) -> Array:
 	var out: Array = []
 	var sparkle: int = clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)
 	if sparkle > 0:
-		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find consumes all %d Sparkle for +%.1f generation luck, %s of a point each. Maximum 100; carries between fights." % [sparkle, float(sparkle) * DeepRules.SPARKLE_LUCK, str(DeepRules.SPARKLE_LUCK)], DeepUi.ACCENT, -1, "run"))
+		out.append(entry("sparkle", "spark", "%d/100" % sparkle, true, "Sparkle", "Your next stone find spends all %d Sparkle to be luckier: +%s luck, %s a point each. Maximum 100; carries between fights." % [sparkle, str(snappedf(float(sparkle) * DeepRules.SPARKLE_LUCK, 0.01)), str(DeepRules.SPARKLE_LUCK)], DeepUi.ACCENT, -1, "run"))
 	var shrine: String = str(unit.get("run_mods", {}).get("shrine", ""))
 	if not shrine.is_empty():
 		out.append(entry("shrine", "star", "+1 ct", true, "Shrine blessing", "For the rest of the run, every gem that fires on %s gains 1 carat." % shrine.replace("_", " "), DeepUi.ACCENT, -1, "run"))
@@ -304,16 +306,18 @@ static func for_enemy(foe: Dictionary, battle: Dictionary = {}) -> Array:
 	return out
 
 static func for_battle(battle: Dictionary) -> Array:
-	## The fight itself: the creatures grow vicious if it drags on.
+	## The fight itself: the creatures grow vicious if it drags on. Shown as pills beside the
+	## count of creatures, so the value is the pill's words, not a bare number: the warning
+	## wears the flame it turns into, and the hourglass stays the turn count's own.
 	var out: Array = []
 	var turn: int = int(battle.get("turn", 1))
 	var enrage_turn: int = DeepBattle.enrage_turn(battle)
 	var step: int = DeepBattle.enrage_step(battle)
 	if turn >= enrage_turn:
 		var extra: int = step * (turn - enrage_turn + 1)
-		out.append(entry("enrage", "flame", "+%d" % extra, false, "Enraged", "The fight has dragged on: every creature hit deals %d more damage, and more each turn." % extra))
+		out.append(entry("enrage", "flame", "Enraged +%d" % extra, false, "Enraged", "The fight has dragged on: every creature hit deals %d more damage, and more each turn." % extra))
 	elif turn >= enrage_turn - 3:
-		out.append(entry("enrage_soon", "hourglass", "%d" % (enrage_turn - turn), false, "Enrage coming", "In %s the creatures enrage and hit harder every turn." % DeepUi.plural(enrage_turn - turn, "turn"), Color("ffb05a")))
+		out.append(entry("enrage_soon", "flame", "Enrage in %d" % (enrage_turn - turn), false, "Enrage coming", "In %s the creatures enrage and hit harder every turn." % DeepUi.plural(enrage_turn - turn, "turn"), Color("ffb05a")))
 	return out
 
 static func _statuses(statuses: Dictionary, on_enemy: bool, weight: int = 100, unit: Dictionary = {}) -> Array:
@@ -429,6 +433,9 @@ class Chip extends VBoxContainer:
 		plate.mouse_filter = Control.MOUSE_FILTER_STOP
 		plate.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		add_child(plate)
+		## Its sentence is a plate that comes up at once (docs/UI_REDO.md), built from the effect
+		## as it stands when shown, and built again while it is up if the effect changes.
+		Tips.attach(plate, func() -> Control: return Plates.words(str(effect.get("title", "")), str(effect.get("text", "")), "", family(effect)))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 3)
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -466,7 +473,12 @@ class Chip extends VBoxContainer:
 			_mark.modulate = mark_tone
 			_value.add_theme_color_override("font_color", Color.WHITE)
 		effect = now
-		plate.tooltip_text = "%s\n%s" % [str(now.title), str(now.text)]
+		## An engine tooltip never changes while it is up; the plate is built again in place,
+		## so 'In 3 turns' does not stay over a chip that has counted down to 1.
+		var said: String = "%s\n%s" % [str(now.title), str(now.text)]
+		if str(plate.get_meta("said", "")) != said:
+			plate.set_meta("said", said)
+			Tips.refresh(plate)
 		_bar.show_turns(int(now.get("turns", -1)), fam)
 		set_value(str(now.value), animate)
 	func set_value(value: String, animate: bool = true) -> void:

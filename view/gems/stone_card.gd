@@ -178,7 +178,26 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 		var frame := DeepUi.center(row)
 		frame.custom_minimum_size = Vector2(size, size)
 		frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		picture(frame, shown, size, bool(opts.get("live", false)))
+		## `lamp`: a raw stone offered as a choice stands in a pool of lamplight in its own color,
+		## as the appraisal lamp lights it. Its rock hides the color, and the color is what is
+		## being chosen; it keeps its class's size, so a Tiny stone still looks tiny.
+		var lit: bool = bool(opts.get("lamp", false)) and not appraised and not DeepStone.is_geode(stone)
+		if lit:
+			var pool := Control.new()
+			pool.custom_minimum_size = Vector2(size, size)
+			pool.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			frame.add_child(pool)
+			DeepUi.glow(pool, hue, 0.55, 1.45)
+		var shot: Control = picture(frame, shown, size, bool(opts.get("live", false)))
+		if lit:
+			var wash: Color = Color.WHITE.lerp(hue.lightened(0.3), 0.5)
+			shot.modulate = Color(wash.r * 1.3, wash.g * 1.3, wash.b * 1.3, 1.0)
+			## And the lamp on the rock itself, so a dark lump of blue rock still reads blue.
+			var light := Control.new()
+			light.custom_minimum_size = Vector2(size, size)
+			light.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			frame.add_child(light)
+			DeepUi.glow(light, hue.lightened(0.2), 0.3, 0.7)
 	var text := DeepUi.vbox(row, 5)
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -192,9 +211,12 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 		DeepUi.stat(text, "lock", "Sealed · only the workshop can crack it", DeepUi.MUTED, 12, "Carry it up and crack it open at the workshop to see the stone inside.")
 		return card
 	if not appraised:
-		DeepUi.title(text, DeepStone.raw_name(stone), 18, DeepUi.PAPER)
+		## Its name already says its size ("Tiny green stone"), so the line under it does not
+		## say it again: what the class means in carats is on the name.
+		var raw_title := DeepUi.title(text, DeepStone.raw_name(stone), 18, DeepUi.PAPER)
+		raw_title.tooltip_text = size_hint(stone)
+		raw_title.mouse_filter = Control.MOUSE_FILTER_PASS
 		var facts := DeepUi.hbox(text, 12)
-		size_stat(facts, stone, 13)
 		_color_chip(facts, color_key)
 		DeepUi.stat(facts, "question", "skill unknown", DeepUi.MUTED, 12, "Appraise it to learn what it does.")
 		## Whether anything is frozen inside is the loupe's to say, unless something has
@@ -247,7 +269,12 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 		var parts: Array = []
 		if where.has("mine") and not str(where.mine).is_empty():
 			parts.append(str(DeepContent.mine(str(where.mine)).get("name", where.mine)))
-		if where.has("depth"):
+		## A Geode or a contract rolls its stone at a depth's luck, not on a floor anyone stood on.
+		if str(where.get("source", "")) == "geode":
+			parts.append("from a Geode")
+		elif str(where.get("source", "")) == "contract":
+			parts.append("by contract")
+		elif where.has("depth"):
 			parts.append("depth %d" % int(where.depth))
 		if int(where.get("hazard", 0)) > 0:
 			parts.append("Hazard %d" % int(where.hazard))
@@ -318,8 +345,12 @@ static func staked_mark(parent: Node, stone: Dictionary, field: String, size: in
 
 static func size_stat(parent: Node, stone: Dictionary, size: int = 13, color: Color = DeepUi.PAPER) -> HBoxContainer:
 	## A raw stone's weight as the eye judges it through the rock: a class, not a number.
+	return DeepUi.stat(parent, "carat", DeepStone.size_name(int(stone.get("carat", 1))), color, size, size_hint(stone))
+
+static func size_hint(stone: Dictionary) -> String:
+	## What a raw stone's size class means: a range of carats, never the carat itself.
 	var named: Dictionary = DeepStone.size_class(int(stone.get("carat", 1)))
-	return DeepUi.stat(parent, "carat", str(named.name), color, size, "%s: somewhere from %s. Only an appraisal says exactly." % [str(named.name), str(named.range)])
+	return "%s: somewhere from %s. Only an appraisal says exactly." % [str(named.name), str(named.range)]
 
 static func _grade_badge(parent: Node, grade: Dictionary) -> void:
 	var tone: Color = DeepUi.tier_color(str(grade.tier))
@@ -336,14 +367,14 @@ static func _color_chip(parent: Node, color_key: String, stone: Dictionary = {})
 	if several.size() > 1:
 		row.add_theme_constant_override("separation", 2)
 		for key in several:
-			row.add_child(_Dot.new(DeepUi.color(str(key))))
+			row.add_child(_Dot.new(DeepUi.color(str(key)), false, str(key)))
 		row.tooltip_text = "Counts as %s." % ", ".join(several.map(func(k: Variant) -> String: return str(DeepContent.color(str(k)).get("name", k))))
 		DeepUi.label(row, " %d colors" % several.size(), 13, DeepUi.PAPER)
 		return
 	var name: String = str(DeepContent.color(color_key).get("name", color_key))
 	var domain: String = str(DeepContent.color(color_key).get("domain", ""))
 	row.tooltip_text = "%s: %s" % [name, domain]
-	var dot := _Dot.new(hue, rainbow)
+	var dot := _Dot.new(hue, rainbow, color_key)
 	row.add_child(dot)
 	## An opal is no one color, so neither its dot nor its name is drawn in one.
 	if rainbow:
@@ -405,13 +436,20 @@ static func is_mythic(rarity: String) -> bool:
 class _Dot extends Control:
 	var tone: Color
 	var rainbow: bool
-	func _init(color: Color, all_of_them: bool = false) -> void:
+	## The color it stands for, so it can take that color's shape (Settings > Comfort > Color marks).
+	var key: String
+	func _init(color: Color, all_of_them: bool = false, color_key: String = "") -> void:
 		tone = color
 		rainbow = all_of_them
+		key = color_key
 		custom_minimum_size = Vector2(12, 12)
 		size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_to_group(DeepUi.MARKED_GROUP)
 	func _draw() -> void:
+		if DeepUi.color_marks and not DeepUi.mark_shape(key).is_empty():
+			DeepUi.draw_color_mark(self, size * 0.5, size.x * 0.5 + 1.0, key, false)
+			return
 		draw_circle(size * 0.5, size.x * 0.5, tone.darkened(0.3))
 		if rainbow:
 			## An opal's dot is the whole wheel, swept round it in wedges.

@@ -11,7 +11,11 @@ const StoneCard = preload("res://view/gems/stone_card.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const BattleScreen = preload("res://view/battle/battle_screen.gd")
 const Geode = preload("res://view/gems/geode.gd")
+const GeodeMesh = preload("res://view/gems/geode_mesh.gd")
+const Thumbs = preload("res://view/gems/thumbs.gd")
 const Rework = preload("res://view/gems/rework.gd")
+const Tips = preload("res://view/ui/tips.gd")
+const Plates = preload("res://view/ui/plates.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 
 ## How many vault stones the Wheel's and the Oven's picker shows a page: three rows.
@@ -26,6 +30,8 @@ const CASE_LAMP: float = 190.0
 ## How large the stone on the Wheel and in the Oven is drawn; a heavy one hangs well past it,
 ## so the room it stands in grows with the column.
 const REWORK_EDGE: float = 150.0
+## The violet an inclusion is written in, on the case and in the Oven.
+const INCLUSION_TONE := Color("c58bff")
 
 static func build(home: Control, content: VBoxContainer) -> void:
 	if not bool(home.profile.get("daily", {}).get("market_seen", false)) and home.profile.get("daily", null) is Dictionary:
@@ -58,6 +64,10 @@ static func _head(home: Control, content: VBoxContainer, title: String, back: bo
 # --- the counter -------------------------------------------------------------------------------------
 
 static func _counter(home: Control, content: VBoxContainer) -> void:
+	## Back at the counter, the Wheel's and the Oven's pages have been left: their last result
+	## and the place held for the stone in their picker go.
+	home._rework_done = {}
+	home._rework_hold = {}
 	var head := _head(home, content, "The market", false)
 	var left: int = DeepEconomy.seconds_to_tomorrow()
 	DeepUi.stat(head, "hourglass", "New stock in %dh %02dm" % [left / 3600, (left % 3600) / 60], DeepUi.MUTED, 13, "Today's Geode, the case and the commissions turn over at midnight UTC.")
@@ -103,7 +113,52 @@ static func _geodes(home: Control, columns: HBoxContainer) -> void:
 		DeepUi.wrap(box, "Geodes come from the mines you have opened.", 13, DeepUi.DIM)
 	for geode in shelf:
 		_geode_card(home, box, geode)
+	## A Geode gone from the shelf (restocked, a new day) is let go with its view.
+	home.let_go_kept("shelf|", shelf.map(func(g: Dictionary) -> String: return _shelf_key(g)))
 	home.enter(panel, 0.05)
+
+static func _shelf_key(geode: Dictionary) -> String:
+	return "shelf|" + GeodeMesh.key_of(geode, Geode.theme_tone(geode))
+
+static func _shelf_art(home: Control, geode: Dictionary) -> Control:
+	## A shelf Geode's own 3D view, kept from one drawing of the counter to the next
+	## (home.kept): each is a world of its own, with shadows, contact shade and glow, and the
+	## shelf is drawn again on every visit and every purchase.
+	var tone: Color = Geode.theme_tone(geode)
+	return home.kept(_shelf_key(geode), func() -> Control: return Geode.Art.new(geode, tone))
+
+static func prewarm(home: Control) -> void:
+	## Readies what the Market shows before it is first opened, while the workshop is being
+	## looked at: the case's photographs are taken, and the shelf's Geodes are cut and drawn
+	## for a few frames off the edge of the screen, then put aside for the counter to take.
+	## A first open on a cold start compiled everything a Geode is drawn with and stopped the
+	## game for a second and more.
+	for entry in DeepEconomy.case_stones(home.profile):
+		var stone: Dictionary = entry.get("stone", {})
+		if not stone.is_empty():
+			Thumbs.request(Thumbs.gem_key(stone), "gem", {"stone": stone}, func(_texture: Texture2D) -> void: pass)
+	var parked: Array = []
+	for geode in DeepEconomy.shelf(home.profile):
+		var art: Control = _shelf_art(home, geode)
+		if art.get_parent() != null:
+			continue
+		art.position = Vector2(-6000.0 - 400.0 * parked.size(), -6000.0)
+		art.size = Vector2(276, 130)
+		home.add_child(art)
+		parked.append(art)
+	var tree: SceneTree = home.get_tree()
+	## Until each is cut (on a worker) and has drawn a few frames, or the counter has taken it.
+	var drawn: int = 0
+	for _i in range(300):
+		await tree.process_frame
+		var waiting: bool = parked.any(func(art: Variant) -> bool:
+			return is_instance_valid(art) and (art as Node).get_parent() == home and (art.get("_built") as Dictionary).is_empty())
+		drawn = 0 if waiting else drawn + 1
+		if drawn >= 6:
+			break
+	for art in parked:
+		if is_instance_valid(art) and (art as Node).get_parent() == home:
+			home.remove_child(art)
 
 static func _geode_card(home: Control, parent: Node, geode: Dictionary) -> void:
 	var weekly: bool = bool(geode.get("weekly", false))
@@ -127,11 +182,24 @@ static func _geode_card(home: Control, parent: Node, geode: Dictionary) -> void:
 		DeepUi.label(tag, DeepUi.plural(DeepEconomy.featured_days_left(DeepEconomy.today()), "day") + " left", 11, DeepUi.DIM)
 	else:
 		DeepUi.label(tag, "one color" if str(geode.get("kind", "")) == "color" else "one mine", 11, DeepUi.DIM)
-	var art := Geode.Art.new(geode, tone)
+	var art: Control = _shelf_art(home, geode)
+	art.position = Vector2.ZERO
 	art.custom_minimum_size = Vector2(0, 110)
 	art.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	art.open = bought
 	box.add_child(art)
+	art.set("open", bought)
+	## Back on the page, a still one (opened) is drawn again where it now stands.
+	art.call("_redraw")
+	## A view kept from the last drawing may have been leaning to a Crack it button that is gone.
+	_still(art)
+	art.set("hover", 0.0)
+	var lean := func(to: float, seconds: float) -> void:
+		if not is_instance_valid(art):
+			return
+		_still(art)
+		var tween := art.create_tween()
+		tween.tween_property(art, "hover", to, seconds)
+		art.set_meta("lean", tween)
 	DeepUi.title(box, Geode.geode_name(geode), 18, tone.lightened(0.2) if not bought else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	var line := DeepUi.label(box, Geode.geode_line(geode), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -142,7 +210,7 @@ static func _geode_card(home: Control, parent: Node, geode: Dictionary) -> void:
 	var carats: Array = odds.get("carat", [1, 1])
 	DeepUi.pill(facts, "carat", "%d to %d ct" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 11)
 	if weekly:
-		DeepUi.pill(facts, "cut", "Fine cut or better", DeepUi.INFO, 11)
+		DeepUi.pill(facts, "cut", DeepEconomy.need_text({"kind": "cut", "value": int(DeepContent.constant("geode_week_min_cut", 3))}), DeepUi.INFO, 11)
 	if _favorite_in(home, DeepEconomy.geode_pool(geode)):
 		DeepUi.pill(facts, "star", "favorite", DeepUi.ACCENT_HI, 11, "It can hold one of your favorites, starred in the vault.")
 	var foot := DeepUi.hbox(box, 6)
@@ -161,8 +229,14 @@ static func _geode_card(home: Control, parent: Node, geode: Dictionary) -> void:
 	crack.tooltip_text = "Buys it and cracks it open, three blows." if not crack.disabled else "You have %d gold. This Geode costs %d." % [int(home.profile.get("gold", 0)), price]
 	crack.mouse_entered.connect(func() -> void:
 		if not crack.disabled:
-			art.create_tween().tween_property(art, "hover", 1.0, 0.2))
-	crack.mouse_exited.connect(func() -> void: art.create_tween().tween_property(art, "hover", 0.0, 0.3))
+			lean.call(1.0, 0.2))
+	crack.mouse_exited.connect(func() -> void: lean.call(0.0, 0.3))
+
+static func _still(art: Control) -> void:
+	## Stops a shelf Geode's lean toward its Crack it button where it is.
+	var tween: Variant = art.get_meta("lean") if art.has_meta("lean") else null
+	if tween is Tween and (tween as Tween).is_valid():
+		(tween as Tween).kill()
 
 static func crack_geode(home: Control, geode: Dictionary) -> void:
 	## Pays for a Geode and cracks it: the stone is on the tray before the first blow, so the
@@ -198,6 +272,9 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 	if stock.is_empty():
 		DeepUi.wrap(row, "The case is stocked from the mines you have opened.", 13, DeepUi.DIM)
 	var favorites: Array = DeepProfile.favorites(home.profile)
+	## Each card's inclusion lines and the room at its foot, handed out once the case is laid
+	## out (`_spread_reads`).
+	var spread: Array = []
 	for entry in stock:
 		var stone: Dictionary = entry.stone
 		var skill: String = str(stone.get("skill", ""))
@@ -209,7 +286,9 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 		card.mouse_filter = Control.MOUSE_FILTER_STOP
 		var column := DeepUi.vbox(card, 5)
 		var picture := DeepUi.center(column)
-		var lamp := HomeParts.Showcase.new(stone, CASE_LAMP, 0.92)
+		## A photograph under the lamp, alive only while the pointer rests on it: three live
+		## stones were built again on every visit and drawn on every frame the counter was open.
+		var lamp := HomeParts.Showcase.new(stone, CASE_LAMP, 0.92, false)
 		picture.add_child(lamp)
 		if sold:
 			lamp.modulate = Color(1, 1, 1, 0.35)
@@ -236,28 +315,42 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 			if value is Label:
 				(value as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 				(value as Label).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var reads: Array = []
 		for key in stone.get("inclusions", []):
 			var inclusion: Dictionary = DeepContent.inclusion(str(key))
-			var read := DeepUi.wrap(rule_box, "%s: %s" % [str(inclusion.get("name", key)), str(inclusion.get("text", ""))], 11, Color("c58bff"))
-			## A line each and the rest on hover: read out in full beside a heavy stone's long
-			## rules, at the small window's text floor, they push the bench off the page.
+			var read := DeepUi.wrap(rule_box, "%s: %s" % [str(inclusion.get("name", key)), str(inclusion.get("text", ""))], 11, INCLUSION_TONE)
+			## A line each to begin with: read out in full beside a heavy stone's long rules, at
+			## the small window's text floor, three of them pushed the bench off the page. The
+			## room the card has left is handed out once it is laid out (`_spread_reads`), and
+			## whatever is still cut short shows whole on hover.
 			read.max_lines_visible = 1
 			read.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-			read.tooltip_text = read.text
 			read.mouse_filter = Control.MOUSE_FILTER_PASS
-		DeepUi.spacer(column, false)
+			var whole: String = str(key)
+			Tips.attach(read, func() -> Variant:
+				if not is_instance_valid(read) or read.get_line_count() <= read.max_lines_visible:
+					return null
+				return _inclusion_plate(whole))
+			reads.append(read)
+		var room := DeepUi.spacer(column, false)
+		if not reads.is_empty():
+			spread.append({"reads": reads, "room": room})
 		_yours_beside(column, stone, own)
 		var id: String = str(entry.get("id", ""))
 		if sold:
 			DeepUi.label(column, "Sold", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		else:
-			var buy := DeepUi.icon_button(column, "chest", "Buy", func() -> void:
+			var purchase := func() -> void:
 				var bought: Dictionary = DeepEconomy.buy_case(home.profile, id)
 				if bool(bought.get("ok", false)):
 					DeepAudio.play("keep")
 					home.cheer("%s into the vault" % DeepUi.skill_name(stone), DeepUi.GOOD)
 					## The vault gained it: what the commissions can be filled with changes too.
-					home.changed(["market_case", "market_commissions"]), 14, DeepUi.PAPER)
+					home.changed(["market_case", "market_commissions"])
+			## Its close look says what the case asks as well as what it is worth, with a Buy.
+			lamp.inspect_with({"market": {"price": int(entry.price), "buy": purchase, "gold": func() -> int: return int(home.profile.get("gold", 0)),
+				"replaces": not own.is_empty()}})
+			var buy := DeepUi.icon_button(column, "chest", "Buy", purchase, 14, DeepUi.PAPER)
 			DeepUi.priced(buy, str(int(entry.price)))
 			buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			buy.disabled = int(home.profile.get("gold", 0)) < int(entry.price)
@@ -265,7 +358,69 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 			buy.tooltip_text = ("It goes into your vault%s." % (" in place of yours, which is let go for no gold" if not own.is_empty() else "")) if not buy.disabled else "You have %d gold." % int(home.profile.get("gold", 0))
 			DeepUi.voice(buy, "buy")
 		card.mouse_entered.connect(func() -> void: home.hover_stone(card, stone))
+	if not spread.is_empty():
+		## Again whenever the case itself changes size (the window does).
+		panel.resized.connect(func() -> void: _spread_reads(panel, spread))
+		_spread_reads(panel, spread)
 	home.enter(panel, 0.08)
+
+static func _spread_reads(panel: Control, cards: Array) -> void:
+	## Hands the room left at the foot of each case card to its inclusions, a line at a time and
+	## the first one first, so a light stone's one rule is read out whole and a heavy stone's
+	## three still fit. Every line is put back to one, the case is let settle for two frames,
+	## and only then is each card's room read: measured on a settled page it is exact, so no
+	## card grows past the row it stands in and the page never grows. (Worked out while the
+	## page was still being laid out, the three cards fed each other's sizes back and forth
+	## without end.) `cards`: [{reads, room}].
+	if bool(panel.get_meta("spreading", false)) or not panel.is_inside_tree():
+		return
+	panel.set_meta("spreading", true)
+	for card in cards:
+		for read in card.reads:
+			_show_lines(read, 1)
+	var tree: SceneTree = panel.get_tree()
+	for _i in range(2):
+		await tree.process_frame
+	if not is_instance_valid(panel):
+		return
+	## Settled to the same size time after time, the case is only being resized by its own
+	## lines: it is left with a line each rather than go round for ever.
+	var settled: Vector2 = panel.size
+	var again: bool = panel.has_meta("settled") and (panel.get_meta("settled") as Vector2).is_equal_approx(settled)
+	panel.set_meta("settled", settled)
+	panel.set_meta("repeats", int(panel.get_meta("repeats", 0)) + 1 if again else 0)
+	if int(panel.get_meta("repeats")) >= 3:
+		panel.set_meta.call_deferred("spreading", false)
+		return
+	for card in cards:
+		var free: float = (card.room as Control).size.y if is_instance_valid(card.room) else 0.0
+		for read in card.reads:
+			if not is_instance_valid(read):
+				continue
+			var step: float = _line_step(read)
+			var extra: int = clampi(floori(free / maxf(1.0, step)), 0, maxi(0, (read as Label).get_line_count() - 1))
+			free -= float(extra) * step
+			_show_lines(read, 1 + extra)
+	## The case does not change size for what was handed out inside it; a resize from here on
+	## is the window's.
+	panel.set_meta.call_deferred("spreading", false)
+
+static func _show_lines(read: Variant, lines: int) -> void:
+	if not is_instance_valid(read) or (read as Label).max_lines_visible == lines:
+		return
+	(read as Label).max_lines_visible = lines
+	## The engine does not tell the containers that a label's least height moved with its line
+	## limit: told here, or the card keeps the label a line high.
+	(read as Label).update_minimum_size()
+
+static func _line_step(label: Label) -> float:
+	## How much taller a label grows for one more line.
+	return float(label.get_line_height()) + float(label.get_theme_constant("line_spacing"))
+
+static func _inclusion_plate(key: String) -> Control:
+	## An inclusion read out whole, on hover: its name and its rule.
+	var inclusion: Dictionary = DeepContent.inclusion(key)
+	return Plates.words(str(inclusion.get("name", key)), str(inclusion.get("text", "")), "Inclusion", INCLUSION_TONE)
 
 static func _yours_beside(parent: Node, stone: Dictionary, own: Dictionary) -> void:
 	## The stone of the same skill already in the vault, set beside one for sale: its grade,
@@ -343,7 +498,8 @@ static func _commissions(home: Control, parent: VBoxContainer) -> void:
 	for commission in list:
 		_commission_row(home, box, commission)
 	var price: int = DeepEconomy.reroll_price(home.profile)
-	DeepUi.label(box, "Swapping one is free once a day, then %d gold and more each time." % int(DeepContent.constant("commission_reroll_gold", 10)) if price == 0 else "The next swap costs %d gold." % price, 12, DeepUi.DIM)
+	## Wrapped: unwrapped, the long free-swap line widened this column, and the case jumped once a swap shortened it.
+	DeepUi.wrap(box, "Swapping one is free once a day, then %d gold and more each time." % int(DeepContent.constant("commission_reroll_gold", 10)) if price == 0 else "The next swap costs %d gold." % price, 12, DeepUi.DIM)
 	home.enter(panel, 0.1)
 
 static func _commission_row(home: Control, box: VBoxContainer, commission: Dictionary) -> void:
@@ -372,7 +528,8 @@ static func _commission_row(home: Control, box: VBoxContainer, commission: Dicti
 	if DeepProfile.favorites(home.profile).has(skill_key):
 		DeepUi.icon(names, "star", 14, DeepUi.ACCENT_HI, "One of your favorites")
 	var need: String = DeepEconomy.need_text(commission.get("need", {}))
-	DeepUi.label(middle, "Any %s" % str(skill.get("name", skill_key)) if need.is_empty() else need.capitalize(), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	## Only the first letter goes up: capitalize() would title-case it into "Keen Cut Or Better".
+	DeepUi.label(middle, "Any %s" % str(skill.get("name", skill_key)) if need.is_empty() else need.left(1).to_upper() + need.substr(1), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	if done:
 		## Paid sits at the foot where the button was.
 		var paid := DeepUi.pill(column, "check", "Paid %d" % int(commission.get("paid", 0)), DeepUi.GOOD, 12)
@@ -469,7 +626,7 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	var top := DeepUi.hbox(box, 8)
 	DeepUi.section(top, "chest", "Your vault").size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	StoneBrowser.toolbar(home, top, "bench", {"compact": true, "rarity": false})
-	var stones: Array = StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "bench")
+	var stones: Array = _held_in_place(home, kind, StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "bench"))
 	var pager_row := DeepUi.hbox(box, 8)
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 10)
@@ -490,6 +647,9 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 		tile.gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 				DeepAudio.play("ui_tap")
+				## Another stone picked: the last result has been read.
+				if skill != home._rework_pick:
+					home._rework_done = {}
 				home._rework_pick = skill
 				home._render())
 	home.enter(picker, 0.05)
@@ -497,32 +657,52 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	side.custom_minimum_size.x = 460
 	var side_box := DeepUi.vbox(side, 10)
 	var stone: Dictionary = DeepProfile.owned(home.profile, home._rework_pick)
+	## The last result on this page, if it is still the one being looked at; a stone that broke
+	## leaves nothing picked, and its result stays until another is.
+	var done: Dictionary = home._rework_done
+	var held: bool = used and str(done.get("kind", "")) == kind and (str(done.get("skill", "")) == home._rework_pick
+		or (bool(done.get("broke", false)) and home._rework_pick.is_empty()))
+	if stone.is_empty() and held and bool(done.broke):
+		_rework_head(side_box, done.before, kind)
+		var lost := Rework.new(done.before, kind, REWORK_EDGE)
+		lost.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		lost.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		side_box.add_child(lost)
+		lost.settle(int(done.now), true)
+		DeepUi.label(side_box, "Choose another stone from your vault.", 15, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.gap(side_box, 8)
+		home.enter(side, 0.1)
+		return
 	if stone.is_empty():
 		DeepUi.section(side_box, "cut" if wheel else "flame", "On the wheel" if wheel else "In the oven")
 		DeepUi.spacer(side_box, false)
 		DeepUi.label(side_box, "Choose a stone from your vault.", 15, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		## What the work is, before anything is chosen: what changes, what it costs, the risk.
+		var terms := DeepUi.vbox(side_box, 8)
+		terms.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		DeepUi.gap(terms, 6)
+		DeepUi.stat(terms, "cut" if wheel else "flame", "Its Cut always moves, up or down. Nothing else changes." if wheel else "Its Clarity always moves, and what is frozen inside is drawn again.", DeepUi.PAPER, 13)
+		var share: float = float(DeepContent.constant("rework_price_mult", 0.5))
+		DeepUi.stat(terms, "coin", "Costs %s the stone's worth, %d gold at the least." % ["half" if is_equal_approx(share, 0.5) else "%d%% of" % roundi(share * 100.0), int(DeepContent.constant("rework_gold_min", 25))], DeepUi.ACCENT, 13)
+		DeepUi.stat(terms, "split_shield", "1 in %d stones break %s." % [roundi(100.0 / maxf(0.01, DeepEconomy.rework_break_pct())), "on the wheel" if wheel else "in the oven"], DeepUi.BAD, 13)
+		DeepUi.stat(terms, "calendar", "Once a day.", DeepUi.MUTED, 13)
 		DeepUi.spacer(side_box, false)
 		home.enter(side, 0.1)
 		return
-	DeepUi.section(side_box, "cut" if wheel else "flame", "On the wheel" if wheel else "In the oven")
-	## The stone's name over it, and the stone standing in all the room the column has left, so
-	## a heavy one hangs clear of the name above and the ladder below.
-	DeepUi.title(side_box, DeepUi.skill_name(stone), 24, DeepUi.color(DeepStone.color(stone)).lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER)
-	## Under the name, what the work leaves alone: its carat, and the Clarity on the Wheel or
-	## the Cut in the Oven, each in the color its odds are drawn in.
-	var kept_marks := DeepUi.hbox(side_box, 16)
-	kept_marks.alignment = BoxContainer.ALIGNMENT_CENTER
-	DeepUi.stat(kept_marks, "carat", "%d ct" % int(stone.get("carat", 1)), DeepUi.ACCENT, 14, GemIcons.hint("carat"))
-	if wheel:
-		var clarity: int = int(stone.get("clarity", DeepContent.clear_index()))
-		DeepUi.stat(kept_marks, "clarity", DeepContent.clarity_name(clarity), _clarity_tone(clarity), 14, GemIcons.hint("clarity"))
-	else:
-		var cut: int = int(stone.get("cut", 0))
-		DeepUi.stat(kept_marks, "cut", DeepContent.cut_name(cut), _cut_tone(cut), 14, GemIcons.hint("cut"))
-	var reveal := Rework.new(stone, kind, REWORK_EDGE)
+	_rework_head(side_box, stone, kind)
+	## After a rework the ladder stays where it landed, read from the rung it started on, with
+	## the stone as it came out standing over it, and under it what that did to its worth (and
+	## in the Oven, what is frozen inside it now).
+	var reveal := Rework.new(done.before if held else stone, kind, REWORK_EDGE)
 	reveal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	reveal.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side_box.add_child(reveal)
+	if held:
+		reveal.settle(int(done.now), false)
+		var picture: Variant = reveal.get("_picture")
+		if picture is Control:
+			(picture as Control).call("configure", stone)
+		_rework_result(side_box, done.before, stone, kind)
 	DeepUi.section(side_box, "scales", "What it could come out as", DeepUi.MUTED, 12)
 	var names: Array = DeepContent.cuts() if wheel else DeepContent.clarities()
 	var parts: Array = []
@@ -540,17 +720,31 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	## The button, reached from inside its own press, so it can go dark while the wheel turns.
 	var pressed: Array = []
 	var go := DeepUi.primary(side_box, "cut" if wheel else "flame", ("Recut %s" if wheel else "Fire %s") % DeepUi.skill_name(stone), func() -> void:
-		var result: Dictionary = DeepEconomy.rework(home.profile, home._rework_pick, kind)
+		var skill: String = home._rework_pick
+		## The stone as it goes in, and where its tile stands: the rework changes it in place.
+		var before: Dictionary = DeepProfile.owned(home.profile, skill).duplicate(true)
+		var at: int = stones.map(func(s: Dictionary) -> String: return str(s.get("skill", ""))).find(skill)
+		var result: Dictionary = DeepEconomy.rework(home.profile, skill, kind)
 		if not bool(result.get("ok", false)):
 			return
 		if not pressed.is_empty() and is_instance_valid(pressed[0]):
 			(pressed[0] as Button).disabled = true
 		home.touch()
+		home._rework_done = {"kind": kind, "skill": skill, "before": before, "now": int(result.now), "broke": bool(result.broke)}
+		home._rework_hold = {"kind": kind, "skill": skill, "at": at, "sort": _sort_mark(home)} if at >= 0 and not bool(result.broke) else {}
 		if bool(result.broke):
 			home._rework_pick = ""
+		else:
+			## Its new photograph taken while the ladder spins, for the page drawn after it lands.
+			Thumbs.request(Thumbs.gem_key(result.stone), "gem", {"stone": result.stone}, func(_texture: Texture2D) -> void: pass)
 		## Told a moment after the reveal, or as soon as the page is left before it is over.
 		var settle: Callable = home.when_done(reveal, func() -> void: home.profile_changed.emit())
 		reveal.finished.connect(func() -> void:
+			if not bool(result.broke) and is_instance_valid(side_box):
+				## What the landing did to its worth (and what is inside it), under the ladder.
+				var said: Control = _rework_result(side_box, before, result.stone, kind)
+				side_box.move_child(said, reveal.get_index() + 1)
+				DeepUi.pop_in(said, 0.05)
 			home.get_tree().create_timer(1.6).timeout.connect(settle), CONNECT_ONE_SHOT)
 		reveal.play(int(result.now), bool(result.broke)), 17, DeepUi.INFO)
 	DeepUi.priced(go, str(price))
@@ -561,6 +755,66 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	go.tooltip_text = refusal if not refusal.is_empty() else "The price follows the stone's worth."
 	DeepUi.label(side_box, refusal if not refusal.is_empty() else "The price follows the stone's worth.", 12, DeepUi.BAD if not refusal.is_empty() else DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	home.enter(side, 0.1)
+
+static func _rework_head(side_box: VBoxContainer, stone: Dictionary, kind: String) -> void:
+	var wheel: bool = kind == "cut"
+	DeepUi.section(side_box, "cut" if wheel else "flame", "On the wheel" if wheel else "In the oven")
+	## The stone's name over it, and the stone standing in all the room the column has left, so
+	## a heavy one hangs clear of the name above and the ladder below.
+	DeepUi.title(side_box, DeepUi.skill_name(stone), 24, DeepUi.color(DeepStone.color(stone)).lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER)
+	## Under the name, what the work leaves alone: its carat, and the Clarity on the Wheel or
+	## the Cut in the Oven, each in the color its odds are drawn in.
+	var kept_marks := DeepUi.hbox(side_box, 16)
+	kept_marks.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.stat(kept_marks, "carat", "%d ct" % int(stone.get("carat", 1)), DeepUi.ACCENT, 14, GemIcons.hint("carat"))
+	if wheel:
+		var clarity: int = int(stone.get("clarity", DeepContent.clear_index()))
+		DeepUi.stat(kept_marks, "clarity", DeepContent.clarity_name(clarity), _clarity_tone(clarity), 14, GemIcons.hint("clarity"))
+	else:
+		var cut: int = int(stone.get("cut", 0))
+		DeepUi.stat(kept_marks, "cut", DeepContent.cut_name(cut), _cut_tone(cut), 14, GemIcons.hint("cut"))
+
+static func _rework_result(parent: Node, before: Dictionary, after: Dictionary, kind: String) -> Control:
+	## Under the ladder's "Cut: Poor → Keen", what else the work changed: what the stone is worth
+	## now, and in the Oven each thing frozen inside it now, by name.
+	var box := DeepUi.vbox(parent, 6)
+	var was: int = DeepStone.value(before)
+	var now: int = DeepStone.value(after)
+	var tone: Color = DeepUi.GOOD if now > was else (DeepUi.BAD if now < was else DeepUi.MUTED)
+	var worth := DeepUi.stat(box, "coin", "Worth %d → %d" % [was, now], tone, 15, "What it sells for, before and after")
+	worth.alignment = BoxContainer.ALIGNMENT_CENTER
+	if kind == "clarity":
+		var inside := DeepUi.hbox(box, 6)
+		inside.alignment = BoxContainer.ALIGNMENT_CENTER
+		var found: Array = after.get("inclusions", [])
+		if found.is_empty():
+			DeepUi.pill(inside, "prism", "Nothing frozen inside", DeepUi.MUTED, 12)
+		for key in found:
+			var capsule := DeepUi.pill(inside, "prism", str(DeepContent.inclusion(str(key)).get("name", key)), INCLUSION_TONE, 12)
+			var named: String = str(key)
+			Tips.attach(capsule, func() -> Control: return _inclusion_plate(named))
+	return box
+
+static func _sort_mark(home: Control) -> String:
+	## The picker's sort and filters as they stand, so a held place lasts only while they do.
+	var s: Dictionary = StoneBrowser.settings(home, "bench")
+	return var_to_str([s.get("sort", ""), s.get("desc", true), s.get("colors", []), s.get("rarity", ""), s.get("query", "")])
+
+static func _held_in_place(home: Control, kind: String, stones: Array) -> Array:
+	## The picker's stones, with the one just reworked kept where its tile stood before: its new
+	## grade would otherwise move it across the page under the player's eye. Only on the page
+	## it was reworked on, and only while the sort and the filters are as they were.
+	var hold: Dictionary = home._rework_hold
+	if str(hold.get("kind", "")) != kind or str(hold.get("sort", "")) != _sort_mark(home):
+		return stones
+	var skill: String = str(hold.get("skill", ""))
+	var from: int = stones.map(func(s: Dictionary) -> String: return str(s.get("skill", ""))).find(skill)
+	if from < 0:
+		return stones
+	var out: Array = stones.duplicate()
+	var stone: Dictionary = out.pop_at(from)
+	out.insert(clampi(int(hold.get("at", from)), 0, out.size()), stone)
+	return out
 
 static func _cut_tone(rung: int) -> Color:
 	## Each Cut its own color on the Wheel's odds: from the accent's gold at the worst to green
@@ -781,6 +1035,9 @@ static func _contract_picker(home: Control, columns: Node, preview: Dictionary) 
 	if listed.is_empty():
 		DeepUi.label(grid, "Nothing here can go into a contract yet.", 13, DeepUi.DIM)
 	var full: bool = home._contract.size() >= DeepEconomy.contract_size()
+	## Whose sockets each vault stone is set in: signing one away empties those sockets too,
+	## and the chest mark every vault tile wears does not say so.
+	var wearing: Dictionary = StoneBrowser._wearers(home)
 	for entry in home.paged(box, "contract", listed, CONTRACT_PAGE):
 		var stone: Dictionary = entry.stone
 		var ref: String = str(entry.ref)
@@ -789,6 +1046,9 @@ static func _contract_picker(home: Control, columns: Node, preview: Dictionary) 
 		var tile := StoneCard.tile(grid, stone, 72)
 		if bool(entry.vault):
 			home.tile_mark(tile, "chest", DeepUi.INFO, "In your vault: put in a contract, its skill is no longer kept")
+		if bool(entry.vault) and wearing.has(ref.substr(2)):
+			var who: Array = wearing[ref.substr(2)].map(func(k: Variant) -> String: return str(DeepContent.character(str(k)).get("name", k)))
+			home.tile_mark(tile, "person", DeepUi.BAD, "In %s's sockets: signed away, it leaves them" % " and ".join(who))
 		if placed:
 			home.tile_mark(tile, "check", DeepUi.GOOD, "On the bench")
 			tile.modulate = Color(1, 1, 1, 0.45)

@@ -36,14 +36,16 @@ func build(biome: Dictionary, stones: Array, seed_value: int) -> void:
 		cap.material_override = rock
 		cap.position = Vector3(0, 1.2, 0)
 		stand.add_child(cap)
-		## Its size class, cut into the pedestal's face: all there is to see of a raw stone
-		## besides its color, so it is shown without having to point at it. The stage writes it
-		## over the pedestal's face in 2D (see `MineStage.NAME_GROUP`), so it stays crisp on a
-		## window bigger than the canvas the room is drawn at.
+		## Its size class and its color, cut into the pedestal's face: all there is to see of a
+		## raw stone, so it is shown without having to point at it, and the color is written out
+		## rather than left to the rock's tint (an opal and a White stone look much alike, and a
+		## color-blind eye gets nothing from the tint). The stage writes it over the pedestal's
+		## face in 2D (see `MineStage.NAME_GROUP`), so it stays crisp on a window bigger than the
+		## canvas the room is drawn at.
 		var sealed_geode: bool = DeepStone.is_geode(stone)
 		var size := Node3D.new()
 		size.position = Vector3(0, 0.78, 0.47)
-		size.set_meta("text", "Geode" if sealed_geode else DeepStone.size_name(int(stone.get("carat", 1))))
+		size.set_meta("text", "Geode" if sealed_geode else DeepStone.raw_name(stone).trim_suffix(" stone"))
 		size.set_meta("tone", Color("f1e6d2"))
 		size.set_meta("font_size", 18)
 		size.set_meta("alpha", 1.0)

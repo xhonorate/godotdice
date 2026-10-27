@@ -160,6 +160,12 @@ func resolve_fight(state: Dictionary) -> Array:
 func _test_open_and_tunnels() -> void:
 	var state: Dictionary = DeepDescent.new_run(config(7, false))
 	check(state.phase == "tunnels" and state.depth == 0, "a run opens at the top of the shaft with tunnels")
+	check(DeepDescent.player(state, "a").name == "Ada" and DeepDescent.player(state, "b").name == "Bo", "players go down under their own names")
+	var namesakes: Dictionary = config(7, false)
+	for entry in namesakes.players:
+		entry.name = "Player"
+	var twins: Dictionary = DeepDescent.new_run(namesakes)
+	check(DeepDescent.player(twins, "a").name == "Player 1" and DeepDescent.player(twins, "b").name == "Player 2", "two players by one name go down by their seat numbers")
 	check(state.offers.size() in [2, 3], "two or three tunnel mouths: %d" % state.offers.size())
 	for offer in state.offers:
 		check(str(offer.kind) != "elite" and str(offer.kind) != "landing", "no elite or landing on the first step")
@@ -174,13 +180,19 @@ func _test_open_and_tunnels() -> void:
 	## A split vote is drawn from the hat, not handed to the host: over a handful of runs
 	## both ways get taken.
 	var took: Dictionary = {}
+	var said: bool = true
 	for trial in range(24):
 		var split: Dictionary = DeepDescent.new_run(config(300 + trial, false))
 		var ways: Array = split.offers.map(func(o: Dictionary) -> String: return str(o.id))
 		cmd(split, "a", "vote_tunnel", {"offer": ways[0]})
-		cmd(split, "b", "vote_tunnel", {"offer": ways[1]})
+		var drawn: Dictionary = cmd(split, "b", "vote_tunnel", {"offer": ways[1]})
 		took[str(split.path[0].id) == ways[0]] = true
+		## And it is said: who wanted which way, which won, and that it was an even toss.
+		var toss: Dictionary = drawn.get("event", {}).get("toss", {})
+		said = said and str(toss.get("won", "")) == str(split.path[0].id) and str(toss.get("how", "")) == "toss" \
+			and str(toss.get("votes", {}).get("a", "")) == ways[0] and str(toss.get("kinds", {}).get(str(split.path[0].id), "hidden")) != "hidden"
 	check(took.has(true) and took.has(false), "a split vote goes either way, not always the host's")
+	check(said, "every split vote says who wanted which way and which won")
 	check(DeepDescent.is_landing(4) and DeepDescent.is_landing(8) and not DeepDescent.is_landing(5), "landings every four depths")
 	check(DeepDescent.is_warden_depth(8) and DeepDescent.is_warden_depth(12) and DeepDescent.is_warden_depth(16) and not DeepDescent.is_warden_depth(4) and not DeepDescent.is_warden_depth(24),
 		"the Quarry's Wardens at 8 and 12 and its boss on the bottom floor, 16")
@@ -487,11 +499,29 @@ func _test_landing_commands() -> void:
 	check(cmd(state, "a", "choose", {"choice": "lift"}).ok and state.phase == "landing", "one vote for the lift waits")
 	a.respite = "rest"
 	b.respite = "rest"
-	check(cmd(state, "b", "choose", {"choice": "descend"}).ok, "the other votes to descend")
-	check(state.phase == "over" and state.outcome == "extracted" and state.depth == 4, "a tie goes to the first seat, who chose the lift: extracted at depth 4")
-	check(int(a.ore) == 0 and int(b.ore) == 0, "and the winch took the whole fare, the empty pocket's share off the full one")
-	check(not cmd(state, "a", "choose", {"choice": "descend"}).ok, "nothing more once the run is over")
-	check(not cmd(state, "a", "unsocket", {"index": 0}).ok, "and the bench is closed")
+	## The other votes to descend: a tie, and a tie is a coin toss, never the first seat's say.
+	## Over a handful of tosses both ways win, and each says who wanted what and which won.
+	var outcomes: Dictionary = {}
+	var told: bool = true
+	var rode: Dictionary = {}
+	for trial in range(24):
+		var tie: Dictionary = state.duplicate(true)
+		tie.rng = DeepRng.save(DeepRng.streams(500 + trial))
+		var said: Dictionary = cmd(tie, "b", "choose", {"choice": "descend"})
+		var toss: Dictionary = said.get("event", {}).get("toss", {})
+		var went_up: bool = str(tie.phase) == "over"
+		told = told and bool(said.ok) and str(toss.get("won", "")) == ("lift" if went_up else "descend") and str(toss.get("how", "")) == "toss" \
+			and str(toss.get("votes", {}).get("a", "")) == "lift" and str(toss.get("votes", {}).get("b", "")) == "descend"
+		outcomes[went_up] = true
+		if went_up and rode.is_empty():
+			rode = tie
+	check(told, "every tie says who wanted what and which way the toss sent the party")
+	check(outcomes.has(true) and outcomes.has(false), "a tie at the landing goes either way, not always the first seat's")
+	check(str(rode.get("phase", "")) == "over" and str(rode.get("outcome", "")) == "extracted" and int(rode.get("depth", 0)) == 4, "a toss the lift won: extracted at depth 4")
+	if not rode.is_empty():
+		check(int(DeepDescent.player(rode, "a").ore) == 0 and int(DeepDescent.player(rode, "b").ore) == 0, "and the winch took the whole fare, the empty pocket's share off the full one")
+		check(not cmd(rode, "a", "choose", {"choice": "descend"}).ok, "nothing more once the run is over")
+		check(not cmd(rode, "a", "unsocket", {"index": 0}).ok, "and the bench is closed")
 
 func _test_merchant() -> void:
 	## Walk one step down, then make the next tunnel a stall.
@@ -530,10 +560,10 @@ func _test_merchant() -> void:
 		"a rough stone sells for its size class (%d pyrite)" % int(a.ore))
 	check(int(a.ore) < DeepStone.value(DeepStone.make("STRIKE", 12, 3, 4)) / 2, "and for less than the same stone read")
 	a.ore = 200
-	check(DeepDescent.appraise_cost(state, "a") == 50, "the first appraisal at a stall costs fifty")
-	check(cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok and bool(raws[0].appraised) and int(a.ore) == 150, "the lens appraises a raw stone for pyrite")
-	check(DeepDescent.appraise_cost(state, "a") == 100 and DeepDescent.appraise_cost(state, "b") == 50, "each appraisal costs the asker fifty more, and nobody else")
-	check(cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok and int(a.ore) == 50, "the second costs a hundred")
+	check(DeepDescent.appraise_cost(state, "a") == 25, "the first appraisal at a stall costs twenty-five")
+	check(cmd(state, "a", "appraise", {"stone_id": "raw0"}).ok and bool(raws[0].appraised) and int(a.ore) == 175, "the lens appraises a raw stone for pyrite")
+	check(DeepDescent.appraise_cost(state, "a") == 75 and DeepDescent.appraise_cost(state, "b") == 25, "each appraisal costs the asker fifty more, and nobody else")
+	check(cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok and int(a.ore) == 100, "the second costs seventy-five")
 	check(not cmd(state, "a", "appraise", {"stone_id": "raw1"}).ok, "not twice")
 	var ore_before: int = int(a.ore)
 	check(cmd(state, "a", "sell", {"stone_id": "raw1"}).ok and int(a.ore) > ore_before, "an appraised stone sells for pyrite")
@@ -550,7 +580,7 @@ func _test_merchant() -> void:
 	check(cmd(state, "a", "leave").ok and str(state.phase) == "chamber", "one player leaving waits for the other")
 	check(not cmd(state, "a", "leave").ok, "leaving twice is refused")
 	check(cmd(state, "b", "leave").ok and str(state.phase) == "tunnels", "when everyone has left, the tunnels open")
-	check(DeepDescent.appraise_cost(state, "a") == 50, "the next stall starts its price again")
+	check(DeepDescent.appraise_cost(state, "a") == 25, "the next stall starts its price again")
 	check(not cmd(state, "a", "buy", {"item_id": unsold}).ok, "the stall is gone once the party walks on")
 
 func _test_dice_rooms() -> void:
@@ -1004,6 +1034,9 @@ func _test_profile() -> void:
 	var came_home: Dictionary = DeepProfile.apply_result(early, pushed, "a")
 	check(came_home.unlocked.is_empty() and not came_home.purses.is_empty(), "the run coming home grants nothing twice, and still pays the purse: %s" % str(came_home.unlocked))
 	## Vesper's two Red sockets: a stone moves between them, and swaps with one already there.
+	## She joined with them set from the vault; they start empty here.
+	DeepProfile.set_rail(profile, "VESPER", 0, null)
+	DeepProfile.set_rail(profile, "VESPER", 1, null)
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and DeepProfile.set_rail(profile, "VESPER", 1, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == [null, "STRIKE"], "moving a stone empties its old socket")
 	check(DeepProfile.set_rail(profile, "VESPER", 0, "CLEAVE") == "" and DeepProfile.set_rail(profile, "VESPER", 0, "STRIKE") == "" and profile.characters.VESPER.rail.slice(0, 2) == ["STRIKE", "CLEAVE"], "a stone moved onto another swaps them: %s" % str(profile.characters.VESPER.rail))
 	## Dice are never swapped: whatever an old save put in a slot, the loadout rolls their own.
@@ -1064,6 +1097,15 @@ func _test_absent() -> void:
 	DeepDescent.set_connected(state, "b", false)
 	moved = DeepDescent.settle_absent(state)
 	check(moved.has("entered") and int(state.depth) == 1, "the vote carries without a player who dropped")
+	## Coming back, they are told what went on while they were away.
+	var b_unit: Dictionary = DeepDescent.player(state, "b")
+	var hurt: Dictionary = DeepBattle.player(DeepDescent.battle(state), "b") if DeepDescent.in_battle(state) else b_unit
+	hurt.hp = int(hurt.hp) - 5
+	DeepDescent.set_connected(state, "b", true)
+	var back: Dictionary = b_unit.get("back", {})
+	check(int(back.get("floors", -1)) == 1 and int(back.get("taken", -1)) == 5 and not b_unit.has("away"), "the one coming back hears the party went a floor down and they lost 5 (%s)" % str(back))
+	DeepDescent.set_connected(state, "b", false)
+	check(not b_unit.has("back") and b_unit.has("away"), "and it is forgotten when they go again")
 	## And at the reckoning after a wipe.
 	DeepDescent.set_connected(state, "b", true)
 	check(cmd(state, "a", "abandon").ok and state.phase == "salvage", "the dig is given up")
@@ -1132,8 +1174,8 @@ func _test_coming_home() -> void:
 
 func _test_lift_short() -> void:
 	## The cage is paid for when it is ridden. One lapidary chooses it while the party can pay;
-	## the other then throws the party's pyrite down the well and chooses the way down. The tie
-	## would go to the cage, but nobody rides on credit: the cage's chooser is asked again.
+	## the other then throws the party's pyrite down the well and chooses the way down. When the
+	## tie's coin toss goes to the cage, nobody rides on credit: the cage's chooser is asked again.
 	var state: Dictionary = DeepDescent.new_run(config(66, false))
 	state.depth = 4
 	DeepDescent._arrive_landing(state, DeepDescent.streams_of(state))
@@ -1146,9 +1188,19 @@ func _test_lift_short() -> void:
 	## Spent after the cage was chosen (the well, a stall's lens: anything that takes pyrite).
 	b.ore = 0
 	check(cmd(state, "b", "respite", {"choice": "rest"}).ok, "the other takes a respite")
-	var down: Dictionary = cmd(state, "b", "choose", {"choice": "descend"})
-	check(down.ok and state.phase == "landing" and str(a.choice) == "" and down.event.has("lift_short"), "nobody rides on credit: the cage's chooser is asked again (%s)" % state.phase)
-	check(cmd(state, "a", "choose", {"choice": "lift"}).ok == false, "and the cage cannot be chosen again while the purse is short")
+	var short: Dictionary = {}
+	for trial in range(24):
+		var tie: Dictionary = state.duplicate(true)
+		tie.rng = DeepRng.save(DeepRng.streams(700 + trial))
+		var down: Dictionary = cmd(tie, "b", "choose", {"choice": "descend"})
+		if down.ok and down.event.has("lift_short"):
+			short = tie
+			check(tie.phase == "landing" and str(DeepDescent.player(tie, "a").choice) == "" and not down.event.has("toss"),
+				"nobody rides on credit: the cage's chooser is asked again, and no toss is told (%s)" % tie.phase)
+			break
+	check(not short.is_empty(), "a toss that goes to the cage finds the purse short")
+	if not short.is_empty():
+		check(cmd(short, "a", "choose", {"choice": "lift"}).ok == false, "and the cage cannot be chosen again while the purse is short")
 
 func _test_json_round_trip() -> void:
 	## A run read back from a checkpoint, or mirrored to a guest over the wire, has every number
@@ -1233,6 +1285,23 @@ func _test_grubstake() -> void:
 			check(str(took.event.message).contains("Under the loupe"), "and the words say so: %s" % str(took.event.message))
 	check(picks_seen > 0, "some seed offered a pick (%d)" % picks_seen)
 	check(b_offers.size() == 3 and DeepContent.boon(str(b_offers[1].boons[0])).get("tags", []).has("mercy"), "a lapidary who fell early is shown mercy: %s" % str(b_offers[1].boons))
+	check(bool(b_offers[1].get("mercy", false)) and not bool(a_offers[1].get("mercy", false)), "the mercy kit is marked, so its card can say why")
+	## Most new lapidaries fall at the first Warden, past the first landing: a fall in a mine
+	## whose first Warden they have never beaten is shown mercy too, and only that.
+	var late: Dictionary = config(77, false)
+	late.boons = true
+	for p in late.players:
+		p.last_depth = 8
+		p.last_outcome = "fallen"
+	late.players[1].last_warden_unbeaten = true
+	var late_run: Dictionary = DeepDescent.new_run(late)
+	check(not bool(DeepBoons.standing(DeepDescent.player(late_run, "a")).mercy) and bool(DeepBoons.standing(DeepDescent.player(late_run, "b")).mercy),
+		"a fall at depth 8 is shown mercy only while that mine's first Warden was never beaten")
+	var book: Dictionary = {"mines": {"QUARRY": {"wardens": [], "boss": false}}}
+	var fell: Dictionary = {"mine": "QUARRY", "outcome": "fallen", "depth": 8}
+	check(DeepBoons.warden_unbeaten(book, fell) and DeepBoons.warden_unbeaten({}, fell), "a mine with no Warden beaten (or no record) is unbeaten")
+	book.mines.QUARRY.wardens = [8]
+	check(not DeepBoons.warden_unbeaten(book, fell) and not DeepBoons.warden_unbeaten(book, {}), "one Warden beaten, or no run at all, and it is not")
 	check(a_offers[2].boons.size() == 2 and DeepContent.boon(str(a_offers[2].boons[0])).group == "cost" and DeepContent.boon(str(a_offers[2].boons[1])).group == "reward", "terms are a cost and a reward")
 	check(not cmd(state, "a", "vote_tunnel", {"offer": "x"}).ok, "no tunnels before the stake is taken")
 	var picked: Array = a_offers.filter(func(o: Dictionary) -> bool: return o.needs.has("pick"))

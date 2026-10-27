@@ -21,10 +21,14 @@ signal invite_requested
 const QUALITY: Array = [["Auto", 0], ["High", 3], ["Medium", 2], ["Low", 1]]
 const SPEEDS: Array = [["1×", 1.0], ["2×", 2.0], ["4×", 4.0]]
 const COUNTS: Array = [["Full", 1.0], ["Quick", 0.5], ["Off", 0.0]]
+const TEXT_SIZES: Array = [["Standard", 0.0], ["Large", 1.0]]
 const CONTROLS: Array = [
 	["Right-click", "Inspect a stone, a die or a creature: its full details and a model to turn"],
 	["Drag", "Turn the model in the inspector"],
 	["1 – 5", "Pick a die to reroll (or click it); at the mouths, 1 – 3 picks a way on"],
+	["1 – 5", "In the workshop, open its tabs, Descend to Bestiary"],
+	["Q / E", "In the workshop, step through your delvers"],
+	["Enter", "In the workshop, set out from the Descend tab"],
 	["R", "Reroll the picked dice"],
 	["Space", "Lock in your hand; while a turn plays out, hurry it (so does a click)"],
 	["F", "Fast fights on or off (the Harlequin shifts the picked die instead)"],
@@ -140,10 +144,13 @@ func _show(page: String) -> void:
 		"player_name": _page_player_name()
 		"soundtrack": _page_soundtrack()
 		"controls": _page_controls()
-		"abandon": _page_confirm("flag", "Abandon the expedition?", _abandon_text(), "Abandon", DeepUi.BAD, func() -> void:
+		"abandon": _page_confirm("flag", "Abandon today's dig?" if bool(context.get("daily", false)) else "Abandon the expedition?", _abandon_text(), "Abandon", DeepUi.BAD, func() -> void:
 			close()
 			abandon_requested.emit())
 		"leave": _page_confirm("door", "Leave the party?", "You drop out of the expedition and go back to your own workshop. Whatever you carry stays down there with them.", "Leave", DeepUi.BAD, func() -> void:
+			close()
+			leave_requested.emit())
+		"close_party": _page_confirm("door", "Close the party?", "Everyone goes back to their own workshop.", "Close", DeepUi.BAD, func() -> void:
 			close()
 			leave_requested.emit())
 		"quit": _page_confirm("door", "Quit to the desktop?", _quit_text(), "Quit", DeepUi.BAD, func() -> void: quit_requested.emit())
@@ -252,27 +259,59 @@ func _page_main() -> void:
 	var list := DeepUi.vbox(_body, 10)
 	list.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	list.custom_minimum_size = Vector2(340, 0)
-	var resume := DeepUi.primary(list, "play", "Resume", close, 18)
+	var resume := DeepUi.icon_button(list, "play", "Resume", close, 18, DeepUi.PAPER)
+	DeepUi.voice(resume, "ui_confirm")
+	## Gold only while the keyboard is on it. Filled for good, it still looked chosen with
+	## the focus moved down to Settings, and the menu showed two picks at once.
+	resume.focus_entered.connect(func() -> void: _gold(resume, true))
+	resume.focus_exited.connect(func() -> void: _gold(resume, false))
 	_focus.call_deferred(resume)
 	DeepUi.icon_button(list, "gear", "Settings", func() -> void: _show("settings"), 16, DeepUi.PAPER)
 	DeepUi.icon_button(list, "book", "Controls", func() -> void: _show("controls"), 16, DeepUi.PAPER)
 	if in_run:
 		if bool(context.get("host", true)):
-			var give_up := DeepUi.icon_button(list, "flag", "Abandon expedition", func() -> void: _show("abandon"), 16, DeepUi.BAD)
+			var give_up := DeepUi.icon_button(list, "flag", "Abandon the dig" if bool(context.get("daily", false)) else "Abandon expedition", func() -> void: _show("abandon"), 16, DeepUi.BAD)
 			give_up.add_theme_color_override("font_color", DeepUi.BAD.lightened(0.2))
 			give_up.disabled = str(context.get("phase", "")) in ["salvage", "over"]
 		else:
 			DeepUi.icon_button(list, "door", "Leave the party", func() -> void: _show("leave"), 16, DeepUi.BAD)
 	elif not bool(context.get("solo", true)):
 		## In the workshop with a party: walk out of it, or as its host close it.
+		## Closing sends everyone home, so the host is asked first.
 		DeepUi.icon_button(list, "door", "Close the party" if bool(context.get("host", true)) else "Leave the party", func() -> void:
-			close()
-			leave_requested.emit(), 16, DeepUi.BAD)
+			if bool(context.get("host", true)):
+				_show("close_party")
+			else:
+				close()
+				leave_requested.emit(), 16, DeepUi.BAD)
 	DeepUi.icon_button(list, "door", "Quit to desktop", func() -> void: _show("quit"), 16, DeepUi.MUTED)
 	for child in list.get_children():
 		if child is Button:
 			child.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			child.custom_minimum_size.y = 46
+
+func _gold(b: Button, on: bool) -> void:
+	## Dresses a menu button as the page's call to action (the accent fill, ink on it) or
+	## back as a plain one.
+	var states: Array = ["normal", "hover", "pressed"]
+	var inked: Array = ["font_color", "font_hover_color", "font_pressed_color", "icon_normal_color", "icon_hover_color", "icon_pressed_color"]
+	if not on:
+		for state in states:
+			b.remove_theme_stylebox_override(state)
+		for key in inked:
+			b.remove_theme_color_override(key)
+		b.add_theme_color_override("icon_normal_color", DeepUi.PAPER)
+		b.add_theme_color_override("icon_hover_color", DeepUi.PAPER.lightened(0.25))
+		return
+	## The theme's padding, not the call to action's wider one, so the words do not shift as
+	## the focus comes and goes.
+	var pressed := DeepUi.button_style(DeepUi.ACCENT.darkened(0.25), DeepUi.ACCENT)
+	pressed.shadow_offset = Vector2(1, 1)
+	b.add_theme_stylebox_override("normal", DeepUi.button_style(DeepUi.ACCENT, DeepUi.ACCENT.lightened(0.35)))
+	b.add_theme_stylebox_override("hover", DeepUi.button_style(DeepUi.ACCENT.lightened(0.15), Color.WHITE))
+	b.add_theme_stylebox_override("pressed", pressed)
+	for key in inked:
+		b.add_theme_color_override(key, DeepUi.INK)
 
 func _party_card(party: Dictionary) -> void:
 	## A run with a party in it, as its host sees it from here: who is away, and the line they
@@ -312,6 +351,11 @@ func _party_card(party: Dictionary) -> void:
 
 func _abandon_text() -> String:
 	var text: String = "It counts as a fall. Every stone in your bag rolls its salvage die, and only the top face brings it home. Stones you found and set on your rail are safe, and your vault is never touched."
+	if bool(context.get("daily", false)):
+		## A daily keeps nothing and only scores, and a fall scores no pyrite.
+		text = "It counts as a fall: the pyrite you carry scores nothing, and only the stones whose salvage die shows its top face count toward today's score. Nothing from a daily dig is kept."
+		if str(context.get("phase", "")) == "landing":
+			text += "\n\nThe lift is right here: riding it up banks your whole score."
 	if not bool(context.get("solo", true)):
 		text += "\n\nThe whole party climbs out with you."
 	return text
@@ -342,11 +386,11 @@ func _page_confirm(glyph: String, title: String, text: String, verb: String, ton
 
 func _page_settings() -> void:
 	_heading("gear", "Settings")
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 22)
-	grid.add_theme_constant_override("v_separation", 12)
-	_body.add_child(grid)
+	## Two columns: in one, the page ran off the foot of the screen once Text size and Color
+	## marks joined it.
+	var columns := DeepUi.hbox(_body, 48)
+	columns.alignment = BoxContainer.ALIGNMENT_CENTER
+	var grid := _grid(columns)
 	_section(grid, "Display")
 	_row(grid, "Fullscreen", _toggle("fullscreen", false))
 	_row(grid, "Vertical sync", _toggle("vsync", true))
@@ -357,10 +401,13 @@ func _page_settings() -> void:
 	_row(grid, "Effects", _slider("sfx_volume", 0.85), "Every sound the game makes is written by the game itself.")
 	_row(grid, "Music", _slider("music_volume", 0.6), "The music is written by the game too, from a few lines of score for each piece.")
 	## Soundtrack selection is intentionally not exposed in the player menu.
+	grid = _grid(columns)
 	_section(grid, "Comfort")
 	_row(grid, "Screen shake", _slider("shake", 1.0))
 	_row(grid, "Fewer flashes", _toggle("reduced_motion", false), "Softens the flashes and color smears on heavy blows.")
 	_row(grid, "Rumble", _toggle("rumble", true), "Shakes a gamepad (or a phone) as dice count, gems fire and blows land.")
+	_row(grid, "Text size", _choice("text_size", TEXT_SIZES, 0.0), "Large sets the smallest words on every screen at the biggest size the screens still fit. A small window already shows them that size.")
+	_row(grid, "Color marks", _marks(), "Marks each color with the shape its stones are cut in: Red a triangle, Blue a square, Green a heart, Violet a pear, Gold a hexagon, White a circle, Opal an oval. On stones, empty sockets and color dots.")
 	_section(grid, "Fights")
 	_row(grid, "Fight speed", _choice("speed", SPEEDS, 1.0), "How fast a locked-in turn plays out, every animation with it. F toggles 4× mid-fight; a click or Space hurries one turn.")
 	_row(grid, "Gem count", _choice("count", COUNTS, 1.0), "How each gem counts its number out before it fires: every die and multiplier (Full), the same twice as fast (Quick), or only the total (Off). In a party, the host's choice.")
@@ -401,6 +448,31 @@ func _choose_piece(place: String, piece_id: String) -> void:
 	settings["music_picks"] = picks
 	settings_changed.emit()
 	_show("soundtrack")
+
+func _grid(parent: Node) -> GridContainer:
+	## One column of the settings: a name and its control on each row.
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 22)
+	grid.add_theme_constant_override("v_separation", 12)
+	grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	parent.add_child(grid)
+	return grid
+
+func _marks() -> HBoxContainer:
+	## The color marks' switch, and the marks themselves beside it, so the setting shows what
+	## it puts on the screen before it is switched on.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	row.add_child(_toggle("color_marks", false))
+	DeepUi.gap(row, 4)
+	for key in ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]:
+		var mark := DeepUi.ColorMark.new(str(key), 18.0, true)
+		mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mark.mouse_filter = Control.MOUSE_FILTER_PASS
+		mark.tooltip_text = str(DeepContent.color(str(key)).get("name", key))
+		row.add_child(mark)
+	return row
 
 func _section(grid: GridContainer, text: String) -> void:
 	var head := DeepUi.heading(grid, text, 12, DeepUi.ACCENT)
@@ -446,11 +518,21 @@ func _slider(key: String, fallback: float) -> HBoxContainer:
 	var slider := HSlider.new()
 	slider.min_value = 0.0
 	slider.max_value = 1.0
-	slider.step = 0.1
+	slider.step = 0.05
 	slider.value = float(settings.get(key, fallback))
 	slider.custom_minimum_size = Vector2(190, 24)
 	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(slider)
+	## The engine gives a slider no focus look of its own: the kit's white ring, while the
+	## keyboard or a pad is on it (a click leaves it off, as it does on a button).
+	var ring := Panel.new()
+	ring.add_theme_stylebox_override("panel", DeepUi.focus_ring(8, 3.0))
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring.visible = false
+	slider.add_child(ring)
+	slider.focus_entered.connect(func() -> void: ring.visible = slider.has_focus(true))
+	slider.focus_exited.connect(func() -> void: ring.visible = false)
 	var readout := DeepUi.label(row, "%d%%" % int(round(slider.value * 100.0)), 14, DeepUi.MUTED)
 	readout.custom_minimum_size.x = 44
 	slider.value_changed.connect(func(value: float) -> void:

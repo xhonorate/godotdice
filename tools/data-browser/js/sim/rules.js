@@ -253,7 +253,7 @@ export function amountWords(expr, cutStep = null) {
 
 // Whom a creature's effect lands on, in words (sim/creatures.gd TARGET_WORDS).
 export const TARGET_WORDS = { heroes: 'all players', hero: 'all players', self: 'itself', allies: 'every creature', allies_other: 'every other creature',
-	hero_least_block: 'the player with the least block', hero_most_hp: 'the player with the most health', hero_most_gold: 'the player with the most pyrite',
+	hero_least_block: 'the player with the least block', hero_most_hp: 'the player with the most health', hero_most_gold: 'the richest player',
 	hero_top_damage: 'whoever hurt it most this turn', hero_top_dealt: 'whoever dealt the most last turn', hero_marked: 'every Marked player',
 	spread: 'spread round the party' };
 export function targetWords(effect, fallback = 'all players') { return TARGET_WORDS[String(effect.target || 'heroes')] || fallback; }
@@ -317,7 +317,8 @@ export function effectWords(effect, cutStep = null) {
 		end_action: 'its action ends here',
 		exhibit: 'fires every gem it holds, as its own',
 		die_lock: `locks your ${pick === 'high' ? 'highest die' : pick === 'low' ? 'lowest die' : diceWords(Number.isFinite(count) ? count : 1)} · it comes up the same and cannot be rerolled next turn`,
-		steal_gold: (effect.pct ? `takes ${n}% of each player's pyrite` : `takes ${n} pyrite from each player`) + (effect.hurt ? ' · and hits each for what it took' : ''),
+		// One player picked (the Magpie robs the richest; the target is named after the label), or every player.
+		steal_gold: (HERO_PICKS.includes(target) ? (effect.pct ? `takes ${n}% of their pyrite` : `takes ${n} pyrite`) : (effect.pct ? `takes ${n}% of each player's pyrite` : `takes ${n} pyrite from each player`)) + (effect.hurt ? (HERO_PICKS.includes(target) ? ' · and hits them for what it took' : ' · and hits each for what it took') : ''),
 		empower_next: `its next attack deals ${n}% more`,
 		rally: `every creature deals ${n} more this turn`,
 		grow_die: `grows another head: +1 ${String(effect.shape || 'D6').toLowerCase()} (${effect.cap ?? 5} at most)`,

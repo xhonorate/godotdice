@@ -624,11 +624,20 @@ static func amount_words(expr: Variant) -> String:
 	if _share_of_purse(expr):
 		return "1%%/%s pyrite" % amount_words(args[1].args[1])
 	if str(expr.get("op", "")) == "floor_div" and args.size() == 2 and (args[1] is int or args[1] is float):
-		return "%s ÷ %d" % [amount_words(args[0]), int(args[1])]
+		return "%s ÷ %d" % [_grouped_words(args[0]), int(args[1])]
 	var parts: Array = args.map(func(a: Variant) -> String: return amount_words(a))
 	if str(expr.get("op", "")) == "pct" and parts.size() == 2 and (expr.args[1] is int or expr.args[1] is float):
-		return "%s × %s" % [parts[0], ("%.2f" % (float(expr.args[1]) / 100.0)).rstrip("0").rstrip(".")]
+		return "%s × %s" % [_grouped_words(args[0]), ("%.2f" % (float(expr.args[1]) / 100.0)).rstrip("0").rstrip(".")]
+	if str(expr.get("op", "")) == "*":
+		parts = args.map(func(a: Variant) -> String: return _grouped_words(a))
 	return (" %s " % str(expr.get("op", "+"))).join(parts)
+
+static func _grouped_words(expr: Variant) -> String:
+	## A sum read inside a product, a share or a division is bracketed: (Rolled value + 1) ÷ 2.
+	var words: String = amount_words(expr)
+	if expr is Dictionary and not expr.has("term") and str(expr.get("op", "")) in ["+", "-"]:
+		return "(%s)" % words
+	return words
 
 static func _share_of_purse(expr: Dictionary) -> bool:
 	## pct(max_hp, floor_div(party_richest, N)): a hundredth of its health for every N pyrite.
@@ -662,7 +671,7 @@ static func amount_parts(expr: Variant) -> Dictionary:
 	return parts
 
 const TARGET_WORDS: Dictionary = {"heroes": "all players", "hero": "all players", "self": "itself", "allies": "every creature", "allies_other": "every other creature",
-	"hero_least_block": "the player with the least block", "hero_most_hp": "the player with the most health", "hero_most_gold": "the player with the most pyrite",
+	"hero_least_block": "the player with the least block", "hero_most_hp": "the player with the most health", "hero_most_gold": "the richest player",
 	"hero_top_damage": "whoever hurt it most this turn", "hero_top_dealt": "whoever dealt the most last turn", "hero_marked": "every Marked player",
 	"hero_rerolled": "every player who rerolled this turn",
 	"spread": "spread round the party"}
@@ -720,8 +729,12 @@ static func effect_words(effect: Dictionary) -> String:
 			var what: String = "highest die" if pick == "high" else ("lowest die" if pick == "low" else _dice_words(int(effect.get("amount", 1))))
 			return "Locks your %s · it comes up the same and cannot be rerolled next turn · all players" % what
 		"steal_gold":
+			## One player picked (the Magpie robs the richest), or every player (the Assayer's Tax).
+			var picked: bool = str(effect.get("target", "heroes")) in DeepRules.HERO_PICKS
 			var taken: String = ("Takes %s%% of each player's pyrite" % n) if bool(effect.get("pct", false)) else ("Takes %s pyrite from each player" % n)
-			return taken + (" · and hits each for what it took" if bool(effect.get("hurt", false)) else "")
+			if picked:
+				taken = ("Takes %s%% of the pyrite of %s" % [n, who]) if bool(effect.get("pct", false)) else ("Takes %s pyrite from %s" % [n, who])
+			return taken + ((" · and hits them for what it took" if picked else " · and hits each for what it took") if bool(effect.get("hurt", false)) else "")
 		"gold": return "Drops %s pyrite · %s" % [n, who] if str(effect.get("target", "heroes")) != "self" else "Gains %s pyrite" % n
 		"empower_next": return "Its next attack deals %s%% more" % n
 		"rally": return "Every creature deals %s more this turn" % n

@@ -8,7 +8,9 @@ extends SceneTree
 
 const CANVAS := Vector2i(1600, 900)
 const Homecoming = preload("res://view/home/homecoming.gd")
+const DescentScreen = preload("res://view/run/descent_screen.gd")
 const MarketPage = preload("res://view/home/market_page.gd")
+const DiceIcons = preload("res://view/dice/dice_icons.gd")
 
 var checks: int = 0
 var failures: Array = []
@@ -31,6 +33,14 @@ func _init() -> void:
 	screen.add_child(app)
 	await process_frame
 	check(app.get_global_rect().size == Vector2(CANVAS), "the game is drawn on %s (got %s)" % [str(CANVAS), str(app.get_global_rect().size)])
+	## Large text (Settings > Comfort) on the largest window sets no text bigger than this run
+	## already draws every page at.
+	var floor_here: int = DeepUi.min_text()
+	DeepUi.text_scale = 2.0
+	DeepUi.text_large = true
+	check(DeepUi.min_text() <= floor_here, "large text stays at or under the floor every page is fitted at (%d, got %d)" % [floor_here, DeepUi.min_text()])
+	DeepUi.text_large = false
+	DeepUi.text_scale = 0.64
 	_fill(app.profile)
 	app._profile_changed()
 	await _workshop(app)
@@ -40,6 +50,7 @@ func _init() -> void:
 	await _appraisals(app)
 	await _run(app)
 	await _void_views(app)
+	await _die_plates()
 	print("Fit: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -212,6 +223,19 @@ func _workshop(app: Control) -> void:
 	await _fits(screen, "the Unappraised view on a stone of a skill not kept")
 	app.profile.vault[str(known.skill)] = kept
 	home._vault_view = "collection"
+	## The tray's last card coming home, with more stones kept than it shows.
+	var waiting: Array = app.profile.tray
+	app.profile.tray = []
+	app.profile.homecoming = true
+	var came: Array = []
+	for stone in app.profile.vault.values().slice(0, 6):
+		came.append({"stone": stone, "was": {} if came.size() % 2 == 0 else stone})
+	home.set_meta("came_kept", came)
+	home.open("descend", true)
+	await _fits(screen, "the tray's last card, coming home with six stones kept")
+	home.remove_meta("came_kept")
+	app.profile.homecoming = false
+	app.profile.tray = waiting
 
 func _daily_map(app: Control, lobby: Dictionary) -> void:
 	## The day's seam on Descend, chosen for the party, as the host and as a guest: before the
@@ -242,6 +266,21 @@ func _market(app: Control) -> void:
 	home._market_view = "main"
 	home.open("market", true)
 	await _fits(screen, "the Market")
+	## The case at its wordiest: heavy stones of the longest rules, three inclusions each, whose
+	## lines take what room the cards have left and no more.
+	var stocked: Array = app.profile.daily.get("case", [])
+	var wordy: Array = []
+	for spec in [["PROCESSION", ["FRACTURE", "FEATHER", "KNOT"]], ["SPECTRUM", ["VEIL", "BRUISE", "CAVITY"]], ["QUINTESSENCE", ["FLUORESCENCE", "HALO", "GLINT"]]]:
+		var heavy: Dictionary = DeepStone.make(str(spec[0]), 24, 4, 0, spec[1], {"source": "vein"}, "fit_%s" % str(spec[0]).to_lower())
+		heavy.appraised = true
+		wordy.append({"id": "fit_case_%d" % wordy.size(), "stone": heavy, "price": DeepEconomy.case_price(heavy), "bought": false})
+	app.profile.daily.case = wordy
+	home.open("market", true)
+	## The lines are handed out two frames after the case is laid out, and laid out again after.
+	for _i in range(4):
+		await process_frame
+	await _fits(screen, "the Market with the wordiest case")
+	app.profile.daily.case = stocked
 	var shelf: Array = DeepEconomy.shelf(app.profile)
 	check(shelf.size() == 2, "the Market opens on today's Geode and the week's")
 	var opened: Dictionary = DeepEconomy.open_geode(app.profile, str(shelf[0].get("id", ""))) if not shelf.is_empty() else {}
@@ -259,6 +298,23 @@ func _market(app: Control) -> void:
 			home._rework_pick = pick
 			home.open("market", true)
 			await _fits(screen, "the %s%s" % [kind, " with a stone picked" if not pick.is_empty() else ""])
+		## Just reworked: the result kept under the ladder, the Oven naming three things inside.
+		var worked: String = str(app.profile.vault.keys()[0])
+		var field: String = "cut" if kind == "wheel" else "clarity"
+		var was_used: bool = DeepEconomy.rework_used(app.profile, field)
+		var before: Dictionary = DeepProfile.owned(app.profile, worked).duplicate(true)
+		var inside: Array = before.get("inclusions", []).duplicate()
+		app.profile.vault[worked].inclusions = ["FLUORESCENCE", "ALEXANDRITE", "FRACTURE"]
+		app.profile.daily["rework_" + field] = true
+		home._market_view = kind
+		home._rework_pick = worked
+		home._rework_done = {"kind": field, "skill": worked, "before": before, "now": 0, "broke": false}
+		home.open("market", true)
+		await _fits(screen, "the %s just after a rework, its result kept" % kind)
+		check(home.find_children("*", "Label", true, false).any(func(l: Label) -> bool: return l.text.begins_with("Worth ")), "the %s keeps what the rework did to the stone's worth" % kind)
+		app.profile.vault[worked].inclusions = inside
+		app.profile.daily["rework_" + field] = was_used
+		home._rework_done = {}
 		for page in range(3):
 			home._pages["bench_page"] = page
 			home.open("market", true)
@@ -741,8 +797,14 @@ func _run(app: Control) -> void:
 	pocket.stats = loud
 	descent._over_seen = {}
 	descent._over_tab = "run"
+	## With everything a run can move forward on its "This run" line.
+	descent._progress = DescentScreen.progress_parts({"tier": 0, "deepest": {"GLASS_VEINS": 23}},
+		{"purses": [{"mine": "GLASS_VEINS", "gold": 650, "warden": 1, "depth": 16}, {"mine": "GLASS_VEINS", "gold": 1300}], "first_met": DeepBestiary.in_mine("GLASS_VEINS")},
+		{"mine": "GLASS_VEINS", "deepest": 24, "mines": [{"mine": "GLASS_VEINS", "deepest": 24}]}, app.profile, ["WARRENS"])
+	check(descent._progress.size() >= 6, "a run that did everything says it all on its \"This run\" line (%d parts)" % descent._progress.size())
 	descent.show_state(over)
 	await _fits(screen, "the run's stats at the end of a run")
+	descent._progress = []
 	var crowd: Dictionary = over.duplicate(true)
 	var names: Array = ["", "Marigold Underhill", "Tov", "Quill"]
 	var callings: Array = ["", "VESPER", "RUE", "FLORIN"]
@@ -912,6 +974,43 @@ func _fits(node: Node, what: String) -> void:
 	var pointed: Array = []
 	_points(node, pointed)
 	check(pointed.is_empty(), "%s cuts no capsule's ends to a point: %s" % [what, "; ".join(pointed.slice(0, 4))])
+	var small: Array = []
+	_small_marks(node, small)
+	check(small.is_empty(), "%s sets no die's mark under the text floor: %s" % [what, "; ".join(small.slice(0, 4))])
+
+func _small_marks(node: Node, found: Array) -> void:
+	## A die face kept to the text floor (`DiceIcons.readable_face`: a creature's dice, a die
+	## plate, the hand on a gem's plate) is measured as a label is: its number is set at the
+	## floor or larger, and it stays inside the face's own outline.
+	if node is CanvasItem and not (node as CanvasItem).visible:
+		return
+	if node is DiceIcons.Face and (node as DiceIcons.Face).readable and (node as Control).size.y > 0.5:
+		var face: DiceIcons.Face = node
+		var drawn: int = face.text_size(face.size.y)
+		if drawn < DeepUi.min_text() or not face.holds(face.size.y):
+			found.append("%s '%s' set at %d on a %d px face (floor %d)" % [face.shape, face.text, drawn, int(face.size.y), DeepUi.min_text()])
+	for child in node.get_children():
+		_small_marks(child, found)
+
+func _die_plates() -> void:
+	## The plate over a die: every face of a d4 to a d20 drawn at one size, each number at the
+	## floor inside its outline (a d10's "10" the widest), and the head saying what it rolled.
+	var plates: Script = load("res://view/ui/plates.gd")
+	var holder := Control.new()
+	screen.add_child(holder)
+	for shape in ["D4", "D6", "D8", "D10", "D12", "D20"]:
+		var die: Dictionary = DeepDice.make(shape, "fit_mark_" + shape)
+		var plate: Control = plates.die(die, {"die_id": die.id, "face": 0, "value": DeepDice.face_value(die.faces[0])})
+		holder.add_child(plate)
+		await _fits(holder, "the plate of a %s" % shape.to_lower())
+		var sizes: Dictionary = {}
+		for face in plate.find_children("*", "Control", true, false):
+			if face is DiceIcons.Face:
+				sizes[int(face.size.x)] = true
+		check(sizes.size() == 1, "every face on a %s's plate is one size: %s" % [shape.to_lower(), str(sizes.keys())])
+		check(plate.find_children("*", "Label", true, false).any(func(l: Label) -> bool: return l.text == "ROLLED"), "a rolled %s's plate says what it rolled" % shape.to_lower())
+		plate.free()
+	holder.free()
 
 func _points(node: Node, found: Array) -> void:
 	## A faceted box too short for its corners closes each end to a point, and the point cuts

@@ -10,8 +10,9 @@ extends RefCounted
 ##   terms              one cost and one bigger reward, drawn together; costs and rewards
 ##                      list what they will not pair with
 ##
-## A player whose last run fell before the first landing is shown mercy: their kit stake is
-## drawn from the stakes tagged for it. Everything a stake changes is for this run only: the
+## A player whose last run fell before the first landing, or fell in a mine whose first Warden
+## they have never beaten, is shown mercy: their kit stake is drawn from the stakes tagged for
+## it, and the card says why. Everything a stake changes is for this run only: the
 ## rail's stones and the five dice are copies of the vault's and the bowl's, and only the
 ## haul comes home. No stake hands out a die: dice are only ever worked, never added.
 ##
@@ -95,11 +96,31 @@ static func validate(def: Variant, p: Dictionary) -> Array:
 # --- standing ----------------------------------------------------------------------------------
 
 static func standing(unit: Dictionary) -> Dictionary:
-	## What a player's last run earns them here. `last_depth` and `last_outcome` travel in
-	## the player's config from their profile's history.
+	## What a player's last run earns them here. `last_depth`, `last_outcome` and
+	## `last_warden_unbeaten` travel in the player's config from their profile (see
+	## `warden_unbeaten`). Most new lapidaries fall at the first Warden, well past the first
+	## landing, so a fall anywhere short of beating that Warden once is shown mercy too.
 	var last_depth: int = int(unit.get("last_depth", 0))
 	var last_outcome: String = str(unit.get("last_outcome", ""))
-	return {"mercy": last_outcome == "fallen" and last_depth < DeepDescent.landing_every()}
+	var early: bool = last_depth < DeepDescent.landing_every() or bool(unit.get("last_warden_unbeaten", false))
+	return {"mercy": last_outcome == "fallen" and early}
+
+static func warden_unbeaten(profile: Dictionary, last: Dictionary) -> bool:
+	## Whether the mine a run (`last`, an entry of the profile's history) ended in still has
+	## its first Warden standing for this profile: no Warden and no boss of it ever beaten, on
+	## the run's own Hazard tier or the plain map. Read only; a missing record is unbeaten.
+	var mine_key: String = str(last.get("mine", ""))
+	if mine_key.is_empty() or DeepContent.mine(mine_key).is_empty():
+		return false
+	var books: Array = [profile.get("mines", {})]
+	var tier: int = int(last.get("hazard", 0))
+	if tier > 0:
+		books.append(profile.get("hazard", {}).get("tiers", {}).get(str(tier), {}).get("mines", {}))
+	for book in books:
+		var record: Variant = book.get(mine_key, {}) if book is Dictionary else {}
+		if record is Dictionary and (not record.get("wardens", []).is_empty() or bool(record.get("boss", false))):
+			return false
+	return true
 
 # --- the offer -----------------------------------------------------------------------------------
 
@@ -126,11 +147,28 @@ static func _draw(rng: RandomNumberGenerator, keys: Array) -> String:
 static func _pairs(cost: String, reward: String) -> bool:
 	return not DeepContent.boon(cost).get("not_with", []).has(reward) and not DeepContent.boon(reward).get("not_with", []).has(cost)
 
+static func works_bare(key: String) -> bool:
+	## Whether a boon does anything for a lapidary with no stone set: not one that lands on a
+	## rail stone (needs a socket) nor one on every rail stone (rail_all).
+	var def: Dictionary = DeepContent.boon(key)
+	if str(def.get("needs", "")) == "socket":
+		return false
+	for effect in def.get("effects", []):
+		if str(effect.get("kind", "")) == "rail_all":
+			return false
+	return true
+
 static func offer(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerator) -> Array:
 	## The three stakes one player is shown: stone, kit and terms.
 	var offers: Array = []
 	var stand: Dictionary = standing(unit)
-	var stone_key: String = _draw(rng, pool("stone"))
+	## A rail with nothing set on it and nothing coming to it (a Sealed Tray, a Big Haul or
+	## Bare Hands day) is never offered a stake that only works on set stones. Temporary
+	## offers (a Draft day, a deeper mine) fill the rail before the stake is taken. Any other
+	## rail draws from the whole pools, so its offers are the same as they always were.
+	var bare: bool = unit.get("temps", []).is_empty() and not unit.get("rail", []).any(func(s: Variant) -> bool: return s is Dictionary)
+	var usable: Callable = func(k: String) -> bool: return not bare or works_bare(k)
+	var stone_key: String = _draw(rng, pool("stone").filter(usable))
 	if not stone_key.is_empty():
 		offers.append(_make_offer(state, unit, "stone", [stone_key], rng))
 	var kit_pool: Array = pool("kit", "mercy") if bool(stand.mercy) else pool("kit")
@@ -138,10 +176,14 @@ static func offer(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerato
 		kit_pool = pool("kit")
 	var kit_key: String = _draw(rng, kit_pool)
 	if not kit_key.is_empty():
-		offers.append(_make_offer(state, unit, "kit", [kit_key], rng))
-	var cost: String = _draw(rng, pool("cost"))
+		var kit: Dictionary = _make_offer(state, unit, "kit", [kit_key], rng)
+		## Marked, so the card can say the workshop is going easy on them and why.
+		if bool(stand.mercy) and DeepContent.boon(kit_key).get("tags", []).has("mercy"):
+			kit.mercy = true
+		offers.append(kit)
+	var cost: String = _draw(rng, pool("cost").filter(usable))
 	if not cost.is_empty():
-		var rewards: Array = pool("reward").filter(func(k: String) -> bool: return _pairs(cost, k))
+		var rewards: Array = pool("reward").filter(func(k: String) -> bool: return _pairs(cost, k) and usable.call(k))
 		var reward: String = _draw(rng, rewards)
 		if not reward.is_empty():
 			offers.append(_make_offer(state, unit, "terms", [cost, reward], rng))
@@ -249,7 +291,12 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			var before: int = int(stone.get("cut", 0))
 			stone.cut = clampi(before + amount, 0, DeepPatterns.STEPS - 1)
 			_note(stone, "cut", before, int(stone.cut) - before)
-			return "%s is now judged %s." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), DeepContent.cut_name(int(stone.cut))]
+			var skill_name: String = str(DeepStone.skill_of(stone).get("name", stone.skill))
+			## Already at the end of the ladder (the starter Mend is cut Poor): said so plainly,
+			## rather than reported as a change it never made.
+			if int(stone.cut) == before:
+				return "%s is already a %s Cut, so this changes nothing." % [skill_name, DeepContent.cut_name(before)]
+			return "%s is now a %s Cut, from %s." % [skill_name, DeepContent.cut_name(int(stone.cut)), DeepContent.cut_name(before)]
 		"reroll_cut":
 			## A fresh draw of the stone's Cut from this mine's table, better or worse. With
 			## `best_of` the wheel is kind and the truer of that many rolls is kept.
@@ -277,6 +324,9 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			var before: int = int(stone.get("carat", 1))
 			stone.carat = clampi(before + amount, 1, DeepStone.carat_max())
 			_note(stone, "carat", before, int(stone.carat) - before)
+			## Every carat boon adds weight, so a stone it left unchanged was as heavy as they come.
+			if int(stone.carat) == before:
+				return "%s already weighs %d carats, as heavy as a stone gets." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), before]
 			return "%s weighs %d carats now." % [str(DeepStone.skill_of(stone).get("name", stone.skill)), int(stone.carat)]
 		"rail_all":
 			## Every stone set on the rail, not one drawn from it. Carat and Cut step straight
@@ -369,13 +419,15 @@ static func _effect(state: Dictionary, unit: Dictionary, effect: Dictionary, cho
 			if able.is_empty():
 				return "Every face on your dice is already special."
 			var die: Dictionary = DeepRng.pick(rng, able)
+			## Named as it was: once the face is wild the name says so too.
+			var was: String = DeepDice.describe(die)
 			var best: int = -1
 			for index in range(die.faces.size()):
 				if str(die.faces[index].get("kind", "plain")) == "plain" and (best < 0 or int(die.faces[index].value) > int(die.faces[best].value)):
 					best = index
 			die.faces[best] = DeepDice.face(int(die.faces[best].value), "wild")
 			out.dice.append(die.duplicate(true))
-			return "The %d on your %s turns wild." % [int(die.faces[best].value), DeepDice.describe(die)]
+			return "The %d on your %s turns wild." % [int(die.faces[best].value), was]
 		"max_hp_pct":
 			return _max_hp(unit, amount)
 		"hp_pct":
@@ -423,7 +475,9 @@ static func _max_hp(unit: Dictionary, pct: int) -> String:
 	var delta: int = int(round(float(unit.get("max_hp", 60)) * float(pct) / 100.0))
 	unit.max_hp = maxi(1, int(unit.get("max_hp", 60)) + delta)
 	unit.hp = clampi(int(unit.get("hp", unit.max_hp)) + delta, 1, int(unit.max_hp))
-	return ("Your health rises by %d." % delta) if delta >= 0 else ("Your health falls by %d." % -delta)
+	## Says the most health moved too, or beside a cost's "You start N health down" it reads as
+	## one number going down and back up, with no word of why the top is now further away.
+	return ("Your most health rises by %d, and your health with it." % delta) if delta >= 0 else ("Your most health falls by %d, and your health with it." % -delta)
 
 static func _refuse(error: String) -> Dictionary:
 	return {"ok": false, "error": error, "message": "", "made": [], "dice": []}

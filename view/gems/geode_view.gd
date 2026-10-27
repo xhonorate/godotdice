@@ -623,8 +623,11 @@ func _live() -> bool:
 func _start_later(frames: int) -> void:
 	_held = true
 	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	## The main loop's frames rather than this view's tree: a view the Market keeps between its
+	## drawings can be off the page (out of the tree) while it waits.
+	var loop := Engine.get_main_loop() as SceneTree
 	for _i in range(frames):
-		await get_tree().process_frame
+		await loop.process_frame
 	if not is_instance_valid(self) or _viewport == null:
 		return
 	_held = false

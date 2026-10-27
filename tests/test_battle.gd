@@ -958,7 +958,7 @@ func _test_tally_pace_and_creatures() -> void:
 			added += int(entry.by)
 		check(int(floor(float(tally.base) * magnitude + 0.0001)) + added == int(tally.amount), "%s's count adds up: %d x %.2f + %d = %d" % [str(event.move), int(tally.base), magnitude, added, int(tally.amount)])
 		check(tally.mults.any(func(m: Dictionary) -> bool: return str(m.what) == "depth" and is_equal_approx(float(m.x), 3.0)), "the mine's weight on it is laid on as a multiplier")
-		check(float(event.duration) >= 0.7 + DeepBattle.tally_span(tally) - 0.001, "the creature's step waits for its count")
+		check(float(event.duration) >= DeepBattle.BASE_DURATION.enemy_ability + DeepBattle.tally_span(tally) - 0.001, "the creature's step waits for its count")
 	var soaked: Array = events.filter(func(e: Dictionary) -> bool:
 		return str(e.kind) == "enemy_move" and e.get("effects", []).any(func(h: Dictionary) -> bool: return str(h.get("target", "")) == "a" and int(h.get("absorbed", 0)) > 0))
 	check(not soaked.is_empty() and float(soaked[0].duration) > DeepBattle.BASE_DURATION.enemy_move, "a blow block takes part of waits to be counted at the bar")
@@ -991,7 +991,11 @@ func _test_tally_stats() -> void:
 	check(hands == int(state.turn), "a hand is counted for every rail: %d" % hands)
 	var strike: Dictionary = tally.gems.get("strike", {})
 	check(int(strike.get("fires", 0)) > 0 and int(strike.get("damage", 0)) > 0, "the Strike keeps its own tally: %s" % str(strike))
-	check(int(strike.get("best", 0)) <= int(tally.best_hit.get("amount", 0)) and str(tally.best_hit.get("stone_id", "")) in ["strike", "guard", "mend"], "the biggest hit names its stone: %s" % str(tally.best_hit))
+	check(int(strike.get("best", 0)) <= int(tally.best_hit.get("amount", 0)) and str(tally.best_hit.get("stone_id", "")) in ["strike", "guard", "mend", "birthstone"], "the biggest hit names its stone (or the Birthstone): %s" % str(tally.best_hit))
+	var fired_as: int = 0
+	for key in strike.get("as", {}):
+		fired_as += int(strike.as[key])
+	check(fired_as == int(strike.get("fires", 0)), "every fire notes the skill it fired as: %s" % str(strike))
 	check(int(tally.best_turn.get("amount", 0)) > 0 and int(tally.best_turn.amount) <= int(tally.damage), "the best turn is part of the damage: %s" % str(tally.best_turn))
 	check(str(tally.best_turn.get("creature", "")) == "Cave Tick", "the best turn remembers the creature: %s" % str(tally.best_turn))
 	if state.outcome == "victory":

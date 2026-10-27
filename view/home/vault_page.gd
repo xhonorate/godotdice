@@ -15,6 +15,7 @@ const Homecoming = preload("res://view/home/homecoming.gd")
 const Roster = preload("res://view/home/roster.gd")
 
 const TILE: int = 84
+## About a row of tiles: the grid flows to its width, and fills two of these a frame.
 const COLUMNS: int = 9
 
 static func build(home: Control, content: VBoxContainer) -> void:
@@ -49,8 +50,13 @@ static func _stones(home: Control, holder: Control) -> void:
 	## The kept stones (and the ones not kept yet), as tiles or as rows.
 	var settings: Dictionary = StoneBrowser.settings(home, "vault")
 	var kept: Array = StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "vault")
-	if home._vault_pick.is_empty() and not kept.is_empty():
+	var held: Dictionary = DeepProfile.owned(home.profile, home._vault_pick)
+	if not kept.is_empty() and (home._vault_pick.is_empty() or (not held.is_empty() and not StoneBrowser.passes(held, settings))):
 		home._vault_pick = str(kept[0].get("skill", ""))
+		## A filter hid the stone under the lamp: the lamp follows the list. On a full render
+		## the lamp region is not registered yet and is drawn after this with the new pick.
+		if home.region_holder("vault_lamp") != null:
+			home.redraw(["vault_lamp"])
 	if str(settings.layout) == "list":
 		if kept.is_empty():
 			DeepUi.label(holder, "No kept stone matches.", 14, DeepUi.DIM)
@@ -63,9 +69,9 @@ static func _stones(home: Control, holder: Control) -> void:
 			if not home.redraw(["vault_lamp"]) or not StoneBrowser.repick(home.region_holder("vault_stones"), was, home._vault_pick):
 				home._render()})
 		return
-	var grid := GridContainer.new()
+	## A flow, not a fixed grid: as many tiles a row as the scroller has room for.
+	var grid := HFlowContainer.new()
 	grid.name = "VaultGrid"
-	grid.columns = COLUMNS
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 12)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -110,7 +116,7 @@ static func _head(home: Control, content: VBoxContainer, tray: Array) -> void:
 	meter.set_values(float(owned) / float(maxi(1, total)))
 	home.enter(head)
 
-static func _fill(home: Control, grid: GridContainer, entries: Array, from: int, per_frame: int) -> void:
+static func _fill(home: Control, grid: HFlowContainer, entries: Array, from: int, per_frame: int) -> void:
 	## The grid `per_frame` tiles at a time, a frame apart, so opening the tab never stalls.
 	if not is_instance_valid(grid):
 		return
@@ -126,11 +132,11 @@ static func _fill(home: Control, grid: GridContainer, entries: Array, from: int,
 		## must find it gone rather than call into a freed capture.
 		var held: WeakRef = weakref(grid)
 		grid.get_tree().process_frame.connect(func() -> void:
-			var still: GridContainer = held.get_ref() as GridContainer
+			var still: HFlowContainer = held.get_ref() as HFlowContainer
 			if still != null:
 				_fill(home, still, entries, upto, per_frame), CONNECT_ONE_SHOT)
 
-static func _tile(home: Control, grid: GridContainer, entry: Dictionary, index: int) -> PanelContainer:
+static func _tile(home: Control, grid: HFlowContainer, entry: Dictionary, index: int) -> PanelContainer:
 	## One place in the grid: a kept stone's tile, or the ghost of one not kept yet.
 	var key: String = str(entry.skill)
 	var tile: PanelContainer
@@ -148,15 +154,15 @@ static func _tile(home: Control, grid: GridContainer, entry: Dictionary, index: 
 	tile.set_meta("entry", entry)
 	if DeepProfile.favorites(home.profile).has(key):
 		home.tile_mark(tile, "star", DeepUi.ACCENT_HI, "A favorite: the Market marks anything that could be one")
-	if str(entry.state) in ["owned", "seen"]:
-		if key == home._vault_pick:
-			_ring(tile)
-		tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		DeepUi.juice(tile, 1.06)
-		tile.gui_input.connect(func(event: InputEvent) -> void:
-			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-				DeepAudio.play("ui_tap", {"volume": 0.7})
-				_pick(home, key))
+	## Every place answers a click, one not found yet too: the lamp then says where to dig for it.
+	if key == home._vault_pick:
+		_ring(tile)
+	tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	DeepUi.juice(tile, 1.06)
+	tile.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			DeepAudio.play("ui_tap", {"volume": 0.7})
+			_pick(home, key))
 	home.enter(tile, 0.012 * index)
 	return tile
 
@@ -173,7 +179,7 @@ static func _pick(home: Control, key: String) -> void:
 static func _retile(home: Control, key: String) -> void:
 	## One tile built again in its place: the ring, the star and all.
 	var holder: Control = home.region_holder("vault_stones")
-	var grid: GridContainer = holder.get_node_or_null("VaultGrid") if holder != null else null
+	var grid: HFlowContainer = holder.get_node_or_null("VaultGrid") if holder != null else null
 	if grid == null or key.is_empty():
 		return
 	for child in grid.get_children():
@@ -206,6 +212,12 @@ static func _ghost_tile(parent: Node, key: String, color: String, seen: bool) ->
 	var column := DeepUi.vbox(box, 4)
 	var frame := DeepUi.center(column)
 	frame.custom_minimum_size = Vector2(TILE, TILE)
+	## Settings > Comfort > Color marks: the color's shape in the corner a kept stone wears it in.
+	var corner := Control.new()
+	corner.custom_minimum_size = Vector2(TILE, TILE)
+	corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(corner)
+	DeepUi.corner_mark(corner, color, 20.0).modulate.a = 0.6 if seen else 0.4
 	var skill: Dictionary = DeepContent.skill(key)
 	if seen:
 		var hint: String = "%s: seen, not kept.\nClick for a summary." % str(skill.get("name", key))
@@ -216,8 +228,11 @@ static func _ghost_tile(parent: Node, key: String, color: String, seen: bool) ->
 		box.mouse_filter = Control.MOUSE_FILTER_STOP
 		box.tooltip_text = hint
 	else:
-		DeepUi.icon(frame, "question", 26, Color(DeepUi.color(color), 0.18), "Not yet found")
+		var lead: String = "Not yet found.\nClick for where to look."
+		DeepUi.icon(frame, "question", 26, Color(DeepUi.color(color), 0.18), lead)
 		DeepUi.label(column, " ", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		box.mouse_filter = Control.MOUSE_FILTER_STOP
+		box.tooltip_text = lead
 	return box
 
 static func _lamp(home: Control, side: VBoxContainer) -> void:
@@ -225,6 +240,9 @@ static func _lamp(home: Control, side: VBoxContainer) -> void:
 	var shown: Dictionary = DeepProfile.owned(home.profile, home._vault_pick)
 	if shown.is_empty() and home.profile.get("seen", []).has(home._vault_pick):
 		_reference(home, side, home._vault_pick)
+		return
+	if shown.is_empty() and DeepProfile.known_skills(home.profile).has(home._vault_pick):
+		_unfound(home, side, home._vault_pick)
 		return
 	if shown.is_empty():
 		home.empty(side, "chest", "Nothing kept yet", "Stones you keep come here, one per skill.", 300.0)
@@ -243,7 +261,7 @@ static func _lamp(home: Control, side: VBoxContainer) -> void:
 	var actions := DeepUi.hbox(box, 6)
 	var current: String = str(home.profile.get("current_character", DeepContent.starter_character()))
 	var socket := DeepUi.icon_button(actions, "person", "Socket it", func() -> void:
-		home.edit_loadout(current, _first_fit(home, current, skill)), 13, DeepUi.PAPER)
+		home.edit_loadout(current, _first_fit(home, current, skill), skill), 13, DeepUi.PAPER)
 	socket.tooltip_text = "Open %s's sockets with this stone ready to set" % DeepContent.character_title(current)
 	for entry in [["cut", "cut", "Wheel"], ["clarity", "flame", "Oven"]]:
 		var kind: String = str(entry[0])
@@ -276,7 +294,7 @@ static func _numbers(home: Control, parent: Node, stone: Dictionary) -> void:
 		["carat", "Carat", float(carat) / float(DeepStone.carat_max()), "%d of %d ct" % [carat, DeepStone.carat_max()], DeepUi.ACCENT, "Its carat, against the heaviest a stone can be"],
 		["cut", "Cut", float(cut + 1) / float(DeepContent.cuts().size()), DeepContent.cut_name(cut), StoneCard.TileTags.CUT_TONE, "Its Cut, on the ladder from the worst to the best"],
 		["clarity", "Clarity", float(clarity + 1) / float(DeepContent.clarities().size()), DeepContent.clarity_name(clarity), pure, "Its Clarity, from the most included to Flawless"],
-		["star", "Grade", float(grade.score) / 100.0, "%s · %d" % [str(grade.name), int(grade.score)], DeepUi.tier_color(str(grade.tier)), "Its grade, out of 100"],
+		["star", "Grade", float(grade.score) / 100.0, "%s · %d of 100" % [str(grade.name), int(grade.score)], DeepUi.tier_color(str(grade.tier)), "Its grade, out of 100"],
 		["coin", "Worth", float(worth) / float(richest), "%d" % worth, DeepUi.ACCENT, "What a buyer would pay, in gold, against the most valuable stone in your vault"]]
 	for row in rows:
 		var line := DeepUi.hbox(box, 8)
@@ -380,5 +398,44 @@ static func _reference(home: Control, side: VBoxContainer, key: String) -> void:
 	DiceIcons.build(column, DeepPatterns.describe(skill.get("trigger", {"kind": "always"}), int(stone.cut)), 18, DeepUi.PAPER)
 	DeepUi.effect_text(column, DeepStone.text(stone), 13, DeepUi.PAPER, true, 360)
 	DeepUi.wrap(column, "At one carat, Poor cut and Clear clarity. The stone you find will have its own qualities.", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 360)
+	DeepUi.spacer(column, false)
+	home.enter(card, 0.05)
+
+static func _unfound(home: Control, side: VBoxContainer, key: String) -> void:
+	## A skill never found: something to chase. Its color, its rarity and the mine whose rock
+	## it first comes out of; its name and its mark stay hidden until one is found.
+	var skill: Dictionary = DeepContent.skill(key)
+	var color: String = str(skill.get("color", "WHITE"))
+	var hue: Color = DeepUi.color(color)
+	var card := DeepUi.card(side, Color(hue, 0.25), 16)
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var column := DeepUi.vbox(card, 10)
+	var holder := DeepUi.center(column)
+	holder.custom_minimum_size.y = 190
+	DeepUi.icon(holder, "question", 96, Color(hue, 0.4))
+	DeepUi.title(column, "Not yet found", 22, hue.lightened(0.25))
+	var tags := DeepUi.hbox(column, 8)
+	StoneCard.rarity_tag(tags, str(skill.get("rarity", "COMMON")), 13)
+	var named: Dictionary = DeepContent.color(color)
+	DeepUi.pill(tags, "gem", "%s · %s" % [str(named.get("name", color)), str(named.get("domain", ""))], hue, 13)
+	var where := DeepUi.vbox(column, 6)
+	DeepUi.section(where, "map", "Where to look", DeepUi.ACCENT, 13)
+	var mine: String = ""
+	for candidate in DeepContent.mines_in_order():
+		if DeepContent.mine(str(candidate)).get("batch", []).has(key):
+			mine = str(candidate)
+			break
+	if DeepContent.is_transcendent(key):
+		DeepUi.stat(where, "spark", "Made at an altar, never found in the rock.", DeepUi.PAPER, 13)
+	elif mine.is_empty():
+		DeepUi.stat(where, "pick", "Any mine's rock can hold it.", DeepUi.PAPER, 13)
+	else:
+		## A mine's own batch comes out of its rock most often, and stays in the rock of every
+		## mine below it (DeepForge.skill_pool).
+		DeepUi.stat(where, "pick", "First found in %s" % DeepContent.mine_name(mine), DeepUi.PAPER, 13)
+		DeepUi.wrap(where, "Most often there, and in the rock of every mine below it.", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 360)
+		if not bool(home.profile.get("mines", {}).get(mine, {}).get("unlocked", false)):
+			DeepUi.stat(where, "lock", "%s is still sealed." % DeepContent.mine_name(mine), DeepUi.DIM, 12)
+	DeepUi.wrap(column, "Its name and its mark are written here the first time one is read.", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 360)
 	DeepUi.spacer(column, false)
 	home.enter(card, 0.05)

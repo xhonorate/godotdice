@@ -150,6 +150,37 @@ static func conquest_purse(mine_key: String) -> int:
 	## The one-off purse for beating a mine's final boss the first time.
 	return maxi(0, int(DeepContent.mine(mine_key).get("first_conquest_gold", 0)))
 
+## What each of a mine's Wardens pays the first time it falls, as a share of the mine's
+## first-conquest purse: a third for the first Warden, half for the second (50 and 75 gold in
+## the Quarry). A share rather than a price of its own, so a deeper mine's Wardens pay more in
+## step with its bottom. Once each, ever, like the conquest purse: never a loop (GOLD.md 7).
+const WARDEN_PURSE_SHARES: Array = [1.0 / 3.0, 0.5]
+
+static func warden_index(mine_key: String, depth: int) -> int:
+	## Which of a mine's Wardens stands at this depth, or -1. A run's landings wander a floor
+	## either way of the written depth, and its Warden with them. The final boss is not one of
+	## them, and the Rift's Wardens, every few floors without end, are none of them either.
+	var depths: Array = DeepContent.mine(mine_key).get("warden_depths", [])
+	for index in range(depths.size()):
+		if absi(int(depths[index]) - depth) <= 1:
+			return index
+	return -1
+
+static func warden_purse(mine_key: String, index: int) -> int:
+	## The one-off purse for beating this Warden of a mine the first time (by its place in the
+	## mine's `warden_depths`), rounded to 5 gold. 0 for no such Warden.
+	if index < 0 or index >= DeepContent.mine(mine_key).get("warden_depths", []).size():
+		return 0
+	var share: float = float(WARDEN_PURSE_SHARES[mini(index, WARDEN_PURSE_SHARES.size() - 1)])
+	return int(round(float(conquest_purse(mine_key)) * share / 5.0)) * 5
+
+static func warden_name(mine_key: String, index: int) -> String:
+	## The Warden a purse is for, by name ("The Foreman").
+	var wardens: Array = DeepContent.mine(mine_key).get("wardens", [])
+	if index < 0 or index >= wardens.size():
+		return "a Warden"
+	return str(DeepContent.creature(str(wardens[index])).get("name", "a Warden"))
+
 # --- commissions ------------------------------------------------------------------------------
 
 const NEEDS: Array = ["carat", "cut", "pure", "included"]
@@ -450,7 +481,7 @@ static func roll_geode_carat(rng: RandomNumberGenerator, band: Dictionary) -> in
 static func roll_geode_stone(rng: RandomNumberGenerator, geode: Dictionary, stone_id: String) -> Dictionary:
 	## One stone out of a Geode: the skill from its pool (or, rarely, an opal), cut and
 	## cleared at the bottom of its mine with the Geode's luck on top, never Void, and as
-	## heavy as `geode_band` allows. The week's Geode is never cut worse than Fine.
+	## heavy as `geode_band` allows. The week's Geode is never cut worse than Keen.
 	return _roll_geode_stone(rng, geode, _geode_rock(geode), stone_id)
 
 static func _geode_rock(geode: Dictionary) -> Dictionary:
@@ -737,7 +768,7 @@ static func rework_refusal(profile: Dictionary, skill: String, kind: String) -> 
 	if not kind in REWORKS:
 		return "no such service"
 	if rework_used(profile, kind):
-		return "The %s has been used today. It is free again tomorrow." % ("Wheel" if kind == "cut" else "Oven")
+		return "The %s has been used today. It opens again tomorrow." % ("Wheel" if kind == "cut" else "Oven")
 	var stone: Dictionary = DeepProfile.owned(profile, skill)
 	if stone.is_empty():
 		return "Only stones in your vault can be reworked."
@@ -1159,9 +1190,20 @@ static func sign_contract(profile: Dictionary, refs: Array) -> Dictionary:
 static func cheapest_contract(profile: Dictionary, tier: String) -> Array:
 	## "Fill from cheapest": the five lowest-worth stones of one grade that can go on the
 	## bench, tray stones before vault ones at the same worth (a vault stone given up is a
-	## skill no longer kept). Fewer than five if there are not five to be had.
+	## skill no longer kept), and a vault stone set in a delver's sockets after every one that
+	## is not: signed away, it leaves the socket empty. Fewer than five if there are not five
+	## to be had.
 	var pool: Array = contract_stones(profile).filter(func(e: Dictionary) -> bool: return str(DeepStone.grade(e.stone).tier) == tier)
+	var worn: Dictionary = {}
+	for key in profile.get("characters", {}):
+		for skill in profile.characters[key].get("rail", []):
+			if skill is String:
+				worn[str(skill)] = true
 	pool.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var wa: bool = bool(a.vault) and worn.has(str(a.ref).substr(2))
+		var wb: bool = bool(b.vault) and worn.has(str(b.ref).substr(2))
+		if wa != wb:
+			return wb
 		var va: int = DeepStone.value(a.stone)
 		var vb: int = DeepStone.value(b.stone)
 		if va != vb:

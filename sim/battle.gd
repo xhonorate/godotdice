@@ -17,8 +17,15 @@ extends RefCounted
 
 ## How long each event holds the clock at 1×. A fizzle, or a Birthstone that stays dark, only
 ## needs long enough to be seen; a gem that fires waits for its bolts to land.
+## A creature's beats (its roll, its windup, its blow) were cut by a third on Oct 26 2026: they
+## come round every turn and a turn spent watching them ran past the time spent planning it.
+## The player's own rail kept its pace.
 const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.4,
-	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 1.1, "enemy_ability": 0.7, "enemy_move": 0.5, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2}
+	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 0.75, "enemy_ability": 0.47, "enemy_move": 0.35, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2}
+## A combo's windup holds a breath longer than a plain one, and a roll that could decide the
+## turn (its rising clacks) holds longer still.
+const COMBO_HOLD: float = 0.2
+const SUSPENSE_ROLL: float = 2.0
 ## The beat a run of blows is played on: one bolt every BOLT_GAP, a breath after each effect,
 ## and the whole run squeezed into HIT_SPAN once there are enough of them to run past it. A
 ## gem that lands twenty times over (Thousand Cuts) played every blow at a single blow's pace,
@@ -180,15 +187,15 @@ static func gem_tally(unit: Dictionary, key: String, amount: int) -> void:
 		gems[id] = {"damage": 0, "block": 0, "healed": 0, "debuffs": 0, "ore": 0, "fires": 0, "best": 0}
 	gems[id][key] = DeepRules.sat_add(int(gems[id].get(key, 0)), amount)
 
-static func _note_turn(state: Dictionary, unit: Dictionary) -> void:
+static func _note_turn(state: Dictionary, unit: Dictionary, turn: int = -1) -> void:
 	## The turn just played against the tally's bests: the most damage in one turn, and the
-	## highest Resonance so far.
+	## highest Resonance so far. `turn` is the turn it was, when the count has already moved on.
 	if str(unit.get("side", "")) != "player":
 		return
 	var tally: Dictionary = stats_of(unit)
 	var dealt: int = int(unit.get("dealt", 0))
 	if dealt > int(tally.get("best_turn", {}).get("amount", 0)):
-		tally.best_turn = {"amount": dealt, "creature": headline(state), "depth": int(state.get("depth", 0)), "turn": int(state.get("turn", 0))}
+		tally.best_turn = {"amount": dealt, "creature": headline(state), "depth": int(state.get("depth", 0)), "turn": turn if turn >= 0 else int(state.get("turn", 0))}
 	tally.resonance = maxi(int(tally.get("resonance", 0)), int(unit.get("resonance", 0)))
 
 static func _note_outcome(state: Dictionary) -> void:
@@ -867,7 +874,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 				state.queue.push_front({"kind": "enemy_move", "unit": foe.id, "move": moves[move_index]})
 				state.queue.push_front({"kind": "enemy_ability", "unit": foe.id, "move": moves[move_index]})
 			return _event(state, "enemy_roll", {"unit": foe.id, "die": dice[index].duplicate(true), "roll": roll.duplicate(true),
-				"roll_index": index, "states": foe.move_states.duplicate(), "suspense": tense, "duration": 2.0 if tense else 1.1})
+				"roll_index": index, "states": foe.move_states.duplicate(), "suspense": tense, "duration": SUSPENSE_ROLL if tense else BASE_DURATION.enemy_roll})
 		"enemy_ability":
 			var foe: Dictionary = enemy(state, str(s.unit))
 			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
@@ -886,7 +893,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			var counted: Dictionary = creature_tally(state, foe, move, shown)
 			return _event(state, "enemy_ability", {"unit": foe.id, "move": move.move, "index": move.index,
 				"dice": move.dice, "combo": move.combo, "trigger": move.trigger, "effects": shown, "tally": counted,
-				"duration": (1.0 if bool(move.combo) else 0.7) + tally_span(counted)})
+				"duration": BASE_DURATION.enemy_ability + (COMBO_HOLD if bool(move.combo) else 0.0) + tally_span(counted)})
 		"enemy_move":
 			var foe: Dictionary = enemy(state, str(s.unit))
 			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
@@ -1220,6 +1227,14 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		## The tally: one more fire for the stone, and what this one did against its best and
 		## the run's biggest hit.
 		gem_tally(unit, "fires", 1)
+		## And the skill it fired as: a stone can change skill later in the run (a Restless Rock, a
+		## recut), and the run's end credits the work to the skill that did it, not the one it ends as.
+		var fired_entry: Dictionary = stats_of(unit).gems.get(str(unit.get("firing_stone", {}).get("stone_id", "")), {})
+		if not fired_entry.is_empty() and str(unit.get("side", "")) == "player":
+			var as_skill: Dictionary = fired_entry.get("as", {})
+			var fired_as: String = str(stone.get("skill", ""))
+			as_skill[fired_as] = int(as_skill.get(fired_as, 0)) + 1
+			fired_entry["as"] = as_skill
 		var hit: int = int(unit.get("firing_hit", 0))
 		if hit > 0:
 			var id: String = str(stone.get("id", ""))
@@ -1305,6 +1320,8 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 		return {}
 	var dry: bool = bool(opts.get("dry", false))
 	var replay: bool = bool(opts.get("replay", false))
+	## What the rail had dealt before it, so its own blow can be weighed for the run's biggest hit.
+	var dealt_before: int = int(unit.get("dealt", 0))
 	var promised: int = int(unit.get("repeat_next", 0))
 	unit.repeat_next = 0
 	var a: Dictionary = DeepHand.analyze(unit.hand)
@@ -1418,6 +1435,11 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 	var answered: Array = []
 	if fired and not dry:
 		tally_add(unit, "birthstone", 1)
+		## A Birthstone's blow counts for the run's biggest hit as much as a gem's does.
+		var hit: int = int(unit.get("dealt", 0)) - dealt_before
+		if str(unit.get("side", "")) == "player" and hit > int(stats_of(unit).get("best_hit", {}).get("amount", 0)):
+			stats_of(unit).best_hit = {"amount": hit, "stone_id": "birthstone", "skill": str(def.get("name", "Birthstone")), "socket": -1,
+				"creature": headline(state), "depth": int(state.get("depth", 0))}
 	if fired and not done(state):
 		answered = _answer_fire(state, unit, unit.get("after_fire", []), rng)
 	_settle_marks(state)
@@ -4066,7 +4088,55 @@ static func _on_enemy_death(state: Dictionary, dead: Dictionary, killer: Diction
 		burst.append({"move": str(move.get("name", "")), "effects": results})
 	if not burst.is_empty():
 		out.deathburst = burst
+	if bool(dead.get("warden", false)):
+		var routed: Array = _rout(state, dead, killer)
+		if not routed.is_empty():
+			out.routed = routed
+			## What the brood was holding goes back as the boss's own does.
+			for entry in routed:
+				if entry.has("returned_gems"):
+					out.returned_gems = out.get("returned_gems", []) + entry.returned_gems
+				if entry.has("released"):
+					out.released = out.get("released", []) + entry.released
 	return out
+
+static func _rout(state: Dictionary, boss: Dictionary, killer: Dictionary) -> Array:
+	## A Warden's brood does not fight on without it: what it called into the fight, the
+	## escorts it walked in with, and whatever those called in turn run off into the dark the
+	## moment it falls, so the fight ends on the boss and not on its rats. A creature that came
+	## in on its own (a Hazard's escort, a second boss) stays and fights. A thief among them
+	## drops what it took for whoever landed the killing blow, as that blow would have made it.
+	var brood: Dictionary = {str(boss.get("id", "")): true}
+	var routed: Array = []
+	var grew: bool = true
+	while grew:
+		grew = false
+		for foe in state.get("enemies", []):
+			var id: String = str(foe.get("id", ""))
+			if brood.has(id) or bool(foe.get("warden", false)):
+				continue
+			if not brood.has(str(foe.get("summoned_by", ""))) and not brood.has(str(foe.get("escort_of", ""))):
+				continue
+			brood[id] = true
+			grew = true
+			if int(foe.get("hp", 0)) <= 0:
+				continue
+			var entry: Dictionary = {"unit": id, "hp": int(foe.hp)}
+			if int(foe.get("stolen_gold", 0)) > 0 and str(killer.get("side", "")) == "player":
+				killer.gold = int(killer.get("gold", 0)) + int(foe.stolen_gold)
+				entry.recovered_gold = int(foe.stolen_gold)
+				foe.stolen_gold = 0
+			entry.stolen = int(foe.get("stolen_gold", 0))
+			foe.fled = true
+			foe.hp = 0
+			var returned: Array = _return_gems(state, foe)
+			if not returned.is_empty():
+				entry.returned_gems = returned
+			var freed: Array = _release_grip(state, foe)
+			if not freed.is_empty():
+				entry.released = freed
+			routed.append(entry)
+	return routed
 
 # --- creatures ---------------------------------------------------------------------------
 
@@ -4219,6 +4289,9 @@ static func _tick_wound(state: Dictionary, unit: Dictionary, tick: Dictionary, r
 		tick.hp_after = unit.hp
 	if int(unit.hp) <= 0:
 		if str(unit.get("side", "")) == "player":
+			## A tick that takes a player down counts as a down, as a blow's does.
+			if not bool(unit.get("downed", false)):
+				tally_add(unit, "downs", 1)
 			unit.downed = true
 			unit.block = 0
 		tick.killed = true
@@ -4434,7 +4507,8 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		unit.locked = false
 		unit.block_lost = int(unit.get("block_lost_accum", 0))
 		unit.block_lost_accum = 0
-		_note_turn(state, unit)
+		## The count has already stepped on to the new turn: the one just played is the last.
+		_note_turn(state, unit, int(state.turn) - 1)
 		unit.dealt_last_turn = int(unit.get("dealt", 0))
 		unit.dealt = 0
 		unit.healed = 0

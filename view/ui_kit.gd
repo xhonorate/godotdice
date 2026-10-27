@@ -81,7 +81,7 @@ const KEYWORD_HINTS: Dictionary = {
  "opal": "Opals never work with one another: a Seam, Matrix or Echo never repeats, wakes or copies an opal, and a Doublet skips past opals to copy the gem behind them.",
  "fizzle": "A gem fizzles when it stays dark: its trigger is not met, or its socket is buried or clouded. Resonance carries on past it.",
  "carat": "Increases gem magnitude; whole-number effects usually gain additional procs instead. Temporary bonuses last this fight.",
- "cut": "The gem’s trigger/effect ladder: Poor, Fair, Good, Fine, Perfect. Temporary bonuses last this fight.",
+ "cut": "The gem’s trigger/effect ladder: Poor, Fair, Good, Keen, Perfect. Temporary bonuses last this fight.",
  "clarity": "Pristine doubles base Resonance gain. Flawless triples it, grants ×1.5 magnitude and activates the Flawless line. Temporary bonuses preserve inclusions.",
  "phantom": "An extra temporary die read by later gems. It cannot receive permanent face upgrades.",
  "reflect": "Splits the next blow a creature lands on you: part goes straight back at whoever threw it, the rest lands. One blow a stack; they fall away at your next turn.",
@@ -106,7 +106,7 @@ const CHAMBER_colorS: Dictionary = {"fight": Color("ff8a70"), "elite": Color("ff
 ## Each oddity card's own mark: the face of its room, and what its room on the chart wears
 ## once the party has been in. A card that is a room of its own wears that room's mark.
 const ODDITY_GLYPHS: Dictionary = {"CUTTERS_WHEEL": "cut", "ACID_BATH": "dissolving_rock", "CRUCIBLE": "bolted_gem", "GEODE": "geode",
-	"OLD_PROSPECTOR": "person", "SHRINE": "shrine_gate", "IDOL": "squat_idol", "ECHO_CHAMBER": "rough_copy", "COLLECTOR": "cushioned_gem",
+	"OLD_PROSPECTOR": "pick_lantern", "SHRINE": "shrine_gate", "IDOL": "squat_idol", "ECHO_CHAMBER": "rough_copy", "COLLECTOR": "cushioned_gem",
 	"LOUPE_CABINET": "loupe", "FIELD_MEDIC": "heart", "TUMBLER": "reroll", "SEAM": "gem_cavity", "SMITHY": "anvil", "CARVER": "face",
 	"ANNEALING_OVEN": "thermometer", "WISHING_WELL": "drop", "VAT": "flask", "HOLLOW": "void_gem"}
 
@@ -119,6 +119,12 @@ static var _semibold: Font = null
 ## How many screen pixels one canvas pixel is drawn at: 1.0 at 1600 wide, 0.8 at 1280.
 ## The app sets it whenever the window changes size (`rescale`).
 static var text_scale: float = 1.0
+## Settings > Comfort > Text size: Large lifts the smallest text to MAX_TEXT_FLOOR on any
+## window, the size a small window already sets it at. The app sets it (`reading`).
+static var text_large: bool = false
+## Settings > Comfort > Color marks: each color also drawn as the shape its stones are cut in,
+## for a player who cannot tell the hues apart. The app sets it (`reading`).
+static var color_marks: bool = false
 static var _glow: GradientTexture2D = null
 static var _dot: GradientTexture2D = null
 static var _keyword_regex: RegEx = null
@@ -146,7 +152,8 @@ static func headless() -> bool:
 static func display_font() -> Font:
 	## The one display face: Jaro (shipped with the game, SIL Open Font License), the face of
 	## the store page's title, set at a display optical size with a little air between the
-	## letters. A system face stands in if the file is missing.
+	## letters. A system face stands in if the file is missing. The shipped copy has its V and v
+	## redrawn (licenses/Jaro-OFL.txt): the original's flat-footed V read as U ("Uictory").
 	if _display == null:
 		var face := FontVariation.new()
 		var shipped: Variant = load("res://view/fonts/Jaro.ttf") if ResourceLoader.exists("res://view/fonts/Jaro.ttf") else null
@@ -487,6 +494,15 @@ static func button_style(bg: Color, border: Color, pad: int = 10) -> StyleBoxFla
 		box.shadow_offset = Vector2(3, 3)
 	return box
 
+static func focus_ring(cut: int = 10, gap: float = 4.0) -> StyleBoxFlat:
+	## Where the keyboard is: a 2 px paper-white outline `gap` pixels outside the control. Gold
+	## means lit or chosen everywhere in the kit (a primary button, an "on" switch, the picked
+	## option), so a gold ring vanished into them; white never does. The engine only draws it
+	## for keyboard and pad focus, not after a click.
+	var box := flat(Color(0, 0, 0, 0), Color(PAPER, 0.95), cut, 0, 2)
+	box.set_expand_margin_all(gap)
+	return box
+
 static func theme(scale: float = 1.0) -> Theme:
 	var t := Theme.new()
 	t.default_font_size = int(15 * scale)
@@ -497,7 +513,7 @@ static func theme(scale: float = 1.0) -> Theme:
 	t.set_stylebox("hover", "Button", button_style(Color("252f41"), LINE_HI))
 	t.set_stylebox("pressed", "Button", button_style(ACCENT_DIM, ACCENT))
 	t.set_stylebox("disabled", "Button", button_style(SLATE_LOW, Color(LINE, 0.5)))
-	t.set_stylebox("focus", "Button", flat(Color(0, 0, 0, 0), Color(ACCENT, 0.7), 8, 10, 2))
+	t.set_stylebox("focus", "Button", focus_ring())
 	t.set_color("font_color", "Button", PAPER)
 	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_color("font_pressed_color", "Button", INK)
@@ -689,7 +705,10 @@ const SEMIBOLD_UNDER_PX: float = 13.0
 const TEXT_GROUP: StringName = &"deep_text"
 
 static func min_text() -> int:
-	## The smallest text, in canvas pixels, at the current window size.
+	## The smallest text, in canvas pixels, at the current window size. Large text sets it at
+	## the most every page is checked to fit (tests/test_fit.gd runs there), never past it.
+	if text_large:
+		return MAX_TEXT_FLOOR
 	return clampi(ceili(READABLE_PX / maxf(text_scale, 0.01) - 0.05), MIN_TEXT, MAX_TEXT_FLOOR)
 
 static func readable(size: int) -> int:
@@ -741,12 +760,116 @@ static func rescale(root: Control) -> void:
 	text_scale = float(window.size.x) / canvas.x
 	if min_text() == was_floor and text_face(15) == was_face:
 		return
+	_retext(root)
+
+static func _retext(root: Control) -> void:
+	## A new theme, and every registered text set again at the floor as it now stands.
 	_shared_theme = theme()
 	root.theme = _shared_theme
 	for node in root.get_tree().get_nodes_in_group(THEMED_GROUP):
 		(node as Control).theme = _shared_theme
 	for node in root.get_tree().get_nodes_in_group(TEXT_GROUP):
 		_apply_text_size(node as Control)
+
+static func reading(settings: Dictionary, root: Control) -> void:
+	## Takes up the reading settings (Settings > Comfort): text size and color marks. Whatever
+	## is on screen follows at once: the text is set again, every mark drawn again.
+	var large: bool = float(settings.get("text_size", 0.0)) > 0.5
+	var marks: bool = bool(settings.get("color_marks", false))
+	if marks != color_marks:
+		color_marks = marks
+		if root.is_inside_tree():
+			root.get_tree().call_group(MARKED_GROUP, "queue_redraw")
+	if large != text_large:
+		text_large = large
+		if root.is_inside_tree():
+			_retext(root)
+
+# --- color marks ---------------------------------------------------------------------------------
+
+## Everything that draws a color's mark, drawn again when the setting is switched.
+const MARKED_GROUP: StringName = &"deep_color_marked"
+static var _mark_shapes: Dictionary = {}
+
+static func mark_shape(color_key: String) -> PackedVector2Array:
+	## A color's mark: the outline its stones are cut in (GemMesh.silhouette), flat, y down,
+	## longest reach 1. Red a trilliant, Blue a princess, Green a heart, Violet a pear, Gold a
+	## rose, White a round, Opal an oval: the shapes the stones already wear, so a mark on a
+	## socket matches the stone that goes in it. Empty for anything that is not a color.
+	if not _mark_shapes.has(color_key):
+		var shape := PackedVector2Array()
+		if DeepContent.color(color_key).has("cut"):
+			for point in load("res://view/gems/gem_mesh.gd").silhouette(color_key):
+				shape.append(Vector2(point.x, -point.y))
+		_mark_shapes[color_key] = shape
+	return _mark_shapes[color_key]
+
+static func draw_color_mark(item: CanvasItem, centre: Vector2, radius: float, color_key: String, backed: bool = true, always: bool = false, alpha: float = 1.0) -> void:
+	## Draws `color_key`'s mark into `item` while the marks are on (or `always`): the shape
+	## filled in its hue (an opal's in every hue), on a dark disc when `backed` so it reads
+	## over a stone or a lit socket.
+	if not (color_marks or always):
+		return
+	var shape: PackedVector2Array = mark_shape(color_key)
+	if shape.size() < 3:
+		return
+	if backed:
+		item.draw_circle(centre, radius, Color(LEDGER_SHADOW, 0.92 * alpha))
+		item.draw_arc(centre, radius - 0.5, 0.0, TAU, 24, Color(PAPER, 0.45 * alpha), 1.0, true)
+	var reach: float = radius * (0.68 if backed else 1.0)
+	var points := PackedVector2Array()
+	var tones := PackedColorArray()
+	var hue: Color = color(color_key).lightened(0.1)
+	for index in range(shape.size()):
+		points.append(centre + shape[index] * reach)
+		var tone: Color = rainbow_at(float(index) / float(shape.size() - 1), 0.62) if is_rainbow(color_key) else hue
+		tones.append(Color(tone, alpha))
+	item.draw_polygon(points, tones)
+	points.append(points[0])
+	item.draw_polyline(points, Color(hue.lightened(0.45), 0.9 * alpha), 1.0, true)
+
+class ColorMark extends Control:
+	## A color's mark as a control of its own, for a legend (`always`) or a corner of something
+	## colored (drawn only while the marks are on).
+	var key: String = ""
+	var always: bool = false
+	func _init(color_key: String, edge: float, always_drawn: bool = false) -> void:
+		key = color_key
+		always = always_drawn
+		custom_minimum_size = Vector2(edge, edge)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_to_group(DeepUi.MARKED_GROUP)
+	func _draw() -> void:
+		DeepUi.draw_color_mark(self, size * 0.5, minf(size.x, size.y) * 0.5, key, true, always)
+
+static func corner_mark(control: Control, color_key: String, edge: float = 16.0) -> Control:
+	## A color's mark pinned to the foot of `control`'s right-hand corner, shown only while
+	## the marks are on.
+	var mark := ColorMark.new(color_key, edge)
+	mark.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	mark.offset_left = -edge
+	mark.offset_top = -edge
+	mark.offset_right = 0.0
+	mark.offset_bottom = 0.0
+	control.add_child(mark)
+	return mark
+
+# --- reach -----------------------------------------------------------------------------------------
+
+static func reach(control: Control, grow: Vector2) -> Control:
+	## Lets a small control take clicks a little past its edges (`grow` on each side) without
+	## changing how it looks or where it sits: an invisible box over it that passes every
+	## click, hover and tooltip on to it. Keep `grow.x` to half the gap to its neighbours.
+	var pad := Control.new()
+	pad.name = "Reach"
+	pad.mouse_filter = Control.MOUSE_FILTER_PASS
+	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pad.offset_left = -grow.x
+	pad.offset_top = -grow.y
+	pad.offset_right = grow.x
+	pad.offset_bottom = grow.y
+	control.add_child(pad)
+	return pad
 
 static func label(parent: Node, text: String, size: int = 15, color: Color = PAPER, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var l := Label.new()
@@ -764,8 +887,8 @@ static func label(parent: Node, text: String, size: int = 15, color: Color = PAP
 
 static func fit_label(parent: Node, text: String, size: int, color: Color, width: float, align: int = HORIZONTAL_ALIGNMENT_CENTER, floor_size: int = MIN_TEXT) -> Label:
 	## A label that steps its font down until the whole text fits `width`, so a long name is
-	## smaller rather than cut off. Past the floor size (never under MIN_TEXT) it clips instead
-	## of going unreadable.
+	## smaller rather than cut off. Past the floor size (never under MIN_TEXT) it trims with an
+	## ellipsis instead of going unreadable: "Lucky Se…", not a centred "ucky Sever" cut at both ends.
 	var l := label(parent, text, size, color, align)
 	var fitted: int = readable(size)
 	var least: int = readable(floor_size)
@@ -774,6 +897,7 @@ static func fit_label(parent: Node, text: String, size: int, color: Color, width
 	set_text_size(l, fitted)
 	l.custom_minimum_size.x = width
 	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	return l
 
 static func skill_name(stone: Dictionary) -> String:
@@ -974,6 +1098,18 @@ static func pill(parent: Node, glyph: String, text: String, color: Color, size: 
 	parent.add_child(box)
 	stat(box, glyph, text, color, size, tooltip, rainbow)
 	return box
+
+static func you_badge(parent: Node) -> PanelContainer:
+	## "YOU" in a small gold capsule beside a name, as the seat tabs mark their own: a
+	## "(you)" after the name ran into it in the bold face ("Player(you)").
+	var badge := PanelContainer.new()
+	badge.add_theme_stylebox_override("panel", capsule(badge, ACCENT, ACCENT, 1, 7, 0))
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(badge)
+	var you := label(badge, "YOU", 10, INK)
+	you.add_theme_font_override("font", caps_font())
+	return badge
 
 static func button(parent: Node, text: String, callback: Callable = Callable(), size: int = 15) -> Button:
 	var b := Button.new()

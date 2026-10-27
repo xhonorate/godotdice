@@ -70,6 +70,15 @@ func open(state: Dictionary, which: String = "") -> void:
 	if not which.is_empty():
 		tab = which
 	var was_open: bool = visible
+	if not was_open:
+		## Open on a part of the haul that holds something: an early run often carries only raw stones.
+		var everything: Array = me().get("haul", [])
+		if DeepUi.haul_of(everything, _haul_tab).is_empty():
+			for entry in DeepUi.HAUL_TABS:
+				if not DeepUi.haul_of(everything, str(entry[0])).is_empty():
+					_haul_tab = str(entry[0])
+					_haul_page = 0
+					break
 	visible = true
 	_render()
 	if not was_open:
@@ -149,7 +158,12 @@ func _render() -> void:
 	_targets = []
 	var unit: Dictionary = me()
 	var room: Vector2 = get_viewport_rect().size if is_inside_tree() else Vector2(1280, 720)
-	_panel.custom_minimum_size = Vector2(clampf(room.x - 80.0, 720.0, 1240.0), clampf(room.y - 90.0, 480.0, 780.0))
+	## As wide as the gems tab needs on both tabs (every 132 px socket card and the Birthstone
+	## card 10 apart, the 20 px column gap, the 330 px lamp side and the panel's 20 px padding
+	## each side), so switching tabs never moves the tabs or Close under the pointer.
+	var cards: int = unit.get("rail", []).size() + 1
+	var gems_wide: float = cards * 132.0 + (cards - 1) * 10.0 + 20.0 + 330.0 + 40.0
+	_panel.custom_minimum_size = Vector2(maxf(clampf(room.x - 80.0, 720.0, 1240.0), gems_wide), clampf(room.y - 90.0, 480.0, 780.0))
 	var head := DeepUi.hbox(_content, 12)
 	DeepUi.icon(head, "anvil", 28, DeepUi.ACCENT)
 	DeepUi.title(head, "The bench", 28, DeepUi.PAPER)
@@ -170,7 +184,7 @@ func _render() -> void:
 	elif tab == "gems":
 		note = "Drag a stone onto a socket to set it, or drag a set stone into the haul to take it out. A Void gem dropped on a socket rides it and fires right after its gem. Click any stone to look at it."
 	else:
-		note = "Drag a die onto another slot to change their places. Dice are made bigger, smaller or recut at a smithy or a carver, never swapped. Click any die to look at it."
+		note = "Drag a die onto another slot to change their places. A smithy or a carver reworks a die, and a merchant may trade one of theirs for one of yours. Click any die to look at it."
 	DeepUi.label(_content, note, 13, DeepUi.MUTED if editable() else DeepUi.BAD.lightened(0.2))
 	DeepUi.rule(_content)
 	var columns := DeepUi.hbox(_content, 20)
@@ -230,7 +244,7 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 		func(data: Dictionary) -> void:
 			_send({"kind": "unsocket", "index": int(data.from_socket), "stone_id": str(data.get("stone_id", ""))}, "ui_back"))
 	if haul.is_empty():
-		DeepUi.label(flow, {"gems": "No read stones loose. Appraised stones wait here until they are set or taken home.",
+		DeepUi.label(flow, {"gems": "No appraised stones in the haul. They wait here until you set them or carry them home.",
 			"raw": "No raw stones. Stones you find wait here, in their rock, until they are appraised.",
 			"geodes": "No Geodes. A Warden's last hoard and the odd chamber offer them; they come home sealed."}[_haul_tab], 13, DeepUi.DIM)
 	for stone in DeepUi.page_of(haul, _haul_page, HAUL_PAGE):
@@ -264,7 +278,7 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 		DeepUi.label(box, "%s · %d ct" % [DeepContent.cut_name(int(stone.get("cut", 0))), int(stone.get("carat", 1))], 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 		var trigger_row := DeepUi.hbox(box, 0)
 		trigger_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		DiceIcons.build(trigger_row, DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(DeepStone.effective(stone, {}).cut_step)), 14, DeepUi.MUTED)
+		DiceIcons.build(trigger_row, DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(DeepStone.effective(stone, {}).cut_step)), 20, DeepUi.MUTED)
 		if DeepStone.is_locked(stone):
 			DeepUi.stat(box, "knot", "knotted", DeepUi.DIM, 11).alignment = BoxContainer.ALIGNMENT_CENTER
 		elif editable():
@@ -354,29 +368,44 @@ func _haul_tile(parent: Node, stone: Dictionary) -> void:
 
 # --- dice --------------------------------------------------------------------------------------
 
+## The most faces a slot card draws as chips; a bigger die says its range in words instead.
+const SLOT_FACES_DRAWN: int = 30
+
 func _dice_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 	DeepUi.section(parent, "die", "Your dice")
-	var tray_row := HFlowContainer.new()
-	tray_row.add_theme_constant_override("h_separation", 10)
-	tray_row.add_theme_constant_override("v_separation", 10)
-	parent.add_child(tray_row)
-	for index in range(unit.get("dice", []).size()):
-		_slot_card(tray_row, unit, index)
+	## The slots stand the sheet's whole height: each die big enough to see, and its faces big
+	## enough to read without a right-click.
+	var tray_row := DeepUi.hbox(parent, 10)
+	tray_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var dice: Array = unit.get("dice", [])
+	var tallest: float = 0.0
+	for die in dice:
+		tallest = maxf(tallest, _faces_height(die))
+	for index in range(dice.size()):
+		_slot_card(tray_row, unit, index, tallest)
+	_face_legend(parent, dice)
 
-func _slot_card(parent: Node, unit: Dictionary, index: int) -> void:
+func _slot_card(parent: Node, unit: Dictionary, index: int, tallest: float) -> void:
 	var die: Dictionary = unit.dice[index]
 	var id: String = str(die.get("id", ""))
 	var card := DeepUi.card(parent, DeepUi.ACCENT if id == _pick else DeepUi.LINE, 10, Color(0.05, 0.06, 0.085, 0.92))
-	card.custom_minimum_size = Vector2(150, 0)
+	card.custom_minimum_size = Vector2(132, 0)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var box := DeepUi.vbox(card, 5)
-	DeepUi.label(box, "Slot %d" % (index + 1), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	var thumb := Thumbs.DieThumb.new(die, 60)
+	var box := DeepUi.vbox(card, 6)
+	DeepUi.label(box, "Slot %d" % (index + 1), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	## The die and its name stand in the middle of the room the faces leave above them.
+	DeepUi.spacer(box, false)
+	var thumb := Thumbs.DieThumb.new(die, 96)
 	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(thumb)
-	DeepUi.label(box, DeepDice.describe(die), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-	faces_row(box, die, 15)
+	DeepUi.fit_label(box, DeepDice.describe(die), 17, DeepUi.PAPER, 124)
+	DeepUi.label(box, _range_words(die), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.spacer(box, false)
+	DeepUi.rule(box)
+	DeepUi.heading(box, "Faces", 11, DeepUi.DIM).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_face_grid(box, die, tallest)
 	var slot_index: int = index
 	var data: Dictionary = {"kind": "die", "die_id": id, "from_slot": index} if editable() else {}
 	_wire(card, data, func() -> Control: return Thumbs.DieThumb.new(die, 60),
@@ -385,6 +414,86 @@ func _slot_card(parent: Node, unit: Dictionary, index: int) -> void:
 		func(incoming: Dictionary) -> void:
 			_send({"kind": "swap_die", "index": slot_index, "die_id": str(incoming.die_id)}, "die_settle"))
 	_clickable(card, id)
+
+static func _range_words(die: Dictionary) -> String:
+	## "1 to 6 · average 3.5": what the die's faces are worth, read off them.
+	var values: Array = die.get("faces", []).map(func(f: Dictionary) -> int: return DeepDice.face_value(f))
+	if values.is_empty():
+		return ""
+	var sum: int = 0
+	for value in values:
+		sum += int(value)
+	var average: float = float(sum) / float(values.size())
+	return "%d to %d · average %s" % [int(values.min()), int(values.max()), String.num(snappedf(average, 0.1))]
+
+static func _face_layout(count: int) -> Vector2:
+	## How a slot card sets out this many faces: chips across a row, and each chip's edge. Two
+	## rows for a d6 or a d8; more and smaller for a bigger die.
+	if count <= 8:
+		return Vector2(maxi(1, ceili(count / 2.0)), 30.0)
+	if count <= 12:
+		return Vector2(4, 27.0)
+	return Vector2(5, 23.0) if count <= 20 else Vector2(6, 19.0)
+
+static func _faces_height(die: Dictionary) -> float:
+	## How tall a slot card's faces stand, so every card's rule and "Faces" sit level.
+	var count: int = die.get("faces", []).size()
+	if count > SLOT_FACES_DRAWN:
+		return 20.0
+	var layout: Vector2 = _face_layout(count)
+	var rows: int = ceili(float(count) / layout.x)
+	return float(rows) * layout.y + float(maxi(0, rows - 1)) * 4.0
+
+static func _face_grid(parent: Node, die: Dictionary, tallest: float = 0.0) -> void:
+	## A die's faces as chips in even rows, each tinted by what it is, and in words past what
+	## still reads as chips. `tallest` is the slot row's tallest, which every card stands to.
+	var faces: Array = die.get("faces", [])
+	var rows := DeepUi.vbox(parent, 4)
+	rows.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	rows.custom_minimum_size.y = tallest
+	if faces.size() > SLOT_FACES_DRAWN:
+		DeepUi.label(rows, "%d faces" % faces.size(), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		return
+	var count: int = faces.size()
+	var layout: Vector2 = _face_layout(count)
+	var across: int = int(layout.x)
+	var edge: float = layout.y
+	var tone: Color = DiceIcons.die_palette(die).body
+	var row: HBoxContainer = null
+	for index in range(count):
+		if index % maxi(1, across) == 0:
+			row = DeepUi.hbox(rows, 4)
+			row.alignment = BoxContainer.ALIGNMENT_CENTER
+		var f: Dictionary = faces[index]
+		var kind: String = str(f.get("kind", "plain"))
+		row.add_child(DiceIcons.face(edge, int(f.get("value", 0)), tone if kind == "plain" else DiceIcons.face_kind_tint(kind), str(die.get("shape", "D6")), false, DiceIcons.face_text(int(f.get("value", 0)), kind)))
+
+func _face_legend(parent: VBoxContainer, dice: Array) -> void:
+	## One line under the slots: each kind of face these dice have, its chip and what it does.
+	var kinds: Array = ["plain"]
+	for die in dice:
+		for entry in DeepDice.etchings(die):
+			if not kinds.has(str(entry.kind)):
+				kinds.append(str(entry.kind))
+	var band := DeepUi.card(parent, DeepUi.LINE, 10, Color(0.03, 0.035, 0.05, 0.7))
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 18)
+	flow.add_theme_constant_override("v_separation", 6)
+	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.add_child(flow)
+	DeepUi.heading(flow, "Face kinds", 11, DeepUi.DIM).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var plain_tone: Color = DiceIcons.die_palette(dice[0]).body if not dice.is_empty() else DeepUi.PAPER
+	for kind in kinds:
+		var item := DeepUi.hbox(flow, 6)
+		var tint: Color = plain_tone if kind == "plain" else DiceIcons.face_kind_tint(kind)
+		var chip := DiceIcons.face(20, 3, tint, "D6", false, DiceIcons.face_text(3, kind))
+		chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		item.add_child(chip)
+		if kind == "plain":
+			DeepUi.label(item, "Plain", 12, DeepUi.PAPER)
+			continue
+		DeepUi.label(item, DeepDice.etching_name(kind), 12, tint.lightened(0.2)).add_theme_font_override("font", DeepUi.bold_font())
+		DeepUi.label(item, str(DeepContent.etching(kind).get("text", "")).trim_suffix("."), 12, DeepUi.MUTED)
 
 static func faces_row(parent: Node, die: Dictionary, edge: float) -> HBoxContainer:
 	var row := DeepUi.hbox(parent, 2)

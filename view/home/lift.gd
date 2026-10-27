@@ -52,7 +52,9 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 func _process(delta: float) -> void:
-	_clock += delta
+	## A frame at most: the screen behind is built while the cage is up, and that one long frame
+	## made the strata jump.
+	_clock += minf(delta, 1.0 / 30.0)
 	if _clock >= RIDE:
 		queue_free()
 		return

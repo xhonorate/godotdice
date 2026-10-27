@@ -7,6 +7,8 @@ const HomeParts = preload("res://view/home/home_parts.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
 const MineMap = preload("res://view/home/mine_map.gd")
 const Roster = preload("res://view/home/roster.gd")
+const Tips = preload("res://view/ui/tips.gd")
+const Plates = preload("res://view/ui/plates.gd")
 
 const RUNS_PAGE: int = 9
 
@@ -67,12 +69,12 @@ static func _head(home: Control, content: VBoxContainer, records: Dictionary) ->
 	home.enter(row)
 
 static func _showcase(home: Control, content: VBoxContainer) -> void:
-	## The best five stones kept, best first: what the party sees when they look.
+	## Five kept stones, the starred ones first, then the best: what the party sees when they look.
 	var card := DeepUi.card(content, Color(DeepUi.ACCENT, 0.35), 14)
 	var box := DeepUi.vbox(card, 10)
 	var head := DeepUi.hbox(box, 8)
 	DeepUi.section(head, "star", "Showcase").size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.label(head, "Your five best stones, by grade. The party sees them too.", 12, DeepUi.DIM)
+	DeepUi.label(head, "Your starred stones first, then your best by grade. The party sees them too.", 12, DeepUi.DIM)
 	var row := DeepUi.hbox(box, 14)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var stones: Array = DeepProfile.showcase(home.profile)
@@ -87,6 +89,8 @@ static func _showcase(home: Control, content: VBoxContainer) -> void:
 		plate.mouse_filter = Control.MOUSE_FILTER_STOP
 		var column := DeepUi.vbox(plate, 4)
 		var picture := DeepUi.center(column)
+		## Every plate's picture is as tall as the first one's lamp, so names and grades line up.
+		picture.custom_minimum_size.y = 120.0
 		if index == 0:
 			picture.add_child(HomeParts.Showcase.new(stone, 120))
 		else:
@@ -95,6 +99,8 @@ static func _showcase(home: Control, content: VBoxContainer) -> void:
 		DeepUi.label(column, "%s · %d" % [str(DeepStone.TIER_NAMES.get(str(grade.tier), grade.tier)), int(grade.score)], 13, tone, HORIZONTAL_ALIGNMENT_CENTER)
 		DeepUi.label(column, "%d ct · %s · %s" % [int(stone.get("carat", 1)), DeepContent.cut_name(int(stone.get("cut", 0))), DeepContent.clarity_name(int(stone.get("clarity", 0)))], 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 		plate.mouse_entered.connect(func() -> void: home.hover_stone(plate, stone, {}))
+		## Its grade, part by part: why a heavy Perfect Clear stone can sit under a lighter Included one.
+		Tips.attach(plate, func() -> Control: return Plates.grade(stone), {"tone": tone, "below": true})
 		home.enter(plate, 0.04 * index)
 	home.enter(card, 0.05)
 

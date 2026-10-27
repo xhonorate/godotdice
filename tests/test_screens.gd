@@ -58,6 +58,15 @@ func _init() -> void:
 	app.home.open("market", true)
 	await _frames(2)
 	check(_find_lamp(app.home) != null and _find_button(app.home, "Odds") == null, "the Market shows the case's stones, and no Odds button")
+	## Each shelf Geode is a 3D world of its own: kept from one visit to the next, not built again.
+	var geode_view: Script = load("res://view/gems/geode_view.gd")
+	var shelf_ids := func() -> Array:
+		return app.home.find_children("*", "Control", true, false).filter(func(n: Node) -> bool: return n.get_script() == geode_view).map(func(n: Node) -> int: return n.get_instance_id())
+	var first_visit: Array = shelf_ids.call()
+	app.home.open("descend")
+	app.home.open("market", true)
+	await _frames(2)
+	check(not first_visit.is_empty() and shelf_ids.call() == first_visit, "the Market keeps its shelf Geodes' views from one visit to the next (%d, then %d)" % [first_visit.size(), shelf_ids.call().size()])
 	app.home.open("descend")
 	app.home._roster_pick = ""
 	await _loadout_drags(app)
@@ -160,7 +169,7 @@ func _init() -> void:
 				elif str(run.chamber.kind) == "merchant":
 					saw_merchant = true
 					app.descent.show_state(run)
-					check(app.descent._cross_title.text == "A merchant" and app.descent._run_dock.visible and app.descent._run_dock.is_drawer_open(), "a stall is kept in the room, with the bag open at hand")
+					check(app.descent._cross_title.text == "A merchant" and app.descent._run_dock.visible and not app.descent._run_dock.is_drawer_open(), "a stall is kept in the room, with the bag shut so the goods' price tags show")
 					## The lens: what comes off it can go in the bag, an empty socket or the scales.
 					var buyer: Dictionary = app.session.local_player()
 					buyer.ore = int(buyer.get("ore", 0)) + 100
@@ -323,13 +332,19 @@ func _init() -> void:
 	for commission in open_today:
 		commission.done = true
 	var choices: Array = Homecoming.actions(app.home, raw)
-	check(choices.size() == 2 and str(choices[0].label) == "Keep it, replace yours" and str(choices[1].label) == "Sell it", "with one of its skill kept, the choice is which to keep")
+	check(choices.size() == 2 and str(choices[0].label) == "Sell it" and str(choices[1].label) == "Keep it, replace yours", "with one of its skill kept, the choice is which to keep, keeping it last")
+	## The worse of the two asks before it replaces the better one; the better one asks before it is sold.
+	var kept_now: Dictionary = DeepProfile.owned(app.profile, "STRIKE")
+	var found_score: int = int(DeepStone.grade(raw).score)
+	var kept_score: int = int(DeepStone.grade(kept_now).score)
+	var found_better: bool = found_score > kept_score or (found_score == kept_score and DeepStone.value(raw) > DeepStone.value(kept_now))
+	check(str(choices[1 if not found_better else 0].get("confirm", "")).begins_with("Click again") and str(choices[0 if not found_better else 1].get("confirm", "")).is_empty(), "the choice that would cost the better stone asks for a second click, the other does not")
 	for commission in open_today:
 		commission.done = false
 	app.home.open("vault", true)
 	check(_exact_labels(app.home, "Keep it, replace yours") == 1 and _exact_labels(app.home, "Sell it") == 1, "the tray offers the same choice beside the kept one")
 	var old_gold: int = int(app.profile.gold)
-	choices[0].call.call()
+	choices[1].call.call()
 	check(str(DeepProfile.owned(app.profile, "STRIKE").id) == "screens_raw" and not app.profile.tray.has(raw) and int(app.profile.gold) == old_gold, "keeping the new one lets the old one go for no gold")
 	for stone in app.profile.get("tray", []).duplicate():
 		stone.appraised = true

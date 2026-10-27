@@ -243,9 +243,15 @@ func _test_grade_and_names() -> void:
 	check(DeepStone.raw_name(stone("BARRAGE", 14)) == "Medium red stone", "a raw stone is a size class and a color: " + DeepStone.raw_name(stone("BARRAGE", 14)))
 	check(not DeepStone.raw_name(stone("BARRAGE", 14)).contains("14"), "a raw stone's name never says its carat")
 	var classes: Array = []
-	for carat in [1, 4, 5, 9, 10, 14, 15, 19, 20]:
+	for carat in [1, 2, 3, 4, 5, 9, 10, 14, 15, 19, 20]:
 		classes.append(DeepStone.size_name(carat))
-	check(classes == ["Tiny", "Tiny", "Small", "Small", "Medium", "Medium", "Large", "Large", "Huge"], "carats fall in Tiny 1-4, Small 5-9, Medium 10-14, Large 15-19, Huge 20+ (%s)" % str(classes))
+	check(classes == ["Pebble", "Pebble", "Tiny", "Tiny", "Small", "Small", "Medium", "Medium", "Large", "Large", "Huge"], "carats fall in Pebble 1-2, Tiny 3-4, Small 5-9, Medium 10-14, Large 15-19, Huge 20+ (%s)" % str(classes))
+	## A Pebble is the smallest class named in two: drawn and sold rough as the Tiny it still is.
+	var pebble: Dictionary = stone("BARRAGE", 2)
+	var tiny: Dictionary = stone("BARRAGE", 4)
+	check(DeepStone.raw_name(pebble) == "Red pebble" and DeepStone.raw_name(tiny) == "Tiny red stone", "a 2 ct raw stone is a red pebble, a 4 ct one a tiny red stone (%s, %s)" % [DeepStone.raw_name(pebble), DeepStone.raw_name(tiny)])
+	check(DeepStone.rough_value(pebble) == DeepStone.rough_value(tiny) and DeepStone.shown_carat(pebble) == DeepStone.shown_carat(tiny), "a Pebble and a Tiny stone sell rough alike and are drawn alike")
+	check(str(DeepStone.size_class(2).range) == "1 to 2 carats" and str(DeepStone.size_class(3).range) == "3 to 4 carats", "each half of the split class says its own range")
 	var raw_small: Dictionary = stone("STRIKE", 5)
 	var raw_smaller: Dictionary = stone("STRIKE", 8)
 	check(DeepStone.shown_carat(raw_small) == DeepStone.shown_carat(raw_smaller), "two raw stones of one class are drawn the same size")

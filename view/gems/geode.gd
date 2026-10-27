@@ -181,6 +181,9 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_view.configure(stone)
 	_view.modulate.a = 0.0
 	_slide.add_child(_view)
+	## GemView._ready sets PASS: the stone hidden in the rock must not answer a hover (its
+	## tooltip would read the stone out before the rock is open) or cover the card after.
+	_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	## The card the stone is read out on, beside it once it is out.
 	_card = PanelContainer.new()
 	_card_style = DeepUi.raised(Color(0.045, 0.055, 0.09, 0.97), Color(_tier_tone, 0.7), 16, 18, 0.6)

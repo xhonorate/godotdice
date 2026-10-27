@@ -119,7 +119,7 @@ static func roll_carat(rng: RandomNumberGenerator, q: float, band: Dictionary = 
 	return drawn
 
 static func roll_cut(rng: RandomNumberGenerator, q: float, without: int = -1) -> int:
-	## Poor and Fair near the surface, Fine and Perfect further down: the ladder tilts about
+	## Poor and Fair near the surface, Keen and Perfect further down: the ladder tilts about
 	## its middle rung, so a bad-luck roll is as much worse as a good-luck one is better.
 	## `without` strikes one rung off the table: a stone put back on a wheel is being worked
 	## on, and work that gives back exactly what it took is not work.

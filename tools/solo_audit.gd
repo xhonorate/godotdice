@@ -21,8 +21,21 @@ func setup(seed_value: int, mine: String, character: String, mode: String) -> Di
 		var carat: int = int(DeepContent.mine(mine).carat.soft)
 		if mode == "traversal":
 			carat = 150
+		## One stone of each skill, the rule a player's rail is held to (DeepDescent.rail_duplicate).
+		## A second socket of one color takes another skill of that color the mine can hold.
+		var used: Array = []
+		var spares: Array = ["CLEAVE", "VENOM", "CASCADE", "STRIKE", "GUARD", "MEND", "TITHE"]
 		for socket in DeepContent.character(character).sockets:
-			var skill: String = str(defs.get(str(socket), ["CLEAVE", "MEND", "GUARD"][outfit.rail.size() % 3]))
+			var skill: String = str(defs.get(str(socket), ""))
+			if skill.is_empty() or used.has(skill):
+				var fits: Array = []
+				if str(socket) == DeepContent.SOCKET_ANY:
+					fits = spares.filter(func(k: String) -> bool: return not used.has(k))
+				else:
+					fits = DeepForge.skill_pool(DeepContent.mine(mine)).filter(func(k: String) -> bool: return not used.has(k) and str(DeepContent.skill(k).get("color", "")) == str(socket))
+				if not fits.is_empty():
+					skill = str(fits[0])
+			used.append(skill)
 			var stone: Dictionary = DeepStone.make(skill, carat, 4 if mode == "traversal" else 3, 3, [], {}, "audit%d" % outfit.rail.size())
 			stone.appraised = true
 			outfit.rail.append(stone)

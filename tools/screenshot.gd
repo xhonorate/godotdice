@@ -54,7 +54,7 @@ func _init() -> void:
 		app._profile_changed()
 		## The views inside a tab: the map's party column, a lapidary's sockets.
 		match target:
-			"map_party": app.home._side = "party"
+			"map_party": pass
 			"map_deep":
 				## Two mines beaten and a third under way, its lapidary already met.
 				for key in ["QUARRY", "SEEPS"]:
@@ -90,7 +90,15 @@ func _init() -> void:
 					app.profile.bestiary[str(met[index])] = {"met": 3 + index * 7, "slain": 2 + index * 6, "lost": index % 3, "mines": {"QUARRY": 4 + index}, "first": "2026-10-0%d" % (1 + index % 9), "fresh": index % 4 == 1}
 				app.profile.mines.SEEPS.unlocked = true
 				app.home._bestiary_pick = "THE_FOREMAN" if target == "bestiary" else str(met.back())
-		app.home.open(str(HOME_TABS.get(target, "vault")))
+		if target == "vault":
+			## The collection, not the tray _enrich filled: open() turns to Unappraised whenever the tray holds a stone.
+			app.home._vault_view = "collection"
+		## keep_view, or open() resets the page set just above (the sockets, the collection).
+		app.home.open(str(HOME_TABS.get(target, "vault")), target in ["roster_sockets", "vault"])
+		if target == "map_party":
+			## The party popover replaced the map's party column; open() closes it.
+			app.home._party_open = true
+			app.home._render()
 		var inspector: Script = load("res://view/inspect/inspector.gd")
 		if target == "appraisal":
 			## A raw stone with two things frozen inside it, and a plainer one of its skill kept.
@@ -136,8 +144,10 @@ func _init() -> void:
 				if cls == "FRACTURE" or lamp.is_empty():
 					lamp = app.profile.vault[str(one.skill)]
 			app._profile_changed()
-			app.home._vault_filter = "WHITE"
-			app.home.open("vault")
+			## The ECHO carrier is an opal: let it through with the whites, so every class shows.
+			load("res://view/home/stone_browser.gd").settings(app.home, "vault").colors = ["WHITE", "OPAL"]
+			app.home._vault_view = "collection"
+			app.home.open("vault", true)
 			await create_timer(0.6).timeout
 			if target == "inspect_flaw":
 				inspector.call("stone", lamp)
@@ -155,8 +165,9 @@ func _init() -> void:
 				if lamp.is_empty() or str(key) == "FIRE_OPAL":
 					lamp = one
 			app._profile_changed()
-			app.home._vault_filter = "OPAL"
-			app.home.open("vault")
+			load("res://view/home/stone_browser.gd").settings(app.home, "vault").colors = ["OPAL"]
+			app.home._vault_view = "collection"
+			app.home.open("vault", true)
 			await create_timer(0.6).timeout
 			if target == "inspect_opal":
 				inspector.call("stone", lamp)
@@ -252,6 +263,11 @@ func _init() -> void:
 				break
 			if target == "battle_fx":
 				if str(b.phase) == "planning" and locked_at < 0:
+					## Let the lift, the walk in and the Depth banner clear first, or they are drawn over the blow.
+					await create_timer(1.5).timeout
+					while app.descent.walking():
+						await process_frame
+					await create_timer(2.2).timeout
 					app.session.send({"kind": "lock"})
 					locked_at = guard
 				elif locked_at >= 0 and str(b.phase) == "resolving":
@@ -319,6 +335,11 @@ func _init() -> void:
 			break
 		if target == "vein" and phase == "chamber" and str(run.chamber.get("kind", "")) in ["vein", "vug"] and int(app.session.local_player().get("strikes", 0)) >= 2:
 			break
+		if target in ["vein_hover", "vein_strike"] and phase == "chamber" and app.descent.walking():
+			## The walk in outlasts the guard's 600 passes: wait it out without spending them.
+			guard -= 1
+			await process_frame
+			continue
 		if target in ["vein_hover", "vein_strike"] and phase == "chamber" and str(run.chamber.get("kind", "")) in ["vein", "vug"] and not app.descent.walking() and int(app.session.local_player().get("strikes", 0)) == 0:
 			## The outcrop before anyone has struck it: pointed at, or with a pick going in.
 			app.descent.show_state(run)
@@ -410,8 +431,9 @@ func _init() -> void:
 			"chamber":
 				if DeepDescent.in_battle(run):
 					var b: Dictionary = DeepDescent.battle(run)
-					if target == "hoard":
-						## The shot wants the Warden dead: every creature comes in at a scratch.
+					if target in ["hoard", "tunnels"]:
+						## The shot wants the Warden dead (or the delver alive past the first
+						## landing): every creature comes in at a scratch.
 						for foe in b.enemies:
 							foe.hp = mini(int(foe.hp), 1)
 					if str(b.phase) == "planning":
@@ -450,7 +472,10 @@ func _init() -> void:
 			"salvage":
 				app.session.send({"kind": "ready"})
 			"over":
-				break
+				## The run ended short of the shot (the party fell): say so instead of saving the summary under this name.
+				printerr("screenshot: the run ended before reaching '%s'" % target)
+				quit(1)
+				return
 		if guard % 4 == 0:
 			await process_frame
 	## Wait by the clock, not by frames: a fast screen would otherwise catch the fades mid-way.
@@ -504,8 +529,11 @@ func _void_preview(app: Control, target: String, out: String) -> void:
 		await create_timer(0.5).timeout
 		for bench in app.home.find_children("*", "Control", true, false):
 			if bench is Homecoming.LoupeBench:
+				## Skip to the end of the reading but keep the loupe up: its done callback redraws the page without it.
+				bench._done = Callable()
 				bench._finish()
-		await create_timer(0.35).timeout
+				bench._break_open()
+		await create_timer(1.2).timeout
 		_save(out)
 		return
 	app._depart(9001)

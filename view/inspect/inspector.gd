@@ -22,6 +22,8 @@ const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const GeodeView = preload("res://view/gems/geode_view.gd")
 const ConquestSheet = preload("res://view/inspect/conquest_sheet.gd")
+const Tips = preload("res://view/ui/tips.gd")
+const Plates = preload("res://view/ui/plates.gd")
 
 const FACE_TEXT: Dictionary = {
 	"wild": "Wild: counts as any value for patterns, and as the die's top face for totals.",
@@ -494,7 +496,7 @@ func _member_dice(parent: Node, dice: Array) -> void:
 		card.tooltip_text = DeepDice.describe(die)
 		flow.add_child(card)
 		card.add_child(Thumbs.DieThumb.new(die, 72))
-		var name_label := DeepUi.label(card, str(die.get("shape", "")), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		var name_label := DeepUi.label(card, str(die.get("shape", "")).to_lower(), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 		name_label.custom_minimum_size.x = 80
 
 # --- stones ------------------------------------------------------------------------------------
@@ -531,7 +533,7 @@ func _fill_geode(shelf_geode: Dictionary, opts: Dictionary) -> void:
 	var carats: Array = odds.get("carat", [1, 1])
 	DeepUi.pill(tags, "carat", "%d to %d ct" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 13, "Every stone inside weighs this much")
 	if weekly:
-		DeepUi.pill(tags, "cut", "Fine cut or better", DeepUi.INFO, 13)
+		DeepUi.pill(tags, "cut", DeepEconomy.need_text({"kind": "cut", "value": int(DeepContent.constant("geode_week_min_cut", 3))}), DeepUi.INFO, 13)
 	if bought:
 		DeepUi.pill(tags, "check", "Opened", DeepUi.MUTED, 13)
 	elif bool(opts.get("sealed", false)):
@@ -653,6 +655,27 @@ static func _share_words(share: float) -> String:
 		return "%.1f%%" % (share * 100.0)
 	return "%.2f%%" % (share * 100.0)
 
+func _market_buy(market: Dictionary) -> void:
+	## A stone in the Market's case can be bought from its close look, beside the way out:
+	## the case's own Buy, priced, closing the sheet as it buys. `market`: {price, buy (the
+	## case's purchase), gold () -> int, replaces (a stone of its skill is already kept)}.
+	if _close == null or not is_instance_valid(_close):
+		return
+	var price: int = int(market.get("price", 0))
+	var call: Callable = market.get("buy", Callable())
+	var purse: Callable = market.get("gold", Callable())
+	var gold: int = int(purse.call()) if purse.is_valid() else price
+	var foot: Node = _close.get_parent()
+	var buy := DeepUi.icon_button(foot, "chest", "Buy", func() -> void:
+		_dismiss()
+		if call.is_valid():
+			call.call(), 15, DeepUi.PAPER)
+	DeepUi.priced(buy, str(price))
+	foot.move_child(buy, _close.get_index())
+	buy.disabled = gold < price or not call.is_valid()
+	buy.tooltip_text = ("It goes into your vault%s." % (" in place of yours, which is let go for no gold" if bool(market.get("replaces", false)) else "")) if not buy.disabled else "You have %d gold." % gold
+	DeepUi.voice(buy, "buy")
+
 func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var reference: bool = bool(opts.get("reference", false))
 	if reference:
@@ -693,10 +716,12 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var tags := DeepUi.hbox(head, 8)
 	var rarity: String = str(skill.get("rarity", "COMMON"))
 	if not reference:
-		var grade_pill := DeepUi.pill(tags, "star", "%s · grade %d of 100" % [str(grade.name), int(grade.score)], tier, 13, "Click to see how this grade is worked out")
+		var grade_pill := DeepUi.pill(tags, "star", "%s · grade %d of 100" % [str(grade.name), int(grade.score)], tier, 13)
 		grade_pill.mouse_filter = Control.MOUSE_FILTER_STOP
 		grade_pill.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		DeepUi.juice(grade_pill, 1.06)
+		## Hovered, where its points come from; clicked, the count played out.
+		Tips.attach(grade_pill, func() -> Control: return Plates.grade(item, "Click · watch it counted"), {"tone": tier, "below": true})
 		grade_pill.gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 				_open_reveal(item))
@@ -713,14 +738,22 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 		DeepUi.pill(tags, "hourglass", "Temporary · lent for this run", DeepUi.INFO, 13, "Filled an empty socket at the shaft head. It cannot be sold, kept or wished on, and it is gone when the run ends.")
 	elif DeepStone.is_fragile(item):
 		DeepUi.pill(tags, "split_shield", "Fragile · cannot sell or keep", DeepUi.BAD, 13)
-	else:
+	elif opts.get("market", {}).is_empty():
 		DeepUi.pill(tags, "coin", "%d" % DeepStone.value(item), DeepUi.ACCENT, 13, "Worth: what a buyer would pay, in gold")
+	else:
+		## Looked at in the Market's case: what it is worth and what the case asks, side by
+		## side and named, so the two numbers are never taken for one another.
+		var mult: String = ("%.1f" % float(DeepContent.constant("case_price_mult", 2.5))).trim_suffix(".0")
+		DeepUi.pill(tags, "coin", "Worth · %d" % DeepStone.value(item), DeepUi.ACCENT, 13, "Worth: what a buyer would pay, in gold. The market sells at about %s times worth." % mult)
+		DeepUi.pill(tags, "chest", "Buy · %d" % int(opts.market.get("price", 0)), DeepUi.ACCENT_HI, 13, "What the case asks for it, in gold.")
+		_market_buy(opts.market)
 	## The stone of this skill already at home, if there is one and this is not it: the reader
 	## is almost always deciding between the two, and the sheet says so rather than leaving
 	## them to remember what is in the vault.
 	var kept: Dictionary = kept_stone(item) if not reference else {}
 	if not kept.is_empty():
-		var kept_pill := DeepUi.pill(tags, "chest", "Already in your vault", DeepUi.INFO, 13, "Click to compare with the %s you keep." % DeepStone.name(kept))
+		## Named for the skill, not "already in your vault": that read as if this were the same stone.
+		var kept_pill := DeepUi.pill(tags, "chest", "You have a %s at home" % str(skill.get("name", item.get("skill", ""))), DeepUi.INFO, 13, "Click to compare with the %s you keep." % DeepStone.name(kept))
 		kept_pill.mouse_filter = Control.MOUSE_FILTER_STOP
 		kept_pill.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		DeepUi.juice(kept_pill, 1.06)
@@ -733,8 +766,11 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var skill_row := DeepUi.hbox(does, 8)
 	DeepUi.title(skill_row, str(skill.get("name", "")), 20, DeepUi.PAPER)
 	var effective: Dictionary = DeepStone.effective(item, opts.get("context", {}))
-	if int(effective.carat) != int(item.carat) or int(effective.cut_step) != int(item.cut) or int(effective.clarity) != int(item.clarity):
-		DeepUi.wrap(does, "Effective: %d ct · %s Cut · %s Clarity" % [int(effective.carat), DeepContent.cut_name(int(effective.cut_step)), DeepContent.clarity_name(int(effective.clarity))], 12, DeepUi.INFO)
+	## The carats weight buys with: a Cavity's doubling and an Assayer's cap included, the same
+	## number the inclusion's own line says.
+	var weighed: int = int(round(float(effective.parts.weight)))
+	if weighed != int(item.carat) or int(effective.cut_step) != int(item.cut) or int(effective.clarity) != int(item.clarity):
+		DeepUi.wrap(does, "Effective: %d ct · %s Cut · %s Clarity" % [weighed, DeepContent.cut_name(int(effective.cut_step)), DeepContent.clarity_name(int(effective.clarity))], 12, DeepUi.INFO)
 	_fight_buffs(does, opts.get("context", {}))
 	var mods: Array = DeepStone.modifiers(item)
 	_effect_line(does, item, mods, opts.get("context", {}))
@@ -1244,7 +1280,11 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 	DeepUi.title(head, DeepDice.describe(item), 28, palette.body.lightened(0.2))
 	var tags := DeepUi.hbox(head, 8)
 	var definition: Dictionary = DeepContent.die(str(item.get("key", "")))
-	DeepUi.pill(tags, "die", str(item.get("shape", definition.get("shape", "D6"))), palette.body, 13)
+	var shape_word: String = str(item.get("shape", definition.get("shape", "D6"))).to_lower()
+	## The title already ends in the shape ("d8") unless a character named the die, so the pill
+	## counts its faces instead of saying it twice; under a given name it says what die it is.
+	var named: bool = not DeepDice.given_name(item).is_empty()
+	DeepUi.pill(tags, "die", shape_word if named or faces.is_empty() else "%d faces" % faces.size(), palette.body, 13)
 	if definition.has("rarity"):
 		DeepUi.pill(tags, "star", str(definition.rarity).capitalize(), DeepUi.MUTED, 13)
 	if not roll.is_empty():
@@ -1342,6 +1382,42 @@ func _die_character(values: Array, distinct: int) -> String:
 
 # --- creatures ---------------------------------------------------------------------------------
 
+## The width of the sheet's right-hand column, where the head's words wrap.
+const HEAD_WIDTH: float = 600.0
+
+static func _lines_at(label: Label, width: float) -> int:
+	## How many lines a wrapped label's words take at `width`, at the size it is drawn.
+	var font: Font = label.get_theme_font(&"font")
+	var size: int = label.get_theme_font_size(&"font_size")
+	var tall: float = font.get_multiline_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, width, size).y
+	return maxi(1, int(round(tall / maxf(1.0, font.get_height(size)))))
+
+## How many lines of words a creature's page holds, its head's included (a move's name and
+## trigger are two, and each of its effects one): past this the page runs off the screen at
+## the smallest window.
+const PAGE_LINES: int = 23
+const MOVES_A_PAGE: int = 4
+
+static func _move_pages(moves: Array, head: int, first: int, last: bool) -> Array:
+	## `moves` split into pages: four to a page, or fewer where the lines would run past
+	## PAGE_LINES, counting the `head` every page shows, `first` more on the first page (what it
+	## is, or its phase's line), and its dice (three) under the `last`.
+	var pages: Array = [[]]
+	var lines: int = head + first
+	for move in moves:
+		var cost: int = 2 + move.get("effects", []).size()
+		var page: Array = pages[pages.size() - 1]
+		if not page.is_empty() and (page.size() >= MOVES_A_PAGE or lines + cost > PAGE_LINES):
+			pages.append([])
+			lines = head
+		pages[pages.size() - 1].append(move)
+		lines += cost
+	## The dice go under the last page; where they would not fit, its last move goes on.
+	var tail: Array = pages[pages.size() - 1]
+	if last and lines + 3 > PAGE_LINES and tail.size() > 1:
+		pages.append([tail.pop_back()])
+	return pages
+
 func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> void:
 	var key: String = str(foe.get("key", ""))
 	## A live creature is read as it is (an echo as what it copies); a bare key as written.
@@ -1355,7 +1431,7 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 	DeepUi.title(title_row, str(foe.get("name", definition.get("name", key))), 28, Color("ffb0a0") if warden else DeepUi.PAPER)
 	if warden:
 		DeepUi.pill(title_row, "crown", "Warden", DeepUi.BAD, 13).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	DeepUi.wrap(head, str(definition.get("text", "")), 14, DeepUi.MUTED)
+	var about := DeepUi.wrap(head, str(definition.get("text", "")), 14, DeepUi.MUTED)
 	if foe.has("hp"):
 		var life := DeepUi.hbox(head, 8)
 		DeepUi.icon(life, "heart", 18, DeepUi.BAD)
@@ -1363,20 +1439,33 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		bar.custom_minimum_size = Vector2(240, 16)
 		bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		bar.set_values(float(foe.hp) / float(maxi(1, int(foe.get("max_hp", 1)))), "%s / %s" % [DeepUi.number(int(foe.hp)), DeepUi.number(int(foe.get("max_hp", 1)))])
-	## What is on it and what it means to do: the page for this turn, when there is one.
+	## What to remember about it, in a line (docs/BESTIARY.md, section 9), under its health
+	## where every page shows it.
+	var tip: String = str(definition.get("tip", ""))
+	var head_lines: int = _lines_at(about, HEAD_WIDTH)
+	if not tip.is_empty():
+		var remember := DeepUi.hbox(head, 6)
+		var word := DeepUi.label(remember, "REMEMBER", 11, DeepUi.ACCENT_HI)
+		word.add_theme_font_override("font", DeepUi.bold_font())
+		var said := DeepUi.label(remember, tip, 13, DeepUi.PAPER)
+		said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		said.custom_minimum_size.x = 200
+		head_lines += _lines_at(said, HEAD_WIDTH - word.get_combined_minimum_size().x - 6.0)
+	## What is on it and what it means to do: the page for this turn, when there is one. A
+	## creature with nothing on it and nothing rolled has no such page (what it is, its traits,
+	## is on the page of its moves), and opens on its moves.
 	var effects: Array = EffectChips.for_enemy(foe, battle) if foe.has("hp") else []
 	if not effects.is_empty():
 		var chips := EffectChips.Row.new(16)
 		head.add_child(chips)
 		chips.show_effects(effects)
-	## What to remember about it, in a line (docs/BESTIARY.md, section 9), first on the page
-	## for this turn.
-	var tip: String = str(definition.get("tip", ""))
-	if not effects.is_empty() or not foe.get("hand", []).is_empty() or not tip.is_empty():
+		head_lines += 1
+	var on_it: bool = effects.any(func(e: Dictionary) -> bool: return str(e.get("span", "")) != "trait")
+	var this_turn: bool = on_it or not foe.get("hand", []).is_empty()
+	if this_turn:
 		_page("This turn", "sword")
-	if not tip.is_empty():
-		wrap_stat(DeepUi.stat(_section("eye", "Remember", DeepUi.ACCENT_HI), "eye", tip, DeepUi.PAPER, 13))
-	if not effects.is_empty():
+	if this_turn and not effects.is_empty():
 		var notes := _section("spark", "On it now")
 		for effect in effects:
 			DeepUi.stat(notes, str(effect.glyph), "%s: %s" % [str(effect.title), str(effect.text)], Color(effect.tone).lightened(0.2), 12)
@@ -1385,15 +1474,18 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		var dice := DeepUi.hbox(now, 4)
 		var shown: Array = foe.hand.slice(0, -1) if str(foe.get("beat", "")) == "roll" else foe.hand
 		for roll in shown:
-			dice.add_child(DiceIcons.face(26, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true))
-	## A moveset is read four moves to a page, so a boss with six never runs off the bottom.
+			dice.add_child(DiceIcons.readable_face(26, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true))
+	## A moveset is read four moves to a page, or fewer under a long head (`_move_pages`), so a
+	## boss with six never runs off the bottom.
 	var highlight: String = str(opts.get("move", ""))
 	var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else definition.get("traits", {})
 	var opening: Array = DeepCreatures.display_moves(foe, definition.get("moves", []))
-	for chunk in range(maxi(1, int(ceil(float(opening.size()) / 4.0)))):
+	var phases: Array = definition.get("phases", [])
+	var opening_pages: Array = _move_pages(opening, head_lines, 0 if traits.is_empty() else 1 + traits.size(), phases.is_empty())
+	for chunk in range(opening_pages.size()):
 		_page("Its moves" if chunk == 0 else "Its moves · %d" % (chunk + 1), "book")
 		var moves := _section("book", "Its moves" if chunk == 0 else "More of its moves")
-		for move in opening.slice(chunk * 4, chunk * 4 + 4):
+		for move in opening_pages[chunk]:
 			move_row(moves, move, str(move.get("name", "")) == highlight)
 		if chunk == 0 and not traits.is_empty():
 			var born := _section("spark", "What it is")
@@ -1402,9 +1494,11 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 			for trait_key in trait_keys:
 				var chip: Dictionary = EffectChips.trait_entry(str(trait_key), traits[trait_key])
 				DeepUi.stat(born, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12)
-	for phase in definition.get("phases", []):
+	for phase_at in range(phases.size()):
+		var phase: Dictionary = phases[phase_at]
 		var shown: Array = DeepCreatures.display_moves(foe, phase.get("moves", []))
-		for chunk in range(maxi(1, int(ceil(float(shown.size()) / 4.0)))):
+		var phase_pages: Array = _move_pages(shown, head_lines, 1 + phase.get("traits", {}).size(), phase_at == phases.size() - 1)
+		for chunk in range(phase_pages.size()):
 			_page("Below %d%% HP" % int(phase.get("below_hp_pct", 0)) + ("" if chunk == 0 else " · %d" % (chunk + 1)), "crown")
 			var moves := _section("crown", "Phase moves")
 			if chunk == 0:
@@ -1416,13 +1510,13 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 					else:
 						var chip: Dictionary = EffectChips.trait_entry(str(trait_key), value)
 						DeepUi.stat(moves, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12)
-			for move in shown.slice(chunk * 4, chunk * 4 + 4):
+			for move in phase_pages[chunk]:
 				move_row(moves, move, str(move.get("name", "")) == highlight)
 	var rolls := _section("die", "Its dice")
 	var dice_row := DeepUi.hbox(rolls, 6)
 	var effective: Array = DeepCreatures.effective_dice(foe) if foe.has("dice") else definition.get("dice", []).map(func(key: String) -> Dictionary: return {"shape": key})
 	for die in effective:
-		DeepUi.pill(dice_row, "die", str(die.shape), DiceIcons.palette(str(die.shape)).body, 12)
+		DeepUi.pill(dice_row, "die", str(die.shape).to_lower(), DiceIcons.palette(str(die.shape)).body, 12)
 	DeepUi.label(rolls, "Rolls in this order. Every qualifying ability fires.\nDamage and debuffs affect every player.", 12, DeepUi.DIM)
 
 static func _dice_words(keys: Array) -> String:
@@ -1666,7 +1760,7 @@ func _fill_gathering(title: String, text: String, glyph: String, stones: Array, 
 				card.tooltip_text = str(captions[index]) if index < captions.size() else DeepDice.describe(pair[0])
 				flow.add_child(card)
 				card.add_child(Thumbs.DieThumb.new(pair[0], 72, int(pair[1])))
-				var caption := DeepUi.label(card, str(captions[index]) if index < captions.size() else str(pair[0].get("shape", "")), 12, DeepUi.INFO, HORIZONTAL_ALIGNMENT_CENTER)
+				var caption := DeepUi.label(card, str(captions[index]) if index < captions.size() else str(pair[0].get("shape", "")).to_lower(), 12, DeepUi.INFO, HORIZONTAL_ALIGNMENT_CENTER)
 				caption.custom_minimum_size.x = 80
 	if pages > 1:
 		show_page("1 to %d" % GATHERING_PAGE)

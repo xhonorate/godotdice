@@ -16,12 +16,29 @@ const NAME_LIMIT: int = 24
 ## How many of the latest runs keep their whole tally (and their party's) in the history.
 ## Older ones keep the line the ledger shows; the save is written often and a tally is long.
 const HISTORY_STATS_KEPT: int = 10
+## The stones every profile starts with, one of each starter color: skill, carat, cut, clarity.
+## A starter color the vault runs out of is given back as a 1 carat spare (`spare_starters`).
+const STARTERS: Array = [["STRIKE", 2, 1, 3], ["GUARD", 1, 1, 3], ["MEND", 1, 0, 3]]
+
+static func seat_names(names: Array) -> Array:
+	## The names a party goes by, in seat order. Everyone keeps their own, but two who share
+	## one (two new players are both "Player") are told apart by their seat: "Player 1" and
+	## "Player 2". Every warning, tab and table that names a member reads it from here.
+	var counts: Dictionary = {}
+	for name in names:
+		var key: String = str(name).strip_edges().to_lower()
+		counts[key] = int(counts.get(key, 0)) + 1
+	var out: Array = []
+	for seat in range(names.size()):
+		var name: String = str(names[seat])
+		out.append("%s %d" % [name, seat + 1] if int(counts[name.strip_edges().to_lower()]) > 1 else name)
+	return out
 
 static func new_profile(name: String = DEFAULT_NAME) -> Dictionary:
 	var profile: Dictionary = {"schema": SCHEMA, "id": "pf%08x" % randi(), "name": name, "gold": 0, "vault": {}, "seen": [],
 		"bowl": [], "characters": {}, "current_character": DeepContent.starter_character(), "mines": {}, "tray": [],
 		"records": {"runs": 0, "extractions": 0, "falls": 0, "conquests": 0, "stones_kept": 0, "commissions": 0, "best": {}}, "history": [], "next_id": 1,
-		"daily": {}, "weekly": {}, "favorites": [], "outfit": {"insure": false}, "conquest_paid": [], "charged_run": "", "bestiary": {}}
+		"daily": {}, "weekly": {}, "favorites": [], "outfit": {"insure": false}, "conquest_paid": [], "warden_paid": [], "charged_run": "", "bestiary": {}}
 	for key in DeepContent.section("characters"):
 		var character: Dictionary = DeepContent.character(str(key))
 		var unlocked: bool = bool(character.get("starter", false))
@@ -30,9 +47,8 @@ static func new_profile(name: String = DEFAULT_NAME) -> Dictionary:
 			_fit_default(profile, str(key))
 	ensure_mines(profile)
 	## Everyone starts with a Strike and a Guard, ordinary stones, so the first rail is never empty.
-	keep(profile, DeepStone.make("STRIKE", 2, 1, 3, [], {"source": "starter"}, _id(profile, "st")))
-	keep(profile, DeepStone.make("GUARD", 1, 1, 3, [], {"source": "starter"}, _id(profile, "st")))
-	keep(profile, DeepStone.make("MEND", 1, 0, 3, [], {"source": "starter"}, _id(profile, "st")))
+	for starter in STARTERS:
+		keep(profile, DeepStone.make(str(starter[0]), int(starter[1]), int(starter[2]), int(starter[3]), [], {"source": "starter"}, _id(profile, "st")))
 	var starter: Dictionary = profile.characters[str(profile.current_character)]
 	starter.rail = []
 	for socket in DeepContent.character(str(profile.current_character)).get("sockets", []):
@@ -66,6 +82,16 @@ static func upgrade(profile: Dictionary) -> bool:
 			if bool(profile.mines[key].get("boss", false)) and not profile.conquest_paid.has(str(key)):
 				profile.conquest_paid.append(str(key))
 		profile.schema = SCHEMA
+		changed = true
+	## Wardens have paid a purse of their own since October 2026. One beaten before then counts
+	## as paid, as a mine conquered before the conquest purse did: the purse is for a first.
+	if not profile.get("warden_paid", null) is Array:
+		profile.warden_paid = []
+		for key in profile.get("mines", {}):
+			for depth in profile.mines[key].get("wardens", []):
+				var index: int = DeepEconomy.warden_index(str(key), int(depth))
+				if index >= 0 and not profile.warden_paid.has(warden_mark(str(key), index)):
+					profile.warden_paid.append(warden_mark(str(key), index))
 		changed = true
 	if profile.has("records") and not profile.records.has("commissions"):
 		profile.records.commissions = 0
@@ -300,7 +326,35 @@ static func unlock_character(profile: Dictionary, character_key: String) -> bool
 	record.unlocked = true
 	record.fresh = true
 	_fit_default(profile, character_key)
+	fit_from_vault(profile, character_key)
 	return true
+
+static func fit_from_vault(profile: Dictionary, character_key: String) -> int:
+	## A delver who joins sets their open sockets from the vault, as the first delver's were
+	## set, so nobody new goes down with a rail that does nothing. Every rail draws on the same
+	## vault, so no other delver loses a stone. The colored sockets first, then the ANY ones,
+	## so an ANY socket never takes the one stone a colored socket could hold. In each, a
+	## starter (Strike, Guard, Mend) where it fits, else the vault's best stone that fits.
+	## Returns how many sockets were filled.
+	var record: Dictionary = profile.get("characters", {}).get(character_key, {})
+	if record.is_empty() or not bool(record.get("unlocked", false)):
+		return 0
+	var sockets: Array = DeepContent.character(character_key).get("sockets", [])
+	var stones: Array = profile.get("vault", {}).values().filter(func(s: Variant) -> bool: return s is Dictionary and not DeepStone.is_birthstone(s))
+	stones.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(DeepStone.grade(a).score) > int(DeepStone.grade(b).score))
+	var order: Array = STARTERS.map(func(s: Array) -> String: return str(s[0])) + stones.map(func(s: Dictionary) -> String: return str(s.get("skill", "")))
+	var filled: int = 0
+	for any_pass in [false, true]:
+		for index in range(open_sockets(profile, character_key)):
+			if index >= sockets.size() or (str(sockets[index]) == DeepContent.SOCKET_ANY) != any_pass:
+				continue
+			if index < record.rail.size() and record.rail[index] != null:
+				continue
+			for skill in order:
+				if not record.rail.has(skill) and not owned(profile, str(skill)).is_empty() and set_rail(profile, character_key, index, str(skill)).is_empty():
+					filled += 1
+					break
+	return filled
 
 static func next_locked_character(profile: Dictionary) -> String:
 	## The next character still to be met, in the pack's unlock order.
@@ -394,10 +448,16 @@ static func unfresh(profile: Dictionary, skill: String = "") -> bool:
 	return changed
 
 static func showcase(profile: Dictionary, count: int = 5) -> Array:
-	## The player's best kept stones, highest grade first: what the profile page and the party
-	## see. Birthstones are not kept, so never shown.
+	## The player's kept stones as they show them: the ones starred in the vault first, then the
+	## rest, each highest grade first. What the profile page and the party see. Birthstones are
+	## not kept, so never shown.
 	var stones: Array = profile.get("vault", {}).values().filter(func(s: Variant) -> bool: return s is Dictionary and not DeepStone.is_birthstone(s))
+	var starred: Array = favorites(profile)
 	stones.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var sa: bool = starred.has(str(a.get("skill", "")))
+		var sb: bool = starred.has(str(b.get("skill", "")))
+		if sa != sb:
+			return sa
 		var ga: int = int(DeepStone.grade(a).score)
 		var gb: int = int(DeepStone.grade(b).score)
 		return ga > gb if ga != gb else str(a.get("skill", "")) < str(b.get("skill", "")))
@@ -711,6 +771,12 @@ static func apply_result(profile: Dictionary, result: Dictionary, player_id: Str
 		for depth in entry.get("wardens", []):
 			if not DeepPatch.holds(mine_record.wardens, int(depth)):
 				mine_record.wardens.append(int(depth))
+			## The first time each Warden falls it pays a purse of its own, once on any tier,
+			## whether the party rode up afterwards or fell further down.
+			var paid: int = _pay_warden(profile, key, int(depth))
+			if paid > 0:
+				var index: int = DeepEconomy.warden_index(key, int(depth))
+				purses.append({"mine": key, "gold": paid, "warden": index, "depth": int(DeepContent.mine(key).get("warden_depths", [])[index])})
 		if bool(entry.get("boss", false)):
 			## Granted already the moment the boss fell (view/app.gd), unless this lapidary
 			## was not there to see it; whatever is still new is new now.
@@ -848,6 +914,55 @@ static func grant_conquest(profile: Dictionary, mine_key: String, tier: int) -> 
 	if not lapidary.is_empty() and unlock_character(profile, lapidary):
 		unlocked.append({"character": lapidary})
 	return unlocked
+
+static func warden_mark(mine_key: String, index: int) -> String:
+	## How `warden_paid` names a Warden whose purse is paid: the mine and the Warden's place in
+	## its `warden_depths` ("QUARRY:0" is The Foreman).
+	return "%s:%d" % [mine_key, index]
+
+static func warden_purse_due(profile: Dictionary, mine_key: String, depth: int) -> int:
+	## What beating the Warden at this depth of a mine still pays this player: its purse the
+	## first time, 0 once paid, or for a depth that is no Warden's.
+	var index: int = DeepEconomy.warden_index(mine_key, depth)
+	if index < 0 or profile.get("warden_paid", []).has(warden_mark(mine_key, index)):
+		return 0
+	return DeepEconomy.warden_purse(mine_key, index)
+
+static func _pay_warden(profile: Dictionary, mine_key: String, depth: int) -> int:
+	## Pays a Warden's first-time purse into the purse, once. Returns what was paid.
+	var due: int = warden_purse_due(profile, mine_key, depth)
+	if due <= 0:
+		return 0
+	if not profile.get("warden_paid", null) is Array:
+		profile.warden_paid = []
+	profile.warden_paid.append(warden_mark(mine_key, DeepEconomy.warden_index(mine_key, depth)))
+	profile.gold = int(profile.get("gold", 0)) + due
+	return due
+
+static func spare_starters(profile: Dictionary) -> Array:
+	## A starter color (Red, Blue, Green) the vault holds no stone of any more, given up down
+	## the mine or at the bench, gets a plain 1 carat starter of that color back from the
+	## workshop, so the first mine's sockets of that color never go down empty for good. The
+	## spare goes back into every delver's empty open socket of its own color. Returns the
+	## stones given.
+	var given: Array = []
+	for starter in STARTERS:
+		var skill: String = str(starter[0])
+		var hue: String = str(DeepContent.skill(skill).get("color", ""))
+		if profile.get("vault", {}).values().any(func(s: Variant) -> bool: return s is Dictionary and DeepStone.colors(s).has(hue)):
+			continue
+		var spare: Dictionary = DeepStone.make(skill, 1, int(starter[2]), int(starter[3]), [], {"source": "starter"}, _id(profile, "st"))
+		keep(profile, spare)
+		given.append(profile.vault[skill])
+		for key in unlocked_characters(profile):
+			var rail: Array = profile.characters[key].get("rail", [])
+			var sockets: Array = DeepContent.character(str(key)).get("sockets", [])
+			if rail.has(skill):
+				continue
+			for index in range(mini(open_sockets(profile, str(key)), sockets.size())):
+				if str(sockets[index]) == hue and (index >= rail.size() or rail[index] == null) and set_rail(profile, str(key), index, skill).is_empty():
+					break
+	return given
 
 static func decide_tray(profile: Dictionary, stone_id: String, keep_it: bool) -> Dictionary:
 	for index in range(profile.tray.size()):

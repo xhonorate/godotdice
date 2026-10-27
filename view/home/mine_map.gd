@@ -41,6 +41,9 @@ var met: Array = []
 ## The day's seam: the strata are one route, `records` say how far today's digs reached,
 ## and none can be chosen.
 var daily: bool = false
+## The player's profile, read for which crowns still pay a purse the first time they fall
+## (paid once, on any tier), so each crown can carry what it pays.
+var profile: Dictionary = {}
 ## Birthstone photographs for the crowns, by delver, as they arrive.
 var _faces: Dictionary = {}
 var _clock: float = 0.0
@@ -225,11 +228,13 @@ func _draw_earth() -> void:
 			deepest_today = str(key)
 	var reached_to: float = surface_y
 	## The names' column: wide enough for the longest biome line under a name, which grows
-	## when a small window sets the capitals bigger.
+	## when a small window sets the capitals bigger. Every status word is measured (BEATEN and
+	## REACHED are wider than SEALED), with room to spare before the depth caption.
 	var name_column: float = 240.0
 	for key in mines:
-		var line: String = "%s  ·  SEALED" % str(Biomes.for_depth(str(key), 1).name).to_upper()
-		name_column = maxf(name_column, DeepUi.caps_font().get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(10)).x + 8.0)
+		for word in ["SEALED", "BEATEN", "OPEN", "REACHED", "AHEAD", "START"]:
+			var line: String = "%s  ·  %s" % [str(Biomes.for_depth(str(key), 1).name).to_upper(), word]
+			name_column = maxf(name_column, DeepUi.caps_font().get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(10)).x + 14.0)
 	for index in range(mines.size()):
 		var key: String = str(mines[index])
 		var mine: Dictionary = DeepContent.mine(key)
@@ -378,6 +383,8 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 			_lanterns.append(Vector2(at.x + width * lit, line_y))
 	var crowns: Array = mine.get("warden_depths", []).duplicate()
 	crowns.append(bottom)
+	## The mine the bottom breaks open, said under its crown until it falls.
+	var below: String = str(mine.get("next", ""))
 	for index in range(crowns.size()):
 		var depth: int = int(crowns[index])
 		var boss: bool = index == crowns.size() - 1
@@ -385,8 +392,27 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 		var spot := Vector2(at.x + width * float(depth) / float(bottom), line_y)
 		var radius: float = 10.0 if boss else 8.0
 		var who: String = "the final boss" if boss else "a Warden"
+		## What it pays the first time it falls, over it in a gold tag; a Warden beaten (and so
+		## paid) wears a green tick instead. The day's seam pays no purse, so it shows none.
+		var full: int = 0 if daily else (DeepEconomy.conquest_purse(key) if boss else DeepEconomy.warden_purse(key, index))
+		var purse: int = _purse_due(key, index, boss)
+		var pays: String = ""
+		if purse > 0:
+			pays = "\nFirst time it falls: +%d gold.\nPaid once, at home, even if you fall later." % purse
+		elif full > 0 and not profile.is_empty():
+			pays = "\nIts %d gold for falling the first time is paid." % full
 		## The day's seam lets nobody out at any bottom, so its crowns are plain.
 		var lapidary: String = _lets_out(key) if boss and not daily else ""
+		if purse > 0:
+			## One row of tags for every crown, clear of the boss's Birthstone and its crown.
+			_purse_tag(canvas, Vector2(spot.x, line_y - 29.0), purse, "Depth %d: %s%s" % [depth, who, pays])
+		if boss and not won and not daily and not below.is_empty():
+			var opens: String = "opens %s" % DeepContent.mine_name(below)
+			var opens_size: int = DeepUi.readable(11)
+			var opens_w: float = DeepUi.text_face(opens_size).get_string_size(opens, HORIZONTAL_ALIGNMENT_LEFT, -1, opens_size).x
+			var opens_x: float = spot.x - (opens_w + 14.0) * 0.5
+			_glyph(canvas, "lock", Vector2(opens_x + 5.0, at.y + 26.0), 10.0, Color(DeepUi.ACCENT, 0.85))
+			canvas.draw_string(DeepUi.text_face(opens_size), Vector2(opens_x + 14.0, at.y + 26.0 + opens_size * 0.36), opens, HORIZONTAL_ALIGNMENT_LEFT, -1, opens_size, Color(DeepUi.ACCENT, 0.9))
 		if not lapidary.is_empty():
 			## The delver this bottom lets out, as their Birthstone, ringed in gold once met.
 			var face_r: float = 15.0
@@ -398,15 +424,47 @@ func _draw_track(canvas: CanvasItem, key: String, record: Dictionary, at: Vector
 			canvas.draw_arc(spot, face_r, 0, TAU, 32, DeepUi.ACCENT if won or known else DeepUi.BAD, 2.0, true)
 			_glyph(canvas, "crown", spot + Vector2(face_r * 0.75, -face_r * 0.75), 11.0, DeepUi.ACCENT if won else DeepUi.BAD)
 			var joins: String = "%s has joined you." % DeepContent.character_title(lapidary) if known else "%s joins when it falls." % DeepContent.character_title(lapidary)
-			_hotspots.append({"at": spot, "radius": face_r, "text": "Depth %d: %s%s. %s" % [depth, who, " (beaten)" if won else "", joins]})
+			_hotspots.append({"at": spot, "radius": face_r, "text": "Depth %d: %s%s. %s%s" % [depth, who, " (beaten)" if won else "", joins, pays]})
 			continue
 		canvas.draw_circle(spot, radius, Color(0.05, 0.05, 0.07))
 		canvas.draw_arc(spot, radius, 0, TAU, 24, DeepUi.ACCENT if won else DeepUi.BAD, 2.0, true)
 		_glyph(canvas, "crown", spot, radius * 1.2, DeepUi.ACCENT if won else DeepUi.BAD)
-		_hotspots.append({"at": spot, "radius": radius, "text": "Depth %d: %s%s" % [depth, who, " (beaten)" if won else ""]})
+		if won and not boss and not daily:
+			var tick := spot + Vector2(radius * 0.85, -radius * 0.85)
+			canvas.draw_circle(tick, 6.0, DeepUi.GOOD)
+			canvas.draw_arc(tick, 6.0, 0, TAU, 16, Color(0.03, 0.035, 0.05), 1.5, true)
+			_glyph(canvas, "check", tick, 8.0, Color(0.03, 0.035, 0.05))
+		_hotspots.append({"at": spot, "radius": radius, "text": "Depth %d: %s%s%s" % [depth, who, " (beaten)" if won else "", pays]})
 	var wardens_won: int = beaten.size()
 	canvas.draw_string(DeepUi.text_face(DeepUi.readable(11)), Vector2(at.x, at.y + 16), "deepest %d of %d  ·  %d of %d crowns" % [deepest, bottom, mini(wardens_won, crowns.size()), crowns.size()],
 		HORIZONTAL_ALIGNMENT_LEFT, width + 40.0, DeepUi.readable(11), DeepUi.MUTED)
+
+func _purse_due(key: String, index: int, boss: bool) -> int:
+	## The gold a crown still pays this player the first time it falls: a Warden's purse or the
+	## bottom's first-conquest purse, each paid once on any tier. Nothing on the day's seam.
+	if daily or profile.is_empty():
+		return 0
+	if boss:
+		return 0 if profile.get("conquest_paid", []).has(key) else DeepEconomy.conquest_purse(key)
+	return 0 if profile.get("warden_paid", []).has(DeepProfile.warden_mark(key, index)) else DeepEconomy.warden_purse(key, index)
+
+func _purse_tag(canvas: CanvasItem, centre: Vector2, gold: int, tip: String) -> void:
+	## A crown's purse in a small gold-ringed tag over it: a coin and "+50".
+	var words: String = "+%d" % gold
+	var text_size: int = DeepUi.readable(11)
+	var face: Font = DeepUi.text_face(text_size)
+	var width: float = face.get_string_size(words, HORIZONTAL_ALIGNMENT_LEFT, -1, text_size).x + 28.0
+	var rect := Rect2(centre - Vector2(width, 16.0) * 0.5, Vector2(width, 16.0))
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0.03, 0.035, 0.05, 0.88)
+	box.border_color = Color(DeepUi.ACCENT, 0.85)
+	box.set_border_width_all(1)
+	box.set_corner_radius_all(DeepUi.end_corner(rect.size.y))
+	DeepUi.facet(box)
+	canvas.draw_style_box(box, rect)
+	_glyph(canvas, "coin", rect.position + Vector2(11.0, rect.size.y * 0.5), 10.0, DeepUi.ACCENT)
+	canvas.draw_string(face, rect.position + Vector2(19.0, rect.size.y * 0.5 + text_size * 0.36), words, HORIZONTAL_ALIGNMENT_LEFT, -1, text_size, DeepUi.ACCENT_HI)
+	_hotspots.append({"rect": rect, "text": tip})
 
 func _carat_tip(key: String) -> String:
 	var band: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(DeepContent.mine(key), hazard), 1)

@@ -16,6 +16,7 @@ func _init() -> void:
 	_test_loopholes()
 	_test_insurance()
 	_test_coming_home()
+	_test_starters_and_new_delvers()
 	_test_commissions()
 	_test_no_profit()
 	_test_seam_and_fragile_find()
@@ -340,8 +341,12 @@ func _test_coming_home() -> void:
 		"players": {"a": {"haul": [first], "dice": [], "stats": {}, "rail": [], "ore": 237}}}
 	var applied: Dictionary = DeepProfile.apply_result(profile, result, "a")
 	check(not applied.has("assay"), "pyrite carried up is never weighed into gold")
-	check(applied.purses == [{"mine": "QUARRY", "gold": DeepEconomy.conquest_purse("QUARRY")}], "the Quarry's first conquest pays its purse")
-	check(int(profile.gold) == DeepEconomy.conquest_purse("QUARRY"), "and only the purse comes home as gold (%d)" % int(profile.gold))
+	var wardens_gold: int = DeepEconomy.warden_purse("QUARRY", 0) + DeepEconomy.warden_purse("QUARRY", 1)
+	check(DeepEconomy.warden_purse("QUARRY", 0) == 50 and DeepEconomy.warden_purse("QUARRY", 1) == 75 and DeepEconomy.warden_purse("QUARRY", 2) == 0, "the Quarry's Wardens pay 50 and 75 the first time they fall")
+	check(applied.purses == [{"mine": "QUARRY", "gold": 50, "warden": 0, "depth": 8}, {"mine": "QUARRY", "gold": 75, "warden": 1, "depth": 12}, {"mine": "QUARRY", "gold": DeepEconomy.conquest_purse("QUARRY")}],
+		"the Quarry's first conquest pays its purse, and each Warden its own: %s" % str(applied.purses))
+	check(int(profile.gold) == DeepEconomy.conquest_purse("QUARRY") + wardens_gold, "and only the purses come home as gold (%d)" % int(profile.gold))
+	check(profile.warden_paid == ["QUARRY:0", "QUARRY:1"], "the Wardens are written down as paid")
 	check(profile.tray.size() == 1 and not profile.vault.has("VENOM") and applied.kept.is_empty(), "the first stone of its skill waits on the tray to be kept or turned in")
 	check(int(profile.history.back().gold) == 0, "and the ledger records no gold for the run's pyrite")
 	var again: Dictionary = DeepProfile.apply_result(profile, result, "a")
@@ -351,9 +356,59 @@ func _test_coming_home() -> void:
 	var gold_before: int = int(profile.gold)
 	DeepProfile.apply_result(profile, lost, "a")
 	check(int(profile.gold) == gold_before, "a fall pays nothing")
+	## A Warden's purse comes home with a fall too, once, and a landing a floor off is still it.
+	var seeps: Dictionary = DeepProfile.new_profile("Warden")
+	var fell: Dictionary = {"run_id": "w1", "mine": "QUARRY", "outcome": "fallen", "depth": 10, "deepest": 10, "wardens": [9],
+		"mines": [{"mine": "QUARRY", "deepest": 10, "wardens": [9], "boss": false}], "players": {"a": {"haul": [], "dice": [], "stats": {}, "rail": [], "ore": 0}}}
+	var first_fall: Dictionary = DeepProfile.apply_result(seeps, fell, "a")
+	check(first_fall.purses == [{"mine": "QUARRY", "gold": 50, "warden": 0, "depth": 8}] and int(seeps.gold) == 50, "The Foreman's first fall pays 50, though the party fell: %s" % str(first_fall.purses))
+	check(DeepProfile.warden_purse_due(seeps, "QUARRY", 8) == 0 and DeepProfile.warden_purse_due(seeps, "QUARRY", 12) == 75 and DeepProfile.warden_purse_due(seeps, "QUARRY", 16) == 0,
+		"what is still due: the second Warden's, never the first's again, and the bottom is no Warden")
+	fell.run_id = "w2"
+	check(DeepProfile.apply_result(seeps, fell, "a").purses.is_empty() and int(seeps.gold) == 50, "and it pays once")
+	fell.run_id = "w3"
+	fell.hazard = 1
+	check(DeepProfile.apply_result(seeps, fell, "a").purses.is_empty(), "on any Hazard tier")
+	check(DeepEconomy.warden_purse("SEEPS", 0) > 50 and DeepEconomy.warden_purse("RIFT", 0) == 0, "a deeper mine's Wardens pay more; the Rift's none")
+	## An old save: a Warden beaten before Wardens paid counts as paid.
+	var older: Dictionary = DeepProfile.new_profile("Older")
+	older.erase("warden_paid")
+	older.mines.QUARRY.wardens = [7]
+	check(DeepProfile.upgrade(older) and older.warden_paid == ["QUARRY:0"], "a Warden beaten before purses counts as paid: %s" % str(older.get("warden_paid", [])))
 	## Asked to sell the first stone of a skill, the vault keeps it: it is never sold.
 	var kept: Dictionary = DeepProfile.decide_tray(profile, "venom_first", false)
 	check(kept.kept and profile.vault.has("VENOM"), "the first of a skill is never sold")
+
+func _test_starters_and_new_delvers() -> void:
+	## A starter color given up for good comes back as a plain 1 carat spare, set again where it was.
+	var profile: Dictionary = DeepProfile.new_profile("Spare")
+	check(DeepProfile.spare_starters(profile).is_empty(), "a vault with all three starter colors gets no spare")
+	var result: Dictionary = {"run_id": "s1", "mine": "QUARRY", "outcome": "fallen", "depth": 3, "deepest": 3, "wardens": [],
+		"mines": [{"mine": "QUARRY", "deepest": 3, "wardens": [], "boss": false}], "players": {"a": {"haul": [], "dice": [], "stats": {}, "rail": [], "ore": 0, "vault_spent": ["STRIKE"]}}}
+	DeepProfile.apply_result(profile, result, "a")
+	check(not profile.vault.has("STRIKE") and DeepProfile.loadout(profile, "ARDOR").rail[0] == null, "a Strike given up down the mine leaves the vault and the Red socket empty")
+	var given: Array = DeepProfile.spare_starters(profile)
+	check(given.size() == 1 and str(given[0].skill) == "STRIKE" and int(profile.vault.STRIKE.carat) == 1 and profile.vault.STRIKE.get("inclusions", []).is_empty(),
+		"the workshop gives back a plain 1 carat Strike: %s" % str(given))
+	check(DeepProfile.loadout(profile, "ARDOR").rail[0] is Dictionary and str(DeepProfile.loadout(profile, "ARDOR").rail[0].skill) == "STRIKE", "and it is in the Red socket again")
+	check(DeepProfile.spare_starters(profile).is_empty(), "once")
+	## Lost at the bench, the loadout let it go: the spare goes back into the empty Green socket.
+	DeepProfile.lose(profile, "MEND")
+	check(profile.characters.ARDOR.rail[2] == null, "a Mend lost at home leaves the Green socket empty")
+	check(DeepProfile.spare_starters(profile).size() == 1 and profile.characters.ARDOR.rail[2] == "MEND", "a spare Mend fills it again")
+	## Any stone of the color will do: no spare while another Red stone is kept.
+	DeepProfile.lose(profile, "STRIKE")
+	DeepProfile.keep(profile, stone("CLEAVE", 4, 2, 3, "cleave_spare"))
+	check(DeepProfile.spare_starters(profile).is_empty() and not profile.vault.has("STRIKE"), "a vault with another Red stone gets no spare Strike")
+	## A delver who joins sets their open sockets from the vault: starters first, colored sockets first.
+	var joined: Dictionary = DeepProfile.new_profile("Joined")
+	DeepProfile.keep(joined, stone("CLEAVE", 4, 2, 3, "cleave_j"))
+	DeepProfile.keep(joined, stone("DREAD", 3, 2, 3, "dread_j"))
+	DeepProfile.unlock_character(joined, "VESPER")
+	check(joined.characters.VESPER.rail.slice(0, 3) == ["STRIKE", "CLEAVE", "GUARD"], "Vesper joins with Strike and Cleave in her Red sockets and Guard in the open one: %s" % str(joined.characters.VESPER.rail))
+	DeepProfile.unlock_character(joined, "CADENCE")
+	check(joined.characters.CADENCE.rail.slice(0, 3) == ["STRIKE", null, "DREAD"], "Cadence joins with what fits her Red and Violet sockets: %s" % str(joined.characters.CADENCE.rail))
+	check(joined.characters.ARDOR.rail.slice(0, 3) == ["STRIKE", "GUARD", "MEND"], "and the first delver keeps every stone: they share the vault")
 
 # --- commissions --------------------------------------------------------------------------------
 
@@ -388,6 +443,8 @@ func _test_commissions() -> void:
 	check(DeepEconomy.meets({"skill": "STRIKE", "need": {"kind": "pure", "value": 4}}, stone("STRIKE", 1, 0, 4)) and not DeepEconomy.meets({"skill": "STRIKE", "need": {"kind": "pure", "value": 4}}, stone("STRIKE", 1, 0, 3)), "a clarity requirement")
 	check(DeepEconomy.meets({"skill": "STRIKE", "need": {"kind": "included", "value": 1}}, stone("STRIKE", 1, 0, 2, "inc", ["SILK"])) and not DeepEconomy.meets({"skill": "STRIKE", "need": {"kind": "included", "value": 1}}, stone("STRIKE")), "an inclusion requirement")
 	check(DeepEconomy.need_text({"kind": "carat", "value": 5}) == "5 carats or more" and DeepEconomy.need_text({"kind": "cut", "value": 2}) == "Good cut or better" and DeepEconomy.need_text({}) == "", "requirements read as words")
+	## The fourth Cut rung is Keen, so no Cut shares a word with the grade tiers (Rough, Fine, ...).
+	check(DeepEconomy.need_text({"kind": "cut", "value": 3}) == "Keen cut or better" and not DeepStone.TIER_NAMES.values().has(DeepContent.cut_name(3)), "the fourth Cut is Keen, a word no grade uses")
 	## Turning in: the stone is gone, the gold paid, the slot filled until tomorrow.
 	var target: Dictionary = today[0]
 	var offered: Dictionary = DeepEconomy.weakest(str(target.skill), target.need)
@@ -583,7 +640,7 @@ func _test_market() -> void:
 	var worst_cut: int = 9
 	for i in range(300):
 		worst_cut = mini(worst_cut, int(DeepEconomy.roll_geode_stone(rng, weekly_geode, "w%d" % i).cut))
-	check(worst_cut >= int(DeepContent.constant("geode_week_min_cut", 3)), "and is never cut worse than Fine (worst %d)" % worst_cut)
+	check(worst_cut >= int(DeepContent.constant("geode_week_min_cut", 3)), "and is never cut worse than Keen (worst %d)" % worst_cut)
 	check(DeepEconomy.geode_price(weekly_geode) > DeepEconomy.geode_price(daily_geode), "and costs more (%d against %d)" % [DeepEconomy.geode_price(weekly_geode), DeepEconomy.geode_price(daily_geode)])
 	## The case: three cut and read stones a day, never opals, Transcendents or fragile stones.
 	var shopper: Dictionary = DeepProfile.new_profile("Shopper")
@@ -691,6 +748,12 @@ func _test_market() -> void:
 	check(not show.is_empty() and show.size() <= 5, "the showcase holds up to five stones")
 	for i in range(show.size() - 1):
 		check(int(DeepStone.grade(show[i]).score) >= int(DeepStone.grade(show[i + 1]).score), "best first")
+	## A starred stone goes ahead of the rest, whatever its grade.
+	if show.size() > 1:
+		var lowest: String = str(show.back().get("skill", ""))
+		DeepProfile.toggle_favorite(shopper, lowest)
+		check(str(DeepProfile.showcase(shopper)[0].get("skill", "")) == lowest, "a starred stone leads the showcase")
+		DeepProfile.toggle_favorite(shopper, lowest)
 
 func _test_contracts() -> void:
 	var clear: int = DeepContent.clear_index()
@@ -1129,6 +1192,13 @@ func _test_daily_run() -> void:
 	fight_of(game_run, "", true)
 	var game: Dictionary = DeepDescent._settle_fight(game_run, "victory")
 	check(game.rewards.a.stones.all(func(s: Dictionary) -> bool: return bool(s.appraised)), "Big Game: what an elite drops comes out read")
+	## The first mine reads its elites' drops without the card; the next mine does not.
+	for entry in [["QUARRY", true], ["SEEPS", false]]:
+		var elite_run: Dictionary = DeepDescent.new_run(config(75, str(entry[0]), true))
+		fight_of(elite_run, "", true)
+		var dropped: Array = DeepDescent._settle_fight(elite_run, "victory").rewards.a.stones
+		check(not dropped.is_empty() and bool(dropped[0].get("appraised", false)) == bool(entry[1]),
+			"%s: an elite's stone comes out %s" % [str(entry[0]), "read" if bool(entry[1]) else "raw"])
 	var midas_run: Dictionary = daily_with(["MIDAS"], "LENT_RAIL", 74)
 	var usual_run: Dictionary = daily_with([], "LENT_RAIL", 74)
 	fight_of(midas_run)
@@ -1313,7 +1383,7 @@ func _test_daily_lobby() -> void:
 	root.add_child(locked)
 	locked.start_local({"name": "Bo", "character": "ARDOR", "rail": [], "dice": [], "gold": 0, "daily_state": "locked"})
 	locked.choose_daily("2026-10-10")
-	check(not locked.can_start(), "a host who has not beaten the Quarry cannot take a party down the day's seam")
+	check(locked.can_start(), "a host who has not beaten the Quarry may still take a party down the day's seam, unpaid")
 	locked.choose_daily("")
 	check(not locked.daily_lobby() and locked.can_start(), "and back to the map, the Quarry is free as ever")
 	locked.free()

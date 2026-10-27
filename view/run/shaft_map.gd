@@ -473,8 +473,8 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 	var ahead: Dictionary = facts.ahead
 	var lit_way: Dictionary = facts.lit_way
 	var picked: String = facts.picked
-	## The ways between chambers.
-	var visible_depth: int = mini(int(map.get("to", 0)), int(run.get("depth", 0)) + 1)
+	## The ways between chambers, drawn as far as the lantern (or a lit stretch) shows.
+	var visible_depth: int = mini(int(map.get("to", 0)), maxi(int(run.get("depth", 0)) + DeepDescent.lantern_reach(run), DeepDescent.lit_to(run)))
 	## Every way is drawn, down to the landing: the ones past the lantern only as faint lines
 	## between unknown chambers, so the shape of what is below can be read but not its rooms.
 	var sources: Array = ["head"] if here.is_empty() else []
@@ -507,7 +507,7 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 				_stroke(line, Color(DeepUi.ACCENT, 0.7) if on_way else Color(DeepUi.LINE_HI, 0.45 if lit_way.is_empty() else 0.22), 2.4 if on_way else 1.8)
 			else:
 				_stroke(line, Color(DeepUi.LINE_HI, 0.1), 1.4)
-	## Fog below the one-floor chart.
+	## Fog below what the lantern shows.
 	if not bool(map.get("lit", false)):
 		var fog_top: float = _fog_top()
 		var fog_full: float = fog_top + _step * 0.7

@@ -15,6 +15,10 @@ const BattleScreen = preload("res://view/battle/battle_screen.gd")
 
 ## How many vault stones the socket picker shows a page: three rows.
 const PICK_PAGE: int = 42
+## When a click set a stone in the picked socket: the grid is drawn again at once, so the
+## second press of a double-click lands on whatever tile now stands under the pointer, and
+## must not set that one as well.
+static var _set_at_msec: int = -100000
 
 static func build(home: Control, content: VBoxContainer) -> void:
 	var current: String = str(home.profile.get("current_character", DeepContent.starter_character()))
@@ -169,11 +173,12 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 		var tier_row := DeepUi.hbox(birth_box, 10)
 		tier_row.mouse_filter = Control.MOUSE_FILTER_PASS
 		var mark := DeepUi.center(tier_row)
-		mark.custom_minimum_size.x = 56 if die.is_empty() else 72
+		## Marks at 20 with their words at the text floor ("d4/d12 ×5" was 9 px at 14).
+		mark.custom_minimum_size.x = 92 if die.is_empty() else 100
 		if DiceIcons.ladder_rung(tier, die) > 0:
-			DiceIcons.build_ladder(mark, [tier], die, DiceIcons.ladder_rung(tier, die), 14, DeepUi.MUTED, DeepUi.DIM)
+			DiceIcons.build_ladder(mark, [tier], die, DiceIcons.ladder_rung(tier, die), 20, DeepUi.MUTED, DeepUi.DIM)
 		else:
-			DiceIcons.build(mark, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 14, DeepUi.MUTED, str(tier.get("text", "")))
+			DiceIcons.build(mark, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 20, DeepUi.MUTED, str(tier.get("text", "")))
 		var words := DeepUi.vbox(tier_row, 1)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.label(words, str(tier.get("name", "")), 13, DeepUi.PAPER)
@@ -181,9 +186,14 @@ static func _dossier(home: Control, content: VBoxContainer, key: String, unlocke
 	var actions := DeepUi.hbox(box, 12)
 	## The face they pull when the Birthstone fires sits at the foot of the card, beside the
 	## buttons: the Birthstone's column is the tallest on the page and has no line to spare.
-	var face: String = str(character.get("birthstone", {}).get("face", ""))
-	if not face.is_empty():
-		DeepUi.stat(actions, "eye", face, DeepUi.DIM, 11, "The face they pull when the Birthstone fires")
+	## The face itself, not words for it (a line of stage directions read as a stray note).
+	## A locked delver's would give their face away, so only an unlocked one shows it.
+	if unlocked and Roster.Portrait.face(key, "birthstone") != null:
+		var face := Roster.Portrait.new(key, Vector2(40, 40))
+		face.mood = "birthstone"
+		face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		face.tooltip_text = "The face %s pulls when %s fires" % [str(character.get("name", key)), str(stone.get("name", "the Birthstone"))]
+		actions.add_child(face)
 	DeepUi.spacer(actions)
 	if not unlocked:
 		var where: String = DeepProfile.lapidary_boss_mine(key)
@@ -265,6 +275,12 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 			else:
 				rest.append(s)
 		stones = fits + rest
+	## A stone the Vault sent ("Socket it") goes first, on the first page.
+	if not home._socket_ready.is_empty():
+		for at in range(stones.size()):
+			if str(stones[at].skill) == home._socket_ready:
+				stones.push_front(stones.pop_at(at))
+				break
 	var pager_row := DeepUi.hbox(tray_box, 8)
 	tray_box.add_child(flow)
 	if home.profile.get("vault", {}).is_empty():
@@ -283,6 +299,8 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 		tile.mouse_default_cursor_shape = Control.CURSOR_DRAG
 		if in_rail:
 			home.tile_mark(tile, "check", DeepUi.GOOD, "Already set")
+		elif chosen_key == home._socket_ready:
+			home.tile_mark(tile, "spark", DeepUi.ACCENT, ("From the vault: click it to set it in socket %d" % (home._bench_socket + 1)) if home._bench_socket >= 0 else "From the vault: double-click it to set it")
 		var shown_stone: Dictionary = stone
 		tile.mouse_entered.connect(func() -> void: home.hover_stone(tile, shown_stone, against))
 		home.wire(tile, {"kind": "loadout_stone", "skill": chosen_key, "from_socket": -1}, func() -> Control: return Thumbs.GemThumb.new(shown_stone, 64), Callable(), Callable())
@@ -291,10 +309,13 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 			if not event is InputEventMouseButton or event.button_index != MOUSE_BUTTON_LEFT:
 				return
 			if event.pressed and event.double_click:
+				if Time.get_ticks_msec() - _set_at_msec < 700:
+					return
 				var target: int = home._bench_socket if home._bench_socket >= 0 and fits else _empty_fit(home, character_key, chosen_key)
 				if target >= 0:
 					home.set_socket(character_key, target, chosen_key, "dice_lock")
 			elif not event.pressed and fits and home._bench_socket >= 0:
+				_set_at_msec = Time.get_ticks_msec()
 				home.set_socket(character_key, home._bench_socket, chosen_key, "dice_lock"))
 		if fits and home._bench_socket >= 0:
 			tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -384,7 +405,8 @@ static func _socket_slot(home: Control, parent: Node, index: int, socket_color: 
 		DeepUi.label(box, str(DeepStone.skill_of(stone).get("name", "")), 14, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 		var trigger_row := DeepUi.hbox(box, 0)
 		trigger_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		DiceIcons.build(trigger_row, DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(DeepStone.effective(stone, {}).cut_step)), 15, DeepUi.MUTED)
+		## When it fires, the only such line under the stone: light, at the text floor.
+		DiceIcons.build(trigger_row, DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(DeepStone.effective(stone, {}).cut_step)), 22, DeepUi.PAPER.darkened(0.12))
 		var remove := DeepUi.icon_button(slot, "cross_out", "", func() -> void: home.set_socket(character_key, socket_index, null, ""), 10, DeepUi.MUTED)
 		DeepUi.voice(remove, "ui_back")
 		remove.tooltip_text = "Take the stone out"

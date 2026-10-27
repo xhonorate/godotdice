@@ -45,7 +45,7 @@
     "endless_warden_every": 8,
     "enrage_turn": 7,
     "enrage_damage": 2,
-    "appraise_ore_cost": 50,
+    "appraise_ore_cost": 25,
     "appraise_gold_min": 12,
     "appraise_gold_mult": 2.0,
     "appraise_cost_step": 50,
@@ -155,7 +155,7 @@
     },
     {
       "key": "FINE",
-      "name": "Fine",
+      "name": "Keen",
       "weight": 15
     },
     {
@@ -4899,7 +4899,7 @@
       "name": "Golden",
       "key": "golden",
       "rarity": "UNCOMMON",
-      "text": "Pays pyrite every time it is rolled."
+      "text": "Pays 2 pyrite every time it is rolled."
     },
     "TALLY": {
       "name": "Tally",
@@ -5041,7 +5041,7 @@
       "rarity": "UNCOMMON",
       "hue": "e6c65a",
       "edge": "7a5f18",
-      "text": "Pays pyrite every time it is thrown."
+      "text": "Pays 2 pyrite every time it is thrown."
     },
     "GRANITE": {
       "name": "Granite",
@@ -5696,7 +5696,7 @@
       "name": "Pick of Three",
       "group": "stone",
       "needs": "pick",
-      "text": "Choose one of three raw stones from depth 4, each a different color. It's appraised right away and can go straight onto your rail.",
+      "text": "Choose one of three raw stones from depth 4, each a different color. It's appraised right away and can go straight onto your rail if its skill isn't there already.",
       "effects": [
         {
           "kind": "pick_stone",
@@ -10082,6 +10082,7 @@
       "next": "SEEPS",
       "lapidary": "",
       "luck": -1,
+      "elite_drops_read": true,
       "carat": {
         "soft": 5,
         "cap": 7
@@ -10891,7 +10892,7 @@
     },
     "OLD_PROSPECTOR": {
       "name": "The Old Prospector",
-      "text": "An old prospector offers to swap one of his raw stones for one of yours. His is heavier, but he won't let you look at it first.",
+      "text": "An old prospector offers to swap one of his raw stones for one of yours. His may be heavier, never lighter, but he won't let you look at it first.",
       "choices": [
         {
           "id": "trade",
@@ -11131,7 +11132,7 @@
         {
           "id": "hammer",
           "label": "Hammer a die bigger",
-          "text": "Raise one tier: d2, d3, d4, d6, d8, d10, d12, d16, d20, d24, d30, d40, d50, d60, d100. Its pattern is reapplied to the new faces. Etchings and material are kept.",
+          "text": "Raise one tier, up to a d100. A d6 becomes a d8, and a d20 becomes a d24. Its pattern is reapplied to the new faces. Etchings and material are kept.",
           "needs": "die",
           "action": {
             "kind": "upsize"
@@ -11838,7 +11839,7 @@
       "name": "Restless Rock",
       "kind": "twist",
       "glyph": "swirl",
-      "text": "At every landing, each stone on your rail changes to another skill of its color."
+      "text": "At every landing, the stones on your rail may change to another skill of their color."
     },
     "BIG_GAME": {
       "name": "Big Game",

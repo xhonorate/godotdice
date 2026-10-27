@@ -1801,6 +1801,24 @@ static func _ui_shapes(glyph: String) -> Array:
 				{"op": "sub", "poly": _rect(0.32, 0.41, 0.68, 0.78)},
 				{"op": "add", "poly": _poly([[0.50, 0.44], [0.61, 0.60], [0.58, 0.73], [0.42, 0.73], [0.39, 0.60]])},
 				{"op": "add", "poly": _rect(0.16, 0.84, 0.84, 0.95)}]
+		"pick_lantern":
+			# The Old Prospector's mark: his pick at a tilt and his lamp at its foot, cut clear of
+			# the pick by a narrow gap. It took over from the plain figure, which stays the
+			# Delvers' mark, so the card has a face of its own.
+			var shapes: Array = _moved(_turned(_ui_shapes("pick"), deg_to_rad(-18.0)), Vector2(-0.02, 0.08), 0.80)
+			var lamp: Array = _moved(_ui_shapes("lantern"), Vector2(0.46, 0.44), 0.52)
+			for shape in lamp:
+				if shape.op != "add":
+					continue
+				if shape.has("circle"):
+					var circle: Array = shape.circle
+					shapes.append({"op": "sub", "circle": [circle[0], circle[1], float(circle[2]) + 0.036]})
+				else:
+					shapes.append({"op": "sub", "poly": shape.poly})
+					var outline: Array = Array(shape.poly)
+					outline.append(shape.poly[0])
+					shapes.append_array(_stroke(outline, 0.072, "sub"))
+			return shapes + lamp
 		"gear":
 			var teeth: Array = [ {"op": "add", "circle": [0.5, 0.5, 0.31]}]
 			for index in range(8):

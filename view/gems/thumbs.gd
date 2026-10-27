@@ -77,7 +77,10 @@ static func request(key: String, kind: String, data: Dictionary, callback: Calla
 		return null
 	if not _waiting.has(key):
 		_waiting[key] = []
-		node.call("_enqueue", {"key": key, "kind": kind, "data": data})
+		## A copy: the photograph is of the thing as it was when its key was taken, not as it is
+		## by the time a station comes free. A stone read at the tray in between came out cut
+		## and emblemed under its raw key, on the raw stone's row.
+		node.call("_enqueue", {"key": key, "kind": kind, "data": data.duplicate(true)})
 	_waiting[key].append(callback)
 	return null
 
@@ -185,7 +188,7 @@ func _shoot(station: Dictionary, job: Dictionary) -> void:
 		var pivot: Node3D = view.get("_pivot")
 		if pivot != null:
 			var target: Quaternion = view.call("_orientation", int(job.data.get("face", 0)))
-			pivot.quaternion = Quaternion.from_euler(Vector3(-0.42, 0.52, 0.0)) * target
+			pivot.quaternion = Quaternion.from_euler(DiceView.tilt_for(str(view.call("_shape")))) * target
 	var viewport := _viewport_of(view)
 	if viewport != null:
 		viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -214,6 +217,9 @@ class GemThumb extends Control:
 	## What the rail is handing this stone where it stands, so the close look can read out the
 	## ranks it really has rather than the ones it was cut with.
 	var context: Dictionary = {}
+	## What else its close look is opened with, where the place it stands has more to say (the
+	## Market's case: its price and a Buy).
+	var inspect_opts: Dictionary = {}
 	var _texture: Texture2D = null
 	var _fade: float = 0.0
 	var _hover: float = 0.0
@@ -243,6 +249,8 @@ class GemThumb extends Control:
 		custom_minimum_size = Vector2(edge, edge)
 		mouse_filter = Control.MOUSE_FILTER_PASS
 		clip_contents = false
+		## Drawn again when the color marks are switched (Settings > Comfort).
+		add_to_group(DeepUi.MARKED_GROUP)
 		mouse_entered.connect(func() -> void:
 			_hovering = true
 			_hover_time = 0.0
@@ -257,7 +265,10 @@ class GemThumb extends Control:
 	func _gui_input(event: InputEvent) -> void:
 		## Right-click anywhere a stone is shown opens the close look.
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and not stone.is_empty():
-			load("res://view/inspect/inspector.gd").stone(stone, {"context": context})
+			var opts: Dictionary = inspect_opts.duplicate()
+			if not opts.has("context"):
+				opts["context"] = context
+			load("res://view/inspect/inspector.gd").stone(stone, opts)
 			accept_event()
 
 	func configure(new_stone: Dictionary) -> void:
@@ -366,12 +377,15 @@ class GemThumb extends Control:
 			return
 		var view: Control = GemView.new()
 		view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		view.set_drift(true)
 		view.set_spin(0.9)
 		view.configure(stone)
 		view.modulate.a = 0.0
 		add_child(view)
+		## GemView._ready makes itself PASS, so this is set after add_child: the live copy never
+		## takes the pointer, or its engine tooltip would show over this thumb's own plate.
+		view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		view.tooltip_text = ""
 		## Its own halo would double the one drawn here.
 		var halo: Node = view.get("_glow")
 		if halo is CanvasItem:
@@ -416,6 +430,23 @@ class GemThumb extends Control:
 				draw_line(at - Vector2(arm, 0), at + Vector2(arm, 0), Color(1, 1, 1, 0.85 * bright), 1.5, true)
 				draw_line(at - Vector2(0, arm), at + Vector2(0, arm), Color(1, 1, 1, 0.85 * bright), 1.5, true)
 				draw_texture_rect(DeepUi.glow_texture(), Rect2(at - Vector2(arm, arm) * 0.5, Vector2(arm, arm)), false, Color(1, 1, 1, 0.9 * bright))
+		_draw_mark(edge, centre)
+
+	func _draw_mark(edge: float, centre: Vector2) -> void:
+		## The color's mark at the foot of the right-hand corner (Settings > Comfort > Color
+		## marks). A stone wears its color's cut already, but in the rock, small or badly cut
+		## the shape is lost. Not on a stone of several colors (its own cut says so) or one too
+		## small to hold it (a Void rider's chip). Not on a Birthstone either, which is no color
+		## and goes in no colored socket, nor on a Geode that does not say its color: either
+		## would read as White.
+		if not DeepUi.color_marks or edge < 36.0 or stone.is_empty():
+			return
+		if DeepStone.skill_of(stone).get("colors", []).size() > 1 or DeepStone.is_birthstone(stone):
+			return
+		if DeepStone.is_geode(stone) and str(stone.geode.get("kind", "")) != "color":
+			return
+		var radius: float = clampf(edge * 0.13, 6.0, 10.0)
+		DeepUi.draw_color_mark(self, centre + Vector2(edge, edge) * 0.5 - Vector2(radius, radius), radius, DeepStone.color(stone))
 
 	func _draw_outline(centre: Vector2, radius: float, alpha: float) -> void:
 		if _sketch_loop.is_empty():
@@ -485,7 +516,8 @@ class GemThumb extends Control:
 		return mesh
 
 class DieThumb extends Control:
-	## A die's picture, three-quarter on so its shape reads, showing one face.
+	## A die's picture, showing one face nearly straight on (the fight's dice rest at the same
+	## slight turn, `DiceView.tilt_for`), with a sliver of its sides so its shape reads.
 	var die: Dictionary = {}
 	var face: int = 0
 	var _texture: Texture2D = null

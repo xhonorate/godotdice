@@ -109,12 +109,40 @@ static func silhouette(shape: String) -> Dictionary:
 static func face(edge: float, value: int, tone: Color, shape := "D6", filled := false, text: String = "") -> Face:
 	return Face.new(edge, value, tone, silhouette(shape), filled, text)
 
+static func readable_face(edge: float, value: int, tone: Color, shape := "D6", filled := false, text: String = "") -> Face:
+	## A face whose number (or a die's size, "d4") is set no smaller than the text floor
+	## (`DeepUi.min_text`), like every label: the face is drawn larger than `edge` when that is
+	## what it takes to hold it inside its own outline. A d4's triangle grows the most.
+	var drawn := Face.new(edge, value, tone, silhouette(shape), filled, text)
+	drawn.readable = true
+	var fitted: float = drawn.edge_to_hold(edge)
+	drawn.custom_minimum_size = Vector2(fitted, fitted)
+	return drawn
+
+## What `fit_edge` worked out, by face, text and floor: a d100's plate asks a hundred times.
+static var _fitted: Dictionary = {}
+
+static func fit_edge(edge: float, shape: String, text: String) -> float:
+	## How big a readable face of `shape` must be drawn to hold `text`, from `edge` up. A row
+	## of faces sized to the largest of these keeps one size whatever each one shows.
+	var key: String = "%s|%s|%d|%d" % [shape, text, int(edge), DeepUi.min_text()]
+	if _fitted.has(key):
+		return float(_fitted[key])
+	var probe := Face.new(edge, 0, Color.WHITE, silhouette(shape), false, text)
+	probe.readable = true
+	var fitted: float = probe.edge_to_hold(edge)
+	probe.free()
+	_fitted[key] = fitted
+	return fitted
+
 class Face extends Control:
 	## One die face drawn flat: the solid's own silhouette with its value on it.
 	var value := 1
 	var tone := Color("d8dce6")
 	var shape := "D6"
 	var text := ""
+	## Kept to the text floor (`readable_face`): its number is never drawn under it.
+	var readable := false
 	var _points: Array = []
 	var _font_scale := 0.58
 	var _middle := 0.5
@@ -153,11 +181,51 @@ class Face extends Control:
 		if text.is_empty():
 			return
 		var font: Font = DeepUi.bold_font()
-		var scale: float = _font_scale * minf(1.0, 1.4 / maxf(1.0, text.length()))
-		var font_size := maxi(7, int(size.y * scale))
+		var font_size := text_size(size.y)
 		var measured := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 		var baseline := size.y * _middle + (font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
 		draw_string(font, Vector2((size.x - measured.x) * 0.5, baseline), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _ink)
+
+	func text_size(edge: float) -> int:
+		## The size its text is drawn at on a face `edge` tall: a share of the face, less for a
+		## longer number, and on a readable face never under the floor.
+		var scale: float = _font_scale * minf(1.0, 1.4 / maxf(1.0, text.length()))
+		var drawn: int = maxi(7, int(edge * scale))
+		return maxi(drawn, DeepUi.min_text()) if readable else drawn
+
+	func holds(edge: float) -> bool:
+		## Whether its text, at the size it is drawn on a face `edge` tall, stays inside the
+		## outline: the outline must be as wide as the text at both its top and its foot.
+		if text.is_empty():
+			return true
+		var font: Font = DeepUi.bold_font()
+		var font_size: int = text_size(edge)
+		var wide: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 1.0
+		var foot: float = edge * _middle + (font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
+		## Digits and a "d" stand about this much of the size over the baseline.
+		var top: float = foot - float(font_size) * 0.72
+		return _across(top, edge) >= wide and _across(foot, edge) >= wide and top >= 0.0 and foot <= edge
+
+	func edge_to_hold(edge: float) -> float:
+		## The smallest edge from `edge` up (to twice it) whose outline holds its text.
+		var at: float = edge
+		while at < edge * 2.0 and not holds(at):
+			at += 1.0
+		return at
+
+	func _across(y: float, edge: float) -> float:
+		## How wide the outline is `y` down a face `edge` tall.
+		var low: float = INF
+		var high: float = -INF
+		for i in range(_points.size()):
+			var a: Vector2 = Vector2(_points[i]) * edge
+			var b: Vector2 = Vector2(_points[(i + 1) % _points.size()]) * edge
+			if is_equal_approx(a.y, b.y) or (a.y - y) * (b.y - y) > 0.0:
+				continue
+			var x: float = lerpf(a.x, b.x, (y - a.y) / (b.y - a.y))
+			low = minf(low, x)
+			high = maxf(high, x)
+		return high - low if high > low else 0.0
 
 # --- triggers as pictographs ------------------------------------------------------------
 
@@ -204,7 +272,8 @@ static func build(parent: Node, described: Dictionary, edge: float, tint: Color 
 	if not label.is_empty():
 		var words := Label.new()
 		words.text = label
-		words.add_theme_font_size_override("font_size", maxi(9, int(edge * 0.62)))
+		## Kept to the text floor like any label ("+2", "4+", "≤3" under a socket were 9 px).
+		DeepUi.set_text_size(words, int(edge * 0.62))
 		words.add_theme_color_override("font_color", tint)
 		words.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -358,13 +427,13 @@ static func build_strip(parent: Node, spec: Dictionary, edge: float, tooltip: St
 	if not lead.is_empty():
 		var label := Label.new()
 		label.text = lead
-		label.add_theme_font_size_override("font_size", maxi(9, int(edge * 0.55)))
+		DeepUi.set_text_size(label, int(edge * 0.55))
 		label.add_theme_color_override("font_color", LEAD_TONE)
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(label)
 	for entry in spec.get("faces", []):
-		row.add_child(face(edge, int(entry[0]), Color(entry[1])))
+		row.add_child(readable_face(edge, int(entry[0]), Color(entry[1])))
 	return row
 
 static func _spec(faces: Array, lead: String, note: String) -> Dictionary:

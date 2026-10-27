@@ -107,9 +107,15 @@ static func _member_row(home: Control, box: VBoxContainer, id: String) -> void:
 	row.add_child(Roster.Portrait.new(character, Vector2(40, 40)))
 	var words := DeepUi.vbox(row, 0)
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var named := DeepUi.label(words, str(member.get("name", id)) + (" (you)" if id == home.local_id else ""), 15, DeepUi.PAPER)
+	## Named as the party sees them ("Player 2" when two share a name), your own marked YOU
+	## before it, as on the seat tabs in a run.
+	var line := DeepUi.hbox(words, 6)
+	if id == home.local_id:
+		DeepUi.you_badge(line)
+	var named := DeepUi.label(line, home.member_name(id), 15, DeepUi.PAPER)
 	named.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	named.custom_minimum_size.x = 150
+	named.custom_minimum_size.x = 110
+	named.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DeepUi.label(words, DeepContent.character_title(character), 12, DeepUi.MUTED)
 	var mark: Array = standing(home, id)
 	DeepUi.pill(row, str(mark[0]), str(mark[2]), mark[1], 11)
@@ -122,7 +128,7 @@ static func _member_row(home: Control, box: VBoxContainer, id: String) -> void:
 	look.disabled = shown.is_empty()
 	if home.is_host and id != home.local_id:
 		var kick := DeepUi.icon_button(row, "cross_out", "", func() -> void: home.kick_requested.emit(id), 12, DeepUi.BAD)
-		kick.tooltip_text = "Send %s back to their own workshop" % str(member.get("name", id))
+		kick.tooltip_text = "Send %s back to their own workshop" % home.member_name(id)
 
 static func _showcase_panel(home: Control, column: HBoxContainer) -> void:
 	## Another member's best stones, as they showed them to the party.
@@ -134,7 +140,7 @@ static func _showcase_panel(home: Control, column: HBoxContainer) -> void:
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var box := DeepUi.vbox(card, 10)
-	DeepUi.section(box, "star", "%s's showcase" % str(member.get("name", id)))
+	DeepUi.section(box, "star", "%s's showcase" % home.member_name(id))
 	if stones.is_empty():
 		DeepUi.label(box, "Nothing kept yet.", 13, DeepUi.DIM)
 	for stone in stones:
@@ -195,9 +201,32 @@ static func _play_together(home: Control, box: VBoxContainer) -> void:
 			button.disabled = in_party
 			if in_party:
 				button.tooltip_text = first
+		## Hosting alone already: hosting the same way again would only reopen the same lobby.
+		## Join stays, to go to a friend's party instead.
+		if home.is_host and home.status == "hosting" and home.invite_code.is_empty():
+			host_lan.disabled = true
+			host_lan.tooltip_text = "You are already hosting on your network."
+		if home.is_host and (home.status == "opening" or not home.invite_code.is_empty()):
+			host_steam.disabled = true
+			host_steam.tooltip_text = "You are already hosting a Steam lobby."
 		DeepUi.wrap(box, "Friends join a Steam lobby from the overlay's invite list, from Join Game in the friends list, or by pasting its ID above.", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, 430)
 	if home.status not in ["local", "offline"]:
 		var hosting: bool = home.is_host
-		var out := DeepUi.icon_button(box, "prev", "Close the party" if hosting else "Leave the party", func() -> void: home.leave_party_requested.emit(), 13, DeepUi.MUTED)
+		## A door in warning red, like the menu's, so it does not read as closing this popup.
+		var out := DeepUi.icon_button(box, "door", "Close the party" if hosting else "Leave the party", Callable(), 13, DeepUi.BAD)
 		out.size_flags_horizontal = Control.SIZE_SHRINK_END
 		out.tooltip_text = "Everyone goes back to their own workshop." if hosting else "Back to a workshop of your own."
+		## A host with friends in the party clicks twice: the first click only asks.
+		var ask_first: bool = hosting and in_party
+		if ask_first:
+			out.tooltip_text = "Everyone goes back to their own workshop. Click twice to close."
+		out.pressed.connect(func() -> void:
+			if ask_first and not bool(out.get_meta("armed", false)):
+				out.set_meta("armed", true)
+				out.text = "Close it for everyone?"
+				out.get_tree().create_timer(3.0).timeout.connect(func() -> void:
+					if is_instance_valid(out):
+						out.set_meta("armed", false)
+						out.text = "Close the party")
+				return
+			home.leave_party_requested.emit())

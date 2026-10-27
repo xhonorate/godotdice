@@ -158,8 +158,10 @@ func play(tally: Dictionary) -> void:
 			timeline.tween_callback(_reveal_base).set_delay(0.0)
 			dice_add = true
 		elif not dice_add:
-			## Not a sum the dice will build: no running count to start from.
-			_base_label.text = "–"
+			## Not a sum the dice will build: the skill's own number waits in the box, dimmed,
+			## and lights when the dice wake it. A dash there read as nothing, or as broken.
+			_base_label.text = DeepUi.number(int(tally.get("link", {}).get("from", tally.get("base", 0))))
+			_base_box.modulate = Color(1, 1, 1, 0.45)
 	if not dice.is_empty():
 		var gap: float = DeepBattle.tally_die_gap(dice.size()) * _pace
 		for i in range(dice.size()):
@@ -443,7 +445,9 @@ func _die_landed(value: int, adds: bool) -> void:
 
 func _reveal_base() -> void:
 	## The dice have woken the gem; the number is its own (or the face of their set, which
-	## the skill is about to take so many times over).
+	## the skill is about to take so many times over), lit now.
+	if _base_box != null:
+		_base_box.modulate = Color.WHITE
 	_set_base(int(_tally.get("link", {}).get("from", _tally.get("base", 0))))
 	_voice(tick, _centre(_base_box), 0.55)
 	_step += 1

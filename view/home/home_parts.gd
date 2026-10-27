@@ -4,6 +4,7 @@ extends RefCounted
 ## small count a tab carries when something there wants looking at.
 
 const GemView = preload("res://view/gems/gem_view.gd")
+const Thumbs = preload("res://view/gems/thumbs.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
@@ -13,15 +14,22 @@ const Geode = preload("res://view/gems/geode.gd")
 
 
 class Showcase extends Control:
-	## One stone, live, under a lamp on a velvet pad, turning slowly in its light.
+	## One stone under a lamp on a velvet pad. Live, it turns slowly in its light the whole
+	## time; not live (`live` false), it is a photograph that comes alive only while the
+	## pointer rests on it. A page with several lamps (the Market's case) built a 3D world for
+	## each on every visit and drew every one of them on every frame.
 	var _clock: float = 0.0
 	var _tone: Color
 	var _view: Control
-	func _init(stone: Dictionary, edge: float, wide: float = 1.6) -> void:
+	func _init(stone: Dictionary, edge: float, wide: float = 1.6, live: bool = true) -> void:
 		custom_minimum_size = Vector2(edge * wide, edge)
 		mouse_filter = Control.MOUSE_FILTER_PASS
 		_tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if bool(stone.get("appraised", true)) else DeepUi.color(DeepStone.color(stone))
-		var view := GemView.new()
+		var view: Control = null
+		if live:
+			view = GemView.new()
+		else:
+			view = Thumbs.GemThumb.new()
 		_view = view
 		var reach: float = edge * 0.8
 		view.anchor_left = 0.5
@@ -30,17 +38,23 @@ class Showcase extends Control:
 		view.offset_right = reach * 0.5
 		view.offset_top = edge * 0.06
 		view.offset_bottom = edge * 0.06 + reach
-		view.set_drift(true)
-		view.set_spin(0.35)
-		view.inspectable = true
-		view.configure(stone)
-		view.enable_interaction()
+		if live:
+			view.call("set_drift", true)
+			view.call("set_spin", 0.35)
+			view.set("inspectable", true)
+			view.call("configure", stone)
+			view.call("enable_interaction")
+		else:
+			view.call("configure", stone)
 		add_child(view)
 	func show_stone(stone: Dictionary) -> void:
 		## Another stone under the same lamp, in the same light.
 		_tone = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if bool(stone.get("appraised", true)) else DeepUi.color(DeepStone.color(stone))
 		_view.call("configure", stone)
 		queue_redraw()
+	func inspect_with(opts: Dictionary) -> void:
+		## What its close look (a right-click on the stone) is opened with.
+		_view.set("inspect_opts", opts)
 	func _process(delta: float) -> void:
 		_clock += delta
 		queue_redraw()

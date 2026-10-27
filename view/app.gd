@@ -33,6 +33,9 @@ var _refreshes: int = 0
 var _home_held: int = 0
 ## Every "run_id:mine" whose final boss this lapidary has seen fall; see `_note_conquest`.
 var _conquests: Dictionary = {}
+## True for the frame between the Descend click putting the cage up and the run's screen
+## being built behind it; see `_on_run_started`.
+var _behind_cage: bool = false
 const WON_BEAT: float = 2.8
 ## A change made by looking (a stone seen) waits this long to be saved, so a sweep of the
 ## pointer over new tiles is one write; see `_touched`.
@@ -67,7 +70,9 @@ func _ready() -> void:
 		profile = DeepProfile.migrate(profile)
 		saves.save_profile(profile)
 	var upgraded: bool = DeepProfile.upgrade(profile)
-	if DeepProfile.tidy(profile) or upgraded or DeepEconomy.roll_day(profile):
+	## A starter color given up for good before spares were handed back comes back now.
+	var spared: bool = not DeepProfile.spare_starters(profile).is_empty()
+	if DeepProfile.tidy(profile) or upgraded or spared or DeepEconomy.roll_day(profile):
 		saves.save_profile(profile)
 	Inspector.vault = profile.get("vault", {})
 	session = DeepSession.new()
@@ -152,6 +157,9 @@ func _ready() -> void:
 	var checkpoint: Dictionary = saves.load_checkpoint()
 	if bool(checkpoint.get("ok", false)):
 		session.resume_run(checkpoint.run, checkpoint.lobby)
+		## The run is only saved at a tunnel or a landing, so say so: a room under way starts over.
+		## A frame later, so it stands over the run and not under its dock.
+		toast.call_deferred("Picked up where the expedition was saved, at the last tunnel or landing. A room you were in starts over.", DeepUi.MUTED, "lift")
 	else:
 		_refresh_home()
 	_prewarm.call_deferred()
@@ -192,25 +200,31 @@ func _prewarm() -> void:
 			Thumbs.request(Thumbs.gem_key(stone), "gem", {"stone": stone}, func(_texture: Texture2D) -> void: pass)
 	for die in loadout.dice:
 		Thumbs.request(Thumbs.die_key(die, 0), "die", {"die": die, "face": 0}, func(_texture: Texture2D) -> void: pass)
+	## And the Market's Geodes and case, whose first open compiled the Geode's drawing.
+	if home != null:
+		home.prewarm()
 
 func member() -> Dictionary:
 	var character_key: String = str(profile.get("current_character", DeepContent.starter_character()))
 	var loadout: Dictionary = DeepProfile.loadout(profile, character_key)
-	## The last run's depth and ending decide the Grubstake: a lapidary who fell early is
-	## shown mercy.
+	## The last run's depth and ending decide the Grubstake: a lapidary who fell early, or
+	## short of a mine's first Warden they have never beaten, is shown mercy.
 	var history: Array = profile.get("history", [])
 	var last: Dictionary = history[history.size() - 1] if not history.is_empty() else {}
 	return {"name": str(profile.get("name", DeepProfile.DEFAULT_NAME)), "character": character_key, "rail": loadout.rail, "dice": loadout.dice, "id": str(profile.get("id", "")),
-		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")),
+		"last_depth": int(last.get("depth", 0)), "last_outcome": str(last.get("outcome", "")), "last_warden_unbeaten": DeepBoons.warden_unbeaten(profile, last),
 		"gold": int(profile.get("gold", 0)), "insured": bool(profile.get("outfit", {}).get("insure", false)), "sockets": DeepProfile.open_sockets(profile, character_key),
 		"daily_state": DeepEconomy.daily_state(profile), "showcase": DeepProfile.showcase(profile),
 		"hazard_top": DeepProfile.hazard_top(profile), "hazard_open": DeepProfile.open_mines(profile, DeepProfile.hazard_top(profile))}
 
 func _kit(loadout: Dictionary) -> Dictionary:
 	## What the lobby is told whenever the profile changes: who goes down, wearing what,
-	## whether they can pay their own way, and whether today's seam would pay them.
+	## whether they can pay their own way, and whether today's seam would pay them. And how the
+	## last run ended: without it the Grubstake's mercy went by the run before the game was
+	## started, never the fall just come home from.
 	var fields: Dictionary = {}
-	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase", "hazard_top", "hazard_open"]:
+	for key in ["character", "rail", "dice", "gold", "insured", "sockets", "daily_state", "showcase", "hazard_top", "hazard_open",
+			"last_depth", "last_outcome", "last_warden_unbeaten"]:
 		fields[key] = loadout[key]
 	return fields
 
@@ -321,32 +335,61 @@ func _on_invited(lobby_id: String) -> void:
 
 func _on_run_started(state: Dictionary) -> void:
 	_save_touched()
+	## Said once the run's screen is up (below), so it stands over the room and not in its dock.
+	var said: Array = []
 	## Each lapidary pays their own way down, once, as the run reaches them.
 	var paid: Dictionary = DeepEconomy.charge_departure(profile, state, session.local_id)
 	if not paid.is_empty():
 		saves.save_profile(profile)
 		if int(paid.get("paid", 0)) > 0:
-			toast("Paid %d gold for the way down" % int(paid.paid), DeepUi.ACCENT, "coin")
+			## Name the insurance when it was paid in full, so a free fare does not read as 15 for the way down.
+			var fare_paid: int = int(paid.get("fare", 0))
+			var cover: int = int(paid.get("insurance", 0))
+			var words: String = "Paid %d gold for the way down" % int(paid.paid)
+			if cover > 0 and int(paid.paid) >= fare_paid + cover:
+				words = ("Paid %d gold for the way down and %d to insure the haul" % [fare_paid, cover]) if fare_paid > 0 else ("Paid %d gold to insure the haul" % cover)
+			said.append([words, DeepUi.ACCENT, "coin"])
 	## The day's seam: every attempt is written down, and told the score to beat.
 	var attempt: Dictionary = DeepEconomy.begin_daily(profile, state)
 	if not attempt.is_empty() and not bool(attempt.get("again", false)):
 		saves.save_profile(profile)
 		if not bool(attempt.get("eligible", false)):
-			toast("Today's seam: beat the Quarry to be paid for it", DeepUi.MUTED, "calendar")
+			said.append(["Today's seam: beat the Quarry to be paid for it", DeepUi.MUTED, "calendar"])
 		elif int(attempt.get("best_score", 0)) > 0:
-			toast("Today's seam: your best today is %d" % int(attempt.best_score), DeepUi.ACCENT, "calendar")
+			said.append(["Today's seam: your best today is %d" % int(attempt.best_score), DeepUi.ACCENT, "calendar"])
 		else:
-			toast("Today's seam: your first dig today", DeepUi.ACCENT, "calendar")
+			said.append(["Today's seam: your first dig today", DeepUi.ACCENT, "calendar"])
 	descent.daily_best = attempt
-	descent.bind(session.local_id, session.forecast)
-	descent.show_state(state)
-	## A run picked up from its checkpoint in a beaten boss's hall.
-	_note_conquest(state)
-	## Leaving the workshop, the cage goes down the shaft over the change of screens.
-	if home.visible:
+	## Leaving the workshop, the cage goes down the shaft over the change of screens. It goes
+	## up in the frame of the click, the run's screen is built behind it a frame later and shown
+	## the frame after that: all three in the click's frame held the workshop still for up to
+	## half a second before anything answered.
+	var caged: bool = home.visible and not DeepUi.headless()
+	if caged:
 		Lift.ride(self, true, str(state.get("mine", "")))
+		_behind_cage = true
+		await get_tree().process_frame
+		## Gone again before it was built (the party broke up in that frame): nothing to show.
+		if not session.in_run():
+			_behind_cage = false
+			return
+	descent.bind(session.local_id, session.forecast)
+	descent.show_state(session.run)
+	## A run picked up from its checkpoint in a beaten boss's hall.
+	_note_conquest(session.run)
+	if caged:
+		var built: int = session.revision
+		await get_tree().process_frame
+		_behind_cage = false
+		if not session.in_run():
+			return
+		## A step that came in meanwhile is drawn now.
+		if session.revision != built:
+			descent.show_state(session.run)
 	home.visible = false
 	descent.visible = true
+	for entry in said:
+		toast.call_deferred(entry[0], entry[1], entry[2])
 	## A guest's run is noted with the way back to it, so a game that closes under them can
 	## offer to rejoin when it starts again.
 	if not session.is_host and not _joined.is_empty():
@@ -359,6 +402,10 @@ func _on_run_started(state: Dictionary) -> void:
 			saves.save_settings(settings)
 
 func _on_run_event(event: Dictionary) -> void:
+	## The run's screen is still to be built behind the cage: it is drawn from the run as it
+	## stands then, this step and all.
+	if _behind_cage:
+		return
 	descent.handle(event)
 	descent.show_state(session.run)
 	_note_conquest(session.run)
@@ -452,7 +499,10 @@ func _exit_tree() -> void:
 
 func _on_run_ended(results: Dictionary) -> void:
 	_forget_party_run()
-	_take_home(results, session.local_id)
+	## The records as they stood, so the over page can say what the run moved forward.
+	var before: Dictionary = DescentScreen.records_before(profile, results)
+	var applied: Dictionary = _take_home(results, session.local_id)
+	descent.note_progress(before, applied, results, profile)
 	descent.show_state(session.run)
 
 func _on_claimed(results: Dictionary, player_id: String) -> void:
@@ -470,6 +520,8 @@ func _on_claimed(results: Dictionary, player_id: String) -> void:
 func _take_home(results: Dictionary, player_id: String) -> Dictionary:
 	## What a run brought this lapidary, into the profile and said aloud.
 	var applied: Dictionary = DeepProfile.apply_result(profile, results, player_id)
+	## A starter color the run gave up for good: the workshop finds a spare of it.
+	var spares: Array = DeepProfile.spare_starters(profile)
 	saves.save_profile(profile)
 	Inspector.vault = profile.get("vault", {})
 	if not applied.get("unlocked", []).is_empty():
@@ -492,14 +544,27 @@ func _take_home(results: Dictionary, player_id: String) -> Dictionary:
 			var adds: Dictionary = DeepContent.hazard_tier(tier)
 			toast("Unlocked: Hazard %d" % tier, DeepUi.BAD, "skull")
 			Inspector.announce("Hazard %d" % tier, "%s Hazard %d is open: every hazard so far, and one more.\n\n%s: %s\n\nEvery tier keeps its own map, starting from the Quarry, and gives up heavier stones." % ["You reached the Rift." if tier == 1 else "You reached the Rift on Hazard %d." % (tier - 1), tier, str(adds.get("name", "")), str(adds.get("text", ""))], "skull", DeepUi.BAD)
+	## Every Warden's first-time purse in one toast, so the conquest's still fits beside it.
+	var wardens: Array = applied.get("purses", []).filter(func(p: Dictionary) -> bool: return p.has("warden"))
+	if not wardens.is_empty():
+		var paid: Array = wardens.map(func(p: Dictionary) -> String: return "%s +%d" % [DeepEconomy.warden_name(str(p.mine), int(p.warden)), int(p.gold)])
+		toast(("%s, beaten for the first time: +%d gold" % [DeepEconomy.warden_name(str(wardens[0].mine), int(wardens[0].warden)), int(wardens[0].gold)]) if wardens.size() == 1
+			else "Wardens beaten for the first time: %s gold" % ", ".join(paid), DeepUi.ACCENT, "crown")
 	for purse in applied.get("purses", []):
-		toast("First conquest of %s: +%d gold" % [DeepContent.mine_name(str(purse.mine)), int(purse.gold)], DeepUi.ACCENT, "crown")
+		if not purse.has("warden"):
+			toast("First conquest of %s: +%d gold" % [DeepContent.mine_name(str(purse.mine)), int(purse.gold)], DeepUi.ACCENT, "crown")
+	for spare in spares:
+		toast("The workshop found you a spare %s." % str(DeepContent.skill(str(spare.get("skill", ""))).get("name", "stone")), DeepUi.ACCENT, "gem")
 	## Creatures met for the first time are named once, and wait in the bestiary marked new.
 	var first_met: Array = applied.get("first_met", [])
 	if not first_met.is_empty():
 		var names: Array = first_met.slice(0, 3).map(func(k: Variant) -> String: return str(DeepContent.creature(str(k)).get("name", k)))
 		var more: int = first_met.size() - names.size()
 		toast("New in the bestiary: %s%s" % [", ".join(names), " and %d more" % more if more > 0 else ""], HomeScreen.PIP_NEW, "book")
+		## The bestiary opens on the first of them next time, not on whatever it was last left at
+		## (before a first run that is an unmet "???").
+		home._bestiary_pick = ""
+		home._bestiary_scroll = -1.0
 	var dug: Dictionary = applied.get("daily", {})
 	if int(dug.get("paid", 0)) > 0:
 		toast("Today's seam: scored %d, +%d gold" % [int(dug.get("score", 0)), int(dug.paid)], DeepUi.ACCENT, "calendar")
@@ -526,8 +591,18 @@ func _back_home() -> void:
 	_refresh_home()
 
 func toast(text: String, color: Color, glyph: String = "") -> void:
+	## A refusal from the rules is a lowercase fragment ("not enough pyrite"); said on its own
+	## in a toast it reads as a sentence. Toasts already written as one are left alone.
+	if color == DeepUi.BAD and not text.is_empty() and text[0] != text[0].to_upper():
+		text = text[0].to_upper() + text.substr(1)
+		if not (text.ends_with(".") or text.ends_with("!") or text.ends_with("?") or text.ends_with("…")):
+			text += "."
 	if glyph.is_empty():
 		glyph = "cross_out" if color == DeepUi.BAD else "spark"
+	## The run's screen is still being built behind the cage: said once it is up, over the room.
+	if _behind_cage:
+		get_tree().process_frame.connect(func() -> void: toast(text, color, glyph), CONNECT_ONE_SHOT)
+		return
 	## Down the mine the run's own toasts know where the bar along the bottom is.
 	if descent != null and descent.visible:
 		descent.toast(text, color, glyph)
@@ -602,7 +677,9 @@ func _menu_context() -> Dictionary:
 	var in_run: bool = session.in_run() and descent.visible
 	var context: Dictionary = {"in_run": in_run, "host": session.is_host, "solo": session.status == "local", "phase": str(session.run.get("phase", "")),
 		"depth": int(session.run.get("depth", 0)), "mine": str(DeepContent.mine(str(session.run.get("mine", ""))).get("name", "The mine")),
-		"player_name": str(profile.get("name", DeepProfile.DEFAULT_NAME))}
+		"player_name": str(profile.get("name", DeepProfile.DEFAULT_NAME)),
+		## A daily dig keeps nothing, so the menu's abandon words differ.
+		"daily": not session.run.get("daily", {}).is_empty()}
 	## The host of a run with a party in it: who is away, and how they get back to it.
 	if in_run and session.is_host and session.run.get("players", []).size() > 1:
 		context.party = {"status": session.status, "invite_code": session.invite_code, "away": session.away(),
@@ -636,6 +713,8 @@ func _apply_settings(starting: bool = false) -> void:
 	session.count_pace = clampf(float(settings.get("count", 1.0)), 0.0, 1.0)
 	descent.apply_quality()
 	descent.apply_look()
+	## Text size and color marks.
+	DeepUi.reading(settings, self)
 	if DisplayServer.get_name() == "headless":
 		return
 	var window: Window = get_window()

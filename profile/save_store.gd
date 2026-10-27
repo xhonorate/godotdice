@@ -9,6 +9,8 @@ const MAX_BYTES: int = 8 * 1024 * 1024
 const DEFAULT_SETTINGS: Dictionary = {"master_volume": 0.8, "music_volume": 0.6, "sfx_volume": 0.85, "fullscreen": false,
 	"speed": 1.0, "reduced_motion": false, "outlines": true, "vsync": true, "quality": 0, "shake": 1.0, "rumble": true, "count": 1.0, "player_name": DeepProfile.DEFAULT_NAME, "last_address": "127.0.0.1",
 	"music_picks": {},
+	## Reading (Settings > Comfort): 1.0 for large text; each color drawn with its mark too.
+	"text_size": 0.0, "color_marks": false,
 	## A guest's party run, kept until it ends so a game that closes mid-run can offer to rejoin it.
 	"party_run": {}}
 

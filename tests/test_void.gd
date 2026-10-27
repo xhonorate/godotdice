@@ -247,13 +247,14 @@ func _hollow() -> void:
 	DeepProfile.apply_result(profile, DeepDescent.results(run), "a")
 	var home: Array = profile.tray.filter(func(s: Dictionary) -> bool: return str(s.get("id", "")) == "set1")
 	check(home.size() == 1 and not DeepStone.is_slotless(home[0]) and not home[0].has("voided"), "it comes home without the mark")
-	## Rare: drawn well under its share of the cards chance can turn up.
+	## Rare: drawn well under its share of the cards chance can turn up. The lapidary carries
+	## the starter rail, since a card nobody could work at is drawn again.
 	var drawn: int = 0
 	var draws: int = 240
 	var pool: int = DeepContent.section("oddities").keys().filter(func(k: Variant) -> bool: return str(DeepContent.oddity(str(k)).get("room", "")).is_empty()).size()
 	for seed_value in range(draws):
 		var state: Dictionary = DeepDescent.new_run({"seed": 4100 + seed_value, "boons": false, "mine": "QUARRY", "players": [
-			{"id": "a", "name": "Ada", "character": "ARDOR", "rail": [], "dice": DeepProfile.loadout(profile, "ARDOR").dice}]})
+			{"id": "a", "name": "Ada", "character": "ARDOR", "rail": DeepProfile.loadout(profile, "ARDOR").rail, "dice": DeepProfile.loadout(profile, "ARDOR").dice}]})
 		var offer: Dictionary = state.offers[0]
 		offer.kind = "oddity"
 		DeepDescent.command(state, "a", {"kind": "vote_tunnel", "offer": offer.id})

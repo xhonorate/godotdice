@@ -23,6 +23,18 @@ const Geode = preload("res://view/gems/geode.gd")
 
 ## How many tray stones the left column lists a page.
 const TRAY_PAGE: int = 8
+## How long a stone's buttons let clicks fall after it comes on the bench.
+const WAIT_MS: int = 350
+## The width of the card of the stone already kept, beside the one being weighed. Where it is
+## missing, the choices keep its room, so keeping a stone is in one place on every stone.
+const YOURS_WIDTH: float = 340.0
+## The gap between the bench's columns.
+const COLUMN_GAP: int = 16
+
+static func _waiting(home: Control) -> bool:
+	## Whether the bench's buttons are still letting clicks fall (never in a headless check,
+	## where a test presses a button the moment it is drawn).
+	return not DeepUi.headless() and Time.get_ticks_msec() < int(home.get_meta("bench_wait", 0))
 
 static func bar(home: Control, bar: HBoxContainer) -> void:
 	## The top bar while coming home: where from, and how the run ended, in place of the tabs.
@@ -60,7 +72,13 @@ static func bench(home: Control, content: VBoxContainer, holding: bool) -> void:
 		if pick.is_empty():
 			pick = tray[0]
 		home._appraise_pick = str(pick.id)
-	var columns := DeepUi.hbox(content, 16)
+	## A stone not on the bench a moment ago (the tray moved on, or it was just read): its
+	## buttons wait a breath, so a click meant for the last one never lands on this one.
+	var shown: String = "%s:%s" % [str(pick.id), str(bool(pick.get("appraised", false)))]
+	if str(home.get_meta("bench_shown", "")) != shown:
+		home.set_meta("bench_shown", shown)
+		home.set_meta("bench_wait", Time.get_ticks_msec() + WAIT_MS)
+	var columns := DeepUi.hbox(content, COLUMN_GAP)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_tray_column(home, columns, tray, holding)
 	var known: bool = bool(pick.get("appraised", false))
@@ -81,6 +99,7 @@ static func bench(home: Control, content: VBoxContainer, holding: bool) -> void:
 
 static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, holding: bool) -> void:
 	var column := DeepUi.card(columns, DeepUi.LINE, 12)
+	column.name = "TrayColumn"
 	column.custom_minimum_size.x = 240
 	var box := DeepUi.vbox(column, 6)
 	DeepUi.section(box, "bag", "The tray · %d left" % tray.size())
@@ -92,18 +111,22 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 		var known: bool = bool(stone.get("appraised", false))
 		var fresh_skill: bool = known and DeepProfile.first_of_skill(home.profile, stone)
 		var picked: bool = id == home._appraise_pick
-		var tone: Color = StoneCard.PIP_NEW if fresh_skill else (DeepUi.ACCENT if picked else Color(0, 0, 0, 0))
+		## The stone under the loupe is the row that stands out. A new skill keeps a cyan frame,
+		## its star and its "new skill" line, but never outshines the one being looked at.
+		var tone: Color = DeepUi.ACCENT if picked else (StoneCard.PIP_NEW if fresh_skill else Color(0, 0, 0, 0))
 		var row_panel := DeepUi.panel(rows, Color(DeepUi.ACCENT, 0.12) if picked else Color(1, 1, 1, 0.02), tone, 6, 6)
-		if fresh_skill:
+		if picked:
 			var lit: StyleBoxFlat = row_panel.get_theme_stylebox("panel").duplicate()
 			lit.set_border_width_all(2)
-			lit.shadow_color = Color(StoneCard.PIP_NEW, 0.35)
+			lit.shadow_color = Color(DeepUi.ACCENT, 0.3)
 			lit.shadow_size = 8
 			row_panel.add_theme_stylebox_override("panel", lit)
 		row_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		row_panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		var row := DeepUi.hbox(row_panel, 8)
 		StoneCard.mini(row, stone, 36)
+		if fresh_skill:
+			DeepUi.icon(row, "star", 13, StoneCard.PIP_NEW, "A new skill")
 		var words := DeepUi.vbox(row, 0)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.label(words, DeepUi.skill_name(stone) if known else DeepStone.raw_name(stone), 13, DeepUi.PAPER if known else DeepUi.MUTED)
@@ -144,31 +167,60 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 	var since: int = int(home.profile.get("gold", 0)) - int(home.get_meta("came_with", int(home.profile.get("gold", 0))))
 	var tally := DeepUi.hbox(box, 6)
 	DeepUi.label(tally, "Gold since you came up", 12, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.label(tally, "%+d" % since, 13, DeepUi.GOOD if since >= 0 else DeepUi.BAD)
+	## Named, so the gold a sale or an appraisal moves floats up from here (home_screen._cheer_purse)
+	## instead of dropping from the purse onto the tray's header.
+	DeepUi.label(tally, "%+d" % since, 13, DeepUi.GOOD if since >= 0 else DeepUi.BAD).name = "GoldSince"
 	home.enter(column)
 
 static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> void:
 	## A raw stone in its rock under the loupe: pay to read it, or sell it as it is.
+	## The loupe and, once it is paid for, the sheet read out beside it (as `_read_stone` lays
+	## them): stacked, a long read pushed the page past the window.
+	var top := DeepUi.hbox(box, 18)
+	top.alignment = BoxContainer.ALIGNMENT_CENTER
 	var bench := LoupeBench.new(pick, 260.0)
-	bench.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(bench)
+	bench.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(bench)
 	DeepUi.title(box, "A %s" % DeepStone.raw_name(pick).to_lower(), 26, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	var line := DeepUi.label(box, "Its skill, Cut and Clarity are hidden until it is read.", 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	line.name = "Line"
 	var sheet := Appraisal.Sheet.new(_known(pick), {}, {"skill_text": true})
 	sheet.visible = false
-	sheet.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(sheet)
+	sheet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(sheet)
 	var fee: int = DeepProfile.appraisal_fee(pick)
 	var rough: int = DeepStone.rough_value(pick)
 	var purse: int = int(home.profile.get("gold", 0))
 	var choices := DeepUi.hbox(box, 14)
 	choices.alignment = BoxContainer.ALIGNMENT_CENTER
+	## Selling sits left of the way on, as it does under a read stone.
+	var off := DeepUi.icon_button(choices, "scales", "Sell rough", func() -> void:
+		if _waiting(home):
+			return
+		var result: Dictionary = DeepProfile.decide_tray(home.profile, str(pick.id), false)
+		home._appraise_pick = ""
+		if bool(result.get("shattered", false)):
+			home.cheer("Shattered: Fragile", DeepUi.BAD)
+		home.profile_changed.emit(), 16, DeepUi.TRADE)
+	DeepUi.priced(off, "+%d" % rough, 14)
+	off.custom_minimum_size = Vector2(200, 50)
+	off.tooltip_text = "Sells for what its color and size are worth. You never find out what it was."
+	DeepUi.voice(off, "sell")
 	var read := DeepUi.primary(choices, "loupe", "Read it", func() -> void:
+		if _waiting(home):
+			return
 		var raw: Dictionary = pick.duplicate(true)
 		if not DeepProfile.appraise(home.profile, pick):
 			return
 		home.touch()
+		## The tray waits while this stone is read: its prices were set before it was paid
+		## for, and a click on it would cut the reading short.
+		var tray_column := home.find_child("TrayColumn", true, false) as Control
+		if tray_column != null:
+			tray_column.modulate = Color(1, 1, 1, 0.5)
+			var hush := Control.new()
+			hush.mouse_filter = Control.MOUSE_FILTER_STOP
+			tray_column.add_child(hush)
 		choices.visible = false
 		line.text = "Under the loupe…"
 		sheet.visible = true
@@ -187,16 +239,6 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 		DeepUi.label(box, "You can't pay to read it. Sell it rough to clear the tray.", 13, DeepUi.BAD, HORIZONTAL_ALIGNMENT_CENTER)
 	else:
 		DeepUi.breathe(read, 0.8, 1.6)
-	var off := DeepUi.icon_button(choices, "scales", "Sell rough", func() -> void:
-		var result: Dictionary = DeepProfile.decide_tray(home.profile, str(pick.id), false)
-		home._appraise_pick = ""
-		if bool(result.get("shattered", false)):
-			home.cheer("Shattered: Fragile", DeepUi.BAD)
-		home.profile_changed.emit(), 16, DeepUi.TRADE)
-	DeepUi.priced(off, "+%d" % rough, 14)
-	off.custom_minimum_size = Vector2(200, 50)
-	off.tooltip_text = "Sells for what its color and size are worth. You never find out what it was."
-	DeepUi.voice(off, "sell")
 
 static func _geode_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> void:
 	## A sealed Geode on the bench: the rock itself, turned by hand, and the two things to do
@@ -224,7 +266,20 @@ static func _geode_stone(home: Control, box: VBoxContainer, pick: Dictionary) ->
 	var purse: int = int(home.profile.get("gold", 0))
 	var choices := DeepUi.hbox(box, 14)
 	choices.alignment = BoxContainer.ALIGNMENT_CENTER
-	var crack := DeepUi.primary(choices, "hammer", "Crack it open", func() -> void: _crack(home, pick), 18, DeepUi.INFO)
+	## Selling sits left of the way on, as it does under a read stone.
+	var off := DeepUi.icon_button(choices, "scales", "Sell unopened", func() -> void:
+		if _waiting(home):
+			return
+		DeepProfile.decide_tray(home.profile, str(pick.id), false)
+		home._appraise_pick = ""
+		home.profile_changed.emit(), 16, DeepUi.TRADE)
+	DeepUi.priced(off, "+%d" % rough, 14)
+	off.custom_minimum_size = Vector2(200, 50)
+	off.tooltip_text = "A buyer pays for the kind of Geode it is. You never find out what was inside."
+	DeepUi.voice(off, "sell")
+	var crack := DeepUi.primary(choices, "hammer", "Crack it open", func() -> void:
+		if not _waiting(home):
+			_crack(home, pick), 18, DeepUi.INFO)
 	DeepUi.priced(crack, str(fee), 16)
 	crack.custom_minimum_size = Vector2(230, 50)
 	crack.disabled = purse < fee
@@ -237,14 +292,6 @@ static func _geode_stone(home: Control, box: VBoxContainer, pick: Dictionary) ->
 		crack.mouse_entered.connect(func() -> void:
 			art.create_tween().tween_property(art, "hover", 1.0, 0.2))
 		crack.mouse_exited.connect(func() -> void: art.create_tween().tween_property(art, "hover", 0.0, 0.3))
-	var off := DeepUi.icon_button(choices, "scales", "Sell unopened", func() -> void:
-		DeepProfile.decide_tray(home.profile, str(pick.id), false)
-		home._appraise_pick = ""
-		home.profile_changed.emit(), 16, DeepUi.TRADE)
-	DeepUi.priced(off, "+%d" % rough, 14)
-	off.custom_minimum_size = Vector2(200, 50)
-	off.tooltip_text = "A buyer pays for the kind of Geode it is. You never find out what was inside."
-	DeepUi.voice(off, "sell")
 
 static func _crack(home: Control, pick: Dictionary) -> void:
 	## Pays the fee and cracks it. The stone is read and ordinary before the first blow, so the
@@ -296,12 +343,23 @@ static func _read_stone(home: Control, box: VBoxContainer, pick: Dictionary, own
 	top.add_child(sheet)
 	sheet.show_all()
 	DeepUi.spacer(box, false)
-	Appraisal.choices(box, actions(home, pick))
+	var row := Appraisal.choices(box, actions(home, pick))
+	row.set_meta("wait_until", int(home.get_meta("bench_wait", 0)) if not DeepUi.headless() else 0)
+	## Right-aligned, the keep last: and with no kept stone's card beside this one, the room
+	## that card takes is kept clear past the end of the row, so the keep is where it always is.
+	row.alignment = BoxContainer.ALIGNMENT_END
+	if owned.is_empty():
+		var room := Control.new()
+		room.custom_minimum_size.x = YOURS_WIDTH + float(COLUMN_GAP) - float(row.get_theme_constant("separation"))
+		room.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(room)
+	if row.has_meta("warning"):
+		(row.get_meta("warning") as Control).size_flags_horizontal = Control.SIZE_SHRINK_END
 
 static func _yours(home: Control, columns: HBoxContainer, owned: Dictionary) -> void:
 	## The stone of its skill already kept, the size and light of the one being weighed.
 	var card := DeepUi.card(columns, Color(DeepUi.tier_color(str(DeepStone.grade(owned).tier)), 0.45), 14)
-	card.custom_minimum_size.x = 320
+	card.custom_minimum_size.x = YOURS_WIDTH
 	var box := DeepUi.vbox(card, 8)
 	DeepUi.section(box, "chest", "Yours")
 	var lens := HomeParts.LoupeTable.new(owned, 150.0)
@@ -316,18 +374,28 @@ static func _yours(home: Control, columns: HBoxContainer, owned: Dictionary) -> 
 		var row := DeepUi.hbox(box, 6)
 		for key in wearing:
 			row.add_child(Roster.Portrait.new(key, Vector2(24, 24)))
-		DeepUi.label(row, "In %s" % ", ".join(wearing.map(func(k: Variant) -> String: return str(DeepContent.character(str(k)).get("name", k)))), 12, DeepUi.MUTED)
+		## Two names fit beside their faces; more are counted, named in the tooltip, so a stone
+		## every delver wears (each joins with the starters set) never widens the card.
+		var names: Array = wearing.map(func(k: Variant) -> String: return str(DeepContent.character(str(k)).get("name", k)))
+		DeepUi.label(row, ("In %s" % " and ".join(names)) if names.size() <= 2 else ("In %d delvers" % names.size()), 12, DeepUi.MUTED)
+		row.tooltip_text = "In the sockets of %s." % ", ".join(names)
+		row.mouse_filter = Control.MOUSE_FILTER_PASS
 	DeepUi.pop_in(card, 0.15, 0.94, 0.35)
 
 static func actions(home: Control, pick: Dictionary) -> Array:
 	## What can be done with a known stone on the tray. With one of its skill already kept the
 	## choice is which of the two to keep, and only the one not kept can be sold: keeping the
 	## new one lets the old one go for nothing. Otherwise it is keep (a first is never sold).
+	## Keeping it is always the last choice, so on the tray it stands in one place from stone to
+	## stone and a click repeated there never sells or turns in the next one. Whatever would cost
+	## the better of the two stones is drawn in outline and asks for a second click, saying what
+	## it costs; the other choices stay filled.
 	var id: String = str(pick.id)
 	if DeepStone.is_fragile(pick):
 		return []
 	var owned: Dictionary = DeepProfile.owned(home.profile, str(pick.skill))
 	var keep := func() -> void:
+		_note_kept(home, pick, owned)
 		DeepProfile.decide_tray(home.profile, id, true)
 		home._appraise_pick = ""
 		home.cheer("Kept in the vault", DeepUi.GOOD)
@@ -336,22 +404,55 @@ static func actions(home: Control, pick: Dictionary) -> Array:
 		DeepProfile.decide_tray(home.profile, id, false)
 		home._appraise_pick = ""
 		home.profile_changed.emit()
+	var skill_name: String = str(DeepStone.skill_of(pick).get("name", "stone"))
+	var found: Dictionary = DeepStone.grade(pick)
+	var kept: Dictionary = DeepStone.grade(owned) if not owned.is_empty() else {}
+	## The better of the two is the higher grade; on a tie, the one worth more.
+	var better: bool = owned.is_empty() or int(found.score) > int(kept.score) \
+		or (int(found.score) == int(kept.score) and DeepStone.value(pick) > DeepStone.value(owned))
+	var this_one: String = "this %s (grade %d, worth %d)" % [skill_name, int(found.score), DeepStone.value(pick)]
 	var out: Array = []
-	if owned.is_empty():
-		out.append({"label": "Into the vault", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "The first of its skill is never sold", "call": keep, "sound": "keep"})
-	else:
-		out.append({"label": "Keep it, replace yours", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "Yours is let go for no gold", "call": keep, "sound": "keep"})
-		out.append({"label": "Sell it", "glyph": "scales", "tone": DeepUi.TRADE, "price": "+%d" % DeepStone.value(pick), "caption": "Yours stays", "call": sell, "sound": "sell"})
 	var wanted: Dictionary = DeepEconomy.commission_for(home.profile, pick)
 	if not wanted.is_empty():
 		var paid: int = DeepEconomy.payout(wanted, pick)
 		var commission_id: String = str(wanted.id)
-		out.append({"label": "Turn it in", "glyph": "flag", "tone": DeepUi.INFO, "price": "+%d" % paid, "caption": "For a commission", "sound": "sell",
+		var turn: Dictionary = {"label": "Turn it in", "glyph": "flag", "tone": DeepUi.INFO, "price": "+%d" % paid, "caption": "For a commission", "sound": "sell",
 			"call": func() -> void:
 				if bool(DeepEconomy.turn_in(home.profile, id, commission_id).get("ok", false)):
 					home._appraise_pick = ""
-					home.profile_changed.emit()})
+					home.profile_changed.emit()}
+		if not owned.is_empty() and better:
+			turn.merge({"outline": true, "confirm_label": "Turn it in anyway",
+				"confirm": "Click again: %s is better than yours (grade %d). The commission takes it, and yours stays." % [this_one, int(kept.score)]})
+		out.append(turn)
+	if owned.is_empty():
+		out.append({"label": "Into the vault", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "The first of its skill is never sold", "call": keep, "sound": "keep"})
+		return out
+	var selling: Dictionary = {"label": "Sell it", "glyph": "scales", "tone": DeepUi.TRADE, "price": "+%d" % DeepStone.value(pick), "caption": "Yours stays", "call": sell, "sound": "sell"}
+	var keeping: Dictionary = {"label": "Keep it, replace yours", "glyph": "chest", "tone": DeepUi.GOOD, "caption": "Yours is let go for no gold", "call": keep, "sound": "keep"}
+	if better:
+		selling.merge({"outline": true, "confirm_label": "Sell anyway",
+			"confirm": "Click again: %s is better than yours (grade %d, worth %d)." % [this_one, int(kept.score), DeepStone.value(owned)]})
+	else:
+		## Yours is the better stone. A delver who wears it keeps the skill (the sockets hold a
+		## skill, not a stone), but wears the weaker one from now on: said, if so.
+		var wearing: Array = wearer_names(home, str(owned.get("skill", "")))
+		var sockets: String = ""
+		if not wearing.is_empty():
+			sockets = " This grade %d one goes in %s sockets." % [int(found.score), (" and ".join(wearing.map(func(n: Variant) -> String: return "%s's" % n))) if wearing.size() <= 2 else "%d delvers'" % wearing.size()]
+		keeping.merge({"outline": true, "confirm_label": "Click again to replace",
+			"confirm": "Click again: your %s (grade %d, worth %d) is let go for no gold.%s" % [skill_name, int(kept.score), DeepStone.value(owned), sockets]})
+	out.append(selling)
+	out.append(keeping)
 	return out
+
+static func wearer_names(home: Control, skill: String) -> Array:
+	## The delvers whose sockets hold this skill, by name.
+	var names: Array = []
+	for key in home.profile.get("characters", {}):
+		if home.profile.characters[key].get("rail", []).has(skill):
+			names.append(str(DeepContent.character(str(key)).get("name", key)))
+	return names
 
 static func _read_all(home: Control, raw: Array) -> void:
 	var shattered: int = 0
@@ -371,6 +472,47 @@ static func _read_all(home: Control, raw: Array) -> void:
 		home.cheer("%s shattered: Fragile" % DeepUi.plural(shattered, "stone"), DeepUi.BAD)
 	home.profile_changed.emit()
 
+## How many kept stones the tray's last card shows; the rest are counted.
+const KEPT_SHOWN: int = 4
+
+static func _note_kept(home: Control, stone: Dictionary, owned: Dictionary) -> void:
+	## A stone coming home kept in the vault, for the tray's last card: a new skill, or one kept
+	## in place of the stone of its skill already there. Only while coming home: the vault's
+	## Unappraised view keeps no such list.
+	if not bool(home.profile.get("homecoming", false)):
+		return
+	var kept: Array = home.get_meta("came_kept", [])
+	kept.append({"stone": stone.duplicate(true), "was": owned.duplicate(true)})
+	home.set_meta("came_kept", kept)
+
+static func _kept_row(box: VBoxContainer, kept: Array) -> void:
+	## What this run put in the vault, a tile each: a new skill, or a stone kept in place of the
+	## one of its skill, an upgrade when it grades better.
+	DeepUi.section(box, "star", "From this run")
+	var row := DeepUi.hbox(box, 22)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	for entry in kept.slice(0, KEPT_SHOWN):
+		var stone: Dictionary = entry.stone
+		var was: Dictionary = entry.was
+		var column := DeepUi.vbox(row, 6)
+		StoneCard.tile(column, stone, 72).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var skill_name: String = str(DeepStone.skill_of(stone).get("name", stone.get("skill", "")))
+		var tag: PanelContainer
+		var line: String = ""
+		if was.is_empty():
+			tag = DeepUi.pill(column, "star", "New skill", StoneCard.PIP_NEW, 12)
+			line = "Your first %s" % skill_name
+		else:
+			var found: int = int(DeepStone.grade(stone).score)
+			var had: int = int(DeepStone.grade(was).score)
+			var up: bool = found > had or (found == had and DeepStone.value(stone) > DeepStone.value(was))
+			tag = DeepUi.pill(column, "rise" if up else "reroll", "Upgraded" if up else "Replaced", DeepUi.GOOD if up else DeepUi.MUTED, 12)
+			line = "%d ct %s → %d ct %s" % [int(was.get("carat", 1)), DeepContent.cut_name(int(was.get("cut", 0))), int(stone.get("carat", 1)), DeepContent.cut_name(int(stone.get("cut", 0)))]
+		tag.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		DeepUi.label(column, line, 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	if kept.size() > KEPT_SHOWN:
+		DeepUi.label(row, "+%d more" % (kept.size() - KEPT_SHOWN), 14, DeepUi.MUTED)
+
 static func _done(home: Control, content: VBoxContainer) -> void:
 	## Every stone decided: what the tray came to, and the way into the workshop.
 	var holder := DeepUi.center(content)
@@ -382,9 +524,25 @@ static func _done(home: Control, content: VBoxContainer) -> void:
 	DeepUi.title(box, "The tray is clear", 28, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	var since: int = int(home.profile.get("gold", 0)) - int(home.get_meta("came_with", int(home.profile.get("gold", 0))))
 	DeepUi.label(box, ("%+d gold since you came up." % since) if since != 0 else "Every stone is decided.", 15, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var kept: Array = home.get_meta("came_kept", [])
+	if not kept.is_empty():
+		_kept_row(box, kept)
+	## How full the vault is now, as its own tab counts it.
+	var owned: int = home.profile.get("vault", {}).size()
+	var total: int = DeepProfile.known_skills(home.profile).size()
+	var fill := DeepUi.hbox(box, 8)
+	fill.alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.icon(fill, "chest", 16, DeepUi.ACCENT).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DeepUi.label(fill, "Vault: %d of %d gems owned" % [owned, total], 13, DeepUi.MUTED)
+	var meter := DeepUi.bar(fill, 8.0, DeepUi.ACCENT, Color(DeepUi.LINE, 0.6))
+	meter.custom_minimum_size = Vector2(120, 8)
+	meter.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	meter.set_values(float(owned) / float(maxi(1, total)))
 	var go := DeepUi.primary(box, "chest", "Into the workshop", func() -> void:
 		home.profile.erase("homecoming")
 		home.remove_meta("came_with")
+		home.remove_meta("came_kept")
 		home._appraise_pick = ""
 		home.open("descend")
 		home.profile_changed.emit(), 18)

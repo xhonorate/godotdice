@@ -308,7 +308,7 @@ func _add_member(id: String, member: Dictionary) -> void:
 	var record: Dictionary = {"id": id, "profile": str(profile_id).left(64) if profile_id is String else "", "name": str(said.get("name", DeepProfile.DEFAULT_NAME)),
 		"character": str(said.get("character", DeepContent.starter_character())), "rail": said.get("rail", []), "dice": said.get("dice", []),
 		"ready": bool(said.get("ready", false)), "connected": true, "last_depth": int(said.get("last_depth", 0)), "last_outcome": str(said.get("last_outcome", "")),
-		"gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap())),
+		"last_warden_unbeaten": bool(said.get("last_warden_unbeaten", false)), "gold": int(said.get("gold", 0)), "insured": bool(said.get("insured", false)), "sockets": int(said.get("sockets", DeepProfile.starting_rail_cap())),
 		"daily_state": str(said.get("daily_state", "locked")), "showcase": said.get("showcase", []),
 		"hazard_top": int(said.get("hazard_top", 0)), "hazard_open": said.get("hazard_open", [])}
 	lobby.members[id] = record
@@ -319,6 +319,18 @@ func _add_member(id: String, member: Dictionary) -> void:
 
 func local_member() -> Dictionary:
 	return lobby.members.get(local_id, {})
+
+static func shown_names(party: Dictionary) -> Dictionary:
+	## Each member's id to the name the party sees: their own, with their seat number after it
+	## when someone else in the lobby goes by the same name (DeepProfile.seat_names). The run
+	## goes down under these names, so the lobby and the tunnels number a seat alike.
+	var order: Array = party.get("order", [])
+	var members: Dictionary = party.get("members", {})
+	var names: Array = DeepProfile.seat_names(order.map(func(id: Variant) -> String: return str(members.get(id, {}).get("name", id))))
+	var out: Dictionary = {}
+	for seat in range(order.size()):
+		out[str(order[seat])] = str(names[seat])
+	return out
 
 func _away_seat(profile_id: String, token: String) -> String:
 	## The seat of a member who plays this profile and is away, or "" for someone new. A seat
@@ -424,7 +436,7 @@ static func clean_member_fields(fields: Dictionary) -> Dictionary:
 				if value is Array and value.size() <= 8 and value.all(func(d: Variant) -> bool:
 						return d is Dictionary and d.get("shape") is String and d.get("faces", []) is Array):
 					out.dice = value
-			"ready", "insured":
+			"ready", "insured", "last_warden_unbeaten":
 				if value is bool:
 					out[key] = value
 			"daily_state":
@@ -563,10 +575,8 @@ func can_start() -> bool:
 		var member: Dictionary = lobby.members[id]
 		if bool(member.get("connected", true)) and not bool(member.get("ready", false)) and id != local_id:
 			return false
-	## The day's seam is for a host who has beaten the first mine; guests who have not, or who
-	## have dug it already today, come along for no reward.
-	if daily_lobby() and str(lobby.members.get(local_id, {}).get("daily_state", "locked")) == "locked":
-		return false
+	## The day's seam is open to anyone, host or guest: whoever has not beaten the first mine,
+	## or has dug it already today, digs it for no reward (DeepEconomy.settle_daily).
 	if hazard() > hazard_cap() or not hazard_blocked().is_empty():
 		return false
 	return short_members().is_empty()
@@ -595,16 +605,15 @@ func start_run(seed_value: int = 0) -> Dictionary:
 			return {"ok": false, "error": "not everyone can pay the way down"}
 		if not hazard_blocked().is_empty():
 			return {"ok": false, "error": "not everyone has opened this mine on this Hazard tier"}
-		if daily_lobby() and str(lobby.members.get(local_id, {}).get("daily_state", "locked")) == "locked":
-			return {"ok": false, "error": "the day's seam opens once you have beaten the Quarry"}
 		return {"ok": false, "error": "not everyone is ready"}
 	var players: Array = []
+	var shown: Dictionary = shown_names(lobby)
 	for id in lobby.order:
 		var member: Dictionary = lobby.members[id]
 		if not bool(member.get("connected", true)):
 			continue
-		players.append({"id": id, "name": member.name, "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", []),
-			"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", "")),
+		players.append({"id": id, "name": str(shown.get(id, member.name)), "character": member.character, "rail": member.get("rail", []), "dice": member.get("dice", []),
+			"last_depth": int(member.get("last_depth", 0)), "last_outcome": str(member.get("last_outcome", "")), "last_warden_unbeaten": bool(member.get("last_warden_unbeaten", false)),
 			"sockets": int(member.get("sockets", DeepProfile.starting_rail_cap())), "insured": bool(member.get("insured", false))})
 	var chosen_seed: int = seed_value if seed_value != 0 else randi()
 	## Every run its own id, whatever its seed: the fare is charged once per run id and a

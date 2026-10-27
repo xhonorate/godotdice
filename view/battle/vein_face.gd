@@ -403,7 +403,7 @@ func is_taken(index: int) -> bool:
 	return index >= 0 and index < _spots.size() and bool(_spots[index].taken)
 
 func hollow(index: int, finder: Color) -> void:
-	## A struck spot: the lump is gone, and a hole with the finder's color lit inside it.
+	## A struck spot: the lump is gone, and a dark hole with a trace of the finder's color in it.
 	if index < 0 or index >= _spots.size() or bool(_spots[index].taken):
 		return
 	var spot: Dictionary = _spots[index]
@@ -422,10 +422,14 @@ func hollow(index: int, finder: Color) -> void:
 	hole.mesh = Lowpoly.rock(rng, Color("0c0a09"), 0.25, Vector3(1.0, 0.8, 0.35))
 	var dark := StandardMaterial3D.new()
 	dark.vertex_color_use_as_albedo = true
+	## The hole's rock is near black only when read as sRGB; otherwise it comes out a washed brown.
+	dark.vertex_color_is_srgb = true
 	dark.roughness = 1.0
 	dark.emission_enabled = true
-	dark.emission = finder
-	dark.emission_energy_multiplier = 0.25
+	## Only a trace of the finder's color: any brighter and a spent hole read as a gold or blue
+	## lump, the legend's "bright" and "glint", and looked like the best spot left to strike.
+	dark.emission = finder.lerp(Color("2a2622"), 0.5)
+	dark.emission_energy_multiplier = 0.08
 	hole.material_override = dark
 	hole.scale = Vector3.ONE * 0.4
 	hole.position = Vector3(0, 0, -0.12)
@@ -433,7 +437,7 @@ func hollow(index: int, finder: Color) -> void:
 	spot.hole = hole
 	var light: OmniLight3D = spot.light
 	light.light_color = finder
-	spot.base = 0.7
+	spot.base = 0.15
 	spot.glint = "taken"
 
 func strike(index: int, fx: Node3D, heavy: bool) -> Vector3:

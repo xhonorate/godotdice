@@ -189,8 +189,11 @@ func _draw() -> void:
 	## its own; a whole ring when block matches full health.
 	draw_arc(centre, r_block, 0.0, TAU, 96, DeepUi.LEDGER_SHADOW, w_block + 3.0, true)
 	var share: float = minf(1.0, _shown_overlay)
+	## The badge on the top hides the arc's first stretch either way: the arc starts at the
+	## badge's edges, so a little block still shows, and a whole share still closes the ring.
+	var cover: float = _badge_cover(r_block)
 	if share > 0.001:
-		var half: float = PI * share
+		var half: float = _arc_reach(share, cover)
 		if armour > 0.0:
 			var glow: float = armour * (0.35 + (0.0 if ScreenFx.calm else 0.15 * sin(_clock * 3.0)))
 			draw_arc(centre, r_block, start - half, start + half, 96, Color(overlay_color.lightened(0.4), glow), w_block + 6.0, true)
@@ -205,11 +208,22 @@ func _draw() -> void:
 			draw_arc(centre, r_block, 0.0, TAU, 96, Color(glow, glow.a * 0.5), w_block + 4.0, true)
 		else:
 			for sign in [-1.0, 1.0]:
-				var a: float = start + sign * PI * _gain_from
-				var b: float = start + sign * PI * _gain_to
+				var a: float = start + sign * _arc_reach(_gain_from, cover)
+				var b: float = start + sign * _arc_reach(_gain_to, cover)
 				draw_arc(centre, r_block, minf(a, b), maxf(a, b), 48, glow, w_block + 4.0 * _gain_flare, true)
 	if _flash > 0.0:
 		draw_arc(centre, r_hp, 0.0, TAU, 96, Color(_flash_color, 0.35 * _flash), w_hp, true)
+
+func _badge_cover(radius: float) -> float:
+	## The angle each way from the top that the block badge hides on a circle of `radius`.
+	if not shield_badge.visible or radius <= 0.0:
+		return 0.0
+	return asin(clampf((shield_badge.size.x * 0.5 + 2.0) / radius, 0.0, 1.0))
+
+func _arc_reach(share: float, cover: float) -> float:
+	## How far each way round from the top a block arc of `share` reaches: from the badge's
+	## edge, over what is left of the half circle.
+	return cover + (PI - cover) * clampf(share, 0.0, 1.0)
 
 func _draw_hexes() -> void:
 	## A lattice of pale blue hexagons over the face: the armour block past full health is,

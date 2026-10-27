@@ -42,10 +42,15 @@ var hush: float = 1.0
 ## Interactive views are steered by the reader instead of by the roll: dragging
 ## turns the solid freely and focus_face() swings one face to the front.
 var interactive := false
-## Rest turned three-quarters, the way the dice's pictures are drawn (thumbs.gd), so a die in
-## a fight looks like the same die as the one on the dock outside it.
+## Rest turned a little off face-on, the way the dice's pictures are drawn (thumbs.gd), so a
+## die in a fight looks like the same die as the one on the dock outside it. The turn is
+## slight on purpose: the rolled face looks straight out and its number is the big one, with
+## only a sliver of the sides showing to say it is a solid. At a full three-quarter turn the
+## side faces' numbers read as loudly as the rolled one ("m6" for a 6, "6 5" for a d8's 5).
 var tilt := false
-const TILT := Vector3(-0.42, 0.52, 0.0)
+const TILT := Vector3(-0.14, 0.17, 0.0)
+## A d8 under the cube's tilt turns half its faces edge-on: it turns about the upright only.
+const OCTA_TILT := Vector3(0.0, 0.13, 0.0)
 var spin_seconds: float = SPIN_SECONDS
 var suspense: bool = false
 var suspense_scale: float = 1.0
@@ -462,8 +467,12 @@ func _value_at(index: int) -> int:
 func _nominal(index: int) -> int:
 	return index + 1
 
+static func tilt_for(shape: String) -> Vector3:
+	## The slight turn a die of `shape` rests at in the tray and in its picture.
+	return OCTA_TILT if shape == "D8" else TILT
+
 func _rest(index: int) -> Quaternion:
-	return Quaternion.from_euler(TILT) * _orientation(index) if tilt else _orientation(index)
+	return Quaternion.from_euler(tilt_for(_shape())) * _orientation(index) if tilt else _orientation(index)
 
 func _orientation(index: int) -> Quaternion:
 	if index < 0 or index >= _frames.size():
@@ -577,7 +586,11 @@ func _draw_glow(target: Control) -> void:
 			silhouette.append(centre + Vector2.from_angle(-PI * 0.5 + TAU * float(i) / float(sides)) * radius)
 		target.draw_colored_polygon(silhouette, _palette().body)
 	if highlighted:
-		target.draw_circle(centre, radius * 1.16, Color(accent, 0.16))
+		## Lit, not shadowed: a 16% fill of the accent over the dock's near-black panel came out
+		## a muddy olive disc that read as a shadow under the dice; a crisp ring of the accent
+		## over a barely-there fill points the die out instead.
+		target.draw_circle(centre, radius * 1.16, Color(accent, 0.06))
+		target.draw_arc(centre, radius * 1.16, 0.0, TAU, 48, Color(accent, 0.7), 2.0, true)
 	if _pop_time < POP_SECONDS:
 		var t: float = clampf(_pop_time / POP_SECONDS, 0.0, 1.0)
 		var fade: float = 1.0 - t

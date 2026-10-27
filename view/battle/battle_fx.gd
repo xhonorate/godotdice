@@ -80,6 +80,8 @@ static func soft_material() -> StandardMaterial3D:
 		## Without this a billboard throws away the particle's own scale and every mote is a metre wide.
 		m.billboard_keep_scale = true
 		m.vertex_color_use_as_albedo = true
+		## A puff's color is sRGB like every Color: read as linear, brown dust came out a white blob.
+		m.vertex_color_is_srgb = true
 		m.albedo_texture = DeepUi.glow_texture()
 		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		m.disable_receive_shadows = true
@@ -814,14 +816,24 @@ func beam(from: Vector3, to: Vector3, color: Color, seconds: float = 0.4, width:
 	node.material_override = m
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
-	node.look_at_from_position((from + to) * 0.5, to, Vector3.UP)
+	node.look_at_from_position((from + to) * 0.5, to, _up_for(to - from))
 	var tween := node.create_tween().set_parallel(true)
 	tween.tween_property(node, "scale", Vector3(0.05, 0.05, 1.0), seconds).set_ease(Tween.EASE_IN)
 	tween.tween_property(m, "albedo_color:a", 0.0, seconds)
 	tween.chain().tween_callback(node.queue_free)
 
-func shield(at: Vector3, facing: Vector3, color: Color, radius: float = 0.9, seconds: float = 0.55) -> void:
-	## A hexagonal ward flaring and dissolving: block taken.
+static func _up_for(facing: Vector3) -> Vector3:
+	## look_at's up, kept off the line it looks along: a beam straight up (the well's) or a ward
+	## facing the sky would warn that the two are colinear. Along that line it is the side
+	## Godot's own fallback would have picked, so nothing on screen turns.
+	if not Vector3.UP.cross(facing.normalized()).is_zero_approx():
+		return Vector3.UP
+	return Vector3.RIGHT if facing.y > 0.0 else Vector3.LEFT
+
+func shield(at: Vector3, facing: Vector3, color: Color, radius: float = 0.9, seconds: float = 0.55, alpha: float = 0.55, glow: float = 3.0) -> void:
+	## A hexagonal ward flaring and dissolving: block taken. `alpha` is its outer shell's
+	## opacity (the inner two are fainter); one raised before the lens keeps it low enough to
+	## read the creatures and their plates through. `glow` is the light it throws on the room.
 	for i in range(3):
 		var node := MeshInstance3D.new()
 		node.mesh = Lowpoly.hex_dome(radius * (1.0 - 0.2 * float(i)))
@@ -830,19 +842,20 @@ func shield(at: Vector3, facing: Vector3, color: Color, radius: float = 0.9, sec
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED
-		m.albedo_color = Color(color, 0.55 - 0.12 * float(i))
+		m.albedo_color = Color(color, alpha * (1.0 - 0.22 * float(i)))
 		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		node.material_override = m
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(node)
-		node.look_at_from_position(at, at + facing, Vector3.UP)
+		node.look_at_from_position(at, at + facing, _up_for(facing))
 		node.rotate_object_local(Vector3.UP, PI)
 		node.scale = Vector3.ONE * 0.5
 		var tween := node.create_tween().set_parallel(true)
 		tween.tween_property(node, "scale", Vector3.ONE * (1.15 + 0.1 * float(i)), seconds).set_delay(0.05 * float(i)).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.tween_property(m, "albedo_color:a", 0.0, seconds * 0.8).set_delay(seconds * 0.3 + 0.05 * float(i))
 		tween.chain().tween_callback(node.queue_free)
-	flash(at, color, 3.0, 4.0, seconds, 0.6)
+	if glow > 0.0:
+		flash(at, color, glow, 4.0, seconds, 0.6 * glow / 3.0)
 
 func coins(at: Vector3, to: Vector3, count: int = 8) -> void:
 	## Ore thrown up in glinting discs and pulled home to the party.
@@ -998,7 +1011,7 @@ func reticle(at: Vector3, facing: Vector3, color: Color, size: float = 0.9, seco
 	## Crosshairs closing on a target: Marked.
 	var pivot := Node3D.new()
 	add_child(pivot)
-	pivot.look_at_from_position(at, at + facing, Vector3.UP)
+	pivot.look_at_from_position(at, at + facing, _up_for(facing))
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -1053,7 +1066,7 @@ func claw(at: Vector3, facing: Vector3, color: Color, seconds: float = 0.45) -> 
 	## Two pincers snapping shut on something: a die taken in a claw.
 	var pivot := Node3D.new()
 	add_child(pivot)
-	pivot.look_at_from_position(at, at + facing, Vector3.UP)
+	pivot.look_at_from_position(at, at + facing, _up_for(facing))
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

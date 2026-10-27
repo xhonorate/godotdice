@@ -1,5 +1,9 @@
 Copyright 2023 The Jaro Project Authors (https://github.com/googlefonts/googlefonts-project-template)
 
+Modified for Deep Cut (October 2026): the copy in view/fonts/Jaro.ttf has a redrawn V and v
+(a narrow flat foot, so they no longer read as U and u). Every other glyph is unchanged.
+The modified font stays under the SIL Open Font License, Version 1.1.
+
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
 https://scripts.sil.org/OFL
