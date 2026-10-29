@@ -37,6 +37,27 @@ func fixed(foe: Dictionary, values: Array) -> void:
 	for i in range(values.size()):
 		foe.dice.append(DeepDice.make("D6", "e0_d%d" % i, {"faces": [DeepDice.face(int(values[i]))]}))
 
+func landing(foe: Dictionary, names: Array) -> void:
+	## One die for each name, its only face that one of the creature's moves: an action die
+	## (docs/CREATURE_DICE.md) that lands on it whatever it throws.
+	foe.dice = []
+	for i in range(names.size()):
+		var die: Dictionary = DeepDice.make("D6", "e0_d%d" % i, {"faces": [DeepDice.face(1)]})
+		DeepCreatures.dress_face(die.faces[0], DeepCreatures.move_in(DeepCreatures.moves_for(foe), str(names[i])))
+		foe.dice.append(die)
+
+func with_moves(key: String, moves: Array, body: Callable) -> void:
+	## Runs `body` with a creature's moves swapped for `moves`, and puts them back after.
+	var def: Dictionary = DeepContent.creature(key)
+	var saved: Dictionary = def.duplicate(true)
+	def.moves = moves
+	body.call()
+	def.clear()
+	def.merge(saved)
+
+func amount_of(key: String, move: String) -> int:
+	return int(DeepCreatures.move_in(DeepContent.creature(key).moves, move).effects[0].amount)
+
 func events(fixture: Dictionary) -> Array:
 	DeepBattle.start_resolution(fixture.state)
 	var out: Array = []
@@ -57,7 +78,8 @@ func planning_and_repeats() -> void:
 	check(f.foe.hand.is_empty() and not f.foe.has("intents"), "planning contains no future rolls or prepared intents")
 	var untouched: Dictionary = DeepRng.streams(127, ["dice", "creatures"])
 	check(f.rng.creatures.state == untouched.creatures.state, "enemy RNG is untouched during ordinary planning")
-	fixed(f.foe, [6, 2])
+	## Three action dice: a Gorge, a Latch and a Bite, thrown in that order.
+	landing(f.foe, ["Gorge", "Latch", "Bite"])
 	f.state.players[0].block = 4
 	DeepBattle.start_resolution(f.state)
 	var order: Array = []
@@ -75,10 +97,15 @@ func planning_and_repeats() -> void:
 			check(int(f.state.players[0].hp) == hp, "power-up does not apply damage before impact")
 		if str(event.kind) == "enemy_move":
 			moves.append(event)
-	check(moves.map(func(e: Dictionary) -> String: return str(e.move)) == ["Bite", "Latch", "Bite"], "every qualifying move fires in list order, before the next die")
-	check(int(moves[0].effects[0].amount) == 6 and int(moves[2].effects[0].amount) == 2, "ordinary amounts read only the current die")
-	check(moves[0].effects.size() == 2 and int(moves[0].effects[0].hp_loss) == 2 and int(moves[0].effects[1].hp_loss) == 6, "one attack uses each player's own block")
-	check(moves[1].effects.size() == 2 and f.state.players.all(func(p: Dictionary) -> bool: return p.hand.size() == 4), "Latch suppresses a die for every player's next turn")
+	check(moves.map(func(e: Dictionary) -> String: return str(e.move)) == ["Gorge", "Latch", "Bite"], "each die fires the move on the face it landed, in the order thrown")
+	var enemy_steps: Array = order.filter(func(k: String) -> bool: return k.begins_with("enemy_"))
+	check(enemy_steps == ["enemy_begin", "enemy_roll", "enemy_ability", "enemy_move", "enemy_roll", "enemy_ability", "enemy_move",
+		"enemy_roll", "enemy_ability", "enemy_move", "enemy_end"], "a die's move is shown and lands before the next die is thrown: %s" % str(enemy_steps))
+	var gorge: int = amount_of("CAVE_TICK", "Gorge")
+	var bite: int = amount_of("CAVE_TICK", "Bite")
+	check(moves.size() == 3 and int(moves[0].effects[0].amount) == gorge and int(moves[2].effects[0].amount) == bite, "each face deals its own move's number, not the die's value")
+	check(moves.size() == 3 and moves[0].effects.size() == 2 and int(moves[0].effects[0].hp_loss) == gorge - 4 and int(moves[0].effects[1].hp_loss) == gorge, "one attack uses each player's own block")
+	check(moves.size() == 3 and moves[1].effects.size() == 2 and f.state.players.all(func(p: Dictionary) -> bool: return p.hand.size() == 4), "Latch suppresses a die for every player's next turn")
 	check(f.foe.hand.is_empty(), "next planning clears old results")
 	var dead: Dictionary = setup()
 	dead.foe.hp = 0
@@ -135,21 +162,25 @@ func controls() -> void:
 	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D100", "tier upgrades stop at d100")
 	f.foe.dread_turns = 1
 	check(str(DeepCreatures.effective_dice(f.foe)[0].shape) == "D60", "Dread lowers capped upgraded dice instead of spending invisible tiers")
-	f = setup("MAGPIE")
+	f = setup("THE_FOREMAN")
 	f.foe.statuses.stun = 1
-	check(select(events(f), "enemy_roll").is_empty(), "stun skips all dice of a multi-die enemy")
+	check(f.foe.dice.size() >= 2 and select(events(f), "enemy_roll").is_empty(), "stun skips all dice of a multi-die enemy")
 	f = setup()
 	fixed(f.foe, [1, 2, 3])
 	f.foe.stolen_dice = 1
 	out = events(f)
 	check(select(out, "enemy_roll").map(func(e: Dictionary) -> int: return int(e.roll.value)) == [1, 2], "Bind suppresses the last die in order")
 
-	var upgraded: Dictionary = setup("THE_FOREMAN")
-	upgraded.foe.hp = 30
-	for face in upgraded.foe.dice[0].faces:
-		face.value = 6
-	var upgraded_rolls: Array = select(events(upgraded), "enemy_roll")
-	check(upgraded_rolls.size() == 2 and str(upgraded_rolls[0].die.shape) == "D6" and str(upgraded_rolls[1].die.shape) == "D16", "a buff changes the next unrolled die while preserving the previous roll")
+	## A face that grows its dice mid-action: the die it was thrown on keeps its roll, the next
+	## one is thrown a size up and still lands on its move.
+	with_moves("CAVE_TICK", [
+		{"name": "Grow", "kind": "ready", "mark": "f_up", "text": "Its dice grow", "trigger": {"kind": "face"}, "effects": [{"kind": "dice_upgrade", "target": "self", "amount": 1}]},
+		{"name": "Nip", "kind": "attack", "mark": "f_sword", "text": "{0} damage", "trigger": {"kind": "face"}, "effects": [{"kind": "damage", "target": "heroes", "amount": 1}]}], func() -> void:
+		var upgraded: Dictionary = setup()
+		landing(upgraded.foe, ["Grow", "Nip"])
+		var upgraded_rolls: Array = select(events(upgraded), "enemy_roll")
+		check(upgraded_rolls.size() == 2 and str(upgraded_rolls[0].die.shape) == "D6" and str(upgraded_rolls[1].die.shape) == "D8"
+			and str(upgraded_rolls[0].roll.move) == "Grow" and str(upgraded_rolls[1].roll.move) == "Nip", "a buff changes the next unrolled die while preserving the previous roll"))
 
 	var durations: Array = []
 	for carat in [1, 8]:
@@ -172,24 +203,47 @@ func party_effects() -> void:
 	var hits: Array = DeepBattle._apply(f.state, f.foe, {"kind": "damage", "target": "heroes", "amount": 10}, f.rng.dice)
 	check(hits.size() == 4 and f.state.outcome == "defeat", "a lethal party attack resolves all four victims")
 
-	var reflected: Dictionary = setup("GLASS_WYRM", 4)
+	## A Prism Golem's Refract sends part of every blow back at the whole party; a Glass Wyrm's
+	## Mirror at whoever threw it.
+	var reflected: Dictionary = setup("PRISM_GOLEM", 4)
+	landing(reflected.foe, ["Refract"])
+	events(reflected)
 	reflected.foe.block = 0
-	reflected.state.players[0].resonance = 0
 	var rebound: Dictionary = DeepBattle._damage(reflected.state, reflected.state.players[0], reflected.foe, 4, reflected.rng.dice)
-	check(rebound.get("reflections", []).size() == 4, "passive enemy reflection damages every player")
+	check(rebound.get("reflections", []).size() == 4, "a refraction damages every player")
+	var mirrored: Dictionary = setup("GLASS_WYRM", 4)
+	landing(mirrored.foe, ["Mirror"])
+	events(mirrored)
+	mirrored.foe.block = 0
+	var others: Array = mirrored.state.players.slice(1).map(func(p: Dictionary) -> int: return int(p.hp))
+	var thrower_hp: int = int(mirrored.state.players[0].hp)
+	var back: Dictionary = DeepBattle._damage(mirrored.state, mirrored.state.players[0], mirrored.foe, 4, mirrored.rng.dice)
+	check(back.get("reflections", []).size() == 1 and str(back.reflections[0].target) == "p0" and int(mirrored.state.players[0].hp) < thrower_hp
+		and mirrored.state.players.slice(1).map(func(p: Dictionary) -> int: return int(p.hp)) == others, "a mirror sends it back at the thrower alone")
+	## A Clouder's Fog clouds a socket on every player's rail, still there as the next turn opens.
 	var fog: Dictionary = setup("CLOUDER", 4)
 	for p in fog.state.players:
 		p.rail[0] = DeepStone.make("STRIKE", 1, 4, 3)
 		p.rail[1] = DeepStone.make("GUARD", 1, 4, 3)
-	DeepBattle._begin_turn(fog.state, fog.rng.dice, fog.rng.creatures)
-	check(fog.state.players.all(func(p: Dictionary) -> bool: return p.clouded.size() == 1), "passive fog affects every player's rail")
+	landing(fog.foe, ["Fog"])
+	events(fog)
+	check(fog.state.players.all(func(p: Dictionary) -> bool: return p.clouded.size() == 1 and p.get("fog", []).size() == 1), "fog affects every player's rail")
+	## Under a moth's Lantern a reroll is free; a lantern written with a blood price takes it
+	## from every player.
 	var moth: Dictionary = setup("LANTERN_MOTH", 4)
+	landing(moth.foe, ["Lantern"])
+	events(moth)
 	var before: Array = moth.state.players.map(func(p: Dictionary) -> int: return int(p.hp))
 	DeepBattle.command(moth.state, "p0", {"kind": "reroll", "dice": ["p0_d0"]}, moth.rng.dice)
+	check(moth.state.players.map(func(p: Dictionary) -> int: return int(p.hp)) == before, "the moth's lantern takes no blood for a reroll")
+	moth.foe.traits.reroll_drain = 1
+	DeepBattle.command(moth.state, "p1", {"kind": "reroll", "dice": ["p1_d0"]}, moth.rng.dice)
 	for i in range(4):
-		check(int(moth.state.players[i].hp) == int(before[i]) - 1, "the moth's reroll drain reaches player %d" % i)
+		check(int(moth.state.players[i].hp) == int(before[i]) - 1, "a priced lantern's reroll drain reaches player %d" % i)
 
-	var simultaneous: Dictionary = setup("GLASS_WYRM", 4)
+	var simultaneous: Dictionary = setup("PRISM_GOLEM", 4)
+	landing(simultaneous.foe, ["Refract"])
+	events(simultaneous)
 	simultaneous.foe.hp = 4
 	simultaneous.foe.block = 0
 	for p in simultaneous.state.players:
@@ -198,14 +252,39 @@ func party_effects() -> void:
 	check(simultaneous.state.outcome == "defeat" and DeepBattle.living(simultaneous.state.players).is_empty(), "lethal reflection settles after every victim, including when the enemy also dies")
 
 func content_coverage() -> void:
+	## Every face of every creature's dice names one of its moves and lands as that move, at
+	## every size Dread or an upgrade can throw the die; and every creature has an attack face
+	## unless its card says it never attacks (the Puffball).
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = 127
 	for key in DeepContent.section("creatures"):
 		var definition: Dictionary = DeepContent.creature(str(key))
-		for phase in [definition] + definition.get("phases", []):
-			for shape in DeepCreatures.TIERS:
-				for value in range(1, int(DeepDice.SHAPES[shape]) + 1):
-					var history: Array = [{"die_id": "x", "value": value, "top": int(DeepDice.SHAPES[shape])}]
-					var covered: bool = false
-					for move in phase.moves:
-						if not DeepCreatures.is_combination(move) and DeepCreatures.activation(move, history, true).active:
-							covered = true
-					check(covered, "%s %s face %d has an ordinary action" % [key, shape, value])
+		var names: Array = definition.moves.map(func(m: Dictionary) -> String: return str(m.name))
+		var attacks: int = 0
+		for die in definition.get("dice", []):
+			for face in die.get("faces", []):
+				var move: Dictionary = DeepCreatures.move_in(definition.moves, str(face))
+				check(names.has(str(face)) and str(move.get("trigger", {}).get("kind", "")) == "face", "%s face %s is one of its face moves" % [key, str(face)])
+				if str(move.get("kind", "")) == "attack":
+					attacks += 1
+		var never: bool = str(definition.get("text", "")).contains("never attacks")
+		check(attacks > 0 or never, "%s has an attack face" % key)
+		check(not never or attacks == 0, "%s's card says it never attacks, and none of its faces is an attack" % key)
+		var made: Dictionary = DeepCreatures.make(str(key), "x", 1, 1, {}, rng)
+		var moves: Array = DeepCreatures.moves_for(made)
+		for at in range(made.dice.size()):
+			var base: int = DeepCreatures.TIERS.find(str(made.dice[at].shape))
+			for tier in range(DeepCreatures.TIERS.size()):
+				made.dice_upgrade = tier - base
+				var die: Dictionary = DeepCreatures.effective_dice(made)[at]
+				var stray: Array = []
+				for face in die.faces:
+					var history: Array = [{"die_id": str(die.id), "value": int(face.value), "top": DeepDice.top(die), "move": str(face.get("move", ""))}]
+					var fired: Array = moves.filter(func(m: Dictionary) -> bool:
+						return not DeepCreatures.is_combination(m) and str(m.get("trigger", {}).get("kind", "")) == "face" and DeepCreatures.activation(m, history, true).active)
+					if fired.size() != 1 or str(fired[0].name) != str(face.get("move", "")):
+						stray.append(int(face.value))
+				var shape: String = str(DeepCreatures.TIERS[tier])
+				check(str(die.shape) == shape and die.faces.size() == int(DeepDice.SHAPES[shape]) and stray.is_empty(),
+					"%s die %d thrown as a %s lands every face as one of its moves (strays: %s)" % [key, at, shape, str(stray)])
+		made.dice_upgrade = 0

@@ -1,34 +1,32 @@
 extends PanelContainer
-## One readable moveset, shared by the target, hover and the acting enemy: its traits (the
-## passives it fights with) as pills under its name, its ordered dice, and every move with
-## what it needs and what it does. The die it is rolling is not here: that turns over the
-## creature's own head, in the room, so this table stays the one size whether it is acting
-## or not, and nothing in it comes and goes while it rolls.
-const DiceIcons = preload("res://view/dice/dice_icons.gd")
-const GemIcons = preload("res://view/gems/gem_icons.gd")
+## The ledger (the plates rethink, artifact NMAGkwooypHHUKxsB4tR71, the owner's final room):
+## everything about one creature in a panel on the side of the room away from it. Whose it is
+## (your target, the one under the pointer, the one acting), its name and how many faces its
+## dice have, its health and block; then its dice, each face's move as a row: a rule and a mark
+## in the colour of its kind, its name, its words with their keywords explained on hover, and
+## its share of the die as pips, one dot a face. Then what its faces make together, what the
+## fight calls it to do, and what it always is. The face it has just landed is lit. There is no
+## die in it: the die is on the creature's tag, and a right-click turns it over in a window.
+##
+## A creature whose rows would stand the ledger taller than `max_height` reads them one line a
+## move (`dense`), so it never needs a scroll bar.
+
+const Look = preload("res://view/battle/creature_look.gd")
+const Tag = preload("res://view/battle/creature_tag.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
-const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "dice_upgrade": "die", "stun": "stun",
-	"curse": "eye", "clouded": "cloud", "ward": "shield_burst", "retain": "shield", "charged": "bolt", "marked": "eye", "regeneration": "heart", "spikes": "caltrop", "dulled": "cut",
-	"summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "scorched": "flame", "burn": "flame", "strength": "bolt", "die_lock": "die",
-	"steal_gold": "coin_fall", "gold": "coins", "empower_next": "bolt", "rally": "party", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart",
-	"charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die", "grind_die": "die", "break_gem": "cross_out", "lock_die": "die", "break_die": "cross_out", "blank_face": "die",
-	"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop",
-	"copy_hand": "copy", "grip_die": "die", "lose_die": "cross_out", "hasten": "hourglass", "swap_gems": "flip", "poison_tick": "drop"}
-## The noun after a move's number. Kinds not here fall back to their own name.
-const NOUNS: Dictionary = {"damage": "damage", "block": "block", "heal": "healing", "poison": "poison", "die_steal": "die suppressed", "remove_block": "block removed", "dice_upgrade": "tier up · this fight", "stun": "turn stunned",
-	"summon": "join the fight", "purge": "% of its poison shed", "burrow": "burrows", "festering": "Festering", "scorched": "Scorched", "burn": "Burn", "strength": "Strength", "die_lock": "die locked",
-	"steal_gold": "pyrite taken", "gold": "pyrite dropped", "empower_next": "% more next attack", "rally": "more for every creature", "grow_die": "die grown",
-	"swell": "swelling", "hold_gem": "gem taken", "bury_socket": "socket buried", "charge": "actions to charge", "dice_dread": "Dread", "downgrade_die": "die shrunk", "grind_die": "face ground down", "break_gem": "gem melted", "lock_die": "die locked",
-	"break_die": "die destroyed", "blank_face": "face burned blank", "reflect": "% of each blow sent back", "mirror": "blow mirrored", "absorb_color": "color drunk", "roll_again": "throws again",
-	"end_action": "its action ends", "exhibit": "fires every gem it holds", "max_hp": "most health", "cleanse": "afflictions shed",
-	"copy_hand": "of your dice copied", "grip_die": "die gripped", "lose_die": "head falls silent", "hasten": "action sooner", "swap_gems": "gems swapped",
-	"poison_tick": "poison bites again"}
-const STATES: Dictionary = {"unrevealed": "", "pending": "WAITING", "activated": "READY", "resolving": "ACTING", "resolved": "DONE", "used": "USED", "missed": "MISSED", "clouded": "CLOUDED", "latent": "ON DEATH", "spent": "SPENT"}
+
+const WIDTH: float = 384.0
+const FILL := Color(0.067, 0.078, 0.114, 0.96)
+## Whose it is: the reader's target, the one under the pointer, the one acting.
+const WHO: Dictionary = {"target": ["Your target", Color("e2b23a")], "looking": ["Looking at", Color("c5cde3")], "acting": ["Acting", Color("ff7a6b")]}
+
+## The interface's mark for each kind of effect, kept for anything that still names a move by
+## what it does rather than by its face.
+const GLYPHS: Dictionary = {"damage": "sword", "block": "shield", "heal": "heart", "poison": "drop", "die_steal": "die", "remove_block": "split_shield", "stun": "stun",
+	"curse": "eye", "clouded": "cloud", "marked": "eye", "regeneration": "heart", "spikes": "caltrop", "dulled": "cut", "summon": "copy", "burrow": "rampart",
+	"festering": "drop", "burn": "flame", "strength": "bolt", "steal_gold": "coin_fall", "hold_gem": "gem", "bury_socket": "rampart", "charge": "bolt"}
 
 static func move_glyph(move: Dictionary) -> String:
-	## A move wears the mark of what it does, the same mark on every creature: anything that
-	## hits the party is a sword, a guard is a shield, a burrow is a rampart. Its first effect
-	## decides, unless it deals damage somewhere in it.
 	var effects: Array = move.get("effects", [])
 	for effect in effects:
 		if str(effect.get("kind", "")) == "damage" and str(effect.get("target", "heroes")) != "self":
@@ -36,333 +34,339 @@ static func move_glyph(move: Dictionary) -> String:
 	if effects.is_empty():
 		return "spark"
 	return str(GLYPHS.get(str(effects[0].get("kind", "")), "spark"))
+
 var enemy_id: String = ""
 var foe: Dictionary = {}
+## How tall it may stand; the battle screen sets it to the room it has above the dock.
+var max_height: float = 450.0
+## Whose it is now, and the move whose row is lit.
+var who: String = "target"
+var lit: String = ""
+## One line a move, for a creature with more to say than the room holds.
+var dense: bool = false
 var _key: String = ""
-var _dice_key: String = ""
-## A row's frame: one for the move being acted out and one for the rest, shared by every row.
-var _row_idle: StyleBoxFlat = DeepUi.raised(Color("171c29"), Color("343443"), 6, 6, 0.0)
-var _row_acting: StyleBoxFlat = DeepUi.raised(Color("30221f"), DeepUi.ACCENT, 6, 6, 0.0)
-var _title: Label
-var _traits: HFlowContainer
-var _dice: HBoxContainer
-var _table: VBoxContainer
-var _rows: Array = []
-var _shown_states: Array = []
-var _slots: Dictionary = {}
-var _animations: Array = []
-var _tween: Tween
-var _revealed: int = 0
-var _turn: int = -1
-var _effects_layer: Control
+var _style_key: String = ""
+var _rows: Dictionary = {}
+var _who: Label
+var _name: Label
+var _dice_words: Label
+var _bar: Tag.HealthBar
+var _block_row: HBoxContainer
+var _block_label: Label
+var _list: VBoxContainer
+var _foot: Label
 
-func _ready() -> void:
+func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	add_theme_stylebox_override("panel", DeepUi.raised(Color("10141f"), Color("755449"), 12, 12, 0.8))
+	custom_minimum_size.x = WIDTH
 	var box := DeepUi.vbox(self, 6)
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
+	_who = DeepUi.label(box, "", 10, WHO.target[1])
+	_who.add_theme_font_override("font", DeepUi.bold_font())
 	var head := DeepUi.hbox(box, 8)
-	_title = DeepUi.heading(head, "", 17, DeepUi.PAPER)
-	_traits = HFlowContainer.new()
-	_traits.add_theme_constant_override("h_separation", 4)
-	_traits.add_theme_constant_override("v_separation", 3)
-	box.add_child(_traits)
-	_dice = DeepUi.hbox(box, 4)
-	_table = DeepUi.vbox(box, 5)
-	_table.custom_minimum_size.x = 265
-	_effects_layer = Control.new()
-	_effects_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_effects_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(_effects_layer)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_name = DeepUi.label(head, "", 17, DeepUi.PAPER)
+	_name.add_theme_font_override("font", DeepUi.bold_font())
+	_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var badge := PanelContainer.new()
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var badge_style := DeepUi.flat(Color(0, 0, 0, 0), Color("55608a"), 3, 1, 2)
+	badge_style.content_margin_left = 5
+	badge_style.content_margin_right = 5
+	badge.add_theme_stylebox_override("panel", badge_style)
+	head.add_child(badge)
+	_dice_words = DeepUi.label(badge, "", 10, DeepUi.MUTED)
+	_dice_words.add_theme_font_override("font", DeepUi.bold_font())
+	_bar = Tag.HealthBar.new()
+	_bar.thick = true
+	_bar.custom_minimum_size.y = 18
+	box.add_child(_bar)
+	_block_row = DeepUi.hbox(box, 6)
+	_block_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var chip := PanelContainer.new()
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_theme_stylebox_override("panel", DeepUi.capsule(chip, Color("14223a"), DeepUi.BLOCK, 2, 6, 0))
+	_block_row.add_child(chip)
+	var chip_row := DeepUi.hbox(chip, 3)
+	DeepUi.icon(chip_row, "shield", 11, Color("9cc4ff")).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_block_label = DeepUi.label(chip_row, "", 11, Color("cfe2ff"))
+	_block_label.add_theme_font_override("font", DeepUi.bold_font())
+	_list = DeepUi.vbox(box, 5)
+	_list.mouse_filter = Control.MOUSE_FILTER_PASS
+	_foot = DeepUi.label(box, "Right-click it to turn its die over", 10, DeepUi.MUTED)
+	_style()
 	visible = false
 
-func _cancel_animations() -> void:
-	for animation in _animations:
-		if animation.is_valid():
-			animation.kill()
-	_animations.clear()
-	DeepUi.clear(_effects_layer)
+func _process(_delta: float) -> void:
+	## Rich text is measured at no width until its row is laid out, and stands the ledger tall
+	## for that frame: once the words have their width, it shrinks back to what they need.
+	if visible and size.y > get_combined_minimum_size().y + 0.5:
+		reset_size()
 
 func reset() -> void:
-	_cancel_animations()
-	if _tween != null and _tween.is_valid():
-		_tween.kill()
-	DeepUi.clear(_effects_layer)
 	enemy_id = ""
+	foe = {}
+	lit = ""
 	_key = ""
-	_dice_key = ""
-	_revealed = 0
-	_shown_states = []
+	_rows.clear()
 	visible = false
 
-func show_enemy(unit: Dictionary, turn: int) -> void:
-	var changed: bool = enemy_id != str(unit.id) or _turn != turn
-	if changed:
-		reset()
-		_turn = turn
-		enemy_id = str(unit.id)
-		_revealed = unit.get("hand", []).size()
-	foe = unit.duplicate(true)
+func show_enemy(unit: Dictionary, _turn: int = 0) -> void:
+	## The ledger on one creature, as your target.
+	show_foe(unit, {}, "target", "")
+
+func show_foe(unit: Dictionary, _battle: Dictionary, whose: String, lit_move: String) -> void:
+	if enemy_id != str(unit.get("id", "")):
+		page = 0
+	foe = unit
+	enemy_id = str(unit.get("id", ""))
+	who = whose if WHO.has(whose) else "target"
 	visible = true
-	_title.text = str(foe.name)
-	var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
-	var key: String = str(moves) + "|" + str(DeepCreatures.traits_for(foe)) + "|" + str(int(foe.get("turns_acted", 0))) + "|" + str(foe.get("used_once", []))
+	_who.text = str(WHO[who][0]).to_upper()
+	_who.add_theme_color_override("font_color", WHO[who][1])
+	_name.text = str(foe.get("name", "")).to_upper()
+	_name.add_theme_color_override("font_color", Color("ffb0a0") if bool(foe.get("warden", false)) else DeepUi.PAPER)
+	_dice_words.text = Look.dice_words(foe).to_upper()
+	var max_hp: int = maxi(1, int(foe.get("max_hp", 1)))
+	var hp: int = maxi(0, int(foe.get("hp", 0)))
+	var block: int = int(foe.get("block", 0))
+	_bar.show_health(float(hp) / float(max_hp), "%s / %s" % [DeepUi.number(hp), DeepUi.number(max_hp)], clampf(float(block) / float(max_hp), 0.0, 0.4))
+	_block_row.visible = block > 0
+	_block_label.text = DeepUi.number(block)
+	var key: String = "%s|%s|%s|%s|%d" % [enemy_id, str(Look.groups(foe)), str(Look.moves(foe).map(func(m: Dictionary) -> String: return str(m.get("name", "")) + Look.text(foe, m))),
+		str(Look.traits(foe).map(func(c: Dictionary) -> String: return str(c.get("key", "")))), roundi(max_height)]
 	if key != _key:
-		_cancel_animations()
 		_key = key
-		_build_rows(moves)
-	if changed or not bool(foe.get("acting", false)) or str(foe.get("beat", "")) != "roll":
-		_revealed = foe.get("hand", []).size()
-		_states(foe.get("move_states", []))
-	_show_dice()
-	# Containers otherwise retain the width of the previous panel on hover.
+		_build()
+	set_lit(lit_move)
+	_style()
 	reset_size()
 
-func _build_rows(moves: Array) -> void:
-	DeepUi.clear(_table)
+func _style() -> void:
+	var key: String = who
+	if key == _style_key:
+		return
+	_style_key = key
+	var line: Color = Look.PILL_LINE
+	var width: int = 2
+	if who == "acting":
+		line = DeepUi.BAD
+		width = 3
+	elif who == "target":
+		line = DeepUi.ACCENT
+		width = 3
+	elif who == "looking":
+		line = Tag.HOVER_LINE
+	var style := DeepUi.ledger(FILL, line, 12, 12, width, 4)
+	style.content_margin_left = 14
+	style.content_margin_right = 14
+	if who == "acting":
+		style.shadow_color = Color(DeepUi.BAD, 0.3)
+		style.shadow_size = 12
+		style.shadow_offset = Vector2.ZERO
+	add_theme_stylebox_override("panel", style)
+
+func set_lit(move_name: String) -> void:
+	## The row of the face that has just landed is lit; the rest are not. Read a die at a time,
+	## the ledger turns to the die that face is on.
+	lit = move_name
+	if paged and not move_name.is_empty() and not _rows.has(move_name):
+		var groups: Array = Look.groups(foe)
+		for at in range(groups.size()):
+			if groups[at].moves.any(func(m: Dictionary) -> bool: return str(m.move) == move_name):
+				page = at
+				_build()
+				break
+	for name in _rows:
+		Look.set_lit(_rows[name], str(name) == move_name and not move_name.is_empty())
+
+func row_for(move_name: String) -> Control:
+	return _rows.get(move_name, null)
+
+func rows() -> Dictionary:
+	return _rows
+
+# --- the rows ------------------------------------------------------------------------------------
+
+## The three ways the rows are laid, roomiest first: the name over the words; one line a move;
+## one line a move, a die at a time (a Warden with three dice read at a small window's text).
+const ROOMY: int = 0
+const DENSE: int = 1
+const PAGED: int = 2
+## A die at a time: which.
+var page: int = 0
+var paged: bool = false
+
+func _build() -> void:
+	var groups: Array = Look.groups(foe)
+	var room: float = max_height - 6.0
+	var mode: int = ROOMY
+	if _estimate(ROOMY) > room:
+		mode = DENSE if _estimate(DENSE) <= room or groups.size() < 2 else PAGED
+	dense = mode != ROOMY
+	paged = mode == PAGED
+	page = clampi(page, 0, maxi(0, groups.size() - 1))
+	DeepUi.clear(_list)
 	_rows.clear()
-	## A boss phase with five or six moves is read densely: each move's effects share its
-	## requirement line, so the table still leaves the room and the dock in view.
-	## So is a shorter table whose moves do two things each (the Assayer's four).
-	var lines: int = 0
-	for move in moves:
-		lines += move.get("effects", []).size()
-	var dense: bool = moves.size() > 4 or lines > 6
-	for move in moves:
-		var panel := DeepUi.panel(_table, Color(1, 1, 1, 0.035), Color(1, 1, 1, 0.08), 6, 6)
-		var box := DeepUi.vbox(panel, 1)
-		var head := DeepUi.hbox(box, 5)
-		DeepUi.icon(head, move_glyph(move), 15, DeepUi.BAD)
-		DeepUi.label(head, str(move.name), 14, DeepUi.PAPER)
-		DeepUi.spacer(head)
-		var badge := DeepUi.label(head, "", 9, DeepUi.DIM)
-		var requirement := DeepUi.hbox(box, 5)
-		var described: Dictionary = DeepPatterns.describe(move.get("trigger", {"kind": "always"}), 0)
-		described.label = ""
-		if str(described.kind) in ["all_odd", "all_even"]:
-			described.mark = "odd" if str(described.kind) == "all_odd" else "even"
-		DiceIcons.build(requirement, described, 13, DeepUi.MUTED, DeepCreatures.trigger_words(move))
-		var condition := DeepUi.label(requirement, DeepCreatures.trigger_words(move), 11, DeepUi.MUTED)
-		condition.tooltip_text = condition.text
-		## A move that fires every so many actions says how far off it is.
-		if str(move.get("trigger", {}).get("kind", "")) in ["every_nth_turn", "countdown"]:
-			var wait: int = DeepCreatures.next_nth_in(foe, move) if str(move.trigger.kind) == "every_nth_turn" else DeepCreatures.countdown_in(foe, move)
-			var soon := DeepUi.label(requirement, "· in %s" % DeepUi.plural(wait, "action"), 11, Color("ffb05a"))
-			soon.tooltip_text = "%s fires in %s." % [str(move.name), DeepUi.plural(wait, "action")]
-		var numbers: Array = []
-		var formulas: Array = []
-		var marks: Array = []
-		for effect in move.get("effects", []):
-			var line: HBoxContainer = requirement if dense else DeepUi.hbox(box, 5)
-			if dense:
-				DeepUi.label(line, "·", 11, DeepUi.DIM)
-			var kind: String = str(effect.kind)
-			DeepUi.icon(line, str(GLYPHS.get(kind, "spark")), 13, DeepUi.BAD if kind == "damage" else DeepUi.INFO)
-			var parts: Dictionary = DeepCreatures.amount_parts(effect.get("amount", 0))
-			var formula: String = str(parts.base) if not parts.is_empty() else DeepCreatures.amount_words(effect.get("amount", 0))
-			if kind in ["burrow", "bury_socket", "hold_gem", "lock_die", "break_gem", "downgrade_die", "grind_die", "break_die", "blank_face", "roll_again", "end_action", "exhibit", "absorb_color", "mirror"]:
-				formula = ""
-			if kind == "remove_block" and bool(effect.get("remove_all", false)):
-				formula = "All"
-			if kind == "cleanse" and DeepCreatures.amount_words(effect.get("amount", 0)) == "99":
-				formula = "All"
-			var number := DeepUi.label(line, formula, 12, DeepUi.PAPER)
-			var mods := DeepUi.hbox(line, 3)
-			mods.visible = not formula.is_empty()
-			if not parts.is_empty() and not formula.is_empty():
-				_bonus_marks(mods, parts.mods, kind)
-			## A Poison or Burn here: its stacks are as written, but every round of them hurts
-			## with the weight on its blows.
-			if int(effect.get("weight", 100)) != 100 and not formula.is_empty():
-				mods.visible = true
-				var times: String = ("%.2f" % (float(effect.weight) / 100.0)).rstrip("0").rstrip(".")
-				DeepUi.stat(mods, "depth", "×" + times, DeepUi.ACCENT, 11,
-					"Depth: every round of this %s hurts ×%s. A creature's Poison and Burn carry the weight its blows carry this deep." % [kind.capitalize(), times])
-			var noun: String = str(NOUNS.get(kind, kind.replace("_", " ")))
-			if kind == "summon":
-				noun = "%s %s" % [str(DeepContent.creature(str(effect.get("creature", ""))).get("name", "creature")), "joins" if str(formula) == "1" else "join"]
-			if kind == "damage" and bool(effect.get("piercing", false)):
-				noun += " · ignores block"
-			if kind == "damage" and bool(effect.get("split_party", false)):
-				noun += " · split across the party"
-			var who: String = str(effect.get("target", "heroes"))
-			if who in DeepRules.HERO_PICKS:
-				noun += " · " + DeepCreatures.target_words(effect) if not dense else " · one player"
-			elif who == "self" and kind in ["stun", "damage"]:
-				noun += " · itself"
-			## Cut shorter when a small window sets the text bigger, so the line keeps its width.
-			var most: int = 22 * DeepUi.MIN_TEXT / DeepUi.min_text()
-			if dense and noun.length() > most:
-				noun = noun.substr(0, most - 2).strip_edges() + "…"
-			DeepUi.label(line, noun, 11, DeepUi.MUTED)
-			line.tooltip_text = DeepCreatures.effect_words(effect)
-			numbers.append(number)
-			formulas.append(formula)
-			marks.append(mods)
-		_rows.append({"panel": panel, "badge": badge, "numbers": numbers, "formulas": formulas, "marks": marks})
-	_build_passive()
-
-func _bonus_marks(parent: Node, mods: Array, kind: String = "damage") -> void:
-	## What the mine, a Rising trait, Strength or a status added to the number it started as,
-	## each a colored mark and a figure. The mine's share is marked with strata and a sinking
-	## arrow, never the Carat scale: it is how much harder things hit this deep, not a stone's.
-	for mod in mods:
-		var value: int = int(mod.value)
-		if str(mod.op) == "pct":
-			if value == 100:
-				continue
-			var times: String = ("%.2f" % (float(value) / 100.0)).rstrip("0").rstrip(".")
-			var said: String = "Depth: ×%s damage. Creatures hit harder the deeper the mine they are bred in (and a Rising creature harder with every action)." % times
-			if kind in DeepCreatures.HEALTH_SCALED:
-				said = "Its health: ×%s. What a creature does for itself (block, healing, Regeneration) grows with the health it was bred with." % times
-			elif kind == "remove_block":
-				said = "Depth: ×%s. The block a creature strips grows with how hard it hits this deep." % times
-			DeepUi.stat(parent, "heart" if kind in DeepCreatures.HEALTH_SCALED else "depth", "×" + times, DeepUi.ACCENT if value > 100 else DeepUi.GOOD, 11, said)
-		elif value != 0:
-			DeepUi.stat(parent, "rise", "%+d" % value, DeepUi.BAD if value > 0 else DeepUi.GOOD, 11,
-				"%+d damage from Strength, rallying and the fight dragging on." % value)
-
-func _build_passive() -> void:
-	## The creature's traits, the things it does without rolling for them, read out with the
-	## moves rather than left to the chips over its head: a Latcher's latch or a Fogger's fog
-	## is as much its moveset as anything it rolls for. They are pills under its name, each
-	## with its sentence on hover, so a Warden with four traits costs the table one line.
-	DeepUi.clear(_traits)
-	var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else {}
-	var keys: Array = traits.keys()
-	keys.sort()
-	var pills: Array = []
-	for key in keys:
-		if str(key) == "gift_rerolls" and (traits.has("reroll_drain") or traits.has("reroll_scorch")):
+	if paged:
+		_tabs(groups)
+	for at in range(groups.size()):
+		if paged and at != page:
 			continue
-		pills.append(EffectChips.trait_entry(str(key), traits[key]))
-	_traits.visible = not pills.is_empty()
-	for words in pills:
-		var text: String = str(words.title) + (" " + str(words.value) if not str(words.value).is_empty() else "")
-		DeepUi.pill(_traits, str(words.glyph), text, Color("c8a8ff"), 11, "%s\n%s" % [str(words.title), str(words.text)])
+		var group: Dictionary = groups[at]
+		if groups.size() > 1 and not paged:
+			var sub := DeepUi.label(_list, _group_words(group).to_upper(), 10, DeepUi.MUTED)
+			sub.add_theme_font_override("font", DeepUi.bold_font())
+		for entry in group.moves:
+			var move: Dictionary = Look.move_of(foe, str(entry.move))
+			if move.is_empty():
+				move = {"name": str(entry.move), "mark": str(entry.mark), "kind": str(entry.kind)}
+			_rows[str(entry.move)] = Look.row(_list, foe, move, int(entry.count), int(group.faces), "", dense)
+	for move in Look.matches(foe):
+		_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, Look.match_note(move), dense)
+	for extra in Look.extras(foe):
+		var move: Dictionary = extra.move
+		_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, str(extra.note), dense)
+	var traits: Array = Look.traits(foe)
+	if not traits.is_empty():
+		var rule := DeepUi.rule(_list, Look.PILL_LINE)
+		rule.custom_minimum_size.y = 2
+		for chip in traits:
+			Look.trait_row(_list, foe, chip, dense)
+	_foot.visible = _estimate(mode) + _foot_h() <= room
+	if not lit.is_empty():
+		for name in _rows:
+			Look.set_lit(_rows[name], str(name) == lit)
 
-func _show_dice() -> void:
-	var dice: Array = DeepCreatures.effective_dice(foe)
-	var suppressed: int = int(foe.get("suppressed", 0)) if bool(foe.get("acting", false)) or str(foe.get("beat", "")) == "done" else int(foe.get("stolen_dice", 0))
-	## Laid out again only when something it shows has changed: a hover or a sync that moved
-	## nothing keeps the dice it has.
-	var hand_key: Array = foe.get("hand", []).map(func(r: Dictionary) -> String: return "%s:%d" % [str(r.get("shape", "")), int(r.get("value", 0))])
-	var dice_key: String = "%s|%d|%d|%d|%s|%s" % [str(dice), suppressed, _revealed, int(foe.get("next_die", 0)), str(bool(foe.get("acting", false))), str(hand_key)]
-	if dice_key == _dice_key:
-		return
-	_dice_key = dice_key
-	DeepUi.clear(_dice)
-	_slots.clear()
-	for index in range(dice.size()):
-		if index > 0:
-			DeepUi.label(_dice, "›", 13, DeepUi.DIM)
-		## Each die is its own silhouette in the color of its size: the number it landed on
-		## once it has, a question until then, and a cross when it has been taken away.
-		var die: Dictionary = dice[index]
-		var shape: String = str(foe.hand[index].get("shape", die.shape)) if index < foe.get("hand", []).size() else str(die.shape)
-		var rolled: bool = index < _revealed and index < foe.get("hand", []).size()
-		var gone: bool = not rolled and index >= dice.size() - suppressed
-		var tone: Color = DiceIcons.palette(shape).body
-		if gone:
-			tone = DeepUi.DIM
-		elif index == int(foe.get("next_die", 0)) - 1 and bool(foe.get("acting", false)):
-			tone = DeepUi.BAD
-		var text: String = str(int(foe.hand[index].value)) if rolled else ("×" if gone else "?")
-		var slot: Control = DiceIcons.face(24, int(foe.hand[index].value) if rolled else 0, tone, shape, rolled, text)
-		slot.mouse_filter = Control.MOUSE_FILTER_STOP
-		slot.tooltip_text = "%s · %s" % [shape.to_lower(), "suppressed" if gone else "roll %d" % (index + 1)]
-		_dice.add_child(slot)
-		_slots[str(die.id)] = slot
+static func _group_words(group: Dictionary) -> String:
+	## "claws · d8", "d6 ×3".
+	var label: String = str(group.get("label", ""))
+	return (label + " · " if not label.is_empty() else "") + str(group.shape).to_lower() + (" ×%d" % int(group.count) if int(group.count) > 1 else "")
 
-func _states(states: Array) -> void:
-	_shown_states = states.duplicate()
-	for index in range(_rows.size()):
-		var status: String = str(states[index]) if index < states.size() else "unrevealed"
-		if DeepCreatures.move_clouded(foe, index):
-			status = "clouded"
-		var row: Dictionary = _rows[index]
-		row.badge.text = str(STATES.get(status, ""))
-		row.badge.modulate = DeepUi.ACCENT if status in ["activated", "resolving"] else (Color("ff8ad8") if status == "latent" else DeepUi.MUTED)
-		row.panel.modulate.a = 0.4 if status in ["missed", "clouded", "spent"] else (0.65 if status in ["used", "resolved"] else (0.8 if status == "latent" else 1.0))
-		var frame: StyleBoxFlat = _row_acting if status == "resolving" else _row_idle
-		if row.get("frame", null) != frame:
-			row.frame = frame
-			row.panel.add_theme_stylebox_override("panel", frame)
-
-func roll_die(event: Dictionary) -> void:
-	_cancel_animations()
-	if _tween != null and _tween.is_valid():
-		_tween.kill()
-	for row in _rows:
-		for i in range(row.numbers.size()):
-			row.numbers[i].text = row.formulas[i]
-			row.marks[i].visible = not str(row.formulas[i]).is_empty()
-	var before: Array = []
-	for i in range(_rows.size()):
-		var prior: String = str(_shown_states[i]) if i < _shown_states.size() else "unrevealed"
-		if prior in ["latent", "spent"]:
-			before.append(prior)
+func _tabs(groups: Array) -> void:
+	## A button a die, the one being read lit.
+	var strip := DeepUi.hbox(_list, 4)
+	strip.mouse_filter = Control.MOUSE_FILTER_PASS
+	for at in range(groups.size()):
+		var button := Button.new()
+		button.text = _group_words(groups[at])
+		button.focus_mode = Control.FOCUS_NONE
+		DeepUi.set_text_size(button, 11)
+		if at == page:
+			DeepUi.ledger_primary(button)
 		else:
-			before.append("used" if prior == "used" else ("pending" if DeepCreatures.is_combination(foe.moves[i]) else "unrevealed"))
-	_states(before)
-	_revealed = int(event.roll_index)
-	_show_dice()
-	## The die itself tumbles over the creature's head (the battle screen's business); the
-	## table only waits for it to land before it reads the roll into its rows.
-	_tween = create_tween()
-	_tween.tween_interval(maxf(0.1, float(event.duration) - 0.28))
-	_tween.tween_callback(func() -> void:
-		_revealed = int(event.roll_index) + 1
-		_show_dice()
-		_states(event.get("states", []))
-		var slot: Control = _slots.get(str(event.roll.get("die_id", "")), null)
-		if slot != null and is_instance_valid(slot):
-			DeepUi.pulse(slot, 1.25, 0.23))
+			DeepUi.ledger_button(button, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 3)
+		for side in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+			var box: StyleBox = button.get_theme_stylebox(side)
+			if box is StyleBoxFlat:
+				(box as StyleBoxFlat).content_margin_left = 8
+				(box as StyleBoxFlat).content_margin_right = 8
+				(box as StyleBoxFlat).content_margin_top = 2
+				(box as StyleBoxFlat).content_margin_bottom = 2
+		button.pressed.connect(func() -> void:
+			page = at
+			_build()
+			reset_size())
+		strip.add_child(button)
 
-func power(event: Dictionary) -> void:
-	var index: int = int(event.index)
-	if index < 0 or index >= _rows.size():
-		## A blow it wound up over turns has no row of its own: the whole table lights.
-		if bool(event.get("release", false)):
-			DeepUi.pulse(self, 1.03, 0.3)
-		return
-	var row: Dictionary = _rows[index]
-	_states(foe.get("move_states", []))
-	var assemble: float = 0.3 if bool(event.get("combo", false)) else 0.0
-	var contributors: Array = []
-	for roll in foe.get("hand", []):
-		if event.get("dice", []).has(str(roll.die_id)):
-			contributors.append(roll)
-	if bool(event.get("combo", false)):
-		contributors.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.value) < int(b.value))
-	for i in range(contributors.size()):
-		var roll: Dictionary = contributors[i]
-		var source: Control = _slots.get(str(roll.die_id), _dice)
-		var token := DeepUi.label(_effects_layer, str(int(roll.value)), 21, DeepUi.ACCENT)
-		token.position = source.global_position + source.size * 0.5 - _effects_layer.global_position - Vector2(8, 8)
-		var flight := token.create_tween()
-		_animations.append(flight)
-		if assemble > 0:
-			flight.tween_property(token, "position", _dice.global_position - _effects_layer.global_position + Vector2(18 + i * 35, 34), assemble).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		flight.tween_property(token, "position", row.numbers[0].global_position - _effects_layer.global_position, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		flight.parallel().tween_property(token, "modulate:a", 0.0, 0.2)
-		flight.tween_callback(token.queue_free)
-	var effects: Array = event.get("effects", [])
-	for i in range(mini(effects.size(), row.numbers.size())):
-		var number: Label = row.numbers[i]
-		## The roll's own figure already has every bonus in it.
-		row.marks[i].visible = false
-		var amount: int = int(effects[i].amount)
-		number.text = str(mini(1, amount))
-		var count := number.create_tween()
-		_animations.append(count)
-		count.tween_interval(assemble + 0.14)
-		count.tween_method(func(value: float) -> void: number.text = DeepUi.number(int(round(value))), float(mini(1, amount)), float(amount), 0.22)
-		count.tween_callback(func() -> void:
-			DeepUi.pulse(number, 1.18, 0.18)
-			DeepAudio.from(number, "resonance", {"volume": 0.4, "pitch": 0.85}))
+func _estimate(mode: int) -> float:
+	## How tall the ledger stands with its rows laid one of the three ways, worked out from the
+	## fonts and the words themselves, wrapped as the text server wraps them (`_lines`): rich
+	## text is measured at no width until it has been laid out, so it is not asked.
+	var bold: Font = DeepUi.bold_font()
+	var small: int = DeepUi.readable(10)
+	## The panel's margins, and its lines one under another six apart: whose, the name and its
+	## dice, the bar, the block, the rows (the foot is reckoned apart: `_foot_h`).
+	var tall: float = 24.0
+	tall += _label_h(bold, small) + 6.0
+	tall += maxf(_label_h(bold, DeepUi.readable(17)), _label_h(bold, small) + 2.0) + 6.0
+	tall += maxf(18.0, float(DeepUi.readable(10)) + 5.0) + 6.0
+	if int(foe.get("block", 0)) > 0:
+		tall += _label_h(bold, DeepUi.readable(11)) + 6.0
+	## The rows' last gap is not there.
+	tall -= 5.0
+	var rows: Array = []
+	var groups: Array = Look.groups(foe)
+	var tallest: Array = []
+	var tallest_h: float = -1.0
+	for group in groups:
+		var these: Array = []
+		for entry in group.moves:
+			these.append([Look.move_of(foe, str(entry.move)), _pips_w(int(entry.count))])
+		if mode == PAGED:
+			var h: float = _rows_height(these, true)
+			if h > tallest_h:
+				tallest_h = h
+				tallest = these
+		else:
+			if groups.size() > 1:
+				tall += _label_h(bold, small) + 5.0
+			rows.append_array(these)
+	if mode == PAGED:
+		rows = tallest
+		## The buttons a die.
+		tall += _label_h(bold, DeepUi.readable(11)) + 8.0 + 5.0
+	var note_font: Font = DeepUi.text_face(DeepUi.readable(11))
+	for move in Look.matches(foe):
+		rows.append([move, note_font.get_string_size(Look.match_note(move), HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.readable(11)).x])
+	for extra in Look.extras(foe):
+		rows.append([extra.move, note_font.get_string_size(str(extra.note), HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.readable(11)).x])
+	tall += _rows_height(rows, mode != ROOMY)
+	var traits: Array = Look.traits(foe)
+	if not traits.is_empty():
+		tall += 2.0 + 5.0
+		var size: int = DeepUi.readable(12 if mode != ROOMY else 13)
+		for chip in traits:
+			tall += _label_h(bold, DeepUi.readable(14)) + 2.0 + 5.0
+			var said: String = str(chip.get("text", ""))
+			if not said.is_empty():
+				tall += float(_lines([[said, DeepUi.text_face(size)]], size, INNER)) * _line_h(size)
+	return tall
 
-func impact(event: Dictionary) -> void:
-	var index: int = int(event.get("index", -1))
-	if index >= 0 and index < _rows.size():
-		DeepUi.pulse(_rows[index].panel, 1.025, 0.24)
-		_states(foe.get("move_states", []))
+## How wide the rows' words may run: the panel's inside, less a row's rule and margins.
+const INNER: float = WIDTH - 28.0 - 17.0
+
+func _rows_height(rows: Array, one_line: bool) -> float:
+	var bold: Font = DeepUi.bold_font()
+	var size: int = DeepUi.readable(13)
+	var face: Font = DeepUi.text_face(size)
+	var tall: float = 0.0
+	for pair in rows:
+		var move: Dictionary = pair[0]
+		var words: String = Look.text(foe, move)
+		## What stands beside the words: the pips, or a note, and the gap before it.
+		var across: float = INNER - (float(pair[1]) + 8.0 if float(pair[1]) > 0.0 else 0.0)
+		if one_line:
+			var parts: Array = [[str(move.get("name", "")), bold]]
+			if not words.is_empty():
+				parts.append(["  " + words, face])
+			tall += float(_lines(parts, size, across - 20.0)) * _line_h(size) + 6.0 + 5.0
+		else:
+			tall += _label_h(bold, DeepUi.readable(14)) + 1.0 + 10.0 + 5.0
+			if not words.is_empty():
+				tall += float(_lines([[words, face]], size, across)) * _line_h(size)
+	return tall
+
+static func _foot_h() -> float:
+	return _label_h(DeepUi.text_face(DeepUi.readable(10)), DeepUi.readable(10)) + 6.0
+
+static func _pips_w(count: int) -> float:
+	var across: int = mini(count, Look.Pips.PER_LINE)
+	return float(across) * Look.Pips.DOT + float(maxi(0, across - 1)) * Look.Pips.GAP
+
+static func _label_h(font: Font, size: int) -> float:
+	return ceilf(font.get_height(size))
+
+static func _line_h(size: int) -> float:
+	return ceilf(maxf(DeepUi.bold_font().get_height(size), DeepUi.text_face(size).get_height(size)))
+
+static func _lines(parts: Array, size: int, width: float) -> int:
+	## How many lines these words take wrapped at this width, as the text server breaks them.
+	var paragraph := TextParagraph.new()
+	paragraph.width = maxf(40.0, width)
+	paragraph.break_flags = TextServer.BREAK_MANDATORY | TextServer.BREAK_WORD_BOUND | TextServer.BREAK_ADAPTIVE
+	for part in parts:
+		paragraph.add_string(str(part[0]), part[1], size)
+	return maxi(1, paragraph.get_line_count())

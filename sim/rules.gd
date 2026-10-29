@@ -136,7 +136,7 @@ const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "tota
 	"distinct", "held", "rerolled", "dice", "count_value", "count_at_most", "count_at_least", "run_high", "run_length",
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
-	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "turns_acted", "living_players", "strength", "pairs", "even_read",
+	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "party_high_die", "taken_since", "turns_acted", "living_players", "strength", "pairs", "even_read",
 	"crown_total", "run_fires", "fight_resonance"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
@@ -153,27 +153,29 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"phantom_low", "phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "envenom", "gather_poison", "poison_tick",
 	"grow_poison", "fire_birthstone", "spectrum", "stone_chance", "double_resonance", "keep_phantoms",
 	"bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous",
-	"copy_hand", "grip_die", "lose_die", "hasten", "swap_gems"]
+	"copy_hand", "grip_die", "lose_die", "hasten", "swap_gems",
+	"etch", "grow_faces", "pin_trait", "fog", "flee", "morph", "cling", "blank_next"]
 ## The creature-only kinds: a skill or an inclusion may not use them.
 const CREATURE_KINDS: Array = ["summon", "purge", "burrow", "festering", "scorched", "burn", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
 	"reflect", "mirror", "absorb_color", "blank_face", "roll_again", "end_action",
-	"copy_hand", "grip_die", "lose_die", "hasten", "swap_gems"]
+	"copy_hand", "grip_die", "lose_die", "hasten", "swap_gems",
+	"etch", "grow_faces", "pin_trait", "fog", "flee", "morph", "cling", "blank_next"]
 const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block", "retain", "regeneration", "spikes", "lifeline", "wager", "detonate"]
 const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss", "gather_poison", "grow_poison",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
-	"festering", "scorched", "burn", "die_lock", "blank_face", "hold_gem", "bury_socket", "grip_die", "swap_gems"]
+	"festering", "scorched", "burn", "die_lock", "blank_face", "hold_gem", "bury_socket", "grip_die", "swap_gems", "fog", "cling", "blank_next"]
 const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
 	"gather_poison", "poison_tick", "grow_poison",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
-	"festering", "scorched", "burn", "die_lock", "blank_face", "steal_gold", "hold_gem", "bury_socket", "grip_die", "swap_gems"]
+	"festering", "scorched", "burn", "die_lock", "blank_face", "steal_gold", "hold_gem", "bury_socket", "grip_die", "swap_gems", "fog", "cling", "blank_next"]
 ## What a creature's hostile effect means by "the enemy": these are turned on the party. A
 ## creature that names one player, or itself, keeps its aim.
 const ENEMY_SIDE_TARGETS: Array = ["enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "hero", "heroes"]
 const HERO_PICKS: Array = ["hero_least_block", "hero_most_hp", "hero_most_gold", "hero_top_damage", "hero_top_dealt", "hero_marked", "hero_rerolled"]
 
 const TARGETS: Array = ["self", "ally_low", "allies", "allies_other", "enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "downed_ally", "hero", "heroes",
-	"hero_least_block", "hero_most_hp", "hero_most_gold", "hero_top_damage", "hero_top_dealt", "hero_marked", "hero_rerolled"]
+	"hero_least_block", "hero_most_hp", "hero_most_gold", "hero_top_damage", "hero_top_dealt", "hero_marked", "hero_rerolled", "escort_leader"]
 const MODIFIER_KINDS: Array = ["rider", "per_die_damage", "magnitude", "fizzle_on_value", "hp_cost", "carat", "carat_mult",
 	"cut_step", "cut_override", "locked", "slotless", "fragile", "lens", "color_also", "next_cut_step", "retrigger_if_previous_fired",
 	"copy_previous_inclusion", "adjacent_carat", "always_fires", "fires_twice", "carat_per_depth", "alexandrite",
@@ -188,7 +190,15 @@ const EACH_AFTER_GIFTS: Array = ["block", "spikes", "poison"]
 const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result", "remove_all", "revive_block", "scope", "all_faces", "refund_mult", "poison_splash", "pot_mode",
 	"piercing", "split_party", "pick", "creature", "pct", "permanent", "shape", "cap", "turns", "cancel_pct", "guard_pct", "store", "release",
 	"hurt", "add", "flat", "stones", "of_status", "gift", "overflow", "resonance_cap", "shows", "every_gem", "elite", "best_of", "shrink", "both_ends",
-	"of", "pattern", "keep_all"]
+	"of", "pattern", "keep_all",
+	## A creature's action dice (docs/CREATURE_DICE.md): `per_reroll` multiplies the amount by the
+	## rerolls its target used this turn, `poison_through` poisons for what got past block,
+	## `until` "next_action" takes a status off again as its next action opens, `back`
+	## "thrower" sends a reflection at the one who threw the blow, `for_fight` keeps rubble for
+	## the fight, `from`/`to`/`count`/`die` say which faces an etch turns into what, `faces`
+	## are the moves a die grows, `trait`/`value` the trait a move pins until its next action,
+	## `template` the die a new head copies.
+	"per_reroll", "poison_through", "until", "back", "for_fight", "from", "to", "count", "die", "faces", "trait", "value", "template"]
 ## How an effect that works on one die or one gem chooses it: `showing` is the face every die
 ## lies on, `all` every die, `usable` the finest gem a creature could fire itself.
 const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best", "usable", "showing", "all"]
@@ -353,6 +363,8 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 		"party_heaviest_carat": return int(c.get("party_heaviest_carat", 0))
 		"party_best_turn": return int(c.get("party_best_turn", 0))
 		"party_richest": return int(c.get("party_richest", 0))
+		"party_high_die": return int(c.get("party_high_die", 0))
+		"taken_since": return int(c.get("taken_since", 0))
 		"strength": return int(unit.get("statuses", {}).get("strength", 0))
 		"crown_total": return int(a.get("crown_total", 0))
 		## How often this stone has fired this run, and what the rail has rung this fight.
@@ -790,7 +802,10 @@ static func validate_move(def: Variant, p: Dictionary) -> Array:
 		errors.append("needs a name")
 	errors.append_array(DeepPatterns.validate(def.get("trigger", {"kind": "always"})))
 	var effects: Variant = def.get("effects", null)
-	if not effects is Array or effects.is_empty():
+	## A creature's dud face (a stumble, a Still) does nothing at all.
+	if str(def.get("kind", "")) == "dud" and effects is Array and effects.is_empty():
+		pass
+	elif not effects is Array or effects.is_empty():
 		errors.append("needs at least one effect")
 	else:
 		for index in range(effects.size()):

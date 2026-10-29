@@ -142,6 +142,42 @@ export function creatureImage(key, size = 120) {
 	return picture(`creatures/${key}.png`, () => creatureGlyph(def, size), size, `${def.name || key}`, 'pic-creature');
 }
 
+// --- a creature's action dice (docs/CREATURE_DICE.md) ------------------------------------------
+
+// Each kind of move: its face's colour on the die, and the ink its pips and number are written in.
+export const MOVE_FACE = { attack: '#d72d47', guard: '#2c6ae8', meddle: '#7f4dd1', mend: '#3fb57a', ready: '#f1bb25', dud: '#4d5363' };
+export const MOVE_INK = { attack: '#ff8f7e', guard: '#7fb0ff', meddle: '#c9a9ff', mend: '#6fd69a', ready: '#f0c860', dud: '#9aa3b8' };
+const MARK_IVORY = '#f5e9c8';
+
+// One of a creature's dice, photographed with its moves engraved on the faces; the plain die of
+// its shape where tools/browser_assets.gd has not shot it (`creature_dice`).
+export function creatureDieImage(key, index, shape, size = 56) {
+	const shot = manifest && manifest.creature_dice && (manifest.creature_dice.dice || {})[key];
+	if (!shot || !shot.includes(index)) return dieImage(shape, size);
+	return picture(`creature_dice/${key}_${index}.png`, () => dieGlyph(C.die(shape), size), size, `${C.creature(key).name || key}'s ${String(shape).toLowerCase()}`, 'pic-die');
+}
+
+// A face's mark on its kind's colour, as the die wears it: ivory, slate on a dud. The mark is a
+// white-on-clear picture (`marks` in the manifest) used as a mask; without one, its move's
+// initial stands in.
+export function markChip(mark, kind, size = 26, title = '') {
+	const k = MOVE_FACE[kind] ? kind : 'dud';
+	const chip = h('span', { class: 'mk', title: title || null, style: { width: `${size}px`, height: `${size}px`, background: MOVE_FACE[k] } });
+	const known = manifest && manifest.marks && (manifest.marks.keys || []).includes(mark);
+	if (known) {
+		const url = `url("${ASSETS}marks/${mark}.png")`;
+		chip.append(h('i', { style: { background: k === 'dud' ? MOVE_INK.dud : MARK_IVORY, maskImage: url, webkitMaskImage: url } }));
+	} else {
+		chip.append(h('b', { style: { color: k === 'dud' ? MOVE_INK.dud : MARK_IVORY, fontSize: `${Math.round(size * 0.5)}px` } }, (title || mark || '?').slice(0, 1).toUpperCase()));
+	}
+	return chip;
+}
+
+// A pip for every face that carries a move, in its kind's ink.
+export function pips(count, kind) {
+	return h('span', { class: 'pips', title: `${count} ${count === 1 ? 'face' : 'faces'}` }, Array.from({ length: count }, () => h('i', { style: { background: MOVE_INK[kind] || MOVE_INK.dud } })));
+}
+
 function dieGlyph(def, size) {
 	const faces = (def.faces || []).length || 6;
 	const sides = faces <= 4 ? 3 : faces <= 6 ? 4 : faces <= 8 ? 3 : faces <= 12 ? 5 : 6;

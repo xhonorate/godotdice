@@ -37,7 +37,9 @@ func _run() -> void:
 	var failed: int = 0
 	for key in keys:
 		var def: Dictionary = DeepContent.creature(str(key))
-		if def.is_empty():
+		## A creature with a scene but not yet in the content pack is photographed all the same
+		## (as an ordinary creature), so its picture is ready when its card lands.
+		if def.is_empty() and not CrystalCreature.SCENE_PATHS.has(str(key)):
 			printerr("no creature ", key)
 			failed += 1
 			continue

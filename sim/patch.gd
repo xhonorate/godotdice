@@ -4,8 +4,10 @@ extends RefCounted
 ## step at a time without ever running the rules.
 ##
 ## A patch is {"set": {key: value}, "sub": {key: patch}, "del": [key]} for two dictionaries,
-## or {"=": value} when either side is not a dictionary. Arrays are replaced whole: the
-## state is small and the simplicity is worth more than the bytes.
+## or {"=": value} when either side is not a dictionary. Arrays are replaced whole, except a
+## list of dictionaries that keeps its length (the players, the creatures): that is patched
+## item by item, {"at": {index: patch}}, since a creature's action dice made every creature a
+## few kilobytes and one of them changing should not send them all.
 
 static func holds(list: Array, number: int) -> bool:
 	## Whether a list of whole numbers has this one in it. Anything that has been through JSON
@@ -29,6 +31,15 @@ static func diff(before: Variant, after: Variant) -> Variant:
 				var sub: Variant = diff(before[key], after[key])
 				if sub != null:
 					_put(out, "sub", key, sub)
+			elif _items(before[key], after[key]):
+				var each: Dictionary = {}
+				for index in range(after[key].size()):
+					if not _untouched(before[key][index], after[key][index]):
+						var item: Variant = diff(before[key][index], after[key][index])
+						if item != null:
+							each[str(index)] = item
+				if not each.is_empty():
+					_put(out, "sub", key, {"at": each})
 			elif not _same(before[key], after[key]):
 				_put(out, "set", key, after[key])
 		for key in before:
@@ -48,6 +59,10 @@ static func apply(base: Variant, patch: Variant) -> Variant:
 		return patch
 	if patch.has("="):
 		return _copy(patch["="])
+	if patch.has("at") and base is Array:
+		for index in patch.at:
+			base[int(index)] = apply(base[int(index)], patch.at[index])
+		return base
 	if not base is Dictionary:
 		base = {}
 	for key in patch.get("del", []):
@@ -59,6 +74,15 @@ static func apply(base: Variant, patch: Variant) -> Variant:
 	for key in subs:
 		base[key] = apply(base.get(key, {}), subs[key])
 	return base
+
+static func _items(a: Variant, b: Variant) -> bool:
+	## A list of dictionaries the same length on both sides: patched item by item.
+	if not (a is Array and b is Array) or a.size() != b.size() or a.is_empty():
+		return false
+	for index in range(a.size()):
+		if not (a[index] is Dictionary and b[index] is Dictionary):
+			return false
+	return true
 
 static func _put(out: Dictionary, bucket: String, key: Variant, value: Variant) -> void:
 	if not out.has(bucket):

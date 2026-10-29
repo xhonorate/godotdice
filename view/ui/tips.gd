@@ -76,6 +76,28 @@ static func attach(control: Control, build: Callable, opts: Dictionary = {}) -> 
 		if _anchor == control and not control.is_visible_in_tree():
 			hide_now())
 
+static func adopt_engine_tooltips(tree: SceneTree) -> void:
+	## Every plain `tooltip_text` in the game gets the same instant plate: the engine's own
+	## tooltip waits a beat however the delay is set. A control is taken over the first time
+	## the pointer enters it, so menus and pages need no wiring of their own.
+	tree.node_added.connect(func(node: Node) -> void:
+		if node is Control and not bool(node.get_meta("tip_wired", false)):
+			(node as Control).mouse_entered.connect(func() -> void: _adopt(node as Control), CONNECT_ONE_SHOT))
+
+static func _adopt(control: Control) -> void:
+	if not is_instance_valid(control) or control.tooltip_text.is_empty() or bool(control.get_meta("tip_wired", false)):
+		return
+	var said: String = control.tooltip_text
+	attach(control, func() -> Control:
+		if not control.tooltip_text.is_empty():
+			said = control.tooltip_text
+			control.tooltip_text = ""
+		var Plates = load("res://view/ui/plates.gd")
+		var box: Control = Plates.plate(280.0)
+		DeepUi.effect_text(box, said, 12, DeepUi.PAPER)
+		return box)
+	_enter(control)
+
 static func _touch() -> bool:
 	return DisplayServer.is_touchscreen_available()
 

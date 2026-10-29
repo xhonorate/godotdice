@@ -8,6 +8,7 @@ extends Control
 
 const Geometry = preload("res://view/dice/dice_geometry.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
+const FaceMarks = preload("res://view/dice/face_marks.gd")
 
 const VIEW_DIRECTION := Vector3(0.0, 0.0, 1.0)
 const SPIN_SECONDS := 0.72
@@ -34,6 +35,17 @@ const MATERIAL_LOOKS := {
 	"fools_gold": {"alpha": 1.0, "roughness": 0.24, "metallic": 1.0, "glow": 0.12},
 	"granite": {"alpha": 1.0, "roughness": 0.88, "metallic": 0.04, "glow": 0.0},
 	"blood": {"alpha": 1.0, "roughness": 0.3, "metallic": 0.12, "glow": 0.2}}
+
+## A creature's action die carries one move a face instead of a number: each face is colored
+## by what kind of move it is and engraved with the move's mark (face_marks.gd), ivory on
+## every face but a dud's, where it is slate. Its colors are true colors (sRGB), not shades.
+const MOVE_TINTS := {"attack": Color("d72d47"), "guard": Color("2c6ae8"), "meddle": Color("7f4dd1"),
+	"mend": Color("3fb57a"), "ready": Color("f1bb25"), "dud": Color("4d5363")}
+const MARK_INK := Color("f5e9c8")
+const DUD_INK := Color("9aa3b8")
+const MARKED_LOOK := {"alpha": 1.0, "roughness": 0.3, "metallic": 0.45, "glow": 0.0}
+## The engraving's shadow: half-dark, a hair down and right of the mark, just under it.
+const MARK_SHADOW := Color(0.0, 0.0, 0.0, 0.5)
 
 @export var live := true
 ## How loud its tumble is: another player's dice land more quietly than the reader's own.
@@ -68,6 +80,10 @@ var _shell: MeshInstance3D
 var _glow: Control
 var _readout: Label
 var _labels: Array[Label3D] = []
+## An action die's engraved marks (two sprites a face, the shadow first), and whether this
+## die is one: built in place of the numerals.
+var _marks: Array[Sprite3D] = []
+var _marked := false
 var _frames: Array = []
 var _face_index := 0
 var _signature := ""
@@ -259,7 +275,8 @@ func _sync_readout() -> void:
 	## and never on a view the reader steers: there the face under the eye is the answer.
 	if not is_instance_valid(_readout):
 		return
-	var wanted: bool = _frames.size() > READOUT_SIDES and not interactive
+	## An action die has no number to write: its faces carry moves.
+	var wanted: bool = _frames.size() > READOUT_SIDES and not interactive and not _marked
 	_readout.visible = wanted
 	if not wanted:
 		return
@@ -358,7 +375,8 @@ func _wear_material(palette: Dictionary) -> void:
 	var body_material: StandardMaterial3D = _body.material_override as StandardMaterial3D
 	if body_material == null:
 		return
-	var look: Dictionary = MATERIAL_LOOKS.get(str(die.get("material", "")), PLAIN_LOOK)
+	var look: Dictionary = MARKED_LOOK if _marked else MATERIAL_LOOKS.get(str(die.get("material", "")), PLAIN_LOOK)
+	body_material.vertex_color_is_srgb = _marked
 	var alpha: float = float(look.get("alpha", 1.0))
 	body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if alpha < 0.999 else BaseMaterial3D.TRANSPARENCY_DISABLED
 	body_material.albedo_color = Color(1.0, 1.0, 1.0, alpha)
@@ -372,10 +390,36 @@ func _wear_material(palette: Dictionary) -> void:
 func _face_values() -> String:
 	## Every face's number and its etching: a face etched where it stands (a carver's needle,
 	## a creature's brand) keeps its number, and the solid still has to be recut to show it.
+	## An action die's face also says its move's mark and kind: a face re-etched to another
+	## move mid-fight is recut too.
 	var values: Array = []
 	for face in die.get("faces", []):
-		values.append(("%s:%s" % [str(face.get("value", 0)), str(face.get("kind", "plain"))]) if face is Dictionary else str(face))
+		var entry: String = ("%s:%s" % [str(face.get("value", 0)), str(face.get("kind", "plain"))]) if face is Dictionary else str(face)
+		if face is Dictionary and face.has("mark"):
+			entry += ":%s:%s" % [str(face.get("mark", "")), str(face.get("move_kind", ""))]
+		values.append(entry)
 	return ",".join(values)
+
+static func is_marked(of_die: Dictionary) -> bool:
+	## A creature's action die: its faces carry moves (each a mark) instead of numbers.
+	for face in of_die.get("faces", []):
+		if face is Dictionary and not str(face.get("mark", "")).is_empty():
+			return true
+	return false
+
+static func _move_kind(face: Variant) -> String:
+	## The kind of move a face makes ("kind" on a face is already its etching); a face that
+	## does not say counts as a dud.
+	var kind: String = str(face.get("move_kind", "dud")) if face is Dictionary else "dud"
+	return kind if MOVE_TINTS.has(kind) else "dud"
+
+static func move_tint(face: Variant, index: int) -> Color:
+	## An action die's face color: its move's kind, every other face a shade lighter in turn
+	## so neighbours of one kind still part at the edge.
+	return (MOVE_TINTS[_move_kind(face)] as Color).lightened(0.06 * float(index % 3))
+
+static func mark_ink(face: Variant) -> Color:
+	return DUD_INK if _move_kind(face) == "dud" else MARK_INK
 
 func _shape() -> String:
 	var declared := str(die.get("shape", "")).to_upper()
@@ -392,8 +436,12 @@ func _rebuild() -> void:
 	_frames = built.frames
 	var palette := _palette()
 	var faces: Array = die.get("faces", [])
+	_marked = is_marked(die)
 	var colors := PackedColorArray()
 	for index in range(_frames.size()):
+		if _marked:
+			colors.append(move_tint(faces[index] if index < faces.size() else null, index))
+			continue
 		var value := _value_at(index)
 		var shade: float = 0.06 * float(index % 3) - 0.05
 		var tone: Color = palette.body.lightened(maxf(shade, 0.0)) if shade >= 0.0 else palette.body.darkened(-shade)
@@ -416,6 +464,13 @@ func _rebuild() -> void:
 		if is_instance_valid(label):
 			label.queue_free()
 	_labels.clear()
+	for sprite in _marks:
+		if is_instance_valid(sprite):
+			sprite.queue_free()
+	_marks.clear()
+	if _marked:
+		_engrave(faces)
+		return
 	var numeral: Color = Color("15181f") if palette.body.get_luminance() > 0.45 else Color("f4f7fb")
 	for index in range(_frames.size()):
 		var frame: Dictionary = _frames[index]
@@ -434,6 +489,37 @@ func _rebuild() -> void:
 		label.transform = Transform3D(Basis(frame.right, frame.up, frame.normal), frame.centre + frame.normal * 0.006)
 		_pivot.add_child(label)
 		_labels.append(label)
+
+func _engrave(faces: Array) -> void:
+	## Each face's mark cut into it where a numeral would be: the mark in ivory (slate on a dud)
+	## over a half-dark copy a hair down and right, so it reads as sunk into the face. A
+	## triangle has less room round its middle than a square, so its mark is a little smaller.
+	for index in range(mini(_frames.size(), faces.size())):
+		var face: Variant = faces[index]
+		if not face is Dictionary or str(face.get("mark", "")).is_empty():
+			continue
+		var texture: Texture2D = FaceMarks.texture(str(face.mark))
+		var frame: Dictionary = _frames[index]
+		var reach: float = float(frame.inradius)
+		var across: float = reach * (1.55 if int(frame.get("sides", 4)) == 3 else 1.7)
+		var centre: Vector3 = frame.centre
+		var shadow_at: Vector3 = centre + Vector3(frame.normal) * 0.006 - Vector3(frame.up) * reach * 0.05 + Vector3(frame.right) * reach * 0.04
+		_marks.append(_mark_sprite(texture, MARK_SHADOW, across, frame, shadow_at))
+		_marks.append(_mark_sprite(texture, mark_ink(face), across, frame, centre + Vector3(frame.normal) * 0.008))
+
+func _mark_sprite(texture: Texture2D, tint: Color, across: float, frame: Dictionary, at: Vector3) -> Sprite3D:
+	var sprite := Sprite3D.new()
+	sprite.texture = texture
+	sprite.modulate = tint
+	sprite.pixel_size = across / float(texture.get_width())
+	sprite.shaded = false
+	sprite.double_sided = false
+	## The mark itself is cut clean; its shadow is blended, being see-through.
+	sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD if tint.a >= 1.0 else SpriteBase3D.ALPHA_CUT_DISABLED
+	sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	sprite.transform = Transform3D(Basis(frame.right, frame.up, frame.normal), at)
+	_pivot.add_child(sprite)
+	return sprite
 
 func _fit_label(label: Label3D, frame: Dictionary) -> void:
 	## Sized to its face for however many characters it shows.

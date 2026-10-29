@@ -17,16 +17,25 @@ extends RefCounted
 const Inspector = preload("res://view/inspect/inspector.gd")
 const CreatureStage = preload("res://view/creatures/creature_stage.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
-const EffectChips = preload("res://view/battle/effect_chips.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const Biomes = preload("res://view/battle/biomes.gd")
 const MineMap = preload("res://view/home/mine_map.gd")
 
+const CreatureLedger = preload("res://view/inspect/creature_ledger.gd")
+
 const PORTRAITS: String = "res://view/creatures/portraits/"
 const TILE: float = 96.0
 const COLUMNS: int = 4
-## Moves to a page of the picked creature's sheet, as on the inspector's.
-const MOVES_PAGE: int = 4
+## A die's page of the picked creature's sheet: the die, the gap beside it and its rows, at
+## least ROWS_WIDTH wide (the column is narrower in a small window, where the text is larger).
+## The column is about COLUMN wide and tall at most (none of it scrolls): what its name, words,
+## facts and tabs leave of it is what a page's rows may take (`_leaf_height`).
+const DIE_EDGE: float = 180.0
+const DIE_GAP: int = 12
+const ROWS_WIDTH: float = 370.0
+const COLUMN := Vector2(604.0, 700.0)
+const FACTS_TALL: float = 30.0
+const TABS_TALL: float = 36.0
 const UNSEEN := Color(0.02, 0.03, 0.07, 0.92)
 const ROLE_WORDS: Dictionary = {"warden": ["crown", "Warden", DeepUi.BAD], "boss": ["crown", "Final boss", DeepUi.ACCENT],
 	"unmade": ["crown", "The Rift's own", Color("b8a8ff")], "escort": ["copy", "Escort", DeepUi.INFO]}
@@ -503,7 +512,7 @@ static func _detail(home: Control, holder: Control) -> void:
 		DeepUi.pill(facts, "die", "no dice of its own", DeepUi.DIM, 13)
 	for die in dice:
 		var shape: String = str(die.get("shape", die)) if die is Dictionary else str(die)
-		DeepUi.pill(facts, "die", shape.to_lower(), DiceIcons.palette(shape).body, 13, "It rolls its dice in this order, and every move a die qualifies for fires.")
+		DeepUi.pill(facts, "die", shape.to_lower(), DiceIcons.palette(shape).body, 13, "Its dice, thrown in this order. Every face is one of its moves, and the face that lands is what it does.")
 	home.region(DeepUi.vbox(right, 10), "bestiary_leaf", func(box: Control) -> void: _leaves(home, box, key, def, record))
 
 static func _unknown(home: Control, right: VBoxContainer, key: String) -> void:
@@ -527,23 +536,19 @@ static func _name_of(profile: Dictionary, key: String) -> String:
 
 static func _leaves(home: Control, box: Control, key: String, def: Dictionary, record: Dictionary) -> void:
 	## What is said about it, in pages under tabs: the field notes (where it lives and the
-	## player's record against it), its moves four at a time, and each phase's.
+	## player's record against it), then its dice the way a fight's side panel reads them, a
+	## page a die: the die itself, turnable, beside a row for every move on its faces
+	## (CreatureLedger), and what lands on no face after the last of them.
 	var leaves: Array = [ {"name": "Field notes", "glyph": "map", "draw": func(page: Control) -> void: _notes(home.profile, page, key, record)}]
-	var traits: Dictionary = DeepCreatures.traits_for({"key": key, "hp": 1, "max_hp": 1})
-	var moves: Array = def.get("moves", [])
-	for chunk in range(maxi(1, ceili(float(moves.size()) / float(MOVES_PAGE)))):
-		var part: Array = moves.slice(chunk * MOVES_PAGE, (chunk + 1) * MOVES_PAGE)
-		var first: bool = chunk == 0
-		leaves.append({"name": "Moves" if first else str(chunk + 1), "tip": "Moves · %d" % (chunk + 1), "glyph": "book", "draw": func(page: Control) -> void:
-			_moves(page, part, traits if first else {})})
-	for phase in def.get("phases", []):
-		var below: int = int(phase.get("below_hp_pct", 0))
-		var shown: Array = phase.get("moves", [])
-		for chunk in range(maxi(1, ceili(float(shown.size()) / float(MOVES_PAGE)))):
-			var part: Array = shown.slice(chunk * MOVES_PAGE, (chunk + 1) * MOVES_PAGE)
-			var first: bool = chunk == 0
-			leaves.append({"name": "Below %d%%" % below if first else str(chunk + 1), "tip": "Below %d%%" % below + ("" if first else " · %d" % (chunk + 1)), "glyph": "crown", "draw": func(page: Control) -> void:
-				_phase(page, phase if first else {}, below, part)})
+	## As written: one player, the first depth, so its numbers are the ones in its card.
+	var foe: Dictionary = DeepCreatures.make(key, "bestiary_" + key, 1, 1)
+	for spec in CreatureLedger.pages(foe, _leaf_height(def), ROWS_WIDTH):
+		var tip: String = ""
+		if not spec.group.is_empty():
+			var all: Array = CreatureLedger.groups(foe)
+			tip = CreatureLedger.group_caption(spec.group, all)
+		leaves.append({"name": str(spec.name), "tip": tip, "glyph": "die" if not spec.group.is_empty() else "book", "draw": func(page: Control) -> void:
+			_dice(page, foe, spec)})
 	var at: int = clampi(int(home._bestiary_leaf), 0, leaves.size() - 1)
 	var tabs := DeepUi.hbox(box, 6)
 	tabs.name = "BestiaryLeaves"
@@ -638,30 +643,23 @@ static func _haunt_words(profile: Dictionary, haunt: Dictionary) -> Array:
 			return ["ghost", "Takes the shape of a creature from %s" % (", ".join(names.slice(0, -1)) + " or " + str(names.back()) if names.size() > 1 else ", ".join(names))]
 	return ["spark", str(haunt.kind)]
 
-static func _moves(page: Control, moves: Array, traits: Dictionary) -> void:
-	var list := DeepUi.vbox(page, 6)
-	for move in moves:
-		Inspector.move_row(list, move, false, true)
-	if traits.is_empty():
-		return
-	var born := DeepUi.vbox(page, 6)
-	DeepUi.section(born, "spark", "What it is", DeepUi.ACCENT, 13)
-	var trait_keys: Array = traits.keys()
-	trait_keys.sort()
-	for trait_key in trait_keys:
-		var chip: Dictionary = EffectChips.trait_entry(str(trait_key), traits[trait_key])
-		Inspector.wrap_stat(DeepUi.stat(born, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12))
+static func _leaf_height(def: Dictionary) -> float:
+	## How tall a die's page may run: the column, less the creature's name, its words, its facts
+	## and the tabs over the pages, measured at the size they are drawn at in this window.
+	var size: int = DeepUi.readable(14)
+	var words: float = DeepUi.text_face(size).get_multiline_string_size(str(def.get("text", "")), HORIZONTAL_ALIGNMENT_LEFT, COLUMN.x, size).y
+	var title: float = DeepUi.title_font(28).get_height(28)
+	return COLUMN.y - title - words - FACTS_TALL - TABS_TALL - 40.0
 
-static func _phase(page: Control, phase: Dictionary, below: int, moves: Array) -> void:
-	var list := DeepUi.vbox(page, 6)
-	if not phase.is_empty():
-		DeepUi.stat(list, "crown", "Below %d%% health it fights with:" % below, DeepUi.BAD, 13)
-		for trait_key in phase.get("traits", {}):
-			var value: Variant = phase.traits[trait_key]
-			if (value is bool and not value) or ((value is int or value is float) and float(value) <= 0.0):
-				DeepUi.stat(list, "cross_out", "Loses %s." % str(trait_key).capitalize(), DeepUi.DIM, 12)
-			else:
-				var chip: Dictionary = EffectChips.trait_entry(str(trait_key), value)
-				Inspector.wrap_stat(DeepUi.stat(list, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12))
-	for move in moves:
-		Inspector.move_row(list, move, false, true)
+static func _dice(page: Control, foe: Dictionary, spec: Dictionary) -> void:
+	## One die's page: the die, turnable, vertically centred beside its rows; a row under the
+	## pointer turns it to that face. A page of what lands on no face has the rows alone.
+	if spec.group.is_empty():
+		CreatureLedger.fill(page, foe, spec, ROWS_WIDTH + DIE_EDGE + DIE_GAP)
+		return
+	var row := DeepUi.hbox(page, DIE_GAP)
+	var view: Control = CreatureLedger.die_view(spec.group.die, DIE_EDGE)
+	view.name = "BestiaryDie"
+	view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(view)
+	CreatureLedger.fill(row, foe, spec, ROWS_WIDTH, {"view": view})

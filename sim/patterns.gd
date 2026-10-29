@@ -49,7 +49,10 @@ extends RefCounted
 const KINDS: Array = ["all_odd", "all_even", "always", "pair", "two_pair", "triple", "full_house", "quad", "quint", "straight",
 	"odd", "even", "distinct", "value", "at_most", "at_least", "total_pct_at_least", "total_pct_at_most",
 	"high_pct_at_least", "held", "rerolled", "resonance", "low_count", "crowns", "crowns_at_most", "skip_straight", "distinct_dominant", "pyrite", "fizzles", "below", "kills",
-	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin", "countdown"]
+	"each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin", "countdown",
+	## A creature's action dice: a move fires when its own face lands (`face`), or when the
+	## faces it names have landed together in one action (`match`). See creatures.gd.
+	"face", "match"]
 ## The kinds a creature reads from the turn rather than from a die.
 const TURN_KINDS: Array = ["each_turn", "every_nth_turn", "emerge", "on_death", "hp_below", "action_begin", "countdown"]
 ## The turn kinds that never fire on a die the creature throws: the fight calls them itself.
@@ -450,7 +453,7 @@ static func validate(trigger: Variant) -> Array:
 				if not (step is int or step is float) or int(step) != float(step):
 					errors.append("trigger ladder rungs must be whole numbers")
 					break
-	elif kind != "always" and kind != "resonance" and not kind in ["each_turn", "emerge", "on_death", "action_begin"] and not trigger.has("amount"):
+	elif kind != "always" and kind != "resonance" and not kind in ["each_turn", "emerge", "on_death", "action_begin", "face", "match"] and not trigger.has("amount"):
 		errors.append("trigger needs a ladder or an amount")
 	if kind == "every_nth_turn" and int(trigger.get("amount", 0)) < 2:
 		errors.append("every_nth_turn needs an amount of 2 or more")

@@ -19,6 +19,9 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 			source.name = "%s (%s)" % [str(def.get("name", key)), str(source.get("name", echo_of))]
 			source.warden = bool(def.get("warden", false))
 			source.erase("echo")
+			## An echo will not stay one thing: one face of its first die is Echo Anew, which
+			## turns it into another creature from those mines at that one's full health.
+			_echo_anew(source, DeepContent.creature(key))
 			def = source
 	## Pressure Cooker writes a steeper climb into the fight's scale.
 	var hp_scale: float = 1.0 + float(scale.get("depth_hp", DeepContent.constant("depth_hp_scale", 0.05))) * float(maxi(0, depth - 1))
@@ -31,7 +34,7 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 	var dice: Array = []
 	var index: int = 0
 	for die_ref in def.get("dice", []):
-		dice.append(DeepForge.die_from(die_ref, "%s_d%d" % [id, index]))
+		dice.append(face_die(die_ref, "%s_d%d" % [id, index], def.get("moves", [])))
 		index += 1
 	var traits: Dictionary = {}
 	for trait_key in extra.get("traits", {}):
@@ -60,6 +63,156 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 		"reflect": 0, "mirror": 0, "absorb": [], "extra_dice": [], "stopped": false, "seen_colors": [],
 		"hurt_by": {}, "hurt_by_color": {}, "biggest_hit": 0, "hardest_gem": {},
 		"escorts": [], "escort_of": "", "summoned": false, "fled": false, "stun_guard": false, "death_turn": 0}
+
+# --- action dice ------------------------------------------------------------------------
+##
+## A creature throws action dice (docs/CREATURE_DICE.md): every face of every die is one of its
+## moves, named in the content (`"dice": [{"shape": "D8", "faces": ["Claw", "Claw", "Rake",
+## ...]}]`), and a face does what its move says when it lands. The face carries the move's
+## name, mark and kind (`move`, `mark`, `move_kind`; a face's own `kind` is its etching, as on
+## any die) so the die can be drawn, and so a face re-etched mid-fight (`etch`) is the die
+## itself changing. A move with no face on any die (a Flee a Snatch turns into, a Blast a
+## Reinforce etches) waits in the moves list until a face is etched to it.
+const MOVE_KINDS: Array = ["attack", "guard", "meddle", "mend", "ready", "dud"]
+
+static func move_in(moves: Array, name: String) -> Dictionary:
+	for move in moves:
+		if move is Dictionary and str(move.get("name", "")) == name:
+			return move
+	return {}
+
+static func dress_face(face: Dictionary, move: Dictionary) -> void:
+	face.move = str(move.get("name", ""))
+	face.mark = str(move.get("mark", "f_sword"))
+	face.move_kind = str(move.get("kind", "attack"))
+
+static func face_die(ref: Variant, id: String, moves: Array) -> Dictionary:
+	## One of a creature's dice as written: a shape, and for an action die the move on each
+	## face, in order (repeating if the list is short).
+	var die: Dictionary = DeepForge.die_from(ref, id)
+	if not ref is Dictionary or ref.get("faces", []).is_empty():
+		return die
+	var names: Array = ref.faces
+	for at in range(die.faces.size()):
+		dress_face(die.faces[at], move_in(moves, str(names[at % names.size()])))
+	if ref.has("label"):
+		die.label = str(ref.label)
+	return die
+
+static func is_face_die(die: Dictionary) -> bool:
+	return not die.get("faces", []).is_empty() and die.faces[0] is Dictionary and die.faces[0].has("move")
+
+static func face_share(enemy: Dictionary) -> Array:
+	## Each die's moves and how many of its faces carry each, in the order they first appear:
+	## [{shape, label, faces, moves: [{move, count, mark, kind}]}]. What the panel's pips show.
+	var out: Array = []
+	for die in enemy.get("dice", []):
+		var counts: Dictionary = {}
+		var order: Array = []
+		for face in die.get("faces", []):
+			var name: String = str(face.get("move", ""))
+			if name.is_empty():
+				continue
+			if not counts.has(name):
+				order.append({"move": name, "mark": str(face.get("mark", "")), "kind": str(face.get("move_kind", "attack"))})
+				counts[name] = 0
+			counts[name] = int(counts[name]) + 1
+		for entry in order:
+			entry.count = int(counts[str(entry.move)])
+		out.append({"shape": str(die.get("shape", "D6")), "label": str(die.get("label", "")), "faces": die.get("faces", []).size(), "moves": order})
+	return out
+
+static func etch(enemy: Dictionary, from: String, to: String, count: int, at_die: int = -1, at_face: int = -1) -> Array:
+	## Faces showing one move re-etched to another for the rest of the fight: `count` of them
+	## (0 = every one), on one die or any, or one face in particular. Returns what changed.
+	var move: Dictionary = move_in(moves_for(enemy), to)
+	var changed: Array = []
+	if move.is_empty():
+		return changed
+	var dice: Array = enemy.get("dice", [])
+	for d in range(dice.size()):
+		if at_die >= 0 and d != at_die:
+			continue
+		var faces: Array = dice[d].get("faces", [])
+		for f in range(faces.size()):
+			if at_face >= 0 and f != at_face:
+				continue
+			if str(faces[f].get("move", "")) != from or (count > 0 and changed.size() >= count):
+				continue
+			dress_face(faces[f], move)
+			changed.append({"die": d, "face": f, "from": from, "to": to, "mark": str(faces[f].mark), "kind": str(faces[f].move_kind)})
+	return changed
+
+static func grow_faces(enemy: Dictionary, at_die: int, names: Array, cap: String = "D12") -> Dictionary:
+	## The Hollow Crown's Rise: a die grows a size, and its new faces carry these moves.
+	var dice: Array = enemy.get("dice", [])
+	if at_die < 0 or at_die >= dice.size():
+		return {"nothing": true}
+	var die: Dictionary = dice[at_die]
+	var tier: int = TIERS.find(str(die.get("shape", "D6")))
+	var most: int = TIERS.find(cap)
+	if tier < 0 or tier >= most:
+		return {"nothing": true, "reason": "Its die is as big as it grows."}
+	var next: String = str(TIERS[tier + 1])
+	var want: int = int(DeepDice.SHAPES[next])
+	var moves: Array = moves_for(enemy)
+	var added: Array = []
+	var index: int = 0
+	while die.faces.size() < want:
+		var face: Dictionary = DeepDice.face(die.faces.size() + 1)
+		dress_face(face, move_in(moves, str(names[index % maxi(1, names.size())])))
+		die.faces.append(face)
+		added.append(str(face.move))
+		index += 1
+	die.shape = next
+	die.erase("top")
+	return {"die": at_die, "shape": next, "added": added}
+
+static func _echo_anew(source: Dictionary, echo_def: Dictionary) -> void:
+	## A Void Echo's copy of another creature, with one face of its first die turned to the
+	## echo's own Echo Anew.
+	var anew: Dictionary = move_in(echo_def.get("moves", []), "Echo Anew")
+	if anew.is_empty() or source.get("dice", []).is_empty():
+		return
+	var moves: Array = source.get("moves", []).duplicate(true)
+	if move_in(moves, "Echo Anew").is_empty():
+		moves.append(anew.duplicate(true))
+	source.moves = moves
+	var first: Variant = source.dice[0]
+	if first is Dictionary and not first.get("faces", []).is_empty():
+		var copy: Dictionary = first.duplicate(true)
+		copy.faces[0] = "Echo Anew"
+		source.dice[0] = copy
+
+static func become_echo(enemy: Dictionary, source_key: String) -> void:
+	## A Void Echo turning into another creature it remembers (its Echo Anew): that one's
+	## dice, moves and traits, at that one's full health as this fight breeds it.
+	var own: Dictionary = DeepContent.creature(str(enemy.get("key", "")))
+	var source: Dictionary = DeepContent.creature(source_key).duplicate(true)
+	source.name = "%s (%s)" % [str(own.get("name", enemy.get("key", ""))), str(source.get("name", source_key))]
+	source.warden = bool(own.get("warden", false))
+	source.erase("echo")
+	_echo_anew(source, own)
+	var scale: float = float(enemy.get("hp_scale", 1.0))
+	var hp: int = maxi(1, DeepRules.sat_floor(roundf(float(source.get("hp", 10)) * scale)))
+	enemy.echo_of = source_key
+	enemy.echo_def = source
+	enemy.name = str(source.name)
+	enemy.hp = hp
+	enemy.max_hp = hp
+	enemy.block = DeepRules.sat_floor(roundf(float(source.get("block", 0)) * scale))
+	enemy.morphs = int(enemy.get("morphs", 0)) + 1
+	var dice: Array = []
+	for at in range(source.get("dice", []).size()):
+		dice.append(face_die(source.dice[at], "%s_m%d_%d" % [str(enemy.id), int(enemy.morphs), at], source.get("moves", [])))
+	enemy.dice = dice
+	enemy.statuses = {"ward": int(enemy.get("statuses", {}).get("ward", 0))}
+	enemy.swell = 0
+	enemy.hp_at_turn = hp
+	for name in enemy.get("pinned", {}):
+		enemy.get("traits", {}).erase(name)
+	enemy.pinned = {}
+	enemy.timed = {}
 
 static func _echo_source(echo: Dictionary, rng: RandomNumberGenerator) -> String:
 	## Some ordinary creature out of the mines an echo remembers, each as likely as its weight
@@ -152,7 +305,7 @@ static func trait_value(enemy: Dictionary, name: String, fallback: int = 0) -> i
 	return int(value)
 
 const TIERS: Array = DeepDice.TIERS
-const COMBINATIONS: Array = ["pair", "triple", "quad", "quint", "two_pair", "full_house", "straight", "all_odd", "all_even"]
+const COMBINATIONS: Array = ["pair", "triple", "quad", "quint", "two_pair", "full_house", "straight", "all_odd", "all_even", "match"]
 ## The move states a creature's table draws. `latent` is a move that waits for its death,
 ## `spent` one it has used up for the fight.
 const MOVE_STATES: Array = ["unrevealed", "clouded", "used", "pending", "missed", "activated", "resolving", "resolved", "latent", "spent"]
@@ -165,8 +318,28 @@ static func effective_dice(enemy: Dictionary) -> Array:
 		var index: int = TIERS.find(str(base.get("shape", "D6")))
 		var tier: int = maxi(0, clampi(index + upgrade, 0, TIERS.size() - 1) - dread)
 		var key: String = str(TIERS[tier])
-		out.append(base.duplicate(true) if tier == index else DeepDice.make(key, str(base.id), {"pattern": str(base.get("pattern", "")), "material": str(base.get("material", ""))}))
+		if tier == index:
+			out.append(base.duplicate(true))
+		elif is_face_die(base):
+			out.append(_resized_face_die(base, key))
+		else:
+			out.append(DeepDice.make(key, str(base.id), {"pattern": str(base.get("pattern", "")), "material": str(base.get("material", ""))}))
 	return out
+
+static func _resized_face_die(base: Dictionary, shape: String) -> Dictionary:
+	## An action die thrown a size smaller (Dread) or larger keeps its moves: its faces in
+	## order, cut short or carried round again.
+	var die: Dictionary = base.duplicate(true)
+	var want: int = int(DeepDice.SHAPES.get(shape, 6))
+	var faces: Array = []
+	for at in range(want):
+		var face: Dictionary = base.faces[at % base.faces.size()].duplicate(true)
+		face.value = at + 1
+		faces.append(face)
+	die.shape = shape
+	die.faces = faces
+	die.erase("top")
+	return die
 
 static func prepare(enemy: Dictionary) -> void:
 	## Public planning information only; this never consumes random numbers.
@@ -243,6 +416,15 @@ static func once_an_action(move: Dictionary) -> bool:
 	return is_combination(move) or is_turn_move(move)
 
 static func activation(move: Dictionary, history: Array, last: bool, context: Dictionary = {}) -> Dictionary:
+	var face_kind: String = str(move.get("trigger", {}).get("kind", ""))
+	if face_kind == "face":
+		## Its own face landed on the die just thrown.
+		var thrown: Dictionary = history.back() if not history.is_empty() else {}
+		var landed: bool = str(thrown.get("move", "")) == str(move.get("name", ""))
+		return {"active": landed, "dice": [str(thrown.get("die_id", ""))] if landed else [], "kind": "face", "need": 0,
+			"value": 0, "count": 1 if landed else 0, "reason": "" if landed else "Its face did not land."}
+	if face_kind == "match":
+		return _matched(move.trigger, history)
 	var combo: bool = is_combination(move)
 	var read: Array = history if combo else history.slice(-1)
 	var a: Dictionary = DeepHand.analyze(read)
@@ -256,6 +438,22 @@ static func activation(move: Dictionary, history: Array, last: bool, context: Di
 		result.reason = "Reads die %d." % (int(trigger.die) + 1)
 	return result
 
+static func _matched(trigger: Dictionary, history: Array) -> Dictionary:
+	## Faces landing together in one action: `count` of the first named face, or (no count)
+	## every named face at least once. The Choir's three heads on Requiem, Spore with Rot.
+	var faces: Array = trigger.get("faces", [])
+	var landed: Array = history.filter(func(r: Dictionary) -> bool: return faces.has(str(r.get("move", ""))))
+	var need: int = int(trigger.get("count", 0))
+	var met: bool = false
+	if faces.is_empty():
+		met = false
+	elif need > 0:
+		met = landed.filter(func(r: Dictionary) -> bool: return str(r.get("move", "")) == str(faces[0])).size() >= need
+	else:
+		met = faces.all(func(f: Variant) -> bool: return landed.any(func(r: Dictionary) -> bool: return str(r.get("move", "")) == str(f)))
+	return {"active": met, "dice": landed.map(func(r: Dictionary) -> String: return str(r.get("die_id", ""))) if met else [], "kind": "match",
+		"need": need, "value": 0, "count": landed.size(), "reason": "" if met else "Its faces have not landed together."}
+
 static func can_complete(move: Dictionary, history: Array, remaining: Array) -> bool:
 	## Look only at possible faces, never at future RNG. Current content has at most 5 dice.
 	if is_turn_move(move):
@@ -266,7 +464,7 @@ static func can_complete(move: Dictionary, history: Array, remaining: Array) -> 
 		return false
 	var die: Dictionary = remaining[0]
 	for face in die.get("faces", []):
-		var sample: Dictionary = {"die_id": str(die.id), "value": int(face.value), "kind": str(face.get("kind", "plain")), "top": DeepDice.top(die)}
+		var sample: Dictionary = {"die_id": str(die.id), "value": int(face.value), "kind": str(face.get("kind", "plain")), "top": DeepDice.top(die), "move": str(face.get("move", ""))}
 		if can_complete(move, history + [sample], remaining.slice(1)):
 			return true
 	return false
@@ -299,7 +497,16 @@ static func context(enemy: Dictionary, state: Dictionary, roll_index: int = -1) 
 		for stone in player.get("rail", []):
 			if stone is Dictionary:
 				heaviest = maxi(heaviest, int(stone.get("carat", 1)))
+	## The best die any player shows (the Mirror Regent's Mirror Image throws it back), and what
+	## it has taken since its last action (its Reflection).
+	var high_die: int = 0
+	for player in players:
+		if int(player.get("hp", 0)) > 0 and not bool(player.get("downed", false)):
+			for roll in player.get("hand", []):
+				high_die = maxi(high_die, int(roll.get("value", 0)))
+	var taken: int = maxi(0, int(enemy.get("hp_at_turn", enemy.get("hp", 0))) - int(enemy.get("hp", 0)))
 	return {"first_roll": roll_index == 0, "roll_index": roll_index, "turns_acted": int(enemy.get("turns_acted", 0)) + 1,
+		"party_high_die": high_die, "taken_since": taken,
 		"emerging": bool(enemy.get("emerging", false)), "turn": int(state.get("turn", 1)), "party": players.size(),
 		"living_players": maxi(1, living), "party_heaviest_carat": heaviest, "party_best_turn": int(state.get("party_best_turn", 0)),
 		"party_richest": richest}
@@ -414,7 +621,8 @@ static func resolved_move(enemy: Dictionary, state: Dictionary, move: Dictionary
 	if int(enemy.get("empowered", 0)) > 0 and effects.any(func(e: Dictionary) -> bool: return str(e.kind) == "damage"):
 		enemy.empowered = 0
 	return {"move": str(move.get("name", "?")), "index": index, "effects": effects,
-		"dice": trig.get("dice", []), "combo": combo, "trigger": move.get("trigger", {}), "roll_index": roll_index}
+		"dice": trig.get("dice", []), "combo": combo, "trigger": move.get("trigger", {}), "roll_index": roll_index,
+		"mark": str(move.get("mark", "")), "move_kind": str(move.get("kind", "")), "anim": str(move.get("anim", ""))}
 
 ## What a creature does for itself, which grows with its health (see `health_pct`).
 const HEALTH_SCALED: Array = ["block", "heal", "regeneration", "retain", "max_hp"]
@@ -578,8 +786,41 @@ static func display_moves(enemy: Dictionary, moves: Array = []) -> Array:
 					effect.amount = {"op": "pct", "args": [effect.get("amount", 0), pct]}
 	return shown
 
-static func trigger_words(move: Dictionary) -> String:
+static func move_text(enemy: Dictionary, move: Dictionary) -> String:
+	## What a move does, in the words written for it, with its numbers as this creature
+	## deals them here: `{0}`, `{1}` stand for its first, second effect's amount (a Strength,
+	## the mine's weight and the like already on), `{n}` for its first.
+	var text: String = str(move.get("text", ""))
+	if text.is_empty():
+		return " · ".join(move.get("effects", []).map(func(e: Dictionary) -> String: return effect_words(e)))
+	var shown: Array = display_moves(enemy, [move])
+	var effects: Array = shown[0].get("effects", []) if not shown.is_empty() else []
+	for at in range(effects.size()):
+		var key: String = "{%d}" % at
+		if text.contains(key) or (at == 0 and text.contains("{n}")):
+			var n: String = str(DeepRules.amount(effects[at].get("amount", 0), {"unit": enemy}))
+			text = text.replace(key, n)
+			if at == 0:
+				text = text.replace("{n}", n)
+	return text
+
+static func trigger_words(move: Dictionary, enemy: Dictionary = {}) -> String:
 	var t: Dictionary = move.get("trigger", {"kind": "always"})
+	if str(t.get("kind", "")) == "face":
+		## How many faces of its dice carry it: what the pips show.
+		var count: int = 0
+		var total: int = 0
+		for die in enemy.get("dice", []):
+			total += die.get("faces", []).size()
+			for face in die.get("faces", []):
+				if str(face.get("move", "")) == str(move.get("name", "")):
+					count += 1
+		return ("%d of %d faces" % [count, total]) if total > 0 else "Its face"
+	if str(t.get("kind", "")) == "match":
+		var faces: Array = t.get("faces", [])
+		if int(t.get("count", 0)) > 0 and not faces.is_empty():
+			return "%d dice on %s · once/turn" % [int(t.count), str(faces[0])]
+		return " and ".join(faces.map(func(f: Variant) -> String: return str(f))) + " together · once/turn"
 	var n: int = DeepPatterns.rung(t, 0)
 	var which: String = " · die %d" % (int(t.die) + 1) if t.has("die") else ""
 	var once_only: String = " · once a fight" if bool(move.get("once", false)) else ""
@@ -790,4 +1031,16 @@ static func effect_words(effect: Dictionary) -> String:
 				return "Grows by 1%% of its most health for every %s pyrite the richest player holds" % amount_words(effect.amount.args[1].args[1])
 			return "Gains %s most health, and that much health" % n
 		"cleanse": return "Sheds every affliction on it" if int(effect.get("amount", 0)) >= 99 else "Sheds %s afflictions" % n
+		"etch":
+			var how_many: String = "Every %s face" % str(effect.get("from", "")) if int(effect.get("count", 1)) == 0 else "One of its %s faces" % str(effect.get("from", ""))
+			if str(effect.get("from", "")) == "self_face":
+				how_many = "This face"
+			return "%s becomes %s" % [how_many, str(effect.get("to", ""))]
+		"grow_faces": return "Its die grows a size, its new faces %s" % " and ".join(effect.get("faces", []).map(func(f: Variant) -> String: return str(f)))
+		"pin_trait": return "Until its next action: %s" % str(effect.get("trait", "")).replace("_", " ")
+		"fog": return "Clouds a socket on your rail until you hit it"
+		"flee": return "Leaves the fight with everything it took"
+		"morph": return "Becomes another creature, at full health"
+		"cling": return "Clings to your finest gem: it fires at you until you hit this creature"
+		"blank_next": return "A die you rerolled this turn is blank on your next turn"
 	return str(effect.get("kind", "")).capitalize() + " " + n

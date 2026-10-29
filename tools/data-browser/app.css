@@ -262,6 +262,26 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .effect .eff-kind { font-weight: 600; }
 .effect .eff-sub { display: block; color: var(--muted); font-size: 11.5px; }
 .effect .eff-val { font-variant-numeric: tabular-nums; color: var(--text); text-align: right; }
+.mk { display: inline-grid; place-items: center; border-radius: 22%; flex: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
+.mk i { width: 82%; height: 82%; display: block; mask: center / contain no-repeat; -webkit-mask: center / contain no-repeat; }
+.mk b { font-weight: 800; line-height: 1; }
+.pips { display: inline-flex; flex-wrap: wrap; gap: 3px; max-width: 58px; justify-content: flex-end; }
+.pips i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+.die-head { display: flex; align-items: center; gap: 10px; padding: 4px 0 2px; }
+.die-head .die-cap { font-size: 11.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.face-move { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 10px; background: var(--surface-2); border-radius: 6px; }
+.face-move .fm-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.face-move .fm-head b { font-size: 13.5px; }
+.face-move .fm-num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.face-move .fm-note { font-size: 11.5px; color: var(--muted); }
+.face-move .fm-words { font-size: 12.5px; color: var(--text-2); }
+.face-move .fm-right { display: grid; justify-items: end; gap: 3px; text-align: right; }
+.face-move .fm-rate { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.face-move .fm-needs { display: inline-flex; gap: 2px; }
+.face-move.is-trait { grid-template-columns: minmax(0, 1fr); }
+.face-sub { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--accent); font-weight: 600; padding-top: 6px; }
+.kw { text-decoration: underline dotted; text-underline-offset: 2px; color: #7fc4ff; cursor: help; }
+.mark-row { display: flex; flex-wrap: wrap; gap: 3px; }
 .moves { display: grid; gap: 6px; }
 .move { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px 10px; background: var(--surface-2); border-radius: 6px; }
 .move b { font-size: 13px; }

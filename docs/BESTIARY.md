@@ -453,3 +453,111 @@ heads cut and grown back, a drowned miner rising, gems swapped on the rail.
 - **Sounds** for fire, water, glass and a claw (`flame`, `splash`, `mirror`, `claw` in
   `DeepSoundBank`), played where Burn lands and bites, where the sluice opens and a drowned miner
   rises, where a mirror or refraction goes up, and where a die is gripped.
+
+## 10. Creature Tells (October 27, 2026)
+
+Built from the owner's review page "Creature Tells" (claude.ai artifact 4ivoANa2UdKqFcRVf8VvjT;
+the picks are in its database, collection `tells`). The question for every card was how the
+room and the dock show what a creature is doing and what it has done to the player. All 24
+cards were decided; what was built:
+
+### Worn on the creature (`view/creatures/creature_wear.gd`)
+
+One `Wear` node under every creature, fed by `_dress` with the creature's statuses and its
+block as a share of its health. A single overlay material over the body's meshes carries the
+tint, the heat cracks and the stone crust (triplanar masks, so no creature needs UVs); the
+rest are meshes and particles of its own, sized to the body as it stands at rest.
+
+| Status | Look | Beat |
+| ------ | ---- | ---- |
+| Poison | Body tinted Poison green, deeper per stack, breathing; drops fall off it | The tick flashes the whole body bright green (`tick_flash`) |
+| Burn | Embers rise the whole time; an orange glow and light pulse under it | The tick's flames (unchanged) |
+| Curse | Violet chain loops of torus links round the body, one more per stack, turning | |
+| Marked | A red X scratched across the front, flickering, turned to the camera | |
+| Stun | Grey and slumped (tilted, sunk a little); three stars circle its head, billboarded | |
+| Strength | Red heat cracks in the body; it settles 3% bigger per stack and swells as it gains (`bulk_up`) | |
+| Spikes | Grey thorns jut out of it | |
+| Ward | A faint blue bubble with a rim ring; it pops with blue shards when it takes a debuff (`pop_ward`) | |
+| Regeneration | Green motes rising | |
+| Block | Grey stone plates crust over the body, filling as block reaches half its health; a soaked blow chips plates off and throws stone shards | |
+
+### Guards
+
+- The refracting dome is half again as bright (0.5 of its colour), lights where a blow meets
+  it (`barrier_hit`: a flash and a patch of lit hex cells), and the reflected blow streaks
+  from the barrier to the reader's ring of health, which jolts; the screen edge flashes and
+  the number lands as "−N reflected" (mirrors say "mirrored"). A wyrm's dome stands in its own
+  light while the hand being planned would fire a damaging gem at it at Resonance 0 or 1.
+- A held-up mirror shows the mark of the gem whose blow lands first, pulsing in the glass.
+- A creature holding gems (a Mimic, the Collector) shows their marks glowing inside it.
+
+### On the dock (`view/battle/dock_marks.gd`)
+
+One language for everything a creature does to a die or a gem: a round badge at its corner
+in the creature's colour with a glyph for what happened, a plate on hover saying who did it
+and when it ends, and a thread back to the creature while the pointer rests on the badge.
+The move's name lights the thing it took as the move lands (`Telegraph`), never before.
+
+| Move | Room and flight | On the dock afterwards |
+| ---- | --------------- | ---------------------- |
+| Latch (die taken) | A tongue flicks from the tick to the die; a copy flies into its mouth; it turns a small die like a crayfish | The die dims with a badge ("sits out next turn"); next turn a dashed ghost seat with the badge |
+| Shock, lock_die, the Prismarch | Lightning from the creature | Dimmed, crackling, lock badge |
+| Grip | The claw (unchanged) | Dimmed with a badge; a ghost seat while it sits out |
+| Unmake (break_die) | A violet beam to the seat, shards | A dark cracked seat for the fight (a cracked seat for a turn when it grows back) |
+| Heat Treat, Dread (downgrade_die) | Orange flash, steam, a pop | "d8 → d6" over the die for the turn |
+| Pull Under (dice_dread) | A splash | Water rises over the tray, a wave badge on every die, drained as the next turn opens |
+| Cut, Prune (grind_die) | The face comes off as a tile and tumbles away | |
+| Melt (blank_face) | The tile glows, burns and goes to smoke | |
+| The Drill rolling | | Rust-tinted dice with a cog badge each; Reroll crossed out |
+| Cloud | The Clouder breathes a puff that drifts down to the socket | Fog over the gem with a cloud badge; blown off in one gust when the Clouder is hit |
+| Bury | Rocks fall onto the socket with dust | Rubble over the gem with dust drifting and a rampart badge |
+| Gulp, Acquire (hold_gem) | A copy of the gem flies into the creature | A dashed ghost of the gem with a chest badge ("back when it dies") |
+| Snuff, Melt (break_gem) | Shards in the gem's colour fall out of the ring | A dark ring with an X badge ("gone for the fight" or "back next turn") |
+| Shift (swap_gems) | Copies of the two gems slide past each other on arcs | |
+| Drink (absorb) | | Gems of the drunk colour wear a tinted gem badge and step back |
+| Carat cap | | Gems over the cap wear a scales badge |
+| Resonance damp | | The meter keeps half its colour |
+| Backlash | A red sting at the socket that fired | |
+
+The memories behind the plates (`_taken_by`, `_locked_by`, `_broken_by`, `_shrunk`,
+`_snuffed`) are kept per fight in battle_screen.gd. Events play after the state is shown,
+so every mark is drawn from the state and the event adds the beat (`_dock_tell`).
+Pictures: build/tells_shot.gd films every effect; build/wear_look.gd one creature close up.
+
+## 11. Action dice (October 28, 2026)
+
+Every creature was rebuilt as **action dice**: each face of each die is one of its moves, with a
+fixed number, drawn as a coloured face with an engraved mark. Phases, value and pair triggers,
+gimmicks and most passives are gone; what a creature does is what its faces say. The owner
+approved every card over four rounds of the "Creature Rework" page (artifact
+WzmfgyGoPjqjYdw7TjTUaz, marks in its database collections `rework1`..`rework4`), and the
+models over the same rounds (three options each, low poly and angular, made of crystals and
+gems, no humanoids except the Anvil Knight and a semi-humanoid Prismarch). The rules, the
+content shape, the new effects and the view are in **docs/CREATURE_DICE.md**.
+
+What changed for the player, in short:
+- A creature's die says what it can do and how often (pips: one dot a face). Its moves hit the
+  whole party unless the face names someone (pyrite from the richest player).
+- What used to be a passive is a face: a lantern's reroll, a Clouder's fog, the Drill rolling
+  your dice, a Shade's damping, the Riftlings' static, the Collapsar's pull. What stays a trait
+  is shown on the creature: splitting (Silt and Spore Slimes), Waterlogged, Sturdy, Steadfast,
+  Acid Armour (Spore Slime), the Assayer's carat cap, the Prismarch's shield of prisms.
+- Health thresholds are gone. Bosses grow instead: a Reinforce, Rev, Turn of the Wheel, Temper
+  or Stir re-etches a face into something worse; the Choir raises new heads, the Hydra sprouts
+  them, the Riftlings swarm, the Void expands; the Hollow Crown's Rise grows its die a size
+  with a Topple and a Summon face.
+- A Magpie's Snatch becomes Flee once it lands; Flee leaves with the pyrite.
+- New creatures in the Rift: Hush (halves your Resonance for a turn), Star Leech (turns your
+  finest gem against you), Timeglass (rewinds your dice, acts twice more), Paradox Moth (a free
+  reroll that throws every die; Unravel blanks a die you rerolled).
+- The Kiln Wyrm is now The Kiln Dragon.
+
+The owner's animation and effect notes from the review (a magpie that carries the pyrite only
+after it steals, a mole that digs down and erupts, a wyrm whose Lash flicks its tail and whose
+Shatterbreath is a crystal breath, a wraith that turns see-through while it fades, the
+Glazier's saw spinning faster when it attacks, the Smelter's volcano erupting, tendrils that
+sway and unfurl, fire breath only when the dragon uses a fire skill, idles that suit each
+creature) are built in the creature view; see docs/CREATURE_DICE.md.
+
+`tests/test_creature_dice.gd` lands every face of every creature and checks it does what its
+words say.

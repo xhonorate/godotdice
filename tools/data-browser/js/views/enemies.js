@@ -4,48 +4,111 @@ import * as C from '../sim/content.js';
 import * as Forge from '../sim/forge.js';
 import * as Patterns from '../sim/patterns.js';
 import * as Rules from '../sim/rules.js';
-import { traitsFor } from '../sim/simulate.js';
+import { traitsFor, faceNames } from '../sim/simulate.js';
 import { h, card, stat, table, fmt, fmtPct, segmented, field, toolbar, note, kv, chip } from '../ui.js';
 import { columns, lines, histogram, bars, heatmap } from '../charts.js';
-import { creatureImage, dieImage } from '../gemart.js';
-import { depthControls, whenReady, tabs, faceRow } from './common.js';
+import { creatureImage, creatureDieImage, markChip, pips, MOVE_INK } from '../gemart.js';
+import { depthControls, whenReady, tabs } from './common.js';
 
-const state = { tab: 'creatures', phase: 0, elite: false, turn: 1, action: 1, emerging: false };
+const state = { tab: 'creatures', elite: false, turn: 1, action: 1, emerging: false };
 const PARTY_COLORS = ['#f0c95a', '#c9a43e', '#a38434', '#7d652a'];
 // A creature's die as written: a shape, or an object carrying the variations it was born with.
 const dieKey = (ref) => (ref && typeof ref === 'object' ? String(ref.shape || 'D6') : String(ref));
 const diceText = (def) => (def.dice || []).map(dieKey).join(' ');
 
-// What a creature's move waits for, the way the game says it (sim/creatures.gd trigger_words).
-export function triggerWords(move) {
-	const t = move.trigger || { kind: 'always' };
-	const n = Patterns.rung(t, 0);
-	const which = 'die' in t ? ` · die ${Number(t.die) + 1}` : '';
-	const once = move.once ? ' · once a fight' : '';
-	switch (t.kind || 'always') {
-		case 'always': return `Every die${which}`;
-		case 'odd': return `An odd roll${which}`;
-		case 'even': return `An even roll${which}`;
-		case 'at_least': return `A roll of ${n}+${which}`;
-		case 'at_most': return `A roll of ${n} or less${which}`;
-		case 'value': return `A roll of ${(t.values || []).join('/')}${which}`;
-		case 'crowns': return `Its top face${which}`;
-		case 'high_pct_at_least': return `${n === 51 ? 'A high roll · over half its die' : `A roll of ${n}%+ of its die`}${which}`;
-		case 'hp_below': return `Once, at ${n}% health`;
-		case 'action_begin': return 'As each action opens';
-		case 'each_turn': return `Each action${once}`;
-		case 'every_nth_turn': return `Every ${Patterns.ordinal(n)} action${once}`;
-		case 'countdown': return `Counts down from ${n}, fires at 0`;
-		case 'emerge': return `When it comes up${once}`;
+// What a creature's move waits for, the way the game says it (sim/creatures.gd trigger_words):
+// its faces, the faces it needs together, or what the fight calls it by.
+export function triggerWords(move, def = null) {
+	const t = move.trigger || { kind: 'face' };
+	switch (t.kind || 'face') {
+		case 'face': {
+			let count = 0, total = 0;
+			for (const ref of (def && def.dice) || []) {
+				const names = faceNames(ref) || [];
+				total += names.length;
+				count += names.filter((n) => n === move.name).length;
+			}
+			return total ? `${count} of ${total} faces` : 'Its face';
+		}
+		case 'match': {
+			const faces = (t.faces || []).map(String);
+			return Number(t.count || 0) > 0 && faces.length ? `${t.count} dice on ${faces[0]} · once an action` : `${faces.join(' and ')} together · once an action`;
+		}
+		case 'emerge': return 'When it comes up';
 		case 'on_death': return 'When it dies';
-		case 'pair': case 'triple': case 'quad': case 'quint': return `${Patterns.KIND_NAMES[t.kind]}${n > 1 ? ` of ${n}+` : ''} · once an action${once}`;
-		case 'straight': return `${n} in sequence · once an action${once}`;
-		case 'all_odd': return `All dice odd (${n}+) · once an action${once}`;
-		case 'all_even': return `All dice even (${n}+) · once an action${once}`;
+		case 'action_begin': return 'As each action opens';
 	}
-	return `${Patterns.words(t, 0).replace(/\.$/, '')} · once an action${which}${once}`;
+	return String(t.kind);
 }
 
+// A move's own words with its numbers written in as the content has them (`{0}` is its first
+// effect's amount); the game writes the number this creature deals where it stands instead.
+const PLACE = /\{(\d+|n)\}/g;
+const amountText = (expr) => (typeof expr === 'number' ? String(expr) : expr && typeof expr === 'object' && 'const' in expr ? String(expr.const) : '?');
+export function moveWords(move) {
+	const text = String(move.text || '');
+	if (!text) return (move.effects || []).map((e) => Rules.effectWords(e)).join(' · ');
+	return text.replace(PLACE, (all, at) => {
+		const effect = (move.effects || [])[at === 'n' ? 0 : Number(at)];
+		return effect ? amountText(effect.amount) : all;
+	});
+}
+// The number on its pill: the first figure its words carry, or none.
+function moveNumber(move) {
+	const found = String(move.text || '').match(/\{(\d+|n)\}/);
+	if (!found) return '';
+	const effect = (move.effects || [])[found[1] === 'n' ? 0 : Number(found[1])];
+	return effect ? amountText(effect.amount) : '';
+}
+
+// The words a reader may not know, with their meaning on hover (the review page's list).
+const KEYWORDS = {
+	Marked: 'Every hit of the next gem, Birthstone or creature move to land deals +25% per stack.',
+	Drink: 'It drinks a colour of gem: those gems do it no damage, and what they would give their owner goes to it.',
+	Poison: 'Hurts at the end of each round, then drops by 1. Bypasses block.',
+	Burn: 'Hurts at the end of each turn (block soaks it), then drops by 1.',
+	Curse: "Your gems' hits deal 10% less a stack, and you take 10% more.",
+	Dulled: 'Your gems lose a Cut step a stack while it lasts.',
+	Festering: 'Healing is halved while it lasts.',
+	Strength: 'Every hit does that much more.',
+	Stun: 'Skips the next action.',
+	'Acid Armour': 'Whoever hits it takes that much Poison.',
+	Sturdy: 'No single hit takes more than that share of its health.',
+	Steadfast: 'Stun, Bound and Clouded last half as long on it, and it cannot be stunned two actions in a row.',
+	Waterlogged: 'The first time it dies, it gets back up at half its health.',
+};
+const KEYWORD_RE = new RegExp(`\\b(${Object.keys(KEYWORDS).sort((a, b) => b.length - a.length).join('|')})\\w*`, 'g');
+function keywords(text) {
+	const out = [];
+	let at = 0;
+	for (const found of String(text).matchAll(KEYWORD_RE)) {
+		if (found.index > at) out.push(text.slice(at, found.index));
+		out.push(h('span', { class: 'kw', title: KEYWORDS[found[1]] }, found[0]));
+		at = found.index + found[0].length;
+	}
+	out.push(String(text).slice(at));
+	return out;
+}
+
+// A creature's dice as written, like ones side by side taken as one: [{index, count, shape, label, names}].
+function diceGroups(def) {
+	const out = [];
+	(def.dice || []).forEach((ref, index) => {
+		const names = faceNames(ref) || [];
+		const shape = dieKey(ref);
+		const label = ref && typeof ref === 'object' ? String(ref.label || '') : '';
+		const last = out[out.length - 1];
+		if (last && last.shape === shape && last.label === label && last.names.join() === names.join()) { last.count += 1; return; }
+		out.push({ index, count: 1, shape, label, names });
+	});
+	return out;
+}
+const dieCaption = (g) => `${g.label ? g.label.charAt(0).toUpperCase() + g.label.slice(1) + ' die · ' : ''}${g.shape.toLowerCase()}${g.count > 1 ? ` ×${g.count}` : ''} · ${g.names.length} faces${g.count > 1 ? ' each' : ''}`;
+// Where a move on no face comes from: the move that etches a face to it, or grows a die with it.
+function etchedBy(def, name) {
+	for (const move of def.moves || []) for (const e of move.effects || []) if ((e.kind === 'etch' && e.to === name) || (e.kind === 'grow_faces' && (e.faces || []).includes(name))) return move.name;
+	return '';
+}
 // A trait in words, with its number where it has one (docs/BESTIARY.md).
 const TRAIT_WORDS = {
 	steadfast: () => ['Steadfast', 'Cannot be stunned, suppressed, clouded or dreaded'],
@@ -118,14 +181,12 @@ function creaturesPage(root, route, ctx) {
 	const active = route.key && C.creature(route.key).name ? route.key : keys[0];
 	const def = C.creature(active);
 	const depth = ctx.settings.depth, party = ctx.settings.party;
-	const phase = Math.min(state.phase, (def.phases || []).length);
-	const moves = phase > 0 ? def.phases[phase - 1].moves : def.moves || [];
-	const traits = traitsFor(def, phase);
+	const moves = def.moves || [];
+	const traits = traitsFor(def, 0);
 	const canEmerge = moves.some((m) => (m.trigger || {}).kind === 'emerge');
 	root.append(toolbar(...depthControls(ctx),
 		field('Turn', segmented([[1, '1'], [4, '4'], [7, '7'], [9, '9']], state.turn, (v) => { state.turn = Number(v); ctx.rerender(); }), `Enrage from turn ${C.constant('enrage_turn', 7)}`),
 		field('Action', segmented([[1, '1'], [2, '2'], [3, '3'], [4, '4'], [6, '6']], state.action, (v) => { state.action = Number(v); ctx.rerender(); }), 'Which of its own actions this is'),
-		(def.phases || []).length ? field('Phase', segmented([[0, 'Opening'], ...(def.phases || []).map((p, i) => [i + 1, `Below ${p.below_hp_pct}% HP`])], state.phase, (v) => { state.phase = Number(v); ctx.rerender(); })) : null,
 		canEmerge ? field('Just surfaced', segmented([[false, 'No'], [true, 'Yes']], state.emerging, (v) => { state.emerging = v === 'true' || v === true; ctx.rerender(); }), 'The action after it burrowed') : null));
 	const grid = h('div', { class: 'grid grid-side' });
 	root.append(grid);
@@ -139,6 +200,7 @@ function creaturesPage(root, route, ctx) {
 	const detail = h('div', { class: 'col' });
 	grid.append(detail);
 	const escorts = def.escorts || [];
+	const groups = diceGroups(def);
 	detail.append(h('div', { class: 'card' }, h('div', { class: 'card-body' }, h('div', { class: 'detail-head' }, h('span', { class: 'pic hero' }, creatureImage(active, 170)),
 		h('div', { class: 'detail-title' },
 			h('div', { class: 'row tight' }, def.warden ? chip('Warden', { class: 'accent' }) : chip('Creature'), chip(`threat ${def.threat}`), chip(`${def.ward ?? (def.warden ? 1 : 0)} Ward`),
@@ -146,49 +208,87 @@ function creaturesPage(root, route, ctx) {
 				def.echo ? chip(`Echo of ${(def.echo.mines || []).map((m) => C.mine(m).name || m).join(', ')}`, { title: 'A random non-Warden creature from those mines, over again, with this mine’s scaling' }) : null,
 				escorts.length ? chip(`Escorts: ${escortText(escorts)}`, { title: 'Spawned beside it at the start of the fight' }) : null),
 			h('div', { class: 'row tight' }, ...traitChips(traits)),
-			h('h2', {}, def.name), h('p', { class: 'lede' }, def.text || ''), def.tip ? h('p', { class: 'lede' }, h('strong', {}, 'Remember: '), def.tip) : null,
-			h('div', { class: 'row tight' }, h('span', { class: 'small muted' }, 'Rolls, in order:'), ...(def.dice || []).map((k, i) => h('span', { class: 'row tight', title: `die ${i + 1}` }, dieImage(dieKey(k), 30), h('span', { class: 'small text-2' }, dieKey(k))))))))));
-	const job = ctx.engine.run('creatureTurn', { key: active, depth, party, phase, turn: state.turn, action: state.action, mineKey, emerging: canEmerge && state.emerging, samples: 6000 });
+			h('h2', {}, def.name), h('p', { class: 'lede' }, ...keywords(def.text || '')), def.tip ? h('p', { class: 'lede' }, h('strong', {}, 'Remember: '), def.tip) : null,
+			h('div', { class: 'row tight' }, h('span', { class: 'small muted' }, 'Throws, in order:'), ...groups.map((g) => h('span', { class: 'row tight', title: dieCaption(g) },
+				creatureDieImage(active, g.index, g.shape, 44), h('span', { class: 'small text-2' }, `${g.label ? g.label + ' ' : ''}${g.shape.toLowerCase()}${g.count > 1 ? ` ×${g.count}` : ''}`)))))))));
+	const job = ctx.engine.run('creatureTurn', { key: active, depth, party, turn: state.turn, action: state.action, mineKey, emerging: canEmerge && state.emerging, samples: 6000 });
 	const statsSlot = h('div', { class: 'stats', style: { gridTemplateColumns: 'repeat(7, minmax(0,1fr))' } });
 	detail.append(statsSlot);
 	whenReady(ctx, statsSlot, job, (r) => h('div', { style: { display: 'contents' } },
 		stat('Health', String(r.hp), `base ${def.hp} × depth × party × mine`, { class: 'accent' }), stat('Block', String(def.block ?? 0), 'to start'),
 		stat('Damage an action', fmt(r.meanDamage, 2), `action ${r.action}, to its target, before block`),
 		stat('Damage ×', `${fmt(r.damagePct / 100, 2)}`, `${mine.name || mineKey} ×${fmt(r.damageMult, 2)}${traits.rising ? ` · rising +${traits.rising}%/action` : ''}`),
-		stat('Damage bonus', `+${r.damageBonus}`, `depth ÷ ${C.constant('depth_damage_every', 4)}, per die${traits.escalate ? ` · +${traits.escalate} an action in phase` : ''}`),
+		stat('Damage bonus', `+${r.damageBonus}`, `depth ÷ ${C.constant('depth_damage_every', 4)}, per die${traits.escalate ? ` · +${traits.escalate} an action` : ''}`),
 		stat('Enrage', r.enrage ? `+${r.enrage}` : '—', `from turn ${C.constant('enrage_turn', 7)}`), stat('Threat', String(def.threat), 'against the encounter budget')));
 	const g = h('div', { class: 'grid grid-2' });
 	detail.append(g);
 	const movesSlot = h('div'), histSlot = h('div');
-	g.append(card(`Moves · ${phase > 0 ? `below ${def.phases[phase - 1].below_hp_pct}% HP` : 'opening phase'}`, movesSlot, { meta: `fires per action, sampled · action ${state.action}` }));
+	g.append(card('Dice and faces', movesSlot, { meta: `a move a face · fires per action, sampled · action ${state.action}` }));
 	g.append(card('Damage in one action', histSlot, { meta: 'to its target, before block' }));
-	whenReady(ctx, movesSlot, job, (r) => h('div', { class: 'moves' }, moves.map((m, i) => {
-		const s = r.moves[i];
-		const called = (m.trigger || {}).kind;
-		const right = s.onDeath ? [h('div', { class: 'num' }, 'when it dies'), h('div', { class: 'tiny muted' }, 'fires once, as it falls')]
-			: called === 'hp_below' ? [h('div', { class: 'num' }, `at ${(m.trigger || {}).amount}% health`), h('div', { class: 'tiny muted' }, 'fires once, the moment it falls that far')]
-			: called === 'action_begin' ? [h('div', { class: 'num' }, 'every action'), h('div', { class: 'tiny muted' }, 'as it opens, before any die')]
-			: s.spent ? [h('div', { class: 'num' }, 'spent'), h('div', { class: 'tiny muted' }, 'used on its first action')]
-			: [h('div', { class: 'num' }, `${fmt(s.fireRate, 2)}× an action`), h('div', { class: 'tiny muted' }, moveNote(s))];
-		return h('div', { class: 'move' }, h('span', {}, h('b', {}, m.name), m.dramatic ? chip('dramatic', { class: 'accent' }) : null, m.once ? chip('once a fight') : null,
-			h('div', { class: 'move-trig' }, triggerWords(m)), h('div', { class: 'move-eff' }, (m.effects || []).map((e) => Rules.effectWords(e)).join(' · '))),
-			h('span', { class: 'right' }, ...right));
-	})));
+	whenReady(ctx, movesSlot, job, (r) => h('div', { class: 'moves' }, ...facesView(def, active, groups, r)));
 	whenReady(ctx, histSlot, job, (r) => histogram({ bins: r.damageHist, width: 420, height: 190, color: '#e0473c', mean: r.meanDamage, xLabel: 'damage', xFormat: (v) => String(v) }));
 	const depths = Array.from({ length: 28 }, (_, i) => i + 1);
 	detail.append(h('div', { class: 'grid grid-2' },
 		card('Health by depth', lines({ series: [1, 2, 3, 4].map((p, i) => ({ key: p, label: `party of ${p}`, color: PARTY_COLORS[i], points: depths.map((d) => ({ x: d, y: Forge.creatureHp(def, d, p, mine) })) })), width: 420, height: 180, xFormat: (d) => String(d), format: (v) => fmt(v, 0), markers: false }), { meta: `+${fmt(Number(C.constant('depth_hp_scale', 0.05)) * 100, 0)}% a depth, × the party's size, ×${fmt(Number(mine.hp_mult ?? 1), 1)} here` }),
-		card('Phases, traits and dice', h('div', { class: 'col' }, kv([
-			['Phases', (def.phases || []).length ? def.phases.map((p, i) => `below ${p.below_hp_pct}% HP: ${(p.moves || []).map((m) => m.name).join(', ')}${Object.keys(p.traits || {}).length ? ` (traits then: ${traitText(traitsFor(def, i + 1))})` : ''}`).join(' · ') : 'none'],
+		card('Traits and dice', h('div', { class: 'col' }, kv([
 			['Traits', traitText(traits)],
 			['Escorts', escorts.length ? escortText(escorts) : 'none'],
 			['Echo', def.echo ? `copies a random ordinary creature from ${(def.echo.mines || []).map((m) => C.mine(m).name || m).join(', ')}` : 'no'],
 			['Summoned only', def.summon_only ? 'yes: never drawn from a band' : 'no'],
-			['Dice', (def.dice || []).map((k) => `${dieKey(k)} ${faceRowText(dieKey(k))}`).join(' · ')]]),
-			...(def.dice || []).map((k) => h('div', { class: 'row' }, h('span', { class: 'small muted', style: { width: '40px' } }, dieKey(k)), faceRow(C.die(dieKey(k))))),
-			note('Ordinary moves are judged against each die as it lands (one that names a die reads only that die); combination moves against every die shown so far and fire once an action. All-odd and all-even wait for the last die. Each-action, every-nth-action and emerging moves fire once, before the first die; a move marked once a fight is taken as spent after action 1; a when-it-dies move never fires in an action. Damage is pct(roll, mine × rising) + depth bonus (+ escalation) + rally + enrage.', 'plain')))));
+			['Dice', groups.map(dieCaption).join(' · ') || 'none']]),
+			...groups.map((gr) => h('div', { class: 'row' }, h('span', { class: 'small muted', style: { width: '64px' } }, `${gr.label || 'die'} ${gr.shape.toLowerCase()}`),
+				h('div', { class: 'mark-row' }, gr.names.map((name, i) => { const m = moves.find((x) => x.name === name) || {}; return markChip(m.mark || '', m.kind || 'dud', 24, `face ${i + 1}: ${name}`); })))),
+			note("Every face of its dice is one of its moves: each die lands on a face, and that face's move fires. A match fires once an action when its faces land together; a move on no face waits for a face to be etched to it, and a called one for the fight (coming up, dying). Damage is pct(amount, mine × rising) + depth bonus (+ escalation) + rally + enrage; the words show the numbers as written.", 'plain')))));
 }
-const faceRowText = (k) => `(${(C.die(k).faces || []).length} faces)`;
+
+// Every die's moves as rows (mark, name and number, words, a pip a face, how often it fires),
+// then the matches, the moves on no face, and the moves the fight calls.
+function facesView(def, key, groups, r) {
+	const moves = def.moves || [];
+	const sampled = (name) => r.moves[moves.findIndex((m) => m.name === name)] || null;
+	const rate = (s) => (s ? [h('div', { class: 'fm-rate' }, `${fmt(s.fireRate, s.fireRate > 0 && s.fireRate < 0.1 ? 3 : 2)}× an action`), moveNote(s) ? h('div', { class: 'tiny muted' }, moveNote(s)) : null] : []);
+	const row = (move, right, extra = '') => {
+		const kind = move.kind || 'attack';
+		const n = moveNumber(move);
+		return h('div', { class: 'face-move' }, markChip(move.mark || '', kind, 30, move.name),
+			h('div', {}, h('div', { class: 'fm-head' }, h('b', { style: kind === 'dud' ? { color: MOVE_INK.dud } : null }, move.name), n ? h('span', { class: 'fm-num', style: { color: MOVE_INK[kind] } }, n) : null,
+				move.dramatic ? chip('dramatic', { class: 'accent' }) : null, extra ? h('span', { class: 'fm-note' }, `· ${extra}`) : null),
+			h('div', { class: 'fm-words' }, ...keywords(moveWords(move)))),
+			h('div', { class: 'fm-right' }, ...right));
+	};
+	const out = [];
+	const onFaces = new Set();
+	for (const g of groups) {
+		out.push(h('div', { class: 'die-head' }, creatureDieImage(key, g.index, g.shape, 36), h('span', { class: 'die-cap' }, dieCaption(g))));
+		const order = [];
+		for (const name of g.names) if (!order.includes(name)) order.push(name);
+		for (const name of order) {
+			onFaces.add(name);
+			const move = moves.find((m) => m.name === name);
+			if (!move) continue;
+			const count = g.names.filter((n) => n === name).length;
+			out.push(row(move, [pips(count, move.kind || 'attack'), h('div', { class: 'tiny muted' }, `${count} of ${g.names.length}${g.count > 1 ? ` ×${g.count}` : ''}`), ...rate(sampled(name))]));
+		}
+	}
+	const matches = moves.filter((m) => (m.trigger || {}).kind === 'match');
+	const waiting = moves.filter((m) => ((m.trigger || {}).kind || 'face') === 'face' && !onFaces.has(m.name));
+	const called = moves.filter((m) => !['face', 'match'].includes((m.trigger || {}).kind || 'face'));
+	if (matches.length) out.push(h('div', { class: 'face-sub' }, 'Faces together'));
+	for (const move of matches) {
+		const t = move.trigger || {};
+		const wanted = Number(t.count || 0) > 0 ? Array.from({ length: Number(t.count) }, () => String((t.faces || [])[0])) : (t.faces || []).map(String);
+		const needs = h('span', { class: 'fm-needs', title: `Fires when these land together: ${wanted.join(', ')}` }, wanted.map((n) => { const m = moves.find((x) => x.name === n) || {}; return markChip(m.mark || '', m.kind || 'dud', 18, n); }));
+		out.push(row(move, [needs, ...rate(sampled(move.name))]));
+	}
+	if (waiting.length) out.push(h('div', { class: 'face-sub' }, 'Not on a face yet'));
+	for (const move of waiting) {
+		const from = etchedBy(def, move.name);
+		out.push(row(move, [h('div', { class: 'tiny muted' }, 'on no face')], from ? `from ${from}` : ''));
+	}
+	if (called.length) out.push(h('div', { class: 'face-sub' }, 'Called by the fight'));
+	for (const move of called) out.push(row(move, rate(sampled(move.name)), triggerWords(move, def).toLowerCase()));
+	return out;
+}
 function escortText(escorts) {
 	const counts = {};
 	for (const k of escorts) counts[k] = (counts[k] || 0) + 1;

@@ -46,6 +46,15 @@ func setup(key: String = "CAVE_TICK", count: int = 1) -> Dictionary:
 	foe.dice = [DeepDice.make("D6", "e0_d0", {"faces": [DeepDice.face(1)]})]
 	return {"state": state, "rng": rng, "foe": foe, "player": state.players[0]}
 
+func land(f: Dictionary, names: Array) -> void:
+	## The creature throws one die for each name, and each lands on that one of its moves (an
+	## action die whose every face is that move, docs/CREATURE_DICE.md).
+	f.foe.dice = []
+	for i in range(names.size()):
+		var die: Dictionary = DeepDice.make("D6", "e0_d%d" % i, {"faces": [DeepDice.face(1)]})
+		DeepCreatures.dress_face(die.faces[0], DeepCreatures.move_in(DeepCreatures.moves_for(f.foe), str(names[i])))
+		f.foe.dice.append(die)
+
 func apply(f: Dictionary, kind: String, amount: int, to_enemy: bool = true) -> Array:
 	return DeepBattle._apply(f.state, f.player if to_enemy else f.foe,
 		{"kind": kind, "amount": amount, "target": "enemy" if to_enemy else "heroes"}, f.rng.dice)
@@ -85,14 +94,21 @@ func ward() -> void:
 	apply(f, "remove_block", 5)
 	apply(f, "damage", 5)
 	check(int(f.foe.statuses.ward) == 99 and int(f.foe.hp) == 995, "Ward does not block hits or Block removal")
-	for key in ["CLOUDER", "THE_FOREMAN"]:
-		var fog: Dictionary = setup(key)
+	## A Clouder's Fog and the Foreman's Bury land on a face now; Ward turns either away, and
+	## the socket stays open into the next turn.
+	for spec in [["CLOUDER", "Fog"], ["THE_FOREMAN", "Bury"]]:
+		var fog: Dictionary = setup(str(spec[0]))
 		fog.player.rail[0] = DeepStone.make("STRIKE", 1, 4, 3)
 		fog.player.rail[1] = DeepStone.make("GUARD", 1, 4, 3)
 		fog.player.statuses.ward = 1
-		DeepBattle._begin_turn(fog.state, fog.rng.dice, fog.rng.creatures)
-		check(fog.player.clouded.is_empty() and fog.player.buried.is_empty() and int(fog.player.statuses.ward) == 0, "Ward blocks %s socket restriction" % key)
+		land(fog, [spec[1]])
+		var landed: Array = turn(fog).filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_move" and str(e.get("move", "")) == str(spec[1]))
+		check(not landed.is_empty() and landed[0].effects.any(func(e: Dictionary) -> bool: return bool(e.get("warded", false))), "%s's %s lands and is warded" % spec)
+		check(fog.player.clouded.is_empty() and fog.player.buried.is_empty() and fog.player.get("fog", []).is_empty() and fog.player.get("rubble", []).is_empty()
+			and int(fog.player.statuses.ward) == 0, "Ward blocks %s socket restriction" % spec[0])
+	## No creature is written poison-immune now; the trait is still one a fight can pin on one.
 	var immune: Dictionary = setup("VEIN_WRAITH")
+	immune.foe.traits.poison_immune = true
 	immune.foe.statuses.ward = 1
 	check(bool(apply(immune, "poison", 2)[0].get("immune", false)) and int(immune.foe.statuses.ward) == 1, "innate immunity does not waste Ward")
 
@@ -114,14 +130,15 @@ func dread_and_cloud() -> void:
 	apply(f, "clouded", 1)
 	check(int(f.foe.clouded_move) == slot and int(f.foe.statuses.clouded) == 3 and f.rng.dice.state == before_rng, "reapplying Clouded extends one fixed random skill without rerolling")
 	var disabled: String = str(f.foe.moves[slot].name)
-	for face in f.foe.dice[0].faces:
-		face.value = 6
+	## Two dice: one lands on the clouded move, the other on one that is not.
+	var other: String = str(f.foe.moves.filter(func(m: Dictionary) -> bool: return str(m.name) != disabled)[0].name)
+	land(f, [disabled, other])
 	var before: String = JSON.stringify(f.state)
 	DeepBattle.forecast(f.state, "p0")
 	check(JSON.stringify(f.state) == before and int(f.foe.clouded_move) == slot, "forecast never rerolls or mutates the clouded ability")
 	var events: Array = turn(f)
 	var moves: Array = events.filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_move")
-	check(moves.size() == 1 and str(moves[0].move) != disabled, "Clouded disables its selected ability while other qualifying abilities still fire")
+	check(moves.size() == 1 and str(moves[0].move) == other, "Clouded disables its selected ability while other qualifying abilities still fire")
 	check(int(f.foe.statuses.clouded) == 2, "Clouded loses one duration after the complete enemy action")
 	f.foe.statuses.stun = 1
 	turn(f)
@@ -402,48 +419,50 @@ func gem_integrations() -> void:
 	cast(renewal, "RENEWAL", false, [1, 2, 3, 4, 5])
 	check(int(renewal.player.statuses.poison) == 0 and int(renewal.player.statuses.curse) == 1 and int(renewal.player.statuses.marked) == 2, "Renewal cleanses individual stacks in priority order")
 
-func fixed_content_dice(f: Dictionary, values: Array) -> void:
-	f.foe.dice = DeepCreatures.make(str(f.foe.key), str(f.foe.id), 1, 1).dice
-	for i in range(values.size()):
-		f.foe.dice[i].top = DeepDice.top(f.foe.dice[i])
-		for face in f.foe.dice[i].faces:
-			face.value = int(values[i])
-
 func enemy_integrations() -> void:
+	## The golem's Fortify keeps every point of its block through the next reset.
 	var golem: Dictionary = setup("QUARTZ_GOLEM")
-	fixed_content_dice(golem, [2])
+	land(golem, ["Fortify"])
 	turn(golem)
-	check(int(golem.foe.statuses.retain) >= DeepRules.CEILING, "Harden keeps all its block through a real enemy turn")
+	check(int(golem.foe.statuses.retain) >= DeepRules.CEILING, "Fortify keeps all its block through a real enemy turn")
 	var hardened: int = int(golem.foe.block)
 	DeepBattle._reset_defenses(golem.foe)
-	check(hardened >= 2 and int(golem.foe.block) == hardened, "Harden carries every point of its block through the next enemy reset: %d" % hardened)
+	check(hardened >= 10 and int(golem.foe.block) == hardened, "Fortify carries every point of its block through the next enemy reset: %d" % hardened)
+	## The Silt Slime's Engulf poisons, and it never mends itself.
 	var slime: Dictionary = setup("SILT_SLIME")
-	fixed_content_dice(slime, [8])
+	land(slime, ["Engulf"])
 	slime.foe.hp = 990
 	turn(slime)
-	check(int(slime.foe.hp) == 990 and int(slime.foe.statuses.get("regeneration", 0)) == 0, "the Silt Slime no longer regenerates on an 8")
-	check(int(slime.player.statuses.get("poison", 0)) >= 1, "its Engulf still poisons on 7 or more")
+	check(int(slime.foe.hp) == 990 and int(slime.foe.statuses.get("regeneration", 0)) == 0, "the Silt Slime does not regenerate")
+	check(int(slime.player.statuses.get("poison", 0)) >= 1, "its Engulf poisons")
+	## The Glass Wyrm's Sharpen is Strength, not Spikes: it does not coil.
 	var wyrm: Dictionary = setup("GLASS_WYRM")
-	fixed_content_dice(wyrm, [2, 2, 3])
+	land(wyrm, ["Sharpen"])
 	turn(wyrm)
-	check(int(wyrm.foe.statuses.get("spikes", 0)) == 0, "the Glass Wyrm no longer coils: a pair raises no Spikes")
+	check(int(wyrm.foe.statuses.get("spikes", 0)) == 0 and int(wyrm.foe.statuses.get("strength", 0)) == 1, "the Glass Wyrm's Sharpen raises Strength and no Spikes")
+	## The Foreman's Shore Up is block it keeps, never Ward or bigger dice.
 	var foreman: Dictionary = setup("THE_FOREMAN")
-	fixed_content_dice(foreman, [1, 12])
+	land(foreman, ["Shore Up", "Shore Up"])
 	turn(foreman)
-	check(int(foreman.foe.statuses.ward) == 2 and int(foreman.foe.dice_upgrade) == 0, "Shore Up replenishes Ward instead of upgrading dice")
+	check(int(foreman.foe.statuses.ward) == 1 and int(foreman.foe.dice_upgrade) == 0, "Shore Up neither replenishes Ward nor upgrades dice")
+	check(int(foreman.foe.block) >= 24 and int(foreman.foe.statuses.get("retain", 0)) >= DeepRules.CEILING, "two Shore Ups stack their block and keep it: %d" % int(foreman.foe.block))
+	## The Vein Wraith's Wail goes through block for its number, at every player.
 	var wail: Dictionary = setup("VEIN_WRAITH", 2)
-	fixed_content_dice(wail, [10])
+	land(wail, ["Wail"])
 	for unit in wail.state.players:
 		unit.block = 30
 	var wailed: Array = turn(wail).filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_move" and str(e.get("move", "")) == "Wail")
-	check(wailed.size() == 1 and wailed[0].effects.all(func(e: Dictionary) -> bool: return int(e.get("removed", 0)) == 10), "a 10 wails away 10 block from every player")
-	check(wail.state.players.all(func(p: Dictionary) -> bool: return int(p.statuses.get("marked", 0)) == 0), "it no longer marks the party")
-	for key in ["THE_DRILL"]:
+	var piercing: int = int(DeepCreatures.move_in(DeepContent.creature("VEIN_WRAITH").moves, "Wail").effects[0].amount)
+	check(wailed.size() == 1 and wailed[0].effects.size() == 2 and wailed[0].effects.all(func(e: Dictionary) -> bool: return int(e.get("hp_loss", 0)) == piercing and int(e.get("absorbed", 0)) == 0),
+		"a Wail hits every player for %d through block: %s" % [piercing, str(wailed[0].effects if not wailed.is_empty() else [])])
+	check(wail.state.players.all(func(p: Dictionary) -> bool: return int(p.statuses.get("marked", 0)) == 0), "it does not mark the party")
+	## A fresh Curse (the Regent's Splinter) or Dulled (the Drill's Grind) lasts through the
+	## player turn after it, Ward turns it away, and it decays without being reapplied.
+	for spec in [["THE_REGENT", "curse", "Splinter", "Mirror"], ["THE_DRILL", "dulled", "Grind", "Bore"]]:
+		var key: String = str(spec[0])
 		var f: Dictionary = setup(key, 2)
-		var kind: String = "curse" if key == "THE_REGENT" else "dulled"
-		if key == "THE_REGENT":
-			f.foe.hp = 300
-		fixed_content_dice(f, [16] if key == "THE_REGENT" else ([6, 1] if key == "THE_DRILL" else [6]))
+		var kind: String = str(spec[1])
+		land(f, [spec[2]])
 		f.state.players[1].statuses.ward = 1
 		turn(f)
 		check(int(f.player.statuses.get(kind, 0)) == 1, "%s's fresh %s survives to the next player turn" % [key, kind])
@@ -459,6 +478,6 @@ func enemy_integrations() -> void:
 		# Reapplication must not indefinitely postpone decay of an existing stack.
 		turn(f)
 		check(int(f.player.statuses.get(kind, 0)) == 1, "%s reapplication still decays one existing stack" % key)
-		fixed_content_dice(f, [1, 1] if key == "THE_DRILL" else [1])
+		land(f, [spec[3]])
 		turn(f)
 		check(int(f.player.statuses.get(kind, 0)) == 0, "%s expires after a full affected turn without reapplication" % kind)

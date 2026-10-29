@@ -3,9 +3,11 @@ extends Control
 
 const HomeScreen = preload("res://view/home/home_screen.gd")
 const DescentScreen = preload("res://view/run/descent_screen.gd")
+const Tips = preload("res://view/ui/tips.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
+const FaceMarks = preload("res://view/dice/face_marks.gd")
 const Lift = preload("res://view/home/lift.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GameMenu = preload("res://view/menu/game_menu.gd")
@@ -48,6 +50,7 @@ func _ready() -> void:
 	if not Thumbs.headless():
 		GemMesh.warm_etches()
 	theme = DeepUi.theme()
+	Tips.adopt_engine_tooltips(get_tree())
 	## A smaller window draws everything smaller: the smallest text grows to stay readable.
 	if DisplayServer.get_name() != "headless":
 		DeepUi.rescale(self)
@@ -493,6 +496,7 @@ func _exit_tree() -> void:
 	MineStage.BattleFx.release()
 	DeepUi.release_fonts()
 	GemIcons.release()
+	FaceMarks.release()
 	## The Steam avatar is kept on the Engine, which outlives the renderer.
 	if Engine.has_meta("steam_face"):
 		Engine.remove_meta("steam_face")

@@ -17,6 +17,7 @@ func _run() -> void:
 	_test_isolation()
 	_test_authored_pose()
 	_test_variants()
+	_test_moves()
 	await _test_lifecycle()
 	print("Creature scenes: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -129,20 +130,127 @@ func _test_variants() -> void:
 	check(echo.tint.is_equal_approx(CrystalCreature.ECHO_TINT) and echo.body_material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA, "and is drawn as a ghost")
 	echo.free()
 	## The newer presentation calls settle without error.
+	var diver := CrystalCreature.make("THE_UNDERTOW")
+	root.add_child(diver)
+	diver.burrow(true)
+	for _i in range(40):
+		diver._process(0.05)
+	check(diver.get_node("Body").position.y < -0.5, "a burrowed creature sinks under the floor")
+	diver.burrow(false)
+	for _i in range(40):
+		diver._process(0.05)
+	check(absf(diver.get_node("Body").position.y) < 0.01, "and comes back up")
+	diver.free()
+	## The Pit Mole digs into its own mound instead: gone, a hole left in the dirt, the mound
+	## where it was; and up out of it again with its Erupt (or on its own if none comes).
 	var mole := CrystalCreature.make("PIT_MOLE")
 	root.add_child(mole)
+	mole._process(0.05)
+	var head := mole.get_node("Body/Head01") as Node3D
+	var mound := mole.get_node("Body/Mound01") as Node3D
+	var mound_pose: Transform3D = mound.transform
 	mole.burrow(true)
 	for _i in range(40):
 		mole._process(0.05)
-	check(mole.get_node("Body").position.y < -0.5, "a burrowed creature sinks under the floor")
+	check(not head.visible and head.position.y < -0.5, "a Pit Mole digs down out of sight")
+	check(mound.transform.is_equal_approx(mound_pose) and mound.visible, "and leaves its mound where it was")
+	check(mole._moves._hole != null and mole._moves._hole.visible, "with a dark hole in the dirt")
 	mole.burrow(false)
-	for _i in range(40):
+	for _i in range(90):
 		mole._process(0.05)
-	check(absf(mole.get_node("Body").position.y) < 0.01, "and comes back up")
+	check(head.visible and absf(head.position.y - 0.5) < 0.01, "and comes back up out of it")
+	check(not mole._moves._hole.visible, "and the hole is gone")
 	mole.set_halo(Color.RED)
 	mole._process(0.5)
 	check(mole._halo_material.albedo_color.a > 0.0 and mole._halo_material.albedo_color.r > 0.9, "a guarded creature shows a halo in its colour")
 	mole.free()
+
+func _test_moves() -> void:
+	## Every creature acts out every move it has (its own parts where it has them, its whole
+	## body otherwise), without an error, and is back exactly at its idle after: a twin that
+	## never moved, stepped alongside it, stands just as it does.
+	var bare: Array = ["RAIL_RAT", "LANTERN_MOTH", "WILL_O_WISP", "CINDER_MOTH", "QUARTZ_GOLEM", "PRISM_GOLEM", "THE_REGENT", "CAVE_CRAYFISH",
+		"PRISM", "PUFFBALL", "RIFTLING_SWARM", "COLLAPSAR"]
+	for key in DeepContent.section("creatures"):
+		var def: Dictionary = DeepContent.creature(str(key))
+		var warden: bool = bool(def.get("warden", false))
+		var echo: String = "SEEP_EEL" if str(key) == "VOID_ECHO" else ""
+		var actor := CrystalCreature.make(str(key), warden, echo)
+		var twin := CrystalCreature.make(str(key), warden, echo)
+		root.add_child(actor)
+		root.add_child(twin)
+		if not bare.has(str(key)):
+			check(actor._moves.has_rig(), "%s has named parts to act its moves out with" % key)
+		var seen: int = 0
+		for move in def.get("moves", []):
+			var anim: String = str(move.get("anim", ""))
+			var name: String = str(move.get("name", ""))
+			var hostile: bool = str(move.get("kind", "")) in ["attack", "meddle"]
+			if actor._moves.has_rig() and hostile:
+				check(actor._moves.handles(anim, name, hostile), "%s acts out %s (%s)" % [key, name, anim])
+			check(actor.move_lead(anim, name, hostile) >= 0.3 and actor.move_lead(anim, name, hostile) <= 0.47, "%s's %s starts within its windup" % [key, name])
+			actor.play_move(anim, name, hostile, Vector3(0, 1.5, 5.0), null)
+			var steps: int = 0
+			while actor.acting() and steps < 200:
+				actor._process(0.02)
+				twin._process(0.02)
+				steps += 1
+			check(steps < 200, "%s's %s finishes" % [key, name])
+			seen += 1
+		## The idle eases back in after the last move.
+		for _i in range(40):
+			actor._process(0.02)
+			twin._process(0.02)
+		var drift: Array = []
+		var twin_parts: Dictionary = {}
+		for part in twin._parts:
+			twin_parts[str(part.name)] = part
+		for part in actor._parts:
+			var other: Node3D = twin_parts.get(str(part.name), null)
+			if other != null and not part.transform.is_equal_approx(other.transform):
+				if part.transform.origin.distance_to(other.transform.origin) > 0.002 or not part.transform.basis.is_equal_approx(other.transform.basis):
+					drift.append(str(part.name))
+		check(drift.is_empty(), "%s is back at its idle after %d moves (%s)" % [key, seen, ", ".join(drift.slice(0, 6))])
+		check(actor.get_node("Body").transform.is_equal_approx(twin.get_node("Body").transform), "%s's body is back where it stands" % key)
+		actor.free()
+		twin.free()
+	## The states the owner asked for: a magpie's prize only once it has stolen, a wraith seen
+	## through while it fades, the Kiln Wyrm's breath only when it breathes.
+	var magpie := CrystalCreature.make("MAGPIE")
+	root.add_child(magpie)
+	var prize := magpie.get_node("Body/Prize01") as Node3D
+	check(not prize.visible, "a magpie starts with nothing in its beak")
+	magpie.set_prize(true)
+	magpie._process(0.05)
+	check(prize.visible, "and carries the pyrite once it has stolen some")
+	magpie.free()
+	var wraith := CrystalCreature.make("VEIN_WRAITH")
+	root.add_child(wraith)
+	var shape := wraith.get_node("Body/Body01").get_child(0) as GeometryInstance3D
+	wraith.burrow(true)
+	for _i in range(40):
+		wraith._process(0.05)
+	check(shape.transparency > 0.5 and absf(wraith.get_node("Body").position.y) < 0.01, "a fading wraith turns see-through where it floats")
+	wraith.burrow(false)
+	for _i in range(40):
+		wraith._process(0.05)
+	check(is_zero_approx(shape.transparency), "and solid again as it comes back")
+	wraith.free()
+	var dragon := CrystalCreature.make("THE_KILN_WYRM", true)
+	root.add_child(dragon)
+	var flame := dragon.get_node("Body/Breath01") as Node3D
+	dragon._process(0.05)
+	check(not flame.visible, "the Kiln Wyrm breathes no fire at rest")
+	dragon.play_move("breath", "Firebreath", false, Vector3(0, 1.5, 6.0), null)
+	var shown: bool = false
+	for _i in range(40):
+		dragon._process(0.02)
+		shown = shown or flame.visible
+	check(shown, "but does on Firebreath")
+	for _i in range(60):
+		dragon._process(0.02)
+	check(not flame.visible, "and stops after")
+	dragon.free()
 
 func _test_lifecycle() -> void:
 	var creature := CrystalCreature.make("SILT_SLIME")

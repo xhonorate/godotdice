@@ -7,6 +7,7 @@ const GemView = preload("res://view/gems/gem_view.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const DiceGeometry = preload("res://view/dice/dice_geometry.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
+const FaceMarks = preload("res://view/dice/face_marks.gd")
 const Biomes = preload("res://view/battle/biomes.gd")
 const Chamber = preload("res://view/battle/chamber.gd")
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
@@ -31,6 +32,7 @@ func _init() -> void:
 	_test_rock()
 	_test_appraisal_sheet()
 	_test_dice()
+	_test_face_marks()
 	_test_pictographs()
 	_test_rasteriser()
 	_test_look()
@@ -388,6 +390,75 @@ func _test_dice() -> void:
 	check(int(shifted_view._face_index) == 6 and str(shifted_view._roll_token).contains("#shift:7"), "a parity shift animates the d8 toward the updated face")
 	shifted_view.free()
 
+func _ink(image: Image, from: Vector2i = Vector2i.ZERO, to: Vector2i = Vector2i(-1, -1)) -> int:
+	## How many pixels of a mask are mostly ink, inside [from, to).
+	var end: Vector2i = image.get_size() if to.x < 0 else to
+	var count: int = 0
+	for y in range(from.y, end.y):
+		for x in range(from.x, end.x):
+			if image.get_pixel(x, y).a > 0.5:
+				count += 1
+	return count
+
+func _test_face_marks() -> void:
+	## A creature's action die wears a mark a face. Every base and every modifier draws
+	## something, and a composed mark is its base with the modifier cut into the corner.
+	const EDGE := 48
+	var plain: Dictionary = {}
+	for name in FaceMarks.BASES + FaceMarks.MODIFIERS:
+		var image: Image = FaceMarks.raster(str(name), EDGE)
+		plain[name] = image
+		check(FaceMarks.known(str(name)), "face mark %s is drawn" % name)
+		check(_ink(image) > EDGE * EDGE / 30, "face mark %s puts down ink (%d px)" % [name, _ink(image)])
+	var corner := Vector2i(EDGE * 6 / 10, EDGE * 6 / 10)
+	for base in FaceMarks.BASES:
+		for modifier in FaceMarks.MODIFIERS:
+			var mark: String = "%s__%s" % [base, modifier]
+			var composed: Image = FaceMarks.raster(mark, EDGE)
+			var apart: int = 0
+			for y in range(EDGE):
+				for x in range(EDGE):
+					if absf(composed.get_pixel(x, y).a - (plain[base] as Image).get_pixel(x, y).a) > 0.5:
+						apart += 1
+			check(apart > EDGE * EDGE / 40, "%s differs from %s alone (%d px)" % [mark, base, apart])
+			check(_ink(composed, corner) > 0, "%s has its modifier in the lower right corner" % mark)
+	check(FaceMarks.parts("shield__m_kept") == ["shield", "m_kept"] and FaceMarks.parts("heart") == ["heart", ""], "a mark splits into base and modifier")
+	check(not FaceMarks.known("snare_e"), "an alternative the owner passed over is not drawn")
+	var baked: Texture2D = FaceMarks.texture("f_sword__m_x3")
+	check(baked != null and baked.get_width() == FaceMarks.EDGE and baked.get_image().has_mipmaps(), "a face mark bakes at %d px with mipmaps" % FaceMarks.EDGE)
+	check(FaceMarks.texture("f_sword__m_x3") == baked, "a face mark is baked once and kept")
+	## A creature die with marks: colored by its moves, no numerals, no readout, recut when a
+	## face changes move; a player's die is untouched.
+	var moves: Array = [["f_sword", "attack"], ["shield__m_kept", "guard"], ["snare_d", "meddle"], ["heart__m_raise", "mend"], ["call_b", "ready"], ["hourglass", "dud"]]
+	var creature: Dictionary = DeepDice.make("D6", "beast_d6")
+	for index in range(6):
+		creature.faces[index].move = "move_%d" % index
+		creature.faces[index].mark = str(moves[index][0])
+		creature.faces[index].move_kind = str(moves[index][1])
+	var DiceViewScript: GDScript = load("res://view/dice/dice_view.gd")
+	check(DiceViewScript.is_marked(creature) and not DiceViewScript.is_marked(DeepDice.make("D6", "mine")), "a die whose faces carry marks is an action die; a player's is not")
+	check(DiceViewScript.move_tint(creature.faces[0], 0) == Color("d72d47") and DiceViewScript.move_tint(creature.faces[1], 1) == Color("2c6ae8").lightened(0.06), "an action die's faces are colored by their move's kind")
+	check(DiceViewScript.mark_ink(creature.faces[5]) == Color("9aa3b8") and DiceViewScript.mark_ink(creature.faces[0]) == Color("f5e9c8"), "a dud's mark is slate, every other ivory")
+	var view: Control = DiceViewScript.new()
+	view._ready()
+	view.configure(creature, {"die_id": "beast_d6", "face": 2, "value": 3}, false, false, Color.WHITE)
+	check(bool(view._marked) and not view._readout.visible, "a creature die builds as an action die, with no number written over it")
+	var cut: String = str(view._signature)
+	var etched: Dictionary = creature.duplicate(true)
+	etched.faces[2].mark = "f_sword__m_x2"
+	etched.faces[2].move_kind = "attack"
+	view.configure(etched, {"die_id": "beast_d6", "face": 2, "value": 3}, false, false, Color.WHITE)
+	check(str(view._signature) != cut, "a face re-etched to another move recuts the die")
+	## The engraving itself, on a stand-in for the solid the headless run does not build.
+	view._pivot = Node3D.new()
+	view._engrave(etched.faces)
+	check(view._marks.size() == 12 and view._marks[1].texture == FaceMarks.texture("f_sword") and view._marks[0].modulate.a < 1.0, "each face gets its mark and a shadow under it")
+	view._pivot.free()
+	var d12: Dictionary = DeepDice.make("D12", "plain_d12")
+	view.configure(d12, {"die_id": "plain_d12", "face": 0, "value": 1}, false, false, Color.WHITE)
+	check(not bool(view._marked), "the same view handed a player's die goes back to numerals")
+	view.free()
+
 func _test_pictographs() -> void:
 	for key in DeepContent.section("skills"):
 		var trigger: Dictionary = DeepContent.skill(str(key)).get("trigger", {"kind": "always"})
@@ -563,13 +634,17 @@ func _test_effects() -> void:
 	## The deeper creatures' states have chips of their own.
 	var deep: Dictionary = {"key": "THE_PRISMARCH", "statuses": {"strength": 3}, "block": 0, "burrowed": true, "absorb": ["RED", "BLUE"], "reflect": 50, "mirror": 1,
 		"charging": {"turns": 1, "name": "Lance", "guard_pct": 50, "store": true, "stored": 12},
-		"empowered": 100, "rally_bonus": 2, "swell": 4, "held_gems": [{}], "turns_acted": 1, "echo_of": "CAVE_TICK", "remembered": "sturdy"}
+		"empowered": 100, "rally_bonus": 2, "swell": 4, "held_gems": [{}], "turns_acted": 1, "echo_of": "CAVE_TICK", "remembered": "sturdy",
+		## Since the action-dice rework the Prismarch is not written Steadfast: the fight gives it the trait.
+		"traits": {"steadfast": true}}
 	var deep_chips: Array = EffectChips.for_enemy(deep)
 	var deep_keys: Array = deep_chips.map(func(c: Dictionary) -> String: return str(c.key))
 	for key in ["burrowed", "absorb", "reflect", "mirror", "strength", "charging", "empowered", "rally", "swell", "held_gems", "echo", "remembered", "trait_steadfast", "trait_shielded_by_escorts"]:
 		check(deep_keys.has(key), "a deep creature's %s is shown" % key)
 	check(deep_chips.any(func(c: Dictionary) -> bool: return str(c.key) == "remembered" and str(c.text).contains("Sturdy")), "a Remembered trait is named as the player reads it")
-	var leaving: Array = EffectChips.for_enemy({"key": "GLINT_MAGPIE", "statuses": {}, "block": 0, "turns_acted": 1}).map(func(c: Dictionary) -> String: return str(c.key))
+	## A Magpie now flees by a face (Snatch etches Flee); the Flee trait (leaving after so many
+	## actions) is still the sim's, given here by the fight.
+	var leaving: Array = EffectChips.for_enemy({"key": "GLINT_MAGPIE", "statuses": {}, "block": 0, "turns_acted": 1, "traits": {"flee": 3}}).map(func(c: Dictionary) -> String: return str(c.key))
 	check(leaving.has("fleeing") and not leaving.has("trait_flee"), "a fleeing Magpie shows its countdown, once: %s" % str(leaving))
 	for status in ["festering", "scorched", "burn", "dread"]:
 		var afflicted: Array = EffectChips.for_player({"statuses": {status: 2}, "hand": [], "rail": []})

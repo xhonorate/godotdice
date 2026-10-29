@@ -269,6 +269,23 @@ export function handStats({ bowl, variations = [], rerolls = 0, policy = 'sets',
 
 const COMBINATIONS = ['pair', 'triple', 'quad', 'quint', 'two_pair', 'full_house', 'straight', 'all_odd', 'all_even'];
 const isCombination = (move) => COMBINATIONS.includes(((move.trigger || {}).kind) || 'always');
+// An action die (docs/CREATURE_DICE.md): every face is one of its moves, named in order.
+export const faceNames = (ref) => (ref && typeof ref === 'object' && Array.isArray(ref.faces) && ref.faces.length ? ref.faces.map(String) : null);
+// The faces a match move waits for, landing together in one action: `count` of the first named
+// face, or every named face once (sim/creatures.gd _matched).
+export function matchLanded(trigger, landed) {
+	const faces = (trigger.faces || []).map(String);
+	const count = Number(trigger.count || 0);
+	if (!faces.length) return false;
+	if (count > 0) return landed.filter((n) => n === faces[0]).length >= count;
+	const left = landed.slice();
+	for (const name of faces) {
+		const at = left.indexOf(name);
+		if (at < 0) return false;
+		left.splice(at, 1);
+	}
+	return true;
+}
 const isTurnMove = (move) => Patterns.TURN_KINDS.includes(((move.trigger || {}).kind) || 'always');
 
 export function creatureMoves(def, phase = 0) {
@@ -331,6 +348,8 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 	const moves = creatureMoves(def, phase);
 	const traits = traitsFor(def, phase);
 	const dice = (def.dice || []).map((k, i) => Dice.dieFrom(k, `${key}_d${i}`));
+	// An action die's moves, face by face: the face it lands on is the move it makes.
+	const named = (def.dice || []).map(faceNames);
 	// What opens its action before any die (the Infinite Void's Expansion): a die grown every
 	// action, up to its cap, so its nth action throws n of them.
 	for (const move of moves) {
@@ -366,18 +385,54 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 	for (let i = 0; i < samples; i++) {
 		const history = [];
 		const used = new Set();
+		const landed = [];
 		let rally = 0;
 		let turnDamage = 0;
+		// One move's effects, fired: what it deals, what it does for itself, what it lets go.
+		const fire = (m, ctx, a, trig, rolled) => {
+			const move = moves[m];
+			perMove[m].fired += 1;
+			const c = { ...ctx, a, trig, rolled, unit: { turns_acted: turnsActed, swell: 0, held_gems: [], biggest_hit: 0 } };
+			for (const definition of move.effects || []) {
+				const effect = Rules.resolveEffect(definition, c, 1, 'heroes');
+				if (['block', 'heal', 'regeneration', 'retain', 'max_hp'].includes(effect.kind) && !readsHealth(definition.amount) && !definition.keep_all) effect.amount = Math.floor(effect.amount * healthPct / 100);
+				else if (effect.kind === 'remove_block' && !definition.remove_all) effect.amount = Math.floor(effect.amount * pct / 100);
+				let amount = effect.amount * Math.max(1, effect.repeat);
+				if (effect.kind === 'damage') {
+					amount = hit(effect, rally);
+					turnDamage += amount;
+					perMove[m].damage += amount;
+					if (effect.piercing) perMove[m].piercing += amount;
+				} else if (effect.kind === 'charge') {
+					// What the charge lets go is written down now, in this action's numbers.
+					for (const sub of effect.release || []) {
+						const ready = Rules.resolveEffect(sub, c, 1, 'heroes');
+						if (ready.kind === 'damage') perMove[m].release += hit(ready, 0);
+					}
+				} else if (effect.kind === 'rally') {
+					rally += effect.amount;
+				}
+				perMove[m].effects[effect.kind] = (perMove[m].effects[effect.kind] || 0) + amount;
+			}
+		};
 		for (let d = 0; d < dice.length; d++) {
 			const roll = Dice.rollOne(dice[d], rng);
 			history.push(roll);
 			const last = d === dice.length - 1;
 			const ctx = { first_roll: d === 0, roll_index: d, turns_acted: action, emerging: Boolean(emerging), dying: false, turn, party, living_players: living, party_heaviest_carat: 0, party_best_turn: 0, party_richest: 0, depth };
+			if (named[d]) {
+				// An action die: the move on the face it landed on, and nothing else.
+				const name = named[d][roll.face % named[d].length];
+				landed.push(name);
+				const m = moves.findIndex((move) => move.name === name && ((move.trigger || {}).kind || 'face') === 'face');
+				if (m >= 0 && !(moves[m].once && action !== 1)) fire(m, ctx, Hand.analyze([roll]), { active: true }, roll.value);
+				continue;
+			}
 			for (let m = 0; m < moves.length; m++) {
 				const move = moves[m];
 				const trigger = move.trigger || { kind: 'always' };
 				const kind = trigger.kind || 'always';
-				if (Patterns.CALLED_KINDS.includes(kind)) continue;
+				if (Patterns.CALLED_KINDS.includes(kind) || kind === 'face' || kind === 'match') continue;
 				if (move.once && action !== 1) continue;
 				const combo = isCombination(move);
 				const turnMove = isTurnMove(move);
@@ -390,30 +445,15 @@ export function creatureTurn({ key, depth = 1, party = 1, phase = 0, turn = 1, a
 				if ('die' in trigger && !combo && !turnMove && d !== Number(trigger.die)) trig.active = false;
 				if (!trig.active) continue;
 				if (combo || turnMove) used.add(m);
-				perMove[m].fired += 1;
-				const c = { ...ctx, a, trig, rolled: roll.value, unit: { turns_acted: turnsActed, swell: 0, held_gems: [], biggest_hit: 0 } };
-				for (const definition of move.effects || []) {
-					const effect = Rules.resolveEffect(definition, c, 1, 'heroes');
-					if (['block', 'heal', 'regeneration', 'retain', 'max_hp'].includes(effect.kind) && !readsHealth(definition.amount) && !definition.keep_all) effect.amount = Math.floor(effect.amount * healthPct / 100);
-					else if (effect.kind === 'remove_block' && !definition.remove_all) effect.amount = Math.floor(effect.amount * pct / 100);
-					let amount = effect.amount * Math.max(1, effect.repeat);
-					if (effect.kind === 'damage') {
-						amount = hit(effect, rally);
-						turnDamage += amount;
-						perMove[m].damage += amount;
-						if (effect.piercing) perMove[m].piercing += amount;
-					} else if (effect.kind === 'charge') {
-						// What the charge lets go is written down now, in this action's numbers.
-						for (const sub of effect.release || []) {
-							const ready = Rules.resolveEffect(sub, c, 1, 'heroes');
-							if (ready.kind === 'damage') perMove[m].release += hit(ready, 0);
-						}
-					} else if (effect.kind === 'rally') {
-						rally += effect.amount;
-					}
-					perMove[m].effects[effect.kind] = (perMove[m].effects[effect.kind] || 0) + amount;
-				}
+				fire(m, ctx, a, trig, roll.value);
 			}
+		}
+		// Faces that land together: once an action, after every die is down.
+		for (let m = 0; m < moves.length; m++) {
+			const trigger = moves[m].trigger || {};
+			if (trigger.kind !== 'match' || !matchLanded(trigger, landed)) continue;
+			const ctx = { first_roll: false, roll_index: dice.length - 1, turns_acted: action, emerging: Boolean(emerging), dying: false, turn, party, living_players: living, party_heaviest_carat: 0, party_best_turn: 0, party_richest: 0, depth };
+			fire(m, ctx, Hand.analyze(history), { active: true }, 0);
 		}
 		damageSum += turnDamage;
 		damageHist.set(turnDamage, (damageHist.get(turnDamage) || 0) + 1);

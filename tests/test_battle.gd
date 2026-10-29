@@ -57,6 +57,14 @@ func hand(unit: Dictionary, numbers: Array) -> void:
 func player(id: String, rail: Array, character: String = "ARDOR") -> Dictionary:
 	return DeepBattle.make_player(id, id.capitalize(), character, rail, dice(DeepContent.character(character).dice, id))
 
+func land_on(foe: Dictionary, move_name: String) -> void:
+	## Every face of a creature's action dice carries this one of its moves, so whatever it
+	## throws, that is what it does (docs/CREATURE_DICE.md).
+	var move: Dictionary = DeepCreatures.move_in(DeepCreatures.moves_for(foe), move_name)
+	for die in foe.dice:
+		for face in die.faces:
+			DeepCreatures.dress_face(face, move)
+
 func birthstones(events: Array, unit_id: String = "") -> Array:
 	return events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "birthstone" and (unit_id.is_empty() or str(e.unit) == unit_id))
 
@@ -114,7 +122,7 @@ func _test_setup_and_planning() -> void:
 	check(a.target == "e0", "the first creature is targeted by default")
 	var tick: Dictionary = DeepBattle.enemy(state, "e0")
 	check(tick.max_hp == int(round(16 * (1.0 + 0.05 * 2) * 2)), "creature HP scales with depth and doubles for a party of two: %d" % tick.max_hp)
-	check(tick.hand.is_empty() and tick.moves.size() == 2, "planning shows the moveset without rolling")
+	check(tick.hand.is_empty() and tick.moves.map(func(m: Dictionary) -> String: return str(m.name)) == ["Bite", "Gorge", "Latch"], "planning shows the moveset without rolling")
 	check(not tick.has("intents"), "no prepared moves or player targets leak into planning")
 	var before: Array = a.hand.duplicate(true)
 	var chosen: Array = [before[0].die_id, before[1].die_id]
@@ -656,15 +664,18 @@ func _test_creatures_and_statuses() -> void:
 	var state: Dictionary = DeepBattle.begin([player("a", [stone("GUARD", 8)])], ["CAVE_TICK"], {"depth": 1}, r.dice, r.creatures)
 	var a: Dictionary = DeepBattle.player(state, "a")
 	hand(a, [6, 6, 1, 2, 3])
+	## Whatever the tick throws it lands a Gorge: the blow is what this part weighs.
+	land_on(DeepBattle.enemy(state, "e0"), "Gorge")
 	var events: Array = run_turn(state, r)
 	var moves: Array = events.filter(func(e: Dictionary) -> bool: return str(e.kind) == "enemy_move")
 	check(moves.size() >= 1, "the tick moved")
 	var hit: Dictionary = moves[0]
 	var dmg: Array = hit.effects.filter(func(e: Dictionary) -> bool: return str(e.kind) == "damage")
+	check(not dmg.is_empty(), "its Gorge is a blow")
 	if not dmg.is_empty():
 		check(int(dmg[0].absorbed) + int(dmg[0].hp_loss) == int(dmg[0].raw), "damage is split between block and HP")
 		check(int(dmg[0].absorbed) > 0, "block absorbed some of it")
-	check(int(a.block_lost) == int(dmg[0].absorbed) if not dmg.is_empty() else true, "block lost is remembered for Riposte next turn")
+	check(int(a.block_lost) == int(dmg[0].absorbed) if not dmg.is_empty() else false, "block lost is remembered for Riposte next turn")
 	check(state.turn == 2 and int(a.block) == 0, "unused block falls away when the next turn begins (%d left)" % int(a.block))
 	## A creature's block soaks one volley of gems, then falls away as it moves.
 	var r6: Dictionary = rngs(46)
@@ -704,18 +715,24 @@ func _test_creatures_and_statuses() -> void:
 	weak.hp = 1
 	var state4: Dictionary = DeepBattle.begin([weak], ["QUARTZ_GOLEM", "QUARTZ_GOLEM"], {"depth": 10}, r4.dice, r4.creatures)
 	hand(DeepBattle.player(state4, "a"), [1, 2, 3, 4, 5])
+	for golem4 in state4.enemies:
+		land_on(golem4, "Pound")
 	var events4: Array = run_turn(state4, r4)
 	check(state4.outcome == "defeat" and bool(DeepBattle.player(state4, "a").downed), "one HP against two golems is a wipe: %s" % str(kinds(events4)))
-	## Enrage adds damage late.
-	var r5: Dictionary = rngs(45)
-	var state5: Dictionary = DeepBattle.begin([player("a", [stone("GUARD", 20)])], ["LANTERN_MOTH"], {"depth": 1}, r5.dice, r5.creatures)
-	state5.turn = 8
-	hand(DeepBattle.player(state5, "a"), [6, 6, 1, 3, 5])
-	var events5: Array = run_turn(state5, r5)
-	var move5: Array = events5.filter(func(e: Dictionary) -> bool: return str(e.kind) == "enemy_move")
-	var flutter5: Array = events5.filter(func(e: Dictionary) -> bool: return str(e.kind) == "enemy_roll")
-	var rolled5: int = int(flutter5[0].roll.value) if not flutter5.is_empty() else -1
-	check(not move5.is_empty() and int(move5[0].effects[0].raw) == rolled5 + 4, "on turn 8 the moth's roll of %d becomes %d with enrage (%s)" % [rolled5, rolled5 + 4, str(move5[0].effects[0] if not move5.is_empty() else {})])
+	## Enrage adds damage late: the same Flutter on turn 1 and on turn 8 (two turns of enrage).
+	var flutters: Array = []
+	for on_turn in [1, 8]:
+		var r5: Dictionary = rngs(45)
+		var state5: Dictionary = DeepBattle.begin([player("a", [stone("GUARD", 20)])], ["LANTERN_MOTH"], {"depth": 1}, r5.dice, r5.creatures)
+		state5.turn = on_turn
+		hand(DeepBattle.player(state5, "a"), [6, 6, 1, 3, 5])
+		land_on(DeepBattle.enemy(state5, "e0"), "Flutter")
+		var events5: Array = run_turn(state5, r5)
+		var move5: Array = events5.filter(func(e: Dictionary) -> bool: return str(e.kind) == "enemy_move" and str(e.move) == "Flutter")
+		flutters.append(int(move5[0].effects[0].raw) if not move5.is_empty() else -1)
+	var flutter_amount: int = int(DeepCreatures.move_in(DeepContent.creature("LANTERN_MOTH").moves, "Flutter").effects[0].amount)
+	check(int(flutters[0]) == flutter_amount and int(flutters[1]) == flutter_amount + 2 * DeepBattle.enrage_step({}),
+		"on turn 8 the moth's Flutter of %d becomes %d with enrage: %s" % [flutter_amount, flutter_amount + 2 * DeepBattle.enrage_step({}), str(flutters)])
 
 func _test_forecast_matches() -> void:
 	var r: Dictionary = rngs(51)
@@ -934,6 +951,9 @@ func _test_tally_pace_and_creatures() -> void:
 	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 7, 2, 3), stone("GUARD", 9, 3, 3)])], ["RAIL_RAT"], {"depth": 1}, r.dice, r.creatures)
 	var a: Dictionary = DeepBattle.player(state, "a")
 	hand(a, [4, 4, 6, 2, 5])
+	## The rat bites whatever it throws: its blow is what gets counted.
+	for rat in state.enemies:
+		land_on(rat, "Bite")
 	var forecast: Dictionary = DeepBattle.forecast(state, "a")
 	check(int(forecast.sockets[0].get("tally", {}).get("amount", -1)) == 25, "the forecast keeps a gem's count for the plate a hover shows: %s" % str(forecast.sockets[0].get("tally", {})))
 	for foe in state.enemies:

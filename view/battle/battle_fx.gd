@@ -40,6 +40,9 @@ static func release() -> void:
 	_tongue = null
 	_flame_curve = null
 	_smoke_ramp = null
+	_breath_fire = null
+	_breath_grow = null
+	_sparkle_quad = null
 
 ## The step rate a room's air is filled at before it is first drawn. See `ambient`.
 const AMBIENT_FILL_FPS := 6
@@ -723,9 +726,11 @@ func shards(at: Vector3, color: Color, count: int = 14, speed: float = 4.0, size
 	var tween := create_tween()
 	tween.tween_property(m, "emission_energy_multiplier", 0.0, seconds)
 
-func projectile(from: Vector3, to: Vector3, color: Color, seconds: float = 0.28, size: float = 0.14, arrive: Callable = Callable(), arc: float = 0.8) -> void:
+func projectile(from: Vector3, to: Vector3, color: Color, seconds: float = 0.28, size: float = 0.14, arrive: Callable = Callable(), arc: float = 0.8, halo_scale: float = 7.0) -> void:
 	## A bolt of the gem's own light from the setting to its target: a hot core, a halo, a
-	## light that sweeps the walls as it passes, and a trail of embers.
+	## light that sweeps the walls as it passes, and a trail of embers. A creature's throw at
+	## the party passes a smaller `halo_scale`: it ends just before the lens, where a full halo
+	## would cover the screen.
 	var bolt := Node3D.new()
 	bolt.position = from
 	add_child(bolt)
@@ -744,7 +749,7 @@ func projectile(from: Vector3, to: Vector3, color: Color, seconds: float = 0.28,
 	bolt.add_child(core)
 	var halo := MeshInstance3D.new()
 	var halo_quad := QuadMesh.new()
-	halo_quad.size = Vector2.ONE * size * 7.0
+	halo_quad.size = Vector2.ONE * size * halo_scale
 	var halo_material := StandardMaterial3D.new()
 	halo_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	halo_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -1086,3 +1091,476 @@ func claw(at: Vector3, facing: Vector3, color: Color, seconds: float = 0.45) -> 
 	tween.chain().tween_property(m, "albedo_color:a", 0.0, seconds * 0.6)
 	tween.chain().tween_callback(pivot.queue_free)
 	shards(at, color, 6, 2.5, 0.08, 0.6)
+
+# --- what a creature's own move throws (creature_moves.gd) -------------------------------------
+
+static var _breath_fire: GradientTexture1D = null
+static var _breath_grow: CurveTexture = null
+static var _sparkle_quad: QuadMesh = null
+
+static func _breath_curve() -> CurveTexture:
+	## Small at the mouth, spreading as it goes.
+	if _breath_grow == null:
+		var curve := Curve.new()
+		curve.add_point(Vector2(0.0, 0.42))
+		curve.add_point(Vector2(0.55, 0.9))
+		curve.add_point(Vector2(1.0, 1.0))
+		_breath_grow = CurveTexture.new()
+		_breath_grow.curve = curve
+	return _breath_grow
+
+static func _fire_breath_ramp() -> GradientTexture1D:
+	## White-hot at the lips, yellow, orange, a dull red and gone: brighter than white in the red
+	## and green, so it blooms rather than reading as paint.
+	if _breath_fire == null:
+		var gradient := Gradient.new()
+		gradient.set_color(0, Color(2.2, 1.8, 1.1, 0.0))
+		gradient.set_color(1, Color(0.35, 0.06, 0.02, 0.0))
+		gradient.add_point(0.06, Color(2.2, 1.6, 0.8, 0.9))
+		gradient.add_point(0.3, Color(1.9, 0.8, 0.2, 0.75))
+		gradient.add_point(0.65, Color(1.1, 0.28, 0.06, 0.45))
+		_breath_fire = GradientTexture1D.new()
+		_breath_fire.use_hdr = true
+		_breath_fire.gradient = gradient
+	return _breath_fire
+
+static func sparkle_quad() -> QuadMesh:
+	## A camera-facing glint for splinters of light.
+	if _sparkle_quad == null:
+		var m := glow_material().duplicate() as StandardMaterial3D
+		m.albedo_texture = sparkle_texture()
+		_sparkle_quad = QuadMesh.new()
+		_sparkle_quad.size = Vector2.ONE
+		_sparkle_quad.material = m
+	return _sparkle_quad
+
+func breath(from: Vector3, to: Vector3, kind: String, color: Color, seconds: float = 0.5, size: float = 1.0) -> Node3D:
+	## A stream poured from a mouth at the party: fire, splinters of crystal, fog, spores, water,
+	## steam, light. The node can be turned to follow the mouth as the head moves; what has
+	## already left it flies on (world space).
+	var node := Node3D.new()
+	add_child(node)
+	if from.distance_to(to) > 0.01:
+		node.look_at_from_position(from, to, _up_for(to - from))
+	else:
+		node.position = from
+	var reach: float = maxf(1.0, from.distance_to(to))
+	var life: float = {"fog": 0.75, "spores": 0.8, "steam": 0.7, "water": 0.5}.get(kind, 0.62)
+	var speed: float = reach / life
+	var m := ParticleProcessMaterial.new()
+	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	m.emission_sphere_radius = 0.05 * size
+	m.direction = Vector3(0, 0, -1)
+	m.spread = {"fog": 13.0, "spores": 14.0, "steam": 12.0, "water": 6.0}.get(kind, 8.0)
+	m.initial_velocity_min = speed * 0.8
+	m.initial_velocity_max = speed * 1.1
+	m.gravity = Vector3(0, -6.0, 0) if kind == "water" else Vector3.ZERO
+	var big: float = {"fog": 1.6, "spores": 1.3, "steam": 1.4, "water": 0.35, "crystal": 0.9, "light": 0.8}.get(kind, 1.0)
+	m.scale_min = 0.32 * size * big
+	m.scale_max = 0.55 * size * big
+	m.scale_curve = _breath_curve()
+	if kind in ["fog", "spores"]:
+		m.turbulence_enabled = true
+		m.turbulence_noise_strength = 0.6
+		m.turbulence_noise_scale = 1.6
+	var mesh: Mesh = quad(true)
+	match kind:
+		"fire":
+			m.color_ramp = _fire_breath_ramp()
+		"crystal", "light":
+			## A stream of the creature's own light; a crystal breath glints with splinters too.
+			m.color_ramp = burst_ramp(color.lightened(0.15))
+		"water":
+			m.color_ramp = fade_ramp(color.lightened(0.3), 0.9, 0.05)
+			mesh = _stretched_quad()
+		_:
+			## Fog, spores, steam, smoke: soft clouds that darken as well as lighten.
+			m.color_ramp = fade_ramp(color, 0.55 if kind != "spores" else 0.7, 0.12)
+			mesh = quad(false)
+	var p := GPUParticles3D.new()
+	p.process_material = keep("breath_" + kind, m)
+	p.draw_pass_1 = mesh
+	p.amount = _amount(int({"fog": 36, "spores": 40, "steam": 34, "water": 60, "crystal": 70, "light": 50}.get(kind, 100) * clampf(seconds / 0.5, 0.6, 1.6)))
+	p.lifetime = life
+	p.local_coords = false
+	p.visibility_aabb = AABB(Vector3(-4, -4, -reach - 3.0), Vector3(8, 8, reach + 6.0))
+	node.add_child(p)
+	p.emitting = true
+	if kind == "fire":
+		## Embers thrown off the stream, and the light it casts on the room as it pours.
+		var e := ParticleProcessMaterial.new()
+		e.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		e.emission_sphere_radius = 0.08 * size
+		e.direction = Vector3(0, 0, -1)
+		e.spread = 16.0
+		e.initial_velocity_min = speed * 0.5
+		e.initial_velocity_max = speed * 0.9
+		e.gravity = Vector3(0, -2.0, 0)
+		e.scale_min = 0.03 * size
+		e.scale_max = 0.06 * size
+		e.scale_curve = shrink_curve()
+		e.color_ramp = burst_ramp(Color("ff9a40"))
+		var embers := GPUParticles3D.new()
+		embers.process_material = keep("breath_embers", e)
+		embers.draw_pass_1 = quad(true)
+		embers.amount = _amount(24)
+		embers.lifetime = life * 1.3
+		embers.local_coords = false
+		embers.visibility_aabb = p.visibility_aabb
+		node.add_child(embers)
+		embers.emitting = true
+	if kind == "crystal":
+		## Glints riding the stream.
+		var g := ParticleProcessMaterial.new()
+		g.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		g.emission_sphere_radius = 0.1 * size
+		g.direction = Vector3(0, 0, -1)
+		g.spread = 12.0
+		g.initial_velocity_min = speed * 0.7
+		g.initial_velocity_max = speed * 1.05
+		g.gravity = Vector3.ZERO
+		g.angle_min = 0.0
+		g.angle_max = 90.0
+		g.scale_min = 0.22 * size
+		g.scale_max = 0.4 * size
+		g.scale_curve = _twinkle_curve()
+		g.color_ramp = burst_ramp(color.lightened(0.5))
+		var glints := GPUParticles3D.new()
+		glints.process_material = keep("breath_glints", g)
+		glints.draw_pass_1 = sparkle_quad()
+		glints.amount = _amount(40)
+		glints.lifetime = life
+		glints.local_coords = false
+		glints.visibility_aabb = p.visibility_aabb
+		node.add_child(glints)
+		glints.emitting = true
+	if kind in ["fire", "crystal", "light"]:
+		var light := OmniLight3D.new()
+		light.light_color = Color("ff9a40") if kind == "fire" else color
+		light.light_energy = 3.5
+		light.omni_range = 4.0 * size
+		light.shadow_enabled = false
+		light.position = Vector3(0, 0, -0.6)
+		node.add_child(light)
+		var glow := light.create_tween()
+		glow.tween_property(light, "light_energy", 0.0, seconds + 0.2).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	if kind == "crystal":
+		_splinters(from, to, color, int(8 * clampf(size, 0.6, 1.6)), seconds)
+	var tree := get_tree()
+	if tree != null:
+		var held: WeakRef = weakref(node)
+		tree.create_timer(seconds, false).timeout.connect(func() -> void:
+			var still: Node3D = held.get_ref() as Node3D
+			if still != null:
+				for child in still.get_children():
+					if child is GPUParticles3D:
+						(child as GPUParticles3D).emitting = false)
+		## Freed on the clock, seen or not.
+		tree.create_timer(seconds + life * 1.4 + 1.0, false).timeout.connect(node.queue_free)
+	return node
+
+func _splinters(from: Vector3, to: Vector3, color: Color, count: int, seconds: float) -> void:
+	## Real faceted splinters flying down a crystal breath, turning as they go.
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.roughness = 0.15
+	m.metallic = 0.3
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_energy_multiplier = 1.6
+	m.rim_enabled = true
+	var across: Vector3 = (to - from).cross(Vector3.UP).normalized()
+	for i in range(_amount(count)):
+		var piece := MeshInstance3D.new()
+		piece.mesh = Lowpoly.shard(rng, color.lightened(0.3), rng.randf_range(0.07, 0.14))
+		piece.material_override = m
+		piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		piece.position = from
+		add_child(piece)
+		var miss: Vector3 = across * rng.randf_range(-0.7, 0.7) + Vector3(0, rng.randf_range(-0.4, 0.4), 0)
+		var spin := Vector3(rng.randf_range(-14, 14), rng.randf_range(-14, 14), rng.randf_range(-14, 14))
+		var start: float = rng.randf_range(0.0, maxf(0.05, seconds - 0.2))
+		var flight: float = rng.randf_range(0.28, 0.4)
+		var tween := piece.create_tween()
+		piece.visible = false
+		tween.tween_interval(start)
+		tween.tween_callback(func() -> void: piece.visible = true)
+		tween.tween_method(func(t: float) -> void:
+			if is_instance_valid(piece):
+				piece.position = from.lerp(to + miss, t)
+				piece.rotation = spin * t
+				piece.scale = Vector3.ONE * (0.6 + 0.6 * t) * (1.0 - smoothstep(0.85, 1.0, t)), 0.0, 1.0, flight)
+		tween.tween_callback(piece.queue_free)
+	var fade := create_tween()
+	fade.tween_interval(seconds + 0.5)
+	fade.tween_property(m, "emission_energy_multiplier", 0.0, 0.2)
+
+func splat(at: Vector3, color: Color, kind: String = "glob") -> void:
+	## Where a spat glob lands: a burst of it, in its own kind.
+	match kind:
+		"fire", "molten":
+			sparks(at, Color("ff9a40"), 30, 4.0, 0.6, 0.06)
+			glow_burst(at, Color("ff8a30"), 0.45, 0.3)
+		"web":
+			puff(at, Color("e8e4dc"), 10, 0.6, 0.8, 0.2, true)
+		_:
+			puff(at, color, 10, 0.55, 0.8, 0.3, true)
+			bubbles(at, color, 12, 0.4, 0.8)
+
+func zap(from: Vector3, to: Vector3, color: Color, seconds: float = 0.35) -> void:
+	## A bolt of lightning: a jagged line that crackles into new shapes as it holds.
+	var node := Node3D.new()
+	add_child(node)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.albedo_color = Color(color.lightened(0.5), 1.0)
+	var steps: int = 8
+	var pieces: Array = []
+	for i in range(steps):
+		var piece := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(0.05, 0.05, 1.0)
+		piece.mesh = box
+		piece.material_override = m
+		piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		node.add_child(piece)
+		pieces.append(piece)
+	var across: Vector3 = (to - from).cross(Vector3.UP).normalized()
+	var lay := func() -> void:
+		var points: Array = [from]
+		for i in range(1, steps):
+			var k: float = float(i) / float(steps)
+			var swing: float = 0.35 * sin(k * PI)
+			points.append(from.lerp(to, k) + across * randf_range(-swing, swing) + Vector3(0, randf_range(-swing, swing), 0))
+		points.append(to)
+		for i in range(steps):
+			var a: Vector3 = points[i]
+			var b: Vector3 = points[i + 1]
+			var piece: MeshInstance3D = pieces[i]
+			if is_instance_valid(piece) and a.distance_to(b) > 0.001:
+				piece.look_at_from_position((a + b) * 0.5, b, _up_for(b - a))
+				piece.scale = Vector3(1, 1, a.distance_to(b))
+	lay.call()
+	var tween := node.create_tween()
+	for i in range(3):
+		tween.tween_interval(seconds / 4.0)
+		tween.tween_callback(lay)
+	tween.tween_property(m, "albedo_color:a", 0.0, seconds / 4.0)
+	tween.tween_callback(node.queue_free)
+	flash(from, color, 4.0, 4.0, seconds, 0.8)
+	glow_burst(to, color, 0.45, 0.25)
+
+func jet(at: Vector3, color: Color, amount: int = 30, speed: float = 5.0, spread: float = 20.0, lifetime: float = 0.9, size: float = 0.07) -> void:
+	## Hot points thrown straight up and falling back: a crater spitting.
+	var m := ParticleProcessMaterial.new()
+	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	m.emission_sphere_radius = 0.12
+	m.direction = Vector3.UP
+	m.spread = spread
+	m.initial_velocity_min = speed * 0.5
+	m.initial_velocity_max = speed
+	m.gravity = Vector3(0, -7.0, 0)
+	m.scale_min = size * 0.6
+	m.scale_max = size * 1.4
+	m.scale_curve = shrink_curve()
+	m.color_ramp = burst_ramp(color)
+	_burst(at, amount, lifetime, keep("jet", m), quad(true))
+
+func erupt(at: Vector3, color: Color = Color("ff7a2a"), size: float = 1.0) -> void:
+	## A volcano going off: fire out of the crater, molten points and rock thrown high, smoke.
+	flames(at, 1.1 * size, 1.1)
+	flames(at + Vector3(0, 0.6 * size, 0), 0.8 * size, 0.9)
+	jet(at, color, 90, 5.0 * size, 22.0, 1.3, 0.13 * size)
+	jet(at, Color("ffd080"), 50, 3.2 * size, 35.0, 1.0, 0.08 * size)
+	shards(at, Color("3a2420"), 14, 5.0 * size, 0.13 * size, 1.2)
+	glow_burst(at, color, 1.6 * size, 0.5)
+	flash(at, color, 9.0, 10.0, 0.7, 1.6)
+	puff(at + Vector3(0, 0.7 * size, 0), Color(0.18, 0.15, 0.14), 18, 1.2 * size, 2.0, 1.6)
+
+func swipe(centre: Vector3, axis: Vector3, start: Vector3, radius: float, sweep: float, color: Color, seconds: float = 0.28) -> void:
+	## The arc a claw or a blade cut through the air: bright at its leading end, trailing off.
+	var normal: Vector3 = axis.normalized()
+	var from_dir: Vector3 = (start - normal * start.dot(normal)).normalized()
+	if from_dir.is_zero_approx():
+		return
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var steps: int = 20
+	var width: float = radius * 0.22
+	var rows: Array = []
+	for i in range(steps + 1):
+		var k: float = float(i) / float(steps)
+		var dir: Vector3 = from_dir.rotated(normal, deg_to_rad(sweep) * k)
+		var w: float = width * sin(k * PI) * (0.4 + 0.6 * k)
+		rows.append([centre + dir * (radius - w * 0.5), centre + dir * (radius + w * 0.5), Color(color.lightened(0.5), k * k)])
+	for i in range(steps):
+		var a: Array = rows[i]
+		var b: Array = rows[i + 1]
+		for corner in [[a[0], a[2]], [a[1], a[2]], [b[1], b[2]], [a[0], a[2]], [b[1], b[2]], [b[0], b[2]]]:
+			surface.set_color(corner[1])
+			surface.add_vertex(corner[0])
+	var node := MeshInstance3D.new()
+	node.mesh = surface.commit()
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.vertex_color_use_as_albedo = true
+	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	node.material_override = m
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(node)
+	var tween := node.create_tween()
+	tween.tween_property(m, "albedo_color:a", 0.0, seconds).set_ease(Tween.EASE_IN)
+	tween.tween_callback(node.queue_free)
+
+func ripple(at: Vector3, facing: Vector3, color: Color, radius: float = 1.4, seconds: float = 0.6) -> void:
+	## A ring of sound or force rolling out toward the party: a wail, a song, a hum.
+	var pivot := Node3D.new()
+	add_child(pivot)
+	pivot.look_at_from_position(at, at + facing, _up_for(facing))
+	var ring := MeshInstance3D.new()
+	ring.mesh = Lowpoly.ring(1.0, 0.07, 40)
+	ring.rotation = Vector3(PI * 0.5, 0, 0)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	m.albedo_color = Color(color.lightened(0.3), 0.9)
+	ring.material_override = m
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pivot.add_child(ring)
+	pivot.scale = Vector3.ONE * 0.2 * radius
+	var tween := pivot.create_tween().set_parallel(true)
+	tween.tween_property(pivot, "scale", Vector3.ONE * radius, seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(pivot, "position", at + facing.normalized() * radius * 0.8, seconds).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(m, "albedo_color:a", 0.0, seconds).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(pivot.queue_free)
+
+static func haze(kind: String, color: Color, size: float = 1.0) -> GPUParticles3D:
+	## What hangs about a creature all the time, following it: a clouder's fog, the smoke off a
+	## dragon's nostrils, the lava bubbling in a crater, the sparks crawling on an eel.
+	var p := GPUParticles3D.new()
+	var m := ParticleProcessMaterial.new()
+	var mesh: Mesh = quad(true)
+	match kind:
+		"fog":
+			m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			m.emission_sphere_radius = 0.75 * size
+			m.direction = Vector3.UP
+			m.spread = 180.0
+			m.initial_velocity_min = 0.03
+			m.initial_velocity_max = 0.15
+			m.gravity = Vector3(0, -0.02, 0)
+			m.turbulence_enabled = true
+			m.turbulence_noise_strength = 0.25
+			m.turbulence_noise_scale = 1.2
+			m.scale_min = 0.55 * size
+			m.scale_max = 1.0 * size
+			m.scale_curve = swell_curve()
+			m.color_ramp = fade_ramp(color, 0.3, 0.25)
+			mesh = quad(false)
+			p.amount = 26
+			p.lifetime = 3.0
+			p.local_coords = true
+			p.preprocess = 1.5
+		"smoke":
+			m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			m.emission_sphere_radius = 0.05 * size
+			m.direction = Vector3.UP
+			m.spread = 14.0
+			m.initial_velocity_min = 0.25 * size
+			m.initial_velocity_max = 0.5 * size
+			m.gravity = Vector3(0, 0.08, 0)
+			m.turbulence_enabled = true
+			m.turbulence_noise_strength = 0.3
+			m.scale_min = 0.12 * size
+			m.scale_max = 0.24 * size
+			m.scale_curve = swell_curve()
+			m.color_ramp = fade_ramp(color, 0.4, 0.2)
+			mesh = quad(false)
+			p.amount = 10
+			p.lifetime = 2.0
+			p.local_coords = false
+		"bubbling":
+			m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			m.emission_sphere_radius = 0.2 * size
+			m.direction = Vector3.UP
+			m.spread = 28.0
+			m.initial_velocity_min = 0.9 * size
+			m.initial_velocity_max = 1.9 * size
+			m.gravity = Vector3(0, -5.0, 0)
+			m.scale_min = 0.05 * size
+			m.scale_max = 0.12 * size
+			m.scale_curve = swell_curve()
+			m.color_ramp = burst_ramp(color)
+			p.amount = 12
+			p.lifetime = 0.8
+			p.local_coords = false
+		"crackle":
+			m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			m.emission_sphere_radius = 0.1 * size
+			m.direction = Vector3.UP
+			m.spread = 180.0
+			m.initial_velocity_min = 0.4
+			m.initial_velocity_max = 1.4
+			m.gravity = Vector3.ZERO
+			m.damping_min = 2.0
+			m.damping_max = 4.0
+			m.scale_min = 0.03 * size
+			m.scale_max = 0.07 * size
+			m.scale_curve = shrink_curve()
+			m.color_ramp = burst_ramp(color)
+			mesh = _stretched_quad()
+			p.amount = 8
+			p.lifetime = 0.28
+			p.randomness = 1.0
+			p.local_coords = false
+		"embers":
+			m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			m.emission_sphere_radius = 0.15 * size
+			m.direction = Vector3.UP
+			m.spread = 20.0
+			m.initial_velocity_min = 0.4 * size
+			m.initial_velocity_max = 0.9 * size
+			m.gravity = Vector3(0, 0.3, 0)
+			m.turbulence_enabled = true
+			m.turbulence_noise_strength = 0.8
+			m.scale_min = 0.03 * size
+			m.scale_max = 0.06 * size
+			m.scale_curve = shrink_curve()
+			m.color_ramp = burst_ramp(color)
+			p.amount = 10
+			p.lifetime = 1.4
+			p.local_coords = false
+		"spores":
+			m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			m.emission_sphere_radius = 0.4 * size
+			m.direction = Vector3.UP
+			m.spread = 60.0
+			m.initial_velocity_min = 0.08
+			m.initial_velocity_max = 0.25
+			m.gravity = Vector3(0, 0.05, 0)
+			m.turbulence_enabled = true
+			m.turbulence_noise_strength = 0.4
+			m.scale_min = 0.03 * size
+			m.scale_max = 0.06 * size
+			m.color_ramp = fade_ramp(color, 0.9, 0.2)
+			p.amount = 12
+			p.lifetime = 2.4
+			p.local_coords = false
+		_:
+			return null
+	p.process_material = keep("haze_" + kind, m)
+	p.draw_pass_1 = mesh
+	p.visibility_aabb = AABB(Vector3(-3, -2, -3) * maxf(size, 1.0), Vector3(6, 6, 6) * maxf(size, 1.0))
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	p.emitting = true
+	return p

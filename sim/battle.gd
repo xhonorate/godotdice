@@ -415,14 +415,22 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			var wanted: Array = cmd.get("dice", []).map(func(d: Variant) -> String: return str(d))
 			var allowed: Array = DeepDice.rerollable(unit.hand)
 			var chosen: Array = wanted.filter(func(d: String) -> bool: return allowed.has(d))
-			## All or Nothing: the Gambler throws the whole bowl again or none of it.
-			if all_or_nothing(unit):
+			## All or Nothing: the Gambler throws the whole bowl again or none of it; under a
+			## Paradox Moth's lantern so does everyone.
+			var paradox: bool = living(state.enemies).any(func(f: Dictionary) -> bool: return DeepCreatures.has_trait(f, "reroll_all"))
+			if all_or_nothing(unit) or paradox:
 				chosen = allowed.duplicate()
 			if chosen.is_empty():
 				return _refuse("choose dice to reroll")
 			unit.hand = DeepDice.reroll(unit.hand, unit.dice, chosen, rng_dice)
 			unit.rerolls = int(unit.rerolls) - 1
 			unit.rerolled = int(unit.get("rerolled", 0)) + 1
+			## Which dice went again this turn: a Paradox Moth's Unravel picks one of them.
+			var again: Array = unit.get("rerolled_dice", []).duplicate()
+			for id in chosen:
+				if not again.has(id):
+					again.append(id)
+			unit.rerolled_dice = again
 			tally_add(unit, "rerolls", 1)
 			var loaded: Array = _loaded(unit, chosen, rng_dice)
 			var dues: Dictionary = _pay_dues(state, unit, chosen)
@@ -432,10 +440,10 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary, rng_d
 			var drain: int = 0
 			var scorch: int = 0
 			for foe in living(state.enemies):
+				## Only a creature written with a price takes one: the action-dice lanterns are free.
 				if DeepCreatures.has_trait(foe, "gift_rerolls"):
-					var burns: int = DeepCreatures.trait_value(foe, "reroll_scorch", 0)
-					drain += DeepCreatures.trait_value(foe, "reroll_drain", 0 if burns > 0 else 1)
-					scorch += burns
+					drain += DeepCreatures.trait_value(foe, "reroll_drain", 0)
+					scorch += DeepCreatures.trait_value(foe, "reroll_scorch", 0)
 			if drain > 0:
 				for victim in living(state.players):
 					victim.hp = maxi(1, int(victim.hp) - drain)
@@ -740,8 +748,23 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			## sending back, the colors it was drinking.
 			if int(foe.get("reflect", 0)) > 0 or not foe.get("absorb", []).is_empty():
 				foe.reflect = 0
+				foe.reflect_thrower = false
 				foe.absorb = []
 				fields.guard_ended = true
+			## What its last action pinned on it for the party's turn wears off now: a lantern's
+			## gift, a static, a hush, a pull; and thorns it held up until this action.
+			var pinned: Array = foe.get("pinned", {}).keys()
+			for name in pinned:
+				foe.traits.erase(name)
+			foe.pinned = {}
+			if not pinned.is_empty():
+				fields.unpinned = pinned
+			var timed: Dictionary = foe.get("timed", {})
+			for status in timed:
+				foe.statuses[status] = maxi(0, int(foe.statuses.get(status, 0)) - int(timed[status]))
+				if int(foe.statuses[status]) <= 0:
+					foe.statuses.erase(status)
+			foe.timed = {}
 			## A Warden that answers every blow with a Spikes aura has them up again for the next rail.
 			var spikes: int = DeepCreatures.trait_value(foe, "spikes", 0)
 			if spikes > 0:
@@ -863,6 +886,12 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			var tense: bool = DeepCreatures.suspense(foe, dice.slice(index, available))
 			var roll: Dictionary = DeepDice.roll_one(dice[index], rng_creatures)
 			roll.turn_tag = int(state.turn)
+			## An action die: the face it landed on is a move (`DeepCreatures.face_die`).
+			var landed: Dictionary = dice[index].get("faces", [])[int(roll.get("face", 0))] if int(roll.get("face", 0)) < dice[index].get("faces", []).size() else {}
+			if landed.has("move"):
+				roll.move = str(landed.move)
+				roll.mark = str(landed.get("mark", ""))
+				roll.move_kind = str(landed.get("move_kind", ""))
 			foe.rolled_die = dice[index].duplicate(true)
 			foe.hand.append(roll)
 			foe.next_die = index + 1
@@ -893,6 +922,7 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			var counted: Dictionary = creature_tally(state, foe, move, shown)
 			return _event(state, "enemy_ability", {"unit": foe.id, "move": move.move, "index": move.index,
 				"dice": move.dice, "combo": move.combo, "trigger": move.trigger, "effects": shown, "tally": counted,
+				"anim": str(move.get("anim", "")), "mark": str(move.get("mark", "")), "move_kind": str(move.get("move_kind", "")),
 				"duration": BASE_DURATION.enemy_ability + (COMBO_HOLD if bool(move.combo) else 0.0) + tally_span(counted)})
 		"enemy_move":
 			var foe: Dictionary = enemy(state, str(s.unit))
@@ -2801,6 +2831,10 @@ static func _targets(state: Dictionary, source: Dictionary, target: String, inte
 				if bool(unit.get("downed", false)):
 					return [unit]
 			return []
+		"escort_leader":
+			## A Tendril knitting its Heartrot: the creature it was brought in beside.
+			var leader: Dictionary = enemy(state, str(source.get("escort_of", "")))
+			return [leader] if not leader.is_empty() and int(leader.hp) > 0 else []
 	return []
 
 static func _adjacent_enemies(state: Dictionary, target: Dictionary) -> Array:
@@ -2827,6 +2861,10 @@ static func _apply(state: Dictionary, source: Dictionary, effect: Dictionary, rn
 	## A creature's `spread` keeps its meaning: its hits go round the party one at a time.
 	if str(source.get("side", "")) == "enemy" and kind in DeepRules.HOSTILE and target_kind in DeepRules.ENEMY_SIDE_TARGETS and target_kind != "spread":
 		target_kind = "heroes"
+	## A Star Leech clinging to the gem that fires: what it would do to a creature it does to
+	## its owner instead, until the owner hits the leech (`_cling`).
+	if str(source.get("side", "")) == "player" and kind in DeepRules.HOSTILE and target_kind in DeepRules.ENEMY_SIDE_TARGETS and _clung(state, source):
+		target_kind = "self"
 	## Split Light: the roll divided across the party, rounded up.
 	if bool(effect.get("split_party", false)):
 		var party: int = maxi(1, _targets(state, source, target_kind, intent_target).size())
@@ -2908,6 +2946,15 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 	if effect.has("of_status"):
 		amount = DeepRules.sat_muldiv(int(source.get("statuses", {}).get(str(effect.of_status), 0)), amount, 100)
 	var out: Dictionary = {"kind": kind, "target": str(target.id), "amount": amount}
+	## A creature's lantern price: so much for every reroll its target used this turn.
+	if bool(effect.get("per_reroll", false)):
+		amount = DeepRules.sat_mul(amount, maxi(0, int(target.get("rerolled", 0))))
+		out.amount = amount
+		out.rerolls = int(target.get("rerolled", 0))
+		if amount <= 0:
+			out.nothing = true
+			out.reason = "No rerolls this turn."
+			return out
 	if kind == "poison" and str(target.get("gimmick", "")) == "poison_immune":
 		out.immune = true
 		return out
@@ -2960,6 +3007,9 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.amount = amount
 			out.merge(_damage(state, source, target, amount, rng, false, reactions, false, bool(effect.get("piercing", false))), true)
 			reactions.result_damage = DeepRules.sat_add(int(reactions.get("result_damage", 0)), int(out.hp_loss))
+			## Fangs: Poison for what got past the block.
+			if bool(effect.get("poison_through", false)) and int(out.get("hp_loss", 0)) > 0 and int(target.get("hp", 0)) > 0:
+				out.envenomed = _apply_one(state, source, target, "poison", int(out.hp_loss), {}, rng, reactions)
 			if spent > 0 and bool(out.get("killed", false)):
 				out.refund = spent * int(effect.get("refund_mult", 2))
 				source.pyrite_delta = int(source.pyrite_delta) + int(out.refund)
@@ -3053,6 +3103,11 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				target.deferred_decay[kind] = true
 			var had: int = int(target.statuses.get(kind, 0))
 			target.statuses[kind] = DeepRules.sat_add(had, maxi(0, amount))
+			## Thorns a creature holds up until its next action (`until`: "next_action").
+			if str(effect.get("until", "")) == "next_action" and str(target.get("side", "")) == "enemy":
+				if not target.get("timed", null) is Dictionary:
+					target.timed = {}
+				target.timed[kind] = int(target.timed.get(kind, 0)) + maxi(0, amount)
 			## Poison and Burn a creature puts on a player are kept apart from the rest, so only
 			## its stacks carry the weight its blows carry (`tick_amount`).
 			if kind in ["poison", "burn"] and str(target.get("side", "")) == "player":
@@ -3194,7 +3249,12 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 		"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem", "blank_face":
 			out.merge(_spoil(state, target, kind, effect, rng), true)
 		"summon":
-			out.summoned = summon(state, source, str(effect.get("creature", "")), amount, rng)
+			## No more of them standing than the move allows (`cap`): a Prismarch's four prisms.
+			var room: int = amount
+			if effect.has("cap"):
+				var standing: int = living(state.enemies).filter(func(f: Dictionary) -> bool: return str(f.get("key", "")) == str(effect.get("creature", ""))).size()
+				room = mini(amount, maxi(0, int(effect.cap) - standing))
+			out.summoned = summon(state, source, str(effect.get("creature", "")), room, rng)
 			if out.summoned.is_empty():
 				out.nothing = true
 				out.reason = "No room in the chamber."
@@ -3209,7 +3269,10 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.burrowed = true
 		"reflect":
 			target.reflect = clampi(maxi(int(target.get("reflect", 0)), amount), 0, 100)
+			## Sent back at whoever threw the blow, or (the default) at every player.
+			target.reflect_thrower = str(effect.get("back", "")) == "thrower"
 			out.reflect = int(target.reflect)
+			out.back = "thrower" if bool(target.reflect_thrower) else "party"
 		"mirror":
 			target.mirror = maxi(int(target.get("mirror", 0)), maxi(1, amount))
 			out.mirror = int(target.mirror)
@@ -3259,7 +3322,17 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.rallied = rallied
 		"grow_die":
 			var cap: int = int(effect.get("cap", 5))
-			if target.get("dice", []).size() < cap:
+			## An action die grows another like one it was written with (`template`).
+			var written: Array = DeepCreatures.definition(target).get("dice", [])
+			var model: Variant = written[clampi(int(effect.get("template", 0)), 0, written.size() - 1)] if not written.is_empty() else null
+			if target.get("dice", []).size() < cap and model is Dictionary and not model.get("faces", []).is_empty():
+				var head: Dictionary = DeepCreatures.face_die(model, "%s_d%d" % [str(target.id), target.dice.size()], DeepCreatures.moves_for(target))
+				target.dice.append(head)
+				## A head grown mid-action first throws at its next action.
+				if bool(target.get("acting", false)):
+					target.suppressed = int(target.get("suppressed", 0)) + 1
+				out.die = head.duplicate(true)
+			elif target.get("dice", []).size() < cap:
 				var grown: Dictionary = DeepDice.make(str(effect.get("shape", "D6")), "%s_d%d" % [str(target.id), target.dice.size()])
 				target.dice.append(grown)
 				out.die = grown.duplicate(true)
@@ -3276,6 +3349,11 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.nothing = true
 		"bury_socket":
 			out.merge(_bury_heaviest(target), true)
+			## Rubble for the fight: it stays buried every turn after (`_begin_turn`).
+			if bool(effect.get("for_fight", false)) and out.has("socket"):
+				if not target.get("rubble", null) is Array:
+					target.rubble = []
+				target.rubble.append(int(out.socket))
 		"copy_hand":
 			out.merge(_copy_hand(state, target, amount), true)
 		"grip_die":
@@ -3306,6 +3384,50 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				out.nothing = true
 		"swap_gems":
 			out.merge(_swap_gems(target, rng), true)
+		"etch":
+			## Faces re-etched to another move for the fight: some of one move's faces, or the
+			## face it just threw (`from`: "self_face", the Magpie's Snatch turning to Flee).
+			var changed: Array = []
+			if str(effect.get("from", "")) == "self_face":
+				var thrown: Dictionary = target.get("hand", []).back() if not target.get("hand", []).is_empty() else {}
+				var at_die: int = _die_index(target, str(thrown.get("die_id", "")))
+				if at_die >= 0:
+					changed = DeepCreatures.etch(target, str(thrown.get("move", "")), str(effect.get("to", "")), 1, at_die, int(thrown.get("face", -1)))
+			else:
+				changed = DeepCreatures.etch(target, str(effect.get("from", "")), str(effect.get("to", "")), int(effect.get("count", 1)), int(effect.get("die", -1)))
+			out.etched = changed
+			if changed.is_empty():
+				out.nothing = true
+		"grow_faces":
+			## The Hollow Crown's Rise: the die it threw grows a size, with new faces.
+			var thrown: Dictionary = target.get("hand", []).back() if not target.get("hand", []).is_empty() else {}
+			out.merge(DeepCreatures.grow_faces(target, maxi(0, _die_index(target, str(thrown.get("die_id", "")))), effect.get("faces", []), str(effect.get("cap", "D12"))), true)
+		"pin_trait":
+			## A trait it holds until its next action opens: a lantern, a static, a hush.
+			var name: String = str(effect.get("trait", ""))
+			if not name.is_empty() and not target.get("traits", {}).has(name):
+				target.traits[name] = effect.get("value", true)
+				if not target.get("pinned", null) is Dictionary:
+					target.pinned = {}
+				target.pinned[name] = true
+			out.pinned = name
+		"fog":
+			out.merge(_fog(target, source, rng), true)
+		"flee":
+			## Off into the dark with everything it took.
+			target.fled = true
+			target.hp = 0
+			target.statuses = {}
+			out.fled = true
+			out.stolen = int(target.get("stolen_gold", 0))
+			out.returned = _return_gems(state, target)
+			_check_outcome(state)
+		"morph":
+			out.merge(_morph(state, target, rng), true)
+		"cling":
+			out.merge(_cling(target, source), true)
+		"blank_next":
+			out.merge(_blank_next(target, rng), true)
 		"charge":
 			## Already winding up: the charge keeps its count rather than starting over.
 			if not target.get("charging", {}).is_empty():
@@ -3541,6 +3663,87 @@ static func _swap_gems(target: Dictionary, rng: RandomNumberGenerator) -> Dictio
 		was[at + 1] = before
 	return {"swapped": [at, at + 1]}
 
+static func _die_index(unit: Dictionary, die_id: String) -> int:
+	var dice: Array = unit.get("dice", [])
+	for at in range(dice.size()):
+		if str(dice[at].get("id", "")) == die_id:
+			return at
+	return -1
+
+static func _fog(target: Dictionary, source: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	## A Clouder's fog: a socket on the rail clouded until someone hits the Clouder (or it
+	## dies). Never the last open socket: a rail that cannot fire at all is a stalemate.
+	if str(target.get("side", "")) != "player":
+		return {"nothing": true}
+	var open: Array = []
+	for socket in range(target.get("rail", []).size()):
+		if target.rail[socket] is Dictionary and not target.buried.has(socket) and not target.clouded.has(socket):
+			open.append(socket)
+	if open.size() < 2:
+		return {"nothing": true, "reason": "No socket it can cloud."}
+	var socket: int = int(DeepRng.pick(rng, open))
+	target.clouded.append(socket)
+	if not target.get("fog", null) is Array:
+		target.fog = []
+	target.fog.append({"socket": socket, "by": str(source.get("id", ""))})
+	return {"socket": socket, "fogged": true}
+
+static func _clung(state: Dictionary, unit: Dictionary) -> bool:
+	## Whether the gem firing now is one a living Star Leech clings to.
+	var clung: Variant = unit.get("clung", null)
+	if not clung is Dictionary or clung.is_empty() or not unit.has("firing_stone"):
+		return false
+	if str(unit.firing_stone.get("stone_id", "")) != str(clung.get("stone_id", "")):
+		return false
+	return int(enemy(state, str(clung.get("by", ""))).get("hp", 0)) > 0
+
+static func _cling(target: Dictionary, source: Dictionary) -> Dictionary:
+	## A Star Leech clings to the finest gem on the rail: until its owner hits the leech, that
+	## gem's blows land on its owner.
+	if str(target.get("side", "")) != "player":
+		return {"nothing": true}
+	var best: int = -1
+	var at: int = -1
+	for socket in range(target.get("rail", []).size()):
+		if target.rail[socket] is Dictionary and DeepStone.value(target.rail[socket]) > best:
+			best = DeepStone.value(target.rail[socket])
+			at = socket
+	if at < 0:
+		return {"nothing": true, "reason": "No gem to cling to."}
+	target.clung = {"stone_id": str(target.rail[at].get("id", "")), "socket": at, "by": str(source.get("id", ""))}
+	return {"socket": at, "stone_id": str(target.clung.stone_id), "clung": true}
+
+static func _blank_next(target: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	## The Paradox Moth's Unravel: a die its owner rerolled this turn comes up blank next turn.
+	if str(target.get("side", "")) != "player":
+		return {"nothing": true}
+	var pool: Array = target.get("rerolled_dice", []).filter(func(id: Variant) -> bool: return not target.get("blank_next", []).has(str(id)))
+	if pool.is_empty():
+		return {"nothing": true, "reason": "No die was rerolled this turn."}
+	var die_id: String = str(DeepRng.pick(rng, pool))
+	var blank: Array = target.get("blank_next", []).duplicate()
+	blank.append(die_id)
+	target.blank_next = blank
+	return {"die": die_id}
+
+static func _morph(state: Dictionary, foe: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	## A Void Echo's Echo Anew: it becomes another creature from the mines it remembers, at that
+	## creature's full health.
+	var own: Dictionary = DeepContent.creature(str(foe.get("key", "")))
+	if not own.has("echo"):
+		return {"nothing": true}
+	var was: String = str(foe.get("echo_of", ""))
+	var choice: String = ""
+	for _try in range(12):
+		choice = DeepCreatures._echo_source(own.echo, rng)
+		if choice != was:
+			break
+	if choice.is_empty() or choice == was:
+		return {"nothing": true}
+	DeepCreatures.become_echo(foe, choice)
+	foe.stopped = true
+	return {"became": choice, "name": str(foe.name), "hp_after": int(foe.hp), "max_hp": int(foe.max_hp), "was": was}
+
 static func _rise_again(unit: Dictionary) -> bool:
 	## Waterlogged: the first time it dies it gets back up at half its health, once a fight.
 	if str(unit.get("side", "")) != "enemy" or int(unit.get("hp", 0)) > 0 or bool(unit.get("risen", false)) or bool(unit.get("fled", false)):
@@ -3670,6 +3873,7 @@ static func _spoil(state: Dictionary, target: Dictionary, kind: String, effect: 
 				var at: int = _showing_face(target, die)
 				if at < 0:
 					continue
+				if not permanent: _remember_die(target, die)
 				_grind(die, at)
 				if permanent:
 					var kept: Dictionary = target.get("fight_dice", {}).get(str(die.id), {})
@@ -3947,6 +4151,24 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			for unit in state.players:
 				unit.clouded = []
 			out.uncloud = true
+		## A Clouder's fog lifts off every rail the moment someone draws its blood, and a Star
+		## Leech lets go of the gem of whoever hits it.
+		if loss > 0 and str(source.get("side", "")) == "player":
+			var lifted: Array = []
+			for unit in state.players:
+				var kept: Array = []
+				for fog in unit.get("fog", []):
+					if str(fog.get("by", "")) == str(target.id):
+						unit.clouded.erase(int(fog.socket))
+						lifted.append({"unit": str(unit.id), "socket": int(fog.socket)})
+					else:
+						kept.append(fog)
+				unit.fog = kept
+			if not lifted.is_empty():
+				out.fog_lifted = lifted
+			if source.get("clung", null) is Dictionary and str(source.clung.get("by", "")) == str(target.id):
+				out.unclung = {"unit": str(source.id), "stone_id": str(source.clung.get("stone_id", ""))}
+				source.erase("clung")
 		if loss > 0:
 			## Its claw opens the moment it is hurt.
 			var freed: Array = _release_grip(state, target)
@@ -3971,7 +4193,9 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			var back: int = loss * reflect / 100
 			if back > 0:
 				var thrown: Array = out.get("reflections", [])
-				for victim in living(state.players):
+				## A mirror held up sends it at whoever threw the blow; a refraction at everyone.
+				var victims: Array = [source] if bool(target.get("reflect_thrower", false)) else living(state.players)
+				for victim in victims:
 					var hit: Dictionary = _damage(state, target, victim, back, rng, false, {}, true)
 					hit.target = str(victim.id)
 					hit.kind = "damage"
@@ -4017,6 +4241,10 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 	var venom: int = int(source.get("statuses", {}).get("envenom", 0))
 	if not reactive and venom > 0 and int(out.get("hp_loss", 0)) > 0 and is_enemy_target and int(target.hp) > 0 and str(source.get("side", "")) == "player":
 		out.envenom = _apply_one(state, source, target, "poison", venom, {}, rng, reactions)
+	## Acid Armour: whoever hits it takes Poison for it.
+	var acid: int = DeepCreatures.trait_value(target, "acid_armour", 0) if is_enemy_target else 0
+	if not reactive and amount > 0 and acid > 0 and str(source.get("side", "")) == "player" and int(source.get("hp", 0)) > 0:
+		out.acid = _apply_one(state, target, source, "poison", acid, {}, rng, reactions)
 	var spikes: int = int(target.statuses.get("spikes", 0))
 	if not reactive and amount > 0 and spikes > 0 and not reactions.has(str(target.id)) and int(source.get("hp", 0)) > 0:
 		reactions[str(target.id)] = true
@@ -4155,6 +4383,7 @@ static func _enemy_act(state: Dictionary, foe: Dictionary, move: Dictionary, rng
 	var soaked: bool = results.any(func(r: Dictionary) -> bool:
 		return str(r.get("kind", "")) == "damage" and int(r.get("absorbed", 0)) > 0 and not player(state, str(r.get("target", ""))).is_empty())
 	return _event(state, "enemy_move", {"unit": foe.id, "move": str(move.get("move", "")), "index": int(move.index),
+		"anim": str(move.get("anim", "")), "mark": str(move.get("mark", "")), "move_kind": str(move.get("move_kind", "")),
 		"effects": results, "dice": move.get("dice", []), "burrowed": bool(foe.get("burrowed", false)), "release": bool(move.get("release", false)),
 		"pace": count_pace(state), "duration": BASE_DURATION.enemy_move + (SOAK_SPAN * count_pace(state) if soaked else 0.0)})
 
@@ -4370,7 +4599,8 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 	for foe in living(state.enemies):
 		if DeepCreatures.has_trait(foe, "gift_rerolls"):
 			gifts += 1
-		if DeepCreatures.has_trait(foe, "roll_for_you") and int(state.turn) % 2 == 1:
+		## The Drill's Roller: it throws the party's dice for them, and nobody rerolls.
+		if DeepCreatures.has_trait(foe, "roll_for_you"):
 			frozen = true
 		## What a creature's presence alone puts on the party, every turn: a Heartrot's rot,
 		## a Kiln Wyrm's heat. It is kept up to the amount, never stacked.
@@ -4385,9 +4615,20 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 	var afflicted: Array = []
 	for unit in state.players:
 		## Rubble and fog both clear when a new turn is dug: a gimmick may take a socket for
-		## one turn, never for the fight.
-		unit.buried = []
+		## one turn. What stays is the Foreman's rubble for the fight, and a Clouder's fog while
+		## the Clouder stands and nobody has hit it (`_fog`).
+		unit.buried = unit.get("rubble", []).duplicate()
 		unit.clouded = []
+		var fogged: Array = []
+		for fog in unit.get("fog", []):
+			if int(enemy(state, str(fog.get("by", ""))).get("hp", 0)) > 0:
+				fogged.append(fog)
+				if not unit.clouded.has(int(fog.socket)):
+					unit.clouded.append(int(fog.socket))
+		unit.fog = fogged
+		## A Star Leech that has died lets go.
+		if unit.get("clung", null) is Dictionary and int(enemy(state, str(unit.clung.get("by", ""))).get("hp", 0)) <= 0:
+			unit.erase("clung")
 		## Retain preserves part of the unspent Block once. Spikes stay for the fight.
 		_reset_defenses(unit)
 		## What a Chainmail, a Contagion or a Rebound set up lasted the turn that has ended.
@@ -4483,6 +4724,18 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 			if int(unit.statuses.dread) <= 0:
 				unit.statuses.erase("dread")
 		unit.hand = DeepDice.roll_hand(dice, rng_dice, unit.get("hand", []))
+		## A Paradox Moth's Unravel: a die rerolled last turn lands blank, and stays so.
+		var blank: Array = unit.get("blank_next", [])
+		if not blank.is_empty():
+			for roll in unit.hand:
+				if blank.has(str(roll.get("die_id", ""))):
+					roll.value = 0
+					roll.kind = "blank"
+					roll.locked = true
+					roll.locked_by_foe = true
+					roll.blanked = true
+			unit.blank_next = []
+		unit.rerolled_dice = []
 		unit.hand.append_array(carried_phantoms)
 		_loaded(unit, [], rng_dice)
 		unit.regrown = regrown

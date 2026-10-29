@@ -108,9 +108,21 @@ func set_contributions(by_color: Dictionary) -> void:
 	_palette_key = ""
 	queue_redraw()
 
+## A Null Shade in the room: the gems ring for half, and the meter stays grey about it.
+var damped: bool = false
+
+func set_damped(on: bool) -> void:
+	if on == damped:
+		return
+	damped = on
+	_palette_key = ""
+	_paint()
+	queue_redraw()
+
 func tone() -> Color:
-	## Grey at nothing, the lavender by five.
-	return GREY.lerp(DeepUi.RESONANCE, clampf(float(value) / float(FULL_COLOR), 0.0, 1.0))
+	## Grey at nothing, the lavender by five; a damped meter keeps half the colour.
+	var lit: Color = GREY.lerp(DeepUi.RESONANCE, clampf(float(value) / float(FULL_COLOR), 0.0, 1.0))
+	return lit.lerp(GREY, 0.55) if damped else lit
 
 func _paint() -> void:
 	var t: Color = tone()

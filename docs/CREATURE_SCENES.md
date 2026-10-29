@@ -68,6 +68,13 @@ five top-level nodes above:
 The bake tool's header documents the recipe format. A baked scene is an ordinary scene
 afterwards: edit it in Godot like any other, or edit the recipe and bake again.
 
+Since the October 2026 model review every creature but the Quartz Golem and the Lantern Moth
+is baked from a recipe. A recipe moved in from a review batch names that batch's key as its
+`seed` (`"seed": "CAVE_TICK_A"`), so its rocks and crystals are cut exactly as they were picked.
+Parts an animation will move carry a `name` (the pivot becomes `Jaw01`, `ClawL01`, `Tail01`,
+...), and parts that move together share a `joint`; build/options/PART_ROLES.md (local, not in
+git) lists every creature's roles, hinges and directions.
+
 ## Variants and the accent material
 
 A variant (a Fire Tick for the Cave Tick) is its base creature's scene in other colors:
@@ -78,8 +85,8 @@ the scene of the creature it copies and is drawn as a ghost (`ghost()`).
 
 Parts gained idle motions beyond the first five: `orbit`, `spin`, `bob`, `swing`, `tread`
 and `flicker`. The presentation API gained `burrow(down)`, `flee()`, `set_halo(color)`,
-`clear_halo()` and `set_charging(on)`. A variant may also name a `core` color and a `scale`
-(the Geode Golem is a grey shell split open on an amethyst heart, and bigger than a Prism Golem).
+`clear_halo()` and `set_charging(on)`. A variant may also name a `core` color and a `scale`.
+(The Geode Golem was once the Quartz Golem's scene recolored this way; it has its own scene now.)
 
 ## The bestiary's portraits
 

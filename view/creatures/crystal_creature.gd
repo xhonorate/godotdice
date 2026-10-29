@@ -6,9 +6,12 @@ extends Node3D
 const Part = preload("res://view/creatures/creature_part.gd")
 const Lowpoly = preload("res://view/battle/lowpoly.gd")
 const BattleFx = preload("res://view/battle/battle_fx.gd")
-## Every creature with a scene of its own. The deeper mines' creatures are baked from the
-## recipes in tools/creature_recipes by tools/creature_bake.gd; the Quarry's first eight
-## were saved from the old procedural builder.
+const Wear = preload("res://view/creatures/creature_wear.gd")
+const Moves = preload("res://view/creatures/creature_moves.gd")
+const GemIcons = preload("res://view/gems/gem_icons.gd")
+## Every creature with a scene of its own, baked from the recipes in tools/creature_recipes
+## by tools/creature_bake.gd (the models picked in the October 2026 review). The Quartz Golem
+## and the Lantern Moth were saved from the old procedural builder and have no recipe.
 const SCENE_DIR: String = "res://view/creatures/scenes/"
 const SCENE_KEYS: Array = ["CAVE_TICK", "SILT_SLIME", "QUARTZ_GOLEM", "MAGPIE", "LANTERN_MOTH", "VEIN_WRAITH", "CLOUDER", "GLASS_WYRM",
 	"THE_FOREMAN", "THE_REGENT", "THE_DRILL", "RAIL_RAT", "PIT_MOLE",
@@ -16,8 +19,9 @@ const SCENE_KEYS: Array = ["CAVE_TICK", "SILT_SLIME", "QUARTZ_GOLEM", "MAGPIE", 
 	"ECHO_SPRITE", "REFRACTOR", "THE_GLAZIER", "THE_KALEIDOSCOPE", "THE_PRISMARCH", "PRISM",
 	"CAP_SHAMBLER", "MYCEL_WEAVER", "PUFFBALL", "ROOT_HORROR", "THE_GARDENER", "THE_SPORE_MOTHER", "THE_HEARTROT", "TENDRIL",
 	"SALAMANDER", "SLAG_HOUND", "FORGE_IMP", "EMBER_CRAWLER", "THE_SMELTER", "THE_ANVIL_KNIGHT", "THE_KILN_WYRM",
-	"HOARD_MIMIC", "CROUPIER_CRAB", "CRYSTAL_HYDRA", "THE_ASSAYER", "THE_COLLECTOR", "THE_HOLLOW_CROWN",
-	"VOID_ECHO", "NULL_SHADE", "RIFTLING_SWARM", "ENTROPY_EYE", "THE_UNMADE", "RIFT_SHIFTER", "COLLAPSAR"]
+	"HOARD_MIMIC", "CROUPIER_CRAB", "CRYSTAL_HYDRA", "GEODE_GOLEM", "THE_ASSAYER", "THE_COLLECTOR", "THE_HOLLOW_CROWN",
+	"VOID_ECHO", "NULL_SHADE", "RIFTLING_SWARM", "ENTROPY_EYE", "THE_UNMADE", "RIFT_SHIFTER", "COLLAPSAR",
+	"HUSH", "STAR_LEECH", "TIMEGLASS", "PARADOX_MOTH"]
 static var SCENE_PATHS: Dictionary = _scene_paths()
 static func _scene_paths() -> Dictionary:
 	var out: Dictionary = {}
@@ -28,7 +32,8 @@ static func _scene_paths() -> Dictionary:
 	return out
 ## A variant is an earlier creature in another mine's colors: the same scene, recolored.
 ## `tint` is the body, `accent` the glowing details (where the scene has an accent material),
-## `core` the heart of it when that should not follow the body, and `scale` its size.
+## `core` the heart of it when that should not follow the body, and `scale` its size. (The
+## Geode Golem was the Quartz Golem's; since the October 2026 models it has its own scene.)
 const VARIANTS: Dictionary = {
 	"PRISM_GOLEM": {"of": "QUARTZ_GOLEM", "tint": "9b8cff", "accent": "e0d8ff"},
 	"SHARD_WYRM": {"of": "GLASS_WYRM", "tint": "ff8ad0", "accent": "ffd0ea"},
@@ -39,7 +44,6 @@ const VARIANTS: Dictionary = {
 	"FIRE_TICK": {"of": "CAVE_TICK", "tint": "e8622a", "accent": "ffd06a"},
 	"CINDER_MOTH": {"of": "LANTERN_MOTH", "tint": "ff8a3a", "accent": "ffe08a"},
 	"GILDED_MAGPIE": {"of": "MAGPIE", "tint": "ffd04a", "accent": "fff6c0"},
-	"GEODE_GOLEM": {"of": "QUARTZ_GOLEM", "tint": "5e5650", "accent": "c070ff", "core": "c070ff", "scale": 1.15},
 	"AMETHYST_WYRM": {"of": "GLASS_WYRM", "tint": "9b5ad8", "accent": "d8b0ff"},
 }
 const FALLBACK_SCENE: String = "res://view/creatures/scenes/crystal_cluster.tscn"
@@ -144,6 +148,21 @@ var _well_material: StandardMaterial3D
 var _well_want: float = 0.0
 var _held: Array[MeshInstance3D] = []
 var _held_material: StandardMaterial3D
+## What is on it, worn on the model (creature_wear.gd): the statuses the party put on it,
+## its block as a crust, its stun as a slump. Made with the body.
+var _worn: Wear = null
+var _slump: float = 0.0
+## What it does with its own parts (creature_moves.gd): the move it acts out with its jaw, claws
+## or tail, the idle that suits it, a magpie's prize, a mole dug in, a wraith faded.
+var _moves: Moves = null
+## The barrier lit where a blow struck it, fading; and the gem a held-up mirror shows it
+## will throw back.
+var _barrier_flash: float = 0.0
+var _mirror_mark: MeshInstance3D = null
+var _mirror_material: StandardMaterial3D = null
+## The gems it has swallowed or acquired, glowing inside it: small marks of each.
+var _held_gems: Array[MeshInstance3D] = []
+static var _cells_texture: ImageTexture = null
 
 static func _path_for(looks: String) -> String:
 	var path: String = str(SCENE_PATHS.get(looks, FALLBACK_SCENE))
@@ -220,6 +239,10 @@ func _prepare() -> void:
 		_base_iron_emission = iron_material.emission_energy_multiplier
 	_base_light_energy = _light.light_energy
 	_collect_parts(_body)
+	_worn = Wear.new(self, _body)
+	add_child(_worn)
+	_moves = Moves.new(self, _body, _scene_key())
+	add_child(_moves)
 	for shape in _body.find_children("*", "GeometryInstance3D", true, false):
 		(shape as GeometryInstance3D).layers |= LAYER
 	## The halo under it that says what color it has turned away, hidden until it does.
@@ -280,6 +303,14 @@ func _collect_parts(parent: Node) -> void:
 			child.capture_pose()
 			_parts.append(child)
 		_collect_parts(child)
+
+func _scene_key() -> String:
+	## The scene it wears, by its own key: a Glint Magpie wears the Magpie's, an echo whatever
+	## it copies. Its named parts and how they move go by this.
+	var path: String = scene_file_path
+	if path.is_empty():
+		return key
+	return path.get_file().get_basename().to_upper()
 
 func _configure_warden(is_warden: bool) -> void:
 	# Scenes already carry their usual variant, including its scale, light and materials.
@@ -488,15 +519,215 @@ func gripped_point(index: int = 0) -> Vector3:
 		return _held[index].global_position
 	return centre() + Vector3(0, 0, 0.5)
 
+func wear_statuses(statuses: Dictionary, block_ratio: float) -> void:
+	## What is on it, as the rules say it stands (see creature_wear.gd).
+	if _worn != null:
+		_worn.sync(statuses, block_ratio)
+
+func tick_flash(kind: String) -> void:
+	if _worn != null:
+		_worn.tick_flash(kind)
+
+func bulk_up() -> void:
+	if _worn != null:
+		_worn.bulk_up()
+
+func pop_ward() -> void:
+	if _worn != null:
+		_worn.pop_ward()
+
+func chip_crust() -> void:
+	if _worn != null:
+		_worn.chip_crust()
+
+func crusted() -> bool:
+	return _worn != null and bool(_worn.crusted())
+
+func barrier_hit() -> void:
+	## A blow meets the barrier: the whole dome brightens for an instant and the cells round
+	## the impact light up and fade.
+	if _barrier == null or _barrier_want <= 0.0:
+		return
+	_barrier_flash = 1.0
+	var cells := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	var size: float = float(_barrier.get_meta("size", 1.0))
+	quad.size = Vector2.ONE * size * 0.9
+	cells.mesh = quad
+	var m := _see_through(Color("f4f0ff"))
+	m.albedo_texture = _cells()
+	m.albedo_color.a = 0.95
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	cells.material_override = m
+	cells.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	cells.position = _barrier.position + Vector3(randf_range(-0.2, 0.2) * size, randf_range(-0.2, 0.1) * size, 0.1)
+	add_child(cells)
+	var fade := cells.create_tween()
+	fade.tween_property(m, "albedo_color:a", 0.0, 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	fade.parallel().tween_property(cells, "scale", Vector3.ONE * 1.25, 0.5)
+	fade.tween_callback(cells.queue_free)
+
+static func _cells() -> ImageTexture:
+	## A patch of lit hex cells, brightest in the middle, for where a blow met the dome.
+	if _cells_texture != null:
+		return _cells_texture
+	var size: int = 96
+	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	image.fill(Color(1, 1, 1, 0))
+	for px in range(size):
+		for py in range(size):
+			var u: float = (float(px) / float(size) - 0.5) * 6.0
+			var v: float = (float(py) / float(size) - 0.5) * 6.0
+			## Hex cell edges: the distance to the nearest cell centre on a hex lattice.
+			var q: float = u * 1.1547
+			var r: float = v - q * 0.5
+			var cq: float = round(q)
+			var cr: float = round(r)
+			var cs: float = round(-q - r)
+			var dq: float = absf(cq - q)
+			var dr: float = absf(cr - r)
+			var ds: float = absf(cs + q + r)
+			if dq > dr and dq > ds:
+				cq = -cr - cs
+			elif dr > ds:
+				cr = -cq - cs
+			var cx: float = cq * 0.866
+			var cy: float = cr + cq * 0.5
+			var d: float = Vector2(u - cx, v - cy).length()
+			var edge: float = clampf(1.0 - absf(d - 0.5) / 0.09, 0.0, 1.0)
+			var fill: float = 0.35 * clampf(1.0 - d / 0.5, 0.0, 1.0)
+			var reach: float = clampf(1.0 - Vector2(u, v).length() / 2.8, 0.0, 1.0)
+			image.set_pixel(px, py, Color(1, 1, 1, maxf(edge, fill) * reach))
+	_cells_texture = ImageTexture.create_from_image(image)
+	return _cells_texture
+
+func set_mirror_gem(glyph: String, color: Color) -> void:
+	## What a held-up mirror shows it will throw back: the mark of the gem whose blow comes
+	## next, pulsing in the glass. An empty glyph shows nothing.
+	if glyph.is_empty():
+		if _mirror_mark != null:
+			_mirror_mark.queue_free()
+			_mirror_mark = null
+			_mirror_material = null
+		return
+	if _mirror_mark == null:
+		_mirror_mark = MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE
+		_mirror_mark.mesh = quad
+		_mirror_material = _see_through(color, false)
+		_mirror_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		_mirror_mark.material_override = _mirror_material
+		_mirror_mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_mirror_mark.visible = false
+		add_child(_mirror_mark)
+	if str(_mirror_mark.get_meta("glyph", "")) != glyph:
+		_mirror_mark.set_meta("glyph", glyph)
+		_mirror_material.albedo_texture = GemIcons.texture(glyph, 128)
+	_mirror_material.albedo_color = Color(color.lightened(0.25), _mirror_material.albedo_color.a)
+
+func set_held_gems(marks: Array) -> void:
+	## The gems it holds, as small marks glowing inside it: each is [glyph, color].
+	while _held_gems.size() > marks.size():
+		var gone: MeshInstance3D = _held_gems.pop_back()
+		if is_instance_valid(gone):
+			gone.queue_free()
+	for index in range(marks.size()):
+		var glyph: String = str(marks[index][0])
+		var color: Color = marks[index][1]
+		if index >= _held_gems.size():
+			var mark := MeshInstance3D.new()
+			var quad := QuadMesh.new()
+			quad.size = Vector2.ONE * 0.3
+			mark.mesh = quad
+			var m := _see_through(color)
+			m.albedo_color.a = 0.95
+			m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+			mark.material_override = m
+			mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(mark)
+			_held_gems.append(mark)
+		var shown: MeshInstance3D = _held_gems[index]
+		if str(shown.get_meta("glyph", "")) != glyph:
+			shown.set_meta("glyph", glyph)
+			(shown.material_override as StandardMaterial3D).albedo_texture = GemIcons.texture(glyph, 64)
+		(shown.material_override as StandardMaterial3D).albedo_color = Color(color.lightened(0.3), 0.95)
+
 func burrow(down: bool) -> void:
 	## Under the floor and out of reach, or back up out of it. The body sinks, the light
-	## dims and the shadow is all that marks the spot.
+	## dims and the shadow is all that marks the spot. A wraith fades instead (see-through while
+	## it cannot be struck), and the Pit Mole digs into its own mound (creature_moves.gd).
+	if _moves != null and not _moves.burrow_style().is_empty():
+		_moves.burrow(down)
+		return
 	_buried_want = 1.0 if down else 0.0
+
+func play_move(anim: String, move: String = "", hostile: bool = true, aim: Vector3 = Vector3.INF, fx: Node = null) -> void:
+	## Acts out a move 0.3 s before it lands: its own parts where it has them (a bite, a claw,
+	## a breath), its whole body otherwise. `aim` is where the party is, `fx` the room's effects.
+	_glow_boost = maxf(_glow_boost, 1.5 if hostile else 2.0)
+	if _moves != null:
+		_moves.remember_fx(fx)
+		if _moves.play(anim, move, hostile, aim, fx):
+			return
+	if hostile:
+		lunge(aim, 0.62)
+	else:
+		channel(0.6)
+
+func move_lead(anim: String, move: String = "", hostile: bool = true) -> float:
+	## How long before its blow lands it wants to begin acting a move out (0.3 s, longer for a
+	## tendril unfurling or a crawler rearing up first).
+	return _moves.lead(anim, move, hostile) if _moves != null else 0.3
+
+func vanish(seconds: float = 0.55) -> void:
+	## A Void Echo letting go of the shape it wore: it twists in on itself into a point of the
+	## Rift's light and is gone.
+	if _dying:
+		return
+	_dying = true
+	_glow_boost = 4.0
+	var size: Vector3 = _body_rest.basis.get_scale()
+	var turned: float = _body_rest.basis.orthonormalized().get_euler().y
+	var tween := create_tween()
+	tween.tween_property(_body, "scale", size * Vector3(1.18, 0.82, 1.18), seconds * 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_body, "scale", size * 0.02, seconds * 0.78).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(_body, "rotation:y", turned + TAU * 1.25, seconds * 0.78).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(_body, "position", _body_rest.origin + Vector3(0, _own_height() * 0.45, 0), seconds * 0.78)
+	tween.parallel().tween_property(_light, "light_energy", 0.0, seconds * 0.78)
+	tween.parallel().tween_property(_shadow, "transparency", 1.0, seconds * 0.6)
+	tween.tween_callback(queue_free)
+
+func materialize(delay: float = 0.0) -> void:
+	## What an echo becomes, drawn out of that point of light: it unwinds out of nothing where
+	## the old shape went.
+	var size: Vector3 = _body_rest.basis.get_scale()
+	var turned: float = _body_rest.basis.orthonormalized().get_euler().y
+	_body.scale = size * 0.02
+	_body.position = _body_rest.origin + Vector3(0, _own_height() * 0.45, 0)
+	_body.rotation.y = turned - TAU
+	_light.light_energy = 0.0
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(_body, "scale", size, 0.6).set_delay(delay).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_body, "rotation:y", turned, 0.6).set_delay(delay).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_body, "position", _body_rest.origin, 0.6).set_delay(delay).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_light, "light_energy", _base_light_energy, 0.7).set_delay(delay)
+	_glow_boost = 3.5
+
+func set_prize(on: bool) -> void:
+	## The pyrite in a magpie's beak, there only once it has stolen some.
+	if _moves != null:
+		_moves.set_prize(on)
+
+func acting() -> bool:
+	return _moves != null and _moves.acting()
 
 func flee(seconds: float = 0.7) -> void:
 	## Off into the dark with what it took: up and away, shrinking, then gone.
 	if _dying:
 		return
+	if _moves != null:
+		_moves.flee()
 	_dying = true
 	var tween := create_tween()
 	tween.tween_property(_body, "position", _body_rest.origin + Vector3(randf_range(-1.5, 1.5), 3.5, -2.0), seconds).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
@@ -578,6 +809,10 @@ func _process(delta: float) -> void:
 	_clock += delta
 	if _body == null:
 		return
+	## A lean the moves laid on the whole body last frame comes off before this one's is worked
+	## out (the body's own rotation would carry it otherwise).
+	if _moves != null and _moves.leaning() and not _dying:
+		_body.transform = _body_rest
 	## Breathing: the whole creature rises and falls a little, faster for the light ones.
 	var breathe: float = sin(_clock * sway)
 	_recoil = _recoil.lerp(Vector3.ZERO, clampf(delta * 7.0, 0.0, 1.0))
@@ -588,11 +823,20 @@ func _process(delta: float) -> void:
 		## Turned to the party wherever along the arc it stands, not staring past it.
 		rotation.y = atan2(-rest_position.x, PARTY_Z - rest_position.z)
 	var squish: float = _squash * sin(_clock * 30.0) + (0.05 * breathe if style == "blob" else 0.0)
+	## Strength bulks it up; a stun slumps it: it tilts and sinks a little, and straightens as
+	## it acts again.
+	var bulk: float = _worn._bulk_now() if _worn != null else 1.0
+	_slump = move_toward(_slump, _worn.slump if _worn != null else 0.0, delta * 2.5)
 	if not _dying:
-		_body.scale = _body_rest.basis.get_scale() * Vector3(1.0 + squish * 0.5, 1.0 - squish, 1.0 + squish * 0.5)
+		_body.scale = _body_rest.basis.get_scale() * bulk * Vector3(1.0 + squish * 0.5, 1.0 - squish, 1.0 + squish * 0.5)
 		_body.rotation.x = _body_rest.basis.orthonormalized().get_euler().x - 0.22 * maxf(_rear, 0.0) + 0.3 * minf(_rear, 0.0) * -1.0
+		_body.rotation.z = _body_rest.basis.orthonormalized().get_euler().z + 0.16 * _slump
+	if _moves != null:
+		_moves.reset()
 	for part in _parts:
 		part.animate(_clock, style)
+	if _moves != null:
+		_moves.apply(delta)
 	## The heartbeat of its glow, flaring on every blow.
 	_glow_boost = move_toward(_glow_boost, 0.0, delta * 5.0)
 	if _white > 0.0:
@@ -611,9 +855,20 @@ func _process(delta: float) -> void:
 	## Burrowed: the body sinks out of sight and the light goes with it.
 	_buried = move_toward(_buried, _buried_want, delta * 2.2)
 	if not _dying:
-		_body.position = _body_rest.origin + Vector3(0, - (anchor.y / maxf(0.01, scale.y) + 0.6) * _buried, 0)
+		_body.position = _body_rest.origin + Vector3(0, - (anchor.y / maxf(0.01, scale.y) + 0.6) * _buried - 0.07 * _own_height() * _slump, 0)
+		## The whole body as a move leans it (a magpie bending to peck, a golem bowing).
+		if _moves != null and _moves.leaning():
+			_body.transform = _moves.lean() * _body.transform
 	if _light != null and not _dying and _body.scale.x > _body_rest.basis.get_scale().x * 0.95:
 		_light.light_energy = (_base_light_energy * (1.0 + heartbeat) + _glow_boost * 1.2 + charge * 1.5) * (1.0 - _buried)
+	## Faded out of reach (a wraith's Fade): see-through, its light and its shadow thinned.
+	var faded: float = _moves.faded() if _moves != null else 0.0
+	var back: bool = _moves.faded_last() if _moves != null else false
+	if faded > 0.0 and not _dying:
+		_light.light_energy *= 1.0 - 0.65 * faded
+		_shadow.transparency = 0.75 * faded
+	elif back and not _dying:
+		_shadow.transparency = 0.0
 	## The halo: a slow counter-turning ring in the color of whatever guards it.
 	if _halo != null:
 		_halo_material.albedo_color.a = move_toward(_halo_material.albedo_color.a, _halo_want * (1.0 - _buried), delta * 3.0)
@@ -635,14 +890,21 @@ func _wear(delta: float) -> void:
 		var want: float = _barrier_want * shown
 		var shimmer: float = 0.06 * sin(_clock * 5.0) + 0.04 * sin(_clock * 13.0)
 		## A mirror is the brightest thing in the room already: it shows at half the strength.
-		var strength: float = 0.16 if _barrier_kind == "mirror" else 0.34
-		_barrier_material.albedo_color.a = move_toward(_barrier_material.albedo_color.a, want * (strength + shimmer * 0.5), delta * 2.5)
+		var strength: float = 0.16 if _barrier_kind == "mirror" else 0.5
+		_barrier_flash = move_toward(_barrier_flash, 0.0, delta * 3.0)
+		_barrier_material.albedo_color.a = move_toward(_barrier_material.albedo_color.a, want * (strength + shimmer * 0.5 + _barrier_flash * 0.4), delta * (2.5 if _barrier_flash <= 0.0 else 9.0))
 		var size: float = float(_barrier.get_meta("size", 1.0))
 		var grown: float = _barrier.scale.x
 		_barrier.scale = Vector3.ONE * move_toward(grown, size * (1.0 if want > 0.0 else 1.15), delta * size * 3.0)
 		if _barrier_kind != "mirror":
 			_barrier.rotation.z += delta * 0.4
 		_barrier.visible = _barrier_material.albedo_color.a > 0.005
+		if _mirror_mark != null:
+			var mark_want: float = 0.9 if _barrier_kind == "mirror" and want > 0.0 else 0.0
+			_mirror_material.albedo_color.a = move_toward(_mirror_material.albedo_color.a, mark_want * (0.75 + 0.25 * sin(_clock * 3.0)), delta * 3.0)
+			_mirror_mark.visible = _mirror_material.albedo_color.a > 0.01
+			_mirror_mark.position = _barrier.position + Vector3(0, 0, 0.08)
+			_mirror_mark.scale = Vector3.ONE * float(_barrier.get_meta("size", 1.0)) * 0.9
 	if _omen != null:
 		var beat: float = 0.6 + 0.4 * pow(maxf(0.0, sin(_clock * 4.5)), 2.0)
 		_omen_material.albedo_color.a = move_toward(_omen_material.albedo_color.a, _omen_want * shown * beat, delta * 3.0)
@@ -653,6 +915,13 @@ func _wear(delta: float) -> void:
 		_well_material.albedo_color.a = move_toward(_well_material.albedo_color.a, _well_want * shown * (0.55 + 0.15 * sin(_clock * 2.0)), delta * 2.0)
 		_well.rotation.y -= delta * 0.9
 	var tall: float = _own_height()
+	for index in range(_held_gems.size()):
+		var mark: MeshInstance3D = _held_gems[index]
+		if not is_instance_valid(mark):
+			continue
+		var turn: float = _clock * 0.6 + TAU * float(index) / float(maxi(1, _held_gems.size()))
+		mark.position = Vector3(cos(turn) * 0.22, tall * 0.5 + 0.06 * sin(_clock * 2.4 + float(index)), 0.3 + sin(turn) * 0.1)
+		mark.visible = shown > 0.5
 	for index in range(_held.size()):
 		var die: MeshInstance3D = _held[index]
 		if not is_instance_valid(die):

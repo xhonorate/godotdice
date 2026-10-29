@@ -22,7 +22,12 @@ extends SceneTree
 ##   drill(radius, height, flutes, turns): a bit with fluted spirals running up to its point
 ##   box(size[3])  torus(inner, outer, rings, segments)  capsule(radius, height, segments)
 ## Positions are in creature units: a Cave Tick is about 1 high, a Warden about 3.
-## The whole recipe may name "scale" to size the finished body at once.
+## The whole recipe may name "scale" to size the finished body at once, and "seed": the name
+## its unseeded rocks, crystals and slabs are cut from (its own key when it names none). A
+## model moved in from a review batch keeps the batch's key there ("CAVE_TICK_A"), so it bakes
+## facet for facet as it was picked.
+## A part's "name" names its pivot (`<Name>01`, `<Name>02`, ...) instead of its motion: the
+## roles an animation moves (`jaw`, `claw_l`, `tail`, `wing_r`, `mouth`, ...).
 ##
 ## A limb or a tool is easier laid as a stick: "from" and "to" (creature units) stand a
 ## cylinder, cone, capsule, drill, crystal, spike or column between two points, the distance
@@ -228,7 +233,9 @@ static func mesh_for(part: Dictionary, rng: RandomNumberGenerator) -> Mesh:
 			return capsule
 	return Lowpoly.rock(rng, white)
 
-static func bake(key: String, recipe: Dictionary) -> void:
+static func bake(key: String, recipe: Dictionary, dir: String = SCENE_DIR) -> void:
+	## `dir` is where the scene is written: the game's scenes folder, or somewhere else for a
+	## model that is only being looked at.
 	var tint := Color(str(recipe.get("tint", "9a7dff")))
 	var accent := Color(str(recipe.get("accent", recipe.get("tint", "ffffff"))))
 	var warden: bool = bool(recipe.get("warden", false))
@@ -261,7 +268,7 @@ static func bake(key: String, recipe: Dictionary) -> void:
 	root.add_child(body)
 	var counts: Dictionary = {}
 	var rng := RandomNumberGenerator.new()
-	rng.seed = key.hash()
+	rng.seed = str(recipe.get("seed", key)).hash()
 	var index: int = 0
 	for laid_part in recipe.get("parts", []):
 		var part: Dictionary = laid_part
@@ -351,7 +358,7 @@ static func bake(key: String, recipe: Dictionary) -> void:
 	var packed := PackedScene.new()
 	var packed_ok: int = packed.pack(root)
 	assert(packed_ok == OK)
-	var path: String = SCENE_DIR + key.to_lower() + ".tscn"
+	var path: String = dir + key.to_lower() + ".tscn"
 	var saved: int = ResourceSaver.save(packed, path)
 	assert(saved == OK)
 	print("baked ", path)

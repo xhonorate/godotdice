@@ -372,23 +372,31 @@ static func facet(box: StyleBoxFlat) -> StyleBoxFlat:
 	box.corner_detail = FACET_DETAIL
 	return box
 
-## The in-run look (docs/UI_REDO.md): opaque plates with a heavy outline and a hard shadow.
+## The in-run look (docs/UI_REDO.md): opaque plates with a heavy outline and a soft drop shadow.
 const LEDGER_FILL := Color("11141d")
 const LEDGER_LINE := Color("2f3752")
 const LEDGER_SHADOW := Color("05070c")
 const LEDGER_CUT: int = 12
+## How dark a plate's drop shadow is at its heart.
+const DROP_ALPHA: float = 0.55
+
+static func drop_shadow(box: StyleBoxFlat, depth: float, strength: float = DROP_ALPHA) -> StyleBoxFlat:
+	## A plate's drop shadow, `depth` pixels deep: it falls mostly down, a little right, and
+	## fades out over a wide feather. The engine's shadow is the box again, offset, solid inside
+	## and feathered `shadow_size` wide round it, so a one-pixel feather drew a black slab and a
+	## see-through fill shows the solid heart through it: only an opaque plate gets one.
+	if depth <= 0.0 or box.bg_color.a < 0.95:
+		box.shadow_size = 0
+		return box
+	box.shadow_color = Color(LEDGER_SHADOW, strength)
+	box.shadow_size = roundi(clampf(depth * 2.5, 4.0, 12.0))
+	box.shadow_offset = Vector2(depth * 0.4, depth)
+	return box
 
 static func ledger(fill: Color = LEDGER_FILL, line: Color = LEDGER_LINE, cut: int = LEDGER_CUT, pad: int = 12, width: int = 3, shadow: int = 4) -> StyleBoxFlat:
 	## A Ledger plate: opaque, every corner cut straight across by `cut`, outlined `width`
-	## wide, with a hard shadow `shadow` pixels down and to the right (the engine's shadow
-	## is the box again, offset, with a soft ring `shadow_size` wide round it; one pixel of
-	## ring is as hard as it draws).
-	var box := flat(fill, line, cut, pad, width)
-	if shadow > 0:
-		box.shadow_color = LEDGER_SHADOW
-		box.shadow_size = 1
-		box.shadow_offset = Vector2(shadow, shadow)
-	return box
+	## wide, with a soft drop shadow `shadow` pixels deep.
+	return drop_shadow(flat(fill, line, cut, pad, width), shadow)
 
 static func capsule(control: Control, fill: Color, line: Color, width: int = 2, pad_x: int = 10, pad_y: int = 3) -> StyleBoxFlat:
 	## A capsule with flat ends: its corners cut as `facet_ends` cuts a pill's, leaving a
@@ -401,7 +409,7 @@ static func capsule(control: Control, fill: Color, line: Color, width: int = 2, 
 	return box
 
 static func ledger_button(b: Button, fill: Color = SLATE_HI, line: Color = LEDGER_LINE, pad: int = 10, text: Color = PAPER) -> Button:
-	## Dresses a button in the Ledger look: chamfered, outlined, a hard shadow under it, and
+	## Dresses a button in the Ledger look: chamfered, outlined, a soft shadow under it, and
 	## on hover the outline lights; pressed, the fill goes to the accent.
 	var normal := ledger(fill, line, 8, pad, 2, 3)
 	normal.content_margin_left = pad + 6
@@ -429,7 +437,7 @@ static func ledger_button(b: Button, fill: Color = SLATE_HI, line: Color = LEDGE
 
 static func ledger_primary(b: Button, tone: Color = ACCENT) -> Button:
 	## The one call to action on a Ledger plate: filled with the accent, ink on it, the same
-	## hard shadow, and no glow.
+	## soft shadow, and no glow.
 	var normal := ledger(tone, tone.lightened(0.3), 8, 10, 2, 3)
 	var hover := ledger(tone.lightened(0.15), Color.WHITE, 8, 10, 2, 3)
 	var pressed := ledger(tone.darkened(0.25), tone, 8, 10, 2, 1)
@@ -468,31 +476,24 @@ static func facet_ends(control: Control, box: StyleBoxFlat) -> StyleBoxFlat:
 
 static func raised(bg: Color, border: Color, radius: int = 10, pad: int = 12, shadow: float = 0.45) -> StyleBoxFlat:
 	## A panel that sits on the page, in the Ledger look (docs/UI_REDO.md): a 2 px outline and
-	## a hard shadow down and to the right. A panel meant to be a panel (nearly opaque) is
-	## made fully so; a faint tint (a lit choice, a mark) keeps its own see-through fill.
+	## a soft drop shadow. A panel meant to be a panel (nearly opaque) is made fully so; a faint
+	## tint (a lit choice, a mark) keeps its own see-through fill and so casts no shadow.
 	var fill: Color = bg
 	if fill.a >= 0.8:
 		fill.a = 1.0 if fill.a >= 0.95 else maxf(fill.a, 0.96)
 	var box := flat(fill, border, radius, pad, 2)
 	if shadow > 0.0:
-		box.shadow_color = Color(LEDGER_SHADOW, clampf(0.5 + shadow, 0.0, 1.0))
-		box.shadow_size = 1
-		var drop: float = clampf(float(radius) / 3.0, 2.0, 4.0)
-		box.shadow_offset = Vector2(drop, drop)
+		drop_shadow(box, clampf(float(radius) / 3.0, 2.0, 4.0), clampf(0.25 + shadow * 0.6, 0.0, 0.8))
 	return box
 
 static func button_style(bg: Color, border: Color, pad: int = 10) -> StyleBoxFlat:
-	## Every button in the game: chamfered, a 2 px outline and the Ledger's hard shadow.
+	## Every button in the game: chamfered, a 2 px outline and the Ledger's soft drop shadow.
 	var box := flat(bg, border, 8, pad, 2)
 	box.content_margin_left = pad + 6
 	box.content_margin_right = pad + 6
 	box.content_margin_top = pad - 2
 	box.content_margin_bottom = pad - 2
-	if bg.a > 0.0:
-		box.shadow_color = LEDGER_SHADOW
-		box.shadow_size = 1
-		box.shadow_offset = Vector2(3, 3)
-	return box
+	return drop_shadow(box, 3)
 
 static func focus_ring(cut: int = 10, gap: float = 4.0) -> StyleBoxFlat:
 	## Where the keyboard is: a 2 px paper-white outline `gap` pixels outside the control. Gold
@@ -1155,7 +1156,7 @@ static func primary(parent: Node, glyph: String, text: String, callback: Callabl
 	## The one call to action on a page: filled with the accent and breathing gently.
 	var b := icon_button(parent, glyph, text, callback, size, INK)
 	b.set_meta("sound", "ui_confirm")
-	## Filled with its tone, a hard shadow under it and no glow: the Ledger's call to action.
+	## Filled with its tone, a soft shadow under it and no glow: the Ledger's call to action.
 	var normal := button_style(tone, tone.lightened(0.35), 14)
 	var hover := button_style(tone.lightened(0.15), Color.WHITE, 14)
 	var pressed := button_style(tone.darkened(0.25), tone, 14)

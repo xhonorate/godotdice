@@ -3,8 +3,10 @@ extends Control
 ##
 ## The room is the mine stage's: during a run it is the room the party walked into, and a
 ## screen shown on its own (a gallery shot) makes a stage of its own. Creatures stand in an
-## arc facing the camera; the plate above each is a 2D control pinned to a 3D anchor. A
-## player's rail, dice and forecast sit in a dock at the bottom, one page a player; in a party
+## arc facing the camera; each wears an inset tag at its feet with its action dice standing in
+## it (creature_tag.gd), and the ledger at the side of the room reads one of them in full
+## (enemy_panel.gd). A player's rail, dice and forecast sit in a dock at the bottom, one page a
+## player; in a party
 ## a tab a player rides on top of the dock (the reader's first) with their buffs over it, and
 ## the dock follows the turn from rail to rail as each one fires.
 ##
@@ -15,6 +17,11 @@ extends Control
 ## the events it is handed, and turns every click into a command.
 
 const EnemyPanel = preload("res://view/battle/enemy_panel.gd")
+## A creature's tag at its feet (the plates rethink's inset tag), its die window and the words
+## its moves are read in.
+const Plate = preload("res://view/battle/creature_tag.gd")
+const DieWindow = preload("res://view/battle/creature_die_window.gd")
+const Look = preload("res://view/battle/creature_look.gd")
 const ScreenFx = preload("res://view/battle/screen_fx.gd")
 const CameraRig = preload("res://view/battle/camera_rig.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
@@ -35,6 +42,7 @@ const Roster = preload("res://view/home/roster.gd")
 const VitalsRing = preload("res://view/battle/vitals_ring.gd")
 const ResonanceMeter = preload("res://view/battle/resonance_meter.gd")
 const Fan = preload("res://view/battle/fan.gd")
+const Marks = preload("res://view/battle/dock_marks.gd")
 const Tips = preload("res://view/ui/tips.gd")
 const Plates = preload("res://view/ui/plates.gd")
 ## The field of view the camera prefers; it widens on its own when a tall creature and its
@@ -67,6 +75,10 @@ const RIDERS_SHOWN: int = 3
 ## A set gem the hand in the tray would leave dark: still readable, plainly stepped back.
 const QUIET_GEM := Color(0.62, 0.62, 0.68, 0.72)
 const ARC_Z: float = -4.4
+## How far apart creatures stand along the arc: wide enough that their plates stand side by
+## side in one row, up to the room's own width (past four, plates step up over each other).
+const ARC_STEP: float = 4.95
+const ARC_REACH: float = 7.4
 const MOVE_WORDS: Dictionary = {"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield",
 	"die_steal": "die", "heal": "heart", "curse": "eye", "bury_socket": "rampart", "cloud_socket": "cloud"}
 
@@ -113,10 +125,14 @@ var _flare: Control
 var _picker: Control
 var _plates_layer: Control
 var _plates: Dictionary = {}
-## The die a creature is rolling, turning over its head; and whose head.
-var _enemy_roll: RollBadge = null
+## The creature whose die is grown on its tag, thrown this action; the move its die landed on,
+## lit in the ledger until its action ends.
 var _enemy_roll_id: String = ""
+var _lit_move: String = ""
+var _lit_token: int = 0
 var _enemy_panel: PanelContainer
+## The window a right-click opens on a creature's die.
+var _die_window: Control = null
 var _hud: Control
 var _depth_label: Label
 var _place_box: VBoxContainer
@@ -308,6 +324,21 @@ var _phantom_views: Dictionary:
 ## by itself if one never does, so nothing is held for good.
 var _held: Dictionary = {}
 const HELD_MS: int = 6000
+## The Creature Tells pass (October 27, 2026): what creatures did to the reader's dice and
+## gems, remembered past the event so the tray and the rail can say who did it. Dice a
+## Latch took (die id -> by, name, turn), dice locked and broken by a creature (die id ->
+## by, name), dice shrunk this turn (die id -> from, to, turn), gems snuffed out of a socket
+## ("unit|socket" -> by, name, permanent); the move landing now and the creature acting it;
+## the word a reflected blow lands with; the water over a dreaded tray.
+var _taken_by: Dictionary = {}
+var _locked_by: Dictionary = {}
+var _broken_by: Dictionary = {}
+var _shrunk: Dictionary = {}
+var _snuffed: Dictionary = {}
+var _acting_move: String = ""
+var _acting_id: String = ""
+var _reflecting: String = ""
+var _water: Control = null
 ## What the rail has dealt this turn, counted up beside the forecast as its blows land.
 var _turn_dealt: int:
 	get: return _page.turn_dealt
@@ -405,6 +436,16 @@ func _hold_layout(seconds: float = SETTLE_SECONDS) -> void:
 			_place_creatures()
 			_sync())
 
+static func _arc_spot(slot: int, count: int) -> Vector3:
+	## Where the slot-th of `count` living creatures stands: spaced ARC_STEP apart (no closer
+	## than the old 1.5 a creature for two) and no further out than ARC_REACH, the ends
+	## drawn back a little so the arc faces the party.
+	if count <= 1:
+		return Vector3(0.0, 0.0, ARC_Z)
+	var spread: float = minf(ARC_REACH, maxf(1.5 * float(count), ARC_STEP * float(count - 1) * 0.5))
+	var x: float = lerpf(-spread, spread, float(slot) / float(count - 1))
+	return Vector3(x, 0.0, ARC_Z - absf(x) * 0.28)
+
 func _place_creatures() -> void:
 	var enemies: Array = state.get("enemies", [])
 	var living: Array = enemies.filter(func(e: Dictionary) -> bool: return int(e.hp) > 0)
@@ -433,10 +474,7 @@ func _place_creatures() -> void:
 		for foe in enemies:
 			var id: String = str(foe.id)
 			if int(foe.hp) > 0 and _creatures.has(id) and is_instance_valid(_creatures[id]):
-				var slot: int = living.find(foe)
-				var spread: float = minf(3.6, 1.5 * float(living.size()))
-				var x: float = 0.0 if living.size() == 1 else lerpf(-spread, spread, float(slot) / float(living.size() - 1))
-				if not (_creatures[id] as CrystalCreature).rest_position.is_equal_approx(Vector3(x, 0.0, ARC_Z - absf(x) * 0.28)):
+				if not (_creatures[id] as CrystalCreature).rest_position.is_equal_approx(_arc_spot(living.find(foe), living.size())):
 					settling = true
 	if settling:
 		for foe in enemies:
@@ -449,10 +487,7 @@ func _place_creatures() -> void:
 		present[id] = true
 		if int(foe.hp) <= 0:
 			continue
-		var slot: int = living.find(foe)
-		var spread: float = minf(3.6, 1.5 * float(living.size()))
-		var x: float = 0.0 if living.size() == 1 else lerpf(-spread, spread, float(slot) / float(living.size() - 1))
-		var target := Vector3(x, 0.0, ARC_Z - absf(x) * 0.28)
+		var target: Vector3 = _arc_spot(living.find(foe), living.size())
 		if not _creatures.has(id) or not is_instance_valid(_creatures[id]):
 			if _headless:
 				continue
@@ -530,6 +565,11 @@ func _build_hud() -> void:
 	_hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_hud)
+	## The ledger: one creature read in full, on the side of the room away from it.
+	_enemy_panel = EnemyPanel.new()
+	_enemy_panel.mouse_entered.connect(_ledger_hover.bind(true))
+	_enemy_panel.mouse_exited.connect(_ledger_hover.bind(false))
+	_hud.add_child(_enemy_panel)
 	## Top left: where the fight is.
 	var place := DeepUi.vbox(_hud, 2)
 	place.position = Vector2(22.0 + left_inset, 16)
@@ -764,7 +804,7 @@ func _sync_pips(left: int, total: int) -> void:
 	pips.queue_redraw()
 
 func _dress_dock(tone: Color, _theirs: bool) -> void:
-	## The dock's frame: a Ledger plate (opaque, a heavy outline, a hard shadow) whose outline
+	## The dock's frame: a Ledger plate (opaque, a heavy outline, a soft drop shadow) whose outline
 	## is the kit's own under the reader's page alone, gold under it in a party, and the seat
 	## color of whoever else's page is up. One frame for the whole fight, its color eased
 	## from one player's to the next.
@@ -824,8 +864,19 @@ func wants_forecast(battle: Dictionary) -> bool:
 func _forget_fight() -> void:
 	selected.clear()
 	_held.clear()
+	_taken_by.clear()
+	_locked_by.clear()
+	_broken_by.clear()
+	_shrunk.clear()
+	_snuffed.clear()
+	if _water != null and is_instance_valid(_water):
+		_water.queue_free()
+	_water = null
 	if _enemy_panel != null:
 		_enemy_panel.reset()
+	_enemy_roll_id = ""
+	_lit_move = ""
+	_close_die_window()
 	for page in _all_pages():
 		page.outcomes.clear()
 		page.birth_outcome = {}
@@ -896,6 +947,7 @@ func leave() -> void:
 	if _enemy_panel != null:
 		_enemy_panel.reset()
 	_hide_enemy_roll()
+	_close_die_window()
 	_hovered_creature = ""
 	_layout_wait = null
 	_layout_generation += 1
@@ -995,6 +1047,7 @@ func _sync() -> void:
 	else:
 		_reroll_button.remove_theme_color_override("font_disabled_color")
 		_reroll_button.tooltip_text = "All or Nothing: reroll every die  [R]" if whole_bowl else "Reroll the selected dice  [R]"
+	_reroll_cross(not roller.is_empty())
 	var flips: int = int(unit.get("flips", 0))
 	## Unlocking is only offered while there is something left to do with the hand.
 	var spent: bool = rerolls <= 0 and flips <= 0
@@ -1076,6 +1129,8 @@ class Page extends RefCounted:
 	var phantom_box: HBoxContainer
 	var phantom_key: String = ""
 	var phantom_views: Dictionary = {}
+	## The seats of dice sitting out (taken, gripped, broken), as last laid.
+	var ghost_key: String = ""
 	var rolled_hand: String = ""
 	var dice_settle_at: int = 0
 	## Another player's page only: what they are doing, where the reader's buttons are.
@@ -2380,6 +2435,13 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				named.add_theme_color_override("font_color", (said_tone.darkened(0.3) if front else DeepUi.MUTED) if blocked or quiet else said_tone)
 			if lit and not entry.is_empty():
 				links.append([DeepStone.color(stone), int(entry.get("resonance", 0))])
+	## What creatures have done to each socket: fog, rubble, a gem held or snuffed, a colour
+	## drunk, a carat cap (the Creature Tells pass).
+	for socket in range(rail.size()):
+		var card: Control = _socket_cards[socket]
+		if bool(card.get_meta("badge", false)) or bool(card.get_meta("hollow", false)):
+			continue
+		_sync_socket_marks(unit, socket, card, rail[socket])
 	_sync_birthstone(unit, planning, showing)
 	## What each color rang, for the meter's waves: each firing gem's share is the count after
 	## it less the count before it.
@@ -2391,6 +2453,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			before = maxi(before, int(link[1]))
 			rang[str(link[0])] = int(rang.get(str(link[0]), 0)) + maxi(gain, 1)
 		_page.meter.set_contributions(rang)
+		_page.meter.set_damped(DeepBattle.living(state.get("enemies", [])).any(func(f: Dictionary) -> bool: return DeepCreatures.trait_value(f, "resonance_damp", 0) > 0))
 
 func _socket_riders(unit: Dictionary, socket: int) -> Array:
 	## The Void gems riding one socket of a flattened rail, in the order they fire.
@@ -2743,6 +2806,18 @@ class SocketRing extends Control:
 			if value != blocked:
 				blocked = value
 				queue_redraw()
+	## The stone that stood here is elsewhere (a creature holds it) or gone (snuffed out): a
+	## dashed outline of it, and a dark ring for the gone one.
+	var ghost: bool = false:
+		set(value):
+			if value != ghost:
+				ghost = value
+				queue_redraw()
+	var dark: bool = false:
+		set(value):
+			if value != dark:
+				dark = value
+				queue_redraw()
 	var _ready_glow: float = 0.0
 	var _goal: float = 0.0
 	var _clock: float = 0.0
@@ -2786,7 +2861,9 @@ class SocketRing extends Control:
 		_wake_glow(centre, radius, tone)
 		draw_circle(centre, radius, Color(0, 0, 0, 0.45))
 		draw_circle(centre, radius * 0.9, Color(tone, 0.08 if empty else 0.12))
-		draw_arc(centre, radius, 0, TAU, 48, Color(tone, 0.95 if empty else 0.75), 3.0 if color == "BIRTHSTONE" else 2.0, true)
+		if dark:
+			draw_circle(centre, radius * 0.9, Color(0, 0, 0, 0.55))
+		draw_arc(centre, radius, 0, TAU, 48, Color(tone, (0.95 if empty else 0.75) * (0.4 if dark else 1.0)), 3.0 if color == "BIRTHSTONE" else 2.0, true)
 		draw_arc(centre, radius * 0.82, 0, TAU, 40, Color(tone, 0.25), 1.0, true)
 		for i in range(4):
 			var angle: float = TAU * float(i) / 4.0 + PI * 0.25
@@ -2800,6 +2877,18 @@ class SocketRing extends Control:
 			var crown := PackedVector2Array([centre + Vector2(-9, -radius - 1), centre + Vector2(-5, -radius - 8), centre + Vector2(0, -radius - 3),
 				centre + Vector2(5, -radius - 8), centre + Vector2(9, -radius - 1)])
 			draw_colored_polygon(crown, tone.lightened(0.2))
+		if ghost:
+			var dash_tone := Color(tone, 0.3 if dark else 0.6)
+			for k in range(12):
+				var a: float = TAU * float(k) / 12.0
+				draw_arc(centre, radius * 0.78, a, a + TAU / 30.0, 6, dash_tone, 1.5, true)
+			var r: float = radius * 0.5
+			var pts: Array = [centre + Vector2(0, -r), centre + Vector2(r, -r * 0.3), centre + Vector2(r * 0.62, r), centre + Vector2(-r * 0.62, r), centre + Vector2(-r, -r * 0.3)]
+			for i in range(5):
+				var a: Vector2 = pts[i]
+				var b: Vector2 = pts[(i + 1) % 5]
+				for d in range(3):
+					draw_line(a.lerp(b, float(d) / 3.0 + 0.05), a.lerp(b, float(d) / 3.0 + 0.23), dash_tone, 1.5, true)
 		if blocked:
 			_hatch(centre, radius)
 	func _wake_glow(centre: Vector2, radius: float, tone: Color) -> void:
@@ -3054,6 +3143,7 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 				hit.button_up.connect(_press_end.bind(id))
 			holder.add_child(hit)
 			_dice_views[id] = view
+		_page.ghost_key = ""
 		## The tray keeps a seat for every die the player owns, so a die taken away (a Collapse)
 		## leaves the rest centred in the same room and Reroll and Lock in stay where they were.
 		var seats: int = maxi(wanted.size(), unit.get("dice", []).size())
@@ -3070,6 +3160,9 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		tagged.turn_tag = str(state.get("turn", 0))
 		var can_select: bool = mine and planning and not bool(unit.get("locked", false)) and not bool(roll.get("locked", false))
 		var chosen: bool = selected.has(id) and can_select
+		## What the die showed before this sync, for the face tile that comes off a cut die.
+		if int(view.roll.get("value", -1)) != int(roll.get("value", -1)) or str(view.roll.get("kind", "plain")) != str(roll.get("kind", "plain")):
+			view.get_parent().set_meta("prev_value", int(view.roll.get("value", 0)))
 		view.configure(by_id.get(id, {"shape": roll.shape, "material": str(roll.get("material", "")), "faces": []}), tagged, chosen, false, DeepUi.ACCENT)
 		## Chosen, a die lifts 5 px on a spring (docs/UI_REDO.md, R1); at rest it sits flat.
 		view.set_meta("chosen", chosen)
@@ -3105,6 +3198,9 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 		value.add_theme_color_override("font_color", DeepUi.ACCENT if chosen else (DeepUi.ORE if lent else DeepUi.MUTED))
 		_bonus_rim(view.get_parent(), lent)
 		_parity_rim(view.get_parent(), roll, unit)
+		_sync_die_marks(view.get_parent(), view, roll, unit)
+	_sync_ghost_seats(unit)
+	_sync_water(unit)
 	## A hand locked in while the rest of the party still chooses settles back a shade: these
 	## dice are final. They come up bright again for the turn to count them.
 	var settled: Color = Color(0.74, 0.76, 0.86) if planning and bool(unit.get("locked", false)) else Color.WHITE
@@ -3147,18 +3243,22 @@ func _sync_plates(only: String = "") -> void:
 			if plate != null and is_instance_valid(plate):
 				plate.queue_free()
 			plate = Plate.new()
-			plate.gui_input.connect(_plate_input.bind(id))
-			plate.inspect.connect(func(move: String) -> void: _inspect_creature(id, move))
-			plate.mouse_entered.connect(func() -> void: _hover_creature(id))
-			plate.mouse_exited.connect(func() -> void: _hover_creature(""))
+			plate.pressed.connect(func() -> void: _target(id))
+			plate.inspect.connect(func() -> void: _inspect_creature(id, ""))
+			plate.hovered.connect(func(on: bool) -> void:
+				if on:
+					_hover_creature(id)
+				elif _hovered_creature == id:
+					_hover_creature(""))
+			## Unseen until it is first placed at its creature's feet (`_process`), rather than
+			## standing a frame in the corner over the room's name.
+			plate.visible = false
 			_plates_layer.add_child(plate)
 			_plates[id] = plate
 			DeepUi.pop_in(plate, 0.4)
-		## Opened first, so a plate the pointer has just opened writes its lines out now rather
-		## than unfolding empty until the fight next changes.
-		plate.set_open(id == _hovered_creature or (_hovered_creature.is_empty() and id == target_id))
-		plate.update(foe, state, local_id, target_id == id, preview if target_id == id else 0)
+		plate.update(foe, state, target_id == id, preview if target_id == id else 0)
 		plate.set_spot(acting == id, not acting.is_empty() and acting != id)
+		plate.set_looked(id == _hovered_creature and id != target_id)
 		_dress(_creature(id), foe)
 	if not only.is_empty():
 		return
@@ -3197,604 +3297,102 @@ func _soak(hit: Dictionary, creature: CrystalCreature, ratio: float) -> void:
 	add_child(plate)
 	plate.soak(absorbed + loss, absorbed, loss, _soak_pace)
 
-class Fold extends Container:
-	## A creature plate's open lines, shown `open` of their height (0 to 1) and cut off there,
-	## so they unfold and fold away instead of popping in. They are laid against its bottom
-	## edge: as the plate rises the lines stay where they will be read and the tiles lift off
-	## them, like a lid.
-	var open: float = 0.0:
-		set(value):
-			open = value
-			update_minimum_size()
-	## The lines' whole height, taken as they are laid out at the end of a frame rather than
-	## asked for while the plate is being placed: new rich text is measured at no width until
-	## its row has been laid out, and asking before that would throw the plate a screen high
-	## for a frame.
-	var full: float = 0.0
-	func _init() -> void:
-		clip_contents = true
-		mouse_filter = Control.MOUSE_FILTER_PASS
-	func _get_minimum_size() -> Vector2:
-		var child: Control = _child()
-		if child == null:
-			return Vector2.ZERO
-		return Vector2(child.get_combined_minimum_size().x, roundf(full * open))
-	func _notification(what: int) -> void:
-		if what != NOTIFICATION_SORT_CHILDREN:
-			return
-		var child: Control = _child()
-		if child == null:
-			return
-		var tall: float = child.get_combined_minimum_size().y
-		fit_child_in_rect(child, Rect2(0.0, size.y - tall, size.x, tall))
-		if not is_equal_approx(tall, full):
-			full = tall
-			update_minimum_size()
-	func _child() -> Control:
-		return get_child(0) as Control if get_child_count() > 0 else null
-
-class Plate extends VBoxContainer:
-	## A creature's nameplate (docs/UI_REDO.md, M1): everything about it, over its head. Its
-	## name and its dice in order (the next to roll lit); its health, with its block capped past
-	## the end of it and what this hand would take hatched in red; its traits (violet tiles) and
-	## its moves as tiles with their numbers, the one it is winding up in red; and under the
-	## plate, what is on it, the same chips the party wears. The targeted or hovered creature's
-	## plate opens into a line a move: the trigger as a pictograph and the effect in the gem
-	## sheet's keyword colors. The lines unfold under the tiles and the plate rises by as much
-	## as they take (`lift`), so its foot stays where it stood and the lines never hang over the
-	## creature; the screen places it by its closed height (`base_height`). Right-click for the
-	## inspector.
-	signal inspect(move: String)
-	const WIDTH: float = 330.0
-	## How big its dice are drawn beside its name: room for five, with "d4" set at the floor.
-	const DIE_MARK: float = 30.0
-	var fading: bool = false
-	## Open: its moves spelled out under the tiles.
-	var expanded: bool = false
-	## Where its closed plate stands, eased after its creature; the screen lifts it from here.
-	var rest: Vector2 = Vector2.ZERO
-	var panel: PanelContainer
-	var _name: Label
-	var _target: TextureRect
-	var _bar: DeepUi.Bar
-	var _effects: EffectChips.Row
-	var _dice: HBoxContainer
-	var _moves: HBoxContainer
-	var _fold: Fold
-	## How far the lines are through unfolding (0 shut, 1 out), before the easing.
-	var _fold_t: float = 0.0
-	const UNFOLD_SECONDS: float = 0.24
-	const FOLD_SECONDS: float = 0.2
-	var _lines: VBoxContainer
-	var _tiles: Array = []
-	var _trait_tiles: Array = []
-	var _moves_key: String = ""
-	var _lines_key: String = ""
-	var _states_key: String = ""
-	var _targeted: bool = false
-	## While a creature acts its plate is lit in the color of a blow and the others step back.
-	var _acting: bool = false
-	var _dimmed: bool = false
-	var _breath: Tween = null
-	func _init() -> void:
-		mouse_filter = Control.MOUSE_FILTER_STOP
-		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		add_theme_constant_override("separation", 4)
-		panel = PanelContainer.new()
-		panel.mouse_filter = Control.MOUSE_FILTER_PASS
-		panel.custom_minimum_size.x = WIDTH
-		add_child(panel)
-		_style(false)
-		var box := DeepUi.vbox(panel, 5)
-		var head := DeepUi.hbox(box, 6)
-		_target = DeepUi.icon(head, "crosshair", 14, DeepUi.ACCENT, "Your target")
-		_name = DeepUi.label(head, "", 14, DeepUi.PAPER)
-		_name.add_theme_font_override("font", DeepUi.bold_font())
-		DeepUi.spacer(head)
-		_dice = DeepUi.hbox(head, 3)
-		_dice.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_bar = DeepUi.bar(box, 16.0, DeepUi.BAD, DeepUi.HP_LOST)
-		_bar.cap = true
-		_bar.custom_minimum_size = Vector2(WIDTH - 24.0, 16)
-		_moves = DeepUi.hbox(box, 5)
-		_moves.mouse_filter = Control.MOUSE_FILTER_PASS
-		_fold = Fold.new()
-		_fold.visible = false
-		box.add_child(_fold)
-		_lines = DeepUi.vbox(_fold, 4)
-		## What is on it, under the plate, the way the party's chips ride over the dock.
-		_effects = EffectChips.Row.new(14)
-		_effects.alignment = FlowContainer.ALIGNMENT_CENTER
-		add_child(_effects)
-		gui_input.connect(func(event: InputEvent) -> void:
-			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-				inspect.emit("")
-				accept_event())
-	func _style(targeted: bool) -> void:
-		var style := DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.ACCENT if targeted else DeepUi.LEDGER_LINE, 10, 9, 3 if targeted else 2, 4)
-		if _acting:
-			## Acting outranks targeted: the edge goes the color of a blow and glows, breathing
-			## until its action ends (held steady for anyone who asked for fewer flashes).
-			style.border_color = DeepUi.BAD
-			style.set_border_width_all(3)
-			style.shadow_color = Color(DeepUi.BAD, 0.3)
-			style.shadow_size = 10
-			style.shadow_offset = Vector2.ZERO
-		if _breath != null and _breath.is_valid():
-			_breath.kill()
-		_breath = null
-		if _acting and not DeepUi.headless() and not ScreenFx.calm:
-			_breath = create_tween().set_loops()
-			_breath.tween_property(style, "shadow_color:a", 0.1, 0.6).set_trans(Tween.TRANS_SINE)
-			_breath.tween_property(style, "shadow_color:a", 0.35, 0.6).set_trans(Tween.TRANS_SINE)
-		panel.add_theme_stylebox_override("panel", style)
-	func base_height() -> float:
-		## The plate without its open lines or the chips under it: what it is placed by, so a
-		## new status never moves it and opening it only lifts it.
-		var whole: float = panel.get_combined_minimum_size().y
-		if _fold.visible:
-			whole -= _fold.get_combined_minimum_size().y + 5.0
-		return whole
-	func lift() -> float:
-		## How much taller its lines make it right now, as they unfold or fold away: how far it
-		## rises over its closed place, so its foot stays put.
-		return panel.get_combined_minimum_size().y - base_height()
-	func full_lift() -> float:
-		## How far it rises once its lines are all the way out.
-		return _fold.full + 5.0 if _fold.visible else 0.0
-	func standing_height() -> float:
-		## The closed plate and the chips under it: what a neighbour's lines must rise clear of.
-		var tall: float = base_height()
-		if _effects.get_child_count() > 0:
-			tall += 4.0 + _effects.get_combined_minimum_size().y
-		return tall
-	func unfolding() -> bool:
-		## Its lines show, all the way out or on their way in or out.
-		return _fold.visible
-	func set_spot(acting: bool, dimmed: bool) -> void:
-		## Whether this creature is the one acting, or another one is.
-		if fading:
-			return
-		if dimmed != _dimmed:
-			_dimmed = dimmed
-			var alpha: float = 0.68 if dimmed else 1.0
-			if DeepUi.headless():
-				modulate.a = alpha
-			else:
-				create_tween().tween_property(self, "modulate:a", alpha, 0.2).set_trans(Tween.TRANS_SINE)
-		if acting == _acting:
-			return
-		_acting = acting
-		_style(_targeted)
-		if acting:
-			DeepUi.pulse(self, 1.04, 0.3)
-	func set_open(open: bool) -> void:
-		## The lines under the tiles, for the creature being looked at. An open plate comes to
-		## the front: where it cannot rise clear of a neighbour, its lines are drawn (and
-		## pointed at) over that plate, not under it. It is raised again whenever a plate added
-		## after it (the fight's first plates are built after the target's opens) stands over it;
-		## only a plate, so it does not trade places with the creature's roll die every frame.
-		if open and get_parent() != null:
-			var above: bool = false
-			for i in range(get_index() + 1, get_parent().get_child_count()):
-				var other: Node = get_parent().get_child(i)
-				if other is Plate and not (other as Plate).fading:
-					above = true
-					break
-			if above:
-				## A frame later: the pointer leaving a plate as the fight is torn down asks for
-				## this while the layer is busy letting go of its children.
-				_to_front.call_deferred()
-		if open == expanded:
-			return
-		expanded = open
-		if not open:
-			_lines_key = ""
-		## The lines unfold out from under the tiles as the plate rises to make room for them,
-		## and fold back in as it settles (`unfold`): eased, not popped, so the eye can follow
-		## which plate opened.
-		if open:
-			_fold.visible = true
-		if DeepUi.headless() or not is_inside_tree():
-			_fold_t = 1.0 if open else 0.0
-			_fold.open = _fold_t
-			_fold.visible = open
-	func _to_front() -> void:
-		if get_parent() != null and not is_queued_for_deletion():
-			get_parent().move_child(self, -1)
-	func unfold(delta: float) -> void:
-		## A step of the lines unfolding or folding away, taken by the screen just before it
-		## places the plate rather than by a tween (tweens run after the screen has placed it):
-		## the plate rises in the very frame its lines grow, so its foot never dips.
-		var goal: float = 1.0 if expanded else 0.0
-		if not is_equal_approx(_fold_t, goal):
-			_fold_t = move_toward(_fold_t, goal, delta / (UNFOLD_SECONDS if expanded else FOLD_SECONDS))
-			_fold.open = _fold_t * _fold_t * (3.0 - 2.0 * _fold_t)
-		## Shut, it takes no room at all (not even the gap above it), however briefly it opened.
-		if not expanded and _fold_t <= 0.0 and _fold.visible:
-			_fold.visible = false
-	func _get_tooltip(_at_position: Vector2) -> String:
-		## Open, the plate already says everything under the pointer: the flavour line would only
-		## cover its rows. Its tiles keep their own tooltips; right-click still has the rest.
-		return "" if expanded else tooltip_text
-	func die_mark(index: int) -> Control:
-		## The mark of its die at this place on the plate.
-		return _dice.get_child(index) as Control if index >= 0 and index < _dice.get_child_count() else null
-
-	func update(foe: Dictionary, battle: Dictionary, local_id: String, targeted: bool, preview: int) -> void:
-		if targeted != _targeted:
-			_targeted = targeted
-			_style(targeted)
-			if targeted:
-				DeepUi.pulse(self, 1.06, 0.3)
-		_target.visible = targeted
-		_name.text = str(foe.name).to_upper()
-		_name.add_theme_color_override("font_color", Color("ffb0a0") if bool(foe.get("warden", false)) else DeepUi.PAPER)
-		var max_hp: int = maxi(1, int(foe.max_hp))
-		_bar.set_values(float(foe.hp) / float(max_hp), "%s / %s" % [DeepUi.number(int(foe.hp)), DeepUi.number(max_hp)], float(foe.get("block", 0)) / float(max_hp))
-		_bar.preview = clampf(float(maxi(0, preview - int(foe.block))) / float(max_hp), 0.0, 1.0)
-		tooltip_text = str(foe.get("text", "")) + "\nLeft-click to target it. Right-click for everything about it."
-		## What is on it, under the plate; what it is (its traits) stands beside its moves.
-		var chips: Array = EffectChips.for_enemy(foe, battle)
-		_effects.show_effects(chips.filter(func(c: Dictionary) -> bool: return str(c.get("span", "")) != "trait"))
-		var dice: Array = DeepCreatures.effective_dice(foe)
-		var moves: Array = DeepCreatures.display_moves(foe, foe.get("moves", DeepCreatures.moves_for(foe)))
-		var acting: bool = bool(foe.get("acting", false))
-		## What it has rolled so far this action rides on the plate with its dice, so the
-		## numbers read over its head.
-		var hand: Array = foe.get("hand", []) if acting or str(foe.get("beat", "")) == "done" else []
-		var states: Array = foe.get("move_states", [])
-		var moves_key: String = str(dice) + str(moves) + str(foe.get("stolen_dice", 0)) + str(foe.get("suppressed", 0)) + str(hand.map(func(r: Dictionary) -> int: return int(r.get("value", 0)))) + str(acting) + str(int(foe.get("next_die", 0))) + str(bool(foe.get("risen", false)))
-		if moves_key != _moves_key:
-			_moves_key = moves_key
-			DeepUi.clear(_dice)
-			var suppressed: int = int(foe.get("suppressed", 0)) if acting else int(foe.get("stolen_dice", 0))
-			for index in range(dice.size()):
-				var gone: bool = index >= dice.size() - suppressed
-				var rolled: bool = index < hand.size()
-				## The next die to be thrown is the lit one.
-				var next: bool = acting and not rolled and not gone and index == hand.size()
-				## Unrolled, a die says its size in a quiet grey; rolled, its number in its own color.
-				var shape_name: String = str(dice[index].shape).to_lower()
-				var mark: String = "×" if gone else (str(int(hand[index].get("value", 0))) if rolled else shape_name)
-				var tone: Color = DeepUi.DIM if gone else (DeepUi.ACCENT_HI if next else (DiceIcons.die_palette(dice[index]).body if rolled else DeepUi.MUTED))
-				## Its mark is kept to the text floor: the face grows to hold "d4" or its number,
-				## and keeps the size it has before it rolls, so the plate never jumps as it does.
-				var edge: float = DiceIcons.fit_edge(DIE_MARK, str(dice[index].shape), shape_name)
-				var face: Control = DiceIcons.readable_face(edge, int(hand[index].get("value", 0)) if rolled else 0, tone, str(dice[index].shape), rolled or next, mark)
-				face.mouse_filter = Control.MOUSE_FILTER_PASS
-				face.tooltip_text = "%s · %s" % [str(dice[index].shape).to_lower(), "taken away" if gone else ("next to roll" if next else "roll %d" % (index + 1))]
-				_dice.add_child(face)
-			_build_tiles(foe, moves)
-		var states_key: String = str(states) + str(foe.get("clouded_move", -1)) + str(DeepCreatures.charge_turns(foe))
-		if states_key != _states_key:
-			_states_key = states_key
-			_state_tiles(foe, states)
-		if expanded:
-			## The lines read only its moves and traits, so a die it lands does not tear them down:
-			## new rich text is measured at no width on its first frame and stood the plate a
-			## screen tall for that frame.
-			var lines_key: String = str(moves) + str(DeepCreatures.traits_for(foe) if foe.has("key") else {}) + str(bool(foe.get("risen", false)))
-			if lines_key != _lines_key:
-				_lines_key = lines_key
-				_build_lines(foe, moves)
-	func _build_tiles(foe: Dictionary, moves: Array) -> void:
-		## A tile a trait (violet), then a tile a move: its mark, its name and its number, in the
-		## keyword color of what it does.
-		DeepUi.clear(_moves)
-		_tiles.clear()
-		_trait_tiles.clear()
-		var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else {}
-		var keys: Array = traits.keys()
-		keys.sort()
-		for key in keys:
-			if str(key) == "gift_rerolls" and (traits.has("reroll_drain") or traits.has("reroll_scorch")):
-				continue
-			## Waterlogged is spent once it has risen: the Risen chip under the plate says so.
-			if str(key) == "waterlogged" and bool(foe.get("risen", false)):
-				continue
-			var words: Dictionary = EffectChips.trait_entry(str(key), traits[key])
-			var tile := PanelContainer.new()
-			tile.mouse_filter = Control.MOUSE_FILTER_PASS
-			var style := DeepUi.ledger(Color("251b3c"), Color("b58cff"), 6, 3, 2, 0)
-			style.content_margin_left = 7
-			style.content_margin_right = 8
-			tile.add_theme_stylebox_override("panel", style)
-			tile.tooltip_text = "%s\n%s" % [str(words.title), str(words.text)]
-			_moves.add_child(tile)
-			var row := DeepUi.hbox(tile, 4)
-			DeepUi.icon(row, str(words.glyph), 13, Color("c8a8ff")).mouse_filter = Control.MOUSE_FILTER_IGNORE
-			var named := DeepUi.label(row, str(words.title), 12, Color("e3d2ff"))
-			named.add_theme_font_override("font", DeepUi.bold_font())
-			_trait_tiles.append(tile)
-		if not _trait_tiles.is_empty() and not moves.is_empty():
-			var gap := DeepUi.rule(_moves, DeepUi.LEDGER_LINE)
-			gap.custom_minimum_size = Vector2(2, 0)
-			gap.size_flags_vertical = Control.SIZE_FILL
-		for index in range(moves.size()):
-			var move: Dictionary = moves[index]
-			var tile := PanelContainer.new()
-			tile.mouse_filter = Control.MOUSE_FILTER_PASS
-			tile.add_theme_stylebox_override("panel", _tile_style(false))
-			tile.tooltip_text = str(move.name) + " · " + DeepCreatures.trigger_words(move) + "\n" + "\n".join(move.get("effects", []).map(func(e: Dictionary) -> String: return DeepCreatures.effect_words(e)))
-			_moves.add_child(tile)
-			var row := DeepUi.hbox(tile, 4)
-			var glyph := DeepUi.icon(row, EnemyPanel.move_glyph(move), 13, DeepUi.BAD)
-			glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			var named := DeepUi.label(row, str(move.name), 12, DeepUi.PAPER)
-			named.add_theme_font_override("font", DeepUi.bold_font())
-			var figure: Array = _tile_figure(move)
-			if not str(figure[0]).is_empty():
-				var number := DeepUi.label(row, str(figure[0]), 12, figure[1])
-				number.add_theme_font_override("font", DeepUi.bold_font())
-			_tiles.append(tile)
-	static func _tile_style(hot: bool) -> StyleBoxFlat:
-		var style := DeepUi.ledger(Color("3d1612") if hot else Color("1c2232"), DeepUi.BAD if hot else DeepUi.LEDGER_LINE, 6, 3, 2, 0)
-		style.content_margin_left = 7
-		style.content_margin_right = 8
-		return style
-	static func _tile_figure(move: Dictionary) -> Array:
-		## The one number a move's tile wears: its first effect's, when it has a plain one, as it
-		## lands (the mine's weight and its Strength counted in, the same sums the fight does).
-		## A count or a duration gives way to the next effect; a roll leaves the tile bare rather
-		## than borrow a rider's number.
-		for effect in move.get("effects", []):
-			if not effect is Dictionary:
-				continue
-			var kind: String = str(effect.get("kind", ""))
-			if kind in ["stun", "clouded", "hasten", "die_steal", "burrow", "bury_socket", "hold_gem", "lock_die", "break_gem", "downgrade_die", "grind_die", "break_die", "blank_face", "roll_again", "end_action", "exhibit", "absorb_color", "mirror"] \
-					or (kind == "remove_block" and bool(effect.get("remove_all", false))) or not effect.has("amount"):
-				continue
-			var amount: Variant = effect.get("amount", 0)
-			var parts: Dictionary = DeepCreatures.amount_parts(amount)
-			var base: String = str(parts.base) if not parts.is_empty() else DeepCreatures.amount_words(amount)
-			if not base.is_valid_int():
-				return ["", DeepUi.PAPER]
-			var words: String = DeepUi.number(DeepRules.amount(amount, {}))
-			var tone: Color = DeepUi.EFFECT_KEYWORDS.get(kind, {}).get("color", DeepUi.INFO)
-			if kind == "heal":
-				words = "+" + words
-			elif kind in ["empower_next", "purge", "reflect"] or (kind == "steal_gold" and bool(effect.get("pct", false))):
-				words += "%"
-			return [words, tone]
-		return ["", DeepUi.PAPER]
-	func _state_tiles(foe: Dictionary, states: Array) -> void:
-		## The move it is winding up, or acting out, burns red; one it has used, missed or had
-		## clouded steps back.
-		for index in range(_tiles.size()):
-			var status: String = str(states[index]) if index < states.size() else "unrevealed"
-			if DeepCreatures.move_clouded(foe, index):
-				status = "clouded"
-			var tile: PanelContainer = _tiles[index]
-			var hot: bool = status in ["activated", "resolving"]
-			if bool(tile.get_meta("hot", false)) != hot or not tile.has_meta("hot"):
-				tile.set_meta("hot", hot)
-				tile.add_theme_stylebox_override("panel", _tile_style(hot))
-			tile.modulate.a = 0.4 if status in ["missed", "clouded", "spent"] else (0.65 if status in ["used", "resolved"] else 1.0)
-	static func _short_effect(effect: Dictionary) -> String:
-		## The inspector's words for an effect, with what goes without saying on a plate left
-		## off: that a blow lands on every player, the rounding, the asides. A plain number the
-		## mine's weight scales is said as it lands (16, not 12 × 1.35), the figure its tile wears;
-		## one with a roll in it keeps its sum.
-		var parts: Dictionary = DeepCreatures.amount_parts(effect.get("amount", 0))
-		if not parts.is_empty() and str(parts.base).is_valid_int():
-			effect = effect.duplicate()
-			effect.amount = DeepRules.amount(effect.amount, {})
-		var words: String = DeepCreatures.effect_words(effect)
-		for cut in [" · all players", " (rounded up)", " · nothing more"]:
-			words = words.replace(cut, "")
-		return words
-	func _build_lines(foe: Dictionary, moves: Array) -> void:
-		## The plate opened: a line a move, and one a trait. The trigger is a pictograph with a
-		## few words, the effect the words the inspector uses, their keywords colored.
-		DeepUi.clear(_lines)
-		DeepUi.rule(_lines, DeepUi.LEDGER_LINE).custom_minimum_size = Vector2(0, 2)
-		var names: Array[Label] = []
-		var whens: Array[HBoxContainer] = []
-		var trigs: Array[Label] = []
-		for move in moves:
-			var line := DeepUi.hbox(_lines, 8)
-			var named := DeepUi.label(line, str(move.name), 12, Color.WHITE)
-			named.add_theme_font_override("font", DeepUi.bold_font())
-			names.append(named)
-			var described: Dictionary = DeepPatterns.describe(move.get("trigger", {"kind": "always"}), 0)
-			described.label = ""
-			if str(described.kind) in ["all_odd", "all_even"]:
-				described.mark = "odd" if str(described.kind) == "all_odd" else "even"
-			var when := DeepUi.hbox(line, 3)
-			when.custom_minimum_size.x = 78
-			when.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			DiceIcons.build(when, described, 12, DeepUi.MUTED, DeepCreatures.trigger_words(move))
-			var short: String = _short_trigger(move)
-			if not short.is_empty():
-				var trig := DeepUi.label(when, short, 10, DeepUi.MUTED)
-				trig.clip_text = false
-				trig.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				whens.append(when)
-				trigs.append(trig)
-			var said := DeepUi.vbox(line, 0)
-			said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			said.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			var words: Array = move.get("effects", []).map(func(e: Dictionary) -> String: return _short_effect(e))
-			var text := DeepUi.effect_text(said, " · ".join(words), 11, DeepUi.PAPER)
-			text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else {}
-		var keys: Array = traits.keys()
-		keys.sort()
-		for key in keys:
-			if str(key) == "gift_rerolls" and (traits.has("reroll_drain") or traits.has("reroll_scorch")):
-				continue
-			if str(key) == "waterlogged" and bool(foe.get("risen", false)):
-				continue
-			var trait_words: Dictionary = EffectChips.trait_entry(str(key), traits[key])
-			var line := DeepUi.hbox(_lines, 8)
-			var named := DeepUi.label(line, str(trait_words.title), 12, Color("d7b8ff"))
-			named.add_theme_font_override("font", DeepUi.bold_font())
-			names.append(named)
-			var when := DeepUi.hbox(line, 3)
-			when.custom_minimum_size.x = 78
-			when.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			DeepUi.icon(when, str(trait_words.glyph), 12, Color("b58cff"))
-			whens.append(when)
-			trigs.append(DeepUi.label(when, "always", 10, Color("c9b3f0")))
-			var said := DeepUi.vbox(line, 0)
-			said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			said.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			var text := DeepUi.effect_text(said, str(trait_words.text), 11, Color("c9b3f0"))
-			text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_fit_names(names)
-		_fit_whens(whens, trigs)
-	static func _fit_whens(whens: Array[HBoxContainer], trigs: Array[Label]) -> void:
-		## One column for every trigger, as _fit_names does for the names: as wide as the widest
-		## few words beside their pictograph, 78 to 100 px. Only words still wider than that are
-		## cut, instead of "action opens" losing its last letters on every plate.
-		var widths: Array[float] = []
-		var widest: float = 78.0
-		for trig in trigs:
-			var face: Font = trig.get_theme_font(&"font")
-			## The pictograph (12), the gap after it (3) and a little slack.
-			var wide: float = face.get_string_size(trig.text, HORIZONTAL_ALIGNMENT_LEFT, -1, trig.get_theme_font_size(&"font_size")).x + 12.0 + 3.0 + 2.0
-			widths.append(wide)
-			widest = maxf(widest, wide)
-		var column: float = clampf(widest, 78.0, 100.0)
-		for when in whens:
-			when.custom_minimum_size.x = column
-		for index in range(trigs.size()):
-			trigs[index].clip_text = widths[index] > column
-	static func _fit_names(names: Array[Label]) -> void:
-		## One column for every name, moves and traits alike: as wide as the widest name at its
-		## real (floored) size, 70 to 104 px. Only a name longer than that wraps, between its
-		## words onto a second line, instead of being cut off mid-letter.
-		var widths: Array[float] = []
-		var widest: float = 70.0
-		for named in names:
-			var face: Font = named.get_theme_font(&"font")
-			var wide: float = face.get_string_size(named.text, HORIZONTAL_ALIGNMENT_LEFT, -1, named.get_theme_font_size(&"font_size")).x + 2.0
-			widths.append(wide)
-			widest = maxf(widest, wide)
-		var column: float = minf(widest, 104.0)
-		for index in range(names.size()):
-			names[index].custom_minimum_size.x = column
-			if widths[index] > column:
-				names[index].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	static func _short_trigger(move: Dictionary) -> String:
-		## The trigger in two or three words beside its pictograph.
-		var t: Dictionary = move.get("trigger", {"kind": "always"})
-		var n: int = DeepPatterns.rung(t, 0)
-		match str(t.get("kind", "always")):
-			"always": return "every roll"
-			"odd": return "odd roll"
-			"even": return "even roll"
-			"at_least": return "%d+" % n
-			"at_most": return "≤%d" % n
-			"value": return "/".join(t.get("values", []).map(func(v: Variant) -> String: return str(int(v))))
-			"crowns": return "top face"
-			"high_pct_at_least": return "high roll"
-			"each_turn": return "each action"
-			"every_nth_turn": return "every %s" % DeepPatterns._ordinal(n)
-			"emerge": return "coming up"
-			"on_death": return "on death"
-			"hp_below": return "at %d%% hp" % n
-			"action_begin": return "action opens"
-			## The set it needs, not how often: "once/turn" alone read as a move that comes every
-			## turn. The once a turn is in the pictograph's own hover words.
-			"pair", "triple", "quad", "quint": return str({"pair": "pair", "triple": "triple", "quad": "4 alike", "quint": "5 alike"}[str(t.kind)]) + (" %d+" % n if n > 1 else "")
-			"straight": return "run of %d" % n
-			"all_odd": return "all odd"
-			"all_even": return "all even"
-		return ""
-	func power(index: int) -> void:
-		## A move being acted out: its tile jumps.
-		if index >= 0 and index < _tiles.size():
-			DeepUi.pulse(_tiles[index], 1.15, 0.3)
-	func impact(index: int) -> void:
-		if index >= 0 and index < _tiles.size():
-			DeepUi.pulse(_tiles[index], 1.06, 0.25)
-		else:
-			DeepUi.pulse(self, 1.03, 0.3)
-	func fade(gone: Callable = Callable()) -> void:
-		## Out, and then freed: `gone` is told first, so the screen can drop it from its book.
-		fading = true
-		var tween := create_tween()
-		tween.tween_interval(0.35)
-		tween.tween_property(self, "modulate:a", 0.0, 0.3)
-		tween.tween_callback(func() -> void:
-			visible = false
-			if gone.is_valid():
-				gone.call()
-			queue_free())
-
-func _plate_input(event: InputEvent, id: String) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		_target(id)
+## Where the ledger stands from the top of the room: under the fight's name and the count of
+## creatures.
+const LEDGER_TOP: float = 74.0
 
 func _sync_enemy_panel() -> void:
-	## The table is always open on someone: the creature acting, else the one under the
+	## The ledger is always open on someone: the creature acting, else the one under the
 	## pointer, else the player's target.
 	if _enemy_panel == null:
 		return
-	var id: String = _hovered_creature if not _hovered_creature.is_empty() else str(me().get("target", ""))
+	if state.is_empty() or str(state.get("phase", "")) == "over":
+		_enemy_panel.reset()
+		return
+	var who: String = "target"
+	var id: String = str(me().get("target", ""))
+	if not _hovered_creature.is_empty():
+		id = _hovered_creature
+		who = "looking" if _hovered_creature != str(me().get("target", "")) else "target"
 	for foe in state.get("enemies", []):
 		if bool(foe.get("acting", false)) and int(foe.hp) > 0:
 			id = str(foe.id)
+			who = "acting"
 			break
-	var foe: Dictionary = DeepBattle.enemy(state, id)
+	var foe: Dictionary = _shown(DeepBattle.enemy(state, id))
 	if foe.is_empty() or int(foe.get("hp", 0)) <= 0:
-		## A target that has just fallen hands the table to whoever is still standing.
+		## A target that has just fallen hands the ledger to whoever is still standing.
 		var living: Array = DeepBattle.living(state.get("enemies", []))
 		if living.is_empty():
 			_enemy_panel.reset()
 			return
-		foe = living[0]
-	_enemy_panel.show_enemy(foe, int(state.get("turn", 0)))
+		foe = _shown(living[0])
+		who = "target"
+	_enemy_panel.max_height = _ledger_room(str(foe.get("id", "")))
+	_enemy_panel.show_foe(foe, state, who, _lit_move if str(foe.get("id", "")) == _enemy_roll_id else "")
 	_position_enemy_panel()
 
+func _ledger_room(id: String = "") -> float:
+	## How tall the ledger may stand: from under the fight's name to just over the dock and the
+	## party's chips, and never down over a creature's tag on its side of the room (the dice
+	## standing out over a tag's top edge are counted). In steps of ten, so a tag easing into
+	## place does not have it laid out afresh every frame.
+	if _headless or _dock == null or not is_inside_tree():
+		return 450.0
+	var floor_y: float = _dock_top() - global_position.y - 14.0
+	var right: bool = _ledger_right(id if not id.is_empty() else _enemy_panel.enemy_id)
+	var x0: float = size.x - 16.0 - EnemyPanel.WIDTH if right else 16.0 + left_inset
+	var x1: float = x0 + EnemyPanel.WIDTH
+	for key in _plates:
+		var node: Variant = _plates[key]
+		if node == null or not is_instance_valid(node) or not (node as Control).visible or (node as Plate).fading:
+			continue
+		var tag: Plate = node
+		if tag.position.x - TAG_REACH < x1 + 8.0 and tag.position.x + tag.size.x > x0 - 8.0:
+			floor_y = minf(floor_y, tag.position.y - 16.0)
+	return clampf(floorf((floor_y - LEDGER_TOP) / 10.0) * 10.0, 240.0, 600.0)
+
 func _position_enemy_panel() -> void:
-	## The table keeps to the left of the room (right of the chart, when it is open), and
-	## crosses to the right only when it would stand in front of a creature there and the
-	## right is clearer.
+	## The ledger stands on the side of the room away from the creature it reads (the owner's
+	## rule): a creature on the left is read on the right, one on the right or in the middle on
+	## the left... and a creature in the very middle (a Warden alone) on the right. Clear of the
+	## chart on the left when it is open.
 	if _enemy_panel == null or not _enemy_panel.visible:
 		return
-	var right: float = size.x - 20.0
 	var panel_size: Vector2 = _enemy_panel.size
-	var at_right := Rect2(Vector2(maxf(20.0, right - panel_size.x), 82.0), panel_size)
-	var at_left := Rect2(Vector2(minf(20.0 + left_inset, at_right.position.x), 82.0), panel_size)
-	var bodies: Array = _creature_rects()
-	## A little slack on the way back keeps a bobbing creature from flicking it side to side.
-	var on_right: bool = is_equal_approx(_enemy_panel.position.x, at_right.position.x) and at_left.position.x != at_right.position.x
-	var left_cover: float = _cover(at_left.grow(12.0 if on_right else 0.0), bodies)
-	if left_cover > 0.0 and _cover(at_right, bodies) < left_cover:
-		_enemy_panel.position = at_right.position
-	else:
-		_enemy_panel.position = at_left.position
+	var right_x: float = maxf(16.0 + left_inset, size.x - 16.0 - panel_size.x)
+	var left_x: float = minf(16.0 + left_inset, right_x)
+	_enemy_panel.position = Vector2(right_x if _ledger_right(_enemy_panel.enemy_id) else left_x, LEDGER_TOP)
 
-func _creature_rects() -> Array:
-	## Where each living creature and its nameplate stand on the screen.
-	var rects: Array = []
-	for foe in DeepBattle.living(state.get("enemies", [])):
-		var id: String = str(foe.id)
-		var plate: Variant = _plates.get(id, null)
-		if plate != null and is_instance_valid(plate) and plate.visible:
-			rects.append(Rect2(plate.global_position - global_position, plate.size))
-		var creature: CrystalCreature = _creature(id)
-		if creature == null or _camera == null or _headless:
-			continue
-		var feet: Vector2 = _to_screen(creature.rest_position)
-		var head: Vector2 = _to_screen(creature.rest_position + Vector3(0, creature.anchor.y, 0))
-		var tall: float = maxf(40.0, feet.y - head.y)
-		rects.append(Rect2(Vector2(feet.x - tall * 0.35, head.y), Vector2(tall * 0.7, tall)))
-	return rects
+func _ledger_right(id: String) -> bool:
+	## Whether the ledger on this creature stands on the right: it does when the creature is
+	## left of the middle of the room (or in it).
+	var creature: CrystalCreature = _creature(id)
+	if creature != null and _camera != null and not _headless:
+		return _to_screen(creature.rest_position).x <= size.x * 0.5 + 1.0
+	var living: Array = DeepBattle.living(state.get("enemies", []))
+	var at: int = living.map(func(f: Dictionary) -> String: return str(f.get("id", ""))).find(id)
+	return at < 0 or float(at) <= float(living.size() - 1) * 0.5
 
-static func _cover(area: Rect2, rects: Array) -> float:
-	var total: float = 0.0
-	for rect in rects:
-		var overlap: Rect2 = area.intersection(rect)
-		total += overlap.get_area()
-	return total
-func _inspect_creature(id: String, move: String) -> void:
+func _inspect_creature(id: String, _move: String = "") -> void:
+	## A right-click on a creature, or on its tag: the window with its die, turnable, beside
+	## what each face does (its foot opens the Bestiary page).
 	var foe: Dictionary = DeepBattle.enemy(state, id)
-	if not foe.is_empty():
-		Inspector.creature(foe, state, {"move": move})
+	if foe.is_empty() or int(foe.get("hp", 0)) <= 0:
+		return
+	_close_die_window()
+	var window: Control = DieWindow.new()
+	_die_window = window
+	window.closed.connect(func() -> void:
+		if _die_window == window:
+			_die_window = null)
+	add_child(window)
+	window.open(_shown(foe), state)
+
+func _close_die_window() -> void:
+	if _die_window != null and is_instance_valid(_die_window):
+		_die_window.close()
+	_die_window = null
 
 func _inspect_die(id: String, owner_id: String = "") -> void:
 	var unit: Dictionary = DeepBattle.player(state, local_id if owner_id.is_empty() else owner_id)
@@ -3814,7 +3412,35 @@ func _target(id: String) -> void:
 			var creature: CrystalCreature = _creatures[id]
 			_fx.ring_wave(creature.global_position, DeepUi.ACCENT, 1.6, 0.4, 0.12)
 
+## The pointer on the ledger holds the creature it reads, so its keywords can be pointed at;
+## and leaving a creature lets it go only after a moment, so the pointer can get there.
+var _ledger_held: bool = false
+var _hover_want: String = ""
+var _unhover_pending: bool = false
+const UNHOVER_GRACE: float = 0.35
+
 func _hover_creature(id: String) -> void:
+	_hover_want = id
+	if id == _hovered_creature:
+		return
+	if id.is_empty() and not _headless and is_inside_tree():
+		if not _unhover_pending:
+			_unhover_pending = true
+			get_tree().create_timer(UNHOVER_GRACE).timeout.connect(func() -> void:
+				if not is_instance_valid(self):
+					return
+				_unhover_pending = false
+				if _hover_want.is_empty() and not _ledger_held:
+					_set_hover(""))
+		return
+	_set_hover(id)
+
+func _ledger_hover(on: bool) -> void:
+	_ledger_held = on
+	if not on:
+		_hover_creature("")
+
+func _set_hover(id: String) -> void:
 	if id == _hovered_creature:
 		return
 	if _creatures.has(_hovered_creature) and is_instance_valid(_creatures[_hovered_creature]):
@@ -3822,6 +3448,7 @@ func _hover_creature(id: String) -> void:
 	_hovered_creature = id
 	if not state.is_empty():
 		_sync_plates()
+		_sync_enemy_panel()
 	if _creatures.has(id) and is_instance_valid(_creatures[id]):
 		_creatures[id].set_hovered(true)
 
@@ -3907,9 +3534,17 @@ func _process(delta: float) -> void:
 	## The table is weighed against the creatures a few times a second rather than every
 	## frame, and at once whenever it has changed size.
 	_panel_clock -= delta
+	if _water != null and is_instance_valid(_water) and _local_page != null and _local_page.tray_box != null:
+		_water.visible = _is_shown(local_id) and is_visible_in_tree()
+		_water.global_position = _local_page.tray_box.global_position + Vector2(-8, -6)
+		_water.size = Vector2(_local_page.tray_box.size.x + 16.0, DIE_EDGE + 12.0)
 	if _enemy_panel != null and is_visible_in_tree() and (_panel_clock <= 0.0 or _enemy_panel.size != _panel_placed_size):
 		_panel_clock = PANEL_EVERY
 		_panel_placed_size = _enemy_panel.size
+		## The tags have moved (the fight's first frames, a creature gone): the ledger is laid
+		## out again for the room it now has.
+		if _enemy_panel.visible and not state.is_empty() and not is_equal_approx(_ledger_room(), _enemy_panel.max_height):
+			_sync_enemy_panel()
 		_position_enemy_panel()
 	## The party's tabs stand on the dock, from its left edge (clear of the chart, when it is
 	## open): their bottom edge is its top edge, wherever it grows to. Alone, only the chips
@@ -3923,10 +3558,14 @@ func _process(delta: float) -> void:
 		_later_do(0.5, _turn_opening)
 	if _headless or _camera == null or not is_visible_in_tree():
 		return
-	## The plates ride above the creatures' heads. `highest` is how far the worst of them
-	## sits below the top of the screen, which is what the camera frames by.
+	## The tags stand at the creatures' feet (the plates rethink), each centred under its own
+	## creature's mark on the floor, not its body: a creature that breathes, rears or reels must
+	## not drag its tag about while somebody is reading it. `highest` is the top of the tallest
+	## creature and `lowest` the foot of the lowest tag, which the camera frames by.
 	var ceiling: float = 72.0
 	var highest: float = INF
+	var lowest: float = -INF
+	var floor_y: float = _dock_top() - global_position.y - 4.0
 	var placed: Array = []
 	for id in _plates:
 		var node: Variant = _plates[id]
@@ -3934,234 +3573,225 @@ func _process(delta: float) -> void:
 			continue
 		var plate: Plate = node
 		var creature: CrystalCreature = _creature(id)
-		## A half split off (or something summoned) mid-turn has its plate before its body,
-		## which waits for the room to settle: until it is first placed it has nowhere to
-		## stand and would sit in the corner over the room's title, so it waits hidden.
+		## A half split off (or something summoned) mid-turn has its tag before its body, which
+		## waits for the room to settle: until it is first placed it has nowhere to stand and
+		## would sit in the corner over the room's title, so it waits hidden.
 		if plate.position == Vector2.ZERO:
 			plate.visible = creature != null
 		if not plate.visible or creature == null:
 			continue
-		## A step of its lines unfolding or folding away; folding, it is made no taller than it
-		## now is: a free control keeps the size it last grew to, and that would go on catching
-		## the pointer over the creature.
-		plate.unfold(delta)
-		plate.reset_size()
-		## Its mark on the floor, not its body: a creature that breathes, rears or reels must
-		## not drag its own plate about while somebody is trying to read it.
 		var stood: Vector3 = creature.rest_position
-		var world_point: Vector3 = stood + Vector3(0, creature.anchor.y + 0.15, 0)
-		if _camera.is_position_behind(world_point):
+		if _camera.is_position_behind(stood):
 			continue
-		var screen: Vector2 = _to_screen(world_point)
-		var footing: float = plate.base_height()
-		var goal: Vector2 = screen - Vector2(plate.size.x * 0.5, footing + 12)
+		var feet: Vector2 = _to_screen(stood)
+		var top: Vector2 = _to_screen(stood + Vector3(0, creature.anchor.y + 0.15, 0))
+		var goal := Vector2(feet.x - plate.size.x * 0.5, feet.y + TAG_DROP)
 		if not plate.fading and not bool(creature.get_meta("dying", false)):
-			highest = minf(highest, goal.y)
-		var beside: bool = goal.y < ceiling
-		if beside:
-			## No room over its head: the plate stands beside it instead of across its face.
-			var body: Vector2 = _to_screen(stood + Vector3(0, creature.anchor.y * 0.55, 0))
-			var reach: float = absf(_to_screen(stood + Vector3(1.2 * creature.scale.x, 0, 0)).x - _to_screen(stood).x)
-			var right_side: bool = body.x < size.x * 0.6
-			goal = Vector2(body.x + reach + 16.0 if right_side else body.x - reach - 16.0 - plate.size.x, body.y - footing * 0.5)
-		goal.x = clampf(goal.x, 8.0, size.x - plate.size.x - 8.0)
-		goal.y = clampf(goal.y, ceiling, size.y - footing - 260.0)
-		placed.append([plate, goal, beside])
-	## Creatures that stand close (a slime split three ways) put their plates over each other,
-	## hiding the health of all but the last. Left to right, a plate that would cover the one
-	## before it steps up above it, or down below it where there is no room above.
-	placed.sort_custom(func(a: Array, b: Array) -> bool: return (a[1] as Vector2).x < (b[1] as Vector2).x)
-	var taken: Array = []
-	for entry in placed:
-		var plate: Plate = entry[0]
-		var goal: Vector2 = entry[1]
-		for _try in range(3):
-			var rect := Rect2(goal, Vector2(plate.size.x, plate.base_height())).grow(3.0)
-			var hit: Rect2 = Rect2()
-			for other in taken:
-				if rect.intersects(other):
-					hit = other
-					break
-			if hit.size == Vector2.ZERO:
-				break
-			var above: float = hit.position.y - plate.base_height() - 6.0
-			goal.y = above if above >= ceiling else hit.end.y + 6.0
-		taken.append(Rect2(goal, Vector2(plate.size.x, plate.base_height())))
-		entry[1] = goal
-	## A plate under the pointer stays where it stands. One that stepped aside for an open
-	## plate and is then pointed at opens, the other folds away, and stepping back would slide
-	## it out from under the pointer, close it, and start the two of them trading places.
-	var pointer: Vector2 = _plates_layer.get_local_mouse_position()
-	var pointed: Variant = _plates.get(_hovered_creature, null)
-	for entry in placed:
-		var plate: Plate = entry[0]
-		if plate == pointed and plate.rest != Vector2.ZERO and Rect2(plate.position, plate.size).has_point(pointer):
-			entry[1] = plate.rest
-	var rises: Dictionary = _plate_rises(placed, ceiling)
+			highest = minf(highest, top.y)
+			lowest = maxf(lowest, goal.y + plate.standing_height())
+		placed.append([plate, goal])
+	_spread_tags(placed, floor_y)
 	for entry in placed:
 		var plate: Plate = entry[0]
 		var goal: Vector2 = entry[1]
 		plate.rest = plate.rest.lerp(goal, clampf(delta * 14.0, 0.0, 1.0)) if plate.rest != Vector2.ZERO else goal
-		## Up by its lines as they unfold, not eased after them: the unfolding is already eased,
-		## and a plate trailing its own lines would let them dip over the creature on the way.
-		plate.position = plate.rest - Vector2(0.0, minf(plate.lift(), float(rises.get(plate, 0.0))))
-	_place_enemy_roll(delta)
-	_frame_camera(highest, ceiling, delta)
+		plate.position = plate.rest.round()
+	_frame_camera(highest, ceiling, delta, lowest - floor_y)
 
-func _plate_rises(placed: Array, ceiling: float) -> Dictionary:
-	## How far each open plate may rise over its closed place ([plate, goal, beside] entries)
-	## to make room for its lines: all of their height, as far as the top of the screen allows.
-	## A neighbour's plate where the open one will stand steps out of its way while it is open
-	## (`_step_aside`); one that has nowhere to go holds it down under itself instead. A plate
-	## stood beside its creature does not rise: its lines hang beside the creature, not over it.
-	var rises: Dictionary = {}
+## How far under its feet a creature's tag hangs, and the room kept between two tags (the next
+## one's dice stand out past its left edge).
+const TAG_DROP: float = 14.0
+const TAG_GAP: float = 20.0
+## How far a tag's dice reach out past its left edge, which keeps it clear of the screen's.
+const TAG_REACH: float = 14.0
+
+func _spread_tags(placed: Array, floor_y: float) -> void:
+	## Tags of creatures standing close would cover one another: left to right, they are eased
+	## apart sideways, each giving half the way, as far as the screen allows; where the row is
+	## too full for that, a tag steps down under the one it would cover. None stands over the
+	## dock. `placed` holds [tag, goal] pairs; the goals are moved in place.
+	placed.sort_custom(func(a: Array, b: Array) -> bool: return (a[1] as Vector2).x < (b[1] as Vector2).x)
+	var left_edge: float = 8.0 + TAG_REACH + left_inset
 	for entry in placed:
 		var plate: Plate = entry[0]
-		if bool(entry[2]) or not plate.unfolding():
-			continue
 		var goal: Vector2 = entry[1]
-		var rise: float = clampf(plate.full_lift(), 0.0, maxf(0.0, goal.y - ceiling))
-		if plate.expanded:
-			for other in placed:
-				var near: Plate = other[0]
-				if near == plate:
-					continue
-				var open := Rect2(goal.x, goal.y - rise, plate.size.x, plate.base_height() + plate.full_lift()).grow(3.0)
-				var rect := Rect2(other[1], Vector2(near.size.x, near.standing_height()))
-				if not rect.intersects(open):
-					continue
-				var spot: Vector2 = _step_aside(rect, open, placed, [plate, near], ceiling)
-				if spot.is_finite():
-					other[1] = spot
-				elif rect.end.y <= goal.y:
-					rise = clampf(goal.y - rect.end.y - 6.0, 0.0, rise)
-		rises[plate] = rise
-	return rises
+		entry[1] = Vector2(clampf(goal.x, left_edge, maxf(left_edge, size.x - plate.size.x - 8.0)), goal.y)
+	for _pass in range(10):
+		var moved: bool = false
+		for i in range(1, placed.size()):
+			var a: Array = placed[i - 1]
+			var b: Array = placed[i]
+			var a_plate: Plate = a[0]
+			var b_plate: Plate = b[0]
+			var a_at: Vector2 = a[1]
+			var b_at: Vector2 = b[1]
+			if absf(a_at.y - b_at.y) >= maxf(a_plate.size.y, b_plate.size.y) + 4.0:
+				continue
+			var overlap: float = a_at.x + a_plate.size.x + TAG_GAP - b_at.x
+			if overlap <= 0.5:
+				continue
+			var a_x: float = maxf(left_edge, a_at.x - overlap * 0.5)
+			var b_x: float = minf(size.x - b_plate.size.x - 8.0, b_at.x + overlap - (a_at.x - a_x))
+			a[1] = Vector2(a_x, a_at.y)
+			b[1] = Vector2(b_x, b_at.y)
+			moved = true
+		if not moved:
+			break
+	## Still covering: the later one steps down under the one before it.
+	for i in range(1, placed.size()):
+		var a: Array = placed[i - 1]
+		var b: Array = placed[i]
+		var a_plate: Plate = a[0]
+		var a_at: Vector2 = a[1]
+		var b_at: Vector2 = b[1]
+		if b_at.x < a_at.x + a_plate.size.x + TAG_GAP * 0.5 - 0.5 and absf(a_at.y - b_at.y) < a_plate.size.y + 4.0:
+			b[1] = Vector2(b_at.x, a_at.y + a_plate.size.y + 8.0)
+	for entry in placed:
+		var plate: Plate = entry[0]
+		var goal: Vector2 = entry[1]
+		entry[1] = Vector2(goal.x, minf(goal.y, floor_y - plate.standing_height()))
 
-func _step_aside(rect: Rect2, open: Rect2, placed: Array, skip: Array, ceiling: float) -> Vector2:
-	## Where a closed plate (`rect`, with its chips) can stand clear of an open one: just past
-	## its side, away from it; or there and up as far as the top of the screen, past a third
-	## plate; or straight up over it. On the screen and clear of every other plate, or INF.
-	var x: float = open.position.x - rect.size.x - 3.0 if rect.get_center().x < open.get_center().x else open.end.x + 3.0
-	for spot in [Vector2(x, rect.position.y), Vector2(x, ceiling), Vector2(rect.position.x, open.position.y - rect.size.y - 3.0)]:
-		if spot.x < 8.0 or spot.x > size.x - rect.size.x - 8.0 or spot.y < ceiling:
-			continue
-		var at := Rect2(spot, rect.size).grow(3.0)
-		if at.intersects(open):
-			continue
-		var clear: bool = true
-		for third in placed:
-			var far: Plate = third[0]
-			if clear and not skip.has(far):
-				clear = not at.intersects(Rect2(third[1], Vector2(far.size.x, far.standing_height())))
-		if clear:
-			return spot
-	return Vector2.INF
-
-# --- the die over a creature's head -------------------------------------------------------------
+# --- the throw, on the tag ------------------------------------------------------------------------
 ##
-## A creature's roll used to turn inside its moves table, which made the table a different
-## size while it acted and put a big die over the room. It turns over the creature's own
-## head instead, riding just above its plate, or beside the plate when the plate is already
-## against the top of the screen; the table only reads the number once it has landed.
+## A creature throws on its own tag (the owner's round four and five): the die grows 1.7 times
+## about its right edge and middle, comes in front of every other tag, tumbles and lands, and
+## what it landed on is a pill over the die, never over the creature's head. The ledger lights
+## that face's row once it has landed. The die goes back into the tag as the action ends.
 
 func _show_enemy_roll(event: Dictionary) -> void:
-	if _headless or stage.walking():
+	var id: String = str(event.get("unit", ""))
+	var plate: Variant = _plates.get(id, null)
+	if plate == null or not is_instance_valid(plate):
 		return
-	if _enemy_roll == null or not is_instance_valid(_enemy_roll):
-		_enemy_roll = RollBadge.new()
-		_plates_layer.add_child(_enemy_roll)
-	_enemy_roll_id = str(event.get("unit", ""))
-	_enemy_roll.roll(event)
+	if not _enemy_roll_id.is_empty() and _enemy_roll_id != id:
+		_hide_enemy_roll()
+	_enemy_roll_id = id
+	_lit_token += 1
+	if not _headless and (plate as Control).get_parent() == _plates_layer:
+		_plates_layer.move_child(plate, -1)
+	(plate as Plate).roll(event)
+	## The ledger lights the face once it has landed, not while it is still in the air.
+	var landed: String = str(event.get("roll", {}).get("move", ""))
+	var token: int = _lit_token
+	var light := func() -> void:
+		if token != _lit_token or _enemy_roll_id != id:
+			return
+		_lit_move = landed
+		if _enemy_panel != null and _enemy_panel.visible and _enemy_panel.enemy_id == id:
+			_enemy_panel.set_lit(landed)
+	if _headless or not is_inside_tree():
+		light.call()
+	else:
+		_later_do(maxf(0.3, float(event.get("duration", 1.1)) - 0.28), light)
 
 func _hide_enemy_roll() -> void:
-	_enemy_roll_id = ""
-	if _enemy_roll != null and is_instance_valid(_enemy_roll):
-		_enemy_roll.put_away()
-
-func _place_enemy_roll(delta: float) -> void:
-	if _enemy_roll == null or not is_instance_valid(_enemy_roll) or not _enemy_roll.visible:
-		return
+	## Its action is over: its die goes back into its tag and the ledger's row goes dark.
 	var plate: Variant = _plates.get(_enemy_roll_id, null)
-	if plate == null or not is_instance_valid(plate) or not (plate as Control).visible or _creature(_enemy_roll_id) == null:
-		_hide_enemy_roll()
+	if plate != null and is_instance_valid(plate):
+		(plate as Plate).settle()
+	_enemy_roll_id = ""
+	_lit_move = ""
+	_lit_token += 1
+	if _enemy_panel != null and _enemy_panel.visible:
+		_enemy_panel.set_lit("")
+
+func _tag_events(kind: String, event: Dictionary) -> void:
+	## What a creature's move did to its own dice and to itself, said on its tag and in the
+	## ledger as it lands (docs/CREATURE_DICE.md): a face re-etched or a die grown (the solids
+	## and pips change with the state that follows), a Void Echo becoming something else, a
+	## creature running off, a lantern's price counted out per reroll.
+	var id: String = str(event.get("unit", ""))
+	var plate: Variant = _plates.get(id, null)
+	var tag: Plate = plate as Plate if plate != null and is_instance_valid(plate) else null
+	match kind:
+		"enemy_ability":
+			if tag != null:
+				tag.power(str(event.get("move", "")))
+		"enemy_move":
+			if tag != null:
+				tag.impact(str(event.get("move", "")))
+			var changed: Array = []
+			var rerolls: int = -1
+			var total: int = 0
+			for effect in event.get("effects", []):
+				if not effect is Dictionary:
+					continue
+				for change in effect.get("etched", []):
+					changed.append(change)
+				if effect.has("die") and str(effect.get("kind", "")) in ["grow_die", "grow_faces"] and not bool(effect.get("nothing", false)):
+					## A die grown a size says which; a new die is the last one now.
+					var at: int = int(effect.die) if effect.die is int or effect.die is float else int(effect.get("heads", 0)) - 1
+					changed.append({"die": at, "to": "", "kind": "ready"})
+				if effect.has("became"):
+					_morph_creature(id, effect)
+				if bool(effect.get("fled", false)):
+					_flee(_creature(id), int(effect.get("stolen", 0)))
+				if effect.has("rerolls") and str(effect.get("target", "")) == local_id:
+					rerolls = int(effect.rerolls)
+					total += int(effect.get("amount", 0))
+			if tag != null and not changed.is_empty():
+				## The state that follows this step carries the new faces; the tag hops once it has them.
+				var hop := func() -> void:
+					if is_instance_valid(tag):
+						tag.etched(changed)
+				if _headless:
+					hop.call()
+				else:
+					hop.call_deferred()
+				if _enemy_panel != null and _enemy_panel.enemy_id == id:
+					DeepUi.pulse(_enemy_panel, 1.02, 0.25)
+			if tag != null and rerolls >= 0:
+				## A lantern's price: so much for every reroll, and what that came to.
+				var said: String = tag.result_words()
+				if not said.is_empty():
+					var cut: int = said.find(" → ")
+					var head: String = said.substr(0, cut) if cut >= 0 else said
+					var tail: String = said.substr(cut) if cut >= 0 else ""
+					tag.say("%s × %d %s = %s%s" % [head, rerolls, "reroll" if rerolls == 1 else "rerolls", DeepUi.number(total), tail])
+
+func _morph_creature(id: String, effect: Dictionary) -> void:
+	## A Void Echo's Echo Anew: the creature it was goes, and the one it has become stands where
+	## it stood, at that one's full health. Its tag reads the new name and health with the state
+	## that follows.
+	var old: CrystalCreature = _creature(id)
+	var foe: Dictionary = DeepBattle.enemy(state, id)
+	if old == null or _headless:
 		return
-	var over: Control = plate
-	## A plate opened since this roll began comes to the front; the die still rides over it.
-	if _enemy_roll.get_index() != _plates_layer.get_child_count() - 1:
-		_plates_layer.move_child(_enemy_roll, -1)
-	var goal := Vector2(over.position.x + (over.size.x - _enemy_roll.size.x) * 0.5, over.position.y - _enemy_roll.size.y - 6.0)
-	if goal.y < 8.0:
-		## The plate is already against the top of the screen: the die stands beside it,
-		## on whichever side has the room.
-		var right_side: bool = over.position.x + over.size.x + _enemy_roll.size.x + 20.0 < size.x
-		goal = Vector2(over.position.x + over.size.x + 10.0 if right_side else over.position.x - _enemy_roll.size.x - 10.0, over.position.y)
-	goal.x = clampf(goal.x, 8.0, size.x - _enemy_roll.size.x - 8.0)
-	goal.y = maxf(goal.y, 8.0)
-	_enemy_roll.position = _enemy_roll.position.lerp(goal, clampf(delta * 14.0, 0.0, 1.0)) if _enemy_roll.position != Vector2.ZERO else goal
+	var spot: Vector3 = old.rest_position
+	var fresh: CrystalCreature = CrystalCreature.make(str(foe.get("key", "VOID_ECHO")), bool(foe.get("warden", false)), str(effect.get("became", "")))
+	fresh.position = spot
+	fresh.rest_position = spot
+	if _chamber != null:
+		fresh.ground = _chamber.ground
+	_world.add_child(fresh)
+	_creatures[id] = fresh
+	## The old shape twists away into a point of light, and the new one unwinds out of it.
+	fresh.materialize(0.35)
+	fresh.set_targeted(str(me().get("target", "")) == id)
+	var at: Vector3 = old.centre()
+	_fx.puff(at, Color("8b7dff"), 26, 1.2, 1.4, 0.8)
+	_fx.sparks(at, Color("b8adff"), 40, 4.0, 0.8, 0.06)
+	_fx.ring_wave(Vector3(spot.x, 0.0, spot.z), Color("8b7dff"), 2.6, 0.5)
+	_float_world(at + Vector3(0, 0.8, 0), "Becomes %s" % str(DeepContent.creature(str(effect.get("became", ""))).get("name", "something else")), Color("c8bfff"), 20)
+	DeepAudio.play_at(global_position + _to_screen(at), "rock_break", {"volume": 0.7})
+	old.set_meta("killed", true)
+	old.set_meta("dying", true)
+	old.vanish(0.5)
+	var plate: Variant = _plates.get(id, null)
+	if plate != null and is_instance_valid(plate):
+		DeepUi.pulse(plate, 1.1, 0.4)
 
-class RollBadge extends Control:
-	## One die turning in the air over a creature. The solid itself says what it landed on, so
-	## nothing is written under it and it keeps no room for words that are not there.
-	const EDGE: float = 84.0
-	var _die: DiceView
-	var _tween: Tween
-	func _init() -> void:
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		custom_minimum_size = Vector2(EDGE, EDGE)
-		size = custom_minimum_size
-		_die = DiceView.new()
-		_die.position = Vector2.ZERO
-		_die.size = Vector2(EDGE, EDGE)
-		_die.custom_minimum_size = _die.size
-		_die.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(_die)
-		visible = false
-	func roll(event: Dictionary) -> void:
-		if _tween != null and _tween.is_valid():
-			_tween.kill()
-		visible = true
-		modulate.a = 1.0
-		var suspense: bool = bool(event.get("suspense", false))
-		_die.spin_seconds = maxf(0.3, float(event.get("duration", 1.1)) - 0.28)
-		_die.suspense = suspense
-		_die.suspense_scale = CameraRig.comfort
-		_die.configure(event.die, event.roll, false, true, DeepUi.BAD)
-		_tween = create_tween()
-		if suspense:
-			## Rising clacks on scaled time, so the fight's speed cannot pull them apart.
-			for index in range(5):
-				var pitch: float = 0.8 + float(index) * 0.14
-				_tween.tween_callback(func() -> void: DeepAudio.from(_die, "die_tumble", {"pitch": pitch, "volume": 0.3 + pitch * 0.15, "gap": 0.0}))
-				_tween.tween_interval(_die.spin_seconds / 5.0)
-		else:
-			_tween.tween_interval(_die.spin_seconds)
-		var value: int = int(event.get("roll", {}).get("value", 0))
-		_tween.tween_callback(func() -> void:
-			DeepUi.pulse(_die, 1.08 if ScreenFx.calm else 1.22, 0.23)
-			if not ScreenFx.calm:
-				DeepUi.burst(self, _die.size * 0.5, DeepUi.BAD, 13, 95.0, 0.25)
-			DeepAudio.from(_die, "hit_crit", {"volume": 0.45, "pitch": 0.9 + float(value) * 0.018}))
-	func put_away() -> void:
-		if not visible:
-			return
-		if _tween != null and _tween.is_valid():
-			_tween.kill()
-		_tween = create_tween()
-		_tween.tween_property(self, "modulate:a", 0.0, 0.25)
-		_tween.tween_callback(func() -> void:
-			visible = false
-			position = Vector2.ZERO)
-
-func _frame_camera(highest: float, ceiling: float, delta: float) -> void:
-	## A tall Warden and its plate must fit under the top of the screen: the view widens and
-	## lifts a little until they do, and settles back when a smaller creature is left.
+func _frame_camera(highest: float, ceiling: float, delta: float, below: float = 0.0) -> void:
+	## A tall Warden must fit under the top of the screen, and the tags at the creatures' feet
+	## over the dock (`below` is how far the lowest runs past it): the view widens and lifts a
+	## little until they do, and settles back when a smaller creature is left.
 	if not _camera.has_method("settled") or not _camera.settled() or is_inf(highest):
 		return
 	var fov: float = _camera.home_fov
-	if highest < ceiling + 6.0:
-		fov = minf(84.0, fov + delta * clampf((ceiling + 6.0 - highest) * 0.35, 4.0, 30.0))
-	elif highest > ceiling + 90.0 and fov > BASE_FOV:
+	var squeeze: float = maxf(ceiling + 6.0 - highest, below)
+	if squeeze > 0.0:
+		fov = minf(84.0, fov + delta * clampf(squeeze * 0.35, 4.0, 30.0))
+	elif highest > ceiling + 90.0 and below < -40.0 and fov > BASE_FOV:
 		fov = maxf(BASE_FOV, fov - delta * 6.0)
 	_camera.home_fov = fov
 	_camera.home_look.y = 1.2 + (fov - BASE_FOV) * 0.05
@@ -4532,17 +4162,21 @@ func perform(event: Dictionary) -> void:
 				_firing_id = ""
 				_show_page(local_id)
 				_sync_tabs()
-	## A creature's move being acted out, or landing, is said on its plate.
-	var acting_plate: Variant = _plates.get(unit_id, null)
-	if acting_plate is Plate and is_instance_valid(acting_plate):
-		match kind:
-			"enemy_ability": (acting_plate as Plate).power(int(event.get("index", -1)))
-			"enemy_move": (acting_plate as Plate).impact(int(event.get("index", -1)))
+	## A creature's move being acted out, or landing, is said on its tag and in the ledger, and
+	## what it does to its own dice and to itself with it.
+	if kind in ["enemy_ability", "enemy_move"]:
+		_tag_events(kind, event)
 	match kind:
 		"enemy_roll": _show_enemy_roll(event)
 		"enemy_end", "skip", "battle_over", "turn_begin":
 			_hide_enemy_roll()
 			_brace({})
+		"enemy_begin":
+			## What it pinned on itself for the party's turn wears off as its action opens.
+			if not event.get("unpinned", []).is_empty() and not _headless:
+				var opened: Variant = _plates.get(unit_id, null)
+				if opened != null and is_instance_valid(opened):
+					DeepUi.pulse(opened, 1.04, 0.25)
 	## A turn's passives are shown once the room is up: straight away, or once the walk in ends.
 	if kind == "turn_begin":
 		_opening_due = true
@@ -4562,6 +4196,8 @@ func perform(event: Dictionary) -> void:
 				var words: String = str(hurt.get("kind", "")).capitalize()
 				if str(hurt.get("kind", "")) == "die_lock":
 					words = "Straight shattered · die locked"
+					for id in hurt.get("dice", []):
+						_locked_by[str(id)] = {"by": str(hurt.get("by", "")), "name": _foe_name(str(hurt.get("by", "")), "the Prismarch")}
 				_later_do(0.7 + 0.25 * float(said), func() -> void: _float_at(_hp_bar, words, DeepUi.BAD, 16))
 				said += 1
 			for entry in event.get("hands", []):
@@ -4596,6 +4232,8 @@ func perform(event: Dictionary) -> void:
 				_crowns_ring(event.get("crowned", []))
 				if int(event.get("backlash", 0)) > 0:
 					DeepAudio.play("enemy_strike", {"volume": 0.5})
+					if int(event.get("socket", -1)) >= 0 and int(event.get("socket", -1)) < _socket_cards.size():
+						DeepUi.burst(self, _center_of(_socket_cards[int(event.socket)]), Color("ff8ad8"), 12, 130.0, 0.45, 4.0)
 					_screen_fx.wound(0.4)
 					_float_at(_hp_bar, "−%d Backlash" % int(event.backlash), Color("ff8ad8"), 18)
 				if bool(event.get("damped", false)):
@@ -4779,6 +4417,7 @@ func _animate_tick(tick: Dictionary) -> void:
 		_float_world(creature.centre(), ("−" if hurt else "+") + DeepUi.number(int(tick.get("amount", 0))), color, 22)
 		if hurt:
 			creature.hit(0.3)
+			creature.tick_flash(str(tick.get("kind", "")))
 		if bool(tick.get("escorts", false)):
 			_float_world(creature.centre() + Vector3(0, 0.5, 0), "fed by its tendrils", DeepUi.GOOD, 13)
 		_thresholds(tick, creature)
@@ -5437,9 +5076,8 @@ func _count_creature(event: Dictionary) -> void:
 	plate.skill = str(event.get("move", ""))
 	plate.gem_anchor = _creature_plate.bind(id)
 	plate.die_anchor = _creature_die.bind(id)
-	plate.destination = func() -> Vector2:
-		var bar: Control = _vital_anchor(local_id)
-		return bar.get_global_rect().get_center() if bar != null and not bool(me().get("downed", false)) else Vector2.INF
+	## No destination: the figure fades where it was counted, beside the creature; the hit
+	## popup on the reader's bar already says where the blow landed.
 	var mine: Dictionary = _shown(me())
 	plate.blaze = not mine.is_empty() and not bool(mine.get("downed", false)) and int(tally.get("amount", 0)) * maxi(1, int(tally.get("repeat", 1))) >= int(mine.get("hp", 0)) + int(mine.get("block", 0))
 	add_child(plate)
@@ -6066,6 +5704,10 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 	_fx.flash(at, color, 4.0 + ratio * 10.0, 7.0, 0.3, 0.8 + ratio)
 	if int(hit.get("absorbed", 0)) > 0:
 		_fx.shield(at + Vector3(0, 0, 0.6), _camera.global_position - at, DeepUi.BLOCK, 0.7, 0.4)
+		## Its stone crust takes the blow: plates chip off it.
+		if creature.crusted():
+			creature.chip_crust()
+			_fx.shards(at + Vector3(0, 0.1, 0.5), Color("9aa0b4"), 5 + mini(12, int(ratio * 30.0)), 2.5, 0.1, 0.8)
 	_camera.add_trauma(0.1 + ratio * 0.55)
 	if ratio >= 0.25 or bool(hit.get("killed", false)):
 		_camera.punch(-4.0 - ratio * 4.0, 0.4)
@@ -6105,7 +5747,7 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 	if hit.has("mirrored"):
 		## The color it mirrors throws the blow straight back at whoever threw it.
 		_fx.beam(at, _camera.global_position + Vector3(0, -0.4, -1.0) if who != "" and str(hit.mirrored.get("target", "")) == local_id else at + Vector3(0, 2.0, 2.0), color, 0.35, 0.16)
-		_enemy_effect(hit.mirrored, creature)
+		_reflected_blow(hit.mirrored, creature, Color("eef2ff"), "mirrored")
 	if int(hit.get("capped", 0)) > 0:
 		_float_world(at + Vector3(0.6, 1.0, 0), "Sturdy", Color("c8b8a0"), 16)
 		_fx.shield(at + Vector3(0, -0.2, 0.4), Vector3.UP, Color("c8b8a0"), 1.0, 0.4)
@@ -6119,9 +5761,10 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 	if bool(hit.get("raw_drop", false)):
 		_float_world(at + Vector3(0, 1.3, 0), "A stone!", DeepUi.ACCENT_HI, 18)
 	_deathburst(hit, creature)
+	if not hit.get("reflections", []).is_empty():
+		creature.barrier_hit()
 	for reflection in hit.get("reflections", []):
-		_enemy_effect(reflection, creature)
-		_screen_fx.wound(0.3)
+		_reflected_blow(reflection, creature, Color("c8b8ff"), "reflected")
 	if hit.has("spikes"):
 		_enemy_effect(hit.spikes, creature)
 	if not str(hit.get("split", "")).is_empty():
@@ -6204,6 +5847,9 @@ func _afflict(who: String, effect: Dictionary, tone: Color) -> void:
 	if bool(effect.get("warded", false)) or bool(effect.get("immune", false)) or bool(effect.get("resisted", false)):
 		_fx.shield(at, Vector3.FORWARD, DeepUi.INFO, 0.8, 0.4)
 		_float_world(at, "Ward blocked" if bool(effect.get("warded", false)) else "Immune", DeepUi.INFO, 18)
+		if bool(effect.get("warded", false)):
+			creature.pop_ward()
+			_fx.shards(at, DeepUi.BLOCK, 8, 3.0, 0.08, 0.7)
 		return
 	var spoken: String = {"poison": "poison", "stun": "stun", "curse": "curse", "dice_dread": "curse",
 		"remove_block": "block_break", "die_steal": "ui_deny", "cleanse": "heal"}.get(kind, "")
@@ -6238,6 +5884,8 @@ func _dress(creature: CrystalCreature, foe: Dictionary) -> void:
 	if creature == null or not is_instance_valid(creature):
 		return
 	creature.burrow(bool(foe.get("burrowed", false)))
+	## A magpie carries the pyrite it has stolen in its beak.
+	creature.set_prize(int(foe.get("stolen_gold", 0)) > 0)
 	## A halo for what guards it, and a barrier between it and the party: the color it drinks,
 	## a refraction, a mirror held up.
 	var drinking: Array = foe.get("absorb", [])
@@ -6248,9 +5896,17 @@ func _dress(creature: CrystalCreature, foe: Dictionary) -> void:
 	elif int(foe.get("mirror", 0)) > 0:
 		creature.set_halo(Color("e8e0ff"))
 		creature.set_barrier("mirror", Color("eef2ff"))
+		## The glass shows the gem it will throw back: the first of the reader's hand to land.
+		var next_blow: Array = _next_blow_mark()
+		creature.set_mirror_gem(str(next_blow[0]), next_blow[1])
 	elif int(foe.get("reflect", 0)) > 0:
 		creature.set_halo(Color("e8e0ff"))
 		creature.set_barrier("refract", Color("c8b8ff"))
+	elif _wyrm_would_reflect(foe):
+		## A wyrm's dome, in its own light, while the hand being planned would fire a gem at
+		## Resonance 0 or 1 at it: the throw-back is seen before the lock-in.
+		creature.set_halo(creature.tint.lightened(0.3))
+		creature.set_barrier("refract", creature.tint.lightened(0.35))
 	else:
 		creature.clear_halo()
 		creature.set_barrier("")
@@ -6266,7 +5922,18 @@ func _dress(creature: CrystalCreature, foe: Dictionary) -> void:
 			for die_id in held:
 				if str(held[die_id]) == str(foe.get("id", "")):
 					holding += 1
-	creature.set_gripping(holding)
+	## Dice a Latch took turn in front of it beside the ones it grips.
+	creature.set_gripping(holding + _taken_count(str(foe.get("id", ""))))
+	## The gems it has swallowed or acquired, glowing inside it.
+	var held_marks: Array = []
+	for held in foe.get("held_gems", []):
+		var stone: Dictionary = held.get("stone", {})
+		if not stone.is_empty():
+			held_marks.append([GemMesh.emblem_of(stone), GemMesh.tint(stone)])
+	creature.set_held_gems(held_marks)
+	## What is on it, worn on the model (creature_wear.gd): the party's statuses, its block as
+	## a stone crust, a stun as a slump.
+	creature.wear_statuses(foe.get("statuses", {}), float(foe.get("block", 0)) / float(maxi(1, int(foe.get("max_hp", 1)))))
 
 func _due_next(foe: Dictionary) -> bool:
 	## Whether something it has been counting toward lands on its next action: a countdown at
@@ -6522,7 +6189,14 @@ func _gem_fizzle(event: Dictionary) -> void:
 
 func _enemy_windup(event: Dictionary) -> void:
 	var who: String = str(event.get("unit", ""))
-	var delay: float = maxf(0.0, float(event.get("duration", 0.7)) - 0.3)
+	var hostile: bool = event.get("effects", []).any(func(e: Dictionary) -> bool: return str(e.kind) in DeepRules.HOSTILE)
+	var anim: String = str(event.get("anim", ""))
+	var move: String = str(event.get("move", ""))
+	## Its own parts act the move out (creature_moves.gd), the blow landing as the move does: a
+	## move that takes longer to wind up (a tendril unfurling, a crawler rearing) starts sooner.
+	var acting: CrystalCreature = _creature(who)
+	var lead: float = acting.move_lead(anim, move, hostile) if acting != null else 0.3
+	var delay: float = maxf(0.0, float(event.get("duration", 0.7)) - lead)
 	var tween := create_tween()
 	tween.tween_interval(delay)
 	tween.tween_callback(func() -> void:
@@ -6530,11 +6204,8 @@ func _enemy_windup(event: Dictionary) -> void:
 		if creature == null:
 			return
 		DeepAudio.play_at(global_position + _to_screen(creature.centre()), "enemy_windup", {"volume": 0.7})
-		var hostile: bool = event.get("effects", []).any(func(e: Dictionary) -> bool: return str(e.kind) in DeepRules.HOSTILE)
-		if hostile:
-			creature.lunge(_camera.global_position, 0.62)
-		else:
-			creature.channel(0.6)
+		creature.play_move(anim, move, hostile, _before_me(3.0, -0.15), _fx)
+		if not hostile:
 			_fx.rise(creature.centre(), DeepUi.BLOCK, 18, 0.5)
 		_fx.flash(creature.centre(), creature.tint, 2.0, 3.0, 0.3, 0.5)
 		_float_world(creature.global_position + Vector3(0, creature.anchor.y + 0.3, 0), str(event.get("move", "")), creature.tint.lightened(0.4), 20))
@@ -6560,8 +6231,12 @@ func _enemy_move(event: Dictionary) -> void:
 				_held[local_id].landings = int(_held[local_id].landings) + landings
 			else:
 				_held[local_id] = {"hp": int(unit.hp) + hp, "block": int(unit.get("block", 0)) + block, "landings": landings, "until": Time.get_ticks_msec() + HELD_MS}
+	_acting_move = str(event.get("move", ""))
+	_acting_id = str(event.get("unit", ""))
 	for effect in event.get("effects", []):
 		_enemy_effect(effect, _creature(str(event.get("unit", ""))))
+	_acting_move = ""
+	_acting_id = ""
 	_soaking = false
 
 func _show_lifeline(who: String, hp: int) -> void:
@@ -6601,6 +6276,7 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 		if target_id == local_id:
 			_float_at(_hp_bar, "Reflected %s" % DeepUi.number(int(effect.get("reflected_amount", 0))), glass, 18)
 	_creature_fx(effect, creature, source)
+	_dock_tell(effect, creature)
 	match kind:
 		"damage":
 			var loss: int = int(effect.get("hp_loss", 0))
@@ -6626,11 +6302,14 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 					_screen_fx.wound(0.45 + ratio * 2.0)
 					_screen_fx.kick(0.4 + ratio * 2.0)
 					_screen_fx.blink(Color(1.0, 0.2, 0.15), 0.12 + ratio * 0.3)
-					_slash(creature.tint if creature != null and is_instance_valid(creature) else DeepUi.BAD)
+					if _reflecting.is_empty():
+						_slash(creature.tint if creature != null and is_instance_valid(creature) else DeepUi.BAD)
 				if absorbed > 0:
 					var ahead: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.8
 					_fx.shield(ahead, _camera.global_position - ahead, DeepUi.BLOCK, 0.9, 0.5)
 				var text: String = "−%d" % loss if loss > 0 else ("Reflected" if effect.has("reflected") and absorbed <= 0 else "Blocked")
+				if not _reflecting.is_empty() and loss > 0:
+					text = "−%d %s" % [loss, _reflecting]
 				_float_at(_hp_bar, text, DeepUi.BAD if loss > 0 else DeepUi.BLOCK, 26 + mini(20, loss))
 				## Hit while looking at someone else's page: the reader's own tab flinches too.
 				if loss > 0 and not _is_shown(local_id):
@@ -6724,8 +6403,6 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 					DeepAudio.from(card, "gem_fizzle", {"volume": 0.8})
 					DeepUi.shake(card, 12.0, 0.4)
 					_float_at(card, "Taken!", DeepUi.BAD, 18)
-					if creature != null and is_instance_valid(creature):
-						_fx.projectile(_origin_for(local_id, socket), creature.centre(), DeepUi.ACCENT, 0.5, 0.18, Callable(), 1.2)
 			elif bool(effect.get("nothing", false)) and creature != null and is_instance_valid(creature):
 				_float_world(creature.centre(), str(effect.get("reason", "Nothing to take")), DeepUi.DIM, 14)
 		"bury_socket":
@@ -6827,6 +6504,696 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 					if int(socket) < _socket_cards.size():
 						DeepUi.shake(_socket_cards[int(socket)], 12.0, 0.5)
 						DeepUi.burst(self, _center_of(_socket_cards[int(socket)]), DeepUi.BAD, 16, 140.0, 0.6)
+
+# --- the Creature Tells pass: what creatures do, shown on the dock (October 27, 2026) ------------
+
+func _creature_point(id: String) -> Callable:
+	## Where a creature stands on the screen, read whenever asked: the far end of a thread.
+	return func() -> Vector2:
+		var creature: CrystalCreature = _creature(id)
+		if creature == null or not is_instance_valid(creature) or _camera == null:
+			return Vector2(size.x * 0.5, size.y * 0.3)
+		return _to_screen(creature.centre())
+
+func _foe_name(id: String, fallback: String = "a creature") -> String:
+	var foe: Dictionary = DeepBattle.enemy(state, id) if not id.is_empty() else {}
+	return str(foe.get("name", fallback)) if not foe.is_empty() else fallback
+
+func _telegraph(control: Control, words: String = "") -> void:
+	## What a creature's move has just taken, lit where it stands on the dock: a pulsing red
+	## outline with the move's name over it, for a moment.
+	if _headless or control == null or not is_instance_valid(control) or not control.is_visible_in_tree():
+		return
+	add_child(Marks.Telegraph.new(Rect2(_center_of(control) - control.size * 0.5, control.size), words))
+
+func _refresh_marks() -> void:
+	## The marks on the reader's dice and rail, drawn again after an event told them more.
+	if state.is_empty() or _page == null or not _page.mine or me().is_empty():
+		return
+	var planning: bool = str(state.get("phase", "")) == "planning"
+	_sync_tray(me(), planning)
+	_sync_rail(me(), planning)
+
+func _hover_thread(control: Control, creature_id: String, tone: Color) -> void:
+	## A thread from a control on the dock to a creature while the pointer rests on it.
+	if creature_id.is_empty():
+		return
+	var line: Array = [null]
+	var host: Control = self
+	control.mouse_entered.connect(func() -> void:
+		if line[0] != null and is_instance_valid(line[0]):
+			line[0].queue_free()
+		line[0] = Marks.Tether.new(host, func() -> Vector2: return _center_of(control), _creature_point(creature_id), tone, true, 2.0))
+	control.mouse_exited.connect(func() -> void:
+		if line[0] != null and is_instance_valid(line[0]):
+			(line[0] as Marks.Tether).fade_out()
+		line[0] = null)
+	control.tree_exiting.connect(func() -> void:
+		if line[0] != null and is_instance_valid(line[0]):
+			line[0].queue_free())
+
+func _mark_badge(host: Control, want: Array, at: Vector2) -> void:
+	## One badge on a die or a socket for what a creature did to it: a glyph in the creature's
+	## colour, a plate on hover, and a thread back to the creature while the pointer rests.
+	## `want` is [glyph, tone, title, text, creature id], or empty for none; a sixth, a face
+	## mark, wears the mark the creature's move is engraved with on its die instead.
+	var badge: Control = host.get_node_or_null("Mark")
+	if want.is_empty():
+		if badge != null:
+			badge.name = "MarkGone"
+			badge.queue_free()
+		return
+	var face_mark: String = str(want[5]) if want.size() > 5 else ""
+	var key: String = "%s|%s|%s|%s|%s" % [str(want[0]), Color(want[1]).to_html(), str(want[2]), str(want[3]), face_mark]
+	if badge != null and str(badge.get_meta("key", "")) == key:
+		return
+	if badge != null:
+		badge.name = "MarkGone"
+		badge.queue_free()
+	var mark := Marks.Badge.new(str(want[0]), want[1])
+	if not face_mark.is_empty():
+		mark._texture = Look.mark_texture(face_mark)
+	mark.name = "Mark"
+	mark.position = at
+	mark.set_meta("key", key)
+	var title: String = str(want[2])
+	var text: String = str(want[3])
+	var tone: Color = want[1]
+	mark.set_plate(func() -> Control: return Plates.words(title, text, "", tone), tone)
+	if not str(want[4]).is_empty():
+		mark.thread(self, _creature_point(str(want[4])), tone)
+	host.add_child(mark)
+	if not _headless and host.is_inside_tree():
+		DeepUi.pop_in(mark, 0.0, 0.5)
+
+func _wyrm_would_reflect(foe: Dictionary) -> bool:
+	## A wyrm throws back any gem fired at Resonance 0 or 1: while the hand being planned
+	## would fire one at it, its dome stands, so the threat is seen before the lock-in.
+	if not DeepCreatures.has_trait(foe, "reflect_zero_resonance") or str(state.get("phase", "")) != "planning":
+		return false
+	if str(me().get("target", "")) != str(foe.get("id", "")):
+		return false
+	for entry in _local_page.forecast.get("sockets", []):
+		if bool(entry.get("active", false)) and int(entry.get("damage", 0)) > 0 and int(entry.get("resonance", 0)) <= 1:
+			return true
+	return false
+
+func _next_blow_mark() -> Array:
+	## The gem of the reader's hand whose blow lands first, as [glyph, color]: what a mirror
+	## shows it will throw back. A plain gem mark when nothing would land.
+	var unit: Dictionary = me()
+	var rail: Array = unit.get("rail", [])
+	for entry in _local_page.forecast.get("sockets", []):
+		if bool(entry.get("active", false)) and int(entry.get("damage", 0)) > 0:
+			var socket: int = int(entry.get("socket", -1))
+			if socket >= 0 and socket < rail.size() and rail[socket] is Dictionary:
+				return [GemMesh.emblem_of(rail[socket]), GemMesh.tint(rail[socket])]
+	return ["gem", DeepUi.PAPER]
+
+func _taken_count(foe_id: String) -> int:
+	## Dice a creature's Latch took that are still away from their owners.
+	var count: int = 0
+	var turn: int = int(state.get("turn", 0))
+	for id in _taken_by:
+		var taken: Dictionary = _taken_by[id]
+		if str(taken.get("by", "")) == foe_id and turn <= int(taken.get("turn", 0)) + 1:
+			count += 1
+	return count
+
+func _gem_holder(unit_id: String, socket: int) -> Dictionary:
+	## The creature holding the gem that stood in a socket, if one does.
+	for foe in state.get("enemies", []):
+		if int(foe.get("hp", 0)) <= 0:
+			continue
+		for held in foe.get("held_gems", []):
+			if str(held.get("unit", "")) == unit_id and int(held.get("socket", -1)) == socket:
+				return foe
+	return {}
+
+func _held_stone(foe: Dictionary, unit_id: String, socket: int) -> Dictionary:
+	for held in foe.get("held_gems", []):
+		if str(held.get("unit", "")) == unit_id and int(held.get("socket", -1)) == socket:
+			return held.get("stone", {})
+	return {}
+
+func _drinker_of(stone: Dictionary) -> Dictionary:
+	var color: String = DeepStone.color(stone)
+	for foe in DeepBattle.living(state.get("enemies", [])):
+		if foe.get("absorb", []).has(color):
+			return foe
+	return {}
+
+func _capper_of(stone: Dictionary) -> Dictionary:
+	## An Assayer whose cap this stone is over.
+	for foe in DeepBattle.living(state.get("enemies", [])):
+		var cap: int = DeepCreatures.trait_value(foe, "carat_cap", 0)
+		if cap > 0 and int(stone.get("carat", 0)) > cap:
+			return foe
+	return {}
+
+func _with_trait(trait_name: String) -> Dictionary:
+	for foe in DeepBattle.living(state.get("enemies", [])):
+		if DeepCreatures.has_trait(foe, trait_name):
+			return foe
+	return {}
+
+func _with_move_kind(kind: String) -> Dictionary:
+	## A living creature with a face that does this (a Foreman's Bury, a Paradox Moth's Unravel).
+	for foe in DeepBattle.living(state.get("enemies", [])):
+		for move in DeepCreatures.moves_for(foe):
+			for effect in move.get("effects", []):
+				if effect is Dictionary and str(effect.get("kind", "")) == kind:
+					return foe
+	return {}
+
+func _move_mark(foe: Dictionary, kind: String) -> String:
+	## The face mark of the creature's move that does this, for a badge to wear.
+	for move in DeepCreatures.moves_for(foe):
+		for effect in move.get("effects", []):
+			if effect is Dictionary and str(effect.get("kind", "")) == kind:
+				return str(move.get("mark", ""))
+	return ""
+
+func _fogger(unit: Dictionary, socket: int) -> Dictionary:
+	## The creature whose fog is over this socket (`player.fog`), else one that fogs.
+	for fog in unit.get("fog", []):
+		if fog is Dictionary and int(fog.get("socket", -1)) == socket:
+			var by: Dictionary = DeepBattle.enemy(state, str(fog.get("by", "")))
+			if not by.is_empty():
+				return by
+	var with_move: Dictionary = _with_move_kind("fog")
+	return with_move if not with_move.is_empty() else _with_trait("cloud_socket")
+
+func _sync_socket_marks(unit: Dictionary, socket: int, card: Control, stone: Variant) -> void:
+	## What a creature has done to one socket, worn on it: fog, rubble, a leech clinging to the
+	## gem, the ghost of a gem a creature holds or snuffed out, a colour being drunk, a carat
+	## cap; a badge for whichever matters most, with its plate and its thread.
+	var slot: Control = card.get_node_or_null("Slot")
+	if slot == null:
+		return
+	var unit_id: String = str(unit.get("id", ""))
+	var ring: SocketRing = slot.get_node_or_null("Ring")
+	var clouded: bool = DeepPatch.holds(unit.get("clouded", []), socket)
+	var buried: bool = DeepPatch.holds(unit.get("buried", []), socket)
+	## A Star Leech on the finest gem: its blows land on its owner until they hit the leech.
+	var clung: Dictionary = unit.get("clung", {}) if unit.get("clung", null) is Dictionary else {}
+	var leech: Dictionary = DeepBattle.enemy(state, str(clung.get("by", ""))) if int(clung.get("socket", -1)) == socket else {}
+	if not leech.is_empty() and int(leech.get("hp", 0)) <= 0:
+		leech = {}
+	var holder: Dictionary = _gem_holder(unit_id, socket)
+	var snuffed: Dictionary = _snuffed.get("%s|%d" % [unit_id, socket], {})
+	var regrowing: bool = unit.get("broken_gems", []).any(func(e: Dictionary) -> bool: return int(e.get("at", -1)) == socket)
+	if stone is Dictionary:
+		snuffed = {}
+		regrowing = false
+	var drinker: Dictionary = _drinker_of(stone) if stone is Dictionary else {}
+	var capper: Dictionary = _capper_of(stone) if stone is Dictionary else {}
+	## Fog: it drifts in from the creature that breathed it, and is blown off in one gust.
+	var fog: Control = slot.get_node_or_null("Fog")
+	if clouded and fog == null:
+		fog = Marks.FogBank.new(SOCKET_EDGE * 0.5)
+		fog.name = "Fog"
+		fog.position = (slot.size - fog.size) * 0.5 if slot.size.x > 0.0 else Vector2.ZERO
+		slot.add_child(fog)
+		if _headless or not is_inside_tree():
+			fog.modulate.a = 1.0
+		else:
+			_fog_arrives(unit_id, socket, fog)
+	elif not clouded and fog != null:
+		fog.name = "FogGone"
+		if _headless:
+			fog.queue_free()
+		else:
+			(fog as Marks.FogBank).blow_away()
+	## Rubble: it falls in from above and sits for the turn.
+	var rubble: Control = slot.get_node_or_null("Rubble")
+	if buried and rubble == null:
+		rubble = Marks.Rubble.new(SOCKET_EDGE)
+		rubble.name = "Rubble"
+		slot.add_child(rubble)
+		if not _headless and is_inside_tree():
+			(rubble as Marks.Rubble).fall_in()
+			DeepUi.burst(self, _center_of(slot), Marks.DUST, 14, 90.0, 0.7, 6.0)
+	elif not buried and rubble != null:
+		rubble.name = "RubbleGone"
+		rubble.queue_free()
+	## The ghost of the gem that stood here.
+	if ring != null:
+		ring.ghost = not holder.is_empty() or not snuffed.is_empty() or regrowing
+		ring.dark = not snuffed.is_empty() or regrowing
+	var ghost: Control = slot.get_node_or_null("HeldGhost")
+	if not holder.is_empty():
+		if ghost == null:
+			var kept: Dictionary = _held_stone(holder, unit_id, socket)
+			if not kept.is_empty():
+				var faint := Thumbs.GemThumb.new(kept, SOCKET_EDGE - 22)
+				faint.name = "HeldGhost"
+				faint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
+				faint.live_on_hover = false
+				faint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				faint.modulate = Color(0.8, 0.85, 1.0, 0.3)
+				slot.add_child(faint)
+	elif ghost != null:
+		ghost.name = "HeldGhostGone"
+		ghost.queue_free()
+	## The badge, for whatever matters most.
+	var want: Array = []
+	if clouded:
+		var fogger: Dictionary = _fogger(unit, socket)
+		want = ["cloud", Marks.CLOUD, "Clouded by %s" % str(fogger.get("name", "the Clouder")), "Fog over the socket: the gem cannot fire. Hit %s to clear it." % str(fogger.get("name", "the creature that fogged it")), str(fogger.get("id", ""))]
+	elif buried:
+		var digger: Dictionary = _with_move_kind("bury_socket")
+		if digger.is_empty():
+			digger = _with_trait("bury_socket")
+		var for_fight: bool = DeepPatch.holds(unit.get("rubble", []), socket)
+		want = ["rampart", Marks.DUST, "Buried by %s" % str(digger.get("name", "the Foreman")),
+			"Rubble over the socket for the rest of the fight: the gem cannot fire." if for_fight else "Rubble over the socket: the gem cannot fire this turn. It clears as the next turn is dug.", str(digger.get("id", "")), _move_mark(digger, "bury_socket")]
+	elif not leech.is_empty():
+		## The face its Cling is engraved with, on the gem it clings to.
+		want = ["gem", Look.ink("meddle"), "%s clings to it" % str(leech.get("name", "A Star Leech")),
+			"When this gem fires, its blows land on you. Hit %s to shake it off." % str(leech.get("name", "the leech")), str(leech.get("id", "")), _move_mark(leech, "cling")]
+	elif not holder.is_empty():
+		want = ["chest", DeepUi.ORE, "Held by %s" % str(holder.get("name", "a creature")), "It took the gem off your rail. The gem comes back when it dies.", str(holder.get("id", ""))]
+	elif not snuffed.is_empty():
+		want = ["cross_out", DeepUi.MUTED, "Snuffed by %s" % str(snuffed.get("name", "a creature")), "The gem is gone for the fight." if bool(snuffed.get("permanent", false)) else "The gem is back next turn.", str(snuffed.get("by", ""))]
+	elif regrowing:
+		want = ["cross_out", DeepUi.MUTED, "Broken", "The gem is back next turn.", ""]
+	elif not drinker.is_empty():
+		var named: Dictionary = DeepContent.color(DeepStone.color(stone))
+		var hue := Color("#" + str(named.get("hue", "c8a8ff")))
+		want = ["gem", hue, "Drunk by %s" % str(drinker.get("name", "the Kaleidoscope")), "%s gems do it no damage; what they would give you, it takes." % str(named.get("name", "These")), str(drinker.get("id", ""))]
+	elif not capper.is_empty():
+		var cap: int = DeepCreatures.trait_value(capper, "carat_cap", 0)
+		want = ["scales", DeepUi.ACCENT, "Capped at %d ct by %s" % [cap, str(capper.get("name", "the Assayer"))], "No gem counts for more than %d carats while it stands." % cap, str(capper.get("id", ""))]
+	_mark_badge(slot, want, Vector2(-7, -7))
+	## A colour being drunk steps the stone back a little, short of a blocked one's grey; a gem
+	## a leech clings to takes on its violet.
+	if not drinker.is_empty() and slot.modulate == Color.WHITE:
+		slot.modulate = Color(0.78, 0.78, 0.84)
+	var cling: Control = slot.get_node_or_null("Clung")
+	if not leech.is_empty() and cling == null:
+		cling = Look.ClingRing.new(SOCKET_EDGE)
+		cling.name = "Clung"
+		cling.position = (slot.size - cling.size) * 0.5 if slot.size.x > 0.0 else Vector2.ZERO
+		slot.add_child(cling)
+		if not _headless and is_inside_tree():
+			DeepUi.pop_in(cling, 0.0, 1.3)
+	elif leech.is_empty() and cling != null:
+		cling.name = "ClungGone"
+		cling.queue_free()
+
+func _fog_arrives(unit_id: String, socket: int, fog: Control) -> void:
+	## The Clouder breathes out: a puff drifts from it down to the socket and settles as fog.
+	var unit: Dictionary = DeepBattle.player(state, unit_id)
+	var fogger: Dictionary = _fogger(unit, socket)
+	var creature: CrystalCreature = _creature(str(fogger.get("id", ""))) if not fogger.is_empty() else null
+	if creature == null or _fx == null:
+		(fog as Marks.FogBank).appear()
+		return
+	var puff: Control = fog
+	_fx.projectile(creature.centre(), _origin_for(unit_id, socket), Color("dfe6ff"), 0.45, 0.22, func() -> void:
+		if is_instance_valid(puff):
+			(puff as Marks.FogBank).appear(), 0.6)
+
+func _sync_die_marks(holder: Control, view: DiceView, roll: Dictionary, unit: Dictionary) -> void:
+	## What a creature has done to one die, worn on it: dimmed and crackling when locked,
+	## dimmed in a claw or a tick's mouth, a wave for Dread, a cog when a creature rolled it;
+	## a badge for whichever matters most, and the size it was if it shrank this turn.
+	var id: String = str(roll.get("die_id", ""))
+	var turn: int = int(state.get("turn", 0))
+	var locked: bool = bool(roll.get("locked", false)) or bool(roll.get("lock_next", false))
+	var gripped: bool = unit.get("gripped", null) is Dictionary and unit.gripped.has(id)
+	var taken: Dictionary = _taken_by.get(id, {})
+	var taken_now: bool = not taken.is_empty() and int(taken.get("turn", -1)) == turn
+	var dread: bool = int(unit.get("statuses", {}).get("dread", 0)) > 0
+	var roller: Dictionary = _roller(state)
+	var shrunk: Dictionary = _shrunk.get(id, {})
+	var shrunk_now: bool = not shrunk.is_empty() and int(shrunk.get("turn", -1)) == turn
+	## A Paradox Moth's Unravel: a die rerolled last turn came up blank, and stays so this turn.
+	var blanked: bool = bool(roll.get("blanked", false))
+	Marks.dim(holder, DIE_EDGE, locked or gripped or taken_now, Color(0.16, 0.08, 0.28, 0.55) if blanked else Color(0, 0, 0, 0.5))
+	var crackle: Control = holder.get_node_or_null("Crackle")
+	if locked and not blanked and crackle == null:
+		crackle = Marks.Crackle.new(DIE_EDGE)
+		crackle.name = "Crackle"
+		holder.add_child(crackle)
+	elif (not locked or blanked) and crackle != null:
+		crackle.name = "CrackleGone"
+		crackle.queue_free()
+	## Its face counts for nothing this turn, whatever the solid shows: said over it.
+	var blank_word: Control = holder.get_node_or_null("BlankWord")
+	if blanked and blank_word == null:
+		var plate := PanelContainer.new()
+		plate.name = "BlankWord"
+		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		plate.z_index = 2
+		plate.add_theme_stylebox_override("panel", DeepUi.capsule(plate, Color(0.08, 0.04, 0.14, 0.96), Look.ink("meddle"), 2, 8, 1))
+		var said := DeepUi.label(plate, "BLANK", 12, Look.ink("meddle"), HORIZONTAL_ALIGNMENT_CENTER)
+		said.add_theme_font_override("font", DeepUi.bold_font())
+		holder.add_child(plate)
+		plate.reset_size()
+		plate.position = Vector2((DIE_EDGE - plate.size.x) * 0.5, DIE_EDGE * 0.5 - plate.size.y * 0.5)
+		blank_word = plate
+	elif not blanked and blank_word != null:
+		blank_word.name = "BlankWordGone"
+		blank_word.queue_free()
+	var want: Array = []
+	if blanked:
+		var moth: Dictionary = _with_move_kind("blank_next")
+		want = ["cross_out", Look.ink("meddle"), "Blanked by %s" % str(moth.get("name", "a creature")),
+			"Rerolled last turn, it came up blank: it shows nothing this turn and cannot be rerolled.", str(moth.get("id", "")), _move_mark(moth, "blank_next")]
+	elif locked:
+		var locker: Dictionary = _locked_by.get(id, {})
+		want = ["lock", Marks.SHOCK, "Locked by %s" % str(locker.get("name", "a creature")),
+			"No reroll: it shows what it showed. It is thrown again next turn." if bool(roll.get("locked", false)) else "It comes up next turn exactly as it shows now, and cannot be rerolled.", str(locker.get("by", ""))]
+	elif gripped:
+		var claw: String = str(unit.gripped[id])
+		want = ["die", Color("8fd0e8"), "Gripped by %s" % _foe_name(claw, "the crayfish"), "It sits out of every throw until the crayfish is hurt.", claw]
+	elif taken_now:
+		want = ["die", DeepUi.POISON, "Taken by %s" % str(taken.get("name", "a creature")), "It sits out next turn, then comes back.", str(taken.get("by", ""))]
+	elif dread:
+		want = ["drop", Marks.WATER, "Dread", "The bowl is thrown a size smaller next turn.", ""]
+	elif not roller.is_empty():
+		want = ["gear", Marks.DUST, "Rolled by %s" % str(roller.get("name", "the Drill")), "It threw your dice this turn: no rerolls.", str(roller.get("id", ""))]
+	_mark_badge(holder, want, Vector2(DIE_EDGE - 14.0, -8.0))
+	var tag: Label = holder.get_node_or_null("Shrunk")
+	if shrunk_now:
+		if tag == null:
+			tag = DeepUi.label(holder, "", 11, Color("ff9a3a"), HORIZONTAL_ALIGNMENT_CENTER)
+			tag.name = "Shrunk"
+			tag.add_theme_font_override("font", DeepUi.bold_font())
+			tag.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.9))
+			tag.add_theme_constant_override("outline_size", 4)
+			tag.position = Vector2(-10, -18)
+			tag.size = Vector2(DIE_EDGE + 20, 16)
+			tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tag.z_index = 2
+		var from: String = str(shrunk.get("from", "")).to_lower()
+		tag.text = ("%s → %s" % [from, str(shrunk.get("to", "")).to_lower()]) if not from.is_empty() else "shrunk"
+	elif tag != null:
+		tag.name = "ShrunkGone"
+		tag.queue_free()
+	## A creature's throw: the dice wear its rust.
+	view.modulate = Color("d9b48a") if not roller.is_empty() else Color.WHITE
+
+func _sync_ghost_seats(unit: Dictionary) -> void:
+	## Seats in the tray for the dice that are not in the hand: in a crayfish's claw, in a
+	## tick's mouth, broken for a turn, or unmade for the fight. Each says who has it.
+	var hand_ids: Dictionary = {}
+	for roll in unit.get("hand", []):
+		hand_ids[str(roll.get("die_id", ""))] = true
+	var seats: Array = []
+	var gripped: Variant = unit.get("gripped", null)
+	for die in unit.get("dice", []):
+		var id: String = str(die.get("id", ""))
+		if hand_ids.has(id):
+			continue
+		if gripped is Dictionary and gripped.has(id):
+			var claw: String = str(gripped[id])
+			seats.append([id, "die", Color("8fd0e8"), "Gripped by %s" % _foe_name(claw, "the crayfish"), "It sits out of every throw until the crayfish is hurt.", false, claw])
+		elif _taken_by.has(id):
+			var taken: Dictionary = _taken_by[id]
+			seats.append([id, "die", DeepUi.POISON, "Taken by %s" % str(taken.get("name", "a creature")), "It sits this turn out and comes back next turn.", false, str(taken.get("by", ""))])
+		else:
+			seats.append([id, "die", DeepUi.MUTED, "Sitting out", "This throw went without it.", false, ""])
+	var broken_ids: Dictionary = {}
+	for entry in unit.get("broken_dice", []):
+		var id: String = str(entry.get("id", entry.get("die_id", "")))
+		if id.is_empty() and entry.get("was", null) is Dictionary:
+			id = str(entry.was.get("id", ""))
+		if id.is_empty():
+			continue
+		broken_ids[id] = true
+		var breaker: Dictionary = _broken_by.get(id, {})
+		seats.append([id, "cross_out", DeepUi.BAD, "Broken by %s" % str(breaker.get("name", "a creature")) if not breaker.is_empty() else "Broken", "It is back in the bowl next turn.", true, str(breaker.get("by", ""))])
+	var owned: Dictionary = {}
+	for die in unit.get("dice", []):
+		owned[str(die.get("id", ""))] = true
+	for id in unit.get("fight_dice", {}):
+		if owned.has(str(id)) or broken_ids.has(str(id)):
+			continue
+		var breaker: Dictionary = _broken_by.get(str(id), {})
+		seats.append([str(id), "cross_out", Color("b58cff"), "Unmade by %s" % str(breaker.get("name", "a creature")) if not breaker.is_empty() else "Unmade", "Gone for the fight.", true, str(breaker.get("by", ""))])
+	var key: String = ";".join(seats.map(func(seat: Array) -> String: return "%s|%s|%s" % [str(seat[0]), str(seat[3]), str(seat[6])]))
+	if key == _page.ghost_key:
+		return
+	_page.ghost_key = key
+	for child in _tray_box.get_children():
+		if str(child.name).begins_with("Ghost_"):
+			child.name = "GhostGone"
+			child.queue_free()
+	for seat in seats:
+		var holder := Control.new()
+		holder.name = "Ghost_" + str(seat[0])
+		holder.custom_minimum_size = Vector2(DIE_EDGE, DIE_EDGE + DIE_WORDS)
+		holder.mouse_filter = Control.MOUSE_FILTER_PASS
+		_tray_box.add_child(holder)
+		var ghost := Marks.GhostSeat.new(DIE_EDGE, str(seat[1]), seat[2], bool(seat[5]))
+		holder.add_child(ghost)
+		var title: String = str(seat[3])
+		var text: String = str(seat[4])
+		var tone: Color = seat[2]
+		Tips.attach(ghost, func() -> Control: return Plates.words(title, text, "", tone), {"tone": tone})
+		_hover_thread(ghost, str(seat[6]), tone)
+		if not _headless and is_inside_tree():
+			DeepUi.pop_in(holder, 0.0, 0.6)
+
+func _sync_water(unit: Dictionary) -> void:
+	## Dread on the reader: water rises over their tray and the dice sit in it, drained as the
+	## next turn opens without it.
+	if not _page.mine or _hud == null:
+		return
+	var dread: bool = int(unit.get("statuses", {}).get("dread", 0)) > 0 and not bool(unit.get("downed", false))
+	if dread and (_water == null or not is_instance_valid(_water)):
+		_water = Marks.Water.new()
+		_water.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_hud.add_child(_water)
+		if _headless:
+			(_water as Marks.Water).level = 0.6
+		else:
+			(_water as Marks.Water).rise(0.6)
+	elif not dread and _water != null and is_instance_valid(_water):
+		(_water as Marks.Water).drain()
+		_water = null
+
+func _reroll_cross(on: bool) -> void:
+	## A creature rolled for the party: Reroll is crossed out, not only greyed.
+	if _reroll_button == null:
+		return
+	var cross: Control = _reroll_button.get_node_or_null("Cross")
+	if cross == null and on:
+		cross = Marks.Cross.new()
+		cross.name = "Cross"
+		_reroll_button.add_child(cross)
+	if cross != null:
+		cross.visible = on
+
+func _reflected_blow(back: Dictionary, creature: CrystalCreature, glass: Color, word: String) -> void:
+	## A blow of the reader's own thrown back at them (a refraction, a mirror): a streak from
+	## the barrier to their ring of health, the ring jolts, the screen edge flashes, and the
+	## number lands saying it was reflected.
+	var target_id: String = str(back.get("target", ""))
+	if target_id == local_id and not _headless and creature != null and is_instance_valid(creature) and _hp_bar != null:
+		var from: Vector2 = _to_screen(creature.barrier_point())
+		var ring: Vector2 = _center_of(_hp_bar)
+		Marks.Tether.flash(self, from, ring, glass, 4.0, 0.0, 0.5)
+		_fx.projectile(creature.barrier_point(), _before_me(1.6, -0.6), glass, 0.25, 0.14, Callable(), 0.3)
+		DeepUi.shake(_hp_bar, 10.0, 0.35)
+		_screen_fx.wound(0.5)
+		_screen_fx.blink(glass, 0.18)
+	_reflecting = word
+	_enemy_effect(back, creature)
+	_reflecting = ""
+
+func _dock_tell(effect: Dictionary, creature: CrystalCreature) -> void:
+	## What a creature's move did to the reader's dice and gems, shown on the dock as it
+	## lands: the state already shows the result; this is the beat that says who did it and
+	## lights what it took, and the memory the marks read afterwards.
+	var kind: String = str(effect.get("kind", ""))
+	var target_id: String = str(effect.get("target", ""))
+	if bool(effect.get("nothing", false)):
+		return
+	var by: String = _acting_id
+	var name: String = _foe_name(by)
+	var from: Vector2 = _to_screen(creature.centre()) if creature != null and is_instance_valid(creature) and _camera != null else Vector2(size.x * 0.5, size.y * 0.3)
+	match kind:
+		"strength":
+			var lifted: CrystalCreature = _creature(target_id)
+			if lifted != null:
+				lifted.bulk_up()
+		"die_steal":
+			if target_id != local_id:
+				return
+			var unit: Dictionary = me()
+			var dice: Array = unit.get("dice", [])
+			if dice.size() < 2:
+				return
+			## The die that goes is the last in the bowl (see the turn's opening in DeepBattle).
+			var die: Dictionary = dice.back()
+			var id: String = str(die.get("id", ""))
+			_taken_by[id] = {"by": by, "name": name, "turn": int(state.get("turn", 0))}
+			var view: Control = _dice_views.get(id, null)
+			if view != null and is_instance_valid(view) and not _headless:
+				_telegraph(view.get_parent(), _acting_move)
+				var tongue: Color = creature.tint.lightened(0.3) if creature != null and is_instance_valid(creature) else DeepUi.POISON
+				Marks.Tether.flash(self, from, _center_of(view), tongue, 5.0, 0.0, 0.5)
+				var face: int = -1
+				for roll in unit.get("hand", []):
+					if str(roll.get("die_id", "")) == id:
+						face = int(roll.get("face", -1))
+				var copy: Control = Thumbs.DieThumb.new(die, DIE_EDGE, face)
+				copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				var at: Vector2 = _center_of(view)
+				var thief: String = by
+				_later_do(0.3, func() -> void:
+					if not is_inside_tree():
+						return
+					DeepAudio.play("die_pick", {"volume": 0.6})
+					Marks.fly(self, copy, at, _creature_point(thief).call(), 0.45, 0.25, 30.0))
+			_refresh_marks()
+		"die_lock", "lock_die":
+			if target_id != local_id:
+				return
+			for entry in effect.get("dice", []):
+				var id: String = str(entry.get("id", "")) if entry is Dictionary else str(entry)
+				_locked_by[id] = {"by": by, "name": name}
+				var view: Control = _dice_views.get(id, null)
+				if view != null and is_instance_valid(view) and not _headless:
+					_telegraph(view.get_parent(), _acting_move)
+					Marks.Tether.flash(self, from, _center_of(view), Marks.SHOCK, 3.0, 10.0, 0.45)
+			if not _headless:
+				DeepAudio.play("dice_lock", {"volume": 0.6})
+			_refresh_marks()
+		"grip_die":
+			if target_id == local_id and _dice_views.has(str(effect.get("gripped", ""))):
+				_telegraph((_dice_views[str(effect.get("gripped", ""))] as Control).get_parent(), _acting_move)
+		"break_die":
+			if target_id != local_id:
+				return
+			for die in effect.get("dice", []):
+				_broken_by[str(die.get("id", ""))] = {"by": by, "name": name, "permanent": bool(effect.get("permanent", false))}
+			_refresh_marks()
+			if _headless:
+				return
+			for die in effect.get("dice", []):
+				var id: String = str(die.get("id", ""))
+				var move_name: String = _acting_move
+				## The seat it leaves is laid out by the tray a frame later: the beam waits for it.
+				_later_do(0.06, func() -> void:
+					var spot: Control = _tray_box.get_node_or_null("Ghost_" + id)
+					if spot == null:
+						spot = _dice_views.get(id, null)
+					if spot == null or not is_instance_valid(spot) or not is_inside_tree():
+						return
+					_telegraph(spot, move_name)
+					Marks.Tether.flash(self, from, _center_of(spot), Color("b58cff"), 3.0, 0.0, 0.4)
+					var at: Vector2 = _center_of(spot)
+					_later_do(0.22, func() -> void:
+						if is_inside_tree():
+							add_child(Marks.Shards.new(at, Color("f4f2ea"), 9, true))
+							DeepAudio.play("die_break", {"volume": 0.7})))
+		"downgrade_die":
+			if target_id != local_id:
+				return
+			var unit: Dictionary = me()
+			for die in effect.get("dice", []):
+				var id: String = str(die.get("id", ""))
+				var was: String = str(unit.get("fight_dice", {}).get(id, {}).get("was", {}).get("shape", ""))
+				_shrunk[id] = {"from": was, "to": str(die.get("shape", "")), "turn": int(state.get("turn", 0))}
+				var view: Control = _dice_views.get(id, null)
+				if view != null and is_instance_valid(view) and not _headless:
+					_telegraph(view.get_parent(), _acting_move)
+					var at: Vector2 = _center_of(view)
+					DeepUi.burst(self, at, Color("ff7a2a"), 14, 90.0, 0.5, 5.0)
+					DeepUi.burst(self, at + Vector2(0, -20), Color("9aa4c2"), 8, 50.0, 0.9, 7.0)
+					(view as DiceView).pop(1.0, Color("ff7a2a"))
+			_refresh_marks()
+		"dice_dread":
+			if target_id == local_id and not _headless and _tray_box != null:
+				DeepUi.burst(self, _center_of(_tray_box), Marks.WATER, 26, 150.0, 0.6, 5.0)
+				DeepAudio.play("splash", {"volume": 0.6})
+		"grind_die", "blank_face":
+			if target_id != local_id or _headless:
+				return
+			for die in effect.get("dice", []):
+				var id: String = str(die.get("id", ""))
+				var view: Control = _dice_views.get(id, null)
+				if view == null or not is_instance_valid(view):
+					continue
+				var holder: Control = view.get_parent()
+				var now: int = int((view as DiceView).roll.get("value", 0))
+				for roll in me().get("hand", []):
+					if str(roll.get("die_id", "")) == id:
+						now = int(roll.get("value", now))
+				## The face as it was: remembered from the last sync, or a point over the cut.
+				var shown: int = int(holder.get_meta("prev_value", now + 1 if kind == "grind_die" else now))
+				var tile := Marks.TilePop.new(DIE_EDGE * 0.6, str(shown) if shown > 0 else "")
+				add_child(tile)
+				var at: Vector2 = _center_of(view)
+				tile.position = at - tile.size * 0.5
+				_telegraph(holder, _acting_move)
+				if kind == "grind_die":
+					tile.drop()
+					DeepUi.burst(self, at, Color.WHITE, 8, 90.0, 0.4, 3.0)
+					DeepAudio.play("chisel", {"volume": 0.6})
+				else:
+					tile.burn(self, at)
+					DeepAudio.play("flame", {"volume": 0.5})
+		"hold_gem":
+			var held: Dictionary = effect.get("held", {})
+			if held.is_empty() or str(held.get("unit", "")) != local_id or _headless:
+				return
+			var socket: int = int(held.get("socket", -1))
+			if socket < 0 or socket >= _socket_cards.size():
+				return
+			var card: Control = _socket_cards[socket]
+			_telegraph(card, _acting_move)
+			var stone: Dictionary = _held_stone(DeepBattle.enemy(state, by), local_id, socket)
+			if not stone.is_empty():
+				var copy: Control = Thumbs.GemThumb.new(stone, SOCKET_EDGE - 22)
+				copy.set("live_on_hover", false)
+				copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				Marks.fly(self, copy, _center_of(card), _creature_point(by).call(), 0.5, 0.3, 40.0)
+		"break_gem":
+			if target_id != local_id:
+				return
+			for socket in effect.get("sockets", []):
+				_snuffed["%s|%d" % [local_id, int(socket)]] = {"by": by, "name": name, "permanent": bool(effect.get("permanent", false)), "turn": int(state.get("turn", 0))}
+				if int(socket) < _socket_cards.size() and not _headless:
+					var card: Control = _socket_cards[int(socket)]
+					_telegraph(card, _acting_move)
+					add_child(Marks.Shards.new(_center_of(card), _stone_color(local_id, int(socket), ""), 8, true))
+					DeepAudio.play("gem_shatter", {"volume": 0.6})
+			_refresh_marks()
+		"swap_gems":
+			var pair: Array = effect.get("swapped", [])
+			if target_id != local_id or pair.size() != 2 or _headless:
+				return
+			var rail: Array = me().get("rail", [])
+			for k in range(2):
+				var here: int = int(pair[k])
+				var there: int = int(pair[1 - k])
+				if here >= _socket_cards.size() or there >= _socket_cards.size():
+					continue
+				_telegraph(_socket_cards[here], _acting_move)
+				## The gem now at `here` came from `there`: a copy of it slides over.
+				if here < rail.size() and rail[here] is Dictionary:
+					var copy: Control = Thumbs.GemThumb.new(rail[here], SOCKET_EDGE - 22)
+					copy.set("live_on_hover", false)
+					copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+					var picture: Control = _socket_cards[here].get_node_or_null("Slot/Gem")
+					if picture != null:
+						picture.modulate.a = 0.0
+						var shown: Control = picture
+						_later_do(0.55, func() -> void:
+							if is_instance_valid(shown):
+								shown.modulate.a = 1.0)
+					Marks.fly(self, copy, _center_of(_socket_cards[there]), _center_of(_socket_cards[here]), 0.5, 1.0, 36.0 * (1.0 if k == 0 else -1.0))
+			if int(pair[0]) < _socket_cards.size() and int(pair[1]) < _socket_cards.size():
+				DeepUi.burst(self, (_center_of(_socket_cards[int(pair[0])]) + _center_of(_socket_cards[int(pair[1])])) * 0.5, Color("b58cff"), 16, 120.0, 0.5)
+		"bury_socket":
+			if target_id == local_id and effect.has("socket") and int(effect.socket) < _socket_cards.size():
+				_telegraph(_socket_cards[int(effect.socket)], _acting_move)
 
 func _slash(color: Color) -> void:
 	## Claw marks across the view: three bright strokes that rip in and fade.

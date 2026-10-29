@@ -53,6 +53,8 @@ const TRAITS: Dictionary = {
 	"hydra": ["copy", "Many heads", "Every %d%% of its health you take cuts a head off (one die fewer). As it next acts, every cut head grows back as two, up to six."],
 	"countdown_reset": ["hourglass", "Held back", "Any turn the party takes %d%% of its health, its countdown starts again."],
 	"taunt": ["magnet", "Gravity", "While it stands, gems aimed at one creature hit it instead. Gems that hit every creature are not bent."],
+	"acid_armour": ["drop", "Acid Armour", "Whoever hits it takes %d Poison for every hit."],
+	"reroll_all": ["reroll", "Paradox", "Every reroll throws the whole bowl again."],
 	"aura": ["cloud", "Aura", "While it lives, every player is %s."]}
 
 static func trait_entry(key: String, value: Variant) -> Dictionary:

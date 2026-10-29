@@ -7,12 +7,11 @@ extends CanvasLayer
 ## it. The 3D view inside it is the only one it costs, and only while it is open.
 ##
 ## The sheet never scrolls. Its name and tags stay at the top; what is said about the thing
-## is split into pages (a stone's skill and its four C's; a creature's turn and its moves),
+## is split into pages (a stone's skill and its four C's; a creature's dice, a page a die),
 ## turned by the tabs under the name or by the arrow keys.
 
 const GemView = preload("res://view/gems/gem_view.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
-const EnemyPanel = preload("res://view/battle/enemy_panel.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const GemIcons = preload("res://view/gems/gem_icons.gd")
 const StoneCard = preload("res://view/gems/stone_card.gd")
@@ -24,6 +23,7 @@ const GeodeView = preload("res://view/gems/geode_view.gd")
 const ConquestSheet = preload("res://view/inspect/conquest_sheet.gd")
 const Tips = preload("res://view/ui/tips.gd")
 const Plates = preload("res://view/ui/plates.gd")
+const CreatureLedger = preload("res://view/inspect/creature_ledger.gd")
 
 const FACE_TEXT: Dictionary = {
 	"wild": "Wild: counts as any value for patterns, and as the die's top face for totals.",
@@ -63,8 +63,10 @@ var _tabs: HBoxContainer
 var _book: VBoxContainer
 ## The page being written to.
 var _details: VBoxContainer
-## Every page: {name, glyph, box}.
+## Every page: {name, glyph, box}, and `stage` for a page that shows its own thing on the
+## stage (a creature's die) in place of what the sheet opened with (`_stage_default`).
 var _pages: Array = []
+var _stage_default: Control = null
 var _title: Label
 var _rays: Control
 var _close: Button
@@ -363,6 +365,7 @@ func page_names() -> Array:
 func show_page(name: String) -> void:
 	for page in _pages:
 		page.box.visible = str(page.name) == name
+	_show_stage()
 	_draw_tabs()
 
 func _step(delta: int) -> void:
@@ -1382,8 +1385,16 @@ func _die_character(values: Array, distinct: int) -> String:
 
 # --- creatures ---------------------------------------------------------------------------------
 
-## The width of the sheet's right-hand column, where the head's words wrap.
+## The width of the sheet's right-hand column, where the head's words wrap and a creature's
+## face rows stand.
 const HEAD_WIDTH: float = 600.0
+## How tall the right-hand column stands at most, head, tabs and page together, before the sheet
+## runs off the smallest window: a creature's rows are split into pages to fit under it.
+const COLUMN_HEIGHT: float = 760.0
+## The tabs over a creature's pages and the gaps round them.
+const TABS_HEIGHT: float = 58.0
+## A creature's die on the stage, turned by hand: as large as the approved window drew it.
+const DIE_EDGE: float = 360.0
 
 static func _lines_at(label: Label, width: float) -> int:
 	## How many lines a wrapped label's words take at `width`, at the size it is drawn.
@@ -1392,46 +1403,33 @@ static func _lines_at(label: Label, width: float) -> int:
 	var tall: float = font.get_multiline_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, width, size).y
 	return maxi(1, int(round(tall / maxf(1.0, font.get_height(size)))))
 
-## How many lines of words a creature's page holds, its head's included (a move's name and
-## trigger are two, and each of its effects one): past this the page runs off the screen at
-## the smallest window.
-const PAGE_LINES: int = 23
-const MOVES_A_PAGE: int = 4
-
-static func _move_pages(moves: Array, head: int, first: int, last: bool) -> Array:
-	## `moves` split into pages: four to a page, or fewer where the lines would run past
-	## PAGE_LINES, counting the `head` every page shows, `first` more on the first page (what it
-	## is, or its phase's line), and its dice (three) under the `last`.
-	var pages: Array = [[]]
-	var lines: int = head + first
-	for move in moves:
-		var cost: int = 2 + move.get("effects", []).size()
-		var page: Array = pages[pages.size() - 1]
-		if not page.is_empty() and (page.size() >= MOVES_A_PAGE or lines + cost > PAGE_LINES):
-			pages.append([])
-			lines = head
-		pages[pages.size() - 1].append(move)
-		lines += cost
-	## The dice go under the last page; where they would not fit, its last move goes on.
-	var tail: Array = pages[pages.size() - 1]
-	if last and lines + 3 > PAGE_LINES and tail.size() > 1:
-		pages.append([tail.pop_back()])
-	return pages
+static func _tall_at(label: Label, width: float) -> float:
+	## How tall a wrapped label stands at `width`.
+	var font: Font = label.get_theme_font(&"font")
+	var size: int = label.get_theme_font_size(&"font_size")
+	return float(_lines_at(label, width)) * font.get_height(size)
 
 func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> void:
 	var key: String = str(foe.get("key", ""))
-	## A live creature is read as it is (an echo as what it copies); a bare key as written.
-	var definition: Dictionary = DeepCreatures.definition(foe) if foe.has("hp") else DeepContent.creature(key)
-	var stage := CreatureStage.new(key, bool(foe.get("warden", false)), str(foe.get("echo_of", "")))
+	## A live creature is read as it is (an echo as what it copies, its dice as the fight has
+	## etched and grown them); a bare key as written, made for one player at the first depth.
+	var live: Dictionary = foe if foe.has("dice") else DeepCreatures.make(key, "look_" + key, 1, 1)
+	var definition: Dictionary = DeepCreatures.definition(live)
+	## The stage holds the creature, and over it the die of whichever page is open: turnable,
+	## centred beside its face rows, the way the battle's right-click window was approved.
+	var warden: bool = bool(live.get("warden", false))
+	var stage := CreatureStage.new(key, warden, str(live.get("echo_of", "")))
 	stage.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage.add_child(stage)
-	var warden: bool = bool(foe.get("warden", false))
+	_stage_default = stage
 	var head := _head
 	var title_row := DeepUi.hbox(head, 10)
-	DeepUi.title(title_row, str(foe.get("name", definition.get("name", key))), 28, Color("ffb0a0") if warden else DeepUi.PAPER)
+	var title := DeepUi.title(title_row, str(foe.get("name", definition.get("name", key))), 28, Color("ffb0a0") if warden else DeepUi.PAPER)
 	if warden:
 		DeepUi.pill(title_row, "crown", "Warden", DeepUi.BAD, 13).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var about := DeepUi.wrap(head, str(definition.get("text", "")), 14, DeepUi.MUTED)
+	## How tall the head stands, worked out from its words: every page stands under it.
+	var head_tall: float = title.get_theme_font(&"font").get_height(title.get_theme_font_size(&"font_size")) + 6.0 + _tall_at(about, HEAD_WIDTH)
 	if foe.has("hp"):
 		var life := DeepUi.hbox(head, 8)
 		DeepUi.icon(life, "heart", 18, DeepUi.BAD)
@@ -1439,10 +1437,10 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		bar.custom_minimum_size = Vector2(240, 16)
 		bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		bar.set_values(float(foe.hp) / float(maxi(1, int(foe.get("max_hp", 1)))), "%s / %s" % [DeepUi.number(int(foe.hp)), DeepUi.number(int(foe.get("max_hp", 1)))])
+		head_tall += 6.0 + 18.0
 	## What to remember about it, in a line (docs/BESTIARY.md, section 9), under its health
 	## where every page shows it.
 	var tip: String = str(definition.get("tip", ""))
-	var head_lines: int = _lines_at(about, HEAD_WIDTH)
 	if not tip.is_empty():
 		var remember := DeepUi.hbox(head, 6)
 		var word := DeepUi.label(remember, "REMEMBER", 11, DeepUi.ACCENT_HI)
@@ -1451,73 +1449,81 @@ func _fill_creature(foe: Dictionary, battle: Dictionary, opts: Dictionary) -> vo
 		said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		said.custom_minimum_size.x = 200
-		head_lines += _lines_at(said, HEAD_WIDTH - word.get_combined_minimum_size().x - 6.0)
-	## What is on it and what it means to do: the page for this turn, when there is one. A
-	## creature with nothing on it and nothing rolled has no such page (what it is, its traits,
-	## is on the page of its moves), and opens on its moves.
+		head_tall += 6.0 + _tall_at(said, HEAD_WIDTH - word.get_combined_minimum_size().x - 6.0)
 	var effects: Array = EffectChips.for_enemy(foe, battle) if foe.has("hp") else []
 	if not effects.is_empty():
 		var chips := EffectChips.Row.new(16)
 		head.add_child(chips)
 		chips.show_effects(effects)
-		head_lines += 1
-	var on_it: bool = effects.any(func(e: Dictionary) -> bool: return str(e.get("span", "")) != "trait")
-	var this_turn: bool = on_it or not foe.get("hand", []).is_empty()
-	if this_turn:
-		_page("This turn", "sword")
-	if this_turn and not effects.is_empty():
-		var notes := _section("spark", "On it now")
-		for effect in effects:
-			DeepUi.stat(notes, str(effect.glyph), "%s: %s" % [str(effect.title), str(effect.text)], Color(effect.tone).lightened(0.2), 12)
-	if not foe.get("hand", []).is_empty():
-		var now := _section("die", "Revealed dice", DeepUi.BAD)
-		var dice := DeepUi.hbox(now, 4)
-		var shown: Array = foe.hand.slice(0, -1) if str(foe.get("beat", "")) == "roll" else foe.hand
-		for roll in shown:
-			dice.add_child(DiceIcons.readable_face(26, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true))
-	## A moveset is read four moves to a page, or fewer under a long head (`_move_pages`), so a
-	## boss with six never runs off the bottom.
+		head_tall += 6.0 + 26.0
+	## Its dice, a page a die (or a set of like dice), each face's move a row beside the die
+	## on the stage; what lands on no face after them (CreatureLedger). The page the reader
+	## came by (`opts.move`) opens, its row lit and the die turned to it.
 	var highlight: String = str(opts.get("move", ""))
-	var traits: Dictionary = DeepCreatures.traits_for(foe) if foe.has("key") else definition.get("traits", {})
-	var opening: Array = DeepCreatures.display_moves(foe, definition.get("moves", []))
-	var phases: Array = definition.get("phases", [])
-	var opening_pages: Array = _move_pages(opening, head_lines, 0 if traits.is_empty() else 1 + traits.size(), phases.is_empty())
-	for chunk in range(opening_pages.size()):
-		_page("Its moves" if chunk == 0 else "Its moves · %d" % (chunk + 1), "book")
-		var moves := _section("book", "Its moves" if chunk == 0 else "More of its moves")
-		for move in opening_pages[chunk]:
-			move_row(moves, move, str(move.get("name", "")) == highlight)
-		if chunk == 0 and not traits.is_empty():
-			var born := _section("spark", "What it is")
-			var trait_keys: Array = traits.keys()
-			trait_keys.sort()
-			for trait_key in trait_keys:
-				var chip: Dictionary = EffectChips.trait_entry(str(trait_key), traits[trait_key])
-				DeepUi.stat(born, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12)
-	for phase_at in range(phases.size()):
-		var phase: Dictionary = phases[phase_at]
-		var shown: Array = DeepCreatures.display_moves(foe, phase.get("moves", []))
-		var phase_pages: Array = _move_pages(shown, head_lines, 1 + phase.get("traits", {}).size(), phase_at == phases.size() - 1)
-		for chunk in range(phase_pages.size()):
-			_page("Below %d%% HP" % int(phase.get("below_hp_pct", 0)) + ("" if chunk == 0 else " · %d" % (chunk + 1)), "crown")
-			var moves := _section("crown", "Phase moves")
-			if chunk == 0:
-				DeepUi.stat(moves, "crown", "Below %d%% health it fights with:" % int(phase.get("below_hp_pct", 0)), DeepUi.BAD, 13)
-				for trait_key in phase.get("traits", {}):
-					var value: Variant = phase.traits[trait_key]
-					if (value is bool and not value) or ((value is int or value is float) and float(value) <= 0.0):
-						DeepUi.stat(moves, "cross_out", "Loses %s." % str(trait_key).capitalize(), DeepUi.DIM, 12)
-					else:
-						var chip: Dictionary = EffectChips.trait_entry(str(trait_key), value)
-						DeepUi.stat(moves, str(chip.glyph), "%s: %s" % [str(chip.title), str(chip.text)], Color("c8a8ff"), 12)
-			for move in phase_pages[chunk]:
-				move_row(moves, move, str(move.get("name", "")) == highlight)
-	var rolls := _section("die", "Its dice")
-	var dice_row := DeepUi.hbox(rolls, 6)
-	var effective: Array = DeepCreatures.effective_dice(foe) if foe.has("dice") else definition.get("dice", []).map(func(key: String) -> Dictionary: return {"shape": key})
-	for die in effective:
-		DeepUi.pill(dice_row, "die", str(die.shape).to_lower(), DiceIcons.palette(str(die.shape)).body, 12)
-	DeepUi.label(rolls, "Rolls in this order. Every qualifying ability fires.\nDamage and debuffs affect every player.", 12, DeepUi.DIM)
+	var tone: Color = DeepUi.BAD if warden else Color("c8a8ff")
+	var opened: String = ""
+	for spec in CreatureLedger.pages(live, COLUMN_HEIGHT - head_tall - TABS_HEIGHT, HEAD_WIDTH):
+		_page(str(spec.name), "die" if not spec.group.is_empty() else "book")
+		var view: Control = null
+		if not spec.group.is_empty():
+			view = _stage_die(spec.group.die, tone)
+		CreatureLedger.fill(_details, live, spec, HEAD_WIDTH, {"lit": highlight, "view": view})
+		if opened.is_empty() and not highlight.is_empty() and CreatureLedger.on_page(spec, highlight):
+			opened = str(spec.name)
+			if view != null:
+				for index in range(spec.group.die.get("faces", []).size()):
+					if str(spec.group.die.faces[index].get("move", "")) == highlight:
+						view.call("focus_face", index)
+						break
+	## What is on it and what it has thrown this action, when there is any.
+	var on_it: bool = effects.any(func(e: Dictionary) -> bool: return str(e.get("span", "")) != "trait")
+	if on_it or not foe.get("hand", []).is_empty():
+		_page("This turn", "sword")
+		if on_it:
+			var notes := _section("spark", "On it now")
+			for effect in effects:
+				if str(effect.get("span", "")) != "trait":
+					DeepUi.stat(notes, str(effect.glyph), "%s: %s" % [str(effect.title), str(effect.text)], Color(effect.tone).lightened(0.2), 12)
+		if not foe.get("hand", []).is_empty():
+			var now := _section("die", "Thrown this action", DeepUi.BAD)
+			var thrown := HFlowContainer.new()
+			thrown.add_theme_constant_override("h_separation", 12)
+			thrown.add_theme_constant_override("v_separation", 6)
+			now.add_child(thrown)
+			var shown: Array = foe.hand.slice(0, -1) if str(foe.get("beat", "")) == "roll" else foe.hand
+			for roll in shown:
+				if roll.has("mark"):
+					var cell := DeepUi.hbox(thrown, 6)
+					CreatureLedger.mark_chip(cell, str(roll.mark), str(roll.get("move_kind", "attack")), 26.0).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+					DeepUi.label(cell, str(roll.get("move", "")), 13, DeepUi.PAPER)
+				else:
+					thrown.add_child(DiceIcons.readable_face(26, int(roll.value), DiceIcons.die_palette(roll).body, str(roll.get("shape", "D6")), true))
+	if not opened.is_empty():
+		show_page(opened)
+
+func _stage_die(die: Dictionary, tone: Color) -> Control:
+	## The die of the page just begun, on the stage in the creature's place while its page is
+	## open: as big as the stage holds it, vertically centred beside the rows.
+	var holder := CenterContainer.new()
+	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stage.add_child(holder)
+	var view: Control = CreatureLedger.die_view(die, DIE_EDGE, tone)
+	holder.add_child(view)
+	_pages.back().stage = holder
+	_show_stage()
+	return view
+
+func _show_stage() -> void:
+	## The stage shows the die of the page that is open, or the creature where the page has none.
+	var shown: Control = null
+	for page in _pages:
+		if page.has("stage") and is_instance_valid(page.stage):
+			page.stage.visible = page.box.visible
+			if page.box.visible:
+				shown = page.stage
+	if _stage_default != null and is_instance_valid(_stage_default):
+		_stage_default.visible = shown == null
 
 static func _dice_words(keys: Array) -> String:
 	## A set of five dice said the short way: each kind once, by name, with how many of it.
@@ -1535,23 +1541,6 @@ static func _dice_words(keys: Array) -> String:
 		parts.append(str(name) if int(counts[name]) <= 1 else "%s ×%d" % [str(name), int(counts[name])])
 	return ", ".join(parts)
 
-static func move_row(parent: Node, move: Dictionary, highlight: bool = false, wrap: bool = false) -> void:
-	## One move as the sheet and the bestiary list it: its mark and name, when it fires, and
-	## what each of its effects does. With `wrap`, a long line runs on to the next rather
-	## than widening whatever holds it.
-	var panel := DeepUi.panel(parent, Color(DeepUi.BAD, 0.12) if highlight else Color(1, 1, 1, 0.03), Color(DeepUi.BAD, 0.6) if highlight else Color(0, 0, 0, 0), 8, 8)
-	var box := DeepUi.vbox(panel, 4)
-	var head := DeepUi.hbox(box, 10)
-	DeepUi.icon(head, EnemyPanel.move_glyph(move), 20, DeepUi.BAD if highlight else DeepUi.MUTED)
-	DeepUi.title(head, str(move.get("name", "")), 16, DeepUi.PAPER)
-	var when := DeepUi.label(box, DeepCreatures.trigger_words(move), 12, DeepUi.DIM)
-	if wrap:
-		when.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	for effect in move.get("effects", []):
-		var line := DeepUi.stat(box, _effect_glyph(str(effect.get("kind", ""))), DeepCreatures.effect_words(effect), DeepUi.PAPER, 13)
-		if wrap:
-			wrap_stat(line)
-
 static func wrap_stat(line: HBoxContainer) -> void:
 	## A stat whose words run on to a second line instead of widening the row, its mark kept
 	## level with the first.
@@ -1561,14 +1550,6 @@ static func wrap_stat(line: HBoxContainer) -> void:
 	for child in line.get_children():
 		if child is TextureRect:
 			(child as TextureRect).size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-
-static func _effect_glyph(kind: String) -> String:
-	return str({"damage": "sword", "block": "shield", "poison": "drop", "stun": "stun", "remove_block": "split_shield", "die_steal": "die",
-		"heal": "heart", "curse": "eye", "summon": "copy", "purge": "drop", "burrow": "rampart", "festering": "drop", "burn": "flame", "strength": "sword",
-		"scorched": "flame", "die_lock": "die", "steal_gold": "coin_fall", "gold": "coins", "empower_next": "sword", "break_die": "cross_out", "blank_face": "die",
-		"reflect": "prism", "mirror": "copy", "absorb_color": "prism", "roll_again": "die", "end_action": "stun", "exhibit": "gem", "max_hp": "heart", "cleanse": "drop",
-		"rally": "sword", "grow_die": "die", "swell": "drop", "hold_gem": "gem", "bury_socket": "rampart", "charge": "bolt", "dice_dread": "thorn", "downgrade_die": "die",
-		"grind_die": "die", "break_gem": "cross_out", "dulled": "cut", "marked": "eye", "ward": "shield_burst", "retain": "shield", "spikes": "caltrop", "regeneration": "heart"}.get(kind, "spark"))
 
 func _effect_words(effect: Dictionary) -> String:
 	var kind: String = str(effect.get("kind", ""))

@@ -31,6 +31,232 @@
 		],
 		"edge": 160
 	},
+	"creature_dice": {
+		"dice": {
+			"AMETHYST_WYRM": [
+				0
+			],
+			"CAP_SHAMBLER": [
+				0
+			],
+			"CAVE_CRAYFISH": [
+				0
+			],
+			"CAVE_TICK": [
+				0
+			],
+			"CINDER_MOTH": [
+				0
+			],
+			"CLOUDER": [
+				0
+			],
+			"COLLAPSAR": [
+				0
+			],
+			"CROUPIER_CRAB": [
+				0
+			],
+			"CRYSTAL_HYDRA": [
+				0
+			],
+			"DROWNED_MINER": [
+				0
+			],
+			"ECHO_SPRITE": [
+				0
+			],
+			"EMBER_CRAWLER": [
+				0
+			],
+			"ENTROPY_EYE": [
+				0
+			],
+			"FIRE_TICK": [
+				0
+			],
+			"FORGE_IMP": [
+				0
+			],
+			"GEODE_GOLEM": [
+				0
+			],
+			"GILDED_MAGPIE": [
+				0
+			],
+			"GLASS_WYRM": [
+				0
+			],
+			"GLINT_MAGPIE": [
+				0
+			],
+			"HOARD_MIMIC": [
+				0
+			],
+			"HUSH": [
+				0
+			],
+			"LAMPREY_KNOT": [
+				0
+			],
+			"LANTERN_MOTH": [
+				0
+			],
+			"MAGPIE": [
+				0
+			],
+			"MYCEL_WEAVER": [
+				0
+			],
+			"MYCEL_WRAITH": [
+				0
+			],
+			"NULL_SHADE": [
+				0
+			],
+			"PARADOX_MOTH": [
+				0
+			],
+			"PIT_MOLE": [
+				0
+			],
+			"PRISM": [
+				0
+			],
+			"PRISM_GOLEM": [
+				0
+			],
+			"PUFFBALL": [
+				0
+			],
+			"QUARTZ_GOLEM": [
+				0
+			],
+			"RAIL_RAT": [
+				0
+			],
+			"REFRACTOR": [
+				0
+			],
+			"RIFTLING_SWARM": [
+				0
+			],
+			"RIFT_SHIFTER": [
+				0
+			],
+			"ROOT_HORROR": [
+				0
+			],
+			"SALAMANDER": [
+				0
+			],
+			"SEEP_EEL": [
+				0
+			],
+			"SHARD_WYRM": [
+				0
+			],
+			"SILT_SLIME": [
+				0
+			],
+			"SLAG_HOUND": [
+				0
+			],
+			"SPORE_SLIME": [
+				0
+			],
+			"STAR_LEECH": [
+				0
+			],
+			"TENDRIL": [
+				0
+			],
+			"THE_ANVIL_KNIGHT": [
+				0,
+				1
+			],
+			"THE_ASSAYER": [
+				0,
+				1
+			],
+			"THE_COLLECTOR": [
+				0,
+				1
+			],
+			"THE_DRILL": [
+				0,
+				1
+			],
+			"THE_DROWNED_CHOIR": [
+				0
+			],
+			"THE_FOREMAN": [
+				0,
+				1
+			],
+			"THE_GARDENER": [
+				0,
+				1
+			],
+			"THE_GLAZIER": [
+				0,
+				1
+			],
+			"THE_HEARTROT": [
+				0
+			],
+			"THE_HOLLOW_CROWN": [
+				0
+			],
+			"THE_KALEIDOSCOPE": [
+				0
+			],
+			"THE_KILN_WYRM": [
+				0,
+				1,
+				2
+			],
+			"THE_LOCKKEEPER": [
+				0,
+				1
+			],
+			"THE_PRISMARCH": [
+				0,
+				1
+			],
+			"THE_REGENT": [
+				0
+			],
+			"THE_SMELTER": [
+				0,
+				1
+			],
+			"THE_SPORE_MOTHER": [
+				0,
+				1
+			],
+			"THE_UNDERTOW": [
+				0,
+				1
+			],
+			"THE_UNMADE": [
+				0
+			],
+			"TIMEGLASS": [
+				0
+			],
+			"VEIN_WRAITH": [
+				0
+			],
+			"VOID_ECHO": [
+				0
+			],
+			"WILL_O_WISP": [
+				0
+			]
+		},
+		"edge": 176
+	},
 	"creatures": {
 		"height": 400,
 		"keys": [
@@ -237,7 +463,7 @@
 			"WELLSPRING"
 		]
 	},
-	"generated": "2026-10-22T09:41:19",
+	"generated": "2026-10-28T15:24:48",
 	"inclusions": {
 		"edge": 160,
 		"host": "BIRTHRIGHT",
@@ -274,6 +500,61 @@
 			"ZONING_RED",
 			"ZONING_VIOLET",
 			"ZONING_WHITE"
+		]
+	},
+	"marks": {
+		"edge": 96,
+		"keys": [
+			"bolt",
+			"broken_chain",
+			"call_b",
+			"cloud",
+			"cloud__m_raise",
+			"copy",
+			"cut",
+			"dice_pair",
+			"drop",
+			"drop__m_x2",
+			"eye__m_reroll",
+			"f_coin_taken",
+			"f_coin_taken__m_raise",
+			"f_coin_taken__m_spark",
+			"f_coin_taken__m_x2",
+			"f_sword",
+			"f_sword__m_drop",
+			"f_sword__m_pierce",
+			"f_sword__m_x10",
+			"f_sword__m_x2",
+			"f_sword__m_x3",
+			"f_sword__m_x4",
+			"f_sword__m_x5",
+			"flame",
+			"flame__m_reroll",
+			"flee",
+			"gem_d",
+			"hammered_anvil",
+			"heart",
+			"heart__m_raise",
+			"heart__m_richest",
+			"hex",
+			"hide_h",
+			"hourglass",
+			"hush",
+			"labrys_tilt",
+			"labrys_tilt__m_pierce",
+			"labrys_tilt__m_reroll",
+			"labrys_tilt__m_x3",
+			"morph",
+			"prism",
+			"shield",
+			"shield__m_kept",
+			"shield_cut",
+			"snare_d",
+			"spark",
+			"swirl",
+			"thorns_c",
+			"thorns_c__m_kept",
+			"wave"
 		]
 	},
 	"matrix": {

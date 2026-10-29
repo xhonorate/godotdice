@@ -5,19 +5,25 @@ extends SceneTree
 ##
 ## Sets: gems (one hero picture per skill), matrix (every Cut × Clarity of each color),
 ## carats (a carat sweep per color), inclusions (each inclusion frozen in a stone),
-## raw (each size class of each color still in its rock), birthstones, dice, creatures.
-## With no set named, all of them. Out defaults to tools/data-browser/assets.
+## raw (each size class of each color still in its rock), birthstones, dice, creatures,
+## creature_dice (each creature's action dice, its moves engraved on the faces), marks (every
+## face mark a creature's die wears, white on clear, for the page to tint).
+## With no set named, all of them. Out defaults to tools/data-browser/assets. The manifest
+## keeps the sets not shot this time.
 ##
 ## Uses the real live views (`gem_view.gd`, `dice_view.gd`, `creature_stage.gd`), so the
-## pictures are exactly what the game draws. Needs a window: the views are SubViewports.
+## pictures are exactly what the game draws. Needs a window: the views are SubViewports
+## (the marks alone are drawn without one).
 
 const GemView = preload("res://view/gems/gem_view.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
 const CreatureStage = preload("res://view/creatures/creature_stage.gd")
+const FaceMarks = preload("res://view/dice/face_marks.gd")
 
 const HERO := 288
 const CELL := 160
 const DIE := 176
+const MARK := 96
 const CREATURE := Vector2i(360, 400)
 const SETTLE_FRAMES := 5
 
@@ -30,14 +36,18 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	if GemView.headless():
-		printerr("browser_assets needs a graphical display.")
-		quit(1)
-		return
 	var args: Array = OS.get_cmdline_user_args()
 	if args.size() > 0:
 		_out = str(args[0])
-	_sets = Array(args.slice(1)) if args.size() > 1 else ["gems", "matrix", "carats", "inclusions", "raw", "birthstones", "dice", "creatures"]
+	_sets = Array(args.slice(1)) if args.size() > 1 else ["gems", "matrix", "carats", "inclusions", "raw", "birthstones", "dice", "creatures", "creature_dice", "marks"]
+	if GemView.headless() and _sets != ["marks"]:
+		printerr("browser_assets needs a graphical display.")
+		quit(1)
+		return
+	## The sets not shot this time stay in the manifest as they were.
+	var kept: Variant = JSON.parse_string(FileAccess.get_file_as_string(_out.path_join("manifest.json"))) if FileAccess.file_exists(_out.path_join("manifest.json")) else null
+	if kept is Dictionary:
+		_manifest = _whole(kept)
 	root.size = Vector2i(720, 720)
 	var backdrop := ColorRect.new()
 	backdrop.color = Color("15181d")
@@ -61,6 +71,10 @@ func _run() -> void:
 		await _dice()
 	if "creatures" in _sets:
 		await _creatures()
+	if "creature_dice" in _sets:
+		await _creature_dice()
+	if "marks" in _sets:
+		_marks()
 	_manifest.generated = Time.get_datetime_string_from_system()
 	_manifest.pack_version = DeepContent.pack().get("version", 0)
 	var file := FileAccess.open(_out.path_join("manifest.json"), FileAccess.WRITE)
@@ -68,6 +82,19 @@ func _run() -> void:
 	file.close()
 	print("browser_assets: %d pictures in %.1fs → %s" % [_count, float(Time.get_ticks_msec() - started) / 1000.0, _out])
 	quit(0)
+
+static func _whole(value: Variant) -> Variant:
+	## JSON reads every number back as a float; the manifest's counts and edges are whole.
+	if value is float and value == floorf(value):
+		return int(value)
+	if value is Array:
+		return value.map(func(v: Variant) -> Variant: return _whole(v))
+	if value is Dictionary:
+		var out: Dictionary = {}
+		for key in value:
+			out[key] = _whole(value[key])
+		return out
+	return value
 
 # --- stones ------------------------------------------------------------------------------
 
@@ -269,3 +296,57 @@ func _creatures() -> void:
 		await process_frame
 		print("creature ", key)
 	_manifest.creatures = {"keys": keys, "width": CREATURE.x, "height": CREATURE.y}
+
+# --- creatures' action dice ---------------------------------------------------------------
+
+func _creature_dice() -> void:
+	## Each creature's dice as it throws them, a picture a die it writes differently (the
+	## Choir's three heads are one picture), turned to show three faces.
+	var keys: Array = DeepContent.section("creatures").keys()
+	keys.sort()
+	var made: Dictionary = {}
+	for key in keys:
+		var foe: Dictionary = DeepCreatures.make(str(key), "browser_%s" % key, 1, 1)
+		var shot: Array = []
+		var seen: Array = []
+		for index in range(foe.dice.size()):
+			var die: Dictionary = foe.dice[index]
+			var signature: String = "%s|%s|%s" % [str(die.get("shape", "")), str(die.get("label", "")), ",".join(die.faces.map(func(f: Dictionary) -> String: return str(f.get("move", ""))))]
+			if signature in seen:
+				continue
+			seen.append(signature)
+			var view := DiceView.new()
+			view.position = Vector2(16, 16)
+			view.size = Vector2(DIE, DIE)
+			view.live = false
+			root.add_child(view)
+			await process_frame
+			view.configure(die, {"face": 0, "die_id": die.id}, false, false, Color.WHITE)
+			view.settle_immediately()
+			var pivot: Node3D = view.get("_pivot")
+			if pivot != null:
+				pivot.quaternion = Quaternion.from_euler(Vector3(0.45, 0.6, 0.0)) * view.get("_target")
+			await _capture(view.get("_viewport"), "creature_dice/%s_%d.png" % [key, index])
+			view.queue_free()
+			await process_frame
+			shot.append(index)
+		made[str(key)] = shot
+		print("creature dice ", key)
+	_manifest.creature_dice = {"dice": made, "edge": DIE}
+
+func _marks() -> void:
+	## Every mark the creatures' faces wear, white on clear: the page lays it over the face's
+	## colour as a mask.
+	var marks: Array = []
+	for key in DeepContent.section("creatures"):
+		for move in DeepContent.creature(str(key)).get("moves", []):
+			var mark: String = str(move.get("mark", ""))
+			if not mark.is_empty() and not mark in marks and FaceMarks.known(mark):
+				marks.append(mark)
+	marks.sort()
+	for mark in marks:
+		var full: String = _out.path_join("marks/%s.png" % mark)
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(full.get_base_dir()))
+		if FaceMarks.raster(mark, MARK).save_png(full) == OK:
+			_count += 1
+	_manifest.marks = {"keys": marks, "edge": MARK}

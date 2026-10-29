@@ -36,7 +36,8 @@ const GIMMICKS: Array = ["", "steal_high_die", "block_from_high", "reflect_zero_
 ## The old single `gimmick` is read as one of these. See docs/BESTIARY.md.
 const TRAITS: Array = GIMMICKS + ["steadfast", "sturdy", "backlash", "flee", "rising", "escalate", "aura", "spikes",
 	"regen_with_escorts", "shielded_by_escorts", "regrow_escorts", "reroll_drain", "reroll_scorch", "punish_straight", "drops_stone",
-	"carat_cap", "resonance_damp", "color_strength", "regenerating", "waterlogged", "hydra", "countdown_reset", "taunt"]
+	"carat_cap", "resonance_damp", "color_strength", "regenerating", "waterlogged", "hydra", "countdown_reset", "taunt",
+	"acid_armour", "reroll_all"]
 ## The traits a Rift Warden may be remembered with, one of them, picked by the seed.
 const REMEMBERED_TRAITS: Array = ["steadfast", "sturdy", "split_on_big_hit"]
 ## What each of those is called where a player reads it.
