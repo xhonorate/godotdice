@@ -397,12 +397,10 @@ func _test_oddities() -> void:
 	var removed: Dictionary = DeepOddities.apply({"kind": "remove_inclusion"}, player, {"stone_id": "guard", "inclusion": "SILK"}, rng, ctx)
 	check(removed.ok and player.haul[1].inclusions.is_empty(), "the acid bath removes an inclusion")
 	## The crucible: the heavier stone survives, a carat or two heavier for a lighter stone
-	## near its own weight, and the fire costs a flat fee in pyrite.
+	## near its own weight. The room's fire is free; only a twin's fusing is paid for.
 	player.ore = 0
-	check(not DeepOddities.apply({"kind": "fuse"}, player, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx).ok and player.haul.size() == 2, "the crucible wants its pyrite first")
-	player.ore = DeepOddities.fuse_cost()
 	var fused: Dictionary = DeepOddities.apply({"kind": "fuse"}, player, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx)
-	check(fused.ok and player.haul.size() == 1 and int(player.ore) == 0, "fusing gives back one stone, eats the other and takes %d pyrite" % DeepOddities.fuse_cost())
+	check(fused.ok and player.haul.size() == 1 and int(player.ore) == 0, "fusing gives back one stone, eats the other and costs no pyrite at the room")
 	check(int(player.haul[0].carat) >= 4 and int(player.haul[0].carat) <= 6, "and it weighs the heavier stone, plus a carat or two at most: %d" % int(player.haul[0].carat))
 	check(str(player.haul[0].skill) in ["STRIKE", "GUARD"], "its skill is one of the two")
 	_test_fuse(rng, ctx)
@@ -460,7 +458,7 @@ func _test_fuse(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	var top: int = DeepContent.clarity_index("INCLUDED")
 	var bottom: int = DeepContent.clarity_index("INTRICATE")
 	for _i in range(200):
-		var p: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 0, 3))], "rail": [], "ore": 100}
+		var p: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 0, 3))], "rail": []}
 		var out: Dictionary = DeepOddities.apply({"kind": "fuse"}, p, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx)
 		check(out.ok and p.haul.size() == 1, "a fusion resolves")
 		var made: Dictionary = p.haul[0]
@@ -483,7 +481,7 @@ func _test_fuse(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	check(not equal_gains.has(0) and int(equal_gains.get(1, 0)) > 120 and int(equal_gains.get(2, 0)) > 120, "two equals always grow, a carat or two about half and half: %s" % str(equal_gains))
 	check(int(small_gains.get(0, 0)) > 320 and int(small_gains.get(2, 0)) < 20, "a stone a third the weight mostly adds nothing, and two carats almost never: %s" % str(small_gains))
 	check(DeepOddities.fuse_gain(rng, 10, 0) == 0 and DeepOddities.fuse_gain(rng, 0, 4) == 0, "nothing grows on nothing")
-	var odd: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 1, 3))], "rail": [], "ore": 100}
+	var odd: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 1, 3))], "rail": []}
 	check(DeepOddities.apply({"kind": "fuse"}, odd, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx).ok and int(odd.haul[0].cut) == 2, "Perfect and Fair average down to Good, never up: a Perfect is only ever found")
 
 func _test_idol(rng: RandomNumberGenerator, ctx: Dictionary) -> void:

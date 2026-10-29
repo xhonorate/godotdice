@@ -187,7 +187,7 @@ A lapidary's rail is filled from the vault only as far as that lapidary's **unlo
 - **Balance watch:** deeper starts lean on temporary stones (§3.1) for the sockets a player has not bought. If they feel too weak, raise their luck before touching the purse or creature health.
 - **The daily dig is unaffected:** it fills the rail by its own rail rule (§4.2).
 - **Travelling heavy (October 29, 2026):** a bought socket is the right to bring a fourth, fifth or sixth stone, and every stone over three takes 2 luck off every stone the mine gives that player (every socket left empty adds 2). The loadout page and the map say so, with a dark star per stone over three and a gold one per empty socket. See REIMAGINING.md §5.1.
-- **Fusing costs 100 pyrite** (`fuse_ore_cost`), at the Crucible and when a twin stone is fused into the one held (§5.1 there). Pyrite, never gold, so rule 1 holds.
+- **Fusing a twin costs 100 pyrite** (`fuse_ore_cost`) when it is fused into the one held (§5.1 there); the Crucible room stays free. Pyrite, never gold, so rule 1 holds.
 - **Co-op:** each player's unlocks are their own. A guest's rail arrives filled as far as their own lapidary allows.
 
 ### 🟢 3.6 The Market (October 12, 2026)

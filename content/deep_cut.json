@@ -11331,15 +11331,15 @@
     },
     "CRUCIBLE": {
       "name": "The Crucible",
-      "text": "Melts two stones into one for 100 pyrite. Only one comes out.",
+      "text": "Melts two stones into one. Only one comes out.",
       "choices": [
         {
           "id": "fuse",
-          "label": "Fuse two stones (100 pyrite)",
+          "label": "Fuse two stones",
           "needs": "two_stones",
           "text": "One of the two survives, a carat or two heavier the nearer the other came to its weight.",
           "action": {
-            "kind": "fuse", "price": 100
+            "kind": "fuse"
           }
         },
         {

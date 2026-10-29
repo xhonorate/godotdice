@@ -282,7 +282,6 @@ func _test_loopholes() -> void:
 		var unit: Dictionary = DeepBattle.make_player("c", "C", "ARDOR", [stone("STRIKE", 9, 3, 3, "keep%d" % seed_value)], dice("ARDOR", "c"))
 		unit.haul = [lent.duplicate(true)]
 		unit.haul[0].id = "feed%d" % seed_value
-		unit.ore = DeepOddities.fuse_cost()
 		var fire: RandomNumberGenerator = DeepRng.streams(seed_value).oddities
 		var fused: Dictionary = _apply_action({"kind": "fuse"}, unit, {"keep_id": "keep%d" % seed_value, "feed_id": "feed%d" % seed_value}, fire, mine)
 		var made: Array = fused.get("changed", [])

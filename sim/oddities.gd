@@ -202,9 +202,6 @@ static func nothing_to_work(needs: String, action: Dictionary, player: Dictionar
 		"inclusion":
 			return carried(player).filter(func(s: Dictionary) -> bool: return not s.get("inclusions", []).is_empty() and (bool(s.get("appraised", false)) or bool(s.get("inclusions_revealed", false)))).is_empty()
 		"two_stones":
-			## The crucible's fire is bought: without the pyrite there is nothing to do here.
-			if str(action.get("kind", "")) == "fuse" and int(player.get("ore", 0)) < fuse_cost():
-				return true
 			return carried(player).filter(func(s: Dictionary) -> bool: return work_refusal(action, s, player, offer).is_empty()).size() < 2
 		"stone":
 			## A stone the work would refuse (a fragile one down a well, a Knot) is not one it could be done to.
@@ -388,12 +385,8 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var feed: Dictionary = find_stone(player, str(payload.get("feed_id", "")))
 			if keep.is_empty() or feed.is_empty() or str(keep.id) == str(feed.id):
 				return _refuse("choose two different stones")
-			## The fire is paid for in pyrite, the same price everywhere (October 29, 2026).
-			var fee: int = fuse_cost()
-			if int(player.get("ore", 0)) < fee:
-				return _refuse("the crucible wants %d pyrite" % fee)
-			player.ore = int(player.ore) - fee
-			DeepBattle.tally_add(player, "spent", fee)
+			## The room's fire is free: its price is the coin flip on which stone survives.
+			## Only fusing a twin into the stone it matches is paid for (`fuse_cost`).
 			if DeepRng.chance(rng, 50.0):
 				var swap: Dictionary = keep
 				keep = feed
@@ -416,8 +409,8 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			remove_stone(player, str(feed.id))
 			out.lost.append(str(feed.id))
 			out.changed.append(keep.duplicate(true))
-			out.message = "The stones fuse into one for %d pyrite: a %s, %d carats." % [
-				fee, str(DeepStone.skill_of(keep).get("name", keep.skill)), int(keep.carat)]
+			out.message = "The stones fuse into one: a %s, %d carats." % [
+				str(DeepStone.skill_of(keep).get("name", keep.skill)), int(keep.carat)]
 		"echo_stone":
 			## The room rings and the rock answers with another of the same. Only the skill
 			## carries across: the stone that forms is rolled fresh in every other way, which
@@ -846,7 +839,8 @@ static func choice_text(choice: Dictionary, depth: int) -> String:
 # --- the crucible -------------------------------------------------------------------------------
 
 static func fuse_cost() -> int:
-	## What any fusing costs: the crucible's, and a twin fed to the stone it matches.
+	## What fusing a twin into the stone it matches costs (DeepDescent._twin). The Crucible
+	## room itself is free: its price is the coin flip on which stone survives.
 	return int(DeepContent.constant("fuse_ore_cost", 100))
 
 static func fuse_gain(rng: RandomNumberGenerator, heavy: int, light: int) -> int:
