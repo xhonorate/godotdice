@@ -57,6 +57,8 @@ const DICE_CARDS: Array = ["VAT"]
 const RESPITES: Array = ["rest", "appraise", "wish"]
 ## What a player who is down cannot do: anything a room, a stall, a hoard or the way on offers.
 const DOWNED_CANNOT: Array = ["oddity", "buy", "sell", "appraise", "pick_hoard", "trade_offer", "trade_accept", "choose", "light", "strike", "respite", "altar"]
+## What a player with a twin stone to settle may still do.
+const TWIN_ALLOWED: Array = ["twin", "abandon", "ready", "light"]
 ## What a landing's well will take, and the most of it.
 const WISH_LEAST: int = 10
 const WISH_MOST: int = 1000
@@ -108,12 +110,17 @@ static func new_run(config: Dictionary) -> Dictionary:
 		var rail: Array = entry.get("rail", []).duplicate(true)
 		for index in range(open, rail.size()):
 			rail[index] = null
+		var brought: int = 0
 		for stone in rail:
 			if stone is Dictionary:
 				stone.lent = true
+				brought += 1
 		var unit: Dictionary = DeepBattle.make_player(str(entry.get("id", "p%d" % seat)), str(shown[seat]), str(entry.get("character", DeepContent.starter_character())),
 			rail, entry.get("dice", []))
+		## Travelling light or heavy: every stone fewer than three on the rail is luck on
+		## every stone the mine gives this player, every stone more is luck off it.
 		unit.merge({"seat": seat, "haul": [], "bag_dice": [], "ore": int(mine_def.get("start_pyrite", 0)), "vote": "", "seen": [],
+			"loadout_stones": brought, "loadout_luck": loadout_luck(brought),
 			"choice": "", "respite": "", "ready": false, "strikes": 0, "mining": false, "oddity_choice": "", "stake": "", "last_depth": int(entry.get("last_depth", 0)),
 			"last_outcome": str(entry.get("last_outcome", "")), "last_warden_unbeaten": bool(entry.get("last_warden_unbeaten", false)), "insured": bool(entry.get("insured", false)), "temps": [],
 			"altar_done": "", "vault_spent": [], "transcended": [],
@@ -302,7 +309,7 @@ static func streams_of(state: Dictionary) -> Dictionary:
 ##
 ## Below the Quarry a lapidary's sockets do not go down empty: neither the shut ones nor one
 ## bought and left without a vault stone, which would otherwise be worse than not buying it.
-## Each is offered three temporary stones in its own color (an Any socket, three colors),
+## Each is offered three temporary stones in the colors it shows (a Rainbow socket, three colors),
 ## already read, and the one taken is set there at the shaft head, before the stakes. A temporary stone is fragile: it
 ## cannot be kept, sold, turned in or thrown down a well, and it is gone when the run ends.
 
@@ -320,8 +327,13 @@ static func _temporary_offers(state: Dictionary, unit: Dictionary, rng: RandomNu
 		if index < unit.rail.size() and unit.rail[index] is Dictionary:
 			continue
 		var socket: String = str(sockets[index])
-		var colors: Array = [socket, socket, socket]
-		if socket == DeepContent.SOCKET_ANY:
+		## A plain socket offers its own color three times, a two-tone socket both of its
+		## colors and one of them again, a Rainbow three different colors.
+		var shown: Array = DeepContent.socket_colors(socket)
+		var colors: Array = [shown[0], shown[0], shown[0]] if shown.size() == 1 else []
+		if shown.size() == 2:
+			colors = [shown[0], shown[1], shown[rng.randi_range(0, 1)]]
+		if DeepContent.is_rainbow(socket):
 			## Only colors with a skill not yet offered: Florin's two Gold sockets take six of
 			## a mine's seven Gold skills, and an Any socket drawing Gold after them could only
 			## offer a stone the rail would then refuse beside the one already taken.
@@ -1473,6 +1485,14 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 				if not open.is_empty() and DeepDice.etch(die, int(open[streams.stones.randi_range(0, open.size() - 1)]), "locked"):
 					settle.cursed[str(unit.id)] = str(die.get("id", ""))
 	state.rng = DeepRng.save(streams)
+	## A read drop whose skill the player already holds is a twin to settle (see `check_twins`).
+	var twins: Array = []
+	for unit in state.players:
+		var ask: Dictionary = check_twins(state, unit)
+		if not ask.is_empty():
+			twins.append(ask)
+	if not twins.is_empty():
+		settle.twins = twins
 	if outcome == "defeat":
 		_start_salvage(state)
 		settle.salvage = state.salvage.duplicate(true)
@@ -1492,12 +1512,23 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	state.rng = DeepRng.save(onward)
 	return settle
 
+static func loadout_luck(stones: int) -> float:
+	## What a loadout does to the luck of every stone the mine gives a player: `loadout_luck_per_stone`
+	## (2) for every stone fewer than `loadout_luck_base` (3) on the rail at the shaft head,
+	## and as much off for every stone more. Three stones is the mine as it is; an empty
+	## rail is +6, six stones is -6. The map shows a gold star per empty socket and a dark
+	## one per stone over three.
+	var per: float = float(DeepContent.constant("loadout_luck_per_stone", 2))
+	var base: int = int(DeepContent.constant("loadout_luck_base", 3))
+	return per * float(base - stones)
+
 static func _find_stone(state: Dictionary, unit: Dictionary, streams: Dictionary, bonus: int, source: String, min_tier: String = "") -> Dictionary:
 	## One raw stone into a player's haul. All stored Sparkle is spent on this find, at
-	## SPARKLE_LUCK a point of luck apiece, so a full hundred stacks is worth eight points.
+	## SPARKLE_LUCK a point of luck apiece, so a full hundred stacks is worth eight points,
+	## and the player's loadout luck (`loadout_luck`) rides on every find.
 	## `min_tier` names the lowest grade that will do: the wheel spins again, a dozen times
 	## at most, until it lands.
-	var extra: float = float(bonus) + float(clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)) * DeepRules.SPARKLE_LUCK
+	var extra: float = float(bonus) + float(clampi(int(unit.get("sparkle", 0)), 0, DeepRules.SPARKLE_MAX_STACKS)) * DeepRules.SPARKLE_LUCK + float(unit.get("loadout_luck", 0.0))
 	unit.sparkle = 0
 	var provenance: Dictionary = {"run": str(state.run_id), "source": source, "finder": str(unit.id), "seat": int(unit.get("seat", 0))}
 	var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), extra, provenance, _id(state, "st"))
@@ -1688,6 +1719,7 @@ static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: Strin
 	var given: Dictionary = DeepOddities.find_stone(unit, str(payload.get("stone_id", "")))
 	var result: Dictionary = DeepOddities.apply(choice.get("action", {"kind": "none"}), unit, payload, streams.oddities,
 		{"mine": mine_of(state), "depth": int(state.depth), "run": str(state.run_id), "party": state.players.size(),
+		"luck": float(unit.get("loadout_luck", 0.0)),
 		"offer": state.chamber.get("offer", {}), "tries": state.chamber.get("tries", {}).get(str(unit.id), {}),
 		"well_mult": 1.5 if has_mod(state, "BRIGHT_WELL") else 1.0})
 	if not result.ok:
@@ -1743,12 +1775,12 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	## Why this stone cannot go in this socket, or "" when it can. The bench asks the same
 	## question to light the sockets a dragged stone would fit.
 	##
-	## A socket is cut for a color and it keeps to it, at home and down the mine alike. An
-	## ANY socket takes anything, an opal fits only an ANY socket, and Zoning and Alexandrite say
-	## for themselves what else a stone counts as. A Void gem takes no socket at all: it
-	## rides one, any one of any color, beside whatever is set there, and fires right after
-	## it; so the only things that can refuse it are its weight and a Knot holding it where it
-	## is. A rail holds one stone of each skill, riders included (see `rail_duplicate`).
+	## Down the mine any stone sits in any socket (October 29, 2026): a socket's colors only
+	## say which stones light it for a point of Resonance (`DeepStone.shows`), and only the
+	## loadout at home keeps a stone out of a socket that does not show it. A Void gem takes
+	## no socket at all: it rides one, any one, beside whatever is set there, and fires right
+	## after it; so the only things that can refuse it are its weight and a Knot holding it
+	## where it is. A rail holds one stone of each skill, riders included (see `rail_duplicate`).
 	var rail: Array = unit.get("rail", [])
 	if index < 0 or index >= rail.size():
 		return "no such socket"
@@ -1757,10 +1789,6 @@ static func socket_refusal(unit: Dictionary, stone: Dictionary, index: int) -> S
 	if not bool(stone.get("appraised", false)):
 		return "an unappraised stone cannot be set"
 	var riding: bool = DeepStone.is_slotless(stone)
-	var sockets: Array = unit.get("sockets", [])
-	var socket_color: String = str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_ANY
-	if not riding and not DeepStone.fits(stone, socket_color):
-		return "that socket is cut for %s" % str(DeepContent.color(socket_color).get("name", socket_color)).to_lower()
 	var character: Dictionary = DeepContent.character(str(unit.get("character", "")))
 	var carat_cap: int = int(character.get("carat_max", 0))
 	if carat_cap > 0 and int(stone.get("carat", 1)) > carat_cap:
@@ -1794,6 +1822,101 @@ static func rail_duplicate(unit: Dictionary, stone: Dictionary, displaced: int =
 
 static func _rail_event(state: Dictionary, unit: Dictionary) -> Dictionary:
 	return {"ok": true, "event": _event(state, "rail_changed", {"unit": unit.id, "rail": unit.rail.duplicate(true), "riders": unit.get("riders", []).duplicate(true)})}
+
+# --- twins: one stone of each skill ----------------------------------------------------------
+
+static func check_twins(state: Dictionary, unit: Dictionary) -> Dictionary:
+	## Nobody carries two of one gem (October 29, 2026): a read stone in the bag whose skill
+	## the player already holds, on the rail, riding, or earlier in the bag, is a twin, and
+	## the later one is the newcomer. The player settles it with the `twin` command before
+	## anything else: swap it for the one held, toss it, or fuse the two for the crucible's
+	## fee. One at a time: the next is asked once this one is settled. The rail itself may
+	## hold what it was given (a day's One Trick): only the bag is read. Returns the event
+	## that asks, or {} when there is nothing to ask or one is already being asked.
+	if not unit.get("twin", {}).is_empty():
+		return {}
+	var held: Dictionary = {}
+	for stone in DeepStone.rail_stones(unit):
+		if stone is Dictionary and not str(stone.get("skill", "")).is_empty():
+			held[str(stone.skill)] = stone
+	for stone in unit.get("haul", []):
+		if not stone is Dictionary or DeepStone.is_geode(stone) or not bool(stone.get("appraised", false)):
+			continue
+		var skill: String = str(stone.get("skill", ""))
+		if skill.is_empty():
+			continue
+		if held.has(skill) and str(held[skill].get("id", "")) != str(stone.get("id", "")):
+			var other: Dictionary = held[skill]
+			unit.twin = {"stone": str(stone.get("id", "")), "other": str(other.get("id", ""))}
+			return _event(state, "twin", {"unit": unit.id, "stone": stone.duplicate(true), "other": other.duplicate(true), "fee": DeepOddities.fuse_cost()})
+		held[skill] = stone
+	return {}
+
+static func _twin(state: Dictionary, unit: Dictionary, choice: String) -> Dictionary:
+	## Settling a twin: `swap` puts the newcomer where the held stone was (its socket, its line
+	## of riders, or the bag) and the held stone is gone; `toss` loses the newcomer; `fuse`
+	## pays the crucible's fee and feeds the newcomer to the held stone where it stands
+	## (DeepOddities.fuse_stats: a carat or two by how close their weights are, the Cut
+	## averaged down, the Clarity drawn fresh). Nothing lost here is paid for: a twin is
+	## never sold.
+	var pending: Dictionary = unit.get("twin", {})
+	if pending.is_empty():
+		return _refuse("you hold no twin to settle")
+	var stone: Dictionary = DeepOddities.find_stone(unit, str(pending.get("stone", "")))
+	var other: Dictionary = DeepOddities.find_stone(unit, str(pending.get("other", "")))
+	if stone.is_empty() or other.is_empty():
+		unit.erase("twin")
+		return _refuse("that twin is already gone")
+	var fields: Dictionary = {"unit": unit.id, "choice": choice, "stone": stone.duplicate(true), "other": other.duplicate(true)}
+	match choice:
+		"toss":
+			DeepOddities.remove_stone(unit, str(stone.id))
+		"swap":
+			if DeepStone.is_locked(other):
+				return _refuse("a Knot cannot leave its socket")
+			var socket: int = -1
+			for i in range(unit.rail.size()):
+				if unit.rail[i] is Dictionary and str(unit.rail[i].get("id", "")) == str(other.id):
+					socket = i
+			var place: Dictionary = DeepStone.rider_place(unit, str(other.id))
+			DeepOddities.remove_stone(unit, str(stone.id))
+			DeepOddities.remove_stone(unit, str(other.id))
+			DeepStone.normalize_rail(unit)
+			if socket >= 0 and not DeepStone.is_slotless(stone):
+				unit.rail[socket] = stone
+			elif (socket >= 0 or not place.is_empty()) and DeepStone.is_slotless(stone):
+				var host: int = socket if socket >= 0 else int(place.get("socket", 0))
+				unit.riders[host].append(stone)
+			else:
+				unit.haul.append(stone)
+			fields.socket = socket
+		"fuse":
+			var fee: int = DeepOddities.fuse_cost()
+			if int(unit.get("ore", 0)) < fee:
+				return _refuse("fusing the two wants %d pyrite" % fee)
+			var streams: Dictionary = streams_of(state)
+			unit.ore = int(unit.ore) - fee
+			DeepBattle.tally_add(unit, "spent", fee)
+			var fused: Dictionary = DeepOddities.fuse_stats(streams.oddities, other, stone, mine_of(state))
+			state.rng = DeepRng.save(streams)
+			var fragile: bool = DeepStone.is_fragile(other) or DeepStone.is_fragile(stone)
+			var temporary: bool = bool(other.get("temporary", false)) or bool(stone.get("temporary", false))
+			var lent: bool = bool(other.get("lent", false)) or bool(stone.get("lent", false))
+			other.merge(fused, true)
+			if fragile:
+				other.fragile = true
+			if temporary:
+				other.temporary = true
+			if lent:
+				other.lent = true
+			DeepOddities.remove_stone(unit, str(stone.id))
+			fields.fused = other.duplicate(true)
+			fields.paid = fee
+		_:
+			return _refuse("a twin is swapped, tossed or fused")
+	unit.erase("twin")
+	DeepStone.normalize_rail(unit)
+	return {"ok": true, "event": _event(state, "twin_settled", fields)}
 
 static func _socket(state: Dictionary, unit: Dictionary, stone_id: String, index: int, at: int = -1) -> Dictionary:
 	## Set a stone in a socket, or, for a Void gem, ride one: into that socket's line of
@@ -2645,7 +2768,7 @@ static func _offer_hoard(state: Dictionary) -> void:
 				offers.append(DeepEconomy.roll_run_geode(streams.stones, str(state.mine), {"run": str(state.run_id), "finder": str(unit.id), "seat": int(unit.get("seat", 0))}, _id(state, "ge")))
 				continue
 			var opal: bool = index == HOARD_OFFERS / 2 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
-			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), opal_luck if opal else luck, {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
+			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), (opal_luck if opal else luck) + float(unit.get("loadout_luck", 0.0)), {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
 			stone.appraised = false
 			stone.inclusions_revealed = false
 			offers.append(stone)
@@ -2833,8 +2956,14 @@ static func command(state: Dictionary, player_id: String, cmd: Dictionary) -> Di
 		noted[str(unit.get("id", ""))] = unit.get("seen", []).size() if unit.has("seen") else -1
 	var result: Dictionary = _command(state, player_id, cmd)
 	if bool(result.get("ok", false)):
+		var twins: Array = []
 		for unit in state.get("players", []):
 			DeepStone.normalize_rail(unit)
+			var ask: Dictionary = check_twins(state, unit)
+			if not ask.is_empty():
+				twins.append(ask)
+		if not twins.is_empty() and result.get("event", null) is Dictionary:
+			result.event.twins = twins
 	else:
 		for unit in state.get("players", []):
 			var was: int = int(noted.get(str(unit.get("id", "")), -1))
@@ -2857,6 +2986,9 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 		return _refuse("the run is over")
 	## The fallen are carried, not consulted: nothing a room offers is theirs to take until a
 	## landing has them back on their feet. Their own bench and the chart are still theirs.
+	## A twin in the bag is settled before anything else: swapped, tossed or fused.
+	if not unit.get("twin", {}).is_empty() and not kind in TWIN_ALLOWED:
+		return _refuse("settle your twin stone first: swap, toss or fuse it")
 	if bool(unit.get("downed", false)) and kind in DOWNED_CANNOT:
 		return _refuse("you are down: the party carries you to the next landing")
 	match kind:
@@ -2959,6 +3091,8 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 			return _choose_at_landing(state, unit, str(cmd.get("choice", "")), str(cmd.get("via", "")))
 		"pick_hoard":
 			return _pick_hoard(state, unit, str(cmd.get("stone_id", "")))
+		"twin":
+			return _twin(state, unit, str(cmd.get("choice", "")))
 		"light":
 			return _light(state, unit)
 		"abandon":

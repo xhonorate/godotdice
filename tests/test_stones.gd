@@ -58,7 +58,10 @@ func _test_pack() -> void:
 	check(DeepContent.characters_in_unlock_order() == ["ARDOR", "VESPER", "CADENCE", "RUE", "PUCK", "FLORIN"], "characters unlock in the pack's order: %s" % str(DeepContent.characters_in_unlock_order()))
 	check(DeepContent.character_title("VESPER") == "Vesper, the Rogue", "a character is named with their title")
 	for key in DeepContent.section("characters"):
-		check(DeepContent.character(str(key)).sockets.has("RED"), "%s has a Red socket" % str(key))
+		check(DeepContent.character(str(key)).sockets.any(func(s: Variant) -> bool: return DeepContent.socket_colors(str(s)).has("RED")), "%s has a socket that shows Red" % str(key))
+	check(DeepContent.socket_colors("GREEN/VIOLET") == ["GREEN", "VIOLET"] and DeepContent.socket_colors("RAINBOW").size() == 6 and DeepContent.is_rainbow("ANY"), "a two-tone socket shows two colors, a Rainbow all six, and an old save's ANY is a Rainbow")
+	check(DeepContent.socket_name("GREEN/VIOLET") == "Green/Violet" and DeepContent.socket_name("RAINBOW") == "Rainbow", "sockets are named by what they show")
+	check(not DeepContent.socket_is_valid("RED/RED") and not DeepContent.socket_is_valid("PINK") and DeepContent.socket_is_valid("WHITE/GOLD"), "a socket is one or two different colors, or a Rainbow")
 	var birth: Dictionary = DeepStone.birthstone("FLORIN")
 	check(DeepStone.is_birthstone(birth) and DeepStone.name(birth) == "High Roller" and birth.tiers.size() == 6, "a Birthstone is a stone the views can draw and name")
 	check(DeepContent.validate_birthstone({"name": "x", "style": "orb", "hue": "ffffff", "tiers": []}).size() == 2, "an unknown style and an empty ladder are both errors")
@@ -189,6 +192,8 @@ func _test_inclusions() -> void:
 	check(DeepStone.colors(stone("STRIKE", 1, 0, 2, ["ZONING_BLUE"])) == ["RED", "BLUE"], "color Zoning adds a color")
 	check(DeepStone.colors(stone("STRIKE", 1, 0, 2, ["ALEXANDRITE"]), "GREEN") == ["RED", "GREEN"], "Alexandrite takes the socket's color")
 	check(DeepStone.fits(stone("STRIKE"), "RED") and not DeepStone.fits(stone("STRIKE"), "BLUE") and DeepStone.fits(stone("STRIKE"), "ANY"), "sockets take their color or anything")
+	check(DeepStone.shows(stone("STRIKE"), "RED/BLUE") and DeepStone.shows(stone("GUARD"), "RED/BLUE") and not DeepStone.shows(stone("MEND"), "RED/BLUE"), "a two-tone socket shows either of its colors")
+	check(DeepStone.shows(stone("FIRE_OPAL"), "RAINBOW") and not DeepStone.shows(stone("FIRE_OPAL"), "RED/BLUE") and not DeepStone.shows(stone("STRIKE"), DeepContent.SOCKET_NONE), "only a Rainbow shows an opal, and a rider's no-socket shows nothing")
 	check(DeepStone.is_locked(stone("STRIKE", 1, 0, 2, ["KNOT"])), "a Knot is locked in")
 	var flu: Dictionary = DeepStone.effective(stone("STRIKE", 1, 0, 2, ["FLUORESCENCE"]), {"depth": 14})
 	check(flu.carat == 5, "Fluorescence adds a carat per depth below 10")
@@ -356,7 +361,7 @@ func _test_oddities() -> void:
 	rng.seed = 5
 	var mine: Dictionary = DeepContent.mine("QUARRY")
 	var ctx: Dictionary = {"mine": mine, "depth": 6, "run": "r1"}
-	var player: Dictionary = {"haul": [stone("STRIKE", 3, 2, 3), stone("GUARD", 4, 1, 2, ["SILK"])], "rail": [null, null], "dice": [DeepDice.make("D6", "a")], "bag_dice": [], "ore": 0, "hp": 40, "max_hp": 80}
+	var player: Dictionary = {"haul": [stone("STRIKE", 3, 2, 3), stone("GUARD", 4, 1, 2, ["SILK"])], "rail": [null, null], "dice": [DeepDice.make("D6", "a")], "bag_dice": [], "ore": 100, "hp": 40, "max_hp": 80}
 	## The wheel never lifts a cut for the asking: it draws a new one from this depth's table,
 	## so every rung shows up and the stone can come off worse than it went on.
 	var seen_cuts: Dictionary = {}
@@ -391,10 +396,14 @@ func _test_oddities() -> void:
 	check(seen_clarity.size() >= 4 and slots_match, "a clarity reroll lands anywhere and refills what is frozen inside: %s" % str(seen_clarity.keys()))
 	var removed: Dictionary = DeepOddities.apply({"kind": "remove_inclusion"}, player, {"stone_id": "guard", "inclusion": "SILK"}, rng, ctx)
 	check(removed.ok and player.haul[1].inclusions.is_empty(), "the acid bath removes an inclusion")
-	## The crucible: the heavier stone survives and takes up to a third of the lighter one.
-	var fused: Dictionary = DeepOddities.apply({"kind": "fuse", "carry": 30}, player, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx)
-	check(fused.ok and player.haul.size() == 1, "fusing gives back one stone and eats the other")
-	check(int(player.haul[0].carat) >= 4 and int(player.haul[0].carat) <= 4 + int(3 * 30 / 100), "and it weighs the heavier stone plus a share of the lighter: %d" % int(player.haul[0].carat))
+	## The crucible: the heavier stone survives, a carat or two heavier for a lighter stone
+	## near its own weight, and the fire costs a flat fee in pyrite.
+	player.ore = 0
+	check(not DeepOddities.apply({"kind": "fuse"}, player, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx).ok and player.haul.size() == 2, "the crucible wants its pyrite first")
+	player.ore = DeepOddities.fuse_cost()
+	var fused: Dictionary = DeepOddities.apply({"kind": "fuse"}, player, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx)
+	check(fused.ok and player.haul.size() == 1 and int(player.ore) == 0, "fusing gives back one stone, eats the other and takes %d pyrite" % DeepOddities.fuse_cost())
+	check(int(player.haul[0].carat) >= 4 and int(player.haul[0].carat) <= 6, "and it weighs the heavier stone, plus a carat or two at most: %d" % int(player.haul[0].carat))
 	check(str(player.haul[0].skill) in ["STRIKE", "GUARD"], "its skill is one of the two")
 	_test_fuse(rng, ctx)
 	_test_geode_offer(player, rng, mine, ctx)
@@ -451,12 +460,12 @@ func _test_fuse(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	var top: int = DeepContent.clarity_index("INCLUDED")
 	var bottom: int = DeepContent.clarity_index("INTRICATE")
 	for _i in range(200):
-		var p: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 0, 3))], "rail": []}
-		var out: Dictionary = DeepOddities.apply({"kind": "fuse", "carry": 30}, p, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx)
+		var p: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 0, 3))], "rail": [], "ore": 100}
+		var out: Dictionary = DeepOddities.apply({"kind": "fuse"}, p, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx)
 		check(out.ok and p.haul.size() == 1, "a fusion resolves")
 		var made: Dictionary = p.haul[0]
-		check(int(made.carat) >= 10 and int(made.carat) <= 11, "the heavier carat survives and carries some of the lighter: %d" % int(made.carat))
-		check(int(made.cut) == 2, "the cut is the average of the two: %d" % int(made.cut))
+		check(int(made.carat) >= 10 and int(made.carat) <= 12, "the heavier carat survives, a carat or two more at most: %d" % int(made.carat))
+		check(int(made.cut) == 2, "the cut is the average of the two, rounded down: %d" % int(made.cut))
 		clarities[int(made.clarity)] = true
 		check(int(made.clarity) >= mini(bottom, top) and int(made.clarity) <= maxi(bottom, top), "the clarity lands between Included and Intricate")
 		var want: String = DeepOddities.zoning_key("BLUE" if str(made.skill) == "STRIKE" else "RED")
@@ -464,6 +473,18 @@ func _test_fuse(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 			zoned += 1
 	check(zoned == 200, "and the colour that lost is always frozen in as a Zoning (%d of 200)" % zoned)
 	check(clarities.size() >= 2, "the crucible draws its clarity rather than keeping one")
+	## The gain is a chance by how close the lighter stone comes: two equals always grow, one
+	## or two carats half and half; a stone a third the weight of the other mostly adds nothing.
+	var equal_gains: Dictionary = {}
+	var small_gains: Dictionary = {}
+	for _i in range(400):
+		equal_gains[DeepOddities.fuse_gain(rng, 10, 10)] = int(equal_gains.get(DeepOddities.fuse_gain(rng, 10, 10), 0)) + 1
+		small_gains[DeepOddities.fuse_gain(rng, 10, 3)] = int(small_gains.get(DeepOddities.fuse_gain(rng, 10, 3), 0)) + 1
+	check(not equal_gains.has(0) and int(equal_gains.get(1, 0)) > 120 and int(equal_gains.get(2, 0)) > 120, "two equals always grow, a carat or two about half and half: %s" % str(equal_gains))
+	check(int(small_gains.get(0, 0)) > 320 and int(small_gains.get(2, 0)) < 20, "a stone a third the weight mostly adds nothing, and two carats almost never: %s" % str(small_gains))
+	check(DeepOddities.fuse_gain(rng, 10, 0) == 0 and DeepOddities.fuse_gain(rng, 0, 4) == 0, "nothing grows on nothing")
+	var odd: Dictionary = {"haul": [read(stone("STRIKE", 10, 4, 3)), read(stone("GUARD", 4, 1, 3))], "rail": [], "ore": 100}
+	check(DeepOddities.apply({"kind": "fuse"}, odd, {"keep_id": "strike", "feed_id": "guard"}, rng, ctx).ok and int(odd.haul[0].cut) == 2, "Perfect and Fair average down to Good, never up: a Perfect is only ever found")
 
 func _test_idol(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	## The eye takes between one and five pulls, each dearer than the last, and what comes out

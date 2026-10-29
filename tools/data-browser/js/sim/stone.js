@@ -42,13 +42,24 @@ export function colors(stone, socket = '') {
 	for (const also of skillOf(stone).colors || []) if (!out.includes(String(also))) out.push(String(also));
 	for (const m of modifiers(stone)) {
 		if (m.kind === 'color_also' && !out.includes(String(m.color))) out.push(String(m.color));
-		else if (m.kind === 'alexandrite' && C.COLOR_KEYS.includes(socket) && !out.includes(socket)) out.push(socket);
+		else if (m.kind === 'alexandrite' && !C.isRainbow(socket)) for (const shown of C.socketColors(socket)) if (!out.includes(shown)) out.push(shown);
 	}
 	return out;
 }
 
+// Whether a socket shows one of these colors: a Rainbow shows every stone, an opal is shown by
+// nothing else, a two-tone socket shows either of its colors, a rider's no-socket none
+// (sim/stone.gd shown_by). A lit socket adds a point of Resonance when its gem fires.
+export function shownBy(stoneColors, socket) {
+	if (C.isRainbow(socket)) return true;
+	for (const shown of C.socketColors(socket)) if (stoneColors.includes(shown)) return true;
+	return false;
+}
+export const shows = (stone, socket) => shownBy(colors(stone, socket), socket);
+
+// Whether the loadout at home may set the stone here: the socket shows it. A fight never asks.
 export function fits(stone, socket) {
-	return socket === C.SOCKET_ANY || colors(stone, socket).includes(socket);
+	return shows(stone, socket);
 }
 
 // This stone with another's skill on it: what a Doublet is. Its four C's, inclusions and id

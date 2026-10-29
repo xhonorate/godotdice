@@ -282,8 +282,9 @@ func _test_loopholes() -> void:
 		var unit: Dictionary = DeepBattle.make_player("c", "C", "ARDOR", [stone("STRIKE", 9, 3, 3, "keep%d" % seed_value)], dice("ARDOR", "c"))
 		unit.haul = [lent.duplicate(true)]
 		unit.haul[0].id = "feed%d" % seed_value
+		unit.ore = DeepOddities.fuse_cost()
 		var fire: RandomNumberGenerator = DeepRng.streams(seed_value).oddities
-		var fused: Dictionary = _apply_action({"kind": "fuse", "carry": 30}, unit, {"keep_id": "keep%d" % seed_value, "feed_id": "feed%d" % seed_value}, fire, mine)
+		var fused: Dictionary = _apply_action({"kind": "fuse"}, unit, {"keep_id": "keep%d" % seed_value, "feed_id": "feed%d" % seed_value}, fire, mine)
 		var made: Array = fused.get("changed", [])
 		check(not made.is_empty() and DeepStone.is_fragile(made[0]) and bool(made[0].get("temporary", false)), "a stone fused with a temporary one is temporary too (seed %d)" % seed_value)
 
@@ -405,9 +406,9 @@ func _test_starters_and_new_delvers() -> void:
 	DeepProfile.keep(joined, stone("CLEAVE", 4, 2, 3, "cleave_j"))
 	DeepProfile.keep(joined, stone("DREAD", 3, 2, 3, "dread_j"))
 	DeepProfile.unlock_character(joined, "VESPER")
-	check(joined.characters.VESPER.rail.slice(0, 3) == ["STRIKE", "CLEAVE", "GUARD"], "Vesper joins with Strike and Cleave in her Red sockets and Guard in the open one: %s" % str(joined.characters.VESPER.rail))
+	check(joined.characters.VESPER.rail.slice(0, 3) == ["STRIKE", "CLEAVE", null], "Vesper joins with Strike and Cleave in two of her three Red sockets, and no third Red stone to set: %s" % str(joined.characters.VESPER.rail))
 	DeepProfile.unlock_character(joined, "CADENCE")
-	check(joined.characters.CADENCE.rail.slice(0, 3) == ["STRIKE", null, "DREAD"], "Cadence joins with what fits her Red and Violet sockets: %s" % str(joined.characters.CADENCE.rail))
+	check(joined.characters.CADENCE.rail.slice(0, 3) == ["STRIKE", "GUARD", null], "Cadence joins with what her Red and Blue sockets show, and nothing White to set: %s" % str(joined.characters.CADENCE.rail))
 	check(joined.characters.ARDOR.rail.slice(0, 3) == ["STRIKE", "GUARD", "MEND"], "and the first delver keeps every stone: they share the vault")
 
 # --- commissions --------------------------------------------------------------------------------

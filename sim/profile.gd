@@ -332,8 +332,8 @@ static func unlock_character(profile: Dictionary, character_key: String) -> bool
 static func fit_from_vault(profile: Dictionary, character_key: String) -> int:
 	## A delver who joins sets their open sockets from the vault, as the first delver's were
 	## set, so nobody new goes down with a rail that does nothing. Every rail draws on the same
-	## vault, so no other delver loses a stone. The colored sockets first, then the ANY ones,
-	## so an ANY socket never takes the one stone a colored socket could hold. In each, a
+	## vault, so no other delver loses a stone. The colored sockets first, then the Rainbow
+	## ones, so a Rainbow socket never takes the one stone a colored socket could hold. In each, a
 	## starter (Strike, Guard, Mend) where it fits, else the vault's best stone that fits.
 	## Returns how many sockets were filled.
 	var record: Dictionary = profile.get("characters", {}).get(character_key, {})
@@ -346,7 +346,7 @@ static func fit_from_vault(profile: Dictionary, character_key: String) -> int:
 	var filled: int = 0
 	for any_pass in [false, true]:
 		for index in range(open_sockets(profile, character_key)):
-			if index >= sockets.size() or (str(sockets[index]) == DeepContent.SOCKET_ANY) != any_pass:
+			if index >= sockets.size() or DeepContent.is_rainbow(str(sockets[index])) != any_pass:
 				continue
 			if index < record.rail.size() and record.rail[index] != null:
 				continue
@@ -681,7 +681,7 @@ static func rail_refusal(profile: Dictionary, character_key: String, index: int,
 	if stone.is_empty():
 		return "you do not own that stone"
 	if not DeepStone.fits(stone, str(sockets[index])):
-		return "that socket takes a different color"
+		return "that socket shows %s, not this stone's color" % DeepContent.socket_name(str(sockets[index])).to_lower()
 	var cap: int = int(character.get("carat_max", 0))
 	if cap > 0 and int(stone.carat) > cap:
 		return "%s takes nothing heavier than %d carats" % [str(character.get("name", "this character")), cap]

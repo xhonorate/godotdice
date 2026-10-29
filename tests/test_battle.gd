@@ -647,7 +647,7 @@ func _test_opals() -> void:
 	events = run_turn(state, r)
 	check(birthstones(events, "a").size() == 3, "last in the rail, what goes again is the Birthstone")
 
-	## No opal ever repeats another one, whatever colors they answer to.
+	## A Seam plays its own color: a Red Seam is an opal, no color, so a Blue Seam leaves it.
 	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("GUARD", 4, 4, 3, [], "g1"),
 		stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("SEAM_BLUE", 1, 4, 3, [], "h2")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
@@ -655,9 +655,94 @@ func _test_opals() -> void:
 	events = run_turn(state, r)
 	var blue: Array = at_socket(events, 3)
 	check(blue.size() == 1 and str(blue[0].effects[0].sockets) == "[1]",
-		"a Blue Seam plays the Blue gem and steps over the Red Seam, which counts as every color")
+		"a Blue Seam plays the Blue gem and steps over the Red Seam, which is no color at all")
 	check(at_socket(events, 0).size() == 2 and at_socket(events, 1).size() == 2 and at_socket(events, 2).size() == 1,
 		"each gem was played once more and no opal was played twice")
+	_test_opals_together(r)
+	_test_lit_sockets(r)
+
+func _test_opals_together(r: Dictionary) -> void:
+	## Opals touch each other (October 29, 2026). What keeps two of them from calling each
+	## other for ever: a replay only reaches gems earlier on the rail than the gem replaying,
+	## so a replayed Seam plays exactly what it played the first time, and an Echo never
+	## copies an Echo.
+	## A Rainbow Seam replays the Red Seam before it, and the replayed Red Seam plays the
+	## Strike again, and that is the end of it.
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("GUARD", 4, 4, 3, [], "g1"),
+		stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("RAINBOW_SEAM", 1, 4, 3, [], "h2")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	var events: Array = run_turn(state, r)
+	check(at_socket(events, 2).size() == 2 and bool(at_socket(events, 2)[1].get("retrigger", false)), "a Rainbow Seam plays the Red Seam before it again")
+	check(at_socket(events, 0).size() == 4 and at_socket(events, 1).size() == 2 and at_socket(events, 3).size() == 1,
+		"the replayed Red Seam plays the Strike once more, and nothing reaches the Rainbow Seam: %d, %d, %d" % [at_socket(events, 0).size(), at_socket(events, 1).size(), at_socket(events, 3).size()])
+	## A Seam after a Rainbow Seam never reaches back to it: replays point backward only.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("RAINBOW_SEAM", 1, 4, 3, [], "h2"), stone("SEAM_RED", 1, 4, 3, [], "h1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(at_socket(events, 1).size() == 1 and at_socket(events, 0).size() == 3, "a Red Seam after a Rainbow Seam plays the Strike, never the Rainbow Seam")
+	## A Doublet wears an opal like any other gem: as a Red Seam it plays the Strike again.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("DOUBLET", 1, 4, 3, [], "d1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(str(at_socket(events, 2)[0].worn) == "h1" and at_socket(events, 0).size() == 3, "a Doublet wears the Red Seam before it and plays the Strike a third time")
+	## A Matrix wakes only gems before it: a Seam it wakes cannot reach it back.
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("SEAM_RED", 1, 4, 3, [], "h1"), stone("MATRIX", 1, 4, 3, [], "x1")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	var fighter: Dictionary = state.players[0]
+	fighter.initial_resonance = 0
+	hand(fighter, [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(at_socket(events, 1).size() >= 1 and at_socket(events, 2).size() == 1, "a Matrix wakes or plays the Seam before it and is never woken back: %d, %d" % [at_socket(events, 1).size(), at_socket(events, 2).size()])
+	## An Echo never copies an Echo, nor a Doublet wearing one.
+	check(DeepBattle.is_echo(stone("ECHO")) and not DeepBattle.is_echo(stone("STRIKE")), "an Echo is known by its skill")
+	var pair: Dictionary = player("a", [stone("ECHO", 1, 4, 3, [], "e1"), stone("DOUBLET", 1, 4, 3, [], "d1")])
+	DeepStone.flatten_rail(pair)
+	check(DeepBattle.is_echo(DeepBattle.stone_at(pair, 1)), "and so is a Doublet wearing one")
+	state = DeepBattle.begin([player("a", [stone("GUARD", 4, 4, 3, [], "g1"), stone("ECHO", 1, 4, 3, [], "e1"), stone("ECHO", 1, 4, 3, [], "e2")])],
+		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	for _turn in range(3):
+		hand(state.players[0], [4, 4, 5, 5, 5])
+		run_turn(state, r)
+	var copies: Array = state.players[0].rail.filter(func(s: Variant) -> bool: return s is Dictionary and str(s.get("id", "")).contains("void"))
+	check(not copies.is_empty() and copies.all(func(s: Dictionary) -> bool: return not DeepBattle.is_echo(s)), "two Echoes lay copies of the Guard, never of each other: %s" % str(copies.map(func(s: Dictionary) -> String: return str(s.skill))))
+	check(state.players[0].rail.size() <= DeepBattle.MAX_RAIL, "and the rail stays within its cap")
+
+func _test_lit_sockets(r: Dictionary) -> void:
+	## A socket that shows its gem's color is lit, and adds a point of Resonance when the gem
+	## fires; a Rainbow socket shows everything, opals included, and nothing else shows an opal.
+	## Ardor's sockets: Red, Blue, Green, then three Rainbows.
+	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	var events: Array = run_turn(state, r)
+	check(bool(at_socket(events, 0)[0].get("lit", false)) and int(at_socket(events, 0)[0].gain) == 2, "a Red gem in the Red socket is lit: its own point of Resonance and one for the socket")
+	state = DeepBattle.begin([player("a", [null, stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(not bool(at_socket(events, 1)[0].get("lit", false)) and int(at_socket(events, 1)[0].gain) == 1, "the same gem in the Blue socket is unlit: its own point only")
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), null, null, stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(bool(at_socket(events, 3)[0].get("lit", false)) and int(at_socket(events, 3)[0].gain) == 2, "an opal in a Rainbow socket is lit")
+	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(not bool(at_socket(events, 1)[0].get("lit", false)) and int(at_socket(events, 1)[0].gain) == 1, "and in the Blue socket it is not")
+	## A two-tone socket shows either color; a rider sits in no socket and is never lit.
+	var puck: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("VENOM", 4, 4, 3, [], "v1")], "PUCK")], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(puck.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(puck, r)
+	check(bool(at_socket(events, 0)[0].get("lit", false)) and bool(at_socket(events, 1)[0].get("lit", false)), "Puck's Red/Blue socket shows a Red gem and the Green/Violet one a Violet gem")
+	var void_strike: Dictionary = stone("STRIKE", 4, 4, 3, ["VOID"], "s2")
+	var rider: Dictionary = player("a", [stone("GUARD", 4, 4, 3, [], "g1")])
+	DeepStone.normalize_rail(rider)
+	rider.riders[0].append(void_strike)
+	state = DeepBattle.begin([rider], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	hand(state.players[0], [4, 4, 5, 5, 5])
+	events = run_turn(state, r)
+	check(str(state.players[0].sockets[1]) == DeepContent.SOCKET_NONE and not bool(at_socket(events, 1)[0].get("lit", false)), "a rider fires in no socket, and no socket lights for it")
 
 func _test_creatures_and_statuses() -> void:
 	var r: Dictionary = rngs(41)

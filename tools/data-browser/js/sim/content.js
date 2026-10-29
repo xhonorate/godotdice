@@ -3,7 +3,18 @@
 export const COLOR_KEYS = ['RED', 'BLUE', 'GREEN', 'VIOLET', 'GOLD', 'WHITE'];
 export const SKILL_COLORS = ['RED', 'BLUE', 'GREEN', 'VIOLET', 'GOLD', 'WHITE', 'OPAL'];
 export const OPAL = 'OPAL';
-export const SOCKET_ANY = 'ANY';
+// A Rainbow socket shows every color (an older pack wrote it as ANY); "GREEN/VIOLET" is a
+// two-tone socket showing either; '' is a rider's no-socket (sim/content.gd).
+export const SOCKET_RAINBOW = 'RAINBOW';
+export const SOCKET_ANY = SOCKET_RAINBOW;
+export const SOCKET_NONE = '';
+export const isRainbow = (socket) => socket === SOCKET_RAINBOW || socket === 'ANY';
+export function socketColors(socket) {
+	if (isRainbow(socket)) return COLOR_KEYS.slice();
+	const out = [];
+	for (const part of String(socket || '').split('/')) { const key = part.trim(); if (COLOR_KEYS.includes(key) && !out.includes(key)) out.push(key); }
+	return out;
+}
 export const RARITIES = ['COMMON', 'UNCOMMON', 'RARE', 'LEGENDARY', 'MYTHIC', 'TRANSCENDENT'];
 export const INCLUSION_CLASSES = ['PINPOINT', 'LENS', 'FEATHER', 'FRACTURE', 'STAR'];
 export const CHAMBER_KINDS = ['fight', 'elite', 'vein', 'oddity', 'merchant', 'smithy', 'carver', 'vat', 'well'];

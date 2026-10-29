@@ -91,7 +91,10 @@
     "hazard_luck": 0.25,
     "hazard_carats": 7,
     "hazard_pressure_pct": 3.25,
-    "hazard_daily_gold": 0.05
+    "hazard_daily_gold": 0.05,
+    "loadout_luck_per_stone": 2,
+    "loadout_luck_base": 3,
+    "fuse_ore_cost": 100
   },
   "colors": {
     "RED": {
@@ -3526,7 +3529,7 @@
       "hue": "f0a7a1",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Red gem that has already fired this turn fires again.",
+      "text": "Every Red gem before it that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3555,7 +3558,7 @@
       "hue": "a3c2f0",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Blue gem that has already fired this turn fires again.",
+      "text": "Every Blue gem before it that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3584,7 +3587,7 @@
       "hue": "a3dbb8",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Green gem that has already fired this turn fires again.",
+      "text": "Every Green gem before it that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3613,7 +3616,7 @@
       "hue": "c7b2eb",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Violet gem that has already fired this turn fires again.",
+      "text": "Every Violet gem before it that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3642,7 +3645,7 @@
       "hue": "f1daa0",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every Gold gem that has already fired this turn fires again.",
+      "text": "Every Gold gem before it that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3671,7 +3674,7 @@
       "hue": "f4f7fa",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Every White gem that has already fired this turn fires again.",
+      "text": "Every White gem before it that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3737,7 +3740,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Copies the skill of the previous gem, skipping opals.",
+      "text": "Copies the skill of the previous gem, opals included.",
       "wears": "prev",
       "trigger": {
         "kind": "resonance",
@@ -3759,7 +3762,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Activate the first two gems that fizzled this turn, skipping opals.",
+      "text": "Activate the first two gems before it that fizzled this turn.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3772,7 +3775,7 @@
         }
       ],
       "flawless": {
-        "text": "Activate all gems that fizzled, except opals.",
+        "text": "Activate every gem before it that fizzled.",
         "modify": [
           {
             "effect": 0,
@@ -3786,7 +3789,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Create a Void copy of the last gem that fired. It lasts for the rest of the fight.",
+      "text": "Create a Void copy of the last gem that fired, never another Echo. It lasts for the rest of the fight.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3942,7 +3945,7 @@
       "hue": "f2e9f7",
       "rarity": "TRANSCENDENT",
       "tags": ["opal", "resonance", "transcendent"],
-      "text": "Every gem that has already fired this turn fires again.",
+      "text": "Every gem before it that has already fired this turn fires again.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -5068,7 +5071,7 @@
       "unlock_order": 0,
       "hp": 80,
       "text": "The tank. Locks in early, heals for unused rerolls, and hits hard with three of a kind.",
-      "sockets": ["RED", "BLUE", "GREEN", "ANY", "ANY", "ANY"],
+      "sockets": ["RED", "BLUE", "GREEN", "RAINBOW", "RAINBOW", "RAINBOW"],
       "dice": ["D6", "D6", "D6", "D8", "D8"],
       "passive": {
         "kind": "heal_resonance_per_unused_reroll",
@@ -5172,7 +5175,7 @@
       "unlock_order": 1,
       "hp": 65,
       "text": "The assassin. Four d4s and a d12, betting on one big roll.",
-      "sockets": ["RED", "RED", "ANY", "ANY", "ANY", "ANY"],
+      "sockets": ["RED", "RED", "RED", "VIOLET", "WHITE", "RAINBOW"],
       "dice": ["D4", "D4", "D4", "D4", "D12"],
       "passive": {
         "kind": "block_per_hit",
@@ -5235,7 +5238,7 @@
       "unlock_order": 2,
       "hp": 70,
       "text": "The combo player. Builds straights and can make a whole turn fire twice.",
-      "sockets": ["RED", "WHITE", "VIOLET", "ANY", "ANY", "ANY"],
+      "sockets": ["RED", "BLUE", "WHITE", "VIOLET", "GOLD", "RAINBOW"],
       "dice": ["D4", "D6", "D8", "D10", "D12"],
       "passive": {
         "kind": "extra_reroll",
@@ -5314,7 +5317,7 @@
       "unlock_order": 3,
       "hp": 70,
       "text": "The low roller. Wants 1s and low dice, and heals off poison.",
-      "sockets": ["RED", "VIOLET", "GREEN", "ANY", "ANY", "ANY"],
+      "sockets": ["GREEN/VIOLET", "GREEN/VIOLET", "GREEN/VIOLET", "GREEN/VIOLET", "RAINBOW", "RAINBOW"],
       "dice": [
         "D4",
         "D4",
@@ -5395,7 +5398,7 @@
       "unlock_order": 4,
       "hp": 70,
       "text": "The trickster. Flips dice between odd and even to line up the hand.",
-      "sockets": ["RED", "BLUE", "WHITE", "ANY", "ANY", "ANY"],
+      "sockets": ["RED/BLUE", "GREEN/VIOLET", "WHITE/GOLD", "RAINBOW", "RAINBOW", "RAINBOW"],
       "dice": ["D6", "D6", "D8", "D8", "D10"],
       "passive": {
         "kind": "free_flip",
@@ -5505,7 +5508,7 @@
       "unlock_order": 5,
       "hp": 60,
       "text": "The high roller. Seven sockets, and every roll is all or nothing.",
-      "sockets": ["RED", "GOLD", "GOLD", "ANY", "ANY", "ANY", "ANY"],
+      "sockets": ["GOLD", "GOLD", "GOLD", "GOLD", "GOLD", "GOLD", "RAINBOW"],
       "dice": [
         {
           "shape": "D6",
@@ -11328,16 +11331,15 @@
     },
     "CRUCIBLE": {
       "name": "The Crucible",
-      "text": "Melts two stones into one. Only one comes out.",
+      "text": "Melts two stones into one for 100 pyrite. Only one comes out.",
       "choices": [
         {
           "id": "fuse",
-          "label": "Fuse two stones",
+          "label": "Fuse two stones (100 pyrite)",
           "needs": "two_stones",
-          "text": "One of the two survives, heavier for it.",
+          "text": "One of the two survives, a carat or two heavier the nearer the other came to its weight.",
           "action": {
-            "kind": "fuse",
-            "carry": 30
+            "kind": "fuse", "price": 100
           }
         },
         {
@@ -12394,7 +12396,7 @@
       "name": "Colorblind",
       "kind": "twist",
       "glyph": "prism",
-      "text": "Any stone fits any socket."
+      "text": "Every socket is a Rainbow: every stone lights it."
     }
   },
   "hazard_tiers": [

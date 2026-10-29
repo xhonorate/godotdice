@@ -83,7 +83,7 @@ function cloneDie(die) { return { ...die, faces: (die.faces || []).map((f) => ({
 // carry, `opts.birthstone`/`opts.passive` false to leave either out.
 export function makePlayer(id, characterKey, rail, dice, opts = {}) {
 	const character = C.character(characterKey);
-	const sockets = (opts.sockets || character.sockets || ['ANY']).slice();
+	const sockets = (opts.sockets || character.sockets || [C.SOCKET_RAINBOW]).slice();
 	const maxHp = Number(opts.hp ?? character.hp ?? 60);
 	const laid = [];
 	for (let i = 0; i < sockets.length; i++) laid.push(rail[i] ? cloneStone(rail[i]) : null);
@@ -221,11 +221,12 @@ export function railContext(state, unit, socket, opts = {}) {
 		kills: I(state.turn_kills), run_fires: I((unit.run_counts || {})[String(stone.id || '')]) };
 }
 
-// What a Doublet at this socket wears: the nearest gem behind it that is not itself an opal.
+// What a Doublet at this socket wears: the nearest gem behind it, opals included, that is not
+// itself a Doublet (sim/battle.gd worn_socket).
 export function wornSocket(unit, socket) {
 	const stone = unit.rail[socket];
 	if (!stone || String(Stone.skillOf(stone).wears || '') !== 'prev') return -1;
-	for (let behind = socket - 1; behind >= 0; behind--) if (unit.rail[behind] && !Stone.isOpal(unit.rail[behind])) return behind;
+	for (let behind = socket - 1; behind >= 0; behind--) if (unit.rail[behind] && String(Stone.skillOf(unit.rail[behind]).wears || '') !== 'prev') return behind;
 	return -1;
 }
 
@@ -236,13 +237,19 @@ export function stoneAt(unit, socket) {
 	return Stone.fingerprinted(unit.rail, socket, stone);
 }
 
-// What an opal's repeat may touch: never another opal, unless it is a Doublet wearing a gem.
+// Whether a replay may touch this socket: a gem stands there. Opals play again like anything
+// else (October 29, 2026); a replay only reaches gems earlier on the rail than the gem
+// replaying, and an Echo never copies an Echo, so no two replays can point at each other.
 export function repeatable(unit, socket) {
 	if (socket < 0 || socket >= unit.rail.length || !unit.rail[socket]) return false;
-	if (!Stone.isOpal(unit.rail[socket])) return true;
-	// Opals apart (a rule tried here, not the game's): a Doublet stays an opal whatever it wears.
-	if (unit.opals_apart) return false;
-	return wornSocket(unit, socket) >= 0;
+	// Opals apart (a rule tried here, not the game's): no opal reaches another.
+	if (unit.opals_apart && Stone.isOpal(unit.rail[socket])) return wornSocket(unit, socket) >= 0;
+	return true;
+}
+
+// A gem whose skill lays Void copies: an Echo, or a Doublet wearing one.
+export function isEcho(stone) {
+	return (Stone.skillOf(stone || {}).effects || []).some((e) => e && e.kind === 'void_copy');
 }
 
 // Opals apart, the rule the balance page can try (`spec.opalsApart`): no opal reaches another.
@@ -423,7 +430,9 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	}
 	let harmony = false;
 	if (unit.previous_fired) for (const color of unit.previous_colors) if (ev.colors.includes(color)) harmony = true;
-	const gain = satMul(I(ev.resonance_gain) + (harmony ? 1 : 0), Math.max(1, I(unit.resonance_mult)));
+	// A lit socket, one that shows the gem's color, adds a point of Resonance of its own.
+	const lit = Stone.shownBy(ev.colors, String(unit.sockets[socket] ?? C.SOCKET_RAINBOW));
+	const gain = satMul(I(ev.resonance_gain) + (harmony ? 1 : 0) + (lit ? 1 : 0), Math.max(1, I(unit.resonance_mult)));
 	unit.resonance = satAdd(I(unit.resonance), gain);
 	const results = [];
 	const previousSocket = unit.previous_socket ?? -1;
@@ -482,7 +491,7 @@ export function resolveGem(state, unit, socket, opts, rng) {
 	if (!dry && certain > 1) for (let more = 0; more < certain - 1; more++) state.queue.unshift({ kind: 'gem', unit: unit.id, socket, retrigger: true, force: true });
 	settleMarks(state);
 	state.ledger.fires += 1;
-	return { kind: 'gem_fire', socket, skill: stone.skill, resonance: unit.resonance, gain, harmony, retrigger, cut_step: I(ev.cut_step), carat: I(ev.carat),
+	return { kind: 'gem_fire', socket, skill: stone.skill, resonance: unit.resonance, gain, harmony, lit, retrigger, cut_step: I(ev.cut_step), carat: I(ev.carat),
 		magnitude: ev.magnitude, fires: I(ev.fires), promised: retrigger ? 0 : promised, effects: results };
 }
 
@@ -731,7 +740,7 @@ function voidCopy(unit, source) {
 function joinRail(state, unit, at, stone) {
 	if (at < 1 || at > unit.rail.length) return;
 	unit.rail.splice(at, 0, stone);
-	unit.sockets.splice(at, 0, C.SOCKET_ANY);
+	unit.sockets.splice(at, 0, C.SOCKET_NONE);
 	for (const entry of state.queue) if (entry.unit === unit.id && entry.socket !== undefined && entry.socket >= at) entry.socket += 1;
 	for (const field of ['fired_sockets', 'fizzled_sockets', 'buried', 'clouded']) unit[field] = (unit[field] || []).map((p) => (p >= at ? p + 1 : p));
 	if ((unit.previous_socket ?? -1) >= at) unit.previous_socket += 1;
@@ -824,12 +833,12 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			break;
 		}
 		case 'replay_color': {
-			// A Seam: every gem of one color that has already fired this turn plays again.
+			// A Seam: every gem of one color earlier on the rail that has already fired this turn plays again.
 			const want = String(effect.color || '');
 			const encore = [];
 			const touched = [];
 			for (const at of unit.fired_sockets.slice().sort((x, y) => x - y)) {
-				if (at === socket || !repeatable(unit, at)) continue;
+				if (at >= socket || !repeatable(unit, at)) continue;
 				if (want !== 'ANY' && !Stone.colors(stoneAt(unit, at), String(unit.sockets[at])).includes(want)) continue;
 				touched.push(at);
 				for (let time = 0; time < Math.max(1, amount); time++) encore.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true });
@@ -839,12 +848,12 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			break;
 		}
 		case 'replay_fizzled': {
-			// A Matrix: gems that stayed dark this turn fire anyway, earliest first.
+			// A Matrix: gems earlier on the rail that stayed dark this turn fire anyway, earliest first.
 			const woken = [];
 			const darkSockets = [];
 			for (const at of unit.fizzled_sockets.slice().sort((x, y) => x - y)) {
 				if (darkSockets.length >= Math.max(1, amount)) break;
-				if (at === socket || !repeatable(unit, at)) continue;
+				if (at >= socket || !repeatable(unit, at)) continue;
 				darkSockets.push(at);
 				woken.push({ kind: 'gem', unit: unit.id, socket: at, retrigger: true, force: true });
 			}
@@ -861,9 +870,9 @@ export function selfEffect(state, unit, effect, socket, previousSocket, dry, rng
 			if (!dry) unit.repeat_next = (I(unit.repeat_next)) + Math.max(0, amount);
 			break;
 		case 'void_copy': {
-			// An Echo: a Void copy of the last gem that fired joins the rail behind this one.
+			// An Echo: a Void copy of the last gem that fired, never another Echo, joins the rail behind this one.
 			const source = previousSocket;
-			const copyable = socket >= 0 && source >= 0 && source < unit.rail.length && unit.rail[source] && repeatable(unit, source);
+			const copyable = socket >= 0 && source >= 0 && source < unit.rail.length && unit.rail[source] && repeatable(unit, source) && !isEcho(stoneAt(unit, source));
 			if (dry || !copyable) { out.nothing = true; break; }
 			const made = [];
 			for (let copy = 0; copy < Math.max(1, amount); copy++) {

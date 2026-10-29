@@ -17,8 +17,13 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 
 ## 1. Shared rules
 
-- **Five sockets**, each Red, Blue, Green, Violet, Gold, White or Any. **Every character has at least
-  one Red socket.** One character has six sockets and pays for it elsewhere.
+- **Six sockets** (Florin has seven), each one color, a **two-tone** pair ("Green/Violet": either
+  color) or **Rainbow** (every color, opals included). **Revised October 29, 2026:** a socket's colors
+  no longer gate what sits in it down the mine. Any gem goes in any socket; a socket that **shows**
+  the gem's color is lit and adds a point of Resonance each time the gem fires, and one that does not
+  holds the gem unlit. The loadout at home still sets a gem only where a socket shows it, so the
+  first three sockets say what a lapidary can bring. Only a Rainbow shows an opal. Every character
+  has a socket that shows Red (a Rainbow counts).
 - The **Birthstone** is last in the rail, always. Its cut and material sit outside the six-color
   language so it can never be mistaken for a socketable stone. Every gem that fires before it feeds
   its Resonance, as the Capstone socket does today.
@@ -34,18 +39,20 @@ policy that chases the character's own Birthstone. "Res" is Resonance when the B
 
 | Character                         | HP  | Dice (mean)                 | Sockets                        | Passive                    | Birthstone reads                  |
 | --------------------------------- | --- | --------------------------- | ------------------------------ | -------------------------- | --------------------------------- |
-| **Ardor**, the Knight             | 80  | d6 d6 d6 d8 d8 (19.5)       | Red, Blue, Green, Any, Any     | Heal Resonance per unused reroll | Sets                        |
-| **Vesper**, the Rogue             | 65  | d4 d4 d4 d4 d12 (16.5)      | Red, Red, Any ×4               | Block per hit dealt        | Five different values             |
-| **Cadence**, the Wizard           | 70  | d4 d6 d8 d10 d12 (22.5)     | Red, White, Violet, Any, Any   | +1 reroll                  | Straights                         |
-| **Rue**, the Apothecary           | 70  | d4 d4 d6 d6 Phial (13.7)    | Red, Violet, Green, Any, Any   | Heal Res when poison ticks | Low dice and ones                 |
-| **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Red, Gold, Gold, Any ×4        | All or Nothing             | Crowns                            |
-| **Sixth**: Harrow, Blaise or Puck |     |                             |                                |                            | High total, explosions, or parity |
+| **Ardor**, the Knight             | 80  | d6 d6 d6 d8 d8 (19.5)       | Red, Blue, Green, Rainbow ×3   | Heal Resonance per unused reroll | Sets                        |
+| **Vesper**, the Rogue             | 65  | d4 d4 d4 d4 d12 (16.5)      | Red ×3, Violet, White, Rainbow | Block per hit dealt        | Five different values             |
+| **Cadence**, the Wizard           | 70  | d4 d6 d8 d10 d12 (22.5)     | Red, Blue, White, Violet, Gold, Rainbow | +1 reroll         | Straights                         |
+| **Rue**, the Apothecary           | 70  | d4 d4 d6 d6 Phial (13.7)    | Green/Violet ×4, Rainbow ×2    | Heal Res when poison ticks | Low dice and ones                 |
+| **Puck**                          | 70  | d6 d6 d8 d8 d10 (21.5)      | Red/Blue, Green/Violet, White/Gold, Rainbow ×3 | Flip one die   | Parity                            |
+| **Florin**, the Gambler           | 60  | five d6 with 7 for 6 (18.3) | Gold ×6, Rainbow               | All or Nothing             | Crowns                            |
+
+Socket layouts revised October 29, 2026 (the older ones were Red, Blue, Green, Any, Any, Any for Ardor and so on, with Any taking anything). Vesper and Florin bring one color only before a run; Puck's three two-tones are the easiest loadout to fill after Rue's.
 
 ### Ardor, the Knight
 
 _The wall. Locks in early, heals for patience, and turns a lucky triple into a hammer._
 
-- **HP** 80. **Dice** d6 d6 d6 d8 d8. **Sockets** Red, Blue, Green, Any, Any.
+- **HP** 80. **Dice** d6 d6 d6 d8 d8. **Sockets** Red, Blue, Green, Rainbow, Rainbow, Rainbow.
 - **Passive: Second Wind.** Heal, for each unused reroll, the Resonance your rail built — paid as the rail closes, because at the start of it there is no Resonance yet to heal on. Patience is worth what the chain was worth.
 - **Birthstone: Rally.**
   - Pair (_Rank_): gain Res block.
@@ -61,7 +68,7 @@ _The wall. Locks in early, heals for patience, and turns a lucky triple into a h
 
 _The assassin's gamble. Four tiny knives and one enormous die._
 
-- **HP** 65. **Dice** d4 d4 d4 d4 d12. **Sockets** Red, Red, Any, Any, Any, Any.
+- **HP** 65. **Dice** d4 d4 d4 d4 d12. **Sockets** Red, Red, Red, Violet, White, Rainbow.
 - **Passive: Riposte.** Gain Res block for every hit one of your gems lands. Block falls off at the end
   of the turn, so a big Birthstone turn is a wall for that turn only.
 - **Birthstone: Thousand Cuts.** Five different values: deal Res damage once for every point on your
@@ -91,7 +98,7 @@ are on the review page: the long knife (the top die at 85% of its top, 9× on ev
 
 _The combo player. Runs of numbers, and the turn that plays twice._
 
-- **HP** 70. **Dice** d4 d6 d8 d10 d12. **Sockets** Red, White, Violet, Any, Any, Any.
+- **HP** 70. **Dice** d4 d6 d8 d10 d12. **Sockets** Red, Blue, White, Violet, Gold, Rainbow.
 - **Passive: Study.** +1 reroll every turn.
 - **Birthstone: Encore.**
   - Three in a row (_Motif_): the last gem that fired plays again, at full strength. It is queued
@@ -115,8 +122,8 @@ _The combo player. Runs of numbers, and the turn that plays twice._
 _The low roller. Wants ones. Everything the other five dread, Rue drinks._
 
 - **HP** 70. **Dice** d4 d4 d6 d6 and **the Phial**, a d6-shaped die with faces 1 1 1 2 2 3
-  (bowl mean 13.7). Judged against its d6 shape, every Phial face is low. **Sockets** Red, Violet,
-  Green, Any, Any.
+  (bowl mean 13.7). Judged against its d6 shape, every Phial face is low. **Sockets** Green/Violet,
+  Green/Violet, Green/Violet, Green/Violet, Rainbow, Rainbow.
 - **Passive: Leech.** Heal Res whenever poison damages a creature, Res being the final Resonance of
   your last rail. Three poisoned creatures means three heals a turn, which is what Miasma is for.
 - **Birthstone: Bitter Draught.** A die is _low_ when it shows half its maximum or less.
@@ -135,8 +142,8 @@ _The low roller. Wants ones. Everything the other five dread, Rue drinks._
 _The seven-socket high roller. Every roll is all or nothing._
 
 - **HP** 60. **Dice** five **Gambler's Dice**: d6s whose 6 is a 7 (faces 1 2 3 4 5 7, bowl mean
-  18.3). The 7 is the crown, and it is the face Lucky Seven pays on. **Sockets** Red, Gold, Gold,
-  Any, Any, Any, Any (seven).
+  18.3). The 7 is the crown, and it is the face Lucky Seven pays on. **Sockets** Gold, Gold, Gold,
+  Gold, Gold, Gold, Rainbow (seven).
 - **Passive: All or Nothing.** Florin throws all his dice together or none of them: a reroll throws
   the whole bowl, so no gem's pattern can be chased. Every crown that comes up, on any throw,
   phantom dice and a die a gem turns onto its top face included, adds 1 Resonance; the throws of
@@ -215,7 +222,7 @@ _Blasting powder in a mine. Dice that explode, damage that splashes._ (alt names
 
 _Two faces. You choose which one the enemy sees, every turn._ (alt names: Quip, Jinx)
 
-- **HP** 70. **Dice** d6 d6 d8 d8 d10 (21.5). **Sockets** Red, Blue, White, Any, Any, Any.
+- **HP** 70. **Dice** d6 d6 d8 d8 d10 (21.5). **Sockets** Red/Blue, Green/Violet, White/Gold, Rainbow, Rainbow, Rainbow.
 - **Passive: Sleight.** Once a turn, turn one die over. The face underneath is the other parity: the
   face mirrored across the die's range (a 2 on a d6 to its 5) when the die has that face, else the
   nearest face of the other parity it does have, so a patterned die is only ever turned to a number

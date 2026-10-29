@@ -119,7 +119,7 @@ static func make_player(id: String, name: String, character_key: String, rail: A
 	## Birthstone come from the character. The rail is kept by socket here; `begin` lays it
 	## flat for the fight.
 	var character: Dictionary = DeepContent.character(character_key)
-	var sockets: Array = character.get("sockets", ["ANY"]).duplicate()
+	var sockets: Array = character.get("sockets", [DeepContent.SOCKET_RAINBOW]).duplicate()
 	var max_hp: int = int(character.get("hp", 60))
 	var unit: Dictionary = {"id": id, "name": name, "side": "player", "character": character_key, "sockets": sockets, "rail": rail.duplicate(true), "riders": riders.duplicate(true),
 		"birthstone": character.get("birthstone", {}).duplicate(true), "flips": 0, "fired_sockets": [], "fizzled_sockets": [], "tailings_paid": {},
@@ -989,7 +989,7 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 	## What the rail hands a gem at this socket: the bonuses its neighbours and the run give
 	## it, and what the previous gem did.
 	var stone: Dictionary = DeepStone.fingerprinted(unit.rail, socket, unit.rail[socket])
-	var socket_color: String = str(unit.sockets[socket]) if socket < unit.sockets.size() else "ANY"
+	var socket_color: String = str(unit.sockets[socket]) if socket < unit.sockets.size() else DeepContent.SOCKET_RAINBOW
 	var carat_bonus: int = 0
 	for neighbour in [socket - 1, socket + 1]:
 		if neighbour < 0 or neighbour >= unit.rail.size() or not unit.rail[neighbour] is Dictionary:
@@ -1049,15 +1049,15 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 		"retrigger": bool(opts.get("retrigger", false)), "force_fire": bool(opts.get("force", false))}
 
 static func worn_socket(unit: Dictionary, socket: int) -> int:
-	## What a Doublet at this socket wears: the nearest gem behind it that is not itself an
-	## opal. Skipping opals is what makes a Doublet terminate — it can never end up wearing
-	## a skill that would send it looking again — and it lets two Doublets share one gem.
-	## It looks as far back along the rail as it must, past empty sockets and past other
-	## opals; with nothing behind it to wear it is a thin slice and only rings.
+	## What a Doublet at this socket wears: the nearest gem behind it, opals included, that
+	## is not itself a Doublet. Skipping Doublets is what makes a Doublet terminate: it can
+	## never end up wearing a skill that would send it looking again. It looks as far back
+	## along the rail as it must, past empty sockets; with nothing behind it to wear it is a
+	## thin slice and only rings.
 	if not unit.rail[socket] is Dictionary or str(DeepStone.skill_of(unit.rail[socket]).get("wears", "")) != "prev":
 		return -1
 	for behind in range(socket - 1, -1, -1):
-		if unit.rail[behind] is Dictionary and not DeepStone.is_opal(unit.rail[behind]):
+		if unit.rail[behind] is Dictionary and str(DeepStone.skill_of(unit.rail[behind]).get("wears", "")) != "prev":
 			return behind
 	return -1
 
@@ -1071,14 +1071,21 @@ static func stone_at(unit: Dictionary, socket: int) -> Dictionary:
 	return DeepStone.fingerprinted(unit.rail, socket, stone)
 
 static func repeatable(unit: Dictionary, socket: int) -> bool:
-	## What an opal's repeat is allowed to touch. Never another opal: that one rule is the
-	## whole of why two opals can never call each other for ever. A Doublet wearing another
-	## gem's skill is no longer opal work, so it plays again like anything else.
-	if socket < 0 or socket >= unit.rail.size() or not unit.rail[socket] is Dictionary:
-		return false
-	if not DeepStone.is_opal(unit.rail[socket]):
-		return true
-	return worn_socket(unit, socket) >= 0
+	## Whether a replay may touch this socket: a gem stands there. Opals play again like
+	## anything else (October 29, 2026). What keeps two of them from calling each other for
+	## ever is that a replay only ever reaches gems earlier on the rail than the gem
+	## replaying (`replay_color`, `replay_fizzled`), and that an Echo never copies an Echo
+	## (`void_copy`): every replay points backward, so no two can point at each other.
+	return socket >= 0 and socket < unit.rail.size() and unit.rail[socket] is Dictionary
+
+static func is_echo(stone: Dictionary) -> bool:
+	## A gem whose skill lays Void copies (an Echo, or a Doublet wearing one): the one gem
+	## an Echo never copies, because copies fire as rail gems every turn and two Echoes
+	## would double each other every turn.
+	for effect in DeepStone.skill_of(stone).get("effects", []):
+		if effect is Dictionary and str(effect.get("kind", "")) == "void_copy":
+			return true
+	return false
 
 static func certain_times(unit: Dictionary, socket: int, retrigger: bool) -> int:
 	## How many times a Certainty earlier on the rail has this socket fire this turn, whatever
@@ -1173,7 +1180,10 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		for color in unit.get("previous_colors", []):
 			if ev.get("colors", []).has(color):
 				harmony = true
-	var gain: int = DeepRules.sat_mul(int(ev.get("resonance_gain", 1)) + (1 if harmony else 0), maxi(1, int(unit.get("resonance_mult", 1))))
+	## A lit socket: one that shows the gem's color (a Rainbow shows every gem, an opal is
+	## shown by nothing else, a rider sits in none) adds a point of Resonance of its own.
+	var lit: bool = DeepStone.shown_by(ev.get("colors", []), str(unit.sockets[socket]) if socket < unit.sockets.size() else DeepContent.SOCKET_RAINBOW)
+	var gain: int = DeepRules.sat_mul(int(ev.get("resonance_gain", 1)) + (1 if harmony else 0) + (1 if lit else 0), maxi(1, int(unit.get("resonance_mult", 1))))
 	## A Null Shade in the room: the rail rings for only part of what it should. What is lost
 	## is carried in hundredths, so two gems at half each still make one.
 	var damp: int = 0
@@ -1325,7 +1335,7 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	if not tally.is_empty():
 		tally.pace = count_pace(state)
 	return _event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
-		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "tally": tally,
+		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "tally": tally,
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
 		"die_boost": float(ev.get("die_boost", 1.0)), "materials": DeepDice.matching_materials(DeepStone.rolls_of(unit.hand, ev.get("dice", [])), ev.get("colors", [])),
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
@@ -2350,7 +2360,9 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 
 		"replay_color":
 			## A Seam: every gem of one color that has already fired this turn plays again,
-			## in rail order. Never another opal — see `repeatable()`.
+			## in rail order. Only gems earlier on the rail than the Seam: a replayed Seam
+			## then plays exactly what it played the first time, and nothing a replay reaches
+			## can reach back (see `repeatable()`).
 			var want: String = str(effect.get("color", ""))
 			var encore: Array = []
 			var touched: Array = []
@@ -2358,7 +2370,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			played.sort()
 			for other in played:
 				var at: int = int(other)
-				if at == socket or not repeatable(unit, at):
+				if at >= socket or not repeatable(unit, at):
 					continue
 				## A Rainbow Seam asks for no color at all: everything that fired plays again.
 				if want != "ANY" and not DeepStone.colors(stone_at(unit, at), str(unit.sockets[at])).has(want):
@@ -2375,8 +2387,8 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 		"replay_fizzled":
 			## A Matrix: gems that stayed dark this turn fire anyway, whatever the hand
 			## shows. The amount is how many of them it can wake, earliest first — two, or
-			## all of them when it is Flawless. Never another opal, so no two Matrices wake
-			## each other.
+			## all of them when it is Flawless. Only gems earlier on the rail than the Matrix
+			## (see `repeatable()`): a woken Seam then never reaches the Matrix that woke it.
 			var woken: Array = []
 			var dark_sockets: Array = []
 			var dark: Array = unit.get("fizzled_sockets", []).duplicate()
@@ -2385,7 +2397,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				var at: int = int(other)
 				if dark_sockets.size() >= maxi(1, amount):
 					break
-				if at == socket or not repeatable(unit, at):
+				if at >= socket or not repeatable(unit, at):
 					continue
 				dark_sockets.append(at)
 				woken.append({"kind": "gem", "unit": unit.id, "socket": at, "retrigger": true, "force": true})
@@ -2411,13 +2423,15 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.total = int(unit.get("repeat_next", 0))
 		"void_copy":
 			## An Echo: a Void copy of the last gem that fired joins the rail riding this
-			## socket, and fires right after it for the rest of the fight. Never a copy of
-			## another opal — that one rule is what keeps two Echoes from filling a rail
-			## with each other. The copy is the fight's own: nothing carries it out, so it
-			## is gone the moment the fight is.
+			## socket, and fires right after it for the rest of the fight. Any gem, opals
+			## included, but never another Echo (nor a Doublet wearing one): copies fire as
+			## rail gems every turn, and two Echoes would fill a rail with each other. The
+			## copy is the fight's own: nothing carries it out, so it is gone the moment the
+			## fight is.
 			var source_socket: int = previous_socket
 			var copyable: bool = socket >= 0 and source_socket >= 0 and source_socket < unit.rail.size() \
-				and unit.rail[source_socket] is Dictionary and repeatable(unit, source_socket)
+				and unit.rail[source_socket] is Dictionary and repeatable(unit, source_socket) \
+				and not is_echo(stone_at(unit, source_socket))
 			if dry or not copyable:
 				out.nothing = true
 			else:
@@ -3456,7 +3470,7 @@ static func _absorb_color(state: Dictionary, target: Dictionary, effect: Diction
 			for socket in range(unit.get("rail", []).size()):
 				if not unit.rail[socket] is Dictionary:
 					continue
-				for c in DeepStone.colors(unit.rail[socket], str(unit.sockets[socket]) if socket < unit.sockets.size() else "ANY"):
+				for c in DeepStone.colors(unit.rail[socket], str(unit.sockets[socket]) if socket < unit.sockets.size() else DeepContent.SOCKET_RAINBOW):
 					counts[str(c)] = int(counts.get(str(c), 0)) + 1
 		var best: int = 0
 		var keys: Array = counts.keys()

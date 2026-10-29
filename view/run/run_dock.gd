@@ -591,7 +591,7 @@ func _birth_plate(unit: Dictionary, birth: Dictionary) -> Control:
 func _socket(parent: Node, unit: Dictionary, index: int, cap: float = SLOT + 8) -> void:
 	## cap: how wide the name under the stone may run (narrower on an eight-stone rail).
 	var sockets: Array = unit.get("sockets", [])
-	var color: String = str(sockets[index]) if index < sockets.size() else "ANY"
+	var color: String = str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_RAINBOW
 	var stone: Variant = unit.rail[index]
 	var set_here: bool = stone is Dictionary
 	## The riders fan out behind the card: a row of no height before it, so their rings are
@@ -619,6 +619,8 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = SLOT + 8) 
 	var lead: Dictionary = riders[0] if not set_here and not riders.is_empty() else {}
 	var ring := BattleScreen.SocketRing.new(color if lead.is_empty() else "VOID", not set_here and lead.is_empty())
 	ring.front = not lead.is_empty()
+	if set_here:
+		ring.shown = 1 if DeepStone.shows(stone, color) else 0
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(ring)
 	_spots["socket:%d" % index] = slot
@@ -652,8 +654,8 @@ func _socket(parent: Node, unit: Dictionary, index: int, cap: float = SLOT + 8) 
 			data = {"kind": "stone", "stone_id": lead_id, "from_socket": index, "rider": 0, "appraised": true}
 			card.mouse_default_cursor_shape = Control.CURSOR_DRAG
 	else:
-		DeepUi.label(card, "Any" if color == "ANY" else color.capitalize(), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = cap
-		Tips.attach(card, func() -> Control: return Plates.words("An empty socket", "Drag any appraised stone onto it. Its color only matters when the loadout is built at home.", "Any" if color == "ANY" else color.capitalize()))
+		DeepUi.label(card, DeepContent.socket_name(color), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = cap
+		Tips.attach(card, func() -> Control: return Plates.words("An empty socket", "Drag any appraised stone onto it. A socket that shows the stone's color lights, and adds a point of Resonance each time the stone fires; any other socket holds it unlit. At home the loadout only sets a stone where it is shown.", DeepContent.socket_name(color)))
 	if not riders.is_empty():
 		_riders_fan(fan, unit, index, riders, 0 if lead.is_empty() else 1)
 	var at: int = index

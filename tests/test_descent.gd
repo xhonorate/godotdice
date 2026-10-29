@@ -25,6 +25,8 @@ func _init() -> void:
 	_test_absent()
 	_test_saves()
 	_test_coming_home()
+	_test_twins()
+	_test_loadout_luck()
 	_test_lift_short()
 	_test_json_round_trip()
 	_test_refusal_changes_nothing()
@@ -442,12 +444,14 @@ func _test_landing_commands() -> void:
 	a.hp = 10
 	var share: int = int(ceil(float(a.max_hp) * 0.35))
 	check(cmd(state, "a", "respite", {"choice": "rest"}).ok and int(a.hp) == 10 + share, "resting gives back 35%% of the most health (%d)" % int(a.hp))
-	## The bench still works here, and a socket keeps to its colour down the mine as it does
-	## at home: a Violet stone has no business in a Red socket.
+	## The bench still works here, and down the mine any stone sits in any socket: a Violet
+	## stone in the Red socket is unlit, not refused (only the loadout at home keeps colors).
 	raw.appraised = true
 	raw.inclusions_revealed = true
-	check(not cmd(state, "a", "socket", {"stone_id": "raw1", "index": 0}).ok, "a Violet stone is refused by the Red socket, run or no run")
-	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 4}).ok and a.rail[4].id == "raw1", "and goes into the Any socket at the end")
+	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 0}).ok and a.rail[0].id == "raw1" and a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "a_strike"), "a Violet stone goes into the Red socket down the mine, and the Strike there goes to the bag")
+	check(not DeepStone.shows(raw, str(a.sockets[0])) and DeepStone.shows(raw, str(a.sockets[4])), "the Red socket does not show it; the Rainbow one does")
+	check(cmd(state, "a", "socket", {"stone_id": "raw1", "index": 4}).ok and a.rail[4].id == "raw1" and a.rail[0] == null, "and it moves on to the Rainbow socket at the end")
+	check(cmd(state, "a", "socket", {"stone_id": "a_strike", "index": 0}).ok and a.rail[0].id == "a_strike", "and the Strike goes back where it was")
 	check(cmd(state, "a", "unsocket", {"index": 4}).ok and a.rail[4] == null and a.haul.filter(func(s: Dictionary) -> bool: return str(s.id) == "raw1").size() == 1, "and comes back out into the haul")
 	a.bag_dice.append(DeepDice.make("D8", "spare"))
 	check(not cmd(state, "a", "swap_die", {"index": 0, "die_id": "spare"}).ok and str(a.dice[0].id) != "spare", "a die from outside the five never takes a slot")
@@ -1123,6 +1127,62 @@ func _test_absent() -> void:
 	DeepDescent.settle_absent(wiped)
 	check(wiped.phase == "over", "and the run ends without the one who dropped, everyone down or not (%s)" % wiped.phase)
 
+func _test_twins() -> void:
+	## Swap puts the newcomer where the held stone stood; fuse feeds it to the held stone for
+	## the crucible's fee; a twin of a stone in the bag is a twin all the same.
+	var state: Dictionary = DeepDescent.new_run(config(65, false))
+	var a: Dictionary = DeepDescent.player(state, "a")
+	var better: Dictionary = stone("GUARD", 6, 3, 3, "g2")
+	a.haul.append(better)
+	var noticed: Dictionary = cmd(state, "a", "socket", {"stone_id": "a_mend", "index": 3})
+	check(noticed.ok and str(a.get("twin", {}).get("stone", "")) == "g2", "a twin is noticed after any command")
+	check(not cmd(state, "a", "twin", {"choice": "keep"}).ok, "a twin is swapped, tossed or fused: nothing else")
+	check(cmd(state, "a", "twin", {"choice": "swap"}).ok and a.rail[1] is Dictionary and str(a.rail[1].id) == "g2" and not DeepStone.rail_stones(a).any(func(s: Dictionary) -> bool: return str(s.id) == "a_guard") and not a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "a_guard"),
+		"swapped, the newcomer takes the socket and the held stone is gone")
+	## Fused: the held stone grows by the fire's chance, its cut averaged down, for the fee.
+	var third: Dictionary = stone("GUARD", 6, 1, 3, "g3")
+	a.haul.append(third)
+	cmd(state, "a", "socket", {"stone_id": "a_mend", "index": 2})
+	check(str(a.get("twin", {}).get("stone", "")) == "g3" and str(a.twin.other) == "g2", "the next twin is asked about once the first is settled")
+	a.ore = 0
+	check(not cmd(state, "a", "twin", {"choice": "fuse"}).ok, "fusing wants the crucible's pyrite")
+	a.ore = DeepOddities.fuse_cost() + 5
+	var fused: Dictionary = cmd(state, "a", "twin", {"choice": "fuse"})
+	check(fused.ok and int(a.ore) == 5 and str(a.rail[1].id) == "g2" and int(a.rail[1].carat) >= 6 and int(a.rail[1].carat) <= 8 and int(a.rail[1].cut) == 2 and not a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "g3"),
+		"fused, the held stone stays where it is, a carat or two heavier at most, its cut averaged down, and the fee is paid: %s" % str(fused.get("error", "")))
+	check(fused.event.has("fused") and int(fused.event.paid) == DeepOddities.fuse_cost(), "and the event says what came of it")
+	## Two read stones of one skill in the bag are twins too; a raw one keeps its secret.
+	var bagged: Dictionary = stone("CRUSH", 4, 2, 3, "c1")
+	var bagged_twin: Dictionary = stone("CRUSH", 5, 2, 3, "c2")
+	var raw: Dictionary = stone("CRUSH", 9, 4, 3, "c3")
+	raw.appraised = false
+	a.haul.append_array([bagged, bagged_twin, raw])
+	cmd(state, "a", "socket", {"stone_id": "a_mend", "index": 3})
+	check(str(a.get("twin", {}).get("stone", "")) == "c2" and str(a.twin.other) == "c1", "the later of two read stones in the bag is the twin; the raw one is not asked about: %s" % str(a.get("twin", {})))
+	check(cmd(state, "a", "twin", {"choice": "toss"}).ok and a.get("twin", {}).is_empty(), "and it is settled like any other")
+
+func _test_loadout_luck() -> void:
+	## Travelling light or heavy: luck on every stone the mine gives a player, by how many
+	## stones they brought against three.
+	check(DeepDescent.loadout_luck(3) == 0.0 and DeepDescent.loadout_luck(0) == 6.0 and DeepDescent.loadout_luck(1) == 4.0 and DeepDescent.loadout_luck(6) == -6.0, "two luck a stone away from three, either way")
+	var light: Dictionary = config(66, false)
+	light.players[0].rail = [stone("STRIKE", 3, 4, 3, "a_strike")]
+	light.players[1].rail = [stone("CLEAVE", 3, 4, 3, "b_cleave"), stone("CRUSH", 3, 4, 3, "b_crush"), stone("BARRAGE", 3, 4, 3, "b_barrage"), stone("STRIKE", 3, 4, 3, "b_strike"), stone("GUARD", 3, 4, 3, "b_guard")]
+	light.players[1].sockets = 6
+	var state: Dictionary = DeepDescent.new_run(light)
+	var a: Dictionary = state.players[0]
+	var b: Dictionary = state.players[1]
+	check(int(a.loadout_stones) == 1 and float(a.loadout_luck) == 4.0 and int(b.loadout_stones) == 5 and float(b.loadout_luck) == -4.0, "each player's loadout luck is their own: %s, %s" % [str(a.loadout_luck), str(b.loadout_luck)])
+	state.depth = 5
+	var streams: Dictionary = DeepDescent.streams_of(state)
+	var expected_rng: RandomNumberGenerator = DeepRng.restore(state.rng).stones
+	var found: Dictionary = DeepDescent._find_stone(state, a, streams, 3, "vein")
+	var expected: Dictionary = DeepForge.roll_stone(expected_rng, DeepDescent.mine_of(state), 5, 3.0 + 4.0, found.provenance, str(found.id))
+	check(JSON.stringify(found) == JSON.stringify(expected), "a find rolls with the finder's loadout luck on top")
+	var heavy: Dictionary = DeepDescent._find_stone(state, b, streams, 3, "vein")
+	expected = DeepForge.roll_stone(expected_rng, DeepDescent.mine_of(state), 5, 3.0 - 4.0, heavy.provenance, str(heavy.id))
+	check(JSON.stringify(heavy) == JSON.stringify(expected), "and a heavy loadout takes luck off")
+
 func _test_coming_home() -> void:
 	## Everything found on a run comes home, the bag and whatever was set on the rail; the
 	## rail's copies of vault stones never do, wherever they ended up.
@@ -1140,6 +1200,12 @@ func _test_coming_home() -> void:
 	a.haul.append(found)
 	var set_it: Dictionary = cmd(state, "a", "socket", {"stone_id": "found_cleave", "index": 3})
 	check(set_it.ok and a.rail[3] is Dictionary and str(a.rail[3].id) == "found_cleave", "a stone found down here is set on the rail: %s" % str(set_it.get("error", "")))
+	## Nobody carries two of one gem: the read Guard in the bag is a twin of the one set, and
+	## the next thing that happens asks about it; until it is settled nothing else goes.
+	check(set_it.event.has("twins") and str(a.get("twin", {}).get("stone", "")) == "found_guard" and str(a.twin.other) == "a_guard", "a read twin in the bag is noticed as soon as anything happens: %s" % str(a.get("twin", {})))
+	var held: Dictionary = cmd(state, "a", "unsocket", {"index": 0})
+	check(not held.ok and str(held.get("error", "")).contains("twin"), "and nothing else goes until it is settled: %s" % str(held.get("error", "")))
+	check(cmd(state, "a", "twin", {"choice": "toss"}).ok and a.get("twin", {}).is_empty() and not a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "found_guard"), "tossed, the twin is gone and the bench is open again")
 	check(cmd(state, "a", "unsocket", {"index": 0}).ok and a.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "a_strike"), "a copy of a vault stone is taken off the rail into the bag")
 	var home: Array = DeepDescent.coming_home(state, a).map(func(s: Dictionary) -> String: return str(s.id))
 	check(home.has("found_cleave") and not home.has("a_strike") and not home.has("a_guard") and not home.has("a_mend"), "what comes home is what was found, set or not: %s" % str(home))

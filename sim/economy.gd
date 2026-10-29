@@ -1300,12 +1300,13 @@ static func daily_plan(date: String = "") -> Dictionary:
 
 static func _trick_skill(rng: RandomNumberGenerator, lapidary: String, mine_key: String) -> String:
 	## The skill a One Trick rail is made of: of the color that fills the most of the lapidary's
-	## sockets (an Any socket takes every color), drawn the way the rock draws them.
+	## sockets (a Rainbow socket shows every color, a two-tone socket either of its two),
+	## drawn the way the rock draws them.
 	var sockets: Array = DeepContent.character(lapidary).get("sockets", [])
 	var best: Array = []
 	var most: int = -1
 	for color in DeepContent.color_KEYS:
-		var fits: int = sockets.filter(func(s: Variant) -> bool: return str(s) == str(color) or str(s) == DeepContent.SOCKET_ANY).size()
+		var fits: int = sockets.filter(func(s: Variant) -> bool: return DeepContent.socket_colors(str(s)).has(str(color))).size()
 		if fits > most:
 			most = fits
 			best = [str(color)]
@@ -1364,7 +1365,7 @@ static func daily_rail(plan: Dictionary, character: String, seat: int) -> Array:
 	var used: Array = []
 	for index in range(sockets.size()):
 		var socket: String = str(sockets[index])
-		var color: String = socket if socket != DeepContent.SOCKET_ANY else str(DeepContent.color_KEYS[rng.randi_range(0, DeepContent.color_KEYS.size() - 1)])
+		var color: String = _socket_color_draw(rng, socket)
 		match rule:
 			"LENT_RAIL":
 				var of_color: Array = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == color)
@@ -1379,18 +1380,26 @@ static func daily_rail(plan: Dictionary, character: String, seat: int) -> Array:
 	var mods: Array = plan.get("mods", [])
 	var any_sockets: Array = []
 	for index in range(sockets.size()):
-		if str(sockets[index]) == DeepContent.SOCKET_ANY:
+		if DeepContent.is_rainbow(str(sockets[index])):
 			any_sockets.append(index)
 	if mods.has("HEIRLOOM") and not sockets.is_empty():
 		var at: int = int(any_sockets[0]) if not any_sockets.is_empty() else 0
 		var socket: String = str(sockets[at])
-		var color: String = socket if socket != DeepContent.SOCKET_ANY else str(DeepContent.color_KEYS[rng.randi_range(0, DeepContent.color_KEYS.size() - 1)])
+		var color: String = _socket_color_draw(rng, socket)
 		var of_color: Array = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == color)
 		rail[at] = _heirloom(rng, mine, of_color if not of_color.is_empty() else pool, "daily_%d_heirloom" % seat)
 	if mods.has("BORROWED_OPAL") and not any_sockets.is_empty() and not DeepForge.opal_pool().is_empty():
 		var at: int = int(any_sockets[any_sockets.size() - 1])
 		rail[at] = _lent_stone(rng, mine, DeepForge.opal_pool(), "daily_%d_opal" % seat, "ROUGH")
 	return rail
+
+static func _socket_color_draw(rng: RandomNumberGenerator, socket: String) -> String:
+	## One of the colors a socket shows, drawn at random: its own for a plain socket, either
+	## for a two-tone one, any of the six for a Rainbow.
+	var shown: Array = DeepContent.socket_colors(socket)
+	if shown.is_empty():
+		shown = DeepContent.color_KEYS.duplicate()
+	return str(shown[rng.randi_range(0, shown.size() - 1)])
 
 static func _heirloom(rng: RandomNumberGenerator, mine: Dictionary, pool: Array, id: String) -> Dictionary:
 	## An Heirloom: no rock near the top gives up an Exquisite stone, so it is made rather than
@@ -1436,8 +1445,8 @@ static func daily_bag(plan: Dictionary, character: String, seat: int) -> Array:
 			stone.lent = true
 			out.append(stone)
 			continue
-		var socket: String = str(sockets[index % sockets.size()]) if not sockets.is_empty() else DeepContent.SOCKET_ANY
-		var color: String = socket if socket != DeepContent.SOCKET_ANY else str(DeepContent.color_KEYS[rng.randi_range(0, DeepContent.color_KEYS.size() - 1)])
+		var socket: String = str(sockets[index % sockets.size()]) if not sockets.is_empty() else DeepContent.SOCKET_RAINBOW
+		var color: String = _socket_color_draw(rng, socket)
 		var of_color: Array = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == color)
 		var fresh: Array = of_color.filter(func(k: String) -> bool: return not used.has(k))
 		var choices: Array = fresh if not fresh.is_empty() else (of_color if not of_color.is_empty() else pool)

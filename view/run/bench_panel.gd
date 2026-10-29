@@ -252,10 +252,10 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 
 func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 	var sockets: Array = unit.get("sockets", [])
-	var socket_color: String = str(sockets[index]) if index < sockets.size() else "ANY"
+	var socket_color: String = str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_RAINBOW
 	var stone: Variant = unit.rail[index]
 	var set_here: bool = stone is Dictionary
-	var tone: Color = DeepUi.color(socket_color) if socket_color != "ANY" else DeepUi.LINE_HI
+	var tone: Color = DeepUi.socket_tone(socket_color, DeepUi.LINE_HI)
 	var picked: bool = set_here and str(stone.id) == _pick
 	var card := DeepUi.card(parent, DeepUi.ACCENT if picked else Color(tone, 0.5), 10, Color(0.05, 0.06, 0.085, 0.92))
 	card.custom_minimum_size = Vector2(132, 0)
@@ -270,6 +270,8 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 	var ring := BattleScreen.SocketRing.new(socket_color, not set_here)
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(ring)
+	if set_here:
+		ring.shown = 1 if DeepStone.shows(stone, socket_color) else 0
 	var data: Dictionary = {}
 	if set_here:
 		var thumb := StoneCard.mini(slot, stone, 62)
@@ -285,7 +287,7 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 			data = {"kind": "stone", "stone_id": str(stone.id), "from_socket": index}
 		card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	else:
-		DeepUi.label(box, "Any color" if socket_color == "ANY" else str(DeepContent.color(socket_color).get("name", socket_color)), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(box, DeepContent.socket_name(socket_color), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	var riders: Array = DeepStone.riders_of(unit, index)
 	if not riders.is_empty():
 		## The Void gems riding this socket, in the order they fire after its gem.
@@ -576,7 +578,7 @@ func _stone_lamp(box: VBoxContainer, unit: Dictionary, stone: Dictionary) -> voi
 			if refusal.is_empty():
 				var target: int = index
 				var color: String = str(unit.sockets[index])
-				var tint: Color = DeepUi.color(color) if color != "ANY" else DeepUi.PAPER
+				var tint: Color = DeepUi.socket_tone(color, DeepUi.PAPER)
 				DeepUi.icon_button(fits, "gem", "Socket %d" % (index + 1), func() -> void: _send({"kind": "socket", "stone_id": id, "index": target}, "dice_lock"), 12, tint)
 			else:
 				reasons[refusal] = true

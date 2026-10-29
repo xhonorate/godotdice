@@ -869,7 +869,7 @@ func socket_strip(parent: Node, character_key: String, loadout: Dictionary, edge
 					DeepAudio.play("ui_tap")
 					on_click.call(at))
 		if labelled:
-			DeepUi.label(holder, "Locked" if locked else ("Any" if socket_color == "ANY" else socket_color.capitalize()), 11, DeepUi.DIM if locked else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+			DeepUi.label(holder, "Locked" if locked else DeepContent.socket_name(socket_color), 11, DeepUi.DIM if locked else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	var birthstone: Dictionary = DeepStone.birthstone(character_key)
 	if birthstone.is_empty():
 		return
@@ -892,6 +892,8 @@ func kit_socket(parent: Node, socket_color: String, stone: Dictionary, edge: flo
 	var ring := BattleScreen.SocketRing.new(socket_color, stone.is_empty())
 	if socket_color == "BIRTHSTONE":
 		ring.birth_tint = GemMesh.tint(stone)
+	elif not stone.is_empty():
+		ring.shown = 1
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slot.add_child(ring)
@@ -903,7 +905,7 @@ func kit_socket(parent: Node, socket_color: String, stone: Dictionary, edge: flo
 		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		return slot
 	if stone.is_empty():
-		slot.tooltip_text = "Empty %s socket" % ("any-color" if socket_color == "ANY" else socket_color.capitalize())
+		slot.tooltip_text = "Empty %s socket" % DeepContent.socket_name(socket_color)
 		return slot
 	var thumb := StoneCard.mini(slot, stone, edge * 0.75, DeepStone.name(stone) if socket_color != "BIRTHSTONE" else "%s, the Birthstone" % str(stone.get("name", "")))
 	thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, int(edge * 0.125))

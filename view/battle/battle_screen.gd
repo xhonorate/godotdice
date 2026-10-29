@@ -2311,7 +2311,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 		## the rest fan out behind.
 		var front: bool = rider and bool(card.get_meta("front", false))
 		var behind: bool = rider and not front
-		var socket_color: String = str(sockets[socket]) if socket < sockets.size() else "ANY"
+		var socket_color: String = str(sockets[socket]) if socket < sockets.size() else DeepContent.SOCKET_RAINBOW
 		var tag: String = "%s|%s" % [DeepUi.stone_marks(stone) if stone is Dictionary else "", socket_color]
 		if str(card.get_meta("tag", "")) != tag:
 			card.set_meta("tag", tag)
@@ -2327,6 +2327,10 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			var ring := SocketRing.new("VOID" if rider else socket_color, stone == null)
 			ring.name = "Ring"
 			ring.front = front
+			## A socket that shows its gem's color is lit, and adds a point of Resonance when
+			## the gem fires; one that does not is greyed.
+			if stone is Dictionary and not rider:
+				ring.shown = 1 if DeepStone.shows(stone, socket_color) else 0
 			ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			slot.add_child(ring)
 			if behind and stone is Dictionary:
@@ -2366,7 +2370,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				var name_label := DeepUi.fit_label(card, DeepUi.skill_name(stone), 12, DeepUi.INFO if front else DeepUi.PAPER, cap)
 				name_label.name = "SkillName"
 			elif not rider:
-				DeepUi.label(card, socket_color.capitalize() if socket_color != "ANY" else "Any", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = cap
+				DeepUi.label(card, DeepContent.socket_name(socket_color), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = cap
 			if stone is Dictionary:
 				var flat: int = socket
 				var hue: Color = DeepUi.color(DeepStone.color(stone))
@@ -2792,10 +2796,17 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 		DiceIcons.build(tiers_row, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 15, lit_tone if key[index] == "1" else DeepUi.DIM, words)
 
 class SocketRing extends Control:
-	## A character's socket: a bezel in the socket's color, a crown for the Birthstone, and a
-	## glow that wakes when the hand in the tray would fire the stone set in it.
-	var color: String = "ANY"
+	## A character's socket: a bezel in the socket's color (six arcs for a Rainbow, two halves
+	## for a two-tone socket), a crown for the Birthstone, and a glow that wakes when the hand
+	## in the tray would fire the stone set in it. A socket showing its gem's color is lit
+	## (`shown` 1, a soft halo); one that does not show it is greyed (`shown` 0).
+	var color: String = DeepContent.SOCKET_RAINBOW
 	var empty: bool = false
+	var shown: int = -1:
+		set(value):
+			if value != shown:
+				shown = value
+				queue_redraw()
 	var birth_tint: Color = DeepUi.ACCENT
 	## A Void ring standing in a socket's own place (its first rider, the socket being empty):
 	## the socket's dark well behind the dashes, as a set gem has.
@@ -2841,9 +2852,11 @@ class SocketRing extends Control:
 		if _flash <= 0.0 and is_equal_approx(_ready_glow, _goal) and _goal <= 0.0:
 			set_process(false)
 	func _draw() -> void:
-		var tone: Color = birth_tint.lightened(0.15) if color == "BIRTHSTONE" else (DeepUi.color(color) if color != "ANY" else DeepUi.MUTED)
+		var tone: Color = birth_tint.lightened(0.15) if color == "BIRTHSTONE" else DeepUi.socket_tone(color, DeepUi.MUTED)
 		var centre := size * 0.5
 		var radius := minf(size.x, size.y) * 0.47
+		var dim: float = 0.45 if shown == 0 else 1.0
+		var lit: bool = shown == 1
 		if color == "VOID":
 			tone = DeepUi.INFO
 			if front:
@@ -2859,19 +2872,23 @@ class SocketRing extends Control:
 				_hatch(centre, radius)
 			return
 		_wake_glow(centre, radius, tone)
+		if lit:
+			## Lit: a soft halo in the socket's color, steady, under the wake glow.
+			var reach: float = radius * 2.6
+			draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(reach, reach) * 0.5, Vector2(reach, reach)), false, Color(_halo_tone(tone), 0.22))
 		draw_circle(centre, radius, Color(0, 0, 0, 0.45))
-		draw_circle(centre, radius * 0.9, Color(tone, 0.08 if empty else 0.12))
+		draw_circle(centre, radius * 0.9, Color(tone, (0.08 if empty else (0.16 if lit else 0.12)) * dim))
 		if dark:
 			draw_circle(centre, radius * 0.9, Color(0, 0, 0, 0.55))
-		draw_arc(centre, radius, 0, TAU, 48, Color(tone, (0.95 if empty else 0.75) * (0.4 if dark else 1.0)), 3.0 if color == "BIRTHSTONE" else 2.0, true)
-		draw_arc(centre, radius * 0.82, 0, TAU, 40, Color(tone, 0.25), 1.0, true)
+		_outer_arc(centre, radius, tone, (0.95 if empty else (0.9 if lit else 0.75)) * (0.4 if dark else 1.0) * dim, 3.0 if color == "BIRTHSTONE" else (2.5 if lit else 2.0))
+		draw_arc(centre, radius * 0.82, 0, TAU, 40, Color(tone, 0.25 * dim), 1.0, true)
 		for i in range(4):
 			var angle: float = TAU * float(i) / 4.0 + PI * 0.25
-			draw_circle(centre + Vector2.from_angle(angle) * radius * 0.92, 2.2, Color(tone.lightened(0.3), 0.9))
+			draw_circle(centre + Vector2.from_angle(angle) * radius * 0.92, 2.2, Color(tone.lightened(0.3), 0.9 * dim))
 		if empty:
 			## Settings > Comfort > Color marks: the shape of the stone it takes, on the rim in
 			## place of the lower right stud. A set stone wears its own (Thumbs.GemThumb).
-			DeepUi.draw_color_mark(self, centre + Vector2.from_angle(PI * 0.25) * radius * 0.92, clampf(radius * 0.3, 6.0, 11.0), color)
+			DeepUi.draw_color_mark(self, centre + Vector2.from_angle(PI * 0.25) * radius * 0.92, clampf(radius * 0.3, 6.0, 11.0), _mark_key())
 		if color == "BIRTHSTONE":
 			draw_arc(centre, radius - 5.0, 0, TAU, 48, Color(tone, 0.6), 2.0, true)
 			var crown := PackedVector2Array([centre + Vector2(-9, -radius - 1), centre + Vector2(-5, -radius - 8), centre + Vector2(0, -radius - 3),
@@ -2891,6 +2908,26 @@ class SocketRing extends Control:
 					draw_line(a.lerp(b, float(d) / 3.0 + 0.05), a.lerp(b, float(d) / 3.0 + 0.23), dash_tone, 1.5, true)
 		if blocked:
 			_hatch(centre, radius)
+	func _outer_arc(centre: Vector2, radius: float, tone: Color, alpha: float, width: float) -> void:
+		## The bezel's rim: one color, two halves for a two-tone socket, six arcs for a Rainbow.
+		var shown_colors: Array = DeepContent.socket_colors(color)
+		if DeepContent.is_rainbow(color):
+			for arc in range(DeepContent.color_KEYS.size()):
+				var start: float = TAU * float(arc) / float(DeepContent.color_KEYS.size()) - PI * 0.5
+				draw_arc(centre, radius, start, start + TAU / float(DeepContent.color_KEYS.size()), 10, Color(DeepUi.color(str(DeepContent.color_KEYS[arc])), alpha), width, true)
+		elif shown_colors.size() == 2:
+			draw_arc(centre, radius, -PI * 0.5, PI * 0.5, 24, Color(DeepUi.color(str(shown_colors[0])), alpha), width, true)
+			draw_arc(centre, radius, PI * 0.5, PI * 1.5, 24, Color(DeepUi.color(str(shown_colors[1])), alpha), width, true)
+		else:
+			draw_arc(centre, radius, 0, TAU, 48, Color(tone, alpha), width, true)
+	func _halo_tone(tone: Color) -> Color:
+		## A lit Rainbow socket glows white; a lit colored one in its color.
+		return Color.WHITE if DeepContent.is_rainbow(color) else tone
+	func _mark_key() -> String:
+		## The color mark an empty socket wears: its color, the first of a two-tone pair, and
+		## none for a Rainbow (every stone fits it).
+		var shown_colors: Array = DeepContent.socket_colors(color)
+		return str(shown_colors[0]) if shown_colors.size() == 2 else color
 	func _wake_glow(centre: Vector2, radius: float, tone: Color) -> void:
 		if _ready_glow > 0.01 or _flash > 0.0:
 			var pulse: float = 0.75 + 0.25 * sin(_clock * 5.0)

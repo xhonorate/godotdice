@@ -74,13 +74,15 @@ extends RefCounted
 ##   quality_bonus(pct) sparkle coin_flip(win_mult, lose_mult) resonance
 ##   damage_curse(enemy: amount% of its Curse stacks as damage)
 ##   appraise(stones: that many raw stones in the bag read, amount% of their worth as damage)
-##   Opal-only, and every one of them refuses to touch another opal, which is the whole of
-##   why two opals can never call each other for ever:
-##     replay_color(color: every gem of that color that has already fired plays again)
-##     replay_fizzled(every gem that stayed dark this turn fires anyway)
+##   Opal-only. Opals touch each other like any other gem (October 29, 2026); what keeps
+##   two of them from calling each other for ever is that a replay only ever reaches gems
+##   earlier on the rail than the gem replaying, so a replayed Seam plays exactly what it
+##   played the first time, and that an Echo never copies an Echo:
+##     replay_color(color: every gem of that color earlier on the rail that has already fired plays again)
+##     replay_fizzled(every gem earlier on the rail that stayed dark this turn fires anyway)
 ##     rank_buff(rank: carat or cut, added to every gem in the rail for the rest of the fight)
 ##     repeat_next(the next gem to resolve, the Birthstone included, fires that many times more)
-##     void_copy(a Void copy of the last gem that fired joins the rail for the rest of the fight)
+##     void_copy(a Void copy of the last gem that fired, never an Echo, joins the rail for the rest of the fight)
 ##     absorbed(a Black Opal: every skill it has absorbed this run fires from its socket)
 ##   Transcendent: fire_neighbours(the gems either side of it fire, that many times each)
 ##     force_after(every gem after it fires this turn whatever the dice show, that many times)

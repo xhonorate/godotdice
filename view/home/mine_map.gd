@@ -181,13 +181,42 @@ static func numeral(key: String) -> String:
 	var tier: int = DeepContent.mine_tier(key)
 	return str(NUMERALS[tier - 1]) if tier >= 1 and tier <= NUMERALS.size() else str(tier)
 
-static func carat_words(key: String, tier: int = 0) -> String:
+static func carat_words(key: String, tier: int = 0, luck: float = 0.0) -> String:
 	## "1–7 ct": what a stone from this mine can weigh on a Hazard tier, as the strata and the
 	## expedition say it. The Rift's climbs with every Warden, until nothing can be heavier.
+	## Travelling light adds a gold star per empty socket, travelling heavy a dark star per
+	## stone over three (`luck_stars`).
 	var band: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(DeepContent.mine(key), tier), 1)
 	if band.is_empty():
-		return "any size"
-	return "1–%d%s ct" % [int(band.cap), "+" if DeepContent.is_endless(key) and int(band.cap) < DeepStone.carat_max() else ""]
+		return "any size" + luck_stars(luck)
+	return "1–%d%s ct%s" % [int(band.cap), "+" if DeepContent.is_endless(key) and int(band.cap) < DeepStone.carat_max() else "", luck_stars(luck)]
+
+static func luck_stars(luck: float) -> String:
+	## One star per stone the loadout is away from three: ★ for each empty socket (luck on
+	## every stone found), ☆ for each stone over three (luck off).
+	var per: float = maxf(1.0, float(DeepContent.constant("loadout_luck_per_stone", 2)))
+	var steps: int = int(round(absf(luck) / per))
+	if steps <= 0:
+		return ""
+	return " " + ("★" if luck > 0.0 else "☆").repeat(steps)
+
+static func luck_words(luck: float) -> String:
+	## What the stars mean, for a tooltip; "" when the loadout is three stones.
+	if luck == 0.0:
+		return ""
+	return " Travelling %s: %+d luck on every stone the mine gives you." % ["light" if luck > 0.0 else "heavy", int(luck)]
+
+func loadout_luck() -> float:
+	## The current delver's loadout luck, from the stones set in their open sockets.
+	if profile.is_empty():
+		return 0.0
+	var character: String = str(profile.get("current_character", DeepContent.starter_character()))
+	var rail: Array = DeepProfile.loadout(profile, character).rail
+	var stones: int = 0
+	for index in range(mini(rail.size(), DeepProfile.open_sockets(profile, character))):
+		if rail[index] is Dictionary:
+			stones += 1
+	return DeepDescent.loadout_luck(stones)
 
 func _glyph(canvas: CanvasItem, name: String, centre: Vector2, edge: float, tint: Color) -> void:
 	canvas.draw_texture_rect(GemIcons.texture(name, GemIcons.baked_size(edge * 1.5)), Rect2(centre - Vector2(edge, edge) * 0.5, Vector2(edge, edge)), false, tint)
@@ -313,7 +342,7 @@ func _draw_earth() -> void:
 			_draw_track(canvas, key, record, Vector2(track_x, mid), track_w, chosen_one or (daily and key == deepest_today))
 		## What its rock gives up, and who is met down there.
 		var chip_x: float = track_x + track_w + 28.0
-		var chip_words: String = carat_words(key, hazard)
+		var chip_words: String = carat_words(key, hazard, loadout_luck())
 		var chip_size: int = DeepUi.readable(12)
 		var chip_face: Font = DeepUi.text_face(chip_size)
 		var chip := Rect2(Vector2(chip_x, mid - 12), Vector2(maxf(86.0, 35.0 + chip_face.get_string_size(chip_words, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size).x), 24))
@@ -474,9 +503,10 @@ func _carat_tip(key: String) -> String:
 	var lift: int = DeepForge.hazard_carats(DeepContent.mine(key), hazard)
 	if lift > 0:
 		heavier = " Hazard %d lifts both by %d, and a stone that reaches the usual top keeps growing %d%% of the time." % [hazard, lift, int(round(float(band.get("pressure", 0.0))))]
+	var light: String = luck_words(loadout_luck())
 	if DeepContent.is_endless(key):
-		return "Stones usually up to %d carats and never over %d; both climb a carat with every Warden, up to %d.%s" % [int(band.soft), int(band.cap), DeepStone.carat_max(), heavier]
-	return "Stones usually up to %d carats, rarely up to %d, never more.%s" % [int(band.soft), int(band.cap), heavier]
+		return "Stones usually up to %d carats and never over %d; both climb a carat with every Warden, up to %d.%s%s" % [int(band.soft), int(band.cap), DeepStone.carat_max(), heavier, light]
+	return "Stones usually up to %d carats, rarely up to %d, never more.%s%s" % [int(band.soft), int(band.cap), heavier, light]
 
 ## Where the gauge starts, clear of the workshop and its name.
 const GAUGE_LEFT: float = 300.0

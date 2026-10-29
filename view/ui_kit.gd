@@ -143,6 +143,14 @@ static func is_rainbow(color_key: String) -> bool:
 	## Whether a gem color has to be drawn as all of them. Only the opals.
 	return color_key == DeepContent.OPAL
 
+static func socket_tone(socket: String, rainbow_tone: Color = MUTED) -> Color:
+	## The hue a socket is drawn in: its color, the first of a two-tone socket's two, or
+	## `rainbow_tone` for a Rainbow socket (its ring draws every color itself).
+	if DeepContent.is_rainbow(socket):
+		return rainbow_tone
+	var shown: Array = DeepContent.socket_colors(socket)
+	return color(str(shown[0])) if not shown.is_empty() else PAPER
+
 static func tier_color(tier: String) -> Color:
 	return TIER_colorS.get(tier, PAPER)
 

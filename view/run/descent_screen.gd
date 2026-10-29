@@ -169,6 +169,8 @@ var _award: Control = null
 ## A read stone a fight gave up, offered to the rail over the room (`_offer_find`), and its id.
 var _find_plate: Control = null
 var _find_id: String = ""
+## The plate that settles a twin stone (nobody carries two of one gem): see `_sync_twin`.
+var _twin_plate: Control = null
 var _ore_pill: Control = null
 var _bag_pill: Control = null
 var _view_key: String = ""
@@ -480,6 +482,7 @@ func show_state(state: Dictionary) -> void:
 	_numbered = []
 	_sync_ceremony()
 	_sync_find()
+	_sync_twin()
 	_map.show_run(run)
 	var phase: String = str(run.get("phase", ""))
 	## Remember the chamber and the fight as they were: when either ends the state moves on
@@ -1652,12 +1655,107 @@ func _offer_find(stone: Dictionary, elite: bool) -> bool:
 
 func _place_find() -> void:
 	## Centred over the room, just above the dock (and the bag, when it is open).
-	if _find_plate == null or not is_instance_valid(_find_plate):
+	_place_over_dock(_twin_plate)
+	_place_over_dock(_find_plate)
+
+func _place_over_dock(plate: Control) -> void:
+	if plate == null or not is_instance_valid(plate):
 		return
-	var want: Vector2 = _find_plate.get_combined_minimum_size()
-	_find_plate.size = want
+	var want: Vector2 = plate.get_combined_minimum_size()
+	plate.size = want
 	var floor_height: float = _run_dock.height() if _run_dock.visible else 0.0
-	_find_plate.position = Vector2((_body.size.x - want.x) * 0.5, maxf(12.0, _body.size.y - floor_height - want.y - 18.0)).round()
+	plate.position = Vector2((_body.size.x - want.x) * 0.5, maxf(12.0, _body.size.y - floor_height - want.y - 18.0)).round()
+
+func _close_twin() -> void:
+	if _twin_plate != null and is_instance_valid(_twin_plate):
+		_twin_plate.queue_free()
+	_twin_plate = null
+
+func _sync_twin() -> void:
+	## Nobody carries two of one gem (October 29, 2026): while a read stone of a skill the
+	## player already holds waits in the bag, the plate that settles it stands over the room
+	## until the twin is swapped for the one held, tossed, or fused into it for the
+	## crucible's fee. The rules refuse everything else until it is.
+	var pending: Dictionary = me().get("twin", {})
+	if pending.is_empty() or _headless or not is_inside_tree():
+		_close_twin()
+		return
+	var key: String = "%s:%s" % [str(pending.get("stone", "")), str(pending.get("other", ""))]
+	if _twin_plate != null and is_instance_valid(_twin_plate) and str(_twin_plate.get_meta("key", "")) == key:
+		return
+	_close_twin()
+	_close_find()
+	var stone: Dictionary = DeepOddities.find_stone(me(), str(pending.get("stone", "")))
+	var other: Dictionary = DeepOddities.find_stone(me(), str(pending.get("other", "")))
+	if stone.is_empty() or other.is_empty():
+		return
+	var skill: Dictionary = DeepStone.skill_of(stone)
+	var tone: Color = DeepUi.color(DeepStone.color(stone))
+	var plate := PanelContainer.new()
+	plate.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, 16, 3, 5))
+	plate.mouse_filter = Control.MOUSE_FILTER_STOP
+	plate.set_meta("key", key)
+	_body.add_child(plate)
+	_twin_plate = plate
+	var box := DeepUi.vbox(plate, 12)
+	var head := DeepUi.hbox(box, 8)
+	DeepUi.title(head, "Two of a kind: %s" % str(skill.get("name", stone.get("skill", ""))), 24, tone.lightened(0.3)).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DeepUi.spacer(head)
+	DeepUi.label(head, "nobody carries two of one gem", 12, DeepUi.DIM).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	## The two side by side: the one found, and the one already held, where it is.
+	var pair := DeepUi.hbox(box, 24)
+	pair.alignment = BoxContainer.ALIGNMENT_CENTER
+	for entry in [[stone, "Found"], [other, "Held" + _twin_where(other)]]:
+		var column := DeepUi.vbox(pair, 4)
+		DeepUi.label(column, str(entry[1]), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		var frame := DeepUi.center(column)
+		frame.custom_minimum_size = Vector2(92, 92)
+		StoneCard.marked_picture(frame, entry[0], 84)
+		var facts := DeepUi.hbox(column, 10)
+		facts.alignment = BoxContainer.ALIGNMENT_CENTER
+		DeepUi.stat(facts, "carat", "%d ct" % int(entry[0].get("carat", 1)), DeepUi.PAPER, 13)
+		DeepUi.stat(facts, "cut", DeepContent.cut_name(int(entry[0].get("cut", 0))), DeepUi.PAPER, 13)
+		DeepUi.stat(facts, "clarity", DeepContent.clarity_name(int(entry[0].get("clarity", DeepContent.clear_index()))), DeepUi.PAPER, 13)
+		var grade: Dictionary = DeepStone.grade(entry[0])
+		DeepUi.stat(facts, "star", str(grade.name), DeepUi.tier_color(str(grade.tier)), 13)
+	var compare := DeepUi.vbox(pair, 4)
+	compare.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	Appraisal.swap_lines(compare, stone, other)
+	var fee: int = DeepOddities.fuse_cost()
+	var buttons := DeepUi.hbox(box, 16)
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	var choices: Array = [
+		["swap", "reroll", "Keep the new one", "The one you held is gone; the new one takes its place.", DeepUi.GOOD],
+		["toss", "cross_out", "Toss the new one", "The one you held stays as it is.", DeepUi.ACCENT],
+		["fuse", "flame", "Fuse for %d pyrite" % fee, "The held stone grows a carat or two the nearer the two weigh the same; its Cut is averaged down, its Clarity drawn fresh.", DeepUi.ORE]]
+	for choice in choices:
+		var column := DeepUi.vbox(buttons, 4)
+		var pick: String = str(choice[0])
+		var go := DeepUi.primary(column, str(choice[1]), str(choice[2]), func() -> void:
+			DeepAudio.play("dice_lock", {"volume": 0.7})
+			command.emit({"kind": "twin", "choice": pick}), 15, choice[4])
+		DeepUi.ledger_primary(go, choice[4])
+		go.custom_minimum_size = Vector2(210, 44)
+		go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		if pick == "fuse" and int(me().get("ore", 0)) < fee:
+			go.disabled = true
+			go.tooltip_text = "You have %d pyrite." % int(me().get("ore", 0))
+		var caption := DeepUi.label(column, str(choice[3]), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		caption.custom_minimum_size.x = 210
+	_place_over_dock(plate)
+	DeepUi.pop_in(plate, 0.0, 0.92, 0.26)
+
+func _twin_where(other: Dictionary) -> String:
+	## Where the held twin stands: in a socket, riding one, or in the bag.
+	var unit: Dictionary = me()
+	for index in range(unit.get("rail", []).size()):
+		if unit.rail[index] is Dictionary and str(unit.rail[index].get("id", "")) == str(other.get("id", "")):
+			return ", socket %d" % (index + 1)
+	var place: Dictionary = DeepStone.rider_place(unit, str(other.get("id", "")))
+	if not place.is_empty():
+		return ", riding socket %d" % (int(place.get("socket", 0)) + 1)
+	return ", in the bag"
 
 func _sync_find() -> void:
 	## The offer stands while its stone is still loose in the bag and the rail can be worked on
@@ -4974,13 +5072,12 @@ func _page_temporary(content: VBoxContainer, unit: Dictionary) -> void:
 	var body := DeepUi.vbox(content, 8)
 	var socket_index: int = int(current.get("index", 0))
 	_socket_strip(body, unit, socket_index)
-	var socket: String = str(current.get("socket", "ANY"))
+	var socket: String = str(current.get("socket", DeepContent.SOCKET_RAINBOW))
 	var left: int = DeepDescent.temporary_left(unit)
 	var line := DeepUi.hbox(body, 8)
 	line.alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.title(line, "Socket %d" % (socket_index + 1), 18, DeepUi.PAPER)
-	DeepUi.label(line, "Any color" if socket == DeepContent.SOCKET_ANY else str(DeepContent.color(socket).get("name", socket.capitalize())), 14,
-		DeepUi.MUTED if socket == DeepContent.SOCKET_ANY else DeepUi.color(socket))
+	DeepUi.label(line, DeepContent.socket_name(socket), 14, DeepUi.socket_tone(socket, DeepUi.MUTED))
 	DeepUi.label(line, "·  %s to fill" % DeepUi.plural(left, "socket") if left > 1 else "·  the last to fill", 14, DeepUi.MUTED)
 	var row := DeepUi.hbox(body, 14)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER

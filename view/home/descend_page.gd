@@ -109,8 +109,9 @@ static func _expedition_view(home: Control, side: VBoxContainer) -> void:
 	var deeper: bool = chosen_key != DeepContent.starter_mine()
 	if not band.is_empty():
 		var lift: int = DeepForge.hazard_carats(mine, tier)
-		DeepUi.pill(facts, "gem", "up to %d ct" % int(band.cap), DeepUi.ACCENT_HI if lift > 0 else DeepUi.PAPER, 12, "Stones usually up to %d carats, never over %d.%s" % [int(band.soft), int(band.cap),
-			(" Hazard %d lifts both by %d." % [tier, lift]) if lift > 0 else ""])
+		var light: float = _loadout_luck(home, str(home.profile.get("current_character", DeepContent.starter_character())))
+		DeepUi.pill(facts, "gem", "up to %d ct%s" % [int(band.cap), MineMap.luck_stars(light)], DeepUi.ACCENT_HI if lift > 0 else DeepUi.PAPER, 12, "Stones usually up to %d carats, never over %d.%s%s" % [int(band.soft), int(band.cap),
+			(" Hazard %d lifts both by %d." % [tier, lift]) if lift > 0 else "", MineMap.luck_words(light)])
 	if deeper:
 		DeepUi.pill(facts, "ore", "start with %d pyrite" % int(mine.get("start_pyrite", 0)), DeepUi.ORE, 12,
 			"Starting here costs a fare of %d gold, paid by each delver at the shaft head. Each starts with this much pyrite, and every socket not bought is offered three temporary stones that shatter when the run ends." % DeepEconomy.fare(chosen_key))
@@ -190,11 +191,25 @@ static func _going_down(home: Control, side: VBoxContainer) -> void:
 		if index < loadout.rail.size() and not loadout.rail[index] is Dictionary:
 			empty += 1
 	DeepUi.spacer(dice)
-	if empty > 0:
+	## Travelling light or heavy: the stars the map shows, and what they do.
+	var light: float = _loadout_luck(home, current)
+	if light != 0.0:
+		var said := DeepUi.stat(dice, "gem", "travelling %s %s %+d luck" % ["light" if light > 0.0 else "heavy", MineMap.luck_stars(light).strip_edges(), int(light)], DeepUi.GOOD if light > 0.0 else DeepUi.BAD, 12)
+		said.tooltip_text = MineMap.luck_words(light).strip_edges()
+	elif empty > 0:
 		DeepUi.stat(dice, "gem", "%s empty" % DeepUi.plural(empty, "socket"), DeepUi.ACCENT, 12)
 	else:
 		DeepUi.label(dice, "Click a socket to change it", 12, DeepUi.DIM)
 	home.enter(wear, 0.05)
+
+static func _loadout_luck(home: Control, character: String) -> float:
+	## The luck the delver's loadout puts on every stone found: see DeepDescent.loadout_luck.
+	var rail: Array = DeepProfile.loadout(home.profile, character).rail
+	var stones: int = 0
+	for index in range(mini(rail.size(), DeepProfile.open_sockets(home.profile, character))):
+		if rail[index] is Dictionary:
+			stones += 1
+	return DeepDescent.loadout_luck(stones)
 
 static func _daily_tone(kind: String) -> Color:
 	match kind:

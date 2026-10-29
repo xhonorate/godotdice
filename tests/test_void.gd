@@ -118,7 +118,7 @@ func _battle() -> void:
 	check(fighter.rail[0].id == unit.rail[0].id and fighter.rail[1].id == "ride_a" and fighter.rail[2].id == "ride_b" and fighter.rail[3].id == unit.rail[1].id, "riders stand right after their socket's gem in the firing order")
 	check(fighter.places[1].socket == 0 and fighter.places[1].rider == 0 and fighter.places[3].socket == 1 and fighter.places[3].rider == -1, "places fold the flat rail back onto the sockets")
 	check(DeepStone.flat_index(fighter, 0) == 0 and DeepStone.flat_index(fighter, 0, 1) == 2 and DeepStone.flat_index(fighter, 1) == 3 and DeepStone.flat_index(fighter, 1, 0) == -1, "a socket or a rider can be found in the flat rail")
-	check(str(fighter.sockets[1]) == DeepContent.SOCKET_ANY and DeepStone.socket_count(fighter) == count, "a rider fires in no color, and the fighter still has its character's sockets")
+	check(str(fighter.sockets[1]) == DeepContent.SOCKET_NONE and DeepStone.socket_count(fighter) == count, "a rider fires in no socket, and the fighter still has its character's sockets")
 	for roll in fighter.hand:
 		roll.value = 5
 		roll.kind = "plain"

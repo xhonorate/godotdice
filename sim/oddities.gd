@@ -202,6 +202,9 @@ static func nothing_to_work(needs: String, action: Dictionary, player: Dictionar
 		"inclusion":
 			return carried(player).filter(func(s: Dictionary) -> bool: return not s.get("inclusions", []).is_empty() and (bool(s.get("appraised", false)) or bool(s.get("inclusions_revealed", false)))).is_empty()
 		"two_stones":
+			## The crucible's fire is bought: without the pyrite there is nothing to do here.
+			if str(action.get("kind", "")) == "fuse" and int(player.get("ore", 0)) < fuse_cost():
+				return true
 			return carried(player).filter(func(s: Dictionary) -> bool: return work_refusal(action, s, player, offer).is_empty()).size() < 2
 		"stone":
 			## A stone the work would refuse (a fragile one down a well, a Knot) is not one it could be done to.
@@ -267,6 +270,11 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 	var kind: String = str(action.get("kind", "none"))
 	var out: Dictionary = {"ok": true, "error": "", "message": "", "made": [], "lost": [], "changed": [], "dice": []}
 	var mine: Dictionary = ctx.get("mine", {})
+	## The player's loadout luck rides on every stone a room gives them: it is folded into
+	## the mine's own luck, which every roll below reads (DeepForge.luck).
+	if float(ctx.get("luck", 0.0)) != 0.0:
+		mine = mine.duplicate()
+		mine.luck = int(round(float(DeepForge.mine_luck(mine)) + float(ctx.get("luck", 0.0))))
 	var depth: int = int(ctx.get("depth", 1))
 	match kind:
 		"none":
@@ -380,6 +388,12 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var feed: Dictionary = find_stone(player, str(payload.get("feed_id", "")))
 			if keep.is_empty() or feed.is_empty() or str(keep.id) == str(feed.id):
 				return _refuse("choose two different stones")
+			## The fire is paid for in pyrite, the same price everywhere (October 29, 2026).
+			var fee: int = fuse_cost()
+			if int(player.get("ore", 0)) < fee:
+				return _refuse("the crucible wants %d pyrite" % fee)
+			player.ore = int(player.ore) - fee
+			DeepBattle.tally_add(player, "spent", fee)
 			if DeepRng.chance(rng, 50.0):
 				var swap: Dictionary = keep
 				keep = feed
@@ -402,8 +416,8 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			remove_stone(player, str(feed.id))
 			out.lost.append(str(feed.id))
 			out.changed.append(keep.duplicate(true))
-			out.message = "The stones fuse into one: a %s, %d carats." % [
-				str(DeepStone.skill_of(keep).get("name", keep.skill)), int(keep.carat)]
+			out.message = "The stones fuse into one for %d pyrite: a %s, %d carats." % [
+				fee, str(DeepStone.skill_of(keep).get("name", keep.skill)), int(keep.carat)]
 		"echo_stone":
 			## The room rings and the rock answers with another of the same. Only the skill
 			## carries across: the stone that forms is rolled fresh in every other way, which
@@ -831,19 +845,41 @@ static func choice_text(choice: Dictionary, depth: int) -> String:
 
 # --- the crucible -------------------------------------------------------------------------------
 
-static func fuse_stats(rng: RandomNumberGenerator, keep: Dictionary, feed: Dictionary, mine: Dictionary, carry_pct: float) -> Dictionary:
+static func fuse_cost() -> int:
+	## What any fusing costs: the crucible's, and a twin fed to the stone it matches.
+	return int(DeepContent.constant("fuse_ore_cost", 100))
+
+static func fuse_gain(rng: RandomNumberGenerator, heavy: int, light: int) -> int:
+	## What the fire adds to the heavier stone's weight: nothing, one carat or two, by how
+	## close the lighter stone comes to it. With r the lighter over the heavier, two carats
+	## with chance r^4 / 2 and one with chance r^2 in all, so a stone half the weight of the
+	## other gives one carat a quarter of the time and two one time in thirty-two, and two
+	## equals give one or two every time, half and half. Nothing else grows carat here
+	## (October 29, 2026; it used to carry a random share of the lighter stone).
+	if heavy <= 0 or light <= 0:
+		return 0
+	var ratio: float = clampf(float(light) / float(heavy), 0.0, 1.0)
+	var draw: float = rng.randf()
+	if draw < 0.5 * pow(ratio, 4.0):
+		return 2
+	if draw < ratio * ratio:
+		return 1
+	return 0
+
+static func fuse_stats(rng: RandomNumberGenerator, keep: Dictionary, feed: Dictionary, mine: Dictionary, _carry_pct: float = 0.0) -> Dictionary:
 	## What comes out of the fire, as fields to write over `keep`, the stone the fire already
 	## chose to survive: its skill comes through. The heavier of the two sets the weight and
-	## takes up to `carry_pct` of the lighter one with it; the Cut is the average of the pair; the Clarity
-	## is drawn fresh between Included and Intricate, which is the only range the crucible
-	## ever gives back. Two colors in and the one whose skill lost is frozen in as a Zoning,
-	## so a fused stone always says what it was made of. Opal counts as no color at all.
+	## grows by `fuse_gain`: a carat or two, likelier the nearer the lighter stone comes to it;
+	## the Cut is the average of the pair, rounded down, so a Perfect is only ever found;
+	## the Clarity is drawn fresh between Included and Intricate, which is the only range the
+	## crucible ever gives back. Two colors in and the one whose skill lost is frozen in as a
+	## Zoning, so a fused stone always says what it was made of. Opal counts as no color at all.
 	var heavy: int = maxi(int(keep.get("carat", 1)), int(feed.get("carat", 1)))
 	var light: int = mini(int(keep.get("carat", 1)), int(feed.get("carat", 1)))
-	var carried: int = int(floor(float(light) * rng.randf() * maxf(0.0, carry_pct) / 100.0))
+	var carried: int = fuse_gain(rng, heavy, light)
 	var skill: String = str(keep.get("skill", ""))
 	var lost: Dictionary = feed
-	var cut: int = int(round(float(int(keep.get("cut", 0)) + int(feed.get("cut", 0))) / 2.0))
+	var cut: int = int(floor(float(int(keep.get("cut", 0)) + int(feed.get("cut", 0))) / 2.0))
 	var top: int = DeepContent.clarity_index("INCLUDED")
 	var bottom: int = DeepContent.clarity_index("INTRICATE")
 	var clarity: int = rng.randi_range(mini(bottom, top), maxi(bottom, top))

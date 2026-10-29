@@ -8,10 +8,19 @@ extends RefCounted
 
 const PATH: String = "res://content/deep_cut.json"
 const color_KEYS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE"]
-const SOCKET_ANY: String = "ANY"
+## A Rainbow socket shows every color, opal included. Sockets are written as one color
+## ("RED"), two colors with a slash ("GREEN/VIOLET", a two-tone socket showing either), or
+## "RAINBOW". Down the mine any gem sits in any socket; a socket that shows the gem's color
+## lights and adds a point of Resonance when the gem fires, and the loadout at home only
+## sets a gem in a socket that shows it. An older save or pack wrote "ANY" for a Rainbow.
+const SOCKET_RAINBOW: String = "RAINBOW"
+const SOCKET_ANY: String = SOCKET_RAINBOW
+const SOCKET_LEGACY_ANY: String = "ANY"
+## A rider sits in no socket at all: it fires in none, and no socket lights for it.
+const SOCKET_NONE: String = ""
 ## Opal is the seventh color, and the only one no socket is ever cut for. An opal skill
-## counts as none of the six by itself, so it sits in an ANY socket and rings in harmony
-## only with another opal. Nothing in the rock offers one: they come out of a hoard.
+## counts as none of the six by itself, so only a Rainbow socket shows it and the loadout
+## sets it nowhere else. Nothing in the rock offers one: they come out of a hoard.
 const OPAL: String = "OPAL"
 ## The colors a skill may wear. Sockets and mine leanings still speak only of the six.
 const SKILL_COLORS: Array = ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]
@@ -89,6 +98,48 @@ static func mine(key: String) -> Dictionary: return entry("mines", key)
 static func oddity(key: String) -> Dictionary: return entry("oddities", key)
 static func boon(key: String) -> Dictionary: return entry("boons", key)
 static func color(key: String) -> Dictionary: return entry("colors", key)
+
+static func is_rainbow(socket: String) -> bool:
+	## Whether a socket shows every color (an older save wrote it as ANY).
+	return socket == SOCKET_RAINBOW or socket == SOCKET_LEGACY_ANY
+
+static func socket_colors(socket: String) -> Array:
+	## The colors a socket shows: one, two for a two-tone socket, or all six for a Rainbow.
+	## A rider's no-socket shows none.
+	if is_rainbow(socket):
+		return color_KEYS.duplicate()
+	var out: Array = []
+	for part in socket.split("/"):
+		var key: String = str(part).strip_edges()
+		if key in color_KEYS and not out.has(key):
+			out.append(key)
+	return out
+
+static func socket_shows_opal(socket: String) -> bool:
+	## Only a Rainbow socket shows an opal.
+	return is_rainbow(socket)
+
+static func socket_name(socket: String) -> String:
+	## What the screens call a socket: "Rainbow", "Red", "Green/Violet".
+	if is_rainbow(socket):
+		return "Rainbow"
+	if socket == SOCKET_NONE:
+		return "No socket"
+	var names: Array = []
+	for key in socket_colors(socket):
+		names.append(str(color(key).get("name", key.capitalize())))
+	return "/".join(names) if not names.is_empty() else socket.capitalize()
+
+static func socket_is_valid(socket: String) -> bool:
+	if is_rainbow(socket):
+		return true
+	var parts: Array = socket.split("/")
+	if parts.size() < 1 or parts.size() > 2:
+		return false
+	for part in parts:
+		if not str(part) in color_KEYS:
+			return false
+	return parts.size() == 1 or parts[0] != parts[1]
 
 ## The Hazard ladder past the Rift (docs/HAZARDS.md), in order: a run on tier N carries the
 ## first N of them.
@@ -412,12 +463,12 @@ static func _validate_character(def: Variant, p: Dictionary) -> Array:
 		var reds: int = 0
 		for socket in sockets:
 			var s: String = str(socket)
-			if not (s in color_KEYS or s == SOCKET_ANY):
+			if not socket_is_valid(s):
 				errors.append("unknown socket color " + s)
-			if s == "RED":
+			if socket_colors(s).has("RED"):
 				reds += 1
 		if reds == 0:
-			errors.append("every character has at least one Red socket")
+			errors.append("every character has at least one socket that shows Red")
 	if int(def.get("hp", 0)) <= 0:
 		errors.append("needs hp")
 	var dice: Variant = def.get("dice", null)

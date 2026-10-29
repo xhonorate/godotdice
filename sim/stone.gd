@@ -70,14 +70,33 @@ static func colors(stone: Dictionary, socket: String = "") -> Array:
 				if not out.has(str(m.color)):
 					out.append(str(m.color))
 			"alexandrite":
-				if socket in colorS and not out.has(socket):
-					out.append(socket)
+				## It takes the color of the socket it sits in: both of a two-tone socket's.
+				for shown in DeepContent.socket_colors(socket):
+					if not DeepContent.is_rainbow(socket) and not out.has(shown):
+						out.append(shown)
 	return out
 
-static func fits(stone: Dictionary, socket: String) -> bool:
-	if socket == DeepContent.SOCKET_ANY:
+static func shows(stone: Dictionary, socket: String) -> bool:
+	## Whether this socket shows one of the stone's colors: a Rainbow shows every stone, an
+	## opal is shown by nothing else, and a two-tone socket shows either of its colors. This
+	## is what lights a socket in a fight and adds its point of Resonance, and the only
+	## thing the loadout at home asks before setting a stone. Down the mine any stone sits
+	## in any socket (DeepDescent.socket_refusal), lit or not.
+	return shown_by(colors(stone, socket), socket)
+
+static func shown_by(stone_colors: Array, socket: String) -> bool:
+	## `shows`, for colors already worked out (a fight's `ev.colors`).
+	if DeepContent.is_rainbow(socket):
 		return true
-	return colors(stone, socket).has(socket)
+	for shown in DeepContent.socket_colors(socket):
+		if stone_colors.has(shown):
+			return true
+	return false
+
+static func fits(stone: Dictionary, socket: String) -> bool:
+	## Whether the loadout may set this stone here: the socket shows it. Kept under its old
+	## name for the home screens and the daily rails; a fight never asks it.
+	return shows(stone, socket)
 
 static func modifiers(stone: Dictionary) -> Array:
 	## Every modifier of every inclusion, each tagged with the inclusion it came from, and of the
@@ -296,13 +315,13 @@ static func normalize_rail(unit: Dictionary) -> void:
 			main[index] = null
 	for index in range(count):
 		var kept: Array = []
-		var color: String = str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_ANY
+		var _color: String = str(sockets[index]) if index < sockets.size() else DeepContent.SOCKET_RAINBOW
 		for rider in lines[index]:
 			if not rider is Dictionary:
 				continue
 			if is_slotless(rider):
 				kept.append(rider)
-			elif main[index] == null and fits(rider, color):
+			elif main[index] == null:
 				main[index] = rider
 			else:
 				loose.append(rider)
@@ -322,7 +341,8 @@ static func flatten_rail(unit: Dictionary) -> void:
 	## A fighter's rail is the order its gems fire in, laid flat: each socket's own gem and
 	## then the Void gems riding it. `places[i]` says where entry i stands, {socket, rider}
 	## with rider -1 for the socket's own gem, and `sockets[i]` the color it fires in: a
-	## rider sits in no socket, so it fires in ANY. Everything a fight does by index (the
+	## rider sits in no socket, so it fires in none (SOCKET_NONE) and no socket lights for
+	## it. Everything a fight does by index (the
 	## firing order, neighbours, what was buried, what fired) works on this flat rail, and
 	## the screens fold it back onto the sockets with `places`. Done once, as a fight begins.
 	if unit.has("places"):
@@ -340,7 +360,7 @@ static func flatten_rail(unit: Dictionary) -> void:
 		var line: Array = riders_of(unit, index)
 		for at in range(line.size()):
 			flat.append(line[at])
-			colors.append(DeepContent.SOCKET_ANY)
+			colors.append(DeepContent.SOCKET_NONE)
 			places.append({"socket": index, "rider": at})
 	unit.rail = flat
 	unit.sockets = colors
@@ -358,7 +378,7 @@ static func ride_rail(unit: Dictionary, at: int, stone: Dictionary) -> void:
 		return
 	var places: Array = unit.places
 	rail.insert(at, stone)
-	unit.sockets.insert(at, DeepContent.SOCKET_ANY)
+	unit.sockets.insert(at, DeepContent.SOCKET_NONE)
 	places.insert(at, {"socket": int(places[at - 1].get("socket", 0)), "rider": 0})
 	var lines: Dictionary = {}
 	for place in places:

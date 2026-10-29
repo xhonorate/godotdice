@@ -231,6 +231,11 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 	DeepUi.section(rail_head, "gem", "Sockets").size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var price: int = DeepEconomy.socket_price(home.profile, character_key)
 	DeepUi.label(rail_head, "%d of %d set%s" % [filled, rail_cap, "" if price < 0 else "; locked sockets are filled in the mine until bought"], 13, DeepUi.GOOD if filled >= rail_cap else DeepUi.MUTED)
+	## Travelling light or heavy: what the count does to the luck of every stone found.
+	var luck: float = DeepDescent.loadout_luck(filled)
+	if luck != 0.0:
+		var light := DeepUi.label(rail_head, "travelling %s: %+d luck on every stone found" % ["light" if luck > 0.0 else "heavy", int(luck)], 13, DeepUi.GOOD if luck > 0.0 else DeepUi.BAD)
+		light.tooltip_text = "Three stones is the mine as it is. Every socket left empty adds %d luck to every stone the mine gives you; every stone over three takes %d off." % [int(DeepContent.constant("loadout_luck_per_stone", 2)), int(DeepContent.constant("loadout_luck_per_stone", 2))]
 	DeepUi.gap(rail_head, 10)
 	DeepUi.label(rail_head, "Drag a stone onto a socket, or click a socket then a stone." if home._bench_socket < 0 else "Choose a stone for socket %d." % (home._bench_socket + 1), 13, DeepUi.MUTED if home._bench_socket < 0 else DeepUi.ACCENT)
 	var fill := DeepUi.icon_button(rail_head, "spark", "Fill empty sockets", func() -> void: fill_empty(home, character_key), 13, DeepUi.ACCENT)
@@ -250,10 +255,10 @@ static func _sockets_view(home: Control, content: VBoxContainer, character_key: 
 	var tray_head := DeepUi.hbox(tray_box, 8)
 	var socket_color_now: String = str(sockets[home._bench_socket]) if home._bench_socket >= 0 else ""
 	var suffix: String = ""
-	if socket_color_now == "ANY":
-		suffix = ": any stone fits"
+	if DeepContent.is_rainbow(socket_color_now):
+		suffix = ": any stone fits a Rainbow socket"
 	elif not socket_color_now.is_empty():
-		suffix = ": stones that fit a %s socket" % socket_color_now.capitalize()
+		suffix = ": stones a %s socket shows" % DeepContent.socket_name(socket_color_now)
 	DeepUi.section(tray_head, "chest", "From the vault" + suffix).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	StoneBrowser.toolbar(home, tray_head, "sockets", {"compact": true, "rarity": false})
 	home.wire(tray_card, {}, Callable(), func(data: Dictionary) -> bool:
@@ -342,7 +347,7 @@ static func fill_empty(home: Control, character_key: String) -> void:
 	var changed: bool = false
 	## Colored sockets first, so a stone that only fits one of them is not spent on an any-color one.
 	var order: Array = range(sockets.size())
-	order.sort_custom(func(a: int, b: int) -> bool: return (str(sockets[a]) != "ANY") and (str(sockets[b]) == "ANY"))
+	order.sort_custom(func(a: int, b: int) -> bool: return (not DeepContent.is_rainbow(str(sockets[a]))) and DeepContent.is_rainbow(str(sockets[b])))
 	for index in order:
 		if not DeepProfile.fillable_socket(home.profile, character_key, index) or not home.rail_skill(record, index).is_empty():
 			continue
@@ -363,7 +368,7 @@ static func _socket_slot(home: Control, parent: Node, index: int, socket_color: 
 	## sockets the delver has opened, a locked one, the next of them with its price.
 	var locked: bool = not DeepProfile.fillable_socket(home.profile, character_key, index)
 	var chosen: bool = index == home._bench_socket
-	var tone: Color = DeepUi.color(socket_color) if socket_color != "ANY" else DeepUi.LINE_HI
+	var tone: Color = DeepUi.socket_tone(socket_color, DeepUi.LINE_HI)
 	var border: Color = DeepUi.LINE if locked else (DeepUi.ACCENT if chosen else Color(tone, 0.45))
 	var card := DeepUi.card(parent, border, 10, Color(0.04, 0.045, 0.06, 0.8) if locked else Color(0.05, 0.06, 0.085, 0.9))
 	card.custom_minimum_size = Vector2(150, 0)
@@ -376,12 +381,15 @@ static func _socket_slot(home: Control, parent: Node, index: int, socket_color: 
 	var ring := BattleScreen.SocketRing.new(socket_color, stone.is_empty())
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	slot.add_child(ring)
+	## At home a stone is only ever set where the socket shows it, so a set socket is lit.
+	if not stone.is_empty():
+		ring.shown = 1
 	if locked:
 		card.tooltip_text = home.MINE_SOCKET
 		ring.modulate = Color(1, 1, 1, 0.45)
 		var lock := DeepUi.icon(slot, "lock", 30, DeepUi.MUTED, home.MINE_SOCKET)
 		lock.position = Vector2(23, 23)
-		DeepUi.label(box, "Any color" if socket_color == "ANY" else socket_color.capitalize(), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(box, DeepContent.socket_name(socket_color), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		if index == DeepProfile.open_sockets(home.profile, character_key):
 			var price: int = DeepEconomy.socket_price(home.profile, character_key)
 			var buy := DeepUi.priced(DeepUi.icon_button(box, "lock_open", "", func() -> void: home.buy_socket(character_key), 13, DeepUi.GOOD), str(price))
@@ -413,7 +421,7 @@ static func _socket_slot(home: Control, parent: Node, index: int, socket_color: 
 		remove.position = Vector2(66, -6)
 		data = {"kind": "loadout_stone", "skill": str(stone.get("skill", "")), "from_socket": index}
 	else:
-		DeepUi.label(box, "Any color" if socket_color == "ANY" else socket_color.capitalize(), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(box, DeepContent.socket_name(socket_color), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		DeepUi.label(box, "empty", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	DeepUi.juice(card, 1.04)
 	var here: String = str(stone.get("skill", ""))

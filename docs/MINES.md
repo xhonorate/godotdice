@@ -38,6 +38,8 @@ Every mine writes a band, `carat: {soft, cap}`. Luck still raises the average ca
 
 Only the Crucible, the Prospector and the Grubstake move carat past a band, because each of them pays for it with something else.
 
+A player's loadout moves the luck of every stone the mine gives them (October 29, 2026): +2 for every stone fewer than three on the rail at the shaft head, -2 for every stone more (`DeepDescent.loadout_luck`). The band still holds: travelling light in the Quarry reaches the band's top more often, and never past the cap.
+
 Luck sources were trimmed alongside: an elite's stone is +3 luck (was +4, `elite_stone_luck`), a Sparkle stack is 0.08 a point (was 0.1), a Warden's hoard +5 (was +6).
 
 ## Skills: one batch per mine

@@ -18,6 +18,13 @@
 - Revise whatever was rejected or commented on, show the new version in the same artifact, and repeat until everything is approved. Then implement.
 - Redrawing an existing emblem follows the same loop: 2-3 options per flagged emblem, pick one or flag again.
 
+## Sockets, opals and twins (October 29, 2026)
+
+- A socket is one color (`"RED"`), a two-tone pair (`"GREEN/VIOLET"`) or `"RAINBOW"` (`DeepContent.SOCKET_RAINBOW`; an old save's `ANY` reads as one). Down the mine any gem sits in any socket; a socket that *shows* the gem's color (`DeepStone.shows`) is lit and adds a point of Resonance when the gem fires. Only a Rainbow shows an opal. The loadout at home sets a gem only where a socket shows it (`DeepStone.fits`). Riders fire in `SOCKET_NONE` and never light. Never add a color gate to in-run placement.
+- Opals interact. Never reintroduce a blanket opal exclusion: what stops loops is that a replay (`replay_color`, `replay_fizzled`) only reaches sockets earlier than the gem replaying, and that an Echo never copies an Echo (`DeepBattle.is_echo`). A Doublet wears any non-Doublet behind it. Mirror every change in `tools/data-browser/js/sim/fight.js`.
+- Nobody carries two of one gem: a read twin in the bag sets `unit.twin` and the `twin` command (swap, toss, fuse) is the only one allowed until it is settled (`DeepDescent.check_twins`). Fusing costs `fuse_ore_cost` pyrite everywhere; the carat gain is `DeepOddities.fuse_gain`.
+- Loadout luck: `DeepDescent.loadout_luck` (±2 a stone from three) rides on every stone the mine gives a player; apply it wherever a per-player stone is rolled.
+
 ## Carat scaling: three modes
 
 A stone's weight (carat) reaches an effect in one of three ways. Pick by what the number is; `DeepRules.resolve_effect` (sim/rules.gd) and its mirror in `tools/data-browser/js/sim/rules.js` implement all three.
