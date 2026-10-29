@@ -2807,6 +2807,8 @@ class SocketRing extends Control:
 			if value != shown:
 				shown = value
 				queue_redraw()
+				if value == 1 and DeepContent.is_rainbow(color):
+					set_process(true)
 	var birth_tint: Color = DeepUi.ACCENT
 	## A Void ring standing in a socket's own place (its first rider, the socket being empty):
 	## the socket's dark well behind the dashes, as a set gem has.
@@ -2849,7 +2851,8 @@ class SocketRing extends Control:
 		_ready_glow = move_toward(_ready_glow, _goal, delta * 4.0)
 		_flash = maxf(0.0, _flash - delta * 2.2)
 		queue_redraw()
-		if _flash <= 0.0 and is_equal_approx(_ready_glow, _goal) and _goal <= 0.0:
+		## A lit Rainbow keeps turning; everything else goes still once its glow has settled.
+		if _flash <= 0.0 and is_equal_approx(_ready_glow, _goal) and _goal <= 0.0 and not (shown == 1 and DeepContent.is_rainbow(color) and not ScreenFx.calm):
 			set_process(false)
 	func _draw() -> void:
 		var tone: Color = birth_tint.lightened(0.15) if color == "BIRTHSTONE" else DeepUi.socket_tone(color, DeepUi.MUTED)
@@ -2877,14 +2880,24 @@ class SocketRing extends Control:
 			var reach: float = radius * 2.6
 			draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(reach, reach) * 0.5, Vector2(reach, reach)), false, Color(_halo_tone(tone), 0.22))
 		draw_circle(centre, radius, Color(0, 0, 0, 0.45))
-		draw_circle(centre, radius * 0.9, Color(tone, (0.08 if empty else (0.16 if lit else 0.12)) * dim))
+		## The well: the socket's own tint pooling toward the middle.
+		var well: float = (0.08 if empty else (0.16 if lit else 0.12)) * dim
+		draw_circle(centre, radius * 0.84, Color(_fill_tone(tone), well))
+		draw_circle(centre, radius * 0.5, Color(_fill_tone(tone), well * 0.6))
 		if dark:
 			draw_circle(centre, radius * 0.9, Color(0, 0, 0, 0.55))
-		_outer_arc(centre, radius, tone, (0.95 if empty else (0.9 if lit else 0.75)) * (0.4 if dark else 1.0) * dim, 3.0 if color == "BIRTHSTONE" else (2.5 if lit else 2.0))
-		draw_arc(centre, radius * 0.82, 0, TAU, 40, Color(tone, 0.25 * dim), 1.0, true)
+		## The bezel: a band of metal in the socket's colors, shaded like a turned ring, with
+		## a Rainbow's hues sweeping round it and a two-tone's pair melting into each other.
+		var strength: float = (0.95 if empty else (1.0 if lit else 0.8)) * (0.4 if dark else 1.0) * dim
+		_bezel(centre, radius * (0.84 if color != "BIRTHSTONE" else 0.8), radius, strength)
+		## A bright lip on the outer edge, and a thin dark line where the band meets the well.
+		draw_arc(centre, radius, 0, TAU, 64, Color(Color.WHITE, (0.35 if lit else 0.18) * strength), 1.0, true)
+		draw_arc(centre, radius * 0.84, 0, TAU, 48, Color(0, 0, 0, 0.5 * strength), 1.0, true)
 		for i in range(4):
 			var angle: float = TAU * float(i) / 4.0 + PI * 0.25
-			draw_circle(centre + Vector2.from_angle(angle) * radius * 0.92, 2.2, Color(tone.lightened(0.3), 0.9 * dim))
+			var stud: Vector2 = centre + Vector2.from_angle(angle) * radius * 0.92
+			draw_circle(stud, 2.6, Color(0, 0, 0, 0.5 * dim))
+			draw_circle(stud, 2.0, Color(_band_tone(angle).lightened(0.45), 0.95 * dim))
 		if empty:
 			## Settings > Comfort > Color marks: the shape of the stone it takes, on the rim in
 			## place of the lower right stud. A set stone wears its own (Thumbs.GemThumb).
@@ -2908,21 +2921,62 @@ class SocketRing extends Control:
 					draw_line(a.lerp(b, float(d) / 3.0 + 0.05), a.lerp(b, float(d) / 3.0 + 0.23), dash_tone, 1.5, true)
 		if blocked:
 			_hatch(centre, radius)
-	func _outer_arc(centre: Vector2, radius: float, tone: Color, alpha: float, width: float) -> void:
-		## The bezel's rim: one color, two halves for a two-tone socket, six arcs for a Rainbow.
+	## How many facets the bezel band is drawn in: enough that a gradient reads as a sweep.
+	const BAND_STEPS: int = 72
+	func _band_tone(angle: float) -> Color:
+		## The bezel's color at an angle round the ring (0 at the right, going clockwise).
+		## A Rainbow sweeps the whole wheel round, turning slowly while the ring is awake, with
+		## the seam closed so no two hues meet hard; a two-tone socket melts its pair into each
+		## other, one at the top and one at the bottom; a plain socket is its own color, and
+		## the Birthstone its tint.
 		var shown_colors: Array = DeepContent.socket_colors(color)
 		if DeepContent.is_rainbow(color):
-			for arc in range(DeepContent.color_KEYS.size()):
-				var start: float = TAU * float(arc) / float(DeepContent.color_KEYS.size()) - PI * 0.5
-				draw_arc(centre, radius, start, start + TAU / float(DeepContent.color_KEYS.size()), 10, Color(DeepUi.color(str(DeepContent.color_KEYS[arc])), alpha), width, true)
-		elif shown_colors.size() == 2:
-			draw_arc(centre, radius, -PI * 0.5, PI * 0.5, 24, Color(DeepUi.color(str(shown_colors[0])), alpha), width, true)
-			draw_arc(centre, radius, PI * 0.5, PI * 1.5, 24, Color(DeepUi.color(str(shown_colors[1])), alpha), width, true)
-		else:
-			draw_arc(centre, radius, 0, TAU, 48, Color(tone, alpha), width, true)
+			var t: float = fposmod((angle + PI * 0.5) / TAU - _clock * 0.05, 1.0)
+			return Color.from_hsv(t, 0.62, 1.0)
+		if shown_colors.size() == 2:
+			var a: Color = DeepUi.color(str(shown_colors[0]))
+			var b: Color = DeepUi.color(str(shown_colors[1]))
+			## 0 at the top (the first color), 1 at the bottom (the second), easing between.
+			var w: float = 0.5 - 0.5 * cos(angle + PI * 0.5)
+			w = clampf((w - 0.3) / 0.4, 0.0, 1.0)
+			return a.lerp(b, smoothstep(0.0, 1.0, w))
+		if color == "BIRTHSTONE":
+			return birth_tint.lightened(0.15)
+		return DeepUi.socket_tone(color, DeepUi.MUTED)
+	func _fill_tone(tone: Color) -> Color:
+		## What pools in the well: a Rainbow's pale shimmer, a two-tone's two colors mixed, a
+		## plain socket's own tint.
+		var shown_colors: Array = DeepContent.socket_colors(color)
+		if DeepContent.is_rainbow(color):
+			return Color.from_hsv(fposmod(0.6 - _clock * 0.05, 1.0), 0.35, 1.0)
+		if shown_colors.size() == 2:
+			return DeepUi.color(str(shown_colors[0])).lerp(DeepUi.color(str(shown_colors[1])), 0.5)
+		return tone
+	func _bezel(centre: Vector2, inner: float, outer: float, strength: float) -> void:
+		## The band, as BAND_STEPS facets with their colors blended across the corners, so the
+		## sweep is smooth. Each facet is shaded as turned metal: lighter toward the inner edge
+		## and under the light (top-left), darker toward the outer edge and in the shadow
+		## (bottom-right), so a plain Red socket reads as a ring of red metal rather than a
+		## flat line.
+		var light_from: float = -PI * 0.75
+		for step in range(BAND_STEPS):
+			var a0: float = TAU * float(step) / float(BAND_STEPS)
+			var a1: float = TAU * float(step + 1) / float(BAND_STEPS)
+			var points := PackedVector2Array([centre + Vector2.from_angle(a0) * outer, centre + Vector2.from_angle(a1) * outer,
+				centre + Vector2.from_angle(a1) * inner, centre + Vector2.from_angle(a0) * inner])
+			var tones := PackedColorArray()
+			for corner in range(4):
+				var angle: float = a0 if corner == 0 or corner == 3 else a1
+				var base: Color = _band_tone(angle)
+				var sheen: float = 0.5 + 0.5 * cos(angle - light_from)
+				var inner_edge: bool = corner >= 2
+				var shade: Color = base.lightened(0.35 if inner_edge else 0.05).lerp(base.darkened(0.35 if not inner_edge else 0.05), 1.0 - sheen)
+				tones.append(Color(shade, strength))
+			draw_polygon(points, tones)
 	func _halo_tone(tone: Color) -> Color:
-		## A lit Rainbow socket glows white; a lit colored one in its color.
-		return Color.WHITE if DeepContent.is_rainbow(color) else tone
+		## A lit Rainbow socket glows pale and shifting; a lit colored one in its color, a
+		## two-tone in the mix of its two.
+		return _fill_tone(tone)
 	func _mark_key() -> String:
 		## The color mark an empty socket wears: its color, the first of a two-tone pair, and
 		## none for a Rainbow (every stone fits it).
