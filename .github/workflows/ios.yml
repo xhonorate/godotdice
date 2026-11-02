@@ -1,0 +1,138 @@
+# Unsigned iOS test build for SideStore.
+#
+# Godot exports the Xcode project, Xcode compiles it without signing, and the
+# .ipa goes to the rolling `ios-latest` release next to a SideStore source
+# (source.json). SideStore on the phone signs it with a free Apple ID and
+# shows each new build as an update. Setup steps: docs/IOS_TESTING.md.
+name: iOS build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "tests/**"
+      - "tools/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-build
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.7.2"
+  APP_NAME: DeepCut
+  RELEASE_TAG: ios-latest
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot and its iOS template
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/Library/Application Support/Godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-ios
+
+      - name: Download Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          mkdir -p ~/godot
+          curl -fsSL -o /tmp/godot.zip "$base/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          curl -fsSL -o /tmp/templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          dest="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dest"
+          unzip -j -q /tmp/templates.tpz "templates/ios.zip" "templates/version.txt" -d "$dest"
+          ls -la "$dest"
+
+      - name: Version
+        id: version
+        run: |
+          set -euo pipefail
+          short=$(sed -n 's/^config\/version="\(.*\)"$/\1/p' project.godot)
+          echo "short=${short:-0.0.0}" >> "$GITHUB_OUTPUT"
+          echo "build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Deep Cut ${short} build ${{ github.run_number }}"
+
+      - name: Export the Xcode project
+        run: |
+          set -euo pipefail
+          godot="$HOME/godot/Godot.app/Contents/MacOS/Godot"
+          python3 .github/scripts/ios_preset.py export_presets.cfg "${{ steps.version.outputs.short }}" "${{ steps.version.outputs.build }}"
+          mkdir -p ci_logs build/ios
+          "$godot" --headless --path . --import 2>&1 | tee ci_logs/import.log
+          "$godot" --headless --path . --export-release "iOS" "build/ios/${APP_NAME}.ipa" 2>&1 | tee ci_logs/export.log
+          ls -la build/ios
+          test -d "build/ios/${APP_NAME}.xcodeproj"
+
+      - name: Compile unsigned
+        run: |
+          set -euo pipefail
+          cd build/ios
+          scheme=$(xcodebuild -list -json -project "${APP_NAME}.xcodeproj" | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')
+          echo "scheme: $scheme"
+          status=0
+          xcodebuild -project "${APP_NAME}.xcodeproj" -scheme "$scheme" -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" -derivedDataPath dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > ../../ci_logs/xcodebuild.log 2>&1 || status=$?
+          grep -E "error:|BUILD (SUCCEEDED|FAILED)" ../../ci_logs/xcodebuild.log || true
+          test "$status" -eq 0
+          app=$(find dd/Build/Products -maxdepth 2 -name "*.app" -type d | head -1)
+          echo "app: $app"
+          rm -rf Payload && mkdir Payload && cp -R "$app" Payload/
+          zip -qry "../${APP_NAME}.ipa" Payload
+          icon=$(find . -path "*AppIcon.appiconset*" -name "*.png" -not -path "./dd/*" -exec ls -S {} + | head -1)
+          cp "$icon" ../icon.png
+          ls -la ..
+
+      - name: SideStore source
+        run: |
+          python3 .github/scripts/sidestore_source.py build/source.json "build/${APP_NAME}.ipa" \
+            "${{ steps.version.outputs.short }}" "${{ steps.version.outputs.build }}" \
+            "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}"
+
+      - name: Publish to the ios-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="Latest iOS test build: ${{ steps.version.outputs.short }} build ${{ steps.version.outputs.build }} from ${GITHUB_SHA::7}. Add https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/source.json as a source in SideStore."
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --prerelease --target "$GITHUB_SHA" --title "iOS test build" --notes "$notes"
+          else
+            gh release edit "$RELEASE_TAG" --notes "$notes"
+          fi
+          gh release upload "$RELEASE_TAG" "build/${APP_NAME}.ipa" build/source.json build/icon.png --clobber
+
+      - name: Keep the .ipa as a run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-ipa
+          path: build/${{ env.APP_NAME }}.ipa
+          retention-days: 7
+
+      # Logs need a GitHub login to read; annotations do not. Put the tail of
+      # each log on the run page so a failure can be read without signing in.
+      - name: Show log tails on failure
+        if: failure()
+        run: |
+          for f in ci_logs/*.log; do
+            [ -f "$f" ] || continue
+            body=$(grep -E "ERROR|error:|Error|FAILED|failed" "$f" | tail -25; echo "--- last lines ---"; tail -15 "$f")
+            body="${body//'%'/'%25'}"; body="${body//$'\n'/'%0A'}"; body="${body//$'\r'/}"
+            echo "::error title=$(basename "$f")::${body}"
+          done
