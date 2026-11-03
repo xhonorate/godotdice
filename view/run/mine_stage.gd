@@ -152,6 +152,8 @@ func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		return
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	## A finger held on something in the room opens its close look, as a right-click does.
+	load("res://view/ui/tips.gd").hold(self, _hold_look)
 	frame = SubViewportContainer.new()
 	frame.stretch = true
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -420,6 +422,17 @@ func _set_hover(index: int) -> void:
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if index >= 0 else Control.CURSOR_ARROW
 	mouth_hovered.emit(index)
 
+func _hold_look() -> Variant:
+	## A finger held on something standing in the room opens its close look, as a right-click
+	## does; held on nothing, it brings up nothing.
+	if _headless or not _at in ["home", "crossroads"]:
+		return false
+	var looked: String = _pick_under(get_meta("tip_press_at", Vector2(-1000, -1000)))
+	if looked.is_empty():
+		return false
+	pick_inspected.emit(looked)
+	return true
+
 func _gui_input(event: InputEvent) -> void:
 	if _headless:
 		return
@@ -427,6 +440,10 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT and still:
 		## Things are clicked on the release, so a press that becomes a drag is not a click.
 		## A click on nothing in particular is reported too: it puts down whatever was picked up.
+		## A finger held for the close look (`_hold_look`) is not a click either.
+		if load("res://view/ui/tips.gd").held(self):
+			accept_event()
+			return
 		var picked: String = _pick_under(event.position)
 		pick_pressed.emit(picked)
 		if not picked.is_empty():

@@ -62,6 +62,9 @@ func _rail() -> void:
 	unit.haul.append(gem("CLEAVE", "duplicate"))
 	check(not DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "duplicate", "index": 3}).ok and unit.riders[3].is_empty() and unit.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "duplicate"),
 		"a second stone of a skill already riding is refused and stays in the bag")
+	## Two Cleaves in one bag are a twin, and a twin stops every command but the one that
+	## settles it: the duplicate goes before the rail is worked on again.
+	unit.haul = unit.haul.filter(func(s: Dictionary) -> bool: return str(s.id) != "duplicate")
 	check(not DeepDescent.command(run, "a", {"kind": "socket", "stone_id": "normal0", "index": 1}).ok or unit.rail[1].id == "normal0", "an ordinary gem still cannot ride: it swaps sockets")
 	unit.rail[0] = before[0]
 	unit.rail[1] = before[1]

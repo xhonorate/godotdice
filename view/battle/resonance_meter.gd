@@ -155,8 +155,22 @@ func _process(delta: float) -> void:
 		word.add_theme_color_override("font_color", tone)
 		icon.modulate = tone
 	_drift()
-	if moving or _shown_reach > 0.001 or not _ripples.is_empty() or value > FULL_COLOR:
+	if moving or not _ripples.is_empty() or _jolt > 0.0:
+		## Growing, shrinking, jolted or rippling: every frame.
+		_idle_for = 0.0
 		queue_redraw()
+	elif _shown_reach > 0.001 or value > FULL_COLOR:
+		## Only drifting: the strands sway slowly enough that laying them again thirty times a
+		## second reads the same as every frame, at half the cost on a fast screen (the thirty-six
+		## to seventy-two polyline commands are most of what the meter costs, October 30).
+		_idle_for += delta
+		if _idle_for >= IDLE_REDRAW:
+			_idle_for = fmod(_idle_for, IDLE_REDRAW)
+			queue_redraw()
+
+## How often the light is laid again while it only drifts, in seconds.
+const IDLE_REDRAW: float = 1.0 / 30.0
+var _idle_for: float = 0.0
 
 # --- the palette ---------------------------------------------------------------------------------
 

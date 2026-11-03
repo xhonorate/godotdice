@@ -133,6 +133,8 @@ func _init() -> void:
 	_result_label.add_theme_font_override("font", DeepUi.bold_font())
 	_style()
 	gui_input.connect(_on_input)
+	## A finger held on the tag opens the creature's close look, as a right-click does.
+	Tips.hold(self, func() -> void: inspect.emit())
 	mouse_entered.connect(func() -> void: hovered.emit(true))
 	mouse_exited.connect(func() -> void: hovered.emit(false))
 	panel.minimum_size_changed.connect(_relayout)

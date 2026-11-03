@@ -523,7 +523,7 @@ func _lamp(parent: VBoxContainer, unit: Dictionary) -> void:
 		_die_lamp(box, unit, die)
 	else:
 		DeepUi.icon(box, "gem" if tab == "gems" else "die", 40, DeepUi.DIM).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		DeepUi.wrap(box, "Click a %s to look at it here. Right-click anything for its full story." % ("stone" if tab == "gems" else "die"), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, 290)
+		DeepUi.wrap(box, DeepUi.touch_words("Click a %s to look at it here. Right-click anything for its full story." % ("stone" if tab == "gems" else "die")), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, 290)
 
 func _geode_lamp(box: VBoxContainer, geode: Dictionary) -> void:
 	## A Geode under the lamp: what kind it is and that it is shut. Nothing can be done to it here.

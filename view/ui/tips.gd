@@ -52,11 +52,17 @@ static func attach(control: Control, build: Callable, opts: Dictionary = {}) -> 
 		## held on the thing brings its plate up, and lifting it puts the plate away.
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and _touch():
 			if event.pressed:
+				control.set_meta("tip_held", false)
+				control.set_meta("tip_press_at", event.position)
 				_long_press(control)
 			else:
 				_press_id = 0
 				if _anchor == control:
 					hide_now()
+			return
+		## A finger that moves on is scrolling or dragging, not holding.
+		if event is InputEventMouseMotion and _press_id == control.get_instance_id() and event.position.distance_to(control.get_meta("tip_press_at", event.position)) > HOLD_SLIP:
+			_press_id = 0
 			return
 		if event is InputEventMouseButton and event.pressed:
 			_hushed[control.get_instance_id()] = true
@@ -87,16 +93,43 @@ static func adopt_engine_tooltips(tree: SceneTree) -> void:
 static func _adopt(control: Control) -> void:
 	if not is_instance_valid(control) or control.tooltip_text.is_empty() or bool(control.get_meta("tip_wired", false)):
 		return
+	attach(control, _adopted_build(control))
+	_enter(control)
+
+static func _adopted_build(control: Control) -> Callable:
+	## A plate saying the control's own `tooltip_text`, read again each time it comes up.
 	var said: String = control.tooltip_text
-	attach(control, func() -> Control:
+	return func() -> Control:
 		if not control.tooltip_text.is_empty():
 			said = control.tooltip_text
 			control.tooltip_text = ""
+		if said.is_empty():
+			return null
 		var Plates = load("res://view/ui/plates.gd")
 		var box: Control = Plates.plate(280.0)
-		DeepUi.effect_text(box, said, 12, DeepUi.PAPER)
-		return box)
-	_enter(control)
+		DeepUi.effect_text(box, DeepUi.touch_words(said), 12, DeepUi.PAPER)
+		return box
+
+## How far a held finger may drift, in canvas pixels, before the hold is a drag instead.
+const HOLD_SLIP: float = 14.0
+
+static func hold(control: Control, action: Callable) -> void:
+	## On a touch screen a finger held on the control does what a right-click does on a desk:
+	## `action`, usually the close look, in place of the plate the hold would otherwise bring
+	## up (the close look says everything the plate does, and a phone has no right button).
+	## An action that returns false has declined, and the plate comes up instead. A control
+	## wired for nothing else is wired here, with a plate for its `tooltip_text` if it has one.
+	## The action may read where the finger came down from the control's `tip_press_at` meta.
+	if control == null:
+		return
+	control.set_meta("tip_hold", action)
+	if not bool(control.get_meta("tip_wired", false)):
+		attach(control, _adopted_build(control))
+
+static func held(control: Control) -> bool:
+	## Whether the press on the control now ending (or the last one) was held long enough to
+	## become its hold action: the release that follows one is not a click.
+	return bool(control.get_meta("tip_held", false))
 
 static func _touch() -> bool:
 	return DisplayServer.is_touchscreen_available()
@@ -113,8 +146,17 @@ static func _long_press(control: Control) -> void:
 	## called on it until is_instance_valid says it is still there: a release export does not
 	## check for freed objects and crashes instead.
 	control.get_tree().create_timer(LONG_PRESS).timeout.connect(func() -> void:
-		if token == _press_token and _press_id == id and is_instance_valid(control) and control.is_visible_in_tree():
-			_show(control))
+		if token != _press_token or _press_id != id or not is_instance_valid(control) or not control.is_visible_in_tree():
+			return
+		var action: Callable = control.get_meta("tip_hold", Callable())
+		if action.is_valid():
+			var answer: Variant = action.call()
+			if not (answer is bool and not answer):
+				_press_id = 0
+				control.set_meta("tip_held", true)
+				hide_now()
+				return
+		_show(control))
 
 static func refresh(control: Control) -> void:
 	## A control whose plate is up has something new to say: it is built again in place.
@@ -178,7 +220,11 @@ static func _show(control: Control) -> void:
 		return
 	var content: Variant = build.call()
 	if not content is Control:
-		hide_now()
+		## Nothing to say: its own plate goes, and another control's is left alone (a control
+		## wired for a hold alone, or whose tooltip is empty, must not take down the plate the
+		## pointer is on its way to).
+		if _anchor == control:
+			hide_now()
 		return
 	var opts: Dictionary = control.get_meta("tip_opts", {})
 	var fresh: bool = _plate == null or not is_instance_valid(_plate) or _anchor != control

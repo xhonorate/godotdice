@@ -170,10 +170,12 @@ static func _geode_card(home: Control, parent: Node, geode: Dictionary) -> void:
 	## and its odds in full.
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	card.tooltip_text = "Right-click for what it can hold, and how likely each thing is"
+	var look_close := func() -> void: load("res://view/inspect/inspector.gd").geode(geode, {"profile": home.profile})
 	card.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-			load("res://view/inspect/inspector.gd").geode(geode, {"profile": home.profile})
+			look_close.call()
 			card.accept_event())
+	Tips.hold(card, look_close)
 	var box := DeepUi.vbox(card, 6)
 	var tag := DeepUi.hbox(box, 6)
 	var kind: String = ("This week's Geode" if weekly else "Today's Geode")

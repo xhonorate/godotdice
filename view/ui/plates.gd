@@ -29,7 +29,7 @@ static func section(box: Control, words: String) -> Label:
 	return l
 
 static func footer(box: Control, words: String = FOOTER) -> void:
-	DeepUi.label(box, words, 10, DeepUi.DIM)
+	DeepUi.label(box, DeepUi.touch_words(words), 10, DeepUi.DIM)
 
 static func plate(width: float = WIDTH) -> VBoxContainer:
 	var box := VBoxContainer.new()

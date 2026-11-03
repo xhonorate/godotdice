@@ -203,8 +203,54 @@ func _notification(what: int) -> void:
 func _follow_visibility() -> void:
 	## A die nobody can see draws nothing: a fight keeps every player's tray built and shows
 	## one at a time, and a hidden tray's solids would otherwise each render a frame apiece.
+	_seen = is_visible_in_tree()
 	if _viewport != null and is_instance_valid(_viewport):
-		_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if is_visible_in_tree() else SubViewport.UPDATE_DISABLED
+		if _seen:
+			_touch()
+		else:
+			_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+
+## Whether the view is on screen (`_follow_visibility`), and how many more frames the solid
+## renders because something about it was just changed (`_touch`).
+var _seen: bool = true
+var _render_frames: int = 0
+var _render_for: float = 0.0
+## How often a solid that only sways at rest is rendered again, in seconds.
+const SWAY_RENDER: float = 1.0 / 30.0
+
+func _touch(frames: int = 2) -> void:
+	## Something about the solid changed (its faces, its material, where it lies): it is
+	## rendered for the next few frames whatever else it is doing.
+	_render_frames = maxi(_render_frames, frames)
+	if _seen and _viewport != null and is_instance_valid(_viewport):
+		_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
+func _busy() -> bool:
+	## Whether the solid is being moved by anything other than its sway at rest.
+	return interactive or _spin_time <= spin_seconds or _running >= 0 or _pop_time < POP_SECONDS
+
+func _steer_viewport(delta: float) -> void:
+	## When the solid is rendered. Every die is a 3D pass of its own (five in the tray, one on
+	## each creature's tag), which a phone feels, so one that is turning, popping or steered
+	## renders every frame; one only swaying at rest renders thirty times a second, its sway
+	## too slow for the difference to show; and one lying still renders once more and then
+	## not at all, until something about it changes (`_touch`).
+	if not _seen or _viewport == null or not is_instance_valid(_viewport):
+		return
+	if _busy() or _render_frames > 0:
+		_render_frames = maxi(0, _render_frames - 1)
+		_render_for = 0.0
+		_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		return
+	if live:
+		_render_for += delta
+		if _render_for >= SWAY_RENDER:
+			_render_for = fmod(_render_for, SWAY_RENDER)
+			_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+			return
+	## Rendering once more turns the viewport off by itself once it has.
+	if _viewport.render_target_update_mode == SubViewport.UPDATE_ALWAYS:
+		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_highlighted: bool, tint: Color) -> void:
 	die = new_die
@@ -268,6 +314,7 @@ func configure(new_die: Dictionary, new_roll: Dictionary, is_selected: bool, is_
 	_sync_readout()
 	if is_instance_valid(_glow):
 		_glow.queue_redraw()
+	_touch()
 
 func _sync_readout() -> void:
 	## A d24 and up carries its numerals on faces too small to read, so the number it landed
@@ -297,6 +344,7 @@ func settle_immediately() -> void:
 		_pivot.quaternion = _target
 		_pivot.position = Vector3.ZERO
 		_pivot.scale = Vector3.ONE
+	_touch()
 
 func enable_interaction() -> void:
 	## Hands the solid to the reader: the roll no longer drives its orientation.
@@ -306,6 +354,7 @@ func enable_interaction() -> void:
 	mouse_default_cursor_shape = Control.CURSOR_MOVE
 	_spin_time = 99.0
 	_sync_readout()
+	_touch()
 
 func running_total() -> int:
 	## What the die has added up to so far while an exploding face is still being thrown
@@ -386,6 +435,7 @@ func _wear_material(palette: Dictionary) -> void:
 	body_material.emission_enabled = glow > 0.001
 	body_material.emission = palette.body
 	body_material.emission_energy_multiplier = glow
+	_touch()
 
 func _face_values() -> String:
 	## Every face's number and its etching: a face etched where it stands (a carver's needle,
@@ -536,6 +586,7 @@ func _relabel(index: int, text: String) -> void:
 		return
 	label.text = text
 	_fit_label(label, _frames[index])
+	_touch()
 
 func _kind_at(index: int) -> String:
 	var faces: Array = die.get("faces", [])
@@ -640,6 +691,7 @@ func _process(delta: float) -> void:
 		_pivot.scale = Vector3.ONE * swell
 	if is_instance_valid(_glow) and (selected or highlighted or _pop_time < POP_SECONDS):
 		_glow.queue_redraw()
+	_steer_viewport(delta)
 
 func _throw_again(delta: float) -> void:
 	## The die has landed with throws still owed: after a beat it is picked up and thrown onto

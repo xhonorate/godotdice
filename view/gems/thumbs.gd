@@ -259,17 +259,26 @@ class GemThumb extends Control:
 			_hovering = false
 			_end_live()
 			set_process(true))
+		## A finger held on the picture opens the close look, as a right-click does.
+		load("res://view/ui/tips.gd").hold(self, func() -> Variant:
+			if stone.is_empty():
+				return false
+			_look_close()
+			return true)
 		if not new_stone.is_empty():
 			configure(new_stone)
 
 	func _gui_input(event: InputEvent) -> void:
 		## Right-click anywhere a stone is shown opens the close look.
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and not stone.is_empty():
-			var opts: Dictionary = inspect_opts.duplicate()
-			if not opts.has("context"):
-				opts["context"] = context
-			load("res://view/inspect/inspector.gd").stone(stone, opts)
+			_look_close()
 			accept_event()
+
+	func _look_close() -> void:
+		var opts: Dictionary = inspect_opts.duplicate()
+		if not opts.has("context"):
+			opts["context"] = context
+		load("res://view/inspect/inspector.gd").stone(stone, opts)
 
 	func configure(new_stone: Dictionary) -> void:
 		stone = new_stone
@@ -535,6 +544,11 @@ class DieThumb extends Control:
 		mouse_exited.connect(func() -> void:
 			_hovering = false
 			set_process(true))
+		load("res://view/ui/tips.gd").hold(self, func() -> Variant:
+			if die.is_empty():
+				return false
+			load("res://view/inspect/inspector.gd").die(die)
+			return true)
 		if not new_die.is_empty():
 			configure(new_die, shown_face)
 

@@ -254,7 +254,7 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	foot.alignment = BoxContainer.ALIGNMENT_CENTER
 	if fanfare.is_empty():
 		_close = DeepUi.icon_button(foot, "cross_out", "Close", _dismiss, 15, DeepUi.MUTED)
-		DeepUi.label(foot, "Esc, right-click or click outside to close", 12, DeepUi.DIM)
+		DeepUi.label(foot, "Tap outside to close" if DisplayServer.is_touchscreen_available() else "Esc, right-click or click outside to close", 12, DeepUi.DIM)
 	elif not fanfare.get("actions", []).is_empty():
 		for action in fanfare.actions:
 			var call: Callable = action.get("call", Callable())

@@ -267,7 +267,9 @@ func _save_touched() -> void:
 		saves.save_profile(profile)
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+	## A phone never sends the close request: the game is put in the background and may be
+	## killed there, so a save waiting on its timer is written the moment the game is paused.
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
 		_save_touched()
 
 func _profile_changed() -> void:

@@ -917,6 +917,11 @@ func _void_views(app: Control) -> void:
 func _advance(app: Control) -> void:
 	## One step of a run toward its next fight, taking the first of whatever is offered.
 	var run: Dictionary = app.session.run
+	## A twin in the bag (a stake's stone of a skill already on the rail) is settled first:
+	## nothing else is allowed until it is.
+	if not app.session.local_player().get("twin", {}).is_empty():
+		app.session.send({"kind": "twin", "choice": "toss"})
+		return
 	match str(run.get("phase", "")):
 		"grubstake":
 			if str(app.session.local_player().get("stake", "")).is_empty():

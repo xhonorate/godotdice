@@ -389,6 +389,57 @@ func _ready() -> void:
 
 func warm_up() -> void:
 	stage.warm_up()
+	_warm_marks()
+
+## Whether the creatures' face marks and the engraved die's drawing have been paid for.
+static var _marks_warmed: bool = false
+
+func _warm_marks() -> void:
+	## The first fight used to stall while the creatures' action dice were first built: every
+	## move's mark rasterised (a few milliseconds each, and the pill's small copy as well) and
+	## the GPU compiling what an engraved die is drawn with. Here the marks are baked one a
+	## frame while the workshop is being looked at, and one engraved die is drawn a few frames
+	## far off the screen, so the first fight opens without the wait (November 3, 2026).
+	if _headless or _marks_warmed or not is_inside_tree():
+		return
+	_marks_warmed = true
+	var marks: Array = []
+	for key in DeepContent.section("creatures"):
+		var def: Dictionary = DeepContent.creature(str(key))
+		var lists: Array = [def.get("moves", [])]
+		for phase in def.get("phases", []):
+			if phase is Dictionary:
+				lists.append(phase.get("moves", []))
+		for moves in lists:
+			for move in moves:
+				var mark: String = str(move.get("mark", "")) if move is Dictionary else ""
+				if not mark.is_empty() and not marks.has(mark):
+					marks.append(mark)
+	var tree: SceneTree = get_tree()
+	var face_marks: GDScript = load("res://view/dice/face_marks.gd")
+	var look: GDScript = load("res://view/battle/creature_look.gd")
+	for mark in marks:
+		face_marks.texture(str(mark))
+		look.mark_texture(str(mark))
+		await tree.process_frame
+		if not is_inside_tree():
+			return
+	## One engraved die, drawn a few frames where nobody sees it.
+	var faces: Array = []
+	for index in range(6):
+		faces.append({"mark": str(marks[index % marks.size()]) if not marks.is_empty() else "f_sword", "move": "warm", "move_kind": "attack", "value": index + 1})
+	var die: Dictionary = {"id": "warm", "shape": "D6", "faces": faces}
+	var sample := DiceView.new()
+	sample.live = false
+	sample.position = Vector2(-7000, -5000)
+	sample.size = Vector2(120, 120)
+	sample.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tree.root.add_child(sample)
+	sample.configure(die, Plate.rest_roll(die), false, false, DeepUi.ACCENT)
+	for _i in range(4):
+		await tree.process_frame
+	if is_instance_valid(sample):
+		sample.queue_free()
 
 func _rebuild_chamber() -> void:
 	## The room is the stage's. During a run the party has already walked into it and this
@@ -566,6 +617,13 @@ func _build_hud() -> void:
 	_picker.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_picker.mouse_filter = Control.MOUSE_FILTER_PASS
 	_picker.gui_input.connect(_pick_input)
+	## A finger held on a creature opens its close look, as a right-click does.
+	Tips.hold(_picker, func() -> Variant:
+		var id: String = _creature_at(_picker.get_meta("tip_press_at", Vector2(-1000, -1000)))
+		if id.is_empty():
+			return false
+		_inspect_creature(id, "")
+		return true)
 	add_child(_picker)
 	_plates_layer = Control.new()
 	_plates_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1093,7 +1151,7 @@ func _sync() -> void:
 		if flips > 0 and not shift_refusal.is_empty():
 			_hint.text = "That die has no face of the other parity to turn to"
 		elif rerolls <= 0 and flips > 0:
-			_hint.text = "A turn over left: right-click a die"
+			_hint.text = DeepUi.touch_words("A turn over left: right-click a die")
 		elif rerolls <= 0 and not roller.is_empty():
 			_hint.text = "%s rolled for you: no rerolls this turn" % str(roller.get("name", "A creature"))
 		elif whole_bowl and rerolls > 0:
@@ -1646,6 +1704,9 @@ class SeatTab extends VBoxContainer:
 		face = TabFace.new()
 		face.custom_minimum_size = Vector2(150, 0)
 		face.gui_input.connect(_face_input)
+		## A finger held on another player's tab opens the close look at them, as a right-click does.
+		if not mine:
+			Tips.hold(face, func() -> void: inspected.emit())
 		add_child(face)
 		var row := DeepUi.hbox(face, 7)
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1735,7 +1796,7 @@ class SeatTab extends VBoxContainer:
 		var passive: Dictionary = unit.get("passive", {})
 		if not str(passive.get("text", "")).is_empty():
 			lines.append("%s: %s" % [str(passive.get("name", character)), str(passive.text)])
-		lines.append(click_hint if not click_hint.is_empty() else ("Your rail and dice." if mine else "Click to see their rail and dice. Right-click for their bag."))
+		lines.append(DeepUi.touch_words(click_hint if not click_hint.is_empty() else ("Your rail and dice." if mine else "Click to see their rail and dice. Right-click for their bag.")))
 		face.tooltip_text = "\n".join(lines)
 		## A player who is down is greyed out, tab, face and all: that is the whole mark.
 		var down: bool = bool(unit.get("downed", false))
@@ -2625,12 +2686,15 @@ func _sync_raised(unit: Dictionary, card: Control, stone: Dictionary) -> void:
 	marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if not bool(card.get_meta("gem_inspection_wired", false)):
 		card.set_meta("gem_inspection_wired", true)
+		var look_close := func() -> void:
+			var target: Control = card.get_node_or_null("Slot/Gem")
+			if target != null:
+				Inspector.stone(target.get("stone"), {"context": target.get("context")})
 		card.gui_input.connect(func(event: InputEvent) -> void:
 			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-				var target: Control = card.get_node_or_null("Slot/Gem")
-				if target != null:
-					Inspector.stone(target.get("stone"), {"context": target.get("context")})
-					card.accept_event())
+				look_close.call()
+				card.accept_event())
+		Tips.hold(card, look_close)
 	var raised: Array = raised_ranks(unit, stone)
 	var key: String = str(raised)
 	if str(marks.get_meta("key", "")) != key:
@@ -2942,10 +3006,25 @@ class SocketRing extends Control:
 		_clock += delta
 		_ready_glow = move_toward(_ready_glow, _goal, delta * 4.0)
 		_flash = maxf(0.0, _flash - delta * 2.2)
-		queue_redraw()
-		## A lit Rainbow keeps turning; everything else goes still once its glow has settled.
-		if _flash <= 0.0 and is_equal_approx(_ready_glow, _goal) and _goal <= 0.0 and not (shown == 1 and _rainbow and not ScreenFx.calm):
+		if _flash > 0.0 or _ready_glow > 0.01 or _goal > 0.0:
+			## Waking, flashing or pulsing: every frame.
+			_sweep_for = 0.0
+			queue_redraw()
+		elif shown == 1 and _rainbow and not ScreenFx.calm:
+			## A lit Rainbow keeps turning, but so slowly (a turn in twenty seconds) that laying
+			## the band again twenty times a second reads as the same sweep; each laying is the
+			## whole ring drawn again, which was most of what a still dock cost (November 3).
+			_sweep_for += delta
+			if _sweep_for >= SWEEP_REDRAW:
+				_sweep_for = fmod(_sweep_for, SWEEP_REDRAW)
+				queue_redraw()
+		else:
+			## Everything else goes still once its glow has settled.
+			queue_redraw()
 			set_process(false)
+	## How often a lit Rainbow's sweep is drawn again, in seconds.
+	const SWEEP_REDRAW: float = 1.0 / 20.0
+	var _sweep_for: float = 0.0
 	func _draw() -> void:
 		var tone: Color = birth_tint.lightened(0.15) if color == "BIRTHSTONE" else DeepUi.socket_tone(color, DeepUi.MUTED)
 		var centre := size * 0.5
@@ -3250,7 +3329,7 @@ func _die_plate(page: Page, owner_id: String, die_id: String, mine: bool) -> Con
 		if DeepBattle.all_or_nothing(unit):
 			opts.footer = "Reroll throws every die · Right-click · everything"
 		elif sleight:
-			opts.footer = "Click · pick it · Right-click or hold · turn it over · Shift+right-click · everything"
+			opts.footer = "Click · pick it · Hold · turn it over · everything from its plate" if DisplayServer.is_touchscreen_available() else "Click · pick it · Right-click or hold · turn it over · Shift+right-click · everything"
 		else:
 			opts.footer = "Click · pick it for a reroll · Right-click · everything"
 	else:
@@ -3332,6 +3411,12 @@ func _sync_tray(unit: Dictionary, planning: bool) -> void:
 					else:
 						_inspect_die(id, owner_id)
 					hit.accept_event())
+			## A finger held on the die opens it, unless the hold is Puck's Sleight turning it over.
+			Tips.hold(hit, func() -> Variant:
+				if mine and _can_turn(id):
+					return true
+				_inspect_die(id, owner_id)
+				return true)
 			if mine:
 				hit.button_down.connect(_press_start.bind(id))
 				hit.button_up.connect(_press_end.bind(id))
@@ -3735,7 +3820,10 @@ func _process(delta: float) -> void:
 	## open): their bottom edge is its top edge, wherever it grows to. Alone, only the chips
 	## are there, a tab's gap clear of the edge.
 	if _tab_bar != null and _dock != null:
-		_tab_bar.reset_size()
+		## Shrunk to its tabs only when they have changed: a reset every frame laid the tabs
+		## and their chips out again every frame.
+		if _tab_bar.size != _tab_bar.get_combined_minimum_size():
+			_tab_bar.reset_size()
 		var lifted: float = 0.0 if _my_tab == null or _my_tab.face.visible else float(_my_tab.get_theme_constant("separation"))
 		_tab_bar.position = Vector2(_dock.position.x + 18.0 + left_inset, _dock.position.y - _tab_bar.size.y - lifted)
 	if _opening_due and not _headless and is_visible_in_tree() and stage != null and not stage.walking() and not state.is_empty():

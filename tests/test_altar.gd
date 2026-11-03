@@ -237,7 +237,9 @@ func _test_room() -> void:
 	var state: Dictionary = DeepDescent.new_run(run_config(42))
 	var a: Dictionary = DeepDescent.player(state, "a")
 	var b: Dictionary = DeepDescent.player(state, "b")
-	for stone in five(["STRIKE", "CLEAVE", "CRUSH", "STRIKE", "EMBER"]):
+	## Five different Reds: a second Strike would be a twin, and a twin in the bag stops every
+	## command but the one that settles it.
+	for stone in five(["STRIKE", "CLEAVE", "CRUSH", "SPALL", "EMBER"]):
 		a.haul.append(stone)
 	var raw: Dictionary = gem("APEX")
 	raw.appraised = false

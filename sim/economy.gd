@@ -1382,8 +1382,17 @@ static func daily_rail(plan: Dictionary, character: String, seat: int) -> Array:
 	for index in range(sockets.size()):
 		if DeepContent.is_rainbow(str(sockets[index])):
 			any_sockets.append(index)
+	## A Borrowed Opal takes the last Rainbow socket; an Heirloom goes in another Rainbow, or
+	## failing that any other socket (in the socket's own color), so the two never share one
+	## and the opal does not take the Heirloom's place on a rail with one Rainbow (Florin's).
+	var opal_at: int = int(any_sockets[any_sockets.size() - 1]) if mods.has("BORROWED_OPAL") and not any_sockets.is_empty() and not DeepForge.opal_pool().is_empty() else -1
 	if mods.has("HEIRLOOM") and not sockets.is_empty():
-		var at: int = int(any_sockets[0]) if not any_sockets.is_empty() else 0
+		var at: int = -1
+		for index in any_sockets + range(sockets.size()):
+			if int(index) != opal_at:
+				at = int(index)
+				break
+		at = maxi(at, 0)
 		var socket: String = str(sockets[at])
 		var color: String = _socket_color_draw(rng, socket)
 		var of_color: Array = pool.filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == color)

@@ -146,8 +146,10 @@ func _test_sockets() -> void:
 	check(not DeepEconomy.unlock_socket(profile, "FLORIN").ok, "and nothing more is sold")
 	check(not DeepEconomy.unlock_socket(profile, "CADENCE").ok, "a lapidary not yet met cannot be fitted")
 	## What a socket opens is filled from the vault before a run, wherever it goes down.
+	## Florin's bought sockets are Gold: the loadout sets a stone only where a socket shows it.
 	DeepProfile.keep(profile, stone("CLEAVE", 4, 2, 3, "cleave_v"))
-	check(DeepProfile.set_rail(profile, "FLORIN", 3, "CLEAVE") == "" and DeepProfile.loadout(profile, "FLORIN").rail[3] is Dictionary, "an opened socket takes a stone from the vault")
+	DeepProfile.keep(profile, stone("TITHE", 4, 2, 3, "tithe_v"))
+	check(DeepProfile.set_rail(profile, "FLORIN", 3, "TITHE") == "" and DeepProfile.loadout(profile, "FLORIN").rail[3] is Dictionary, "an opened socket takes a stone from the vault")
 	check(DeepProfile.set_rail(profile, "ARDOR", 3, "CLEAVE") != "", "a shut one does not")
 	var ardor: Dictionary = DeepProfile.new_profile("Five")
 	var ardor_total: int = DeepContent.character("ARDOR").sockets.size()
@@ -244,7 +246,15 @@ func _test_temporary() -> void:
 		cmd(state, "a", "dice_offer", {"index": int(offer.index), "pick": -1})
 	check(DeepDescent.temporary_left(ada) == 0 and cmd(state, "a", "stake", {"offer": state.grubstake.offers.a[1].id}).ok, "with every one taken, the stake")
 	for offer in bo.temps:
-		cmd(state, "b", "temporary", {"index": int(offer.index), "pick": 0})
+		## The first pick whose skill the rail does not hold yet: a rail holds one of each skill,
+		## and seven Gold sockets are offered the same Gold skills more than once.
+		var pick: int = 0
+		for i in range(offer.picks.size()):
+			var skill: String = str(offer.picks[i].skill)
+			if not DeepStone.rail_stones(bo).any(func(s: Dictionary) -> bool: return str(s.get("skill", "")) == skill):
+				pick = i
+				break
+		cmd(state, "b", "temporary", {"index": int(offer.index), "pick": pick})
 	for offer in bo.dice_offers:
 		cmd(state, "b", "dice_offer", {"index": int(offer.index), "pick": -1})
 	var staked: Dictionary = cmd(state, "b", "stake", {"offer": state.grubstake.offers.b[1].id})

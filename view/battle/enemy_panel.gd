@@ -95,7 +95,7 @@ func _init() -> void:
 	_block_label.add_theme_font_override("font", DeepUi.bold_font())
 	_list = DeepUi.vbox(box, 5)
 	_list.mouse_filter = Control.MOUSE_FILTER_PASS
-	_foot = DeepUi.label(box, "Right-click it to turn its die over", 10, DeepUi.MUTED)
+	_foot = DeepUi.label(box, DeepUi.touch_words("Right-click it to turn its die over"), 10, DeepUi.MUTED)
 	_style()
 	visible = false
 

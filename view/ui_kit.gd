@@ -713,6 +713,13 @@ const SEMIBOLD_UNDER_PX: float = 13.0
 ## of window size can set it again (`rescale`).
 const TEXT_GROUP: StringName = &"deep_text"
 
+static func touch_words(text: String) -> String:
+	## Words for the screen the game is on: a phone has no right button, so what a right-click
+	## does there is done by a finger held on the thing (Tips.hold), and the words say so.
+	if not DisplayServer.is_touchscreen_available():
+		return text
+	return text.replace("Shift+right-click", "hold").replace("Right-click or hold", "Hold").replace("Right-click", "Hold").replace("right-click", "hold")
+
 static func min_text() -> int:
 	## The smallest text, in canvas pixels, at the current window size. Large text sets it at
 	## the most every page is checked to fit (tests/test_fit.gd runs there), never past it.

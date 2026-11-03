@@ -3492,7 +3492,7 @@ func _hoard_geode_chip(box: VBoxContainer, stone: Dictionary, id: String, key: S
 	var odds: Dictionary = DeepEconomy.geode_odds(geode)
 	var carats: Array = odds.get("carat", [1, 1])
 	DeepUi.stat(box, "carat", "%d to %d ct inside" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 12, "Every stone in this kind of Geode weighs this much.")
-	DeepUi.wrap(box, "Sealed. A better stone than the rock gives, but it can only be cracked at the workshop: it cannot be read or set down here. Right-click for its odds.", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
+	DeepUi.wrap(box, DeepUi.touch_words("Sealed. A better stone than the rock gives, but it can only be cracked at the workshop: it cannot be read or set down here. Right-click for its odds."), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, 300)
 	if _pinned == id:
 		var take := DeepUi.primary(box, "check", "Take it", func() -> void:
 			command.emit({"kind": "pick_hoard", "stone_id": key}), 14, tone)
@@ -4837,7 +4837,7 @@ func _reward_row(parent: Node, rewards: Dictionary, start: float) -> HBoxContain
 		frame.custom_minimum_size = Vector2(96, 96)
 		StoneCard.marked_picture(frame, stone, 84)
 		DeepUi.fit_label(slot.content, DeepUi.skill_name(stone) if appraised else DeepStone.raw_name(stone), 13, tone.lightened(0.3), 130)
-		DeepUi.label(slot.content, "right-click to look", 10, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.label(slot.content, DeepUi.touch_words("right-click to look"), 10, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		delay = delay + step if delay >= 0.0 else delay
 	for die in rewards.get("dice", []):
 		var tone: Color = DiceIcons.die_palette(die).body
@@ -5260,7 +5260,7 @@ func _page_temporary(content: VBoxContainer, unit: Dictionary) -> void:
 		var take := func() -> void: command.emit({"kind": "temporary", "index": socket_index, "pick": taken})
 		var card := _numbered_card(_stone_option(row, picks[pick_index], take), take)
 		_enter(card, 0.1 + 0.08 * pick_index)
-	DeepUi.stat(body, "eye", "Right-click a stone for the close look.", DeepUi.DIM, 12).alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.stat(body, "eye", DeepUi.touch_words("Right-click a stone for the close look."), DeepUi.DIM, 12).alignment = BoxContainer.ALIGNMENT_CENTER
 
 func _stone_option(parent: Node, stone: Dictionary, callback: Callable) -> PanelContainer:
 	## A stone to choose, drawn compact: its picture with its grade marked on it, its name,
@@ -5303,6 +5303,8 @@ func _close_look_on_right(card: Control, look: Callable) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 			look.call()
 			card.accept_event())
+	## A finger held on the card does the same.
+	Tips.hold(card, look)
 
 func _socket_strip(content: VBoxContainer, unit: Dictionary, current: int) -> void:
 	## The rail over a temporary stone's choice: every socket, the one being filled lit, the
@@ -5396,7 +5398,7 @@ func _page_dice_offer(content: VBoxContainer, unit: Dictionary) -> void:
 	var keep := DeepUi.button(keep_row, "Keep your %s" % DeepDice.describe(original), func() -> void:
 		command.emit({"kind": "dice_offer", "index": index, "pick": - 1}), 15)
 	keep.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	DeepUi.stat(body, "eye", "Right-click a die for the close look.", DeepUi.DIM, 12).alignment = BoxContainer.ALIGNMENT_CENTER
+	DeepUi.stat(body, "eye", DeepUi.touch_words("Right-click a die for the close look."), DeepUi.DIM, 12).alignment = BoxContainer.ALIGNMENT_CENTER
 
 func _bowl_strip(content: VBoxContainer, unit: Dictionary, current: int) -> void:
 	## The bowl over a die's choice: every die, the one being offered lit, the ones already
@@ -5720,6 +5722,7 @@ func _geode_offer(box: VBoxContainer, unit: Dictionary, card: Control) -> bool:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 			Inspector.stone(held)
 			card.accept_event())
+	Tips.hold(card, func() -> void: Inspector.stone(held))
 	if purse < price:
 		DeepUi.disable_choice(card)
 	return true
@@ -6521,20 +6524,23 @@ func _thing_row(parent: Node, choice_id: String, slot: String, kind: String, ite
 			StoneCard.marked_picture(frame, item, 56, "", false)
 		DeepUi.fit_label(box, named if kind == "die" else DeepUi.skill_name(item), 11, DeepUi.PAPER if refusal.is_empty() else DeepUi.DIM, 104)
 		if refusal.is_empty():
+			var look_close := func() -> void:
+				if kind == "die":
+					Inspector.die(item)
+				else:
+					Inspector.stone(item)
 			card.gui_input.connect(func(event: InputEvent) -> void:
 				if not (event is InputEventMouseButton and event.pressed):
 					return
 				if event.button_index == MOUSE_BUTTON_RIGHT:
-					if kind == "die":
-						Inspector.die(item)
-					else:
-						Inspector.stone(item)
+					look_close.call()
 					card.accept_event()
 				elif event.button_index == MOUSE_BUTTON_LEFT:
 					DeepAudio.play("ui_toggle", {"volume": 0.7})
 					_choice_picks[key] = id
 					show_state(run)
 					card.accept_event())
+			Tips.hold(card, look_close)
 			## A die or a stone dragged off the dock lands here as well.
 			var wanted: String = "die_id" if kind == "die" else "stone_id"
 			card.set_drag_forwarding(Callable(), func(_at: Vector2, data: Variant) -> bool:
@@ -6635,6 +6641,7 @@ func _picker(box: VBoxContainer, needs: String, unit: Dictionary, choice_id: Str
 				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 					Inspector.stone(held)
 					case_row.accept_event())
+			Tips.hold(case_row, func() -> void: Inspector.stone(held))
 			return func() -> Dictionary: return {} if purse < price else {"buy": true}
 		"inclusion":
 			var carriers: Array = stones.filter(func(s: Dictionary) -> bool: return not s.get("inclusions", []).is_empty() and (bool(s.get("appraised", false)) or bool(s.get("inclusions_revealed", false))))

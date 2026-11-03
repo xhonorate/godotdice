@@ -153,15 +153,19 @@ static func _going_down(home: Control, side: VBoxContainer) -> void:
 			portrait.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 			portrait.tooltip_text += "\nRight-click for their page."
 			var picked: String = str(key)
+			var their_page := func() -> void:
+				DeepAudio.play("ui_tap")
+				home._roster_pick = picked
+				home._roster_view = "dossier"
+				home._bench_socket = -1
+				home.open("delvers", true)
+			## A finger held on the face opens their page, as a right-click does.
+			load("res://view/ui/tips.gd").hold(portrait, their_page)
 			portrait.gui_input.connect(func(event: InputEvent) -> void:
 				if not event is InputEventMouseButton or not event.pressed:
 					return
 				if event.button_index == MOUSE_BUTTON_RIGHT:
-					DeepAudio.play("ui_tap")
-					home._roster_pick = picked
-					home._roster_view = "dossier"
-					home._bench_socket = -1
-					home.open("delvers", true)
+					their_page.call()
 				elif event.button_index == MOUSE_BUTTON_LEFT and picked != current:
 					home.choose_character(picked))
 			if str(key) != current:

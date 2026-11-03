@@ -565,6 +565,9 @@ func _test_merchant() -> void:
 	var raws: Array = []
 	for index in range(3):
 		var raw: Dictionary = DeepForge.roll_stone(DeepRng.streams(5 + index).stones, DeepContent.mine("QUARRY"), 3, 0, {}, "raw%d" % index)
+		## Skills Ada does not hold: a read stone of a skill on her rail would be a twin, and a
+		## twin stops every command but the one that settles it.
+		raw.skill = ["TEMPO", "ANCHOR", "BLOOM"][index]
 		a.haul.append(raw)
 		raws.append(raw)
 	a.ore = 0
@@ -693,6 +696,11 @@ func _test_oddity_reveal() -> void:
 
 func _advance_once(state: Dictionary) -> void:
 	## One bot action toward the bottom: vote, strike, choose, lock, or step.
+	## A twin in somebody's bag is settled first: nothing else is allowed until it is.
+	for unit in state.players:
+		if not unit.get("twin", {}).is_empty():
+			cmd(state, str(unit.id), "twin", {"choice": "toss"})
+			return
 	match str(state.phase):
 		"tunnels":
 			var offer: Dictionary = state.offers[0]

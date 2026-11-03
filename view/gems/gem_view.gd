@@ -169,6 +169,12 @@ func _ready() -> void:
 	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_glow.draw.connect(_draw_glow.bind(_glow))
 	add_child(_glow)
+	## A finger held on a stone that can be looked at closely opens it, as a right-click does.
+	load("res://view/ui/tips.gd").hold(self, func() -> Variant:
+		if not inspectable or gem.is_empty():
+			return false
+		load("res://view/inspect/inspector.gd").stone(gem, inspect_opts)
+		return true)
 	if headless():
 		return
 	# Placed by hand rather than anchored, because a heavy stone is drawn into a frame

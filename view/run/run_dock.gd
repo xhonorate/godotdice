@@ -148,7 +148,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	## The tabs stand on the dock: their bottom edge is its top edge.
 	if _tab_bar != null and _tab_bar.visible:
-		_tab_bar.reset_size()
+		if _tab_bar.size != _tab_bar.get_combined_minimum_size():
+			_tab_bar.reset_size()
 		_tab_bar.position = Vector2(_dock.position.x + 18.0, _dock.position.y - _tab_bar.size.y)
 
 func _fit_dock() -> void:
@@ -1106,7 +1107,7 @@ func _fill_pane(pane: VBoxContainer, unit: Dictionary) -> void:
 		empty.alignment = BoxContainer.ALIGNMENT_CENTER
 		empty.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		DeepUi.icon(empty, "loupe", 36, DeepUi.DIM).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		DeepUi.wrap(empty, "Point at a stone to read it here. Right-click anything for its full story.", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, PANE_WIDTH - 20.0)
+		DeepUi.wrap(empty, DeepUi.touch_words("Point at a stone to read it here. Right-click anything for its full story."), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, PANE_WIDTH - 20.0)
 		return
 	var appraised: bool = bool(stone.get("appraised", false)) and not DeepStone.is_geode(stone)
 	var top := DeepUi.hbox(pane, 10)

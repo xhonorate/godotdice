@@ -175,6 +175,11 @@ func _test_local() -> void:
 	for candidate in session.run.offers:
 		if str(candidate.kind) == "fight":
 			offer = candidate
+	## The stake may have handed over a twin of a rail stone, which must be settled first.
+	if not session.local_player().get("twin", {}).is_empty():
+		session.send({"kind": "twin", "choice": "toss"})
+		events_a.clear()
+		revision_after_stake = session.revision
 	session.send({"kind": "vote_tunnel", "offer": offer.id})
 	check(events_a.size() == 1 and events_a[0].kind == "vote" and events_a[0].has("entered"), "the vote enters the chamber and is reported as one event")
 	check(session.revision == revision_after_stake + 1, "every published change bumps the revision")

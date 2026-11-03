@@ -476,8 +476,12 @@ func _test_fuse(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	var equal_gains: Dictionary = {}
 	var small_gains: Dictionary = {}
 	for _i in range(400):
-		equal_gains[DeepOddities.fuse_gain(rng, 10, 10)] = int(equal_gains.get(DeepOddities.fuse_gain(rng, 10, 10), 0)) + 1
-		small_gains[DeepOddities.fuse_gain(rng, 10, 3)] = int(small_gains.get(DeepOddities.fuse_gain(rng, 10, 3), 0)) + 1
+		## One draw a tally: drawn twice (once for the key, once for the count looked up) the
+		## counts copied across one another and summed to more than 400.
+		var equal_gain: int = DeepOddities.fuse_gain(rng, 10, 10)
+		equal_gains[equal_gain] = int(equal_gains.get(equal_gain, 0)) + 1
+		var small_gain: int = DeepOddities.fuse_gain(rng, 10, 3)
+		small_gains[small_gain] = int(small_gains.get(small_gain, 0)) + 1
 	check(not equal_gains.has(0) and int(equal_gains.get(1, 0)) > 120 and int(equal_gains.get(2, 0)) > 120, "two equals always grow, a carat or two about half and half: %s" % str(equal_gains))
 	check(int(small_gains.get(0, 0)) > 320 and int(small_gains.get(2, 0)) < 20, "a stone a third the weight mostly adds nothing, and two carats almost never: %s" % str(small_gains))
 	check(DeepOddities.fuse_gain(rng, 10, 0) == 0 and DeepOddities.fuse_gain(rng, 0, 4) == 0, "nothing grows on nothing")

@@ -44,6 +44,12 @@ var _hover: String = ""
 var _shown: float = 0.0
 ## How far the reader has scrolled the map by hand, in depths; any move by the party resets it.
 var _nudge: float = 0.0
+## A press on the map, where it began and the nudge then, so a drag scrolls from there.
+var _drag_from: Vector2 = Vector2(-1.0, -1.0)
+var _drag_nudge: float = 0.0
+var _dragged: bool = false
+## How far a press may move, in pixels, and still be a click on a mouth.
+const DRAG_SLIP: float = 8.0
 var _step: float = STEP
 var _clock: float = 0.0
 var _lamp: Button
@@ -242,13 +248,37 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 		return
 	if event is InputEventMouseMotion:
+		if _drag_from.x >= 0.0 and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			## Dragged up or down (a finger, or the mouse held): the map scrolls with it.
+			var pulled: float = (event.position.y - _drag_from.y) / maxf(1.0, _step)
+			if absf(event.position.y - _drag_from.y) > DRAG_SLIP:
+				_dragged = true
+			if _dragged:
+				_nudge = clampf(_drag_nudge - pulled, -_shown, 3.0)
+				_mark()
+			accept_event()
+			return
 		var spot: Dictionary = _spot_at(event.position)
 		var hovered: String = str(spot.get("offer", ""))
 		if hovered != _hover:
 			_hover = hovered
 			_mark()
 		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if not _hover.is_empty() else Control.CURSOR_ARROW
-	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_drag_from = event.position
+			_drag_nudge = _nudge
+			_dragged = false
+			if not str(_spot_at(event.position).get("offer", "")).is_empty():
+				accept_event()
+			return
+		## The vote is cast on the release, so a drag that began on a mouth is only a drag.
+		var was_drag: bool = _dragged
+		_drag_from = Vector2(-1.0, -1.0)
+		_dragged = false
+		if was_drag:
+			accept_event()
+			return
 		var offer: String = str(_spot_at(event.position).get("offer", ""))
 		if not offer.is_empty():
 			vote.emit(offer)

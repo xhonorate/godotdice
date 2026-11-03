@@ -445,16 +445,24 @@ func _slot(parent: Control, slot: Dictionary, tone: Color) -> void:
 			if bool(item.get("appraised", false)):
 				return Plates.gem(item, {}, [], {}, [], {"note": "Click · take it back out"})
 			return Plates.words(DeepStone.raw_name(item), "%s · %s. Click to take it back out." % [DeepStone.size_name(int(item.get("carat", 1))), str(DeepContent.color(DeepStone.color(item)).get("name", ""))], "raw"))
+		var look_close := func() -> void:
+			if kind == "die":
+				Inspector.die(item)
+			else:
+				Inspector.stone(item)
 		holder.gui_input.connect(func(event: InputEvent) -> void:
-			if event is InputEventMouseButton and event.pressed:
-				if event.button_index == MOUSE_BUTTON_LEFT:
+			if not event is InputEventMouseButton:
+				return
+			## Let go on the release, so a finger held for the close look does not also take
+			## the thing back out.
+			if event.button_index == MOUSE_BUTTON_LEFT:
+				if not event.pressed and not Tips.held(holder):
 					let_go(slot_key)
-				elif event.button_index == MOUSE_BUTTON_RIGHT:
-					if kind == "die":
-						Inspector.die(item)
-					else:
-						Inspector.stone(item)
+				holder.accept_event()
+			elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+				look_close.call()
 				holder.accept_event())
+		Tips.hold(holder, look_close)
 	else:
 		var empty := DeepUi.center(holder)
 		empty.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

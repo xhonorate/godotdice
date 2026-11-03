@@ -55,6 +55,18 @@ func hand(unit: Dictionary, numbers: Array) -> void:
 	unit.hand = out
 
 func player(id: String, rail: Array, character: String = "ARDOR") -> Dictionary:
+	## The sockets show none of the stones set in them: these fights count Resonance by the
+	## gems alone. A lit socket adds a point of its own (October 29), which `_test_lit_sockets`
+	## reads with the characters' real sockets.
+	var unit: Dictionary = DeepBattle.make_player(id, id.capitalize(), character, rail, dice(DeepContent.character(character).dice, id))
+	unit.sockets = unit.sockets.map(func(_socket: Variant) -> String: return UNLIT)
+	return unit
+
+## A socket color no stone has, so nothing set in it is lit.
+const UNLIT: String = "UNLIT"
+
+func lit_player(id: String, rail: Array, character: String = "ARDOR") -> Dictionary:
+	## The same, with the character's real sockets, for what they light.
 	return DeepBattle.make_player(id, id.capitalize(), character, rail, dice(DeepContent.character(character).dice, id))
 
 func land_on(foe: Dictionary, move_name: String) -> void:
@@ -714,29 +726,29 @@ func _test_lit_sockets(r: Dictionary) -> void:
 	## A socket that shows its gem's color is lit, and adds a point of Resonance when the gem
 	## fires; a Rainbow socket shows everything, opals included, and nothing else shows an opal.
 	## Ardor's sockets: Red, Blue, Green, then three Rainbows.
-	var state: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	var state: Dictionary = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	var events: Array = run_turn(state, r)
 	check(bool(at_socket(events, 0)[0].get("lit", false)) and int(at_socket(events, 0)[0].gain) == 2, "a Red gem in the Red socket is lit: its own point of Resonance and one for the socket")
-	state = DeepBattle.begin([player("a", [null, stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	state = DeepBattle.begin([lit_player("a", [null, stone("STRIKE", 4, 4, 3, [], "s1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
 	check(not bool(at_socket(events, 1)[0].get("lit", false)) and int(at_socket(events, 1)[0].gain) == 1, "the same gem in the Blue socket is unlit: its own point only")
-	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), null, null, stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	state = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), null, null, stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
 	check(bool(at_socket(events, 3)[0].get("lit", false)) and int(at_socket(events, 3)[0].gain) == 2, "an opal in a Rainbow socket is lit")
-	state = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	state = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("FIRE_OPAL", 1, 4, 3, [], "f1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
 	check(not bool(at_socket(events, 1)[0].get("lit", false)) and int(at_socket(events, 1)[0].gain) == 1, "and in the Blue socket it is not")
 	## A two-tone socket shows either color; a rider sits in no socket and is never lit.
-	var puck: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("VENOM", 4, 4, 3, [], "v1")], "PUCK")], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
+	var puck: Dictionary = DeepBattle.begin([lit_player("a", [stone("STRIKE", 4, 4, 3, [], "s1"), stone("VENOM", 4, 4, 3, [], "v1")], "PUCK")], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(puck.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(puck, r)
 	check(bool(at_socket(events, 0)[0].get("lit", false)) and bool(at_socket(events, 1)[0].get("lit", false)), "Puck's Red/Blue socket shows a Red gem and the Green/Violet one a Violet gem")
 	var void_strike: Dictionary = stone("STRIKE", 4, 4, 3, ["VOID"], "s2")
-	var rider: Dictionary = player("a", [stone("GUARD", 4, 4, 3, [], "g1")])
+	var rider: Dictionary = lit_player("a", [stone("GUARD", 4, 4, 3, [], "g1")])
 	DeepStone.normalize_rail(rider)
 	rider.riders[0].append(void_strike)
 	state = DeepBattle.begin([rider], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
