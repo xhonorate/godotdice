@@ -67,6 +67,16 @@ const OVER_ROW: float = 14.0
 const DIE_WORDS: float = 14.0
 const BUTTONS_ROW: float = 38.0
 const METER_ROW: float = 24.0
+## A socket's card in both docks: its name in a row over the ring, then the ring, then what
+## the gem asks of the hand in a row under it, as its trigger's pictograph (a Birthstone's as
+## its tiers) drawn TRIGGER_EDGE large. The name row stands where the line over the dice
+## stands, so the rings stand level with the dice; RING_TOP is where a ring stands in its card.
+const NAME_ROW: float = 18.0
+const RING_TOP: float = NAME_ROW + 2.0
+const TRIGGER_ROW: float = 18.0
+const TRIGGER_EDGE: float = 15.0
+## Where the figure a lit gem would land stands over its ring's top-right corner.
+const FIRE_TOP: float = -10.0
 ## A Void rider's gem, or a phantom's die, drawn faint behind the ring it fans out from.
 const VOID_GHOST := Color(0.78, 0.84, 1.0, 0.55)
 ## How many Void gems riding a socket are drawn fanned behind it before a count stands for
@@ -672,12 +682,12 @@ func _build_page(page: Page) -> void:
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left.size_flags_vertical = Control.SIZE_FILL
 	left.alignment = BoxContainer.ALIGNMENT_BEGIN
-	DeepUi.gap(left, OVER_ROW + 4.0)
+	## No gap over the rail: the names over the rings take the room the line over the dice takes.
 	var rail_row := DeepUi.hbox(left, 12)
 	rail_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	_rail_box = DeepUi.hbox(rail_row, 6)
 	_rail_box.alignment = BoxContainer.ALIGNMENT_BEGIN
-	_rail_box.custom_minimum_size.y = SOCKET_EDGE + 20
+	_rail_box.custom_minimum_size.y = RING_TOP + SOCKET_EDGE + 2.0 + TRIGGER_ROW
 	## While the turn plays out: what the rail has really dealt, counted up blow by blow.
 	_dealt_box = DeepUi.hbox(rail_row, 4)
 	_dealt_box.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -1610,6 +1620,8 @@ class SeatTab extends VBoxContainer:
 	const BG := Color(0.045, 0.056, 0.082, 0.9)
 	const BG_UP := Color(0.06, 0.075, 0.105, 1.0)
 	var mine: bool = false
+	## What a click on the tab does, when it is not the usual close look (a trade, at a landing).
+	var click_hint: String = ""
 	var chips: EffectChips.Row
 	var face: TabFace
 	## Their face, ringed in their seat's color, in the same mood as on their page.
@@ -1723,7 +1735,7 @@ class SeatTab extends VBoxContainer:
 		var passive: Dictionary = unit.get("passive", {})
 		if not str(passive.get("text", "")).is_empty():
 			lines.append("%s: %s" % [str(passive.get("name", character)), str(passive.text)])
-		lines.append("Your rail and dice." if mine else "Click to see their rail and dice. Right-click for their bag.")
+		lines.append(click_hint if not click_hint.is_empty() else ("Your rail and dice." if mine else "Click to see their rail and dice. Right-click for their bag."))
 		face.tooltip_text = "\n".join(lines)
 		## A player who is down is greyed out, tab, face and all: that is the whole mark.
 		var down: bool = bool(unit.get("downed", false))
@@ -2158,7 +2170,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 	## never while the dice that decide it are still in the air.
 	##
 	## The rail is laid flat for the fight (see `DeepStone.flatten_rail`); the cards fold it
-	## back onto the sockets: a socket's own gem in its ring with its name under it, and the
+	## back onto the sockets: a socket's own gem in its ring, its name over it and its trigger under it, and the
 	## Void gems riding it fanned out behind the ring (docs/UI_REDO.md), each firing in turn
 	## after it, with a count of them at the ring's corner. `_socket_cards` is by flat index,
 	## so every event's socket lands on the thing to light: a card, a rider's ring, or the
@@ -2170,7 +2182,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 	var unit_id: String = str(unit.get("id", ""))
 	var on: Page = _page
 	## Eight stones on the rail (seven sockets and a Birthstone) only fit the screen with the
-	## gaps and the names under the stones drawn in a little; every shorter rail keeps its room.
+	## gaps and the names over the stones drawn in a little; every shorter rail keeps its room.
 	var tight: bool = rail_tight(unit)
 	var cap: float = SOCKET_EDGE + (2.0 if tight else 8.0)
 	if _rail_shape != shape or _birthstone_key != birth_key or (_birthstone_card != null and not is_instance_valid(_birthstone_card)):
@@ -2231,7 +2243,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 					hollow.name = "Hollow"
 					hollow.set_meta("hollow", true)
 					hollow.size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
-					hollow.position = Vector2(4.0, 0.0)
+					hollow.position = Vector2(4.0, RING_TOP)
 					hollow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 					host.get_node("Riders").add_child(hollow)
 					_socket_cards.append(hollow)
@@ -2264,7 +2276,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				count_label.add_theme_font_override("font", DeepUi.bold_font())
 				count_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				var placed_badge: PanelContainer = badge
-				badge.resized.connect(func() -> void: placed_badge.position = Vector2(-4.0, Fan.STEP.y * float(RIDERS_SHOWN) - 2.0).round())
+				badge.resized.connect(func() -> void: placed_badge.position = Vector2(-4.0, RING_TOP - 2.0).round())
 				var here: int = socket_at
 				badge.gui_input.connect(func(event: InputEvent) -> void:
 					if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -2284,7 +2296,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				chip.name = "Rider%d" % at
 				chip.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
 				chip.size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
-				chip.position = Vector2(4.0, 0.0) + Fan.STEP * float(at - lead + 1)
+				chip.position = Vector2(4.0, RING_TOP) + Fan.STEP * float(at - lead + 1)
 				chip.mouse_filter = Control.MOUSE_FILTER_PASS
 				riders.add_child(chip)
 				riders.move_child(chip, 0)
@@ -2316,6 +2328,11 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 		if str(card.get_meta("tag", "")) != tag:
 			card.set_meta("tag", tag)
 			DeepUi.clear(card)
+			## The name over the ring (an empty socket's color in its place), the trigger under it.
+			if stone is Dictionary and not behind:
+				name_row(card, DeepUi.skill_name(stone), DeepUi.INFO if front else DeepUi.PAPER, cap).name = "SkillName"
+			elif not rider:
+				name_row(card, DeepContent.socket_name(socket_color), DeepUi.MUTED, cap)
 			var slot := Control.new()
 			slot.name = "Slot"
 			slot.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -2366,11 +2383,11 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				fire.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				fire.z_index = 2
 				fire.visible = false
-				fire.resized.connect(func() -> void: fire.position = Vector2(SOCKET_EDGE - fire.size.x + 8.0, -10.0))
-				var name_label := DeepUi.fit_label(card, DeepUi.skill_name(stone), 12, DeepUi.INFO if front else DeepUi.PAPER, cap)
-				name_label.name = "SkillName"
+				fire.resized.connect(func() -> void: fire.position = Vector2(SOCKET_EDGE - fire.size.x + 8.0, FIRE_TOP))
+				trigger_row(card)
 			elif not rider:
-				DeepUi.label(card, DeepContent.socket_name(socket_color), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = cap
+				## The same rows a set socket has, the trigger one empty.
+				trigger_row(card)
 			if stone is Dictionary:
 				var flat: int = socket
 				var hue: Color = DeepUi.color(DeepStone.color(stone))
@@ -2406,6 +2423,14 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 					fire.text = str(said[0])
 					fire.add_theme_color_override("font_color", Color(said[1]).lightened(0.25))
 					fire.reset_size()
+			## What it asks of the hand, at the rung it stands on: green while the hand would
+			## fire it, grey (as its name greys) while the hand leaves it dark.
+			var asks: Node = card.get_node_or_null("Trigger")
+			if asks != null:
+				var described: Dictionary = entry.get("trigger", DeepPatterns.describe(DeepStone.skill_of(stone).get("trigger", {"kind": "always"}), int(stone.get("cut", 0))))
+				var dark: bool = DeepPatch.holds(unit.get("buried", []), socket) or DeepPatch.holds(unit.get("clouded", []), socket) \
+					or (showing and not entry.is_empty() and not active) or (planning and not showing)
+				lay_trigger(asks, described, DeepUi.GOOD if lit else (DeepUi.MUTED if dark else DeepUi.PAPER))
 			var picture: Control = card.get_node_or_null("Slot/Gem")
 			if picture != null:
 				picture.set("context", DeepBattle.rail_context(state, unit, socket))
@@ -2432,7 +2457,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			var slot_node: Control = card.get_node_or_null("Slot")
 			if slot_node != null:
 				slot_node.modulate = Color(0.55, 0.55, 0.6, 0.6) if blocked else (QUIET_GEM if quiet else Color.WHITE)
-			var named: Label = card.get_node_or_null("SkillName")
+			var named: Label = card.get_node_or_null("NameRow/SkillName")
 			if named != null:
 				## A rider in front keeps the Void's blue, a shade darker when it steps back.
 				var said_tone: Color = DeepUi.INFO if front else DeepUi.PAPER
@@ -2646,15 +2671,16 @@ static func _raised_by(unit: Dictionary, rank: String) -> String:
 	return "" if words.is_empty() else ", from %s" % " and ".join(words)
 
 func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
-	## The character's Birthstone at the end of the rail: the stone in its own bezel and its
-	## name, built like a socket's card. Its tiers, and which the hand would fire, read on
-	## its plate.
+	## The character's Birthstone at the end of the rail: its name, the stone in its own bezel
+	## and its tiers, built like a socket's card. Its plate says what each tier does.
 	var stone: Dictionary = DeepStone.birthstone_for(unit)
 	var tint: Color = GemMesh.tint(stone) if not stone.is_empty() else DeepUi.ACCENT
 	var card := VBoxContainer.new()
 	card.add_theme_constant_override("separation", 2)
 	card.alignment = BoxContainer.ALIGNMENT_BEGIN
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
+	## Stepped down to fit rather than cut off: a Birthstone's name is often the longest on the rail.
+	name_row(card, str(stone.get("name", "Birthstone")), tint.lightened(0.35), SOCKET_EDGE + (2.0 if rail_tight(unit) else 8.0)).name = "Name"
 	var slot := Control.new()
 	slot.name = "Slot"
 	slot.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
@@ -2679,10 +2705,10 @@ func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 	fire.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fire.z_index = 2
 	fire.visible = false
-	fire.resized.connect(func() -> void: fire.position = Vector2(SOCKET_EDGE - fire.size.x + 8.0, -10.0))
-	## Stepped down to fit rather than cut off: a Birthstone's name is often the longest on the rail.
-	var name_label := DeepUi.fit_label(card, str(stone.get("name", "Birthstone")), 12, tint.lightened(0.35), SOCKET_EDGE + (2.0 if rail_tight(unit) else 8.0))
-	name_label.name = "Name"
+	fire.resized.connect(func() -> void: fire.position = Vector2(SOCKET_EDGE - fire.size.x + 8.0, FIRE_TOP))
+	## Its tiers, level with every other gem's trigger, lit as the hand would fire them
+	## (`_sync_birthstone`).
+	trigger_row(card).name = "Tiers"
 	var on: Page = _page
 	var unit_id: String = str(unit.get("id", ""))
 	Tips.attach(card, func() -> Control: return _birth_plate(on, unit_id), {"tone": tint})
@@ -2754,10 +2780,70 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 			fire.add_theme_font_size_override("font_size", 23 if fire.text.length() <= 4 else 19)
 			fire.reset_size()
 	var tiers_row: Node = _birthstone_card.get_node_or_null("Tiers")
-	if tiers_row == null:
+	if tiers_row != null:
+		lay_tiers(tiers_row, defs, previewed, showing)
+
+static func name_row(card: Control, text: String, tone: Color, width: float) -> Label:
+	## A stone's name in the row over its ring, NAME_ROW tall at any text size: a name the
+	## text floor makes taller stands out over the row's edges instead of pushing the ring
+	## down, so the ring and the Void gems fanned behind it stay at RING_TOP.
+	var row := Control.new()
+	row.name = "NameRow"
+	row.custom_minimum_size = Vector2(width, NAME_ROW)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(row)
+	var said: Label = DeepUi.fit_label(row, text, 12, tone, width)
+	said.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	said.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	said.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	said.grow_vertical = Control.GROW_DIRECTION_BOTH
+	return said
+
+static func trigger_row(card: Control) -> Control:
+	## The row between a stone and its name that its trigger is laid in (`lay_trigger`), or
+	## a Birthstone's tiers (`lay_tiers`); left empty under an empty socket. It takes the
+	## card's width whatever it holds: three of a Birthstone's tiers run a little wider than
+	## the stone, and stand out over the gap beside it instead of pushing the rail apart.
+	var row := Control.new()
+	row.name = "Trigger"
+	row.custom_minimum_size.y = TRIGGER_ROW
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(row)
+	return row
+
+static func _trigger_line(row: Node) -> HBoxContainer:
+	## The row emptied, and one line centred in it to lay the marks in.
+	DeepUi.clear(row)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 3)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	line.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	line.grow_vertical = Control.GROW_DIRECTION_BOTH
+	row.add_child(line)
+	return line
+
+static func lay_trigger(row: Node, described: Dictionary, tone: Color) -> void:
+	## A gem's trigger as its pictograph and few words, laid again only when it changes.
+	var key: String = "%s|%s|%s|%s" % [str(described.get("mark", "")), str(described.get("need", "")), str(described.get("label", "")), tone.to_html()]
+	if str(row.get_meta("key", "")) == key:
 		return
-	## Tiers that count more of one die are five dice, lit for every die a firing tier
-	## counted (the whole set, every crown), never fewer than that tier needs.
+	row.set_meta("key", key)
+	_hush(DiceIcons.build(_trigger_line(row), described, TRIGGER_EDGE, tone))
+
+static func _hush(node: Node) -> void:
+	## A mark in the dock says nothing on hover of its own: the pointer goes through it to the
+	## card, whose plate says it all (an instant plain tooltip would stand on top of it).
+	if node is Control:
+		(node as Control).tooltip_text = ""
+		(node as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in node.get_children():
+		_hush(child)
+
+static func lay_tiers(tiers_row: Node, defs: Array, previewed: Array, showing: bool) -> void:
+	## A Birthstone's tiers in the row under it: tiers that count more of one die are five
+	## dice, lit for every die a firing tier counted (the whole set, every crown), never fewer
+	## than that tier needs; any other tier is its own pictograph beside them.
 	var die: String = DiceIcons.ladder_die(defs)
 	var lit: int = 0
 	var key: String = ""
@@ -2774,40 +2860,36 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 	if str(tiers_row.get_meta("key", "")) == key:
 		return
 	tiers_row.set_meta("key", key)
-	DeepUi.clear(tiers_row)
-	var notes: Array = []
-	for index in range(defs.size()):
-		var reason: String = str(previewed[index].get("reason", "")) if index < previewed.size() else ""
-		notes.append(reason if key[index] == "0" and showing else "")
+	var line: HBoxContainer = _trigger_line(tiers_row)
 	if not die.is_empty():
-		var dark: Color = DeepUi.BAD if busted else DeepUi.DIM
-		var tip: String = ""
-		if bust >= 0:
-			tip = "%s: %s" % [str(defs[bust].get("name", "")), str(defs[bust].get("text", ""))]
-		DiceIcons.build_ladder(tiers_row, defs, die, lit, 14, DeepUi.GOOD, dark, notes, tip)
+		DiceIcons.build_ladder(line, defs, die, lit, 14, DeepUi.GOOD, DeepUi.BAD if busted else DeepUi.DIM)
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
 		if DiceIcons.ladder_rung(tier, die) > 0 or index == bust:
 			continue
-		var words: String = "%s: %s" % [str(tier.get("name", "")), str(tier.get("text", ""))]
-		if not str(notes[index]).is_empty():
-			words += "\n" + str(notes[index])
 		var lit_tone: Color = DeepUi.BAD if bool(tier.get("penalty", false)) else DeepUi.GOOD
-		DiceIcons.build(tiers_row, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), 15, lit_tone if key[index] == "1" else DeepUi.DIM, words)
+		DiceIcons.build(line, DeepPatterns.describe(tier.get("trigger", {"kind": "always"}), 0), TRIGGER_EDGE, lit_tone if key[index] == "1" else DeepUi.DIM)
+	## The Birthstone's plate names every tier, and why one stayed dark.
+	_hush(line)
 
 class SocketRing extends Control:
 	## A character's socket: a bezel in the socket's color (six arcs for a Rainbow, two halves
 	## for a two-tone socket), a crown for the Birthstone, and a glow that wakes when the hand
 	## in the tray would fire the stone set in it. A socket showing its gem's color is lit
 	## (`shown` 1, a soft halo); one that does not show it is greyed (`shown` 0).
-	var color: String = DeepContent.SOCKET_RAINBOW
+	var color: String = DeepContent.SOCKET_RAINBOW:
+		set(value):
+			color = value
+			_shown_colors = DeepContent.socket_colors(value)
+			_rainbow = DeepContent.is_rainbow(value)
+			_band_key = ""
 	var empty: bool = false
 	var shown: int = -1:
 		set(value):
 			if value != shown:
 				shown = value
 				queue_redraw()
-				if value == 1 and DeepContent.is_rainbow(color):
+				if value == 1 and _rainbow:
 					set_process(true)
 	var birth_tint: Color = DeepUi.ACCENT
 	## A Void ring standing in a socket's own place (its first rider, the socket being empty):
@@ -2835,6 +2917,16 @@ class SocketRing extends Control:
 	var _goal: float = 0.0
 	var _clock: float = 0.0
 	var _flash: float = 0.0
+	## The colors the socket shows, read once from its color (`_band_tone` asks for them at
+	## every corner of the band).
+	var _shown_colors: Array = []
+	var _rainbow: bool = true
+	## The bezel band as laid last (`_lay_band`): its corners, their colors, and what they were
+	## laid for, so a still ring only lays it again when it changes.
+	var _band_key: String = ""
+	var _band_points := PackedVector2Array()
+	var _band_tones := PackedColorArray()
+	static var _band_indices := PackedInt32Array()
 	func _init(socket_color: String, is_empty: bool) -> void:
 		color = socket_color
 		empty = is_empty
@@ -2852,7 +2944,7 @@ class SocketRing extends Control:
 		_flash = maxf(0.0, _flash - delta * 2.2)
 		queue_redraw()
 		## A lit Rainbow keeps turning; everything else goes still once its glow has settled.
-		if _flash <= 0.0 and is_equal_approx(_ready_glow, _goal) and _goal <= 0.0 and not (shown == 1 and DeepContent.is_rainbow(color) and not ScreenFx.calm):
+		if _flash <= 0.0 and is_equal_approx(_ready_glow, _goal) and _goal <= 0.0 and not (shown == 1 and _rainbow and not ScreenFx.calm):
 			set_process(false)
 	func _draw() -> void:
 		var tone: Color = birth_tint.lightened(0.15) if color == "BIRTHSTONE" else DeepUi.socket_tone(color, DeepUi.MUTED)
@@ -2929,13 +3021,12 @@ class SocketRing extends Control:
 		## the seam closed so no two hues meet hard; a two-tone socket melts its pair into each
 		## other, one at the top and one at the bottom; a plain socket is its own color, and
 		## the Birthstone its tint.
-		var shown_colors: Array = DeepContent.socket_colors(color)
-		if DeepContent.is_rainbow(color):
+		if _rainbow:
 			var t: float = fposmod((angle + PI * 0.5) / TAU - _clock * 0.05, 1.0)
 			return Color.from_hsv(t, 0.62, 1.0)
-		if shown_colors.size() == 2:
-			var a: Color = DeepUi.color(str(shown_colors[0]))
-			var b: Color = DeepUi.color(str(shown_colors[1]))
+		if _shown_colors.size() == 2:
+			var a: Color = DeepUi.color(str(_shown_colors[0]))
+			var b: Color = DeepUi.color(str(_shown_colors[1]))
 			## 0 at the top (the first color), 1 at the bottom (the second), easing between.
 			var w: float = 0.5 - 0.5 * cos(angle + PI * 0.5)
 			w = clampf((w - 0.3) / 0.4, 0.0, 1.0)
@@ -2946,11 +3037,10 @@ class SocketRing extends Control:
 	func _fill_tone(tone: Color) -> Color:
 		## What pools in the well: a Rainbow's pale shimmer, a two-tone's two colors mixed, a
 		## plain socket's own tint.
-		var shown_colors: Array = DeepContent.socket_colors(color)
-		if DeepContent.is_rainbow(color):
+		if _rainbow:
 			return Color.from_hsv(fposmod(0.6 - _clock * 0.05, 1.0), 0.35, 1.0)
-		if shown_colors.size() == 2:
-			return DeepUi.color(str(shown_colors[0])).lerp(DeepUi.color(str(shown_colors[1])), 0.5)
+		if _shown_colors.size() == 2:
+			return DeepUi.color(str(_shown_colors[0])).lerp(DeepUi.color(str(_shown_colors[1])), 0.5)
 		return tone
 	func _bezel(centre: Vector2, inner: float, outer: float, strength: float) -> void:
 		## The band, as BAND_STEPS facets with their colors blended across the corners, so the
@@ -2958,21 +3048,35 @@ class SocketRing extends Control:
 		## and under the light (top-left), darker toward the outer edge and in the shadow
 		## (bottom-right), so a plain Red socket reads as a ring of red metal rather than a
 		## flat line.
+		## Neighbouring facets share their corners, so each corner's color is worked out once and
+		## the band goes to the renderer as one strip of triangles: drawn facet by facet it cost a
+		## few milliseconds a frame for every ring awake in the dock (October 30). A still ring
+		## lays it again only when it changes; a Rainbow's turns every frame it is awake.
+		var key: String = "%s|%s|%s|%s|%s" % [centre, inner, outer, strength, birth_tint]
+		if _rainbow or key != _band_key:
+			_band_key = key
+			_lay_band(centre, inner, outer, strength)
+		if _band_indices.is_empty():
+			for step in range(BAND_STEPS):
+				var next: int = (step + 1) % BAND_STEPS
+				## Corners 2k on the outer edge and 2k + 1 on the inner: a facet is the quad
+				## outer k, outer k+1, inner k+1, inner k.
+				for corner in [step * 2, next * 2, next * 2 + 1, step * 2, next * 2 + 1, step * 2 + 1]:
+					_band_indices.append(corner)
+		RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), _band_indices, _band_points, _band_tones)
+	func _lay_band(centre: Vector2, inner: float, outer: float, strength: float) -> void:
 		var light_from: float = -PI * 0.75
+		_band_points.resize(BAND_STEPS * 2)
+		_band_tones.resize(BAND_STEPS * 2)
 		for step in range(BAND_STEPS):
-			var a0: float = TAU * float(step) / float(BAND_STEPS)
-			var a1: float = TAU * float(step + 1) / float(BAND_STEPS)
-			var points := PackedVector2Array([centre + Vector2.from_angle(a0) * outer, centre + Vector2.from_angle(a1) * outer,
-				centre + Vector2.from_angle(a1) * inner, centre + Vector2.from_angle(a0) * inner])
-			var tones := PackedColorArray()
-			for corner in range(4):
-				var angle: float = a0 if corner == 0 or corner == 3 else a1
-				var base: Color = _band_tone(angle)
-				var sheen: float = 0.5 + 0.5 * cos(angle - light_from)
-				var inner_edge: bool = corner >= 2
-				var shade: Color = base.lightened(0.35 if inner_edge else 0.05).lerp(base.darkened(0.35 if not inner_edge else 0.05), 1.0 - sheen)
-				tones.append(Color(shade, strength))
-			draw_polygon(points, tones)
+			var angle: float = TAU * float(step) / float(BAND_STEPS)
+			var along := Vector2.from_angle(angle)
+			var base: Color = _band_tone(angle)
+			var sheen: float = 0.5 + 0.5 * cos(angle - light_from)
+			_band_points[step * 2] = centre + along * outer
+			_band_points[step * 2 + 1] = centre + along * inner
+			_band_tones[step * 2] = Color(base.lightened(0.05).lerp(base.darkened(0.35), 1.0 - sheen), strength)
+			_band_tones[step * 2 + 1] = Color(base.lightened(0.35).lerp(base.darkened(0.05), 1.0 - sheen), strength)
 	func _halo_tone(tone: Color) -> Color:
 		## A lit Rainbow socket glows pale and shifting; a lit colored one in its color, a
 		## two-tone in the mix of its two.
@@ -2980,8 +3084,7 @@ class SocketRing extends Control:
 	func _mark_key() -> String:
 		## The color mark an empty socket wears: its color, the first of a two-tone pair, and
 		## none for a Rainbow (every stone fits it).
-		var shown_colors: Array = DeepContent.socket_colors(color)
-		return str(shown_colors[0]) if shown_colors.size() == 2 else color
+		return str(_shown_colors[0]) if _shown_colors.size() == 2 else color
 	func _wake_glow(centre: Vector2, radius: float, tone: Color) -> void:
 		if _ready_glow > 0.01 or _flash > 0.0:
 			var pulse: float = 0.75 + 0.25 * sin(_clock * 5.0)
@@ -3419,28 +3522,19 @@ func _sync_enemy_panel() -> void:
 			return
 		foe = _shown(living[0])
 		who = "target"
-	_enemy_panel.max_height = _ledger_room(str(foe.get("id", "")))
+	_enemy_panel.max_height = _ledger_room()
 	_enemy_panel.show_foe(foe, state, who, _lit_move if str(foe.get("id", "")) == _enemy_roll_id else "")
 	_position_enemy_panel()
 
-func _ledger_room(id: String = "") -> float:
+func _ledger_room() -> float:
 	## How tall the ledger may stand: from under the fight's name to just over the dock and the
-	## party's chips, and never down over a creature's tag on its side of the room (the dice
-	## standing out over a tag's top edge are counted). In steps of ten, so a tag easing into
-	## place does not have it laid out afresh every frame.
+	## party's chips. It may stand over the creatures on its side of the room and their tags
+	## (the owner, October 30): it is always on the side away from the one it reads, so pointing
+	## at one it covers sends it across. In steps of ten, so the dock growing a little does not
+	## have it laid out afresh every frame.
 	if _headless or _dock == null or not is_inside_tree():
 		return 450.0
 	var floor_y: float = _dock_top() - global_position.y - 14.0
-	var right: bool = _ledger_right(id if not id.is_empty() else _enemy_panel.enemy_id)
-	var x0: float = size.x - 16.0 - EnemyPanel.WIDTH if right else 16.0 + left_inset
-	var x1: float = x0 + EnemyPanel.WIDTH
-	for key in _plates:
-		var node: Variant = _plates[key]
-		if node == null or not is_instance_valid(node) or not (node as Control).visible or (node as Plate).fading:
-			continue
-		var tag: Plate = node
-		if tag.position.x - TAG_REACH < x1 + 8.0 and tag.position.x + tag.size.x > x0 - 8.0:
-			floor_y = minf(floor_y, tag.position.y - 16.0)
 	return clampf(floorf((floor_y - LEDGER_TOP) / 10.0) * 10.0, 240.0, 600.0)
 
 func _position_enemy_panel() -> void:
@@ -3649,14 +3743,14 @@ func _process(delta: float) -> void:
 		_later_do(0.5, _turn_opening)
 	if _headless or _camera == null or not is_visible_in_tree():
 		return
-	## The tags stand at the creatures' feet (the plates rethink), each centred under its own
-	## creature's mark on the floor, not its body: a creature that breathes, rears or reels must
-	## not drag its tag about while somebody is reading it. `highest` is the top of the tallest
-	## creature and `lowest` the foot of the lowest tag, which the camera frames by.
-	var ceiling: float = 72.0
+	## The tags stand over the creatures' heads (the owner, October 30; at their feet before),
+	## each centred over where its own creature stands, not over its body: a creature that
+	## breathes, rears or reels must not drag its tag about while somebody is reading it. The
+	## camera frames the room so the highest tag fits under its title; only a creature too tall
+	## for that in the widest view wears its tag at its feet. `highest` is the top of the highest
+	## tag (or head, under a tag worn at the feet), which the camera frames by.
+	var ceiling: float = 72.0 + TAG_HEADROOM
 	var highest: float = INF
-	var lowest: float = -INF
-	var floor_y: float = _dock_top() - global_position.y - 4.0
 	var placed: Array = []
 	for id in _plates:
 		var node: Variant = _plates[id]
@@ -3676,31 +3770,42 @@ func _process(delta: float) -> void:
 			continue
 		var feet: Vector2 = _to_screen(stood)
 		var top: Vector2 = _to_screen(stood + Vector3(0, creature.anchor.y + 0.15, 0))
-		var goal := Vector2(feet.x - plate.size.x * 0.5, feet.y + TAG_DROP)
+		## Its chips hang in the room kept under the tag, between it and the head. Which way it
+		## goes is settled while the view is still and kept through its sweeps and punches.
+		var over: float = top.y - TAG_LIFT - plate.standing_height()
+		if _camera.settled() or not plate.has_meta("over_head"):
+			plate.set_meta("over_head", over >= ceiling or _camera.home_fov < WIDEST_FOV - 0.5)
+		var above: bool = bool(plate.get_meta("over_head"))
+		var goal := Vector2(top.x - plate.size.x * 0.5, over) if above else Vector2(feet.x - plate.size.x * 0.5, feet.y + TAG_DROP)
 		if not plate.fading and not bool(creature.get_meta("dying", false)):
-			highest = minf(highest, top.y)
-			lowest = maxf(lowest, goal.y + plate.standing_height())
-		placed.append([plate, goal])
-	_spread_tags(placed, floor_y)
+			highest = minf(highest, over if above else top.y)
+		placed.append([plate, goal, above])
+	_spread_tags(placed, ceiling)
 	for entry in placed:
 		var plate: Plate = entry[0]
 		var goal: Vector2 = entry[1]
 		plate.rest = plate.rest.lerp(goal, clampf(delta * 14.0, 0.0, 1.0)) if plate.rest != Vector2.ZERO else goal
 		plate.position = plate.rest.round()
-	_frame_camera(highest, ceiling, delta, lowest - floor_y)
+	_frame_camera(highest, ceiling, delta)
 
-## How far under its feet a creature's tag hangs, and the room kept between two tags (the next
+## How far over its head a creature's tag (and the room for its chips) stands, and how far
+## under its feet it hangs when it is worn there; the room kept between two tags (the next
 ## one's dice stand out past its left edge).
+const TAG_LIFT: float = 6.0
 const TAG_DROP: float = 14.0
 const TAG_GAP: float = 20.0
+## How far under the room's title a tag's top keeps: the dice in a fan stand a little over it.
+const TAG_HEADROOM: float = 10.0
 ## How far a tag's dice reach out past its left edge, which keeps it clear of the screen's.
 const TAG_REACH: float = 14.0
 
-func _spread_tags(placed: Array, floor_y: float) -> void:
+func _spread_tags(placed: Array, ceiling: float) -> void:
 	## Tags of creatures standing close would cover one another: left to right, they are eased
 	## apart sideways, each giving half the way, as far as the screen allows; where the row is
-	## too full for that, a tag steps down under the one it would cover. None stands over the
-	## dock. `placed` holds [tag, goal] pairs; the goals are moved in place.
+	## too full for that, a tag steps away from its creature, up over the one it would cover (or
+	## down under it, at the feet). None stands over the room's title, the dock, or a party tab
+	## over the dock. `placed` holds [tag, goal, over its head] triples; the goals are moved in
+	## place.
 	placed.sort_custom(func(a: Array, b: Array) -> bool: return (a[1] as Vector2).x < (b[1] as Vector2).x)
 	var left_edge: float = 8.0 + TAG_REACH + left_inset
 	for entry in placed:
@@ -3716,7 +3821,7 @@ func _spread_tags(placed: Array, floor_y: float) -> void:
 			var b_plate: Plate = b[0]
 			var a_at: Vector2 = a[1]
 			var b_at: Vector2 = b[1]
-			if absf(a_at.y - b_at.y) >= maxf(a_plate.size.y, b_plate.size.y) + 4.0:
+			if a_at.y >= b_at.y + b_plate.standing_height() + 4.0 or b_at.y >= a_at.y + a_plate.standing_height() + 4.0:
 				continue
 			var overlap: float = a_at.x + a_plate.size.x + TAG_GAP - b_at.x
 			if overlap <= 0.5:
@@ -3728,19 +3833,35 @@ func _spread_tags(placed: Array, floor_y: float) -> void:
 			moved = true
 		if not moved:
 			break
-	## Still covering: the later one steps down under the one before it.
+	## Still covering: the later one steps away from its creature, past the one before it.
 	for i in range(1, placed.size()):
 		var a: Array = placed[i - 1]
 		var b: Array = placed[i]
 		var a_plate: Plate = a[0]
+		var b_plate: Plate = b[0]
 		var a_at: Vector2 = a[1]
 		var b_at: Vector2 = b[1]
-		if b_at.x < a_at.x + a_plate.size.x + TAG_GAP * 0.5 - 0.5 and absf(a_at.y - b_at.y) < a_plate.size.y + 4.0:
-			b[1] = Vector2(b_at.x, a_at.y + a_plate.size.y + 8.0)
+		if b_at.x < a_at.x + a_plate.size.x + TAG_GAP * 0.5 - 0.5 and a_at.y < b_at.y + b_plate.standing_height() + 4.0 and b_at.y < a_at.y + a_plate.standing_height() + 4.0:
+			b[1] = Vector2(b_at.x, a_at.y - b_plate.standing_height() - 8.0 if bool(b[2]) else a_at.y + a_plate.standing_height() + 8.0)
 	for entry in placed:
 		var plate: Plate = entry[0]
 		var goal: Vector2 = entry[1]
-		entry[1] = Vector2(goal.x, minf(goal.y, floor_y - plate.standing_height()))
+		var lowest: float = _tag_floor(goal.x - TAG_REACH, goal.x + plate.size.x) - plate.standing_height()
+		entry[1] = Vector2(goal.x, clampf(goal.y, minf(ceiling, lowest), lowest))
+
+func _tag_floor(x0: float, x1: float) -> float:
+	## How low a tag standing between x0 and x1 may reach: over the dock, and over a party tab
+	## or the buffs riding it only where it stands above one. A buff landing on the party at the
+	## left of the dock must not lift every creature's tag in the room.
+	var top: float = _dock.get_global_rect().position.y - 6.0 if _dock != null else INF
+	for tab in [_my_tab] + _tabs.values():
+		if not tab is SeatTab or not is_instance_valid(tab):
+			continue
+		for part in [(tab as SeatTab).face, (tab as SeatTab).chips]:
+			var rect: Rect2 = (part as Control).get_global_rect()
+			if (part as Control).is_visible_in_tree() and rect.size.y > 0.0 and rect.position.x - global_position.x < x1 and rect.end.x - global_position.x > x0:
+				top = minf(top, rect.position.y - 6.0)
+	return top - global_position.y - 4.0
 
 # --- the throw, on the tag ------------------------------------------------------------------------
 ##
@@ -3872,17 +3993,26 @@ func _morph_creature(id: String, effect: Dictionary) -> void:
 	if plate != null and is_instance_valid(plate):
 		DeepUi.pulse(plate, 1.1, 0.4)
 
-func _frame_camera(highest: float, ceiling: float, delta: float, below: float = 0.0) -> void:
-	## A tall Warden must fit under the top of the screen, and the tags at the creatures' feet
-	## over the dock (`below` is how far the lowest runs past it): the view widens and lifts a
-	## little until they do, and settles back when a smaller creature is left.
+## The widest the view opens to fit a tall Warden and the tag over it, and how far under the
+## room's title the highest tag may stand before the view closes in again.
+const WIDEST_FOV: float = 84.0
+const FRAME_SLACK: float = 16.0
+
+func _frame_camera(highest: float, ceiling: float, delta: float) -> void:
+	## A tall Warden and the tag over its head must fit under the room's title: the view widens
+	## and lifts a little until they do, and settles back when a smaller creature is left. Only
+	## the creatures and the room their tags always take frame it, never what comes and goes on
+	## the screen: the owner wants the view to hold still through a fight (October 30). Widening
+	## it for the tags when they hung at the creatures' feet ran away, since lifting the view
+	## drops the floor, and the tags on it, further down the screen; over their heads, it lowers
+	## them into the room the widening opens.
 	if not _camera.has_method("settled") or not _camera.settled() or is_inf(highest):
 		return
 	var fov: float = _camera.home_fov
-	var squeeze: float = maxf(ceiling + 6.0 - highest, below)
+	var squeeze: float = ceiling - highest
 	if squeeze > 0.0:
-		fov = minf(84.0, fov + delta * clampf(squeeze * 0.35, 4.0, 30.0))
-	elif highest > ceiling + 90.0 and below < -40.0 and fov > BASE_FOV:
+		fov = minf(WIDEST_FOV, fov + delta * clampf(squeeze * 0.35, 4.0, 30.0))
+	elif highest > ceiling + FRAME_SLACK and fov > BASE_FOV:
 		fov = maxf(BASE_FOV, fov - delta * 6.0)
 	_camera.home_fov = fov
 	_camera.home_look.y = 1.2 + (fov - BASE_FOV) * 0.05

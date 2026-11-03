@@ -50,7 +50,7 @@
     "appraise_gold_mult": 2.0,
     "appraise_cost_step": 50,
     "rest_pct": 35,
-    "opal_hoard_pct": 100,
+    "opal_hoard_pct": 50,
     "hoard_luck": 5,
     "opal_hoard_luck": 0,
     "hoard_geode_pct": 100,
@@ -3789,7 +3789,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Create a Void copy of the last gem that fired, never another Echo. It lasts for the rest of the fight.",
+      "text": "Create a Void copy of the last gem that fired.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -5317,7 +5317,14 @@
       "unlock_order": 3,
       "hp": 70,
       "text": "The low roller. Wants 1s and low dice, and heals off poison.",
-      "sockets": ["GREEN/VIOLET", "GREEN/VIOLET", "GREEN/VIOLET", "GREEN/VIOLET", "RAINBOW", "RAINBOW"],
+      "sockets": [
+        "RED",
+        "GREEN/VIOLET",
+        "GREEN/VIOLET",
+        "GREEN/VIOLET",
+        "RAINBOW",
+        "RAINBOW"
+      ],
       "dice": [
         "D4",
         "D4",
@@ -5398,7 +5405,14 @@
       "unlock_order": 4,
       "hp": 70,
       "text": "The trickster. Flips dice between odd and even to line up the hand.",
-      "sockets": ["RED/BLUE", "GREEN/VIOLET", "WHITE/GOLD", "RAINBOW", "RAINBOW", "RAINBOW"],
+      "sockets": [
+        "RED/BLUE",
+        "GREEN/VIOLET",
+        "WHITE/GOLD",
+        "RAINBOW",
+        "RAINBOW",
+        "RAINBOW"
+      ],
       "dice": ["D6", "D6", "D8", "D8", "D10"],
       "passive": {
         "kind": "free_flip",
@@ -5922,10 +5936,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Lantern",
@@ -5933,9 +5945,14 @@
           "mark": "spark",
           "anim": "cast",
           "text": "One more reroll on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "gift_rerolls"}
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "gift_rerolls"
+            }
           ]
         },
         {
@@ -5944,9 +5961,14 @@
           "mark": "labrys_tilt__m_reroll",
           "anim": "cast",
           "text": "{0} damage for every reroll you used this turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3, "per_reroll": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 3,
+              "per_reroll": true
+            }
           ]
         }
       ]
@@ -5958,9 +5980,7 @@
       "threat": 1,
       "text": "A rat that runs the old rails in packs. One face in four calls another rat.",
       "tip": "Kill them before the pack grows.",
-      "dice": [
-        {"shape": "D4", "faces": ["Gnaw", "Bite", "Scurry", "Gnaw"]}
-      ],
+      "dice": [{ "shape": "D4", "faces": ["Gnaw", "Bite", "Scurry", "Gnaw"] }],
       "moves": [
         {
           "name": "Gnaw",
@@ -5968,10 +5988,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Bite",
@@ -5979,10 +5997,8 @@
           "mark": "labrys_tilt",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Scurry",
@@ -5990,9 +6006,14 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "A Rail Rat joins the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 1, "creature": "RAIL_RAT"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 1,
+              "creature": "RAIL_RAT"
+            }
           ]
         }
       ]
@@ -6017,10 +6038,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Gorge",
@@ -6028,10 +6047,8 @@
           "mark": "labrys_tilt",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Latch",
@@ -6039,10 +6056,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Takes a die; it comes back after your next turn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "die_steal", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
         }
       ]
     },
@@ -6066,10 +6081,8 @@
           "mark": "f_sword",
           "anim": "peck",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Snatch",
@@ -6077,10 +6090,16 @@
           "mark": "f_coin_taken__m_spark",
           "anim": "peck",
           "text": "Takes {0} pyrite from the richest player. Then this face becomes Flee: the next time it lands, the magpie leaves with everything it took",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "steal_gold", "target": "hero_most_gold", "amount": 10},
-            {"kind": "etch", "target": "self", "amount": 1, "from": "self_face", "to": "Flee"}
+            { "kind": "steal_gold", "target": "hero_most_gold", "amount": 10 },
+            {
+              "kind": "etch",
+              "target": "self",
+              "amount": 1,
+              "from": "self_face",
+              "to": "Flee"
+            }
           ]
         },
         {
@@ -6089,10 +6108,8 @@
           "mark": "flee",
           "anim": "rally",
           "text": "Leaves the fight with everything it took",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "flee", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "flee", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -6116,10 +6133,8 @@
           "mark": "f_sword",
           "anim": "spit",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Engulf",
@@ -6127,13 +6142,11 @@
           "mark": "drop",
           "anim": "spit",
           "text": "{0} Poison",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "poison", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 2 }]
         }
       ],
-      "traits": {"split_on_big_hit": true}
+      "traits": { "split_on_big_hit": true }
     },
     "CLOUDER": {
       "name": "Clouder",
@@ -6155,10 +6168,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Fog",
@@ -6166,10 +6177,8 @@
           "mark": "cloud",
           "anim": "cast",
           "text": "Clouds a socket on your rail: the gem there does nothing until you hit the Clouder",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "fog", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "fog", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Gather",
@@ -6177,10 +6186,8 @@
           "mark": "shield",
           "anim": "guard",
           "text": "{0} block",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "block", "target": "self", "amount": 12}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "block", "target": "self", "amount": 12 }]
         }
       ]
     },
@@ -6204,10 +6211,8 @@
           "mark": "labrys_tilt",
           "anim": "erupt",
           "text": "As it comes up: {0} damage",
-          "trigger": {"kind": "emerge"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "emerge" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Claw",
@@ -6215,10 +6220,8 @@
           "mark": "f_sword",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Rake",
@@ -6226,10 +6229,8 @@
           "mark": "labrys_tilt",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 6 }]
         },
         {
           "name": "Dig In",
@@ -6237,10 +6238,8 @@
           "mark": "hide_h",
           "anim": "guard",
           "text": "Burrows: cannot be targeted until its next action, when it comes up with Erupt",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burrow", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burrow", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -6254,7 +6253,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Drain", "Wail", "Fade", "Drain", "Wail", "Fade", "Drain", "Drain"]
+          "faces": [
+            "Drain",
+            "Wail",
+            "Fade",
+            "Drain",
+            "Wail",
+            "Fade",
+            "Drain",
+            "Drain"
+          ]
         }
       ],
       "moves": [
@@ -6264,10 +6272,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Wail",
@@ -6275,9 +6281,14 @@
           "mark": "f_sword__m_pierce",
           "anim": "slam",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 6,
+              "piercing": true
+            }
           ]
         },
         {
@@ -6286,10 +6297,8 @@
           "mark": "hide_h",
           "anim": "guard",
           "text": "Cannot be targeted until its next action",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burrow", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burrow", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -6303,7 +6312,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Pound", "Crush", "Fortify", "Shardstorm", "Pound", "Fortify", "Pound", "Fortify"]
+          "faces": [
+            "Pound",
+            "Crush",
+            "Fortify",
+            "Shardstorm",
+            "Pound",
+            "Fortify",
+            "Pound",
+            "Fortify"
+          ]
         }
       ],
       "moves": [
@@ -6313,10 +6331,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Crush",
@@ -6324,10 +6340,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Fortify",
@@ -6335,10 +6349,15 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept into its next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 10},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 10 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         },
         {
@@ -6347,9 +6366,9 @@
           "mark": "f_sword__m_x3",
           "anim": "cast",
           "text": "3 hits of {0} damage: a storm of quartz shards",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3, "repeat": 3}
+            { "kind": "damage", "target": "heroes", "amount": 3, "repeat": 3 }
           ]
         }
       ]
@@ -6387,10 +6406,8 @@
           "mark": "f_sword",
           "anim": "lash",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Shatterbreath",
@@ -6398,9 +6415,9 @@
           "mark": "labrys_tilt__m_x3",
           "anim": "breath",
           "text": "3 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4, "repeat": 3}
+            { "kind": "damage", "target": "heroes", "amount": 4, "repeat": 3 }
           ]
         },
         {
@@ -6409,10 +6426,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight: its glass edges keener",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 1 }]
         },
         {
           "name": "Mirror",
@@ -6420,9 +6435,14 @@
           "mark": "prism",
           "anim": "guard",
           "text": "Until its next action, half of every blow on it goes back to whoever threw it",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "reflect", "target": "self", "amount": 50, "back": "thrower"}
+            {
+              "kind": "reflect",
+              "target": "self",
+              "amount": 50,
+              "back": "thrower"
+            }
           ]
         }
       ]
@@ -6438,12 +6458,28 @@
       "dice": [
         {
           "shape": "D6",
-          "faces": ["Shore Up", "Bury", "Collapse", "Reinforce", "Shore Up", "Bury"],
+          "faces": [
+            "Shore Up",
+            "Bury",
+            "Collapse",
+            "Reinforce",
+            "Shore Up",
+            "Bury"
+          ],
           "label": "lamp"
         },
         {
           "shape": "D8",
-          "faces": ["Pick", "Cave-in", "Pick", "Cave-in", "Pick", "Cave-in", "Pick", "Pick"],
+          "faces": [
+            "Pick",
+            "Cave-in",
+            "Pick",
+            "Cave-in",
+            "Pick",
+            "Cave-in",
+            "Pick",
+            "Pick"
+          ],
           "label": "pick"
         }
       ],
@@ -6454,10 +6490,15 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 12},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 12 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         },
         {
@@ -6466,9 +6507,14 @@
           "mark": "gem_d",
           "anim": "cast",
           "text": "Buries a socket on your rail in rubble for the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "bury_socket", "target": "heroes", "amount": 1, "for_fight": true}
+            {
+              "kind": "bury_socket",
+              "target": "heroes",
+              "amount": 1,
+              "for_fight": true
+            }
           ]
         },
         {
@@ -6477,10 +6523,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Takes a die",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "die_steal", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Reinforce",
@@ -6488,7 +6532,7 @@
           "mark": "hammered_anvil",
           "anim": "rally",
           "text": "One of its Pick faces becomes Blast",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "etch",
@@ -6506,10 +6550,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Cave-in",
@@ -6517,10 +6559,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 7}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 7 }]
         },
         {
           "name": "Blast",
@@ -6528,9 +6568,9 @@
           "mark": "labrys_tilt__m_x3",
           "anim": "slam",
           "text": "3 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10, "repeat": 3}
+            { "kind": "damage", "target": "heroes", "amount": 10, "repeat": 3 }
           ]
         }
       ]
@@ -6565,9 +6605,13 @@
           "mark": "prism",
           "anim": "mirror",
           "text": "Throws back the damage it took since its last action",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": {"term": "taken_since"}}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": { "term": "taken_since" }
+            }
           ]
         },
         {
@@ -6576,9 +6620,14 @@
           "mark": "prism",
           "anim": "guard",
           "text": "Until its next action, half of every blow on it goes back to whoever threw it",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "reflect", "target": "self", "amount": 50, "back": "thrower"}
+            {
+              "kind": "reflect",
+              "target": "self",
+              "amount": 50,
+              "back": "thrower"
+            }
           ]
         },
         {
@@ -6587,10 +6636,8 @@
           "mark": "hex",
           "anim": "cast",
           "text": "{0} Curse",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "curse", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "curse", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Mirror Image",
@@ -6598,9 +6645,13 @@
           "mark": "copy",
           "anim": "mirror",
           "text": "Throws your best die back at you: damage equal to the highest face any player shows",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": {"term": "party_high_die"}}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": { "term": "party_high_die" }
+            }
           ]
         }
       ]
@@ -6616,7 +6667,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Roller", "Grind", "Rev", "Call the Rats", "Roller", "Grind", "Rev", "Roller"],
+          "faces": [
+            "Roller",
+            "Grind",
+            "Rev",
+            "Call the Rats",
+            "Roller",
+            "Grind",
+            "Rev",
+            "Roller"
+          ],
           "label": "treads"
         },
         {
@@ -6645,9 +6705,14 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Rolls your dice for you: no rerolls on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "roll_for_you"}
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "roll_for_you"
+            }
           ]
         },
         {
@@ -6656,10 +6721,8 @@
           "mark": "cut",
           "anim": "cast",
           "text": "{0} Dulled: your gems lose a Cut step",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "dulled", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "dulled", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Rev",
@@ -6667,7 +6730,7 @@
           "mark": "hammered_anvil",
           "anim": "rally",
           "text": "One of its Bore faces becomes Overdrive",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "etch",
@@ -6686,9 +6749,14 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "2 Rail Rats join the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 2, "creature": "RAIL_RAT"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 2,
+              "creature": "RAIL_RAT"
+            }
           ]
         },
         {
@@ -6697,10 +6765,8 @@
           "mark": "f_sword",
           "anim": "drill",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Overdrive",
@@ -6708,9 +6774,14 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "drill",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 25, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 25,
+              "piercing": true
+            }
           ]
         }
       ]
@@ -6723,9 +6794,9 @@
       "text": "Three lampreys braided into one: three small dice, many small bites, and now and then a drink that heals it.",
       "tip": "Many small bites: block soaks them well.",
       "dice": [
-        {"shape": "D4", "faces": ["Bite", "Drink", "Bite", "Bite"]},
-        {"shape": "D4", "faces": ["Bite", "Drink", "Bite", "Bite"]},
-        {"shape": "D4", "faces": ["Bite", "Drink", "Bite", "Bite"]}
+        { "shape": "D4", "faces": ["Bite", "Drink", "Bite", "Bite"] },
+        { "shape": "D4", "faces": ["Bite", "Drink", "Bite", "Bite"] },
+        { "shape": "D4", "faces": ["Bite", "Drink", "Bite", "Bite"] }
       ],
       "moves": [
         {
@@ -6734,10 +6805,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Drink",
@@ -6745,10 +6814,8 @@
           "mark": "heart",
           "anim": "bite",
           "text": "Heals {0}",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "heal", "target": "self", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "heal", "target": "self", "amount": 2 }]
         }
       ]
     },
@@ -6762,7 +6829,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Claw", "Pinch", "Grip", "Shell", "Claw", "Grip", "Claw", "Claw"]
+          "faces": [
+            "Claw",
+            "Pinch",
+            "Grip",
+            "Shell",
+            "Claw",
+            "Grip",
+            "Claw",
+            "Claw"
+          ]
         }
       ],
       "moves": [
@@ -6772,10 +6848,8 @@
           "mark": "f_sword",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Pinch",
@@ -6783,10 +6857,8 @@
           "mark": "labrys_tilt",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 7}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 7 }]
         },
         {
           "name": "Grip",
@@ -6794,10 +6866,8 @@
           "mark": "snare_d",
           "anim": "claw",
           "text": "Holds your best die in its claws: it sits out every throw until the crayfish loses health",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "grip_die", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "grip_die", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Shell",
@@ -6805,10 +6875,15 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 8},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 8 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         }
       ]
@@ -6833,10 +6908,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Pull Under",
@@ -6844,10 +6917,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Your dice shrink a size; they grow back after your next turn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "dice_dread", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "dice_dread", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Rise",
@@ -6855,13 +6926,11 @@
           "mark": "heart",
           "anim": "mend",
           "text": "Heals {0}",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "heal", "target": "self", "amount": 6}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "heal", "target": "self", "amount": 6 }]
         }
       ],
-      "traits": {"waterlogged": true}
+      "traits": { "waterlogged": true }
     },
     "SEEP_EEL": {
       "name": "Seep Eel",
@@ -6873,7 +6942,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Bite", "Shock", "Arc", "Bite", "Shock", "Bite", "Bite", "Bite"]
+          "faces": [
+            "Bite",
+            "Shock",
+            "Arc",
+            "Bite",
+            "Shock",
+            "Bite",
+            "Bite",
+            "Bite"
+          ]
         }
       ],
       "moves": [
@@ -6883,10 +6961,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Shock",
@@ -6894,9 +6970,14 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Locks your highest die: it shows the same face and cannot be rerolled on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "die_lock", "target": "heroes", "amount": 1, "pick": "high"}
+            {
+              "kind": "die_lock",
+              "target": "heroes",
+              "amount": 1,
+              "pick": "high"
+            }
           ]
         },
         {
@@ -6905,9 +6986,9 @@
           "mark": "f_sword__m_x3",
           "anim": "cast",
           "text": "3 hits of {0} damage: lightning down the line",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2, "repeat": 3}
+            { "kind": "damage", "target": "heroes", "amount": 2, "repeat": 3 }
           ]
         }
       ]
@@ -6923,12 +7004,28 @@
       "dice": [
         {
           "shape": "D6",
-          "faces": ["Turn the Wheel", "Lock", "Brace", "Turn the Wheel", "Lock", "Brace"],
+          "faces": [
+            "Turn the Wheel",
+            "Lock",
+            "Brace",
+            "Turn the Wheel",
+            "Lock",
+            "Brace"
+          ],
           "label": "wheel"
         },
         {
           "shape": "D8",
-          "faces": ["Wrench", "Sluice", "Dam", "Flood", "Wrench", "Dam", "Wrench", "Wrench"],
+          "faces": [
+            "Wrench",
+            "Sluice",
+            "Dam",
+            "Flood",
+            "Wrench",
+            "Dam",
+            "Wrench",
+            "Wrench"
+          ],
           "label": "gate"
         }
       ],
@@ -6939,7 +7036,7 @@
           "mark": "hammered_anvil",
           "anim": "rally",
           "text": "One Wrench face on the gate die becomes Sluice",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "etch",
@@ -6958,10 +7055,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Locks your highest die in the gate: it sits out every throw until you hit the Lock-Keeper",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "grip_die", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "grip_die", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Brace",
@@ -6969,10 +7064,15 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 12},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 12 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         },
         {
@@ -6981,10 +7081,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Sluice",
@@ -6992,9 +7090,14 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "slam",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 10,
+              "piercing": true
+            }
           ]
         },
         {
@@ -7003,10 +7106,15 @@
           "mark": "thorns_c",
           "anim": "guard",
           "text": "{0} block, and anything that hits it is hit back for {1}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 6},
-            {"kind": "spikes", "target": "self", "amount": 3, "until": "next_action"}
+            { "kind": "block", "target": "self", "amount": 6 },
+            {
+              "kind": "spikes",
+              "target": "self",
+              "amount": 3,
+              "until": "next_action"
+            }
           ]
         },
         {
@@ -7015,10 +7123,10 @@
           "mark": "wave",
           "anim": "slam",
           "text": "{0} damage, and the water washes the cut off your gems: {1} Dulled",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 12},
-            {"kind": "dulled", "target": "heroes", "amount": 2}
+            { "kind": "damage", "target": "heroes", "amount": 12 },
+            { "kind": "dulled", "target": "heroes", "amount": 2 }
           ]
         }
       ]
@@ -7034,15 +7142,36 @@
       "dice": [
         {
           "shape": "D6",
-          "faces": ["Dirge", "Lament", "Requiem", "Another Voice", "Dirge", "Dirge"]
+          "faces": [
+            "Dirge",
+            "Lament",
+            "Requiem",
+            "Another Voice",
+            "Dirge",
+            "Dirge"
+          ]
         },
         {
           "shape": "D6",
-          "faces": ["Dirge", "Lament", "Requiem", "Another Voice", "Dirge", "Dirge"]
+          "faces": [
+            "Dirge",
+            "Lament",
+            "Requiem",
+            "Another Voice",
+            "Dirge",
+            "Dirge"
+          ]
         },
         {
           "shape": "D6",
-          "faces": ["Dirge", "Lament", "Requiem", "Another Voice", "Dirge", "Dirge"]
+          "faces": [
+            "Dirge",
+            "Lament",
+            "Requiem",
+            "Another Voice",
+            "Dirge",
+            "Dirge"
+          ]
         }
       ],
       "moves": [
@@ -7052,10 +7181,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Lament",
@@ -7063,10 +7190,8 @@
           "mark": "hex",
           "anim": "cast",
           "text": "{0} Curse",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "curse", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "curse", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Requiem",
@@ -7074,10 +7199,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Another Voice",
@@ -7085,9 +7208,15 @@
           "mark": "dice_pair",
           "anim": "rally",
           "text": "A new head rises from the water: +1 d6, five at most",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "grow_die", "target": "self", "amount": 1, "cap": 5, "template": 0}
+            {
+              "kind": "grow_die",
+              "target": "self",
+              "amount": 1,
+              "cap": 5,
+              "template": 0
+            }
           ]
         },
         {
@@ -7097,9 +7226,14 @@
           "anim": "sing",
           "text": "All three heads on Requiem: another {0} damage through block",
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 20, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 20,
+              "piercing": true
+            }
           ],
-          "trigger": {"kind": "match", "faces": ["Requiem"], "count": 3},
+          "trigger": { "kind": "match", "faces": ["Requiem"], "count": 3 },
           "dramatic": true
         }
       ]
@@ -7115,7 +7249,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Bite", "Crunch", "Drag Under", "Bite", "Crunch", "Bite", "Bite", "Bite"],
+          "faces": [
+            "Bite",
+            "Crunch",
+            "Drag Under",
+            "Bite",
+            "Crunch",
+            "Bite",
+            "Bite",
+            "Bite"
+          ],
           "label": "jaws"
         },
         {
@@ -7144,10 +7287,8 @@
           "mark": "labrys_tilt",
           "anim": "erupt",
           "text": "As it surfaces: {0} damage",
-          "trigger": {"kind": "emerge"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 12}
-          ]
+          "trigger": { "kind": "emerge" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 12 }]
         },
         {
           "name": "Bite",
@@ -7155,10 +7296,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Crunch",
@@ -7166,10 +7305,8 @@
           "mark": "labrys_tilt",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 10 }]
         },
         {
           "name": "Drag Under",
@@ -7177,10 +7314,8 @@
           "mark": "broken_chain",
           "anim": "cast",
           "text": "Drags you under: Stunned for a turn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "stun", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "stun", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Thrash",
@@ -7188,9 +7323,9 @@
           "mark": "f_sword__m_x2",
           "anim": "lash",
           "text": "2 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4, "repeat": 2}
+            { "kind": "damage", "target": "heroes", "amount": 4, "repeat": 2 }
           ]
         },
         {
@@ -7199,9 +7334,14 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "slam",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 9, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 9,
+              "piercing": true
+            }
           ]
         },
         {
@@ -7210,10 +7350,8 @@
           "mark": "hide_h",
           "anim": "guard",
           "text": "Dives: cannot be targeted until its next action, when it surfaces",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burrow", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burrow", "target": "self", "amount": 1 }]
         },
         {
           "name": "Call the Eels",
@@ -7221,9 +7359,14 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "2 Seep Eels join the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 2, "creature": "SEEP_EEL"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 2,
+              "creature": "SEEP_EEL"
+            }
           ]
         },
         {
@@ -7232,13 +7375,11 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Takes a die",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "die_steal", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
         }
       ],
-      "traits": {"steadfast": true}
+      "traits": { "steadfast": true }
     },
     "WILL_O_WISP": {
       "name": "Will-o'-Wisp",
@@ -7260,10 +7401,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Lantern",
@@ -7271,9 +7410,14 @@
           "mark": "spark",
           "anim": "cast",
           "text": "One more reroll on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "gift_rerolls"}
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "gift_rerolls"
+            }
           ]
         },
         {
@@ -7282,9 +7426,14 @@
           "mark": "eye__m_reroll",
           "anim": "cast",
           "text": "{0} Marked for every reroll you used this turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "marked", "target": "heroes", "amount": 1, "per_reroll": true}
+            {
+              "kind": "marked",
+              "target": "heroes",
+              "amount": 1,
+              "per_reroll": true
+            }
           ]
         }
       ]
@@ -7309,10 +7458,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Mirror",
@@ -7320,10 +7467,8 @@
           "mark": "prism",
           "anim": "guard",
           "text": "The next blow on it hits whoever threw it instead",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "mirror", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "mirror", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -7347,10 +7492,8 @@
           "mark": "f_sword",
           "anim": "peck",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Snatch",
@@ -7358,10 +7501,16 @@
           "mark": "f_coin_taken__m_spark",
           "anim": "peck",
           "text": "Takes {0} pyrite from the richest player; then this face becomes Flee",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "steal_gold", "target": "hero_most_gold", "amount": 10},
-            {"kind": "etch", "target": "self", "amount": 1, "from": "self_face", "to": "Flee"}
+            { "kind": "steal_gold", "target": "hero_most_gold", "amount": 10 },
+            {
+              "kind": "etch",
+              "target": "self",
+              "amount": 1,
+              "from": "self_face",
+              "to": "Flee"
+            }
           ]
         },
         {
@@ -7370,10 +7519,8 @@
           "mark": "cut",
           "anim": "peck",
           "text": "{0} Dulled: your gems lose a Cut step",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "dulled", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "dulled", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Flee",
@@ -7381,10 +7528,8 @@
           "mark": "flee",
           "anim": "rally",
           "text": "Leaves the fight with everything it took",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "flee", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "flee", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -7398,7 +7543,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Pound", "Crush", "Refract", "Shardstorm", "Pound", "Refract", "Pound", "Refract"]
+          "faces": [
+            "Pound",
+            "Crush",
+            "Refract",
+            "Shardstorm",
+            "Pound",
+            "Refract",
+            "Pound",
+            "Refract"
+          ]
         }
       ],
       "moves": [
@@ -7408,10 +7562,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Crush",
@@ -7419,10 +7571,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Refract",
@@ -7430,10 +7580,8 @@
           "mark": "prism",
           "anim": "guard",
           "text": "Until its next action, half of every blow on it goes back to the party",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "reflect", "target": "self", "amount": 50}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "reflect", "target": "self", "amount": 50 }]
         },
         {
           "name": "Shardstorm",
@@ -7441,9 +7589,9 @@
           "mark": "f_sword__m_x3",
           "anim": "cast",
           "text": "3 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3, "repeat": 3}
+            { "kind": "damage", "target": "heroes", "amount": 3, "repeat": 3 }
           ]
         }
       ]
@@ -7477,9 +7625,9 @@
           "mark": "f_sword__m_x4",
           "anim": "cast",
           "text": "4 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 1, "repeat": 4}
+            { "kind": "damage", "target": "heroes", "amount": 1, "repeat": 4 }
           ]
         },
         {
@@ -7488,10 +7636,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 1 }]
         },
         {
           "name": "Refract",
@@ -7499,10 +7645,8 @@
           "mark": "prism",
           "anim": "guard",
           "text": "Until its next action, half of every blow on it goes back to the party",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "reflect", "target": "self", "amount": 50}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "reflect", "target": "self", "amount": 50 }]
         }
       ]
     },
@@ -7539,10 +7683,8 @@
           "mark": "f_sword",
           "anim": "lash",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Shatterbreath",
@@ -7550,9 +7692,14 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "breath",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 12, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 12,
+              "piercing": true
+            }
           ]
         },
         {
@@ -7561,10 +7708,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 2 }]
         },
         {
           "name": "Mirror",
@@ -7572,9 +7717,14 @@
           "mark": "prism",
           "anim": "guard",
           "text": "Half of every blow on it goes back until its next action",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "reflect", "target": "self", "amount": 50, "back": "thrower"}
+            {
+              "kind": "reflect",
+              "target": "self",
+              "amount": 50,
+              "back": "thrower"
+            }
           ]
         }
       ]
@@ -7590,12 +7740,30 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Pincers", "Anneal", "Skitter", "Pincers", "Anneal", "Pincers", "Anneal", "Pincers"],
+          "faces": [
+            "Pincers",
+            "Anneal",
+            "Skitter",
+            "Pincers",
+            "Anneal",
+            "Pincers",
+            "Anneal",
+            "Pincers"
+          ],
           "label": "claws"
         },
         {
           "shape": "D8",
-          "faces": ["Slice", "Eviscerate", "Cut", "Slice", "Eviscerate", "Cut", "Slice", "Slice"],
+          "faces": [
+            "Slice",
+            "Eviscerate",
+            "Cut",
+            "Slice",
+            "Eviscerate",
+            "Cut",
+            "Slice",
+            "Slice"
+          ],
           "label": "saw"
         }
       ],
@@ -7606,9 +7774,9 @@
           "mark": "f_sword__m_x2",
           "anim": "claw",
           "text": "2 hits of {0} damage: both claws",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4, "repeat": 2}
+            { "kind": "damage", "target": "heroes", "amount": 4, "repeat": 2 }
           ]
         },
         {
@@ -7617,10 +7785,15 @@
           "mark": "thorns_c",
           "anim": "guard",
           "text": "{0} block, and anything that hits it is hit back for {1}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 8},
-            {"kind": "spikes", "target": "self", "amount": 3, "until": "next_action"}
+            { "kind": "block", "target": "self", "amount": 8 },
+            {
+              "kind": "spikes",
+              "target": "self",
+              "amount": 3,
+              "until": "next_action"
+            }
           ]
         },
         {
@@ -7629,10 +7802,8 @@
           "mark": "hide_h",
           "anim": "guard",
           "text": "Up the wall: cannot be targeted until its next action",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burrow", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burrow", "target": "self", "amount": 1 }]
         },
         {
           "name": "Slice",
@@ -7640,10 +7811,8 @@
           "mark": "labrys_tilt",
           "anim": "claw",
           "text": "{0} damage: a quick swipe of the saw",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 9}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 9 }]
         },
         {
           "name": "Eviscerate",
@@ -7651,9 +7820,9 @@
           "mark": "f_sword__m_x10",
           "anim": "drill",
           "text": "10 hits of {0} damage: the saw spinning into you",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2, "repeat": 10}
+            { "kind": "damage", "target": "heroes", "amount": 2, "repeat": 10 }
           ]
         },
         {
@@ -7662,7 +7831,7 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Every face your dice show loses {0}, for good",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "grind_die",
@@ -7686,11 +7855,29 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Glare", "Drink", "Blind", "Glare", "Drink", "Glare", "Drink", "Glare"]
+          "faces": [
+            "Glare",
+            "Drink",
+            "Blind",
+            "Glare",
+            "Drink",
+            "Glare",
+            "Drink",
+            "Glare"
+          ]
         },
         {
           "shape": "D8",
-          "faces": ["Glare", "Drink", "Blind", "Glare", "Drink", "Glare", "Drink", "Glare"]
+          "faces": [
+            "Glare",
+            "Drink",
+            "Blind",
+            "Glare",
+            "Drink",
+            "Glare",
+            "Drink",
+            "Glare"
+          ]
         }
       ],
       "moves": [
@@ -7700,10 +7887,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Drink",
@@ -7711,9 +7896,14 @@
           "mark": "prism",
           "anim": "drink",
           "text": "Drinks a colour for one turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "absorb_color", "target": "self", "amount": 1, "color": "random"}
+            {
+              "kind": "absorb_color",
+              "target": "self",
+              "amount": 1,
+              "color": "random"
+            }
           ]
         },
         {
@@ -7722,10 +7912,8 @@
           "mark": "cut",
           "anim": "cast",
           "text": "{0} Dulled",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "dulled", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "dulled", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Deep Drink",
@@ -7742,7 +7930,7 @@
               "add": true
             }
           ],
-          "trigger": {"kind": "match", "faces": ["Drink"], "count": 2},
+          "trigger": { "kind": "match", "faces": ["Drink"], "count": 2 },
           "dramatic": true
         }
       ]
@@ -7787,9 +7975,15 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "A Prism joins (three at most)",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 1, "creature": "PRISM", "cap": 3}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 1,
+              "creature": "PRISM",
+              "cap": 3
+            }
           ]
         },
         {
@@ -7798,7 +7992,7 @@
           "mark": "prism",
           "anim": "gather",
           "text": "Takes half damage until its next action, then throws all it was dealt back",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "charge",
@@ -7808,9 +8002,7 @@
               "store": true,
               "guard_pct": 50,
               "text": "Gathered Light",
-              "release": [
-                {"kind": "damage", "target": "heroes", "amount": 0}
-              ]
+              "release": [{ "kind": "damage", "target": "heroes", "amount": 0 }]
             }
           ]
         },
@@ -7820,10 +8012,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 1 }]
         },
         {
           "name": "Crush",
@@ -7831,10 +8021,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 6 }]
         },
         {
           "name": "Lancet",
@@ -7842,9 +8030,14 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "cast",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 10,
+              "piercing": true
+            }
           ]
         },
         {
@@ -7853,13 +8046,13 @@
           "mark": "f_sword__m_x5",
           "anim": "cast",
           "text": "5 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3, "repeat": 5}
+            { "kind": "damage", "target": "heroes", "amount": 3, "repeat": 5 }
           ]
         }
       ],
-      "traits": {"shielded_by_escorts": 50},
+      "traits": { "shielded_by_escorts": 50 },
       "escorts": ["PRISM", "PRISM", "PRISM"]
     },
     "PRISM": {
@@ -7871,7 +8064,7 @@
       "text": "A floating prism that shields the Prismarch while it stands.",
       "tip": "While it floats, the Prismarch takes half damage.",
       "dice": [
-        {"shape": "D4", "faces": ["Glint", "Still", "Glint", "Glint"]}
+        { "shape": "D4", "faces": ["Glint", "Still", "Glint", "Glint"] }
       ],
       "moves": [
         {
@@ -7880,10 +8073,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Still",
@@ -7891,7 +8082,7 @@
           "mark": "hourglass",
           "anim": "falter",
           "text": "Nothing",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": []
         }
       ]
@@ -7904,7 +8095,7 @@
       "text": "A round fungus that swells every turn and never attacks. When it dies it bursts, poisoning the party for its swelling.",
       "tip": "Pop it early: the longer it lives, the worse its burst.",
       "dice": [
-        {"shape": "D4", "faces": ["Swell", "Bloat", "Swell", "Swell"]}
+        { "shape": "D4", "faces": ["Swell", "Bloat", "Swell", "Swell"] }
       ],
       "moves": [
         {
@@ -7913,9 +8104,13 @@
           "mark": "cloud",
           "anim": "burst",
           "text": "When it dies: Poison equal to its swelling",
-          "trigger": {"kind": "on_death"},
+          "trigger": { "kind": "on_death" },
           "effects": [
-            {"kind": "poison", "target": "heroes", "amount": {"term": "swell"}}
+            {
+              "kind": "poison",
+              "target": "heroes",
+              "amount": { "term": "swell" }
+            }
           ]
         },
         {
@@ -7924,10 +8119,8 @@
           "mark": "cloud__m_raise",
           "anim": "cast",
           "text": "Swells: its burst grows by {0}",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "swell", "target": "self", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "swell", "target": "self", "amount": 2 }]
         },
         {
           "name": "Bloat",
@@ -7935,10 +8128,10 @@
           "mark": "heart__m_raise",
           "anim": "mend",
           "text": "Heals {0}, and its maximum health grows by {1}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "heal", "target": "self", "amount": 6},
-            {"kind": "max_hp", "target": "self", "amount": 6}
+            { "kind": "heal", "target": "self", "amount": 6 },
+            { "kind": "max_hp", "target": "self", "amount": 6 }
           ]
         }
       ]
@@ -7963,10 +8156,8 @@
           "mark": "f_sword",
           "anim": "spit",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Spores",
@@ -7974,13 +8165,11 @@
           "mark": "drop",
           "anim": "spit",
           "text": "{0} Poison",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "poison", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 2 }]
         }
       ],
-      "traits": {"split_on_big_hit": true, "acid_armour": 1}
+      "traits": { "split_on_big_hit": true, "acid_armour": 1 }
     },
     "MYCEL_WEAVER": {
       "name": "Mycel Weaver",
@@ -8002,9 +8191,15 @@
           "mark": "f_sword__m_drop",
           "anim": "bite",
           "text": "2 hits of {0} damage, and Poison for what gets past your block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2, "repeat": 2, "poison_through": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 2,
+              "repeat": 2,
+              "poison_through": true
+            }
           ]
         },
         {
@@ -8013,10 +8208,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Takes a die; it comes back after your next turn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "die_steal", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Envenom",
@@ -8024,9 +8217,9 @@
           "mark": "drop__m_x2",
           "anim": "spit",
           "text": "Your Poison bites again, now",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "poison_tick", "target": "heroes", "amount": 1}
+            { "kind": "poison_tick", "target": "heroes", "amount": 1 }
           ]
         }
       ]
@@ -8041,7 +8234,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Drain", "Wail", "Regrow", "Fade", "Drain", "Regrow", "Drain", "Drain"]
+          "faces": [
+            "Drain",
+            "Wail",
+            "Regrow",
+            "Fade",
+            "Drain",
+            "Regrow",
+            "Drain",
+            "Drain"
+          ]
         }
       ],
       "moves": [
@@ -8051,10 +8253,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Wail",
@@ -8062,9 +8262,14 @@
           "mark": "f_sword__m_pierce",
           "anim": "slam",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 6,
+              "piercing": true
+            }
           ]
         },
         {
@@ -8073,10 +8278,10 @@
           "mark": "heart",
           "anim": "mend",
           "text": "Sheds its poison and heals {1}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "purge", "target": "self", "amount": 100},
-            {"kind": "heal", "target": "self", "amount": 4}
+            { "kind": "purge", "target": "self", "amount": 100 },
+            { "kind": "heal", "target": "self", "amount": 4 }
           ]
         },
         {
@@ -8085,10 +8290,8 @@
           "mark": "hide_h",
           "anim": "guard",
           "text": "Cannot be targeted until its next action",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burrow", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burrow", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -8102,7 +8305,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Slam", "Stomp", "Spore Cloud", "Slam", "Spore Cloud", "Slam", "Spore Cloud", "Slam"]
+          "faces": [
+            "Slam",
+            "Stomp",
+            "Spore Cloud",
+            "Slam",
+            "Spore Cloud",
+            "Slam",
+            "Spore Cloud",
+            "Slam"
+          ]
         }
       ],
       "moves": [
@@ -8112,10 +8324,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Stomp",
@@ -8123,10 +8333,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Spore Cloud",
@@ -8134,10 +8342,8 @@
           "mark": "swirl",
           "anim": "spit",
           "text": "{0} Festering: healing halved",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "festering", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "festering", "target": "heroes", "amount": 2 }]
         }
       ]
     },
@@ -8151,11 +8357,29 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Lash", "Squeeze", "Feed", "Thicken", "Lash", "Feed", "Lash", "Lash"]
+          "faces": [
+            "Lash",
+            "Squeeze",
+            "Feed",
+            "Thicken",
+            "Lash",
+            "Feed",
+            "Lash",
+            "Lash"
+          ]
         },
         {
           "shape": "D8",
-          "faces": ["Lash", "Squeeze", "Feed", "Thicken", "Lash", "Feed", "Lash", "Lash"]
+          "faces": [
+            "Lash",
+            "Squeeze",
+            "Feed",
+            "Thicken",
+            "Lash",
+            "Feed",
+            "Lash",
+            "Lash"
+          ]
         }
       ],
       "moves": [
@@ -8165,10 +8389,8 @@
           "mark": "f_sword",
           "anim": "lash",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Squeeze",
@@ -8176,10 +8398,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 7}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 7 }]
         },
         {
           "name": "Feed",
@@ -8187,10 +8407,10 @@
           "mark": "heart__m_raise",
           "anim": "bite",
           "text": "Heals {0}, and its maximum health grows by {1}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "heal", "target": "self", "amount": 6},
-            {"kind": "max_hp", "target": "self", "amount": 6}
+            { "kind": "heal", "target": "self", "amount": 6 },
+            { "kind": "max_hp", "target": "self", "amount": 6 }
           ]
         },
         {
@@ -8199,10 +8419,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -8217,7 +8435,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Tend", "Plant", "Feed the Soil", "Prune", "Tend", "Plant", "Feed the Soil", "Tend"],
+          "faces": [
+            "Tend",
+            "Plant",
+            "Feed the Soil",
+            "Prune",
+            "Tend",
+            "Plant",
+            "Feed the Soil",
+            "Tend"
+          ],
           "label": "trowel"
         },
         {
@@ -8233,10 +8460,8 @@
           "mark": "heart",
           "anim": "mend",
           "text": "Heals every creature {0}",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "heal", "target": "allies", "amount": 6}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "heal", "target": "allies", "amount": 6 }]
         },
         {
           "name": "Plant",
@@ -8244,9 +8469,14 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "A Puffball joins",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 1, "creature": "PUFFBALL"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 1,
+              "creature": "PUFFBALL"
+            }
           ]
         },
         {
@@ -8255,10 +8485,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "Every creature gains {0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "allies", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "allies", "amount": 1 }]
         },
         {
           "name": "Prune",
@@ -8266,9 +8494,14 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Every face your dice show loses {0} for the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "grind_die", "target": "heroes", "amount": 1, "pick": "showing"}
+            {
+              "kind": "grind_die",
+              "target": "heroes",
+              "amount": 1,
+              "pick": "showing"
+            }
           ]
         },
         {
@@ -8277,10 +8510,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Sow",
@@ -8288,9 +8519,14 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "A Root Horror joins",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 1, "creature": "ROOT_HORROR"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 1,
+              "creature": "ROOT_HORROR"
+            }
           ]
         },
         {
@@ -8299,10 +8535,15 @@
           "mark": "thorns_c",
           "anim": "guard",
           "text": "{0} block that hits back",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 8},
-            {"kind": "spikes", "target": "self", "amount": 3, "until": "next_action"}
+            { "kind": "block", "target": "self", "amount": 8 },
+            {
+              "kind": "spikes",
+              "target": "self",
+              "amount": 3,
+              "until": "next_action"
+            }
           ]
         }
       ]
@@ -8318,12 +8559,30 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Writhe", "Spore", "Shed", "Writhe", "Spore", "Writhe", "Spore", "Writhe"],
+          "faces": [
+            "Writhe",
+            "Spore",
+            "Shed",
+            "Writhe",
+            "Spore",
+            "Writhe",
+            "Spore",
+            "Writhe"
+          ],
           "label": "sac"
         },
         {
           "shape": "D8",
-          "faces": ["Stamp", "Choke", "Rot", "Brood", "Stamp", "Choke", "Stamp", "Stamp"],
+          "faces": [
+            "Stamp",
+            "Choke",
+            "Rot",
+            "Brood",
+            "Stamp",
+            "Choke",
+            "Stamp",
+            "Stamp"
+          ],
           "label": "legs"
         }
       ],
@@ -8334,10 +8593,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Spore",
@@ -8345,10 +8602,8 @@
           "mark": "drop",
           "anim": "spit",
           "text": "{0} Poison",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "poison", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Shed",
@@ -8356,10 +8611,10 @@
           "mark": "heart",
           "anim": "mend",
           "text": "Sheds every affliction on her and heals {1}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "cleanse", "target": "self", "amount": 99},
-            {"kind": "heal", "target": "self", "amount": 10}
+            { "kind": "cleanse", "target": "self", "amount": 99 },
+            { "kind": "heal", "target": "self", "amount": 10 }
           ]
         },
         {
@@ -8368,10 +8623,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Choke",
@@ -8379,10 +8632,8 @@
           "mark": "swirl",
           "anim": "spit",
           "text": "{0} Festering: healing halved",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "festering", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "festering", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Rot",
@@ -8390,9 +8641,9 @@
           "mark": "drop__m_x2",
           "anim": "spit",
           "text": "Your Poison bites again, now",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "poison_tick", "target": "heroes", "amount": 1}
+            { "kind": "poison_tick", "target": "heroes", "amount": 1 }
           ]
         },
         {
@@ -8401,9 +8652,14 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "A Spore Slime joins",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 1, "creature": "SPORE_SLIME"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 1,
+              "creature": "SPORE_SLIME"
+            }
           ]
         },
         {
@@ -8413,9 +8669,9 @@
           "anim": "spores",
           "text": "Spore and Rot together: your Poison bites once more",
           "effects": [
-            {"kind": "poison_tick", "target": "heroes", "amount": 1}
+            { "kind": "poison_tick", "target": "heroes", "amount": 1 }
           ],
-          "trigger": {"kind": "match", "faces": ["Spore", "Rot"]},
+          "trigger": { "kind": "match", "faces": ["Spore", "Rot"] },
           "dramatic": true
         }
       ]
@@ -8431,15 +8687,42 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Rot", "Double Rot", "Miasma", "Regrow", "Rot", "Rot", "Rot", "Rot"]
+          "faces": [
+            "Rot",
+            "Double Rot",
+            "Miasma",
+            "Regrow",
+            "Rot",
+            "Rot",
+            "Rot",
+            "Rot"
+          ]
         },
         {
           "shape": "D8",
-          "faces": ["Rot", "Double Rot", "Miasma", "Regrow", "Rot", "Rot", "Rot", "Rot"]
+          "faces": [
+            "Rot",
+            "Double Rot",
+            "Miasma",
+            "Regrow",
+            "Rot",
+            "Rot",
+            "Rot",
+            "Rot"
+          ]
         },
         {
           "shape": "D8",
-          "faces": ["Rot", "Double Rot", "Miasma", "Regrow", "Rot", "Rot", "Rot", "Rot"]
+          "faces": [
+            "Rot",
+            "Double Rot",
+            "Miasma",
+            "Regrow",
+            "Rot",
+            "Rot",
+            "Rot",
+            "Rot"
+          ]
         }
       ],
       "moves": [
@@ -8449,10 +8732,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Double Rot",
@@ -8460,9 +8741,9 @@
           "mark": "f_sword__m_x2",
           "anim": "slam",
           "text": "2 hits of {0}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5, "repeat": 2}
+            { "kind": "damage", "target": "heroes", "amount": 5, "repeat": 2 }
           ]
         },
         {
@@ -8471,10 +8752,8 @@
           "mark": "swirl",
           "anim": "spit",
           "text": "{0} Festering",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "festering", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "festering", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Regrow",
@@ -8482,9 +8761,14 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "A Tendril joins",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 1, "creature": "TENDRIL"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 1,
+              "creature": "TENDRIL"
+            }
           ]
         }
       ],
@@ -8510,10 +8794,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Lantern",
@@ -8521,9 +8803,14 @@
           "mark": "spark",
           "anim": "cast",
           "text": "One more reroll on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "gift_rerolls"}
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "gift_rerolls"
+            }
           ]
         },
         {
@@ -8532,9 +8819,14 @@
           "mark": "flame__m_reroll",
           "anim": "breath",
           "text": "{0} Burn for every reroll you used this turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 2, "per_reroll": true}
+            {
+              "kind": "burn",
+              "target": "heroes",
+              "amount": 2,
+              "per_reroll": true
+            }
           ]
         }
       ]
@@ -8559,10 +8851,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Gorge",
@@ -8570,10 +8860,8 @@
           "mark": "labrys_tilt",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Latch",
@@ -8581,10 +8869,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Takes a die; it comes back after your next turn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "die_steal", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Ignite",
@@ -8592,10 +8878,8 @@
           "mark": "flame",
           "anim": "breath",
           "text": "{0} Burn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 2 }]
         }
       ]
     },
@@ -8619,10 +8903,8 @@
           "mark": "flame",
           "anim": "breath",
           "text": "{0} Burn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Hammer",
@@ -8630,10 +8912,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Heat Treat",
@@ -8641,9 +8921,9 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "One of your dice shrinks a size for the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "downgrade_die", "target": "heroes", "amount": 1}
+            { "kind": "downgrade_die", "target": "heroes", "amount": 1 }
           ]
         }
       ]
@@ -8668,10 +8948,8 @@
           "mark": "f_sword",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Ember",
@@ -8679,10 +8957,8 @@
           "mark": "flame",
           "anim": "breath",
           "text": "{0} Burn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
         }
       ]
     },
@@ -8706,9 +8982,14 @@
           "mark": "f_sword__m_pierce",
           "anim": "claw",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 3,
+              "piercing": true
+            }
           ]
         },
         {
@@ -8717,10 +8998,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "Every creature gains {0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "allies", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "allies", "amount": 1 }]
         }
       ]
     },
@@ -8734,7 +9013,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Bite", "Sear", "Spit", "Bite", "Sear", "Spit", "Bite", "Bite"]
+          "faces": [
+            "Bite",
+            "Sear",
+            "Spit",
+            "Bite",
+            "Sear",
+            "Spit",
+            "Bite",
+            "Bite"
+          ]
         }
       ],
       "moves": [
@@ -8744,10 +9032,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Sear",
@@ -8755,10 +9041,8 @@
           "mark": "flame",
           "anim": "breath",
           "text": "{0} Burn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Spit",
@@ -8766,9 +9050,14 @@
           "mark": "shield_cut",
           "anim": "spit",
           "text": "Melts away your block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "remove_block", "target": "heroes", "amount": 1, "remove_all": true}
+            {
+              "kind": "remove_block",
+              "target": "heroes",
+              "amount": 1,
+              "remove_all": true
+            }
           ]
         }
       ]
@@ -8784,7 +9073,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Pour", "Scald", "Melt", "Pour", "Scald", "Pour", "Pour", "Pour"],
+          "faces": [
+            "Pour",
+            "Scald",
+            "Melt",
+            "Pour",
+            "Scald",
+            "Pour",
+            "Pour",
+            "Pour"
+          ],
           "label": "crucible"
         },
         {
@@ -8809,10 +9107,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 6 }]
         },
         {
           "name": "Scald",
@@ -8820,10 +9116,8 @@
           "mark": "flame",
           "anim": "breath",
           "text": "{0} Burn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Melt",
@@ -8831,10 +9125,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "The face one of your dice shows is blank for the rest of the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "blank_face", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "blank_face", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Slag Armour",
@@ -8842,10 +9134,15 @@
           "mark": "thorns_c",
           "anim": "guard",
           "text": "{0} block that hits back",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 8},
-            {"kind": "spikes", "target": "self", "amount": 3, "until": "next_action"}
+            { "kind": "block", "target": "self", "amount": 8 },
+            {
+              "kind": "spikes",
+              "target": "self",
+              "amount": 3,
+              "until": "next_action"
+            }
           ]
         },
         {
@@ -8854,10 +9151,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Stoke",
@@ -8865,10 +9160,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -8883,7 +9176,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Bulwark", "Quench", "Temper", "Bulwark", "Quench", "Temper", "Bulwark", "Bulwark"],
+          "faces": [
+            "Bulwark",
+            "Quench",
+            "Temper",
+            "Bulwark",
+            "Quench",
+            "Temper",
+            "Bulwark",
+            "Bulwark"
+          ],
           "label": "anvil"
         },
         {
@@ -8912,11 +9214,21 @@
           "mark": "thorns_c__m_kept",
           "anim": "guard",
           "text": "{0} block that hits back, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 12},
-            {"kind": "spikes", "target": "self", "amount": 3, "until": "next_action"},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 12 },
+            {
+              "kind": "spikes",
+              "target": "self",
+              "amount": 3,
+              "until": "next_action"
+            },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         },
         {
@@ -8925,10 +9237,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 2 }]
         },
         {
           "name": "Temper",
@@ -8936,7 +9246,7 @@
           "mark": "hammered_anvil",
           "anim": "rally",
           "text": "One of its Hammer faces becomes Smite",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "etch",
@@ -8955,10 +9265,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 6 }]
         },
         {
           "name": "Smite",
@@ -8966,10 +9274,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 12}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 12 }]
         },
         {
           "name": "Forge-fire",
@@ -8977,10 +9283,8 @@
           "mark": "flame",
           "anim": "breath",
           "text": "{0} Burn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Shatter",
@@ -8988,13 +9292,18 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "slam",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 16, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 16,
+              "piercing": true
+            }
           ]
         }
       ],
-      "traits": {"steadfast": true}
+      "traits": { "steadfast": true }
     },
     "THE_KILN_WYRM": {
       "name": "The Kiln Dragon",
@@ -9007,7 +9316,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Claw", "Rend", "Pin", "Claw", "Rend", "Claw", "Claw", "Claw"],
+          "faces": [
+            "Claw",
+            "Rend",
+            "Pin",
+            "Claw",
+            "Rend",
+            "Claw",
+            "Claw",
+            "Claw"
+          ],
           "label": "claws"
         },
         {
@@ -9054,10 +9372,8 @@
           "mark": "f_sword",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 6 }]
         },
         {
           "name": "Rend",
@@ -9065,10 +9381,8 @@
           "mark": "labrys_tilt",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 10 }]
         },
         {
           "name": "Pin",
@@ -9076,10 +9390,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Takes a die",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "die_steal", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Firebreath",
@@ -9087,10 +9399,8 @@
           "mark": "flame",
           "anim": "breath",
           "text": "{0} Burn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burn", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Lavafall",
@@ -9098,9 +9408,14 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "breath",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 14, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 14,
+              "piercing": true
+            }
           ]
         },
         {
@@ -9109,10 +9424,8 @@
           "mark": "cut",
           "anim": "breath",
           "text": "{0} Dulled: the heat dulls your gems",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "dulled", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "dulled", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Melt",
@@ -9120,9 +9433,14 @@
           "mark": "gem_d",
           "anim": "cast",
           "text": "Melts one of your gems for the rest of the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "break_gem", "target": "heroes", "amount": 1, "permanent": true}
+            {
+              "kind": "break_gem",
+              "target": "heroes",
+              "amount": 1,
+              "permanent": true
+            }
           ]
         },
         {
@@ -9131,9 +9449,9 @@
           "mark": "f_sword__m_x2",
           "anim": "lash",
           "text": "2 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4, "repeat": 2}
+            { "kind": "damage", "target": "heroes", "amount": 4, "repeat": 2 }
           ]
         },
         {
@@ -9142,7 +9460,7 @@
           "mark": "hammered_anvil",
           "anim": "rally",
           "text": "A Firebreath face on the breath die becomes Lavafall",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "etch",
@@ -9161,13 +9479,18 @@
           "mark": "shield_cut",
           "anim": "cast",
           "text": "Shakes your block away",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "remove_block", "target": "heroes", "amount": 1, "remove_all": true}
+            {
+              "kind": "remove_block",
+              "target": "heroes",
+              "amount": 1,
+              "remove_all": true
+            }
           ]
         }
       ],
-      "traits": {"steadfast": true}
+      "traits": { "steadfast": true }
     },
     "GILDED_MAGPIE": {
       "name": "Gilded Magpie",
@@ -9189,10 +9512,8 @@
           "mark": "f_sword",
           "anim": "peck",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Snatch",
@@ -9200,10 +9521,16 @@
           "mark": "f_coin_taken__m_spark",
           "anim": "peck",
           "text": "Takes {0} pyrite from the richest player; then this face becomes Flee",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "steal_gold", "target": "hero_most_gold", "amount": 30},
-            {"kind": "etch", "target": "self", "amount": 1, "from": "self_face", "to": "Flee"}
+            { "kind": "steal_gold", "target": "hero_most_gold", "amount": 30 },
+            {
+              "kind": "etch",
+              "target": "self",
+              "amount": 1,
+              "from": "self_face",
+              "to": "Flee"
+            }
           ]
         },
         {
@@ -9212,10 +9539,8 @@
           "mark": "flee",
           "anim": "rally",
           "text": "Leaves the fight with everything it took",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "flee", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "flee", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -9229,7 +9554,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Pinch", "Jackpot", "Double", "Rake", "Fold", "Pinch", "Fold", "Pinch"]
+          "faces": [
+            "Pinch",
+            "Jackpot",
+            "Double",
+            "Rake",
+            "Fold",
+            "Pinch",
+            "Fold",
+            "Pinch"
+          ]
         }
       ],
       "moves": [
@@ -9239,10 +9573,8 @@
           "mark": "f_sword",
           "anim": "claw",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Jackpot",
@@ -9250,10 +9582,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 10 }]
         },
         {
           "name": "Double",
@@ -9261,9 +9591,9 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "Its next attack is doubled",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "empower_next", "target": "self", "amount": 100}
+            { "kind": "empower_next", "target": "self", "amount": 100 }
           ]
         },
         {
@@ -9272,9 +9602,9 @@
           "mark": "f_coin_taken",
           "anim": "claw",
           "text": "Takes {0} pyrite from the richest player",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "steal_gold", "target": "hero_most_gold", "amount": 10}
+            { "kind": "steal_gold", "target": "hero_most_gold", "amount": 10 }
           ]
         },
         {
@@ -9283,10 +9613,8 @@
           "mark": "hourglass",
           "anim": "falter",
           "text": "Nothing, and it drops {0} pyrite",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "gold", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "gold", "target": "heroes", "amount": 5 }]
         }
       ]
     },
@@ -9300,7 +9628,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Pound", "Crush", "Fortify", "Shardstorm", "Pound", "Fortify", "Pound", "Fortify"]
+          "faces": [
+            "Pound",
+            "Crush",
+            "Fortify",
+            "Shardstorm",
+            "Pound",
+            "Fortify",
+            "Pound",
+            "Fortify"
+          ]
         }
       ],
       "moves": [
@@ -9310,10 +9647,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Crush",
@@ -9321,10 +9656,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Fortify",
@@ -9332,10 +9665,15 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 10},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 10 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         },
         {
@@ -9344,13 +9682,13 @@
           "mark": "f_sword__m_x3",
           "anim": "cast",
           "text": "3 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3, "repeat": 3}
+            { "kind": "damage", "target": "heroes", "amount": 3, "repeat": 3 }
           ]
         }
       ],
-      "traits": {"sturdy": 25}
+      "traits": { "sturdy": 25 }
     },
     "HOARD_MIMIC": {
       "name": "Hoard Mimic",
@@ -9362,7 +9700,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Snap", "Chomp", "Gulp", "Shut", "Snap", "Gulp", "Snap", "Snap"]
+          "faces": [
+            "Snap",
+            "Chomp",
+            "Gulp",
+            "Shut",
+            "Snap",
+            "Gulp",
+            "Snap",
+            "Snap"
+          ]
         }
       ],
       "moves": [
@@ -9372,10 +9719,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Chomp",
@@ -9383,10 +9728,8 @@
           "mark": "labrys_tilt",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Gulp",
@@ -9394,9 +9737,14 @@
           "mark": "gem_d",
           "anim": "bite",
           "text": "Swallows the gem that hit it hardest this turn until it dies",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "hold_gem", "target": "self", "amount": 1, "pick": "hardest"}
+            {
+              "kind": "hold_gem",
+              "target": "self",
+              "amount": 1,
+              "pick": "hardest"
+            }
           ]
         },
         {
@@ -9405,14 +9753,19 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 8},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 8 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         }
       ],
-      "traits": {"drops_stone": true}
+      "traits": { "drops_stone": true }
     },
     "AMETHYST_WYRM": {
       "name": "Amethyst Wyrm",
@@ -9447,10 +9800,8 @@
           "mark": "f_sword",
           "anim": "lash",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Amethyst Breath",
@@ -9458,10 +9809,8 @@
           "mark": "labrys_tilt",
           "anim": "breath",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 10 }]
         },
         {
           "name": "Hex",
@@ -9469,10 +9818,8 @@
           "mark": "hex",
           "anim": "cast",
           "text": "{0} Curse",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "curse", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "curse", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Sharpen",
@@ -9480,10 +9827,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 3 }]
         },
         {
           "name": "Mirror",
@@ -9491,9 +9836,14 @@
           "mark": "prism",
           "anim": "guard",
           "text": "Half of every blow on it goes back until its next action",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "reflect", "target": "self", "amount": 50, "back": "thrower"}
+            {
+              "kind": "reflect",
+              "target": "self",
+              "amount": 50,
+              "back": "thrower"
+            }
           ]
         }
       ]
@@ -9506,9 +9856,9 @@
       "text": "A geode grown three crystal heads, a die each. Sprout grows another head, six at most.",
       "tip": "Every head is another die. Kill it before it sprouts.",
       "dice": [
-        {"shape": "D4", "faces": ["Bite", "Sprout", "Bite", "Bite"]},
-        {"shape": "D4", "faces": ["Bite", "Sprout", "Bite", "Bite"]},
-        {"shape": "D4", "faces": ["Bite", "Sprout", "Bite", "Bite"]}
+        { "shape": "D4", "faces": ["Bite", "Sprout", "Bite", "Bite"] },
+        { "shape": "D4", "faces": ["Bite", "Sprout", "Bite", "Bite"] },
+        { "shape": "D4", "faces": ["Bite", "Sprout", "Bite", "Bite"] }
       ],
       "moves": [
         {
@@ -9517,10 +9867,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Sprout",
@@ -9528,9 +9876,15 @@
           "mark": "dice_pair",
           "anim": "rally",
           "text": "Another head: +1 d4, six at most",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "grow_die", "target": "self", "amount": 1, "cap": 6, "template": 0}
+            {
+              "kind": "grow_die",
+              "target": "self",
+              "amount": 1,
+              "cap": 6,
+              "template": 0
+            }
           ]
         }
       ]
@@ -9560,7 +9914,16 @@
         },
         {
           "shape": "D8",
-          "faces": ["Tax", "Raise the Rate", "Audit", "Seize", "Tax", "Raise the Rate", "Audit", "Tax"],
+          "faces": [
+            "Tax",
+            "Raise the Rate",
+            "Audit",
+            "Seize",
+            "Tax",
+            "Raise the Rate",
+            "Audit",
+            "Tax"
+          ],
           "label": "ledger"
         }
       ],
@@ -9571,10 +9934,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Balance",
@@ -9582,10 +9943,15 @@
           "mark": "thorns_c",
           "anim": "guard",
           "text": "{0} block that hits back",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 8},
-            {"kind": "spikes", "target": "self", "amount": 3, "until": "next_action"}
+            { "kind": "block", "target": "self", "amount": 8 },
+            {
+              "kind": "spikes",
+              "target": "self",
+              "amount": 3,
+              "until": "next_action"
+            }
           ]
         },
         {
@@ -9594,7 +9960,7 @@
           "mark": "heart__m_richest",
           "anim": "mend",
           "text": "Heals 1% of its health, and grows by 1%, for every 10 pyrite the richest player holds",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "heal",
@@ -9602,8 +9968,11 @@
               "amount": {
                 "op": "pct",
                 "args": [
-                  {"term": "max_hp"},
-                  {"op": "floor_div", "args": [{"term": "party_richest"}, 10]}
+                  { "term": "max_hp" },
+                  {
+                    "op": "floor_div",
+                    "args": [{ "term": "party_richest" }, 10]
+                  }
                 ]
               }
             },
@@ -9613,8 +9982,11 @@
               "amount": {
                 "op": "pct",
                 "args": [
-                  {"term": "max_hp"},
-                  {"op": "floor_div", "args": [{"term": "party_richest"}, 10]}
+                  { "term": "max_hp" },
+                  {
+                    "op": "floor_div",
+                    "args": [{ "term": "party_richest" }, 10]
+                  }
                 ]
               }
             }
@@ -9626,10 +9998,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 10 }]
         },
         {
           "name": "Tax",
@@ -9637,9 +10007,15 @@
           "mark": "f_coin_taken",
           "anim": "cast",
           "text": "Takes a tenth of your pyrite, and hits you for what it took",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "steal_gold", "target": "heroes", "amount": 10, "pct": true, "hurt": true}
+            {
+              "kind": "steal_gold",
+              "target": "heroes",
+              "amount": 10,
+              "pct": true,
+              "hurt": true
+            }
           ]
         },
         {
@@ -9648,7 +10024,7 @@
           "mark": "f_coin_taken__m_raise",
           "anim": "rally",
           "text": "Tax takes a fifth instead of a tenth for the rest of the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "etch",
@@ -9666,10 +10042,8 @@
           "mark": "hex",
           "anim": "cast",
           "text": "{0} Curse: a bad mark in the book",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "curse", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "curse", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Seize",
@@ -9677,10 +10051,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Takes a die, as collateral",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "die_steal", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "die_steal", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Heavy Tax",
@@ -9688,13 +10060,19 @@
           "mark": "f_coin_taken__m_x2",
           "anim": "cast",
           "text": "Takes a fifth of your pyrite, and hits you for what it took",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "steal_gold", "target": "heroes", "amount": 20, "pct": true, "hurt": true}
+            {
+              "kind": "steal_gold",
+              "target": "heroes",
+              "amount": 20,
+              "pct": true,
+              "hurt": true
+            }
           ]
         }
       ],
-      "traits": {"carat_cap": 5}
+      "traits": { "carat_cap": 5 }
     },
     "THE_COLLECTOR": {
       "name": "The Collector",
@@ -9707,12 +10085,30 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Acquire", "Exhibit", "Case", "Polish", "Acquire", "Exhibit", "Case", "Acquire"],
+          "faces": [
+            "Acquire",
+            "Exhibit",
+            "Case",
+            "Polish",
+            "Acquire",
+            "Exhibit",
+            "Case",
+            "Acquire"
+          ],
           "label": "cases"
         },
         {
           "shape": "D8",
-          "faces": ["Rap", "Smash", "Sweep", "Rap", "Smash", "Rap", "Rap", "Rap"],
+          "faces": [
+            "Rap",
+            "Smash",
+            "Sweep",
+            "Rap",
+            "Smash",
+            "Rap",
+            "Rap",
+            "Rap"
+          ],
           "label": "cane"
         }
       ],
@@ -9723,9 +10119,14 @@
           "mark": "gem_d",
           "anim": "cast",
           "text": "Takes the finest gem it can fire itself off a rail until it dies",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "hold_gem", "target": "self", "amount": 1, "pick": "usable"}
+            {
+              "kind": "hold_gem",
+              "target": "self",
+              "amount": 1,
+              "pick": "usable"
+            }
           ]
         },
         {
@@ -9734,10 +10135,8 @@
           "mark": "copy",
           "anim": "cast",
           "text": "Fires every gem it holds, as its own",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "exhibit", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "exhibit", "target": "self", "amount": 1 }]
         },
         {
           "name": "Case",
@@ -9745,10 +10144,15 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 8},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 8 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         },
         {
@@ -9757,10 +10161,8 @@
           "mark": "bolt",
           "anim": "rally",
           "text": "+{0} Strength for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "strength", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "strength", "target": "self", "amount": 1 }]
         },
         {
           "name": "Rap",
@@ -9768,10 +10170,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 5}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Smash",
@@ -9779,10 +10179,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 10}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 10 }]
         },
         {
           "name": "Sweep",
@@ -9790,9 +10188,9 @@
           "mark": "f_sword__m_x3",
           "anim": "lash",
           "text": "3 hits of {0} damage",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3, "repeat": 3}
+            { "kind": "damage", "target": "heroes", "amount": 3, "repeat": 3 }
           ]
         }
       ],
@@ -9819,10 +10217,8 @@
           "mark": "hourglass",
           "anim": "falter",
           "text": "Its action ends here",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "end_action", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "end_action", "target": "self", "amount": 1 }]
         },
         {
           "name": "Crush",
@@ -9830,10 +10226,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 8}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 8 }]
         },
         {
           "name": "Bulwark",
@@ -9841,10 +10235,15 @@
           "mark": "shield__m_kept",
           "anim": "guard",
           "text": "{0} block, kept",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "block", "target": "self", "amount": 10},
-            {"kind": "retain", "target": "self", "amount": 1, "keep_all": true}
+            { "kind": "block", "target": "self", "amount": 10 },
+            {
+              "kind": "retain",
+              "target": "self",
+              "amount": 1,
+              "keep_all": true
+            }
           ]
         },
         {
@@ -9853,7 +10252,7 @@
           "mark": "hammered_anvil",
           "anim": "rally",
           "text": "Its die grows a size, up to a d12, with a Topple face and a Summon face",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "grow_faces",
@@ -9870,10 +10269,10 @@
           "mark": "heart",
           "anim": "mend",
           "text": "Heals {0}, and whichever attack lands next is doubled",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "heal", "target": "self", "amount": 25},
-            {"kind": "empower_next", "target": "self", "amount": 100}
+            { "kind": "heal", "target": "self", "amount": 25 },
+            { "kind": "empower_next", "target": "self", "amount": 100 }
           ]
         },
         {
@@ -9882,10 +10281,8 @@
           "mark": "labrys_tilt",
           "anim": "slam",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 20}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 20 }]
         },
         {
           "name": "Summon",
@@ -9893,13 +10290,18 @@
           "mark": "call_b",
           "anim": "rally",
           "text": "Two Gilded Magpies join the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "summon", "target": "self", "amount": 2, "creature": "GILDED_MAGPIE"}
+            {
+              "kind": "summon",
+              "target": "self",
+              "amount": 2,
+              "creature": "GILDED_MAGPIE"
+            }
           ]
         }
       ],
-      "traits": {"sturdy": 15}
+      "traits": { "sturdy": 15 }
     },
     "RIFTLING_SWARM": {
       "name": "Riftling Swarm",
@@ -9909,8 +10311,8 @@
       "text": "A swarm of rift shards, two dice that grow to five. Its static makes every gem you fire next turn cost 1 health.",
       "tip": "After Static, fire fewer gems.",
       "dice": [
-        {"shape": "D4", "faces": ["Nibble", "Swarm", "Static", "Nibble"]},
-        {"shape": "D4", "faces": ["Nibble", "Swarm", "Static", "Nibble"]}
+        { "shape": "D4", "faces": ["Nibble", "Swarm", "Static", "Nibble"] },
+        { "shape": "D4", "faces": ["Nibble", "Swarm", "Static", "Nibble"] }
       ],
       "moves": [
         {
@@ -9919,10 +10321,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 2}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 2 }]
         },
         {
           "name": "Swarm",
@@ -9930,9 +10330,15 @@
           "mark": "dice_pair",
           "anim": "rally",
           "text": "Another riftling: +1 d4, five at most",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "grow_die", "target": "self", "amount": 1, "cap": 5, "template": 0}
+            {
+              "kind": "grow_die",
+              "target": "self",
+              "amount": 1,
+              "cap": 5,
+              "template": 0
+            }
           ]
         },
         {
@@ -9941,9 +10347,14 @@
           "mark": "bolt",
           "anim": "cast",
           "text": "Every gem that fires on your next turn costs its owner 1 health",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "backlash"}
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "backlash"
+            }
           ]
         }
       ]
@@ -9968,10 +10379,8 @@
           "mark": "f_sword",
           "anim": "slam",
           "text": "{0} damage (an echo throws the dice of the creature it copies)",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Echo Anew",
@@ -9979,10 +10388,8 @@
           "mark": "morph",
           "anim": "rally",
           "text": "Becomes a different creature from the first four mines, at that creature's full health",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "morph", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "morph", "target": "self", "amount": 1 }]
         }
       ],
       "echo": {
@@ -9999,7 +10406,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Gaze", "Stare", "Unmake", "Gaze", "Stare", "Gaze", "Gaze", "Gaze"]
+          "faces": [
+            "Gaze",
+            "Stare",
+            "Unmake",
+            "Gaze",
+            "Stare",
+            "Gaze",
+            "Gaze",
+            "Gaze"
+          ]
         }
       ],
       "moves": [
@@ -10009,10 +10425,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Stare",
@@ -10020,10 +10434,8 @@
           "mark": "hex",
           "anim": "cast",
           "text": "{0} Curse",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "curse", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "curse", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Unmake",
@@ -10031,9 +10443,14 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Destroys one of your dice for the rest of the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "break_die", "target": "heroes", "amount": 1, "permanent": true}
+            {
+              "kind": "break_die",
+              "target": "heroes",
+              "amount": 1,
+              "permanent": true
+            }
           ]
         }
       ]
@@ -10048,7 +10465,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Drain", "Sip", "Snuff", "Dampen", "Drain", "Sip", "Drain", "Drain"]
+          "faces": [
+            "Drain",
+            "Sip",
+            "Snuff",
+            "Dampen",
+            "Drain",
+            "Sip",
+            "Drain",
+            "Drain"
+          ]
         }
       ],
       "moves": [
@@ -10058,10 +10484,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Sip",
@@ -10069,10 +10493,8 @@
           "mark": "heart",
           "anim": "bite",
           "text": "Heals {0}",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "heal", "target": "self", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "heal", "target": "self", "amount": 4 }]
         },
         {
           "name": "Snuff",
@@ -10080,9 +10502,14 @@
           "mark": "gem_d",
           "anim": "cast",
           "text": "Melts one of your gems for the rest of the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "break_gem", "target": "heroes", "amount": 1, "permanent": true}
+            {
+              "kind": "break_gem",
+              "target": "heroes",
+              "amount": 1,
+              "permanent": true
+            }
           ]
         },
         {
@@ -10091,7 +10518,7 @@
           "mark": "hush",
           "anim": "cast",
           "text": "Your gems ring for half the Resonance on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "pin_trait",
@@ -10114,7 +10541,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Lash", "Shift", "Fold", "Lash", "Shift", "Lash", "Shift", "Lash"]
+          "faces": [
+            "Lash",
+            "Shift",
+            "Fold",
+            "Lash",
+            "Shift",
+            "Lash",
+            "Shift",
+            "Lash"
+          ]
         }
       ],
       "moves": [
@@ -10124,10 +10560,8 @@
           "mark": "f_sword",
           "anim": "lash",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Shift",
@@ -10135,10 +10569,8 @@
           "mark": "gem_d",
           "anim": "cast",
           "text": "Two neighbouring gems on each of your rails change places for the fight",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "swap_gems", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "swap_gems", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Fold",
@@ -10146,10 +10578,8 @@
           "mark": "hide_h",
           "anim": "guard",
           "text": "Cannot be targeted until its next action",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burrow", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burrow", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -10177,10 +10607,8 @@
           "mark": "f_sword",
           "anim": "pull",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Collapse",
@@ -10188,9 +10616,14 @@
           "mark": "labrys_tilt__m_pierce",
           "anim": "cast",
           "text": "{0} damage through block",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 6, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 6,
+              "piercing": true
+            }
           ]
         },
         {
@@ -10199,9 +10632,14 @@
           "mark": "prism",
           "anim": "guard",
           "text": "Until its next action, gems aimed at one creature hit it instead",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "taunt"}
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "taunt"
+            }
           ]
         },
         {
@@ -10211,9 +10649,14 @@
           "anim": "pull",
           "text": "Both dice on Collapse: another {0} damage through block",
           "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 18, "piercing": true}
+            {
+              "kind": "damage",
+              "target": "heroes",
+              "amount": 18,
+              "piercing": true
+            }
           ],
-          "trigger": {"kind": "match", "faces": ["Collapse"], "count": 2},
+          "trigger": { "kind": "match", "faces": ["Collapse"], "count": 2 },
           "dramatic": true
         }
       ]
@@ -10252,10 +10695,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 7}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 7 }]
         },
         {
           "name": "Expand",
@@ -10263,9 +10704,15 @@
           "mark": "dice_pair",
           "anim": "rally",
           "text": "Another d12, five at most",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "grow_die", "target": "self", "amount": 1, "cap": 5, "template": 0}
+            {
+              "kind": "grow_die",
+              "target": "self",
+              "amount": 1,
+              "cap": 5,
+              "template": 0
+            }
           ]
         },
         {
@@ -10274,9 +10721,14 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Every one of your dice shrinks a size for the fight",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "downgrade_die", "target": "heroes", "amount": 1, "pick": "all"}
+            {
+              "kind": "downgrade_die",
+              "target": "heroes",
+              "amount": 1,
+              "pick": "all"
+            }
           ]
         },
         {
@@ -10285,13 +10737,11 @@
           "mark": "broken_chain",
           "anim": "cast",
           "text": "Stunned for a turn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "stun", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "stun", "target": "heroes", "amount": 1 }]
         }
       ],
-      "traits": {"sturdy": 10}
+      "traits": { "sturdy": 10 }
     },
     "TENDRIL": {
       "name": "Tendril",
@@ -10314,10 +10764,8 @@
           "mark": "f_sword",
           "anim": "lash",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Knit",
@@ -10325,9 +10773,9 @@
           "mark": "heart",
           "anim": "mend",
           "text": "Heals the Heartrot {0}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "heal", "target": "escort_leader", "amount": 10}
+            { "kind": "heal", "target": "escort_leader", "amount": 10 }
           ]
         }
       ]
@@ -10352,10 +10800,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Hush",
@@ -10363,7 +10809,7 @@
           "mark": "hush",
           "anim": "cast",
           "text": "Your Resonance counts for half on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
             {
               "kind": "pin_trait",
@@ -10380,10 +10826,8 @@
           "mark": "hide_h",
           "anim": "guard",
           "text": "Cannot be targeted until its next action",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "burrow", "target": "self", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "burrow", "target": "self", "amount": 1 }]
         }
       ]
     },
@@ -10407,10 +10851,8 @@
           "mark": "f_sword",
           "anim": "bite",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Cling",
@@ -10418,10 +10860,8 @@
           "mark": "gem_d",
           "anim": "cast",
           "text": "Clings to your finest gem: when it fires, it fires at you, until you hit the leech",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "cling", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "cling", "target": "heroes", "amount": 1 }]
         },
         {
           "name": "Feed",
@@ -10429,10 +10869,10 @@
           "mark": "heart__m_raise",
           "anim": "bite",
           "text": "Heals {0} and its maximum grows by {1}",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "heal", "target": "self", "amount": 4},
-            {"kind": "max_hp", "target": "self", "amount": 4}
+            { "kind": "heal", "target": "self", "amount": 4 },
+            { "kind": "max_hp", "target": "self", "amount": 4 }
           ]
         }
       ]
@@ -10447,7 +10887,16 @@
       "dice": [
         {
           "shape": "D8",
-          "faces": ["Tick", "Rewind", "Fast-forward", "Still", "Tick", "Rewind", "Tick", "Tick"]
+          "faces": [
+            "Tick",
+            "Rewind",
+            "Fast-forward",
+            "Still",
+            "Tick",
+            "Rewind",
+            "Tick",
+            "Tick"
+          ]
         }
       ],
       "moves": [
@@ -10457,10 +10906,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 4}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Rewind",
@@ -10468,9 +10915,14 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "Your dice show the faces they showed this turn again: no new roll on your next turn",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "die_lock", "target": "heroes", "amount": 99, "pick": "all"}
+            {
+              "kind": "die_lock",
+              "target": "heroes",
+              "amount": 99,
+              "pick": "all"
+            }
           ]
         },
         {
@@ -10479,9 +10931,9 @@
           "mark": "dice_pair",
           "anim": "rally",
           "text": "It acts twice more, now",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "roll_again", "target": "self", "amount": 1, "repeat": 2}
+            { "kind": "roll_again", "target": "self", "amount": 1, "repeat": 2 }
           ]
         },
         {
@@ -10490,7 +10942,7 @@
           "mark": "hourglass",
           "anim": "falter",
           "text": "Nothing",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": []
         }
       ]
@@ -10515,10 +10967,8 @@
           "mark": "f_sword",
           "anim": "cast",
           "text": "{0} damage",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "damage", "target": "heroes", "amount": 3}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "damage", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Lantern",
@@ -10526,10 +10976,20 @@
           "mark": "spark",
           "anim": "cast",
           "text": "One more reroll on your next turn, but a reroll rerolls every die at once",
-          "trigger": {"kind": "face"},
+          "trigger": { "kind": "face" },
           "effects": [
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "gift_rerolls"},
-            {"kind": "pin_trait", "target": "self", "amount": 1, "trait": "reroll_all"}
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "gift_rerolls"
+            },
+            {
+              "kind": "pin_trait",
+              "target": "self",
+              "amount": 1,
+              "trait": "reroll_all"
+            }
           ]
         },
         {
@@ -10538,10 +10998,8 @@
           "mark": "snare_d",
           "anim": "cast",
           "text": "A die you rerolled this turn is blank on your next turn",
-          "trigger": {"kind": "face"},
-          "effects": [
-            {"kind": "blank_next", "target": "heroes", "amount": 1}
-          ]
+          "trigger": { "kind": "face" },
+          "effects": [{ "kind": "blank_next", "target": "heroes", "amount": 1 }]
         }
       ]
     }

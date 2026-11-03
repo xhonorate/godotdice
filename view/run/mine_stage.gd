@@ -249,10 +249,8 @@ func _new_room(p: Dictionary, origin: Vector3) -> Dictionary:
 	made.quality = quality
 	if str(p.get("kind", "")) in ["landing", "head"] or bool(p.get("cage", false)):
 		## The room's dressing is planned before the lift hall is built: tell it where the cage
-		## (and a party landing's trading booth) will stand, so no crystal hides them.
+		## will stand, so no crystal hides it.
 		made.keep_clear = [Vector2(LiftHall.CAGE.x, LiftHall.CAGE.z)]
-		if str(p.get("kind", "")) == "landing" and int(p.get("party", 1)) > 1:
-			made.keep_clear.append(Vector2(LiftHall.TRADE.x, LiftHall.TRADE.z))
 	made.position = origin
 	world.add_child(made)
 	var steps: Array = made.plan(biome, room_seed(p), int(p.get("exits", 2)), float(p.get("drop", 2.5)))
@@ -686,11 +684,10 @@ func _round_business(from: Vector3, to: Vector3) -> Array:
 ## that deep — so `hall()` is null there and the only way out of it is down. The hall at the
 ## bottom of a mine is the exception: its final boss's hall has the cage and nothing else.
 
-func _build_hall(made: Node3D, kind: String, seed_value: int, party: bool = false) -> void:
+func _build_hall(made: Node3D, kind: String, seed_value: int, _party: bool = false) -> void:
 	var hall: Node3D = LiftHall.new()
 	made.add_child(hall)
-	## A party's landing has a trading table; nobody trades with themselves.
-	hall.build(made.biome, seed_value + 41, kind == "landing", kind == "head", made.ground, party)
+	hall.build(made.biome, seed_value + 41, kind == "landing", kind == "head", made.ground)
 	made.set_meta("hall", hall)
 
 func hall() -> Node3D:

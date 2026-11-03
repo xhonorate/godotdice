@@ -238,8 +238,8 @@ func _next_command() -> Dictionary:
 				if not first_stones.is_empty() and not second_stones.is_empty():
 					var table := DeepDescent.trade_table(run)
 					if session.local_id in ["p0", "p1"] and not table.offers.has(session.local_id):
-						return {"kind": "trade_offer", "stone_id": (first_stones if session.local_id == "p0" else second_stones)[0].id}
-					if session.local_id in ["p0", "p1"] and table.offers.size() == 2 and not table.accepted.has(session.local_id):
+						return {"kind": "trade_offer", "stone_id": (first_stones if session.local_id == "p0" else second_stones)[0].id, "to": "p1" if session.local_id == "p0" else "p0"}
+					if session.local_id in ["p0", "p1"] and not DeepDescent.trade_partner(run, session.local_id).is_empty() and not table.accepted.has(session.local_id):
 						return {"kind": "trade_accept"}
 					return {}
 			var pooled := 0
@@ -249,10 +249,13 @@ func _next_command() -> Dictionary:
 			if mode == "traversal":
 				extract = DeepDescent.in_boss_hall(run) and pooled >= DeepDescent.lift_cost(run)
 			if str(unit.get("choice", "")).is_empty():
+				# The camp first: a respite each, then the party chooses at the crossroads.
+				if DeepDescent.needs_respite(run, unit):
+					return {"kind": "respite", "choice": "rest"}
+				if not DeepDescent.at_crossroads(run):
+					return {}
 				if extract:
 					return {"kind": "choose", "choice": "lift"}
-				if str(unit.get("respite", "")).is_empty() and not bool(run.landing.get("cleared", false)):
-					return {"kind": "respite", "choice": "rest"}
 				return {"kind": "choose", "choice": "descend"}
 		"hoard":
 			var pile: Dictionary = run.hoard.get(session.local_id, {})

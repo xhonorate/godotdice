@@ -384,7 +384,7 @@ static func _status_entries(statuses: Dictionary, on_enemy: bool, weight: int = 
 # --- showing them ------------------------------------------------------------------------------
 
 class TurnBar extends Control:
-	## The turns an effect has left, as a row of small segments under its chip: one lit
+	## The turns an effect has left, as a row of small segments under (or over) its chip: one lit
 	## segment a turn, five at most (the number on the chip says the rest). An effect with no
 	## clock wears a ghost: one dim bar, so chips with and without a clock share a baseline.
 	const SEGMENTS: int = 5
@@ -415,8 +415,8 @@ class TurnBar extends Control:
 class Chip extends VBoxContainer:
 	## One effect: a pointed capsule, green for what helps, red for what hurts and gold for
 	## a run-long blessing, with the effect's own mark and number inside, and under it the
-	## turns it has left (TurnBar). Hover for the sentence. It swells when the number changes,
-	## so a new poison stack is seen landing.
+	## turns it has left (TurnBar; over it on a creature's tag, `bar_top`). Hover for the
+	## sentence. It swells when the number changes, so a new poison stack is seen landing.
 	var key: String = ""
 	var effect: Dictionary = {}
 	var plate: PanelContainer
@@ -425,7 +425,7 @@ class Chip extends VBoxContainer:
 	var _bar: TurnBar
 	var _last: String = ""
 	var _edge: float = 16.0
-	func _init(first: Dictionary, edge: float = 16.0) -> void:
+	func _init(first: Dictionary, edge: float = 16.0, bar_top: bool = false) -> void:
 		key = str(first.key)
 		_edge = edge
 		add_theme_constant_override("separation", 1)
@@ -453,6 +453,8 @@ class Chip extends VBoxContainer:
 		row.add_child(_value)
 		_bar = TurnBar.new(edge * 1.6)
 		add_child(_bar)
+		if bar_top:
+			move_child(_bar, 0)
 		show_effect(first, false)
 	static func family(of: Dictionary) -> Color:
 		## The capsule's color says only whether it helps or hurts (or lasts the run); a
@@ -494,9 +496,12 @@ class Row extends HFlowContainer:
 	## A row of chips that keeps its chips between updates, adds new ones with a pop,
 	## pulses the ones whose number moved, and lets go of the ones that ended.
 	var edge: float = 16.0
+	## Each chip's turns over it rather than under it (a creature's tag: the owner, October 30).
+	var bar_top: bool = false
 	var _chips: Dictionary = {}
-	func _init(chip_edge: float = 16.0) -> void:
+	func _init(chip_edge: float = 16.0, turns_on_top: bool = false) -> void:
 		edge = chip_edge
+		bar_top = turns_on_top
 		add_theme_constant_override("h_separation", 4)
 		add_theme_constant_override("v_separation", 4)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -512,7 +517,7 @@ class Row extends HFlowContainer:
 			present[key] = true
 			var chip: Chip = _chips.get(key, null)
 			if chip == null or not is_instance_valid(chip):
-				chip = Chip.new(effect, edge)
+				chip = Chip.new(effect, edge, bar_top)
 				add_child(chip)
 				_chips[key] = chip
 				DeepUi.pop_in(chip, 0.0, 0.5)

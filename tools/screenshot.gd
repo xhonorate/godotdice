@@ -459,10 +459,11 @@ func _init() -> void:
 				elif str(run.chamber.kind) == "merchant":
 					app.session.send({"kind": "leave"})
 			"landing":
-				if target in ["over", "lift_ride"]:
-					app.session.send({"kind": "choose", "choice": "lift"})
-				elif str(app.session.local_player().get("respite", "")).is_empty():
+				## The camp first (the respite), then the crossroads: the cage or a way down.
+				if DeepDescent.needs_respite(run, app.session.local_player()):
 					app.session.send({"kind": "respite", "choice": "rest"})
+				elif target in ["over", "lift_ride"]:
+					app.session.send({"kind": "choose", "choice": "lift"})
 				else:
 					app.session.send({"kind": "choose", "choice": "descend"})
 			"hoard":

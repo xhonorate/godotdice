@@ -58,7 +58,10 @@ const RESPITES: Array = ["rest", "appraise", "wish"]
 ## What a player who is down cannot do: anything a room, a stall, a hoard or the way on offers.
 const DOWNED_CANNOT: Array = ["oddity", "buy", "sell", "appraise", "pick_hoard", "trade_offer", "trade_accept", "choose", "light", "strike", "respite", "altar"]
 ## What a player with a twin stone to settle may still do.
-const TWIN_ALLOWED: Array = ["twin", "abandon", "ready", "light"]
+const TWIN_ALLOWED: Array = ["twin", "abandon", "ready", "light", "station"]
+## Where a player can be seen standing at a landing while they make up their mind: "" in the
+## middle of the room, at the fire, the bench, the well or the cage, or trading with someone.
+const STATIONS: Array = ["", "rest", "appraise", "wish", "up", "trade"]
 ## What a landing's well will take, and the most of it.
 const WISH_LEAST: int = 10
 const WISH_MOST: int = 1000
@@ -1927,7 +1930,7 @@ static func _socket(state: Dictionary, unit: Dictionary, stone_id: String, index
 		return _refuse(refusal)
 	## A stone that leaves the bag also leaves the trading table. Clear both acceptances in
 	## this successful rail change, so the cancellation reaches every player's mirror.
-	if str(trade_table(state).get("offers", {}).get(str(unit.id), "")) == stone_id:
+	if str(trade_offer_of(state, str(unit.id)).get("stone", "")) == stone_id:
 		_trade_withdraw(state, unit)
 	if DeepStone.is_slotless(stone):
 		## Out of the bag, or off whatever it rode before; a move earlier in its own line
@@ -2004,18 +2007,19 @@ static func _swap_die(state: Dictionary, unit: Dictionary, index: int, die_id: S
 			return {"ok": true, "event": _event(state, "dice_changed", {"unit": unit.id, "dice": unit.dice.duplicate(true)})}
 	return _refuse("only your own five dice change places")
 
-# --- the trading table -----------------------------------------------------------------------
+# --- trading ----------------------------------------------------------------------------------
 ##
-## A landing in a party has a table beside the fire, the bench and the well: the one place a
-## stone changes hands. Two lapidaries sit down at it, each puts exactly one loose stone from
-## their bag on it, and when both have said yes to what the other put down the two stones swap.
-## Trading is free: it is not the landing's respite, so it can be done before or after the
-## fire, the bench or the well. But each lapidary trades once a landing: one swap, and the
-## table is done with them until the next one. Until both have accepted either may take their
-## stone back, or change it, which takes back both acceptances.
+## The one way a stone changes hands at a landing, in a party: one lapidary offers a loose stone
+## from their bag to one other, by name (from that player's tab), and the other answers with a
+## stone of their own offered back. When both have said yes to the pair, the two stones swap.
+## Nothing stands in the room for it, so nobody has to walk anywhere to trade and anyone can
+## see who is trading with whom on the tabs. Several pairs can be trading at once. Trading is
+## free: it is not the landing's respite. But each lapidary trades once a landing: one swap,
+## and they are done until the next one. Until both have accepted either may take their stone
+## back, or change it, which takes back both acceptances.
 
 static func can_trade(state: Dictionary) -> bool:
-	## The table stands only where there is someone to trade with, and only at a landing that
+	## Trading happens only where there is someone to trade with, and only at a landing that
 	## has its respites: a Warden's hall has none.
 	return state.get("players", []).size() > 1 and _has_respites(state)
 
@@ -2024,68 +2028,129 @@ static func has_traded(state: Dictionary, unit_id: String) -> bool:
 	return not state.get("landing", {}).get("trades", {}).get(unit_id, []).is_empty()
 
 static func trade_table(state: Dictionary) -> Dictionary:
-	return state.get("landing", {}).get("trade", {"offers": {}, "accepted": []})
+	## Every open offer as {unit: {stone, to}}, and who has said yes to their pair.
+	var table: Dictionary = state.get("landing", {}).get("trade", {"offers": {}, "accepted": []})
+	return {"offers": _trade_offers(table.get("offers", {})), "accepted": table.get("accepted", []).duplicate()}
+
+static func _trade_offers(raw: Dictionary) -> Dictionary:
+	## Offers as {unit: {stone, to}}. A table saved before offers named their partner held a
+	## bare stone id for each of two seats, each across from the other.
+	var out: Dictionary = {}
+	for id in raw:
+		var offer: Variant = raw[id]
+		if offer is Dictionary:
+			out[str(id)] = (offer as Dictionary).duplicate()
+			continue
+		var across: String = ""
+		for other in raw:
+			if str(other) != str(id):
+				across = str(other)
+		out[str(id)] = {"stone": str(offer), "to": across}
+	return out
+
+static func trade_offer_of(state: Dictionary, unit_id: String) -> Dictionary:
+	## What this player has offered, {stone, to}, or {}.
+	return trade_table(state).offers.get(unit_id, {})
 
 static func trade_partner(state: Dictionary, unit_id: String) -> String:
-	## Who else is sitting at the table with this player, or "".
-	for id in trade_table(state).get("offers", {}):
-		if str(id) != unit_id:
-			return str(id)
-	return ""
+	## Whom this player is trading with: someone they have offered a stone to who has offered
+	## one back. "" while either side is still empty.
+	var to: String = str(trade_offer_of(state, unit_id).get("to", ""))
+	if to.is_empty() or str(trade_offer_of(state, to).get("to", "")) != unit_id:
+		return ""
+	return to
 
-static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String) -> Dictionary:
-	if has_traded(state, str(unit.id)):
+static func offers_to(state: Dictionary, unit_id: String) -> Array:
+	## Who has offered this player a stone, by id.
+	var out: Array = []
+	var offers: Dictionary = trade_table(state).offers
+	for id in offers:
+		if str(offers[id].get("to", "")) == unit_id:
+			out.append(str(id))
+	return out
+
+static func can_trade_with(state: Dictionary, unit_id: String, other_id: String) -> bool:
+	## Whether these two could trade here now: both standing, both on the line, neither done.
+	if unit_id == other_id or not can_trade(state):
+		return false
+	var other: Dictionary = player(state, other_id)
+	return not other.is_empty() and living(state).has(other) and not has_traded(state, unit_id) and not has_traded(state, other_id)
+
+static func _set_trade(state: Dictionary, offers: Dictionary, accepted: Array) -> void:
+	state.landing.trade = {"offers": offers, "accepted": accepted}
+
+static func _trade_offer(state: Dictionary, unit: Dictionary, stone_id: String, to: String = "") -> Dictionary:
+	var id: String = str(unit.id)
+	if has_traded(state, id):
 		return _refuse("you have made your trade at this landing")
 	var stone: Dictionary = {}
 	for held in unit.get("haul", []):
 		if str(held.get("id", "")) == stone_id:
 			stone = held
 	if stone.is_empty():
-		return _refuse("only a loose stone from your bag can be put on the table")
+		return _refuse("only a loose stone from your bag can be offered")
 	if bool(state.get("marks_lent", false)) and is_lent(state, stone):
 		## It would go home with neither of them: the vault it came from keeps the stone itself.
 		return _refuse("that is a copy of a stone in your vault: only stones found down here change hands")
 	if DeepStone.is_geode(stone):
 		return _refuse("a Geode cannot change hands until the workshop has cracked it")
+	if to.is_empty():
+		## Named by nobody: the one who is asking, or the only one there is to ask.
+		var asking: Array = offers_to(state, id).filter(func(o: String) -> bool: return can_trade_with(state, id, o))
+		var free: Array = living(state).map(func(p: Dictionary) -> String: return str(p.id)).filter(func(o: String) -> bool: return can_trade_with(state, id, o))
+		if asking.size() == 1:
+			to = str(asking[0])
+		elif free.size() == 1:
+			to = str(free[0])
+		else:
+			return _refuse("choose who to trade with")
+	if not can_trade_with(state, id, to):
+		var other: Dictionary = player(state, to)
+		return _refuse(("%s cannot trade with you here" % str(other.get("name", ""))) if not other.is_empty() else "there is nobody of that name to trade with")
 	var table: Dictionary = trade_table(state)
-	var offers: Dictionary = table.get("offers", {}).duplicate()
-	if not offers.has(str(unit.id)) and offers.size() >= 2:
-		return _refuse("two are already trading at the table")
-	offers[str(unit.id)] = stone_id
-	state.landing.trade = {"offers": offers, "accepted": []}
-	return {"ok": true, "event": _event(state, "trade_offer", {"unit": unit.id, "stone": stone.duplicate(true)})}
+	var offers: Dictionary = table.offers
+	var was: String = str(offers.get(id, {}).get("to", ""))
+	offers[id] = {"stone": stone_id, "to": to}
+	## A changed offer takes back the yes of both pairs it touches: the old one and the new one.
+	var accepted: Array = table.accepted.filter(func(a: Variant) -> bool: return not str(a) in [id, was, to])
+	_set_trade(state, offers, accepted)
+	return {"ok": true, "event": _event(state, "trade_offer", {"unit": unit.id, "to": to, "stone": stone.duplicate(true)})}
 
 static func _trade_withdraw(state: Dictionary, unit: Dictionary) -> Dictionary:
-	var offers: Dictionary = trade_table(state).get("offers", {}).duplicate()
-	if not offers.has(str(unit.id)):
-		return _refuse("you have nothing on the table")
-	offers.erase(str(unit.id))
-	state.landing.trade = {"offers": offers, "accepted": []}
-	return {"ok": true, "event": _event(state, "trade_withdraw", {"unit": unit.id})}
+	var id: String = str(unit.id)
+	var table: Dictionary = trade_table(state)
+	var offers: Dictionary = table.offers
+	if not offers.has(id):
+		return _refuse("you have offered nothing")
+	var was: String = str(offers[id].get("to", ""))
+	offers.erase(id)
+	_set_trade(state, offers, table.accepted.filter(func(a: Variant) -> bool: return not str(a) in [id, was]))
+	return {"ok": true, "event": _event(state, "trade_withdraw", {"unit": unit.id, "to": was})}
 
 static func _trade_accept(state: Dictionary, unit: Dictionary) -> Dictionary:
+	var id: String = str(unit.id)
 	var table: Dictionary = trade_table(state)
-	var offers: Dictionary = table.get("offers", {})
-	var partner_id: String = trade_partner(state, str(unit.id))
-	if not offers.has(str(unit.id)) or partner_id.is_empty():
+	var offers: Dictionary = table.offers
+	var partner_id: String = trade_partner(state, id)
+	if partner_id.is_empty():
 		return _refuse("a trade wants a stone from each of you")
-	if has_traded(state, str(unit.id)) or has_traded(state, partner_id):
+	if has_traded(state, id) or has_traded(state, partner_id):
 		return _refuse("one trade each at a landing")
 	var partner: Dictionary = player(state, partner_id)
 	## Validate before accepting or removing either stone. Refusals send no state patch, so
 	## even a stale offer from an older checkpoint must leave the whole run untouched.
-	var mine_id: String = str(offers[str(unit.id)])
-	var theirs_id: String = str(offers[partner_id])
+	var mine_id: String = str(offers[id].get("stone", ""))
+	var theirs_id: String = str(offers[partner_id].get("stone", ""))
 	if not unit.get("haul", []).any(func(s: Dictionary) -> bool: return str(s.get("id", "")) == mine_id) \
 			or not partner.get("haul", []).any(func(s: Dictionary) -> bool: return str(s.get("id", "")) == theirs_id):
-		return _refuse("a stone on the table is no longer in its bag")
-	var accepted: Array = table.get("accepted", []).duplicate()
-	if not accepted.has(str(unit.id)):
-		accepted.append(str(unit.id))
-	state.landing.trade = {"offers": offers.duplicate(), "accepted": accepted}
+		return _refuse("a stone on offer is no longer in its bag")
+	var accepted: Array = table.accepted
+	if not accepted.has(id):
+		accepted.append(id)
+	_set_trade(state, offers, accepted)
 	if not accepted.has(partner_id):
-		return {"ok": true, "event": _event(state, "trade_accept", {"unit": unit.id})}
-	## Both have said yes: the stones cross the table.
+		return {"ok": true, "event": _event(state, "trade_accept", {"unit": unit.id, "to": partner_id})}
+	## Both have said yes: the stones change hands.
 	var mine: Dictionary = _take_from_haul(unit, mine_id)
 	var theirs: Dictionary = _take_from_haul(partner, theirs_id)
 	unit.haul.append(theirs)
@@ -2097,8 +2162,16 @@ static func _trade_accept(state: Dictionary, unit: Dictionary) -> Dictionary:
 		var said: Array = state.landing.trades.get(str(pair[0].id), [])
 		said.append("You traded %s for %s." % [_said(pair[2]), _said(pair[1])])
 		state.landing.trades[str(pair[0].id)] = said
-	state.landing.trade = {"offers": {}, "accepted": []}
-	return {"ok": true, "event": _event(state, "traded", {"units": [unit.id, partner.id], "stones": {str(unit.id): mine.duplicate(true), partner_id: theirs.duplicate(true)}})}
+	## Both are done trading here: their offers go, and so does anything still offered to them.
+	for done in [unit, partner]:
+		if str(done.get("station", "")) == "trade":
+			done.station = ""
+	var left: Dictionary = {}
+	for other in offers:
+		if not str(other) in [id, partner_id] and not str(offers[other].get("to", "")) in [id, partner_id]:
+			left[str(other)] = offers[other]
+	_set_trade(state, left, accepted.filter(func(a: Variant) -> bool: return left.has(str(a))))
+	return {"ok": true, "event": _event(state, "traded", {"units": [unit.id, partner.id], "stones": {id: mine.duplicate(true), partner_id: theirs.duplicate(true)}})}
 
 static func _said(stone: Dictionary) -> String:
 	return DeepStone.name(stone) if bool(stone.get("appraised", false)) else DeepStone.raw_name(stone)
@@ -2398,6 +2471,7 @@ static func _arrive_landing(state: Dictionary, streams: Dictionary) -> Dictionar
 		unit.choice = ""
 		unit.via = ""
 		unit.respite = ""
+		unit.station = ""
 		unit.ready = false
 		if bool(unit.get("downed", false)):
 			unit.downed = false
@@ -2453,6 +2527,35 @@ static func needs_respite(state: Dictionary, unit: Dictionary) -> bool:
 	## No Bench forbids resting, but never requires spending a stone or pyrite to leave.
 	## A daily rail is fragile, so an empty bag and purse may offer no respite at all.
 	return _has_respites(state) and str(unit.get("respite", "")).is_empty() and not has_mod(state, "NO_BENCH")
+
+## A landing has two beats. First the camp: everyone takes their respite at the fire, the bench
+## or the well, each in their own time, and can trade meanwhile. Then the crossroads, once the
+## last of the party is done: one question for the whole party, up in the cage or down by one
+## of the mouths. Nobody chooses the way on while someone is still at the fire, so everyone
+## is always at the same beat and can see what the rest are doing.
+
+static func camp_done(state: Dictionary, unit: Dictionary) -> bool:
+	## Done at the camp: their respite taken, or none owed today.
+	return not needs_respite(state, unit)
+
+static func camp_waiting(state: Dictionary) -> Array:
+	## Who the party waits on before the crossroads, standing and on the line.
+	return living(state).filter(func(p: Dictionary) -> bool: return not camp_done(state, p))
+
+static func at_crossroads(state: Dictionary) -> bool:
+	## The party has done with the camp and is choosing the way on.
+	return str(state.get("phase", "")) == "landing" and camp_waiting(state).is_empty()
+
+static func lift_asked_by(state: Dictionary) -> String:
+	## Who asked the party to ride up, while that is still the question, or "".
+	var by: String = str(state.get("landing", {}).get("lift_by", ""))
+	if by.is_empty() or str(player(state, by).get("choice", "")) != "lift":
+		## Asked by someone who has since changed their mind: whoever still wants the cage.
+		for other in living(state):
+			if str(other.get("choice", "")) == "lift":
+				return str(other.id)
+		return ""
+	return by
 
 static func rest_amount(unit: Dictionary, state: Dictionary = {}) -> int:
 	## What resting gives back: a share of the most health, never past it. Short Rest takes
@@ -2537,9 +2640,10 @@ static func _respite(state: Dictionary, unit: Dictionary, choice: String, stone_
 			return _refuse("rest, appraise or the well")
 	## Only a successful respite changes an offer: refusals send no patch to the party.
 	## A stone read or spent is no longer the stone the other side said yes to.
-	if not stone_id.is_empty() and str(trade_table(state).get("offers", {}).get(str(unit.id), "")) == stone_id:
+	if not stone_id.is_empty() and str(trade_offer_of(state, str(unit.id)).get("stone", "")) == stone_id:
 		_trade_withdraw(state, unit)
 	unit.respite = choice
+	unit.station = ""
 	state.landing.respites[str(unit.id)] = fields.duplicate(true)
 	return {"ok": true, "event": _event(state, "respite", fields)}
 
@@ -2603,36 +2707,39 @@ static func _pay_for_lift(state: Dictionary) -> Dictionary:
 	return paid
 
 static func _choose_at_landing(state: Dictionary, unit: Dictionary, choice: String, via: String = "") -> Dictionary:
-	## A landing asks one question at a time. The cage stands beside the fire, the bench and
-	## the well, and any of the four may be walked up to first; but the moment a respite is
-	## taken the cage is behind you and the only way left is down. A Warden's hall has no cage
-	## in it at all: whatever came out of the hoard has to be carried down to the next landing
-	## before it can be ridden home.
+	## The crossroads, the landing's second beat: up in the cage or down a mouth, asked of the
+	## whole party once everyone has taken their respite. Riding up is asked of the party by
+	## whoever chooses it first, and everyone answers it: the cage, or a way down. A Warden's
+	## hall has no cage in it at all: whatever came out of the hoard has to be carried down to
+	## the next landing before it can be ridden home.
 	if not choice in ["lift", "descend"]:
 		return _refuse("lift or descend")
 	var landing: Dictionary = state.get("landing", {})
 	var boss_hall: bool = in_boss_hall(state)
 	var hall: bool = bool(landing.get("cleared", false)) and not boss_hall
-	## A respite is taken at a landing before its Warden is fought. The bottom of a mine is
-	## that same landing with the boss dead in it and a cage sunk beside the hoard: the respite
-	## taken before the fight does not shut the cage that the fight opened.
-	var rested: bool = not str(unit.get("respite", "")).is_empty() and not boss_hall
 	if choice == "lift" and hall:
 		return _refuse("no cage was ever sunk into a Warden's hall: the way on is down")
 	if choice == "lift" and has_mod(state, "LAST_LIFT") and not boss_hall and not bool(landing.get("warden_next", false)):
 		return _refuse("today the lift only runs from Warden landings and boss halls")
 	if choice == "descend" and boss_hall and next_mine(state).is_empty():
 		return _refuse("this is the bottom of the mine: the only way is up")
-	if choice == "descend" and needs_respite(state, unit):
+	if needs_respite(state, unit):
 		return _refuse("take your respite first: the fire, the bench or the well")
-	if choice == "lift" and rested:
-		return _refuse("you have taken your respite: the way on is down")
+	if not at_crossroads(state):
+		var names: Array = camp_waiting(state).map(func(p: Dictionary) -> String: return str(p.get("name", "")))
+		return _refuse("the party is still at the camp: waiting for %s" % ", ".join(names))
 	if choice == "lift" and _party_ore(state) < lift_cost(state):
 		return _refuse("the winch wants %d pyrite to lift the party from this depth" % lift_cost(state))
 	unit.choice = choice
+	unit.station = ""
 	## Which of the mouths they went down by, if they chose one: only that mouth shows them.
 	unit.via = via if choice == "descend" else ""
-	var event: Dictionary = _event(state, "landing_choice", {"unit": unit.id, "choice": choice, "via": str(unit.via)})
+	## The first to choose the cage asks the party; when nobody wants it any more, nobody is.
+	if choice == "lift" and lift_asked_by(state) == str(unit.id):
+		state.landing.lift_by = str(unit.id)
+	elif lift_asked_by(state).is_empty():
+		state.landing.erase("lift_by")
+	var event: Dictionary = _event(state, "landing_choice", {"unit": unit.id, "choice": choice, "via": str(unit.via), "lift_by": lift_asked_by(state)})
 	_close_landing(state, event)
 	return {"ok": true, "event": event}
 
@@ -2674,6 +2781,7 @@ static func _close_landing(state: Dictionary, event: Dictionary) -> bool:
 		for other in party:
 			if str(other.get("choice", "")) == "lift":
 				other.choice = ""
+		state.landing.erase("lift_by")
 		event.lift_short = {"cost": lift_cost(state), "have": _party_ore(state)}
 		return false
 	if not toss.is_empty():
@@ -2732,12 +2840,13 @@ static func mine_record(state: Dictionary) -> Dictionary:
 # --- hoard, salvage, endings ---------------------------------------------------------------
 
 static func _offer_hoard(state: Dictionary) -> void:
-	## Three stones on their pedestals, and, in the middle of the three, an opal: the only thing in the
-	## mine that no vein and no drop ever offers. Every one of them comes out of the Warden's
-	## hoard still in its rock, so a pedestal says only a color and a size class: the choice
-	## is three gambles on what is inside, and the loupe settles it afterwards. The opal is
-	## the rare color, not the rich one: it comes out of the rock with less luck behind it
-	## than the other two, so it is generally the smaller, rougher stone of the three.
+	## Three stones on their pedestals, each a different color, so no pedestal is just a smaller
+	## copy of another. Now and then an opal takes the middle one: the only thing in the mine
+	## that no vein and no drop ever offers, and not every Warden holds one. Every stone comes
+	## out of the Warden's hoard still in its rock, so a pedestal says only a color and a size
+	## class: the choice is a gamble on what is inside, and the loupe settles it afterwards. The
+	## opal is the rare color, not the rich one: it comes out of the rock with less luck behind
+	## it than the others, so it is generally the smaller, rougher stone.
 	var streams: Dictionary = streams_of(state)
 	state.phase = "hoard"
 	state.hoard = {}
@@ -2763,12 +2872,23 @@ static func _offer_hoard(state: Dictionary) -> void:
 		var geode_at: int = -1
 		if pedestals >= 2 and geode_chance > 0.0 and DeepRng.chance(streams.stones, geode_chance):
 			geode_at = pedestals - 1 if pedestals - 1 != HOARD_OFFERS / 2 else pedestals - 2
+		## One color a pedestal, drawn fresh for each player. A mine with fewer colors than
+		## pedestals lets the last ones take anything its rock holds.
+		var colors: Array = DeepBoons._pick_colors(streams.stones, mine_of(state), pedestals)
+		var next_color: int = 0
 		for index in range(pedestals):
 			if index == geode_at:
 				offers.append(DeepEconomy.roll_run_geode(streams.stones, str(state.mine), {"run": str(state.run_id), "finder": str(unit.id), "seat": int(unit.get("seat", 0))}, _id(state, "ge")))
 				continue
 			var opal: bool = index == HOARD_OFFERS / 2 and not opals.is_empty() and DeepRng.chance(streams.stones, opal_pct)
-			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), (opal_luck if opal else luck) + float(unit.get("loadout_luck", 0.0)), {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), opals if opal else [])
+			var pool: Array = opals
+			if not opal:
+				pool = []
+				if next_color < colors.size():
+					var color: String = str(colors[next_color])
+					pool = DeepForge.skill_pool(mine_of(state)).filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) == color)
+				next_color += 1
+			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine_of(state), int(state.depth), (opal_luck if opal else luck) + float(unit.get("loadout_luck", 0.0)), {"run": str(state.run_id), "source": "hoard", "finder": str(unit.id)}, _id(state, "st"), pool)
 			stone.appraised = false
 			stone.inclusions_revealed = false
 			offers.append(stone)
@@ -3082,9 +3202,19 @@ static func _command(state: Dictionary, player_id: String, cmd: Dictionary) -> D
 			if phase != "landing" or not can_trade(state):
 				return _refuse("stones change hands at the trading table of a landing, in a party")
 			match kind:
-				"trade_offer": return _trade_offer(state, unit, str(cmd.get("stone_id", "")))
+				"trade_offer": return _trade_offer(state, unit, str(cmd.get("stone_id", "")), str(cmd.get("to", "")))
 				"trade_withdraw": return _trade_withdraw(state, unit)
 			return _trade_accept(state, unit)
+		"station":
+			## Where this player stands while they make up their mind, for the rest to see.
+			## Nothing changes but that.
+			if phase != "landing":
+				return _refuse("there is nowhere to stand but here")
+			var at: String = str(cmd.get("at", ""))
+			if not at in STATIONS:
+				return _refuse("there is no such place at the landing")
+			unit.station = at
+			return {"ok": true, "event": _event(state, "station", {"unit": unit.id, "at": at})}
 		"choose":
 			if phase != "landing":
 				return _refuse("the lift is at the landing")
@@ -3189,10 +3319,15 @@ static func set_connected(state: Dictionary, player_id: String, connected: bool)
 				unit.away = {"depth": int(state.get("depth", 0)), "fights": int(state.get("records", {}).get("fights", 0)),
 					"turn": int(battle(state).get("turn", -1)) if in_battle(state) else -1, "hp": _hp_now(state, unit)}
 			unit.erase("back")
-		## An empty chair cannot hold the two-person booth for the rest of the landing.
-		## The session publishes this withdrawal with the player's changed presence.
-		if not connected and trade_table(state).get("offers", {}).has(player_id):
-			_trade_withdraw(state, unit)
+		## Someone gone cannot hold a trade open for the rest of the landing: their offer goes,
+		## and so does anything offered to them. The session publishes this withdrawal with the
+		## player's changed presence.
+		if not connected and str(state.get("phase", "")) == "landing":
+			if trade_table(state).offers.has(player_id):
+				_trade_withdraw(state, unit)
+			for asker in offers_to(state, player_id):
+				_trade_withdraw(state, player(state, asker))
+			unit.station = ""
 		if in_battle(state):
 			var fighter: Dictionary = DeepBattle.player(state.chamber.battle, player_id)
 			if not fighter.is_empty():

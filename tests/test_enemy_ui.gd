@@ -214,6 +214,11 @@ func _tags() -> void:
 	check(tag._block.visible and str(tag._block_label.text) == "5", "its block is a chip on the tag's corner")
 	var chip_keys: Array = tag.chips()._chips.keys()
 	check(chip_keys.has("poison") and not chip_keys.has("block"), "its statuses hang under it as chips; its block is not one of them: %s" % str(chip_keys))
+	var row: Control = tag.chips()
+	check(row.position.y >= tag.size.y and row.position.y + tag.chips_height() <= tag.standing_height() + 0.5, "a row of chips hangs in the room kept under the tag: %s, standing %.0f" % [str(row.get_rect()), tag.standing_height()])
+	check(is_equal_approx(tag.standing_height(), tag.size.y + Tag.CHIP_ROOM), "what lands on it never changes how much room the tag takes, so it does not move")
+	var poison_chip: Control = row.chip_for("poison")
+	check(poison_chip != null and poison_chip.get_child(0) is EffectChips.TurnBar, "a creature's chip wears its turns over it")
 	check(tag.is_targeted(), "the target's tag is lit")
 	check(tag.size.x >= Tag.MIN_WIDTH and tag.size.y > 30.0, "the tag is at least its narrowest")
 	## A Warden's tag: wider, its pills named, in one row.

@@ -1270,6 +1270,9 @@ func _test_daily_run() -> void:
 	last.phase = "landing"
 	last.depth = 4
 	last.landing = {"depth": 4, "warden_next": false, "cleared": false, "respites": {}}
+	## The cage is chosen at the crossroads, once everyone has rested.
+	for unit in last.players:
+		unit.respite = "rest"
 	check(not bool(DeepDescent._choose_at_landing(last, DeepDescent.player(last, "a"), "lift").ok), "Last Lift: no lift from an ordinary landing")
 	last.landing.warden_next = true
 	check(bool(DeepDescent._choose_at_landing(last, DeepDescent.player(last, "a"), "lift").ok), "but there is one where a Warden waits")

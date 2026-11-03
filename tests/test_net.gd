@@ -382,9 +382,9 @@ func _test_trade_changes() -> void:
 	host.run.phase = "landing"
 	host.run.depth = 4
 	host.run.landing = {"depth": 4, "cleared": false, "respites": {}}
-	var offered := DeepStone.make("STRIKE", 1, 2, 3, [], {}, "trade-host")
+	var offered := DeepStone.make("SPALL", 1, 2, 3, [], {}, "trade-host")
 	offered.appraised = true
-	var other := DeepStone.make("GUARD", 1, 2, 3, [], {}, "trade-guest")
+	var other := DeepStone.make("SIPHON", 1, 2, 3, [], {}, "trade-guest")
 	other.appraised = true
 	DeepDescent.player(host.run, "p0").haul.append(offered)
 	DeepDescent.player(host.run, "p1").haul.append(other)

@@ -196,14 +196,14 @@ func _init() -> void:
 			"landing":
 				saw_landing = true
 				app.descent.show_state(run)
-				## The cage is walked up to before the respite, never after it: a run that
-				## means to leave here takes the lift first, and pays the winch to do it. A
-				## Warden's hall has no cage, so there the only way on is down.
-				if run.depth >= 4 and not bool(run.landing.get("cleared", false)):
+				## The camp first: the respite. Then the crossroads, where a run that means to
+				## leave here takes the lift and pays the winch to do it. A Warden's hall has no
+				## cage, so there the only way on is down.
+				if DeepDescent.needs_respite(run, app.session.local_player()):
+					app.session.send({"kind": "respite", "choice": "rest"})
+				elif run.depth >= 4 and not bool(run.landing.get("cleared", false)):
 					run.players[0].ore = int(run.players[0].ore) + DeepDescent.lift_cost(run)
 					app.session.send({"kind": "choose", "choice": "lift"})
-				elif str(app.session.local_player().get("respite", "")).is_empty():
-					app.session.send({"kind": "respite", "choice": "rest"})
 				else:
 					app.session.send({"kind": "choose", "choice": "descend"})
 			"hoard":

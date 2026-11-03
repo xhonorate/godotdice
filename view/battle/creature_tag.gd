@@ -1,11 +1,13 @@
 extends Control
-## A creature's inset tag at its feet (the plates rethink, artifact NMAGkwooypHHUKxsB4tR71,
-## the owner's final room of round eleven): its action dice stand in at the left, real solids
-## with their engraved marks, and beside them its name, its health with its block hatched over
-## the end, and one row of grey pills, each a move's coloured mark and its number. A Warden's
-## pills also say their names while the row stays narrow enough; nothing wraps or clips. What
-## is on it hangs under the tag as the party's own chips do, and what it pinned on itself for a
-## turn (a Lantern, a Static, a Gravity) is a chip there while it lasts.
+## A creature's inset tag over its head (the plates rethink, artifact NMAGkwooypHHUKxsB4tR71,
+## the owner's final room of round eleven; over the head rather than at the feet since October
+## 30): its action dice stand in at the left, real solids with their engraved marks, and beside
+## them its name, its health with its block hatched over the end, and one row of grey pills,
+## each a move's coloured mark and its number. A Warden's pills also say their names while the
+## row stays narrow enough; nothing wraps or clips. What is on it hangs under the tag, each
+## chip's turns over it (the party's are under theirs), in room kept for a row of them
+## (`CHIP_ROOM`) so a status landing never moves the tag; what it pinned on itself for a turn
+## (a Lantern, a Static, a Gravity) is a chip there while it lasts.
 ##
 ## Several dice stand nearly as big as one, overlapped in a fan (the owner, October 28): the
 ## front one at the right by the name, each behind it a step to the left and a little higher.
@@ -99,8 +101,8 @@ func _init() -> void:
 	_box.add_child(_bar)
 	_pills = DeepUi.hbox(_box, 4)
 	_pills.mouse_filter = Control.MOUSE_FILTER_PASS
-	## The statuses hang under the tag, beside where its dice stand.
-	_chips = EffectChips.Row.new(13)
+	## The statuses hang under the tag, beside where its dice stand, their turns over them.
+	_chips = EffectChips.Row.new(13, true)
 	_chips.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_chips)
 	## The dice over the panel's left end, and the block chip over its top right corner.
@@ -794,10 +796,13 @@ func _relayout() -> void:
 func chips_height() -> float:
 	return _chips.get_combined_minimum_size().y if _chips.get_child_count() > 0 else 0.0
 
+## The room kept under a tag for a row of its chips, whether or not any show: a status
+## landing fills it rather than moving the tag (a second row hangs on past it).
+const CHIP_ROOM: float = 24.0
+
 func standing_height() -> float:
-	## The tag and the chips under it.
-	var under: float = chips_height()
-	return size.y + (under + 3.0 if under > 0.0 else 0.0)
+	## The tag and the room for a row of chips under it.
+	return size.y + CHIP_ROOM
 
 func fade(gone: Callable = Callable()) -> void:
 	## Out, and then freed: `gone` is told first, so the screen can drop it from its book.

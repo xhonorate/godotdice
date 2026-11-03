@@ -323,29 +323,50 @@ static func _plates() -> ImageTexture:
 	if _plates_texture != null:
 		return _plates_texture
 	var size: int = 96
+	var count: int = 14
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11
-	var seeds: Array = []
-	for i in range(14):
-		seeds.append([Vector2(rng.randf_range(0.0, 1.0), rng.randf_range(0.0, 1.0)), 0.06 + 0.9 * float(i) / 13.0])
+	var seed_x := PackedFloat64Array()
+	var seed_y := PackedFloat64Array()
+	var seed_value := PackedFloat64Array()
+	for i in range(count):
+		seed_x.append(rng.randf_range(0.0, 1.0))
+		seed_y.append(rng.randf_range(0.0, 1.0))
+		seed_value.append(0.06 + 0.9 * float(i) / 13.0)
+	## The texture tiles, so a seed's nearest copy is the nearer way round on each axis; the
+	## squared distance along each column and row to each seed is worked out once. Measured
+	## seed by seed against all nine copies it took a third of a second, spent by the first
+	## creature to stand in a room (October 30); this lays the same pixels in a hundredth.
+	var across := PackedFloat64Array()
+	var down := PackedFloat64Array()
+	across.resize(size * count)
+	down.resize(size * count)
+	for p in range(size):
+		var at: float = float(p) / float(size)
+		for i in range(count):
+			var dx: float = absf(at - seed_x[i])
+			dx = minf(dx, 1.0 - dx)
+			across[p * count + i] = dx * dx
+			var dy: float = absf(at - seed_y[i])
+			dy = minf(dy, 1.0 - dy)
+			down[p * count + i] = dy * dy
 	var image := Image.create(size, size, false, Image.FORMAT_R8)
 	for px in range(size):
+		var column: int = px * count
 		for py in range(size):
-			var at := Vector2(float(px) / float(size), float(py) / float(size))
-			var best: float = 9.0
-			var second: float = 9.0
+			var row: int = py * count
+			var best: float = 81.0
+			var second: float = 81.0
 			var value: float = 0.0
-			for seed_entry in seeds:
-				for ox in [-1.0, 0.0, 1.0]:
-					for oy in [-1.0, 0.0, 1.0]:
-						var d: float = at.distance_to(seed_entry[0] + Vector2(ox, oy))
-						if d < best:
-							second = best
-							best = d
-							value = float(seed_entry[1])
-						elif d < second:
-							second = d
-			var seam: bool = second - best < 0.03
+			for i in range(count):
+				var d: float = across[column + i] + down[row + i]
+				if d < best:
+					second = best
+					best = d
+					value = seed_value[i]
+				elif d < second:
+					second = d
+			var seam: bool = sqrt(second) - sqrt(best) < 0.03
 			image.set_pixel(px, py, Color(0.0 if seam else value, 0, 0))
 	_plates_texture = ImageTexture.create_from_image(image)
 	return _plates_texture

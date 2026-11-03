@@ -18,6 +18,8 @@ const GREY := Color("59658a")
 ## How many strands make the bundle, and how many of them are the bright threads.
 const STRANDS: int = 18
 const BRIGHT: int = 4
+## How far apart the points of a strand are along the light, in pixels.
+const STRAND_STEP: float = 3.0
 
 ## The mark, the word and the number: what the screen anchors its flights and marks to.
 var box: HBoxContainer
@@ -278,8 +280,12 @@ func _draw() -> void:
 	var vivid: float = 0.45 + 0.55 * clampf(float(value) / float(FULL_COLOR), 0.0, 1.0)
 	var amplitude: float = (4.0 + 9.0 * _shown_reach + minf(8.0, over * 0.25)) * (1.0 + 0.6 * _jolt)
 	var quicken: float = 1.0 + minf(1.6, over * 0.04)
-	var drift: float = fmod(_clock * 0.08, 1.0) if over > 0.0 else 0.0
-	for side in [-1.0, 1.0]:
+	## Past the rail the colors turn through the rainbow, in steps too small to see, so the
+	## strands' colors are laid again only every few frames (`_strand_tones`).
+	var drift: float = snappedf(fmod(_clock * 0.08, 1.0), 1.0 / 256.0) if over > 0.0 else 0.0
+	var rippling: bool = not _ripples.is_empty()
+	for side_index in range(2):
+		var side: float = -1.0 if side_index == 0 else 1.0
 		var start: float = left_edge if side < 0.0 else right_edge
 		var room: float = start if side < 0.0 else size.x - start
 		var span: float = room * _shown_reach
@@ -287,31 +293,114 @@ func _draw() -> void:
 			continue
 		## Eighteen strands over a short span pile into a white blob: a short bundle is fainter.
 		var thin: float = clampf(span / 160.0, 0.3, 1.0)
-		for strand in _strands:
-			var points := PackedVector2Array()
-			var colors := PackedColorArray()
-			var x: float = 0.0
-			while x <= span:
-				var u: float = x / span
-				## Pinched where it leaves the word and where it ends, fullest between.
-				var envelope: float = pow(sin(PI * u), 0.75) * 0.85 + 0.15 * (1.0 - u)
-				var y: float = sin(x * float(strand.f) * quicken + float(strand.phase) + _clock * float(strand.speed) * quicken) * amplitude * float(strand.amp) * envelope
-				y += sin(x * float(strand.f) * 0.37 + float(strand.phase) * 2.0 - _clock * float(strand.speed) * 0.6) * amplitude * 0.3 * float(strand.amp) * envelope
+		## The steps along the light, and what every strand shares at each one (its pinch, the
+		## ripples passing), worked out once for the side rather than once a strand: drawn point
+		## by point for each strand it cost a whole frame at a full count (October 30).
+		var count: int = int(span / STRAND_STEP) + 1
+		if count < 2:
+			continue
+		var envelopes := PackedFloat32Array()
+		envelopes.resize(count)
+		var swells := PackedFloat32Array()
+		var brights := PackedFloat32Array()
+		if rippling:
+			swells.resize(count)
+			brights.resize(count)
+		for i in range(count):
+			var u: float = float(i) * STRAND_STEP / span
+			## Pinched where it leaves the word and where it ends, fullest between.
+			envelopes[i] = pow(sin(PI * u), 0.75) * 0.85 + 0.15 * (1.0 - u)
+			if rippling:
+				var swell: float = 0.0
 				var bright: float = 1.0
 				for ripple in _ripples:
 					var age: float = (_clock - float(ripple.at)) / 1.1
 					var near: float = exp(-pow((u - age) * 5.0, 2.0))
-					y += sin(x * float(strand.f) * 1.7 + float(strand.phase) * 1.3) * amplitude * float(ripple.strength) * near * (1.0 - age)
+					swell += float(ripple.strength) * near * (1.0 - age)
 					bright += 1.6 * near * (1.0 - age)
-				points.append(Vector2(start + side * x, middle + y))
-				var color: Color = _palette_at(palette, u, drift + float(strand.hue)).lightened(float(strand.lift))
-				colors.append(Color(color, float(strand.alpha) * vivid * thin * (0.35 + 0.65 * envelope) * bright))
-				x += 3.0
-			if points.size() < 2:
-				continue
+				swells[i] = swell
+				brights[i] = bright
+		var tones: Array = _strand_tones(side_index, span, count, palette, drift, vivid * thin, envelopes)
+		for s in range(_strands.size()):
+			var strand: Dictionary = _strands[s]
+			var f: float = float(strand.f)
+			var phase: float = float(strand.phase)
+			var speed: float = float(strand.speed)
+			var reach: float = amplitude * float(strand.amp)
+			var fast: float = f * quicken
+			var fast_at: float = phase + _clock * speed * quicken
+			var slow: float = f * 0.37
+			var slow_at: float = phase * 2.0 - _clock * speed * 0.6
+			var ripple_f: float = f * 1.7
+			var ripple_at: float = phase * 1.3
+			var points := PackedVector2Array()
+			points.resize(count)
+			for i in range(count):
+				var x: float = float(i) * STRAND_STEP
+				var y: float = (sin(x * fast + fast_at) + sin(x * slow + slow_at) * 0.3) * reach * envelopes[i]
+				if rippling:
+					y += sin(x * ripple_f + ripple_at) * amplitude * swells[i]
+				points[i] = Vector2(start + side * x, middle + y)
+			var colors: PackedColorArray = tones[s][0]
+			var soft: PackedColorArray = tones[s][1]
+			if rippling:
+				## A ripple brightens the light where it passes.
+				colors = colors.duplicate()
+				for i in range(count):
+					var lit: Color = colors[i]
+					colors[i] = Color(lit, lit.a * brights[i])
+				if not soft.is_empty():
+					soft = soft.duplicate()
+					for i in range(count):
+						var glow: Color = soft[i]
+						soft[i] = Color(glow, glow.a * brights[i])
 			if bool(strand.glow):
-				var soft := PackedColorArray()
-				for color in colors:
-					soft.append(Color(color, color.a * 0.3))
 				draw_polyline_colors(points, soft, float(strand.width) * 4.0, true)
 			draw_polyline_colors(points, colors, float(strand.width), true)
+
+## The strands' colors along the light, for each side: kept while nothing they are made of
+## changes, and laid again only while the light grows or shrinks, the palette changes, or past
+## the rail as its colors turn.
+var _tone_cache: Array = [{}, {}]
+
+func _strand_tones(side_index: int, span: float, count: int, palette: Array, drift: float, fade: float, envelopes: PackedFloat32Array) -> Array:
+	## [colors, glow colors] for every strand: its color at each step along the light (the
+	## palette there, turned by its own hue and lifted), as faint as it is and as the pinch
+	## makes it there. A ripple's brightening goes on top (`_draw`).
+	var key: String = "%s|%s|%s|%s|%s" % [count, span, drift, fade, str(palette)]
+	var kept: Dictionary = _tone_cache[side_index]
+	if str(kept.get("key", "")) == key:
+		return kept.tones
+	var hues := PackedFloat32Array()
+	var sats := PackedFloat32Array()
+	var values := PackedFloat32Array()
+	var blends := PackedColorArray()
+	hues.resize(count)
+	sats.resize(count)
+	values.resize(count)
+	blends.resize(count)
+	for i in range(count):
+		var blend: Color = _palette_at(palette, float(i) * STRAND_STEP / span, 0.0)
+		blends[i] = blend
+		hues[i] = blend.h
+		sats[i] = blend.s
+		values[i] = blend.v
+	var tones: Array = []
+	for strand in _strands:
+		var shift: float = drift + float(strand.hue)
+		var turned: bool = absf(shift) > 0.0005
+		var lift: float = float(strand.lift)
+		var alpha: float = float(strand.alpha) * fade
+		var colors := PackedColorArray()
+		colors.resize(count)
+		for i in range(count):
+			var color: Color = Color.from_hsv(fmod(hues[i] + shift + 1.0, 1.0), sats[i], values[i]) if turned else blends[i]
+			colors[i] = Color(color.lightened(lift), alpha * (0.35 + 0.65 * envelopes[i]))
+		var soft := PackedColorArray()
+		if bool(strand.glow):
+			soft.resize(count)
+			for i in range(count):
+				soft[i] = Color(colors[i], colors[i].a * 0.3)
+		tones.append([colors, soft])
+	_tone_cache[side_index] = {"key": key, "tones": tones}
+	return tones

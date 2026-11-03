@@ -21,6 +21,8 @@ signal confirmed(key: String, payload: Dictionary)
 signal cancelled
 ## A slot filled or emptied: whoever lights the dock should light it again.
 signal changed
+## The health the one button would cost, while it is pointed at (0 when it is not).
+signal hp_preview(cost: int)
 
 const SLOT_EDGE: float = 110.0
 const PICTURE: float = 82.0
@@ -115,6 +117,7 @@ func open(new_spec: Dictionary) -> void:
 	changed.emit()
 
 func close() -> void:
+	hp_preview.emit(0)
 	spec = {}
 	_key = ""
 	picks = {}
@@ -369,8 +372,22 @@ func _build() -> void:
 	DeepUi.ledger_primary(_confirm, tone)
 	_confirm.custom_minimum_size = Vector2(180, 40)
 	_confirm.disabled = payload().is_empty() or not str(spec.get("blocked", "")).is_empty()
+	_confirm.mouse_entered.connect(func() -> void: hp_preview.emit(_hp_cost()))
+	_confirm.mouse_exited.connect(func() -> void: hp_preview.emit(0))
+	_confirm.tree_exiting.connect(func() -> void: hp_preview.emit(0))
 	_block.reset_size()
 	_place()
+
+func _hp_cost() -> int:
+	## What the current picks would take out of the asker: a slot's `hp` for every stone in it.
+	var total: int = 0
+	for slot in spec.get("slots", []):
+		var each: int = int(slot.get("hp", 0))
+		if each <= 0:
+			continue
+		var held: Variant = picks.get(str(slot.key), [])
+		total += each * (held.size() if held is Array else (0 if str(held).is_empty() else 1))
+	return total
 
 func _do() -> void:
 	var answer: Dictionary = payload()
@@ -378,6 +395,7 @@ func _do() -> void:
 		return
 	DeepAudio.play("ui_confirm", {"volume": 0.8})
 	var was: String = _key
+	hp_preview.emit(0)
 	close()
 	confirmed.emit(was, answer)
 
