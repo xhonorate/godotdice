@@ -105,11 +105,15 @@ static func _long_press(control: Control) -> void:
 	## Starts the wait; the plate comes up if the finger is still down on the thing after it.
 	_press_token += 1
 	var token: int = _press_token
-	_press_id = control.get_instance_id()
+	var id: int = control.get_instance_id()
+	_press_id = id
 	if not control.is_inside_tree():
 		return
+	## A tap often frees the control (its screen closes) before the wait is up. Nothing is
+	## called on it until is_instance_valid says it is still there: a release export does not
+	## check for freed objects and crashes instead.
 	control.get_tree().create_timer(LONG_PRESS).timeout.connect(func() -> void:
-		if token == _press_token and _press_id == control.get_instance_id() and is_instance_valid(control) and control.is_visible_in_tree():
+		if token == _press_token and _press_id == id and is_instance_valid(control) and control.is_visible_in_tree():
 			_show(control))
 
 static func refresh(control: Control) -> void:
