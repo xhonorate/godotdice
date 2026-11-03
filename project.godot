@@ -14,10 +14,15 @@ config/name="Deep Cut"
 config/description="A cooperative dice-and-stone roguelike. Dig, appraise, refit, dig deeper."
 config/version="0.0.20"
 run/main_scene="res://view/main.tscn"
+run/flush_stdout_on_print.ios=true
 config/use_custom_user_dir=true
 config/custom_user_dir_name="DeepCut"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
+
+[debug]
+
+file_logging/enable_file_logging.ios=true
 
 [display]
 

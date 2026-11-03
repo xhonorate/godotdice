@@ -37,6 +37,24 @@ game reads Steam through `Engine.has_singleton("Steam")`, so it plays offline.
 - 3 sideloaded apps at once, and SideStore is one of them.
 - 10 new app IDs a week: keep the bundle ID `com.xhonorate.deepcut`.
 
+## After a crash
+
+Two things to send, both on the phone:
+
+1. **The game's log.** Files → On My iPhone → Deep Cut → `logs`. `godot.log`
+   is the current session; once the game is opened again the crashed session
+   moves to a timestamped `godot<date>.log` (the newest of those). Five are
+   kept. iOS builds turn file logging on and flush every print
+   (`.ios` overrides in project.godot) so the last lines before a crash are
+   written. The save files sit next to the logs: don't delete them.
+2. **The crash report.** Settings → Privacy & Security → Analytics &
+   Improvements → Analytics Data → the newest `DeepCut-…` file (a real
+   crash) or `JetsamEvent-…` (iOS killed the game for its memory).
+
+The phone build is a release export: a call on a freed object crashes there
+where the editor only prints an error, so check `is_instance_valid` before
+touching a node a timer or deferred lambda captured.
+
 ## If an update does not show
 
 The source marks each build by `buildVersion` (the run number). If SideStore
