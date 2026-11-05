@@ -33,6 +33,10 @@ const BELL_PARTIALS: Array = [1.0, 2.76, 5.4, 8.93]
 const CHIME_PARTIALS: Array = [1.0, 2.0, 3.01, 4.17]
 ## Struck metal: dense and clangorous.
 const METAL_PARTIALS: Array = [1.0, 1.51, 2.31, 3.37, 4.61]
+## A tapped wine glass: inharmonic and dark.
+const GLASS_PARTIALS: Array = [1.0, 2.32, 4.25, 6.63]
+## A music-box comb tooth.
+const TINE_PARTIALS: Array = [1.0, 3.95, 9.2]
 
 var samples: PackedFloat32Array
 ## Its own, so two threads never draw from the same stream of numbers.
@@ -346,7 +350,250 @@ func sparkle(at: float, seconds: float, amp: float = 0.2, low: float = 1800.0, h
 		bell(when, rng.randf_range(0.08, 0.22), rng.randf_range(low, high), amp * rng.randf_range(0.2, 0.6), CHIME_PARTIALS, 3.4)
 	return self
 
+func ping(at: float, hz: float, q: float = 40.0, amp: float = 0.3, click: float = 0.08) -> DeepSynth:
+	## A resonant filter struck once: exactly a damped sine, with the tick of the impulse in
+	## front of it. `q` is how long it rings, in cycles. The analog "pew", and the voice most
+	## of the interface speaks in.
+	var tau: float = q / (PI * hz)
+	var start: int = maxi(0, int(round(at * float(RATE))))
+	var limit: int = mini(int(round(minf(2.5, tau * 7.0) * float(RATE))), samples.size() - start)
+	if limit <= 0:
+		return self
+	var k: float = 1.0 / (tau * float(RATE))
+	var inc: float = TAU * hz / float(RATE)
+	var phase: float = 0.0
+	for i in range(limit):
+		phase += inc
+		samples[start + i] += amp * exp(-float(i) * k) * sin(phase) * minf(1.0, float(i) / 40.0)
+	if click > 0.0:
+		noise(at, 0.004, amp * click, 9000.0, 4000.0, 5.0, 0.0003)
+	return self
+
+func fm(at: float, seconds: float, hz: float, o: Dictionary = {}) -> DeepSynth:
+	## Two-operator FM: a sine carrier pushed by a sine modulator `ratio` times its pitch, as
+	## far as `index`, which falls away at `decay` (the tine of a Rhodes dies before its body)
+	## or rises over `index_attack` (brass). `fb` feeds the carrier back on itself for a
+	## sawtooth edge; `bend` glides in from that many semitones away. A second modulator
+	## (`ratio2`, `index2`, `decay2`) adds a clang. Struck metal, coins, a brass flare.
+	var start: int = maxi(0, int(round(at * float(RATE))))
+	var count: int = int(round(seconds * float(RATE)))
+	var limit: int = mini(count, samples.size() - start)
+	if count <= 0 or limit <= 0:
+		return self
+	var ratio: float = float(o.get("ratio", 2.0))
+	var index: float = float(o.get("index", 3.0))
+	var amp: float = float(o.get("amp", 0.4))
+	var ratio2: float = float(o.get("ratio2", 0.0))
+	var index2: float = float(o.get("index2", 0.0))
+	var fb: float = float(o.get("fb", 0.0))
+	var bend: float = float(o.get("bend", 0.0))
+	var env: PackedFloat32Array = _struck(count, float(o.get("attack", 0.004)), float(o.get("curve", 3.0)))
+	var ienv: PackedFloat32Array = _struck(count, maxf(0.001, float(o.get("index_attack", 0.0))), float(o.get("decay", 4.0)))
+	var ienv2: PackedFloat32Array = _struck(count, 0.001, float(o.get("decay2", 6.0))) if index2 > 0.0 else PackedFloat32Array()
+	var ph: float = 0.0
+	var phm: float = 0.0
+	var phm2: float = 0.0
+	var last: float = 0.0
+	var glide: int = mini(count, int(round(0.08 * float(RATE))))
+	for i in range(limit):
+		var f: float = hz
+		if bend != 0.0 and i < glide:
+			f = hz * pow(2.0, bend * (1.0 - float(i) / float(glide)) / 12.0)
+		var inc: float = f / float(RATE)
+		phm += inc * ratio
+		if phm >= 1.0:
+			phm -= 1.0
+		var modulation: float = sin(TAU * phm) * index * ienv[i]
+		if index2 > 0.0:
+			phm2 += inc * ratio2
+			if phm2 >= 1.0:
+				phm2 -= 1.0
+			modulation += sin(TAU * phm2) * index2 * ienv2[i]
+		ph += inc
+		if ph >= 1.0:
+			ph -= 1.0
+		var value: float = sin(TAU * ph + modulation + fb * last)
+		last = value
+		samples[start + i] += value * amp * env[i]
+	return self
+
+func analog(at: float, seconds: float, hz: float, o: Dictionary = {}) -> DeepSynth:
+	## The classic subtractive voice: a saw, square or pulse (`unison` copies, `detune` cents
+	## apart) into a resonant two-pole filter whose `cutoff` rides an envelope of its own
+	## (`env` hertz up, falling over `decay` to `sustain` of it). The note holds for `seconds`
+	## and lets go over `release`. `glide` slides in from that ratio of the pitch, `sub` adds a
+	## sine an octave down, `drive` warms the filter's output and `lfo` wobbles the cutoff at
+	## `lfo_hz`. The motor under the loupe, the drone under a battle.
+	var amp: float = float(o.get("amp", 0.3))
+	var shape_name: String = str(o.get("shape", "saw"))
+	var wave: int = 4 if shape_name == "pulse" else int(SHAPES.get(shape_name, SAW))
+	var copies: int = clampi(int(o.get("unison", 1)), 1, 5)
+	var detune: float = float(o.get("detune", 0.0))
+	var cutoff: float = float(o.get("cutoff", 800.0))
+	var env_amount: float = float(o.get("env", 2000.0))
+	var res: float = clampf(float(o.get("res", 0.3)), 0.0, 0.95)
+	var attack: float = float(o.get("attack", 0.005))
+	var f_decay: float = float(o.get("decay", 0.2))
+	var sustain: float = float(o.get("sustain", 0.2))
+	var release: float = float(o.get("release", 0.1))
+	var sub: float = float(o.get("sub", 0.0))
+	var pw: float = float(o.get("pw", 0.5))
+	var glide: float = float(o.get("glide", 1.0))
+	var drive: float = float(o.get("drive", 0.0))
+	var lfo: float = float(o.get("lfo", 0.0))
+	var lfo_inc: float = TAU * float(o.get("lfo_hz", 0.3)) / float(RATE)
+	var start: int = maxi(0, int(round(at * float(RATE))))
+	var hold: int = int(round(seconds * float(RATE)))
+	var count: int = hold + int(round(release * float(RATE)))
+	var limit: int = mini(count, samples.size() - start)
+	if hold <= 0 or limit <= 0:
+		return self
+	var phases := PackedFloat64Array()
+	var offs := PackedFloat64Array()
+	for u in range(copies):
+		var spread: float = 0.0 if copies == 1 else (float(u) / float(copies - 1) - 0.5) * 2.0
+		offs.append(pow(2.0, spread * detune / 1200.0))
+		phases.append(rng.randf())
+	var sub_phase: float = 0.0
+	var rise: int = clampi(int(round(attack * float(RATE))), 1, hold)
+	var fall: int = maxi(1, count - hold)
+	var tail: float = exp(-5.0)
+	var span: float = 1.0 / (1.0 - tail)
+	var decay_step: float = exp(-5.0 / float(fall))
+	var decay: float = 1.0
+	var f_step: float = exp(-4.0 / float(maxi(1, int(round(f_decay * float(RATE))))))
+	var f_env: float = 1.0
+	var glide_n: int = int(round(0.07 * float(RATE)))
+	var ic1: float = 0.0
+	var ic2: float = 0.0
+	var k: float = 2.0 - 2.0 * res
+	var each: float = amp / sqrt(float(copies))
+	for i in range(limit):
+		var envelope: float
+		if i < rise:
+			envelope = float(i) / float(rise)
+		elif i < hold:
+			envelope = 1.0
+		else:
+			decay *= decay_step
+			envelope = (decay - tail) * span
+		var f: float = hz
+		if glide != 1.0 and i < glide_n:
+			f = hz * pow(glide, 1.0 - float(i) / float(glide_n))
+		var inc: float = f / float(RATE)
+		var value: float = 0.0
+		for u in range(copies):
+			var p: float = phases[u] + inc * offs[u]
+			p -= floorf(p)
+			phases[u] = p
+			value += _osc_at(wave, p, inc * offs[u], pw)
+		if sub > 0.0:
+			sub_phase += inc * 0.5
+			if sub_phase >= 1.0:
+				sub_phase -= 1.0
+			value += sin(TAU * sub_phase) * sub * sqrt(float(copies))
+		f_env *= f_step
+		var fc: float = cutoff + env_amount * (sustain + (1.0 - sustain) * f_env)
+		if lfo > 0.0:
+			fc *= 1.0 + lfo * sin(lfo_inc * float(i))
+		fc = clampf(fc, 20.0, CEILING)
+		var g: float = tan(PI * fc / float(RATE))
+		var a1: float = 1.0 / (1.0 + g * (g + k))
+		var a2: float = g * a1
+		var a3: float = g * a2
+		var v3: float = value - ic2
+		var v1: float = a1 * ic1 + a2 * v3
+		var v2: float = ic2 + a2 * ic1 + a3 * v3
+		ic1 = 2.0 * v1 - ic1
+		ic2 = 2.0 * v2 - ic2
+		var out: float = v2
+		if drive > 0.0:
+			out = tanh(out * (1.0 + drive)) / tanh(1.0 + drive)
+		samples[start + i] += out * each * envelope
+	return self
+
+static func _struck(count: int, attack: float, curve: float) -> PackedFloat32Array:
+	## The struck envelope as a table: linear in, exponential out, landing on silence.
+	var env := PackedFloat32Array()
+	env.resize(maxi(0, count))
+	var rise: int = clampi(int(round(attack * float(RATE))), 1, maxi(1, count - 1))
+	var fall: float = curve * 2.6
+	var tail: float = exp(-fall)
+	var span: float = 1.0 / maxf(0.0001, 1.0 - tail)
+	var step: float = exp(-fall / float(maxi(1, count - rise)))
+	var decay: float = 1.0 / step
+	for i in range(count):
+		if i < rise:
+			env[i] = float(i) / float(rise)
+		else:
+			decay *= step
+			env[i] = (decay - tail) * span
+	return env
+
+static func _polyblep(t: float, dt: float) -> float:
+	## The correction that keeps a saw's or a square's step from whistling: a band-limited
+	## edge instead of a cliff.
+	if t < dt:
+		t /= dt
+		return t + t - t * t - 1.0
+	if t > 1.0 - dt:
+		t = (t - 1.0) / dt
+		return t * t + t + t + 1.0
+	return 0.0
+
+static func _osc_at(wave: int, t: float, dt: float, pw: float) -> float:
+	## One sample of a band-limited oscillator at phase `t` (0 to 1), advancing `dt` a sample.
+	if wave == SINE:
+		return sin(TAU * t)
+	if wave == TRIANGLE:
+		return 4.0 * absf(t - 0.5) - 1.0
+	if wave == SAW:
+		return 2.0 * t - 1.0 - _polyblep(t, dt)
+	if wave == SQUARE:
+		var square: float = 1.0 if t < 0.5 else -1.0
+		square += _polyblep(t, dt)
+		square -= _polyblep(fmod(t + 0.5, 1.0), dt)
+		return square
+	var width: float = pw if pw > 0.0 else 0.25
+	var pulse: float = 1.0 if t < width else -1.0
+	pulse += _polyblep(t, dt)
+	pulse -= _polyblep(fmod(t + 1.0 - width, 1.0), dt)
+	return pulse
+
 # --- shaping -----------------------------------------------------------------------------------
+
+func lowpass(hz: float, passes: int = 1) -> DeepSynth:
+	## One pole of low pass over the whole buffer (6 dB an octave), `passes` times over: what
+	## takes the edge off a stone or a hiss before it leaves the bank.
+	var a: float = clampf(TAU * hz / float(RATE), 0.001, 1.0)
+	for _pass in range(passes):
+		var low: float = 0.0
+		for i in range(samples.size()):
+			low += (samples[i] - low) * a
+			samples[i] = low
+	return self
+
+func highpass(hz: float) -> DeepSynth:
+	var a: float = clampf(TAU * hz / float(RATE), 0.001, 1.0)
+	var low: float = 0.0
+	for i in range(samples.size()):
+		low += (samples[i] - low) * a
+		samples[i] -= low
+	return self
+
+func saturate(drive: float = 1.5) -> DeepSynth:
+	## Tape: the loud parts rounded off, the whole brought back to the same peak.
+	var norm: float = tanh(drive)
+	for i in range(samples.size()):
+		samples[i] = tanh(samples[i] * drive) / norm
+	return self
+
+func tremolo(hz: float, depth: float) -> DeepSynth:
+	## The whole buffer chopped by a slow sine: a motor, a growl, a shiver.
+	var inc: float = TAU * hz / float(RATE)
+	for i in range(samples.size()):
+		samples[i] *= 1.0 - depth * (0.5 + 0.5 * sin(inc * float(i)))
+	return self
 
 func echoes(delay: float, feedback: float = 0.35, repeats: int = 3) -> DeepSynth:
 	## The room a sound is in. A plain feedback delay is enough for rock, and the fights happen

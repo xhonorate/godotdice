@@ -3,20 +3,20 @@ extends RefCounted
 ## The music, written the way the sound bank writes a crack: from nothing.
 ##
 ## A piece in `score.gd` is a key, a mode, a tempo, a chord for every two bars and a seed. This
-## writes it out as twenty-four bars that loop, cut into six layers of one arrangement:
+## writes it out as twenty-four bars that loop, in six parts folded into the four strips the
+## score player plays (`LAYERS`):
 ##
-##   bed     the pad and the drone: the chords, held. Always on.
-##   pulse   the bass and a light hand on the drums: walking pace.
-##   melody  the tune, with its echo and the odd glint of a bell.
-##   drive   the fight: the full kit, an arpeggio running under the tune, the bass in eighths.
-##   threat  an elite or a Warden: taiko and timpani, a roll and a cymbal swell into every
-##           fourth bar, and a low brass "braam" where they land.
-##   peril   a Warden's hall: a galloping string ostinato, the tune itself in the horns, brass
-##           stabs and high tremolo strings.
+##   bed     the pad and the drone (the chords, held) and the tune, with its echo and the odd
+##           glint of a bell. Always on.
+##   deep    the bass and a light hand on the drums: what comes up with depth.
+##   fight   the full kit, an arpeggio running under the tune, the bass in eighths.
+##   warden  an elite or a Warden: taiko and timpani, a roll and a cymbal swell into every
+##           fourth bar, a low brass "braam" where they land, and for a Warden a galloping
+##           string ostinato, the tune itself in the horns, brass stabs and high tremolo.
 ##
-## The layers are strips of exactly the same length and the score player starts them on the
-## same sample, so turning one up or down never moves the beat or changes the tune: a fight
-## comes in over the melody that was already playing and goes out again under it.
+## The strips are exactly the same length and the score player starts them on the same
+## sample, so turning one up or down never moves the beat or changes the tune: a fight comes
+## in over the tune that was already playing and goes out again under it.
 ##
 ## Every note is written once and laid into its strip wherever it falls (a held chord comes
 ## round every few bars, a kick drum hundreds of times), and anything ringing past the end of
@@ -26,21 +26,23 @@ extends RefCounted
 ## writes a piece here, on its worker thread, only if it has not been baked.
 
 const RATE: int = DeepSynth.RATE
-const LAYERS: PackedStringArray = ["bed", "pulse", "melody", "drive", "threat", "peril"]
-## How loud each layer is written, as its average level in decibels: the tune clearly on top,
-## the fight just under it, the bed and the bass beneath. The boss layers are written loud,
-## to be heard over a fight already at full rather than to thicken it: a Warden's hall should
-## sound like something else has arrived.
-const LOUDNESS: Array = [-26.0, -27.0, -22.5, -25.0, -24.0, -23.0]
+## The four strips of every piece, as the score player plays them (November 2026): the bed is
+## the whole piece as heard on a walk (pads, bass, the tune); deep comes up with depth; fight
+## comes in over it; warden is the Warden's hall. Baked pieces are written by the engine in
+## tools/sound/synth.js; written here, as a fallback, the six parts below are folded into the
+## same four strips.
+const LAYERS: PackedStringArray = ["bed", "deep", "fight", "warden"]
+## How loud each strip is written, as its average level in decibels: the bed carries the tune
+## now, so it sits highest; the fight just under it; the Warden's strip is written loud, to be
+## heard over a fight already at full rather than to thicken it.
+const LOUDNESS: Array = [-23.5, -27.0, -25.0, -23.0]
 const BED: int = 0
-const PULSE: int = 1
-const MELODY: int = 2
-const DRIVE: int = 3
-const THREAT: int = 4
-const PERIL: int = 5
-## The layers the whole piece is levelled by: everything short of a boss. The boss layers go
-## on top of that, and the Music bus's limiter catches what they push past full.
-const LEVELLED: int = 4
+const DEEP: int = 1
+const FIGHT: int = 2
+const WARDEN: int = 3
+## The strips the whole piece is levelled by: everything short of a Warden. That strip goes
+## on top of that, and the Music bus's limiter catches what it pushes past full.
+const LEVELLED: int = 3
 
 const MODES: Dictionary = {
 	"ionian": [0, 2, 4, 5, 7, 9, 11], "dorian": [0, 2, 3, 5, 7, 9, 10], "phrygian": [0, 1, 3, 5, 7, 8, 10],
@@ -197,12 +199,16 @@ static func write(spec: Dictionary, record: Variant = null) -> Array:
 			return []
 		p.layer = i
 		match i:
-			BED: _bed(p, strips[i])
-			PULSE: _pulse(p, strips[i])
-			MELODY: _melody(p, strips[i])
-			DRIVE: _drive(p, strips[i])
-			THREAT: _threat(p, strips[i])
-			PERIL: _peril(p, strips[i])
+			BED:
+				_bed(p, strips[i])
+				_melody(p, strips[i])
+			DEEP:
+				_pulse(p, strips[i])
+			FIGHT:
+				_drive(p, strips[i])
+			WARDEN:
+				_threat(p, strips[i])
+				_peril(p, strips[i])
 	## Each layer is brought to its own loudness (the tune on top, the bed under it), then
 	## the whole is turned down together if the loudest moment of a fight would clip. The boss
 	## layers are left out of that: turning every layer down so a Warden's hall fits would

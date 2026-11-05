@@ -28,15 +28,16 @@ func _init() -> void:
 	var total: int = 0
 	for name in wanted:
 		var began: int = Time.get_ticks_usec()
-		var sound: AudioStreamWAV = DeepSoundBank.stream(name)
+		var sound: AudioStream = DeepSoundBank.stream(name)
 		var baked: int = Time.get_ticks_usec() - began
 		total += baked
 		if sound == null:
 			printerr("FAIL: %s has no recipe" % name)
 			continue
 		DeepAudio.play(name, {"gap": 0.0, "vary": 0.0})
-		print("%-16s %5.2fs  %6.1f kB  %s" % [name, sound.get_length(), float(sound.data.size()) / 1024.0,
-			"baked in %.0f ms" % (float(baked) / 1000.0) if baked > 2000 else "ready"])
+		var size: float = float((sound as AudioStreamWAV).data.size()) / 1024.0 if sound is AudioStreamWAV else 0.0
+		print("%-16s %5.2fs  %6.1f kB  %s" % [name, sound.get_length(), size,
+			"hand-made" if not sound is AudioStreamWAV else ("baked in %.0f ms" % (float(baked) / 1000.0) if baked > 2000 else "ready")])
 		await create_timer(maxf(sound.get_length() + 0.12, gap)).timeout
 	print("\nBaking cost this run: %.0f ms. The game bakes the whole bank on a worker thread at boot." % (float(total) / 1000.0))
 	if mixer != null:

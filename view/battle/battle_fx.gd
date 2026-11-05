@@ -1067,8 +1067,9 @@ func spiral_in(at: Vector3, color: Color, radius: float = 2.2, amount: int = 40,
 	var p := _burst(at, amount, lifetime, keep("spiral_in", m), quad(true))
 	p.explosiveness = 0.6
 
-func claw(at: Vector3, facing: Vector3, color: Color, seconds: float = 0.45) -> void:
-	## Two pincers snapping shut on something: a die taken in a claw.
+func claw(at: Vector3, facing: Vector3, color: Color, seconds: float = 0.45, size: float = 1.0) -> void:
+	## Two pincers snapping shut on something: a die taken in a claw. `size` scales it: a claw
+	## shutting just before the lens is drawn smaller, or it fills the bottom of the screen.
 	var pivot := Node3D.new()
 	add_child(pivot)
 	pivot.look_at_from_position(at, at + facing, _up_for(facing))
@@ -1082,15 +1083,15 @@ func claw(at: Vector3, facing: Vector3, color: Color, seconds: float = 0.45) -> 
 	var tween := pivot.create_tween().set_parallel(true)
 	for side in [-1.0, 1.0]:
 		var pincer := MeshInstance3D.new()
-		pincer.mesh = Lowpoly.ring(0.5, 0.18, 12)
+		pincer.mesh = Lowpoly.ring(0.5 * size, 0.18, 12)
 		pincer.material_override = m
 		pincer.rotation = Vector3(PI * 0.5, 0, 0)
-		pincer.position = Vector3(side * 0.9, 0, 0)
+		pincer.position = Vector3(side * 0.9 * size, 0, 0)
 		pivot.add_child(pincer)
-		tween.tween_property(pincer, "position:x", side * 0.22, seconds * 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+		tween.tween_property(pincer, "position:x", side * 0.22 * size, seconds * 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 	tween.chain().tween_property(m, "albedo_color:a", 0.0, seconds * 0.6)
 	tween.chain().tween_callback(pivot.queue_free)
-	shards(at, color, 6, 2.5, 0.08, 0.6)
+	shards(at, color, 6, 2.5 * size, 0.08 * size, 0.6)
 
 # --- what a creature's own move throws (creature_moves.gd) -------------------------------------
 
@@ -1352,7 +1353,7 @@ func zap(from: Vector3, to: Vector3, color: Color, seconds: float = 0.35) -> voi
 	tween.tween_property(m, "albedo_color:a", 0.0, seconds / 4.0)
 	tween.tween_callback(node.queue_free)
 	flash(from, color, 4.0, 4.0, seconds, 0.8)
-	glow_burst(to, color, 0.45, 0.25)
+	glow_burst(to, color, 0.3, 0.25)
 
 func jet(at: Vector3, color: Color, amount: int = 30, speed: float = 5.0, spread: float = 20.0, lifetime: float = 0.9, size: float = 0.07) -> void:
 	## Hot points thrown straight up and falling back: a crater spitting.
@@ -1443,6 +1444,258 @@ func ripple(at: Vector3, facing: Vector3, color: Color, radius: float = 1.4, sec
 	tween.tween_property(pivot, "position", at + facing.normalized() * radius * 0.8, seconds).set_trans(Tween.TRANS_SINE)
 	tween.tween_property(m, "albedo_color:a", 0.0, seconds).set_ease(Tween.EASE_IN)
 	tween.chain().tween_callback(pivot.queue_free)
+
+# --- one look per meaning (creature moves, pass 2, November 2026) -------------------------------
+## What a creature's move does, drawn the same way whoever does it (view/battle/effect_looks.gd
+## picks which): a guard is a crystal shell forming, a mend motes spiralling up, a buff a ring
+## and a rising column of light, a debuff a hexagon thrown at its target, a summon a crack in
+## the floor something climbs out of. Each is tinted by the move's kind colour.
+
+static var _column_fade: GradientTexture2D = null
+
+static func _lit(color: Color, alpha: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	m.albedo_color = Color(color, alpha)
+	return m
+
+func shell(at: Vector3, color: Color, radius: float = 0.9, seconds: float = 0.7, dome: bool = true) -> void:
+	## A guard: faceted plates fly in from all round and lock into a shell about it, which flares
+	## and fades (`dome`: a hexagonal ward lit over it as they lock, where nothing else shows one).
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.roughness = 0.2
+	m.metallic = 0.3
+	m.emission_enabled = true
+	m.emission = color.lightened(0.2)
+	m.emission_energy_multiplier = 1.6
+	m.rim_enabled = true
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var count: int = _amount(12)
+	var land: float = 0.24
+	for i in range(count):
+		var dir := Vector3(rng.randf_range(-1.0, 1.0), rng.randf_range(-0.25, 1.0), rng.randf_range(-0.6, 1.0)).normalized()
+		var to: Vector3 = at + dir * radius
+		var from: Vector3 = at + dir * radius * 1.9 + Vector3(0, rng.randf_range(-0.2, 0.4), 0)
+		var piece := MeshInstance3D.new()
+		piece.mesh = Lowpoly.shard(rng, color.lightened(0.25), radius * 0.13 * rng.randf_range(0.7, 1.3))
+		piece.material_override = m
+		piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		piece.position = from
+		add_child(piece)
+		var spin := Vector3(rng.randf_range(-9, 9), rng.randf_range(-9, 9), rng.randf_range(-9, 9))
+		var late: float = land * rng.randf_range(0.75, 1.0)
+		var tween := piece.create_tween()
+		tween.tween_method(func(k: float) -> void:
+			if is_instance_valid(piece):
+				piece.position = from.lerp(to, 1.0 - pow(1.0 - k, 3.0))
+				piece.rotation = spin * (1.0 - k), 0.0, 1.0, late)
+		tween.tween_interval(seconds * 0.35)
+		tween.tween_property(piece, "scale", Vector3.ONE * 0.05, seconds * 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+		tween.tween_callback(piece.queue_free)
+	var later := create_tween()
+	later.tween_interval(land)
+	if dome:
+		later.tween_callback(shield.bind(at, Vector3.BACK, color, radius * 1.05, seconds * 0.8, 0.42, 2.2))
+	later.tween_property(m, "albedo_color:a", 0.0, seconds * 0.6)
+
+func aura(at: Vector3, color: Color, height: float = 1.6, seconds: float = 0.9) -> void:
+	## A buff: a ring flaring out at its feet and a column of light rising up through it, motes
+	## climbing with it.
+	var feet := Vector3(at.x, at.y + 0.04, at.z)
+	ring_wave(feet, color, 1.4 + height * 0.35, seconds * 0.7, 0.22)
+	if _column_fade == null:
+		var fade := Gradient.new()
+		fade.offsets = PackedFloat32Array([0.0, 0.25, 1.0])
+		fade.colors = PackedColorArray([Color(1, 1, 1, 0.0), Color(1, 1, 1, 0.5), Color(1, 1, 1, 1.0)])
+		_column_fade = GradientTexture2D.new()
+		_column_fade.gradient = fade
+		_column_fade.width = 4
+		_column_fade.height = 64
+		_column_fade.fill_from = Vector2(0, 0)
+		_column_fade.fill_to = Vector2(0, 1)
+	var column := MeshInstance3D.new()
+	var tube := CylinderMesh.new()
+	tube.top_radius = 0.3 + height * 0.08
+	tube.bottom_radius = 0.4 + height * 0.1
+	tube.height = height * 1.1
+	tube.radial_segments = 8
+	tube.rings = 1
+	tube.cap_top = false
+	tube.cap_bottom = false
+	column.mesh = tube
+	var m := _lit(color.lightened(0.2), 0.0)
+	m.albedo_texture = _column_fade
+	column.material_override = m
+	column.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	column.position = feet + Vector3(0, height * 0.55, 0)
+	column.scale = Vector3(1.0, 0.15, 1.0)
+	add_child(column)
+	var tween := column.create_tween().set_parallel(true)
+	tween.tween_property(column, "scale", Vector3.ONE, seconds * 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(column, "rotation:y", PI * 0.5, seconds)
+	tween.tween_property(m, "albedo_color:a", 0.28, seconds * 0.25)
+	tween.chain().tween_property(m, "albedo_color:a", 0.0, seconds * 0.6)
+	tween.chain().tween_callback(column.queue_free)
+	rise(feet + Vector3(0, 0.1, 0), color, 24, 0.45 + height * 0.1, seconds + 0.5)
+
+func helix(at: Vector3, color: Color, height: float = 1.6, seconds: float = 1.0, radius: float = 0.5) -> void:
+	## A mend: motes of light spiralling up round it in three strands.
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_texture = sparkle_texture()
+	mat.albedo_color = Color(color.lightened(0.3), 1.0)
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2.ONE * 0.2
+	mesh.material = mat
+	var base := Vector3(at.x, at.y + 0.1, at.z)
+	var count: int = 3 * maxi(2, _amount(6))
+	for i in range(count):
+		var mote := MeshInstance3D.new()
+		mote.mesh = mesh
+		mote.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mote.position = base
+		mote.scale = Vector3.ZERO
+		add_child(mote)
+		var strand: float = TAU * float(i % 3) / 3.0
+		var delay: float = seconds * 0.45 * float(i / 3) / float(maxi(1, count / 3))
+		var up: float = height * (1.0 + 0.15 * float(i % 3))
+		var tween := mote.create_tween()
+		tween.tween_interval(delay)
+		tween.tween_method(func(k: float) -> void:
+			if is_instance_valid(mote):
+				var a: float = strand + k * TAU * 1.25
+				var r: float = radius * (1.0 - 0.45 * k)
+				mote.position = base + Vector3(cos(a) * r, up * k, sin(a) * r)
+				mote.scale = Vector3.ONE * sin(clampf(k, 0.0, 1.0) * PI) * 1.2, 0.0, 1.0, seconds * 0.7).set_trans(Tween.TRANS_SINE)
+		tween.tween_callback(mote.queue_free)
+	glow_burst(base + Vector3(0, height * 0.5, 0), color, 0.9, seconds * 0.5)
+
+func hex_bolt(from: Vector3, to: Vector3, color: Color, seconds: float = 0.3, arrive: Callable = Callable(), size: float = 0.22, arc: float = 0.35) -> void:
+	## A debuff thrown: a hexagon of the move's colour spinning from the creature to what it lands
+	## on, a small bolt of light carrying it. It ends short of the lens: its light is kept low.
+	projectile(from, to, color, seconds, size * 0.45, arrive, arc, 2.2)
+	var pivot := Node3D.new()
+	pivot.position = from
+	add_child(pivot)
+	var hex := MeshInstance3D.new()
+	hex.mesh = Lowpoly.ring(1.0, 0.24, 6)
+	hex.material_override = _lit(color.lightened(0.35), 0.95)
+	hex.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hex.rotation = Vector3(PI * 0.5, 0, 0)
+	pivot.add_child(hex)
+	pivot.scale = Vector3.ONE * size * 0.5
+	var control := (from + to) * 0.5 + Vector3(0, arc, 0)
+	var facing: Vector3 = (to - from).normalized()
+	var tween := pivot.create_tween()
+	tween.tween_method(func(k: float) -> void:
+		if is_instance_valid(pivot):
+			var a := from.lerp(control, k)
+			var b := control.lerp(to, k)
+			pivot.position = a.lerp(b, k)
+			if not facing.is_zero_approx():
+				pivot.look_at(pivot.position + facing, _up_for(facing))
+			pivot.rotate_object_local(Vector3.BACK, k * TAU * 1.5)
+			pivot.scale = Vector3.ONE * size * lerpf(0.5, 1.0, k), 0.0, 1.0, seconds).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_callback(pivot.queue_free)
+
+func hex_flare(at: Vector3, color: Color, size: float = 0.5, seconds: float = 0.45) -> void:
+	## A hex lit where a creature casts its debuff (or where one lands): a hexagon flaring out and
+	## turning as it fades.
+	var pivot := Node3D.new()
+	pivot.position = at
+	add_child(pivot)
+	var hex := MeshInstance3D.new()
+	hex.mesh = Lowpoly.ring(1.0, 0.16, 6)
+	var m := _lit(color.lightened(0.3), 0.95)
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	hex.material_override = m
+	hex.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hex.rotation = Vector3(PI * 0.5, 0, 0)
+	pivot.add_child(hex)
+	pivot.scale = Vector3.ONE * size * 0.3
+	var tween := pivot.create_tween().set_parallel(true)
+	tween.tween_property(pivot, "scale", Vector3.ONE * size, seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(hex, "rotation:y", PI / 3.0, seconds)
+	tween.tween_property(m, "albedo_color:a", 0.0, seconds).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(pivot.queue_free)
+	glow_burst(at, color, size * 0.7, seconds * 0.6)
+
+func crack(at: Vector3, color: Color, radius: float = 1.0, seconds: float = 1.1) -> void:
+	## A summon: the floor splits where something climbs out, light welling up through the
+	## cracks; dust and grit thrown up, and it all closes over again.
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var pivot := Node3D.new()
+	pivot.position = Vector3(at.x, at.y + 0.035, at.z)
+	add_child(pivot)
+	var pit := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.42 * radius
+	disc.bottom_radius = 0.42 * radius
+	disc.height = 0.01
+	disc.radial_segments = 7
+	disc.rings = 1
+	pit.mesh = disc
+	var dark := StandardMaterial3D.new()
+	dark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	dark.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dark.albedo_color = Color(0.03, 0.02, 0.02, 0.0)
+	pit.material_override = dark
+	pit.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pivot.add_child(pit)
+	var lit := _lit(color.lightened(0.25), 0.0)
+	var rim := MeshInstance3D.new()
+	rim.mesh = Lowpoly.ring(0.46 * radius, 0.07 * radius, 7)
+	rim.material_override = lit
+	rim.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	rim.position = Vector3(0, 0.01, 0)
+	pivot.add_child(rim)
+	var arms: Array = []
+	for i in range(7):
+		var arm := Node3D.new()
+		arm.rotation.y = TAU * float(i) / 7.0 + rng.randf_range(-0.25, 0.25)
+		arm.scale = Vector3(1, 1, 0.01)
+		pivot.add_child(arm)
+		var length: float = radius * rng.randf_range(0.55, 1.15)
+		var split := MeshInstance3D.new()
+		var bar := BoxMesh.new()
+		bar.size = Vector3(0.05 * radius, 0.01, length)
+		split.mesh = bar
+		split.material_override = lit
+		split.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		split.position = Vector3(0, 0.012, 0.3 * radius + length * 0.5)
+		split.rotation.y = rng.randf_range(-0.2, 0.2)
+		arm.add_child(split)
+		arms.append(arm)
+	var tween := pivot.create_tween().set_parallel(true)
+	tween.tween_property(dark, "albedo_color:a", 0.9, 0.15)
+	tween.tween_property(lit, "albedo_color:a", 0.95, 0.12)
+	for arm in arms:
+		tween.tween_property(arm, "scale:z", 1.0, 0.22).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT).set_delay(rng.randf_range(0.0, 0.08))
+	tween.chain().tween_interval(seconds * 0.45)
+	tween.chain().tween_property(lit, "albedo_color:a", 0.0, seconds * 0.4)
+	tween.parallel().tween_property(dark, "albedo_color:a", 0.0, seconds * 0.5)
+	tween.chain().tween_callback(pivot.queue_free)
+	var floor_at := Vector3(at.x, at.y + 0.15, at.z)
+	puff(floor_at, Color(0.45, 0.4, 0.34), 14, 0.9 * radius, 1.2, 0.8)
+	shards(floor_at, Color(0.5, 0.45, 0.4), 8, 3.0, 0.08 * radius, 0.8)
+	glow_burst(floor_at, color, 1.0 * radius, 0.4)
+
+func stagger(at: Vector3, color: Color = Color("4d5363"), size: float = 1.0) -> void:
+	## A dud: a grey puff where it fumbled, and a few motes dropping.
+	puff(at, color.lightened(0.25), 12, 0.6 * size, 1.0, 0.25)
+	sparks(at, color.lightened(0.4), 8, 1.2, 0.6, 0.04)
 
 static func haze(kind: String, color: Color, size: float = 1.0) -> GPUParticles3D:
 	## What hangs about a creature all the time, following it: a clouder's fog, the smoke off a
@@ -1555,6 +1808,24 @@ static func haze(kind: String, color: Color, size: float = 1.0) -> GPUParticles3
 			m.color_ramp = fade_ramp(color, 0.9, 0.2)
 			p.amount = 12
 			p.lifetime = 2.4
+			p.local_coords = false
+		"drip":
+			## Water running off a drowned thing: a drop now and then, falling from where it hangs
+			## (a pick's head, a hat brim, a sluice gate's edge, a serpent's jaw).
+			m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			m.emission_sphere_radius = 0.08 * size
+			m.direction = Vector3.DOWN
+			m.spread = 6.0
+			m.initial_velocity_min = 0.1
+			m.initial_velocity_max = 0.4
+			m.gravity = Vector3(0, -7.0, 0)
+			m.scale_min = 0.025 * size
+			m.scale_max = 0.045 * size
+			m.color_ramp = fade_ramp(color, 0.85, 0.05)
+			mesh = _stretched_quad()
+			p.amount = 4
+			p.lifetime = 0.75
+			p.randomness = 0.6
 			p.local_coords = false
 		_:
 			return null

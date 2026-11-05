@@ -35,17 +35,19 @@ export const LIVE_DIR = path.join(ROOT, 'audio/music');
 export const DRAFT_DIR = path.join(ROOT, 'build/music/drafts');
 const RENDER_DIR = path.join(ROOT, 'build/music/render');
 
-// As DeepComposer.LAYERS: the six strips of every piece, in order.
-export const LAYERS = ['bed', 'pulse', 'melody', 'drive', 'threat', 'peril'];
+// As DeepComposer.LAYERS: the four strips of every piece, in order (November 2026: bed, deep,
+// fight, warden). The live pieces are baked by tools/sound/bake_music.mjs from the engine in
+// tools/sound/synth.js; the Godot render here is the game's fallback composer, for drafts.
+export const LAYERS = ['bed', 'deep', 'fight', 'warden'];
 // Fields the game reads while it plays rather than baked into the sound: changing one needs no
 // render, and a draft that changes only these can be adopted as it stands.
-export const RUNTIME_FIELDS = ['name', 'warden_lift'];
+export const RUNTIME_FIELDS = ['name', 'warden_lift', 'from'];
 export const AIRS = ['workshop', 'galleries', 'seeps', 'crystal', 'fungal', 'magma', 'geode', 'rift'];
 // Vorbis quality, -1 to 10: 6 is transparent for these mono loops at about 80 kbit/s.
 const OGG_QUALITY = 6;
 // The order a track's fields are written in, so a diff of the score shows only what changed.
 const FIELD_ORDER = ['name', 'key', 'mode', 'bpm', 'meter', 'seed', 'chords', 'bridge', 'pad', 'bass', 'bass_style', 'lead', 'lead_octave',
-	'arp', 'arp_rate', 'kit', 'layers', 'drone', 'sevenths', 'echo', 'warden_lift'];
+	'arp', 'arp_rate', 'kit', 'layers', 'drone', 'sevenths', 'echo', 'warden_lift', 'from'];
 
 export const validId = (id) => /^[a-z0-9_]+$/.test(String(id));
 

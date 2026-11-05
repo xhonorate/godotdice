@@ -10,13 +10,20 @@ extends Node3D
 ## a part's own axle. Pivots are flat siblings under the body, so a part that rides on another
 ## (a jaw on a head, a saw on a tail's tip) is listed in that one's group too and is carried by
 ## its turn; turns are laid on from the leaf to the root (a jaw opens about its hinge before the
-## head turns about the neck). What each creature does is data, in creature_rigs.gd; the few
-## things no table says (a mole digging in, a tendril unfurling, a mimic's tongue) are written
-## out below.
+## head turns about the neck). What each creature does is data, one file a mine
+## (view/creatures/rigs/<mine>.gd, merged by creature_rigs.gd); the few things no table says (a
+## mole digging in, a tendril unfurling, a mimic's tongue) are functions there too, called with
+## this node as `m`.
 ##
 ## The screen calls `play` 0.3 s before the move lands (`HIT`): every attack is timed to strike
 ## then. A creature with no named parts, or no gesture for the move, says no and the creature
 ## falls back on its old lunge or channel.
+##
+## Pass 2 (November 3, 2026): fidgets, the intermittent things a creature does while it waits
+## (the Drill lifting its head to look about), each on its own random clock; trope idles as data
+## (a jellyfish's swim, a snake's slither, breathing, looking about, blinking...); and heavy
+## blows, a creature's big attack held at its wind pose with a shiver and a charge before it
+## lands past its strike pose and freezes there a moment.
 
 const Part = preload("res://view/creatures/creature_part.gd")
 const BattleFx = preload("res://view/battle/battle_fx.gd")
@@ -25,6 +32,15 @@ const Rigs = preload("res://view/creatures/creature_rigs.gd")
 const HIT: float = Rigs.HIT
 ## A clip is let go this long after its last key, so the parts are seen back at rest.
 const TAIL: float = 0.05
+## A heavy blow (DeepCreatures.heavy_moves) holds its wind pose `heavy` seconds longer (the
+## screen starts it that much sooner), winding a little tighter as it holds (DEEPEN); it lands
+## past its strike pose (OVERSHOOT) and freezes there a moment (HITSTOP).
+const HITSTOP: float = 0.07
+const DEEPEN: float = 0.3
+const OVERSHOOT: float = 0.3
+## Fidgets come on their own only while this is set. The tests clear it, so a creature and a
+## twin stepped alongside it stay alike (every creature's noise is then seeded the same, too).
+static var lively: bool = true
 
 var _creature: Node3D
 var _body: Node3D
@@ -64,6 +80,16 @@ var _hole_material: StandardMaterial3D = null
 ## Shown only while a move asks for them (the Kiln Wyrm's breath).
 var _hidden_at_rest: Array = []
 var _saw_spin: float = 0.0
+## The mine script (view/creatures/rigs/<mine>.gd) that holds this scene's own functions.
+var _owner: Script = null
+## Its own random clock: when it next fidgets and which, the targets it looks about at, and the
+## seed its idles' noise is salted with, so two of a kind in one room never move in step.
+var noise_seed: int = 0
+var _rng := RandomNumberGenerator.new()
+var _fidget_wait: float = 0.0
+## The fidget playing now (a clip like a move's), or empty.
+var _fidget: Dictionary = {}
+var _last_fidget: String = ""
 
 func _init(creature: Node3D, body: Node3D, scene_key: String) -> void:
 	name = "Moves"
@@ -74,6 +100,8 @@ func _init(creature: Node3D, body: Node3D, scene_key: String) -> void:
 		if child is Part:
 			_named[str(child.name)] = child
 	_rig = Rigs.rig(scene_key)
+	_owner = Rigs.owner_of(scene_key)
+	reseed(randi() if lively else 0)
 	for selector in _rig.get("hidden", []):
 		for part in _select(selector):
 			part.visible = false
@@ -94,11 +122,16 @@ func has_rig() -> bool:
 func handles(anim: String, move: String, hostile: bool) -> bool:
 	return _spec_for(anim, move, hostile) != null
 
-func play(anim: String, move: String = "", hostile: bool = true, aim: Vector3 = Vector3.INF, fx: Node = null) -> bool:
-	## Acts out a move; false when this creature has nothing of its own for it.
+func play(anim: String, move: String = "", hostile: bool = true, aim: Vector3 = Vector3.INF, fx: Node = null, heavy: float = 0.0) -> bool:
+	## Acts out a move; false when this creature has nothing of its own for it. `heavy` is how
+	## much longer a heavy blow holds its wind pose (the screen starts it that much sooner): its
+	## rig's own heavy version if it wrote one, its move stretched at the wind otherwise.
 	var spec: Variant = _spec_for(anim, move, hostile)
 	if spec == null:
 		return false
+	var big: Dictionary = _heavy_spec(spec, anim, move) if heavy > 0.0 else {}
+	if big.has("do"):
+		spec = big.do
 	var clip: Dictionary = {"anim": anim, "move": move, "t": 0.0, "hostile": hostile, "aim": aim,
 		"fx": weakref(fx) if fx != null else null, "fired": {}, "spun": {}, "length": 0.0,
 		"shift": lead(anim, move, hostile) - HIT}
@@ -112,13 +145,55 @@ func play(anim: String, move: String = "", hostile: bool = true, aim: Vector3 = 
 		if clip.length <= 0.0:
 			clip.length = _length_of(gestures)
 		clip.length = float(clip.length) + float(clip.shift)
+	clip.end = float(clip.length)
+	if heavy > 0.0:
+		clip.heavy = heavy
+		clip.big = big
+		clip.wind = float(big.get("wind", _wind_of(clip)))
+		clip.end = float(clip.length) + heavy + HITSTOP
 	if anim == "erupt" and _dig_state in ["waiting", "under"]:
 		_dig_state = "erupting"
 		_dig = 0.0
 	_strikes += 1
 	clip.strike = _strikes
 	_clips.append(clip)
+	_cut_fidget()
 	return true
+
+func _heavy_spec(spec: Variant, anim: String, move: String) -> Dictionary:
+	## What a rig wrote for a move's heavy version: on the move itself (`"heavy": {...}` in a move
+	## written as a dictionary) or in its `heavy` table by move name or anim. See creature_rigs.gd.
+	if spec is Dictionary and (spec as Dictionary).has("heavy"):
+		return spec.heavy
+	var table: Dictionary = _rig.get("heavy", {})
+	move = str(_rig.get("alias", {}).get(move, move))
+	if table.has(move):
+		return table[move]
+	if table.has(anim):
+		return table[anim]
+	return {}
+
+func _wind_of(clip: Dictionary) -> float:
+	## When a move is wound back furthest before its blow (its keys' time): where a heavy one
+	## holds. A move with no wind (a breath that only opens) holds just before its blow.
+	if clip.has("custom"):
+		return float(Rigs.CUSTOM_WIND.get(str(clip.custom), HIT - 0.08))
+	var best: float = HIT - 0.1
+	var deepest: float = -0.05
+	var k: float = 0.04
+	while k <= HIT - 0.015:
+		var sum: float = 0.0
+		for g in clip.gestures:
+			var at: int = int(ENVELOPE_AT.get(str(g[0]), -1))
+			if at > 0 and g.size() > at:
+				sum += minf(0.0, value(g[at], k))
+		if sum < deepest - 0.002:
+			deepest = sum
+			best = k
+		elif sum < -0.05 and sum <= deepest + 0.002:
+			best = k
+		k += 0.01
+	return best
 
 func lead(anim: String, move: String, hostile: bool = true) -> float:
 	## How long before its blow lands this move wants to start: a tendril unfurls first, an
@@ -132,6 +207,87 @@ func lead(anim: String, move: String, hostile: bool = true) -> float:
 
 func acting() -> bool:
 	return not _clips.is_empty()
+
+# --- fidgets ---------------------------------------------------------------------------------
+
+func reseed(n: int) -> void:
+	## Its random clock from this seed: the films and tests set one so a take plays the same.
+	noise_seed = n
+	_rng.seed = n
+	var every: Array = _rig.get("fidget_every", [5.0, 10.0])
+	_fidget_wait = _rng.randf_range(float(every[0]) * 0.3, float(every[1]))
+
+func fidget_names() -> Array:
+	return _rig.get("fidgets", {}).keys()
+
+func fidgeting() -> bool:
+	return not _fidget.is_empty()
+
+func fidget(name: String = "") -> bool:
+	## Plays one of its fidgets now (one picked by weight when no name is given); false if it has
+	## none by that name. A move started across it takes over (see `_cut_fidget`).
+	var all: Dictionary = _rig.get("fidgets", {})
+	if all.is_empty():
+		return false
+	if name.is_empty():
+		name = _pick_fidget()
+	if not all.has(name):
+		return false
+	var spec: Dictionary = all[name]
+	var gestures: Array = spec.get("do", [])
+	var length: float = float(spec.get("length", maxf(2.0, _length_of(gestures))))
+	var hold: float = clampf(float(spec.get("hold", length * 0.4)), 0.0, length - 0.2)
+	var ease: float = (length - hold) * 0.5
+	_fidget = {"fidget": name, "anim": "fidget", "move": name, "t": 0.0, "shift": 0.0, "gestures": gestures,
+		"length": length, "end": length, "span": length, "f": [[0.0, 0.0], [ease, 1.0], [ease + hold, 1.0], [length, 0.0]],
+		"idle": float(spec.get("idle", 1.0)), "weight": 1.0, "fired": {}, "spun": {}, "aim": Vector3.INF,
+		"fx": _last_fx, "hostile": false, "strike": 0}
+	_last_fidget = name
+	return true
+
+func _pick_fidget() -> String:
+	## One of its fidgets by weight, not the one it did last if it has others.
+	var all: Dictionary = _rig.get("fidgets", {})
+	var table: Dictionary = {}
+	var total: float = 0.0
+	for name in all:
+		if str(name) == _last_fidget and all.size() > 1:
+			continue
+		var weight: float = float(all[name].get("weight", 1.0))
+		table[name] = weight
+		total += weight
+	var roll: float = _rng.randf() * total
+	for name in table:
+		roll -= float(table[name])
+		if roll <= 0.0:
+			return str(name)
+	return str(table.keys().back()) if not table.is_empty() else ""
+
+func _cut_fidget() -> void:
+	## A move (or digging in, or fleeing) cuts across a fidget: it fades out over a quarter of a
+	## second instead of popping back, and the next one waits a while.
+	if not _fidget.is_empty():
+		_fidget.fading = true
+	var every: Array = _rig.get("fidget_every", [5.0, 10.0])
+	_fidget_wait = maxf(_fidget_wait, float(every[0]) * 0.5)
+
+func _still() -> bool:
+	## Fully idle: not acting, stunned, slumped, dug in, faded, buried, charging, fleeing or dying.
+	if not _clips.is_empty() or not _creature.visible or bool(_creature.get("_dying")):
+		return false
+	if float(_creature.get("_slump")) > 0.02 or float(_creature.get("_buried")) > 0.001 or float(_creature.get("_charging")) > 0.0:
+		return false
+	return _dig <= 0.001 and _dig_state.is_empty() and _fade <= 0.001 and _fade_want <= 0.0
+
+func _schedule(delta: float) -> void:
+	## Counts down to its next fidget while it is fully idle, and plays it.
+	if not lively or not _fidget.is_empty() or not _rig.has("fidgets") or not _still():
+		return
+	_fidget_wait -= delta
+	if _fidget_wait <= 0.0:
+		var every: Array = _rig.get("fidget_every", [5.0, 10.0])
+		_fidget_wait = _rng.randf_range(float(every[0]), float(every[1]))
+		fidget()
 
 func set_prize(on: bool) -> void:
 	## The magpie's pyrite in its beak: only once it has stolen some.
@@ -148,6 +304,8 @@ func burrow_style() -> String:
 	return str(_rig.get("burrow", ""))
 
 func burrow(down: bool) -> void:
+	if down:
+		_cut_fidget()
 	match burrow_style():
 		"fade":
 			_fade_want = 1.0 if down else 0.0
@@ -176,6 +334,7 @@ func flee() -> void:
 	## magpie's nuggets) stays behind rather than flying off with it.
 	for part in _select(_rig.get("ground", [])):
 		part.visible = false
+	_cut_fidget()
 	var spec: Variant = _rig.get("moves", {}).get("flee", null)
 	if spec != null:
 		play("flee", "Flee", false)
@@ -204,28 +363,47 @@ func apply(delta: float) -> void:
 	_spins.clear()
 	_lean = Transform3D.IDENTITY
 	_leaning = false
-	_idle_weight = move_toward(_idle_weight, 0.0 if not _clips.is_empty() else 1.0, delta * 3.0)
+	## The idle eases out under a move, and to a fidget's own share of it (a jellyfish's swim gives
+	## way to the bigger swim of its fidget; a drill's heave goes on as it looks about).
+	var idle_want: float = 1.0
+	if not _clips.is_empty():
+		idle_want = 0.0
+	elif not _fidget.is_empty():
+		idle_want = float(_fidget.get("idle", 1.0)) if not _fidget.has("fading") else 1.0
+	_idle_weight = move_toward(_idle_weight, idle_want, delta * 3.0)
 	var idle: String = str(_rig.get("idle", ""))
 	if not idle.is_empty() and _idle_weight > 0.001:
-		call(idle, _clock, _idle_weight)
+		_run(idle, [_clock, _idle_weight])
 	for gesture in _rig.get("idle_gestures", []):
 		if _idle_weight > 0.001:
 			_idle_gesture(gesture, _idle_weight)
 	_states(delta)
+	_schedule(delta)
 	var due: Array = []
 	var drove_rear: bool = false
 	_rear_held = false
-	for clip in _clips.duplicate():
+	var playing: Array = _clips.duplicate()
+	if not _fidget.is_empty():
+		playing.append(_fidget)
+	for clip in playing:
 		clip.t = float(clip.t) + delta
+		var fading: bool = clip.has("fading")
+		if fading:
+			clip.weight = move_toward(float(clip.get("weight", 1.0)), 0.0, delta * 4.0)
+		## A move that starts early (its lead) is laid on as though it started at its lead less
+		## HIT: its keys stay written against the blow at HIT. A heavy one's keys are held at its
+		## wind and frozen a moment at the blow (`_keyed`).
+		var keyed: float = _keyed(clip)
+		clip.keyed = keyed
 		if clip.has("custom"):
-			call(str(clip.custom), clip, delta)
+			var real: float = float(clip.t)
+			clip.t = keyed + float(clip.get("shift", 0.0))
+			_run(str(clip.custom), [clip, delta])
+			clip.t = real
 		else:
-			## A move that starts early (its lead) is laid on as though it started at its lead
-			## less HIT: its keys stay written against the blow at HIT.
-			var keyed: float = float(clip.t) - float(clip.shift)
 			for gesture in clip.gestures:
 				if str(gesture[0]) == "fx":
-					if keyed >= float(gesture[1]) and not clip.fired.has(gesture):
+					if keyed >= float(gesture[1]) and not clip.fired.has(gesture) and not fading:
 						clip.fired[gesture] = true
 						due.append([clip, gesture[2], gesture[3] if gesture.size() > 3 else {}])
 				elif str(gesture[0]) == "rear":
@@ -233,11 +411,18 @@ func apply(delta: float) -> void:
 					_gesture(clip, gesture, delta)
 				else:
 					_gesture(clip, gesture, delta)
+		if float(clip.get("heavy", 0.0)) > 0.0:
+			_heavy_beat(clip, delta)
 		for queued in clip.get("queued", []):
 			due.append([clip, queued[0], queued[1]])
 		clip.queued = []
-		if float(clip.t) >= float(clip.length) + TAIL:
-			_clips.erase(clip)
+		if float(clip.t) >= float(clip.get("end", clip.length)) + TAIL or (fading and float(clip.weight) <= 0.0):
+			if clip.has("fidget"):
+				_fidget = {}
+			else:
+				_clips.erase(clip)
+				if _clips.is_empty():
+					_cut_fidget()
 	drove_rear = drove_rear or _rear_held
 	if _rear_driven and not drove_rear:
 		_creature.set("_rear", 0.0)
@@ -254,6 +439,85 @@ func apply(delta: float) -> void:
 		_fire(item[0], str(item[1]), item[2])
 	_carry_followers()
 	_carry_ambient()
+
+# --- heavy blows -------------------------------------------------------------------------------
+
+func _keyed(clip: Dictionary) -> float:
+	## Where a move stands in its own keys: its clock less its lead; a heavy blow's held at its
+	## wind pose for the hold, then on to the blow, frozen there for HITSTOP, then on.
+	var tau: float = float(clip.t) - float(clip.get("shift", 0.0))
+	var hold: float = float(clip.get("heavy", 0.0))
+	if hold <= 0.0:
+		return tau
+	var wind: float = float(clip.wind)
+	if tau <= wind:
+		return tau
+	if tau <= wind + hold:
+		return wind
+	if tau <= HIT + hold:
+		return tau - hold
+	if tau <= HIT + hold + HITSTOP:
+		return HIT
+	return tau - hold - HITSTOP
+
+func _hold_env(clip: Dictionary) -> float:
+	## The "h" envelope: 0 to 1 as a heavy blow winds back, 1 through its hold, gone as it lets
+	## go. A rig's heavy `pose` gestures ride it (a head reared higher while it strains).
+	var hold: float = float(clip.get("heavy", 0.0))
+	if hold <= 0.0:
+		return 0.0
+	var tau: float = float(clip.t) - float(clip.get("shift", 0.0))
+	var wind: float = float(clip.wind)
+	return smoothstep(0.0, maxf(0.05, wind), tau) * (1.0 - smoothstep(wind + hold, wind + hold + 0.06, tau))
+
+func _heavy_beat(clip: Dictionary, delta: float) -> void:
+	## A heavy blow's hold: it shivers with the strain and glows hotter, a charge gathering at
+	## what it strikes with and dust lifting under it, until it lets go; it flares as it lands.
+	var tau: float = float(clip.t) - float(clip.get("shift", 0.0))
+	var wind: float = float(clip.wind)
+	var hold: float = float(clip.heavy)
+	var big: Dictionary = clip.get("big", {})
+	for g in big.get("pose", []):
+		_gesture(clip, g, delta)
+	var strain: float = smoothstep(wind * 0.5, wind + 0.1, tau) * (1.0 - smoothstep(wind + hold - 0.05, wind + hold, tau))
+	if strain > 0.001:
+		var shiver := Vector3(sin(tau * 61.0), 0.5 * sin(tau * 47.0 + 1.0), sin(tau * 53.0 + 2.0)) * 0.016 * float(big.get("shiver", 1.0)) * strain
+		_lean = Transform3D(Basis.IDENTITY, shiver) * _lean
+		_leaning = true
+		_creature.call("flash", 0.15 + 0.5 * strain)
+	if tau >= wind and not clip.fired.has("__charge"):
+		clip.fired["__charge"] = true
+		if big.has("charge"):
+			var index: int = 0
+			for item in big.charge:
+				_queue(clip, "__charge%d" % index, str(item[0]), item[1] if item.size() > 1 else {})
+				index += 1
+		else:
+			var at: String = _strike_from(clip)
+			_queue(clip, "__glow", "charge_glow", {"from": at, "seconds": hold + 0.12})
+			_queue(clip, "__dust", "charge_dust", {"seconds": hold})
+			if bool(_creature.get("warden")):
+				_queue(clip, "__pull", "spiral", {"from": at, "amount": 26})
+	if tau >= HIT + hold and not clip.fired.has("__impact"):
+		clip.fired["__impact"] = true
+		_creature.call("flash", 1.3)
+		var index: int = 0
+		for item in big.get("impact", []):
+			_queue(clip, "__impact%d" % index, str(item[0]), item[1] if item.size() > 1 else {})
+			index += 1
+
+func _strike_from(clip: Dictionary) -> String:
+	## What a heavy blow strikes with, where its charge gathers: the rig's heavy `at`, the place
+	## its blow's own effect leaves from, its mouth, its middle.
+	var big: Dictionary = clip.get("big", {})
+	if big.has("at"):
+		return str(big.at)
+	for g in clip.get("gestures", []):
+		if str(g[0]) == "fx" and float(g[1]) >= 0.2 and g.size() > 3 and (g[3] as Dictionary).has("from"):
+			return str(g[3].from)
+	if _rig.has("mouth"):
+		return "mouth"
+	return "centre"
 
 # --- groups ----------------------------------------------------------------------------------
 
@@ -306,11 +570,15 @@ func group(name: String) -> Dictionary:
 	var at: Variant = null
 	if spec is Dictionary:
 		if spec.has("chain"):
-			for segment in spec.chain:
-				var parts: Array = _select(segment).duplicate()
+			## Each segment turns about its first part's pivot, or about the joint `joints` gives it
+			## (where two drums of an arch meet, not the middle of one).
+			var joints: Array = spec.get("joints", [])
+			for index in range(spec.chain.size()):
+				var parts: Array = _select(spec.chain[index]).duplicate()
 				if parts.is_empty():
 					continue
-				out.chain.append({"parts": parts, "joint": (parts[0] as Node3D).get("_rest").origin})
+				var joint: Vector3 = joints[index] if index < joints.size() else (parts[0] as Node3D).get("_rest").origin
+				out.chain.append({"parts": parts, "joint": joint})
 				out.parts.append_array(parts)
 			for rider in spec.get("attach", []):
 				## Riders laid along the chain: each goes with the segment nearest it (a fin on its
@@ -457,13 +725,14 @@ func curl(chain: Array, axis: Variant, angle: float, falloff: String = "even") -
 ## How long the oscillating envelopes run.
 const WOBBLE: float = 0.9
 
-static func value(keys: Variant, t: float) -> float:
+static func value(keys: Variant, t: float, length: float = WOBBLE) -> float:
 	## Where a move stands at time t: -1 is fully wound back, +1 the blow, 0 rest. The keys are
 	## [time, value] pairs; a short climb to a blow eases in (it lands fast), the rest smoothly.
-	## A few are oscillations instead: a flutter of wings, a shudder, claws scrabbling.
+	## A few are oscillations instead, over `length` (a fidget's own): a flutter of wings, a
+	## shudder, claws scrabbling, a pant, a tail wagging.
 	var named: Variant = Rigs.ENV.get(keys, []) if keys is String else keys
 	if named is String:
-		var bell: float = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(WOBBLE - 0.25, WOBBLE, t))
+		var bell: float = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(length - 0.25, length, t))
 		match str(named):
 			"~flutter":
 				return 0.5 * (1.0 + sin(t * 38.0 - PI * 0.5)) * bell
@@ -471,6 +740,16 @@ static func value(keys: Variant, t: float) -> float:
 				return sin(t * 34.0) * bell
 			"~scrabble":
 				return 0.5 * (1.0 + sin(t * 30.0 - PI * 0.5)) * bell
+			"~pant":
+				return 0.5 * (1.0 - cos(t * 19.0)) * bell
+			"~tremble":
+				return sin(t * 47.0) * 0.6 * bell
+			"~wag":
+				return sin(t * 20.0) * bell
+			"~flap":
+				return 0.5 * (1.0 + sin(t * 15.0 - PI * 0.5)) * bell
+			"~chew":
+				return 0.5 * (1.0 - cos(t * 11.0)) * bell
 		return 0.0
 	var list: Array = named
 	if list.is_empty():
@@ -497,7 +776,40 @@ static func _span_of(keys: Variant) -> float:
 
 ## Where each gesture keeps its envelope.
 const ENVELOPE_AT: Dictionary = {"turn": 5, "turn_each": 5, "curl": 5, "lean": 5, "move": 4, "grow": 4, "each": 4,
-	"splay": 4, "whirl": 4, "whirl_own": 4, "spread": 4, "hop": 3, "spin": 3, "rear": 2}
+	"splay": 4, "whirl": 4, "whirl_own": 4, "spread": 4, "hop": 3, "spin": 3, "rear": 2, "gaze": 4, "tremble": 3, "wave_each": 6}
+
+func _v(clip: Dictionary, keys: Variant, t: float) -> float:
+	## An envelope at t for this clip: a fidget's own rise, hold and fall ("f"), a heavy blow's
+	## hold ("h"), an oscillation lasting the fidget; a heavy blow's wind deepened as it holds and
+	## its blow overshot as it lands; all of it faded by the clip's weight (a fidget a move cut).
+	var v: float
+	if keys is String and str(keys) == "f":
+		v = value(clip.get("f", []), t)
+	elif keys is String and str(keys) == "h":
+		v = _hold_env(clip)
+	elif keys is String and clip.has("span") and Rigs.ENV.get(keys, null) is String:
+		v = value(keys, t, float(clip.span))
+	else:
+		v = value(keys, t)
+	var hold: float = float(clip.get("heavy", 0.0))
+	if hold > 0.0 and not (keys is String and str(keys) == "h"):
+		var tau: float = float(clip.t) - float(clip.get("shift", 0.0))
+		if v < 0.0:
+			v *= 1.0 + DEEPEN * smoothstep(0.0, float(clip.wind) + hold, tau)
+		elif v > 0.0:
+			var x: float = (tau - (HIT + hold + HITSTOP * 0.5)) / 0.09
+			v *= 1.0 + OVERSHOOT * exp(-x * x)
+	return v * float(clip.get("weight", 1.0))
+
+func _turns(clip: Dictionary, g: Array, turns: float, keys: Variant, t: float) -> float:
+	## How far round a spin or a whirl is (whole turns at its end): its envelope's share so far,
+	## and on a heavy blow some whole turns more through the hold, speeding up as it strains.
+	var out: float = turns * _progress(clip, str(g), keys, t)
+	var hold: float = float(clip.get("heavy", 0.0))
+	if hold > 0.0 and absf(turns) > 0.0:
+		var x: float = clampf((float(clip.t) - float(clip.get("shift", 0.0)) - float(clip.wind)) / hold, 0.0, 1.0)
+		out += signf(turns) * maxf(1.0, roundf(absf(turns) * hold * 1.5)) * x * x
+	return out * float(clip.get("weight", 1.0))
 
 
 func _progress(clip: Dictionary, key: String, keys: Variant, t: float) -> float:
@@ -505,6 +817,8 @@ func _progress(clip: Dictionary, key: String, keys: Variant, t: float) -> float:
 	## so it speeds up and runs down with the envelope and ends exactly where it began.
 	if not clip.has("areas"):
 		clip.areas = {}
+	if keys is String and str(keys) == "f":
+		keys = clip.get("f", [])
 	if not clip.areas.has(key):
 		var span: float = maxf(0.05, _span_of(keys))
 		var table: Array = [0.0]
@@ -527,24 +841,26 @@ func _length_of(gestures: Array) -> float:
 				longest = maxf(longest, float(gesture[1]) + 0.1)
 			"show":
 				longest = maxf(longest, float(gesture[3]))
+			"swim":
+				longest = maxf(longest, _swim_length(gesture[1]))
 			_:
 				if ENVELOPE_AT.has(kind) and gesture.size() > int(ENVELOPE_AT[kind]):
 					longest = maxf(longest, _span_of(gesture[int(ENVELOPE_AT[kind])]))
 	return longest
 
 func _gesture(clip: Dictionary, g: Array, delta: float) -> void:
-	var t: float = float(clip.t) - float(clip.get("shift", 0.0))
+	var t: float = float(clip.get("keyed", float(clip.t) - float(clip.get("shift", 0.0))))
 	match str(g[0]):
 		"turn":
 			## ["turn", group, axis, wind degrees, strike degrees, envelope]
-			var v: float = value(g[5], t)
+			var v: float = _v(clip, g[5], t)
 			var angle: float = deg_to_rad(float(g[3]) * -v if v < 0.0 else float(g[4]) * v)
 			var gr: Dictionary = group(str(g[1]))
 			turn(gr.parts, gr.joint, g[2], angle)
 		"turn_each":
 			## ["turn_each", group, axis, wind degrees, strike degrees, envelope]: every part about
 			## its own pivot (six tendrils, each hung from its own root).
-			var v: float = value(g[5], t)
+			var v: float = _v(clip, g[5], t)
 			var angle: float = deg_to_rad(float(g[3]) * -v if v < 0.0 else float(g[4]) * v)
 			for part in group(str(g[1])).parts:
 				turn([part], (part as Node3D).get("_rest").origin, g[2], angle)
@@ -552,18 +868,18 @@ func _gesture(clip: Dictionary, g: Array, delta: float) -> void:
 			## ["splay", group, wind degrees, strike degrees, envelope]: every part about its own
 			## pivot, its far end swinging out from the group's joint (a positive angle opens a
 			## hanging fringe).
-			var v: float = value(g[4], t)
+			var v: float = _v(clip, g[4], t)
 			var angle: float = deg_to_rad(float(g[2]) * -v if v < 0.0 else float(g[3]) * v)
 			splay(group(str(g[1])), angle)
 		"move":
 			## ["move", group, wind offset, strike offset, envelope]
-			var v: float = value(g[4], t)
+			var v: float = _v(clip, g[4], t)
 			var by: Vector3 = (g[2] as Vector3) * -v if v < 0.0 else (g[3] as Vector3) * v
 			shift(group(str(g[1])).parts, by)
 		"grow", "each":
 			## ["grow", group, wind, strike, envelope]: a swell about the group's joint (a float
 			## for all three axes, or a Vector3), "each" about every part's own pivot.
-			var v: float = value(g[4], t)
+			var v: float = _v(clip, g[4], t)
 			var amount: Variant = g[2] if v < 0.0 else g[3]
 			var k: float = absf(v)
 			var by: Vector3 = Vector3.ONE + ((amount as Vector3) if amount is Vector3 else Vector3.ONE * float(amount)) * k
@@ -574,19 +890,19 @@ func _gesture(clip: Dictionary, g: Array, delta: float) -> void:
 				swell_each(gr.parts, by)
 		"curl":
 			## ["curl", chain group, axis or "across", wind degrees, strike degrees, envelope, falloff]
-			var v: float = value(g[5], t)
+			var v: float = _v(clip, g[5], t)
 			var angle: float = deg_to_rad(float(g[3]) * -v if v < 0.0 else float(g[4]) * v)
 			curl(group(str(g[1])).chain, g[2], angle, str(g[6]) if g.size() > 6 else "even")
 		"spin":
 			## ["spin", group, whole turns, envelope]: about each part's own axle (a saw, a drill
 			## bit, a wheel), faster where the envelope is high. Whole turns, so nothing jumps
 			## when it lets go.
-			spin(group(str(g[1])).parts, TAU * float(g[2]) * _progress(clip, str(g), g[3], t))
+			spin(group(str(g[1])).parts, TAU * _turns(clip, g, float(g[2]), g[3], t))
 		"whirl":
 			## ["whirl", group, axis, whole turns, envelope]: the group turned about its joint the
 			## same way (a halo, a wheel of petals, a ribbon whipped round).
 			var gr: Dictionary = group(str(g[1]))
-			turn(gr.parts, gr.joint, g[2], TAU * float(g[3]) * _progress(clip, str(g), g[4], t))
+			turn(gr.parts, gr.joint, g[2], TAU * _turns(clip, g, float(g[3]), g[4], t))
 		"whirl_own":
 			## The same about an axis that turns with the group's own idle (a wheel of petals that
 			## yaws as it idles spins about its own face, not the creature's).
@@ -594,11 +910,11 @@ func _gesture(clip: Dictionary, g: Array, delta: float) -> void:
 			if not gr.parts.is_empty():
 				var first: Node3D = gr.parts[0]
 				var now: Basis = first.transform.basis.orthonormalized() * ((first.get("_rest") as Transform3D).basis.orthonormalized().inverse())
-				turn(gr.parts, gr.joint, now * (g[2] as Vector3), TAU * float(g[3]) * _progress(clip, str(g), g[4], t))
+				turn(gr.parts, gr.joint, now * (g[2] as Vector3), TAU * _turns(clip, g, float(g[3]), g[4], t))
 		"spread":
 			## ["spread", group, wind, strike, envelope]: each part pushed out from the group's
 			## joint (level), by so much.
-			var v: float = value(g[4], t)
+			var v: float = _v(clip, g[4], t)
 			var by: float = float(g[2]) * -v if v < 0.0 else float(g[3]) * v
 			var gr: Dictionary = group(str(g[1]))
 			for part in gr.parts:
@@ -609,11 +925,11 @@ func _gesture(clip: Dictionary, g: Array, delta: float) -> void:
 		"rear":
 			## ["rear", amount, envelope]: the whole creature rears back and lunges (the old lunge,
 			## smaller, under the parts' own blow).
-			var v: float = value(g[2], t)
+			var v: float = _v(clip, g[2], t)
 			_creature.set("_rear", float(g[1]) * -v)
 		"lean":
 			## ["lean", axis, wind degrees, strike degrees, pivot, envelope]: the whole body.
-			var v: float = value(g[5], t)
+			var v: float = _v(clip, g[5], t)
 			var angle: float = deg_to_rad(float(g[2]) * -v if v < 0.0 else float(g[3]) * v)
 			if absf(angle) > 0.00001:
 				var pivot: Vector3 = g[4]
@@ -621,7 +937,7 @@ func _gesture(clip: Dictionary, g: Array, delta: float) -> void:
 				_leaning = true
 		"hop":
 			## ["hop", wind offset, strike offset, envelope]: the whole body moved.
-			var v: float = value(g[3], t)
+			var v: float = _v(clip, g[3], t)
 			var by: Vector3 = (g[1] as Vector3) * -v if v < 0.0 else (g[2] as Vector3) * v
 			if not by.is_zero_approx():
 				_lean = Transform3D(Basis.IDENTITY, by) * _lean
@@ -632,7 +948,60 @@ func _gesture(clip: Dictionary, g: Array, delta: float) -> void:
 			for part in group(str(g[1])).parts:
 				part.visible = on
 		"call":
-			call(str(g[1]), clip, delta)
+			_run(str(g[1]), [clip, delta])
+		"wave_each":
+			## ["wave_each", group, axis or "out", deg, rate, phase step, envelope]: each part about
+			## its own pivot back and forth, one a beat behind the last (flagella rippling round a
+			## bell, legs paddling); "out" swings each away from the group's joint and back.
+			var v: float = _v(clip, g[6], t)
+			if absf(v) > 0.00001:
+				var gr: Dictionary = group(str(g[1]))
+				var index: int = 0
+				for part in gr.parts:
+					var at: Vector3 = (part as Node3D).get("_rest").origin
+					var axis: Vector3 = g[2] if g[2] is Vector3 else Vector3.ZERO
+					if not g[2] is Vector3:
+						var out: Vector3 = at - (gr.joint as Vector3)
+						out.y = 0.0
+						axis = out.cross(Vector3.UP) if not out.is_zero_approx() else Vector3.RIGHT
+					turn([part], at, axis, deg_to_rad(float(g[3])) * sin(t * float(g[4]) - float(g[5]) * float(index)) * v)
+					index += 1
+		"gaze":
+			## ["gaze", group, yaw deg, pitch deg, envelope, looks]: looks about at `looks` places
+			## picked on its own random clock, easing from one to the next (a head raised to look
+			## round the room). Pitch is laid first, the yaw over it.
+			var v: float = _v(clip, g[4], t)
+			if absf(v) > 0.00001:
+				var looks: int = maxi(1, int(g[5]) if g.size() > 5 else 1)
+				if not clip.has("picks"):
+					clip.picks = {}
+				var key: String = "gaze:" + str(g[1])
+				if not clip.picks.has(key):
+					## Off to one side and then the other, mostly level: looking round a room,
+					## not nodding at it.
+					var picked: Array = []
+					var side: float = 1.0 if _rng.randf() < 0.5 else -1.0
+					for i in range(looks):
+						picked.append(Vector2(side * _rng.randf_range(0.45, 1.0), _rng.randf_range(-1.0, 0.4)))
+						side = -side
+					clip.picks[key] = picked
+				var targets: Array = clip.picks[key]
+				var seg: float = maxf(0.2, float(clip.length) / float(looks))
+				var k: int = clampi(int(t / seg), 0, looks - 1)
+				var x: float = smoothstep(float(k) * seg, float(k) * seg + minf(0.7, seg * 0.45), t) if k > 0 else 1.0
+				var dir: Vector2 = (targets[maxi(k - 1, 0)] as Vector2).lerp(targets[k], x)
+				var gr: Dictionary = group(str(g[1]))
+				turn(gr.parts, gr.joint, Vector3.RIGHT, deg_to_rad(float(g[3])) * dir.y * v)
+				turn(gr.parts, gr.joint, Vector3.UP, deg_to_rad(float(g[2])) * dir.x * v)
+		"tremble":
+			## ["tremble", group, amount, envelope]: a fine shiver, strongest where the envelope is.
+			var v: float = absf(_v(clip, g[3], t))
+			var c: float = float(clip.t)
+			shift(group(str(g[1])).parts, Vector3(sin(c * 53.0), 0.6 * sin(c * 41.0 + 1.0), sin(c * 47.0 + 2.0)) * float(g[2]) * v)
+		"swim":
+			## ["swim", spec]: a jellyfish swimming up in a few strong pulses and sinking slowly
+			## back (see `_swim_clip`).
+			_swim_clip(clip, g[1], t)
 
 func _idle_gesture(g: Array, weight: float) -> void:
 	## A rig's idle as data: ["sway", group, axis, degrees, rate, phase] turns a group back and
@@ -653,6 +1022,106 @@ func _idle_gesture(g: Array, weight: float) -> void:
 			for part in group(str(g[1])).parts:
 				turn([part], (part as Node3D).get("_rest").origin, g[2], deg_to_rad(float(g[3])) * sin(_clock * float(g[4]) + float(g[5]) * float(index)) * weight)
 				index += 1
+		"breathe":
+			## ["breathe", group, swell, rate, phase]: a slow swell and back (a chest, a bell), never
+			## smaller than at rest. `swell` is a float for all three axes or a Vector3.
+			var gr: Dictionary = group(str(g[1]))
+			var k: float = (0.5 - 0.5 * cos(_clock * float(g[3]) + float(g[4]))) * weight
+			var amount: Vector3 = (g[2] as Vector3) if g[2] is Vector3 else Vector3.ONE * float(g[2])
+			swell(gr.parts, gr.joint, Vector3.ONE + amount * k)
+		"look":
+			## ["look", group, yaw deg, pitch deg, beat s, ease s]: every beat or so the head picks
+			## somewhere new to look (now and then straight ahead again) and eases there over `ease`
+			## seconds, then holds; never twitchy. Driven by its own noise, so no two look alike.
+			var gr: Dictionary = group(str(g[1]))
+			var beat: float = maxf(0.6, float(g[4]))
+			var ease: float = clampf(float(g[5]) if g.size() > 5 else 0.8, 0.45, beat)
+			var step: int = int(floor(_clock / beat))
+			var local: float = _clock - float(step) * beat
+			var start: float = (beat - ease) * (0.25 + 0.25 * _noise(step * 5 + noise_seed + 3))
+			var x: float = smoothstep(start, start + ease, local)
+			var dir: Vector2 = _look_target(step - 1).lerp(_look_target(step), x)
+			turn(gr.parts, gr.joint, Vector3.RIGHT, deg_to_rad(float(g[3])) * dir.y * weight)
+			turn(gr.parts, gr.joint, Vector3.UP, deg_to_rad(float(g[2])) * dir.x * weight)
+		"blink":
+			## ["blink", group, shut, every s, phase]: once in about every `every` seconds, at a time
+			## of its own, the eyes shut for 0.16 s (now and then twice). `shut` is the scale they
+			## close to (a Vector3), or [axis, degrees] for a lid turned down over them. Two eyes
+			## with the same `every` and phase blink together.
+			var gr: Dictionary = group(str(g[1]))
+			var every: float = maxf(0.8, float(g[3]))
+			var c: float = _clock + (float(g[4]) if g.size() > 4 else 0.0)
+			var step: int = int(floor(c / every))
+			var local: float = c - float(step) * every - every * (0.15 + 0.3 * (1.0 + _noise(step * 3 + noise_seed + 11)))
+			var b: float = 0.0
+			if local > 0.0 and local < 0.16:
+				b = sin(local / 0.16 * PI)
+			elif local > 0.26 and local < 0.42 and _noise(step * 7 + noise_seed) > 0.5:
+				b = sin((local - 0.26) / 0.16 * PI)
+			b *= weight
+			if b > 0.0:
+				if g[2] is Vector3:
+					swell(gr.parts, gr.joint, Vector3.ONE.lerp(g[2], b))
+				else:
+					turn(gr.parts, gr.joint, g[2][0], deg_to_rad(float(g[2][1])) * b)
+		"flex":
+			## ["flex", group, axis, degrees, every s, phase]: claws (or fingers, or a fan of
+			## spines) opening slowly, holding, and snapping shut, about once every `every` seconds.
+			var gr: Dictionary = group(str(g[1]))
+			var every: float = maxf(1.0, float(g[4]))
+			var c: float = _clock + float(g[5])
+			var step: int = int(floor(c / every))
+			var local: float = c - float(step) * every - every * (0.1 + 0.2 * (1.0 + _noise(step * 5 + noise_seed + 17)))
+			var k: float = smoothstep(0.0, 0.4, local) * (1.0 - smoothstep(0.65, 0.78, local)) if local > 0.0 else 0.0
+			turn(gr.parts, gr.joint, g[2], deg_to_rad(float(g[3])) * k * weight)
+		"pant":
+			## ["pant", group, axis, degrees, rate]: a jaw (or a chest) working open and shut fast,
+			## never past rest.
+			var gr: Dictionary = group(str(g[1]))
+			turn(gr.parts, gr.joint, g[2], deg_to_rad(float(g[3])) * (0.5 - 0.5 * cos(_clock * float(g[4]))) * weight)
+		"hover":
+			## ["hover", group, height, rate, tilt deg, phase]: bobbing in the air, tilting a beat
+			## behind the bob and rocking a little side to side.
+			var gr: Dictionary = group(str(g[1]))
+			var s: float = _clock * float(g[3]) + float(g[5])
+			turn(gr.parts, gr.joint, Vector3.RIGHT, deg_to_rad(float(g[4])) * sin(s - 1.1) * weight)
+			turn(gr.parts, gr.joint, Vector3.BACK, deg_to_rad(float(g[4])) * 0.6 * sin(s * 0.61 + 0.7) * weight)
+			shift(gr.parts, Vector3(0, float(g[2]) * sin(s), 0) * weight)
+		"tremble":
+			## ["tremble", group, amount, rate]: a fine, constant shiver (a nervous thing, a
+			## machine idling rough).
+			var c: float = _clock * float(g[3])
+			shift(group(str(g[1])).parts, Vector3(sin(c), 0.6 * sin(c * 1.31 + 1.0), sin(c * 0.87 + 2.0)) * float(g[2]) * weight)
+		"wag", "slither":
+			## ["slither", chain, axis, degrees, rate, wavelength, falloff]: a wave travelling down a
+			## chain from its root, each segment `wavelength` radians behind the one before, growing
+			## toward the tip ("tip"), the root ("root") or even. ["wag", ...] is the same, quicker
+			## and stiffer (a tail); on a group with no chain it sways the group.
+			var gr: Dictionary = group(str(g[1]))
+			var wave: float = float(g[5]) if g.size() > 5 else (0.35 if str(g[0]) == "wag" else 0.6)
+			var falloff: String = str(g[6]) if g.size() > 6 else "tip"
+			if gr.chain.is_empty():
+				turn(gr.parts, gr.joint, g[2], deg_to_rad(float(g[3])) * sin(_clock * float(g[4])) * weight)
+			else:
+				var count: int = gr.chain.size()
+				var angles: Array = []
+				for index in range(count):
+					var along: float = float(index) / float(maxi(1, count - 1))
+					var w: float = 1.0
+					if falloff == "tip":
+						w = lerpf(0.35, 1.0, along)
+					elif falloff == "root":
+						w = lerpf(1.0, 0.35, along)
+					angles.append(deg_to_rad(float(g[3])) * w * sin(_clock * float(g[4]) - float(index) * wave) * weight)
+				chain_turns(gr.chain, g[2], angles)
+		"coil":
+			## ["coil", chain, axis or "across", degrees, rate, phase, falloff]: a slow curl in and
+			## out again, never past straight (a snake drawing itself up, a tail curling).
+			var gr: Dictionary = group(str(g[1]))
+			curl(gr.chain, g[2], deg_to_rad(float(g[3])) * (0.5 - 0.5 * cos(_clock * float(g[4]) + float(g[5]))) * weight, str(g[6]) if g.size() > 6 else "tip")
+		"swim":
+			## ["swim", spec]: a jellyfish (see `_swim_idle`).
+			_swim_idle(g[1], weight)
 
 # --- effects ---------------------------------------------------------------------------------
 
@@ -748,11 +1217,13 @@ func _fire(clip: Dictionary, name: String, spec: Dictionary) -> void:
 			fx.call("zap", from, aim, color, float(spec.get("seconds", 0.35)))
 		"drain":
 			## Light pulled out of the party and into it.
-			## They start a way out from the lens, not on it: a mote that close is a blur.
-			var out: Vector3 = aim.lerp(from, 0.3)
+			## They start half way out from the lens, not on it: a mote that close is a blur, and a
+			## full halo on each reads as soft white balls. A rig may move them (`start`, the share of
+			## the way from the party to it) or size the halo (`halo`).
+			var out: Vector3 = aim.lerp(from, float(spec.get("start", 0.55)))
 			for index in range(int(spec.get("count", 4))):
 				var start: Vector3 = out + Vector3(randf_range(-0.6, 0.6), randf_range(-0.3, 0.3), 0)
-				fx.call("projectile", start, from, color, 0.32 + 0.05 * float(index), 0.07, Callable(), 0.4)
+				fx.call("projectile", start, from, color, 0.32 + 0.05 * float(index), 0.07, Callable(), 0.4, float(spec.get("halo", 2.5)))
 			fx.call("spiral_in", from, color, 0.9 * size, 28, 0.7)
 		"shock":
 			## A blow on the floor: a ring rolling out and dust thrown up.
@@ -807,6 +1278,25 @@ func _fire(clip: Dictionary, name: String, spec: Dictionary) -> void:
 		"sigil":
 			var feet: Vector3 = _creature.global_position
 			fx.call("sigil", feet, color, 1.2 * size, 0.8)
+		"charge_glow":
+			## A heavy blow gathering where it strikes from: a glow that swells through the hold.
+			fx.call("glow_burst", from, color.lightened(0.2), 0.55 * size, float(spec.get("seconds", 0.5)))
+			fx.call("spiral_in", from, color.lightened(0.3), 0.7 * size, 18, float(spec.get("seconds", 0.5)))
+		"charge_dust":
+			## Grit lifting off the floor round it as it strains, and pebbles hopping.
+			var feet: Vector3 = _creature.global_position + Vector3(0, 0.05, 0)
+			fx.call("rise", feet, Color(0.58, 0.5, 0.42), int(spec.get("amount", 16)), 0.5 * size, float(spec.get("seconds", 0.4)) + 0.6)
+			fx.call("shards", feet, Color(0.5, 0.44, 0.38), 4, 1.3, 0.05 * size, 0.5)
+		"crack":
+			fx.call("crack", _creature.global_position, color, 1.0 * size, float(spec.get("seconds", 1.0)))
+		"shell":
+			fx.call("shell", point(spec.get("from", "centre")), color, 0.9 * size, float(spec.get("seconds", 0.7)))
+		"aura":
+			fx.call("aura", _creature.global_position, color, maxf(0.8, (_creature.get("anchor") as Vector3).y), float(spec.get("seconds", 0.9)))
+		"helix":
+			fx.call("helix", _creature.global_position, color, maxf(0.8, (_creature.get("anchor") as Vector3).y), float(spec.get("seconds", 1.0)), 0.5 * size)
+		"hex":
+			fx.call("hex_bolt", from, aim, color, float(spec.get("flight", 0.3)), Callable())
 
 func _carry_followers() -> void:
 	## A breath still pouring leaves from wherever the mouth has moved to.
@@ -989,6 +1479,14 @@ func _spec_for(anim: String, move: String, hostile: bool) -> Variant:
 		return Rigs.GENERIC[anim]
 	return null
 
+func _run(fn: String, args: Array) -> void:
+	## A rig's own function by name: one of the shared ones here, or its mine's (called with
+	## this node first, as `m`).
+	if has_method(fn):
+		callv(fn, args)
+	elif _owner != null:
+		_owner.callv(fn, [self] + args)
+
 func _queue(clip: Dictionary, key: String, name: String, spec: Dictionary) -> void:
 	## An effect a played function sets off, once.
 	if clip.fired.has(key):
@@ -1004,414 +1502,113 @@ func _prize_pop(clip: Dictionary, _delta: float) -> void:
 	for part in _select(_rig.prize):
 		swell([part], centre_of(part), Vector3.ONE * k)
 
-func _idle_magpie(clock: float, weight: float) -> void:
-	## Every few seconds it bends to the floor and pecks at a nugget there, twice, and looks up.
-	var p: float = fmod(clock + 2.5, 6.5)
-	if p > 1.7:
-		return
-	var down: float = smoothstep(0.0, 0.4, p) * (1.0 - smoothstep(1.3, 1.7, p))
-	var peck: float = 0.0
-	if p > 0.45 and p < 1.25:
-		peck = absf(sin((p - 0.45) * PI / 0.4))
-	var all: Dictionary = group("all")
-	var head: Dictionary = group("head")
-	var tail: Dictionary = group("tail")
-	turn(tail.parts, tail.joint, Vector3.RIGHT, deg_to_rad(-18.0) * down * weight)
-	turn(head.parts, head.joint, Vector3.RIGHT, deg_to_rad(52.0 * down + 14.0 * peck) * weight)
-	turn(all.parts, all.joint, Vector3.RIGHT, deg_to_rad(26.0) * down * weight)
-
-func _mole_erupt(clip: Dictionary, _delta: float) -> void:
-	## Up out of its crater, snout to the sky and both claws thrown wide, and back to how it
-	## stands. Bursts up only when it was under; above ground it rears into the same shape.
-	var t: float = float(clip.t)
-	if not clip.has("under"):
-		clip.under = _dig_state == "erupting"
-		_dig = 0.0
-	var under: Array = _dig_parts()
-	if bool(clip.under):
-		var y: float = -1.15
-		if t >= 0.12 and t < HIT:
-			var x: float = (t - 0.12) / (HIT - 0.12)
-			y = lerpf(-1.15, 0.22, 1.0 - (1.0 - x) * (1.0 - x))
-		elif t >= HIT:
-			y = lerpf(0.22, 0.0, smoothstep(HIT, 0.6, t))
-		shift(under, Vector3(0, y, 0))
-		for part in under:
-			part.visible = true
-		_show_hole(1.0 - smoothstep(0.1, 0.25, t))
-		if t >= 0.1:
-			_queue(clip, "dirt", "puff", {"from": "feet", "off": Vector3(0, 0.3, 0.1), "color": Color(0.42, 0.34, 0.26), "amount": 16, "size": 1.6, "rise": 1.2})
-		if t >= 0.2:
-			_queue(clip, "rocks", "shards", {"from": "feet", "off": Vector3(0, 0.3, 0.1), "color": Color(0.5, 0.42, 0.33), "amount": 14, "speed": 5.0})
-	var b: float = smoothstep(0.12, HIT, t) * (1.0 - smoothstep(0.62, 1.05, t))
-	var head: Dictionary = group("head")
-	var claw_l: Dictionary = group("claw_l")
-	var claw_r: Dictionary = group("claw_r")
-	var front: Dictionary = group("front")
-	turn(claw_l.parts, claw_l.joint, Vector3.RIGHT, deg_to_rad(-45.0) * b)
-	turn(claw_l.parts, claw_l.joint, Vector3.BACK, deg_to_rad(75.0) * b)
-	turn(claw_r.parts, claw_r.joint, Vector3.RIGHT, deg_to_rad(-45.0) * b)
-	turn(claw_r.parts, claw_r.joint, Vector3.BACK, deg_to_rad(-75.0) * b)
-	turn(head.parts, head.joint, Vector3.RIGHT, deg_to_rad(-65.0) * b)
-	turn(front.parts, front.joint, Vector3.RIGHT, deg_to_rad(-18.0) * b)
-	if t >= HIT:
-		_queue(clip, "burst", "shock", {"size": 1.2})
-	if t >= float(clip.length):
-		_dig_state = "settling"
-		_dig_clock = 0.0
-		_show_hole(0.0)
-
-## The Drill's eight segments, tail to head, with what rides on each.
-const DRILL_SEGMENTS: Array = [["Body01-02"], ["Body03-05"], ["Body06-09", "Smoke01-03"], ["Body10-12"], ["Body13-15"],
-	["Body16-19", "Smoke04-06"], ["Body20-22"], ["Body23-25", "Head", "Drill"]]
-
-func _idle_drill(clock: float, weight: float) -> void:
-	## A slow heave running down its arch from tail to head, each segment lifting and tipping a
-	## little after the one behind it.
-	for index in range(DRILL_SEGMENTS.size()):
-		var parts: Array = _select(DRILL_SEGMENTS[index])
-		if parts.is_empty():
-			continue
-		var wave: float = clock * 1.4 - float(index) * 0.55
-		var at: Vector3 = centre_of(parts[0])
-		turn(parts, at, Vector3.RIGHT, deg_to_rad(2.5) * cos(wave) * weight)
-		shift(parts, Vector3(0, 0.035 * sin(wave), 0) * weight)
-
-# --- the Tendril: unfurls before it lashes or knits ----------------------------------------------
-
-## The axis its curl winds about (up x the curl's facing), and how far each curl joint winds:
-## straightening it is the same turns backwards, from the stalk top out.
-const TENDRIL_AXIS := Vector3(0.766, 0.0, -0.643)
-const TENDRIL_CURL: Array = [26.5, 52.0, 52.0, 52.0, 52.0, 52.0, 52.0, 52.0, 52.0, 52.0, 52.0, 52.0, 52.0]
-
-func _tendril_pose(unfurl: float, bend: float, whip: float, sway: float = 0.0) -> void:
-	## Unrolled by `unfurl` (0 curled, 1 standing straight up), the base of the curl first; the
-	## stem bent toward the party by `bend` degrees a joint, the unrolled whip by `whip` a joint.
-	var chain: Array = group("stalk").chain
-	if chain.size() < 16:
-		return
-	var curl: Array = [0.0, 0.0, 0.0]
-	for j in range(TENDRIL_CURL.size()):
-		var start: float = float(j) / 12.0 * 0.55
-		curl.append(deg_to_rad(-float(TENDRIL_CURL[j])) * smoothstep(start, start + 0.45, unfurl) + deg_to_rad(sway * 0.5))
-	chain_turns(chain, TENDRIL_AXIS, curl)
-	var stem: Array = []
-	for index in range(16):
-		if index < 3:
-			stem.append(deg_to_rad(bend + sway))
-		else:
-			stem.append(deg_to_rad(whip) * unfurl)
-	chain_turns(chain, Vector3.RIGHT, stem)
-
-func _idle_tendril(clock: float, weight: float) -> void:
-	## A slight sway, the stem most.
-	_tendril_pose(0.0, 0.0, 0.0, 2.2 * sin(clock * 0.9) * weight)
-	var chain: Array = group("stalk").chain
-	if chain.size() >= 3:
-		chain_turns(chain, Vector3.BACK, [deg_to_rad(1.6 * sin(clock * 0.7 + 1.0)) * weight, deg_to_rad(1.2 * sin(clock * 0.7 + 1.0)) * weight])
-
-func _tendril_lash(clip: Dictionary, _delta: float) -> void:
-	## Unrolls to its full height, rears back and whips down at the party, and curls up again.
-	var t: float = float(clip.t)
-	var hit: float = HIT + float(clip.shift)
-	var unfurl: float = smoothstep(0.0, hit - 0.12, t) * (1.0 - smoothstep(hit + 0.35, hit + 0.8, t))
-	var back: float = smoothstep(hit - 0.25, hit - 0.08, t) * (1.0 - smoothstep(hit - 0.08, hit, t))
-	var strike: float = smoothstep(hit - 0.08, hit, t) * (1.0 - smoothstep(hit + 0.12, hit + 0.45, t))
-	_tendril_pose(unfurl, -10.0 * back + 15.0 * strike, -2.0 * back + 3.2 * strike)
-	var bud: Array = _select(["Bud01"])
-	if not bud.is_empty():
-		swell(bud, centre_of(bud[0]), Vector3.ONE * (1.0 + 0.5 * smoothstep(0.0, hit, t) * (1.0 - smoothstep(hit, hit + 0.4, t))))
-	if t >= hit - 0.01:
-		_queue(clip, "swipe", "swipe", {"about": "centre", "axis": Vector3.RIGHT, "start": Vector3(0, 1, -0.2), "radius": 1.6, "sweep": 100.0})
-		_queue(clip, "shock", "shock", {"ahead": 1.8, "size": 0.8})
-
-func _tendril_knit(clip: Dictionary, _delta: float) -> void:
-	## Half unrolls, the bud blazing and its petals open, mends, and curls up again.
-	var t: float = float(clip.t)
-	var hit: float = HIT + float(clip.shift)
-	var unfurl: float = 0.55 * smoothstep(0.0, hit, t) * (1.0 - smoothstep(hit + 0.5, float(clip.length) - 0.05, t))
-	_tendril_pose(unfurl, 0.0, 0.0)
-	var glow: float = smoothstep(hit - 0.15, hit, t) * (1.0 - smoothstep(hit + 0.4, hit + 0.8, t))
-	var bud: Array = _select(["Bud01"])
-	if not bud.is_empty():
-		swell(bud, centre_of(bud[0]), Vector3.ONE * (1.0 + 0.6 * glow))
-	if t >= hit:
-		_queue(clip, "glow", "glow", {"from": "Bud01", "color": "#8cffb8", "size": 1.2})
-		_queue(clip, "rise", "rise", {"from": "Bud01", "color": "#6fe3b0", "amount": 26})
-
-# --- the Hoard Mimic: eyes that look about, a tongue that lolls -------------------------------
-
-func _idle_mimic(clock: float, weight: float) -> void:
-	## Its eyes dart from one thing to the next and blink now and then; its tongue lolls on the
-	## floor, the tip curling.
-	var beat: float = clock / 1.7
-	var step: int = int(floor(beat))
-	var ease: float = smoothstep(0.0, 0.18, beat - float(step))
-	var was := Vector2(_noise(step - 1), _noise(step + 41))
-	var now := Vector2(_noise(step), _noise(step + 42))
-	var look: Vector2 = was.lerp(now, ease)
-	var blink: float = 0.0
-	var b: float = fmod(clock, 4.3)
-	if b < 0.16:
-		blink = sin(b / 0.16 * PI)
-	for side in ["eye_r", "eye_l"]:
-		var eye: Dictionary = group(side)
-		turn(eye.parts, eye.joint, Vector3.UP, deg_to_rad(28.0) * look.x * weight)
-		turn(eye.parts, eye.joint, Vector3.RIGHT, deg_to_rad(14.0) * look.y * weight)
-		if blink > 0.0:
-			swell(eye.parts, eye.joint, Vector3(1.0, 1.0 - 0.85 * blink * weight, 1.0))
-	var chain: Array = group("tongue").chain
-	var wag: Array = []
-	var curl: Array = []
-	for k in range(chain.size()):
-		var reach: float = smoothstep(8.0, 16.0, float(k))
-		wag.append(deg_to_rad(6.0) * reach * sin(clock * 1.6 - float(k) * 0.45) * weight)
-		curl.append(deg_to_rad(-7.0) * smoothstep(13.0, 17.0, float(k)) * (0.5 + 0.5 * sin(clock * 1.1)) * weight)
-	chain_turns(chain, Vector3.UP, wag)
-	chain_turns(chain, Vector3.RIGHT, curl)
-
 static func _noise(n: int) -> float:
 	## A steady random number in -1..1 for each whole step.
 	var h: int = (n * 73856093) ^ 19349663
 	h = (h ^ (h >> 13)) * 1274126177
 	return float(absi(h) % 2001) / 1000.0 - 1.0
 
-func _mimic_gulp(clip: Dictionary, _delta: float) -> void:
-	## Its tongue whips up at the party and back in, and the lid slams on what it caught.
-	var t: float = float(clip.t)
-	var lick: float = smoothstep(0.0, 0.16, t) * (1.0 - smoothstep(0.16, 0.3, t))
-	var chain: Array = group("tongue").chain
-	var lift: Array = []
-	for k in range(chain.size()):
-		lift.append(deg_to_rad(-16.0) * smoothstep(9.0, 13.0, float(k)) * lick)
-	chain_turns(chain, Vector3.RIGHT, lift)
-	var shut: float = smoothstep(0.22, 0.3, t) * (1.0 - smoothstep(0.55, 0.95, t))
-	var lid: Dictionary = group("lid")
-	turn(lid.parts, lid.joint, Vector3.RIGHT, deg_to_rad(100.0) * shut)
-	_creature.set("_rear", -0.35 * smoothstep(0.24, 0.3, t) * (1.0 - smoothstep(0.4, 0.8, t)))
-	_rear_held = true
-	if t >= HIT:
-		_queue(clip, "gulp", "puff", {"from": "Mouth01", "color": "#ffd060", "amount": 10, "size": 0.8, "glow": true})
-
 var _rear_held: bool = false
 
-# --- the Seep Eel: swims where it hangs, sparks crawling on it ---------------------------------
+func _look_target(step: int) -> Vector2:
+	## Where a looking head turns on this beat: somewhere of its own choosing, or (one beat in
+	## three or so) straight ahead again.
+	if _noise(step * 13 + noise_seed + 5) > 0.45:
+		return Vector2.ZERO
+	return Vector2(_noise(step * 2 + noise_seed + 101), _noise(step * 2 + noise_seed + 202))
 
-## Its spine, tail to head (recipe units).
-const EEL_SPINE: Array = [Vector3(-1.25, 0.10, -0.30), Vector3(-0.75, 0.22, 0.10), Vector3(-0.30, 0.36, -0.25), Vector3(0.15, 0.46, 0.15),
-	Vector3(0.55, 0.55, -0.15), Vector3(0.85, 0.75, 0.25), Vector3(1.00, 0.95, 0.55), Vector3(1.08, 1.02, 0.70)]
+# --- the jellyfish's swim -------------------------------------------------------------------------
+## A pulse: the bell squeezes in for the first 30% of it as the body shoots up, then opens a
+## little past rest and drifts down slowly; the appendages trail behind it, pulled in on the
+## thrust and flaring out on the recovery, each a little later than the one before.
 
-func _swimmers() -> Array:
-	## Every part along its body with how far it is from the head and which way is sideways there.
-	if _groups.has("__swim"):
-		return _groups["__swim"].list
-	var out: Array = []
-	var lengths: Array = [0.0]
-	for i in range(EEL_SPINE.size() - 1, 0, -1):
-		lengths.push_front(float(lengths[0]) + (EEL_SPINE[i] as Vector3).distance_to(EEL_SPINE[i - 1]))
-	## lengths[i]: distance from pc[i] to the head along the spine.
-	for part in _select(["Body", "Spot", "Collar", "Spine", "Tail"]):
-		var at: Vector3 = centre_of(part)
-		var best: float = INF
-		var s: float = 0.0
-		var side := Vector3.RIGHT
-		for i in range(EEL_SPINE.size() - 1):
-			var a: Vector3 = EEL_SPINE[i]
-			var b: Vector3 = EEL_SPINE[i + 1]
-			var run: Vector3 = b - a
-			var k: float = clampf((at - a).dot(run) / run.length_squared(), 0.0, 1.0)
-			var d: float = at.distance_to(a + run * k)
-			if d < best:
-				best = d
-				s = lerpf(float(lengths[i]), float(lengths[i + 1]), k)
-				var flat := Vector3(run.x, 0.0, run.z).normalized()
-				side = Vector3(-flat.z, 0.0, flat.x)
-		out.append([part, s, side])
-	_groups["__swim"] = {"list": out, "parts": [], "joint": Vector3.ZERO, "chain": []}
-	return out
+static func _swim_rise(q: float) -> float:
+	return smoothstep(0.0, 0.5, q) - smoothstep(0.35, 1.0, q)
 
-func _idle_eel(clock: float, weight: float) -> void:
-	## A swimming wave running down it from the head to the tail, more as it goes, and the head
-	## turning a little into each stroke.
-	for item in _swimmers():
-		var s: float = float(item[1])
-		shift([item[0]], (item[2] as Vector3) * 0.075 * sin(clock * 2.6 - s * 2.4) * clampf(s / 1.2, 0.15, 1.0) * weight)
-	var head: Dictionary = group("head")
-	turn(head.parts, head.joint, Vector3.UP, deg_to_rad(5.0) * sin(clock * 2.6 + 0.6) * weight)
+static func _swim_squeeze(q: float) -> float:
+	return sin(PI * clampf(q / 0.3, 0.0, 1.0)) - 0.35 * sin(PI * clampf((q - 0.3) / 0.7, 0.0, 1.0))
 
-# --- the Lamprey Knot and the Crystal Hydra: one head of several strikes -----------------------
+static func _swim_flare(q: float) -> float:
+	return -0.6 * sin(PI * clampf(q / 0.3, 0.0, 1.0)) + sin(PI * clampf((q - 0.3) / 0.7, 0.0, 1.0))
 
-const LAMPREY_HEADS: Array = [["Head01-04", "Mouth01-07"], ["Head05-08", "Mouth08-14"], ["Head09-12", "Mouth15-21"]]
-const LAMPREY_FACING: Array = [Vector3(-0.27, 0.49, -0.83), Vector3(0.85, 0.49, 0.18), Vector3(-0.58, 0.49, 0.65)]
+func _swim_length(spec: Dictionary) -> float:
+	var beat: float = float(spec.get("beat", 0.9))
+	return float(spec.get("start", 0.0)) + (float(spec.get("pulses", 3)) - 0.5) * beat + float(spec.get("sink", 1.6))
 
-func _lamprey_bite(clip: Dictionary, _delta: float) -> void:
-	## The heads that face the party take turns: one swings round at it, lunges, and its sucker
-	## flares wide as it lands.
-	var which: int = [2, 1][int(clip.strike) % 2]
-	var parts: Array = _select(LAMPREY_HEADS[which])
-	if parts.is_empty():
+func _swim_idle(spec: Dictionary, weight: float) -> void:
+	## ["swim", {body, bell, trail, rate, rise, squeeze, flare, lag, ripple, phase}] as an idle:
+	## one pulse every 1/rate seconds, rising `rise` and sinking back.
+	var q: float = fposmod(_clock * float(spec.get("rate", 0.5)) + float(spec.get("phase", 0.0)), 1.0)
+	var rise: float = float(spec.get("rise", 0.08))
+	var lag: float = float(spec.get("lag", 0.12))
+	var ripple: float = float(spec.get("ripple", 0.03))
+	var flares: Array = []
+	var drops: Array = []
+	var count: int = group(str(spec.trail)).parts.size() if spec.has("trail") else 0
+	for index in range(count):
+		var late: float = fposmod(q - lag - ripple * float(index), 1.0)
+		flares.append(_swim_flare(late))
+		drops.append(rise * (_swim_rise(late) - _swim_rise(q)))
+	_swim_lay(spec, rise * _swim_rise(q), _swim_squeeze(q), flares, drops, weight)
+
+func _swim_clip(clip: Dictionary, spec: Dictionary, t: float) -> void:
+	## ["swim", {body, bell, trail, pulses, beat, rise, sink, squeeze, flare, lag, ripple, start}]
+	## in a fidget or a move: `pulses` strong pulses `beat` seconds apart, each rising `rise`,
+	## then a slow sink over `sink` seconds back to where it hung.
+	t -= float(spec.get("start", 0.0))
+	if t <= 0.0:
 		return
-	var joint: Vector3 = (parts[0] as Node3D).get("_rest").origin
-	var facing: Vector3 = LAMPREY_FACING[which]
-	var toward := Vector3(0, -0.15, 1).normalized()
-	var axis: Vector3 = facing.cross(toward).normalized()
-	var reach: float = minf(facing.angle_to(toward) * 0.65, deg_to_rad(55.0))
-	var v: float = value("attack", float(clip.t))
-	var mouth: Array = _select(LAMPREY_HEADS[which][1])
-	if not mouth.is_empty():
-		swell(mouth, (mouth[0] as Node3D).get("_rest").origin, Vector3.ONE * (1.0 + 0.4 * maxf(v, 0.0)))
-	turn(parts, joint, axis, deg_to_rad(-18.0) * maxf(-v, 0.0) + reach * maxf(v, 0.0))
-	shift(parts, toward * 0.18 * maxf(v, 0.0))
-	_creature.set("_rear", -0.25 * maxf(v, 0.0))
-	_rear_held = true
+	var pulses: int = maxi(1, int(spec.get("pulses", 3)))
+	var beat: float = maxf(0.3, float(spec.get("beat", 0.9)))
+	var rise: float = float(spec.get("rise", 0.12))
+	var top: float = (float(pulses) - 0.5) * beat
+	var sink: float = maxf(0.3, float(spec.get("sink", 1.6)))
+	var lag: float = float(spec.get("lag", 0.12))
+	var ripple: float = float(spec.get("ripple", 0.03))
+	var weight: float = float(clip.get("weight", 1.0))
+	var height := func(at: float) -> float:
+		if at <= 0.0:
+			return 0.0
+		var k: int = mini(int(at / beat), pulses - 1)
+		var q: float = minf((at - float(k) * beat) / beat, 1.0)
+		return rise * (float(k) + smoothstep(0.0, 0.5, q)) * (1.0 - smoothstep(top, top + sink, at))
+	var phase := func(at: float) -> float:
+		if at <= 0.0 or at >= float(pulses) * beat:
+			return 0.0 if at <= 0.0 else 1.0
+		var k: int = mini(int(at / beat), pulses - 1)
+		return (at - float(k) * beat) / beat
+	var y: float = height.call(t)
+	var squeeze: float = _swim_squeeze(phase.call(t)) if t < float(pulses) * beat else 0.0
+	var flares: Array = []
+	var drops: Array = []
+	var count: int = group(str(spec.trail)).parts.size() if spec.has("trail") else 0
+	for index in range(count):
+		var late: float = t - (lag + ripple * float(index)) * beat
+		flares.append(_swim_flare(phase.call(late)) if late < float(pulses) * beat else 0.0)
+		drops.append(float(height.call(late)) - y)
+	_swim_lay(spec, y, squeeze, flares, drops, weight)
 
-func _lamprey_drink(clip: Dictionary, _delta: float) -> void:
-	## Every sucker flares and pulls, the braid squeezing as it drinks.
-	var t: float = float(clip.t)
-	var pull: float = smoothstep(0.1, HIT, t) * (1.0 - smoothstep(0.9, 1.25, t))
-	for which in range(3):
-		var mouth: Array = _select(LAMPREY_HEADS[which][1])
-		if not mouth.is_empty():
-			swell(mouth, (mouth[0] as Node3D).get("_rest").origin, Vector3.ONE * (1.0 + (0.25 + 0.12 * sin(t * 18.0 + float(which))) * pull))
-	var braid: Array = _select(["Body"])
-	swell(braid, Vector3(0, 0.5, 0), Vector3(1.0 - 0.08 * pull, 1.0 + 0.04 * pull, 1.0 - 0.08 * pull))
-	if t >= 0.15:
-		_queue(clip, "drain", "drain", {"from": "Mouth15", "color": "#ff6a7a", "count": 5})
-
-const HYDRA_HEADS: Array = [
-	{"neck": "Neck01-03", "head": "Head01-07", "jaw": "Jaw01", "mouth": "Mouth01", "axis": Vector3(0.99, 0, -0.15)},
-	{"neck": "Neck04-06", "head": "Head08-14", "jaw": "Jaw02", "mouth": "Mouth02", "axis": Vector3(1, 0, 0)},
-	{"neck": "Neck07-09", "head": "Head15-21", "jaw": "Jaw03", "mouth": "Mouth03", "axis": Vector3(0.29, 0, 0.96)}]
-
-func _hydra_bite(clip: Dictionary, _delta: float) -> void:
-	## Its heads take turns: the jaw drops, the head lunges on its neck and snaps shut.
-	var spec: Dictionary = HYDRA_HEADS[(int(clip.strike) - 1) % 3]
-	_hydra_head(spec, float(clip.t), 1.0)
-
-func _hydra_head(spec: Dictionary, t: float, size: float) -> void:
-	var axis: Vector3 = spec.axis
-	var jaw: Array = _select(spec.jaw)
-	var head: Array = _select([spec.head, spec.jaw, spec.mouth])
-	var neck: Array = _select([spec.neck, spec.head, spec.jaw, spec.mouth])
-	if jaw.is_empty() or head.is_empty() or neck.is_empty():
-		return
-	var open: float = value("snap", t)
-	turn(jaw, (jaw[0] as Node3D).get("_rest").origin, axis, deg_to_rad(38.0 * maxf(-open, 0.0) - 4.0 * maxf(open, 0.0)) * size)
-	var v: float = value("attack", t)
-	turn(head, (head[0] as Node3D).get("_rest").origin, axis, deg_to_rad(-22.0 * maxf(-v, 0.0) + 24.0 * maxf(v, 0.0)) * size)
-	turn(neck, (neck[0] as Node3D).get("_rest").origin, axis, deg_to_rad(-10.0 * maxf(-v, 0.0) + 16.0 * maxf(v, 0.0)) * size)
-
-func _hydra_roar(clip: Dictionary, _delta: float) -> void:
-	## Every head rears and opens its jaws: another grows.
-	var t: float = float(clip.t)
-	var up: float = smoothstep(0.0, HIT, t) * (1.0 - smoothstep(0.7, 1.1, t))
-	for spec in HYDRA_HEADS:
-		var jaw: Array = _select(spec.jaw)
-		var head: Array = _select([spec.head, spec.jaw, spec.mouth])
-		if jaw.is_empty() or head.is_empty():
-			continue
-		turn(jaw, (jaw[0] as Node3D).get("_rest").origin, spec.axis, deg_to_rad(35.0) * up)
-		turn(head, (head[0] as Node3D).get("_rest").origin, spec.axis, deg_to_rad(-25.0) * up)
-	if t >= HIT:
-		_queue(clip, "sparks", "sparks", {"from": "centre", "color": "#c070ff", "amount": 30, "speed": 3.5})
-
-# --- the Drowned Choir: heads that sing ---------------------------------------------------------
-
-const CHOIR: Array = [
-	{"parts": ["Neck01-05", "Head01-03", "Mouth01-02", "Rope"], "head": "Head01", "mouth": "Mouth01", "root": Vector3(-0.60, 0.02, 0.30)},
-	{"parts": ["Neck06-10", "Head04-06", "Mouth03-04", "Weed01"], "head": "Head04", "mouth": "Mouth03", "root": Vector3(0.05, 0.02, -0.25)},
-	{"parts": ["Neck11-15", "Head07-09", "Mouth05-06"], "head": "Head07", "mouth": "Mouth05", "root": Vector3(0.70, 0.02, 0.20)},
-	{"parts": ["Neck16-18", "Head10", "Mouth07-08"], "head": "Head10", "mouth": "Mouth07", "root": Vector3(-0.30, 0.02, 0.85)},
-	{"parts": ["Neck19-21", "Head11", "Mouth09-10"], "head": "Head11", "mouth": "Mouth09", "root": Vector3(0.45, 0.02, 0.80)}]
-## Which heads sing each of its moves, and in what color the song goes out.
-const CHOIR_SONGS: Dictionary = {
-	"Dirge": {"voices": [1], "color": "#6ab8e0"}, "Requiem": {"voices": [0, 2], "color": "#8fd0e8"},
-	"Requiem Chorus": {"voices": [0, 1, 2], "color": "#c8f0ff", "big": true}, "Lament": {"voices": [3, 4], "color": "#c58bff"},
-	"Another Voice": {"voices": [3, 4, 1], "color": "#8fd0e8"}}
-
-func _choir_sing(clip: Dictionary, _delta: float) -> void:
-	## The singers whose song it is throw their heads back and open their mouths wide, leaning
-	## toward the party as the note lands, and it rolls out of them in rings.
-	var song: Dictionary = CHOIR_SONGS.get(str(clip.move), CHOIR_SONGS.Dirge)
-	var t: float = float(clip.t)
-	var big: bool = bool(song.get("big", false))
-	var sing: float = smoothstep(0.05, HIT, t) * (1.0 - smoothstep(0.75 if not big else 1.0, 1.15 if not big else 1.4, t))
-	var lean: float = smoothstep(HIT - 0.1, HIT, t) * (1.0 - smoothstep(HIT + 0.2, 0.9, t))
-	for index in song.voices:
-		var singer: Dictionary = CHOIR[int(index)]
-		var whole: Array = _select(singer.parts)
-		var head: Array = _select([singer.head, singer.mouth, str(singer.mouth).left(5) + "%02d" % (int(str(singer.mouth).right(2)) + 1)])
-		var ring: Array = _select(singer.mouth)
-		if whole.is_empty() or head.is_empty() or ring.is_empty():
-			continue
-		var head_at: Vector3 = centre_of(_named[singer.head])
-		var ring_at: Vector3 = centre_of(ring[0])
-		swell(ring, ring_at, Vector3.ONE * (1.0 + (0.7 if big else 0.5) * sing))
-		turn(head, head_at, Vector3.RIGHT, deg_to_rad(-28.0) * sing)
-		turn(whole, singer.root, Vector3.RIGHT, deg_to_rad(7.0) * lean)
-		var color: String = str(song.color)
-		for wave in range(3 if big else 2):
-			if t >= HIT - 0.06 + 0.13 * float(wave):
-				_queue(clip, "ring%d_%d" % [int(index), wave], "ripple", {"from": singer.mouth, "color": color, "radius": 1.3 + 0.6 * float(wave), "size": 1.0})
-
-# --- idles of the Furnace and the Warrens ----------------------------------------------------
-
-func _idle_smelter(clock: float, weight: float) -> void:
-	## Its volcano bubbling: the lava pool heaving, and every few seconds a blorp that jolts the
-	## rim rocks.
-	var lava: Array = _select(["Lava01"])
-	var p: float = fmod(clock, 3.4)
-	var blorp: float = sin(clampf(p / 0.45, 0.0, 1.0) * PI)
-	for part in lava:
-		swell([part], centre_of(part), Vector3(1.0 + 0.12 * blorp, 1.0 + 0.5 * blorp, 1.0 + 0.12 * blorp) * 1.0)
-	var rim: Array = _select(["Crater02-07"])
-	shift(rim, Vector3(0, 0.035 * blorp * weight, 0))
-	swell_each(_select(["Lava02-05"]), Vector3(1.0, 1.0 + 0.6 * blorp * weight, 1.0))
-
-func _idle_heartbeat(clock: float, weight: float) -> void:
-	## A slow double thump.
-	var p: float = fmod(clock, 1.6)
-	var thump: float = exp(-pow((p - 0.1) / 0.06, 2.0)) + 0.7 * exp(-pow((p - 0.36) / 0.06, 2.0))
-	var heart: Dictionary = group("heart")
-	swell(heart.parts, heart.joint, Vector3.ONE * (1.0 + 0.07 * thump * weight))
-
-# --- the Entropy Eye: its aperture ------------------------------------------------------------
-
-const ENTROPY_PETALS: Array = [["Petal01", "Petal02"], ["Petal03"], ["Petal04"], ["Petal05", "Petal06"], ["Petal07"], ["Petal08"],
-	["Petal09", "Petal10"], ["Petal11"], ["Petal12"], ["Petal13", "Petal14"]]
-
-func _aperture(close: float) -> void:
-	## Every petal folds in over the iris about its ring tangent: 1 is shut.
-	if absf(close) < 0.0001:
-		return
-	for k in range(ENTROPY_PETALS.size()):
-		var parts: Array = _select(ENTROPY_PETALS[k])
-		if parts.is_empty():
-			continue
-		var a: float = 0.2 + float(k) * deg_to_rad(36.0)
-		turn(parts, (parts[0] as Node3D).get("_rest").origin, Vector3(-sin(a), cos(a), 0.0), deg_to_rad(-95.0) * close)
-
-func _entropy_stare(clip: Dictionary, _delta: float) -> void:
-	_aperture(0.45 * smoothstep(0.0, HIT, float(clip.t)) * (1.0 - smoothstep(0.7, 1.05, float(clip.t))))
-
-func _entropy_unmake(clip: Dictionary, _delta: float) -> void:
-	## The aperture snaps shut on the blow and opens again.
-	var t: float = float(clip.t)
-	_aperture(smoothstep(HIT - 0.08, HIT, t) * (1.0 - smoothstep(0.55, 1.0, t)) + 0.25 * smoothstep(0.0, 0.2, t) * (1.0 - smoothstep(0.2, HIT, t)))
-
-func _idle_hush(clock: float, weight: float) -> void:
-	## A swimming wave running down its body from the head.
-	var chain: Array = group("body").chain
-	var angles: Array = []
-	for index in range(chain.size()):
-		angles.append(deg_to_rad(2.4) * sin(clock * 2.0 - float(index) * 0.45) * weight)
-	chain_turns(chain, Vector3.UP, angles)
-
-func _timeglass_turn(clip: Dictionary, _delta: float) -> void:
-	## Turns itself over, all the way round: time run back.
-	var t: float = float(clip.t)
-	var spin: float = smoothstep(0.05, 0.75, t)
-	var body: Dictionary = group("glass")
-	turn(body.parts, body.joint, Vector3.RIGHT, TAU * spin)
-	if t >= HIT:
-		_queue(clip, "spiral", "spiral", {"from": "Sand03", "color": "#ffe8a0", "amount": 30})
+func _swim_lay(spec: Dictionary, y: float, squeeze: float, flares: Array, drops: Array, weight: float) -> void:
+	## Lays a swim's pose: the bell squeezed about its joint, each appendage flared about its
+	## root (in toward the bell's axis or out from it) and dropped behind, then all of it raised.
+	var s: float = float(spec.get("squeeze", 0.12)) * squeeze * weight
+	if spec.has("bell"):
+		var bell: Dictionary = group(str(spec.bell))
+		swell(bell.parts, bell.joint, Vector3(1.0 - s, 1.0 + s * 0.6, 1.0 - s))
+	if spec.has("trail"):
+		var trail: Dictionary = group(str(spec.trail))
+		var flare: float = deg_to_rad(float(spec.get("flare", 14.0)))
+		var index: int = 0
+		for part in trail.parts:
+			if index >= flares.size():
+				break
+			var at: Vector3 = (part as Node3D).get("_rest").origin
+			var out: Vector3 = at - (trail.joint as Vector3)
+			out.y = 0.0
+			if not out.is_zero_approx():
+				turn([part], at, out.cross(Vector3.UP), flare * float(flares[index]) * weight)
+				## Roots on the rim follow it in as the bell squeezes.
+				shift([part], -out * s)
+			shift([part], Vector3(0, float(drops[index]) * weight, 0))
+			index += 1
+	shift(group(str(spec.get("body", "all"))).parts, Vector3(0, y * weight, 0))

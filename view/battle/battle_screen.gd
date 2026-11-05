@@ -22,6 +22,7 @@ const EnemyPanel = preload("res://view/battle/enemy_panel.gd")
 const Plate = preload("res://view/battle/creature_tag.gd")
 const DieWindow = preload("res://view/battle/creature_die_window.gd")
 const Look = preload("res://view/battle/creature_look.gd")
+const EffectLooks = preload("res://view/battle/effect_looks.gd")
 const ScreenFx = preload("res://view/battle/screen_fx.gd")
 const CameraRig = preload("res://view/battle/camera_rig.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
@@ -347,6 +348,8 @@ var _shrunk: Dictionary = {}
 var _snuffed: Dictionary = {}
 var _acting_move: String = ""
 var _acting_id: String = ""
+## Creatures whose windup was a heavy blow: it lands hard at the party with the move.
+var _heavy_blows: Dictionary = {}
 var _reflecting: String = ""
 var _water: Control = null
 ## What the rail has dealt this turn, counted up beside the forecast as its blows land.
@@ -559,11 +562,16 @@ func _place_creatures() -> void:
 				creature.ground = _chamber.ground
 			_world.add_child(creature)
 			_creatures[id] = creature
+			## Its fidgets' own particles (a crab's coins, a drill's smoke) draw from its first idle.
+			if creature._moves != null:
+				creature._moves.remember_fx(_fx)
 			var after: float = stage.seal_remaining() if stage.has_method("seal_remaining") else 0.0
 			creature.spawn(after + 0.25 + 0.18 * float(fresh) if _intro_pending else after)
 			_fx.puff(target + Vector3(0, 0.3, 0), Color(0.5, 0.45, 0.4), 10, 0.9, 1.4, 0.6)
 			## Something called into the fight arrives with more of a flourish than a rockfall.
 			if bool(foe.get("summoned", false)) and not _intro_pending:
+				## The floor cracks open where it climbs out (EffectLooks: summon).
+				_fx.crack(Vector3(target.x, 0.0, target.z), Look.FACE.ready, 1.0 * creature.scale.x, 1.2)
 				_fx.ring_wave(Vector3(target.x, 0.0, target.z), creature.tint, 2.2, 0.5)
 				_fx.sparks(target + Vector3(0, 0.6, 0), creature.tint, 30, 4.0, 0.7, 0.06)
 				_fx.flash(target + Vector3(0, 0.8, 0), creature.tint, 4.0, 5.0, 0.4, 1.0)
@@ -4065,6 +4073,8 @@ func _morph_creature(id: String, effect: Dictionary) -> void:
 		fresh.ground = _chamber.ground
 	_world.add_child(fresh)
 	_creatures[id] = fresh
+	if fresh._moves != null:
+		fresh._moves.remember_fx(_fx)
 	## The old shape twists away into a point of light, and the new one unwinds out of it.
 	fresh.materialize(0.35)
 	fresh.set_targeted(str(me().get("target", "")) == id)
@@ -5497,18 +5507,14 @@ func _counted_die(die_id: String, unit_id: String = "") -> Control:
 	return null
 
 func _dock_top() -> float:
-	## How low a count's plate may sit: above the dock and the party's tabs along it, never
-	## over them.
+	## How low a count's plate may sit: straight on top of the dock and the tab along it. The
+	## buffs and troubles riding over the tab get no room of their own (the owner's call): a
+	## count is brief, and lifting it clear of them left a gap over the dock.
 	if _dock == null:
 		return INF
 	var top: float = _dock.get_global_rect().position.y - 6.0
 	if _my_tab != null and _my_tab.face.is_visible_in_tree():
 		top = minf(top, _my_tab.face.get_global_rect().position.y - 6.0)
-	## Nor over anyone's buffs and troubles, which ride over their tab (or, alone, along the
-	## top of the dock): a count laid over them hid them while it played.
-	for tab in [_my_tab] + _tabs.values():
-		if tab is SeatTab and is_instance_valid(tab) and (tab as SeatTab).chips.is_visible_in_tree() and (tab as SeatTab).chips.get_child_count() > 0:
-			top = minf(top, (tab as SeatTab).chips.get_global_rect().position.y - 6.0)
 	return top
 
 func _tally_destination(event: Dictionary) -> Vector2:
@@ -6332,10 +6338,6 @@ func _creature_fx(effect: Dictionary, creature: CrystalCreature, source: Vector3
 		"absorb_color":
 			if from_creature and not bool(effect.get("nothing", false)):
 				creature.set_barrier("drink", Color("#" + str(DeepContent.color(str(effect.get("color", ""))).get("hue", "c8a8ff"))))
-		"strength":
-			if struck != null:
-				_fx.ring_wave(Vector3(struck.global_position.x, 0.0, struck.global_position.z), DeepUi.BAD, 2.0, 0.5, 0.2)
-				_fx.sparks(struck.centre(), Color("ff7a5a"), 18, 2.0, 0.7, 0.05)
 		"copy_hand":
 			if from_creature and not bool(effect.get("nothing", false)):
 				var copied: String = str(effect.get("copied", ""))
@@ -6351,7 +6353,7 @@ func _creature_fx(effect: Dictionary, creature: CrystalCreature, source: Vector3
 			if bool(effect.get("nothing", false)):
 				return
 			if mine:
-				_fx.claw(base, _camera.global_position - base, Color("8fd0e8"))
+				_fx.claw(base, _camera.global_position - base, Color("8fd0e8"), 0.45, 0.6)
 				_sound_at(base, "claw", 0.8)
 				var die_id: String = str(effect.get("gripped", ""))
 				if _dice_views.has(die_id):
@@ -6496,26 +6498,40 @@ func _gem_fizzle(event: Dictionary) -> void:
 	_show_resonance(int(event.get("resonance", 0)), page)
 	DeepUi.shake(page.resonance_box, 8.0, 0.25)
 
+## The way each creature's move in flight is animated (content `anim`), so its blow lands
+## with the sound of that move: a bite snaps twice, a breath roars, a drill grinds.
+var _move_anims: Dictionary = {}
+
 func _enemy_windup(event: Dictionary) -> void:
 	var who: String = str(event.get("unit", ""))
 	var hostile: bool = event.get("effects", []).any(func(e: Dictionary) -> bool: return str(e.kind) in DeepRules.HOSTILE)
 	var anim: String = str(event.get("anim", ""))
 	var move: String = str(event.get("move", ""))
+	_move_anims[who] = anim
 	## Its own parts act the move out (creature_moves.gd), the blow landing as the move does: a
 	## move that takes longer to wind up (a tendril unfurling, a crawler rearing) starts sooner.
 	var acting: CrystalCreature = _creature(who)
-	var lead: float = acting.move_lead(anim, move, hostile) if acting != null else 0.3
+	## A heavy blow (DeepCreatures.heavy_moves) is held at its wind-up `heavy` seconds longer:
+	## the step was lengthened by as much, so it starts that much sooner and lands on time.
+	var heavy: float = float(event.get("heavy_hold", 0.0)) if bool(event.get("heavy", false)) else 0.0
+	var lead: float = acting.move_lead(anim, move, hostile, heavy) if acting != null else 0.3 + heavy
 	var delay: float = maxf(0.0, float(event.get("duration", 0.7)) - lead)
+	if heavy > 0.0:
+		_heavy_blows[who] = true
 	var tween := create_tween()
 	tween.tween_interval(delay)
 	tween.tween_callback(func() -> void:
 		var creature: CrystalCreature = _creature(who)
 		if creature == null:
 			return
-		DeepAudio.play_at(global_position + _to_screen(creature.centre()), "enemy_windup", {"volume": 0.7})
-		creature.play_move(anim, move, hostile, _before_me(3.0, -0.15), _fx)
-		if not hostile:
-			_fx.rise(creature.centre(), DeepUi.BLOCK, 18, 0.5)
+		DeepAudio.play_at(global_position + _to_screen(creature.centre()), "enemy_windup", {"volume": 0.7 if heavy <= 0.0 else 0.85, "pitch": 1.0 if heavy <= 0.0 else 0.72})
+		if heavy > 0.0 and creature.warden:
+			DeepAudio.play_at(global_position + _to_screen(creature.centre()), "cave_rumble", {"volume": 0.45})
+		creature.play_move(anim, move, hostile, _before_me(3.0, -0.15), _fx, heavy)
+		## What it casts as it begins (view/battle/effect_looks.gd): its move's colour gathering
+		## about it, a debuff thrown to land as the move does.
+		if not _headless:
+			EffectLooks.windup(_fx, event, creature, _before_me(3.0, -0.15), lead)
 		_fx.flash(creature.centre(), creature.tint, 2.0, 3.0, 0.3, 0.5)
 		_float_world(creature.global_position + Vector3(0, creature.anchor.y + 0.3, 0), str(event.get("move", "")), creature.tint.lightened(0.4), 20))
 
@@ -6547,6 +6563,41 @@ func _enemy_move(event: Dictionary) -> void:
 	_acting_move = ""
 	_acting_id = ""
 	_soaking = false
+	var striker: CrystalCreature = _creature(str(event.get("unit", "")))
+	if not _headless and _fx != null:
+		## Each meaning's look where it lands (view/battle/effect_looks.gd).
+		EffectLooks.land_all(_fx, event, striker, func(id: String) -> Node3D: return _creature(id), local_id, _before_me(3.0, -0.15), _camera.global_position - _before_me(3.0, -0.15))
+	if _heavy_blows.has(str(event.get("unit", ""))):
+		_heavy_blows.erase(str(event.get("unit", "")))
+		_heavy_impact(event, striker)
+
+func _heavy_impact(event: Dictionary, creature: CrystalCreature) -> void:
+	## A heavy blow lands at the party: the room shakes (a Warden's more), the frame kicks, a
+	## shock rolls across the floor in front of the dock with grit and dust thrown up, and the
+	## clock catches for an instant.
+	var struck: bool = event.get("effects", []).any(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "damage" and _is_player(str(e.get("target", ""))))
+	if not struck or _headless or _fx == null:
+		return
+	var warden: bool = creature != null and is_instance_valid(creature) and creature.warden
+	var floor_at: Vector3 = _before_me(3.4, -0.15)
+	floor_at.y = 0.0
+	## Scaled to the blow (its biggest landing on anyone), a Warden's half again.
+	var biggest: int = 0
+	for effect in event.get("effects", []):
+		if str(effect.get("kind", "")) == "damage":
+			biggest = maxi(biggest, int(effect.get("amount", 0)))
+	var weight: float = clampf(float(biggest) / 20.0, 0.0, 1.0) * (1.5 if warden else 1.0)
+	_camera.add_trauma(0.2 + 0.3 * weight)
+	_camera.punch(-(1.5 + 2.5 * weight), 0.4)
+	_screen_fx.kick(0.4 + 0.5 * weight)
+	_fx.ring_wave(floor_at, Color("e8d8c0"), 3.6 if warden else 2.6, 0.5, 0.35)
+	_fx.shards(floor_at + Vector3(0, 0.15, 0), Color(0.55, 0.5, 0.45), 12 if warden else 8, 3.5, 0.1, 0.9)
+	_fx.puff(floor_at + Vector3(0, 0.2, 0), Color(0.45, 0.4, 0.34), 16, 1.3, 1.3, 0.6)
+	if warden:
+		_fx.dust_fall(60)
+		DeepAudio.play("rock_break", {"volume": 0.55})
+	if not ScreenFx.calm:
+		ScreenFx.hold(0.06 if not warden else 0.09, 0.08)
 
 func _show_lifeline(who: String, hp: int) -> void:
 	var text: String = "Lifeline · %d HP" % hp
@@ -6595,7 +6646,10 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 			if target_id == local_id:
 				var unit: Dictionary = me()
 				var ratio: float = clampf(float(loss) / float(maxi(1, int(unit.get("max_hp", 60)))), 0.0, 1.0)
-				DeepAudio.play("enemy_strike" if loss > 0 else "block", {"volume": clampf(0.6 + ratio * 1.2, 0.6, 1.0), "gap": 0.02})
+				## The blow sounds like the move that landed it; a multi-hit move lands one a
+				## hit. Damage with no move behind it (spikes, a tax) is the plain strike.
+				var blow: String = DeepSoundBank.blow_sound(str(_move_anims.get(_acting_id, ""))) if not _acting_id.is_empty() else "enemy_strike"
+				DeepAudio.play(blow if loss > 0 else "block", {"volume": clampf(0.6 + ratio * 1.2, 0.6, 1.0), "gap": 0.02})
 				_camera.add_trauma(0.3 + ratio * 1.4)
 				_camera.nudge(Vector3(randf_range(-0.25, 0.25), -0.12, 0.3 + ratio), 0.45)
 				if absorbed > 0 and _soaking:
@@ -6651,9 +6705,7 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 				_float_world(creature.centre(), "Dice tier up", DeepUi.ACCENT, 20)
 		"heal":
 			DeepAudio.play("heal", {"volume": 0.5})
-			var healed: Node3D = _creature(target_id) if _creature(target_id) != null else creature
-			if healed != null and is_instance_valid(healed):
-				_fx.rise(healed.global_position + Vector3(0, 0.3, 0), DeepUi.GOOD, 24, 0.8)
+			## Motes spiral up round whoever it mends as the move lands (EffectLooks: mend).
 		"ward", "retain", "charged", "regeneration", "spikes", "lifeline", "max_hp", "max_hp_loss":
 			var receiver: CrystalCreature = _creature(target_id)
 			if receiver != null:
@@ -6750,7 +6802,6 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 			var lifted: CrystalCreature = _creature(target_id)
 			if lifted != null:
 				lifted.flash(2.0)
-				_fx.rise(lifted.centre(), DeepUi.BAD, 18, 0.6)
 				_float_world(lifted.centre() + Vector3(0, 0.6, 0), "+%d Strength" % int(effect.get("amount", 0)), DeepUi.BAD, 16)
 		"roll_again":
 			if creature != null and is_instance_valid(creature) and not bool(effect.get("nothing", false)):
@@ -6766,7 +6817,6 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 				_float_world(creature.centre() + Vector3(0, 0.6, 0), "Sheds %d poison" % int(effect.purged), DeepUi.POISON, 16)
 		"empower_next":
 			if creature != null and is_instance_valid(creature):
-				_fx.rise(creature.centre(), DeepUi.BAD, 24, 0.7)
 				creature.flash(2.5)
 				_float_world(creature.centre() + Vector3(0, 0.6, 0), "Empowered +%d%%" % int(effect.get("amount", 0)), DeepUi.BAD, 18)
 		"rally":

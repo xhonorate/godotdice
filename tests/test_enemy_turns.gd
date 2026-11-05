@@ -9,6 +9,7 @@ func _init() -> void:
 	controls()
 	party_effects()
 	content_coverage()
+	heavy_blows()
 	print("Enemy turns: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -250,6 +251,34 @@ func party_effects() -> void:
 		p.hp = 1
 	DeepBattle._damage(simultaneous.state, simultaneous.state.players[0], simultaneous.foe, 4, simultaneous.rng.dice)
 	check(simultaneous.state.outcome == "defeat" and DeepBattle.living(simultaneous.state.players).is_empty(), "lethal reflection settles after every victim, including when the enemy also dies")
+
+func heavy_blows() -> void:
+	## A creature's heavy blows (DeepCreatures.heavy_moves, read from content): an attack at
+	## least 1.5x its lightest and near its biggest, and a Warden's biggest. Its windup step says
+	## so and holds HEAVY_HOLD longer, the same on every client.
+	check(DeepCreatures.heavy_moves(DeepContent.creature("THE_DRILL")) == ["Overdrive"], "the Drill's Overdrive is its heavy blow, Bore is not: %s" % str(DeepCreatures.heavy_moves(DeepContent.creature("THE_DRILL"))))
+	check(DeepCreatures.heavy_moves(DeepContent.creature("VEIN_WRAITH")) == ["Wail"], "a Vein Wraith's Wail (twice its Drain) is heavy")
+	check(DeepCreatures.heavy_moves(DeepContent.creature("LANTERN_MOTH")).is_empty(), "a creature with one attack it can weigh has no heavy blow")
+	check(DeepCreatures.heavy_moves(DeepContent.creature("THE_GARDENER")) == ["Ram"], "a Warden's only attack is its heavy blow")
+	var mole: Array = DeepCreatures.heavy_moves(DeepContent.creature("PIT_MOLE"))
+	check(mole.has("Erupt") and mole.has("Rake") and not mole.has("Claw"), "a Pit Mole's Erupt and Rake are heavy, its Claw is not")
+	var regent: Array = DeepCreatures.heavy_moves(DeepContent.creature("THE_REGENT"))
+	check(regent.is_empty(), "blows sized by the fight (what it took, the party's high die) are never heavy")
+	check(DeepCreatures.move_weight({"kind": "attack", "effects": [{"kind": "damage", "amount": 2, "repeat": 10}]}) == 20, "a blow's weight is its damage times its hits")
+	for key in DeepContent.section("creatures"):
+		var definition: Dictionary = DeepContent.creature(str(key))
+		for name in DeepCreatures.heavy_moves(definition):
+			check(str(DeepCreatures.move_in(definition.moves, str(name)).get("kind", "")) == "attack", "%s's heavy %s is an attack" % [key, name])
+	## The step itself: an Overdrive's windup is marked heavy and held longer than a Bore's.
+	var f: Dictionary = setup("THE_DRILL")
+	landing(f.foe, ["Bore", "Overdrive"])
+	var shown: Array = select(events(f), "enemy_ability")
+	check(shown.size() == 2, "both drives are shown")
+	if shown.size() == 2:
+		check(not bool(shown[0].get("heavy", false)) and bool(shown[1].get("heavy", false)), "Overdrive is marked heavy, Bore is not")
+		check(is_equal_approx(float(shown[1].get("heavy_hold", 0.0)), DeepCreatures.HEAVY_HOLD), "and says how long it holds")
+		var plain: float = DeepBattle.BASE_DURATION.enemy_ability + DeepBattle.tally_span(shown[1].get("tally", {}))
+		check(float(shown[1].duration) >= plain + DeepCreatures.HEAVY_HOLD - 0.001, "its step waits for the hold: %.2f s" % float(shown[1].duration))
 
 func content_coverage() -> void:
 	## Every face of every creature's dice names one of its moves and lands as that move, at

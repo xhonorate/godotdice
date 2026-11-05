@@ -22,11 +22,19 @@ const FLAT_VOICES: int = 16
 const PLACED_VOICES: int = 10
 ## Two plays of one sound closer together than this are one play.
 const GAP: float = 0.035
-## Sounds that carry a tune are never detuned; everything else gets a little life.
-const TUNED: PackedStringArray = ["unlock", "victory", "defeat", "landing", "reveal", "star", "gleam",
-	"grade_rough", "grade_fine", "grade_precious", "grade_exquisite", "grade_peerless",
-	"heal", "harmony", "turn_begin", "resonance", "jackpot", "contract_seal", "tally_tick", "tally_mult", "tally_fuse",
-	"tick_red", "tick_blue", "tick_green", "tick_violet", "tick_gold", "tick_white"]
+## Sounds with no pitch of their own get a little life, so two dice never land on exactly the
+## same note; everything else rings in tune and is never detuned.
+const UNTUNED: PackedStringArray = ["ui_tap", "ui_hover", "ui_back", "die_tumble", "die_settle", "die_pick", "die_drop",
+	"dice_lock", "dice_reroll", "die_break", "gem_fizzle", "hit_light", "hit_heavy", "hit_crit", "block", "block_break",
+	"enemy_windup", "enemy_strike", "hit_slam", "hit_bite", "hit_claw", "hit_breath", "hit_spit", "hit_lash", "hit_peck",
+	"hit_drill", "hit_erupt", "hit_burst", "hit_pull", "hit_drink", "creature_die", "cave_rumble", "ore", "pick_strike",
+	"rock_break", "footstep", "rockfall", "crumble", "tunnel", "lift", "buy", "sell", "keep", "chisel", "loupe_spin",
+	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "gem_shatter", "flame", "splash", "claw", "poison", "tally"]
+## The count is pitched by the Tally itself, tick by tick up the music's scale (see
+## DeepMusic.tonic and the battle screen's Tally); every other sound that rings follows the
+## key of the piece playing (`DeepMusic.key_shift`), so a ping is never a tritone off the music.
+const COUNTED: PackedStringArray = ["tally_tick", "tick_red", "tick_blue", "tick_green", "tick_violet", "tick_gold", "tick_white",
+	"tally_mult", "tally_fuse", "tally_blaze"]
 const VARIATION: float = 0.035
 ## The sounds of a control being pressed. A click that rebuilds a bar of buttons puts a new
 ## one under the pointer, and its hover is not news: it is not played this soon after a press.
@@ -213,15 +221,16 @@ func emit(sound: String, opts: Dictionary = {}) -> void:
 	## than spending a frame writing a chord nobody asked to wait for.
 	if _bakery != null and _bakery.is_alive() and not DeepSoundBank.baked(sound):
 		return
-	var stream: AudioStreamWAV = DeepSoundBank.stream(sound)
+	var stream: AudioStream = DeepSoundBank.stream(sound)
 	if stream == null:
 		if not _unknown.has(sound):
 			_unknown[sound] = true
 			push_warning("DeepAudio: no sound named '%s'" % sound)
 		return
 	_recent[sound] = now
-	var wander: float = float(opts.get("vary", 0.0 if TUNED.has(sound) else VARIATION))
-	var pitch: float = clampf(float(opts.get("pitch", 1.0)) * (1.0 + randf_range(-wander, wander)), 0.05, 6.0)
+	var wander: float = float(opts.get("vary", VARIATION if UNTUNED.has(sound) else 0.0))
+	var keyed: float = 1.0 if UNTUNED.has(sound) or COUNTED.has(sound) else DeepMusic.key_shift()
+	var pitch: float = clampf(float(opts.get("pitch", 1.0)) * keyed * (1.0 + randf_range(-wander, wander)), 0.05, 6.0)
 	var volume: float = clampf(float(opts.get("volume", 1.0)), 0.0, 4.0)
 	if volume <= 0.001:
 		return

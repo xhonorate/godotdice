@@ -88,6 +88,31 @@ and `flicker`. The presentation API gained `burrow(down)`, `flee()`, `set_halo(c
 `clear_halo()` and `set_charging(on)`. A variant may also name a `core` color and a `scale`.
 (The Geode Golem was once the Quartz Golem's scene recolored this way; it has its own scene now.)
 
+## How creatures move
+
+Beyond the parts' own idle (`creature_part.gd`), every creature acts with its named parts
+through `view/creatures/creature_moves.gd`, a "Moves" node on each creature. What each one
+does is data, one file a mine in `view/creatures/rigs/` (`quarry.gd`, `quarry_wardens.gd`,
+`seeps.gd`, `glass_veins.gd`, `warrens.gd`, `furnace.gd`, `geode.gd`, `rift.gd`), merged by
+`view/creatures/creature_rigs.gd`, whose header lists the gesture language. A rig gives a
+creature:
+
+- its moves, by move name and then by the move's `anim` hint, each a list of gestures on its
+  part groups (turns about joints, curls along chains, spins, swells, effects);
+- a continuous idle that suits it (`idle_gestures`: breathe, look, blink, slither, swim, wag,
+  hover...) and **fidgets**, short actions it plays now and then on its own random clock while
+  it waits (`fidgets`, `fidget_every`), such as the Drill lifting its head to look about;
+- its states: a magpie's prize after a steal, a mole dug in, a wraith faded, breath parts shown
+  only while it breathes.
+
+Heavy blows are picked in the sim (`DeepCreatures.heavy_moves`: a creature's clearly biggest
+attacks, and a Warden's biggest); the `enemy_ability` event carries `heavy` and waits longer, and
+the creature reels up, holds, and lands it with a hit-stop and a shake. What a move does to the
+party looks the same on every creature (`view/battle/effect_looks.gd`: a shell for block, motes
+for healing, an aura for a buff, a hex thrown at the dock for a debuff).
+`tests/test_creatures.gd` plays every move, heavy move and fidget of every creature and checks
+it ends back at rest.
+
 ## The bestiary's portraits
 
 The Bestiary tab lists creatures as pictures, not live 3D: one PNG per creature in

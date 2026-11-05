@@ -3,13 +3,14 @@ extends Node
 ## The score player: which piece is playing, how much of it, and the air of the place under it.
 ##
 ## The app tells it where the party is every frame (`follow`), as a place (the workshop or a
-## mine), a mood and how deep into the mine they are. The place picks the piece — the player's
-## pick from the Soundtrack page — and the mood and depth pick how much of it plays: the six
-## layers `composer.gd` writes are always running together, and only their levels move. A
-## fight brings the drums and the arpeggio in over the tune that was already playing; an
-## elite adds the big drums; a Warden's hall adds the strings and horns as well, and pulls the
-## pads back to make room for them; winning lets them go again. Deeper in a mine the bass and
-## the tune come up even between fights, and near the bottom the big drums can be heard far off.
+## mine), a mood and how deep into the mine they are. The place picks the piece, one a place,
+## and the mood and depth pick how much of it plays: the four strips of every piece (bed,
+## deep, fight, warden; see `DeepComposer.LAYERS`) are always running together, and only
+## their levels move. The bed is the whole piece as heard on a walk; deeper in a mine the deep
+## strip comes up under it; a fight brings its strip in over the tune that was already
+## playing; a Warden's hall adds its own and pulls the bed back to make room; winning lets
+## them go again. Both buses sit in the room of the place (`ROOMS`): a reverb and a slapback
+## that grow with depth, eased from one place's to the next.
 ##
 ## The Music bus follows the same moods. Between fights in a mine the music is a little dark
 ## (a low pass at 6.5 kHz), so a fight opening it up sounds brighter and closer; a fight is
@@ -43,20 +44,36 @@ const AIR_LEVEL: float = 0.3
 ## Where the baked pieces are: <id>/<layer>.ogg, and air/<family>.ogg.
 const BAKED: String = "res://audio/music"
 
-## How loud each layer plays in each mood, [bed, pulse, melody, drive, threat, peril], before
-## depth. A Warden's hall takes some of the pads and the tune away as the boss layers come
-## in: what makes it feel bigger is that the music changes, not only that there is more of it.
+## How loud each strip plays in each mood, [bed, deep, fight, warden], before depth. The bed
+## is the whole piece as heard on a walk; deep is what depth brings up (`layer_levels`); a
+## fight comes in over the bed; a Warden's hall pulls the bed back as its own strip comes in:
+## what makes it feel bigger is that the music changes, not only that there is more of it.
 const MOODS: Dictionary = {
-	"home": [1.0, 0.7, 0.9, 0.0, 0.0, 0.0],
-	"shaft": [1.0, 0.3, 0.6, 0.0, 0.0, 0.0],
-	"rest": [1.0, 0.2, 0.75, 0.0, 0.0, 0.0],
-	"explore": [1.0, 0.45, 0.55, 0.0, 0.0, 0.0],
-	"hoard": [1.0, 0.5, 1.0, 0.0, 0.0, 0.0],
-	"fight": [1.0, 1.0, 1.0, 0.9, 0.0, 0.0],
-	"elite": [0.9, 1.0, 1.0, 1.0, 1.0, 0.0],
-	"warden": [0.7, 1.0, 0.85, 1.0, 1.0, 1.0],
-	"over": [0.8, 0.0, 0.4, 0.0, 0.0, 0.0],
+	"home": [1.0, 0.0, 0.0, 0.0],
+	"shaft": [1.0, 0.1, 0.0, 0.0],
+	"rest": [1.0, 0.15, 0.0, 0.0],
+	"explore": [1.0, 0.0, 0.0, 0.0],
+	"hoard": [1.0, 0.5, 0.0, 0.0],
+	"fight": [1.0, 0.0, 1.0, 0.0],
+	"elite": [1.0, 0.0, 1.0, 0.55],
+	"warden": [0.85, 0.0, 1.0, 1.0],
+	"over": [0.8, 0.0, 0.0, 0.0],
 }
+## The room each place puts the sound in: how big and how dead its reverb and how much of it
+## is heard, and the slapback off its walls (seconds, how much comes back, how loud). Deeper
+## in a mine, more of the room is heard (`room_for`). The same room sits on the effects bus
+## and, at `MUSIC_SEND` of it, on the music.
+const ROOMS: Dictionary = {
+	"HOME": {"size": 0.45, "damp": 0.6, "wet": 0.1, "delay": 0.0, "fb": 0.0, "dwet": 0.0},
+	"QUARRY": {"size": 0.7, "damp": 0.5, "wet": 0.2, "delay": 0.21, "fb": 0.25, "dwet": 0.14},
+	"SEEPS": {"size": 0.9, "damp": 0.6, "wet": 0.28, "delay": 0.3, "fb": 0.4, "dwet": 0.22},
+	"GLASS_VEINS": {"size": 1.0, "damp": 0.25, "wet": 0.32, "delay": 0.19, "fb": 0.45, "dwet": 0.28},
+	"WARRENS": {"size": 0.8, "damp": 0.75, "wet": 0.22, "delay": 0.26, "fb": 0.3, "dwet": 0.14},
+	"FURNACE": {"size": 0.75, "damp": 0.7, "wet": 0.2, "delay": 0.17, "fb": 0.3, "dwet": 0.16},
+	"GEODE": {"size": 1.1, "damp": 0.35, "wet": 0.3, "delay": 0.28, "fb": 0.42, "dwet": 0.26},
+	"RIFT": {"size": 1.3, "damp": 0.3, "wet": 0.38, "delay": 0.37, "fb": 0.55, "dwet": 0.36},
+}
+const MUSIC_SEND: float = 0.55
 ## How hot each mood runs the Music bus, 0 to 1: how open its low pass, how hard its
 ## compressor squeezes, and (past 0.6) how far its saturation is driven.
 const HEAT: Dictionary = {"fight": 0.5, "elite": 0.75, "warden": 1.0}
@@ -92,6 +109,10 @@ var _clock: int = 0
 var _heat: float = 0.0
 var _dark: float = 0.0
 var _fx: Dictionary = {}
+## The rooms on the two buses (`_open_room`), and the room as it is now, eased toward the
+## place's (`_steer_rooms`).
+var _rooms: Dictionary = {}
+var _room_now: Dictionary = {}
 
 static func headless() -> bool:
 	return DisplayServer.get_name() == "headless"
@@ -226,21 +247,39 @@ static func depth_into(run: Dictionary) -> float:
 	return float((depth - 1) % every) / float(maxi(1, every - 1))
 
 static func layer_levels(mood: String, deep: float) -> Array:
-	## [bed, pulse, melody, drive, threat, peril] for a mood at a depth. Deeper, the walk
-	## between fights grows a stronger pulse and a louder tune, near the bottom the big drums
-	## can be heard far off, and a fight deep down brings some of them in.
+	## [bed, deep, fight, warden] for a mood at a depth. Deeper, the deep strip comes up: on a
+	## walk all the way, in a fight most of the way, in a Warden's hall a little less, since
+	## the hall has a strip of its own.
 	var out: Array = MOODS.get(mood, MOODS.explore).duplicate()
 	var d: float = clampf(deep, 0.0, 1.0)
 	match mood:
 		"explore":
-			out[DeepComposer.PULSE] = float(out[DeepComposer.PULSE]) + 0.4 * d
-			out[DeepComposer.MELODY] = float(out[DeepComposer.MELODY]) + 0.35 * d
-			out[DeepComposer.THREAT] = maxf(0.0, d - 0.6) * 0.5
-		"fight":
-			out[DeepComposer.THREAT] = 0.3 * d
-		"rest", "shaft":
-			out[DeepComposer.PULSE] = float(out[DeepComposer.PULSE]) + 0.2 * d
+			out[DeepComposer.DEEP] = d
+		"fight", "elite":
+			out[DeepComposer.DEEP] = 0.7 * d
+		"warden":
+			out[DeepComposer.DEEP] = 0.6 * d
+		"rest", "shaft", "hoard":
+			out[DeepComposer.DEEP] = minf(1.0, float(out[DeepComposer.DEEP]) + 0.3 * d)
 	return out
+
+static func room_for(place: String, deep: float) -> Dictionary:
+	## The room's settings for a place at a depth: the reverb's size and damping and how much
+	## of it is heard, the slapback's time, feedback and level. More of the room is heard the
+	## deeper the party is; the workshop has next to none.
+	var spec: Dictionary = ROOMS.get(place, ROOMS.QUARRY)
+	var d: float = clampf(deep, 0.0, 1.0)
+	var rise: float = 0.65 + 0.7 * d
+	return {"size": clampf(0.25 + float(spec.size) * 0.5, 0.2, 0.95), "damp": float(spec.damp), "wet": float(spec.wet) * rise,
+		"delay": float(spec.delay), "feedback": minf(0.8, float(spec.fb) + (0.15 * d if float(spec.fb) > 0.0 else 0.0)),
+		"delay_level": float(spec.dwet) * rise}
+
+static func key_shift() -> float:
+	## The pitch scale that puts a sound written in C in the key of the piece playing, never
+	## more than half an octave away, so nothing starts out shrill or muddy. 1 with no music.
+	var pc: int = int(tonic().get("pc", 0))
+	var shift: int = pc if pc <= 6 else pc - 12
+	return pow(2.0, float(shift) / 12.0)
 
 static func heat(mood: String) -> float:
 	return float(HEAT.get(mood, 0.0))
@@ -295,21 +334,14 @@ func _exit_tree() -> void:
 		_service = null
 
 func _open_buses() -> void:
-	## Music on its own bus with a long, dark room on it; the air under the effects slider.
+	## Music on its own bus, in the room of the place (`_open_room`, the same room as sits on
+	## the effects bus); the air under the effects slider.
 	if AudioServer.get_bus_index(BUS) < 0:
 		var at: int = AudioServer.bus_count
 		AudioServer.add_bus(at)
 		AudioServer.set_bus_name(at, BUS)
 		AudioServer.set_bus_send(at, "Master")
-		var room := AudioEffectReverb.new()
-		room.room_size = 0.62
-		room.damping = 0.6
-		room.spread = 0.85
-		room.hipass = 0.15
-		room.predelay_msec = 40.0
-		room.dry = 1.0
-		room.wet = 0.2
-		AudioServer.add_bus_effect(at, room)
+	_open_room(BUS, MUSIC_SEND)
 	_open_fx(AudioServer.get_bus_index(BUS))
 	if AudioServer.get_bus_index(AIR_BUS) < 0:
 		var at: int = AudioServer.bus_count
@@ -318,6 +350,68 @@ func _open_buses() -> void:
 		AudioServer.set_bus_send(at, DeepAudio.BUS if AudioServer.get_bus_index(DeepAudio.BUS) >= 0 else "Master")
 		AudioServer.set_bus_volume_db(at, linear_to_db(AIR_LEVEL))
 	DeepMusic.levels({})
+
+func _open_room(bus_name: String, send: float) -> void:
+	## The reverb and the slapback on a bus, ahead of anything else on it: found again if the
+	## bus outlived an earlier score player, made if not. Steered every frame by `_steer_rooms`.
+	var bus: int = AudioServer.get_bus_index(bus_name)
+	if bus < 0 or _rooms.has(bus_name):
+		return
+	var found: Dictionary = {}
+	for entry in [["reverb", "AudioEffectReverb"], ["delay", "AudioEffectDelay"]]:
+		var at: int = -1
+		for i in range(AudioServer.get_bus_effect_count(bus)):
+			if AudioServer.get_bus_effect(bus, i).get_class() == str(entry[1]):
+				at = i
+		if at < 0:
+			at = found.size()
+			AudioServer.add_bus_effect(bus, ClassDB.instantiate(str(entry[1])), at)
+		found[entry[0]] = {"at": at, "effect": AudioServer.get_bus_effect(bus, at)}
+	var reverb: AudioEffectReverb = found.reverb.effect
+	reverb.spread = 0.85
+	reverb.hipass = 0.12
+	reverb.predelay_msec = 24.0
+	reverb.dry = 1.0
+	var delay: AudioEffectDelay = found.delay.effect
+	delay.dry = 1.0
+	delay.tap1_active = true
+	delay.tap1_pan = 0.0
+	delay.tap2_active = false
+	delay.feedback_active = true
+	delay.feedback_lowpass = 3000.0
+	_rooms[bus_name] = {"bus": bus, "send": send, "reverb": found.reverb, "delay": found.delay}
+
+func _steer_rooms(place: String, deep: float, dt: float) -> void:
+	## Ease the room toward the place's at this depth, both buses together: a walk into
+	## another mine is a crossfade of rooms as much as of pieces.
+	if not _rooms.has(DeepAudio.BUS):
+		_open_room(DeepAudio.BUS, 1.0)
+	var want: Dictionary = room_for(place, deep)
+	var moved: bool = false
+	for key in want:
+		var goal: float = float(want[key])
+		var was: float = float(_room_now.get(key, goal))
+		var now: float = move_toward(was, goal, dt / CROSSFADE * (2.0 if key == "delay" else 1.0))
+		if not _room_now.has(key) or not is_equal_approx(now, was):
+			moved = true
+		_room_now[key] = now
+	if not moved:
+		return
+	for name in _rooms:
+		var room: Dictionary = _rooms[name]
+		var send: float = float(room.send)
+		var reverb: AudioEffectReverb = room.reverb.effect
+		reverb.room_size = float(_room_now.size)
+		reverb.damping = float(_room_now.damp)
+		reverb.wet = float(_room_now.wet) * send
+		AudioServer.set_bus_effect_enabled(int(room.bus), int(room.reverb.at), reverb.wet > 0.005)
+		var delay: AudioEffectDelay = room.delay.effect
+		var ms: float = maxf(1.0, float(_room_now.delay) * 1000.0)
+		delay.tap1_delay_ms = ms
+		delay.feedback_delay_ms = ms
+		delay.tap1_level_db = linear_to_db(maxf(float(_room_now.delay_level) * send, 0.0001))
+		delay.feedback_level_db = linear_to_db(clampf(float(_room_now.feedback), 0.0001, 0.9))
+		AudioServer.set_bus_effect_enabled(int(room.bus), int(room.delay.at), float(_room_now.delay_level) * send > 0.005 and float(_room_now.delay) > 0.01)
 
 func _open_fx(bus: int) -> void:
 	## After the room: the low pass, the compressor, the saturation and the limiter the moods
@@ -398,6 +492,7 @@ func _process(_delta: float) -> void:
 	elif not playing.is_empty():
 		_lift(playing, lifts(id, mood))
 	_steer_fx(heat(mood), 0.0 if place == DeepScore.HOME else 1.0, dt)
+	_steer_rooms(place, float(want.get("deep", 0.0)), dt)
 	var next: String = str(_where.get("next", ""))
 	if DeepScore.BOOK.has(next) and not is_baked(DeepScore.pick(next, _picks)):
 		_ask("piece:" + DeepScore.pick(next, _picks), false)

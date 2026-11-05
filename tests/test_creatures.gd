@@ -1,6 +1,9 @@
 extends SceneTree
 ## Scene loading, instance isolation and the presentation API used by battles and inspection.
 
+const Moves = preload("res://view/creatures/creature_moves.gd")
+const EffectLooks = preload("res://view/battle/effect_looks.gd")
+
 var checks: int = 0
 var failures: Array = []
 
@@ -13,11 +16,15 @@ func check(condition: bool, message: String) -> void:
 		failures.append(message)
 
 func _run() -> void:
+	## No fidget comes on its own here: a creature and its twin stepped alike stay alike.
+	Moves.lively = false
 	_test_catalog()
 	_test_isolation()
 	_test_authored_pose()
 	_test_variants()
 	_test_moves()
+	_test_tropes()
+	_test_effect_looks()
 	await _test_lifecycle()
 	print("Creature scenes: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -182,6 +189,7 @@ func _test_moves() -> void:
 		if not bare.has(str(key)):
 			check(actor._moves.has_rig(), "%s has named parts to act its moves out with" % key)
 		var seen: int = 0
+		var heavy: Array = DeepCreatures.heavy_moves(def)
 		for move in def.get("moves", []):
 			var anim: String = str(move.get("anim", ""))
 			var name: String = str(move.get("name", ""))
@@ -196,6 +204,28 @@ func _test_moves() -> void:
 				twin._process(0.02)
 				steps += 1
 			check(steps < 200, "%s's %s finishes" % [key, name])
+			seen += 1
+			## A heavy blow (sim/creatures.gd) holds its wind-up longer and still ends at rest.
+			if heavy.has(name):
+				var hold: float = DeepCreatures.HEAVY_HOLD
+				check(actor.move_lead(anim, name, hostile, hold) <= 0.47 + hold + 0.001, "%s's heavy %s starts within its longer windup" % [key, name])
+				actor.play_move(anim, name, hostile, Vector3(0, 1.5, 5.0), null, hold)
+				steps = 0
+				while actor.acting() and steps < 250:
+					actor._process(0.02)
+					twin._process(0.02)
+					steps += 1
+				check(steps < 250, "%s's heavy %s finishes" % [key, name])
+				seen += 1
+		## Every fidget it has plays and lets go (and starts a creature's own random clock off).
+		for fidget in actor._moves.fidget_names():
+			check(actor.fidget(str(fidget)), "%s fidgets %s" % [key, fidget])
+			var steps: int = 0
+			while actor.fidgeting() and steps < 400:
+				actor._process(0.02)
+				twin._process(0.02)
+				steps += 1
+			check(steps < 400 and steps > 10, "%s's %s fidget plays and finishes (%d steps)" % [key, fidget, steps])
 			seen += 1
 		## The idle eases back in after the last move.
 		for _i in range(40):
@@ -251,6 +281,82 @@ func _test_moves() -> void:
 		dragon._process(0.02)
 	check(not flame.visible, "and stops after")
 	dragon.free()
+
+func _test_tropes() -> void:
+	## Every trope idle and fidget building block (creature_rigs.gd header) lays a pose on a
+	## creature's parts without an error: a rig only writes data to use them.
+	var drill := CrystalCreature.make("THE_DRILL", true)
+	root.add_child(drill)
+	var m: Node = drill._moves
+	var idles: Array = [["breathe", "neck", Vector3(0.05, 0.03, 0.05), 1.2, 0.0], ["look", "neck", 20.0, 8.0, 1.5, 0.6],
+		["blink", "neck", Vector3(1, 0.1, 1), 1.0, 0.25], ["blink", "neck", [Vector3.RIGHT, 30.0], 1.0, 0.25],
+		["flex", "neck", Vector3.RIGHT, 20.0, 1.2, 0.0], ["pant", "neck", Vector3.RIGHT, 8.0, 14.0], ["hover", "machine", 0.05, 1.3, 4.0, 0.0],
+		["tremble", "machine", 0.02, 40.0], ["slither", "arch_front", Vector3.UP, 6.0, 2.0, 0.6, "tip"], ["wag", "arch_front", Vector3.UP, 8.0, 9.0, 0.35, "tip"],
+		["wag", "neck", Vector3.UP, 8.0, 9.0], ["coil", "arch_front", "across", 20.0, 0.8, 0.0, "tip"],
+		["swim", {"body": "machine", "bell": "neck", "trail": "arch_front", "rate": 0.5, "rise": 0.08}]]
+	for g in idles:
+		var moved: bool = false
+		for clock in [0.37, 0.91, 1.43, 2.17, 3.05]:
+			m._offsets.clear()
+			m._clock = float(clock)
+			m._idle_gesture(g, 1.0)
+			moved = moved or not m._offsets.is_empty()
+		check(moved, "the %s idle lays a pose" % str(g[0]))
+	var clip: Dictionary = {"t": 0.0, "shift": 0.0, "length": 2.0, "span": 2.0, "f": [[0.0, 0.0], [0.6, 1.0], [1.4, 1.0], [2.0, 0.0]], "fired": {}, "spun": {}}
+	var gestures: Array = [["gaze", "neck", 30.0, 10.0, "f", 3], ["tremble", "machine", 0.03, "f"], ["wave_each", "arch_front", "out", 12.0, 7.0, 0.8, "f"],
+		["wave_each", "arch_front", Vector3.RIGHT, 12.0, 7.0, 0.8, "f"],
+		["swim", {"body": "machine", "bell": "neck", "trail": "arch_front", "pulses": 2, "beat": 0.7, "rise": 0.1, "sink": 0.8}]]
+	for env in ["chomp", "bare", "flick", "nod", "settle", "pant", "tremble", "wag", "flap", "chew", "f"]:
+		gestures.append(["turn", "neck", Vector3.RIGHT, -10.0, 20.0, env])
+	for g in gestures:
+		var moved: bool = false
+		for t in [0.15, 0.5, 0.9, 1.3]:
+			m._offsets.clear()
+			clip.t = float(t)
+			clip.erase("keyed")
+			m._gesture(clip, g, 0.02)
+			moved = moved or not m._offsets.is_empty()
+		check(moved, "the %s gesture (%s) lays a pose" % [str(g[0]), str(g[-1]) if g.size() > 2 else ""])
+	m._offsets.clear()
+	drill.free()
+
+func _test_effect_looks() -> void:
+	## Everything a creature's move can do has a look of its own (view/battle/effect_looks.gd):
+	## no effect kind any creature carries falls through to a plain glow.
+	for key in DeepContent.section("creatures"):
+		for move in DeepContent.creature(str(key)).get("moves", []):
+			for effect in move.get("effects", []):
+				var kind: String = str(effect.get("kind", ""))
+				check(EffectLooks.MEANING.has(kind), "%s's %s: %s has a meaning in the effect vocabulary" % [key, move.get("name", ""), kind])
+				check(EffectLooks.has_look(kind, str(move.get("kind", ""))), "%s's %s: %s has a look" % [key, move.get("name", ""), kind])
+	## A fidget comes on its own, on a creature's own clock, only while it is fully idle.
+	Moves.lively = true
+	var one := CrystalCreature.make("THE_DRILL", true)
+	var two := CrystalCreature.make("THE_DRILL", true)
+	root.add_child(one)
+	root.add_child(two)
+	one._moves.reseed(1)
+	two._moves.reseed(2)
+	var first: Array = [-1.0, -1.0]
+	for step in range(900):
+		one._process(0.02)
+		two._process(0.02)
+		if first[0] < 0.0 and one.fidgeting():
+			first[0] = float(step) * 0.02
+		if first[1] < 0.0 and two.fidgeting():
+			first[1] = float(step) * 0.02
+	check(first[0] >= 0.0 and first[1] >= 0.0, "a Drill left idle fidgets on its own within 18 s: %s" % str(first))
+	check(not is_equal_approx(first[0], first[1]), "two Drills in one room do not fidget in step: %s" % str(first))
+	one.play_move("drill", "Bore", true, Vector3(0, 1.5, 5.0), null)
+	var cut: bool = true
+	for _i in range(200):
+		one._process(0.02)
+		if one.acting() and one._moves._fidget.has("fidget") and not one._moves._fidget.has("fading"):
+			cut = false
+	check(cut, "a move cut across a fidget takes over (the fidget fades out)")
+	one.free()
+	two.free()
+	Moves.lively = false
 
 func _test_lifecycle() -> void:
 	var creature := CrystalCreature.make("SILT_SLIME")

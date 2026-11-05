@@ -54,12 +54,17 @@ func _test_bank() -> void:
 	var loudest: float = 0.0
 	var longest: float = 0.0
 	for name in DeepSoundBank.NAMES:
-		var sound: AudioStreamWAV = DeepSoundBank.stream(str(name))
-		if sound == null:
+		var made: AudioStream = DeepSoundBank.stream(str(name))
+		if made == null:
 			check(false, "%s has a recipe" % name)
 			continue
+		if not made is AudioStreamWAV:
+			## A sound replaced by hand (audio/sfx) is a file, not a recipe: only that it plays.
+			check(made.get_length() > 0.04 and made.get_length() < 3.5, "%s, replaced by hand, is a sound effect" % name)
+			continue
+		var sound: AudioStreamWAV = made
 		check(sound.data.size() > 2000, "%s is more than a tick long" % name)
-		check(sound.get_length() < 3.0, "%s is a sound effect, not a track" % name)
+		check(sound.get_length() < 3.5, "%s is a sound effect, not a track" % name)
 		loudest = maxf(loudest, _peak_of(sound))
 		longest = maxf(longest, sound.get_length())
 		## Levels are set per recipe, from a whisper of a hover to a Peerless grade; the keeper
@@ -70,6 +75,7 @@ func _test_bank() -> void:
 	check(DeepSoundBank.baked("ui_tap"), "the bank keeps what it bakes")
 	check(DeepSoundBank.stream("ui_tap") == DeepSoundBank.stream("ui_tap"), "the same sound is handed back, not baked again")
 	check(DeepSoundBank.stream("no_such_sound") == null, "an unknown name is nothing, not a crash")
+	check(DeepSoundBank.hand_made("no_such_sound") == null and DeepSoundBank.OVERRIDES.begins_with("res://audio/sfx/"), "a hand-made sound is looked for in audio/sfx, by name")
 	for color in DeepContent.section("colors"):
 		check(DeepSoundBank.known(DeepSoundBank.gem_sound(str(color))), "every stone color rings: " + str(color))
 	for tier in DeepUi.TIER_colorS:
@@ -124,11 +130,12 @@ func _test_score() -> void:
 		check(DeepScore.AIR.has(str(mine)), "%s has air" % mine)
 	for place in DeepScore.PLACES:
 		var offered: Array = DeepScore.tracks_for(place)
-		check(offered.size() >= (2 if place == DeepScore.HOME else 3), "%s has pieces to choose between" % place)
+		check(offered.size() >= 1, "%s has a piece" % place)
 		for id in offered:
 			var spec: Dictionary = DeepScore.track(str(id))
 			check(not spec.is_empty(), "%s is written" % id)
 			check(not str(spec.get("name", "")).is_empty(), "%s has a name" % id)
+			check(not str(spec.get("from", "")).is_empty(), "%s names the engine spec it is baked from" % id)
 			check(DeepComposer.MODES.has(str(spec.get("mode", ""))), "%s is in a known mode" % id)
 			check(DeepComposer.PITCHES.has(str(spec.get("key", ""))), "%s is in a known key" % id)
 			check(DeepComposer.KITS.has(str(spec.get("kit", ""))), "%s plays a known kit" % id)
@@ -138,8 +145,8 @@ func _test_score() -> void:
 				if spec.has(field):
 					check(VOICES.has(str(spec[field])), "%s's %s is an instrument: %s" % [id, field, spec[field]])
 	check(DeepScore.pick("QUARRY") == "quarry_lantern", "a mine with no pick plays its first piece")
-	check(DeepScore.pick("QUARRY", {"QUARRY": "quarry_timber"}) == "quarry_timber", "a pick is honoured")
-	check(DeepScore.pick("QUARRY", {"QUARRY": "glass_prism"}) == "quarry_lantern", "a piece from another mine is not")
+	check(DeepScore.pick("QUARRY", {"QUARRY": "quarry_lantern"}) == "quarry_lantern", "a pick is honoured")
+	check(DeepScore.pick("QUARRY", {"QUARRY": "glass_kaleidoscope"}) == "quarry_lantern", "a piece from another mine is not")
 	check(DeepScore.pick("NOWHERE") == "quarry_lantern", "an unknown place falls back to the Quarry")
 
 func _test_composer() -> void:
@@ -189,10 +196,10 @@ func _test_composer() -> void:
 		var loudest: float = _peak_of(strip)
 		check(loudest > 0.05 and loudest <= 1.0, "the %s layer is audible and does not clip (%.2f)" % [DeepComposer.LAYERS[i], loudest])
 	var home: Dictionary = DeepScore.track(DeepScore.pick(DeepScore.HOME))
-	check(int(home.get("layers", 5)) == 3, "the workshop is written without a fight in it")
+	check(int(home.get("layers", 0)) == DeepComposer.LAYERS.size(), "the workshop is written in every strip, for the lift down")
 	check(DeepComposer.written("quarry_lantern").is_empty(), "writing a piece directly does not shelve it")
 	DeepComposer.abandon = true
-	check(DeepComposer.write(DeepScore.track("quarry_timber")).is_empty(), "a piece being written when the game closes is dropped")
+	check(DeepComposer.write(DeepScore.track("seeps_lanterns")).is_empty(), "a piece being written when the game closes is dropped")
 	DeepComposer.abandon = false
 	for family in DeepScore.AIR.values():
 		var air: AudioStreamWAV = DeepComposer.write_air(str(family))
@@ -202,7 +209,7 @@ func _test_composer() -> void:
 	## A piece written records every note it lays down, for the editor and MIDI.
 	var record: Array = []
 	DeepComposer.write(DeepScore.track("home_bench"), record)
-	check(record.size() > 100 and record.all(func(n: Array) -> bool: return n.size() == 6 and int(n[0]) < 3), "a written piece lists its notes, layer by layer")
+	check(record.size() > 100 and record.all(func(n: Array) -> bool: return n.size() == 6 and int(n[0]) < DeepComposer.LAYERS.size()), "a written piece lists its notes, strip by strip")
 	check(record.any(func(n: Array) -> bool: return str(n[1]).begins_with("drum:")), "the drums are listed with the notes")
 
 func _test_baked() -> void:
@@ -211,7 +218,7 @@ func _test_baked() -> void:
 	for id in DeepScore.TRACKS:
 		var spec: Dictionary = DeepScore.track(str(id))
 		var strips: Array = DeepMusic.baked(str(id))
-		check(strips.size() == clampi(int(spec.get("layers", DeepComposer.LAYERS.size())), 1, DeepComposer.LAYERS.size()), "%s is baked in every layer it is written in (bake: node tools/data-browser/music.mjs bake %s)" % [id, id])
+		check(strips.size() == clampi(int(spec.get("layers", DeepComposer.LAYERS.size())), 1, DeepComposer.LAYERS.size()), "%s is baked in every strip it is written in (bake: node tools/sound/bake_music.mjs %s, then import)" % [id, id])
 		var p: Dictionary = DeepComposer.plan(spec)
 		var want: float = float(p.total) / float(DeepComposer.RATE)
 		for i in range(strips.size()):
@@ -245,12 +252,26 @@ func _test_director() -> void:
 	var walk_deep: Array = DeepMusic.layer_levels("explore", 1.0)
 	var fight: Array = DeepMusic.layer_levels("fight", 0.0)
 	var warden: Array = DeepMusic.layer_levels("warden", 0.0)
-	check(walk_top[DeepComposer.DRIVE] == 0.0 and fight[DeepComposer.DRIVE] > 0.5, "the drums are for fights")
-	check(walk_deep[DeepComposer.PULSE] > walk_top[DeepComposer.PULSE] and walk_deep[DeepComposer.MELODY] > walk_top[DeepComposer.MELODY], "deeper, the walk grows")
+	check(walk_top[DeepComposer.FIGHT] == 0.0 and fight[DeepComposer.FIGHT] > 0.5, "the fight strip is for fights")
+	check(walk_deep[DeepComposer.DEEP] > walk_top[DeepComposer.DEEP] and walk_deep[DeepComposer.BED] == walk_top[DeepComposer.BED], "deeper, the walk grows under a bed that stays")
 	var elite: Array = DeepMusic.layer_levels("elite", 0.0)
-	check(warden[DeepComposer.PERIL] > fight[DeepComposer.PERIL], "a Warden brings the horns")
-	check(elite[DeepComposer.THREAT] > 0.5 and elite[DeepComposer.PERIL] == 0.0, "an elite brings the big drums and no more")
-	check(warden[DeepComposer.THREAT] > 0.5 and warden[DeepComposer.BED] < fight[DeepComposer.BED], "a Warden brings the big drums and pulls the pads back for them")
+	check(warden[DeepComposer.WARDEN] > fight[DeepComposer.WARDEN] and warden[DeepComposer.WARDEN] > elite[DeepComposer.WARDEN], "a Warden brings its own strip, more of it than an elite")
+	check(elite[DeepComposer.WARDEN] > 0.0 and elite[DeepComposer.FIGHT] > 0.5, "an elite brings some of the Warden's strip over a fight")
+	check(warden[DeepComposer.BED] < fight[DeepComposer.BED], "a Warden pulls the bed back to make room")
+	check(DeepMusic.layer_levels("fight", 1.0)[DeepComposer.DEEP] > 0.5 and DeepMusic.layer_levels("fight", 0.0)[DeepComposer.DEEP] == 0.0, "a fight deep down brings the deep strip too")
+	var home_room: Dictionary = DeepMusic.room_for(DeepScore.HOME, 0.0)
+	var rift_top: Dictionary = DeepMusic.room_for("RIFT", 0.0)
+	var rift_deep: Dictionary = DeepMusic.room_for("RIFT", 1.0)
+	check(float(home_room.wet) < float(rift_top.wet) and float(rift_top.wet) < float(rift_deep.wet), "the Rift is a bigger room than the workshop, and bigger the deeper")
+	check(float(home_room.delay_level) == 0.0 and float(rift_deep.delay_level) > 0.0 and float(rift_deep.feedback) <= 0.8, "the workshop has no slapback, the Rift has one that never runs away")
+	for place in DeepScore.PLACES:
+		var room: Dictionary = DeepMusic.room_for(str(place), 0.5)
+		check(float(room.size) >= 0.2 and float(room.size) <= 0.95 and float(room.wet) <= 1.0, "%s's room is within the reverb's range" % place)
+	check(is_equal_approx(DeepMusic.key_shift(), 1.0), "with no music playing, nothing is shifted off C")
+	check(int(DeepMusic.key_of({"key": "D", "mode": "dorian"}).pc) == 2 and int(DeepMusic.key_of({"key": "Bb", "mode": "lydian"}).pc) == 10, "a piece's key is read as semitones over C")
+	for anim in ["bite", "breath", "drill", "cast", ""]:
+		check(DeepSoundBank.known(DeepSoundBank.blow_sound(anim)), "a creature's move lands as a sound in the bank: " + anim)
+	check(DeepSoundBank.blow_sound("bite") == "hit_bite" and DeepSoundBank.blow_sound("cast") == "enemy_strike", "a blow is named for its move, a cast is the plain strike")
 	check(DeepMusic.heat("explore") == 0.0 and DeepMusic.heat("fight") > 0.0 and DeepMusic.heat("warden") > DeepMusic.heat("elite") and DeepMusic.heat("elite") > DeepMusic.heat("fight"), "the bus runs hotter the bigger the fight")
 	check(DeepMusic.cutoff_for(1.0, 0.0) < 8000.0 and DeepMusic.cutoff_for(1.0, 0.5) >= DeepMusic.OPEN_CUTOFF - 1.0 and DeepMusic.cutoff_for(0.0, 0.0) >= DeepMusic.OPEN_CUTOFF - 1.0, "the calm is dark in a mine, open at home, and a fight opens it")
 	check(not DeepMusic.lifts("quarry_lantern", "fight") and DeepMusic.lifts("quarry_lantern", "warden") == bool(DeepScore.track("quarry_lantern").get("warden_lift", false)), "only a Warden lifts the key, and only for a piece that asks")

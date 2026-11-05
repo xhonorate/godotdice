@@ -3,17 +3,19 @@ extends RefCounted
 ## Every piece of music in the game, written as a few lines of intent.
 ##
 ## A piece is not notes: it is a key and a mode, a tempo, a chord for every two bars, the
-## voices that play it and a seed the tune is drawn from. `composer.gd` writes the notes, in
-## six layers that always play together (see `DeepComposer.LAYERS`), and the score player in
-## `music.gd` turns the layers up and down with what is happening in the mine.
+## voices that play it and a seed the tune is drawn from, in four strips that always play
+## together (see `DeepComposer.LAYERS`); the score player in `music.gd` turns the strips up
+## and down with what is happening in the mine.
 ##
 ## The pieces are written in `content/score.json`. The game does not write them while it
-## plays: each is baked ahead of time to one Ogg loop a layer in `audio/music/<id>/`, by the
-## soundtrack editor or `node tools/data-browser/music.mjs bake`. A layer there may be replaced
-## by hand (a master from a DAW, say) as long as it stays the same length as the others.
+## plays: each is baked ahead of time to one Ogg loop a strip in `audio/music/<id>/`, by
+## `node tools/sound/bake_music.mjs`, from the engine in `tools/sound/synth.js` (the spec a
+## track's `from` names). A strip there may be replaced by hand (a master from a DAW, say) as
+## long as it stays the same length as the others. `composer.gd` writes a piece from the
+## other fields only as a fallback, when a baked strip is missing.
 ##
-## Each mine has three pieces to choose between, the workshop two. Which one plays is the
-## player's pick on the Soundtrack page (Esc, Settings, Soundtrack); the first is the default.
+## One piece a place since the sound review of November 2026; the book still allows more,
+## and the first written for a place is the default.
 ##
 ## Chords are scale degrees counted from 0 (the key's own chord) in the piece's mode: in D
 ## dorian, 0 is D minor, 3 is G major, 6 is C major. `chords` is the first eight two-bar

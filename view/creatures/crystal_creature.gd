@@ -662,23 +662,31 @@ func burrow(down: bool) -> void:
 		return
 	_buried_want = 1.0 if down else 0.0
 
-func play_move(anim: String, move: String = "", hostile: bool = true, aim: Vector3 = Vector3.INF, fx: Node = null) -> void:
+func play_move(anim: String, move: String = "", hostile: bool = true, aim: Vector3 = Vector3.INF, fx: Node = null, heavy: float = 0.0) -> void:
 	## Acts out a move 0.3 s before it lands: its own parts where it has them (a bite, a claw,
 	## a breath), its whole body otherwise. `aim` is where the party is, `fx` the room's effects.
+	## `heavy` is how much longer a heavy blow holds its wind-up (it starts that much sooner).
 	_glow_boost = maxf(_glow_boost, 1.5 if hostile else 2.0)
 	if _moves != null:
 		_moves.remember_fx(fx)
-		if _moves.play(anim, move, hostile, aim, fx):
+		if _moves.play(anim, move, hostile, aim, fx, heavy):
 			return
 	if hostile:
-		lunge(aim, 0.62)
+		lunge(aim, 0.62, heavy)
 	else:
 		channel(0.6)
 
-func move_lead(anim: String, move: String = "", hostile: bool = true) -> float:
+func move_lead(anim: String, move: String = "", hostile: bool = true, heavy: float = 0.0) -> float:
 	## How long before its blow lands it wants to begin acting a move out (0.3 s, longer for a
-	## tendril unfurling or a crawler rearing up first).
-	return _moves.lead(anim, move, hostile) if _moves != null else 0.3
+	## tendril unfurling or a crawler rearing up first, and a heavy blow's hold longer still).
+	return (_moves.lead(anim, move, hostile) if _moves != null else 0.3) + heavy
+
+func fidget(name: String = "") -> bool:
+	## One of its idle fidgets now (creature_moves.gd), for films and tests.
+	return _moves != null and _moves.fidget(name)
+
+func fidgeting() -> bool:
+	return _moves != null and _moves.fidgeting()
 
 func vanish(seconds: float = 0.55) -> void:
 	## A Void Echo letting go of the shape it wore: it twists in on itself into a point of the
@@ -755,10 +763,13 @@ func hit(strength: float = 1.0) -> void:
 	_recoil = Vector3(randf_range(-0.12, 0.12), 0.0, -0.35 - 0.35 * strength)
 	_squash = 0.25 * clampf(strength, 0.3, 1.5)
 
-func lunge(toward: Vector3, seconds: float = 0.5) -> void:
-	## Rears back, then strikes at the party and returns to its mark.
+func lunge(toward: Vector3, seconds: float = 0.5, hold: float = 0.0) -> void:
+	## Rears back, then strikes at the party and returns to its mark; a heavy blow holds reared
+	## back `hold` seconds longer first.
 	var tween := create_tween()
 	tween.tween_property(self, "_rear", 1.0, seconds * 0.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if hold > 0.0:
+		tween.tween_property(self, "_rear", 1.25, hold).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(self, "_rear", -1.0, seconds * 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 	tween.tween_property(self, "_rear", 0.0, seconds * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_glow_boost = maxf(_glow_boost, 1.5)

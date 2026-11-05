@@ -698,6 +698,63 @@ static func gem_effects(enemy: Dictionary, stone: Dictionary, c: Dictionary) -> 
 		out.append(effect)
 	return out
 
+## A heavy blow is reeled up for: the screen holds the creature's wind-up this much longer
+## (sim/battle.gd adds it to the step, so every co-op client waits the same) and lands it hard.
+const HEAVY_HOLD: float = 0.4
+## An attack is heavy when it is clearly among its creature's biggest: at least this much more
+## than its lightest attack and within HEAVY_NEAR of its biggest.
+const HEAVY_OVER: float = 1.5
+const HEAVY_NEAR: float = 0.75
+
+static func move_weight(move: Dictionary) -> int:
+	## How hard an attack hits as written: its damage times its hits, summed. Zero when it is no
+	## attack, and -1 when its size cannot be read (a share of what it took, the party's high
+	## die, so much a reroll).
+	if str(move.get("kind", "")) != "attack":
+		return 0
+	var total: int = 0
+	for effect in move.get("effects", []):
+		if str(effect.get("kind", "")) != "damage":
+			continue
+		var amount: Variant = effect.get("amount", 0)
+		if not (amount is int or amount is float) or bool(effect.get("per_reroll", false)):
+			return -1
+		total += int(amount) * maxi(1, int(effect.get("repeat", 1)))
+	return total
+
+static func heavy_moves(def: Dictionary) -> Array:
+	## The names of a creature's heavy blows (see HEAVY_HOLD): an attack whose weight is at
+	## least HEAVY_OVER times its lightest and within HEAVY_NEAR of its biggest, and a Warden's
+	## biggest attack whatever the others. Read from the content as written, every phase's moves
+	## with its own.
+	var weights: Dictionary = {}
+	var pool: Array = def.get("moves", []).duplicate()
+	for phase in def.get("phases", []):
+		pool.append_array(phase.get("moves", []))
+	for move in pool:
+		var weight: int = move_weight(move)
+		if weight > 0:
+			weights[str(move.get("name", ""))] = maxi(weight, int(weights.get(str(move.get("name", "")), 0)))
+	if weights.is_empty():
+		return []
+	var lightest: int = weights.values().min()
+	var biggest: int = weights.values().max()
+	var warden: bool = bool(def.get("warden", false))
+	var out: Array = []
+	for name in weights:
+		var weight: int = int(weights[name])
+		if (float(weight) >= HEAVY_OVER * float(lightest) and float(weight) >= HEAVY_NEAR * float(biggest)) or (warden and weight == biggest):
+			out.append(name)
+	return out
+
+static func is_heavy(enemy: Dictionary, move_name: String) -> bool:
+	## Whether this move is one of the creature's heavy blows (see `heavy_moves`).
+	var def: Dictionary = definition(enemy)
+	if bool(enemy.get("warden", false)) and not bool(def.get("warden", false)):
+		def = def.duplicate()
+		def.warden = true
+	return heavy_moves(def).has(move_name)
+
 static func strength(enemy: Dictionary) -> int:
 	## A flat point more on every blow for every stack it has gathered this fight.
 	return maxi(0, int(enemy.get("statuses", {}).get("strength", 0)))

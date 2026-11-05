@@ -920,10 +920,14 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 				if str(effect.kind) == "damage":
 					effect.amount = DeepRules.outgoing_damage(int(effect.amount), foe.statuses)
 			var counted: Dictionary = creature_tally(state, foe, move, shown)
+			## A heavy blow (DeepCreatures.heavy_moves) is reeled up for: its step holds the wind-up
+			## longer, the same on every client.
+			var heavy: bool = DeepCreatures.is_heavy(foe, str(move.move))
 			return _event(state, "enemy_ability", {"unit": foe.id, "move": move.move, "index": move.index,
 				"dice": move.dice, "combo": move.combo, "trigger": move.trigger, "effects": shown, "tally": counted,
 				"anim": str(move.get("anim", "")), "mark": str(move.get("mark", "")), "move_kind": str(move.get("move_kind", "")),
-				"duration": BASE_DURATION.enemy_ability + (COMBO_HOLD if bool(move.combo) else 0.0) + tally_span(counted)})
+				"heavy": heavy, "heavy_hold": DeepCreatures.HEAVY_HOLD if heavy else 0.0,
+				"duration": BASE_DURATION.enemy_ability + (COMBO_HOLD if bool(move.combo) else 0.0) + tally_span(counted) + (DeepCreatures.HEAVY_HOLD if heavy else 0.0)})
 		"enemy_move":
 			var foe: Dictionary = enemy(state, str(s.unit))
 			if foe.is_empty() or int(foe.hp) <= 0 or done(state):
