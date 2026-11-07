@@ -39,6 +39,59 @@ export function unconditional(kind, need) {
 	return false;
 }
 
+// A set of `size` at or above `need` with every wild joining it, the most dice and then the
+// highest value first; the wilds alone make one at their top. Null when none can.
+function wildSet(a, size, need) {
+	const wilds = a.wilds || [];
+	if (!wilds.length) return null;
+	let best = null;
+	for (const group of a.plain_groups || []) {
+		const count = group.count + wilds.length;
+		if (group.value >= need && count >= size && (!best || count > best.count || (count === best.count && group.value > best.value))) {
+			best = { value: group.value, count, dice: group.dice.concat(wilds) };
+		}
+	}
+	const top = wildTopOf(a);
+	if (!best && wilds.length >= size && top >= need) best = { value: top, count: wilds.length, dice: wilds.slice() };
+	return best;
+}
+
+// Two sets of different values, `first` and `second` dice big, with the wilds placed where they
+// complete them; the highest values first. The first must reach `need`, and so must the second
+// unless `highOnly` (two pairs: the higher; a full house: its three).
+function wildSets(a, first, second, need, highOnly) {
+	const wilds = a.wilds || [];
+	if (!wilds.length) return null;
+	const counts = new Map();
+	const diceOf = new Map();
+	for (const group of a.plain_groups || []) { counts.set(group.value, group.count); diceOf.set(group.value, group.dice); }
+	// A value no die shows can be made of wilds alone: the two highest under their top will do.
+	const values = [...counts.keys()];
+	let spare = 0;
+	for (let v = wildTopOf(a); v > 0 && spare < 2; v--) if (!counts.has(v)) { values.push(v); spare += 1; }
+	const symmetric = first === second;
+	let best = null;
+	for (const x of values) {
+		for (const y of values) {
+			if (x === y || (symmetric && x < y)) continue;
+			const usedX = Math.max(0, first - (counts.get(x) || 0));
+			const cost = usedX + Math.max(0, second - (counts.get(y) || 0));
+			if (cost > wilds.length) continue;
+			if (x < need || (symmetric && !highOnly && y < need)) continue;
+			if (best && (x < best.value || (x === best.value && y <= best.second))) continue;
+			const dice = (diceOf.get(x) || []).concat(wilds.slice(0, usedX), diceOf.get(y) || [], wilds.slice(usedX, cost));
+			best = { value: x, second: y, dice };
+		}
+	}
+	return best;
+}
+
+function wildTopOf(a) {
+	let top = 0;
+	for (const id of a.wilds || []) top = Math.max(top, a.wild_tops?.get(id) || 0);
+	return top;
+}
+
 function allDice(a) {
 	const dice = [];
 	if (a.ids_by_value) for (const ids of a.ids_by_value.values()) dice.push(...ids);
@@ -84,6 +137,11 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 					result.active = true; result.dice = group.dice.slice(); result.value = group.value; result.count = group.count; break;
 				}
 			}
+			if (!result.active) {
+				// The wilds went to the largest set, which was too low: they may lift another.
+				const lifted = wildSet(a, SET_SIZES[kind], need);
+				if (lifted) { result.active = true; result.dice = lifted.dice; result.value = lifted.value; result.count = lifted.count; }
+			}
 			break;
 		case 'two_pair': {
 			// `high_pair`: only the higher of the two pairs has to clear the rung (Mirror's).
@@ -95,6 +153,10 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 			if (qualifying.length >= 2) {
 				result.active = true; result.dice = qualifying[0].dice.concat(qualifying[1].dice);
 				result.value = qualifying[0].value; result.second = qualifying[1].value; result.count = 4;
+			} else {
+				// All the wilds joined one set; split between two they may make both.
+				const both = wildSets(a, 2, 2, need, Boolean(trigger.high_pair));
+				if (both) { result.active = true; result.dice = both.dice; result.value = both.value; result.second = both.second; result.count = 4; }
 			}
 			break;
 		}
@@ -107,6 +169,10 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 						result.active = true; result.dice = triple.dice.concat(group.dice); result.value = triple.value; result.second = group.value; result.count = 5; break;
 					}
 				}
+			}
+			if (!result.active) {
+				const house = wildSets(a, 3, 2, need, false);
+				if (house) { result.active = true; result.dice = house.dice; result.value = house.value; result.second = house.second; result.count = 5; }
 			}
 			break;
 		}
@@ -158,9 +224,12 @@ export function evaluate(trigger, cutStep, a, context = {}) {
 		case 'total_pct_at_least':
 			if (a.total * 100 >= a.max_total * need) { result.active = true; result.dice = allDice(a); result.value = a.total; }
 			break;
-		case 'total_pct_at_most':
-			if (a.total * 100 <= a.max_total * need) { result.active = true; result.dice = allDice(a); result.value = a.total; }
+		case 'total_pct_at_most': {
+			// A wild is any value, so a gem that wants a low total reads it as a 1.
+			const lowTotal = a.total - I(a.wild_total) + (a.wilds || []).length;
+			if (lowTotal * 100 <= a.max_total * need) { result.active = true; result.dice = allDice(a); result.value = a.total; }
 			break;
+		}
 		case 'high_pct_at_least':
 			if (a.high_pct >= need) { result.active = true; result.dice = Hand.matching(a, (v) => v >= a.high); result.value = a.high; }
 			break;
@@ -305,11 +374,11 @@ export function words(trigger, cutStep) {
 		case 'at_least': return `Your highest die shows ${need} or more.`;
 		case 'total_pct_at_least': return `Your total is at least ${need}% of the most your dice could roll.`;
 		case 'total_pct_at_most': return `Your total is at most ${need}% of the most your dice could roll.`;
-		case 'high_pct_at_least': return `One die shows at least ${need}% of its own top face.`;
+		case 'high_pct_at_least': return `One die showing at least ${need}% of its size (a 6 on a d6 is 100%).`;
 		case 'held': return `At least ${dice(need)} you did not reroll.`;
 		case 'rerolled': return `At least ${dice(need)} you rerolled this turn.`;
 		case 'resonance': return `Resonance of ${need} or more when this gem is reached.`;
-		case 'low_count': return need === 1 ? `At least ${dice(need)} at or below half its own top face.` : `At least ${dice(need)} at or below half their own top face.`;
+		case 'low_count': return need === 1 ? 'At least one die in the low half of its size (1-3 on a d6).' : `At least ${dice(need)} in the low half of their size (1-3 on a d6).`;
 		case 'crowns': return `At least ${need} ${need === 1 ? 'crown' : 'crowns'}: ${need === 1 ? 'a die' : 'dice'} on ${need === 1 ? 'its' : 'their'} own top face.`;
 		case 'crowns_at_most': return need === 0 ? 'No crowns: no die on its top face.' : `No more than ${need} ${need === 1 ? 'crown' : 'crowns'}.`;
 		case 'skip_straight': return `${need} different values, all odd or all even, like 2-4-6-8-10.`;

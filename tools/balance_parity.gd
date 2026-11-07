@@ -12,6 +12,10 @@ extends SceneTree
 ## block and statuses. "dry" fixtures play the way the forecast does (no coin, no proc roll,
 ## nothing queued); "live" ones queue replays and retriggers for real, on stones that never
 ## roll for a proc, so neither side's random numbers are asked for anything that matters.
+## "full" ones (the Flawless lines) play real turns on any stone: parity.mjs draws from a copy
+## of Godot's own generator, so a proc, a coin or a thrown die comes out the same on both sides.
+## Each run is a rail, the blows of the creatures, the tick, a Mortar's step and the next turn's
+## opening, with the state written down after the rail, after the Mortar and after the opening.
 
 const ENEMY_HP: int = 1000000
 
@@ -50,6 +54,9 @@ func _run(f: Dictionary) -> Dictionary:
 			rail.append(null)
 		else:
 			rail.append(DeepStone.make(str(spec.skill), int(spec.carat), int(spec.cut), int(spec.clarity), spec.inclusions, {}, str(spec.id)))
+			## What a Black Opal has taken in this run.
+			if spec.has("absorbed"):
+				rail[-1].absorbed = spec.absorbed
 	var unit: Dictionary = DeepBattle.make_player("p0", "P0", character, rail, dice)
 	unit.ore = int(f.pyrite)
 	var streams: Dictionary = DeepRng.streams(int(f.seed), ["dice", "creatures"])
@@ -59,10 +66,14 @@ func _run(f: Dictionary) -> Dictionary:
 	var state: Dictionary = DeepBattle.begin([unit], keys, {"depth": int(f.depth)}, streams.dice, streams.creatures)
 	for index in range(state.enemies.size()):
 		var foe: Dictionary = state.enemies[index]
-		foe.hp = ENEMY_HP
-		foe.max_hp = ENEMY_HP
+		foe.hp = int(f.enemies[index].get("hp", ENEMY_HP))
+		foe.max_hp = foe.hp
+		## As many dice as a Rail Rat has moves, so the JavaScript's dummy (a die a move) clouds alike.
+		if str(f.mode) == "full":
+			foe.dice = [{"shape": "D4"}, {"shape": "D4"}, {"shape": "D4"}]
 		foe.block = int(f.enemies[index].block)
 		foe.statuses = _ints(f.enemies[index].statuses)
+		foe.dread_turns = int(f.enemies[index].get("dread_turns", 0))
 	var a: Dictionary = DeepBattle.player(state, "p0")
 	a.hp = int(f.unit.hp)
 	a.block = int(f.unit.block)
@@ -75,6 +86,8 @@ func _run(f: Dictionary) -> Dictionary:
 	rng.seed = 7
 	var dry: bool = str(f.mode) == "dry"
 	var snaps: Array = []
+	if str(f.mode) == "full":
+		return {"id": f.id, "snaps": _run_full(f, state, a, rng)}
 	for run in f.runs:
 		a.hand = _hand(a, run.hand)
 		state.phase = "resolving"
@@ -92,6 +105,10 @@ func _run(f: Dictionary) -> Dictionary:
 		while not state.queue.is_empty() and guard < 5000:
 			guard += 1
 			var s: Dictionary = state.queue.pop_front()
+			## A live rail goes the game's own way, RAIL_CAP and all, as the browser's fight does.
+			if not dry:
+				events.append(DeepBattle._perform(state, s, rng, rng))
+				continue
 			match str(s.kind):
 				"gem":
 					events.append(DeepBattle.resolve_gem(state, a, int(s.socket), {"dry": dry, "retrigger": bool(s.get("retrigger", false)),
@@ -102,6 +119,54 @@ func _run(f: Dictionary) -> Dictionary:
 					events.append(DeepBattle._perform(state, s, rng, rng))
 		snaps.append(_snapshot(state, a, events))
 	return {"id": f.id, "snaps": snaps}
+
+func _run_full(f: Dictionary, state: Dictionary, a: Dictionary, rng: RandomNumberGenerator) -> Array:
+	## Real turns: only the first hand is fixed, the rest come out of the turn's own throw.
+	var snaps: Array = []
+	var first: bool = true
+	for run in f.runs:
+		if first:
+			a.hand = _hand(a, run.hand)
+			first = false
+		state.phase = "resolving"
+		a.firing_target = a.target
+		var queue: Array = [{"kind": "rail_begin", "unit": "p0"}]
+		for socket in range(a.rail.size()):
+			if a.rail[socket] is Dictionary:
+				queue.append({"kind": "gem", "unit": "p0", "socket": socket})
+		if not a.get("birthstone", {}).is_empty():
+			queue.append({"kind": "birthstone", "unit": "p0"})
+		queue.append({"kind": "rail_end", "unit": "p0"})
+		state.queue = queue
+		snaps.append(_snapshot(state, a, _play_queue(state, rng)))
+		if bool(a.get("downed", false)):
+			break
+		for blow in run.blows:
+			var foe: Dictionary = state.enemies[int(blow.foe)]
+			if int(foe.hp) <= 0 or bool(a.get("downed", false)):
+				continue
+			if str(blow.get("kind", "")) == "remove_block":
+				DeepBattle._apply_one(state, foe, a, "remove_block", 0, {"remove_all": true}, rng)
+			else:
+				DeepBattle._apply_one(state, foe, a, "damage", int(ceil(float(a.block) * 1.25)) if bool(blow.get("through_block", false)) else int(blow.amount), {}, rng)
+		DeepBattle._tick(state, rng)
+		state.queue = [{"kind": "mortar"}]
+		snaps.append(_snapshot(state, a, _play_queue(state, rng)))
+		if bool(a.get("downed", false)):
+			break
+		DeepBattle._begin_turn(state, rng, rng)
+		snaps.append(_snapshot(state, a, []))
+	return snaps
+
+func _play_queue(state: Dictionary, rng: RandomNumberGenerator) -> Array:
+	var events: Array = []
+	var guard: int = 0
+	while not state.queue.is_empty() and guard < 5000:
+		guard += 1
+		events.append(DeepBattle._perform(state, state.queue.pop_front(), rng, rng))
+	## What is left of a rail that ran past the guard is dropped, as the browser's fight drops it.
+	state.queue = []
+	return events
 
 func _hand(unit: Dictionary, spec: Array) -> Array:
 	var out: Array = []
@@ -147,7 +212,8 @@ func _snapshot(state: Dictionary, a: Dictionary, events: Array) -> Dictionary:
 	var foes: Array = []
 	for foe in state.enemies:
 		foes.append({"hp": int(foe.hp), "max_hp": int(foe.max_hp), "block": int(foe.block), "statuses": _ints(foe.statuses),
-			"stolen_dice": int(foe.get("stolen_dice", 0)), "dread_turns": int(foe.get("dread_turns", 0))})
+			"stolen_dice": int(foe.get("stolen_dice", 0)), "dread_turns": int(foe.get("dread_turns", 0)),
+			"marks_kept": int(foe.get("marks_kept", 0)), "plague": not str(foe.get("plague", "")).is_empty()})
 	var hand: Array = []
 	for roll in a.hand:
 		hand.append([str(roll.die_id), int(roll.value), bool(roll.get("phantom", false)), int(roll.get("shown", -1)), int(roll.get("counted", -1))])
@@ -158,8 +224,21 @@ func _snapshot(state: Dictionary, a: Dictionary, events: Array) -> Dictionary:
 			values.append(int(face.value))
 		faces.append(values)
 	var rail: Array = []
+	var carats: Array = []
 	for stone in a.rail:
 		rail.append("" if not stone is Dictionary else str(stone.id))
+		carats.append(0 if not stone is Dictionary else int(stone.get("carat", 0)))
+	var gifts: int = 0
+	for gift in a.get("after_fire_fight", {}).values():
+		gifts += int(gift.get("amount", 0))
+	var bound: Array = a.get("bound_next", []).duplicate()
+	var shattered: Array = a.get("shattered", []).duplicate()
+	## What the Flawless lines have set up, or hold for later, that nothing above reads yet.
+	var setups: Dictionary = {"strength_guard": bool(a.get("strength_guard", false)), "poison_safe": bool(a.get("poison_safe", false)),
+		"thorns": not str(a.get("envenom_thorns", "")).is_empty(), "gilded_pay": int(a.get("gilded_pay", 0)), "carry_next": bool(a.get("carry_rerolls_next", false)),
+		"carrying": bool(a.get("carrying_rerolls", false)), "mortar": a.has("mortar"), "grow_next": int(a.get("grow_next", 0)), "bound_next": bound,
+		"fight_max_hp": int(a.get("fight_max_hp", 0)), "enriched": _ints(a.get("enriched", {})), "shattered": shattered, "refracted": a.get("refracted", []).size(),
+		"overhealed": int(a.get("overhealed", 0)), "gifts": gifts}
 	var buffs: Dictionary = {}
 	for id in a.get("gem_buffs", {}):
 		var entry: Dictionary = _ints(a.gem_buffs[id])
@@ -185,4 +264,5 @@ func _snapshot(state: Dictionary, a: Dictionary, events: Array) -> Dictionary:
 		"fired": a.get("fired_sockets", []).map(func(x: Variant) -> int: return int(x)), "fizzled": a.get("fizzled_sockets", []).map(func(x: Variant) -> int: return int(x)),
 		"rail": rail, "hand": hand, "faces": faces, "amplify": snappedf(float(a.get("amplify", 1.0)), 0.0001), "cut_step_bonus": int(a.get("cut_step_bonus", 0)),
 		"nullify_next": bool(a.get("nullify_next", false)), "repeat_next": int(a.get("repeat_next", 0)), "healed": int(a.get("healed", 0)), "dealt": int(a.get("dealt", 0)),
-		"once": once}, "enemies": foes, "events": log}
+		"once": once, "carats": carats, "run_counts": _ints(a.get("run_counts", {})), "rerolls": int(a.get("rerolls", 0)), "granted": int(a.get("granted_rerolls", 0)), "setups": setups},
+		"enemies": foes, "events": log}

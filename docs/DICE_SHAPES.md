@@ -7,9 +7,12 @@ Implemented September 23, 2026. The shared tier ladder is:
 Smithies, Hammered stakes, enemy upgrades and Dread all follow this ladder. A d12
 upgrades to d16, and a d20 downgrades to d16. Filing a d4 gives a d3, then a d2.
 Player resizing refuses to go past either end; enemy tier changes clamp there.
-Resizing still preserves the die's identity, its material and every etching that
-still has a face to sit on; its pattern is cut again across the new size, and a
-face already worked higher than the pattern asks keeps the value it was given. Starting character bowls, starting encounters, and salvage
+Resizing preserves the die's identity and its material, and its faces travel with it
+as a multiset (November 5, 2026): filed down, the die drops its highest faces and
+keeps the rest exactly as they were, etchings and worked numbers included (a d4 of
+1/1/3/3 files to a d3 of 1/1/3); hammered up, it keeps every face it had and gains the
+new size's top faces, cut to its pattern where the pattern fits the new size (a plain
+d6 grows 7 and 8, an Odd d4 grows 5 and 5). Starting character bowls, starting encounters, and salvage
 dice are unchanged, so the unusual sizes require deliberate tier changes.
 
 | Die | Solid | Numbered faces | Body triangles |

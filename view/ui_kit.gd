@@ -53,15 +53,17 @@ const TIER_colorS := {"ROUGH": Color("9aa3b2"), "FINE": Color("7fd1a8"), "PRECIO
 ## status-bar green: that constant is a live gameplay reading, this one is just the word.
 ## Resonance is nobody's one color, so instead of "color" it carries "rainbow": each of its
 ## letters gets its own pale hue off the wheel, and its own mark rides right after it.
+## Flawless wears the Peerless tier's gold (TIER_colorS), the colour its line is read in.
 const EFFECT_KEYWORDS: Dictionary = {"damage": {"color": Color("ff7a6b")}, "block": {"color": Color("6fa8ff")},
 	"heal": {"color": Color("3fb56b")}, "poison": {"color": Color("b58cff")}, "ore": {"color": Color("e8a94f")},
 	"resonance": {"color": RESONANCE, "icon": "resonance", "rainbow": true},
-	"opal": {"color": OPAL_TONE, "rainbow": true}}
+	"opal": {"color": OPAL_TONE, "rainbow": true},
+	"flawless": {"color": Color("ffcf5a")}}
 ## Shared keyword definitions, shown only when hovering a highlighted word.
 const KEYWORD_HINTS: Dictionary = {
  "resonance": "Builds when gems fire and powers the Birthstone. Starts at zero each turn unless Charged supplies a starting value. Fizzles preserve it.",
  "ward": "Consumes one stack to block one debuff application. Maximum 99; lasts this fight.",
- "retain": "At the next Block reset, preserves up to its stacks of remaining Block, then is consumed. Maximum 20.",
+ "retain": "At the next Block reset, preserves up to its stacks of remaining Block, then is consumed.",
  "charge": "Charged Battery: all stacks become starting Resonance at your next turn, then are consumed. No cap.",
  "regeneration": "Heals its stacks at turn end after Poison, then loses one stack. Cannot revive. No cap.",
  "spikes": "Retaliates once per attacking gem or ability, even against blocked hits. Lasts the fight. No cap.",
@@ -125,6 +127,120 @@ static var text_large: bool = false
 ## Settings > Comfort > Color marks: each color also drawn as the shape its stones are cut in,
 ## for a player who cannot tell the hues apart. The app sets it (`reading`).
 static var color_marks: bool = false
+
+# --- the phone form ------------------------------------------------------------------------------
+## The phone form (November 7, 2026; docs/PHONE_UI.md): the game laid out for a phone held
+## sideways. The canvas is PHONE_CANVAS, an iPhone 15 or 16 on its side (852x393 points) at two
+## canvas pixels a point, and every text size a caller asks for is read in points there: 13 is
+## drawn 26 canvas pixels tall, and no word is drawn under PHONE_LEAST points. Picked once, at
+## start (`detect_phone`); every phone layout is a branch on `phone`, and the desktop's own is
+## left exactly as it was.
+static var phone: bool = false
+const PT: float = 2.0
+const PHONE_CANVAS := Vector2i(1704, 786)
+const PHONE_LEAST: int = 11
+## The parts of the screen the phone keeps (its corners and camera island at each side, the home
+## bar at the foot), in canvas pixels. The app sets them from the display (`fit_safe_area`).
+static var safe_left: float = 0.0
+static var safe_right: float = 0.0
+static var safe_top: float = 0.0
+static var safe_bottom: float = 0.0
+## The phone form forced on a desktop window (for testing) keeps an iPhone's: 59 points at each
+## side, 21 at the foot.
+const PHONE_SAFE_SIDE: float = 118.0
+const PHONE_SAFE_FOOT: float = 42.0
+## Anything a finger presses is at least this tall and wide, in canvas pixels (44 points).
+const TOUCH: float = 88.0
+## The least a button stands either way on the phone, in points (a tab's and the strip's).
+const FINGER_LEAST: float = 28.0
+
+static func pt(points: float) -> float:
+	## Points to canvas pixels, on the phone.
+	return points * PT
+
+static func glyph_px(size: int, extra: float = 0.0) -> float:
+	## How large a mark beside text of `size` is drawn: `size` plus `extra` canvas pixels on the
+	## desktop; on the phone, where `size` is in points, the text's own pixels plus `extra` points.
+	if phone:
+		return float(readable(size)) + extra * PT
+	return float(size) + extra
+
+static func gap_px(pixels: float) -> int:
+	## A gap the desktop sets in canvas pixels, as the phone draws it: half again as wide.
+	return int(round(pixels * 1.5)) if phone else int(pixels)
+
+static func on_phone(desktop: Variant, phone_value: Variant) -> Variant:
+	## The desktop's value, or the phone's on the phone.
+	return phone_value if phone else desktop
+
+static func detect_phone() -> bool:
+	## The phone form: a phone (iOS or Android, a screen under 7.5 inches across), or any
+	## window started with `--phone` (or DEEPCUT_FORM=phone), which is how it is tested on a
+	## desk. A tablet keeps the desktop's layout, with touch.
+	var asked: PackedStringArray = OS.get_cmdline_args() + OS.get_cmdline_user_args()
+	if asked.has("--phone") or OS.get_environment("DEEPCUT_FORM") == "phone":
+		return true
+	if asked.has("--desktop") or OS.get_environment("DEEPCUT_FORM") == "desktop":
+		return false
+	if not (OS.has_feature("ios") or OS.has_feature("android")):
+		return false
+	var pixels: Vector2 = Vector2(DisplayServer.screen_get_size())
+	var dpi: int = DisplayServer.screen_get_dpi()
+	if dpi <= 0 or pixels.x <= 0.0:
+		return true
+	return pixels.length() / float(dpi) < 7.5
+
+static func fit_safe_area(window: Window) -> void:
+	## The phone's safe area in canvas pixels, from the display's (screen pixels) and the
+	## canvas's scale. A desk window in the phone form takes an iPhone's insets.
+	if not phone or window == null:
+		safe_left = 0.0
+		safe_right = 0.0
+		safe_top = 0.0
+		safe_bottom = 0.0
+		return
+	if not (OS.has_feature("ios") or OS.has_feature("android")):
+		safe_left = PHONE_SAFE_SIDE
+		safe_right = PHONE_SAFE_SIDE
+		safe_top = 0.0
+		safe_bottom = PHONE_SAFE_FOOT
+		return
+	var canvas: Vector2 = window.get_visible_rect().size
+	var screen: Vector2 = Vector2(window.size)
+	if canvas.x <= 0.0 or screen.x <= 0.0:
+		return
+	var scale: float = screen.x / canvas.x
+	var safe: Rect2i = DisplayServer.get_display_safe_area()
+	var whole: Vector2 = Vector2(DisplayServer.screen_get_size())
+	if safe.size.x <= 0 or whole.x <= 0.0:
+		return
+	safe_left = float(safe.position.x) / scale
+	safe_top = float(safe.position.y) / scale
+	safe_right = maxf(0.0, whole.x - float(safe.end.x)) / scale
+	safe_bottom = maxf(0.0, whole.y - float(safe.end.y)) / scale
+	## A phone held on either side is kept clear on both: the island moves to the other edge
+	## when it is turned round, and a page that shuffled sideways each time would be worse.
+	var side: float = maxf(safe_left, safe_right)
+	safe_left = side
+	safe_right = side
+
+static func phone_bar(line: Color = LEDGER_LINE, top: bool = true, pad: float = 6.0) -> StyleBoxFlat:
+	## A bar from edge to edge of a phone (the dock along the foot, the strip along the top):
+	## opaque, one 2 point line on its inner edge, its content clear of the corners, the camera
+	## island and the home bar. `pad` is the room inside it, in points.
+	var box := StyleBoxFlat.new()
+	box.bg_color = LEDGER_FILL
+	box.border_color = line
+	if top:
+		box.border_width_top = int(pt(2))
+	else:
+		box.border_width_bottom = int(pt(2))
+	box.content_margin_left = safe_left + pt(pad)
+	box.content_margin_right = safe_right + pt(pad)
+	box.content_margin_top = pt(pad)
+	box.content_margin_bottom = (safe_bottom if top else 0.0) + pt(pad)
+	return box
+
 static var _glow: GradientTexture2D = null
 static var _dot: GradientTexture2D = null
 static var _keyword_regex: RegEx = null
@@ -514,7 +630,7 @@ static func focus_ring(cut: int = 10, gap: float = 4.0) -> StyleBoxFlat:
 
 static func theme(scale: float = 1.0) -> Theme:
 	var t := Theme.new()
-	t.default_font_size = int(15 * scale)
+	t.default_font_size = readable(13) if phone else int(15 * scale)
 	t.default_font = text_face(t.default_font_size)
 	t.set_stylebox("panel", "Panel", flat(SLATE, LINE, 10, 14))
 	t.set_stylebox("panel", "PanelContainer", flat(SLATE, LINE, 10, 14))
@@ -624,8 +740,9 @@ static func switch_icon(on: bool, disabled: bool = false, mirrored: bool = false
 	var key: String = "%s%s%s" % [on, disabled, mirrored]
 	if _switches.has(key):
 		return _switches[key]
-	var w: int = 46
-	var h: int = 26
+	## The phone's switch is drawn larger, a thumb's size; the desk's stays as it was.
+	var w: int = 74 if phone else 46
+	var h: int = 42 if phone else 26
 	var image := Image.create(w, h, false, Image.FORMAT_RGBA8)
 	var radius: float = float(h) * 0.5 - 1.0
 	var ends: Array = [Vector2(radius + 1.0, h * 0.5), Vector2(w - radius - 1.0, h * 0.5)]
@@ -713,9 +830,32 @@ const SEMIBOLD_UNDER_PX: float = 13.0
 ## of window size can set it again (`rescale`).
 const TEXT_GROUP: StringName = &"deep_text"
 
+static var _click_regex: RegEx = null
+
+static func phone_words(text: String) -> String:
+	## The phone's words for the mouse's (board sys-touch): a tap for a click, a hold for a
+	## right-click, a double-tap for a double-click. The desk's words are left as they are.
+	if not phone or text.is_empty() or text.findn("click") < 0:
+		return text
+	var out: String = text.replace("Shift+right-click", "hold").replace("Right-click or hold", "Hold").replace("Right-click", "Hold").replace("right-click", "hold")
+	out = out.replace("Double-click", "Double-tap").replace("double-click", "double-tap")
+	if _click_regex == null:
+		_click_regex = RegEx.new()
+		_click_regex.compile("(?<![A-Za-z-])([Cc])lick(ing|ed|s)?\\b")
+	var said: String = ""
+	var at: int = 0
+	for found in _click_regex.search_all(out):
+		said += out.substr(at, found.get_start() - at)
+		var ending: String = found.get_string(2)
+		said += ("T" if found.get_string(1) == "C" else "t") + "ap" + {"ing": "ping", "ed": "ped", "s": "s"}.get(ending, "")
+		at = found.get_end()
+	return said + out.substr(at)
+
 static func touch_words(text: String) -> String:
 	## Words for the screen the game is on: a phone has no right button, so what a right-click
 	## does there is done by a finger held on the thing (Tips.hold), and the words say so.
+	if phone:
+		return phone_words(text)
 	if not DisplayServer.is_touchscreen_available():
 		return text
 	return text.replace("Shift+right-click", "hold").replace("Right-click or hold", "Hold").replace("Right-click", "Hold").replace("right-click", "hold")
@@ -723,21 +863,36 @@ static func touch_words(text: String) -> String:
 static func min_text() -> int:
 	## The smallest text, in canvas pixels, at the current window size. Large text sets it at
 	## the most every page is checked to fit (tests/test_fit.gd runs there), never past it.
+	## On the phone, PHONE_LEAST points.
+	if phone:
+		return int(PHONE_LEAST * PT)
 	if text_large:
 		return MAX_TEXT_FLOOR
 	return clampi(ceili(READABLE_PX / maxf(text_scale, 0.01) - 0.05), MIN_TEXT, MAX_TEXT_FLOOR)
 
 static func readable(size: int) -> int:
-	## `size`, raised to the floor if it is under it.
+	## `size`, raised to the floor if it is under it. On the phone `size` is read in points,
+	## and past body size it grows at half the pace (`phone_points`): a desktop title of 34
+	## reads at 24 points, a heading of 19 at 16, body text of 13 at 13.
+	if phone:
+		return maxi(int(round(phone_points(size) * PT)), min_text())
 	return maxi(size, min_text())
+
+static func phone_points(size: float) -> float:
+	## A text size as the phone sets it, in points: as asked up to 13, then half as fast.
+	return size if size <= 13.0 else 13.0 + (size - 13.0) * 0.55
 
 static func text_face(size: int) -> Font:
 	## Regular for text big enough on screen, SemiBold for text that would break up.
+	if phone:
+		return body_font()
 	return semibold_font() if float(size) * text_scale < SEMIBOLD_UNDER_PX else body_font()
 
 static func caps_size(size: int) -> int:
 	## The floor for words set in capitals (`caps_font`), which stand a cap-height tall
 	## everywhere and read at two pixels less than lowercase.
+	if phone:
+		return maxi(int(round(phone_points(size) * PT)), min_text() - 2)
 	return maxi(size, min_text() - 2)
 
 static func set_text_size(control: Control, size: int) -> void:
@@ -754,7 +909,8 @@ static func _apply_text_size(control: Control) -> void:
 	var face_name: StringName = &"normal_font" if rich else &"font"
 	## A size the caller set by hand since (a count that grows) becomes the size asked for.
 	if control.has_meta(&"text_set") and control.get_theme_font_size(size_name) != int(control.get_meta(&"text_set")):
-		control.set_meta(&"text_asked", control.get_theme_font_size(size_name))
+		## On the phone a size is asked for in points: one set by hand in pixels is read back as such.
+		control.set_meta(&"text_asked", int(round(control.get_theme_font_size(size_name) / PT)) if phone else control.get_theme_font_size(size_name))
 	var size: int = readable(int(control.get_meta(&"text_asked", MIN_TEXT)))
 	control.add_theme_font_size_override(size_name, size)
 	control.set_meta(&"text_set", size)
@@ -790,7 +946,8 @@ static func _retext(root: Control) -> void:
 static func reading(settings: Dictionary, root: Control) -> void:
 	## Takes up the reading settings (Settings > Comfort): text size and color marks. Whatever
 	## is on screen follows at once: the text is set again, every mark drawn again.
-	var large: bool = float(settings.get("text_size", 0.0)) > 0.5
+	## The phone sets its own text, in points: the Text size setting is the desktop's.
+	var large: bool = float(settings.get("text_size", 0.0)) > 0.5 and not phone
 	var marks: bool = bool(settings.get("color_marks", false))
 	if marks != color_marks:
 		color_marks = marks
@@ -889,7 +1046,7 @@ static func reach(control: Control, grow: Vector2) -> Control:
 
 static func label(parent: Node, text: String, size: int = 15, color: Color = PAPER, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = phone_words(text) if phone else text
 	set_text_size(l, size)
 	l.add_theme_color_override("font_color", color)
 	l.horizontal_alignment = align
@@ -906,6 +1063,16 @@ static func fit_label(parent: Node, text: String, size: int, color: Color, width
 	## smaller rather than cut off. Past the floor size (never under MIN_TEXT) it trims with an
 	## ellipsis instead of going unreadable: "Lucky Se…", not a centred "ucky Sever" cut at both ends.
 	var l := label(parent, text, size, color, align)
+	if phone:
+		## On the phone a size is asked for in points: stepped down a point at a time.
+		var asked: int = size
+		while asked > floor_size and readable(asked) > min_text() and text_face(readable(asked)).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, readable(asked)).x > width:
+			asked -= 1
+		set_text_size(l, asked)
+		l.custom_minimum_size.x = width
+		l.clip_text = true
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		return l
 	var fitted: int = readable(size)
 	var least: int = readable(floor_size)
 	while fitted > least and text_face(fitted).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fitted).x > width:
@@ -1022,9 +1189,9 @@ static func section(parent: Node, glyph: String, text: String, color: Color = AC
 	## A section header: its mark, its name in capitals, and a rule running out to the edge.
 	## Mark, name and rule all take only the height they need and centre on the row, so the
 	## three line up on one another whatever font metrics the name's face brings with it.
-	var row := hbox(parent, 8)
+	var row := hbox(parent, gap_px(8))
 	if not glyph.is_empty():
-		icon(row, glyph, size + 4, color).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		icon(row, glyph, glyph_px(size, 4), color).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var head := heading(row, text, size, color)
 	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	head.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1068,10 +1235,10 @@ static func shimmer_word(parent: Node, text: String, size: int = 13) -> HBoxCont
 
 static func stat(parent: Node, glyph: String, text: String, color: Color = PAPER, size: int = 15, tooltip: String = "", rainbow: bool = false) -> HBoxContainer:
 	## A mark and a number, read as one thing: the way every quantity is shown.
-	var row := hbox(parent, maxi(3, size / 4))
+	var row := hbox(parent, maxi(3, size / 4) * (2 if phone else 1))
 	row.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.tooltip_text = tooltip
-	var mark := icon(row, glyph, size + 3, color, tooltip, rainbow)
+	var mark := icon(row, glyph, glyph_px(size, 3), color, tooltip, rainbow)
 	mark.mouse_filter = Control.MOUSE_FILTER_PASS
 	if rainbow:
 		## Never named "Value": that name means a Label something rewrites in place, and a
@@ -1131,6 +1298,10 @@ static func button(parent: Node, text: String, callback: Callable = Callable(), 
 	var b := Button.new()
 	b.text = text
 	set_text_size(b, size)
+	## On the phone no button is under a finger's least either way (tests/test_fit_phone.gd);
+	## a caller's own size, set after, stands over it.
+	if phone:
+		b.custom_minimum_size = Vector2(pt(FINGER_LEAST), pt(FINGER_LEAST))
 	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	b.pressed.connect(func() -> void: DeepAudio.play(str(b.get_meta("sound", "ui_tap"))))
@@ -1149,7 +1320,7 @@ static func icon_button(parent: Node, glyph: String, text: String, callback: Cal
 	## A button that says what it does with a mark as well as a word. A rainbow mark
 	## carries its own color, so the tint above it has to be white or it flattens.
 	var b := button(parent, text, callback, size)
-	var edge: float = float(size) + 5.0
+	var edge: float = glyph_px(size, 5)
 	b.icon = GemIcons.texture(glyph, GemIcons.baked_size(edge * 1.5), rainbow)
 	b.add_theme_constant_override("icon_max_width", int(edge))
 	b.add_theme_color_override("icon_normal_color", Color.WHITE if rainbow else tint)
@@ -1163,7 +1334,7 @@ static func gear_button(parent: Node, callback: Callable) -> Button:
 	b.set_meta("sound", "ui_open")
 	b.tooltip_text = "Menu (Esc)"
 	b.add_theme_stylebox_override("normal", button_style(Color(0, 0, 0, 0), Color(LINE, 0.7), 8))
-	b.custom_minimum_size = Vector2(42, 38)
+	b.custom_minimum_size = Vector2(pt(36), pt(28)) if phone else Vector2(42, 38)
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return b
 
@@ -1222,7 +1393,7 @@ static func priced(b: Button, sum: String, size: int = -1, glyph: String = "coin
 	## Sets a price tag (`price_chip`) at the right end of a button built with its own mark and
 	## words, and widens the button's right margin to make room for it. The tag dims with the
 	## button when it is disabled. `sum` is the number as shown: "240", or "+38" for a payout.
-	var font_size: int = size if size > 0 else readable(b.get_theme_font_size("font_size") - 2)
+	var font_size: int = size if size > 0 else ((int(b.get_meta(&"text_asked", 15)) - 2) if phone else readable(b.get_theme_font_size("font_size") - 2))
 	var chip := price_chip(b, sum, font_size, b.get_theme_color("font_color"), false, glyph)
 	var gap: float = 10.0
 	var room: float = chip.get_combined_minimum_size().x + gap
@@ -1317,19 +1488,21 @@ static func skip_arrow(parent: Node, text: String, callback: Callable, tone: Col
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.custom_minimum_size.x = SKIP_WIDTH
+	## On the phone: a 44 point key, its words in about two lines under it.
+	var wide: float = pt(70) if phone else SKIP_WIDTH
+	column.custom_minimum_size.x = wide
 	column.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	parent.add_child(column)
 	var b := Button.new()
 	b.tooltip_text = text
 	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	b.custom_minimum_size = Vector2(64, 44)
+	b.custom_minimum_size = Vector2(pt(48), pt(40)) if phone else Vector2(64, 44)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	b.icon = GemIcons.texture(glyph, GemIcons.baked_size(40))
 	b.expand_icon = true
 	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	b.add_theme_constant_override("icon_max_width", 24)
+	b.add_theme_constant_override("icon_max_width", int(pt(18)) if phone else 24)
 	## The same key every other button on the page is cut as (a rounded slab, heavier along
 	## the bottom), only darker and empty but for its arrow: the way on is offered, not urged.
 	var key := func(fill: Color, edge: Color) -> StyleBoxFlat:
@@ -1349,12 +1522,12 @@ static func skip_arrow(parent: Node, text: String, callback: Callable, tone: Col
 	if callback.is_valid():
 		b.pressed.connect(callback)
 	column.add_child(b)
-	var words := label(column, text, 12, PAPER.darkened(0.15), HORIZONTAL_ALIGNMENT_CENTER)
+	var words := label(column, text, 11 if phone else 12, PAPER.darkened(0.15), HORIZONTAL_ALIGNMENT_CENTER)
 	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	## It stands over the room, not on a card: an outline keeps it readable on bright rock.
 	words.add_theme_constant_override("outline_size", 6)
 	words.add_theme_color_override("font_outline_color", Color(INK, 0.9))
-	words.custom_minimum_size.x = SKIP_WIDTH
+	words.custom_minimum_size.x = wide
 	## The nudge: the arrow keeps stepping on and back while the pointer is over it.
 	var nudge: Array = [null]
 	b.resized.connect(func() -> void: b.pivot_offset = b.size * 0.5)
@@ -1384,7 +1557,7 @@ static func skip_arrow(parent: Node, text: String, callback: Callable, tone: Col
 static func skip_ghost(parent: Node) -> Control:
 	## An empty column the width of a skip arrow, for the other end of its row.
 	var ghost := Control.new()
-	ghost.custom_minimum_size.x = SKIP_WIDTH
+	ghost.custom_minimum_size.x = pt(70) if phone else SKIP_WIDTH
 	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(ghost)
 	return ghost
@@ -1486,8 +1659,8 @@ static func rule(parent: Node, color: Color = LINE) -> Control:
 static func chip(parent: Node, text: String, color: Color, size: int = 12, rainbow: bool = false) -> PanelContainer:
 	var box := PanelContainer.new()
 	var style := flat(Color(color, 0.16), Color(color, 0.55), 6, 5)
-	style.content_margin_left = 7
-	style.content_margin_right = 7
+	style.content_margin_left = gap_px(7)
+	style.content_margin_right = gap_px(7)
 	box.add_theme_stylebox_override("panel", style)
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	parent.add_child(box)

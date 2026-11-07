@@ -246,12 +246,12 @@ func summons_and_escorts() -> void:
 	check(scurry.size() == 1 and bool(scurry[0].effects[0].get("nothing", false)) and crowded.state.enemies.size() == 4, "a full chamber has no room for a fifth creature")
 	## Escorts come with their leader, and shield it while they stand.
 	var p: Dictionary = setup(["THE_PRISMARCH"])
-	check(p.state.enemies.size() == 4 and p.foe.escorts.size() == 3, "the Prismarch walks in with three prisms")
-	check(escorts_of(p).size() == 3 and escorts_of(p).all(func(e: Dictionary) -> bool: return str(e.key) == "PRISM"), "each prism knows its leader")
-	## They stand either side of it in turn, the first on its right, so it holds the middle.
+	check(p.state.enemies.size() == 3 and p.foe.escorts.size() == 2, "the Prismarch walks in with two prisms")
+	check(escorts_of(p).size() == 2 and escorts_of(p).all(func(e: Dictionary) -> bool: return str(e.key) == "PRISM"), "each prism knows its leader")
+	## They stand either side of it, the first on its right, so it holds the middle.
 	var row: Array = p.state.enemies.map(func(e: Dictionary) -> String: return str(e.id))
 	var mine: Array = p.foe.escorts
-	check(row.find(str(p.foe.id)) == 1 and row.find(str(mine[0])) == 2 and row.find(str(mine[1])) == 0 and row.find(str(mine[2])) == 3, "the prisms flank the Prismarch: %s" % str(row))
+	check(row.find(str(p.foe.id)) == 1 and row.find(str(mine[0])) == 2 and row.find(str(mine[1])) == 0, "the prisms flank the Prismarch: %s" % str(row))
 	check(str(DeepBattle.default_target(DeepBattle.living(p.state.enemies)).id) == str(p.foe.id) and str(p.player.target) == str(p.foe.id), "and the Prismarch is still who blows go at by default")
 	p.foe.block = 0
 	var shielded: Dictionary = hit(p, 40)
@@ -260,28 +260,34 @@ func summons_and_escorts() -> void:
 		escort.hp = 0
 	var bare: Dictionary = hit(p, 40)
 	check(not bare.has("shielded") and int(bare.hp_loss) == 40, "with the prisms gone it takes the whole blow")
-	## Its Raise a Prism calls one back, three standing at most.
+	## Its Raise a Prism calls prisms back, three standing at most (its own cap, under the
+	## chamber's four creatures).
 	land(p.foe, ["Raise a Prism", "Raise a Prism", "Raise a Prism", "Raise a Prism"])
 	p.player.statuses.stun = 1
 	var raised: Array = moves_named(turn(p), "Raise a Prism")
 	var prisms: Array = DeepBattle.living(p.state.enemies).filter(func(e: Dictionary) -> bool: return str(e.key) == "PRISM")
 	check(raised.size() == 4 and prisms.size() == 3 and bool(raised[3].effects[0].get("nothing", false)), "Raise a Prism calls a prism, three at most: %d standing" % prisms.size())
-	## The Heartrot's Regrow grows a tendril back into the gap, and the new one is its escort.
+	## The Heartrot walks in with two tendrils. Its Regrow grows one back into the gap, and
+	## the new one is its escort.
 	var h: Dictionary = setup(["THE_HEARTROT"])
+	check(h.state.enemies.size() == 3 and escorts_of(h).size() == 2, "the Heartrot walks in with two tendrils")
 	escorts_of(h)[0].hp = 0
 	for tendril in escorts_of(h):
 		land(tendril, ["Lash"])
 	land(h.foe, ["Regrow"])
 	var grown: Array = turn(h)
 	var fresh: Array = h.state.enemies.filter(func(e: Dictionary) -> bool: return str(e.get("summoned_by", "")) == str(h.foe.id))
-	check(moves_named(grown, "Regrow").size() == 1 and DeepBattle.living(h.state.enemies).size() == 4, "a Regrow grows a tendril into the gap: %d standing" % DeepBattle.living(h.state.enemies).size())
+	check(moves_named(grown, "Regrow").size() == 1 and DeepBattle.living(h.state.enemies).size() == 3, "a Regrow grows a tendril into the gap: %d standing" % DeepBattle.living(h.state.enemies).size())
 	check(fresh.size() == 1 and str(fresh[0].key) == "TENDRIL" and str(fresh[0].escort_of) == str(h.foe.id) and h.foe.escorts.has(str(fresh[0].id)), "the new tendril is one of the heart's escorts")
+	## With three standing the chamber has room for one more: a Regrow grows a third tendril,
+	## and the one after it finds no room.
 	for tendril in escorts_of(h):
 		land(tendril, ["Lash"])
 	land(h.foe, ["Regrow", "Regrow"])
-	var no_room: Array = turn(h)
-	check(moves_named(no_room, "Regrow").size() == 2 and moves_named(no_room, "Regrow").all(func(e: Dictionary) -> bool: return bool(e.effects[0].get("nothing", false)))
-		and DeepBattle.living(h.state.enemies).size() == 4, "with all three standing there is no room for more")
+	var one_more: Array = turn(h)
+	var regrows: Array = moves_named(one_more, "Regrow")
+	check(regrows.size() == 2 and not bool(regrows[0].effects[0].get("nothing", false)) and bool(regrows[1].effects[0].get("nothing", false))
+		and DeepBattle.living(h.state.enemies).size() == 4, "with room for one more, the first Regrow grows a third tendril and the second finds the chamber full: %d standing" % DeepBattle.living(h.state.enemies).size())
 	## A Tendril's Knit heals the Heartrot it guards.
 	var knit: Dictionary = escorts_of(h).filter(func(e: Dictionary) -> bool: return int(e.hp) > 0)[0]
 	land(knit, ["Knit"])
@@ -629,15 +635,51 @@ func theft_and_flight() -> void:
 	var grew: int = most * (rich / 10) / 100
 	check(moves_named(eat, "Eat the Rich").size() == 1 and int(a.foe.max_hp) == most + grew, "Eat the Rich grows it by %d%% (%d): %d" % [rich / 10, grew, int(a.foe.max_hp)])
 	check(moves_named(eat, "Weigh").size() == 1 and int(a.foe.statuses.get("spikes", 0)) == 0, "its Weigh hits, and Balance's spikes stood only until this action")
-	## Raise the Rate turns every Tax face on its ledger to Heavy Tax, a fifth of each purse.
+	## Raise the Rate is a ladder of rates (November 5, 2026): every Tax face on its ledger
+	## becomes Heavy Tax, a fifth of each purse; with no Tax left, every Heavy Tax becomes
+	## Ruinous Tax, a third, a blow for as much and a Curse; and then the rate is as high as
+	## it goes, which is what the face reads.
 	var r: Dictionary = setup(["THE_ASSAYER"], 1)
 	r.player.ore = 100
 	r.player.block = 0
 	var taxes: int = faces_of(r.foe, "Tax")
+	var rate_move: Dictionary = DeepCreatures.move_in(DeepCreatures.moves_for(r.foe), "Raise the Rate")
+	check(DeepCreatures.move_text(r.foe, rate_move) == "Every Tax face on its ledger becomes Heavy Tax; with no Tax left, every Heavy Tax becomes Ruinous Tax",
+		"Raise the Rate reads its ladder while a Tax face stands: %s" % DeepCreatures.move_text(r.foe, rate_move))
+	## One Raise the Rate an action: the scale die carries it on every face, the ledger's own
+	## two Raise the Rate faces are turned to Audit so the ladder climbs one rung a turn.
 	force_faces(r.foe, 0, "Raise the Rate")
+	for face in r.foe.dice[1].faces:
+		if str(face.get("move", "")) == "Raise the Rate":
+			DeepCreatures.dress_face(face, DeepCreatures.move_in(DeepCreatures.moves_for(r.foe), "Audit"))
 	r.player.statuses.stun = 1
 	var rate: Array = turn(r)
-	check(moves_named(rate, "Raise the Rate").size() >= 1 and faces_of(r.foe, "Tax") == 0 and faces_of(r.foe, "Heavy Tax") == taxes, "Raise the Rate turns all %d Tax faces to Heavy Tax" % taxes)
+	check(moves_named(rate, "Raise the Rate").size() == 1 and faces_of(r.foe, "Tax") == 0 and faces_of(r.foe, "Heavy Tax") == taxes and faces_of(r.foe, "Ruinous Tax") == 0,
+		"Raise the Rate turns all %d Tax faces to Heavy Tax, and no Heavy Tax yet" % taxes)
+	var first: Array = moves_named(rate, "Raise the Rate")[0].effects
+	check(first.size() == 2 and not bool(first[0].get("nothing", false)) and bool(first[1].get("nothing", false)), "its second rung waits while the first finds faces: %s" % str(first))
+	r.player.statuses.stun = 1
+	var again: Array = turn(r)
+	var second: Array = moves_named(again, "Raise the Rate")[0].effects if not moves_named(again, "Raise the Rate").is_empty() else []
+	check(moves_named(again, "Raise the Rate").size() == 1 and faces_of(r.foe, "Heavy Tax") == 0 and faces_of(r.foe, "Ruinous Tax") == taxes,
+		"the next Raise the Rate turns all %d Heavy Tax faces to Ruinous Tax" % taxes)
+	check(second.size() == 2 and bool(second[0].get("nothing", false)) and second[1].get("etched", []).size() == taxes, "by its second rung: %s" % str(second))
+	check(DeepCreatures.move_text(r.foe, rate_move) == "The rate is as high as it goes", "with nothing left to raise, the face says so: %s" % DeepCreatures.move_text(r.foe, rate_move))
+	r.player.statuses.stun = 1
+	var third: Array = moves_named(turn(r), "Raise the Rate")
+	check(third.size() == 1 and third[0].effects.all(func(e: Dictionary) -> bool: return bool(e.get("nothing", false))) and faces_of(r.foe, "Ruinous Tax") == taxes, "a third Raise the Rate changes nothing")
+	## A Ruinous Tax takes a third of 100, hits for as much, and leaves a Curse.
+	land(r.foe, ["Ruinous Tax"])
+	r.player.ore = 100
+	r.player.gold = 0
+	r.player.pyrite_delta = 0
+	r.player.hp = 1000
+	r.player.statuses.erase("curse")
+	r.player.statuses.stun = 1
+	var ruin: Array = moves_named(turn(r), "Ruinous Tax")
+	check(ruin.size() == 1 and int(ruin[0].effects[0].get("stolen", 0)) == 33 and int(ruin[0].effects[0].get("hurt", {}).get("hp_loss", 0)) == 33 and int(r.player.hp) == 967,
+		"a Ruinous Tax takes a third of 100 and hits for it: %s" % str(ruin[0].effects if not ruin.is_empty() else []))
+	check(ruin.size() == 1 and ruin[0].effects.size() == 2 and str(ruin[0].effects[1].get("kind", "")) == "curse" and int(r.player.statuses.get("curse", 0)) == 1, "and leaves one Curse on the player")
 	land(r.foe, ["Heavy Tax"])
 	r.player.ore = 100
 	r.player.gold = 0
@@ -796,7 +838,7 @@ func bursts_and_swelling() -> void:
 	var h: Dictionary = setup(["THE_HEARTROT"])
 	land(h.foe, ["Miasma"])
 	turn(h)
-	check(h.state.enemies.size() == 4 and int(h.player.statuses.get("festering", 0)) >= 1, "its tendrils came with it, and its Miasma festers the party")
+	check(h.state.enemies.size() == 3 and int(h.player.statuses.get("festering", 0)) >= 1, "its two tendrils came with it, and its Miasma festers the party")
 
 func charge_and_release() -> void:
 	## The Prismarch's Gather Light: it takes half until it acts again, then throws everything
@@ -1066,7 +1108,7 @@ func a_bosss_brood_runs() -> void:
 	p.foe.block = 0
 	p.foe.hp = 5
 	var prism_blow: Dictionary = hit(p, 500)
-	check(prism_blow.get("routed", []).size() == 3 and str(p.state.outcome) == "victory", "the Prismarch's prisms leave with it")
+	check(prism_blow.get("routed", []).size() == 2 and str(p.state.outcome) == "victory", "the Prismarch's prisms leave with it")
 	var c: Dictionary = setup(["THE_HOLLOW_CROWN"])
 	var magpies: Array = DeepBattle.summon(c.state, c.foe, "GILDED_MAGPIE", 2, c.rng.creatures)
 	DeepBattle.enemy(c.state, str(magpies[0])).stolen_gold = 12

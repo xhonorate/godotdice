@@ -272,6 +272,12 @@ func _test_director() -> void:
 	for anim in ["bite", "breath", "drill", "cast", ""]:
 		check(DeepSoundBank.known(DeepSoundBank.blow_sound(anim)), "a creature's move lands as a sound in the bank: " + anim)
 	check(DeepSoundBank.blow_sound("bite") == "hit_bite" and DeepSoundBank.blow_sound("cast") == "enemy_strike", "a blow is named for its move, a cast is the plain strike")
+	check(DeepAudio.dry("ui_tap") and DeepAudio.dry("tick_white") and DeepAudio.dry("tally_mult") and DeepAudio.dry("reel_tick"), "the controls and the count are played dry")
+	check(not DeepAudio.dry("hit_bite") and not DeepAudio.dry("footstep") and not DeepAudio.dry("victory"), "blows, steps and the big moments are played in the room")
+	for name in DeepAudio.DRY:
+		check(DeepSoundBank.known(name), "a dry sound is in the bank: " + name)
+	check(float(DeepMusic.SFX_SEND.reverb) < float(DeepMusic.MUSIC_SEND.reverb) and float(DeepMusic.SFX_SEND.echo) < float(DeepMusic.MUSIC_SEND.echo) and not bool(DeepMusic.SFX_SEND.repeats), "the effects hear less of the room than the music, and one slap of it")
+	check(DeepSynth.RATE >= 44100, "the bank is written at full bandwidth, so a crack keeps its top")
 	check(DeepMusic.heat("explore") == 0.0 and DeepMusic.heat("fight") > 0.0 and DeepMusic.heat("warden") > DeepMusic.heat("elite") and DeepMusic.heat("elite") > DeepMusic.heat("fight"), "the bus runs hotter the bigger the fight")
 	check(DeepMusic.cutoff_for(1.0, 0.0) < 8000.0 and DeepMusic.cutoff_for(1.0, 0.5) >= DeepMusic.OPEN_CUTOFF - 1.0 and DeepMusic.cutoff_for(0.0, 0.0) >= DeepMusic.OPEN_CUTOFF - 1.0, "the calm is dark in a mine, open at home, and a fight opens it")
 	check(not DeepMusic.lifts("quarry_lantern", "fight") and DeepMusic.lifts("quarry_lantern", "warden") == bool(DeepScore.track("quarry_lantern").get("warden_lift", false)), "only a Warden lifts the key, and only for a piece that asks")

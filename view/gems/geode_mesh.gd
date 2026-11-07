@@ -3,13 +3,14 @@ extends RefCounted
 ## made as two halves that meet along a jagged seam, so it can crack along that seam and fall
 ## open. `geode_view.gd` lights it and plays it out.
 ##
-## The rind is a sphere sampled in rings about the X axis, swollen by one scale of noise and
-## knobbed all over by another, the way a real geode's crust is, and shaded smooth: the grit
-## comes from the material, not from the facets. Its tone is darker in the creases between
-## the knobs and lighter on them. The seam is the ring halfway round, a little off true at
-## every point. Each half closes over its own side of it with its face: the rind in section,
-## a thin pale line and a band of agate, an edge of quartz, and behind it the hollow, cut in
-## broad facets like the underside of a stone, with a few large crystal points in it.
+## The rind is a lump of rock the way the mine's rocks are lumps (November 6, 2026): rings
+## about the X axis of a few flat facets each, every corner pushed in or out of the rock by
+## its own throw of the dice and the whole swollen by a scale of noise, flat-shaded with one
+## tone a facet, darker down in the creases and lighter on the knobs. The seam is the ring
+## halfway round, sampled finely between its corners and a little off true at every point.
+## Each half closes over its own side of it with its face: the rind in section, a thin pale
+## line and a band of agate, an edge of quartz, and behind it the hollow, cut in broad facets
+## like the underside of a stone, with a few large crystal points in it.
 ##
 ## Each mine's rock has its own rind: pale limestone from the Quarry, wet mossy stone from the
 ## Seeps, crystal spurs breaking out of the Glass Veins' rock, fungus caps from the Warrens,
@@ -21,12 +22,20 @@ extends RefCounted
 ## x = 0, the left half on -x and the right on +x, +y up and +z toward the viewer. Pure
 ## geometry: nothing here touches the scene tree, and the same Geode always gets the same rock.
 
-## Rings from a pole to the seam, and points round each ring.
-const RINGS := 12
+## Rings from a pole to the seam, and flat facets round each ring (five rings and ten facets
+## a ring over the whole lump, each ring turned half a facet from the last so the facets
+## are triangles and kites, not a grid).
+const RINGS := 3
+const FACETS := 10
+## Points round the seam: the seam, the face's bands and the cracks are sampled this finely,
+## between the facets' corners.
 const SEGMENTS := 48
 ## How far the swells push the rind in and out, and the knobs on them.
 const SWELLS := 0.085
 const KNOBS := 0.055
+## How far each corner of the rind is thrown in or out of the rock on its own, as a share of
+## the radius: no two lumps are alike.
+const JITTER := 0.05
 ## How far the seam wanders off its plane, in radians at most.
 const SEAM_JAG := 0.1
 ## The face, as fractions of the rind's section: where the rind ends, the pale line, the band
@@ -132,39 +141,61 @@ static func cut(shelf_geode: Dictionary, tone: Color) -> Dictionary:
 	for j in range(SEGMENTS):
 		var smooth: float = 0.5 * float(wander[j]) + 0.25 * (float(wander[(j + SEGMENTS - 1) % SEGMENTS]) + float(wander[(j + 1) % SEGMENTS]))
 		seam_polar.append(PI * 0.5 + smooth * SEAM_JAG)
-	## The rind's points, ring by ring from the left pole (0) through the seam (RINGS) to the
-	## right pole (2 * RINGS), with how far each stands out from the centre.
-	var grid: Array = []
-	var lifts: Array = []
+	## The rind's rings, from the left pole through the seam to the right pole: each a list of
+	## points, the turn each sits at (so rings of different counts can be stitched), and how
+	## far each stands out from the centre. The seam's corners are the facets' corners; the
+	## seam itself runs between them, sampled finely, and wanders off its plane as it goes.
+	var rings: Array = []
 	for i in range(2 * RINGS + 1):
-		var row: Array = []
-		var row_lift: Array = []
+		var ring: Dictionary = {"points": [], "turns": [], "lifts": []}
 		if i == 0 or i == 2 * RINGS:
 			var pole := Vector3(-1.0 if i == 0 else 1.0, 0.0, 0.0)
-			var r: float = _radius(shape, pole)
-			row.append(pole * r * scale)
-			row_lift.append(r)
-		else:
+			var r: float = _radius(shape, pole) * (1.0 + rng.randf_range(-JITTER, JITTER))
+			ring.points.append(pole * r * scale)
+			ring.turns.append(0.0)
+			ring.lifts.append(r)
+		elif i == RINGS:
+			var corners: Array = []
+			var corner_lifts: Array = []
+			for k in range(FACETS):
+				var d := _direction(PI * 0.5, TAU * float(k) / float(FACETS))
+				var r: float = _radius(shape, d) * (1.0 + rng.randf_range(-JITTER, JITTER))
+				corners.append(d * r * scale)
+				corner_lifts.append(r)
 			for j in range(SEGMENTS):
-				var turn: float = TAU * (float(j) + rng.randf_range(-0.15, 0.15)) / float(SEGMENTS)
+				var along: float = float(j) * float(FACETS) / float(SEGMENTS)
+				var k: int = int(floor(along)) % FACETS
+				var f: float = along - floor(along)
+				var at: Vector3 = (corners[k] as Vector3).lerp(corners[(k + 1) % FACETS], f)
+				## The jag: off the plane of the seam, the way its polar angle says.
+				at.x = -cos(float(seam_polar[j])) * at.length()
+				ring.points.append(at)
+				ring.turns.append(float(j) / float(SEGMENTS))
+				ring.lifts.append(lerpf(float(corner_lifts[k]), float(corner_lifts[(k + 1) % FACETS]), f))
+		else:
+			## Every other ring turned half a facet, so the facets between rings are triangles
+			## and kites rather than a grid; each corner a little off its mark either way.
+			var offset: float = 0.5 if i % 2 == 0 else 0.0
+			for k in range(FACETS):
+				var turn: float = TAU * (float(k) + offset + rng.randf_range(-0.14, 0.14)) / float(FACETS)
+				var seam_at: float = _seam_polar_at(seam_polar, turn)
 				var polar: float
-				if i <= RINGS:
-					polar = float(seam_polar[j]) * float(i) / float(RINGS)
+				if i < RINGS:
+					polar = seam_at * float(i) / float(RINGS)
 				else:
-					polar = float(seam_polar[j]) + (PI - float(seam_polar[j])) * float(i - RINGS) / float(RINGS)
-				if i != RINGS:
-					polar += rng.randf_range(-0.12, 0.12) * PI / float(2 * RINGS)
+					polar = seam_at + (PI - seam_at) * float(i - RINGS) / float(RINGS)
+				polar += rng.randf_range(-0.1, 0.1) * PI * 0.5 / float(RINGS)
 				var d := _direction(polar, turn)
-				var r: float = _radius(shape, d)
-				row.append(d * r * scale)
-				row_lift.append(r)
-		grid.append(row)
-		lifts.append(row_lift)
+				var r: float = _radius(shape, d) * (1.0 + rng.randf_range(-JITTER, JITTER))
+				ring.points.append(d * r * scale)
+				ring.turns.append(fposmod(turn, TAU) / TAU)
+				ring.lifts.append(r)
+		rings.append(ring)
 	var parts: Array = [ {}, {}]
-	_rind(parts, grid, lifts, look, shape, rng)
+	_rind(parts, rings, look, shape, rng)
 	## The face: the seam, then each band's edge inside it, closing in on the mouth of the
 	## hollow. The bands wander a little, as agate does, but never cross.
-	var seam_row: Array = grid[RINGS]
+	var seam_row: Array = rings[RINGS].points
 	var loops: Array = [seam_row]
 	var mouth_share: float = float(BANDS[BANDS.size() - 1])
 	for b in range(BANDS.size()):
@@ -226,8 +257,7 @@ static func cut(shelf_geode: Dictionary, tone: Color) -> Dictionary:
 		for step in range(5):
 			polar += float(side) * rng.randf_range(0.06, 0.11)
 			turn += rng.randf_range(-0.1, 0.1)
-			var d := _direction(polar, turn)
-			points.append(d * _radius(shape, d) * scale * CRACK_LIFT)
+			points.append(_on_rind(shape, _direction(polar, turn)) * CRACK_LIFT)
 		branches.append({"side": side, "points": points})
 	return {"key": key_of(shelf_geode, tone), "parts": parts, "seam": seam_front, "branches": branches, "scale": scale, "look": look_key,
 		"spur_tone": spur_tone, "glow_tone": Color(str(look.get("glow", "ffffff")))}
@@ -261,61 +291,72 @@ static func _strip(out: Dictionary, surface: String, points: PackedVector3Array,
 
 # --- the rind ---------------------------------------------------------------------------------------
 
-static func _rind(parts: Array, grid: Array, lifts: Array, look: Dictionary, shape: Dictionary, rng: RandomNumberGenerator) -> void:
-	## The crust, half by half, shaded smooth: each point's normal is the average of the
-	## facets round it, the seam's taken from both halves so it does not show until it cracks.
-	var tris: Array = [[], []]
-	for side in [-1, 1]:
-		var first: int = 0 if side < 0 else RINGS
-		for i in range(first, first + RINGS):
-			for j in range(SEGMENTS):
-				var n: int = (j + 1) % SEGMENTS
-				var corners: Array
-				if grid[i].size() == 1:
-					corners = [[[i, 0], [i + 1, j], [i + 1, n]]]
-				elif grid[i + 1].size() == 1:
-					corners = [[[i, j], [i, n], [i + 1, 0]]]
-				elif (i + j) % 2 == 0:
-					corners = [[[i, j], [i, n], [i + 1, j]], [[i, n], [i + 1, n], [i + 1, j]]]
-				else:
-					corners = [[[i, j], [i + 1, n], [i + 1, j]], [[i, j], [i, n], [i + 1, n]]]
-				for tri in corners:
-					tris[_index(side)].append(tri)
-	var normals: Dictionary = {}
-	for half in tris:
-		for tri in half:
-			var a: Vector3 = grid[tri[0][0]][tri[0][1]]
-			var b: Vector3 = grid[tri[1][0]][tri[1][1]]
-			var c: Vector3 = grid[tri[2][0]][tri[2][1]]
-			var facet: Vector3 = (b - a).cross(c - a)
-			if facet.dot(a + b + c) < 0.0:
-				facet = - facet
-			for corner in tri:
-				var at: Vector2i = Vector2i(int(corner[0]), int(corner[1]))
-				normals[at] = (normals.get(at, Vector3.ZERO) as Vector3) + facet
-	var tones: Dictionary = {}
-	for at in normals:
-		var point: Vector3 = grid[at.x][at.y]
-		var normal: Vector3 = (normals[at] as Vector3).normalized()
-		normals[at] = normal
-		tones[at] = _rind_tone(look, shape, rng, point, normal, float(lifts[at.x][at.y]))
-	for index in range(2):
-		var out: Dictionary = parts[index]
-		for tri in tris[index]:
-			var keys: Array = []
-			for corner in tri:
-				keys.append(Vector2i(int(corner[0]), int(corner[1])))
-			_smooth(out, "rind", [grid[keys[0].x][keys[0].y], grid[keys[1].x][keys[1].y], grid[keys[2].x][keys[2].y]],
-				[normals[keys[0]], normals[keys[1]], normals[keys[2]]], [tones[keys[0]], tones[keys[1]], tones[keys[2]]])
+static func _rind(parts: Array, rings: Array, look: Dictionary, shape: Dictionary, rng: RandomNumberGenerator) -> void:
+	## The crust, half by half, in flat facets: a fan at each pole, and between one ring and
+	## the next a band of facets walked round both rings together. Each facet is one tone and
+	## one normal, so the lump reads as cut rock, and each is kept (`shape.facets`) so what
+	## grows on the crust can find its surface.
+	shape.facets = []
+	for i in range(2 * RINGS):
+		var out: Dictionary = parts[0 if i < RINGS else 1]
+		var outer: Dictionary = rings[i]
+		var inner: Dictionary = rings[i + 1]
+		if outer.points.size() == 1 or inner.points.size() == 1:
+			var pole: Dictionary = outer if outer.points.size() == 1 else inner
+			var round_it: Dictionary = inner if outer.points.size() == 1 else outer
+			var count: int = round_it.points.size()
+			for k in range(count):
+				var n: int = (k + 1) % count
+				_facet(out, shape, look, rng, pole.points[0], round_it.points[k], round_it.points[n],
+					(float(pole.lifts[0]) + float(round_it.lifts[k]) + float(round_it.lifts[n])) / 3.0)
+			continue
+		## Walked round both rings by turn, always stepping along whichever is behind.
+		var a: Array = outer.points
+		var ta: Array = outer.turns
+		var b: Array = inner.points
+		var tb: Array = inner.turns
+		var p_i: int = 0
+		var q_k: int = 0
+		while p_i < a.size() or q_k < b.size():
+			var next_a: float = _unwrapped(ta, p_i + 1)
+			var next_b: float = _unwrapped(tb, q_k + 1)
+			var p: Vector3 = a[p_i % a.size()]
+			var q: Vector3 = b[q_k % b.size()]
+			if q_k >= b.size() or (p_i < a.size() and next_a <= next_b):
+				var r_i: int = (p_i + 1) % a.size()
+				_facet(out, shape, look, rng, p, a[r_i], q, (float(outer.lifts[p_i % a.size()]) + float(outer.lifts[r_i]) + float(inner.lifts[q_k % b.size()])) / 3.0)
+				p_i += 1
+			else:
+				var r_k: int = (q_k + 1) % b.size()
+				_facet(out, shape, look, rng, p, b[r_k], q, (float(outer.lifts[p_i % a.size()]) + float(inner.lifts[r_k]) + float(inner.lifts[q_k % b.size()])) / 3.0)
+				q_k += 1
+
+static func _facet(out: Dictionary, shape: Dictionary, look: Dictionary, rng: RandomNumberGenerator, a: Vector3, b: Vector3, c: Vector3, lift: float) -> void:
+	## One flat facet of the crust, facing out, toned for where it is.
+	var normal: Vector3 = (b - a).cross(c - a)
+	if normal.length_squared() < 1e-14:
+		return
+	var centre: Vector3 = (a + b + c) / 3.0
+	normal = normal.normalized()
+	if normal.dot(centre) < 0.0:
+		normal = - normal
+	_tri(out, "rind", a, b, c, _rind_tone(look, shape, rng, centre, normal, lift), centre)
+	(shape.facets as Array).append([a, b, c, centre.normalized()])
+
+static func _seam_polar_at(seam_polar: Array, turn: float) -> float:
+	## The seam's polar angle at a turn, between the two seam points either side of it.
+	var at: float = fposmod(turn, TAU) / TAU * float(SEGMENTS)
+	var j0: int = int(floor(at)) % SEGMENTS
+	return lerpf(float(seam_polar[j0]), float(seam_polar[(j0 + 1) % SEGMENTS]), at - floor(at))
 
 static func _rind_tone(look: Dictionary, shape: Dictionary, rng: RandomNumberGenerator, point: Vector3, normal: Vector3, lift: float) -> Color:
-	## A point of the crust: dark down in the creases, catching the light on the knobs, and
-	## whatever its mine adds.
+	## A facet of the crust: dark down in the creases, catching the light on the knobs, each
+	## a shade off its neighbours as the mine's rocks are, and whatever its mine adds.
 	var knob: float = _knob(shape, point.normalized())
 	var base := Color(str(look.rind))
 	var tone: Color = base.lerp(Color(str(look.dip)), clampf((0.42 - knob) * 1.3, 0.0, 0.75))
 	tone = tone.lightened(clampf((lift - 1.0) / SWELLS, 0.0, 1.0) * 0.1)
-	var jitter: float = rng.randf_range(-0.05, 0.05)
+	var jitter: float = rng.randf_range(-0.08, 0.08)
 	tone = tone.lightened(jitter) if jitter > 0.0 else tone.darkened(-jitter)
 	if rng.randf() < 0.06:
 		tone = tone.lerp(Color(str(look.fleck)), 0.35)
@@ -494,7 +535,20 @@ static func _spot(rng: RandomNumberGenerator, upward: float) -> Vector3:
 	return Vector3(0.7, 0.5, 0.5).normalized()
 
 static func _on_rind(shape: Dictionary, d: Vector3) -> Vector3:
-	return d * _radius(shape, d) * (shape.scale as Vector3)
+	## The point of the crust in direction `d`: where a line from the centre meets its facets,
+	## or the smooth rock's radius if it slips between them.
+	var dir: Vector3 = d.normalized()
+	var found: Variant = null
+	var farthest: float = -1.0
+	for facet in shape.get("facets", []):
+		## Only the facets anywhere near that way are tried.
+		if (facet[3] as Vector3).dot(dir) < 0.6:
+			continue
+		var hit: Variant = Geometry3D.ray_intersects_triangle(Vector3.ZERO, dir, facet[0], facet[1], facet[2])
+		if hit is Vector3 and (hit as Vector3).length_squared() > farthest:
+			farthest = (hit as Vector3).length_squared()
+			found = hit
+	return found if found is Vector3 else dir * _radius(shape, dir) * (shape.scale as Vector3)
 
 static func _spurs(parts: Array, shape: Dictionary, seam_polar: Array, rng: RandomNumberGenerator, tone: Color) -> void:
 	## The Glass Veins: clusters of crystal breaking out through the rind.
@@ -615,7 +669,7 @@ static func _straps(parts: Array, shape: Dictionary, seam_polar: Array) -> void:
 		var points: Array = []
 		for k in range(steps + 1):
 			var d: Vector3 = start.rotated(normal, TAU * float(k) / float(steps))
-			points.append(d * (_radius(shape, d) + 0.022) * (shape.scale as Vector3))
+			points.append(_on_rind(shape, d) + d * 0.022)
 		for k in range(steps):
 			var a: Vector3 = points[k]
 			var b: Vector3 = points[k + 1]

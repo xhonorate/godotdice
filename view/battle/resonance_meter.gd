@@ -71,6 +71,14 @@ func _init() -> void:
 	number = DeepUi.label(lift, "0", 21, GREY)
 	number.add_theme_font_override("font", DeepUi.bold_font())
 	number.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if DeepUi.phone:
+		## The phone keeps the mark and the number, and the light along the rail; the word goes
+		## (docs/PHONE_UI.md, board sys-cut): the mark and the plate say what it is.
+		custom_minimum_size = Vector2(0, DeepUi.pt(13))
+		word.visible = false
+		icon.custom_minimum_size = Vector2(DeepUi.pt(11), DeepUi.pt(11))
+		DeepUi.set_text_size(number, 12)
+		lift.add_theme_constant_override("margin_bottom", 0)
 	box.resized.connect(_place_box)
 	resized.connect(_place_box)
 	## Each strand its own wavelength, pace, height and faintness, laid once so the bundle

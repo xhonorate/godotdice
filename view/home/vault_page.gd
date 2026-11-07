@@ -19,6 +19,9 @@ const TILE: int = 84
 const COLUMNS: int = 9
 
 static func build(home: Control, content: VBoxContainer) -> void:
+	if DeepUi.phone:
+		load("res://view/phone/vault_phone.gd").build(home, content)
+		return
 	var tray: Array = home.profile.get("tray", [])
 	if tray.is_empty() and home._vault_view == "unappraised":
 		home._vault_view = "collection"

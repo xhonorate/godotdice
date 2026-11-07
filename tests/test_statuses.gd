@@ -151,22 +151,75 @@ func dread_and_cloud() -> void:
 	check(int(f.foe.clouded_move) == -1 and not f.foe.move_states.has("clouded"), "expired Clouded restores the move")
 
 func combo_breaker() -> void:
+	## Three actions running lost to Stun: on the third it sheds everything on it and acts after
+	## all, in that same enemy turn; through the party's next turn nothing that would stop it
+	## acting lands (Poison and Curse do); and on their second turn a Stun lands again.
+	var skips: Callable = func(events: Array) -> Array: return events.filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "skip")
+	var acted: Callable = func(events: Array) -> bool: return events.any(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_roll")
+	var first_of: Callable = func(events: Array, kind: String) -> int:
+		for at in range(events.size()):
+			if str(events[at].get("kind", "")) == kind:
+				return at
+		return -1
 	for key in ["CAVE_TICK", "THE_FOREMAN"]:
 		var f: Dictionary = setup(key)
 		f.foe.statuses.ward = 0
 		apply(f, "stun", 20)
-		for i in range(3):
+		apply(f, "poison", 5)
+		for i in range(2):
 			var events: Array = turn(f)
-			check(not events.any(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_roll"), "%s misses stunned turn %d" % [key, i + 1])
-		check(int(f.foe.statuses.get("stun", 0)) == 0 and int(f.foe.statuses.get("combo_breaker", 0)) == 1, "third stun clears all excess stacks and grants immunity")
+			check(not acted.call(events), "%s misses stunned turn %d" % [key, i + 1])
+			var skipped: Array = skips.call(events)
+			check(skipped.size() == 1 and not bool(skipped[0].get("combo_breaker", false)) and not skipped[0].has("acts") and str(skipped[0].get("why", "")) == "stun",
+				"%s's skip on turn %d is a plain one: no Combo Breaker, no acts (%s)" % [key, i + 1, str(skipped)])
+		## The third: the skip event still comes (the screen floats "Combo Breaker" on it), says
+		## why, and says the creature acts; its action follows it in the same turn, opened once.
+		var third: Array = turn(f)
+		var broke: Array = skips.call(third)
+		check(broke.size() == 1 and bool(broke[0].get("combo_breaker", false)) and bool(broke[0].get("acts", false)) and str(broke[0].get("why", "")) == "stun",
+			"%s's third skip says Combo Breaker, why stun, and that it acts: %s" % [key, str(broke)])
+		check(acted.call(third), "%s breaks free and acts on the third turn" % key)
+		check(first_of.call(third, "skip") < first_of.call(third, "enemy_begin") and first_of.call(third, "enemy_begin") < first_of.call(third, "enemy_roll")
+			and third.filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_begin").size() == 1,
+			"%s: the skip, then one opening, then its dice" % key)
+		check(int(f.foe.statuses.get("stun", 0)) == 0 and int(f.foe.statuses.get("combo_breaker", 0)) == 1, "the third stun sheds every Stun and leaves Combo Breaker standing through the party's next turn")
+		check(int(f.foe.statuses.get("poison", 0)) == 0, "and the Poison on it is shed with them")
+		## The party's next turn: every stopper is turned away, and no Ward is spent on it.
 		f.foe.statuses.ward = 1
 		check(bool(apply(f, "stun", 100)[0].get("resisted", false)) and int(f.foe.statuses.ward) == 1, "Combo Breaker rejects Stun without spending Ward")
-		var fourth: Array = turn(f)
-		check(fourth.any(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "enemy_roll"), "%s must act on the fourth turn" % key)
-		check(int(f.foe.statuses.get("combo_breaker", 0)) == 0, "immunity expires after the protected turn")
+		check(bool(apply(f, "die_steal", 5)[0].get("resisted", false)) and int(f.foe.stolen_dice) == 0 and int(f.foe.statuses.ward) == 1, "and Bound")
+		check(bool(apply(f, "clouded", 2)[0].get("resisted", false)) and int(f.foe.statuses.get("clouded", 0)) == 0 and int(f.foe.statuses.ward) == 1, "and Clouded")
+		check(bool(apply(f, "dice_dread", 2)[0].get("resisted", false)) and int(f.foe.dread_turns) == 0 and int(f.foe.statuses.ward) == 1, "and Dread")
 		f.foe.statuses.ward = 0
+		apply(f, "poison", 2)
+		apply(f, "curse", 1)
+		check(int(f.foe.statuses.get("poison", 0)) == 2 and int(f.foe.statuses.get("curse", 0)) == 1, "Poison and Curse land again straight after")
+		check(acted.call(turn(f)), "%s acts on the fourth turn" % key)
+		check(int(f.foe.statuses.get("combo_breaker", 0)) == 0, "and the immunity is gone before the party's second turn")
 		apply(f, "stun", 1)
-		check(int(f.foe.statuses.stun) == 1, "Stun can land again after the protected turn")
+		check(int(f.foe.statuses.get("stun", 0)) == 1, "Stun lands again once it is")
+		check(not acted.call(turn(f)), "and %s misses the fifth turn to it" % key)
+	## Three actions lost to Bound proc it too, and so does a mix of Bound and Stun.
+	for order in [["bound", "bound", "bound"], ["bound", "stun", "bound"], ["stun", "bound", "stun"]]:
+		var name: String = "/".join(order)
+		var g: Dictionary = setup()
+		g.foe.statuses.ward = 0
+		for i in range(3):
+			if str(order[i]) == "bound":
+				apply(g, "die_steal", g.foe.dice.size())
+			else:
+				apply(g, "stun", 1)
+			var events: Array = turn(g)
+			var skipped: Array = skips.call(events)
+			check(skipped.size() == 1 and str(skipped[0].get("why", "")) == str(order[i]), "%s: turn %d is skipped to %s" % [name, i + 1, order[i]])
+			check(bool(skipped[0].get("combo_breaker", false)) == (i == 2) and skipped[0].has("acts") == (i == 2), "%s procs Combo Breaker on the third turn only (turn %d)" % [name, i + 1])
+			check(acted.call(events) == (i == 2), "%s: the first two actions are lost and the third is taken (turn %d)" % [name, i + 1])
+		check(int(g.foe.statuses.get("combo_breaker", 0)) == 1 and int(g.foe.stolen_dice) == 0, "%s leaves Combo Breaker standing and no bound dice" % name)
+		check(bool(apply(g, "die_steal", 1)[0].get("resisted", false)) and int(g.foe.stolen_dice) == 0, "Bound is resisted while it stands")
+		check(bool(apply(g, "stun", 1)[0].get("resisted", false)) and int(g.foe.statuses.get("stun", 0)) == 0, "and so is Stun")
+		check(acted.call(turn(g)) and int(g.foe.statuses.get("combo_breaker", 0)) == 0, "%s: the creature acts on the fourth turn, and then the immunity is gone" % name)
+		apply(g, "die_steal", g.foe.dice.size())
+		check(int(g.foe.stolen_dice) == g.foe.dice.size(), "Bound lands again")
 	var f: Dictionary = setup()
 	apply(f, "stun", 2)
 	turn(f)
@@ -174,7 +227,7 @@ func combo_breaker() -> void:
 	turn(f)
 	apply(f, "stun", 1)
 	turn(f)
-	check(int(f.foe.stun_streak) == 1 and int(f.foe.statuses.get("combo_breaker", 0)) == 0, "an ordinary action breaks the consecutive-stun streak")
+	check(int(f.foe.skip_streak) == 1 and int(f.foe.statuses.get("combo_breaker", 0)) == 0, "an ordinary action breaks the streak of lost actions")
 
 func curse_and_marked() -> void:
 	var f: Dictionary = setup()
@@ -259,7 +312,7 @@ func retain_and_regeneration() -> void:
 	apply(f, "retain", 100)
 	check(int(f.foe.statuses.retain) == 100, "a creature's Retain grows with it: no 20-point cap")
 	apply(f, "retain", 100, false)
-	check(int(f.player.statuses.retain) == 20, "a player's Retain keeps its 20-point cap")
+	check(int(f.player.statuses.retain) == 100, "a player's Retain has no cap either (the 20 came off Nov 5 2026)")
 	f = setup()
 	f.foe.hp = 990
 	f.player.hp = 990
@@ -389,14 +442,13 @@ func gem_integrations() -> void:
 			DeepBattle._settle_marks(f.state)
 			check(int(apply(f, "damage", 20)[0].raw) == 20, "and nothing after that gem")
 			cast(f, key, true)
-			check(int(f.foe.statuses.marked) in [3, 6], "Flawless Etch adds the third mark before whole-number scaling")
+			check(int(f.foe.statuses.marked) in [2, 4], "Flawless Etch lays its two marks, a heavy one's over again")
 		f = setup("THE_FOREMAN")
 		cast(f, key)
 		check(int(f.foe.statuses.ward) == 0 and int(f.foe.statuses.get("clouded" if key == "MIST" else "marked", 0)) == 0, "opening Ward blocks %s" % key)
-	## Five carats and Flawless make Bastion's 10 Retain worth 30, capped at 20, and Mend's
+	## Five carats and Flawless make Bastion's 10 Retain worth 30 (no cap), and Mend's
 	## Regeneration three times what its Flawless line reads.
-	var mend_regen: int = int(DeepContent.skill("MEND").flawless.effects[0].amount) * 3
-	for spec in [["AEGIS", "ward", [1, 2]], ["BASTION", "retain", [20]], ["MEND", "regeneration", [mend_regen]], ["ANCHOR", "spikes", [6]], ["PRISM", "charged", [2, 4]]]:
+	for spec in [["AEGIS", "ward", [1, 2]], ["PRISM", "charged", [5, 8, 10, 13]]]:
 		var f: Dictionary = setup("CAVE_TICK", 2)
 		var values: Array = [1, 2, 3, 4, 5] if spec[0] == "AEGIS" else [5, 5, 5, 2, 2]
 		f.player.hp = 900

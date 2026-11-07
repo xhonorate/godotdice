@@ -90,6 +90,9 @@ class Arrival extends Node:
 		queue_free()
 
 static func build(home: Control, content: VBoxContainer) -> void:
+	if DeepUi.phone:
+		load("res://view/phone/bestiary_phone.gd").build(home, content)
+		return
 	var order: Array = DeepBestiary.order()
 	if not order.has(home._bestiary_pick) and not order.is_empty():
 		home._bestiary_pick = _first_pick(home, order)
@@ -97,6 +100,13 @@ static func build(home: Control, content: VBoxContainer) -> void:
 	_head(home, content, order)
 	var columns := DeepUi.hbox(content, 18)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	list_frame(home, columns)
+	var detail_card := DeepUi.card(columns, DeepUi.LINE, 16)
+	detail_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	home.region(DeepUi.hbox(detail_card, 22), "bestiary_detail", func(holder: Control) -> void: _detail(home, holder))
+	home.enter(detail_card, 0.1)
+
+static func list_frame(home: Control, columns: HBoxContainer) -> PanelContainer:
 	## The list's frame is the map's: dark, faceted, the strata running to its edges.
 	var frame := PanelContainer.new()
 	var style := StyleBoxFlat.new()
@@ -131,10 +141,7 @@ static func build(home: Control, content: VBoxContainer) -> void:
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	home.region(list, "bestiary_list", func(holder: Control) -> void: _list(home, holder))
 	home.enter(frame, 0.05)
-	var detail_card := DeepUi.card(columns, DeepUi.LINE, 16)
-	detail_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	home.region(DeepUi.hbox(detail_card, 22), "bestiary_detail", func(holder: Control) -> void: _detail(home, holder))
-	home.enter(detail_card, 0.1)
+	return frame
 
 static func _first_pick(home: Control, order: Array) -> String:
 	## A new creature first, then the deepest the player has met, then the first of all.
@@ -246,25 +253,28 @@ static func _stratum(home: Control, list: Control, mine_key: String, index: int,
 	var band := Stratum.new(mine_key, index, open, rubble)
 	band.name = "Stratum_" + mine_key
 	list.add_child(band)
-	var box := DeepUi.vbox(band, 10)
-	var head := DeepUi.hbox(box, 10)
+	var box := DeepUi.vbox(band, int(DeepUi.pt(4)) if DeepUi.phone else 10)
+	var head := DeepUi.hbox(box, int(DeepUi.pt(4)) if DeepUi.phone else 10)
 	head.add_child(Badge.new(MineMap.numeral(mine_key), band.tone, open))
 	var names := DeepUi.vbox(head, 0)
 	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.title(names, str(mine.get("name", mine_key)), 19, DeepUi.PAPER if open else DeepUi.DIM)
+	DeepUi.title(names, str(mine.get("name", mine_key)), 15 if DeepUi.phone else 19, DeepUi.PAPER if open else DeepUi.DIM)
 	var keys: Array = DeepBestiary.in_mine(mine_key)
 	var state: String = "SEALED" if not open else ("BEATEN" if bool(record.get("boss", false)) else "OPEN")
-	var words := DeepUi.label(names, "%s  ·  %s  ·  %d OF %d MET" % [str(Biomes.for_depth(mine_key, 1).get("name", "")).to_upper(), state,
-		DeepBestiary.known_count(home.profile, keys), keys.size()], 12, Color(band.tone, 0.85 if open else 0.45))
+	## The phone's band says only how it stands and how many are met (the biome's name would
+	## run past the list's width).
+	var said: String = ("%s  ·  %d OF %d MET" % [state, DeepBestiary.known_count(home.profile, keys), keys.size()]) if DeepUi.phone else ("%s  ·  %s  ·  %d OF %d MET" % [str(Biomes.for_depth(mine_key, 1).get("name", "")).to_upper(), state,
+		DeepBestiary.known_count(home.profile, keys), keys.size()])
+	var words := DeepUi.label(names, said, 11 if DeepUi.phone else 12, Color(band.tone, 0.85 if open else 0.45))
 	words.add_theme_font_override("font", DeepUi.caps_font())
-	var fresh := DeepUi.chip(head, "0 NEW", home.PIP_NEW, 12)
+	var fresh := DeepUi.chip(head, "0 NEW", home.PIP_NEW, 11 if DeepUi.phone else 12)
 	fresh.name = "Fresh"
 	fresh.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_count_fresh(home, band)
 	var grid := GridContainer.new()
-	grid.columns = COLUMNS
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
+	grid.columns = 3 if DeepUi.phone else COLUMNS
+	grid.add_theme_constant_override("h_separation", int(DeepUi.pt(4)) if DeepUi.phone else 10)
+	grid.add_theme_constant_override("v_separation", int(DeepUi.pt(4)) if DeepUi.phone else 10)
 	box.add_child(grid)
 	for key in keys:
 		_tile(home, grid, str(key))
@@ -284,7 +294,7 @@ static func _tile_style(home: Control, key: String) -> StyleBoxFlat:
 	var known: bool = DeepBestiary.known(home.profile, key)
 	var role: String = DeepBestiary.role(key)
 	var tone: Color = ROLE_WORDS[role][2] if ROLE_WORDS.has(role) else DeepUi.LINE_HI
-	var style := DeepUi.raised(Color(DeepUi.SLATE, 0.92), Color(tone, 0.5) if known else Color(DeepUi.LINE, 0.6), 12, 8, 0.3)
+	var style := DeepUi.raised(Color(DeepUi.SLATE, 0.92), Color(tone, 0.5) if known else Color(DeepUi.LINE, 0.6), 12, 5 if DeepUi.phone else 8, 0.3)
 	style.border_width_bottom = 3
 	if key == home._bestiary_pick:
 		style.border_color = DeepUi.ACCENT
@@ -333,8 +343,9 @@ static func _tile(home: Control, grid: GridContainer, key: String) -> void:
 	tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	grid.add_child(tile)
 	var column := DeepUi.vbox(tile, 4)
+	var edge: float = tile_edge()
 	var frame := Control.new()
-	frame.custom_minimum_size = Vector2(TILE, TILE)
+	frame.custom_minimum_size = Vector2(edge, edge)
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(frame)
 	var picture := TextureRect.new()
@@ -349,15 +360,15 @@ static func _tile(home: Control, grid: GridContainer, key: String) -> void:
 	frame.add_child(picture)
 	show_portrait(picture, key)
 	if not known:
-		var mark := DeepUi.icon(frame, "question", TILE * 0.32, Color(DeepUi.MUTED, 0.55))
+		var mark := DeepUi.icon(frame, "question", edge * 0.32, Color(DeepUi.MUTED, 0.55))
 		mark.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	elif ROLE_WORDS.has(role):
 		var badge := DeepUi.icon(frame, str(ROLE_WORDS[role][0]), 18, ROLE_WORDS[role][2])
-		badge.position = Vector2(TILE - 20, 0)
+		badge.position = Vector2(edge - 20, 0)
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if bool(record.get("fresh", false)):
-		var tag := DeepUi.chip(frame, "NEW", home.PIP_NEW, 12)
+		var tag := DeepUi.chip(frame, "NEW", home.PIP_NEW, 10 if DeepUi.phone else 12)
 		tag.name = "New"
 		tag.position = Vector2(-2, -2)
 		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -366,12 +377,17 @@ static func _tile(home: Control, grid: GridContainer, key: String) -> void:
 			if list != null:
 				_seen(home, list, key), CONNECT_ONE_SHOT)
 	var name: String = str(def.get("name", key)) if known else "???"
-	DeepUi.fit_label(column, name, 13, DeepUi.PAPER if known else DeepUi.DIM, TILE)
+	DeepUi.fit_label(column, name, 11 if DeepUi.phone else 13, DeepUi.PAPER if known else DeepUi.DIM, edge)
 	tile.tooltip_text = ("%s\nMet %d · Slain %d" % [name, int(record.get("met", 0)), int(record.get("slain", 0))]) if known else "Not met yet"
 	DeepUi.juice(tile, 1.04)
 	tile.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			pick(home, key))
+
+static func tile_edge() -> float:
+	## A creature's picture in the list: the desk's 96 pixels; on the phone three to a row of
+	## the 262 point list (board home-bestiary).
+	return DeepUi.pt(62) if DeepUi.phone else TILE
 
 class Stratum extends MarginContainer:
 	## One mine's band of the list, drawn as the map draws its strata: the mine's own rock
@@ -396,9 +412,9 @@ class Stratum extends MarginContainer:
 		rock = Color(Biomes.for_depth(mine_key, 1).rock).darkened(0.3 if open else 0.72)
 		mouse_filter = Control.MOUSE_FILTER_PASS
 		add_theme_constant_override("margin_left", 50)
-		add_theme_constant_override("margin_right", 14)
-		add_theme_constant_override("margin_top", 14)
-		add_theme_constant_override("margin_bottom", 16)
+		add_theme_constant_override("margin_right", 10 if DeepUi.phone else 14)
+		add_theme_constant_override("margin_top", 10 if DeepUi.phone else 14)
+		add_theme_constant_override("margin_bottom", 12 if DeepUi.phone else 16)
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 42 + at
 		for i in range(16):

@@ -18,9 +18,12 @@ export const PICKS = {
 	altar_hum: 'g', altar_fizzle: 'c', altar_make: 'g', transcendent: 'g',
 	geode_crack: 'g', jackpot: 'g', infinity: 'g', mirror: 'g',
 };
-// The game's sample rate: the synth in `view/audio/synth.gd` writes at 24 kHz and the mixer
-// resamples. Set before `synth.js` is loaded, so the two banks are compared like for like.
-export const GAME_RATE = 24000;
+// The game's sample rate for the sound bank: the synth in `view/audio/synth.gd` writes at
+// 44.1 kHz. Set before `synth.js` is loaded, so the two banks are compared like for like.
+export const GAME_RATE = 44100;
+// The rate the score is baked at. The strips in audio/music were written at it, and a piece's
+// length in samples is counted at it (`import.mjs` cuts a bounce to the same length).
+export const MUSIC_RATE = 24000;
 // The eight pieces of the score, by place, as `content/score.json` names them.
 export const PIECES = { HOME: 'home_bench', QUARRY: 'quarry_lantern', SEEPS: 'seeps_lanterns', GLASS_VEINS: 'glass_kaleidoscope', WARRENS: 'warrens_spores', FURNACE: 'furnace_choir', GEODE: 'geode_amethyst', RIFT: 'rift_void' };
 // Which spec in `synth.js` each piece is written from.

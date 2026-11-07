@@ -218,12 +218,26 @@ func etching() -> void:
 	force_faces(g.foe, 1, "Blast")
 	var blasts: Array = moves_named(turn(g), "Blast")
 	check(not blasts.is_empty() and blasts[0].effects.filter(func(r: Dictionary) -> bool: return str(r.kind) == "damage").size() == 3 * g.state.players.size(), "Blast hits three times a player")
-	## Raise the Rate turns every Tax face to Heavy Tax.
+	## Raise the Rate is a ladder: every Tax face to Heavy Tax, and only once no Tax is left
+	## (its second etching is a `fallback`), every Heavy Tax to Ruinous Tax.
 	var h: Dictionary = setup(["THE_ASSAYER"])
 	var taxes: int = _faces(h.foe, "Tax")
 	force(h.foe, 0, "Weigh")
-	DeepBattle._apply(h.state, h.foe, {"kind": "etch", "target": "self", "amount": 1, "from": "Tax", "to": "Heavy Tax", "count": 0}, h.rng.creatures)
-	check(_faces(h.foe, "Tax") == 0 and _faces(h.foe, "Heavy Tax") == taxes, "Raise the Rate turns every Tax face")
+	var ladder: Array = DeepCreatures.move_in(DeepCreatures.moves_for(h.foe), "Raise the Rate").effects
+	check(ladder.size() == 2 and bool(ladder[1].get("fallback", false)) and str(ladder[1].from) == "Heavy Tax" and str(ladder[1].to) == "Ruinous Tax", "its second rung is a fallback from Heavy Tax to Ruinous Tax")
+	var reactions: Dictionary = {}
+	for effect in ladder:
+		DeepBattle._apply(h.state, h.foe, effect, h.rng.creatures, "", reactions)
+	check(_faces(h.foe, "Tax") == 0 and _faces(h.foe, "Heavy Tax") == taxes and _faces(h.foe, "Ruinous Tax") == 0, "Raise the Rate turns every Tax face, and no Heavy Tax while a Tax stood")
+	reactions = {}
+	for effect in ladder:
+		DeepBattle._apply(h.state, h.foe, effect, h.rng.creatures, "", reactions)
+	check(_faces(h.foe, "Heavy Tax") == 0 and _faces(h.foe, "Ruinous Tax") == taxes, "and with no Tax left, every Heavy Tax face")
+	reactions = {}
+	var spent: Array = []
+	for effect in ladder:
+		spent.append_array(DeepBattle._apply(h.state, h.foe, effect, h.rng.creatures, "", reactions))
+	check(spent.all(func(r: Dictionary) -> bool: return bool(r.get("nothing", false))) and _faces(h.foe, "Ruinous Tax") == taxes, "and then nothing: the rate is as high as it goes")
 
 func _faces(foe: Dictionary, name: String) -> int:
 	var n: int = 0

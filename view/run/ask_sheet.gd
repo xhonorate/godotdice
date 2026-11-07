@@ -26,6 +26,17 @@ signal hp_preview(cost: int)
 
 const SLOT_EDGE: float = 110.0
 const PICTURE: float = 82.0
+## The carver's face picker (`_lay_faces`): the faces' edges, largest first (32 is the face
+## the picker always had); the padding round a face in its chip and the gap between chips;
+## the faces a row holds before another row is taken, while the sheet has the height for it,
+## and the rows past which the rows are made wider instead; and the least room the sheet keeps
+## from the screen's sides.
+const FACE_EDGES: Array = [32.0, 28.0, 24.0, 20.0]
+const FACE_PAD: float = 4.0
+const FACE_GAP: float = 6.0
+const FACES_PREFERRED: int = 12
+const ROWS_PREFERRED: int = 3
+const SIDE_ROOM: float = 24.0
 
 ## The scrim over the room, placed under the dock by whoever adds this sheet.
 var scrim: ColorRect
@@ -40,10 +51,18 @@ var floor_height: float = 0.0:
 	set(value):
 		floor_height = value
 		_place()
+## How much of the right of the screen the open bag holds (the phone's bag is a panel that far
+## across): the block stands in the room left of it.
+var side_width: float = 0.0:
+	set(value):
+		side_width = value
+		_place()
 var _block: PanelContainer = null
 var _slot_boxes: Dictionary = {}
 var _confirm: Button = null
 var _extras_box: VBoxContainer = null
+## The face picker waiting to be laid once the rest of the sheet is built and its room known.
+var _faces_job: Dictionary = {}
 var _key: String = ""
 ## The scrim easing in or out.
 var _fade: Tween = null
@@ -74,8 +93,11 @@ func open(new_spec: Dictionary) -> void:
 	## `new_spec`: title, text, glyph, tone, key (what it is for), confirm (the button's words),
 	## confirm_glyph, slots: [{key, kind ("stone"/"die"), label, items, refusals, pick, most}]
 	## (a slot with `most` over 1 takes up to that many, as the acid bath's racks do), and
-	## extras: slider {key, min, max, value, unit}, faces {key, of, blanks, lowering} (a face of
-	## the die in slot `of`), inclusions {key, of} (an inclusion of the stone in slot `of`).
+	## extras: slider {key, min, max, value, unit}, faces {key, of, blanks, lowering, most} (a face
+	## of the die in slot `of`; with `most` over 1, up to that many faces of one die or several,
+	## kept in `extras[key]` as [{die_id, face}] while the die in the slot changes), inclusions
+	## {key, of} (an inclusion of the stone in slot `of`). `ready`: an ask with nothing to choose
+	## (work done to every die) is answered by its button alone, as {"ready": true}.
 	## `build` is a Callable(picks, extras) -> Dictionary that turns the picks into the payload
 	## (empty when the ask is not answered yet); without it the picks are the payload. `warn` is
 	## a Callable(picks) -> String: a warning line under the slots for the current pick ("" for none).
@@ -246,10 +268,11 @@ func take(kind: String, id: String) -> bool:
 		if str(picks.get(slot_key, "")) == id:
 			return false
 		picks[slot_key] = id
-		## A die chosen afresh: the face chosen for the old one means nothing now.
+		## A die chosen afresh: the face chosen for the old one means nothing now. Faces chosen
+		## several at a time stay chosen: they name their own die, and the next die's are added.
 		for extra_key in ["faces", "inclusions"]:
 			var extra: Dictionary = spec.get(extra_key, {})
-			if not extra.is_empty() and str(extra.get("of", "")) == slot_key:
+			if not extra.is_empty() and str(extra.get("of", "")) == slot_key and not (extra_key == "faces" and face_most() > 1):
 				extras.erase(str(extra.key))
 	DeepAudio.play("dice_lock", {"volume": 0.7})
 	_build()
@@ -281,6 +304,8 @@ func payload() -> Dictionary:
 	var faces: Dictionary = spec.get("faces", {})
 	if not faces.is_empty() and not extras.has(str(faces.key)):
 		return {}
+	if not faces.is_empty() and face_most() > 1 and chosen_faces().is_empty():
+		return {}
 	var inclusions: Dictionary = spec.get("inclusions", {})
 	if not inclusions.is_empty() and not extras.has(str(inclusions.key)):
 		return {}
@@ -289,7 +314,22 @@ func payload() -> Dictionary:
 		return build.call(picks, extras)
 	var out: Dictionary = picks.duplicate()
 	out.merge(extras, true)
+	if out.is_empty() and bool(spec.get("ready", false)):
+		## Nothing to choose (work done to every die): the button alone is the answer.
+		return {"ready": true}
 	return out
+
+func face_most() -> int:
+	## How many faces the face picker takes: 1, or a three-face service's `most`.
+	return maxi(1, int(spec.get("faces", {}).get("most", 1)))
+
+func chosen_faces() -> Array:
+	## The faces chosen several at a time, as [{die_id, face}], in the order they were chosen.
+	var faces: Dictionary = spec.get("faces", {})
+	if faces.is_empty():
+		return []
+	var held: Variant = extras.get(str(faces.key), [])
+	return (held as Array).duplicate() if held is Array else []
 
 func _lists(slot: Dictionary, id: String) -> bool:
 	return slot.get("items", []).any(func(item: Dictionary) -> bool: return str(item.get("id", "")) == id)
@@ -325,19 +365,21 @@ func _build() -> void:
 	_slot_boxes.clear()
 	var tone: Color = Color(spec.get("tone", DeepUi.ACCENT))
 	_block = PanelContainer.new()
-	_block.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, 18, 3, 5))
+	_block.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, int(DeepUi.pt(8)) if DeepUi.phone else 18, 3, 5))
 	_block.mouse_filter = Control.MOUSE_FILTER_STOP
+	if DeepUi.phone:
+		_block.custom_minimum_size.x = DeepUi.pt(318)
 	add_child(_block)
-	var box := DeepUi.vbox(_block, 12)
+	var box := DeepUi.vbox(_block, int(DeepUi.pt(5)) if DeepUi.phone else 12)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	var head := DeepUi.hbox(box, 10)
 	head.alignment = BoxContainer.ALIGNMENT_CENTER
 	if not str(spec.get("glyph", "")).is_empty():
-		DeepUi.icon(head, str(spec.glyph), 24, tone).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var title := DeepUi.title(head, str(spec.get("title", "")), 22, DeepUi.PAPER)
+		DeepUi.icon(head, str(spec.glyph), DeepUi.glyph_px(15) if DeepUi.phone else 24.0, tone).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var title := DeepUi.title(head, str(spec.get("title", "")), 19 if DeepUi.phone else 22, DeepUi.PAPER)
 	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if not str(spec.get("text", "")).is_empty():
-		var words := DeepUi.wrap(box, str(spec.text), 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, 440)
+		var words := DeepUi.wrap(box, str(spec.text), 12 if DeepUi.phone else 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, DeepUi.pt(296) if DeepUi.phone else 440.0)
 		words.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	## What is dimmed on the dock, and why, when one reason covers all of it. Each dimmed
 	## thing also says its own reason on its plate (run_dock.gd).
@@ -365,18 +407,22 @@ func _build() -> void:
 			DeepUi.stat(box, "chest", said, DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
 	var buttons := DeepUi.hbox(box, 12)
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	var never := DeepUi.icon_button(buttons, "cross_out", "Never mind", cancel, 14, DeepUi.MUTED)
+	var never := DeepUi.icon_button(buttons, "cross_out", "Never mind", cancel, 13 if DeepUi.phone else 14, DeepUi.MUTED)
 	DeepUi.ledger_button(never, DeepUi.SLATE_LOW, DeepUi.LEDGER_LINE, 9, DeepUi.MUTED)
-	never.custom_minimum_size = Vector2(0, 40)
-	_confirm = DeepUi.primary(buttons, str(spec.get("confirm_glyph", "check")), str(spec.get("confirm", "Do it")), _do, 16, tone)
+	never.custom_minimum_size = Vector2(0, DeepUi.pt(36) if DeepUi.phone else 40.0)
+	_confirm = DeepUi.primary(buttons, str(spec.get("confirm_glyph", "check")), str(spec.get("confirm", "Do it")), _do, 14 if DeepUi.phone else 16, tone)
 	DeepUi.ledger_primary(_confirm, tone)
-	_confirm.custom_minimum_size = Vector2(180, 40)
+	_confirm.custom_minimum_size = Vector2(DeepUi.pt(130), DeepUi.pt(36)) if DeepUi.phone else Vector2(180, 40)
 	_confirm.disabled = payload().is_empty() or not str(spec.get("blocked", "")).is_empty()
 	_confirm.mouse_entered.connect(func() -> void: hp_preview.emit(_hp_cost()))
 	_confirm.mouse_exited.connect(func() -> void: hp_preview.emit(0))
 	_confirm.tree_exiting.connect(func() -> void: hp_preview.emit(0))
+	_lay_faces()
 	_block.reset_size()
 	_place()
+	## A wrapped line knows how tall it stands only once it is laid out: placed again then, so
+	## its foot keeps clear of the dock.
+	_block.minimum_size_changed.connect(_place)
 
 func _hp_cost() -> int:
 	## What the current picks would take out of the asker: a slot's `hp` for every stone in it.
@@ -408,7 +454,9 @@ func _place() -> void:
 	## Just above whatever holds the foot of the screen (the dock, and the bag when it is open).
 	var room: float = maxf(0.0, size.y - floor_height)
 	var y: float = maxf(12.0, room - want.y - 16.0)
-	_block.position = Vector2((size.x - want.x) * 0.5, y).round()
+	## Centred in the room the bag leaves, when it is open on the right.
+	var across: float = maxf(want.x, size.x - side_width)
+	_block.position = Vector2((across - want.x) * 0.5, y).round()
 
 func _slot(parent: Control, slot: Dictionary, tone: Color) -> void:
 	## One big slot: the ring, the thing in it, and its name on a capsule under it.
@@ -420,7 +468,7 @@ func _slot(parent: Control, slot: Dictionary, tone: Color) -> void:
 	var id: String = str(picks.get(str(slot.key), ""))
 	var item: Dictionary = _item(slot, id) if not id.is_empty() else {}
 	var holder := Control.new()
-	holder.custom_minimum_size = Vector2(SLOT_EDGE, SLOT_EDGE)
+	holder.custom_minimum_size = Vector2(DeepUi.pt(52), DeepUi.pt(52)) if DeepUi.phone else Vector2(SLOT_EDGE, SLOT_EDGE)
 	holder.mouse_filter = Control.MOUSE_FILTER_STOP
 	holder.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	column.add_child(holder)
@@ -556,37 +604,13 @@ func _extras(tone: Color) -> void:
 				die = _item(slot, die_id)
 		if not die.is_empty():
 			DeepUi.label(_extras_box, str(faces.get("label", "Which face?")), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-			var row := HFlowContainer.new()
-			row.add_theme_constant_override("h_separation", 6)
-			row.add_theme_constant_override("v_separation", 6)
-			row.alignment = FlowContainer.ALIGNMENT_CENTER
-			row.custom_minimum_size.x = 400
-			_extras_box.add_child(row)
-			var list: Array = die.get("faces", [])
-			var chosen: int = int(extras.get(str(faces.key), -1))
-			var body: Color = DiceIcons.die_palette(die).body
-			for index in range(list.size()):
-				var face: Dictionary = list[index]
-				var face_kind: String = str(face.get("kind", "plain"))
-				if bool(faces.get("lowering", false)) and (face_kind == "blank" or int(face.get("value", 0)) <= 1):
-					continue
-				if not bool(faces.get("blanks", true)) and face_kind == "blank":
-					continue
-				var pick := PanelContainer.new()
-				pick.add_theme_stylebox_override("panel", DeepUi.ledger(Color(tone, 0.25) if index == chosen else DeepUi.SLATE_LOW, tone if index == chosen else DeepUi.LEDGER_LINE, 6, 4, 2, 0))
-				pick.mouse_filter = Control.MOUSE_FILTER_STOP
-				pick.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-				row.add_child(pick)
-				var drawn: Control = DiceIcons.face(32.0, int(face.get("value", 0)), body, str(die.get("shape", "D6")), index == chosen, DiceIcons.face_text(int(face.get("value", 0)), face_kind))
-				drawn.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				pick.add_child(drawn)
-				var at: int = index
-				pick.gui_input.connect(func(event: InputEvent) -> void:
-					if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-						DeepAudio.play("ui_toggle", {"volume": 0.7})
-						extras[str(faces.key)] = at
-						_build()
-						pick.accept_event())
+			## Laid once the rest of the sheet is built (`_lay_faces`), when the room it has is known.
+			var rows := DeepUi.vbox(_extras_box, int(FACE_GAP))
+			rows.name = "Faces"
+			rows.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			_faces_job = {"holder": rows, "die": die, "faces": faces, "tone": tone}
+		if face_most() > 1:
+			_face_count(tone)
 	var inclusions: Dictionary = spec.get("inclusions", {})
 	if not inclusions.is_empty():
 		var stone_id: String = str(picks.get(str(inclusions.of), ""))
@@ -644,6 +668,232 @@ func _extras(tone: Color) -> void:
 				_confirm.disabled = payload().is_empty())
 		var top := DeepUi.icon_button(row, "rise", "Max", func() -> void: slider.value = most, 12, DeepUi.ORE)
 		DeepUi.ledger_button(top, DeepUi.SLATE_LOW, DeepUi.LEDGER_LINE, 6)
+
+func _face_count(tone: Color) -> void:
+	## Faces chosen several at a time: how many of the most, and each one chosen as a chip naming
+	## its die and its number (a click puts it back), so a face on another die is not forgotten.
+	var faces: Dictionary = spec.get("faces", {})
+	var chosen: Array = chosen_faces()
+	var most: int = face_most()
+	var row := DeepUi.hbox(_extras_box, 8)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.name = "FaceCount"
+	var count := DeepUi.stat(row, "check", "%d of %d chosen" % [chosen.size(), most], tone if not chosen.is_empty() else DeepUi.MUTED, 13)
+	count.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var dice: Array = []
+	for slot in spec.get("slots", []):
+		if str(slot.key) == str(faces.get("of", "")):
+			dice = slot.get("items", [])
+	for entry in chosen:
+		var die: Dictionary = {}
+		for item in dice:
+			if str(item.get("id", "")) == str(entry.get("die_id", "")):
+				die = item
+		var list: Array = die.get("faces", [])
+		var at: int = int(entry.get("face", -1))
+		if at < 0 or at >= list.size():
+			continue
+		var face: Dictionary = list[at]
+		var chip := PanelContainer.new()
+		chip.add_theme_stylebox_override("panel", DeepUi.capsule(chip, Color(tone, 0.18), tone, 2, 8, 2))
+		chip.mouse_filter = Control.MOUSE_FILTER_STOP
+		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		chip.tooltip_text = "Click to put it back"
+		row.add_child(chip)
+		var said := DeepUi.hbox(chip, 4)
+		said.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var drawn: Control = DiceIcons.picker_face(20.0, int(face.get("value", 0)), DiceIcons.die_palette(die).body, str(die.get("shape", "D6")), true, DiceIcons.face_text(int(face.get("value", 0)), str(face.get("kind", "plain"))))
+		drawn.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		said.add_child(drawn)
+		DeepUi.label(said, DeepDice.describe(die), 11, DeepUi.PAPER).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		DeepUi.icon(said, "cross_out", 11, DeepUi.MUTED).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var die_id: String = str(entry.get("die_id", ""))
+		chip.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				pick_face(str(faces.key), [at], die_id)
+				chip.accept_event())
+
+func _lay_faces() -> void:
+	## The chosen die's faces as chips in even rows, every face shown: 32 px faces (the picker's
+	## own) in rows of up to `FACES_PREFERRED`, and past `ROWS_PREFERRED` rows wider rows, as
+	## wide as the screen allows, before a smaller face; a smaller face (28, 24, 20) only when
+	## even the widest rows would stand the sheet taller than the room above the dock. A d20 is
+	## two rows of ten, a d30 three of ten, a d50 three of seventeen, a d100 four of twenty-five,
+	## all at 32 px on the 1600 × 900 canvas. Only a die that fits at none of the sizes has its
+	## like faces (the same number and etching) share a chip, "12 ×4", which picks one of them.
+	if _faces_job.is_empty():
+		return
+	var job: Dictionary = _faces_job
+	_faces_job = {}
+	var holder: VBoxContainer = job.holder
+	if not is_instance_valid(holder):
+		return
+	var faces: Dictionary = job.faces
+	var die: Dictionary = job.die
+	var tone: Color = job.tone
+	var list: Array = die.get("faces", [])
+	var lowering: bool = bool(faces.get("lowering", false))
+	var blanks: bool = bool(faces.get("blanks", true))
+	var chips: Array = face_groups(list, lowering, blanks, false)
+	var wide: float = face_room_width()
+	var tall: float = face_room_height()
+	var layout: Dictionary = face_layout(chips.size(), wide, tall)
+	if layout.is_empty():
+		chips = face_groups(list, lowering, blanks, true)
+		layout = face_layout(chips.size(), wide, tall)
+	if layout.is_empty():
+		## Past anything the mine makes: the smallest face, as many rows as it takes.
+		var least: float = float(FACE_EDGES[FACE_EDGES.size() - 1])
+		var across: int = maxi(1, int(floor((wide + FACE_GAP) / (least + FACE_PAD * 2.0 + FACE_GAP))))
+		layout = {"edge": least, "across": across, "rows": ceili(float(chips.size()) / float(across))}
+	var edge: float = float(layout.edge)
+	var per_row: int = int(layout.across)
+	holder.set_meta("layout", layout)
+	var multi: bool = face_most() > 1
+	var chosen: int = -1 if multi else int(extras.get(str(faces.key), -1))
+	var die_id: String = str(die.get("id", ""))
+	## Faces chosen several at a time: this die's, by index.
+	var chosen_here: Array = []
+	if multi:
+		for entry in chosen_faces():
+			if str(entry.get("die_id", "")) == die_id:
+				chosen_here.append(int(entry.get("face", -1)))
+	var body: Color = DiceIcons.die_palette(die).body
+	var shape: String = str(die.get("shape", "D6"))
+	var key: String = str(faces.key)
+	var row: HBoxContainer = null
+	for at in range(chips.size()):
+		if at % per_row == 0:
+			row = DeepUi.hbox(holder, int(FACE_GAP))
+			row.alignment = BoxContainer.ALIGNMENT_CENTER
+		var group: Dictionary = chips[at]
+		var indices: Array = group.indices
+		var face_kind: String = str(group.kind)
+		var value: int = int(group.value)
+		var lit: bool = indices.has(chosen) or indices.any(func(i: Variant) -> bool: return chosen_here.has(int(i)))
+		var pick := PanelContainer.new()
+		pick.add_theme_stylebox_override("panel", DeepUi.ledger(Color(tone, 0.25) if lit else DeepUi.SLATE_LOW, tone if lit else DeepUi.LEDGER_LINE, 6, int(FACE_PAD), 2, 0))
+		pick.mouse_filter = Control.MOUSE_FILTER_STOP
+		pick.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		pick.set_meta("faces", indices)
+		row.add_child(pick)
+		var chip := DeepUi.hbox(pick, 3)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		## The face the picker always drew at 32; a smaller face keeps its number readable.
+		var text: String = DiceIcons.face_text(value, face_kind)
+		var drawn: Control = DiceIcons.face(edge, value, body, shape, lit, text) if edge >= 32.0 else DiceIcons.picker_face(edge, value, body, shape, lit, text)
+		drawn.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(drawn)
+		if indices.size() > 1:
+			var count := DeepUi.label(chip, "×%d" % indices.size(), 10, DeepUi.MUTED)
+			count.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		## What is etched into it, and how many faces the chip stands for.
+		var said: Array = []
+		if indices.size() > 1:
+			said.append("%d faces of %s" % [indices.size(), text])
+		if face_kind != "plain":
+			said.append("%s: %s" % [DeepDice.etching_name(face_kind), str(DeepContent.etching(face_kind).get("text", ""))])
+		pick.tooltip_text = "\n".join(said)
+		pick.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				pick_face(key, indices, die_id)
+				pick.accept_event())
+
+func face_room_width() -> float:
+	## How wide a row of faces may run: the screen less `SIDE_ROOM` a side and the sheet's own
+	## padding.
+	var screen: float = size.x if size.x > 1.0 else 1600.0
+	var pad: float = _block.get_theme_stylebox("panel").get_minimum_size().x if _block != null else 36.0
+	return screen - SIDE_ROOM * 2.0 - pad
+
+func face_room_height() -> float:
+	## How tall the faces may stand: the room above whatever holds the foot of the screen (the
+	## dock), less the margins `_place` keeps and the rest of the sheet as built without them.
+	var screen: float = size.y if size.y > 1.0 else 900.0
+	var room: float = maxf(0.0, screen - floor_height) - 12.0 - 16.0
+	var rest: float = _block.get_combined_minimum_size().y if _block != null else 0.0
+	return room - rest
+
+func pick_face(key: String, indices: Array, die_id: String = "") -> void:
+	## A chip of the face picker clicked: the face it stands for goes into `extras[key]` as a
+	## real index of the die's faces. A chip standing for several like faces picks the first of
+	## them that is not already chosen; one of them already chosen stays.
+	## Several at a time (`face_most` over 1): the click toggles. A chip with a face of this die
+	## already chosen puts it back; else the first of its faces not yet chosen is added, up to
+	## the most (past it, nothing, and a soft refusal).
+	if indices.is_empty():
+		return
+	if face_most() > 1:
+		var held: Array = chosen_faces()
+		for at in range(held.size()):
+			if str(held[at].get("die_id", "")) == die_id and indices.has(int(held[at].get("face", -1))):
+				held.remove_at(at)
+				extras[key] = held
+				DeepAudio.play("ui_toggle", {"volume": 0.6})
+				_build()
+				changed.emit()
+				return
+		if held.size() >= face_most():
+			DeepAudio.play("ui_back", {"volume": 0.6})
+			return
+		held.append({"die_id": die_id, "face": int(indices[0])})
+		extras[key] = held
+		DeepAudio.play("ui_toggle", {"volume": 0.7})
+		_build()
+		changed.emit()
+		return
+	var chosen: int = int(extras.get(key, -1))
+	if indices.has(chosen):
+		return
+	DeepAudio.play("ui_toggle", {"volume": 0.7})
+	extras[key] = int(indices[0])
+	_build()
+
+static func face_layout(count: int, wide: float, tall: float) -> Dictionary:
+	## {edge, across, rows} for `count` chips in a room `wide` × `tall`, or {} when they fit at
+	## no edge of `FACE_EDGES`. At each edge, largest first: rows of up to `FACES_PREFERRED`
+	## while that is no more than `ROWS_PREFERRED` rows, else `ROWS_PREFERRED` wider rows (or
+	## as few as the width allows); if the height does not hold those, the fewest rows the width
+	## allows. The chips are then shared evenly between the rows.
+	for size_now in FACE_EDGES:
+		var edge: float = float(size_now)
+		var step: float = edge + FACE_PAD * 2.0 + FACE_GAP
+		var across_most: int = int(floor((wide + FACE_GAP) / step))
+		var rows_most: int = int(floor((tall + FACE_GAP) / step))
+		if across_most < 1 or rows_most < 1 or count < 1:
+			continue
+		var rows: int = ceili(float(count) / float(mini(across_most, FACES_PREFERRED)))
+		if rows > ROWS_PREFERRED:
+			rows = maxi(ROWS_PREFERRED, ceili(float(count) / float(across_most)))
+		if rows > rows_most:
+			rows = ceili(float(count) / float(across_most))
+		if rows <= rows_most:
+			return {"edge": edge, "across": ceili(float(count) / float(rows)), "rows": rows}
+	return {}
+
+static func face_groups(list: Array, lowering: bool, blanks: bool, grouped: bool = false) -> Array:
+	## The chips a die's faces make, as {value, kind, indices}: one a face, or when `grouped`
+	## one for every number-and-etching the die shows, in the order the die first shows them.
+	## A face that cannot be lowered (a 1, a blank) is left out when `lowering`, and blanks when
+	## `blanks` is off.
+	var out: Array = []
+	var by_key: Dictionary = {}
+	for index in range(list.size()):
+		var face: Dictionary = list[index]
+		var kind: String = str(face.get("kind", "plain"))
+		var value: int = int(face.get("value", 0))
+		if lowering and (kind == "blank" or value <= 1):
+			continue
+		if not blanks and kind == "blank":
+			continue
+		var key: String = "%d|%s" % [value, kind]
+		if grouped and by_key.has(key):
+			out[int(by_key[key])].indices.append(index)
+			continue
+		by_key[key] = out.size()
+		out.append({"value": value, "kind": kind, "indices": [index]})
+	return out
 
 class SlotRing extends Control:
 	## The ring a slot is: dashed and dim while empty, whole and lit in the room's color once

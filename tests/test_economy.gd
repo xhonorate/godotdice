@@ -213,58 +213,56 @@ func _test_lobby() -> void:
 # --- temporary stones ---------------------------------------------------------------------------
 
 func _test_temporary() -> void:
-	var state: Dictionary = DeepDescent.new_run(config(11, "SEEPS", true))
+	## Below the first mine a party is lent no temporary stones and offered no dice since
+	## November 2026 (docs/DEEP_START.md): the deep start's cards stand in for both. A Draft
+	## day still drafts a temporary stone for every socket at the shaft head.
+	var deep: Dictionary = DeepDescent.new_run(config(11, "SEEPS", true))
+	check(deep.phase == "grubstake" and deep.players.all(func(p: Dictionary) -> bool: return p.temps.is_empty() and p.get("dice_offers", []).is_empty()),
+		"a deeper run opens at the shaft head, lending nothing and offering no dice")
+	var state: Dictionary = DeepDescent.new_run(daily_config_with([], "DRAFT", 11))
+	for who in ["a", "b"]:
+		var unit: Dictionary = DeepDescent.player(state, who)
+		var sockets: Array = DeepContent.character(str(unit.character)).sockets
+		check(state.phase == "grubstake" and unit.temps.size() == DeepStone.socket_count(unit), "a Draft day drafts a stone for every socket (%d)" % unit.temps.size())
+		for offer in unit.temps:
+			check(offer.picks.size() == 3 and int(offer.chosen) == -1, "three to choose from, none taken")
+			var socket: String = str(sockets[int(offer.index)]) if int(offer.index) < sockets.size() else DeepContent.SOCKET_RAINBOW
+			var colors: Array = offer.picks.map(func(s: Dictionary) -> String: return DeepStone.color(s))
+			if DeepContent.is_rainbow(socket):
+				check(colors[0] != colors[1] and colors[1] != colors[2] and colors[0] != colors[2], "a Rainbow socket is offered three colors: %s" % str(colors))
+			for pick in offer.picks:
+				check(bool(pick.temporary) and DeepStone.is_fragile(pick) and bool(pick.appraised) and DeepStone.fits(pick, socket), "each is read, fragile, and fits its socket")
+				check(not pick.inclusions.any(func(k: String) -> bool: return k == "VOID"), "and none is Void")
 	var ada: Dictionary = DeepDescent.player(state, "a")
-	var bo: Dictionary = DeepDescent.player(state, "b")
-	check(state.phase == "grubstake", "a deeper run opens at the shaft head")
-	## Bo has three sockets open and one stone to set in them, so the two empty open ones
-	## are lent stones as well as every shut one.
-	var sockets: Array = DeepContent.character("FLORIN").sockets
-	var ada_empty: int = DeepContent.character("ARDOR").sockets.size() - 3
-	check(ada.temps.size() == ada_empty and bo.temps.size() == sockets.size() - 1, "a temporary stone is offered for every empty socket, open or shut (%d, %d)" % [ada.temps.size(), bo.temps.size()])
-	check(bo.temps.map(func(o: Dictionary) -> int: return int(o.index)) == range(1, sockets.size()), "in socket order, after the one stone")
-	for offer in bo.temps:
-		check(offer.picks.size() == 3 and int(offer.chosen) == -1, "three to choose from, none taken")
-		var socket: String = str(sockets[int(offer.index)])
-		var colors: Array = offer.picks.map(func(s: Dictionary) -> String: return DeepStone.color(s))
-		if socket == DeepContent.SOCKET_ANY:
-			check(colors[0] != colors[1] and colors[1] != colors[2] and colors[0] != colors[2], "an Any socket is offered three colors: %s" % str(colors))
-		else:
-			check(colors.all(func(c: String) -> bool: return c == socket), "a %s socket is offered %s stones: %s" % [socket, socket, str(colors)])
-		for pick in offer.picks:
-			check(bool(pick.temporary) and DeepStone.is_fragile(pick) and bool(pick.appraised) and DeepStone.fits(pick, socket), "each is read, fragile, and fits its socket")
-			check(not pick.inclusions.any(func(k: String) -> bool: return k == "VOID"), "and none is Void")
 	check(not cmd(state, "a", "stake", {"offer": state.grubstake.offers.a[0].id}).ok, "the stakes wait for the temporary stones")
-	check(not cmd(state, "a", "temporary", {"index": 0, "pick": 0}).ok, "an open socket takes no temporary stone")
-	var first: Dictionary = cmd(state, "a", "temporary", {"index": int(ada.temps[0].index), "pick": 1})
-	check(first.ok and ada.rail[int(ada.temps[0].index)].id == ada.temps[0].picks[1].id and int(first.event.left) == ada_empty - 1, "the one taken is set in its socket")
+	var first: Dictionary = cmd(state, "a", "temporary", {"index": int(ada.temps[0].index), "pick": 0})
+	check(first.ok and ada.rail[int(ada.temps[0].index)].id == ada.temps[0].picks[0].id and int(first.event.left) == ada.temps.size() - 1, "the one taken is set in its socket")
 	check(not cmd(state, "a", "temporary", {"index": int(ada.temps[0].index), "pick": 0}).ok, "and the socket keeps it")
-	for offer in ada.temps.slice(1):
-		cmd(state, "a", "temporary", {"index": int(offer.index), "pick": 2})
-	## Then each die is answered for (kept, here), as a deeper start asks.
-	for offer in ada.dice_offers:
-		cmd(state, "a", "dice_offer", {"index": int(offer.index), "pick": -1})
+	for who in ["a", "b"]:
+		var unit: Dictionary = DeepDescent.player(state, who)
+		for offer in unit.temps:
+			if int(offer.chosen) >= 0:
+				continue
+			## A pick for every socket with no skill twice: a rail holds one of each skill, and
+			## seven Gold sockets are offered the same few Gold skills (`draft_plan`).
+			var held: Array = DeepStone.rail_stones(unit).map(func(st: Dictionary) -> String: return str(st.get("skill", "")))
+			var open: Array = unit.temps.filter(func(o: Dictionary) -> bool: return int(o.chosen) < 0)
+			var plan: Array = draft_plan(open, held)
+			check(plan.size() == open.size(), "%s's draft has a way through it" % who)
+			for at in range(plan.size()):
+				cmd(state, who, "temporary", {"index": int(open[at].index), "pick": int(plan[at])})
+			break
 	check(DeepDescent.temporary_left(ada) == 0 and cmd(state, "a", "stake", {"offer": state.grubstake.offers.a[1].id}).ok, "with every one taken, the stake")
-	for offer in bo.temps:
-		## The first pick whose skill the rail does not hold yet: a rail holds one of each skill,
-		## and seven Gold sockets are offered the same Gold skills more than once.
-		var pick: int = 0
-		for i in range(offer.picks.size()):
-			var skill: String = str(offer.picks[i].skill)
-			if not DeepStone.rail_stones(bo).any(func(s: Dictionary) -> bool: return str(s.get("skill", "")) == skill):
-				pick = i
-				break
-		cmd(state, "b", "temporary", {"index": int(offer.index), "pick": pick})
-	for offer in bo.dice_offers:
-		cmd(state, "b", "dice_offer", {"index": int(offer.index), "pick": -1})
 	var staked: Dictionary = cmd(state, "b", "stake", {"offer": state.grubstake.offers.b[1].id})
 	check(staked.ok and state.phase == "tunnels", "and the tunnels open: %s" % str(staked.get("error", "")))
 	## A party that pushed on through the Quarry gets no temporary stones: it brought its rail.
 	var quarry: Dictionary = DeepDescent.new_run(config(12, "QUARRY", true))
 	check(quarry.players.all(func(p: Dictionary) -> bool: return p.temps.is_empty()), "the Quarry lends nothing")
 	## The end of the run: a temporary stone goes back without counting among the losses.
-	var done: Dictionary = DeepDescent.new_run(config(13, "SEEPS", false))
-	var lent: Dictionary = DeepDescent.player(done, "a").rail[3]
+	var bare: Dictionary = daily_config_with([], "DRAFT", 13)
+	bare.boons = false
+	var done: Dictionary = DeepDescent.new_run(bare)
+	var lent: Dictionary = DeepDescent.player(done, "a").rail[0]
 	check(bool(lent.temporary), "with no shaft head, the first of each three is set")
 	DeepDescent.player(done, "a").haul.append(lent.duplicate(true))
 	DeepDescent._finish(done, "extracted")
@@ -275,12 +273,31 @@ func _test_temporary() -> void:
 	DeepProfile.apply_result(profile, DeepDescent.results(done), "a")
 	check(not profile.tray.any(func(s: Dictionary) -> bool: return bool(s.get("temporary", false))), "nothing temporary reaches the tray")
 
+func draft_plan(offers: Array, held: Array) -> Array:
+	## One pick for each offer, no skill twice and none already held, or [] when there is none.
+	if offers.is_empty():
+		return []
+	for i in range(offers[0].picks.size()):
+		var skill: String = str(offers[0].picks[i].skill)
+		if held.has(skill):
+			continue
+		if offers.size() == 1:
+			return [i]
+		var rest: Array = draft_plan(offers.slice(1), held + [skill])
+		if not rest.is_empty():
+			return [i] + rest
+	return []
+
 func _test_loopholes() -> void:
-	var state: Dictionary = DeepDescent.new_run(config(14, "SEEPS", false))
+	## A temporary stone, as a Draft day lends one (no shaft head: the first of each three is set).
+	var drafted: Dictionary = daily_config_with([], "DRAFT", 14)
+	drafted.boons = false
+	var state: Dictionary = DeepDescent.new_run(drafted)
 	var ada: Dictionary = DeepDescent.player(state, "a")
-	var lent: Dictionary = ada.rail[3]
+	var lent: Dictionary = ada.rail[0]
+	check(bool(lent.get("temporary", false)), "a Draft day's first socket holds a temporary stone")
 	check(not DeepDescent.can_wish(lent), "the landing's well will not take a temporary stone")
-	check(DeepDescent.can_wish(ada.rail[0]), "it still takes a stone of your own")
+	check(DeepDescent.can_wish(stone("STRIKE", 3, 2, 3, "own_strike")), "it still takes a stone of your own")
 	var mine: Dictionary = DeepContent.mine("SEEPS")
 	var rng: RandomNumberGenerator = DeepRng.streams(14).oddities
 	## A wishing well found in the tunnels refuses it by its own rule as well.
@@ -1009,6 +1026,10 @@ func _test_daily_plan() -> void:
 
 func daily_with(mods: Array, rail: String = "LENT_RAIL", seed_value: int = 70, players: int = 2) -> Dictionary:
 	## A day's run on the 10th of October with these cards in place of the day's own.
+	return DeepDescent.new_run(daily_config_with(mods, rail, seed_value, players))
+
+func daily_config_with(mods: Array, rail: String = "LENT_RAIL", seed_value: int = 70, players: int = 2) -> Dictionary:
+	## The config `daily_with` sets out with, for a test that changes it first.
 	var seats: Array = [{"id": "a", "name": "Ada"}, {"id": "b", "name": "Bo"}].slice(0, players)
 	var plan: Dictionary = DeepEconomy.daily_plan("2026-10-10")
 	var config: Dictionary = DeepEconomy.daily_config("2026-10-10", seats, "daily_test%d" % seed_value)
@@ -1027,7 +1048,7 @@ func daily_with(mods: Array, rail: String = "LENT_RAIL", seed_value: int = 70, p
 		for seat in range(config.players.size()):
 			config.players[seat].rail = DeepEconomy.daily_rail(ruled, str(plan.lapidary), seat)
 			config.players[seat].bag = DeepEconomy.daily_bag(ruled, str(plan.lapidary), seat)
-	return DeepDescent.new_run(config)
+	return config
 
 func fight_of(run: Dictionary, warden: String = "", elite: bool = false, depth: int = 3) -> Dictionary:
 	run.phase = "chamber"

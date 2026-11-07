@@ -164,9 +164,15 @@ func _render() -> void:
 	var cards: int = unit.get("rail", []).size() + 1
 	var gems_wide: float = cards * 132.0 + (cards - 1) * 10.0 + 20.0 + 330.0 + 40.0
 	_panel.custom_minimum_size = Vector2(maxf(clampf(room.x - 80.0, 720.0, 1240.0), gems_wide), clampf(room.y - 90.0, 480.0, 780.0))
+	if DeepUi.phone:
+		## The phone's bench: the whole screen inside its safe edges.
+		var edge: float = DeepUi.safe_bottom + DeepUi.pt(4)
+		_panel.custom_minimum_size = Vector2(room.x - DeepUi.safe_left - DeepUi.safe_right, room.y - 2.0 * edge)
+		_panel.add_theme_stylebox_override("panel", DeepUi.raised(Color(0.045, 0.055, 0.08, 0.98), Color(DeepUi.ACCENT_DIM, 0.8), 16, int(DeepUi.pt(8)), 0.6))
+		_content.add_theme_constant_override("separation", int(DeepUi.pt(5)))
 	var head := DeepUi.hbox(_content, 12)
-	DeepUi.icon(head, "anvil", 28, DeepUi.ACCENT)
-	DeepUi.title(head, "The bench", 28, DeepUi.PAPER)
+	DeepUi.icon(head, "anvil", DeepUi.pt(18) if DeepUi.phone else 28.0, DeepUi.ACCENT)
+	DeepUi.title(head, "The bench", 26 if DeepUi.phone else 28, DeepUi.PAPER)
 	DeepUi.gap(head, 12)
 	var gems := DeepUi.tab_button(head, "gem", "Gems", tab == "gems", func() -> void:
 		tab = "gems"
@@ -177,7 +183,15 @@ func _render() -> void:
 		_render(), 15)
 	dice.tooltip_text = "Your five dice"
 	DeepUi.spacer(head)
-	DeepUi.icon_button(head, "cross_out", "Close", close, 14, DeepUi.MUTED).tooltip_text = "Close the bench (Esc)"
+	if DeepUi.phone:
+		## What a tap does next, while a stone is picked (the desk's long line is gone).
+		var hint: String = _phone_hint(unit)
+		if not hint.is_empty():
+			DeepUi.label(head, hint, 12, DeepUi.ACCENT_HI)
+	var shut := DeepUi.icon_button(head, "cross_out", "Close", close, 14, DeepUi.MUTED)
+	shut.tooltip_text = "Close the bench (Esc)"
+	if DeepUi.phone:
+		shut.custom_minimum_size = Vector2(DeepUi.pt(90), DeepUi.pt(36))
 	var note: String = ""
 	if not editable():
 		note = "A fight is on. You can look, but nothing moves until it is over."
@@ -185,14 +199,17 @@ func _render() -> void:
 		note = "Drag a stone onto a socket to set it, or drag a set stone into the haul to take it out. A Void gem dropped on a socket rides it and fires right after its gem. Click any stone to look at it."
 	else:
 		note = "Drag a die onto another slot to change their places. A smithy or a carver reworks a die, and a merchant may trade one of theirs for one of yours. Click any die to look at it."
-	DeepUi.label(_content, note, 13, DeepUi.MUTED if editable() else DeepUi.BAD.lightened(0.2))
+	if not DeepUi.phone or not editable():
+		DeepUi.label(_content, note, 13, DeepUi.MUTED if editable() else DeepUi.BAD.lightened(0.2))
 	DeepUi.rule(_content)
 	var columns := DeepUi.hbox(_content, 20)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var left := DeepUi.vbox(columns, 14)
+	var left := DeepUi.vbox(columns, int(DeepUi.pt(5)) if DeepUi.phone else 14)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var side := DeepUi.vbox(columns, 10)
 	side.custom_minimum_size.x = 330
+	## The phone has no lamp column: a hold reads a stone or a die (board run-bag).
+	side.visible = not DeepUi.phone
 	if unit.is_empty():
 		DeepUi.label(left, "Nothing to show.", 14, DeepUi.DIM)
 		return
@@ -200,7 +217,23 @@ func _render() -> void:
 		_dice_tab(left, unit)
 	else:
 		_gems_tab(left, unit)
-	_lamp(side, unit)
+	if not DeepUi.phone:
+		_lamp(side, unit)
+
+func _phone_hint(unit: Dictionary) -> String:
+	## The phone's word on the next tap, while a stone is picked.
+	if _pick.is_empty() or tab != "gems" or not editable():
+		return ""
+	if _loose(unit, _pick):
+		return "Tap a lit socket to set it"
+	for stone in unit.get("rail", []):
+		if stone is Dictionary and str(stone.id) == _pick and not DeepStone.is_locked(stone):
+			return "Tap the haul to take it out"
+	return ""
+
+func _loose(unit: Dictionary, id: String) -> bool:
+	## In the haul: neither set nor riding a socket.
+	return unit.get("haul", []).any(func(s: Dictionary) -> bool: return str(s.get("id", "")) == id and bool(s.get("appraised", false)) and not DeepStone.is_geode(s))
 
 # --- gems --------------------------------------------------------------------------------------
 
@@ -209,7 +242,7 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 	var rail_row := DeepUi.hbox(parent, 10)
 	for index in range(unit.get("rail", []).size()):
 		_socket_card(rail_row, unit, index)
-	HomeParts.BirthstoneCard.new(rail_row, str(unit.get("character", "")), 132.0, true)
+	HomeParts.BirthstoneCard.new(rail_row, str(unit.get("character", "")), DeepUi.pt(90) if DeepUi.phone else 132.0, true)
 	var everything: Array = unit.get("haul", [])
 	var haul: Array = DeepUi.haul_of(everything, _haul_tab)
 	var haul_head := DeepUi.hbox(parent, 10)
@@ -232,9 +265,21 @@ func _gems_tab(parent: VBoxContainer, unit: Dictionary) -> void:
 			DeepAudio.play("ui_tap", {"volume": 0.6})
 			_render())
 	var tray := DeepUi.card(parent, DeepUi.LINE, 12, Color(0.03, 0.035, 0.05, 0.7))
-	tray.custom_minimum_size.y = 190
+	tray.custom_minimum_size.y = DeepUi.pt(60) if DeepUi.phone else 190.0
 	tray.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	tray.tooltip_text = "Drop a set stone here to take it out of its socket"
+	if DeepUi.phone:
+		## A tap on the haul with a set stone picked takes it out.
+		tray.gui_input.connect(func(event: InputEvent) -> void:
+			if not (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT) or not editable() or _pick.is_empty():
+				return
+			var rail: Array = unit.get("rail", [])
+			for index in range(rail.size()):
+				if rail[index] is Dictionary and str(rail[index].id) == _pick and not DeepStone.is_locked(rail[index]):
+					_pick = ""
+					tray.accept_event()
+					_send({"kind": "unsocket", "index": index}, "ui_back")
+					return)
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 10)
 	flow.add_theme_constant_override("v_separation", 10)
@@ -258,12 +303,12 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 	var tone: Color = DeepUi.socket_tone(socket_color, DeepUi.LINE_HI)
 	var picked: bool = set_here and str(stone.id) == _pick
 	var card := DeepUi.card(parent, DeepUi.ACCENT if picked else Color(tone, 0.5), 10, Color(0.05, 0.06, 0.085, 0.92))
-	card.custom_minimum_size = Vector2(132, 0)
+	card.custom_minimum_size = Vector2(DeepUi.pt(90) if DeepUi.phone else 132.0, 0)
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
 	var box := DeepUi.vbox(card, 4)
 	DeepUi.label(box, "Socket %d" % (index + 1), 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	var slot := Control.new()
-	slot.custom_minimum_size = Vector2(76, 76)
+	slot.custom_minimum_size = Vector2(88, 88) if DeepUi.phone else Vector2(76, 76)
 	slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(slot)
@@ -273,8 +318,11 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 	if set_here:
 		ring.shown = 1 if DeepStone.shows(stone, socket_color) else 0
 	var data: Dictionary = {}
+	## On the phone the sockets that take the stone picked light up, to be tapped.
+	if DeepUi.phone and editable() and _loose(unit, _pick) and DeepDescent.socket_refusal(unit, DeepOddities.find_stone(unit, _pick), index).is_empty():
+		ring.set_ready.call_deferred(true)
 	if set_here:
-		var thumb := StoneCard.mini(slot, stone, 62)
+		var thumb := StoneCard.mini(slot, stone, 74 if DeepUi.phone else 62)
 		thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 7)
 		DeepUi.label(box, str(DeepStone.skill_of(stone).get("name", stone.skill)), 13, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 		DeepUi.label(box, "%s · %d ct" % [DeepContent.cut_name(int(stone.get("cut", 0))), int(stone.get("carat", 1))], 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
@@ -310,8 +358,31 @@ func _socket_card(parent: Node, unit: Dictionary, index: int) -> void:
 		func(incoming: Dictionary) -> void:
 			_send({"kind": "socket", "stone_id": str(incoming.stone_id), "index": socket_index}, "dice_lock"),
 		ring)
-	if set_here:
+	if DeepUi.phone:
+		_phone_socket(card, unit, index, str(stone.id) if set_here else "")
+	elif set_here:
 		_clickable(card, str(stone.id))
+
+func _phone_socket(card: Control, unit: Dictionary, index: int, set_id: String) -> void:
+	## On the phone a stone is set by a tap on it and then on a socket; a tap on a socket
+	## with nothing picked picks the stone set in it, as a click does on the desk.
+	card.gui_input.connect(func(event: InputEvent) -> void:
+		if not (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
+			return
+		card.accept_event()
+		if editable() and _loose(unit, _pick):
+			var held: Dictionary = DeepOddities.find_stone(unit, _pick)
+			if DeepDescent.socket_refusal(unit, held, index).is_empty():
+				_pick = ""
+				_send({"kind": "socket", "stone_id": str(held.id), "index": index}, "dice_lock")
+			else:
+				DeepAudio.play("ui_deny", {"volume": 0.5})
+			return
+		if set_id.is_empty():
+			return
+		_pick = "" if _pick == set_id else set_id
+		DeepAudio.play("ui_tap", {"volume": 0.6})
+		_render.call_deferred())
 
 func _rider_chip(parent: Node, unit: Dictionary, socket: int, at: int, stone: Dictionary) -> void:
 	var chip := Control.new()
@@ -352,7 +423,7 @@ func _rider_chip(parent: Node, unit: Dictionary, socket: int, at: int, stone: Di
 
 func _haul_tile(parent: Node, stone: Dictionary) -> void:
 	var appraised: bool = bool(stone.get("appraised", false))
-	var tile := StoneCard.tile(parent, stone, 70)
+	var tile := StoneCard.tile(parent, stone, 80 if DeepUi.phone else 70)
 	var id: String = str(stone.id)
 	if id == _pick:
 		var style: StyleBoxFlat = (tile.get_theme_stylebox("panel") as StyleBoxFlat).duplicate()

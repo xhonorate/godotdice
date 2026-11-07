@@ -5,6 +5,11 @@ extends RefCounted
 ## that matches a skill's name, its color, its rarity, what is frozen inside it, the mine it
 ## came from and the words of what it does ("star", "poison", "Seeps"). The sort is shared by
 ## every place the browser is used; the filters are each place's own.
+##
+## `home` is whoever keeps the settings: the workshop, or down the mine the run dock's bag
+## (view/run/run_dock.gd). It provides `browse` (a Dictionary the settings live in), `_pages`
+## (page numbers by list, reset when the sort or a filter changes), `redraw(keys) -> bool`
+## (draws just those parts again, or false) and `_render()` (draws the whole page again).
 
 const StoneCard = preload("res://view/gems/stone_card.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
@@ -42,26 +47,279 @@ static func _change(home: Control, context: String, key: String, value: Variant)
 
 static func toolbar(home: Control, parent: Node, context: String, opts: Dictionary = {}) -> HBoxContainer:
 	## The browser's one row of controls. `opts`: `layouts` (offer grid and list), `ghosts`
-	## (offer showing skills not yet kept), `rarity` (offer the rarity filter), `compact`.
+	## (offer showing skills not yet kept), `rarity` (offer the rarity filter), `compact`,
+	## `sorts` (only these sort keys, in this order; every sort by default).
 	var s: Dictionary = settings(home, context)
 	var compact: bool = bool(opts.get("compact", false))
 	var row := DeepUi.hbox(parent, 6)
+	_sorter(home, row, context, s, compact, opts.get("sorts", []))
+	_direction(home, row, context, s)
+	DeepUi.gap(row, 2)
+	_dots(home, row, context, s)
+	if bool(opts.get("rarity", true)):
+		var rarity := OptionButton.new()
+		rarity.focus_mode = Control.FOCUS_NONE
+		rarity.add_item("Any rarity", 0)
+		for index in range(RARITIES.size()):
+			rarity.add_item(str(RARITIES[index]).capitalize(), index + 1)
+			if str(RARITIES[index]) == str(s.rarity):
+				rarity.select(index + 1)
+		DeepUi.set_text_size(rarity, 13)
+		rarity.item_selected.connect(func(index: int) -> void:
+			DeepAudio.play("ui_tap")
+			_change(home, context, "rarity", "" if index == 0 else str(RARITIES[index - 1])))
+		row.add_child(rarity)
+	_search(home, row, context, s, compact)
+	if bool(opts.get("ghosts", false)):
+		var ghosts := CheckButton.new()
+		ghosts.text = "Unfound"
+		ghosts.tooltip_text = "Show the skills you have not kept yet"
+		ghosts.button_pressed = bool(s.ghosts)
+		ghosts.focus_mode = Control.FOCUS_NONE
+		DeepUi.set_text_size(ghosts, 13)
+		ghosts.toggled.connect(func(on: bool) -> void: _change(home, context, "ghosts", on))
+		row.add_child(ghosts)
+	if bool(opts.get("layouts", false)):
+		for entry in [["grid", "gem", "Grid"], ["list", "ladder", "List"]]:
+			var layout: String = str(entry[0])
+			var b := DeepUi.tab_button(row, str(entry[1]), "", str(s.layout) == layout, func() -> void: _change(home, context, "layout", layout), 13)
+			b.tooltip_text = str(entry[2])
+	return row
+
+static func toolbar_phone(home: Control, parent: Node, context: String, opts: Dictionary = {}) -> HBoxContainer:
+	## The phone's toolbar (docs/PHONE_UI.md): the sort as a drop-down and its direction, the
+	## color dots, then (asked for in `opts`) rarity, a loupe for the search, and Unfound.
+	var s: Dictionary = settings(home, context)
+	var row := DeepUi.hbox(parent, int(DeepUi.pt(4)))
+	var pick: Button = _sort_dropdown(home, row, context, s, opts.get("sorts", []))
+	pick.custom_minimum_size = Vector2(DeepUi.pt(74), DeepUi.pt(30))
+	var way := _direction(home, row, context, s)
+	way.focus_mode = Control.FOCUS_NONE
+	DeepUi.ledger_button(way, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 4)
+	way.custom_minimum_size = Vector2(DeepUi.pt(30), DeepUi.pt(30))
+	var dots := DeepUi.hbox(row, int(DeepUi.pt(2)))
+	_dots(home, dots, context, s)
+	if bool(opts.get("rarity", false)):
+		var rarity := DeepUi.button(row, "Any rarity" if str(s.rarity).is_empty() else str(s.rarity).capitalize(), Callable(), 11)
+		rarity.focus_mode = Control.FOCUS_NONE
+		DeepUi.ledger_button(rarity, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 4)
+		rarity.custom_minimum_size.y = DeepUi.pt(30)
+		rarity.pressed.connect(func() -> void:
+			## Round the rarities, a tap a step: Any, Common, ... Transcendent, Any.
+			var at: int = RARITIES.find(str(s.rarity))
+			_change(home, context, "rarity", "" if at + 1 >= RARITIES.size() else str(RARITIES[at + 1])))
+	if bool(opts.get("search", false)):
+		var loupe := DeepUi.icon_button(row, "loupe", "" if str(s.query).is_empty() else str(s.query), func() -> void: _search_panel(home, context), 11, DeepUi.ACCENT if not str(s.query).is_empty() else DeepUi.PAPER)
+		loupe.focus_mode = Control.FOCUS_NONE
+		DeepUi.ledger_button(loupe, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 4)
+		loupe.custom_minimum_size = Vector2(DeepUi.pt(30), DeepUi.pt(30))
+		loupe.tooltip_text = "Find a stone: a skill, an inclusion, a mine, a word"
+	if bool(opts.get("ghosts", false)):
+		var ghosts := CheckButton.new()
+		ghosts.text = "Unfound"
+		ghosts.tooltip_text = "Show the skills you have not kept yet"
+		ghosts.button_pressed = bool(s.ghosts)
+		ghosts.focus_mode = Control.FOCUS_NONE
+		DeepUi.set_text_size(ghosts, 11)
+		ghosts.toggled.connect(func(on: bool) -> void: _change(home, context, "ghosts", on))
+		row.add_child(ghosts)
+	return row
+
+static func _search_panel(home: Control, context: String) -> void:
+	## The search, on the phone: a field over the page, the keyboard up, the stones narrowed as
+	## the words are typed; a tap off it (or Done) puts it away and keeps the words.
+	var view: Viewport = home.get_viewport()
+	if view == null:
+		return
+	var layer := Control.new()
+	layer.name = "SearchPanel"
+	layer.theme = DeepUi.shared_theme()
+	layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	view.add_child(layer)
+	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.45)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(shade)
+	var plate := PanelContainer.new()
+	plate.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.ACCENT_DIM, 10, int(DeepUi.pt(8)), int(DeepUi.pt(1.5)), 4))
+	plate.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	plate.custom_minimum_size.x = DeepUi.pt(420)
+	plate.position = Vector2((layer.get_viewport_rect().size.x - DeepUi.pt(420)) * 0.5, DeepUi.pt(16))
+	plate.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(plate)
+	var row := DeepUi.hbox(plate, int(DeepUi.pt(6)))
+	DeepUi.icon(row, "loupe", DeepUi.pt(16), DeepUi.ACCENT)
+	var field := LineEdit.new()
+	field.placeholder_text = "a skill, an inclusion, a mine, a word"
+	field.text = str(settings(home, context).query)
+	field.clear_button_enabled = true
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.custom_minimum_size.y = DeepUi.pt(36)
+	DeepUi.set_text_size(field, 14)
+	row.add_child(field)
+	var close := func() -> void:
+		if not is_instance_valid(layer):
+			return
+		settings(home, context).query = field.text
+		home._pages[context + "_page"] = 0
+		layer.queue_free()
+		if not home.redraw([context + "_tools", context + "_stones"]):
+			home._render()
+	var done := DeepUi.button(row, "Done", close, 13)
+	DeepUi.ledger_primary(done)
+	done.custom_minimum_size.y = DeepUi.pt(36)
+	field.text_submitted.connect(func(_text: String) -> void: close.call())
+	layer.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			close.call())
+	field.call_deferred("grab_focus")
+
+static func toolbar_narrow(home: Control, parent: Node, context: String, opts: Dictionary = {}) -> VBoxContainer:
+	## The same controls stacked for a place a tile or two wide (the run dock's bag column): the
+	## sort as a drop-down with its direction beside it, then the color dots. No search box: the
+	## owner took it out of the bag (November 6, 2026). `opts`: `sorts`.
+	var s: Dictionary = settings(home, context)
+	var rows := DeepUi.vbox(parent, 4)
+	rows.name = "Browser"
+	var top := DeepUi.hbox(rows, 4)
+	top.name = "SortRow"
+	var pick: Button = _sort_dropdown(home, top, context, s, opts.get("sorts", []))
+	pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var way := _direction(home, top, context, s)
+	way.name = "Direction"
+	way.focus_mode = Control.FOCUS_NONE
+	DeepUi.ledger_button(way, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 4)
+	var dots := DeepUi.hbox(rows, 2)
+	dots.alignment = BoxContainer.ALIGNMENT_CENTER
+	_dots(home, dots, context, s)
+	return rows
+
+static func _sort_dropdown(home: Control, row: Node, context: String, s: Dictionary, only: Array) -> Button:
+	## The sort as a drop-down: a button naming the sort, with a chevron, that opens the list of
+	## sorts on a plate under it (`_open_sorts`). Not an OptionButton: its list is a PopupMenu,
+	## which brings a ScrollContainer with it, and the run's screens have none (tests/test_fit.gd).
+	var offered: Array = SORTS.filter(func(entry: Array) -> bool: return only.is_empty() or only.has(str(entry[0])))
+	var named: String = "Sort"
+	for entry in offered:
+		if str(entry[0]) == str(s.sort):
+			named = str(entry[1])
+	var b := DeepUi.button(row, named, Callable(), 13)
+	b.name = "Sort"
+	b.tooltip_text = "Sort by"
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
+	DeepUi.ledger_button(b, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 4)
+	## Room on the right for the chevron.
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		var style: StyleBox = b.get_theme_stylebox(state)
+		if style is StyleBoxFlat:
+			(style as StyleBoxFlat).content_margin_right = 26
+	var mark := Chevron.new()
+	mark.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+	mark.offset_left = -24
+	mark.offset_right = -8
+	b.add_child(mark)
+	b.pressed.connect(func() -> void: _open_sorts(home, b, context, offered))
+	return b
+
+static func _open_sorts(home: Control, b: Button, context: String, offered: Array) -> void:
+	## The list of sorts on a plate under the button, over everything on the screen: a click on
+	## one sorts by it, a click anywhere else puts the list away. It goes when the toolbar does.
+	var view: Viewport = b.get_viewport()
+	if view == null:
+		return
+	var layer := Control.new()
+	layer.name = "SortMenu"
+	layer.theme = DeepUi.theme()
+	layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	view.add_child(layer)
+	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			layer.queue_free())
+	## Bound to the list's own method, not a lambda holding it: once the list has gone (a pick, a
+	## click outside) the engine drops this connection, so the toolbar's rebuild calls nothing.
+	b.tree_exiting.connect(layer.queue_free, CONNECT_ONE_SHOT)
+	var plate := PanelContainer.new()
+	plate.name = "Sorts"
+	plate.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.ACCENT_DIM, 8, 4, 2, 4))
+	plate.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(plate)
+	var list := DeepUi.vbox(plate, 0)
+	var current: String = str(settings(home, context).sort)
+	for entry in offered:
+		var key: String = str(entry[0])
+		var on: bool = key == current
+		var item := DeepUi.button(list, str(entry[1]), func() -> void:
+			if is_instance_valid(layer):
+				layer.queue_free()
+			if key != str(settings(home, context).sort):
+				_change(home, context, "sort", key), 13)
+		item.name = "Sort_" + key
+		item.focus_mode = Control.FOCUS_NONE
+		item.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var rest := DeepUi.flat(Color(DeepUi.ACCENT, 0.16) if on else Color(0, 0, 0, 0), Color(0, 0, 0, 0), 4, 4)
+		var lit := DeepUi.flat(DeepUi.SLATE_HI, Color(0, 0, 0, 0), 4, 4)
+		for style in [rest, lit]:
+			style.content_margin_left = 10
+			style.content_margin_right = 10
+		for state in ["normal", "focus", "disabled"]:
+			item.add_theme_stylebox_override(state, rest)
+		for state in ["hover", "pressed", "hover_pressed"]:
+			item.add_theme_stylebox_override(state, lit)
+		item.add_theme_color_override("font_color", DeepUi.ACCENT_HI if on else DeepUi.PAPER)
+		item.add_theme_color_override("font_hover_color", Color.WHITE)
+		item.add_theme_font_override("font", DeepUi.bold_font())
+	## Under the button and at least as wide; over it where the screen has no room under it.
+	var at: Rect2 = b.get_global_rect()
+	var want: Vector2 = plate.get_combined_minimum_size()
+	want.x = maxf(want.x, at.size.x)
+	plate.size = want
+	var screen: Vector2 = layer.get_viewport_rect().size
+	var y: float = at.end.y + 4.0
+	if y + want.y > screen.y:
+		y = at.position.y - want.y - 4.0
+	plate.position = Vector2(clampf(at.position.x, 0.0, maxf(0.0, screen.x - want.x)), maxf(0.0, y)).round()
+	if not DeepUi.headless():
+		DeepUi.pop_in(plate, 0.0, 0.97, 0.12)
+
+class Chevron extends Control:
+	## The mark on a drop-down: a small V pointing down to the list it opens.
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _draw() -> void:
+		var centre: Vector2 = size * 0.5
+		draw_polyline(PackedVector2Array([centre + Vector2(-4.5, -2.0), centre + Vector2(0.0, 2.5), centre + Vector2(4.5, -2.0)]), DeepUi.MUTED, 2.0, true)
+
+static func _sorter(home: Control, row: Node, context: String, s: Dictionary, compact: bool, only: Array) -> OptionButton:
+	## The sort, as a drop-down. `only` names the sorts offered (every one when empty).
 	var sorter := OptionButton.new()
 	sorter.name = "Sort"
 	sorter.focus_mode = Control.FOCUS_NONE
 	sorter.tooltip_text = "Sort by"
-	for index in range(SORTS.size()):
-		sorter.add_item(("Sort: " if not compact else "") + str(SORTS[index][1]), index)
-		if str(SORTS[index][0]) == str(s.sort):
+	var offered: Array = SORTS.filter(func(entry: Array) -> bool: return only.is_empty() or only.has(str(entry[0])))
+	for index in range(offered.size()):
+		sorter.add_item(("Sort: " if not compact else "") + str(offered[index][1]), index)
+		if str(offered[index][0]) == str(s.sort):
 			sorter.select(index)
 	DeepUi.set_text_size(sorter, 13)
 	sorter.item_selected.connect(func(index: int) -> void:
 		DeepAudio.play("ui_tap")
-		_change(home, context, "sort", str(SORTS[index][0])))
+		_change(home, context, "sort", str(offered[index][0])))
 	row.add_child(sorter)
+	return sorter
+
+static func _direction(home: Control, row: Node, context: String, s: Dictionary) -> Button:
 	var way := DeepUi.icon_button(row, "fall" if bool(s.desc) else "rise", "", func() -> void: _change(home, context, "desc", not bool(s.desc)), 13, DeepUi.PAPER)
 	way.tooltip_text = "Highest first" if bool(s.desc) else "Lowest first"
-	DeepUi.gap(row, 2)
+	return way
+
+static func _dots(home: Control, row: Node, context: String, s: Dictionary) -> void:
+	## A dot a color: click one to see only its stones, Shift-click to add another, click a
+	## picked one to show every color again.
 	for color in COLORS:
 		var dot := ColorDot.new(color, s.colors.is_empty() or s.colors.has(color), s.colors.has(color))
 		dot.tooltip_text = "Only %s stones" % str(DeepContent.color(color).get("name", color.capitalize())) if not s.colors.has(color) else "Show every color again"
@@ -78,19 +336,10 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 				else:
 					now = [key]
 				_change(home, context, "colors", now))
-	if bool(opts.get("rarity", true)):
-		var rarity := OptionButton.new()
-		rarity.focus_mode = Control.FOCUS_NONE
-		rarity.add_item("Any rarity", 0)
-		for index in range(RARITIES.size()):
-			rarity.add_item(str(RARITIES[index]).capitalize(), index + 1)
-			if str(RARITIES[index]) == str(s.rarity):
-				rarity.select(index + 1)
-		DeepUi.set_text_size(rarity, 13)
-		rarity.item_selected.connect(func(index: int) -> void:
-			DeepAudio.play("ui_tap")
-			_change(home, context, "rarity", "" if index == 0 else str(RARITIES[index - 1])))
-		row.add_child(rarity)
+
+static func _search(home: Control, row: Node, context: String, s: Dictionary, compact: bool) -> LineEdit:
+	## The search box: it waits a beat after the last keystroke, then draws the stones again
+	## and keeps its focus.
 	var search := LineEdit.new()
 	search.name = "Search_" + context
 	search.placeholder_text = "Find a stone" if compact else "Find: a skill, an inclusion, a mine, a word…"
@@ -117,21 +366,7 @@ static func toolbar(home: Control, parent: Node, context: String, opts: Dictiona
 		home.remove_meta("browse_focus")
 		search.call_deferred("grab_focus")
 		search.set_deferred("caret_column", search.text.length())
-	if bool(opts.get("ghosts", false)):
-		var ghosts := CheckButton.new()
-		ghosts.text = "Unfound"
-		ghosts.tooltip_text = "Show the skills you have not kept yet"
-		ghosts.button_pressed = bool(s.ghosts)
-		ghosts.focus_mode = Control.FOCUS_NONE
-		DeepUi.set_text_size(ghosts, 13)
-		ghosts.toggled.connect(func(on: bool) -> void: _change(home, context, "ghosts", on))
-		row.add_child(ghosts)
-	if bool(opts.get("layouts", false)):
-		for entry in [["grid", "gem", "Grid"], ["list", "ladder", "List"]]:
-			var layout: String = str(entry[0])
-			var b := DeepUi.tab_button(row, str(entry[1]), "", str(s.layout) == layout, func() -> void: _change(home, context, "layout", layout), 13)
-			b.tooltip_text = str(entry[2])
-	return row
+	return search
 
 class ColorDot extends Control:
 	## One color's dot in the browser's row: lit when its stones are shown, ringed when it is
@@ -144,28 +379,33 @@ class ColorDot extends Control:
 		color = key
 		lit = shown
 		picked = chosen
-		custom_minimum_size = Vector2(20, 20)
+		## On the phone a dot is drawn larger (k), and answers a finger in a 44 point square.
+		custom_minimum_size = Vector2(20, 20) * _k()
 		size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		add_to_group(DeepUi.MARKED_GROUP)
+	static func _k() -> float:
+		return 1.7 if DeepUi.phone else 1.0
 	func _has_point(point: Vector2) -> bool:
 		## A click counts well past the dot: 34 tall, and half the gap to each neighbour wide,
 		## so the dots share the whole strip between them. The dot is drawn as it always was.
-		return Rect2(-REACH, size + REACH * 2.0).has_point(point)
+		var reach: Vector2 = REACH * _k() if not DeepUi.phone else Vector2(DeepUi.pt(3), (DeepUi.TOUCH - size.y) * 0.5)
+		return Rect2(-reach, size + reach * 2.0).has_point(point)
 	func _draw() -> void:
 		var centre: Vector2 = size * 0.5
 		var alpha: float = 1.0 if lit else 0.28
+		var k: float = _k()
 		if DeepUi.color_marks:
 			## Settings > Comfort > Color marks: the dot takes its color's shape.
-			DeepUi.draw_color_mark(self, centre, 8.0, color, false, false, alpha)
+			DeepUi.draw_color_mark(self, centre, 8.0 * k, color, false, false, alpha)
 		elif color == DeepContent.OPAL:
 			for i in range(12):
-				draw_arc(centre, 4.0, TAU * float(i) / 12.0, TAU * float(i + 1) / 12.0, 4, Color(DeepUi.rainbow_at(float(i) / 11.0, 0.62), alpha), 7.0)
+				draw_arc(centre, 4.0 * k, TAU * float(i) / 12.0, TAU * float(i + 1) / 12.0, 4, Color(DeepUi.rainbow_at(float(i) / 11.0, 0.62), alpha), 7.0 * k)
 		else:
-			draw_circle(centre, 7.0, Color(DeepUi.color(color), alpha))
+			draw_circle(centre, 7.0 * k, Color(DeepUi.color(color), alpha))
 		if picked:
-			draw_arc(centre, 9.5, 0, TAU, 24, DeepUi.ACCENT_HI, 2.0, true)
+			draw_arc(centre, 9.5 * k, 0, TAU, 24, DeepUi.ACCENT_HI, 2.0 * k, true)
 
 # --- sorting and finding ----------------------------------------------------------------------------
 

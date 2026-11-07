@@ -95,7 +95,7 @@ func _test_evaluation() -> void:
 	var barrage: Dictionary = DeepStone.evaluate(stone("BARRAGE", 1, 4), hand([1, 2, 3, 6, 6]))
 	check(barrage.active and barrage.effects[0].repeat == 3 and amount_of(barrage, "damage") == 6, "Barrage repeats once per die in the run, for 6 at Perfect")
 	var barrage_flawless: Dictionary = DeepStone.evaluate(stone("BARRAGE", 1, 4, 5), hand([1, 2, 3, 6, 6]))
-	check(str(barrage_flawless.effects[0].target) == "enemy" and int(barrage_flawless.effects[0].repeat) == 4, "Flawless Barrage adds one hit")
+	check(str(barrage_flawless.effects[0].target) == "enemy" and int(barrage_flawless.effects[0].repeat) == 3 and int(barrage_flawless.effects[0].ring_past_block) == 1, "Flawless Barrage rings on every hit past Block, not one hit more")
 	var glimmer: Dictionary = DeepStone.evaluate(stone("GLIMMER", 1, 2), hand([1, 2, 3, 4, 5]))
 	check(amount_of(glimmer, "upgrade_faces") == 1 and not bool(glimmer.effects[0].scaled), "Glimmer raises a matched face by one, never by a fraction")
 	var heavy_glimmer: Dictionary = DeepStone.evaluate(stone("GLIMMER", 24, 2), hand([1, 2, 3, 4, 5]))
@@ -160,6 +160,29 @@ func _test_cut_steps() -> void:
 				same.append(str(key) + " at " + DeepContent.cut_name(step))
 			seen.append(signature)
 	check(same.is_empty(), "no skill repeats itself across its Cut ladder: " + str(same))
+	_test_wilds()
+
+func wild_hand(numbers: Array, tops: Array, wild_at: int) -> Array:
+	## A hand of mixed dice with one wild, landed on its 1 the way an etched wild face does.
+	var out: Array = hand(numbers)
+	for index in range(out.size()):
+		out[index].top = int(tops[index])
+	out[wild_at].kind = "wild"
+	out[wild_at].value = 1
+	return out
+
+func _test_wilds() -> void:
+	## A wild is any value: whatever some number on that die would fire, the wild fires too.
+	var tops: Array = [20, 6, 6, 6, 6]
+	check(DeepStone.evaluate(stone("TEMPER", 1, 0), wild_hand([1, 4, 3, 2, 5], tops, 0)).active, "a wild d20 is a 20 to Temper beside plain dice")
+	check(DeepHand.analyze(wild_hand([1, 4, 3, 2, 5], tops, 0)).high == 20, "a wild counts as its top for the high die")
+	check(DeepStone.evaluate(stone("REBOUND", 1, 4), wild_hand([1, 6, 6, 6, 6], tops, 0)).active, "a wild is a low die to Rebound")
+	var d6: Array = [6, 6, 6, 6, 6]
+	check(DeepStone.evaluate(stone("BEZEL", 1, 4), wild_hand([2, 1, 2, 3, 2], d6, 1)).active, "the wild leaves the 2s to pair the lone 3: two pair")
+	check(DeepStone.evaluate(stone("FORTIFY", 1, 4), wild_hand([1, 1, 3, 1, 3], d6, 2)).active, "the wild joins the 1s or the 3s, whichever makes the full house")
+	check(DeepStone.evaluate(stone("CLEAVE", 1, 0), wild_hand([2, 2, 6, 1, 2], d6, 3)).active, "a wild lifts the lone 6 into a pair when the 2s are too low")
+	check(DeepStone.evaluate(stone("BULWARK", 1, 4), wild_hand([1, 4, 4, 4, 2], d6, 0)).active, "a wild reads as a 1 to a gem that wants a low total")
+	check(int(DeepHand.read(DeepHand.analyze(wild_hand([1, 4, 3, 2, 5], tops, 0)), 1, true).sum) == 20, "a wild read off the top is its own top")
 
 func _test_inclusions() -> void:
 	var a: Array = hand([3, 3, 5, 5, 5])
@@ -240,8 +263,10 @@ func _test_birthstones_and_references() -> void:
 			## carats, every gem after it. Its weight swells everything else it does.
 			var exact: bool = DeepContent.is_transcendent(str(key)) and kind in ["fire_neighbours", "force_after", "absorbed", "gem_rank"]
 			var cost: bool = kind in DeepRules.HOSTILE and str(def.get("target", "")) == "self"
-			check(scale != "none" or def.has("from_result") or def.has("of_status") or exact or cost, "%s's %s answers to carat" % [str(key), kind])
-			check(not def.has("cost") or scale in ["carat", "steps"], "%s's priced %s swells with carat, since it cannot proc" % [str(key), kind])
+			## A Flawless Stake's percent is flat by the owner's ruling (Nov 7 2026): its weight raises how much it may stake.
+			var staked: bool = def.has("all_in")
+			check(scale != "none" or def.has("from_result") or def.has("of_status") or exact or cost or staked or kind in DeepRules.ONE_SHOT_KINDS, "%s's %s answers to carat" % [str(key), kind])
+			check(not def.has("cost") or scale in ["carat", "steps"] or staked, "%s's priced %s swells with carat, since it cannot proc" % [str(key), kind])
 
 func _test_grade_and_names() -> void:
 	check(DeepStone.name(stone("BARRAGE", 14, 4, 5)) == "Perfect Flawless 14-carat Barrage", "the jeweller's name: " + DeepStone.name(stone("BARRAGE", 14, 4, 5)))
@@ -561,11 +586,39 @@ func _test_well(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 		check(int(prize.tier) >= 0 and int(prize.tier) <= 4, "every rung names how loud it is")
 
 func _test_echo(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
-	var p: Dictionary = {"haul": [read(stone("STRIKE", 5, 3, 3))], "rail": []}
+	## The echo replaces the stone held up, wherever it sat (November 5, 2026): the same skill,
+	## already read, rolled fresh in every other way, and never a twin.
+	var p: Dictionary = {"haul": [read(stone("GUARD", 2, 1, 3)), read(stone("STRIKE", 5, 3, 3))], "rail": [null, null], "riders": [[], []]}
 	var out: Dictionary = DeepOddities.apply({"kind": "echo_stone", "bonus": 2}, p, {"stone_id": "strike"}, rng, ctx)
-	check(out.ok and p.haul.size() == 2 and str(p.haul[1].skill) == "STRIKE", "the echo gives back another of the same skill")
-	check(not bool(p.haul[1].appraised) and str(p.haul[1].id) != "strike", "and it comes still in its rock, its own stone")
-	check(bool(p.haul[0].appraised) and int(p.haul[0].carat) == 5, "the stone held up is untouched")
+	check(out.ok and p.haul.size() == 2 and str(p.haul[0].id) == "guard" and str(p.haul[1].skill) == "STRIKE" and str(p.haul[1].id) != "strike",
+		"the echo takes the stone's own place in the bag, with the same skill, as a stone of its own")
+	check(bool(p.haul[1].appraised) and bool(p.haul[1].inclusions_revealed), "and it comes already read")
+	check(out.lost == ["strike"] and out.changed.size() == 1 and str(out.changed[0].id) == str(p.haul[1].id) and out.made.is_empty(),
+		"the room says what was lost and what came of it, and counts nothing found: %s" % str(out))
+	check(str(out.message) == "The walls ring your Strike back as another: the same skill, already read, everything else drawn fresh.", "and says so: %s" % str(out.message))
+	check(not p.haul.any(func(s: Dictionary) -> bool: return str(s.id) == "strike"), "the stone held up is gone")
+	## A socketed stone's echo is set in its socket, and carries the marks of the stone it
+	## replaced: a lent vault copy stays lent, a fragile stone fragile, a temporary one temporary.
+	var set: Dictionary = read(stone("MEND", 4, 2, 3))
+	set.lent = true
+	set.fragile = true
+	set.temporary = true
+	var q: Dictionary = {"haul": [], "rail": [null, set, null], "riders": [[], [], []]}
+	out = DeepOddities.apply({"kind": "echo_stone", "bonus": 2}, q, {"stone_id": "mend"}, rng, ctx)
+	check(out.ok and q.rail[1] is Dictionary and str(q.rail[1].skill) == "MEND" and str(q.rail[1].id) != "mend" and q.haul.is_empty() and q.rail[0] == null,
+		"a socketed stone's echo sits in its socket")
+	check(bool(q.rail[1].lent) and bool(q.rail[1].fragile) and bool(q.rail[1].temporary), "and carries the lent, fragile and temporary marks of the stone it replaced")
+	var plain: Dictionary = {"haul": [read(stone("CLEAVE", 3, 2, 3))], "rail": [], "riders": []}
+	out = DeepOddities.apply({"kind": "echo_stone", "bonus": 2}, plain, {"stone_id": "cleave"}, rng, ctx)
+	check(out.ok and not plain.haul[0].has("lent") and not plain.haul[0].has("temporary") and not bool(plain.haul[0].get("voided", false)), "and an ordinary stone's echo carries none")
+	## A Void gem's echo rides where it rode, fragile as it was, by the Hollow's mark if the rock
+	## froze no Void of its own in it.
+	var rider: Dictionary = read(stone("VENOM", 3, 2, 3, ["VOID"]))
+	var r: Dictionary = {"haul": [], "rail": [read(stone("STRIKE", 2, 2, 3)), null], "riders": [[rider], []]}
+	out = DeepOddities.apply({"kind": "echo_stone", "bonus": 2}, r, {"stone_id": "venom"}, rng, ctx)
+	check(out.ok and r.riders[0].size() == 1 and str(r.riders[0][0].skill) == "VENOM" and str(r.riders[0][0].id) != "venom" and r.haul.is_empty(), "a rider's echo rides in its place")
+	check(DeepStone.is_slotless(r.riders[0][0]) and DeepStone.is_fragile(r.riders[0][0]), "and it rides, and is fragile, as the Void gem it replaced was")
+	check(not DeepOddities.apply({"kind": "echo_stone", "bonus": 2}, r, {"stone_id": "nobody"}, rng, ctx).ok, "a stone the player has not is refused")
 
 func _test_acid(rng: RandomNumberGenerator, ctx: Dictionary) -> void:
 	var p: Dictionary = {"haul": [stone("STRIKE", 3, 2, 3), stone("GUARD", 4, 1, 2), stone("VENOM", 2, 0, 3)], "rail": [], "hp": 40, "max_hp": 60}

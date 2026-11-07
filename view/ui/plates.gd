@@ -29,6 +29,9 @@ static func section(box: Control, words: String) -> Label:
 	return l
 
 static func footer(box: Control, words: String = FOOTER) -> void:
+	## The phone's card has a Details button of its own: no line about it.
+	if DeepUi.phone:
+		return
 	DeepUi.label(box, DeepUi.touch_words(words), 10, DeepUi.DIM)
 
 static func plate(width: float = WIDTH) -> VBoxContainer:
@@ -50,6 +53,12 @@ static func gem_small(stone: Dictionary, context: Dictionary = {}) -> String:
 		parts.append("Void")
 	return " · ".join(parts)
 
+static func is_growth(stone: Dictionary) -> bool:
+	## A gem that grows with every firing of the run (Hone, Hardening): its skill counts its own
+	## firings (`run_fires`, DeepRules) somewhere in what it does.
+	var skill: Dictionary = DeepStone.skill_of(stone)
+	return str(skill.get("effects", [])).contains("run_fires") or str(skill.get("flawless", {})).contains("run_fires")
+
 static func gem(stone: Dictionary, context: Dictionary, hand: Array, entry: Dictionary, dice: Array, opts: Dictionary = {}) -> Control:
 	## A gem on the rail: what it is, when it fires at its own cut, what it does, and whether
 	## this hand fires it. `entry` is the forecast's socket entry ({} when none applies);
@@ -64,7 +73,8 @@ static func gem(stone: Dictionary, context: Dictionary, hand: Array, entry: Dict
 		DeepUi.label(box, "%s, your Birthstone" % str(stone.get("name", "")), 12, DeepUi.MUTED)
 	## When it fires: the pictograph and the words for the rung this stone stands on. The
 	## other rungs are the inspector's.
-	var described: Dictionary = entry.get("trigger", DeepPatterns.describe(skill.get("trigger", {"kind": "always"}), int(eff.cut_step)))
+	var trigger: Dictionary = skill.get("trigger", {"kind": "always"})
+	var described: Dictionary = entry.get("trigger", DeepPatterns.describe(trigger, int(eff.cut_step)))
 	var fires := DeepUi.hbox(box, 8)
 	DiceIcons.build(fires, described, 16, DeepUi.PAPER)
 	var said := DeepUi.vbox(fires, 0)
@@ -78,6 +88,10 @@ static func gem(stone: Dictionary, context: Dictionary, hand: Array, entry: Dict
 		var flawless_said := DeepUi.vbox(flawless, 0)
 		flawless_said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.effect_text(flawless_said, "Flawless: " + DeepStone.flawless_text(stone, context), 12, DeepUi.tier_color("PEERLESS"))
+	## A growth gem's card says what it does for its count; the count itself is said here.
+	var fired: int = int(context.get("run_fires", 0))
+	if fired > 0 and is_growth(stone):
+		DeepUi.label(box, "Fired %s this run." % DeepUi.plural(fired, "time"), 12, DeepUi.MUTED)
 	_weight_line(box, stone, context, eff)
 	for line in DeepStone.proc_lines(stone, context):
 		DeepUi.stat(box, "carat", str(line.text), DeepUi.GOOD if bool(line.sure) else DeepUi.MUTED, 11)
@@ -86,7 +100,9 @@ static func gem(stone: Dictionary, context: Dictionary, hand: Array, entry: Dict
 	if not str(opts.get("note", "")).is_empty():
 		DeepUi.stat(box, "cross_out", str(opts.note), DeepUi.BAD, 12)
 	if not hand.is_empty() and not entry.is_empty():
-		_this_hand(box, hand, dice, entry)
+		## The trigger's own words are what the sim gives as the reason when the hand simply
+		## does not meet it (DeepPatterns.words), at the rung this stone stands on.
+		_this_hand(box, hand, dice, entry, [str(described.get("words", "")), DeepPatterns.words(trigger, int(eff.cut_step))])
 	return box
 
 static func _weight_line(box: Control, stone: Dictionary, context: Dictionary, eff: Dictionary) -> void:
@@ -273,8 +289,10 @@ static func birth_badge(tiers: Array, defs: Array) -> Array:
 		best = ["×".join(PackedStringArray(factors.map(func(f: int) -> String: return DeepUi.number(f)))), tone]
 	return best
 
-static func _this_hand(box: Control, hand: Array, dice: Array, entry: Dictionary) -> void:
+static func _this_hand(box: Control, hand: Array, dice: Array, entry: Dictionary, asks: Array = []) -> void:
 	## The strip: the hand's dice as small faces, the ones this gem reads lit, and what lands.
+	## `asks` is the gem's own trigger said in words: a fizzle for no more reason than that is
+	## "Fizzles" alone, since the words are already on the plate.
 	var strip := PanelContainer.new()
 	strip.add_theme_stylebox_override("panel", DeepUi.flat(Color("1c2232"), Color(0, 0, 0, 0), 5, 6))
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -325,8 +343,10 @@ static func _this_hand(box: Control, hand: Array, dice: Array, entry: Dictionary
 		rtl.pop_all()
 		words.add_child(rtl)
 	else:
+		## Buried, clouded, short of Pyrite or health, a Double Down come up empty: those are
+		## worth their words. The hand not meeting the trigger is not.
 		var why: String = str(entry.get("reason", ""))
-		DeepUi.wrap(words, "Stays dark" + (": " + why if not why.is_empty() else "."), 12, DeepUi.MUTED)
+		DeepUi.wrap(words, "Fizzles" if why.is_empty() or asks.has(why) else "Fizzles: " + why, 12, DeepUi.MUTED)
 
 # --- dice --------------------------------------------------------------------------------------
 

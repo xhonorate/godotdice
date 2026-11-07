@@ -21,6 +21,24 @@ const FOOT := 58.0
 const HALL := 0.5
 const SEATS: Array = [Color("f0b44c"), Color("5fb8ff"), Color("6fdc8c"), Color("e07ad6")]
 const GLINT_GLYPHS: Dictionary = {"hostile": "eye", "glittering": "star", "strange": "swirl", "dark": "question"}
+## The plate a panel lying along one side of the run's screen wears: the chart on the left and
+## the bag column on the right (run_dock.gd) share it (the owner, November 6, 2026): the Ledger
+## plate (opaque, a 3 px border in dim gold, corners cut straight across) with its shadow
+## thrown toward the room, `toward` -1 for a panel on the right edge, 1 for one on the left.
+## `pad` is the room inside it, for a container that holds its content in it. `shadow` false
+## leaves the shadow off, for a panel that clips what it draws to its own rect (the chart):
+## clipped, a shadow only shows as dark smudges in the cut corners.
+const SIDE_LINE := DeepUi.ACCENT_DIM
+const SIDE_CUT: int = 14
+const SIDE_BORDER: int = 3
+
+static func side_plate(toward: float, pad: int = 12, shadow: bool = true) -> StyleBoxFlat:
+	var plate: StyleBoxFlat = DeepUi.ledger(DeepUi.LEDGER_FILL, SIDE_LINE, SIDE_CUT, pad, SIDE_BORDER, 5)
+	plate.shadow_color = Color(DeepUi.LEDGER_SHADOW, 0.6)
+	plate.shadow_size = 14 if shadow else 0
+	plate.shadow_offset = Vector2(5.0 * signf(toward), 2.0)
+	return plate
+
 const GLINT_TONES: Dictionary = {"hostile": Color("ff5a4a"), "glittering": Color("ffd257"), "strange": Color("b58cff"), "dark": Color("6d7688")}
 const GLINT_WORDS: Dictionary = {
 	"hostile": "Something's moving down there.",
@@ -325,15 +343,9 @@ func _paint_back() -> void:
 	_spots = _static_spots
 	_flows.clear()
 	_painted = Vector2(_shown, _nudge)
-	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color(0.035, 0.042, 0.06, 0.86)
-	panel.border_color = Color(DeepUi.LINE_HI, 0.6)
-	panel.set_border_width_all(1)
-	panel.set_corner_radius_all(14)
-	DeepUi.facet(panel)
-	panel.shadow_color = Color(0, 0, 0, 0.45)
-	panel.shadow_size = 12
-	_canvas.draw_style_box(panel, Rect2(Vector2.ZERO, size))
+	## The bag column's plate (`side_plate`): the two side panels read as one pair. The chart
+	## clips what it draws to its own rect, so it wears the plate without its shadow.
+	_canvas.draw_style_box(side_plate(1.0, 12, false), Rect2(Vector2.ZERO, size))
 	if run.is_empty():
 		return
 	_fit_step()
@@ -387,11 +399,19 @@ func _facts(map: Dictionary, positions: Dictionary) -> Dictionary:
 		"lit_way": _ahead_of([picked]) if not picked.is_empty() and nodes.has(picked) else {},
 		"choosing": str(run.get("phase", "")) == "tunnels"}
 
+func _text(points: int) -> int:
+	## A reading size for the chart: the screen's, less what the phone's scale on the chart adds
+	## (descent_screen.gd CHART_SCALE).
+	return maxi(8, int(round(float(DeepUi.readable(points)) / maxf(1.0, scale.x))))
+
+func _caps(points: int) -> int:
+	return maxi(8, int(round(float(DeepUi.caps_size(points)) / maxf(1.0, scale.x))))
+
 func _draw_header(map: Dictionary, depth: int) -> void:
 	var font: Font = DeepUi.caps_font()
 	_canvas.draw_string(font, Vector2(18, 28), "THE WAY DOWN", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DeepUi.ACCENT)
 	var mine_name: String = str(DeepContent.mine(str(run.get("mine", ""))).get("name", ""))
-	var small: int = DeepUi.readable(12)
+	var small: int = _text(12)
 	_canvas.draw_string(DeepUi.text_face(small), Vector2(18, 46), mine_name, HORIZONTAL_ALIGNMENT_LEFT, size.x - 36, small, DeepUi.MUTED)
 	if map.is_empty():
 		return
@@ -417,14 +437,14 @@ func _draw_depths() -> void:
 		if fade <= 0.0:
 			continue
 		var tone: Color = DeepUi.PAPER if d == depth else DeepUi.DIM
-		_canvas.draw_string(DeepUi.text_face(DeepUi.readable(12)), Vector2(8, y + 5), str(d) if d > 0 else "", HORIZONTAL_ALIGNMENT_CENTER, 24, DeepUi.readable(12), Color(tone, fade))
+		_canvas.draw_string(DeepUi.text_face(_text(12)), Vector2(8, y + 5), str(d) if d > 0 else "", HORIZONTAL_ALIGNMENT_CENTER, 24, _text(12), Color(tone, fade))
 		_canvas.draw_line(Vector2(GUTTER - 4, y), Vector2(size.x - 12, y), Color(DeepUi.LINE, 0.18 * fade), 1.0)
 		if bottom > 0 and d == bottom + 1:
 			var below: String = DeepDescent.next_mine(run)
 			## Low under the last floor, clear of the boss's hall halfway down to it.
 			var words: String = ("%s BELOW" % DeepContent.mine_name(below).to_upper()) if not below.is_empty() else "THE BOTTOM"
 			var tint: Color = Color(str(DeepContent.mine(below).get("palette", "b58cff"))) if not below.is_empty() else DeepUi.DIM
-			_canvas.draw_string(DeepUi.caps_font(), Vector2(GUTTER, y - _step * 0.22 + 4), words, HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(11), Color(tint, fade))
+			_canvas.draw_string(DeepUi.caps_font(), Vector2(GUTTER, y - _step * 0.22 + 4), words, HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(11), Color(tint, fade))
 
 func _medallion(at: Vector2, radius: float, kind: String, strength: float, ring: Color = Color(0, 0, 0, 0), mark: String = "") -> void:
 	## A chamber drawn in its kind's color, wearing its kind's mark unless `mark` says otherwise.
@@ -537,16 +557,24 @@ func _stretch_ways(map: Dictionary, positions: Dictionary, facts: Dictionary) ->
 				_stroke(line, Color(DeepUi.ACCENT, 0.7) if on_way else Color(DeepUi.LINE_HI, 0.45 if lit_way.is_empty() else 0.22), 2.4 if on_way else 1.8)
 			else:
 				_stroke(line, Color(DeepUi.LINE_HI, 0.1), 1.4)
-	## Fog below what the lantern shows.
+	## Fog below what the lantern shows: inside the plate's border and its cut corners, so the
+	## border stands at full strength down to the foot and the corners stay cut (it was a
+	## rectangle to the edge, which dimmed the border and filled the corners at the foot).
 	if not bool(map.get("lit", false)):
 		var fog_top: float = _fog_top()
 		var fog_full: float = fog_top + _step * 0.7
 		if fog_top < _bottom():
 			var shade := Color(0.02, 0.025, 0.035)
-			var poly := PackedVector2Array([Vector2(1, fog_top), Vector2(size.x - 1, fog_top), Vector2(size.x - 1, fog_full), Vector2(1, fog_full)])
+			var rim: float = float(SIDE_BORDER)
+			var cut: float = float(SIDE_CUT)
+			var poly := PackedVector2Array([Vector2(rim, fog_top), Vector2(size.x - rim, fog_top), Vector2(size.x - rim, fog_full), Vector2(rim, fog_full)])
 			_canvas.draw_polygon(poly, PackedColorArray([Color(shade, 0.0), Color(shade, 0.0), Color(shade, 0.72), Color(shade, 0.72)]))
-			if fog_full < size.y:
-				_canvas.draw_rect(Rect2(Vector2(1, fog_full), Vector2(size.x - 2, size.y - fog_full - 1)), Color(shade, 0.72))
+			if fog_full < size.y - rim:
+				## The inner edge of the border, its foot's corners cut as the plate's are.
+				var low: float = maxf(fog_full, size.y - cut)
+				var body := PackedVector2Array([Vector2(rim, fog_full), Vector2(size.x - rim, fog_full), Vector2(size.x - rim, low),
+					Vector2(size.x - cut, size.y - rim), Vector2(cut, size.y - rim), Vector2(rim, low)])
+				_canvas.draw_colored_polygon(body, Color(shade, 0.72))
 
 func _fog_top() -> float:
 	return _y(float(int(run.get("depth", 0)) + DeepDescent.lantern_reach(run)) + 0.45)
@@ -716,7 +744,7 @@ func _draw_landing(map: Dictionary, positions: Dictionary, reachable: bool) -> v
 	_canvas.draw_circle(at, 19.0, Color(tone.darkened(0.65), 0.97 * fade))
 	_canvas.draw_arc(at, 19.0, 0, TAU, 36, Color(tone, (0.95 if reachable else 0.5) * fade), 2.5, true)
 	_glyph("lift", at, 21.0, Color(tone.lightened(0.3), fade))
-	_canvas.draw_string(DeepUi.caps_font(), at + Vector2(26, 5), "LANDING", HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(11), Color(tone, 0.85 * fade))
+	_canvas.draw_string(DeepUi.caps_font(), at + Vector2(26, 5), "LANDING", HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(11), Color(tone, 0.85 * fade))
 	var words: String = "Depth %d: a landing with a lift. Rest, appraise or use the well, then go up or down." % landing
 	if positions.has("hall_below"):
 		words += " The %s waits past it." % ("final boss" if DeepDescent.run_is_boss(run, landing) else "Warden")
@@ -740,7 +768,7 @@ func _draw_hall(at: Vector2, depth: int, reachable: bool) -> void:
 	_canvas.draw_circle(at, 15.0, Color(tone.darkened(0.65), 0.97 * fade))
 	_canvas.draw_arc(at, 15.0, 0, TAU, 32, Color(tone, (0.95 if reachable else 0.5) * fade), 2.2, true)
 	_glyph("crown", at, 17.0, Color(tone.lightened(0.3), fade))
-	_canvas.draw_string(DeepUi.caps_font(), at + Vector2(22, 5), "BOSS" if DeepDescent.run_is_boss(run, depth) else "WARDEN", HORIZONTAL_ALIGNMENT_LEFT, -1, DeepUi.caps_size(11), Color(tone, 0.85 * fade))
+	_canvas.draw_string(DeepUi.caps_font(), at + Vector2(22, 5), "BOSS" if DeepDescent.run_is_boss(run, depth) else "WARDEN", HORIZONTAL_ALIGNMENT_LEFT, -1, _caps(11), Color(tone, 0.85 * fade))
 
 func _draw_party(at: Vector2) -> void:
 	## Where the party stands: a lantern's glow and a slow pulse.

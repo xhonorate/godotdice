@@ -14,17 +14,19 @@ extends RefCounted
 ##
 ##   values, total, max_total, high, low, high_pct, held, rerolled, phantoms, dice_count
 ##   groups        [{value, count, dice}] sorted by count then value, wilds included
+##   plain_groups  the same sets before any wild joins one
 ##   best_set      the first group
 ##   pairs         the groups with count >= 2
 ##   straight      {length, high, low, dice}
 ##   odd, even     counts (wilds count for both)
 ##   odd_values, even_values   how many different values of each parity show (wilds count for both)
 ##   distinct      number of different values (wilds each count as a new one)
-##   low_dice, low_ids     dice at or below half their own top (a wild is never low)
+##   low_dice, low_ids     dice in the low half of their size (a wild always is)
 ##   crowns, crown_ids     dice showing their own top face (a wild is always a crown)
 ##   crown_total   what those crowns add up to (a wild counts its top)
 ##   high_crown    1 when the highest roll is itself a crown, else 0
-##   wilds         die ids of wild rolls
+##   wilds         die ids of wild rolls; `high` counts a wild as its top
+##   wild_tops, wild_total   {die id: top} for the wilds, and those tops added up
 ##   ids_by_value  {value: [die ids]}, each bucket in preference order
 ##   bases         {die id: face value} for exploding rolls: what the face says before what it threw again
 ##   showing       {number: [die ids]} by the number printed on the face each die landed on,
@@ -37,6 +39,8 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 	var counts: Dictionary = {}
 	var wilds: Array = []
 	var wild_top: int = 0
+	var wild_tops: Dictionary = {}
+	var wild_total: int = 0
 	var rank: Dictionary = {}
 	var total: int = 0
 	var max_total: int = 0
@@ -60,6 +64,11 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		var kind: String = str(roll.get("kind", "plain"))
 		var value: int = int(roll.get("value", 0))
 		var top: int = maxi(1, int(roll.get("top", value)))
+		## Low and high are judged against the plain die's size, never its faces: filing,
+		## carving or raising a face does not move the line. The halfway point is the standard
+		## die's average, (faces + 1) / 2, so 1-3 are low on a d6 and 4-6 high. A roll with no
+		## shape (an old fixture) falls back to its top. Crowns and max_total still read top.
+		var faces: int = DeepDice.size_of(str(roll.shape)) if roll.has("shape") else top
 		var id: String = str(roll.get("die_id", ""))
 		## Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
 		rank[id] = DeepDice.preference(roll, colors) * 1000 - index
@@ -71,13 +80,18 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		if int(roll.get("rerolls", 0)) > 0:
 			rerolled += 1
 		if kind == "wild":
+			## Any value at all: its top for the high end, and low for a gem that wants low dice.
 			wilds.append(id)
 			wild_top = maxi(wild_top, top)
+			wild_tops[id] = top
+			wild_total += top
 			total += top
 			high_pct = 100
 			crowns += 1
 			crown_ids.append(id)
 			crown_total += top
+			low_dice += 1
+			low_ids.append(id)
 			continue
 		if kind == "blank":
 			continue
@@ -87,12 +101,13 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 		values.append(value)
 		high = maxi(high, value)
 		low = value if low == 0 else mini(low, value)
-		high_pct = maxi(high_pct, int(value * 100 / top))
+		## Past 100 on a raised or exploded die, which is fine: it is high.
+		high_pct = maxi(high_pct, int(value * 100 / faces))
 		if value % 2 == 1:
 			odd += 1
 		else:
 			even += 1
-		if value * 2 <= top:
+		if value * 2 <= faces:
 			low_dice += 1
 			low_ids.append(id)
 		if value >= top:
@@ -127,6 +142,15 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			sets[wild_top] = wilds.size()
 		else:
 			sets[best_value] = best_count + wilds.size()
+	## The sets the numbers make before any wild joins one: a trigger that wants two sets
+	## places the wilds itself (DeepPatterns), since the largest set is not always where they help.
+	var plain_groups: Array = []
+	for v in counts:
+		plain_groups.append({"value": int(v), "count": int(counts[v]), "dice": ids_by_value.get(v, []).duplicate()})
+	plain_groups.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a.count != b.count:
+			return a.count > b.count
+		return a.value > b.value)
 	var groups: Array = []
 	for v in sets:
 		var value: int = int(v)
@@ -146,15 +170,15 @@ static func analyze(hand: Array, colors: Array = []) -> Dictionary:
 			odd_values += 1
 		else:
 			even_values += 1
-	return {"values": values, "wilds": wilds, "rank": rank, "total": total, "max_total": maxi(1, max_total),
-		"high": high if high > 0 else wild_top, "low": low if low > 0 else wild_top, "high_pct": high_pct,
+	return {"values": values, "wilds": wilds, "wild_tops": wild_tops, "wild_total": wild_total, "rank": rank, "total": total, "max_total": maxi(1, max_total),
+		"high": maxi(high, wild_top), "low": low if low > 0 else wild_top, "high_pct": high_pct,
 		"held": held, "rerolled": rerolled, "phantoms": phantoms, "dice_count": hand.size(),
-		"groups": groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
+		"groups": groups, "plain_groups": plain_groups, "best_set": groups[0] if groups.size() > 0 else {"value": 0, "count": 0, "dice": []},
 		"pairs": pairs, "straight": _straight(counts.keys(), wilds, ids_by_value, hand.size(), wild_top),
 		"odd": odd + wilds.size(), "even": even + wilds.size(), "distinct": counts.size() + wilds.size(),
 		"odd_values": odd_values + wilds.size(), "even_values": even_values + wilds.size(),
 		"low_dice": low_dice, "low_ids": low_ids, "crowns": crowns, "crown_ids": crown_ids, "crown_total": crown_total,
-		"high_crown": 1 if (high > 0 and crown_values.has(high)) or (high == 0 and not wilds.is_empty()) else 0,
+		"high_crown": 1 if (not wilds.is_empty() and wild_top >= high) or (high > 0 and crown_values.has(high)) else 0,
 		"ids_by_value": ids_by_value, "bases": bases, "showing": showing}
 
 static func _prefer(ids: Array, rank: Dictionary) -> void:
@@ -217,8 +241,9 @@ static func read(analysis: Dictionary, count: int, from_high: bool) -> Dictionar
 	for v in analysis.get("ids_by_value", {}):
 		for id in analysis.ids_by_value[v]:
 			entries.append({"value": int(v), "id": str(id)})
+	var wild_tops: Dictionary = analysis.get("wild_tops", {})
 	for id in analysis.get("wilds", []):
-		entries.append({"value": int(analysis.get("high", 0)), "id": str(id)})
+		entries.append({"value": int(wild_tops.get(str(id), analysis.get("high", 0))), "id": str(id)})
 	var rank: Dictionary = analysis.get("rank", {})
 	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		if int(a.value) != int(b.value):

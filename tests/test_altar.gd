@@ -213,8 +213,9 @@ func _test_map() -> void:
 	var first_stretch: int = 0
 	var later: int = 0
 	var doubled: bool = false
-	## The altar's chart weight (0.4) keeps it rarer than a motherlode: about one stretch in
-	## fifty. Enough seeds that a shift in the map's draws cannot push the count out of band.
+	## The altar's chart weight (2.0 since November 5, 2026; 0.4 before, one stretch in fifty)
+	## puts one in about every eleven stretches. Enough seeds that a shift in the map's draws
+	## cannot push the count out of band.
 	var runs: int = 2000
 	for seed_value in range(runs):
 		var state: Dictionary = DeepDescent.new_run(run_config(seed_value))
@@ -228,7 +229,7 @@ func _test_map() -> void:
 		doubled = doubled or here > 1
 	check(first_stretch == 0, "no altar in the first stretch of a mine")
 	check(not doubled, "never two in one stretch")
-	check(later >= 15 and later <= 100, "but one in about fifty stretches below it (%d in %d)" % [later, runs])
+	check(later >= 100 and later <= 300, "but one in about eleven stretches below it (%d in %d)" % [later, runs])
 	check(DeepDescent.glint({"kind": "altar"}) == "strange", "its mouth glints strange")
 
 # --- the room -------------------------------------------------------------------------------------------
@@ -334,13 +335,14 @@ func _test_black_opal_absorbs() -> void:
 	var events: Array = run_turn(fight, r)
 	var from_opal: Array = at_socket(events, 1)
 	check(from_opal.any(func(e: Dictionary) -> bool: return str(e.get("absorbed", "")) == "GUARD" and str(e.skill) == "GUARD"), "when it fires, the Guard it took fires from its socket")
-	## A Flawless one takes two.
+	## A Flawless one still takes one, and is a carat heavier for it, for the rest of the run.
 	var flawless: Dictionary = gem("BLACK_OPAL", 4, 4, DeepContent.clarity_index("FLAWLESS"), [], "bo2")
 	state = DeepDescent.new_run(run_config(52, [flawless]))
 	a = DeepDescent.player(state, "a")
 	a.haul = [gem("GUARD"), gem("MEND"), gem("HEX")]
 	into(state, "fight")
-	check(DeepStone.rail_stones(a)[0].get("absorbed", []).size() == 2 and a.haul.size() == 1, "a Flawless Black Opal takes two")
+	check(DeepStone.rail_stones(a)[0].get("absorbed", []).size() == 1 and a.haul.size() == 2, "a Flawless Black Opal takes one")
+	check(int(DeepStone.rail_stones(a)[0].carat) == 5, "and gains a carat for it")
 
 # --- the gems in a fight ---------------------------------------------------------------------------
 
@@ -381,14 +383,13 @@ func _test_procession() -> void:
 	for e in heavy.get("effects", []):
 		if str(e.kind) == "poison":
 			check(int(e.amount) == 5, "a 10-carat Good Procession poisons for 5 off a 6 (30%% after carat), got %d" % int(e.amount))
-	## Flawless: the whole party, and Pyrite in every ally's purse.
+	## Flawless: a straight of five plays all of it twice.
 	state = DeepBattle.begin([player("a", [gem("PROCESSION", 1, 2, DeepContent.clarity_index("FLAWLESS"), [], "p2")]), player("b", [], "VESPER")],
 		["RAIL_RAT", "RAIL_RAT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [2, 3, 4, 5, 6])
 	hand(state.players[1], [1, 1, 1, 1, 1])
 	run_turn(state, r)
-	check(int(state.players[1].get("gold", 0)) > 0, "a Flawless Procession puts Pyrite in an ally's purse too")
-	check(state.enemies.all(func(f: Dictionary) -> bool: return int(f.statuses.get("poison", 0)) > 0 or int(f.hp) <= 0), "and poisons every enemy")
+	check(int(state.players[0].get("gold", 0)) > 0 and int(state.players[1].get("gold", 0)) == 0, "a Flawless Procession pays its owner alone")
 
 func _test_quintessence() -> void:
 	var r: Dictionary = rngs(5)
@@ -422,12 +423,13 @@ func _test_gemini() -> void:
 	state = DeepBattle.begin([player("a", rail.duplicate(true))], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [6, 6, 4, 3, 1])
 	check(at_socket(run_turn(state, r), 0).size() == 2, "one pair, one more go each")
-	## Flawless: one more again.
+	## Flawless: one more again, if the two share a color.
 	var bright: Array = rail.duplicate(true)
 	bright[1].clarity = DeepContent.clarity_index("FLAWLESS")
 	state = DeepBattle.begin([player("a", bright)], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [6, 6, 4, 3, 1])
-	check(at_socket(run_turn(state, r), 0).size() == 3, "a Flawless Gemini fires its neighbours once more")
+	var twins_share: bool = DeepStone.colors(state.players[0].rail[0], "").has(str(DeepStone.colors(state.players[0].rail[2], "")[0]))
+	check(at_socket(run_turn(state, r), 0).size() == (3 if twins_share else 2), "a Flawless Gemini fires neighbours of one color once more")
 	## Never an opal.
 	state = DeepBattle.begin([player("a", [gem("STRIKE", 1, 4, 3, [], "s0"), gem("SEAM_RED", 1, 4, 3, [], "sr"), gem("GEMINI", 1, 4, 3, [], "gm"), gem("GUARD", 1, 4, 3, [], "g3")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
@@ -464,11 +466,12 @@ func _test_certainty() -> void:
 	state = DeepBattle.begin([player("a", [gem("GUARD", 1, 0, 3, [], "g1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [1, 2, 4, 5, 6])
 	check(at_socket(run_turn(state, r), 0).is_empty(), "the same Guard alone stays dark")
-	## Flawless: twice.
+	## Flawless: the gems it forces read the highest die.
 	state = DeepBattle.begin([player("a", [gem("CERTAINTY", 1, 0, DeepContent.clarity_index("FLAWLESS"), [], "c0"), gem("GUARD", 1, 0, 3, [], "g1")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [1, 2, 4, 5, 6])
-	check(at_socket(run_turn(state, r), 1).size() == 2, "a Flawless Certainty fires every gem after it twice")
+	var forced: Array = at_socket(run_turn(state, r), 1)
+	check(forced.size() == 1 and int(forced[0].effects[0].amount) == 6, "a Flawless Certainty's Guard reads the 6, for a pair of sixes")
 	## Never the gems before it.
 	state = DeepBattle.begin([player("a", [gem("GUARD", 1, 0, 3, [], "g0"), gem("CERTAINTY", 1, 0, 3, [], "c1")])], ["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [1, 2, 4, 5, 6])

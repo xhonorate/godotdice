@@ -30,6 +30,19 @@ const LONG_PRESS: float = 0.42
 static var _press_id: int = 0
 static var _press_token: int = 0
 
+## The phone's card (docs/PHONE_UI.md, board sys-touch): what a plate says, on a panel down the
+## right side of the screen, its foot a Details button (what a right-click does) and Close.
+static var _sheet: PanelContainer = null
+static var _sheet_catch: Control = null
+static var _sheet_of: Control = null
+static var _sheet_sub: PanelContainer = null
+## Where the card may stand, from the top and from the foot of the screen, in canvas pixels:
+## a screen with a strip and a dock answers it (Vector2(top, foot)); with no answer the card
+## runs the height of the screen.
+static var bounds: Callable = Callable()
+## The card's width, without the phone's own margin at the side (290 points).
+const SHEET_WIDTH: float = 580.0
+
 static func attach(control: Control, build: Callable, opts: Dictionary = {}) -> void:
 	## Wires a control. `opts`: `tone` (the plate's outline color), `keep` (the plate takes the
 	## pointer), `below` (hang it under the control instead of over it), `width` (a fixed
@@ -70,12 +83,14 @@ static func attach(control: Control, build: Callable, opts: Dictionary = {}) -> 
 				hide_now())
 	## Keyboard and gamepad: a thing with the focus shows its plate, as one under the pointer does.
 	control.focus_entered.connect(func() -> void:
-		if not DeepUi.headless() and control.is_visible_in_tree():
+		if not DeepUi.headless() and not DeepUi.phone and control.is_visible_in_tree():
 			_show(control))
 	control.focus_exited.connect(func() -> void:
 		if _anchor == control:
 			hide_now())
 	control.tree_exiting.connect(func() -> void:
+		if _sheet_of == control:
+			close_sheet()
 		if _anchor == control:
 			hide_now())
 	control.visibility_changed.connect(func() -> void:
@@ -149,6 +164,16 @@ static func _long_press(control: Control) -> void:
 		if token != _press_token or _press_id != id or not is_instance_valid(control) or not control.is_visible_in_tree():
 			return
 		var action: Callable = control.get_meta("tip_hold", Callable())
+		if DeepUi.phone:
+			_press_id = 0
+			if open_sheet(control):
+				control.set_meta("tip_held", true)
+				return
+			if action.is_valid():
+				var said: Variant = action.call()
+				if not (said is bool and not said):
+					control.set_meta("tip_held", true)
+			return
 		if action.is_valid():
 			var answer: Variant = action.call()
 			if not (answer is bool and not answer):
@@ -160,11 +185,114 @@ static func _long_press(control: Control) -> void:
 
 static func refresh(control: Control) -> void:
 	## A control whose plate is up has something new to say: it is built again in place.
+	if _sheet_of == control and _sheet != null and is_instance_valid(_sheet):
+		open_sheet(control)
+		return
 	if _anchor == control and _plate != null and is_instance_valid(_plate):
 		_show(control)
 
 static func showing(control: Control) -> bool:
+	if _sheet_of == control and _sheet != null and is_instance_valid(_sheet):
+		return true
 	return _anchor == control and _plate != null and is_instance_valid(_plate) and _plate.visible
+
+# --- the phone's card ----------------------------------------------------------------------------
+
+static func open_sheet(control: Control) -> bool:
+	## Brings up the card for `control` (what its plate says), or builds it again in place.
+	## False, with nothing shown, when it has nothing to say.
+	var build: Callable = control.get_meta("tip_build", Callable())
+	var content: Variant = build.call() if build.is_valid() else null
+	if not content is Control:
+		return false
+	close_sheet()
+	var layer: CanvasLayer = _layer_for(control)
+	## A tap anywhere off the card puts it away (and does nothing else).
+	var catch := Control.new()
+	catch.name = "SheetCatch"
+	catch.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	catch.mouse_filter = Control.MOUSE_FILTER_STOP
+	catch.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			close_sheet())
+	layer.add_child(catch)
+	_sheet_catch = catch
+	var room: Vector2 = Vector2.ZERO
+	if bounds.is_valid():
+		var asked: Variant = bounds.call()
+		if asked is Vector2:
+			room = asked
+	var sheet := PanelContainer.new()
+	sheet.name = "Sheet"
+	sheet.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = DeepUi.LEDGER_FILL
+	style.border_color = DeepUi.ACCENT_DIM
+	style.border_width_left = int(DeepUi.pt(1.5))
+	style.shadow_color = Color(DeepUi.LEDGER_SHADOW, 0.9)
+	style.shadow_size = 0
+	style.shadow_offset = Vector2(-DeepUi.pt(3), 0)
+	style.content_margin_left = DeepUi.pt(8)
+	style.content_margin_right = DeepUi.safe_right + DeepUi.pt(8)
+	style.content_margin_top = DeepUi.pt(6)
+	style.content_margin_bottom = DeepUi.pt(6) + (DeepUi.safe_bottom if room.y <= 0.0 else 0.0)
+	sheet.add_theme_stylebox_override("panel", style)
+	sheet.anchor_left = 1.0
+	sheet.anchor_right = 1.0
+	sheet.anchor_top = 0.0
+	sheet.anchor_bottom = 1.0
+	sheet.offset_left = -(SHEET_WIDTH + DeepUi.safe_right)
+	sheet.offset_right = 0.0
+	sheet.offset_top = room.x
+	sheet.offset_bottom = -room.y
+	layer.add_child(sheet)
+	_sheet = sheet
+	_sheet_of = control
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", int(DeepUi.pt(6)))
+	sheet.add_child(column)
+	## What it says scrolls when it says more than the card holds (the phone may scroll).
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	column.add_child(scroll)
+	var said := content as Control
+	said.custom_minimum_size.x = 0.0
+	said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(said)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", int(DeepUi.pt(6)))
+	column.add_child(foot)
+	var action: Callable = control.get_meta("tip_hold", Callable())
+	if action.is_valid():
+		var details := DeepUi.icon_button(foot, "eye", "Details", func() -> void:
+			close_sheet()
+			if is_instance_valid(control):
+				action.call(), 13, DeepUi.PAPER)
+		DeepUi.ledger_button(details, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 9)
+		details.custom_minimum_size.y = DeepUi.pt(34)
+	var shut := DeepUi.icon_button(foot, "cross_out", "Close", close_sheet, 13, DeepUi.PAPER)
+	DeepUi.ledger_button(shut, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 9)
+	shut.custom_minimum_size.y = DeepUi.pt(34)
+	if not DeepUi.headless():
+		sheet.modulate.a = 0.0
+		var tween := sheet.create_tween()
+		tween.tween_property(sheet, "modulate:a", 1.0, FADE_IN)
+	return true
+
+static func close_sheet() -> void:
+	## Puts the phone's card away.
+	_sheet_of = null
+	for node in [_sheet_sub, _sheet, _sheet_catch]:
+		if node != null and is_instance_valid(node):
+			(node as Node).queue_free()
+	_sheet = null
+	_sheet_catch = null
+	_sheet_sub = null
+
+static func sheet_open() -> bool:
+	return _sheet != null and is_instance_valid(_sheet)
 
 static func hide_now() -> void:
 	_anchor = null
@@ -175,6 +303,21 @@ static func hide_now() -> void:
 
 static func show_sub(from: Control, build: Callable) -> void:
 	## Opens the working beside the plate `from` sits in, level with the pointer.
+	if DeepUi.phone and sheet_open() and not DeepUi.headless():
+		if _sheet_sub != null and is_instance_valid(_sheet_sub):
+			_sheet_sub.queue_free()
+		var made: Variant = build.call()
+		if not made is Control:
+			return
+		var panel := PanelContainer.new()
+		panel.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.LEDGER_LINE, 10, 12, 3, 4))
+		panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		_sheet.get_parent().add_child(panel)
+		panel.add_child(made as Control)
+		panel.reset_size()
+		panel.position = Vector2(_sheet.global_position.x - panel.size.x - DeepUi.pt(6), from.global_position.y)
+		_sheet_sub = panel
+		return
 	if DeepUi.headless() or _plate == null or not is_instance_valid(_plate):
 		return
 	hide_sub()
@@ -190,12 +333,15 @@ static func show_sub(from: Control, build: Callable) -> void:
 	_sub.appear(FADE_IN)
 
 static func hide_sub() -> void:
+	if _sheet_sub != null and is_instance_valid(_sheet_sub):
+		_sheet_sub.queue_free()
+	_sheet_sub = null
 	if _sub != null and is_instance_valid(_sub):
 		_sub.dismiss(FADE_OUT)
 	_sub = null
 
 static func _enter(control: Control) -> void:
-	if DeepUi.headless() or not control.is_visible_in_tree():
+	if DeepUi.headless() or DeepUi.phone or not control.is_visible_in_tree():
 		return
 	## Nothing shows while something is being dragged: the pointer is busy.
 	if control.get_viewport() != null and control.get_viewport().gui_is_dragging():

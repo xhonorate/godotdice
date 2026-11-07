@@ -129,22 +129,22 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(centre)
-	var column := DeepUi.vbox(centre, 12)
-	_title = DeepUi.title(column, str(opts.get("title", "Under the loupe")), 40, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	var column := DeepUi.vbox(centre, int(DeepUi.pt(3)) if DeepUi.phone else 12)
+	_title = DeepUi.title(column, str(opts.get("title", "Under the loupe")), 32 if DeepUi.phone else 40, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_title.add_theme_constant_override("outline_size", 10)
-	_subtitle = DeepUi.label(column, "A %s, still in its rock" % DeepStone.raw_name(raw).to_lower(), 16, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	_subtitle = DeepUi.label(column, "A %s, still in its rock" % DeepStone.raw_name(raw).to_lower(), 12 if DeepUi.phone else 16, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	_panel = PanelContainer.new()
-	_panel_style = DeepUi.raised(Color(0.045, 0.055, 0.08, 0.97), Color(_hue, 0.6), 18, 20, 0.7)
+	_panel_style = DeepUi.raised(Color(0.045, 0.055, 0.08, 0.97), Color(_hue, 0.6), 18, int(DeepUi.pt(8)) if DeepUi.phone else 20, 0.7)
 	_panel_style.set_border_width_all(2)
 	_panel_style.shadow_color = Color(_hue, 0.2)
 	_panel_style.shadow_size = 30
 	_panel.add_theme_stylebox_override("panel", _panel_style)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	column.add_child(_panel)
-	var row := DeepUi.hbox(_panel, 28)
+	var row := DeepUi.hbox(_panel, int(DeepUi.pt(10)) if DeepUi.phone else 28)
 	_stage = Control.new()
-	_stage.custom_minimum_size = STAGE
+	_stage.custom_minimum_size = Vector2(DeepUi.pt(200), DeepUi.pt(200)) if DeepUi.phone else STAGE
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_stage)
@@ -161,12 +161,12 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	_view.set_spin(0.5)
 	_view.configure(sealed)
 	_stage.add_child(_view)
-	_sheet = Sheet.new(stone, owned, {"skill_text": true})
+	_sheet = Sheet.new(stone, owned, phone_sheet({"skill_text": true}))
 	_sheet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_sheet)
 	var foot := DeepUi.vbox(column, 6)
-	foot.custom_minimum_size.y = 76
-	_skip = DeepUi.label(foot, "Click or press Space to skip ahead", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	foot.custom_minimum_size.y = DeepUi.pt(40) if DeepUi.phone else 76.0
+	_skip = DeepUi.label(foot, "Tap to skip ahead" if DeepUi.phone else "Click or press Space to skip ahead", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	_choices = choices(foot, actions, close)
 	_choices.visible = false
 	_gleam = Gleam.new()
@@ -181,6 +181,14 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 ## A second click on a choice that asks for one counts only this long after the first, so the
 ## two halves of a double-click never make one.
 const CONFIRM_GAP_MS: int = 350
+
+static func phone_sheet(opts: Dictionary) -> Dictionary:
+	## A sheet's widths on the phone: its three columns narrowed to the bench beside the loupe.
+	if not DeepUi.phone:
+		return opts
+	var out: Dictionary = opts.duplicate()
+	out.merge({"width": DeepUi.pt(290), "label_width": DeepUi.pt(56), "found_width": DeepUi.pt(110), "owned_width": DeepUi.pt(110)}, false)
+	return out
 
 static func choices(parent: Node, list: Array, before: Callable = Callable()) -> HBoxContainer:
 	## The choices at the end of an appraisal, or under a stone waiting on the tray: a button
@@ -200,10 +208,13 @@ static func choices(parent: Node, list: Array, before: Callable = Callable()) ->
 		warning.visible = false
 		parent.add_child(warning)
 		DeepUi.label(warning, "", 13, DeepUi.BAD.lightened(0.1), HORIZONTAL_ALIGNMENT_CENTER).name = "Words"
-	var row := DeepUi.hbox(parent, 18)
+	var row := DeepUi.hbox(parent, int(DeepUi.pt(8)) if DeepUi.phone else 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	if warning != null:
 		row.set_meta("warning", warning)
+	## A choice button on the phone: 40 points tall, as wide as its words.
+	var wide: float = DeepUi.pt(120) if DeepUi.phone else 230.0
+	var tall: float = DeepUi.pt(40) if DeepUi.phone else 48.0
 	for action in list:
 		var box := DeepUi.vbox(row, 4)
 		var primary: bool = bool(action.get("primary", true))
@@ -233,13 +244,13 @@ static func choices(parent: Node, list: Array, before: Callable = Callable()) ->
 			button = DeepUi.icon_button(box, str(action.get("glyph", "check")), str(action.get("label", "")), pressed, 17, action.get("tone", DeepUi.ACCENT))
 			_outline(button, action.get("tone", DeepUi.ACCENT))
 			button.set_meta("sound", "ui_confirm")
-			button.custom_minimum_size = Vector2(230, 48)
+			button.custom_minimum_size = Vector2(wide, tall)
 		elif primary:
 			button = DeepUi.primary(box, str(action.get("glyph", "check")), str(action.get("label", "")), pressed, 17, action.get("tone", DeepUi.ACCENT))
-			button.custom_minimum_size = Vector2(230, 48)
+			button.custom_minimum_size = Vector2(wide, tall)
 		else:
 			button = DeepUi.icon_button(box, str(action.get("glyph", "check")), str(action.get("label", "")), pressed, 15, DeepUi.MUTED)
-			button.custom_minimum_size = Vector2(170, 48)
+			button.custom_minimum_size = Vector2(wide * 0.75, tall)
 		if action.has("sound"):
 			DeepUi.voice(button, str(action.sound))
 		## A choice that asks first says "no" to its first click, and its own sound on the second.
@@ -697,7 +708,7 @@ class Sheet extends VBoxContainer:
 			var found_head := DeepUi.vbox(head, 2)
 			found_head.custom_minimum_size.x = _found_w
 			found_head.size_flags_vertical = Control.SIZE_SHRINK_END
-			DeepUi.heading(found_head, "Just found", 13, DeepUi.ACCENT)
+			DeepUi.heading(found_head, str(opts.get("found_heading", "Just found")), 13, DeepUi.ACCENT)
 			owned_bits.append(found_head)
 			var owned_head := DeepUi.hbox(head, 8)
 			owned_head.custom_minimum_size.x = _owned_w
@@ -709,8 +720,8 @@ class Sheet extends VBoxContainer:
 				StoneCard.mini(owned_head, owned, 44)
 			var owned_words := DeepUi.vbox(owned_head, 0)
 			owned_words.size_flags_vertical = Control.SIZE_SHRINK_END
-			DeepUi.heading(owned_words, "In your vault", 13, DeepUi.INFO)
-			DeepUi.label(owned_words, "the one you keep now", 11, DeepUi.DIM)
+			DeepUi.heading(owned_words, str(opts.get("owned_heading", "In your vault")), 13, DeepUi.INFO)
+			DeepUi.label(owned_words, str(opts.get("owned_note", "the one you keep now")), 11, DeepUi.DIM)
 			owned_bits.append(owned_head)
 		## Its name: the skill, what kind it is, and what it does.
 		var name_box := DeepUi.vbox(self, 3)

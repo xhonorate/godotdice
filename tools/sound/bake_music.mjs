@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { PICKS, GAME_RATE, PIECES, SPEC_OF } from './picks.mjs';
+import { PICKS, MUSIC_RATE, PIECES, SPEC_OF } from './picks.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '../..');
@@ -21,7 +21,7 @@ const STRIPS = ['bed', 'deep', 'fight', 'warden'];
 // Vorbis quality, -1 to 10: 6 is transparent for these mono loops.
 const OGG_QUALITY = 6;
 
-globalThis.DEEP_SOUND_RATE = GAME_RATE;
+globalThis.DEEP_SOUND_RATE = MUSIC_RATE;
 const require = createRequire(import.meta.url);
 require(path.join(here, 'synth.js'));
 const { createOggEncoder } = await import(pathToFileURL(path.join(ROOT, 'tools/data-browser/node_modules/wasm-media-encoders/dist/es/index.mjs')).href);

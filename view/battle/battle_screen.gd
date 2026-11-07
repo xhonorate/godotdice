@@ -37,6 +37,7 @@ const MotleyFx = preload("res://view/battle/motley_fx.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Tally = preload("res://view/battle/tally.gd")
+const FlawlessFx = preload("res://view/battle/flawless_fx.gd")
 const ResonanceCount = preload("res://view/battle/resonance_count.gd")
 const ShaftMap = preload("res://view/run/shaft_map.gd")
 const Roster = preload("res://view/home/roster.gd")
@@ -57,27 +58,57 @@ signal command(cmd: Dictionary)
 
 ## The dock (docs/UI_REDO.md): a die and a socket ring stand this large, and the player's
 ## face in its ring of health this large, so the dock stands one height for the whole fight.
-const DIE_EDGE: float = 100.0
-const SOCKET_EDGE: float = 94.0
-const VITALS_EDGE: float = 156.0
+## (Static rather than constant: the phone form sets its own, `use_phone_sizes`.)
+static var DIE_EDGE: float = 100.0
+static var SOCKET_EDGE: float = 94.0
+static var VITALS_EDGE: float = 156.0
 ## The rows of the dock that both docks share (docs/UI_REDO.md): the short line over the
 ## dice, the words under a die, the buttons under the dice and the Resonance meter under the
 ## rail. The run's dock lays empty rows of the same heights, so a gem or a die stands exactly
 ## where it stood as a fight begins and ends.
-const OVER_ROW: float = 14.0
-const DIE_WORDS: float = 14.0
-const BUTTONS_ROW: float = 38.0
-const METER_ROW: float = 24.0
+static var OVER_ROW: float = 14.0
+static var DIE_WORDS: float = 14.0
+static var BUTTONS_ROW: float = 38.0
+static var METER_ROW: float = 24.0
 ## A socket's card in both docks: its name in a row over the ring, then the ring, then what
 ## the gem asks of the hand in a row under it, as its trigger's pictograph (a Birthstone's as
 ## its tiers) drawn TRIGGER_EDGE large. The name row stands where the line over the dice
 ## stands, so the rings stand level with the dice; RING_TOP is where a ring stands in its card.
-const NAME_ROW: float = 18.0
-const RING_TOP: float = NAME_ROW + 2.0
-const TRIGGER_ROW: float = 18.0
-const TRIGGER_EDGE: float = 15.0
+static var NAME_ROW: float = 18.0
+static var RING_TOP: float = 20.0
+static var TRIGGER_ROW: float = 18.0
+static var TRIGGER_EDGE: float = 15.0
 ## Where the figure a lit gem would land stands over its ring's top-right corner.
-const FIRE_TOP: float = -10.0
+static var FIRE_TOP: float = -10.0
+## The Reroll and Lock in buttons' widths.
+static var REROLL_WIDTH: float = 150.0
+static var LOCK_WIDTH: float = 170.0
+## The gaps in the dock: between its columns, between sockets, between dice.
+static var DOCK_GAP: float = 16.0
+static var RAIL_GAP: float = 6.0
+static var TRAY_GAP: float = 8.0
+
+static func use_phone_sizes() -> void:
+	## The phone's dock (docs/PHONE_UI.md, the approved mockups of November 7, 2026): a socket
+	## and a die 44 points, the face in its ring 70, no names over the rail (a held ring says
+	## whose gem it is), the trigger row 13 points, the buttons 36 tall. All in canvas pixels.
+	DIE_EDGE = DeepUi.pt(44)
+	SOCKET_EDGE = DeepUi.pt(44)
+	VITALS_EDGE = DeepUi.pt(70)
+	OVER_ROW = 0.0
+	DIE_WORDS = 0.0
+	BUTTONS_ROW = DeepUi.pt(36)
+	METER_ROW = DeepUi.pt(13)
+	NAME_ROW = 0.0
+	RING_TOP = 0.0
+	TRIGGER_ROW = DeepUi.pt(13)
+	TRIGGER_EDGE = DeepUi.pt(11)
+	FIRE_TOP = DeepUi.pt(-9)
+	REROLL_WIDTH = DeepUi.pt(100)
+	LOCK_WIDTH = DeepUi.pt(108)
+	DOCK_GAP = DeepUi.pt(10)
+	RAIL_GAP = DeepUi.pt(6)
+	TRAY_GAP = DeepUi.pt(6)
 ## A Void rider's gem, or a phantom's die, drawn faint behind the ring it fans out from.
 const VOID_GHOST := Color(0.78, 0.84, 1.0, 0.55)
 ## How many Void gems riding a socket are drawn fanned behind it before a count stands for
@@ -116,7 +147,15 @@ var left_inset: float = 0.0:
 		_position_enemy_panel()
 		## The fight's name steps aside for the chart too, rather than showing through it.
 		if _place_box != null:
-			_place_box.position.x = 22.0 + left_inset
+			_place_box.position.x = edge_left(22.0) + left_inset
+
+static func edge_left(desk: float) -> float:
+	## How far in from the left edge something over the room stands: `desk` on the desktop,
+	## clear of the camera island (and a little more) on the phone.
+	return DeepUi.safe_left + DeepUi.pt(4) if DeepUi.phone else desk
+
+static func edge_right(desk: float) -> float:
+	return DeepUi.safe_right + DeepUi.pt(4) if DeepUi.phone else desk
 
 var _headless: bool = false
 var _world: Node3D
@@ -352,16 +391,6 @@ var _acting_id: String = ""
 var _heavy_blows: Dictionary = {}
 var _reflecting: String = ""
 var _water: Control = null
-## What the rail has dealt this turn, counted up beside the forecast as its blows land.
-var _turn_dealt: int:
-	get: return _page.turn_dealt
-	set(value): _page.turn_dealt = value
-var _dealt_box: HBoxContainer:
-	get: return _page.dealt_box
-	set(value): _page.dealt_box = value
-var _dealt_label: Label:
-	get: return _page.dealt_label
-	set(value): _page.dealt_label = value
 ## The plate a hovered gem shows while the hand is still being chosen.
 var _preview: Control = null
 ## Whether the creature move being played now is one whose blows block may be counted against.
@@ -643,17 +672,21 @@ func _build_hud() -> void:
 	add_child(_hud)
 	## The ledger: one creature read in full, on the side of the room away from it.
 	_enemy_panel = EnemyPanel.new()
+	## On the phone the ledger stands over the creatures' tags it may cover (the owner's note
+	## on the phone board, November 7, 2026), their flashes and counts included.
+	if DeepUi.phone:
+		_enemy_panel.z_index = 4
 	_enemy_panel.mouse_entered.connect(_ledger_hover.bind(true))
 	_enemy_panel.mouse_exited.connect(_ledger_hover.bind(false))
 	_hud.add_child(_enemy_panel)
 	## Top left: where the fight is.
 	var place := DeepUi.vbox(_hud, 2)
-	place.position = Vector2(22.0 + left_inset, 16)
+	place.position = Vector2(edge_left(22.0) + left_inset, DeepUi.pt(3) if DeepUi.phone else 16.0)
 	_place_box = place
 	var depth_row := DeepUi.hbox(place, 10)
-	DeepUi.icon(depth_row, "pick", 24, DeepUi.ACCENT, "Where the fight is")
-	_depth_label = DeepUi.title(depth_row, "", 24, DeepUi.PAPER)
-	_turn_pill = DeepUi.pill(depth_row, "hourglass", "Turn 1", DeepUi.MUTED, 13, "Turn")
+	DeepUi.icon(depth_row, "pick", DeepUi.pt(15) if DeepUi.phone else 24.0, DeepUi.ACCENT, "Where the fight is")
+	_depth_label = DeepUi.title(depth_row, "", 17 if DeepUi.phone else 24, DeepUi.PAPER)
+	_turn_pill = DeepUi.pill(depth_row, "hourglass", "Turn 1", DeepUi.MUTED, 11 if DeepUi.phone else 13, "Turn")
 	_turn_pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	## Filled solid, Ledger-dark: a pill's own see-through fill lost its words over a bright crystal.
 	var turn_style := _turn_pill.get_theme_stylebox("panel") as StyleBoxFlat
@@ -666,8 +699,12 @@ func _build_hud() -> void:
 	foes.alignment = BoxContainer.ALIGNMENT_END
 	foes.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 20)
 	foes.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	if DeepUi.phone:
+		foes.offset_right = -edge_right(20.0)
+		foes.offset_left = foes.offset_right - foes.get_combined_minimum_size().x
+		foes.offset_top = DeepUi.pt(4)
 	_fight_pills = DeepUi.hbox(foes, 8)
-	_foes_pill = DeepUi.pill(foes, "skull", "", DeepUi.BAD, 14, "Creatures still standing. Right-click one for everything about it.")
+	_foes_pill = DeepUi.pill(foes, "skull", "", DeepUi.BAD, 11 if DeepUi.phone else 14, "Creatures still standing. Right-click one for everything about it.")
 	## The banner in the middle of the room.
 	_banner_box = DeepUi.vbox(_hud, 0)
 	_banner_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -685,9 +722,9 @@ func _build_hud() -> void:
 	_dock = PanelContainer.new()
 	_dock.mouse_filter = Control.MOUSE_FILTER_STOP
 	_dock.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	_dock.offset_left = 16
-	_dock.offset_right = -16
-	_dock.offset_bottom = -14
+	_dock.offset_left = 0 if DeepUi.phone else 16
+	_dock.offset_right = 0 if DeepUi.phone else -16
+	_dock.offset_bottom = 0 if DeepUi.phone else -14
 	_dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_hud.add_child(_dock)
 	_dock.gui_input.connect(_hurry_input)
@@ -727,7 +764,7 @@ func _build_page(page: Page) -> void:
 	## or a hint: the things themselves say what they are, and their plates say the rest.
 	var was: Page = _page
 	_page = page
-	var columns := DeepUi.hbox(_dock, 16)
+	var columns := DeepUi.hbox(_dock, int(DOCK_GAP))
 	columns.alignment = BoxContainer.ALIGNMENT_CENTER
 	columns.set_meta("page", page)
 	columns.visible = page.mine
@@ -751,24 +788,9 @@ func _build_page(page: Page) -> void:
 	## No gap over the rail: the names over the rings take the room the line over the dice takes.
 	var rail_row := DeepUi.hbox(left, 12)
 	rail_row.alignment = BoxContainer.ALIGNMENT_BEGIN
-	_rail_box = DeepUi.hbox(rail_row, 6)
+	_rail_box = DeepUi.hbox(rail_row, int(RAIL_GAP))
 	_rail_box.alignment = BoxContainer.ALIGNMENT_BEGIN
 	_rail_box.custom_minimum_size.y = RING_TOP + SOCKET_EDGE + 2.0 + TRIGGER_ROW
-	## While the turn plays out: what the rail has really dealt, counted up blow by blow.
-	_dealt_box = DeepUi.hbox(rail_row, 4)
-	_dealt_box.mouse_filter = Control.MOUSE_FILTER_PASS
-	_dealt_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	## Its plate comes up at once like everything else on the dock; the mark beside the number
-	## lets the pointer through to the box, so hovering either one says what the number is.
-	var their: String = "your" if page.mine else "their"
-	var dealt_words: String = "Damage %s rail has dealt this turn, counted up blow by blow as each gem lands. %s Birthstone's blows count in it too." % [their, their.capitalize()]
-	Tips.attach(_dealt_box, func() -> Control: return Plates.words("Dealt this turn", dealt_words, "", DeepUi.BAD))
-	var dealt_mark := DeepUi.icon(_dealt_box, "impacts", 16, DeepUi.BAD)
-	dealt_mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	dealt_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_dealt_label = DeepUi.title(_dealt_box, "0", 18, DeepUi.BAD)
-	_dealt_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_dealt_box.visible = false
 	## Resonance, centred under the sockets: the word and the number, and the waves that
 	## reach out along the rail as it grows (docs/UI_REDO.md).
 	page.meter = ResonanceMeter.new()
@@ -780,7 +802,7 @@ func _build_page(page: Page) -> void:
 	var divider := DeepUi.rule(columns, DeepUi.LEDGER_LINE)
 	divider.custom_minimum_size = Vector2(3, 0)
 	## Right: the dice, and under them the buttons, centred.
-	var middle := DeepUi.vbox(columns, 6)
+	var middle := DeepUi.vbox(columns, 0 if DeepUi.phone else 6)
 	middle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	middle.alignment = BoxContainer.ALIGNMENT_CENTER
 	middle.set_meta("tray_side", true)
@@ -789,6 +811,20 @@ func _build_page(page: Page) -> void:
 	var over := DeepUi.hbox(middle, 8)
 	over.alignment = BoxContainer.ALIGNMENT_CENTER
 	over.custom_minimum_size.y = OVER_ROW
+	if DeepUi.phone:
+		## The phone's dock has no row to spare: the line takes no room in it and floats over
+		## the room just above the dice, its words edged dark to read on any rock.
+		middle.remove_child(over)
+		var float_host := Control.new()
+		float_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		float_host.custom_minimum_size = Vector2.ZERO
+		middle.add_child(float_host)
+		float_host.add_child(over)
+		over.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE)
+		over.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		over.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		over.offset_bottom = -DeepUi.pt(10)
+		over.custom_minimum_size.y = 0.0
 	page.hand_title = DeepUi.heading(over, "", 11)
 	page.hand_title.visible = false
 	if page.mine:
@@ -798,20 +834,27 @@ func _build_page(page: Page) -> void:
 		page.face_chip.mouse_filter = Control.MOUSE_FILTER_PASS
 		page.face_chip.tooltip_text = "Motley reads the whole hand: all odd is the Cruel Face, all even the Kind Face, and all one parity and all different is Full Motley."
 	_hint = DeepUi.label(over, "", 12, DeepUi.MUTED)
+	if DeepUi.phone:
+		for said in [_hint, page.face_chip]:
+			if said != null:
+				(said as Label).add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.05, 0.9))
+				(said as Label).add_theme_constant_override("outline_size", int(DeepUi.pt(4)))
 	var hand_row := DeepUi.hbox(middle, 8)
 	hand_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_tray_box = DeepUi.hbox(hand_row, 8)
+	_tray_box = DeepUi.hbox(hand_row, int(TRAY_GAP))
 	_tray_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	## The phantoms fan out behind the die they copy (see `_sync_phantoms`); this row is kept
 	## empty for the counts that still look for it.
 	_phantom_box = DeepUi.hbox(hand_row, 6)
 	_phantom_box.visible = false
-	var buttons := DeepUi.hbox(middle, 12)
+	if DeepUi.phone:
+		DeepUi.gap(middle, DeepUi.pt(6)).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var buttons := DeepUi.hbox(middle, int(DeepUi.pt(6)) if DeepUi.phone else 12)
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	if page.mine:
 		_reroll_button = DeepUi.icon_button(buttons, "reroll", "Reroll", _reroll, 15, DeepUi.INFO)
 		DeepUi.ledger_button(_reroll_button, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 9)
-		_reroll_button.custom_minimum_size = Vector2(150, BUTTONS_ROW)
+		_reroll_button.custom_minimum_size = Vector2(REROLL_WIDTH, BUTTONS_ROW)
 		_reroll_button.tooltip_text = "Reroll the selected dice  [R]"
 		## The rerolls left, as pips at the button's right end.
 		var pips := Control.new()
@@ -843,7 +886,7 @@ func _build_page(page: Page) -> void:
 		_flip_button.visible = false
 		_lock_button = DeepUi.primary(buttons, "check", "Lock in", _toggle_lock, 16)
 		DeepUi.ledger_primary(_lock_button)
-		_lock_button.custom_minimum_size = Vector2(170, BUTTONS_ROW)
+		_lock_button.custom_minimum_size = Vector2(LOCK_WIDTH, BUTTONS_ROW)
 		_lock_button.tooltip_text = "Lock in this hand  [Space]"
 		_buttons_height = buttons.get_combined_minimum_size().y
 	else:
@@ -889,7 +932,7 @@ func _dress_dock(tone: Color, _theirs: bool) -> void:
 	_dock_tone = tone
 	var first: bool = _dock_style == null
 	if first:
-		_dock_style = DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, 12, 3, 5)
+		_dock_style = DeepUi.phone_bar(tone) if DeepUi.phone else DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, 12, 3, 5)
 		_dock.add_theme_stylebox_override("panel", _dock_style)
 	if _dock_tween != null and _dock_tween.is_valid():
 		_dock_tween.kill()
@@ -958,10 +1001,6 @@ func _forget_fight() -> void:
 		page.birth_outcome = {}
 		## The last fight's "dealt" count goes with it: no turn_begin clears it before turn 1.
 		page.turn_dealt = 0
-		if page.dealt_box != null and is_instance_valid(page.dealt_box):
-			page.dealt_box.visible = false
-			page.dealt_label.text = "0"
-			page.dealt_label.add_theme_color_override("font_color", DeepUi.BAD)
 	## A new fight opens on the reader's own page.
 	_shown_id = ""
 	_firing_id = ""
@@ -1147,7 +1186,7 @@ func _sync() -> void:
 	if downed:
 		_hint.text = "You are down. The party fights on." if _party_standing() else "You are down."
 	elif resolving:
-		_hint.text = "Resolving…  click to hurry"
+		_hint.text = "Resolving…  tap to hurry" if DeepUi.phone else "Resolving…  click to hurry"
 	elif not planning:
 		## The fight is over: there is nothing left to hurry.
 		_hint.text = ""
@@ -1212,8 +1251,9 @@ class Page extends RefCounted:
 	## Another player's page only: what they are doing, where the reader's buttons are.
 	var mate_state: HBoxContainer
 	var mate_key: String = ""
-	var dealt_box: HBoxContainer
-	var dealt_label: Label
+	## What this rail has really dealt this turn, counted up blow by blow as they land. The dock
+	## no longer shows it beside the rail (the box shifted the layout as it came up); the count
+	## is kept for whatever reads it.
 	var turn_dealt: int = 0
 	## The rail's last gem that fired this turn, for the bow drawn when the next one rings
 	## with it; -1 after a fizzle or as a rail begins.
@@ -1224,6 +1264,8 @@ class Page extends RefCounted:
 	var forecast_for: String = ""
 	var outcomes: Dictionary = {}
 	var birth_outcome: Dictionary = {}
+	## What a gem's blows have rung so far as they land (a Flawless Barrage), for the count to tick.
+	var ring_value: int = 0
 
 func _all_pages() -> Array:
 	return [_local_page] + _pages.values()
@@ -1308,10 +1350,14 @@ func _sync_page(page: Page, unit: Dictionary, planning: bool) -> void:
 	if not page.mine:
 		_mate_forecast(page, unit, planning, rolled)
 	_sync_vitals(unit)
-	## While a turn resolves the rail's own events count the Resonance up, sparks and all.
-	if planning and (_battery_tween == null or not _battery_tween.is_running()):
-		_show_resonance(int(forecast.get("totals", {}).get("resonance", 0)))
-	elif not planning and (_headless or str(state.get("phase", "")) != "resolving"):
+	## The meter reads the count the fight holds, never the forecast's: a turn can really open
+	## with Resonance (a charged battery, crystal dice), and what the hand would bring it is
+	## the waves' and the badges' to say. While a turn resolves the rail's own events count it
+	## up, sparks and all.
+	if planning:
+		if _battery_tween == null or not _battery_tween.is_running():
+			_show_resonance(int(unit.get("resonance", 0)))
+	elif _headless or str(state.get("phase", "")) != "resolving":
 		_show_resonance(int(unit.get("resonance", 0)))
 	_sync_rail(unit, planning)
 	_sync_tray(unit, planning)
@@ -1623,6 +1669,7 @@ func _sync_tabs() -> void:
 			tab.ping()
 		_seen_locked[id] = locked
 		var character: String = DeepContent.character_title(str(unit.get("character", "")))
+		tab.party_look = true
 		tab.update(unit, character, _seat_color(id), party and _is_shown(id), _seat_status(unit), index + 1 if resolving and party else 0, _player_effects(unit), party)
 		tab.portrait.mood = _mood_of(id)
 	_tab_bar.move_child(_my_tab, 0)
@@ -1685,6 +1732,17 @@ class SeatTab extends VBoxContainer:
 	signal inspected
 	const BG := Color(0.045, 0.056, 0.082, 0.9)
 	const BG_UP := Color(0.06, 0.075, 0.105, 1.0)
+	## How wide a tab's face is at the least; wider in a party (the owner, November 5), so six
+	## of the small chips stand in a row over it.
+	const WIDTH: float = 150.0
+	const PARTY_WIDTH: float = 192.0
+	## A party's chips are a creature's size and marks alone; alone, the reader's are larger
+	## and numbered.
+	const CHIP_EDGE: float = 18.0
+	const PARTY_CHIP_EDGE: float = 13.0
+	## Whether a party's fight look applies (wider, chips as small marks): the fight sets it
+	## for a party; the run dock, which shows its tabs alone too, keeps the plain look.
+	var party_look: bool = false
 	var mine: bool = false
 	## What a click on the tab does, when it is not the usual close look (a trade, at a landing).
 	var click_hint: String = ""
@@ -1707,10 +1765,10 @@ class SeatTab extends VBoxContainer:
 		alignment = BoxContainer.ALIGNMENT_END
 		size_flags_vertical = Control.SIZE_SHRINK_END
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		chips = EffectChips.Row.new(18)
+		chips = EffectChips.Row.new(DeepUi.pt(12) if DeepUi.phone else CHIP_EDGE)
 		add_child(chips)
 		face = TabFace.new()
-		face.custom_minimum_size = Vector2(150, 0)
+		face.custom_minimum_size = Vector2(DeepUi.pt(120) if DeepUi.phone else WIDTH, 0)
 		face.gui_input.connect(_face_input)
 		## A finger held on another player's tab opens the close look at them, as a right-click does.
 		if not mine:
@@ -1720,7 +1778,7 @@ class SeatTab extends VBoxContainer:
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_order = DeepUi.label(row, "", 12, DeepUi.MUTED)
 		_order.visible = false
-		portrait = Roster.Portrait.new("", Vector2(30, 30))
+		portrait = Roster.Portrait.new("", Vector2(DeepUi.pt(20), DeepUi.pt(20)) if DeepUi.phone else Vector2(30, 30))
 		portrait.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(portrait)
@@ -1735,13 +1793,13 @@ class SeatTab extends VBoxContainer:
 		var words := DeepUi.vbox(row, 4)
 		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_name = DeepUi.label(words, "", 14, DeepUi.PAPER)
+		_name = DeepUi.label(words, "", 12 if DeepUi.phone else 14, DeepUi.PAPER)
 		_name.clip_text = true
 		_name.custom_minimum_size.x = 48
-		_bar = DeepUi.bar(words, 5.0)
+		_bar = DeepUi.bar(words, DeepUi.pt(3) if DeepUi.phone else 5.0)
 		_bar.warn = true
-		_bar.custom_minimum_size = Vector2(64, 5)
-		_status = DeepUi.icon(row, "hourglass", 18, DeepUi.MUTED)
+		_bar.custom_minimum_size = Vector2(DeepUi.pt(34), DeepUi.pt(3)) if DeepUi.phone else Vector2(64, 5)
+		_status = DeepUi.icon(row, "hourglass", DeepUi.pt(12) if DeepUi.phone else 18.0, DeepUi.MUTED)
 		_status.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	func _face_input(event: InputEvent) -> void:
 		if not (event is InputEventMouseButton and event.pressed):
@@ -1753,6 +1811,15 @@ class SeatTab extends VBoxContainer:
 			inspected.emit()
 			face.accept_event()
 	func update(unit: Dictionary, character: String, seat: Color, up: bool, status: Array, order: int, effects: Array, party: bool) -> void:
+		## In a party's fight the chips are small and marks alone (hover for the words and the
+		## number), six to a row over a wider tab; alone they are the reader's full-size chips.
+		var roomy: bool = party and party_look
+		if DeepUi.phone:
+			chips.set_look(DeepUi.pt(10) if roomy else DeepUi.pt(12), roomy)
+			face.custom_minimum_size.x = DeepUi.pt(120)
+		else:
+			chips.set_look(PARTY_CHIP_EDGE if roomy else CHIP_EDGE, roomy)
+			face.custom_minimum_size.x = PARTY_WIDTH if roomy else WIDTH
 		chips.show_effects(effects)
 		## Alone there is no tab: the chips sit on the dock's own edge, with no tab's height of
 		## empty room kept under them (the screen sets them as far over the edge as they would
@@ -1822,6 +1889,9 @@ class SeatTab extends VBoxContainer:
 		style.content_margin_right = 10
 		style.content_margin_top = 10 if up else 6
 		style.content_margin_bottom = 7
+		if DeepUi.phone:
+			style.content_margin_top = 6 if up else 4
+			style.content_margin_bottom = 4
 		if up:
 			style.expand_margin_bottom = 3
 		return style
@@ -2260,13 +2330,13 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 		_birthstone_card = null
 		_birthstone_key = birth_key
 		_rail_shape = shape
-		_rail_box.add_theme_constant_override("separation", 0 if tight else 6)
+		_rail_box.add_theme_constant_override("separation", 0 if tight else int(RAIL_GAP))
 		if _rail_box.get_parent() is HBoxContainer:
 			(_rail_box.get_parent() as HBoxContainer).add_theme_constant_override("separation", 4 if tight else 12)
 		if on.root != null:
-			on.root.add_theme_constant_override("separation", 6 if tight else 16)
+			on.root.add_theme_constant_override("separation", 6 if tight else int(DOCK_GAP))
 		if _tray_box != null:
-			_tray_box.add_theme_constant_override("separation", 2 if tight else 8)
+			_tray_box.add_theme_constant_override("separation", 2 if tight else int(TRAY_GAP))
 		var hosts: Array = []
 		for _socket in range(maxi(DeepStone.socket_count(unit), 1 if rail.is_empty() else 0)):
 			var host := VBoxContainer.new()
@@ -2704,25 +2774,23 @@ func _sync_raised(unit: Dictionary, card: Control, stone: Dictionary) -> void:
 				card.accept_event())
 		Tips.hold(card, look_close)
 	var raised: Array = raised_ranks(unit, stone)
+	## A growth gem's count of firings (Hone, Hardening) is not worn on the socket: its hover
+	## plate and its close look say it (the owner, November 5; `rail_context` carries it).
 	var key: String = str(raised)
 	if str(marks.get_meta("key", "")) != key:
 		marks.set_meta("key", key)
 		DeepUi.clear(marks)
 		for entry in raised:
-			## Its own dark plate: a grown gem reaches out under these, and a bare mark on a
-			## bright facet is unreadable.
-			var plate := PanelContainer.new()
-			plate.add_theme_stylebox_override("panel", DeepUi.facet_ends(plate, DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.GOOD, 0.45), 5, 2)))
-			plate.size_flags_horizontal = Control.SIZE_SHRINK_END
-			plate.mouse_filter = Control.MOUSE_FILTER_PASS
+			var plate := _raised_plate(marks)
 			plate.tooltip_text = "+%d %s for the rest of this fight%s" % [int(entry[1]), str(entry[0]).capitalize(), _raised_by(unit, str(entry[0]))]
-			marks.add_child(plate)
 			var chip := DeepUi.hbox(plate, 2)
 			chip.mouse_filter = Control.MOUSE_FILTER_PASS
 			DeepUi.label(chip, "+%d" % int(entry[1]), 10, DeepUi.GOOD)
 			DeepUi.icon(chip, str(entry[0]), 12, DeepUi.GOOD)
-		if not raised.is_empty() and not _headless:
+		## The stone swells for a rank raised, not for its own count going up by one.
+		if not raised.is_empty() and not _headless and str(marks.get_meta("raised", "")) != str(raised):
 			DeepUi.pulse(picture, 1.14, 0.3)
+		marks.set_meta("raised", str(raised))
 	## Weight is the one rank the eye can see, so the stone is drawn at what it now weighs.
 	var carat: int = 0
 	for entry in raised:
@@ -2734,6 +2802,16 @@ func _sync_raised(unit: Dictionary, card: Control, stone: Dictionary) -> void:
 	var grown: Dictionary = stone.duplicate(true)
 	grown.carat = int(stone.get("carat", 1)) + carat
 	picture.call("configure", grown)
+
+static func _raised_plate(marks: Control) -> PanelContainer:
+	## One mark's own dark plate in the socket's corner: a grown gem reaches out under these,
+	## and a bare mark on a bright facet is unreadable.
+	var plate := PanelContainer.new()
+	plate.add_theme_stylebox_override("panel", DeepUi.facet_ends(plate, DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.GOOD, 0.45), 5, 2)))
+	plate.size_flags_horizontal = Control.SIZE_SHRINK_END
+	plate.mouse_filter = Control.MOUSE_FILTER_PASS
+	marks.add_child(plate)
+	return plate
 
 static func _raised_by(unit: Dictionary, rank: String) -> String:
 	var named: Array = unit.get("buff_sources", {}).get(rank, [])
@@ -2869,6 +2947,10 @@ static func name_row(card: Control, text: String, tone: Color, width: float) -> 
 	said.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	said.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	said.grow_vertical = Control.GROW_DIRECTION_BOTH
+	## The phone keeps no names over the rail: the ring's color and the stone in it say whose
+	## it is, and a finger held on it says the rest. The row stays, empty, for whoever reads it.
+	if DeepUi.phone:
+		row.visible = false
 	return said
 
 static func trigger_row(card: Control) -> Control:
@@ -3034,11 +3116,14 @@ class SocketRing extends Control:
 	const SWEEP_REDRAW: float = 1.0 / 20.0
 	var _sweep_for: float = 0.0
 	func _draw() -> void:
-		var tone: Color = birth_tint.lightened(0.15) if color == "BIRTHSTONE" else DeepUi.socket_tone(color, DeepUi.MUTED)
+		var birth: bool = color == "BIRTHSTONE"
+		var tone: Color = birth_tint.lightened(0.15) if birth else DeepUi.socket_tone(color, DeepUi.MUTED)
 		var centre := size * 0.5
 		var radius := minf(size.x, size.y) * 0.47
 		var dim: float = 0.45 if shown == 0 else 1.0
-		var lit: bool = shown == 1
+		## A Birthstone is always active, so its ring is always lit: beside the lit sockets an
+		## unlit one read as a dull socket, a stone switched off.
+		var lit: bool = shown == 1 or birth
 		if color == "VOID":
 			tone = DeepUi.INFO
 			if front:
@@ -3081,11 +3166,17 @@ class SocketRing extends Control:
 			## Settings > Comfort > Color marks: the shape of the stone it takes, on the rim in
 			## place of the lower right stud. A set stone wears its own (Thumbs.GemThumb).
 			DeepUi.draw_color_mark(self, centre + Vector2.from_angle(PI * 0.25) * radius * 0.92, clampf(radius * 0.3, 6.0, 11.0), _mark_key())
-		if color == "BIRTHSTONE":
+		if birth:
+			## Its own kind of socket, not merely a lit one: a thin ring in the birth tint just
+			## inside the lip, the band's inner ring, and the crown bright over an outline.
+			draw_arc(centre, radius - 2.5, 0, TAU, 64, Color(birth_tint, 0.85), 1.2, true)
 			draw_arc(centre, radius - 5.0, 0, TAU, 48, Color(tone, 0.6), 2.0, true)
 			var crown := PackedVector2Array([centre + Vector2(-9, -radius - 1), centre + Vector2(-5, -radius - 8), centre + Vector2(0, -radius - 3),
 				centre + Vector2(5, -radius - 8), centre + Vector2(9, -radius - 1)])
-			draw_colored_polygon(crown, tone.lightened(0.2))
+			draw_colored_polygon(crown, tone.lightened(0.35))
+			var outline := PackedVector2Array(crown)
+			outline.append(crown[0])
+			draw_polyline(outline, Color(0.02, 0.025, 0.05, 0.8), 1.0, true)
 		if ghost:
 			var dash_tone := Color(tone, 0.3 if dark else 0.6)
 			for k in range(12):
@@ -3521,6 +3612,9 @@ func _sync_plates(only: String = "") -> void:
 		var plate: Plate = _plates.get(id, null)
 		if int(foe.hp) <= 0:
 			if plate != null and is_instance_valid(plate) and not plate.fading:
+				## The killing blow goes on the tag first, so its bar is seen to run empty
+				## before it fades (the tag waits on that).
+				plate.update(foe, state, false, 0)
 				var dead: Plate = plate
 				plate.fade(func() -> void:
 					if _plates.get(id, null) == dead:
@@ -3532,6 +3626,7 @@ func _sync_plates(only: String = "") -> void:
 			plate = Plate.new()
 			plate.pressed.connect(func() -> void: _target(id))
 			plate.inspect.connect(func() -> void: _inspect_creature(id, ""))
+			plate.struck.connect(_creature_struck)
 			plate.hovered.connect(func(on: bool) -> void:
 				if on:
 					_hover_creature(id)
@@ -3555,6 +3650,13 @@ func _sync_plates(only: String = "") -> void:
 				_plates[id].queue_free()
 			_plates.erase(id)
 
+func _creature_struck(share: float) -> void:
+	## A blow took half a creature's health or more in one go (its tag's impact frames): the
+	## frame kicks with it, the colour splitting and the picture smearing toward the middle.
+	if _headless or _screen_fx == null or share < Plate.HEAVY_SHARE:
+		return
+	_screen_fx.kick(0.5 + minf(share, 1.0))
+
 func _soak(hit: Dictionary, creature: CrystalCreature, ratio: float) -> void:
 	## A blow block took part of, counted at the health bar: what came in, the block flying
 	## off the shield to meet it, and what was left to bleed, each landing on its own bar.
@@ -3570,6 +3672,8 @@ func _soak(hit: Dictionary, creature: CrystalCreature, ratio: float) -> void:
 		DeepAudio.play("block", {"volume": 0.7, "gap": 0.0})
 		DeepUi.burst(self, _center_of(_hp_bar), DeepUi.BLOCK, 14, 120.0, 0.45)
 	var tint: Color = creature.tint if creature != null and is_instance_valid(creature) else DeepUi.BAD
+	## The move's way of moving, read now: the count lands after the move has let go of it.
+	var anim: String = str(_move_anims.get(_acting_id, "")) if not _acting_id.is_empty() else ""
 	plate.on_bled = func(hp: int) -> void:
 		_land_vitals(local_id, hp, 0)
 		if hp <= 0:
@@ -3579,7 +3683,7 @@ func _soak(hit: Dictionary, creature: CrystalCreature, ratio: float) -> void:
 		_screen_fx.wound(0.45 + ratio * 2.0)
 		_screen_fx.kick(0.4 + ratio * 2.0)
 		_screen_fx.blink(Color(1.0, 0.2, 0.15), 0.12 + ratio * 0.3)
-		_slash(tint)
+		_slash(tint, anim)
 		_float_at(_hp_bar, "−" + DeepUi.number(hp), DeepUi.BAD, 26 + mini(20, hp))
 	add_child(plate)
 	plate.soak(absorbed + loss, absorbed, loss, _soak_pace)
@@ -3628,6 +3732,8 @@ func _ledger_room() -> float:
 	if _headless or _dock == null or not is_inside_tree():
 		return 450.0
 	var floor_y: float = _dock_top() - global_position.y - 14.0
+	if DeepUi.phone:
+		return clampf(floorf((floor_y - DeepUi.pt(30)) / 10.0) * 10.0, 160.0, 600.0)
 	return clampf(floorf((floor_y - LEDGER_TOP) / 10.0) * 10.0, 240.0, 600.0)
 
 func _position_enemy_panel() -> void:
@@ -3638,9 +3744,9 @@ func _position_enemy_panel() -> void:
 	if _enemy_panel == null or not _enemy_panel.visible:
 		return
 	var panel_size: Vector2 = _enemy_panel.size
-	var right_x: float = maxf(16.0 + left_inset, size.x - 16.0 - panel_size.x)
-	var left_x: float = minf(16.0 + left_inset, right_x)
-	_enemy_panel.position = Vector2(right_x if _ledger_right(_enemy_panel.enemy_id) else left_x, LEDGER_TOP)
+	var right_x: float = maxf(edge_left(16.0) + left_inset, size.x - edge_right(16.0) - panel_size.x)
+	var left_x: float = minf(edge_left(16.0) + left_inset, right_x)
+	_enemy_panel.position = Vector2(right_x if _ledger_right(_enemy_panel.enemy_id) else left_x, DeepUi.pt(30) if DeepUi.phone else LEDGER_TOP)
 
 func _ledger_right(id: String) -> bool:
 	## Whether the ledger on this creature stands on the right: it does when the creature is
@@ -3832,8 +3938,8 @@ func _process(delta: float) -> void:
 		## and their chips out again every frame.
 		if _tab_bar.size != _tab_bar.get_combined_minimum_size():
 			_tab_bar.reset_size()
-		var lifted: float = 0.0 if _my_tab == null or _my_tab.face.visible else float(_my_tab.get_theme_constant("separation"))
-		_tab_bar.position = Vector2(_dock.position.x + 18.0 + left_inset, _dock.position.y - _tab_bar.size.y - lifted)
+		var lifted: float = 0.0 if _my_tab == null or _my_tab.face.visible or DeepUi.phone else float(_my_tab.get_theme_constant("separation"))
+		_tab_bar.position = Vector2((edge_left(0.0) if DeepUi.phone else _dock.position.x + 18.0) + left_inset, _dock.position.y - _tab_bar.size.y - lifted)
 	if _opening_due and not _headless and is_visible_in_tree() and stage != null and not stage.walking() and not state.is_empty():
 		_opening_due = false
 		_later_do(0.5, _turn_opening)
@@ -3845,7 +3951,7 @@ func _process(delta: float) -> void:
 	## camera frames the room so the highest tag fits under its title; only a creature too tall
 	## for that in the widest view wears its tag at its feet. `highest` is the top of the highest
 	## tag (or head, under a tag worn at the feet), which the camera frames by.
-	var ceiling: float = 72.0 + TAG_HEADROOM
+	var ceiling: float = (DeepUi.pt(30) if DeepUi.phone else 72.0) + TAG_HEADROOM
 	var highest: float = INF
 	var placed: Array = []
 	for id in _plates:
@@ -3856,7 +3962,10 @@ func _process(delta: float) -> void:
 		var creature: CrystalCreature = _creature(id)
 		## A half split off (or something summoned) mid-turn has its tag before its body, which
 		## waits for the room to settle: until it is first placed it has nowhere to stand and
-		## would sit in the corner over the room's title, so it waits hidden.
+		## would sit in the corner over the room's title, so it waits hidden. A fading tag keeps
+		## its spot and its sight whatever became of its creature: its bar is still draining.
+		if plate.fading:
+			continue
 		if plate.position == Vector2.ZERO:
 			plate.visible = creature != null
 		if not plate.visible or creature == null:
@@ -3903,11 +4012,12 @@ func _spread_tags(placed: Array, ceiling: float) -> void:
 	## over the dock. `placed` holds [tag, goal, over its head] triples; the goals are moved in
 	## place.
 	placed.sort_custom(func(a: Array, b: Array) -> bool: return (a[1] as Vector2).x < (b[1] as Vector2).x)
-	var left_edge: float = 8.0 + TAG_REACH + left_inset
+	var left_edge: float = 8.0 + TAG_REACH + left_inset + (DeepUi.safe_left if DeepUi.phone else 0.0)
+	var right_room: float = DeepUi.safe_right if DeepUi.phone else 0.0
 	for entry in placed:
 		var plate: Plate = entry[0]
 		var goal: Vector2 = entry[1]
-		entry[1] = Vector2(clampf(goal.x, left_edge, maxf(left_edge, size.x - plate.size.x - 8.0)), goal.y)
+		entry[1] = Vector2(clampf(goal.x, left_edge, maxf(left_edge, size.x - right_room - plate.size.x - 8.0)), goal.y)
 	for _pass in range(10):
 		var moved: bool = false
 		for i in range(1, placed.size()):
@@ -3923,7 +4033,7 @@ func _spread_tags(placed: Array, ceiling: float) -> void:
 			if overlap <= 0.5:
 				continue
 			var a_x: float = maxf(left_edge, a_at.x - overlap * 0.5)
-			var b_x: float = minf(size.x - b_plate.size.x - 8.0, b_at.x + overlap - (a_at.x - a_x))
+			var b_x: float = minf(size.x - right_room - b_plate.size.x - 8.0, b_at.x + overlap - (a_at.x - a_x))
 			a[1] = Vector2(a_x, a_at.y)
 			b[1] = Vector2(b_x, b_at.y)
 			moved = true
@@ -4436,9 +4546,6 @@ func perform(event: Dictionary) -> void:
 		for page in _all_pages():
 			page.last_fired = -1
 			page.turn_dealt = 0
-			if page.dealt_box != null:
-				page.dealt_box.visible = false
-				page.dealt_label.text = "0"
 	if kind == "turn_begin":
 		_preview_count(-1)
 	## What each rail really did this turn, kept so its highlights follow the dice.
@@ -4503,7 +4610,10 @@ func perform(event: Dictionary) -> void:
 		return
 	if kind != "gem_fire":
 		_watch_infinity(event)
+	_flawless_notes(event)
 	match kind:
+		"mortar":
+			_mortar(event)
 		"turn_begin":
 			DeepAudio.play("turn_begin", {"volume": 0.7})
 			_announce("Turn %d" % int(event.get("turn", 1)), DeepUi.PAPER, "Roll, reroll, lock in", 0.9)
@@ -4644,8 +4754,6 @@ func perform(event: Dictionary) -> void:
 			## The rail that closed says what it came to, on its own page if that page is up.
 			var closing: Page = _page_for(unit_id)
 			if closing != null and _is_shown(unit_id):
-				if closing.turn_dealt > 0:
-					_dealt_flourish(closing)
 				if resonance >= 3:
 					## The chain pays off a step higher for every stone in it.
 					DeepAudio.from(closing.resonance_box, "resonance", {"pitch": 1.0 + 0.09 * float(mini(resonance, 8)), "volume": 0.8 if closing.mine else 0.6})
@@ -4660,15 +4768,22 @@ func perform(event: Dictionary) -> void:
 			_enemy_move(event)
 		"tick":
 			_leech_token += 1
-			for tick in event.get("ticks", []):
-				_animate_tick(tick)
+			_animate_ticks(event.get("ticks", []), 0.0)
 		"skip":
-			DeepAudio.play("stun", {"volume": 0.7})
 			var who: String = str(event.get("unit", ""))
+			## A Combo Breaker that acts (`acts`: the third lost turn, the creature shakes
+			## everything off and takes its action in the same turn) is not a skipped turn: no
+			## stun sound, no stars, no "Stunned" over a creature about to move.
+			var breaks_free: bool = bool(event.get("combo_breaker", false)) and bool(event.get("acts", false))
+			if not breaks_free:
+				DeepAudio.play("stun", {"volume": 0.7})
 			if _creatures.has(who) and is_instance_valid(_creatures[who]):
 				var creature: CrystalCreature = _creatures[who]
-				_fx.stars(creature.global_position + Vector3(0, creature.anchor.y * 0.85, 0))
-				_float_world(creature.global_position + Vector3(0, creature.anchor.y, 0), "Bound" if str(event.get("why", "")) == "bound" else "Stunned", Color("ffe27a"), 18)
+				if not breaks_free:
+					_fx.stars(creature.global_position + Vector3(0, creature.anchor.y * 0.85, 0))
+					_float_world(creature.global_position + Vector3(0, creature.anchor.y, 0), "Bound" if str(event.get("why", "")) == "bound" else "Stunned", Color("ffe27a"), 18)
+				## Its opening is then told once, as the `enemy_begin` that follows (the sim carries
+				## what the first run found in `resume`), so nothing of its turn's start plays twice.
 				if bool(event.get("combo_breaker", false)):
 					_float_world(creature.centre(), "Combo Breaker", DeepUi.INFO, 22)
 					_fx.shield(creature.centre(), Vector3.FORWARD, DeepUi.INFO, 1.0, 0.5)
@@ -4701,6 +4816,22 @@ func perform(event: Dictionary) -> void:
 				var tween := create_tween()
 				tween.tween_property(_screen_fx, "desaturate", 0.85, 1.4)
 				_screen_fx.wound(1.0)
+
+## How far apart one round's ticks land, so each number has the creature to itself: several
+## ticks on one creature played together piled their numbers on one spot. The sim's "tick"
+## event lasts this much longer for every tick after the first (`DeepBattle.TICK_GAP`).
+const TICK_GAP: float = DeepBattle.TICK_GAP
+
+func _animate_ticks(ticks: Array, from: float) -> float:
+	## Every tick of one round, TICK_GAP apart from `from` seconds on; returns when the last
+	## begins. The caller bumps `_leech_token` once for the round, so the Leech swells it pays
+	## still count up as one.
+	var at: float = from
+	for tick in ticks:
+		var landing: Dictionary = tick
+		_later_do(at, func() -> void: _animate_tick(landing))
+		at += TICK_GAP
+	return maxf(from, at - TICK_GAP)
 
 func _animate_tick(tick: Dictionary) -> void:
 	if tick.has("lifeline"):
@@ -5235,6 +5366,101 @@ func _origin_for(unit_id: String, socket: int) -> Vector3:
 		return _control_world(tab, 1.8)
 	return _camera.global_position + (-_camera.global_transform.basis.z) * 1.5 + Vector3(0, -0.6, 0)
 
+func _flawless_spark(unit_id: String, socket: int) -> void:
+	## A Flawless line is doing something the gem alone would not: its gem sparkles and rings.
+	if _headless:
+		return
+	var shown: bool = _is_shown(unit_id)
+	var card: Control = _gem_card(unit_id, socket) if shown else _tab_anchor(unit_id)
+	if card == null:
+		return
+	FlawlessFx.sparkle(self, _center_of(card) + global_position, 1.0 if shown else 0.6)
+	DeepAudio.from(card, "flawless_glint", {"volume": 0.8 if unit_id == local_id else 0.45, "gap": 0.05})
+	if shown:
+		DeepUi.spring(card, 0.14, 5.0, 0.35)
+
+func _flawless_ring(unit_id: String, socket: int, rang: int) -> void:
+	## A Flawless line rang: the gem sparkles and a star flies to the rail's Resonance, which ticks
+	## up as it lands. Whatever this gem's own sparks had still to land is folded into this count.
+	var page: Page = _page_for(unit_id)
+	if page == null:
+		return
+	page.ring_value = DeepRules.sat_add(page.ring_value, rang)
+	var value: int = page.ring_value
+	page.resonance_token += 1
+	if _headless or not _is_shown(unit_id):
+		_show_resonance(value, page)
+		return
+	_flawless_spark(unit_id, socket)
+	var card: Control = _gem_card(unit_id, socket)
+	FlawlessFx.mote(self, _center_of(card) + global_position if card != null else Vector2.INF, _center_of(page.resonance_box) + global_position, 0.28, func() -> void:
+		_show_resonance(value, page)
+		DeepUi.spring(page.resonance_box, 0.2, 4.0, 0.3)
+		DeepUi.burst(self, _center_of(page.resonance_box), FlawlessFx.tone(), 6, 90.0, 0.35, 4.0))
+
+## What a Flawless line that works away from its gem's own firing says as it does.
+const FLAWLESS_NOTES: Dictionary = {"kill": "+3 growth", "block_broken": "+2 growth", "charged_first": "First gem twice", "overflow_carat": "+1 carat instead",
+	"overflow": "Overflow", "gilded": "Pyrite for the blow", "thorns": "Envenomed", "plague": "The Poison spreads", "restart_rail": "The rail starts over",
+	"carry_rerolls": "Rerolls carried", "grow_die": "A die grows", "bound_phantoms": "Stolen dice"}
+
+func _flawless_notes(event: Dictionary) -> void:
+	## Lines that went off during this step: each gem sparkles and says what it did, as the blows
+	## that set them off land (a gem's after its count, anything else now).
+	var notes: Array = event.get("flawless_notes", [])
+	if notes.is_empty():
+		return
+	var wait: float = DeepBattle.tally_span(event.get("tally", {})) if str(event.get("kind", "")) == "gem_fire" else 0.0
+	_later_do(wait, func() -> void:
+		for note in notes:
+			var unit_id: String = str(note.get("unit", ""))
+			var socket: int = -1
+			var rail: Array = DeepBattle.player(state, unit_id).get("rail", [])
+			for at in range(rail.size()):
+				if rail[at] is Dictionary and str(rail[at].get("id", "")) == str(note.get("stone_id", "")):
+					socket = at
+			if socket < 0:
+				continue
+			_flawless_spark(unit_id, socket)
+			var card: Control = _gem_card(unit_id, socket) if _is_shown(unit_id) else null
+			if card != null and DeepBattle.count_pace(state) > 0.0:
+				_float_at(card, str(FLAWLESS_NOTES.get(str(note.get("what", "")), "Flawless")), FlawlessFx.tone(), 15))
+
+func _play_gem_effects(event: Dictionary, effects: Array, origin: Vector3, color: Color, mine: bool, magnitude: float) -> void:
+	## What a gem did, and then what its Flawless line added: its own effects land, the gem sparkles
+	## and rings, and only then does the extra go, on the beat the rules left for it. At the fastest
+	## count they all go together, and the sparkle is the only sign there was anything to wait for.
+	var unit_id: String = str(event.get("unit", ""))
+	var socket: int = int(event.get("socket", -1))
+	var bonus: Dictionary = event.get("flawless", {})
+	var pace: float = float(bonus.get("pace", 1.0))
+	## A blow that rings says which gem to sparkle as it lands.
+	for effect in effects:
+		if int(effect.get("rang", 0)) > 0:
+			effect.ring_socket = socket
+	var parts: Array = DeepBattle.flawless_parts(effects)
+	var extra: Array = parts[1]
+	if extra.is_empty() or pace <= 0.0:
+		_animate_effects(effects, origin, color, mine, _gem_card(unit_id, socket), magnitude, unit_id)
+		var counted: bool = bool(bonus.get("counted", false)) and pace > 0.0
+		if not extra.is_empty() or (bool(bonus.get("on", false)) and not bool(bonus.get("quiet", false)) and not counted):
+			_flawless_spark(unit_id, socket)
+		return
+	_animate_effects(parts[0], origin, color, mine, _gem_card(unit_id, socket), magnitude, unit_id)
+	_later_do(DeepBattle.own_span(parts[0]), _flawless_spark.bind(unit_id, socket))
+	_later_do(DeepBattle.follow_after(effects, pace), func() -> void:
+		_animate_effects(extra, origin, FlawlessFx.tone(), mine, _gem_card(unit_id, socket), magnitude, unit_id))
+
+func _mortar(event: Dictionary) -> void:
+	## A Flawless Mortar lands as the turn opens: its gem sparkles, and a breath later the shot.
+	var unit_id: String = str(event.get("unit", ""))
+	var socket: int = int(event.get("socket", -1))
+	var effects: Array = event.get("effects", [])
+	_flawless_spark(unit_id, socket)
+	_mark_dying(effects)
+	_hold_vitals(effects, unit_id)
+	_later_do(DeepBattle.FLAWLESS_BEAT * DeepBattle.count_pace(state), func() -> void:
+		_animate_effects(effects, _origin_for(unit_id, socket), FlawlessFx.tone(), unit_id == local_id, _gem_card(unit_id, socket), 1.0, unit_id))
+
 func _gem_fire(event: Dictionary) -> void:
 	var unit_id: String = str(event.get("unit", ""))
 	var mine: bool = unit_id == local_id
@@ -5265,7 +5491,9 @@ func _gem_fire(event: Dictionary) -> void:
 			ring.fire()
 		DeepUi.spring(card, 0.22, 8.0, 0.5)
 		DeepUi.burst(self, _center_of(card), color, 18, 170.0, 0.55)
-		var resonance: int = int(event.get("resonance", 0))
+		## What its blows will ring as they land (a Flawless Barrage) is held back until they do.
+		var resonance: int = int(event.get("resonance", 0)) - int(event.get("rung", 0))
+		page.ring_value = resonance
 		if resonance > page.resonance_shown or int(event.get("gain", 0)) > 0:
 			_resonance_flight(page, card, resonance, maxi(1, int(event.get("gain", 0))), color, bool(event.get("harmony", false)))
 		elif resonance != page.resonance_shown:
@@ -5297,15 +5525,14 @@ func _gem_fire(event: Dictionary) -> void:
 	## A count past counting is celebrated as its blows land.
 	_watch_infinity(event, wait + 0.1)
 	var effects: Array = event.get("effects", [])
-	if wait > 0.0:
+	if wait > 0.0 or not DeepBattle.flawless_parts(effects)[1].is_empty():
 		_hold_vitals(effects, unit_id)
 	else:
 		_hold_parry(effects, unit_id)
 	if wait <= 0.0:
-		_animate_effects(effects, origin, color, mine, card_anchor, magnitude, unit_id)
+		_play_gem_effects(event, effects, origin, color, mine, magnitude)
 		return
-	_later_do(wait, func() -> void:
-		_animate_effects(effects, origin, color, mine, _gem_card(unit_id, socket), magnitude, unit_id))
+	_later_do(wait, _play_gem_effects.bind(event, effects, origin, color, mine, magnitude))
 
 func _count_out(event: Dictionary, shown: bool, color: Color, step: int) -> float:
 	## A gem's arithmetic, counted out over its socket (or, small, over its player's tab while
@@ -5604,8 +5831,8 @@ func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
 	var resonance: int = int(dues.get("resonance", 0))
 	if resonance > 0:
 		var tone: Color = DiceIcons.material_palette("crystal").get("body", DeepUi.RESONANCE)
-		## The count itself is the state's to say (a forecast is standing in it while the turn
-		## is planned); this is only the ring of the die that paid it.
+		## The count itself is the state's to say (the meter reads it off the unit, planning or
+		## resolving); this is only the ring of the die that paid it.
 		DeepAudio.from(_resonance_box, "resonance", {"volume": 0.55, "pitch": 1.15})
 		_float_at(_resonance_box, "+" + DeepUi.number(resonance), tone, 18)
 		DeepUi.burst(self, _center_of(_resonance_box), tone, 10 + mini(resonance, 30) * 4, 110.0, 0.5)
@@ -5907,16 +6134,51 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					_float_at(_effects, "Ward blocked" if bool(effect.get("warded", false)) else "%s +%s" % [kind.capitalize(), DeepUi.number(int(effect.amount))], color, 16)
 				elif _is_player(target_id):
 					_float_at(_tab_anchor(target_id), "Ward blocked" if bool(effect.get("warded", false)) else "%s +%s" % [kind.capitalize(), DeepUi.number(int(effect.amount))], color, 15)
-			"raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "phantom_low", "phantom_roll", "rethrow", "gild", "upgrade_faces":
+			"resonance":
+				## A Flawless White Seam's extra point flies up like any line that rings.
+				if int(effect.get("rang", 0)) > 0 and effect.has("ring_socket"):
+					_flawless_ring(by, int(effect.ring_socket), int(effect.rang))
+				elif mine and anchor != null:
+					_float_at(anchor, "Resonance", color.lightened(0.3), 13)
+			"coin_flip":
+				if mine and anchor != null:
+					var called: String = "Heads!" if bool(effect.get("won", false)) else "Tails"
+					if effect.has("won_again"):
+						called = "Twice over!" if bool(effect.won_again) else "Back to even"
+					_float_at(anchor, called, DeepUi.ORE, 15)
+			"enrich_forever":
+				## A Flawless Enrich goes for good, and its neighbours are the heavier for it.
+				if not bool(effect.get("nothing", false)):
+					if bool(effect.get("destroyed", false)):
+						if anchor != null:
+							DeepUi.burst(self, _center_of(anchor), FlawlessFx.tone(), 40, 220.0, 0.8)
+						DeepAudio.play("gem_shatter", {"volume": 0.8})
+					for socket in effect.get("sockets", []):
+						var kin: Control = _gem_card(by, int(socket))
+						if kin != null:
+							_float_at(kin, "+1 carat, for good" if bool(effect.get("destroyed", false)) else "+1 carat", FlawlessFx.tone(), 15)
+			"restart_rail":
+				## Said by its note, once, and only if it really did.
+				if bool(effect.get("restarted", false)) and _page_for(by) != null:
+					_page_for(by).outcomes.clear()
+			"strength_guard", "mortar", "poison_safe", "envenom_thorns", "gild_block", "carry_rerolls":
+				if mine and anchor != null:
+					var said: String = {"strength_guard": "Strength on Block", "mortar": "Mortar loaded", "poison_safe": "Poison is harmless", "envenom_thorns": "Thorns envenomed",
+						"gild_block": "Blocked blows pay", "carry_rerolls": "Rerolls carry"}.get(kind, "")
+					_float_at(anchor, said, FlawlessFx.tone(), 14)
+			"raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high", "phantom_high", "phantom_low", "phantom_roll", "rethrow", "gild", "upgrade_faces":
 				if mine:
 					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
 					for id in _dice_views:
 						var view: Control = _dice_views[id]
 						DeepUi.burst(self, _center_of(view), color, 6, 80.0, 0.4, 4.0)
-			"tick_poison":
+			"tick_poison", "poison_tick":
+				## A Birthstone's round of poison on every creature, or a gem's (Confluence) on
+				## its target: one tick at a time, each number landing on its own.
 				_leech_token += 1
-				for tick in effect.get("ticks", []):
-					_animate_tick(tick)
+				var ticks: Array = effect.get("ticks", [])
+				if not ticks.is_empty():
+					at = _animate_ticks(ticks, at) + TICK_GAP
 			"replay_rail":
 				## Its name has been called out over the Birthstone; the rail going round again
 				## is what is said here.
@@ -5982,6 +6244,9 @@ func _ward(tone: Color, glyph: String, strength: float, count: int) -> void:
 
 func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String = "") -> void:
 	_land_vitals(who, int(hit.get("hp_loss", 0)), int(hit.get("absorbed", 0)))
+	## A Flawless Barrage's hit that got past Block: its gem sparkles and the Resonance ticks up.
+	if int(hit.get("rang", 0)) > 0 and hit.has("ring_socket"):
+		_flawless_ring(by, int(hit.ring_socket), int(hit.rang))
 	if not by.is_empty() and str(state.get("phase", "")) == "resolving":
 		_count_dealt(int(hit.get("hp_loss", 0)) + int(hit.get("absorbed", 0)), by)
 	## Riposte: every blow that lands raises the Rogue's guard by her Resonance, counted up
@@ -6095,37 +6360,12 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 		_kill(creature)
 
 func _count_dealt(amount: int, by: String) -> void:
-	## A blow of a rail's has landed: the turn's count beside its player's forecast rolls up to
-	## it, whether their page is up or not.
+	## A blow of a rail's has landed: its player's count of the turn takes it, whether their
+	## page is up or not. Nothing on the dock shows it any more (Page.turn_dealt).
 	var page: Page = _page_for(by)
-	if amount <= 0 or page == null or page.dealt_box == null or _headless:
+	if amount <= 0 or page == null:
 		return
-	var from: int = page.turn_dealt
 	page.turn_dealt = DeepRules.sat_add(page.turn_dealt, amount)
-	page.dealt_box.visible = true
-	var shown: Label = page.dealt_label
-	var to: int = page.turn_dealt
-	var roll := shown.create_tween()
-	roll.tween_method(func(v: float) -> void: shown.text = DeepUi.number(int(round(v))), float(from), float(to), 0.25)
-	DeepUi.spring(page.dealt_box, 0.22, 5.0, 0.4)
-
-func _dealt_flourish(page: Page) -> void:
-	## The rail has closed: what it dealt is said once more and louder, gold if it came to
-	## everything the hand promised.
-	var promised: int = int(page.held_forecast.get("totals", {}).get("damage", 0))
-	var whole: bool = promised > 0 and page.turn_dealt >= promised
-	var tone: Color = DeepUi.ACCENT_HI if whole else DeepUi.BAD
-	var label: Label = page.dealt_label
-	label.add_theme_color_override("font_color", tone)
-	DeepUi.spring(page.dealt_box, 0.45, 8.0, 0.6)
-	DeepUi.burst(self, _center_of(page.dealt_box), tone, 18 + mini(30, page.turn_dealt / 4), 160.0, 0.6)
-	DeepAudio.from(page.dealt_box, "tally_fuse", {"volume": 0.6 if page.mine else 0.45, "pitch": 1.5 if whole else 1.0, "vary": 0.0, "gap": 0.0})
-	_float_at(page.dealt_box, "dealt " + DeepUi.number(page.turn_dealt), tone, 16)
-	var held: WeakRef = weakref(label)
-	_later_do(1.2, func() -> void:
-		var still: Label = held.get_ref() as Label
-		if still != null:
-			still.add_theme_color_override("font_color", DeepUi.BAD))
 
 func _thresholds(hit: Dictionary, creature: CrystalCreature) -> void:
 	## What a creature does the moment its health falls far enough (the Hollow Crown calling
@@ -6666,7 +6906,7 @@ func _enemy_effect(effect: Dictionary, creature: CrystalCreature) -> void:
 					_screen_fx.kick(0.4 + ratio * 2.0)
 					_screen_fx.blink(Color(1.0, 0.2, 0.15), 0.12 + ratio * 0.3)
 					if _reflecting.is_empty():
-						_slash(creature.tint if creature != null and is_instance_valid(creature) else DeepUi.BAD)
+						_slash(creature.tint if creature != null and is_instance_valid(creature) else DeepUi.BAD, str(_move_anims.get(_acting_id, "")) if not _acting_id.is_empty() else "")
 				if absorbed > 0:
 					var ahead: Vector3 = _camera.global_position + (-_camera.global_transform.basis.z) * 1.8
 					_fx.shield(ahead, _camera.global_position - ahead, DeepUi.BLOCK, 0.9, 0.5)
@@ -7554,10 +7794,14 @@ func _dock_tell(effect: Dictionary, creature: CrystalCreature) -> void:
 			if target_id == local_id and effect.has("socket") and int(effect.socket) < _socket_cards.size():
 				_telegraph(_socket_cards[int(effect.socket)], _acting_move)
 
-func _slash(color: Color) -> void:
-	## Claw marks across the view: three bright strokes that rip in and fade.
+func _slash(color: Color, anim: String = "") -> void:
+	## The blow's mark across the view, shaped by the move that landed it (the owner, November
+	## 5): a bite is two arcs closing on each other, a sting one bright point with short rays, a
+	## slam a wide smear, a cast a crack of light, and anything else the three claw strokes.
+	## The colour, timing, calm scaling and shake are the same for every shape.
 	var marks := Slash.new()
 	marks.color = color.lightened(0.4)
+	marks.shape = Slash.shape_of(anim)
 	marks.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(marks)
 	move_child(marks, _hud.get_index())
@@ -7619,12 +7863,27 @@ class InfinityMark extends Control:
 		draw_polyline(shine, Color(1, 1, 1, 0.35), maxf(2.0, width * 0.22), true)
 
 class Slash extends Control:
+	## The mark a creature's blow leaves across the view, in one of five shapes (`shape_of`):
+	## "claw" (three strokes), "bite" (two arcs closing on each other), "sting" (a bright point
+	## with short rays), "slam" (a wide smear) or "bolt" (a crack of light). Each rips in over
+	## the first quarter of its life and fades out over the rest.
+	const SHAPES: Dictionary = {"bite": "bite", "chomp": "bite", "peck": "bite",
+		"sting": "sting", "spit": "sting", "drill": "sting", "stab": "sting",
+		"slam": "slam", "club": "slam", "erupt": "slam", "pull": "slam", "crush": "slam",
+		"cast": "bolt", "bolt": "bolt", "breath": "bolt", "burst": "bolt", "zap": "bolt"}
 	var color: Color = Color.WHITE
+	var shape: String = "claw"
 	var _t: float = 0.0
 	var _angle: float = 0.0
+	## The sting's rays and the crack's bends, fixed when it is made so they do not jitter.
+	var _seed: int = 0
+	static func shape_of(anim: String) -> String:
+		## Which mark a move's way of moving (content `anim`) leaves; claws for anything else.
+		return str(SHAPES.get(anim.to_lower(), "claw"))
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_angle = randf_range(-0.5, 0.5)
+		_seed = randi()
 		var add := CanvasItemMaterial.new()
 		add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 		material = add
@@ -7634,19 +7893,89 @@ class Slash extends Control:
 			queue_free()
 			return
 		queue_redraw()
+	func _stroke(a: Vector2, b: Vector2, alpha: float, wide: float = 1.0) -> void:
+		draw_line(a, b, Color(color, 0.35 * alpha), 22.0 * wide, true)
+		draw_line(a, b, Color(color, 0.9 * alpha), 6.0 * wide, true)
+		draw_line(a, b, Color(1, 1, 1, alpha), 2.0 * wide, true)
+	func _path(points: PackedVector2Array, alpha: float, wide: float = 1.0) -> void:
+		draw_polyline(points, Color(color, 0.35 * alpha), 22.0 * wide, true)
+		draw_polyline(points, Color(color, 0.9 * alpha), 6.0 * wide, true)
+		draw_polyline(points, Color(1, 1, 1, alpha), 2.0 * wide, true)
 	func _draw() -> void:
 		var centre := size * 0.5 + Vector2(randf_range(-4, 4), randf_range(-4, 4))
-		var reach: float = size.y * 0.42 * minf(1.0, _t * 4.0)
+		var grown: float = minf(1.0, _t * 4.0)
+		var reach: float = size.y * 0.42 * grown
 		var alpha: float = 1.0 - _t
 		var direction := Vector2(cos(_angle + 0.9), sin(_angle + 0.9))
 		var across := direction.orthogonal()
-		for i in range(3):
-			var offset: Vector2 = across * (float(i) - 1.0) * size.y * 0.09
-			var a: Vector2 = centre + offset - direction * reach
-			var b: Vector2 = centre + offset + direction * reach
-			draw_line(a, b, Color(color, 0.35 * alpha), 22.0, true)
-			draw_line(a, b, Color(color, 0.9 * alpha), 6.0, true)
-			draw_line(a, b, Color(1, 1, 1, alpha), 2.0, true)
+		match shape:
+			"bite":
+				## Two jaws: a crescent above and one below, their ends closing on each other as
+				## the bite lands, each arched away from the other in the middle like a bite mark.
+				var closing: float = size.y * (0.2 - 0.17 * grown)
+				var arch: float = size.y * 0.15
+				var span: float = size.y * 0.3
+				var along_dir := Vector2(cos(_angle * 0.6), sin(_angle * 0.6))
+				var out_dir := along_dir.orthogonal()
+				for side in [-1.0, 1.0]:
+					var points := PackedVector2Array()
+					for i in range(15):
+						var u: float = float(i) / 14.0 - 0.5
+						var along: Vector2 = along_dir * (u * 2.0 * span)
+						var bulge: float = (1.0 - 4.0 * u * u) * arch
+						points.append(centre + along + out_dir * side * (closing + bulge))
+					_path(points, alpha)
+					## A few teeth along the inside of each jaw.
+					for tooth in [-0.3, 0.0, 0.3]:
+						var at: Vector2 = centre + along_dir * (tooth * 2.0 * span) + out_dir * side * (closing + (1.0 - 4.0 * tooth * tooth) * arch)
+						_stroke(at, at - out_dir * side * size.y * 0.035 * grown, alpha * 0.9, 0.4)
+			"sting":
+				## One bright point where it went in, and short rays out of it.
+				var rng := RandomNumberGenerator.new()
+				rng.seed = _seed
+				var core: float = size.y * 0.035 * (0.6 + 0.4 * grown)
+				draw_circle(centre, core * 3.0, Color(color, 0.3 * alpha))
+				draw_circle(centre, core * 1.6, Color(color, 0.85 * alpha))
+				draw_circle(centre, core * 0.8, Color(1, 1, 1, alpha))
+				for i in range(9):
+					var at: float = TAU * float(i) / 9.0 + rng.randf_range(-0.15, 0.15)
+					var ray := Vector2(cos(at), sin(at))
+					var inner: float = core * 2.2
+					var outer: float = inner + size.y * rng.randf_range(0.05, 0.13) * grown
+					_stroke(centre + ray * inner, centre + ray * outer, alpha * 0.9, 0.45)
+			"slam":
+				## One wide smear across the view, heavy in the middle and thinning at its ends.
+				var wide := Vector2(cos(_angle * 0.5), sin(_angle * 0.5))
+				var smear: float = size.x * 0.3 * grown
+				var a: Vector2 = centre - wide * smear
+				var b: Vector2 = centre + wide * smear
+				draw_line(a, b, Color(color, 0.22 * alpha), size.y * 0.16, true)
+				draw_line(a, b, Color(color, 0.5 * alpha), size.y * 0.08, true)
+				draw_line(centre.lerp(a, 0.6), centre.lerp(b, 0.6), Color(color, 0.85 * alpha), size.y * 0.035, true)
+				draw_line(centre.lerp(a, 0.4), centre.lerp(b, 0.4), Color(1, 1, 1, alpha * 0.9), 3.0, true)
+			"bolt":
+				## A crack of light down the view, bending as lightning does, with two side forks.
+				var rng := RandomNumberGenerator.new()
+				rng.seed = _seed
+				var top: Vector2 = centre - Vector2(0, size.y * 0.42)
+				var bottom: Vector2 = centre + Vector2(0, size.y * 0.42)
+				var points := PackedVector2Array()
+				var count: int = 9
+				for i in range(count):
+					var u: float = float(i) / float(count - 1)
+					var bend: float = size.x * 0.045 * rng.randf_range(-1.0, 1.0) * sin(u * PI)
+					points.append(top.lerp(bottom, u * grown) + Vector2(bend + size.x * 0.06 * (u - 0.5), 0.0))
+				_path(points, alpha, 0.8)
+				for fork in range(2):
+					var from: Vector2 = points[3 + fork * 2]
+					var fork_dir := Vector2(1.0 if fork == 0 else -1.0, 0.7).normalized()
+					_stroke(from, from + fork_dir * size.y * 0.1 * grown, alpha * 0.8, 0.5)
+			_:
+				for i in range(3):
+					var offset: Vector2 = across * (float(i) - 1.0) * size.y * 0.09
+					var a: Vector2 = centre + offset - direction * reach
+					var b: Vector2 = centre + offset + direction * reach
+					_stroke(a, b, alpha)
 
 # --- flourishes ----------------------------------------------------------------------------
 

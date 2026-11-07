@@ -58,7 +58,8 @@ because `2t` values leave and `2t` copies arrive.
 would change two faces out of twenty and mean nothing.
 
 **Shallow** is the Phial generalised: a d6 becomes `1,1,2,2,3,3` and keeps `top: 6`, so
-every face it can show reads as a low die. Rue's Phial becomes a Shallow d6, which
+none of its faces is a crown; every face it can show reads as a low die because it is
+still a d6 (§4). Rue's Phial becomes a Shallow d6, which
 raises its average from 1.67 to 2.0 — a deliberate simplification, tunable by authoring
 her die's faces directly if the 0.33 matters.
 
@@ -89,10 +90,10 @@ never rerolled it also satisfies `held` triggers for free, which is what the old
 `always_held` engraving did.
 
 **Tally has no cap**, and neither does any face (October 8, 2026). It raises the stored face value, so it
-also raises the die's `top` (§4) — a Tally d6 sitting at 14 makes its own 1–5 faces count
-as low dice. That is a real trade, not a bug: it feeds totals and crowns while quietly
-feeding Rue's low-dice triggers too. It ticks up as the face is landed on, with its own
-little animation.
+also raises the die's `top` (§4), which feeds totals and crowns. It does not move the
+low/high line: a Tally d6 sitting at 14 still reads its 1–3 as low and its 4–6 as high,
+since low and high are judged against the die's size (§4). It ticks up as the face is
+landed on, with its own little animation.
 
 **Doubled** doubles the face's _effective_ value, so a Doubled 6 on a d6 reads as 12,
 tops the die at 12, and pairs with other 12s rather than with other 6s. Good for totals,
@@ -110,8 +111,16 @@ Iron's and Cloud's second throw, Exploding's chain, Blank's zero.
 
 `top` is the highest **effective** value any face of the die can show — printed value
 plus stored mutations, then Doubled, with no ceiling. A pattern may override it
-(Shallow keeps the shape's own `n`, which is the whole point of the Phial). Everything
-that reads a die against itself reads `top`: crowns, `low_dice`, `high_pct`, `max_total`.
+(Shallow keeps the shape's own `n`, which is the whole point of the Phial). Crowns and
+`max_total` read `top`.
+
+**Low and high dice read the die's size, not `top`** (November 5, 2026). The line is the
+standard die's average, `(faces + 1) / 2`: a die is low when `value * 2 <= faces` (1–3 on a
+d6, 1–2 on a d4, only the 1 on a d3) and high above it, and `high_pct` is
+`value * 100 / faces` (a 6 on a d6 is 100; a raised or exploded die can pass 100). Filing,
+carving or raising faces never moves the line: a d6 ground down to 1–3 still counts its 3
+as low and would count a 4 as high, and a Tally d6 sitting at 14 does not make its 4–6
+faces low. A wild keeps its special reading (low, a crown, `high_pct` 100).
 
 ## 5. The material strength bonus
 
@@ -298,7 +307,7 @@ comparing `shape`, because variant keys no longer exist.
 | `sim/battle.gd`                                | `_pay_dues` after every throw; `break_die` / `break_gem` and `_regrow` at the turn's start; `_blood_feeds` where a creature dies; `_spoil` for the elite abilities; the `resolve_mirrors` calls are gone |
 | `sim/forge.gd`                                 | `roll_die` builds shape + 1–2 variations instead of picking a content key; pricing                                                                                                                       |
 | `sim/descent.gd`                               | per-player stalls; the die offer; the Vat chamber and its weight                                                                                                                                         |
-| `sim/oddities.gd`                              | pattern, reset, etch and material actions; `resize` keeps material and etchings                                                                                                                          |
+| `sim/oddities.gd`                              | pattern, reset, etch and material actions; `resize` keeps material and carries the die's own faces (highest dropped filing down, the new size's top faces added hammering up)                           |
 | `sim/content.gd`                               | validate the three new sections; drop engraving validation                                                                                                                                               |
 | `sim/profile.gd`                               | loadout matches on `shape`                                                                                                                                                                               |
 | `view/dice/dice_icons.gd`                      | palette by shape + material; marks for the new etchings                                                                                                                                                  |

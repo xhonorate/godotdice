@@ -43,6 +43,22 @@ static func validate(def: Variant) -> Array:
 		var action: Variant = choice.get("action", null)
 		if not action is Dictionary or not str(action.get("kind", "")) in ACTIONS:
 			errors.append("choice %d has an unknown action" % (index + 1))
+		## Only the better work's words carry upgrade marks (`**`, DeepContent.UPGRADE_MARK).
+		for field in ["label", "text"]:
+			if str(choice.get(field, "")).contains(DeepContent.UPGRADE_MARK):
+				errors.append("choice %d: only improved words carry upgrade marks" % (index + 1))
+		## The better work a Smith's Voucher or a lucky bench gives (DeepDescent.room_choices):
+		## words and an action of its own, every upgrade mark opened and closed.
+		if choice.has("improved"):
+			var better: Variant = choice.improved
+			if not better is Dictionary or str(better.get("label", "")).is_empty() or str(better.get("text", "")).is_empty():
+				errors.append("choice %d: improved needs a label and a text" % (index + 1))
+			elif not better.get("action", null) is Dictionary or not str(better.action.get("kind", "")) in ACTIONS:
+				errors.append("choice %d: improved has an unknown action" % (index + 1))
+			else:
+				for field in ["label", "text"]:
+					if str(better.get(field, "")).count(DeepContent.UPGRADE_MARK) % 2 != 0:
+						errors.append("choice %d: improved %s leaves an upgrade mark open" % [index + 1, field])
 	return errors
 
 static func find_stone(player: Dictionary, stone_id: String) -> Dictionary:
@@ -74,6 +90,29 @@ static func remove_stone(player: Dictionary, stone_id: String) -> bool:
 		for at in range(riders[socket].size()):
 			if riders[socket][at] is Dictionary and str(riders[socket][at].get("id", "")) == stone_id:
 				riders[socket].remove_at(at)
+				return true
+	return false
+
+static func replace_stone(player: Dictionary, stone_id: String, with: Dictionary) -> bool:
+	## Another stone put exactly where this one sits: its place in the bag, its socket, or its
+	## seat riding one; the stone it replaces is gone. False when the player has no such stone.
+	var haul: Array = player.get("haul", [])
+	for index in range(haul.size()):
+		if str(haul[index].get("id", "")) == stone_id:
+			haul[index] = with
+			return true
+	var rail: Array = player.get("rail", [])
+	for index in range(rail.size()):
+		if rail[index] is Dictionary and str(rail[index].get("id", "")) == stone_id:
+			rail[index] = with
+			return true
+	var riders: Array = player.get("riders", [])
+	for socket in range(riders.size()):
+		if not riders[socket] is Array:
+			continue
+		for at in range(riders[socket].size()):
+			if riders[socket][at] is Dictionary and str(riders[socket][at].get("id", "")) == stone_id:
+				riders[socket][at] = with
 				return true
 	return false
 
@@ -128,7 +167,7 @@ static func carried(player: Dictionary, loose_only: bool = false) -> Array:
 	return out
 
 static func work_refusal(action: Dictionary, item: Dictionary, player: Dictionary = {}, offer: Dictionary = {}) -> String:
-	## Why this die or this stone cannot take this piece of work, or "". A d4 cannot be filed
+	## Why this die or this stone cannot take this piece of work, or "". A d2 cannot be filed
 	## any smaller and a stone nobody has read has no cut to draw again: neither should be
 	## offered and then refused. `offer` is what the room laid out (the anvil's pattern).
 	match str(action.get("kind", "")):
@@ -189,9 +228,9 @@ static func nothing_to_work(needs: String, action: Dictionary, player: Dictionar
 	## Whether a piece of work that `needs` something has nothing of the player's it could be
 	## done to at all.
 	match needs:
-		"die", "die_face":
+		"die", "die_face", "die_faces":
 			var dice: Array = player.get("dice", [])
-			## A die the work would refuse (a plain one in the vat, a d4 at the file) is not one it could be done to.
+			## A die the work would refuse (a plain one in the vat, a d2 at the file) is not one it could be done to.
 			return dice.is_empty() or (not action.is_empty() and not dice.any(func(d: Dictionary) -> bool: return work_refusal(action, d, player, offer).is_empty()))
 		"raw_stone", "raw_stones":
 			return carried(player, true).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false))).is_empty()
@@ -240,23 +279,45 @@ static func resize_refusal(die: Dictionary, steps: int) -> String:
 
 static func resize(die: Dictionary, steps: int) -> String:
 	## The die, in place, `steps` sizes bigger or smaller: it keeps its id, its material and
-	## every etching that still has a face to sit on. Its pattern is cut again across the new
-	## size, and a face somebody had already worked higher than the pattern asks stays where
-	## it was put: an hour at a carver's bench is not thrown away by an hour at an anvil.
-	## Returns why not, or "".
+	## its own faces, which travel with it as a multiset. Filed down, it loses its highest
+	## faces and the rest stay exactly as they were, etchings and worked numbers included: a
+	## d4 of 1/1/3/3 files to a d3 of 1/1/3. Hammered up, it keeps every face it had and
+	## gains the top faces of the new size (cut to its pattern where the pattern fits the new
+	## size, plain otherwise): a plain d6 grows 7 and 8, an Odd d4 grows 5 and 5. The pattern's
+	## name stays while the new size can take it. Returns why not, or "".
 	var refusal: String = resize_refusal(die, steps)
 	if not refusal.is_empty():
 		return refusal
 	var key: String = str(SIZES[SIZES.find(str(die.shape)) + steps])
-	var had: Array = die.get("faces", []).duplicate(true)
-	var made: Dictionary = DeepDice.make(key, str(die.id), {"pattern": str(die.get("pattern", "")),
+	var pattern: String = str(die.get("pattern", ""))
+	if not DeepDice.pattern_allows(pattern, key):
+		pattern = ""
+	var faces: Array = carried_faces(die.get("faces", []), key, pattern)
+	var made: Dictionary = DeepDice.make(key, str(die.id), {"pattern": pattern, "faces": faces,
 		"material": str(die.get("material", "")), "name": DeepDice.given_name(die)})
-	for index in range(mini(had.size(), made.get("faces", []).size())):
-		made.faces[index].kind = str(had[index].get("kind", "plain"))
-		made.faces[index].value = maxi(int(made.faces[index].get("value", 0)), int(had[index].get("value", 0)))
 	die.clear()
 	die.merge(made)
 	return ""
+
+static func carried_faces(had: Array, key: String, pattern: String) -> Array:
+	## The faces a die takes to its new size `key`: its own, sorted by value (ties keep their
+	## order, so an etched face is never swapped for a plain one of the same number), the
+	## highest dropped when there are too many, the new size's own top faces added when there
+	## are too few.
+	var wanted: int = DeepDice.size_of(key)
+	var order: Array = range(had.size())
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var va: int = int(had[a].get("value", 0))
+		var vb: int = int(had[b].get("value", 0))
+		return va < vb if va != vb else a < b)
+	var faces: Array = []
+	for index in order.slice(0, wanted):
+		faces.append(DeepDice.face(int(had[index].get("value", 0)), str(had[index].get("kind", "plain"))))
+	if faces.size() < wanted:
+		var fresh: Array = DeepDice.pattern_faces(key, pattern)
+		fresh.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.get("value", 0)) < int(b.get("value", 0)))
+		faces.append_array(fresh.slice(fresh.size() - (wanted - faces.size())))
+	return faces
 
 static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, rng: RandomNumberGenerator, ctx: Dictionary) -> Dictionary:
 	## ctx: mine (Dictionary), depth, run (id), party (int), and for the rooms that lay
@@ -412,19 +473,34 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			out.message = "The stones fuse into one: a %s, %d carats." % [
 				str(DeepStone.skill_of(keep).get("name", keep.skill)), int(keep.carat)]
 		"echo_stone":
-			## The room rings and the rock answers with another of the same. Only the skill
-			## carries across: the stone that forms is rolled fresh in every other way, which
-			## is what makes it a second draw at a skill rather than a copy of a gem.
+			## The room rings and the rock gives the stone back as another of the same, in its
+			## own place (November 5, 2026: it replaces the original, so no twin ever comes of
+			## it). Only the skill carries across: the stone that forms is rolled fresh in every
+			## other way, which is what makes it a second draw at a skill rather than a copy of
+			## a gem, and it comes already read. What the original could not do the echo cannot:
+			## a vault copy stays lent, a fragile stone fragile, a temporary one temporary (as a
+			## fused stone does), and a Void gem's echo rides where it rode, by the Hollow's mark
+			## if the rock froze no Void of its own in it.
 			var stone: Dictionary = find_stone(player, str(payload.get("stone_id", "")))
 			if stone.is_empty():
 				return _refuse("choose one of your stones")
 			var like: Dictionary = DeepForge.roll_stone(rng, mine, depth, int(action.get("bonus", 2)),
 				{"run": ctx.get("run", ""), "source": "echo"}, "", [str(stone.get("skill", ""))])
-			like.appraised = false
-			like.inclusions_revealed = false
-			player.haul.append(like)
-			out.made.append(like)
-			out.message = "A raw stone with the same skill forms in the wall. It goes into your haul."
+			like.appraised = true
+			like.inclusions_revealed = true
+			if DeepStone.is_fragile(stone):
+				like.fragile = true
+			if bool(stone.get("temporary", false)):
+				like.temporary = true
+			if bool(stone.get("lent", false)):
+				like.lent = true
+			if not DeepStone.rider_place(player, str(stone.id)).is_empty() and not DeepStone.is_slotless(like):
+				like.voided = true
+			replace_stone(player, str(stone.id), like)
+			out.lost.append(str(stone.id))
+			out.changed.append(like.duplicate(true))
+			out.message = "The walls ring your %s back as another: the same skill, already read, everything else drawn fresh." % [
+				str(DeepStone.skill_of(stone).get("name", stone.get("skill", "")))]
 		"geode_buy":
 			## One Geode, rolled when the room opened so the price on the card is the price paid.
 			## It goes into the haul sealed: only the workshop can crack it.
@@ -442,6 +518,27 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			out.made.append(bought)
 			out.bought = true
 			out.message = "You pay %d pyrite for the %s. It goes into your haul, sealed: only the workshop can crack it." % [price, DeepStone.raw_name(bought)]
+		"etch" when bool(action.get("top_face", false)):
+			## A voucher's better work: the night's etching on the highest face of every die the
+			## player carries (the first of them, where two faces are highest).
+			var etching: String = str(ctx.get("offer", {}).get("etching", payload.get("etching", action.get("etching", ""))))
+			if not etching in DeepDice.FACE_KINDS:
+				return _refuse("the needles are set for nothing")
+			out.faces = {}
+			for die in player.get("dice", []):
+				var faces: Array = die.get("faces", [])
+				if faces.is_empty():
+					continue
+				var top: int = 0
+				for index in range(faces.size()):
+					if int(faces[index].get("value", 0)) > int(faces[top].get("value", 0)):
+						top = index
+				DeepDice.etch(die, top, etching)
+				out.dice.append(die.duplicate(true))
+				out.faces[str(die.id)] = top
+			if out.dice.is_empty():
+				return _refuse("you have no dice to etch")
+			out.message = "The etching takes on the top face of every die: %s." % DeepDice.etching_name(etching).to_lower()
 		"etch":
 			## The needles are set for one etching a night, and a chosen face always takes it.
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
@@ -456,6 +553,23 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			## Which face it was, so the die can be shown turned to it.
 			out.faces = {str(die.id): at}
 			out.message = "The etching takes. That face is %s now." % DeepDice.etching_name(etching).to_lower()
+		"pattern" when bool(action.get("every_die", false)):
+			## A voucher's better work: the night's pattern cut into every die the player carries
+			## that can take it; a die of the wrong size for it is left as it is.
+			var pattern: String = str(ctx.get("offer", {}).get("pattern", payload.get("pattern", action.get("pattern", ""))))
+			if not pattern in DeepDice.PATTERNS:
+				return _refuse("the anvil is set for nothing")
+			for die in player.get("dice", []):
+				if not DeepDice.pattern_allows(pattern, str(die.get("shape", "D6"))):
+					continue
+				var stamped: Dictionary = DeepDice.make(str(die.shape), str(die.id), {"pattern": pattern, "rng": rng,
+					"material": str(die.get("material", "")), "etches": DeepDice.etchings(die), "name": DeepDice.given_name(die)})
+				die.clear()
+				die.merge(stamped)
+				out.dice.append(die.duplicate(true))
+			if out.dice.is_empty():
+				return _refuse("none of your dice is the right size for this pattern")
+			out.message = "The pattern is cut into %d of your dice." % out.dice.size()
 		"pattern":
 			## The anvil is set for one pattern a night, and it is cut across every face.
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
@@ -622,7 +736,12 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			var die: Dictionary = find_die(player, str(payload.get("die_id", "")))
 			if die.is_empty():
 				return _refuse("choose a die to hammer" if kind == "upsize" else "choose a die to file down")
-			var refusal: String = resize(die, 1 if kind == "upsize" else -1)
+			## A voucher's better work goes `steps` sizes (two), or as far as the die can go.
+			var way: int = 1 if kind == "upsize" else -1
+			var steps: int = maxi(1, int(action.get("steps", 1)))
+			while steps > 1 and not resize_refusal(die, way * steps).is_empty():
+				steps -= 1
+			var refusal: String = resize(die, way * steps)
 			if not refusal.is_empty():
 				return _refuse(refusal)
 			out.dice.append(die.duplicate(true))
@@ -645,6 +764,51 @@ static func apply(action: Dictionary, player: Dictionary, payload: Dictionary, r
 			die.faces[low] = DeepDice.face(after, "plain" if kind_was == "blank" else kind_was)
 			out.dice.append(die.duplicate(true))
 			out.message = "The lowest face comes up from %d to %d." % [before, after]
+		"raise_face", "lower_face" when int(action.get("faces", 1)) > 1:
+			## A voucher's better work: up to `faces` (three) chosen faces, of one die or of any,
+			## each raised (or lowered) by the amount, on the same rules as one face: a raise has
+			## no ceiling and turns a blank face into a number; a lower stops at 1 and cannot
+			## touch a blank face. Every pick is checked before any is cut, so a bad one cuts none.
+			## Payload `picks`: [{die_id, face}], one to `faces` of them, no face twice.
+			var raising: bool = kind == "raise_face"
+			var picks: Variant = payload.get("picks", [])
+			if not picks is Array or picks.is_empty() or picks.size() > int(action.faces):
+				return _refuse("choose up to %d faces to %s" % [int(action.faces), "raise" if raising else "lower"])
+			var chosen: Array = []
+			for entry in picks:
+				var die: Dictionary = find_die(player, str(entry.get("die_id", ""))) if entry is Dictionary else {}
+				var face: int = int(entry.get("face", -1)) if entry is Dictionary else -1
+				if die.is_empty() or face < 0 or face >= die.get("faces", []).size():
+					return _refuse("choose a die and a face for each")
+				if chosen.any(func(c: Dictionary) -> bool: return str(c.die.id) == str(die.id) and int(c.face) == face):
+					return _refuse("each face only once")
+				if not raising:
+					if str(die.faces[face].get("kind", "plain")) == "blank":
+						return _refuse("a blank face has no number to lower")
+					if _shown(die.faces[face]) <= 1:
+						return _refuse("that face is already a 1")
+				chosen.append({"die": die, "face": face})
+			var step: int = maxi(1, int(action.get("amount", 1)))
+			var said: Array = []
+			out.faces = {}
+			out.picks = []
+			for pick in chosen:
+				var die: Dictionary = pick.die
+				var face: int = int(pick.face)
+				var kind_was: String = str(die.faces[face].get("kind", "plain"))
+				var before: int = _shown(die.faces[face])
+				if raising:
+					die.faces[face] = DeepDice.face(before + step, "plain" if kind_was == "blank" else kind_was)
+				else:
+					die.faces[face] = DeepDice.face(maxi(1, before - step), kind_was)
+				said.append("the %s is now a %s" % [_face_words(DeepDice.face(before, kind_was)), _face_words(die.faces[face])])
+				out.faces[str(die.id)] = face
+				out.picks.append({"die_id": str(die.id), "face": face})
+			for pick in chosen:
+				if not out.dice.any(func(d: Dictionary) -> bool: return str(d.id) == str(pick.die.id)):
+					out.dice.append(pick.die.duplicate(true))
+			var line: String = "; ".join(said)
+			out.message = line.left(1).to_upper() + line.substr(1) + "."
 		"raise_face":
 			## One chosen face comes up, as far as the chisel is asked to take it: nothing
 			## holds it to the die's own highest face, and a face has no ceiling at all.

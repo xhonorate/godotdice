@@ -491,10 +491,68 @@ static func row(parent: Node, foe: Dictionary, move: Dictionary, pips: int, face
 			aside.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return box
 
+static func line_row(parent: Node, foe: Dictionary, move: Dictionary, pips: int, faces: int, note: String = "") -> PanelContainer:
+	## One move on one line, for the phone's ledger (docs/PHONE_UI.md): its rule and mark in its
+	## kind's ink, its name, and its words cut short at the line's end. Whatever is cut is in the
+	## creature's card, a finger held on it away.
+	var kind: String = kind_of(move)
+	var box := PanelContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_theme_stylebox_override("panel", row_style(kind, false, true))
+	box.set_meta("move", str(move.get("name", "")))
+	box.set_meta("kind", kind)
+	box.set_meta("dense", true)
+	box.set_meta("idle", Color(0, 0, 0, 0))
+	parent.add_child(box)
+	var line := DeepUi.hbox(box, int(DeepUi.pt(4)))
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tint: Color = ink(kind)
+	var marked := mark(line, str(move.get("mark", "")), DeepUi.pt(12), tint)
+	marked.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var named := DeepUi.label(line, str(move.get("name", "")), 12, DeepUi.PAPER if kind != "dud" else INK.dud)
+	named.add_theme_font_override("font", DeepUi.bold_font())
+	var said: String = text(foe, move)
+	var first: int = said.find(". ")
+	if first > 0:
+		said = said.substr(0, first)
+	var words := DeepUi.label(line, said.trim_suffix("."), 11, ROW_TEXT)
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.clip_text = true
+	words.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	words.custom_minimum_size.x = DeepUi.pt(20)
+	if pips > 0:
+		var dots := Pips.new(pips, tint)
+		dots.tooltip_text = "%d of its %d faces" % [pips, faces] if faces > 0 else ""
+		line.add_child(dots)
+	elif not note.is_empty():
+		var aside := DeepUi.label(line, note, 11, DeepUi.MUTED)
+		aside.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return box
+
 static func set_lit(box: Control, lit: bool) -> void:
 	if box == null or not is_instance_valid(box):
 		return
 	box.add_theme_stylebox_override("panel", row_style(str(box.get_meta("kind", "attack")), lit, bool(box.get_meta("dense", false)), box.get_meta("idle", Color(0, 0, 0, 0))))
+
+static func trait_line(parent: Node, foe: Dictionary, chip: Dictionary) -> HBoxContainer:
+	## A trait on one line, for the phone's ledger: its mark and name in violet, and what it
+	## means cut short at the line's end.
+	var line := DeepUi.hbox(parent, int(DeepUi.pt(4)))
+	line.mouse_filter = Control.MOUSE_FILTER_PASS
+	var glyph := DeepUi.icon(line, str(chip.get("glyph", "spark")), DeepUi.pt(12), TRAIT_INK)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var named := DeepUi.label(line, str(chip.get("title", "")), 12, TRAIT_NAME)
+	named.add_theme_font_override("font", DeepUi.bold_font())
+	var said: String = str(chip.get("text", ""))
+	if said.is_empty():
+		said = meaning(str(chip.get("title", "")), foe)
+	var words := DeepUi.label(line, said, 11, TRAIT_TEXT)
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.clip_text = true
+	words.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	words.custom_minimum_size.x = DeepUi.pt(20)
+	return line
 
 static func trait_row(parent: Node, foe: Dictionary, chip: Dictionary, dense: bool = false, width: float = 0.0) -> VBoxContainer:
 	## A trait: its mark and name in violet with "always", and what it means. `chip` is

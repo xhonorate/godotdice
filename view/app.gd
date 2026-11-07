@@ -45,6 +45,18 @@ const TOUCH_SAVE_WAIT: float = 1.5
 var _touch_pending: bool = false
 
 func _ready() -> void:
+	## The phone form is picked first: the canvas it lays everything out on is its own.
+	DeepUi.phone = DeepUi.detect_phone()
+	if DeepUi.phone:
+		var window: Window = get_tree().root
+		window.content_scale_size = DeepUi.PHONE_CANVAS
+		window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+		DeepUi.fit_safe_area(window)
+		window.size_changed.connect(func() -> void:
+			DeepUi.fit_safe_area(window)
+			get_tree().call_group(&"phone_safe_area", &"safe_area_changed"))
+		## The docks' measures are the phone's before either dock is built.
+		load("res://view/battle/battle_screen.gd").use_phone_sizes()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	## Every stone's etch is worked out in the background before anyone opens the vault.
 	if not Thumbs.headless():
@@ -118,6 +130,9 @@ func _ready() -> void:
 	## A small change made by looking (a stone seen, the Market opened): saved, nothing rebuilt.
 	home.profile_touched.connect(_touched)
 	home.menu_requested.connect(open_menu)
+	home.settings_requested.connect(func() -> void:
+		if not menu.is_open():
+			menu.open_settings(settings, _menu_context()))
 	home.player_name_requested.connect(_edit_player_name)
 	add_child(home)
 	descent = DescentScreen.new()
@@ -713,6 +728,7 @@ func _apply_settings(starting: bool = false) -> void:
 	CameraRig.comfort = clampf(float(settings.get("shake", 1.0)), 0.0, 1.0)
 	ScreenFx.calm = bool(settings.get("reduced_motion", false))
 	MineStage.quality_pref = int(settings.get("quality", 0))
+	MineStage.soften_pref = bool(settings.get("fxaa", false))
 	## The ink the rock is drawn in, and the one pass a weak machine can drop.
 	Looks.pref = Looks.HOUSE if bool(settings.get("outlines", true)) else "off"
 	session.speed = maxf(1.0, float(settings.get("speed", 1.0)))

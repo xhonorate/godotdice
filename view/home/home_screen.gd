@@ -51,6 +51,8 @@ signal profile_changed
 ## Something small changed (a stone looked at, the Market seen): save it, but do not rebuild.
 signal profile_touched
 signal menu_requested
+## The phone's You page asks for the settings themselves (the desk opens the menu first).
+signal settings_requested
 signal player_name_requested
 signal daily_chosen(date: String)
 signal hazard_chosen(tier: int)
@@ -156,6 +158,9 @@ func _ready() -> void:
 	_backdrop = Backdrop.new()
 	add_child(_backdrop)
 	_backdrop.show_biome(DeepContent.starter_mine(), 1)
+	if DeepUi.phone:
+		_ready_phone()
+		return
 	var column := VBoxContainer.new()
 	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	column.add_theme_constant_override("separation", 0)
@@ -189,6 +194,149 @@ func _ready() -> void:
 	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 4)
 	version.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	version.grow_vertical = Control.GROW_DIRECTION_BEGIN
+
+func _ready_phone() -> void:
+	## The phone's workshop (docs/PHONE_UI.md, board sys-nav): the places down a rail at the
+	## left edge, where a sideways phone has width to spare, and the page beside it.
+	var row := HBoxContainer.new()
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.add_theme_constant_override("separation", 0)
+	add_child(row)
+	var rail := PanelContainer.new()
+	rail.name = "Rail"
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(DeepUi.INK, 0.97)
+	style.border_color = DeepUi.LEDGER_LINE
+	style.border_width_right = int(DeepUi.pt(1))
+	style.content_margin_left = DeepUi.safe_left + DeepUi.pt(4)
+	style.content_margin_right = DeepUi.pt(4)
+	style.content_margin_top = DeepUi.pt(5)
+	style.content_margin_bottom = DeepUi.safe_bottom + DeepUi.pt(4)
+	style.shadow_color = Color(0, 0, 0, 0.5)
+	style.shadow_size = 8
+	rail.add_theme_stylebox_override("panel", style)
+	rail.custom_minimum_size.x = DeepUi.safe_left + DeepUi.pt(72)
+	rail.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.add_child(rail)
+	_rail_box = DeepUi.vbox(rail, int(DeepUi.pt(2)))
+	## `_bar` is what the frame is drawn into: on the phone it lies inside the rail.
+	_bar = HBoxContainer.new()
+	_bar.visible = false
+	add_child(_bar)
+	_body = Control.new()
+	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_body)
+	_overlay = Control.new()
+	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overlay.z_index = 30
+	add_child(_overlay)
+
+## The phone's rail of places (`_ready_phone`), drawn by `_draw_rail`.
+var _rail_box: VBoxContainer = null
+
+func _draw_rail() -> void:
+	## Gold at the top; the five places, each a mark over its word, the open one lit; the party
+	## and you at the foot. Coming home, the places wait: the rail says where the run came back from.
+	DeepUi.clear(_rail_box)
+	var gold: int = int(profile.get("gold", 0))
+	var purse := DeepUi.stat(_rail_box, "coin", DeepUi.number(gold), DeepUi.ACCENT_HI, 13,
+		"Gold: from selling stones, commissions, the daily dig and first conquests. It pays for the loupe, the way down to a deeper mine, insurance, sockets and the market.")
+	purse.name = "Purse"
+	purse.alignment = BoxContainer.ALIGNMENT_CENTER
+	purse.custom_minimum_size.y = DeepUi.pt(28)
+	_gold_purse(purse)
+	if homecoming():
+		var history: Array = profile.get("history", [])
+		var last: Dictionary = history.back() if not history.is_empty() else {}
+		DeepUi.gap(_rail_box, DeepUi.pt(8))
+		var mark := DeepUi.icon(_rail_box, "lift", DeepUi.pt(22), DeepUi.GOOD)
+		mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		DeepUi.wrap(_rail_box, "Back from %s" % DeepContent.mine_name(str(last.get("mine", DeepContent.starter_mine()))), 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		return
+	for index in range(TABS.size()):
+		var entry: Array = TABS[index]
+		var key: String = str(entry[0])
+		var place := _rail_button(str(entry[2]), str(entry[1]), key == tab, func() -> void: open(key))
+		place.name = "Tab_" + key
+		var pip: Array = tab_pip(key)
+		if not pip.is_empty():
+			HomeParts.pin(place, int(pip[0]), pip[1], true)
+		if key == "vault" and not _cheer.is_empty():
+			call_deferred("_cheer_tab", key, str(_cheer.text), _cheer.color, str(_cheer.get("glyph", "chest")))
+			_cheer = {}
+	DeepUi.spacer(_rail_box, false)
+	var party := _rail_button("party", "Party", _party_open, func() -> void:
+		_party_open = not _party_open
+		_showcase_of = ""
+		_render(), DeepUi.pt(40))
+	party.name = "Party"
+	if lobby.get("order", []).size() > 1:
+		HomeParts.pin(party, lobby.get("order", []).size(), PIP_READY, true)
+	var you := _rail_button("", "You", tab == "profile", func() -> void:
+		open("profile"), DeepUi.pt(40))
+	you.name = "PlayerName"
+	var face := HomeParts.Avatar.new(str(profile.get("name", DeepProfile.DEFAULT_NAME)), DeepUi.pt(19))
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	(you.get_meta("room") as Control).add_child(face)
+	if int(profile.get("records", {}).get("best", {}).get("score", -1)) > int(profile.get("best_seen", -1)) and not profile.get("records", {}).get("best", {}).is_empty():
+		HomeParts.pin(you, 0, PIP_NEW, true)
+
+func _rail_button(glyph: String, words: String, on: bool, callback: Callable, tall: float = 42.0 * DeepUi.PT) -> PanelContainer:
+	## A place on the phone's rail: its mark over its word, 42 points tall (40 at the foot); the
+	## open one lit, with a bar of gold down its left edge. A tap opens it.
+	var place := PanelContainer.new()
+	place.mouse_filter = Control.MOUSE_FILTER_STOP
+	place.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	place.custom_minimum_size = Vector2(DeepUi.pt(64), tall)
+	var rest := StyleBoxFlat.new()
+	rest.bg_color = Color("1b2034") if on else Color(0, 0, 0, 0)
+	rest.set_corner_radius_all(int(DeepUi.pt(4)))
+	rest.border_color = DeepUi.ACCENT
+	rest.border_width_left = int(DeepUi.pt(1.5)) if on else 0
+	rest.content_margin_top = DeepUi.pt(3)
+	rest.content_margin_bottom = DeepUi.pt(3)
+	place.add_theme_stylebox_override("panel", rest)
+	var column := DeepUi.vbox(place, 0)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tone: Color = DeepUi.ACCENT_HI if on else DeepUi.MUTED
+	if not glyph.is_empty():
+		var mark := DeepUi.icon(column, glyph, DeepUi.pt(19), tone)
+		mark.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	else:
+		## Room for whatever the caller lays over the place (the player's face): its "room" meta.
+		var room := Control.new()
+		room.custom_minimum_size = Vector2(DeepUi.pt(19), DeepUi.pt(19))
+		room.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		room.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		column.add_child(room)
+		place.set_meta("room", room)
+	var said := DeepUi.label(column, words, 11, tone, HORIZONTAL_ALIGNMENT_CENTER)
+	said.add_theme_font_override("font", DeepUi.bold_font())
+	place.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			DeepAudio.play("ui_tab")
+			callback.call())
+	_rail_box.add_child(place)
+	return place
+
+func _gold_purse(purse: Control) -> void:
+	## Gold coming in counts up on the rail's purse, as it does on the desktop's bar.
+	var gold: int = int(profile.get("gold", 0))
+	if _gold_seen >= 0 and gold != _gold_seen and not _headless:
+		var value: Label = purse.get_node("Value")
+		var from: int = _gold_seen
+		value.text = DeepUi.number(from)
+		DeepAudio.play("ore" if gold > from else "buy", {"delay": 0.15, "volume": 0.7})
+		var tween := purse.create_tween()
+		tween.tween_interval(0.15)
+		tween.tween_method(func(v: float) -> void: value.text = DeepUi.number(int(round(v))), float(from), float(gold), 0.8).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		call_deferred("_cheer_purse", "%+d gold" % (gold - from))
+	_gold_seen = gold
 
 func _notification(what: int) -> void:
 	## While a stone is being dragged, the places it could go are lit and the rest dim.
@@ -410,8 +558,13 @@ func _render() -> void:
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 20)
+	if DeepUi.phone:
+		margin.add_theme_constant_override("margin_left", int(DeepUi.pt(8)))
+		margin.add_theme_constant_override("margin_right", int(DeepUi.safe_right))
+		margin.add_theme_constant_override("margin_top", int(DeepUi.pt(8)))
+		margin.add_theme_constant_override("margin_bottom", int(maxf(DeepUi.safe_bottom, DeepUi.pt(8))))
 	_body.add_child(margin)
-	var content := DeepUi.vbox(margin, 14)
+	var content := DeepUi.vbox(margin, int(DeepUi.pt(6)) if DeepUi.phone else 14)
 	if coming_home:
 		Homecoming.build(self, content)
 	else:
@@ -427,7 +580,10 @@ func _render() -> void:
 
 func _draw_bar() -> void:
 	## Along the top: the name, the purse, the tabs (or where the run came back from), the
-	## party, the profile and the menu.
+	## party, the profile and the menu. On the phone, the rail down the left edge.
+	if DeepUi.phone:
+		_draw_rail()
+		return
 	DeepUi.clear(_bar)
 	var brand := DeepUi.hbox(_bar, 8)
 	DeepUi.icon(brand, "gem", 24, DeepUi.ACCENT)
@@ -745,7 +901,7 @@ func paged(parent: Node, list: String, items: Array, per_page: int) -> Array:
 
 func _cheer_purse(text: String) -> void:
 	## The gold that just came in or went out, shouted over the purse as it stands now.
-	var purse: Node = _bar.get_node_or_null("Purse") if is_instance_valid(_bar) else null
+	var purse: Node = (_rail_box.get_node_or_null("Purse") if DeepUi.phone and is_instance_valid(_rail_box) else (_bar.get_node_or_null("Purse") if is_instance_valid(_bar) else null))
 	if purse is Control:
 		## Gold spent reads red, so "-170 gold" is not mistaken for a gain.
 		var tone: Color = DeepUi.BAD if text.begins_with("-") else DeepUi.ACCENT
@@ -766,7 +922,7 @@ func _cheer_tab(key: String, text: String, color: Color, glyph: String) -> void:
 	## laid out first.
 	if not _headless and is_inside_tree():
 		await get_tree().process_frame
-	var button: Node = _bar.find_child("Tab_" + key, true, false) if is_instance_valid(_bar) else null
+	var button: Node = (_rail_box.find_child("Tab_" + key, true, false) if DeepUi.phone and is_instance_valid(_rail_box) else (_bar.find_child("Tab_" + key, true, false) if is_instance_valid(_bar) else null))
 	if button is Control:
 		cheer_at(button as Control, text, color, glyph)
 

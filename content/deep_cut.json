@@ -5,6 +5,7 @@
     "starting_rail_cap": 3,
     "socket_unlock_gold": [300, 1200, 4800],
     "temporary_depth": 20,
+    "bench_upgrade_chance": 0.05,
     "temporary_luck": 4,
     "temporary_min_tier": "PRECIOUS",
     "commission_slots": 3,
@@ -369,11 +370,12 @@
         }
       ],
       "flawless": {
-        "text": "Add 1 hit.",
+        "text": "Every hit that gets past Block rings 1 Resonance.",
+        "quiet": true,
         "modify": [
           {
             "effect": 0,
-            "repeat_add": 1
+            "ring_past_block": 1
           }
         ]
       }
@@ -434,15 +436,11 @@
         }
       ],
       "flawless": {
-        "text": "Three times instead.",
+        "text": "Then throw your two lowest dice again.",
         "effects": [
           {
-            "kind": "damage",
-            "target": "enemy",
-            "amount": {
-              "term": "sum_low",
-              "value": 2
-            }
+            "kind": "rethrow",
+            "min_procs": 2
           }
         ]
       }
@@ -475,16 +473,19 @@
         }
       ],
       "flawless": {
-        "text": "Each low die also leaves a poison.",
-        "effects": [
-          {
-            "kind": "poison",
-            "target": "enemy",
-            "amount": {
-              "term": "count"
+        "text": "If every die is low, it deals double.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "low_dice"
+            },
+            {
+              "term": "dice"
             }
-          }
-        ]
+          ]
+        },
+        "x": 2
       }
     },
     "FURY": {
@@ -547,15 +548,19 @@
         }
       ],
       "flawless": {
-        "text": "Gain 1 Block per odd die.",
-        "effects": [
-          {
-            "kind": "block",
-            "amount": {
+        "text": "If every die is odd, it deals double.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
               "term": "odd"
+            },
+            {
+              "term": "dice"
             }
-          }
-        ]
+          ]
+        },
+        "x": 2
       }
     },
     "DETONATE": {
@@ -605,29 +610,10 @@
       ],
       "flawless": {
         "text": "Double damage if that roll is a crown: its die's own top face.",
-        "modify": [
-          {
-            "effect": 0,
-            "amount": {
-              "op": "*",
-              "args": [
-                {
-                  "term": "high"
-                },
-                {
-                  "op": "if",
-                  "args": [
-                    {
-                      "term": "high_crown"
-                    },
-                    2,
-                    1
-                  ]
-                }
-              ]
-            }
-          }
-        ]
+        "when": {
+          "term": "high_crown"
+        },
+        "x": 2
       }
     },
     "CREST": {
@@ -744,7 +730,9 @@
         }
       ],
       "flawless": {
-        "text": "It grows by 2 each time.",
+        "text": "Each kill it lands adds 3 to its growth.",
+        "quiet": true,
+        "note_kills": true,
         "modify": [
           {
             "effect": 0,
@@ -753,12 +741,15 @@
               "args": [
                 4,
                 {
+                  "term": "run_fires"
+                },
+                {
                   "op": "*",
                   "args": [
+                    3,
                     {
-                      "term": "run_fires"
-                    },
-                    2
+                      "term": "run_kills"
+                    }
                   ]
                 }
               ]
@@ -788,11 +779,22 @@
         }
       ],
       "flawless": {
-        "text": "3 damage a hit.",
+        "text": "It repeats for every pair in your hand: two pair counts twice, and so does four or five of a kind.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "pair_count"
+            },
+            2
+          ]
+        },
         "modify": [
           {
             "effect": 0,
-            "amount": 3
+            "repeat": {
+              "term": "pairs_total"
+            }
           }
         ]
       }
@@ -815,11 +817,11 @@
         }
       ],
       "flawless": {
-        "text": "2 Strength.",
-        "modify": [
+        "text": "Your Strength also adds to every Block you gain.",
+        "effects": [
           {
-            "effect": 0,
-            "amount": 2
+            "kind": "strength_guard",
+            "scale": "none"
           }
         ]
       }
@@ -829,7 +831,7 @@
       "color": "RED",
       "rarity": "UNCOMMON",
       "tags": ["even", "cost", "blood"],
-      "text": "Lose 3 HP. The next gem is amplified by {amp}%.",
+      "text": "Lose 4 HP. The next gem is amplified by {amp}%.",
       "trigger": {
         "kind": "even",
         "ladder": [5, 4, 3, 2, 1]
@@ -839,15 +841,37 @@
           "kind": "amplify_next",
           "amount": 50,
           "scale": "steps",
-          "hp_cost": 3
+          "hp_cost": 4
         }
       ],
       "flawless": {
-        "text": "Amplified by {amp_flawless}%.",
+        "text": "The more health you are missing, the more it amplifies: up to {amp_flawless}%.",
         "modify": [
           {
             "effect": 0,
-            "amount": 75
+            "amount": {
+              "op": "+",
+              "args": [
+                50,
+                {
+                  "op": "floor_div",
+                  "args": [
+                    {
+                      "op": "*",
+                      "args": [
+                        50,
+                        {
+                          "term": "hp_missing"
+                        }
+                      ]
+                    },
+                    {
+                      "term": "max_hp"
+                    }
+                  ]
+                }
+              ]
+            }
           }
         ]
       },
@@ -857,7 +881,7 @@
           "scale": "steps"
         },
         "amp_flawless": {
-          "const": 75,
+          "const": 100,
           "scale": "steps"
         }
       }
@@ -926,19 +950,21 @@
         }
       ],
       "flawless": {
-        "text": "Every ally also gains half as much Block.",
-        "effects": [
+        "text": "It repeats for every pair in your hand: two pair counts twice, and so does four or five of a kind.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "pair_count"
+            },
+            2
+          ]
+        },
+        "modify": [
           {
-            "kind": "block",
-            "target": "allies",
+            "effect": 0,
             "amount": {
-              "op": "pct",
-              "args": [
-                {
-                  "term": "value"
-                },
-                50
-              ]
+              "term": "pairs_total"
             }
           }
         ]
@@ -1037,14 +1063,21 @@
         }
       ],
       "flawless": {
-        "text": "Give each ally 10 Retain.",
+        "text": "Gain Spikes equal to {spike_share}% of the Block you hold.",
         "effects": [
           {
-            "kind": "retain",
+            "kind": "spikes",
             "amount": 10,
-            "target": "allies"
+            "of_target": "block",
+            "scale": "steps"
           }
         ]
+      },
+      "numbers": {
+        "spike_share": {
+          "const": 10,
+          "scale": "steps"
+        }
       }
     },
     "TEMPO": {
@@ -1073,16 +1106,19 @@
         }
       ],
       "flawless": {
-        "text": "3 for every even die.",
-        "effects": [
-          {
-            "kind": "block",
-            "target": "self",
-            "amount": {
-              "term": "count"
+        "text": "If every die is even, gain twice as much.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "even"
+            },
+            {
+              "term": "dice"
             }
-          }
-        ]
+          ]
+        },
+        "x": 2
       }
     },
     "ANCHOR": {
@@ -1111,11 +1147,28 @@
         }
       ],
       "flawless": {
-        "text": "Gain 2 Spikes.",
+        "text": "Gain 2 Block for every reroll you did not use.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "rerolls_left"
+            },
+            1
+          ]
+        },
         "effects": [
           {
-            "kind": "spikes",
-            "amount": 2
+            "kind": "block",
+            "amount": {
+              "op": "*",
+              "args": [
+                2,
+                {
+                  "term": "rerolls_left"
+                }
+              ]
+            }
           }
         ]
       }
@@ -1169,7 +1222,7 @@
       "color": "BLUE",
       "rarity": "COMMON",
       "tags": ["pair"],
-      "text": "Give the weakest ally Block equal to twice the pair's value.",
+      "text": "Every ally gains Block equal to {share}% of the health they are missing.",
       "trigger": {
         "kind": "pair",
         "ladder": [5, 4, 3, 2, 1]
@@ -1177,27 +1230,27 @@
       "effects": [
         {
           "kind": "block",
-          "amount": {
-            "op": "*",
-            "args": [
-              {
-                "term": "value"
-              },
-              2
-            ]
-          },
-          "target": "ally_low"
+          "target": "allies",
+          "amount": 100,
+          "of_target": "hp_missing",
+          "scale": "steps"
         }
       ],
       "flawless": {
-        "text": "Also Cleanse 1 stack.",
-        "effects": [
-          {
-            "kind": "cleanse",
-            "amount": 1,
-            "target": "ally_low"
-          }
-        ]
+        "text": "Doubled if you are poisoned or burning.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "self_dots"
+            },
+            1
+          ]
+        },
+        "x": 2
+      },
+      "numbers": {
+        "share": { "const": 100, "scale": "steps" }
       }
     },
     "MORTAR": {
@@ -1227,21 +1280,11 @@
         }
       ],
       "flawless": {
-        "text": "Retain 10 percentage points more.",
-        "modify": [
+        "text": "As your next turn starts, deal damage equal to your retained Block.",
+        "effects": [
           {
-            "effect": 0,
-            "amount": {
-              "op": "pct",
-              "args": [
-                {
-                  "term": "block"
-                },
-                {
-                  "ladder": [20, 30, 40, 50, 60]
-                }
-              ]
-            }
+            "kind": "mortar",
+            "scale": "none"
           }
         ]
       },
@@ -1313,11 +1356,13 @@
         }
       ],
       "flawless": {
-        "text": "2 Ward each.",
-        "modify": [
+        "text": "Also gain Block equal to twice your Ward.",
+        "effects": [
           {
-            "effect": 1,
-            "amount": 2
+            "kind": "block",
+            "amount": 200,
+            "of_status": "ward",
+            "scale": "none"
           }
         ]
       }
@@ -1347,7 +1392,9 @@
         }
       ],
       "flawless": {
-        "text": "It grows by 2 each time.",
+        "text": "Each time your Block is broken, it grows by 2.",
+        "quiet": true,
+        "on_break": true,
         "modify": [
           {
             "effect": 0,
@@ -1356,12 +1403,15 @@
               "args": [
                 4,
                 {
+                  "term": "run_fires"
+                },
+                {
                   "op": "*",
                   "args": [
+                    2,
                     {
-                      "term": "run_fires"
-                    },
-                    2
+                      "term": "run_breaks"
+                    }
                   ]
                 }
               ]
@@ -1492,11 +1542,11 @@
         }
       ],
       "flawless": {
-        "text": "Hits every enemy.",
+        "text": "Each hit deals a quarter of the Block just gained.",
         "modify": [
           {
             "effect": 0,
-            "target": "enemies"
+            "gain_pct": 25
           }
         ]
       }
@@ -1520,11 +1570,10 @@
         }
       ],
       "flawless": {
-        "text": "Gain 1 Regeneration.",
+        "text": "Then throw that die again.",
         "effects": [
           {
-            "kind": "regeneration",
-            "amount": 1
+            "kind": "rethrow"
           }
         ]
       }
@@ -1557,11 +1606,11 @@
         }
       ],
       "flawless": {
-        "text": "Every ally is healed.",
-        "modify": [
+        "text": "Then your lower pair takes your higher pair's number, for this hand.",
+        "effects": [
           {
-            "effect": 0,
-            "target": "allies"
+            "kind": "graft_pairs",
+            "scale": "none"
           }
         ]
       }
@@ -1630,11 +1679,13 @@
         }
       ],
       "flawless": {
-        "text": "Gain 1 Ward.",
-        "effects": [
+        "text": "Healing past full becomes Regeneration.",
+        "quiet": true,
+        "modify": [
           {
-            "kind": "ward",
-            "amount": 1
+            "effect": 0,
+            "overflow": "regeneration",
+            "flawless_overflow": true
           }
         ]
       }
@@ -1676,7 +1727,7 @@
       "text": "Heal {share}% of your current block.",
       "numbers": {
         "share": {
-          "ladder": [25, 35, 50, 65, 80]
+          "ladder": [10, 20, 30, 40, 50]
         }
       },
       "trigger": {
@@ -1694,7 +1745,7 @@
                 "term": "block"
               },
               {
-                "ladder": [25, 35, 50, 65, 80]
+                "ladder": [10, 20, 30, 40, 50]
               }
             ]
           }
@@ -1743,18 +1794,19 @@
         }
       ],
       "flawless": {
-        "text": "The party also heals for half of it.",
-        "effects": [
+        "text": "It also counts healing past full.",
+        "modify": [
           {
-            "kind": "heal",
-            "target": "allies",
+            "effect": 0,
             "amount": {
               "op": "pct",
               "args": [
                 {
-                  "term": "healed"
+                  "term": "healed_all"
                 },
-                50
+                {
+                  "ladder": [60, 80, 100, 125, 150]
+                }
               ]
             }
           }
@@ -1789,11 +1841,13 @@
         }
       ],
       "flawless": {
-        "text": "Heal every ally.",
+        "text": "Healing past full lands on the target as Poison.",
+        "quiet": true,
         "modify": [
           {
             "effect": 0,
-            "target": "allies"
+            "overflow": "poison",
+            "flawless_overflow": true
           }
         ]
       },
@@ -1820,13 +1874,10 @@
         }
       ],
       "flawless": {
-        "text": "Gain 1 more Regeneration for every die you kept.",
+        "text": "Your Regeneration ticks once now.",
         "effects": [
           {
-            "kind": "regeneration",
-            "amount": {
-              "term": "held"
-            }
+            "kind": "regen_tick"
           }
         ]
       }
@@ -1901,10 +1952,12 @@
       ],
       "flawless": {
         "text": "Healing past full health is dealt as damage to the target.",
+        "quiet": true,
         "modify": [
           {
             "effect": 0,
-            "overflow": "damage"
+            "overflow": "damage",
+            "flawless_overflow": true
           }
         ]
       }
@@ -1950,25 +2003,28 @@
       "color": "VIOLET",
       "rarity": "COMMON",
       "tags": ["high", "control"],
-      "text": "Apply 1 Bound.",
+      "text": "Apply a random debuff: Clouded, Bound, Dread, Marked or Stun.",
       "trigger": {
         "kind": "high_pct_at_least",
         "ladder": [95, 90, 85, 80, 70]
       },
       "effects": [
         {
-          "kind": "die_steal",
+          "kind": "random_debuff",
           "amount": 1,
-          "target": "enemy"
+          "target": "enemy",
+          "from": ["clouded", "die_steal", "dice_dread", "marked", "stun"]
         }
       ],
       "flawless": {
-        "text": "Also apply 1 Clouded.",
+        "text": "Then it loses 3 health for each different debuff on it.",
         "effects": [
           {
-            "kind": "clouded",
-            "amount": 1,
-            "target": "enemy"
+            "kind": "lose_hp",
+            "amount": 300,
+            "target": "enemy",
+            "of_target": "afflictions",
+            "scale": "carat"
           }
         ]
       }
@@ -2037,21 +2093,19 @@
         }
       ],
       "flawless": {
-        "text": "Apply 2 Poison per even die.",
-        "modify": [
-          {
-            "effect": 0,
-            "amount": {
-              "op": "*",
-              "args": [
-                {
-                  "term": "even_read"
-                },
-                2
-              ]
+        "text": "If every die is even, it applies double.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "even"
+            },
+            {
+              "term": "dice"
             }
-          }
-        ]
+          ]
+        },
+        "x": 2
       }
     },
     "CURSE": {
@@ -2140,11 +2194,13 @@
         }
       ],
       "flawless": {
-        "text": "Remove all Block.",
-        "modify": [
+        "text": "You gain the Block it removed.",
+        "effects": [
           {
-            "effect": 0,
-            "remove_all": true
+            "kind": "block",
+            "amount": 100,
+            "from_result": "removed",
+            "scale": "none"
           }
         ]
       }
@@ -2167,11 +2223,11 @@
         }
       ],
       "flawless": {
-        "text": "Apply 2 Bound.",
+        "text": "Each die it binds joins your next throw as a phantom of the same size.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "stolen_phantoms": true
           }
         ]
       }
@@ -2202,11 +2258,11 @@
         }
       ],
       "flawless": {
-        "text": "Apply to all enemies.",
+        "text": "For each Dread stack that lands, your smallest die grows a size next turn.",
         "modify": [
           {
             "effect": 0,
-            "target": "enemies"
+            "grow_self": true
           }
         ]
       }
@@ -2256,11 +2312,11 @@
         }
       ],
       "flawless": {
-        "text": "Apply 1 more Marked.",
+        "text": "Its Marks are never spent: they stay on the target.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "keeps": true
           }
         ]
       }
@@ -2296,11 +2352,12 @@
         }
       ],
       "flawless": {
-        "text": "Stun every enemy.",
-        "modify": [
+        "text": "The target also takes 4 Marked.",
+        "effects": [
           {
-            "effect": 1,
-            "target": "enemies"
+            "kind": "marked",
+            "amount": 4,
+            "target": "enemy"
           }
         ]
       }
@@ -2328,11 +2385,11 @@
         }
       ],
       "flawless": {
-        "text": "It ticks twice.",
+        "text": "If the target dies, every enemy gains the Poison that was on it.",
         "modify": [
           {
-            "effect": 1,
-            "amount": 2
+            "effect": 0,
+            "plague": true
           }
         ]
       }
@@ -2356,11 +2413,11 @@
         }
       ],
       "flawless": {
-        "text": "Add {grow_flawless}% instead.",
+        "text": "It grows every affliction on the target, not just Poison.",
         "modify": [
           {
             "effect": 0,
-            "amount": 40
+            "every": true
           }
         ]
       },
@@ -2403,11 +2460,22 @@
         }
       ],
       "flawless": {
-        "text": "{gift_flawless}% of your Poison instead.",
-        "modify": [
+        "text": "If every die is even, your own Poison does not hurt you this turn.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "even"
+            },
+            {
+              "term": "dice"
+            }
+          ]
+        },
+        "effects": [
           {
-            "effect": 1,
-            "amount": 300
+            "kind": "poison_safe",
+            "scale": "none"
           }
         ]
       },
@@ -2440,11 +2508,11 @@
         }
       ],
       "flawless": {
-        "text": "2 Poison a hit instead.",
-        "modify": [
+        "text": "Your Spikes and reflected blows apply it too.",
+        "effects": [
           {
-            "effect": 0,
-            "amount": 2
+            "kind": "envenom_thorns",
+            "scale": "none"
           }
         ]
       }
@@ -2454,7 +2522,7 @@
       "color": "VIOLET",
       "rarity": "UNCOMMON",
       "tags": ["low", "poison", "turn"],
-      "text": "For the rest of this turn, every gem that fires after it applies 1 Poison to the target.",
+      "text": "For the rest of this turn, every gem that fires applies 1 Poison to the target.",
       "trigger": {
         "kind": "at_most",
         "ladder": [1, 2, 3, 4, 5]
@@ -2469,11 +2537,11 @@
         }
       ],
       "flawless": {
-        "text": "To every enemy.",
+        "text": "It lasts for the rest of the fight.",
         "modify": [
           {
             "effect": 0,
-            "target": "enemies"
+            "for_fight": true
           }
         ]
       }
@@ -2539,43 +2607,16 @@
       ],
       "flawless": {
         "text": "Five of a kind pays 5×.",
-        "modify": [
-          {
-            "effect": 0,
-            "amount": {
-              "op": "*",
-              "args": [
-                {
-                  "op": "*",
-                  "args": [
-                    {
-                      "term": "value"
-                    },
-                    {
-                      "term": "count"
-                    }
-                  ]
-                },
-                {
-                  "op": "if",
-                  "args": [
-                    {
-                      "op": "ge",
-                      "args": [
-                        {
-                          "term": "count"
-                        },
-                        5
-                      ]
-                    },
-                    5,
-                    1
-                  ]
-                }
-              ]
-            }
-          }
-        ]
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "count"
+            },
+            5
+          ]
+        },
+        "x": 5
       }
     },
     "LUCKY_SEVEN": {
@@ -2615,48 +2656,23 @@
       ],
       "flawless": {
         "text": "With at least three 7s, receive the reward 7 times.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "count"
+            },
+            3
+          ]
+        },
         "modify": [
           {
             "effect": 0,
-            "repeat": {
-              "op": "if",
-              "args": [
-                {
-                  "op": "ge",
-                  "args": [
-                    {
-                      "term": "count"
-                    },
-                    3
-                  ]
-                },
-                7,
-                {
-                  "term": "count"
-                }
-              ]
-            }
+            "repeat": 7
           },
           {
             "effect": 1,
-            "repeat": {
-              "op": "if",
-              "args": [
-                {
-                  "op": "ge",
-                  "args": [
-                    {
-                      "term": "count"
-                    },
-                    3
-                  ]
-                },
-                7,
-                {
-                  "term": "count"
-                }
-              ]
-            }
+            "repeat": 7
           }
         ]
       }
@@ -2685,11 +2701,29 @@
         }
       ],
       "flawless": {
-        "text": "On a kill, gain three times the Pyrite spent.",
+        "text": "With twice the price in hand, it pays double and deals double.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "pyrite"
+            },
+            {
+              "op": "*",
+              "args": [
+                2,
+                {
+                  "ladder": [50, 45, 40, 35, 30]
+                }
+              ]
+            }
+          ]
+        },
+        "x": 2,
         "modify": [
           {
             "effect": 0,
-            "refund_mult": 3
+            "refund_mult": 4
           }
         ]
       },
@@ -2727,18 +2761,11 @@
         }
       ],
       "flawless": {
-        "text": "Tripled.",
+        "text": "On a win, toss again: win twice for x4. Lose the second and the next gem fires as usual.",
         "modify": [
           {
             "effect": 0,
-            "kind": "coin_flip"
-          }
-        ],
-        "effects": [
-          {
-            "kind": "amplify_next",
-            "target": "self",
-            "amount": 50
+            "let_ride": true
           }
         ]
       }
@@ -2761,11 +2788,13 @@
         }
       ],
       "flawless": {
-        "text": "Two Sparkles.",
+        "text": "Gain 1 Sparkle per distinct die roll instead.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "amount": {
+              "term": "distinct"
+            }
           }
         ]
       }
@@ -2791,11 +2820,13 @@
         }
       ],
       "flawless": {
-        "text": "Amplify by {amp_flawless}% instead.",
+        "text": "Gain 1% amplification per staked Pyrite, up to 100.",
         "modify": [
           {
             "effect": 0,
-            "amount": 75
+            "all_in": 100,
+            "amount": 1,
+            "scale": "none"
           }
         ]
       },
@@ -2805,10 +2836,6 @@
         },
         "amp": {
           "const": 50,
-          "scale": "steps"
-        },
-        "amp_flawless": {
-          "const": 75,
           "scale": "steps"
         }
       }
@@ -2868,11 +2895,12 @@
         }
       ],
       "flawless": {
-        "text": "Gain 1 Ward.",
+        "text": "Every hit blocked this turn pays 2 Pyrite.",
         "effects": [
           {
-            "kind": "ward",
-            "amount": 1
+            "kind": "gild_block",
+            "amount": 2,
+            "scale": "carat"
           }
         ]
       },
@@ -2910,14 +2938,13 @@
         }
       ],
       "flawless": {
-        "text": "Gain 1 more Pyrite per paid fizzle.",
+        "text": "If 5 or more gems stayed dark this turn, reroll your dice and restart the rail.",
+        "quiet": true,
         "effects": [
           {
-            "kind": "gold",
-            "target": "self",
-            "amount": {
-              "term": "fizzles"
-            }
+            "kind": "restart_rail",
+            "amount": 5,
+            "scale": "none"
           }
         ]
       },
@@ -2992,7 +3019,18 @@
         }
       ],
       "flawless": {
-        "text": "Up to 20.",
+        "text": "If you kept every die, it pays per 5 instead of per 10.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "held"
+            },
+            {
+              "term": "dice"
+            }
+          ]
+        },
         "modify": [
           {
             "effect": 0,
@@ -3005,10 +3043,10 @@
                     {
                       "term": "pyrite"
                     },
-                    10
+                    5
                   ]
                 },
-                20
+                10
               ]
             }
           }
@@ -3113,11 +3151,12 @@
         }
       ],
       "flawless": {
-        "text": "Two phantoms.",
+        "text": "The phantom is a size bigger than your largest die, phantoms included.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "grow": 1,
+            "count_phantoms": true
           }
         ]
       }
@@ -3141,11 +3180,12 @@
         }
       ],
       "flawless": {
-        "text": "Apply to all gems.",
+        "text": "A neighbour already at Flawless gains 1 Carat instead.",
+        "quiet": true,
         "modify": [
           {
             "effect": 0,
-            "scope": "all"
+            "overflow_carat": true
           }
         ]
       }
@@ -3197,11 +3237,11 @@
         }
       ],
       "flawless": {
-        "text": "Two extra rerolls.",
-        "modify": [
+        "text": "Rerolls you do not use next turn carry on to the turn after.",
+        "effects": [
           {
-            "effect": 0,
-            "add": 1
+            "kind": "carry_rerolls",
+            "scale": "none"
           }
         ]
       }
@@ -3225,11 +3265,12 @@
         }
       ],
       "flawless": {
-        "text": "Apply to all gems.",
+        "text": "A neighbour already at Perfect gains 1 Carat instead.",
+        "quiet": true,
         "modify": [
           {
             "effect": 0,
-            "scope": "all"
+            "overflow_carat": true
           }
         ]
       }
@@ -3259,11 +3300,13 @@
         }
       ],
       "flawless": {
-        "text": "Gain 2 Charged.",
+        "text": "Gain Charged equal to the Resonance it just added.",
         "effects": [
           {
             "kind": "charged",
-            "amount": 2
+            "amount": 100,
+            "from_result": "resonance",
+            "scale": "none"
           }
         ]
       }
@@ -3287,11 +3330,13 @@
         }
       ],
       "flawless": {
-        "text": "Apply to all gems.",
+        "text": "Adjacent gems gain 1 Carat permanently. This gem is destroyed.",
         "modify": [
           {
             "effect": 0,
-            "scope": "all"
+            "kind": "enrich_forever",
+            "scale": "none",
+            "amount": 1
           }
         ]
       }
@@ -3384,23 +3429,9 @@
         }
       ],
       "flawless": {
-        "text": "Store 10 percentage points more.",
-        "modify": [
-          {
-            "effect": 0,
-            "amount": {
-              "op": "pct",
-              "args": [
-                {
-                  "term": "resonance"
-                },
-                {
-                  "ladder": [20, 25, 30, 35, 40]
-                }
-              ]
-            }
-          }
-        ]
+        "text": "If you began the turn Charged, your first gem fires twice.",
+        "quiet": true,
+        "charged_first": true
       }
     },
     "BIRTHRIGHT": {
@@ -3543,11 +3574,14 @@
         }
       ],
       "flawless": {
-        "text": "Each of them plays a second time.",
+        "text": "Each replayed Red gem also deals damage equal to your Resonance.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "each": {
+              "kind": "damage",
+              "target": "enemy"
+            }
           }
         ]
       }
@@ -3572,11 +3606,14 @@
         }
       ],
       "flawless": {
-        "text": "Each of them plays a second time.",
+        "text": "Each replayed Blue gem also gives Block equal to your Resonance.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "each": {
+              "kind": "block",
+              "target": "self"
+            }
           }
         ]
       }
@@ -3601,11 +3638,15 @@
         }
       ],
       "flawless": {
-        "text": "Each of them plays a second time.",
+        "text": "Each replayed Green gem also raises your max HP by your Resonance for this fight.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "each": {
+              "kind": "max_hp",
+              "target": "self",
+              "for_fight": true
+            }
           }
         ]
       }
@@ -3630,11 +3671,16 @@
         }
       ],
       "flawless": {
-        "text": "Each of them plays a second time.",
+        "text": "Each replayed Violet gem also applies Poison equal to a third of your Resonance (at least 1).",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "each": {
+              "kind": "poison",
+              "target": "enemy",
+              "div": 3,
+              "min": 1
+            }
           }
         ]
       }
@@ -3659,11 +3705,16 @@
         }
       ],
       "flawless": {
-        "text": "Each of them plays a second time.",
+        "text": "Each replayed Gold gem also pays Pyrite equal to half your Resonance (at least 1).",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "each": {
+              "kind": "gold",
+              "target": "self",
+              "div": 2,
+              "min": 1
+            }
           }
         ]
       }
@@ -3688,11 +3739,14 @@
         }
       ],
       "flawless": {
-        "text": "Each of them plays a second time.",
+        "text": "Each replayed White gem gives an additional Resonance.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "each": {
+              "kind": "resonance",
+              "flat": 1
+            }
           }
         ]
       }
@@ -3703,12 +3757,7 @@
       "hue": "f6d8b4",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Your other gems gain {heat#carat} for the rest of the fight.",
-      "numbers": {
-        "heat": {
-          "ladder": [1, 1, 1, 2, 2]
-        }
-      },
+      "text": "Your other gems gain 1 carat for the rest of the fight.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3718,19 +3767,15 @@
           "kind": "gem_rank",
           "rank": "carat",
           "scope": "others",
-          "amount": {
-            "ladder": [1, 1, 1, 2, 2]
-          }
+          "amount": 1
         }
       ],
       "flawless": {
-        "text": "And a Cut step with it.",
-        "effects": [
+        "text": "Gems in a socket that shows their color gain double.",
+        "modify": [
           {
-            "kind": "gem_rank",
-            "rank": "cut",
-            "scope": "others",
-            "amount": 1
+            "effect": 0,
+            "lit_double": true
           }
         ]
       }
@@ -3789,7 +3834,7 @@
       "color": "OPAL",
       "rarity": "MYTHIC",
       "tags": ["opal", "resonance"],
-      "text": "Create a Void copy of the last gem that fired.",
+      "text": "Create a Void copy of the last gem that fired. It lasts until the end of the turn.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -3802,11 +3847,11 @@
         }
       ],
       "flawless": {
-        "text": "Two copies.",
+        "text": "The copy lasts for the rest of the fight.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "for_fight": true
           }
         ]
       }
@@ -4060,27 +4105,36 @@
         }
       ],
       "flawless": {
-        "text": "Effects apply to every enemy and every ally.",
+        "text": "A straight of five plays all of it twice.",
+        "when": {
+          "op": "ge",
+          "args": [
+            {
+              "term": "count"
+            },
+            5
+          ]
+        },
         "modify": [
           {
             "effect": 0,
-            "target": "enemies"
+            "repeat": 2
           },
           {
             "effect": 1,
-            "target": "allies"
+            "repeat": 2
           },
           {
             "effect": 2,
-            "target": "allies"
+            "repeat": 2
           },
           {
             "effect": 3,
-            "target": "enemies"
+            "repeat": 2
           },
           {
             "effect": 4,
-            "target": "allies"
+            "repeat": 2
           }
         ]
       },
@@ -4116,7 +4170,8 @@
         }
       ],
       "flawless": {
-        "text": "It absorbs two gems at the start of each fight."
+        "text": "It gains 1 Carat for the rest of the run each time it absorbs a gem.",
+        "quiet": true
       },
       "absorbs": 1,
       "altar": {
@@ -4203,11 +4258,11 @@
         }
       ],
       "flawless": {
-        "text": "They fire one more time.",
+        "text": "If its two neighbours share a color, they fire one more time.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "twin_bonus": true
           }
         ]
       },
@@ -4236,11 +4291,11 @@
         }
       ],
       "flawless": {
-        "text": "Every gem after it fires twice.",
+        "text": "The gems it forces read your highest die for every number they ask for.",
         "modify": [
           {
             "effect": 0,
-            "add": 1
+            "best_read": true
           }
         ]
       },
@@ -4610,7 +4665,7 @@
       "name": "Void",
       "class": "FRACTURE",
       "rarity": "RARE",
-      "weight": 0.25,
+      "weight": 1.0,
       "text": "Takes no socket: it rides one beside whatever is set there and fires right after it. Fragile: cannot be sold or kept in the vault; shatters when the run ends, or when revealed at home.",
       "modifiers": [
         {
@@ -5071,6 +5126,7 @@
       "unlock_order": 0,
       "hp": 80,
       "text": "The tank. Locks in early, heals for unused rerolls, and hits hard with three of a kind.",
+      "wants": ["pair", "triple", "quad", "quint"],
       "sockets": ["RED", "BLUE", "GREEN", "RAINBOW", "RAINBOW", "RAINBOW"],
       "dice": ["D6", "D6", "D6", "D8", "D8"],
       "passive": {
@@ -5175,6 +5231,7 @@
       "unlock_order": 1,
       "hp": 65,
       "text": "The assassin. Four d4s and a d12, betting on one big roll.",
+      "wants": ["distinct"],
       "sockets": ["RED", "RED", "RED", "VIOLET", "WHITE", "RAINBOW"],
       "dice": ["D4", "D4", "D4", "D4", "D12"],
       "passive": {
@@ -5238,6 +5295,7 @@
       "unlock_order": 2,
       "hp": 70,
       "text": "The combo player. Builds straights and can make a whole turn fire twice.",
+      "wants": ["straight"],
       "sockets": ["RED", "BLUE", "WHITE", "VIOLET", "GOLD", "RAINBOW"],
       "dice": ["D4", "D6", "D8", "D10", "D12"],
       "passive": {
@@ -5317,6 +5375,7 @@
       "unlock_order": 3,
       "hp": 70,
       "text": "The low roller. Wants 1s and low dice, and heals off poison.",
+      "wants": ["poison"],
       "sockets": [
         "RED",
         "GREEN/VIOLET",
@@ -5405,6 +5464,7 @@
       "unlock_order": 4,
       "hp": 70,
       "text": "The trickster. Flips dice between odd and even to line up the hand.",
+      "wants": ["odd", "even"],
       "sockets": [
         "RED/BLUE",
         "GREEN/VIOLET",
@@ -5522,6 +5582,7 @@
       "unlock_order": 5,
       "hp": 60,
       "text": "The high roller. Seven sockets, and every roll is all or nothing.",
+      "wants": ["fortune", "pyrite"],
       "sockets": ["GOLD", "GOLD", "GOLD", "GOLD", "GOLD", "GOLD", "RAINBOW"],
       "dice": [
         {
@@ -5700,6 +5761,7 @@
       "name": "A Read Stone",
       "group": "stone",
       "text": "An appraised stone from depth 4, ready to set.",
+      "deep_text": "An appraised stone from depth {depth}, ready to set.",
       "effects": [
         {
           "kind": "raw_stone",
@@ -5714,6 +5776,7 @@
       "group": "stone",
       "needs": "pick",
       "text": "Choose one of three raw stones from depth 4, each a different color. It's appraised right away and can go straight onto your rail if its skill isn't there already.",
+      "deep_text": "Choose one of three raw stones from depth {depth}, each a different color. It's appraised right away and can go straight onto your rail if its skill isn't there already.",
       "effects": [
         {
           "kind": "pick_stone",
@@ -5728,6 +5791,7 @@
       "group": "kit",
       "tags": ["mercy"],
       "text": "+12% health for this run.",
+      "deep_text": "+{pct}% health for this run.",
       "effects": [
         {
           "kind": "max_hp_pct",
@@ -5738,8 +5802,10 @@
     "SOFT_ROCK": {
       "name": "Soft Rock",
       "group": "kit",
+      "shallow_only": true,
       "tags": ["mercy"],
       "text": "The creatures in your first three fights arrive at half health.",
+      "deep_text": "The creatures in your first {fights} fights arrive at half health.",
       "effects": [
         {
           "kind": "soft_rock",
@@ -5751,6 +5817,7 @@
       "name": "Staked",
       "group": "kit",
       "text": "40 pyrite in hand.",
+      "deep_text": "{ore} pyrite in hand.",
       "effects": [
         {
           "kind": "ore",
@@ -5761,7 +5828,9 @@
     "HAMMERED": {
       "name": "Hammered",
       "group": "kit",
-      "text": "A random die is one size bigger for this run.",
+      "needs": "charges",
+      "text": "One size upgrade: the die you choose is one size bigger for this run.",
+      "deep_text": "{count#size upgrade}: each makes a die you choose one size bigger.",
       "effects": [
         {
           "kind": "resize_die",
@@ -5772,7 +5841,9 @@
     "STEADY_HANDS": {
       "name": "Steady Hands",
       "group": "kit",
+      "shallow_only": true,
       "text": "+1 reroll every turn until the first landing.",
+      "deep_text": "+1 reroll every turn down to depth {depth}.",
       "effects": [
         {
           "kind": "extra_rerolls",
@@ -5821,6 +5892,7 @@
       "group": "reward",
       "needs": "socket",
       "text": "A random stone on your rail gains 4 carats for this run.",
+      "deep_text": "A random stone on your rail gains {carats} carats for this run.",
       "effects": [
         {
           "kind": "carat",
@@ -5832,6 +5904,7 @@
       "name": "Well Staked",
       "group": "reward",
       "text": "90 pyrite in hand.",
+      "deep_text": "{ore} pyrite in hand.",
       "effects": [
         {
           "kind": "ore",
@@ -5844,6 +5917,7 @@
       "group": "reward",
       "not_with": ["COST_HP"],
       "text": "+25% health for this run.",
+      "deep_text": "+{pct}% health for this run.",
       "effects": [
         {
           "kind": "max_hp_pct",
@@ -5854,7 +5928,9 @@
     "REWARD_WILD": {
       "name": "A Wild Face",
       "group": "reward",
-      "text": "A random die has its highest face turned wild for this run.",
+      "needs": "charges",
+      "text": "One wild face: the lowest face of the die you choose turns wild.",
+      "deep_text": "{count#wild face}, each on the lowest face of a die you choose.",
       "effects": [
         {
           "kind": "wild_face"
@@ -5866,6 +5942,7 @@
       "group": "stone",
       "weight": 3,
       "text": "A heavy, appraised stone from deeper in the mine. It shatters when the run ends and can't be taken home.",
+      "deep_text": "A heavy, appraised stone from depth {depth}. It shatters when the run ends and can't be taken home.",
       "effects": [
         {
           "kind": "raw_stone",
@@ -5881,6 +5958,7 @@
       "group": "stone",
       "needs": "socket",
       "text": "A random stone on your rail gains 2 carats for this run.",
+      "deep_text": "A random stone on your rail gains {carats} carats for this run.",
       "effects": [
         {
           "kind": "carat",
@@ -5893,6 +5971,7 @@
       "group": "stone",
       "needs": "socket",
       "text": "A random stone on your rail is one Cut step better for this run.",
+      "deep_text": "A random stone on your rail is {steps#Cut step} better for this run.",
       "effects": [
         {
           "kind": "cut_step",
@@ -5905,6 +5984,7 @@
       "group": "reward",
       "weight": 2,
       "text": "Every stone set on your rail gains a carat, a Cut step and a Clarity step for this run.",
+      "deep_text": "Every stone set on your rail gains {carats#carat}, a Cut step and a Clarity step for this run.",
       "effects": [
         {
           "kind": "rail_all",
@@ -5913,6 +5993,45 @@
           "clarity": 1
         }
       ]
+    },
+    "BAG_OF_GEMS": {
+      "name": "Bag of Gems",
+      "group": "deep",
+      "needs": "picks",
+      "text": "Take {take} of {offered} read stones from the mines above.",
+      "effects": [{ "kind": "gem_pouch", "offered": 4, "take": 1 }]
+    },
+    "BAG_OF_DICE": {
+      "name": "Bag of Dice",
+      "group": "deep",
+      "needs": "swaps",
+      "text": "Swap any of your dice around with {count} random ones drawn from the bag.",
+      "effects": [{ "kind": "dice_bag", "count": 2 }]
+    },
+    "ONE_MATERIAL": {
+      "name": "One Material",
+      "group": "deep",
+      "needs": "pick",
+      "text": "Every die you carry takes one material: pick of {count}.",
+      "effects": [{ "kind": "one_material", "count": 3 }]
+    },
+    "HEIRLOOM_POLISH": {
+      "name": "Heirloom Polish",
+      "group": "deep",
+      "text": "Stones you brought gain {carats#carat} and a Cut step this run.",
+      "effects": [{ "kind": "heirloom", "carat_per_mine": 1, "cut": 1 }]
+    },
+    "DEEP_PURSE": {
+      "name": "Deep Purse",
+      "group": "deep",
+      "text": "{ore} pyrite and {raw#raw stone} from the mines above.",
+      "effects": [{ "kind": "deep_purse", "ore_per_mine": 60, "raw": 2 }]
+    },
+    "SMITHS_VOUCHER": {
+      "name": "Smith's Voucher",
+      "group": "deep",
+      "text": "{rooms#voucher} for better upgrades at the smithy or carver.",
+      "effects": [{ "kind": "vouchers", "per_mine": 1 }]
     }
   },
   "creatures": {
@@ -6143,7 +6262,7 @@
           "anim": "spit",
           "text": "{0} Poison",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "poison", "target": "heroes", "amount": 2 }]
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 3 }]
         }
       ],
       "traits": { "split_on_big_hit": true }
@@ -8053,7 +8172,7 @@
         }
       ],
       "traits": { "shielded_by_escorts": 50 },
-      "escorts": ["PRISM", "PRISM", "PRISM"]
+      "escorts": ["PRISM", "PRISM"]
     },
     "PRISM": {
       "name": "Prism",
@@ -8166,7 +8285,7 @@
           "anim": "spit",
           "text": "{0} Poison",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "poison", "target": "heroes", "amount": 2 }]
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 3 }]
         }
       ],
       "traits": { "split_on_big_hit": true, "acid_armour": 1 }
@@ -8603,7 +8722,7 @@
           "anim": "spit",
           "text": "{0} Poison",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "poison", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Shed",
@@ -8682,7 +8801,7 @@
       "block": 10,
       "threat": 55,
       "warden": true,
-      "text": "The Warrens' final boss: a rotting heart of gem rooted in the floor, with three tendrils. It rots and festers; a tendril that stands knits it back together.",
+      "text": "The Warrens' final boss: a rotting heart of gem rooted in the floor, with two tendrils. It rots and festers; a tendril that stands knits it back together.",
       "tip": "Kill the tendrils, or they knit the heart.",
       "dice": [
         {
@@ -8772,7 +8891,7 @@
           ]
         }
       ],
-      "escorts": ["TENDRIL", "TENDRIL", "TENDRIL"]
+      "escorts": ["TENDRIL", "TENDRIL"]
     },
     "CINDER_MOTH": {
       "name": "Cinder Moth",
@@ -8824,7 +8943,7 @@
             {
               "kind": "burn",
               "target": "heroes",
-              "amount": 2,
+              "amount": 3,
               "per_reroll": true
             }
           ]
@@ -8879,7 +8998,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 2 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
         }
       ]
     },
@@ -8904,7 +9023,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 2 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Hammer",
@@ -8958,7 +9077,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         }
       ]
     },
@@ -9042,7 +9161,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 2 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
         },
         {
           "name": "Spit",
@@ -9117,7 +9236,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Melt",
@@ -9284,7 +9403,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Shatter",
@@ -9400,7 +9519,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Lavafall",
@@ -10023,7 +10142,8 @@
           "kind": "ready",
           "mark": "f_coin_taken__m_raise",
           "anim": "rally",
-          "text": "Tax takes a fifth instead of a tenth for the rest of the fight",
+          "text": "Every Tax face on its ledger becomes Heavy Tax; with no Tax left, every Heavy Tax becomes Ruinous Tax",
+          "spent_text": "The rate is as high as it goes",
           "trigger": { "kind": "face" },
           "effects": [
             {
@@ -10033,6 +10153,15 @@
               "from": "Tax",
               "to": "Heavy Tax",
               "count": 0
+            },
+            {
+              "kind": "etch",
+              "target": "self",
+              "amount": 1,
+              "from": "Heavy Tax",
+              "to": "Ruinous Tax",
+              "count": 0,
+              "fallback": true
             }
           ]
         },
@@ -10069,6 +10198,24 @@
               "pct": true,
               "hurt": true
             }
+          ]
+        },
+        {
+          "name": "Ruinous Tax",
+          "kind": "meddle",
+          "mark": "f_coin_taken__m_x3",
+          "anim": "cast",
+          "text": "Takes a third of your pyrite, hits you for what it took, and leaves {1} Curse",
+          "trigger": { "kind": "face" },
+          "effects": [
+            {
+              "kind": "steal_gold",
+              "target": "heroes",
+              "amount": 33,
+              "pct": true,
+              "hurt": true
+            },
+            { "kind": "curse", "target": "heroes", "amount": 1 }
           ]
         }
       ],
@@ -11086,7 +11233,7 @@
         "smithy": 6,
         "carver": 6,
         "well": 5,
-        "altar": 0.4,
+        "altar": 2.0,
         "rest_stop": 3
       },
       "motherlode_pct": 3,
@@ -11197,7 +11344,7 @@
         "smithy": 6,
         "carver": 6,
         "well": 5,
-        "altar": 0.4,
+        "altar": 2.0,
         "rest_stop": 3
       },
       "motherlode_pct": 3,
@@ -11296,7 +11443,7 @@
         "smithy": 6,
         "carver": 6,
         "well": 4,
-        "altar": 0.4,
+        "altar": 2.0,
         "rest_stop": 3
       },
       "motherlode_pct": 3,
@@ -11393,7 +11540,7 @@
         "smithy": 5,
         "carver": 5,
         "well": 4,
-        "altar": 0.4,
+        "altar": 2.0,
         "rest_stop": 3
       },
       "motherlode_pct": 3,
@@ -11493,7 +11640,7 @@
         "smithy": 5,
         "carver": 5,
         "well": 4,
-        "altar": 0.4,
+        "altar": 2.0,
         "rest_stop": 3
       },
       "motherlode_pct": 3,
@@ -11593,7 +11740,7 @@
         "smithy": 5,
         "carver": 5,
         "well": 3,
-        "altar": 0.4,
+        "altar": 2.0,
         "rest_stop": 3
       },
       "motherlode_pct": 3,
@@ -11703,7 +11850,7 @@
         "smithy": 5,
         "carver": 4,
         "well": 3,
-        "altar": 0.4,
+        "altar": 2.0,
         "rest_stop": 3
       },
       "motherlode_pct": 3,
@@ -11902,13 +12049,13 @@
     },
     "ECHO_CHAMBER": {
       "name": "Echo Chamber",
-      "text": "A round room with a strong echo. Hold up a stone and the walls grow a rough copy of it.",
+      "text": "A round room with a strong echo. Hold up a stone and the walls give it back changed.",
       "choices": [
         {
           "id": "echo",
           "label": "Echo a stone",
           "needs": "stone",
-          "text": "Pick any stone. You get a raw stone with the same skill. Everything else about it is rolled fresh.",
+          "text": "Pick any stone. It comes back read, with the same skill; everything else about it is rolled fresh.",
           "action": {
             "kind": "echo_stone",
             "bonus": 2
@@ -12076,6 +12223,12 @@
           "needs": "die",
           "action": {
             "kind": "upsize"
+          },
+          "improved": {
+            "label": "Hammer a die **two sizes** bigger",
+            "text": "Raise one die **two tiers**, as far as dice go. Its pattern is reapplied to the new faces. Etchings and material are kept.",
+            "needs": "die",
+            "action": { "kind": "upsize", "steps": 2 }
           }
         },
         {
@@ -12085,6 +12238,12 @@
           "needs": "die",
           "action": {
             "kind": "downsize"
+          },
+          "improved": {
+            "label": "File a die **two sizes** smaller",
+            "text": "Lower one die **two tiers**, down to a d2. Keeps its material and any etchings that still fit.",
+            "needs": "die",
+            "action": { "kind": "downsize", "steps": 2 }
           }
         },
         {
@@ -12094,6 +12253,12 @@
           "needs": "die",
           "action": {
             "kind": "pattern"
+          },
+          "improved": {
+            "label": "Stamp the pattern on **every** die",
+            "text": "The anvil's pattern is cut into **every** die you carry that can take it.",
+            "needs": "",
+            "action": { "kind": "pattern", "every_die": true }
           }
         },
         {
@@ -12118,6 +12283,13 @@
           "action": {
             "kind": "raise_face",
             "amount": 1
+          },
+          "improved": {
+            "label": "Raise **three** faces",
+            "text": "Pick up to **three** die faces and raise each by 1. There's no cap. A blank face becomes a 1. Etchings stay.",
+            "needs": "die_faces",
+            "most": 3,
+            "action": { "kind": "raise_face", "amount": 1, "faces": 3 }
           }
         },
         {
@@ -12128,6 +12300,13 @@
           "action": {
             "kind": "lower_face",
             "amount": 1
+          },
+          "improved": {
+            "label": "Lower **three** faces",
+            "text": "Pick up to **three** die faces and lower each by 1, down to 1. Etchings stay.",
+            "needs": "die_faces",
+            "most": 3,
+            "action": { "kind": "lower_face", "amount": 1, "faces": 3 }
           }
         },
         {
@@ -12137,6 +12316,12 @@
           "needs": "die_face",
           "action": {
             "kind": "etch"
+          },
+          "improved": {
+            "label": "Etch the **top face of every** die",
+            "text": "The needles' etching goes on the **top face of every** die you carry.",
+            "needs": "",
+            "action": { "kind": "etch", "top_face": true }
           }
         },
         {

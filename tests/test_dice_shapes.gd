@@ -89,12 +89,28 @@ func _progression() -> void:
 	check(not DeepOddities.resize_refusal(die, -1).is_empty(), "d2 is the lower limit")
 	for shape in DeepDice.TIERS.slice(1):
 		check(DeepOddities.resize(die, 1).is_empty() and die.shape == shape, "upgrade reaches " + str(shape))
-		check(die.id == "kept" and str(die.faces[0].kind) == "twin" and die.faces.size() == int(DeepDice.SHAPES[shape]), "resizing preserves identity and etchings, replaces faces")
+		check(die.id == "kept" and str(die.faces[0].kind) == "twin" and die.faces.size() == int(DeepDice.SHAPES[shape]), "resizing preserves identity and etchings, and grows the new size's top faces")
 	check(not DeepOddities.resize_refusal(die, 1).is_empty(), "d100 is the upper limit")
 	var reverse := DeepDice.TIERS.slice(0, -1)
 	reverse.reverse()
 	for shape in reverse:
 		check(DeepOddities.resize(die, -1).is_empty() and die.shape == shape, "downgrade reaches " + str(shape))
+	## The die's own faces travel with it (November 5, 2026): filed down it drops its highest
+	## faces, hammered up it gains the new size's top faces.
+	var values := func(d: Dictionary) -> Array: return d.faces.map(func(f: Dictionary) -> int: return int(f.value))
+	var odd4 := DeepDice.make("D4", "odd4", {"pattern": "odd"})
+	check(DeepOddities.resize(odd4, -1).is_empty() and odd4.shape == "D3" and values.call(odd4) == [1, 1, 3] and str(odd4.pattern).is_empty(),
+		"a d4 of 1/1/3/3 filed down is a d3 of 1/1/3, no longer Odd: %s" % str(values.call(odd4)))
+	var plain6 := DeepDice.make("D6", "plain6")
+	check(DeepOddities.resize(plain6, 1).is_empty() and plain6.shape == "D8" and values.call(plain6) == [1, 2, 3, 4, 5, 6, 7, 8], "a plain d6 hammered up is a d8 of 1 to 8: %s" % str(values.call(plain6)))
+	var odd4_up := DeepDice.make("D4", "odd4_up", {"pattern": "odd"})
+	check(DeepOddities.resize(odd4_up, 1).is_empty() and values.call(odd4_up) == [1, 1, 3, 3, 5, 5] and str(odd4_up.pattern) == "odd", "an Odd d4 hammered up grows two 5s and stays Odd: %s" % str(values.call(odd4_up)))
+	var etched := DeepDice.make("D6", "etched", {"etches": [{"face": 0, "kind": "twin"}]})
+	check(DeepOddities.resize(etched, -1).is_empty() and values.call(etched) == [1, 2, 3, 4] and str(etched.faces[0].kind) == "twin", "a d6 with a Twin on its lowest face filed to a d4 keeps the etching")
+	var worked := DeepDice.make("D6", "worked", {"faces": [DeepDice.face(1), DeepDice.face(1), DeepDice.face(9, "shiny"), DeepDice.face(4), DeepDice.face(5), DeepDice.face(6)]})
+	check(DeepOddities.resize(worked, -1).is_empty() and values.call(worked) == [1, 1, 4, 5] and DeepDice.etchings(worked).is_empty(), "filing drops the highest faces whatever was etched on them: %s" % str(values.call(worked)))
+	var tied := DeepDice.make("D4", "tied", {"faces": [DeepDice.face(3, "twin"), DeepDice.face(3), DeepDice.face(1), DeepDice.face(1)]})
+	check(DeepOddities.resize(tied, -1).is_empty() and values.call(tied) == [1, 1, 3] and str(tied.faces[2].kind) == "twin", "of two faces alike the later one goes, so the etched 3 stays")
 	for i in DeepDice.TIERS.size():
 		var shape := str(DeepDice.TIERS[i])
 		var enemy := {"dice": [DeepDice.make(shape, "base")], "dread_turns": 1}

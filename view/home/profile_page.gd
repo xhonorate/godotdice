@@ -13,6 +13,9 @@ const Plates = preload("res://view/ui/plates.gd")
 const RUNS_PAGE: int = 9
 
 static func build(home: Control, content: VBoxContainer) -> void:
+	if DeepUi.phone:
+		load("res://view/phone/profile_phone.gd").build(home, content)
+		return
 	var records: Dictionary = home.profile.get("records", {})
 	var best_score: int = int(records.get("best", {}).get("score", -1))
 	if best_score > int(home.profile.get("best_seen", -1)):

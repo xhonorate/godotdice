@@ -146,7 +146,7 @@ func green() -> void:
 	check(fired(fire(f, "LICHEN", [1, 2, 3, 4, 5], false, 1, true)) and int(f.player.statuses.get("regeneration", 0)) == 2, "Lichen: 2 Regeneration for kept dice")
 	f = setup()
 	fire(f, "LICHEN", [1, 2, 3, 4, 5], true, 1, true)
-	check(int(f.player.statuses.get("regeneration", 0)) == 3 + 7, "Flawless Lichen: a point more for every die kept")
+	check(int(f.player.statuses.get("regeneration", 0)) in [1, 2], "Flawless Lichen: its 3 Regeneration ticks at once, a stack gone for each tick")
 
 	f = setup()
 	f.player.hp = 990
@@ -236,7 +236,7 @@ func red() -> void:
 	check(not fired(fire(f, "TEMPER", [11, 1, 2, 3, 4])), "a Perfect Temper needs a 12")
 
 	f = setup()
-	check(fired(fire(f, "BLOODLETTING", [2, 4, 6, 8, 10])) and int(f.player.hp) == 997 and is_equal_approx(float(f.player.amplify), 1.5), "Bloodletting: 3 health for 50% on the next gem")
+	check(fired(fire(f, "BLOODLETTING", [2, 4, 6, 8, 10])) and int(f.player.hp) == 996 and is_equal_approx(float(f.player.amplify), 1.5), "Bloodletting: 4 health for 50% on the next gem")
 	f.player.hp = 3
 	var dark: Dictionary = fire(f, "BLOODLETTING", [2, 4, 6, 8, 10])
 	check(not fired(dark) and str(dark.get("reason", "")) == "Not enough health." and int(f.player.hp) == 3, "and never the last of it")

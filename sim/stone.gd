@@ -388,6 +388,24 @@ static func ride_rail(unit: Dictionary, at: int, stone: Dictionary) -> void:
 		place.rider = int(lines.get(host, 0))
 		lines[host] = int(place.rider) + 1
 
+static func leave_rail(unit: Dictionary, at: int) -> void:
+	## A rider taken back off a rail laid flat (an Echo's copy, when its turn is over): the
+	## sockets never move, and every line of riders is numbered again.
+	var rail: Array = unit.get("rail", [])
+	if not unit.has("places") or at < 0 or at >= rail.size():
+		return
+	var places: Array = unit.places
+	rail.remove_at(at)
+	unit.sockets.remove_at(at)
+	places.remove_at(at)
+	var lines: Dictionary = {}
+	for place in places:
+		var host: int = int(place.get("socket", 0))
+		if int(place.get("rider", -1)) < 0:
+			continue
+		place.rider = int(lines.get(host, 0))
+		lines[host] = int(place.rider) + 1
+
 static func flat_index(unit: Dictionary, socket: int, rider: int = -1) -> int:
 	## Where a socket's own gem (rider -1), or the rider at `rider` in its line, stands in a
 	## fighter's flat rail; -1 when nothing stands there. A rail not yet laid flat is its own.
@@ -772,8 +790,19 @@ static func apply_flawless(defs: Array, flawless: Dictionary) -> Array:
 			def.splash = int(change.splash)
 	for extra in flawless.get("effects", []):
 		if extra is Dictionary:
-			out.append(extra.duplicate(true))
+			## Marked as the line's own, so the screen can play it after the gem's.
+			var added: Dictionary = extra.duplicate(true)
+			added.flawless = true
+			out.append(added)
 	return out
+
+static func flawless_now(unit: Dictionary, stone: Dictionary) -> bool:
+	## Whether a stone on this rail is Flawless at this moment: by its own clarity, or by what a
+	## Polish has raised it to this fight.
+	if is_flawless(stone):
+		return true
+	var raised: int = int(unit.get("gem_buffs", {}).get(str(stone.get("id", "")), {}).get("clarity", 0))
+	return raised > 0 and int(stone.get("clarity", 0)) + raised >= DeepContent.clarity_index("FLAWLESS")
 
 static func rolls_of(hand: Array, ids: Array) -> Array:
 	## The rolls behind a list of die ids, each one only once however often it was named.
@@ -841,13 +870,33 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 	var tc: Dictionary = {"a": a, "trig": trig, "unit": c.get("unit", {}), "resonance": int(c.get("resonance", 0)),
 		"previous_amount": int(c.get("previous_amount", 0)), "carat": eff.carat, "cut": eff.cut_step,
 		"clarity": int(eff.clarity), "enemy_poison": int(c.get("enemy_poison", 0)), "fizzles": int(c.get("fizzles", 0)), "depth": int(c.get("depth", 0)), "turn": int(c.get("turn", 0)), "party": int(c.get("party", 1)),
-		"run_fires": int(c.get("run_fires", 0))}
+		"run_fires": int(c.get("run_fires", 0)), "run_kills": int(c.get("run_kills", 0)), "run_breaks": int(c.get("run_breaks", 0))}
 	var defs: Array = skill.get("effects", []).duplicate(true)
-	if bool(eff.flawless) and skill.get("flawless", null) is Dictionary:
-		defs = apply_flawless(defs, skill.flawless)
+	## A Flawless line may ask for a condition (`when`): out of it, the stone is only heavy and
+	## bright. `x` is the line's own multiplier, kept apart so the count can lay it down last.
+	var line: Dictionary = skill.get("flawless", {}) if bool(eff.flawless) and skill.get("flawless", null) is Dictionary else {}
+	var line_on: bool = not line.is_empty() and (not line.has("when") or DeepRules.amount(line.when, tc) != 0)
+	var flawless_x: int = maxi(1, int(line.get("x", 1))) if line_on else 1
+	if line_on:
+		defs = apply_flawless(defs, line)
 	for def in defs:
 		if def is Dictionary:
-			result.effects.append(DeepRules.resolve_effect(def, tc, magnitude))
+			var doubled: bool = flawless_x > 1 and not bool(def.get("flawless", false))
+			## The line's x goes on with the carat, so the floor is taken once over the whole figure.
+			var by_weight: bool = doubled and str(def.get("scale", "carat" if str(def.get("kind", "damage")) in DeepRules.SCALED_BY_DEFAULT else "none")) == "carat"
+			var resolved: Dictionary = DeepRules.resolve_effect(def, tc, magnitude * flawless_x if by_weight else magnitude)
+			if doubled and not by_weight:
+				resolved.amount = DeepRules.sat_mul(int(resolved.amount), flawless_x)
+			## A Flawless Stake's most it may stake grows with the carat curve alone (100 at one
+			## carat, 1,000 at twenty-four); what each Pyrite buys stays a flat percent.
+			if def.has("all_in"):
+				resolved.stake_cap = DeepRules.sat_floor(float(int(def.all_in)) * float(eff.parts.get("carat", 1.0)))
+			result.effects.append(resolved)
+	if line_on:
+		result.flawless = {"on": true, "x": flawless_x, "quiet": bool(line.get("quiet", false)), "note_kills": bool(line.get("note_kills", false))}
+		if flawless_x > 1:
+			result.parts = eff.parts.duplicate()
+			result.parts.flawless = flawless_x
 	var per_die: int = modifier_sum(mods, "per_die_damage")
 	if per_die > 0:
 		for effect in result.effects:
@@ -874,9 +923,11 @@ static func evaluate(stone: Dictionary, hand: Array, c: Dictionary = {}) -> Dict
 
 static func total_amount(evaluation: Dictionary, kinds: Array = ["damage", "block", "heal"]) -> int:
 	## The headline number of an evaluation: what Echo repeats and the forecast sums.
+	## An amount written as a share of what each target has (`of_target`, a Shelter's block) is
+	## a percentage until it lands, not a number, so it is left out.
 	var total: int = 0
 	for effect in evaluation.get("effects", []):
-		if str(effect.kind) in kinds:
+		if str(effect.kind) in kinds and not effect.has("of_target"):
 			total += int(effect.amount) * maxi(1, int(effect.get("repeat", 1)))
 	return total
 

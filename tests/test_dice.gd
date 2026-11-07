@@ -7,6 +7,7 @@ var failures: Array = []
 func _init() -> void:
 	_test_rolls()
 	_test_analysis()
+	_test_low_high_by_size()
 	_test_wilds_and_faces()
 	_test_cut_patterns()
 	_test_materials()
@@ -117,6 +118,41 @@ func _test_analysis() -> void:
 	check(twin.distinct == 4, "a twin die is still one value for distinct")
 	var pct: Dictionary = DeepHand.analyze(hand([6, 6, 6, 6, 6]))
 	check(pct.total == 30 and pct.high_pct == 100, "a perfect hand is 100 percent")
+
+func sized(shape: String, value: int, top: int) -> Array:
+	## One plain roll of a die of `shape` showing `value`, its faces reaching `top`.
+	return [{"die_id": "s", "shape": shape, "material": "", "value": value, "face": 0, "kind": "plain",
+		"top": top, "held": false, "rerolls": 0, "locked": false, "explosions": 0, "phantom": false}]
+
+func _test_low_high_by_size() -> void:
+	## Low and high are judged against the die's size, never its faces (November 5, 2026):
+	## filing, carving or raising a face does not move the line, which sits at the standard
+	## die's average (3.5 on a d6).
+	var low_of: Callable = func(shape: String, value: int, top: int) -> int: return int(DeepHand.analyze(sized(shape, value, top)).low_dice)
+	var pct_of: Callable = func(shape: String, value: int, top: int) -> int: return int(DeepHand.analyze(sized(shape, value, top)).high_pct)
+	check(low_of.call("D6", 3, 3) == 1 and pct_of.call("D6", 3, 3) == 50, "a d6 ground down to 1-3 still counts its 3 as low")
+	check(low_of.call("D6", 4, 3) == 0 and pct_of.call("D6", 4, 3) == 66, "and would count a 4 as high")
+	check(low_of.call("D6", 7, 8) == 0 and pct_of.call("D6", 7, 8) == 116, "a d6 with a face raised to 8 showing 7 is high: 116 percent of a d6")
+	check(low_of.call("D6", 3, 8) == 1 and pct_of.call("D6", 3, 8) == 50, "and showing 3 it is low")
+	check(low_of.call("D4", 2, 4) == 1 and low_of.call("D4", 3, 4) == 0 and pct_of.call("D4", 3, 4) == 75, "on a d4 a 2 is low and a 3 high")
+	check(low_of.call("D3", 1, 3) == 1 and low_of.call("D3", 2, 3) == 0 and pct_of.call("D3", 2, 3) == 66 and pct_of.call("D3", 3, 3) == 100,
+		"on a d3 only the 1 is low and only the 3 is its whole size: a 2 is neither")
+	## A real die, every face ground down: whatever it rolls is low, though its top is 3.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var ground: Dictionary = die("D6", [1, 1, 2, 3, 3, 3], "ground")
+	check(DeepDice.top(ground) == 3 and DeepHand.analyze([DeepDice.roll_one(ground, rng)]).low_dice == 1, "a d6 ground down to 1-3 rolls nothing but low dice")
+	## Crowns and the hand's maximum still read the die's top.
+	var crowned: Dictionary = DeepHand.analyze(sized("D6", 3, 3))
+	check(int(crowned.crowns) == 1 and int(crowned.max_total) == 3, "a 3 on a d6 whose faces reach 3 is still a crown, and the most it could roll")
+	## A roll that names no shape (an old fixture) is judged against its top.
+	var bare: Array = sized("D6", 1, 3)
+	bare[0].erase("shape")
+	check(int(DeepHand.analyze(bare).low_dice) == 1 and int(DeepHand.analyze(bare).high_pct) == 33, "a roll with no shape falls back to its top")
+	## The trigger words say so.
+	check(DeepPatterns.words({"kind": "low_count", "ladder": [1, 1, 1, 1, 1]}, 0) == "At least one die in the low half of its size (1-3 on a d6).", "one low die, in words")
+	check(DeepPatterns.words({"kind": "low_count", "ladder": [3, 3, 3, 3, 3]}, 0) == "At least 3 dice in the low half of their size (1-3 on a d6).", "three low dice, in words")
+	check(DeepPatterns.words({"kind": "high_pct_at_least", "ladder": [90, 90, 90, 90, 90]}, 0) == "One die showing at least 90% of its size (a 6 on a d6 is 100%).", "a high die, in words")
 
 func _test_wilds_and_faces() -> void:
 	var w: Dictionary = DeepHand.analyze(hand([2, 2, 5, "wild", 1]))

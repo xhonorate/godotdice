@@ -61,6 +61,8 @@ Starting a run in any mine below the Quarry costs a **fare** in gold. The Quarry
 | ----------- | ----- | ----------- | ------- | ------- | ----- | ---- |
 | `fare_gold` | 60    | 100         | 140     | 180     | 225   | 275  |
 
+**Since November 2026 a deep start lends no temporary stones and offers no dice swaps:** its shaft head shows the deep start's cards instead (Bag of Gems, Bag of Dice, One Material, Heirloom Polish, Deep Purse, Smith's Voucher, and the Quarry stakes made better for each mine skipped; see docs/DEEP_START.md). Only a Draft daily still drafts temporary stones. What follows is how they worked, and how a Draft day's still do.
+
 **Temporary stones for the empty sockets.** At the shaft head of a run that starts below the Quarry, every socket with no stone of its own (one the lapidary has not unlocked, or one unlocked and left empty, so that buying a socket never makes a deep run weaker) is offered a **pick of three temporary stones**:
 
 - **Color:** each pick matches its socket's color. An Any socket offers three different colors.
@@ -525,7 +527,7 @@ No questions are open for phases 0–6. The later ideas in §8 carry their own o
 - **Where things live.** Commissions have their own workshop tab, whose badge counts the requests a tray stone could fill. The Ledger opens directly to records and run history. Sockets are bought on the Lapidaries tab's sockets page: only the next socket is for sale. The fare is on the Descend button ("Descend · 75 gold", "I'm ready · 75 gold" for a guest); insurance is a toggle in the same card that stays on until turned off. The trip card's carat line also says the starting purse; its tooltip explains the fare and the temporary stones.
 - **Co-op.** Each lobby member tells the host their gold, insurance and open sockets; Descend waits until everyone can pay and names who cannot. Each machine bills its own profile once per run (`profile.charged_run`), when the run first reaches it at the shaft head, so a run resumed from a checkpoint or joined late is never billed twice. The session version is now 0.3.0.
 - **Temporary stones** are rolled from a stream of their own (`temps`), so they never shift the rest of a seed. Same-color sockets are offered three different skills where the mine holds them. With no shaft head (`boons: false`) the first of each three is set. At the end of the run they leave quietly: they are not counted among the shattered losses.
-- **Loopholes closed:** the landing's well and the wishing-well oddity refuse fragile stones; a stone fused in the Crucible with a fragile one comes out fragile (and temporary, if either was). The Echo Chamber was checked and needs nothing: it copies only a skill into a fresh roll, never a stone's carats or quality.
+- **Loopholes closed:** the landing's well and the wishing-well oddity refuse fragile stones; a stone fused in the Crucible with a fragile one comes out fragile (and temporary, if either was). The Echo Chamber was checked and needs nothing: it copies only a skill into a fresh roll, never a stone's carats or quality (and since November 5, 2026 the echo replaces the stone held up, keeping its lent, fragile and temporary marks).
 - **The no-profit test** covers phases 0–3: turning in beats selling over 800 rolled stones across four mines, and no purse cashed whole at the assayer is worth its fare.
 
 ### The workshop rework, October 12, 2026

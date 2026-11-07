@@ -48,6 +48,9 @@ const MARKED_LOOK := {"alpha": 1.0, "roughness": 0.3, "metallic": 0.45, "glow": 
 const MARK_SHADOW := Color(0.0, 0.0, 0.0, 0.5)
 
 @export var live := true
+## How the solid's edges are smoothed: set before the view joins the tree. A creature's die
+## on its tag is rendered at the size it is shown and asks for 8x (the owner, November 5).
+@export var msaa: Viewport.MSAA = Viewport.MSAA_4X
 ## How loud its tumble is: another player's dice land more quietly than the reader's own.
 var hush: float = 1.0
 
@@ -149,7 +152,7 @@ func _ready() -> void:
 	_viewport.transparent_bg = true
 	_viewport.own_world_3d = true
 	_viewport.disable_3d = false
-	_viewport.msaa_3d = Viewport.MSAA_4X
+	_viewport.msaa_3d = msaa
 	container.add_child(_viewport)
 	_follow_visibility()
 	var camera := Camera3D.new()

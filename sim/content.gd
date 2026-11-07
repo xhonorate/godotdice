@@ -249,6 +249,15 @@ static func mines_in_order() -> Array:
 		return ta < tb if ta != tb else a < b)
 	return keys
 
+## What marks the words that show an upgrade in a card's text: "Hammer a die **two sizes**
+## bigger". The view colours what lies between; anything that shows the words plain reads
+## them through `plain`.
+const UPGRADE_MARK: String = "**"
+
+static func plain(text: String) -> String:
+	## A card's words with the upgrade marks taken out.
+	return text.replace(UPGRADE_MARK, "")
+
 static func mine_tier(key: String) -> int:
 	return int(mine(key).get("tier", 1))
 

@@ -74,9 +74,13 @@ func _test_arithmetic() -> void:
 
 func _test_effects() -> void:
 	var resolved: Dictionary = DeepRules.resolve_effect({"kind": "damage", "amount": {"const": 5}}, {}, INF)
-	check(int(resolved.amount) == DeepRules.VALUE_LIMIT, "an infinitely heavy stone still lands its most, not its least")
+	check(int(resolved.amount) == CEIL, "an infinitely heavy stone still lands its most, not its least")
 	var shared: Dictionary = DeepRules.resolve_effect({"kind": "damage", "amount": {"const": 5}, "share": {"const": 50}}, {}, 1e40)
-	check(int(shared.amount) == DeepRules.VALUE_LIMIT, "so does a share of one")
+	check(int(shared.amount) == CEIL, "so does a share of one")
+	## No cap short of the ceiling: a 9999 one used to hold every blow at 10000.
+	check(int(DeepRules.resolve_effect({"kind": "damage", "amount": {"const": 5}}, {}, 1e40).amount) == CEIL, "a 5 on a stone of magnitude 1e40 lands the ceiling")
+	check(int(DeepRules.resolve_effect({"kind": "damage", "amount": {"const": 50000}}, {}, 1.0).amount) == 50000, "a plain fifty thousand is fifty thousand, not 9999")
+	check(int(DeepRules.resolve_effect({"kind": "block", "amount": {"const": 12345}}, {}, 1.0).amount) == 12345, "and so is block")
 	check(DeepRules.amount({"op": "*", "args": [{"const": 100000000}, {"const": 100000000}, {"const": 100000000}]}, {}) == CEIL, "a rule's product stops at the ceiling")
 	check(DeepRules.amount({"op": "+", "args": [{"const": CEIL}, {"const": CEIL}]}, {}) == CEIL, "and its sum")
 
@@ -90,7 +94,7 @@ func _test_blows() -> void:
 	foe.statuses.poison = CEIL - 10
 	DeepBattle._apply_one(state, me, foe, "grow_poison", 300, {}, f.r.dice)
 	check(int(foe.statuses.poison) == CEIL, "Poison grown past the ceiling stops there instead of wrapping")
-	DeepBattle._apply_one(state, me, foe, "poison", DeepRules.VALUE_LIMIT, {}, f.r.dice)
+	DeepBattle._apply_one(state, me, foe, "poison", CEIL, {}, f.r.dice)
 	check(int(foe.statuses.poison) == CEIL, "and more on top changes nothing")
 	## A Detonate on all of it: a blow of the ceiling, which fells it.
 	var hit: Dictionary = DeepBattle._apply_one(state, me, foe, "detonate", 4, {}, f.r.dice)
@@ -98,7 +102,7 @@ func _test_blows() -> void:
 	check(bool(hit.get("killed", false)) and int(foe.hp) == 0, "and the creature falls, not heals")
 	## Block, gold and Resonance stop there too.
 	me.block = CEIL - 1
-	DeepBattle._apply_one(state, me, me, "block", DeepRules.VALUE_LIMIT, {}, f.r.dice)
+	DeepBattle._apply_one(state, me, me, "block", CEIL, {}, f.r.dice)
 	check(int(me.block) == CEIL, "block stops at the ceiling")
 	me.gold = CEIL
 	DeepBattle._apply_one(state, me, me, "gold", 50, {}, f.r.dice)

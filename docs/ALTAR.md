@@ -27,11 +27,11 @@ A gem's color here is its skill's own; a Zoning inclusion doesn't change it.
 | Transcendent | Made from | Cut | What it does |
 | --- | --- | --- | --- |
 | Rainbow Seam | any five different Seams | cabochon | Every gem that has already fired this turn fires again. |
-| Procession | Barrage, Aegis, Renewal, Dread, Gilded Armor, Lodestone, Crescendo (any five) | kite | By the top of the straight: damage, Block, healing, Poison and Pyrite, each a share of it. Flawless: all to every enemy and ally. |
-| Black Opal | Pinfire, Doublet, Matrix, Echo, Prelude (Pinfire took Fire Opal's place in October 2026) | cabochon | At the start of each fight absorbs a random read gem from the bag (destroyed); when it fires, every absorbed skill fires too, if the dice suit it. Reset when the run ends. Flawless absorbs two. |
+| Procession | Barrage, Aegis, Renewal, Dread, Gilded Armor, Lodestone, Crescendo (any five) | kite | By the top of the straight: damage, Block, healing, Poison and Pyrite, each a share of it. Flawless: a straight of five plays all of it twice. |
+| Black Opal | Pinfire, Doublet, Matrix, Echo, Prelude (Pinfire took Fire Opal's place in October 2026) | cabochon | At the start of each fight absorbs a random read gem from the bag (destroyed); when it fires, every absorbed skill fires too, if the dice suit it. Reset when the run ends. Flawless: gains 1 carat for the run for each gem it absorbs. |
 | Quintessence | Crush, Sap, Bastion, Shatter, Jackpot | pentagon | On five of a kind: 5 damage, 5 Block, 5 healing, 5 Pyrite, then +5 carats to itself for the fight. Flawless: +5 to every other gem too. |
-| Gemini | Cleave, Guard, Venom, Tithe, Cascade | hourglass | For each pair in the hand (four or five alike and a full house are two; phantom dice count), the gems either side fire. Never an opal. Flawless: once more. |
-| Certainty | Strike, Riposte, Siphon, Miasma, Prism | keystone | Every gem after it fires this turn whatever the dice show (opals still need Resonance). Flawless: twice. |
+| Gemini | Cleave, Guard, Venom, Tithe, Cascade | hourglass | For each pair in the hand (four or five alike and a full house are two; phantom dice count), the gems either side fire. Never an opal. Flawless: neighbours sharing a color fire one more time. |
+| Certainty | Strike, Riposte, Siphon, Miasma, Prism | keystone | Every gem after it fires this turn whatever the dice show (opals still need Resonance). Flawless: the gems it forces read the highest die for every number they ask for. |
 
 To make the recipes span five colors, two pairs of existing gems traded triggers: Bastion ↔ Lifeline (three of a kind / full house) and Mortar ↔ Miasma (even dice / any hand). Miasma now counts the even dice among the 1–5 highest it reads, by Cut, so its Cut still matters; at Perfect it plays exactly as before.
 
@@ -48,7 +48,7 @@ Rarity `TRANSCENDENT`, roll weight 0, value 16. No pool holds one (`DeepForge.sk
 - **Exact counts.** Gemini's fires, Certainty's forcing, Black Opal's absorbed skills and Quintessence's +5 carats don't scale with carat, as specified. The test that every effect answers to weight exempts these four (`tests/test_stones.gd`). Carat still scales everything else the gems do.
 - **Certainty's Cut does nothing**, by design ("any hand", "every gem after it"). The test that every Cut step differs exempts it.
 - **Black Opal's absorbed skills** need their own trigger met, reading the hand at the Black Opal's own carat, cut and clarity.
-- **The two unspecified Flawless lines** (Black Opal: absorbs two; Quintessence: +5 carats to every other gem) were chosen during the build.
+- **The two unspecified Flawless lines** (Black Opal; Quintessence: +5 carats to every other gem) were chosen during the build. Black Opal's first absorbed two gems; since November 6, 2026 it gains 1 carat for the run for each gem it absorbs.
 
 ## Where it lives
 

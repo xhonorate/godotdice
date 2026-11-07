@@ -19,9 +19,13 @@ extends RefCounted
 ## needs long enough to be seen; a gem that fires waits for its bolts to land.
 ## A creature's beats (its roll, its windup, its blow) were cut by a third on Oct 26 2026: they
 ## come round every turn and a turn spent watching them ran past the time spent planning it.
-## The player's own rail kept its pace.
+## The player's own rail kept its pace. A tick holds for its first round of Poison or Burn
+## and TICK_GAP more for every round after it, since the view plays them one at a time; so
+## does a gem or a Birthstone that ticks Poison early (`ticks_span`).
 const BASE_DURATION: Dictionary = {"turn_begin": 0.8, "resolution_begin": 0.4, "rail_begin": 0.3, "gem_fire": 0.4,
 	"gem_fizzle": 0.2, "birthstone": 0.9, "rail_end": 0.3, "skip": 0.6, "enemy_begin": 0.25, "enemy_roll": 0.75, "enemy_ability": 0.47, "enemy_move": 0.35, "enemy_end": 0.2, "tick": 0.6, "battle_over": 1.2}
+## The beat the rounds of a tick are played on, one after another.
+const TICK_GAP: float = 0.35
 ## A combo's windup holds a breath longer than a plain one, and a roll that could decide the
 ## turn (its rising clacks) holds longer still.
 const COMBO_HOLD: float = 0.2
@@ -54,6 +58,13 @@ const TALLY_CARAT: float = 1.5
 const TALLY_FUSE: float = 0.36
 ## With the counts off, how long the figure alone is shown before it flies.
 const TALLY_GLANCE: float = 0.2
+## A Flawless line's own multiplier gets the carat's longer beat in the count.
+const TALLY_FLAWLESS: float = 1.5
+## The breath between what a gem does and what its Flawless line adds: its sparkle, then the extra.
+## Scaled by the count's pace like the rest of the count, and gone at Off.
+const FLAWLESS_BEAT: float = 0.32
+## What a Flawless line sets up with nothing to show until it happens: it sparkles as it fires.
+const FLAWLESS_SETUPS: Array = ["strength_guard", "mortar", "poison_safe", "envenom_thorns", "gild_block", "carry_rerolls", "restart_rail", "enrich_forever"]
 ## A blow on a lapidary that block takes part of: what came in, the block flying off it, what
 ## was left to bleed, counted at the health bar before the next thing happens.
 const SOAK_SPAN: float = 0.6
@@ -71,12 +82,13 @@ const BIRTH_LEAD: float = 0.25
 ## The effects whose number a tally counts out: one that swells with weight and lands as a
 ## figure. The first of them a gem fires is its headline.
 const TALLY_KINDS: Array = ["damage", "block", "heal", "poison", "gold", "spikes", "regeneration", "retain"]
-const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "phantom_low"]
+const HAND_KINDS: Array = ["raise_low", "raise_high", "set_match", "flip_low", "flip_high", "phantom_high", "phantom_low", "graft_pairs"]
 const SELF_KINDS: Array = ["amplify_next", "cut_step_next", "grant_reroll", "retrigger_previous", "quality_bonus", "sparkle",
 	"coin_flip", "resonance", "replay_color", "replay_fizzled", "rank_buff", "repeat_next", "void_copy", "gem_rank", "upgrade_faces", "stake", "appraise",
 	"fire_neighbours", "force_after", "absorbed",
 	"phantom_roll", "rethrow", "gild", "soak", "each_after", "on_block", "fire_birthstone", "spectrum", "stone_chance",
-	"double_resonance", "keep_phantoms", "bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous"]
+	"double_resonance", "keep_phantoms", "bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous",
+	"strength_guard", "poison_safe", "envenom_thorns", "gild_block", "carry_rerolls", "mortar", "restart_rail", "enrich_forever"]
 ## What an Invert gives back for what the gem before it did, in the order it gives it, as
 ## [effect kind, what it reads, target]. Retain is Block that stays; Regeneration is healing to come.
 const INVERTED: Array = [["block", ["damage"], "self"], ["damage", ["block", "retain"], "enemy"],
@@ -110,6 +122,11 @@ const RUSH_MOST: float = 64.0
 ## purse on a later rail is not lost because an ally's gem got there first; nothing else does.
 const RUNG_STEPS: Array = ["rail_begin", "gem", "birthstone", "rail_end", "skip"]
 const BIRTHSTONE_KINDS: Array = ["replay_rail", "tick_poison", "stone_drop", "pot"]
+## What a Cleanse clears, a stack at a time in this order (then Dread, then bound dice), and
+## what a Combo Breaker sheds whole.
+const CLEANSED: Array = ["poison", "burn", "stun", "curse", "marked", "dulled", "clouded", "festering", "scorched"]
+## What stops a creature acting: Steadfast halves these, and a Combo Breaker turns them away.
+const STOPPERS: Array = ["stun", "die_steal", "clouded", "dice_dread"]
 
 # --- setup -------------------------------------------------------------------------------
 
@@ -583,6 +600,7 @@ static func start_resolution(state: Dictionary) -> Dictionary:
 			continue
 		queue.append({"kind": "enemy_begin", "unit": foe.id})
 	queue.append({"kind": "tick"})
+	queue.append({"kind": "mortar"})
 	queue.append({"kind": "turn_end"})
 	state.queue = queue
 	return _event(state, "resolution_begin", {})
@@ -658,6 +676,12 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			unit.fired_colors = []
 			unit.gem_results = {}
 			unit.resonance_mult = 1
+			## A Flawless Lodestone: a turn begun Charged, the first gem to fire goes twice.
+			if int(unit.initial_resonance) > 0:
+				for stone in _flawless_gems(unit, "charged_first"):
+					unit.repeat_next = 1
+					_flawless_note(state, unit, str(stone.get("id", "")), "charged_first")
+					break
 			if str(unit.get("passive", {}).get("kind", "")) == "first_gem_cut_step":
 				unit.cut_step_bonus = int(unit.passive.get("amount", 1))
 			## Second Wind is paid at rail_end, on the Resonance the rail built; the rerolls it
@@ -671,7 +695,9 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			if _spent(unit):
 				return _spend_rail(state, unit)
 			return resolve_gem(state, unit, int(s.socket), {"retrigger": bool(s.get("retrigger", false)), "scale": int(s.get("scale", 100)),
-				"replay": bool(s.get("replay", false)), "force": bool(s.get("force", false)), "as_skill": str(s.get("as_skill", ""))}, rng_dice)
+				"replay": bool(s.get("replay", false)), "force": bool(s.get("force", false)), "as_skill": str(s.get("as_skill", "")), "each": s.get("each", {})}, rng_dice)
+		"mortar":
+			return _fire_mortars(state, rng_dice)
 		"birthstone":
 			var unit: Dictionary = player(state, str(s.unit))
 			if unit.is_empty() or bool(unit.get("downed", false)) or done(state):
@@ -738,7 +764,9 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 			foe.beat = "begin"
 			foe.suppressed = mini(foe.dice.size(), int(foe.get("stolen_dice", 0)))
 			foe.stolen_dice = 0
-			var fields: Dictionary = {"unit": foe.id}
+			## Back for its action after a Combo Breaker (below): the opening already ran once and
+			## finds nothing left to do a second time; what it found then is carried in (`resume`).
+			var fields: Dictionary = s.get("resume", {"unit": foe.id}).duplicate()
 			## Up out of the floor: it can be hit again, and its first die may bring it up biting.
 			if bool(foe.get("burrowed", false)):
 				foe.burrowed = false
@@ -779,20 +807,23 @@ static func _perform(state: Dictionary, s: Dictionary, rng_dice: RandomNumberGen
 				if int(foe.statuses.get("stun", 0)) > 0:
 					why = "stun"
 					foe.statuses.stun = int(foe.statuses.stun) - 1
-					foe.stun_streak = int(foe.get("stun_streak", 0)) + 1
 					## Steadfast: a stun never lands two actions running.
 					if DeepCreatures.has_trait(foe, "steadfast"):
 						foe.stun_guard = true
-					if int(foe.stun_streak) >= 3:
-						foe.statuses.stun = 0
-						foe.statuses.combo_breaker = 2
-						foe.stun_streak = 0
-				else:
-					foe.stun_streak = 0
+				## Combo Breaker: the third action running it could not take, for whatever reason
+				## (Stun, Bound, the two mixed), and it breaks free (`_combo_breaker`): everything on
+				## it is shed and it takes this action after all. The skip is still told (`acts`
+				## says it goes on), and its opening is run again from the queue with what this
+				## one found; with no Stun and no bound dice left that run goes straight to its dice.
+				foe.skip_streak = int(foe.get("skip_streak", 0)) + 1
+				if int(foe.skip_streak) >= 3:
+					_combo_breaker(foe)
+					state.queue.push_front({"kind": "enemy_begin", "unit": foe.id, "resume": fields})
+					return _event(state, "skip", {"unit": foe.id, "why": why, "combo_breaker": true, "acts": true})
 				DeepCreatures.finish(foe)
 				_tick_charge(state, foe, true)
-				return _event(state, "skip", {"unit": foe.id, "why": why, "combo_breaker": int(foe.statuses.get("combo_breaker", 0)) == 2})
-			foe.stun_streak = 0
+				return _event(state, "skip", {"unit": foe.id, "why": why, "combo_breaker": false})
+			foe.skip_streak = 0
 			foe.stun_guard = false
 			## What it counts down to comes an action closer, and fires on this action's first die.
 			var due: Array = []
@@ -1050,7 +1081,10 @@ static func rail_context(state: Dictionary, unit: Dictionary, socket: int, opts:
 		"turn": int(state.get("turn", 1)), "party": int(state.get("party", 1)), "socket": socket_color,
 		## Creatures fallen this turn (a Placer's trigger) and this stone's fires this run (a Hone's count).
 		"kills": int(state.get("turn_kills", 0)), "run_fires": int(unit.get("run_counts", {}).get(str(stone.get("id", "")), 0)),
-		"retrigger": bool(opts.get("retrigger", false)), "force_fire": bool(opts.get("force", false))}
+		"retrigger": bool(opts.get("retrigger", false)), "force_fire": bool(opts.get("force", false)),
+		## What a Flawless Hone has killed and how often a Flawless Hardening's owner's Block has broken.
+		"run_kills": int(unit.get("run_counts", {}).get(str(stone.get("id", "")) + ":kills", 0)),
+		"run_breaks": int(unit.get("run_counts", {}).get(str(stone.get("id", "")) + ":breaks", 0))}
 
 static func worn_socket(unit: Dictionary, socket: int) -> int:
 	## What a Doublet at this socket wears: the nearest gem behind it, opals included, that
@@ -1131,7 +1165,9 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		return _event(state, "gem_fizzle", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
 			"reason": "The socket is buried." if unit.buried.has(socket) else "The socket is clouded.", "resonance": unit.resonance, "blocked": true})
 	var context: Dictionary = rail_context(state, unit, socket, opts)
-	var ev: Dictionary = DeepStone.evaluate(stone, unit.hand, context)
+	## A Flawless Certainty: the gems it forces read the highest die for every number they ask for.
+	var reading: Array = _best_read(unit.hand) if certain > 0 and bool(unit.get("force_after", {}).get("best_read", false)) else unit.hand
+	var ev: Dictionary = DeepStone.evaluate(stone, reading, context)
 	for effect in ev.get("effects", []):
 		if int(effect.get("cost", 0)) > DeepRules.pyrite(unit):
 			ev.active = false
@@ -1206,11 +1242,11 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	## Who is throwing, and in what color: a creature that drinks a color, holds the
 	## gem that hit it hardest or answers whoever hurt it most reads these off every blow.
 	unit.firing_colors = ev.get("colors", []).duplicate()
-	unit.firing_stone = {"stone_id": str(stone.get("id", "")), "socket": socket}
+	unit.firing_stone = {"stone_id": str(stone.get("id", "")), "socket": socket, "note_kills": bool(ev.get("flawless", {}).get("note_kills", false))}
 	unit.firing_hit = 0
 	## What a Chainmail or a Contagion earlier this turn hands over for this gem: taken now,
 	## so the one that sets it up is not paid for itself.
-	var answers: Array = unit.get("after_fire", []).duplicate(true)
+	var answers: Array = _fire_answers(unit)
 	unit.fired_count = int(unit.get("fired_count", 0)) + 1
 	## What this go does, kept for an Invert in the socket after it (see `_note_result`).
 	var outer_results: Variant = unit.get("firing_results", null)
@@ -1245,8 +1281,17 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 			procs += 1
 		if applied.has("cost"):
 			procs = 1
+		## At least this many goes, whatever the weight: a Flawless Spall's two dice.
+		procs = maxi(procs, int(applied.get("min_procs", 0)))
 		applied.procs = procs
+		var first_result: int = results.size()
+		## A forecast does not know which debuff a Hex will draw, so it draws none (`_apply_one`).
+		if dry and kind == "random_debuff":
+			applied.dry = true
 		if kind in HAND_KINDS or kind in SELF_KINDS:
+			applied.reactions = reactions
+			## A skill this socket only wears (a Doublet's, a Black Opal's) is not this stone's to spend.
+			applied.borrowed = not str(opts.get("as_skill", "")).is_empty() or not str(stone.get("worn_from", "")).is_empty()
 			for _proc in range(1 if kind in DeepRules.PROC_IN_PLACE else procs):
 				results.append(_mutate_hand(unit, applied) if kind in HAND_KINDS else _self_effect(state, unit, applied, socket, previous_socket, dry, rng))
 				if done(state):
@@ -1254,8 +1299,19 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 		else:
 			applied.repeat = clampi(int(applied.get("repeat", 1)) * procs, 0, DeepRules.MAX_REPEAT)
 			results.append_array(_apply(state, unit, applied, rng, "", reactions))
+		## What a Flawless line added, for the screen to play after everything else the gem did.
+		if bool(applied.get("flawless", false)) and not kind in FLAWLESS_SETUPS:
+			for index in range(first_result, results.size()):
+				var did: Dictionary = results[index]
+				var empty: bool = bool(did.get("nothing", false)) or (kind in TALLY_KINDS and int(did.get("amount", 0)) == 0) or (kind in HAND_KINDS and did.get("dice", []).is_empty())
+				if not empty:
+					did.flawless = true
 		if done(state):
 			break
+	## A Flawless Seam's second instance: what the replayed gem adds, read off the Resonance now.
+	var seam_each: Dictionary = opts.get("each", {})
+	if not seam_each.is_empty() and not dry and not done(state):
+		results.append_array(_seam_each(state, unit, seam_each, rng))
 	var crowned: Array = _crowns_changed(unit, crowns_before) if all_or_nothing(unit) else []
 	if not done(state):
 		results.append_array(_answer_fire(state, unit, answers, rng))
@@ -1338,15 +1394,20 @@ static func resolve_gem(state: Dictionary, unit: Dictionary, socket: int, opts: 
 	var tally: Dictionary = tally_of(ev, scale, strength)
 	if not tally.is_empty():
 		tally.pace = count_pace(state)
+	var line: Dictionary = ev.get("flawless", {})
+	var bonus: Dictionary = {"on": bool(line.get("on", false)), "quiet": bool(line.get("quiet", false)), "x": int(line.get("x", 1)), "counted": false, "pace": count_pace(state)}
+	for entry in tally.get("mults", []):
+		if str(entry.get("what", "")) == "flawless":
+			bonus.counted = true
 	return _event(state, "gem_fire", {"unit": unit.id, "socket": socket, "stone_id": str(stone.id), "skill": str(stone.skill),
 		"dice": ev.get("dice", []), "effects": results, "resonance": unit.resonance, "gain": gain, "harmony": harmony, "lit": lit, "tally": tally,
 		"magnitude": float(ev.get("magnitude", 1.0)), "carat": int(ev.get("carat", 1)), "cut_step": int(ev.get("cut_step", 0)),
 		"die_boost": float(ev.get("die_boost", 1.0)), "materials": DeepDice.matching_materials(DeepStone.rolls_of(unit.hand, ev.get("dice", [])), ev.get("colors", [])),
 		"retrigger": retrigger, "replay": bool(opts.get("replay", false)), "scale": scale, "hp_cost": hp_cost, "fires": int(ev.get("fires", 1)),
 		"forced": bool(opts.get("force", false)), "promised": promised if not retrigger else 0, "worn": str(stone.get("worn_from", "")),
-		"absorbed": str(opts.get("as_skill", "")), "certain": certain,
+		"absorbed": str(opts.get("as_skill", "")), "certain": certain, "flawless": bonus, "rung": _rung(results),
 		"backlash": backlash, "fired_count": int(unit.get("fired_count", 0)), "damped": damp > 0, "fed": fed, "crowned": crowned,
-		"duration": BASE_DURATION.gem_fire + tally_span(tally) + maxf(0.1 * float(results.size()), hits_span(results))})
+		"duration": BASE_DURATION.gem_fire + tally_span(tally) + effects_span(results, count_pace(state)) + ticks_span(results)})
 
 # --- the Birthstone ----------------------------------------------------------------------
 
@@ -1485,7 +1546,7 @@ static func resolve_birthstone(state: Dictionary, unit: Dictionary, opts: Dictio
 			stats_of(unit).best_hit = {"amount": hit, "stone_id": "birthstone", "skill": str(def.get("name", "Birthstone")), "socket": -1,
 				"creature": headline(state), "depth": int(state.get("depth", 0))}
 	if fired and not done(state):
-		answered = _answer_fire(state, unit, unit.get("after_fire", []), rng)
+		answered = _answer_fire(state, unit, _fire_answers(unit), rng)
 	_settle_marks(state)
 	_check_outcome(state)
 	## The lit tiers are counted and land one after another, so the step holds all of them:
@@ -1521,7 +1582,7 @@ static func next_face_pays(unit: Dictionary) -> int:
 static func tier_span(entry: Dictionary) -> float:
 	## One lit tier on screen: its count, then what it does landing (at the least BIRTH_LAND,
 	## for a guard, a heal or a stun to be seen).
-	return birth_span(entry.get("count", {})) + maxf(BIRTH_LAND, hits_span(entry.get("effects", [])))
+	return birth_span(entry.get("count", {})) + maxf(BIRTH_LAND, hits_span(entry.get("effects", []))) + ticks_span(entry.get("effects", []))
 
 static func birth_count(name: String, trigger: Dictionary, resolved: Array, resonance: int, a: Dictionary, strength: int, pace: float) -> Dictionary:
 	## What one lit tier is seen to add up to, for the screen to count out before it lands:
@@ -1583,6 +1644,8 @@ static func birth_count(name: String, trigger: Dictionary, resolved: Array, reso
 	var times: Variant = def.get("repeat", null)
 	if times is Dictionary and str(times.get("term", "")) == "high":
 		var showing: Array = a.get("ids_by_value", {}).get(int(a.get("high", 0)), [])
+		if showing.is_empty():
+			showing = a.get("wilds", [])
 		count.repeat_die = str(showing[0]) if not showing.is_empty() else ""
 	var adds: Array = []
 	if kind == "damage" and amount > 0 and strength > 0 and count.target != "self":
@@ -1664,6 +1727,13 @@ static func _has_effect(tier: Dictionary, kind: String) -> bool:
 		if effect is Dictionary and str(effect.get("kind", "")) == kind:
 			return true
 	return false
+
+static func _fire_answers(unit: Dictionary) -> Array:
+	## What a Chainmail or a Contagion hands over for a gem or Birthstone firing now: this turn's,
+	## and what a Flawless Contagion left standing for the fight.
+	var answers: Array = unit.get("after_fire", []).duplicate(true)
+	answers.append_array(unit.get("after_fire_fight", {}).values().duplicate(true))
+	return answers
 
 static func _answer_fire(state: Dictionary, unit: Dictionary, answers: Array, rng: RandomNumberGenerator) -> Array:
 	## What a Chainmail or a Contagion earlier this turn gives for one more gem fired: its
@@ -1747,8 +1817,24 @@ static func all_or_nothing(unit: Dictionary) -> bool:
 	## Florin's All or Nothing: he throws the whole bowl or none of it.
 	return str(unit.get("passive", {}).get("kind", "")) == "all_or_nothing"
 
-static func _largest_die(unit: Dictionary) -> Dictionary:
-	## The die in the hand with the most faces; between two as large, the one showing more.
+static func _rank_full(unit: Dictionary, stone: Dictionary, rank: String) -> bool:
+	## Whether a stone's Cut or Clarity has no higher to go, counting what this fight has raised.
+	var raised: int = int(unit.get("gem_buffs", {}).get(str(stone.get("id", "")), {}).get(rank, 0))
+	if rank == "clarity":
+		return int(stone.get("clarity", 0)) + raised >= DeepContent.clarity_index("FLAWLESS")
+	if rank == "cut":
+		return int(stone.get("cut", 0)) + raised + int(unit.get("rank_buff", {}).get("cut", 0)) >= DeepPatterns.STEPS - 1
+	return false
+
+static func _largest_die(unit: Dictionary, count_phantoms: bool = false) -> Dictionary:
+	## The die in the hand with the most faces; between two as large, the one showing more. A
+	## Flawless Refract counts the phantoms it has thrown this turn as well.
+	if count_phantoms:
+		var biggest: Dictionary = _largest_die(unit)
+		for made in unit.get("refracted", []):
+			if biggest.is_empty() or made.get("faces", []).size() > biggest.get("faces", []).size():
+				biggest = made
+		return biggest
 	var best: Dictionary = {}
 	var best_roll: Dictionary = {}
 	for roll in unit.get("hand", []):
@@ -1972,6 +2058,8 @@ static func _mutate_hand(unit: Dictionary, effect: Dictionary) -> Dictionary:
 					break
 				candidate.value = target_value
 				changed.append(str(candidate.die_id))
+		"graft_pairs":
+			changed = _graft_pairs(hand, real)
 		"flip_low", "flip_high":
 			var sorted: Array = real.duplicate()
 			sorted.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return int(x.value) < int(y.value) if kind == "flip_low" else int(x.value) > int(y.value))
@@ -2025,6 +2113,192 @@ static func hits_span(effects: Array) -> float:
 	## How long these effects take to play, once they have closed up.
 	return minf(HIT_STEP * float(blows(effects)), HIT_SPAN)
 
+static func flawless_parts(effects: Array) -> Array:
+	## What a gem did, split for the screen: [its own, what its Flawless line added after].
+	var own: Array = []
+	var added: Array = []
+	for effect in effects:
+		if bool(effect.get("flawless", false)):
+			added.append(effect)
+		else:
+			own.append(effect)
+	return [own, added]
+
+static func own_span(effects: Array) -> float:
+	## How long a gem's own effects are given, with a tenth of a second at least for each.
+	return maxf(0.1 * float(effects.size()), hits_span(effects))
+
+static func follow_after(effects: Array, pace: float) -> float:
+	## When a Flawless line's added effects start, from when the gem's own did: its own run,
+	## then the sparkle's breath, at the count's pace. At Off they all go together.
+	if pace <= 0.0:
+		return 0.0
+	return own_span(flawless_parts(effects)[0]) + FLAWLESS_BEAT * pace
+
+static func effects_span(effects: Array, pace: float) -> float:
+	## How long everything a gem did takes to play: its own, then a Flawless line's beat and its extra.
+	var parts: Array = flawless_parts(effects)
+	if parts[1].is_empty() or pace <= 0.0:
+		return own_span(effects)
+	return own_span(parts[0]) + FLAWLESS_BEAT * pace + own_span(parts[1])
+
+static func _rung(effects: Array) -> int:
+	## The Resonance a gem's blows rang as they landed (a Flawless Barrage's), counted apart so the
+	## screen can tick it up hit by hit rather than all at once as the gem fires.
+	var rung: int = 0
+	for effect in effects:
+		rung += int(effect.get("rang", 0))
+	return rung
+
+static func _best_read(hand: Array) -> Array:
+	## The hand as a Flawless Certainty's forced gems read it: every die showing the highest.
+	var high: int = 0
+	for roll in hand:
+		if str(roll.get("kind", "plain")) != "blank":
+			high = maxi(high, int(roll.get("value", 0)))
+	var out: Array = hand.duplicate(true)
+	for roll in out:
+		if str(roll.get("kind", "plain")) != "blank":
+			roll.value = high
+	return out
+
+static func _seam_each(state: Dictionary, unit: Dictionary, each: Dictionary, rng: RandomNumberGenerator) -> Array:
+	## A Flawless Seam: what every gem it replays adds, as an instance of its own: a share of the
+	## Resonance as that gem fires, never swollen by weight.
+	var kind: String = str(each.get("kind", "damage"))
+	var worth: int = int(unit.get("resonance", 0)) / maxi(1, int(each.get("div", 1)))
+	worth = maxi(worth, int(each.get("min", 0)))
+	if each.has("flat"):
+		worth = int(each.flat)
+	if worth <= 0:
+		return []
+	var out: Array = []
+	if kind == "resonance":
+		unit.resonance = DeepRules.sat_add(int(unit.get("resonance", 0)), worth)
+		out = [{"kind": "resonance", "amount": worth, "target": unit.id, "rang": worth}]
+	else:
+		out = _apply(state, unit, {"kind": kind, "amount": worth, "target": str(each.get("target", "self")), "repeat": 1, "for_fight": bool(each.get("for_fight", false))}, rng)
+	for hit in out:
+		hit.flawless = true
+	return out
+
+static func _flawless_note(state: Dictionary, unit: Dictionary, stone_id: String, what: String) -> void:
+	## A Flawless line just did something away from its gem's own firing: the screen sparkles that
+	## gem. Noted on the fight and carried out on the next event, whichever that is.
+	if str(unit.get("side", "player")) != "player" or stone_id.is_empty():
+		return
+	if not state.has("flawless_notes"):
+		state.flawless_notes = []
+	state.flawless_notes.append({"unit": str(unit.get("id", "")), "stone_id": stone_id, "what": what})
+
+static func _flawless_gems(unit: Dictionary, flag: String) -> Array:
+	## The stones on this rail whose Flawless line has this standing rule, and are Flawless now.
+	var out: Array = []
+	var rail: Array = unit.get("rail", [])
+	for at in range(rail.size()):
+		var stone: Dictionary = stone_at(unit, at)
+		if stone.is_empty() or not DeepStone.flawless_now(unit, stone):
+			continue
+		if bool(DeepStone.skill_of(stone).get("flawless", {}).get(flag, false)):
+			out.append(stone)
+	return out
+
+static func _block_broken(state: Dictionary, unit: Dictionary) -> void:
+	## A unit's Block has just gone to nothing under something hostile: a Flawless Hardening grows.
+	if str(unit.get("side", "")) != "player":
+		return
+	for stone in _flawless_gems(unit, "on_break"):
+		var key: String = str(stone.get("id", "")) + ":breaks"
+		var counts: Dictionary = unit.get("run_counts", {})
+		counts[key] = int(counts.get(key, 0)) + 1
+		unit.run_counts = counts
+		_flawless_note(state, unit, str(stone.get("id", "")), "block_broken")
+
+static func _fire_mortars(state: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	## A Flawless Mortar: as the new turn opens, what its owner's Retain will keep of their Block
+	## lands on their target. Read after the creatures have had their turn, so it is only what is left.
+	for unit in state.players:
+		if not unit.has("mortar"):
+			continue
+		var stone_id: String = str(unit.get("mortar", ""))
+		unit.erase("mortar")
+		var worth: int = mini(int(unit.get("block", 0)), int(unit.get("statuses", {}).get("retain", 0)))
+		if worth <= 0 or bool(unit.get("downed", false)) or int(unit.get("hp", 0)) <= 0:
+			continue
+		state.queue.push_front({"kind": "mortar"})
+		var socket: int = -1
+		for at in range(unit.rail.size()):
+			if unit.rail[at] is Dictionary and str(unit.rail[at].get("id", "")) == stone_id:
+				socket = at
+		var hits: Array = _apply(state, unit, {"kind": "damage", "amount": worth, "target": "enemy", "repeat": 1}, rng)
+		_check_outcome(state)
+		return _event(state, "mortar", {"unit": unit.id, "socket": socket, "stone_id": stone_id, "amount": worth, "effects": hits,
+			"duration": FLAWLESS_BEAT * count_pace(state) + BASE_DURATION.gem_fire + hits_span(hits)})
+	return {}
+
+static func _graft_pairs(hand: Array, real: Array) -> Array:
+	## A Flawless Graft: the lower of the hand's two best pairs takes the higher's number.
+	var counts: Dictionary = {}
+	for roll in real:
+		counts[int(roll.value)] = int(counts.get(int(roll.value), 0)) + 1
+	var pairs: Array = counts.keys().filter(func(v: Variant) -> bool: return int(counts[v]) >= 2)
+	if pairs.size() < 2:
+		return []
+	pairs.sort()
+	var higher: int = int(pairs[-1])
+	var lower: int = int(pairs[-2])
+	var changed: Array = []
+	for roll in hand:
+		if roll in real and int(roll.value) == lower:
+			roll.value = higher
+			changed.append(str(roll.die_id))
+	return changed
+
+static func _restart_rail(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerator) -> Array:
+	## A Flawless Tailings: every die is thrown again and the rail starts over from its first gem,
+	## its count of what stayed dark back at nothing. The Resonance built so far stays. A rail that
+	## keeps coming back here is stopped like any other, by `RAIL_CAP`.
+	var thrown: Array = []
+	for index in range(unit.hand.size()):
+		var roll: Dictionary = unit.hand[index]
+		if bool(roll.get("phantom", false)) or bool(roll.get("locked", false)) or str(roll.get("kind", "plain")) == "blank":
+			continue
+		var die: Dictionary = _die_of(unit, str(roll.get("die_id", "")))
+		if die.is_empty():
+			continue
+		var again: Dictionary = DeepDice.roll_one(die, rng, int(roll.get("rerolls", 0)))
+		again.held = false
+		again.rethrown = true
+		unit.hand[index] = again
+		thrown.append(str(die.id))
+	_pay_dues(state, unit, thrown)
+	unit.fizzled_sockets = []
+	unit.fired_sockets = []
+	unit.tailings_paid = {}
+	unit.previous_fired = false
+	unit.previous_amount = 0
+	unit.previous_colors = []
+	unit.previous_socket = -1
+	unit.force_after = {}
+	var again_rail: Array = []
+	for at in range(unit.rail.size()):
+		if unit.rail[at] is Dictionary:
+			again_rail.append({"kind": "gem", "unit": unit.id, "socket": at})
+	state.queue = again_rail + state.queue.filter(func(step: Dictionary) -> bool: return not (str(step.get("kind", "")) == "gem" and str(step.get("unit", "")) == str(unit.id)))
+	return thrown
+
+static func tick_gaps(count: int) -> float:
+	## How long so many rounds of a tick take beyond the first: TICK_GAP each, one at a time.
+	return TICK_GAP * float(maxi(0, count - 1))
+
+static func ticks_span(effects: Array) -> float:
+	## The rounds of Poison these effects tick early (a Draught, a Dregs), counted across all
+	## of them, and the time they take beyond the first.
+	var count: int = 0
+	for effect in effects:
+		count += effect.get("ticks", []).size()
+	return tick_gaps(count)
+
 static func tally_of(ev: Dictionary, scale: int = 100, strength: int = 0) -> Dictionary:
 	## What a gem that fires is seen to add up, for the screen to count out before anything
 	## leaves the socket: the dice it read and what each showed; how their sum became the
@@ -2051,7 +2325,7 @@ static func tally_of(ev: Dictionary, scale: int = 100, strength: int = 0) -> Dic
 			continue
 		## A figure the rules reshape as it lands (a share of something, what an earlier blow
 		## did, the health its thrower is missing) is not one the count could honestly finish.
-		if not (effect.has("share") or effect.has("from_result") or effect.has("of_status") \
+		if not (effect.has("share") or effect.has("from_result") or effect.has("of_status") or effect.has("of_target") \
 				or bool(effect.get("missing_hp_bonus", false)) or bool(effect.get("split_party", false))):
 			headline = effect
 		break
@@ -2077,7 +2351,7 @@ static func tally_of(ev: Dictionary, scale: int = 100, strength: int = 0) -> Dic
 		if not str(die.material).is_empty():
 			mults.append({"what": "material", "x": DeepDice.STRENGTH_STEP, "die": str(die.id), "material": str(die.material)})
 	var parts: Dictionary = ev.get("parts", {})
-	for part in ["carat", "clarity", "inclusions", "amplify"]:
+	for part in ["carat", "clarity", "inclusions", "amplify", "flawless"]:
 		var x: float = float(parts.get(part, 1.0))
 		if absf(x - 1.0) > 0.001:
 			var entry: Dictionary = {"what": part, "x": x}
@@ -2086,7 +2360,7 @@ static func tally_of(ev: Dictionary, scale: int = 100, strength: int = 0) -> Dic
 			mults.append(entry)
 	var magnitude: float = float(ev.get("magnitude", 1.0))
 	var amount: int = int(headline.get("amount", 0))
-	var expected: int = DeepRules.sat_floor(float(base) * magnitude)
+	var expected: int = DeepRules.sat_floor(float(base) * magnitude * float(maxi(1, int(parts.get("flawless", 1)))))
 	if scale != 100:
 		mults.append({"what": "echo", "x": float(scale) / 100.0})
 		amount = DeepRules.sat_floor(float(amount) * float(scale) / 100.0)
@@ -2128,7 +2402,12 @@ static func _times_value(expr: Variant) -> int:
 
 static func tally_weight(entry: Dictionary) -> float:
 	## How many beats a step between the dice and the fuse is given: the carat step more.
-	return TALLY_CARAT if str(entry.get("what", "")) == "carat" else 1.0
+	match str(entry.get("what", "")):
+		"carat":
+			return TALLY_CARAT
+		"flawless":
+			return TALLY_FLAWLESS
+	return 1.0
 
 static func tally_weights(tally: Dictionary) -> float:
 	## Every step's beats added up: the skill's own, each multiplier, each addition.
@@ -2243,6 +2522,8 @@ static func _void_copy(unit: Dictionary, source: Dictionary) -> Dictionary:
 	copy.appraised = true
 	copy.inclusions_revealed = true
 	copy.temporary = true
+	## How long it lasts is the Echo's that made it, not whatever it was copied from.
+	copy.erase("echo_turn")
 	return copy
 
 static func _join_rail(state: Dictionary, unit: Dictionary, at: int, stone: Dictionary) -> void:
@@ -2299,7 +2580,16 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				var id: String = str(unit.rail[at].id)
 				if not unit.gem_buffs.has(id):
 					unit.gem_buffs[id] = {}
-				unit.gem_buffs[id][rank] = DeepRules.sat_add(int(unit.gem_buffs[id].get(rank, 0)), amount)
+				var worth: int = amount
+				var into: String = rank
+				## A Flawless Polish or Facet: a neighbour with no higher to go gains a carat instead.
+				if bool(effect.get("overflow_carat", false)) and _rank_full(unit, unit.rail[at], rank):
+					into = "carat"
+					_flawless_note(state, unit, str(unit.get("firing_stone", {}).get("stone_id", "")), "overflow_carat")
+				## A Flawless Fire Opal: a gem in a socket that shows it gains double.
+				if bool(effect.get("lit_double", false)) and DeepStone.shown_by(DeepStone.colors(stone_at(unit, at), str(unit.sockets[at])), str(unit.sockets[at])):
+					worth = DeepRules.sat_mul(worth, 2)
+				unit.gem_buffs[id][into] = DeepRules.sat_add(int(unit.gem_buffs[id].get(into, 0)), worth)
 				changed.append(at)
 			out.sockets = changed
 			out.rank = rank
@@ -2340,6 +2630,11 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 		"stake":
 			var cost: int = int(effect.get("cost", 0))
 			if DeepRules.pyrite(unit) >= cost:
+				## A Flawless Stake puts the whole bank on it, as much as its weight lets it, a percent a Pyrite.
+				if int(effect.get("all_in", 0)) > 0:
+					cost = mini(DeepRules.pyrite(unit), maxi(cost, int(effect.get("stake_cap", effect.all_in))))
+					amount = DeepRules.sat_mul(amount, cost)
+					out.amount = amount
 				unit.pyrite_delta = int(unit.get("pyrite_delta", 0)) - cost
 				unit.amplify = float(unit.amplify) * (1.0 + float(amount) / 100.0)
 				out.spent = cost
@@ -2381,7 +2676,8 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 					continue
 				touched.append(at)
 				for _time in range(maxi(1, amount)):
-					encore.append({"kind": "gem", "unit": unit.id, "socket": at, "retrigger": true})
+					## A Flawless Seam's second instance rides on the replay (`_seam_each`).
+					encore.append({"kind": "gem", "unit": unit.id, "socket": at, "retrigger": true, "each": effect.get("each", {})})
 			out.color = want
 			out.sockets = touched
 			if dry or encore.is_empty():
@@ -2446,7 +2742,11 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 					if unit.rail.size() >= MAX_RAIL:
 						break
 					made.append(socket + 1 + made.size())
-					_join_rail(state, unit, int(made[-1]), _void_copy(unit, source))
+					var copy: Dictionary = _void_copy(unit, source)
+					## It lasts the turn; a Flawless Echo's lasts the fight.
+					if not bool(effect.get("for_fight", false)):
+						copy.echo_turn = true
+					_join_rail(state, unit, int(made[-1]), copy)
 				out.sockets = made
 				if made.is_empty():
 					out.nothing = true
@@ -2467,8 +2767,17 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 				if at == socket or not repeatable(unit, at) or DeepStone.is_opal(unit.rail[at]):
 					continue
 				twins.append(at)
-				for _time in range(maxi(0, amount)):
-					woken.append({"kind": "gem", "unit": unit.id, "socket": at, "retrigger": true, "force": true})
+			## A Flawless Gemini: two neighbours of one color go once more.
+			var goes: int = maxi(0, amount)
+			if bool(effect.get("twin_bonus", false)) and twins.size() == 2:
+				for color in DeepStone.colors(stone_at(unit, int(twins[0])), str(unit.sockets[int(twins[0])])):
+					if DeepStone.colors(stone_at(unit, int(twins[1])), str(unit.sockets[int(twins[1])])).has(color):
+						goes += 1
+						out.twinned = true
+						break
+			for at in twins:
+				for _time in range(goes):
+					woken.append({"kind": "gem", "unit": unit.id, "socket": int(at), "retrigger": true, "force": true})
 			out.sockets = twins
 			if dry or woken.is_empty():
 				out.nothing = true
@@ -2480,7 +2789,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			## and the gems after it should read as firing there as they will in earnest.
 			var standing: Dictionary = unit.get("force_after", {})
 			var from: int = socket if standing.is_empty() else mini(socket, int(standing.get("from", socket)))
-			unit.force_after = {"from": from, "times": maxi(maxi(1, amount), int(standing.get("times", 0)))}
+			unit.force_after = {"from": from, "times": maxi(maxi(1, amount), int(standing.get("times", 0))), "best_read": bool(effect.get("best_read", false)) or bool(standing.get("best_read", false))}
 			out.total = int(unit.force_after.times)
 		"absorbed":
 			## A Black Opal: every skill it has taken in this run fires from its socket, each as
@@ -2499,7 +2808,7 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			## A Tumble or a Contra Luz: a fresh phantom die of its own size, thrown into the hand.
 			## A Refract (`of: largest`) throws a copy of the owner's largest die, its faces and
 			## all: the most faces, and between two as large the one showing more.
-			var source: Dictionary = _largest_die(unit) if str(effect.get("of", "")) == "largest" else {}
+			var source: Dictionary = _largest_die(unit, bool(effect.get("count_phantoms", false))) if str(effect.get("of", "")) == "largest" else {}
 			if dry or (str(effect.get("of", "")) == "largest" and source.is_empty()):
 				out.nothing = true
 			else:
@@ -2513,6 +2822,14 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 						made = source.duplicate(true)
 						made.id = "%s_ph%d_%d" % [str(source.id), int(state.get("turn", 0)), unit.hand.size()]
 						made.erase("bonus")
+						## A Flawless Refract: a size bigger, and remembered, so the next one starts from it.
+						if int(effect.get("grow", 0)) > 0:
+							DeepOddities.resize(made, int(effect.grow))
+						if bool(effect.get("count_phantoms", false)):
+							if not unit.has("refracted"):
+								unit.refracted = []
+							unit.refracted.append(made.duplicate(true))
+							source = made.duplicate(true)
 					var ghost: Dictionary = DeepDice.roll_one(made, rng)
 					ghost.phantom = true
 					ghost.source_id = str(source.get("id", ""))
@@ -2638,13 +2955,22 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			## A Chainmail or a Contagion: for the rest of the turn every gem after it gives this.
 			if not unit.has("after_fire"):
 				unit.after_fire = []
-			unit.after_fire.append({"kind": str(effect.get("gift", "block")), "amount": amount, "target": str(effect.get("target", "self"))})
+			var given: Dictionary = {"kind": str(effect.get("gift", "block")), "amount": amount, "target": str(effect.get("target", "self"))}
+			## A Flawless Contagion lasts the fight: one standing gift a stone, at its best firing.
+			if bool(effect.get("for_fight", false)):
+				if not unit.has("after_fire_fight"):
+					unit.after_fire_fight = {}
+				var from_stone: String = str(unit.get("firing_stone", {}).get("stone_id", ""))
+				if int(unit.after_fire_fight.get(from_stone, {}).get("amount", 0)) < amount:
+					unit.after_fire_fight[from_stone] = given
+			else:
+				unit.after_fire.append(given)
 			out.gift = str(effect.get("gift", "block"))
 		"on_block":
 			## A Rebound: for the rest of the turn, every time its owner gains block, a hit.
 			if not unit.has("on_block"):
 				unit.on_block = []
-			unit.on_block.append({"amount": amount, "target": str(effect.get("target", "enemy"))})
+			unit.on_block.append({"amount": amount, "target": str(effect.get("target", "enemy")), "gain_pct": int(effect.get("gain_pct", 0))})
 		"fire_birthstone":
 			## A Birthright: the Birthstone fires now as well, at a share of the Resonance so far.
 			## It goes as a replay, so an Encore tier on it stays dark and the rail is not sent round.
@@ -2732,6 +3058,9 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.total = int(unit.sparkle)
 		"resonance":
 			unit.resonance = DeepRules.sat_add(int(unit.resonance), amount)
+			## What a Flawless Prism's Charged reads (`from_result`).
+			var told: Dictionary = effect.get("reactions", {})
+			told.result_resonance = DeepRules.sat_add(int(told.get("result_resonance", 0)), amount)
 		"coin_flip":
 			## One toss, however heavy the stone: a second could only lose what the first
 			## won. Weight raises the stake instead, doubling again for every proc.
@@ -2739,10 +3068,74 @@ static func _self_effect(state: Dictionary, unit: Dictionary, effect: Dictionary
 			out.won = won
 			out.procs = maxi(1, int(effect.get("procs", 1)))
 			var mult: float = pow(float(effect.get("win_mult", 2)), float(out.procs)) if won else float(effect.get("lose_mult", 0))
+			## A Flawless Double Down lets it ride: a second toss for twice that, or the next gem as it was.
+			if won and bool(effect.get("let_ride", false)):
+				var again: bool = true if dry else DeepRng.chance(rng, float(amount))
+				out.won_again = again
+				mult = mult * float(effect.get("win_mult", 2)) if again else 1.0
 			if mult <= 0.0:
 				unit.nullify_next = true
 			else:
 				unit.amplify = float(unit.amplify) * mult
+		"strength_guard":
+			unit.strength_guard = true
+		"poison_safe":
+			unit.poison_safe = true
+		"envenom_thorns":
+			unit.envenom_thorns = str(unit.get("firing_stone", {}).get("stone_id", ""))
+		"gild_block":
+			unit.gilded_pay = DeepRules.sat_add(int(unit.get("gilded_pay", 0)), amount)
+			unit.gilded_stone = str(unit.get("firing_stone", {}).get("stone_id", ""))
+		"carry_rerolls":
+			unit.carry_rerolls_next = true
+			unit.carry_stone = str(unit.get("firing_stone", {}).get("stone_id", ""))
+		"mortar":
+			unit.mortar = str(unit.get("firing_stone", {}).get("stone_id", ""))
+		"restart_rail":
+			## Only the gems that stayed dark since the rail last started count.
+			if dry or unit.get("fizzled_sockets", []).size() < amount:
+				out.nothing = true
+			else:
+				out.thrown = _restart_rail(state, unit, rng)
+				out.restarted = true
+				_flawless_note(state, unit, str(unit.get("firing_stone", {}).get("stone_id", "")), "restart_rail")
+		"enrich_forever":
+			## A Flawless Enrich: its neighbours are a carat heavier for good and it is gone. A Void copy
+			## or a skill worn by another stone has nothing to give for good: only the fight's carat.
+			## The copy goes as it gives it; the stone wearing the skill stays.
+			var kin: Array = []
+			if not dry:
+				for at in [socket - 1, socket + 1]:
+					if at >= 0 and at < unit.rail.size() and unit.rail[at] is Dictionary:
+						kin.append(at)
+			if kin.is_empty():
+				out.nothing = true
+			else:
+				var own: Dictionary = unit.rail[socket]
+				var borrowed: bool = bool(effect.get("borrowed", false))
+				var fleeting: bool = borrowed or bool(own.get("temporary", false))
+				if not unit.has("gem_buffs"):
+					unit.gem_buffs = {}
+				for at in kin:
+					var neighbour: Dictionary = unit.rail[at]
+					var id: String = str(neighbour.get("id", ""))
+					if fleeting or bool(neighbour.get("temporary", false)):
+						if not unit.gem_buffs.has(id):
+							unit.gem_buffs[id] = {}
+						unit.gem_buffs[id].carat = int(unit.gem_buffs[id].get("carat", 0)) + 1
+					else:
+						neighbour.carat = int(neighbour.get("carat", 1)) + 1
+						if not unit.has("enriched"):
+							unit.enriched = {}
+						unit.enriched[id] = int(unit.enriched.get(id, 0)) + 1
+				if not fleeting:
+					if not unit.has("shattered"):
+						unit.shattered = []
+					unit.shattered.append(str(own.get("id", "")))
+				if not borrowed:
+					unit.rail[socket] = null
+					out.destroyed = true
+				out.sockets = kin
 		"retrigger_previous":
 			if previous_socket >= 0 and not dry:
 				state.queue.push_front({"kind": "gem", "unit": unit.id, "socket": previous_socket, "retrigger": true, "scale": amount})
@@ -2945,6 +3338,34 @@ static func _color_drinker(state: Dictionary, source: Dictionary) -> Dictionary:
 				return foe
 	return {}
 
+static func target_measure(target: Dictionary, measure: String) -> int:
+	## What an `of_target` amount reads off one target (DeepRules.OF_TARGET).
+	match measure:
+		"hp_missing":
+			return maxi(0, int(target.get("max_hp", 0)) - int(target.get("hp", 0)))
+		"afflictions":
+			return afflictions(target)
+		"block":
+			return int(target.get("block", 0))
+	return 0
+
+static func afflictions(unit: Dictionary) -> int:
+	## How many different afflictions are on a unit, each counted once however many stacks it
+	## has: Poison, Burn, Stun, Curse, Marked, Dulled, Clouded (a clouded move on a creature, a
+	## clouded socket on a player), Festering, Scorched, Dread and Bound (dice it will not throw).
+	var statuses: Dictionary = unit.get("statuses", {})
+	var count: int = 0
+	for status in ["poison", "burn", "stun", "curse", "marked", "dulled", "festering", "scorched"]:
+		if int(statuses.get(status, 0)) > 0:
+			count += 1
+	if int(statuses.get("clouded", 0)) > 0 or (unit.get("clouded", null) is Array and not unit.clouded.is_empty()):
+		count += 1
+	if int(unit.get("dread_turns", 0)) > 0 or int(statuses.get("dread", 0)) > 0:
+		count += 1
+	if int(unit.get("stolen_dice", 0)) > 0:
+		count += 1
+	return count
+
 static func _ward_blocks(target: Dictionary) -> bool:
 	var ward: int = int(target.get("statuses", {}).get("ward", 0))
 	if ward <= 0:
@@ -2957,13 +3378,49 @@ static func _reset_defenses(unit: Dictionary) -> void:
 	unit.block = mini(int(unit.get("block", 0)), maxi(0, int(unit.statuses.get("retain", 0))))
 	unit.statuses.erase("retain")
 
+static func _combo_breaker(foe: Dictionary) -> void:
+	## Three actions running a creature could not take, to Stun, Bound or the two mixed: it
+	## sheds every affliction a Cleanse clears (its Dread and bound dice too), takes that third
+	## action after all (`enemy_begin`), and through the party's next turn nothing that would
+	## stop it acting (STOPPERS) lands on it. Poison and Curse may land again straight after:
+	## they are shed once, here. Written as 2 so the tick that closes this turn reads it down to
+	## 1, which stands through the party's next turn; the tick that closes that turn ends it,
+	## so a Stun lands again on their second turn (November 5, 2026; it stood two turns and
+	## the third action was lost before).
+	for status in CLEANSED:
+		foe.statuses.erase(status)
+	foe.dread_turns = 0
+	foe.stolen_dice = 0
+	foe.clouded_move = -1
+	foe.statuses.combo_breaker = 2
+	foe.skip_streak = 0
+	if not bool(foe.get("acting", false)):
+		DeepCreatures.prepare(foe)
+
 static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary, kind: String, amount: int, effect: Dictionary, rng: RandomNumberGenerator, reactions: Dictionary = {}) -> Dictionary:
+	## A Hex: one debuff drawn for this go alone from its list, with the fight's own random
+	## numbers, and from here on it is that debuff in every way (a Combo Breaker or Steadfast
+	## turns it away as such, a Ward is spent on it, the screen shows it). A forecast (`dry`)
+	## draws nothing: what lands is not known until it fires.
+	var drawn: bool = false
+	if kind == "random_debuff":
+		var pool: Array = effect.get("from", [])
+		if pool.is_empty() or bool(effect.get("dry", false)):
+			return {"kind": kind, "target": str(target.id), "amount": amount, "nothing": true, "reason": "A debuff drawn at random as it fires."}
+		kind = str(pool[rng.randi_range(0, pool.size() - 1)])
+		drawn = true
 	if effect.has("from_result"):
 		amount = DeepRules.sat_muldiv(int(reactions.get("result_" + str(effect.from_result), 0)), amount, 100)
 	## A share of what its owner carries as it lands: a Caltrop's Spikes, a Hemlock's Poison.
 	if effect.has("of_status"):
 		amount = DeepRules.sat_muldiv(int(source.get("statuses", {}).get(str(effect.of_status), 0)), amount, 100)
+	## A share of what this target has as it lands, worked out for each one: a Shelter's block
+	## is the health each ally is missing, a Flawless Hex's loss so much an affliction on it.
+	if effect.has("of_target"):
+		amount = DeepRules.sat_muldiv(target_measure(target, str(effect.of_target)), amount, 100)
 	var out: Dictionary = {"kind": kind, "target": str(target.id), "amount": amount}
+	if drawn:
+		out.drawn = true
 	## A creature's lantern price: so much for every reroll its target used this turn.
 	if bool(effect.get("per_reroll", false)):
 		amount = DeepRules.sat_mul(amount, maxi(0, int(target.get("rerolled", 0))))
@@ -2976,7 +3433,8 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 	if kind == "poison" and str(target.get("gimmick", "")) == "poison_immune":
 		out.immune = true
 		return out
-	if kind == "stun" and int(target.statuses.get("combo_breaker", 0)) > 0:
+	## Combo Breaker: through the party's turn after it broke free, nothing that would stop it acting lands.
+	if kind in STOPPERS and int(target.statuses.get("combo_breaker", 0)) > 0:
 		out.resisted = true
 		return out
 	if kind in ["poison", "gather_poison", "grow_poison"] and str(target.get("side", "")) == "enemy" and DeepCreatures.has_trait(target, "poison_immune"):
@@ -2984,7 +3442,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 		return out
 	## Steadfast: it shrugs off half of any stun, binding or clouding, and a stun never
 	## lands two actions running.
-	if str(target.get("side", "")) == "enemy" and DeepCreatures.has_trait(target, "steadfast") and kind in ["stun", "die_steal", "clouded", "dice_dread"]:
+	if str(target.get("side", "")) == "enemy" and DeepCreatures.has_trait(target, "steadfast") and kind in STOPPERS:
 		if kind == "stun" and bool(target.get("stun_guard", false)):
 			out.resisted = true
 			out.steadfast = true
@@ -3025,6 +3483,10 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.amount = amount
 			out.merge(_damage(state, source, target, amount, rng, false, reactions, false, bool(effect.get("piercing", false))), true)
 			reactions.result_damage = DeepRules.sat_add(int(reactions.get("result_damage", 0)), int(out.hp_loss))
+			## A Flawless Barrage: a hit that got past Block rings, and the screen ticks it up as it lands.
+			if int(effect.get("ring_past_block", 0)) > 0 and int(out.get("hp_loss", 0)) > 0:
+				out.rang = int(effect.ring_past_block)
+				source.resonance = DeepRules.sat_add(int(source.get("resonance", 0)), int(out.rang))
 			## Fangs: Poison for what got past the block.
 			if bool(effect.get("poison_through", false)) and int(out.get("hp_loss", 0)) > 0 and int(target.get("hp", 0)) > 0:
 				out.envenomed = _apply_one(state, source, target, "poison", int(out.hp_loss), {}, rng, reactions)
@@ -3046,8 +3508,20 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				for neighbour in adjacent:
 					spread.append(_apply_one(state, source, neighbour, "poison", DeepRules.sat_muldiv(consumed, int(effect.poison_splash), 100), {}, rng, reactions))
 				out.poison_spread = spread
+		"lose_hp":
+			## Health lost, not a blow (a Flawless Hex): no block soaks it and nothing swells it,
+			## not a Curse, a Mark or Strength, as a round of Poison hurts. It is still the gem's own
+			## harm in every other way (who hurt it, a kill, the tally), so `_damage` takes it, `pure`.
+			out.kind = "damage"
+			out.lost_hp = true
+			out.merge(_damage(state, source, target, amount, rng, false, reactions, false, true, true), true)
+			reactions.result_damage = DeepRules.sat_add(int(reactions.get("result_damage", 0)), int(out.get("hp_loss", 0)))
 		"block":
 			## Scorched: block gained is halved, rounded up.
+			## A Flawless Temper: its owner's Strength goes on every Block they gain.
+			if bool(target.get("strength_guard", false)) and amount > 0:
+				amount = DeepRules.sat_add(amount, maxi(0, int(target.statuses.get("strength", 0))))
+				out.amount = amount
 			if int(target.statuses.get("scorched", 0)) > 0 and amount > 0:
 				amount = int(ceil(float(amount) / 2.0))
 				out.scorched = true
@@ -3063,7 +3537,11 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			if amount > 0 and str(target.get("side", "")) == "player" and not target.get("on_block", []).is_empty() and int(target.get("hp", 0)) > 0:
 				var rebounds: Array = []
 				for answer in target.on_block:
-					rebounds.append_array(_apply(state, target, {"kind": "damage", "amount": int(answer.amount), "target": str(answer.target), "repeat": 1}, rng))
+					## A Flawless Rebound's hit is a share of the Block just gained, not its own number.
+					var worth: int = DeepRules.sat_muldiv(amount, int(answer.gain_pct), 100) if int(answer.get("gain_pct", 0)) > 0 else int(answer.amount)
+					if worth <= 0:
+						continue
+					rebounds.append_array(_apply(state, target, {"kind": "damage", "amount": worth, "target": str(answer.target), "repeat": 1}, rng))
 					if done(state):
 						break
 				out.rebound = rebounds
@@ -3079,11 +3557,20 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				tally_add(source, "healed", int(out.healed))
 				tally_add(source, "overheal", maxi(0, spill))
 				gem_tally(source, "healed", int(out.healed))
+				## What a Flawless Sap reads besides the healing that took.
+				source.overhealed = DeepRules.sat_add(int(source.get("overhealed", 0)), maxi(0, spill))
 			if effect.has("overflow") and spill > 0 and int(target.get("hp", 0)) > 0:
-				if str(effect.overflow) == "block":
-					out.overflow = _apply_one(state, source, target, "block", spill, {}, rng, reactions)
-				else:
-					out.overflow_hits = _apply(state, source, {"kind": "damage", "amount": spill, "target": "enemy", "repeat": 1}, rng, "", reactions)
+				match str(effect.overflow):
+					"block":
+						out.overflow = _apply_one(state, source, target, "block", spill, {}, rng, reactions)
+					"regeneration":
+						out.overflow = _apply_one(state, source, target, "regeneration", spill, {}, rng, reactions)
+					"poison":
+						out.overflow_hits = _apply(state, source, {"kind": "poison", "amount": spill, "target": "enemy", "repeat": 1}, rng, "", reactions)
+					_:
+						out.overflow_hits = _apply(state, source, {"kind": "damage", "amount": spill, "target": "enemy", "repeat": 1}, rng, "", reactions)
+				if bool(effect.get("flawless_overflow", false)):
+					_flawless_note(state, source, str(source.get("firing_stone", {}).get("stone_id", "")), "overflow")
 		"gold":
 			if str(source.get("side", "")) == "player":
 				## Pyrite a gem sends to the party lands in each ally's own purse; anything
@@ -3138,6 +3625,9 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			if kind == "curse":
 				target.statuses[kind] = mini(DeepRules.CURSE_MAX_STACKS, int(target.statuses[kind]))
 			_note_result(source, target, kind, int(target.statuses[kind]) - had)
+			## A Flawless Etch: these Marks are never spent (see `_settle_marks`).
+			if kind == "marked" and bool(effect.get("keeps", false)):
+				target.marks_kept = DeepRules.sat_add(int(target.get("marks_kept", 0)), maxi(0, amount))
 			if kind == "lifeline" and bool(effect.get("revive_block", false)):
 				target.statuses.lifeline_block = DeepRules.sat_add(int(target.statuses.get("lifeline_block", 0)), amount)
 			out[kind + "_after"] = target.statuses[kind]
@@ -3151,6 +3641,10 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				other.statuses.poison = 0
 			target.statuses.poison = DeepRules.sat_add(int(target.statuses.get("poison", 0)), gathered)
 			out.gathered = gathered
+			## A Flawless Confluence: when this creature dies, every other gains the Poison on it.
+			if bool(effect.get("plague", false)):
+				target.plague = str(source.get("id", ""))
+				target.plague_stone = str(source.get("firing_stone", {}).get("stone_id", ""))
 			out.poison_after = int(target.statuses.poison)
 		"poison_tick":
 			## Its Poison ticks now, as it would at the end of the turn, that many times.
@@ -3170,9 +3664,36 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			target.statuses.poison = DeepRules.sat_add(had, DeepRules.sat_muldiv(had, maxi(0, amount), 100))
 			out.poison_after = int(target.statuses.poison)
 			_note_result(source, target, "poison", int(target.statuses.poison) - had)
+			## A Flawless Ferment grows every other affliction too, by a stack at least. Nothing that
+			## takes an action away: Combo Breaker's count is not to be fed by a multiplier.
+			if bool(effect.get("every", false)):
+				for status in ["burn", "curse", "marked", "dulled", "clouded", "festering", "scorched"]:
+					var stacks: int = int(target.statuses.get(status, 0))
+					if stacks > 0:
+						target.statuses[status] = DeepRules.sat_add(stacks, maxi(1, DeepRules.sat_muldiv(stacks, maxi(0, amount), 100)))
+				if int(target.statuses.get("curse", 0)) > DeepRules.CURSE_MAX_STACKS:
+					target.statuses.curse = DeepRules.CURSE_MAX_STACKS
+				if int(target.get("dread_turns", 0)) > 0:
+					target.dread_turns = DeepRules.sat_add(int(target.dread_turns), maxi(1, DeepRules.sat_muldiv(int(target.dread_turns), maxi(0, amount), 100)))
+		"regen_tick":
+			## A Flawless Lichen: its Regeneration heals now, as at the end of the turn, and loses a stack.
+			var regen: int = int(target.statuses.get("regeneration", 0))
+			out.amount = regen
+			if regen <= 0:
+				out.nothing = true
+			else:
+				out.healed = _heal(target, regen)
+				target.statuses.regeneration = regen - 1
+				out.hp_after = int(target.hp)
+				out.kind = "heal"
+				if str(source.get("side", "")) == "player":
+					source.healed = DeepRules.sat_add(int(source.get("healed", 0)), int(out.healed))
 		"max_hp":
 			target.max_hp = DeepRules.sat_add(int(target.max_hp), maxi(0, amount))
 			target.hp = DeepRules.sat_add(int(target.hp), maxi(0, amount))
+			## A Flawless Green Seam's: the fight gives it back (see `DeepDescent._settle_fight`).
+			if bool(effect.get("for_fight", false)):
+				target.fight_max_hp = DeepRules.sat_add(int(target.get("fight_max_hp", 0)), maxi(0, amount))
 			out.max_hp_after = int(target.max_hp)
 			out.hp_after = int(target.hp)
 		"max_hp_loss":
@@ -3186,12 +3707,12 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.ward_after = target.statuses.ward
 		"retain":
 			var kept: int = int(target.statuses.get("retain", 0))
-			## A creature's Retain grows with it (`DeepCreatures.health_pct`), so only a player's is
-			## capped; a creature told to keep it all keeps every point.
-			if str(target.get("side", "")) == "enemy":
-				target.statuses.retain = DeepRules.CEILING if bool(effect.get("keep_all", false)) else DeepRules.sat_add(kept, maxi(0, amount))
+			## No cap on either side (a player's stopped at 20 until Nov 5 2026); a creature told
+			## to keep it all keeps every point.
+			if str(target.get("side", "")) == "enemy" and bool(effect.get("keep_all", false)):
+				target.statuses.retain = DeepRules.CEILING
 			else:
-				target.statuses.retain = mini(20, kept + maxi(0, amount))
+				target.statuses.retain = DeepRules.sat_add(kept, maxi(0, amount))
 			out.retain_after = target.statuses.retain
 			_note_result(source, target, "retain", int(target.statuses.retain) - kept)
 		"clouded":
@@ -3218,9 +3739,11 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.removed = removed
 			reactions.result_removed = int(reactions.get("result_removed", 0)) + removed
 			out.block_after = target.block
+			if removed > 0 and int(target.block) <= 0:
+				_block_broken(state, target)
 		"cleanse":
 			var cleared: int = 0
-			for status in ["poison", "burn", "stun", "curse", "marked", "dulled", "clouded", "festering", "scorched"]:
+			for status in CLEANSED:
 				while cleared < amount and int(target.statuses.get(status, 0)) > 0:
 					target.statuses[status] = int(target.statuses[status]) - 1
 					cleared += 1
@@ -3252,6 +3775,9 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 				out.dread_after = int(target.statuses.dread)
 			else:
 				target.dread_turns = int(target.get("dread_turns", 0)) + maxi(0, amount)
+				## A Flawless Dread: for every stack that landed, its owner's smallest die grows next turn.
+				if bool(effect.get("grow_self", false)):
+					source.grow_next = int(source.get("grow_next", 0)) + maxi(0, amount)
 		"dice_upgrade":
 			var most: int = DeepCreatures.TIERS.size() - 1
 			if effect.has("cap") and not target.get("dice", []).is_empty():
@@ -3263,7 +3789,14 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			if not bool(out.upgraded):
 				out.nothing = true
 		"die_steal":
-			target.stolen_dice = int(target.get("stolen_dice", 0)) + amount
+			var bound_before: int = int(target.get("stolen_dice", 0))
+			target.stolen_dice = bound_before + amount
+			## A Flawless Bind: each die it takes joins its owner's next throw, as a phantom that size.
+			if bool(effect.get("stolen_phantoms", false)) and not target.get("dice", []).is_empty():
+				var owed: Array = source.get("bound_next", [])
+				for index in range(bound_before, mini(bound_before + maxi(0, amount), target.dice.size())):
+					owed.append(str(target.dice[target.dice.size() - 1 - index].get("shape", "D6")))
+				source.bound_next = owed
 		"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem", "blank_face":
 			out.merge(_spoil(state, target, kind, effect, rng), true)
 		"summon":
@@ -3404,8 +3937,16 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			out.merge(_swap_gems(target, rng), true)
 		"etch":
 			## Faces re-etched to another move for the fight: some of one move's faces, or the
-			## face it just threw (`from`: "self_face", the Magpie's Snatch turning to Flee).
+			## face it just threw (`from`: "self_face", the Magpie's Snatch turning to Flee). A
+			## `fallback` etching is the next rung of a ladder: it only runs when every etching
+			## before it in the move found no face to turn (the Assayer's Raise the Rate turns
+			## Tax to Heavy Tax while any Tax is left, and only then Heavy Tax to Ruinous Tax).
 			var changed: Array = []
+			if bool(effect.get("fallback", false)) and int(reactions.get("result_etched", 0)) > 0:
+				out.etched = changed
+				out.nothing = true
+				out.reason = "An earlier etching found its faces."
+				return out
 			if str(effect.get("from", "")) == "self_face":
 				var thrown: Dictionary = target.get("hand", []).back() if not target.get("hand", []).is_empty() else {}
 				var at_die: int = _die_index(target, str(thrown.get("die_id", "")))
@@ -3414,6 +3955,7 @@ static func _apply_one(state: Dictionary, source: Dictionary, target: Dictionary
 			else:
 				changed = DeepCreatures.etch(target, str(effect.get("from", "")), str(effect.get("to", "")), int(effect.get("count", 1)), int(effect.get("die", -1)))
 			out.etched = changed
+			reactions.result_etched = int(reactions.get("result_etched", 0)) + changed.size()
 			if changed.is_empty():
 				out.nothing = true
 		"grow_faces":
@@ -4015,6 +4557,7 @@ static func dice_after_fight(unit: Dictionary) -> Array:
 	## of the next one, and a fight that ends first does not get to keep it.
 	## A Hot Streak's bonus die was only lent for a turn.
 	var dice: Array = unit.get("dice", []).filter(func(d: Dictionary) -> bool: return not bool(d.get("bonus", false))).duplicate(true)
+	_shrink_grown(unit, dice)
 	for entry in unit.get("broken_dice", []):
 		dice.insert(clampi(int(entry.get("at", 0)), 0, dice.size()), _regrown_die(unit, entry))
 	var kept: Dictionary = unit.get("fight_dice", {})
@@ -4031,16 +4574,20 @@ static func dice_after_fight(unit: Dictionary) -> Array:
 			dice.insert(clampi(int(kept[id].get("at", dice.size())), 0, dice.size()), was)
 	return dice
 
-static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, amount: int, rng: RandomNumberGenerator, settle: bool = true, reactions: Dictionary = {}, reactive: bool = false, piercing: bool = false) -> Dictionary:
+static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, amount: int, rng: RandomNumberGenerator, settle: bool = true, reactions: Dictionary = {}, reactive: bool = false, piercing: bool = false, pure: bool = false) -> Dictionary:
+	## `pure`: health lost rather than a blow (`lose_hp`): nothing below swells or shrinks it,
+	## not Enrage, a Curse either side or a Mark (which it leaves standing), and it is no hit
+	## for a Riposte. Pass `piercing` with it so no block soaks it either.
 	var raw: int = maxi(0, amount)
 	## Enrage hardens a creature's own blows, not what its Spikes or a mirror send back.
-	if str(source.get("side", "")) == "enemy" and not reactive:
+	if str(source.get("side", "")) == "enemy" and not reactive and not pure:
 		var enraged_on: int = enrage_turn(state)
 		if int(state.turn) >= enraged_on:
 			raw = DeepRules.sat_add(raw, enrage_step(state) * (int(state.turn) - enraged_on + 1))
-	raw = DeepRules.outgoing_damage(raw, source.get("statuses", {}))
-	var curse: int = clampi(int(target.statuses.get("curse", 0)), 0, DeepRules.CURSE_MAX_STACKS)
-	var marked: int = int(target.statuses.get("marked", 0)) if not reactive and amount > 0 else 0
+	if not pure:
+		raw = DeepRules.outgoing_damage(raw, source.get("statuses", {}))
+	var curse: int = 0 if pure else clampi(int(target.statuses.get("curse", 0)), 0, DeepRules.CURSE_MAX_STACKS)
+	var marked: int = int(target.statuses.get("marked", 0)) if not reactive and not pure and amount > 0 else 0
 	raw = DeepRules.sat_scale(raw, 100 + DeepRules.CURSE_PERCENT * curse, 100 + 25 * marked, 10000)
 	## Marked is spent by the whole gem (or Birthstone, or creature's move) that lands on it,
 	## not by its first blow: every blow of a Thousand Cuts takes the mark. The marks come off
@@ -4103,6 +4650,13 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			out.raw = raw
 	var absorbed: int = 0 if piercing else mini(int(target.block), raw)
 	target.block = int(target.block) - absorbed
+	if absorbed > 0 and int(target.block) <= 0:
+		_block_broken(state, target)
+	## A Flawless Gilded Armor: every blow its owner's Block stops this turn pays.
+	if absorbed > 0 and not reactive and int(target.get("gilded_pay", 0)) > 0 and str(source.get("side", "")) == "enemy":
+		target.gold = DeepRules.sat_add(int(target.get("gold", 0)), int(target.gilded_pay))
+		out.gilded_paid = int(target.gilded_pay)
+		_flawless_note(state, target, str(target.get("gilded_stone", "")), "gilded")
 	var loss: int = mini(int(target.hp), raw - absorbed)
 	## Sturdy: no single blow takes more than its share of the creature's health.
 	if is_enemy_target:
@@ -4159,7 +4713,7 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 				var firing: Dictionary = source.get("firing_stone", {})
 				if not firing.is_empty():
 					target.hardest_gem = {"unit": str(source.id), "socket": int(firing.get("socket", -1)), "stone_id": str(firing.get("stone_id", ""))}
-		if str(source.get("side", "")) == "player" and str(source.get("passive", {}).get("kind", "")) == "block_per_hit" and raw > 0:
+		if str(source.get("side", "")) == "player" and str(source.get("passive", {}).get("kind", "")) == "block_per_hit" and raw > 0 and not pure:
 			## Riposte: every hit the Rogue lands raises block worth her Resonance.
 			var parry: int = int(source.get("resonance", 0))
 			if parry > 0:
@@ -4232,7 +4786,7 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			for index in range(twin.dice.size()):
 				twin.dice[index].id = "%s_d%d" % [str(twin.id), index]
 			twin.statuses = {}
-			twin.stun_streak = 0
+			twin.skip_streak = 0
 			twin.clouded_move = -1
 			## What it holds stays with the original: a split never doubles a stolen gem or purse.
 			twin.held_gems = []
@@ -4250,21 +4804,35 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 		if int(target.hp) <= 0:
 			out.killed = true
 			_blood_feeds(state, target)
+			## A Flawless Hone counts what it has killed, for the run.
+			var killing: Dictionary = source.get("firing_stone", {})
+			if not reactive and not killing.is_empty():
+				var counts: Dictionary = source.get("run_counts", {})
+				var kills_key: String = str(killing.get("stone_id", "")) + ":kills"
+				counts[kills_key] = int(counts.get(kills_key, 0)) + 1
+				source.run_counts = counts
+				if bool(killing.get("note_kills", false)):
+					_flawless_note(state, source, str(killing.get("stone_id", "")), "kill")
 			if int(target.get("stolen_gold", 0)) > 0 and str(source.get("side", "")) == "player":
 				source.gold = int(source.get("gold", 0)) + int(target.stolen_gold)
 				out.recovered_gold = int(target.stolen_gold)
 				target.stolen_gold = 0
 			out.merge(_on_enemy_death(state, target, source, rng), true)
-	## An Arsenic: every hit that gets past block leaves Poison behind.
+	## An Arsenic: every hit that gets past block leaves Poison behind. Health lost (`pure`) is
+	## no hit: no Poison rides it, no Acid Armour or Spikes answers it.
 	var venom: int = int(source.get("statuses", {}).get("envenom", 0))
-	if not reactive and venom > 0 and int(out.get("hp_loss", 0)) > 0 and is_enemy_target and int(target.hp) > 0 and str(source.get("side", "")) == "player":
+	## A Flawless Arsenic's owner's Spikes and reflected blows carry it too.
+	var thorned: bool = reactive and not str(source.get("envenom_thorns", "")).is_empty()
+	if (not reactive or thorned) and not pure and venom > 0 and int(out.get("hp_loss", 0)) > 0 and is_enemy_target and int(target.hp) > 0 and str(source.get("side", "")) == "player":
 		out.envenom = _apply_one(state, source, target, "poison", venom, {}, rng, reactions)
+		if thorned:
+			_flawless_note(state, source, str(source.envenom_thorns), "thorns")
 	## Acid Armour: whoever hits it takes Poison for it.
 	var acid: int = DeepCreatures.trait_value(target, "acid_armour", 0) if is_enemy_target else 0
-	if not reactive and amount > 0 and acid > 0 and str(source.get("side", "")) == "player" and int(source.get("hp", 0)) > 0:
+	if not reactive and not pure and amount > 0 and acid > 0 and str(source.get("side", "")) == "player" and int(source.get("hp", 0)) > 0:
 		out.acid = _apply_one(state, target, source, "poison", acid, {}, rng, reactions)
 	var spikes: int = int(target.statuses.get("spikes", 0))
-	if not reactive and amount > 0 and spikes > 0 and not reactions.has(str(target.id)) and int(source.get("hp", 0)) > 0:
+	if not reactive and not pure and amount > 0 and spikes > 0 and not reactions.has(str(target.id)) and int(source.get("hp", 0)) > 0:
 		reactions[str(target.id)] = true
 		var retaliation: Dictionary = _damage(state, target, source, spikes, rng, false, {}, true)
 		retaliation.target = str(source.id)
@@ -4314,6 +4882,18 @@ static func _on_enemy_death(state: Dictionary, dead: Dictionary, killer: Diction
 	_note_kill(dead, killer)
 	## How many have fallen this turn, for a Placer.
 	state.turn_kills = int(state.get("turn_kills", 0)) + 1
+	## A Flawless Confluence: the Poison on it goes to every other creature, each the whole of it.
+	if not str(dead.get("plague", "")).is_empty():
+		var thrower: Dictionary = player(state, str(dead.plague))
+		var plagued: int = int(dead.get("poison_at_tick", dead.statuses.get("poison", 0)))
+		if plagued > 0 and not thrower.is_empty():
+			var spread: Array = []
+			for other in living(state.enemies):
+				spread.append(_apply_one(state, thrower, other, "poison", plagued, {}, rng))
+			if not spread.is_empty():
+				out.plague = spread
+				_flawless_note(state, thrower, str(dead.get("plague_stone", "")), "plague")
+		dead.erase("plague")
 	var returned: Array = _return_gems(state, dead)
 	if not returned.is_empty():
 		out.returned_gems = returned
@@ -4435,7 +5015,12 @@ static func _settle_marks(state: Dictionary) -> void:
 	for unit in state.players + state.enemies:
 		if bool(unit.get("mark_spent", false)):
 			unit.erase("mark_spent")
-			unit.statuses.erase("marked")
+			## What a Flawless Etch laid stays; the rest is spent.
+			var kept: int = mini(int(unit.get("marks_kept", 0)), int(unit.statuses.get("marked", 0)))
+			if kept > 0:
+				unit.statuses.marked = kept
+			else:
+				unit.statuses.erase("marked")
 
 static func _poison_tick(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerator = null) -> Dictionary:
 	## One round of poison on one unit: it hurts for its stacks and loses one. When a creature
@@ -4444,12 +5029,17 @@ static func _poison_tick(state: Dictionary, unit: Dictionary, rng: RandomNumberG
 	if poison <= 0 or int(unit.hp) <= 0:
 		return {}
 	var loss: int = mini(int(unit.hp), tick_amount(state, unit, poison, "poison"))
+	## A Flawless Hemlock's owner, this turn: the stacks tick and hurt nothing.
+	if bool(unit.get("poison_safe", false)):
+		loss = 0
 	unit.hp = int(unit.hp) - loss
 	unit.statuses.poison = poison - 1
+	unit.poison_at_tick = poison
 	_settle_heavy(unit, "poison")
 	_note_tick(state, unit, "poison", loss)
 	var tick: Dictionary = {"unit": str(unit.id), "kind": "poison", "amount": loss, "hp_after": unit.hp, "remaining": unit.statuses.poison}
 	_tick_wound(state, unit, tick, rng)
+	unit.erase("poison_at_tick")
 	if str(unit.get("side", "")) == "enemy" and loss > 0:
 		var leeches: Array = []
 		for drinker in living(state.players):
@@ -4495,6 +5085,8 @@ static func _burn_tick(state: Dictionary, unit: Dictionary, rng: RandomNumberGen
 	var hurts: int = tick_amount(state, unit, burn, "burn")
 	var soaked: int = mini(maxi(0, int(unit.get("block", 0))), hurts)
 	unit.block = int(unit.get("block", 0)) - soaked
+	if soaked > 0 and int(unit.block) <= 0:
+		_block_broken(state, unit)
 	var loss: int = mini(int(unit.hp), hurts - soaked)
 	unit.hp = int(unit.hp) - loss
 	unit.statuses.burn = burn - 1
@@ -4593,7 +5185,7 @@ static func _tick(state: Dictionary, rng: RandomNumberGenerator = null) -> Dicti
 	_check_outcome(state)
 	if ticks.is_empty():
 		return {}
-	return _event(state, "tick", {"ticks": ticks})
+	return _event(state, "tick", {"ticks": ticks, "duration": BASE_DURATION.tick + tick_gaps(ticks.size())})
 
 # --- turns -------------------------------------------------------------------------------
 
@@ -4604,6 +5196,76 @@ static func _end_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_cr
 		state.announced = true
 		return _event(state, "battle_over", {"outcome": str(state.outcome), "turns": int(state.turn)})
 	return _begin_turn(state, rng_dice, rng_creatures)
+
+static func _echoes_fade(state: Dictionary, unit: Dictionary) -> void:
+	## An Echo's copies that were only for their own turn come off the rail, last first, and every
+	## number that names a place on the rail is counted back past them (see `_join_rail`).
+	var rail: Array = unit.get("rail", [])
+	for at in range(rail.size() - 1, -1, -1):
+		if not rail[at] is Dictionary or not bool(rail[at].get("echo_turn", false)):
+			continue
+		DeepStone.leave_rail(unit, at)
+		for field in ["fired_sockets", "fizzled_sockets", "buried", "clouded", "rubble"]:
+			var places: Array = unit.get(field, [])
+			for index in range(places.size() - 1, -1, -1):
+				if int(places[index]) == at:
+					places.remove_at(index)
+				elif int(places[index]) > at:
+					places[index] = int(places[index]) - 1
+		for fog in unit.get("fog", []):
+			if int(fog.get("socket", -1)) > at:
+				fog.socket = int(fog.socket) - 1
+		if int(unit.get("previous_socket", -1)) >= at:
+			unit.previous_socket = int(unit.previous_socket) - 1
+		var was: Array = unit.get("initial_rail", [])
+		if at < was.size():
+			was.remove_at(at)
+		for entry in unit.get("broken_gems", []):
+			if int(entry.get("at", -1)) > at:
+				entry.at = int(entry.at) - 1
+		for foe in state.get("enemies", []):
+			for held in foe.get("held_gems", []):
+				if str(held.get("unit", "")) == str(unit.id) and int(held.get("socket", -1)) > at:
+					held.socket = int(held.socket) - 1
+			var hardest: Dictionary = foe.get("hardest_gem", {})
+			if str(hardest.get("unit", "")) == str(unit.id) and int(hardest.get("socket", -1)) > at:
+				hardest.socket = int(hardest.socket) - 1
+
+static func _flawless_stone(unit: Dictionary, skill: String) -> String:
+	## The id of the first stone on this rail firing as this skill, for a note to sparkle.
+	for at in range(unit.get("rail", []).size()):
+		var stone: Dictionary = stone_at(unit, at)
+		if str(stone.get("skill", "")) == skill:
+			return str(stone.get("id", ""))
+	return ""
+
+static func _shrink_grown(unit: Dictionary, dice: Array) -> void:
+	## Every die a Flawless Dread grew, back down by as many sizes. `DeepOddities.resize` keeps a
+	## die's own faces, so a Glimmer or a Gilding on it in the meantime stays on it.
+	var grown: Dictionary = unit.get("grown_dice", {})
+	for die in dice:
+		if grown.has(str(die.get("id", ""))):
+			DeepOddities.resize(die, -int(grown[str(die.get("id", ""))]))
+
+static func _grow_smallest(unit: Dictionary, dice: Array, steps: int) -> void:
+	## This throw's smallest die, a size bigger for every step, one size at a time so the bowl evens
+	## out. The real die grows for the turn (a reroll has to throw it too) and goes back after it.
+	if not unit.has("grown_dice"):
+		unit.grown_dice = {}
+	for _step in range(steps):
+		var smallest: int = -1
+		for index in range(dice.size()):
+			if smallest < 0 or DeepDice.top(dice[index]) < DeepDice.top(dice[smallest]):
+				smallest = index
+		if smallest < 0:
+			return
+		var die: Dictionary = dice[smallest]
+		var id: String = str(die.get("id", ""))
+		if not DeepOddities.resize(die, 1).is_empty():
+			return
+		## A die a player's Dread shrank is only this throw's copy, and needs no giving back.
+		if is_same(_die_of(unit, id), die):
+			unit.grown_dice[id] = int(unit.grown_dice.get(id, 0)) + 1
 
 static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_creatures: RandomNumberGenerator) -> Dictionary:
 	state.turn = int(state.get("turn", 0)) + 1
@@ -4632,6 +5294,8 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 	state.party_best_turn = maxi(int(state.get("party_best_turn", 0)), party_turn)
 	var afflicted: Array = []
 	for unit in state.players:
+		## An Echo's copy lasts the turn it was made in (a Flawless one, the fight).
+		_echoes_fade(state, unit)
 		## Rubble and fog both clear when a new turn is dug: a gimmick may take a socket for
 		## one turn. What stays is the Foreman's rubble for the fight, and a Clouder's fog while
 		## the Clouder stands and nobody has hit it (`_fog`).
@@ -4652,6 +5316,24 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 		## What a Chainmail, a Contagion or a Rebound set up lasted the turn that has ended.
 		unit.after_fire = []
 		unit.on_block = []
+		## What a Flawless line set up for the turn that has ended is over too.
+		unit.erase("poison_safe")
+		unit.erase("gilded_pay")
+		unit.erase("gilded_stone")
+		unit.erase("refracted")
+		unit.overhealed = 0
+		## A Flawless Cascade: what the turn after it left unspent carries on, once.
+		if bool(unit.get("carrying_rerolls", false)):
+			unit.erase("carrying_rerolls")
+			if int(unit.get("rerolls", 0)) > 0:
+				unit.granted_rerolls = int(unit.get("granted_rerolls", 0)) + int(unit.rerolls)
+				_flawless_note(state, unit, str(unit.get("carry_stone", "")), "carry_rerolls")
+		if bool(unit.get("carry_rerolls_next", false)):
+			unit.erase("carry_rerolls_next")
+			unit.carrying_rerolls = true
+		## A die a Flawless Dread grew last turn goes back to its size, keeping anything worked on it.
+		_shrink_grown(unit, unit.dice)
+		unit.erase("grown_dice")
 		## A Contra Luz that fired last turn: its phantoms are still in the hand.
 		var carried_phantoms: Array = []
 		## A Hot Streak's bonus die lasts the turn it was thrown for, unless a Contra Luz kept
@@ -4741,7 +5423,27 @@ static func _begin_turn(state: Dictionary, rng_dice: RandomNumberGenerator, rng_
 			unit.statuses.dread = dread - 1
 			if int(unit.statuses.dread) <= 0:
 				unit.statuses.erase("dread")
+		## A Flawless Dread: the smallest die a size bigger for every stack it landed, this turn only.
+		var grown: int = mini(int(unit.get("grow_next", 0)), 12)
+		unit.erase("grow_next")
+		if grown > 0:
+			_grow_smallest(unit, dice, grown)
+			_flawless_note(state, unit, _flawless_stone(unit, "DREAD"), "grow_die")
 		unit.hand = DeepDice.roll_hand(dice, rng_dice, unit.get("hand", []))
+		## What a Flawless Bind took last turn joins this throw.
+		var taken_dice: Array = unit.get("bound_next", [])
+		unit.erase("bound_next")
+		for index in range(taken_dice.size()):
+			var taken_die: Dictionary = DeepDice.make(str(taken_dice[index]), "%s_bound%d_%d" % [str(unit.id), int(state.turn), index])
+			var taken_roll: Dictionary = DeepDice.roll_one(taken_die, rng_dice)
+			taken_roll.phantom = true
+			taken_roll.source_id = ""
+			## Kept, as a Contra Luz's are: a reroll throws only the bowl (`DeepDice.reroll`).
+			taken_roll.kept = true
+			taken_roll.held = true
+			carried_phantoms.append(taken_roll)
+		if not taken_dice.is_empty():
+			_flawless_note(state, unit, _flawless_stone(unit, "BIND"), "bound_phantoms")
 		## A Paradox Moth's Unravel: a die rerolled last turn lands blank, and stays so.
 		var blank: Array = unit.get("blank_next", [])
 		if not blank.is_empty():
@@ -4978,6 +5680,10 @@ static func _event(state: Dictionary, kind: String, fields: Dictionary) -> Dicti
 	state.seq = int(state.get("seq", 0)) + 1
 	var event: Dictionary = {"kind": kind, "seq": state.seq, "turn": int(state.get("turn", 0)), "duration": float(BASE_DURATION.get(kind, 0.4))}
 	event.merge(fields, true)
+	## What Flawless lines did since the last event, for the screen to sparkle (`_flawless_note`).
+	if not state.get("flawless_notes", []).is_empty():
+		event.flawless_notes = state.flawless_notes
+		state.flawless_notes = []
 	if done(state) and kind != "battle_over":
 		event.battle_over = str(state.outcome)
 	return event

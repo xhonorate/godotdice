@@ -4,7 +4,9 @@ extends Node3D
 ## campfire to rest by, a workbench with a lamp and a lens to read a stone at, a wishing well
 ## to throw something precious down, and the lift in its cage, its cable running up into a
 ## warm light. The cage is one of the four, not a step after them. The way down is the mouths in
-## the far wall, as in any room.
+## the far wall, as in any room. In a party a fifth, the trading booth, the cage's match on the
+## right (`add_trade`): the owner asked for the station back on November 5, 2026, beside trading
+## from a teammate's tab.
 ##
 ## In room space (it sits at the room's origin). It shows what it is told: which respite is
 ## taken, what is pointed at, and when the cage goes up.
@@ -21,6 +23,10 @@ const CAGE := Vector3(-7.0, 0.0, -12.0)
 const CAMPFIRE := Vector3(-3.6, 0.0, -2.0)
 const BENCH := Vector3(0.0, 0.0, -4.4)
 const WELL := Vector3(3.6, 0.0, -2.0)
+## In a party, a fifth: the trading booth, the cage's match on the right. It stands deep in
+## the room in the gap between the far side of the well and the ways down, so from where the
+## party stands nothing is in front of it and it is in front of nothing.
+const TRADE := Vector3(4.5, 0.0, -11.0)
 ## Where the party stands to look at them (the stage's home), so a far name can be drawn
 ## larger and read as easily as a near one.
 const VIEWPOINT := Vector3(0.0, 2.1, 5.2)
@@ -32,7 +38,11 @@ var cage: Node3D
 var _fire_light: OmniLight3D
 var _flame: GPUParticles3D
 var _bench_lamp: OmniLight3D
+var _booth_light: OmniLight3D
 var _well: Node3D
+## What the hall was built on, kept so a booth asked for later stands on the same ground.
+var _ground: Callable = Callable()
+var _seed: int = 0
 var _sky: SpotLight3D
 var _glows: Dictionary = {}
 ## The shaft of light over each thing that can be used, so it is never just more rock.
@@ -47,9 +57,11 @@ var names_hushed: bool = false
 var _respites: bool = true
 var _clock: float = 0.0
 
-func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, ground: Callable) -> void:
-	## Nothing stands in the room for trading: a party trades from each other's tabs.
+func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, ground: Callable, trading: bool = false) -> void:
+	## `trading` stands the booth up at once; a party seen later gets it from `add_trade`.
 	_respites = respites
+	_ground = ground
+	_seed = seed_value
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	_build_cage(rng, daylight, ground)
@@ -57,6 +69,21 @@ func build(biome: Dictionary, seed_value: int, respites: bool, daylight: bool, g
 		_build_campfire(rng, biome, ground)
 		_build_bench(rng, ground)
 		_build_well(rng, ground)
+		if trading:
+			add_trade()
+
+func add_trade() -> bool:
+	## The trading booth, for a party of two or more. Built once, and only where there are
+	## respites to take: a Warden's hall has no table. True when the booth stands. The stage
+	## builds the hall before it knows the party, so the landing's screen asks for it.
+	if parts.has("trade"):
+		return true
+	if not _respites:
+		return false
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed + 7
+	_build_trade(rng, _ground)
+	return true
 
 func _material(color: Color, roughness: float, metal: float = 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -315,6 +342,80 @@ func _build_well(rng: RandomNumberGenerator, ground: Callable) -> void:
 	_label(frame, "wish", "The well", Vector3(0, 2.3, 0), DeepUi.INFO)
 	parts["wish"] = frame
 
+func _build_trade(rng: RandomNumberGenerator, ground: Callable) -> void:
+	## A trader's booth: a trestle table with a pair of scales on it, two posts behind it
+	## carrying a striped awning, and a lantern hung under the awning. Tall enough to be read
+	## from the far end of the room the way the cage is, and turned to face the party.
+	var booth := Node3D.new()
+	booth.position = TRADE + Vector3(0, float(ground.call(TRADE.x, TRADE.z)) if ground.is_valid() else 0.0, 0)
+	booth.rotation.y = atan2(VIEWPOINT.x - TRADE.x, VIEWPOINT.z - TRADE.z)
+	add_child(booth)
+	var wood := _material(Color("7a5030"), 0.9)
+	wood.vertex_color_use_as_albedo = true
+	## The table.
+	_slab(booth, Vector3(2.0, 0.1, 0.9), Color("8a5c36"), Vector3(0, 0.95, 0.2), wood, rng)
+	_slab(booth, Vector3(1.9, 0.5, 0.06), Color("6a4428"), Vector3(0, 0.66, 0.62), wood, rng)
+	for side in [-1.0, 1.0]:
+		_slab(booth, Vector3(0.1, 0.92, 0.8), Color("5a3a22"), Vector3(side * 0.85, 0.46, 0.2), wood, rng)
+	## The posts, the beam and the awning, sloping down toward the party.
+	for side in [-1.0, 1.0]:
+		_slab(booth, Vector3(0.14, 2.9, 0.14), Color("5a3a22"), Vector3(side * 1.0, 1.45, -0.35), wood, rng)
+	_slab(booth, Vector3(2.3, 0.14, 0.14), Color("4a3020"), Vector3(0, 2.86, -0.35), wood, rng)
+	var cloth := _material(Color.WHITE, 0.95)
+	cloth.vertex_color_use_as_albedo = true
+	cloth.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for stripe in range(5):
+		var x: float = -0.92 + 0.46 * float(stripe)
+		var panel := _slab(booth, Vector3(0.46, 0.04, 1.3), Color("c8452f") if stripe % 2 == 0 else Color("e8d7b0"), Vector3(x, 2.62, 0.22), cloth, rng, 0.0)
+		panel.rotation.x = 0.38
+	## The scales.
+	var brass := _material(Color("c9a26b"), 0.35, 0.8)
+	_slab(booth, Vector3(0.08, 0.7, 0.08), Color("c9a26b"), Vector3(0, 1.35, 0.2), brass, rng, 0.0)
+	_slab(booth, Vector3(1.1, 0.05, 0.05), Color("c9a26b"), Vector3(0, 1.69, 0.2), brass, rng, 0.0)
+	for side in [-1.0, 1.0]:
+		var pan := MeshInstance3D.new()
+		var dish := CylinderMesh.new()
+		dish.top_radius = 0.22
+		dish.bottom_radius = 0.14
+		dish.height = 0.05
+		dish.radial_segments = 10
+		pan.mesh = dish
+		pan.material_override = brass
+		pan.position = Vector3(side * 0.52, 1.23, 0.2)
+		booth.add_child(pan)
+		for corner in [-1.0, 1.0]:
+			var cord := _slab(booth, Vector3(0.012, 0.46, 0.012), Color("8a8f98"), Vector3(side * 0.52 + corner * 0.13, 1.46, 0.2), _material(Color("8a8f98"), 0.4, 0.8), rng, 0.0)
+			cord.rotation.z = -corner * 0.28
+		var rough := MeshInstance3D.new()
+		rough.mesh = Lowpoly.rock(rng, Color("8d8479") if side < 0.0 else Color("7d8a96"), 0.3)
+		rough.material_override = _material(Color.WHITE, 0.6)
+		(rough.material_override as StandardMaterial3D).vertex_color_use_as_albedo = true
+		rough.scale = Vector3.ONE * 0.09
+		rough.position = Vector3(side * 0.52, 1.29, 0.2)
+		booth.add_child(rough)
+	## A lantern under the awning.
+	var lamp := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.18, 0.26, 0.18)
+	lamp.mesh = box
+	var glass := _material(Color("ffb060"), 0.3)
+	glass.emission_enabled = true
+	glass.emission = Color("ffb060")
+	glass.emission_energy_multiplier = 3.0
+	lamp.material_override = glass
+	lamp.position = Vector3(0.0, 2.25, 0.3)
+	booth.add_child(lamp)
+	_booth_light = OmniLight3D.new()
+	_booth_light.light_color = Color("ffd49a")
+	_booth_light.light_energy = 1.6
+	_booth_light.omni_range = 4.5
+	_booth_light.position = Vector3(0, 2.0, 0.6)
+	_booth_light.shadow_enabled = false
+	booth.add_child(_booth_light)
+	_glow(booth, "trade", DeepUi.ORE, Vector3(0, 1.5, 0.9), 4.0)
+	_label(booth, "trade", "Trade", Vector3(0, 3.4, 0.2), DeepUi.ORE)
+	parts["trade"] = booth
+
 # --- what the room is told -----------------------------------------------------------------------
 
 func set_hover(key: String) -> void:
@@ -347,6 +448,9 @@ func _process(delta: float) -> void:
 		_fire_light.light_energy = (2.2 if _taken in ["", "rest"] else 1.4) * (1.0 + 0.18 * flicker) * (1.3 if _hover == "rest" else 1.0)
 	if _bench_lamp != null:
 		_bench_lamp.light_energy = (2.4 if _hover == "appraise" else 1.6) * (1.0 if _taken in ["", "appraise"] else 0.5)
+	if _booth_light != null:
+		## The booth is open whatever respite was taken: a trade is not the landing's action.
+		_booth_light.light_energy = 2.4 if _hover == "trade" else (1.6 if _offered.has("trade") else 0.9)
 	if _well != null and is_instance_valid(_well):
 		_well.rest_light(0.9 if _hover == "wish" else (0.4 if _taken in ["", "wish"] else 0.12))
 	for key in _glows:

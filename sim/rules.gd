@@ -68,12 +68,28 @@ extends RefCounted
 ##   An effect may carry `hp_cost`: health its owner pays as the gem fires, never the last point
 ##   (the gem stays dark instead), soaked by no block, like a price never swollen by weight.
 ##   An effect may carry `of_status`: its amount is then that percent of the status its owner holds
-##   when it lands, so a gem can read what the effects before it have just done. A heal may carry
+##   when it lands, so a gem can read what the effects before it have just done. An effect may
+##   carry `of_target`: its amount is then that percent of what each target has as it lands
+##   (`hp_missing`, the health that target is missing; `afflictions`, how many different
+##   afflictions are on it, see `DeepBattle.afflictions`), worked out for every target on its
+##   own: a Shelter's block is each ally's own missing health. A heal may carry
 ##   `overflow`: block (what would heal past full is gained as block) or damage (dealt to the target).
 ##   grant_reroll retrigger_previous(pct) dice_dread(enemy) die_steal(enemy)
 ##   quality_bonus(pct) sparkle coin_flip(win_mult, lose_mult) resonance
 ##   damage_curse(enemy: amount% of its Curse stacks as damage)
+##   random_debuff(enemy: `amount` stacks of one debuff drawn at random from `from`, a fresh draw
+##     every go, from the fight's own random numbers; from then on it is that debuff in every way)
+##   lose_hp*(enemy: health lost, not a blow: no block soaks it, and nothing swells it, not a
+##     Curse, a Mark or Strength, the way a round of Poison hurts)
 ##   appraise(stones: that many raw stones in the bag read, amount% of their worth as damage)
+##   What Flawless lines add (see `DeepStone.apply_flawless`): regen_tick(self: its Regeneration ticks
+##     now) strength_guard(self: its Strength adds to Block for the fight) poison_safe(self: its Poison
+##     does not hurt this turn) envenom_thorns(self: its Spikes and reflections carry its Envenom)
+##     gild_block(self: every blow its Block stops this turn pays that much Pyrite) carry_rerolls(self:
+##     next turn's unused rerolls carry on) mortar(self: as the next turn opens, its retained Block
+##     lands on its target) graft_pairs(the lower pair takes the higher pair's number, this hand)
+##     restart_rail(with that many gems dark, the dice are thrown again and the rail starts over)
+##     enrich_forever(its neighbours gain carats for good and it is destroyed)
 ##   Opal-only. Opals touch each other like any other gem (October 29, 2026); what keeps
 ##   two of them from calling each other for ever is that a replay only ever reaches gems
 ##   earlier on the rail than the gem replaying, so a replayed Seam plays exactly what it
@@ -139,7 +155,7 @@ const TERMS: Array = ["rolled", "value", "second", "count", "high", "low", "tota
 	"set_value", "set_count", "sum_low", "sum_high", "block", "block_lost", "healed", "dealt", "hp", "max_hp", "hp_missing", "gold",
 	"resonance", "previous_amount", "carat", "cut", "clarity", "depth", "turn", "party", "crowns", "high_crown", "low_dice", "pyrite", "pot", "enemy_poison", "fizzles",
 	"swell", "held_gems", "biggest_hit", "party_heaviest_carat", "party_best_turn", "party_richest", "party_high_die", "taken_since", "turns_acted", "living_players", "strength", "pairs", "even_read",
-	"crown_total", "run_fires", "fight_resonance"]
+	"crown_total", "run_fires", "fight_resonance", "pair_count", "pairs_total", "rerolls_left", "run_kills", "run_breaks", "healed_all", "self_dots"]
 const RANKS: Array = ["carat", "cut", "clarity"]
 const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun", "remove_block", "cleanse", "revive",
 	"curse", "amplify_next", "cut_step_next", "raise_low", "raise_high", "set_match", "flip_high", "flip_low",
@@ -156,21 +172,29 @@ const EFFECT_KINDS: Array = ["damage", "block", "heal", "gold", "poison", "stun"
 	"grow_poison", "fire_birthstone", "spectrum", "stone_chance", "double_resonance", "keep_phantoms",
 	"bonus_die", "double_resonance_next", "lose_pyrite", "reflect_blows", "invert_previous",
 	"copy_hand", "grip_die", "lose_die", "hasten", "swap_gems",
-	"etch", "grow_faces", "pin_trait", "fog", "flee", "morph", "cling", "blank_next"]
+	"etch", "grow_faces", "pin_trait", "fog", "flee", "morph", "cling", "blank_next", "random_debuff", "lose_hp",
+	"regen_tick", "strength_guard", "poison_safe", "envenom_thorns", "gild_block", "carry_rerolls", "mortar", "graft_pairs", "restart_rail", "enrich_forever"]
+## What a random debuff (a Hex) may draw: each a debuff that lands a stack at a time by itself.
+const RANDOM_DEBUFFS: Array = ["clouded", "die_steal", "dice_dread", "marked", "stun"]
+## What an `of_target` amount may read off each target.
+const OF_TARGET: Array = ["hp_missing", "afflictions", "block"]
 ## The creature-only kinds: a skill or an inclusion may not use them.
 const CREATURE_KINDS: Array = ["summon", "purge", "burrow", "festering", "scorched", "burn", "die_lock", "steal_gold",
 	"empower_next", "rally", "grow_die", "swell", "hold_gem", "bury_socket", "exhibit", "charge",
 	"reflect", "mirror", "absorb_color", "blank_face", "roll_again", "end_action",
 	"copy_hand", "grip_die", "lose_die", "hasten", "swap_gems",
 	"etch", "grow_faces", "pin_trait", "fog", "flee", "morph", "cling", "blank_next"]
-const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block", "retain", "regeneration", "spikes", "lifeline", "wager", "detonate"]
+## What a Flawless line sets once and for all: a switch, with nothing in it to swell or to go again.
+const ONE_SHOT_KINDS: Array = ["strength_guard", "mortar", "poison_safe", "envenom_thorns", "restart_rail", "enrich_forever", "carry_rerolls", "graft_pairs"]
+const SCALED_BY_DEFAULT: Array = ["damage", "block", "heal", "gold", "poison", "remove_block", "retain", "regeneration", "spikes", "lifeline", "wager", "detonate", "lose_hp"]
 const DEBUFFS: Array = ["poison", "stun", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss", "gather_poison", "grow_poison",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
 	"festering", "scorched", "burn", "die_lock", "blank_face", "hold_gem", "bury_socket", "grip_die", "swap_gems", "fog", "cling", "blank_next"]
 const HOSTILE: Array = ["damage", "damage_curse", "detonate", "wager", "poison", "stun", "remove_block", "curse", "dice_dread", "die_steal", "clouded", "dulled", "marked", "max_hp_loss",
 	"gather_poison", "poison_tick", "grow_poison",
 	"mar_die", "grind_die", "lock_die", "break_die", "downgrade_die", "break_gem",
-	"festering", "scorched", "burn", "die_lock", "blank_face", "steal_gold", "hold_gem", "bury_socket", "grip_die", "swap_gems", "fog", "cling", "blank_next"]
+	"festering", "scorched", "burn", "die_lock", "blank_face", "steal_gold", "hold_gem", "bury_socket", "grip_die", "swap_gems", "fog", "cling", "blank_next",
+	"random_debuff", "lose_hp"]
 ## What a creature's hostile effect means by "the enemy": these are turned on the party. A
 ## creature that names one player, or itself, keeps its aim.
 const ENEMY_SIDE_TARGETS: Array = ["enemy", "enemies", "spread", "enemy_behind", "enemy_adjacent", "hero", "heroes"]
@@ -199,8 +223,16 @@ const EFFECT_OPTIONS: Array = ["chain_on_kill", "missing_hp_bonus", "from_result
 	## "thrower" sends a reflection at the one who threw the blow, `for_fight` keeps rubble for
 	## the fight, `from`/`to`/`count`/`die` say which faces an etch turns into what, `faces`
 	## are the moves a die grows, `trait`/`value` the trait a move pins until its next action,
-	## `template` the die a new head copies.
-	"per_reroll", "poison_through", "until", "back", "for_fight", "from", "to", "count", "die", "faces", "trait", "value", "template"]
+	## `template` the die a new head copies, `fallback` an etch that only runs when the etchings
+	## before it in the move found no face (the Assayer's ladder of rates). `from` is also the
+	## list a random debuff draws from; `of_target` (see the header) reads each target.
+	"per_reroll", "poison_through", "until", "back", "for_fight", "from", "to", "count", "die", "faces", "trait", "value", "template", "fallback",
+	"of_target",
+	## A Flawless line (see `DeepStone.apply_flawless`): `flawless` marks an effect the line added,
+	## so the screen plays it after the gem's own; `flawless_overflow` a heal whose overflow is the
+	## line's; the rest are the small rule changes the lines ask for.
+	"flawless", "flawless_overflow", "ring_past_block", "min_procs", "gain_pct", "keeps", "grow", "count_phantoms", "let_ride", "twin_bonus",
+	"best_read", "overflow_carat", "lit_double", "every", "all_in", "each", "stolen_phantoms", "grow_self", "plague"]
 ## How an effect that works on one die or one gem chooses it: `showing` is the face every die
 ## lies on, `all` every die, `usable` the finest gem a creature could fire itself.
 const PICKS: Array = ["high", "low", "random", "heaviest", "hardest", "best", "usable", "showing", "all"]
@@ -215,7 +247,6 @@ const MAX_NODES: int = 60
 ## Thousand Cuts asks for one hit per point on the highest die, and a face has no ceiling, so
 ## this is only a guard against a runaway rule: far past any face a run can grow.
 const MAX_REPEAT: int = 1000
-const VALUE_LIMIT: int = 9999
 ## The most any count in a fight may hold: a blow, a heal, block, a status's stacks, health,
 ## pyrite, Resonance. A number that would pass it stays here, and the view writes it as
 ## Infinite. A whole number wraps round to a huge negative one when it overflows, and a float
@@ -329,6 +360,23 @@ static func term(name: String, node: Dictionary, c: Dictionary) -> int:
 				if int(group.get("value", 0)) >= floor_pair:
 					pairs += int(group.get("count", 0)) / 2
 			return pairs
+		"pair_count":
+			## Every pair in the hand, rung or no rung: four or five alike are two, a full house two.
+			var found: int = 0
+			for group in a.get("groups", []):
+				found += int(group.get("count", 0)) / 2
+			return found
+		"pairs_total":
+			## Those pairs' values added up: 4,4,2,2 is 6, and 3,3,3,3 is 6.
+			var added: int = 0
+			for group in a.get("groups", []):
+				added = sat_add(added, sat_mul(int(group.get("value", 0)), int(group.get("count", 0)) / 2))
+			return added
+		"rerolls_left": return int(unit.get("rerolls", 0))
+		"run_kills": return int(c.get("run_kills", 0))
+		"run_breaks": return int(c.get("run_breaks", 0))
+		"healed_all": return sat_add(int(unit.get("healed", 0)), int(unit.get("overhealed", 0)))
+		"self_dots": return int(unit.get("statuses", {}).get("poison", 0)) + int(unit.get("statuses", {}).get("burn", 0))
 		"dice": return int(a.get("dice_count", 0))
 		"count_value":
 			var wanted: int = int(node.get("value", 0))
@@ -523,8 +571,9 @@ static func resolve_effect(def: Dictionary, c: Dictionary, magnitude: float, hos
 	## An effect that cannot take a multiplier takes procs instead, unless its author wrote
 	## `scale: "none"` on it, which is how an inclusion's rider asks to stay flat.
 	var proc: Dictionary = {"procs": 1, "chance": 0} if scale == "carat" or def.has("scale") else carat_procs(magnitude)
+	## No cap short of the ceiling (a 9999 one held every blow at 10000 and block at 9999).
 	var out: Dictionary = {"kind": kind, "target": str(def.get("target", default_target(kind, hostile_side))),
-		"amount": clampi(final, -VALUE_LIMIT, VALUE_LIMIT), "raw": raw, "repeat": repeat, "scaled": scale == "carat",
+		"amount": sat(final), "raw": raw, "repeat": repeat, "scaled": scale == "carat",
 		"procs": int(proc.procs), "proc_chance": int(proc.chance)}
 	out.dice = trig_dice(c)
 	## A face raised by one proc is judged again by the next, against the line the gem's
@@ -612,7 +661,7 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append_array(validate_expression(effect.share, where + " share"))
 	if effect.has("scope") and not str(effect.scope) in ["adjacent", "all", "others", "self"]:
 		errors.append(where + ": unknown gem scope")
-	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed", "stolen"]:
+	if effect.has("from_result") and not str(effect.from_result) in ["damage", "gold", "block", "removed", "stolen", "resonance"]:
 		errors.append(where + ": unknown previous result")
 	if kind in CREATURE_KINDS and hostile_side != "hero":
 		errors.append(where + ": " + kind + " is a creature's move, not a stone's")
@@ -622,10 +671,16 @@ static func validate_effect(effect: Variant, where: String, hostile_side: String
 		errors.append(where + ": unknown pick " + str(effect.pick))
 	if kind == "each_after" and not str(effect.get("gift", "")) in EACH_AFTER_GIFTS:
 		errors.append(where + ": each_after gives one of " + ", ".join(EACH_AFTER_GIFTS))
-	if effect.has("overflow") and not str(effect.overflow) in ["block", "damage"]:
-		errors.append(where + ": overflow is block or damage")
-	if effect.has("of_status") and not str(effect.of_status) in ["spikes", "poison"]:
-		errors.append(where + ": of_status reads spikes or poison")
+	if effect.has("overflow") and not str(effect.overflow) in ["block", "damage", "regeneration", "poison"]:
+		errors.append(where + ": overflow is block, damage, regeneration or poison")
+	if effect.has("of_status") and not str(effect.of_status) in ["spikes", "poison", "ward"]:
+		errors.append(where + ": of_status reads spikes, poison or ward")
+	if effect.has("of_target") and not str(effect.of_target) in OF_TARGET:
+		errors.append(where + ": of_target reads " + " or ".join(OF_TARGET))
+	if kind == "random_debuff":
+		var pool: Variant = effect.get("from", null)
+		if not pool is Array or pool.is_empty() or pool.any(func(k: Variant) -> bool: return not str(k) in RANDOM_DEBUFFS):
+			errors.append(where + ": a random_debuff draws `from` a list of " + ", ".join(RANDOM_DEBUFFS))
 	if kind in ["phantom_roll", "bonus_die"] and not str(effect.get("shape", "D6")) in DeepDice.TIERS:
 		errors.append(where + ": " + kind + " needs a die shape")
 	if effect.has("of") and str(effect.of) != "largest":
@@ -727,6 +782,10 @@ static func validate_skill(def: Variant, p: Dictionary) -> Array:
 		if not flawless is Dictionary:
 			errors.append("flawless must be an object")
 		else:
+			if flawless.has("when"):
+				errors.append_array(validate_expression(flawless.when, "flawless when"))
+			if flawless.has("x") and int(flawless.x) < 2:
+				errors.append("flawless x multiplies by two or more")
 			for index in range(flawless.get("effects", []).size()):
 				errors.append_array(validate_effect(flawless.effects[index], "flawless effect %d" % (index + 1)))
 			for change in flawless.get("modify", []):

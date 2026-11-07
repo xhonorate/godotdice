@@ -3,7 +3,7 @@
 
 import * as Hand from './hand.js';
 import * as C from './content.js';
-import { I, satAdd, satMul, satFloor } from './numbers.js';
+import { I, sat, satAdd, satMul, satFloor } from './numbers.js';
 
 export const OPS = ['+', '-', '*', 'min', 'max', 'floor_div', 'pct', 'if', 'ge', 'eq'];
 export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'total', 'max_total', 'missing', 'odd', 'even',
@@ -11,7 +11,7 @@ export const TERMS = ['rolled', 'value', 'second', 'count', 'high', 'low', 'tota
 	'set_value', 'set_count', 'sum_low', 'sum_high', 'block', 'block_lost', 'healed', 'dealt', 'hp', 'max_hp', 'hp_missing', 'gold',
 	'resonance', 'previous_amount', 'carat', 'cut', 'clarity', 'depth', 'turn', 'party', 'crowns', 'high_crown', 'low_dice', 'pyrite', 'pot', 'enemy_poison', 'fizzles',
 	'swell', 'held_gems', 'biggest_hit', 'party_heaviest_carat', 'party_best_turn', 'party_richest', 'turns_acted', 'living_players', 'strength', 'pairs', 'even_read',
-	'crown_total', 'run_fires', 'fight_resonance'];
+	'crown_total', 'run_fires', 'fight_resonance', 'pair_count', 'pairs_total', 'rerolls_left', 'run_kills', 'run_breaks', 'healed_all', 'self_dots'];
 export const RANKS = ['carat', 'cut', 'clarity'];
 export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun', 'remove_block', 'cleanse', 'revive',
 	'curse', 'amplify_next', 'cut_step_next', 'raise_low', 'raise_high', 'set_match', 'flip_high', 'flip_low',
@@ -27,20 +27,26 @@ export const EFFECT_KINDS = ['damage', 'block', 'heal', 'gold', 'poison', 'stun'
 	'phantom_low', 'phantom_roll', 'rethrow', 'gild', 'soak', 'each_after', 'on_block', 'envenom', 'gather_poison', 'poison_tick',
 	'grow_poison', 'fire_birthstone', 'spectrum', 'stone_chance', 'double_resonance', 'keep_phantoms',
 	'bonus_die', 'double_resonance_next', 'lose_pyrite', 'reflect_blows', 'invert_previous',
-	'copy_hand', 'grip_die', 'lose_die', 'hasten', 'swap_gems'];
+	'copy_hand', 'grip_die', 'lose_die', 'hasten', 'swap_gems', 'random_debuff', 'lose_hp',
+	'regen_tick', 'strength_guard', 'poison_safe', 'envenom_thorns', 'gild_block', 'carry_rerolls', 'mortar', 'graft_pairs', 'restart_rail', 'enrich_forever'];
+// What a random debuff (a Hex) may draw, and what an `of_target` amount reads off each target (sim/rules.gd).
+export const RANDOM_DEBUFFS = ['clouded', 'die_steal', 'dice_dread', 'marked', 'stun'];
+export const OF_TARGET = ['hp_missing', 'afflictions', 'block'];
 // The creature-only kinds: a skill or an inclusion may not use them.
 export const CREATURE_KINDS = ['summon', 'purge', 'burrow', 'festering', 'scorched', 'burn', 'die_lock', 'steal_gold',
 	'empower_next', 'rally', 'grow_die', 'swell', 'hold_gem', 'bury_socket', 'exhibit', 'charge',
 	'reflect', 'mirror', 'absorb_color', 'blank_face', 'roll_again', 'end_action',
 	'copy_hand', 'grip_die', 'lose_die', 'hasten', 'swap_gems'];
-export const SCALED_BY_DEFAULT = ['damage', 'block', 'heal', 'gold', 'poison', 'remove_block', 'retain', 'regeneration', 'spikes', 'lifeline', 'wager', 'detonate'];
+// What a Flawless line sets once and for all: a switch, with nothing in it to swell or to go again.
+export const ONE_SHOT_KINDS = ['strength_guard', 'mortar', 'poison_safe', 'envenom_thorns', 'restart_rail', 'enrich_forever', 'carry_rerolls', 'graft_pairs'];
+export const SCALED_BY_DEFAULT = ['damage', 'block', 'heal', 'gold', 'poison', 'remove_block', 'retain', 'regeneration', 'spikes', 'lifeline', 'wager', 'detonate', 'lose_hp'];
 export const DEBUFFS = ['poison', 'stun', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss', 'gather_poison', 'grow_poison',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
 	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'hold_gem', 'bury_socket', 'grip_die', 'swap_gems'];
 export const HOSTILE = ['damage', 'damage_curse', 'detonate', 'wager', 'poison', 'stun', 'remove_block', 'curse', 'dice_dread', 'die_steal', 'clouded', 'dulled', 'marked', 'max_hp_loss',
 	'gather_poison', 'poison_tick', 'grow_poison',
 	'mar_die', 'grind_die', 'lock_die', 'break_die', 'downgrade_die', 'break_gem',
-	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'steal_gold', 'hold_gem', 'bury_socket', 'grip_die', 'swap_gems'];
+	'festering', 'scorched', 'burn', 'die_lock', 'blank_face', 'steal_gold', 'hold_gem', 'bury_socket', 'grip_die', 'swap_gems', 'random_debuff', 'lose_hp'];
 // What a creature's hostile effect means by "the enemy": these are turned on the party.
 export const ENEMY_SIDE_TARGETS = ['enemy', 'enemies', 'spread', 'enemy_behind', 'enemy_adjacent', 'hero', 'heroes'];
 export const HERO_PICKS = ['hero_least_block', 'hero_most_hp', 'hero_most_gold', 'hero_top_damage', 'hero_top_dealt', 'hero_marked', 'hero_rerolled'];
@@ -48,14 +54,20 @@ export const TARGETS = ['self', 'ally_low', 'allies', 'allies_other', 'enemy', '
 export const EFFECT_OPTIONS = ['chain_on_kill', 'missing_hp_bonus', 'from_result', 'remove_all', 'revive_block', 'scope', 'all_faces', 'refund_mult', 'poison_splash', 'pot_mode',
 	'piercing', 'split_party', 'pick', 'creature', 'pct', 'permanent', 'shape', 'cap', 'turns', 'cancel_pct', 'guard_pct', 'store', 'release',
 	'hurt', 'add', 'flat', 'stones', 'of_status', 'gift', 'overflow', 'resonance_cap', 'shows', 'every_gem', 'elite', 'best_of', 'shrink', 'both_ends',
-	'of', 'pattern', 'keep_all'];
+	'of', 'pattern', 'keep_all',
+	// A creature's etch that only runs when the etchings before it found no face (sim/rules.gd);
+	// the list a random debuff draws from; a share of what each target has (`of_target`).
+	'fallback', 'from', 'of_target', 'for_fight',
+	// A Flawless line (sim/stone.gd apply_flawless): `flawless` marks an effect the line added,
+	// `flawless_overflow` a heal whose overflow is the line's; the rest are the small rule changes the lines ask for.
+	'flawless', 'flawless_overflow', 'ring_past_block', 'min_procs', 'gain_pct', 'keeps', 'grow', 'count_phantoms', 'let_ride', 'twin_bonus',
+	'best_read', 'overflow_carat', 'lit_double', 'every', 'all_in', 'each', 'stolen_phantoms', 'grow_self', 'plague'];
 // How an effect that works on one die or one gem chooses it, and how an absorb_color picks its color.
 export const PICKS = ['high', 'low', 'random', 'heaviest', 'hardest', 'best', 'usable', 'showing', 'all'];
 export const ABSORB_PICKS = ['random', 'most_used'];
 export const POT_MODES = ['ante', 'double', 'all', 'lose'];
-export const FROM_RESULTS = ['damage', 'gold', 'block', 'removed', 'stolen'];
+export const FROM_RESULTS = ['damage', 'gold', 'block', 'removed', 'stolen', 'resonance'];
 export const MAX_REPEAT = 1000;
-export const VALUE_LIMIT = 9999;
 export const MAX_PROCS = 10;
 export const CURSE_MAX_STACKS = 10;
 export const CURSE_PERCENT = 10;
@@ -115,6 +127,23 @@ export function term(name, node, c) {
 			for (const group of a.groups || []) if ((I(group.value)) >= floorPair) pairs += Math.trunc((I(group.count)) / 2);
 			return pairs;
 		}
+		case 'pair_count': {
+			// Every pair in the hand, rung or no rung: four or five alike are two, a full house two.
+			let found = 0;
+			for (const group of a.groups || []) found += Math.trunc((I(group.count)) / 2);
+			return found;
+		}
+		case 'pairs_total': {
+			// Those pairs' values added up: 4,4,2,2 is 6, and 3,3,3,3 is 6.
+			let added = 0;
+			for (const group of a.groups || []) added = satAdd(added, satMul(I(group.value), Math.trunc((I(group.count)) / 2)));
+			return added;
+		}
+		case 'rerolls_left': return I(unit.rerolls);
+		case 'run_kills': return I(c.run_kills);
+		case 'run_breaks': return I(c.run_breaks);
+		case 'healed_all': return satAdd(I(unit.healed), I(unit.overhealed));
+		case 'self_dots': return I((unit.statuses || {}).poison) + I((unit.statuses || {}).burn);
 		case 'dice': return I(a.dice_count);
 		case 'count_value': { const w = I(node.value); return Hand.matching(a, (v) => v === w).length; }
 		case 'count_at_most': { const w = I(node.value); return Hand.matching(a, (v) => v <= w).length; }
@@ -215,7 +244,8 @@ export function resolveEffect(def, c, magnitude, hostileSide = 'enemy') {
 	}
 	const repeat = Math.max(0, Math.min(amount(def.repeat ?? { const: 1 }, c), MAX_REPEAT));
 	const proc = scale === 'carat' || 'scale' in def ? { procs: 1, chance: 0 } : caratProcs(magnitude);
-	const out = { kind, target: String(def.target || defaultTarget(kind, hostileSide)), amount: Math.max(-VALUE_LIMIT, Math.min(VALUE_LIMIT, final)),
+	// No cap short of the ceiling.
+	const out = { kind, target: String(def.target || defaultTarget(kind, hostileSide)), amount: sat(final),
 		raw, repeat, scaled: scale === 'carat', procs: proc.procs, proc_chance: proc.chance, dice: ((c.trig || {}).dice || []).slice() };
 	// A face raised by one proc is judged again by the next, against the line the trigger drew.
 	if (kind === 'upgrade_faces') {
@@ -238,7 +268,8 @@ export function amountWords(expr, cutStep = null) {
 			sum_low: `sum of lowest ${expr.value || 1}`, sum_high: `sum of highest ${expr.value || 1}`, block: 'current block', block_lost: 'block lost', healed: 'healing done',
 			enemy_poison: 'enemy poison', fizzles: 'unpaid fizzles', resonance: 'Resonance', pyrite: 'pyrite', odd: 'odd dice', even: 'even dice', distinct: 'distinct values', held: 'held dice', rerolled: 'rerolled dice',
 			swell: 'its swelling', held_gems: 'gems it holds', biggest_hit: 'hardest hit on it this turn', party_heaviest_carat: "heaviest gem's carats",
-			party_best_turn: "the party's best turn", party_richest: 'the richest purse', strength: 'its Strength', turns_acted: 'actions taken', living_players: 'players standing', pot: 'the pot', dealt: 'damage dealt', hp: 'health', max_hp: 'max health', hp_missing: 'missing health' };
+			party_best_turn: "the party's best turn", party_richest: 'the richest purse', strength: 'its Strength', turns_acted: 'actions taken', living_players: 'players standing', pot: 'the pot', dealt: 'damage dealt', hp: 'health', max_hp: 'max health', hp_missing: 'missing health',
+			pair_count: 'pairs', pairs_total: 'the pairs added up', rerolls_left: 'rerolls unused', run_kills: 'kills this run', run_breaks: 'times your Block broke', healed_all: 'healing done, past full too', self_dots: 'your Poison and Burn' };
 		return names[expr.term] || expr.term;
 	}
 	if ('rank' in expr) return expr.rank;
@@ -265,6 +296,8 @@ const diceWords = (n) => `${n} ${n === 1 ? 'die' : 'dice'}`;
 export function effectWords(effect, cutStep = null) {
 	let n = amountWords(effect.amount ?? 0, cutStep);
 	if (effect.from_result) n = `${n}% of the ${FROM_WORDS[effect.from_result] || effect.from_result}`;
+	if (effect.of_target === 'hp_missing') n = `${n}% of the health each is missing`;
+	else if (effect.of_target === 'afflictions') n = `${Number.isFinite(Number(n)) ? Number(n) / 100 : `${n}%`} for each different affliction on it`;
 	const kind = String(effect.kind || '');
 	const target = String(effect.target || '');
 	const rep = effect.repeat !== undefined ? ` × ${amountWords(effect.repeat, cutStep)}` : '';
@@ -281,6 +314,8 @@ export function effectWords(effect, cutStep = null) {
 	const labels = {
 		damage, block: `${n} block${rep}`, heal: `heal ${n}${rep}`, gold: atHeroes ? `drops ${n} pyrite` : `${n} pyrite`, poison: `${n} poison${rep}`, stun: target === 'self' ? `stuns itself · ${n} turn` : `stun ${n}`, remove_block: effect.remove_all ? 'removes all your block' : `remove ${n} block`,
 		cleanse: n === '99' ? 'sheds every affliction on it' : `cleanse ${n}`, curse: `${n} Curse`, ward: `${n} Ward`, retain: `retain ${n} block`, charged: `${n} Charged`, regeneration: `${n} Regeneration`, spikes: `${n} Spikes`,
+		random_debuff: `${n} of ${(effect.from || []).length ? effect.from.map((k) => ({ clouded: 'Clouded', die_steal: 'Bound', dice_dread: 'Dread', marked: 'Marked', stun: 'Stun' }[k] || k)).join(', ') : 'a debuff'}, drawn at random each go`,
+		lose_hp: effect.of_target === 'afflictions' ? `loses health: ${n}${rep} · no block soaks it` : `loses ${n} health${rep} · no block soaks it`,
 		marked: `${n} Marked`, dulled: `${n} Dulled`, clouded: atHeroes || !target ? 'cloud a socket' : `Clouded for ${n} actions · one random ability disabled`, die_steal: `suppress ${n} die`, dice_dread: `${n} Dread`,
 		dice_upgrade: `dice +${n} tier${effect.cap ? ` (${String(effect.cap).toLowerCase()} at most)` : ''}`,
 		max_hp_loss: `−${n} max HP`, lifeline: `${n} Lifeline`, detonate: `${n} damage per poison consumed`, wager: `wager: ${n} damage`, stake: `stake: amplify next`,
@@ -294,6 +329,10 @@ export function effectWords(effect, cutStep = null) {
 		double_resonance_next: 'double Resonance next turn', lose_pyrite: `lose ${n} pyrite`,
 		reflect_blows: `reflect ${effect.pct ?? 50}% of the next ${n === '1' ? 'blow' : `${n} blows`} back at the thrower`,
 		amplify_next: `amplify next gem ${n}%`, revive: 'revive an ally', max_hp: `+${n} max HP`,
+		// What Flawless lines add (sim/rules.gd).
+		regen_tick: 'Regeneration ticks now', strength_guard: 'Strength adds to Block, for the fight', poison_safe: 'own Poison hurts nothing this turn', envenom_thorns: 'Spikes and reflections carry Envenom',
+		gild_block: `every hit blocked this turn pays ${n} pyrite`, carry_rerolls: "next turn's unused rerolls carry on", mortar: 'retained Block lands as the next turn opens', graft_pairs: 'the lower pair takes the higher pair\'s number',
+		restart_rail: `with ${n} gems dark, the dice are thrown again and the rail starts over`, enrich_forever: `neighbours +${n} carat for good · this gem is destroyed`,
 		// Elites only, and rare.
 		mar_die: 'mars a face of one of your dice (blank or locked)',
 		grind_die: showing ? `every face your dice show loses 1${effect.permanent ? ', for good' : ' for the fight'}` : `your ${pick === 'high' ? 'highest die' : 'die'} loses 1 from its top face${effect.permanent ? ' for good' : ' for the fight'}`,

@@ -20,10 +20,10 @@ extends RefCounted
 ##   at_most             at least one die showing the rung or less (Ember reads ones)
 ##   at_least            the highest die shows the rung or more, as an absolute value
 ##   total_pct_at_least / total_pct_at_most   the total against the hand's maximum, in percent
-##   high_pct_at_least   the best die against its own top, in percent
+##   high_pct_at_least   the best die against its die's size, in percent (a 6 on a d6 is 100)
 ##   held / rerolled     at least the rung many dice held (or rerolled) this turn
 ##   resonance           the rail's Resonance is at least the rung
-##   low_count           at least the rung many dice at or below half their own top
+##   low_count           at least the rung many dice in the low half of their size (a wild is low)
 ##   crowns              at least the rung many dice on their own top face
 ##   crowns_at_most      no more than the rung many crowns (Bust reads zero)
 ##   skip_straight       the rung many different values all of one parity, like 2-4-6-8-10
@@ -123,6 +123,14 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 					result.value = int(group.value)
 					result.count = int(group.count)
 					break
+			if not result.active:
+				## The wilds went to the largest set, which was too low: they may lift another.
+				var lifted: Dictionary = _wild_set(a, int(SET_SIZES[kind]), need)
+				if not lifted.is_empty():
+					result.active = true
+					result.dice = lifted.dice
+					result.value = int(lifted.value)
+					result.count = int(lifted.count)
 		"two_pair":
 			## `high_pair`: only the higher of the two pairs has to clear the rung (Mirror's).
 			var qualifying: Array = a.get("pairs", []).filter(func(g: Dictionary) -> bool: return int(g.value) >= need)
@@ -137,6 +145,15 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.value = int(qualifying[0].value)
 				result.second = int(qualifying[1].value)
 				result.count = 4
+			else:
+				## All the wilds joined one set; split between two they may make both.
+				var both: Dictionary = _wild_sets(a, 2, 2, need, bool(trigger.get("high_pair", false)))
+				if not both.is_empty():
+					result.active = true
+					result.dice = both.dice
+					result.value = int(both.value)
+					result.second = int(both.second)
+					result.count = 4
 		"full_house":
 			var triple: Dictionary = {}
 			for group in a.get("groups", []):
@@ -152,6 +169,14 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 						result.second = int(group.value)
 						result.count = 5
 						break
+			if not result.active:
+				var house: Dictionary = _wild_sets(a, 3, 2, need, false)
+				if not house.is_empty():
+					result.active = true
+					result.dice = house.dice
+					result.value = int(house.value)
+					result.second = int(house.second)
+					result.count = 5
 		"straight":
 			var run: Dictionary = a.get("straight", {})
 			if int(run.get("length", 0)) >= need:
@@ -213,7 +238,9 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 				result.dice = _all_dice(a)
 				result.value = int(a.total)
 		"total_pct_at_most":
-			if int(a.get("total", 0)) * 100 <= int(a.get("max_total", 1)) * need:
+			## A wild is any value, so a gem that wants a low total reads it as a 1.
+			var low_total: int = int(a.get("total", 0)) - int(a.get("wild_total", 0)) + a.get("wilds", []).size()
+			if low_total * 100 <= int(a.get("max_total", 1)) * need:
 				result.active = true
 				result.dice = _all_dice(a)
 				result.value = int(a.total)
@@ -294,6 +321,69 @@ static func evaluate(trigger: Dictionary, cut_step: int, a: Dictionary, context:
 	if not result.active:
 		result.reason = words(trigger, cut_step)
 	return result
+
+static func _wild_set(a: Dictionary, size: int, need: int) -> Dictionary:
+	## A set of `size` at or above `need` with every wild joining it, the most dice and then
+	## the highest value first; the wilds alone make one at their top. Empty when none can.
+	var wilds: Array = a.get("wilds", [])
+	if wilds.is_empty():
+		return {}
+	var best: Dictionary = {}
+	for group in a.get("plain_groups", []):
+		var count: int = int(group.count) + wilds.size()
+		if int(group.value) >= need and count >= size and (best.is_empty() or count > int(best.count) or (count == int(best.count) and int(group.value) > int(best.value))):
+			best = {"value": int(group.value), "count": count, "dice": group.dice + wilds}
+	var top: int = _wild_top(a)
+	if best.is_empty() and wilds.size() >= size and top >= need:
+		best = {"value": top, "count": wilds.size(), "dice": wilds.duplicate()}
+	return best
+
+static func _wild_sets(a: Dictionary, first: int, second: int, need: int, high_only: bool) -> Dictionary:
+	## Two sets of different values, `first` and `second` dice big, with the wilds placed where
+	## they complete them; the highest values first. The first must reach `need`, and so must
+	## the second unless `high_only` (two pairs: the higher; a full house: its three).
+	var wilds: Array = a.get("wilds", [])
+	if wilds.is_empty():
+		return {}
+	var counts: Dictionary = {}
+	var dice_of: Dictionary = {}
+	for group in a.get("plain_groups", []):
+		counts[int(group.value)] = int(group.count)
+		dice_of[int(group.value)] = group.dice
+	## A value no die shows can be made of wilds alone: the two highest under their top will do.
+	var values: Array = counts.keys()
+	var top: int = _wild_top(a)
+	var spare: int = 0
+	for v in range(top, 0, -1):
+		if spare >= 2:
+			break
+		if not counts.has(v):
+			values.append(v)
+			spare += 1
+	var symmetric: bool = first == second
+	var best: Dictionary = {}
+	for x in values:
+		for y in values:
+			if x == y or (symmetric and x < y):
+				continue
+			var cost: int = maxi(0, first - int(counts.get(x, 0))) + maxi(0, second - int(counts.get(y, 0)))
+			if cost > wilds.size():
+				continue
+			if int(x) < need or (symmetric and not high_only and int(y) < need):
+				continue
+			if not best.is_empty() and (x < int(best.value) or (x == int(best.value) and y <= int(best.second))):
+				continue
+			var used_x: int = maxi(0, first - int(counts.get(x, 0)))
+			var dice: Array = dice_of.get(x, []).duplicate() + wilds.slice(0, used_x) + dice_of.get(y, []) + wilds.slice(used_x, cost)
+			best = {"value": x, "second": y, "dice": dice}
+	return best
+
+static func _wild_top(a: Dictionary) -> int:
+	var top: int = 0
+	var tops: Dictionary = a.get("wild_tops", {})
+	for id in a.get("wilds", []):
+		top = maxi(top, int(tops.get(str(id), 0)))
+	return top
 
 static func _all_dice(a: Dictionary) -> Array:
 	var dice: Array = []
@@ -404,11 +494,11 @@ static func words(trigger: Dictionary, cut_step: int) -> String:
 		"at_least": return "Your highest die shows %d or more." % need
 		"total_pct_at_least": return "Your total is at least %d%% of the most your dice could roll." % need
 		"total_pct_at_most": return "Your total is at most %d%% of the most your dice could roll." % need
-		"high_pct_at_least": return "One die shows at least %d%% of its own top face." % need
+		"high_pct_at_least": return "One die showing at least %d%% of its size (a 6 on a d6 is 100%%)." % need
 		"held": return "At least %s you did not reroll." % _dice(need)
 		"rerolled": return "At least %s you rerolled this turn." % _dice(need)
 		"resonance": return "Resonance of %d or more when this gem is reached." % need
-		"low_count": return "At least %s at or below half its own top face." % _dice(need) if need == 1 else "At least %s at or below half their own top face." % _dice(need)
+		"low_count": return "At least one die in the low half of its size (1-3 on a d6)." if need == 1 else "At least %s in the low half of their size (1-3 on a d6)." % _dice(need)
 		"crowns": return "At least %d %s: %s on %s own top face." % [need, "crown" if need == 1 else "crowns", "a die" if need == 1 else "dice", "its" if need == 1 else "their"]
 		"crowns_at_most": return "No crowns: no die on its top face." if need == 0 else "No more than %d %s." % [need, "crown" if need == 1 else "crowns"]
 		"skip_straight": return "%d different values, all odd or all even, like 2-4-6-8-10." % need

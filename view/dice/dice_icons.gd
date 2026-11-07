@@ -119,6 +119,16 @@ static func readable_face(edge: float, value: int, tone: Color, shape := "D6", f
 	drawn.custom_minimum_size = Vector2(fitted, fitted)
 	return drawn
 
+static func picker_face(edge: float, value: int, tone: Color, shape := "D6", filled := false, text: String = "") -> Face:
+	## A face in a picker (the carver's), drawn at exactly `edge`, small as that may be (a
+	## d30's at 19 px): its number is set at a share of the face's box rather than of its
+	## outline, shrunk only while it would run out of the box, and drawn with a dark edge so it
+	## reads where it crosses the outline. Two digits on a 19 px diamond are 11 px, where a
+	## plain face's are 7.
+	var drawn := Face.new(edge, value, tone, silhouette(shape), filled, text)
+	drawn.picker = true
+	return drawn
+
 ## What `fit_edge` worked out, by face, text and floor: a d100's plate asks a hundred times.
 static var _fitted: Dictionary = {}
 
@@ -143,6 +153,10 @@ class Face extends Control:
 	var text := ""
 	## Kept to the text floor (`readable_face`): its number is never drawn under it.
 	var readable := false
+	## In a picker (`picker_face`): its number is sized to the face's box, not its outline.
+	var picker := false
+	## The smallest a picker's number is ever set.
+	const PICKER_FLOOR: int = 8
 	var _points: Array = []
 	var _font_scale := 0.58
 	var _middle := 0.5
@@ -184,11 +198,25 @@ class Face extends Control:
 		var font_size := text_size(size.y)
 		var measured := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 		var baseline := size.y * _middle + (font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
-		draw_string(font, Vector2((size.x - measured.x) * 0.5, baseline), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _ink)
+		var at := Vector2((size.x - measured.x) * 0.5, baseline)
+		if picker:
+			## Sized to the box, the number may cross the outline: a dark edge keeps it whole.
+			var rim: Color = Color(0.03, 0.04, 0.06, 0.92) if _ink.get_luminance() > 0.45 else Color(_fill, 0.9)
+			draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 3, rim)
+		draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _ink)
 
 	func text_size(edge: float) -> int:
 		## The size its text is drawn at on a face `edge` tall: a share of the face, less for a
-		## longer number, and on a readable face never under the floor.
+		## longer number, and on a readable face never under the floor. A picker's face starts
+		## from a number six tenths of the face (two digits as large as one) and steps
+		## down a point at a time only while it is wider than the face's box less a pixel a
+		## side, never under `PICKER_FLOOR`.
+		if picker:
+			var font: Font = DeepUi.bold_font()
+			var want: int = maxi(PICKER_FLOOR, int(edge * 0.6))
+			while want > PICKER_FLOOR and font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, want).x > edge - 2.0:
+				want -= 1
+			return want
 		var scale: float = _font_scale * minf(1.0, 1.4 / maxf(1.0, text.length()))
 		var drawn: int = maxi(7, int(edge * scale))
 		return maxi(drawn, DeepUi.min_text()) if readable else drawn
@@ -196,10 +224,13 @@ class Face extends Control:
 	func holds(edge: float) -> bool:
 		## Whether its text, at the size it is drawn on a face `edge` tall, stays inside the
 		## outline: the outline must be as wide as the text at both its top and its foot.
+		return holds_at(edge, text_size(edge))
+
+	func holds_at(edge: float, font_size: int) -> bool:
+		## `holds`, for text set at a given size.
 		if text.is_empty():
 			return true
 		var font: Font = DeepUi.bold_font()
-		var font_size: int = text_size(edge)
 		var wide: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 1.0
 		var foot: float = edge * _middle + (font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
 		## Digits and a "d" stand about this much of the size over the baseline.

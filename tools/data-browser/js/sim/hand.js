@@ -1,6 +1,6 @@
 // What a hand of rolls contains: a port of sim/hand.gd, field for field.
 
-import { heldForPatterns, preference } from './dice.js';
+import { heldForPatterns, preference, sizeOf } from './dice.js';
 import { I } from './numbers.js';
 
 export function analyze(hand, colors = []) {
@@ -10,7 +10,8 @@ export function analyze(hand, colors = []) {
 	const showing = new Map();
 	const counts = new Map();
 	const wilds = [];
-	let wildTop = 0;
+	let wildTop = 0, wildTotal = 0;
+	const wildTops = new Map();
 	const rank = new Map();
 	let total = 0, maxTotal = 0, held = 0, rerolled = 0, phantoms = 0, high = 0, low = 0, highPct = 0, odd = 0, even = 0, lowDice = 0, crowns = 0;
 	const lowIds = [];
@@ -22,6 +23,10 @@ export function analyze(hand, colors = []) {
 		const kind = roll.kind || 'plain';
 		const value = I(roll.value);
 		const top = Math.max(1, roll.top ?? value);
+		// Low and high are judged against the plain die's size, never its faces: filing, carving
+		// or raising a face does not move the line (1-3 low on a d6, 4-6 high). A roll with no
+		// shape falls back to its top. Crowns and max_total still read top.
+		const faces = roll.shape ? sizeOf(roll.shape) : top;
 		const id = roll.die_id || '';
 		// Higher wants it more; the bench order breaks a tie, so a hand reads the same twice.
 		rank.set(id, preference(roll, colors) * 1000 - index);
@@ -30,13 +35,18 @@ export function analyze(hand, colors = []) {
 		if (heldForPatterns(roll)) held += 1;
 		if ((I(roll.rerolls)) > 0) rerolled += 1;
 		if (kind === 'wild') {
+			// Any value at all: its top for the high end, and low for a gem that wants low dice.
 			wilds.push(id);
 			wildTop = Math.max(wildTop, top);
+			wildTops.set(id, top);
+			wildTotal += top;
 			total += top;
 			highPct = 100;
 			crowns += 1;
 			crownIds.push(id);
 			crownTotal += top;
+			lowDice += 1;
+			lowIds.push(id);
 			continue;
 		}
 		if (kind === 'blank') continue;
@@ -45,9 +55,9 @@ export function analyze(hand, colors = []) {
 		values.push(value);
 		high = Math.max(high, value);
 		low = low === 0 ? value : Math.min(low, value);
-		highPct = Math.max(highPct, Math.floor((value * 100) / top));
+		highPct = Math.max(highPct, Math.floor((value * 100) / faces));
 		if (value % 2 === 1) odd += 1; else even += 1;
-		if (value * 2 <= top) { lowDice += 1; lowIds.push(id); }
+		if (value * 2 <= faces) { lowDice += 1; lowIds.push(id); }
 		if (value >= top) { crowns += 1; crownIds.push(id); crownTotal += value; crownValues.add(value); }
 		// A gem may have changed the roll since it was thrown; then what it shows is what it is.
 		const shown = 'shown' in roll && value === I(roll.counted ?? -1) ? I(roll.shown) : value;
@@ -70,6 +80,11 @@ export function analyze(hand, colors = []) {
 		if (bestCount === 0) { bestValue = wildTop; sets.set(wildTop, wilds.length); }
 		else sets.set(bestValue, bestCount + wilds.length);
 	}
+	// The sets the numbers make before any wild joins one: a trigger that wants two sets
+	// places the wilds itself (patterns.js), since the largest set is not always where they help.
+	const plainGroups = [];
+	for (const [value, count] of counts) plainGroups.push({ value, count, dice: (idsByValue.get(value) || []).slice() });
+	plainGroups.sort((a, b) => (a.count !== b.count ? b.count - a.count : b.value - a.value));
 	const groups = [];
 	for (const [value, count] of sets) {
 		const dice = (idsByValue.get(value) || []).slice();
@@ -81,15 +96,15 @@ export function analyze(hand, colors = []) {
 	let oddValues = 0, evenValues = 0;
 	for (const v of counts.keys()) { if (v % 2 === 1) oddValues += 1; else evenValues += 1; }
 	return {
-		values, wilds, rank, total, max_total: Math.max(1, maxTotal),
-		high: high > 0 ? high : wildTop, low: low > 0 ? low : wildTop, high_pct: highPct,
+		values, wilds, wild_tops: wildTops, wild_total: wildTotal, rank, total, max_total: Math.max(1, maxTotal),
+		high: Math.max(high, wildTop), low: low > 0 ? low : wildTop, high_pct: highPct,
 		held, rerolled, phantoms, dice_count: hand.length,
-		groups, best_set: groups.length ? groups[0] : { value: 0, count: 0, dice: [] },
+		groups, plain_groups: plainGroups, best_set: groups.length ? groups[0] : { value: 0, count: 0, dice: [] },
 		pairs, straight: straightOf(counts, wilds, idsByValue, hand.length, wildTop),
 		odd: odd + wilds.length, even: even + wilds.length, distinct: counts.size + wilds.length,
 		odd_values: oddValues + wilds.length, even_values: evenValues + wilds.length,
 		low_dice: lowDice, low_ids: lowIds, crowns, crown_ids: crownIds, crown_total: crownTotal,
-		high_crown: (high > 0 && crownValues.has(high)) || (high === 0 && wilds.length > 0) ? 1 : 0, ids_by_value: idsByValue,
+		high_crown: (wilds.length > 0 && wildTop >= high) || (high > 0 && crownValues.has(high)) ? 1 : 0, ids_by_value: idsByValue,
 		bases, showing,
 	};
 }
@@ -134,11 +149,11 @@ function straightOf(counts, wilds, idsByValue, diceTotal, wildTop = 0) {
 	return best;
 }
 
-// The N highest (or lowest) dice, as {sum, dice}. Wilds read as the hand's high.
+// The N highest (or lowest) dice, as {sum, dice}. Wilds read as the die's top.
 export function read(analysis, count, fromHigh) {
 	const entries = [];
 	for (const [v, ids] of analysis.ids_by_value) for (const id of ids) entries.push({ value: v, id });
-	for (const id of analysis.wilds) entries.push({ value: analysis.high, id });
+	for (const id of analysis.wilds) entries.push({ value: analysis.wild_tops?.has(id) ? analysis.wild_tops.get(id) : analysis.high, id });
 	const rank = analysis.rank || new Map();
 	entries.sort((a, b) => (a.value !== b.value ? (fromHigh ? b.value - a.value : a.value - b.value) : (rank.get(b.id) || 0) - (rank.get(a.id) || 0)));
 	let sum = 0;

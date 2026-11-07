@@ -24,6 +24,7 @@ extends Control
 
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const ScreenFx = preload("res://view/battle/screen_fx.gd")
+const FlawlessFx = preload("res://view/battle/flawless_fx.gd")
 
 ## How far up the scale one rail may climb, in steps of it: two octaves less a little. Past
 ## that a tick is a whistle.
@@ -34,7 +35,7 @@ const TOP_START: int = 5
 ## How each step a count lays on is said: its note under the number, its mark and its color.
 const STEP_LOOKS: Dictionary = {
 	"carat": ["carat", "e2b23a", ""], "clarity": ["clarity", "dff3ff", "Flawless"], "inclusions": ["prism", "76b6ff", "inclusion"],
-	"amplify": ["double_up", "ffd76a", "amplified"], "echo": ["echo", "76b6ff", "Echo"],
+	"amplify": ["double_up", "ffd76a", "amplified"], "echo": ["echo", "76b6ff", "Echo"], "flawless": ["star", "ffcf5a", "Flawless"],
 	"depth": ["depth", "ff9a7a", "depth"], "empowered": ["rise", "ffb04a", "Empowered"],
 	"bonus": ["spark", "76b6ff", "bonus"], "strength": ["flame", "ff9a5a", "Strength"], "rally": ["party", "ffb0a0", "Rallied"],
 	"enrage": ["skull", "ff6a5a", "Enraged"], "curse": ["eye", "c58bff", "Cursed"]}
@@ -113,6 +114,11 @@ var _base_box: PanelContainer
 var _base_label: Label
 var _mult_box: PanelContainer
 var _mult_label: Label
+## A Flawless line's own multiplier, in a box of its own to the right of the rest: it is the bonus,
+## and the player should see it arrive as one. Laid out from the start and hidden, so nothing shifts.
+var _flawless_sign: Label
+var _flawless_box: PanelContainer
+var _flawless_label: Label
 var _total_box: PanelContainer
 var _total_label: Label
 var _base: int = 0
@@ -345,8 +351,20 @@ func _build() -> void:
 	_mult_label.custom_minimum_size.x = 18.0 if compact else 28.0
 	## Struck no stronger than it was: the box stays, dim, so the place a multiplier would
 	## land is learned before the first heavy stone ever fills it.
-	if _tally.get("mults", []).is_empty():
+	if _tally.get("mults", []).filter(func(e: Dictionary) -> bool: return str(e.get("what", "")) != "flawless").is_empty():
 		_mult_box.modulate = Color(1, 1, 1, 0.45)
+	if _tally.get("mults", []).any(func(e: Dictionary) -> bool: return str(e.get("what", "")) == "flawless"):
+		var gold: Color = FlawlessFx.tone()
+		_flawless_sign = DeepUi.label(_row, "×", 18 if compact else 24, DeepUi.PAPER)
+		_flawless_sign.add_theme_color_override("font_outline_color", Color(DeepUi.INK, 0.95))
+		_flawless_sign.add_theme_constant_override("outline_size", 5)
+		_flawless_sign.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_flawless_sign.modulate.a = 0.0
+		_flawless_box = _box(_row, gold)
+		var line := DeepUi.hbox(_flawless_box, 4)
+		DeepUi.icon(line, "star", 14.0 if compact else 22.0, gold).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_flawless_label = _number(line, "2", big - 2, gold.lightened(0.15))
+		_flawless_box.modulate.a = 0.0
 
 func _box(parent: Control, edge: Color) -> PanelContainer:
 	var box := PanelContainer.new()
@@ -481,10 +499,15 @@ func _lay(entry: Dictionary, seconds: float) -> void:
 		"carat":
 			var weight: float = float(entry.get("weight", 1.0))
 			note = ("%d carats" % int(weight)) if is_equal_approx(weight, round(weight)) else ("%.1f carats" % weight)
+		"flawless":
+			## The bonus is on: the gem sparkles and rings, and its multiplier flies out of the sparkle.
+			if get_parent() is Control:
+				FlawlessFx.sparkle(get_parent() as Control, _centre(source), 0.7 if compact else 1.0)
+			DeepAudio.play_at(_centre(source), "flawless_glint", {"volume": 0.85 * volume, "gap": 0.0})
 	var from: Vector2 = _centre(source)
 	if source != null:
 		from.y -= source.size.y * 0.35
-	var to: Vector2 = _centre(_base_box if what == "link" else _mult_box)
+	var to: Vector2 = _centre(_base_box if what == "link" else (_flawless_box if what == "flawless" and _flawless_box != null else _mult_box))
 	var step: int = _step
 	_step += 1
 	_fly(from, to, text, note, tint, clampf(seconds * 0.6, 0.05, 0.24), _laid.bind(what, float(entry.get("x", 1.0)), tint, step), glyph)
@@ -493,6 +516,15 @@ func _laid(what: String, x: float, tint: Color, step: int) -> void:
 	if what == "link":
 		_set_base(int(_tally.get("base", 0)))
 		_voice(tick, _centre(_base_box), 0.6, step)
+		return
+	if what == "flawless" and _flawless_box != null:
+		_flawless_sign.modulate.a = 1.0
+		_flawless_box.modulate.a = 1.0
+		_flawless_label.text = times(x).substr(1)
+		DeepUi.spring(_flawless_box, 0.34, 9.0, 0.48)
+		_sparks(_centre(_flawless_box), tint, 18, 150.0)
+		_voice("tally_mult", _centre(_flawless_box), 0.85, step)
+		_rumble(0.3, 0.45, 0.08)
 		return
 	_mult *= x
 	_mult_box.modulate = Color.WHITE
@@ -514,6 +546,8 @@ func _fuse(whole: bool) -> void:
 	## The two boxes are drawn together into the middle as light, and go.
 	for box in [_base_box, _mult_box]:
 		_streak(_centre(box), centre, _kind_tone if box == _base_box else DeepUi.ACCENT_HI)
+	if _flawless_box != null:
+		_streak(_centre(_flawless_box), centre, FlawlessFx.tone())
 	_row.visible = false
 	var tone: Color = Color("ffcf5a") if blaze else _kind_tone
 	if blaze:

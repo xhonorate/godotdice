@@ -9,8 +9,10 @@ extends Node
 ## their levels move. The bed is the whole piece as heard on a walk; deeper in a mine the deep
 ## strip comes up under it; a fight brings its strip in over the tune that was already
 ## playing; a Warden's hall adds its own and pulls the bed back to make room; winning lets
-## them go again. Both buses sit in the room of the place (`ROOMS`): a reverb and a slapback
-## that grow with depth, eased from one place's to the next.
+## them go again. The music sits in the room of the place (`ROOMS`): a reverb and a slapback
+## that grow with depth, eased from one place's to the next. The world's sounds (blows, steps,
+## gems, the big moments) hear a little of the same room, one slap and no repeats; the
+## interface and the count are dry (`DeepAudio.dry`).
 ##
 ## The Music bus follows the same moods. Between fights in a mine the music is a little dark
 ## (a low pass at 6.5 kHz), so a fight opening it up sounds brighter and closer; a fight is
@@ -61,8 +63,8 @@ const MOODS: Dictionary = {
 }
 ## The room each place puts the sound in: how big and how dead its reverb and how much of it
 ## is heard, and the slapback off its walls (seconds, how much comes back, how loud). Deeper
-## in a mine, more of the room is heard (`room_for`). The same room sits on the effects bus
-## and, at `MUSIC_SEND` of it, on the music.
+## in a mine, more of the room is heard (`room_for`). The music hears it at `MUSIC_SEND`, the
+## world's sounds at `SFX_SEND`.
 const ROOMS: Dictionary = {
 	"HOME": {"size": 0.45, "damp": 0.6, "wet": 0.1, "delay": 0.0, "fb": 0.0, "dwet": 0.0},
 	"QUARRY": {"size": 0.7, "damp": 0.5, "wet": 0.2, "delay": 0.21, "fb": 0.25, "dwet": 0.14},
@@ -73,7 +75,12 @@ const ROOMS: Dictionary = {
 	"GEODE": {"size": 1.1, "damp": 0.35, "wet": 0.3, "delay": 0.28, "fb": 0.42, "dwet": 0.26},
 	"RIFT": {"size": 1.3, "damp": 0.3, "wet": 0.38, "delay": 0.37, "fb": 0.55, "dwet": 0.36},
 }
-const MUSIC_SEND: float = 0.55
+## How much of the room each bus hears: of the reverb, of the slapback, whether the slapback
+## repeats, and the reverb's high pass (0 to 1), which keeps a low thump out of the tail. The
+## effects hear about a third of the music's reverb and one slap, so a click or a blow stays
+## close and clear in the biggest hall (November 2026: the full room made them sound hollow).
+const MUSIC_SEND: Dictionary = {"reverb": 0.55, "echo": 0.55, "repeats": true, "hipass": 0.12}
+const SFX_SEND: Dictionary = {"reverb": 0.2, "echo": 0.15, "repeats": false, "hipass": 0.3}
 ## How hot each mood runs the Music bus, 0 to 1: how open its low pass, how hard its
 ## compressor squeezes, and (past 0.6) how far its saturation is driven.
 const HEAT: Dictionary = {"fight": 0.5, "elite": 0.75, "warden": 1.0}
@@ -351,7 +358,7 @@ func _open_buses() -> void:
 		AudioServer.set_bus_volume_db(at, linear_to_db(AIR_LEVEL))
 	DeepMusic.levels({})
 
-func _open_room(bus_name: String, send: float) -> void:
+func _open_room(bus_name: String, send: Dictionary) -> void:
 	## The reverb and the slapback on a bus, ahead of anything else on it: found again if the
 	## bus outlived an earlier score player, made if not. Steered every frame by `_steer_rooms`.
 	var bus: int = AudioServer.get_bus_index(bus_name)
@@ -369,7 +376,7 @@ func _open_room(bus_name: String, send: float) -> void:
 		found[entry[0]] = {"at": at, "effect": AudioServer.get_bus_effect(bus, at)}
 	var reverb: AudioEffectReverb = found.reverb.effect
 	reverb.spread = 0.85
-	reverb.hipass = 0.12
+	reverb.hipass = float(send.hipass)
 	reverb.predelay_msec = 24.0
 	reverb.dry = 1.0
 	var delay: AudioEffectDelay = found.delay.effect
@@ -377,15 +384,16 @@ func _open_room(bus_name: String, send: float) -> void:
 	delay.tap1_active = true
 	delay.tap1_pan = 0.0
 	delay.tap2_active = false
-	delay.feedback_active = true
-	delay.feedback_lowpass = 3000.0
+	delay.feedback_active = bool(send.repeats)
+	## The repeats darken a little, as off a wall, but not so far they sound muffled.
+	delay.feedback_lowpass = 6000.0
 	_rooms[bus_name] = {"bus": bus, "send": send, "reverb": found.reverb, "delay": found.delay}
 
 func _steer_rooms(place: String, deep: float, dt: float) -> void:
 	## Ease the room toward the place's at this depth, both buses together: a walk into
 	## another mine is a crossfade of rooms as much as of pieces.
-	if not _rooms.has(DeepAudio.BUS):
-		_open_room(DeepAudio.BUS, 1.0)
+	if not _rooms.has(DeepAudio.ROOM_BUS):
+		_open_room(DeepAudio.ROOM_BUS, SFX_SEND)
 	var want: Dictionary = room_for(place, deep)
 	var moved: bool = false
 	for key in want:
@@ -399,19 +407,20 @@ func _steer_rooms(place: String, deep: float, dt: float) -> void:
 		return
 	for name in _rooms:
 		var room: Dictionary = _rooms[name]
-		var send: float = float(room.send)
+		var send: Dictionary = room.send
 		var reverb: AudioEffectReverb = room.reverb.effect
 		reverb.room_size = float(_room_now.size)
 		reverb.damping = float(_room_now.damp)
-		reverb.wet = float(_room_now.wet) * send
+		reverb.wet = float(_room_now.wet) * float(send.reverb)
 		AudioServer.set_bus_effect_enabled(int(room.bus), int(room.reverb.at), reverb.wet > 0.005)
 		var delay: AudioEffectDelay = room.delay.effect
 		var ms: float = maxf(1.0, float(_room_now.delay) * 1000.0)
 		delay.tap1_delay_ms = ms
 		delay.feedback_delay_ms = ms
-		delay.tap1_level_db = linear_to_db(maxf(float(_room_now.delay_level) * send, 0.0001))
+		var echo: float = float(_room_now.delay_level) * float(send.echo)
+		delay.tap1_level_db = linear_to_db(maxf(echo, 0.0001))
 		delay.feedback_level_db = linear_to_db(clampf(float(_room_now.feedback), 0.0001, 0.9))
-		AudioServer.set_bus_effect_enabled(int(room.bus), int(room.delay.at), float(_room_now.delay_level) * send > 0.005 and float(_room_now.delay) > 0.01)
+		AudioServer.set_bus_effect_enabled(int(room.bus), int(room.delay.at), echo > 0.005 and float(_room_now.delay) > 0.01)
 
 func _open_fx(bus: int) -> void:
 	## After the room: the low pass, the compressor, the saturation and the limiter the moods

@@ -73,6 +73,11 @@ const ENV_FIELDS: Array = ["background_color", "ambient_light_color", "ambient_l
 
 ## The graphics setting: 0 lets the governor decide, 1-3 fixes low, medium or high.
 static var quality_pref: int = 0
+## The "Soften edges" setting: FXAA over the room on top of the multisampling (`screen_aa`).
+static var soften_pref: bool = false
+## How long after the last change of size the viewport waits before it is cut to the new
+## pixels, in milliseconds: a drag at the window's corner is not a new render target a frame.
+const REFIT_MSEC := 250
 ## Shared by every stage: the spoils' metal by [color, glow] (`_metal`), the salvage dice by
 ## their sides (`_die_mesh`). Let go of in `release`.
 static var _metals: Dictionary = {}
@@ -144,6 +149,9 @@ var _next_rumble: float = 7.0
 ## inside it went soft with everything else. By the instance id of the spot they name.
 var _names_layer: Control = null
 var _names: Dictionary = {}
+## When the viewport is next cut to the stage's pixels (`_fit_frame`), in engine
+## milliseconds; 0 when nothing is waiting.
+var _refit_due: int = 0
 
 func _ready() -> void:
 	_headless = DisplayServer.get_name() == "headless"
@@ -156,7 +164,10 @@ func _ready() -> void:
 	load("res://view/ui/tips.gd").hold(self, _hold_look)
 	frame = SubViewportContainer.new()
 	frame.stretch = true
-	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	## Not anchored to the stage: `_fit_frame` sizes it in the window's pixels and scales it
+	## back to the stage, so the room is drawn one texel to one pixel. Nearest, so a texel
+	## is never smeared over its neighbours by the filter.
+	frame.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(frame)
 	viewport = SubViewport.new()
@@ -203,7 +214,12 @@ func _ready() -> void:
 	_names_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_names_layer)
 	visibility_changed.connect(_on_visibility)
+	resized.connect(_frame_resized)
+	## The window's pixels per canvas unit change with its size (a 1600×900 canvas stretched
+	## over it) even when the stage's own size in canvas units does not.
+	get_window().size_changed.connect(_frame_resized)
 	_set_quality(3 if quality_pref <= 0 else clampi(quality_pref, 1, 3))
+	_fit_frame()
 
 func _on_visibility() -> void:
 	## A hidden stage costs nothing: its world stops rendering and stops moving.
@@ -212,6 +228,79 @@ func _on_visibility() -> void:
 	var shown := is_visible_in_tree()
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if shown else SubViewport.UPDATE_DISABLED
 	world.process_mode = Node.PROCESS_MODE_INHERIT if shown else Node.PROCESS_MODE_DISABLED
+	if shown:
+		_fit_frame()
+
+# --- the frame's pixels ------------------------------------------------------------------------
+##
+## The room is drawn at the window's own pixels (November 6, 2026). The frame used to fill the
+## stage and its viewport took the stage's size in canvas units, 1600×900 on every window, and
+## the canvas's stretch then scaled that picture to the window: upscaled and soft on a 1080p or
+## 1440p screen, minified without mipmaps on the 1440×810 dev window. Now the viewport has as
+## many pixels as the stage covers on screen, and the frame is scaled back to the stage by the
+## same ratio, so each texel lands on one pixel. Everything the HUD pins to a place in the room
+## goes through `view_scale`, from viewport pixels to stage units.
+
+func _canvas_scale() -> Vector2:
+	## Window pixels per unit of the stage: the canvas's stretch, and whatever the stage's
+	## ancestors scale it by.
+	var scale: Vector2 = (get_viewport().get_screen_transform() * get_global_transform_with_canvas()).get_scale()
+	return scale if scale.x > 0.001 and scale.y > 0.001 else Vector2.ONE
+
+static func physical_size(logical: Vector2, scale: Vector2) -> Vector2i:
+	## The pixels a box of `logical` canvas units covers on screen: rounded up, so the frame
+	## never falls a sliver short of the stage's edge.
+	return Vector2i(int(ceil(logical.x * scale.x - 0.001)), int(ceil(logical.y * scale.y - 0.001)))
+
+func _fit_frame() -> void:
+	## Cuts the viewport to the stage's pixels and scales the frame back to the stage. A stage
+	## not laid out yet (hidden under the workshop, where `warm_up` draws it) takes the window's
+	## own pixels, the size it will be shown at.
+	if frame == null or viewport == null:
+		return
+	_refit_due = 0
+	var scale: Vector2 = _canvas_scale()
+	var pixels: Vector2i = physical_size(size, scale)
+	if pixels.x < 64 or pixels.y < 64:
+		pixels = get_window().size
+	frame.position = Vector2.ZERO
+	frame.scale = Vector2.ONE / scale
+	if Vector2i(frame.size) != pixels:
+		## `stretch` hands the frame's size on to the viewport.
+		frame.size = Vector2(pixels)
+	if viewport.size != pixels:
+		viewport.size = pixels
+	_fit_look()
+
+func _fit_look() -> void:
+	## The look's widths (the ink's line, a hatch's spacing) are in the viewport's pixels and
+	## were set for a viewport of the canvas's size: scaled with the canvas, a line is as thick
+	## on a 1440p screen as it was, only sharp.
+	if look == null or not Looks.LOOKS.has(look.look):
+		return
+	var preset: float = float(Looks.LOOKS[look.look].scale)
+	var want: float = preset * maxf(0.5, _canvas_scale().y)
+	if not is_equal_approx(look.size, want):
+		look.dial(-1.0, want)
+
+func _frame_resized() -> void:
+	## The stage or the window changed size: the picture already drawn is stretched over the
+	## new size at once, and the viewport is cut to the new pixels once the size has held for
+	## `REFIT_MSEC`, so a drag at the window's corner is not a new render target a frame.
+	if frame == null or viewport == null or not is_inside_tree():
+		return
+	if viewport.size.x < 64 or viewport.size.y < 64:
+		_fit_frame()
+		return
+	if size.x >= 1.0 and size.y >= 1.0 and frame.size.x >= 1.0 and frame.size.y >= 1.0:
+		frame.scale = size / frame.size
+	_refit_due = Time.get_ticks_msec() + REFIT_MSEC
+
+func view_scale() -> Vector2:
+	## Stage units per viewport pixel.
+	if frame == null or viewport == null or viewport.size.x < 1 or viewport.size.y < 1:
+		return Vector2.ONE
+	return frame.size * frame.scale / Vector2(viewport.size)
 
 static func release() -> void:
 	## Drops the shared metal and dice so nothing outlives the renderer on the way out.
@@ -253,6 +342,9 @@ func _new_room(p: Dictionary, origin: Vector3) -> Dictionary:
 		## The room's dressing is planned before the lift hall is built: tell it where the cage
 		## will stand, so no crystal hides it.
 		made.keep_clear = [Vector2(LiftHall.CAGE.x, LiftHall.CAGE.z)]
+		if int(p.get("party", 1)) > 1:
+			## And where a party's trading booth will stand.
+			made.keep_clear.append(Vector2(LiftHall.TRADE.x, LiftHall.TRADE.z))
 	made.position = origin
 	world.add_child(made)
 	var steps: Array = made.plan(biome, room_seed(p), int(p.get("exits", 2)), float(p.get("drop", 2.5)))
@@ -296,7 +388,7 @@ func show_room(p: Dictionary, force: bool = false) -> bool:
 		(step as Callable).call()
 	_settle_in()
 	camera.home_position = HOME
-	camera.home_look = HOME_LOOK
+	camera.home_look = room_look(str(p.get("kind", "")))
 	camera.home_fov = BASE_FOV
 	camera.bob = 0.0
 	camera.reset()
@@ -330,6 +422,22 @@ func _lead_eye(look: Vector3, seconds: float = 0.7) -> void:
 		return
 	var tween := camera.create_tween()
 	tween.tween_property(camera, "home_look", look, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+static func room_look(kind: String) -> Vector3:
+	## Where the eye settles in a room of this kind: the one value its builder leads the eye
+	## to and the walk in aims at, so arriving is not a step and then a pan down (November 5,
+	## 2026). The stall sits low and near; an altar's face is read a little higher; a card
+	## room's plinth or furniture stands clear above the row of cards; a vein's blocks are
+	## looked at closer in. Everything else (a fight, a landing, the shaft head) rests at home.
+	if kind == "merchant":
+		return Vector3(0.0, 0.85, -3.0)
+	if kind == "altar":
+		return Vector3(0.0, 1.1, -3.0)
+	if kind == "oddity" or kind in DeepDescent.CARD_ROOMS:
+		return CARD_LOOK
+	if kind in DeepDescent.ROCK_ROOMS:
+		return HOME_LOOK + Vector3(0, 0.55, -1.0)
+	return HOME_LOOK
 
 func _settle_in() -> void:
 	## The room the party now stands in, at the origin: its air, its flares, its mouths.
@@ -366,13 +474,11 @@ func crossroads(entries: Array) -> void:
 		return
 	var wait: float = _crumble() if not _falls.is_empty() else 0.0
 	var spent: Node3D = business()
-	if spent != null and spent.has_method("collapse"):
-		## A vein that is done sinks into the floor and lets the party through.
-		wait = maxf(wait, spent.collapse(fx))
-		_business = null
-		_business_key = ""
-		_obstacle = 0.0
-		clear_picks()
+	if spent != null:
+		## A vein that is done sinks into the floor and lets the party through, and so does
+		## anything else done with (a stall, a card's furniture, the well): the stroll up to
+		## the forks is then a straight walk, not a swerve round the counter.
+		wait = maxf(wait, _retire(spent))
 	if wait > 0.0:
 		_at = "moving"
 		_crumble_timer = get_tree().create_timer(wait)
@@ -489,6 +595,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		## Walks the stylization passes while the game is running, so a look can be judged
 		## against the room it has to live in rather than against a still.
 		Looks.pref = look.cycle(-1 if event.shift_pressed else 1)
+		_fit_look()
 		print("look: %s - %s" % [Looks.pref, str(Looks.LOOKS[Looks.pref].name)])
 		get_viewport().set_input_as_handled()
 
@@ -550,7 +657,7 @@ func pick_rect(id: String) -> Rect2:
 			seen.append(camera.unproject_position(corner))
 		return seen
 	var points: Array = _steady(project)
-	var stretch: Vector2 = frame.size / Vector2(viewport.size)
+	var stretch: Vector2 = view_scale()
 	var box := Rect2()
 	var first: bool = true
 	for point in points:
@@ -669,16 +776,37 @@ func set_business(key: String, node: Node3D, half_width: float) -> void:
 				DeepAudio.play("cave_rumble", {"volume": 0.35}))
 
 func retire_business() -> float:
-	## Whatever stood at the arena and is done with goes, if it knows how to go.
+	## Whatever stood at the arena and is done with goes.
 	var done: Node3D = business()
-	if done == null or not done.has_method("collapse"):
+	if done == null:
 		return 0.0
-	var wait: float = done.collapse(fx)
+	return _retire(done)
+
+func _retire(done: Node3D) -> float:
+	## The business goes its own way down (a vein, a hoard, an altar know how to `collapse`),
+	## or sinks; either way nothing stands at the arena any more. Returns how long to wait.
+	var wait: float = done.collapse(fx) if done.has_method("collapse") else _sink(done)
 	_business = null
 	_business_key = ""
 	_obstacle = 0.0
 	clear_picks()
 	return wait
+
+func _sink(node: Node3D) -> float:
+	## A business with no collapse of its own (a stall, a card's furniture, the well's frame)
+	## sinks into the floor in its own dust, the way a spent vein does. Returns how long it
+	## takes, short of the end so the stroll starts while it is still going.
+	var seconds: float = 0.9
+	if _headless or not node.is_inside_tree():
+		node.queue_free()
+		return 0.0
+	if fx != null and is_instance_valid(fx):
+		fx.puff(node.global_position + Vector3(0, 0.3, 0.6), Color("8a7a66"), 16, 1.6, 1.8, 0.4)
+	DeepAudio.play("cave_rumble", {"volume": 0.4})
+	var tween := node.create_tween()
+	tween.tween_property(node, "position:y", node.position.y - 4.0, seconds).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_callback(node.queue_free)
+	return seconds * 0.8
 
 func business_key() -> String:
 	return _business_key if business() != null else ""
@@ -701,10 +829,10 @@ func _round_business(from: Vector3, to: Vector3) -> Array:
 ## that deep — so `hall()` is null there and the only way out of it is down. The hall at the
 ## bottom of a mine is the exception: its final boss's hall has the cage and nothing else.
 
-func _build_hall(made: Node3D, kind: String, seed_value: int, _party: bool = false) -> void:
+func _build_hall(made: Node3D, kind: String, seed_value: int, party: bool = false) -> void:
 	var hall: Node3D = LiftHall.new()
 	made.add_child(hall)
-	hall.build(made.biome, seed_value + 41, kind == "landing", kind == "head", made.ground)
+	hall.build(made.biome, seed_value + 41, kind == "landing", kind == "head", made.ground, party)
 	made.set_meta("hall", hall)
 
 func hall() -> Node3D:
@@ -859,7 +987,7 @@ func altar() -> Node3D:
 		made.scale = Vector3.ONE * 1.15
 		set_business(key, made, 1.8)
 		made.build(room_seed(place) + 67, Color(room.biome.rock))
-		_lead_eye(Vector3(0.0, 1.1, -3.0))
+		_lead_eye(room_look("altar"))
 	return business()
 
 # --- an oddity's shrine ----------------------------------------------------------------------------
@@ -879,12 +1007,12 @@ func shrine(glyph: String, color: Color, card: String = "") -> Node3D:
 		## Built where it will rest, before the room takes it: see `vein`.
 		props.build(card, room_seed(place) + 31, color, func(x: float, z: float) -> float: return room.ground(x, z))
 		set_business(key, props, CardProps.half_width(card))
-		_lead_eye(CARD_LOOK)
+		_lead_eye(room_look("oddity"))
 		return props
 	var made := Node3D.new()
 	made.position = Chamber.ARENA + Vector3(0, 0, -1.2)
 	set_business(key, made, 0.0)
-	_lead_eye(CARD_LOOK)
+	_lead_eye(room_look("oddity"))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = room_seed(place) + 31
 	var rock := StandardMaterial3D.new()
@@ -1068,7 +1196,7 @@ func stall(stock: Array, appraise_cost: int) -> Node3D:
 		made.position = Chamber.ARENA + Vector3(0, 0, 1.9)
 		set_business(key, made, Stall.WIDTH * 0.5 + 0.3)
 		made.build(room.biome, stock, room_seed(place) + 23)
-		_lead_eye(Vector3(0.0, 0.85, -3.0))
+		_lead_eye(room_look("merchant"))
 	var counter: Node3D = business()
 	counter.show_stock(stock)
 	counter.set_lens_price(appraise_cost)
@@ -1107,7 +1235,7 @@ func vein(spots: Array, hazard: bool, finders: Dictionary) -> Node3D:
 		face.build(room.biome, spots, room_seed(place) + 17, hazard, func(x: float, z: float) -> float: return room.ground(x, z))
 		## The blocks lie either side of the way through, so nobody rounds them.
 		set_business(key, face, 0.0)
-		_lead_eye(HOME_LOOK + Vector3(0, 0.55, -1.0))
+		_lead_eye(room_look("vein"))
 	var face: Node3D = business()
 	for index in range(spots.size()):
 		if finders.has(index):
@@ -1410,7 +1538,7 @@ func walk(p: Dictionary, exit_index: int, arrive: Callable = Callable(), halfway
 	var path: Curve3D = _smooth(points)
 	var ahead_env: Environment = ahead.environment()
 	_travel = {"kind": "walk", "path": path, "length": path.get_baked_length(), "seconds": WALK_SECONDS, "t": 0.0,
-		"look_from": camera.home_look, "look_end": origin + HOME_LOOK, "tunnel": tunnel, "ahead": ahead, "ahead_env": ahead_env,
+		"look_from": camera.home_look, "look_end": origin + room_look(str(p.get("kind", ""))), "tunnel": tunnel, "ahead": ahead, "ahead_env": ahead_env,
 		"place": p, "origin": origin, "arrive": arrive, "halfway": halfway, "told": false, "rested": false,
 		"env_from": _env_values(env), "env_to": _env_values(ahead_env), "key_from": Color(room.biome.key), "key_to": Color(ahead.biome.key),
 		"portal": path.get_closest_offset(mouth_at + Vector3.UP * EYE), "entrance": path.get_closest_offset(origin + Vector3(0, EYE, Chamber.Z_NEAR)), "last": 0.0}
@@ -1522,7 +1650,9 @@ func _arrive(travel: Dictionary) -> void:
 	place = travel.place
 	_settle_in()
 	camera.home_position = HOME
-	camera.home_look = HOME_LOOK
+	## The look the walk ended on, in the room's own frame now the world has moved back: the
+	## room's builder leads the eye to this same point, so nothing pans after the step in.
+	camera.home_look = Vector3(travel.look_end) - Vector3(travel.origin)
 	arrived_by_walk = true
 	_at = "home"
 	_lantern_goal = 0.0
@@ -1897,19 +2027,19 @@ func _die_node(die: Dictionary, at: Vector3) -> Node3D:
 func _laid_out() -> bool:
 	## The viewport is only sized once the stage has been on screen; until then there is no
 	## projection to speak of.
-	return camera != null and viewport != null and frame.size.x >= 1.0 and frame.size.y >= 1.0 and viewport.size.x >= 1 and viewport.size.y >= 1
+	return camera != null and viewport != null and size.x >= 1.0 and size.y >= 1.0 and frame.size.x >= 1.0 and frame.size.y >= 1.0 and viewport.size.x >= 1 and viewport.size.y >= 1
 
 func to_screen(point: Vector3) -> Vector2:
 	## Where a point in the room is, in the stage's own coordinates.
 	if not _laid_out():
 		return size * 0.5
 	var at: Vector2 = _steady(func() -> Variant: return camera.unproject_position(point))
-	return at * (frame.size / Vector2(viewport.size)) + frame.position
+	return at * view_scale() + frame.position
 
 func from_screen(local: Vector2, distance: float) -> Vector3:
 	if not _laid_out():
 		return Vector3(0.0, 1.3, 5.2 - distance) if camera == null or not camera.is_inside_tree() else camera.global_position + (-camera.global_transform.basis.z) * distance
-	var at: Vector2 = (local - frame.position) * (Vector2(viewport.size) / frame.size)
+	var at: Vector2 = (local - frame.position) / view_scale()
 	var point: Vector3 = _steady(func() -> Variant: return camera.project_position(at, distance))
 	return point if point.is_finite() else camera.global_position + (-camera.global_transform.basis.z) * distance
 
@@ -1931,6 +2061,8 @@ func _steady(work: Callable) -> Variant:
 func _process(delta: float) -> void:
 	if _headless or camera == null:
 		return
+	if _refit_due > 0 and Time.get_ticks_msec() >= _refit_due:
+		_fit_frame()
 	if not _warmed_in_view and has_room():
 		_warm_in_view()
 	if not _travel.is_empty() and not frozen:
@@ -1981,10 +2113,15 @@ func _sync_names() -> void:
 				var plate: Variant = spot.get_meta("plate") if spot.has_meta("plate") else null
 				if plate is StyleBox:
 					label.add_theme_stylebox_override("normal", plate)
+				if DeepUi.phone:
+					_phone_name(label, spot)
 				_names_layer.add_child(label)
 				_names[key] = label
 			## Only when they change: each override has the word laid out again.
 			var font_size: int = int(spot.get_meta("font_size", 26))
+			## The phone's names stand larger: its canvas is twice the desk's to a word.
+			if DeepUi.phone:
+				font_size = int(round(font_size * 1.6))
 			if int(label.get_meta("font_size", -1)) != font_size:
 				label.set_meta("font_size", font_size)
 				label.add_theme_font_size_override("font_size", font_size)
@@ -2001,7 +2138,7 @@ func _sync_names() -> void:
 			var alpha: float = float(spot.get_meta("alpha", 1.0))
 			label.visible = spot.is_visible_in_tree() and alpha > 0.01 and not camera.is_position_behind(point)
 			if label.visible:
-				var at: Vector2 = camera.unproject_position(point) * (frame.size / Vector2(viewport.size)) + frame.position
+				var at: Vector2 = camera.unproject_position(point) * view_scale() + frame.position
 				label.position = (at - label.size * 0.5).round()
 				label.modulate.a = alpha
 	for key in _names.keys():
@@ -2010,6 +2147,47 @@ func _sync_names() -> void:
 			if gone is Node and is_instance_valid(gone):
 				(gone as Node).queue_free()
 			_names.erase(key)
+
+func _phone_name(label: Label, spot: Node3D) -> void:
+	## On the phone a name in the room is a button where it stands (board run-landing): a
+	## capsule, and a tap on it does what a tap on the thing it names does.
+	if not label.has_theme_stylebox_override("normal"):
+		var plate := StyleBoxFlat.new()
+		plate.bg_color = Color(0.03, 0.04, 0.06, 0.82)
+		plate.border_color = Color(DeepUi.PAPER, 0.4)
+		plate.set_border_width_all(int(DeepUi.pt(1)))
+		plate.set_corner_radius_all(int(DeepUi.pt(16)))
+		plate.content_margin_left = DeepUi.pt(12)
+		plate.content_margin_right = DeepUi.pt(12)
+		plate.content_margin_top = DeepUi.pt(2)
+		plate.content_margin_bottom = DeepUi.pt(2)
+		label.add_theme_stylebox_override("normal", plate)
+	label.mouse_filter = Control.MOUSE_FILTER_STOP
+	var held: WeakRef = weakref(spot)
+	label.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT and _at in ["home", "crossroads"]:
+			var at: Node3D = held.get_ref() as Node3D
+			var id: String = _pick_of(at) if at != null else ""
+			if not id.is_empty():
+				label.accept_event()
+				pick_pressed.emit(id))
+
+func _pick_of(spot: Node3D) -> String:
+	## The thing a named spot names: the pick whose node holds it or is held by it, or else the
+	## nearest one, if one stands close by.
+	var best: String = ""
+	var near: float = INF
+	for id in _picks.keys():
+		var node: Variant = _picks[id].get("node", null)
+		if not node is Node3D or not is_instance_valid(node) or not bool(_picks[id].get("enabled", true)):
+			continue
+		if node == spot or (node as Node3D).is_ancestor_of(spot) or spot.is_ancestor_of(node):
+			return str(id)
+		var gap: float = (node as Node3D).global_position.distance_to(spot.global_position)
+		if gap < near:
+			near = gap
+			best = str(id)
+	return best if near < 3.0 else ""
 
 func _govern(delta: float) -> void:
 	## Keeps the mine smooth: after a few seconds under 40 frames a second, the room gives
@@ -2049,6 +2227,7 @@ func apply_look() -> void:
 	if look == null:
 		return
 	look.set_look(Looks.pref)
+	_fit_look()
 	if has_room():
 		look.tint(room.biome)
 
@@ -2060,11 +2239,17 @@ func _set_quality(level: int) -> void:
 		room.set_quality(quality, env)
 	if viewport != null:
 		viewport.msaa_3d = Viewport.MSAA_8X if quality >= 3 else (Viewport.MSAA_4X if quality == 2 else Viewport.MSAA_DISABLED)
-		## Multisampling only smooths where two triangles meet. Everything else the room
-		## draws — the ink pass's own creases, the lit edge of a crystal, the alpha of a
-		## sprite over the rock — is a shader edge inside one triangle, and stays as ragged
-		## as it was written until a screen-space pass has been over it too.
-		viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if quality >= 1 else Viewport.SCREEN_SPACE_AA_DISABLED
+		viewport.screen_space_aa = screen_aa(quality, soften_pref)
+
+static func screen_aa(level: int, soften: bool) -> int:
+	## Multisampling only smooths where two triangles meet. Everything else the room draws —
+	## the ink pass's own creases, the lit edge of a crystal, the alpha of a sprite over the
+	## rock — is a shader edge inside one triangle, and stays as ragged as it was written
+	## until a screen-space pass has been over it too. FXAA used to go over every level for
+	## that, and softened the whole room with them (November 6, 2026): now it is the
+	## anti-aliasing of the low level, which has no multisampling, and on top of the
+	## multisampling only when "Soften edges" is switched on in the settings.
+	return Viewport.SCREEN_SPACE_AA_FXAA if level <= 1 or soften else Viewport.SCREEN_SPACE_AA_DISABLED
 
 func _ambience(delta: float) -> void:
 	## The room keeps moving on its own: a Warden's hall shakes and sheds dust, the magma
@@ -2168,19 +2353,15 @@ func warm_up() -> void:
 		camera.reset()
 		var was_env: Environment = camera.environment
 		camera.environment = sample.environment()
-		## Hidden, the frame has not been laid out and the view is a pixel or two across, which
-		## no glow or blur can be made for: it is drawn at the size it will be shown at.
-		var stretched: bool = frame.stretch
-		if viewport.size.x < 64 or viewport.size.y < 64:
-			frame.stretch = false
-			viewport.size = Vector2i(get_viewport().get_visible_rect().size)
+		## Hidden, the stage may not have been laid out, and a view a pixel or two across is
+		## nothing a glow or blur can be made for: `_fit_frame` draws it at the window's own
+		## pixels, the size it will be shown at.
+		_fit_frame()
 		viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 		var before: int = room.get_instance_id() if has_room() else 0
 		for _i in range(2):
 			await get_tree().process_frame
-		## Back to following its frame, which sizes it properly when it is shown. A room shown
-		## in those frames has set its own air and pose, which are not to be undone.
-		frame.stretch = stretched
+		## A room shown in those frames has set its own air and pose, which are not to be undone.
 		var after: int = room.get_instance_id() if has_room() else 0
 		if is_instance_valid(camera) and (after == 0 or after == before):
 			camera.environment = was_env

@@ -40,7 +40,7 @@ const NAMES: PackedStringArray = [
 	"ui_deny", "toast", "toast_bad", "unlock",
 	"die_tumble", "die_settle", "die_pick", "die_drop", "dice_lock", "dice_reroll",
 	"battle_begin", "turn_begin", "resolve", "gem_red", "gem_blue", "gem_green", "gem_violet",
-	"gem_gold", "gem_white", "gem_fizzle", "tally_tick", "tally_mult", "tally_fuse", "tally_blaze",
+	"gem_gold", "gem_white", "gem_fizzle", "tally_tick", "tally_mult", "tally_fuse", "tally_blaze", "flawless_glint",
 	"tick_red", "tick_blue", "tick_green", "tick_violet", "tick_gold", "tick_white", "resonance", "harmony", "hit_light", "hit_heavy",
 	"hit_crit", "block", "block_break", "heal", "poison", "stun", "curse", "enemy_windup",
 	"enemy_strike", "hit_slam", "hit_bite", "hit_claw", "hit_breath", "hit_spit", "hit_lash", "hit_peck", "hit_drill",
@@ -52,7 +52,7 @@ const NAMES: PackedStringArray = [
 	"grade_peerless", "star", "keep", "sell", "chisel", "gleam", "tally", "die_break",
 	"altar_hum", "altar_fizzle", "altar_make", "transcendent", "hollow_drop", "hollow_rise",
 	"reel_lever", "reel_tick", "reel_stop", "geode_crack", "jackpot", "contract_seal", "gem_shatter", "infinity",
-	"flame", "splash", "mirror", "claw"]
+	"flame", "splash", "mirror", "claw", "hammer_strike"]
 
 ## A sound replaced by hand (a master bounced from a DAW and brought in with
 ## `node tools/sound/import.mjs sound <name> <file>`) sits here, and is played instead of the
@@ -356,6 +356,14 @@ static func _bake(name: String) -> AudioStreamWAV:
 			s.bell(0.0, 0.25, C5, 0.38, DeepSynth.GLASS_PARTIALS, 3.8, 0.0)
 			DeepKit.sparkle(s, 0.01, 0.12, 0.05, 3, 2400.0, 4800.0)
 			return DeepKit.fin(s, 0.5)
+		"flawless_glint":
+			## A Flawless line at work: a small rising chime over a scatter of glass, the peerless
+			## grade's sound in miniature, so the ear has met it before the bonus ever pays.
+			s = DeepSynth.new(0.75, 6041)
+			DeepKit.ladder(s, 0.0, 1046.5, [0, 7, 12], 0.055, 110.0, 0.2)
+			s.bell(0.0, 0.3, C5, 0.2, DeepSynth.GLASS_PARTIALS, 3.8, 0.0)
+			DeepKit.sparkle(s, 0.02, 0.42, 0.08, 10, 3200.0, 7800.0)
+			return DeepKit.fin(s, 0.6)
 		"tally_mult":
 			s = DeepSynth.new(0.8, 2029)
 			DeepKit.felt(s, 0.0, 110.0, 0.5)
@@ -613,6 +621,17 @@ static func _bake(name: String) -> AudioStreamWAV:
 			for _i in range(5):
 				DeepKit.tok(s, 0.06 + s.rng.randf() * 0.3, 0.1, s.rng.randf_range(400.0, 800.0))
 			return DeepKit.fin(s, 0.86)
+		"hammer_strike":
+			## A hammer on a die at the anvil (Nov 5 2026, round 5: a Hammered card's charges, the
+			## Smithy's hammer): a dull thump under a ringing clang, the anvil answering a
+			## beat later, lower and quieter, and a spit of sparks.
+			s = DeepSynth.new(0.9, 6041)
+			DeepKit.impact(s, 0.0, 0.6, 180.0)
+			DeepKit.metal(s, 0.0, 1560.0, 0.55, 0.34)
+			DeepKit.metal(s, 0.004, 2340.0, 0.35, 0.16)
+			DeepKit.metal(s, 0.09, 990.0, 0.4, 0.1)
+			DeepKit.sparkle(s, 0.02, 0.35, 0.06, 7, 3200.0, 7000.0)
+			return DeepKit.fin(s, 0.88)
 		"rock_break":
 			s = DeepSynth.new(1.0, 6028)
 			s.noise(0.0, 0.5, 0.42, 3000.0, 180.0, 2.2, 0.004)

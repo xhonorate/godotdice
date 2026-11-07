@@ -7,7 +7,9 @@ extends Node
 ## sound twice inside a few milliseconds (a rail of five gems firing at once would otherwise
 ## be one loud smear), and wobbles the pitch of anything physical so two dice never land on
 ## exactly the same note. Sounds given a screen position are played through a 2D voice, which
-## pans them: a creature on the left of the arc is hit on the left.
+## pans them: a creature on the left of the arc is hit on the left. The world's sounds go
+## through a second bus that hears a little of the place's room (`ROOM_BUS`, steered by
+## DeepMusic); the interface and the count stay dry and close (`dry`).
 ##
 ## Nothing in the bank exists on disk, so the first ask for a sound has to write it. A worker
 ## thread bakes the whole bank at boot, in the order the game is likely to need it, while the
@@ -18,6 +20,8 @@ extends Node
 ## the screenshot tools run in silence.
 
 const BUS: String = "Sfx"
+## The world's sounds, in a little of the place's room, on their way to `BUS`.
+const ROOM_BUS: String = "SfxRoom"
 const FLAT_VOICES: int = 16
 const PLACED_VOICES: int = 10
 ## Two plays of one sound closer together than this are one play.
@@ -36,6 +40,11 @@ const UNTUNED: PackedStringArray = ["ui_tap", "ui_hover", "ui_back", "die_tumble
 const COUNTED: PackedStringArray = ["tally_tick", "tick_red", "tick_blue", "tick_green", "tick_violet", "tick_gold", "tick_white",
 	"tally_mult", "tally_fuse", "tally_blaze"]
 const VARIATION: float = 0.035
+## Played dry, out of the room: every control, the count, and the shop's and the reels' small
+## mechanics. A click that echoes in a cave sounds hollow, and the count has to stay crisp
+## however fast it runs. Anything named `ui_`, `tick_` or `tally` is dry as well.
+const DRY: PackedStringArray = ["toast", "toast_bad", "unlock", "die_pick", "dice_lock", "depart", "buy", "sell", "keep",
+	"depth_card", "contract_seal", "reel_lever", "reel_tick", "reel_stop"]
 ## The sounds of a control being pressed. A click that rebuilds a bar of buttons puts a new
 ## one under the pointer, and its hover is not news: it is not played this soon after a press.
 const PRESSES: PackedStringArray = ["ui_tap", "ui_confirm", "ui_back", "ui_toggle", "ui_tab", "ui_open", "ui_close", "depart"]
@@ -129,6 +138,10 @@ static func rumble(weak: float, strong: float = 0.0, seconds: float = 0.05) -> v
 	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
 		Input.vibrate_handheld(maxi(10, int(seconds * 1000.0)), maxf(weak, strong))
 
+static func dry(sound: String) -> bool:
+	## Whether a sound is played out of the room (`DRY`).
+	return sound.begins_with("ui_") or sound.begins_with("tick_") or sound.begins_with("tally") or DRY.has(sound)
+
 static func reveal_stone(stone: Dictionary) -> void:
 	## The ceremony, in sound, wherever a stone is first known: the light falling on it, its
 	## grade a breath later, and — once in a long while — the Star, which is the one sound in
@@ -174,13 +187,15 @@ func _exit_tree() -> void:
 		_service = null
 
 func _open_bus() -> void:
-	## The game's own bus, so one slider moves every sound and nothing else.
-	if AudioServer.get_bus_index(BUS) >= 0:
-		return
-	var at: int = AudioServer.bus_count
-	AudioServer.add_bus(at)
-	AudioServer.set_bus_name(at, BUS)
-	AudioServer.set_bus_send(at, "Master")
+	## The game's own bus, so one slider moves every sound and nothing else, and the room bus
+	## the world's sounds reach it through.
+	for entry in [[BUS, "Master"], [ROOM_BUS, BUS]]:
+		if AudioServer.get_bus_index(str(entry[0])) >= 0:
+			continue
+		var at: int = AudioServer.bus_count
+		AudioServer.add_bus(at)
+		AudioServer.set_bus_name(at, str(entry[0]))
+		AudioServer.set_bus_send(at, str(entry[1]))
 	DeepAudio.levels({})
 
 func _bake_in_the_background() -> void:
@@ -238,6 +253,7 @@ func emit(sound: String, opts: Dictionary = {}) -> void:
 	if voice == null:
 		return
 	voice.stream = stream
+	voice.bus = BUS if DeepAudio.dry(sound) else ROOM_BUS
 	voice.pitch_scale = pitch
 	voice.volume_db = linear_to_db(volume)
 	if opts.has("at"):

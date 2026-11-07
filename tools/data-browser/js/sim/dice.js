@@ -165,20 +165,32 @@ export function etch(die, index, kind) {
 }
 
 // The die, in place, `steps` sizes bigger or smaller (sim/oddities.gd resize): it keeps its id,
-// material and every etching that still has a face, and a face worked past the pattern stays.
+// its material and its own faces as a multiset. Filed down it loses its highest faces (a d4 of
+// 1/1/3/3 files to a d3 of 1/1/3); hammered up it gains the new size's top faces, cut to its
+// pattern where the pattern fits the new size. The pattern's name stays while the size takes it.
 export function resize(die, steps) {
 	const at = TIERS.indexOf(die.shape);
 	if (at < 0 || at + steps < 0 || at + steps >= TIERS.length) return 'that die cannot change size that far';
-	const had = (die.faces || []).map((f) => ({ ...f }));
+	const key = TIERS[at + steps];
+	const pattern = patternAllows(die.pattern || '', key) ? die.pattern || '' : '';
 	const own = String(die.name || '');
-	const made = make(TIERS[at + steps], die.id, { pattern: die.pattern || '', material: die.material || '', name: own && !SHAPES[own.toUpperCase()] ? own : '' });
-	for (let index = 0; index < Math.min(had.length, made.faces.length); index++) {
-		made.faces[index].kind = had[index].kind || 'plain';
-		made.faces[index].value = Math.max(made.faces[index].value | 0, had[index].value | 0);
-	}
-	for (const key of Object.keys(die)) delete die[key];
+	const made = make(key, die.id, { pattern, faces: carriedFaces(die.faces || [], key, pattern), material: die.material || '', name: own && !SHAPES[own.toUpperCase()] ? own : '' });
+	for (const k of Object.keys(die)) delete die[k];
 	Object.assign(die, made);
 	return '';
+}
+
+// The faces a die takes to its new size: its own sorted by value (ties keep their order), the
+// highest dropped when there are too many, the new size's own top faces added when too few.
+export function carriedFaces(had, key, pattern) {
+	const wanted = sizeOf(key);
+	const order = had.map((f, index) => ({ f, index })).sort((a, b) => ((a.f.value | 0) - (b.f.value | 0)) || (a.index - b.index));
+	const faces = order.slice(0, wanted).map(({ f }) => face(f.value | 0, f.kind || 'plain'));
+	if (faces.length < wanted) {
+		const fresh = patternFaces(key, pattern).sort((a, b) => a.value - b.value);
+		faces.push(...fresh.slice(fresh.length - (wanted - faces.length)));
+	}
+	return faces;
 }
 
 export function etchings(die) {

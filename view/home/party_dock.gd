@@ -79,13 +79,31 @@ static func popover(home: Control, overlay: Control) -> void:
 	column.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	column.position = Vector2(-24, 62)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if DeepUi.phone:
+		## The phone's party: a panel down the right side, the screen's full height.
+		column.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+		column.offset_right = 0.0
+		column.offset_top = 0.0
+		column.offset_bottom = 0.0
+		column.add_theme_constant_override("separation", int(DeepUi.pt(6)))
 	overlay.add_child(column)
 	if not home._showcase_of.is_empty():
 		_showcase_panel(home, column)
 	var card := DeepUi.card(column, Color(DeepUi.ACCENT, 0.5), 16, Color(DeepUi.INK, 0.97))
 	card.custom_minimum_size.x = 470
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
-	var box := DeepUi.vbox(card, 10)
+	if DeepUi.phone:
+		var side := StyleBoxFlat.new()
+		side.bg_color = DeepUi.LEDGER_FILL
+		side.border_color = DeepUi.ACCENT_DIM
+		side.border_width_left = int(DeepUi.pt(1.5))
+		side.content_margin_left = DeepUi.pt(10)
+		side.content_margin_right = DeepUi.safe_right + DeepUi.pt(8)
+		side.content_margin_top = DeepUi.pt(8)
+		side.content_margin_bottom = DeepUi.safe_bottom + DeepUi.pt(6)
+		card.add_theme_stylebox_override("panel", side)
+		card.custom_minimum_size.x = DeepUi.pt(310) + DeepUi.safe_right
+	var box := DeepUi.vbox(card, int(DeepUi.pt(6)) if DeepUi.phone else 10)
 	var head := DeepUi.hbox(box, 8)
 	DeepUi.section(head, "party", "The party").size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var said: Array = home.STATUS_WORDS.get(home.status, [home.status.capitalize(), DeepUi.MUTED])
@@ -98,13 +116,14 @@ static func popover(home: Control, overlay: Control) -> void:
 			DeepUi.stat(box, "coin", "Short of the fare to %s: the way down waits for a mine everyone can afford." % DeepContent.mine_name(home.chosen_mine()), Color("ffb04a"), 12)
 	DeepUi.rule(box, Color(DeepUi.LINE, 0.7))
 	_play_together(home, box)
-	DeepUi.pop_in(card, 0.0, 0.96, 0.2)
+	if not DeepUi.phone:
+		DeepUi.pop_in(card, 0.0, 0.96, 0.2)
 
 static func _member_row(home: Control, box: VBoxContainer, id: String) -> void:
 	var member: Dictionary = home.lobby.members.get(id, {})
 	var row := DeepUi.hbox(box, 10)
 	var character: String = str(member.get("character", DeepContent.starter_character()))
-	row.add_child(Roster.Portrait.new(character, Vector2(40, 40)))
+	row.add_child(Roster.Portrait.new(character, Vector2(DeepUi.pt(28), DeepUi.pt(28)) if DeepUi.phone else Vector2(40, 40)))
 	var words := DeepUi.vbox(row, 0)
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## Named as the party sees them ("Player 2" when two share a name), your own marked YOU
@@ -136,7 +155,7 @@ static func _showcase_panel(home: Control, column: HBoxContainer) -> void:
 	var member: Dictionary = home.lobby.members.get(id, {})
 	var stones: Array = DeepProfile.showcase(home.profile) if id == home.local_id else member.get("showcase", [])
 	var card := DeepUi.card(column, DeepUi.LINE_HI, 16, Color(DeepUi.INK, 0.97))
-	card.custom_minimum_size.x = 360
+	card.custom_minimum_size.x = DeepUi.pt(240) if DeepUi.phone else 360.0
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var box := DeepUi.vbox(card, 10)
@@ -174,7 +193,28 @@ static func _play_together(home: Control, box: VBoxContainer) -> void:
 		copy_ip.pressed.connect(func() -> void:
 			DisplayServer.clipboard_set(lan_ip)
 			home.cheer_at(copy_ip, "Copied", DeepUi.GOOD))
-	if home.status in ["local", "offline", "lost"] or not in_party:
+	if (home.status in ["local", "offline", "lost"] or not in_party) and DeepUi.phone:
+		## No Steam on a phone: the party is found on the same Wi-Fi.
+		DeepUi.section(box, "wifi", "Play on this Wi-Fi", DeepUi.ACCENT, 11)
+		var host := DeepUi.icon_button(box, "crown", "Host a party here", func() -> void: home.host_requested.emit(DeepSession.DEFAULT_PORT), 13, DeepUi.ACCENT)
+		DeepUi.ledger_button(host, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 9)
+		host.custom_minimum_size.y = DeepUi.pt(40)
+		var lan := DeepUi.hbox(box, int(DeepUi.pt(6)))
+		home._address = LineEdit.new()
+		home._address.text = str(home.settings.get("last_address", "127.0.0.1"))
+		home._address.custom_minimum_size.y = DeepUi.pt(36)
+		home._address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		home._address.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
+		DeepUi.set_text_size(home._address, 13)
+		lan.add_child(home._address)
+		var join := DeepUi.primary(lan, "play", "Join", func() -> void: home.join_requested.emit(home._address.text, DeepSession.DEFAULT_PORT), 13)
+		join.custom_minimum_size.y = DeepUi.pt(36)
+		for button in [host, join]:
+			button.disabled = in_party
+		if home.is_host and home.status == "hosting":
+			host.disabled = true
+		DeepUi.wrap(box, "Friends on the same Wi-Fi see your party and join it. Steam lobbies are on the desktop game only.", 11, DeepUi.DIM)
+	elif home.status in ["local", "offline", "lost"] or not in_party:
 		var steam := DeepUi.hbox(box, 8)
 		var host_steam := DeepUi.icon_button(steam, "party", "Host on Steam", func() -> void: home.steam_host_requested.emit(), 13, DeepUi.ACCENT)
 		home._lobby_field = LineEdit.new()

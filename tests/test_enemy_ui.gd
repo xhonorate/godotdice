@@ -127,6 +127,32 @@ func _chips() -> void:
 	check(sparkle_chips.size() == 1 and str(sparkle_chips[0].value) == "100/100" and str(sparkle_chips[0].text).contains("spends all 100") and str(sparkle_chips[0].text).contains("+%s luck" % str(snappedf(100.0 * DeepRules.SPARKLE_LUCK, 0.01))), "Sparkle chip explains its cap and complete next-find consumption")
 	var acid: Dictionary = EffectChips.trait_entry("acid_armour", 1)
 	check(str(acid.title) == "Acid Armour" and str(acid.text).contains("1 Poison"), "Acid Armour is a trait the ledger can say")
+	## The turns bar is as wide as the capsule's flat top, never its faceted ends (November 5).
+	var poison: Dictionary = EffectChips.entry("poison", "drop", "3", true, "Poison", "Hurts.", DeepUi.POISON, 3)
+	var chip: EffectChips.Chip = EffectChips.Chip.new(poison, 13, true)
+	## The plate takes its own minimum height whatever it is asked: the bar reads what it got.
+	chip.plate.size = Vector2(44.0, 18.0)
+	chip._fit_bar()
+	var flat: float = chip.plate.size.x - 2.0 * float(DeepUi.end_corner(chip.plate.size.y))
+	check(flat < chip.plate.size.x and is_equal_approx(chip._bar.custom_minimum_size.x, flat) and chip._bar.size_flags_horizontal == Control.SIZE_SHRINK_CENTER, "a chip's turns bar spans the capsule's flat top and centres on it: %.1f of %s" % [chip._bar.custom_minimum_size.x, str(chip.plate.size)])
+	check(chip._value.visible and chip.plate_title() == "Poison", "a numbered chip shows its number and its plate is titled plainly")
+	chip.free()
+	## A party's chips are marks alone, the number moving to the plate's title.
+	var mark: EffectChips.Chip = EffectChips.Chip.new(poison, 13, false, true)
+	check(not mark._value.visible and mark.plate_title() == "Poison · 3", "a marks-only chip hides its number and says it on the plate: %s" % mark.plate_title())
+	mark.free()
+	var row: EffectChips.Row = EffectChips.Row.new(18)
+	row.show_effects([poison])
+	row.set_look(13.0, true)
+	check(row._chips.is_empty() and row.marks_only and is_equal_approx(row.edge, 13.0), "a row shown another way lets go of its chips to build them again")
+	row.show_effects([poison])
+	check(row._chips.size() == 1 and (row._chips["poison"] as EffectChips.Chip).marks_only, "and builds them as marks alone")
+	row.free()
+	## The Combo Breaker chip for the rule since November 5: it broke free and acted.
+	var broken: Array = EffectChips._statuses({"combo_breaker": 2}, true)
+	check(broken.size() == 1 and str(broken[0].text).contains("broke free") and str(broken[0].text).ends_with("for 2 more turns."), "Combo Breaker at 2: %s" % str(broken[0].text))
+	broken = EffectChips._statuses({"combo_breaker": 1}, true)
+	check(broken.size() == 1 and str(broken[0].text).ends_with("cannot land on it this turn."), "Combo Breaker at 1 holds through this turn: %s" % str(broken[0].text))
 
 # --- the ledger ----------------------------------------------------------------------------------
 
@@ -143,6 +169,20 @@ func _ledger() -> void:
 	for name in named:
 		check(pips_in(panel.row_for(name)) == faces_of(tick, name), "%s's pips are one dot a face (%d)" % [name, faces_of(tick, name)])
 	check(str(panel._who.text) == "YOUR TARGET" and str(panel._name.text) == "CAVE TICK" and str(panel._dice_words.text).begins_with("D6"), "the ledger says whose it is, its name and its dice")
+	## Its block is a chip straddling the panel's top edge at the right, as on its tag: no row of
+	## its own, and no foot line under the rows.
+	tick.block = 7
+	panel.show_foe(tick, f.state, "target", "")
+	await process_frame
+	await process_frame
+	var chip: Control = panel._block
+	check(chip.visible and str(panel._block_label.text) == "7", "the ledger's block is a chip: %s" % str(panel._block_label.text))
+	check(chip.global_position.y < panel.global_position.y and chip.global_position.y + chip.size.y > panel.global_position.y, "the block chip straddles the ledger's top edge: chip %s, panel %s" % [str(chip.get_global_rect()), str(panel.get_global_rect())])
+	check(is_equal_approx(chip.global_position.x + chip.size.x, panel.global_position.x + panel.size.x - 10.0), "the block chip stands at the ledger's right: chip %s, panel %s" % [str(chip.get_global_rect()), str(panel.get_global_rect())])
+	check(panel.find_children("*", "Label", true, false).all(func(l: Label) -> bool: return not str(l.text).contains("turn its die over")), "the ledger has no foot line about the die")
+	tick.block = 0
+	panel.show_foe(tick, f.state, "target", "")
+	check(not chip.visible, "no block, no chip")
 	panel.set_lit("Latch")
 	var lit_style: StyleBoxFlat = panel.row_for("Latch").get_theme_stylebox("panel")
 	var dark_style: StyleBoxFlat = panel.row_for("Bite").get_theme_stylebox("panel")
@@ -275,12 +315,36 @@ func _tags() -> void:
 	roll.mark = str(landed.mark)
 	roll.move_kind = str(landed.move_kind)
 	roll.turn_tag = 1
+	## The solid is rendered at the size it is shown (its place times FRAME, in physical pixels,
+	## one to one here), and GROW times larger for the throw (November 5).
+	var rest_edge: float = float(tag._holders[0].edge)
+	var rest_view: Control = tag.die_view(0)
+	check(is_equal_approx(rest_view.size.x, roundf(rest_edge * Tag.FRAME)) and is_equal_approx(rest_view.scale.x * rest_view.size.x, rest_edge * Tag.FRAME) and rest_view.msaa == Viewport.MSAA_8X, "at rest the die is rendered at the size it is drawn, with 8x MSAA: %s at %.2f" % [str(rest_view.size), rest_view.scale.x])
+	check(is_equal_approx(rest_view.position.x + rest_view.pivot_offset.x, rest_edge) and is_equal_approx(rest_view.position.y + rest_view.pivot_offset.y, rest_edge * 0.5), "the die grows about its place's right edge, half way down")
 	tag.roll({"unit": str(tick.id), "die": tick.dice[0], "roll": roll, "roll_index": 0, "duration": 0.75})
 	check(tag.grown(0) and tag.rolling() == 0, "the thrown die grows on the tag")
+	check(is_equal_approx(rest_view.size.x, roundf(rest_edge * Tag.FRAME * Tag.GROW)) and is_equal_approx(rest_view.scale.x * rest_view.size.x, rest_edge * Tag.FRAME * Tag.GROW), "thrown, it is rendered again at its grown size: %s at %.2f" % [str(rest_view.size), rest_view.scale.x])
 	check(tag.result_words().begins_with(str(landed.move)), "what it landed on is a pill over the die: '%s'" % tag.result_words())
 	check(tag._result.position.y < 0.0, "the result pill stands over the die, above the tag, not over the creature's head")
 	tag.settle()
 	check(not tag.grown(0) and tag.result_words().is_empty(), "the die goes back into the tag as the action ends")
+	check(is_equal_approx(rest_view.size.x, roundf(rest_edge * Tag.FRAME)), "and is rendered at its resting size again")
+	## A blow of a quarter of its health or more is an impact: the tag tells the screen the
+	## share (its own hold and blink need a screen; its bar snaps with none).
+	var shares: Array = []
+	tag.struck.connect(func(share: float) -> void: shares.append(share))
+	tick.hp = int(tick.max_hp) / 2
+	tag.update(tick, f.state, true, 0)
+	check(shares.size() == 1 and absf(float(shares[0]) - 0.5) < 0.01 and absf(tag._bar.shown() - 0.5) < 0.01, "half its health in one blow is an impact of 0.5: %s" % str(shares))
+	tick.hp = int(tick.max_hp) / 2 - int(tick.max_hp) / 10
+	tag.update(tick, f.state, true, 0)
+	tick.hp = int(tick.max_hp)
+	tag.update(tick, f.state, true, 0)
+	check(shares.size() == 1, "a tenth is no impact, and healing never is: %s" % str(shares))
+	check(Tag.IMPACT_SHARE == 0.25 and Tag.HEAVY_SHARE == 0.5 and Tag.HealthBar.HOLD > 0.1 and Tag.HealthBar.EASE >= 0.3, "the impact thresholds and the bar's beat are as the owner asked")
+	## The blow's mark is shaped by the move that landed it.
+	var Slash = load("res://view/battle/battle_screen.gd").Slash
+	check(Slash.shape_of("bite") == "bite" and Slash.shape_of("peck") == "bite" and Slash.shape_of("spit") == "sting" and Slash.shape_of("drill") == "sting" and Slash.shape_of("slam") == "slam" and Slash.shape_of("cast") == "bolt" and Slash.shape_of("breath") == "bolt" and Slash.shape_of("claw") == "claw" and Slash.shape_of("") == "claw" and Slash.shape_of("rally") == "claw", "a bite is two jaws, a spit a sting, a slam a smear, a cast a crack of light, the rest claws")
 	tag.free()
 	big.free()
 	three.free()
@@ -295,6 +359,12 @@ func _screen() -> void:
 	var aim: String = str(party_state.players[0].target)
 	var other: String = "e1" if aim != "e1" else "e0"
 	check(battle._plates.size() == 2 and battle._plates.values().all(func(p: Variant) -> bool: return p is Tag), "every creature has its tag")
+	## In a party the tabs are wider and their chips small marks alone (November 5): six of them
+	## stand in one row the width of the tab.
+	var SeatTab = load("res://view/battle/battle_screen.gd").SeatTab
+	check(is_equal_approx(battle._my_tab.face.custom_minimum_size.x, SeatTab.PARTY_WIDTH) and battle._my_tab.chips.marks_only and is_equal_approx(battle._my_tab.chips.edge, SeatTab.PARTY_CHIP_EDGE), "a party's tabs are wide and their chips marks alone")
+	var party_chip_width: float = SeatTab.PARTY_CHIP_EDGE + 2.0 * float(int(SeatTab.PARTY_CHIP_EDGE * 0.5) + 2)
+	check(6.0 * party_chip_width + 5.0 * 3.0 <= SeatTab.PARTY_WIDTH, "six party chips fit a row the width of the tab (%.0f in %.0f)" % [6.0 * party_chip_width + 15.0, SeatTab.PARTY_WIDTH])
 	check(battle._enemy_panel != null and battle._enemy_panel.visible and battle._enemy_panel.enemy_id == aim and battle._enemy_panel.who == "target", "the ledger reads the target")
 	battle._hover_creature(other)
 	check(battle._enemy_panel.enemy_id == other and battle._enemy_panel.who == "looking", "pointing at another creature hands the ledger to it")

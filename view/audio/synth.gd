@@ -16,8 +16,9 @@ extends RefCounted
 ## frequency glide is an increment, and nothing calls a function per sample. The bank is 70
 ## sounds and it has to be ready before the player reaches the first fight.
 
-## 12 kHz of bandwidth is more than any of these sounds needs. The mixer resamples.
-const RATE: int = 24000
+## The rate the review pages played the bank at (November 2026). At 24 kHz the cracks, the
+## crunch of a blow and the top of a block lost a third of their brightness and sounded dull.
+const RATE: int = 44100
 ## Partials above this are not written: they would fold back down the spectrum as a whistle.
 const CEILING: float = float(RATE) * 0.45
 

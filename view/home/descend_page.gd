@@ -15,6 +15,9 @@ const DAILY_KIND_WORDS: Dictionary = {"rail": "Rail rule", "hazard": "Hazard", "
 const SIDE_WIDTH: float = 450.0
 
 static func build(home: Control, content: VBoxContainer) -> void:
+	if DeepUi.phone:
+		load("res://view/phone/descend_phone.gd").build(home, content)
+		return
 	var daily: bool = not str(home.lobby.get("daily", "")).is_empty()
 	var columns := DeepUi.hbox(content, 20)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL

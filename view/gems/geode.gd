@@ -12,7 +12,9 @@ extends CanvasLayer
 ## sell it or turn it in, or leave it waiting in the vault.
 ##
 ## A contract plays the same ending from another start (`fuse`): five stones circle in to the
-## middle of the bench and come out as one.
+## middle of the bench and come out as one. A twin fused down the mine (`twin`, November 5,
+## 2026) is the same two-stone swirl, and before the sheet its weight rolls up from the heavier
+## of the two to what the fire made.
 ##
 ## A click or Space strikes; held Space strikes all three; Escape skips to the stone's card, and
 ## at the end takes the gentlest way out (the stone waits in the vault, unappraised).
@@ -32,6 +34,9 @@ const RARITIES: Array = ["COMMON", "UNCOMMON", "RARE", "LEGENDARY", "MYTHIC"]
 const PAUSES: Dictionary = {"name": 0.55, "carat": 0.45, "cut": 0.4, "clarity": 0.45, "inclusions": 0.45,
 	"inclusion": 0.6, "grade": 0.8, "worth": 0.5, "compare": 0.5}
 const STAGE := Vector2(560, 420)
+## A twin's two stones circle in for this long, and its weight rolls up over this long.
+const TWIN_LIFE: float = 1.8
+const ROLL: float = 0.6
 
 static var _open: CanvasLayer = null
 
@@ -65,6 +70,9 @@ var _sheet: Control
 var _skip: Label
 var _choices: Control
 var _flash: ColorRect
+## A twin's weight, rolling up under the stone from the heavier that went in.
+var _carat_label: Label = null
+var _carat_from: int = 1
 var _tone: Color = DeepUi.ACCENT
 var _tier_tone: Color = DeepUi.ACCENT
 var _tweens: Array = []
@@ -82,6 +90,15 @@ static func open(shelf_geode: Dictionary, made: Dictionary, opts: Dictionary = {
 
 static func fuse(inputs: Array, made: Dictionary, opts: Dictionary = {}, when_closed: Callable = Callable()) -> CanvasLayer:
 	return _show("contract", {}, inputs, made, opts, when_closed)
+
+static func twin(inputs: Array, made: Dictionary, opts: Dictionary = {}, when_closed: Callable = Callable()) -> CanvasLayer:
+	## A twin fused into the stone it matches: `inputs` the held stone then the newcomer, `made`
+	## what came out. opts: owned (the held stone as it was, read beside the result), from_carat
+	## (where the weight starts rolling from), paid, actions.
+	return _show("twin", {}, inputs, made, opts, when_closed)
+
+static func current() -> CanvasLayer:
+	return _open if is_open() else null
 
 static func _show(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionary, opts: Dictionary, when_closed: Callable) -> CanvasLayer:
 	if DisplayServer.get_name() == "headless":
@@ -136,15 +153,19 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(centre)
-	var column := DeepUi.vbox(centre, 10)
-	_title = DeepUi.title(column, geode_name(geode) if mode == "geode" else "The contract", 40, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+	var column := DeepUi.vbox(centre, int(DeepUi.pt(3)) if DeepUi.phone else 10)
+	var titles: Dictionary = {"geode": geode_name(geode), "contract": "The contract", "twin": "Two of a kind"}
+	var subtitles: Dictionary = {"geode": "Strike it. Three blows open it.", "contract": "Five stones go in; one comes out.",
+		"twin": "Two stones go into the fire. The heavier comes out, and maybe a little more."}
+	_title = DeepUi.title(column, str(opts.get("title", titles.get(mode, "The contract"))), 32 if DeepUi.phone else 40, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_title.add_theme_constant_override("outline_size", 10)
-	_subtitle = DeepUi.label(column, "Strike it. Three blows open it." if mode == "geode" else "Five stones go in; one comes out.", 16, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	var row := DeepUi.hbox(column, 26)
+	_subtitle = DeepUi.label(column, str(opts.get("subtitle", subtitles.get(mode, ""))), 12 if DeepUi.phone else 16, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var row := DeepUi.hbox(column, int(DeepUi.pt(10)) if DeepUi.phone else 26)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_stage = Control.new()
-	_stage.custom_minimum_size = STAGE
+	## The phone's stage: what the screen leaves beside the card (board run-moments).
+	_stage.custom_minimum_size = Vector2(DeepUi.pt(250), DeepUi.pt(200)) if DeepUi.phone else STAGE
 	_stage.mouse_filter = Control.MOUSE_FILTER_STOP
 	_stage.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_stage.gui_input.connect(_stage_input)
@@ -162,10 +183,32 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 		_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_slide.add_child(_art)
 	else:
-		_swirl = Swirl.new(given)
+		_swirl = Swirl.new(given, TWIN_LIFE if mode == "twin" else Swirl.LIFE)
 		_swirl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_swirl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_slide.add_child(_swirl)
+	if mode == "twin":
+		## The weight, under the stone once it is out: it rolls up from the heavier of the two.
+		_carat_from = int(opts.get("from_carat", stone.get("carat", 1)))
+		_carat_label = Label.new()
+		_carat_label.text = "%d ct" % _carat_from
+		_carat_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_carat_label.add_theme_font_override("font", DeepUi.bold_font())
+		DeepUi.set_text_size(_carat_label, 34)
+		_carat_label.add_theme_color_override("font_color", DeepUi.PAPER)
+		_carat_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+		_carat_label.add_theme_constant_override("outline_size", 8)
+		_carat_label.anchor_left = 0.5
+		_carat_label.anchor_right = 0.5
+		_carat_label.anchor_top = 0.5
+		_carat_label.anchor_bottom = 0.5
+		_carat_label.offset_left = -120
+		_carat_label.offset_right = 120
+		_carat_label.offset_top = 118
+		_carat_label.offset_bottom = 164
+		_carat_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_carat_label.visible = false
+		_slide.add_child(_carat_label)
 	_view = GemView.new()
 	_view.anchor_left = 0.5
 	_view.anchor_right = 0.5
@@ -186,7 +229,7 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	## The card the stone is read out on, beside it once it is out.
 	_card = PanelContainer.new()
-	_card_style = DeepUi.raised(Color(0.045, 0.055, 0.09, 0.97), Color(_tier_tone, 0.7), 16, 18, 0.6)
+	_card_style = DeepUi.raised(Color(0.045, 0.055, 0.09, 0.97), Color(_tier_tone, 0.7), 16, int(DeepUi.pt(8)) if DeepUi.phone else 18, 0.6)
 	_card_style.set_border_width_all(2)
 	_card.add_theme_stylebox_override("panel", _card_style)
 	## Unseen until the stone is read, and the rock is drawn over where it will stand (see
@@ -194,18 +237,24 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_card.modulate.a = 0.0
 	row.add_child(_card)
-	var card_box := DeepUi.vbox(_card, 8)
+	var card_box := DeepUi.vbox(_card, int(DeepUi.pt(3)) if DeepUi.phone else 8)
 	if new_skill:
 		var fanfare := DeepUi.hbox(card_box, 8)
-		DeepUi.pill(fanfare, "star", "New skill", StoneCard.PIP_NEW, 14)
-		DeepUi.label(fanfare, "Your first %s" % DeepUi.skill_name(stone), 14, DeepUi.GOOD)
+		DeepUi.pill(fanfare, "star", "New skill", StoneCard.PIP_NEW, 12 if DeepUi.phone else 14)
+		DeepUi.label(fanfare, "Your first %s" % DeepUi.skill_name(stone), 12 if DeepUi.phone else 14, DeepUi.GOOD)
 	if not wanted.is_empty():
 		DeepUi.stat(card_box, "flag", wanted, DeepUi.GOOD, 13)
-	_sheet = Appraisal.Sheet.new(stone, owned, {"skill_text": true, "owned_picture": false})
+	var sheet_opts: Dictionary = {"skill_text": true, "owned_picture": false}
+	if mode == "twin":
+		## Read beside the stone as it was before the fire, not beside a vault's stone.
+		sheet_opts = {"skill_text": false, "owned_picture": false, "found_heading": "Out of the fire", "owned_heading": "Before", "owned_note": "the one you held"}
+	_sheet = Appraisal.Sheet.new(stone, owned, Appraisal.phone_sheet(sheet_opts))
 	card_box.add_child(_sheet)
+	if mode == "twin" and int(opts.get("paid", 0)) > 0:
+		DeepUi.stat(card_box, "ore", "%d pyrite paid" % int(opts.get("paid", 0)), DeepUi.ORE, 12)
 	var foot := DeepUi.vbox(column, 6)
-	foot.custom_minimum_size.y = 80
-	_skip = DeepUi.label(foot, "Click the Geode or press Space to strike · Esc skips" if mode == "geode" else "Click or press Space to skip ahead", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	foot.custom_minimum_size.y = DeepUi.pt(40) if DeepUi.phone else 80.0
+	_skip = DeepUi.label(foot, ("Tap the Geode to strike" if mode == "geode" else "Tap to skip ahead") if DeepUi.phone else ("Click the Geode or press Space to strike · Esc skips" if mode == "geode" else "Click or press Space to skip ahead"), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	_choices = Appraisal.choices(foot, actions, close)
 	_choices.visible = false
 	_flash = ColorRect.new()
@@ -273,12 +322,12 @@ func play() -> void:
 	_dim.modulate.a = 0.0
 	_track(create_tween()).tween_property(_dim, "modulate:a", 1.0, 0.22)
 	DeepUi.pop_in(_stage, 0.0, 0.9, 0.38)
-	if mode == "contract":
+	if mode in ["contract", "twin"]:
 		_phase = "fusing"
 		_swirl.begin()
 		DeepAudio.play("altar_hum", {"volume": 0.7})
 		var beat := _track(create_tween())
-		beat.tween_interval(Swirl.LIFE)
+		beat.tween_interval(_swirl.life)
 		beat.tween_callback(_split)
 		return
 	_phase = "ready"
@@ -334,7 +383,7 @@ func _split() -> void:
 	## The halves fall away, the hollow is lit in the grade's color, the stone rises.
 	_phase = "opening"
 	var heart: Vector2 = _heart()
-	_skip.text = "Click or press Space to skip ahead"
+	_skip.text = "Tap to skip ahead" if DeepUi.phone else "Click or press Space to skip ahead"
 	DeepAudio.play("geode_crack", {"volume": 0.95})
 	DeepAudio.play("reveal", {"delay": 0.15, "volume": 0.8})
 	_flash.color.a = 0.75
@@ -365,8 +414,40 @@ func _split() -> void:
 	rise.parallel().tween_property(_view, "scale", Vector2.ONE, 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	rise.parallel().tween_method(func(spin: float) -> void: _view.call("set_spin", spin), 9.0, 0.5, 1.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	rise.tween_callback(_grade)
-	rise.tween_interval(0.6)
+	if mode == "twin":
+		## Its weight rolls up under it before a line of the sheet is read.
+		rise.tween_callback(_roll_carat)
+		rise.tween_interval(ROLL + 0.5)
+	else:
+		rise.tween_interval(0.6)
 	rise.tween_callback(_read)
+
+func _roll_carat() -> void:
+	## The weight counts up from the heavier stone that went in to what came out, and says by
+	## how much; a stone no heavier for it says so plainly.
+	if _carat_label == null:
+		return
+	var to: int = int(stone.get("carat", 1))
+	_carat_label.text = "%d ct" % _carat_from
+	_carat_label.modulate.a = 0.0
+	_carat_label.visible = true
+	_carat_label.pivot_offset = _carat_label.size * 0.5
+	var roll := _track(create_tween())
+	roll.tween_property(_carat_label, "modulate:a", 1.0, 0.15)
+	roll.tween_method(func(value: float) -> void: _carat_label.text = "%d ct" % int(round(value)), float(_carat_from), float(to), ROLL).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	roll.tween_callback(func() -> void:
+		_carat_label.text = "%d ct" % to
+		var gain: int = to - _carat_from
+		if gain > 0:
+			_carat_label.add_theme_color_override("font_color", DeepUi.GOOD)
+			DeepUi.pulse(_carat_label, 1.3, 0.4)
+			DeepAudio.play("keep", {"volume": 0.8})
+			if _root.is_inside_tree():
+				var at: Vector2 = _carat_label.global_position + _carat_label.size * 0.5 - _root.global_position
+				DeepUi.burst(_root, at, DeepUi.GOOD, 26, 220.0, 0.7, 5.0)
+				DeepUi.float_text(_root, at - Vector2(0, 58), "+%d ct" % gain, DeepUi.GOOD, 24, 50.0, 1.4)
+		elif _root.is_inside_tree():
+			DeepUi.float_text(_root, _carat_label.global_position + _carat_label.size * 0.5 - _root.global_position - Vector2(0, 58), "no heavier", DeepUi.MUTED, 18, 40.0, 1.2))
 
 func _grade() -> void:
 	## The grade, called in its color.
@@ -418,6 +499,12 @@ func finish() -> void:
 		_art.wobble = false
 	if _swirl != null:
 		_swirl.visible = false
+	if _carat_label != null:
+		_carat_label.visible = true
+		_carat_label.modulate.a = 1.0
+		_carat_label.text = "%d ct" % int(stone.get("carat", 1))
+		if int(stone.get("carat", 1)) > _carat_from:
+			_carat_label.add_theme_color_override("font_color", DeepUi.GOOD)
 	_view.modulate.a = 1.0
 	_view.scale = Vector2.ONE
 	_view.call("set_spin", 0.5)
@@ -517,11 +604,14 @@ class Swirl extends Control:
 	## Five stones circling in to the middle of the bench until they meet in a flash.
 	const LIFE: float = 2.2
 	var stones: Array = []
+	## How long the circling takes: a twin's two stones meet sooner than a contract's five.
+	var life: float = LIFE
 	var _clock: float = -1.0
 	var _thumbs: Array = []
 
-	func _init(inputs: Array) -> void:
+	func _init(inputs: Array, seconds: float = LIFE) -> void:
 		stones = inputs
+		life = maxf(0.1, seconds)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _ready() -> void:
@@ -542,7 +632,7 @@ class Swirl extends Control:
 			queue_redraw()
 
 	func _place() -> void:
-		var t: float = clampf(_clock / LIFE, 0.0, 1.0) if _clock >= 0.0 else 0.0
+		var t: float = clampf(_clock / life, 0.0, 1.0) if _clock >= 0.0 else 0.0
 		var reach: float = minf(size.x, size.y) * 0.38 * (1.0 - t * t)
 		for i in range(_thumbs.size()):
 			var angle: float = TAU * float(i) / float(maxi(1, _thumbs.size())) + t * TAU * 1.5
@@ -553,6 +643,6 @@ class Swirl extends Control:
 	func _draw() -> void:
 		if _clock < 0.0:
 			return
-		var t: float = clampf(_clock / LIFE, 0.0, 1.0)
+		var t: float = clampf(_clock / life, 0.0, 1.0)
 		var glow: float = minf(size.x, size.y) * (0.2 + 0.6 * t)
 		draw_texture_rect(DeepUi.glow_texture(), Rect2(size * 0.5 - Vector2.ONE * glow, Vector2.ONE * glow * 2.0), false, Color(DeepUi.ACCENT_HI, 0.25 + 0.5 * t))

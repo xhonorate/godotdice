@@ -93,15 +93,16 @@ static func new_run(config: Dictionary) -> Dictionary:
 		state.hazard_mods = DeepContent.hazard_keys(tier)
 	state.schedule = plan_shaft(streams.tunnels, mine_def)
 	## Every lapidary goes down with the sockets they have opened filled from the vault, in any
-	## mine. A party that starts in a deeper mine rather than fighting down to it is given
-	## what the way down would have given it: a purse, a temporary stone for every socket
-	## with nothing in it (shut, or bought and left empty), picked at the shaft head and gone
-	## when the run ends, and a die to swap each of its own for, as the smithies, carvers and
-	## vats above would have offered (`_dice_offers`).
+	## mine. A party that starts in a deeper mine rather than fighting down to it starts with
+	## the mine's purse, and its shaft head shows each player the deep start's hand instead of
+	## the Quarry's stakes (`DeepBoons.deep_offer`, docs/DEEP_START.md): `deep_start` is how many
+	## mines it skipped. Since November 2026 it is lent no temporary stones and offered no dice
+	## swaps: the deep cards stand in for both. A Draft day still drafts its temporary stones.
 	## The daily dig lends every socket and a set of dice already: nothing is offered for the deep.
 	var deeper: bool = mine_key != DeepContent.starter_mine() and daily.is_empty()
+	if deeper:
+		state.deep_start = mines_skipped(mine_key)
 	var temps: RandomNumberGenerator = DeepRng.streams(seed_value, ["temps"]).temps
-	var outfit: RandomNumberGenerator = DeepRng.streams(seed_value, ["outfit"]).outfit
 	var seat: int = 0
 	## The rail goes down as copies of the vault's stones, and the vault keeps the stones
 	## themselves: a copy is marked lent, and wherever it ends up it never comes home.
@@ -129,9 +130,6 @@ static func new_run(config: Dictionary) -> Dictionary:
 			"altar_done": "", "vault_spent": [], "transcended": [],
 			"stats": DeepBattle.fresh_stats()}, true)
 		state.players.append(unit)
-		if deeper:
-			unit.temps = _temporary_offers(state, unit, temps)
-			unit.dice_offers = _dice_offers(state, unit, outfit)
 		if not daily.is_empty():
 			## What the day's rail rule puts in the bag (a Sealed Tray, a Big Haul), and for a
 			## Draft a pick of three for every socket, taken at the shaft head.
@@ -289,6 +287,16 @@ static func _take_stake(state: Dictionary, unit: Dictionary, offer_id: String, p
 	var event: Dictionary = _event(state, "staked", {"unit": unit.id, "offer": offer_id, "boons": chosen.get("boons", []).duplicate(),
 		"message": str(result.message), "made": result.get("made", []).duplicate(true), "dice": result.get("dice", []).duplicate(true),
 		"changed": result.get("changed", []).duplicate(true), "pick": bool(result.get("pick", false))})
+	## A deep start's card says what came of it (docs/DEEP_START.md): which dice were swapped,
+	## the material taken, the vouchers now held; and that it was a deep or a better card.
+	for extra in ["swapped", "material", "vouchers"]:
+		if result.has(extra):
+			event[extra] = result[extra]
+			state.grubstake.chosen[str(unit.id)][extra] = result[extra]
+	for flag in ["deep", "upgraded"]:
+		if bool(chosen.get(flag, false)):
+			event[flag] = true
+			event.k = int(chosen.get("k", 0))
 	if _close_grubstake(state):
 		event.finished = true
 	return {"ok": true, "event": event}
@@ -427,38 +435,35 @@ static func _take_temporary(state: Dictionary, unit: Dictionary, index: int, pic
 	var stone: Dictionary = _set_temporary(unit, offer, pick)
 	return {"ok": true, "event": _event(state, "temporary", {"unit": unit.id, "index": index, "stone": stone.duplicate(true), "left": temporary_left(unit)})}
 
-# --- dice offered for a deeper start -------------------------------------------------------
+# --- dice reworked for a deeper start ------------------------------------------------------
 ##
 ## A party fighting down to a deep mine passes smithies, carvers and vats on the way. One that
-## starts there instead is offered, at the shaft head and after its temporary stones, a choice
-## for every die it carries, one die at a time: three dice to swap it for, or keep it as it is.
-## The left one is its size or smaller, the middle one its size and the right one its size or
-## bigger, and every one of them differs from it: the middle one always in its pattern, an
-## etching or its material. How far the sizes stray and how much else is cut into them grows
-## with the mine (`start_dice_offer`): `steps` are the chances, in percent, of a side die
-## being at least one, two and three sizes off, and `variation` the chance of each pattern,
-## etching or material being cut into a die on top of whatever it must have. Like everything
-## else done to a die down the mine, a swap stays down there: the bowl at home is untouched.
+## starts there may take a Bag of Dice at the shaft head (`DeepBoons._bag_dice`): dice like its
+## own, reworked as those benches would have. Until November 2026 every die was offered three
+## swaps here instead (`dice_offers`); a run saved in the middle of that still answers them
+## (`_take_dice_offer`). A die's size strays from its own and variations are cut into it by
+## the mine (`start_dice_offer`): `steps` are the chances, in percent, of a die being at least
+## one, two and three sizes off, and `variation` the chance of each pattern, etching or
+## material being cut into a die on top of whatever it must have. Like everything else done to
+## a die down the mine, a swap stays down there: the bowl at home is untouched.
 
 const DICE_OFFER_AXES: Array = ["pattern", "etching", "material"]
 ## How many times a die is drawn again when it comes out the same as one already offered.
 const DICE_OFFER_TRIES: int = 6
 
-static func _dice_offers(state: Dictionary, unit: Dictionary, rng: RandomNumberGenerator) -> Array:
-	var tuning: Dictionary = mine_of(state).get("start_dice_offer", {})
-	var offers: Array = []
-	for index in range(unit.get("dice", []).size()):
-		var die: Dictionary = unit.dice[index]
-		var picks: Array = []
-		for side in [-1, 0, 1]:
-			var offered: Dictionary = {}
-			for _try in range(DICE_OFFER_TRIES):
-				offered = _offered_die(die, side * _offer_steps(rng, tuning), tuning, rng)
-				if not ([die] + picks).any(func(other: Dictionary) -> bool: return same_die(other, offered)):
-					break
-			picks.append(offered)
-		offers.append({"index": index, "die_id": str(die.get("id", "")), "picks": picks, "chosen": - 1, "kept": false})
-	return offers
+## How many mines below the first a run starts: 0 in the starter mine, 1 in the Seeps and so
+## on, read off the content's mine order (`DeepContent.mines_in_order`).
+static func mines_skipped(mine_key: String) -> int:
+	return skipped_mines(mine_key).size()
+
+static func skipped_mines(mine_key: String) -> Array:
+	## The mines a party starting in this one did not fight down through, shallowest first.
+	var order: Array = DeepContent.mines_in_order()
+	var at: int = order.find(mine_key)
+	var start: int = maxi(0, order.find(DeepContent.starter_mine()))
+	if at <= start:
+		return []
+	return order.slice(start, at)
 
 static func _offer_steps(rng: RandomNumberGenerator, tuning: Dictionary) -> int:
 	## How many sizes a side die strays: one draw read against the chances of at least one,
@@ -1146,6 +1151,21 @@ static func _enter(state: Dictionary, offer: Dictionary, streams: Dictionary) ->
 			state.chamber.tries = {}
 			for unit in state.players:
 				unit.oddity_choice = ""
+			## A lucky bench (November 2026): one smithy or carver in twenty (`bench_upgrade_chance`)
+			## does its better work for the whole party, free (`lucky`). Otherwise a Smith's
+			## Voucher (a deep start's card): every player still standing who holds one spends it
+			## on this visit, whether or not they take any work, and is shown the room's better
+			## work (`room_choices`). Who did is on the chamber (`vouchered`). A lucky room spends
+			## nobody's voucher. See `bench_upgrade`.
+			if kind in DICE_ROOMS:
+				state.chamber.lucky = bench_lucky(state, kind, str(offer.get("id", "")))
+				var vouchered: Array = []
+				if not bool(state.chamber.lucky):
+					for unit in living(state):
+						if int(unit.get("vouchers", 0)) > 0:
+							unit.vouchers = int(unit.vouchers) - 1
+							vouchered.append(str(unit.id))
+				state.chamber.vouchered = vouchered
 	return _event(state, "enter_chamber", {"depth": state.depth, "chamber": state.chamber.duplicate(true)})
 
 # --- fights ------------------------------------------------------------------------------
@@ -1386,8 +1406,10 @@ static func _settle_fight(state: Dictionary, outcome: String) -> Dictionary:
 	DeepBestiary.settled(state, b.enemies, outcome)
 	for fighter in b.players:
 		var unit: Dictionary = player(state, str(fighter.id))
-		unit.hp = int(fighter.hp)
-		unit.max_hp = int(fighter.max_hp)
+		## Max HP a Flawless Green Seam raised lasted the fight.
+		unit.max_hp = maxi(1, int(fighter.max_hp) - int(fighter.get("fight_max_hp", 0)))
+		unit.hp = mini(int(fighter.hp), int(unit.max_hp))
+		_carry_enriched(unit, fighter)
 		## What the creatures did to the bowl for the fight ends with it.
 		unit.dice = DeepBattle.dice_after_fight(fighter)
 		## How often each gem has fired this run (Hone, Hardening) goes on with the run.
@@ -1704,14 +1726,58 @@ static func room_card(kind: String) -> String:
 			return str(key)
 	return ""
 
+static func bench_lucky(state: Dictionary, kind: String, room: String) -> bool:
+	## Whether this smithy or carver is a lucky one: drawn from a stream of its own, named for
+	## the run's seed, the mine, the floor and the room, so the same room is always as lucky
+	## whoever asks, a reload or a rejoin never draws it again, and no other stream moves.
+	var name: String = "bench:%s:%d:%s:%s" % [str(state.get("mine", "")), int(state.get("depth", 0)), kind, room]
+	var rng: RandomNumberGenerator = DeepRng.streams(int(state.get("seed", 0)), [name])[name]
+	return rng.randf() < float(DeepContent.constant("bench_upgrade_chance", 0.05))
+
+static func bench_upgrade(state: Dictionary, unit_id: String) -> String:
+	## Why this player is shown the better work in the room they stand in: "luck" (a lucky
+	## bench, the whole party), "voucher" (they spent a Smith's Voucher on this visit), or ""
+	## (the plain work, and every room that is not a smithy or a carver).
+	var chamber: Dictionary = state.get("chamber", {})
+	if not str(chamber.get("kind", "")) in DICE_ROOMS:
+		return ""
+	if bool(chamber.get("lucky", false)):
+		return "luck"
+	if chamber.get("vouchered", []).has(unit_id):
+		return "voucher"
+	return ""
+
+static func room_choices(state: Dictionary, unit_id: String) -> Array:
+	## The choices one player is shown at the card in the room they stand in: the card's own,
+	## except that a player shown the better work (`bench_upgrade`: a lucky bench, or a Smith's
+	## Voucher spent on this visit) is shown each choice's `improved` version in its place, with
+	## the same id and flagged `improved: true`. Its label and text mark the words that show the
+	## upgrade with `**` (`DeepContent.plain` takes them out). What `_choose_oddity` looks a
+	## choice up in, so the view and the rules always agree. [] when there is no card here.
+	var chamber: Dictionary = state.get("chamber", {})
+	var key: String = str(chamber.get("oddity", ""))
+	if key.is_empty():
+		return []
+	var better: bool = not bench_upgrade(state, unit_id).is_empty()
+	var out: Array = []
+	for choice in DeepContent.oddity(key).get("choices", []):
+		var shown: Dictionary = choice.duplicate(true)
+		## The plain choice is shown without its better version riding on it.
+		shown.erase("improved")
+		if better and choice.get("improved", null) is Dictionary:
+			shown = choice.improved.duplicate(true)
+			shown.id = str(choice.get("id", ""))
+			shown.improved = true
+		out.append(shown)
+	return out
+
 static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: String, payload: Dictionary) -> Dictionary:
 	if not str(state.chamber.get("kind", "")) in ["oddity"] + CARD_ROOMS or str(state.chamber.get("oddity", "")).is_empty():
 		return _refuse("there is no oddity here")
 	if not str(unit.get("oddity_choice", "")).is_empty():
 		return _refuse("you have already chosen")
-	var oddity: Dictionary = DeepContent.oddity(str(state.chamber.oddity))
 	var choice: Dictionary = {}
-	for candidate in oddity.get("choices", []):
+	for candidate in room_choices(state, str(unit.id)):
 		if str(candidate.get("id", "")) == choice_id:
 			choice = candidate
 	if choice.is_empty():
@@ -1746,7 +1812,11 @@ static func _choose_oddity(state: Dictionary, unit: Dictionary, choice_id: Strin
 	var event: Dictionary = _event(state, "oddity_result", {"unit": unit.id, "choice": choice_id, "message": str(result.message),
 		"made": result.get("made", []).duplicate(true), "lost": result.get("lost", []), "changed": result.get("changed", []).duplicate(true),
 		"dice": result.get("dice", []).duplicate(true)})
-	for extra in ["verdict", "well", "revealed", "hp_lost", "bought", "broke", "dice_lost", "voided", "tumbled"]:
+	if bool(choice.get("improved", false)):
+		event.improved = true
+		event.upgrade = bench_upgrade(state, str(unit.id))
+		state.chamber.results[unit.id].improved = true
+	for extra in ["verdict", "well", "revealed", "hp_lost", "bought", "broke", "dice_lost", "voided", "tumbled", "faces", "picks"]:
 		if result.has(extra):
 			event[extra] = result[extra]
 			state.chamber.results[unit.id][extra] = result[extra]
@@ -2197,8 +2267,14 @@ static func _open_stall(state: Dictionary, streams: Dictionary) -> void:
 	var stock: Dictionary = {}
 	for unit in state.players:
 		var theirs: Array = []
-		for _i in range(MERCHANT_STONES):
-			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine, int(state.depth), 2, {"run": str(state.run_id), "source": "merchant"}, _id(state, "st"))
+		## The merchant knows who is coming (November 5, 2026): nothing a player already holds
+		## is laid out for them, and the first stone is for what their Birthstone wants or a
+		## color their sockets show (`_stall_pools`). Their loadout luck rides on each, as on
+		## every stone the mine gives them. The draws are the same as ever, in the same order.
+		var pools: Array = _stall_pools(unit, mine)
+		for i in range(MERCHANT_STONES):
+			var stone: Dictionary = DeepForge.roll_stone(streams.stones, mine, int(state.depth), 2.0 + float(unit.get("loadout_luck", 0.0)),
+				{"run": str(state.run_id), "source": "merchant"}, _id(state, "st"), pools[0] if i == 0 else pools[1])
 			_reveal(stone)
 			## Market Day: everything at half price.
 			theirs.append({"id": _id(state, "item"), "kind": "stone", "stone": stone, "price": DeepStone.value(stone) * (1 if has_mod(state, "MARKET_DAY") else 2), "sold": ""})
@@ -2212,6 +2288,42 @@ static func _open_stall(state: Dictionary, streams: Dictionary) -> void:
 	state.chamber.appraisals = {}
 	for unit in state.players:
 		unit.ready = false
+
+static func _held_skills(unit: Dictionary) -> Array:
+	## Every skill a player holds anywhere: set in a socket, riding one, or in the bag, read or
+	## still in its rock. A Geode is no stone yet and holds none.
+	var out: Array = []
+	for stone in DeepStone.rail_stones(unit) + unit.get("haul", []):
+		if stone is Dictionary and not DeepStone.is_geode(stone) and not str(stone.get("skill", "")).is_empty() and not out.has(str(stone.skill)):
+			out.append(str(stone.skill))
+	return out
+
+static func _stall_pools(unit: Dictionary, mine: Dictionary) -> Array:
+	## What a stall rolls for one player: [the first stone's skills, every other stone's]. No
+	## stone is laid out of a skill the player holds anywhere (`_held_skills`), nor an opal
+	## (nothing sells one); with every skill of the mine held, the rock is drawn as it comes
+	## (an empty pool, `DeepForge.roll_stone`). The first stone is narrowed further, to the
+	## skills carrying a tag the player's Birthstone wants (`wants` on the character), or
+	## with none of those left, to the colors their sockets show (a two-tone socket both of
+	## its colors, a Rainbow none in particular); with none of those either, it is drawn as
+	## the rest are.
+	var held: Array = _held_skills(unit)
+	var pool: Array = DeepForge.skill_pool(mine).filter(func(k: String) -> bool: return str(DeepContent.skill(k).get("color", "")) != DeepContent.OPAL and not held.has(k))
+	if pool.is_empty():
+		return [[], []]
+	var character: Dictionary = DeepContent.character(str(unit.get("character", "")))
+	var wants: Array = character.get("wants", [])
+	var first: Array = pool.filter(func(k: String) -> bool: return DeepContent.skill(k).get("tags", []).any(func(tag: Variant) -> bool: return wants.has(str(tag))))
+	if first.is_empty():
+		var shown: Array = []
+		for socket in character.get("sockets", []):
+			if DeepContent.is_rainbow(str(socket)):
+				continue
+			for color in DeepContent.socket_colors(str(socket)):
+				if not shown.has(str(color)):
+					shown.append(str(color))
+		first = pool.filter(func(k: String) -> bool: return shown.has(str(DeepContent.skill(k).get("color", ""))))
+	return [first if not first.is_empty() else pool, pool]
 
 static func stall_stock(state: Dictionary, unit_id: String) -> Array:
 	## What this player is shown at this stall. Older saves kept one shared list.
@@ -2428,10 +2540,39 @@ static func _close_altar(state: Dictionary) -> bool:
 	_close_chamber(state)
 	return true
 
+static func _carry_enriched(unit: Dictionary, fighter: Dictionary) -> void:
+	## What a Flawless Enrich did for good comes home from the fight: its neighbours' carats, and
+	## the socket it left empty. A fighter's rail is laid flat and a copy, so it is told here.
+	var enriched: Dictionary = fighter.get("enriched", {})
+	var shattered: Array = fighter.get("shattered", [])
+	if enriched.is_empty() and shattered.is_empty():
+		return
+	var rail: Array = unit.get("rail", [])
+	for index in range(rail.size()):
+		if not rail[index] is Dictionary:
+			continue
+		var id: String = str(rail[index].get("id", ""))
+		if enriched.has(id):
+			rail[index].carat = int(rail[index].get("carat", 1)) + int(enriched[id])
+		if shattered.has(id):
+			rail[index] = null
+	for line in unit.get("riders", []):
+		if not line is Array:
+			continue
+		for at in range(line.size() - 1, -1, -1):
+			var rider: Variant = line[at]
+			if not rider is Dictionary:
+				continue
+			var id: String = str(rider.get("id", ""))
+			if enriched.has(id):
+				rider.carat = int(rider.get("carat", 1)) + int(enriched[id])
+			if shattered.has(id):
+				line.remove_at(at)
+
 static func _absorb(state: Dictionary, rng: RandomNumberGenerator) -> Array:
 	## Every Black Opal set on a rail takes a gem from its owner's bag as the fight opens: the
 	## gem is gone for good and its skill is the Black Opal's until the run ends. A Flawless
-	## one takes two. Only gems already read, and never a Birthstone or a Transcendent.
+	## one gains a carat for it. Only gems already read, and never a Birthstone or a Transcendent.
 	var out: Array = []
 	for unit in living(state):
 		for stone in DeepStone.rail_stones(unit):
@@ -2440,8 +2581,6 @@ static func _absorb(state: Dictionary, rng: RandomNumberGenerator) -> Array:
 			var hunger: int = int(DeepStone.skill_of(stone).get("absorbs", 0))
 			if hunger <= 0:
 				continue
-			if DeepStone.is_flawless(stone):
-				hunger *= 2
 			for _bite in range(hunger):
 				var prey: Array = unit.get("haul", []).filter(func(s: Dictionary) -> bool:
 					return bool(s.get("appraised", false)) and not DeepStone.is_birthstone(s) and not DeepStone.is_transcendent(s))
@@ -2452,7 +2591,11 @@ static func _absorb(state: Dictionary, rng: RandomNumberGenerator) -> Array:
 				if not stone.has("absorbed"):
 					stone.absorbed = []
 				stone.absorbed.append(str(taken.skill))
-				out.append({"unit": str(unit.id), "stone_id": str(stone.id), "skill": str(taken.skill), "taken": taken.duplicate(true)})
+				## A Flawless one is a carat heavier for every gem it takes, for the rest of the run.
+				var fed: bool = DeepStone.is_flawless(stone)
+				if fed:
+					stone.carat = int(stone.get("carat", 1)) + 1
+				out.append({"unit": str(unit.id), "stone_id": str(stone.id), "skill": str(taken.skill), "taken": taken.duplicate(true), "fed": fed})
 	return out
 
 # --- landings --------------------------------------------------------------------------------

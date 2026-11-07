@@ -23,6 +23,7 @@ const Hoard = preload("res://view/battle/hoard.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
 const Appraisal = preload("res://view/gems/appraisal.gd")
 const Roster = preload("res://view/home/roster.gd")
+const Plates = preload("res://view/ui/plates.gd")
 
 var checks: int = 0
 var failures: Array = []
@@ -37,6 +38,7 @@ func _init() -> void:
 	_test_rasteriser()
 	_test_look()
 	_test_effects()
+	_test_plates()
 	_test_mine()
 	_test_faces()
 	print("View keepers: %d assertions, %d failures" % [checks, failures.size()])
@@ -612,6 +614,32 @@ func _test_look() -> void:
 	check(Thumbs.gem_key(DeepStone.make("STRIKE", 3, 1, 3, [], {}, "a")) != Thumbs.gem_key(DeepStone.make("STRIKE", 3, 1, 3, [], {}, "b")), "two stones of one skill are photographed apart")
 	check(Thumbs.request("x", "gem", {}, func(_t: Texture2D) -> void: pass ) == null, "with no screen there is no photographer, and asking is harmless")
 
+func _test_plates() -> void:
+	## A gem's plate: a growth gem says how far it has come, and a hand that merely misses the
+	## trigger "Fizzles" with no more words than that (its trigger is already on the plate).
+	var hone: Dictionary = DeepStone.make("HONE", 3, 1, 3, [], {}, "hone")
+	var strike: Dictionary = DeepStone.make("STRIKE", 3, 1, 3, [], {}, "strike")
+	check(Plates.is_growth(hone) and not Plates.is_growth(strike), "Hone grows with its firings; Strike does not")
+	var hand: Array = [{"die_id": "d1", "value": 4}, {"die_id": "d2", "value": 4}]
+	var dice: Array = [{"id": "d1", "shape": "D6"}, {"id": "d2", "shape": "D6"}]
+	var cut: int = int(DeepStone.effective(hone, {}).cut_step)
+	var trigger: Dictionary = DeepStone.skill_of(hone).get("trigger", {})
+	var plain: Dictionary = {"socket": 0, "active": false, "reason": DeepPatterns.words(trigger, cut), "dice": [], "trigger": DeepPatterns.describe(trigger, cut)}
+	var box: Control = Plates.gem(hone, {"run_fires": 3}, hand, plain, dice)
+	root.add_child(box)
+	var said: Array = box.find_children("*", "Label", true, false).map(func(l: Label) -> String: return l.text)
+	check(said.has("Fired 3 times this run."), "a growth gem's plate says how often it has fired: %s" % str(said))
+	check(said.has("Fizzles") and not said.any(func(t: String) -> bool: return t.begins_with("Stays dark")), "a hand that merely misses the trigger fizzles, in one word: %s" % str(said))
+	box.free()
+	var buried: Dictionary = plain.duplicate()
+	buried.reason = "The socket is buried."
+	box = Plates.gem(strike, {"run_fires": 3}, hand, buried, dice)
+	root.add_child(box)
+	said = box.find_children("*", "Label", true, false).map(func(l: Label) -> String: return l.text)
+	check(said.has("Fizzles: The socket is buried."), "a fizzle for any other reason says the reason: %s" % str(said))
+	check(not said.any(func(t: String) -> bool: return t.begins_with("Fired")), "a gem that does not grow wears no count")
+	box.free()
+
 func _test_effects() -> void:
 	## Every lasting effect a unit can carry is shown, and shown the right way round.
 	var unit: Dictionary = {"statuses": {"poison": 3, "stun": 1, "curse": 2, "ward": 99, "retain": 5, "charged": 120, "marked": 10, "regeneration": 6, "spikes": 4, "dulled": 5}, "block": 5, "buried": [0], "clouded": [1, 2],
@@ -631,6 +659,19 @@ func _test_effects() -> void:
 	for key in ["block", "poison", "combo_breaker", "dread", "bound", "gold", "ward", "retain", "marked", "regeneration", "spikes"]:
 		check(foe_keys.has(key), "a creature's %s is shown" % key)
 	check(foe_keys.has("trait_steal_gold"), "a creature's trick is shown as a trait chip")
+	## Combo Breaker counts down (3, 2, 1): the chip says the turns left and wears them as a bar.
+	for chip in foe_chips:
+		if str(chip.key) == "combo_breaker":
+			check(str(chip.value) == "1" and int(chip.turns) == 1 and str(chip.text).ends_with("cannot land on it this turn.") and str(chip.text).contains("broke free"), "the Combo Breaker chip says how long it holds: %s · %s" % [str(chip.value), str(chip.text)])
+		if str(chip.key) == "retain":
+			check(not str(chip.text).contains("Maximum"), "Retain has no cap any more: %s" % str(chip.text))
+	check(EffectChips.COUNTS_DOWN.has("combo_breaker"), "Combo Breaker wears the turns bar")
+	## Flawless lights up in effect text in the Peerless gold, as Resonance does in its rainbow,
+	## and the Clarity words say what Flawless gives (the owner, November 5).
+	check(DeepUi.EFFECT_KEYWORDS.has("flawless") and DeepUi.EFFECT_KEYWORDS.flawless.color == DeepUi.TIER_colorS.PEERLESS, "Flawless is a keyword in the Peerless gold")
+	var inspector = load("res://view/inspect/inspector.gd").new()
+	check(inspector._clarity_words(5) == "Rings for three times the Resonance and gains a unique Flawless ability.", "the Flawless clarity's words: %s" % inspector._clarity_words(5))
+	inspector.free()
 	## The deeper creatures' states have chips of their own.
 	var deep: Dictionary = {"key": "THE_PRISMARCH", "statuses": {"strength": 3}, "block": 0, "burrowed": true, "absorb": ["RED", "BLUE"], "reflect": 50, "mirror": 1,
 		"charging": {"turns": 1, "name": "Lance", "guard_pct": 50, "store": true, "stored": 12},

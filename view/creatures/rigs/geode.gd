@@ -364,6 +364,9 @@ const RIGS: Dictionary = {
 			"Heavy Tax": [["call", "_assayer_scales"], ["call", "_coins"], ["each", "Eye01", 0.0, 0.45, "pulse"], ["whirl", "halo", Y, 2.0, "hold"],
 				["fx", 0.3, "glow", {"from": "Eye01", "color": "#ffd060", "size": 0.6}],
 				["fx", 0.32, "sparks", {"from": "Halo01", "color": "#ffd060", "amount": 18, "speed": 2.0}]],
+			"Ruinous Tax": [["call", "_assayer_scales"], ["call", "_coins"], ["each", "Eye01", 0.0, 0.45, "pulse"], ["whirl", "halo", Y, 2.0, "hold"],
+				["fx", 0.3, "glow", {"from": "Eye01", "color": "#ffd060", "size": 0.6}],
+				["fx", 0.32, "sparks", {"from": "Halo01", "color": "#ffd060", "amount": 18, "speed": 2.0}]],
 			## A die taken as collateral: its pan sinks under the weight, the die there glinting.
 			"Seize": [["call", "_assayer_scales"], ["each", "Eye01", 0.0, 0.3, "pulse"],
 				["fx", 0.32, "sparks", {"from": "PanR05", "color": "#e8e8ff", "amount": 12, "speed": 1.6}],
@@ -622,6 +625,7 @@ const COINS: Dictionary = {
 	"THE_ASSAYER/Eat the Rich": [[0.08, "party", "PanL04", 10]],
 	"THE_ASSAYER/Tax": [[0.05, "party", "PanL04", 6]],
 	"THE_ASSAYER/Heavy Tax": [[0.05, "party", "PanL04", 10]],
+	"THE_ASSAYER/Ruinous Tax": [[0.05, "party", "PanL04", 14]],
 }
 
 static func _coins(m: Node3D, clip: Dictionary, _delta: float) -> void:
@@ -927,6 +931,7 @@ const ASSAYER_TIPS: Dictionary = {
 	"Eat the Rich": ["hold", 0.0, -12.0],
 	"Tax": ["hold", 0.0, -10.0],
 	"Heavy Tax": ["hold", 0.0, -16.0],
+	"Ruinous Tax": ["hold", 0.0, -22.0],
 	"Seize": ["hold", 0.0, 12.0],
 	"Raise the Rate": ["pulse", 0.0, -6.0],
 	"weigh": [WEIGH, 0.0, -14.0],

@@ -14,6 +14,7 @@ func _init() -> void:
 	edge_cases()
 	persistence()
 	weight()
+	reworked_gems()
 	print("Gem updates: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
@@ -71,6 +72,117 @@ func cast(f: Dictionary, key: String, values: Array = [5, 5, 5, 2, 2], flawless:
 
 func hit(f: Dictionary, target: Dictionary, amount: int) -> Dictionary:
 	return DeepBattle._damage(f.state, f.foe, target, amount, f.rng.dice)
+
+func fire(f: Dictionary, key: String, values: Array, flawless: bool = false, cut: int = 4, carat: int = 1) -> Dictionary:
+	## As the fight fires it, not a forecast: procs roll their chance, a Hex draws its debuffs.
+	equip(f, key, flawless, cut, 0, carat)
+	rolls(f, values)
+	f.player.firing_target = f.player.target
+	return DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
+
+func _debuff_stacks(foe: Dictionary) -> int:
+	## Every stack of the five a Hex may draw that stands on a creature.
+	return int(foe.statuses.get("stun", 0)) + int(foe.statuses.get("marked", 0)) + int(foe.statuses.get("clouded", 0)) + int(foe.get("stolen_dice", 0)) + int(foe.get("dread_turns", 0))
+
+func _drawn(event: Dictionary) -> Array:
+	return event.get("effects", []).filter(func(e: Dictionary) -> bool: return bool(e.get("drawn", false))).map(func(e: Dictionary) -> String: return str(e.kind))
+
+func _share(f: Dictionary) -> int:
+	## The share of missing health the Shelter in socket 0 gives, as its weight makes it.
+	var magnitude: float = float(DeepStone.effective(f.player.rail[0], DeepBattle.rail_context(f.state, f.player, 0)).magnitude)
+	return DeepRules.sat_floor(100.0 * (1.0 + DeepRules.carat_steps(magnitude)))
+
+func reworked_gems() -> void:
+	## Shelter (November 2026): every living ally, the one who fired it too, gains block equal to
+	## their own missing health, its share growing by carat steps (x1 at one carat to x4 at 24).
+	var f: Dictionary = setup(3, 3)
+	var hurt: Array = [0, 300, 100]
+	for i in range(3):
+		f.state.players[i].hp = 1000 - int(hurt[i])
+		f.state.players[i].block = 0
+	var light: Dictionary = cast(f, "SHELTER", [5, 5, 2, 3, 4])
+	check(light.kind == "gem_fire" and _share(f) == 100, "a one-carat Shelter gives 100% of the health missing")
+	check(f.state.players.map(func(p: Dictionary) -> int: return int(p.block)) == [0, 300, 100], "each ally is shielded for exactly their own missing health, nothing at full: %s" % str(f.state.players.map(func(p: Dictionary) -> int: return int(p.block))))
+	check(DeepStone.text(f.player.rail[0], DeepBattle.rail_context(f.state, f.player, 0)) == "Every ally gains Block equal to 100% of the health they are missing.", "and its card says so: %s" % DeepStone.text(f.player.rail[0], DeepBattle.rail_context(f.state, f.player, 0)))
+	for p in f.state.players:
+		p.block = 0
+	cast(f, "SHELTER", [5, 5, 2, 3, 4], false, 4, 13)
+	check(_share(f) == 200 and f.state.players.map(func(p: Dictionary) -> int: return int(p.block)) == [0, 600, 200], "a 13-carat Shelter (one carat step) gives twice the missing health: %s" % str(f.state.players.map(func(p: Dictionary) -> int: return int(p.block))))
+	check(DeepStone.text(f.player.rail[0], DeepBattle.rail_context(f.state, f.player, 0)).contains("200% of the health"), "and its card reads the stone's share")
+	for p in f.state.players:
+		p.block = 0
+	cast(f, "SHELTER", [5, 5, 2, 3, 4], false, 4, 24)
+	check(_share(f) == 400 and int(f.state.players[1].block) == 1200, "a 24-carat Shelter gives four times the missing health: %d" % int(f.state.players[1].block))
+	## Flawless: doubled while its owner is poisoned or burning (November 2026).
+	for p in f.state.players:
+		p.block = 0
+		p.statuses.poison = 2
+	cast(f, "SHELTER", [5, 5, 2, 3, 4], true)
+	var share: int = _share(f)
+	check(int(f.state.players[1].block) == 2 * (300 * share / 100) and int(f.state.players[2].block) == 2 * (100 * share / 100), "a poisoned Flawless Shelter shields each for twice their own missing health (share %d%%)" % share)
+	check(DeepStone.flawless_text(f.player.rail[0], {}) == "Doubled if you are poisoned or burning.", "its Flawless line: %s" % DeepStone.flawless_text(f.player.rail[0], {}))
+	## Hex: each go one stack of one debuff drawn at random from five; a one-carat stone has one go.
+	const FIVE: Array = ["clouded", "die_steal", "dice_dread", "marked", "stun"]
+	f = setup()
+	var one: Dictionary = fire(f, "HEX", [20, 2, 3, 4, 5])
+	var drawn: Array = _drawn(one)
+	check(drawn.size() == 1 and FIVE.has(drawn[0]) and _debuff_stacks(f.foe) == 1, "a one-carat Hex lands exactly one of the five: %s" % str(drawn))
+	check(DeepStone.text(f.player.rail[0], {}) == "Apply a random debuff: Clouded, Bound, Dread, Marked or Stun.", "its card names the five")
+	## A heavy stone has more goes (24 carats: four), each drawn on its own.
+	f = setup()
+	var heavy: Dictionary = fire(f, "HEX", [20, 2, 3, 4, 5], false, 4, 24)
+	var many: Array = _drawn(heavy)
+	check(many.size() == 4 and many.all(func(k: String) -> bool: return FIVE.has(k)) and _debuff_stacks(f.foe) == 4, "a 24-carat Hex draws four, every one from the list: %s" % str(many))
+	## The same seed draws the same debuffs.
+	var again: Dictionary = setup()
+	check(_drawn(fire(again, "HEX", [20, 2, 3, 4, 5], false, 4, 24)) == many, "the same seed draws the same debuffs")
+	## Over enough goes every one of the five comes up.
+	var seen: Dictionary = {}
+	for _time in range(20):
+		for kind in _drawn(fire(f, "HEX", [20, 2, 3, 4, 5], false, 4, 24)):
+			seen[kind] = true
+	check(seen.size() == 5, "every one of the five is drawn in time: %s" % str(seen.keys()))
+	## Combo Breaker turns a Stun, Bound, Clouded or Dread draw away as itself (it is not drawn
+	## again), and the Marked draws still land.
+	var broken: Dictionary = setup()
+	broken.foe.statuses.ward = 0
+	var stun_turned: bool = false
+	var marked_landed: bool = false
+	for _time in range(30):
+		broken.foe.statuses.combo_breaker = 1
+		var event: Dictionary = fire(broken, "HEX", [20, 2, 3, 4, 5], false, 4, 24)
+		for result in event.get("effects", []):
+			if not bool(result.get("drawn", false)):
+				continue
+			if str(result.kind) in DeepBattle.STOPPERS:
+				check(bool(result.get("resisted", false)), "a %s draw is resisted under Combo Breaker" % str(result.kind))
+				stun_turned = stun_turned or str(result.kind) == "stun"
+			elif str(result.kind) == "marked":
+				marked_landed = marked_landed or int(result.get("marked_after", 0)) > 0
+	check(stun_turned and int(broken.foe.statuses.get("stun", 0)) == 0 and int(broken.foe.get("stolen_dice", 0)) == 0 and int(broken.foe.get("dread_turns", 0)) == 0 and int(broken.foe.statuses.get("clouded", 0)) == 0,
+		"Combo Breaker resists a Stun draw, and no stopper landed")
+	check(marked_landed and int(broken.foe.statuses.get("marked", 0)) > 0, "while the Marked draws land")
+	## Flawless: then it loses 3 health (carat-scaled) for each different affliction on it, through
+	## its block, swelled by nothing (a Curse on it, the Marks the Hex just drew) and spending no Mark.
+	for spec in [[1, "one carat"], [13, "13 carats"]]:
+		var g: Dictionary = setup()
+		g.foe.block = 50
+		g.foe.statuses.poison = 2
+		g.foe.statuses.curse = 1
+		var magnitude: float = 0.0
+		var event: Dictionary = fire(g, "HEX", [20, 2, 3, 4, 5], true, 4, int(spec[0]))
+		magnitude = float(DeepStone.effective(g.player.rail[0], DeepBattle.rail_context(g.state, g.player, 0)).magnitude)
+		var count: int = DeepBattle.afflictions(g.foe)
+		var expected: int = DeepRules.sat_muldiv(count, DeepRules.sat_floor(300.0 * magnitude), 100)
+		var lost: Array = event.get("effects", []).filter(func(e: Dictionary) -> bool: return bool(e.get("lost_hp", false)))
+		check(lost.size() == 1 and int(lost[0].hp_loss) == expected and int(lost[0].absorbed) == 0 and int(g.foe.block) == 50 and int(g.foe.hp) == 1000 - expected,
+			"a Flawless Hex at %s loses %d (3 × x%.2f for each of %d afflictions) through its block: %s" % [str(spec[1]), expected, magnitude, count, str(lost)])
+		check(count >= 3 and DeepStone.flawless_text(g.player.rail[0], {}) == "Then it loses 3 health for each different debuff on it.", "counting Poison, Curse and what it drew (%d), as its Flawless line says" % count)
+		check(int(g.foe.statuses.get("marked", 0)) == _drawn(event).count("marked"), "and it spends none of the Marks it drew")
+	## Afflictions are counted once each, every kind of them.
+	var all: Dictionary = {"statuses": {"poison": 3, "burn": 1, "stun": 2, "curse": 1, "marked": 1, "dulled": 1, "clouded": 1, "festering": 1, "scorched": 1}, "dread_turns": 2, "stolen_dice": 1}
+	check(DeepBattle.afflictions(all) == 11 and DeepBattle.afflictions({"statuses": {"ward": 3, "spikes": 2}}) == 0, "eleven kinds of affliction, each counted once; a Ward or Spikes is none")
+	check(DeepBattle.afflictions({"statuses": {}, "clouded": [2]}) == 1 and DeepBattle.afflictions({"statuses": {"dread": 1}}) == 1, "a player's clouded socket and Dread count too")
 
 func triggers() -> void:
 	var f: Dictionary = setup()
@@ -133,7 +245,8 @@ func attacks() -> void:
 	f = setup()
 	f.foe.block = 150
 	cast(f, "SHATTER", [5, 5, 5, 2, 2], true)
-	check(int(f.foe.hp) == 850 and int(f.foe.block) == 0, "Flawless Shatter strips every point, then deals exactly that amount")
+	## What it deals lands on the Block still standing, like any blow.
+	check(int(f.foe.hp) == 1000 and int(f.foe.block) == 150 - 22 - 22 and int(f.player.block) == 22, "Flawless Shatter strips what it strips, deals exactly that amount and hands it over: hp %d, its block %d, mine %d" % [int(f.foe.hp), int(f.foe.block), int(f.player.block)])
 	## Flawless Apex doubles when the roll it reads is a crown: its die on its own top face (or
 	## past it, a face that has climbed). Every die here tops out at 20.
 	for value in [19, 20, 21]:
@@ -165,14 +278,16 @@ func status_gems() -> void:
 	cast(f, "BULWARK", [1, 2, 3, 4, 5], true)
 	check(int(f.player.block) == 22 and int(f.player.statuses.retain) == 11, "Bulwark reads total and retains half of actual Block gained")
 	cast(f, "MORTAR")
-	check(int(f.player.statuses.retain) == 20, "Perfect Mortar adds 50% of 22 Block to 11 Retain, capped at 20")
+	check(int(f.player.statuses.retain) == 22, "Perfect Mortar adds 50% of 22 Block to 11 Retain: no cap")
 	f = setup()
 	cast(f, "BLOOM", [1, 3, 5, 2, 2], true)
 	check(f.state.players.all(func(p: Dictionary) -> bool: return int(p.statuses.charged) == 3), "Bloom gives Charged per odd die to the party")
 	cast(f, "RENEWAL", [1, 2, 3, 4, 5], true)
-	check(int(f.player.statuses.ward) == 1, "Renewal grants Ward")
-	cast(f, "HEX", [20, 2, 3, 4, 5], true)
-	check(int(f.foe.stolen_dice) == 1 and int(f.foe.statuses.clouded) == 1 and int(f.foe.statuses.get("stun", 0)) == 0, "Hex applies Bound and Clouded")
+	check(int(f.player.statuses.get("regeneration", 0)) > 0, "Renewal's overflow is Regeneration")
+	## A forecast (`cast` resolves dry) cannot know which debuff a Hex will draw, so it lands none.
+	var forecast: Dictionary = cast(f, "HEX", [20, 2, 3, 4, 5])
+	check(forecast.kind == "gem_fire" and forecast.effects.size() == 1 and bool(forecast.effects[0].get("nothing", false)) and _debuff_stacks(f.foe) == 0,
+		"a forecast Hex draws no debuff: %s" % str(forecast.get("effects", [])))
 	cast(f, "MIASMA", [2, 4, 6, 1, 1])
 	check(f.state.enemies.all(func(e: Dictionary) -> bool: return int(e.statuses.poison) == 3), "Miasma gives one Poison per even die to every enemy")
 	f.player.hp = 800
@@ -189,7 +304,7 @@ func status_gems() -> void:
 	check(f.state.enemies.all(func(e: Dictionary) -> bool: return int(e.statuses.clouded) == 1), "Flawless Mist clouds all enemies")
 	f.state.players[1].hp = 100
 	cast(f, "SHELTER")
-	check(int(f.state.players[1].block) == 10 and int(f.player.block) == 0, "Shelter protects the lowest HP percentage ally")
+	check(int(f.state.players[1].block) == 900 and int(f.player.block) == 0, "Shelter shields each ally for the health they are missing, and nothing at full health")
 
 func lifeline() -> void:
 	var f: Dictionary = setup()
@@ -250,11 +365,14 @@ func fortune() -> void:
 	f = setup()
 	cast(f, "STAKE", [1, 2, 3, 4, 5], true)
 	## A multiplier grows by its carat steps, not the whole curve: Flawless's x1.5 is a sixth of a step.
-	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 1.87), "Flawless Stake spends an exact five for 75% amplification, grown a sixth by its x1.5")
+	check(DeepRules.pyrite(f.player) == 0 and is_equal_approx(float(f.player.amplify), 2.0), "Flawless Stake spends all 100 for 1% each")
+	f = setup()
+	cast(f, "STAKE", [1, 2, 3, 4, 5])
+	check(DeepRules.pyrite(f.player) == 95 and is_equal_approx(float(f.player.amplify), 1.5), "an ordinary Stake spends an exact five for 50%")
 	cast(f, "GILDED_ARMOR", [1, 2, 3, 4, 5])
 	## Its share of the 95 Pyrite is read off the pack at a Perfect cut, then the Stake's 1.87.
 	var gilded: int = 95 * int(DeepContent.skill("GILDED_ARMOR").effects[0].amount.args[1].ladder[4]) / 100
-	check(int(f.player.block) == int(floor(float(gilded) * 1.87)), "Gilded Armor uses remaining available Pyrite and preceding amplification: %d x 1.87 (got %d)" % [gilded, int(f.player.block)])
+	check(int(f.player.block) == int(floor(float(gilded) * 1.5)), "Gilded Armor uses remaining available Pyrite and preceding amplification: %d x 1.5 (got %d)" % [gilded, int(f.player.block)])
 	## Gilded Armor reads a straight now that it wears the trigger Windfall used to ask for.
 	## On its own fixture, because a gem that stays dark spends the amplification above.
 	check(cast(setup(), "GILDED_ARMOR").kind == "gem_fizzle", "Gilded Armor needs a straight")
@@ -298,7 +416,7 @@ func tailings() -> void:
 	rolls(f, [1, 2, 3, 4, 9])
 	for socket in range(3):
 		DeepBattle.resolve_gem(f.state, f.player, socket, {}, f.rng.dice)
-	check(int(f.player.gold) == 18, "Flawless Tailings pays 10 × 1.5 and one Pyrite more per fizzle, swelled the same: 2 × 1.5")
+	check(int(f.player.gold) == 15, "Flawless Tailings pays 10 × 1.5, with no bonus: its line is the restart")
 	## A new turn clears what was paid along with what fizzled.
 	f.state.queue = [{"kind": "rail_begin", "unit": "p0"}]
 	DeepBattle._perform(f.state, f.state.queue.pop_front(), f.rng.dice, f.rng.creatures)
@@ -345,10 +463,10 @@ func upgrades() -> void:
 	equip(f, "FACET", true, 4, 1)
 	rolls(f, [20, 2, 3, 4, 5])
 	DeepBattle.resolve_gem(f.state, f.player, 1, {"dry": true}, f.rng.dice)
-	check(int(f.player.gem_buffs.gem3.cut) == 1 and int(f.player.gem_buffs.gem1.cut) == 1, "Flawless Facet affects the entire rail including itself")
+	check(not f.player.gem_buffs.has("gem3") or int(f.player.gem_buffs.gem3.get("cut", 0)) == 0, "a Flawless Facet reaches only its neighbours")
 	equip(f, "ENRICH", true, 4, 1)
 	DeepBattle.resolve_gem(f.state, f.player, 1, {"dry": true}, f.rng.dice)
-	check(int(f.player.gem_buffs.gem3.carat) == 1 and int(f.player.gem_buffs.gem1.carat) == 1, "a Flawless Enrich reaches the whole rail, itself included")
+	check(f.player.rail[1] is Dictionary, "a forecast Flawless Enrich destroys nothing")
 	f = setup()
 	equip(f, "STRIKE", false, 4, 0)
 	equip(f, "ENRICH", false, 4, 1)
@@ -440,7 +558,7 @@ func edge_cases() -> void:
 	cast(f, "THRIVE", [8, 1, 2, 3, 4], true)
 	check(int(f.player.max_hp) == maximum + 1, "a one-carat Flawless Thrive grants one permanent max HP")
 	cast(f, "CROSSCUT", [1, 3, 5, 2, 2], true)
-	check(int(f.foe.hp) == 987 and int(f.player.block) == 4, "Crosscut deals odd-die damage and its Flawless Block rider")
+	check(int(f.foe.hp) == 987 and int(f.player.block) == 0, "Crosscut deals odd-die damage, with no Block rider now")
 	f = setup()
 	cast(f, "MIRROR", [5, 5, 2, 2, 1])
 	check(int(f.player.statuses.get("reflect", 0)) == 1 and int(f.player.statuses.get("reflect_pct", 0)) == 50, "Mirror holds up a half reflection for the next blow")
@@ -545,4 +663,4 @@ func weight() -> void:
 	rolls(f, [1, 2, 3, 4, 9])
 	DeepBattle.resolve_gem(f.state, f.player, 0, {}, f.rng.dice)
 	DeepBattle.resolve_gem(f.state, f.player, 1, {}, f.rng.dice)
-	check(int(f.player.gold) == 75 + 15, "a heavy Flawless Tailings swells its extra Pyrite too")
+	check(int(f.player.gold) == 75, "a heavy Flawless Tailings swells its Pyrite")

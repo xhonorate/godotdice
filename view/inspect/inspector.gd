@@ -211,13 +211,13 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(centre)
-	var column := DeepUi.vbox(centre, 14)
+	var column := DeepUi.vbox(centre, int(DeepUi.pt(4)) if DeepUi.phone else 14)
 	if not fanfare.is_empty():
-		_title = DeepUi.title(column, str(fanfare.get("title", "")), 44, tone.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
+		_title = DeepUi.title(column, str(fanfare.get("title", "")), 36 if DeepUi.phone else 44, tone.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
 		_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 		_title.add_theme_constant_override("outline_size", 10)
 		if not str(fanfare.get("subtitle", "")).is_empty():
-			DeepUi.label(column, str(fanfare.subtitle), 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+			DeepUi.label(column, str(fanfare.subtitle), 12 if DeepUi.phone else 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 		## Whatever else a moment says under its name (a conquest's pills), drawn by the caller.
 		var header: Callable = fanfare.get("header", Callable())
 		if header.is_valid():
@@ -241,12 +241,42 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	halo.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage.add_child(halo)
 	_stage_hint = DeepUi.label(left, "Drag to turn it", 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	if DeepUi.phone and fanfare.is_empty():
+		_phone_frame(root, row, tone)
+		_dim.modulate.a = 0.0
+		create_tween().tween_property(_dim, "modulate:a", 1.0, 0.18)
+		DeepUi.pop_in(column, 0.0, 0.94, 0.26)
+		return
+	if DeepUi.phone:
+		## A won thing on the phone: the column the screen's height inside its safe edges, the
+		## panel taking what the title and the buttons leave, its words scrolling.
+		var area: Vector2 = root.get_viewport_rect().size
+		column.custom_minimum_size = Vector2(area.x - DeepUi.safe_left - DeepUi.safe_right, area.y - DeepUi.pt(8) - DeepUi.safe_bottom)
+		_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_panel.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, Color(tone, 0.85), 18, int(DeepUi.pt(8)), 3, 6))
+		row.add_theme_constant_override("separation", int(DeepUi.pt(12)))
+		row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_stage.custom_minimum_size = Vector2(DeepUi.pt(240), 0)
+		_stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		left.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_stage_hint.visible = false
 	var right := DeepUi.vbox(row, 12)
 	right.custom_minimum_size = Vector2(600, 560)
 	_head = DeepUi.vbox(right, 6)
 	_tabs = DeepUi.hbox(right, 6)
 	_tabs.visible = false
-	_book = DeepUi.vbox(right, 0)
+	if DeepUi.phone:
+		right.custom_minimum_size = Vector2.ZERO
+		right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		scroll.set_meta("may_scroll", true)
+		right.add_child(scroll)
+		_book = DeepUi.vbox(scroll, 0)
+		_book.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		_book = DeepUi.vbox(right, 0)
 	_book.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	## The way out sits inside the sheet's bottom edge, never on whatever is behind it; a
 	## won thing's one big button stands under the sheet instead.
@@ -264,20 +294,24 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 					call.call()
 			var go: Button
 			if bool(action.get("primary", true)):
-				go = DeepUi.primary(foot, str(action.get("glyph", "check")), str(action.get("label", "")), chosen, 18, action.get("tone", tone))
-				go.custom_minimum_size.x = 220
+				go = DeepUi.primary(foot, str(action.get("glyph", "check")), str(action.get("label", "")), chosen, 14 if DeepUi.phone else 18, action.get("tone", tone))
+				go.custom_minimum_size.x = DeepUi.pt(150) if DeepUi.phone else 220.0
+				if DeepUi.phone:
+					go.custom_minimum_size.y = DeepUi.pt(40)
 			else:
-				go = DeepUi.icon_button(foot, str(action.get("glyph", "cross_out")), str(action.get("label", "")), chosen, 15, action.get("tone", DeepUi.MUTED))
+				go = DeepUi.icon_button(foot, str(action.get("glyph", "cross_out")), str(action.get("label", "")), chosen, 13 if DeepUi.phone else 15, action.get("tone", DeepUi.MUTED))
 			if action.has("price"):
 				DeepUi.priced(go, str(action.price), -1, str(action.get("price_glyph", "coin")))
 			go.disabled = bool(action.get("disabled", false))
 			if _close == null and not go.disabled:
 				_close = go
 		if not str(fanfare.get("footnote", "")).is_empty():
-			DeepUi.label(column, str(fanfare.footnote), 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+			DeepUi.label(column, str(fanfare.footnote), 12 if DeepUi.phone else 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	else:
-		_close = DeepUi.primary(foot, "check", str(fanfare.get("button", "Wonderful")), _dismiss, 18, tone)
-		_close.custom_minimum_size.x = 240
+		_close = DeepUi.primary(foot, "check", str(fanfare.get("button", "Wonderful")), _dismiss, 14 if DeepUi.phone else 18, tone)
+		_close.custom_minimum_size.x = DeepUi.pt(150) if DeepUi.phone else 240.0
+		if DeepUi.phone:
+			_close.custom_minimum_size.y = DeepUi.pt(40)
 	## In: the sheet rises and settles; a won thing arrives in a burst of its own light.
 	_dim.modulate.a = 0.0
 	var fade := create_tween()
@@ -308,6 +342,40 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 			glow.tween_method(func(t: float) -> void:
 				if is_instance_valid(_title):
 					_title.add_theme_color_override("font_color", DeepUi.TRANSCENDENT_TONE.lerp(DeepUi.rainbow_at(t, 0.6), 0.6)), 0.0, 1.0, 2.6)
+
+func _phone_frame(root: Control, row: HBoxContainer, tone: Color) -> void:
+	## The phone's close look (board look): the sheet fills the screen inside its safe edges,
+	## the picture stands in 250 points on the left and the words on the right, under a 44 point
+	## way out at the top right; words that run long scroll in their column.
+	var area: Vector2 = root.get_viewport_rect().size
+	var edge: float = DeepUi.safe_bottom + DeepUi.pt(4)
+	var style := DeepUi.ledger(DeepUi.LEDGER_FILL, Color(tone, 0.85), 18, int(DeepUi.pt(8)), 3, 6)
+	_panel.add_theme_stylebox_override("panel", style)
+	_panel.custom_minimum_size = Vector2(area.x - DeepUi.safe_left - DeepUi.safe_right, area.y - 2.0 * edge)
+	var inner: float = area.y - 2.0 * edge - 2.0 * DeepUi.pt(8)
+	row.add_theme_constant_override("separation", int(DeepUi.pt(12)))
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_stage.custom_minimum_size = Vector2(DeepUi.pt(250), inner)
+	_stage_hint.visible = false
+	var right := DeepUi.vbox(row, int(DeepUi.pt(4)))
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.custom_minimum_size.y = inner
+	var top := DeepUi.hbox(right, int(DeepUi.pt(6)))
+	_head = DeepUi.vbox(top, int(DeepUi.pt(3)))
+	_head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_close = DeepUi.icon_button(top, "cross_out", "", _dismiss, 15, DeepUi.MUTED)
+	_close.custom_minimum_size = Vector2(DeepUi.TOUCH * 0.5 + DeepUi.pt(22), DeepUi.TOUCH * 0.5 + DeepUi.pt(22))
+	_close.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_close.tooltip_text = "Close"
+	_tabs = DeepUi.hbox(right, int(DeepUi.pt(3)))
+	_tabs.visible = false
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.set_meta("may_scroll", true)
+	right.add_child(scroll)
+	_book = DeepUi.vbox(scroll, 0)
+	_book.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 func _dismiss() -> void:
 	if not is_instance_valid(self) or is_queued_for_deletion() or _closing:
@@ -777,6 +845,11 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	_fight_buffs(does, opts.get("context", {}))
 	var mods: Array = DeepStone.modifiers(item)
 	_effect_line(does, item, mods, opts.get("context", {}))
+	## A growth gem (Hone, Hardening) says how far it has come this run, here and on its hover
+	## plate rather than on the socket (the owner, November 5).
+	var fired: int = int(opts.get("context", {}).get("run_fires", 0))
+	if fired > 0 and Plates.is_growth(item):
+		DeepUi.stat(does, "spark", "Fired %s this run: it grows with every firing." % DeepUi.plural(fired, "time"), DeepUi.GOOD, 13)
 	## A Black Opal says what it has taken in so far this run, in the order it took them.
 	if int(skill.get("absorbs", 0)) > 0 and not reference:
 		var taken: Array = item.get("absorbed", [])
@@ -827,7 +900,11 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var purity := _section("clarity", "Clarity")
 	var prow := DeepUi.hbox(purity, 10)
 	DeepUi.title(prow, DeepContent.clarity_name(clarity), 18, DeepUi.PAPER)
-	DeepUi.wrap(prow, _clarity_words(clarity), 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Its own column, so the rich text (Resonance in its rainbow, Flawless in its gold) stretches
+	## instead of collapsing beside the name.
+	var clarity_said := DeepUi.vbox(prow, 0)
+	clarity_said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DeepUi.effect_text(clarity_said, _clarity_words(clarity), 13, DeepUi.MUTED)
 	_inclusions(item, purity, opts.get("context", {}))
 
 
@@ -915,7 +992,10 @@ func _effect_line(parent: Node, item: Dictionary, mods: Array, context: Dictiona
 	rtl.mouse_filter = Control.MOUSE_FILTER_PASS
 	rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rtl.push_font(DeepUi.bold_font())
-	rtl.push_font_size(17)
+	## Raw pixels on the desk; on the phone, its points at the phone's reading size.
+	var big: int = DeepUi.readable(17) if DeepUi.phone else 17
+	var small: int = DeepUi.readable(15) if DeepUi.phone else 15
+	rtl.push_font_size(big)
 	rtl.push_color(DeepUi.PAPER)
 	DeepUi.push_effect_text(rtl, DeepStone.text(item, context))
 	rtl.pop_all()
@@ -923,9 +1003,9 @@ func _effect_line(parent: Node, item: Dictionary, mods: Array, context: Dictiona
 		rtl.add_text("  ")
 		rtl.push_hint("Bonus from %d carat weight." % carat)
 		rtl.push_color(DeepUi.ACCENT_HI)
-		rtl.push_font_size(15)
+		rtl.push_font_size(small)
 		rtl.add_text("×%s " % _trim_number(base_mult))
-		rtl.add_image(GemIcons.texture("carat", GemIcons.baked_size(16.0)), 15, 15, DeepUi.ACCENT_HI)
+		rtl.add_image(GemIcons.texture("carat", GemIcons.baked_size(float(small) + 1.0)), small, small, DeepUi.ACCENT_HI)
 		rtl.pop_all()
 	for m in mods:
 		## carat_mult already rode into base_mult above (it scales the carat the curve reads,
@@ -939,9 +1019,9 @@ func _effect_line(parent: Node, item: Dictionary, mods: Array, context: Dictiona
 		rtl.add_text(" ")
 		rtl.push_hint("%s: %s" % [str(inclusion.get("name", "")), str(inclusion.get("text", ""))])
 		rtl.push_color(tone)
-		rtl.push_font_size(15)
+		rtl.push_font_size(small)
 		rtl.add_text("×%s " % _trim_number(float(m.get("amount", 1.0))))
-		rtl.add_image(GemIcons.texture(glyph, GemIcons.baked_size(16.0)), 15, 15, tone)
+		rtl.add_image(GemIcons.texture(glyph, GemIcons.baked_size(float(small) + 1.0)), small, small, tone)
 		rtl.pop_all()
 	parent.add_child(rtl)
 
@@ -1238,7 +1318,7 @@ func _fill_birthstone(item: Dictionary) -> void:
 
 func _clarity_words(clarity: int) -> String:
 	match clarity:
-		5: return "Hits half as hard again, rings the rail for three times the Resonance, and has its Flawless line."
+		5: return "Rings for three times the Resonance and gains a unique Flawless ability."
 		4: return "Rings the rail for twice the Resonance whenever it fires."
 		3: return "An honest stone with nothing frozen inside."
 	return "Carries %s, the quirks that make one stone unlike another." % DeepUi.plural(DeepStone.inclusion_slots(clarity), "inclusion")
@@ -1751,7 +1831,7 @@ func _fill_conquest(view: Dictionary) -> void:
 	_stage_hint.visible = false
 	for child in _stage.get_children():
 		child.queue_free()
-	_stage.custom_minimum_size = ConquestSheet.MAP_SIZE
+	_stage.custom_minimum_size = Vector2(DeepUi.pt(240), 0) if DeepUi.phone else ConquestSheet.MAP_SIZE
 	ConquestSheet.map(_stage, view)
 	ConquestSheet.below(_page("", ""), view)
 

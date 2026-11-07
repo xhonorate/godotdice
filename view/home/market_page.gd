@@ -34,6 +34,9 @@ const REWORK_EDGE: float = 150.0
 const INCLUSION_TONE := Color("c58bff")
 
 static func build(home: Control, content: VBoxContainer) -> void:
+	if DeepUi.phone:
+		load("res://view/phone/market_phone.gd").build(home, content)
+		return
 	if not bool(home.profile.get("daily", {}).get("market_seen", false)) and home.profile.get("daily", null) is Dictionary:
 		## Looking is enough: the Market's pip goes once it has been seen today.
 		home.profile.daily.market_seen = true
@@ -139,9 +142,12 @@ static func prewarm(home: Control) -> void:
 			Thumbs.request(Thumbs.gem_key(stone), "gem", {"stone": stone}, func(_texture: Texture2D) -> void: pass)
 	var parked: Array = []
 	for geode in DeepEconomy.shelf(home.profile):
-		var art: Control = _shelf_art(home, geode)
-		if art.get_parent() != null:
+		## One already on the counter (the Market opened first) stays there: home.kept would
+		## lift it off the page.
+		var placed: Variant = home._kept.get(_shelf_key(geode), null)
+		if is_instance_valid(placed) and (placed as Node).get_parent() != null:
 			continue
+		var art: Control = _shelf_art(home, geode)
 		art.position = Vector2(-6000.0 - 400.0 * parked.size(), -6000.0)
 		art.size = Vector2(276, 130)
 		home.add_child(art)
@@ -205,7 +211,7 @@ static func _geode_card(home: Control, parent: Node, geode: Dictionary) -> void:
 	DeepUi.title(box, Geode.geode_name(geode), 18, tone.lightened(0.2) if not bought else DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	var line := DeepUi.label(box, Geode.geode_line(geode), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	line.custom_minimum_size.x = 250
+	line.custom_minimum_size.x = DeepUi.pt(200) if DeepUi.phone else 250.0
 	var facts := DeepUi.hbox(box, 6)
 	facts.alignment = BoxContainer.ALIGNMENT_CENTER
 	var odds: Dictionary = DeepEconomy.geode_odds(geode)
@@ -267,7 +273,9 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 	var box := DeepUi.vbox(panel, 10)
 	var head := DeepUi.hbox(box, 8)
 	DeepUi.section(head, "gem", "Cut and read today").size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.label(head, "Hold Shift over one to compare it with yours", 12, DeepUi.DIM)
+	## The phone has no Shift: the compare line under each card is always there (the board).
+	if not DeepUi.phone:
+		DeepUi.label(head, "Hold Shift over one to compare it with yours", 12, DeepUi.DIM)
 	var row := DeepUi.hbox(box, 10)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var stock: Array = DeepEconomy.case_stones(home.profile)
@@ -290,7 +298,7 @@ static func _case(home: Control, middle: VBoxContainer) -> void:
 		var picture := DeepUi.center(column)
 		## A photograph under the lamp, alive only while the pointer rests on it: three live
 		## stones were built again on every visit and drawn on every frame the counter was open.
-		var lamp := HomeParts.Showcase.new(stone, CASE_LAMP, 0.92, false)
+		var lamp := HomeParts.Showcase.new(stone, DeepUi.pt(70) if DeepUi.phone else CASE_LAMP, 0.92, false)
 		picture.add_child(lamp)
 		if sold:
 			lamp.modulate = Color(1, 1, 1, 0.35)
@@ -606,7 +614,9 @@ static func _gold_button(parent: Node, glyph: String, words: String, gold: Strin
 		DeepUi.price_chip(row, gold, 13)
 	## The row is laid over the button rather than inside it (a Button lays nothing out), so
 	## the button is told the row's size, and told again whenever it changes.
-	var fit := func() -> void: b.custom_minimum_size = row.get_combined_minimum_size() + Vector2(24, 8)
+	## Never under a finger's least on the phone.
+	var least: float = DeepUi.pt(DeepUi.FINGER_LEAST) if DeepUi.phone else 0.0
+	var fit := func() -> void: b.custom_minimum_size = (row.get_combined_minimum_size() + Vector2(24, 8)).max(Vector2(least, least))
 	row.minimum_size_changed.connect(fit)
 	fit.call()
 	return b

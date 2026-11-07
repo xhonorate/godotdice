@@ -24,6 +24,8 @@ export function buildBowl(keys, variations = []) {
 // Which dice a player chasing a trigger would throw again. Each returns the ids to reroll.
 
 const keepIds = (hand, keep) => new Set(hand.filter((r) => !keep.has(r.die_id) && r.kind !== 'wild' && r.kind !== 'gem' && !r.locked).map((r) => r.die_id));
+// Low and high are measured against the die's size, as hand.js does; a roll with no shape falls back to its top.
+const sizeOfRoll = (r) => (r.shape ? Dice.sizeOf(r.shape) : Math.max(1, r.top ?? r.value));
 
 export function policyFor(trigger) {
 	const kind = trigger.kind || 'always';
@@ -80,13 +82,13 @@ export function rerollIds(policy, hand, a, cutHint = 4) {
 		const wanted = policy.slice(6).split(',').map(Number);
 		for (const r of hand) if (wanted.includes(r.value)) keep.add(r.die_id);
 	} else if (policy === 'low') {
-		for (const r of hand) if (r.kind !== 'blank' && r.value * 2 <= Math.max(1, r.top)) keep.add(r.die_id);
+		for (const r of hand) if (r.kind !== 'blank' && r.value * 2 <= sizeOfRoll(r)) keep.add(r.die_id);
 	} else if (policy === 'high') {
-		for (const r of hand) if (r.kind !== 'blank' && r.value * 2 > Math.max(1, r.top)) keep.add(r.die_id);
+		for (const r of hand) if (r.kind !== 'blank' && r.value * 2 > sizeOfRoll(r)) keep.add(r.die_id);
 	} else if (policy === 'always') {
 		// A stone that reads the low end at bad cuts and the high end at good ones: chase the
 		// end the reference cut reads.
-		for (const r of hand) if (r.kind !== 'blank' && r.value * 2 > Math.max(1, r.top)) keep.add(r.die_id);
+		for (const r of hand) if (r.kind !== 'blank' && r.value * 2 > sizeOfRoll(r)) keep.add(r.die_id);
 	}
 	return keepIds(hand, keep);
 }
@@ -195,9 +197,7 @@ function evaluateWith(stone, hand, c, analysis) {
 	if (!trig.active) return result;
 	const tc = { a: analysis, trig, unit: c.unit || {}, resonance: c.resonance | 0, previous_amount: c.previous_amount | 0, carat: eff.carat, cut: eff.cut_step, clarity: eff.clarity,
 		enemy_poison: c.enemy_poison | 0, fizzles: c.fizzles | 0, depth: c.depth | 0, turn: c.turn | 0, party: c.party | 0 || 1 };
-	let defs = skill.effects || [];
-	if (eff.flawless && skill.flawless && typeof skill.flawless === 'object') defs = Stone.applyFlawless(defs, skill.flawless);
-	for (const def of defs) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, eff.magnitude));
+	result.effects.push(...Stone.resolvedEffects(skill, eff, tc, eff.magnitude));
 	const perDie = Stone.modifierSum(mods, 'per_die_damage');
 	if (perDie > 0) for (const effect of result.effects) if (effect.kind === 'damage') effect.amount += perDie * (trig.dice || []).length;
 	for (const m of mods) if (m.kind === 'rider') for (const def of m.effects || []) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, eff.magnitude));

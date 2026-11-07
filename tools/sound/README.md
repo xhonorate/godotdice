@@ -9,6 +9,8 @@ the game's.
 
 Nothing here runs in the game. The game bakes its sounds from `sound_bank.gd` at boot and
 plays the music from the Ogg strips in `audio/music`, which these tools write.
+The bank is written at 44.1 kHz (`GAME_RATE`), the score at 24 kHz (`MUSIC_RATE`), both in
+`picks.mjs`.
 
 ## The score
 

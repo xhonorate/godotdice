@@ -60,22 +60,24 @@ static func header(view: Dictionary, column: Control) -> void:
 	var row := DeepUi.hbox(column, 10)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var tier: int = int(view.get("tier", 0))
+	## The phone's pills at 11 points (board run-over).
+	var size: int = 11 if DeepUi.phone else 15
 	for entry in view.get("unlocked", []):
 		if entry.has("mine"):
 			var opened: String = str(entry.mine)
-			DeepUi.pill(row, "lock_open", "%s is open%s" % [DeepContent.mine_name(opened), " on Hazard %d" % tier if tier > 0 else ""], tone_of(opened).lightened(0.3), 15)
+			DeepUi.pill(row, "lock_open", "%s is open%s" % [DeepContent.mine_name(opened), " on Hazard %d" % tier if tier > 0 else ""], tone_of(opened).lightened(0.3), size)
 	for entry in view.get("unlocked", []):
 		if entry.has("tier"):
-			DeepUi.pill(row, "skull", "Hazard %d is open" % int(entry.tier), DeepUi.BAD, 15)
+			DeepUi.pill(row, "skull", "Hazard %d is open" % int(entry.tier), DeepUi.BAD, size)
 	for entry in view.get("unlocked", []):
 		if entry.has("character"):
 			var who: String = str(entry.character)
-			_face_pill(row, who, "%s joined the workshop" % str(DeepContent.character(who).get("name", who)), DeepUi.TRADE, 15)
+			_face_pill(row, who, ("%s joined" if DeepUi.phone else "%s joined the workshop") % str(DeepContent.character(who).get("name", who)), DeepUi.TRADE, size)
 	if int(view.get("purse", 0)) > 0:
-		DeepUi.pill(row, "coin", "+%d gold, fall or ride" % int(view.purse), DeepUi.ACCENT_HI, 15,
+		DeepUi.pill(row, "coin", "+%d gold, fall or ride" % int(view.purse), DeepUi.ACCENT_HI, size,
 			"The first conquest's purse waits at the workshop, whether the party rides up or falls.")
 	if row.get_child_count() == 0:
-		DeepUi.pill(row, "crown", "Beaten before · nothing new opened this time", DeepUi.MUTED, 15)
+		DeepUi.pill(row, "crown", "Beaten before · nothing new opened this time", DeepUi.MUTED, size)
 
 static func _face_pill(parent: Node, character_key: String, text: String, tone: Color, size: int) -> PanelContainer:
 	## A pill whose mark is a delver's face, cut like every other pill.
@@ -115,12 +117,17 @@ static func map(stage: Control, view: Dictionary) -> void:
 	var here_key: String = str(view.get("mine", ""))
 	var next_key: String = str(view.get("next", ""))
 	var records: Dictionary = view.get("records", {})
-	var rows := DeepUi.vbox(stage, 6)
+	var rows := DeepUi.vbox(stage, int(DeepUi.pt(2)) if DeepUi.phone else 6)
 	rows.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var top := _row(rows, ROW_TOP, Color(0, 0, 0, 0))
-	var heading := DeepUi.heading(top.get_child(0), "The workshop", 14, DeepUi.PAPER)
+	## The phone's rows (board run-over): the mine here and the one below 38 points tall, the
+	## rest a line of 20, so all seven and the workshop stand in the panel.
+	var tall_here: float = DeepUi.pt(38) if DeepUi.phone else ROW_HERE
+	var tall_next: float = DeepUi.pt(38) if DeepUi.phone else ROW_NEXT
+	var tall_other: float = DeepUi.pt(20) if DeepUi.phone else ROW_OTHER
+	var top := _row(rows, DeepUi.pt(20) if DeepUi.phone else ROW_TOP, Color(0, 0, 0, 0))
+	var heading := DeepUi.heading(top.get_child(0), "The workshop", 11 if DeepUi.phone else 14, DeepUi.PAPER)
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DeepUi.pill(top.get_child(0), "ore", "%d to ride up" % int(view.get("fare", 0)), DeepUi.ORE, 13,
+	DeepUi.pill(top.get_child(0), "ore", "%d to ride up" % int(view.get("fare", 0)), DeepUi.ORE, 11 if DeepUi.phone else 13,
 		"What the winch wants to haul the party up from here.").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var here_row: Control = null
 	var next_row: Control = null
@@ -130,28 +137,30 @@ static func map(stage: Control, view: Dictionary) -> void:
 		var tone: Color = tone_of(mine_key)
 		var named: String = "%s · %s" % [numeral(mine_key), DeepContent.mine_name(mine_key)]
 		if mine_key == here_key:
-			here_row = _row(rows, ROW_HERE, Color(tone, 0.2))
+			here_row = _row(rows, tall_here, Color(tone, 0.2))
 			var line: HBoxContainer = here_row.get_child(0)
 			var words := _words(line)
-			_caps(words, named, 17, tone.lightened(0.45))
-			_caps(words, "You are here · depth %d" % int(view.get("depth", 0)), 12, DeepUi.ACCENT_HI)
-			DeepUi.pill(line, "crown", "Conquered", DeepUi.ACCENT_HI, 13).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			_caps(words, named, 13 if DeepUi.phone else 17, tone.lightened(0.45))
+			_caps(words, "You are here · depth %d" % int(view.get("depth", 0)), 11 if DeepUi.phone else 12, DeepUi.ACCENT_HI)
+			## The phone's row has no room for the pill: the sheet's title says it.
+			if not DeepUi.phone:
+				DeepUi.pill(line, "crown", "Conquered", DeepUi.ACCENT_HI, 13).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		elif mine_key == next_key:
-			next_row = _row(rows, ROW_NEXT, Color(tone, 0.24))
+			next_row = _row(rows, tall_next, Color(tone, 0.24))
 			var line: HBoxContainer = next_row.get_child(0)
 			var words := _words(line)
-			_caps(words, named, 17, tone.lightened(0.55))
+			_caps(words, named, 13 if DeepUi.phone else 17, tone.lightened(0.55))
 			var bottom: int = DeepContent.mine_bottom(mine_key)
-			DeepUi.label(words, "%d depths" % bottom if bottom > 0 else "It does not end", 13, tone.lightened(0.3))
+			DeepUi.label(words, "%d depths" % bottom if bottom > 0 else "It does not end", 11 if DeepUi.phone else 13, tone.lightened(0.3))
 			var fresh: bool = str(view.get("opened", "")) == mine_key
-			DeepUi.pill(line, "lock_open", "Just opened" if fresh else "Open", DeepUi.GOOD if fresh else tone.lightened(0.3), 13).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			DeepUi.pill(line, "lock_open", "Just opened" if fresh else "Open", DeepUi.GOOD if fresh else tone.lightened(0.3), 11 if DeepUi.phone else 13).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		else:
 			var beaten: bool = bool(record.get("boss", false))
 			var open: bool = bool(record.get("unlocked", false))
-			var row := _row(rows, ROW_OTHER, Color(tone, 0.12 if open else 0.07))
+			var row := _row(rows, tall_other, Color(tone, 0.12 if open else 0.07))
 			var line: HBoxContainer = row.get_child(0)
 			var words := _words(line)
-			_caps(words, named, 14, tone.lightened(0.2) if open else tone.darkened(0.4))
+			_caps(words, named, 12 if DeepUi.phone else 14, tone.lightened(0.2) if open else tone.darkened(0.4))
 			if beaten:
 				DeepUi.icon(line, "crown", 17, DeepUi.ACCENT, "Conquered").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			elif open:
@@ -239,15 +248,17 @@ static func below(page: VBoxContainer, view: Dictionary) -> void:
 	var tier: int = int(view.get("tier", 0))
 	var fresh: bool = str(view.get("opened", "")) == key
 	var where: String = "Mine %s" % numeral(key) if not DeepContent.is_endless(key) else "it does not end"
-	_caps(page, ("Now open · %s" if fresh else "Below you · %s") % where, 13, tone.lightened(0.35))
+	_caps(page, ("Now open · %s" if fresh else "Below you · %s") % where, 11 if DeepUi.phone else 13, tone.lightened(0.35))
 	DeepUi.gap(page, 4)
-	_caps(page, DeepContent.mine_name(key), 32, DeepUi.PAPER)
+	_caps(page, DeepContent.mine_name(key), 26 if DeepUi.phone else 32, DeepUi.PAPER)
 	DeepUi.gap(page, 4)
-	DeepUi.wrap(page, str(mine.get("text", "")), 16, FLAVOR).custom_minimum_size.x = PAGE_WIDTH
-	DeepUi.gap(page, 16)
+	DeepUi.wrap(page, str(mine.get("text", "")), 12 if DeepUi.phone else 16, FLAVOR).custom_minimum_size.x = DeepUi.pt(300) if DeepUi.phone else PAGE_WIDTH
+	DeepUi.gap(page, int(DeepUi.pt(5)) if DeepUi.phone else 16)
 	_skills(page, mine, here, tier)
-	DeepUi.gap(page, 16)
-	_creatures(page, key, mine, here, view.get("met", []))
+	## The phone keeps the new skills and leaves the creatures' silhouettes (board run-over).
+	if not DeepUi.phone:
+		DeepUi.gap(page, 16)
+		_creatures(page, key, mine, here, view.get("met", []))
 	var after: String = str(mine.get("next", ""))
 	var lapidary: String = str(DeepContent.mine(after).get("lapidary", "")) if not after.is_empty() else ""
 	if not lapidary.is_empty() and not view.get("joined", []).has(lapidary):
@@ -255,25 +266,38 @@ static func below(page: VBoxContainer, view: Dictionary) -> void:
 		var line := DeepUi.hbox(page, 5)
 		_face(line, lapidary, 26.0, UNMET_FACE)
 		DeepUi.gap(line, 3)
-		DeepUi.label(line, "Beat its boss and", 14, DeepUi.MUTED)
-		DeepUi.label(line, str(DeepContent.character(lapidary).get("name", lapidary)), 14, DeepUi.TRADE)
-		DeepUi.label(line, "joins the workshop.", 14, DeepUi.MUTED)
+		DeepUi.label(line, "Beat its boss and", 12 if DeepUi.phone else 14, DeepUi.MUTED)
+		DeepUi.label(line, str(DeepContent.character(lapidary).get("name", lapidary)), 12 if DeepUi.phone else 14, DeepUi.TRADE)
+		DeepUi.label(line, "joins the workshop.", 12 if DeepUi.phone else 14, DeepUi.MUTED)
 	DeepUi.gap(page, 8)
 	var warning := DeepUi.hbox(page, 8)
 	DeepUi.gap(warning, 2)
-	DeepUi.icon(warning, "skull", 16, DeepUi.BAD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	DeepUi.label(warning, "You carry your current bag with you. Fall and risk losing everything.", 14, DeepUi.BAD.lightened(0.2))
+	DeepUi.icon(warning, "skull", DeepUi.glyph_px(11) if DeepUi.phone else 16.0, DeepUi.BAD).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DeepUi.label(warning, "You carry your bag with you. Fall and risk losing everything." if DeepUi.phone else "You carry your current bag with you. Fall and risk losing everything.", 11 if DeepUi.phone else 14, DeepUi.BAD.lightened(0.2))
 
 static func _skills(page: VBoxContainer, mine: Dictionary, here: Dictionary, tier: int) -> void:
 	## The mine's own batch: every skill whose rock is first found here, by name and rarity.
-	var head := DeepUi.section(page, "gem", "First found here", DeepUi.ACCENT, 13)
+	var head := DeepUi.section(page, "gem", "First found here", DeepUi.ACCENT, 11 if DeepUi.phone else 13)
 	var band: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(mine, tier), 1)
 	var was: Dictionary = DeepForge.carat_band(DeepForge.at_hazard(here, tier), 1)
 	if not band.is_empty():
 		var said: String = "Up to %d ct" % int(band.cap) + (" · up from %d" % int(was.cap) if not was.is_empty() and int(was.cap) != int(band.cap) else "")
 		DeepUi.pill(head, "gem", said, DeepUi.ACCENT_HI, 13, "Stones here usually come up to %d carats, and never over %d." % [int(band.soft), int(band.cap)]).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	DeepUi.gap(page, 10)
+	DeepUi.gap(page, int(DeepUi.pt(3)) if DeepUi.phone else 10)
 	var batch: Array = mine.get("batch", [])
+	if DeepUi.phone:
+		## The phone's new skills: a name capsule each, in the skill's color; a hold reads it.
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", int(DeepUi.pt(4)))
+		flow.add_theme_constant_override("v_separation", int(DeepUi.pt(3)))
+		flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		page.add_child(flow)
+		for skill_key in batch:
+			var def: Dictionary = DeepContent.skill(str(skill_key))
+			var rarity: String = str(def.get("rarity", "COMMON"))
+			DeepUi.pill(flow, GemIcons.emblem(str(skill_key)), str(def.get("name", skill_key)), DeepUi.color(str(def.get("color", ""))).lightened(0.25), 11,
+				"%s · %s %s skill" % [str(def.get("name", skill_key)), rarity.capitalize(), str(DeepContent.color(str(def.get("color", ""))).get("name", "")).to_lower()])
+		return
 	var columns: int = 3 if batch.size() <= 9 else 4
 	var grid := GridContainer.new()
 	grid.columns = columns

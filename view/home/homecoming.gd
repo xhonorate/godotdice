@@ -78,14 +78,24 @@ static func bench(home: Control, content: VBoxContainer, holding: bool) -> void:
 	if str(home.get_meta("bench_shown", "")) != shown:
 		home.set_meta("bench_shown", shown)
 		home.set_meta("bench_wait", Time.get_ticks_msec() + WAIT_MS)
-	var columns := DeepUi.hbox(content, COLUMN_GAP)
+	var columns := DeepUi.hbox(content, int(DeepUi.pt(8)) if DeepUi.phone else COLUMN_GAP)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_tray_column(home, columns, tray, holding)
 	var known: bool = bool(pick.get("appraised", false))
 	var owned: Dictionary = DeepProfile.owned(home.profile, str(pick.get("skill", ""))) if known else {}
-	var middle := DeepUi.card(columns, Color(DeepUi.ACCENT, 0.35), 18)
+	var middle := DeepUi.card(columns, Color(DeepUi.ACCENT, 0.35), int(DeepUi.pt(8)) if DeepUi.phone else 18)
 	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var box := DeepUi.vbox(middle, 12)
+	var box_parent: Control = middle
+	if DeepUi.phone:
+		## The phone's bench scrolls when a long read is taller than the screen.
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.set_meta("may_scroll", true)
+		middle.add_child(scroll)
+		box_parent = scroll
+	var box := DeepUi.vbox(box_parent, int(DeepUi.pt(6)) if DeepUi.phone else 12)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	if known:
 		_read_stone(home, box, pick, owned)
@@ -94,19 +104,21 @@ static func bench(home: Control, content: VBoxContainer, holding: bool) -> void:
 	else:
 		_raw_stone(home, box, pick)
 	home.enter(middle, 0.05)
-	if known and not owned.is_empty():
+	## The phone keeps no Yours column: the comparison beside the stone says it (the board).
+	if known and not owned.is_empty() and not DeepUi.phone:
 		_yours(home, columns, owned)
 
 static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, holding: bool) -> void:
-	var column := DeepUi.card(columns, DeepUi.LINE, 12)
+	var column := DeepUi.card(columns, DeepUi.LINE, int(DeepUi.pt(6)) if DeepUi.phone else 12)
 	column.name = "TrayColumn"
-	column.custom_minimum_size.x = 240
+	column.custom_minimum_size.x = DeepUi.pt(170) if DeepUi.phone else 240.0
 	var box := DeepUi.vbox(column, 6)
 	DeepUi.section(box, "bag", "The tray · %d left" % tray.size())
 	var rows := DeepUi.vbox(box, 6)
 	var pager := DeepUi.hbox(box, 0)
 	pager.alignment = BoxContainer.ALIGNMENT_CENTER
-	for stone in home.paged(pager, "tray", tray, TRAY_PAGE):
+	## The phone's screen holds five rows of the tray to a page.
+	for stone in home.paged(pager, "tray", tray, 5 if DeepUi.phone else TRAY_PAGE):
 		var id: String = str(stone.id)
 		var known: bool = bool(stone.get("appraised", false))
 		var fresh_skill: bool = known and DeepProfile.first_of_skill(home.profile, stone)
@@ -124,7 +136,7 @@ static func _tray_column(home: Control, columns: HBoxContainer, tray: Array, hol
 		row_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		row_panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		var row := DeepUi.hbox(row_panel, 8)
-		StoneCard.mini(row, stone, 36)
+		StoneCard.mini(row, stone, DeepUi.pt(26) if DeepUi.phone else 36.0)
 		if fresh_skill:
 			DeepUi.icon(row, "star", 13, StoneCard.PIP_NEW, "A new skill")
 		var words := DeepUi.vbox(row, 0)
@@ -176,15 +188,15 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 	## A raw stone in its rock under the loupe: pay to read it, or sell it as it is.
 	## The loupe and, once it is paid for, the sheet read out beside it (as `_read_stone` lays
 	## them): stacked, a long read pushed the page past the window.
-	var top := DeepUi.hbox(box, 18)
+	var top := DeepUi.hbox(box, int(DeepUi.pt(6)) if DeepUi.phone else 18)
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
-	var bench := LoupeBench.new(pick, 260.0)
+	var bench := LoupeBench.new(pick, DeepUi.pt(130) if DeepUi.phone else 260.0)
 	bench.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(bench)
 	DeepUi.title(box, "A %s" % DeepStone.raw_name(pick).to_lower(), 26, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	var line := DeepUi.label(box, "Its skill, Cut and Clarity are hidden until it is read.", 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	line.name = "Line"
-	var sheet := Appraisal.Sheet.new(_known(pick), {}, {"skill_text": true})
+	var sheet := Appraisal.Sheet.new(_known(pick), {}, Appraisal.phone_sheet({"skill_text": true}))
 	sheet.visible = false
 	sheet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(sheet)
@@ -203,7 +215,7 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 			home.cheer("Shattered: Fragile", DeepUi.BAD)
 		home.profile_changed.emit(), 16, DeepUi.TRADE)
 	DeepUi.priced(off, "+%d" % rough, 14)
-	off.custom_minimum_size = Vector2(200, 50)
+	off.custom_minimum_size = Vector2(DeepUi.pt(130), DeepUi.pt(40)) if DeepUi.phone else Vector2(200, 50)
 	off.tooltip_text = "Sells for what its color and size are worth. You never find out what it was."
 	DeepUi.voice(off, "sell")
 	var read := DeepUi.primary(choices, "loupe", "Read it", func() -> void:
@@ -231,7 +243,7 @@ static func _raw_stone(home: Control, box: VBoxContainer, pick: Dictionary) -> v
 				home.cheer("Shattered: Fragile", DeepUi.BAD)
 			home.profile_changed.emit())), 18, DeepUi.INFO)
 	DeepUi.priced(read, str(fee), 16)
-	read.custom_minimum_size = Vector2(230, 50)
+	read.custom_minimum_size = Vector2(DeepUi.pt(140), DeepUi.pt(40)) if DeepUi.phone else Vector2(230, 50)
 	read.disabled = purse < fee
 	DeepUi.voice(read, "loupe_spin")
 	if purse < fee:
@@ -247,7 +259,7 @@ static func _geode_stone(home: Control, box: VBoxContainer, pick: Dictionary) ->
 	var geode: Dictionary = pick.geode
 	var tone: Color = Geode.theme_tone(geode)
 	var art := Geode.Art.new(geode, tone)
-	art.custom_minimum_size = Vector2(300, 220)
+	art.custom_minimum_size = Vector2(DeepUi.pt(170), DeepUi.pt(110)) if DeepUi.phone else Vector2(300, 220)
 	art.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(art)
 	art.enable_interaction()
@@ -333,12 +345,12 @@ static func _read_stone(home: Control, box: VBoxContainer, pick: Dictionary, own
 	var wanted: Dictionary = DeepEconomy.commission_for(home.profile, pick)
 	if not wanted.is_empty():
 		DeepUi.stat(words, "flag", "A commission wants this %s: %d gold" % [skill_name, DeepEconomy.payout(wanted, pick)], DeepUi.GOOD, 14)
-	var top := DeepUi.hbox(box, 18)
+	var top := DeepUi.hbox(box, int(DeepUi.pt(6)) if DeepUi.phone else 18)
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
-	var lens := HomeParts.LoupeTable.new(pick, 140.0 if not owned.is_empty() else 170.0)
+	var lens := HomeParts.LoupeTable.new(pick, (DeepUi.pt(84) if DeepUi.phone else 140.0) if not owned.is_empty() else (DeepUi.pt(100) if DeepUi.phone else 170.0))
 	lens.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(lens)
-	var sheet := Appraisal.Sheet.new(pick, owned, {"skill_text": true, "owned_picture": false})
+	var sheet := Appraisal.Sheet.new(pick, owned, Appraisal.phone_sheet({"skill_text": true, "owned_picture": false}))
 	sheet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(sheet)
 	sheet.show_all()
@@ -348,7 +360,7 @@ static func _read_stone(home: Control, box: VBoxContainer, pick: Dictionary, own
 	## Right-aligned, the keep last: and with no kept stone's card beside this one, the room
 	## that card takes is kept clear past the end of the row, so the keep is where it always is.
 	row.alignment = BoxContainer.ALIGNMENT_END
-	if owned.is_empty():
+	if owned.is_empty() and not DeepUi.phone:
 		var room := Control.new()
 		room.custom_minimum_size.x = YOURS_WIDTH + float(COLUMN_GAP) - float(row.get_theme_constant("separation"))
 		room.mouse_filter = Control.MOUSE_FILTER_IGNORE

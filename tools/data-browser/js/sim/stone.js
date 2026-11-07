@@ -6,7 +6,7 @@ import * as Patterns from './patterns.js';
 import * as Rules from './rules.js';
 import * as Dice from './dice.js';
 import { heldForPatterns } from './dice.js';
-import { I } from './numbers.js';
+import { I, satMul } from './numbers.js';
 
 export const TIERS = ['ROUGH', 'FINE', 'PRECIOUS', 'EXQUISITE', 'PEERLESS'];
 export const TIER_NAMES = { ROUGH: 'Rough', FINE: 'Fine', PRECIOUS: 'Precious', EXQUISITE: 'Exquisite', PEERLESS: 'Peerless' };
@@ -190,7 +190,7 @@ export function effective(stone, c = {}) {
 	const caratCap = I(c.carat_cap);
 	if (caratCap > 0) { carat = Math.min(carat, caratCap); weight = Math.min(weight, caratCap); }
 	const magnitude = caratMultiplier(weight) * Number(clarityEntry.magnitude ?? 1) * magnitudeMult * Number(c.amplify ?? 1);
-	return { clarity, flawless: Boolean(clarityEntry.flawless_line), carat, cut_step: Math.max(0, cutStep), magnitude, modifiers: mods, resonance_mult: Number(clarityEntry.resonance_mult ?? 1) };
+	return { clarity, flawless: Boolean(clarityEntry.flawless_line), carat, weight, cut_step: Math.max(0, cutStep), magnitude, modifiers: mods, resonance_mult: Number(clarityEntry.resonance_mult ?? 1) };
 }
 
 export function procs(stone, c = {}) { return Rules.caratProcs(effective(stone, c).magnitude); }
@@ -276,7 +276,40 @@ function flawlessEffects(defs, flawless) {
 		if ('repeat_add' in change) def.repeat = { op: '+', args: [def.repeat ?? { const: 1 }, { const: I(change.repeat_add) }] };
 		if ('splash' in change) def.splash = I(change.splash);
 	}
-	for (const extra of flawless.effects || []) if (extra && typeof extra === 'object') out.push(clone(extra));
+	// Marked as the line's own (the screen plays it after the gem's, and its `x` leaves it alone).
+	for (const extra of flawless.effects || []) if (extra && typeof extra === 'object') out.push({ ...clone(extra), flawless: true });
+	return out;
+}
+
+// Whether a stone on this rail is Flawless at this moment: by its own clarity, or by what a
+// Polish has raised it to this fight (sim/stone.gd flawless_now).
+export function flawlessNow(unit, stone) {
+	if (isFlawless(stone)) return true;
+	const raised = I(((unit.gem_buffs || {})[String(stone.id || '')] || {}).clarity);
+	return raised > 0 && I(stone.clarity) + raised >= C.clarityIndex('FLAWLESS');
+}
+
+// A stone's effects with their numbers filled in. A Flawless line may ask for a condition
+// (`when`): out of it, the stone is only heavy and bright. `x` is the line's own multiplier: it
+// goes on with the carat, so the floor is taken once over the whole figure, or after, on what
+// does not answer to carat, and never on what the line itself added (sim/stone.gd evaluate).
+// resolveEffect only reads a definition, so the pack's own are used as they stand.
+export function resolvedEffects(skill, eff, tc, magnitude) {
+	const line = eff.flawless && skill.flawless && typeof skill.flawless === 'object' ? skill.flawless : {};
+	const lineOn = Object.keys(line).length > 0 && (!('when' in line) || Rules.amount(line.when, tc) !== 0);
+	const flawlessX = lineOn ? Math.max(1, I(line.x ?? 1)) : 1;
+	const defs = lineOn ? applyFlawless(skill.effects || [], line) : skill.effects || [];
+	const out = [];
+	for (const def of defs) {
+		if (!def || typeof def !== 'object') continue;
+		const doubled = flawlessX > 1 && !def.flawless;
+		const byWeight = doubled && String(def.scale ?? (Rules.SCALED_BY_DEFAULT.includes(String(def.kind || 'damage')) ? 'carat' : 'none')) === 'carat';
+		const resolved = Rules.resolveEffect(def, tc, byWeight ? magnitude * flawlessX : magnitude);
+		if (doubled && !byWeight) resolved.amount = satMul(I(resolved.amount), flawlessX);
+		// A Flawless Stake's most it may stake grows with the carat curve alone; the percent stays flat.
+		if (def.all_in) resolved.stake_cap = Math.floor(Number(def.all_in) * caratMultiplier(Number(eff.weight ?? eff.carat ?? 1)));
+		out.push(resolved);
+	}
 	return out;
 }
 
@@ -335,11 +368,8 @@ export function evaluate(stone, hand, c = {}) {
 	result.magnitude = magnitude;
 	const tc = { a, trig, unit: c.unit || {}, resonance: I(c.resonance), previous_amount: I(c.previous_amount), carat: eff.carat, cut: eff.cut_step,
 		clarity: eff.clarity, enemy_poison: I(c.enemy_poison), fizzles: I(c.fizzles), depth: I(c.depth), turn: I(c.turn), party: I(c.party) || 1,
-		run_fires: I(c.run_fires) };
-	// resolveEffect only reads a definition, so the pack's own are used as they stand.
-	let defs = skill.effects || [];
-	if (eff.flawless && skill.flawless && typeof skill.flawless === 'object') defs = applyFlawless(defs, skill.flawless);
-	for (const def of defs) if (def && typeof def === 'object') result.effects.push(Rules.resolveEffect(def, tc, magnitude));
+		run_fires: I(c.run_fires), run_kills: I(c.run_kills), run_breaks: I(c.run_breaks) };
+	result.effects.push(...resolvedEffects(skill, eff, tc, magnitude));
 	const perDie = modifierSum(mods, 'per_die_damage');
 	if (perDie > 0) for (const effect of result.effects) if (effect.kind === 'damage') effect.amount += perDie * (trig.dice || []).length;
 	for (const m of mods) {
@@ -358,7 +388,8 @@ export function evaluate(stone, hand, c = {}) {
 // The headline number of an evaluation: what an Echo repeats and the forecast sums.
 export function totalAmount(evaluation, kinds = ['damage', 'block', 'heal']) {
 	let total = 0;
-	for (const effect of evaluation.effects || []) if (kinds.includes(effect.kind)) total += (I(effect.amount)) * Math.max(1, I(effect.repeat));
+	// A share of what each target has (`of_target`, a Shelter's block) is a percentage until it lands.
+	for (const effect of evaluation.effects || []) if (kinds.includes(effect.kind) && !('of_target' in effect)) total += (I(effect.amount)) * Math.max(1, I(effect.repeat));
 	return total;
 }
 
@@ -366,6 +397,7 @@ export function totalAmount(evaluation, kinds = ['damage', 'block', 'heal']) {
 export function totals(evaluation) {
 	const out = {};
 	for (const effect of evaluation.effects || []) {
+		if ('of_target' in effect) continue;
 		const expectedProcs = effect.scaled ? 1 : effect.procs + effect.proc_chance / 100;
 		const amount = effect.amount * Math.max(1, I(effect.repeat)) * expectedProcs;
 		out[effect.kind] = (out[effect.kind] || 0) + amount;

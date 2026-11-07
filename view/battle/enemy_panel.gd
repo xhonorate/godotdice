@@ -2,9 +2,10 @@ extends PanelContainer
 ## The ledger (the plates rethink, artifact NMAGkwooypHHUKxsB4tR71, the owner's final room):
 ## everything about one creature in a panel on the side of the room away from it. Whose it is
 ## (your target, the one under the pointer, the one acting), its name and how many faces its
-## dice have, its health and block; then its dice, each face's move as a row: a rule and a mark
-## in the colour of its kind, its name, its words with their keywords explained on hover, and
-## its share of the die as pips, one dot a face. Then what its faces make together, what the
+## dice have, its health, its block as a chip over its top right corner the way its tag wears
+## it; then its dice, each face's move as a row: a rule and a mark in the colour of its kind,
+## its name, its words with their keywords explained on hover, and its share of the die as
+## pips, one dot a face. Then what its faces make together, what the
 ## fight calls it to do, and what it always is. The face it has just landed is lit. There is no
 ## die in it: the die is on the creature's tag, and a right-click turns it over in a window.
 ##
@@ -14,6 +15,8 @@ extends PanelContainer
 const Look = preload("res://view/battle/creature_look.gd")
 const Tag = preload("res://view/battle/creature_tag.gd")
 const EffectChips = preload("res://view/battle/effect_chips.gd")
+const Tips = preload("res://view/ui/tips.gd")
+const Plates = preload("res://view/ui/plates.gd")
 
 const WIDTH: float = 384.0
 const FILL := Color(0.067, 0.078, 0.114, 0.96)
@@ -51,14 +54,19 @@ var _who: Label
 var _name: Label
 var _dice_words: Label
 var _bar: Tag.HealthBar
-var _block_row: HBoxContainer
+## The block chip and the overlay it stands in, over the panel's top right corner.
+var _over: Control
+var _block: PanelContainer
 var _block_label: Label
 var _list: VBoxContainer
-var _foot: Label
+
+static func width() -> float:
+	## The ledger's width: the phone's is 224 points (docs/PHONE_UI.md).
+	return DeepUi.pt(224) if DeepUi.phone else WIDTH
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	custom_minimum_size.x = WIDTH
+	custom_minimum_size.x = width()
 	var box := DeepUi.vbox(self, 6)
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	_who = DeepUi.label(box, "", 10, WHO.target[1])
@@ -83,21 +91,38 @@ func _init() -> void:
 	_bar.thick = true
 	_bar.custom_minimum_size.y = 18
 	box.add_child(_bar)
-	_block_row = DeepUi.hbox(box, 6)
-	_block_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var chip := PanelContainer.new()
-	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_theme_stylebox_override("panel", DeepUi.capsule(chip, Color("14223a"), DeepUi.BLOCK, 2, 6, 0))
-	_block_row.add_child(chip)
-	var chip_row := DeepUi.hbox(chip, 3)
+	_list = DeepUi.vbox(box, 5)
+	_list.mouse_filter = Control.MOUSE_FILTER_PASS
+	## Its block straddles the panel's top edge at the right, as the chip on its tag does, rather
+	## than taking a row of its own under the bar. A PanelContainer stretches its direct children,
+	## so the chip stands in a plain overlay that takes the content rect and lets the pointer
+	## through; the panel has no clip, so the overhang draws.
+	_over = Control.new()
+	_over.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_over)
+	_block = PanelContainer.new()
+	_block.mouse_filter = Control.MOUSE_FILTER_PASS
+	_block.add_theme_stylebox_override("panel", DeepUi.capsule(_block, Color("14223a"), DeepUi.BLOCK, 2, 6, 0))
+	_over.add_child(_block)
+	var chip_row := DeepUi.hbox(_block, 3)
+	chip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	DeepUi.icon(chip_row, "shield", 11, Color("9cc4ff")).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_block_label = DeepUi.label(chip_row, "", 11, Color("cfe2ff"))
 	_block_label.add_theme_font_override("font", DeepUi.bold_font())
-	_list = DeepUi.vbox(box, 5)
-	_list.mouse_filter = Control.MOUSE_FILTER_PASS
-	_foot = DeepUi.label(box, DeepUi.touch_words("Right-click it to turn its die over"), 10, DeepUi.MUTED)
+	_block.visible = false
+	Tips.attach(_block, func() -> Control: return Plates.words("Block", "Soaks %s damage before its health." % _block_label.text, "", DeepUi.BLOCK), {"tone": DeepUi.BLOCK})
+	resized.connect(_place_block)
+	_over.resized.connect(_place_block)
 	_style()
 	visible = false
+
+func _place_block() -> void:
+	## Over the panel's top right corner, half out over its edge, in the overlay's own frame
+	## (which starts inside the panel's margins: 14 in, 12 down).
+	if _block == null or _over == null:
+		return
+	_block.reset_size()
+	_block.position = Vector2(size.x - _block.size.x - 10.0, -_block.size.y * 0.5 - 2.0) - _over.position
 
 func _process(_delta: float) -> void:
 	## Rich text is measured at no width until its row is laid out, and stands the ledger tall
@@ -133,8 +158,9 @@ func show_foe(unit: Dictionary, _battle: Dictionary, whose: String, lit_move: St
 	var hp: int = maxi(0, int(foe.get("hp", 0)))
 	var block: int = int(foe.get("block", 0))
 	_bar.show_health(float(hp) / float(max_hp), "%s / %s" % [DeepUi.number(hp), DeepUi.number(max_hp)], clampf(float(block) / float(max_hp), 0.0, 0.4))
-	_block_row.visible = block > 0
+	_block.visible = block > 0
 	_block_label.text = DeepUi.number(block)
+	_place_block()
 	var key: String = "%s|%s|%s|%s|%d" % [enemy_id, str(Look.groups(foe)), str(Look.moves(foe).map(func(m: Dictionary) -> String: return str(m.get("name", "")) + Look.text(foe, m))),
 		str(Look.traits(foe).map(func(c: Dictionary) -> String: return str(c.get("key", "")))), roundi(max_height)]
 	if key != _key:
@@ -203,7 +229,11 @@ func _build() -> void:
 	var groups: Array = Look.groups(foe)
 	var room: float = max_height - 6.0
 	var mode: int = ROOMY
-	if _estimate(ROOMY) > room:
+	if DeepUi.phone:
+		## The phone reads every move on one line (`Look.line_row`); a creature with more dice
+		## than the room holds is read a die at a time.
+		mode = DENSE if _phone_estimate(groups) <= room or groups.size() < 2 else PAGED
+	elif _estimate(ROOMY) > room:
 		mode = DENSE if _estimate(DENSE) <= room or groups.size() < 2 else PAGED
 	dense = mode != ROOMY
 	paged = mode == PAGED
@@ -223,22 +253,47 @@ func _build() -> void:
 			var move: Dictionary = Look.move_of(foe, str(entry.move))
 			if move.is_empty():
 				move = {"name": str(entry.move), "mark": str(entry.mark), "kind": str(entry.kind)}
-			_rows[str(entry.move)] = Look.row(_list, foe, move, int(entry.count), int(group.faces), "", dense)
+			if DeepUi.phone:
+				_rows[str(entry.move)] = Look.line_row(_list, foe, move, int(entry.count), int(group.faces))
+			else:
+				_rows[str(entry.move)] = Look.row(_list, foe, move, int(entry.count), int(group.faces), "", dense)
 	for move in Look.matches(foe):
-		_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, Look.match_note(move), dense)
+		if DeepUi.phone:
+			_rows[str(move.get("name", ""))] = Look.line_row(_list, foe, move, 0, 0, Look.match_note(move))
+		else:
+			_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, Look.match_note(move), dense)
 	for extra in Look.extras(foe):
 		var move: Dictionary = extra.move
-		_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, str(extra.note), dense)
+		if DeepUi.phone:
+			_rows[str(move.get("name", ""))] = Look.line_row(_list, foe, move, 0, 0, str(extra.note))
+		else:
+			_rows[str(move.get("name", ""))] = Look.row(_list, foe, move, 0, 0, str(extra.note), dense)
 	var traits: Array = Look.traits(foe)
 	if not traits.is_empty():
 		var rule := DeepUi.rule(_list, Look.PILL_LINE)
 		rule.custom_minimum_size.y = 2
 		for chip in traits:
-			Look.trait_row(_list, foe, chip, dense)
-	_foot.visible = _estimate(mode) + _foot_h() <= room
+			if DeepUi.phone:
+				Look.trait_line(_list, foe, chip)
+			else:
+				Look.trait_row(_list, foe, chip, dense)
 	if not lit.is_empty():
 		for name in _rows:
 			Look.set_lit(_rows[name], str(name) == lit)
+
+func _phone_estimate(groups: Array) -> float:
+	## How tall the phone's ledger stands: its head, then a line a move.
+	var line: float = float(DeepUi.readable(12)) * 1.25 + 6.0 + 5.0
+	var tall: float = 24.0 + float(DeepUi.readable(10)) * 1.3 + float(DeepUi.readable(17)) * 1.3 + 30.0
+	var count: int = Look.matches(foe).size() + Look.extras(foe).size()
+	for group in groups:
+		count += group.moves.size()
+		if groups.size() > 1:
+			tall += float(DeepUi.readable(10)) * 1.3 + 5.0
+	tall += float(count) * line
+	if not Look.traits(foe).is_empty():
+		tall += float(Look.traits(foe).size()) * float(DeepUi.readable(12)) * 3.0
+	return tall
 
 static func _group_words(group: Dictionary) -> String:
 	## "claws · d8", "d6 ×3".
@@ -278,13 +333,11 @@ func _estimate(mode: int) -> float:
 	var bold: Font = DeepUi.bold_font()
 	var small: int = DeepUi.readable(10)
 	## The panel's margins, and its lines one under another six apart: whose, the name and its
-	## dice, the bar, the block, the rows (the foot is reckoned apart: `_foot_h`).
+	## dice, the bar, the rows (the block chip hangs over the corner and takes no line).
 	var tall: float = 24.0
 	tall += _label_h(bold, small) + 6.0
 	tall += maxf(_label_h(bold, DeepUi.readable(17)), _label_h(bold, small) + 2.0) + 6.0
 	tall += maxf(18.0, float(DeepUi.readable(10)) + 5.0) + 6.0
-	if int(foe.get("block", 0)) > 0:
-		tall += _label_h(bold, DeepUi.readable(11)) + 6.0
 	## The rows' last gap is not there.
 	tall -= 5.0
 	var rows: Array = []
@@ -348,9 +401,6 @@ func _rows_height(rows: Array, one_line: bool) -> float:
 			if not words.is_empty():
 				tall += float(_lines([[words, face]], size, across)) * _line_h(size)
 	return tall
-
-static func _foot_h() -> float:
-	return _label_h(DeepUi.text_face(DeepUi.readable(10)), DeepUi.readable(10)) + 6.0
 
 static func _pips_w(count: int) -> float:
 	var across: int = mini(count, Look.Pips.PER_LINE)

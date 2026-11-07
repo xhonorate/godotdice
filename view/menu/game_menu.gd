@@ -22,6 +22,14 @@ const QUALITY: Array = [["Auto", 0], ["High", 3], ["Medium", 2], ["Low", 1]]
 const SPEEDS: Array = [["1×", 1.0], ["2×", 2.0], ["4×", 4.0]]
 const COUNTS: Array = [["Full", 1.0], ["Quick", 0.5], ["Off", 0.0]]
 const TEXT_SIZES: Array = [["Standard", 0.0], ["Large", 1.0]]
+## How to play on the phone: what a finger does, in place of the keys (board sys-touch).
+const TOUCHES: Array = [
+	["Tap", "Does what a click does: pick a die to reroll, take a way on, an offer or a stone. A first tap on a tunnel shows where it leads"],
+	["Hold", "Anything's card: a stone, a die, a creature, a mark. Details on the card opens the close look"],
+	["Drag", "A stone into a socket, a die to a new place; turns a model in the close look"],
+	["Tap outside", "Puts away a card, a panel or a close look"],
+	["Gear", "This menu: settings, how to play and the way out"],
+]
 const CONTROLS: Array = [
 	["Right-click", "Inspect a stone, a die or a creature: its full details and a model to turn"],
 	["Drag", "Turn the model in the inspector"],
@@ -49,6 +57,9 @@ var _invite: String = ""
 ## The party run a guest was in when their game closed: {kind, address, port | lobby, host, mine}.
 var _rejoin: Dictionary = {}
 var _name_field: LineEdit = null
+## Settings opened straight from You on the phone: Done puts the menu away instead of turning
+## back to its first page.
+var _direct: bool = false
 
 func _init() -> void:
 	layer = 55
@@ -95,6 +106,12 @@ func open(app_settings: Dictionary, new_context: Dictionary) -> void:
 		tween.tween_property(_root, "modulate:a", 1.0, 0.16)
 		DeepUi.pop_in(_panel, 0.0, 0.95, 0.22)
 
+func open_settings(app_settings: Dictionary, new_context: Dictionary) -> void:
+	## Straight to the settings (the phone's You page has the button for them).
+	open(app_settings, new_context)
+	_direct = true
+	_show("settings")
+
 func reshow(new_context: Dictionary) -> void:
 	## The world behind the menu moved (the line opened, someone came back): the main page
 	## says so; any other page is left as it is.
@@ -106,6 +123,7 @@ func close() -> void:
 	if not visible:
 		return
 	visible = false
+	_direct = false
 	DeepAudio.play("ui_close")
 	closed.emit()
 
@@ -114,7 +132,7 @@ func _input(event: InputEvent) -> void:
 	if not visible or not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.keycode == KEY_ESCAPE:
-		if _page in ["main", "player_name"]:
+		if _page in ["main", "player_name"] or (_direct and _page == "settings"):
 			close()
 		else:
 			_show("settings" if _page == "soundtrack" else "main")
@@ -138,6 +156,8 @@ func _show(page: String) -> void:
 	_page = page
 	DeepUi.clear(_body)
 	_name_field = null
+	if DeepUi.phone:
+		_fit_phone(page)
 	match page:
 		"main": _page_main()
 		"settings": _page_settings()
@@ -243,10 +263,28 @@ func _focus_first() -> void:
 func _heading(glyph: String, text: String, tone: Color = DeepUi.ACCENT) -> void:
 	var row := DeepUi.hbox(_body, 12)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	DeepUi.icon(row, glyph, 30, tone)
-	DeepUi.title(row, text, 30, tone.lightened(0.2))
+	DeepUi.icon(row, glyph, DeepUi.pt(18) if DeepUi.phone else 30.0, tone)
+	DeepUi.title(row, text, 27 if DeepUi.phone else 30, tone.lightened(0.2))
+
+func _fit_phone(page: String) -> void:
+	## The phone's card for each page: the settings take the whole screen inside its safe
+	## edges; every other page is a card in the middle, as narrow as its words let it be.
+	var area: Vector2 = get_viewport().get_visible_rect().size if is_inside_tree() else Vector2(DeepUi.PHONE_CANVAS)
+	var style := DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.ACCENT, 18, int(DeepUi.pt(10)), 3, 6)
+	_panel.add_theme_stylebox_override("panel", style)
+	_body.add_theme_constant_override("separation", int(DeepUi.pt(6)))
+	match page:
+		"settings", "soundtrack":
+			_panel.custom_minimum_size = Vector2(area.x - DeepUi.safe_left - DeepUi.safe_right - DeepUi.pt(12), area.y - DeepUi.safe_top - DeepUi.safe_bottom - DeepUi.pt(12))
+		"main":
+			_panel.custom_minimum_size = Vector2(DeepUi.pt(260), 0)
+		_:
+			_panel.custom_minimum_size = Vector2(DeepUi.pt(380), 0)
 
 func _page_main() -> void:
+	if DeepUi.phone:
+		_page_main_phone()
+		return
 	_heading("gear", "Menu")
 	var in_run: bool = bool(context.get("in_run", false))
 	var where: String = "In the workshop"
@@ -290,6 +328,47 @@ func _page_main() -> void:
 			child.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			child.custom_minimum_size.y = 46
 
+func _page_main_phone() -> void:
+	## The phone's menu (board run-menu): Resume, Settings, How to play and the way out, 40
+	## points each. A game on iOS is not quit from inside it; Android's is closed.
+	_heading("gear", "Menu")
+	var in_run: bool = bool(context.get("in_run", false))
+	var where: String = "In the workshop"
+	if in_run:
+		where = "In the mine · depth %d" % int(context.get("depth", 0))
+		if not bool(context.get("solo", true)):
+			where += " · the dig goes on"
+	DeepUi.label(_body, where, 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	if in_run and bool(context.get("host", true)) and context.has("party"):
+		_party_card(context.party)
+	var list := DeepUi.vbox(_body, int(DeepUi.pt(6)))
+	var resume := DeepUi.primary(list, "play", "Resume", close, 14)
+	DeepUi.voice(resume, "ui_confirm")
+	_focus.call_deferred(resume)
+	DeepUi.icon_button(list, "gear", "Settings", func() -> void: _show("settings"), 13, DeepUi.PAPER)
+	DeepUi.icon_button(list, "book", "How to play", func() -> void: _show("controls"), 13, DeepUi.PAPER)
+	if in_run:
+		if bool(context.get("host", true)):
+			var give_up := DeepUi.icon_button(list, "flag", "Leave the dig" if bool(context.get("daily", false)) else "Leave the run", func() -> void: _show("abandon"), 13, DeepUi.BAD)
+			give_up.add_theme_color_override("font_color", DeepUi.BAD.lightened(0.2))
+			give_up.disabled = str(context.get("phase", "")) in ["salvage", "over"]
+		else:
+			DeepUi.icon_button(list, "door", "Leave the party", func() -> void: _show("leave"), 13, DeepUi.BAD)
+	elif not bool(context.get("solo", true)):
+		DeepUi.icon_button(list, "door", "Close the party" if bool(context.get("host", true)) else "Leave the party", func() -> void:
+			if bool(context.get("host", true)):
+				_show("close_party")
+			else:
+				close()
+				leave_requested.emit(), 13, DeepUi.BAD)
+	if OS.get_name() != "iOS":
+		DeepUi.icon_button(list, "door", "Close the game", func() -> void: _show("quit"), 13, DeepUi.MUTED)
+	for child in list.get_children():
+		if child is Button:
+			child.custom_minimum_size.y = DeepUi.pt(40)
+			if child != resume:
+				child.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
 func _gold(b: Button, on: bool) -> void:
 	## Dresses a menu button as the page's call to action (the accent fill, ink on it) or
 	## back as a plain one.
@@ -318,21 +397,23 @@ func _party_card(party: Dictionary) -> void:
 	## come back on. A run picked up again from its checkpoint starts with everyone away and no
 	## line at all, and this is where the host opens one.
 	var card := DeepUi.card(_body, Color(DeepUi.INFO, 0.45), 12)
-	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	card.custom_minimum_size.x = 460
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER if not DeepUi.phone else Control.SIZE_FILL
+	card.custom_minimum_size.x = 0.0 if DeepUi.phone else 460.0
 	var box := DeepUi.vbox(card, 8)
 	var away: Array = party.get("away", [])
 	if away.is_empty():
-		DeepUi.stat(box, "party", "Everyone is here.", DeepUi.GOOD, 13)
+		_wrap_stat(DeepUi.stat(box, "party", "Everyone is here.", DeepUi.GOOD, 12 if DeepUi.phone else 13))
 	else:
-		DeepUi.stat(box, "party", "Away: %s" % ", ".join(away), DeepUi.MUTED, 13)
+		_wrap_stat(DeepUi.stat(box, "party", "Away: %s" % ", ".join(away), DeepUi.MUTED, 12 if DeepUi.phone else 13))
 	match str(party.get("status", "")):
 		"local":
-			DeepUi.wrap(box, "Open the party and they can come back to their seats, wherever the run has got to.", 13, DeepUi.PAPER)
+			DeepUi.wrap(box, "Open the party and they can come back to their seats, wherever the run has got to.", 12 if DeepUi.phone else 13, DeepUi.PAPER)
 			var row := DeepUi.hbox(box, 10)
 			row.alignment = BoxContainer.ALIGNMENT_CENTER
-			DeepUi.icon_button(row, "crown", "Open on LAN", func() -> void: reopen_requested.emit("lan"), 14, DeepUi.ACCENT)
-			DeepUi.icon_button(row, "party", "Open on Steam", func() -> void: reopen_requested.emit("steam"), 14, DeepUi.ACCENT)
+			## A phone opens the party on its Wi-Fi only: Steam is the desktop game's.
+			DeepUi.icon_button(row, "crown", "Open on this Wi-Fi" if DeepUi.phone else "Open on LAN", func() -> void: reopen_requested.emit("lan"), 14, DeepUi.ACCENT)
+			if not DeepUi.phone:
+				DeepUi.icon_button(row, "party", "Open on Steam", func() -> void: reopen_requested.emit("steam"), 14, DeepUi.ACCENT)
 		"opening":
 			DeepUi.stat(box, "hourglass", "Opening a Steam lobby…", DeepUi.ACCENT, 13)
 		_:
@@ -348,6 +429,16 @@ func _party_card(party: Dictionary) -> void:
 				DeepUi.icon_button(row, "copy", "Copy", func() -> void: DisplayServer.clipboard_set(lan), 13, DeepUi.MUTED)
 			else:
 				DeepUi.stat(row, "check", "The party is open.", DeepUi.GOOD, 13)
+
+static func _wrap_stat(row: HBoxContainer) -> void:
+	## A stat's words wrapped on the phone's narrow card; the desk's stay on one line.
+	if not DeepUi.phone:
+		return
+	for child in row.get_children():
+		if child is Label:
+			(child as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			(child as Label).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			(child as Label).custom_minimum_size.x = DeepUi.pt(180)
 
 func _abandon_text() -> String:
 	var text: String = "It counts as a fall. Every stone in your bag rolls its salvage die, and only the top face brings it home. Stones you found and set on your rail are safe, and your vault is never touched."
@@ -375,16 +466,23 @@ func _invite_text() -> String:
 
 func _page_confirm(glyph: String, title: String, text: String, verb: String, tone: Color, act: Callable) -> void:
 	_heading(glyph, title, tone)
-	var words := DeepUi.wrap(_body, text, 15, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER, 500)
-	words.custom_minimum_size.x = 500
+	var wide: float = DeepUi.pt(350) if DeepUi.phone else 500.0
+	var words := DeepUi.wrap(_body, text, 13 if DeepUi.phone else 15, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER, wide)
+	words.custom_minimum_size.x = wide
 	var row := DeepUi.hbox(_body, 14)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	var back := DeepUi.button(row, "Go back", func() -> void: _show("main"), 16)
+	var back := DeepUi.button(row, "Go back", func() -> void: _show("main"), 14 if DeepUi.phone else 16)
 	DeepUi.voice(back, "ui_back")
 	_focus.call_deferred(back)
-	DeepUi.primary(row, glyph, verb, act, 16, tone)
+	var go := DeepUi.primary(row, glyph, verb, act, 14 if DeepUi.phone else 16, tone)
+	if DeepUi.phone:
+		back.custom_minimum_size = Vector2(DeepUi.pt(120), DeepUi.pt(40))
+		go.custom_minimum_size = Vector2(DeepUi.pt(120), DeepUi.pt(40))
 
 func _page_settings() -> void:
+	if DeepUi.phone:
+		_page_settings_phone()
+		return
 	_heading("gear", "Settings")
 	## Two columns: in one, the page ran off the foot of the screen once Text size and Color
 	## marks joined it.
@@ -395,6 +493,7 @@ func _page_settings() -> void:
 	_row(grid, "Fullscreen", _toggle("fullscreen", false))
 	_row(grid, "Vertical sync", _toggle("vsync", true))
 	_row(grid, "Graphics", _choice("quality", QUALITY, 0), "Auto starts high and eases off if fights run slow.")
+	_row(grid, "Soften edges (FXAA)", _toggle("fxaa", false), "Runs a smoothing pass over the room on top of the multisampling: softer ink creases and crystal edges, a softer picture with them. Low graphics always has it.")
 	_row(grid, "Ink outlines", _toggle("outlines", true), "Draws the rock and the creatures in line. Off for a few more frames a second.")
 	_section(grid, "Sound")
 	_row(grid, "Master volume", _slider("master_volume", 0.8))
@@ -414,6 +513,58 @@ func _page_settings() -> void:
 	var back := DeepUi.button(_body, "Back", func() -> void: _show("main"), 15)
 	DeepUi.voice(back, "ui_back")
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+func _page_settings_phone() -> void:
+	## The phone's settings (board home-you): the whole screen in two columns, a row 34 points
+	## tall. No Fullscreen, Vertical sync or Text size (one size on a phone, already large);
+	## Rumble is Vibration; the version number lives here.
+	var head := DeepUi.hbox(_body, int(DeepUi.pt(8)))
+	DeepUi.icon(head, "gear", DeepUi.pt(18), DeepUi.ACCENT)
+	DeepUi.title(head, "Settings", 27, DeepUi.ACCENT.lightened(0.2))
+	DeepUi.spacer(head)
+	var done := DeepUi.icon_button(head, "check", "Done", func() -> void:
+		if _direct:
+			close()
+		else:
+			_show("main"), 13, DeepUi.PAPER)
+	DeepUi.ledger_button(done, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 8)
+	done.custom_minimum_size = Vector2(DeepUi.pt(90), DeepUi.pt(36))
+	DeepUi.voice(done, "ui_back")
+	var columns := DeepUi.hbox(_body, int(DeepUi.pt(24)))
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var grid := _grid(columns)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_section(grid, "Sound")
+	_row(grid, "Master volume", _slider("master_volume", 0.8))
+	_row(grid, "Effects", _slider("sfx_volume", 0.85))
+	_row(grid, "Music", _slider("music_volume", 0.6))
+	_section(grid, "Fights")
+	_row(grid, "Fight speed", _choice("speed", SPEEDS, 1.0))
+	_row(grid, "Gem count", _choice("count", COUNTS, 1.0))
+	_section(grid, "Picture")
+	_row(grid, "Graphics", _choice("quality", QUALITY, 0))
+	var pair := HBoxContainer.new()
+	pair.add_theme_constant_override("separation", int(DeepUi.pt(6)))
+	pair.add_child(_toggle("fxaa", false))
+	DeepUi.label(pair, "Ink outlines", 13, DeepUi.PAPER).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pair.add_child(_toggle("outlines", true))
+	_row(grid, "Soften edges", pair)
+	grid = _grid(columns)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_section(grid, "Comfort")
+	_row(grid, "Screen shake", _slider("shake", 1.0))
+	_row(grid, "Fewer flashes", _toggle("reduced_motion", false))
+	_row(grid, "Vibration", _toggle("rumble", true))
+	_row(grid, "Color marks", _marks())
+	_section(grid, "The game")
+	var how_label := DeepUi.label(grid, "How to play", 13, DeepUi.PAPER)
+	how_label.custom_minimum_size.y = DeepUi.pt(34)
+	how_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var how := DeepUi.icon_button(grid, "book", "Open", func() -> void: _show("controls"), 12, DeepUi.PAPER)
+	how.custom_minimum_size = Vector2(DeepUi.pt(80), DeepUi.pt(30))
+	how.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	how.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DeepUi.label(grid, "Deep Cut v%s" % str(ProjectSettings.get_setting("application/config/version", "")), 11, DeepUi.MUTED)
 
 func _page_soundtrack() -> void:
 	## A piece for each place: click one to make it the one that plays there.
@@ -453,8 +604,8 @@ func _grid(parent: Node) -> GridContainer:
 	## One column of the settings: a name and its control on each row.
 	var grid := GridContainer.new()
 	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 22)
-	grid.add_theme_constant_override("v_separation", 12)
+	grid.add_theme_constant_override("h_separation", int(DeepUi.pt(10)) if DeepUi.phone else 22)
+	grid.add_theme_constant_override("v_separation", int(DeepUi.pt(2)) if DeepUi.phone else 12)
 	grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	parent.add_child(grid)
 	return grid
@@ -467,7 +618,7 @@ func _marks() -> HBoxContainer:
 	row.add_child(_toggle("color_marks", false))
 	DeepUi.gap(row, 4)
 	for key in ["RED", "BLUE", "GREEN", "VIOLET", "GOLD", "WHITE", "OPAL"]:
-		var mark := DeepUi.ColorMark.new(str(key), 18.0, true)
+		var mark := DeepUi.ColorMark.new(str(key), DeepUi.pt(12) if DeepUi.phone else 18.0, true)
 		mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		mark.mouse_filter = Control.MOUSE_FILTER_PASS
 		mark.tooltip_text = str(DeepContent.color(str(key)).get("name", key))
@@ -475,14 +626,20 @@ func _marks() -> HBoxContainer:
 	return row
 
 func _section(grid: GridContainer, text: String) -> void:
-	var head := DeepUi.heading(grid, text, 12, DeepUi.ACCENT)
-	head.custom_minimum_size.y = 26
+	var head := DeepUi.heading(grid, text, 11 if DeepUi.phone else 12, DeepUi.ACCENT)
+	head.custom_minimum_size.y = DeepUi.pt(16) if DeepUi.phone else 26.0
 	head.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	var rule := Control.new()
 	grid.add_child(rule)
 
 func _row(grid: GridContainer, text: String, control: Control, hint: String = "") -> void:
-	var name_label := DeepUi.label(grid, text, 15, DeepUi.PAPER)
+	var name_label := DeepUi.label(grid, text, 13 if DeepUi.phone else 15, DeepUi.PAPER)
+	## A row 30 points tall on the phone, the name in its middle (the board's 34 ran the left
+	## column past the screen's safe foot).
+	if DeepUi.phone:
+		name_label.custom_minimum_size.y = DeepUi.pt(30)
+		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		control.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	name_label.tooltip_text = hint
 	name_label.mouse_filter = Control.MOUSE_FILTER_PASS if not hint.is_empty() else Control.MOUSE_FILTER_IGNORE
 	control.tooltip_text = hint
@@ -501,6 +658,8 @@ func _changed(key: String, value: Variant) -> void:
 func _toggle(key: String, fallback: bool) -> CheckButton:
 	var box := CheckButton.new()
 	box.button_pressed = bool(settings.get(key, fallback))
+	if DeepUi.phone:
+		box.custom_minimum_size = Vector2(DeepUi.pt(DeepUi.FINGER_LEAST), DeepUi.pt(DeepUi.FINGER_LEAST))
 	box.focus_mode = Control.FOCUS_ALL
 	box.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -520,7 +679,7 @@ func _slider(key: String, fallback: float) -> HBoxContainer:
 	slider.max_value = 1.0
 	slider.step = 0.05
 	slider.value = float(settings.get(key, fallback))
-	slider.custom_minimum_size = Vector2(190, 24)
+	slider.custom_minimum_size = Vector2(DeepUi.pt(130), DeepUi.pt(30)) if DeepUi.phone else Vector2(190, 24)
 	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(slider)
 	## The engine gives a slider no focus look of its own: the kit's white ring, while the
@@ -533,8 +692,8 @@ func _slider(key: String, fallback: float) -> HBoxContainer:
 	slider.add_child(ring)
 	slider.focus_entered.connect(func() -> void: ring.visible = slider.has_focus(true))
 	slider.focus_exited.connect(func() -> void: ring.visible = false)
-	var readout := DeepUi.label(row, "%d%%" % int(round(slider.value * 100.0)), 14, DeepUi.MUTED)
-	readout.custom_minimum_size.x = 44
+	var readout := DeepUi.label(row, "%d%%" % int(round(slider.value * 100.0)), 11 if DeepUi.phone else 14, DeepUi.MUTED)
+	readout.custom_minimum_size.x = DeepUi.pt(32) if DeepUi.phone else 44.0
 	slider.value_changed.connect(func(value: float) -> void:
 		readout.text = "%d%%" % int(round(value * 100.0))
 		_changed(key, value))
@@ -547,8 +706,8 @@ func _choice(key: String, options: Array, fallback: Variant) -> HBoxContainer:
 	var current: float = float(settings.get(key, fallback))
 	var buttons: Array = []
 	for option in options:
-		var b := DeepUi.button(row, str(option[0]), Callable(), 14)
-		b.custom_minimum_size.x = 62
+		var b := DeepUi.button(row, str(option[0]), Callable(), 12 if DeepUi.phone else 14)
+		b.custom_minimum_size = Vector2(DeepUi.pt(44), DeepUi.pt(30)) if DeepUi.phone else Vector2(62, 0)
 		buttons.append(b)
 		if is_equal_approx(float(option[1]), current):
 			DeepUi.selected_style(b)
@@ -563,6 +722,9 @@ func _choice(key: String, options: Array, fallback: Variant) -> HBoxContainer:
 	return row
 
 func _page_controls() -> void:
+	if DeepUi.phone:
+		_page_touches()
+		return
 	_heading("book", "Controls")
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -584,3 +746,28 @@ func _page_controls() -> void:
 	var back := DeepUi.button(_body, "Back", func() -> void: _show("main"), 15)
 	DeepUi.voice(back, "ui_back")
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+func _page_touches() -> void:
+	## How to play on the phone: what a finger does (board sys-touch).
+	_heading("book", "How to play")
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", int(DeepUi.pt(10)))
+	grid.add_theme_constant_override("v_separation", int(DeepUi.pt(5)))
+	_body.add_child(grid)
+	for entry in TOUCHES:
+		var key := PanelContainer.new()
+		var style := DeepUi.flat(Color(DeepUi.LINE, 0.35), DeepUi.LINE_HI, 6, 4)
+		style.border_width_bottom = 3
+		style.content_margin_left = DeepUi.pt(6)
+		style.content_margin_right = DeepUi.pt(6)
+		key.add_theme_stylebox_override("panel", style)
+		key.size_flags_horizontal = Control.SIZE_SHRINK_END
+		key.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		grid.add_child(key)
+		DeepUi.label(key, str(entry[0]), 12, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+		DeepUi.wrap(grid, str(entry[1]) + ".", 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, DeepUi.pt(260))
+	var back := DeepUi.button(_body, "Back", func() -> void: _show("settings" if _direct else "main"), 13)
+	DeepUi.voice(back, "ui_back")
+	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	back.custom_minimum_size = Vector2(DeepUi.pt(120), DeepUi.pt(40))

@@ -544,7 +544,7 @@ func _test_hand_mutation_and_retriggers() -> void:
 	check(fired.size() >= 2 and fired[0].effects[0].kind == "upgrade_faces" and int(fired[1].effects[0].amount) == 6, "Cleave reads the new pair of threes")
 	## Echo, an opal now, lays a Void copy of the last gem that fired into the rail.
 	var r2: Dictionary = rngs(32)
-	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 3), stone("ECHO", 1, 4, 3)])], ["THE_REGENT"], {"depth": 3}, r2.dice, r2.creatures)
+	var state2: Dictionary = DeepBattle.begin([player("a", [stone("STRIKE", 3), stone("ECHO", 1, 4, 5)])], ["THE_REGENT"], {"depth": 3}, r2.dice, r2.creatures)
 	var echoer: Dictionary = DeepBattle.player(state2, "a")
 	hand(echoer, [5, 5, 2, 3, 1])
 	var fired2: Array = fires(run_turn(state2, r2))
@@ -611,12 +611,12 @@ func _test_opals() -> void:
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(int(state.players[0].gem_buffs.get("s1", {}).get("carat", 0)) == 2, "a Perfect Fire Opal puts two carats on the gem beside it")
+	check(int(state.players[0].gem_buffs.get("s1", {}).get("carat", 0)) == 1, "a Fire Opal puts one carat on the gem beside it, at any Cut")
 	check(int(state.players[0].gem_buffs.get("f1", {}).get("carat", 0)) == 0, "and none at all on itself")
-	check(int(at_socket(events, 2)[0].carat) == 6, "the gem after it fires as a 6-carat stone, not a 4")
+	check(int(at_socket(events, 2)[0].carat) == 5, "the gem after it fires as a 5-carat stone, not a 4")
 	hand(state.players[0], [4, 4, 5, 5, 5])
 	events = run_turn(state, r)
-	check(int(state.players[0].gem_buffs.get("s1", {}).get("carat", 0)) == 4 and int(at_socket(events, 2)[0].carat) == 8,
+	check(int(state.players[0].gem_buffs.get("s1", {}).get("carat", 0)) == 2 and int(at_socket(events, 2)[0].carat) == 6,
 		"and the heat is still on the rail next turn")
 
 	## A Doublet wears the gem before it, at its own weight.
@@ -713,7 +713,7 @@ func _test_opals_together(r: Dictionary) -> void:
 	var pair: Dictionary = player("a", [stone("ECHO", 1, 4, 3, [], "e1"), stone("DOUBLET", 1, 4, 3, [], "d1")])
 	DeepStone.flatten_rail(pair)
 	check(DeepBattle.is_echo(DeepBattle.stone_at(pair, 1)), "and so is a Doublet wearing one")
-	state = DeepBattle.begin([player("a", [stone("GUARD", 4, 4, 3, [], "g1"), stone("ECHO", 1, 4, 3, [], "e1"), stone("ECHO", 1, 4, 3, [], "e2")])],
+	state = DeepBattle.begin([player("a", [stone("GUARD", 4, 4, 3, [], "g1"), stone("ECHO", 1, 4, 5, [], "e1"), stone("ECHO", 1, 4, 5, [], "e2")])],
 		["THE_REGENT"], {"depth": 3}, r.dice, r.creatures)
 	for _turn in range(3):
 		hand(state.players[0], [4, 4, 5, 5, 5])
@@ -791,7 +791,10 @@ func _test_creatures_and_statuses() -> void:
 	check(not first_move.is_empty() and int(golem6.block) == 0, "the golem's leftover block is gone by the time it moves (%d)" % int(golem6.block))
 	## Poison ticks and stun skips.
 	var r2: Dictionary = rngs(42)
-	var state2: Dictionary = DeepBattle.begin([player("a", [stone("VENOM", 4), stone("HEX")])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
+	## The golem is stunned outright: a Hex, which once bound it here, draws its debuff at random
+	## since November 2026.
+	var state2: Dictionary = DeepBattle.begin([player("a", [stone("VENOM", 4)])], ["QUARTZ_GOLEM"], {"depth": 1}, r2.dice, r2.creatures)
+	DeepBattle.enemy(state2, "e0").statuses.stun = 1
 	hand(DeepBattle.player(state2, "a"), [6, 6, 1, 2, 3])
 	var events2: Array = run_turn(state2, r2)
 	var seen2: Array = kinds(events2)

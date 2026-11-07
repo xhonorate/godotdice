@@ -95,7 +95,7 @@ static func _ordinal_suffix(n: int) -> String:
 ## The statuses that count down a stack a turn: their chip wears a bar of the turns it has
 ## left (DeepUi.capsule chips, docs/UI_REDO.md). Everything else lasts the fight, or until
 ## something is done about it, and wears a ghost bar so every chip stands on one baseline.
-const COUNTS_DOWN: Array = ["poison", "stun", "curse", "dulled", "festering", "scorched", "burn", "regeneration", "dread", "clouded", "reflect", "retain"]
+const COUNTS_DOWN: Array = ["poison", "stun", "curse", "dulled", "festering", "scorched", "burn", "regeneration", "dread", "clouded", "reflect", "retain", "combo_breaker"]
 
 static func entry(key: String, glyph: String, value: String, good: bool, title: String, text: String, tone: Color = Color(0, 0, 0, 0), turns: int = -1, span: String = "fight") -> Dictionary:
 	## One effect as a chip reads it. `turns` is how many turns it has left (-1 for no clock);
@@ -344,9 +344,13 @@ static func _status_entries(statuses: Dictionary, on_enemy: bool, weight: int = 
 	var curse: int = clampi(int(statuses.get("curse", 0)), 0, DeepRules.CURSE_MAX_STACKS)
 	if curse > 0:
 		out.append(entry("curse", "eye", str(curse), on_enemy, "Cursed", "Deals %d%% less hit damage (minimum zero) and takes %d%% more. Maximum 10 stacks; loses one at turn end." % [curse * DeepRules.CURSE_PERCENT, curse * DeepRules.CURSE_PERCENT] + (" A new enemy application lasts through your next turn." if not on_enemy else ""), Color("c58bff")))
+	## Three turns running it could not act (Stun or Bound, however mixed): it shook everything
+	## off and acted at once (the owner, November 5), and nothing that would hold it lands again
+	## while the count runs down; at 1 it holds through this turn only.
 	var breaker: int = int(statuses.get("combo_breaker", 0))
 	if breaker > 0:
-		out.append(entry("combo_breaker", "shield_burst", "", not on_enemy, "Combo Breaker", "After three consecutive stunned turns, clears all Stun and rejects new Stun through its next turn.", DeepUi.INFO))
+		out.append(entry("combo_breaker", "shield_burst", str(breaker), not on_enemy, "Combo Breaker",
+			"Three turns in a row it could not act, so it shook off every affliction and broke free. Stun, Bound, Clouded and Dread cannot land on it %s." % ("this turn" if breaker == 1 else "for %s" % DeepUi.plural(breaker, "more turn")), DeepUi.INFO))
 	var reflect: int = int(statuses.get("reflect", 0))
 	if reflect > 0:
 		var pct: int = clampi(int(statuses.get("reflect_pct", 50)), 0, 100)
@@ -354,7 +358,7 @@ static func _status_entries(statuses: Dictionary, on_enemy: bool, weight: int = 
 	var descriptions: Dictionary = {
 		"lifeline": ["pulse", "Lifeline", "The next lethal hit or Poison tick consumes all stacks and restores %d HP, up to maximum HP. Lasts this fight.", true],
 		"ward": ["shield_burst", "Ward", "Blocks the next %d debuff applications, consuming one charge each. Maximum 99. Lasts this fight.", true],
-		"retain": ["shield", "Retain", "Preserves up to %d unspent Block at the next Block reset, then is consumed. Maximum 20.", true],
+		"retain": ["shield", "Retain", "Preserves up to %d unspent Block at the next Block reset, then is consumed.", true],
 		"charged": ["bolt", "Charged Battery", "At next turn start, consumes all stacks to start your rail at %d Resonance.", true],
 		"marked": ["eye", "Marked", "Every hit of the next gem or move to land takes +%d%% damage; that gem spends every mark, even if Block soaked its hits.", false],
 		"regeneration": ["heart", "Regeneration", "Heals %d HP at turn end after Poison, then loses one stack. Cannot revive.", true],
@@ -386,7 +390,9 @@ static func _status_entries(statuses: Dictionary, on_enemy: bool, weight: int = 
 class TurnBar extends Control:
 	## The turns an effect has left, as a row of small segments under (or over) its chip: one lit
 	## segment a turn, five at most (the number on the chip says the rest). An effect with no
-	## clock wears a ghost: one dim bar, so chips with and without a clock share a baseline.
+	## clock wears a ghost: one dim bar, so chips with and without a clock share a baseline. The
+	## bar is as wide as the capsule's flat top, centred over it (the owner, November 5: a bar
+	## the chip's whole width overhung its faceted ends and the pair read skewed).
 	const SEGMENTS: int = 5
 	var lit: int = -1
 	var tone: Color = DeepUi.MUTED
@@ -425,9 +431,12 @@ class Chip extends VBoxContainer:
 	var _bar: TurnBar
 	var _last: String = ""
 	var _edge: float = 16.0
-	func _init(first: Dictionary, edge: float = 16.0, bar_top: bool = false) -> void:
+	## The mark alone, its number said on the hover plate's title instead (a party's tabs).
+	var marks_only: bool = false
+	func _init(first: Dictionary, edge: float = 16.0, bar_top: bool = false, icons_only: bool = false) -> void:
 		key = str(first.key)
 		_edge = edge
+		marks_only = icons_only
 		add_theme_constant_override("separation", 1)
 		alignment = BoxContainer.ALIGNMENT_CENTER
 		mouse_filter = Control.MOUSE_FILTER_PASS
@@ -437,7 +446,7 @@ class Chip extends VBoxContainer:
 		add_child(plate)
 		## Its sentence is a plate that comes up at once (docs/UI_REDO.md), built from the effect
 		## as it stands when shown, and built again while it is up if the effect changes.
-		Tips.attach(plate, func() -> Control: return Plates.words(str(effect.get("title", "")), str(effect.get("text", "")), "", family(effect)))
+		Tips.attach(plate, func() -> Control: return Plates.words(plate_title(), str(effect.get("text", "")), "", family(effect)))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 3)
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -452,10 +461,26 @@ class Chip extends VBoxContainer:
 		_value.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(_value)
 		_bar = TurnBar.new(edge * 1.6)
+		## Over the capsule's flat top only, never its faceted ends: the bar shrinks to the width
+		## the plate's facets leave and centres on it, with and without a clock alike.
+		_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		plate.resized.connect(_fit_bar)
 		add_child(_bar)
 		if bar_top:
 			move_child(_bar, 0)
 		show_effect(first, false)
+	func _fit_bar() -> void:
+		var flat: float = plate.size.x - 2.0 * float(DeepUi.end_corner(plate.size.y))
+		_bar.custom_minimum_size.x = maxf(_edge * 0.8, flat)
+	func bar_width() -> float:
+		## How wide the turns bar is drawn (tests/test_view.gd: the capsule's flat top).
+		return _bar.size.x
+	func plate_title() -> String:
+		## The hover plate's title: the effect's name, and its number when the chip itself does
+		## not show it.
+		var title: String = str(effect.get("title", ""))
+		var value: String = str(effect.get("value", ""))
+		return "%s · %s" % [title, value] if marks_only and not value.is_empty() else title
 	static func family(of: Dictionary) -> Color:
 		## The capsule's color says only whether it helps or hurts (or lasts the run); a
 		## creature's trait, what it is rather than what is on it, wears violet.
@@ -469,7 +494,7 @@ class Chip extends VBoxContainer:
 		var look: String = "%s|%s|%s" % [fam.to_html(), tone.to_html(), str(now.get("glyph", ""))]
 		if str(plate.get_meta("look", "")) != look:
 			plate.set_meta("look", look)
-			var style := DeepUi.capsule(plate, fam.darkened(0.62), fam, 2, int(_edge * 0.6) + 2, 1)
+			var style := DeepUi.capsule(plate, fam.darkened(0.62), fam, 2, int(_edge * (0.5 if marks_only else 0.6)) + 2, 1)
 			plate.add_theme_stylebox_override("panel", style)
 			## The mark keeps the effect's own color (poison violet, block blue) on the family fill.
 			var mark_tone: Color = tone.lightened(0.25) if tone != fam else Color.WHITE
@@ -487,7 +512,7 @@ class Chip extends VBoxContainer:
 		set_value(str(now.value), animate)
 	func set_value(value: String, animate: bool = true) -> void:
 		_value.text = value
-		_value.visible = not value.is_empty()
+		_value.visible = not value.is_empty() and not marks_only
 		if animate and value != _last:
 			DeepUi.pulse(plate, 1.35, 0.4)
 		_last = value
@@ -498,6 +523,9 @@ class Row extends HFlowContainer:
 	var edge: float = 16.0
 	## Each chip's turns over it rather than under it (a creature's tag: the owner, October 30).
 	var bar_top: bool = false
+	## The chips as their marks alone, their numbers on the hover plate (a party's tabs: the
+	## owner, November 5, "icons only in a party", six to a row the width of the tab).
+	var marks_only: bool = false
 	var _chips: Dictionary = {}
 	func _init(chip_edge: float = 16.0, turns_on_top: bool = false) -> void:
 		edge = chip_edge
@@ -505,6 +533,20 @@ class Row extends HFlowContainer:
 		add_theme_constant_override("h_separation", 4)
 		add_theme_constant_override("v_separation", 4)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func set_look(chip_edge: float, icons_only: bool) -> void:
+		## The chips at another size, or as marks alone: the ones showing are built again at the
+		## next `show_effects`, since a chip is drawn at the size it was made.
+		if is_equal_approx(chip_edge, edge) and icons_only == marks_only:
+			return
+		edge = chip_edge
+		marks_only = icons_only
+		add_theme_constant_override("h_separation", 3 if icons_only else 4)
+		for key in _chips.keys():
+			var old: Variant = _chips[key]
+			if old is Node and is_instance_valid(old):
+				remove_child(old)
+				(old as Node).queue_free()
+		_chips.clear()
 	func chip_for(key: String) -> Control:
 		## The chip showing one effect, for something to fly to or from; null if none shows.
 		var chip: Variant = _chips.get(key, null)
@@ -517,7 +559,7 @@ class Row extends HFlowContainer:
 			present[key] = true
 			var chip: Chip = _chips.get(key, null)
 			if chip == null or not is_instance_valid(chip):
-				chip = Chip.new(effect, edge, bar_top)
+				chip = Chip.new(effect, edge, bar_top, marks_only)
 				add_child(chip)
 				_chips[key] = chip
 				DeepUi.pop_in(chip, 0.0, 0.5)

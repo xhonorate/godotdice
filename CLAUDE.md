@@ -2,8 +2,16 @@
 
 ## UI layout
 
-- Every UI screen must fit on a single page with no scroll bar. Never add a ScrollContainer (or let content overflow) to make things fit - the only exceptions are the "Vault" and the Bestiary's creature list (one list down every mine, banded like the map).
+- Every desktop UI screen must fit on a single page with no scroll bar. Never add a ScrollContainer (or let content overflow) to make things fit - the only exceptions are the "Vault" and the Bestiary's creature list (one list down every mine, banded like the map).
 - If a screen has too much content, split it into separate pages/views (tabs, steps, or sub-screens) instead of scrolling.
+- The phone layout may scroll where it needs to (a list, a long card, a side panel). Still prefer tabs or pages where they read as well.
+
+## Desktop and phone layouts (November 7, 2026)
+
+- Every screen has two layouts: desktop (the 1600x900 canvas) and phone (held sideways, laid out in points on an 852x393 frame with `DeepUi.pt`, with 59 pt kept clear at each side and 21 pt at the bottom (`DeepUi.safe_*`); text at least 11 pt; anything pressed aims for a 44x44 pt touch area and is never under 28 pt either way (`DeepUi.FINGER_LEAST`)). Any UI change is made in both layouts in the same change. Never change one and leave the other behind.
+- The phone layout is built (docs/PHONE_UI.md). `DeepUi.phone` gates it (on for a phone, and on a desk with `--phone` or `DEEPCUT_FORM=phone`); whole pages that differ live in `view/phone/`, smaller differences are `if DeepUi.phone:` branches beside the desktop's code. `tests/test_fit_phone.gd` holds every phone page to the screen, the text floor and the finger floor; `build/phone/pshot.sh` takes phone screenshots.
+- A new screen's phone layout is drawn on the review page https://claude.ai/artifact/AaEEptCVyEMsUNVBm2jQja first (the owner's marks are in its db collection `phone1`; the mock source is in build/phone/mock/).
+- Every hover or right-click action needs a touch path as well: a tap, a hold (`Tips.hold`) or a drag. The kit's labels put mouse words into a finger's (`DeepUi.phone_words`); a line set some other way says "Tap", not "Click".
 
 ## Skill icons
 

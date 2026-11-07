@@ -68,7 +68,8 @@ class GradeMarks extends Control:
 	var text_size: int = 12
 	func _init(new_stone: Dictionary, size_px: int) -> void:
 		stone = new_stone
-		text_size = maxi(9, size_px - 1)
+		## On the phone the size is asked in points, as a label's is.
+		text_size = maxi(9, (DeepUi.readable(size_px) if DeepUi.phone else size_px) - 1)
 		mouse_filter = Control.MOUSE_FILTER_PASS
 		size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		custom_minimum_size = Vector2(_plate_width() + 6.0 + _cut_width() + 6.0 + _clarity_width(), float(text_size) + 5.0)

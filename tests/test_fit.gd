@@ -567,6 +567,7 @@ func _run(app: Control) -> void:
 	descent.show_state(head_state)
 	await _fits(screen, "a pick stake's three stones")
 	descent._stake_choosing = ""
+	await _deep_pages(app, descent, run)
 	## Below the Quarry: a temporary stone for each of three locked sockets, one already set.
 	var lent_state: Dictionary = run.duplicate(true)
 	var lent_me: Dictionary = DeepDescent.player(lent_state, app.session.local_id)
@@ -677,11 +678,6 @@ func _run(app: Control) -> void:
 		descent._run_dock.show_run(run)
 		await _fits(screen, "the open bag sorted by %s, reading a stone" % by)
 	descent._run_dock._reading = ""
-	descent._run_dock.fits_only = true
-	descent._run_dock._key = ""
-	descent._run_dock.show_run(run)
-	await _fits(screen, "the open bag showing only what fits")
-	descent._run_dock.fits_only = false
 	descent._run_dock.set_drawer(false)
 	## Every oddity, smithy and carver: its card along the bottom of its room.
 	var room: Dictionary = run.duplicate(true)
@@ -960,6 +956,90 @@ func _advance(app: Control) -> void:
 				app.session.send({"kind": "choose", "choice": "descend"})
 
 # --- the check ----------------------------------------------------------------------------------
+
+func _deep_pages(app: Control, descent: Control, run: Dictionary) -> void:
+	## Nov 5 round 4 (docs/DEEP_START.md): a deep start's Grubstake, and each card chosen on a
+	## page of its own at its biggest (the Rift: ten stones, turned a page at a time, and eight
+	## dice), choices made; a Smith's Voucher's better work at the smithy and the carver, and the
+	## carver's three-face ask on a d20.
+	var me_id: String = app.session.local_id
+	for entry in [["WARRENS", 3], ["RIFT", 6]]:
+		var mine_key: String = str(entry[0])
+		var k: int = int(entry[1])
+		var state: Dictionary = run.duplicate(true)
+		state.phase = "grubstake"
+		state.mine = mine_key
+		state.deep_start = k
+		state.erase("daily")
+		var unit: Dictionary = DeepDescent.player(state, me_id)
+		unit.stake = ""
+		unit.temps = []
+		unit.erase("dice_offers")
+		unit.erase("twin")
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 60 + k
+		var hand: Array = [DeepBoons._make_deep_offer(state, unit, "BAG_OF_GEMS", rng, k), DeepBoons._make_deep_offer(state, unit, "BAG_OF_DICE", rng, k),
+			DeepBoons._make_deep_offer(state, unit, "ONE_MATERIAL", rng, k)]
+		DeepBoons._number(hand)
+		state.grubstake = {"offers": {me_id: hand}, "chosen": {}}
+		descent._stake_choosing = ""
+		descent.show_state(state)
+		await _fits(screen, "a %s start's Grubstake" % mine_key)
+		await _above_dock(descent, "a %s start's Grubstake" % mine_key)
+		descent._stake_choosing = "stake0"
+		descent.show_state(state)
+		for index in range(int(hand[0].take)):
+			descent._gem_bag_toggle(hand[0], index)
+		await _fits(screen, "a %s start's Bag of Gems, %d of %d chosen" % [mine_key, int(hand[0].take), hand[0].picks.size()])
+		await _above_dock(descent, "a %s start's Bag of Gems" % mine_key)
+		descent._stake_choosing = "stake1"
+		descent.show_state(state)
+		descent._bag_trade("bag", 0, "hand", 0)
+		descent._bag_trade("bag", hand[1].picks.size() - 1, "hand", unit.dice.size() - 1)
+		descent._bag_click("bag", 1)
+		await _fits(screen, "a %s start's Bag of Dice, two dice traded and one held" % mine_key)
+		await _above_dock(descent, "a %s start's Bag of Dice" % mine_key)
+		descent._stake_choosing = "stake2"
+		descent.show_state(state)
+		await _fits(screen, "a %s start's One Material" % mine_key)
+		await _above_dock(descent, "a %s start's One Material" % mine_key)
+		## Hammered and A Wild Face (round 5): every die and the charges, some spent.
+		var charges: Array = [DeepBoons._make_offer(state, unit, "kit", ["HAMMERED"], rng, k), DeepBoons._make_offer(state, unit, "terms", ["COST_WOUND", "REWARD_WILD"], rng, k)]
+		DeepBoons._number(charges)
+		state.grubstake.offers[me_id] = charges
+		for at in range(2):
+			descent._stake_choosing = "stake%d" % at
+			descent.show_state(state)
+			descent._charge_hit(charges[at], str(unit.dice[0].id))
+			descent._charge_hit(charges[at], str(unit.dice[0].id))
+			var named: String = "Hammered" if at == 0 else "A Wild Face"
+			await _fits(screen, "a %s start's %s, two charges spent" % [mine_key, named])
+			await _above_dock(descent, "a %s start's %s" % [mine_key, named])
+		state.grubstake.offers[me_id] = hand
+		descent._stake_choosing = ""
+	for room in [["smithy", "SMITHY", {"pattern": "split"}, false], ["carver", "CARVER", {"etching": "golden"}, false], ["smithy", "SMITHY", {"pattern": "split"}, true]]:
+		var at_room: Dictionary = run.duplicate(true)
+		at_room.phase = "chamber"
+		## The last is a lucky smithy (round 5): better work for everyone, nobody's voucher.
+		at_room.chamber = {"kind": str(room[0]), "oddity": str(room[1]), "results": {}, "depth": 2, "settled": false, "vouchered": [] if bool(room[3]) else [me_id], "lucky": bool(room[3]), "offer": room[2]}
+		var holder: Dictionary = DeepDescent.player(at_room, me_id)
+		holder.vouchers = 2
+		holder.oddity_choice = ""
+		holder.downed = false
+		descent._oddity_step = ""
+		descent.show_state(at_room)
+		await _fits(screen, ("a lucky %s" if bool(room[3]) else "a voucher holder's %s") % str(room[0]))
+		if str(room[0]) == "carver":
+			holder.dice[0] = DeepDice.make("D20", "fit_d20")
+			descent._oddity_step = "raise"
+			descent.show_state(at_room)
+			descent._ask.take("die", "fit_d20")
+			descent._ask.pick_face("faces", [19], "fit_d20")
+			descent._ask.pick_face("faces", [18], "fit_d20")
+			await _fits(screen, "the carver's three-face ask on a d20, two chosen")
+			descent._ask.close()
+		descent._oddity_step = ""
+	descent.show_state(run)
 
 func _above_dock(descent: Node, what: String) -> void:
 	## A page over the room stops short of the dock: nothing laid out on it may run under it.

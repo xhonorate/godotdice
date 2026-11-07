@@ -27,9 +27,17 @@ const CameraRig = preload("res://view/battle/camera_rig.gd")
 signal pressed
 signal inspect
 signal hovered(on: bool)
+## A blow took this share of its health in one go (IMPACT_SHARE or more): the screen kicks
+## the frame with it.
+signal struck(share: float)
 
 ## How much a die grows as it is thrown.
 const GROW: float = 1.7
+## Impact frames (the owner, November 5): a blow of this share of its health holds the clock
+## an instant and blinks the tag white; HEAVY_SHARE or more holds longer, kicks the frame and
+## punches the tag out and back.
+const IMPACT_SHARE: float = 0.25
+const HEAVY_SHARE: float = 0.5
 ## How big the solid is drawn against its place on the tag: the camera frames a die with room
 ## round it, so the picture is drawn larger than the place for the die to fill it.
 const FRAME: float = 1.45
@@ -85,6 +93,9 @@ var _breath: Tween = null
 var _landing: Tween = null
 var _foe: Dictionary = {}
 var _party: int = 1
+## The white blink over the panel as a heavy blow lands, and its fade.
+var _flash: Panel = null
+var _flash_tween: Tween = null
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -101,8 +112,8 @@ func _init() -> void:
 	_box.add_child(_bar)
 	_pills = DeepUi.hbox(_box, 4)
 	_pills.mouse_filter = Control.MOUSE_FILTER_PASS
-	## The statuses hang under the tag, beside where its dice stand, their turns over them.
-	_chips = EffectChips.Row.new(13, true)
+	## The statuses hang under the tag from its left edge, their turns over them.
+	_chips = EffectChips.Row.new(DeepUi.pt(10) if DeepUi.phone else 13.0, true)
 	_chips.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_chips)
 	## The dice over the panel's left end, and the block chip over its top right corner.
@@ -229,14 +240,62 @@ func update(foe: Dictionary, battle: Dictionary, targeted: bool, preview: int) -
 	var hp: int = maxi(0, int(foe.get("hp", 0)))
 	var block: int = int(foe.get("block", 0))
 	_bar.thick = _warden
-	_bar.show_health(float(hp) / float(max_hp), "%s / %s" % [DeepUi.number(hp), DeepUi.number(max_hp)], clampf(float(block) / float(max_hp), 0.0, 0.4))
+	var share: float = float(hp) / float(max_hp)
+	## What this update takes off it in one go, against the share the bar was last told.
+	var lost: float = _bar.ratio - share if _bar.has_shown() else 0.0
+	_bar.show_health(share, "%s / %s" % [DeepUi.number(hp), DeepUi.number(max_hp)], clampf(float(block) / float(max_hp), 0.0, 0.4))
 	_bar.preview = clampf(float(maxi(0, preview - block)) / float(max_hp), 0.0, 1.0)
+	if lost >= IMPACT_SHARE:
+		_impact(lost)
 	_block.visible = block > 0
 	_block_label.text = DeepUi.number(block)
 	_sync_dice(foe)
 	_sync_pills(foe)
 	_sync_chips(foe, battle)
 	_relayout()
+
+func _impact(lost: float) -> void:
+	## Impact frames: the clock held an instant (longer for a blow of half its health), a white
+	## blink over the tag, and for the heavy blow the tag punched out and back; the screen is
+	## told (`struck`) so it can kick the frame. Fewer flashes (ScreenFx.calm) keeps the hold
+	## at half and drops the blink.
+	struck.emit(lost)
+	if DeepUi.headless() or not is_inside_tree():
+		return
+	var heavy: bool = lost >= HEAVY_SHARE
+	var hold: float = 0.2 if heavy else 0.06 + 0.10 * minf(lost, 1.0)
+	ScreenFx.hold(hold * (0.5 if ScreenFx.calm else 1.0), 0.05)
+	if not ScreenFx.calm:
+		_blink(0.8 if heavy else 0.55)
+	if heavy:
+		DeepUi.pulse(self, 1.05 if ScreenFx.calm else 1.12, 0.3)
+
+func _blink(strength: float) -> void:
+	## A white flash of the panel's own shape over it, gone in a tenth of a second.
+	if _flash == null or not is_instance_valid(_flash):
+		_flash = Panel.new()
+		_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_flash.z_index = 3
+		add_child(_flash)
+	var worn: StyleBox = panel.get_theme_stylebox("panel")
+	if worn is StyleBoxFlat:
+		var white: StyleBoxFlat = (worn as StyleBoxFlat).duplicate()
+		white.bg_color = Color.WHITE
+		white.border_color = Color.WHITE
+		white.shadow_size = 0
+		_flash.add_theme_stylebox_override("panel", white)
+	_flash.position = panel.position
+	_flash.size = panel.size
+	_flash.visible = true
+	_flash.modulate.a = strength
+	if _flash_tween != null and _flash_tween.is_valid():
+		_flash_tween.kill()
+	## On real time: the hit-stop holding the clock must not hold the blink with it.
+	_flash_tween = create_tween().set_ignore_time_scale(true)
+	_flash_tween.tween_property(_flash, "modulate:a", 0.0, 0.12)
+	_flash_tween.tween_callback(func() -> void:
+		if is_instance_valid(_flash):
+			_flash.visible = false)
 
 func _sync_chips(foe: Dictionary, battle: Dictionary) -> void:
 	## Its statuses as the party's chips, without its block (the corner chip says it) or what
@@ -467,7 +526,10 @@ func _build_holders(dice: Array) -> void:
 	for index in range(_holders.size()):
 		if str(_holders[index].id) == rolling_id:
 			_rolling = index
-			(_holders[index].view as Control).scale = Vector2.ONE
+			var thrown: Dictionary = _holders[index]
+			if not bool(thrown.get("big", false)):
+				_fit_view(thrown, true)
+			(thrown.view as Control).scale = Vector2.ONE * float(thrown.grown_scale)
 	_stack()
 	_inset = dice_inset(_spots)
 	_style()
@@ -536,23 +598,53 @@ func _holder(id: String, shape: String, edge: float, at: Vector2) -> Dictionary:
 	holder.size = Vector2(edge, edge)
 	holder.position = at
 	_dice.add_child(holder)
-	## Drawn at its thrown size and shown smaller at rest, so the solid is as sharp grown as
-	## it is standing in. At rest it fills its place; it grows about its right edge and its
-	## middle (the point of the picture over the place's right edge, half way down).
-	var shown: float = edge * FRAME
-	var big: float = roundf(shown * GROW)
 	var view := DiceView.new()
 	view.live = true
 	view.tilt = true
 	view.hush = 0.8
+	view.msaa = Viewport.MSAA_8X
 	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	view.size = Vector2(big, big)
-	view.custom_minimum_size = view.size
-	view.pivot_offset = Vector2((edge + shown) * 0.5 * GROW, big * 0.5)
-	view.position = Vector2(edge, edge * 0.5) - view.pivot_offset
-	view.scale = Vector2.ONE / GROW
 	holder.add_child(view)
-	return {"holder": holder, "view": view, "id": id, "shape": shape, "edge": edge, "token": ""}
+	var made: Dictionary = {"holder": holder, "view": view, "id": id, "shape": shape, "edge": edge, "token": "", "px": 1.0, "big": false, "rest_scale": 1.0, "grown_scale": GROW}
+	_fit_view(made, false)
+	return made
+
+func canvas_scale() -> float:
+	## How many physical pixels one canvas pixel is drawn as (the 1600x900 canvas in a 1440x810
+	## window: 0.9), read off the viewport's final transform; 1 with no screen.
+	if DeepUi.headless() or not is_inside_tree():
+		return 1.0
+	var viewport: Viewport = get_viewport()
+	if viewport == null:
+		return 1.0
+	var scale: float = viewport.get_final_transform().get_scale().x
+	return scale if scale > 0.05 else 1.0
+
+func _fit_view(entry: Dictionary, grown: bool) -> void:
+	## The solid rendered at the size it is shown, in physical pixels, and drawn 1:1 (the owner,
+	## November 5: rendered 1.7 times larger and scaled down without mipmaps, it shimmered). At
+	## rest the picture is FRAME of its place across (the camera frames the die with room round
+	## it, so the die itself fills DIE_FILL of the place); for a throw it is rendered again GROW
+	## times larger, so the grown die is as sharp as the resting one, and `scale` carries the
+	## growth between the two renders (`rest_scale`, `grown_scale`). Whatever the render size,
+	## the pivot is the place's right edge, half way down: that is what the die grows about.
+	var view: DiceView = entry.view
+	var edge: float = float(entry.edge)
+	var shown: float = edge * FRAME
+	var px: float = canvas_scale()
+	var render: float = maxf(8.0, roundf(shown * (GROW if grown else 1.0) * px))
+	entry.px = px
+	entry.big = grown
+	entry.rest_scale = shown / render
+	entry.grown_scale = shown * GROW / render
+	## Drawn as big as it was before the render changed, so a throw's tween carries on from there.
+	var drawn: float = view.scale.x * view.size.x
+	## The minimum first: a size under the old minimum would be held at it.
+	view.custom_minimum_size = Vector2(render, render)
+	view.size = Vector2(render, render)
+	view.pivot_offset = Vector2(render * (edge + shown) / (2.0 * shown), render * 0.5)
+	view.position = Vector2(edge, edge * 0.5) - view.pivot_offset
+	view.scale = Vector2.ONE * (drawn / render if drawn > 0.5 else float(entry.rest_scale))
 
 static func dice_spots(count: int, tall: float) -> Array:
 	## Where each place in the stack stands over the tag's left end, [position, edge], the front
@@ -614,12 +706,17 @@ func roll(event: Dictionary) -> void:
 	_show_die(entry, event.get("die", {}), event.get("roll", {}), true)
 	if _landing != null and _landing.is_valid():
 		_landing.kill()
+	if entry.get("shrink", null) is Tween and (entry.shrink as Tween).is_valid():
+		(entry.shrink as Tween).kill()
+	## Rendered at its grown size for the throw, so it stays sharp as it grows.
+	if not bool(entry.get("big", false)):
+		_fit_view(entry, true)
 	if DeepUi.headless() or not is_inside_tree():
-		view.scale = Vector2.ONE
+		view.scale = Vector2.ONE * float(entry.grown_scale)
 		_land(event)
 		return
 	var grow := create_tween()
-	grow.tween_property(view, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	grow.tween_property(view, "scale", Vector2.ONE * float(entry.grown_scale), 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_landing = create_tween()
 	if view.suspense:
 		## Rising clacks on scaled time, so the fight's speed cannot pull them apart.
@@ -711,20 +808,28 @@ func settle() -> void:
 func _shrink(index: int) -> void:
 	if index < 0 or index >= _holders.size():
 		return
-	var view: DiceView = _holders[index].view
+	var entry: Dictionary = _holders[index]
+	var view: DiceView = entry.view
 	if not is_instance_valid(view):
 		return
 	if DeepUi.headless() or not is_inside_tree():
-		view.scale = Vector2.ONE / GROW
+		_fit_view(entry, false)
+		view.scale = Vector2.ONE * float(entry.rest_scale)
 		return
-	create_tween().tween_property(view, "scale", Vector2.ONE / GROW, 0.25).set_trans(Tween.TRANS_SINE)
+	var tween := create_tween()
+	tween.tween_property(view, "scale", Vector2.ONE * float(entry.rest_scale), 0.25).set_trans(Tween.TRANS_SINE)
+	## Back in, it is rendered at its resting size again (unless it was thrown again meanwhile).
+	tween.tween_callback(func() -> void:
+		if is_instance_valid(view) and bool(entry.get("big", false)) and view.scale.x <= float(entry.rest_scale) + 0.01:
+			_fit_view(entry, false))
+	entry.shrink = tween
 
 func rolling() -> int:
 	return _rolling
 
 func grown(index: int) -> bool:
 	var view: DiceView = die_view(index)
-	return view != null and view.scale.x > 1.0 / GROW + 0.05
+	return view != null and view.scale.x > float(_holders[index].rest_scale) * 1.05
 
 func power(move_name: String) -> void:
 	## A move being acted out: its pill jumps.
@@ -767,7 +872,8 @@ var _laying: bool = false
 
 func _relayout() -> void:
 	## The panel as wide as its pills need (a Warden's at least WARDEN_WIDTH), the dice over its
-	## left end, the block chip over its top right corner, the chips under it.
+	## left end, the block chip over its top right corner, the chips under it from its left edge
+	## (the owner, November 5: under the dice too, not only under the bar).
 	if _laying:
 		return
 	_laying = true
@@ -786,10 +892,16 @@ func _relayout() -> void:
 	_spots = dice_spots(_holders.size(), tall)
 	if not _swapping():
 		_place_dice()
+	## The window has been resized under the dice: each is rendered again for the pixels it
+	## is now drawn with.
+	var px: float = canvas_scale()
+	for entry in _holders:
+		if not is_equal_approx(float(entry.get("px", 1.0)), px) and is_instance_valid(entry.view):
+			_fit_view(entry, bool(entry.get("big", false)))
 	_block.reset_size()
 	_block.position = Vector2(size.x - _block.size.x - 10.0, -_block.size.y * 0.5 - 2.0)
-	_chips.position = Vector2(_inset, tall + 3.0)
-	_chips.custom_minimum_size.x = maxf(60.0, size.x - _inset)
+	_chips.position = Vector2(0.0, tall + 3.0)
+	_chips.custom_minimum_size.x = maxf(60.0, size.x)
 	_chips.reset_size()
 	if _result.visible:
 		_place_result()
@@ -806,18 +918,39 @@ func standing_height() -> float:
 	## The tag and the room for a row of chips under it.
 	return size.y + CHIP_ROOM
 
+## How long a fading tag holds at the least, and how long at the most it waits for its bar to
+## run empty before it goes anyway (a bar that was never shown the blow would hold it for ever).
+const FADE_HOLD: float = 0.35
+const FADE_WAIT: float = 1.8
+var _fade_for: float = -1.0
+var _gone: Callable = Callable()
+
 func fade(gone: Callable = Callable()) -> void:
-	## Out, and then freed: `gone` is told first, so the screen can drop it from its book.
+	## Out, and then freed: `gone` is told first, so the screen can drop it from its book. The
+	## owner wants to see the bar run empty, so it waits on that (`_process`), FADE_WAIT at
+	## most, before the fade itself.
 	fading = true
 	_result.visible = false
-	var tween := create_tween()
-	tween.tween_interval(0.35)
-	tween.tween_property(self, "modulate:a", 0.0, 0.3)
-	tween.tween_callback(func() -> void:
-		visible = false
-		if gone.is_valid():
-			gone.call()
-		queue_free())
+	_gone = gone
+	_fade_for = 0.0
+	set_process(true)
+
+func _process(delta: float) -> void:
+	## Only a fading tag runs: it watches its bar drain, then lets go.
+	if _fade_for < 0.0:
+		set_process(false)
+		return
+	_fade_for += delta
+	if (_bar.drained() and _fade_for >= FADE_HOLD) or _fade_for >= FADE_WAIT:
+		_fade_for = -1.0
+		set_process(false)
+		var tween := create_tween()
+		tween.tween_property(self, "modulate:a", 0.0, 0.3)
+		tween.tween_callback(func() -> void:
+			visible = false
+			if _gone.is_valid():
+				_gone.call()
+			queue_free())
 
 func _get_tooltip(_at: Vector2) -> String:
 	return ""
@@ -825,9 +958,20 @@ func _get_tooltip(_at: Vector2) -> String:
 # --- its health ----------------------------------------------------------------------------------
 
 class HealthBar extends Control:
-	## Its health: the fill eases to its share and a pale ghost trails what it lost; its block
-	## hatched in blue over the end of the bar; a blow this hand would land hatched red at the
-	## end of the fill; the numbers in the middle.
+	## Its health: on a blow the fill holds a beat, then eases out to its new share (longer for
+	## a bigger blow) while a pale ghost holds what it lost and trails after it half a second
+	## later, and a white flash crosses the bar as the blow lands (the owner, November 5: it
+	## drained in an instant before). Its block is hatched in blue over the end of the bar; a
+	## blow this hand would land is hatched red at the end of the fill; the numbers sit in the
+	## middle. Healing eases up without the beat.
+	## How long the fill holds before it drains, how long the drain takes at the least and how
+	## much longer for every whole bar of health lost, how long the ghost takes to follow once
+	## the fill has arrived, and how long the flash lasts.
+	const HOLD: float = 0.12
+	const EASE: float = 0.3
+	const EASE_PER_SHARE: float = 0.3
+	const GHOST_LAG: float = 0.5
+	const FLASH: float = 0.1
 	var thick: bool = false:
 		set(value):
 			thick = value
@@ -843,7 +987,14 @@ class HealthBar extends Control:
 				queue_redraw()
 	var _shown: float = -1.0
 	var _ghost: float = 1.0
+	## The blow underway: where the fill was when it landed, how long its drain runs (0 for no
+	## drain underway) and how far into hold and drain it is.
+	var _from: float = 1.0
+	var _ease_for: float = 0.0
 	var _clock: float = 0.0
+	## How fast the ghost follows once the fill has arrived, and the flash's life left.
+	var _ghost_speed: float = 0.0
+	var _flash: float = 0.0
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -851,11 +1002,25 @@ class HealthBar extends Control:
 		return Vector2(40.0, float(_font_size()) + (5.0 if thick else 3.0))
 	func _font_size() -> int:
 		return DeepUi.readable(10)
+	func drained() -> bool:
+		## Whether the fill has run all the way out (the tag waits on this before it fades).
+		return _shown <= 0.001
+	func has_shown() -> bool:
+		## Whether the bar has been told its health at all yet.
+		return _shown >= 0.0
+	func shown() -> float:
+		## Where the fill is drawn now, and where the ghost stands (tests, pictures).
+		return _shown
+	func ghost() -> float:
+		return _ghost
 	func show_health(share: float, words: String, guard: float) -> void:
 		share = clampf(share, 0.0, 1.0)
 		if _shown < 0.0 or DeepUi.headless() or not is_inside_tree():
 			_shown = share
 			_ghost = share
+			_ease_for = 0.0
+		elif share < ratio - 0.0005:
+			_blow(share)
 		elif share > _ghost:
 			_ghost = share
 		ratio = share
@@ -863,19 +1028,41 @@ class HealthBar extends Control:
 		text = words
 		set_process(true)
 		queue_redraw()
+	func _blow(share: float) -> void:
+		## A blow lands: the fill holds HOLD, then eases out to `share` over EASE and more for a
+		## bigger blow; the ghost keeps the share before the blow. A blow landing while another
+		## is still draining joins the drain without a second hold.
+		var idle: bool = _ease_for <= 0.0
+		_from = _shown
+		_ghost = maxf(_ghost, _from)
+		_ease_for = EASE + EASE_PER_SHARE * clampf(ratio - share, 0.0, 1.0)
+		_clock = 0.0 if idle else HOLD
+		_flash = FLASH
 	func _process(delta: float) -> void:
-		_clock += delta
 		var settled: bool = true
-		if not is_equal_approx(_shown, ratio):
+		if _ease_for > 0.0:
+			_clock += delta
+			var t: float = clampf((_clock - HOLD) / _ease_for, 0.0, 1.0)
+			## Fast out of the hold, slowing as it arrives.
+			var eased: float = 1.0 - pow(1.0 - t, 3.0)
+			_shown = lerpf(_from, ratio, eased)
+			if t >= 1.0:
+				_ease_for = 0.0
+				_ghost_speed = maxf(0.2, (_ghost - _shown) / GHOST_LAG)
+			settled = false
+		elif not is_equal_approx(_shown, ratio):
 			_shown = move_toward(_shown, ratio, maxf(0.4, absf(ratio - _shown) * 6.0) * delta)
 			settled = false
-		if _ghost > _shown:
-			if _clock > 0.35:
-				_ghost = move_toward(_ghost, _shown, 0.55 * delta)
+		if _ghost > _shown + 0.0005:
+			if _ease_for <= 0.0:
+				_ghost = move_toward(_ghost, _shown, _ghost_speed * delta)
 			settled = false
 		else:
 			_ghost = _shown
-			_clock = 0.0
+		if _flash > 0.0:
+			## On real time, like the tag's blink: a hit-stop does not hold the flash.
+			_flash = maxf(0.0, _flash - delta / maxf(Engine.time_scale, 0.001))
+			settled = false
 		if preview > 0.0:
 			settled = false
 		queue_redraw()
@@ -890,6 +1077,10 @@ class HealthBar extends Control:
 		if _shown > 0.001:
 			draw_rect(Rect2(Vector2.ZERO, Vector2(size.x * _shown, size.y)), Color("e8665a"))
 			draw_rect(Rect2(Vector2.ZERO, Vector2(size.x * _shown, size.y * 0.45)), Color("ff8f80"))
+		if _flash > 0.0:
+			## The blow's flash: white across the whole bar, gone in a tenth of a second (softer
+			## under Fewer flashes).
+			draw_rect(r, Color(1, 1, 1, (0.3 if ScreenFx.calm else 0.85) * _flash / FLASH))
 		if preview > 0.0 and _shown > 0.001:
 			var cut: float = minf(preview, _shown)
 			var pulse: float = 0.45 + 0.35 * sin(Time.get_ticks_msec() * 0.008)

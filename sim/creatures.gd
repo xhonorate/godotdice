@@ -53,7 +53,7 @@ static func make(key: String, id: String, depth: int, party: int, scale: Diction
 		"block": DeepRules.sat_floor(roundf(float(def.get("block", 0)) * hp_scale)), "statuses": {"ward": clampi(int(def.get("ward", 1 if bool(def.get("warden", false)) else 0)), 0, 99)}, "dice": dice, "hand": [], "moves": [], "move_states": [], "used_combos": [],
 		"acting": false, "beat": "", "rolled_die": {}, "damage_bonus": 0, "enrage_bonus": 0, "next_die": 0, "suppressed": 0, "active_move": - 1,
 		"gimmick": str(def.get("gimmick", "")), "warden": bool(def.get("warden", false)), "phase": 0,
-		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "stun_streak": 0, "clouded_move": - 1, "threat": int(def.get("threat", 1)),
+		"stolen_dice": 0, "dread_turns": 0, "dice_upgrade": 0, "stolen_gold": 0, "skip_streak": 0, "clouded_move": - 1, "threat": int(def.get("threat", 1)),
 		"text": str(def.get("text", "")), "damage_mult": maxf(0.01, float(scale.get("damage", 1.0))),
 		## The deeper mines' creatures (docs/BESTIARY.md): what the fight pinned on them, and
 		## what the fight so far has done to them. Written traits are read from the definition.
@@ -850,8 +850,16 @@ static func move_text(enemy: Dictionary, move: Dictionary) -> String:
 	var text: String = str(move.get("text", ""))
 	if text.is_empty():
 		return " · ".join(move.get("effects", []).map(func(e: Dictionary) -> String: return effect_words(e)))
+	## A move that only re-etches faces, with no face left on its dice to turn, reads its
+	## `spent_text` instead (the Assayer's Raise the Rate: "The rate is as high as it goes").
+	if move.has("spent_text") and etch_spent(enemy, move):
+		return str(move.spent_text)
 	var shown: Array = display_moves(enemy, [move])
 	var effects: Array = shown[0].get("effects", []) if not shown.is_empty() else []
+	## Its Poison or Burn keeps its stacks, but every round of them hurts with the mine's
+	## weight (`display_moves` marks it): said once, after the words, or the move would read
+	## "2 Festering" while the chip on the player showed the weighted round.
+	var weighed: String = ""
 	for at in range(effects.size()):
 		var key: String = "{%d}" % at
 		if text.contains(key) or (at == 0 and text.contains("{n}")):
@@ -859,7 +867,27 @@ static func move_text(enemy: Dictionary, move: Dictionary) -> String:
 			text = text.replace(key, n)
 			if at == 0:
 				text = text.replace("{n}", n)
-	return text
+			if weighed.is_empty():
+				weighed = _weight_words(effects[at])
+	return text + weighed
+
+static func etch_spent(enemy: Dictionary, move: Dictionary) -> bool:
+	## Whether a move made only of etchings has nothing left to turn: every `from` it names is
+	## off the creature's dice. False for a creature with no dice yet, or a move that does
+	## anything else, so an unbuilt card still reads its own words.
+	var dice: Array = enemy.get("dice", [])
+	var etches: Array = move.get("effects", []).filter(func(e: Dictionary) -> bool: return str(e.get("kind", "")) == "etch")
+	if dice.is_empty() or etches.is_empty() or etches.size() != move.get("effects", []).size():
+		return false
+	for effect in etches:
+		var from: String = str(effect.get("from", ""))
+		if from == "self_face":
+			return false
+		for die in dice:
+			for face in die.get("faces", []):
+				if face is Dictionary and str(face.get("move", "")) == from:
+					return false
+	return true
 
 static func trigger_words(move: Dictionary, enemy: Dictionary = {}) -> String:
 	var t: Dictionary = move.get("trigger", {"kind": "always"})
@@ -1064,6 +1092,14 @@ static func effect_words(effect: Dictionary) -> String:
 		"block": return "Gain %s block" % n
 		"heal": return "Heal %s" % n
 		"die_steal": return "Suppress %s die · all players · next turn" % n
+		## A Hex a Collector holds and fires as its own.
+		"random_debuff":
+			var names: Dictionary = {"clouded": "Clouded", "die_steal": "Bound", "dice_dread": "Dread", "marked": "Marked", "stun": "Stun"}
+			return "%s of %s, drawn at random · %s" % [n, ", ".join(effect.get("from", []).map(func(k: Variant) -> String: return str(names.get(str(k), str(k))))), who]
+		"lose_hp":
+			if str(effect.get("of_target", "")) == "afflictions":
+				return "Loses health for every different affliction on it · no block soaks it · %s" % who
+			return "Loses %s health · no block soaks it · %s" % [n, who]
 		"poison": return "%s poison · all players" % n + _weight_words(effect)
 		"stun": return "Stun all players · %s turn" % n
 		"remove_block": return "Removes all your block · all players" if bool(effect.get("remove_all", false)) else "Remove %s block · all players" % n
@@ -1092,6 +1128,9 @@ static func effect_words(effect: Dictionary) -> String:
 			var how_many: String = "Every %s face" % str(effect.get("from", "")) if int(effect.get("count", 1)) == 0 else "One of its %s faces" % str(effect.get("from", ""))
 			if str(effect.get("from", "")) == "self_face":
 				how_many = "This face"
+			## The next rung of a ladder of etchings (DeepBattle `etch`, `fallback`).
+			if bool(effect.get("fallback", false)):
+				how_many = "With none left, " + how_many.to_lower()
 			return "%s becomes %s" % [how_many, str(effect.get("to", ""))]
 		"grow_faces": return "Its die grows a size, its new faces %s" % " and ".join(effect.get("faces", []).map(func(f: Variant) -> String: return str(f)))
 		"pin_trait": return "Until its next action: %s" % str(effect.get("trait", "")).replace("_", " ")

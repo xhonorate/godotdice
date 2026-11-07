@@ -23,8 +23,8 @@ A creature entry gained five things:
   `0` or `false` takes a trait away: the Drill stops rolling your dice for you once it is hurt).
   `DeepCreatures.traits_for(enemy)` is the one place that merges them. The full list is
   `DeepContent.TRAITS`.
-- **`escorts`**: creatures that walk in beside it (the Prismarch's three Prisms, the Heartrot's
-  three Tendrils). They are ordinary creatures with `summon_only: true`, never found in a band.
+- **`escorts`**: creatures that walk in beside it (the Prismarch's two Prisms, the Heartrot's
+  two Tendrils). They are ordinary creatures with `summon_only: true`, never found in a band.
   A creature that summons one of its own escorts (the Heartrot growing a Tendril) adds it to
   them.
 - **`echo`**: `{mines: [...]}`. The creature is a copy of a random ordinary creature from those
@@ -130,8 +130,8 @@ on, or of another variant of it (`tests/test_bestiary.gd` checks this against th
 | ----------- | ------------------------------------------------------------------------------------ | ---------------------------------- | ---------------------------------- |
 | Quarry      | Rail Rat, Pit Mole                                                                   | the Foreman, the Mirror Regent     | the Drill, rebuilt                 |
 | Seeps       | Seep Eel, Drowned Miner, Lamprey Knot, Cave Crayfish                                 | the Lock-Keeper, the Drowned Choir | the Undertow                       |
-| Glass Veins | Prism Golem, Shard Wyrm, Glint Magpie, Will-o’-Wisp, Echo Sprite, Refractor          | the Glazier, the Kaleidoscope      | the Prismarch (with three Prisms)  |
-| Warrens     | Spore Slime, Mycel Wraith, Cap Shambler, Mycel Weaver, Puffball, Root Horror         | the Gardener, the Spore Mother     | the Heartrot (with three Tendrils) |
+| Glass Veins | Prism Golem, Shard Wyrm, Glint Magpie, Will-o’-Wisp, Echo Sprite, Refractor          | the Glazier, the Kaleidoscope      | the Prismarch (with two Prisms)    |
+| Warrens     | Spore Slime, Mycel Wraith, Cap Shambler, Mycel Weaver, Puffball, Root Horror         | the Gardener, the Spore Mother     | the Heartrot (with two Tendrils)   |
 | Furnace     | Fire Tick, Cinder Moth, Salamander, Slag Hound, Forge Imp, Ember Crawler             | the Smelter, the Anvil Knight      | the Kiln Wyrm                      |
 | Geode       | Gilded Magpie, Geode Golem, Amethyst Wyrm, Hoard Mimic, Croupier Crab, Crystal Hydra | the Assayer, the Collector         | the Hollow Crown                   |
 | Rift        | Void Echo, Null Shade, Riftling Swarm, Entropy Eye, Rift Shifter, Collapsar          | the Remembered (see below)         | none: it does not end              |
@@ -561,3 +561,31 @@ creature) are built in the creature view; see docs/CREATURE_DICE.md.
 
 `tests/test_creature_dice.gd` lands every face of every creature and checks it does what its
 words say.
+
+## 12. Playtest round 2 (November 5, 2026)
+
+The owner's second round of playtest rulings, as built:
+
+- **Combo Breaker breaks out.** The third action running a creature could not take (Stun, Bound
+  or a mix) is no longer lost: it sheds every affliction a Cleanse clears, its Dread and bound
+  dice too, and takes that action in the same enemy turn. Through the party's next turn Stun,
+  Bound, Clouded and Dread cannot land on it (no Ward is spent turning them away; Poison and
+  Curse land as ever); on their second turn a Stun lands again. The `skip` event still comes,
+  with `combo_breaker: true` and `acts: true`, and the creature's `enemy_begin` follows it. See
+  Buffs.md. `sim/battle.gd` (`enemy_begin`, `_combo_breaker`, written as 2 so the tick that
+  closes its turn reads it to 1), mirrored in `tools/data-browser/js/sim/fight.js`.
+- **The Assayer's ladder of rates.** Tax (a tenth) → Heavy Tax (a fifth) → **Ruinous Tax**
+  (a third of your pyrite, a blow for what it took, and 1 Curse; mark `f_coin_taken__m_x3`,
+  anim cast). Raise the Rate turns every Tax face on its ledger to Heavy Tax; with no Tax left,
+  every Heavy Tax to Ruinous Tax; with neither, nothing, and the face then reads "The rate is as
+  high as it goes" (a move's `spent_text`, read by `DeepCreatures.move_text` when every face a
+  pure etching move would turn is gone, `etch_spent`). The ladder is two `etch` effects, the
+  second marked `fallback`: it only runs when the etchings before it in the move found no face
+  (`DeepBattle` `etch`, `reactions.result_etched`). Its card: "Every Tax face on its ledger
+  becomes Heavy Tax; with no Tax left, every Heavy Tax becomes Ruinous Tax".
+- **Creatures' Poison and Burn a stack stronger.** Every creature move that poisons or burns
+  for a plain number does one more: Silt Slime Engulf 3, Spore Slime Spores 3, Spore Mother
+  Spore 4, Cinder Moth Embers 3 a reroll, Fire Tick Ignite 3, Forge Imp Cackle 3, Salamander
+  Ember 4, Ember Crawler Sear 3, Smelter Scald 4, Anvil Knight Forge-fire 5, Kiln Wyrm
+  Firebreath 5. The Puffball's swelling Burst, Festering and the poison ticks are as they were.
+  The tables above keep the earlier numbers as history.

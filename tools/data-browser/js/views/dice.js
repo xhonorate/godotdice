@@ -52,12 +52,12 @@ function bowlPage(root, ctx) {
 	const g2 = h('div', { class: 'grid grid-3' });
 	root.append(g2);
 	const highSlot = h('div'), distinctSlot = h('div'), lowSlot = h('div');
-	g2.append(card('Highest die', highSlot, { meta: 'no rerolls' }), card('Distinct values and low dice', distinctSlot, { meta: 'no rerolls' }), card('High die as % of its top', lowSlot, { meta: 'Hex, Refract and Facet read this' }));
+	g2.append(card('Highest die', highSlot, { meta: 'no rerolls' }), card('Distinct values and low dice', distinctSlot, { meta: 'no rerolls' }), card('High die as % of its size', lowSlot, { meta: 'Hex, Refract and Facet read this' }));
 	const raw = ctx.engine.run('handStats', { bowl, rerolls: 0, policy: 'none', samples: 8000 });
 	whenReady(ctx, highSlot, raw, (r) => histogram({ bins: r.highs, width: 300, height: 150, color: '#6f9fe0', xLabel: 'highest die', xFormat: (v) => String(v) }));
 	whenReady(ctx, distinctSlot, raw, (r) => h('div', { class: 'col' }, columns({ data: r.distinct.map(([k, p]) => ({ label: `${k} distinct`, value: p * 100, key: k, note: 'of hands' })), width: 300, height: 90, format: (v) => `${fmt(v, 0)}%`, valueLabels: 'all', color: '#4fae7a' }),
-		columns({ data: r.lowDice.map(([k, p]) => ({ label: `${k} low`, value: p * 100, key: k, note: 'dice at or below half their top' })), width: 300, height: 90, format: (v) => `${fmt(v, 0)}%`, valueLabels: 'all', color: '#8b5fd6' })));
-	whenReady(ctx, lowSlot, raw, (r) => h('div', { class: 'col' }, columns({ data: r.highPct.map(([k, p]) => ({ label: `${k}`, value: p * 100, key: k, note: `% of its top face` })), width: 300, height: 150, format: (v) => `${fmt(v, 0)}%`, color: '#c9a43e' }), h('p', { class: 'tiny muted' }, 'Hex asks for a die at 95% (Poor) to 70% (Perfect) of its own top; Facet 90% to 0%.')));
+		columns({ data: r.lowDice.map(([k, p]) => ({ label: `${k} low`, value: p * 100, key: k, note: 'dice in the low half of their size (1-3 on a d6)' })), width: 300, height: 90, format: (v) => `${fmt(v, 0)}%`, valueLabels: 'all', color: '#8b5fd6' })));
+	whenReady(ctx, lowSlot, raw, (r) => h('div', { class: 'col' }, columns({ data: r.highPct.map(([k, p]) => ({ label: `${k}`, value: p * 100, key: k, note: `% of its size` })), width: 300, height: 150, format: (v) => `${fmt(v, 0)}%`, color: '#c9a43e' }), h('p', { class: 'tiny muted' }, 'Hex asks for a die at 95% (Poor) to 70% (Perfect) of its size; Facet 90% to 0%.')));
 }
 
 function dicePage(root, route, ctx) {

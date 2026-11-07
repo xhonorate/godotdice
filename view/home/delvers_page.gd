@@ -21,6 +21,9 @@ const PICK_PAGE: int = 42
 static var _set_at_msec: int = -100000
 
 static func build(home: Control, content: VBoxContainer) -> void:
+	if DeepUi.phone:
+		load("res://view/phone/delvers_phone.gd").build(home, content)
+		return
 	var current: String = str(home.profile.get("current_character", DeepContent.starter_character()))
 	if home._roster_pick.is_empty() or DeepContent.character(home._roster_pick).is_empty():
 		home._roster_pick = current
