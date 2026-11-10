@@ -376,5 +376,7 @@ static func mesh(shape: String, colors: PackedColorArray) -> ArrayMesh:
 				var point := points[face[offset]]
 				surface.set_uv(Vector2((point - frame.centre).dot(frame.right), (point - frame.centre).dot(frame.up)) * 0.5 + Vector2(0.5, 0.5))
 				surface.add_vertex(point)
+	## Tangents along each face's own right and up, for a die with grooves cut into its faces.
+	surface.generate_tangents()
 	surface.index()
 	return surface.commit()

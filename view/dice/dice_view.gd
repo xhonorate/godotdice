@@ -9,6 +9,13 @@ extends Control
 const Geometry = preload("res://view/dice/dice_geometry.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const FaceMarks = preload("res://view/dice/face_marks.gd")
+const GemCut = preload("res://view/dice/gem_cut.gd")
+const BloodFx = preload("res://view/dice/blood_fx.gd")
+
+static func look_of(material: String) -> Dictionary:
+	## What a die of `material` is drawn as: its MATERIAL_LOOKS entry (empty for a die made of
+	## nothing in particular).
+	return MATERIAL_LOOKS.get(material, {})
 
 const VIEW_DIRECTION := Vector3(0.0, 0.0, 1.0)
 const SPIN_SECONDS := 0.72
@@ -16,25 +23,59 @@ const TURN_PER_PIXEL := 0.011
 ## Past this many faces a numeral cut into one of them is too small to read at tray size, so
 ## the number it landed on is also written over the settled solid.
 const READOUT_SIDES := 20
+## A d20's numerals are cut a little larger than its faces' size alone would give them (the
+## owner, November 10, 2026: they were hard to read on a phone), still clear of the face's
+## edges; the phone, where the dice are smallest, gets the most.
+const D20_NUMERAL := 1.14
+const D20_NUMERAL_PHONE := 1.22
 
 ## How a die made of something catches the light. `alpha` under 1 makes it see-through,
-## `glow` lights it from inside. A die of nothing in particular uses the first entry.
-const PLAIN_LOOK := {"alpha": 1.0, "roughness": 0.42, "metallic": 0.22, "glow": 0.0}
+## `glow` lights it from inside. A die of nothing in particular uses the first entry, as it
+## always has: pastel, satin, mirroring nothing (`glint` 0).
+## `coat` is a clear lacquer over the body (its strength; `coat_rough` how glossy it is),
+## `spec` how much light its surface throws back face-on, `rim` the light along its
+## silhouette, `body` a tint over the palette's color for the solid alone, `glint` how
+## strongly it mirrors the studio (`studio()`) around it, `shine` how hot the close lamp's
+## highlight is on it, and `grain` a relief cut into every face (`grain_texture`): pyrite's
+## crystal mosaic, brushed steel, a gem's inner facets. `streaks` gives brushed steel its
+## drawn roughness and `aniso` stretches its highlight along the brushing.
+const PLAIN_LOOK := {"alpha": 1.0, "roughness": 0.42, "metallic": 0.22, "glow": 0.0, "glint": 0.0}
 const MATERIAL_LOOKS := {
-	"glass": {"alpha": 0.5, "roughness": 0.04, "metallic": 0.0, "glow": 0.05},
-	"crystal": {"alpha": 0.82, "roughness": 0.12, "metallic": 0.1, "glow": 0.5},
-	"diamond": {"alpha": 0.86, "roughness": 0.03, "metallic": 0.25, "glow": 0.18},
-	"opal": {"alpha": 0.9, "roughness": 0.18, "metallic": 0.2, "glow": 0.34},
-	"ruby": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
-	"sapphire": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
-	"emerald": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
-	"amethyst": {"alpha": 0.94, "roughness": 0.1, "metallic": 0.3, "glow": 0.22},
-	"citrine": {"alpha": 0.96, "roughness": 0.18, "metallic": 0.55, "glow": 0.16},
-	"iron": {"alpha": 1.0, "roughness": 0.52, "metallic": 0.95, "glow": 0.0},
-	"cloud": {"alpha": 0.88, "roughness": 0.95, "metallic": 0.0, "glow": 0.1},
-	"fools_gold": {"alpha": 1.0, "roughness": 0.24, "metallic": 1.0, "glow": 0.12},
-	"granite": {"alpha": 1.0, "roughness": 0.88, "metallic": 0.04, "glow": 0.0},
-	"blood": {"alpha": 1.0, "roughness": 0.3, "metallic": 0.12, "glow": 0.2}}
+	## Clear: a thin tint over what lies behind, its far faces showing through, white numbers.
+	## Its rims light white and bright, and a very shallow facet relief breaks its highlight
+	## into glints (the owner's pick, November 10, 2026, round 3).
+	"glass": {"alpha": 0.12, "roughness": 0.0, "metallic": 0.0, "glow": 0.05, "coat": 1.0, "coat_rough": 0.0, "rim": 1.0, "rim_tint": 0.0,
+		"spec": 0.85, "glint": 1.6, "shine": 3.0, "clear": true, "inner": 0.44, "tint": "8fe3f2", "grain": "facets", "grain_depth": 0.35},
+	## Crystal (round 3): clear, rainbow prism bands sliding through its inside as it turns.
+	"crystal": GemCut.CRYSTAL,
+	## Diamond and opal (the owner's picks, November 10, 2026, round 2): a brilliant with
+	## rainbow fire, and a milky white opal whose patches of color flare as it turns; both quiet
+	## behind the numeral and ringed heavily, so its numbers read on every face.
+	"diamond": GemCut.DIAMOND,
+	"opal": GemCut.OPAL,
+	## Gems (the owner's pick, November 10, 2026): cut as brilliants, drawn by their own
+	## shaders (gem_cut.gd, `cut`): dark rich color at the rims, bright and near-black facets
+	## inside that flash as the die turns, a crown of sparkles on the skin.
+	"ruby": GemCut.RUBY,
+	"sapphire": GemCut.SAPPHIRE,
+	"emerald": GemCut.EMERALD,
+	"amethyst": GemCut.AMETHYST,
+	"citrine": GemCut.CITRINE,
+	## Brushed steel: drawn one way, its highlight stretched along the brushing, a few
+	## scratches across it, the edges dark.
+	"iron": {"alpha": 1.0, "roughness": 0.55, "metallic": 1.0, "glow": 0.0, "coat": 0.0, "body": "8a96a8", "edge": "232931",
+		"grain": "brushed", "grain_depth": 0.3, "grain_scale": 2.6, "streaks": true, "aniso": 0.75, "glint": 1.1, "shine": 1.4, "rim": 0.0},
+	## Cloud (round 3): a silvery storm cloud roiling slowly, lightning flickering inside.
+	"cloud": GemCut.CLOUD,
+	## Fool's gold (the owner's pick, November 10, 2026, round 2): a polished brassy nugget,
+	## softly dented, its reflections bending over the dents.
+	"fools_gold": GemCut.NUGGET,
+	## Granite (round 3): charcoal grey, rough-hewn grains, mica glinting when tipped to a lamp.
+	"granite": GemCut.GRANITE,
+	## Blood (the owner's pick, November 10, 2026): opaque wet oxblood, marbled with darker
+	## veins under a glossy coat, more solid than the see-through gems. It bleeds (`bleeds`):
+	## blood runs to its owner's health when it is thrown again, and a kill's blood runs into it.
+	"blood": GemCut.OXBLOOD}
 
 ## A creature's action die carries one move a face instead of a number: each face is colored
 ## by what kind of move it is and engraved with the move's mark (face_marks.gd), ivory on
@@ -43,7 +84,11 @@ const MOVE_TINTS := {"attack": Color("d72d47"), "guard": Color("2c6ae8"), "meddl
 	"mend": Color("3fb57a"), "ready": Color("f1bb25"), "dud": Color("4d5363")}
 const MARK_INK := Color("f5e9c8")
 const DUD_INK := Color("9aa3b8")
-const MARKED_LOOK := {"alpha": 1.0, "roughness": 0.3, "metallic": 0.45, "glow": 0.0}
+## The pastels an opal's faces flash (`play` in its look).
+## How hot the close lamp's highlight is, before a material's own `shine`.
+const SHINE_SPECULAR: float = 6.0
+const PLAY_OF_COLOR: Array = [Color("ff9fcf"), Color("8ff0c4"), Color("8fc8ff"), Color("ffe08a"), Color("c7a6ff")]
+const MARKED_LOOK := {"alpha": 1.0, "roughness": 0.3, "metallic": 0.45, "glow": 0.0, "glint": 0.0}
 ## The engraving's shadow: half-dark, a hair down and right of the mark, just under it.
 const MARK_SHADOW := Color(0.0, 0.0, 0.0, 0.5)
 
@@ -77,6 +122,14 @@ var highlighted := false
 var accent := Color("e8b661")
 
 var _viewport: SubViewport
+var _environment: Environment
+var _shine: OmniLight3D
+## A clear die's inside: its far faces, seen through its near ones (`clear` in its look).
+var _inner: MeshInstance3D
+var _key: DirectionalLight3D
+## The solid's own materials, put back when a cut look (gem_cut.gd) is taken off.
+var _body_standard: StandardMaterial3D
+var _inner_standard: StandardMaterial3D
 var _pivot: Node3D
 var _body: MeshInstance3D
 var _shell: MeshInstance3D
@@ -111,6 +164,18 @@ var _running := -1
 
 ## The total so far, each time the die lands: the first face, then each extra added on.
 signal chain_stepped(total: int)
+
+## A die that bleeds (blood, `bleeds` in its look) plays blood_fx.gd's effects: "stream" when
+## it is thrown again (`blood_reroll`), "thread" when it feeds on a kill (`blood_fed`). `_fx` is
+## the one playing, `_fx_time` how long since it began, `_fx_seed` its seed and `_fx_point`
+## its far end (the health ring, the creature) on the canvas. `_fx_layer` draws it: top level,
+## so the dock does not clip it, made when an effect starts and freed when it ends.
+var _bleeds := false
+var _fx := ""
+var _fx_time := 0.0
+var _fx_seed := 0
+var _fx_point := Vector2.ZERO
+var _fx_layer: Control
 
 ## A die a gem counts hops where it stands and twists, a ring of light going out from it.
 const POP_SECONDS := 0.42
@@ -166,6 +231,9 @@ func _ready() -> void:
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color("4d5f7d")
 	environment.ambient_light_energy = 1.15
+	## Nothing is drawn behind the die, but its polished faces mirror a studio (`studio()`):
+	## a few hard-edged softboxes in the dark, so metal and gem catch crisp highlights.
+	_environment = environment
 	camera.environment = environment
 	_viewport.add_child(camera)
 	var key_light := DirectionalLight3D.new()
@@ -173,11 +241,23 @@ func _ready() -> void:
 	key_light.light_color = Color("fff2d8")
 	key_light.rotation_degrees = Vector3(-38, -34, 0)
 	_viewport.add_child(key_light)
+	_key = key_light
 	var fill_light := DirectionalLight3D.new()
 	fill_light.light_energy = 0.55
 	fill_light.light_color = Color("7fa8ff")
 	fill_light.rotation_degrees = Vector3(24, 148, 0)
 	_viewport.add_child(fill_light)
+	## A lamp close in, up and to the left: under the flat camera a face lit only from far
+	## away is one flat shade, and this puts a hot spot towards a corner of the face turned to
+	## the reader, the glint that says "polished". Specular mostly; it barely lights the body.
+	_shine = OmniLight3D.new()
+	_shine.position = Vector3(-0.3, 0.34, 1.35)
+	_shine.omni_range = 4.0
+	_shine.omni_attenuation = 1.4
+	_shine.light_energy = 0.35
+	_shine.light_specular = SHINE_SPECULAR
+	_shine.light_color = Color("fff6e6")
+	_viewport.add_child(_shine)
 	_pivot = Node3D.new()
 	_viewport.add_child(_pivot)
 	_shell = MeshInstance3D.new()
@@ -197,7 +277,25 @@ func _ready() -> void:
 	body_material.rim_enabled = true
 	body_material.rim = 0.5
 	_body.material_override = body_material
+	_body_standard = body_material
 	_pivot.add_child(_body)
+	_inner = MeshInstance3D.new()
+	var inner_material := StandardMaterial3D.new()
+	inner_material.rim_enabled = true
+	inner_material.rim = 1.0
+	inner_material.metallic_specular = 0.9
+	inner_material.rim_tint = 0.8
+	inner_material.roughness = 0.2
+	inner_material.cull_mode = BaseMaterial3D.CULL_FRONT
+	inner_material.vertex_color_use_as_albedo = true
+	inner_material.vertex_color_is_srgb = true
+	inner_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	inner_material.blend_mode = BaseMaterial3D.BLEND_MODE_PREMULT_ALPHA
+	inner_material.render_priority = -1
+	_inner.material_override = inner_material
+	_inner_standard = inner_material
+	_inner.visible = false
+	_pivot.add_child(_inner)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_VISIBILITY_CHANGED:
@@ -424,21 +522,301 @@ func set_highlight(on: bool) -> void:
 func _wear_material(palette: Dictionary) -> void:
 	## What the die is made of, on the solid itself: glass goes see-through, crystal lights up
 	## from inside, iron reads as metal, granite as stone. color is already the material.
+	if _body_standard != null:
+		_body.material_override = _body_standard
+	if _inner_standard != null and _inner != null:
+		_inner.material_override = _inner_standard
 	var body_material: StandardMaterial3D = _body.material_override as StandardMaterial3D
 	if body_material == null:
 		return
-	var look: Dictionary = MARKED_LOOK if _marked else MATERIAL_LOOKS.get(str(die.get("material", "")), PLAIN_LOOK)
-	body_material.vertex_color_is_srgb = _marked
+	var worn: Dictionary = look_of(str(die.get("material", "")))
+	var look: Dictionary = MARKED_LOOK if _marked else (worn if not worn.is_empty() else PLAIN_LOOK)
+	## A plain die keeps the soft pastel it has always had (its colors read as linear); a die
+	## made of something wears its material's true color.
+	body_material.vertex_color_is_srgb = _marked or not worn.is_empty()
+	body_material.metallic_specular = float(look.get("spec", 0.6))
+	var streaked: bool = bool(look.get("streaks", false))
+	body_material.roughness_texture = streak_texture() if streaked else null
+	body_material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	var aniso: float = float(look.get("aniso", 0.0))
+	body_material.anisotropy_enabled = aniso > 0.001
+	body_material.anisotropy = aniso
 	var alpha: float = float(look.get("alpha", 1.0))
 	body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if alpha < 0.999 else BaseMaterial3D.TRANSPARENCY_DISABLED
-	body_material.albedo_color = Color(1.0, 1.0, 1.0, alpha)
+	## A clear die (glass, crystal, diamond) is seen into: its near faces are a thin tint whose
+	## highlights keep their full strength (premultiplied), and through them its far faces
+	## show, lit, over the dark of its own shell, the way a clear die looks on a dark cloth.
+	## (It does not show the page behind it: each die is drawn in a picture of its own and
+	## laid over the page after, and a see-through picture only greys what is under it.)
+	var clear: bool = bool(look.get("clear", false))
+	body_material.blend_mode = BaseMaterial3D.BLEND_MODE_PREMULT_ALPHA if clear else BaseMaterial3D.BLEND_MODE_MIX
+	if _inner != null:
+		_inner.visible = clear
+		## The far faces glow faintly in the die's own tint, brighter towards their edges
+		## where light is trapped inside it.
+		var depth: float = float(look.get("inner", 0.3))
+		var tint: Color = Color(str(look.get("tint", "ffffff")))
+		var inside: StandardMaterial3D = _inner.material_override as StandardMaterial3D
+		inside.albedo_color = Color(tint.r * depth, tint.g * depth, tint.b * depth, depth)
+		var inner_glow: float = float(look.get("inner_glow", 0.0))
+		inside.emission_enabled = inner_glow > 0.001
+		inside.emission = palette.body
+		inside.emission_energy_multiplier = inner_glow
+	## A clear die is premultiplied: its own color is weighed by how much of it there is, and
+	## its highlights, added after, are not.
+	body_material.albedo_color = Color(alpha, alpha, alpha, alpha) if clear else Color(1.0, 1.0, 1.0, alpha)
 	body_material.roughness = float(look.get("roughness", 0.42))
 	body_material.metallic = float(look.get("metallic", 0.22))
 	var glow: float = float(look.get("glow", 0.0))
 	body_material.emission_enabled = glow > 0.001
 	body_material.emission = palette.body
-	body_material.emission_energy_multiplier = glow
+	body_material.emission_energy_multiplier = glow * (alpha if clear else 1.0)
+	var coat: float = float(look.get("coat", 0.0))
+	body_material.clearcoat_enabled = coat > 0.001
+	body_material.clearcoat = coat
+	body_material.clearcoat_roughness = float(look.get("coat_rough", 0.1))
+	body_material.rim = float(look.get("rim", 0.5))
+	body_material.rim_tint = float(look.get("rim_tint", 0.5))
+	var grain: String = str(look.get("grain", ""))
+	body_material.normal_enabled = not grain.is_empty()
+	body_material.normal_texture = grain_texture(grain) if not grain.is_empty() else null
+	body_material.normal_scale = float(look.get("grain_depth", 1.0))
+	var fleck: bool = bool(look.get("fleck", false))
+	body_material.albedo_texture = fleck_texture() if fleck else null
+	body_material.uv1_scale = Vector3.ONE * float(look.get("grain_scale", 1.0))
+	var glint: float = float(look.get("glint", 1.0))
+	if _environment != null:
+		## A plain die mirrors nothing but the dark around it, as it always has.
+		_environment.sky = studio(glint) if glint > 0.001 else null
+		_environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY if glint > 0.001 else Environment.REFLECTION_SOURCE_BG
+	if _shine != null:
+		_shine.visible = glint > 0.001
+		_shine.light_specular = SHINE_SPECULAR * float(look.get("shine", 1.0))
+	if _key != null:
+		## Under the flat camera a mirror face square to the key light goes white all over;
+		## a glossy die takes its sun's highlight softer so a side face's number still reads.
+		_key.light_specular = float(look.get("key_spec", 0.5))
+	if look.has("cut") and not _marked:
+		## A cut look draws the die with its own shaders in place of the two above.
+		GemCut.dress(look, str(die.get("material", "")), _body, _inner)
 	_touch()
+
+# --- the studio a die mirrors, and the grooves cut into some ---------------------------------
+
+## One studio for each strength of reflection and one set of grooves for every die in the
+## game: a sky's reflections are worked out once, the first time a die wearing it is drawn,
+## and shared from then on. The strength is the sky's own, not the environment's: the engine
+## bakes whichever environment first draws a sky into its reflections, so a die that turned
+## the environment's energy down would turn every die's reflection down with it.
+static var _studios: Dictionary = {}
+static var _studio_image: Texture2D = null
+static var _grains: Dictionary = {}
+
+static func studio(strength: float = 1.0) -> Sky:
+	## A dark room lit by softboxes, as a small HDR panorama: a broad warm box up and to the
+	## left where the key light stands, a cool strip to the right, a bar overhead and a dim
+	## floor. Hard edges on purpose: a polished face shows a clean window of light, which is
+	## what reads as shine at tray size.
+	var key: int = roundi(strength * 100.0)
+	if _studios.has(key):
+		return _studios[key]
+	if _studio_image == null:
+		_studio_image = _studio_panorama()
+	var panorama := PanoramaSkyMaterial.new()
+	panorama.panorama = _studio_image
+	panorama.filter = true
+	panorama.energy_multiplier = strength
+	var sky := Sky.new()
+	sky.sky_material = panorama
+	sky.radiance_size = Sky.RADIANCE_SIZE_128
+	sky.process_mode = Sky.PROCESS_MODE_QUALITY
+	_studios[key] = sky
+	return sky
+
+static func _studio_panorama() -> Texture2D:
+	var width: int = 256
+	var height: int = 128
+	var image := Image.create_empty(width, height, false, Image.FORMAT_RGBH)
+	for y in range(height):
+		var v: float = float(y) / float(height - 1)
+		## Overhead a little lighter than the floor, both nearly black.
+		var base: Color = Color(0.05, 0.06, 0.085).lerp(Color(0.012, 0.012, 0.016), v)
+		for x in range(width):
+			## Behind the reader (u 0 and 1) a broad warm wall, bright up and to the left and
+			## falling away down and to the right: what a face turned towards the camera
+			## mirrors, so a metal face, and every tipped crystal face in it, reads as a
+			## shade of bright metal rather than going black.
+			var u: float = float(x) / float(width)
+			var off: float = minf(u, 1.0 - u)
+			var wall: float = clampf(1.0 - off / 0.3, 0.0, 1.0) * clampf(1.0 - absf(v - 0.5) / 0.32, 0.0, 1.0)
+			if wall > 0.0:
+				var side: float = (u if u < 0.5 else u - 1.0) / 0.3
+				var lean: float = clampf(0.62 - 0.38 * side - 0.55 * (v - 0.5), 0.15, 1.2)
+				base = base.lerp(Color(1.05, 0.95, 0.8) * lean * 0.5, smoothstep(0.0, 0.35, wall))
+			image.set_pixel(x, y, base)
+	## [centre u, centre v, half width, half height, color]: u runs round the horizon, v down.
+	var boxes: Array = [
+		[0.96, 0.36, 0.014, 0.03, Color(4.0, 3.7, 3.2)],
+		[0.1, 0.55, 0.012, 0.12, Color(2.2, 2.6, 3.2)],
+		[0.62, 0.3, 0.07, 0.11, Color(5.0, 4.6, 4.0)],
+		[0.88, 0.38, 0.025, 0.2, Color(2.2, 2.8, 3.6)],
+		[0.5, 0.06, 0.5, 0.035, Color(0.7, 0.7, 0.75)],
+		[0.3, 0.42, 0.05, 0.08, Color(1.9, 1.8, 1.6)],
+		[0.08, 0.36, 0.03, 0.14, Color(1.8, 2.2, 3.0)],
+		[0.5, 0.72, 0.5, 0.05, Color(0.35, 0.3, 0.26)]]
+	for box in boxes:
+		var x0: int = int((float(box[0]) - float(box[2])) * width)
+		var x1: int = int((float(box[0]) + float(box[2])) * width)
+		var y0: int = clampi(int((float(box[1]) - float(box[3])) * height), 0, height - 1)
+		var y1: int = clampi(int((float(box[1]) + float(box[3])) * height), 0, height - 1)
+		for y in range(y0, y1 + 1):
+			for x in range(x0, x1 + 1):
+				image.set_pixel(posmod(x, width), y, box[4])
+	return ImageTexture.create_from_image(image)
+
+static var _fleck: Texture2D = null
+
+static func fleck_texture() -> Texture2D:
+	## Granite's grain: the body's color broken up by dark and pale flecks of feldspar and
+	## mica, as a texture the face's own color is multiplied by.
+	if _fleck != null:
+		return _fleck
+	var size: int = 128
+	var image := Image.create_empty(size, size, false, Image.FORMAT_RGBA8)
+	image.fill(Color(1.0, 1.0, 1.0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	for i in range(900):
+		var at := Vector2i(rng.randi_range(0, size - 1), rng.randi_range(0, size - 1))
+		var dark: bool = rng.randf() < 0.6
+		var shade: float = rng.randf_range(0.35, 0.7)
+		var tone: Color = Color(shade, shade * 0.97, shade * 0.94) if dark else Color(1.0, 0.93, 0.86)
+		var reach: int = rng.randi_range(0, 2)
+		for dy in range(-reach, reach + 1):
+			for dx in range(-reach, reach + 1):
+				if dx * dx + dy * dy <= reach * reach + 1:
+					image.set_pixel(posmod(at.x + dx, size), posmod(at.y + dy, size), tone)
+	image.generate_mipmaps()
+	_fleck = ImageTexture.create_from_image(image)
+	return _fleck
+
+static func grain_texture(kind: String) -> Texture2D:
+	## A normal map cut into every face, made once and shared:
+	## "pyrite": a mosaic of crystal faces, each tipped its own way with sharp edges between
+	##   them and fine striations across it, half running one way and half the other, the way
+	##   a pyrite cube's faces are grooved. Every tipped face catches its own highlight.
+	## "brushed": steel drawn one way: fine streaks of uneven depth and length, and a few
+	##   stray scratches across them.
+	## "facets": a gem's inner facets, broad and shallow, under its smooth clear coat.
+	if _grains.has(kind):
+		return _grains[kind]
+	var size: int = 128
+	var slopes: PackedVector2Array = PackedVector2Array()
+	slopes.resize(size * size)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7171
+	match kind:
+		"pyrite", "facets":
+			var grid: int = 4 if kind == "pyrite" else 3
+			var tilt: float = 0.34 if kind == "pyrite" else 0.22
+			var cell: float = float(size) / float(grid)
+			var centres: Array = []
+			var tilts: Array = []
+			var across: Array = []
+			for gy in range(grid):
+				for gx in range(grid):
+					centres.append(Vector2((float(gx) + rng.randf_range(0.2, 0.8)) * cell, (float(gy) + rng.randf_range(0.2, 0.8)) * cell))
+					tilts.append(Vector2(rng.randf_range(-tilt, tilt), rng.randf_range(-tilt, tilt)))
+					across.append(rng.randf() < 0.5)
+			for y in range(size):
+				for x in range(size):
+					var best: int = 0
+					var near: float = 1e9
+					var gx0: int = int(float(x) / cell)
+					var gy0: int = int(float(y) / cell)
+					for oy in range(-1, 2):
+						for ox in range(-1, 2):
+							var cx: int = gx0 + ox
+							var cy: int = gy0 + oy
+							var index: int = posmod(cy, grid) * grid + posmod(cx, grid)
+							var at: Vector2 = centres[index] + Vector2(float(cx - posmod(cx, grid)), float(cy - posmod(cy, grid))) * cell
+							var d: float = at.distance_squared_to(Vector2(x, y))
+							if d < near:
+								near = d
+								best = index
+					var slope: Vector2 = tilts[best]
+					if kind == "pyrite":
+						## Striations three texels apart, a sharp up-and-down so each is a thin
+						## bright line beside a thin dark one.
+						var along: int = y if across[best] else x
+						var wave: float = 0.16 if posmod(along + best, 3) == 0 else -0.08
+						if across[best]:
+							slope.y += wave
+						else:
+							slope.x += wave
+					if kind == "pyrite":
+						## Calm where the number sits: a face's middle is the middle of the
+						## texture (its UVs centre there), so the crystal mosaic fades out under
+						## the numeral and stays sharp towards the corners.
+						var from_middle: float = Vector2(x, y).distance_to(Vector2(size, size) * 0.5) / float(size)
+						slope *= smoothstep(0.1, 0.24, from_middle)
+					slopes[y * size + x] = slope
+		"brushed":
+			var rows: Array = []
+			var h: float = 0.0
+			for y in range(size):
+				h = clampf(h * 0.4 + rng.randf_range(-1.0, 1.0), -1.5, 1.5)
+				rows.append(h)
+			for y in range(size):
+				var dy: float = (float(rows[posmod(y + 1, size)]) - float(rows[posmod(y - 1, size)])) * 0.11
+				## Streaks fade in and out along their length.
+				var phase: float = rng.randf() * TAU
+				var reach: float = rng.randf_range(0.6, 2.5)
+				for x in range(size):
+					var fade: float = 0.55 + 0.45 * sin(phase + TAU * reach * float(x) / float(size))
+					slopes[y * size + x] = Vector2(0.0, dy * fade)
+			for _scratch in range(16):
+				var from := Vector2(rng.randf_range(0, size), rng.randf_range(0, size))
+				var angle: float = rng.randf_range(-0.7, 0.7) + (PI * 0.5 if rng.randf() < 0.3 else 0.0)
+				var heading := Vector2.from_angle(angle)
+				var cut: Vector2 = heading.orthogonal() * 0.35
+				for step in range(rng.randi_range(14, 46)):
+					var at: Vector2 = from + heading * float(step)
+					var i: int = posmod(int(at.y), size) * size + posmod(int(at.x), size)
+					slopes[i] = cut
+	var bytes := PackedByteArray()
+	bytes.resize(size * size * 3)
+	for i in range(size * size):
+		var normal := Vector3(-slopes[i].x, -slopes[i].y, 1.0).normalized()
+		bytes[i * 3] = int(clampf(normal.x * 0.5 + 0.5, 0.0, 1.0) * 255.0)
+		bytes[i * 3 + 1] = int(clampf(normal.y * 0.5 + 0.5, 0.0, 1.0) * 255.0)
+		bytes[i * 3 + 2] = int(clampf(normal.z * 0.5 + 0.5, 0.0, 1.0) * 255.0)
+	var image := Image.create_from_data(size, size, false, Image.FORMAT_RGB8, bytes)
+	image.generate_mipmaps()
+	var texture := ImageTexture.create_from_image(image)
+	_grains[kind] = texture
+	return texture
+
+static func streak_texture() -> Texture2D:
+	## Brushed steel's roughness: streaks a little glossier and a little duller than the
+	## rest, so the drawn lines show in the light as well as in the relief.
+	if _grains.has("streaks"):
+		return _grains["streaks"]
+	var size: int = 128
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9393
+	var bytes := PackedByteArray()
+	bytes.resize(size * size)
+	for y in range(size):
+		var base: float = rng.randf_range(0.48, 0.66)
+		var phase: float = rng.randf() * TAU
+		for x in range(size):
+			bytes[y * size + x] = int(clampf(base + 0.08 * sin(phase + TAU * 1.5 * float(x) / float(size)), 0.0, 1.0) * 255.0)
+	var image := Image.create_from_data(size, size, false, Image.FORMAT_L8, bytes)
+	image.generate_mipmaps()
+	var texture := ImageTexture.create_from_image(image)
+	_grains["streaks"] = texture
+	return texture
 
 func _face_values() -> String:
 	## Every face's number and its etching: a face etched where it stands (a carver's needle,
@@ -488,8 +866,19 @@ func _rebuild() -> void:
 	var built := Geometry.solid(shape)
 	_frames = built.frames
 	var palette := _palette()
+	## A look may paint the solid a shade of its own (the icon keeps the palette's).
+	var worn: Dictionary = look_of(str(die.get("material", "")))
+	var own_body: String = str(worn.get("body", ""))
+	if own_body.is_valid_html_color():
+		palette = {"body": Color(own_body), "edge": palette.edge}
+	var own_edge: String = str(worn.get("edge", ""))
+	if own_edge.is_valid_html_color():
+		palette = {"body": palette.body, "edge": Color(own_edge)}
+	var play: Array = PLAY_OF_COLOR if bool(worn.get("play", false)) else []
 	var faces: Array = die.get("faces", [])
 	_marked = is_marked(die)
+	## Whether it bleeds is the die's, not the renderer's: a headless fight keeps it too.
+	_bleeds = bool(worn.get("bleeds", false)) and not _marked
 	var colors := PackedColorArray()
 	for index in range(_frames.size()):
 		if _marked:
@@ -498,6 +887,9 @@ func _rebuild() -> void:
 		var value := _value_at(index)
 		var shade: float = 0.06 * float(index % 3) - 0.05
 		var tone: Color = palette.body.lightened(maxf(shade, 0.0)) if shade >= 0.0 else palette.body.darkened(-shade)
+		if not play.is_empty():
+			## An opal's play of color: each face flashes a different pastel.
+			tone = tone.lerp(play[(index * 3 + index / 4) % play.size()], 0.34)
 		if faces.size() > 0 and value != _nominal(index):
 			tone = tone.lerp(Color("ffd166"), 0.35)
 		var kind: String = _kind_at(index)
@@ -511,8 +903,11 @@ func _rebuild() -> void:
 		return
 	_wear_material(palette)
 	var mesh := Geometry.mesh(shape, colors)
-	_body.mesh = mesh
 	_shell.mesh = mesh
+	## A cut look is drawn on the same solid fanned out from each face's middle.
+	var cut_mesh: ArrayMesh = GemCut.mesh(shape, colors) if worn.has("cut") and not _marked else mesh
+	_body.mesh = cut_mesh
+	_inner.mesh = cut_mesh
 	for label in _labels:
 		if is_instance_valid(label):
 			label.queue_free()
@@ -525,6 +920,14 @@ func _rebuild() -> void:
 		_engrave(faces)
 		return
 	var numeral: Color = Color("15181f") if palette.body.get_luminance() > 0.45 else Color("f4f7fb")
+	## A clear die's numbers are white, ringed dark, whatever shows behind them; a busy face
+	## (pyrite) has its numbers cut heavier.
+	var look: Dictionary = worn
+	var ink: String = str(look.get("ink", ""))
+	## `ring`: an opaque look (a blood under review) writes its numbers as a clear die does.
+	var ringed: bool = bool(look.get("clear", false)) or bool(look.get("ring", false))
+	if ringed:
+		numeral = Color("f8fbff")
 	for index in range(_frames.size()):
 		var frame: Dictionary = _frames[index]
 		var label := Label3D.new()
@@ -532,6 +935,17 @@ func _rebuild() -> void:
 		label.font_size = 96
 		label.outline_size = 0
 		label.modulate = numeral
+		if ringed:
+			label.outline_size = int(look.get("ring_size", 14))
+			label.outline_modulate = Color(0.03, 0.05, 0.09, 0.9)
+			## The ring is drawn after the see-through skin, then the numeral over it: by
+			## default a Label3D's outline goes down first (-1) and a milky skin (an opal)
+			## covered it, leaving white numbers on white.
+			label.outline_render_priority = 1
+			label.render_priority = 2
+		elif ink == "bold":
+			label.outline_size = 9
+			label.outline_modulate = numeral
 		label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 		label.double_sided = false
 		label.shaded = false
@@ -578,7 +992,8 @@ func _fit_label(label: Label3D, frame: Dictionary) -> void:
 	## Sized to its face for however many characters it shows.
 	var digits := maxi(1, label.text.length())
 	var span := 0.58 * float(digits) + 0.42
-	label.pixel_size = float(frame.inradius) * 1.5 / (96.0 * span)
+	var grow: float = (D20_NUMERAL_PHONE if DeepUi.phone else D20_NUMERAL) if _shape() == "D20" else 1.0
+	label.pixel_size = float(frame.inradius) * 1.5 / (96.0 * span) * grow
 
 func _relabel(index: int, text: String) -> void:
 	## One face's text changed after the solid was built (a mirror copying a new number).
@@ -640,6 +1055,17 @@ func _start_spin() -> void:
 
 func _process(delta: float) -> void:
 	_clock += delta
+	if _fx_layer != null:
+		## A blood effect plays out on its own layer, on the fight's clock (hurrying the turn
+		## hurries it), and the layer goes when it is done.
+		_fx_time += delta
+		if not BloodFx.active(_fx, _fx_time):
+			_end_fx()
+		else:
+			_fx_layer.queue_redraw()
+			if is_instance_valid(_body) and _body.mesh != null:
+				_body.set_instance_shader_parameter("pulse", BloodFx.pulse(_fx, _fx_time))
+				_touch()
 	if not is_instance_valid(_pivot):
 		return
 	if interactive:
@@ -715,6 +1141,49 @@ func _throw_again(delta: float) -> void:
 	_face_index = _chain_face
 	_target = _rest(_face_index)
 	_start_spin()
+
+func blood_reroll(target: Vector2) -> void:
+	## This die bleeds and was thrown again, its owner paying for it in health: blood runs from
+	## it to `target` (their health ring, on the canvas). Only a die on screen plays it.
+	if _bleeds and is_visible_in_tree():
+		_play_fx("stream", target)
+
+func blood_fed(source: Vector2) -> void:
+	## Something died and this die fed on it (its face climbs): a thread of blood runs from
+	## `source` (where the creature fell, on the canvas) into it. Only a die on screen plays it.
+	if _bleeds and is_visible_in_tree():
+		_play_fx("thread", source)
+
+func bleeding() -> bool:
+	## Whether a blood effect is playing (its layer is up).
+	return _fx_layer != null
+
+func _play_fx(kind: String, point: Vector2) -> void:
+	## A second effect while one plays takes its place on the same layer.
+	_fx = kind
+	_fx_time = 0.0
+	_fx_seed = randi()
+	_fx_point = point
+	if _fx_layer == null:
+		_fx_layer = Control.new()
+		_fx_layer.top_level = true
+		_fx_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_fx_layer.z_index = 2
+		_fx_layer.draw.connect(func() -> void:
+			if BloodFx.active(_fx, _fx_time):
+				BloodFx.draw_travel(_fx_layer, _fx, _fx_time, _fx_seed, get_global_rect(), _fx_point))
+		add_child(_fx_layer)
+	_fx_layer.position = Vector2.ZERO
+	_fx_layer.size = get_viewport_rect().size
+
+func _end_fx() -> void:
+	_fx = ""
+	if _fx_layer != null:
+		_fx_layer.queue_free()
+		_fx_layer = null
+	if is_instance_valid(_body) and _body.mesh != null:
+		_body.set_instance_shader_parameter("pulse", 0.0)
+		_touch()
 
 func _draw_glow(target: Control) -> void:
 	var centre := target.size * 0.5

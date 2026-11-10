@@ -79,6 +79,8 @@ var _compare_return_page: Control
 var _reveal_tweens: Array = []
 ## Dismissed and fading out: it takes no more input.
 var _closing: bool = false
+## Its buttons are a choice the game waits on: nothing but one of them puts it away.
+var _holds_choice: bool = false
 
 # --- opening -------------------------------------------------------------------------------
 
@@ -199,8 +201,19 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	_dim.color = Color(0.0, 0.0, 0.01, 0.74)
 	_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	## A sheet whose buttons are a choice the game waits on (a conquered mine's two ways out)
+	## stays up until one is taken: a tap beside it is not an answer (November 10, 2026).
+	_holds_choice = not fanfare.get("actions", []).is_empty()
 	_dim.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed:
+			## The grade's count or the comparison stands over the page: a tap outside puts that
+			## away first, then the sheet.
+			if _close_overlay():
+				return
+			if _holds_choice:
+				if not DeepUi.headless():
+					DeepUi.shake(_panel, 4.0, 0.2)
+				return
 			_dismiss())
 	root.add_child(_dim)
 	if not fanfare.is_empty():
@@ -216,8 +229,9 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 		_title = DeepUi.title(column, str(fanfare.get("title", "")), 36 if DeepUi.phone else 44, tone.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
 		_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 		_title.add_theme_constant_override("outline_size", 10)
+		_cap_line(_title)
 		if not str(fanfare.get("subtitle", "")).is_empty():
-			DeepUi.label(column, str(fanfare.subtitle), 12 if DeepUi.phone else 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
+			_cap_line(DeepUi.label(column, str(fanfare.subtitle), 12 if DeepUi.phone else 16, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER))
 		## Whatever else a moment says under its name (a conquest's pills), drawn by the caller.
 		var header: Callable = fanfare.get("header", Callable())
 		if header.is_valid():
@@ -227,7 +241,9 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 	_panel.add_theme_stylebox_override("panel", style)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and _close_overlay():
+			return
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and not _holds_choice:
 			_dismiss())
 	column.add_child(_panel)
 	var sheet := DeepUi.vbox(_panel, 10)
@@ -306,7 +322,7 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 			if _close == null and not go.disabled:
 				_close = go
 		if not str(fanfare.get("footnote", "")).is_empty():
-			DeepUi.label(column, str(fanfare.footnote), 12 if DeepUi.phone else 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+			_cap_line(DeepUi.label(column, str(fanfare.footnote), 12 if DeepUi.phone else 14, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 	else:
 		_close = DeepUi.primary(foot, "check", str(fanfare.get("button", "Wonderful")), _dismiss, 14 if DeepUi.phone else 18, tone)
 		_close.custom_minimum_size.x = DeepUi.pt(150) if DeepUi.phone else 240.0
@@ -342,6 +358,15 @@ func _frame(tone: Color, fanfare: Dictionary) -> void:
 			glow.tween_method(func(t: float) -> void:
 				if is_instance_valid(_title):
 					_title.add_theme_color_override("font_color", DeepUi.TRANSCENDENT_TONE.lerp(DeepUi.rainbow_at(t, 0.6), 0.6)), 0.0, 1.0, 2.6)
+
+func _cap_line(line: Label) -> void:
+	## A won thing's line under its title wraps inside the screen instead of running past it
+	## (November 10, 2026: "<a long stone name>, already appraised and in your bag").
+	var most: float = minf(1100.0, line.get_viewport_rect().size.x - DeepUi.safe_left - DeepUi.safe_right - DeepUi.pt(40))
+	if line.get_combined_minimum_size().x > most:
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		line.custom_minimum_size.x = most
+		line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 
 func _phone_frame(root: Control, row: HBoxContainer, tone: Color) -> void:
 	## The phone's close look (board look): the sheet fills the screen inside its safe edges,
@@ -403,7 +428,11 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
+		if event.keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE] and _holds_choice:
+			## Enter or Space takes the first choice offered; Escape is not an answer.
+			if event.keycode != KEY_ESCAPE and _close != null and is_instance_valid(_close) and not _close.disabled:
+				_close.pressed.emit()
+		elif event.keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
 			if _reveal != null and _reveal.visible:
 				_close_reveal()
 			elif _compare_view != null and _compare_view.visible:
@@ -452,6 +481,45 @@ func _draw_tabs() -> void:
 		var name: String = str(page.name)
 		DeepUi.tab_button(_tabs, str(page.glyph), name, page.box.visible, func() -> void: show_page(name), 13)
 
+func _tag_row(parent: Node, gap: int = 8) -> HFlowContainer:
+	## A row of pills under a name that wraps onto a second line instead of widening the sheet past
+	## its column, or past the phone's screen (November 10, 2026: "You have a Strike at home" ran
+	## off the right edge). A pill longer than the column wraps its own words (`_cap_pills`).
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", gap)
+	row.add_theme_constant_override("v_separation", int(DeepUi.pt(3)) if DeepUi.phone else 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(row)
+	## Measured once laid out: the column's width is the sheet's, not its pills'.
+	row.ready.connect(func() -> void:
+		row.get_tree().process_frame.connect(func() -> void:
+			if is_instance_valid(row):
+				_cap_pills(row), CONNECT_ONE_SHOT), CONNECT_ONE_SHOT)
+	return row
+
+func _close_room() -> float:
+	## The phone close look's way out stands beside the name and its pills.
+	return _close.size.x + DeepUi.pt(6) if DeepUi.phone and _close != null and is_instance_valid(_close) and _close.get_parent() == _head.get_parent() else 0.0
+
+func _cap_pills(row: Control) -> void:
+	## Any pill wider than the room its row has wraps its words at that width.
+	if not row.is_inside_tree():
+		return
+	## The words' column: 600 on the desk; on the phone what the screen leaves beside the picture.
+	var most: float = 600.0
+	if DeepUi.phone:
+		most = row.get_viewport_rect().size.x - DeepUi.safe_left - DeepUi.safe_right - DeepUi.pt(250 + 12 + 16 + 8) - _close_room()
+	if most < 120.0:
+		return
+	for pill in row.get_children():
+		if not pill is PanelContainer or (pill as Control).get_combined_minimum_size().x <= most:
+			continue
+		var value: Node = pill.find_child("Value", true, false)
+		if value is Label:
+			var spare: float = (pill as Control).get_combined_minimum_size().x - (value as Label).get_combined_minimum_size().x
+			(value as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			(value as Label).custom_minimum_size.x = maxf(60.0, most - spare)
+
 func _section(glyph: String, text: String, tone: Color = DeepUi.ACCENT) -> VBoxContainer:
 	var box := DeepUi.vbox(_details, 6)
 	DeepUi.section(box, glyph, text, tone, 13)
@@ -474,7 +542,7 @@ func _fill_member(unit: Dictionary, tone: Color) -> void:
 		frame.add_child(face)
 	var haul: Array = unit.get("haul", [])
 	DeepUi.title(_head, str(unit.get("name", "A delver")), 30, tone.lightened(0.3))
-	var tags := DeepUi.hbox(_head, 8)
+	var tags := _tag_row(_head)
 	if not character_key.is_empty():
 		DeepUi.pill(tags, "person", DeepContent.character_title(character_key), DeepUi.INFO, 13)
 	DeepUi.pill(tags, "heart", "%s / %s" % [DeepUi.number(int(unit.get("hp", 0))), DeepUi.number(int(unit.get("max_hp", 0)))], DeepUi.HP, 13, "Health")
@@ -595,7 +663,7 @@ func _fill_geode(shelf_geode: Dictionary, opts: Dictionary) -> void:
 	var odds: Dictionary = DeepEconomy.geode_odds(shelf_geode)
 	DeepUi.title(_head, Geode.geode_name(shelf_geode), 28, tone.lightened(0.2))
 	DeepUi.label(_head, Geode.geode_line(shelf_geode), 14, DeepUi.MUTED)
-	var tags := DeepUi.hbox(_head, 8)
+	var tags := _tag_row(_head)
 	var weekly: bool = bool(shelf_geode.get("weekly", false))
 	if bool(opts.get("sealed", false)):
 		DeepUi.pill(tags, "pick", "Found in the mine", tone, 13)
@@ -771,7 +839,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	if not appraised:
 		DeepUi.title(head, DeepStone.raw_name(item), 28, DeepUi.PAPER)
 		DeepUi.wrap(head, "Unappraised, and still half in its rock. Its color shows, and roughly how big it is; its skill, its exact weight, its cut and whatever is frozen inside it do not. A merchant will appraise it for pyrite, a landing will do one for free, or it can wait for the Appraise tab at home.", 14, DeepUi.MUTED)
-		var facts := DeepUi.hbox(head, 10)
+		var facts := _tag_row(head, 10)
 		var named: Dictionary = DeepStone.size_class(int(item.get("carat", 1)))
 		DeepUi.pill(facts, "carat", "%s: %s" % [str(named.name), str(named.range)], DeepUi.PAPER, 14)
 		DeepUi.pill(facts, "gem", "%s: %s" % [str(DeepContent.color(color_key).get("name", color_key)), str(DeepContent.color(color_key).get("domain", ""))], DeepUi.color(color_key), 14, "", DeepUi.is_rainbow(color_key))
@@ -784,7 +852,7 @@ func _fill_stone(item: Dictionary, opts: Dictionary) -> void:
 	var skill: Dictionary = DeepStone.skill_of(item)
 	DeepUi.title(head, str(skill.get("name", item.get("skill", ""))) if reference else DeepStone.name(item), 28,
 		DeepUi.color(color_key).lightened(0.25) if reference else tier)
-	var tags := DeepUi.hbox(head, 8)
+	var tags := _tag_row(head)
 	var rarity: String = str(skill.get("rarity", "COMMON"))
 	if not reference:
 		var grade_pill := DeepUi.pill(tags, "star", "%s · grade %d of 100" % [str(grade.name), int(grade.score)], tier, 13)
@@ -961,6 +1029,16 @@ func _open_compare(item: Dictionary, kept: Dictionary) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			_close_compare())
 
+func _close_overlay() -> bool:
+	## Puts away the grade's count or the comparison, if one is up, and says whether it did.
+	if _reveal != null and is_instance_valid(_reveal) and _reveal.visible:
+		_close_reveal()
+		return true
+	if _compare_view != null and is_instance_valid(_compare_view) and _compare_view.visible:
+		_close_compare()
+		return true
+	return false
+
 func _close_compare() -> void:
 	if _compare_view != null:
 		_compare_view.visible = false
@@ -1024,6 +1102,9 @@ func _effect_line(parent: Node, item: Dictionary, mods: Array, context: Dictiona
 		rtl.add_image(GemIcons.texture(glyph, GemIcons.baked_size(float(small) + 1.0)), small, small, tone)
 		rtl.pop_all()
 	parent.add_child(rtl)
+	## Held on the phone, a keyword (or a ×) says what it means, as the pointer does on a desk.
+	if DeepUi.phone or DisplayServer.is_touchscreen_available():
+		Tips.word_hold(rtl)
 
 func _inclusion_note(parent: Node, mod: Dictionary, text: String) -> void:
 	## What an inclusion is doing to a stat behind the scenes: its own mark and color, with
@@ -1272,7 +1353,7 @@ func _fill_birthstone(item: Dictionary) -> void:
 	var character: Dictionary = DeepContent.character(character_key)
 	var head := _head
 	DeepUi.title(head, str(item.get("name", "")), 28, tint.lightened(0.35))
-	var tags := DeepUi.hbox(head, 8)
+	var tags := _tag_row(head)
 	DeepUi.pill(tags, "crown", "%s's Birthstone" % str(character.get("name", character_key)), tint.lightened(0.3), 13)
 	DeepUi.pill(tags, "lock", "Always set, last in the rail", DeepUi.MUTED, 13)
 	DeepUi.wrap(head, str(item.get("text", "")), 14, DeepUi.MUTED)
@@ -1361,7 +1442,7 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 	var palette: Dictionary = DiceIcons.die_palette(item)
 	var head := _head
 	DeepUi.title(head, DeepDice.describe(item), 28, palette.body.lightened(0.2))
-	var tags := DeepUi.hbox(head, 8)
+	var tags := _tag_row(head)
 	var definition: Dictionary = DeepContent.die(str(item.get("key", "")))
 	var shape_word: String = str(item.get("shape", definition.get("shape", "D6"))).to_lower()
 	## The title already ends in the shape ("d8") unless a character named the die, so the pill
@@ -1426,7 +1507,7 @@ func _fill_die(item: Dictionary, opts: Dictionary) -> void:
 		if int(value) % 2 == 1:
 			odd += 1
 	var average: float = total / float(maxi(1, values.size()))
-	var facts := DeepUi.hbox(stats, 10)
+	var facts := _tag_row(stats, 10)
 	DeepUi.pill(facts, "sum", "average %.1f" % average, DeepUi.PAPER, 13)
 	DeepUi.pill(facts, "peak", "%d to %d" % [int(values.min()) if not values.is_empty() else 0, int(values.max()) if not values.is_empty() else 0], DeepUi.PAPER, 13)
 	DeepUi.pill(facts, "odd", "%d odd, %d even" % [odd, values.size() - odd], DeepUi.PAPER, 13)
@@ -1609,10 +1690,13 @@ static func _dice_words(keys: Array) -> String:
 	## A set of five dice said the short way: each kind once, by name, with how many of it.
 	## Florin comes down with five of one die, and five copies of the same key spelled out
 	## would take the pill clean across the page.
+	## A die is written down as a shape ("D6") or as an object with what it was born with (Rue's
+	## Phial, Florin's Gambler's dice): each is said the way the delver's page says it, never
+	## as the object's own text.
 	var order: Array = []
 	var counts: Dictionary = {}
-	for key in keys:
-		var name: String = str(DeepContent.die(str(key)).get("name", key))
+	for index in range(keys.size()):
+		var name: String = DeepDice.describe(DeepForge.die_from(keys[index], "said_%d" % index))
 		if not counts.has(name):
 			order.append(name)
 		counts[name] = int(counts.get(name, 0)) + 1
@@ -1728,7 +1812,7 @@ func _fill_lapidary(character_key: String, tone: Color) -> void:
 	reveals.append(blurb)
 	var page := _page("", "")
 	page.add_theme_constant_override("separation", 18)
-	var stats := DeepUi.hbox(page, 14)
+	var stats := _tag_row(page, 14)
 	DeepUi.pill(stats, "heart", "%d health" % int(character.get("hp", 0)), DeepUi.HP, 14)
 	DeepUi.pill(stats, "gem", "%s" % DeepUi.plural(character.get("sockets", []).size(), "socket"), DeepUi.ACCENT, 14)
 	DeepUi.pill(stats, "die", _dice_words(character.get("dice", [])), DeepUi.INFO, 14)

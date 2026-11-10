@@ -167,6 +167,9 @@ static func map(stage: Control, view: Dictionary) -> void:
 				DeepUi.icon(line, "lock_open", 17, tone.lightened(0.2), "Open").size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			else:
 				DeepUi.icon(line, "lock", 16, DeepUi.DIM, "Sealed").size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	## The stage is a plain Control and does not grow with what is in it: a long name beside its
+	## pill ("III · The Glass Veins" and "Just opened") ran past it into the page beside it.
+	stage.custom_minimum_size.x = maxf(stage.custom_minimum_size.x, rows.get_combined_minimum_size().x)
 	if here_row == null:
 		return
 	var wire := Wire.new(rows, top, here_row, next_row)

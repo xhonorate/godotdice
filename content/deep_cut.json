@@ -595,7 +595,7 @@
       "color": "RED",
       "rarity": "RARE",
       "tags": ["at_least"],
-      "text": "Deal damage equal to your highest qualifying roll.",
+      "text": "Deal damage equal to your highest roll.",
       "trigger": {
         "kind": "at_least",
         "ladder": [20, 18, 16, 14, 12]
@@ -609,7 +609,7 @@
         }
       ],
       "flawless": {
-        "text": "Double damage if that roll is a crown: its die's own top face.",
+        "text": "Double damage if that roll is a crown.",
         "when": {
           "term": "high_crown"
         },
@@ -779,7 +779,7 @@
         }
       ],
       "flawless": {
-        "text": "It repeats for every pair in your hand: two pair counts twice, and so does four or five of a kind.",
+        "text": "Repeat for every unique pair in your hand.",
         "when": {
           "op": "ge",
           "args": [
@@ -804,7 +804,7 @@
       "color": "RED",
       "rarity": "RARE",
       "tags": ["high", "strength"],
-      "text": "Gain 1 Strength: every hit you deal does 1 more for the rest of the fight.",
+      "text": "Gain 1 Strength.",
       "trigger": {
         "kind": "at_least",
         "ladder": [20, 18, 16, 14, 12]
@@ -950,7 +950,7 @@
         }
       ],
       "flawless": {
-        "text": "It repeats for every pair in your hand: two pair counts twice, and so does four or five of a kind.",
+        "text": "Repeat for every unique pair in your hand.",
         "when": {
           "op": "ge",
           "args": [
@@ -1606,7 +1606,7 @@
         }
       ],
       "flawless": {
-        "text": "Then your lower pair takes your higher pair's number, for this hand.",
+        "text": "Then your lower pair changes to match your higher pair.",
         "effects": [
           {
             "kind": "graft_pairs",
@@ -1794,7 +1794,7 @@
         }
       ],
       "flawless": {
-        "text": "It also counts healing past full.",
+        "text": "This includes healing past full.",
         "modify": [
           {
             "effect": 0,
@@ -1841,7 +1841,7 @@
         }
       ],
       "flawless": {
-        "text": "Healing past full lands on the target as Poison.",
+        "text": "Healing past full applies to the target as Poison.",
         "quiet": true,
         "modify": [
           {
@@ -2017,7 +2017,7 @@
         }
       ],
       "flawless": {
-        "text": "Then it loses 3 health for each different debuff on it.",
+        "text": "Target loses 3 health for each unique debuff on it.",
         "effects": [
           {
             "kind": "lose_hp",
@@ -2223,7 +2223,7 @@
         }
       ],
       "flawless": {
-        "text": "Each die it binds joins your next throw as a phantom of the same size.",
+        "text": "Each bound die is added as a phantom for your next throw.",
         "modify": [
           {
             "effect": 0,
@@ -2312,7 +2312,7 @@
         }
       ],
       "flawless": {
-        "text": "Its Marks are never spent: they stay on the target.",
+        "text": "Its Marks are not consumed when you deal damage.",
         "modify": [
           {
             "effect": 0,
@@ -2508,7 +2508,7 @@
         }
       ],
       "flawless": {
-        "text": "Your Spikes and reflected blows apply it too.",
+        "text": "Your Spikes and reflected blows apply poison as well.",
         "effects": [
           {
             "kind": "envenom_thorns",
@@ -2537,7 +2537,7 @@
         }
       ],
       "flawless": {
-        "text": "It lasts for the rest of the fight.",
+        "text": "This effect lasts for the rest of the fight.",
         "modify": [
           {
             "effect": 0,
@@ -2701,7 +2701,7 @@
         }
       ],
       "flawless": {
-        "text": "With twice the price in hand, it pays double and deals double.",
+        "text": "With twice the price in hand, pay double and deals double damage.",
         "when": {
           "op": "ge",
           "args": [
@@ -2938,7 +2938,7 @@
         }
       ],
       "flawless": {
-        "text": "If 5 or more gems stayed dark this turn, reroll your dice and restart the rail.",
+        "text": "If 5 or more gems fizzled this turn, reroll your dice and restart the rail.",
         "quiet": true,
         "effects": [
           {
@@ -2979,7 +2979,7 @@
         }
       ],
       "flawless": {
-        "text": "Its stones are rolled with an elite's luck.",
+        "text": "Dropped stones are rolled with an elite's luck.",
         "modify": [
           {
             "effect": 0,
@@ -3019,7 +3019,7 @@
         }
       ],
       "flawless": {
-        "text": "If you kept every die, it pays per 5 instead of per 10.",
+        "text": "If you kept every die, gain 1 Pyrite for every 5 you carry, instead.",
         "when": {
           "op": "ge",
           "args": [
@@ -3151,7 +3151,7 @@
         }
       ],
       "flawless": {
-        "text": "The phantom is a size bigger than your largest die, phantoms included.",
+        "text": "The phantom is a size bigger than your largest die, including phantoms.",
         "modify": [
           {
             "effect": 0,
@@ -3180,7 +3180,7 @@
         }
       ],
       "flawless": {
-        "text": "A neighbour already at Flawless gains 1 Carat instead.",
+        "text": "Neighbours already at Flawless gains 1 Carat instead.",
         "quiet": true,
         "modify": [
           {
@@ -3265,7 +3265,7 @@
         }
       ],
       "flawless": {
-        "text": "A neighbour already at Perfect gains 1 Carat instead.",
+        "text": "Neighbour already at Perfect gains 1 Carat instead.",
         "quiet": true,
         "modify": [
           {
@@ -3512,7 +3512,7 @@
         }
       ],
       "flawless": {
-        "text": "Count every gem that fired, not just every color.",
+        "text": "Counts every gem that fired, not just every color.",
         "modify": [
           {
             "effect": 0,
@@ -3671,7 +3671,7 @@
         }
       ],
       "flawless": {
-        "text": "Each replayed Violet gem also applies Poison equal to a third of your Resonance (at least 1).",
+        "text": "Each replayed Violet gem also applies Poison equal to a third of your Resonance.",
         "modify": [
           {
             "effect": 0,
@@ -3705,7 +3705,7 @@
         }
       ],
       "flawless": {
-        "text": "Each replayed Gold gem also pays Pyrite equal to half your Resonance (at least 1).",
+        "text": "Each replayed Gold gem also pays Pyrite equal to half your Resonance.",
         "modify": [
           {
             "effect": 0,
@@ -4156,7 +4156,7 @@
       "hue": "3a3550",
       "rarity": "TRANSCENDENT",
       "tags": ["opal", "resonance", "transcendent"],
-      "text": "At the start of each fight it absorbs a random gem from your bag, destroying it, and keeps its skill for the rest of the run. When it fires, every skill it has absorbed fires too.",
+      "text": "At the start of each fight it absorbs a random gem from your bag, destroying it, and gaining its skill for the rest of the run. When it fires, every skill it has absorbed fires too.",
       "trigger": {
         "kind": "resonance",
         "ladder": [5, 4, 3, 2, 1]
@@ -4634,7 +4634,7 @@
       "name": "Bruise",
       "class": "FRACTURE",
       "rarity": "UNCOMMON",
-      "text": "Half again the strength; you lose 2 HP when it fires.",
+      "text": "+50% strength, but lose 2 HP when it fires.",
       "modifiers": [
         {
           "kind": "magnitude",
@@ -4666,7 +4666,7 @@
       "class": "FRACTURE",
       "rarity": "RARE",
       "weight": 1.0,
-      "text": "Takes no socket: it rides one beside whatever is set there and fires right after it. Fragile: cannot be sold or kept in the vault; shatters when the run ends, or when revealed at home.",
+      "text": "Can be equipped without taking up a socket. Fragile: cannot be sold or kept in the vault; shatters when the run ends, or when revealed at home.",
       "modifiers": [
         {
           "kind": "slotless"
@@ -4895,19 +4895,19 @@
       "name": "Even",
       "key": "even",
       "rarity": "UNCOMMON",
-      "text": "Every face an even number, each one showing twice."
+      "text": "Every face is even."
     },
     "ODD": {
       "name": "Odd",
       "key": "odd",
       "rarity": "UNCOMMON",
-      "text": "Every face an odd number, each one showing twice."
+      "text": "Every face is odd."
     },
     "SPLIT": {
       "name": "Split",
       "key": "split",
       "rarity": "UNCOMMON",
-      "text": "The middle numbers are removed, leaving only the highest and lowest, repeated. Bigger dice repeat them more."
+      "text": "The middle numbers are removed, leaving only the highest and lowest."
     },
     "GAMBLERS": {
       "name": "Gambler's",
@@ -4919,19 +4919,19 @@
       "name": "Paired",
       "key": "paired",
       "rarity": "UNCOMMON",
-      "text": "Half as many numbers, each appearing twice. Which numbers are picked when the die is cut."
+      "text": "Half as many numbers, each appearing twice."
     },
     "STRETCHED": {
       "name": "Stretched",
       "key": "stretched",
       "rarity": "RARE",
-      "text": "Every face doubled, so the die tops out at twice its size."
+      "text": "Every face value doubled."
     },
     "SHALLOW": {
       "name": "Shallow",
       "key": "shallow",
       "rarity": "UNCOMMON",
-      "text": "All numbers are squeezed into the bottom half. It still counts as its full size, so every face is low."
+      "text": "All numbers are squeezed into the bottom half."
     }
   },
   "etchings": {
@@ -4945,13 +4945,13 @@
       "name": "Exploding",
       "key": "exploding",
       "rarity": "RARE",
-      "text": "Rolls again and adds, up to three times over."
+      "text": "Rolls again and adds the result, up to three times."
     },
     "SHINY": {
       "name": "Shiny",
       "key": "shiny",
       "rarity": "RARE",
-      "text": "One Resonance more for every gem it helps light."
+      "text": "One bonus Resonance for every gem it helps activate."
     },
     "GOLDEN": {
       "name": "Golden",
@@ -4975,19 +4975,19 @@
       "name": "Twin",
       "key": "twin",
       "rarity": "RARE",
-      "text": "Counts as two dice in every set."
+      "text": "Counts as two dice for gem activation."
     },
     "DOUBLED": {
       "name": "Doubled",
       "key": "doubled",
       "rarity": "RARE",
-      "text": "Counts as double its number everywhere."
+      "text": "Counts as double the shown number."
     },
     "LOCKED": {
       "name": "Locked",
       "key": "locked",
       "rarity": "UNCOMMON",
-      "text": "Once it shows, the die cannot be thrown again this fight.",
+      "text": "Once a locked face is rolled, the die cannot be thrown again this fight.",
       "bane": true
     },
     "BLANK": {
@@ -5006,7 +5006,7 @@
       "color": "RED",
       "hue": "e0473c",
       "edge": "6b1d18",
-      "text": "Half again as strong on every red gem it helps light."
+      "text": "+50% strength for every red gem it helps activate."
     },
     "SAPPHIRE": {
       "name": "Sapphire",
@@ -5015,7 +5015,7 @@
       "color": "BLUE",
       "hue": "3f7fe0",
       "edge": "1c3a6b",
-      "text": "Half again as strong on every blue gem it helps light."
+      "text": "+50% strength for every blue gem it helps activate."
     },
     "EMERALD": {
       "name": "Emerald",
@@ -5024,7 +5024,7 @@
       "color": "GREEN",
       "hue": "3fb56b",
       "edge": "1c5636",
-      "text": "Half again as strong on every green gem it helps light."
+      "text": "+50% strength for every green gem it helps activate."
     },
     "AMETHYST": {
       "name": "Amethyst",
@@ -5033,7 +5033,7 @@
       "color": "VIOLET",
       "hue": "8b5fd6",
       "edge": "402a6b",
-      "text": "Half again as strong on every violet gem it helps light."
+      "text": "+50% strength for every violet gem it helps activate."
     },
     "CITRINE": {
       "name": "Citrine",
@@ -5042,7 +5042,7 @@
       "color": "GOLD",
       "hue": "e2b23a",
       "edge": "6f5313",
-      "text": "Half again as strong on every gold gem it helps light."
+      "text": "+50% strength for every gold gem it helps activate."
     },
     "DIAMOND": {
       "name": "Diamond",
@@ -5051,7 +5051,7 @@
       "color": "WHITE",
       "hue": "e8eef5",
       "edge": "8e9bad",
-      "text": "Half again as strong on every white gem it helps light."
+      "text": "+50% strength for every white gem it helps activate."
     },
     "OPAL": {
       "name": "Opal",
@@ -5059,7 +5059,7 @@
       "rarity": "LEGENDARY",
       "hue": "eceaf6",
       "edge": "9a93c4",
-      "text": "Half again as strong on every gem it helps light, whatever color it is."
+      "text": "+50% strength for every gem it helps activate, regardless of color."
     },
     "GLASS": {
       "name": "Glass",
@@ -5067,7 +5067,7 @@
       "rarity": "RARE",
       "hue": "bfe6ef",
       "edge": "5b8c99",
-      "text": "Half again as strong on every gem it helps light. Each throw has a 10% chance to break it."
+      "text": "+50% strength for every gem it helps activate. Each throw has a 10% chance to break it."
     },
     "CRYSTAL": {
       "name": "Crystal",
@@ -5075,7 +5075,7 @@
       "rarity": "RARE",
       "hue": "ded0ff",
       "edge": "7a68b5",
-      "text": "+1 Resonance every time it's thrown, rerolls included."
+      "text": "+1 Resonance every time it's rolled."
     },
     "IRON": {
       "name": "Iron",
@@ -5478,7 +5478,7 @@
         "kind": "free_flip",
         "amount": 1,
         "name": "Sleight",
-        "text": "Once a turn, turn one die over. The face underneath is the other parity."
+        "text": "Once a turn, turn one die over to a face of the opposite parity."
       },
       "birthstone": {
         "name": "Motley",
@@ -5760,12 +5760,12 @@
     "RAW_STONE": {
       "name": "A Read Stone",
       "group": "stone",
-      "text": "An appraised stone from depth 4, ready to set.",
-      "deep_text": "An appraised stone from depth {depth}, ready to set.",
+      "text": "An appraised stone from deep in the mine.",
+      "deep_text": "An appraised stone from deep in the mine.",
       "effects": [
         {
           "kind": "raw_stone",
-          "depth": 4,
+          "depth": 10,
           "bonus": 0,
           "read": true
         }
@@ -5775,8 +5775,8 @@
       "name": "Pick of Three",
       "group": "stone",
       "needs": "pick",
-      "text": "Choose one of three raw stones from depth 4, each a different color. It's appraised right away and can go straight onto your rail if its skill isn't there already.",
-      "deep_text": "Choose one of three raw stones from depth {depth}, each a different color. It's appraised right away and can go straight onto your rail if its skill isn't there already.",
+      "text": "Choose one of three raw stones to appraise.",
+      "deep_text": "Choose one of three raw stones to appraise.",
       "effects": [
         {
           "kind": "pick_stone",
@@ -5903,8 +5903,8 @@
     "REWARD_ORE": {
       "name": "Well Staked",
       "group": "reward",
-      "text": "90 pyrite in hand.",
-      "deep_text": "{ore} pyrite in hand.",
+      "text": "Start with 90 extra pyrite.",
+      "deep_text": "Start with {ore} extra pyrite.",
       "effects": [
         {
           "kind": "ore",
@@ -6262,7 +6262,7 @@
           "anim": "spit",
           "text": "{0} Poison",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "poison", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 4 }]
         }
       ],
       "traits": { "split_on_big_hit": true }
@@ -6270,7 +6270,7 @@
     "CLOUDER": {
       "name": "Clouder",
       "hp": 20,
-      "block": 2,
+      "block": 3,
       "threat": 3,
       "text": "A heap of stony fog. Its Fog clouds a socket on your rail until someone hits it; Gather gives it a thick wall of block.",
       "tip": "Hit it to lift the fog off your rail.",
@@ -6306,7 +6306,7 @@
           "anim": "guard",
           "text": "{0} block",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "block", "target": "self", "amount": 12 }]
+          "effects": [{ "kind": "block", "target": "self", "amount": 15 }]
         }
       ]
     },
@@ -6405,7 +6405,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 6,
+              "amount": 7,
               "piercing": true
             }
           ]
@@ -6424,7 +6424,7 @@
     "QUARTZ_GOLEM": {
       "name": "Quartz Golem",
       "hp": 34,
-      "block": 6,
+      "block": 8,
       "threat": 4,
       "text": "A golem of stacked quartz. It fortifies behind block it keeps, and now and then throws a storm of shards.",
       "tip": "Its block stays: break it down or wait it out.",
@@ -6470,7 +6470,7 @@
           "text": "{0} block, kept into its next turn",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 10 },
+            { "kind": "block", "target": "self", "amount": 13 },
             {
               "kind": "retain",
               "target": "self",
@@ -6495,7 +6495,7 @@
     "GLASS_WYRM": {
       "name": "Glass Wyrm",
       "hp": 40,
-      "block": 4,
+      "block": 5,
       "threat": 5,
       "text": "A wyrm of glass coiled on the floor. It sharpens itself, breathes three hits of shattered glass, and holds up a mirror that sends half of every blow back at whoever threw it.",
       "tip": "Hold your big hits while its mirror is up.",
@@ -6569,7 +6569,7 @@
     "THE_FOREMAN": {
       "name": "The Foreman",
       "hp": 90,
-      "block": 8,
+      "block": 10,
       "threat": 20,
       "warden": true,
       "text": "Warden of the Quarry: a rock-crab in a miner's hard hat. Its pick die hits; its lamp die shores up, buries your sockets in rubble for the fight, takes a die, and reinforces a pick face into a triple Blast.",
@@ -6611,7 +6611,7 @@
           "text": "{0} block, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 12 },
+            { "kind": "block", "target": "self", "amount": 15 },
             {
               "kind": "retain",
               "target": "self",
@@ -6697,7 +6697,7 @@
     "THE_REGENT": {
       "name": "The Mirror Regent",
       "hp": 140,
-      "block": 10,
+      "block": 13,
       "threat": 30,
       "warden": true,
       "text": "Warden of the Quarry: a queen of cut glass. Hit it hard and its Reflection throws the damage back; its Mirror sends half of every blow back at the thrower; Mirror Image throws your best die back at you.",
@@ -6778,7 +6778,7 @@
     "THE_DRILL": {
       "name": "The Drill",
       "hp": 200,
-      "block": 12,
+      "block": 15,
       "threat": 40,
       "warden": true,
       "text": "The Quarry's final boss: a drilling machine of iron drums. Its treads roll your dice for you, grind your gems dull, rev an Overdrive onto its drill and call rail rats; its drill bores.",
@@ -6898,7 +6898,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 25,
+              "amount": 30,
               "piercing": true
             }
           ]
@@ -6996,7 +6996,7 @@
           "text": "{0} block, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 8 },
+            { "kind": "block", "target": "self", "amount": 10 },
             {
               "kind": "retain",
               "target": "self",
@@ -7115,7 +7115,7 @@
     "THE_LOCKKEEPER": {
       "name": "The Lock-Keeper",
       "hp": 110,
-      "block": 6,
+      "block": 8,
       "threat": 22,
       "warden": true,
       "text": "Warden of the Seeps: a sluice-snail with a valve wheel. Its wheel die locks your best die in the gate and turns the wheel, which etches another Sluice onto its gate die; Flood is its worst.",
@@ -7185,7 +7185,7 @@
           "text": "{0} block, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 12 },
+            { "kind": "block", "target": "self", "amount": 15 },
             {
               "kind": "retain",
               "target": "self",
@@ -7214,7 +7214,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 10,
+              "amount": 12,
               "piercing": true
             }
           ]
@@ -7227,7 +7227,7 @@
           "text": "{0} block, and anything that hits it is hit back for {1}",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 6 },
+            { "kind": "block", "target": "self", "amount": 8 },
             {
               "kind": "spikes",
               "target": "self",
@@ -7253,7 +7253,7 @@
     "THE_DROWNED_CHOIR": {
       "name": "The Drowned Choir",
       "hp": 150,
-      "block": 8,
+      "block": 10,
       "threat": 30,
       "warden": true,
       "text": "Warden of the Seeps: drowned heads singing out of a dark pool, a die each. Another Voice raises a new head, five at most; all three heads on Requiem is a chorus through block.",
@@ -7348,7 +7348,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 20,
+              "amount": 24,
               "piercing": true
             }
           ],
@@ -7360,7 +7360,7 @@
     "THE_UNDERTOW": {
       "name": "The Undertow",
       "hp": 240,
-      "block": 10,
+      "block": 13,
       "threat": 45,
       "warden": true,
       "text": "The Seeps' final boss: a serpent of cut boulders. Its jaws bite and drag the whole party under; its tail thrashes, dives and surfaces hard, and calls seep eels.",
@@ -7458,7 +7458,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 9,
+              "amount": 11,
               "piercing": true
             }
           ]
@@ -7655,7 +7655,7 @@
     "PRISM_GOLEM": {
       "name": "Prism Golem",
       "hp": 38,
-      "block": 6,
+      "block": 8,
       "threat": 4,
       "text": "A golem of violet glass. Where the Quartz Golem fortifies, it refracts: half of every blow on it goes back at the party.",
       "tip": "Hold your big hits while it refracts.",
@@ -7718,7 +7718,7 @@
     "REFRACTOR": {
       "name": "Refractor",
       "hp": 36,
-      "block": 2,
+      "block": 3,
       "threat": 4,
       "text": "A crystal lens that splits light into many small hits, sharpens itself, and refracts blows back at the party.",
       "tip": "It grows stronger every time it sharpens. Kill it early.",
@@ -7772,7 +7772,7 @@
     "SHARD_WYRM": {
       "name": "Shard Wyrm",
       "hp": 42,
-      "block": 4,
+      "block": 5,
       "threat": 5,
       "text": "A pink glass wyrm. Its breath is one great blow through block.",
       "tip": "Its breath ignores block.",
@@ -7816,7 +7816,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 12,
+              "amount": 14,
               "piercing": true
             }
           ]
@@ -7851,7 +7851,7 @@
     "THE_GLAZIER": {
       "name": "The Glazier",
       "hp": 130,
-      "block": 6,
+      "block": 8,
       "threat": 26,
       "warden": true,
       "text": "Warden of the Glass Veins: a glass scorpion with a diamond saw on its tail. Its claws pinch twice and anneal; its saw slices, eviscerates with ten small cuts, and cuts every face your dice show down by one for good.",
@@ -7906,7 +7906,7 @@
           "text": "{0} block, and anything that hits it is hit back for {1}",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 8 },
+            { "kind": "block", "target": "self", "amount": 10 },
             {
               "kind": "spikes",
               "target": "self",
@@ -7966,7 +7966,7 @@
     "THE_KALEIDOSCOPE": {
       "name": "The Kaleidoscope",
       "hp": 170,
-      "block": 8,
+      "block": 10,
       "threat": 34,
       "warden": true,
       "text": "Warden of the Glass Veins: a great eye of coloured glass, two dice. Drink drinks a colour for a turn and steals what those gems do; both dice on Drink and it drinks the party's favourite too.",
@@ -8057,7 +8057,7 @@
     "THE_PRISMARCH": {
       "name": "The Prismarch",
       "hp": 260,
-      "block": 12,
+      "block": 15,
       "threat": 50,
       "warden": true,
       "text": "The Glass Veins' final boss: a crowned colossus of crystal with prisms floating round it. While a prism floats it takes half damage. Its crown raises prisms, gathers light and grows brighter; its shards crush and lance.",
@@ -8154,7 +8154,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 10,
+              "amount": 12,
               "piercing": true
             }
           ]
@@ -8285,7 +8285,7 @@
           "anim": "spit",
           "text": "{0} Poison",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "poison", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 4 }]
         }
       ],
       "traits": { "split_on_big_hit": true, "acid_armour": 1 }
@@ -8386,7 +8386,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 6,
+              "amount": 7,
               "piercing": true
             }
           ]
@@ -8469,7 +8469,7 @@
     "ROOT_HORROR": {
       "name": "Root Horror",
       "hp": 40,
-      "block": 2,
+      "block": 3,
       "threat": 5,
       "text": "A walking stump of roots, two dice. It feeds and grows, and thickens its blows.",
       "tip": "It grows every time it feeds. Kill it early.",
@@ -8546,7 +8546,7 @@
     "THE_GARDENER": {
       "name": "The Gardener",
       "hp": 140,
-      "block": 6,
+      "block": 8,
       "threat": 28,
       "warden": true,
       "text": "Warden of the Warrens: a crab tilling a garden on its back. Its trowel tends and strengthens every creature, plants puffballs and prunes your dice; its shell rams, sows root horrors and grows thorns.",
@@ -8656,7 +8656,7 @@
           "text": "{0} block that hits back",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 8 },
+            { "kind": "block", "target": "self", "amount": 10 },
             {
               "kind": "spikes",
               "target": "self",
@@ -8669,8 +8669,8 @@
     },
     "THE_SPORE_MOTHER": {
       "name": "The Spore Mother",
-      "hp": 170,
-      "block": 8,
+      "hp": 155,
+      "block": 10,
       "threat": 34,
       "warden": true,
       "text": "Warden of the Warrens: a bloated toad crowded with spore sacs. She poisons, chokes your healing, and makes your poison bite again; Spore and Rot together bite once more.",
@@ -8722,7 +8722,7 @@
           "anim": "spit",
           "text": "{0} Poison",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "poison", "target": "heroes", "amount": 4 }]
+          "effects": [{ "kind": "poison", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Shed",
@@ -8797,8 +8797,8 @@
     },
     "THE_HEARTROT": {
       "name": "The Heartrot",
-      "hp": 280,
-      "block": 10,
+      "hp": 270,
+      "block": 13,
       "threat": 55,
       "warden": true,
       "text": "The Warrens' final boss: a rotting heart of gem rooted in the floor, with two tendrils. It rots and festers; a tendril that stands knits it back together.",
@@ -8943,7 +8943,7 @@
             {
               "kind": "burn",
               "target": "heroes",
-              "amount": 3,
+              "amount": 4,
               "per_reroll": true
             }
           ]
@@ -8998,7 +8998,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         }
       ]
     },
@@ -9023,7 +9023,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Hammer",
@@ -9077,7 +9077,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 5 }]
         }
       ]
     },
@@ -9106,7 +9106,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 3,
+              "amount": 4,
               "piercing": true
             }
           ]
@@ -9125,7 +9125,7 @@
     "EMBER_CRAWLER": {
       "name": "Ember Crawler",
       "hp": 34,
-      "block": 2,
+      "block": 3,
       "threat": 4,
       "text": "A centipede of embers. Its spit melts away your block.",
       "tip": "Its spit melts the block you raised.",
@@ -9161,7 +9161,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 3 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
         },
         {
           "name": "Spit",
@@ -9184,7 +9184,7 @@
     "THE_SMELTER": {
       "name": "The Smelter",
       "hp": 160,
-      "block": 8,
+      "block": 10,
       "threat": 32,
       "warden": true,
       "text": "Warden of the Furnace: a tortoise whose shell is a volcano. Its crucible pours, scalds and melts a face of your dice blank; its hide armours, tramples and stokes.",
@@ -9236,7 +9236,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 4 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 5 }]
         },
         {
           "name": "Melt",
@@ -9255,7 +9255,7 @@
           "text": "{0} block that hits back",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 8 },
+            { "kind": "block", "target": "self", "amount": 10 },
             {
               "kind": "spikes",
               "target": "self",
@@ -9286,8 +9286,8 @@
     },
     "THE_ANVIL_KNIGHT": {
       "name": "The Anvil Knight",
-      "hp": 190,
-      "block": 15,
+      "hp": 160,
+      "block": 18,
       "threat": 38,
       "warden": true,
       "text": "Warden of the Furnace: an empty suit of armour with fire for a head. Its anvil builds (thorny block it keeps, Strength, tempering Hammers into Smites); its hammer spends it.",
@@ -9335,7 +9335,7 @@
           "text": "{0} block that hits back, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 12 },
+            { "kind": "block", "target": "self", "amount": 14 },
             {
               "kind": "spikes",
               "target": "self",
@@ -9357,7 +9357,7 @@
           "anim": "rally",
           "text": "+{0} Strength for the fight",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "strength", "target": "self", "amount": 2 }]
+          "effects": [{ "kind": "strength", "target": "self", "amount": 1 }]
         },
         {
           "name": "Temper",
@@ -9403,7 +9403,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 5 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 6 }]
         },
         {
           "name": "Shatter",
@@ -9416,7 +9416,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 16,
+              "amount": 18,
               "piercing": true
             }
           ]
@@ -9427,7 +9427,7 @@
     "THE_KILN_WYRM": {
       "name": "The Kiln Dragon",
       "hp": 300,
-      "block": 12,
+      "block": 15,
       "threat": 60,
       "warden": true,
       "text": "The Furnace's final boss: a red dragon. Its claws rend and pin your dice; its breath burns, dulls, melts a gem and brings down lavafalls; its tail sweeps, quakes your block away and stirs more lava onto its breath.",
@@ -9519,7 +9519,7 @@
           "anim": "breath",
           "text": "{0} Burn",
           "trigger": { "kind": "face" },
-          "effects": [{ "kind": "burn", "target": "heroes", "amount": 5 }]
+          "effects": [{ "kind": "burn", "target": "heroes", "amount": 6 }]
         },
         {
           "name": "Lavafall",
@@ -9532,7 +9532,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 14,
+              "amount": 17,
               "piercing": true
             }
           ]
@@ -9740,7 +9740,7 @@
     "GEODE_GOLEM": {
       "name": "Geode Golem",
       "hp": 46,
-      "block": 6,
+      "block": 8,
       "threat": 4,
       "text": "A grey golem split open on amethyst. No single hit takes more than a quarter of its health.",
       "tip": "No hit takes more than a quarter of its health: use many.",
@@ -9786,7 +9786,7 @@
           "text": "{0} block, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 10 },
+            { "kind": "block", "target": "self", "amount": 13 },
             {
               "kind": "retain",
               "target": "self",
@@ -9812,7 +9812,7 @@
     "HOARD_MIMIC": {
       "name": "Hoard Mimic",
       "hp": 44,
-      "block": 4,
+      "block": 5,
       "threat": 4,
       "text": "A treasure chest with teeth. Its Gulp swallows the gem that hit it hardest until it dies, and it drops a raw stone when it does.",
       "tip": "It swallows the gem that hits it hardest. Kill it to get it back.",
@@ -9874,7 +9874,7 @@
           "text": "{0} block, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 8 },
+            { "kind": "block", "target": "self", "amount": 10 },
             {
               "kind": "retain",
               "target": "self",
@@ -9889,7 +9889,7 @@
     "AMETHYST_WYRM": {
       "name": "Amethyst Wyrm",
       "hp": 44,
-      "block": 4,
+      "block": 5,
       "threat": 5,
       "text": "A violet glass wyrm that curses where its kin sharpen.",
       "tip": "Its Hex curses the whole party.",
@@ -10011,7 +10011,7 @@
     "THE_ASSAYER": {
       "name": "The Assayer",
       "hp": 180,
-      "block": 8,
+      "block": 10,
       "threat": 36,
       "warden": true,
       "text": "Warden of the Hollow: a floating obsidian brilliant with a gold eye and a balance. No gem counts for more than 5 carats while it stands. Its scale weighs and balances; its ledger taxes, audits, seizes a die and raises the rate.",
@@ -10064,7 +10064,7 @@
           "text": "{0} block that hits back",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 8 },
+            { "kind": "block", "target": "self", "amount": 10 },
             {
               "kind": "spikes",
               "target": "self",
@@ -10224,7 +10224,7 @@
     "THE_COLLECTOR": {
       "name": "The Collector",
       "hp": 210,
-      "block": 10,
+      "block": 13,
       "threat": 42,
       "warden": true,
       "text": "Warden of the Hollow: a snail whose shell is a cabinet of cases. It acquires your gems and fires them as its own; its cane raps and smashes.",
@@ -10293,7 +10293,7 @@
           "text": "{0} block, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 8 },
+            { "kind": "block", "target": "self", "amount": 10 },
             {
               "kind": "retain",
               "target": "self",
@@ -10346,7 +10346,7 @@
     "THE_HOLLOW_CROWN": {
       "name": "The Hollow Crown",
       "hp": 340,
-      "block": 14,
+      "block": 18,
       "threat": 65,
       "warden": true,
       "text": "The Hollow's final boss: a crowned geode giant on one die that grows. Rise adds a Topple and a Summon face, up to a d12; Crowned heals it and doubles its next attack. No single hit takes more than 15% of its health.",
@@ -10384,7 +10384,7 @@
           "text": "{0} block, kept",
           "trigger": { "kind": "face" },
           "effects": [
-            { "kind": "block", "target": "self", "amount": 10 },
+            { "kind": "block", "target": "self", "amount": 13 },
             {
               "kind": "retain",
               "target": "self",
@@ -10768,7 +10768,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 6,
+              "amount": 7,
               "piercing": true
             }
           ]
@@ -10799,7 +10799,7 @@
             {
               "kind": "damage",
               "target": "heroes",
-              "amount": 18,
+              "amount": 22,
               "piercing": true
             }
           ],
@@ -10811,7 +10811,7 @@
     "THE_UNMADE": {
       "name": "The Infinite Void",
       "hp": 400,
-      "block": 15,
+      "block": 19,
       "threat": 80,
       "warden": true,
       "text": "The Rift's final boss: a black hole with debris swirling into it. It starts with one d12 and grows more; Dread shrinks all your dice for the fight. No single hit takes more than a tenth of its health.",
@@ -11171,8 +11171,8 @@
         "soft": 5,
         "cap": 7
       },
-      "hp_mult": 1.0,
-      "damage_mult": 1.0,
+      "hp_mult": 1.05,
+      "damage_mult": 1.08,
       "start_pyrite": 0,
       "fare_gold": 0,
       "insurance_gold": 15,
@@ -11300,8 +11300,8 @@
         "soft": 6,
         "cap": 9
       },
-      "hp_mult": 1.8,
-      "damage_mult": 1.3,
+      "hp_mult": 1.89,
+      "damage_mult": 1.4,
       "start_pyrite": 120,
       "start_dice_offer": {
         "steps": [30, 1, 0],
@@ -11399,8 +11399,8 @@
         "soft": 8,
         "cap": 11
       },
-      "hp_mult": 3.2,
-      "damage_mult": 1.7,
+      "hp_mult": 3.36,
+      "damage_mult": 1.84,
       "start_pyrite": 200,
       "start_dice_offer": {
         "steps": [47, 8, 0.25],
@@ -11496,8 +11496,8 @@
         "soft": 9,
         "cap": 13
       },
-      "hp_mult": 5.8,
-      "damage_mult": 2.2,
+      "hp_mult": 6.09,
+      "damage_mult": 2.38,
       "start_pyrite": 280,
       "start_dice_offer": {
         "steps": [65, 15, 0.5],
@@ -11596,8 +11596,8 @@
         "soft": 11,
         "cap": 15
       },
-      "hp_mult": 10.5,
-      "damage_mult": 2.85,
+      "hp_mult": 11.03,
+      "damage_mult": 3.08,
       "start_pyrite": 360,
       "start_dice_offer": {
         "steps": [82, 23, 0.75],
@@ -11696,8 +11696,8 @@
         "soft": 12,
         "cap": 17
       },
-      "hp_mult": 19.0,
-      "damage_mult": 3.7,
+      "hp_mult": 19.95,
+      "damage_mult": 4.0,
       "start_pyrite": 450,
       "start_dice_offer": {
         "steps": [99, 30, 1],
@@ -11808,8 +11808,8 @@
         "soft": 13,
         "cap": 17
       },
-      "hp_mult": 34.0,
-      "damage_mult": 4.8,
+      "hp_mult": 35.7,
+      "damage_mult": 5.18,
       "start_pyrite": 550,
       "start_dice_offer": {
         "steps": [100, 37, 1.25],
@@ -11878,13 +11878,13 @@
   "oddities": {
     "CUTTERS_WHEEL": {
       "name": "The Cutter's Wheel",
-      "text": "An old cutting wheel, still turning. Hold a stone against it to recut it from scratch. The new Cut could be better or worse.",
+      "text": "An old cutting wheel. Hold a stone against it to recut it from scratch.",
       "choices": [
         {
           "id": "recut",
           "label": "Cut a stone again",
           "needs": "stone",
-          "text": "Rerolls its Cut from this depth's odds, tilted slightly in your favor. It always changes, and it can get worse. 4% chance it shatters.",
+          "text": "Rerolls its Cut. Could get better or worse. 4% chance it shatters.",
           "action": {
             "kind": "reroll_cut",
             "shatter": 4,
@@ -11918,7 +11918,7 @@
           "id": "dissolve",
           "label": "Dissolve the matrix",
           "needs": "raw_stones",
-          "text": "Dip up to three raw stones. Each one comes out appraised and costs you 6 HP.",
+          "text": "Dip up to three raw stones. Each one comes out appraised, but costs you 6 HP.",
           "action": {
             "kind": "acid_appraise",
             "most": 3,
@@ -11936,13 +11936,13 @@
     },
     "CRUCIBLE": {
       "name": "The Crucible",
-      "text": "Melts two stones into one. Only one comes out.",
+      "text": "Melts two stones into one.",
       "choices": [
         {
           "id": "fuse",
           "label": "Fuse two stones",
           "needs": "two_stones",
-          "text": "One of the two survives, a carat or two heavier the nearer the other came to its weight.",
+          "text": "One will be destroyed, but the other will gain power from it.",
           "action": {
             "kind": "fuse"
           }
@@ -11958,12 +11958,12 @@
     },
     "GEODE": {
       "name": "Geode",
-      "text": "A round grey rock, heavier than it looks. Someone has left it here for whoever will pay. It cannot be cracked down here: only the workshop's bench will open it.",
+      "text": "A rough and heavy rock, containing powerful energy. It can only be cracked open back at the workshop.",
       "choices": [
         {
           "id": "buy",
           "label": "Buy it",
-          "text": "Pay the pyrite and carry it up sealed. Its stone is better than the rock gives, and you will not know which until it is cracked at the workshop.",
+          "text": "Pay the pyrite and add it to your bag.",
           "action": {
             "kind": "geode_buy"
           }
@@ -11979,7 +11979,7 @@
     },
     "OLD_PROSPECTOR": {
       "name": "The Old Prospector",
-      "text": "An old prospector offers to swap one of his raw stones for one of yours. His may be heavier, never lighter, but he won't let you look at it first.",
+      "text": "An old prospector offers to swap a random one of his raw stones for one of yours.",
       "choices": [
         {
           "id": "trade",
@@ -12003,12 +12003,12 @@
     },
     "SHRINE": {
       "name": "Shrine of the Pattern",
-      "text": "Rows of dice are carved into the wall, all showing the same pattern.",
+      "text": "Magical runes show unique geometric patterns. Touching them grants a temporary blessing.",
       "choices": [
         {
           "id": "pray",
           "label": "Choose a pattern",
-          "text": "For the rest of this run, gems that fire on that pattern gain a carat.",
+          "text": "For the rest of this run, gems that fire on that pattern are 1 carat stronger.",
           "needs": "pattern",
           "action": {
             "kind": "shrine"
@@ -12030,7 +12030,7 @@
         {
           "id": "take",
           "label": "Work the eye loose",
-          "text": "Takes 1 to 5 pulls. Each pull costs more HP than the last: 3, then 5, then 7. The gem comes out appraised and Etched, with two Fractures.",
+          "text": "Each pull costs more HP than the last.",
           "action": {
             "kind": "idol",
             "hp": 3,
@@ -12055,7 +12055,7 @@
           "id": "echo",
           "label": "Echo a stone",
           "needs": "stone",
-          "text": "Pick any stone. It comes back read, with the same skill; everything else about it is rolled fresh.",
+          "text": "Pick any stone. Toss it to gain a new one of the same skill. Everything else about it is rolled fresh.",
           "action": {
             "kind": "echo_stone",
             "bonus": 2
@@ -12088,7 +12088,7 @@
           "id": "buy",
           "label": "Buy from her case",
           "needs": "offer",
-          "text": "Buy her appraised stone for twice its value. It rolls better than anything at a stall.",
+          "text": "Buy her appraised stone.",
           "action": {
             "kind": "collector_buy",
             "bonus": 4,
@@ -12106,7 +12106,7 @@
     },
     "LOUPE_CABINET": {
       "name": "The Dead Man's Kit",
-      "text": "A dead miner lies next to his open kit. The loupe inside still works, and the brass fittings can be sold.",
+      "text": "An abandoned miner's kit. The loupe inside still works, and the brass fittings can be sold.",
       "choices": [
         {
           "id": "look",
@@ -12132,7 +12132,7 @@
     "FIELD_MEDIC": {
       "name": "Rest Stop",
       "room": "rest_stop",
-      "text": "A nook in the wall with a bench, a cold stove and a supply box someone left behind.",
+      "text": "A nook in the wall with a bench and a supply box someone left behind.",
       "choices": [
         {
           "id": "heal",
@@ -12184,7 +12184,7 @@
         {
           "id": "pry",
           "label": "Pry out the big one",
-          "text": "Get a raw stone of better quality than usual for this depth, never smaller than Small. The sharp edge costs you 8 HP.",
+          "text": "Get a raw stone of high quality for this depth. The sharp edge costs you 8 HP.",
           "action": {
             "kind": "pry",
             "bonus": 3,
@@ -12219,14 +12219,14 @@
         {
           "id": "hammer",
           "label": "Hammer a die bigger",
-          "text": "Raise one tier, up to a d100. A d6 becomes a d8, and a d20 becomes a d24. Its pattern is reapplied to the new faces. Etchings and material are kept.",
+          "text": "Raise one tier. Etchings and material are kept.",
           "needs": "die",
           "action": {
             "kind": "upsize"
           },
           "improved": {
             "label": "Hammer a die **two sizes** bigger",
-            "text": "Raise one die **two tiers**, as far as dice go. Its pattern is reapplied to the new faces. Etchings and material are kept.",
+            "text": "Raise one die **two tiers**. Etchings and material are kept.",
             "needs": "die",
             "action": { "kind": "upsize", "steps": 2 }
           }
@@ -12234,14 +12234,14 @@
         {
           "id": "file",
           "label": "File a die smaller",
-          "text": "Lower one tier, down to a d2. Fewer faces means more matches. A d20 becomes a d16, and a d4 becomes a d3. Keeps its material and any etchings that still fit.",
+          "text": "Lower one tier. Keeps its material and any etchings that still fit.",
           "needs": "die",
           "action": {
             "kind": "downsize"
           },
           "improved": {
             "label": "File a die **two sizes** smaller",
-            "text": "Lower one die **two tiers**, down to a d2. Keeps its material and any etchings that still fit.",
+            "text": "Lower one die **two tiers**. Keeps its material and any etchings that still fit.",
             "needs": "die",
             "action": { "kind": "downsize", "steps": 2 }
           }
@@ -12278,7 +12278,7 @@
         {
           "id": "raise",
           "label": "Raise a face",
-          "text": "Pick a die face and raise it by 1. There's no cap. A blank face becomes a 1. Any etching on it stays.",
+          "text": "Pick a die face and raise it by 1. Any etching on it stays.",
           "needs": "die_face",
           "action": {
             "kind": "raise_face",
@@ -12286,7 +12286,7 @@
           },
           "improved": {
             "label": "Raise **three** faces",
-            "text": "Pick up to **three** die faces and raise each by 1. There's no cap. A blank face becomes a 1. Etchings stay.",
+            "text": "Pick up to **three** die faces and raise each by 1. Etchings stay.",
             "needs": "die_faces",
             "most": 3,
             "action": { "kind": "raise_face", "amount": 1, "faces": 3 }
@@ -12295,7 +12295,7 @@
         {
           "id": "lower",
           "label": "Lower a face",
-          "text": "Pick a die face and lower it by 1, down to 1. Any etching on it stays. Good for gems that want low rolls.",
+          "text": "Pick a die face and lower it by 1. Any etching on it stays.",
           "needs": "die_face",
           "action": {
             "kind": "lower_face",
@@ -12303,7 +12303,7 @@
           },
           "improved": {
             "label": "Lower **three** faces",
-            "text": "Pick up to **three** die faces and lower each by 1, down to 1. Etchings stay.",
+            "text": "Pick up to **three** die faces and lower each by 1. Etchings stay.",
             "needs": "die_faces",
             "most": 3,
             "action": { "kind": "lower_face", "amount": 1, "faces": 3 }
@@ -12340,7 +12340,7 @@
         {
           "id": "dip",
           "label": "Dip a die",
-          "text": "The die takes on the material in the vat. Its faces don't change, but its old material is lost.",
+          "text": "The die takes on the material in the vat. Its faces don't change.",
           "needs": "die",
           "action": {
             "kind": "material"
@@ -12359,7 +12359,7 @@
         {
           "id": "melt",
           "label": "Melt it down",
-          "text": "Resets a die to plain faces, 1 up to its size, with no pattern or etchings. Its material is kept.",
+          "text": "Resets a die to its default faces, with no pattern or etchings. Material is kept.",
           "needs": "die",
           "action": {
             "kind": "reset"
@@ -12382,7 +12382,7 @@
           "id": "reroll",
           "label": "Fire a stone",
           "needs": "stone",
-          "text": "Rerolls its Clarity. The result is always different. 4% chance it cracks.",
+          "text": "Rerolls its Clarity. 4% chance it cracks.",
           "action": {
             "kind": "reroll_clarity",
             "shatter": 4,
@@ -12393,10 +12393,10 @@
           "id": "push",
           "label": "Push the heat",
           "needs": "stone",
-          "text": "Moves Clarity one step further from Clear, in whichever direction it already leans: Pristine toward Flawless, Etched toward Intricate. 4% chance it cracks.",
+          "text": "Moves Clarity further from Clear: Pristine toward Flawless, Etched toward Intricate. 8% chance it cracks.",
           "action": {
             "kind": "push_clarity",
-            "shatter": 4,
+            "shatter": 8,
             "steps": 1
           }
         },
@@ -12418,7 +12418,7 @@
           "id": "feed",
           "label": "Feed it a die",
           "needs": "gem_and_die",
-          "text": "Lose one of your dice until the run ends. One of your gems turns Void until then: it takes no socket, rides one instead and fires right after that socket's gem. It is not Fragile.",
+          "text": "Lose one of your dice until the run ends. One of your gems becomes Void, and no longer takes up a socket.",
           "action": {
             "kind": "hollow",
             "least_dice": 3
@@ -12442,7 +12442,7 @@
           "id": "stone",
           "label": "Drop a stone in",
           "needs": "stone",
-          "text": "Throw in any stone. A raw stone counts for half its value, and an appraised one for 1.5 times its value.",
+          "text": "Throw in any stone, raw or appraised.",
           "action": {
             "kind": "wishing_well",
             "mode": "stone",
@@ -12719,7 +12719,7 @@
       "name": "Warden's Wrath",
       "kind": "hazard",
       "glyph": "crown",
-      "text": "Wardens and bosses have half again their health. Their hoards have one more pedestal."
+      "text": "Wardens and bosses have +50% health. Their hoards have one more pedestal."
     },
     "OVERCAST": {
       "name": "Overcast",
@@ -12815,7 +12815,7 @@
       "name": "Bright Well",
       "kind": "blessing",
       "glyph": "drop",
-      "text": "Wells count everything thrown in as worth half again as much."
+      "text": "Wells count everything thrown in as worth 1.5 times as much."
     },
     "HEIRLOOM": {
       "name": "Heirloom",

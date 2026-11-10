@@ -24,6 +24,15 @@ func _init() -> void:
 	for tab in ["descend", "delvers", "vault", "market", "bestiary", "profile"]:
 		app.home.open(tab)
 		check(app.home._body.get_child_count() > 0, "the %s tab renders" % tab)
+	## A new delver's sheet says their dice by name: Rue's Phial and Florin's Gambler's dice are
+	## written down as objects, and once came out as their raw text (November 10, 2026).
+	var inspector: Script = load("res://view/inspect/inspector.gd")
+	for key in DeepContent.section("characters"):
+		var said: String = str(inspector.call("_dice_words", DeepContent.character(str(key)).get("dice", [])))
+		check(not said.is_empty() and not said.contains("{") and not said.contains("[") and not said.contains("\""), "%s's dice are said by name: %s" % [str(key), said])
+	check(str(inspector.call("_dice_words", DeepContent.character("RUE").get("dice", []))).contains("The Phial"), "Rue's dice name the Phial")
+	## Flicking across a page to turn its tabs is the phone's alone (view/ui/swipe.gd).
+	check(app.home.find_child("Swipe", false, false) == null, "the desk's workshop has no flick watcher")
 	## The old tab names still land on the page that took their place.
 	for old in [["map", "descend"], ["roster", "delvers"], ["shop", "market"], ["commissions", "market"], ["ledger", "profile"], ["appraise", "vault"]]:
 		app.home.open(str(old[0]))
@@ -366,10 +375,60 @@ func _init() -> void:
 		DeepProfile.decide_tray(app.profile, str(app.profile.tray[0].id), true)
 		app._profile_changed()
 	check(true, "appraisal decisions flow through")
+	await _conquest_again(app)
 	print("Screens: %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
 		printerr("FAIL: " + str(failure))
 	quit(0 if failures.is_empty() else 1)
+
+func _conquest_again(app: Control) -> void:
+	## A beaten mine's sheet holds until a way out is chosen, but its buttons put it away before
+	## the rules answer and the rules can refuse (a respite owed, the party still at the camp).
+	## Gone with no choice standing, it comes back from a key under the boss hall's name
+	## (November 10, 2026). Headless, the sheet never opens, which stands for that case.
+	if app.session.in_run():
+		check(true, "a run was already under way; the boss hall's key is checked by build/nov10/nav/conquest_flow.gd")
+		return
+	app._depart(9001)
+	for step in range(400):
+		var phase: String = str(app.session.run.get("phase", ""))
+		if phase == "tunnels":
+			break
+		if phase == "grubstake":
+			var offers: Array = app.session.run.grubstake.offers.get(app.session.local_id, [])
+			if not offers.is_empty() and str(app.session.local_player().get("stake", "")).is_empty():
+				var offer: Dictionary = offers[0]
+				app.session.send({"kind": "stake", "offer": str(offer.id), "payload": {"pick": 0} if offer.get("needs", []).has("pick") else {}})
+		await process_frame
+	var run: Dictionary = app.session.run
+	var bottom: int = DeepContent.mine_bottom("QUARRY")
+	run.phase = "landing"
+	run.depth = bottom
+	run.records.deepest = bottom
+	run.records.wardens = run.schedule.wardens.duplicate()
+	run.records.boss = true
+	run.path = [{"depth": bottom, "kind": "landing", "hidden": false, "x": 0.5, "id": "landing"}]
+	run.landing = {"depth": bottom, "warden_next": true, "cleared": true, "respites": {}}
+	var descent: Control = app.descent
+	descent._hold = {}
+	descent.show_state(run)
+	app._note_conquest(run)
+	for step in range(30):
+		if descent._news.is_empty():
+			break
+		descent._tell_news()
+		await process_frame
+	await _frames(2)
+	check(descent._party_asks().any(func(ask: Dictionary) -> bool: return str(ask.kind) == "conquest"), "with the beaten mine's sheet gone and no way out chosen, the boss hall offers it again")
+	var again: Button = descent.find_child("ConquestAgain", true, false) as Button
+	check(again != null and again.is_visible_in_tree(), "as a key under the hall's name")
+	if again != null:
+		again.pressed.emit()
+		check(descent._conquest_shown, "and the key opens the sheet again")
+	app.session.local_player().choice = "lift"
+	check(not descent._party_asks().any(func(ask: Dictionary) -> bool: return str(ask.kind) == "conquest"), "with a way out chosen, there is nothing to ask again")
+	app.session.send({"kind": "abandon"})
+	await _frames(2)
 
 func _nov5_c1(app: Control) -> void:
 	## November 5, 2026, lane C1: the trading booth at a party's landing, the twin plate's odds

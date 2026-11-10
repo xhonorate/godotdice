@@ -44,6 +44,8 @@ const StoneCard = preload("res://view/gems/stone_card.gd")
 
 signal mouth_hovered(index: int)
 signal mouth_pressed(index: int)
+## A finger held on a mouth (the phone): show where it leads, choose nothing.
+signal mouth_held(index: int)
 signal pick_hovered(id: String)
 signal pick_pressed(id: String)
 signal pick_inspected(id: String)
@@ -117,6 +119,9 @@ var _at: String = "home"
 ## A mouth clicked while the party was still settling in front of the ways on: chosen the
 ## moment it stands at the crossroads, so the click is not lost to the camera.
 var _queued_mouth: int = -1
+## The phone takes a mouth on the finger's lift, not its press: a finger held on it instead
+## reads where it leads (`mouth_held`). The mouth the finger came down on, or -1.
+var _mouth_down: int = -1
 ## The salvage dice thrown on the floor and their numbers, faded out once the summary opens.
 var _salvage_nodes: Array = []
 var _falls: Array = []
@@ -506,6 +511,11 @@ func mouth_rect(index: int) -> Rect2:
 		box = box.expand(to_screen(foot + corner))
 	return box
 
+func _mouths_open() -> bool:
+	## Whether the ways on can be chosen now: standing at them, or at a landing whose mouths
+	## are live.
+	return _at == "crossroads" or (_mouths_live and _at == "home")
+
 func _mouth_at(local: Vector2) -> int:
 	for mouth in _mouths:
 		var index: int = int(mouth.index)
@@ -535,7 +545,15 @@ func _hold_look() -> Variant:
 		return false
 	var looked: String = _pick_under(get_meta("tip_press_at", Vector2(-1000, -1000)))
 	if looked.is_empty():
-		return false
+		## Held on a way on: what waits down it, in place of the desk's hover. The lift that
+		## follows is not a tap, so nothing is chosen.
+		var mouth: int = _mouth_at(get_meta("tip_press_at", Vector2(-1000, -1000))) if _mouths_open() else -1
+		if mouth < 0:
+			return false
+		_mouth_down = -1
+		DeepAudio.play("ui_tap", {"volume": 0.6})
+		mouth_held.emit(mouth)
+		return true
 	pick_inspected.emit(looked)
 	return true
 
@@ -547,12 +565,19 @@ func _gui_input(event: InputEvent) -> void:
 		## Things are clicked on the release, so a press that becomes a drag is not a click.
 		## A click on nothing in particular is reported too: it puts down whatever was picked up.
 		## A finger held for the close look (`_hold_look`) is not a click either.
+		var down_on: int = _mouth_down
+		_mouth_down = -1
 		if load("res://view/ui/tips.gd").held(self):
 			accept_event()
 			return
 		var picked: String = _pick_under(event.position)
 		pick_pressed.emit(picked)
 		if not picked.is_empty():
+			accept_event()
+		elif down_on >= 0 and _mouths_open() and _mouth_at(event.position) == down_on:
+			## The phone's tap on a way on, taken as the finger lifts from it.
+			DeepAudio.play("ui_confirm", {"volume": 0.7})
+			mouth_pressed.emit(down_on)
 			accept_event()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and still:
 		## Right-click anything standing in the room for the close look, the same as a stone
@@ -566,11 +591,15 @@ func _gui_input(event: InputEvent) -> void:
 		if _at == "walking":
 			hurry()
 			accept_event()
-		elif (_at == "crossroads" or (_mouths_live and _at == "home")) and _pick_under(event.position).is_empty():
+		elif _mouths_open() and _pick_under(event.position).is_empty():
 			var index: int = _mouth_at(event.position)
 			if index >= 0:
-				DeepAudio.play("ui_confirm", {"volume": 0.7})
-				mouth_pressed.emit(index)
+				if DeepUi.phone:
+					## On the phone the lift takes it (above), so a hold can read it instead.
+					_mouth_down = index
+				else:
+					DeepAudio.play("ui_confirm", {"volume": 0.7})
+					mouth_pressed.emit(index)
 				accept_event()
 		elif _at == "moving" and str(_travel.get("to", "")) == "crossroads" and _pick_under(event.position).is_empty():
 			var index: int = _mouth_at(event.position)
@@ -581,7 +610,7 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var over: String = _pick_under(event.position) if still else ""
 		_hover_pick(over)
-		_set_hover(_mouth_at(event.position) if (_at == "crossroads" or (_mouths_live and _at == "home")) and over.is_empty() else -1)
+		_set_hover(_mouth_at(event.position) if _mouths_open() and over.is_empty() else -1)
 		if not over.is_empty():
 			mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 

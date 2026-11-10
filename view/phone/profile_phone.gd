@@ -24,6 +24,8 @@ static func build(home: Control, content: VBoxContainer) -> void:
 	_numbers(home, content, records)
 	var tab: String = str(home.get_meta("you_tab", "showcase"))
 	var tabs := DeepUi.hbox(content, int(DeepUi.pt(3)))
+	## A sideways flick over the page turns them too (view/ui/swipe.gd).
+	tabs.set_meta("swipe_tabs", true)
 	for entry in TABS:
 		var key: String = str(entry[0])
 		var b := DeepUi.tab_button(tabs, str(entry[1]), str(entry[2]), key == tab, func() -> void:

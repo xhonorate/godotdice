@@ -36,6 +36,7 @@ const ProfilePage = preload("res://view/home/profile_page.gd")
 const BestiaryPage = preload("res://view/home/bestiary_page.gd")
 const Homecoming = preload("res://view/home/homecoming.gd")
 const Inspector = preload("res://view/inspect/inspector.gd")
+const Swipe = preload("res://view/ui/swipe.gd")
 
 signal depart_requested(seed: int)
 signal member_changed(fields: Dictionary)
@@ -181,6 +182,7 @@ func _ready() -> void:
 	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(_body)
+	_watch_swipes()
 	## Popovers (the party, a showcase, a Geode's odds) sit over everything on this layer.
 	_overlay = Control.new()
 	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -228,11 +230,22 @@ func _ready_phone() -> void:
 	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(_body)
+	_watch_swipes()
 	_overlay = Control.new()
 	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_overlay.z_index = 30
 	add_child(_overlay)
+
+func _watch_swipes() -> void:
+	## On the phone, a sideways flick over a page turns its tabs (view/ui/swipe.gd): Expedition
+	## and Daily dig, the Vault's two views, the Market's and You's tabs, a creature's pages.
+	## Each page marks its row (`swipe_tabs`); the coming-home screen has none. The desk has none.
+	if not DeepUi.phone:
+		return
+	Swipe.attach(_body, func(way: int) -> void:
+		if is_visible_in_tree() and not _party_open:
+			Swipe.turn_tabs(_body, way), self)
 
 ## The phone's rail of places (`_ready_phone`), drawn by `_draw_rail`.
 var _rail_box: VBoxContainer = null

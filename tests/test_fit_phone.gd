@@ -37,8 +37,11 @@ func _init() -> void:
 	_fill(app.profile)
 	app._profile_changed()
 	await _workshop(app)
+	await _swipes(app)
+	_conquest_map()
 	await _menu(app)
 	await _inspector(app)
+	await _popups(app)
 	await _run(app)
 	print("Fit (phone): %d assertions, %d failures" % [checks, failures.size()])
 	for failure in failures:
@@ -121,6 +124,110 @@ func _workshop(app: Control) -> void:
 		await _fits(screen, "You (%s)" % tab)
 	home.open("map")
 
+# --- a sideways flick turns a page's tabs (view/ui/swipe.gd) ---------------------------------------
+
+var _pointer: Vector2 = Vector2.ZERO
+
+func _swipes(app: Control) -> void:
+	var home: Control = app.home
+	var Swipe: Script = load("res://view/ui/swipe.gd")
+	## What a movement says, on its own: a tap, a list's scroll and a slow drag say nothing.
+	var far: float = DeepUi.pt(120)
+	check(Swipe.call("reads", Vector2(-far, 0), 0.0, 200) == 1 and Swipe.call("reads", Vector2(far, 10), 10.0, 200) == -1, "a flick left is the next tab, right the one before")
+	check(Swipe.call("reads", Vector2(4, 3), 3.0, 120) == 0, "a tap is not a flick")
+	check(Swipe.call("reads", Vector2(-far * 0.4, -far * 1.2), far * 1.2, 300) == 0, "a list scrolled up or down is not a flick")
+	check(Swipe.call("reads", Vector2(-far, 0), far * 0.8, 300) == 0, "nor is a drag that wandered up and down on its way across")
+	check(Swipe.call("reads", Vector2(-far, 0), 0.0, 1500) == 0, "nor a slow drag")
+	## On the Descend page: Expedition, then the Daily dig, and back.
+	app.session.choose_daily("")
+	app.session.choose_mine(DeepContent.starter_mine())
+	home.open("map")
+	await _frames(3)
+	check(str(app.session.lobby.get("daily", "")).is_empty(), "the Descend page starts on the expedition")
+	check(home.find_child("Swipe", false, false) != null, "the phone's workshop watches for flicks")
+	var mid: Vector2 = home._body.get_global_rect().get_center()
+	await _flick(mid, mid + Vector2(-far, 6))
+	check(not str(app.session.lobby.get("daily", "")).is_empty(), "a flick left over the Descend page opens the Daily dig")
+	await _flick(mid, mid + Vector2(far, 0))
+	check(str(app.session.lobby.get("daily", "")).is_empty(), "and a flick right goes back to the expedition")
+	await _flick(mid, mid + Vector2(far, 0))
+	check(str(app.session.lobby.get("daily", "")).is_empty(), "past the first tab a flick does nothing")
+	var picked: String = str(app.session.lobby.get("mine", ""))
+	await _flick(mid, mid + Vector2(DeepUi.pt(8), far))
+	check(str(app.session.lobby.get("daily", "")).is_empty() and str(app.session.lobby.get("mine", "")) == picked, "a drag down the page turns nothing and picks nothing")
+	## You's tabs, and the Market's.
+	home.set_meta("you_tab", "showcase")
+	home.open("ledger")
+	await _frames(3)
+	await _flick(mid, mid + Vector2(-far, 0))
+	check(str(home.get_meta("you_tab", "")) == "mines", "a flick left over You opens Mines (got %s)" % str(home.get_meta("you_tab", "")))
+	home.set_meta("market_tab", "case")
+	home.open("market")
+	await _frames(3)
+	await _flick(mid, mid + Vector2(-far, 0))
+	check(str(home.get_meta("market_tab", "")) == "geodes", "a flick left over the Market opens Geodes (got %s)" % str(home.get_meta("market_tab", "")))
+	## A card over the page takes the flick for itself.
+	home._party_open = true
+	home._render()
+	await _frames(3)
+	await _flick(mid, mid + Vector2(far, 0))
+	check(str(home.get_meta("market_tab", "")) == "geodes", "a flick over the party's panel turns nothing under it")
+	home._party_open = false
+	home.set_meta("market_tab", "case")
+	home.set_meta("you_tab", "showcase")
+	home.open("map")
+	await _frames(2)
+
+func _flick(from: Vector2, to: Vector2) -> void:
+	_mouse(from, true)
+	for step in range(1, 7):
+		_mouse(from.lerp(to, float(step) / 6.0))
+	_mouse(to, false)
+	await _frames(4)
+
+func _mouse(at: Vector2, pressed: Variant = null) -> void:
+	if pressed == null:
+		var motion := InputEventMouseMotion.new()
+		motion.position = at
+		motion.global_position = at
+		motion.relative = at - _pointer
+		motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		screen.push_input(motion)
+	else:
+		var button := InputEventMouseButton.new()
+		button.position = at
+		button.global_position = at
+		button.button_index = MOUSE_BUTTON_LEFT
+		button.pressed = bool(pressed)
+		button.button_mask = MOUSE_BUTTON_MASK_LEFT if bool(pressed) else 0
+		screen.push_input(button)
+	_pointer = at
+
+func _frames(count: int) -> void:
+	for i in range(count):
+		await process_frame
+
+# --- the beaten mine's sheet ---------------------------------------------------------------------
+
+func _conquest_map() -> void:
+	## The map's rows stand inside the map: a long name beside "Just opened" ran into the page
+	## beside it (November 10, 2026).
+	var Sheet: Script = load("res://view/inspect/conquest_sheet.gd")
+	var order: Array = DeepContent.mines_in_order()
+	for index in range(order.size() - 1):
+		var here: String = str(order[index])
+		var next: String = str(order[index + 1])
+		var stage := Control.new()
+		stage.custom_minimum_size = Vector2(DeepUi.pt(240), 0)
+		screen.add_child(stage)
+		var records: Dictionary = {}
+		for key in order.slice(0, index + 2):
+			records[str(key)] = {"unlocked": true, "boss": str(key) != next}
+		Sheet.call("map", stage, {"mine": here, "next": next, "opened": next, "depth": 32, "fare": 12345, "records": records})
+		var rows: Control = stage.get_child(0)
+		check(stage.custom_minimum_size.x >= rows.get_combined_minimum_size().x, "the beaten %s's map holds its rows (%d wide in %d)" % [here, int(rows.get_combined_minimum_size().x), int(stage.custom_minimum_size.x)])
+		stage.free()
+
 func _menu(app: Control) -> void:
 	app.open_menu()
 	await _fits(app.menu, "the menu")
@@ -147,6 +254,63 @@ func _inspector(app: Control) -> void:
 	inspector.call("close")
 	await process_frame
 	await process_frame
+
+# --- popups (November 10, 2026) -------------------------------------------------------------------
+
+func _popups(app: Control) -> void:
+	## The appraisal with the most it can say (the longest skill, up to four inclusions, a stone of
+	## its skill on the rail to swap, a refusal said in full) keeps its choices on the screen; the
+	## close look's pills wrap inside it; a long toast wraps inside it.
+	var skill: String = ""
+	var most: int = -1
+	for key in DeepContent.section("skills"):
+		var said: int = str(DeepContent.skill(str(key)).get("text", "")).length() + 8 * str(DeepContent.skill(str(key)).get("name", "")).length()
+		if str(DeepContent.skill(str(key)).get("rarity", "")) != "BIRTHSTONE" and said > most:
+			most = said
+			skill = str(key)
+	var inclusions: Array = DeepContent.section("inclusions").keys()
+	inclusions.sort_custom(func(a: Variant, b: Variant) -> bool: return str(DeepContent.inclusion(str(a)).get("text", "")).length() > str(DeepContent.inclusion(str(b)).get("text", "")).length())
+	var skill_name: String = str(DeepContent.skill(skill).get("name", ""))
+	for count in [0, 2, 4]:
+		var raw: Dictionary = DeepStone.make(skill, 22, 3, 1, inclusions.slice(0, count), {"run": "fit"}, "fit_appraisal_%d" % count)
+		raw.appraised = false
+		var kept: Dictionary = DeepStone.make(skill, 9, 2, 3, [], {"run": "fit"}, "fit_kept")
+		kept.appraised = true
+		var actions: Array = [
+			{"label": "Swap for your %s (socket 3)" % skill_name, "glyph": "gem", "tone": DeepUi.GOOD, "caption": "Your 9 ct %s goes in the bag" % skill_name, "compare": {"found": raw, "kept": kept}},
+			{"label": "Into the bag", "glyph": "bag", "tone": DeepUi.ACCENT, "caption": "It would be a second of a gem already on your rail, which nobody may carry", "dismiss": true},
+			{"label": "Sell for 1234 pyrite", "glyph": "scales", "tone": DeepUi.ORE, "caption": "Half its worth, on the scales"}]
+		var layer: CanvasLayer = load("res://view/gems/appraisal.gd").new()
+		screen.add_child(layer)
+		layer.call("build", raw, {"actions": actions})
+		layer.call("finish")
+		await _frames(4)
+		await _fits(layer, "the appraisal of a %s with %d inclusions" % [skill_name, count])
+		var buttons: Array = (layer.get("_choices") as Control).find_children("*", "Button", true, false)
+		check(not buttons.is_empty() and buttons.all(func(b: Button) -> bool: return Rect2(Vector2.ZERO, canvas).encloses(b.get_global_rect())),
+			"the appraisal's choices stand on the screen with %d inclusions" % count)
+		layer.free()
+	## The close look at a stone kept at home and priced in the case: five pills under its name.
+	var Inspector: Script = load("res://view/inspect/inspector.gd")
+	var stone: Dictionary = app.profile.vault.values()[0].duplicate(true)
+	stone.id = "fit_other_copy"
+	Inspector.set("vault", {str(stone.skill): app.profile.vault.values()[0]})
+	var sheet: CanvasLayer = Inspector.new()
+	screen.add_child(sheet)
+	sheet.call("_frame", DeepUi.ACCENT, {})
+	sheet.call("_fill_stone", stone, {"market": {"price": 123456, "call": func() -> void: pass}})
+	await _frames(4)
+	var panel: Control = sheet.get("_panel")
+	check(Rect2(Vector2.ZERO, canvas).grow(1.5).encloses(panel.get_global_rect()), "the close look with five pills under its name stays on the screen (%s)" % _rect(panel.get_global_rect()))
+	sheet.free()
+	Inspector.set("vault", {})
+	## A toast too long for one line wraps inside the screen.
+	app.toast("A very long toast that says something about a stone and a die and how the market treats them both when nobody is looking at it.", DeepUi.ACCENT, "spark")
+	await _frames(3)
+	var toasts: Control = app.get("_toasts")
+	check(toasts.get_child_count() > 0 and Rect2(Vector2.ZERO, canvas).encloses(toasts.get_global_rect()), "a long toast wraps inside the screen (%s)" % _rect(toasts.get_global_rect()))
+	for toast in toasts.get_children():
+		toast.free()
 
 # --- down the mine -----------------------------------------------------------------------------
 
@@ -193,6 +357,22 @@ func _run(app: Control) -> void:
 			descent.open_bench("dice")
 			await _fits(screen, "the bench's dice")
 			descent._bench.close()
+			## A finger on a tunnel (November 10, 2026): held, it shows where the tunnel leads
+			## and chooses nothing; a tap off the plate puts it away; a tap takes the tunnel at
+			## once, no second tap. The fight the bot would take, so the run goes on as before.
+			var offers: Array = descent._mouth_offers()
+			var pick: int = 0
+			for index in range(offers.size()):
+				if str(offers[index].get("kind", "")) in ["fight", "elite"]:
+					pick = index
+			descent._stage.mouth_held.emit(pick)
+			check(descent._chip_index == pick and descent._chip.visible, "a finger held on a tunnel shows where it leads")
+			check(str(app.session.run.get("phase", "")) == "tunnels" and str(app.session.local_player().get("vote", "")).is_empty(), "and chooses nothing")
+			descent._press_pick("")
+			check(not descent._chip.visible, "a tap off the tunnel's plate puts it away")
+			descent._choose_mouth(pick)
+			await process_frame
+			check(str(app.session.run.get("phase", "")) != "tunnels" or str(app.session.local_player().get("vote", "")) == str(offers[pick].id), "a tap on a tunnel takes it at once")
 		if phase == "chamber" and DeepDescent.in_battle(run) and not seen.has("fight") and str(DeepDescent.battle(run).get("phase", "")) == "planning":
 			seen.fight = true
 			await _fits(screen, "a fight, planning")

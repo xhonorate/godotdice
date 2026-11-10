@@ -904,19 +904,19 @@ func strength_heads_and_empowerment() -> void:
 	land(c.foe, ["Fold"])
 	var fold: Array = turn(c)
 	check(moves_named(fold, "Fold").size() == 1 and int(c.player.gold) == amount_of("CROUPIER_CRAB", "Fold"), "Fold does nothing but drop pyrite: %d" % int(c.player.gold))
-	## The Anvil Knight: Quench is Strength 2, Bulwark a wall that hits back and is kept, and
+	## The Anvil Knight: Quench is Strength (its written amount), Bulwark a wall that hits back and is kept, and
 	## Temper turns a Hammer face on its hammer into a Smite.
 	var k: Dictionary = setup(["THE_ANVIL_KNIGHT"])
 	k.foe.block = 0
 	land(k.foe, ["Quench", "Bulwark"])
 	var temper: Array = turn(k)
-	check(moves_named(temper, "Quench").size() == 1 and int(k.foe.statuses.get("strength", 0)) == 2, "Quench makes it Strength 2")
+	check(moves_named(temper, "Quench").size() == 1 and int(k.foe.statuses.get("strength", 0)) == amount_of("THE_ANVIL_KNIGHT", "Quench"), "Quench makes it Strength %d" % amount_of("THE_ANVIL_KNIGHT", "Quench"))
 	check(moves_named(temper, "Bulwark").size() == 1 and int(k.foe.block) >= amount_of("THE_ANVIL_KNIGHT", "Bulwark") and int(k.foe.statuses.get("spikes", 0)) == amount_of("THE_ANVIL_KNIGHT", "Bulwark", 1)
 		and int(k.foe.statuses.get("retain", 0)) >= DeepRules.CEILING, "Bulwark raises a wall that hits back, and keeps it: %d block" % int(k.foe.block))
 	land(k.foe, ["Hammer", "Smite"])
 	var hammer: Array = turn(k)
-	check(moves_named(hammer, "Hammer").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [amount_of("THE_ANVIL_KNIGHT", "Hammer") + 2]
-		and moves_named(hammer, "Smite").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [amount_of("THE_ANVIL_KNIGHT", "Smite") + 2], "and every blow after hits 2 harder")
+	check(moves_named(hammer, "Hammer").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [amount_of("THE_ANVIL_KNIGHT", "Hammer") + amount_of("THE_ANVIL_KNIGHT", "Quench")]
+		and moves_named(hammer, "Smite").map(func(e: Dictionary) -> int: return int(e.effects[0].raw)) == [amount_of("THE_ANVIL_KNIGHT", "Smite") + amount_of("THE_ANVIL_KNIGHT", "Quench")], "and every blow after hits that much harder")
 	check(int(k.foe.statuses.get("spikes", 0)) == 0, "the Bulwark's spikes came down as that action opened")
 	var t: Dictionary = setup(["THE_ANVIL_KNIGHT"])
 	var smites: int = faces_of(t.foe, "Smite", 1)
@@ -1124,7 +1124,7 @@ func scaling_with_the_mine() -> void:
 	## does for itself grows with its health, what it strips or burns grows with its blows.
 	var deep: Dictionary = setup(["QUARTZ_GOLEM"], 1, {"depth": 1, "scale": {"hp": 4.0, "damage": 2.5}, "tough": false})
 	var golem: Dictionary = deep.foe
-	check(DeepCreatures.health_pct(golem) == 400 and int(golem.block) == 24, "a golem bred four times as tough walks in behind four times the block: %d" % int(golem.block))
+	check(DeepCreatures.health_pct(golem) == 400 and int(golem.block) == 4 * int(DeepContent.creature("QUARTZ_GOLEM").block), "a golem bred four times as tough walks in behind four times the block: %d" % int(golem.block))
 	var harden: Dictionary = {"kind": "block", "target": "self", "amount": {"term": "rolled"}}
 	var resolved: Dictionary = DeepRules.resolve_effect(harden, {"rolled": 5}, 1.0, "heroes")
 	DeepCreatures.scale_effect(golem, resolved, harden)
@@ -1158,7 +1158,7 @@ func scaling_with_the_mine() -> void:
 	check(int(DeepBattle._poison_tick(deep.state, golem).amount) == 4, "on a creature it is only its stacks")
 	## The Quarry is untouched: one player, the first floor, plain weights.
 	var plain: Dictionary = setup(["QUARTZ_GOLEM"], 1, {"tough": false})
-	check(DeepCreatures.health_pct(plain.foe) == 100 and int(plain.foe.block) == 6 and int(plain.state.creature_damage_pct) == 100, "a Quarry golem on the first floor is as written")
+	check(DeepCreatures.health_pct(plain.foe) == 100 and int(plain.foe.block) == int(DeepContent.creature("QUARTZ_GOLEM").block) and int(plain.state.creature_damage_pct) == 100, "a Quarry golem on the first floor is as written")
 	## What its move table says about a Poison or Burn that will hurt harder here.
 	var imp: Dictionary = setup(["FORGE_IMP"], 1, {"scale": {"hp": 1.0, "damage": 2.85}})
 	var cackle: Dictionary = DeepCreatures.display_moves(imp.foe)[0].effects[0]

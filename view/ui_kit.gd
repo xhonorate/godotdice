@@ -1186,7 +1186,33 @@ static func effect_text(parent: Node, text: String, size: int = 13, color: Color
 	push_effect_text(rtl, text)
 	rtl.pop_all()
 	parent.add_child(rtl)
+	## A finger has no hover: held on a keyword, the words say what it means (Tips.word_hold).
+	if phone or DisplayServer.is_touchscreen_available():
+		load("res://view/ui/tips.gd").word_hold(rtl)
 	return rtl
+
+static func cap_row(row: HBoxContainer, most: float) -> void:
+	## Holds a row of words (a toast, a line of marks and words) to `most` pixels across: past it,
+	## its longest words wrap onto more lines instead of running off the screen (November 10,
+	## 2026: the well's long answer ran past both edges of the phone).
+	var excess: float = row.get_combined_minimum_size().x - most
+	if excess <= 0.0:
+		return
+	var widest: Label = null
+	for child in row.get_children():
+		if child is Label and (widest == null or (child as Label).get_combined_minimum_size().x > widest.get_combined_minimum_size().x):
+			widest = child as Label
+	if widest == null:
+		return
+	var across: float = widest.get_combined_minimum_size().x
+	widest.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	widest.custom_minimum_size.x = maxf(80.0, across - excess)
+
+static func toast_width() -> float:
+	## The widest a toast stands: well inside the screen, the phone's safe edges kept.
+	var tree := Engine.get_main_loop() as SceneTree
+	var across: float = tree.root.get_visible_rect().size.x if tree != null and tree.root != null else 1600.0
+	return minf(pt(560) if phone else 820.0, across - safe_left - safe_right - pt(40))
 
 static func title(parent: Node, text: String, size: int = 26, color: Color = PAPER, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	## A display-face title with a soft shadow, for the name of a place or a moment.
@@ -1611,6 +1637,8 @@ static func tab_button(parent: Node, glyph: String, text: String, active: bool, 
 	## along its foot, the facet's way of marking a choice.
 	var b := icon_button(parent, glyph, text if badge <= 0 else "%s  %d" % [text, badge], callback, size, ACCENT if active else MUTED, rainbow)
 	b.set_meta("sound", "ui_tab")
+	## Which tab of its row is open, for a sideways flick to turn to the next (Swipe.turn_tabs).
+	b.set_meta("tab_on", active)
 	if active:
 		var on := button_style(Color(ACCENT, 0.12), Color(0, 0, 0, 0), 10)
 		on.border_color = ACCENT

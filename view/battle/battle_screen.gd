@@ -88,15 +88,17 @@ static var RAIL_GAP: float = 6.0
 static var TRAY_GAP: float = 8.0
 
 static func use_phone_sizes() -> void:
-	## The phone's dock (docs/PHONE_UI.md, the approved mockups of November 7, 2026): a socket
-	## and a die 44 points, the face in its ring 70, no names over the rail (a held ring says
-	## whose gem it is), the trigger row 13 points, the buttons 36 tall. All in canvas pixels.
+	## The phone's dock (docs/PHONE_UI.md, the approved mockups of November 7, 2026, made
+	## shorter on the owner's word of November 10 to give the room more of the screen, from the
+	## buttons and the gaps, the dice kept their size): a socket and a die 44 points, the face in
+	## its ring 70, no names over the rail (a held ring says whose gem it is), the trigger row 13
+	## points, the buttons 30 tall, 4 points under the dice. All in canvas pixels.
 	DIE_EDGE = DeepUi.pt(44)
 	SOCKET_EDGE = DeepUi.pt(44)
 	VITALS_EDGE = DeepUi.pt(70)
 	OVER_ROW = 0.0
 	DIE_WORDS = 0.0
-	BUTTONS_ROW = DeepUi.pt(36)
+	BUTTONS_ROW = DeepUi.pt(30)
 	METER_ROW = DeepUi.pt(13)
 	NAME_ROW = 0.0
 	RING_TOP = 0.0
@@ -109,6 +111,10 @@ static func use_phone_sizes() -> void:
 	RAIL_GAP = DeepUi.pt(6)
 	TRAY_GAP = DeepUi.pt(6)
 	VoidMarks.use_phone()
+## The phone's dock: the room inside its bar (points, over the safe edge at its foot), and the
+## gap between the dice and the buttons under them. The run's dock keeps the same.
+const PHONE_DOCK_PAD: float = 4.0
+const PHONE_UNDER_DICE: float = 4.0
 ## A Void rider's gem drawn faint behind the ring it fans out from (the run's dock; the fight
 ## draws its riders as moons and its phantoms in a row, view/battle/void_marks.gd).
 const VOID_GHOST := Color(0.78, 0.84, 1.0, 0.55)
@@ -379,6 +385,10 @@ var _phantom_views: Dictionary:
 ## by itself if one never does, so nothing is held for good.
 var _held: Dictionary = {}
 const HELD_MS: int = 6000
+## Landings that come after their step's own (a blow thrown back off a creature, a round of
+## Poison or Burn played tick by tick), held on the bars by `_hold_late` and let go one by one
+## as each is seen to land (`_land_late`). Kept by the very dictionary the event carries.
+var _late_hits: Array = []
 ## The Creature Tells pass (October 27, 2026): what creatures did to the reader's dice and
 ## gems, remembered past the event so the tray and the rail can say who did it. Dice a
 ## Latch took (die id -> by, name, turn), dice locked and broken by a creature (die id ->
@@ -659,8 +669,11 @@ func _build_hud() -> void:
 	_picker.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_picker.mouse_filter = Control.MOUSE_FILTER_PASS
 	_picker.gui_input.connect(_pick_input)
-	## A finger held on a creature opens its close look, as a right-click does.
+	## A finger held on a creature opens its close look, as a right-click does; while a turn plays
+	## out, a held finger is hurrying it instead (`_hurry`), and the look waits for the planning.
 	Tips.hold(_picker, func() -> Variant:
+		if str(state.get("phase", "")) == "resolving":
+			return true
 		var id: String = _creature_at(_picker.get_meta("tip_press_at", Vector2(-1000, -1000)))
 		if id.is_empty():
 			return false
@@ -853,7 +866,7 @@ func _build_page(page: Page) -> void:
 	_phantom_box = DeepUi.hbox(hand_row, 6)
 	_phantom_box.visible = false
 	if DeepUi.phone:
-		DeepUi.gap(middle, DeepUi.pt(6)).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		DeepUi.gap(middle, DeepUi.pt(PHONE_UNDER_DICE)).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var buttons := DeepUi.hbox(middle, int(DeepUi.pt(6)) if DeepUi.phone else 12)
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	if page.mine:
@@ -958,7 +971,7 @@ func _dress_dock(tone: Color, _theirs: bool) -> void:
 	_dock_tone = tone
 	var first: bool = _dock_style == null
 	if first:
-		_dock_style = DeepUi.phone_bar(tone) if DeepUi.phone else DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, 12, 3, 5)
+		_dock_style = DeepUi.phone_bar(tone, true, PHONE_DOCK_PAD) if DeepUi.phone else DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, 12, 3, 5)
 		_dock.add_theme_stylebox_override("panel", _dock_style)
 	if _dock_tween != null and _dock_tween.is_valid():
 		_dock_tween.kill()
@@ -1212,7 +1225,7 @@ func _sync() -> void:
 	if downed:
 		_hint.text = "You are down. The party fights on." if _party_standing() else "You are down."
 	elif resolving:
-		_hint.text = "Resolving…  tap to hurry" if DeepUi.phone else "Resolving…  click to hurry"
+		_hint.text = "Resolving…  hold to hurry"
 	elif not planning:
 		## The fight is over: there is nothing left to hurry.
 		_hint.text = ""
@@ -2096,15 +2109,76 @@ func _hold_vitals(effects: Array, by: String = "") -> void:
 	var parried: int = _parried(effects) if not by.is_empty() else 0
 	if parried > 0:
 		_vital_move(moved, by, 0, -parried)
+	_late_moves(effects, moved)
 	_hold_moves(moved)
 
 func _hold_parry(effects: Array, by: String) -> void:
-	## Only a Riposte's guard, for blows that are not counted first.
+	## Only a Riposte's guard, for blows that are not counted first, and whatever of theirs lands
+	## later still (a blow thrown back at its thrower, a round of Poison).
+	var moved: Dictionary = {}
 	var parried: int = _parried(effects)
 	if parried > 0:
-		var moved: Dictionary = {}
 		_vital_move(moved, by, 0, -parried)
-		_hold_moves(moved)
+	_late_moves(effects, moved)
+	_hold_moves(moved)
+
+func _hold_late(ticks: Array) -> void:
+	## A round of ticks (the turn's Poison and Burn, Regeneration): each unit's bar reads as it
+	## was until its own tick is played, TICK_GAP after the one before.
+	var moved: Dictionary = {}
+	_tick_moves(ticks, moved)
+	_hold_moves(moved)
+
+func _late_moves(effects: Array, into: Dictionary) -> void:
+	## What lands on a player after the blow that caused it: a creature's Spikes, a refraction
+	## or a mirror sending the gem's blow back. The rules took it off with the gem; the bar
+	## waits for the streak that brings it (`_impact`). And a gem's round of Poison, tick by tick.
+	for effect in effects:
+		if not effect is Dictionary:
+			continue
+		match str(effect.get("kind", "")):
+			"damage":
+				for hit in [effect] + effect.get("splash", []):
+					if not hit is Dictionary:
+						continue
+					var backs: Array = hit.get("reflections", []).duplicate()
+					for key in ["spikes", "mirrored"]:
+						if hit.get(key, null) is Dictionary:
+							backs.append(hit[key])
+					for back in backs:
+						if back is Dictionary and _is_player(str(back.get("target", ""))):
+							_vital_move(into, str(back.target), int(back.get("hp_loss", 0)), int(back.get("absorbed", 0)))
+							_late_hits.append(back)
+			"appraise", "invert_previous":
+				_late_moves(effect.get("hits", []), into)
+			"tick_poison", "poison_tick":
+				_tick_moves(effect.get("ticks", []), into)
+		_late_moves(effect.get("poison_spread", []), into)
+
+func _tick_moves(ticks: Array, into: Dictionary) -> void:
+	for tick in ticks:
+		if not tick is Dictionary or bool(tick.get("risen", false)) or tick.has("lifeline"):
+			## A tick that brought its unit back up moves the bar by more than it says: let it show.
+			continue
+		var id: String = str(tick.get("unit", ""))
+		if not _is_player(id) and _creature(id) == null:
+			continue
+		match str(tick.get("kind", "")):
+			"poison", "burn":
+				_vital_move(into, id, int(tick.get("amount", 0)), int(tick.get("soaked", 0)))
+			"regeneration":
+				_vital_move(into, id, -int(tick.get("amount", 0)), 0)
+			_:
+				continue
+		_late_hits.append(tick)
+
+func _land_late(hit: Dictionary, hp: int, block: int, id: String = "") -> void:
+	## One of `_late_hits` has landed: its bar moves now. Anything not held is left alone.
+	for index in range(_late_hits.size()):
+		if is_same(_late_hits[index], hit):
+			_late_hits.remove_at(index)
+			_land_vitals(id if not id.is_empty() else str(hit.get("target", hit.get("unit", ""))), hp, block)
+			return
 
 func _hold_moves(moved: Dictionary) -> void:
 	for id in moved:
@@ -3267,8 +3341,8 @@ func _birth_plate(page: Page, unit_id: String) -> Control:
 		DeepUi.effect_text(box, str(stone.get("text", "")), 12, DeepUi.MUTED)
 	var planning: bool = str(state.get("phase", "")) == "planning"
 	var preview: Dictionary = page.birth_outcome if not planning and not page.birth_outcome.is_empty() else page.forecast.get("birthstone", {})
-	var previewed: Array = preview.get("tiers", []) if Time.get_ticks_msec() >= page.dice_settle_at else []
 	var defs: Array = unit.get("birthstone", {}).get("tiers", [])
+	var previewed: Array = tier_outcomes(unit, defs, preview) if Time.get_ticks_msec() >= page.dice_settle_at else []
 	Plates.section(box, "Its tiers")
 	for index in range(defs.size()):
 		var tier: Dictionary = defs[index]
@@ -3296,7 +3370,7 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 	## The forecast until the Birthstone has actually resolved this turn, then what it did.
 	var preview: Dictionary = _birth_outcome if not planning and not _birth_outcome.is_empty() else forecast.get("birthstone", {})
 	var defs: Array = unit.get("birthstone", {}).get("tiers", [])
-	var previewed: Array = preview.get("tiers", [])
+	var previewed: Array = tier_outcomes(unit, defs, preview)
 	## The bezel wakes for a tier worth firing; a penalty on its own (a Bust) leaves it dark.
 	var rewarded: bool = false
 	for index in range(mini(defs.size(), previewed.size())):
@@ -3319,6 +3393,31 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 	var tiers_row: Node = _birthstone_card.get_node_or_null("Tiers")
 	if tiers_row != null:
 		lay_tiers(tiers_row, defs, previewed, showing)
+
+static func tier_outcomes(unit: Dictionary, defs: Array, preview: Dictionary) -> Array:
+	## Every tier as the hand reads it, for the marks under the Birthstone and its plate. The
+	## rules stop landing tiers once the fight is won (`DeepBattle.resolve_birthstone`), so a
+	## first tier that finishes the last creature leaves the ones after it out of the forecast
+	## and the event: Vesper's Thousand Cuts on a crowned d12 left Clean Kill dark although the
+	## hand had earned it. A tier left out is read off the hand here, lit when its trigger holds
+	## (and no exclusive tier before it took its place); it carries no count, so nothing is
+	## figured for it.
+	var listed: Array = preview.get("tiers", [])
+	if listed.size() >= defs.size() or listed.is_empty():
+		return listed
+	var out: Array = listed.duplicate()
+	var exclusive: bool = false
+	for index in range(listed.size()):
+		if listed[index] is Dictionary and bool(listed[index].get("active", false)) and index < defs.size() and bool(defs[index].get("exclusive", false)):
+			exclusive = true
+	var a: Dictionary = DeepHand.analyze(unit.get("hand", []))
+	var resonance: int = int(preview.get("resonance", unit.get("resonance", 0)))
+	for index in range(listed.size(), defs.size()):
+		var trigger: Dictionary = defs[index].get("trigger", {"kind": "always"})
+		var trig: Dictionary = DeepPatterns.evaluate(trigger, 0, a, {"resonance": resonance})
+		out.append({"name": str(defs[index].get("name", "")), "active": bool(trig.get("active", false)) and not exclusive,
+			"dice": trig.get("dice", []), "reason": str(trig.get("reason", "")), "unlanded": true})
+	return out
 
 static func name_row(card: Control, text: String, tone: Color, width: float) -> Label:
 	## A stone's name in the row over its ring, NAME_ROW tall at any text size: a name the
@@ -4185,13 +4284,19 @@ func _pick_input(event: InputEvent) -> void:
 # --- space ---------------------------------------------------------------------------------
 
 func _hurry_input(event: InputEvent) -> void:
-	## A click on the dock while a turn plays out hurries it, like one in the room.
+	## A press held on the dock while a turn plays out hurries it, like one in the room.
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and str(state.get("phase", "")) == "resolving":
 		_hurry()
 
+## Whether the turn is being hurried by a press still held down (`_hurry`, `_hurry_let_go`).
+var _hurry_held: bool = false
+
 func _hurry() -> void:
-	## Asks the clock to hurry the turn along, and says it was heard: the hint over the tray
-	## jumps and a pair of chevrons runs off it, no more often than the eye can follow.
+	## Asks the clock to hurry the turn along for as long as the press (the mouse's button, a
+	## finger, Space) is held, and says it was heard: the hint over the tray jumps and a pair of
+	## chevrons runs off it, no more often than the eye can follow. `_process` lets go of it
+	## once nothing is held down any more, wherever the press was let go.
+	_hurry_held = true
 	command.emit({"kind": "hurry"})
 	var now: int = Time.get_ticks_msec()
 	if _headless or now - _hurried_at < 260:
@@ -4203,6 +4308,17 @@ func _hurry() -> void:
 		DeepUi.pulse(hint, 1.12, 0.25)
 		_float_at(hint, "»", DeepUi.ACCENT_HI, 24)
 	DeepAudio.play("ui_tap", {"volume": 0.35, "gap": 0.05})
+
+func _hurry_let_go() -> void:
+	## The press that hurried the turn is up: back to the fight's own speed.
+	if not _hurry_held:
+		return
+	_hurry_held = false
+	command.emit({"kind": "hurry", "held": false})
+
+func _hurry_still_held() -> bool:
+	## A finger on the glass reads as the mouse's left button (touch emulates the mouse).
+	return Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_key_pressed(KEY_SPACE)
 
 var _hurried_at: int = 0
 ## How often the creature's table is checked against the room, and when it is next due.
@@ -4222,6 +4338,8 @@ func _control_world(control: Control, distance: float = 1.8) -> Vector3:
 	return _from_screen(local, distance)
 
 func _process(delta: float) -> void:
+	if _hurry_held and (not _hurry_still_held() or str(state.get("phase", "")) != "resolving"):
+		_hurry_let_go()
 	## The table is weighed against the creatures a few times a second rather than every
 	## frame, and at once whenever it has changed size.
 	_panel_clock -= delta
@@ -4262,7 +4380,8 @@ func _process(delta: float) -> void:
 	## breathes, rears or reels must not drag its tag about while somebody is reading it. The
 	## camera frames the room so the highest tag fits under its title; only a creature too tall
 	## for that in the widest view wears its tag at its feet. `highest` is the top of the highest
-	## tag (or head, under a tag worn at the feet), which the camera frames by.
+	## tag, or where it would stand over the head for a tag worn at the feet, which the camera
+	## frames by.
 	var ceiling: float = (DeepUi.pt(30) if DeepUi.phone else 72.0) + TAG_HEADROOM
 	var highest: float = INF
 	var placed: Array = []
@@ -4294,8 +4413,13 @@ func _process(delta: float) -> void:
 			plate.set_meta("over_head", over >= ceiling or _camera.home_fov < WIDEST_FOV - 0.5)
 		var above: bool = bool(plate.get_meta("over_head"))
 		var goal := Vector2(top.x - plate.size.x * 0.5, over) if above else Vector2(feet.x - plate.size.x * 0.5, feet.y + TAG_DROP)
+		## A tag worn at the feet frames the view by where it would stand over the head, not by the
+		## head: it is only there because the view is at its widest, and the view must stay so.
+		## Framed by the head, the view closed in a little, which put the tag back over the head,
+		## which opened the view to its widest, which sent the tag to the feet again, every frame:
+		## the boss's tag shook up and down on a phone (The Undertow, November 10, 2026).
 		if not plate.fading and not bool(creature.get_meta("dying", false)):
-			highest = minf(highest, over if above else top.y)
+			highest = minf(highest, over)
 		placed.append([plate, goal, above])
 	_spread_tags(placed, ceiling)
 	for entry in placed:
@@ -4838,6 +4962,8 @@ func perform(event: Dictionary) -> void:
 	var kind: String = str(event.get("kind", ""))
 	if kind == "turn_begin":
 		selected.clear()
+		## Anything a turn left held has lapsed by now (`_shown` lets go at planning).
+		_late_hits.clear()
 		for entry in event.get("hands", []):
 			if str(entry.get("unit", "")) == local_id:
 				_pending_dues = entry.get("dues", {})
@@ -4987,6 +5113,10 @@ func perform(event: Dictionary) -> void:
 						DeepUi.burst(self, _center_of(_socket_cards[int(event.socket)]), Color("ff8ad8"), 12, 130.0, 0.45, 4.0)
 					_screen_fx.wound(0.4)
 					_float_at(_hp_bar, "−%d Backlash" % int(event.backlash), Color("ff8ad8"), 18)
+				## Blood the gem asked for (Bloodletting) is paid as it fires: the bar drops now, so
+				## the number says why.
+				if int(event.get("hp_cost", 0)) > 0:
+					_float_at(_hp_bar, "−%s" % DeepUi.number(int(event.hp_cost)), DeepUi.BAD, 18)
 				if bool(event.get("damped", false)):
 					_float_at(_resonance_box, "Dampened", Color("c8b8ff"), 14)
 			## A Refractor drinking in a color it had not seen: a point of Strength more.
@@ -5090,6 +5220,7 @@ func perform(event: Dictionary) -> void:
 			_enemy_move(event)
 		"tick":
 			_leech_token += 1
+			_hold_late(event.get("ticks", []))
 			_animate_ticks(event.get("ticks", []), 0.0)
 		"skip":
 			var who: String = str(event.get("unit", ""))
@@ -5163,6 +5294,11 @@ func _animate_tick(tick: Dictionary) -> void:
 	var color: Color = DeepUi.POISON if str(tick.get("kind", "")) == "poison" else (Color("ff7a2a") if str(tick.get("kind", "")) == "burn" else DeepUi.GOOD)
 	## Burning is a wound like poison; block soaking it shows as block lost.
 	var hurt: bool = str(tick.get("kind", "")) in ["poison", "burn"]
+	## Its bar moves now, not when the round began (`_hold_late`).
+	if hurt:
+		_land_late(tick, int(tick.get("amount", 0)), int(tick.get("soaked", 0)), target_id)
+	else:
+		_land_late(tick, -int(tick.get("amount", 0)), 0, target_id)
 	if hurt and int(tick.get("amount", 0)) > 0:
 		_react(target_id, "wince", 0.7)
 	if str(tick.get("kind", "")) == "burn" and int(tick.get("soaked", 0)) > 0 and target_id == local_id:
@@ -6196,6 +6332,14 @@ func _dice_dues(dues: Dictionary, die_ids: Array = []) -> void:
 			DeepAudio.play("hit_light", {"volume": 0.5})
 			_float_at(_hp_bar, "-%d" % blood, gore, 20)
 			DeepUi.burst(self, _center_of(anchor), gore, 14, 90.0, 0.5))
+		## Each Blood die that took it sends the blood to the reader's own health ring. These are
+		## only ever the reader's dues (a teammate's reroll plays nothing here), and a die
+		## whose page is not up plays nothing either (DiceView.blood_reroll).
+		var ring: VitalsRing = _local_page.hp_bar
+		for id in die_ids:
+			var bled: Variant = _local_page.dice_views.get(str(id), null)
+			if bled != null and is_instance_valid(bled) and is_instance_valid(ring) and str(bled.die.get("material", "")) == "blood":
+				bled.blood_reroll(ring.get_global_rect().get_center())
 	var beat: float = 0.42
 	for climb in dues.get("climbed", []):
 		var grown: Control = _die_anchor(str(climb.get("die", "")))
@@ -6693,6 +6837,7 @@ func _impact(who: String, hit: Dictionary, color: Color, mine: bool, by: String 
 	for reflection in hit.get("reflections", []):
 		_reflected_blow(reflection, creature, Color("c8b8ff"), "reflected")
 	if hit.has("spikes"):
+		_land_late(hit.spikes, int(hit.spikes.get("hp_loss", 0)), int(hit.spikes.get("absorbed", 0)))
 		_enemy_effect(hit.spikes, creature)
 	if not str(hit.get("split", "")).is_empty():
 		_float_world(at + Vector3(0, 1.0, 0), "It splits!", Color("9fd8c8"), 18)
@@ -7042,6 +7187,11 @@ func _kill(creature: CrystalCreature) -> void:
 	else:
 		ScreenFx.hold(0.08 if not creature.warden else 0.14, 0.05)
 	DeepAudio.play_at(global_position + _to_screen(at), "warden_die" if creature.warden else "creature_die", {"gap": 0.0})
+	## Every Blood die in the reader's hand feeds on it (its face climbs): a thread of blood
+	## runs from where the creature fell into each one on screen (DiceView.blood_fed).
+	for view in _local_page.dice_views.values():
+		if is_instance_valid(view) and str(view.die.get("material", "")) == "blood":
+			view.blood_fed(global_position + _to_screen(at))
 	_fx.shards(at, creature.tint, 18, 4.5, 0.16, 1.2)
 	_fx.sparks(at, creature.tint, 60, 7.0, 0.9, 0.08)
 	_fx.flash(at, creature.tint.lightened(0.3), 10.0, 10.0, 0.5, 1.8)
@@ -7950,6 +8100,7 @@ func _reflected_blow(back: Dictionary, creature: CrystalCreature, glass: Color, 
 		DeepUi.shake(_hp_bar, 10.0, 0.35)
 		_screen_fx.wound(0.5)
 		_screen_fx.blink(glass, 0.18)
+	_land_late(back, int(back.get("hp_loss", 0)), int(back.get("absorbed", 0)))
 	_reflecting = word
 	_enemy_effect(back, creature)
 	_reflecting = ""

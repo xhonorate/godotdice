@@ -24,9 +24,10 @@ const COUNTS: Array = [["Full", 1.0], ["Quick", 0.5], ["Off", 0.0]]
 const TEXT_SIZES: Array = [["Standard", 0.0], ["Large", 1.0]]
 ## How to play on the phone: what a finger does, in place of the keys (board sys-touch).
 const TOUCHES: Array = [
-	["Tap", "Does what a click does: pick a die to reroll, take a way on, an offer or a stone. A first tap on a tunnel shows where it leads"],
-	["Hold", "Anything's card: a stone, a die, a creature, a mark. Details on the card opens the close look"],
+	["Tap", "Does what a click does: pick a die to reroll, take a way on, an offer or a stone"],
+	["Hold", "Anything's card: a stone, a die, a creature, a mark, where a tunnel leads. Details on the card opens the close look. While a turn plays out, it runs fast as long as you hold"],
 	["Drag", "A stone into a socket, a die to a new place; turns a model in the close look"],
+	["Swipe", "Sideways across a workshop page turns its tabs: Expedition and Daily dig, the Market's, You's"],
 	["Tap outside", "Puts away a card, a panel or a close look"],
 	["Gear", "This menu: settings, how to play and the way out"],
 ]
@@ -38,7 +39,7 @@ const CONTROLS: Array = [
 	["Q / E", "In the workshop, step through your delvers"],
 	["Enter", "In the workshop, set out from the Descend tab"],
 	["R", "Reroll the picked dice"],
-	["Space", "Lock in your hand; while a turn plays out, hurry it (so does a click)"],
+	["Space", "Lock in your hand; while a turn plays out, hold it to hurry (or hold a click)"],
 	["F", "Fast fights on or off (the Harlequin shifts the picked die instead)"],
 	["B", "Open the bag; the whole bench when the bag is not at hand"],
 	["M", "Fold out the chart of the stretch"],

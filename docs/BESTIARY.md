@@ -589,3 +589,39 @@ The owner's second round of playtest rulings, as built:
   Ember 4, Ember Crawler Sear 3, Smelter Scald 4, Anvil Knight Forge-fire 5, Kiln Wyrm
   Firebreath 5. The Puffball's swelling Burst, Festering and the poison ticks are as they were.
   The tables above keep the earlier numbers as history.
+
+## 13. Creatures a little stronger (November 10, 2026)
+
+The owner asked for creatures a bit stronger across the board, and most of all their Poison and
+Burn, their damage through block and the block they raise. Content numbers only (plus one
+bookkeeping fix); every number changed is listed in build/nov10/balance/CHANGES.txt.
+
+- **Every mine's weight** goes up a little: creature health ×1.05 and damage ×1.08 on each mine's
+  `hp_mult` and `damage_mult` (the Quarry 1.05 / 1.08 … the Rift 35.7 / 5.18). Through G1 and G2
+  the health weight also lifts every block, heal and Retain a creature gives itself, and the
+  damage weight every Poison and Burn tick and block-stripping.
+- **Poison and Burn: a stack more again.** Silt Slime Engulf 4, Spore Slime Spores 4, Cinder Moth
+  Embers 4 a reroll, Fire Tick Ignite 4, Forge Imp Cackle 4, Salamander Ember 5, Ember Crawler
+  Sear 4, Smelter Scald 5, Anvil Knight Forge-fire 6, Kiln Dragon Firebreath 6, and the Spore
+  Mother's Spore 5 (the owner's pick); her health comes down 170 → 155 to pay for it.
+- **Damage through block, about a fifth more:** Vein and Mycel Wraith Wail 7, the Drill's
+  Overdrive 30, Sluice 12, Requiem Chorus 24, the Undertow's Slam 11, Shard Wyrm Shatterbreath 14,
+  Lancet 12, Slag Hound Maul 4, Shatter 18, Lavafall 17, Collapse 7, Singularity 22.
+- **Block, about a quarter more:** every guard face (Gather 15, Fortify 13, Shore Up 15, Shell 10,
+  Brace 15, Dam 8, Anneal 10, Thorns 10, Slag Armour 10, the Anvil Knight's Bulwark 14, Shut 10,
+  Balance 10, Case 10, the Hollow Crown's Bulwark 13) and the block every creature walks in
+  behind (the Quartz Golem 8, the Foreman 10, the Drill 15, the Anvil Knight 18, the Unmade 19…).
+- **A slime's split half is met.** A Silt or Spore Slime's split was never counted as met, so a
+  run that killed both halves wrote the slime slain more often than met. The half now carries
+  `split_from` and `DeepBestiary.settled` meets it as it does a creature called in.
+
+- **Two Wardens softened back a little** (the owner, the same day): they were the fights the
+  buff hit hardest. The Anvil Knight's health 190 → 160 and its Quench 2 → 1 Strength (its own
+  buffed numbers barely moved the fight); the Heartrot's health 280 → 270.
+
+Measured with build/nov10/balance/fight_bench.gd (a two-player bot party per mine, 200 fights a
+slot; results in build/nov10/balance/bench_before_after.txt): ordinary fights lose 0-10 more
+points of the party's health and win as often; most Wardens lose 0-10 points of win rate; the
+Geode's deep bands, already close, lose more (51 → 38-42% for the bot). The three Wardens tuned
+afterwards, at 400 fights (bot win rate before → after): the Anvil Knight 61.5 → 55.5%, the
+Heartrot 23.5 → 18%, the Spore Mother 75.5 → 62%.

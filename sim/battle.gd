@@ -4782,6 +4782,8 @@ static func _damage(state: Dictionary, source: Dictionary, target: Dictionary, a
 			twin.id = "%s_split%d" % [str(target.id), state.enemies.size()]
 			twin.hp = half
 			twin.max_hp = half
+			## Met when the fight ends, like a creature called in (DeepBestiary.settled).
+			twin.split_from = str(target.id)
 			DeepCreatures.prepare(twin)
 			for index in range(twin.dice.size()):
 				twin.dice[index].id = "%s_d%d" % [str(twin.id), index]

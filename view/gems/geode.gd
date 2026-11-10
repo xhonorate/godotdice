@@ -67,6 +67,10 @@ var _lamp: TextureRect
 var _card: PanelContainer
 var _card_style: StyleBoxFlat
 var _sheet: Control
+## The phone's: the column it all stands in, the sheet's scroll and the foot under the card.
+var _column: VBoxContainer
+var _sheet_scroll: ScrollContainer
+var _foot: VBoxContainer
 var _skip: Label
 var _choices: Control
 var _flash: ColorRect
@@ -153,7 +157,12 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(centre)
+	## The phone's column stands inside the safe edges (Appraisal.fit_phone holds it there).
+	if DeepUi.phone:
+		centre.offset_top = DeepUi.safe_top + Appraisal.PHONE_EDGE
+		centre.offset_bottom = -(DeepUi.safe_bottom + Appraisal.PHONE_EDGE)
 	var column := DeepUi.vbox(centre, int(DeepUi.pt(3)) if DeepUi.phone else 10)
+	_column = column
 	var titles: Dictionary = {"geode": geode_name(geode), "contract": "The contract", "twin": "Two of a kind"}
 	var subtitles: Dictionary = {"geode": "Strike it. Three blows open it.", "contract": "Five stones go in; one comes out.",
 		"twin": "Two stones go into the fire. The heavier comes out, and maybe a little more."}
@@ -249,11 +258,12 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 		## Read beside the stone as it was before the fire, not beside a vault's stone.
 		sheet_opts = {"skill_text": false, "owned_picture": false, "found_heading": "Out of the fire", "owned_heading": "Before", "owned_note": "the one you held"}
 	_sheet = Appraisal.Sheet.new(stone, owned, Appraisal.phone_sheet(sheet_opts))
-	card_box.add_child(_sheet)
+	_sheet_scroll = Appraisal.phone_scroll(card_box, _sheet)
 	if mode == "twin" and int(opts.get("paid", 0)) > 0:
 		DeepUi.stat(card_box, "ore", "%d pyrite paid" % int(opts.get("paid", 0)), DeepUi.ORE, 12)
 	var foot := DeepUi.vbox(column, 6)
 	foot.custom_minimum_size.y = DeepUi.pt(40) if DeepUi.phone else 80.0
+	_foot = foot
 	_skip = DeepUi.label(foot, ("Tap the Geode to strike" if mode == "geode" else "Tap to skip ahead") if DeepUi.phone else ("Click the Geode or press Space to strike · Esc skips" if mode == "geode" else "Click or press Space to skip ahead"), 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	_choices = Appraisal.choices(foot, actions, close)
 	_choices.visible = false
@@ -262,6 +272,16 @@ func build(kind: String, shelf_geode: Dictionary, inputs: Array, made: Dictionar
 	_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_flash)
+	_fit_soon()
+
+func _fit_soon() -> void:
+	## The phone's fit (Appraisal.fit_phone), two frames on, once every wrapped line knows its width.
+	if not DeepUi.phone or not is_inside_tree():
+		return
+	for i in range(2):
+		await get_tree().process_frame
+	if is_instance_valid(self) and not _closing and _column != null:
+		Appraisal.fit_phone(_column, _sheet_scroll, _stage, DeepUi.pt(200), _foot, _choices)
 
 # --- what the shelf and this page say about a Geode ---------------------------------------------------
 
@@ -468,7 +488,11 @@ func _read() -> void:
 	_track(create_tween()).tween_property(_card, "modulate:a", 1.0, 0.25)
 	var beat := _track(create_tween())
 	for part in _sheet.call("parts"):
-		beat.tween_callback(func() -> void: _sheet.call("reveal", part))
+		beat.tween_callback(func() -> void:
+			_sheet.call("reveal", part)
+			## On the phone a line read below the scroll's window is scrolled to.
+			if _sheet_scroll != null and is_instance_valid(_sheet_scroll) and _sheet.call("anchor_of", part) != null:
+				_sheet_scroll.ensure_control_visible(_sheet.call("anchor_of", part)))
 		beat.tween_interval(float(PAUSES.get(str(part).get_slice(":", 0), 0.5)))
 	beat.tween_callback(_show_choices)
 
@@ -482,6 +506,7 @@ func _show_choices() -> void:
 		if _root.is_inside_tree() and not GemView.headless():
 			DeepUi.burst(_root, _title.global_position + _title.size * 0.5, DeepUi.ACCENT, 50, 300.0, 1.0, 6.0)
 	DeepUi.stagger(_choices.get_children(), 0.0, 0.08, 0.85)
+	_fit_soon()
 
 func finish() -> void:
 	## Straight to the end: the stone out, every line read, the choices up.

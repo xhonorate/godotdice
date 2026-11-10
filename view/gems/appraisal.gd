@@ -46,6 +46,10 @@ var _panel_style: StyleBoxFlat
 var _title: Label
 var _subtitle: Label
 var _sheet: Sheet
+## The phone's: the column it all stands in, the sheet's scroll and the foot under the panel.
+var _column: VBoxContainer
+var _sheet_scroll: ScrollContainer
+var _foot: VBoxContainer
 var _skip: Label
 var _choices: Control
 var _gleam: Gleam
@@ -129,7 +133,12 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(centre)
+	## The phone's column stands inside the safe edges, so its buttons never sit under them.
+	if DeepUi.phone:
+		centre.offset_top = DeepUi.safe_top + PHONE_EDGE
+		centre.offset_bottom = -(DeepUi.safe_bottom + PHONE_EDGE)
 	var column := DeepUi.vbox(centre, int(DeepUi.pt(3)) if DeepUi.phone else 12)
+	_column = column
 	_title = DeepUi.title(column, str(opts.get("title", "Under the loupe")), 32 if DeepUi.phone else 40, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
 	_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_title.add_theme_constant_override("outline_size", 10)
@@ -141,6 +150,9 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	_panel_style.shadow_size = 30
 	_panel.add_theme_stylebox_override("panel", _panel_style)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	## On the phone the choices' row can be the wider: the panel keeps its own width over it.
+	if DeepUi.phone:
+		_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(_panel)
 	var row := DeepUi.hbox(_panel, int(DeepUi.pt(10)) if DeepUi.phone else 28)
 	_stage = Control.new()
@@ -163,9 +175,10 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	_stage.add_child(_view)
 	_sheet = Sheet.new(stone, owned, phone_sheet({"skill_text": true}))
 	_sheet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(_sheet)
+	_sheet_scroll = phone_scroll(row, _sheet)
 	var foot := DeepUi.vbox(column, 6)
 	foot.custom_minimum_size.y = DeepUi.pt(40) if DeepUi.phone else 76.0
+	_foot = foot
 	_skip = DeepUi.label(foot, "Tap to skip ahead" if DeepUi.phone else "Click or press Space to skip ahead", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	_choices = choices(foot, actions, close)
 	_choices.visible = false
@@ -177,10 +190,66 @@ func build(raw: Dictionary, opts: Dictionary = {}) -> void:
 	_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_flash)
+	_fit_soon()
 
 ## A second click on a choice that asks for one counts only this long after the first, so the
 ## two halves of a double-click never make one.
 const CONFIRM_GAP_MS: int = 350
+
+## The phone's gap between the column and the screen's safe edges, top and foot.
+const PHONE_EDGE: float = 8.0
+
+static func phone_scroll(parent: Control, sheet: Control) -> ScrollContainer:
+	## The phone's sheet stands in a scroll (November 10, 2026: a stone with four inclusions read
+	## out past the screen's foot, and the choices under it with it). Only once the screen runs
+	## out does it scroll: `fit_phone` sizes it to the room the column leaves. The desk adds the
+	## sheet as it is and returns null.
+	if not DeepUi.phone:
+		parent.add_child(sheet)
+		return null
+	var scroll := ScrollContainer.new()
+	scroll.name = "SheetScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	scroll.set_meta("may_scroll", true)
+	parent.add_child(scroll)
+	sheet.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(sheet)
+	return scroll
+
+static func fit_phone(column: Control, scroll: ScrollContainer, stage: Control, stage_tall: float, foot: Control = null, choice_row: Control = null) -> void:
+	## Holds a ceremony's column (its title, the panel with the stone and its sheet, the choices)
+	## to the phone's screen: the foot keeps the room its choices will need from the start, so
+	## nothing moves when they come up, and the sheet's scroll takes what is left beside the
+	## stage, the stage giving way only past that. Called once the column has been laid out.
+	if not DeepUi.phone or scroll == null or not is_instance_valid(scroll) or scroll.get_child_count() == 0 or not column.is_inside_tree():
+		return
+	var room: float = column.get_parent_area_size().y
+	if foot != null and choice_row != null:
+		var needed: float = choice_row.get_combined_minimum_size().y
+		var warning: Variant = choice_row.get_meta("warning") if choice_row.has_meta("warning") else null
+		if warning is Control and is_instance_valid(warning):
+			needed += (warning as Control).get_combined_minimum_size().y + float(foot.get_theme_constant("separation"))
+		foot.custom_minimum_size.y = maxf(DeepUi.pt(40), needed)
+	stage.custom_minimum_size.y = stage_tall
+	var content := scroll.get_child(0) as Control
+	scroll.custom_minimum_size.y = content.get_combined_minimum_size().y
+	var over: float = column.get_combined_minimum_size().y - room
+	if over > 0.0:
+		scroll.custom_minimum_size.y = maxf(DeepUi.pt(90), scroll.custom_minimum_size.y - over)
+		over = column.get_combined_minimum_size().y - room
+		if over > 0.0:
+			stage.custom_minimum_size.y = maxf(DeepUi.pt(100), stage_tall - over)
+
+func _fit_soon() -> void:
+	## The phone's fit, two frames on, once every wrapped line knows its width.
+	if not DeepUi.phone or not is_inside_tree():
+		return
+	for i in range(2):
+		await get_tree().process_frame
+	if is_instance_valid(self) and not _closing and _column != null:
+		fit_phone(_column, _sheet_scroll, _stage, DeepUi.pt(200), _foot, _choices)
 
 static func phone_sheet(opts: Dictionary) -> Dictionary:
 	## A sheet's widths on the phone: its three columns narrowed to the bench beside the loupe.
@@ -266,7 +335,14 @@ static func choices(parent: Node, list: Array, before: Callable = Callable()) ->
 		if not compare.is_empty():
 			swap_lines(box, compare.get("found", {}), compare.get("kept", {}))
 		if not str(action.get("caption", "")).is_empty():
-			DeepUi.label(box, str(action.caption), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+			var caption := DeepUi.label(box, str(action.caption), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+			## A long line (a refusal said in full) wraps under its button instead of widening the
+			## row past the screen (November 10, 2026).
+			var across: float = caption.get_theme_font(&"font").get_string_size(caption.text, HORIZONTAL_ALIGNMENT_LEFT, -1, caption.get_theme_font_size(&"font_size")).x
+			var most: float = maxf(button.custom_minimum_size.x, DeepUi.pt(170) if DeepUi.phone else 300.0)
+			if across > most:
+				caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				caption.custom_minimum_size.x = most
 	return row
 
 static func _outline(button: Button, tone: Color) -> void:
@@ -449,6 +525,11 @@ func _break_open() -> void:
 
 func _read(part: String) -> void:
 	_sheet.reveal(part)
+	## On the phone a line read below the scroll's window is scrolled to.
+	if _sheet_scroll != null and is_instance_valid(_sheet_scroll):
+		var line: Control = _sheet.anchor_of(part)
+		if line != null:
+			_sheet_scroll.ensure_control_visible(line)
 	if _shatters and part.begins_with("inclusion:"):
 		var key: String = str(stone.inclusions[int(part.get_slice(":", 1))])
 		if DeepContent.inclusion(key).get("modifiers", []).any(func(m: Dictionary) -> bool: return str(m.get("kind", "")) == "fragile"):
@@ -515,6 +596,7 @@ func _show_choices() -> void:
 			DeepUi.burst(_root, _stage_centre(), DeepUi.ACCENT_HI, 120, 520.0, 1.4, 8.0)
 			DeepUi.burst(_root, _title.global_position + _title.size * 0.5, DeepUi.ACCENT, 50, 300.0, 1.0, 6.0)
 	DeepUi.stagger(_choices.get_children(), 0.0, 0.08, 0.85)
+	_fit_soon()
 
 func finish() -> void:
 	## Straight to the end: the stone out of its rock, every line read, the choices up.
@@ -571,6 +653,7 @@ func set_actions(list: Array) -> void:
 	_choices = choices(parent, actions, close)
 	parent.move_child(_choices, at)
 	_choices.visible = shown
+	_fit_soon()
 
 func close() -> void:
 	if not is_instance_valid(self) or is_queued_for_deletion() or _closing:
@@ -746,7 +829,7 @@ class Sheet extends VBoxContainer:
 			named.call()
 			_pop(_name_label, 1.45)
 			DeepAudio.play(DeepSoundBank.gem_sound(color_key))
-		_line("name", shown, say_name, named)
+		_line("name", shown, say_name, named, name_box)
 		DeepUi.rule(self, Color(DeepUi.LINE, 0.6))
 		## The four C's, less the one already said.
 		var carat: int = int(stone.get("carat", 1))
@@ -816,9 +899,16 @@ class Sheet extends VBoxContainer:
 	func name_point() -> Vector2:
 		return _name_label.global_position + _name_label.size * 0.5
 
-	func _line(name: String, shown: Array, play: Callable, final: Callable) -> void:
+	func _line(name: String, shown: Array, play: Callable, final: Callable, anchor: Control = null) -> void:
 		_order.append(name)
-		_lines[name] = {"show": shown, "play": play, "final": final}
+		if anchor == null and not shown.is_empty():
+			anchor = shown[0] as Control
+		_lines[name] = {"show": shown, "play": play, "final": final, "anchor": anchor}
+
+	func anchor_of(name: String) -> Control:
+		## The control a line stands in, to scroll to as it is read.
+		var anchor: Variant = _lines.get(name, {}).get("anchor", null)
+		return anchor as Control if anchor is Control and is_instance_valid(anchor) else null
 
 	func _row(name: String, glyph: String, title: String, format: String, count: int, share: float, owned_text: String,
 			delta: int, neutral: bool, owned_bits: Array, extra: Dictionary = {}) -> void:
@@ -948,7 +1038,7 @@ class Sheet extends VBoxContainer:
 			if meter != null:
 				var fill := value.create_tween()
 				_tweens.append(fill)
-				fill.tween_method(func(v: float) -> void: meter.call("set_values", v), 0.0, clampf(share, 0.0, 1.0), 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT), settle)
+				fill.tween_method(func(v: float) -> void: meter.call("set_values", v), 0.0, clampf(share, 0.0, 1.0), 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT), settle, row)
 
 	func reveal(name: String) -> void:
 		var line: Dictionary = _lines.get(name, {})

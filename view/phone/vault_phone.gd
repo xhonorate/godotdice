@@ -43,6 +43,8 @@ static func build(home: Control, content: VBoxContainer) -> void:
 
 static func _head(home: Control, content: VBoxContainer, tray: Array) -> void:
 	var head := DeepUi.hbox(content, int(DeepUi.pt(8)))
+	## Its two views turn with a sideways flick over the page too (view/ui/swipe.gd).
+	head.set_meta("swipe_tabs", true)
 	DeepUi.icon(head, "chest", DeepUi.pt(18), DeepUi.ACCENT)
 	DeepUi.title(head, "The vault", 26, DeepUi.PAPER)
 	if not tray.is_empty():

@@ -450,9 +450,13 @@ func _note_conquest(run: Dictionary) -> void:
 
 func _descent_command(cmd: Dictionary) -> void:
 	## Everything the run asks for goes to the rules, except a turn asked to hurry: that is
-	## only the clock, which the host owns.
+	## only the clock, which the host owns. A turn hurries only while it is held (a button, a
+	## finger or Space kept down, the owner's call of November 10, 2026): `held` false lets go.
 	if str(cmd.get("kind", "")) != "hurry":
 		session.send(cmd)
+		return
+	if not bool(cmd.get("held", true)):
+		session.hurried = false
 		return
 	if session.hurried or not session.in_run() or not DeepDescent.in_battle(session.run) or str(DeepDescent.battle(session.run).get("phase", "")) != "resolving":
 		return
@@ -462,8 +466,6 @@ func _descent_command(cmd: Dictionary) -> void:
 	if session.speed >= DeepSession.HURRY_SPEED:
 		return
 	session.hurried = true
-	DeepAudio.play("ui_toggle", {"volume": 0.6})
-	toast("Hurrying this turn", DeepUi.MUTED, "hourglass")
 
 func _process(delta: float) -> void:
 	if DeepMusic.service() != null:
@@ -476,7 +478,7 @@ func _process(delta: float) -> void:
 	var resolving: bool = session.in_run() and DeepDescent.in_battle(session.run) and str(DeepDescent.battle(session.run).get("phase", "")) == "resolving"
 	## The host's clock paces every step of a turn, so a guest plays it at the host's speed.
 	var pace: float = session.effective_speed() if session.is_host else session.host_speed
-	## A hurried turn is hurried until it is over.
+	## A turn is hurried while it is held, and never past its end.
 	if not resolving:
 		session.hurried = false
 	var want: float = clampf(pace, 1.0, 8.0) if resolving and not session.paused else 1.0
@@ -643,6 +645,8 @@ func toast(text: String, color: Color, glyph: String = "") -> void:
 	var row := DeepUi.hbox(box, 8)
 	DeepUi.icon(row, glyph, 18, color)
 	DeepUi.label(row, text, 15, color)
+	## A long one wraps inside the screen rather than running past its edges.
+	DeepUi.cap_row(row, DeepUi.toast_width())
 	DeepUi.pop_in(box, 0.0, 0.8)
 	var tween := box.create_tween()
 	tween.tween_property(box, "modulate:a", 0.0, 0.6).set_delay(2.6)

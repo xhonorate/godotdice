@@ -12,6 +12,7 @@ const HomeParts = preload("res://view/home/home_parts.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
 const Biomes = preload("res://view/battle/biomes.gd")
 const Tips = preload("res://view/ui/tips.gd")
+const Swipe = preload("res://view/ui/swipe.gd")
 const Thumbs = preload("res://view/gems/thumbs.gd")
 
 ## The mine list's width: 300 points.
@@ -53,6 +54,8 @@ static func build(home: Control, content: VBoxContainer) -> void:
 static func _mode_switch(home: Control, parent: VBoxContainer, daily: bool) -> void:
 	## Expedition or the day's seam, as two halves of one switch. The host chooses.
 	var row := DeepUi.hbox(parent, int(DeepUi.pt(3)))
+	## A sideways flick over the page turns between them too (view/ui/swipe.gd).
+	row.set_meta("swipe_tabs", true)
 	for entry in [["", "descend", "Expedition"], ["daily", "calendar", "Daily dig"]]:
 		var mode: String = str(entry[0])
 		var on: bool = (mode == "daily") == daily
@@ -130,7 +133,8 @@ static func _mine_row(home: Control, parent: VBoxContainer, key: String, records
 	if open and home.is_host and not chosen:
 		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		row.gui_input.connect(func(event: InputEvent) -> void:
-			if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and not Tips.held(row):
+			## Not the lift that ends a flick across the page (it turns the page's tabs).
+			if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and not Tips.held(row) and not Swipe.flicked():
 				DeepAudio.play("ui_confirm", {"volume": 0.7})
 				home.mine_chosen.emit(key))
 
@@ -185,7 +189,7 @@ static func _hazard_row(home: Control, parent: VBoxContainer, tier: int) -> void
 	DeepUi.icon(line, "next", DeepUi.pt(10), DeepUi.MUTED).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.tooltip_text = MineMap.hazard_list(tier)
 	row.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and not Tips.held(row):
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and not Tips.held(row) and not Swipe.flicked():
 			DeepAudio.play("ui_open")
 			_hazard_sheet(home, tier))
 

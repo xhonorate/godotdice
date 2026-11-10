@@ -303,6 +303,9 @@ static func meaning(word: String, foe: Dictionary = {}) -> String:
 static func write(rtl: RichTextLabel, words: String, foe: Dictionary = {}) -> void:
 	## Writes a move's words into an open label: its keywords underlined with their meaning on
 	## hover, its blows, block and healing in their colours. The label's own colour is kept.
+	## On the phone a keyword held says its meaning instead (Tips.word_hold).
+	if DeepUi.phone or DisplayServer.is_touchscreen_available():
+		load("res://view/ui/tips.gd").word_hold(rtl)
 	var cursor: int = 0
 	for m in _regex().search_all(words):
 		if m.get_start() > cursor:

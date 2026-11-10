@@ -34,7 +34,9 @@ static func settled(state: Dictionary, enemies: Array, outcome: String) -> void:
 	var standing: Dictionary = {}
 	for foe in enemies:
 		var entry: Dictionary = _note(state, foe)
-		if bool(foe.get("summoned", false)):
+		## A slime's split half was never met as the fight opened: it is met now, as a creature
+		## called in is, so it is never slain more often than met.
+		if bool(foe.get("summoned", false)) or not str(foe.get("split_from", "")).is_empty():
 			entry.met += 1
 		if int(foe.get("hp", 0)) <= 0 and not bool(foe.get("fled", false)):
 			entry.slain += 1

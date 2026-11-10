@@ -134,6 +134,8 @@ static func _leaves(home: Control, box: Control, key: String, record: Dictionary
 	var at: int = clampi(int(home._bestiary_leaf), 0, leaves.size() - 1)
 	var tabs := HFlowContainer.new()
 	tabs.name = "BestiaryLeaves"
+	## A sideways flick over the page turns its leaves too (view/ui/swipe.gd).
+	tabs.set_meta("swipe_tabs", true)
 	tabs.add_theme_constant_override("h_separation", int(DeepUi.pt(3)))
 	tabs.add_theme_constant_override("v_separation", int(DeepUi.pt(3)))
 	box.add_child(tabs)

@@ -180,6 +180,39 @@ Notes:
 `DIE_PALETTE` in `view/dice/dice_icons.gd` stops being keyed by variant key: the shape
 keys stay, every variant key goes, and a material table is added.
 
+### How each material looks on the solid (November 10, 2026)
+
+The 3D die (`view/dice/dice_view.gd`, `MATERIAL_LOOKS`) wears its material. The owner picked
+every look in three review rounds (artifact dbs `dice1`, `dice2`, `dice3`). Most are drawn by
+their own shaders (`view/dice/gem_cut.gd`, `view/dice/cuts/`) on the solid fanned out from each
+face's middle, so a cut can follow the face's outline. A clear look is two passes (its far
+faces, then a tinted skin over them) and an opaque one a single pass; each compiles only the
+features it uses.
+
+| Material | Look |
+| --- | --- |
+| Ruby, Sapphire, Emerald, Amethyst, Citrine | Cut as a brilliant: deep color going near-black at each face's rim, a pavilion of bright and near-black facets inside that flash as the die turns, a crown of white sparkles on the skin. |
+| Diamond | The brilliant, ice-white, its flashes split into rainbow fire. The middle of each face, behind the numeral, is quiet and the numerals carry a heavier dark ring, so they read at dock size. |
+| Opal | Milky white with harlequin patches of color that flare and change hue as it turns; quiet behind the numeral, heavily ringed numerals. |
+| Glass | Clear with a faint aqua tint, its far edges showing through, bright white rims and a shallow facet relief that breaks the highlight into glints (StandardMaterial3D). |
+| Crystal | Clear, with bands of rainbow light running through its inside, each a little spectrum, sliding as it turns. |
+| Iron | Brushed steel (StandardMaterial3D, unchanged). |
+| Cloud | A silvery storm cloud roiling slowly, lightning flickering through it. |
+| Fool's Gold | A polished brassy nugget, softly dented, its reflections bending over the dents. |
+| Granite | Charcoal grey and rough-hewn: angular mineral grains, unpolished relief, mica flakes glinting when tipped to a lamp. |
+| Blood | Opaque wet oxblood marbled with darker veins under a glossy coat. |
+| none | The shape's pastel palette, satin, as always. |
+
+Blood also bleeds (`view/dice/blood_fx.gd`). Thrown again (it costs its owner 2 HP), a ribbon
+of blood arcs from the die into the owner's health ring and splashes there. When it feeds on
+a kill (its face climbs), a thread of blood runs from where the creature fell into the die,
+which flares and pulses. Both are drawn in 2D on a layer the die makes for the effect and frees
+after, and they run on the fight's clock, so hurrying a turn hurries them. Only the reader's
+own dice on screen play them: a teammate's reroll draws nothing over the reader's dock.
+
+A d20's numerals are cut a little larger than its faces alone would give them: ×1.14 on the
+desktop and ×1.22 on the phone (`DiceView.D20_NUMERAL`), still clear of the face edges.
+
 ## 8. Which die gets used
 
 For anything that cares _which_ die activated a gem — Shiny, every colored material,

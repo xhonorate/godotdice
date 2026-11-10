@@ -275,14 +275,52 @@ static func open_sheet(control: Control) -> bool:
 	var shut := DeepUi.icon_button(foot, "cross_out", "Close", close_sheet, 13, DeepUi.PAPER)
 	DeepUi.ledger_button(shut, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 9)
 	shut.custom_minimum_size.y = DeepUi.pt(34)
-	if not DeepUi.headless():
-		sheet.modulate.a = 0.0
-		var tween := sheet.create_tween()
-		tween.tween_property(sheet, "modulate:a", 1.0, FADE_IN)
+	## Unseen until it has been sized to what it says (`_fit_sheet`), then faded in.
+	sheet.modulate.a = 0.0
+	_fit_sheet(sheet, said, foot, control, room)
 	return true
+
+static func _fit_sheet(sheet: PanelContainer, said: Control, foot: Control, control: Control, room: Vector2) -> void:
+	## The card is as tall as what it says (November 10, 2026: a gem's two lines stood in a panel
+	## the screen's height), and stands level with the thing held, inside the room the screen
+	## leaves it; only words that run past the room scroll. Its words wrap at the card's width,
+	## so it is measured once the containers have laid them out.
+	var tree: SceneTree = sheet.get_tree()
+	if tree == null:
+		return
+	await tree.process_frame
+	await tree.process_frame
+	if not is_instance_valid(sheet) or _sheet != sheet or not is_instance_valid(said):
+		return
+	var view: Vector2 = sheet.get_viewport_rect().size
+	var top: float = maxf(room.x, DeepUi.safe_top) + DeepUi.pt(4)
+	var bottom: float = view.y - (room.y if room.y > 0.0 else DeepUi.safe_bottom) - DeepUi.pt(4)
+	var style := sheet.get_theme_stylebox("panel") as StyleBoxFlat
+	style.content_margin_bottom = DeepUi.pt(6)
+	var column := said.get_parent().get_parent() as Control
+	var need: float = said.get_combined_minimum_size().y + foot.get_combined_minimum_size().y \
+		+ float(column.get_theme_constant("separation")) + style.content_margin_top + style.content_margin_bottom
+	var tall: float = minf(ceilf(need), bottom - top)
+	var middle: float = view.y * 0.5
+	if is_instance_valid(control) and control.is_inside_tree():
+		middle = control.get_global_rect().get_center().y
+	var y: float = clampf(middle - tall * 0.5, top, bottom - tall)
+	sheet.anchor_bottom = 0.0
+	sheet.offset_top = y
+	sheet.offset_bottom = y + tall
+	## A card that no longer runs from edge to edge is a card: closed top and foot, round inner corners.
+	style.border_width_top = int(DeepUi.pt(1.5))
+	style.border_width_bottom = int(DeepUi.pt(1.5))
+	style.corner_radius_top_left = int(DeepUi.pt(8))
+	style.corner_radius_bottom_left = int(DeepUi.pt(8))
+	if DeepUi.headless():
+		sheet.modulate.a = 1.0
+		return
+	sheet.create_tween().tween_property(sheet, "modulate:a", 1.0, FADE_IN)
 
 static func close_sheet() -> void:
 	## Puts the phone's card away.
+	close_word()
 	_sheet_of = null
 	for node in [_sheet_sub, _sheet, _sheet_catch]:
 		if node != null and is_instance_valid(node):
@@ -293,6 +331,103 @@ static func close_sheet() -> void:
 
 static func sheet_open() -> bool:
 	return _sheet != null and is_instance_valid(_sheet)
+
+# --- a keyword's meaning, held -----------------------------------------------------------------
+
+## A keyword's meaning held up over the words it is in (Poison, Resonance, Retain...), and the
+## catch behind it that puts it away again.
+static var _word: PanelContainer = null
+static var _word_catch: Control = null
+## The press on a keyword being waited on: a token, so a release or a drift cancels it.
+static var _word_token: int = 0
+
+static func word_hold(rtl: RichTextLabel) -> void:
+	## A finger held on a keyword picked out in `rtl` (DeepUi.push_effect_text's hints) brings up
+	## what the word means, as resting the pointer on it does on a desk. Only a press on such a
+	## word waits; a press anywhere else in the words is the control's under them, as before.
+	if rtl == null or bool(rtl.get_meta("word_hold", false)):
+		return
+	rtl.set_meta("word_hold", true)
+	rtl.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			_word_token += 1
+			if not event.pressed:
+				return
+			var meaning: String = rtl.get_tooltip(event.position)
+			if meaning.is_empty() or meaning == rtl.tooltip_text or not rtl.is_inside_tree():
+				return
+			var token: int = _word_token
+			var at: Vector2 = event.position
+			rtl.set_meta("word_at", at)
+			## A touch shorter than the hold of the thing the words sit on, so the word answers first.
+			rtl.get_tree().create_timer(LONG_PRESS * 0.8).timeout.connect(func() -> void:
+				if token != _word_token or not is_instance_valid(rtl) or not rtl.is_visible_in_tree():
+					return
+				_word_token += 1
+				_press_id = 0
+				## Whatever the words sit on takes the lift that follows for the end of a hold, not a tap.
+				var up: Node = rtl
+				while up != null:
+					if up is Control and up.has_meta("tip_wired"):
+						up.set_meta("tip_held", true)
+					up = up.get_parent()
+				show_word(rtl, rtl.get_global_transform_with_canvas() * at, meaning))
+		elif event is InputEventMouseMotion and rtl.has_meta("word_at") and event.position.distance_to(rtl.get_meta("word_at")) > HOLD_SLIP:
+			_word_token += 1)
+
+static func show_word(from: Control, at: Vector2, meaning: String) -> void:
+	## The meaning in a small card over the point held, inside the screen; the next tap anywhere
+	## puts it away and does nothing else.
+	close_word()
+	var layer: CanvasLayer = _layer_for(from)
+	var catch := Control.new()
+	catch.name = "WordCatch"
+	catch.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	catch.mouse_filter = Control.MOUSE_FILTER_STOP
+	catch.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			catch.accept_event()
+			close_word())
+	layer.add_child(catch)
+	_word_catch = catch
+	var card := PanelContainer.new()
+	card.name = "Word"
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.INFO, 10, int(DeepUi.pt(7)), 3, 4))
+	layer.add_child(card)
+	var words := DeepUi.wrap(card, meaning, 12, DeepUi.PAPER)
+	words.custom_minimum_size.x = DeepUi.pt(240) if DeepUi.phone else 280.0
+	_word = card
+	card.reset_size()
+	_place_word(card, at)
+	if not DeepUi.headless():
+		card.modulate.a = 0.0
+		card.create_tween().tween_property(card, "modulate:a", 1.0, FADE_IN)
+		## The wrapped words take their height a frame later: placed again once they have it.
+		card.get_tree().process_frame.connect(func() -> void:
+			if is_instance_valid(card):
+				card.reset_size()
+				_place_word(card, at), CONNECT_ONE_SHOT)
+
+static func _place_word(card: Control, at: Vector2) -> void:
+	## Over the finger (which covers what is under it), else under it; never past an edge.
+	var view: Vector2 = card.get_viewport_rect().size
+	var gap: float = DeepUi.pt(14)
+	var y: float = at.y - gap - card.size.y
+	if y < DeepUi.safe_top + DeepUi.pt(4):
+		y = at.y + gap * 2.0
+	card.position = Vector2(clampf(at.x - card.size.x * 0.5, DeepUi.safe_left + DeepUi.pt(4), view.x - DeepUi.safe_right - card.size.x - DeepUi.pt(4)),
+		clampf(y, DeepUi.safe_top + DeepUi.pt(4), maxf(0.0, view.y - DeepUi.safe_bottom - card.size.y - DeepUi.pt(4))))
+
+static func close_word() -> void:
+	for node in [_word, _word_catch]:
+		if node != null and is_instance_valid(node):
+			(node as Node).queue_free()
+	_word = null
+	_word_catch = null
+
+static func word_open() -> bool:
+	return _word != null and is_instance_valid(_word)
 
 static func hide_now() -> void:
 	_anchor = null
@@ -315,7 +450,9 @@ static func show_sub(from: Control, build: Callable) -> void:
 		_sheet.get_parent().add_child(panel)
 		panel.add_child(made as Control)
 		panel.reset_size()
-		panel.position = Vector2(_sheet.global_position.x - panel.size.x - DeepUi.pt(6), from.global_position.y)
+		var view: Vector2 = panel.get_viewport_rect().size
+		panel.position = Vector2(_sheet.global_position.x - panel.size.x - DeepUi.pt(6),
+			clampf(from.global_position.y, DeepUi.safe_top + DeepUi.pt(4), maxf(DeepUi.safe_top, view.y - DeepUi.safe_bottom - panel.size.y - DeepUi.pt(4))))
 		_sheet_sub = panel
 		return
 	if DeepUi.headless() or _plate == null or not is_instance_valid(_plate):

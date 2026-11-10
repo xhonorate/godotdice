@@ -207,7 +207,7 @@ func _ready() -> void:
 			_key = ""
 			show_run.call_deferred(run))
 	_dock = PanelContainer.new()
-	_dock.add_theme_stylebox_override("panel", DeepUi.phone_bar() if DeepUi.phone else DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.LEDGER_LINE, 14, 12, 3, 5))
+	_dock.add_theme_stylebox_override("panel", DeepUi.phone_bar(DeepUi.LEDGER_LINE, true, BattleScreen.PHONE_DOCK_PAD) if DeepUi.phone else DeepUi.ledger(DeepUi.LEDGER_FILL, DeepUi.LEDGER_LINE, 14, 12, 3, 5))
 	_dock.mouse_filter = Control.MOUSE_FILTER_STOP
 	_dock.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	## On the phone the dock is a bar from edge to edge along the foot, as the fight's is.

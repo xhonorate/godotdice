@@ -140,8 +140,6 @@ var _shrine_covered: bool = false
 var _way_walked: bool = false
 var _chip: PanelContainer
 var _chip_index: int = -1
-## On the phone, the tunnel a first tap showed: a second tap on it (or its Go) takes it.
-var _armed_mouth: int = -1
 ## A thing in the room under the cursor (a vein's spot, a stall's goods), shown in the chip.
 var _chip_pick: String = ""
 ## A strike sent and not yet answered: the vein waits for the rock to answer.
@@ -214,6 +212,10 @@ var _rite: HollowRite = null
 var _news: Array = []
 ## The beaten mine's sheet while it is up, put away if the party leaves the hall under it.
 var _conquest_sheet: CanvasLayer = null
+## What the last beaten mine's sheet said: gone with no way out chosen (the rules refused the
+## one taken), it opens again from a key under the hall's name while the party is in the hall.
+var _conquest_item: Dictionary = {}
+var _conquest_shown: bool = false
 var _last_chamber: Dictionary = {}
 var _last_battle: Dictionary = {}
 var _shown_depth: int = -1
@@ -334,6 +336,8 @@ func _ready() -> void:
 	_stage = MineStage.new()
 	_stage.mouth_hovered.connect(_hover_mouth)
 	_stage.mouth_pressed.connect(_choose_mouth)
+	## The phone's hold on a mouth: where it leads, in place of the desk's hover.
+	_stage.mouth_held.connect(_hover_mouth)
 	_stage.pick_hovered.connect(_hover_pick)
 	_stage.pick_pressed.connect(_press_pick)
 	_stage.pick_inspected.connect(_inspect_pick)
@@ -461,6 +465,7 @@ func bind(player_id: String, forecast: Callable) -> void:
 	_stall_opened = ""
 	_descend_via = -1
 	_news = []
+	_conquest_item = {}
 	_end_started = false
 	_end_shown = false
 	_over_tab = "run"
@@ -1337,6 +1342,11 @@ func handle(event: Dictionary) -> void:
 				var mine_result: Dictionary = {"choice": str(event.get("choice", "")), "message": str(event.get("message", "")), "made": event.get("made", []),
 					"lost": event.get("lost", []), "changed": event.get("changed", []), "dice": event.get("dice", []), "dice_lost": event.get("dice_lost", []),
 					"tumbled": event.get("tumbled", {})}
+				## What a Wheel or an Oven did, so the page plays it out on the ladder rather than
+				## only saying it (it was dropped here, and the result showed at once).
+				for extra in ["verdict", "broke", "faces"]:
+					if event.has(extra):
+						mine_result[extra] = event[extra]
 				_hold_page("oddity", {"oddity": str(room.get("oddity", "")), "room": str(room.get("kind", "oddity")), "result": mine_result})
 		"altar_made":
 			## Everyone sees the circle take the five; whoever gave them gets the gem held up, and
@@ -2089,7 +2099,10 @@ func _tell_news() -> void:
 		"conquest":
 			## Gone from the hall already (the cage, or the party went on): nothing to choose.
 			if phase == "landing" and DeepDescent.in_boss_hall(run):
+				_conquest_item = item
 				_conquest_sheet = _show_conquest(item)
+				_conquest_shown = true
+				_sync_party_asks()
 
 func _show_conquest(item: Dictionary) -> CanvasLayer:
 	## The mine is beaten: what that opened, the map of the mines with the mine below laid out
@@ -2182,6 +2195,8 @@ func toast_parts(parts: Array, color: Color, glyph: String = "", hold: float = 2
 			StoneCard.grade_marks(row, part, 12, color)
 		elif not str(part).is_empty():
 			DeepUi.label(row, str(part), 15, color)
+	## A long one wraps inside the screen rather than running past its edges.
+	DeepUi.cap_row(row, DeepUi.toast_width())
 	## Over the room, never over the bar along the bottom (the fight's or the run's).
 	var bottom: float = 28.0
 	if _battle.visible and _battle._dock != null:
@@ -2597,6 +2612,19 @@ func _press_pick(id: String) -> void:
 		"":
 			if not _pinned.is_empty():
 				_pin("")
+			## The phone has no hover to take a mouth's plate away: a tap off it does.
+			if DeepUi.phone and _chip_index >= 0:
+				_hover_mouth(-1)
+			## A tap on the room puts away what stands over it on the phone (November 10, 2026):
+			## the chart, the bag across the right and the "With whom?" plate. Each opens again
+			## from where it opened (the chart's button, the bag's pill, the booth).
+			if DeepUi.phone:
+				if _chart_open:
+					toggle_chart()
+				if _run_dock.is_drawer_open():
+					_run_dock.toggle_drawer()
+				if _whom_plate != null and is_instance_valid(_whom_plate):
+					_close_whom()
 		"item", "scales", "lens", "hoard":
 			_pin(id)
 		"altar":
@@ -4393,7 +4421,7 @@ func _show_crossroads() -> void:
 		_cross_hint.add_child(note)
 		var row := DeepUi.hbox(note, 8)
 		DeepUi.icon(row, "lantern", 18, DeepUi.ACCENT)
-		DeepUi.label(row, "The next floor is lit. The chart shows two floors ahead." if lit else ("Your lantern shows two floors ahead. Tap a tunnel to see where it leads." if DeepUi.phone else "Your lantern shows two floors ahead. Hover a tunnel to see where it leads."), 13, DeepUi.MUTED)
+		DeepUi.label(row, "The next floor is lit. The chart shows two floors ahead." if lit else ("Your lantern shows two floors ahead. Tap a tunnel to take it, hold it to see where it leads." if DeepUi.phone else "Your lantern shows two floors ahead. Hover a tunnel to see where it leads."), 13, DeepUi.MUTED)
 		if DeepDescent.needs_light(run):
 			var button := DeepUi.icon_button(_cross_hint, "lantern", "Light the way · %d pyrite" % DeepDescent.lantern_cost(), func() -> void: command.emit({"kind": "light"}), 13, DeepUi.ACCENT)
 			button.disabled = int(me().get("ore", 0)) < DeepDescent.lantern_cost() or bool(me().get("downed", false))
@@ -4470,14 +4498,8 @@ func _choose_mouth(index: int) -> void:
 	var offers: Array = _mouth_offers()
 	if index < 0 or index >= offers.size():
 		return
-	## On the phone a first tap is the desk's hover: it shows where the tunnel leads and arms
-	## it; the second tap on it, or the Go on its plate, takes it.
-	if DeepUi.phone and _armed_mouth != index:
-		_armed_mouth = index
-		DeepAudio.play("ui_tap", {"volume": 0.6})
-		_hover_mouth(index)
-		return
-	_armed_mouth = -1
+	## A tap takes it on the phone as a click does on the desk; a finger held on the mouth
+	## shows where it leads instead (MineStage.mouth_held), and that plate has its own Go.
 	match str(run.get("phase", "")):
 		"tunnels":
 			_vote(str(offers[index].id))
@@ -4604,9 +4626,7 @@ func _fill_chip() -> void:
 func _go_button(box: VBoxContainer, index: int, words: String) -> void:
 	## The phone's way down a tunnel whose plate a tap brought up.
 	_chip.mouse_filter = Control.MOUSE_FILTER_STOP
-	var go := DeepUi.primary(box, "descend", words, func() -> void:
-		_armed_mouth = index
-		_choose_mouth(index), 13)
+	var go := DeepUi.primary(box, "descend", words, func() -> void: _choose_mouth(index), 13)
 	go.custom_minimum_size.y = DeepUi.pt(36)
 
 func _place_chip() -> void:
@@ -5050,6 +5070,13 @@ func _sync_party_asks() -> void:
 				var stay := DeepUi.icon_button(line, "descend", "Keep going", _keep_going, 13, DeepUi.ACCENT)
 				stay.tooltip_text = "Answer no: go down. Click a tunnel mouth instead to say which way."
 				stay.mouse_filter = Control.MOUSE_FILTER_STOP
+			"conquest":
+				var again := DeepUi.icon_button(_cross_ask, "crown", "%s conquered · home or deeper" % DeepContent.mine_name(str(ask.mine)), _reopen_conquest, 13, DeepUi.ACCENT_HI)
+				again.name = "ConquestAgain"
+				again.tooltip_text = "Open the beaten mine's sheet again: ride the lift home, or dig on into the mine below."
+				again.mouse_filter = Control.MOUSE_FILTER_STOP
+				if DeepUi.phone:
+					again.custom_minimum_size.y = maxf(again.custom_minimum_size.y, DeepUi.pt(34))
 			"trade":
 				var asker: Dictionary = DeepDescent.player(run, str(ask.id))
 				var words: String = ("Your trade with %s is ready to accept" if bool(ask.paired) else "%s offers you a stone") % str(asker.get("name", "Someone"))
@@ -5062,11 +5089,17 @@ func _party_asks() -> Array:
 	if str(run.get("phase", "")) != "landing" or not _landing_view.is_empty() or not _pinned.is_empty() or not _hold.is_empty() or _walking or DeepDescent.in_battle(run):
 		return []
 	var unit: Dictionary = me()
-	if unit.is_empty() or bool(unit.get("downed", false)):
-		return []
-	var out: Array = []
 	var landing: Dictionary = run.get("landing", {})
 	var boss_hall: bool = DeepDescent.in_boss_hall(run)
+	var out: Array = []
+	## The beaten mine's sheet stays up until a way out is chosen (Inspector `_holds_choice`),
+	## but its buttons put it away before the rules answer, and the rules can say no (a respite
+	## still owed, the party still at the camp). Gone with no choice standing, a key brings it
+	## back; with a choice standing there is nothing to ask again.
+	if boss_hall and not _conquest_up() and not _conquest_item.is_empty() and str(_conquest_item.get("run_id", "")) == str(run.get("run_id", "")) 			and str(unit.get("choice", "")).is_empty():
+		out.append({"kind": "conquest", "mine": str(_conquest_item.get("mine", ""))})
+	if unit.is_empty() or bool(unit.get("downed", false)):
+		return out
 	var party: bool = run.get("players", []).size() > 1
 	var cage: bool = (not bool(landing.get("cleared", false)) or boss_hall) and _stage.hall() != null \
 		and not (DeepDescent.has_mod(run, "LAST_LIFT") and not boss_hall and not bool(landing.get("warden_next", false)))
@@ -5087,6 +5120,19 @@ func _party_asks() -> Array:
 			if DeepDescent.can_trade_with(run, local_id, str(asker)):
 				out.append({"kind": "trade", "id": str(asker), "paired": paired == str(asker)})
 	return out
+
+func _conquest_up() -> bool:
+	return _conquest_sheet != null and is_instance_valid(_conquest_sheet) and not _conquest_sheet.is_queued_for_deletion()
+
+func _reopen_conquest() -> void:
+	## The beaten mine's sheet again, as it was first shown.
+	if _conquest_item.is_empty() or _conquest_up():
+		return
+	if not (str(run.get("phase", "")) == "landing" and DeepDescent.in_boss_hall(run)):
+		return
+	_conquest_sheet = _show_conquest(_conquest_item)
+	_conquest_shown = true
+	_sync_party_asks()
 
 func _keep_going() -> void:
 	## No to the cage: down, by the only mouth if there is one; a mouth clicked later says which.
@@ -5260,8 +5306,12 @@ func _process(delta: float) -> void:
 		_later(0.5, _place_way_out)
 	_way_walked = walking_now
 	## The beaten mine's choice only stands while the party is still in the boss's hall.
-	if _conquest_sheet != null and (not is_instance_valid(_conquest_sheet) or _conquest_sheet.is_queued_for_deletion()):
-		_conquest_sheet = null
+	## (A freed sheet no longer compares equal to anything, null included: ask is_instance_valid.)
+	if not _conquest_up():
+		if _conquest_sheet != null or _conquest_shown:
+			_conquest_sheet = null
+			_conquest_shown = false
+			_sync_party_asks()
 	elif _conquest_sheet != null and not (str(run.get("phase", "")) == "landing" and DeepDescent.in_boss_hall(run)):
 		_conquest_sheet.call("_dismiss")
 		_conquest_sheet = null
@@ -5274,7 +5324,7 @@ func _process(delta: float) -> void:
 		## beaten mine's sheet stands over it. Gated on moving, not on being there, so it can
 		## never stay hidden; with no room (headless) it simply shows.
 		var away: bool = str(run.get("phase", "")) == "tunnels" and _stage != null and _stage.has_room() and (_stage.strolling() or _stage.walking())
-		var goal: float = 0.0 if away or _conquest_sheet != null else 1.0
+		var goal: float = 0.0 if away or _conquest_up() else 1.0
 		_crossroads.modulate.a = move_toward(_crossroads.modulate.a, goal, delta * 4.0)
 	elif _crossroads != null:
 		## Hidden, it waits clear, so its next showing fades in rather than flashing up mid-walk.
@@ -5644,13 +5694,26 @@ func _page_oddity_result(content: VBoxContainer) -> void:
 	medal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	head.add_child(medal)
 	DeepUi.title(head, str(oddity.get("name", "Something odd")), 36, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER)
-	DeepUi.wrap(head, str(result.get("message", "")), 19, tone.lightened(0.4), HORIZONTAL_ALIGNMENT_CENTER, 760).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var said := DeepUi.wrap(head, str(result.get("message", "")), 19, tone.lightened(0.4), HORIZONTAL_ALIGNMENT_CENTER, 760)
+	said.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_enter(head)
 	## A Cut or a Clarity worked on is read off its ladder, the same as at the Market's Wheel
 	## and Oven; a stone that broke flies apart there.
 	var reworked: Dictionary = _reworked(result)
+	## Lines that would give the ladder's answer away before it lands, held back until it has.
+	var held_back: Array = []
 	if not reworked.is_empty():
-		_rework_reveal(content, reworked)
+		var ladder: Control = _rework_reveal(content, reworked)
+		if _fresh and not _headless:
+			var told: String = said.text
+			said.text = "The wheel bites into the stone…" if str(reworked.field) == "cut" else "The stone goes into the heat…"
+			held_back.append(func() -> void:
+				if is_instance_valid(said):
+					said.text = told
+					DeepUi.pop_in(said, 0.0, 0.97, 0.25))
+			ladder.connect("finished", func() -> void:
+				for tell in held_back:
+					(tell as Callable).call(), CONNECT_ONE_SHOT)
 	elif result.has("verdict"):
 		_verdict_stamp(content, result.verdict)
 	if not result.get("tumbled", {}).is_empty():
@@ -5669,7 +5732,13 @@ func _page_oddity_result(content: VBoxContainer) -> void:
 		_reward_row(box, {"stones": made, "dice": dice, "faces": result.get("faces", {})}, 0.3)
 		_enter(card, 0.15)
 	if not lost.is_empty():
-		DeepUi.stat(content, "split_shield", "%s gone for good." % DeepUi.plural(lost.size(), "stone"), DeepUi.BAD, 15).alignment = BoxContainer.ALIGNMENT_CENTER
+		var gone := DeepUi.stat(content, "split_shield", "%s gone for good." % DeepUi.plural(lost.size(), "stone"), DeepUi.BAD, 15)
+		gone.alignment = BoxContainer.ALIGNMENT_CENTER
+		if not reworked.is_empty() and _fresh and not _headless:
+			gone.modulate.a = 0.0
+			held_back.append(func() -> void:
+				if is_instance_valid(gone):
+					gone.create_tween().tween_property(gone, "modulate:a", 1.0, 0.3).set_delay(0.4))
 	for die in result.get("dice_lost", []):
 		DeepUi.stat(content, "die", "Gone until the run ends: %s." % DeepDice.describe(die), DeepUi.BAD, 15).alignment = BoxContainer.ALIGNMENT_CENTER
 	var go := _main(DeepUi.primary(content, "descend", "Onward", _release, 18, tone))
@@ -7804,10 +7873,13 @@ func _reworked(result: Dictionary) -> Dictionary:
 	before[field] = int(verdict.get("was", before.get(field, 0)))
 	return {"stone": before, "field": field, "now": int(verdict.get("now", 0)), "broke": false}
 
-func _rework_reveal(parent: Node, reworked: Dictionary) -> void:
+func _rework_reveal(parent: Node, reworked: Dictionary) -> Control:
+	## The stone worked on its ladder (Rework): heat or sparks, a beat, then the rung it lands
+	## on. A tap or a click on it lands it at once.
 	var card := DeepUi.card(parent, Color(DeepUi.BAD if bool(reworked.broke) else DeepUi.ACCENT, 0.45), 14)
 	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var ladder := Rework.new(reworked.stone, str(reworked.field), 96.0)
+	## On the phone the stone stands beside its ladder: the page has width to spare, not height.
+	var ladder := Rework.new(reworked.stone, str(reworked.field), DeepUi.pt(56) if DeepUi.phone else 96.0, DeepUi.phone)
 	card.add_child(ladder)
 	_enter(card, 0.08)
 	if _fresh and not _headless:
@@ -7816,6 +7888,7 @@ func _rework_reveal(parent: Node, reworked: Dictionary) -> void:
 				ladder.play(int(reworked.now), bool(reworked.broke)))
 	else:
 		ladder.settle(int(reworked.now), bool(reworked.broke))
+	return ladder
 
 func _verdict_stamp(parent: Node, verdict: Dictionary) -> void:
 	## Better or worse, said out loud. A wheel or an oven never gives back what it took, so
@@ -7878,10 +7951,17 @@ func _page_well(content: VBoxContainer) -> void:
 	DeepUi.label(head, "The well answers", 15, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	## Judged against what went down it, never the rung's own name: "A good stone" sat over a
 	## tiny one, and "A hundred pyrite" after a throw of 157 read as a win.
-	var named := DeepUi.title(head, DeepOddities.well_headline(well, made), 34 + 6 * tier, tone.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
+	## The phone's headline and answer are held to its screen: a stone's full name at the loudest
+	## rung ran wide, and the answer under it tall (November 10, 2026). Both wrap.
+	var named := DeepUi.title(head, DeepOddities.well_headline(well, made), (22 + 2 * tier) if DeepUi.phone else 34 + 6 * tier, tone.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
 	named.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
 	named.add_theme_constant_override("outline_size", 8 + 2 * tier)
-	DeepUi.wrap(head, str(_hold.get("message", "")), 17, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER, 720).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var headline_most: float = DeepUi.pt(520) if DeepUi.phone else 1000.0
+	if named.get_combined_minimum_size().x > headline_most:
+		named.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		named.custom_minimum_size.x = headline_most
+		named.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	DeepUi.wrap(head, str(_hold.get("message", "")), 13 if DeepUi.phone else 17, DeepUi.PAPER, HORIZONTAL_ALIGNMENT_CENTER, DeepUi.pt(480) if DeepUi.phone else 720.0).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var counted: String = _well_counted(well)
 	if not counted.is_empty():
 		DeepUi.label(head, counted, 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
