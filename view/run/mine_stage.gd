@@ -628,6 +628,11 @@ func remove_pick(id: String) -> void:
 func has_pick(id: String) -> bool:
 	return _picks.has(id)
 
+func pick_ids() -> Array:
+	## Every registered thing's id, for whoever lays a button over the room and would not
+	## stand it on one.
+	return _picks.keys()
+
 func clear_picks() -> void:
 	_hover_pick("")
 	_picks.clear()
@@ -2115,6 +2120,8 @@ func _sync_names() -> void:
 					label.add_theme_stylebox_override("normal", plate)
 				if DeepUi.phone:
 					_phone_name(label, spot)
+				if spot.has_meta("stagger"):
+					label.set_meta("stagger", true)
 				_names_layer.add_child(label)
 				_names[key] = label
 			## Only when they change: each override has the word laid out again.
@@ -2141,12 +2148,61 @@ func _sync_names() -> void:
 				var at: Vector2 = camera.unproject_position(point) * view_scale() + frame.position
 				label.position = (at - label.size * 0.5).round()
 				label.modulate.a = alpha
+	## Every name was put where it stands just above: a step down is taken from there, once.
+	if DeepUi.phone and _laid_out():
+		_stagger_names()
 	for key in _names.keys():
 		if not seen.has(key):
 			var gone: Variant = _names[key]
 			if gone is Node and is_instance_valid(gone):
 				(gone as Node).queue_free()
 			_names.erase(key)
+
+func _stagger_names() -> void:
+	## On the phone the names under a stall's goods stand closer than they are long: where two
+	## would overlap, every other one steps down a line (November 9, 2026: "Lucky Seven" ran
+	## under "Tempo").
+	var row: Array = []
+	for key in _names:
+		var label: Variant = _names[key]
+		if label is Label and is_instance_valid(label) and (label as Label).visible and bool((label as Label).get_meta("stagger", false)):
+			row.append(label)
+	if row.size() < 2:
+		return
+	row.sort_custom(func(a: Label, b: Label) -> bool: return a.position.x < b.position.x)
+	var crowded: bool = false
+	for index in range(1, row.size()):
+		var before: Label = row[index - 1]
+		if before.position.x + before.size.x + DeepUi.pt(3) > (row[index] as Label).position.x:
+			crowded = true
+	if not crowded:
+		return
+	for index in range(1, row.size(), 2):
+		var label: Label = row[index]
+		label.position.y += label.size.y + DeepUi.pt(2)
+
+func shrine_rect() -> Rect2:
+	## Where the mark over an oddity's plinth floats on the screen, its bob included, in the
+	## stage's own coordinates; empty when there is none.
+	var here: Node3D = business()
+	if _headless or here == null or not here.has_meta("mark") or not _laid_out():
+		return Rect2()
+	var base: Vector3 = here.global_transform * Vector3(0.0, 2.2, 0.0)
+	var corners: Array = [base + Vector3(-0.6, -0.65, 0.0), base + Vector3(0.6, -0.65, 0.0), base + Vector3(-0.6, 0.75, 0.0), base + Vector3(0.6, 0.75, 0.0)]
+	var project := func() -> Variant:
+		var seen: Array = []
+		for corner in corners:
+			if not camera.is_position_behind(corner):
+				seen.append(camera.unproject_position(corner))
+		return seen
+	var points: Array = _steady(project)
+	if points.is_empty():
+		return Rect2()
+	var stretch: Vector2 = view_scale()
+	var box := Rect2((points[0] as Vector2) * stretch + frame.position, Vector2.ZERO)
+	for point in points:
+		box = box.expand((point as Vector2) * stretch + frame.position)
+	return box
 
 func _phone_name(label: Label, spot: Node3D) -> void:
 	## On the phone a name in the room is a button where it stands (board run-landing): a

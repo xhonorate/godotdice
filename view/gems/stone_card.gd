@@ -293,8 +293,10 @@ static func build(parent: Node, stone: Dictionary, opts: Dictionary = {}) -> Pan
 		DeepUi.stat(footer, "coin", "%d" % DeepStone.value(stone), DeepUi.ACCENT, 12, "Worth: what a buyer would pay, in gold")
 	return card
 
-static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: bool = true) -> PanelContainer:
+static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: bool = true, two_lines: bool = false) -> PanelContainer:
 	## A stone as a square tile for grids: picture, short name, and a grade-colored foot.
+	## `two_lines` lets a long name go on to a second line rather than be trimmed, with every
+	## tile keeping room for two (the end of a run's haul).
 	var appraised: bool = bool(stone.get("appraised", false))
 	var grade: Dictionary = DeepStone.grade(stone)
 	var tone: Color = DeepUi.tier_color(str(grade.tier)) if appraised else DeepUi.color(DeepStone.color(stone))
@@ -315,7 +317,10 @@ static func tile(parent: Node, stone: Dictionary, size: float = 72.0, caption: b
 	box.set_meta("tags", tags)
 	if caption:
 		var name: String = str(DeepStone.skill_of(stone).get("name", "")) if appraised else ("Geode" if DeepStone.is_geode(stone) else "%s raw" % DeepStone.size_name(int(stone.get("carat", 1))))
-		DeepUi.fit_label(column, name, 12, DeepUi.PAPER if appraised else DeepUi.MUTED, size)
+		if two_lines:
+			DeepUi.name_label(column, name, 12, DeepUi.PAPER if appraised else DeepUi.MUTED, size, true)
+		else:
+			DeepUi.fit_label(column, name, 12, DeepUi.PAPER if appraised else DeepUi.MUTED, size)
 	return box
 
 static func mini(parent: Node, stone: Dictionary, size: float = 56.0, tooltip: String = "") -> Control:

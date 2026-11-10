@@ -33,8 +33,8 @@ const HP_LOST := Color("5a2a2a")
 const BLOCK := Color("6fa8ff")
 const POISON := Color("9ad35a")
 const ORE := Color("e8a94f")
-## How wide the arrow past a row of choices stands, and the empty column that balances it.
-const SKIP_WIDTH: float = 92.0
+## A way-out key's outline under the pointer (`way_out`): brighter than LINE_HI, short of white.
+const WAY_OUT_LIT := Color("9aa9d3")
 ## A pale lavender: Resonance's mark and, on its own, a fallback for anywhere its word can't
 ## be shown letter by letter (see EFFECT_KEYWORDS' "rainbow" flag, which is how the word itself
 ## is colored — flat text this close to PAPER's near-white would simply vanish into it).
@@ -1083,6 +1083,24 @@ static func fit_label(parent: Node, text: String, size: int, color: Color, width
 	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	return l
 
+static func name_label(parent: Node, text: String, size: int, color: Color, width: float, keep_two: bool = false) -> Label:
+	## A name stepped down to fit `width` as `fit_label` does, but where even its floor is too
+	## wide it goes on to a second line instead of being trimmed ("Pebble raw", not "Pebble r…";
+	## November 9, 2026). `keep_two` keeps two lines' room either way, so a grid stays level.
+	var l := fit_label(parent, text, size, color, width)
+	var font: Font = l.get_theme_font("font")
+	var px: int = l.get_theme_font_size("font_size")
+	var lines: int = 1
+	if font != null and font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x > width:
+		l.clip_text = false
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.max_lines_visible = 2
+		lines = 2
+	if keep_two:
+		lines = 2
+	l.custom_minimum_size.y = ceilf(l.get_line_height() * float(lines) + float(l.get_theme_constant("line_spacing")) * float(lines - 1))
+	return l
+
 static func skill_name(stone: Dictionary) -> String:
 	## Just the skill ("Strike"): the grade words are drawn as marks on the picture instead.
 	if DeepStone.is_geode(stone):
@@ -1475,92 +1493,118 @@ static func disable_choice(box: Control) -> void:
 	box.mouse_default_cursor_shape = Control.CURSOR_ARROW
 	box.focus_mode = Control.FOCUS_NONE
 	## Dimmed through self and children rather than `modulate`, which an entrance tween owns.
-	box.self_modulate.a = 0.55
+	## The plate is darkened rather than made see-through: a shrine's mark behind it showed
+	## through a dimmed card (November 9, 2026).
+	box.self_modulate = Color(0.62, 0.62, 0.66, 1.0)
 	for child in box.get_children():
 		if child is CanvasItem:
 			(child as CanvasItem).modulate.a = 0.55
 
-static func skip_arrow(parent: Node, text: String, callback: Callable, tone: Color = MUTED, glyph: String = "next") -> Control:
-	## The way past a row of choices: an arrow off the end of the row rather than a button over
-	## it, with what it does written small beneath. Under the pointer it brightens and keeps
-	## nudging on, the way it would take you. Pair it with `skip_ghost` on the row's other end
-	## so the choices stay centred. With "prev" it is the way back instead, and nudges back.
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 4)
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	## On the phone: a 44 point key, its words in about two lines under it.
-	var wide: float = pt(70) if phone else SKIP_WIDTH
-	column.custom_minimum_size.x = wide
-	column.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	parent.add_child(column)
+static func way_out(text: String, callback: Callable, back: bool = false, tip: String = "", glyph: String = "") -> Button:
+	## The way out of a page (the owner's pick, November 9, 2026, docs/UI_REDO.md): a key with
+	## its words on it, for a corner of the room rather than the end of a row of choices. On,
+	## it is an arch (the tunnel) and an arrow that steps on under the pointer; back, an arrow
+	## back, a lantern (the landing) and, on the desk, the Esc that does the same. Not the
+	## pager's bare chevrons, so it never reads as another page turn. `tip` is said on hover:
+	## the whole of a way back whose key only says "Back". `glyph` stands in for the lantern or
+	## the arch where the way leads somewhere else (the workshop's pages back to their tab).
 	var b := Button.new()
-	b.tooltip_text = text
+	b.name = "WayOut"
+	b.set_meta("way_out", text)
+	b.set_meta("back", back)
+	b.tooltip_text = tip
 	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	b.custom_minimum_size = Vector2(pt(48), pt(40)) if phone else Vector2(64, 44)
-	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	b.icon = GemIcons.texture(glyph, GemIcons.baked_size(40))
-	b.expand_icon = true
-	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	b.add_theme_constant_override("icon_max_width", int(pt(18)) if phone else 24)
-	## The same key every other button on the page is cut as (a rounded slab, heavier along
-	## the bottom), only darker and empty but for its arrow: the way on is offered, not urged.
-	var key := func(fill: Color, edge: Color) -> StyleBoxFlat:
-		var style := button_style(fill, edge, 8)
-		style.content_margin_left = 10
-		style.content_margin_right = 10
-		return style
-	b.add_theme_stylebox_override("normal", key.call(Color(GLASS, 0.85), Color(tone, 0.4)))
-	b.add_theme_stylebox_override("hover", key.call(Color(tone, 0.18), tone.lightened(0.3)))
-	b.add_theme_stylebox_override("pressed", key.call(Color(tone, 0.3), tone.lightened(0.3)))
-	b.add_theme_stylebox_override("focus", key.call(Color(0, 0, 0, 0), Color(tone, 0.8)))
-	b.add_theme_color_override("icon_normal_color", tone)
-	b.add_theme_color_override("icon_hover_color", tone.lightened(0.4))
-	b.add_theme_color_override("icon_pressed_color", tone.lightened(0.4))
-	b.add_theme_color_override("icon_focus_color", tone.lightened(0.4))
-	b.pressed.connect(func() -> void: DeepAudio.play("ui_tap"))
+	## Lit at rest: the slate key every button is cut as, its outline a step brighter than a
+	## card's, and brighter again under the pointer.
+	ledger_button(b, SLATE_HI, LINE_HI, 0)
+	b.add_theme_stylebox_override("hover", ledger(SLATE_HI.lightened(0.14), WAY_OUT_LIT, 8, 0, 2, 3))
+	b.add_theme_stylebox_override("focus", focus_ring(8))
+	var row := HBoxContainer.new()
+	row.name = "Words"
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", int(pt(5)) if phone else 9)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	b.add_child(row)
+	## The arrow stands in a slot of its own, so it can step on and back without the row
+	## moving under it.
+	var edge: float = pt(12) if phone else 15.0
+	var slot := Control.new()
+	slot.custom_minimum_size = Vector2(edge, edge)
+	slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var arrow := _way_mark("prev" if back else "next", edge, MUTED)
+	slot.add_child(arrow)
+	var mark := _way_mark(glyph if not glyph.is_empty() else ("lantern" if back else "arch"), pt(17) if phone else 24.0, ORE)
+	if back:
+		row.add_child(slot)
+		row.add_child(mark)
+	else:
+		row.add_child(mark)
+	var words := label(row, text, 13 if phone else 17, PAPER)
+	words.add_theme_font_override("font", bold_font())
+	if not back:
+		row.add_child(slot)
+	elif not phone:
+		## Esc goes back to the landing as this does (descent_screen.gd `_unhandled_key_input`).
+		var cap := PanelContainer.new()
+		var cap_style := flat(Color(0, 0, 0, 0), DIM, 4, 0, 2)
+		cap_style.border_width_bottom = 3
+		cap_style.content_margin_left = 6
+		cap_style.content_margin_right = 6
+		cap_style.content_margin_top = 1
+		cap_style.content_margin_bottom = 0
+		cap.add_theme_stylebox_override("panel", cap_style)
+		cap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(cap)
+		label(cap, "Esc", 12, MUTED.lightened(0.15))
+	## As wide as what is on it; as tall as the desk's buttons, and on the phone a finger's
+	## least and more, its reach taking it to the 44 points a finger aims for.
+	var fit := func() -> void:
+		var pad: float = pt(9) if phone else 16.0
+		b.custom_minimum_size = Vector2(row.get_combined_minimum_size().x + pad * 2.0, pt(34) if phone else 50.0)
+	row.minimum_size_changed.connect(fit)
+	fit.call()
+	if phone:
+		reach(b, Vector2(0.0, pt(5)))
+	b.pressed.connect(func() -> void: DeepAudio.play(str(b.get_meta("sound", "ui_back" if back else "ui_tap"))))
 	if callback.is_valid():
 		b.pressed.connect(callback)
-	column.add_child(b)
-	var words := label(column, text, 11 if phone else 12, PAPER.darkened(0.15), HORIZONTAL_ALIGNMENT_CENTER)
-	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	## It stands over the room, not on a card: an outline keeps it readable on bright rock.
-	words.add_theme_constant_override("outline_size", 6)
-	words.add_theme_color_override("font_outline_color", Color(INK, 0.9))
-	words.custom_minimum_size.x = wide
-	## The nudge: the arrow keeps stepping on and back while the pointer is over it.
+	juice(b, 1.04)
+	## Under the pointer the marks light and the arrow keeps stepping the way it would take you.
 	var nudge: Array = [null]
-	b.resized.connect(func() -> void: b.pivot_offset = b.size * 0.5)
 	b.mouse_entered.connect(func() -> void:
-		DeepAudio.play("ui_hover", {"volume": 0.5, "gap": 0.07})
-		words.add_theme_color_override("font_color", tone.lightened(0.4))
+		arrow.modulate = PAPER
+		mark.modulate = ORE.lightened(0.3)
 		if headless():
 			return
-		var tween := b.create_tween().set_loops()
-		tween.tween_property(b, "scale", Vector2.ONE * 1.1, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		tween.tween_property(b, "position:x", b.position.x + (-7.0 if glyph == "prev" else 7.0), 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-		tween.tween_property(b, "position:x", b.position.x, 0.26).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		var tween := arrow.create_tween().set_loops()
+		tween.tween_property(arrow, "position:x", -5.0 if back else 5.0, 0.26).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tween.tween_property(arrow, "position:x", 0.0, 0.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		nudge[0] = tween)
 	b.mouse_exited.connect(func() -> void:
-		words.add_theme_color_override("font_color", PAPER.darkened(0.15))
+		arrow.modulate = MUTED
+		mark.modulate = ORE
 		if nudge[0] != null and (nudge[0] as Tween).is_valid():
 			(nudge[0] as Tween).kill()
 		nudge[0] = null
-		if headless():
-			return
-		var tween := b.create_tween()
-		tween.tween_property(b, "scale", Vector2.ONE, 0.14)
-		## Let the container put it back where it belongs.
-		tween.tween_callback(column.queue_sort))
-	return column
+		arrow.position.x = 0.0)
+	return b
 
-static func skip_ghost(parent: Node) -> Control:
-	## An empty column the width of a skip arrow, for the other end of its row.
-	var ghost := Control.new()
-	ghost.custom_minimum_size.x = pt(70) if phone else SKIP_WIDTH
-	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(ghost)
-	return ghost
+static func _way_mark(glyph: String, edge: float, tint: Color) -> TextureRect:
+	## One of a way-out key's marks: white, tinted by its modulate so hover can light it.
+	var mark := TextureRect.new()
+	mark.texture = GemIcons.texture(glyph, GemIcons.baked_size(edge * 1.5))
+	mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	mark.custom_minimum_size = Vector2(edge, edge)
+	mark.size = Vector2(edge, edge)
+	mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mark.modulate = tint
+	return mark
 
 static func tab_button(parent: Node, glyph: String, text: String, active: bool, callback: Callable, size: int = 14, badge: int = 0, rainbow: bool = false) -> Button:
 	## A tab: plain at rest, and when it is the one open, a faint gold wash over a gold rule

@@ -365,12 +365,18 @@ func _build() -> void:
 	_slot_boxes.clear()
 	var tone: Color = Color(spec.get("tone", DeepUi.ACCENT))
 	_block = PanelContainer.new()
-	_block.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, int(DeepUi.pt(8)) if DeepUi.phone else 18, 3, 5))
+	_block.add_theme_stylebox_override("panel", DeepUi.ledger(DeepUi.LEDGER_FILL, tone, 14, int(DeepUi.pt(6)) if DeepUi.phone else 18, 3, 5))
 	_block.mouse_filter = Control.MOUSE_FILTER_STOP
+	## On the phone it is as wide as the room left of the bag allows (up to 420 points), so its
+	## words take fewer lines: at 318 it stood taller than the room and over the rail's rings it
+	## asks you to tap (November 9, 2026).
+	var wide: float = DeepUi.pt(318)
 	if DeepUi.phone:
-		_block.custom_minimum_size.x = DeepUi.pt(318)
+		if size.x > 0.0:
+			wide = clampf(size.x - side_width - DeepUi.safe_left - DeepUi.pt(16), DeepUi.pt(318), DeepUi.pt(420))
+		_block.custom_minimum_size.x = wide
 	add_child(_block)
-	var box := DeepUi.vbox(_block, int(DeepUi.pt(5)) if DeepUi.phone else 12)
+	var box := DeepUi.vbox(_block, int(DeepUi.pt(3)) if DeepUi.phone else 12)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	var head := DeepUi.hbox(box, 10)
 	head.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -379,7 +385,7 @@ func _build() -> void:
 	var title := DeepUi.title(head, str(spec.get("title", "")), 19 if DeepUi.phone else 22, DeepUi.PAPER)
 	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if not str(spec.get("text", "")).is_empty():
-		var words := DeepUi.wrap(box, str(spec.text), 12 if DeepUi.phone else 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, DeepUi.pt(296) if DeepUi.phone else 440.0)
+		var words := DeepUi.wrap(box, str(spec.text), 12 if DeepUi.phone else 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, wide - DeepUi.pt(22) if DeepUi.phone else 440.0)
 		words.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	## What is dimmed on the dock, and why, when one reason covers all of it. Each dimmed
 	## thing also says its own reason on its plate (run_dock.gd).
@@ -453,7 +459,8 @@ func _place() -> void:
 	_block.size = want
 	## Just above whatever holds the foot of the screen (the dock, and the bag when it is open).
 	var room: float = maxf(0.0, size.y - floor_height)
-	var y: float = maxf(12.0, room - want.y - 16.0)
+	## The phone keeps a thinner margin above and below: its sheet is a tall one in a short room.
+	var y: float = maxf(DeepUi.pt(4) if DeepUi.phone else 12.0, room - want.y - (DeepUi.pt(4) if DeepUi.phone else 16.0))
 	## Centred in the room the bag leaves, when it is open on the right.
 	var across: float = maxf(want.x, size.x - side_width)
 	_block.position = Vector2((across - want.x) * 0.5, y).round()
@@ -468,7 +475,10 @@ func _slot(parent: Control, slot: Dictionary, tone: Color) -> void:
 	var id: String = str(picks.get(str(slot.key), ""))
 	var item: Dictionary = _item(slot, id) if not id.is_empty() else {}
 	var holder := Control.new()
-	holder.custom_minimum_size = Vector2(DeepUi.pt(52), DeepUi.pt(52)) if DeepUi.phone else Vector2(SLOT_EDGE, SLOT_EDGE)
+	var edge: float = DeepUi.pt(44) if DeepUi.phone else SLOT_EDGE
+	## The picture in it, as much smaller than the ring on the phone as on the desk.
+	var shown: float = edge * PICTURE / SLOT_EDGE
+	holder.custom_minimum_size = Vector2(edge, edge)
 	holder.mouse_filter = Control.MOUSE_FILTER_STOP
 	holder.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	column.add_child(holder)
@@ -479,11 +489,11 @@ func _slot(parent: Control, slot: Dictionary, tone: Color) -> void:
 	if not item.is_empty():
 		var picture: Control
 		if kind == "die":
-			picture = Thumbs.DieThumb.new(item, PICTURE)
+			picture = Thumbs.DieThumb.new(item, shown)
 		else:
-			picture = Thumbs.GemThumb.new(item, PICTURE)
+			picture = Thumbs.GemThumb.new(item, shown)
 			picture.live_on_hover = false
-		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, (SLOT_EDGE - PICTURE) * 0.5)
+		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, (edge - shown) * 0.5)
 		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.add_child(picture)
 		var slot_key: String = str(slot.key)

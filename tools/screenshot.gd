@@ -10,7 +10,7 @@ const Homecoming = preload("res://view/home/homecoming.gd")
 ##          over | inspect_stone | inspect_die | inspect_opal | vault_opals | inspect_flaw | vault_flaws | inspect_creature | menu | menu_settings | menu_soundtrack |
 ##          abandon | map_lit | chart |
 ##          crossroads | crossroads_hover | walk | walk_in | rockfall | crumble | vein_hover | vein_strike |
-##          lift_ride | hoard | appraisal | appraisal_run | void_rail | void_bench | void_battle | void_end | void_appraisal |
+##          lift_ride | hoard | appraisal | appraisal_run | void_rail | void_bench | void_battle | void_phantoms | void_popout | void_end | void_appraisal |
 ##          bestiary | bestiary_unmet
 ## `appraisal` puts a raw stone from the tray under the loupe at home (weighed against a kept
 ## one of its skill) and `appraisal_run` buys an appraisal at a merchant; the 4th argument is
@@ -544,15 +544,27 @@ func _void_preview(app: Control, target: String, out: String) -> void:
 	run.phase = "tunnels"
 	DeepDescent._offer_tunnels(run, DeepDescent.streams_of(run))
 	var keys: Array = ["CLEAVE", "FURY", "VENOM", "ECHO", "CASCADE", "REFRACT"]
+	var seats: Array = [0, 0, 1, 3, 4, 4]
+	if target in ["void_phantoms", "void_popout"]:
+		## The Void dock at scale (November 9, 2026): a run of copies and more riders on the first socket.
+		for extra in ["PRISM", "HEX", "TUMBLE", "ANCHOR", "GRAFT", "MIASMA"]:
+			keys.append(extra)
+			seats.append(0)
 	for index in range(keys.size()):
 		var stone: Dictionary = DeepStone.make(str(keys[index]), 9, 3, 2, ["VOID"], {"source": "vein"}, "shot_" + str(keys[index]))
 		stone.appraised = true
 		stone.inclusions_revealed = true
 		## Riding the sockets: two on the first, one on the second, one on the fourth and two on the last.
-		unit.riders[[0, 0, 1, 3, 4, 4][index]].append(stone)
+		unit.riders[seats[index]].append(stone)
+	if target in ["void_phantoms", "void_popout"]:
+		for k in range(4):
+			var copy: Dictionary = DeepStone.make("VENOM", 9, 3, 2, ["VOID"], {"source": "vein"}, "shot_VENOM-void%d" % k)
+			copy.appraised = true
+			copy.inclusions_revealed = true
+			unit.riders[1].append(copy)
 	DeepStone.normalize_rail(unit)
 	unit.haul.append(raw)
-	if target == "void_battle":
+	if target in ["void_battle", "void_phantoms", "void_popout"]:
 		run.phase = "chamber"
 		run.chamber = {"depth": 3, "settled": false}
 		DeepDescent._start_fight(run, DeepDescent.streams_of(run), false, "")
@@ -560,6 +572,30 @@ func _void_preview(app: Control, target: String, out: String) -> void:
 		DeepDescent._finish(run, "extracted")
 		app.descent._end_shown = true
 	app.descent.show_state(run)
+	if target in ["void_phantoms", "void_popout"]:
+		## Phantoms in the hand: three copies of the first die, five of the second, two thrown d6
+		## fours and a thrown d12, as a Refract on the second socket and a Tumble would leave them.
+		await create_timer(0.4).timeout
+		var b: Dictionary = DeepDescent.battle(run)
+		var me: Dictionary = DeepBattle.player(b, app.session.local_id)
+		var battle: Control = app.descent._battle
+		var page: RefCounted = battle._local_page
+		var refract: int = DeepStone.flat_index(me, 1)
+		var n: int = 0
+		var thrown: Array = []
+		for source in [[str(me.dice[0].id), 3], [str(me.dice[1].id), 5]]:
+			for k in range(int(source[1])):
+				n += 1
+				me.hand.append({"die_id": "%s_ph%d" % [str(source[0]), n], "value": 4, "face": 3, "shape": "D6", "kind": "plain", "phantom": true, "source_id": str(source[0])})
+				page.phantom_makers["%s_ph%d" % [str(source[0]), n]] = {"socket": refract, "name": "Refract"}
+		for roll in [["D6", 4], ["D6", 4], ["D12", 9]]:
+			n += 1
+			me.hand.append({"die_id": "shot_roll%d" % n, "value": int(roll[1]), "face": int(roll[1]) - 1, "shape": str(roll[0]), "kind": "plain", "phantom": true, "source_id": ""})
+			page.phantom_makers["shot_roll%d" % n] = {"socket": DeepStone.flat_index(me, 2), "name": "Tumble"}
+		app.descent.show_state(run)
+		await create_timer(0.3).timeout
+		if target == "void_popout":
+			battle._open_riders(page, 0, 0, false)
 	if target == "void_bench":
 		app.descent.open_bench("gems")
 		app.descent._bench._pick = "shot_CLEAVE"

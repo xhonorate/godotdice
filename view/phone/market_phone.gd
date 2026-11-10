@@ -2,7 +2,8 @@ extends RefCounted
 ## The market on the phone (docs/PHONE_UI.md, board home-market, approved November 7, 2026).
 ## The desk's four parts side by side become four tabs of one page: Cut and read, Geodes,
 ## Commissions, The bench. Each fills the page; one taller than the screen scrolls. The Wheel's,
-## the Oven's and the contract's own pages are the desk's.
+## the Oven's and the contract's own pages are the desk's, fitted to the phone where they are
+## built (market_page.gd, November 9, 2026): two columns, each scrolling.
 
 const MarketPage = preload("res://view/home/market_page.gd")
 const HomeParts = preload("res://view/home/home_parts.gd")

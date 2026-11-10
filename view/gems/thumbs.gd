@@ -15,6 +15,7 @@ const GemView = preload("res://view/gems/gem_view.gd")
 const GeodeView = preload("res://view/gems/geode_view.gd")
 const DiceView = preload("res://view/dice/dice_view.gd")
 const GemMesh = preload("res://view/gems/gem_mesh.gd")
+const GemIcons = preload("res://view/gems/gem_icons.gd")
 const GemRock = preload("res://view/gems/gem_rock.gd")
 const DiceIcons = preload("res://view/dice/dice_icons.gd")
 const Motes = preload("res://view/gems/motes.gd")
@@ -214,6 +215,16 @@ class GemThumb extends Control:
 	var stone: Dictionary = {}
 	var live_on_hover: bool = true
 	var glint: bool = false
+	## The Hollow look (view/battle/void_marks.gd): a Void gem drawn as dark space inside its
+	## outline, its emblem in white over it. No halo, no color mark, never live.
+	var hollow: bool = false:
+		set(value):
+			hollow = value
+			if value:
+				live_on_hover = false
+			if not stone.is_empty():
+				_dress_hollow()
+	var _emblem: TextureRect = null
 	## What the rail is handing this stone where it stands, so the close look can read out the
 	## ranks it really has rather than the ones it was cut with.
 	var context: Dictionary = {}
@@ -322,7 +333,36 @@ class GemThumb extends Control:
 		set_process(glint or _texture == null)
 		## A Transcendent carries its ring of motes on every picture of it.
 		Motes.refresh(self, stone)
+		if hollow:
+			_dress_hollow()
 		queue_redraw()
+
+	func _dress_hollow() -> void:
+		## The shader over the photograph, and the emblem (the one thing the dark would swallow)
+		## drawn again in white on top, sized to the stone.
+		var VoidMarks = load("res://view/battle/void_marks.gd")
+		glint = false
+		material = VoidMarks.hollow_material(VoidMarks.tone_of(stone), false, str(stone.get("id", "")).hash())
+		if _emblem == null:
+			_emblem = TextureRect.new()
+			_emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_emblem.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			_emblem.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			_emblem.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+			_emblem.modulate = Color(0.92, 0.94, 1.0, 0.88)
+			add_child(_emblem)
+			resized.connect(_place_emblem)
+		var glyph: String = str(stone.get("emblem", "")) if DeepStone.is_birthstone(stone) else GemIcons.emblem(str(stone.get("skill", "")))
+		var edge: float = maxf(minf(size.x, size.y), minf(custom_minimum_size.x, custom_minimum_size.y))
+		_emblem.texture = GemIcons.texture(glyph, GemIcons.baked_size(edge * 0.6))
+		_place_emblem()
+
+	func _place_emblem() -> void:
+		if _emblem == null:
+			return
+		var edge: float = minf(size.x, size.y) * 0.42 * _span
+		_emblem.position = (size - Vector2(edge, edge)) * 0.5
+		_emblem.size = Vector2(edge, edge)
 
 	func _show_geode() -> void:
 		var recipe: Dictionary = stone.geode
@@ -414,6 +454,16 @@ class GemThumb extends Control:
 		var edge: float = minf(size.x, size.y)
 		var centre: Vector2 = size * 0.5
 		var lift: float = 1.0 + 0.07 * _hover
+		if hollow:
+			## Dark space throws no light: the photograph alone, through the Hollow shader, and
+			## the emblem placed on it (a thumb often gets its size after it is dressed).
+			_place_emblem()
+			if _texture != null:
+				var span: float = edge * (float(_texture.get_width()) / GEM_EDGE) * lift
+				draw_texture_rect(_texture, Rect2(centre - Vector2(span, span) * 0.5, Vector2(span, span)), false, Color(1, 1, 1, _fade))
+			elif _fade < 1.0:
+				_draw_outline(centre, edge * 0.42 * _span * lift, 1.0)
+			return
 		## The light a clean stone throws on what it sits on; a cloudy one throws little.
 		var halo: float = edge * _span * (1.25 + 0.25 * _hover)
 		draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false,
@@ -529,6 +579,12 @@ class DieThumb extends Control:
 	## slight turn, `DiceView.tilt_for`), with a sliver of its sides so its shape reads.
 	var die: Dictionary = {}
 	var face: int = 0
+	## The Hollow look (view/battle/void_marks.gd): a phantom die as dark space, its number white.
+	var hollow: bool = false:
+		set(value):
+			hollow = value
+			material = load("res://view/battle/void_marks.gd").hollow_material(DeepUi.INFO.lerp(Color.WHITE, 0.45), true, 3) if value else null
+			queue_redraw()
 	var _texture: Texture2D = null
 	var _fade: float = 0.0
 	var _key: String = ""
@@ -610,7 +666,8 @@ class DieThumb extends Control:
 		var palette: Dictionary = DiceIcons.die_palette(die)
 		var lift: float = 1.0 + 0.08 * _hover
 		var halo: float = edge * (1.3 + 0.2 * _hover)
-		draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false, Color(palette.body, 0.10 + 0.12 * _hover))
+		if not hollow:
+			draw_texture_rect(DeepUi.glow_texture(), Rect2(centre - Vector2(halo, halo) * 0.5, Vector2(halo, halo)), false, Color(palette.body, 0.10 + 0.12 * _hover))
 		if _fade < 1.0:
 			var outline: Dictionary = DiceIcons.silhouette(str(die.get("shape", "D6")))
 			var points := PackedVector2Array()

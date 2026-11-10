@@ -690,6 +690,9 @@ func _run(app: Control) -> void:
 				room.chamber.kind = kind
 		descent.show_state(room)
 		await _fits(screen, "the %s's card" % str(key))
+		_way_out_clear(descent, "the %s's card" % str(key))
+		_in_room(descent, "the %s's card" % str(key))
+		await _asks_fit(descent, room, str(key))
 		## And the second page of every piece of work on it: the thing to work on laid out
 		## in full, with what it cannot be done to greyed out.
 		for choice in DeepContent.oddity(str(key)).get("choices", []):
@@ -1040,6 +1043,55 @@ func _deep_pages(app: Control, descent: Control, run: Dictionary) -> void:
 			descent._ask.close()
 		descent._oddity_step = ""
 	descent.show_state(run)
+
+func _in_room(descent: Node, what: String) -> void:
+	## A room's cards stand inside the room (over the dock's top) and clear of the room's name
+	## and its line (November 9, 2026: the phone's Geode card stood over both).
+	var room: Rect2 = (descent._page_holder as Control).get_global_rect().grow(2.0)
+	var heads: Array = []
+	for label in [descent._cross_title, descent._cross_sub]:
+		if label != null and (label as Control).is_visible_in_tree() and not str(label.text).is_empty():
+			heads.append((label as Control).get_global_rect())
+	var bad: Array = []
+	for thing in descent._page_things():
+		if not room.encloses(thing):
+			bad.append("past the room at %s" % _rect(thing))
+		for head in heads:
+			if (thing as Rect2).intersects(head):
+				bad.append("over the name at %s" % _rect(thing))
+	check(bad.is_empty(), "%s stands in the room, clear of its name: %s" % [what, ", ".join(bad)])
+
+func _asks_fit(descent: Node, room: Dictionary, key: String) -> void:
+	## Every piece of work asked on the ask sheet: the sheet stands over the dock, not on it
+	## (November 9, 2026: on the phone it covered the rail's rings it asks you to tap).
+	for choice in DeepContent.oddity(key).get("choices", []):
+		if str(choice.get("needs", "")) in ["", "pattern", "offer"]:
+			continue
+		descent._oddity_step = str(choice.id)
+		descent.show_state(room)
+		await process_frame
+		await process_frame
+		var ask: Variant = descent._ask
+		if ask == null or not ask.is_open() or ask._block == null:
+			continue
+		var sheet: Rect2 = (ask._block as Control).get_global_rect()
+		var floor_at: float = (descent._page_holder as Control).get_global_rect().end.y
+		check(sheet.end.y <= floor_at + 1.0, "the %s's ask for %s stands over the dock (its foot at %d, the dock's top at %d)" % [key, str(choice.id), int(sheet.end.y), int(floor_at)])
+		descent._ask.close()
+	descent._oddity_step = ""
+
+func _way_out_clear(descent: Node, what: String) -> void:
+	## The way out of a page (a room's Leave it, a station's Back) is a key in a corner of the
+	## room (November 9, 2026): it stands clear of the page's own cards and buttons.
+	var key: Variant = descent._way_out_key
+	if key == null or not is_instance_valid(key) or not (key as Control).is_visible_in_tree():
+		return
+	var rect: Rect2 = (key as Control).get_global_rect()
+	var over: Array = []
+	for thing in descent._page_things():
+		if (thing as Rect2).intersects(rect):
+			over.append(_rect(thing))
+	check(over.is_empty(), "%s: the way out at %s stands clear of the page (%s)" % [what, _rect(rect), ", ".join(over)])
 
 func _above_dock(descent: Node, what: String) -> void:
 	## A page over the room stops short of the dock: nothing laid out on it may run under it.

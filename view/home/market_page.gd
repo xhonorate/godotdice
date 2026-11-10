@@ -52,11 +52,13 @@ static func build(home: Control, content: VBoxContainer) -> void:
 static func _head(home: Control, content: VBoxContainer, title: String, back: bool) -> HBoxContainer:
 	var head := DeepUi.hbox(content, 12)
 	if back:
-		var way := DeepUi.icon_button(head, "prev", "Market", func() -> void:
+		## The way back to the counter is the key a way back is everywhere (DeepUi.way_out,
+		## November 9, 2026), the Market's own mark on it.
+		var way := DeepUi.way_out("Market", func() -> void:
 			home._market_view = "main"
-			home._render(), 14, DeepUi.MUTED)
-		way.tooltip_text = "Back to the counter (Esc)"
-		DeepUi.voice(way, "ui_back")
+			home._render(), true, "Back to the counter (Esc)", "geode")
+		way.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(way)
 	else:
 		DeepUi.icon(head, "geode", 28, DeepUi.ACCENT)
 	DeepUi.title(head, title, 30, DeepUi.PAPER)
@@ -626,29 +628,46 @@ static func _gold_button(parent: Node, glyph: String, words: String, gold: Strin
 static func _rework_page(home: Control, content: VBoxContainer, kind: String) -> void:
 	var wheel: bool = kind == "cut"
 	var head := _head(home, content, "The Wheel" if wheel else "The Oven", true)
-	DeepUi.label(head, "Recut a stone from your vault. Its Cut always changes, better or worse." if wheel else "Fire a stone from your vault. Its Clarity always changes, and what is frozen inside is drawn again.", 14, DeepUi.MUTED)
+	## On the phone the page is the desk's two columns in the phone's width (November 9, 2026:
+	## it ran off the right edge): the line under the name goes (the empty wheel says the same
+	## in its terms), the vault scrolls instead of paging, and the wheel's column scrolls.
+	if not DeepUi.phone:
+		DeepUi.label(head, "Recut a stone from your vault. Its Cut always changes, better or worse." if wheel else "Fire a stone from your vault. Its Clarity always changes, and what is frozen inside is drawn again.", 14, DeepUi.MUTED)
 	var used: bool = DeepEconomy.rework_used(home.profile, kind)
 	if used:
 		DeepUi.pill(head, "check", "Used today", DeepUi.MUTED, 12)
-	var columns := DeepUi.hbox(content, 16)
+	var columns := DeepUi.hbox(content, int(DeepUi.pt(8)) if DeepUi.phone else 16)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var picker := DeepUi.card(columns, DeepUi.LINE, 12)
+	var picker := DeepUi.card(columns, DeepUi.LINE, int(DeepUi.pt(8)) if DeepUi.phone else 12)
 	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var box := DeepUi.vbox(picker, 8)
+	var box := DeepUi.vbox(picker, int(DeepUi.pt(5)) if DeepUi.phone else 8)
 	var top := DeepUi.hbox(box, 8)
 	DeepUi.section(top, "chest", "Your vault").size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	StoneBrowser.toolbar(home, top, "bench", {"compact": true, "rarity": false})
+	if DeepUi.phone:
+		## Under the name on the phone, not beside it.
+		StoneBrowser.toolbar_phone(home, box, "bench")
+	else:
+		StoneBrowser.toolbar(home, top, "bench", {"compact": true, "rarity": false})
 	var stones: Array = _held_in_place(home, kind, StoneBrowser.sorted(home, home.profile.get("vault", {}).values(), "bench"))
 	var pager_row := DeepUi.hbox(box, 8)
 	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 10)
-	flow.add_theme_constant_override("v_separation", 10)
-	box.add_child(flow)
+	flow.add_theme_constant_override("h_separation", int(DeepUi.pt(5)) if DeepUi.phone else 10)
+	flow.add_theme_constant_override("v_separation", int(DeepUi.pt(5)) if DeepUi.phone else 10)
+	if DeepUi.phone:
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		scroll.set_meta("may_scroll", true)
+		box.add_child(scroll)
+		flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.add_child(flow)
+	else:
+		box.add_child(flow)
 	if stones.is_empty():
 		DeepUi.label(flow, "No kept stone matches.", 13, DeepUi.DIM)
-	for stone in home.paged(pager_row, "bench_page", stones, PICK_PAGE):
+	for stone in home.paged(pager_row, "bench_page", stones, maxi(1, stones.size()) if DeepUi.phone else PICK_PAGE):
 		var skill: String = str(stone.get("skill", ""))
-		var tile := StoneCard.tile(flow, stone, 70)
+		var tile := StoneCard.tile(flow, stone, DeepUi.pt(44) if DeepUi.phone else 70.0)
 		if skill == home._rework_pick:
 			var style: StyleBoxFlat = tile.get_theme_stylebox("panel").duplicate()
 			style.border_color = DeepUi.ACCENT
@@ -665,9 +684,24 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 				home._rework_pick = skill
 				home._render())
 	home.enter(picker, 0.05)
-	var side := DeepUi.card(columns, Color(DeepUi.ACCENT, 0.4), 16)
-	side.custom_minimum_size.x = 460
-	var side_box := DeepUi.vbox(side, 10)
+	var side := DeepUi.card(columns, Color(DeepUi.ACCENT, 0.4), int(DeepUi.pt(8)) if DeepUi.phone else 16)
+	side.custom_minimum_size.x = DeepUi.pt(300) if DeepUi.phone else 460.0
+	var side_box: VBoxContainer
+	## On the phone the button and its line stand under the scroll, always in sight.
+	var side_foot: VBoxContainer = null
+	if DeepUi.phone:
+		var side_column := DeepUi.vbox(side, int(DeepUi.pt(4)))
+		var side_scroll := ScrollContainer.new()
+		side_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		side_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		side_scroll.set_meta("may_scroll", true)
+		side_column.add_child(side_scroll)
+		side_box = DeepUi.vbox(side_scroll, int(DeepUi.pt(5)))
+		side_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		side_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		side_foot = DeepUi.vbox(side_column, int(DeepUi.pt(2)))
+	else:
+		side_box = DeepUi.vbox(side, 10)
 	var stone: Dictionary = DeepProfile.owned(home.profile, home._rework_pick)
 	## The last result on this page, if it is still the one being looked at; a stone that broke
 	## leaves nothing picked, and its result stays until another is.
@@ -676,7 +710,7 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 		or (bool(done.get("broke", false)) and home._rework_pick.is_empty()))
 	if stone.is_empty() and held and bool(done.broke):
 		_rework_head(side_box, done.before, kind)
-		var lost := Rework.new(done.before, kind, REWORK_EDGE)
+		var lost := Rework.new(done.before, kind, DeepUi.pt(90) if DeepUi.phone else REWORK_EDGE)
 		lost.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		lost.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		side_box.add_child(lost)
@@ -693,11 +727,12 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 		var terms := DeepUi.vbox(side_box, 8)
 		terms.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		DeepUi.gap(terms, 6)
-		DeepUi.stat(terms, "cut" if wheel else "flame", "Its Cut always moves, up or down. Nothing else changes." if wheel else "Its Clarity always moves, and what is frozen inside is drawn again.", DeepUi.PAPER, 13)
 		var share: float = float(DeepContent.constant("rework_price_mult", 0.5))
-		DeepUi.stat(terms, "coin", "Costs %s the stone's worth, %d gold at the least." % ["half" if is_equal_approx(share, 0.5) else "%d%% of" % roundi(share * 100.0), int(DeepContent.constant("rework_gold_min", 25))], DeepUi.ACCENT, 13)
-		DeepUi.stat(terms, "split_shield", "1 in %d stones break %s." % [roundi(100.0 / maxf(0.01, DeepEconomy.rework_break_pct())), "on the wheel" if wheel else "in the oven"], DeepUi.BAD, 13)
-		DeepUi.stat(terms, "calendar", "Once a day.", DeepUi.MUTED, 13)
+		for line in [["cut" if wheel else "flame", "Its Cut always moves, up or down. Nothing else changes." if wheel else "Its Clarity always moves, and what is frozen inside is drawn again.", DeepUi.PAPER],
+				["coin", "Costs %s the stone's worth, %d gold at the least." % ["half" if is_equal_approx(share, 0.5) else "%d%% of" % roundi(share * 100.0), int(DeepContent.constant("rework_gold_min", 25))], DeepUi.ACCENT],
+				["split_shield", "1 in %d stones break %s." % [roundi(100.0 / maxf(0.01, DeepEconomy.rework_break_pct())), "on the wheel" if wheel else "in the oven"], DeepUi.BAD],
+				["calendar", "Once a day.", DeepUi.MUTED]]:
+			_wrap_stat(DeepUi.stat(terms, str(line[0]), str(line[1]), line[2], 12 if DeepUi.phone else 13), DeepUi.pt(250))
 		DeepUi.spacer(side_box, false)
 		home.enter(side, 0.1)
 		return
@@ -705,7 +740,7 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	## After a rework the ladder stays where it landed, read from the rung it started on, with
 	## the stone as it came out standing over it, and under it what that did to its worth (and
 	## in the Oven, what is frozen inside it now).
-	var reveal := Rework.new(done.before if held else stone, kind, REWORK_EDGE)
+	var reveal := Rework.new(done.before if held else stone, kind, DeepUi.pt(72) if DeepUi.phone else REWORK_EDGE)
 	reveal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	reveal.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side_box.add_child(reveal)
@@ -731,7 +766,7 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	var price: int = DeepEconomy.rework_price(stone)
 	## The button, reached from inside its own press, so it can go dark while the wheel turns.
 	var pressed: Array = []
-	var go := DeepUi.primary(side_box, "cut" if wheel else "flame", ("Recut %s" if wheel else "Fire %s") % DeepUi.skill_name(stone), func() -> void:
+	var go := DeepUi.primary(side_foot if side_foot != null else side_box, "cut" if wheel else "flame", ("Recut %s" if wheel else "Fire %s") % DeepUi.skill_name(stone), func() -> void:
 		var skill: String = home._rework_pick
 		## The stone as it goes in, and where its tile stands: the rework changes it in place.
 		var before: Dictionary = DeepProfile.owned(home.profile, skill).duplicate(true)
@@ -762,10 +797,10 @@ static func _rework_page(home: Control, content: VBoxContainer, kind: String) ->
 	DeepUi.priced(go, str(price))
 	pressed.append(go)
 	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	go.custom_minimum_size = Vector2(300, 50)
+	go.custom_minimum_size = Vector2(DeepUi.pt(220), DeepUi.pt(40)) if DeepUi.phone else Vector2(300, 50)
 	go.disabled = not refusal.is_empty()
 	go.tooltip_text = refusal if not refusal.is_empty() else "The price follows the stone's worth."
-	DeepUi.label(side_box, refusal if not refusal.is_empty() else "The price follows the stone's worth.", 12, DeepUi.BAD if not refusal.is_empty() else DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	DeepUi.label(side_foot if side_foot != null else side_box, refusal if not refusal.is_empty() else "The price follows the stone's worth.", 11 if DeepUi.phone else 12, DeepUi.BAD if not refusal.is_empty() else DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	home.enter(side, 0.1)
 
 static func _rework_head(side_box: VBoxContainer, stone: Dictionary, kind: String) -> void:
@@ -859,14 +894,17 @@ static func _contract_page(home: Control, content: VBoxContainer) -> void:
 	if not bool(preview.ok):
 		home._contract = []
 		preview = DeepEconomy.contract_preview(home.profile, home._contract)
-	var columns := DeepUi.hbox(content, 20)
+	## On the phone (November 9, 2026: it ran off the right edge) the bench and the stones
+	## are the desk's two columns in the phone's width, each scrolling, the bench's places
+	## smaller and its long lines wrapped.
+	var columns := DeepUi.hbox(content, int(DeepUi.pt(8)) if DeepUi.phone else 20)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var tier: String = str(preview.get("tier", ""))
 	var next: String = str(preview.get("next", ""))
 	var tone: Color = DeepUi.tier_color(next) if not next.is_empty() else DeepUi.ACCENT
-	var bench := DeepUi.card(columns, Color(tone, 0.45), 16)
+	var bench := DeepUi.card(columns, Color(tone, 0.45), int(DeepUi.pt(8)) if DeepUi.phone else 16)
 	bench.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var box := DeepUi.vbox(bench, 10)
+	var box: VBoxContainer = _phone_scroll(bench, int(DeepUi.pt(5))) if DeepUi.phone else DeepUi.vbox(bench, 10)
 	var promise := DeepUi.hbox(box, 14)
 	promise.alignment = BoxContainer.ALIGNMENT_CENTER
 	if tier.is_empty():
@@ -878,22 +916,24 @@ static func _contract_page(home: Control, content: VBoxContainer) -> void:
 		DeepUi.icon(promise, "next", 26, tone)
 		DeepUi.pill(promise, "star", str(DeepStone.TIER_NAMES.get(next, next)), tone, 16)
 	DeepUi.wrap(box, "Its color is drawn from theirs, it weighs their average, and it is cut from the deepest of their mines' rock, with a grade one step up.",
-		13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = 640
-	var slots := DeepUi.hbox(box, 14)
+		12 if DeepUi.phone else 13, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER).custom_minimum_size.x = DeepUi.pt(300) if DeepUi.phone else 640.0
+	var slots := DeepUi.hbox(box, int(DeepUi.pt(5)) if DeepUi.phone else 14)
 	slots.alignment = BoxContainer.ALIGNMENT_CENTER
 	var stones: Array = preview.get("stones", [])
 	for index in range(DeepEconomy.contract_size()):
 		_contract_slot(home, slots, index, stones[index] if index < stones.size() else {})
 	var signable: bool = bool(preview.get("ready", false))
-	var flow := HomeParts.Funnel.new(stones.size(), DeepEconomy.contract_size(), DeepUi.tier_color(tier) if not tier.is_empty() else DeepUi.DIM, signable, CONTRACT_SLOT.x + 14.0)
-	flow.custom_minimum_size = Vector2(0, 48)
+	var flow := HomeParts.Funnel.new(stones.size(), DeepEconomy.contract_size(), DeepUi.tier_color(tier) if not tier.is_empty() else DeepUi.DIM, signable, (_contract_slot_size().x + DeepUi.pt(5)) if DeepUi.phone else CONTRACT_SLOT.x + 14.0)
+	flow.custom_minimum_size = Vector2(0, DeepUi.pt(20) if DeepUi.phone else 48.0)
 	box.add_child(flow)
 	DeepUi.center(box).add_child(HomeParts.Outcome.new(tone if not next.is_empty() else DeepUi.DIM, float(stones.size()) / float(DeepEconomy.contract_size()), signable))
 	_contract_forecast(home, box, preview)
 	DeepUi.spacer(box, false)
 	if not preview.get("vault", []).is_empty():
 		var names: Array = preview.vault.map(func(k: Variant) -> String: return str(DeepContent.skill(str(k)).get("name", k)))
-		DeepUi.stat(box, "chest", "From your vault: %s. Signed, %s no longer kept." % [", ".join(names), "it is" if names.size() == 1 else "they are"], DeepUi.BAD, 13).alignment = BoxContainer.ALIGNMENT_CENTER
+		var giving := DeepUi.stat(box, "chest", "From your vault: %s. Signed, %s no longer kept." % [", ".join(names), "it is" if names.size() == 1 else "they are"], DeepUi.BAD, 12 if DeepUi.phone else 13)
+		giving.alignment = BoxContainer.ALIGNMENT_CENTER
+		_wrap_stat(giving, DeepUi.pt(290))
 	var sign_row := DeepUi.hbox(box, 12)
 	sign_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	var giving_up: bool = not preview.get("vault", []).is_empty()
@@ -907,7 +947,7 @@ static func _contract_page(home: Control, content: VBoxContainer) -> void:
 		_sign_contract(home), 17, DeepUi.BAD if giving_up and home._contract_sure else DeepUi.coin_safe(tone))
 	if signable:
 		DeepUi.priced(sign, str(int(preview.fee)))
-	sign.custom_minimum_size = Vector2(320, 50)
+	sign.custom_minimum_size = Vector2(DeepUi.pt(210), DeepUi.pt(40)) if DeepUi.phone else Vector2(320, 50)
 	DeepUi.voice(sign, "ui_tap" if giving_up and not home._contract_sure else "contract_seal")
 	sign.disabled = not signable
 	if signable:
@@ -920,15 +960,41 @@ static func _contract_page(home: Control, content: VBoxContainer) -> void:
 	home.enter(bench, 0.05)
 	_contract_picker(home, columns, preview)
 
+static func _wrap_stat(stat: Control, width: float) -> void:
+	## On the phone a stat's words wrap at `width` rather than run the page off the screen's
+	## edge (the Wheel's terms, the contract's list of vault stones). The desk's stay one line.
+	if not DeepUi.phone:
+		return
+	for child in stat.get_children():
+		if child is Label:
+			(child as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			(child as Label).custom_minimum_size.x = width
+
+static func _contract_slot_size() -> Vector2:
+	## One place on the contract's bench: the desk's, or five abreast in the phone's column.
+	return Vector2(DeepUi.pt(64), DeepUi.pt(78)) if DeepUi.phone else CONTRACT_SLOT
+
+static func _phone_scroll(card: Control, separation: int) -> VBoxContainer:
+	## A phone column's contents in a scroll of their own (may_scroll, docs/PHONE_UI.md).
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.set_meta("may_scroll", true)
+	card.add_child(scroll)
+	var box := DeepUi.vbox(scroll, separation)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	return box
+
 static func _contract_slot(home: Control, parent: Node, index: int, stone: Dictionary) -> void:
 	var empty: bool = stone.is_empty()
 	var tone: Color = DeepUi.tier_color(str(DeepStone.grade(stone).tier)) if not empty else DeepUi.LINE
-	var slot := DeepUi.card(parent, Color(tone, 0.6) if not empty else DeepUi.LINE, 10, Color(0.05, 0.06, 0.085, 0.9) if not empty else Color(0.03, 0.035, 0.05, 0.6))
-	slot.custom_minimum_size = CONTRACT_SLOT
-	var box := DeepUi.vbox(slot, 6)
+	var slot := DeepUi.card(parent, Color(tone, 0.6) if not empty else DeepUi.LINE, int(DeepUi.pt(4)) if DeepUi.phone else 10, Color(0.05, 0.06, 0.085, 0.9) if not empty else Color(0.03, 0.035, 0.05, 0.6))
+	slot.custom_minimum_size = _contract_slot_size()
+	var box := DeepUi.vbox(slot, int(DeepUi.pt(2)) if DeepUi.phone else 6)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	var stand := Control.new()
-	stand.custom_minimum_size = Vector2(96, 96)
+	var stand_edge: float = DeepUi.pt(44) if DeepUi.phone else 96.0
+	stand.custom_minimum_size = Vector2(stand_edge, stand_edge)
 	stand.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	stand.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(stand)
@@ -936,15 +1002,17 @@ static func _contract_slot(home: Control, parent: Node, index: int, stone: Dicti
 	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	stand.add_child(ring)
 	if empty:
-		var plus := DeepUi.icon(stand, "gem", 34, Color(DeepUi.DIM, 0.6))
-		plus.position = Vector2(31, 31)
-		DeepUi.label(box, "Stone %d" % (index + 1), 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
-		DeepUi.label(box, "pick from the right", 12, Color(DeepUi.DIM, 0.8), HORIZONTAL_ALIGNMENT_CENTER)
+		var plus_edge: float = stand_edge * 0.36
+		var plus := DeepUi.icon(stand, "gem", plus_edge, Color(DeepUi.DIM, 0.6))
+		plus.position = Vector2.ONE * (stand_edge - plus_edge) * 0.5
+		DeepUi.label(box, "Stone %d" % (index + 1), 11 if DeepUi.phone else 12, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		if not DeepUi.phone:
+			DeepUi.label(box, "pick from the right", 12, Color(DeepUi.DIM, 0.8), HORIZONTAL_ALIGNMENT_CENTER)
 		return
-	var thumb := StoneCard.mini(stand, stone, 80, DeepStone.name(stone))
-	thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
+	var thumb := StoneCard.mini(stand, stone, stand_edge * 0.83, DeepStone.name(stone))
+	thumb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, int(stand_edge / 12.0))
 	thumb.mouse_filter = Control.MOUSE_FILTER_PASS
-	DeepUi.fit_label(box, DeepUi.skill_name(stone), 14, DeepUi.PAPER, 130)
+	DeepUi.fit_label(box, DeepUi.skill_name(stone), 11 if DeepUi.phone else 14, DeepUi.PAPER, _contract_slot_size().x - DeepUi.pt(8) if DeepUi.phone else 130.0)
 	var marks := DeepUi.hbox(box, 6)
 	marks.alignment = BoxContainer.ALIGNMENT_CENTER
 	DeepUi.stat(marks, "carat", str(int(stone.get("carat", 1))), DeepUi.ACCENT, 12, "%d carats" % int(stone.get("carat", 1)))
@@ -966,7 +1034,10 @@ static func _contract_forecast(home: Control, box: VBoxContainer, preview: Dicti
 	line.alignment = BoxContainer.ALIGNMENT_CENTER
 	var next: String = str(preview.get("next", ""))
 	if next.is_empty():
-		DeepUi.label(line, "Five Rough make a Fine, five Fine a Precious, five Precious an Exquisite, and five Exquisite a Peerless.", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		if DeepUi.phone:
+			DeepUi.wrap(line, "Five Rough make a Fine, five Fine a Precious, five Precious an Exquisite, and five Exquisite a Peerless.", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER, DeepUi.pt(300))
+		else:
+			DeepUi.label(line, "Five Rough make a Fine, five Fine a Precious, five Precious an Exquisite, and five Exquisite a Peerless.", 13, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		return
 	DeepUi.stat(line, "star", "A %s stone" % str(DeepStone.TIER_NAMES.get(next, next)), DeepUi.tier_color(next), 15, "Its Cut, Clarity and inclusions are rolled until its grade lands in this tier.")
 	DeepUi.stat(line, "carat", "%d carats" % int(preview.get("carat", 1)), DeepUi.ACCENT, 15, "The average of the stones on the bench, never past the cap of the rock it is cut from.")
@@ -1006,12 +1077,15 @@ static func _contract_forecast(home: Control, box: VBoxContainer, preview: Dicti
 static func _contract_picker(home: Control, columns: Node, preview: Dictionary) -> void:
 	## The stones that could go on the bench, a page at a time: the tray's read stones and the
 	## vault's. Once the first is on, only stones of its grade can follow.
-	var picker := DeepUi.card(columns, DeepUi.LINE, 14)
-	picker.custom_minimum_size.x = 520
+	var picker := DeepUi.card(columns, DeepUi.LINE, int(DeepUi.pt(8)) if DeepUi.phone else 14)
+	picker.custom_minimum_size.x = DeepUi.pt(262) if DeepUi.phone else 520.0
 	picker.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var box := DeepUi.vbox(picker, 10)
+	var box: VBoxContainer = _phone_scroll(picker, int(DeepUi.pt(5))) if DeepUi.phone else DeepUi.vbox(picker, 10)
 	var head := DeepUi.hbox(box, 8)
 	DeepUi.section(head, "chest", "Your stones").size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## On the phone the three tabs have a row of their own, under the name.
+	if DeepUi.phone:
+		head = DeepUi.hbox(box, int(DeepUi.pt(4)))
 	for entry in [["all", "All"], ["tray", "Tray"], ["vault", "Vault"]]:
 		var key: String = str(entry[0])
 		DeepUi.tab_button(head, {"all": "gem", "tray": "bag", "vault": "chest"}[key], str(entry[1]), home._contract_from == key, func() -> void:
@@ -1022,8 +1096,12 @@ static func _contract_picker(home: Control, columns: Node, preview: Dictionary) 
 	var listed: Array = everything.filter(func(e: Dictionary) -> bool:
 		return home._contract_from == "all" or (home._contract_from == "vault") == bool(e.vault))
 	var tier: String = str(preview.get("tier", ""))
-	var hint_row := DeepUi.hbox(box, 8)
-	DeepUi.label(hint_row, "Pick five stones of one grade; the first sets the grade." if tier.is_empty() else "Only %s stones can join these." % str(DeepStone.TIER_NAMES.get(tier, tier)), 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var hint_row: BoxContainer = DeepUi.vbox(box, int(DeepUi.pt(4))) if DeepUi.phone else DeepUi.hbox(box, 8)
+	var hint_words: String = "Pick five stones of one grade; the first sets the grade." if tier.is_empty() else "Only %s stones can join these." % str(DeepStone.TIER_NAMES.get(tier, tier))
+	if DeepUi.phone:
+		DeepUi.wrap(hint_row, hint_words, 11, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_LEFT, DeepUi.pt(240))
+	else:
+		DeepUi.label(hint_row, hint_words, 13, DeepUi.MUTED).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## Fill from cheapest: the five lowest-worth stones of the grade on the bench (or, empty,
 	## of the lowest grade that has five).
 	var fill_tier: String = tier
@@ -1038,11 +1116,15 @@ static func _contract_picker(home: Control, columns: Node, preview: Dictionary) 
 		DeepAudio.play("die_pick", {"volume": 0.8})
 		home._render(), 13, DeepUi.ACCENT)
 	fill.disabled = fill_tier.is_empty() or DeepEconomy.cheapest_contract(home.profile, fill_tier).size() < DeepEconomy.contract_size()
+	if DeepUi.phone:
+		fill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		DeepUi.ledger_button(fill, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 6)
+		fill.custom_minimum_size.y = DeepUi.pt(30)
 	fill.tooltip_text = "Puts in the five lowest-worth %s stones you have." % str(DeepStone.TIER_NAMES.get(fill_tier, "matching")).to_lower() if not fill.disabled else "There are not five stones of one grade to put in."
 	var grid := GridContainer.new()
 	grid.columns = 5
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("h_separation", int(DeepUi.pt(4)) if DeepUi.phone else 8)
+	grid.add_theme_constant_override("v_separation", int(DeepUi.pt(4)) if DeepUi.phone else 8)
 	box.add_child(grid)
 	if listed.is_empty():
 		DeepUi.label(grid, "Nothing here can go into a contract yet.", 13, DeepUi.DIM)
@@ -1050,12 +1132,12 @@ static func _contract_picker(home: Control, columns: Node, preview: Dictionary) 
 	## Whose sockets each vault stone is set in: signing one away empties those sockets too,
 	## and the chest mark every vault tile wears does not say so.
 	var wearing: Dictionary = StoneBrowser._wearers(home)
-	for entry in home.paged(box, "contract", listed, CONTRACT_PAGE):
+	for entry in home.paged(box, "contract", listed, maxi(1, listed.size()) if DeepUi.phone else CONTRACT_PAGE):
 		var stone: Dictionary = entry.stone
 		var ref: String = str(entry.ref)
 		var placed: bool = home._contract.has(ref)
 		var fits: bool = tier.is_empty() or str(DeepStone.grade(stone).tier) == tier
-		var tile := StoneCard.tile(grid, stone, 72)
+		var tile := StoneCard.tile(grid, stone, DeepUi.pt(40) if DeepUi.phone else 72.0)
 		if bool(entry.vault):
 			home.tile_mark(tile, "chest", DeepUi.INFO, "In your vault: put in a contract, its skill is no longer kept")
 		if bool(entry.vault) and wearing.has(ref.substr(2)):
@@ -1078,7 +1160,10 @@ static func _contract_picker(home: Control, columns: Node, preview: Dictionary) 
 				DeepAudio.play("die_pick", {"volume": 0.7})
 				home._render.call_deferred())
 	DeepUi.spacer(box, false)
-	DeepUi.wrap(box, "Raw stones need reading first. Birthstones, opals, fragile stones and Peerless stones cannot go in.", 12, DeepUi.DIM)
+	if DeepUi.phone:
+		DeepUi.wrap(box, "Raw stones need reading first. Birthstones, opals, fragile stones and Peerless stones cannot go in.", 11, DeepUi.DIM, HORIZONTAL_ALIGNMENT_LEFT, DeepUi.pt(240))
+	else:
+		DeepUi.wrap(box, "Raw stones need reading first. Birthstones, opals, fragile stones and Peerless stones cannot go in.", 12, DeepUi.DIM)
 	if not home._contract.is_empty():
 		var clear := DeepUi.icon_button(box, "cross_out", "Clear the bench", func() -> void:
 			home._contract = []

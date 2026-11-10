@@ -43,7 +43,6 @@ const ShaftMap = preload("res://view/run/shaft_map.gd")
 const Roster = preload("res://view/home/roster.gd")
 const VitalsRing = preload("res://view/battle/vitals_ring.gd")
 const ResonanceMeter = preload("res://view/battle/resonance_meter.gd")
-const Fan = preload("res://view/battle/fan.gd")
 const Marks = preload("res://view/battle/dock_marks.gd")
 const Tips = preload("res://view/ui/tips.gd")
 const Plates = preload("res://view/ui/plates.gd")
@@ -109,11 +108,17 @@ static func use_phone_sizes() -> void:
 	DOCK_GAP = DeepUi.pt(10)
 	RAIL_GAP = DeepUi.pt(6)
 	TRAY_GAP = DeepUi.pt(6)
-## A Void rider's gem, or a phantom's die, drawn faint behind the ring it fans out from.
+	VoidMarks.use_phone()
+## A Void rider's gem drawn faint behind the ring it fans out from (the run's dock; the fight
+## draws its riders as moons and its phantoms in a row, view/battle/void_marks.gd).
 const VOID_GHOST := Color(0.78, 0.84, 1.0, 0.55)
-## How many Void gems riding a socket are drawn fanned behind it before a count stands for
-## the rest (docs/UI_REDO.md).
+## How many Void gems riding a socket the run's dock fans out behind it before a count stands
+## for the rest (docs/UI_REDO.md).
 const RIDERS_SHOWN: int = 3
+## The figure a lit stone wears beside its name (round 5's N): its size beside the name, and
+## alone in the name's place when it is too long to sit beside it.
+const FIGURE_PX: int = 19
+const FIGURE_ALONE_PX: int = 21
 ## A set gem the hand in the tray would leave dark: still readable, plainly stepped back.
 const QUIET_GEM := Color(0.62, 0.62, 0.68, 0.72)
 const ARC_Z: float = -4.4
@@ -894,6 +899,27 @@ func _build_page(page: Page) -> void:
 		## the rerolls they have left.
 		page.mate_state = buttons
 		buttons.custom_minimum_size.y = maxf(_buttons_height, BUTTONS_ROW)
+	## The Void's marks over this page's dock: the float row of phantom dice over the tray (the
+	## riders' popout is made as it opens), and the counter of the rail's plays under the rail.
+	var row := VoidMarks.PhantomRow.new()
+	row.name = "PhantomRow"
+	row.visible = false
+	var row_page: Page = page
+	row.die_anchor = func(die_id: String) -> Control:
+		var view: Variant = row_page.dice_views.get(die_id, null)
+		return view if view is Control and is_instance_valid(view) else null
+	row.socket_anchor = func(flat: int) -> Control: return _flat_main(row_page, flat)
+	row.maker_of = func(die_id: String) -> Dictionary: return row_page.phantom_makers.get(die_id, {})
+	_hud.add_child(row)
+	page.phantom_row = row
+	if page.meter != null:
+		var plays := DeepUi.label(page.meter, "", 12, Color("b9c4dc"))
+		plays.add_theme_font_override("font", DeepUi.bold_font())
+		plays.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
+		plays.grow_horizontal = Control.GROW_DIRECTION_END
+		plays.grow_vertical = Control.GROW_DIRECTION_BOTH
+		plays.visible = false
+		page.plays_label = plays
 	_page = was
 
 func _vitals_plate(page: Page) -> Control:
@@ -1266,6 +1292,22 @@ class Page extends RefCounted:
 	var birth_outcome: Dictionary = {}
 	## What a gem's blows have rung so far as they land (a Flawless Barrage), for the count to tick.
 	var ring_value: int = 0
+	## The Void's marks (view/battle/void_marks.gd): the popout of a socket's riders, which
+	## socket and page it is open on, whether the turn opened it (then it closes itself a beat
+	## after the last rider fires), the float row of phantom dice over the tray, which gem threw
+	## each phantom (by die id), the phantoms just thrown that fly in and where from, how many
+	## gems the rail has played this turn, whether it is spent, and the counter that says so.
+	var riders_pop: Control = null
+	var riders_socket: int = -1
+	var riders_auto: bool = false
+	var riders_close_token: int = 0
+	var phantom_row: Control = null
+	var phantom_makers: Dictionary = {}
+	var phantom_arriving: Array = []
+	var phantom_from: Vector2 = Vector2.ZERO
+	var plays: int = 0
+	var spent: bool = false
+	var plays_label: Label = null
 
 func _all_pages() -> Array:
 	return [_local_page] + _pages.values()
@@ -1435,6 +1477,11 @@ func _apply_shown() -> void:
 	for page in _all_pages():
 		if page.root != null and is_instance_valid(page.root):
 			page.root.visible = page == shown
+		## The row of phantoms and the riders' popout are the shown page's alone.
+		if page.phantom_row != null and is_instance_valid(page.phantom_row):
+			page.phantom_row.visible = page == shown and not page.phantom_row.entries.is_empty()
+		if page != shown:
+			_close_riders(page)
 	if not _party():
 		_dress_dock(DeepUi.LEDGER_LINE, false)
 	elif shown == _local_page:
@@ -2357,10 +2404,10 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			card.mouse_filter = Control.MOUSE_FILTER_PASS
 			host.add_child(card)
 			hosts.append(host)
-		var counts: Dictionary = {}
 		## A socket with no gem of its own but Void gems riding it wears the first of them in
-		## front, in the gem's place, named under it in the Void's blue: an empty ring that said
-		## "Any" over faint riders read as a socket where nothing fires.
+		## front, in the gem's place, straight in the socket's own ring and named over it in the
+		## Void's blue (round 4's N1): an empty ring that said "Any" over faint riders read as a
+		## socket where nothing fires. The rest ride as moons round the ring (`_lay_moons`).
 		var bare: Dictionary = {}
 		var ridden: Dictionary = {}
 		for index in range(rail.size()):
@@ -2369,6 +2416,10 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				ridden[int(spot.socket)] = true
 			elif not rail[index] is Dictionary:
 				bare[int(spot.socket)] = true
+		## The riders behind each socket, by flat index in firing order; the moons are laid once
+		## every one of a socket's is known, each the card an event lights for that rider.
+		var lines: Dictionary = {}
+		_socket_cards.resize(rail.size())
 		for index in range(rail.size()):
 			var place: Dictionary = DeepStone.place_of(unit, index)
 			var socket_at: int = clampi(int(place.socket), 0, hosts.size() - 1)
@@ -2385,63 +2436,21 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 					hollow.position = Vector2(4.0, RING_TOP)
 					hollow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 					host.get_node("Riders").add_child(hollow)
-					_socket_cards.append(hollow)
+					_socket_cards[index] = hollow
 				else:
-					_socket_cards.append(host.get_node("Main"))
+					_socket_cards[index] = host.get_node("Main")
 				continue
-			var riders: Control = host.get_node("Riders")
-			counts[socket_at] = int(counts.get(socket_at, 0)) + 1
-			var at: int = int(place.rider)
-			var riding: Array = []
-			for other in range(rail.size()):
-				var spot: Dictionary = DeepStone.place_of(unit, other)
-				if int(spot.socket) == socket_at and int(spot.rider) >= 0 and rail[other] is Dictionary:
-					riding.append(rail[other])
-			## The count at the ring's top-left corner says how many ride here (the figure a lit
-			## gem would land has the top-right), and stands for the ones past the third; a
-			## click lays every one of them out.
-			var badge: PanelContainer = riders.get_node_or_null("Count")
-			if badge == null:
-				badge = PanelContainer.new()
-				badge.name = "Count"
-				badge.add_theme_stylebox_override("panel", DeepUi.capsule(badge, DeepUi.INFO.darkened(0.6), DeepUi.INFO, 2, 9, 0))
-				badge.z_index = 3
-				badge.mouse_filter = Control.MOUSE_FILTER_STOP
-				badge.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-				badge.set_meta("badge", true)
-				riders.add_child(badge)
-				var count_label := DeepUi.label(badge, "", 11, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER)
-				count_label.name = "Value"
-				count_label.add_theme_font_override("font", DeepUi.bold_font())
-				count_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				var placed_badge: PanelContainer = badge
-				badge.resized.connect(func() -> void: placed_badge.position = Vector2(-4.0, RING_TOP - 2.0).round())
-				var here: int = socket_at
-				badge.gui_input.connect(func(event: InputEvent) -> void:
-					if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-						Inspector.gathering("Void gems on socket %d" % (here + 1), "They ride the socket instead of sitting in it, and fire after its own gem, in this order.", "gem", badge.get_meta("riding", []))
-						badge.accept_event())
-			(badge.get_node("Value") as Label).text = "×%d" % int(counts[socket_at])
-			badge.reset_size()
-			badge.set_meta("riding", riding)
-			var listed: Array = riding
-			Tips.attach(badge, func() -> Control: return _riders_plate(listed, socket_at))
-			if at < lead:
+			if int(place.rider) < lead:
 				var main: Control = host.get_node("Main")
 				main.set_meta("front", true)
-				_socket_cards.append(main)
-			elif at - lead < RIDERS_SHOWN:
-				var chip := Control.new()
-				chip.name = "Rider%d" % at
-				chip.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
-				chip.size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
-				chip.position = Vector2(4.0, RING_TOP) + Fan.STEP * float(at - lead + 1)
-				chip.mouse_filter = Control.MOUSE_FILTER_PASS
-				riders.add_child(chip)
-				riders.move_child(chip, 0)
-				_socket_cards.append(chip)
-			else:
-				_socket_cards.append(badge)
+				_socket_cards[index] = main
+				continue
+			if not lines.has(socket_at):
+				lines[socket_at] = []
+			lines[socket_at].append(index)
+			_socket_cards[index] = null
+		for socket_at in lines:
+			_lay_moons(unit, hosts[socket_at], socket_at, lines[socket_at], cap, tight)
 		if not unit.get("birthstone", {}).is_empty():
 			_birthstone_card = _build_birthstone_card(unit)
 			_rail_box.add_child(_birthstone_card)
@@ -2453,57 +2462,51 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 	var links: Array = []
 	for socket in range(rail.size()):
 		var card: Control = _socket_cards[socket]
-		if bool(card.get_meta("badge", false)) or bool(card.get_meta("hollow", false)):
+		if card == null or bool(card.get_meta("badge", false)) or bool(card.get_meta("hollow", false)):
 			continue
 		var stone: Variant = rail[socket]
 		var place: Dictionary = DeepStone.place_of(unit, socket)
 		var rider: bool = int(place.rider) >= 0
 		## The first rider of a socket with no gem of its own stands in front, in the gem's place;
-		## the rest fan out behind.
+		## the rest are moons round the ring (`_lay_moons`), lit and stepped back further down.
 		var front: bool = rider and bool(card.get_meta("front", false))
 		var behind: bool = rider and not front
 		var socket_color: String = str(sockets[socket]) if socket < sockets.size() else DeepContent.SOCKET_RAINBOW
 		var tag: String = "%s|%s" % [DeepUi.stone_marks(stone) if stone is Dictionary else "", socket_color]
-		if str(card.get_meta("tag", "")) != tag:
+		if str(card.get_meta("tag", "")) != tag and not behind:
 			card.set_meta("tag", tag)
 			DeepUi.clear(card)
 			## The name over the ring (an empty socket's color in its place), the trigger under it.
-			if stone is Dictionary and not behind:
+			if stone is Dictionary:
 				name_row(card, DeepUi.skill_name(stone), DeepUi.INFO if front else DeepUi.PAPER, cap).name = "SkillName"
 			elif not rider:
 				name_row(card, DeepContent.socket_name(socket_color), DeepUi.MUTED, cap)
 			var slot := Control.new()
 			slot.name = "Slot"
 			slot.mouse_filter = Control.MOUSE_FILTER_PASS
-			if behind:
-				slot.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			else:
-				slot.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
+			slot.custom_minimum_size = Vector2(SOCKET_EDGE, SOCKET_EDGE)
 			card.add_child(slot)
-			var ring := SocketRing.new("VOID" if rider else socket_color, stone == null)
+			## A rider in front sits in the socket's own ring, as any set gem does (round 4's N1).
+			var ring := SocketRing.new(socket_color, stone == null)
 			ring.name = "Ring"
 			ring.front = front
 			## A socket that shows its gem's color is lit, and adds a point of Resonance when
-			## the gem fires; one that does not is greyed.
+			## the gem fires; one that does not is greyed. A rider lights no socket, so its ring
+			## is neither.
 			if stone is Dictionary and not rider:
 				ring.shown = 1 if DeepStone.shows(stone, socket_color) else 0
 			ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			slot.add_child(ring)
-			if behind and stone is Dictionary:
-				## A faint copy of the rider inside its ring, in the Void's blue.
-				var ghost := Thumbs.GemThumb.new(stone, SOCKET_EDGE - 22)
-				ghost.name = "Gem"
-				ghost.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
-				ghost.live_on_hover = false
-				ghost.modulate = VOID_GHOST
-				slot.add_child(ghost)
-			if stone is Dictionary and not behind:
-				var picture := Thumbs.GemThumb.new(stone, SOCKET_EDGE - 22)
+			if stone is Dictionary:
+				var picture := Thumbs.GemThumb.new({}, SOCKET_EDGE - 22)
 				picture.name = "Gem"
+				## A Void gem in the Hollow look: dark space inside the stone's own outline.
+				picture.hollow = front
+				picture.configure(stone)
 				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
 				slot.add_child(picture)
-				## Stacked down the socket's top-right corner, so three of them fit without
-				## crowding the stone or widening the rail.
+				## Stacked down the socket's top-left corner (the moons have the right), so three
+				## of them fit without crowding the stone or widening the rail.
 				var marks := VBoxContainer.new()
 				marks.name = "Raised"
 				marks.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -2512,17 +2515,10 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				marks.mouse_filter = Control.MOUSE_FILTER_PASS
 				marks.z_index = 1
 				slot.add_child(marks)
-				## The figure the hand would land, big and bold at the top-right corner, outlined
-				## so it reads over the stone; it waits for a hand that fires it.
-				var fire := DeepUi.label(slot, "", 23, Color.WHITE)
-				fire.name = "Fire"
-				fire.add_theme_font_override("font", DeepUi.bold_font())
-				fire.add_theme_color_override("font_outline_color", Color(0.02, 0.025, 0.05, 0.95))
-				fire.add_theme_constant_override("outline_size", 8)
-				fire.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				fire.z_index = 2
-				fire.visible = false
-				fire.resized.connect(func() -> void: fire.position = Vector2(SOCKET_EDGE - fire.size.x + 8.0, FIRE_TOP))
+				## The figure the hand would land, big and bold and outlined so it reads over
+				## anything: beside the name on a desk, on the ring's top edge on the phone
+				## (`_place_figure`); it waits for a hand that fires it.
+				_make_figure(card, slot)
 				trigger_row(card)
 			elif not rider:
 				## The same rows a set socket has, the trigger one empty.
@@ -2554,7 +2550,7 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 					woken += 1
 				card.set_meta("lit", lit)
 			## The figure: what the hand would land, read off the rail itself.
-			var fire: Label = card.get_node_or_null("Slot/Fire")
+			var fire: Label = _figure_of(card)
 			if fire != null:
 				var said: Array = Plates.badge(entry) if lit and planning else ["", DeepUi.PAPER]
 				fire.visible = not str(said[0]).is_empty()
@@ -2590,7 +2586,8 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			## and "fires 2, fizzles 1" can be read off the rail itself.
 			## While the dice are still in the air every gem waits stepped back, so a reroll never
 			## reads as having woken the lot; the ones the hand fires wake as the dice land.
-			var quiet: bool = (showing and not entry.is_empty() and not active) or (planning and not showing)
+			## A spent rail (DeepBattle.RAIL_CAP) leaves what was still to fire dark.
+			var quiet: bool = (showing and not entry.is_empty() and not active) or (planning and not showing) or (_page.spent and not planning and not _outcomes.has(socket))
 			## The stone steps back; its name only greys, so it stays readable (4.5:1 or better).
 			card.modulate = Color.WHITE
 			var slot_node: Control = card.get_node_or_null("Slot")
@@ -2601,6 +2598,19 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 				## A rider in front keeps the Void's blue, a shade darker when it steps back.
 				var said_tone: Color = DeepUi.INFO if front else DeepUi.PAPER
 				named.add_theme_color_override("font_color", (said_tone.darkened(0.3) if front else DeepUi.MUTED) if blocked or quiet else said_tone)
+			if behind and card is VoidMarks.VoidDisc:
+				## A rider's moon: lit when the hand would fire it, stepped back when it leaves it
+				## dark, and ticked awake with the set gems as the dice land.
+				var disc: VoidMarks.VoidDisc = card
+				if lit and planning and not bool(card.get_meta("lit", false)) and not _headless and _page.mine:
+					if waking == null:
+						waking = Tally.Chain.new()
+						waking.reset()
+					_wake(card, waking.pitch(woken), 0.05 * float(woken), DeepSoundBank.tick_sound(_color_key(local_id, socket, "")))
+					woken += 1
+				card.set_meta("lit", lit)
+				disc.lit = lit
+				disc.dim = quiet or blocked
 			if lit and not entry.is_empty():
 				links.append([DeepStone.color(stone), int(entry.get("resonance", 0))])
 	## What creatures have done to each socket: fog, rubble, a gem held or snuffed, a colour
@@ -2611,6 +2621,8 @@ func _sync_rail(unit: Dictionary, planning: bool) -> void:
 			continue
 		_sync_socket_marks(unit, socket, card, rail[socket])
 	_sync_birthstone(unit, planning, showing)
+	_settle_figures()
+	_show_plays(_page)
 	## What each color rang, for the meter's waves: each firing gem's share is the count after
 	## it less the count before it.
 	if _page.meter != null and is_instance_valid(_page.meter):
@@ -2673,20 +2685,404 @@ func _gem_plate(page: Page, unit_id: String, flat: int) -> Control:
 	return Plates.gem(stone, DeepBattle.rail_context(state, unit, flat), unit.get("hand", []), entry, unit.get("dice", []), opts)
 
 func _riders_plate(riders: Array, socket: int) -> Control:
-	## The count at a socket's corner: every Void gem riding it, in firing order.
+	## The count moon's plate: the Void gems it stands for, in firing order (the first few,
+	## when there are many; the popout has them all).
 	var box: VBoxContainer = Plates.plate(300.0)
-	Plates.head(box, "%s riding socket %d" % [DeepUi.plural(riders.size(), "Void gem"), socket + 1], "fire after its gem, in this order", DeepUi.INFO)
-	for rider in riders:
+	Plates.head(box, "%s more riding socket %d" % [DeepUi.plural(riders.size(), "Void gem"), socket + 1], "fire after its gem, in this order", DeepUi.INFO)
+	for rider in riders.slice(0, 6):
 		var row := DeepUi.hbox(box, 8)
-		var thumb := Thumbs.GemThumb.new(rider, 24)
-		thumb.live_on_hover = false
+		var thumb: Control = VoidMarks.hollow_gem(rider, 24)
 		row.add_child(thumb)
 		var words := DeepUi.vbox(row, 0)
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DeepUi.label(words, DeepUi.skill_name(rider), 13, DeepUi.PAPER)
 		DeepUi.effect_text(words, DeepStone.text(rider), 11, DeepUi.MUTED)
+	if riders.size() > 6:
+		DeepUi.label(box, "and %s more" % VoidMarks.with_commas(riders.size() - 6), 12, DeepUi.MUTED)
 	Plates.footer(box, "Click · lay them all out")
 	return box
+
+# --- the Void's marks on the rail (view/battle/void_marks.gd) ---------------------------------
+
+func _lay_moons(unit: Dictionary, host: VBoxContainer, socket: int, flats: Array, cap: float, tight: bool) -> void:
+	## The Void gems riding a socket as icon moons round its ring's right side (round 2's R1a,
+	## round 3's A1): one a rider while the arc holds them, else the first ones and a "+N" moon
+	## for the rest. Each is the card an event lights for its rider; a click opens the popout
+	## (a tap anywhere on the socket, on the phone), a hover brings its gem's plate.
+	var riders: Control = host.get_node("Riders")
+	var main: Control = host.get_node("Main")
+	var centre := Vector2(cap * 0.5, RING_TOP + SOCKET_EDGE * 0.5)
+	var rail: Array = unit.get("rail", [])
+	var angles: Array = VoidMarks.MOON_ANGLES_TIGHT if tight else VoidMarks.MOON_ANGLES
+	var reach: float = VoidMarks.MOON_D_TIGHT if tight else VoidMarks.MOON_D
+	var slots: int = angles.size()
+	var on: Page = _page
+	var unit_id: String = str(unit.get("id", ""))
+	var open := func() -> void: _toggle_riders(on, socket)
+	var shown: Array = flats if flats.size() <= slots else flats.slice(0, slots - 1)
+	for k in range(shown.size()):
+		var flat: int = int(shown[k])
+		var stone: Dictionary = rail[flat] if rail[flat] is Dictionary else {}
+		var moon: Control = VoidMarks.moon(stone, false)
+		var angle: float = deg_to_rad(float(angles[k]))
+		moon.position = (centre + Vector2(cos(angle), sin(angle)) * reach - moon.size * 0.5).round()
+		moon.z_index = 1
+		moon.set_meta("moon", true)
+		moon.set_meta("flat", flat)
+		riders.add_child(moon)
+		_wire_moon(moon, on, unit_id, flat, open)
+		_socket_cards[flat] = moon
+	if flats.size() > slots:
+		var rest: Array = flats.slice(shown.size())
+		var count := VoidMarks.CountMark.new(rest.size(), VoidMarks.COUNT_R, VoidMarks.COUNT_FONT, VoidMarks.COUNT_FONT_LONG)
+		var angle: float = deg_to_rad(float(angles[slots - 1]))
+		var spot: Vector2 = centre + Vector2(cos(angle), sin(angle)) * reach
+		## It grows to the right of where a moon would stand, no further than the gap allows.
+		var left: float = minf(spot.x - VoidMarks.COUNT_R, centre.x + reach + VoidMarks.MOON_R + 4.0 - count.size.x)
+		count.position = Vector2(left, spot.y - VoidMarks.COUNT_R).round()
+		count.z_index = 1
+		count.set_meta("badge", true)
+		riders.add_child(count)
+		## On the phone the marks take no finger of their own: the socket under them does.
+		if DeepUi.phone:
+			count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		else:
+			count.mouse_filter = Control.MOUSE_FILTER_STOP
+			count.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			var listed: Array = rest.map(func(f: int) -> Dictionary: return rail[f])
+			Tips.attach(count, func() -> Control: return _riders_plate(listed, socket))
+			count.gui_input.connect(func(event: InputEvent) -> void:
+				if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+					open.call()
+					count.accept_event())
+		for flat in rest:
+			_socket_cards[flat] = count
+	## On the phone the whole socket is the finger's target: a tap opens the popout, and a
+	## finger held on it brings the gem's card as before.
+	if DeepUi.phone and not bool(host.get_meta("tap_wired", false)):
+		host.set_meta("tap_wired", true)
+		host.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT and not Tips.held(main):
+				open.call()
+				host.accept_event())
+
+func _wire_moon(moon: Control, page: Page, unit_id: String, flat: int, open: Callable) -> void:
+	## A moon answers the pointer as a set gem's card does: its plate on hover, the close look
+	## on a right-click or a hold, and a click opens the popout. On the phone the socket under
+	## it takes the tap (a moon is too small for a finger).
+	if DeepUi.phone:
+		moon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return
+	moon.mouse_filter = Control.MOUSE_FILTER_STOP
+	moon.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	Tips.attach(moon, func() -> Control: return _gem_plate(page, unit_id, flat), {"tone": DeepUi.INFO, "keep": true})
+	moon.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			if event.button_index == MOUSE_BUTTON_LEFT:
+				open.call()
+				moon.accept_event()
+			elif event.button_index == MOUSE_BUTTON_RIGHT:
+				_inspect_flat(unit_id, flat)
+				moon.accept_event())
+	Tips.hold(moon, func() -> Variant:
+		_inspect_flat(unit_id, flat)
+		return true)
+
+func _inspect_flat(unit_id: String, flat: int) -> void:
+	## The close look at a stone on a rail laid flat, with what the rail hands it where it stands.
+	var unit: Dictionary = DeepBattle.player(state, unit_id)
+	var rail: Array = unit.get("rail", [])
+	if flat < 0 or flat >= rail.size() or not rail[flat] is Dictionary:
+		return
+	Inspector.stone(rail[flat], {"context": DeepBattle.rail_context(state, unit, flat)})
+
+func _flat_main(page: Page, flat: int) -> Control:
+	## The card of the socket a stone of the flat rail stands in (a rider's host), or null.
+	var unit: Dictionary = DeepBattle.player(state, local_id if page.mine else page.id)
+	if unit.is_empty() or flat < 0:
+		return null
+	return _socket_main(page, int(DeepStone.place_of(unit, flat).socket))
+
+func _socket_main(page: Page, socket: int) -> Control:
+	## The card of a socket's own place on a page's rail (its host's Main), or null.
+	if page == null or page.rail_box == null or not is_instance_valid(page.rail_box) or socket < 0 or socket >= page.rail_box.get_child_count():
+		return null
+	return page.rail_box.get_child(socket).get_node_or_null("Main")
+
+func _make_figure(card: Control, slot: Control) -> Label:
+	## The figure a lit stone wears (round 5's N): a label in the name row on a desk, in the slot
+	## on the phone (which has no names), placed by `_place_figure` whenever its size changes.
+	var parent: Control = slot if DeepUi.phone else card.get_node("NameRow")
+	var fire: Label = VoidMarks.figure(parent, "", Color.WHITE, int(DeepUi.pt(14.5)) if DeepUi.phone else FIGURE_PX)
+	fire.name = "Fire"
+	fire.visible = false
+	var placed: Control = card
+	fire.resized.connect(func() -> void: _place_figure(placed))
+	return fire
+
+func _figure_of(card: Control) -> Label:
+	if card == null:
+		return null
+	return card.get_node_or_null("Slot/Fire") if DeepUi.phone else card.get_node_or_null("NameRow/Fire")
+
+var _figures_due: bool = false
+
+func _place_figure(card: Control) -> void:
+	## On the phone the figure stands centred on the ring's top edge; on a desk every figure is
+	## settled against its neighbours' (`_settle_figures`), once, after each card has its own.
+	if DeepUi.phone:
+		var fire: Label = card.get_node_or_null("Slot/Fire")
+		if fire != null:
+			fire.position = Vector2((SOCKET_EDGE - fire.size.x) * 0.5, -fire.size.y * 0.5 + 2.0).round()
+		return
+	if not _figures_due:
+		_figures_due = true
+		call_deferred("_settle_figures")
+
+func _settle_figures() -> void:
+	## Every figure on the rail beside its name, the name staying centred over its ring; a
+	## figure too long to sit beside its name before the next socket's name takes the name's
+	## place alone, a size larger (round 5's N). Worked from the right, since each needs to
+	## know where the next one's name begins.
+	_figures_due = false
+	if DeepUi.phone or _rail_box == null or not is_instance_valid(_rail_box):
+		return
+	var cards: Array = []
+	for child in _rail_box.get_children():
+		var card: Control = child.get_node_or_null("Main") if child.has_node("Main") else child
+		if card != null and card.has_node("NameRow"):
+			cards.append(card)
+	var gap: float = float(_rail_box.get_theme_constant("separation"))
+	var font: Font = DeepUi.bold_font()
+	var next_left: float = INF
+	for k in range(cards.size() - 1, -1, -1):
+		var card: Control = cards[k]
+		var row: Control = card.get_node("NameRow")
+		var width: float = row.custom_minimum_size.x
+		var said: Label = null
+		for child in row.get_children():
+			if child is Label and child.name != "Fire":
+				said = child
+		var fire: Label = row.get_node_or_null("Fire")
+		var name_w: float = 0.0
+		if said != null:
+			name_w = minf(width, said.get_theme_font(&"font").get_string_size(said.text, HORIZONTAL_ALIGNMENT_LEFT, -1, said.get_theme_font_size(&"font_size")).x)
+		var left: float = (width - name_w) * 0.5
+		if fire != null and fire.visible and not fire.text.is_empty():
+			var beside: Vector2 = font.get_string_size(fire.text, HORIZONTAL_ALIGNMENT_LEFT, -1, FIGURE_PX)
+			var right: float = width * 0.5 + name_w * 0.5 + 5.0 + beside.x
+			var room: float = (width + gap + next_left - 8.0) if next_left != INF else (width + gap + 40.0)
+			if right <= room and said != null:
+				if said != null:
+					said.visible = true
+				_size_figure(fire, FIGURE_PX)
+				fire.position = Vector2(width * 0.5 + name_w * 0.5 + 5.0, (NAME_ROW - font.get_height(FIGURE_PX)) * 0.5 - 1.0).round()
+			else:
+				if said != null:
+					said.visible = false
+				var alone: Vector2 = font.get_string_size(fire.text, HORIZONTAL_ALIGNMENT_LEFT, -1, FIGURE_ALONE_PX)
+				_size_figure(fire, FIGURE_ALONE_PX)
+				fire.position = Vector2((width - alone.x) * 0.5, (NAME_ROW - font.get_height(FIGURE_ALONE_PX)) * 0.5 - 1.0).round()
+				left = (width - alone.x) * 0.5
+		elif said != null:
+			said.visible = true
+		next_left = left
+
+static func _size_figure(fire: Label, px: int) -> void:
+	if fire.get_theme_font_size(&"font_size") != px:
+		fire.add_theme_font_size_override("font_size", px)
+		fire.add_theme_constant_override("outline_size", maxi(4, px / 3))
+		fire.reset_size()
+
+func _show_plays(page: Page) -> void:
+	## Past the twelfth play the rail races (DeepBattle.rush), and a counter under it says how
+	## far it has come toward the cap and how fast it is going (round 5's K3).
+	var label: Label = page.plays_label if page != null else null
+	if label == null or not is_instance_valid(label):
+		return
+	var racing: bool = page.plays > DeepBattle.RUSH_FROM and not page.spent and str(state.get("phase", "")) == "resolving"
+	label.visible = racing
+	if racing:
+		label.text = "%d / %d plays · %d× speed" % [page.plays, DeepBattle.RAIL_CAP, int(round(DeepBattle.rush(page.plays)))]
+
+# --- the riders' popout ------------------------------------------------------------------------
+
+var _riders_layer: Control = null
+var _riders_catch: Control = null
+
+func _riders_room() -> Control:
+	## Where the popout stands: a layer over the whole dock, and under it a pane that catches
+	## the click that puts the popout away (hurrying the turn with it, as a click on the room does).
+	if _riders_layer != null and is_instance_valid(_riders_layer):
+		return _riders_layer
+	_riders_catch = Control.new()
+	_riders_catch.name = "RidersCatch"
+	_riders_catch.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_riders_catch.mouse_filter = Control.MOUSE_FILTER_STOP
+	_riders_catch.visible = false
+	_riders_catch.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			for page in _all_pages():
+				_close_riders(page)
+			if str(state.get("phase", "")) == "resolving":
+				_hurry()
+			_riders_catch.accept_event())
+	_hud.add_child(_riders_catch)
+	_riders_layer = Control.new()
+	_riders_layer.name = "Riders"
+	_riders_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_riders_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_riders_layer.z_index = 30
+	_hud.add_child(_riders_layer)
+	return _riders_layer
+
+func _toggle_riders(page: Page, socket: int) -> void:
+	if page.riders_pop != null and is_instance_valid(page.riders_pop) and page.riders_socket == socket:
+		_close_riders(page)
+	else:
+		_open_riders(page, socket, 0, false)
+
+func _close_riders(page: Page) -> void:
+	if page == null:
+		return
+	if page.riders_pop != null and is_instance_valid(page.riders_pop):
+		page.riders_pop.queue_free()
+	page.riders_pop = null
+	page.riders_socket = -1
+	page.riders_auto = false
+	page.riders_close_token += 1
+	if _riders_catch != null and is_instance_valid(_riders_catch):
+		var any_open: bool = false
+		for other in _all_pages():
+			if other.riders_pop != null and is_instance_valid(other.riders_pop):
+				any_open = true
+		_riders_catch.visible = any_open
+
+func _open_riders(page: Page, socket: int, at_page: int, auto: bool) -> void:
+	## The popout of a socket's riders over the dock (round 2's D1, round 5's K2): built from
+	## the fight as it stands, turned to `at_page`. `auto`: the turn opened it, and it closes
+	## itself a beat after the socket's last rider fires.
+	var whose: String = local_id if page.mine else page.id
+	var unit: Dictionary = DeepBattle.player(state, whose)
+	if unit.is_empty() or not _is_shown(whose) or _hud == null:
+		return
+	var rail: Array = unit.get("rail", [])
+	var sockets: Array = unit.get("sockets", [])
+	var flats: Array = []
+	var own: int = -1
+	for index in range(rail.size()):
+		var place: Dictionary = DeepStone.place_of(unit, index)
+		if int(place.socket) != socket:
+			continue
+		if int(place.rider) < 0:
+			own = index
+		elif rail[index] is Dictionary:
+			flats.append(index)
+	if flats.is_empty():
+		_close_riders(page)
+		return
+	_close_riders(page)
+	## Copies of one gem standing together on the rail (an Echo's) are one stone with a ×N.
+	var runs: Array = []
+	for flat in flats:
+		var stone: Dictionary = rail[flat]
+		var key: String = "%s|%s" % [str(stone.get("skill", "")), str(stone.get("worn_from", ""))]
+		if not runs.is_empty() and str(runs.back().key) == key:
+			runs.back().flats.append(flat)
+		else:
+			runs.append({"key": key, "stone": stone, "flats": [flat], "name": DeepUi.skill_name(stone)})
+	var planning: bool = str(state.get("phase", "")) == "planning"
+	var showing: bool = (planning or str(state.get("phase", "")) == "resolving") and Time.get_ticks_msec() >= page.dice_settle_at
+	for run in runs:
+		var first: int = int(run.flats[0])
+		var entry: Dictionary = {}
+		for candidate in page.forecast.get("sockets", []):
+			if int(candidate.get("socket", -1)) == first:
+				entry = candidate
+		var active: bool = bool(entry.get("active", false))
+		if not planning and page.outcomes.has(first):
+			active = bool(page.outcomes[first])
+		run.lit = active and showing
+		run.figure = Plates.badge(entry) if run.lit and planning else ["", DeepUi.PAPER]
+	## The head: the socket's own ring, its gem in it if it has one.
+	var head_color: String = str(sockets[own]) if own >= 0 and own < sockets.size() else DeepContent.SOCKET_RAINBOW
+	var head_stone: Dictionary = rail[own] if own >= 0 and rail[own] is Dictionary else {}
+	var head := Control.new()
+	var ring := SocketRing.new(head_color, head_stone.is_empty())
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(ring)
+	if not head_stone.is_empty():
+		var picture := Thumbs.GemThumb.new(head_stone, VoidMarks.POP_DISC_R * 1.4)
+		picture.live_on_hover = false
+		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, VoidMarks.POP_DISC_R * 0.3)
+		head.add_child(picture)
+	var layer: Control = _riders_room()
+	var pop := VoidMarks.RidersPopout.new()
+	layer.add_child(pop)
+	var main: Control = _socket_main(page, socket)
+	var anchor_x: float = (main.global_position.x + main.size.x * 0.5 - layer.global_position.x) if main != null else layer.size.x * 0.5
+	var left: float = (DeepUi.safe_left if DeepUi.phone else 16.0)
+	var right: float = layer.size.x - (DeepUi.safe_right if DeepUi.phone else 16.0)
+	var on: Page = page
+	pop.build({"anchor": anchor_x, "bottom": _dock.global_position.y - layer.global_position.y, "left": left, "right": right,
+		"head": head, "name": DeepUi.skill_name(head_stone) if not head_stone.is_empty() else DeepContent.socket_name(head_color), "count": flats.size(), "runs": runs, "page": at_page,
+		"plate": func(flat: int) -> Control: return _gem_plate(on, whose, flat),
+		"look": func(stone: Dictionary) -> void: Inspector.stone(stone, {"context": DeepBattle.rail_context(state, unit, flats[0])}),
+		"on_page": func(turned: int) -> void: _open_riders(on, socket, turned, on.riders_auto)})
+	pop.closed.connect(func() -> void: _close_riders(on))
+	page.riders_pop = pop
+	page.riders_socket = socket
+	page.riders_auto = auto
+	pop.mark_fired(page.outcomes, -1, page.spent)
+	if _riders_catch != null:
+		_riders_catch.visible = true
+	if not _headless:
+		DeepUi.pop_in(pop, 0.0, 0.94, 0.16)
+		DeepAudio.play("ui_tap", {"volume": 0.3, "gap": 0.05})
+
+func _riders_firing(page: Page, flat: int) -> void:
+	## The popout follows the rail (round 1's S2, round 5's K3): a socket with riders opens as
+	## its own gem fires, turns to the page a rider stands on as that rider fires, counts a run
+	## down as its copies play, and closes a beat after the last.
+	var whose: String = local_id if page.mine else page.id
+	var unit: Dictionary = DeepBattle.player(state, whose)
+	if unit.is_empty():
+		return
+	var place: Dictionary = DeepStone.place_of(unit, flat)
+	var socket: int = int(place.socket)
+	var ridden: bool = false
+	var rail: Array = unit.get("rail", [])
+	for index in range(rail.size()):
+		var spot: Dictionary = DeepStone.place_of(unit, index)
+		if int(spot.socket) == socket and int(spot.rider) >= 0 and rail[index] is Dictionary:
+			ridden = true
+			break
+	var pop: VoidMarks.RidersPopout = page.riders_pop if page.riders_pop != null and is_instance_valid(page.riders_pop) else null
+	if not ridden:
+		if pop != null and page.riders_auto:
+			_close_riders(page)
+		return
+	if pop == null or page.riders_socket != socket:
+		_open_riders(page, socket, 0, true)
+		pop = page.riders_pop
+	if pop == null:
+		return
+	var wanted: int = pop.page_of(flat)
+	if wanted >= 0 and wanted != pop.page:
+		_open_riders(page, socket, wanted, page.riders_auto)
+		pop = page.riders_pop
+		if pop == null:
+			return
+	pop.mark_fired(page.outcomes, flat, page.spent)
+	if page.riders_auto:
+		page.riders_close_token += 1
+		var token: int = page.riders_close_token
+		var on: Page = page
+		_later_do(0.9, func() -> void:
+			if on.riders_close_token == token and on.riders_auto:
+				_close_riders(on))
 
 func _wake(card: Control, pitch: float, delay: float, voice: String) -> void:
 	## A gem the hand would now fire, said as it lights: a small jolt and a tick in its voice.
@@ -2808,7 +3204,8 @@ static func _raised_plate(marks: Control) -> PanelContainer:
 	## and a bare mark on a bright facet is unreadable.
 	var plate := PanelContainer.new()
 	plate.add_theme_stylebox_override("panel", DeepUi.facet_ends(plate, DeepUi.flat(Color(0.03, 0.04, 0.06, 0.82), Color(DeepUi.GOOD, 0.45), 5, 2)))
-	plate.size_flags_horizontal = Control.SIZE_SHRINK_END
+	## At the top-left corner: the Void moons have the right side of the ring.
+	plate.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	plate.mouse_filter = Control.MOUSE_FILTER_PASS
 	marks.add_child(plate)
 	return plate
@@ -2845,17 +3242,9 @@ func _build_birthstone_card(unit: Dictionary) -> VBoxContainer:
 		var picture := Thumbs.GemThumb.new(stone, SOCKET_EDGE - 22)
 		picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 11)
 		slot.add_child(picture)
-	## The figure the hand would bring it, at the top-right corner the way a gem wears its own:
+	## The figure the hand would bring it, beside its name the way a gem wears its own:
 	## Resonance times the number the lit tier multiplies it by (see `_sync_birthstone`).
-	var fire := DeepUi.label(slot, "", 23, Color.WHITE)
-	fire.name = "Fire"
-	fire.add_theme_font_override("font", DeepUi.bold_font())
-	fire.add_theme_color_override("font_outline_color", Color(0.02, 0.025, 0.05, 0.95))
-	fire.add_theme_constant_override("outline_size", 8)
-	fire.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fire.z_index = 2
-	fire.visible = false
-	fire.resized.connect(func() -> void: fire.position = Vector2(SOCKET_EDGE - fire.size.x + 8.0, FIRE_TOP))
+	_make_figure(card, slot)
 	## Its tiers, level with every other gem's trigger, lit as the hand would fire them
 	## (`_sync_birthstone`).
 	trigger_row(card).name = "Tiers"
@@ -2919,15 +3308,13 @@ func _sync_birthstone(unit: Dictionary, planning: bool, showing: bool) -> void:
 	## While the hand is planned it wears what it would land, as a lit gem does: "7×9" for 7
 	## Resonance thrown nine times. Only what the forecast is sure of: nothing for a Bust, or
 	## once the turn is playing out.
-	var fire: Label = _birthstone_card.get_node_or_null("Slot/Fire")
+	var fire: Label = _figure_of(_birthstone_card)
 	if fire != null:
 		var said: Array = Plates.birth_badge(previewed, defs) if rewarded and showing and planning else ["", DeepUi.PAPER]
 		fire.visible = not str(said[0]).is_empty()
 		if fire.visible:
 			fire.text = str(said[0])
 			fire.add_theme_color_override("font_color", Color(said[1]).lightened(0.25))
-			## Three factors ("7×5×5") step down a size, to stay clear of the crown.
-			fire.add_theme_font_size_override("font_size", 23 if fire.text.length() <= 4 else 19)
 			fire.reset_size()
 	var tiers_row: Node = _birthstone_card.get_node_or_null("Tiers")
 	if tiers_row != null:
@@ -3277,116 +3664,36 @@ class SocketRing extends Control:
 			draw_line(a, b, Color(0.9, 0.9, 1.0, 0.22), 2.0, true)
 			x += step
 
-class PhantomRing extends Control:
-	## One phantom die behind the die it copies: a dashed ring in the Void blue, a faint copy of
-	## the die inside it showing the face it carries, and the value where the ring peeks out
-	## from behind the die.
-	var value: int = 0
-	var show_value: bool = true
-	var _ghost: Control = null
-	func _init(carried: int, die: Dictionary = {}, face: int = -1, said: bool = true) -> void:
-		value = carried
-		show_value = said
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if not die.is_empty():
-			_ghost = Thumbs.DieThumb.new(die, 60.0, face)
-			_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			_ghost.modulate = VOID_GHOST
-			add_child(_ghost)
-			resized.connect(func() -> void: _ghost.position = ((size - Vector2(60.0, 60.0)) * 0.5).round())
-	func _draw() -> void:
-		var centre := size * 0.5
-		var radius: float = minf(size.x, size.y) * 0.46
-		draw_circle(centre, radius, Color(DeepUi.INFO, 0.1))
-		for arc in range(8):
-			var angle: float = TAU * float(arc) / 8.0
-			draw_arc(centre, radius, angle, angle + TAU / 12.0, 10, Color(DeepUi.INFO, 0.85), 2.0, true)
-		## The ring in front already says this figure: two of them a step apart read as one number.
-		if not show_value:
-			return
-		var font: Font = DeepUi.bold_font()
-		var font_size: int = maxi(10, int(radius * 0.42))
-		var text: String = str(value)
-		var measured := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-		var at: Vector2 = centre + Vector2.from_angle(-PI * 0.75) * radius * 0.62 - Vector2(measured.x * 0.5, -measured.y * 0.3)
-		draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 3, Color(0, 0, 0, 0.8))
-		draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DeepUi.INFO.lightened(0.3))
-
 func _sync_phantoms(unit: Dictionary) -> void:
-	## A Refract's phantoms: copies of a die that count for every gem after it this turn. They
-	## are not the player's to reroll, so they fan out behind the die they copy, in the Void
-	## blue a rider wears, with a count of them at its corner (docs/UI_REDO.md); the die's
-	## plate names each one.
-	var ghosts: Array = unit.get("hand", []).filter(func(r: Dictionary) -> bool: return bool(r.get("phantom", false)))
-	var key: String = ",".join(ghosts.map(func(r: Dictionary) -> String: return "%s=%d=%s" % [str(r.get("die_id", "")), int(r.get("value", 0)), str(r.get("source_id", ""))]))
-	if key == _phantom_key:
+	## A Refract's phantoms (copies of a die that count for every gem after it this turn) and a
+	## Tumble's thrown dice are not the player's to reroll, so they hang over the tray in a row
+	## of their own (view/battle/void_marks.gd, PhantomRow): bare Hollow dice in hand order, each
+	## tied to the die it copies, a thrown die leftmost with a line to the gem that threw it,
+	## stacks with a ×N tag once they no longer fit. The die's plate names each one.
+	var row: VoidMarks.PhantomRow = _page.phantom_row
+	if row == null or not is_instance_valid(row):
 		return
-	_phantom_key = key
-	for id in _dice_views:
-		var view: Variant = _dice_views[id]
-		if view is Control and is_instance_valid(view):
-			var fan: Node = (view as Control).get_parent().get_node_or_null("Fan")
-			if fan != null:
-				fan.get_parent().remove_child(fan)
-				fan.queue_free()
-	_phantom_views.clear()
+	var ghosts: Array = unit.get("hand", []).filter(func(r: Dictionary) -> bool: return bool(r.get("phantom", false)))
+	var by_id: Dictionary = {}
+	for die in unit.get("dice", []):
+		by_id[str(die.get("id", ""))] = die
+	_place_phantom_row(_page)
+	row.lay(ghosts, by_id, _page.phantom_arriving, _page.phantom_from)
+	_page.phantom_arriving = []
+	_phantom_views = row.items
+	row.visible = _is_shown(local_id if _page.mine else _page.id) and not row.entries.is_empty()
 	if _phantom_box != null:
 		_phantom_box.visible = false
-	if ghosts.is_empty():
+
+func _place_phantom_row(page: Page) -> void:
+	## The row knows where the tray's dice are and where the dock begins; the screen's edges
+	## (the phone's safe ones) bound the plate its "+N" opens.
+	var row: VoidMarks.PhantomRow = page.phantom_row
+	if row == null or not is_instance_valid(row) or page.tray_box == null or not is_instance_valid(page.tray_box) or _dock == null or _hud == null:
 		return
-	var grouped: Dictionary = {}
-	for ghost in ghosts:
-		var source_id: String = str(ghost.get("source_id", str(ghost.get("die_id", "")).split("_ph")[0]))
-		if not grouped.has(source_id):
-			grouped[source_id] = []
-		grouped[source_id].append(ghost)
-	## A phantom thrown fresh (a Tumble's, a Contra Luz's) copies no die of the hand: it fans
-	## out behind the rightmost die in the tray, drawn as its own shape, so a hand it counts in
-	## never reads more of a kind than the dice on show.
-	var last_id: String = ""
-	var own_shape: Dictionary = {}
-	for id in _dice_views:
-		var shown: Variant = _dice_views[id]
-		if shown is Control and is_instance_valid(shown):
-			last_id = str(id)
-	for source_id in grouped.keys():
-		var host: Variant = _dice_views.get(source_id, null)
-		if (host is Control and is_instance_valid(host)) or last_id.is_empty() or source_id == last_id:
-			continue
-		var strays: Array = grouped[source_id]
-		for stray in strays:
-			own_shape[str(stray.get("die_id", ""))] = true
-		grouped[last_id] = grouped.get(last_id, []) + strays
-		grouped.erase(source_id)
-	var index: int = 0
-	for source_id in grouped:
-		var view: Variant = _dice_views.get(source_id, null)
-		if not (view is Control and is_instance_valid(view)):
-			continue
-		var holder: Control = (view as Control).get_parent()
-		var fan := Fan.new(DeepUi.INFO)
-		fan.name = "Fan"
-		holder.add_child(fan)
-		holder.move_child(fan, 0)
-		fan.offset_bottom = -DIE_WORDS
-		var list: Array = grouped[source_id]
-		var source_die: Dictionary = {}
-		for die in unit.get("dice", []):
-			if str(die.get("id", "")) == source_id:
-				source_die = die
-		for k in range(list.size()):
-			var carried: int = int(list[k].get("value", 0))
-			var said: bool = k == 0 or carried != int(list[k - 1].get("value", 0))
-			var drawn: Dictionary = source_die
-			if own_shape.has(str(list[k].get("die_id", ""))):
-				drawn = DeepDice.make(str(list[k].get("shape", "D6")), str(list[k].get("die_id", "")))
-			var ring := PhantomRing.new(carried, drawn, int(list[k].get("face", -1)), said)
-			fan.lay(ring, k)
-			_phantom_views[str(list[k].get("die_id", ""))] = ring
-		fan.set_count(list.size())
-		if not _headless:
-			DeepUi.pop_in(fan, 0.05 * float(index), 0.7)
-		index += 1
+	var left: float = _hud.global_position.x + (DeepUi.safe_left if DeepUi.phone else 16.0) - row.global_position.x
+	var right: float = _hud.global_position.x + _hud.size.x - (DeepUi.safe_right if DeepUi.phone else 16.0) - row.global_position.x
+	row.set_geometry(page.tray_box.get_global_rect(), _dock.get_global_rect().position.y, Vector2(left, right))
 
 func _die_plate(page: Page, owner_id: String, die_id: String, mine: bool) -> Control:
 	## The plate over a die in the tray: what it is, its faces with the one it shows lit, what
@@ -3940,6 +4247,11 @@ func _process(delta: float) -> void:
 			_tab_bar.reset_size()
 		var lifted: float = 0.0 if _my_tab == null or _my_tab.face.visible or DeepUi.phone else float(_my_tab.get_theme_constant("separation"))
 		_tab_bar.position = Vector2((edge_left(0.0) if DeepUi.phone else _dock.position.x + 18.0) + left_inset, _dock.position.y - _tab_bar.size.y - lifted)
+	## The row of phantoms follows the tray, and its lines the dice (which lift under the pointer).
+	var shown_page: Page = _page_for(_shown_owner())
+	if shown_page != null and shown_page.phantom_row != null and is_instance_valid(shown_page.phantom_row) and shown_page.phantom_row.visible:
+		_place_phantom_row(shown_page)
+		shown_page.phantom_row.queue_redraw()
 	if _opening_due and not _headless and is_visible_in_tree() and stage != null and not stage.walking() and not state.is_empty():
 		_opening_due = false
 		_later_do(0.5, _turn_opening)
@@ -4553,6 +4865,16 @@ func perform(event: Dictionary) -> void:
 		for page in _all_pages():
 			page.outcomes.clear()
 			page.birth_outcome = {}
+			page.plays = 0
+			page.spent = false
+			_show_plays(page)
+			_close_riders(page)
+	elif kind == "rail_begin" and _page_for(unit_id) != null:
+		## Each rail counts its own plays toward the cap (DeepBattle.RAIL_CAP).
+		var begun: Page = _page_for(unit_id)
+		begun.plays = 0
+		begun.spent = false
+		_show_plays(begun)
 	elif _page_for(unit_id) != null:
 		var page: Page = _page_for(unit_id)
 		match kind:
@@ -5481,8 +5803,24 @@ func _gem_fire(event: Dictionary) -> void:
 	_chain.fired += 1
 	var lift: float = 1.0 + 0.04 * float(step)
 	var tab: Control = _tab_anchor(unit_id)
+	if page != null:
+		page.plays += 1
+		_show_plays(page)
+		## Which gem threw the phantoms it made, for the row over the tray; they fly in from it.
+		var thrown: Array = []
+		for effect in event.get("effects", []):
+			if effect is Dictionary and str(effect.get("kind", "")) in ["phantom_roll", "phantom_high", "phantom_low"]:
+				for id in effect.get("dice", []):
+					page.phantom_makers[str(id)] = {"socket": socket, "name": str(DeepContent.skill(str(event.get("skill", ""))).get("name", "a gem"))}
+					thrown.append(str(id))
+		if not thrown.is_empty():
+			page.phantom_arriving = thrown
+			var maker: Control = _gem_card(unit_id, socket)
+			page.phantom_from = (maker.global_position + maker.size * 0.5) if maker != null else Vector2.ZERO
 	if shown and socket >= 0 and socket < page.socket_cards.size():
-		var card: Control = page.socket_cards[socket]
+		## A rider fires in the popout: it opens on its socket, turned to its page.
+		_riders_firing(page, socket)
+		var card: Control = _gem_card(unit_id, socket)
 		DeepAudio.from(card, voice, {"volume": carry, "gap": 0.02, "pitch": lift})
 		if mine:
 			DeepAudio.rumble(0.3, 0.12, 0.05)
@@ -5717,6 +6055,11 @@ func _gem_card(unit_id: String, socket: int) -> Control:
 	var page: Page = _page_for(unit_id)
 	if page == null or not _is_shown(unit_id) or socket < 0 or socket >= page.socket_cards.size():
 		return null
+	## A rider's own disc, while the popout lays its socket's riders out.
+	if page.riders_pop != null and is_instance_valid(page.riders_pop):
+		var disc: Control = page.riders_pop.element_for(socket)
+		if disc != null:
+			return disc
 	var card: Variant = page.socket_cards[socket]
 	return card if card is Control and is_instance_valid(card) else null
 
@@ -6166,7 +6509,11 @@ func _animate_effects(effects: Array, origin: Vector3, color: Color, mine: bool,
 					var said: String = {"strength_guard": "Strength on Block", "mortar": "Mortar loaded", "poison_safe": "Poison is harmless", "envenom_thorns": "Thorns envenomed",
 						"gild_block": "Blocked blows pay", "carry_rerolls": "Rerolls carry"}.get(kind, "")
 					_float_at(anchor, said, FlawlessFx.tone(), 14)
-			"raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high", "phantom_high", "phantom_low", "phantom_roll", "rethrow", "gild", "upgrade_faces":
+			"phantom_high", "phantom_low", "phantom_roll":
+				## The phantoms themselves fly into the row over the tray (`_sync_phantoms`).
+				if mine:
+					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
+			"raise_low", "raise_high", "set_match", "graft_pairs", "flip_low", "flip_high", "rethrow", "gild", "upgrade_faces":
 				if mine:
 					_float_at(_tray_box, kind.replace("_", " ").capitalize(), Color.WHITE, 15)
 					for id in _dice_views:
@@ -6718,11 +7065,14 @@ func _gem_fizzle(event: Dictionary) -> void:
 	if page == null:
 		return
 	page.last_fired = -1
+	page.plays += 1
+	_show_plays(page)
 	var socket: int = int(event.get("socket", -1))
 	if not _is_shown(unit_id) or socket < 0 or socket >= page.socket_cards.size():
 		return
 	var mine: bool = unit_id == local_id
-	var card: Control = page.socket_cards[socket]
+	_riders_firing(page, socket)
+	var card: Control = _gem_card(unit_id, socket)
 	DeepAudio.from(card, "gem_fizzle", {"volume": 0.6 if mine else 0.45, "gap": 0.02})
 	card.modulate = Color(0.4, 0.4, 0.5, 1.0)
 	var tween := create_tween()
@@ -7995,8 +8345,16 @@ func _rail_spent(event: Dictionary) -> void:
 	var unit_id: String = str(event.get("unit", ""))
 	var anchor: Control = _tab_anchor(unit_id) if not _is_shown(unit_id) else (_page_for(unit_id).tray_box if _page_for(unit_id) != null else null)
 	var plays: int = int(event.get("plays", DeepBattle.RAIL_CAP))
+	## What is left of the rail greys (`_sync_rail` reads `spent`), and its counter stops.
+	var page: Page = _page_for(unit_id)
+	if page != null:
+		page.spent = true
+		if page.plays_label != null and is_instance_valid(page.plays_label):
+			page.plays_label.visible = false
+		if page.riders_pop != null and is_instance_valid(page.riders_pop):
+			page.riders_pop.mark_fired(page.outcomes, -1, true)
 	## Said on the screen's own clock: the rail was racing (DeepBattle.rush) when it was spent.
-	_announce("The rail is spent", DeepUi.ACCENT_HI, "%d gems in one turn" % plays, 1.4, true)
+	_announce("The rail is spent", DeepUi.ACCENT_HI, "%d played this turn · %s didn't fire" % [plays, DeepUi.number(int(event.get("dropped", 0)))], 1.4, true)
 	if anchor != null:
 		DeepUi.burst(self, _center_of(anchor), DeepUi.ACCENT_HI, 40, 220.0, 0.6)
 	DeepAudio.play("tally_fuse", {"volume": 0.7, "pitch": 0.7, "gap": 0.0})

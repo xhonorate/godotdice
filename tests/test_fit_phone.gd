@@ -84,6 +84,29 @@ func _workshop(app: Control) -> void:
 		home.set_meta("market_tab", tab)
 		home.open("market")
 		await _fits(screen, "the market's %s" % tab)
+	## The Wheel's, the Oven's and the contract's own pages (November 9, 2026: they ran off the
+	## phone's right edge), with a stone picked and without, and a contract with five on it.
+	var kept: Array = home.profile.get("vault", {}).keys()
+	for kind in ["wheel", "oven"]:
+		for pick in ["", str(kept[0]) if not kept.is_empty() else ""]:
+			home._market_view = kind
+			home._rework_pick = pick
+			home.open("market", true)
+			await _fits(screen, "the market's %s%s" % [kind, " with a stone picked" if not pick.is_empty() else ""])
+	home._rework_pick = ""
+	home._market_view = "contract"
+	home._contract = []
+	home.open("market", true)
+	await _fits(screen, "the contract bench, empty")
+	for tier in DeepEconomy.CONTRACT_TIERS:
+		var five: Array = DeepEconomy.cheapest_contract(home.profile, str(tier))
+		if five.size() >= DeepEconomy.contract_size():
+			home._contract = five
+			home.open("market", true)
+			await _fits(screen, "the contract bench with five on it")
+			break
+	home._contract = []
+	home._market_view = "main"
 	home.open("bestiary")
 	await _fits(screen, "the bestiary")
 	for key in ["THE_FOREMAN", "MAGPIE"]:
@@ -134,6 +157,21 @@ func _run(app: Control) -> void:
 	var descent: Control = app.descent
 	descent.show_state(app.session.run)
 	await _fits(screen, "the grubstake")
+	## Every oddity, smithy and carver: its card along the bottom of its room, and the way out
+	## in the room's corner, clear of the cards.
+	var room: Dictionary = app.session.run.duplicate(true)
+	room.phase = "chamber"
+	for key in DeepContent.section("oddities"):
+		room.chamber = {"kind": "oddity", "oddity": str(key), "results": {}, "depth": 1, "settled": false}
+		for kind in DeepDescent.CARD_ROOMS:
+			if DeepDescent.room_card(kind) == str(key):
+				room.chamber.kind = kind
+		descent.show_state(room)
+		await _fits(screen, "the %s's card" % str(key))
+		_way_out_clear(descent, "the %s's card" % str(key))
+		_in_room(descent, "the %s's card" % str(key))
+		await _asks_fit(descent, room, str(key))
+	descent.show_state(app.session.run)
 	var seen: Dictionary = {}
 	for step in range(400):
 		var run: Dictionary = app.session.run
@@ -241,6 +279,55 @@ func _fits(node: Node, what: String) -> void:
 	_fingers(node, fingers)
 	check(fingers.is_empty(), "%s has no button too small for a finger or under a safe edge: %s" % [what, "; ".join(fingers.slice(0, 4))])
 
+func _way_out_clear(descent: Node, what: String) -> void:
+	## The way out of a page (a room's Leave it, a station's Back) is a key in a corner of the
+	## room (November 9, 2026): it stands clear of the page's own cards and buttons.
+	var key: Variant = descent._way_out_key
+	if key == null or not is_instance_valid(key) or not (key as Control).is_visible_in_tree():
+		return
+	var rect: Rect2 = (key as Control).get_global_rect()
+	var over: Array = []
+	for thing in descent._page_things():
+		if (thing as Rect2).intersects(rect):
+			over.append(_rect(thing))
+	check(over.is_empty(), "%s: the way out at %s stands clear of the page (%s)" % [what, _rect(rect), ", ".join(over)])
+
+func _in_room(descent: Node, what: String) -> void:
+	## A room's cards stand inside the room (over the dock's top) and clear of the room's name
+	## and its line (November 9, 2026: the phone's Geode card stood over both).
+	var room: Rect2 = (descent._page_holder as Control).get_global_rect().grow(2.0)
+	var heads: Array = []
+	for label in [descent._cross_title, descent._cross_sub]:
+		if label != null and (label as Control).is_visible_in_tree() and not str(label.text).is_empty():
+			heads.append((label as Control).get_global_rect())
+	var bad: Array = []
+	for thing in descent._page_things():
+		if not room.encloses(thing):
+			bad.append("past the room at %s" % _rect(thing))
+		for head in heads:
+			if (thing as Rect2).intersects(head):
+				bad.append("over the name at %s" % _rect(thing))
+	check(bad.is_empty(), "%s stands in the room, clear of its name: %s" % [what, ", ".join(bad)])
+
+func _asks_fit(descent: Node, room: Dictionary, key: String) -> void:
+	## Every piece of work asked on the ask sheet: the sheet stands over the dock, not on it
+	## (November 9, 2026: on the phone it covered the rail's rings it asks you to tap).
+	for choice in DeepContent.oddity(key).get("choices", []):
+		if str(choice.get("needs", "")) in ["", "pattern", "offer"]:
+			continue
+		descent._oddity_step = str(choice.id)
+		descent.show_state(room)
+		await process_frame
+		await process_frame
+		var ask: Variant = descent._ask
+		if ask == null or not ask.is_open() or ask._block == null:
+			continue
+		var sheet: Rect2 = (ask._block as Control).get_global_rect()
+		var floor_at: float = (descent._page_holder as Control).get_global_rect().end.y
+		check(sheet.end.y <= floor_at + 1.0, "the %s's ask for %s stands over the dock (its foot at %d, the dock's top at %d)" % [key, str(choice.id), int(sheet.end.y), int(floor_at)])
+		descent._ask.close()
+	descent._oddity_step = ""
+
 func _shown(node: Node) -> bool:
 	## A hidden layer (the menu put away) hides everything on it, as a hidden control does.
 	if node is CanvasItem:
@@ -304,7 +391,10 @@ func _fingers(node: Node, found: Array, scrolled: bool = false) -> void:
 			if minf(rect.size.x, rect.size.y) < DeepUi.pt(FINGER) - 0.5:
 				found.append("%s is %dx%d" % [_name(button), int(rect.size.x), int(rect.size.y)])
 			var safe := Rect2(Vector2(DeepUi.safe_left, DeepUi.safe_top), canvas - Vector2(DeepUi.safe_left + DeepUi.safe_right, DeepUi.safe_top + DeepUi.safe_bottom))
-			if not scrolled and not safe.grow(1.5).encloses(button.get_global_rect()):
+			## A way-out key may give way into a side's inset where the cards beside it come near
+			## the edge (the owner allowed it, November 9, 2026), but most of it stays inside.
+			var spare: float = button.size.x * 0.5 if button.has_meta("way_out") else 0.0
+			if not scrolled and not safe.grow_individual(1.5 + spare, 1.5, 1.5 + spare, 1.5).encloses(button.get_global_rect()):
 				found.append("%s at %s is under a safe edge" % [_name(button), _rect(button.get_global_rect())])
 	for child in node.get_children():
 		_fingers(child, found, scrolled or node is ScrollContainer)

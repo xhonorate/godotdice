@@ -262,7 +262,7 @@ func _init() -> void:
 		app.descent.show_state(fake)
 		check(app.descent._page_holder.get_child_count() > 0, "the %s page renders" % str(key))
 	## A smithy and a carver show their own card in their own room: every piece of work it
-	## holds, and the way out as an arrow off the end of the row.
+	## holds, and the way out as a key in the room's corner.
 	for kind in DeepDescent.DICE_ROOMS:
 		var card: Dictionary = DeepContent.oddity(DeepDescent.room_card(kind))
 		var jobs: int = card.get("choices", []).filter(func(c: Dictionary) -> bool: return str(c.get("action", {}).get("kind", "")) != "none").size()
@@ -998,8 +998,8 @@ func _count_choices(node: Node) -> int:
 	return count
 
 func _count_skips(node: Node, text: String) -> int:
-	## The arrows past a row of choices that say this.
-	var count: int = 1 if node is Button and (node as Button).tooltip_text == text and (node as Button).text.is_empty() else 0
+	## The way-out keys (DeepUi.way_out) that say this.
+	var count: int = 1 if node is Button and str(node.get_meta("way_out", "")) == text else 0
 	for child in node.get_children():
 		count += _count_skips(child, text)
 	return count

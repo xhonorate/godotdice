@@ -72,13 +72,13 @@ static func _loadout_head(home: Control, content: VBoxContainer, key: String) ->
 	var left_slot := DeepUi.hbox(row, 0)
 	left_slot.custom_minimum_size.x = 210
 	left_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var back := DeepUi.icon_button(left_slot, "prev", "Delvers", func() -> void:
+	## The way back is the key a way back is everywhere (DeepUi.way_out, November 9, 2026).
+	var back := DeepUi.way_out("Delvers", func() -> void:
 		home._roster_view = "dossier"
 		home._bench_socket = -1
-		home._render(), 14, DeepUi.MUTED)
-	back.tooltip_text = "Back to the delvers (Esc)"
-	DeepUi.voice(back, "ui_back")
+		home._render(), true, "Back to the delvers (Esc)", "person")
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	left_slot.add_child(back)
 	var center_slot := CenterContainer.new()
 	center_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(center_slot)

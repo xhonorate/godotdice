@@ -316,7 +316,8 @@ func show_stock(stock: Array) -> void:
 		price.position = Vector3(0, -0.27, 0.6)
 		holder.add_child(price)
 		var tag := _tag(item)
-		tag.position = Vector3(0, -TAG_DROP, 0.62)
+		## The phone's names stand larger (mine_stage.gd): a little further under the price.
+		tag.position = Vector3(0, -(TAG_DROP + (0.14 if DeepUi.phone else 0.0)), 0.62)
 		holder.add_child(tag)
 		_items[id] = {"holder": holder, "spinner": spinner, "shine": shine, "hover": false, "phase": float(index) * 1.3,
 			"price_label": price, "tag": tag, "price": int(item.get("price", 0))}
@@ -337,6 +338,7 @@ func _tag(item: Dictionary) -> Node3D:
 		words = str(DeepStone.skill_of(stone).get("name", DeepStone.name(stone)))
 		tone = DeepUi.color(DeepStone.color(stone))
 	var spot := _label(words, DeepUi.PAPER, TAG_SIZE)
+	spot.set_meta("stagger", true)
 	spot.set_meta("plate", TagPlate.new(tone, outline))
 	spot.set_meta("font", DeepUi.bold_font())
 	return spot

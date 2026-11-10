@@ -116,6 +116,10 @@ var _area: HBoxContainer
 var _map: Control
 var _map_margin: MarginContainer
 var _page_holder: Control
+## The way out of the page on show, in a corner of the room (`_way_out`), or null.
+var _way_out_key: Button = null
+## The page along the bottom of the room on show (`_bottom_page`), which the way out gives way to.
+var _bottom_content: VBoxContainer = null
 ## The page over the room as last built (see `_page`), so it can fold to fit over an open bag.
 var _page_content: VBoxContainer = null
 var _crossroads: Control
@@ -125,6 +129,15 @@ var _cross_sub: Label
 ## The room's line as last put into the phone's words (`_process`).
 var _cross_said: String = ""
 var _cross_hint: HBoxContainer
+## The room's name and line (and the shade behind them), and how far they stand left of the
+## middle for an open bag on the phone (`_fit_head`).
+var _cross_head: Control = null
+var _cross_shade: Control = null
+var _head_shift: float = 0.0
+## A card stands where the plinth's mark floats, on the phone: the mark is out (`_check_shrine_cover`).
+var _shrine_covered: bool = false
+## Whether the party was walking last frame: a way out is laid again once it stands still.
+var _way_walked: bool = false
 var _chip: PanelContainer
 var _chip_index: int = -1
 ## On the phone, the tunnel a first tap showed: a second tap on it (or its Go) takes it.
@@ -390,6 +403,7 @@ func _ready() -> void:
 	_page_holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_page_holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_page_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_page_holder.resized.connect(_place_way_out)
 	_area.add_child(_page_holder)
 	_run_dock = RunDock.new()
 	_run_dock.command.connect(func(cmd: Dictionary) -> void: command.emit(cmd))
@@ -657,7 +671,7 @@ func show_state(state: Dictionary) -> void:
 		_fit_area()
 		_scrim.visible = false
 		_crossroads.visible = false
-		DeepUi.clear(_page_holder)
+		_clear_pages()
 		## A forecast is a whole dry run of the rail: worked out only when the fight will take it.
 		var battle: Dictionary = DeepDescent.battle(run)
 		var forecast: Dictionary = forecast_provider.call() if forecast_provider.is_valid() and _battle.wants_forecast(battle) else {}
@@ -670,14 +684,14 @@ func show_state(state: Dictionary) -> void:
 	_battle.leave()
 	if _rite != null and is_instance_valid(_rite):
 		## The Hollow's rite has the room: nothing goes up over it until the gem is on the rail.
-		DeepUi.clear(_page_holder)
+		_clear_pages()
 		_area.visible = false
 		_scrim.visible = false
 		_crossroads.visible = false
 		return
 	_area.visible = true
 	_map_margin.visible = _chart_open
-	DeepUi.clear(_page_holder)
+	_clear_pages()
 	if phase == "tunnels" and _hold.is_empty():
 		## The way on is chosen at the mouths themselves.
 		_scrim.visible = false
@@ -1128,6 +1142,7 @@ func _fit_page(fresh: bool = false) -> void:
 	## from the strip.
 	if _page_content == null or not is_instance_valid(_page_content) or not _page_content.is_inside_tree():
 		return
+	_pin_onward()
 	var medals: Array = []
 	_medallions(_page_content, medals)
 	## Measured whole every time, so a fold never decides that it fits because it is folded.
@@ -1135,18 +1150,51 @@ func _fit_page(fresh: bool = false) -> void:
 		(medal as Control).visible = true
 	var open: bool = _run_dock.visible and _run_dock.is_drawer_open()
 	var room: float = _area.size.y - PAGE_MARGINS
-	if not open or _page_content.get_combined_minimum_size().y <= room:
+	## A page too tall for the room folds its medallion bag or no bag (November 9, 2026: the
+	## haul's two-line names took the end of a run past the foot of the screen).
+	if _page_content.get_combined_minimum_size().y <= room:
 		return
 	for medal in medals:
 		(medal as Control).visible = false
-	if fresh and _page_content.get_combined_minimum_size().y > room:
+	if fresh and open and _page_content.get_combined_minimum_size().y > room:
 		_run_dock.set_drawer(false)
+
+func _pin_onward() -> void:
+	## On the phone a page taller than the room scrolls, and its way on (Onward, Take it, Back
+	## to the workshop) went down out of sight under the dock with the rest: it stands at the
+	## room's foot instead, under the scroll (November 9, 2026). A page that fits keeps it.
+	if not DeepUi.phone:
+		return
+	var go: Button = _main_button
+	if go == null or not is_instance_valid(go) or not _page_content.is_ancestor_of(go):
+		return
+	var scroll: Control = _page_holder.get_node_or_null("PageScroll")
+	if scroll == null:
+		return
+	## The button, or the row it stands in (and out of the card it is in: the haul's).
+	var piece: Control = go.get_parent() as Control if go.get_parent() is HBoxContainer else go
+	if _page_content.get_combined_minimum_size().y + DeepUi.pt(12) <= _page_holder.size.y:
+		return
+	## Above the dock, or with no dock (the end of a run) above the screen's safe foot.
+	var under: float = DeepUi.pt(6) + (0.0 if _run_dock.visible else DeepUi.safe_bottom)
+	var lift: float = piece.get_combined_minimum_size().y + DeepUi.pt(6) + under
+	var foot := CenterContainer.new()
+	foot.name = "PageFoot"
+	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	foot.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	foot.offset_top = - lift
+	foot.offset_bottom = - under
+	_page_holder.add_child(foot)
+	piece.reparent(foot, false)
+	scroll.offset_bottom = - lift
 
 func _fit_page_soon(fresh: bool) -> void:
 	## Once the new page has been laid out: a wrapped line knows how tall it is only then.
 	if _headless or not is_inside_tree():
 		_fit_page(fresh)
-		return
+		## Headless too, a wrapped line is measured right only once laid out: once more then.
+		if not is_inside_tree():
+			return
 	var later: Callable = _fit_page.bind(fresh)
 	if not get_tree().process_frame.is_connected(later):
 		get_tree().process_frame.connect(later, CONNECT_ONE_SHOT)
@@ -1174,7 +1222,7 @@ func _paged(parent: Node, list: String, items: Array, per_page: int) -> Array:
 			DeepAudio.play("ui_tap", {"volume": 0.6})
 			show_state(run))
 		## It stands over the room, not on a card: an outline keeps "1 of 2" readable on bright
-		## rock, as skip_arrow's words are.
+		## rock.
 		for child in pager.get_children():
 			if child is Label:
 				(child as Label).add_theme_color_override("font_color", DeepUi.PAPER.darkened(0.15))
@@ -2381,12 +2429,13 @@ func _show_vein() -> void:
 	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cross_hint.add_child(legend)
 	var row := DeepUi.hbox(legend, 18)
+	## Walking on is the room's way out, a key in its corner as an oddity's Leave it is (the
+	## owner, November 9, 2026): in the middle it stood over the rock it was struck at.
 	if mining:
-		var leave := _main(DeepUi.primary(_bottom_page(), "check", "Put the pick down", func() -> void:
-			command.emit({"kind": "stop_mining"}), 15, DeepUi.GOOD))
-		leave.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		leave.custom_minimum_size.x = 260
-		leave.tooltip_text = "Leave the rest of the rock where it is and take the way on."
+		_main(_way_out("Put the pick down", func() -> void:
+			command.emit({"kind": "stop_mining"}), false, "Leave the rest of the rock where it is and take the way on."))
+	else:
+		_drop_way_out()
 	DeepUi.stat(row, "pick", "%s so far" % DeepUi.plural(swings, "swing"), DeepUi.ACCENT, 12, "Every few swings the next one costs another point of health.")
 	DeepUi.stat(row, "heart", ("next swing free" if cost <= 0 else "next swing: %d HP" % cost), DeepUi.BAD if cost > 0 else DeepUi.GOOD, 12)
 	if motherlode:
@@ -2723,11 +2772,13 @@ func _show_stall() -> void:
 	## The phone's three capsules say it shorter (board run-merchant).
 	DeepUi.stat(row, "loupe", ("Lens · %d" if DeepUi.phone else "Lens: appraise a raw stone · %d pyrite") % cost, DeepUi.INFO, 12)
 	DeepUi.stat(row, "scales", "Scales: sell any stone" if DeepUi.phone else "Scales: sell any stone, read or raw", DeepUi.ORE, 12)
+	## Done here is the stall's way out, in the room's corner (November 9, 2026).
 	if not bool(unit.get("ready", false)) and not bool(unit.get("downed", false)):
-		var done := _main(DeepUi.primary(_cross_hint, "descend", "Done here", func() -> void:
+		_main(_way_out("Done here", func() -> void:
 			_pin("")
-			command.emit({"kind": "leave"}), 14, DeepUi.CHAMBER_colorS.merchant))
-		done.mouse_filter = Control.MOUSE_FILTER_STOP
+			command.emit({"kind": "leave"})))
+	else:
+		_drop_way_out()
 	_fill_chip()
 
 func _buy_socket(unit: Dictionary, item: Dictionary) -> int:
@@ -3067,11 +3118,11 @@ func _show_altar() -> void:
 			## secret). How to give them is on each socket's own plate.
 			_: _cross_sub.text = "Give five gems to the circle and it may make one finer gem from them. Only some sets light it."
 	DeepUi.clear(_cross_hint)
+	## Walk on is the altar's way out, in the room's corner (November 9, 2026): under the
+	## name it stood over the circle's top socket.
+	var walk_on: bool = false
 	if done == "made" and not _altar_making:
-		var onward := _main(DeepUi.primary(_cross_hint, "descend", "Walk on", func() -> void:
-			_pin("")
-			command.emit({"kind": "altar_leave"}), 14, tone))
-		onward.mouse_filter = Control.MOUSE_FILTER_STOP
+		walk_on = true
 	elif done.is_empty() and not bool(unit.get("downed", false)):
 		if _altar_lent():
 			DeepUi.stat(_cross_hint, "chest", "A gem your rail brought from home is on the altar: your Vault loses it too.", DeepUi.BAD, 13)
@@ -3081,10 +3132,13 @@ func _show_altar() -> void:
 				DeepAudio.play("ui_back", {"volume": 0.6})
 				_show_altar(), 14, DeepUi.MUTED)
 			clear.mouse_filter = Control.MOUSE_FILTER_STOP
-		var leave := _main(DeepUi.primary(_cross_hint, "descend", "Walk on", func() -> void:
+		walk_on = true
+	if walk_on:
+		_main(_way_out("Walk on", func() -> void:
 			_pin("")
-			command.emit({"kind": "altar_leave"}), 14, tone))
-		leave.mouse_filter = Control.MOUSE_FILTER_STOP
+			command.emit({"kind": "altar_leave"})))
+	else:
+		_drop_way_out()
 	_fill_chip()
 
 func _altar_chip(box: VBoxContainer, which: String) -> bool:
@@ -3146,6 +3200,28 @@ func _fit_area() -> void:
 	_map_margin.offset_bottom = - _run_dock.side_foot() if _run_dock.visible and not _battle.visible else - floor_height - 26.0
 	_fit_page()
 	_place_find()
+	_place_way_out()
+	_fit_head()
+
+func _fit_head() -> void:
+	## On the phone an open bag is a panel down the right: the room's name and its line stand
+	## centred in what it leaves, not under it (November 9, 2026: the altar's line ran under
+	## the bag).
+	if _cross_head == null or not is_instance_valid(_cross_head):
+		return
+	var column: float = _run_dock.column_width() if DeepUi.phone and _run_dock.visible else 0.0
+	if DeepUi.phone and _cross_sub != null and _crossroads.size.x > 0.0:
+		_cross_sub.custom_minimum_size.x = minf(DeepUi.pt(640), _crossroads.size.x - column - DeepUi.safe_left - DeepUi.safe_right - DeepUi.pt(12))
+	## Never so far that its left end goes past the safe edge (a vein's wide legend).
+	var wide: float = _cross_head.get_combined_minimum_size().x
+	var shift: float = minf(0.0, maxf(- column * 0.5, DeepUi.safe_left + DeepUi.pt(6) - (_crossroads.size.x - wide) * 0.5))
+	var moved: float = shift - _head_shift
+	if absf(moved) > 0.5:
+		for node in [_cross_head, _cross_shade]:
+			if node != null and is_instance_valid(node):
+				(node as Control).offset_left += moved
+				(node as Control).offset_right += moved
+		_head_shift = shift
 
 # --- the landing ---------------------------------------------------------------------------------
 ##
@@ -3471,7 +3547,7 @@ func _trade_page() -> void:
 	var content := _bottom_page()
 	var row := DeepUi.hbox(content, 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_enter(DeepUi.skip_arrow(row, "Back to the landing", func() -> void: _open_landing(""), DeepUi.MUTED, "prev"))
+	_enter(_way_out("Back", func() -> void: _open_landing(""), true, "Back to the landing"))
 	var mine_stone: Dictionary = DeepOddities.find_stone(unit, str(mine_offer.get("stone", ""))) if to_them else {}
 	var their_stone: Dictionary = DeepOddities.find_stone(partner, str(their_offer.get("stone", ""))) if to_me else {}
 	_trade_slots = {}
@@ -3513,7 +3589,6 @@ func _trade_page() -> void:
 		## What they just put down swells as it lands.
 		DeepUi.pulse(_trade_slots.theirs, 1.15, 0.3)
 	_trade_pulse = false
-	DeepUi.skip_ghost(row)
 	## The bag: any loose stone found down here can be offered, chosen on the ask with the
 	## things that would do lit on the dock. A copy of a vault stone stays out of it: it goes
 	## home with nobody. So does a sealed Geode, which nobody can trade until the workshop has
@@ -3643,7 +3718,7 @@ func _landing_page(view: String) -> void:
 				return
 	var row := DeepUi.hbox(content, 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_enter(DeepUi.skip_arrow(row, "Back to the landing", back, DeepUi.MUTED, "prev"))
+	_enter(_way_out("Back", back, true, "Back to the landing"))
 	var index: int = 0
 	if appraise:
 		var raw: Array = _loose(unit).filter(func(s: Dictionary) -> bool: return not bool(s.get("appraised", false)))
@@ -3680,7 +3755,6 @@ func _landing_page(view: String) -> void:
 				DeepUi.stat(box, "cross_out", "You have nothing to throw in.", DeepUi.DIM, 12)
 			_enter(card, 0.08 + 0.06 * index)
 			index += 1
-	DeepUi.skip_ghost(row)
 
 func _respite(choice: String, stone_id: String) -> void:
 	if not str(me().get("respite", "")).is_empty():
@@ -3921,7 +3995,7 @@ func _show_oddity() -> void:
 		_stage.well()
 	else:
 		_stage.shrine(str(ODDITY_GLYPHS.get(key, "question")), tone, key)
-		_stage.hush_shrine(_ask != null and _ask.is_open())
+		_stage.hush_shrine((_ask != null and _ask.is_open()) or _shrine_covered)
 	_crossroads.visible = true
 	_set_cross_mark(str(ODDITY_GLYPHS.get(key, "question")), tone)
 	_cross_title.text = str(oddity.get("name", "Something odd"))
@@ -3961,19 +4035,229 @@ func _centre_page() -> VBoxContainer:
 	holder.add_child(centre)
 	return DeepUi.vbox(centre, 14)
 
+## How far above the dock's plate a page along the bottom of the room stands, and the way-out
+## key in its corner with it, on the desk and the phone alike.
+const PAGE_FOOT: float = 20.0
+
+func _page_foot() -> float:
+	## The gap left under a bottom page inside the room: PAGE_FOOT, less what the dock keeps
+	## clear above its plate already (the desk's 14 pixels; the phone's bar keeps none).
+	return maxf(0.0, PAGE_FOOT - (14.0 if _run_dock.visible and not DeepUi.phone else 0.0))
+
 func _bottom_page() -> VBoxContainer:
 	## A page along the bottom of the room, above the dock, leaving the room above it clear.
 	var holder := VBoxContainer.new()
 	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	holder.alignment = BoxContainer.ALIGNMENT_END
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_theme_constant_override("separation", 10)
+	holder.add_theme_constant_override("separation", 0)
 	_page_holder.add_child(holder)
 	var content := DeepUi.vbox(holder, 12)
 	content.alignment = BoxContainer.ALIGNMENT_END
-	var pad := DeepUi.gap(holder, 10)
-	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## A way-out key in the corner gives way to whatever the page lays out beside it.
+	content.sort_children.connect(_place_way_out, CONNECT_DEFERRED)
+	DeepUi.gap(holder, _page_foot())
+	_bottom_content = content
 	return content
+
+func _way_out(text: String, callback: Callable, back: bool = false, tip: String = "") -> Button:
+	## The way out of a page (the owner's pick, November 9, 2026, docs/UI_REDO.md): a key with
+	## its words on it in a corner of the room, Leave it bottom-right and Back bottom-left, its
+	## foot on the bottom page's, instead of an arrow off the end of the page's row.
+	_drop_way_out()
+	var key := DeepUi.way_out(text, callback, back, tip)
+	_page_holder.add_child(key)
+	_way_out_key = key
+	_place_way_out()
+	## Once more when the page's rows have been laid out, a frame on: what it gives way to
+	## knows where it stands only then.
+	if is_inside_tree() and not get_tree().process_frame.is_connected(_place_way_out):
+		get_tree().process_frame.connect(_place_way_out, CONNECT_ONE_SHOT)
+	return key
+
+func _check_shrine_cover() -> void:
+	## On the phone a card can stand where an oddity's mark floats over its plinth (the Old
+	## Prospector's stood on the card's top edge, the Collector's showed through a dimmed one):
+	## the mark goes out while one does (November 9, 2026).
+	if not DeepUi.phone or _stage == null or not is_instance_valid(_stage):
+		return
+	var covered: bool = false
+	if str(run.get("phase", "")) == "chamber" and _bottom_content != null and is_instance_valid(_bottom_content):
+		var mark: Rect2 = _stage.shrine_rect()
+		if mark.size != Vector2.ZERO:
+			var at := Rect2(_stage.get_global_rect().position + mark.position, mark.size)
+			for rect in _page_things():
+				if (rect as Rect2).intersects(at):
+					covered = true
+	if covered != _shrine_covered:
+		_shrine_covered = covered
+		_hush_room_words()
+
+func _drop_way_out() -> void:
+	## The key of a page no longer on show (a stall, a vein or an altar drawn again) goes.
+	if _way_out_key != null and is_instance_valid(_way_out_key):
+		_way_out_key.queue_free()
+	_way_out_key = null
+
+func _clear_pages() -> void:
+	## Every page over the room goes, and its way out with it.
+	DeepUi.clear(_page_holder)
+	_way_out_key = null
+	_bottom_content = null
+
+func _place_way_out() -> void:
+	## The key's corner: the dock's edge on the desk (the bag's while it is open, for a key on
+	## the right), the safe edge on the phone. Where a page's own things come nearer the edge
+	## than the key is wide (or stand on it from above), it gives way rather than lie over or
+	## against them. A row of cards steps aside first, as far as its other side has room
+	## (a phone's Vat, three cards with chips on them); only then does the key go on toward
+	## the edge, on the phone into the safe edge's inset, which the owner allowed for it
+	## (November 9, 2026).
+	_check_shrine_cover()
+	var key: Button = _way_out_key
+	if key == null or not is_instance_valid(key) or not key.is_inside_tree():
+		return
+	var back: bool = bool(key.get_meta("back", false))
+	var want: Vector2 = key.get_combined_minimum_size()
+	var room: Vector2 = _page_holder.size
+	var inset: float = (DeepUi.safe_left if back else DeepUi.safe_right) if DeepUi.phone else 16.0
+	if not back and _run_dock.visible:
+		inset = maxf(inset, _run_dock.column_width())
+	## The room's other side, which a row stepping aside may come up to and no further.
+	var far: float = (DeepUi.safe_right if back else DeepUi.safe_left) if DeepUi.phone else 16.0
+	var top: float = room.y - _page_foot() - want.y
+	var rest: float = inset if back else room.x - inset - want.x
+	var gap: float = DeepUi.pt(6) if DeepUi.phone else 12.0
+	var origin: Vector2 = _page_holder.get_global_rect().position
+	## Where the key would stand for the rows (as each would stand centred, before any step
+	## aside it took) and for everything else, and how much room each row has on its far side.
+	var for_rows: float = rest
+	var for_rest: float = rest
+	var slack: float = INF
+	var rows: Array = []
+	for item in _page_items():
+		var row: Variant = item.row
+		if row != null and (row as HBoxContainer).alignment != BoxContainer.ALIGNMENT_CENTER:
+			row = null
+		var at: Rect2 = Rect2(item.rect.position - origin + Vector2(_row_aside(row) if row != null else 0.0, 0.0), item.rect.size)
+		if at.end.y <= top - gap or at.position.y >= top + want.y:
+			continue
+		var clear: float = (at.position.x - gap - want.x) if back else (at.end.x + gap)
+		if row == null:
+			for_rest = minf(for_rest, clear) if back else maxf(for_rest, clear)
+			continue
+		for_rows = minf(for_rows, clear) if back else maxf(for_rows, clear)
+		slack = minf(slack, (room.x - far - at.end.x) if back else (at.position.x - far))
+		if not rows.has(row):
+			rows.append(row)
+	var step: float = 0.0
+	var over: float = (rest - for_rows) if back else (for_rows - rest)
+	if over > 0.5 and not rows.is_empty():
+		step = clampf(over, 0.0, maxf(0.0, slack))
+	var went: float = 0.0
+	if _bottom_content != null and is_instance_valid(_bottom_content):
+		for child in _bottom_content.get_children():
+			if child is HBoxContainer and (child as HBoxContainer).alignment == BoxContainer.ALIGNMENT_CENTER:
+				var moved: float = _step_aside(child, step if rows.has(child) else 0.0, back)
+				if rows.has(child):
+					went = moved
+	var left: float = (for_rows + went) if back else (for_rows - went)
+	left = minf(left, for_rest) if back else maxf(left, for_rest)
+	var edge: float = DeepUi.pt(6) if DeepUi.phone else 4.0
+	left = clampf(left, edge, maxf(edge, room.x - edge - want.x))
+	## Where it would cover something in the room to be clicked or dropped on (the phone's
+	## altar, pushed right by the open bag, has a socket in that corner), a way on takes the
+	## other bottom corner instead, if that one is clear (November 9, 2026).
+	if not back and _covers_pick(Rect2(origin + Vector2(left, top), want)):
+		var other: float = DeepUi.safe_left if DeepUi.phone else 16.0
+		var clear: bool = not _covers_pick(Rect2(origin + Vector2(other, top), want))
+		for item in _page_items():
+			if (item.rect as Rect2).intersects(Rect2(origin + Vector2(other, top), want).grow(gap)):
+				clear = false
+		if clear:
+			left = other
+	key.size = want
+	key.position = Vector2(left, top).round()
+
+func _covers_pick(rect: Rect2) -> bool:
+	## Whether a rectangle on the screen lies over something in the room that is clicked or
+	## dropped on (an altar's socket, a rock in a vein, a stall's goods).
+	if _stage == null or not is_instance_valid(_stage) or not _stage.visible:
+		return false
+	var origin: Vector2 = _stage.get_global_rect().position
+	for id in _stage.pick_ids():
+		var at: Rect2 = _stage.pick_rect(str(id))
+		if at.size != Vector2.ZERO and Rect2(origin + at.position, at.size).intersects(rect):
+			return true
+	return false
+
+func _step_aside(row: HBoxContainer, step: float, back: bool) -> float:
+	## Moves a centred row `step` away from the way-out key, with an empty column on the key's
+	## side, and returns how far it really went (the column carries the row's separation with
+	## it, so a step is never less than half of that).
+	var room_for: Control = row.get_node_or_null("WayRoom")
+	if step < 0.5:
+		if room_for != null and room_for.visible:
+			room_for.visible = false
+			room_for.custom_minimum_size.x = 0.0
+		return 0.0
+	if room_for == null:
+		room_for = Control.new()
+		room_for.name = "WayRoom"
+		room_for.set_meta("way_room", true)
+		room_for.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(room_for)
+		if back:
+			row.move_child(room_for, 0)
+	var separation: float = float(row.get_theme_constant("separation"))
+	var width: float = maxf(0.0, roundf(step * 2.0 - separation))
+	if not room_for.visible or absf(room_for.custom_minimum_size.x - width) > 0.5:
+		room_for.custom_minimum_size.x = width
+		room_for.visible = true
+	return (width + separation) * 0.5
+
+func _row_aside(row: HBoxContainer) -> float:
+	## How far a centred row's own things stand from where they would stand centred, as it is
+	## laid out now (to the left is more than nothing): measured, not remembered, so a placing
+	## between a step's asking and its laying out reads the row where it really is.
+	var first: Control = null
+	var total: float = 0.0
+	var count: int = 0
+	for item in row.get_children():
+		if item is Control and (item as Control).visible and not item.has_meta("way_room"):
+			if first == null:
+				first = item
+			total += (item as Control).size.x
+			count += 1
+	if first == null:
+		return 0.0
+	total += float(row.get_theme_constant("separation")) * float(maxi(0, count - 1))
+	return (row.size.x - total) * 0.5 - first.position.x
+
+func _page_items() -> Array:
+	## Where the bottom page's own things stand on screen: each of a row's children (with the
+	## row, which can step aside for the way-out key), and anything else that is only as wide
+	## as itself (a pill, a centred button), with no row.
+	var out: Array = []
+	if _bottom_content == null or not is_instance_valid(_bottom_content):
+		return out
+	for child in _bottom_content.get_children():
+		if not child is Control or not (child as Control).visible:
+			continue
+		if child is HBoxContainer:
+			for item in child.get_children():
+				if item is Control and (item as Control).visible and (item as Control).size.x > 0.5 and not item.has_meta("way_room"):
+					out.append({"rect": (item as Control).get_global_rect(), "row": child})
+		elif (child as Control).size_flags_horizontal & Control.SIZE_FILL == 0:
+			out.append({"rect": (child as Control).get_global_rect(), "row": null})
+	return out
+
+func _page_things() -> Array:
+	## Where the bottom page's own things stand on screen, in a list of rectangles.
+	var out: Array = []
+	for item in _page_items():
+		out.append(item.rect)
+	return out
 
 func _side_page() -> VBoxContainer:
 	## A page down the right side of the room, as tall as the room.
@@ -4032,6 +4316,8 @@ func _build_crossroads() -> void:
 	shade.offset_bottom = 235.0
 	_crossroads.add_child(shade)
 	var head := DeepUi.vbox(_crossroads, 2)
+	_cross_head = head
+	_cross_shade = shade
 	head.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 18)
 	head.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -4360,6 +4646,9 @@ func _place_chip() -> void:
 	for child in _cross_hint.get_children() + _cross_wait.get_children() + _cross_ask.get_children():
 		if child is Control and (child as Control).is_visible_in_tree() and (child as Control).size.x > 0.0:
 			buttons.append(Rect2((child as Control).global_position - origin, (child as Control).size).grow(6.0))
+	## Nor over the room's way out in its corner.
+	if _way_out_key != null and is_instance_valid(_way_out_key) and _way_out_key.is_visible_in_tree():
+		buttons.append(Rect2(_way_out_key.global_position - origin, _way_out_key.size).grow(6.0))
 	var at: Vector2 = spots[0]
 	var found: bool = false
 	for pass_at in range(2):
@@ -4964,6 +5253,12 @@ func _process(delta: float) -> void:
 			_show_landing()
 	if not _news.is_empty():
 		_tell_news()
+	## A way out laid while the party walked in is laid again once it stands still: what it
+	## would cover in the room (`_covers_pick`) is only where it stays then.
+	var walking_now: bool = _stage != null and _stage.walking()
+	if _way_walked and not walking_now and _way_out_key != null and is_instance_valid(_way_out_key):
+		_later(0.5, _place_way_out)
+	_way_walked = walking_now
 	## The beaten mine's choice only stands while the party is still in the boss's hall.
 	if _conquest_sheet != null and (not is_instance_valid(_conquest_sheet) or _conquest_sheet.is_queued_for_deletion()):
 		_conquest_sheet = null
@@ -5415,7 +5710,7 @@ func _reward_row(parent: Node, rewards: Dictionary, start: float) -> HBoxContain
 		var frame := DeepUi.center(slot.content)
 		frame.custom_minimum_size = Vector2(96, 96)
 		StoneCard.marked_picture(frame, stone, 84)
-		DeepUi.fit_label(slot.content, DeepUi.skill_name(stone) if appraised else DeepStone.raw_name(stone), 13, tone.lightened(0.3), 130)
+		DeepUi.name_label(slot.content, DeepUi.skill_name(stone) if appraised else DeepStone.raw_name(stone), 13, tone.lightened(0.3), 130)
 		DeepUi.label(slot.content, DeepUi.touch_words("right-click to look"), 10, DeepUi.DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		delay = delay + step if delay >= 0.0 else delay
 	for die in rewards.get("dice", []):
@@ -6889,8 +7184,6 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 	var row := DeepUi.hbox(content, 18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.name = "BenchRow"
-	if not leaving.is_empty():
-		DeepUi.skip_ghost(row)
 	var index: int = 0
 	for choice in work:
 		var needs: String = str(choice.get("needs", ""))
@@ -6916,7 +7209,10 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 			card.set_meta("improved", true)
 		else:
 			card = DeepUi.choice_card(row, tone, press)
-		card.custom_minimum_size = Vector2(DeepUi.pt(172) if DeepUi.phone else 300.0, 0)
+		## A Geode's card on the phone is a wide one, its rock beside its words: stacked in the
+		## narrow card it stood taller than the room (November 9, 2026).
+		var wide_geode: bool = DeepUi.phone and str(choice.get("action", {}).get("kind", "")) == "geode_buy"
+		card.custom_minimum_size = Vector2(DeepUi.pt(300) if wide_geode else (DeepUi.pt(172) if DeepUi.phone else 300.0), 0)
 		if waiting_reveal:
 			## The plain work, waiting to be replaced: shown as it is, but not taken meanwhile.
 			card.set_meta("disabled", true)
@@ -6932,7 +7228,7 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 		DeepUi.icon(title_row, choice_glyph(choice, key), 20, DEEP_TONE if improved else tone)
 		_marked_title(title_row, str(choice.get("label", choice.id)), 19, DeepUi.PAPER)
 		if choice.has("text"):
-			_marked_text(box, DeepOddities.choice_text(choice, int(run.get("depth", 0))), 12 if DeepUi.phone else 13, DeepUi.MUTED, DeepUi.pt(150) if DeepUi.phone else 260.0)
+			_marked_text(box, DeepOddities.choice_text(choice, int(run.get("depth", 0))), 12 if DeepUi.phone else 13, DeepUi.MUTED, DeepUi.pt(276) if wide_geode else (DeepUi.pt(150) if DeepUi.phone else 260.0))
 		## What the room is set up for tonight, read before the card is picked rather than after.
 		_tonight_chip(box, choice.get("action", {}))
 		if improved:
@@ -6967,10 +7263,10 @@ func _page_oddity(content: VBoxContainer, headed: bool = true) -> void:
 			DeepUi.stat(box, "cross_out", why, DeepUi.DIM, 12)
 		_enter(card, 0.12 + 0.08 * index)
 		index += 1
-	## Walking on is not another piece of work: it is the way out, an arrow off the end of
-	## the row, balanced by an empty column at the other end so the work stays centred.
+	## Walking on is not another piece of work: it is the way out, a key in the room's
+	## bottom-right corner, and the work stays centred on its own.
 	if not leaving.is_empty():
-		var out := DeepUi.skip_arrow(row, str(leaving.get("label", "Leave it")), func() -> void:
+		var out := _way_out(str(leaving.get("label", "Leave it")), func() -> void:
 			command.emit({"kind": "oddity", "choice": str(leaving.id), "payload": {}}))
 		_enter(out, 0.12 + 0.08 * index)
 
@@ -6995,16 +7291,30 @@ func _geode_offer(box: VBoxContainer, unit: Dictionary, card: Control) -> bool:
 	var geode: Dictionary = held.geode
 	var tone: Color = Geode.theme_tone(geode)
 	var art: Control = load("res://view/gems/geode_view.gd").new(geode, tone)
-	art.custom_minimum_size = Vector2(0, 96)
-	box.add_child(art)
-	DeepUi.title(box, Geode.geode_name(geode), 17, tone.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
-	DeepUi.wrap(box, str(Geode.geode_line(geode)), 12, DeepUi.MUTED, HORIZONTAL_ALIGNMENT_CENTER, 260)
+	## On the phone the rock stands beside what it is, not over it.
+	var words: VBoxContainer = box
+	if DeepUi.phone:
+		var beside := DeepUi.hbox(box, int(DeepUi.pt(8)))
+		art.custom_minimum_size = Vector2(DeepUi.pt(48), DeepUi.pt(48))
+		art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		beside.add_child(art)
+		words = DeepUi.vbox(beside, int(DeepUi.pt(2)))
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		art.custom_minimum_size = Vector2(0, 96)
+		box.add_child(art)
+	var align: int = HORIZONTAL_ALIGNMENT_LEFT if DeepUi.phone else HORIZONTAL_ALIGNMENT_CENTER
+	DeepUi.title(words, Geode.geode_name(geode), 15 if DeepUi.phone else 17, tone.lightened(0.2), align)
+	## The phone leaves out the line under the name ("Blue stones only, from the Quarry's
+	## rock"): the name says the color, and a hold on the card shows the rest.
+	if not DeepUi.phone:
+		DeepUi.wrap(words, str(Geode.geode_line(geode)), 12, DeepUi.MUTED, align, 260.0)
 	var odds: Dictionary = DeepEconomy.geode_odds(geode)
 	var carats: Array = odds.get("carat", [1, 1])
-	DeepUi.stat(box, "carat", "%d to %d ct inside" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 12, "Every stone in this kind of Geode weighs this much.")
+	DeepUi.stat(words, "carat", "%d to %d ct inside" % [int(carats[0]), int(carats[1])], DeepUi.ACCENT, 11 if DeepUi.phone else 12, "Every stone in this kind of Geode weighs this much.")
 	var price: int = int(run.get("chamber", {}).get("offer", {}).get("price", 0))
 	var purse: int = int(unit.get("ore", 0))
-	DeepUi.stat(box, "ore", "%d pyrite · you carry %d" % [price, purse], DeepUi.ORE if purse >= price else DeepUi.BAD, 12)
+	DeepUi.stat(words, "ore", "%d pyrite · you carry %d" % [price, purse], DeepUi.ORE if purse >= price else DeepUi.BAD, 11 if DeepUi.phone else 12)
 	card.tooltip_text = "Right-click the rock for what it can hold, and how likely each thing is"
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.gui_input.connect(func(event: InputEvent) -> void:
@@ -7429,7 +7739,7 @@ func _hush_room_words() -> void:
 	## And a shrine's mark, which would show round the sheet's edge as a grey shape; it stays
 	## out while a page is over the room as well.
 	if _stage != null:
-		_stage.hush_shrine((_ask != null and _ask.is_open()) or (_scrim != null and _scrim.visible))
+		_stage.hush_shrine((_ask != null and _ask.is_open()) or (_scrim != null and _scrim.visible) or _shrine_covered)
 	## The pointer's plate too: hidden while the ask is up, back (if still wanted) once it closes.
 	if _chip != null:
 		_fill_chip()
@@ -9345,7 +9655,7 @@ func _page_over_haul(content: VBoxContainer) -> void:
 		home_box.add_child(tiles)
 		var index: int = 0
 		for stone in _paged(home_head, "home", haul, HOME_PAGE):
-			var tile := StoneCard.tile(tiles, stone, 84 if DeepUi.phone else 64)
+			var tile := StoneCard.tile(tiles, stone, 84 if DeepUi.phone else 64, true, true)
 			_enter(tile, 0.4 + 0.06 * index)
 			index += 1
 	var shattered: Array = unit.get("shattered", [])

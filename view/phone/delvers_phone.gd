@@ -195,12 +195,13 @@ static func _sockets(home: Control, content: VBoxContainer, character_key: Strin
 		if home.rail_skill(record, index) != "":
 			filled += 1
 	var head := DeepUi.hbox(content, int(DeepUi.pt(8)))
-	var back := DeepUi.icon_button(head, "prev", "Delvers", func() -> void:
+	## The way back is the key a way back is everywhere (DeepUi.way_out, November 9, 2026).
+	var back := DeepUi.way_out("Delvers", func() -> void:
 		home._roster_view = "dossier"
 		home._bench_socket = -1
-		home._render(), 12, DeepUi.MUTED)
-	DeepUi.ledger_button(back, DeepUi.SLATE_HI, DeepUi.LEDGER_LINE, 6)
-	back.custom_minimum_size.y = DeepUi.pt(32)
+		home._render(), true, "", "person")
+	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(back)
 	DeepUi.spacer(head)
 	var owned: Array = DeepProfile.unlocked_characters(home.profile)
 	var previous := DeepUi.icon_button(head, "prev", "", func() -> void: home.step_character(-1), 12, DeepUi.MUTED)
